@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Admin</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="admin" data-default="users">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== Users (list) ===== -->
+<section class="view active" data-view="users">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="usersTitle">Users & roles</h1>
+    <p class="text-sm text-slate-500" data-i18n="usersSubtitle">Console access for admins, supervisors and agents</p></div>
+    <button onclick="newUser()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-user-plus"></i><span data-i18n="usersNew">Invite user</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-4xl">
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">User</th><th class="font-normal px-4 py-2.5">Role</th>
+        <th class="font-normal px-4 py-2.5">Last active</th><th class="font-normal px-4 py-2.5">Status</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="users-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== User form ===== -->
+<section class="view" data-view="user-form">
+  <button onclick="showView('users')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="uf-heading" class="text-xl font-semibold mb-5">Invite user</h1>
+  <div class="bg-white border border-slate-200 rounded-xl p-5 max-w-xl">
+    <div class="grid grid-cols-1 gap-4">
+      <div><label class="fld">Full name</label><input id="uf-name" class="inp"></div>
+      <div><label class="fld">Email</label><input id="uf-email" type="email" class="inp"></div>
+      <div><label class="fld">Role</label><select id="uf-role" class="inp"><option>ADMIN</option><option>SUPERVISOR</option><option>AGENT</option></select></div>
+      <label class="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked class="accent-teal-700">ส่งอีเมลเชิญพร้อมลิงก์ตั้งรหัสผ่าน</label>
+    </div>
+    <div class="flex gap-3 mt-5 max-w-xs">
+      <button onclick="saveUser()" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+      <button onclick="showView('users')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Permission matrix ===== -->
+<section class="view" data-view="roles">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="rolesTitle">Permission matrix</h1>
+  <p class="text-sm text-slate-500" data-i18n="rolesSubtitle">What each role can see and do</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-4xl">
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Capability</th>
+        <th class="font-normal px-4 py-2.5 text-center">AGENT</th>
+        <th class="font-normal px-4 py-2.5 text-center">SUPERVISOR</th>
+        <th class="font-normal px-4 py-2.5 text-center">ADMIN</th>
+      </tr></thead>
+      <tbody>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3">Workspace / handle interactions</td><td class="text-center text-emerald-600"><i class="ti ti-check"></i></td><td class="text-center text-emerald-600"><i class="ti ti-check"></i></td><td class="text-center text-emerald-600"><i class="ti ti-check"></i></td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3">Monitor / whisper / barge</td><td class="text-center text-slate-300"><i class="ti ti-x"></i></td><td class="text-center text-emerald-600"><i class="ti ti-check"></i></td><td class="text-center text-emerald-600"><i class="ti ti-check"></i></td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3">Force agent state</td><td class="text-center text-slate-300"><i class="ti ti-x"></i></td><td class="text-center text-emerald-600"><i class="ti ti-check"></i></td><td class="text-center text-emerald-600"><i class="ti ti-check"></i></td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3">Edit queues / routing / channels</td><td class="text-center text-slate-300"><i class="ti ti-x"></i></td><td class="text-center text-slate-300"><i class="ti ti-x"></i></td><td class="text-center text-emerald-600"><i class="ti ti-check"></i></td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3">Listen to recordings</td><td class="text-center text-slate-300"><i class="ti ti-x"></i></td><td class="text-center text-emerald-600"><i class="ti ti-check"></i></td><td class="text-center text-emerald-600"><i class="ti ti-check"></i></td></tr>
+        <tr><td class="px-4 py-3">Manage users / billing</td><td class="text-center text-slate-300"><i class="ti ti-x"></i></td><td class="text-center text-slate-300"><i class="ti ti-x"></i></td><td class="text-center text-emerald-600"><i class="ti ti-check"></i></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== Tenant general ===== -->
+<section class="view" data-view="tenant">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="tenantTitle">Tenant settings</h1>
+  <p class="text-sm text-slate-500" data-i18n="tenantSubtitle">Branding, locale and security of this tenant</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl p-5 max-w-xl space-y-4">
+    <div><label class="fld">Tenant name</label><input class="inp" value="ACME Thailand"></div>
+    <div><label class="fld">Subdomain</label><div class="flex items-center gap-2"><input class="inp" value="acme"><span class="text-sm text-slate-400">.d-contact.io</span></div></div>
+    <div class="grid grid-cols-2 gap-4">
+      <div><label class="fld">Default language</label><select class="inp"><option>ไทย</option><option>English</option></select></div>
+      <div><label class="fld">Timezone</label><select class="inp"><option>Asia/Bangkok (GMT+7)</option></select></div>
+    </div>
+    <div><label class="fld">Recording retention</label><select class="inp"><option>90 days</option><option>180 days</option><option>1 year</option></select></div>
+    <button onclick="toast('Settings saved (mock)')" class="h-10 px-6 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+  </div>
+</section>
+
+<!-- ===== Usage & plan ===== -->
+<section class="view" data-view="usage">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="usageTitle">Usage & plan</h1>
+  <p class="text-sm text-slate-500" data-i18n="usageSubtitle">Plan entitlements — used vs limit</p></div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+      <div><div class="flex justify-between text-sm mb-1.5"><span class="font-medium">Agent seats</span><span class="text-slate-500">32 / 50 · 64%</span></div>
+        <div class="h-2.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full" style="width:64%;background:#22c55e"></div></div></div>
+      <div><div class="flex justify-between text-sm mb-1.5"><span class="font-medium">Voice minutes (เดือนนี้)</span><span class="text-slate-500">61,240 / 80,000 · 77%</span></div>
+        <div class="h-2.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full" style="width:77%;background:#22c55e"></div></div></div>
+      <div><div class="flex justify-between text-sm mb-1.5"><span class="font-medium">WhatsApp conversations</span><span class="text-slate-500">1,870 / 2,000 · 94% <a class="ml-2 text-teal-700 font-medium hover:underline" href="#">Upgrade →</a></span></div>
+        <div class="h-2.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full" style="width:94%;background:#f59e0b"></div></div></div>
+      <div><div class="flex justify-between text-sm mb-1.5"><span class="font-medium">Recording storage</span><span class="text-slate-500">182 GB / 500 GB · 36%</span></div>
+        <div class="h-2.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full" style="width:36%;background:#22c55e"></div></div></div>
+      <div><div class="flex justify-between text-sm mb-1.5"><span class="font-medium">Concurrent channels (trunk)</span><span class="text-slate-500">23 / 30 · 77%</span></div>
+        <div class="h-2.5 rounded-full bg-slate-100 overflow-hidden"><div class="h-full rounded-full" style="width:77%;background:#22c55e"></div></div></div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <p class="text-sm text-slate-500 mb-1">Current plan</p>
+        <p class="text-xl font-semibold mb-1">Business</p>
+        <p class="text-sm text-slate-500 mb-3">฿590 / seat / เดือน + usage</p>
+        <p class="text-xs text-slate-400 mb-4">รอบบิลถัดไป 1 ส.ค. 2026 · ประมาณการ ฿24,180</p>
+        <button onclick="toast('Plan page (mock)')" class="w-full h-9 rounded-lg border border-teal-700 text-teal-700 text-sm font-medium hover:bg-teal-50">Change plan</button>
+      </div>
+      <div class="bg-teal-50 border border-teal-100 rounded-xl p-5 text-sm text-teal-900">
+        <p class="font-semibold mb-1"><i class="ti ti-receipt mr-1"></i>Usage-based billing</p>
+        <p>ตัวเลขทั้งหมดคำนวณจาก interaction events (Kafka) — ตรวจสอบย้อนหลังได้ทุกช่วงเวลา</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Audit log ===== -->
+<section class="view" data-view="audit">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="auditTitle">Audit log</h1>
+  <p class="text-sm text-slate-500" data-i18n="auditSubtitle">Who changed what, and when</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-5xl">
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Time</th><th class="font-normal px-4 py-2.5">User</th>
+        <th class="font-normal px-4 py-2.5">Action</th><th class="font-normal px-4 py-2.5">Detail</th>
+      </tr></thead>
+      <tbody id="audit-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

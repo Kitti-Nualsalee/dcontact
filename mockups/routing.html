@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Routing</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="routing" data-default="queues">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== Queues (list) ===== -->
+<section class="view active" data-view="queues">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="queuesTitle">Queues</h1>
+    <p class="text-sm text-slate-500" data-i18n="queuesSubtitle">Universal queues route every channel with one rule set</p></div>
+    <button onclick="newQueue()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="queuesNew">New queue</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Queue</th><th class="font-normal px-4 py-2.5">Channels</th>
+        <th class="font-normal px-4 py-2.5">Skills</th><th class="font-normal px-4 py-2.5">SLA</th>
+        <th class="font-normal px-4 py-2.5">Agents</th><th class="font-normal px-4 py-2.5">Waiting</th>
+        <th class="font-normal px-4 py-2.5">Status</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="queues-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Queue form (new/edit) ===== -->
+<section class="view" data-view="queue-form">
+  <button onclick="showView('queues')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="qf-heading" class="text-xl font-semibold mb-5">New queue</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">General</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">Queue name</label><input id="qf-name" class="inp" placeholder="e.g. General Support"></div>
+          <div><label class="fld">SLA threshold (seconds)</label><input id="qf-sla" type="number" class="inp" value="20"></div>
+          <div><label class="fld">Priority (1–5)</label><input id="qf-priority" type="number" min="1" max="5" class="inp" value="1"></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">Channels</h2>
+        <p class="text-xs text-slate-400 mb-4">งานจากช่องทางที่เลือกจะเข้าคิวนี้ (universal queue)</p>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="voice" class="qf-ch accent-teal-700"><span class="ch ch-voice"><i class="ti ti-phone"></i>voice</span></label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="webchat" class="qf-ch accent-teal-700"><span class="ch ch-webchat"><i class="ti ti-message-circle"></i>webchat</span></label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="line" class="qf-ch accent-teal-700"><span class="ch ch-line"><i class="ti ti-brand-line"></i>line</span></label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="facebook" class="qf-ch accent-teal-700"><span class="ch ch-facebook"><i class="ti ti-brand-messenger"></i>facebook</span></label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="whatsapp" class="qf-ch accent-teal-700"><span class="ch ch-whatsapp"><i class="ti ti-brand-whatsapp"></i>whatsapp</span></label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5 cursor-pointer hover:bg-slate-50"><input type="checkbox" value="email" class="qf-ch accent-teal-700"><span class="ch ch-email"><i class="ti ti-mail"></i>email</span></label>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Routing rules</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="fld">Required skills (comma separated)</label><input id="qf-skills" class="inp" placeholder="general, thai"></div>
+          <div><label class="fld">Assignment strategy</label><select class="inp"><option>Longest idle agent</option><option>Round robin</option><option>Fewest interactions today</option></select></div>
+          <div><label class="fld">Ring timeout → requeue</label><select class="inp"><option>15 seconds</option><option>20 seconds</option><option>30 seconds</option></select></div>
+          <div><label class="fld">Overflow after max wait</label><select class="inp"><option>— none —</option><option>Queue: General Support</option><option>Voicemail</option><option>Callback offer</option></select></div>
+        </div>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Hours & holidays</h2>
+        <label class="fld">Business hours profile</label>
+        <select class="inp mb-3"><option>Bangkok office (Mon–Fri 08:30–17:30)</option><option>24/7</option><option>Weekend crew</option></select>
+        <label class="fld">Out-of-hours behavior</label>
+        <select class="inp"><option>Play message + voicemail</option><option>Overflow to 24/7 queue</option><option>Auto-reply (digital channels)</option></select>
+      </div>
+      <div class="bg-teal-50 border border-teal-100 rounded-xl p-5 text-sm text-teal-900">
+        <p class="font-semibold mb-1"><i class="ti ti-info-circle mr-1"></i>Mock note</p>
+        <p>หน้าจอนี้เป็น mockup — ปุ่ม Save จะพากลับหน้า list โดยไม่บันทึกจริง</p>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="saveQueue()" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('queues')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Skills ===== -->
+<section class="view" data-view="skills">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="skillsTitle">Skills</h1>
+    <p class="text-sm text-slate-500" data-i18n="skillsSubtitle">Skill tags used by skill-based routing</p></div>
+    <button onclick="toast('Skill added (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-3xl">
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Skill</th><th class="font-normal px-4 py-2.5">Agents</th><th class="font-normal px-4 py-2.5">Used by queues</th><th class="px-4 py-2.5"></th></tr></thead>
+      <tbody>
+        <tr class="border-b border-slate-100 hover:bg-slate-50"><td class="px-4 py-3 font-medium">general</td><td class="px-4 py-3 text-slate-600">18</td><td class="px-4 py-3 text-slate-600">General Support</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+        <tr class="border-b border-slate-100 hover:bg-slate-50"><td class="px-4 py-3 font-medium">technical</td><td class="px-4 py-3 text-slate-600">7</td><td class="px-4 py-3 text-slate-600">Technical Support</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+        <tr class="border-b border-slate-100 hover:bg-slate-50"><td class="px-4 py-3 font-medium">sales</td><td class="px-4 py-3 text-slate-600">9</td><td class="px-4 py-3 text-slate-600">Sales (TH)</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+        <tr class="border-b border-slate-100 hover:bg-slate-50"><td class="px-4 py-3 font-medium">vip</td><td class="px-4 py-3 text-slate-600">5</td><td class="px-4 py-3 text-slate-600">VIP Customers</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+        <tr class="border-b border-slate-100 hover:bg-slate-50"><td class="px-4 py-3 font-medium">billing</td><td class="px-4 py-3 text-slate-600">4</td><td class="px-4 py-3 text-slate-600">Billing Inquiries</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+        <tr class="hover:bg-slate-50"><td class="px-4 py-3 font-medium">english</td><td class="px-4 py-3 text-slate-600">6</td><td class="px-4 py-3 text-slate-400">—</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== Business hours ===== -->
+<section class="view" data-view="hours">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="hoursTitle">Business hours</h1>
+    <p class="text-sm text-slate-500" data-i18n="hoursSubtitle">Opening hours & holiday calendars per queue</p></div>
+    <button onclick="toast('Profile added (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-5xl">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4"><h2 class="font-semibold">Bangkok office</h2><span class="st st-available">In use · 4 queues</span></div>
+      <table class="w-full text-sm">
+        <tbody class="text-slate-600">
+          <tr class="border-b border-slate-50"><td class="py-2">จันทร์ – ศุกร์</td><td class="py-2 text-right font-medium text-slate-800">08:30 – 17:30</td></tr>
+          <tr class="border-b border-slate-50"><td class="py-2">เสาร์</td><td class="py-2 text-right font-medium text-slate-800">09:00 – 13:00</td></tr>
+          <tr><td class="py-2">อาทิตย์ / วันหยุดนักขัตฤกษ์</td><td class="py-2 text-right text-slate-400">ปิด</td></tr>
+        </tbody>
+      </table>
+      <p class="text-xs text-slate-400 mt-3"><i class="ti ti-calendar-event mr-1"></i>Holiday calendar: Thai public holidays 2026 (16 วัน)</p>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4"><h2 class="font-semibold">24/7</h2><span class="st st-available">In use · VIP Customers</span></div>
+      <p class="text-sm text-slate-600">เปิดตลอดเวลา ไม่มีวันหยุด — ใช้กับคิว VIP และ emergency line</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== IVR flows ===== -->
+<section class="view" data-view="ivr">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="ivrTitle">IVR flows</h1>
+    <p class="text-sm text-slate-500" data-i18n="ivrSubtitle">Voice menu flows (visual editor in later phase)</p></div>
+    <button onclick="toast('Flow created (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-5 max-w-3xl">
+    <div class="flex items-center justify-between mb-4"><h2 class="font-semibold">Main menu <span class="text-xs text-slate-400 font-normal">· +66 2 123 4500</span></h2><span class="st st-available">Published</span></div>
+    <div class="space-y-2 text-sm">
+      <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-50"><i class="ti ti-volume text-teal-700"></i><span>เล่นข้อความต้อนรับ <span class="text-slate-400">"สวัสดีค่ะ ขอบคุณที่ติดต่อ ACME…"</span></span></div>
+      <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-50 ml-6"><span class="w-6 h-6 rounded-md bg-teal-700 text-white flex items-center justify-center text-xs font-bold">1</span><i class="ti ti-arrow-right text-slate-400"></i><span>Queue: <b>General Support</b></span></div>
+      <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-50 ml-6"><span class="w-6 h-6 rounded-md bg-teal-700 text-white flex items-center justify-center text-xs font-bold">2</span><i class="ti ti-arrow-right text-slate-400"></i><span>Queue: <b>Sales (TH)</b></span></div>
+      <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-50 ml-6"><span class="w-6 h-6 rounded-md bg-teal-700 text-white flex items-center justify-center text-xs font-bold">3</span><i class="ti ti-arrow-right text-slate-400"></i><span>Queue: <b>Technical Support</b></span></div>
+      <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-50 ml-6"><span class="w-6 h-6 rounded-md bg-slate-400 text-white flex items-center justify-center text-xs font-bold">0</span><i class="ti ti-arrow-right text-slate-400"></i><span>Operator (ext 1000)</span></div>
+      <div class="flex items-center gap-3 p-3 rounded-lg bg-amber-50 text-amber-800"><i class="ti ti-clock-off"></i><span>นอกเวลาทำการ → เล่นข้อความ + รับ voicemail</span></div>
+    </div>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

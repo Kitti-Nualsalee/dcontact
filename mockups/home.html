@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Home</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="home" data-default="dashboard">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== Dashboard ===== -->
+<section class="view active" data-view="dashboard">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="dashTitle">Dashboard</h1>
+    <p class="text-sm text-slate-500" data-i18n="dashSubtitle">Realtime overview — today</p></div>
+    <span class="st st-available">Live · updated 3s ago</span>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">Waiting now</p><p class="text-2xl font-semibold text-rose-600">17</p><p class="kpi-delta-down">▲ 5 from 10 min ago</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">Longest wait</p><p class="text-2xl font-semibold">04:12</p><p class="text-xs text-slate-400">Billing Inquiries</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">Agents available</p><p class="text-2xl font-semibold text-emerald-600">14<span class="text-base text-slate-400">/32</span></p><p class="text-xs text-slate-400">9 busy · 4 ACW · 5 break</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">SLA today</p><p class="text-2xl font-semibold">86%</p><p class="kpi-delta-up">▲ 2% vs yesterday</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">Handled today</p><p class="text-2xl font-semibold">1,344</p><p class="text-xs text-slate-400">all channels</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">Abandon rate</p><p class="text-2xl font-semibold">3.8%</p><p class="kpi-delta-up">▼ 0.6% vs yesterday</p></div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl mb-5 overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-slate-100 bg-slate-50 text-sm font-medium text-slate-600">Queues — realtime</div>
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2">Queue</th><th class="font-normal px-4 py-2">Channels</th>
+        <th class="font-normal px-4 py-2">Waiting</th><th class="font-normal px-4 py-2">Longest wait</th>
+        <th class="font-normal px-4 py-2">Agents</th><th class="font-normal px-4 py-2">SLA today</th>
+      </tr></thead>
+      <tbody id="dash-queue-body"></tbody>
+    </table></div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div class="bg-white border border-slate-200 rounded-xl p-4 lg:col-span-2">
+      <h2 class="text-sm font-medium text-slate-600 mb-3">Interactions by hour (all channels)</h2>
+      <div class="h-72"><canvas id="chart-hour"></canvas></div>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+      <h2 class="text-sm font-medium text-slate-600 mb-3">Today by channel</h2>
+      <div class="h-72"><canvas id="chart-channel"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Wallboard ===== -->
+<section class="view" data-view="wallboard">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="wbTitle">Wallboard</h1>
+    <p class="text-sm text-slate-500" data-i18n="wbSubtitle">Live queue display for the floor</p></div>
+    <button class="text-sm border border-slate-300 rounded-lg px-3 py-2"><i class="ti ti-maximize mr-1"></i>Fullscreen</button>
+  </div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+    <div class="wb"><p class="wb-lbl">Waiting</p><p class="wb-num text-rose-400">17</p></div>
+    <div class="wb"><p class="wb-lbl">Longest wait</p><p class="wb-num text-amber-400">04:12</p></div>
+    <div class="wb"><p class="wb-lbl">Available agents</p><p class="wb-num text-emerald-400">14</p></div>
+    <div class="wb"><p class="wb-lbl">SLA today</p><p class="wb-num">86%</p></div>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div class="wb"><div class="flex items-center justify-between mb-3"><p class="font-semibold">General Support</p><span class="st st-available">92%</span></div>
+      <div class="flex gap-6"><div><p class="wb-lbl">Waiting</p><p class="text-3xl font-bold">3</p></div><div><p class="wb-lbl">Agents</p><p class="text-3xl font-bold">12</p></div><div><p class="wb-lbl">AHT</p><p class="text-3xl font-bold">4:51</p></div></div></div>
+    <div class="wb"><div class="flex items-center justify-between mb-3"><p class="font-semibold">Technical Support</p><span class="st st-acw">76%</span></div>
+      <div class="flex gap-6"><div><p class="wb-lbl">Waiting</p><p class="text-3xl font-bold text-amber-400">5</p></div><div><p class="wb-lbl">Agents</p><p class="text-3xl font-bold">6</p></div><div><p class="wb-lbl">AHT</p><p class="text-3xl font-bold">8:04</p></div></div></div>
+    <div class="wb"><div class="flex items-center justify-between mb-3"><p class="font-semibold">Billing Inquiries</p><span class="st st-busy">61%</span></div>
+      <div class="flex gap-6"><div><p class="wb-lbl">Waiting</p><p class="text-3xl font-bold text-rose-400">8</p></div><div><p class="wb-lbl">Agents</p><p class="text-3xl font-bold">3</p></div><div><p class="wb-lbl">AHT</p><p class="text-3xl font-bold">6:22</p></div></div></div>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

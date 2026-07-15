@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Reports</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="reports" data-default="rpt-sla">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== Queue SLA ===== -->
+<section class="view active" data-view="rpt-sla">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="slaTitle">Queue SLA</h1>
+    <p class="text-sm text-slate-500" data-i18n="slaSubtitle">Service level by queue — this month</p></div>
+    <button class="text-sm border border-slate-300 rounded-lg px-3 py-2">Jul 2026 ▾</button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-4 mb-5">
+    <h2 class="text-sm font-medium text-slate-600 mb-3">% answered within SLA threshold</h2>
+    <div class="h-72"><canvas id="chart-sla"></canvas></div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-5xl">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Queue</th><th class="font-normal px-4 py-2.5 text-right">Offered</th>
+        <th class="font-normal px-4 py-2.5 text-right">Answered</th><th class="font-normal px-4 py-2.5 text-right">Abandoned</th>
+        <th class="font-normal px-4 py-2.5 text-right">Avg wait</th><th class="font-normal px-4 py-2.5 text-right">SLA %</th>
+      </tr></thead>
+      <tbody>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">General Support</td><td class="px-4 py-3 text-right">8,412</td><td class="px-4 py-3 text-right">8,120</td><td class="px-4 py-3 text-right">292</td><td class="px-4 py-3 text-right">00:14</td><td class="px-4 py-3 text-right font-semibold text-emerald-600">92%</td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">Sales (TH)</td><td class="px-4 py-3 text-right">3,208</td><td class="px-4 py-3 text-right">3,114</td><td class="px-4 py-3 text-right">94</td><td class="px-4 py-3 text-right">00:11</td><td class="px-4 py-3 text-right font-semibold text-emerald-600">88%</td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">Technical Support</td><td class="px-4 py-3 text-right">2,644</td><td class="px-4 py-3 text-right">2,487</td><td class="px-4 py-3 text-right">157</td><td class="px-4 py-3 text-right">00:42</td><td class="px-4 py-3 text-right font-semibold text-amber-600">76%</td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">VIP Customers</td><td class="px-4 py-3 text-right">981</td><td class="px-4 py-3 text-right">974</td><td class="px-4 py-3 text-right">7</td><td class="px-4 py-3 text-right">00:05</td><td class="px-4 py-3 text-right font-semibold text-emerald-600">97%</td></tr>
+        <tr><td class="px-4 py-3 font-medium">Billing Inquiries</td><td class="px-4 py-3 text-right">1,730</td><td class="px-4 py-3 text-right">1,533</td><td class="px-4 py-3 text-right">197</td><td class="px-4 py-3 text-right">01:38</td><td class="px-4 py-3 text-right font-semibold text-rose-600">61%</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Agent performance ===== -->
+<section class="view" data-view="rpt-agents">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="perfTitle">Agent performance</h1>
+    <p class="text-sm text-slate-500" data-i18n="perfSubtitle">Handled volume, AHT and occupancy</p></div>
+    <button class="text-sm border border-slate-300 rounded-lg px-3 py-2">Jul 2026 ▾</button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Agent</th><th class="font-normal px-4 py-2.5">Team</th>
+        <th class="font-normal px-4 py-2.5 text-right">Calls</th><th class="font-normal px-4 py-2.5 text-right">Chats</th>
+        <th class="font-normal px-4 py-2.5 text-right">Emails</th><th class="font-normal px-4 py-2.5 text-right">AHT (voice)</th>
+        <th class="font-normal px-4 py-2.5 text-right">ACW avg</th><th class="font-normal px-4 py-2.5 text-right">Occupancy</th>
+      </tr></thead>
+      <tbody>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">สมชาย วงศ์ประเสริฐ</td><td class="px-4 py-3 text-slate-500">Support A</td><td class="px-4 py-3 text-right">312</td><td class="px-4 py-3 text-right">204</td><td class="px-4 py-3 text-right">48</td><td class="px-4 py-3 text-right">04:51</td><td class="px-4 py-3 text-right">00:38</td><td class="px-4 py-3 text-right font-semibold text-emerald-600">81%</td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">สมหญิง ใจดี</td><td class="px-4 py-3 text-slate-500">Support A</td><td class="px-4 py-3 text-right">287</td><td class="px-4 py-3 text-right">118</td><td class="px-4 py-3 text-right">164</td><td class="px-4 py-3 text-right">05:22</td><td class="px-4 py-3 text-right">00:55</td><td class="px-4 py-3 text-right font-semibold text-emerald-600">78%</td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">John Anderson</td><td class="px-4 py-3 text-slate-500">Sales</td><td class="px-4 py-3 text-right">198</td><td class="px-4 py-3 text-right">176</td><td class="px-4 py-3 text-right">12</td><td class="px-4 py-3 text-right">06:04</td><td class="px-4 py-3 text-right">01:12</td><td class="px-4 py-3 text-right font-semibold text-amber-600">69%</td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">อรทัย พูลสวัสดิ์</td><td class="px-4 py-3 text-slate-500">Sales</td><td class="px-4 py-3 text-right">241</td><td class="px-4 py-3 text-right">232</td><td class="px-4 py-3 text-right">8</td><td class="px-4 py-3 text-right">05:47</td><td class="px-4 py-3 text-right">00:49</td><td class="px-4 py-3 text-right font-semibold text-emerald-600">83%</td></tr>
+        <tr><td class="px-4 py-3 font-medium">ปกรณ์ ศรีสุข</td><td class="px-4 py-3 text-slate-500">Support B</td><td class="px-4 py-3 text-right">265</td><td class="px-4 py-3 text-right">31</td><td class="px-4 py-3 text-right">4</td><td class="px-4 py-3 text-right">08:04</td><td class="px-4 py-3 text-right">01:31</td><td class="px-4 py-3 text-right font-semibold text-amber-600">72%</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Channel volume ===== -->
+<section class="view" data-view="rpt-volume">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="volTitle">Channel volume</h1>
+    <p class="text-sm text-slate-500" data-i18n="volSubtitle">Interactions per channel over time</p></div>
+    <button class="text-sm border border-slate-300 rounded-lg px-3 py-2">Last 14 days ▾</button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-4">
+    <h2 class="text-sm font-medium text-slate-600 mb-3">Interactions per day (stacked by channel)</h2>
+    <div class="h-80"><canvas id="chart-volume"></canvas></div>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Sign in</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800">
+<div class="min-h-screen flex items-center justify-center p-6">
+  <div class="w-full max-w-sm">
+    <div class="flex items-center justify-center gap-2 mb-6">
+      <span class="w-9 h-9 rounded-lg bg-teal-700 text-white flex items-center justify-center font-semibold">D</span>
+      <span class="text-lg font-semibold">D-Contact</span>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <p class="text-sm text-slate-500 mb-1">Sign in for</p>
+      <p class="text-sm font-medium text-teal-700 mb-5">acme.d-contact.io</p>
+      <label class="block text-sm text-slate-600 mb-1">Email</label>
+      <input value="somchai@acme.co.th" class="w-full h-10 px-3 mb-4 rounded-lg border border-slate-300 text-sm">
+      <label class="block text-sm text-slate-600 mb-1">Password</label>
+      <input type="password" value="········" class="w-full h-10 px-3 mb-5 rounded-lg border border-slate-300 text-sm">
+      <button onclick="location.href='home.html'" class="block text-center w-full h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800">Sign in</button>
+      <div class="flex items-center gap-3 my-4"><span class="h-px bg-slate-200 flex-1"></span><span class="text-xs text-slate-400">or</span><span class="h-px bg-slate-200 flex-1"></span></div>
+      <button onclick="location.href='home.html'" class="w-full h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Continue with corporate SSO</button>
+    </div>
+    <p class="text-center text-xs text-slate-400 mt-4">Authenticated by Keycloak · realm: acme</p>
+  </div>
+</div>
+</body>
+</html>

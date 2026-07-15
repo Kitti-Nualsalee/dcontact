@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — People</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="people" data-default="agents">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== Agents (list) ===== -->
+<section class="view active" data-view="agents">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="agentsTitle">Agents</h1>
+    <p class="text-sm text-slate-500" data-i18n="agentsSubtitle">Agent accounts, extensions, skills and concurrency</p></div>
+    <button onclick="newAgent()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="agentsNew">New agent</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Agent</th><th class="font-normal px-4 py-2.5">Ext</th>
+        <th class="font-normal px-4 py-2.5">Team</th><th class="font-normal px-4 py-2.5">Skills</th>
+        <th class="font-normal px-4 py-2.5">Concurrency</th><th class="font-normal px-4 py-2.5">State</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="agents-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Agent form ===== -->
+<section class="view" data-view="agent-form">
+  <button onclick="showView('agents')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="af-heading" class="text-xl font-semibold mb-5">New agent</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Profile</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="fld">Full name</label><input id="af-name" class="inp"></div>
+          <div><label class="fld">Email</label><input id="af-email" type="email" class="inp"></div>
+          <div><label class="fld">Team</label><select id="af-team" class="inp"><option>Support A</option><option>Support B</option><option>Sales</option></select></div>
+          <div><label class="fld">Skills (comma separated)</label><input id="af-skills" class="inp" placeholder="general, thai"></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">Telephony & concurrency</h2>
+        <p class="text-xs text-slate-400 mb-4">extension สำหรับ softphone และจำนวนงานที่รับพร้อมกันต่อ channel</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div><label class="fld">SIP extension</label><input id="af-ext" class="inp" placeholder="1006"></div>
+          <div><label class="fld">Concurrent calls</label><select id="af-voice" class="inp"><option>1</option><option>0</option></select></div>
+          <div><label class="fld">Concurrent chats</label><select id="af-chat" class="inp"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+        </div>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Access</h2>
+        <label class="fld">Role</label>
+        <select class="inp mb-3"><option>AGENT</option><option>SUPERVISOR</option></select>
+        <label class="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked class="accent-teal-700">Active — สามารถ login ได้</label>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="saveAgent()" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('agents')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Teams ===== -->
+<section class="view" data-view="teams">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="teamsTitle">Teams</h1>
+    <p class="text-sm text-slate-500" data-i18n="teamsSubtitle">Group agents for supervision and reporting</p></div>
+    <button onclick="toast('Team created (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-4xl">
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Team</th><th class="font-normal px-4 py-2.5">Supervisor</th>
+        <th class="font-normal px-4 py-2.5">Members</th><th class="font-normal px-4 py-2.5">Queues</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="teams-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== Contacts (list) ===== -->
+<section class="view" data-view="contacts">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="contactsTitle">Contacts</h1>
+    <p class="text-sm text-slate-500" data-i18n="contactsSubtitle">Customers unified across every channel</p></div>
+    <button onclick="newContact()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="contactsNew">New contact</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Contact</th><th class="font-normal px-4 py-2.5">Company</th>
+        <th class="font-normal px-4 py-2.5">Identities</th><th class="font-normal px-4 py-2.5">Last contact</th>
+        <th class="font-normal px-4 py-2.5">Interactions</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="contacts-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Contact form ===== -->
+<section class="view" data-view="contact-form">
+  <button onclick="showView('contacts')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="cf-heading" class="text-xl font-semibold mb-5">New contact</h1>
+  <div class="bg-white border border-slate-200 rounded-xl p-5 max-w-2xl">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div><label class="fld">Full name</label><input id="cf-name" class="inp"></div>
+      <div><label class="fld">Company</label><input id="cf-company" class="inp"></div>
+      <div><label class="fld">Phone</label><input id="cf-phone" class="inp" placeholder="+66 …"></div>
+      <div><label class="fld">LINE ID</label><input id="cf-line" class="inp" placeholder="@…"></div>
+      <div class="md:col-span-2"><label class="fld">Email</label><input id="cf-email" type="email" class="inp"></div>
+    </div>
+    <p class="text-xs text-slate-400 mt-3"><i class="ti ti-link mr-1"></i>identity จากช่องทางอื่น (FB, WhatsApp) จะถูกรวมเข้า contact นี้อัตโนมัติเมื่อระบบจับคู่ได้</p>
+    <div class="flex gap-3 mt-5 max-w-xs">
+      <button onclick="saveContact()" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+      <button onclick="showView('contacts')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+    </div>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Workspace</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="workspace" data-default="inbox">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== My inbox (omnichannel workspace) ===== -->
+<section class="view active" data-view="inbox">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="inboxTitle">My inbox</h1>
+    <p class="text-sm text-slate-500" data-i18n="inboxSubtitle">Omnichannel interactions assigned to you</p></div>
+    <div class="flex items-center gap-2">
+      <select class="inp !h-9 !w-auto text-sm"><option>Available</option><option>Break</option><option>After-call work</option></select>
+      <span class="st st-busy">1 call · 2 chats active</span>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-4 gap-5" style="min-height:560px">
+    <!-- conversation list -->
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col">
+      <div class="px-4 py-2.5 border-b border-slate-100 bg-slate-50 text-sm font-medium text-slate-600 flex items-center justify-between">Assigned to me<span class="badge" style="margin-left:0">4</span></div>
+      <div id="conv-list" class="flex-1 overflow-y-auto"></div>
+    </div>
+
+    <!-- transcript -->
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col xl:col-span-2">
+      <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+        <div class="flex items-center gap-2"><span class="ch ch-webchat"><i class="ti ti-message-circle"></i>webchat</span>
+        <p class="font-medium">Guest #8812</p><span class="text-xs text-slate-400">· General Support · waited 9s</span></div>
+        <div class="flex items-center gap-1">
+          <span class="icon-btn" title="Transfer"><i class="ti ti-arrows-transfer-up"></i></span>
+          <span class="icon-btn" title="End" onclick="toast('Interaction ended → wrap-up (mock)')"><i class="ti ti-square-x"></i></span>
+        </div>
+      </div>
+      <div class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/40">
+        <div class="bubble bubble-in">สวัสดีครับ หน้าชำระเงินขึ้น error ครับ กดจ่ายแล้วไม่ไปต่อ</div>
+        <div class="bubble bubble-in">ขึ้นว่า "PAYMENT_DECLINED" ครับ ลอง 3 รอบแล้ว</div>
+        <div class="bubble bubble-out">สวัสดีค่ะ ขอโทษในความไม่สะดวกนะคะ ขอทราบ 4 ตัวท้ายของ order id ได้ไหมคะ</div>
+        <div class="bubble bubble-in">ORD-7731 ครับ</div>
+        <div class="bubble bubble-out">ตรวจสอบให้สักครู่นะคะ 🙏</div>
+        <p class="text-center text-xs text-slate-400">Agent is typing…</p>
+      </div>
+      <div class="border-t border-slate-100 p-3">
+        <div class="flex items-center gap-2">
+          <span class="icon-btn"><i class="ti ti-paperclip"></i></span>
+          <span class="icon-btn" title="Canned responses"><i class="ti ti-bolt"></i></span>
+          <input class="inp !h-10 flex-1" placeholder="พิมพ์ข้อความตอบลูกค้า…">
+          <button onclick="toast('Message sent (mock)')" class="h-10 px-4 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800"><i class="ti ti-send"></i></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- customer panel + softphone -->
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3"><h2 class="text-sm font-semibold text-slate-700">Active call</h2><span class="st st-busy">02:41</span></div>
+        <p class="font-medium">+66 81 234 5678</p>
+        <p class="text-xs text-slate-400 mb-3">คุณนภา จันทร์เพ็ญ · VIP Customers</p>
+        <div class="flex gap-2">
+          <span class="icon-btn bg-slate-100" title="Mute"><i class="ti ti-microphone-off"></i></span>
+          <span class="icon-btn bg-slate-100" title="Hold"><i class="ti ti-player-pause"></i></span>
+          <span class="icon-btn bg-slate-100" title="Transfer"><i class="ti ti-arrows-transfer-up"></i></span>
+          <span class="icon-btn bg-rose-600 text-white ml-auto" title="Hang up" onclick="toast('Call ended (mock)')"><i class="ti ti-phone-off"></i></span>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Customer</h2>
+        <p class="font-medium">คุณนภา จันทร์เพ็ญ</p>
+        <p class="text-xs text-slate-400 mb-3">Siam Retail Co. · ลูกค้าตั้งแต่ 2024</p>
+        <dl class="text-sm space-y-1.5 text-slate-600 mb-3">
+          <div class="flex justify-between"><dt>Phone</dt><dd>+66 81 234 5678</dd></div>
+          <div class="flex justify-between"><dt>LINE</dt><dd>@napha.c</dd></div>
+          <div class="flex justify-between"><dt>Interactions</dt><dd>12 (3 นี้เดือน)</dd></div>
+        </dl>
+        <div class="text-xs text-slate-500 space-y-1.5 border-t border-slate-100 pt-3">
+          <p><i class="ti ti-phone text-indigo-600 mr-1"></i>14/07 — สอบถามใบกำกับภาษี (Resolved)</p>
+          <p><i class="ti ti-brand-line text-green-700 mr-1"></i>02/07 — เปลี่ยนที่อยู่จัดส่ง (Resolved)</p>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-4">
+        <h2 class="text-sm font-semibold text-slate-700 mb-2">Wrap-up</h2>
+        <select class="inp mb-2"><option>— เลือกผลการติดต่อ —</option><option>Resolved</option><option>Escalated</option><option>Follow-up</option><option>Order created</option></select>
+        <textarea class="inp" rows="2" placeholder="บันทึกเพิ่มเติม…"></textarea>
+        <button onclick="toast('Wrap-up saved → Available (mock)')" class="w-full h-9 mt-2 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800">Complete</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== My interactions ===== -->
+<section class="view" data-view="my-history">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="myhisTitle">My interactions</h1>
+    <p class="text-sm text-slate-500" data-i18n="myhisSubtitle">Everything you handled — last 7 days</p></div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60 text-[13px]"><tr class="border-b border-slate-100">
+        <th class="font-normal px-3 py-2"></th><th class="font-normal px-3 py-2">Channel</th>
+        <th class="font-normal px-3 py-2">Contact</th><th class="font-normal px-3 py-2">Queue</th>
+        <th class="font-normal px-3 py-2">Agent</th><th class="font-normal px-3 py-2">Start</th>
+        <th class="font-normal px-3 py-2 text-right">Wait</th><th class="font-normal px-3 py-2 text-right">Duration</th>
+        <th class="font-normal px-3 py-2">Wrap-up</th><th class="font-normal px-3 py-2">Status</th>
+      </tr></thead>
+      <tbody id="myhis-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
