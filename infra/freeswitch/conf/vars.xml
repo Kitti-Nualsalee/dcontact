@@ -1,0 +1,18 @@
+<include>
+  <!-- Dev-only defaults. Production: gen config ต่อ tenant จาก DB (mod_xml_curl) -->
+  <X-PRE-PROCESS cmd="set" data="default_password=DContactDev1"/>
+  <X-PRE-PROCESS cmd="set" data="domain=dcontact.local"/>
+
+  <X-PRE-PROCESS cmd="set" data="global_codec_prefs=OPUS,G722,PCMU,PCMA"/>
+  <X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=OPUS,G722,PCMU,PCMA"/>
+
+  <!--
+    Docker Desktop (macOS/Windows): browser บน host เข้าถึง container IP ตรงไม่ได้
+    จึง advertise 127.0.0.1 ใน SDP แล้วอาศัย published UDP ports 16384-16420
+    บน Linux (host network) เปลี่ยนเป็น $${local_ip_v4}
+  -->
+  <X-PRE-PROCESS cmd="set" data="external_rtp_ip=127.0.0.1"/>
+  <X-PRE-PROCESS cmd="set" data="external_sip_ip=127.0.0.1"/>
+
+  <X-PRE-PROCESS cmd="set" data="us-ring=%(2000,4000,440,480)"/>
+</include>

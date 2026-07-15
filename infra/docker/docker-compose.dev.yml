@@ -1,0 +1,103 @@
+name: d-contact-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dcontact
+      POSTGRES_PASSWORD: dcontact
+      POSTGRES_DB: dcontact
+    ports:
+      # host 5433 เพื่อเลี่ยงชนกับ PostgreSQL local ที่มีอยู่แล้วบนเครื่อง dev
+      - '5433:5432'
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U dcontact']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: dcontact
+      MINIO_ROOT_PASSWORD: dcontact-secret
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - ./data/minio:/data
+
+  # สร้าง bucket "recordings" อัตโนมัติตอน start
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 dcontact dcontact-secret; do sleep 1; done;
+      mc mb -p local/recordings || true;
+      exit 0"
+
+  # Kafka-compatible event backbone (dev) — production ใช้ Kafka/MSK/Redpanda ได้ (API เดียวกัน)
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --mode dev-container
+      - --kafka-addr internal://0.0.0.0:29092,external://0.0.0.0:9092
+      # containers อื่นต่อผ่าน redpanda:29092, โปรเซสบน host ต่อ localhost:9092
+      - --advertise-kafka-addr internal://redpanda:29092,external://localhost:9092
+    ports:
+      - '9092:9092'
+    volumes:
+      - ./data/redpanda:/var/lib/redpanda/data
+    healthcheck:
+      test: ['CMD-SHELL', 'rpk cluster health | grep -q "Healthy:.*true"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # สร้าง topics อัตโนมัติตอน start (pattern เดียวกับ minio-init)
+  redpanda-init:
+    image: redpandadata/redpanda:v24.2.7
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      rpk topic create dc.fs.events dc.interaction.events dc.agent.events dc.telephony.commands
+      --brokers redpanda:29092 --topic-config retention.ms=604800000 || true;
+      exit 0"
+
+  # Web UI สำหรับดู topics/messages ตอน dev
+  redpanda-console:
+    image: redpandadata/console:v2.7.2
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: redpanda:29092
+    ports:
+      - '8085:8080'
+
+  freeswitch:
+    image: safarov/freeswitch:latest
+    ports:
+      - '5060:5060/udp' # SIP UDP
+      - '5060:5060/tcp' # SIP TCP
+      - '5066:5066/tcp' # SIP over WebSocket (dev softphone)
+      - '8021:8021/tcp' # ESL — dev only, ห้าม expose ใน production
+      - '16384-16420:16384-16420/udp' # RTP media
+    volumes:
+      - ../freeswitch/conf:/etc/freeswitch
+    restart: unless-stopped

@@ -1,0 +1,23 @@
+# deps / build
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# env & secrets
+.env
+.env.local
+!.env.example
+
+# prisma
+packages/db/.env
+
+# infra runtime data
+infra/docker/data/
+# TLS certs/keys ที่ FreeSWITCH auto-generate ลง mounted conf dir
+infra/freeswitch/conf/tls/
+
+# misc
+.DS_Store
+*.log
+coverage/

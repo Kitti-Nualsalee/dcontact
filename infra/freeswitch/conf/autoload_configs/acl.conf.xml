@@ -1,0 +1,8 @@
+<configuration name="acl.conf" description="Network Lists">
+  <network-lists>
+    <list name="localnet.auto" default="allow"/>
+    <!-- DEV ONLY: อนุญาต ESL จากทุกที่ (host เข้ามาทาง docker bridge)
+         Production: จำกัดเฉพาะ subnet ของ backend services -->
+    <list name="esl_allow" default="allow"/>
+  </network-lists>
+</configuration>

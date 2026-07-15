@@ -1,0 +1,9 @@
+<configuration name="switch.conf" description="Core Configuration">
+  <settings>
+    <param name="colorize-console" value="true"/>
+    <param name="loglevel" value="info"/>
+    <!-- ต้องตรงกับ UDP port range ที่ publish ใน docker-compose.dev.yml -->
+    <param name="rtp-start-port" value="16384"/>
+    <param name="rtp-end-port" value="16420"/>
+  </settings>
+</configuration>

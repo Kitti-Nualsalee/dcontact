@@ -1,0 +1,24 @@
+<include>
+  <context name="default">
+
+    <!-- 9196: echo test — ใช้ตรวจว่า media path ทำงาน (ได้ยินเสียงตัวเองสะท้อนกลับ) -->
+    <extension name="echo-test">
+      <condition field="destination_number" expression="^9196$">
+        <action application="answer"/>
+        <action application="echo"/>
+      </condition>
+    </extension>
+
+    <!-- โทรหากันระหว่าง extension 1000-1999 (spike Phase 0)
+         Phase 1: inbound จาก trunk จะ park แล้วให้ router ตัดสินใจผ่าน ESL แทน -->
+    <extension name="local-extensions">
+      <condition field="destination_number" expression="^(1[0-9]{3})$">
+        <action application="export" data="dialed_extension=$1"/>
+        <action application="set" data="ringback=$${us-ring}"/>
+        <action application="set" data="hangup_after_bridge=true"/>
+        <action application="bridge" data="user/${dialed_extension}@$${domain}"/>
+      </condition>
+    </extension>
+
+  </context>
+</include>

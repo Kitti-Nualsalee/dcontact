@@ -1,0 +1,24 @@
+{
+  "name": "d-contact",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "typecheck": "turbo run typecheck",
+    "lint": "prettier --check .",
+    "format": "prettier --write .",
+    "db:generate": "pnpm --filter @d-contact/db generate",
+    "db:migrate": "pnpm --filter @d-contact/db migrate:dev",
+    "db:rls": "pnpm --filter @d-contact/db apply-rls",
+    "db:seed": "pnpm --filter @d-contact/db seed",
+    "infra:up": "docker compose -f infra/docker/docker-compose.dev.yml up -d",
+    "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "turbo": "^2.1.0",
+    "typescript": "^5.5.4"
+  }
+}

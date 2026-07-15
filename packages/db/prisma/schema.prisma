@@ -1,0 +1,329 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Tenancy & Users ───────────────────────────
+
+model Tenant {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  sipDomain String   @unique @map("sip_domain")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users        User[]
+  teams        Team[]
+  queues       Queue[]
+  skills       Skill[]
+  contacts     Contact[]
+  interactions Interaction[]
+
+  @@map("tenants")
+}
+
+enum UserRole {
+  AGENT
+  SUPERVISOR
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  email        String
+  passwordHash String   @map("password_hash")
+  displayName  String   @map("display_name")
+  role         UserRole @default(AGENT)
+  // SIP extension สำหรับ softphone (agent เท่านั้น)
+  extension    String?
+  sipPassword  String?  @map("sip_password")
+  teamId       String?  @map("team_id") @db.Uuid
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant          @relation(fields: [tenantId], references: [id])
+  team         Team?           @relation(fields: [teamId], references: [id])
+  skills       AgentSkill[]
+  stateLogs    AgentStateLog[]
+  interactions Interaction[]
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, extension])
+  @@index([tenantId])
+  @@map("users")
+}
+
+model Team {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id])
+  members User[]
+
+  @@unique([tenantId, name])
+  @@map("teams")
+}
+
+// ─────────────────────────── Routing: Queues & Skills ───────────────────────────
+
+enum ChannelType {
+  VOICE
+  WEBCHAT
+  LINE
+  FACEBOOK
+  WHATSAPP
+  EMAIL
+}
+
+model Queue {
+  id              String        @id @default(uuid()) @db.Uuid
+  tenantId        String        @map("tenant_id") @db.Uuid
+  name            String
+  // universal queue: รองรับหลาย channel ใน queue เดียว
+  channels        ChannelType[]
+  slaThresholdSec Int           @default(20) @map("sla_threshold_sec")
+  maxWaitSec      Int?          @map("max_wait_sec")
+  priority        Int           @default(0)
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  skills       QueueSkill[]
+  interactions Interaction[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("queues")
+}
+
+model Skill {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  name     String
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id])
+  agents AgentSkill[]
+  queues QueueSkill[]
+
+  @@unique([tenantId, name])
+  @@map("skills")
+}
+
+model AgentSkill {
+  userId  String @map("user_id") @db.Uuid
+  skillId String @map("skill_id") @db.Uuid
+  level   Int    @default(1) // 1-5
+
+  user  User  @relation(fields: [userId], references: [id])
+  skill Skill @relation(fields: [skillId], references: [id])
+
+  @@id([userId, skillId])
+  @@map("agent_skills")
+}
+
+model QueueSkill {
+  queueId  String @map("queue_id") @db.Uuid
+  skillId  String @map("skill_id") @db.Uuid
+  minLevel Int    @default(1) @map("min_level")
+
+  queue Queue @relation(fields: [queueId], references: [id])
+  skill Skill @relation(fields: [skillId], references: [id])
+
+  @@id([queueId, skillId])
+  @@map("queue_skills")
+}
+
+// ─────────────────────────── Agent State ───────────────────────────
+
+enum AgentStateType {
+  OFFLINE
+  AVAILABLE
+  RESERVED
+  BUSY
+  ACW
+  BREAK
+}
+
+// append-only log ของทุกการเปลี่ยน state — ใช้ทำ reporting (occupancy, adherence)
+model AgentStateLog {
+  id        BigInt         @id @default(autoincrement())
+  tenantId  String         @map("tenant_id") @db.Uuid
+  userId    String         @map("user_id") @db.Uuid
+  state     AgentStateType
+  reason    String?
+  startedAt DateTime       @default(now()) @map("started_at")
+  endedAt   DateTime?      @map("ended_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId, startedAt])
+  @@map("agent_state_logs")
+}
+
+// ─────────────────────────── Contacts (customer identity) ───────────────────────────
+
+enum IdentityType {
+  PHONE
+  LINE
+  FACEBOOK
+  WHATSAPP
+  EMAIL
+  WEB
+}
+
+model Contact {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  displayName String?  @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  identities   ContactIdentity[]
+  interactions Interaction[]
+
+  @@index([tenantId])
+  @@map("contacts")
+}
+
+// รวม identity หลาย channel เป็น contact เดียว (เบอร์โทร + LINE ID + email = คนเดียวกัน)
+model ContactIdentity {
+  id        String       @id @default(uuid()) @db.Uuid
+  tenantId  String       @map("tenant_id") @db.Uuid
+  contactId String       @map("contact_id") @db.Uuid
+  type      IdentityType
+  value     String // เบอร์โทร / LINE user id / email ฯลฯ
+
+  contact Contact @relation(fields: [contactId], references: [id])
+
+  @@unique([tenantId, type, value])
+  @@map("contact_identities")
+}
+
+// ─────────────────────────── Interactions (record กลางทุก channel) ───────────────────────────
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
+
+enum InteractionStateType {
+  QUEUED
+  ASSIGNED
+  ACTIVE
+  WRAPUP
+  COMPLETED
+  ABANDONED
+}
+
+model Interaction {
+  id         String               @id @default(uuid()) @db.Uuid
+  tenantId   String               @map("tenant_id") @db.Uuid
+  channel    ChannelType
+  direction  Direction
+  state      InteractionStateType @default(QUEUED)
+  queueId    String?              @map("queue_id") @db.Uuid
+  agentId    String?              @map("agent_id") @db.Uuid
+  contactId  String?              @map("contact_id") @db.Uuid
+  // id ฝั่งระบบภายนอก เช่น FreeSWITCH call UUID
+  externalId String?              @map("external_id")
+  wrapUpCode String?              @map("wrap_up_code")
+  metadata   Json?
+
+  queuedAt   DateTime  @default(now()) @map("queued_at")
+  assignedAt DateTime? @map("assigned_at")
+  answeredAt DateTime? @map("answered_at")
+  endedAt    DateTime? @map("ended_at")
+
+  tenant       Tenant             @relation(fields: [tenantId], references: [id])
+  queue        Queue?             @relation(fields: [queueId], references: [id])
+  agent        User?              @relation(fields: [agentId], references: [id])
+  contact      Contact?           @relation(fields: [contactId], references: [id])
+  events       InteractionEvent[]
+  conversation Conversation?
+  recordings   Recording[]
+
+  @@index([tenantId, queuedAt])
+  @@index([tenantId, externalId])
+  @@map("interactions")
+}
+
+// append-only event log — source of truth สำหรับ historical reporting
+model InteractionEvent {
+  id            BigInt   @id @default(autoincrement())
+  tenantId      String   @map("tenant_id") @db.Uuid
+  interactionId String   @map("interaction_id") @db.Uuid
+  type          String
+  payload       Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  interaction Interaction @relation(fields: [interactionId], references: [id])
+
+  @@index([tenantId, interactionId])
+  @@index([tenantId, createdAt])
+  @@map("interaction_events")
+}
+
+// ─────────────────────────── Conversations (chat/social/email threads) ───────────────────────────
+
+model Conversation {
+  id               String      @id @default(uuid()) @db.Uuid
+  tenantId         String      @map("tenant_id") @db.Uuid
+  interactionId    String      @unique @map("interaction_id") @db.Uuid
+  channel          ChannelType
+  // thread id ฝั่ง platform เช่น LINE conversation, email Message-ID chain
+  externalThreadId String?     @map("external_thread_id")
+  createdAt        DateTime    @default(now()) @map("created_at")
+
+  interaction Interaction @relation(fields: [interactionId], references: [id])
+  messages    Message[]
+
+  @@index([tenantId, externalThreadId])
+  @@map("conversations")
+}
+
+enum SenderType {
+  CONTACT
+  AGENT
+  SYSTEM
+}
+
+model Message {
+  id             String     @id @default(uuid()) @db.Uuid
+  tenantId       String     @map("tenant_id") @db.Uuid
+  conversationId String     @map("conversation_id") @db.Uuid
+  senderType     SenderType @map("sender_type")
+  direction      Direction
+  contentType    String     @default("text/plain") @map("content_type")
+  body           String
+  externalId     String?    @map("external_id")
+  createdAt      DateTime   @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([tenantId, conversationId, createdAt])
+  @@map("messages")
+}
+
+// ─────────────────────────── Recordings ───────────────────────────
+
+model Recording {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  interactionId String    @map("interaction_id") @db.Uuid
+  // key ใน object storage (MinIO/S3)
+  storageKey    String    @map("storage_key")
+  durationSec   Int?      @map("duration_sec")
+  startedAt     DateTime  @map("started_at")
+  endedAt       DateTime? @map("ended_at")
+
+  interaction Interaction @relation(fields: [interactionId], references: [id])
+
+  @@index([tenantId, interactionId])
+  @@map("recordings")
+}

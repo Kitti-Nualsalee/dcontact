@@ -1,0 +1,47 @@
+<profile name="internal">
+  <aliases/>
+  <gateways/>
+  <domains>
+    <domain name="all" alias="true" parse="false"/>
+  </domains>
+  <settings>
+    <param name="debug" value="0"/>
+    <param name="sip-trace" value="no"/>
+    <param name="context" value="default"/>
+    <param name="dialplan" value="XML"/>
+    <param name="rfc2833-pt" value="101"/>
+    <param name="dtmf-duration" value="2000"/>
+
+    <param name="sip-port" value="5060"/>
+    <param name="sip-ip" value="$${local_ip_v4}"/>
+    <param name="rtp-ip" value="$${local_ip_v4}"/>
+    <param name="ext-sip-ip" value="$${external_sip_ip}"/>
+    <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+
+    <!-- SIP over WebSocket สำหรับ browser softphone (SIP.js)
+         dev ใช้ ws:5066 (localhost = secure context ใน browser)
+         production ต้องเปิด wss-binding :7443 + tls cert -->
+    <param name="ws-binding" value=":5066"/>
+
+    <param name="inbound-codec-prefs" value="$${global_codec_prefs}"/>
+    <param name="outbound-codec-prefs" value="$${global_codec_prefs}"/>
+    <param name="inbound-late-negotiation" value="true"/>
+
+    <param name="rtp-timer-name" value="soft"/>
+    <param name="rtp-timeout-sec" value="300"/>
+    <param name="rtp-hold-timeout-sec" value="1800"/>
+
+    <param name="auth-calls" value="true"/>
+    <param name="nonce-ttl" value="60"/>
+    <param name="challenge-realm" value="auto_from"/>
+
+    <!-- ทุก registration ถูก map เข้า domain เดียว (dev single-tenant)
+         multi-tenant จริงจะแยก SIP domain ต่อ tenant -->
+    <param name="force-register-domain" value="$${domain}"/>
+    <param name="force-subscription-domain" value="$${domain}"/>
+    <param name="force-register-db-domain" value="$${domain}"/>
+
+    <param name="apply-nat-acl" value="nat.auto"/>
+    <param name="local-network-acl" value="localnet.auto"/>
+  </settings>
+</profile>

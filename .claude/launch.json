@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "agent-desktop",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@d-contact/agent-desktop", "dev"],
+      "port": 5173
+    }
+  ]
+}

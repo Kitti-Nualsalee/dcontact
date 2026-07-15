@@ -1,0 +1,45 @@
+<include>
+  <!-- Dev directory แบบ static — Phase 1 จะเปลี่ยนเป็น gen จาก DB ต่อ tenant (mod_xml_curl) -->
+  <domain name="$${domain}">
+    <params>
+      <param name="dial-string"
+             value="{^^:sip_invite_domain=${dialed_domain}:presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(*/${dialed_user}@${dialed_domain})}"/>
+    </params>
+    <groups>
+      <group name="default">
+        <users>
+          <user id="1000">
+            <params>
+              <param name="password" value="$${default_password}"/>
+            </params>
+            <variables>
+              <variable name="user_context" value="default"/>
+              <variable name="effective_caller_id_name" value="Agent 1000"/>
+              <variable name="effective_caller_id_number" value="1000"/>
+            </variables>
+          </user>
+          <user id="1001">
+            <params>
+              <param name="password" value="$${default_password}"/>
+            </params>
+            <variables>
+              <variable name="user_context" value="default"/>
+              <variable name="effective_caller_id_name" value="Agent 1001"/>
+              <variable name="effective_caller_id_number" value="1001"/>
+            </variables>
+          </user>
+          <user id="1002">
+            <params>
+              <param name="password" value="$${default_password}"/>
+            </params>
+            <variables>
+              <variable name="user_context" value="default"/>
+              <variable name="effective_caller_id_name" value="Agent 1002"/>
+              <variable name="effective_caller_id_number" value="1002"/>
+            </variables>
+          </user>
+        </users>
+      </group>
+    </groups>
+  </domain>
+</include>

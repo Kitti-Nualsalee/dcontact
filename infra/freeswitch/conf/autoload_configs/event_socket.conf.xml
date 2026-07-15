@@ -1,0 +1,12 @@
+<configuration name="event_socket.conf" description="Socket Client">
+  <settings>
+    <!-- DEV ONLY: bind ทุก interface + default password
+         Production: bind เฉพาะ internal network + เปลี่ยน password + ACL -->
+    <param name="nat-map" value="false"/>
+    <param name="listen-ip" value="0.0.0.0"/>
+    <param name="listen-port" value="8021"/>
+    <param name="password" value="ClueCon"/>
+    <!-- FreeSWITCH 1.10+ ปฏิเสธ connection นอก loopback ถ้าไม่ระบุ ACL -->
+    <param name="apply-inbound-acl" value="esl_allow"/>
+  </settings>
+</configuration>
