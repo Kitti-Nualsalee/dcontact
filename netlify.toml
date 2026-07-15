@@ -1,0 +1,12 @@
+[build]
+  publish = "mockups"
+  command = "echo 'Static mockups — no build step needed'"
+
+[context.production]
+  publish = "mockups"
+
+[context.deploy-preview]
+  publish = "mockups"
+
+[context.branch-deploy]
+  publish = "mockups"
