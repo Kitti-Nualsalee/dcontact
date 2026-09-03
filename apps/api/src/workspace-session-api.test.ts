@@ -18,6 +18,7 @@ test('workspace session endpoint forwards bearer token and tab id without browse
             tabId: 'tab-a',
             routingEnabled: true,
             status: 'active' as const,
+            availability: 'AVAILABLE' as const,
           },
         };
       },

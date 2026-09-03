@@ -6,6 +6,7 @@ export interface RoutingSocket {
 
 export class WorkspaceRuntime {
   private routingSocket?: RoutingSocket;
+  private heartbeatTimer?: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly election: WorkspaceTabLeaderElection,
@@ -14,6 +15,7 @@ export class WorkspaceRuntime {
 
   start(): void {
     if (this.election.start()) this.connect();
+    this.heartbeatTimer = setInterval(() => this.heartbeat(), 1_000);
   }
 
   heartbeat(): void {
@@ -27,6 +29,8 @@ export class WorkspaceRuntime {
   }
 
   stop(): void {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = undefined;
     this.disconnect();
     this.election.stop();
   }

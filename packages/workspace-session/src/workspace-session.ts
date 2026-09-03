@@ -1,3 +1,5 @@
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+
 export type WorkspaceSessionStatus = 'active' | 'reauthentication-required';
 
 export interface VerifiedWorkspaceIdentity {
@@ -41,6 +43,14 @@ export function toVerifiedWorkspaceIdentity(
   ) {
     throw new Error('verified OIDC token requires matching Keycloak Organization context');
   }
+  const organization = (claims.organization as Record<string, unknown>)[claims.tenant_slug];
+  const organizationTenantIds =
+    organization && typeof organization === 'object'
+      ? (organization as { attributes?: { tenant_id?: unknown } }).attributes?.tenant_id
+      : undefined;
+  if (!Array.isArray(organizationTenantIds) || organizationTenantIds[0] !== claims.tenant_id) {
+    throw new Error('tenant_id does not match Keycloak Organization attribute');
+  }
   if (typeof claims.sid !== 'string' || claims.sid.length === 0) {
     throw new Error('verified OIDC token requires sid');
   }
@@ -71,6 +81,8 @@ export interface WorkspaceSession {
   tabId: string;
   routingEnabled: boolean;
   status: WorkspaceSessionStatus;
+  availability: 'OFFLINE' | 'AVAILABLE';
+  activeInteractionId?: string;
 }
 
 export interface WorkspaceSessionHandshake {
@@ -152,6 +164,7 @@ export class WorkspaceSessionRegistry {
       expiresAt: identity.expiresAt,
       routingEnabled: isLeader,
       status: isValid ? 'active' : 'reauthentication-required',
+      availability: isLeader ? 'AVAILABLE' : 'OFFLINE',
     };
     this.sessions.set(key, session);
     return this.publicSession(session);
@@ -170,6 +183,7 @@ export class WorkspaceSessionRegistry {
       if (this.userKey(session.tenantId, session.userId) !== userKey) continue;
       session.routingEnabled = isValid && session.tabId === tabId;
       session.status = isValid ? 'active' : 'reauthentication-required';
+      session.availability = session.routingEnabled ? 'AVAILABLE' : 'OFFLINE';
     }
 
     return this.publicSession(this.requireSession(key));
@@ -193,6 +207,7 @@ export class WorkspaceSessionRegistry {
     stored.status = isValid ? 'active' : 'reauthentication-required';
     stored.routingEnabled =
       isValid && this.workingTabs.get(this.userKey(identity.tenantId, identity.userId)) === tabId;
+    stored.availability = stored.routingEnabled ? 'AVAILABLE' : 'OFFLINE';
     return this.publicSession(stored);
   }
 
@@ -206,10 +221,23 @@ export class WorkspaceSessionRegistry {
     );
   }
 
+  holdInteraction(
+    tenantId: string,
+    userId: string,
+    tabId: string,
+    interactionId: string,
+  ): WorkspaceSession {
+    if (!interactionId) throw new Error('interaction id is required');
+    const session = this.requireSession(this.sessionKey(tenantId, userId, tabId));
+    session.activeInteractionId = interactionId;
+    return this.publicSession(session);
+  }
+
   requireReauthentication(tenantId: string, userId: string, tabId: string): WorkspaceSession {
     const session = this.requireSession(this.sessionKey(tenantId, userId, tabId));
     session.routingEnabled = false;
     session.status = 'reauthentication-required';
+    session.availability = 'OFFLINE';
     return this.publicSession(session);
   }
 
@@ -267,10 +295,13 @@ export class WorkspaceSessionGateway {
     return this.registry.requireReauthentication(session.tenantId, session.userId, session.tabId);
   }
 
+  canReceiveRoutingWork(session: Pick<WorkspaceSession, 'tenantId' | 'userId' | 'tabId'>): boolean {
+    return this.registry.canReceiveRoutingWork(session.tenantId, session.userId, session.tabId);
+  }
+
   private async identityFrom(accessToken: string): Promise<VerifiedWorkspaceIdentity> {
     if (!accessToken) throw new Error('workspace session requires an access token');
     const claims = await this.verifier.verifyAccessToken(accessToken);
     return toVerifiedWorkspaceIdentity(claims, this.now());
   }
 }
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';

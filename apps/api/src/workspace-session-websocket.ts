@@ -8,11 +8,12 @@ import { WebSocketServer } from 'ws';
 
 export function attachWorkspaceSessionWebSocket(
   server: Server,
-  adapter: Pick<WorkspaceSessionWebSocketAdapter, 'handle'>,
+  adapter: Pick<WorkspaceSessionWebSocketAdapter, 'handle' | 'disconnect'>,
 ): WebSocketServer {
   const sockets = new WebSocketServer({ noServer: true });
 
   sockets.on('connection', (socket) => {
+    socket.once('close', () => adapter.disconnect(socket as WorkspaceSessionSocket));
     socket.on('message', (data) => {
       let message: WorkspaceSessionSocketMessage;
       try {

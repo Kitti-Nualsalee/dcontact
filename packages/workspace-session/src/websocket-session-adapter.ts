@@ -11,9 +11,16 @@ export interface WorkspaceSessionSocketMessage {
   tabId?: string;
 }
 
+export interface WorkspaceRoutingEvent {
+  type: 'routing.offered';
+  interactionId: string;
+  tenantId: string;
+  userId: string;
+}
+
 /** Shared WebSocket handshake adapter; tokens never travel in a query string. */
 export class WorkspaceSessionWebSocketAdapter {
-  private readonly authenticatedSessions = new WeakMap<WorkspaceSessionSocket, WorkspaceSession>();
+  private readonly authenticatedSessions = new Map<WorkspaceSessionSocket, WorkspaceSession>();
 
   constructor(private readonly gateway: WorkspaceSessionGateway) {}
 
@@ -42,5 +49,25 @@ export class WorkspaceSessionWebSocketAdapter {
       }
       socket.close(4401, 'workspace authentication failed');
     }
+  }
+
+  deliverRoutingEvent(event: WorkspaceRoutingEvent): number {
+    let delivered = 0;
+    for (const [socket, session] of this.authenticatedSessions) {
+      if (
+        session.tenantId !== event.tenantId ||
+        session.userId !== event.userId ||
+        !this.gateway.canReceiveRoutingWork(session)
+      ) {
+        continue;
+      }
+      socket.send(JSON.stringify(event));
+      delivered += 1;
+    }
+    return delivered;
+  }
+
+  disconnect(socket: WorkspaceSessionSocket): void {
+    this.authenticatedSessions.delete(socket);
   }
 }

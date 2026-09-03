@@ -1,7 +1,21 @@
-import { createServer } from 'node:http';
+import 'reflect-metadata';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import {
+  Controller,
+  type CanActivate,
+  type ExecutionContext,
+  Injectable,
+  Module,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import {
   KeycloakAccessTokenVerifier,
+  toVerifiedWorkspaceIdentity,
   WorkspaceSessionGateway,
   WorkspaceSessionHttpAdapter,
   WorkspaceSessionRegistry,
@@ -17,29 +31,52 @@ function required(name: string): string {
 }
 
 const prisma = new PrismaClient();
-const gateway = new WorkspaceSessionGateway(
-  new KeycloakAccessTokenVerifier({
-    issuer: required('KEYCLOAK_ISSUER'),
-    audience: required('KEYCLOAK_AUDIENCE'),
-    jwksUri: required('KEYCLOAK_JWKS_URI'),
-  }),
-  new WorkspaceSessionRegistry(),
-);
-const adapter = new WorkspaceSessionHttpAdapter(gateway);
+const verifier = new KeycloakAccessTokenVerifier({
+  issuer: required('KEYCLOAK_ISSUER'),
+  audience: required('KEYCLOAK_AUDIENCE'),
+  jwksUri: required('KEYCLOAK_JWKS_URI'),
+});
+const gateway = new WorkspaceSessionGateway(verifier, new WorkspaceSessionRegistry());
+const httpAdapter = new WorkspaceSessionHttpAdapter(gateway);
 const socketAdapter = new WorkspaceSessionWebSocketAdapter(gateway);
-
-const handleWorkspaceSession = createWorkspaceSessionHandler(adapter, (tenantId, work) =>
+const handleWorkspaceSession = createWorkspaceSessionHandler(httpAdapter, (tenantId, work) =>
   withTenantDatabaseTransaction(prisma, tenantId, async () => work()),
 );
 
-const server = createServer((request, response) => {
-  if (request.method === 'POST' && request.url === '/api/v1/workspace-session/connect') {
-    void handleWorkspaceSession(request, response);
-    return;
+@Injectable()
+class OidcGlobalGuard implements CanActivate {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<IncomingMessage>();
+    const authorization = request.headers.authorization;
+    if (!authorization?.startsWith('Bearer ')) throw new UnauthorizedException();
+    try {
+      const claims = await verifier.verifyAccessToken(authorization.slice('Bearer '.length).trim());
+      toVerifiedWorkspaceIdentity(claims);
+      return true;
+    } catch {
+      throw new UnauthorizedException();
+    }
   }
-  response.writeHead(404).end();
-});
+}
 
-attachWorkspaceSessionWebSocket(server, socketAdapter);
+@Controller('api/v1/workspace-session')
+class WorkspaceSessionController {
+  @Post('connect')
+  async connect(@Req() request: IncomingMessage, @Res() response: ServerResponse): Promise<void> {
+    await handleWorkspaceSession(request, response);
+  }
+}
 
-server.listen(Number(process.env.PORT ?? 3000));
+@Module({
+  controllers: [WorkspaceSessionController],
+  providers: [{ provide: APP_GUARD, useClass: OidcGlobalGuard }],
+})
+class AppModule {}
+
+async function bootstrap(): Promise<void> {
+  const app = await NestFactory.create(AppModule);
+  attachWorkspaceSessionWebSocket(app.getHttpServer(), socketAdapter);
+  await app.listen(Number(process.env.PORT ?? 3000));
+}
+
+void bootstrap();

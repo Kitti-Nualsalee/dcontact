@@ -20,6 +20,7 @@ test('a non-working tab does not open the routing WebSocket', () => {
   runtime.start();
 
   assert.equal(connections, 0);
+  runtime.stop();
 });
 
 test('moving work to a tab opens exactly one routing WebSocket', () => {
@@ -42,4 +43,5 @@ test('moving work to a tab opens exactly one routing WebSocket', () => {
   runtime.heartbeat();
 
   assert.equal(connections, 1);
+  runtime.stop();
 });
