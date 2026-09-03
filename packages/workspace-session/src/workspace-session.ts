@@ -10,6 +10,8 @@ export interface VerifiedWorkspaceIdentity {
 
 export interface VerifiedOidcClaims {
   tenant_id?: unknown;
+  tenant_slug?: unknown;
+  organization?: unknown;
   dc_user_id?: unknown;
   sid?: unknown;
   exp?: unknown;
@@ -30,6 +32,14 @@ export function toVerifiedWorkspaceIdentity(
   }
   if (typeof claims.dc_user_id !== 'string' || claims.dc_user_id.length === 0) {
     throw new Error('verified OIDC token requires dc_user_id');
+  }
+  if (
+    typeof claims.tenant_slug !== 'string' ||
+    !claims.organization ||
+    typeof claims.organization !== 'object' ||
+    !Object.hasOwn(claims.organization, claims.tenant_slug)
+  ) {
+    throw new Error('verified OIDC token requires matching Keycloak Organization context');
   }
   if (typeof claims.sid !== 'string' || claims.sid.length === 0) {
     throw new Error('verified OIDC token requires sid');

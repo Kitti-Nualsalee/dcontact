@@ -70,6 +70,8 @@ test('only verified OIDC claims can establish a tenant-bound workspace identity'
   const identity = toVerifiedWorkspaceIdentity(
     {
       tenant_id: agent.tenantId,
+      tenant_slug: 'demo',
+      organization: { demo: {} },
       dc_user_id: agent.userId,
       sid: agent.sessionId,
       exp: 1_788_430_200,
@@ -104,6 +106,8 @@ test('the handshake verifies an access token before it enables routing', async (
         assert.equal(accessToken, 'verified-access-token');
         return {
           tenant_id: agent.tenantId,
+          tenant_slug: 'demo',
+          organization: { demo: {} },
           dc_user_id: agent.userId,
           sid: agent.sessionId,
           exp: 1_788_430_200,
@@ -151,6 +155,8 @@ test('a failed silent refresh disables new routing work without closing the visi
         if (token === 'expired-refresh') throw new Error('expired');
         return {
           tenant_id: agent.tenantId,
+          tenant_slug: 'demo',
+          organization: { demo: {} },
           dc_user_id: agent.userId,
           sid: agent.sessionId,
           exp: 1_788_430_200,
