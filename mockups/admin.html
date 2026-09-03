@@ -110,14 +110,62 @@
     <div class="space-y-5">
       <div class="bg-white border border-slate-200 rounded-xl p-5">
         <p class="text-sm text-slate-500 mb-1">Current plan</p>
-        <p class="text-xl font-semibold mb-1">Business</p>
-        <p class="text-sm text-slate-500 mb-3">฿590 / seat / เดือน + usage</p>
-        <p class="text-xs text-slate-400 mb-4">รอบบิลถัดไป 1 ส.ค. 2026 · ประมาณการ ฿24,180</p>
+        <p class="text-xl font-semibold mb-1">Growth</p>
+        <p class="text-sm text-slate-500 mb-3">฿2,190 / seat / เดือน + usage</p>
+        <p class="text-xs text-slate-400 mb-4">รอบบิลถัดไป 1 ก.ย. 2026 · ประมาณการ ฿24,180</p>
         <button onclick="toast('Plan page (mock)')" class="w-full h-9 rounded-lg border border-teal-700 text-teal-700 text-sm font-medium hover:bg-teal-50">Change plan</button>
       </div>
       <div class="bg-teal-50 border border-teal-100 rounded-xl p-5 text-sm text-teal-900">
         <p class="font-semibold mb-1"><i class="ti ti-receipt mr-1"></i>Usage-based billing</p>
         <p>ตัวเลขทั้งหมดคำนวณจาก interaction events (Kafka) — ตรวจสอบย้อนหลังได้ทุกช่วงเวลา</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== โมดูลตามสิทธิ์ (ADR-009) ===== -->
+  <h2 class="text-sm font-semibold text-slate-700 mt-8 mb-1">โมดูลตามแพ็กเกจ</h2>
+  <p class="text-xs text-slate-400 mb-3">สิทธิ์ (entitlement) ต่างจากโควตาด้านบน — โควตาคือ "ใช้ไปเท่าไร" ส่วนนี้คือ "ใช้อะไรได้"</p>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <table class="w-full text-sm">
+        <tbody>
+          <tr class="border-b border-slate-100">
+            <td class="px-4 py-3"><p class="font-medium text-slate-800">Workforce management</p>
+              <p class="text-xs text-slate-400"><code class="bg-slate-100 rounded px-1">wfm.*</code> — จัดกะ · การลา · adherence · พยากรณ์ · จัดกะอัตโนมัติ</p></td>
+            <td class="px-4 py-3 text-right whitespace-nowrap"><span class="st st-available">เปิดใช้งาน</span></td>
+            <td class="px-4 py-3 text-right text-slate-600 whitespace-nowrap">28 / 50 seat</td>
+          </tr>
+          <tr class="border-b border-slate-100">
+            <td class="px-4 py-3"><p class="font-medium text-slate-800">Flow Designer</p>
+              <p class="text-xs text-slate-400"><code class="bg-slate-100 rounded px-1">flows.maxPublished</code></p></td>
+            <td class="px-4 py-3 text-right"><span class="st st-available">เปิดใช้งาน</span></td>
+            <td class="px-4 py-3 text-right text-slate-600 whitespace-nowrap">10 / 50 flow</td>
+          </tr>
+          <tr class="border-b border-slate-100">
+            <td class="px-4 py-3"><p class="font-medium text-slate-800">SSO องค์กร</p>
+              <p class="text-xs text-slate-400"><code class="bg-slate-100 rounded px-1">sso.enabled</code></p></td>
+            <td class="px-4 py-3 text-right"><span class="st st-available">เปิดใช้งาน</span></td>
+            <td class="px-4 py-3 text-right text-slate-400">—</td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3"><p class="font-medium text-slate-500">ติดตั้งในองค์กร (on-premise)</p>
+              <p class="text-xs text-slate-400"><code class="bg-slate-100 rounded px-1">onPrem.enabled</code> — มีในแพ็กเกจ Enterprise</p></td>
+            <td class="px-4 py-3 text-right"><span class="st st-offline"><i class="ti ti-lock text-[10px]"></i>ล็อก</span></td>
+            <td class="px-4 py-3 text-right"><a href="#" onclick="toast('หน้าอัปเกรด (mock)');return false" class="text-teal-700 text-xs font-medium hover:underline whitespace-nowrap">อัปเกรด →</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-amber-50 border border-amber-100 rounded-xl p-5 text-sm text-amber-900">
+        <p class="font-semibold mb-1"><i class="ti ti-user-check mr-1"></i>ที่นั่ง WFM นับจากการเปิดให้รายคน</p>
+        <p class="text-[13px] leading-relaxed">ระบบไม่นับอัตโนมัติจากคนที่มีชื่อในตารางกะ — ผู้ดูแลเปิดให้ทีละคนที่หน้า
+        <b>บุคลากร → เอเจนต์</b> และจะเปิดเกินเพดานไม่ได้ เพื่อไม่ให้เกิดบิลเกินโดยไม่รู้ตัว</p>
+      </div>
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 text-xs text-slate-500">
+        <p class="font-semibold text-slate-600 mb-1.5"><i class="ti ti-shield-check mr-1"></i>ถ้าแพ็กเกจหมดอายุ</p>
+        <p class="leading-relaxed">ข้อมูลทั้งหมดยังอยู่และยังเปิดดูได้ตลอด สิ่งที่หยุดคือการสร้างและแก้ไขของใหม่
+        — และ<b class="text-slate-700">การรับสายกับการกระจายงานไม่หยุดไม่ว่ากรณีใด</b></p>
       </div>
     </div>
   </div>
@@ -138,8 +186,143 @@
   </div>
 </section>
 
+
+<!-- ===== Expert groups (list) — docs/internal-collaboration.md §4 ===== -->
+<section class="view" data-view="expert-groups">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="egTitle">Expert groups</h1>
+    <p class="text-sm text-slate-500" data-i18n="egSubtitle">Who agents can ask mid-call, and how fast they must answer</p></div>
+    <button onclick="newExpertGroup()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="note note-info mb-4"><i class="ti ti-info-circle text-lg"></i>
+    <p>การถามผู้เชี่ยวชาญ <b>ไม่ใช่ interaction</b> — ไม่เข้าคิว ไม่กิน capacity ไม่นับใน AHT/SLA
+    (<a class="underline" href="../docs/adr/022-internal-collaboration.md">ADR-022</a> ข้อ 1)
+    ตัวจับคู่เล็ก ๆ อยู่ในโมดูลนี้เอง ไม่ใช่ router</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">กลุ่ม</th><th class="font-normal px-4 py-2.5">สกิล</th>
+        <th class="font-normal px-4 py-2.5">สมาชิก</th><th class="font-normal px-4 py-2.5">เป้าตอบครั้งแรก</th>
+        <th class="font-normal px-4 py-2.5">จริง (p50)</th><th class="font-normal px-4 py-2.5">ค้างอยู่</th>
+        <th class="font-normal px-4 py-2.5">กลายเป็นโอนสาย</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="eg-body"></tbody>
+    </table></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-alert-triangle mr-1"></i>"เทคนิค (อุปกรณ์)" ตอบช้ากว่าเป้า (74 วิ จาก 90 วิ ยังผ่าน) แต่ <b>31% กลายเป็นการโอนสาย</b> — แปลว่าถามแล้วยังจบไม่ได้ ควรดูคลังความรู้ของหัวข้อนั้น</p>
+</section>
+
+<!-- ===== Expert group form (new/edit) ===== -->
+<section class="view" data-view="expert-group-form">
+  <button onclick="showView('expert-groups')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="egf-heading" class="text-xl font-semibold mb-5">New expert group</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อกลุ่ม (เอเจนต์เห็นชื่อนี้ตอนเลือก)</label><input id="egf-name" class="inp" placeholder="เช่น สินเชื่อ"></div>
+          <div class="md:col-span-2"><label class="fld">สกิลที่ใช้จับคู่</label><input id="egf-skills" class="inp" placeholder="credit, promotion"></div>
+          <div><label class="fld">เป้าเวลาตอบครั้งแรก (วินาที)</label><input id="egf-sla" type="number" class="inp" value="60"></div>
+          <div><label class="fld">รับพร้อมกันสูงสุดต่อคน</label><input id="egf-max" type="number" class="inp" value="2"></div>
+          <div class="md:col-span-2"><label class="fld">ถ้าไม่มีใครว่าง</label>
+            <select id="egf-fallback" class="inp"><option>หัวหน้าทีมของผู้ถาม</option><option>คิว General Support</option><option>แจ้งว่าไม่มีคนว่างและให้ลองใหม่</option></select></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">สมาชิก</h2>
+        <table class="w-full text-sm">
+          <tbody class="text-slate-600">
+            <tr class="border-b border-slate-50"><td class="py-2 font-medium text-slate-800">ธนพล ว.</td><td class="py-2">credit</td><td class="py-2"><span class="st st-available">ว่างให้ถาม</span></td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-trash"></i></span></td></tr>
+            <tr class="border-b border-slate-50"><td class="py-2 font-medium text-slate-800">ณัฐพร ส.</td><td class="py-2">credit, promotion</td><td class="py-2"><span class="st st-busy">กำลังคุยสาย</span></td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-trash"></i></span></td></tr>
+            <tr><td class="py-2 font-medium text-slate-800">กิตติ ร. (back office)</td><td class="py-2">credit</td><td class="py-2"><span class="st st-available">ว่างให้ถาม</span></td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-trash"></i></span></td></tr>
+          </tbody>
+        </table>
+        <button class="qbtn mt-3" onclick="toast('เพิ่มสมาชิก (mock)')"><i class="ti ti-plus"></i>เพิ่มสมาชิก</button>
+        <p class="text-xs text-slate-400 mt-3">ผู้เชี่ยวชาญไม่จำเป็นต้องเป็นเอเจนต์ — คนหลังบ้านที่ไม่รับสายก็อยู่ในกลุ่มได้</p>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="flex gap-3">
+        <button onclick="saveMock('expert-groups')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('expert-groups')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Files & retention ===== -->
+<section class="view" data-view="collab-policy">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="cpTitle">Files &amp; retention</h1>
+  <p class="text-sm text-slate-500" data-i18n="cpSubtitle">What can be attached, how long it is kept, and who may search it</p></div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">ไฟล์แนบ</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="fld">ขนาดสูงสุดต่อไฟล์ (MB)</label><input type="number" class="inp" value="20"></div>
+          <div><label class="fld">จำนวนไฟล์ต่อข้อความ</label><input type="number" class="inp" value="5"></div>
+        </div>
+        <h3 class="text-sm font-medium text-slate-700 mt-5 mb-2">ชนิดที่อนุญาต</h3>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">รูปภาพ</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">PDF</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">Word/Excel</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">txt/csv</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50 text-slate-400"><input type="checkbox" disabled>ไฟล์รันได้</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50 text-slate-400"><input type="checkbox" disabled>zip/rar</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50 text-slate-400"><input type="checkbox" disabled>วิดีโอ</label>
+        </div>
+        <div class="note note-bad mt-4"><i class="ti ti-shield-x text-lg"></i>
+          <p>ระบบตรวจ <b>ชนิดไฟล์จริงจาก magic bytes ไม่เชื่อนามสกุล</b> · ทุกไฟล์ถูกสแกนไวรัสก่อน
+          และ <b>ดาวน์โหลดไม่ได้จนกว่าสแกนผ่าน</b> · ลิงก์ดาวน์โหลดมีอายุ 5 นาทีและผูกกับผู้ขอ</p></div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">อายุข้อมูล</h2>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">ชนิดห้อง</th><th class="font-normal py-2">เก็บนาน</th><th class="font-normal py-2">หมายเหตุ</th></tr></thead>
+          <tbody class="text-slate-600">
+            <tr class="border-t border-slate-100"><td class="py-2">แชทส่วนตัว (DM)</td><td class="py-2"><input type="number" class="inp h-9 w-24" value="180"> วัน</td><td class="py-2 text-xs">นับจากข้อความล่าสุด</td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">ห้องทีม</td><td class="py-2"><input type="number" class="inp h-9 w-24" value="180"> วัน</td><td class="py-2 text-xs">—</td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-800">ถามผู้เชี่ยวชาญ (consult)</td><td class="py-2"><b>ตาม interaction/เคสที่ผูกอยู่</b></td><td class="py-2 text-xs">เป็นหลักฐาน — แก้ไม่ได้จากหน้านี้</td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">ประกาศ</td><td class="py-2"><input type="number" class="inp h-9 w-24" value="30"> วัน</td><td class="py-2 text-xs">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-warn"><i class="ti ti-user-shield text-lg"></i>
+        <p>ไม่มีใครอ่าน DM ของคนอื่นจากหน้าจอปกติได้ — การค้นข้ามห้องเป็นสิทธิ์ <b>COMPLIANCE</b> แยกต่างหาก
+        และถูกบันทึกทุกครั้ง ไม่งั้นแชทภายในจะไม่มีใครกล้าใช้จริง</p></div>
+      <div class="note note-info"><i class="ti ti-photo-shield text-lg"></i>
+        <p>ตอนแนบไฟล์ ระบบเตือนเมื่อพบรูปแบบเลขบัตรประชาชน/บัตรเครดิต — ภาพหน้าจอที่พนักงานส่งกันคือข้อมูลลูกค้าเกือบทุกครั้ง</p></div>
+      <button onclick="toast('บันทึกแล้ว (mock)')" class="w-full h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Access log ===== -->
+<section class="view" data-view="collab-access">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="caTitle">Access log</h1>
+  <p class="text-sm text-slate-500" data-i18n="caSubtitle">Every search, channel open and file download</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">เวลา</th><th class="font-normal px-4 py-2.5">ผู้ใช้</th>
+        <th class="font-normal px-4 py-2.5">การกระทำ</th><th class="font-normal px-4 py-2.5">เป้าหมาย</th>
+        <th class="font-normal px-4 py-2.5">IP</th></tr></thead>
+      <tbody class="text-slate-600">
+        <tr class="border-b border-slate-50"><td class="px-4 py-3">09-08 10:12</td><td class="px-4 py-3">compliance@acme.co.th</td><td class="px-4 py-3"><span class="tag tag-warn">SEARCH</span></td><td class="px-4 py-3">คำค้น "ส่วนลดพิเศษ" · 14 ห้อง</td><td class="px-4 py-3 text-slate-400">10.20.4.11</td></tr>
+        <tr class="border-b border-slate-50"><td class="px-4 py-3">09-08 09:41</td><td class="px-4 py-3">somchai@acme.co.th</td><td class="px-4 py-3"><span class="tag">DOWNLOAD_FILE</span></td><td class="px-4 py-3">promo-installment-2026.pdf</td><td class="px-4 py-3 text-slate-400">10.20.7.53</td></tr>
+        <tr class="border-b border-slate-50"><td class="px-4 py-3">08-08 17:20</td><td class="px-4 py-3">krit@acme.co.th</td><td class="px-4 py-3"><span class="tag tag-bad">EXPORT</span></td><td class="px-4 py-3">ห้อง consult ของ INT-88012 (legal hold)</td><td class="px-4 py-3 text-slate-400">10.20.1.9</td></tr>
+        <tr><td class="px-4 py-3">08-08 14:03</td><td class="px-4 py-3">somporn@acme.co.th</td><td class="px-4 py-3"><span class="tag">OPEN_CHANNEL</span></td><td class="px-4 py-3">ห้องทีม Support A</td><td class="px-4 py-3 text-slate-400">10.20.3.28</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
 </main></template>
 <script src="assets/i18n.js"></script>
 <script src="assets/app.js"></script>
+<script src="assets/modules.js"></script>
 </body>
 </html>

@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — AI &amp; Self-service</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="ai" data-default="bots">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== Bots (list) ===== -->
+<section class="view active" data-view="bots">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="botTitle">Virtual agents</h1>
+    <p class="text-sm text-slate-500" data-i18n="botSubtitle">Bots answer inside the flow — never instead of it</p></div>
+    <button onclick="newBot()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="note note-info mb-4"><i class="ti ti-info-circle text-lg"></i>
+    <p>บอตถูกเรียกจาก node <code>Bot</code> ใน <a class="underline" href="flow-editor.html">Flow Designer</a> และตอบกลับได้ 3 อย่างเท่านั้น:
+    <b>ตอบได้ · ส่งต่อคน · ล้มเหลว</b> — flow เป็นคนตัดสินใจต่อเสมอ (<a class="underline" href="../docs/adr/013-virtual-agent-knowledge.md">ADR-013</a>)</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">บอต</th><th class="font-normal px-4 py-2.5">ระดับ</th>
+        <th class="font-normal px-4 py-2.5">ช่องทาง</th><th class="font-normal px-4 py-2.5">Session (30 วัน)</th>
+        <th class="font-normal px-4 py-2.5">จบด้วยบอต</th><th class="font-normal px-4 py-2.5">CSAT ของ session</th>
+        <th class="font-normal px-4 py-2.5">เวอร์ชัน</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ai-bots-body"></tbody>
+    </table></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-alert-triangle mr-1"></i>"Billing helper" จบงานได้ 38% แต่ CSAT 66 — อัตราการจบสูงโดย CSAT ต่ำแปลว่าเรากำลังไล่ลูกค้า ไม่ใช่ช่วยลูกค้า</p>
+</section>
+
+<!-- ===== Bot form (new/edit) ===== -->
+<section class="view" data-view="bot-form">
+  <button onclick="showView('bots')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="bf-heading" class="text-xl font-semibold mb-5">New virtual agent</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อบอต</label><input id="bf-name" class="inp"></div>
+          <div><label class="fld">ระดับความสามารถ</label>
+            <select id="bf-level" class="inp">
+              <option value="L1">L1 — เมนู/FAQ (ไม่ใช้ LLM)</option>
+              <option value="L2">L2 — ตอบจากคลังความรู้ (RAG)</option>
+              <option value="L3">L3 — ทำงานจริงผ่าน API</option>
+            </select></div>
+          <div><label class="fld">คลังความรู้ที่ใช้</label><select class="inp"><option>สาธารณะ (ทั้งหมด)</option><option>สาธารณะ — เฉพาะจัดส่ง</option><option>ภายใน + สาธารณะ</option></select></div>
+          <div><label class="fld">เกณฑ์ความมั่นใจขั้นต่ำ</label><input id="bf-conf" type="number" step="0.01" class="inp" value="0.62"></div>
+          <div><label class="fld">จำนวนรอบสูงสุดก่อนส่งต่อคน</label><input id="bf-turns" type="number" class="inp" value="6"></div>
+          <div class="md:col-span-2"><label class="fld">คิวที่รับเมื่อส่งต่อ</label><select id="bf-queue" class="inp"><option>General Support</option><option>Technical Support</option><option>Sales (TH)</option></select></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">บุคลิกและข้อห้าม</h2>
+        <p class="text-xs text-slate-400 mb-3">ข้อห้ามคือสิ่งที่ทำให้บอตปลอดภัยกว่าคำสั่งว่าต้องพูดอะไร</p>
+        <textarea id="bf-persona" class="inp" rows="4"></textarea>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 text-sm">
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked disabled class="accent-teal-700">ตอบได้เฉพาะจากคลังความรู้ (บังคับ)</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked disabled class="accent-teal-700">ต้องแนบแหล่งอ้างอิงทุกคำตอบ (บังคับ)</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked disabled class="accent-teal-700">คำว่า "คุยกับคน" ส่งต่อทันทีเสมอ (บังคับ)</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">ปิดบัง PII ก่อนส่งออก provider</label>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ทดลองคุย</h2>
+        <div class="border border-slate-200 rounded-xl p-4 space-y-2 bg-slate-50/50">
+          <div class="bubble bubble-in">ของถึงเมื่อไหร่ครับ สั่งไปเมื่อวาน</div>
+          <div class="bubble bubble-out">รบกวนขอเลขคำสั่งซื้อครับ</div>
+          <div class="bubble bubble-in">A2291</div>
+          <div class="bubble bubble-out">ออเดอร์ #A2291 อยู่ระหว่างจัดส่ง คาดว่าถึงพรุ่งนี้ครับ</div>
+          <div class="flex flex-wrap gap-1.5 pl-1">
+            <span class="ev"><i class="ti ti-file-text"></i><span>การติดตามพัสดุ · ย่อหน้า 3</span></span>
+            <span class="tag tag-ai">ความมั่นใจ 0.81</span><span class="tag">1,840 + 96 tokens</span>
+          </div>
+        </div>
+        <div class="flex gap-2 mt-3"><input class="inp" placeholder="พิมพ์คำถามเพื่อทดลอง…"><button class="qbtn on" onclick="toast('ส่งคำถามทดลอง (mock)')"><i class="ti ti-send"></i>ส่ง</button></div>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-warn"><i class="ti ti-lock text-lg"></i>
+        <p>กด <b>เผยแพร่</b> ไม่ได้จนกว่าชุดทดสอบจะผ่านครบ — ตอนนี้ผ่าน 4 จาก 5 ข้อ</p></div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('bots')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800">บันทึกฉบับร่าง</button>
+        <button class="flex-1 h-10 rounded-lg border border-slate-200 text-sm text-slate-400 cursor-not-allowed">เผยแพร่</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Bot tests ===== -->
+<section class="view" data-view="bot-tests">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="botTestTitle">Test sets</h1>
+    <p class="text-sm text-slate-500" data-i18n="botTestSubtitle">Real questions from transcripts — publishing is blocked until they pass</p></div>
+    <div class="flex gap-2">
+      <select class="inp w-56"><option>Order status (RAG)</option><option>Support TH — FAQ</option></select>
+      <button onclick="toast('รันทั้งชุด (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-player-play"></i>รันทั้งชุด</button>
+    </div>
+  </div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+    <div class="mcard"><div class="mcard-num">5</div><div class="mcard-lbl">เคสทดสอบ</div></div>
+    <div class="mcard"><div class="mcard-num text-emerald-700">4</div><div class="mcard-lbl">ผ่าน</div></div>
+    <div class="mcard"><div class="mcard-num text-rose-600">1</div><div class="mcard-lbl">ไม่ผ่าน</div></div>
+    <div class="mcard"><div class="mcard-num">v2 → v3</div><div class="mcard-lbl">รอเผยแพร่</div></div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">คำถามจริงจากบทสนทนา</th><th class="font-normal px-4 py-2.5">ผลที่คาดหวัง</th>
+        <th class="font-normal px-4 py-2.5">ผลล่าสุด</th><th class="px-4 py-2.5"></th></tr></thead>
+      <tbody id="ai-tests-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== Deflection ===== -->
+<section class="view" data-view="deflection">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="deflTitle">Deflection</h1>
+  <p class="text-sm text-slate-500" data-i18n="deflSubtitle">Containment, cost per session and why the bot handed off</p></div>
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
+    <div class="mcard"><div class="mcard-num">12,470</div><div class="mcard-lbl">session (30 วัน)</div></div>
+    <div class="mcard"><div class="mcard-num text-emerald-700">51%</div><div class="mcard-lbl">จบด้วยบอต</div></div>
+    <div class="mcard"><div class="mcard-num">79</div><div class="mcard-lbl">CSAT ของ session ที่จบด้วยบอต</div></div>
+    <div class="mcard"><div class="mcard-num">฿1.42</div><div class="mcard-lbl">ต้นทุนต่อ session</div></div>
+    <div class="mcard"><div class="mcard-num">6,110</div><div class="mcard-lbl">งานที่ไม่ต้องใช้คน</div></div>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">เหตุผลที่ส่งต่อคน</h2>
+      <div class="space-y-3 text-sm">
+        <div><div class="flex justify-between mb-1"><span>ไม่มีคำตอบในคลังความรู้</span><b>2,410</b></div><div class="prog"><div class="p-warn" style="width:72%"></div></div></div>
+        <div><div class="flex justify-between mb-1"><span>ลูกค้าขอคุยกับคน</span><b>1,880</b></div><div class="prog"><div style="width:56%"></div></div></div>
+        <div><div class="flex justify-between mb-1"><span>ความมั่นใจต่ำกว่าเกณฑ์</span><b>1,204</b></div><div class="prog"><div style="width:36%"></div></div></div>
+        <div><div class="flex justify-between mb-1"><span>ครบจำนวนรอบสูงสุด</span><b>866</b></div><div class="prog"><div style="width:26%"></div></div></div>
+      </div>
+      <p class="text-xs text-slate-400 mt-4">"ไม่มีคำตอบในคลัง" เป็นเหตุผลอันดับหนึ่ง → เป็นคิวงานใน <a class="underline" onclick="showView('kb-gaps')">คำถามที่ยังไม่มีคำตอบ</a> โดยอัตโนมัติ</p>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">งานที่บอตรับไปได้มากที่สุด</h2>
+      <table class="w-full text-sm">
+        <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">หัวข้อ</th><th class="font-normal py-2">session</th><th class="font-normal py-2">จบเอง</th></tr></thead>
+        <tbody class="text-slate-600">
+          <tr class="border-t border-slate-100"><td class="py-2">ติดตามพัสดุ</td><td class="py-2">4,120</td><td class="py-2 text-emerald-700 font-medium">78%</td></tr>
+          <tr class="border-t border-slate-100"><td class="py-2">เวลาทำการ / สาขา</td><td class="py-2">2,240</td><td class="py-2 text-emerald-700 font-medium">91%</td></tr>
+          <tr class="border-t border-slate-100"><td class="py-2">รีเซ็ตรหัสผ่าน</td><td class="py-2">1,860</td><td class="py-2 text-emerald-700 font-medium">69%</td></tr>
+          <tr class="border-t border-slate-100"><td class="py-2">ยอดค้างชำระ</td><td class="py-2">1,410</td><td class="py-2 text-amber-600 font-medium">42%</td></tr>
+          <tr class="border-t border-slate-100"><td class="py-2">เคลม/คืนสินค้า</td><td class="py-2">980</td><td class="py-2 text-rose-600 font-medium">14%</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Knowledge base (list) ===== -->
+<section class="view" data-view="kb">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="kbTitle">Knowledge articles</h1>
+    <p class="text-sm text-slate-500" data-i18n="kbSubtitle">One source of truth for bots, agents and customers</p></div>
+    <button onclick="newKb()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i>เขียนบทความ</button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">บทความ</th><th class="font-normal px-4 py-2.5">คลัง</th>
+        <th class="font-normal px-4 py-2.5">เจ้าของ</th><th class="font-normal px-4 py-2.5">แก้ล่าสุด</th>
+        <th class="font-normal px-4 py-2.5">ทบทวนครั้งหน้า</th><th class="font-normal px-4 py-2.5">ถูกใช้ตอบ</th>
+        <th class="font-normal px-4 py-2.5">นำไปสู่การส่งต่อ</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ai-kb-body"></tbody>
+    </table></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-info-circle mr-1"></i>บทความที่เลยกำหนดทบทวนจะถูก<b>ลดน้ำหนัก</b>ในการค้นหาอัตโนมัติ — คลังที่ไม่มีวันหมดอายุจะกลายเป็นคลังคำตอบผิดภายใน 18 เดือน</p>
+</section>
+
+<!-- ===== KB form (new/edit) ===== -->
+<section class="view" data-view="kb-form">
+  <button onclick="showView('kb')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="kbf-heading" class="text-xl font-semibold mb-5">New article</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">หัวข้อ</label><input id="kbf-title" class="inp"></div>
+          <div><label class="fld">คลัง</label><select id="kbf-col" class="inp"><option>สาธารณะ</option><option>ภายใน</option></select></div>
+          <div><label class="fld">ภาษา</label><select class="inp"><option>ไทย</option><option>English</option></select></div>
+          <div><label class="fld">เจ้าของ (บังคับ)</label><select id="kbf-owner" class="inp"><option>ทีมบริการ</option><option>ทีมเทคนิค</option><option>ฝ่ายขาย</option><option>ฝ่ายกฎหมาย</option><option>ฝ่ายบัญชี</option></select></div>
+          <div><label class="fld">รอบทบทวน (วัน) — บังคับ</label><input id="kbf-review" type="number" class="inp" value="180"></div>
+          <div class="md:col-span-2"><label class="fld">แท็ก</label><input id="kbf-tags" class="inp" placeholder="จัดส่ง, พัสดุ"></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">เนื้อหา</h2>
+        <textarea id="kbf-body" class="inp" rows="10"></textarea>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ทดสอบการค้นเจอ</h2>
+        <input class="inp mb-3" placeholder="ลองพิมพ์คำถามของลูกค้า">
+        <p class="text-sm text-slate-600">คำถามที่บทความนี้ควรตอบได้:</p>
+        <ul class="text-sm text-slate-600 mt-2 space-y-1">
+          <li><i class="ti ti-check text-emerald-600 mr-1"></i>ของถึงเมื่อไหร่</li>
+          <li><i class="ti ti-check text-emerald-600 mr-1"></i>เช็กเลขพัสดุยังไง</li>
+          <li><i class="ti ti-x text-rose-500 mr-1"></i>ส่งต่างประเทศได้ไหม <span class="text-xs text-slate-400">(ยังไม่มีในบทความ)</span></li>
+        </ul>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('kb')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('kb')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== KB gaps ===== -->
+<section class="view" data-view="kb-gaps">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="kbGapTitle">Knowledge gaps</h1>
+  <p class="text-sm text-slate-500" data-i18n="kbGapSubtitle">Questions with no answer yet — the writing queue</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">คำถามที่ตอบไม่ได้</th><th class="font-normal px-4 py-2.5">จำนวน</th>
+        <th class="font-normal px-4 py-2.5">พบครั้งแรก</th><th class="font-normal px-4 py-2.5">มอบหมาย</th>
+        <th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th></tr></thead>
+      <tbody id="ai-gaps-body"></tbody>
+    </table>
+  </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-repeat mr-1"></i>วงจรปรับปรุงตัวเอง: บอตตอบไม่ได้ → เข้าคิวนี้ → เขียนบทความ → ระบบฝังเวกเตอร์ใหม่ → ชุดทดสอบได้เคสเพิ่ม 1 ข้อ</p>
+</section>
+
+<!-- ===== Assist settings ===== -->
+<section class="view" data-view="assist-settings">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="asTitle">Assist settings</h1>
+  <p class="text-sm text-slate-500" data-i18n="asSubtitle">What the assistant may do, and the latency it must meet</p></div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">ฟีเจอร์</h2>
+        <div class="space-y-3">
+          <label class="flex items-start gap-3 border border-slate-200 rounded-lg px-4 py-3"><input type="checkbox" checked class="accent-teal-700 mt-1">
+            <span><b class="text-sm">สรุปหลังจบสาย (A1)</b><br><span class="text-xs text-slate-500">ร่างสรุป + เสนอ disposition ให้เอเจนต์กดยืนยัน — ลด ACW ได้ 38 วินาที/สาย</span></span></label>
+          <label class="flex items-start gap-3 border border-slate-200 rounded-lg px-4 py-3"><input type="checkbox" checked class="accent-teal-700 mt-1">
+            <span><b class="text-sm">แนะนำบทความระหว่างคุย (A2)</b><br><span class="text-xs text-slate-500">ช่องทาง digital เท่านั้น (ไม่ต้องใช้ ASR)</span></span></label>
+          <label class="flex items-start gap-3 border border-slate-200 rounded-lg px-4 py-3"><input type="checkbox" checked class="accent-teal-700 mt-1">
+            <span><b class="text-sm">เตือนเรื่อง compliance (A3)</b><br><span class="text-xs text-slate-500">ใช้กฎชุดเดียวกับหมวดอัตโนมัติของ QM · เอเจนต์ปิดเองไม่ได้</span></span></label>
+          <label class="flex items-start gap-3 border border-slate-200 rounded-lg px-4 py-3 bg-slate-50"><input type="checkbox" disabled class="accent-teal-700 mt-1">
+            <span><b class="text-sm text-slate-500">แนะนำระหว่างสายเสียงแบบเรียลไทม์ (A4)</b><br><span class="text-xs text-slate-500">ยังปล่อยไม่ได้ — ASR ไทยแบบสตรีมยังทำ p95 ได้ 3.4 วินาที (เกณฑ์ ≤ 2.5)</span></span></label>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">ขีดจำกัดที่บังคับ</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div><label class="fld">การ์ดพร้อมกันสูงสุด</label><input type="number" class="inp" value="2"></div>
+          <div><label class="fld">Latency budget (วินาที)</label><input type="number" step="0.1" class="inp" value="2.5"></div>
+          <div><label class="fld">สรุปเฉพาะสายที่ยาวกว่า (วินาที)</label><input type="number" class="inp" value="60"></div>
+        </div>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-bad"><i class="ti ti-hand-stop text-lg"></i>
+        <p><b>เส้นที่ไม่ย้าย:</b> ผู้ช่วยเสนอข้อความได้ แต่<b>การกดส่งเป็นของเอเจนต์เท่านั้น</b> ทั้งเวอร์ชันนี้และเวอร์ชันต่อ ๆ ไป</p></div>
+      <div class="note note-info"><i class="ti ti-user-shield text-lg"></i>
+        <p>อัตราการยอมรับการ์ด<b>รายบุคคล</b>ใช้เพื่อปรับปรุงฟีเจอร์เท่านั้น ห้ามส่งเข้าคะแนนประเมินคน (<a class="underline" href="../docs/adr/014-agent-assist.md">ADR-014</a>)</p></div>
+      <button onclick="toast('บันทึกแล้ว (mock)')" class="w-full h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Prompts (list) ===== -->
+<section class="view" data-view="assist-prompts">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="asPrTitle">Prompts</h1>
+    <p class="text-sm text-slate-500" data-i18n="asPrSubtitle">Versioned prompts shared with auto-QM</p></div>
+    <button onclick="newPrompt()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Prompt</th><th class="font-normal px-4 py-2.5">ชนิด</th>
+        <th class="font-normal px-4 py-2.5">เวอร์ชัน</th><th class="font-normal px-4 py-2.5">โมเดล</th>
+        <th class="font-normal px-4 py-2.5">อัตราการยอมรับ</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ai-prompts-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Prompt form (new/edit) ===== -->
+<section class="view" data-view="prompt-form">
+  <button onclick="showView('assist-prompts')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="apf-heading" class="text-xl font-semibold mb-5">New prompt</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="md:col-span-3"><label class="fld">ชื่อ</label><input id="apf-name" class="inp"></div>
+          <div><label class="fld">ชนิด</label><select id="apf-kind" class="inp"><option>SUMMARY</option><option>SUGGEST</option><option>NUDGE</option></select></div>
+          <div class="md:col-span-2"><label class="fld">โมเดล</label><select id="apf-model" class="inp"><option>claude-sonnet-5</option><option>claude-haiku-4-5</option><option>โมเดลในองค์กร (on-prem)</option></select></div>
+        </div>
+        <div class="mt-4"><label class="fld">เนื้อหา prompt</label><textarea id="apf-body" class="inp font-mono text-[13px]" rows="8"></textarea></div>
+        <p class="text-xs text-slate-400 mt-2">การแก้ prompt สร้าง<b>เวอร์ชันใหม่เสมอ</b> — ผลลัพธ์เก่ายังอ้างอิงเวอร์ชันที่ใช้ตอนนั้นได้</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ทดสอบกับสายจริง 5 สาย</h2>
+        <button class="qbtn mb-3" onclick="toast('รันทดสอบ (mock)')"><i class="ti ti-player-play"></i>รันทดสอบ</button>
+        <div class="qq"><b class="text-sm">INT-88077</b>
+          <p class="text-sm text-slate-600 mt-1">ลูกค้าติดต่อเรื่องพัสดุล่าช้า · เอเจนต์ตรวจสอบและแจ้งกำหนดส่งใหม่ · ต้องติดตามผลวันพรุ่งนี้</p>
+          <div class="flex gap-1.5 mt-2"><span class="tag tag-info">เสนอ: Resolved</span><span class="tag">2.1 วินาที</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="flex gap-3">
+        <button onclick="saveMock('assist-prompts')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('assist-prompts')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Playbooks (list) ===== -->
+<section class="view" data-view="assist-playbooks">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="asPbTitle">Playbooks</h1>
+    <p class="text-sm text-slate-500" data-i18n="asPbSubtitle">Nudge rules written in the same DSL as QM categories</p></div>
+    <button onclick="newPlaybook()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">กฎ</th><th class="font-normal px-4 py-2.5">เงื่อนไข</th>
+        <th class="font-normal px-4 py-2.5">ระดับ</th><th class="font-normal px-4 py-2.5">แสดงไปแล้ว</th>
+        <th class="font-normal px-4 py-2.5">อัตราการยอมรับ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ai-playbooks-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Playbook form (new/edit) ===== -->
+<section class="view" data-view="playbook-form">
+  <button onclick="showView('assist-playbooks')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="pbf-heading" class="text-xl font-semibold mb-5">New playbook rule</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อกฎ</label><input id="pbf-name" class="inp"></div>
+          <div><label class="fld">ระดับ</label><select id="pbf-level" class="inp"><option value="info">ข้อมูล</option><option value="warn">เตือน (ปิดไม่ได้)</option></select></div>
+          <div><label class="fld">ช่องทางที่ใช้</label><select class="inp"><option>ทุกช่องทาง</option><option>เฉพาะ digital</option><option>เฉพาะเสียง</option></select></div>
+          <div class="md:col-span-2"><label class="fld">เงื่อนไข (DSL เดียวกับหมวดอัตโนมัติของ QM)</label>
+            <textarea id="pbf-when" class="inp font-mono text-[13px]" rows="4">{ "afterSeconds": 45, "notMatched": { "anyPhrase": ["ขอทราบเลขบัตร", "ยืนยันตัวตน"] } }</textarea></div>
+          <div class="md:col-span-2"><label class="fld">ข้อความที่แสดงกับเอเจนต์</label><input id="pbf-text" class="inp"></div>
+        </div>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-info"><i class="ti ti-recycle text-lg"></i>
+        <p>กฎที่ QM ใช้ตรวจย้อนหลังเอามาเตือนตอนกำลังคุยได้ทันที — ไม่ต้องเขียนกฎสองชุด</p></div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('assist-playbooks')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('assist-playbooks')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Guided scripts (list) ===== -->
+<section class="view" data-view="assist-scripts">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="asScTitle">Guided scripts</h1>
+    <p class="text-sm text-slate-500" data-i18n="asScSubtitle">What must be said, in what order — written by people, never by a model</p></div>
+    <div class="flex items-center gap-2">
+      <a href="../docs/sales-playbook.md" class="qbtn" title="เปิด Sales playbook"><i class="ti ti-book-2"></i>Playbook</a>
+      <button onclick="newScript()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+    </div>
+  </div>
+  <div class="rounded-2xl border border-teal-200 bg-gradient-to-br from-teal-50 via-white to-amber-50 p-5 mb-5">
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+      <div class="max-w-2xl">
+        <div class="flex items-center gap-2 mb-2"><span class="tag tag-info">SALES MOTION</span><span class="text-xs text-slate-400">pilot · v0.1</span></div>
+        <h2 class="text-lg font-semibold text-slate-900">ช่วยทีมขายคุยให้ตรงจังหวะ และรู้ว่าต้องเก็บอะไรต่อ</h2>
+        <p class="text-sm text-slate-600 mt-1.5">เริ่มจาก discovery ก่อนเสนอราคา ใช้ talk track ที่ approved แล้ว และปิดทุกสายด้วย next step ที่วัดผลได้</p>
+        <div class="flex flex-wrap gap-2 mt-4">
+          <button class="qbtn on" onclick="filterScripts('SALES')"><i class="ti ti-target-arrow"></i>ดู script ฝ่ายขาย</button>
+          <button class="qbtn" onclick="newScript()"><i class="ti ti-plus"></i>สร้าง sales script</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-3 min-w-[280px]">
+        <div class="bg-white/80 border border-white rounded-xl p-3"><div class="text-xl font-semibold text-teal-800">61%</div><div class="text-[11px] text-slate-500 mt-1">เดินครบ script</div><div class="text-[11px] text-amber-700 mt-2">เป้าหมาย 75%</div></div>
+        <div class="bg-white/80 border border-white rounded-xl p-3"><div class="text-xl font-semibold text-slate-800">24</div><div class="text-[11px] text-slate-500 mt-1">qualified leads</div><div class="text-[11px] text-emerald-700 mt-2">+18% สัปดาห์นี้</div></div>
+        <div class="bg-white/80 border border-white rounded-xl p-3"><div class="text-xl font-semibold text-slate-800">3</div><div class="text-[11px] text-slate-500 mt-1">ขั้นสำคัญ</div><div class="text-[11px] text-slate-500 mt-2">ยังต้อง validate</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="note note-info mb-4"><i class="ti ti-circle-off text-lg"></i>
+    <p>สคริปต์<b>ไม่ผ่านโมเดลแม้แต่ขั้นเดียว</b> — ต่างจากการ์ดคำแนะนำที่วัดด้วย acceptance rate
+    ตรงที่สคริปต์ต้องได้ถ้อยคำชุดเดิมทุกสายและใช้เป็นหลักฐานย้อนหลังได้
+    (<a class="underline" href="../docs/agent-assist.md">agent-assist §3 A6</a>)</p></div>
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+    <div class="flex items-center gap-2 text-sm text-slate-500"><i class="ti ti-filter"></i><span>แสดง script</span>
+      <select id="script-purpose-filter" class="inp !h-9 !w-auto text-sm" onchange="filterScripts(this.value)">
+        <option value="ALL">ทั้งหมด</option><option value="SALES">ฝ่ายขาย</option><option value="COLLECTION">ติดตามหนี้</option><option value="VERIFY">ยืนยันตัวตน</option><option value="RETENTION">รักษาลูกค้า</option><option value="SUPPORT">บริการ</option>
+      </select>
+    </div>
+    <span class="text-xs text-slate-400">ใช้ script ที่เผยแพร่แล้วกับสายจริงเท่านั้น</span>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">สคริปต์</th><th class="font-normal px-4 py-2.5">ใช้กับ</th>
+        <th class="font-normal px-4 py-2.5">ผูกกับ</th><th class="font-normal px-4 py-2.5">ขั้น</th>
+        <th class="font-normal px-4 py-2.5">เดินครบ</th><th class="font-normal px-4 py-2.5">ขั้นที่คนเลิกเดินบ่อยสุด</th>
+        <th class="font-normal px-4 py-2.5">เจ้าของ</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ai-scripts-body"></tbody>
+    </table></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-info-circle mr-1"></i>"ขั้นที่คนเลิกเดินบ่อยสุด" คือตัวเลขที่มีค่าที่สุดของหน้านี้ —
+  มันบอกว่าขั้นไหนเขียนแล้วใช้ไม่ได้จริง ไม่ได้บอกว่าใครไม่ทำตาม</p>
+</section>
+
+<!-- ===== Script form (new/edit) ===== -->
+<section class="view" data-view="script-form">
+  <button onclick="showView('assist-scripts')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="scf-heading" class="text-xl font-semibold mb-5">New script</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">ทั่วไป</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อสคริปต์</label><input id="scf-name" class="inp" placeholder="เช่น ติดตามค่างวดที่ชำระไม่ผ่าน"></div>
+          <div><label class="fld">ใช้กับงานแบบไหน</label>
+            <select id="scf-purpose" class="inp"><option value="SALES">ขาย</option><option value="COLLECTION">ติดตามหนี้</option><option value="VERIFY">ยืนยันตัวตน</option><option value="RETENTION">รักษาลูกค้า</option><option value="SUPPORT">บริการทั่วไป</option></select></div>
+          <div><label class="fld">ภาษา</label><select id="scf-locale" class="inp"><option>ไทย</option><option>English</option></select></div>
+          <div><label class="fld">ผูกกับ (ที่เจาะจงกว่าชนะ: แคมเปญ &gt; ประเภทเคส &gt; คิว)</label>
+            <select id="scf-bind" class="inp"><option>คิว: Sales (TH)</option><option>คิว: Collections</option><option>คิว: VIP Customers</option><option>แคมเปญ: ทวงถามยอดค้าง ส.ค.</option><option>ประเภทเคส: โต้แย้งยอด</option></select></div>
+          <div><label class="fld">เจ้าของ (คนที่ต้องตอบเมื่อถ้อยคำผิด)</label>
+            <select id="scf-owner" class="inp"><option>ฝ่ายขาย</option><option>ฝ่ายกำกับ</option><option>ทีมบริการ</option><option>ฝ่ายกฎหมาย</option></select></div>
+          <div><label class="fld">รอบทบทวน (วัน)</label><input id="scf-review" type="number" class="inp" value="180"></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="text-sm font-semibold text-slate-700">ขั้นตอน</h2>
+          <button class="qbtn" onclick="toast('เปิดตัวเขียนสคริปต์แบบลากวาง (mock)')"><i class="ti ti-plus"></i>เพิ่มขั้น</button>
+        </div>
+        <p class="text-xs text-slate-400 mb-4">node มี <b>5 ชนิดเท่านั้น</b> — ไม่มีเงื่อนไขอิสระและไม่มีลูป
+          สคริปต์ที่ต้องคิดแทนคนแปลว่ามันควรเป็น flow หรือ journey</p>
+        <div class="overflow-x-auto"><table class="w-full text-sm">
+          <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+            <th class="font-normal px-3 py-2">#</th><th class="font-normal px-3 py-2">ชนิด</th>
+            <th class="font-normal px-3 py-2">หัวข้อ</th><th class="font-normal px-3 py-2">บังคับ</th><th class="px-3 py-2"></th>
+          </tr></thead>
+          <tbody id="scf-steps"></tbody>
+        </table></div>
+        <div class="note note-warn mt-4"><i class="ti ti-alert-triangle text-lg"></i>
+          <p>ขั้นที่ตั้งเป็น <b>บังคับ</b> จะทำให้เอเจนต์ปิดงานไม่ได้จนกว่าจะทำหรือระบุเหตุผล —
+          บล็อกได้แค่หน้าสรุปงานเท่านั้น <b>ห้ามบล็อกการรับสายหรือการคุย</b></p></div>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">การเผยแพร่</h2>
+        <p class="text-xs text-slate-500 mb-3">กด publish จะได้เวอร์ชันใหม่ — <b>สายที่กำลังคุยอยู่ 14 สาย
+          ยังเห็นเวอร์ชันเดิมจนกว่าจะวางสาย</b> (pin เวอร์ชันต่อ interaction เหมือน flow)</p>
+        <div class="flex items-center justify-between text-sm border-t border-slate-100 pt-3">
+          <span class="text-slate-500">เวอร์ชันปัจจุบัน</span><span class="font-medium">v11 · เผยแพร่ 02-08-2026</span></div>
+      </div>
+      <div class="note note-info"><i class="ti ti-book text-lg"></i>
+        <p>ขั้นชนิด <b>บทความ</b> อ้างคลังความรู้เท่านั้น ห้ามคัดลอกเนื้อหามาเก็บซ้ำ —
+        วันที่นโยบายเปลี่ยน ต้องแก้ที่เดียว</p></div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('assist-scripts')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('assist-scripts')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Assist quality ===== -->
+<section class="view" data-view="assist-quality">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="asQTitle">Assist quality</h1>
+  <p class="text-sm text-slate-500" data-i18n="asQSubtitle">Acceptance rate, latency and the ACW it actually saved</p></div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+    <div class="mcard"><div class="mcard-num">-38 วิ</div><div class="mcard-lbl">ACW ที่ลดลงต่อสาย</div></div>
+    <div class="mcard"><div class="mcard-num">82%</div><div class="mcard-lbl">สรุปที่ยืนยันโดยไม่แก้</div></div>
+    <div class="mcard"><div class="mcard-num text-amber-600">41%</div><div class="mcard-lbl">อัตราการยอมรับบทความที่แนะนำ</div></div>
+    <div class="mcard"><div class="mcard-num">1.9 วิ</div><div class="mcard-lbl">ความหน่วง p95</div></div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-5 max-w-4xl">
+    <h2 class="text-sm font-semibold text-slate-700 mb-4">อัตราการยอมรับต่อฟีเจอร์ (เกณฑ์ตัดทิ้งที่ 30%)</h2>
+    <div class="space-y-3 text-sm">
+      <div><div class="flex justify-between mb-1"><span>สรุปหลังจบสาย</span><b class="text-emerald-700">82%</b></div><div class="prog"><div style="width:82%"></div></div></div>
+      <div><div class="flex justify-between mb-1"><span>เสนอ disposition</span><b class="text-emerald-700">74%</b></div><div class="prog"><div style="width:74%"></div></div></div>
+      <div><div class="flex justify-between mb-1"><span>แนะนำบทความ</span><b class="text-amber-600">41%</b></div><div class="prog"><div class="p-warn" style="width:41%"></div></div></div>
+      <div><div class="flex justify-between mb-1"><span>แนะนำประโยคปิดการขาย <span class="tag ml-1">ปิดแล้ว</span></span><b class="text-rose-600">19%</b></div><div class="prog"><div class="p-bad" style="width:19%"></div></div></div>
+    </div>
+    <div class="note note-warn mt-4"><i class="ti ti-trash text-lg"></i>
+      <p>ฟีเจอร์ที่อัตราการยอมรับต่ำกว่า 30% ให้<b>ปิดทิ้ง</b> ไม่ใช่ปรับ prompt ไปเรื่อย ๆ — "แนะนำประโยคปิดการขาย" ถูกปิดเมื่อ 01-08-2026</p></div>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/modules.js"></script>
+</body>
+</html>

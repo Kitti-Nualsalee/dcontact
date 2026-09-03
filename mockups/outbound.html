@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Outbound</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="outbound" data-default="campaigns">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== Campaigns (list) ===== -->
+<section class="view active" data-view="campaigns">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="cmpTitle">Campaigns</h1>
+    <p class="text-sm text-slate-500" data-i18n="cmpSubtitle">Outbound work is produced here and routed by the same engine as inbound</p></div>
+    <button onclick="newCampaign()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="note note-info mb-4"><i class="ti ti-info-circle text-lg"></i>
+    <p>dialer ผลิต <b>งาน</b> ไม่ใช่ <b>สาย</b> — งานทุกชิ้นวิ่งเข้า <code>apps/router</code> เป็น interaction ปกติ
+    (<a class="underline" href="../docs/adr/011-outbound-campaign.md">ADR-011</a>) ทำให้ recording, QM, adherence และรายงานทำงานกับสายขาออกทันที</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">แคมเปญ</th><th class="font-normal px-4 py-2.5">โหมด</th>
+        <th class="font-normal px-4 py-2.5">คิวปลายทาง</th><th class="font-normal px-4 py-2.5">ความคืบหน้า</th>
+        <th class="font-normal px-4 py-2.5">RPC</th><th class="font-normal px-4 py-2.5">สายหลุด</th>
+        <th class="font-normal px-4 py-2.5">เอเจนต์</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ob-campaigns-body"></tbody>
+    </table></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-alert-triangle mr-1"></i>แคมเปญ "ทวงถามยอดค้าง มิ.ย." ถูกระบบหยุดเองเพราะ abandon rate แตะ 3.4% เกินเพดาน 3.0% — ปลดล็อกด้วยมือไม่ได้</p>
+</section>
+
+<!-- ===== Campaign form (new/edit) ===== -->
+<section class="view" data-view="campaign-form">
+  <button onclick="showView('campaigns')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="cf-heading" class="text-xl font-semibold mb-5">New campaign</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">ทั่วไป</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อแคมเปญ</label><input id="cf-name" class="inp" placeholder="เช่น ทวงถามยอดค้าง ส.ค."></div>
+          <div><label class="fld">โหมดการโทร</label>
+            <select id="cf-mode" class="inp">
+              <option value="PREVIEW">Preview — เอเจนต์เห็นข้อมูลก่อนแล้วกดโทรเอง</option>
+              <option value="PROGRESSIVE">Progressive — โทรทันทีที่เอเจนต์ว่าง (1:1)</option>
+              <option value="PREDICTIVE">Predictive — โทรเผื่อตามสถิติ (ต้องมีเอเจนต์ ≥ 15)</option>
+            </select></div>
+          <div><label class="fld">คิวปลายทาง (ใช้ skill/priority ของคิวนั้น)</label>
+            <select id="cf-queue" class="inp"><option>General Support</option><option>Sales (TH)</option><option>Collections</option><option>Technical Support</option><option>Billing Inquiries</option></select></div>
+          <div><label class="fld">Flow ที่เล่นเมื่อปลายทางรับ</label>
+            <select class="inp"><option>— ต่อเอเจนต์ทันที —</option><option>Flow: แจ้งข้อมูลก่อนต่อเอเจนต์</option><option>Flow: ยืนยันตัวตนก่อน</option></select></div>
+          <div><label class="fld">เบอร์ที่ใช้แสดง (หมุนเวียนได้)</label><input class="inp" value="+66 2 123 4500, +66 2 123 4501"></div>
+          <div class="md:col-span-2"><label class="fld">สคริปต์นำบทสนทนาบนจอเอเจนต์ (ทับสคริปต์ของคิว)</label>
+            <select id="cf-script" class="inp">
+              <option>— ใช้สคริปต์ของคิวปลายทาง —</option>
+              <option>ติดตามค่างวดที่ชำระไม่ผ่าน (v11)</option>
+              <option>ขายที่นั่งเพิ่ม — ลูกค้าถามส่วนลด (v6)</option>
+              <option>ยืนยันตัวตนก่อนเปิดเผยข้อมูล (v3)</option>
+            </select>
+            <p class="text-xs text-slate-400 mt-1.5">โหมด <b>Preview</b> แสดงสคริปต์ให้อ่าน<b>ก่อน</b>กดโทร ส่วน progressive/predictive
+              ขึ้นพร้อมกับที่งานถูกมอบหมาย · เวอร์ชันถูกล็อกต่อสาย publish ใหม่ไม่สลับกลางสาย
+              (<a class="underline" href="../docs/agent-assist.md">agent-assist §3 A6</a>)</p></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">หน้าต่างเวลาที่โทรได้</h2>
+        <p class="text-xs text-slate-400 mb-4">นับตามเวลาท้องถิ่นของ<b>ผู้รับ</b> และข้ามวันหยุดของประเทศผู้รับเสมอ</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div><label class="fld">ตั้งแต่</label><input id="cf-from" type="time" class="inp" value="09:00"></div>
+          <div><label class="fld">ถึง</label><input id="cf-to" type="time" class="inp" value="18:00"></div>
+          <div><label class="fld">วัน</label><select class="inp"><option>จันทร์ – ศุกร์</option><option>จันทร์ – เสาร์</option><option>ทุกวัน</option></select></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">การโทรซ้ำ</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div><label class="fld">จำนวนครั้งสูงสุด</label><input id="cf-retry" type="number" class="inp" value="3"></div>
+          <div><label class="fld">เว้นระยะขั้นต่ำ (นาที)</label><input id="cf-gap" type="number" class="inp" value="180"></div>
+          <div><label class="fld">สายไม่ว่าง → เว้น (นาที)</label><input type="number" class="inp" value="60"></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Pacing &amp; compliance</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div><label class="fld">Overdial สูงสุด</label><input id="cf-overdial" type="number" step="0.1" class="inp" value="2.0"></div>
+          <div><label class="fld">เพดานสายหลุด (%)</label><input id="cf-cap" type="number" step="0.1" class="inp" value="3.0"></div>
+          <div><label class="fld">ตรวจเสียงตอบรับอัตโนมัติ (AMD)</label><select class="inp"><option>เปิด (บันทึกผลทุกครั้ง)</option><option>ปิด</option></select></div>
+        </div>
+        <div class="note note-warn mt-4"><i class="ti ti-shield-exclamation text-lg"></i>
+          <p>เพดานสายหลุดเป็น <b>ข้อบังคับของลูป pacing</b> ไม่ใช่ตัวเลขที่ดูย้อนหลัง — แตะเมื่อไหร่ระบบบีบเป็น 1:1 เองทันที
+          และเล่นข้อความ safe harbour ทุกครั้งที่ไม่มีคนรับสาย</p></div>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ด่านคัดกรอง (ปิดไม่ได้)</h2>
+        <ul class="text-sm text-slate-600 space-y-2">
+          <li><i class="ti ti-check text-emerald-600 mr-1"></i>รายการห้ามโทร — tenant / แคมเปญ / แพลตฟอร์ม</li>
+          <li><i class="ti ti-check text-emerald-600 mr-1"></i>ความยินยอมตาม PDPA ต่อวัตถุประสงค์</li>
+          <li><i class="ti ti-check text-emerald-600 mr-1"></i>เวลาท้องถิ่นของผู้รับ + วันหยุด</li>
+          <li><i class="ti ti-check text-emerald-600 mr-1"></i>กติกาการโทรซ้ำ</li>
+        </ul>
+        <p class="text-xs text-slate-400 mt-3">ตรวจซ้ำทุกครั้งก่อนโทร ไม่ใช่แค่ตอนนำเข้ารายชื่อ — การถอนความยินยอมมีผลภายในรอบ pacing ถัดไป (≤ 5 วินาที)</p>
+      </div>
+      <div class="bg-teal-50 border border-teal-100 rounded-xl p-5 text-sm text-teal-900">
+        <p class="font-semibold mb-1"><i class="ti ti-info-circle mr-1"></i>Mock note</p>
+        <p>หน้าจอนี้เป็น mockup — ปุ่มบันทึกจะพากลับหน้ารายการโดยไม่บันทึกจริง</p>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('campaigns')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('campaigns')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Campaign monitor ===== -->
+<section class="view" data-view="monitor">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="obMonTitle">Campaign monitor</h1>
+    <p class="text-sm text-slate-500" data-i18n="obMonSubtitle">Live pacing, abandonment against the cap, and inbound SLA side by side</p></div>
+    <select class="inp w-64"><option>เสนอแพ็กเกจต่ออายุ Q3</option><option>ทวงถามยอดค้าง ก.ค.</option></select>
+  </div>
+  <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4 mb-5">
+    <div class="mcard"><div class="mcard-num">2.6</div><div class="mcard-lbl">overdial ratio ปัจจุบัน</div></div>
+    <div class="mcard"><div class="mcard-num text-rose-600">2.8%</div><div class="mcard-lbl">สายหลุด (เพดาน 3.0%)</div>
+      <div class="prog mt-2"><div class="p-bad" style="width:93%"></div></div></div>
+    <div class="mcard"><div class="mcard-num">15</div><div class="mcard-lbl">เอเจนต์ในแคมเปญ</div></div>
+    <div class="mcard"><div class="mcard-num">31</div><div class="mcard-lbl">สายที่กำลังโทรออก</div></div>
+    <div class="mcard"><div class="mcard-num">22%</div><div class="mcard-lbl">อัตราคนรับสาย (RPC)</div></div>
+    <div class="mcard"><div class="mcard-num text-emerald-700">96%</div><div class="mcard-lbl">SLA สายเข้า (ต้องไม่ตก)</div></div>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">อัตราสายหลุด 60 นาทีล่าสุด เทียบเพดาน</h2>
+      <div class="space-y-2">
+        <div class="flex items-center gap-3 text-xs"><span class="w-14 text-slate-400">09:00</span><div class="flex-1 prog"><div style="width:40%"></div></div><span class="w-12 text-right text-slate-600">1.2%</span></div>
+        <div class="flex items-center gap-3 text-xs"><span class="w-14 text-slate-400">09:15</span><div class="flex-1 prog"><div style="width:56%"></div></div><span class="w-12 text-right text-slate-600">1.7%</span></div>
+        <div class="flex items-center gap-3 text-xs"><span class="w-14 text-slate-400">09:30</span><div class="flex-1 prog"><div class="p-warn" style="width:76%"></div></div><span class="w-12 text-right text-amber-600">2.3%</span></div>
+        <div class="flex items-center gap-3 text-xs"><span class="w-14 text-slate-400">09:45</span><div class="flex-1 prog"><div class="p-bad" style="width:93%"></div></div><span class="w-12 text-right text-rose-600">2.8%</span></div>
+      </div>
+      <div class="note note-warn mt-4"><i class="ti ti-alert-triangle text-lg"></i>
+        <p>ใกล้เพดาน — ระบบจะบีบเป็น progressive (1:1) เองเมื่อแตะ 3.0% และปลดล็อกเมื่อต่ำกว่า 2.1% ต่อเนื่อง 15 นาที</p></div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">สั่งการ</h2>
+        <div class="flex flex-col gap-2">
+          <button class="qbtn" onclick="toast('พักแคมเปญ (mock)')"><i class="ti ti-player-pause"></i>พักแคมเปญ</button>
+          <button class="qbtn" onclick="toast('บีบเป็น progressive (mock)')"><i class="ti ti-arrow-down-right"></i>บีบเป็น progressive ทันที</button>
+          <button class="qbtn" onclick="toast('ลดเอเจนต์ในแคมเปญ (mock)')"><i class="ti ti-users-minus"></i>คืนเอเจนต์ให้สายเข้า</button>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ต้นทุน</h2>
+        <p class="text-sm text-slate-600">นาทีที่ใช้วันนี้ <b>4,120</b> / โควตาเดือน 80,000</p>
+        <div class="prog mt-2"><div style="width:38%"></div></div>
+        <p class="text-sm text-slate-600 mt-3">ต้นทุนต่อ conversion <b>฿48.20</b> <span class="kpi-delta-down">▲ 6% จากสัปดาห์ก่อน</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Contact lists ===== -->
+<section class="view" data-view="lists">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="obListTitle">Contact lists</h1>
+    <p class="text-sm text-slate-500" data-i18n="obListSubtitle">Imported lists and what the screening rules removed</p></div>
+    <button onclick="newObList()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-upload"></i>นำเข้ารายชื่อ</button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">ไฟล์</th><th class="font-normal px-4 py-2.5">แคมเปญ</th>
+        <th class="font-normal px-4 py-2.5">นำเข้าเมื่อ</th><th class="font-normal px-4 py-2.5">ทั้งหมด</th>
+        <th class="font-normal px-4 py-2.5">รับเข้า</th><th class="font-normal px-4 py-2.5">ถูกตัด</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ob-lists-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== List import form (new) ===== -->
+<section class="view" data-view="list-form">
+  <button onclick="showView('lists')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="lf-heading" class="text-xl font-semibold mb-5">Import list</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">ไฟล์</h2>
+        <div class="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center text-slate-400">
+          <i class="ti ti-file-spreadsheet text-3xl"></i>
+          <p class="text-sm mt-2">ลากไฟล์ CSV / XLSX มาวาง หรือ <span class="text-teal-700 underline cursor-pointer">เลือกไฟล์</span></p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div><label class="fld">ชื่อรายการ</label><input id="lf-name" class="inp" placeholder="overdue_august.csv"></div>
+          <div><label class="fld">แคมเปญปลายทาง</label><select id="lf-campaign" class="inp"><option>ทวงถามยอดค้าง ก.ค.</option><option>ยืนยันนัดหมายพรุ่งนี้</option><option>เสนอแพ็กเกจต่ออายุ Q3</option></select></div>
+          <div><label class="fld">Timezone ของผู้รับ</label><select id="lf-tz" class="inp"><option>Asia/Bangkok</option><option>ตามคอลัมน์ในไฟล์</option></select></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">จับคู่คอลัมน์</h2>
+        <p class="text-xs text-slate-400 mb-4">คอลัมน์ที่ไม่ได้จับคู่จะถูกเก็บเป็น <code>attrs</code> และใช้เป็นตัวแปรใน flow ได้</p>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">คอลัมน์ในไฟล์</th><th class="font-normal py-2">ตรงกับ</th><th class="font-normal py-2">ตัวอย่าง</th></tr></thead>
+          <tbody class="text-slate-600">
+            <tr class="border-t border-slate-100"><td class="py-2">phone</td><td class="py-2"><select class="inp h-9"><option>เบอร์โทรศัพท์ (บังคับ)</option></select></td><td class="py-2">0812345678</td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">customer_name</td><td class="py-2"><select class="inp h-9"><option>ชื่อลูกค้า</option></select></td><td class="py-2">คุณนภา จันทร์เพ็ญ</td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">amount_due</td><td class="py-2"><select class="inp h-9"><option>attrs.amount_due</option></select></td><td class="py-2">12,400.00</td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">due_date</td><td class="py-2"><select class="inp h-9"><option>attrs.due_date</option></select></td><td class="py-2">15/08/2026</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ผลการคัดกรองล่วงหน้า</h2>
+        <ul class="text-sm space-y-1.5 text-slate-600">
+          <li class="flex justify-between"><span>ทั้งหมดในไฟล์</span><b>5,210</b></li>
+          <li class="flex justify-between text-emerald-700"><span>รับเข้า</span><b>4,820</b></li>
+          <li class="flex justify-between text-rose-600"><span>อยู่ในรายการห้ามโทร</span><b>214</b></li>
+          <li class="flex justify-between text-rose-600"><span>เบอร์ผิดรูปแบบ</span><b>98</b></li>
+          <li class="flex justify-between text-rose-600"><span>ซ้ำในไฟล์</span><b>78</b></li>
+        </ul>
+        <button class="qbtn mt-3 w-full justify-center" onclick="toast('ดาวน์โหลดรายการที่ถูกตัด (mock)')"><i class="ti ti-download"></i>ดูรายการที่ถูกตัด</button>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('lists')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800">ยืนยันนำเข้า</button>
+        <button onclick="showView('lists')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Callbacks ===== -->
+<section class="view" data-view="callbacks">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="obCbTitle">Callbacks</h1>
+    <p class="text-sm text-slate-500" data-i18n="obCbSubtitle">Scheduled call-backs — kept on time or not</p></div>
+    <div class="text-sm text-slate-500">ตรงเวลานัด (7 วัน): <b class="text-emerald-700">91%</b></div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">ลูกค้า</th><th class="font-normal px-4 py-2.5">เบอร์</th>
+        <th class="font-normal px-4 py-2.5">เวลานัด</th><th class="font-normal px-4 py-2.5">คิว</th>
+        <th class="font-normal px-4 py-2.5">นัดกับ</th><th class="font-normal px-4 py-2.5">ที่มา</th>
+        <th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ob-callbacks-body"></tbody>
+    </table></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-info-circle mr-1"></i>นัดที่ลูกค้าขอเองข้ามด่านความยินยอมได้ แต่ <b>ไม่ข้าม</b> รายการห้ามโทรระดับแพลตฟอร์ม</p>
+</section>
+
+<!-- ===== Proactive broadcasts (list) ===== -->
+<section class="view" data-view="proactive">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="obPrTitle">Message broadcasts</h1>
+    <p class="text-sm text-slate-500" data-i18n="obPrSubtitle">Proactive LINE / SMS / WhatsApp using the same list and consent engine</p></div>
+    <button onclick="newProactive()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">ชื่อ</th><th class="font-normal px-4 py-2.5">ช่องทาง</th>
+        <th class="font-normal px-4 py-2.5">กลุ่มผู้รับ</th><th class="font-normal px-4 py-2.5">เวลาส่ง</th>
+        <th class="font-normal px-4 py-2.5">ส่งแล้ว</th><th class="font-normal px-4 py-2.5">ตอบกลับ</th>
+        <th class="font-normal px-4 py-2.5">คิวที่รับคนตอบ</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ob-proactive-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Proactive form (new/edit) ===== -->
+<section class="view" data-view="proactive-form">
+  <button onclick="showView('proactive')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="pf-heading" class="text-xl font-semibold mb-5">New broadcast</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อการส่ง</label><input id="pf-name" class="inp"></div>
+          <div><label class="fld">ช่องทาง</label><select id="pf-channel" class="inp"><option value="line">LINE OA</option><option value="sms">SMS</option><option value="whatsapp">WhatsApp (template)</option></select></div>
+          <div><label class="fld">กลุ่มผู้รับ</label><select id="pf-list" class="inp"><option>ลูกค้าที่มียอดค้าง</option><option>ลูกค้าทั้งหมด</option><option>สมัคร 30 วันล่าสุด</option></select></div>
+          <div><label class="fld">อัตราการส่ง (ข้อความ/วินาที)</label><input id="pf-rate" type="number" class="inp" value="20"></div>
+          <div><label class="fld">คิวที่รับคนตอบกลับ</label><select id="pf-queue" class="inp"><option>General Support</option><option>Billing Inquiries</option><option>Sales (TH)</option></select></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">ข้อความ</h2>
+        <p class="text-xs text-slate-400 mb-3">ใช้ตัวแปรจากรายชื่อได้ เช่น <code>{{ชื่อ}}</code> <code>{{ยอด}}</code></p>
+        <textarea id="pf-body" class="inp" rows="5"></textarea>
+        <p class="text-xs text-slate-400 mt-2"><i class="ti ti-link mr-1"></i>ลิงก์ยกเลิกการรับข้อความถูกต่อท้ายอัตโนมัติทุกฉบับ และการกดยกเลิกเขียนเข้ารายการห้ามโทรทันที</p>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-warn"><i class="ti ti-alert-triangle text-lg"></i>
+        <div><p class="font-semibold mb-1">ก่อนกดส่ง</p>
+        <ul class="space-y-1">
+          <li>จะส่ง <b>18,200</b> ข้อความ</li>
+          <li>คาดว่าจะมีคนตอบกลับ <b>~410</b> คน (จากอัตราเดิม 2.3%)</li>
+          <li>คิว <b>Billing Inquiries</b> ตอนนี้มีเอเจนต์ <b>3</b> คน</li>
+        </ul>
+        <p class="mt-2">ตัวเลขนี้คือกันไม่ให้ broadcast กลายเป็นสายเข้าที่ไม่มีคนรับ</p></div>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('proactive')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('proactive')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== DNC ===== -->
+<section class="view" data-view="dnc">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="obDncTitle">Do-not-call</h1>
+    <p class="text-sm text-slate-500" data-i18n="obDncSubtitle">Numbers that must never be dialled, and why</p></div>
+    <div class="flex gap-2">
+      <button onclick="toast('นำเข้าไฟล์ DNC (mock)')" class="inline-flex items-center gap-1.5 text-sm border border-slate-300 rounded-lg px-3.5 py-2 hover:bg-slate-50"><i class="ti ti-upload"></i>นำเข้า</button>
+      <button onclick="toast('เพิ่มเบอร์ (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i>เพิ่มเบอร์</button>
+    </div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">เบอร์</th><th class="font-normal px-4 py-2.5">ขอบเขต</th>
+        <th class="font-normal px-4 py-2.5">เหตุผล</th><th class="font-normal px-4 py-2.5">ที่มา</th>
+        <th class="font-normal px-4 py-2.5">เพิ่มเมื่อ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ob-dnc-body"></tbody>
+    </table></div>
+  </div>
+  <div class="note note-bad mt-4"><i class="ti ti-shield-lock text-lg"></i>
+    <p>การ<b>ลบ</b>ออกจากรายการห้ามโทรเป็นสิทธิ์ ADMIN เท่านั้นและถูกบันทึก audit เสมอ —
+    เป็นการกระทำเดียวในโมดูลนี้ที่เปิดทางให้โทรหาคนที่เคยห้ามไว้</p></div>
+</section>
+
+<!-- ===== Dispositions ===== -->
+<section class="view" data-view="dispositions">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="obDispTitle">Dispositions</h1>
+    <p class="text-sm text-slate-500" data-i18n="obDispSubtitle">Outcome codes that drive retry, suppression and DNC</p></div>
+    <button onclick="toast('เพิ่มรหัสผล (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-4xl">
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">รหัส</th><th class="font-normal px-4 py-2.5">ความหมาย</th>
+        <th class="font-normal px-4 py-2.5">ผลต่อระบบ</th><th class="font-normal px-4 py-2.5">ต้องใส่หมายเหตุ</th><th class="px-4 py-2.5"></th></tr></thead>
+      <tbody>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">PTP</td><td class="px-4 py-3 text-slate-600">รับปากว่าจะชำระ</td><td class="px-4 py-3"><span class="tag tag-ok">สำเร็จ — ปิดใบ</span></td><td class="px-4 py-3 text-slate-600">ใช่ (วันที่นัดชำระ)</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">CALLBACK</td><td class="px-4 py-3 text-slate-600">ขอให้โทรใหม่ภายหลัง</td><td class="px-4 py-3"><span class="tag tag-info">สร้างนัดโทรกลับ</span></td><td class="px-4 py-3 text-slate-600">ใช่ (เวลานัด)</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">NO_ANSWER</td><td class="px-4 py-3 text-slate-600">ไม่มีผู้รับสาย</td><td class="px-4 py-3"><span class="tag tag-warn">โทรซ้ำตามกติกา</span></td><td class="px-4 py-3 text-slate-400">ไม่</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+        <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">WRONG_NUMBER</td><td class="px-4 py-3 text-slate-600">ไม่ใช่เจ้าของเบอร์</td><td class="px-4 py-3"><span class="tag">พักถาวร (ไม่โทรซ้ำ)</span></td><td class="px-4 py-3 text-slate-400">ไม่</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+        <tr><td class="px-4 py-3 font-medium">DO_NOT_CALL</td><td class="px-4 py-3 text-slate-600">ลูกค้าขอไม่ให้ติดต่ออีก</td><td class="px-4 py-3"><span class="tag tag-bad">เข้ารายการห้ามโทรทันที</span></td><td class="px-4 py-3 text-slate-600">ใช่</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/modules.js"></script>
+</body>
+</html>

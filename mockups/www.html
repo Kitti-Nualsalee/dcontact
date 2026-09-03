@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Contact Center + ระบบทำงานเชิงรุก สำหรับองค์กรไทย</title>
+<meta name="description" content="รวมทุกช่องทางลูกค้า — โทรศัพท์ เว็บแชท LINE Facebook WhatsApp อีเมล — ไว้ในคิวเดียว หน้าจอเดียว รายงานชุดเดียว เลือกใช้บนคลาวด์หรือติดตั้งในองค์กร">
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html{scroll-behavior:smooth}
+  body{font-family:'Inter','Noto Sans Thai',sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1140px;margin:0 auto;padding:0 24px}
+  .eyebrow{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;letter-spacing:.02em;
+    background:#ccfbf1;color:#0f766e;border-radius:999px;padding:5px 14px}
+  .eyebrow-dark{background:rgba(45,212,191,.14);color:#5eead4}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:48px;padding:0 24px;
+    border-radius:11px;font-size:15px;font-weight:600;transition:.15s;white-space:nowrap;cursor:pointer;border:0}
+  .btn-primary{background:#0f766e;color:#fff}
+  .btn-primary:hover{background:#115e56;transform:translateY(-1px);box-shadow:0 8px 20px -8px rgba(15,118,110,.6)}
+  .btn-ghost{background:#fff;color:#0f172a;border:1px solid #d8dee9}
+  .btn-ghost:hover{border-color:#0f766e;color:#0f766e}
+  .btn-onteal{background:#fff;color:#0f766e}
+  .btn-onteal:hover{background:#f0fdfa}
+  .btn-sm{height:40px;padding:0 18px;font-size:14px;border-radius:9px}
+  h1,h2,h3{letter-spacing:-.02em}
+  .h1{font-size:clamp(32px,4.3vw,50px);line-height:1.16;font-weight:700;color:#0b1f24;text-wrap:balance}
+  .h2{font-size:clamp(26px,3.4vw,38px);line-height:1.2;font-weight:700;color:#0b1f24}
+  .h2-light{color:#fff}
+  .lead{font-size:clamp(16px,1.35vw,19px);line-height:1.65;color:#475569}
+  .lead-light{color:#94a3b8}
+  .card{background:#fff;border:1px solid #e6ebf1;border-radius:16px;padding:26px;transition:.18s}
+  .card:hover{border-color:#99f6e4;box-shadow:0 12px 30px -18px rgba(15,118,110,.45)}
+  .ficon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;
+    background:#ccfbf1;color:#0f766e;margin-bottom:16px}
+  /* mesh background ของ hero */
+  .mesh{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+  .mesh span{position:absolute;border-radius:50%;filter:blur(70px);opacity:.5}
+  .m1{width:520px;height:520px;background:#5eead4;top:-190px;right:-120px}
+  .m2{width:420px;height:420px;background:#a5f3fc;top:120px;left:-180px;opacity:.42}
+  .m3{width:300px;height:300px;background:#fde68a;bottom:-140px;right:24%;opacity:.32}
+  /* mock UI ใน hero */
+  .shot{background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 34px 70px -34px rgba(2,32,44,.42);overflow:hidden}
+  .shot-bar{height:36px;background:#f8fafc;border-bottom:1px solid #eef2f7;display:flex;align-items:center;gap:6px;padding:0 13px}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .cv{display:flex;gap:9px;padding:10px 12px;border-bottom:1px solid #f4f7fa}
+  .cv.on{background:#f0fdfa;box-shadow:inset 3px 0 0 #0f766e}
+  .chip{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+  .c-voice{background:#e0e7ff;color:#4338ca}
+  .c-webchat{background:#ccfbf1;color:#0f766e}
+  .c-line{background:#dcfce7;color:#15803d}
+  .c-facebook{background:#dbeafe;color:#1d4ed8}
+  .c-whatsapp{background:#d1fae5;color:#047857}
+  .c-email{background:#fef3c7;color:#b45309}
+  .bub{max-width:78%;border-radius:13px;padding:8px 12px;font-size:12.5px;line-height:1.5}
+  .bub-in{background:#f1f5f9;color:#1e293b;border-top-left-radius:4px}
+  .bub-out{background:#0f766e;color:#fff;border-top-right-radius:4px;margin-left:auto}
+  .float{position:absolute;background:#fff;border:1px solid #e6ebf1;border-radius:13px;
+    box-shadow:0 16px 34px -18px rgba(2,32,44,.4);padding:12px 16px}
+  /* pricing */
+  .tier{background:#fff;border:1px solid #e6ebf1;border-radius:18px;padding:30px;display:flex;flex-direction:column}
+  .tier-hot{border-color:#0f766e;box-shadow:0 22px 50px -28px rgba(15,118,110,.55);position:relative}
+  .tick{display:flex;gap:10px;font-size:14.5px;color:#334155;line-height:1.5}
+  .tick i{color:#0f766e;font-size:17px;flex-shrink:0;margin-top:2px}
+  /* faq */
+  .faq{border-bottom:1px solid #e6ebf1}
+  .faq summary{cursor:pointer;list-style:none;padding:20px 0;font-weight:600;font-size:16.5px;color:#0b1f24;
+    display:flex;justify-content:space-between;gap:20px;align-items:center}
+  .faq summary::-webkit-details-marker{display:none}
+  .faq summary i{color:#94a3b8;transition:.2s;flex-shrink:0}
+  .faq[open] summary i{transform:rotate(45deg);color:#0f766e}
+  .faq p{padding-bottom:22px;color:#475569;line-height:1.7;font-size:15px}
+  .langbtn{padding:5px 11px;font-size:12px;font-weight:600;color:#64748b;background:#fff}
+  .langbtn.on{background:#0f766e;color:#fff}
+  .navlink{font-size:14.5px;font-weight:500;color:#334155}
+  .navlink:hover{color:#0f766e}
+  .stat-n{font-size:34px;font-weight:700;color:#fff;line-height:1.1}
+  @media (max-width:900px){ .float{display:none} }
+  /* จอเล็ก: ย่อภาพจำลองเหลือรายการงานอย่างเดียว ไม่งั้นสองคอลัมน์จะเบียดจนอ่านไม่ออก */
+  @media (max-width:680px){
+    .shot .shot-grid{grid-template-columns:1fr}
+    .shot .shot-chat{display:none}
+  }
+</style>
+</head>
+<body class="bg-white text-slate-800">
+
+<!-- ══════════ NAV ══════════ -->
+<header class="sticky top-0 z-50 bg-white/85 backdrop-blur border-b border-slate-100">
+  <div class="wrap flex items-center justify-between h-[68px] gap-6">
+    <a href="#top" class="flex items-center gap-2.5 shrink-0">
+      <span class="w-9 h-9 rounded-[10px] bg-teal-700 text-white flex items-center justify-center text-lg font-bold">D</span>
+      <span class="hidden min-[400px]:inline text-[19px] font-bold text-teal-900 tracking-tight">D-Contact</span>
+    </a>
+    <nav class="hidden lg:flex items-center gap-7">
+      <a href="#why" class="navlink" data-i18n="navWhy">ทำไมต้อง D-Contact</a>
+      <a href="#features" class="navlink" data-i18n="navFeatures">ความสามารถ</a>
+      <a href="#platform" class="navlink" data-i18n="navPlatform">สถาปัตยกรรม</a>
+      <a href="#pricing" class="navlink" data-i18n="navPricing">ราคา</a>
+      <a href="#faq" class="navlink" data-i18n="navFaq">คำถามที่พบบ่อย</a>
+    </nav>
+    <div class="flex items-center gap-3 shrink-0">
+      <div class="flex text-xs border border-slate-200 rounded-lg overflow-hidden">
+        <button id="lang-th" class="langbtn on" onclick="setLang('th')">TH</button>
+        <button id="lang-en" class="langbtn" onclick="setLang('en')">EN</button>
+      </div>
+      <a href="index.html" class="hidden md:inline-flex btn btn-ghost btn-sm" data-i18n="navLogin">เข้าสู่ระบบ</a>
+      <a href="#demo" class="btn btn-primary btn-sm" data-i18n="navDemo">ขอ Demo</a>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════ HERO ══════════ -->
+<section id="top" class="relative overflow-hidden pt-16 pb-20 md:pt-24 md:pb-28">
+  <div class="mesh"><span class="m1"></span><span class="m2"></span><span class="m3"></span></div>
+  <div class="wrap relative">
+    <div class="grid lg:grid-cols-[1.05fr_1fr] gap-12 lg:gap-14 items-center">
+      <div>
+        <span class="eyebrow"><i class="ti ti-sparkles"></i><span data-i18n="heroTag">Contact Center + ระบบทำงานเชิงรุก สำหรับองค์กรไทย</span></span>
+        <h1 class="h1 mt-5" data-i18n-html="heroH1">รับสายให้ทัน<br>และทำให้<span class="text-teal-700">หลายสายไม่ต้องเกิด</span></h1>
+        <p class="lead mt-5 max-w-xl" data-i18n="heroLead">หกช่องทางเข้าคิวเดียว ใช้กติกาชุดเดียว รายงานฐานเดียว — และเมื่อระบบธุรกิจของคุณส่งสัญญาณมา (จ่ายเงินไม่ผ่าน · ของกำลังส่ง · ใกล้หมดอายุ) ระบบติดต่อลูกค้าให้เองก่อนที่เรื่องนั้นจะกลายเป็นสายเข้า</p>
+        <div class="flex flex-wrap gap-3 mt-8">
+          <a href="#demo" class="btn btn-primary"><i class="ti ti-calendar-event"></i><span data-i18n="heroCta1">นัดดูระบบตัวจริง</span></a>
+          <a href="index.html" class="btn btn-ghost"><i class="ti ti-player-play"></i><span data-i18n="heroCta2">ลองเล่นเดโมเลย</span></a>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-2 mt-7 text-[13.5px] text-slate-500">
+          <span class="flex items-center gap-1.5"><i class="ti ti-circle-check text-teal-600"></i><span data-i18n="heroT1">เริ่มใช้ได้ใน 2 สัปดาห์</span></span>
+          <span class="flex items-center gap-1.5"><i class="ti ti-circle-check text-teal-600"></i><span data-i18n="heroT2">คลาวด์ หรือติดตั้งในองค์กร</span></span>
+          <span class="flex items-center gap-1.5"><i class="ti ti-circle-check text-teal-600"></i><span data-i18n="heroT3">รองรับ PDPA</span></span>
+        </div>
+      </div>
+
+      <!-- ภาพจำลองหน้าจอจริง -->
+      <div class="relative">
+        <div class="shot">
+          <div class="shot-bar">
+            <span class="dot bg-rose-300"></span><span class="dot bg-amber-300"></span><span class="dot bg-emerald-300"></span>
+            <span class="ml-2.5 text-[11px] text-slate-400">acme.d-contact.io / workspace</span>
+          </div>
+          <div class="shot-grid grid grid-cols-[minmax(0,168px)_1fr]">
+            <div class="border-r border-slate-100">
+              <div class="cv on"><span class="chip c-webchat"><i class="ti ti-message-circle"></i></span>
+                <div class="min-w-0"><p class="text-[12px] font-semibold text-slate-800 truncate">Guest #8812</p><p class="text-[11px] text-slate-400 truncate">จ่ายเงินไม่ผ่านครับ</p></div></div>
+              <div class="cv"><span class="chip c-line"><i class="ti ti-brand-line"></i></span>
+                <div class="min-w-0"><p class="text-[12px] font-semibold text-slate-800 truncate">@wichai_t</p><p class="text-[11px] text-slate-400 truncate">แพ็กเกจ 50 users</p></div></div>
+              <div class="cv"><span class="chip c-voice"><i class="ti ti-phone"></i></span>
+                <div class="min-w-0"><p class="text-[12px] font-semibold text-slate-800 truncate">+66 81 234 5678</p><p class="text-[11px] text-rose-500 truncate">สายเข้า · กำลังเรียก</p></div></div>
+              <div class="cv"><span class="chip c-whatsapp"><i class="ti ti-brand-whatsapp"></i></span>
+                <div class="min-w-0"><p class="text-[12px] font-semibold text-slate-800 truncate">David Kim</p><p class="text-[11px] text-slate-400 truncate">Resend the invoice</p></div></div>
+              <div class="cv"><span class="chip c-email"><i class="ti ti-mail"></i></span>
+                <div class="min-w-0"><p class="text-[12px] font-semibold text-slate-800 truncate">maysa@bright…</p><p class="text-[11px] text-slate-400 truncate">RE: ขอใบเสนอราคา</p></div></div>
+              <div class="cv"><span class="chip c-facebook"><i class="ti ti-brand-messenger"></i></span>
+                <div class="min-w-0"><p class="text-[12px] font-semibold text-slate-800 truncate">Nok P.</p><p class="text-[11px] text-slate-400 truncate">สอบถามการคืนเงิน</p></div></div>
+            </div>
+            <div class="shot-chat p-3.5 flex flex-col gap-2.5 bg-white min-h-[268px]">
+              <div class="flex items-center gap-2 pb-2.5 border-b border-slate-100">
+                <span class="w-7 h-7 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-[11px] font-semibold">G</span>
+                <div><p class="text-[12.5px] font-semibold text-slate-800">Guest #8812</p>
+                <p class="text-[10.5px] text-slate-400">คิว General Support · รอ 00:09</p></div>
+                <span class="ml-auto text-[10px] font-semibold bg-emerald-50 text-emerald-700 rounded-md px-2 py-1">SLA 92%</span>
+              </div>
+              <div class="bub bub-in">หน้าชำระเงินขึ้น error ครับ กดจ่ายแล้วไม่ไปต่อ</div>
+              <div class="bub bub-out">รบกวนขอเลขคำสั่งซื้อครับ เดี๋ยวผมเช็กให้ทันทีครับ</div>
+              <div class="bub bub-in">ORD-77120 ครับ</div>
+              <div class="mt-auto flex items-center gap-2 border border-slate-200 rounded-lg px-2.5 h-9">
+                <span class="text-[12px] text-slate-300 flex-1">พิมพ์ข้อความ…</span>
+                <i class="ti ti-mood-smile text-slate-300 text-base"></i>
+                <i class="ti ti-send text-teal-700 text-base"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="float -left-8 -top-7">
+          <p class="text-[10.5px] text-slate-400 mb-0.5" data-i18n="floatQueue">งานรอในคิวตอนนี้</p>
+          <p class="text-[21px] font-bold text-slate-800 leading-none">17</p>
+        </div>
+        <div class="float -right-6 -bottom-7">
+          <p class="text-[10.5px] text-slate-400 mb-1" data-i18n="floatAgents">เอเจนต์ออนไลน์</p>
+          <div class="flex items-center gap-2">
+            <span class="flex -space-x-2">
+              <span class="w-6 h-6 rounded-full bg-teal-600 border-2 border-white"></span>
+              <span class="w-6 h-6 rounded-full bg-indigo-500 border-2 border-white"></span>
+              <span class="w-6 h-6 rounded-full bg-amber-500 border-2 border-white"></span>
+            </span>
+            <span class="text-[13px] font-semibold text-slate-700">24 / 28</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ CHANNEL STRIP ══════════ -->
+<section class="border-y border-slate-100 bg-slate-50/70 py-9">
+  <div class="wrap">
+    <p class="text-center text-[13px] font-semibold tracking-wide text-slate-400 uppercase mb-6" data-i18n="stripTitle">รองรับครบทุกช่องทางที่ลูกค้าไทยใช้จริง</p>
+    <div class="flex flex-wrap justify-center gap-3.5">
+      <span class="inline-flex items-center gap-2.5 bg-white border border-slate-200 rounded-xl px-5 py-3 text-[15px] font-semibold text-slate-700"><span class="chip c-voice"><i class="ti ti-phone"></i></span><span data-i18n="chVoice">โทรศัพท์</span></span>
+      <span class="inline-flex items-center gap-2.5 bg-white border border-slate-200 rounded-xl px-5 py-3 text-[15px] font-semibold text-slate-700"><span class="chip c-webchat"><i class="ti ti-message-circle"></i></span><span data-i18n="chWeb">เว็บแชท</span></span>
+      <span class="inline-flex items-center gap-2.5 bg-white border border-slate-200 rounded-xl px-5 py-3 text-[15px] font-semibold text-slate-700"><span class="chip c-line"><i class="ti ti-brand-line"></i></span>LINE OA</span>
+      <span class="inline-flex items-center gap-2.5 bg-white border border-slate-200 rounded-xl px-5 py-3 text-[15px] font-semibold text-slate-700"><span class="chip c-facebook"><i class="ti ti-brand-messenger"></i></span>Messenger</span>
+      <span class="inline-flex items-center gap-2.5 bg-white border border-slate-200 rounded-xl px-5 py-3 text-[15px] font-semibold text-slate-700"><span class="chip c-whatsapp"><i class="ti ti-brand-whatsapp"></i></span>WhatsApp</span>
+      <span class="inline-flex items-center gap-2.5 bg-white border border-slate-200 rounded-xl px-5 py-3 text-[15px] font-semibold text-slate-700"><span class="chip c-email"><i class="ti ti-mail"></i></span><span data-i18n="chEmail">อีเมล</span></span>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ ปัญหา ══════════ -->
+<section id="why" class="py-20 md:py-24">
+  <div class="wrap">
+    <div class="max-w-2xl">
+      <span class="eyebrow"><i class="ti ti-alert-triangle"></i><span data-i18n="painTag">ปัญหาที่เจอทุกวัน</span></span>
+      <h2 class="h2 mt-5" data-i18n="painH2">ทีมบริการลูกค้าไม่ได้ขาดคน — ขาดระบบที่มองเห็นภาพเดียวกัน และขาดคนที่ทำงานแทนก่อนลูกค้าจะโทรมา</h2>
+    </div>
+    <div class="grid md:grid-cols-2 xl:grid-cols-4 gap-5 mt-11">
+      <div class="card">
+        <div class="ficon" style="background:#fee2e2;color:#dc2626"><i class="ti ti-layout-grid-remove"></i></div>
+        <h3 class="text-[18px] font-bold mb-2 text-slate-900" data-i18n="pain1H">เปิด 5 หน้าจอต่อ 1 ลูกค้า</h3>
+        <p class="text-[15px] text-slate-500 leading-relaxed" data-i18n="pain1P">LINE อยู่หน้าหนึ่ง Messenger อยู่อีกหน้า สายเข้าอยู่บนโทรศัพท์ตั้งโต๊ะ กว่าจะรู้ว่าคนนี้เคยติดต่อมาแล้ว ลูกค้าก็เล่าเรื่องเดิมซ้ำรอบที่สาม</p>
+      </div>
+      <div class="card">
+        <div class="ficon" style="background:#fef3c7;color:#b45309"><i class="ti ti-chart-dots"></i></div>
+        <h3 class="text-[18px] font-bold mb-2 text-slate-900" data-i18n="pain2H">ตอบไม่ได้ว่าเมื่อวานเป็นยังไง</h3>
+        <p class="text-[15px] text-slate-500 leading-relaxed" data-i18n="pain2P">สายหลุดกี่สาย รอนานเท่าไร ใครรับงานไปเท่าไร แต่ละช่องทางมีตัวเลขคนละชุดที่เอามารวมกันไม่ได้ สุดท้ายรายงานผู้บริหารทำด้วยมือทุกเดือน</p>
+      </div>
+      <div class="card">
+        <div class="ficon" style="background:#e0e7ff;color:#4338ca"><i class="ti ti-table-off"></i></div>
+        <h3 class="text-[18px] font-bold mb-2 text-slate-900" data-i18n="pain3H">จัดกะด้วย Excel</h3>
+        <p class="text-[15px] text-slate-500 leading-relaxed" data-i18n="pain3P">หัวหน้าทีมเสียเวลาสองวันต่อเดือนไปกับการจัดกะ แล้วก็ยังไม่รู้อยู่ดีว่าบ่ายวันจันทร์คนพอหรือเปล่า จนกระทั่งสายล้นคิวไปแล้ว</p>
+      </div>
+      <div class="card">
+        <div class="ficon" style="background:#ccfbf1;color:#0f766e"><i class="ti ti-arrow-back-up"></i></div>
+        <h3 class="text-[18px] font-bold mb-2 text-slate-900" data-i18n="pain4H">ทุกอย่างเริ่มตอนลูกค้าโทรมาแล้ว</h3>
+        <p class="text-[15px] text-slate-500 leading-relaxed" data-i18n="pain4P">ของส่งช้า จ่ายเงินไม่ผ่าน ใกล้หมดอายุ — ระบบหลังบ้านรู้ก่อนเป็นวัน แต่ไม่มีใครบอกลูกค้า สุดท้ายลูกค้าโทรมาถามเอง แล้วทีมก็ต้องรับสายที่ไม่ควรต้องเกิดตั้งแต่แรก</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ ความสามารถ ══════════ -->
+<section id="features" class="py-20 md:py-24 bg-slate-50/70 border-y border-slate-100">
+  <div class="wrap">
+    <div class="max-w-2xl mb-14">
+      <span class="eyebrow"><i class="ti ti-stack-2"></i><span data-i18n="featTag">ความสามารถหลัก</span></span>
+      <h2 class="h2 mt-5" data-i18n="featH2">ห้าอย่างที่ทำให้ทีมทำงานเร็วขึ้นตั้งแต่สัปดาห์แรก</h2>
+    </div>
+
+    <!-- 1 Universal queue -->
+    <div class="grid lg:grid-cols-2 gap-10 lg:gap-14 items-center mb-20">
+      <div>
+        <span class="text-[13px] font-bold text-teal-700 tracking-wide">01</span>
+        <h3 class="text-[25px] font-bold text-slate-900 mt-1.5 mb-3.5" data-i18n="f1H">คิวเดียว จ่ายงานได้ทุกช่องทาง</h3>
+        <p class="text-[16px] text-slate-500 leading-relaxed mb-5" data-i18n="f1P">ไม่ว่าลูกค้าจะโทรมาหรือทักไลน์มา ระบบมองเป็น "งานหนึ่งชิ้น" เหมือนกัน แล้วจ่ายให้คนที่มีทักษะตรงและว่างที่สุด ตั้งกติกาครั้งเดียวใช้ได้ทั้งหกช่องทาง</p>
+        <ul class="space-y-2.5">
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f1L1">จ่ายงานตามทักษะ ระดับความชำนาญ และความสำคัญของลูกค้า</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f1L2">ตั้ง SLA แยกรายคิว พร้อมล้นคิวไปคิวสำรองอัตโนมัติ</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f1L3">กำหนดจำนวนแชทพร้อมกันต่อคนได้ ไม่ให้ใครรับเกินไหว</span></li>
+        </ul>
+      </div>
+      <div class="shot">
+        <div class="shot-bar"><span class="dot bg-rose-300"></span><span class="dot bg-amber-300"></span><span class="dot bg-emerald-300"></span><span class="ml-2.5 text-[11px] text-slate-400">Routing / Queues</span></div>
+        <div class="p-4 space-y-2.5 bg-white">
+          <div class="flex items-center justify-between text-[11px] text-slate-400 px-1"><span data-i18n="qHdr1">คิว</span><span data-i18n="qHdr2">รอ · เอเจนต์ · SLA</span></div>
+          <div class="flex items-center gap-2.5 border border-slate-100 rounded-xl px-3 py-2.5">
+            <div class="flex-1 min-w-0"><p class="text-[13px] font-semibold text-slate-800">General Support</p>
+              <div class="flex gap-1 mt-1"><span class="chip c-voice" style="width:19px;height:19px;font-size:11px"><i class="ti ti-phone"></i></span><span class="chip c-webchat" style="width:19px;height:19px;font-size:11px"><i class="ti ti-message-circle"></i></span><span class="chip c-email" style="width:19px;height:19px;font-size:11px"><i class="ti ti-mail"></i></span></div></div>
+            <span class="text-[12px] text-slate-500">3 · 12</span>
+            <span class="text-[11px] font-semibold bg-emerald-50 text-emerald-700 rounded-md px-2 py-1">92%</span>
+          </div>
+          <div class="flex items-center gap-2.5 border border-slate-100 rounded-xl px-3 py-2.5">
+            <div class="flex-1 min-w-0"><p class="text-[13px] font-semibold text-slate-800">Sales (TH)</p>
+              <div class="flex gap-1 mt-1"><span class="chip c-voice" style="width:19px;height:19px;font-size:11px"><i class="ti ti-phone"></i></span><span class="chip c-line" style="width:19px;height:19px;font-size:11px"><i class="ti ti-brand-line"></i></span></div></div>
+            <span class="text-[12px] text-slate-500">1 · 8</span>
+            <span class="text-[11px] font-semibold bg-emerald-50 text-emerald-700 rounded-md px-2 py-1">88%</span>
+          </div>
+          <div class="flex items-center gap-2.5 border border-teal-200 bg-teal-50/40 rounded-xl px-3 py-2.5">
+            <div class="flex-1 min-w-0"><p class="text-[13px] font-semibold text-slate-800">VIP Customers</p>
+              <div class="flex gap-1 mt-1"><span class="chip c-voice" style="width:19px;height:19px;font-size:11px"><i class="ti ti-phone"></i></span><span class="chip c-whatsapp" style="width:19px;height:19px;font-size:11px"><i class="ti ti-brand-whatsapp"></i></span><span class="chip c-line" style="width:19px;height:19px;font-size:11px"><i class="ti ti-brand-line"></i></span></div></div>
+            <span class="text-[12px] text-slate-500">0 · 4</span>
+            <span class="text-[11px] font-semibold bg-emerald-50 text-emerald-700 rounded-md px-2 py-1">97%</span>
+          </div>
+          <div class="flex items-center gap-2.5 border border-slate-100 rounded-xl px-3 py-2.5 opacity-70">
+            <div class="flex-1 min-w-0"><p class="text-[13px] font-semibold text-slate-800">Billing Inquiries</p>
+              <div class="flex gap-1 mt-1"><span class="chip c-email" style="width:19px;height:19px;font-size:11px"><i class="ti ti-mail"></i></span><span class="chip c-facebook" style="width:19px;height:19px;font-size:11px"><i class="ti ti-brand-messenger"></i></span></div></div>
+            <span class="text-[12px] text-rose-500 font-semibold">8 · 3</span>
+            <span class="text-[11px] font-semibold bg-rose-50 text-rose-600 rounded-md px-2 py-1">61%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2 Flow Designer -->
+    <div class="grid lg:grid-cols-2 gap-10 lg:gap-14 items-center mb-20">
+      <div class="lg:order-2">
+        <span class="text-[13px] font-bold text-teal-700 tracking-wide">02</span>
+        <h3 class="text-[25px] font-bold text-slate-900 mt-1.5 mb-3.5" data-i18n="f2H">ออกแบบเส้นทางลูกค้าเองด้วยการลากวาง</h3>
+        <p class="text-[16px] text-slate-500 leading-relaxed mb-5" data-i18n="f2P">Flow Designer ไม่ได้ทำแค่เมนูเสียงกด 1 กด 2 แต่ใช้ได้กับแชททุกช่องทาง ทักทาย ถามเรื่องที่ต้องการ ดึงข้อมูลจากระบบหลังบ้าน แล้วส่งเข้าคิวที่ถูกต้อง — แก้เองได้โดยไม่ต้องรอทีมไอที</p>
+        <ul class="space-y-2.5">
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f2L1">บล็อกสำเร็จรูป 13 แบบ ทั้งเงื่อนไข เวลาทำการ และเรียก API</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f2L2">เก็บเวอร์ชันทุกครั้งที่แก้ ย้อนกลับได้ทันทีถ้าพลาด</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f2L3">นอกเวลาทำการเปลี่ยนเป็นฝากข้อความหรือขอให้โทรกลับได้</span></li>
+        </ul>
+      </div>
+      <div class="shot lg:order-1">
+        <div class="shot-bar"><span class="dot bg-rose-300"></span><span class="dot bg-amber-300"></span><span class="dot bg-emerald-300"></span><span class="ml-2.5 text-[11px] text-slate-400">Flow Designer</span></div>
+        <div class="p-5 bg-[#fbfdfe]" style="background-image:radial-gradient(#dbe4ec 1px,transparent 1px);background-size:15px 15px">
+          <div class="flex flex-col items-center gap-1.5">
+            <div class="bg-white border-2 border-emerald-300 rounded-lg px-3.5 py-2 text-[12px] font-semibold text-emerald-700 shadow-sm"><i class="ti ti-player-play mr-1"></i>สายเข้า / ทักแชท</div>
+            <span class="w-px h-4 bg-slate-300"></span>
+            <div class="bg-white border-2 border-blue-300 rounded-lg px-3.5 py-2 text-[12px] font-semibold text-blue-700 shadow-sm"><i class="ti ti-message-2 mr-1"></i>ทักทาย + ถามเรื่อง</div>
+            <span class="w-px h-4 bg-slate-300"></span>
+            <div class="bg-white border-2 border-amber-300 rounded-lg px-3.5 py-2 text-[12px] font-semibold text-amber-700 shadow-sm"><i class="ti ti-git-branch mr-1"></i>ในเวลาทำการ?</div>
+            <div class="flex gap-3 items-start mt-1.5">
+              <div class="flex flex-col items-center gap-1.5">
+                <span class="text-[10px] text-emerald-600 font-semibold">ใช่</span>
+                <div class="bg-white border-2 border-teal-400 rounded-lg px-3 py-2 text-[11.5px] font-semibold text-teal-700 shadow-sm"><i class="ti ti-stack-2 mr-1"></i>เข้าคิว Support</div>
+              </div>
+              <div class="flex flex-col items-center gap-1.5">
+                <span class="text-[10px] text-slate-400 font-semibold">ไม่</span>
+                <div class="bg-white border-2 border-violet-300 rounded-lg px-3 py-2 text-[11.5px] font-semibold text-violet-700 shadow-sm"><i class="ti ti-message-plus mr-1"></i>ฝากข้อความ</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 Workspace -->
+    <div class="grid lg:grid-cols-2 gap-10 lg:gap-14 items-center mb-20">
+      <div>
+        <span class="text-[13px] font-bold text-teal-700 tracking-wide">03</span>
+        <h3 class="text-[25px] font-bold text-slate-900 mt-1.5 mb-3.5" data-i18n="f3H">เอเจนต์ทำงานจบในเบราว์เซอร์เดียว</h3>
+        <p class="text-[16px] text-slate-500 leading-relaxed mb-5" data-i18n="f3P">รับสายผ่านเบราว์เซอร์ได้เลยไม่ต้องมีโทรศัพท์ตั้งโต๊ะ แชททุกช่องทางมารวมกล่องเดียว และเห็นประวัติที่ลูกค้าเคยติดต่อมาทุกช่องทางในที่เดียว ไม่ต้องให้ลูกค้าเล่าซ้ำ</p>
+        <ul class="space-y-2.5">
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f3L1">โทรออก-รับสายในเบราว์เซอร์ (WebRTC) พร้อมโอนสายและพักสาย</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f3L2">ประวัติลูกค้ารวมทุกช่องทางเป็นคนเดียว แม้ใช้เบอร์กับไลน์คนละชื่อ</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f3L3">บันทึกเสียงและสรุปผลการติดต่อ พร้อมค้นย้อนหลัง</span></li>
+        </ul>
+      </div>
+      <div class="shot">
+        <div class="shot-bar"><span class="dot bg-rose-300"></span><span class="dot bg-amber-300"></span><span class="dot bg-emerald-300"></span><span class="ml-2.5 text-[11px] text-slate-400">Agent workspace</span></div>
+        <div class="p-4 bg-white">
+          <div class="flex items-center gap-3 bg-indigo-50/60 border border-indigo-100 rounded-xl p-3 mb-3">
+            <span class="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center"><i class="ti ti-phone-incoming text-lg"></i></span>
+            <div class="flex-1"><p class="text-[13px] font-semibold text-slate-800">+66 81 234 5678</p><p class="text-[11px] text-slate-500">คุณนภา จันทร์เพ็ญ · ลูกค้าเก่า 12 ครั้ง</p></div>
+            <span class="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center"><i class="ti ti-phone"></i></span>
+            <span class="w-8 h-8 rounded-full bg-rose-500 text-white flex items-center justify-center"><i class="ti ti-phone-off"></i></span>
+          </div>
+          <p class="text-[11px] text-slate-400 mb-2" data-i18n="wsHistory">ประวัติการติดต่อ — รวมทุกช่องทาง</p>
+          <div class="space-y-1.5">
+            <div class="flex items-center gap-2.5 text-[12px] border border-slate-100 rounded-lg px-2.5 py-2"><span class="chip c-line" style="width:22px;height:22px;font-size:12px"><i class="ti ti-brand-line"></i></span><span class="text-slate-600 flex-1">สอบถามโปรโมชัน</span><span class="text-slate-400 text-[11px]">2 วันก่อน</span></div>
+            <div class="flex items-center gap-2.5 text-[12px] border border-slate-100 rounded-lg px-2.5 py-2"><span class="chip c-email" style="width:22px;height:22px;font-size:12px"><i class="ti ti-mail"></i></span><span class="text-slate-600 flex-1">ขอใบเสนอราคา</span><span class="text-slate-400 text-[11px]">1 สัปดาห์</span></div>
+            <div class="flex items-center gap-2.5 text-[12px] border border-slate-100 rounded-lg px-2.5 py-2"><span class="chip c-voice" style="width:22px;height:22px;font-size:12px"><i class="ti ti-phone"></i></span><span class="text-slate-600 flex-1">แจ้งปัญหาการชำระเงิน</span><span class="text-slate-400 text-[11px]">2 สัปดาห์</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 WFM -->
+    <div class="grid lg:grid-cols-2 gap-10 lg:gap-14 items-center">
+      <div class="lg:order-2">
+        <span class="text-[13px] font-bold text-teal-700 tracking-wide">04</span>
+        <div class="flex items-center gap-2.5 mt-1.5 mb-3.5">
+          <h3 class="text-[25px] font-bold text-slate-900" data-i18n="f4H">จัดกะและวัดผลคนในตัว</h3>
+          <span class="text-[11px] font-bold bg-amber-100 text-amber-800 rounded-md px-2 py-1" data-i18n="f4Badge">รวมใน Growth ขึ้นไป</span>
+        </div>
+        <p class="text-[16px] text-slate-500 leading-relaxed mb-5" data-i18n="f4P">ระบบจัดกำลังคน (WFM) ที่เจ้าอื่นขายแยกเป็นอีกสินค้า เรารวมมาให้ในแพ็กเกจ Growth ขึ้นไปโดยไม่คิดเพิ่ม — พยากรณ์ปริมาณงานจากข้อมูลจริง คำนวณว่าต้องใช้กี่คน จัดกะให้อัตโนมัติ แล้ววัดว่าทำได้ตามแผนหรือไม่</p>
+        <ul class="space-y-2.5">
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f4L1">พยากรณ์งานรายช่วง 15 นาที พร้อมคิดวันหยุดและวันพิเศษให้</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f4L2">จัดกะอัตโนมัติภายใต้กฎหมายแรงงานและวันลาที่อนุมัติแล้ว</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f4L3">เทียบตารางกับสถานะจริงแบบเรียลไทม์ เตือนทันทีเมื่อคนขาด</span></li>
+        </ul>
+      </div>
+      <div class="shot lg:order-1">
+        <div class="shot-bar"><span class="dot bg-rose-300"></span><span class="dot bg-amber-300"></span><span class="dot bg-emerald-300"></span><span class="ml-2.5 text-[11px] text-slate-400">Workforce / Adherence</span></div>
+        <div class="p-4 bg-white space-y-3">
+          <div class="flex gap-2">
+            <div class="flex-1 border border-slate-100 rounded-lg p-2.5"><p class="text-[10.5px] text-slate-400" data-i18n="wfmK1">Adherence วันนี้</p><p class="text-[19px] font-bold text-amber-600 leading-tight">86.4%</p></div>
+            <div class="flex-1 border border-slate-100 rounded-lg p-2.5"><p class="text-[10.5px] text-slate-400" data-i18n="wfmK2">คนบนพื้น</p><p class="text-[19px] font-bold text-slate-800 leading-tight">14 / 17</p></div>
+            <div class="flex-1 border border-slate-100 rounded-lg p-2.5"><p class="text-[10.5px] text-slate-400" data-i18n="wfmK3">SLA</p><p class="text-[19px] font-bold text-rose-600 leading-tight">74%</p></div>
+          </div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] text-slate-500 w-20 shrink-0 truncate">สมชาย ว.</span>
+              <div class="flex-1 space-y-1">
+                <div class="relative h-2.5 rounded bg-slate-100 overflow-hidden"><span class="absolute h-full bg-teal-700" style="left:0;width:40%"></span><span class="absolute h-full bg-amber-400" style="left:40%;width:12%"></span><span class="absolute h-full bg-teal-700" style="left:52%;width:48%"></span></div>
+                <div class="relative h-2.5 rounded bg-slate-100 overflow-hidden"><span class="absolute h-full bg-teal-700" style="left:0;width:41%"></span><span class="absolute h-full bg-amber-400" style="left:41%;width:12%"></span><span class="absolute h-full bg-teal-700" style="left:53%;width:47%"></span></div>
+              </div>
+              <span class="text-[11px] font-semibold text-emerald-600 w-11 text-right">98.4%</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] text-slate-500 w-20 shrink-0 truncate">John A.</span>
+              <div class="flex-1 space-y-1">
+                <div class="relative h-2.5 rounded bg-slate-100 overflow-hidden"><span class="absolute h-full bg-teal-700" style="left:0;width:35%"></span><span class="absolute h-full bg-amber-400" style="left:35%;width:10%"></span><span class="absolute h-full bg-teal-700" style="left:45%;width:55%"></span></div>
+                <div class="relative h-2.5 rounded bg-slate-100 overflow-hidden"><span class="absolute h-full bg-rose-500" style="left:0;width:9%"></span><span class="absolute h-full bg-teal-700" style="left:9%;width:26%"></span><span class="absolute h-full bg-amber-400" style="left:35%;width:10%"></span><span class="absolute h-full bg-teal-700" style="left:45%;width:55%"></span></div>
+              </div>
+              <span class="text-[11px] font-semibold text-amber-600 w-11 text-right">91.2%</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] text-slate-500 w-20 shrink-0 truncate">อรทัย พ.</span>
+              <div class="flex-1 space-y-1">
+                <div class="relative h-2.5 rounded bg-slate-100 overflow-hidden"><span class="absolute h-full bg-teal-700" style="left:0;width:30%"></span><span class="absolute h-full bg-amber-400" style="left:30%;width:10%"></span><span class="absolute h-full bg-teal-700" style="left:40%;width:60%"></span></div>
+                <div class="relative h-2.5 rounded bg-slate-100 overflow-hidden"><span class="absolute h-full bg-teal-700" style="left:0;width:30%"></span><span class="absolute h-full bg-amber-400" style="left:30%;width:10%"></span><span class="absolute h-full bg-teal-700" style="left:40%;width:15%"></span><span class="absolute h-full bg-rose-500" style="left:55%;width:6%"></span><span class="absolute h-full bg-teal-700" style="left:61%;width:39%"></span></div>
+              </div>
+              <span class="text-[11px] font-semibold text-emerald-600 w-11 text-right">95.6%</span>
+            </div>
+          </div>
+          <p class="text-[10.5px] text-slate-400"><span data-i18n="wfmLegend">แถบบน = ตามตารางกะ · แถบล่าง = สถานะจริง · แดง = หลุดจากแผน</span></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 CX automation / journey -->
+    <div class="grid lg:grid-cols-2 gap-10 lg:gap-14 items-center mt-20">
+      <div>
+        <span class="text-[13px] font-bold text-teal-700 tracking-wide">05</span>
+        <div class="flex items-center gap-2.5 mt-1.5 mb-3.5">
+          <h3 class="text-[25px] font-bold text-slate-900" data-i18n="f5H">ทำงานแทนก่อนกลายเป็นสาย</h3>
+          <span class="text-[11px] font-bold bg-teal-100 text-teal-800 rounded-md px-2 py-1" data-i18n="f5Badge">ใหม่</span>
+        </div>
+        <p class="text-[16px] text-slate-500 leading-relaxed mb-5" data-i18n="f5P">ให้ระบบธุรกิจของคุณส่งสัญญาณเข้ามา แล้วออกแบบว่าจะติดต่อลูกค้าอย่างไรข้ามวัน — แจ้งทางไลน์ก่อน ยังไม่ตอบค่อยส่ง SMS ยังไม่จบค่อยให้คนโทร และหยุดทันทีเมื่อลูกค้าทำสิ่งที่เราต้องการแล้ว</p>
+        <ul class="space-y-2.5">
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f5L1">เริ่มจากเหตุการณ์จริง เช่น จ่ายเงินไม่ผ่าน ของออกจากคลัง ใกล้ครบกำหนด</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f5L2">ไล่ระดับเองจากข้อความ → โทร → เปิดเคส ใช้คนเฉพาะเมื่อจำเป็น</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f5L3"><b>เพดานการติดต่อรายลูกค้า</b> คุมทุกแคมเปญและทุกอัตโนมัติรวมกัน ไม่ให้ลูกค้าโดนรบกวนซ้ำซ้อน</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="f5L4">วัดผลด้วยกลุ่มควบคุม — รู้จริงว่าลดสายเข้าได้เท่าไร ไม่ใช่เดา</span></li>
+        </ul>
+      </div>
+      <div class="shot">
+        <div class="shot-bar"><span class="dot bg-rose-300"></span><span class="dot bg-amber-300"></span><span class="dot bg-emerald-300"></span><span class="ml-2.5 text-[11px] text-slate-400">Journeys / ทวงถามค่างวด</span></div>
+        <div class="p-4 bg-white space-y-2.5">
+          <div class="flex items-center gap-2.5 text-[12px] border border-slate-100 rounded-lg px-2.5 py-2">
+            <span class="chip" style="background:#e0e7ff;color:#4338ca;width:22px;height:22px;font-size:12px"><i class="ti ti-bolt"></i></span>
+            <span class="text-slate-600 flex-1" data-i18n="jr1">เหตุการณ์: จ่ายค่างวดไม่ผ่าน</span><span class="text-slate-400 text-[11px]">วันที่ 0</span></div>
+          <div class="flex items-center gap-2.5 text-[12px] border border-slate-100 rounded-lg px-2.5 py-2">
+            <span class="chip c-line" style="width:22px;height:22px;font-size:12px"><i class="ti ti-brand-line"></i></span>
+            <span class="text-slate-600 flex-1" data-i18n="jr2">ส่งลิงก์ชำระทาง LINE</span><span class="text-emerald-600 text-[11px]" data-i18n="jr2s">ส่งแล้ว</span></div>
+          <div class="flex items-center gap-2.5 text-[12px] border border-slate-100 rounded-lg px-2.5 py-2">
+            <span class="chip" style="background:#fef3c7;color:#b45309;width:22px;height:22px;font-size:12px"><i class="ti ti-message"></i></span>
+            <span class="text-slate-600 flex-1" data-i18n="jr3">ยังไม่จ่าย → SMS ย้ำ</span><span class="text-slate-400 text-[11px]">วันที่ 1</span></div>
+          <div class="flex items-center gap-2.5 text-[12px] border border-slate-100 rounded-lg px-2.5 py-2">
+            <span class="chip c-voice" style="width:22px;height:22px;font-size:12px"><i class="ti ti-phone"></i></span>
+            <span class="text-slate-600 flex-1" data-i18n="jr4">ยังไม่จ่าย → เข้าคิวให้คนโทร</span><span class="text-slate-400 text-[11px]">วันที่ 3</span></div>
+          <div class="flex items-center gap-2.5 text-[12px] border border-teal-200 bg-teal-50/60 rounded-lg px-2.5 py-2">
+            <span class="chip" style="background:#0f766e;color:#fff;width:22px;height:22px;font-size:12px"><i class="ti ti-flag-check"></i></span>
+            <span class="text-teal-900 flex-1 font-medium" data-i18n="jr5">จ่ายแล้ว → ออกจากลำดับทันที</span></div>
+          <p class="text-[10.5px] text-slate-400" data-i18n="jrNote">ทุกขั้นผ่านเพดานการติดต่อของลูกค้าคนนั้นก่อนเสมอ</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ สถาปัตยกรรม / ความน่าเชื่อถือ ══════════ -->
+<section id="platform" class="py-20 md:py-24 bg-[#071b21] relative overflow-hidden">
+  <div class="absolute inset-0 opacity-[.14]" style="background-image:radial-gradient(#5eead4 1px,transparent 1px);background-size:26px 26px"></div>
+  <div class="wrap relative">
+    <div class="max-w-2xl">
+      <span class="eyebrow eyebrow-dark"><i class="ti ti-server-cog"></i><span data-i18n="platTag">สร้างมาเพื่อองค์กร</span></span>
+      <h2 class="h2 h2-light mt-5" data-i18n="platH2">เบื้องหลังที่ทำให้ฝ่ายไอทีอนุมัติได้</h2>
+      <p class="lead lead-light mt-4" data-i18n="platP">D-Contact ไม่ใช่แอปที่ต่อ API หลายเจ้ามาแปะกัน เราออกแบบแกนกลางเองตั้งแต่ชั้นสัญญาณเสียงจนถึงชั้นรายงาน จึงควบคุมได้ทั้งความเสถียร ต้นทุน และที่อยู่ของข้อมูล</p>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-5 mt-12">
+      <div class="border border-white/10 bg-white/[.04] rounded-2xl p-7">
+        <div class="ficon" style="background:rgba(45,212,191,.15);color:#5eead4"><i class="ti ti-history-toggle"></i></div>
+        <h3 class="text-[19px] font-bold text-white mb-2" data-i18n="p1H">ทุกเหตุการณ์ถูกบันทึกและย้อนดูได้</h3>
+        <p class="text-[15px] text-slate-400 leading-relaxed" data-i18n="p1P">ทุกสาย ทุกข้อความ ทุกการเปลี่ยนสถานะถูกบันทึกเป็นลำดับเหตุการณ์ที่ลบไม่ได้ ทำให้ตรวจสอบย้อนหลัง คิดค่าบริการ และสร้างรายงานใหม่ได้โดยไม่ต้องกลัวข้อมูลหาย</p>
+      </div>
+      <div class="border border-white/10 bg-white/[.04] rounded-2xl p-7">
+        <div class="ficon" style="background:rgba(45,212,191,.15);color:#5eead4"><i class="ti ti-building-bank"></i></div>
+        <h3 class="text-[19px] font-bold text-white mb-2" data-i18n="p2H">คลาวด์หรือติดตั้งในองค์กร ใช้แกนเดียวกัน</h3>
+        <p class="text-[15px] text-slate-400 leading-relaxed" data-i18n="p2P">องค์กรที่ข้อมูลออกนอกไม่ได้ ติดตั้งในดาต้าเซ็นเตอร์ตัวเองได้ โดยใช้ซอฟต์แวร์ตัวเดียวกับบนคลาวด์ ต่างกันแค่ตัวเชื่อมระบบโทรศัพท์ — ย้ายไปมาได้โดยไม่ต้องทำระบบใหม่</p>
+      </div>
+      <div class="border border-white/10 bg-white/[.04] rounded-2xl p-7">
+        <div class="ficon" style="background:rgba(45,212,191,.15);color:#5eead4"><i class="ti ti-shield-lock"></i></div>
+        <h3 class="text-[19px] font-bold text-white mb-2" data-i18n="p3H">PDPA และการควบคุมสิทธิ์</h3>
+        <p class="text-[15px] text-slate-400 leading-relaxed" data-i18n="p3P">เข้าระบบด้วย SSO ขององค์กร แยกข้อมูลแต่ละองค์กรออกจากกันในระดับฐานข้อมูล มีบันทึกว่าใครแก้อะไรเมื่อไร และสั่งส่งออกหรือลบข้อมูลลูกค้าตามคำขอได้</p>
+      </div>
+      <div class="border border-white/10 bg-white/[.04] rounded-2xl p-7">
+        <div class="ficon" style="background:rgba(45,212,191,.15);color:#5eead4"><i class="ti ti-brand-line"></i></div>
+        <h3 class="text-[19px] font-bold text-white mb-2" data-i18n="p4H">LINE เป็นช่องทางหลัก ไม่ใช่ของแถม</h3>
+        <p class="text-[15px] text-slate-400 leading-relaxed" data-i18n="p4P">ระบบต่างประเทศมัก "รองรับ LINE" แบบต่อผ่านตัวกลาง เราทำ LINE OA เป็นช่องทางระดับเดียวกับโทรศัพท์ เข้าคิวเดียวกัน วัดผลชุดเดียวกัน และรองรับภาษาไทยทั้งระบบ</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-6 mt-12 pt-11 border-t border-white/10">
+      <div><p class="stat-n">6</p><p class="text-[13.5px] text-slate-400 mt-1.5" data-i18n="s1">ช่องทางในคิวเดียว</p></div>
+      <div><p class="stat-n">99.9%</p><p class="text-[13.5px] text-slate-400 mt-1.5" data-i18n="s2">เป้าหมายความพร้อมใช้งาน</p></div>
+      <div><p class="stat-n">&lt; 2 <span class="text-[19px]" data-i18n="s3u">สัปดาห์</span></p><p class="text-[13.5px] text-slate-400 mt-1.5" data-i18n="s3">ระยะเวลาเริ่มใช้งานทั่วไป</p></div>
+      <div><p class="stat-n">1</p><p class="text-[13.5px] text-slate-400 mt-1.5" data-i18n="s4">เพดานการติดต่อลูกค้าหนึ่งคน คุมรวมทุกระบบ</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ ราคา ══════════ -->
+<section id="pricing" class="py-20 md:py-24">
+  <div class="wrap">
+    <div class="text-center max-w-2xl mx-auto">
+      <span class="eyebrow"><i class="ti ti-receipt"></i><span data-i18n="prTag">ราคา</span></span>
+      <h2 class="h2 mt-5" data-i18n="prH2">จ่ายตามจำนวนเอเจนต์ ไม่มีค่าธรรมเนียมแอบแฝง</h2>
+      <p class="lead mt-4" data-i18n="prP">ทุกแพ็กเกจรวมครบทั้งหกช่องทางและคิวรวมไว้แล้ว ส่วนระบบจัดกะ (WFM) การตรวจคุณภาพ และงานขาออก เริ่มที่แพ็กเกจ Growth · ค่าสายและค่าข้อความคิดตามจริงจากผู้ให้บริการที่คุณเลือกเอง</p>
+    </div>
+
+    <div class="grid md:grid-cols-3 gap-6 mt-12 items-start">
+      <div class="tier">
+        <h3 class="text-[19px] font-bold text-slate-900" data-i18n="t1N">Starter</h3>
+        <p class="text-[14px] text-slate-500 mt-1.5 mb-5" data-i18n="t1D">ทีมเล็กที่เพิ่งเริ่มรวมช่องทาง</p>
+        <p class="mb-1"><span class="text-[38px] font-bold text-slate-900">฿1,290</span><span class="text-[14px] text-slate-400"> / <span data-i18n="perAgent">เอเจนต์ / เดือน</span></span></p>
+        <p class="text-[13px] text-slate-400 mb-6" data-i18n="t1M">ขั้นต่ำ 5 เอเจนต์</p>
+        <ul class="space-y-2.5 mb-7">
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t1L1">ครบ 6 ช่องทาง + คิวรวม</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t1L2">Flow Designer (สูงสุด 10 flow) และเวลาทำการ</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t1L3">บันทึกเสียง เก็บ 3 เดือน</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t1L4">คลังความรู้ + โปรไฟล์ลูกค้ารวมทุกช่องทาง</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t1L5">ถามความพึงพอใจ (CSAT) ในห้องแชท + รายงานมาตรฐาน</span></li>
+        </ul>
+        <a href="#demo" class="btn btn-ghost w-full mt-auto" data-i18n="prCta1">เริ่มทดลองใช้</a>
+      </div>
+
+      <div class="tier tier-hot">
+        <span class="absolute -top-3 left-1/2 -translate-x-1/2 text-[11px] font-bold bg-teal-700 text-white rounded-full px-3.5 py-1.5 whitespace-nowrap" data-i18n="prPop">ลูกค้าเลือกมากที่สุด</span>
+        <h3 class="text-[19px] font-bold text-slate-900" data-i18n="t2N">Growth</h3>
+        <p class="text-[14px] text-slate-500 mt-1.5 mb-5" data-i18n="t2D">คอนแทคเซ็นเตอร์ที่ต้องวัดผลจริงจัง</p>
+        <p class="mb-1"><span class="text-[38px] font-bold text-slate-900">฿2,190</span><span class="text-[14px] text-slate-400"> / <span data-i18n="perAgent">เอเจนต์ / เดือน</span></span></p>
+        <p class="text-[13px] text-slate-400 mb-6" data-i18n="t2M">ขั้นต่ำ 20 เอเจนต์</p>
+        <ul class="space-y-2.5 mb-7">
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t2L1">ทุกอย่างใน Starter</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t2L2"><b>ระบบจัดกะและ WFM เต็มรูปแบบ</b></span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t2L3">ตรวจคุณภาพ + ถอดเสียงเป็นข้อความ 20,000 นาที/เดือน</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t2L4">งานขาออก (preview/progressive) + ส่งข้อความจำนวนมาก</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t2L5">เคสและ SLA · บอตตอบคำถามซ้ำ · AI ร่างสรุปหลังจบสาย</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t2L6">ลำดับการติดต่ออัตโนมัติจากเหตุการณ์ + รายงานสร้างเอง + API/webhook</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t2L7">SSO องค์กร · บันทึกเสียง เก็บ 12 เดือน</span></li>
+        </ul>
+        <a href="#demo" class="btn btn-primary w-full mt-auto" data-i18n="prCta2">นัดดูระบบ</a>
+      </div>
+
+      <div class="tier">
+        <h3 class="text-[19px] font-bold text-slate-900" data-i18n="t3N">Enterprise</h3>
+        <p class="text-[14px] text-slate-500 mt-1.5 mb-5" data-i18n="t3D">องค์กรที่มีข้อกำหนดเฉพาะ</p>
+        <p class="mb-1"><span class="text-[38px] font-bold text-slate-900" data-i18n="t3Price">คุยกันก่อน</span></p>
+        <p class="text-[13px] text-slate-400 mb-6" data-i18n="t3M">ประเมินตามขอบเขตงาน</p>
+        <ul class="space-y-2.5 mb-7">
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t3L1">ทุกอย่างใน Growth</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t3L2"><b>ติดตั้งในองค์กรหรือคลาวด์ส่วนตัว</b></span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t3L3">โทรออกแบบ predictive พร้อมเพดานสายหลุด</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t3L4">บอตตอบจากคลังความรู้ + ผู้ช่วยแนะนำระหว่างสาย</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t3L5">วิเคราะห์ทุกบทสนทนา + AI ช่วยร่างคะแนนคุณภาพ</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t3L6">NPS + วงจรติดตามลูกค้าที่ไม่พอใจ · segment · วัดผลด้วยกลุ่มควบคุม</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t3L7">ส่งข้อมูลเข้าคลังข้อมูล (BI) · ฝังหน้าจอใน CRM · เครื่องมือ PDPA</span></li>
+          <li class="tick"><i class="ti ti-check"></i><span data-i18n="t3L8">SLA ตามสัญญา และผู้ดูแลประจำบัญชี</span></li>
+        </ul>
+        <a href="#demo" class="btn btn-ghost w-full mt-auto" data-i18n="prCta3">ติดต่อฝ่ายขาย</a>
+      </div>
+    </div>
+    <!-- ตารางเทียบแพ็กเกจ — ต้องตรงกับ docs/licensing.md §3 เสมอ -->
+    <div class="mt-16 max-w-4xl mx-auto">
+      <h3 class="text-center text-[20px] font-bold text-slate-900 mb-2" data-i18n="cmpH">เทียบแพ็กเกจแบบละเอียด</h3>
+      <p class="text-center text-[14px] text-slate-500 mb-7" data-i18n="cmpP">ความสามารถที่ลูกค้าถามบ่อยที่สุด เรียงตามโมดูล</p>
+      <div class="overflow-x-auto border border-slate-200 rounded-2xl bg-white">
+        <table class="w-full text-[14px] whitespace-nowrap">
+          <thead class="bg-slate-50/70 text-slate-500 border-b border-slate-100">
+            <tr>
+              <th class="text-left font-medium px-5 py-3" data-i18n="cmpTh0">ความสามารถ</th>
+              <th class="font-medium px-5 py-3 text-center">Starter</th>
+              <th class="font-medium px-5 py-3 text-center bg-teal-50/50 text-teal-800">Growth</th>
+              <th class="font-medium px-5 py-3 text-center">Enterprise</th>
+            </tr>
+          </thead>
+          <tbody class="text-slate-600">
+            <tr class="bg-slate-50/40"><td colspan="4" class="px-5 py-2 text-[12px] font-bold text-teal-800 tracking-wide" data-i18n="cmpG1">พื้นฐาน</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR1">ครบ 6 ช่องทาง + คิวรวม</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR2">Flow Designer</td><td class="text-center text-[13px]" data-i18n="cmpV10">10 flow</td><td class="text-center text-[13px] bg-teal-50/30" data-i18n="cmpV50">50 flow</td><td class="text-center text-[13px]" data-i18n="cmpVunl">ไม่จำกัด</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR3">บันทึกเสียง</td><td class="text-center text-[13px]" data-i18n="cmpV3m">3 เดือน</td><td class="text-center text-[13px] bg-teal-50/30" data-i18n="cmpV12m">12 เดือน</td><td class="text-center text-[13px]" data-i18n="cmpVc1">ตามสัญญา</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR4">คลังความรู้ + โปรไฟล์ลูกค้ารวมทุกช่องทาง</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR5">SSO องค์กร</td><td class="text-center text-slate-300">—</td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR28">หลายไซต์ / หลายประเทศ (timezone · วันหยุด · กฎแรงงาน)</td><td class="text-center text-slate-300">—</td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="bg-slate-50/40"><td colspan="4" class="px-5 py-2 text-[12px] font-bold text-teal-800 tracking-wide" data-i18n="cmpG2">บริหารกำลังคน (WFM)</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR6">จัดกะ · การลา · adherence · พยากรณ์ · จัดกะอัตโนมัติ</td><td class="text-center text-slate-300">—</td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+
+            <tr class="bg-slate-50/40"><td colspan="4" class="px-5 py-2 text-[12px] font-bold text-teal-800 tracking-wide" data-i18n="cmpG3">การจัดการคุณภาพ (QM)</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR7">ฟอร์มประเมิน · แผนการตรวจ · คำโต้แย้ง</td><td class="text-center text-slate-300">—</td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR8">ถอดเสียงเป็นข้อความและค้นในบทสนทนา</td><td class="text-center text-slate-300">—</td><td class="text-center text-[13px] bg-teal-50/30" data-i18n="cmpVmin">20,000 นาที/เดือน</td><td class="text-center text-[13px]" data-i18n="cmpVc2">ตามสัญญา</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR9">AI ช่วยร่างคะแนน (คนเป็นผู้ตัดสินเสมอ)</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center text-[13px]" data-i18n="cmpVcap1">✓ มีเพดาน</td></tr>
+
+            <tr class="bg-slate-50/40"><td colspan="4" class="px-5 py-2 text-[12px] font-bold text-teal-800 tracking-wide" data-i18n="cmpG9">ทำงานเชิงรุกอัตโนมัติ (CX automation)</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR29">เพดานการติดต่อรายลูกค้า (คุมรวมทุกแคมเปญ/ทุกลำดับ)</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR30">ลำดับการติดต่ออัตโนมัติ + รับเหตุการณ์จากระบบธุรกิจ</td><td class="text-center text-slate-300">—</td><td class="text-center text-[13px] bg-teal-50/30" data-i18n="cmpVjr">50,000 การกระทำ/เดือน</td><td class="text-center text-[13px]" data-i18n="cmpVc5">ตามสัญญา</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR31">กลุ่มเป้าหมายจากพฤติกรรม (segment)</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR32">วัดผลด้วยกลุ่มควบคุม (holdout)</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+
+            <tr class="bg-slate-50/40"><td colspan="4" class="px-5 py-2 text-[12px] font-bold text-teal-800 tracking-wide" data-i18n="cmpG4">งานขาออก</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR10">โทรออกแบบ preview / progressive</td><td class="text-center text-slate-300">—</td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR11">โทรออกแบบ predictive (มีเพดานสายหลุดเสมอ)</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR12">ส่งข้อความจำนวนมาก (LINE/SMS/WhatsApp)</td><td class="text-center text-slate-300">—</td><td class="text-center text-[13px] bg-teal-50/30" data-i18n="cmpVmsg">20,000 ข้อความ/เดือน</td><td class="text-center text-[13px]" data-i18n="cmpVc3">ตามสัญญา</td></tr>
+
+            <tr class="bg-slate-50/40"><td colspan="4" class="px-5 py-2 text-[12px] font-bold text-teal-800 tracking-wide" data-i18n="cmpG5">เสียงลูกค้าและเคส</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR13">ถามความพึงพอใจ (CSAT) ในห้องแชทเดิม</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR14">NPS + วงจรติดตามลูกค้าที่ไม่พอใจอัตโนมัติ</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR15">เคส (งานที่ไม่จบในครั้งเดียว) + SLA + ฟิลด์กำหนดเอง</td><td class="text-center text-slate-300">—</td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+
+            <tr class="bg-slate-50/40"><td colspan="4" class="px-5 py-2 text-[12px] font-bold text-teal-800 tracking-wide" data-i18n="cmpG6">AI ช่วยงาน</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR16">บอตตอบคำถามซ้ำ (เมนู/FAQ)</td><td class="text-center text-slate-300">—</td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR17">บอตตอบจากคลังความรู้ พร้อมอ้างที่มา</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center text-[13px]" data-i18n="cmpVcap2">✓ มีเพดาน</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR18">AI ร่างสรุปหลังจบสาย (เอเจนต์กดยืนยัน)</td><td class="text-center text-slate-300">—</td><td class="text-center text-[13px] bg-teal-50/30" data-i18n="cmpVcap3">✓ มีเพดาน</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR19">แนะนำเอเจนต์ระหว่างสายแบบเรียลไทม์</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+
+            <tr class="bg-slate-50/40"><td colspan="4" class="px-5 py-2 text-[12px] font-bold text-teal-800 tracking-wide" data-i18n="cmpG7">วิเคราะห์และรายงาน</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR20">รายงานสร้างเอง + ส่งอัตโนมัติตามรอบ</td><td class="text-center text-slate-300">—</td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR21">คะแนนรวมของเอเจนต์ (scorecard)</td><td class="text-center text-slate-300">—</td><td class="text-center bg-teal-50/30"><i class="ti ti-check text-teal-700"></i></td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR22">วิเคราะห์ทุกบทสนทนา · หัวข้อที่ลูกค้าพูดถึง</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR23">ส่งข้อมูลเข้าคลังข้อมูลของคุณ (BI) · เกมมิฟิเคชัน</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+
+            <tr class="bg-slate-50/40"><td colspan="4" class="px-5 py-2 text-[12px] font-bold text-teal-800 tracking-wide" data-i18n="cmpG8">เชื่อมต่อระบบ</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR24">API สาธารณะ + webhook</td><td class="text-center text-slate-300">—</td><td class="text-center text-[13px] bg-teal-50/30" data-i18n="cmpVrps">20 ครั้ง/วินาที</td><td class="text-center text-[13px]" data-i18n="cmpVc4">ตามสัญญา</td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR25">ฝังหน้าจอเอเจนต์ใน CRM + connector สำเร็จรูป</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR26">เครื่องมือตามสิทธิ PDPA (ส่งออก/ลบข้อมูลรายบุคคล)</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+            <tr class="border-t border-slate-100"><td class="px-5 py-2.5" data-i18n="cmpR27">ติดตั้งในองค์กร (on-premise)</td><td class="text-center text-slate-300">—</td><td class="text-center text-slate-300 bg-teal-50/30">—</td><td class="text-center"><i class="ti ti-check text-teal-700"></i></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-center text-[13px] text-slate-400 mt-4" data-i18n="cmpNote">"มีเพดาน" หมายถึงมีโควตาการใช้งานต่อเดือนระบุไว้ในสัญญา — ความสามารถที่มีต้นทุนต่อครั้งจริง (นาทีถอดเสียง, ข้อความ, การเรียก AI) จะมาคู่กับเพดานเสมอ ไม่มีการคิดเงินย้อนหลังแบบเซอร์ไพรส์</p>
+    </div>
+
+    <p class="text-center text-[13px] text-slate-400 mt-8" data-i18n="prNote">ราคาข้างต้นยังไม่รวมภาษีมูลค่าเพิ่ม · ค่าสายโทรศัพท์และค่าข้อความของแต่ละแพลตฟอร์มคิดตามการใช้งานจริง</p>
+  </div>
+</section>
+
+<!-- ══════════ FAQ ══════════ -->
+<section id="faq" class="py-20 md:py-24 bg-slate-50/70 border-y border-slate-100">
+  <div class="wrap max-w-3xl">
+    <div class="text-center mb-11">
+      <span class="eyebrow"><i class="ti ti-help-circle"></i><span data-i18n="faqTag">คำถามที่พบบ่อย</span></span>
+      <h2 class="h2 mt-5" data-i18n="faqH2">เรื่องที่ลูกค้าถามก่อนตัดสินใจ</h2>
+    </div>
+    <details class="faq" open>
+      <summary><span data-i18n="q1">ต้องเปลี่ยนเบอร์โทรศัพท์เดิมไหม</span><i class="ti ti-plus text-xl"></i></summary>
+      <p data-i18n="a1">ไม่ต้องครับ ย้ายเลขหมายเดิมมาใช้ได้ หรือจะเชื่อมกับผู้ให้บริการสายที่ใช้อยู่ก็ได้ เราทำงานกับ SIP trunk มาตรฐานทุกเจ้า และช่วงเปลี่ยนผ่านสามารถวิ่งคู่ขนานกับระบบเดิมได้จนกว่าจะมั่นใจ</p>
+    </details>
+    <details class="faq">
+      <summary><span data-i18n="q2">ข้อมูลลูกค้าเก็บไว้ที่ไหน</span><i class="ti ti-plus text-xl"></i></summary>
+      <p data-i18n="a2">แบบคลาวด์เก็บในศูนย์ข้อมูลที่เลือกภูมิภาคได้ ส่วนองค์กรที่มีข้อกำหนดว่าข้อมูลต้องอยู่ในประเทศหรือในดาต้าเซ็นเตอร์ตัวเอง เลือกแบบติดตั้งภายในได้ โดยใช้ซอฟต์แวร์ตัวเดียวกัน ไม่ใช่เวอร์ชันตัดทอน</p>
+    </details>
+    <details class="faq">
+      <summary><span data-i18n="q3">ใช้เวลาติดตั้งนานแค่ไหน</span><i class="ti ti-plus text-xl"></i></summary>
+      <p data-i18n="a3">ทีมขนาด 10–50 คนที่ใช้ช่องทางมาตรฐาน โดยทั่วไปเริ่มรับงานจริงได้ภายใน 2 สัปดาห์ รวมการตั้งคิว ออกแบบ flow และอบรมผู้ใช้ ส่วนงานที่ต้องเชื่อม CRM หรือระบบภายในจะประเมินเวลาเพิ่มตามขอบเขต</p>
+    </details>
+    <details class="faq">
+      <summary><span data-i18n="q4">มีระบบจัดกะให้ด้วยจริงหรือ ต้องจ่ายเพิ่มไหม</span><i class="ti ti-plus text-xl"></i></summary>
+      <p data-i18n="a4">มีจริงและรวมอยู่ในแพ็กเกจ Growth ขึ้นไปโดยไม่คิดเพิ่ม ครอบคลุมตั้งแต่พยากรณ์ปริมาณงาน คำนวณจำนวนคนที่ต้องใช้ จัดกะอัตโนมัติภายใต้กฎหมายแรงงาน ไปจนถึงการวัดว่าทีมทำได้ตามตารางหรือไม่แบบเรียลไทม์</p>
+    </details>
+    <details class="faq">
+      <summary><span data-i18n="q5">ทีมเราไม่มีคนไอทีเฉพาะทาง ดูแลเองไหวไหม</span><i class="ti ti-plus text-xl"></i></summary>
+      <p data-i18n="a5">งานที่ต้องแก้บ่อย เช่น คิว เวลาทำการ ข้อความตอบอัตโนมัติ และ flow ออกแบบมาให้หัวหน้าทีมแก้เองได้ผ่านหน้าจอ ไม่ต้องเขียนโค้ดและไม่ต้องรอรอบ deploy ส่วนงานระดับระบบมีทีมเราดูแลให้</p>
+    </details>
+    <details class="faq">
+      <summary><span data-i18n="q6">ถ้าอยากเลิกใช้ ข้อมูลเอาออกได้ไหม</span><i class="ti ti-plus text-xl"></i></summary>
+      <p data-i18n="a6">ได้ครับ ข้อมูลการติดต่อ ข้อความ และไฟล์บันทึกเสียงส่งออกเป็นไฟล์มาตรฐานได้ทั้งหมด เราถือว่าข้อมูลเป็นของคุณ ไม่ผูกมัดด้วยการกักข้อมูลไว้</p>
+    </details>
+  </div>
+</section>
+
+<!-- ══════════ CTA + ฟอร์ม ══════════ -->
+<section id="demo" class="py-20 md:py-24">
+  <div class="wrap">
+    <div class="rounded-3xl overflow-hidden grid lg:grid-cols-[1.1fr_1fr]">
+      <div class="p-9 md:p-12 bg-teal-700 text-white">
+        <h2 class="text-[30px] md:text-[36px] font-bold leading-tight" data-i18n="ctaH">ดูของจริง 30 นาที<br>แล้วค่อยตัดสินใจ</h2>
+        <p class="text-[16px] text-teal-50/90 mt-4 leading-relaxed max-w-md" data-i18n="ctaP">เราจะเปิดระบบให้ดูสด ๆ ด้วยเคสของทีมคุณเอง ไม่ใช่สไลด์ ถ้าเห็นแล้วไม่ตอบโจทย์ เราจะบอกตรง ๆ ว่าไม่เหมาะ</p>
+        <ul class="space-y-3 mt-8">
+          <li class="flex gap-3 text-[15px] text-teal-50"><i class="ti ti-circle-check text-xl text-teal-200"></i><span data-i18n="ctaL1">ไม่ต้องเตรียมอะไร ใช้เวลา 30 นาที</span></li>
+          <li class="flex gap-3 text-[15px] text-teal-50"><i class="ti ti-circle-check text-xl text-teal-200"></i><span data-i18n="ctaL2">คุยกับคนที่สร้างระบบ ไม่ใช่เซลล์อย่างเดียว</span></li>
+          <li class="flex gap-3 text-[15px] text-teal-50"><i class="ti ti-circle-check text-xl text-teal-200"></i><span data-i18n="ctaL3">ได้ใบเสนอราคาตามจำนวนคนจริงของคุณ</span></li>
+        </ul>
+        <div class="flex items-center gap-4 mt-9 pt-7 border-t border-white/20 text-[14px] text-teal-50">
+          <span class="flex items-center gap-2"><i class="ti ti-phone"></i>02-000-0000</span>
+          <span class="flex items-center gap-2"><i class="ti ti-mail"></i>sales@d-contact.io</span>
+        </div>
+      </div>
+      <div class="p-9 md:p-12 bg-white border border-slate-200 border-l-0 lg:border-l">
+        <h3 class="text-[19px] font-bold text-slate-900 mb-1" data-i18n="formH">นัดเวลาที่สะดวก</h3>
+        <p class="text-[14px] text-slate-500 mb-6" data-i18n="formP">กรอกข้อมูลสั้น ๆ เราติดต่อกลับภายในวันทำการถัดไป</p>
+        <div class="space-y-3.5">
+          <div class="grid grid-cols-2 gap-3.5">
+            <div><label class="block text-[13px] text-slate-600 mb-1.5" data-i18n="fName">ชื่อ-นามสกุล</label><input class="w-full h-11 px-3.5 rounded-[10px] border border-slate-300 text-[14px] focus:border-teal-600 focus:outline-none"></div>
+            <div><label class="block text-[13px] text-slate-600 mb-1.5" data-i18n="fCompany">บริษัท</label><input class="w-full h-11 px-3.5 rounded-[10px] border border-slate-300 text-[14px] focus:border-teal-600 focus:outline-none"></div>
+          </div>
+          <div><label class="block text-[13px] text-slate-600 mb-1.5" data-i18n="fEmail">อีเมลที่ทำงาน</label><input class="w-full h-11 px-3.5 rounded-[10px] border border-slate-300 text-[14px] focus:border-teal-600 focus:outline-none"></div>
+          <div><label class="block text-[13px] text-slate-600 mb-1.5" data-i18n="fPhone">เบอร์ติดต่อ</label><input class="w-full h-11 px-3.5 rounded-[10px] border border-slate-300 text-[14px] focus:border-teal-600 focus:outline-none"></div>
+          <div><label class="block text-[13px] text-slate-600 mb-1.5" data-i18n="fSize">จำนวนเอเจนต์โดยประมาณ</label>
+            <select class="w-full h-11 px-3 rounded-[10px] border border-slate-300 text-[14px] focus:border-teal-600 focus:outline-none">
+              <option>1–10</option><option>11–30</option><option>31–100</option><option>100+</option>
+            </select></div>
+          <button onclick="submitDemo()" class="btn btn-primary w-full" data-i18n="fSubmit">ส่งคำขอนัดหมาย</button>
+          <p class="text-[12px] text-slate-400 leading-relaxed" data-i18n="fNote">การส่งข้อมูลถือว่ายอมรับให้เราติดต่อกลับเพื่อนำเสนอบริการ และเราจะไม่ส่งต่อข้อมูลของคุณให้บุคคลที่สาม</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ FOOTER ══════════ -->
+<footer class="bg-[#071b21] text-slate-400 pt-14 pb-8">
+  <div class="wrap">
+    <div class="grid md:grid-cols-[1.6fr_1fr_1fr_1fr] gap-9 pb-11 border-b border-white/10">
+      <div>
+        <div class="flex items-center gap-2.5 mb-4">
+          <span class="w-9 h-9 rounded-[10px] bg-teal-600 text-white flex items-center justify-center text-lg font-bold">D</span>
+          <span class="text-[19px] font-bold text-white">D-Contact</span>
+        </div>
+        <p class="text-[14.5px] leading-relaxed max-w-xs" data-i18n="footP">ระบบคอนแทคเซ็นเตอร์แบบรวมทุกช่องทาง สร้างในไทย เพื่อทีมบริการลูกค้าที่ต้องดูแลลูกค้าไทยจริง ๆ</p>
+      </div>
+      <div>
+        <p class="text-white font-semibold text-[14.5px] mb-3.5" data-i18n="footC1">ผลิตภัณฑ์</p>
+        <ul class="space-y-2.5 text-[14px]">
+          <li><a href="#features" class="hover:text-teal-300" data-i18n="footL1">ความสามารถ</a></li>
+          <li><a href="#pricing" class="hover:text-teal-300" data-i18n="footL2">ราคา</a></li>
+          <li><a href="index.html" class="hover:text-teal-300" data-i18n="footL3">ทดลองใช้เดโม</a></li>
+          <li><a href="#platform" class="hover:text-teal-300" data-i18n="footL4">สถาปัตยกรรม</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="text-white font-semibold text-[14.5px] mb-3.5" data-i18n="footC2">ช่องทาง</p>
+        <ul class="space-y-2.5 text-[14px]">
+          <li><span data-i18n="chVoice">โทรศัพท์</span></li>
+          <li><span data-i18n="chWeb">เว็บแชท</span></li>
+          <li>LINE OA · Messenger</li>
+          <li>WhatsApp · <span data-i18n="chEmail">อีเมล</span></li>
+        </ul>
+      </div>
+      <div>
+        <p class="text-white font-semibold text-[14.5px] mb-3.5" data-i18n="footC3">ติดต่อ</p>
+        <ul class="space-y-2.5 text-[14px]">
+          <li>02-000-0000</li>
+          <li>sales@d-contact.io</li>
+          <li><a href="#demo" class="hover:text-teal-300" data-i18n="footL5">ขอ Demo</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="flex flex-col md:flex-row justify-between gap-3 pt-7 text-[13px]">
+      <p>© 2026 D-Contact · <span data-i18n="footRights">สงวนลิขสิทธิ์</span></p>
+      <p class="text-slate-500" data-i18n="footMock">หน้านี้เป็นตัวอย่างงานออกแบบ — ข้อมูลติดต่อ ราคา และตัวเลขทั้งหมดเป็นค่าสมมติ</p>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ── i18n ── ทุก element ที่มี data-i18n จะถูกแทนข้อความ, data-i18n-html แทนทั้ง markup ── */
+var T = {
+  th: null, // ภาษาไทยคือข้อความที่เขียนไว้ใน HTML แล้ว — เก็บตอน load
+  en: {
+    navWhy:'Why D-Contact', navFeatures:'Features', navPlatform:'Platform', navPricing:'Pricing',
+    navFaq:'FAQ', navLogin:'Sign in', navDemo:'Book a demo',
+    heroTag:'Contact centre + proactive automation, built for Thailand',
+    heroH1:'Answer every contact —<br>and stop many of them<br><span class="text-teal-700">from happening</span>',
+    heroLead:'Six channels in one queue, one set of routing rules, one reporting base — and when your business systems raise a signal (payment failed, order shipped, contract expiring) the platform reaches the customer before it turns into an inbound contact.',
+    heroCta1:'See it live', heroCta2:'Try the demo',
+    heroT1:'Live in 2 weeks', heroT2:'Cloud or on-premise', heroT3:'PDPA ready',
+    floatQueue:'Waiting in queue', floatAgents:'Agents online',
+    stripTitle:'Every channel Thai customers actually use',
+    chVoice:'Phone', chWeb:'Web chat', chEmail:'Email',
+    painTag:'The daily reality',
+    painH2:'Support teams are not short on people — they are short on one shared picture, and on something that acts before the customer has to call',
+    pain1H:'Five tabs per customer',
+    pain1P:'LINE in one tab, Messenger in another, calls on a desk phone. By the time anyone realises this person has contacted you before, they have told the same story three times.',
+    pain2H:'Nobody can say how yesterday went',
+    pain2P:'How many calls dropped? How long did people wait? Every channel reports its own numbers in its own format, so the monthly report gets rebuilt by hand.',
+    pain3H:'Scheduling lives in a spreadsheet',
+    pain3P:'Team leads lose two days a month to shift planning and still cannot tell whether Monday afternoon is covered — until the queue is already overflowing.',
+    featTag:'Core capabilities', featH2:'Five things that speed up your team from week one',
+    f1H:'One queue that routes every channel',
+    f1P:'A phone call and a LINE message become the same kind of work item, then go to the most suitable available agent. Define the rules once and they apply to all six channels.',
+    f1L1:'Route by skill, proficiency level and customer priority',
+    f1L2:'Per-queue SLA targets with automatic overflow to a backup queue',
+    f1L3:'Cap concurrent chats per agent so nobody is overloaded',
+    qHdr1:'Queue', qHdr2:'Waiting · Agents · SLA',
+    f2H:'Design the customer journey by drag and drop',
+    f2P:'Flow Designer is not just a press-1-press-2 voice menu — it works on every chat channel too. Greet, ask, look up your back office, then route to the right queue. Your team edits it, no IT ticket required.',
+    f2L1:'13 ready-made blocks including conditions, business hours and API calls',
+    f2L2:'Every change is versioned — roll back instantly if something breaks',
+    f2L3:'Switch to voicemail or callback automatically outside business hours',
+    f3H:'Agents finish the job in one browser tab',
+    f3P:'Take calls straight in the browser with no desk phone, handle every chat channel in one inbox, and see the customer full contact history across channels — so nobody has to repeat themselves.',
+    f3L1:'Browser calling (WebRTC) with transfer and hold',
+    f3L2:'One customer record across channels, even under different names',
+    f3L3:'Call recording and wrap-up codes, searchable afterwards',
+    wsHistory:'Contact history — across every channel',
+    f4H:'Scheduling and adherence included', f4Badge:'Included from Growth up',
+    f4P:'Workforce management that others sell as a separate product is included from the Growth plan up at no extra cost — forecast volume from your own data, work out how many people you need, build the roster automatically, then measure whether the plan actually happened.',
+    f4L1:'Forecast in 15-minute intervals, holidays and special days accounted for',
+    f4L2:'Automatic rosters that respect labour law and approved leave',
+    f4L3:'Live schedule-vs-reality tracking with alerts when you are short',
+    wfmK1:'Adherence today', wfmK2:'On the floor', wfmK3:'SLA',
+    wfmLegend:'Top bar = scheduled · bottom bar = actual · red = off plan',
+    platTag:'Built for the enterprise', platH2:'The part that gets IT to sign off',
+    platP:'D-Contact is not a wrapper around other vendors APIs. We built the core ourselves from the voice layer up to reporting, so we control reliability, cost and where your data lives.',
+    p1H:'Every event recorded and replayable',
+    p1P:'Every call, message and status change is written to an immutable event log — so audits, billing and new reports can all be rebuilt from source without fear of missing data.',
+    p2H:'Cloud or on-premise, same core',
+    p2P:'If your data cannot leave the building, run it in your own datacentre using the same software as the cloud edition — only the telephony connector differs. Move between them without rebuilding.',
+    p3H:'PDPA and access control',
+    p3P:'Sign in with your corporate SSO, keep each organisation isolated at the database level, keep an audit trail of every change, and export or erase customer data on request.',
+    p4H:'LINE as a first-class channel',
+    p4P:'Foreign platforms tend to "support LINE" through a middleman. We treat LINE OA as a peer of the phone line — same queue, same metrics — with Thai language throughout.',
+    s1:'channels, one queue', s2:'availability target', s3:'typical time to go live', s3u:'weeks', s4:'contact ceiling per customer, enforced across every system',
+    prTag:'Pricing', prH2:'Priced per agent, with no hidden fees',
+    prP:'Every plan includes all six channels and the unified queue. Workforce management, quality management and outbound start at Growth · Telephony and messaging fees are billed at cost by the carrier you choose.',
+    t1N:'Starter', t1D:'Small teams consolidating channels', t1M:'Minimum 5 agents',
+    perAgent:'agent / month',
+    t1L1:'All 6 channels + unified queue', t1L2:'Flow Designer (up to 10 flows) and business hours',
+    t1L3:'Call recording, 3-month retention', t1L4:'Knowledge base + one customer profile across channels',
+    t1L5:'In-chat CSAT survey + standard reports',
+    prCta1:'Start a trial', prPop:'Most popular',
+    t2N:'Growth', t2D:'Contact centres that measure seriously', t2M:'Minimum 20 agents',
+    t2L1:'Everything in Starter', t2L2:'<b>Full workforce management</b>',
+    t2L3:'Quality management + 20,000 transcription minutes / month',
+    t2L4:'Outbound (preview / progressive) + message broadcasts',
+    t2L5:'Cases with SLA · FAQ bot · AI-drafted call summaries',
+    t2L6:'Event-driven customer journeys + custom reports + API and webhooks',
+    t2L7:'Corporate SSO · call recording, 12-month retention', prCta2:'Book a demo',
+    t3N:'Enterprise', t3D:'Organisations with specific requirements', t3Price:'Let us talk',
+    t3M:'Scoped per engagement',
+    t3L1:'Everything in Growth', t3L2:'<b>On-premise or private cloud</b>',
+    t3L3:'Predictive dialling with an enforced abandonment cap',
+    t3L4:'Knowledge-grounded bot + live agent guidance',
+    t3L5:'100% conversation analytics + AI-drafted quality scores',
+    t3L6:'NPS with automated detractor follow-up · segments · holdout measurement',
+    t3L7:'Data feed to your warehouse · embedded agent in CRM · PDPA tooling',
+    t3L8:'Contractual SLA and a named account manager', prCta3:'Contact sales',
+    prNote:'Prices exclude VAT · Telephony and messaging platform fees are billed on actual usage',
+    cmpH:'Full plan comparison', cmpP:'The capabilities customers ask about most, grouped by module',
+    cmpTh0:'Capability',
+    cmpG1:'Foundation', cmpG2:'Workforce management (WFM)', cmpG3:'Quality management (QM)',
+    cmpG4:'Outbound', cmpG5:'Voice of customer & cases', cmpG6:'AI assistance',
+    cmpG7:'Analytics & reporting', cmpG8:'Integrations',
+    cmpR1:'All 6 channels + unified queue', cmpR2:'Flow Designer', cmpR3:'Call recording',
+    cmpR4:'Knowledge base + one customer profile across channels', cmpR5:'Corporate SSO',
+    cmpR6:'Rostering · time off · adherence · forecasting · auto-scheduling',
+    cmpR7:'Evaluation forms · quality plans · appeals',
+    cmpR8:'Transcription and conversation search',
+    cmpR9:'AI-drafted scores (a human always decides)',
+    cmpR10:'Preview / progressive dialling',
+    cmpR11:'Predictive dialling (always with an abandonment cap)',
+    cmpR12:'Message broadcasts (LINE/SMS/WhatsApp)',
+    cmpR13:'In-chat CSAT survey', cmpR14:'NPS + automated detractor follow-up',
+    cmpR15:'Cases (work spanning days) + SLA + custom fields',
+    cmpR16:'FAQ / menu bot', cmpR17:'Knowledge-grounded bot with citations',
+    cmpR18:'AI-drafted wrap-up summary (agent confirms)',
+    cmpR19:'Live agent guidance during the call',
+    cmpR20:'Custom reports + scheduled delivery', cmpR21:'Agent scorecards',
+    cmpR22:'100% conversation analytics · customer topics',
+    cmpR23:'Data feed to your warehouse (BI) · gamification',
+    cmpR24:'Public API + webhooks', cmpR25:'Embedded agent in CRM + packaged connectors',
+    cmpR26:'PDPA tooling (per-person export and erasure)', cmpR27:'On-premise deployment',
+    cmpR28:'Multi-site / multi-country (timezones · holidays · labour rules)',
+    cmpV10:'10 flows', cmpV50:'50 flows', cmpVunl:'Unlimited',
+    cmpV3m:'3 months', cmpV12m:'12 months',
+    cmpVc1:'Per contract', cmpVc2:'Per contract', cmpVc3:'Per contract', cmpVc4:'Per contract',
+    cmpVmin:'20,000 min / month', cmpVmsg:'20,000 messages / month', cmpVrps:'20 req/s',
+    cmpVcap1:'✓ capped', cmpVcap2:'✓ capped', cmpVcap3:'✓ capped',
+    cmpNote:'"Capped" means a monthly usage quota stated in your contract — anything with a real per-use cost (transcription minutes, messages, AI calls) always ships with a ceiling, so there are no surprise overage bills.',
+    faqTag:'FAQ', faqH2:'What customers ask before deciding',
+    q1:'Do we have to change our phone numbers?',
+    a1:'No. Port your existing numbers or connect the carrier you already use — we work with standard SIP trunks. During the transition you can run in parallel with your current system until you are confident.',
+    q2:'Where is customer data stored?',
+    a2:'On the cloud edition you choose the region. Organisations required to keep data in-country or in their own datacentre can run the on-premise edition — the same software, not a cut-down version.',
+    q3:'How long does rollout take?',
+    a3:'A team of 10–50 on standard channels is typically taking live traffic within two weeks, including queue setup, flow design and user training. Integrations with CRM or internal systems are scoped separately.',
+    q4:'Is workforce management really included?',
+    a4:'Yes, at no extra cost from the Growth plan up. It covers volume forecasting, required headcount, automatic rostering within labour rules, and live measurement of whether the team is following the plan.',
+    q5:'We have no dedicated IT staff — can we run it ourselves?',
+    a5:'The things you change often — queues, business hours, auto-replies and flows — are designed for team leads to edit on screen, with no code and no deployment cycle. We handle everything at the system level.',
+    q6:'If we leave, can we take our data?',
+    a6:'Yes. Interactions, messages and recordings all export in standard formats. Your data is yours — we do not hold it hostage.',
+    ctaH:'Watch it run for 30 minutes,<br>then decide',
+    ctaP:'We will open the real system and walk through your own use cases, not slides. If it is not a fit, we will say so.',
+    ctaL1:'Nothing to prepare — 30 minutes', ctaL2:'You talk to the people who built it',
+    ctaL3:'You leave with a quote based on your real headcount',
+    formH:'Pick a time that suits you', formP:'A few details and we will get back to you the next business day.',
+    fName:'Full name', fCompany:'Company', fEmail:'Work email', fPhone:'Phone',
+    fSize:'Approximate number of agents', fSubmit:'Request a demo',
+    fNote:'By submitting you agree to be contacted about this service. We do not pass your details to third parties.',
+    footP:'A unified omnichannel contact centre, built in Thailand for teams who actually serve Thai customers.',
+    footC1:'Product', footL1:'Features', footL2:'Pricing', footL3:'Try the demo', footL4:'Platform',
+    footC2:'Channels', footC3:'Contact', footL5:'Book a demo',
+    pain4H:'Everything starts after the customer has already called',
+    pain4P:'Late delivery, failed payment, expiring contract — your back office knew a day earlier, but nobody told the customer. So they call in, and your team handles a contact that never needed to exist.',
+    f5H:'Act before it becomes a contact', f5Badge:'New',
+    f5P:'Let your business systems raise a signal, then design how to reach the customer over days — message first, SMS if there is no reply, a human call only if it is still unresolved, and stop the moment the customer does what you needed.',
+    f5L1:'Triggered by real events: failed payment, order shipped, contract expiring',
+    f5L2:'Escalates on its own from message → call → case, using people only when needed',
+    f5L3:'<b>A contact ceiling per customer</b> across every campaign and every automation, so nobody gets hit twice',
+    f5L4:'Measured against a holdout group — you know how many contacts you actually avoided',
+    jr1:'Event: instalment payment failed', jr2:'Send payment link on LINE', jr2s:'sent',
+    jr3:'Still unpaid → SMS reminder', jr4:'Still unpaid → queue it for a human call',
+    jr5:'Paid → exits the journey immediately',
+    jrNote:'Every step passes that customer\u2019s contact ceiling first',
+    cmpG9:'Proactive automation (CX automation)',
+    cmpR29:'Contact ceiling per customer (across all campaigns and journeys)',
+    cmpR30:'Automated customer journeys + events from your business systems',
+    cmpR31:'Behaviour-based segments', cmpR32:'Holdout measurement',
+    cmpVjr:'50,000 actions / month', cmpVc5:'Per contract',
+    q7:'How is this different from marketing automation?',
+    a7:'We are not a marketing platform and do not intend to be — no bulk email blasts, no ad attribution, no cross-site behavioural tracking. What we automate are contacts that come from <b>real service events</b> such as a failed payment or a late delivery, escalating to your people only when needed. If you already run a marketing platform, we integrate with it over the API rather than replace it.',
+    footRights:'All rights reserved',
+    footMock:'This page is a design mockup — contact details, prices and figures are placeholders.',
+  }
+};
+
+function captureTh() {
+  var th = {};
+  document.querySelectorAll('[data-i18n]').forEach(function (el) { th[el.dataset.i18n] = el.innerHTML; });
+  document.querySelectorAll('[data-i18n-html]').forEach(function (el) { th[el.dataset.i18nHtml] = el.innerHTML; });
+  T.th = th;
+}
+function setLang(lang) {
+  var d = T[lang]; if (!d) return;
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach(function (el) {
+    var v = d[el.dataset.i18n]; if (v !== undefined) el.innerHTML = v;
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach(function (el) {
+    var v = d[el.dataset.i18nHtml]; if (v !== undefined) el.innerHTML = v;
+  });
+  document.getElementById('lang-th').classList.toggle('on', lang === 'th');
+  document.getElementById('lang-en').classList.toggle('on', lang === 'en');
+  try { localStorage.setItem('dcontact.www.lang', lang); } catch (e) {}
+}
+function submitDemo() {
+  var msg = document.documentElement.lang === 'en'
+    ? 'Request sent (mock) — this page is a design mockup, nothing was actually submitted.'
+    : 'ส่งคำขอแล้ว (ตัวอย่าง) — หน้านี้เป็นงานออกแบบ ยังไม่ได้ส่งข้อมูลจริง';
+  var el = document.createElement('div');
+  el.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:99;background:#0f172a;color:#fff;font-size:14px;' +
+    'border-radius:11px;padding:13px 18px;box-shadow:0 14px 34px -14px rgba(0,0,0,.6);max-width:330px;line-height:1.5';
+  el.innerHTML = '<i class="ti ti-check" style="color:#34d399;margin-right:7px"></i>' + msg;
+  document.body.appendChild(el);
+  setTimeout(function () { el.remove(); }, 3600);
+}
+captureTh();
+var saved = 'th'; try { saved = localStorage.getItem('dcontact.www.lang') || 'th'; } catch (e) {}
+setLang(saved);
+</script>
+</body>
+</html>

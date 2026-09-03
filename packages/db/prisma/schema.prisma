@@ -16,12 +16,13 @@ model Tenant {
   sipDomain String   @unique @map("sip_domain")
   createdAt DateTime @default(now()) @map("created_at")
 
-  users        User[]
-  teams        Team[]
-  queues       Queue[]
-  skills       Skill[]
-  contacts     Contact[]
-  interactions Interaction[]
+  users         User[]
+  teams         Team[]
+  queues        Queue[]
+  skills        Skill[]
+  contacts      Contact[]
+  interactions  Interaction[]
+  conversations Conversation[]
 
   @@map("tenants")
 }
@@ -183,9 +184,10 @@ model Contact {
   displayName String?  @map("display_name")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  tenant       Tenant            @relation(fields: [tenantId], references: [id])
-  identities   ContactIdentity[]
-  interactions Interaction[]
+  tenant        Tenant            @relation(fields: [tenantId], references: [id])
+  identities    ContactIdentity[]
+  interactions  Interaction[]
+  conversations Conversation[]
 
   @@index([tenantId])
   @@map("contacts")
@@ -222,18 +224,23 @@ enum InteractionStateType {
 }
 
 model Interaction {
-  id         String               @id @default(uuid()) @db.Uuid
-  tenantId   String               @map("tenant_id") @db.Uuid
-  channel    ChannelType
-  direction  Direction
-  state      InteractionStateType @default(QUEUED)
-  queueId    String?              @map("queue_id") @db.Uuid
-  agentId    String?              @map("agent_id") @db.Uuid
-  contactId  String?              @map("contact_id") @db.Uuid
+  id                        String               @id @default(uuid()) @db.Uuid
+  tenantId                  String               @map("tenant_id") @db.Uuid
+  channel                   ChannelType
+  direction                 Direction
+  state                     InteractionStateType @default(QUEUED)
+  queueId                   String?              @map("queue_id") @db.Uuid
+  agentId                   String?              @map("agent_id") @db.Uuid
+  contactId                 String?              @map("contact_id") @db.Uuid
+  // thread ที่งานนี้เกิดขึ้น — null สำหรับ voice (ADR-023)
+  conversationId            String?              @map("conversation_id") @db.Uuid
+  // งานนี้เกิดจากลูกค้าพิมพ์กลับภายใน reopen window ของงานใบไหน (ADR-023 ข้อ 4)
+  // งานเดิมไม่ถูกแก้เลย — AHT/SLA/billing ย้อนหลังจึงไม่เปลี่ยน
+  reopenedFromInteractionId String?              @map("reopened_from_interaction_id") @db.Uuid
   // id ฝั่งระบบภายนอก เช่น FreeSWITCH call UUID
-  externalId String?              @map("external_id")
-  wrapUpCode String?              @map("wrap_up_code")
-  metadata   Json?
+  externalId                String?              @map("external_id")
+  wrapUpCode                String?              @map("wrap_up_code")
+  metadata                  Json?
 
   queuedAt   DateTime  @default(now()) @map("queued_at")
   assignedAt DateTime? @map("assigned_at")
@@ -244,12 +251,17 @@ model Interaction {
   queue        Queue?             @relation(fields: [queueId], references: [id])
   agent        User?              @relation(fields: [agentId], references: [id])
   contact      Contact?           @relation(fields: [contactId], references: [id])
+  conversation Conversation?      @relation(fields: [conversationId], references: [id])
+  reopenedFrom Interaction?       @relation("InteractionReopenChain", fields: [reopenedFromInteractionId], references: [id])
+  reopenedBy   Interaction[]      @relation("InteractionReopenChain")
   events       InteractionEvent[]
-  conversation Conversation?
+  messages     Message[]
   recordings   Recording[]
 
   @@index([tenantId, queuedAt])
   @@index([tenantId, externalId])
+  @@index([tenantId, conversationId, queuedAt])
+  @@index([tenantId, reopenedFromInteractionId])
   @@map("interactions")
 }
 
@@ -271,19 +283,43 @@ model InteractionEvent {
 
 // ─────────────────────────── Conversations (chat/social/email threads) ───────────────────────────
 
+// สถานะของ "ห้อง" ไม่ใช่ของงาน — ดู ADR-023
+enum ConversationState {
+  OPEN // มีงานที่ยังทำอยู่
+  IDLE // ไม่มีงานค้าง แต่ลูกค้าพิมพ์กลับมาได้ตลอด
+  RESOLVED // ปิดเรื่องล่าสุดแล้ว (พิมพ์กลับมาได้ → เข้ากติกา reopen window)
+  BLOCKED // บล็อกโดยผู้ดูแล — ข้อความเข้าไม่สร้างงาน (สิทธิ์หัวหน้าขึ้นไป + audit)
+}
+
+/// thread ถาวรกับลูกค้าหนึ่งคนบนหนึ่งช่องทาง — มีหลาย Interaction อ้างถึงได้ (ADR-023)
+/// voice ไม่มี conversation (Interaction.conversationId = null)
 model Conversation {
-  id               String      @id @default(uuid()) @db.Uuid
-  tenantId         String      @map("tenant_id") @db.Uuid
-  interactionId    String      @unique @map("interaction_id") @db.Uuid
+  id               String            @id @default(uuid()) @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
   channel          ChannelType
+  contactId        String?           @map("contact_id") @db.Uuid
+  // บัญชีช่องทางที่รับ webhook นี้ (LINE OA id / FB Page id / WA phone-number-id / widget id / mailbox id)
+  // ต้อง NOT NULL เพราะ Postgres ไม่บังคับ unique ให้แถวที่คอลัมน์เป็น NULL — id ฝั่ง provider scope ต่อ account
+  channelAccountId String            @map("channel_account_id")
   // thread id ฝั่ง platform เช่น LINE conversation, email Message-ID chain
-  externalThreadId String?     @map("external_thread_id")
-  createdAt        DateTime    @default(now()) @map("created_at")
+  externalThreadId String            @map("external_thread_id")
+  state            ConversationState @default(OPEN)
 
-  interaction Interaction @relation(fields: [interactionId], references: [id])
-  messages    Message[]
+  lastCustomerMessageAt DateTime? @map("last_customer_message_at")
+  lastAgentMessageAt    DateTime? @map("last_agent_message_at")
+  // ปิดงานล่าสุดเมื่อไหร่ — ใช้ตัดสิน reopen window (ADR-023 ข้อ 4)
+  lastResolvedAt        DateTime? @map("last_resolved_at")
+  blockedReason         String?   @map("blocked_reason")
+  createdAt             DateTime  @default(now()) @map("created_at")
 
-  @@index([tenantId, externalThreadId])
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  contact      Contact?      @relation(fields: [contactId], references: [id])
+  interactions Interaction[]
+  messages     Message[]
+
+  @@unique([tenantId, channel, channelAccountId, externalThreadId])
+  @@index([tenantId, state, lastCustomerMessageAt])
+  @@index([tenantId, contactId])
   @@map("conversations")
 }
 
@@ -293,21 +329,95 @@ enum SenderType {
   SYSTEM
 }
 
+/// สถานะการส่ง — แยกจากเนื้อหาข้อความ (ADR-024)
+enum MessageDeliveryStatus {
+  RECEIVED // ขาเข้า: รับจาก provider แล้ว
+  QUEUED // ขาออก: รอ worker หยิบไปส่ง (แถวนี้คือ outbox)
+  SENDING
+  SENT // provider รับไปแล้ว
+  DELIVERED // ถึงเครื่องลูกค้า (provider แจ้งกลับ)
+  READ
+  FAILED // ครบจำนวนครั้งแล้วยังไม่สำเร็จ
+}
+
 model Message {
-  id             String     @id @default(uuid()) @db.Uuid
-  tenantId       String     @map("tenant_id") @db.Uuid
-  conversationId String     @map("conversation_id") @db.Uuid
-  senderType     SenderType @map("sender_type")
-  direction      Direction
-  contentType    String     @default("text/plain") @map("content_type")
-  body           String
-  externalId     String?    @map("external_id")
-  createdAt      DateTime   @default(now()) @map("created_at")
+  id               String     @id @default(uuid()) @db.Uuid
+  tenantId         String     @map("tenant_id") @db.Uuid
+  conversationId   String     @map("conversation_id") @db.Uuid
+  // บัญชีช่องทางที่รับ/ส่งข้อความนี้ — denormalize มาไว้ที่นี่เพราะ dedupe ต้องทำ
+  // "ก่อน" resolve thread คีย์จึงต้องประกอบจากสิ่งที่รู้ตอน webhook เข้าเท่านั้น (ADR-024 ข้อ 2)
+  channelAccountId String     @map("channel_account_id")
+  // งานชิ้นไหนเป็นเจ้าของข้อความนี้ — null = เข้ามาตอนยังไม่มีงาน (บอตคุยอยู่) · ADR-023 ข้อ 3
+  interactionId    String?    @map("interaction_id") @db.Uuid
+  senderType       SenderType @map("sender_type")
+  direction        Direction
+  contentType      String     @default("text/plain") @map("content_type")
+  body             String
 
-  conversation Conversation @relation(fields: [conversationId], references: [id])
+  // ── idempotency สองทาง (ADR-024) ──
+  // ขาเข้า: id จาก "ระบบผู้รับ" เท่านั้น ห้ามเป็นค่าที่ผู้ส่งกำหนด (ADR-024 ข้อ 2)
+  // LINE message.id · Messenger mid · WhatsApp wamid · อีเมล = UIDVALIDITY:UID ของ mailbox
+  providerMessageId String? @map("provider_message_id")
+  // ขาออก: token จากผู้สั่งส่ง — กัน Kafka at-least-once ทำให้ลูกค้าได้ข้อความซ้ำ
+  clientToken       String? @map("client_token")
 
+  status        MessageDeliveryStatus @default(RECEIVED)
+  attempts      Int                   @default(0)
+  nextAttemptAt DateTime?             @map("next_attempt_at")
+  // claim ของ outbox worker — SELECT … FOR UPDATE SKIP LOCKED + lease (ADR-024 ข้อ 3)
+  lockedAt      DateTime?             @map("locked_at")
+  lockedBy      String?               @map("locked_by")
+  failureCode   String?               @map("failure_code")
+  failureReason String?               @map("failure_reason")
+
+  sentAt      DateTime? @map("sent_at")
+  deliveredAt DateTime? @map("delivered_at")
+  readAt      DateTime? @map("read_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  conversation Conversation        @relation(fields: [conversationId], references: [id])
+  interaction  Interaction?        @relation(fields: [interactionId], references: [id])
+  attachments  MessageAttachment[]
+
+  @@unique([tenantId, channelAccountId, providerMessageId])
+  @@unique([tenantId, clientToken])
   @@index([tenantId, conversationId, createdAt])
+  @@index([tenantId, interactionId])
+  // outbox scan: หยิบงานที่ถึงเวลาส่ง/ลองใหม่
+  @@index([status, nextAttemptAt])
   @@map("messages")
+}
+
+/// ไฟล์แนบฝั่งลูกค้า — URL ของ provider หมดอายุ จึงต้องดึงมาเก็บทันทีที่ webhook เข้า (ADR-024)
+enum MediaScanStatus {
+  PENDING_FETCH // ยังไม่ได้ดึงจาก provider
+  PENDING_SCAN // ดึงมาแล้ว รอสแกน — ดาวน์โหลดไม่ได้
+  CLEAN
+  INFECTED // กักไว้ ไม่ลบ (เป็นหลักฐาน) แต่ห้ามเปิด
+  FETCH_FAILED // ดึงไม่ทันก่อน URL หมดอายุ
+}
+
+model MessageAttachment {
+  id          String          @id @default(uuid()) @db.Uuid
+  tenantId    String          @map("tenant_id") @db.Uuid
+  messageId   String          @map("message_id") @db.Uuid
+  fileName    String          @map("file_name")
+  mime        String
+  bytes       Int
+  // URL ต้นทางจาก provider — เก็บไว้เพื่อสืบสวนเท่านั้น ใช้เปิดไม่ได้เพราะหมดอายุ
+  providerUrl String?         @map("provider_url")
+  // media/{tenantId}/{yyyy}/{id} — null ถ้ายังดึงไม่สำเร็จ
+  storageKey  String?         @map("storage_key")
+  thumbKey    String?         @map("thumb_key")
+  scanStatus  MediaScanStatus @default(PENDING_FETCH) @map("scan_status")
+  fetchedAt   DateTime?       @map("fetched_at")
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  message Message @relation(fields: [messageId], references: [id])
+
+  @@index([tenantId, messageId])
+  @@index([scanStatus, createdAt])
+  @@map("message_attachments")
 }
 
 // ─────────────────────────── Recordings ───────────────────────────

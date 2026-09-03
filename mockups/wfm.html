@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Workforce</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="wfm" data-default="schedule">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== Schedules ===== -->
+<section class="view active" data-view="schedule">
+  <div class="flex items-end justify-between mb-4 flex-wrap gap-3">
+    <div><h1 class="text-xl font-semibold" data-i18n="schTitle">Schedules</h1>
+    <p class="text-sm text-slate-500" data-i18n="schSubtitle">Shift plan per site — 4-week horizon</p></div>
+    <div class="flex items-center gap-2">
+      <select class="inp w-44"><option>Bangkok HQ</option><option>Chiang Mai</option><option>Manila</option><option>Kuala Lumpur</option><option>Sydney</option></select>
+      <select class="inp w-40"><option>ทุก planning group</option><option>Voice TH</option><option>Voice EN</option><option>Chat TH</option></select>
+      <button onclick="toast('ส่งงานเข้า dc.wfm.jobs แล้ว — กำลัง solve (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800 whitespace-nowrap"><i class="ti ti-wand"></i>Generate</button>
+      <button onclick="toast('เผยแพร่ตารางแล้ว — agent เห็นกะของตัวเอง (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium border border-slate-300 rounded-lg px-3.5 py-2 hover:bg-slate-50 whitespace-nowrap"><i class="ti ti-send"></i>Publish</button>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-3 mb-3 text-sm">
+    <button class="icon-btn"><i class="ti ti-chevron-left"></i></button>
+    <span class="font-medium">สัปดาห์ที่ 1 / 4 · 10–16 ส.ค. 2026</span>
+    <button class="icon-btn"><i class="ti ti-chevron-right"></i></button>
+    <span class="st st-acw">GENERATED · v3</span>
+    <span class="text-xs text-slate-400">Bangkok HQ · Asia/Bangkok · เวลาที่แสดงเป็นเวลาท้องถิ่นของไซต์</span>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-slate-500 bg-slate-50/60"><tr id="sch-head" class="border-b border-slate-100"></tr></thead>
+      <tbody id="sch-body"></tbody>
+      <tbody id="sch-coverage"></tbody>
+    </table></div>
+  </div>
+
+  <div class="flex flex-wrap items-center gap-4 mt-3">
+    <span class="tl-legend"><span class="shift sh-day px-2">D</span>08:00–17:00</span>
+    <span class="tl-legend"><span class="shift sh-mid px-2">M</span>10:00–19:00</span>
+    <span class="tl-legend"><span class="shift sh-eve px-2">E</span>13:00–22:00</span>
+    <span class="tl-legend"><span class="shift sh-night px-2">N</span>22:00–07:00</span>
+    <span class="tl-legend"><span class="shift sh-train px-2">T</span>อบรม</span>
+    <span class="tl-legend"><span class="shift sh-leave px-2">L</span>ลา</span>
+    <span class="tl-legend"><span class="shift sh-off px-2">O</span>หยุด</span>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mt-5">
+    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-1">ผลการ solve</h2>
+      <p class="text-xs text-slate-400 mb-4">งานถูกส่งผ่าน <code class="bg-slate-100 rounded px-1">dc.wfm.jobs</code> → <code class="bg-slate-100 rounded px-1">apps/wfm-engine</code> (CP-SAT) แล้วผลกลับมาทาง <code class="bg-slate-100 rounded px-1">dc.wfm.events</code></p>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+        <div><p class="text-2xl font-semibold text-slate-800">4 นาที 12 วิ</p><p class="text-xs text-slate-400 mt-1">เวลา solve (time-box 5 นาที)</p></div>
+        <div><p class="text-2xl font-semibold text-slate-800">97.3%</p><p class="text-xs text-slate-400 mt-1">ความครอบคลุม requirement</p></div>
+        <div><p class="text-2xl font-semibold text-rose-600">5</p><p class="text-xs text-slate-400 mt-1">ช่วงที่คนขาด</p></div>
+        <div><p class="text-2xl font-semibold text-amber-600">0</p><p class="text-xs text-slate-400 mt-1">กฎแรงงานที่ละเมิด</p></div>
+      </div>
+    </div>
+    <div class="bg-amber-50 border border-amber-100 rounded-xl p-5 text-sm text-amber-900">
+      <p class="font-semibold mb-2"><i class="ti ti-alert-triangle mr-1"></i>ข้อสังเกตจาก solver</p>
+      <ul class="space-y-1.5 text-[13px] list-disc pl-4">
+        <li>พุธ 12 ส.ค. เป็นวันแม่ — คาดการณ์ต่ำกว่าปกติ 42% แต่ตารางยังจัดคนไว้ 8 (เกิน 3)</li>
+        <li>เสาร์–อาทิตย์คนขาดกะละ 1 — ไม่มีคนที่ยังเหลือชั่วโมงตามกฎ 48 ชม./สัปดาห์</li>
+        <li>ตารางกะเป็น <b>soft constraint</b> — agent นอกกะยัง login และรับงานได้ตามปกติ</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Forecast & staffing ===== -->
+<section class="view" data-view="forecast">
+  <div class="flex items-end justify-between mb-4 flex-wrap gap-3">
+    <div><h1 class="text-xl font-semibold" data-i18n="fcTitle">Forecast &amp; staffing</h1>
+    <p class="text-sm text-slate-500" data-i18n="fcSubtitle">Predicted volume, AHT and the headcount it implies</p></div>
+    <div class="flex items-center gap-2">
+      <select class="inp w-40"><option>Voice TH</option><option>Voice EN</option><option>Chat TH</option></select>
+      <button onclick="toast('นำเข้า CSV (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium border border-slate-300 rounded-lg px-3.5 py-2 hover:bg-slate-50"><i class="ti ti-file-import"></i>Import</button>
+      <button onclick="toast('สั่งพยากรณ์ใหม่แล้ว (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-refresh"></i>Re-forecast</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-slate-700">Forecast เทียบของจริง — ปริมาณงานรายชั่วโมง</h2>
+        <span class="text-xs text-slate-400">MAPE 7 วันล่าสุด: 8.4%</span>
+      </div>
+      <div class="h-64"><canvas id="chart-wfm-fc"></canvas></div>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">สมมติฐานที่ใช้</h2>
+      <dl class="text-sm space-y-2.5">
+        <div class="flex justify-between"><dt class="text-slate-500">ที่มาของค่า</dt><dd class="font-medium">MODEL (Holt-Winters)</dd></div>
+        <div class="flex justify-between"><dt class="text-slate-500">ข้อมูลย้อนหลัง</dt><dd class="font-medium">13 สัปดาห์</dd></div>
+        <div class="flex justify-between"><dt class="text-slate-500">ช่วงเวลา</dt><dd class="font-medium">15 นาที</dd></div>
+        <div class="flex justify-between"><dt class="text-slate-500">เป้าหมายบริการ</dt><dd class="font-medium">80% ใน 20 วิ</dd></div>
+        <div class="flex justify-between"><dt class="text-slate-500">โมเดลกำลังคน</dt><dd class="font-medium">Erlang C (voice)</dd></div>
+        <div class="flex justify-between"><dt class="text-slate-500">Shrinkage</dt><dd class="font-medium">30% <span class="text-xs text-slate-400">(คำนวณย้อนหลัง)</span></dd></div>
+        <div class="flex justify-between"><dt class="text-slate-500">วันพิเศษ</dt><dd class="font-medium text-rose-600">12 ส.ค. −42%</dd></div>
+      </dl>
+      <p class="text-xs text-slate-400 mt-4"><i class="ti ti-info-circle mr-1"></i>tenant ใหม่ที่ยังไม่มีข้อมูลย้อนหลัง ป้อนค่าเองหรือ import ได้ — <code class="bg-slate-100 rounded px-1">source</code> จะเป็น MANUAL/IMPORT</p>
+    </div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden mb-5">
+    <div class="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-slate-700">Requirement ราย interval — จันทร์ 10 ส.ค. 2026</h2>
+      <span class="text-xs text-slate-400">คลิกตัวเลขเพื่อ override ค่าพยากรณ์ (mock)</span>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-3 py-2.5">ช่วง</th>
+        <th class="font-normal px-3 py-2.5 text-right">ปริมาณ</th>
+        <th class="font-normal px-3 py-2.5 text-right">AHT</th>
+        <th class="font-normal px-3 py-2.5 text-right">Erlang (A)</th>
+        <th class="font-normal px-3 py-2.5 text-right">ต้องอยู่บนพื้น</th>
+        <th class="font-normal px-3 py-2.5 text-right">Shrinkage</th>
+        <th class="font-normal px-3 py-2.5 text-right">ต้องจัดกะ</th>
+        <th class="font-normal px-3 py-2.5 text-right">จัดได้</th>
+        <th class="font-normal px-3 py-2.5 text-right">ส่วนต่าง</th>
+      </tr></thead>
+      <tbody id="req-body"></tbody>
+    </table></div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl p-5">
+    <h2 class="text-sm font-semibold text-slate-700 mb-3">คนที่ต้องจัด เทียบ คนที่จัดได้</h2>
+    <div class="h-56"><canvas id="chart-wfm-staff"></canvas></div>
+  </div>
+</section>
+
+<!-- ===== Adherence (RTA) ===== -->
+<section class="view" data-view="adherence">
+  <div class="flex items-end justify-between mb-4 flex-wrap gap-3">
+    <div><h1 class="text-xl font-semibold" data-i18n="adhTitle">Adherence (RTA)</h1>
+    <p class="text-sm text-slate-500" data-i18n="adhSubtitle">Scheduled activity vs actual agent state — live</p></div>
+    <div class="flex items-center gap-2">
+      <span class="st st-busy whitespace-nowrap">LIVE · อัปเดตทุก 30 วินาที</span>
+      <select class="inp w-36"><option>ทุกทีม</option><option>Support A</option><option>Support B</option><option>Sales</option></select>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">Adherence เฉลี่ยวันนี้</p><p class="text-2xl font-semibold text-amber-600 mt-1">86.4%</p><p class="text-xs text-slate-400 mt-1">เป้าหมาย 90%</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">Conformance เฉลี่ย</p><p class="text-2xl font-semibold text-slate-800 mt-1">82.7%</p><p class="text-xs text-slate-400 mt-1">คนละตัวกับ adherence</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">Exception วันนี้</p><p class="text-2xl font-semibold text-slate-800 mt-1">7</p><p class="text-xs text-slate-400 mt-1">หลุดเกิน 5 นาที</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">กำลังหลุดอยู่ตอนนี้</p><p class="text-2xl font-semibold text-rose-600 mt-1">2</p><p class="text-xs text-slate-400 mt-1">เกิน 10 นาที → แจ้งเตือน</p></div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+      <h2 class="text-sm font-semibold text-slate-700">08:00 — 18:00 · 7 ส.ค. 2026 (Asia/Bangkok)</h2>
+      <div class="flex flex-wrap gap-3">
+        <span class="tl-legend"><span class="tl-key a-work"></span>งาน</span>
+        <span class="tl-legend"><span class="tl-key a-break"></span>พัก</span>
+        <span class="tl-legend"><span class="tl-key a-lunch"></span>พักเที่ยง</span>
+        <span class="tl-legend"><span class="tl-key a-train"></span>อบรม</span>
+        <span class="tl-legend"><span class="tl-key a-out"></span>หลุด adherence</span>
+      </div>
+    </div>
+    <table class="w-full"><tbody id="adh-body"></tbody></table>
+    <div class="px-4 py-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+      <span>Grace period 3 นาที · บันทึกเป็น exception เมื่อหลุดเกิน 5 นาที · แจ้ง supervisor เมื่อเกิน 10 นาที</span>
+      <span>ที่มา: <code class="bg-slate-100 rounded px-1">dc.agent.events</code> + <code class="bg-slate-100 rounded px-1">agent_state_logs</code></span>
+    </div>
+  </div>
+
+  <div class="bg-teal-50 border border-teal-100 rounded-xl p-5 mt-5 text-sm text-teal-900 max-w-4xl">
+    <p class="font-semibold mb-1"><i class="ti ti-info-circle mr-1"></i>adherence ≠ conformance</p>
+    <p><b>Adherence</b> = อยู่ในสถานะที่ถูกต้อง <b>ในเวลาที่ถูกต้อง</b> · <b>Conformance</b> = ทำงานครบจำนวนชั่วโมง —
+    คนที่มาสาย 1 ชม. แล้วอยู่ต่ออีก 1 ชม. ได้ conformance 100% แต่ adherence พัง (John Anderson ในตารางด้านบน)</p>
+  </div>
+</section>
+
+<!-- ===== Intraday ===== -->
+<section class="view" data-view="intraday">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="intraTitle">Intraday</h1>
+    <p class="text-sm text-slate-500" data-i18n="intraSubtitle">Today: forecast vs actual and what to do about it</p></div>
+    <span class="st st-busy">7 ส.ค. 2026 · 11:42</span>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">ปริมาณจริงวันนี้</p><p class="text-2xl font-semibold text-slate-800 mt-1">612</p><p class="kpi-delta-up mt-1"><i class="ti ti-arrow-up-right"></i> สูงกว่าคาดการณ์ 9.2%</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">คนบนพื้นตอนนี้</p><p class="text-2xl font-semibold text-slate-800 mt-1">14</p><p class="text-xs text-slate-400 mt-1">จากตาราง 17 · ขาด 3</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">SLA วันนี้</p><p class="text-2xl font-semibold text-amber-600 mt-1">74%</p><p class="text-xs text-slate-400 mt-1">เป้าหมาย 80%</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">Shrinkage จริงวันนี้</p><p class="text-2xl font-semibold text-slate-800 mt-1">34%</p><p class="text-xs text-slate-400 mt-1">วางแผนไว้ 30%</p></div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Forecast เทียบของจริง — วันนี้</h2>
+        <div class="h-56"><canvas id="chart-wfm-fc-today"></canvas></div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">คนเกิน / คนขาด ต่อชั่วโมง</h2>
+        <p class="text-xs text-slate-400 mb-3">เทียบ requirement ที่คำนวณใหม่จากปริมาณจริง ไม่ใช่จาก forecast ตอนเช้า</p>
+        <div class="h-56"><canvas id="chart-intraday"></canvas></div>
+      </div>
+    </div>
+    <div class="space-y-3">
+      <h2 class="text-sm font-semibold text-slate-700">การแจ้งเตือนและข้อเสนอ</h2>
+      <div id="intra-alerts" class="space-y-3"></div>
+      <div class="bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs text-slate-500">
+        <i class="ti ti-info-circle mr-1"></i>ทั้งหมดเป็น <b>คำแนะนำ</b> ไม่ใช่คำสั่ง — ตารางกะเป็น soft constraint ระบบจึงไม่บังคับ agent
+        (ADR-008 ข้อ 3) ผู้ดูแลเป็นคนตัดสินใจและกดเอง
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Time off ===== -->
+<section class="view" data-view="timeoff">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="toTitle">Time off</h1>
+    <p class="text-sm text-slate-500" data-i18n="toSubtitle">Leave requests and their coverage impact</p></div>
+    <button onclick="toast('สร้างคำขอลา (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">ผู้ขอ</th><th class="font-normal px-4 py-2.5">ประเภท</th>
+        <th class="font-normal px-4 py-2.5">ช่วงวันที่</th><th class="font-normal px-4 py-2.5 text-right">วัน</th>
+        <th class="font-normal px-4 py-2.5">ผลกระทบต่อ coverage</th><th class="font-normal px-4 py-2.5">สถานะ</th>
+        <th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="timeoff-body"></tbody>
+    </table></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-info-circle mr-1"></i>
+    การลาที่อนุมัติแล้วเป็น <b>hard constraint</b> ของ solver — ถ้าอนุมัติหลังตาราง publish ไปแล้ว
+    ระบบจะทำเครื่องหมายกะนั้นเป็นช่องว่างและแจ้งผู้วางแผน <b>ไม่ re-solve ตารางเองอัตโนมัติ</b></p>
+</section>
+
+<!-- ===== Sites & rules ===== -->
+<section class="view" data-view="sites">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="sitesTitle">Sites &amp; rules</h1>
+    <p class="text-sm text-slate-500" data-i18n="sitesSubtitle">Timezone, holiday calendar and labour rules per site</p></div>
+    <button onclick="toast('เพิ่มไซต์ (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+
+  <div id="sites-grid" class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6"></div>
+
+  <div class="bg-amber-50 border border-amber-100 rounded-xl p-5 text-sm text-amber-900 max-w-4xl mb-6">
+    <p class="font-semibold mb-1"><i class="ti ti-clock-exclamation mr-1"></i>ทำไมต้องเก็บ IANA timezone ไม่ใช่ offset</p>
+    <p>รูปแบบกะเก็บเป็น <b>เวลาท้องถิ่น</b> (เช่น "09:00") แล้วแปลงเป็น UTC ตอน publish เท่านั้น —
+    Sydney มี DST ถ้าเก็บกะเป็น UTC instant ตารางทั้งชุดจะเลื่อนเอง 1 ชั่วโมงตอนเปลี่ยนฤดู
+    และวันที่เปลี่ยน DST มี 23 หรือ 25 ชั่วโมง scheduler จึงห้ามสมมติว่าทุกวันมี 24 ชั่วโมง</p>
+  </div>
+
+  <h2 class="text-sm font-semibold text-slate-700 mb-3">Planning groups</h2>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">กลุ่ม</th><th class="font-normal px-4 py-2.5">ช่องทาง</th>
+        <th class="font-normal px-4 py-2.5">คิว</th><th class="font-normal px-4 py-2.5">ทักษะ</th>
+        <th class="font-normal px-4 py-2.5 text-right">Agents</th><th class="font-normal px-4 py-2.5">ความครอบคลุม</th>
+      </tr></thead>
+      <tbody id="pg-body"></tbody>
+    </table></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-info-circle mr-1"></i>
+    Erlang C สมมติว่า agent ในกลุ่มเดียวกันรับงานได้เท่ากัน — กลุ่มที่ทักษะซ้อนทับกับกลุ่มอื่นมาก
+    (เช่น Billing 74%) จะได้ requirement <b>สูงเกินจริง</b> ดู
+    <a href="#" class="text-teal-700 underline">workforce-management.md §6</a></p>
+</section>
+
+<!-- ===== My schedule (agent self-service) ===== -->
+<section class="view" data-view="my-schedule">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="myschTitle">My schedule</h1>
+    <p class="text-sm text-slate-500" data-i18n="myschSubtitle">Your shifts, adherence and leave</p></div>
+    <button onclick="toast('ส่งคำขอลาแล้ว — รอหัวหน้าอนุมัติ (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-beach"></i>ขอลา</button>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-slate-700">สมชาย วงศ์ประเสริฐ · 10–16 ส.ค. 2026</h2>
+        <span class="text-xs text-slate-400">แสดงตาม Asia/Bangkok</span>
+      </div>
+      <table class="w-full"><tbody id="mysch-body"></tbody></table>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">Adherence ของฉัน</h2>
+        <p class="text-3xl font-semibold text-emerald-600">94.2%</p>
+        <p class="text-xs text-slate-400 mt-1">เฉลี่ย 30 วัน · เป้าหมาย 90%</p>
+        <div class="mt-4 space-y-2 text-sm">
+          <div class="flex justify-between"><span class="text-slate-500">Conformance</span><span class="font-medium">99.1%</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Exception เดือนนี้</span><span class="font-medium">3 ครั้ง</span></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">สิทธิ์การลาคงเหลือ</h2>
+        <div class="space-y-3 text-sm">
+          <div class="flex justify-between"><span class="text-slate-500">ลาพักร้อน</span><span class="font-medium">7 / 12 วัน</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">ลาป่วย</span><span class="font-medium">28 / 30 วัน</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">ลากิจ</span><span class="font-medium">3 / 6 วัน</span></div>
+        </div>
+      </div>
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-500">
+        <i class="ti ti-info-circle mr-1"></i>v1 ของ self-service เป็น <b>อ่านอย่างเดียว + ยื่นลา</b> —
+        ยังไม่มีการเลือกกะเอง (shift bidding) หรือแลกกะกับเพื่อน
+      </div>
+    </div>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

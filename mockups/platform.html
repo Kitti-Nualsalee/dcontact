@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Platform Console</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+<style>
+  /* Platform Console = ฝั่ง operator — ใช้ indigo แยกจาก tenant console (teal) */
+  .p-rail{background:#3730a3}
+  .p-nav.active{color:#4338ca;background:#eef2ff}
+  .p-nav.active>i{color:#4338ca}
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+<div class="flex min-h-screen">
+
+  <!-- sidebar -->
+  <aside class="w-64 shrink-0 bg-white border-r border-slate-200 flex flex-col h-screen sticky top-0">
+    <div class="h-14 flex items-center gap-2 px-4 border-b border-slate-200 shrink-0">
+      <span class="w-8 h-8 rounded-lg bg-indigo-700 text-white flex items-center justify-center text-base font-semibold">D</span>
+      <div><span class="brand-name" style="color:#312e81">D-Contact</span>
+      <p class="text-[11px] leading-none text-indigo-600 font-semibold tracking-wide">PLATFORM CONSOLE</p></div>
+    </div>
+    <nav class="flex-1 p-3">
+      <div class="section-label">Operations</div>
+      <a class="nav-item p-nav active" data-view="tenants" onclick="go('tenants',this)"><i class="ti ti-building-community"></i>Tenants</a>
+      <a class="nav-item p-nav" data-view="plans" onclick="go('plans',this)"><i class="ti ti-receipt"></i>Plans</a>
+      <a class="nav-item p-nav" data-view="entitlements" onclick="go('entitlements',this)"><i class="ti ti-key"></i>Entitlements &amp; licenses<span class="badge-new">NEW</span></a>
+      <a class="nav-item p-nav" data-view="usage" onclick="go('usage',this)"><i class="ti ti-gauge"></i>Usage & billing</a>
+      <a class="nav-item p-nav" data-view="health" onclick="go('health',this)"><i class="ti ti-heart-rate-monitor"></i>Platform health</a>
+    </nav>
+    <div class="p-3 border-t border-slate-200 text-xs text-slate-400 shrink-0">
+      <p class="mb-1">ops@d-contact.io · PLATFORM_ADMIN</p>
+      <a href="index.html" class="text-indigo-600 hover:underline"><i class="ti ti-arrow-left"></i> กลับหน้า tenant login</a>
+    </div>
+  </aside>
+
+  <!-- content -->
+  <div class="flex-1 flex flex-col min-w-0">
+    <header class="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-5 sticky top-0 z-10">
+      <span class="text-xs px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700">ops.d-contact.io — internal only</span>
+      <div class="flex items-center gap-4">
+        <i class="ti ti-bell text-slate-400 text-lg"></i>
+        <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-medium">OP</div>
+      </div>
+    </header>
+    <main class="p-6">
+
+    <!-- ===== Tenants (list) ===== -->
+    <section class="view active" data-view="tenants">
+      <div class="flex items-end justify-between mb-4">
+        <div><h1 class="text-xl font-semibold">Tenants</h1>
+        <p class="text-sm text-slate-500">ทุก tenant บน shared database เดียว — customize ด้วย metadata (ADR-005)</p></div>
+        <button onclick="newTenant()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-indigo-700 text-white rounded-lg px-3.5 py-2 hover:bg-indigo-800"><i class="ti ti-plus"></i>Provision tenant</button>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+        <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">Active tenants</p><p class="text-2xl font-semibold">23</p><p class="kpi-delta-up">▲ 2 เดือนนี้</p></div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">Trial</p><p class="text-2xl font-semibold text-amber-600">5</p><p class="text-xs text-slate-400">หมดอายุใน 14 วัน: 2</p></div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">Seats ทั้งแพลตฟอร์ม</p><p class="text-2xl font-semibold">418</p><p class="text-xs text-slate-400">จ่ายจริง 396</p></div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">MRR (ประมาณ)</p><p class="text-2xl font-semibold">฿486k</p><p class="kpi-delta-up">▲ 6.2% MoM</p></div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+          <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+            <th class="font-normal px-4 py-2.5">Tenant</th><th class="font-normal px-4 py-2.5">Subdomain</th>
+            <th class="font-normal px-4 py-2.5">Plan</th><th class="font-normal px-4 py-2.5">Seats</th>
+            <th class="font-normal px-4 py-2.5 text-right">MTD usage</th><th class="font-normal px-4 py-2.5">Status</th>
+            <th class="font-normal px-4 py-2.5">Created</th><th class="px-4 py-2.5"></th>
+          </tr></thead>
+          <tbody id="tenants-body"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- ===== Tenant form (new/edit) ===== -->
+    <section class="view" data-view="tenant-form">
+      <button onclick="go('tenants')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700 mb-3"><i class="ti ti-arrow-left"></i>Back</button>
+      <h1 id="tf-heading" class="text-xl font-semibold mb-5">Provision tenant</h1>
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+        <div class="lg:col-span-2 space-y-5">
+          <div class="bg-white border border-slate-200 rounded-xl p-5">
+            <h2 class="text-sm font-semibold text-slate-700 mb-4">Organization</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div><label class="fld">Company name</label><input id="tf-name" class="inp" placeholder="ACME Thailand"></div>
+              <div><label class="fld">Subdomain (slug)</label><div class="flex items-center gap-2"><input id="tf-slug" class="inp" placeholder="acme"><span class="text-sm text-slate-400 shrink-0">.d-contact.io</span></div></div>
+              <div><label class="fld">Plan</label><select id="tf-plan" class="inp"><option>Starter</option><option>Growth</option><option>Enterprise</option></select></div>
+              <div><label class="fld">Agent seats</label><input id="tf-seats" type="number" class="inp" value="10"></div>
+              <div><label class="fld">SIP domain</label><input id="tf-sip" class="inp" placeholder="acme.d-contact.io"></div>
+              <div><label class="fld">Default language</label><select class="inp"><option>ไทย</option><option>English</option></select></div>
+            </div>
+          </div>
+          <div class="bg-white border border-slate-200 rounded-xl p-5">
+            <h2 class="text-sm font-semibold text-slate-700 mb-1">First admin</h2>
+            <p class="text-xs text-slate-400 mb-4">ระบบจะสร้าง Keycloak Organization + ส่งอีเมลเชิญตั้งรหัสผ่าน (ไม่มีรหัสผ่านผ่านหน้านี้)</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div><label class="fld">Admin name</label><input id="tf-admin" class="inp"></div>
+              <div><label class="fld">Admin email</label><input id="tf-email" type="email" class="inp"></div>
+            </div>
+          </div>
+        </div>
+        <div class="space-y-5">
+          <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-5 text-sm text-indigo-900">
+            <p class="font-semibold mb-2"><i class="ti ti-bolt mr-1"></i>สิ่งที่เกิดตอนกด Provision</p>
+            <ol class="list-decimal ml-4 space-y-1">
+              <li>insert แถว tenant (shared DB)</li>
+              <li>สร้าง Keycloak Organization + admin</li>
+              <li>seed metadata เริ่มต้น (คิว/เวลาทำการ)</li>
+            </ol>
+            <p class="mt-2 text-xs text-indigo-700">เสร็จในไม่กี่วินาที — ไม่มีการ provision infrastructure (ADR-005)</p>
+          </div>
+          <div class="flex gap-3">
+            <button onclick="saveTenant()" class="flex-1 h-10 rounded-lg bg-indigo-700 text-white text-sm font-medium hover:bg-indigo-800">Provision</button>
+            <button onclick="go('tenants')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Plans ===== -->
+    <section class="view" data-view="plans">
+      <div class="mb-4"><h1 class="text-xl font-semibold">Plans</h1>
+      <p class="text-sm text-slate-500">Plan = ชุด entitlements ที่บังคับใช้ที่ kernel (<a href="#" class="text-indigo-600 hover:underline">ADR-009</a>) — ต้องตรงกับหน้าเว็บขาย <code class="bg-slate-100 rounded px-1">www.html</code> เสมอ</p></div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-5xl">
+        <div class="bg-white border border-slate-200 rounded-xl p-5">
+          <div class="flex items-center justify-between mb-1"><p class="font-semibold">Starter</p><code class="text-[11px] bg-slate-100 rounded px-1.5 py-0.5 text-slate-500">starter</code></div>
+          <p class="text-2xl font-semibold mb-3">฿1,290<span class="text-sm text-slate-400 font-normal"> /seat/เดือน</span></p>
+          <ul class="text-sm text-slate-600 space-y-1.5">
+            <li><i class="ti ti-check text-emerald-600 mr-1"></i>ครบ 6 channel · universal queue</li>
+            <li><i class="ti ti-check text-emerald-600 mr-1"></i>Flow Designer สูงสุด 10 flow</li>
+            <li><i class="ti ti-check text-emerald-600 mr-1"></i>เก็บ recording 3 เดือน</li>
+            <li class="text-slate-300"><i class="ti ti-x mr-1"></i>WFM ทั้งหมด · SSO · on-prem</li>
+          </ul>
+          <p class="text-xs text-slate-400 mt-3">ใช้อยู่ 9 tenants</p>
+        </div>
+        <div class="bg-white border-2 border-indigo-600 rounded-xl p-5 relative">
+          <span class="absolute -top-2.5 left-4 text-[11px] font-semibold bg-indigo-600 text-white rounded-full px-2.5 py-0.5">POPULAR</span>
+          <div class="flex items-center justify-between mb-1"><p class="font-semibold">Growth</p><code class="text-[11px] bg-slate-100 rounded px-1.5 py-0.5 text-slate-500">growth</code></div>
+          <p class="text-2xl font-semibold mb-3">฿2,190<span class="text-sm text-slate-400 font-normal"> /seat/เดือน</span></p>
+          <ul class="text-sm text-slate-600 space-y-1.5">
+            <li><i class="ti ti-check text-emerald-600 mr-1"></i>ทุกอย่างใน Starter · 50 flow</li>
+            <li><i class="ti ti-check text-emerald-600 mr-1"></i><b>WFM ครบ</b> — schedule/forecast/autoSchedule</li>
+            <li><i class="ti ti-check text-emerald-600 mr-1"></i>SSO องค์กร · หลายไซต์</li>
+            <li class="text-slate-300"><i class="ti ti-x mr-1"></i>ติดตั้ง on-premise</li>
+          </ul>
+          <p class="text-xs text-slate-400 mt-3">ใช้อยู่ 12 tenants</p>
+        </div>
+        <div class="bg-white border border-slate-200 rounded-xl p-5">
+          <div class="flex items-center justify-between mb-1"><p class="font-semibold">Enterprise</p><code class="text-[11px] bg-slate-100 rounded px-1.5 py-0.5 text-slate-500">enterprise</code></div>
+          <p class="text-2xl font-semibold mb-3">ตามสัญญา</p>
+          <ul class="text-sm text-slate-600 space-y-1.5">
+            <li><i class="ti ti-check text-emerald-600 mr-1"></i>ทุกอย่างใน Growth · flow ไม่จำกัด</li>
+            <li><i class="ti ti-check text-emerald-600 mr-1"></i><b>on-premise / private cloud</b> + license file</li>
+            <li><i class="ti ti-check text-emerald-600 mr-1"></i>Recording retention ตามสัญญา</li>
+            <li><i class="ti ti-check text-emerald-600 mr-1"></i>SLA + named account manager</li>
+          </ul>
+          <p class="text-xs text-slate-400 mt-3">ใช้อยู่ 7 tenants</p>
+        </div>
+      </div>
+
+      <h2 class="text-sm font-semibold text-slate-700 mt-8 mb-3">Entitlement keys ต่อแพ็กเกจ</h2>
+      <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-4xl">
+        <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+          <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+            <th class="font-normal px-4 py-2.5">Key</th>
+            <th class="font-normal px-4 py-2.5 text-center">starter</th>
+            <th class="font-normal px-4 py-2.5 text-center">growth</th>
+            <th class="font-normal px-4 py-2.5 text-center">enterprise</th>
+          </tr></thead>
+          <tbody id="ent-matrix"></tbody>
+        </table></div>
+      </div>
+      <p class="text-xs text-slate-400 mt-3"><i class="ti ti-info-circle mr-1"></i>
+        <code class="bg-slate-100 rounded px-1">wfm.autoSchedule</code> แยกเป็น key ของตัวเองแม้ตอนนี้จะแถมมากับ growth เสมอ —
+        CP-SAT ใน <code class="bg-slate-100 rounded px-1">apps/wfm-engine</code> คือ compute ที่แพงจริง วันที่ต้องแยกขายจะแก้แค่ค่าใน plan</p>
+    </section>
+
+    <!-- ===== Entitlements & licenses ===== -->
+    <section class="view" data-view="entitlements">
+      <div class="flex items-end justify-between mb-4">
+        <div><h1 class="text-xl font-semibold">Entitlements &amp; licenses</h1>
+        <p class="text-sm text-slate-500">effective = clamp(override ?? plan, ceiling = license) — ดู <code class="bg-slate-100 rounded px-1">docs/licensing.md §4</code></p></div>
+        <button onclick="toast('เปิด override ใหม่ (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-indigo-700 text-white rounded-lg px-3.5 py-2 hover:bg-indigo-800"><i class="ti ti-plus"></i>New override</button>
+      </div>
+
+      <h2 class="text-sm font-semibold text-slate-700 mb-3">สิทธิ์ที่มีผลจริงต่อ tenant — โมดูล WFM</h2>
+      <div class="bg-white border border-slate-200 rounded-xl overflow-hidden mb-8">
+        <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+          <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+            <th class="font-normal px-4 py-2.5">Tenant</th><th class="font-normal px-4 py-2.5">Plan</th>
+            <th class="font-normal px-4 py-2.5">wfm.enabled</th><th class="font-normal px-4 py-2.5">wfm.autoSchedule</th>
+            <th class="font-normal px-4 py-2.5">WFM seats</th><th class="font-normal px-4 py-2.5">ที่มาของสิทธิ์</th><th class="px-4 py-2.5"></th>
+          </tr></thead>
+          <tbody id="ent-body"></tbody>
+        </table></div>
+      </div>
+
+      <h2 class="text-sm font-semibold text-slate-700 mb-1">Overrides ที่ยังไม่หมดอายุ</h2>
+      <p class="text-xs text-slate-400 mb-3">ทุกใบต้องมีเหตุผลและวันหมดอายุ — override ที่ไม่มีวันหมดคือรายได้ที่รั่วเงียบ ๆ</p>
+      <div class="bg-white border border-slate-200 rounded-xl overflow-hidden mb-8 max-w-5xl">
+        <div class="overflow-x-auto"><table class="w-full text-sm">
+          <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+            <th class="font-normal px-4 py-2.5">Tenant</th><th class="font-normal px-4 py-2.5">Patch</th>
+            <th class="font-normal px-4 py-2.5">เหตุผล</th><th class="font-normal px-4 py-2.5">หมดอายุ</th>
+            <th class="font-normal px-4 py-2.5">โดย</th><th class="px-4 py-2.5"></th>
+          </tr></thead>
+          <tbody id="ovr-body"></tbody>
+        </table></div>
+      </div>
+
+      <h2 class="text-sm font-semibold text-slate-700 mb-1">On-premise licenses</h2>
+      <p class="text-xs text-slate-400 mb-3">ไฟล์เซ็นด้วย Ed25519 · ตรวจแบบออฟไลน์ · เป็นเพดานที่ลูกค้าแก้ไม่ได้ (แต่แก้ฐานข้อมูลตัวเองได้ — ดู licensing.md §7.3)</p>
+      <div class="bg-white border border-slate-200 rounded-xl overflow-hidden mb-4">
+        <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+          <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+            <th class="font-normal px-4 py-2.5">Deployment</th><th class="font-normal px-4 py-2.5">ลูกค้า</th>
+            <th class="font-normal px-4 py-2.5">หมดอายุ</th><th class="font-normal px-4 py-2.5">สถานะ</th>
+            <th class="font-normal px-4 py-2.5 text-right">WFM seat สูงสุด (เดือนนี้)</th>
+            <th class="font-normal px-4 py-2.5">Last seen</th><th class="px-4 py-2.5"></th>
+          </tr></thead>
+          <tbody id="lic-body"></tbody>
+        </table></div>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-5 max-w-5xl">
+        <div class="bg-white border border-slate-200 rounded-xl p-5">
+          <h3 class="text-sm font-semibold text-slate-700 mb-3">State machine ตอนหมดอายุ</h3>
+          <div class="flex items-center gap-1.5 text-[11px] font-semibold mb-4 flex-wrap">
+            <span class="st st-available">ACTIVE</span><i class="ti ti-arrow-right text-slate-300"></i>
+            <span class="st st-acw">EXPIRING</span><i class="ti ti-arrow-right text-slate-300"></i>
+            <span class="st st-busy">GRACE 30 วัน</span><i class="ti ti-arrow-right text-slate-300"></i>
+            <span class="st st-offline">LOCKED</span>
+          </div>
+          <table class="w-full text-[13px]">
+            <thead class="text-slate-400 text-left"><tr><th class="font-normal pb-2">สถานะ</th><th class="font-normal pb-2 text-center">ดูของเดิม</th><th class="font-normal pb-2 text-center">สร้างใหม่</th><th class="font-normal pb-2 text-center">รับสาย</th></tr></thead>
+            <tbody class="text-slate-600">
+              <tr class="border-t border-slate-100"><td class="py-1.5">ACTIVE</td><td class="text-center text-emerald-600">✓</td><td class="text-center text-emerald-600">✓</td><td class="text-center text-emerald-600 font-bold">✓</td></tr>
+              <tr class="border-t border-slate-100"><td class="py-1.5">EXPIRING</td><td class="text-center text-emerald-600">✓</td><td class="text-center text-emerald-600">✓</td><td class="text-center text-emerald-600 font-bold">✓</td></tr>
+              <tr class="border-t border-slate-100"><td class="py-1.5">GRACE</td><td class="text-center text-emerald-600">✓</td><td class="text-center text-slate-300">—</td><td class="text-center text-emerald-600 font-bold">✓</td></tr>
+              <tr class="border-t border-slate-100"><td class="py-1.5">LOCKED</td><td class="text-center text-emerald-600">✓</td><td class="text-center text-slate-300">—</td><td class="text-center text-emerald-600 font-bold">✓</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="bg-rose-50 border border-rose-100 rounded-xl p-5 text-sm text-rose-900">
+          <p class="font-semibold mb-2"><i class="ti ti-alert-triangle mr-1"></i>กติกาเหล็กสองข้อ</p>
+          <ol class="space-y-2 text-[13.5px] list-decimal pl-4">
+            <li><b>คอลัมน์ "รับสาย" ต้องเป็น ✓ ทุกแถวเสมอ</b> — router/telephony ไม่ผูกกับ license เลย
+              license หมดอายุแล้วลูกค้ารับสายไม่ได้ = ทำให้ธุรกิจเขาหยุด เสียลูกค้าถาวรและอาจถูกฟ้อง</li>
+            <li><b>ห้ามลบข้อมูลทุกกรณี</b> — ดาวน์เกรดแล้วตารางกะล่วงหน้าสองเดือนหายไป
+              คือความเสียหายที่กู้ความเชื่อมั่นไม่กลับ ข้อมูลอยู่ต่อ แค่แก้ไม่ได้</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Usage & billing ===== -->
+    <section class="view" data-view="usage">
+      <div class="flex items-end justify-between mb-4">
+        <div><h1 class="text-xl font-semibold">Usage & billing</h1>
+        <p class="text-sm text-slate-500">Metering จาก dc.interaction.events (ADR-003) — เดือนนี้ (MTD)</p></div>
+        <button onclick="toast('Exported billing CSV (mock)')" class="inline-flex items-center gap-1.5 text-sm border border-slate-300 rounded-lg px-3.5 py-2 hover:bg-slate-50"><i class="ti ti-download"></i>Export</button>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+          <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+            <th class="font-normal px-4 py-2.5">Tenant</th><th class="font-normal px-4 py-2.5 text-right">Interactions</th>
+            <th class="font-normal px-4 py-2.5 text-right">Voice min</th><th class="font-normal px-4 py-2.5 text-right">WA conv</th>
+            <th class="font-normal px-4 py-2.5 text-right">Storage</th><th class="font-normal px-4 py-2.5 text-right">ประมาณการบิล</th><th class="px-4 py-2.5"></th>
+          </tr></thead>
+          <tbody id="usage-body"></tbody>
+        </table></div>
+      </div>
+      <p class="text-xs text-slate-400 mt-3"><i class="ti ti-info-circle mr-1"></i>ตัวเลข replay/audit ย้อนหลังได้จาก Kafka — ตารางนี้เป็น projection ไม่ใช่ source of truth</p>
+    </section>
+
+    <!-- ===== Platform health ===== -->
+    <section class="view" data-view="health">
+      <div class="mb-4"><h1 class="text-xl font-semibold">Platform health</h1>
+      <p class="text-sm text-slate-500">ภาพรวม infrastructure ที่ tenant ทุกคนใช้ร่วมกัน</p></div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+        <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">Calls in progress</p><p class="text-2xl font-semibold">148</p><p class="text-xs text-slate-400">ทั้งแพลตฟอร์ม</p></div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">Kafka consumer lag</p><p class="text-2xl font-semibold text-emerald-600">12</p><p class="text-xs text-slate-400">dc-router · ปกติ</p></div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">API p95</p><p class="text-2xl font-semibold">86<span class="text-base text-slate-400">ms</span></p><p class="kpi-delta-up">▼ 4ms</p></div>
+        <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-sm text-slate-500">Postgres storage</p><p class="text-2xl font-semibold">61%</p><p class="text-xs text-slate-400">interactions โตเร็วสุด</p></div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-3xl">
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+            <th class="font-normal px-4 py-2.5">Service</th><th class="font-normal px-4 py-2.5">Status</th><th class="font-normal px-4 py-2.5">หมายเหตุ</th></tr></thead>
+          <tbody>
+            <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">FreeSWITCH cluster</td><td class="px-4 py-3"><span class="st st-available">Healthy</span></td><td class="px-4 py-3 text-slate-500">2 nodes · 148 channels</td></tr>
+            <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">Kafka (Redpanda)</td><td class="px-4 py-3"><span class="st st-available">Healthy</span></td><td class="px-4 py-3 text-slate-500">4 topics · retention 7d</td></tr>
+            <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">Keycloak</td><td class="px-4 py-3"><span class="st st-available">Healthy</span></td><td class="px-4 py-3 text-slate-500">realm dcontact · 28 orgs</td></tr>
+            <tr class="border-b border-slate-100"><td class="px-4 py-3 font-medium">Postgres</td><td class="px-4 py-3"><span class="st st-acw">Watch</span></td><td class="px-4 py-3 text-slate-500">storage 61% — วางแผน partition interactions</td></tr>
+            <tr><td class="px-4 py-3 font-medium">MinIO (recordings)</td><td class="px-4 py-3"><span class="st st-available">Healthy</span></td><td class="px-4 py-3 text-slate-500">1.8 TB</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    </main>
+  </div>
+</div>
+
+<script>
+  var TENANTS=[
+    {name:'ACME Thailand',slug:'acme',plan:'Growth',seats:'32 / 50',mtd:'฿24,180',status:'active',created:'02-2026',sip:'acme.d-contact.io',admin:'Krit S.',email:'krit@acme.co.th'},
+    {name:'Siam Retail Co.',slug:'siamretail',plan:'Starter',seats:'6 / 10',mtd:'฿1,890',status:'trial',created:'07-2026',sip:'siamretail.d-contact.io',admin:'Napha C.',email:'napha@siamretail.co.th'},
+    {name:'Bright Edu Group',slug:'brightedu',plan:'Enterprise',seats:'64 / ∞',mtd:'฿71,420',status:'active',created:'03-2026',sip:'brightedu.d-contact.io',admin:'Maysa S.',email:'maysa@brightedu.ac.th'},
+    {name:'Pacific Logistics',slug:'paclog',plan:'Growth',seats:'18 / 30',mtd:'฿9,340',status:'suspended',created:'04-2026',sip:'paclog.d-contact.io',admin:'David K.',email:'david.kim@paclog.com'},
+    {name:'Demo (internal)',slug:'demo',plan:'Growth',seats:'3 / 50',mtd:'฿0',status:'active',created:'02-2026',sip:'dcontact.local',admin:'Ops',email:'ops@d-contact.io'}
+  ];
+
+  /* ===== ADR-009 / licensing.md — entitlement matrix + effective per tenant ===== */
+  var ENT_MATRIX=[
+    {k:'channels.all',            s:'✓',    g:'✓',    e:'✓'},
+    {k:'flows.maxPublished',      s:'10',   g:'50',   e:'∞'},
+    {k:'recording.retentionMonths',s:'3',   g:'12',   e:'ตามสัญญา'},
+    {k:'sso.enabled',             s:'—',    g:'✓',    e:'✓'},
+    {k:'wfm.schedule',            s:'—',    g:'✓',    e:'✓'},
+    {k:'wfm.timeOff',             s:'—',    g:'✓',    e:'✓'},
+    {k:'wfm.adherence',           s:'—',    g:'✓',    e:'✓'},
+    {k:'wfm.forecast',            s:'—',    g:'✓',    e:'✓'},
+    {k:'wfm.autoSchedule',        s:'—',    g:'✓',    e:'✓'},
+    {k:'wfm.intraday',            s:'—',    g:'✓',    e:'✓'},
+    {k:'wfm.seats',               s:'0',    g:'= agentSeats', e:'= agentSeats'},
+    {k:'onPrem.enabled',          s:'—',    g:'—',    e:'✓'}
+  ];
+  // ที่มาของสิทธิ์: plan / override / license — เห็นได้ว่าค่าที่มีผลจริงมาจากชั้นไหน
+  var ENT_TENANTS=[
+    {t:'ACME Thailand',plan:'Growth',wfm:true,auto:true,seats:'28 / 50',src:'plan'},
+    {t:'Siam Retail Co.',plan:'Starter',wfm:true,auto:false,seats:'4 / 5',src:'override'},
+    {t:'Bright Edu Group',plan:'Enterprise',wfm:true,auto:true,seats:'48 / 60',src:'license'},
+    {t:'Pacific Logistics',plan:'Growth',wfm:false,auto:false,seats:'0 / 0',src:'suspended'},
+    {t:'Demo (internal)',plan:'Growth',wfm:true,auto:true,seats:'3 / 50',src:'plan'}
+  ];
+  var OVERRIDES=[
+    {t:'Siam Retail Co.',patch:'wfm.enabled = true · wfm.seats = 5',why:'ทดลอง WFM ระหว่างเจรจาอัปเกรด',exp:'31-08-2026',by:'sales@d-contact.io',soon:true},
+    {t:'ACME Thailand',patch:'flows.maxPublished = 80',why:'ย้ายจากระบบเดิมที่มี 63 flow',exp:'31-12-2026',by:'ops@d-contact.io',soon:false},
+    {t:'Bright Edu Group',patch:'recording.retentionMonths = 24',why:'ข้อกำหนดผู้ตรวจสอบภายใน',exp:'30-06-2027',by:'ops@d-contact.io',soon:false}
+  ];
+  var LICENSES=[
+    {dep:'acme-onprem-01',cust:'ACME Thailand Co., Ltd.',exp:'31-03-2027',state:'active',hw:'—',seen:'7 ส.ค. 11:40',note:''},
+    {dep:'brightedu-dc-01',cust:'Bright Edu Group',exp:'31-08-2026',state:'expiring',hw:'48',seen:'7 ส.ค. 11:38',note:'เหลือ 24 วัน'},
+    {dep:'siamgov-air-01',cust:'หน่วยงานราชการ (air-gapped)',exp:'12-07-2026',state:'grace',hw:'22',seen:'2 ส.ค. 09:12',note:'อ่านอย่างเดียว · เหลือ grace 4 วัน'},
+    {dep:'legacy-pilot-03',cust:'Pilot ที่ยุติแล้ว',exp:'28-02-2026',state:'locked',hw:'6',seen:'14 มี.ค. 16:02',note:'ตรวจพบนาฬิกาย้อนหลัง 2 ครั้ง'}
+  ];
+  var USAGE_ROWS=[
+    {t:'Bright Edu Group',inter:'41,208',voice:'92,410',wa:'6,120',st:'412 GB',bill:'฿71,420'},
+    {t:'ACME Thailand',inter:'13,882',voice:'61,240',wa:'1,870',st:'182 GB',bill:'฿24,180'},
+    {t:'Pacific Logistics',inter:'5,104',voice:'18,020',wa:'940',st:'88 GB',bill:'฿9,340'},
+    {t:'Siam Retail Co.',inter:'1,443',voice:'2,180',wa:'—',st:'9 GB',bill:'฿1,890'}
+  ];
+  function stPill(s){
+    var m={active:['st-available','Active'],trial:['st-acw','Trial'],suspended:['st-busy','Suspended']}[s];
+    return '<span class="st '+m[0]+'">'+m[1]+'</span>';
+  }
+  function renderTenants(){
+    document.getElementById('tenants-body').innerHTML=TENANTS.map(function(t,i){
+      return '<tr class="border-b border-slate-100 hover:bg-slate-50">'
+        +'<td class="px-4 py-3 font-medium text-slate-800">'+t.name+'</td>'
+        +'<td class="px-4 py-3 text-slate-600">'+t.slug+'.d-contact.io</td>'
+        +'<td class="px-4 py-3 text-slate-600">'+t.plan+'</td>'
+        +'<td class="px-4 py-3 text-slate-600">'+t.seats+'</td>'
+        +'<td class="px-4 py-3 text-right text-slate-600">'+t.mtd+'</td>'
+        +'<td class="px-4 py-3">'+stPill(t.status)+'</td>'
+        +'<td class="px-4 py-3 text-slate-500">'+t.created+'</td>'
+        +'<td class="px-4 py-3 text-right"><span class="icon-btn" onclick="editTenant('+i+')" title="Edit"><i class="ti ti-pencil"></i></span>'
+        +'<span class="icon-btn" title="Suspend"><i class="ti ti-player-pause"></i></span>'
+        +'<span class="icon-btn"><i class="ti ti-dots"></i></span></td></tr>';
+    }).join('');
+    document.getElementById('usage-body').innerHTML=USAGE_ROWS.map(function(r){
+      return '<tr class="border-b border-slate-100 hover:bg-slate-50">'
+        +'<td class="px-4 py-3 font-medium text-slate-800">'+r.t+'</td>'
+        +'<td class="px-4 py-3 text-right text-slate-600">'+r.inter+'</td>'
+        +'<td class="px-4 py-3 text-right text-slate-600">'+r.voice+'</td>'
+        +'<td class="px-4 py-3 text-right text-slate-600">'+r.wa+'</td>'
+        +'<td class="px-4 py-3 text-right text-slate-600">'+r.st+'</td>'
+        +'<td class="px-4 py-3 text-right font-medium text-slate-800">'+r.bill+'</td>'
+        +'<td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-file-invoice"></i></span></td></tr>';
+    }).join('');
+    renderEntitlements();
+  }
+
+  function entCell(v){
+    if(v==='✓') return '<td class="px-4 py-2.5 text-center text-emerald-600 font-semibold">✓</td>';
+    if(v==='—') return '<td class="px-4 py-2.5 text-center text-slate-300">—</td>';
+    return '<td class="px-4 py-2.5 text-center text-slate-600">'+v+'</td>';
+  }
+  function srcPill(s){
+    var m={plan:['st-break','plan'],override:['st-acw','override'],license:['st-available','license ceiling'],suspended:['st-busy','ระงับบริการ']}[s];
+    return '<span class="st '+m[0]+'">'+m[1]+'</span>';
+  }
+  function licPill(s){
+    var m={active:['st-available','ACTIVE'],expiring:['st-acw','EXPIRING'],grace:['st-busy','GRACE'],locked:['st-offline','LOCKED']}[s];
+    return '<span class="st '+m[0]+'">'+m[1]+'</span>';
+  }
+  function renderEntitlements(){
+    var m=document.getElementById('ent-matrix'); if(!m) return;
+    m.innerHTML=ENT_MATRIX.map(function(r){
+      var wfm=r.k.indexOf('wfm.')===0;
+      return '<tr class="border-b border-slate-100 hover:bg-slate-50'+(wfm?' bg-indigo-50/25':'')+'">'
+        +'<td class="px-4 py-2.5"><code class="text-[12px] '+(wfm?'text-indigo-700 font-semibold':'text-slate-600')+'">'+r.k+'</code></td>'
+        +entCell(r.s)+entCell(r.g)+entCell(r.e)+'</tr>';
+    }).join('');
+
+    document.getElementById('ent-body').innerHTML=ENT_TENANTS.map(function(r){
+      var yes='<span class="st st-available">เปิด</span>', no='<span class="st st-offline">ปิด</span>';
+      return '<tr class="border-b border-slate-100 hover:bg-slate-50">'
+        +'<td class="px-4 py-3 font-medium text-slate-800">'+r.t+'</td>'
+        +'<td class="px-4 py-3 text-slate-600">'+r.plan+'</td>'
+        +'<td class="px-4 py-3">'+(r.wfm?yes:no)+'</td>'
+        +'<td class="px-4 py-3">'+(r.auto?yes:no)+'</td>'
+        +'<td class="px-4 py-3 text-slate-600">'+r.seats+'</td>'
+        +'<td class="px-4 py-3">'+srcPill(r.src)+'</td>'
+        +'<td class="px-4 py-3 text-right"><span class="icon-btn" title="แก้ override" onclick="toast(\'แก้ override (mock)\')"><i class="ti ti-pencil"></i></span></td></tr>';
+    }).join('');
+
+    document.getElementById('ovr-body').innerHTML=OVERRIDES.map(function(o){
+      return '<tr class="border-b border-slate-100 hover:bg-slate-50">'
+        +'<td class="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">'+o.t+'</td>'
+        +'<td class="px-4 py-3"><code class="text-[12px] bg-slate-100 rounded px-1.5 py-0.5 text-slate-700">'+o.patch+'</code></td>'
+        +'<td class="px-4 py-3 text-slate-600">'+o.why+'</td>'
+        +'<td class="px-4 py-3 whitespace-nowrap '+(o.soon?'text-amber-700 font-medium':'text-slate-600')+'">'+(o.soon?'<i class="ti ti-clock-exclamation mr-1"></i>':'')+o.exp+'</td>'
+        +'<td class="px-4 py-3 text-slate-500 whitespace-nowrap">'+o.by+'</td>'
+        +'<td class="px-4 py-3 text-right whitespace-nowrap"><span class="icon-btn" title="ต่ออายุ" onclick="toast(\'ต่ออายุ override แล้ว (mock)\')"><i class="ti ti-calendar-plus"></i></span>'
+        +'<span class="icon-btn" title="ยกเลิก" onclick="toast(\'ยกเลิก override แล้ว (mock)\')"><i class="ti ti-x"></i></span></td></tr>';
+    }).join('');
+
+    document.getElementById('lic-body').innerHTML=LICENSES.map(function(l){
+      var note=l.note?'<p class="text-[11px] '+(l.state==='locked'?'text-rose-600':'text-slate-400')+' mt-0.5">'+l.note+'</p>':'';
+      return '<tr class="border-b border-slate-100 hover:bg-slate-50">'
+        +'<td class="px-4 py-3"><code class="text-[12px] text-slate-700">'+l.dep+'</code></td>'
+        +'<td class="px-4 py-3 text-slate-600">'+l.cust+'</td>'
+        +'<td class="px-4 py-3 text-slate-600">'+l.exp+'</td>'
+        +'<td class="px-4 py-3">'+licPill(l.state)+note+'</td>'
+        +'<td class="px-4 py-3 text-right font-medium text-slate-800">'+l.hw+'</td>'
+        +'<td class="px-4 py-3 text-slate-500">'+l.seen+'</td>'
+        +'<td class="px-4 py-3 text-right whitespace-nowrap"><span class="icon-btn" title="ออกไฟล์ license ใหม่" onclick="toast(\'ออกไฟล์ license ใหม่ (mock)\')"><i class="ti ti-file-certificate"></i></span>'
+        +'<span class="icon-btn" title="ดาวน์โหลดรายงาน seat" onclick="toast(\'ดาวน์โหลดรายงาน seat สูงสุด (mock)\')"><i class="ti ti-download"></i></span></td></tr>';
+    }).join('');
+  }
+  function go(v,el){
+    document.querySelectorAll('.view').forEach(function(s){s.classList.toggle('active',s.dataset.view===v);});
+    document.querySelectorAll('.p-nav').forEach(function(a){a.classList.toggle('active',a.dataset.view===v);});
+    window.scrollTo(0,0);
+  }
+  function newTenant(){
+    ['tf-name','tf-slug','tf-sip','tf-admin','tf-email'].forEach(function(id){document.getElementById(id).value='';});
+    document.getElementById('tf-plan').value='Starter';
+    document.getElementById('tf-seats').value=10;
+    document.getElementById('tf-heading').textContent='Provision tenant';
+    go('tenant-form');
+  }
+  function editTenant(i){
+    var t=TENANTS[i];
+    document.getElementById('tf-name').value=t.name;
+    document.getElementById('tf-slug').value=t.slug;
+    document.getElementById('tf-sip').value=t.sip;
+    document.getElementById('tf-plan').value=t.plan;
+    document.getElementById('tf-seats').value=parseInt(t.seats)||10;
+    document.getElementById('tf-admin').value=t.admin;
+    document.getElementById('tf-email').value=t.email;
+    document.getElementById('tf-heading').textContent='Edit tenant — '+t.name;
+    go('tenant-form');
+  }
+  function saveTenant(){toast('Tenant provisioned (mock)');go('tenants');}
+  function toast(msg){
+    var el=document.createElement('div');
+    el.className='fixed bottom-6 right-6 z-50 bg-slate-800 text-white text-sm rounded-lg px-4 py-2.5 shadow-lg flex items-center gap-2';
+    el.innerHTML='<i class="ti ti-check text-emerald-400"></i>'+msg;
+    document.body.appendChild(el);
+    setTimeout(function(){el.remove();},2200);
+  }
+  renderTenants();
+</script>
+</body>
+</html>

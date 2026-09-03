@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Quality</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="qm" data-default="queue">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== Evaluation queue ===== -->
+<section class="view active" data-view="queue">
+  <div class="flex items-end justify-between mb-4 flex-wrap gap-3">
+    <div><h1 class="text-xl font-semibold" data-i18n="qqTitle">Evaluation queue</h1>
+    <p class="text-sm text-slate-500" data-i18n="qqSubtitle">What to review, and why it was picked</p></div>
+    <div class="flex items-center gap-2">
+      <select class="inp w-52"><option>แผน: ทีม Inbound — รายเดือน</option><option>แผน: Sales — รายสัปดาห์</option><option>ทุกแผน</option></select>
+      <button class="qbtn !h-9" onclick="showView('calibration')"><i class="ti ti-scale-outline"></i>Calibration</button>
+      <button onclick="openScore(0)" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-clipboard-check"></i>เริ่มตรวจ</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">ค้างตรวจของฉัน</p><p class="text-2xl font-semibold text-amber-600 mt-1">5</p><p class="text-xs text-slate-400 mt-1">โควตา 4 สาย/คน/เดือน</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">ร่างจาก AI รอยืนยัน</p><p class="text-2xl font-semibold text-slate-800 mt-1">128</p><p class="text-xs text-slate-400 mt-1">ยังไม่มีผลกับเอเจนต์</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">คะแนนเฉลี่ยทีม</p><p class="text-2xl font-semibold mt-1">84.6</p><p class="kpi-delta-up mt-1"><i class="ti ti-arrow-up-right"></i> 2.1 จากเดือนก่อน</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">ถูกโต้แย้ง</p><p class="text-2xl font-semibold text-rose-600 mt-1">2</p><p class="text-xs text-slate-400 mt-1">ต้องตอบใน 5 วันทำการ</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">ครอบคลุมการติดต่อ</p><p class="text-2xl font-semibold mt-1">100%</p><p class="text-xs text-slate-400 mt-1">AI ตรวจ · คนตรวจซ้ำ 3.1%</p></div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="px-4 py-3 border-b border-slate-100 flex items-center gap-2 flex-wrap">
+      <button class="fchip on">ทั้งหมด <b>17</b></button>
+      <button class="fchip">ค้างตรวจ <b>5</b></button>
+      <button class="fchip">ร่าง AI <b>8</b></button>
+      <button class="fchip">เผยแพร่แล้ว <b>2</b></button>
+      <button class="fchip">ถูกโต้แย้ง <b>2</b></button>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">การติดต่อ</th><th class="font-normal px-4 py-2.5">เอเจนต์</th>
+        <th class="font-normal px-4 py-2.5">ช่องทาง</th><th class="font-normal px-4 py-2.5">ความยาว</th>
+        <th class="font-normal px-4 py-2.5">ทำไมถูกเลือก</th><th class="font-normal px-4 py-2.5 text-right">คะแนน</th>
+        <th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="qm-queue-body"></tbody>
+    </table></div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
+    <div class="bg-amber-50 border border-amber-100 rounded-xl p-5 text-sm text-amber-900">
+      <p class="font-semibold mb-1"><i class="ti ti-robot mr-1"></i>คะแนนจาก AI เป็นร่างเสมอ</p>
+      <p>ใบที่ <code class="bg-white/60 rounded px-1">source = AUTO_DRAFT</code> <b>เอเจนต์มองไม่เห็น</b>
+      จนกว่าผู้ตรวจที่เป็นคนจะกดเผยแพร่ และทุกคะแนนต้องมีหลักฐานผูกกับช่วงเวลาในบทสนทนา —
+      ข้อที่หาหลักฐานไม่ได้จะถูกตีเป็น <code class="bg-white/60 rounded px-1">INSUFFICIENT_EVIDENCE</code>
+      แล้วนับเป็น N/A <b>ไม่ใช่ศูนย์</b> (ADR-010 ข้อ 7–8)</p>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-1">สัดส่วนที่มาของสายที่ถูกเลือก</h2>
+      <p class="text-xs text-slate-400 mb-4">มาจากแผนการตรวจ — สุ่มล้วนจะได้แต่สายที่ไม่มีอะไรผิดปกติ</p>
+      <div id="qm-mix" class="space-y-3"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Scorecard (เปิดจากคิว — ไม่อยู่ในเมนู) ===== -->
+<section class="view" data-view="score">
+  <div class="flex items-end justify-between mb-4 flex-wrap gap-3">
+    <div class="flex items-center gap-3">
+      <button class="icon-btn" onclick="showView('queue')"><i class="ti ti-arrow-left"></i></button>
+      <div><h1 class="text-xl font-semibold" data-i18n="qsTitle">Scorecard</h1>
+      <p class="text-sm text-slate-500" id="qm-score-sub">—</p></div>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="es es-draft" id="qm-score-status"><i class="ti ti-robot"></i>ร่างจาก AI</span>
+      <button class="qbtn !h-9" onclick="toast('บันทึกร่างแล้ว (mock)')"><i class="ti ti-device-floppy"></i>บันทึกร่าง</button>
+      <button onclick="toast('เผยแพร่แล้ว — เอเจนต์เห็นคะแนนและโต้แย้งได้ (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-send"></i>เผยแพร่</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-5 gap-5">
+    <!-- ซ้าย: player + transcript -->
+    <div class="xl:col-span-3 space-y-4">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <button class="w-10 h-10 rounded-full bg-teal-700 text-white flex items-center justify-center" onclick="toast('เล่นเสียง (mock)')"><i class="ti ti-player-play-filled"></i></button>
+          <div class="flex-1">
+            <div class="wave" id="qm-wave" onclick="toast('กระโดดไปตำแหน่งที่คลิก (mock)')"></div>
+          </div>
+          <div class="text-right shrink-0 whitespace-nowrap">
+            <p class="text-sm font-medium tabular-nums" id="qm-wave-time">01:24 / 06:12</p>
+            <p class="text-xs text-slate-400">stereo · 2 leg</p>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-4 text-xs text-slate-500">
+          <span class="tl-legend"><span class="tl-key" style="background:#0f766e"></span>เอเจนต์พูด</span>
+          <span class="tl-legend"><span class="tl-key" style="background:#6366f1"></span>ลูกค้าพูด</span>
+          <span class="tl-legend"><span class="tl-key" style="background:#e2e8f0"></span>เงียบ</span>
+          <span class="tl-legend"><span class="tl-key" style="background:#fecaca"></span>หยุดอัด (PCI)</span>
+          <span class="tl-legend"><span class="tl-key" style="background:#f59e0b"></span>หลักฐานที่อ้างอิง</span>
+          <span class="ml-auto">เปิดฟังครั้งนี้ถูกบันทึกใน <code class="bg-slate-100 rounded px-1">qm_media_access_log</code></span>
+        </div>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+          <h2 class="text-sm font-semibold text-slate-700">บทสนทนา</h2>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-slate-400">ASR: whisper-local · ไทย · ความมั่นใจเฉลี่ย 0.88</span>
+            <button class="qbtn" onclick="toast('แก้ไขบทสนทนา — จะสั่งวิเคราะห์ใหม่ (mock)')"><i class="ti ti-pencil"></i>แก้ไข</button>
+          </div>
+        </div>
+        <div class="p-3"><div class="tr" id="qm-transcript"></div></div>
+        <div class="px-4 py-3 border-t border-slate-100 text-xs text-slate-400 flex flex-wrap gap-x-4 gap-y-1">
+          <span><i class="ti ti-alert-triangle mr-1 text-amber-500"></i>ท่อนที่ขีดเส้นใต้ประ = ความมั่นใจ ASR ต่ำกว่า 0.7 — ตรวจก่อนใช้เป็นหลักฐาน</span>
+          <span>ช่องทางแชต/อีเมลไม่ผ่าน ASR จึงแม่น 100%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ขวา: ฟอร์ม -->
+    <div class="xl:col-span-2 space-y-4">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="flex items-start justify-between mb-3">
+          <div>
+            <h2 class="text-sm font-semibold text-slate-700">Inbound Service v7</h2>
+            <p class="text-xs text-slate-400">ฟอร์มถูกล็อกไว้ใน <code class="bg-slate-100 rounded px-1">form_snapshot</code> ของใบนี้</p>
+          </div>
+          <div class="text-right">
+            <p class="text-3xl font-semibold text-amber-600" id="qm-total">78<span class="text-lg text-slate-400">%</span></p>
+            <p class="text-xs text-slate-400">คะแนนดิบ · ยังไม่เผยแพร่</p>
+          </div>
+        </div>
+        <div class="sbar mb-1"><div class="s-mid" style="width:78%"></div></div>
+        <p class="text-xs text-slate-400">N/A และ INSUFFICIENT_EVIDENCE ถูกตัดออกจากตัวหาร ไม่ได้นับเป็น 0</p>
+      </div>
+
+      <div id="qm-form"></div>
+
+      <div class="bg-rose-50 border border-rose-100 rounded-xl p-4 text-sm text-rose-900">
+        <p class="font-semibold mb-1"><i class="ti ti-alert-octagon mr-1"></i>ข้อ auto-fail</p>
+        <p>"ยืนยันตัวตนลูกค้าครบถ้วน" เป็นข้อ auto-fail — ถ้าตอบ "ไม่" คะแนนที่ประกาศจะเป็น 0
+        แต่ระบบยัง<b>เก็บคะแนนดิบไว้</b> เพื่อให้วิเคราะห์ได้ว่าส่วนอื่นทำได้ดีแค่ไหน</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Calibration ===== -->
+<section class="view" data-view="calibration">
+  <div class="flex items-end justify-between mb-4 flex-wrap gap-3">
+    <div><h1 class="text-xl font-semibold" data-i18n="qcalTitle">Calibration</h1>
+    <p class="text-sm text-slate-500" data-i18n="qcalSubtitle">Do evaluators agree? Blind-score the same interaction</p></div>
+    <button onclick="toast('เปิดรอบ calibration ใหม่ (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i>รอบใหม่</button>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">SD ของคะแนนรวม</p><p class="text-2xl font-semibold text-amber-600 mt-1">±6.8</p><p class="text-xs text-slate-400 mt-1">เป้าหมาย ≤ ±5</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">ผู้ตรวจในรอบนี้</p><p class="text-2xl font-semibold mt-1">4</p><p class="text-xs text-slate-400 mt-1">+ ร่างจาก AI 1 ใบ</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">AI ต่างจากค่ากลางของคน</p><p class="text-2xl font-semibold mt-1">−3.4</p><p class="text-xs text-slate-400 mt-1">เกณฑ์ auto-publish: &lt; 5</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">รอบล่าสุด</p><p class="text-2xl font-semibold mt-1">28 ก.ค.</p><p class="text-xs text-slate-400 mt-1">ทุก 2 สัปดาห์</p></div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden mb-5">
+    <div class="px-4 py-3 border-b border-slate-100">
+      <h2 class="text-sm font-semibold text-slate-700">รอบ CAL-0043 · INT-88213 · voice 6:12 · เปิดเผยผลแล้ว</h2>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">คำถาม</th><th class="font-normal px-4 py-2.5 text-center">พิม</th>
+        <th class="font-normal px-4 py-2.5 text-center">นภา</th><th class="font-normal px-4 py-2.5 text-center">John</th>
+        <th class="font-normal px-4 py-2.5 text-center">อรทัย</th><th class="font-normal px-4 py-2.5 text-center">AI</th>
+        <th class="font-normal px-4 py-2.5 text-right">ส่วนต่าง</th><th class="font-normal px-4 py-2.5">ข้อสรุป</th>
+      </tr></thead>
+      <tbody id="qm-cal-body"></tbody>
+    </table></div>
+  </div>
+
+  <div class="bg-teal-50 border border-teal-100 rounded-xl p-5 text-sm text-teal-900 max-w-4xl">
+    <p class="font-semibold mb-1"><i class="ti ti-bulb mr-1"></i>variance สูงแปลว่าฟอร์มผิด ไม่ใช่ผู้ตรวจผิด</p>
+    <p>ข้อ "แสดงความเห็นอกเห็นใจ" ต่างกัน ±22 — คำถามที่วัดด้วยความรู้สึกจะได้ variance สูงเสมอ
+    ทางแก้คือ<b>เขียนเกณฑ์ให้สังเกตได้</b> (เช่น "ทวนปัญหาของลูกค้าด้วยคำพูดตัวเอง") ไม่ใช่ส่งผู้ตรวจไปอบรมเพิ่ม
+    · ผลรอบ calibration <b>ไม่นับรวมในคะแนนของเอเจนต์</b> เพราะเป็นการวัดผู้ตรวจ</p>
+  </div>
+</section>
+
+<!-- ===== Appeals ===== -->
+<section class="view" data-view="appeals">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="qapTitle">Appeals</h1>
+    <p class="text-sm text-slate-500" data-i18n="qapSubtitle">Scores the agent disputes — decided by someone else</p></div>
+    <span class="st st-acw">ต้องตอบภายใน 5 วันทำการ</span>
+  </div>
+
+  <div id="qm-appeals" class="space-y-4 mb-5"></div>
+
+  <div class="bg-white border border-slate-200 rounded-xl p-5 max-w-4xl">
+    <h2 class="text-sm font-semibold text-slate-700 mb-3">สถานะของผลประเมิน</h2>
+    <div class="flex items-center gap-2 flex-wrap text-xs">
+      <span class="es es-draft">DRAFT</span><i class="ti ti-arrow-right text-slate-300"></i>
+      <span class="es es-pub">PUBLISHED</span><i class="ti ti-arrow-right text-slate-300"></i>
+      <span class="es es-disp">DISPUTED</span><i class="ti ti-arrow-right text-slate-300"></i>
+      <span class="es es-amend">AMENDED</span>
+      <span class="text-slate-400">หรือกลับเป็น</span><span class="es es-pub">PUBLISHED</span>
+      <span class="text-slate-400">(ยืนตามเดิม)</span>
+    </div>
+    <ul class="text-sm text-slate-600 space-y-1.5 mt-4 list-disc pl-5">
+      <li><b>ห้ามลบใบเดิม</b> — <code class="bg-slate-100 rounded px-1">AMENDED</code> เก็บทั้งคะแนนเดิมและคะแนนใหม่พร้อมเหตุผล เพราะเป็นเอกสารด้านบุคคล</li>
+      <li>ผู้พิจารณาคำโต้แย้ง <b>ต้องไม่ใช่คนที่ให้คะแนนใบนั้น</b> — บังคับในโค้ด ไม่ใช่แค่ในตารางสิทธิ์</li>
+      <li>สัดส่วนคำโต้แย้งที่ชนะเป็นตัวชี้วัดสุขภาพของฟอร์มและผู้ตรวจ — เดือนนี้ <b>2 จาก 3 ใบ</b> ชนะ ซึ่งสูงผิดปกติ</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ===== Coaching ===== -->
+<section class="view" data-view="coaching-qm">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="qcoTitle">Coaching</h1>
+    <p class="text-sm text-slate-500" data-i18n="qcoSubtitle">Finding → session booked in WFM → acknowledged</p></div>
+    <button onclick="toast('สร้างเซสชันโค้ช — จองเวลาผ่าน apps/wfm (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i>เซสชันใหม่</button>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden mb-5">
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">เอเจนต์</th><th class="font-normal px-4 py-2.5">หัวข้อ</th>
+        <th class="font-normal px-4 py-2.5">ที่มา</th><th class="font-normal px-4 py-2.5">เวลาในตาราง</th>
+        <th class="font-normal px-4 py-2.5">รับทราบ</th><th class="font-normal px-4 py-2.5">ผลติดตาม</th>
+      </tr></thead>
+      <tbody id="qm-coach-body"></tbody>
+    </table></div>
+  </div>
+
+  <div class="bg-teal-50 border border-teal-100 rounded-xl p-5 text-sm text-teal-900 max-w-4xl">
+    <p class="font-semibold mb-1"><i class="ti ti-calendar-plus mr-1"></i>เซสชันที่ไม่มีเวลาในตาราง คือเซสชันที่ไม่เกิดขึ้นจริง</p>
+    <p>QM เรียก REST ของ <code class="bg-white/60 rounded px-1">apps/wfm</code> เพื่อจอง segment ชนิด
+    <code class="bg-white/60 rounded px-1">COACHING</code> ในกะของเอเจนต์ — เวลานั้นจึงถูกนับเป็นกิจกรรมที่ถูกต้องใน adherence
+    ไม่ใช่ "หลุดจากกะ" · <b>ทิศทางเดียว QM → WFM</b> และ QM ห้าม INSERT ลงตาราง <code class="bg-white/60 rounded px-1">wfm_*</code> ตรง (ADR-010 ข้อ 12)</p>
+  </div>
+</section>
+
+<!-- ===== Recordings & transcripts ===== -->
+<section class="view" data-view="media">
+  <div class="flex items-end justify-between mb-4 flex-wrap gap-3">
+    <div><h1 class="text-xl font-semibold" data-i18n="qmedTitle">Recordings &amp; transcripts</h1>
+    <p class="text-sm text-slate-500" data-i18n="qmedSubtitle">Every interaction, searchable by what was said</p></div>
+    <div class="flex items-center gap-2">
+      <label class="nav-search !m-0 !h-10 w-72 bg-white"><i class="ti ti-search text-base"></i>
+        <input placeholder="ค้นในสิ่งที่พูดจริง เช่น “คืนเงิน”"></label>
+      <select class="inp w-40"><option>ทุกช่องทาง</option><option>Voice</option><option>Web chat</option><option>LINE</option><option>Email</option></select>
+    </div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden mb-5">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">การติดต่อ</th><th class="font-normal px-4 py-2.5">ช่องทาง</th>
+        <th class="font-normal px-4 py-2.5">เอเจนต์</th><th class="font-normal px-4 py-2.5">เมื่อ</th>
+        <th class="font-normal px-4 py-2.5">ความยาว</th><th class="font-normal px-4 py-2.5">หมวดที่จับได้</th>
+        <th class="font-normal px-4 py-2.5">สื่อ</th><th class="font-normal px-4 py-2.5">อายุคงเหลือ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="qm-media-body"></tbody>
+    </table></div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 text-sm text-slate-600">
+      <p class="font-semibold text-slate-700 mb-2"><i class="ti ti-file-text mr-1"></i>บทสนทนาอยู่นานกว่าไฟล์เสียง</p>
+      <p>แถวที่เขียนว่า <b>"เสียงถูกลบแล้ว"</b> ยังค้นหาและวิเคราะห์ย้อนหลังได้ เพราะ transcript
+      มีอายุของตัวเอง (24 เดือน) ยาวกว่าเสียง (12 เดือน) — ได้ข้อมูลย้อนหลังโดยไม่ต้องถือครองเสียงเกินจำเป็น</p>
+    </div>
+    <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 text-sm text-slate-600">
+      <p class="font-semibold text-slate-700 mb-2"><i class="ti ti-link mr-1"></i>ลิงก์ฟังเป็น signed URL อายุ 5 นาที</p>
+      <p>เบราว์เซอร์ไม่เคยต่อ MinIO ตรง ทุกครั้งที่กดฟังจะออก URL ใหม่และบันทึกลง
+      <code class="bg-white rounded px-1">qm_media_access_log</code> — "ใครฟังบ้าง" เป็นคำถามแรกที่ผู้ตรวจสอบถาม</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Categories ===== -->
+<section class="view" data-view="categories">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="qcatTitle">Categories</h1>
+    <p class="text-sm text-slate-500" data-i18n="qcatSubtitle">Saved rules that tag interactions automatically</p></div>
+    <button onclick="toast('สร้างหมวดใหม่ (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-5">
+    <div class="lg:col-span-3 bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div class="overflow-x-auto"><table class="w-full text-sm">
+        <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+          <th class="font-normal px-4 py-2.5">หมวด</th><th class="font-normal px-4 py-2.5 text-center">เวอร์ชัน</th>
+          <th class="font-normal px-4 py-2.5 text-right">จับได้ 30 วัน</th><th class="font-normal px-4 py-2.5">แนวโน้ม</th>
+          <th class="font-normal px-4 py-2.5">ใช้ในแผนตรวจ</th>
+        </tr></thead>
+        <tbody id="qm-cat-body"></tbody>
+      </table></div>
+    </div>
+
+    <div class="lg:col-span-2 space-y-4">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">กฎของ “เสี่ยงยกเลิกบริการ” v3</h2>
+        <pre class="bg-slate-900 text-slate-100 rounded-lg p-3 text-[11px] leading-relaxed overflow-x-auto">{
+  "all": [
+    { "any": [ {"term":"ยกเลิก"},
+               {"term":"ปิดบัญชี"},
+               {"term":"ไม่ใช้แล้ว"} ] },
+    { "near": { "terms":["คู่แข่ง","เจ้าอื่น"],
+                "windowSec": 30 } },
+    { "speaker": "CONTACT" }
+  ],
+  "not": [ { "term": "ยกเลิกนัด" } ]
+}</pre>
+        <p class="text-xs text-slate-400 mt-3">คอมไพล์ลง Postgres FTS — ผลลัพธ์<b>อธิบายได้</b>ว่าทำไมสายนี้เข้าเงื่อนไข ต่างจากโมเดลกล่องดำ</p>
+      </div>
+      <div class="bg-amber-50 border border-amber-100 rounded-xl p-4 text-sm text-amber-900">
+        <p class="font-semibold mb-1"><i class="ti ti-language mr-1"></i>ภาษาไทยไม่มีช่องว่างระหว่างคำ</p>
+        <p>ต้อง tokenize ก่อนเข้า tsvector (dictionary-based + <code class="bg-white/60 rounded px-1">pg_trgm</code> สำหรับ fuzzy)
+        ถ้าลืม หมวดภาษาไทยจะไม่แมตช์อะไรเลยและหาสาเหตุยากมาก</p>
+      </div>
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-500">
+        <i class="ti ti-versions mr-1"></i>แก้กฎ = ขึ้นเวอร์ชันใหม่เสมอ และ <code class="bg-white rounded px-1">qm_category_hits</code>
+        เก็บเวอร์ชันที่ใช้จับไว้ด้วย ไม่งั้นกราฟแนวโน้มจะกระโดดโดยไม่มีใครบอกได้ว่าลูกค้าเปลี่ยนหรือกฎเปลี่ยน
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Insights ===== -->
+<section class="view" data-view="insights">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="qinsTitle">Quality insights</h1>
+    <p class="text-sm text-slate-500" data-i18n="qinsSubtitle">Score trends and what they correlate with</p></div>
+    <select class="inp w-56"><option>ฟอร์ม: Inbound Service v7</option><option>ฟอร์ม: Sales Outbound v3</option></select>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-1">คะแนนเฉลี่ยรายสัปดาห์ · คนเทียบ AI</h2>
+      <p class="text-xs text-slate-400 mb-3">เส้นประคือคะแนนที่ AI ร่างไว้ก่อนคนตรวจ — ระยะห่างที่กว้างขึ้นแปลว่าโมเดลเริ่มเพี้ยน</p>
+      <div class="h-60"><canvas id="chart-qm-trend"></canvas></div>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">ข้อที่ตกบ่อยที่สุด</h2>
+      <div id="qm-fails" class="space-y-3"></div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-1">แนวโน้มหมวดที่จับได้</h2>
+      <p class="text-xs text-slate-400 mb-3">จำนวนการติดต่อที่เข้าเงื่อนไขแต่ละหมวด ต่อสัปดาห์</p>
+      <div class="h-56"><canvas id="chart-qm-cats"></canvas></div>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-3">ความสัมพันธ์กับตัวชี้วัดอื่น</h2>
+      <div id="qm-corr" class="space-y-3.5"></div>
+      <p class="text-xs text-slate-400 mt-4"><i class="ti ti-info-circle mr-1"></i>
+        v1 <b>เทียบคะแนนข้ามฟอร์มไม่ได้</b> — ต้องเลือกฟอร์มก่อนถึงจะแสดงแนวโน้ม
+        การเฉลี่ยรวมข้ามฟอร์มแล้วเรียกว่า "คะแนนคุณภาพขององค์กร" เป็นตัวเลขที่ไม่มีความหมาย</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Evaluation forms ===== -->
+<section class="view" data-view="forms">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="qfrmTitle">Evaluation forms</h1>
+    <p class="text-sm text-slate-500" data-i18n="qfrmSubtitle">Versioned scorecards — used versions are frozen</p></div>
+    <button onclick="toast('สร้างฟอร์มใหม่ (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden mb-5">
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">ฟอร์ม</th><th class="font-normal px-4 py-2.5 text-center">เวอร์ชัน</th>
+        <th class="font-normal px-4 py-2.5 text-center">ข้อ</th><th class="font-normal px-4 py-2.5 text-center">auto-fail</th>
+        <th class="font-normal px-4 py-2.5 text-right">ใช้ให้คะแนนแล้ว</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="qm-forms-body"></tbody>
+    </table></div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-3">สูตรคะแนน</h2>
+      <pre class="bg-slate-900 text-slate-100 rounded-lg p-4 text-[11px] leading-relaxed overflow-x-auto">score_section = Σ(points_earned) / Σ(points_possible ที่ไม่ใช่ N/A)
+raw_score     = Σ(score_section × weight) / Σ(weight ที่มีข้อให้คะแนน)
+final_score   = autoFailed ? 0 : raw_score</pre>
+      <ul class="text-xs text-slate-500 space-y-1.5 mt-3 list-disc pl-5">
+        <li><b>N/A หายไปจากตัวหาร</b> ไม่ใช่ได้ 0 — ไม่งั้นเอเจนต์ถูกหักคะแนนจากสถานการณ์ที่ไม่เกิดขึ้น</li>
+        <li>auto-fail ทำให้คะแนนที่ประกาศเป็น 0 แต่ <b>เก็บ raw_score ไว้เสมอ</b></li>
+        <li>section ที่ทุกข้อเป็น N/A ต้องถูกตัดออกจากตัวหารของ weight ด้วย</li>
+      </ul>
+    </div>
+    <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-5 text-sm text-indigo-900">
+      <p class="font-semibold mb-1"><i class="ti ti-lock mr-1"></i>เวอร์ชันที่ใช้ให้คะแนนแล้วแก้ไม่ได้</p>
+      <p class="mb-3">แก้ = ออกเวอร์ชันใหม่ ผลเก่าอ่านได้จาก <code class="bg-white/60 rounded px-1">form_snapshot</code>
+      ที่ฝังอยู่ในใบประเมินแต่ละใบ ถ้าไม่ทำแบบนี้ คะแนน 78% ของเดือนที่แล้วจะ<b>ตีความไม่ได้อีกเลย</b></p>
+      <p class="text-xs">ชนิดคำถาม v1: YES_NO · SCALE · SINGLE_CHOICE · MULTI_CHOICE · TEXT (ไม่คิดคะแนน)</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Quality plans ===== -->
+<section class="view" data-view="plans">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="qplTitle">Quality plans</h1>
+    <p class="text-sm text-slate-500" data-i18n="qplSubtitle">Who gets reviewed, how many, and how they are picked</p></div>
+    <button onclick="toast('สร้างแผนใหม่ (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+
+  <div id="qm-plans" class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5"></div>
+
+  <div class="bg-amber-50 border border-amber-100 rounded-xl p-5 text-sm text-amber-900 max-w-4xl">
+    <p class="font-semibold mb-1"><i class="ti ti-filter-cog mr-1"></i>สองค่าที่ตัดสินว่าคิวงานตรวจจะถูกเปิดหรือถูกทิ้ง</p>
+    <p><b>ความยาวขั้นต่ำ</b> — ถ้าไม่ตั้ง ระบบจะแจกสาย 8 วินาทีให้หัวหน้าตรวจ แล้วจะไม่มีใครเปิดคิวนี้อีกเลย ·
+    <b>สัดส่วนสุ่มเพื่อ audit ตัว AI</b> — ตอนเปิด auto-QM ห้ามตัดทิ้ง ไม่งั้นจะไม่มีทางรู้ว่าโมเดลเริ่มเพี้ยนเมื่อไหร่</p>
+  </div>
+</section>
+
+<!-- ===== Recording & retention ===== -->
+<section class="view" data-view="compliance">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="qcmpTitle">Recording &amp; retention</h1>
+    <p class="text-sm text-slate-500" data-i18n="qcmpSubtitle">PCI pause, retention tiers, legal hold and access log</p></div>
+    <button onclick="toast('บันทึกการตั้งค่า (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-device-floppy"></i><span data-i18n="btnSave">Save</span></button>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">อายุการเก็บ 3 ชั้น</h2>
+        <p class="text-xs text-slate-400 mb-4">แต่ละชั้นมีอายุของตัวเอง — ชั้นล่างอยู่นานกว่าชั้นบนเสมอ</p>
+        <div id="qm-retention" class="space-y-4"></div>
+        <p class="text-xs text-slate-400 mt-4"><i class="ti ti-alert-triangle mr-1 text-amber-500"></i>
+          การลบทำผ่าน job ของเราเท่านั้น <b>ห้ามพึ่ง lifecycle rule ของ S3 อย่างเดียว</b> เพราะ S3 ไม่รู้จัก legal hold
+          · ลบไฟล์แล้วยังเก็บแถวไว้พร้อม <code class="bg-slate-100 rounded px-1">deleted_at</code>
+          เพื่อตอบได้ว่า "เคยมีและถูกลบตามนโยบาย" ซึ่งต่างจาก "ไม่เคยมี"</p>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">การหยุดอัดชั่วคราว (PCI-DSS)</h2>
+        <p class="text-xs text-slate-400 mb-4">คำสั่งไปที่ <code class="bg-slate-100 rounded px-1">dc.telephony.commands</code> → <code class="bg-slate-100 rounded px-1">apps/telephony</code> — QM ไม่แตะ ESL</p>
+        <div class="space-y-3 text-sm">
+          <label class="flex items-start gap-3"><input type="checkbox" checked class="mt-1"><span><b>ให้เอเจนต์กดหยุดอัดเองได้</b><br><span class="text-xs text-slate-400">ปุ่มในหน้า workspace ระหว่างสาย</span></span></label>
+          <label class="flex items-start gap-3"><input type="checkbox" checked class="mt-1"><span><b>หยุดอัตโนมัติเมื่อ Flow เข้าโหนดรับเลขบัตร</b><br><span class="text-xs text-slate-400">ไม่พึ่งความจำเอเจนต์ — ตั้งที่ Flow node ชนิด collect</span></span></label>
+          <label class="flex items-start gap-3"><input type="checkbox" checked class="mt-1"><span><b>แสดงช่วงที่หยุดอัดบน waveform</b><br><span class="text-xs text-slate-400">ผู้ตรวจต้องเห็นว่าเสียงหายไปเพราะนโยบาย ไม่ใช่ถูกตัดต่อ</span></span></label>
+          <label class="flex items-start gap-3"><input type="checkbox" checked class="mt-1"><span><b>ประกาศแจ้งลูกค้าว่าสายถูกบันทึก</b><br><span class="text-xs text-slate-400">เป็น Flow node มาตรฐาน ตั้งค่าได้ต่อ tenant</span></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Legal hold ที่ใช้งานอยู่</h2>
+        <div id="qm-holds" class="space-y-3"></div>
+        <p class="text-xs text-slate-400 mt-3">legal hold <b>ชนะทุกกฎ retention</b> และปลดได้เฉพาะ admin พร้อมระบุเหตุผล</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">การใช้งานเทียบเพดาน</h2>
+        <p class="text-xs text-slate-400 mb-4">โมดูลนี้เป็นโมดูลเดียวที่มีต้นทุนจ่ายออกจริงต่อสาย</p>
+        <div id="qm-quota" class="space-y-3.5"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-slate-700">บันทึกการเข้าถึงสื่อ · <code class="bg-slate-100 rounded px-1 text-xs">qm_media_access_log</code></h2>
+      <button class="qbtn" onclick="toast('ส่งออก CSV (mock)')"><i class="ti ti-download"></i>ส่งออก</button>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">เมื่อ</th><th class="font-normal px-4 py-2.5">ผู้ใช้</th>
+        <th class="font-normal px-4 py-2.5">บทบาท</th><th class="font-normal px-4 py-2.5">การกระทำ</th>
+        <th class="font-normal px-4 py-2.5">การติดต่อ</th><th class="font-normal px-4 py-2.5">IP</th>
+      </tr></thead>
+      <tbody id="qm-access-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== My scores (agent self-service) ===== -->
+<section class="view" data-view="my-quality">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="qmineTitle">My scores</h1>
+    <p class="text-sm text-slate-500" data-i18n="qmineSubtitle">Your evaluations, feedback and right of appeal</p></div>
+    <span class="st st-available">สมชาย วงศ์ประเสริฐ</span>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-100"><h2 class="text-sm font-semibold text-slate-700">ผลประเมินของฉัน — 90 วันล่าสุด</h2></div>
+        <div class="overflow-x-auto"><table class="w-full text-sm">
+          <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+            <th class="font-normal px-4 py-2.5">วันที่</th><th class="font-normal px-4 py-2.5">การติดต่อ</th>
+            <th class="font-normal px-4 py-2.5">ฟอร์ม</th><th class="font-normal px-4 py-2.5">ผู้ตรวจ</th>
+            <th class="font-normal px-4 py-2.5 text-right">คะแนน</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+          </tr></thead>
+          <tbody id="qm-mine-body"></tbody>
+        </table></div>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">คะแนนของฉันเทียบค่าเฉลี่ยทีม</h2>
+        <div class="h-52"><canvas id="chart-qm-mine"></canvas></div>
+      </div>
+    </div>
+
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">สรุป 90 วัน</h2>
+        <p class="text-3xl font-semibold text-emerald-600">88.4%</p>
+        <p class="text-xs text-slate-400 mt-1">ค่าเฉลี่ยทีม 84.6% · ฟอร์ม Inbound Service v7</p>
+        <div class="mt-4 space-y-2 text-sm">
+          <div class="flex justify-between"><span class="text-slate-500">ถูกประเมิน</span><span class="font-medium">11 ครั้ง</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">โต้แย้ง</span><span class="font-medium">1 ครั้ง (ชนะ)</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">เซสชันโค้ช</span><span class="font-medium">2 ครั้ง</span></div>
+        </div>
+      </div>
+      <div class="bg-teal-50 border border-teal-100 rounded-xl p-5 text-sm text-teal-900">
+        <p class="font-semibold mb-1"><i class="ti ti-eye mr-1"></i>ไม่มีโหมด "ประเมินลับ"</p>
+        <p>เอเจนต์เห็นผลประเมินของตัวเองทุกใบที่เผยแพร่ พร้อมหลักฐานที่ผู้ตรวจอ้างอิง และ<b>โต้แย้งได้ทุกใบ</b>
+        คำโต้แย้งจะถูกตัดสินโดยคนอื่น ไม่ใช่คนที่ให้คะแนน</p>
+      </div>
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-500">
+        <i class="ti ti-info-circle mr-1"></i>ใบที่ AI ร่างแต่ยังไม่ถูกเผยแพร่ <b>จะไม่ปรากฏในหน้านี้</b>
+        และไม่ถูกนำไปคิดค่าเฉลี่ยใด ๆ ของคุณ
+      </div>
+    </div>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

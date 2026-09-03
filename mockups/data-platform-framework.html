@@ -1,0 +1,1024 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Platform Framework</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Thai:wght@400;500;600;700;800&family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f4f8fd;
+    --panel:#edf2f8;
+    --panel-2:#f6f8fc;
+    --border:#d9e2ef;
+    --text:#2f537f;
+    --title:#204d89;
+    --blue1:#184f8f;
+    --blue2:#39a0e0;
+    --shadow:0 1px 0 rgba(255,255,255,.75) inset, 0 12px 28px rgba(52,78,122,.06);
+    --radius:18px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    font-family:'Poppins','Inter','Noto Sans Thai',sans-serif;
+    color:var(--text);
+    background:
+      radial-gradient(circle at 15% 0%, rgba(57,160,224,.12), transparent 24%),
+      radial-gradient(circle at 85% 100%, rgba(24,79,143,.09), transparent 20%),
+      linear-gradient(180deg,#fafcff 0%, #f1f6fb 100%);
+  }
+  a{color:inherit}
+  .page{
+    width:min(1720px, calc(100vw - 24px));
+    margin:18px auto 24px;
+    display:grid;
+    gap:16px;
+  }
+  .hero{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:16px;
+    padding:2px 2px 0;
+  }
+  .hero h1{
+    margin:0;
+    color:var(--title);
+    font-size:clamp(28px, 2.2vw, 44px);
+    line-height:1;
+    letter-spacing:-.05em;
+  }
+  .hero p{
+    margin:10px 0 0;
+    max-width:980px;
+    font-family:'Inter','Noto Sans Thai',sans-serif;
+    color:#6b809d;
+    font-size:14px;
+    line-height:1.5;
+  }
+  .hero-meta{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+    gap:8px;
+    max-width:340px;
+  }
+  .pill{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    border:1px solid var(--border);
+    background:#fff;
+    color:#5f7795;
+    border-radius:999px;
+    padding:8px 12px;
+    font-size:12px;
+    font-weight:600;
+    white-space:nowrap;
+  }
+  .pill i{color:#2b7ac7}
+  .card{
+    background:rgba(237,242,248,.96);
+    border:1px solid rgba(217,226,239,.92);
+    border-radius:20px;
+    box-shadow:var(--shadow);
+    overflow:hidden;
+  }
+  .card-inner{padding:14px}
+  .bar{
+    min-height:58px;
+    padding:8px 18px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:12px;
+    color:#fff;
+    font-weight:800;
+    font-size:clamp(18px, 1.35vw, 28px);
+    letter-spacing:-.03em;
+    background:linear-gradient(90deg, var(--blue1) 0%, #2b71ad 48%, var(--blue2) 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.16);
+  }
+  .bar.small{min-height:48px;font-size:clamp(16px, 1vw, 22px)}
+  .subbar{
+    margin-top:10px;
+    display:grid;
+    gap:10px;
+  }
+  .subbar.two{grid-template-columns:1fr 220px 1fr}
+  .subbar.three{grid-template-columns:1fr 1fr 1fr}
+  .section-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:10px;
+  }
+  .section-head h2{
+    margin:0;
+    font-size:clamp(18px, 1.35vw, 28px);
+    line-height:1;
+    letter-spacing:-.04em;
+    color:var(--title);
+  }
+  .section-head span{
+    color:#6f84a3;
+    font-size:12px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+  }
+  .arrow{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#3898da;
+    font-size:34px;
+  }
+  .arrow-line{
+    position:relative;
+    min-height:44px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#3898da;
+  }
+  .arrow-line::before{
+    content:"";
+    position:absolute;
+    left:50%;
+    top:-18px;
+    bottom:-18px;
+    width:3px;
+    transform:translateX(-50%);
+    border-radius:999px;
+    background:linear-gradient(180deg, transparent, #3898da 18%, #3898da 82%, transparent);
+  }
+  .arrow-line i{position:relative; font-size:32px}
+  .canvas{
+    display:grid;
+    grid-template-columns:280px minmax(0,1fr) 280px;
+    gap:14px;
+    align-items:start;
+  }
+  .rail{
+    min-height:100%;
+    padding:14px;
+    background:rgba(237,242,248,.96);
+    border:1px solid rgba(217,226,239,.92);
+    border-radius:20px;
+    box-shadow:var(--shadow);
+  }
+  .rail-title{
+    min-height:54px;
+    border-radius:12px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:linear-gradient(90deg, var(--blue1), var(--blue2));
+    color:#fff;
+    font-size:clamp(18px, 1.15vw, 24px);
+    font-weight:800;
+    letter-spacing:-.03em;
+  }
+  .rail-stack{
+    display:grid;
+    gap:12px;
+    margin-top:12px;
+  }
+  .rail-card{
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:14px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.75);
+  }
+  .rail-card h3{
+    margin:0 0 8px;
+    font-size:15px;
+    font-weight:800;
+    color:var(--title);
+    letter-spacing:-.02em;
+  }
+  .rail-card p{
+    margin:0 0 10px;
+    font-size:12px;
+    line-height:1.45;
+    color:#6d83a4;
+    font-family:'Inter','Noto Sans Thai',sans-serif;
+  }
+  .chip-grid{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0,1fr));
+    gap:8px;
+  }
+  .chip-grid.three{grid-template-columns:repeat(3, minmax(0,1fr))}
+  .chip{
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    padding:10px 10px 9px;
+    border-radius:12px;
+    border:1px solid var(--border);
+    background:#fff;
+    box-shadow:0 1px 0 rgba(255,255,255,.65) inset;
+    min-height:68px;
+  }
+  .chip b{
+    font-size:11px;
+    letter-spacing:.06em;
+    color:#9ab0cc;
+    text-transform:uppercase;
+  }
+  .chip strong{
+    color:#355d92;
+    font-size:14px;
+    line-height:1.15;
+    font-weight:700;
+    letter-spacing:-.02em;
+  }
+  .chip span{
+    font-family:'Inter','Noto Sans Thai',sans-serif;
+    font-size:11px;
+    line-height:1.35;
+    color:#6f84a4;
+  }
+  .center{
+    display:grid;
+    gap:14px;
+  }
+  .layer{
+    padding:14px;
+    background:rgba(237,242,248,.96);
+    border:1px solid rgba(217,226,239,.92);
+    border-radius:20px;
+    box-shadow:var(--shadow);
+  }
+  .layer-head{
+    display:grid;
+    grid-template-columns:68px minmax(0,1fr);
+    gap:12px;
+    align-items:stretch;
+  }
+  .lane{
+    border-radius:14px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    writing-mode:vertical-rl;
+    transform:rotate(180deg);
+    color:#fff;
+    font-size:18px;
+    font-weight:800;
+    letter-spacing:.04em;
+    text-transform:none;
+  }
+  .lane.presentation{background:linear-gradient(180deg,#ffb3c9,#ffc7d5)}
+  .lane.service{background:linear-gradient(180deg,#ffe18f,#ffd46c)}
+  .lane.business{background:linear-gradient(180deg,#b6d4f4,#92c0ea)}
+  .lane.data{background:linear-gradient(180deg,#b8d99b,#9ed06b)}
+  .lane.platform{background:linear-gradient(180deg,#d8d8d8,#c9c9c9)}
+  .layer-body{
+    min-width:0;
+  }
+  .layer-title{
+    min-height:64px;
+    border-radius:12px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    color:#fff;
+    font-weight:800;
+    font-size:clamp(18px, 1.3vw, 26px);
+    letter-spacing:-.03em;
+    padding:10px 16px;
+    background:linear-gradient(90deg,#ff0970 0%, #ff3e82 100%);
+  }
+  .layer-title.orange{background:linear-gradient(90deg,#ffad41 0%, #ff9928 100%)}
+  .layer-title.blue{background:linear-gradient(90deg,#5b9bd5 0%, #4f8fd0 100%)}
+  .layer-title.green{background:linear-gradient(90deg,#76b64a 0%, #6cae3d 100%)}
+  .layer-title.gray{background:linear-gradient(90deg,#8f8f90 0%, #7b7b7c 100%)}
+  .layer-grid{
+    margin-top:10px;
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0,1fr));
+    gap:10px;
+  }
+  .layer-grid.three{grid-template-columns:repeat(3, minmax(0,1fr))}
+  .module{
+    min-height:86px;
+    border-radius:14px;
+    padding:12px 12px 10px;
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    gap:6px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.75);
+  }
+  .module .k{
+    font-size:11px;
+    color:#8ea3bf;
+    font-weight:700;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+  }
+  .module strong{
+    color:#345c91;
+    font-size:15px;
+    line-height:1.15;
+    font-weight:800;
+    letter-spacing:-.02em;
+  }
+  .module span{
+    font-family:'Inter','Noto Sans Thai',sans-serif;
+    font-size:11px;
+    line-height:1.35;
+    color:#6d84a4;
+  }
+  .module.tall{min-height:112px}
+  .module.wide{grid-column:span 2}
+  .module.green{
+    background:linear-gradient(180deg,#f4fbef,#ecf8e2);
+  }
+  .module.blue{
+    background:linear-gradient(180deg,#f4f9ff,#eaf3fb);
+  }
+  .module.orange{
+    background:linear-gradient(180deg,#fffaf0,#fff2dc);
+  }
+  .module.pink{
+    background:linear-gradient(180deg,#fff3f8,#ffe7ef);
+  }
+  .module.gray{
+    background:linear-gradient(180deg,#fafafa,#f2f2f2);
+  }
+  .stack{
+    display:grid;
+    gap:10px;
+  }
+  .mini-grid{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0,1fr));
+    gap:10px;
+  }
+  .mini-card{
+    min-height:60px;
+    border-radius:12px;
+    background:#fff;
+    border:1px solid var(--border);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    padding:10px 12px;
+    color:#355d92;
+    font-weight:700;
+    font-size:14px;
+    line-height:1.2;
+  }
+  .mini-card.sub{
+    font-family:'Inter','Noto Sans Thai',sans-serif;
+    font-size:11px;
+    color:#6d84a4;
+    font-weight:600;
+  }
+  .actors, .sources{
+    padding:14px;
+  }
+  .actor-grid{
+    margin-top:10px;
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0,1fr));
+    gap:10px;
+  }
+  .actor{
+    min-height:118px;
+    padding:14px;
+    border-radius:14px;
+    background:#fff;
+    border:1px solid var(--border);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.75);
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    justify-content:space-between;
+  }
+  .actor-top{
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .actor-ic{
+    width:42px;
+    height:42px;
+    border-radius:12px;
+    display:grid;
+    place-items:center;
+    color:#fff;
+    background:linear-gradient(90deg,#245a9d,#3ca0e0);
+    box-shadow:0 8px 16px rgba(36,90,157,.12);
+    flex-shrink:0;
+  }
+  .actor-ic i{font-size:20px}
+  .actor h3{
+    margin:0;
+    color:#2f537f;
+    font-size:15px;
+    line-height:1.15;
+    font-weight:800;
+    letter-spacing:-.02em;
+  }
+  .actor p{
+    margin:0;
+    color:#6c84a4;
+    font-family:'Inter','Noto Sans Thai',sans-serif;
+    font-size:11.5px;
+    line-height:1.45;
+  }
+  .source-grid{
+    margin-top:10px;
+    display:grid;
+    grid-template-columns:repeat(6, minmax(0,1fr));
+    gap:10px;
+  }
+  .source{
+    min-height:96px;
+    padding:12px;
+    border-radius:14px;
+    background:#fff;
+    border:1px solid var(--border);
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    gap:8px;
+  }
+  .source i{
+    font-size:24px;
+    color:#2a7ec7;
+  }
+  .source strong{
+    font-size:14px;
+    line-height:1.15;
+    color:#355d92;
+    font-weight:800;
+    letter-spacing:-.02em;
+  }
+  .source span{
+    font-family:'Inter','Noto Sans Thai',sans-serif;
+    font-size:11px;
+    line-height:1.35;
+    color:#6d84a4;
+  }
+  .mermaid-card{
+    padding:14px;
+  }
+  .mermaid-grid{
+    display:grid;
+    gap:14px;
+    margin-top:10px;
+  }
+  .mermaid-block{
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:12px;
+    overflow:auto;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.72);
+  }
+  .foot{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    padding:6px 2px 0;
+    color:#6b819e;
+    font-family:'Inter','Noto Sans Thai',sans-serif;
+    font-size:12px;
+  }
+  .foot .tag{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 12px;
+    border-radius:999px;
+    background:#fff;
+    border:1px solid var(--border);
+    font-weight:600;
+  }
+  @media (max-width: 1320px){
+    .canvas{grid-template-columns:240px minmax(0,1fr) 240px}
+    .actor-grid{grid-template-columns:repeat(2, minmax(0,1fr))}
+    .source-grid{grid-template-columns:repeat(3, minmax(0,1fr))}
+    .chip-grid{grid-template-columns:1fr}
+    .chip-grid.three{grid-template-columns:1fr}
+  }
+  @media (max-width: 1040px){
+    .canvas{grid-template-columns:1fr}
+    .rail-title,.bar{font-size:20px}
+    .layer-head{grid-template-columns:1fr}
+    .lane{
+      writing-mode:horizontal-tb;
+      transform:none;
+      min-height:40px;
+      border-radius:12px;
+    }
+    .subbar.two,.subbar.three,.mini-grid,.layer-grid,.layer-grid.three{grid-template-columns:1fr}
+    .module.wide{grid-column:span 1}
+    .actor-grid,.source-grid{grid-template-columns:1fr}
+    .hero{flex-direction:column}
+    .hero-meta{justify-content:flex-start;max-width:none}
+  }
+  @media (max-width: 700px){
+    .page{width:min(100vw,100%);margin:0;padding:8px}
+    .card-inner,.rail,.layer,.actors,.sources{padding:10px}
+    .hero h1{font-size:28px}
+    .hero p{font-size:13px}
+    .module,.actor,.source,.mini-card,.chip{min-height:auto}
+  }
+</style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div>
+        <h1>D-Contact Platform Framework</h1>
+        <p>
+          ภาพรวมทั้งระบบของ D-Contact แบบ layered architecture: เห็น module ทุกก้อน, user actor ทุกบทบาท,
+          และระบบภายนอกที่เชื่อมต่อกันในแพลตฟอร์มเดียว
+        </p>
+      </div>
+      <div class="hero-meta">
+        <div class="pill"><i class="ti ti-layers-intersect"></i> full system overview</div>
+        <div class="pill"><i class="ti ti-players"></i> actors + modules + integrations</div>
+        <div class="pill"><i class="ti ti-api"></i> api / events / data / ui</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-inner">
+        <div class="bar">Platform Boundary</div>
+        <div class="subbar two">
+          <div class="mini-card">D-Contact as one SaaS platform</div>
+          <div class="arrow" aria-hidden="true"><i class="ti ti-arrows-left-right"></i></div>
+          <div class="mini-card">Public API, UI, events, and data feed all live here</div>
+        </div>
+        <div class="arrow-line" aria-hidden="true"><i class="ti ti-arrow-down"></i></div>
+      </div>
+    </section>
+
+    <section class="canvas">
+      <aside class="rail">
+        <div class="rail-title">Shared Kernel</div>
+        <div class="rail-stack">
+          <div class="rail-card">
+            <h3>Shared Types</h3>
+            <p>คอร์ที่ทุกโมดูลต้องใช้ร่วมกัน</p>
+            <div class="chip-grid">
+              <div class="chip"><b>Kernel</b><strong>Entities</strong><span>tenant, user, queue, interaction, conversation</span></div>
+              <div class="chip"><b>Kernel</b><strong>Enums</strong><span>state, channel, role, disposition, SLA</span></div>
+              <div class="chip"><b>Contracts</b><strong>Events</strong><span>dc.* topics, payload schema, idempotency</span></div>
+              <div class="chip"><b>Schema</b><strong>Value Objects</strong><span>channel identity, contact identity, tenant config</span></div>
+            </div>
+          </div>
+          <div class="rail-card">
+            <h3>Core Platform Data</h3>
+            <p>พื้นฐานของระบบที่ใช้ซ้ำได้ทุกชั้น</p>
+            <div class="chip-grid">
+              <div class="chip"><b>DB</b><strong>Postgres / RLS</strong><span>shared DB, tenant isolation, audit</span></div>
+              <div class="chip"><b>Event Bus</b><strong>Kafka</strong><span>interaction, agent, wfm, qm, webhook</span></div>
+              <div class="chip"><b>State</b><strong>Redis</strong><span>realtime presence, queues, cache</span></div>
+              <div class="chip"><b>Files</b><strong>MinIO / S3</strong><span>recordings, exports, manifests</span></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="center">
+        <div class="layer">
+          <div class="layer-head">
+            <div class="lane presentation">Presentation</div>
+            <div class="layer-body">
+              <div class="section-head">
+                <h2>User Interfaces (UI)</h2>
+                <span>people touch here</span>
+              </div>
+              <div class="layer-title">Application Surfaces</div>
+              <div class="layer-grid three">
+                <div class="module pink"><div class="k">web</div><strong>www</strong><span>marketing landing page</span></div>
+                <div class="module pink"><div class="k">agent</div><strong>agent-desktop</strong><span>workspace + softphone</span></div>
+                <div class="module pink"><div class="k">ops</div><strong>platform</strong><span>platform console</span></div>
+                <div class="module pink"><div class="k">tenant</div><strong>home / workspace</strong><span>dashboard and omnichannel inbox</span></div>
+                <div class="module pink"><div class="k">tenant</div><strong>routing / people</strong><span>queues, skills, agents, teams</span></div>
+                <div class="module pink"><div class="k">tenant</div><strong>wfm / qm / reports</strong><span>planning, quality, reporting</span></div>
+                <div class="module pink"><div class="k">builder</div><strong>flow-editor</strong><span>react flow canvas</span></div>
+                <div class="module pink"><div class="k">admin</div><strong>admin</strong><span>users, roles, usage, audit</span></div>
+                <div class="module pink"><div class="k">support</div><strong>cases / history</strong><span>service history and case tracking</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="arrow-line" aria-hidden="true"><i class="ti ti-arrow-down"></i></div>
+        </div>
+
+        <div class="layer">
+          <div class="layer-head">
+            <div class="lane service">Service</div>
+            <div class="layer-body">
+              <div class="section-head">
+                <h2>Contracts, Services, and API Facades</h2>
+                <span>entry points + orchestration helpers</span>
+              </div>
+              <div class="layer-title orange">Core Services</div>
+              <div class="layer-grid three">
+                <div class="module orange"><div class="k">core</div><strong>api</strong><span>REST + WebSocket gateway, auth, tenant scope</span></div>
+                <div class="module orange"><div class="k">channel</div><strong>channels</strong><span>voice, webchat, LINE, FB, WhatsApp, email</span></div>
+                <div class="module orange"><div class="k">delivery</div><strong>webhook</strong><span>outbound delivery worker, DLQ, retry</span></div>
+                <div class="module orange"><div class="k">integration</div><strong>integration platform</strong><span>connectors, CTI, visual apps, API clients</span></div>
+                <div class="module orange"><div class="k">journey</div><strong>journey orchestration</strong><span>CXA triggers + customer-level policy</span></div>
+                <div class="module orange"><div class="k">outbound</div><strong>dialer</strong><span>campaign, pacing, DNC, callbacks</span></div>
+                <div class="module orange"><div class="k">case</div><strong>cases</strong><span>SLA, owner, timeline, reopen, escalation</span></div>
+                <div class="module orange"><div class="k">ai</div><strong>bot</strong><span>virtual agent + knowledge base</span></div>
+                <div class="module orange"><div class="k">assist</div><strong>agent assist</strong><span>wrap-up, suggestions, KB gap</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="arrow-line" aria-hidden="true"><i class="ti ti-arrow-down"></i></div>
+        </div>
+
+        <div class="layer">
+          <div class="layer-head">
+            <div class="lane business">Business</div>
+            <div class="layer-body">
+              <div class="section-head">
+                <h2>Business Orchestration Layer</h2>
+                <span>the rules that decide work</span>
+              </div>
+              <div class="layer-title blue">Decision and Workflow Brain</div>
+              <div class="layer-grid three">
+                <div class="module blue tall"><div class="k">acd</div><strong>router</strong><span>queueing, matching, reserve, ring, requeue, routing brain</span></div>
+                <div class="module blue"><div class="k">flow</div><strong>flow engine</strong><span>18-node interpreter and execution state</span></div>
+                <div class="module blue"><div class="k">data</div><strong>customer 360</strong><span>contact identities, match, merge, view</span></div>
+                <div class="module blue"><div class="k">analytics</div><strong>interaction analytics</strong><span>topics, saved search, alerting, insight</span></div>
+                <div class="module blue"><div class="k">score</div><strong>performance</strong><span>scorecard registry, gamification, KPIs</span></div>
+                <div class="module blue"><div class="k">qm</div><strong>quality management</strong><span>recording lifecycle, transcript, scoring</span></div>
+                <div class="module blue"><div class="k">contact policy</div><strong>journey policy</strong><span>goal, exit, holdout, suppression</span></div>
+                <div class="module blue"><div class="k">conversation</div><strong>conversation model</strong><span>conversation vs interaction vs case</span></div>
+                <div class="module blue"><div class="k">report</div><strong>reporting semantics</strong><span>semantic layer, metrics, builder, schedule</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="arrow-line" aria-hidden="true"><i class="ti ti-arrow-down"></i></div>
+        </div>
+
+        <div class="layer">
+          <div class="layer-head">
+            <div class="lane data">Data</div>
+            <div class="layer-body">
+              <div class="section-head">
+                <h2>Data, Workers, and Runtime Layer</h2>
+                <span>events, storage, batch, and shared infra</span>
+              </div>
+              <div class="layer-title green">Operational Data Plane</div>
+              <div class="layer-grid three">
+                <div class="module green"><div class="k">telephony</div><strong>telephony</strong><span>FreeSWITCH ESL media gateway</span></div>
+                <div class="module green"><div class="k">telephony</div><strong>asterisk-gateway</strong><span>ARI gateway for on-prem deployments</span></div>
+                <div class="module green"><div class="k">channel</div><strong>channels worker</strong><span>webhook intake, media fetch, delivery status</span></div>
+                <div class="module green"><div class="k">wfm</div><strong>wfm</strong><span>forecast, schedule, adherence, intraday</span></div>
+                <div class="module green"><div class="k">engine</div><strong>wfm-engine</strong><span>Python CP-SAT solver and forecast batch</span></div>
+                <div class="module green"><div class="k">qm</div><strong>qm workers</strong><span>recording, transcript, calibration, appeals</span></div>
+                <div class="module green"><div class="k">data</div><strong>reporting</strong><span>semantic layer, feed, delivery schedules</span></div>
+                <div class="module green"><div class="k">storage</div><strong>packages/db</strong><span>Prisma schema, RLS, seed, migrations</span></div>
+                <div class="module green"><div class="k">shared</div><strong>packages/shared + kafka</strong><span>contracts and event backbone</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="rail">
+        <div class="rail-title">Frameworks</div>
+        <div class="rail-stack">
+          <div class="rail-card">
+            <h3>Reusable Blocks</h3>
+            <p>cross-cutting concerns that every layer relies on</p>
+            <div class="chip-grid">
+              <div class="chip"><b>Security</b><strong>IAM / Keycloak</strong><span>OIDC, Organizations, RBAC, tenant scope</span></div>
+              <div class="chip"><b>Validation</b><strong>Schema rules</strong><span>request validation, form rules, contracts</span></div>
+              <div class="chip"><b>Exception</b><strong>Error handling</strong><span>DLQ, retries, human-readable failures</span></div>
+              <div class="chip"><b>Logging</b><strong>Audit trail</strong><span>who did what, when, and in which tenant</span></div>
+              <div class="chip"><b>Config</b><strong>Tenant metadata</strong><span>feature flags, plans, entitlements, cache</span></div>
+              <div class="chip"><b>Obs</b><strong>Metrics / traces</strong><span>health, alerts, latency, quality signals</span></div>
+              <div class="chip"><b>Flow</b><strong>State machines</strong><span>interaction, conversation, schedule, case</span></div>
+              <div class="chip"><b>Platform</b><strong>Infrastructure</strong><span>docker, infra, storage, workers, runtime</span></div>
+            </div>
+          </div>
+          <div class="rail-card">
+            <h3>Other Reusable Blocks</h3>
+            <p>blocks that are not business modules but are visible to the whole product</p>
+            <div class="chip-grid">
+              <div class="chip"><b>Governance</b><strong>multi-tenancy</strong><span>shared DB, isolation, config cache, row-level control</span></div>
+              <div class="chip"><b>APIs</b><strong>public API</strong><span>client apps, webhooks, connectors, reporting feed</span></div>
+              <div class="chip"><b>Data</b><strong>redis / minio / s3</strong><span>realtime, objects, exports, manifests</span></div>
+              <div class="chip"><b>Ops</b><strong>monitoring</strong><span>health, alerts, status pages, delivery logs</span></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="card actors">
+      <div class="section-head">
+        <h2>User Actors</h2>
+        <span>who participates in the system</span>
+      </div>
+      <div class="bar small">Actors and Touchpoints</div>
+      <div class="actor-grid">
+        <div class="actor">
+          <div class="actor-top">
+            <div class="actor-ic"><i class="ti ti-users"></i></div>
+            <h3>Customer / End User</h3>
+          </div>
+          <p>voice, web chat, LINE, Facebook, WhatsApp, email, self-service portal</p>
+        </div>
+        <div class="actor">
+          <div class="actor-top">
+            <div class="actor-ic"><i class="ti ti-headset"></i></div>
+            <h3>Agent</h3>
+          </div>
+          <p>agent-desktop, softphone, workspace, assist, cases, wrap-up, inbox</p>
+        </div>
+        <div class="actor">
+          <div class="actor-top">
+            <div class="actor-ic"><i class="ti ti-chart-dots-3"></i></div>
+            <h3>Supervisor</h3>
+          </div>
+          <p>wallboards, queues, live monitoring, intraday, escalation, coaching</p>
+        </div>
+        <div class="actor">
+          <div class="actor-top">
+            <div class="actor-ic"><i class="ti ti-clipboard-list"></i></div>
+            <h3>QA Analyst</h3>
+          </div>
+          <p>QM queue, recordings, transcript, calibration, scorecards, appeal review</p>
+        </div>
+        <div class="actor">
+          <div class="actor-top">
+            <div class="actor-ic"><i class="ti ti-calendar-time"></i></div>
+            <h3>WFM Planner</h3>
+          </div>
+          <p>forecast, staffing, schedule, adherence, time off, intraday response</p>
+        </div>
+        <div class="actor">
+          <div class="actor-top">
+            <div class="actor-ic"><i class="ti ti-shield-cog"></i></div>
+            <h3>Tenant Admin</h3>
+          </div>
+          <p>users, roles, teams, plans, entitlements, config, integrations, audit</p>
+        </div>
+        <div class="actor">
+          <div class="actor-top">
+            <div class="actor-ic"><i class="ti ti-building"></i></div>
+            <h3>Platform Operator</h3>
+          </div>
+          <p>tenants, licensing, health, usage, plans, overrides, platform console</p>
+        </div>
+        <div class="actor">
+          <div class="actor-top">
+            <div class="actor-ic"><i class="ti ti-plug-connected"></i></div>
+            <h3>External Partner / CRM</h3>
+          </div>
+          <p>REST API, webhook, CTI embed, visual apps, connector configs, feed</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card sources">
+      <div class="section-head">
+        <h2>External Systems & Data Sources</h2>
+        <span>things outside the platform boundary</span>
+      </div>
+      <div class="bar small">Integration Surface</div>
+      <div class="source-grid">
+        <div class="source"><i class="ti ti-phone"></i><strong>PSTN / SIP / PBX</strong><span>carriers, FreeSWITCH, Asterisk, trunk providers</span></div>
+        <div class="source"><i class="ti ti-brand-line"></i><strong>Messaging Channels</strong><span>LINE, Facebook, WhatsApp, email, webchat</span></div>
+        <div class="source"><i class="ti ti-certificate-2"></i><strong>CRM / ERP / Service Desk</strong><span>Salesforce, Dynamics, Zendesk, ServiceNow</span></div>
+        <div class="source"><i class="ti ti-brain"></i><strong>AI Providers</strong><span>ASR, LLM, TTS, embedding, moderation</span></div>
+        <div class="source"><i class="ti ti-database-export"></i><strong>BI / Data Warehouse</strong><span>parquet feed, manifest, reporting export</span></div>
+        <div class="source"><i class="ti ti-cloud-upload"></i><strong>Object Storage / SFTP</strong><span>recordings, exports, scheduled delivery targets</span></div>
+      </div>
+    </section>
+
+    <section class="card mermaid-card">
+      <div class="section-head">
+        <h2>Summary Data Flow</h2>
+        <span>Mermaid</span>
+      </div>
+      <div class="bar small">Data Movement + Storage by Module</div>
+      <div class="mermaid-grid">
+        <div class="mermaid-block">
+<div class="mermaid">
+flowchart TB
+  classDef actor fill:#245a9d,stroke:#1f4778,color:#ffffff,stroke-width:1px;
+  classDef ui fill:#ffe1ec,stroke:#ff8bb0,color:#204d89,stroke-width:1px;
+  classDef svc fill:#fff0d4,stroke:#f2b24d,color:#204d89,stroke-width:1px;
+  classDef biz fill:#d9e9fb,stroke:#79aee3,color:#204d89,stroke-width:1px;
+  classDef data fill:#e5f5d8,stroke:#8ac256,color:#204d89,stroke-width:1px;
+  classDef ext fill:#f3f3f3,stroke:#b7b7b7,color:#204d89,stroke-width:1px;
+
+  subgraph ACT["User actors"]
+    C["Customer / End User"]:::actor
+    A["Agent"]:::actor
+    S["Supervisor"]:::actor
+    Q["QA Analyst"]:::actor
+    W["WFM Planner"]:::actor
+    T["Tenant Admin"]:::actor
+    P["Platform Operator"]:::actor
+    X["External Partner / CRM"]:::actor
+  end
+
+  subgraph UI["Presentation / UI"]
+    WWW["www"]:::ui
+    AD["agent-desktop"]:::ui
+    OP["platform"]:::ui
+    WS["workspace / inbox"]:::ui
+    RP["reports / wfm / qm"]:::ui
+    FD["flow-editor"]:::ui
+  end
+
+  subgraph SVC["Core services"]
+    API["api"]:::svc
+    CH["channels"]:::svc
+    WH["webhook"]:::svc
+    INT["integration platform"]:::svc
+    JR["journey orchestration"]:::svc
+    DP["dialer"]:::svc
+    CS["cases"]:::svc
+    BOT["bot"]:::svc
+    ASSIST["agent assist"]:::svc
+  end
+
+  subgraph BIZ["Business / decision layer"]
+    R["router"]:::biz
+    FLOW["flow engine"]:::biz
+    C360["customer 360"]:::biz
+    IA["interaction analytics"]:::biz
+    PERF["performance"]:::biz
+    QM["quality management"]:::biz
+    RPT["reporting"]:::biz
+  end
+
+  subgraph DATA["Data + runtime"]
+    TELE["telephony"]:::data
+    AST["asterisk-gateway"]:::data
+    WFM["wfm"]:::data
+    WFMX["wfm-engine"]:::data
+    QMWS["qm workers"]:::data
+    DB[("Postgres / RLS")]:::data
+    KAFKA[("Kafka topics dc.*")]:::data
+    REDIS[("Redis realtime state")]:::data
+    S3[("MinIO / S3")]:::data
+  end
+
+  subgraph EXT["External systems / sources"]
+    PSTN["PSTN / SIP / PBX"]:::ext
+    MSG["LINE / FB / WhatsApp / email"]:::ext
+    CRM["CRM / ERP / Service Desk"]:::ext
+    AI["AI providers"]:::ext
+    BI["BI / DWH / SFTP"]:::ext
+  end
+
+  C --> WWW
+  A --> AD
+  S --> WS
+  Q --> RP
+  W --> RP
+  T --> OP
+  P --> OP
+  X --> INT
+
+  WWW --> API
+  AD --> API
+  OP --> API
+  WS --> API
+  RP --> API
+  FD --> FLOW
+
+  API --> DB
+  API --> KAFKA
+  CH --> KAFKA
+  WH --> KAFKA
+  INT --> API
+  INT --> CRM
+  JR --> CH
+  DP --> R
+  CS --> R
+  BOT --> API
+  ASSIST --> API
+
+  KAFKA --> R
+  KAFKA --> FLOW
+  KAFKA --> WFM
+  KAFKA --> QMWS
+  KAFKA --> IA
+  KAFKA --> PERF
+  KAFKA --> RPT
+
+  R --> REDIS
+  R --> DB
+  FLOW --> DB
+  C360 --> DB
+  IA --> DB
+  PERF --> DB
+  QM --> DB
+  RPT --> DB
+
+  TELE --> PSTN
+  CH --> MSG
+  WH --> BI
+  INT --> AI
+  WFM --> WFMX
+  WFM --> DB
+  WFMX --> DB
+  QMWS --> S3
+  RPT --> S3
+  TELE --> KAFKA
+  AST --> KAFKA
+
+  class C,A,S,Q,W,T,P,X actor;
+  class WWW,AD,OP,WS,RP,FD ui;
+  class API,CH,WH,INT,JR,DP,CS,BOT,ASSIST svc;
+  class R,FLOW,C360,IA,PERF,QM,RPT biz;
+  class TELE,AST,WFM,WFMX,QMWS,DB,KAFKA,REDIS,S3 data;
+  class PSTN,MSG,CRM,AI,BI ext;
+</div>
+        </div>
+        <div class="mermaid-block">
+<div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant Customer as Customer / End User
+  participant Agent as Agent
+  participant Sup as Supervisor
+  participant QA as QA Analyst
+  participant WFM as WFM Planner
+  participant Admin as Tenant Admin
+  participant Ops as Platform Operator
+  participant Partner as External Partner / CRM
+  participant UI as UI surfaces
+  participant API as api
+  participant Router as router / flow
+  participant Data as DB / Kafka / Redis / S3
+
+  Customer->>UI: starts contact / self-service
+  UI->>API: create interaction or request data
+  API->>Router: route, trigger flow, store event
+  Router-->>Data: persist interaction / conversation / case
+  Agent->>UI: answer / wrap up / use assist
+  UI->>API: send notes, disposition, tasks
+  API->>Data: update interaction state
+  Sup->>UI: monitor queue / coach / intervene
+  QA->>UI: review recording / score / calibration
+  WFM->>UI: forecast, schedule, adherence, intraday
+  Admin->>UI: manage users, roles, entitlements, integrations
+  Ops->>UI: manage tenants, plan, health, billing
+  Partner->>API: REST / webhook / CTI / feed
+  Data-->>UI: realtime state, reports, feed, audit
+</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="foot">
+      <div class="tag"><i class="ti ti-layers-intersect"></i> D-Contact platform map</div>
+      <div>Modules are grouped by responsibility, but the real product is the connections between them.</div>
+    </section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>
+    window.addEventListener('DOMContentLoaded', function () {
+      if (!window.mermaid) return;
+      mermaid.initialize({
+        startOnLoad: true,
+        securityLevel: 'loose',
+        theme: 'base',
+        themeVariables: {
+          fontFamily: "'Poppins','Inter','Noto Sans Thai',sans-serif",
+          primaryColor: '#ffffff',
+          primaryTextColor: '#204d89',
+          primaryBorderColor: '#d9e2ef',
+          lineColor: '#7fa8cf',
+          fontSize: '14px'
+        }
+      });
+    });
+  </script>
+</body>
+</html>

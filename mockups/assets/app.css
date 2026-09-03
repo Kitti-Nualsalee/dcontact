@@ -4,7 +4,7 @@ body{font-family:'Inter','Noto Sans Thai',sans-serif}
 /* brand */
 .brand-name{font-size:20px;font-weight:700;color:#134e4a;letter-spacing:-.01em}
 /* menu items */
-.nav-item{display:flex;align-items:center;gap:13px;padding:10px 12px;margin:1px 0;border-radius:8px;color:#1f2d3d;font-size:16px;font-weight:600;cursor:pointer}
+.nav-item{display:flex;align-items:center;gap:13px;padding:7px 5px;margin:1px 0;border-radius:8px;color:#1f2d3d;font-size:16px;font-weight:600;cursor:pointer}
 .nav-item:hover{background:#f1f5f9}
 .nav-item.active{color:#0f766e}
 .nav-item>i{color:#0f766e;font-size:21px}
@@ -21,8 +21,9 @@ body{font-family:'Inter','Noto Sans Thai',sans-serif}
 .lang-btn{padding:.35rem .7rem;font-size:.75rem;color:#64748b;background:#fff}
 .lang-btn.active{background:#0f766e;color:#fff}
 /* rail */
-.rail{width:63px;background:#0f766e;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 0;flex-shrink:0;transition:width .15s}
-.rail-btn{width:42px;min-height:42px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:#bfe5e0;cursor:pointer;border:0;background:none;padding:5px 0}
+.rail{width:63px;background:#0f766e;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 0;flex-shrink:0;transition:width .15s;overflow-y:auto;scrollbar-width:none}
+.rail::-webkit-scrollbar{display:none}
+.rail-btn{width:42px;min-height:42px;flex-shrink:0;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:#bfe5e0;cursor:pointer;border:0;background:none;padding:5px 0}
 .rail-btn i{font-size:25px;line-height:1}
 .rail-btn:hover{background:rgba(255,255,255,.14);color:#fff}
 .rail-btn.active{background:rgba(255,255,255,.22);color:#fff}
@@ -71,6 +72,209 @@ textarea.inp{height:auto;padding:8px 12px}
 .conv-item{display:flex;gap:10px;padding:12px 14px;border-bottom:1px solid #f1f5f9;cursor:pointer}
 .conv-item:hover{background:#f8fafc}
 .conv-item.active{background:#f0fdfa;border-left:3px solid #0f766e;padding-left:11px}
+/* ===== WFM ===== */
+/* shift chips ในตารางกะ */
+.shift{display:block;border-radius:6px;font-size:11px;font-weight:600;padding:3px 4px;text-align:center;line-height:1.35;white-space:nowrap}
+.sh-day{background:#e0e7ff;color:#3730a3}
+.sh-mid{background:#ccfbf1;color:#0f766e}
+.sh-eve{background:#fef3c7;color:#b45309}
+.sh-night{background:#ede9fe;color:#6d28d9}
+.sh-off{background:#f1f5f9;color:#94a3b8}
+.sh-leave{background:#fee2e2;color:#dc2626}
+.sh-train{background:#f3e8ff;color:#7e22ce}
+/* timeline แถบกิจกรรม (ตาราง vs จริง) */
+.tl{position:relative;height:15px;border-radius:4px;background:#f8fafc;overflow:hidden;border:1px solid #eef2f7}
+.tl-seg{position:absolute;top:0;height:100%}
+.a-work{background:#0f766e}
+.a-break{background:#94a3b8}
+.a-lunch{background:#f59e0b}
+.a-train{background:#8b5cf6}
+.a-meet{background:#0ea5e9}
+.a-off{background:#e2e8f0}
+.a-out{background:#dc2626}
+.tl-legend{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#64748b}
+.tl-key{width:11px;height:11px;border-radius:3px;display:inline-block}
+/* แถบ coverage (ต้องการ vs จัดได้) */
+.cov{height:8px;border-radius:999px;background:#f1f5f9;overflow:hidden}
+.cov>div{height:100%;border-radius:999px}
+/* ===== Supervisor ===== */
+/* การ์ดเอเจนต์ใน Team pulse */
+.pcard{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px}
+.pcard-warn{border-color:#fecaca;box-shadow:0 0 0 3px rgba(254,226,226,.5)}
+/* จุดบอกจำนวนแชทที่ถืออยู่ */
+.cdot{width:7px;height:7px;border-radius:50%;background:#e2e8f0;display:inline-block}
+.cdot.on{background:#0f766e}
+/* ปุ่ม action เล็กในการ์ด/ตาราง */
+.act{width:31px;height:31px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;color:#64748b;background:none;border:0;cursor:pointer;font-size:17px}
+.act:hover{background:#f1f5f9;color:#0f766e}
+.act-off{color:#cbd5e1;cursor:not-allowed}
+.act-off:hover{background:none;color:#cbd5e1}
+/* ปุ่มสั่งการแบบมีข้อความ */
+.qbtn{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:#334155;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:5px 10px;cursor:pointer;white-space:nowrap}
+.qbtn:hover{background:#f8fafc;border-color:#94a3b8}
+.qbtn.on{background:#0f766e;border-color:#0f766e;color:#fff}
+/* แท็บของแผงบริบทในพื้นที่ทำงาน — แผงมันเยอะเกินกว่าจะวางซ้อนกันในคอลัมน์เดียว
+   กติกา: ของด่วนห้ามหายไปหลังแท็บที่ไม่ได้เปิด — ต้องมี badge + แถบเตือนด้านบนเสมอ */
+.swtabs{display:flex;gap:2px;background:#fff;border:1px solid #e2e8f0;border-radius:11px;padding:3px}
+.swtab{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;
+  border:0;background:none;border-radius:8px;padding:7px 2px 5px;cursor:pointer;color:#64748b;font-size:11px;font-weight:500}
+.swtab i{font-size:17px}
+.swtab span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.swtab:hover{background:#f8fafc;color:#0f766e}
+.swtab.on{background:#0f766e;color:#fff}
+.swtab-dot{position:absolute;top:2px;left:50%;margin-left:4px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;
+  background:#e11d48;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.swtab.on .swtab-dot{background:#fff;color:#0f766e}
+.swtab-dot.q{background:#0d9488}
+.swpane{display:none}
+.swpane.on{display:block}
+/* สามคอลัมน์ของพื้นที่ทำงานที่เอเจนต์ลากปรับความกว้างเองได้ (interaction-data-flow §4.4)
+   ความกว้างมาจาก --ws-c1 / --ws-c3 ที่ JS เขียนลงไป และถูก clamp ทุกครั้งที่โหลด/ย่อจอ */
+.sw-grid{display:grid;grid-template-columns:1fr;gap:20px}
+.sw-col{min-width:0;display:flex;flex-direction:column}
+.sw-col-ctx{overflow-y:auto}                    /* แผงบริบทเลื่อนในตัวเอง ไม่ดันทั้งหน้าให้เลื่อน */
+.sw-col-ctx>#sw-alerts,.sw-col-ctx>#sw-tabs{position:sticky;top:0;z-index:5;background:#f8fafc}
+.sw-split{display:none}
+@media(min-width:1280px){
+  /* ที่จับกว้าง 20px = เท่ากับ gap-5 เดิม — มันกินที่แทน gap ไม่ใช่เบียดที่เพิ่ม */
+  .sw-grid{grid-template-columns:var(--ws-c1,300px) 20px minmax(0,1fr) 20px var(--ws-c3,340px);gap:0}
+  .sw-split{display:flex;align-items:center;justify-content:center;cursor:col-resize}
+  .sw-split::before{content:'';width:3px;height:36px;border-radius:2px;background:#e2e8f0;transition:background .12s,height .12s}
+  .sw-split:hover::before,.sw-split:focus-visible::before,.sw-split.drag::before{background:#0f766e;height:72px}
+  .sw-split:focus{outline:none}
+}
+body.ws-resizing{cursor:col-resize;user-select:none}
+/* กรอบของแอปลูกค้าที่ฝังในพื้นที่ทำงาน (visual app — integration-platform §9) */
+.appframe{border:1px dashed #cbd5e1;border-radius:10px;background:#f8fafc;min-height:96px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#94a3b8;font-size:11.5px;text-align:center;padding:12px}
+/* chip กรองสถานะ */
+.fchip{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#475569;background:#fff;border:1px solid #e2e8f0;border-radius:999px;padding:5px 13px;cursor:pointer}
+.fchip:hover{border-color:#94a3b8}
+.fchip.on{border-color:#0f766e;background:#f0fdfa;color:#0f766e;font-weight:600}
+.fchip b{font-weight:700}
+/* แถบ SLA ที่ใช้ไปแล้ว */
+.slabar{height:6px;border-radius:999px;background:#f1f5f9;overflow:hidden;margin-bottom:3px}
+.slabar>div{height:100%;border-radius:999px}
+.pri{display:inline-block;font-size:10px;font-weight:700;background:#e0e7ff;color:#4338ca;border-radius:5px;padding:1px 5px;vertical-align:middle}
+/* แถวแจ้งเตือน */
+.alrow{display:flex;gap:12px;background:#fff;border:1px solid #e2e8f0;border-left-width:4px;border-radius:12px;padding:13px 15px}
+.al-crit{border-left-color:#dc2626}.al-crit>i{color:#dc2626}
+.al-warn{border-left-color:#f59e0b}.al-warn>i{color:#f59e0b}
+.al-info{border-left-color:#94a3b8}.al-info>i{color:#94a3b8}
+/* monitor bar — ค้างล่างจอทุกวิวระหว่างติดตามสาย */
+.monbar{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:40;display:flex;align-items:center;gap:14px;
+  background:#0f172a;color:#e2e8f0;border-radius:14px;padding:11px 16px;box-shadow:0 10px 30px rgba(15,23,42,.3)}
+.monbar p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52ch}
+.monbar .mon-btn{font-size:12px;font-weight:600;color:#cbd5e1;background:rgba(255,255,255,.08);border:0;border-radius:8px;padding:6px 11px;cursor:pointer;white-space:nowrap}
+.monbar .mon-btn.on{background:#f59e0b;color:#0f172a}
+.rec-dot{width:9px;height:9px;border-radius:50%;background:#f43f5e;display:inline-block;animation:recpulse 1.4s infinite}
+@keyframes recpulse{0%,100%{opacity:1}50%{opacity:.25}}
+/* ===== QM (Quality Management) ===== */
+/* waveform ของสาย — แท่งสร้างจาก JS */
+.wave{position:relative;display:flex;align-items:flex-end;gap:1px;height:74px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;overflow:hidden;cursor:pointer}
+.wave-bar{flex:1 1 auto;min-width:2px;border-radius:1px;background:#94a3b8}
+.wave-bar.w-agent{background:#0f766e}
+.wave-bar.w-contact{background:#6366f1}
+.wave-bar.w-silence{background:#e2e8f0}
+/* ช่วงที่หยุดอัดเพราะ PCI — ต้องมองเห็นชัดว่าไม่ได้ถูกตัดต่อ */
+.wave-pci{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(45deg,#fee2e2,#fee2e2 6px,#fecaca 6px,#fecaca 12px);border-left:1px dashed #f43f5e;border-right:1px dashed #f43f5e}
+/* หมุดหลักฐานที่ AI/ผู้ตรวจอ้างอิง */
+.wave-ev{position:absolute;top:0;bottom:0;width:3px;background:#f59e0b}
+.wave-ev::after{content:'';position:absolute;top:-1px;left:-3px;border:4px solid transparent;border-top-color:#f59e0b}
+.wave-cursor{position:absolute;top:0;bottom:0;width:2px;background:#0f172a}
+/* transcript */
+.tr{max-height:430px;overflow-y:auto;padding-right:4px}
+.tr-line{display:flex;gap:10px;padding:7px 9px;border-radius:9px;font-size:14px;line-height:1.5;cursor:pointer}
+.tr-line:hover{background:#f8fafc}
+.tr-line.on{background:#fffbeb;box-shadow:inset 0 0 0 1px #fde68a}
+.tr-t{flex-shrink:0;width:46px;font-size:11px;color:#94a3b8;font-variant-numeric:tabular-nums;padding-top:3px}
+.tr-who{flex-shrink:0;width:58px;font-size:11px;font-weight:700;padding-top:3px}
+.tr-agent .tr-who{color:#0f766e}
+.tr-contact .tr-who{color:#4f46e5}
+.tr-sys .tr-who{color:#94a3b8}
+.tr-hit{background:#fef08a;border-radius:3px;padding:0 2px}
+.tr-low{border-bottom:1px dotted #cbd5e1}
+/* ฟอร์มให้คะแนน */
+.qq{border:1px solid #e2e8f0;border-radius:11px;padding:12px 14px;background:#fff}
+.qq+.qq{margin-top:9px}
+.qq-fail{border-color:#fecaca;background:#fff5f5}
+.qq-ai{border-left:3px solid #f59e0b}
+.qq-need{border-left:3px solid #94a3b8;background:#f8fafc}
+.chip-y{background:#dcfce7;color:#15803d}
+.chip-n{background:#fee2e2;color:#b91c1c}
+.chip-na{background:#f1f5f9;color:#64748b}
+.qchip{font-size:12px;font-weight:600;border-radius:7px;padding:3px 10px;border:1px solid transparent;cursor:pointer}
+.qchip.off{background:#fff;border-color:#cbd5e1;color:#94a3b8}
+/* ชิปหลักฐาน — คลิกแล้วกระโดดไปที่เวลานั้น */
+.ev{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:7px;padding:2px 8px;cursor:pointer;max-width:100%}
+.ev:hover{background:#fde68a}
+.ev span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* แถบคะแนน */
+.sbar{height:7px;border-radius:999px;background:#f1f5f9;overflow:hidden}
+.sbar>div{height:100%;border-radius:999px}
+.s-good{background:#16a34a}.s-mid{background:#f59e0b}.s-bad{background:#dc2626}
+/* ป้ายสถานะผลประเมิน */
+.es{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;border-radius:7px;padding:2px 8px;white-space:nowrap}
+.es-draft{background:#fef3c7;color:#b45309}
+.es-pub{background:#dcfce7;color:#15803d}
+.es-disp{background:#fee2e2;color:#be123c}
+.es-amend{background:#e0e7ff;color:#4338ca}
+.es-void{background:#f1f5f9;color:#94a3b8}
+/* แท็ก category */
+.cat{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;border-radius:7px;padding:2px 8px;background:#ede9fe;color:#6d28d9}
+.cat-risk{background:#fee2e2;color:#be123c}
+.cat-ok{background:#ccfbf1;color:#0f766e}
+/* ===== โมดูลใหม่: outbound / cases / ai / analytics / integrations ===== */
+/* แถบความคืบหน้า (แคมเปญ, quota, การใช้งาน) */
+.prog{height:7px;border-radius:999px;background:#f1f5f9;overflow:hidden}
+.prog>div{height:100%;border-radius:999px;background:#0f766e}
+.prog>div.p-warn{background:#f59e0b}
+.prog>div.p-bad{background:#dc2626}
+/* ป้ายทั่วไป (สถานะแคมเปญ/เคส/บอต/แอป) */
+.tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;border-radius:7px;padding:2px 8px;background:#f1f5f9;color:#475569;white-space:nowrap}
+.tag-ok{background:#dcfce7;color:#15803d}
+.tag-warn{background:#fef3c7;color:#b45309}
+.tag-bad{background:#fee2e2;color:#be123c}
+.tag-info{background:#e0e7ff;color:#4338ca}
+.tag-ai{background:#ede9fe;color:#6d28d9}
+/* เวลาที่เหลือของ SLA เคส */
+.due-ok{color:#16a34a;font-weight:600}
+.due-warn{color:#b45309;font-weight:600}
+.due-late{color:#be123c;font-weight:700}
+/* การ์ดตัวเลขบนหน้าโมดูล */
+.mcard{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:16px 18px}
+.mcard-num{font-size:26px;font-weight:700;line-height:1.15;color:#0f172a}
+.mcard-lbl{font-size:12px;color:#64748b}
+/* แถวเลือกได้ (list ที่คลิกเปิด detail) */
+.rowlink{cursor:pointer}
+.rowlink:hover{background:#f8fafc}
+/* แถบเตือนบนหัวหน้าจอ (compliance / ข้อจำกัดของโมดูล) */
+.note{display:flex;gap:10px;border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.5}
+.note-warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e}
+.note-info{background:#f0fdfa;border:1px solid #99f6e4;color:#115e59}
+.note-bad{background:#fff1f2;border:1px solid #fecdd3;color:#9f1239}
+/* ===== Internal collaboration — แผงแชทที่ติดทุกหน้าจอ (ADR-022) ===== */
+.chat-btn{position:relative;background:none;border:0;cursor:pointer;color:#64748b;display:flex;align-items:center}
+.chat-btn i{font-size:20px}
+.chat-btn:hover{color:#0f766e}
+.chat-dot{position:absolute;top:-5px;right:-7px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;
+  background:#e11d48;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.chatp{position:fixed;top:0;right:0;bottom:0;width:400px;max-width:92vw;background:#fff;z-index:60;
+  border-left:1px solid #e2e8f0;box-shadow:-12px 0 32px -18px rgba(15,23,42,.4);
+  display:flex;flex-direction:column;transform:translateX(100%);transition:transform .18s ease}
+.chatp.open{transform:translateX(0)}
+.chatp-h{height:56px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid #e2e8f0}
+.chatp-b{flex:1;overflow-y:auto;padding:10px 12px}
+.chatp-f{flex-shrink:0;border-top:1px solid #e2e8f0;padding:10px 12px;background:#fff}
+.chat-item{display:flex;gap:10px;padding:10px;border-radius:10px;cursor:pointer}
+.chat-item:hover{background:#f8fafc}
+.chat-ic{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.chat-unread{background:#e11d48;color:#fff;font-size:10px;font-weight:700;border-radius:9px;padding:1px 6px}
+.chat-sys{background:#eef2ff;color:#4338ca;font-size:11.5px;border-radius:9px;padding:7px 10px;margin-bottom:10px;line-height:1.45}
+/* ไฟล์แนบ — รูป/เอกสาร ตาม internal-collaboration §6 */
+.att{display:flex;align-items:center;gap:7px;margin-top:6px;background:rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:5px 8px;font-size:11.5px}
+.bubble-in .att{background:#fff;border-color:#e2e8f0;color:#334155}
 /* misc */
 .kpi-delta-up{color:#16a34a;font-size:12px}
 .kpi-delta-down{color:#dc2626;font-size:12px}

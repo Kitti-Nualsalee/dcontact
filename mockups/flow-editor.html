@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Flow Designer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://esm.sh/@xyflow/react@12.3.5/dist/style.css">
+<link rel="stylesheet" href="assets/app.css">
+<script type="importmap">
+{ "imports": {
+  "react": "https://esm.sh/react@18.3.1",
+  "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+  "react-dom": "https://esm.sh/react-dom@18.3.1",
+  "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+  "htm": "https://esm.sh/htm@3.1.1",
+  "@xyflow/react": "https://esm.sh/@xyflow/react@12.3.5?external=react,react-dom"
+}}
+</script>
+<style>
+  body { font-family: 'Inter', 'Noto Sans Thai', sans-serif; }
+  .fn { border: 1.5px solid var(--c); border-radius: 10px; background: #fff; width: 190px;
+        box-shadow: 0 1px 2px rgba(0,0,0,.06); overflow: hidden; font-size: 12px; }
+  .fn.sel { box-shadow: 0 0 0 2px var(--c); }
+  .fn-h { background: var(--c); color: #fff; padding: 4px 8px; display: flex; align-items: center;
+          gap: 5px; font-size: 10px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+  .fn-b { padding: 7px 9px; }
+  .fn-t { font-weight: 600; color: #1e293b; line-height: 1.2; }
+  .fn-s { color: #64748b; font-size: 11px; margin-top: 2px; line-height: 1.25; }
+  .react-flow__handle { width: 8px; height: 8px; background: #94a3b8; border: 1.5px solid #fff; }
+  .react-flow__edge-text { font-size: 10px; fill: #475569; }
+  .react-flow__edge-textbg { fill: #f8fafc; }
+  .pal-item { cursor: grab; user-select: none; }
+  .pal-item:active { cursor: grabbing; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+<div id="root" class="h-screen"></div>
+
+<script type="module">
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import htm from 'htm';
+import {
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
+  useNodesState, useEdgesState, addEdge, Handle, Position, useReactFlow, MarkerType
+} from '@xyflow/react';
+
+const html = htm.bind(React.createElement);
+const { useState, useCallback, useRef, useMemo } = React;
+
+/* ---------- node catalogue ---------- */
+const CAT_COLOR = {
+  entry: '#16a34a', io: '#2563eb', logic: '#d97706',
+  integration: '#7c3aed', work: '#4f46e5',
+  routing: '#0f766e', deflect: '#e11d48', terminal: '#475569',
+};
+// 18 ชนิด ตาม docs/flow-engine.md §2 — ★ = เพิ่มหลัง ADR-007
+const NODE_DEF = {
+  trigger:    { cat: 'entry',       icon: 'ti-flag-3',         label: 'Trigger' },
+  play:       { cat: 'io',          icon: 'ti-volume',         label: 'Play / Send' },
+  collect:    { cat: 'io',          icon: 'ti-keyboard',       label: 'Collect input' },
+  condition:  { cat: 'logic',       icon: 'ti-git-branch',     label: 'Condition' },
+  setvar:     { cat: 'logic',       icon: 'ti-variable',       label: 'Set variable' },
+  expression: { cat: 'logic',       icon: 'ti-math-function',  label: 'Expression ★' },
+  subflow:    { cat: 'logic',       icon: 'ti-box-multiple',   label: 'Call sub-flow ★' },
+  api:        { cat: 'integration', icon: 'ti-api',            label: 'API call' },
+  bot:        { cat: 'integration', icon: 'ti-robot',          label: 'Bot / NLU' },
+  case:       { cat: 'work',        icon: 'ti-ticket',         label: 'Create case ★' },
+  survey:     { cat: 'work',        icon: 'ti-mood-smile',     label: 'Survey ★' },
+  queue:      { cat: 'routing',     icon: 'ti-stack-2',        label: 'Route to queue' },
+  agent:      { cat: 'routing',     icon: 'ti-headset',        label: 'Route to agent' },
+  caseOwner:  { cat: 'routing',     icon: 'ti-user-check',     label: 'Route to case owner ★' },
+  voicemail:  { cat: 'deflect',     icon: 'ti-microphone',     label: 'Voicemail' },
+  callback:   { cat: 'deflect',     icon: 'ti-phone-outgoing', label: 'Callback' },
+  transfer:   { cat: 'terminal',    icon: 'ti-arrow-forward',  label: 'Transfer' },
+  end:        { cat: 'terminal',    icon: 'ti-player-stop',    label: 'End' },
+};
+function mkData(kind, title, subtitle) {
+  const d = NODE_DEF[kind];
+  return { kind, icon: d.icon, color: CAT_COLOR[d.cat], nlabel: d.label, title: title, subtitle: subtitle || '' };
+}
+
+/* ---------- flow metadata + graphs ---------- */
+const CH_ICON = { voice: 'ti-phone', webchat: 'ti-message-circle', line: 'ti-brand-line', facebook: 'ti-brand-messenger', whatsapp: 'ti-brand-whatsapp', email: 'ti-mail',
+  outbound: 'ti-phone-outgoing', any: 'ti-box-multiple' };
+const CH_COLOR = { voice: '#4338ca', webchat: '#0f766e', line: '#15803d', facebook: '#1d4ed8', whatsapp: '#047857', email: '#b45309',
+  outbound: '#c2410c', any: '#4f46e5' };
+
+const FLOW_META = {
+  flow_voice_mainmenu:   { name: 'Voice — Main menu', ch: 'voice', status: 'published', ver: 3 },
+  flow_voice_afterhours: { name: 'Voice — After-hours voicemail', ch: 'voice', status: 'published', ver: 2 },
+  flow_webchat_prechat:  { name: 'Web chat — Pre-chat routing', ch: 'webchat', status: 'published', ver: 4 },
+  flow_line_welcome:     { name: 'LINE — Welcome + menu', ch: 'line', status: 'published', ver: 1 },
+  flow_fb_faq:           { name: 'Facebook — FAQ deflection', ch: 'facebook', status: 'draft', ver: 1 },
+  flow_wa_orderstatus:   { name: 'WhatsApp — Order status lookup', ch: 'whatsapp', status: 'published', ver: 2 },
+  flow_email_autoack:    { name: 'Email — Auto-ack + classify', ch: 'email', status: 'published', ver: 3 },
+  flow_vip_priority:     { name: 'VIP — CRM priority routing', ch: 'voice', status: 'published', ver: 5 },
+  flow_voice_language:   { name: 'Voice — Language selection', ch: 'voice', status: 'draft', ver: 1 },
+  flow_overflow_callback:{ name: 'Overflow — Callback offer', ch: 'voice', status: 'published', ver: 2 },
+  flow_shared_verify:    { name: 'Shared — ยืนยันตัวตน (sub-flow)', ch: 'any', status: 'published', ver: 4 },
+  flow_outbound_notify:  { name: 'Outbound — แจ้งยอดก่อนต่อเอเจนต์', ch: 'outbound', status: 'published', ver: 2 },
+};
+
+// compact graphs: n = [id, kind, title, subtitle, x, y] · e = [from, to, label]
+const G = {
+  flow_voice_mainmenu: {
+    n: [['t','trigger','สายเข้า','Voice · DID 4500',20,200],['h','condition','เวลาทำการ?','Bangkok office',250,200],
+        ['w','play','ต้อนรับ','TTS: สวัสดีค่ะ ACME',480,90],['m','collect','เมนู DTMF','1 / 2 / 3 / 0',710,90],
+        ['q1','queue','General Support','priority 1',960,0],['q2','queue','Sales (TH)','',960,110],
+        ['op','agent','Operator','ext 1000',960,220],['vm','voicemail','ฝากข้อความ','นอกเวลา',480,300]],
+    e: [['t','h',''],['h','w','open'],['h','vm','closed'],['w','m',''],['m','q1','1'],['m','q2','2'],['m','op','0']],
+  },
+  flow_voice_afterhours: {
+    n: [['t','trigger','สายเข้า','Voice',20,160],['h','condition','เวลาทำการ?','',250,160],
+        ['p','play','แจ้งนอกเวลา','',480,70],['c','collect','ตัวเลือก','1=ฝาก 2=callback',710,70],
+        ['vm','voicemail','อัดข้อความ','120s',960,0],['cb','callback','ขอ callback','',960,120],
+        ['q','queue','General Support','ในเวลาทำการ',480,260]],
+    e: [['t','h',''],['h','p','closed'],['h','q','open'],['p','c',''],['c','vm','1'],['c','cb','2']],
+  },
+  flow_webchat_prechat: {
+    n: [['t','trigger','แชทเข้า','Web chat',20,160],['g','play','ทักทาย','sendMessage',250,160],
+        ['c','collect','เลือกหัวข้อ','quick replies',480,160],['v','setvar','topic','',710,160],
+        ['q1','queue','Support','',940,60],['q2','queue','Sales','',940,170],['q3','queue','Billing','',940,280]],
+    e: [['t','g',''],['g','c',''],['c','v',''],['v','q1','support'],['v','q2','sales'],['v','q3','billing']],
+  },
+  flow_line_welcome: {
+    n: [['t','trigger','LINE OA','@acme-support',20,160],['w','play','Flex welcome','',250,160],
+        ['c','collect','Quick reply','',480,160],['l','condition','ภาษา?','',710,160],
+        ['q1','queue','Sales (TH)','',940,90],['q2','queue','English desk','',940,220]],
+    e: [['t','w',''],['w','c',''],['c','l',''],['l','q1','TH'],['l','q2','EN']],
+  },
+  flow_fb_faq: {
+    n: [['t','trigger','Messenger','ACME Page',20,160],['b','bot','FAQ bot','NLU intent',250,160],
+        ['c','condition','จบไหม?','',480,160],['a','play','ส่งคำตอบ','',710,70],
+        ['e','end','ปิดแชท','',940,70],['q','queue','Billing Inquiries','escalate',710,270]],
+    e: [['t','b',''],['b','c',''],['c','a','resolved'],['a','e',''],['c','q','escalate']],
+  },
+  flow_wa_orderstatus: {
+    n: [['t','trigger','WhatsApp','+66 2 123 4500',20,160],['c','collect','ขอเลขออเดอร์','',250,160],
+        ['a','api','ค้น CRM','GET /orders/{id}',480,160],['f','condition','พบ?','',710,160],
+        ['s','play','แจ้งสถานะ','',940,70],['e','end','จบ','',1160,70],['q','queue','Support','not found',940,270]],
+    e: [['t','c',''],['c','a',''],['a','f',''],['f','s','found'],['s','e',''],['f','q','error']],
+  },
+  flow_email_autoack: {
+    n: [['t','trigger','อีเมลเข้า','support@acme',20,160],['a','play','Auto-ack','ตอบรับอัตโนมัติ',250,160],
+        ['b','bot','จัดหมวด','classify',480,160],['v','setvar','category','',710,160],
+        ['q1','queue','Billing Inquiries','',940,90],['q2','queue','General Support','',940,220]],
+    e: [['t','a',''],['a','b',''],['b','v',''],['v','q1','billing'],['v','q2','other']],
+  },
+  flow_vip_priority: {
+    n: [['t','trigger','สายเข้า','Voice',20,160],['a','api','ค้น CRM by ANI','GET /contacts',250,160],
+        ['c','condition','VIP?','',480,160],['v','setvar','priority = 5','',710,70],
+        ['q1','queue','VIP Customers','',940,70],['q2','queue','General Support','',710,270]],
+    e: [['t','a',''],['a','c',''],['c','v','yes'],['v','q1',''],['c','q2','no']],
+  },
+  flow_voice_language: {
+    n: [['t','trigger','สายเข้า','Voice',20,160],['p','play','เลือกภาษา','1=TH 2=EN',250,160],
+        ['c','collect','DTMF','',480,160],['v','setvar','lang','',710,160],
+        ['q1','queue','TH skill','',940,90],['q2','queue','EN skill','',940,220]],
+    e: [['t','p',''],['p','c',''],['c','v',''],['v','q1','1'],['v','q2','2']],
+  },
+  flow_overflow_callback: {
+    n: [['t','trigger','สายเข้า','Voice',20,160],['c','condition','คิวยาว / EWT?','',250,160],
+        ['p','play','เสนอ callback','',480,70],['m','collect','1=รอ 2=callback','',710,70],
+        ['cb','callback','จอง callback','',940,10],['q','queue','General Support','',940,160]],
+    e: [['t','c',''],['c','p','long wait'],['c','q','short'],['p','m',''],['m','q','1'],['m','cb','2']],
+  },
+  // ★ ผังย่อยที่ผังอื่นเรียกใช้ (docs/flow-engine.md §10)
+  flow_shared_verify: {
+    n: [['t','trigger','เรียกจากผังแม่','inputs: phone, maxTries',20,170],
+        ['c','collect','เลขบัตร 4 ตัวท้าย','DTMF / ข้อความ',250,170],
+        ['a','api','ตรวจกับระบบ KYC','connector: KYC',480,170],
+        ['x','expression','tries + 1','sandbox 50ms',710,170],
+        ['d','condition','ผ่าน? / ครบ 3 ครั้ง?','',940,170],
+        ['e1','end','verified = true','return ผังแม่',1170,80],
+        ['e2','end','verified = false','return ผังแม่',1170,270],
+        ['fb','play','ขออภัย ระบบขัดข้อง','fallback ของผัง',480,330]],
+    e: [['t','c',''],['c','a',''],['a','x',''],['x','d',''],['d','e1','ผ่าน'],['d','c','ลองใหม่'],['d','e2','ครบ 3 ครั้ง'],['a','fb','error']],
+  },
+  // ★ สายขาออกที่ปลายทางรับแล้ว (docs/flow-engine.md §3.1)
+  flow_outbound_notify: {
+    n: [['t','trigger','ปลายทางรับสาย','amdResult, campaignId',20,180],
+        ['c','condition','เครื่องตอบรับ?','amdResult = MACHINE',250,180],
+        ['p1','play','ฝากข้อความอัตโนมัติ','',480,60],
+        ['e1','end','วางสาย','',710,60],
+        ['v','subflow','ยืนยันตัวตน','Shared — ยืนยันตัวตน v4',480,250],
+        ['p2','play','แจ้งยอดค้าง (TTS)','{{ยอด}} {{วันครบกำหนด}}',710,250],
+        ['m','collect','1=คุยกับเจ้าหน้าที่ 9=ไม่ให้ติดต่อ','',940,250],
+        ['q','queue','Collections','priority 2',1180,170],
+        ['ap','api','เขียนเข้ารายการห้ามโทร','POST /ob_dnc',1180,330],
+        ['e2','end','ขอบคุณและวางสาย','',1400,330]],
+    e: [['t','c',''],['c','p1','MACHINE'],['p1','e1',''],['c','v','HUMAN'],['v','p2','done'],['p2','m',''],['m','q','1'],['m','ap','9'],['ap','e2','']],
+  },
+};
+
+function buildGraph(id) {
+  const g = G[id] || G.flow_voice_mainmenu;
+  const nodes = g.n.map(function (r) {
+    return { id: r[0], type: 'flow', position: { x: r[4], y: r[5] }, data: mkData(r[1], r[2], r[3]) };
+  });
+  const edges = g.e.map(function (r, i) {
+    return { id: 'e' + i, source: r[0], target: r[1], label: r[2] || undefined,
+             markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: '#94a3b8' } };
+  });
+  return { nodes: nodes, edges: edges };
+}
+
+/* ---------- custom node ---------- */
+function FlowNode(props) {
+  const d = props.data;
+  return html`<div class=${'fn' + (props.selected ? ' sel' : '')} style=${{ '--c': d.color }}>
+    <${Handle} type="target" position=${Position.Top} />
+    <div class="fn-h"><i class=${'ti ' + d.icon}></i><span>${d.nlabel}</span></div>
+    <div class="fn-b">
+      <div class="fn-t">${d.title}</div>
+      ${d.subtitle ? html`<div class="fn-s">${d.subtitle}</div>` : null}
+    </div>
+    <${Handle} type="source" position=${Position.Bottom} />
+  </div>`;
+}
+const nodeTypes = { flow: FlowNode };
+
+/* ---------- toast ---------- */
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'fixed bottom-6 right-6 z-50 bg-slate-800 text-white text-sm rounded-lg px-4 py-2.5 shadow-lg flex items-center gap-2';
+  el.innerHTML = '<i class="ti ti-check text-emerald-400"></i>' + msg;
+  document.body.appendChild(el);
+  setTimeout(function () { el.remove(); }, 2200);
+}
+
+/* ---------- palette ---------- */
+const PAL_ORDER = ['trigger', 'play', 'collect', 'condition', 'setvar', 'expression', 'subflow',
+  'api', 'bot', 'case', 'survey', 'queue', 'agent', 'caseOwner', 'voicemail', 'callback', 'transfer', 'end'];
+function Palette() {
+  return html`<aside class="w-52 shrink-0 bg-white border-r border-slate-200 overflow-y-auto p-3">
+    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Node palette</p>
+    <p class="text-xs text-slate-400 mb-3">ลากไปวางบน canvas</p>
+    ${PAL_ORDER.map(function (kind) {
+      const def = NODE_DEF[kind];
+      const color = CAT_COLOR[def.cat];
+      return html`<div key=${kind} class="pal-item flex items-center gap-2 border border-slate-200 rounded-lg px-2.5 py-2 mb-1.5 hover:bg-slate-50"
+        draggable=${true}
+        onDragStart=${function (e) { e.dataTransfer.setData('application/flownode', kind); e.dataTransfer.effectAllowed = 'move'; }}>
+        <span class="w-6 h-6 rounded-md flex items-center justify-center text-white shrink-0" style=${{ background: color }}><i class=${'ti ' + def.icon + ' text-sm'}></i></span>
+        <span class="text-xs text-slate-700">${def.label}</span>
+      </div>`;
+    })}
+  </aside>`;
+}
+
+/* ---------- inspector ---------- */
+function Inspector(props) {
+  const n = props.node;
+  if (!n) {
+    return html`<aside class="w-72 shrink-0 bg-white border-l border-slate-200 p-5">
+      <p class="text-sm text-slate-400 text-center mt-8"><i class="ti ti-click text-2xl block mb-2"></i>เลือก node เพื่อแก้ property</p>
+    </aside>`;
+  }
+  const d = n.data;
+  return html`<aside class="w-72 shrink-0 bg-white border-l border-slate-200 p-5 overflow-y-auto">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="w-7 h-7 rounded-md flex items-center justify-center text-white" style=${{ background: d.color }}><i class=${'ti ' + d.icon}></i></span>
+      <span class="text-xs font-semibold uppercase tracking-wide" style=${{ color: d.color }}>${d.nlabel}</span>
+    </div>
+    <label class="fld">Title</label>
+    <input class="inp mb-3" value=${d.title} onInput=${function (e) { props.onChange('title', e.target.value); }} />
+    <label class="fld">Detail / prompt</label>
+    <textarea class="inp mb-3" rows="3" onInput=${function (e) { props.onChange('subtitle', e.target.value); }}>${d.subtitle}</textarea>
+    <label class="fld">Node type</label>
+    <input class="inp mb-3 bg-slate-50 text-slate-500" value=${d.kind} readonly />
+    <button class="w-full h-9 rounded-lg border border-rose-200 text-rose-600 text-sm hover:bg-rose-50 flex items-center justify-center gap-1.5"
+      onClick=${function () { props.onDelete(n.id); }}><i class="ti ti-trash"></i>ลบ node นี้</button>
+    <div class="mt-5 text-xs text-slate-400 border-t border-slate-100 pt-3">
+      <i class="ti ti-info-circle mr-1"></i>Mockup — แก้ค่าอัปเดตบน canvas จริง แต่ Save/Publish ไม่บันทึกลงเซิร์ฟเวอร์
+    </div>
+  </aside>`;
+}
+
+/* ---------- editor ---------- */
+function Editor() {
+  const rf = useReactFlow();
+  const idc = useRef(100);
+  const flowId = new URLSearchParams(location.search).get('id') || 'flow_voice_mainmenu';
+  const meta = FLOW_META[flowId] || FLOW_META.flow_voice_mainmenu;
+  const init = useMemo(function () { return buildGraph(flowId); }, [flowId]);
+  const [nodes, setNodes, onNodesChange] = useNodesState(init.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(init.edges);
+  const [selId, setSelId] = useState(null);
+  const selNode = useMemo(function () { return nodes.find(function (n) { return n.id === selId; }) || null; }, [nodes, selId]);
+
+  const onConnect = useCallback(function (params) {
+    setEdges(function (es) { return addEdge(Object.assign({}, params, { markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: '#94a3b8' } }), es); });
+  }, [setEdges]);
+
+  const onDrop = useCallback(function (e) {
+    e.preventDefault();
+    const kind = e.dataTransfer.getData('application/flownode');
+    if (!kind || !NODE_DEF[kind]) return;
+    const pos = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const id = 'n' + (idc.current++);
+    const def = NODE_DEF[kind];
+    setNodes(function (ns) { return ns.concat({ id: id, type: 'flow', position: pos, data: mkData(kind, def.label, '') }); });
+  }, [rf, setNodes]);
+  const onDragOver = useCallback(function (e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
+
+  const onNodeClick = useCallback(function (e, node) { setSelId(node.id); }, []);
+  const onPaneClick = useCallback(function () { setSelId(null); }, []);
+  const updateField = useCallback(function (field, val) {
+    setNodes(function (ns) { return ns.map(function (n) { return n.id === selId ? Object.assign({}, n, { data: Object.assign({}, n.data, { [field]: val }) }) : n; }); });
+  }, [selId, setNodes]);
+  const deleteNode = useCallback(function (id) {
+    setNodes(function (ns) { return ns.filter(function (n) { return n.id !== id; }); });
+    setEdges(function (es) { return es.filter(function (e) { return e.source !== id && e.target !== id; }); });
+    setSelId(null);
+  }, [setNodes, setEdges]);
+
+  const statusPill = meta.status === 'published'
+    ? html`<span class="st st-available">Published</span>`
+    : html`<span class="st st-acw">Draft</span>`;
+
+  return html`<div class="h-screen flex flex-col">
+    <header class="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 shrink-0">
+      <div class="flex items-center gap-3 min-w-0">
+        <a href="routing.html?view=flows" class="text-slate-400 hover:text-teal-700 shrink-0" title="Back to Flows"><i class="ti ti-arrow-left text-lg"></i></a>
+        <span class="w-8 h-8 rounded-lg bg-teal-700 text-white flex items-center justify-center text-sm font-semibold shrink-0">D</span>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <input class="font-semibold text-slate-800 text-sm bg-transparent border-0 focus:outline-none focus:bg-slate-50 rounded px-1 -ml-1 min-w-0" value=${meta.name} />
+            <span class="text-xs text-slate-400 shrink-0">v${meta.ver}</span>
+          </div>
+          <div class="flex items-center gap-2 mt-0.5">
+            <span class=${'ch ch-' + meta.ch} style=${{ height: '18px', fontSize: '10px', padding: '0 6px' }}><i class=${'ti ' + CH_ICON[meta.ch]}></i>${meta.ch}</span>
+            ${statusPill}
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <button class="h-9 px-3 rounded-lg border border-slate-300 text-sm hover:bg-slate-50 flex items-center gap-1.5" onClick=${function () { toast('Simulation started (mock)'); }}><i class="ti ti-player-play"></i>Simulate</button>
+        <button class="h-9 px-3 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" onClick=${function () { toast('Draft saved (mock)'); }}>Save draft</button>
+        <button class="h-9 px-3.5 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800 flex items-center gap-1.5" onClick=${function () { toast('Flow published (mock)'); }}><i class="ti ti-rocket"></i>Publish</button>
+      </div>
+    </header>
+    <div class="flex-1 flex min-h-0">
+      <${Palette} />
+      <div class="flex-1 relative" onDrop=${onDrop} onDragOver=${onDragOver}>
+        <${ReactFlow}
+          nodes=${nodes} edges=${edges} nodeTypes=${nodeTypes}
+          onNodesChange=${onNodesChange} onEdgesChange=${onEdgesChange} onConnect=${onConnect}
+          onNodeClick=${onNodeClick} onPaneClick=${onPaneClick}
+          fitView fitViewOptions=${{ padding: 0.15 }} minZoom=${0.2}
+          onInit=${function (inst) { setTimeout(function () { inst.fitView({ padding: 0.15 }); }, 60); }}
+          proOptions=${{ hideAttribution: true }}>
+          <${Background} color="#e2e8f0" gap=${18} />
+          <${Controls} />
+          <${MiniMap} pannable zoomable nodeColor=${function (n) { return n.data && n.data.color ? n.data.color : '#94a3b8'; }} />
+        </${ReactFlow}>
+      </div>
+      <${Inspector} node=${selNode} onChange=${updateField} onDelete=${deleteNode} />
+    </div>
+  </div>`;
+}
+
+createRoot(document.getElementById('root')).render(
+  html`<${ReactFlowProvider}><${Editor} /></${ReactFlowProvider}>`
+);
+</script>
+</body>
+</html>

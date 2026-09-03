@@ -83,8 +83,222 @@
   </div>
 </section>
 
+<!-- ===== Report library (list) ===== -->
+<section class="view" data-view="rpt-library">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="rlibTitle">Report library</h1>
+    <p class="text-sm text-slate-500" data-i18n="rlibSubtitle">Built-in, custom and shared reports</p></div>
+    <button onclick="showView('rpt-builder')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i>สร้างรายงาน</button>
+  </div>
+  <div id="rpt-lib-filter" class="flex flex-wrap gap-1.5 mb-3"></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-3 py-2.5">รายงาน · key</th><th class="font-normal px-3 py-2.5">โมดูล</th>
+        <th class="font-normal px-3 py-2.5">ชั้น</th><th class="font-normal px-3 py-2.5">ชนิด</th>
+        <th class="font-normal px-3 py-2.5">เจ้าของ · แชร์</th><th class="font-normal px-3 py-2.5">เฟส</th>
+        <th class="px-3 py-2.5"></th>
+      </tr></thead>
+      <tbody id="rpt-lib-body"></tbody>
+    </table></div>
+  </div>
+  <p id="rpt-lib-count" class="text-xs text-slate-500 mt-2"></p>
+  <div class="note note-info mt-3"><i class="ti ti-shield-check text-lg"></i>
+    <div><p class="font-semibold mb-1">catalog เดียวสำหรับทุกโมดูล</p>
+    <ul class="space-y-1">
+      <li>ทุกใบมี <b>key</b> เดียวกับที่ใช้ใน <code>/api/v1/reports/{key}/data</code> · ตัวตั้งเวลาส่ง · สิทธิ์</li>
+      <li><b>ชั้นปฏิบัติการ</b> ปรับงานประจำวัน · <b>ชั้นบุคคล</b> ใช้ประเมินคน (เก็บ 36 เดือน สิทธิ์แคบกว่า) · <b>ชั้นกำกับ</b> ไว้พิสูจน์ต่อผู้ตรวจสอบ</li>
+      <li>ใบที่แพ็กเกจนี้ไม่มีสิทธิ์ถูก <b>ซ่อน</b> ไม่ใช่ขึ้น error</li>
+      <li>นิยาม AHT/SLA อยู่ที่ semantic layer ที่เดียว แก้ที่เดียวแล้วเปลี่ยนพร้อมกันทุกหน้า</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ===== Report builder (new/edit) ===== -->
+<section class="view" data-view="rpt-builder">
+  <button onclick="showView('rpt-library')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="rbTitle">Report builder</h1>
+  <p class="text-sm text-slate-500" data-i18n="rbSubtitle">Dimensions × metrics × filters — one semantic layer</p></div>
+  <div class="grid grid-cols-1 lg:grid-cols-4 gap-5">
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <label class="fld">ชุดข้อมูล</label>
+        <select class="inp mb-1">
+          <optgroup label="งานและช่องทาง"><option>interactions</option><option>conversations</option><option>messages</option><option>agents</option><option>queues</option><option>flows</option></optgroup>
+          <optgroup label="AI และคุณภาพ"><option>bots</option><option>knowledge</option><option>assist</option><option>quality</option><option>feedback</option><option>topics</option></optgroup>
+          <optgroup label="คนและงานติดตาม"><option>performance</option><option>wfm_intervals</option><option>cases</option><option>campaigns</option><option>journeys</option><option>contacts</option></optgroup>
+          <optgroup label="ระบบ"><option>collaboration</option><option>integrations</option><option>usage</option><option>audit</option></optgroup>
+        </select>
+        <p class="text-xs text-slate-400 mb-4">ห้อง DM · transcript ดิบ · เนื้อความข้อความลูกค้า ไม่เป็นชุดข้อมูลที่นี่</p>
+        <h2 class="text-sm font-semibold text-slate-700 mb-2">มิติ (สูงสุด 3)</h2>
+        <div class="space-y-2 text-sm mb-4">
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" checked class="accent-teal-700">วัน</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" checked class="accent-teal-700">คิว</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" class="accent-teal-700">ช่องทาง</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" class="accent-teal-700">ทีม</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" class="accent-teal-700">หัวข้อ</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" class="accent-teal-700">ไซต์ <span class="text-xs text-slate-400">(ถือ timezone ของตัวเอง)</span></label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" class="accent-teal-700">ผัง + เวอร์ชันผัง</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" class="accent-teal-700">เวอร์ชันฟอร์ม QM</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" class="accent-teal-700">ประเภทเคส · แคมเปญ · journey</label>
+        </div>
+        <h2 class="text-sm font-semibold text-slate-700 mb-2">ตัวชี้วัด (สูงสุด 8)</h2>
+        <div class="space-y-2 text-sm">
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" checked class="accent-teal-700">สายที่ตอบใน SLA %</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" checked class="accent-teal-700">AHT</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" checked class="accent-teal-700">สายหลุด %</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" class="accent-teal-700">CSAT</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" class="accent-teal-700">FCR / ติดต่อซ้ำ %</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" class="accent-teal-700">คะแนน QM</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2"><input type="checkbox" class="accent-teal-700">ผู้ติดต่อไม่ซ้ำ</label>
+        </div>
+        <div class="note note-warn mt-4 text-xs"><i class="ti ti-alert-triangle"></i>
+          <div>เลือก AHT บนใบที่แยกรายบุคคล ต้องมี CSAT หรือ FCR อยู่ด้วย — ระบบจะบังคับตอนบันทึก</div>
+        </div>
+      </div>
+    </div>
+    <div class="lg:col-span-3 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="flex flex-wrap gap-3 items-end mb-4">
+          <div><label class="fld">ช่วงเวลา (บังคับ)</label><select class="inp w-48"><option>30 วันล่าสุด</option><option>เดือนนี้</option><option>ไตรมาสนี้</option><option>กำหนดเอง</option></select></div>
+          <div><label class="fld">คิว</label><select class="inp w-48"><option>ทุกคิว</option><option>General Support</option></select></div>
+          <div><label class="fld">รูปแบบ</label><select class="inp w-40"><option>ตาราง</option><option>เส้น</option><option>แท่ง</option><option>heatmap</option></select></div>
+          <button class="qbtn on" onclick="toast('รันรายงาน (mock)')"><i class="ti ti-player-play"></i>รัน</button>
+        </div>
+        <div class="overflow-x-auto"><table class="w-full text-sm">
+          <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+            <th class="font-normal px-4 py-2.5">วัน</th><th class="font-normal px-4 py-2.5">คิว</th>
+            <th class="font-normal px-4 py-2.5">ตอบใน SLA</th><th class="font-normal px-4 py-2.5">AHT</th>
+            <th class="font-normal px-4 py-2.5">สายหลุด</th></tr></thead>
+          <tbody class="text-slate-600">
+            <tr class="border-b border-slate-50"><td class="px-4 py-3">07-08-2026</td><td class="px-4 py-3">General Support</td><td class="px-4 py-3 text-emerald-700 font-medium">94.2%</td><td class="px-4 py-3">4:31</td><td class="px-4 py-3">3.1%</td></tr>
+            <tr class="border-b border-slate-50"><td class="px-4 py-3">07-08-2026</td><td class="px-4 py-3">Technical Support</td><td class="px-4 py-3 text-amber-600 font-medium">87.0%</td><td class="px-4 py-3">8:12</td><td class="px-4 py-3">6.4%</td></tr>
+            <tr class="border-b border-slate-50"><td class="px-4 py-3">07-08-2026</td><td class="px-4 py-3">Sales (TH)</td><td class="px-4 py-3 text-emerald-700 font-medium">96.8%</td><td class="px-4 py-3">5:04</td><td class="px-4 py-3">1.9%</td></tr>
+            <tr><td class="px-4 py-3">06-08-2026</td><td class="px-4 py-3">General Support</td><td class="px-4 py-3 text-emerald-700 font-medium">95.1%</td><td class="px-4 py-3">4:22</td><td class="px-4 py-3">2.8%</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div class="bg-white border border-slate-200 rounded-xl p-5">
+          <h2 class="text-sm font-semibold text-slate-700 mb-3">บันทึกรายงาน</h2>
+          <div class="grid grid-cols-1 gap-3">
+            <div><label class="fld">ชื่อ</label><input class="inp" placeholder="เช่น SLA รายวัน × คิว"></div>
+            <div><label class="fld">แชร์กับ</label><select class="inp"><option>ส่วนตัว</option><option>ทีมของฉัน</option><option>ทุกคนใน tenant</option></select></div>
+          </div>
+          <div class="flex gap-2 mt-4">
+            <button onclick="saveMock('rpt-library')" class="qbtn on"><i class="ti ti-device-floppy"></i>บันทึก</button>
+            <button onclick="newSched()" class="qbtn"><i class="ti ti-calendar-clock"></i>ตั้งส่งอัตโนมัติ</button>
+            <button onclick="toast('ส่งออก XLSX (mock)')" class="qbtn"><i class="ti ti-download"></i>ส่งออก</button>
+          </div>
+        </div>
+        <div class="note note-info"><i class="ti ti-shield-check text-lg"></i>
+          <div><p class="font-semibold mb-1">ข้อจำกัดที่ตั้งใจ</p>
+          <ul class="space-y-1">
+            <li>ไม่มีการเขียน SQL อิสระ — เลือกจากรายการที่มีเท่านั้น</li>
+            <li>ช่วงเวลาบังคับมีเสมอ</li>
+            <li>ผลลัพธ์เกิน 100,000 แถวต้องไปทางส่งออก/data feed</li>
+            <li>อ่านจาก replica เท่านั้น — รายงานทำให้การรับสายช้าไม่ได้</li>
+            <li>ค่าเฉลี่ยแสดงคู่กับจำนวนตัวอย่างเสมอ — ต่ำกว่าเกณฑ์ขั้นต่ำจะไม่แสดงตัวเลข</li>
+            <li>ใบที่มีคะแนน QM หรือ CSAT แสดง as-of เพราะคะแนนมาทีหลังและแก้ย้อนหลังได้</li>
+          </ul></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Scheduled delivery (list) ===== -->
+<section class="view" data-view="rpt-schedules">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="rschTitle">Scheduled delivery</h1>
+    <p class="text-sm text-slate-500" data-i18n="rschSubtitle">Every schedule has an owner and an expiry date</p></div>
+    <button onclick="newSched()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">รายงาน</th><th class="font-normal px-4 py-2.5">รอบ</th>
+        <th class="font-normal px-4 py-2.5">รูปแบบ</th><th class="font-normal px-4 py-2.5">ปลายทาง</th>
+        <th class="font-normal px-4 py-2.5">เจ้าของ</th><th class="font-normal px-4 py-2.5">หมดอายุ</th>
+        <th class="font-normal px-4 py-2.5">ผลล่าสุด</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="rpt-sched-body"></tbody>
+    </table></div>
+  </div>
+  <div class="note note-warn mt-4"><i class="ti ti-mail-off text-lg"></i>
+    <p>รายงานอัตโนมัติที่ยังส่งไปหาคนที่ลาออกไปแล้วคือรูรั่วข้อมูลที่พบบ่อยที่สุดในองค์กรใหญ่ —
+    ทุกตารางส่งจึงต้องมี<b>เจ้าของ</b>และ<b>วันหมดอายุ</b> และมีหน้ารวมใบที่ใกล้หมดอายุ</p></div>
+</section>
+
+<!-- ===== Schedule form (new/edit) ===== -->
+<section class="view" data-view="rpt-sched-form">
+  <button onclick="showView('rpt-schedules')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="rsf-heading" class="text-xl font-semibold mb-5">New schedule</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="md:col-span-2"><label class="fld">รายงาน</label><select id="rsf-report" class="inp"><option>SLA รายคิว</option><option>ประสิทธิภาพเอเจนต์</option><option>AHT ต่อหัวข้อ × คิว</option></select></div>
+        <div><label class="fld">รอบการส่ง</label><select id="rsf-cron" class="inp"><option>ทุกวัน 07:00</option><option>ทุกวันจันทร์ 08:00</option><option>วันที่ 1 ของเดือน</option></select></div>
+        <div><label class="fld">รูปแบบไฟล์</label><select id="rsf-fmt" class="inp"><option>PDF</option><option>XLSX</option><option>CSV</option></select></div>
+        <div class="md:col-span-2"><label class="fld">ปลายทาง</label><input id="rsf-dest" class="inp" placeholder="อีเมล คั่นด้วยจุลภาค / SFTP / S3"></div>
+        <div><label class="fld">หมดอายุใน (วัน) — บังคับ</label><input id="rsf-exp" type="number" class="inp" value="180"></div>
+        <div><label class="fld">เจ้าของ</label><select class="inp"><option>ฉัน (krit@acme.co.th)</option><option>สมพร (หัวหน้า)</option></select></div>
+      </div>
+      <div class="flex gap-3 mt-5 max-w-sm">
+        <button onclick="saveMock('rpt-schedules')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('rpt-schedules')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Data feed ===== -->
+<section class="view" data-view="rpt-feed">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="rfeedTitle">Data feed</h1>
+  <p class="text-sm text-slate-500" data-i18n="rfeedSubtitle">Parquet to your own warehouse — not 40M rows over REST</p></div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="fld">รอบการส่ง</label><select class="inp"><option>รายชั่วโมง</option><option>รายวัน</option></select></div>
+          <div><label class="fld">รูปแบบ</label><select class="inp"><option>Parquet</option><option>CSV</option></select></div>
+          <div class="md:col-span-2"><label class="fld">ปลายทาง</label><input class="inp" value="s3://acme-bi/dcontact/"></div>
+        </div>
+        <h2 class="text-sm font-semibold text-slate-700 mt-5 mb-3">ชุดข้อมูลที่ส่ง</h2>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">interactions</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">agent_states</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">quality_scores</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">cases</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">campaign_attempts</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">survey_responses</label>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">โครงไฟล์ที่ส่งออก</h2>
+        <pre class="bg-slate-900 text-slate-100 rounded-lg p-3 text-xs overflow-x-auto">s3://acme-bi/dcontact/interactions/dt=2026-08-07/part-0001.parquet
+                                       /_manifest.json
+{ "rows": 41208, "from": "2026-08-07T00:00Z", "to": "2026-08-08T00:00Z",
+  "schemaVersion": 3, "sha256": "9f2c…" }</pre>
+        <p class="text-xs text-slate-400 mt-2">ข้อมูลที่มาทีหลัง (คะแนน QM, CSAT) ส่งเป็นไฟล์แก้ไขของ partition เดิม + manifest ใหม่ — ผู้รับ upsert ตาม <code>interaction_id</code></p>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">สถานะ</h2>
+        <p class="text-sm text-slate-600 flex justify-between"><span>ส่งล่าสุด</span><b>08-08 10:00</b></p>
+        <p class="text-sm text-slate-600 flex justify-between mt-1"><span>watermark</span><b>08-08 09:00</b></p>
+        <p class="text-sm text-slate-600 flex justify-between mt-1"><span>schema เวอร์ชัน</span><b>3</b></p>
+        <p class="text-xs text-slate-400 mt-3">เปลี่ยน schema ได้เฉพาะ<b>เพิ่มคอลัมน์</b> — การลบ/เปลี่ยนชนิดต้องขึ้นเวอร์ชันใหม่และรันคู่ขนาน 90 วัน</p>
+      </div>
+      <button onclick="toast('บันทึกแล้ว (mock)')" class="w-full h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+    </div>
+  </div>
+</section>
+
 </main></template>
 <script src="assets/i18n.js"></script>
 <script src="assets/app.js"></script>
+<script src="assets/modules.js"></script>
 </body>
 </html>

@@ -1,7 +1,9 @@
 # D-Contact
 
-Omnichannel Contact Center (SaaS, multi-tenant) — Voice / Web Chat / LINE / Facebook / WhatsApp / Email
-สถาปัตยกรรมและ roadmap ฉบับเต็มอยู่ในแผนโปรเจค, การตัดสินใจสำคัญอยู่ใน [docs/adr](docs/adr)
+**CCaaS + CX Automation** (SaaS, multi-tenant) — Voice / Web Chat / LINE / Facebook / WhatsApp / Email
+รับงานทุกช่องทางด้วยคิวเดียว **และ** ทำให้เรื่องที่คาดเดาได้ไม่ต้องกลายเป็นงานของคน
+([ADR-025](docs/adr/025-journey-orchestration.md))
+เอกสารทั้งหมด (ADRs, สถาปัตยกรรม multi-tenant/IAM/data flow, mockups) เริ่มที่ [docs/README.md](docs/README.md)
 
 ## Stack
 
@@ -9,22 +11,42 @@ Omnichannel Contact Center (SaaS, multi-tenant) — Voice / Web Chat / LINE / Fa
 - **Event backbone:** Kafka (dev = Redpanda) — ทุก domain event เพื่อรองรับ billing/reporting แบบ SaaS
   ดู [ADR 003](docs/adr/003-kafka-event-backbone.md); Redis เหลือบทบาท state store เท่านั้น
 - **Backend:** Node.js + TypeScript (NestJS + worker services), PostgreSQL, Redis, MinIO/S3
+- **WFM solver:** Python + OR-Tools CP-SAT (`apps/wfm-engine` เท่านั้น — ภาษาที่สองที่จงใจจำกัดขอบเขต)
+  ดู [ADR 008](docs/adr/008-workforce-management.md)
 - **Frontend:** React + Vite, softphone ผ่าน SIP.js (WebRTC)
 - **Monorepo:** pnpm workspaces + Turborepo
 
 ## โครงสร้าง
 
-| path                 | หน้าที่                                                 |
-| -------------------- | ------------------------------------------------------- |
-| `apps/api`           | REST + WebSocket gateway (auth, tenant, CRUD)           |
-| `apps/telephony`     | ESL controller — สะพานเชื่อม FreeSWITCH                 |
-| `apps/router`        | ACD/routing engine (ทุก channel)                        |
-| `apps/channels`      | Channel gateways (webchat, LINE, FB, WA, email)         |
-| `apps/agent-desktop` | Agent workspace + softphone                             |
-| `packages/shared`    | Types + event contracts                                 |
-| `packages/kafka`     | Kafka producer/consumer wrapper (ทุก service ใช้ตัวนี้) |
-| `packages/db`        | Prisma schema, RLS, seed                                |
-| `infra/`             | Docker Compose + FreeSWITCH config (config-as-code)     |
+> **สถานะตอนนี้: ยังไม่มีโค้ดของ service ใด ๆ** — `apps/*` ทั้งตารางเป็น **แผนผังที่ตั้งใจไว้**
+> ไม่ใช่โฟลเดอร์ที่มีอยู่จริง โครงร่างที่เคยเขียนไว้ (api/router/telephony/channels/agent-desktop)
+> ถูกลบทิ้งเมื่อ 2026-08-14 ระหว่างที่ยังออกแบบระบบอยู่ เพราะ skeleton ที่ไม่ตรงกับแบบล่าสุด
+> ทำให้สับสนมากกว่าช่วย — กู้กลับได้ด้วย `git checkout 8165970 -- apps` ถ้าต้องการอ้างอิง
+> วินัยเดียวกับตารางของโมดูลใน [docs/README.md](docs/README.md): **โค้ดเกิดพร้อมเฟสที่ใช้มัน**
+> ของที่มีอยู่จริงวันนี้คือ `packages/*` · `infra/` · `mockups/` · `docs/`
+
+| path                    | หน้าที่                                                                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/api`              | REST + WebSocket gateway (auth, tenant, CRUD)                                                                                                             |
+| `apps/telephony`        | media gateway (ESL/ARI) → dc.telephony.events — ดู [ADR 006](docs/adr/006-multi-vendor-telephony-gateway.md)                                              |
+| `apps/asterisk-gateway` | Asterisk gateway (ARI) — parallel ของ telephony, ป้อน topic เดียว (Phase 1+)                                                                              |
+| `apps/router`           | ACD/routing engine (ทุก channel, ทุก vendor)                                                                                                              |
+| `apps/channels`         | Channel gateways (webchat, LINE, FB, WA, email)                                                                                                           |
+| `apps/workspace`        | หน้าทำงานที่ต้องมี session สด: กล่องงาน + softphone + หน้าสดของหัวหน้า (monitor/whisper/queue control) — ดู [ADR 026](docs/adr/026-frontend-app-split.md) |
+| `apps/console`          | หน้าตั้งค่า/รายงานทั้งหมด (routing · people · integrations · WFM/QM setup · journeys · reports · admin) — deploy คนละจังหวะกับ workspace                  |
+| `apps/wfm`              | Workforce management: กะ/ลา/adherence/RTA — ดู [ADR 008](docs/adr/008-workforce-management.md) (Phase W1+)                                                |
+| `apps/wfm-engine`       | **Python** — forecast (Erlang) + จัดกะด้วย OR-Tools CP-SAT, คุยผ่าน `dc.wfm.jobs` (Phase W4)                                                              |
+| `apps/qm`               | Quality management: recording lifecycle, transcript, ให้คะแนน, auto-QM — ดู [ADR 010](docs/adr/010-quality-management.md) (Phase Q1+)                     |
+| `apps/dialer`           | Outbound: แคมเปญ/รายชื่อ/pacing/DNC — ผลิต **งาน** ให้ router ไม่ใช่โทรเอง — ดู [ADR 011](docs/adr/011-outbound-campaign.md) (Phase O1+)                  |
+| `apps/bot`              | Virtual agent + คลังความรู้ (RAG บน pgvector) — ดู [ADR 013](docs/adr/013-virtual-agent-knowledge.md) (Phase B2+)                                         |
+| `apps/cases`            | Case management: งานที่ไม่จบในครั้งเดียว + SLA — ดู [ADR 016](docs/adr/016-case-management.md) (Phase C1+)                                                |
+| `apps/journey`          | CX automation: journey ที่ผูกกับลูกค้า + contact policy — ไม่สร้าง interaction เอง — ดู [ADR 025](docs/adr/025-journey-orchestration.md) (Phase J1+)      |
+| `apps/webhook`          | ส่ง event ออกให้ระบบลูกค้า — consumer ของ Kafka ไม่อยู่ในเส้นทางรับสาย — ดู [ADR 015](docs/adr/015-integration-platform.md) (Phase I2+)                   |
+| `packages/shared`       | Types + event contracts                                                                                                                                   |
+| `packages/ui`           | design system ร่วมของสองแอปหน้าจอ — ห้าม fork component ([ADR 026](docs/adr/026-frontend-app-split.md) ข้อ 6)                                             |
+| `packages/kafka`        | Kafka producer/consumer wrapper (ทุก service ใช้ตัวนี้)                                                                                                   |
+| `packages/db`           | Prisma schema, RLS, seed                                                                                                                                  |
+| `infra/`                | Docker Compose + FreeSWITCH config (config-as-code)                                                                                                       |
 
 ## เริ่มต้น dev
 
@@ -40,37 +62,35 @@ pnpm db:migrate      # สร้าง schema
 pnpm db:rls          # ติดตั้ง Row-Level Security policies
 pnpm db:seed         # tenant "demo" + agent 1000/1001 + queue
 
-# 3. build ทั้งหมด
+# 3. build ทั้งหมด (วันนี้ = packages/shared + kafka + db)
 pnpm build
 
-# 4. รัน services (แยก terminal หรือใช้ turbo dev)
-pnpm --filter @d-contact/api dev            # http://localhost:3000/api
-pnpm --filter @d-contact/telephony dev      # ESL bridge
-pnpm --filter @d-contact/router dev
-pnpm --filter @d-contact/agent-desktop dev  # http://localhost:5173
+# 4. ดู mockup ของหน้าจอทั้งหมด — http://localhost:8090
+python3 -m http.server 8090 --directory mockups
 ```
 
-### ทดสอบ softphone spike (Phase 0)
+> **ยังไม่มี service ให้รัน** — `apps/*` ถูกลบระหว่างออกแบบ (ดูหมายเหตุด้านบน)
+> สิ่งที่รันได้จริงตอนนี้คือ infra, migration/seed ของฐานข้อมูล และ mockup
+> คำสั่ง `pnpm --filter @d-contact/api dev` ฯลฯ จะกลับมาเมื่อเฟส 1 เริ่ม
+
+### ทดสอบ softphone spike (ของเดิม — ต้องกู้โค้ดก่อน)
+
+`git checkout 8165970 -- apps` แล้วรัน `pnpm --filter @d-contact/agent-desktop dev`
 
 1. เปิด http://localhost:5173 สองแท็บ
 2. แท็บแรก register ext `1000`, แท็บสอง ext `1001` (รหัส `DContactDev1`)
 3. โทร `1001` จากแท็บแรก หรือโทร `9196` (echo test) เพื่อทดสอบ media path
 4. ดู call events วิ่งใน log ของ `telephony` และ `router`
 
+หมายเหตุ: โค้ดชุดนั้น produce ลง `dc.fs.events` (ชื่อเดิม) ซึ่งเลิกใช้แล้วตาม
+[ADR 023](docs/adr/023-conversation-vs-interaction.md) ข้อ 6 — ใช้อ้างอิงได้ แต่ไม่ใช่แบบล่าสุด
+
 > **Docker Desktop (macOS/Windows):** FreeSWITCH advertise `127.0.0.1` เป็น RTP address
 > (ตั้งใน `infra/freeswitch/conf/vars.xml`) เพื่อให้ browser บน host ส่ง media ผ่าน
 > published UDP ports ได้ ถ้าเสียงไม่มา ให้ตรวจว่า port `16384-16420/udp` ถูก publish
 > และไม่มี firewall ขวาง — บน Linux เปลี่ยน `external_rtp_ip` เป็น IP จริงของเครื่อง
 
-### Login API
-
-```bash
-curl -X POST http://localhost:3000/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"tenant":"demo","email":"admin@demo.local","password":"admin1234"}'
-```
-
-## Credentials (dev seed)
+## Credentials (dev seed — ใช้กับฐานข้อมูล ยังไม่มี API ให้ login)
 
 | user                 | password  | role                 |
 | -------------------- | --------- | -------------------- |

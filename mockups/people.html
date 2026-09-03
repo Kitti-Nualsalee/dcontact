@@ -26,11 +26,16 @@
       <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
         <th class="font-normal px-4 py-2.5">Agent</th><th class="font-normal px-4 py-2.5">Ext</th>
         <th class="font-normal px-4 py-2.5">Team</th><th class="font-normal px-4 py-2.5">Skills</th>
-        <th class="font-normal px-4 py-2.5">Concurrency</th><th class="font-normal px-4 py-2.5">State</th><th class="px-4 py-2.5"></th>
+        <th class="font-normal px-4 py-2.5">Concurrency</th><th class="font-normal px-4 py-2.5">WFM seat</th>
+        <th class="font-normal px-4 py-2.5">State</th><th class="px-4 py-2.5"></th>
       </tr></thead>
       <tbody id="agents-body"></tbody>
     </table></div>
   </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-info-circle mr-1"></i>
+    <b>WFM seat</b> เปิดให้ทีละคนและเปิดเกินเพดานของแพ็กเกจไม่ได้ (<span id="wfm-seat-count">—</span>) —
+    ระบบไม่นับอัตโนมัติจากคนที่มีชื่อในตารางกะ เพื่อไม่ให้เกิดบิลเกินโดยไม่รู้ตัว · ดู
+    <a href="admin.html?view=usage" class="text-teal-700 hover:underline">Usage &amp; plan</a></p>
 </section>
 
 <!-- ===== Agent form ===== -->
@@ -130,8 +135,110 @@
   </div>
 </section>
 
+<!-- ===== Customer 360 profile ===== -->
+<section class="view" data-view="contact-360">
+  <button onclick="showView('contacts')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <div class="flex items-start justify-between mb-4">
+    <div>
+      <div class="flex items-center gap-3"><h1 class="text-xl font-semibold" data-i18n="c360Title">Customer profile</h1>
+        <span class="tag tag-info">VIP</span><span class="tag tag-ok">ยืนยันตัวตนแล้ว 05-08-2026</span></div>
+      <p class="text-sm text-slate-500 mt-1">คุณนภา จันทร์เพ็ญ · Siam Retail Co. · ลูกค้าตั้งแต่ 2024</p>
+    </div>
+    <div class="flex gap-2">
+      <button class="qbtn" onclick="toast('ส่งออกข้อมูลของบุคคลนี้ (PDPA) (mock)')"><i class="ti ti-download"></i>ส่งออกข้อมูล (PDPA)</button>
+      <button class="qbtn" onclick="showView('identities')"><i class="ti ti-git-merge"></i>จัดการตัวตน</button>
+    </div>
+  </div>
+
+  <div class="note note-warn mb-5"><i class="ti ti-phone-off text-lg"></i>
+    <p><b>สถานะการติดต่อ:</b> ยินยอมให้ติดต่อทาง LINE และอีเมล · <b>ไม่ยินยอม</b>ให้โทรเพื่อการตลาด (ถอนเมื่อ 05-08-2026)
+    — แถบนี้อยู่บนหัวโปรไฟล์เสมอ เพราะเอเจนต์ที่กำลังจะโทรกลับต้องเห็นก่อนกด</p></div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">ไทม์ไลน์ทุกช่องทาง</h2>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">เมื่อ</th><th class="font-normal py-2">ช่องทาง</th><th class="font-normal py-2">เรื่อง</th><th class="font-normal py-2">เอเจนต์</th><th class="font-normal py-2">ผล</th></tr></thead>
+          <tbody class="text-slate-600">
+            <tr class="border-t border-slate-100"><td class="py-2">08-08 09:41</td><td class="py-2"><span class="ch ch-voice"><i class="ti ti-phone"></i>voice</span></td><td class="py-2">ตามเรื่องเคลม CS-4821</td><td class="py-2">สมชาย ว.</td><td class="py-2"><span class="tag tag-bad">CSAT 2</span></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">07-08 16:40</td><td class="py-2"><span class="ch ch-line"><i class="ti ti-brand-line"></i>line</span></td><td class="py-2">แจ้งความคืบหน้าการเคลม</td><td class="py-2">สมหญิง ใ.</td><td class="py-2">—</td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">05-08 14:03</td><td class="py-2"><span class="ch ch-voice"><i class="ti ti-phone"></i>voice</span></td><td class="py-2">สอบถามสถานะ</td><td class="py-2">สมชาย ว.</td><td class="py-2">4:12 นาที</td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">04-08 09:12</td><td class="py-2"><span class="ch ch-email"><i class="ti ti-mail"></i>email</span></td><td class="py-2">แจ้งสินค้าชำรุด → เปิดเคส CS-4821</td><td class="py-2">สมหญิง ใ.</td><td class="py-2"><span class="tag tag-warn">เคสเปิดอยู่</span></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">28-07 11:20</td><td class="py-2"><span class="ch ch-line"><i class="ti ti-brand-line"></i>line</span></td><td class="py-2">สอบถามโปรโมชัน</td><td class="py-2">อรทัย พ.</td><td class="py-2"><span class="tag tag-ok">CSAT 5</span></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">15-07 10:05</td><td class="py-2"><span class="ch ch-voice"><i class="ti ti-phone"></i>voice</span></td><td class="py-2">โทรออก — ยืนยันที่อยู่จัดส่ง</td><td class="py-2">สมหญิง ใ.</td><td class="py-2">แคมเปญ: ยืนยันนัดหมาย</td></tr>
+          </tbody>
+        </table>
+        <p class="text-xs text-slate-400 mt-3">โปรไฟล์นี้เป็น <b>มุมมอง</b> ประกอบสด ๆ จาก interactions + cases + คำตอบแบบสำรวจ + ความยินยอม + CRM — ไม่ใช่ตารางที่คัดลอกข้อมูลมาเก็บ</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">เคส</h2>
+        <table class="w-full text-sm">
+          <tbody class="text-slate-600">
+            <tr class="border-b border-slate-50"><td class="py-2 font-medium text-teal-700">CS-4821</td><td class="py-2">เคลมสินค้าชำรุด — รุ่น X200</td><td class="py-2"><span class="tag tag-warn">กำลังดำเนินการ</span></td><td class="py-2 due-late">เกิน SLA 3 ชม.</td></tr>
+            <tr><td class="py-2 font-medium text-slate-500">CS-4702</td><td class="py-2">ขอเปลี่ยนที่อยู่ใบกำกับภาษี</td><td class="py-2"><span class="tag">ปิด</span></td><td class="py-2 text-slate-400">12-06-2026</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ตัวตนทุกช่องทาง</h2>
+        <ul class="text-sm space-y-2">
+          <li class="flex items-center justify-between"><span class="ch ch-voice"><i class="ti ti-phone"></i>+66 81 234 5678</span><span class="tag tag-ok">ยืนยันแล้ว</span></li>
+          <li class="flex items-center justify-between"><span class="ch ch-line"><i class="ti ti-brand-line"></i>@napha.c</span><span class="tag tag-ok">ยืนยันแล้ว</span></li>
+          <li class="flex items-center justify-between"><span class="ch ch-email"><i class="ti ti-mail"></i>napha@siamretail.co.th</span><span class="tag tag-ok">ยืนยันแล้ว</span></li>
+          <li class="flex items-center justify-between"><span class="ch ch-facebook"><i class="ti ti-brand-messenger"></i>Napha C.</span><span class="tag tag-warn">รอยืนยันการรวม</span></li>
+        </ul>
+        <p class="text-xs text-slate-400 mt-3">เบอร์ถูกเก็บในรูป E.164 เสมอ — เบอร์ไทยเขียนได้ 5 แบบ ถ้าไม่ normalize ที่ชั้นข้อมูล การจับคู่จะพลาดตลอดไป</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">สรุป</h2>
+        <dl class="text-sm space-y-1.5 text-slate-600">
+          <div class="flex justify-between"><dt>ติดต่อทั้งหมด</dt><dd class="font-medium text-slate-800">12 ครั้ง</dd></div>
+          <div class="flex justify-between"><dt>CSAT เฉลี่ย</dt><dd class="font-medium text-rose-600">3.2</dd></div>
+          <div class="flex justify-between"><dt>เคสที่เปิดอยู่</dt><dd class="font-medium text-slate-800">1</dd></div>
+          <div class="flex justify-between"><dt>อยู่ในแคมเปญ</dt><dd class="font-medium text-slate-800">1 (ยืนยันนัดหมาย)</dd></div>
+        </dl>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">จาก Salesforce (ดึงสด)</h2>
+        <dl class="text-sm space-y-1.5 text-slate-600">
+          <div class="flex justify-between"><dt>Account tier</dt><dd class="font-medium text-slate-800">Gold</dd></div>
+          <div class="flex justify-between"><dt>ยอดซื้อ 12 เดือน</dt><dd class="font-medium text-slate-800">฿1,240,000</dd></div>
+          <div class="flex justify-between"><dt>ผู้ดูแลบัญชี</dt><dd class="font-medium text-slate-800">K. Somsak</dd></div>
+        </dl>
+        <p class="text-xs text-slate-400 mt-2">ไม่คัดลอกมาเก็บ — cache 60 วินาที, timeout 1.5 วินาที แล้วแสดงส่วนที่มีก่อน</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Identity merge queue ===== -->
+<section class="view" data-view="identities">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="idTitle">Identity merge</h1>
+    <p class="text-sm text-slate-500" data-i18n="idSubtitle">Likely-same people waiting for a human decision</p></div>
+    <button class="qbtn" onclick="toast('ดูประวัติการรวม (ย้อนกลับได้ 90 วัน) (mock)')"><i class="ti ti-history"></i>ประวัติการรวม</button>
+  </div>
+  <div class="note note-bad mb-4"><i class="ti ti-alert-triangle text-lg"></i>
+    <p>ระบบรวมให้อัตโนมัติ<b>เฉพาะ</b>ตัวตนที่ยืนยันแล้วหรือมีเลขลูกค้าเดียวกันเท่านั้น —
+    ที่เหลือรอคนตัดสิน เพราะการรวมผิดคือการเอาข้อมูลลูกค้าสองคนมาปนกัน ซึ่งผิด PDPA และกู้คืนยาก
+    (<a class="underline" href="../docs/adr/020-customer-360.md">ADR-020</a>)</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">ตัวตน A</th><th class="font-normal px-4 py-2.5">ตัวตน B</th>
+        <th class="font-normal px-4 py-2.5">เพราะอะไร</th><th class="font-normal px-4 py-2.5">ระดับความมั่นใจ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="identities-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
 </main></template>
 <script src="assets/i18n.js"></script>
 <script src="assets/app.js"></script>
+<script src="assets/modules.js"></script>
 </body>
 </html>

@@ -1,0 +1,228 @@
+export type WorkspaceSessionStatus = 'active' | 'reauthentication-required';
+
+export interface VerifiedWorkspaceIdentity {
+  tenantId: string;
+  userId: string;
+  sessionId: string;
+  roles: readonly string[];
+  expiresAt: Date;
+}
+
+export interface VerifiedOidcClaims {
+  tenant_id?: unknown;
+  dc_user_id?: unknown;
+  sid?: unknown;
+  exp?: unknown;
+  realm_access?: { roles?: unknown };
+}
+
+/**
+ * Converts claims only after an API/WebSocket adapter has verified the OIDC
+ * signature, issuer, audience and token type. Browser-provided tenant or user
+ * values are never accepted by this boundary.
+ */
+export function toVerifiedWorkspaceIdentity(
+  claims: VerifiedOidcClaims,
+  now: Date = new Date(),
+): VerifiedWorkspaceIdentity {
+  if (typeof claims.tenant_id !== 'string' || claims.tenant_id.length === 0) {
+    throw new Error('verified OIDC token requires tenant_id');
+  }
+  if (typeof claims.dc_user_id !== 'string' || claims.dc_user_id.length === 0) {
+    throw new Error('verified OIDC token requires dc_user_id');
+  }
+  if (typeof claims.sid !== 'string' || claims.sid.length === 0) {
+    throw new Error('verified OIDC token requires sid');
+  }
+  if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) {
+    throw new Error('verified OIDC token requires exp');
+  }
+  if (!Array.isArray(claims.realm_access?.roles) || !claims.realm_access.roles.every(isString)) {
+    throw new Error('verified OIDC token requires realm_access.roles');
+  }
+
+  const expiresAt = new Date(claims.exp * 1_000);
+  if (expiresAt.getTime() <= now.getTime()) {
+    throw new Error('verified OIDC token is expired');
+  }
+
+  return {
+    tenantId: claims.tenant_id,
+    userId: claims.dc_user_id,
+    sessionId: claims.sid,
+    roles: claims.realm_access.roles,
+    expiresAt,
+  };
+}
+
+export interface WorkspaceSession {
+  tenantId: string;
+  userId: string;
+  tabId: string;
+  routingEnabled: boolean;
+  status: WorkspaceSessionStatus;
+}
+
+export interface WorkspaceSessionHandshake {
+  accessToken: string;
+  tabId: string;
+}
+
+export interface OidcAccessTokenVerifier {
+  verifyAccessToken(accessToken: string): Promise<VerifiedOidcClaims>;
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+interface StoredSession extends WorkspaceSession {
+  sessionId: string;
+  expiresAt: Date;
+}
+
+type Clock = () => Date;
+
+/**
+ * Public session boundary used by the API/WebSocket adapter and Workspace.
+ * It owns the one-working-tab rule but deliberately does not verify OIDC
+ * signatures; adapters may only pass identities they have already verified.
+ */
+export class WorkspaceSessionRegistry {
+  private readonly sessions = new Map<string, StoredSession>();
+  private readonly workingTabs = new Map<string, string>();
+
+  constructor(private readonly now: Clock = () => new Date()) {}
+
+  connect(identity: VerifiedWorkspaceIdentity, tabId: string): WorkspaceSession {
+    this.assertIdentity(identity, tabId);
+    const key = this.sessionKey(identity.tenantId, identity.userId, tabId);
+    const existing = this.sessions.get(key);
+
+    if (existing && existing.tenantId !== identity.tenantId) {
+      throw new Error('workspace session tenant context cannot change');
+    }
+
+    const userKey = this.userKey(identity.tenantId, identity.userId);
+    const isValid = identity.expiresAt.getTime() > this.now().getTime();
+    const currentWorkingTab = this.workingTabs.get(userKey);
+    const isLeader = isValid && (currentWorkingTab === undefined || currentWorkingTab === tabId);
+
+    if (isLeader) this.workingTabs.set(userKey, tabId);
+
+    const session: StoredSession = {
+      tenantId: identity.tenantId,
+      userId: identity.userId,
+      tabId,
+      sessionId: identity.sessionId,
+      expiresAt: identity.expiresAt,
+      routingEnabled: isLeader,
+      status: isValid ? 'active' : 'reauthentication-required',
+    };
+    this.sessions.set(key, session);
+    return this.publicSession(session);
+  }
+
+  claimWorkingTab(identity: VerifiedWorkspaceIdentity, tabId: string): WorkspaceSession {
+    this.assertIdentity(identity, tabId);
+    const userKey = this.userKey(identity.tenantId, identity.userId);
+    const key = this.sessionKey(identity.tenantId, identity.userId, tabId);
+
+    if (!this.sessions.has(key)) this.connect(identity, tabId);
+
+    const isValid = identity.expiresAt.getTime() > this.now().getTime();
+    this.workingTabs.set(userKey, tabId);
+    for (const session of this.sessions.values()) {
+      if (this.userKey(session.tenantId, session.userId) !== userKey) continue;
+      session.routingEnabled = isValid && session.tabId === tabId;
+      session.status = isValid ? 'active' : 'reauthentication-required';
+    }
+
+    return this.publicSession(this.requireSession(key));
+  }
+
+  refresh(identity: VerifiedWorkspaceIdentity, tabId: string): WorkspaceSession {
+    this.assertIdentity(identity, tabId);
+    const existingForTab = [...this.sessions.values()].find(
+      (session) => session.userId === identity.userId && session.tabId === tabId,
+    );
+    if (existingForTab && existingForTab.tenantId !== identity.tenantId) {
+      throw new Error('workspace session tenant context cannot change');
+    }
+
+    const key = this.sessionKey(identity.tenantId, identity.userId, tabId);
+    const session = this.sessions.get(key) ?? this.connect(identity, tabId);
+    const stored = this.requireSession(this.sessionKey(session.tenantId, session.userId, tabId));
+    const isValid = identity.expiresAt.getTime() > this.now().getTime();
+    stored.sessionId = identity.sessionId;
+    stored.expiresAt = identity.expiresAt;
+    stored.status = isValid ? 'active' : 'reauthentication-required';
+    stored.routingEnabled =
+      isValid && this.workingTabs.get(this.userKey(identity.tenantId, identity.userId)) === tabId;
+    return this.publicSession(stored);
+  }
+
+  canReceiveRoutingWork(tenantId: string, userId: string, tabId: string): boolean {
+    const session = this.sessions.get(this.sessionKey(tenantId, userId, tabId));
+    return Boolean(
+      session &&
+        session.status === 'active' &&
+        session.routingEnabled &&
+        session.expiresAt.getTime() > this.now().getTime(),
+    );
+  }
+
+  private assertIdentity(identity: VerifiedWorkspaceIdentity, tabId: string): void {
+    if (!identity.tenantId || !identity.userId || !identity.sessionId || !tabId) {
+      throw new Error('verified workspace identity and tab id are required');
+    }
+  }
+
+  private requireSession(key: string): StoredSession {
+    const session = this.sessions.get(key);
+    if (!session) throw new Error('workspace session was not found');
+    return session;
+  }
+
+  private publicSession(session: StoredSession): WorkspaceSession {
+    const { sessionId: _sessionId, expiresAt: _expiresAt, ...publicSession } = session;
+    return publicSession;
+  }
+
+  private userKey(tenantId: string, userId: string): string {
+    return `${tenantId}:${userId}`;
+  }
+
+  private sessionKey(tenantId: string, userId: string, tabId: string): string {
+    return `${this.userKey(tenantId, userId)}:${tabId}`;
+  }
+}
+
+/**
+ * Transport-facing boundary for REST and WebSocket adapters. The adapter must
+ * provide a verifier backed by Keycloak JWKS; this class never accepts tenant
+ * context from a browser request.
+ */
+export class WorkspaceSessionGateway {
+  constructor(
+    private readonly verifier: OidcAccessTokenVerifier,
+    private readonly registry: WorkspaceSessionRegistry,
+    private readonly now: Clock = () => new Date(),
+  ) {}
+
+  async connect(handshake: WorkspaceSessionHandshake): Promise<WorkspaceSession> {
+    const identity = await this.identityFrom(handshake.accessToken);
+    return this.registry.connect(identity, handshake.tabId);
+  }
+
+  async refresh(handshake: WorkspaceSessionHandshake): Promise<WorkspaceSession> {
+    const identity = await this.identityFrom(handshake.accessToken);
+    return this.registry.refresh(identity, handshake.tabId);
+  }
+
+  private async identityFrom(accessToken: string): Promise<VerifiedWorkspaceIdentity> {
+    if (!accessToken) throw new Error('workspace session requires an access token');
+    const claims = await this.verifier.verifyAccessToken(accessToken);
+    return toVerifiedWorkspaceIdentity(claims, this.now());
+  }
+}

@@ -2,15 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "agent-desktop",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@d-contact/agent-desktop", "dev"],
-      "port": 5173
-    },
-    {
       "name": "mockups",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8090", "--directory", "mockups"],
+      "runtimeArgs": ["mockups/serve.py", "8090"],
       "port": 8090
     }
   ]

@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Integrations</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="integrations" data-default="overview">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== Overview — ทุกการเชื่อมต่อในหน้าเดียว ===== -->
+<section class="view active" data-view="overview">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="intOvTitle">Integrations</h1>
+    <p class="text-sm text-slate-500" data-i18n="intOvSubtitle">Everything wired to the outside world, and whether it is healthy right now</p></div>
+    <button onclick="showView('apps')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i>เพิ่มการเชื่อมต่อ</button>
+  </div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+    <div class="mcard"><div class="mcard-num" id="int-count-total">14</div><div class="mcard-lbl">การเชื่อมต่อทั้งหมด</div></div>
+    <div class="mcard"><div class="mcard-num text-emerald-700" id="int-count-ok">11</div><div class="mcard-lbl">ปกติ</div></div>
+    <div class="mcard"><div class="mcard-num text-amber-600" id="int-count-warn">2</div><div class="mcard-lbl">ต้องดู</div></div>
+    <div class="mcard"><div class="mcard-num text-rose-600" id="int-count-fail">2</div><div class="mcard-lbl">ล้มเหลว</div></div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">การเชื่อมต่อ</th><th class="font-normal px-4 py-2.5">ชนิด</th>
+        <th class="font-normal px-4 py-2.5">กลุ่ม</th><th class="font-normal px-4 py-2.5">สถานะ</th>
+        <th class="font-normal px-4 py-2.5">ล่าสุด</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="int-overview-body"></tbody>
+    </table></div>
+  </div>
+  <div class="note note-info mt-4"><i class="ti ti-plug-connected text-lg"></i>
+    <p>เมนูนี้รวม<b>ทุกอย่างที่ต่อกับของนอกระบบ</b>ไว้ที่เดียว แบ่งเป็นสามกลุ่ม:
+    <b>ช่องทางที่รับงาน</b> (สิ่งที่ผลิต interaction) · <b>ระบบภายนอก</b> (สิ่งที่เราไปอ่าน/เขียนข้อมูล) ·
+    <b>สำหรับนักพัฒนา</b> (API/webhook/แอปฝัง — เห็นเฉพาะผู้ดูแลระบบ)</p></div>
+</section>
+
+<!-- ===== Voice numbers (list) ===== -->
+<section class="view" data-view="numbers">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="numbersTitle">Voice numbers</h1>
+    <p class="text-sm text-slate-500" data-i18n="numbersSubtitle">DID numbers and where they route</p></div>
+    <button onclick="newNumber()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="numbersNew">New number</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-5xl">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Number</th><th class="font-normal px-4 py-2.5">Label</th>
+        <th class="font-normal px-4 py-2.5">Routes to</th><th class="font-normal px-4 py-2.5">SIP trunk</th>
+        <th class="font-normal px-4 py-2.5">Status</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="numbers-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Number form ===== -->
+<section class="view" data-view="number-form">
+  <button onclick="showView('numbers')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="nf-heading" class="text-xl font-semibold mb-5">New number</h1>
+  <div class="bg-white border border-slate-200 rounded-xl p-5 max-w-2xl">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div><label class="fld">Number (E.164)</label><input id="nf-num" class="inp" placeholder="+66 2 …"></div>
+      <div><label class="fld">Label</label><input id="nf-label" class="inp" placeholder="Main hotline"></div>
+      <div><label class="fld">Route to</label><select class="inp"><option>Flow: Voice — Main menu</option><option>Flow: VIP — CRM priority routing</option><option>Queue: General Support</option><option>Queue: Sales (TH)</option><option>Queue: VIP Customers</option></select></div>
+      <div><label class="fld">SIP trunk</label><select class="inp"><option>NT SIP-01</option><option>AIS SIP-02</option></select></div>
+    </div>
+    <div class="flex gap-3 mt-5 max-w-xs">
+      <button onclick="saveNumber()" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+      <button onclick="showView('numbers')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Web chat ===== -->
+<section class="view" data-view="webchat">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="webchatTitle">Web chat widgets</h1>
+    <p class="text-sm text-slate-500" data-i18n="webchatSubtitle">Embeddable chat for your websites</p></div>
+    <button onclick="toast('Widget created (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="webchatNew">New widget</span></button>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-5xl">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-3"><h2 class="font-semibold">acme.co.th — Support</h2><span class="st st-available">Active</span></div>
+      <dl class="text-sm space-y-2 text-slate-600 mb-4">
+        <div class="flex justify-between"><dt>Queue</dt><dd class="font-medium text-slate-800">General Support</dd></div>
+        <div class="flex justify-between"><dt>Pre-chat form</dt><dd>name + email</dd></div>
+        <div class="flex justify-between"><dt>Today</dt><dd>128 chats · avg wait 9s</dd></div>
+      </dl>
+      <label class="fld">Embed snippet</label>
+      <pre class="text-xs bg-slate-900 text-slate-200 rounded-lg p-3 overflow-x-auto">&lt;script src="https://cdn.d-contact.io/w.js"
+  data-widget="acme-support"&gt;&lt;/script&gt;</pre>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <div class="flex items-center justify-between mb-3"><h2 class="font-semibold">store.acme.co.th — Sales</h2><span class="st st-offline">Draft</span></div>
+      <dl class="text-sm space-y-2 text-slate-600">
+        <div class="flex justify-between"><dt>Queue</dt><dd class="font-medium text-slate-800">Sales (TH)</dd></div>
+        <div class="flex justify-between"><dt>Pre-chat form</dt><dd>ไม่ใช้ (guest)</dd></div>
+        <div class="flex justify-between"><dt>Bot deflection</dt><dd>FAQ bot ก่อนเข้าคิว (Phase ถัดไป)</dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Social ===== -->
+<section class="view" data-view="social">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="socialTitle">Social accounts</h1>
+    <p class="text-sm text-slate-500" data-i18n="socialSubtitle">LINE OA, Facebook Messenger and WhatsApp Business</p></div>
+    <button onclick="toast('Connect flow opened (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plug"></i>Connect account</button>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 max-w-6xl">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <div class="flex items-center gap-3 mb-3"><span class="ch ch-line" style="width:38px;height:38px;justify-content:center;padding:0"><i class="ti ti-brand-line text-xl"></i></span>
+      <div><p class="font-semibold">@acme-support</p><p class="text-xs text-slate-400">LINE Official Account</p></div>
+      <span class="st st-available ml-auto">Connected</span></div>
+      <dl class="text-sm space-y-1.5 text-slate-600">
+        <div class="flex justify-between"><dt>Queue</dt><dd class="font-medium text-slate-800">Sales (TH)</dd></div>
+        <div class="flex justify-between"><dt>Webhook</dt><dd class="text-emerald-600">healthy · 42ms</dd></div>
+        <div class="flex justify-between"><dt>Today</dt><dd>86 messages</dd></div>
+      </dl>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <div class="flex items-center gap-3 mb-3"><span class="ch ch-facebook" style="width:38px;height:38px;justify-content:center;padding:0"><i class="ti ti-brand-messenger text-xl"></i></span>
+      <div><p class="font-semibold">ACME Thailand</p><p class="text-xs text-slate-400">Facebook Page</p></div>
+      <span class="st st-available ml-auto">Connected</span></div>
+      <dl class="text-sm space-y-1.5 text-slate-600">
+        <div class="flex justify-between"><dt>Queue</dt><dd class="font-medium text-slate-800">Billing Inquiries</dd></div>
+        <div class="flex justify-between"><dt>Webhook</dt><dd class="text-emerald-600">healthy · 65ms</dd></div>
+        <div class="flex justify-between"><dt>Today</dt><dd>34 messages</dd></div>
+      </dl>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <div class="flex items-center gap-3 mb-3"><span class="ch ch-whatsapp" style="width:38px;height:38px;justify-content:center;padding:0"><i class="ti ti-brand-whatsapp text-xl"></i></span>
+      <div><p class="font-semibold">+66 2 123 4500</p><p class="text-xs text-slate-400">WhatsApp Business (Meta Cloud API)</p></div>
+      <span class="st st-acw ml-auto">Pending review</span></div>
+      <dl class="text-sm space-y-1.5 text-slate-600">
+        <div class="flex justify-between"><dt>Queue</dt><dd class="font-medium text-slate-800">VIP Customers</dd></div>
+        <div class="flex justify-between"><dt>Templates</dt><dd>2 approved / 1 pending</dd></div>
+        <div class="flex justify-between"><dt>Conversation cost</dt><dd>~฿0.85 / conversation</dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Email ===== -->
+<section class="view" data-view="email">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="emailTitle">Email mailboxes</h1>
+    <p class="text-sm text-slate-500" data-i18n="emailSubtitle">Mailboxes converted into queue interactions</p></div>
+    <button onclick="toast('Mailbox added (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-4xl">
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Mailbox</th><th class="font-normal px-4 py-2.5">Queue</th>
+        <th class="font-normal px-4 py-2.5">Protocol</th><th class="font-normal px-4 py-2.5">SLA</th>
+        <th class="font-normal px-4 py-2.5">Status</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody>
+        <tr class="border-b border-slate-100 hover:bg-slate-50"><td class="px-4 py-3 font-medium">support@acme.co.th</td><td class="px-4 py-3 text-slate-600">General Support</td><td class="px-4 py-3 text-slate-600">IMAP + SMTP</td><td class="px-4 py-3 text-slate-600">4 hours</td><td class="px-4 py-3"><span class="st st-available">Syncing</span></td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+        <tr class="hover:bg-slate-50"><td class="px-4 py-3 font-medium">billing@acme.co.th</td><td class="px-4 py-3 text-slate-600">Billing Inquiries</td><td class="px-4 py-3 text-slate-600">IMAP + SMTP</td><td class="px-4 py-3 text-slate-600">8 hours</td><td class="px-4 py-3"><span class="st st-available">Syncing</span></td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== Integrations: connected apps (list) ===== -->
+<section class="view" data-view="apps">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="intTitle">Connected apps</h1>
+    <p class="text-sm text-slate-500" data-i18n="intSubtitle">CRM and business systems wired to this tenant</p></div>
+    <button onclick="newIntApp()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i>ติดตั้งแอป</button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">แอป</th><th class="font-normal px-4 py-2.5">ชนิด</th>
+        <th class="font-normal px-4 py-2.5">สถานะ</th><th class="font-normal px-4 py-2.5">เชื่อมต่อล่าสุด</th>
+        <th class="font-normal px-4 py-2.5">หมายเหตุ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="int-apps-body"></tbody>
+    </table></div>
+  </div>
+  <div class="note note-info mt-4"><i class="ti ti-plug text-lg"></i>
+    <p>connector ที่เราเขียนเองใช้ REST + webhook + CTI ชุดเดียวกับที่เปิดให้ทุกคน — ไม่มีทางลัดภายใน
+    (<a class="underline" href="../docs/adr/015-integration-platform.md">ADR-015</a>) สิ่งที่พาร์ตเนอร์ทำได้จึงเท่ากับสิ่งที่เราทำได้</p></div>
+</section>
+
+<!-- ===== Integration form (new/edit) ===== -->
+<section class="view" data-view="integration-form">
+  <button onclick="showView('apps')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="itf-heading" class="text-xl font-semibold mb-5">Install app</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อที่ใช้เรียก</label><input id="itf-name" class="inp"></div>
+          <div><label class="fld">ชนิด</label>
+            <select id="itf-kind" class="inp"><option>SALESFORCE</option><option>DYNAMICS</option><option>ZENDESK</option><option>SERVICENOW</option><option>LINE_CRM</option><option>CUSTOM</option></select></div>
+          <div><label class="fld">Base URL</label><input id="itf-url" class="inp" placeholder="https://acme.my.salesforce.com"></div>
+          <div><label class="fld">ผู้ใช้ / client id</label><input id="itf-user" class="inp"></div>
+          <div><label class="fld">Secret</label><input id="itf-secret" type="password" class="inp" placeholder="••••••••"></div>
+        </div>
+        <button class="qbtn mt-4" onclick="toast('ทดสอบการเชื่อมต่อ: สำเร็จ (mock)')"><i class="ti ti-plug-connected"></i>ทดสอบการเชื่อมต่อ</button>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">จับคู่ฟิลด์</h2>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">ของเรา</th><th class="font-normal py-2">ของระบบปลายทาง</th></tr></thead>
+          <tbody class="text-slate-600">
+            <tr class="border-t border-slate-100"><td class="py-2">contact.phone</td><td class="py-2"><select class="inp h-9"><option>Contact.Phone</option><option>Contact.MobilePhone</option></select></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">contact.email</td><td class="py-2"><select class="inp h-9"><option>Contact.Email</option></select></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">interaction.summary</td><td class="py-2"><select class="inp h-9"><option>Task.Description</option></select></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Embedded agent (CTI)</h2>
+        <p class="text-xs text-slate-400 mb-3">ฝังหน้าจอเอเจนต์ลงในหน้า CRM ผ่าน iframe + postMessage</p>
+        <pre class="bg-slate-900 text-slate-100 rounded-lg p-3 text-xs overflow-x-auto">&lt;iframe src="https://acme.d-contact.io/embed/agent?token=…"
+        allow="microphone" style="width:380px;height:640px"&gt;&lt;/iframe&gt;</pre>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-warn"><i class="ti ti-key text-lg"></i>
+        <p>Secret ถูกเข้ารหัสด้วยคีย์ต่อ tenant และ<b>อ่านกลับไม่ได้</b> — ทุกครั้งที่งานเบื้องหลังใช้งานจะถูกบันทึก audit</p></div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('apps')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('apps')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== API clients ===== -->
+<section class="view" data-view="api-clients">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="apiTitle">API clients</h1>
+    <p class="text-sm text-slate-500" data-i18n="apiSubtitle">Machine-to-machine credentials, scopes and rate limits</p></div>
+    <button onclick="newApiClient()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Client</th><th class="font-normal px-4 py-2.5">ขอบเขตสิทธิ์</th>
+        <th class="font-normal px-4 py-2.5">เพดานการเรียก</th><th class="font-normal px-4 py-2.5">สร้างเมื่อ</th>
+        <th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="api-clients-body"></tbody>
+    </table></div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl p-5 mt-5 max-w-3xl">
+    <h2 class="text-sm font-semibold text-slate-700 mb-3">ตัวอย่างการเรียก</h2>
+    <pre class="bg-slate-900 text-slate-100 rounded-lg p-3 text-xs overflow-x-auto">curl -X POST https://acme.d-contact.io/api/v1/calls \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Idempotency-Key: 018f9c-2211" \
+  -d '{"to":"+66812345678","queueId":"q_sales"}'</pre>
+    <p class="text-xs text-slate-400 mt-2">tenant มาจาก token เสมอ — ไม่มีพารามิเตอร์ <code>tenantId</code> ให้ส่งเข้ามาได้</p>
+  </div>
+</section>
+
+<!-- ===== API client form (new) ===== -->
+<section class="view" data-view="api-client-form">
+  <button onclick="showView('api-clients')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="acf-heading" class="text-xl font-semibold mb-5">New API client</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อ</label><input id="acf-name" class="inp" placeholder="เช่น CRM sync (production)"></div>
+          <div><label class="fld">เพดานการเรียก (req/s)</label><input id="acf-rps" type="number" class="inp" value="10"></div>
+        </div>
+        <h2 class="text-sm font-semibold text-slate-700 mt-5 mb-3">ขอบเขตสิทธิ์</h2>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">interactions:read</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">interactions:write</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">calls:write</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">contacts:read</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">campaigns:write</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">reports:read</label>
+        </div>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-bad"><i class="ti ti-eye-off text-lg"></i>
+        <p>Secret จะแสดง<b>ครั้งเดียว</b>ตอนสร้าง หลังจากนั้นระบบเก็บเป็น hash — ทำหายต้องออกใหม่</p></div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('api-clients')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800">สร้าง</button>
+        <button onclick="showView('api-clients')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Webhooks (list) ===== -->
+<section class="view" data-view="webhooks">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="whTitle">Webhooks</h1>
+    <p class="text-sm text-slate-500" data-i18n="whSubtitle">Events pushed to you — retried, signed and never in the call path</p></div>
+    <button onclick="newWebhook()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden mb-5">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Endpoint</th><th class="font-normal px-4 py-2.5">Event ที่สมัคร</th>
+        <th class="font-normal px-4 py-2.5">อัตราสำเร็จ (7 วัน)</th><th class="font-normal px-4 py-2.5">สำเร็จล่าสุด</th>
+        <th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="webhooks-body"></tbody>
+    </table></div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="px-5 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">Delivery log (7 วันล่าสุด)</div>
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">เวลา</th><th class="font-normal px-4 py-2.5">Event</th>
+        <th class="font-normal px-4 py-2.5">ปลายทาง</th><th class="font-normal px-4 py-2.5">ครั้งที่</th>
+        <th class="font-normal px-4 py-2.5">ผล</th><th class="px-4 py-2.5"></th></tr></thead>
+      <tbody class="text-slate-600">
+        <tr class="border-b border-slate-50"><td class="px-4 py-3">10:01:22</td><td class="px-4 py-3">interaction.ended</td><td class="px-4 py-3 font-mono text-xs">crm.acme.co.th</td><td class="px-4 py-3">1</td><td class="px-4 py-3"><span class="tag tag-ok">200 · 142ms</span></td><td class="px-4 py-3"></td></tr>
+        <tr class="border-b border-slate-50"><td class="px-4 py-3">09:58:04</td><td class="px-4 py-3">case.updated</td><td class="px-4 py-3 font-mono text-xs">crm.acme.co.th</td><td class="px-4 py-3">1</td><td class="px-4 py-3"><span class="tag tag-ok">200 · 88ms</span></td><td class="px-4 py-3"></td></tr>
+        <tr class="border-b border-slate-50"><td class="px-4 py-3">02:55:10</td><td class="px-4 py-3">interaction.ended</td><td class="px-4 py-3 font-mono text-xs">legacy.acme.co.th</td><td class="px-4 py-3">6</td><td class="px-4 py-3"><span class="tag tag-bad">timeout · 5,000ms</span></td><td class="px-4 py-3 text-right"><button class="qbtn" onclick="toast('ยิงซ้ำ (mock)')"><i class="ti ti-refresh"></i>ยิงซ้ำ</button></td></tr>
+        <tr><td class="px-4 py-3">02:49:31</td><td class="px-4 py-3">interaction.ended</td><td class="px-4 py-3 font-mono text-xs">legacy.acme.co.th</td><td class="px-4 py-3">5</td><td class="px-4 py-3"><span class="tag tag-bad">503</span></td><td class="px-4 py-3 text-right"><button class="qbtn" onclick="toast('ยิงซ้ำ (mock)')"><i class="ti ti-refresh"></i>ยิงซ้ำ</button></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== Webhook form (new/edit) ===== -->
+<section class="view" data-view="webhook-form">
+  <button onclick="showView('webhooks')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="whf-heading" class="text-xl font-semibold mb-5">New webhook</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="space-y-4">
+          <div><label class="fld">URL ปลายทาง (ต้องเป็น HTTPS)</label><input id="whf-url" class="inp" placeholder="https://your-system/hooks/dcontact"></div>
+          <div><label class="fld">Secret สำหรับลายเซ็น HMAC</label><input id="whf-secret" class="inp font-mono text-[13px]"></div>
+        </div>
+        <h2 class="text-sm font-semibold text-slate-700 mt-5 mb-3">Event ที่ต้องการรับ</h2>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">interaction.*</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">agent.state.*</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">case.*</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">feedback.response.*</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">campaign.*</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">evaluation.published</label>
+        </div>
+        <button class="qbtn mt-4" onclick="toast('ส่ง event ทดสอบแล้ว (mock)')"><i class="ti ti-send"></i>ส่ง event ทดสอบ</button>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ตัวอย่าง payload</h2>
+        <pre class="bg-slate-900 text-slate-100 rounded-lg p-3 text-xs overflow-x-auto">X-DContact-Event: interaction.ended
+X-DContact-Delivery: 018f9c...        # eventId — ใช้ทำ idempotent
+X-DContact-Signature: sha256=...
+
+{ "eventId":"018f9c...", "type":"interaction.ended",
+  "occurredAt":"2026-08-08T03:12:44.812Z", "tenantId":"acme",
+  "data":{ "interactionId":"INT-88077", "channel":"voice",
+           "queueId":"q_general", "durationSec":271 } }</pre>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-info"><i class="ti ti-repeat text-lg"></i>
+        <p>ส่งแบบ <b>at-least-once</b> — ผู้รับต้อง idempotent ตาม <code>eventId</code><br>
+        ส่งซ้ำ: 1s → 5s → 30s → 5m → 30m → 2h<br>
+        ล้มเหลวติดกัน 100 ครั้งหรือ 24 ชม. → พัก endpoint และแจ้งเตือน</p></div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('webhooks')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('webhooks')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Connectors (list) ===== -->
+<section class="view" data-view="connectors">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="connTitle">Connectors</h1>
+    <p class="text-sm text-slate-500" data-i18n="connSubtitle">Reusable endpoints — one place for the URL, auth and retry policy</p></div>
+    <button onclick="newConnector()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="note note-info mb-4"><i class="ti ti-info-circle text-lg"></i>
+    <p>ตัวเชื่อมคือ <code>int_connections</code> ตัวเดียวที่ node <b>API call</b> ใน
+    <a class="underline" href="flow-editor.html">Flow Designer</a>, บอต L3 และ visual app ใช้ร่วมกัน —
+    ตั้ง URL/credential ที่เดียว ไม่ต้องกรอกซ้ำในทุก flow</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">ตัวเชื่อม</th><th class="font-normal px-4 py-2.5">ปลายทาง</th>
+        <th class="font-normal px-4 py-2.5">การยืนยันตัวตน</th><th class="font-normal px-4 py-2.5">Timeout</th>
+        <th class="font-normal px-4 py-2.5">ถูกใช้โดย</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="connectors-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Connector form (new/edit) ===== -->
+<section class="view" data-view="connector-form">
+  <button onclick="showView('connectors')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="cnf-heading" class="text-xl font-semibold mb-5">New connector</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อ</label><input id="cnf-name" class="inp" placeholder="เช่น Order API (production)"></div>
+          <div class="md:col-span-2"><label class="fld">Base URL</label><input id="cnf-url" class="inp font-mono text-[13px]" placeholder="https://api.acme.co.th/orders"></div>
+          <div><label class="fld">การยืนยันตัวตน</label><select id="cnf-auth" class="inp"><option>OAuth2</option><option>API key</option><option>Basic</option><option>ไม่มี</option></select></div>
+          <div><label class="fld">Timeout (ms)</label><input id="cnf-timeout" type="number" class="inp" value="3000"></div>
+          <div><label class="fld">ลองใหม่กี่ครั้ง</label><input id="cnf-retry" type="number" class="inp" value="2"></div>
+          <div><label class="fld">เรียกได้จาก</label><select class="inp"><option>Flow + บอต + visual app</option><option>Flow เท่านั้น</option></select></div>
+        </div>
+        <button class="qbtn mt-4" onclick="toast('ทดสอบเรียก: 200 OK · 148ms (mock)')"><i class="ti ti-plug-connected"></i>ทดสอบการเรียก</button>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Header ที่แนบไปทุกครั้ง</h2>
+        <table class="w-full text-sm">
+          <tbody class="text-slate-600">
+            <tr class="border-b border-slate-50"><td class="py-2 font-mono text-[13px]">Content-Type</td><td class="py-2 font-mono text-[13px]">application/json</td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-trash"></i></span></td></tr>
+            <tr><td class="py-2 font-mono text-[13px]">X-Source</td><td class="py-2 font-mono text-[13px]">d-contact</td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-trash"></i></span></td></tr>
+          </tbody>
+        </table>
+        <button class="qbtn mt-3" onclick="toast('เพิ่ม header (mock)')"><i class="ti ti-plus"></i>เพิ่ม header</button>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-warn"><i class="ti ti-clock-exclamation text-lg"></i>
+        <p>Timeout ของตัวเชื่อมที่ถูกเรียก<b>ระหว่างสาย</b> (flow node) ควรไม่เกิน 3 วินาที —
+        ลูกค้ารอสายอยู่ปลายทาง และ flow ต้องมีทางออกเมื่อ API ไม่ตอบเสมอ</p></div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('connectors')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('connectors')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Contact sync ===== -->
+<section class="view" data-view="contact-sync">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="csyncTitle">Contact sync</h1>
+  <p class="text-sm text-slate-500" data-i18n="csyncSubtitle">Where customer data is read from, and what stays out of our database</p></div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">แหล่งข้อมูลลูกค้า</h2>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">แหล่ง</th><th class="font-normal py-2">วิธีอ่าน</th><th class="font-normal py-2">ใช้ทำอะไร</th><th class="font-normal py-2">สถานะ</th></tr></thead>
+          <tbody class="text-slate-600">
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-800">ฐานข้อมูลของ D-Contact</td><td class="py-2">แหล่งหลัก</td><td class="py-2">ตัวตนทุกช่องทาง + ไทม์ไลน์</td><td class="py-2"><span class="tag tag-ok">ปกติ</span></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-800">Salesforce</td><td class="py-2"><b>ดึงสด</b> · cache 60 วินาที</td><td class="py-2">tier, ยอดซื้อ, ผู้ดูแลบัญชี</td><td class="py-2"><span class="tag tag-ok">ปกติ</span></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-800">LINE OA CRM</td><td class="py-2">ซิงก์ userId ตอนคุยครั้งแรก</td><td class="py-2">ผูก LINE userId กับลูกค้า</td><td class="py-2"><span class="tag tag-ok">ปกติ</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">การจับคู่ตัวตน</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="fld">รูปแบบเบอร์ที่เก็บ</label><select class="inp"><option>E.164 (+66…) — บังคับ</option></select></div>
+          <div><label class="fld">รวมอัตโนมัติที่ระดับ</label><select class="inp"><option>แน่นอน (CONFIRMED) เท่านั้น</option></select></div>
+          <div><label class="fld">คีย์จากระบบภายนอก</label><input class="inp" value="Salesforce Contact.Id, crmCustomerNo"></div>
+          <div><label class="fld">ย้อนกลับการรวมได้ภายใน</label><input class="inp" value="90 วัน"></div>
+        </div>
+        <p class="text-xs text-slate-400 mt-3">ดูคิวที่รอคนตัดสินได้ที่ <a class="underline" href="people.html?view=identities">บุคลากร → รวมข้อมูลลูกค้า</a></p>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-bad"><i class="ti ti-database-off text-lg"></i>
+        <p><b>สิ่งที่เราตั้งใจไม่เก็บ:</b> โปรไฟล์จาก CRM ไม่ถูกคัดลอกมาไว้ในฐานของเรา —
+        ดึงสดตอนเปิดดูแล้ว cache สั้น ๆ เพราะเราไม่ใช่เจ้าของข้อมูลนั้น และการเก็บสำเนาแปลว่าต้องรับผิดชอบตาม PDPA เพิ่มโดยไม่ได้อะไร
+        (<a class="underline" href="../docs/adr/020-customer-360.md">ADR-020</a>)</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== AI providers ===== -->
+<section class="view" data-view="ai-providers">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="aiprTitle">AI providers</h1>
+  <p class="text-sm text-slate-500" data-i18n="aiprSubtitle">ASR, LLM and TTS providers per tenant — swappable, including on-prem</p></div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">ผู้ให้บริการที่ใช้อยู่</h2>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">งาน</th><th class="font-normal py-2">ผู้ให้บริการ</th><th class="font-normal py-2">ใช้โดย</th><th class="font-normal py-2">โควตาเดือนนี้</th><th></th></tr></thead>
+          <tbody class="text-slate-600">
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-800">ถอดเสียง (ASR)</td><td class="py-2">whisper-th · on-prem</td><td class="py-2">QM, analytics</td><td class="py-2"><div class="w-32">18,904 / 20,000<div class="prog mt-1"><div class="p-warn" style="width:95%"></div></div></div></td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-800">โมเดลภาษา (LLM)</td><td class="py-2">claude-sonnet-5</td><td class="py-2">บอต L2, ผู้ช่วยเอเจนต์, auto-QM</td><td class="py-2"><div class="w-32">9,120 / 15,000 session<div class="prog mt-1"><div style="width:61%"></div></div></div></td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-800">สังเคราะห์เสียง (TTS)</td><td class="py-2">— ยังไม่เปิดใช้ —</td><td class="py-2">voice bot (เฟส B5)</td><td class="py-2 text-slate-400">—</td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-800">ฝังเวกเตอร์ (embedding)</td><td class="py-2">ในองค์กร (pgvector)</td><td class="py-2">คลังความรู้, topic discovery</td><td class="py-2 text-slate-400">ไม่มีต้นทุนต่อครั้ง</td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">การปกปิดข้อมูลก่อนส่งออก</h2>
+        <div class="space-y-3 text-sm">
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked disabled class="accent-teal-700">ปิดบังเลขบัตรประชาชน / เลขบัตรเครดิต (บังคับ)</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" checked class="accent-teal-700">ปิดบังเบอร์โทรและอีเมล</label>
+          <label class="flex items-center gap-2.5 border border-slate-200 rounded-lg px-3 py-2.5"><input type="checkbox" class="accent-teal-700">ปิดบังชื่อ-นามสกุล</label>
+        </div>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-info"><i class="ti ti-server text-lg"></i>
+        <p>ทุกงาน AI เรียกผ่าน provider abstraction ตัวเดียว — ลูกค้าที่ติดตั้งในองค์กรสลับไปใช้โมเดลของตัวเองได้
+        ด้วยการเปลี่ยนที่หน้านี้ ไม่ต้องแก้โค้ด (<a class="underline" href="../docs/adr/013-virtual-agent-knowledge.md">ADR-013</a> ข้อ 2)</p></div>
+      <div class="note note-warn"><i class="ti ti-coin text-lg"></i>
+        <p>ทุกผู้ให้บริการที่มีต้นทุนต่อครั้ง<b>ต้องมีเพดานเสมอ</b> — เปิดโดยไม่มีเพดานแล้ว margin ติดลบเงียบ ๆ</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Visual apps (list) ===== -->
+<section class="view" data-view="visual-apps">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="vappTitle">Visual apps</h1>
+    <p class="text-sm text-slate-500" data-i18n="vappSubtitle">Your own UI embedded in the agent workspace</p></div>
+    <button onclick="newVisualApp()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="note note-info mb-4"><i class="ti ti-arrows-left-right text-lg"></i>
+    <p>ทิศทางตรงข้ามกับ CTI: <b>CTI</b> = ฝังหน้าจอเอเจนต์ของเราลงใน CRM ของลูกค้า ·
+    <b>Visual app</b> = ฝังหน้าจอของลูกค้าเข้ามาในพื้นที่ทำงานของเรา — ใช้สัญญา postMessage ชุดเดียวกัน</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">แอป</th><th class="font-normal px-4 py-2.5">ตำแหน่งที่ฝัง</th>
+        <th class="font-normal px-4 py-2.5">URL</th><th class="font-normal px-4 py-2.5">บริบทที่ส่งให้</th>
+        <th class="font-normal px-4 py-2.5">เปิดเมื่อ</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="visual-apps-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Visual app form (new/edit) ===== -->
+<section class="view" data-view="visual-app-form">
+  <button onclick="showView('visual-apps')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="vaf-heading" class="text-xl font-semibold mb-5">New visual app</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อแอป (เอเจนต์เห็นชื่อนี้)</label><input id="vaf-name" class="inp"></div>
+          <div class="md:col-span-2"><label class="fld">URL</label><input id="vaf-url" class="inp font-mono text-[13px]" placeholder="https://crm.acme.co.th/embed/order"></div>
+          <div><label class="fld">ตำแหน่งที่ฝัง</label><select id="vaf-slot" class="inp"><option>แท็บ "แอป" ในแผงบริบท</option><option>แท็บในแผงลูกค้า</option><option>หน้าจอสรุปงาน (wrap-up)</option></select></div>
+          <div><label class="fld">เปิดเมื่อ</label><select id="vaf-open" class="inp"><option>เมื่อรับงาน</option><option>เมื่อกดแท็บ</option><option>เมื่อจบงาน</option></select></div>
+          <div class="md:col-span-2"><label class="fld">บริบทที่ส่งให้แอป</label><input id="vaf-ctx" class="inp" placeholder="contactId, interactionId, orderNo"></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">สัญญา postMessage (เวอร์ชัน 1)</h2>
+        <pre class="bg-slate-900 text-slate-100 rounded-lg p-3 text-xs overflow-x-auto">// เราส่งให้แอป
+{ "type": "dc:context",            "payload": { "interactionId": "...", "contactId": "...", "channel": "voice" } }
+{ "type": "dc:interaction.ended",  "payload": { "interactionId": "...", "disposition": "resolved" } }
+
+// แอปส่งกลับมาหาเรา
+{ "type": "app:note.append",       "payload": { "text": "ออกใบแทนแล้ว #A2291" } }
+{ "type": "app:disposition.suggest", "payload": { "code": "order_replaced" } }
+{ "type": "app:resize",            "payload": { "height": 640 } }</pre>
+        <p class="text-xs text-slate-400 mt-2">แอปแก้ข้อมูลของเราโดยตรงไม่ได้ — ทำได้แค่<b>เสนอ</b> แล้วเอเจนต์เป็นคนยืนยัน (หลักเดียวกับผู้ช่วยเอเจนต์)</p>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ตัวอย่างที่เอเจนต์เห็น</h2>
+        <div class="border border-slate-200 rounded-xl overflow-hidden">
+          <div class="bg-slate-100 px-3 py-2 text-xs text-slate-600 flex items-center gap-2"><i class="ti ti-layout-sidebar-right"></i>Order panel</div>
+          <div class="p-3 text-sm text-slate-500 h-32 flex items-center justify-center bg-slate-50">เนื้อหาจากระบบของลูกค้า</div>
+        </div>
+      </div>
+      <div class="note note-warn"><i class="ti ti-shield-lock text-lg"></i>
+        <p>token อายุสั้นและผูกกับ origin ที่ระบุไว้ · ทุกข้อความต้องมี namespace <code>dc:</code> / <code>app:</code>
+        เพื่อไม่ให้ชนกับสคริปต์อื่นในหน้า</p></div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('visual-apps')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('visual-apps')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Streaming & data feed ===== -->
+<section class="view" data-view="streaming">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="strTitle">Streaming &amp; data feed</h1>
+  <p class="text-sm text-slate-500" data-i18n="strSubtitle">Continuous flows out of the platform — none of them in the call path</p></div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">สิ่งที่ไหลออกจากระบบตอนนี้</h2>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">สาย</th><th class="font-normal py-2">รูปแบบ</th><th class="font-normal py-2">ปลายทาง</th><th class="font-normal py-2">สถานะ</th><th></th></tr></thead>
+          <tbody class="text-slate-600">
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-800">Event ทีละใบ</td><td class="py-2">HTTP POST + ลายเซ็น HMAC</td><td class="py-2">2 endpoint</td><td class="py-2"><span class="tag tag-warn">1 ถูกพัก</span></td><td class="py-2 text-right"><button class="qbtn" onclick="showView('webhooks')">ตั้งค่า</button></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-800">ข้อมูลก้อนใหญ่</td><td class="py-2">Parquet + manifest (รายชั่วโมง)</td><td class="py-2">s3://acme-bi/dcontact/</td><td class="py-2"><span class="tag tag-ok">ปกติ</span></td><td class="py-2 text-right"><button class="qbtn" onclick="location.href='reports.html?view=rpt-feed'">ตั้งค่า</button></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-800">สถานะเรียลไทม์ (WebSocket)</td><td class="py-2">สำหรับวอลล์บอร์ดของลูกค้าเอง</td><td class="py-2">1 client</td><td class="py-2"><span class="tag tag-ok">ปกติ</span></td><td class="py-2 text-right"><button class="qbtn" onclick="showView('api-clients')">ตั้งค่า</button></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2 font-medium text-slate-400">สตรีมเสียงระหว่างสาย (media fork)</td><td class="py-2">—</td><td class="py-2">—</td><td class="py-2"><span class="tag">ยังไม่เปิด (เฟส A4)</span></td><td class="py-2"></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-info"><i class="ti ti-route-off text-lg"></i>
+        <p>ทุกสายในหน้านี้เป็น <b>consumer แยกของ Kafka</b> — ปลายทางของลูกค้าช้าหรือล่มไม่กระทบการรับสาย
+        (<a class="underline" href="../docs/adr/015-integration-platform.md">ADR-015</a> ข้อ 3)</p></div>
+      <div class="note note-warn"><i class="ti ti-scale text-lg"></i>
+        <p>เลือกให้ถูกสาย: "ขอข้อมูลของสายนี้" ใช้ REST · "ขอ 40 ล้านแถวของเดือนที่แล้ว" ใช้ data feed —
+        อย่าดึงของใหญ่ผ่าน REST paging</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Event catalog & API docs ===== -->
+<section class="view" data-view="event-catalog">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="catTitle">Event catalog &amp; API docs</h1>
+    <p class="text-sm text-slate-500" data-i18n="catSubtitle">What we emit, what we accept, and what will never break silently</p></div>
+    <div class="flex gap-2">
+      <button class="qbtn" onclick="toast('เปิด OpenAPI (mock)')"><i class="ti ti-file-code"></i>OpenAPI (v1)</button>
+      <button class="qbtn" onclick="toast('ดาวน์โหลด Postman collection (mock)')"><i class="ti ti-download"></i>Postman</button>
+    </div>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div class="px-5 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">Event ที่สมัครรับได้</div>
+      <table class="w-full text-sm">
+        <tbody class="text-slate-600">
+          <tr class="border-b border-slate-50"><td class="px-4 py-2.5 font-mono text-[13px]">interaction.started / .assigned / .ended</td><td class="px-4 py-2.5">ทุกช่องทาง</td></tr>
+          <tr class="border-b border-slate-50"><td class="px-4 py-2.5 font-mono text-[13px]">agent.state.changed</td><td class="px-4 py-2.5">สถานะเอเจนต์</td></tr>
+          <tr class="border-b border-slate-50"><td class="px-4 py-2.5 font-mono text-[13px]">case.created / .updated / .sla.breached</td><td class="px-4 py-2.5">เคส</td></tr>
+          <tr class="border-b border-slate-50"><td class="px-4 py-2.5 font-mono text-[13px]">feedback.response.received / .detractor</td><td class="px-4 py-2.5">เสียงลูกค้า</td></tr>
+          <tr class="border-b border-slate-50"><td class="px-4 py-2.5 font-mono text-[13px]">campaign.started / .paused.compliance</td><td class="px-4 py-2.5">งานขาออก</td></tr>
+          <tr><td class="px-4 py-2.5 font-mono text-[13px]">evaluation.published</td><td class="px-4 py-2.5">ผลตรวจคุณภาพ</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">สัญญาที่เราให้ไว้</h2>
+        <ul class="text-sm text-slate-600 space-y-2">
+          <li><i class="ti ti-check text-emerald-600 mr-1"></i>เวอร์ชันอยู่ใน path (<code>/api/v1</code>) — breaking change ขึ้น <code>/v2</code> และประกาศล่วงหน้า <b>6 เดือน</b></li>
+          <li><i class="ti ti-check text-emerald-600 mr-1"></i>OpenAPI generate จากโค้ดจริง ไม่ได้เขียนมือ — CI จะ fail ถ้าสัญญาเปลี่ยนแบบ breaking</li>
+          <li><i class="ti ti-check text-emerald-600 mr-1"></i>ส่ง event แบบ at-least-once + <code>eventId</code> ให้ทำ idempotent</li>
+          <li><i class="ti ti-check text-emerald-600 mr-1"></i>schema ของ data feed เพิ่มคอลัมน์ได้อย่างเดียว</li>
+        </ul>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ประกาศการเปลี่ยนแปลง</h2>
+        <div class="alrow al-info"><i class="ti ti-info-circle text-lg"></i>
+          <div><b class="text-sm">เพิ่มฟิลด์ <code>campaignId</code> ใน interaction.*</b>
+          <p class="text-sm text-slate-600 mt-0.5">มีผล 01-09-2026 · เป็นการเพิ่มฟิลด์ ไม่กระทบผู้รับเดิม</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/modules.js"></script>
+</body>
+</html>

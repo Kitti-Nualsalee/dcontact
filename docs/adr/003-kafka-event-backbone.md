@@ -3,6 +3,10 @@
 - **สถานะ:** Accepted
 - **วันที่:** 2026-07-14
 
+> **อัปเดต (2026-08-09):** ชื่อ topic `dc.fs.events` ถูกแทนด้วย `dc.telephony.events` (voice ทุก vendor)
+> และ `dc.channel.events` (digital ขาเข้า) ตาม [ADR-023](023-conversation-vs-interaction.md) ข้อ 6 — การตัดสินใจอื่นใน ADR นี้ไม่เปลี่ยน
+
+
 ## บริบท
 
 D-Contact เป็น SaaS multi-tenant ที่ต้องมี usage metering/billing ต่อ tenant
@@ -21,10 +25,13 @@ replay ไม่ได้ — ใช้เป็นฐาน billing ไม่�
 
    | Topic                   | Key           | ทิศทาง                         |
    | ----------------------- | ------------- | ------------------------------ |
-   | `dc.fs.events`          | callUuid      | telephony → router             |
+   | `dc.telephony.events`   | callUuid      | telephony → router             |
+   | `dc.channel.events`     | conversationId| channels → router              |
    | `dc.interaction.events` | interactionId | router → api/reporting/billing |
    | `dc.agent.events`       | agentId       | router/api → api (WS fan-out)  |
    | `dc.telephony.commands` | callUuid      | router → telephony (Phase 1)   |
+   | `dc.channel.commands`   | conversationId| router → channels              |
+   | `dc.journey.events`     | contactRef    | api → journey (เฟส J1 · ADR-025) |
 
 4. **Tenant isolation:** shared topics + `tenantId` ใน message header และ payload
    (topic-per-tenant ระเบิดเมื่อ tenant เยอะ; partition by key ให้ ordering ต่อ call/interaction)

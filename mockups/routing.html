@@ -139,24 +139,24 @@
   </div>
 </section>
 
-<!-- ===== IVR flows ===== -->
-<section class="view" data-view="ivr">
+<!-- ===== Flows (omnichannel routing flows — เดิม IVR) ===== -->
+<section class="view" data-view="flows">
   <div class="flex items-end justify-between mb-4">
-    <div><h1 class="text-xl font-semibold" data-i18n="ivrTitle">IVR flows</h1>
-    <p class="text-sm text-slate-500" data-i18n="ivrSubtitle">Voice menu flows (visual editor in later phase)</p></div>
-    <button onclick="toast('Flow created (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+    <div><h1 class="text-xl font-semibold" data-i18n="flowsTitle">Flows</h1>
+    <p class="text-sm text-slate-500" data-i18n="flowsSubtitle">Omnichannel routing flows — drag-and-drop designer</p></div>
+    <button onclick="location.href='flow-editor.html'" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
   </div>
-  <div class="bg-white border border-slate-200 rounded-xl p-5 max-w-3xl">
-    <div class="flex items-center justify-between mb-4"><h2 class="font-semibold">Main menu <span class="text-xs text-slate-400 font-normal">· +66 2 123 4500</span></h2><span class="st st-available">Published</span></div>
-    <div class="space-y-2 text-sm">
-      <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-50"><i class="ti ti-volume text-teal-700"></i><span>เล่นข้อความต้อนรับ <span class="text-slate-400">"สวัสดีค่ะ ขอบคุณที่ติดต่อ ACME…"</span></span></div>
-      <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-50 ml-6"><span class="w-6 h-6 rounded-md bg-teal-700 text-white flex items-center justify-center text-xs font-bold">1</span><i class="ti ti-arrow-right text-slate-400"></i><span>Queue: <b>General Support</b></span></div>
-      <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-50 ml-6"><span class="w-6 h-6 rounded-md bg-teal-700 text-white flex items-center justify-center text-xs font-bold">2</span><i class="ti ti-arrow-right text-slate-400"></i><span>Queue: <b>Sales (TH)</b></span></div>
-      <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-50 ml-6"><span class="w-6 h-6 rounded-md bg-teal-700 text-white flex items-center justify-center text-xs font-bold">3</span><i class="ti ti-arrow-right text-slate-400"></i><span>Queue: <b>Technical Support</b></span></div>
-      <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-50 ml-6"><span class="w-6 h-6 rounded-md bg-slate-400 text-white flex items-center justify-center text-xs font-bold">0</span><i class="ti ti-arrow-right text-slate-400"></i><span>Operator (ext 1000)</span></div>
-      <div class="flex items-center gap-3 p-3 rounded-lg bg-amber-50 text-amber-800"><i class="ti ti-clock-off"></i><span>นอกเวลาทำการ → เล่นข้อความ + รับ voicemail</span></div>
-    </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">Flow</th><th class="font-normal px-4 py-2.5">Channel</th>
+        <th class="font-normal px-4 py-2.5">Status</th><th class="font-normal px-4 py-2.5">Version</th>
+        <th class="font-normal px-4 py-2.5">Updated</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="flows-body"></tbody>
+    </table></div>
   </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-info-circle mr-1"></i>คลิก <i class="ti ti-sitemap"></i> เพื่อเปิด Flow Designer (React Flow) — ลากวาง node, ต่อเส้น, แก้ property ได้</p>
 </section>
 
 </main></template>

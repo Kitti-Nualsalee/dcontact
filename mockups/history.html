@@ -69,8 +69,57 @@
   <p class="text-xs text-slate-400 mt-3"><i class="ti ti-lock mr-1"></i>Retention 90 วันตามนโยบาย tenant · การเข้าถึงถูกบันทึกใน audit log</p>
 </section>
 
+<!-- ===== Flow trace (docs/flow-engine.md §5.6) ===== -->
+<section class="view" data-view="flow-trace">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="ftTitle">Flow trace</h1>
+    <p class="text-sm text-slate-500" data-i18n="ftSubtitle">Which path a real interaction took, branch by branch</p></div>
+    <div class="flex gap-2">
+      <input class="inp w-56" value="INT-88077" placeholder="เลขที่ interaction">
+      <button class="qbtn on" onclick="toast('ค้นหา (mock)')"><i class="ti ti-search"></i>เปิด trace</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
+    <div class="mcard"><div class="mcard-num text-[17px]">INT-88077</div><div class="mcard-lbl">interaction</div></div>
+    <div class="mcard"><div class="mcard-num text-[17px]">Voice — Main menu</div><div class="mcard-lbl">flow ที่ใช้ (pin v3)</div></div>
+    <div class="mcard"><div class="mcard-num">8.5 วิ</div><div class="mcard-lbl">เวลาที่อยู่ใน flow</div></div>
+    <div class="mcard"><div class="mcard-num text-rose-600">1</div><div class="mcard-lbl">node ที่พัง</div></div>
+    <div class="mcard"><div class="mcard-num text-[17px] text-emerald-700">HANDED_OFF</div><div class="mcard-lbl">ผลลัพธ์</div></div>
+  </div>
+
+  <div class="note note-warn mb-5"><i class="ti ti-help-circle text-lg"></i>
+    <p><b>คำถาม:</b> "ลูกค้ากดเลือก Sales แต่ทำไมไปโผล่คิว General Support" —
+    <b>คำตอบอยู่ที่ขั้นที่ 5</b>: node <code>n_crm</code> เรียก Order API แล้ว timeout ที่ 400 ms
+    flow จึงเดินเส้น <code>error</code> ตามที่ออกแบบไว้ ซึ่งชี้ไปคิวสำรอง — ไม่ใช่บั๊กของ ACD</p></div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">เส้นทางทีละ node</h2>
+      <div id="ft-steps"></div>
+      <p class="text-xs text-slate-400 mt-2"><i class="ti ti-clock mr-1"></i>เวลาที่ใช้เกิน 3 วินาที (ข้อความเสียง/รอลูกค้ากด) ถูกเน้นสีส้ม — ใช้หาจุดที่ผังทำให้ลูกค้ารอนาน</p>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ตัวแปรตอนจบ</h2>
+        <div id="ft-vars"></div>
+        <p class="text-xs text-slate-400 mt-3">ตัวแปรที่ประกาศ <code>sensitive: true</code> ถูก mask ก่อนเขียน trace — trace เป็นที่ที่เลขบัตรรั่วได้ง่ายที่สุด</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">การเก็บรักษา</h2>
+        <p class="text-sm text-slate-600">เก็บ <b>30 วัน</b> แล้วลบอัตโนมัติ · เขียนครั้งเดียวตอน interaction จบ (ไม่เพิ่ม latency ระหว่างสาย)</p>
+      </div>
+      <div class="flex flex-col gap-2">
+        <button class="qbtn" onclick="location.href='flow-editor.html?id=flow_voice_mainmenu'"><i class="ti ti-sitemap"></i>เปิดผังนี้ใน Designer</button>
+        <button class="qbtn" onclick="toast('ส่งออก trace เป็น JSON (mock)')"><i class="ti ti-download"></i>ส่งออก JSON</button>
+      </div>
+    </div>
+  </div>
+</section>
+
 </main></template>
 <script src="assets/i18n.js"></script>
 <script src="assets/app.js"></script>
+<script src="assets/modules.js"></script>
 </body>
 </html>

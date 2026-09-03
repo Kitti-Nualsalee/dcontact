@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Supervisor</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="supervisor" data-default="pulse">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== Team pulse ===== -->
+<section class="view active" data-view="pulse">
+  <div class="flex items-end justify-between mb-4 flex-wrap gap-3">
+    <div><h1 class="text-xl font-semibold" data-i18n="pulseTitle">Team pulse</h1>
+    <p class="text-sm text-slate-500" data-i18n="pulseSubtitle">Live agent states in your span of control — every card is actionable</p></div>
+    <div class="flex items-center gap-2">
+      <span class="st st-busy whitespace-nowrap">LIVE · อัปเดตทุก 2 วินาที</span>
+      <select class="inp !h-9 !w-auto text-sm" onchange="setSupFilter('team', this.value)">
+        <option value="all">ทีมที่ฉันดูแล (2)</option><option value="Support A">Support A</option><option value="Support B">Support B</option>
+      </select>
+      <button class="qbtn !h-9" onclick="toggleCompact()"><i class="ti ti-layout-list"></i>สลับมุมมอง</button>
+    </div>
+  </div>
+
+  <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+    <div id="pulse-chips" class="flex flex-wrap gap-2"></div>
+    <span class="text-sm text-slate-400">แสดง <b id="pulse-count" class="text-slate-600">0</b> คน</span>
+  </div>
+
+  <!-- รวมเฉพาะความเสี่ยงที่หัวหน้าตัดสินใจได้จากจุดนี้ ไม่ซ้ำหน้ารายงานของแต่ละโมดูล -->
+  <div id="pulse-risks" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-5"></div>
+
+  <div id="pulse-body"></div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-6 max-w-6xl">
+    <div class="bg-teal-50 border border-teal-100 rounded-xl p-5 text-sm text-teal-900">
+      <p class="font-semibold mb-1"><i class="ti ti-clock-play mr-1"></i>ตัวเลขที่สำคัญที่สุดคือ "อยู่สถานะนี้มานานแค่ไหน"</p>
+      <p>สถานะเฉยๆ บอกอะไรไม่ได้ — ACW 30 วินาทีเป็นเรื่องปกติ แต่ ACW 7 นาทีคือสัญญาณ
+      การ์ดจะย้อมแดงเองเมื่อเกินเพดานของแต่ละสถานะ และเรียงคนที่ค้างนานสุดขึ้นก่อนเสมอ</p>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5 text-sm text-slate-600">
+      <p class="font-semibold text-slate-700 mb-1"><i class="ti ti-shield-lock mr-1"></i>สโคปและการบันทึก</p>
+      <p>หน้านี้เห็นเฉพาะทีม <b>Support A, Support B</b> และคิวที่ผูกไว้ — มาจาก span of control ไม่ใช่ทั้ง tenant
+      ทุกคำสั่ง (เปลี่ยนสถานะให้ / ฟังสาย / บังคับออกจากระบบ) ลง <code class="bg-slate-100 rounded px-1">audit log</code> เสมอ
+      และ agent จะเห็นสัญลักษณ์เมื่อถูกติดตาม</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Live interactions ===== -->
+<section class="view" data-view="live">
+  <div class="flex items-end justify-between mb-4 flex-wrap gap-3">
+    <div><h1 class="text-xl font-semibold" data-i18n="liveTitle">Live interactions</h1>
+    <p class="text-sm text-slate-500" data-i18n="liveSubtitle">Waiting and in-progress work in one table</p></div>
+    <div class="flex items-center gap-3">
+      <span id="live-sum" class="text-sm text-slate-500"></span>
+      <select class="inp !h-9 !w-auto text-sm"><option>ทุกคิวที่ฉันดูแล</option><option>Billing Inquiries</option><option>Technical Support</option><option>General Support</option></select>
+    </div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-3 py-2.5">สถานะ / ช่องทาง</th>
+        <th class="font-normal px-3 py-2.5">ลูกค้า</th><th class="font-normal px-3 py-2.5">คิว</th>
+        <th class="font-normal px-3 py-2.5">เอเจนต์</th><th class="font-normal px-3 py-2.5 text-right">เวลา</th>
+        <th class="font-normal px-3 py-2.5">SLA</th><th class="px-3 py-2.5"></th>
+      </tr></thead>
+      <tbody id="live-body"></tbody>
+    </table></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-info-circle mr-1"></i>
+  ไม่แยกหน้า "คิว" กับ "กำลังคุย" เพราะการตัดสินใจของหัวหน้าคือการเทียบสองอย่างนี้พร้อมกัน —
+  สายที่รอ 4 นาทีมีความหมายก็ต่อเมื่อรู้ว่าคนที่ว่างอยู่กำลังทำอะไร</p>
+</section>
+
+<!-- ===== Queue control ===== -->
+<section class="view" data-view="queue-control">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="qctlTitle">Queue control</h1>
+    <p class="text-sm text-slate-500" data-i18n="qctlSubtitle">Temporary levers for this shift — config lives in Routing</p></div>
+    <span class="st st-acw">กะปัจจุบัน 08:00–17:30 · Asia/Bangkok</span>
+  </div>
+  <div id="qctl-body" class="space-y-5 max-w-5xl"></div>
+  <div class="bg-amber-50 border border-amber-100 rounded-xl p-5 mt-5 text-sm text-amber-900 max-w-5xl">
+    <p class="font-semibold mb-1"><i class="ti ti-clock-exclamation mr-1"></i>ทุกสวิตช์ในหน้านี้หมดอายุเมื่อจบกะ</p>
+    <p>เปิด overflow หรือยืมคนไว้แล้ว ระบบจะคืนค่าเดิมจาก Routing ให้อัตโนมัติเวลา <b>17:30</b> —
+    ตั้งใจออกแบบแบบนี้เพราะสวิตช์ชั่วคราวที่ไม่หมดอายุคือสาเหตุคลาสสิกของ "เมื่อวานแก้ไว้ แล้วลืมปิด"
+    ถ้าต้องการให้ถาวรจริง ต้องไปแก้ที่หน้า Routing ซึ่งมี audit log และสิทธิ์คนละชุด</p>
+  </div>
+</section>
+
+<!-- ===== Alerts ===== -->
+<section class="view" data-view="alerts">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="alertTitle">Alerts</h1>
+    <p class="text-sm text-slate-500" data-i18n="alertSubtitle">Threshold breaches that need a decision</p></div>
+    <button class="qbtn !h-9" onclick="toast('เพิ่มกฎแจ้งเตือน (mock)')"><i class="ti ti-plus"></i>กฎใหม่</button>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5 max-w-4xl">
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">ยังไม่รับทราบ</p><p class="text-2xl font-semibold text-rose-600 mt-1">3</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">วันนี้ทั้งหมด</p><p class="text-2xl font-semibold mt-1">21</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">เวลารับทราบเฉลี่ย</p><p class="text-2xl font-semibold mt-1">02:14</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">กฎที่เปิดอยู่</p><p class="text-2xl font-semibold mt-1">7<span class="text-base text-slate-400">/8</span></p></div>
+  </div>
+
+  <div id="alert-body" class="space-y-3 max-w-5xl mb-6"></div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden max-w-5xl">
+    <div class="px-4 py-2.5 border-b border-slate-100 bg-slate-50 text-sm font-medium text-slate-600">กฎแจ้งเตือนของทีมนี้</div>
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">กฎ</th><th class="font-normal px-4 py-2.5">เงื่อนไข</th>
+        <th class="font-normal px-4 py-2.5">ระดับ</th><th class="font-normal px-4 py-2.5 text-right">สถานะ</th></tr></thead>
+      <tbody id="rule-body"></tbody>
+    </table>
+  </div>
+  <p class="text-xs text-slate-400 mt-3 max-w-5xl"><i class="ti ti-info-circle mr-1"></i>
+  การรับทราบถูกบันทึกว่า "ใคร รับเมื่อไหร่" — ตอนทบทวนเหตุการณ์ย้อนหลังจะตอบได้ว่าระบบเตือนตั้งแต่เมื่อไหร่ และช้าตรงไหน</p>
+</section>
+
+<!-- ===== Evaluations ===== -->
+<section class="view" data-view="evaluations">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="evalTitle">Evaluations</h1>
+    <p class="text-sm text-slate-500" data-i18n="evalSubtitle">Quality scoring queue and results</p></div>
+    <div class="flex items-center gap-2">
+      <button class="qbtn !h-9" onclick="toast('เปิด calibration session (mock)')"><i class="ti ti-scale-outline"></i>Calibration</button>
+      <button onclick="showView('eval-form')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-clipboard-check"></i>เริ่มประเมิน</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5 max-w-4xl">
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">ค้างประเมิน</p><p class="text-2xl font-semibold text-amber-600 mt-1">5</p><p class="text-xs text-slate-400 mt-1">โควตาเดือนนี้ 4 สาย/คน</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">คะแนนเฉลี่ยทีม</p><p class="text-2xl font-semibold mt-1">84.6</p><p class="kpi-delta-up mt-1">▲ 2.1 จากเดือนก่อน</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">ถูกโต้แย้ง</p><p class="text-2xl font-semibold mt-1">1</p><p class="text-xs text-slate-400 mt-1">ต้องตอบใน 5 วันทำการ</p></div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4"><p class="text-xs text-slate-400">Calibration ล่าสุด</p><p class="text-2xl font-semibold mt-1">±4.2</p><p class="text-xs text-slate-400 mt-1">ส่วนต่างระหว่างผู้ประเมิน</p></div>
+  </div>
+
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">ID</th><th class="font-normal px-4 py-2.5">เอเจนต์</th>
+        <th class="font-normal px-4 py-2.5">ช่องทาง</th><th class="font-normal px-4 py-2.5">คิว</th>
+        <th class="font-normal px-4 py-2.5">เมื่อ</th><th class="font-normal px-4 py-2.5">ความยาว</th>
+        <th class="font-normal px-4 py-2.5">ทำไมถูกเลือก</th><th class="font-normal px-4 py-2.5 text-right">คะแนน</th>
+        <th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="eval-body"></tbody>
+    </table></div>
+  </div>
+
+  <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-5 mt-5 text-sm text-indigo-900 max-w-5xl">
+    <p class="font-semibold mb-1"><i class="ti ti-license mr-1"></i>โมดูลนี้ผูกกับ entitlement</p>
+    <p>Quality management เป็นความสามารถระดับแพ็กเกจ (<code class="bg-white/60 rounded px-1">qm.evaluation</code>) —
+    tenant ที่อยู่แพ็กเกจ starter จะเห็นหน้านี้เป็นหน้าชวนอัปเกรดแทน ตามสัญญา error
+    <code class="bg-white/60 rounded px-1">ENTITLEMENT_REQUIRED</code> ใน ADR-009 ส่วนการฟังสาย/ดูแชทสด (Team pulse) ไม่ผูกกับแพ็กเกจ
+    เพราะถือเป็นงานคุมหน้างานพื้นฐาน</p>
+  </div>
+</section>
+
+<!-- ===== Scorecard (ฟอร์มประเมิน) ===== -->
+<section class="view" data-view="eval-form">
+  <button onclick="showView('evaluations')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <div class="flex items-end justify-between mb-5 flex-wrap gap-3">
+    <div><h1 class="text-xl font-semibold">EV-1042 · ปกรณ์ ศรีสุข</h1>
+    <p class="text-sm text-slate-500">voice · Technical Support · 06-08-2026 14:12 · 12:40</p></div>
+    <span class="st st-acw">รอประเมิน</span>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-4">
+        <div class="flex items-center gap-3">
+          <button class="w-11 h-11 rounded-full bg-teal-700 text-white flex items-center justify-center" onclick="toast('เล่นไฟล์บันทึก (mock)')"><i class="ti ti-player-play text-xl"></i></button>
+          <div class="flex-1">
+            <div class="slabar !h-2"><div style="width:34%;background:#0f766e"></div></div>
+            <div class="flex justify-between text-xs text-slate-400 mt-1"><span>04:18</span><span>12:40</span></div>
+          </div>
+          <button class="act" title="ดาวน์โหลด"><i class="ti ti-download"></i></button>
+        </div>
+        <div class="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500 space-y-1">
+          <p><i class="ti ti-flag text-amber-500 mr-1"></i>00:52 — พักสาย 2:41 (เกินเพดาน 2 นาที)</p>
+          <p><i class="ti ti-flag text-amber-500 mr-1"></i>08:14 — ลูกค้าพูดว่า "ขอคุยกับหัวหน้า"</p>
+        </div>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-slate-100 bg-slate-50 text-sm font-medium text-slate-600">Scorecard — Voice support v3</div>
+        <div id="score-body"></div>
+      </div>
+    </div>
+
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5 text-center">
+        <p class="text-xs text-slate-400 mb-1">คะแนนรวม</p>
+        <p id="score-total" class="text-4xl font-semibold text-slate-800">0</p>
+        <p class="text-xs text-rose-600 mt-2"><i class="ti ti-alert-triangle mr-1"></i>มีข้อตัดคะแนนอัตโนมัติ 1 ข้อ</p>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-2">ความเห็นถึงเอเจนต์</h2>
+        <textarea class="inp" rows="4" placeholder="สิ่งที่ทำได้ดี / สิ่งที่ควรปรับ…"></textarea>
+        <label class="flex items-center gap-2 text-sm text-slate-600 mt-3"><input type="checkbox" checked class="accent-teal-700">ส่งให้เอเจนต์รับทราบ</label>
+        <label class="flex items-center gap-2 text-sm text-slate-600 mt-1.5"><input type="checkbox" class="accent-teal-700">สร้างนัดโค้ชต่อจากผลนี้</label>
+        <button onclick="toast('บันทึกผลประเมิน + ส่งให้เอเจนต์ (mock)'); showView('evaluations')" class="w-full h-10 mt-3 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800">บันทึกและส่ง</button>
+      </div>
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs text-slate-500">
+        <i class="ti ti-info-circle mr-1"></i>เอเจนต์โต้แย้งผลได้ภายใน 5 วันทำการ — ระบบเก็บทั้งคะแนนเดิม คะแนนที่แก้ และเหตุผล
+        ไม่ทับของเดิม เพื่อให้ตรวจสอบย้อนหลังได้
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Coaching ===== -->
+<section class="view" data-view="coaching">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="coachTitle">Coaching</h1>
+    <p class="text-sm text-slate-500" data-i18n="coachSubtitle">Close the loop: finding → conversation → follow-up</p></div>
+    <button onclick="toast('สร้างนัดโค้ช (mock)')" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i>นัดโค้ช</button>
+  </div>
+  <div id="coach-body" class="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-5xl"></div>
+  <div class="bg-teal-50 border border-teal-100 rounded-xl p-5 mt-5 text-sm text-teal-900 max-w-5xl">
+    <p class="font-semibold mb-1"><i class="ti ti-link mr-1"></i>ทุกนัดต้องมีที่มา</p>
+    <p>สร้างนัดโค้ชลอยๆ ไม่ได้ — ต้องอ้างอิงผลประเมิน, alert, หรือ adherence exception เสมอ
+    เพราะสิ่งที่ทำให้การโค้ชได้ผลคือหลักฐานที่คุยกันได้ ไม่ใช่ความรู้สึกของหัวหน้า และช่องติดตามผลบังคับให้กลับมาวัดซ้ำ</p>
+  </div>
+</section>
+
+<!-- ===== Approvals ===== -->
+<section class="view" data-view="approvals">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="apprTitle">Approvals</h1>
+    <p class="text-sm text-slate-500" data-i18n="apprSubtitle">Everything waiting on your decision, from every module</p></div>
+    <span class="text-sm text-slate-400">รอฉัน <b class="text-slate-600">4</b> รายการ</span>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-3 py-2.5">ประเภท</th><th class="font-normal px-3 py-2.5">ผู้ขอ</th>
+        <th class="font-normal px-3 py-2.5">รายละเอียด</th><th class="font-normal px-3 py-2.5">ผลกระทบต่อกำลังคน</th>
+        <th class="px-3 py-2.5"></th>
+      </tr></thead>
+      <tbody id="appr-body"></tbody>
+    </table></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-3 max-w-4xl"><i class="ti ti-info-circle mr-1"></i>
+  รวมคำขอจาก WFM (ลา/สลับกะ/OT) และ Quality (โต้แย้งผลประเมิน) มาที่เดียว — หัวหน้าไม่ควรต้องไล่เข้า 3 เมนูเพื่ออนุมัติ 3 เรื่อง
+  ทุกแถวโชว์ <b>ผลกระทบต่อ coverage</b> ที่คำนวณจาก WFM ให้ก่อนกดอนุมัติ</p>
+</section>
+
+<!-- ===== monitor bar (ค้างทุกวิว) ===== -->
+<div id="mon-bar" class="monbar hidden">
+  <span class="rec-dot"></span>
+  <div class="leading-tight">
+    <p class="text-sm font-semibold"><span id="mon-mode">กำลังฟังเงียบ</span> · <span id="mon-who" class="font-normal text-slate-300"></span></p>
+    <p id="mon-hint" class="text-xs text-slate-400">ลูกค้าและเอเจนต์ไม่ได้ยินคุณ</p>
+  </div>
+  <span class="text-sm tabular-nums text-slate-300">00:47</span>
+  <div class="flex gap-1.5">
+    <button class="mon-btn on" data-mode="listen" onclick="startMonitor(0,'listen')">ฟัง</button>
+    <button class="mon-btn" data-mode="whisper" onclick="startMonitor(0,'whisper')">กระซิบ</button>
+    <button class="mon-btn" data-mode="barge" onclick="startMonitor(0,'barge')">แทรก</button>
+  </div>
+  <button class="mon-btn !bg-rose-600 !text-white" onclick="stopMonitor()"><i class="ti ti-x"></i> หยุด</button>
+</div>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — Analytics</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800" data-area="analytics" data-default="ia-overview">
+<div id="app"></div>
+<template id="area-main"><main class="p-6">
+
+<!-- ===== IA overview ===== -->
+<section class="view active" data-view="ia-overview">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="iaTitle">Analytics overview</h1>
+  <p class="text-sm text-slate-500" data-i18n="iaSubtitle">Every conversation analysed — not just the sampled ones</p></div>
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
+    <div class="mcard"><div class="mcard-num">38,412</div><div class="mcard-lbl">บทสนทนาที่วิเคราะห์ (30 วัน)</div></div>
+    <div class="mcard"><div class="mcard-num">99.2%</div><div class="mcard-lbl">ความครอบคลุม</div></div>
+    <div class="mcard"><div class="mcard-num">26</div><div class="mcard-lbl">หัวข้อที่ยืนยันแล้ว</div></div>
+    <div class="mcard"><div class="mcard-num text-rose-600">2</div><div class="mcard-lbl">หัวข้อที่โตผิดปกติ</div></div>
+    <div class="mcard"><div class="mcard-num">18,904</div><div class="mcard-lbl">นาทีที่วิเคราะห์ (โควตา 20,000)</div>
+      <div class="prog mt-2"><div class="p-warn" style="width:95%"></div></div></div>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">หัวข้อที่กินเวลามากที่สุด (ปริมาณ × AHT)</h2>
+      <div class="space-y-3 text-sm">
+        <div><div class="flex justify-between mb-1"><span>ค่าบริการไม่ตรงกับที่แจ้ง</span><b>147 ชม.</b></div><div class="prog"><div style="width:100%"></div></div></div>
+        <div><div class="flex justify-between mb-1"><span>ตั้งค่าอุปกรณ์ไม่ได้</span><b>124 ชม.</b></div><div class="prog"><div style="width:84%"></div></div></div>
+        <div><div class="flex justify-between mb-1"><span>พัสดุล่าช้า</span><b>67 ชม.</b></div><div class="prog"><div style="width:46%"></div></div></div>
+        <div><div class="flex justify-between mb-1"><span>ขอใบกำกับภาษี</span><b>27 ชม.</b></div><div class="prog"><div style="width:18%"></div></div></div>
+      </div>
+      <p class="text-xs text-slate-400 mt-4">คิดเป็นค่าแรงประมาณ <b>฿186,000</b>/เดือน — ตัวเลขนี้คือเหตุผลที่ผู้บริหารอ่านหน้านี้</p>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">โตผิดปกติ (เกิน 3σ ของค่าเฉลี่ย 4 สัปดาห์)</h2>
+      <div class="space-y-3">
+        <div class="alrow al-crit"><i class="ti ti-trending-up text-lg"></i>
+          <div><b class="text-sm">แอปล็อกอินไม่ได้หลังอัปเดต</b> <span class="tag tag-bad">+214%</span>
+          <p class="text-sm text-slate-600 mt-0.5">174 สายใน 7 วัน · เริ่มพุ่ง 05-08 เวลา 14:00 ตรงกับที่ปล่อยแอปเวอร์ชัน 4.2</p>
+          <div class="flex gap-2 mt-2"><button class="qbtn" onclick="showView('ia-topic-detail')"><i class="ti ti-list-search"></i>ดูสายจริง</button>
+          <button class="qbtn" onclick="toast('เปิดเคสให้ทีมแอป (mock)')"><i class="ti ti-ticket"></i>เปิดเคส</button></div></div>
+        </div>
+        <div class="alrow al-warn"><i class="ti ti-trending-up text-lg"></i>
+          <div><b class="text-sm">สอบถามโปรโมชันคู่แข่ง</b> <span class="tag tag-warn">+96%</span>
+          <p class="text-sm text-slate-600 mt-0.5">288 สายใน 30 วัน · เจอมากที่คิว Sales (TH)</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Topics (list) ===== -->
+<section class="view" data-view="ia-topics">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="iaTopTitle">Topics</h1>
+    <p class="text-sm text-slate-500" data-i18n="iaTopSubtitle">Discovered automatically, named by humans, promoted to rules</p></div>
+  </div>
+  <div class="note note-info mb-4"><i class="ti ti-info-circle text-lg"></i>
+    <p>สองระบบอยู่ด้วยกัน: <b>หมวดอัตโนมัติ</b> (คนเขียนกฎ แม่นยำ อธิบายได้ ใช้กับ compliance ได้) และ
+    <b>หัวข้อที่ค้นพบ</b> (จัดกลุ่มเอง ใช้สำรวจ) — หัวข้อที่ยืนยันแล้วควรถูก<b>เลื่อนขั้น</b>เป็นกฎ</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">หัวข้อ</th><th class="font-normal px-4 py-2.5">สถานะ</th>
+        <th class="font-normal px-4 py-2.5">จำนวน</th><th class="font-normal px-4 py-2.5">เทียบเดือนก่อน</th>
+        <th class="font-normal px-4 py-2.5">AHT</th><th class="font-normal px-4 py-2.5">CSAT</th>
+        <th class="font-normal px-4 py-2.5">ติดต่อซ้ำ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ia-topics-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Topic detail ===== -->
+<section class="view" data-view="ia-topic-detail">
+  <button onclick="showView('ia-topics')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold">แอปล็อกอินไม่ได้หลังอัปเดต</h1>
+    <p class="text-sm text-slate-500">ค้นพบอัตโนมัติ 05-08-2026 · ยังไม่ถูกเลื่อนขั้นเป็นกฎ</p></div>
+    <button class="qbtn on" onclick="toast('เลื่อนขั้นเป็นหมวดอัตโนมัติ (mock)')"><i class="ti ti-arrow-up-circle"></i>เลื่อนขั้นเป็นกฎ</button>
+  </div>
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
+    <div class="mcard"><div class="mcard-num">174</div><div class="mcard-lbl">บทสนทนา</div></div>
+    <div class="mcard"><div class="mcard-num text-rose-600">+214%</div><div class="mcard-lbl">เทียบ baseline</div></div>
+    <div class="mcard"><div class="mcard-num">7:50</div><div class="mcard-lbl">AHT เฉลี่ย</div></div>
+    <div class="mcard"><div class="mcard-num text-rose-600">55</div><div class="mcard-lbl">CSAT</div></div>
+    <div class="mcard"><div class="mcard-num text-amber-600">44%</div><div class="mcard-lbl">ติดต่อซ้ำใน 7 วัน</div></div>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="px-5 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">สายจริงที่เข้าหัวข้อนี้ — ทุกตัวเลขคลิกลงมาถึงตรงนี้ได้เสมอ</div>
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">เวลา</th><th class="font-normal px-4 py-2.5">ช่องทาง</th>
+        <th class="font-normal px-4 py-2.5">ลูกค้า</th><th class="font-normal px-4 py-2.5">ประโยคที่ทำให้เข้าหัวข้อ</th>
+        <th class="font-normal px-4 py-2.5">CSAT</th><th class="px-4 py-2.5"></th></tr></thead>
+      <tbody class="text-slate-600">
+        <tr class="border-b border-slate-50"><td class="px-4 py-3">08-08 09:41</td><td class="px-4 py-3"><span class="ch ch-voice"><i class="ti ti-phone"></i>voice</span></td><td class="px-4 py-3">+66 81 234 5678</td><td class="px-4 py-3">"อัปเดตแอปเสร็จแล้วเข้าไม่ได้เลยครับ"</td><td class="px-4 py-3 text-rose-600 font-semibold">2</td><td class="px-4 py-3 text-right"><span class="icon-btn" onclick="toast('เปิดใน QM (mock)')"><i class="ti ti-player-play"></i></span></td></tr>
+        <tr class="border-b border-slate-50"><td class="px-4 py-3">08-08 09:12</td><td class="px-4 py-3"><span class="ch ch-line"><i class="ti ti-brand-line"></i>line</span></td><td class="px-4 py-3">@wichai_t</td><td class="px-4 py-3">"ล็อกอินไม่ผ่านตั้งแต่เวอร์ชันใหม่"</td><td class="px-4 py-3">—</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-message"></i></span></td></tr>
+        <tr class="border-b border-slate-50"><td class="px-4 py-3">07-08 18:33</td><td class="px-4 py-3"><span class="ch ch-webchat"><i class="ti ti-message-circle"></i>webchat</span></td><td class="px-4 py-3">Guest #8901</td><td class="px-4 py-3">"หน้าจอค้างตอนกดเข้าสู่ระบบ"</td><td class="px-4 py-3 text-rose-600 font-semibold">1</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-message"></i></span></td></tr>
+        <tr><td class="px-4 py-3">07-08 15:07</td><td class="px-4 py-3"><span class="ch ch-voice"><i class="ti ti-phone"></i>voice</span></td><td class="px-4 py-3">+66 89 222 7788</td><td class="px-4 py-3">"ต้องลบแอปแล้วลงใหม่ทุกครั้งเลยเหรอ"</td><td class="px-4 py-3">4</td><td class="px-4 py-3 text-right"><span class="icon-btn"><i class="ti ti-player-play"></i></span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===== Search conversations ===== -->
+<section class="view" data-view="ia-search">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="iaSrchTitle">Search conversations</h1>
+  <p class="text-sm text-slate-500" data-i18n="iaSrchSubtitle">Find what was actually said, across every channel</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl p-5 mb-5">
+    <div class="flex gap-2 mb-3">
+      <input class="inp" value='"ฟ้อง" OR "ผู้บริโภค"' placeholder="ค้นจากสิ่งที่พูด/พิมพ์จริง">
+      <button class="qbtn on" onclick="toast('ค้นหา (mock)')"><i class="ti ti-search"></i>ค้นหา</button>
+      <button class="qbtn" onclick="newSaved()"><i class="ti ti-bookmark"></i>บันทึกการค้นหา</button>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <select class="inp"><option>ทุกช่องทาง</option><option>voice</option><option>webchat</option><option>line</option></select>
+      <select class="inp"><option>ทุกคิว</option><option>General Support</option><option>Collections</option></select>
+      <select class="inp"><option>30 วันล่าสุด</option><option>7 วันล่าสุด</option><option>ไตรมาสนี้</option></select>
+      <select class="inp"><option>ทุกผลลัพธ์</option><option>เฉพาะที่ถูกโอนสาย</option><option>เฉพาะที่ติดต่อซ้ำ</option></select>
+      <select class="inp"><option>ทุกคะแนน CSAT</option><option>CSAT ≤ 2</option></select>
+    </div>
+  </div>
+  <p class="text-sm text-slate-500 mb-3">พบ <b>3</b> บทสนทนา</p>
+  <div class="space-y-3">
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+      <div class="flex justify-between text-sm"><b>INT-88410 · voice · Collections</b><span class="text-slate-400">06-08-2026 11:24 · 9:12 นาที</span></div>
+      <div class="tr mt-2" style="max-height:none">
+        <div class="tr-line tr-contact"><span class="tr-t">03:41</span><span class="tr-who">ลูกค้า</span><span>ถ้ายังไม่แก้ ผมจะไป<span class="tr-hit">ฟ้อง</span>สคบ.นะครับ</span></div>
+        <div class="tr-line tr-agent"><span class="tr-t">03:48</span><span class="tr-who">เอเจนต์</span><span>ขออภัยจริง ๆ ครับ ผมจะเร่งให้ทีมตรวจสอบทันที</span></div>
+      </div>
+      <div class="flex gap-2 mt-2"><span class="cat cat-risk">เสี่ยงร้องเรียน</span><span class="tag">CSAT 1</span>
+        <button class="qbtn ml-auto" onclick="toast('เปิดใน QM (mock)')"><i class="ti ti-player-play"></i>ฟังสาย</button></div>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+      <div class="flex justify-between text-sm"><b>INT-88102 · line · Billing Inquiries</b><span class="text-slate-400">04-08-2026 15:02</span></div>
+      <div class="tr mt-2" style="max-height:none">
+        <div class="tr-line tr-contact"><span class="tr-t">—</span><span class="tr-who">ลูกค้า</span><span>เรื่องนี้ผมปรึกษา<span class="tr-hit">ผู้บริโภค</span>แล้วนะ</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Saved searches (list) ===== -->
+<section class="view" data-view="ia-searches">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="iaSavedTitle">Saved searches</h1>
+    <p class="text-sm text-slate-500" data-i18n="iaSavedSubtitle">Searches kept as alerts</p></div>
+    <button onclick="newSaved()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">ชื่อ</th><th class="font-normal px-4 py-2.5">เงื่อนไข</th>
+        <th class="font-normal px-4 py-2.5">เจ้าของ</th><th class="font-normal px-4 py-2.5">แจ้งเตือนเมื่อ</th>
+        <th class="font-normal px-4 py-2.5">พบ (7 วัน)</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="ia-saved-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Saved search form (new/edit) ===== -->
+<section class="view" data-view="saved-form">
+  <button onclick="showView('ia-searches')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="sf-heading" class="text-xl font-semibold mb-5">New saved search</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+      <div><label class="fld">ชื่อ</label><input id="sf-name" class="inp"></div>
+      <div><label class="fld">เงื่อนไข</label><input id="sf-query" class="inp font-mono text-[13px]"></div>
+      <div><label class="fld">แจ้งเตือนเมื่อ</label>
+        <select id="sf-alert" class="inp"><option>—</option><option>&gt; 5 สาย/วัน</option><option>&gt; 3 สาย/สัปดาห์</option><option>พบครั้งแรกของวัน</option></select></div>
+      <div><label class="fld">แจ้งไปที่</label><select class="inp"><option>ฝ่ายกำกับ</option><option>หัวหน้าทีมของสายนั้น</option><option>ผู้จัดการศูนย์</option></select></div>
+      <label class="flex items-center gap-2.5 text-sm"><input type="checkbox" class="accent-teal-700">เปิดเคสอัตโนมัติเมื่อแจ้งเตือน</label>
+    </div>
+    <div class="flex gap-3 h-fit">
+      <button onclick="saveMock('ia-searches')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+      <button onclick="showView('ia-searches')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Feedback overview ===== -->
+<section class="view" data-view="fb-overview">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="fbTitle">CSAT / NPS</h1>
+  <p class="text-sm text-slate-500" data-i18n="fbSubtitle">The customer view — always shown with response rate</p></div>
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
+    <div class="mcard"><div class="mcard-num">4.21</div><div class="mcard-lbl">CSAT เฉลี่ย (n=4,820)</div></div>
+    <div class="mcard"><div class="mcard-num">+38</div><div class="mcard-lbl">NPS (n=1,240)</div></div>
+    <div class="mcard"><div class="mcard-num">31%</div><div class="mcard-lbl">อัตราการตอบกลับ</div></div>
+    <div class="mcard"><div class="mcard-num text-rose-600">412</div><div class="mcard-lbl">detractor (30 วัน)</div></div>
+    <div class="mcard"><div class="mcard-num text-emerald-700">76%</div><div class="mcard-lbl">ติดต่อกลับสำเร็จใน 24 ชม.</div></div>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">การกระจายของคะแนน (ไม่ใช่แค่ค่าเฉลี่ย)</h2>
+      <div class="space-y-2 text-sm">
+        <div class="flex items-center gap-3"><span class="w-6 text-slate-500">5</span><div class="flex-1 prog"><div style="width:58%"></div></div><span class="w-16 text-right text-slate-600">2,798</span></div>
+        <div class="flex items-center gap-3"><span class="w-6 text-slate-500">4</span><div class="flex-1 prog"><div style="width:22%"></div></div><span class="w-16 text-right text-slate-600">1,060</span></div>
+        <div class="flex items-center gap-3"><span class="w-6 text-slate-500">3</span><div class="flex-1 prog"><div style="width:11%"></div></div><span class="w-16 text-right text-slate-600">550</span></div>
+        <div class="flex items-center gap-3"><span class="w-6 text-slate-500">2</span><div class="flex-1 prog"><div class="p-warn" style="width:6%"></div></div><span class="w-16 text-right text-slate-600">289</span></div>
+        <div class="flex items-center gap-3"><span class="w-6 text-slate-500">1</span><div class="flex-1 prog"><div class="p-bad" style="width:3%"></div></div><span class="w-16 text-right text-slate-600">123</span></div>
+      </div>
+      <p class="text-xs text-slate-400 mt-4">ค่าเฉลี่ยเท่ากันได้จากการกระจายที่ต่างกันโดยสิ้นเชิง — หน้านี้จึงแสดงทั้งสองอย่างเสมอ</p>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">CSAT ต่อช่องทาง (พร้อมอัตราการตอบ)</h2>
+      <table class="w-full text-sm">
+        <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">ช่องทาง</th><th class="font-normal py-2">CSAT</th><th class="font-normal py-2">ตอบกลับ</th><th class="font-normal py-2">n</th></tr></thead>
+        <tbody class="text-slate-600">
+          <tr class="border-t border-slate-100"><td class="py-2"><span class="ch ch-webchat"><i class="ti ti-message-circle"></i>webchat</span></td><td class="py-2 font-medium">4.42</td><td class="py-2 text-emerald-700">48%</td><td class="py-2">2,110</td></tr>
+          <tr class="border-t border-slate-100"><td class="py-2"><span class="ch ch-line"><i class="ti ti-brand-line"></i>line</span></td><td class="py-2 font-medium">4.30</td><td class="py-2 text-emerald-700">41%</td><td class="py-2">1,240</td></tr>
+          <tr class="border-t border-slate-100"><td class="py-2"><span class="ch ch-voice"><i class="ti ti-phone"></i>voice</span></td><td class="py-2 font-medium">3.98</td><td class="py-2 text-amber-600">19%</td><td class="py-2">1,180</td></tr>
+          <tr class="border-t border-slate-100"><td class="py-2"><span class="ch ch-email"><i class="ti ti-mail"></i>email</span></td><td class="py-2 text-slate-300">— n ต่ำเกินไป</td><td class="py-2 text-rose-600">4%</td><td class="py-2">8</td></tr>
+        </tbody>
+      </table>
+      <p class="text-xs text-slate-400 mt-3">ซ่อนผลเมื่อ n &lt; 10 — ตัวเลขจากตัวอย่าง 8 ใบไม่ใช่ข้อมูล</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Surveys (list) ===== -->
+<section class="view" data-view="fb-surveys">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="fbSurTitle">Surveys</h1>
+    <p class="text-sm text-slate-500" data-i18n="fbSurSubtitle">Versioned questionnaires — frozen once answered</p></div>
+    <button onclick="newSurvey()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">แบบสำรวจ</th><th class="font-normal px-4 py-2.5">ชนิด</th>
+        <th class="font-normal px-4 py-2.5">เวอร์ชัน</th><th class="font-normal px-4 py-2.5">ช่องทาง</th>
+        <th class="font-normal px-4 py-2.5">คำตอบ</th><th class="font-normal px-4 py-2.5">อัตราการตอบ</th>
+        <th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="fb-surveys-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Survey form (new/edit) ===== -->
+<section class="view" data-view="survey-form">
+  <button onclick="showView('fb-surveys')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="svf-heading" class="text-xl font-semibold mb-5">New survey</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อแบบสำรวจ</label><input id="svf-name" class="inp"></div>
+          <div><label class="fld">ชนิด</label><select id="svf-type" class="inp"><option>CSAT</option><option>NPS</option><option>CES</option><option>CUSTOM</option></select></div>
+          <div><label class="fld">ภาษา</label><select class="inp"><option>ไทย + English</option><option>ไทยอย่างเดียว</option></select></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">คำถาม</h2>
+        <div class="space-y-3">
+          <div class="qq"><div class="flex gap-2 items-start"><span class="text-slate-400 pt-2">1.</span>
+            <div class="flex-1"><input id="svf-q1" class="inp mb-2"><div class="flex gap-2">
+              <select class="inp h-9 w-44"><option>สเกล 1–5</option><option>NPS 0–10</option><option>ใช่/ไม่ใช่</option><option>ข้อความ</option></select>
+              <label class="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked class="accent-teal-700">บังคับตอบ</label></div></div>
+            <span class="icon-btn"><i class="ti ti-trash"></i></span></div></div>
+          <div class="qq"><div class="flex gap-2 items-start"><span class="text-slate-400 pt-2">2.</span>
+            <div class="flex-1"><input id="svf-q2" class="inp mb-2"><select class="inp h-9 w-44"><option>ใช่/ไม่ใช่</option></select></div>
+            <span class="icon-btn"><i class="ti ti-trash"></i></span></div></div>
+          <div class="qq"><div class="flex gap-2 items-start"><span class="text-slate-400 pt-2">3.</span>
+            <div class="flex-1"><input id="svf-q3" class="inp mb-2" placeholder="คำถามปลายเปิด (ไม่บังคับ)"><select class="inp h-9 w-44"><option>ข้อความ</option><option>บันทึกเสียง</option></select></div>
+            <span class="icon-btn"><i class="ti ti-trash"></i></span></div></div>
+        </div>
+        <button class="qbtn mt-3" onclick="toast('เพิ่มคำถาม (mock)')"><i class="ti ti-plus"></i>เพิ่มคำถาม</button>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ตัวอย่างในห้องแชท</h2>
+        <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2">
+          <div class="bubble bubble-in text-[13px]">คุณพอใจกับการบริการครั้งนี้แค่ไหน</div>
+          <div class="flex gap-1 justify-end">
+            <span class="qchip off">1</span><span class="qchip off">2</span><span class="qchip off">3</span>
+            <span class="qchip off">4</span><span class="qchip chip-y">5</span>
+          </div>
+        </div>
+      </div>
+      <div class="note note-warn"><i class="ti ti-lock text-lg"></i>
+        <p>เวอร์ชันที่มีคนตอบแล้วจะถูก<b>แช่แข็ง</b> — การแก้จะสร้างเวอร์ชันใหม่เสมอ เพื่อให้เทียบคะแนนข้ามเดือนได้</p></div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('fb-surveys')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('fb-surveys')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Survey plans (list) ===== -->
+<section class="view" data-view="fb-plans">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="fbPlanTitle">Survey plans</h1>
+    <p class="text-sm text-slate-500" data-i18n="fbPlanSubtitle">Who gets asked, how often, and how they are suppressed</p></div>
+    <button onclick="newFbPlan()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">แผน</th><th class="font-normal px-4 py-2.5">เงื่อนไข</th>
+        <th class="font-normal px-4 py-2.5">สุ่ม</th><th class="font-normal px-4 py-2.5">เว้นระยะ</th>
+        <th class="font-normal px-4 py-2.5">ช่องทางที่ถาม</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="fb-plans-body"></tbody>
+    </table></div>
+  </div>
+  <p class="text-xs text-slate-400 mt-3"><i class="ti ti-shield-check mr-1"></i>การเว้นระยะ (suppression) เป็น<b>ข้อบังคับ</b>ไม่ใช่ตัวเลือก — ระบบที่ถามทุกครั้งจะถูกมองเป็น spam และอัตราการตอบจะตกถาวร</p>
+</section>
+
+<!-- ===== Survey plan form (new/edit) ===== -->
+<section class="view" data-view="fb-plan-form">
+  <button onclick="showView('fb-plans')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="fpf-heading" class="text-xl font-semibold mb-5">New survey plan</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="md:col-span-2"><label class="fld">ชื่อแผน</label><input id="fpf-name" class="inp"></div>
+          <div><label class="fld">แบบสำรวจที่ใช้</label><select id="fpf-survey" class="inp"><option>CSAT หลังจบงาน (ไทย)</option><option>NPS รายไตรมาส</option><option>CES หลังใช้บอต</option></select></div>
+          <div><label class="fld">ช่องทางที่ถาม</label><select id="fpf-deliver" class="inp"><option>ในห้องแชทเดิม</option><option>IVR ก่อนวางสาย</option><option>SMS หลังวางสาย</option><option>อีเมล</option></select></div>
+          <div><label class="fld">สุ่มกี่ % ของงานที่เข้าเกณฑ์</label><input id="fpf-pct" type="number" class="inp" value="40"></div>
+          <div><label class="fld">ไม่ถามลูกค้าคนเดิมซ้ำภายใน (วัน)</label><input id="fpf-sup" type="number" class="inp" value="30"></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">เงื่อนไขว่างานแบบไหนจะถูกถาม</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="fld">คิว</label><select class="inp"><option>ทุกคิว</option><option>General Support</option><option>VIP Customers</option></select></div>
+          <div><label class="fld">ช่องทาง</label><select class="inp"><option>ทุกช่องทาง</option><option>เฉพาะ voice</option><option>เฉพาะ digital</option></select></div>
+          <div><label class="fld">ผลการปิดงาน</label><select class="inp"><option>ทุกผล</option><option>เฉพาะ Resolved</option><option>ยกเว้น Abandoned</option></select></div>
+          <div><label class="fld">ทีม</label><select class="inp"><option>ทุกทีม</option><option>Support A</option></select></div>
+        </div>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-info"><i class="ti ti-target text-lg"></i>
+        <p>คาดว่าจะถามประมาณ <b>1,240</b> คน/เดือน · ตอบกลับ <b>~380</b> (จากอัตราเดิม 31%)</p></div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('fb-plans')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('fb-plans')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Responses ===== -->
+<section class="view" data-view="fb-responses">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="fbRespTitle">Responses</h1>
+  <p class="text-sm text-slate-500" data-i18n="fbRespSubtitle">Individual answers, comments and recovery status</p></div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">เวลา</th><th class="font-normal px-4 py-2.5">ลูกค้า</th>
+        <th class="font-normal px-4 py-2.5">แบบสำรวจ</th><th class="font-normal px-4 py-2.5">คะแนน</th>
+        <th class="font-normal px-4 py-2.5">ความเห็น</th><th class="font-normal px-4 py-2.5">เอเจนต์</th>
+        <th class="font-normal px-4 py-2.5">การติดต่อกลับ</th>
+      </tr></thead>
+      <tbody id="fb-resp-body"></tbody>
+    </table></div>
+  </div>
+  <div class="note note-info mt-4"><i class="ti ti-refresh text-lg"></i>
+    <p>คะแนนต่ำเป็น <b>event</b> ไม่ใช่แค่แถวในรายงาน — ระบบเปิดเคส "customer recovery" ให้หัวหน้าทีมพร้อม SLA 24 ชม.
+    และส่งสายต้นเรื่องเข้าคิวตรวจของ QM โดยอัตโนมัติ</p></div>
+</section>
+
+<!-- ===== Performance: team ===== -->
+<section class="view" data-view="pm-team">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="pmTeamTitle">Team scorecard</h1>
+  <p class="text-sm text-slate-500" data-i18n="pmTeamSubtitle">Every number links back to the module it came from</p></div>
+  <div class="flex flex-wrap gap-2 mb-4">
+    <select class="inp w-56"><option>Service (มาตรฐาน) v4</option><option>Sales v2</option></select>
+    <select class="inp w-44"><option>ส.ค. 2026</option><option>ก.ค. 2026</option></select>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">เอเจนต์</th><th class="font-normal px-4 py-2.5">คะแนน QM</th>
+        <th class="font-normal px-4 py-2.5">CSAT</th><th class="font-normal px-4 py-2.5">AHT</th>
+        <th class="font-normal px-4 py-2.5">Adherence</th><th class="font-normal px-4 py-2.5">คะแนนรวม</th>
+        <th class="font-normal px-4 py-2.5">ตัวอย่าง</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="pm-team-body"></tbody>
+    </table></div>
+  </div>
+  <div class="note note-warn mt-4"><i class="ti ti-scale text-lg"></i>
+    <p>"ปกรณ์ ศรีสุข" ถูกตรวจแค่ 1 สายในรอบนี้ จึงไม่มีคะแนนรวม — น้ำหนักถูก<b>กระจายให้ตัวชี้วัดอื่น</b>
+    ไม่ใช่ให้ 0 (การให้ 0 คือการลงโทษเพราะหัวหน้าไม่ว่างตรวจ)</p></div>
+</section>
+
+<!-- ===== Scorecards (list) ===== -->
+<section class="view" data-view="pm-scorecards">
+  <div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold" data-i18n="pmCardTitle">Scorecards</h1>
+    <p class="text-sm text-slate-500" data-i18n="pmCardSubtitle">Metrics, weights and targets per tenant</p></div>
+    <button onclick="newPmCard()" class="inline-flex items-center gap-1.5 text-sm font-medium bg-teal-700 text-white rounded-lg px-3.5 py-2 hover:bg-teal-800"><i class="ti ti-plus"></i><span data-i18n="btnNew">New</span></button>
+  </div>
+  <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm whitespace-nowrap">
+      <thead class="text-slate-500 text-left bg-slate-50/60"><tr class="border-b border-slate-100">
+        <th class="font-normal px-4 py-2.5">ชุดตัวชี้วัด</th><th class="font-normal px-4 py-2.5">ใช้กับ</th>
+        <th class="font-normal px-4 py-2.5">องค์ประกอบ</th><th class="font-normal px-4 py-2.5">รอบ</th>
+        <th class="font-normal px-4 py-2.5">เวอร์ชัน</th><th class="font-normal px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5"></th>
+      </tr></thead>
+      <tbody id="pm-cards-body"></tbody>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== Scorecard form (new/edit) ===== -->
+<section class="view" data-view="pm-card-form">
+  <button onclick="showView('pm-scorecards')" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i><span data-i18n="btnBack">Back</span></button>
+  <h1 id="pcf-heading" class="text-xl font-semibold mb-5">New scorecard</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="md:col-span-3"><label class="fld">ชื่อ</label><input id="pcf-name" class="inp"></div>
+          <div class="md:col-span-2"><label class="fld">ใช้กับ</label><select id="pcf-applies" class="inp"><option>ทุกทีม</option><option>ทีม Support A, Support B</option><option>ทีม Sales</option><option>ทีม Collections</option></select></div>
+          <div><label class="fld">รอบ</label><select id="pcf-period" class="inp"><option>รายเดือน</option><option>รายสัปดาห์</option><option>รายวัน</option></select></div>
+        </div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-1">องค์ประกอบและน้ำหนัก</h2>
+        <p class="text-xs text-slate-400 mb-4">ทุกตัวชี้วัดชี้ไปยังโมดูลต้นทาง — ไม่มีการคัดลอกข้อมูลมาเก็บซ้ำ</p>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">ตัวชี้วัด</th><th class="font-normal py-2">มาจาก</th><th class="font-normal py-2">น้ำหนัก %</th><th class="font-normal py-2">เป้า</th><th class="font-normal py-2">ตัวอย่างขั้นต่ำ</th></tr></thead>
+          <tbody class="text-slate-600">
+            <tr class="border-t border-slate-100"><td class="py-2">คะแนนคุณภาพ</td><td class="py-2 text-xs text-slate-400">qm_evaluations</td><td class="py-2"><input id="pcf-w-qm" type="number" class="inp h-9 w-20" value="40"></td><td class="py-2">85</td><td class="py-2">3</td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">CSAT</td><td class="py-2 text-xs text-slate-400">fb_responses</td><td class="py-2"><input id="pcf-w-csat" type="number" class="inp h-9 w-20" value="30"></td><td class="py-2">4.3</td><td class="py-2">10</td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">Adherence</td><td class="py-2 text-xs text-slate-400">wfm_adherence</td><td class="py-2"><input id="pcf-w-adh" type="number" class="inp h-9 w-20" value="20"></td><td class="py-2">93%</td><td class="py-2">5 วัน</td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">AHT <span class="tag tag-warn ml-1">ต้องมีตัวถ่วง</span></td><td class="py-2 text-xs text-slate-400">interactions</td><td class="py-2"><input id="pcf-w-aht" type="number" class="inp h-9 w-20" value="10"></td><td class="py-2">4:30</td><td class="py-2">20</td></tr>
+          </tbody>
+        </table>
+        <button class="qbtn mt-3" onclick="toast('เพิ่มตัวชี้วัด (mock)')"><i class="ti ti-plus"></i>เพิ่มตัวชี้วัด</button>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="note note-warn"><i class="ti ti-alert-triangle text-lg"></i>
+        <p><b>AHT ต้องมาคู่กับ CSAT หรือ FCR เสมอ</b> — บันทึกไม่ผ่านถ้าไม่มีตัวถ่วง
+        ระบบที่ให้รางวัลคนคุยสั้นจะได้คนวางสายเก่ง</p></div>
+      <div class="flex gap-3">
+        <button onclick="saveMock('pm-scorecards')" class="flex-1 h-10 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800" data-i18n="btnSave">Save</button>
+        <button onclick="showView('pm-scorecards')" class="flex-1 h-10 rounded-lg border border-slate-300 text-sm hover:bg-slate-50" data-i18n="btnCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Gamification ===== -->
+<section class="view" data-view="pm-gamification">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="pmGameTitle">Gamification</h1>
+  <p class="text-sm text-slate-500" data-i18n="pmGameSubtitle">Off by default — visibility is a deliberate choice</p></div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <label class="flex items-center gap-3 mb-4"><input type="checkbox" checked class="accent-teal-700"><b class="text-sm">เปิดใช้ในองค์กรนี้</b></label>
+        <label class="fld">ระดับการเปิดเผย</label>
+        <select class="inp mb-3">
+          <option>ส่วนตัว — แต่ละคนเห็นอันดับและเหรียญของตัวเองเท่านั้น (ค่าเริ่มต้น)</option>
+          <option>ภายในทีม</option>
+          <option>ทั้งองค์กร — ต้องกดยืนยันว่าเข้าใจผลกระทบ</option>
+        </select>
+        <div class="note note-warn"><i class="ti ti-users text-lg"></i>
+          <p>กระดานอันดับสาธารณะเปลี่ยนบรรยากาศทีมอย่างถาวรและถอยกลับยาก — ค่าเริ่มต้นจึงเป็น "ส่วนตัว"</p></div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="flex justify-between items-center mb-4"><h2 class="text-sm font-semibold text-slate-700">เหรียญ</h2>
+          <button class="qbtn" onclick="toast('สร้างเหรียญ (mock)')"><i class="ti ti-plus"></i>สร้าง</button></div>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">เหรียญ</th><th class="font-normal py-2">เงื่อนไข</th><th class="font-normal py-2">ได้แล้ว</th><th></th></tr></thead>
+          <tbody class="text-slate-600">
+            <tr class="border-t border-slate-100"><td class="py-2">🎯 คุณภาพสม่ำเสมอ</td><td class="py-2">คะแนน QM ≥ 90 ติดกัน 4 สัปดาห์</td><td class="py-2">3 คน</td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">🤝 ลูกค้ารัก</td><td class="py-2">CSAT ≥ 4.7 จากอย่างน้อย 20 คำตอบ</td><td class="py-2">2 คน</td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+            <tr class="border-t border-slate-100"><td class="py-2">📚 นักเขียนคลังความรู้</td><td class="py-2">บทความที่เขียนถูกใช้ตอบ ≥ 100 ครั้ง</td><td class="py-2">1 คน</td><td class="py-2 text-right"><span class="icon-btn"><i class="ti ti-pencil"></i></span></td></tr>
+          </tbody>
+        </table>
+        <p class="text-xs text-slate-400 mt-3">ให้เหรียญตาม<b>พฤติกรรมที่ทำซ้ำได้</b> ไม่ใช่ตามอันดับ — รางวัลตามอันดับสร้างการแข่งกันเองแทนการพัฒนาตัวเอง</p>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="flex justify-between items-center mb-3"><h2 class="text-sm font-semibold text-slate-700">ชาเลนจ์ที่กำลังเดิน</h2>
+          <button class="qbtn" onclick="toast('สร้างชาเลนจ์ (mock)')"><i class="ti ti-plus"></i></button></div>
+        <div class="qq"><b class="text-sm">สัปดาห์แห่งการปิดเคส</b>
+          <p class="text-xs text-slate-500 mt-1">05–11 ส.ค. · ทีม Support · วัดจาก "เคสที่แก้จบ" คู่กับ CSAT</p>
+          <div class="prog mt-2"><div style="width:62%"></div></div>
+          <p class="text-xs text-slate-400 mt-1">ผ่านไป 62% ของช่วงเวลา</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== My performance ===== -->
+<section class="view" data-view="pm-mine">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="pmMineTitle">My performance</h1>
+  <p class="text-sm text-slate-500" data-i18n="pmMineSubtitle">Your score, goals and badges</p></div>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div class="lg:col-span-2 space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <div class="flex items-end justify-between mb-4"><h2 class="text-sm font-semibold text-slate-700">คะแนนรวมเดือนนี้</h2>
+          <span class="text-3xl font-bold text-teal-700">87</span></div>
+        <div class="space-y-3 text-sm">
+          <div><div class="flex justify-between mb-1"><span>คะแนนคุณภาพ (น้ำหนัก 40%)</span><b>88 / เป้า 85</b></div><div class="prog"><div style="width:88%"></div></div></div>
+          <div><div class="flex justify-between mb-1"><span>CSAT (30%)</span><b>4.10 / เป้า 4.30</b></div><div class="prog"><div class="p-warn" style="width:82%"></div></div></div>
+          <div><div class="flex justify-between mb-1"><span>Adherence (20%)</span><b>94% / เป้า 93%</b></div><div class="prog"><div style="width:94%"></div></div></div>
+          <div><div class="flex justify-between mb-1"><span>AHT (10%)</span><b>4:31 / เป้า 4:30</b></div><div class="prog"><div style="width:79%"></div></div></div>
+        </div>
+        <p class="text-xs text-slate-400 mt-4">คลิกที่ตัวเลขใดก็ได้เพื่อไปดูที่มาในโมดูลต้นทาง (คะแนนคุณภาพ → หน้าผลประเมินของฉัน)</p>
+      </div>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">เป้าหมายของฉัน</h2>
+        <div class="qq"><b class="text-sm">CSAT ≥ 4.30 ภายในสิ้นเดือน</b>
+          <p class="text-xs text-slate-500 mt-1">ตั้งโดย สมพร (หัวหน้า) · ผูกกับการโค้ชวันที่ 12 ส.ค.</p></div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">เหรียญของฉัน</h2>
+        <div class="flex gap-2 text-2xl">🎯 🤝</div>
+        <p class="text-xs text-slate-400 mt-2">การตั้งค่าปัจจุบัน: ส่วนตัว — คนอื่นไม่เห็นอันดับของคุณ</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ===== Consult insights (docs/internal-collaboration.md §4) ===== -->
+<section class="view" data-view="co-insights">
+  <div class="mb-4"><h1 class="text-xl font-semibold" data-i18n="coTitle">Consult insights</h1>
+  <p class="text-sm text-slate-500" data-i18n="coSubtitle">How often agents need help, how fast they get it, and what they keep asking about</p></div>
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
+    <div class="mcard"><div class="mcard-num">18%</div><div class="mcard-lbl">สายที่ต้องถามผู้เชี่ยวชาญ</div></div>
+    <div class="mcard"><div class="mcard-num">47 วิ</div><div class="mcard-lbl">เวลาตอบครั้งแรก (p50)</div></div>
+    <div class="mcard"><div class="mcard-num text-amber-600">2:10</div><div class="mcard-lbl">p90 — ลูกค้าได้ยินความเงียบ</div></div>
+    <div class="mcard"><div class="mcard-num text-emerald-700">-6%</div><div class="mcard-lbl">consult ที่กลายเป็นโอนสาย (เทียบเดือนก่อน)</div></div>
+    <div class="mcard"><div class="mcard-num">9</div><div class="mcard-lbl">หัวข้อที่เข้าคิวเขียนบทความ</div></div>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div class="bg-white border border-slate-200 rounded-xl p-5">
+      <h2 class="text-sm font-semibold text-slate-700 mb-4">ถามเรื่องอะไรบ่อยที่สุด</h2>
+      <table class="w-full text-sm">
+        <thead class="text-slate-500 text-left"><tr><th class="font-normal py-2">หัวข้อ</th><th class="font-normal py-2">ครั้ง</th><th class="font-normal py-2">กลุ่มที่ตอบ</th><th class="font-normal py-2">มีบทความหรือยัง</th></tr></thead>
+        <tbody class="text-slate-600">
+          <tr class="border-t border-slate-100"><td class="py-2">ผ่อน 0% กี่เดือน / เงื่อนไข</td><td class="py-2">87</td><td class="py-2">สินเชื่อ</td><td class="py-2"><span class="tag tag-bad">ยังไม่มี</span></td></tr>
+          <tr class="border-t border-slate-100"><td class="py-2">ตั้งค่าอุปกรณ์รุ่น X200</td><td class="py-2">64</td><td class="py-2">เทคนิค</td><td class="py-2"><span class="tag tag-warn">กำลังเขียน</span></td></tr>
+          <tr class="border-t border-slate-100"><td class="py-2">ออกใบกำกับภาษีย้อนหลัง</td><td class="py-2">41</td><td class="py-2">บัญชี</td><td class="py-2"><span class="tag tag-ok">มีแล้ว</span></td></tr>
+          <tr class="border-t border-slate-100"><td class="py-2">ลูกค้าขู่ร้องเรียน สคบ.</td><td class="py-2">12</td><td class="py-2">กฎหมาย</td><td class="py-2"><span class="tag tag-ok">มีแล้ว</span></td></tr>
+        </tbody>
+      </table>
+      <p class="text-xs text-slate-400 mt-3"><i class="ti ti-arrow-right mr-1"></i>หัวข้อที่ยังไม่มีบทความถูกส่งเข้า <a class="underline" href="ai.html?view=kb-gaps">คำถามที่ยังไม่มีคำตอบ</a> อัตโนมัติ</p>
+    </div>
+    <div class="space-y-5">
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-4">ต่อกลุ่มผู้เชี่ยวชาญ</h2>
+        <div class="space-y-3 text-sm">
+          <div><div class="flex justify-between mb-1"><span>สินเชื่อ · ตอบ 38 วิ</span><b class="text-emerald-700">โอนสาย 12%</b></div><div class="prog"><div style="width:12%"></div></div></div>
+          <div><div class="flex justify-between mb-1"><span>เทคนิค (อุปกรณ์) · ตอบ 74 วิ</span><b class="text-amber-600">โอนสาย 31%</b></div><div class="prog"><div class="p-warn" style="width:31%"></div></div></div>
+          <div><div class="flex justify-between mb-1"><span>บัญชี · ตอบ 55 วิ</span><b class="text-emerald-700">โอนสาย 6%</b></div><div class="prog"><div style="width:6%"></div></div></div>
+          <div><div class="flex justify-between mb-1"><span>กฎหมาย · ตอบ 210 วิ</span><b class="text-emerald-700">โอนสาย 8%</b></div><div class="prog"><div style="width:8%"></div></div></div>
+        </div>
+        <div class="note note-warn mt-4"><i class="ti ti-alert-triangle text-lg"></i>
+          <p>ถ้า "กลายเป็นโอนสาย" สูง แปลว่า consult กำลังกลายเป็น<b>การโอนสายแบบไม่เป็นทางการ</b> —
+          ไม่ได้ช่วยให้เอเจนต์เก่งขึ้น แค่ย้ายงานไปให้คนอื่น</p></div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">ผลข้างเคียงที่ต้องเฝ้า</h2>
+        <dl class="text-sm space-y-1.5 text-slate-600">
+          <div class="flex justify-between"><dt>Adherence ก่อนเปิดใช้แชท</dt><dd class="font-medium">93.8%</dd></div>
+          <div class="flex justify-between"><dt>Adherence หลังเปิดใช้ 30 วัน</dt><dd class="font-medium text-emerald-700">93.5%</dd></div>
+          <div class="flex justify-between"><dt>ข้อความ "ด่วน" ที่ถูกส่ง</dt><dd class="font-medium">14 ครั้ง (หัวหน้า 3 คน)</dd></div>
+        </dl>
+        <p class="text-xs text-slate-400 mt-2">ถ้า adherence ตกเกิน 1 จุดหลังเปิดใช้ ให้กลับไปดูการตั้งค่าแจ้งเตือนก่อนโทษเอเจนต์</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main></template>
+<script src="assets/i18n.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/modules.js"></script>
+</body>
+</html>
