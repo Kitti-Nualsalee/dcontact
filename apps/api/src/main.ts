@@ -38,10 +38,18 @@ const verifier = new KeycloakAccessTokenVerifier({
 });
 const gateway = new WorkspaceSessionGateway(verifier, new WorkspaceSessionRegistry());
 const httpAdapter = new WorkspaceSessionHttpAdapter(gateway);
-const socketAdapter = new WorkspaceSessionWebSocketAdapter(gateway);
-const handleWorkspaceSession = createWorkspaceSessionHandler(httpAdapter, (tenantId, work) =>
-  withTenantDatabaseTransaction(prisma, tenantId, async () => work()),
-);
+async function tenantScope<T>(tenantId: string, work: () => Promise<T> | T): Promise<T> {
+  return withTenantDatabaseTransaction(prisma, tenantId, async (transaction) => {
+    const tenant = await transaction.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true },
+    });
+    if (!tenant) throw new UnauthorizedException('tenant context is not provisioned');
+    return work();
+  });
+}
+const socketAdapter = new WorkspaceSessionWebSocketAdapter(gateway, tenantScope);
+const handleWorkspaceSession = createWorkspaceSessionHandler(httpAdapter, tenantScope);
 
 @Injectable()
 class OidcGlobalGuard implements CanActivate {

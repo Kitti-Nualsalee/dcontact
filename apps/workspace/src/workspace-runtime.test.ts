@@ -25,6 +25,7 @@ test('a non-working tab does not open the routing WebSocket', () => {
 
 test('moving work to a tab opens exactly one routing WebSocket', () => {
   let connections = 0;
+  const modes: string[] = [];
   const runtime = new WorkspaceRuntime(
     {
       start: () => false,
@@ -32,8 +33,9 @@ test('moving work to a tab opens exactly one routing WebSocket', () => {
       claim: () => undefined,
       stop: () => undefined,
     } as never,
-    () => {
+    (mode) => {
       connections += 1;
+      modes.push(mode);
       return { close: () => undefined };
     },
   );
@@ -43,5 +45,6 @@ test('moving work to a tab opens exactly one routing WebSocket', () => {
   runtime.heartbeat();
 
   assert.equal(connections, 1);
+  assert.deepEqual(modes, ['claim']);
   runtime.stop();
 });

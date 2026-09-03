@@ -6,10 +6,12 @@ export interface WorkspaceSessionSocket {
 }
 
 export interface WorkspaceSessionSocketMessage {
-  type: 'auth:connect' | 'auth:refresh';
+  type: 'auth:connect' | 'auth:refresh' | 'auth:claim';
   accessToken?: string;
   tabId?: string;
 }
+
+export type WorkspaceTenantScope = <T>(tenantId: string, work: () => Promise<T> | T) => Promise<T>;
 
 export interface WorkspaceRoutingEvent {
   type: 'routing.offered';
@@ -22,7 +24,10 @@ export interface WorkspaceRoutingEvent {
 export class WorkspaceSessionWebSocketAdapter {
   private readonly authenticatedSessions = new Map<WorkspaceSessionSocket, WorkspaceSession>();
 
-  constructor(private readonly gateway: WorkspaceSessionGateway) {}
+  constructor(
+    private readonly gateway: WorkspaceSessionGateway,
+    private readonly withTenant: WorkspaceTenantScope = async (_tenantId, work) => work(),
+  ) {}
 
   async handle(
     socket: WorkspaceSessionSocket,
@@ -33,25 +38,32 @@ export class WorkspaceSessionWebSocketAdapter {
       return;
     }
     try {
+      const handshake = { accessToken: message.accessToken, tabId: message.tabId };
       const session =
         message.type === 'auth:connect'
-          ? await this.gateway.connect({ accessToken: message.accessToken, tabId: message.tabId })
-          : await this.gateway.refresh({ accessToken: message.accessToken, tabId: message.tabId });
-      this.authenticatedSessions.set(socket, session);
-      socket.send(JSON.stringify({ type: 'workspace.session', session }));
+          ? await this.gateway.connect(handshake)
+          : message.type === 'auth:claim'
+            ? await this.gateway.claimWorkingTab(handshake)
+            : await this.gateway.refresh(handshake);
+      await this.withTenant(session.tenantId, () => {
+        this.authenticatedSessions.set(socket, session);
+        socket.send(JSON.stringify({ type: 'workspace.session', session }));
+      });
     } catch {
       const current = this.authenticatedSessions.get(socket);
       if (message.type === 'auth:refresh' && current) {
-        const session = this.gateway.requireReauthentication(current);
-        this.authenticatedSessions.set(socket, session);
-        socket.send(JSON.stringify({ type: 'workspace.session', session }));
+        await this.withTenant(current.tenantId, () => {
+          const session = this.gateway.requireReauthentication(current);
+          this.authenticatedSessions.set(socket, session);
+          socket.send(JSON.stringify({ type: 'workspace.session', session }));
+        });
         return;
       }
       socket.close(4401, 'workspace authentication failed');
     }
   }
 
-  deliverRoutingEvent(event: WorkspaceRoutingEvent): number {
+  async deliverRoutingEvent(event: WorkspaceRoutingEvent): Promise<number> {
     let delivered = 0;
     for (const [socket, session] of this.authenticatedSessions) {
       if (
@@ -61,7 +73,7 @@ export class WorkspaceSessionWebSocketAdapter {
       ) {
         continue;
       }
-      socket.send(JSON.stringify(event));
+      await this.withTenant(session.tenantId, () => socket.send(JSON.stringify(event)));
       delivered += 1;
     }
     return delivered;

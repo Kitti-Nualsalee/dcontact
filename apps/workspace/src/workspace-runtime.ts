@@ -2,7 +2,10 @@ import type { WorkspaceTabLeaderElection } from './leader-election.js';
 
 export interface RoutingSocket {
   close(): void;
+  claimWorkingTab?(): void;
 }
+
+export type RoutingSocketMode = 'connect' | 'claim';
 
 export class WorkspaceRuntime {
   private routingSocket?: RoutingSocket;
@@ -10,7 +13,7 @@ export class WorkspaceRuntime {
 
   constructor(
     private readonly election: WorkspaceTabLeaderElection,
-    private readonly connectRoutingSocket: () => RoutingSocket,
+    private readonly connectRoutingSocket: (mode: RoutingSocketMode) => RoutingSocket,
   ) {}
 
   start(): void {
@@ -25,7 +28,8 @@ export class WorkspaceRuntime {
 
   moveWorkingTabHere(): void {
     this.election.claim();
-    this.connect();
+    if (this.routingSocket) this.routingSocket.claimWorkingTab?.();
+    else this.connect('claim');
   }
 
   stop(): void {
@@ -35,8 +39,8 @@ export class WorkspaceRuntime {
     this.election.stop();
   }
 
-  private connect(): void {
-    this.routingSocket ??= this.connectRoutingSocket();
+  private connect(mode: RoutingSocketMode = 'connect'): void {
+    this.routingSocket ??= this.connectRoutingSocket(mode);
   }
 
   private disconnect(): void {

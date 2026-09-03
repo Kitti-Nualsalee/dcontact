@@ -90,7 +90,7 @@ test('only verified OIDC claims can establish a tenant-bound workspace identity'
     {
       tenant_id: agent.tenantId,
       tenant_slug: 'demo',
-      organization: { demo: { attributes: { tenant_id: [agent.tenantId] } } },
+      organization: { demo: { tenant_id: [agent.tenantId] } },
       dc_user_id: agent.userId,
       sid: agent.sessionId,
       exp: 1_788_430_200,
@@ -126,7 +126,7 @@ test('the handshake verifies an access token before it enables routing', async (
         return {
           tenant_id: agent.tenantId,
           tenant_slug: 'demo',
-          organization: { demo: { attributes: { tenant_id: [agent.tenantId] } } },
+          organization: { demo: { tenant_id: [agent.tenantId] } },
           dc_user_id: agent.userId,
           sid: agent.sessionId,
           exp: 1_788_430_200,
@@ -164,7 +164,7 @@ test('Keycloak verifier accepts a signed access token through its JWKS boundary'
   const token = await new SignJWT({
     tenant_id: agent.tenantId,
     tenant_slug: 'demo',
-    organization: { demo: { attributes: { tenant_id: [agent.tenantId] } } },
+    organization: { demo: { tenant_id: [agent.tenantId] } },
     dc_user_id: agent.userId,
     sid: agent.sessionId,
     realm_access: { roles: ['agent'] },
@@ -213,7 +213,7 @@ test('a failed silent refresh disables new routing work without closing the visi
         return {
           tenant_id: agent.tenantId,
           tenant_slug: 'demo',
-          organization: { demo: { attributes: { tenant_id: [agent.tenantId] } } },
+          organization: { demo: { tenant_id: [agent.tenantId] } },
           dc_user_id: agent.userId,
           sid: agent.sessionId,
           exp: 1_788_430_200,
@@ -249,7 +249,7 @@ test('routing events are delivered only to the authenticated working tab', async
       verifyAccessToken: async () => ({
         tenant_id: agent.tenantId,
         tenant_slug: 'demo',
-        organization: { demo: { attributes: { tenant_id: [agent.tenantId] } } },
+        organization: { demo: { tenant_id: [agent.tenantId] } },
         dc_user_id: agent.userId,
         sid: agent.sessionId,
         exp: 1_788_430_200,
@@ -273,7 +273,7 @@ test('routing events are delivered only to the authenticated working tab', async
   await adapter.handle(leader, { type: 'auth:connect', accessToken: 'valid', tabId: 'tab-a' });
   await adapter.handle(follower, { type: 'auth:connect', accessToken: 'valid', tabId: 'tab-b' });
 
-  const delivered = adapter.deliverRoutingEvent({
+  const delivered = await adapter.deliverRoutingEvent({
     type: 'routing.offered',
     interactionId: 'interaction-42',
     tenantId: agent.tenantId,
@@ -283,4 +283,43 @@ test('routing events are delivered only to the authenticated working tab', async
   assert.equal(delivered, 1);
   assert.match(leaderMessages.at(-1) ?? '', /routing\.offered/);
   assert.doesNotMatch(followerMessages.at(-1) ?? '', /routing\.offered/);
+});
+
+test('an authenticated WebSocket claim moves the server working tab within tenant scope', async () => {
+  const registry = new WorkspaceSessionRegistry(() => new Date('2026-09-03T10:00:00.000Z'));
+  const gateway = new WorkspaceSessionGateway(
+    {
+      verifyAccessToken: async () => ({
+        tenant_id: agent.tenantId,
+        tenant_slug: 'demo',
+        organization: { demo: { tenant_id: [agent.tenantId] } },
+        dc_user_id: agent.userId,
+        sid: agent.sessionId,
+        exp: 1_788_430_200,
+        realm_access: { roles: ['agent'] },
+      }),
+    },
+    registry,
+    () => new Date('2026-09-03T10:00:00.000Z'),
+  );
+  const scopedTenants: string[] = [];
+  const adapter = new WorkspaceSessionWebSocketAdapter(gateway, async (tenantId, work) => {
+    scopedTenants.push(tenantId);
+    return work();
+  });
+  const first = { send: () => undefined, close: () => undefined };
+  const secondMessages: string[] = [];
+  const second = {
+    send: (message: string) => secondMessages.push(message),
+    close: () => undefined,
+  };
+  await adapter.handle(first, { type: 'auth:connect', accessToken: 'valid', tabId: 'tab-a' });
+  await adapter.handle(second, { type: 'auth:connect', accessToken: 'valid', tabId: 'tab-b' });
+
+  await adapter.handle(second, { type: 'auth:claim', accessToken: 'valid', tabId: 'tab-b' });
+
+  assert.equal(registry.canReceiveRoutingWork(agent.tenantId, agent.userId, 'tab-a'), false);
+  assert.equal(registry.canReceiveRoutingWork(agent.tenantId, agent.userId, 'tab-b'), true);
+  assert.match(secondMessages.at(-1) ?? '', /"availability":"AVAILABLE"/);
+  assert.deepEqual(scopedTenants, [agent.tenantId, agent.tenantId, agent.tenantId]);
 });

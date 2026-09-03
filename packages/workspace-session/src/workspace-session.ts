@@ -46,7 +46,7 @@ export function toVerifiedWorkspaceIdentity(
   const organization = (claims.organization as Record<string, unknown>)[claims.tenant_slug];
   const organizationTenantIds =
     organization && typeof organization === 'object'
-      ? (organization as { attributes?: { tenant_id?: unknown } }).attributes?.tenant_id
+      ? (organization as { tenant_id?: unknown }).tenant_id
       : undefined;
   if (!Array.isArray(organizationTenantIds) || organizationTenantIds[0] !== claims.tenant_id) {
     throw new Error('tenant_id does not match Keycloak Organization attribute');
@@ -287,6 +287,11 @@ export class WorkspaceSessionGateway {
   async refresh(handshake: WorkspaceSessionHandshake): Promise<WorkspaceSession> {
     const identity = await this.identityFrom(handshake.accessToken);
     return this.registry.refresh(identity, handshake.tabId);
+  }
+
+  async claimWorkingTab(handshake: WorkspaceSessionHandshake): Promise<WorkspaceSession> {
+    const identity = await this.identityFrom(handshake.accessToken);
+    return this.registry.claimWorkingTab(identity, handshake.tabId);
   }
 
   requireReauthentication(
