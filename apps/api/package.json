@@ -10,10 +10,12 @@
   },
   "dependencies": {
     "@d-contact/db": "workspace:*",
-    "@d-contact/workspace-session": "workspace:*"
+    "@d-contact/workspace-session": "workspace:*",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.13",
     "tsx": "^4.23.1",
     "typescript": "^5.5.4"
   }

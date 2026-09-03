@@ -1,11 +1,14 @@
 import { createServer } from 'node:http';
+import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import {
   KeycloakAccessTokenVerifier,
   WorkspaceSessionGateway,
   WorkspaceSessionHttpAdapter,
   WorkspaceSessionRegistry,
+  WorkspaceSessionWebSocketAdapter,
 } from '@d-contact/workspace-session';
 import { createWorkspaceSessionHandler } from './workspace-session-api.js';
+import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -13,23 +16,30 @@ function required(name: string): string {
   return value;
 }
 
-const adapter = new WorkspaceSessionHttpAdapter(
-  new WorkspaceSessionGateway(
-    new KeycloakAccessTokenVerifier({
-      issuer: required('KEYCLOAK_ISSUER'),
-      audience: required('KEYCLOAK_AUDIENCE'),
-      jwksUri: required('KEYCLOAK_JWKS_URI'),
-    }),
-    new WorkspaceSessionRegistry(),
-  ),
+const prisma = new PrismaClient();
+const gateway = new WorkspaceSessionGateway(
+  new KeycloakAccessTokenVerifier({
+    issuer: required('KEYCLOAK_ISSUER'),
+    audience: required('KEYCLOAK_AUDIENCE'),
+    jwksUri: required('KEYCLOAK_JWKS_URI'),
+  }),
+  new WorkspaceSessionRegistry(),
+);
+const adapter = new WorkspaceSessionHttpAdapter(gateway);
+const socketAdapter = new WorkspaceSessionWebSocketAdapter(gateway);
+
+const handleWorkspaceSession = createWorkspaceSessionHandler(adapter, (tenantId, work) =>
+  withTenantDatabaseTransaction(prisma, tenantId, async () => work()),
 );
 
-const handleWorkspaceSession = createWorkspaceSessionHandler(adapter);
-
-createServer((request, response) => {
+const server = createServer((request, response) => {
   if (request.method === 'POST' && request.url === '/api/v1/workspace-session/connect') {
     void handleWorkspaceSession(request, response);
     return;
   }
   response.writeHead(404).end();
-}).listen(Number(process.env.PORT ?? 3000));
+});
+
+attachWorkspaceSessionWebSocket(server, socketAdapter);
+
+server.listen(Number(process.env.PORT ?? 3000));

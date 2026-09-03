@@ -190,10 +190,17 @@ export class WorkspaceSessionRegistry {
     const session = this.sessions.get(this.sessionKey(tenantId, userId, tabId));
     return Boolean(
       session &&
-        session.status === 'active' &&
-        session.routingEnabled &&
-        session.expiresAt.getTime() > this.now().getTime(),
+      session.status === 'active' &&
+      session.routingEnabled &&
+      session.expiresAt.getTime() > this.now().getTime(),
     );
+  }
+
+  requireReauthentication(tenantId: string, userId: string, tabId: string): WorkspaceSession {
+    const session = this.requireSession(this.sessionKey(tenantId, userId, tabId));
+    session.routingEnabled = false;
+    session.status = 'reauthentication-required';
+    return this.publicSession(session);
   }
 
   private assertIdentity(identity: VerifiedWorkspaceIdentity, tabId: string): void {
@@ -242,6 +249,12 @@ export class WorkspaceSessionGateway {
   async refresh(handshake: WorkspaceSessionHandshake): Promise<WorkspaceSession> {
     const identity = await this.identityFrom(handshake.accessToken);
     return this.registry.refresh(identity, handshake.tabId);
+  }
+
+  requireReauthentication(
+    session: Pick<WorkspaceSession, 'tenantId' | 'userId' | 'tabId'>,
+  ): WorkspaceSession {
+    return this.registry.requireReauthentication(session.tenantId, session.userId, session.tabId);
   }
 
   private async identityFrom(accessToken: string): Promise<VerifiedWorkspaceIdentity> {

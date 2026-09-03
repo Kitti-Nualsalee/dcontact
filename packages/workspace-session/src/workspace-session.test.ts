@@ -61,11 +61,7 @@ test('a token cannot change the tenant of an established workspace session', () 
   registry.connect(agent, 'tab-a');
 
   assert.throws(
-    () =>
-      registry.refresh(
-        { ...agent, tenantId: '4d600b19-f7cf-437f-9b2a-e4d5d3f2646e' },
-        'tab-a',
-      ),
+    () => registry.refresh({ ...agent, tenantId: '4d600b19-f7cf-437f-9b2a-e4d5d3f2646e' }, 'tab-a'),
     /tenant context/i,
   );
 });
@@ -143,4 +139,42 @@ test('WebSocket auth without a token is closed before it can receive routing eve
   );
 
   assert.deepEqual(closed, [{ code: 4401, reason: 'workspace authentication required' }]);
+});
+
+test('a failed silent refresh disables new routing work without closing the visible session', async () => {
+  const sent: string[] = [];
+  const closed: unknown[] = [];
+  const registry = new WorkspaceSessionRegistry(() => new Date('2026-09-03T10:00:00.000Z'));
+  const gateway = new WorkspaceSessionGateway(
+    {
+      verifyAccessToken: async (token) => {
+        if (token === 'expired-refresh') throw new Error('expired');
+        return {
+          tenant_id: agent.tenantId,
+          dc_user_id: agent.userId,
+          sid: agent.sessionId,
+          exp: 1_788_430_200,
+          realm_access: { roles: ['agent'] },
+        };
+      },
+    },
+    registry,
+    () => new Date('2026-09-03T10:00:00.000Z'),
+  );
+  const adapter = new WorkspaceSessionWebSocketAdapter(gateway);
+  const socket = {
+    send: (message: string) => sent.push(message),
+    close: (code: number, reason: string) => closed.push({ code, reason }),
+  };
+
+  await adapter.handle(socket, { type: 'auth:connect', accessToken: 'valid', tabId: 'tab-a' });
+  await adapter.handle(socket, {
+    type: 'auth:refresh',
+    accessToken: 'expired-refresh',
+    tabId: 'tab-a',
+  });
+
+  assert.equal(closed.length, 0);
+  assert.equal(registry.canReceiveRoutingWork(agent.tenantId, agent.userId, 'tab-a'), false);
+  assert.match(sent.at(-1) ?? '', /reauthentication-required/);
 });

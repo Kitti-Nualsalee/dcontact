@@ -1,4 +1,4 @@
-import type { WorkspaceSessionGateway } from './workspace-session.js';
+import type { WorkspaceSession, WorkspaceSessionGateway } from './workspace-session.js';
 
 export interface WorkspaceSessionSocket {
   send(message: string): void;
@@ -13,9 +13,14 @@ export interface WorkspaceSessionSocketMessage {
 
 /** Shared WebSocket handshake adapter; tokens never travel in a query string. */
 export class WorkspaceSessionWebSocketAdapter {
+  private readonly authenticatedSessions = new WeakMap<WorkspaceSessionSocket, WorkspaceSession>();
+
   constructor(private readonly gateway: WorkspaceSessionGateway) {}
 
-  async handle(socket: WorkspaceSessionSocket, message: WorkspaceSessionSocketMessage): Promise<void> {
+  async handle(
+    socket: WorkspaceSessionSocket,
+    message: WorkspaceSessionSocketMessage,
+  ): Promise<void> {
     if (!message.accessToken || !message.tabId) {
       socket.close(4401, 'workspace authentication required');
       return;
@@ -25,8 +30,16 @@ export class WorkspaceSessionWebSocketAdapter {
         message.type === 'auth:connect'
           ? await this.gateway.connect({ accessToken: message.accessToken, tabId: message.tabId })
           : await this.gateway.refresh({ accessToken: message.accessToken, tabId: message.tabId });
+      this.authenticatedSessions.set(socket, session);
       socket.send(JSON.stringify({ type: 'workspace.session', session }));
     } catch {
+      const current = this.authenticatedSessions.get(socket);
+      if (message.type === 'auth:refresh' && current) {
+        const session = this.gateway.requireReauthentication(current);
+        this.authenticatedSessions.set(socket, session);
+        socket.send(JSON.stringify({ type: 'workspace.session', session }));
+        return;
+      }
       socket.close(4401, 'workspace authentication failed');
     }
   }
