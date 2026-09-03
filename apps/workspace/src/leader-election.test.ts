@@ -75,6 +75,22 @@ test('a tab can explicitly move the working lease without two leaders', () => {
   assert.equal(second.isWorkingTab(), true);
 });
 
+test('a previous leader does not overwrite a newer lease before BroadcastChannel delivery', () => {
+  const shared = harness();
+  const first = new WorkspaceTabLeaderElection(
+    'tab-a',
+    shared.storage,
+    shared.channel,
+    () => 1_000,
+  );
+  first.start();
+  shared.storage.write({ tabId: 'tab-b', heartbeatAt: 1_001 });
+
+  assert.equal(first.heartbeat(), false);
+  assert.equal(first.isWorkingTab(), false);
+  assert.equal(shared.storage.read()?.tabId, 'tab-b');
+});
+
 test('a stale heartbeat lets another tab recover the routing lease', () => {
   const shared = harness();
   let now = 1_000;

@@ -40,6 +40,15 @@ export class WorkspaceTabLeaderElection {
 
   heartbeat(): boolean {
     if (!this.leader) return this.claimIfAvailable();
+    const current = this.storage.read();
+    if (
+      current &&
+      current.tabId !== this.tabId &&
+      this.now() - current.heartbeatAt <= this.leaseMs
+    ) {
+      this.leader = false;
+      return false;
+    }
     const lease = { tabId: this.tabId, heartbeatAt: this.now() };
     this.storage.write(lease);
     this.channel.announce(lease);
