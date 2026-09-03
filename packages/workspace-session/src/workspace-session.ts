@@ -72,6 +72,30 @@ export interface OidcAccessTokenVerifier {
   verifyAccessToken(accessToken: string): Promise<VerifiedOidcClaims>;
 }
 
+export interface KeycloakVerifierOptions {
+  issuer: string;
+  audience: string;
+  jwksUri: string;
+}
+
+/** Verifies Keycloak access tokens for both REST and WebSocket adapters. */
+export class KeycloakAccessTokenVerifier implements OidcAccessTokenVerifier {
+  private readonly jwks: ReturnType<typeof createRemoteJWKSet>;
+
+  constructor(private readonly options: KeycloakVerifierOptions) {
+    this.jwks = createRemoteJWKSet(new URL(options.jwksUri));
+  }
+
+  async verifyAccessToken(accessToken: string): Promise<VerifiedOidcClaims> {
+    const { payload } = await jwtVerify(accessToken, this.jwks, {
+      issuer: this.options.issuer,
+      audience: this.options.audience,
+      typ: 'Bearer',
+    });
+    return payload as JWTPayload & VerifiedOidcClaims;
+  }
+}
+
 function isString(value: unknown): value is string {
   return typeof value === 'string';
 }
@@ -226,3 +250,4 @@ export class WorkspaceSessionGateway {
     return toVerifiedWorkspaceIdentity(claims, this.now());
   }
 }
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';

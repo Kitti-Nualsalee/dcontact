@@ -1,16 +1,16 @@
 {
-  "name": "@d-contact/workspace-session",
+  "name": "@d-contact/api",
   "version": "0.1.0",
   "private": true,
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "test": "tsx --test src/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/*.test.ts"
+    "dev": "tsx watch src/main.ts"
   },
   "dependencies": {
-    "jose": "^5.9.6"
+    "@d-contact/db": "workspace:*",
+    "@d-contact/workspace-session": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

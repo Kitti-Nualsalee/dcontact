@@ -7,6 +7,8 @@ import {
   toVerifiedWorkspaceIdentity,
   type VerifiedWorkspaceIdentity,
 } from './workspace-session.js';
+import { WorkspaceSessionHttpAdapter } from './http-session-adapter.js';
+import { WorkspaceSessionWebSocketAdapter } from './websocket-session-adapter.js';
 
 const agent: VerifiedWorkspaceIdentity = {
   tenantId: '4e342ec5-d35b-41ed-bd44-1cf47a41af4b',
@@ -121,4 +123,24 @@ test('the handshake verifies an access token before it enables routing', async (
 
   assert.equal(session.routingEnabled, true);
   assert.equal(session.tenantId, agent.tenantId);
+});
+
+test('the transport adapter rejects a browser-supplied session without a bearer token', async () => {
+  const adapter = new WorkspaceSessionHttpAdapter({} as WorkspaceSessionGateway);
+
+  const response = await adapter.connect({ tabId: 'tab-a' });
+
+  assert.deepEqual(response, { status: 401, body: { code: 'UNAUTHENTICATED' } });
+});
+
+test('WebSocket auth without a token is closed before it can receive routing events', async () => {
+  const closed: unknown[] = [];
+  const adapter = new WorkspaceSessionWebSocketAdapter({} as WorkspaceSessionGateway);
+
+  await adapter.handle(
+    { send: () => undefined, close: (code, reason) => closed.push({ code, reason }) },
+    { type: 'auth:connect', tabId: 'tab-a' },
+  );
+
+  assert.deepEqual(closed, [{ code: 4401, reason: 'workspace authentication required' }]);
 });
