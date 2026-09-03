@@ -22,6 +22,11 @@ services:
     image: redis:7-alpine
     ports:
       - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   minio:
     image: minio/minio:latest
@@ -34,12 +39,18 @@ services:
       - '9001:9001'
     volumes:
       - ./data/minio:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # สร้าง bucket "recordings" อัตโนมัติตอน start
   minio-init:
     image: minio/mc:latest
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     entrypoint: >
       /bin/sh -c "
       until mc alias set local http://minio:9000 dcontact dcontact-secret; do sleep 1; done;
@@ -75,7 +86,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      rpk topic create dc.telephony.events dc.channel.events dc.interaction.events dc.agent.events dc.telephony.commands dc.channel.commands
+      rpk topic create dc.telephony.events dc.channel.events dc.interaction.events dc.agent.events dc.telephony.commands dc.channel.commands dc.journey.events
       --brokers redpanda:29092 --topic-config retention.ms=604800000 || true;
       exit 0"
 
@@ -101,3 +112,8 @@ services:
     volumes:
       - ../freeswitch/conf:/etc/freeswitch
     restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'fs_cli -x status']
+      interval: 10s
+      timeout: 5s
+      retries: 12

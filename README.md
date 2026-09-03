@@ -53,14 +53,10 @@
 ```bash
 pnpm install
 
-# 1. infra: FreeSWITCH + Postgres + Redis + MinIO + Redpanda (Kafka)
+# 1. เริ่มและยืนยัน Phase 0 dev foundation ด้วยคำสั่งเดียว
+#    FreeSWITCH + Postgres + Redis + MinIO + Redpanda (Kafka) + database baseline
 #    Redpanda Console (ดู topics/messages): http://localhost:8085
-pnpm infra:up
-
-# 2. database
-pnpm db:migrate      # สร้าง schema
-pnpm db:rls          # ติดตั้ง Row-Level Security policies
-pnpm db:seed         # tenant "demo" + agent 1000/1001 + queue
+pnpm infra:ready
 
 # 3. build ทั้งหมด (วันนี้ = packages/shared + kafka + db)
 pnpm build
@@ -89,6 +85,19 @@ python3 -m http.server 8090 --directory mockups
 > (ตั้งใน `infra/freeswitch/conf/vars.xml`) เพื่อให้ browser บน host ส่ง media ผ่าน
 > published UDP ports ได้ ถ้าเสียงไม่มา ให้ตรวจว่า port `16384-16420/udp` ถูก publish
 > และไม่มี firewall ขวาง — บน Linux เปลี่ยน `external_rtp_ip` เป็น IP จริงของเครื่อง
+
+### ตรวจและแก้ปัญหา dev infrastructure
+
+`pnpm infra:ready` คือ entry condition ก่อนเริ่ม ticket ของ Phase 1: เริ่ม Docker, ทำ database
+baseline และรัน `pnpm infra:check` ซึ่งตรวจ
+PostgreSQL, Redis, MinIO (รวม bucket `recordings`), Redpanda และ FreeSWITCH จาก interface
+ที่ service ใช้งานจริง
+
+- ถ้า Docker service ใดยังไม่พร้อม ให้ดูสถานะของ Docker Compose แล้วรัน `pnpm infra:up` ซ้ำ
+- ถ้า PostgreSQL ไม่พร้อมหลังเคยหยุด Docker นาน ให้รอ health check ผ่านก่อนรัน migration
+- ถ้า MinIO หรือ bucket ไม่ผ่าน ให้ตรวจว่า port 9000 ไม่ถูกใช้งานโดยโปรแกรมอื่น และ volume ของ dev เขียนได้
+- ถ้า Redpanda topic หาย ให้ตรวจ health ของ Redpanda ก่อน ไม่สร้าง topic ชื่อเก่า `dc.fs.events`
+- ถ้า FreeSWITCH ไม่ผ่าน ให้ตรวจ Docker log ของ service และ port SIP/ESL ที่ประกาศไว้; ปัญหาเสียงบน Docker Desktop ให้ตรวจ UDP RTP ตามหมายเหตุด้านบน
 
 ## Credentials (dev seed — ใช้กับฐานข้อมูล ยังไม่มี API ให้ login)
 
