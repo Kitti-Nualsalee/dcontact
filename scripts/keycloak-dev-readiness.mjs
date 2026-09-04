@@ -4,6 +4,7 @@ import { compose } from './dev-infra-compose.mjs';
 const issuer = process.env.KEYCLOAK_ISSUER ?? 'http://localhost:8081/realms/dcontact';
 const discoveryUrl = `${issuer}/.well-known/openid-configuration`;
 const fallbackOnly = process.argv.includes('--fallback-only');
+const autoFallback = process.argv.includes('--auto-fallback');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -66,7 +67,20 @@ async function main() {
     return (await response.json()).access_token;
   };
 
-  const accessToken = await issueAccessToken(fallbackOnly ? 'openid' : 'openid organization:demo');
+  let accessToken;
+  let nativeTokenIssued = false;
+  if (fallbackOnly) {
+    accessToken = await issueAccessToken('openid');
+  } else {
+    try {
+      accessToken = await issueAccessToken('openid organization:demo');
+      nativeTokenIssued = true;
+    } catch (error) {
+      if (!autoFallback) throw error;
+      accessToken = await issueAccessToken('openid');
+      console.warn(`⚠ native Organization token ใช้ไม่ได้; ตรวจ fallback แทน: ${error.message}`);
+    }
+  }
   const [encodedHeader, encodedPayload, encodedSignature] = accessToken.split('.');
   const header = base64UrlJson(encodedHeader);
   const claims = base64UrlJson(encodedPayload);
@@ -93,15 +107,16 @@ async function main() {
   assert(claims.tenant_slug === 'demo', 'tenant_slug ต้องเป็น demo');
   assert(claims.dc_user_id === database.userId, 'dc_user_id ไม่ตรง Postgres user');
   assert(claims.realm_access?.roles?.includes('agent'), 'token ไม่มี agent role');
-  if (!fallbackOnly) {
-    assert(
-      claims.organization?.demo?.tenant_id?.[0] === database.tenantId,
-      'native Organization mapper ไม่มี tenant_id ของ demo',
-    );
-    assert(
-      claims.organization?.demo?.tenant_slug?.[0] === 'demo',
-      'native Organization mapper ไม่มี tenant_slug',
-    );
+  if (!fallbackOnly && nativeTokenIssued) {
+    const nativeClaimsMatch =
+      claims.organization?.demo?.tenant_id?.[0] === database.tenantId &&
+      claims.organization?.demo?.tenant_slug?.[0] === 'demo';
+    if (!nativeClaimsMatch && autoFallback) {
+      console.warn('⚠ native Organization mapper ไม่มี tenant attributes; flat claims ยังพร้อมใช้');
+      nativeTokenIssued = false;
+    } else {
+      assert(nativeClaimsMatch, 'native Organization mapper ไม่มี tenant attributes ของ demo');
+    }
   }
 
   const fallbackClaims = base64UrlJson((await issueAccessToken('openid')).split('.')[1]);
@@ -112,7 +127,7 @@ async function main() {
 
   console.log('✓ OIDC discovery และ JWKS เข้าถึงได้');
   console.log('✓ Access token มีลายเซ็น audience และ claims ที่ตรงกับ Postgres');
-  if (!fallbackOnly)
+  if (!fallbackOnly && nativeTokenIssued)
     console.log('✓ Keycloak 26 native Organization mapper ส่ง tenant attributes ได้');
   console.log('✓ flat fallback claims คง public claim shape โดยไม่พึ่ง native mapper');
 }

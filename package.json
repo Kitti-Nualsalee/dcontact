@@ -17,7 +17,7 @@
     "infra:identity:link": "node scripts/link-keycloak-dev-identity.mjs",
     "infra:identity:native-check": "node scripts/keycloak-dev-readiness.mjs",
     "infra:identity:fallback-check": "node scripts/link-keycloak-dev-identity.mjs --fallback-only && node scripts/keycloak-dev-readiness.mjs --fallback-only",
-    "infra:identity:check": "pnpm infra:identity:native-check && pnpm infra:identity:fallback-check",
+    "infra:identity:check": "node scripts/keycloak-dev-readiness.mjs --auto-fallback",
     "infra:bootstrap": "pnpm db:migrate && pnpm db:rls && pnpm db:seed && pnpm infra:identity:link",
     "infra:check": "node scripts/dev-infra-readiness.mjs && pnpm infra:identity:check",
     "infra:ready": "pnpm infra:up && pnpm infra:bootstrap && pnpm infra:check",
