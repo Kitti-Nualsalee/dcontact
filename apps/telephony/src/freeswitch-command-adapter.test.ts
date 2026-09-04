@@ -8,9 +8,16 @@ test('call.bridge bridges the parked UUID to the assigned softphone extension', 
     command: async (value) => {
       commands.push(value);
     },
-  });
+  }, 'dcontact.local', 'fs-bkk-02');
   await adapter.handle({
-    callUuid: 'call-100', vendor: 'freeswitch', type: 'call.bridge', agentExtension: '1000',
+    callUuid: 'call-100', vendor: 'freeswitch', telephonyNodeId: 'fs-bkk-02', type: 'call.bridge', agentExtension: '1000',
   });
   assert.deepEqual(commands, ['api uuid_bridge call-100 user/1000@dcontact.local']);
+});
+
+test('a command for another FreeSWITCH node is ignored', async () => {
+  const commands: string[] = [];
+  const adapter = new FreeSwitchCommandAdapter({ command: async (value) => { commands.push(value); } }, 'dcontact.local', 'fs-bkk-02');
+  await adapter.handle({ callUuid: 'call-100', vendor: 'freeswitch', telephonyNodeId: 'fs-bkk-03', type: 'call.bridge', agentExtension: '1000' });
+  assert.deepEqual(commands, []);
 });

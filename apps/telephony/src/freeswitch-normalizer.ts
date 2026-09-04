@@ -11,6 +11,7 @@ export interface FreeSwitchEvent {
 
 export interface FreeSwitchNormalizationDependencies {
   resolveTenantId(sipDomain: string): string | undefined;
+  telephonyNodeId: string;
   eventId(): string;
   now(): string;
 }
@@ -63,6 +64,6 @@ export function normalizeFreeSwitchEvent(
     occurredAt,
     correlationId: callUuid,
     orderingKey: callUuid,
-    payload: { callUuid, vendor: 'freeswitch', caller, destination },
+    payload: { callUuid, vendor: 'freeswitch', telephonyNodeId: dependencies.telephonyNodeId, caller, destination },
   };
 }

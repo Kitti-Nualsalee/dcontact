@@ -73,7 +73,7 @@ test('call.created assigns one available tenant agent and duplicate input has no
     occurredAt: '2026-09-04T05:10:00.000Z',
     correlationId: callUuid,
     orderingKey: callUuid,
-    payload: { callUuid, vendor: 'freeswitch', caller: '1002', destination: '2000' },
+    payload: { callUuid, vendor: 'freeswitch', telephonyNodeId: 'fs-bkk-02', caller: '1002', destination: '2000' },
   } satisfies {
     eventId: string;
     type: 'call.created';
@@ -94,7 +94,7 @@ test('call.created assigns one available tenant agent and duplicate input has no
   assert.equal(published.filter((message) => message.type === 'routing.offered').length, 1);
   assert.deepEqual(
     published.find((message) => message.topic === KAFKA_TOPICS.TELEPHONY_COMMANDS)?.payload,
-    { callUuid, vendor: 'freeswitch', type: 'call.bridge', agentExtension: '1000' },
+    { callUuid, vendor: 'freeswitch', telephonyNodeId: 'fs-bkk-02', type: 'call.bridge', agentExtension: '1000' },
   );
 
   const answered = await router.handle({

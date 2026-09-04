@@ -5,6 +5,8 @@ export type TelephonyCallEventType = 'call.created' | 'call.answered' | 'call.ha
 export interface TelephonyCallEvent extends Record<string, unknown> {
   callUuid: string;
   vendor: TelephonyVendor;
+  /** node ที่ครอบครอง media session นี้; tenant ไม่ได้ผูกกับ node */
+  telephonyNodeId: string;
   caller: string;
   destination: string;
 }
@@ -12,6 +14,8 @@ export interface TelephonyCallEvent extends Record<string, unknown> {
 export interface TelephonyCommand extends Record<string, unknown> {
   callUuid: string;
   vendor: TelephonyVendor;
+  /** command ต้องกลับไป node เดียวกับ event ต้นทาง */
+  telephonyNodeId: string;
   type: 'call.bridge';
   agentExtension: string;
 }

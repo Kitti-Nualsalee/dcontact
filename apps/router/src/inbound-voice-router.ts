@@ -72,6 +72,7 @@ export class InboundVoiceRouter {
             externalId: event.payload.callUuid,
             metadata: {
               vendor: event.payload.vendor,
+              telephonyNodeId: event.payload.telephonyNodeId,
               caller: event.payload.caller,
               destination: event.payload.destination,
             },
@@ -153,6 +154,7 @@ export class InboundVoiceRouter {
       const command: TelephonyCommand = {
         callUuid: event.payload.callUuid,
         vendor: event.payload.vendor,
+        telephonyNodeId: event.payload.telephonyNodeId,
         type: 'call.bridge',
         agentExtension: result.agentExtension,
       };

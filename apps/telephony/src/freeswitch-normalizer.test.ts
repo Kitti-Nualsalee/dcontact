@@ -13,6 +13,7 @@ test('CHANNEL_CREATE becomes a tenant-bound vendor-neutral call.created envelope
     },
     {
       resolveTenantId: (sipDomain) => (sipDomain === 'dcontact.local' ? 'tenant-demo' : undefined),
+      telephonyNodeId: 'fs-bkk-02',
       eventId: () => 'event-100',
       now: () => '2026-09-04T05:00:00.000Z',
     },
@@ -28,6 +29,7 @@ test('CHANNEL_CREATE becomes a tenant-bound vendor-neutral call.created envelope
     payload: {
       callUuid: 'call-100',
       vendor: 'freeswitch',
+      telephonyNodeId: 'fs-bkk-02',
       caller: '1002',
       destination: '2000',
     },
