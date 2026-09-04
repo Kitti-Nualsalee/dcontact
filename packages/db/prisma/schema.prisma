@@ -312,7 +312,7 @@ model Interaction {
   recordings   Recording[]
 
   @@index([tenantId, queuedAt])
-  @@index([tenantId, externalId])
+  @@unique([tenantId, externalId])
   @@index([tenantId, conversationId, queuedAt])
   @@index([tenantId, reopenedFromInteractionId])
   @@map("interactions")
