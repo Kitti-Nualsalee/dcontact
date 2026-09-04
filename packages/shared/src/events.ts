@@ -44,6 +44,8 @@ export interface InteractionEvent extends BaseEvent {
     | 'interaction.queued'
     | 'interaction.assigned'
     | 'interaction.answered'
+    | 'interaction.offer_declined'
+    | 'interaction.offer_timed_out'
     | 'interaction.ended'
     | 'interaction.abandoned'
     | 'interaction.wrapup_completed';

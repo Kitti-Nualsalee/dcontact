@@ -30,6 +30,10 @@ interface CreateVoiceQueueBody {
   name?: unknown;
   slaThresholdSec?: unknown;
   maxWaitSec?: unknown;
+  offerTimeoutSec?: unknown;
+  offerTimeoutAction?: unknown;
+  offerCooldownSec?: unknown;
+  maxWaitAction?: unknown;
   priority?: unknown;
 }
 
@@ -72,6 +76,18 @@ function optionalBoolean(value: unknown, field: string): boolean | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'boolean') throw new BadRequestException(`${field} must be a boolean`);
   return value;
+}
+
+function optionalEnum<T extends string>(
+  value: unknown,
+  field: string,
+  values: readonly T[],
+): T | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !values.includes(value as T)) {
+    throw new BadRequestException(`${field} must be one of ${values.join(', ')}`);
+  }
+  return value as T;
 }
 
 function requiredIdentifier(value: unknown, field: string): string {
@@ -117,6 +133,14 @@ export class QueueController {
       name: requiredName(body.name),
       slaThresholdSec: optionalInteger(body.slaThresholdSec, 'slaThresholdSec', 1),
       maxWaitSec: optionalNullableInteger(body.maxWaitSec, 'maxWaitSec', 1),
+      offerTimeoutSec: optionalInteger(body.offerTimeoutSec, 'offerTimeoutSec', 1),
+      offerTimeoutAction: optionalEnum(body.offerTimeoutAction, 'offerTimeoutAction', [
+        'IMMEDIATE_REQUEUE',
+        'COOLDOWN_REQUEUE',
+        'ABANDON',
+      ]),
+      offerCooldownSec: optionalInteger(body.offerCooldownSec, 'offerCooldownSec', 1),
+      maxWaitAction: optionalEnum(body.maxWaitAction, 'maxWaitAction', ['REQUEUE', 'ABANDON']),
       priority: optionalInteger(body.priority, 'priority', 0),
     });
   }
@@ -138,6 +162,14 @@ export class QueueController {
         name: body.name === undefined ? undefined : requiredName(body.name),
         slaThresholdSec: optionalInteger(body.slaThresholdSec, 'slaThresholdSec', 1),
         maxWaitSec: optionalNullableInteger(body.maxWaitSec, 'maxWaitSec', 1),
+        offerTimeoutSec: optionalInteger(body.offerTimeoutSec, 'offerTimeoutSec', 1),
+        offerTimeoutAction: optionalEnum(body.offerTimeoutAction, 'offerTimeoutAction', [
+          'IMMEDIATE_REQUEUE',
+          'COOLDOWN_REQUEUE',
+          'ABANDON',
+        ]),
+        offerCooldownSec: optionalInteger(body.offerCooldownSec, 'offerCooldownSec', 1),
+        maxWaitAction: optionalEnum(body.maxWaitAction, 'maxWaitAction', ['REQUEUE', 'ABANDON']),
         priority: optionalInteger(body.priority, 'priority', 0),
         isActive: optionalBoolean(body.isActive, 'isActive'),
       });

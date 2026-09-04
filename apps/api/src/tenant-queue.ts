@@ -12,6 +12,10 @@ export interface CreateVoiceQueueCommand {
   name: string;
   slaThresholdSec?: number;
   maxWaitSec?: number | null;
+  offerTimeoutSec?: number;
+  offerTimeoutAction?: 'IMMEDIATE_REQUEUE' | 'COOLDOWN_REQUEUE' | 'ABANDON';
+  offerCooldownSec?: number;
+  maxWaitAction?: 'REQUEUE' | 'ABANDON';
   priority?: number;
 }
 
@@ -22,6 +26,10 @@ export interface UpdateVoiceQueueCommand {
   name?: string;
   slaThresholdSec?: number;
   maxWaitSec?: number | null;
+  offerTimeoutSec?: number;
+  offerTimeoutAction?: 'IMMEDIATE_REQUEUE' | 'COOLDOWN_REQUEUE' | 'ABANDON';
+  offerCooldownSec?: number;
+  maxWaitAction?: 'REQUEUE' | 'ABANDON';
   priority?: number;
   isActive?: boolean;
 }
@@ -47,6 +55,10 @@ const queueMetadataSelection = {
   channels: true,
   slaThresholdSec: true,
   maxWaitSec: true,
+  offerTimeoutSec: true,
+  offerTimeoutAction: true,
+  offerCooldownSec: true,
+  maxWaitAction: true,
   priority: true,
   isActive: true,
 } as const;
@@ -107,6 +119,10 @@ export function createVoiceQueue(database: PrismaClient, command: CreateVoiceQue
         channels: ['VOICE'],
         slaThresholdSec: command.slaThresholdSec,
         maxWaitSec: command.maxWaitSec,
+        offerTimeoutSec: command.offerTimeoutSec,
+        offerTimeoutAction: command.offerTimeoutAction,
+        offerCooldownSec: command.offerCooldownSec,
+        maxWaitAction: command.maxWaitAction,
         priority: command.priority,
       },
       select: queueMetadataSelection,
@@ -136,6 +152,10 @@ export function updateVoiceQueue(database: PrismaClient, command: UpdateVoiceQue
         name: command.name,
         slaThresholdSec: command.slaThresholdSec,
         maxWaitSec: command.maxWaitSec,
+        offerTimeoutSec: command.offerTimeoutSec,
+        offerTimeoutAction: command.offerTimeoutAction,
+        offerCooldownSec: command.offerCooldownSec,
+        maxWaitAction: command.maxWaitAction,
         priority: command.priority,
         isActive: command.isActive,
       },

@@ -61,6 +61,10 @@ test('admin creates a voice queue and reads its metadata in the same tenant', as
     name,
     slaThresholdSec: 30,
     maxWaitSec: 180,
+    offerTimeoutSec: 20,
+    offerTimeoutAction: 'COOLDOWN_REQUEUE',
+    offerCooldownSec: 60,
+    maxWaitAction: 'ABANDON',
     priority: 4,
   });
 
@@ -70,6 +74,10 @@ test('admin creates a voice queue and reads its metadata in the same tenant', as
     channels: ['VOICE'],
     slaThresholdSec: 30,
     maxWaitSec: 180,
+    offerTimeoutSec: 20,
+    offerTimeoutAction: 'COOLDOWN_REQUEUE',
+    offerCooldownSec: 60,
+    maxWaitAction: 'ABANDON',
     priority: 4,
     isActive: true,
   });
@@ -129,6 +137,10 @@ test('admin updates and disables only a queue in the authenticated tenant', asyn
     name: `Updated ${tenantId.slice(0, 8)}`,
     slaThresholdSec: 45,
     maxWaitSec: 240,
+    offerTimeoutSec: 20,
+    offerTimeoutAction: 'COOLDOWN_REQUEUE',
+    offerCooldownSec: 60,
+    maxWaitAction: 'ABANDON',
     priority: 8,
     isActive: false,
   });
@@ -139,6 +151,10 @@ test('admin updates and disables only a queue in the authenticated tenant', asyn
     channels: ['VOICE'],
     slaThresholdSec: 45,
     maxWaitSec: 240,
+    offerTimeoutSec: 20,
+    offerTimeoutAction: 'COOLDOWN_REQUEUE',
+    offerCooldownSec: 60,
+    maxWaitAction: 'ABANDON',
     priority: 8,
     isActive: false,
   });

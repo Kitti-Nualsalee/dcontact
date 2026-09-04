@@ -18,10 +18,23 @@ async function main() {
     topics: [KAFKA_TOPICS.TELEPHONY_EVENTS],
     idempotency: createInMemoryIdempotencyStore(),
     handler: async ({ event }) => {
-      if (event.type === 'call.created' || event.type === 'call.answered') await router.handle(event);
+      if (
+        event.type === 'call.created' ||
+        event.type === 'call.answered' ||
+        event.type === 'call.hangup'
+      ) {
+        await router.handle(event);
+      }
     },
   });
+  const dueTimer = setInterval(() => {
+    void router.processDue().catch((error: unknown) => {
+      console.error('router due-work failed', error);
+    });
+  }, 1_000);
+  dueTimer.unref();
   const shutdown = async () => {
+    clearInterval(dueTimer);
     await Promise.all([consumer.disconnect(), producer.disconnect(), database.$disconnect()]);
     process.exit(0);
   };

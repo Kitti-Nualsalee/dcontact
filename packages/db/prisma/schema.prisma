@@ -85,6 +85,17 @@ enum ChannelType {
   EMAIL
 }
 
+enum QueueOfferTimeoutAction {
+  IMMEDIATE_REQUEUE
+  COOLDOWN_REQUEUE
+  ABANDON
+}
+
+enum QueueMaxWaitAction {
+  REQUEUE
+  ABANDON
+}
+
 model Queue {
   id              String        @id @default(uuid()) @db.Uuid
   tenantId        String        @map("tenant_id") @db.Uuid
@@ -93,6 +104,10 @@ model Queue {
   channels        ChannelType[]
   slaThresholdSec Int           @default(20) @map("sla_threshold_sec")
   maxWaitSec      Int?          @map("max_wait_sec")
+  offerTimeoutSec Int           @default(20) @map("offer_timeout_sec")
+  offerTimeoutAction QueueOfferTimeoutAction @default(COOLDOWN_REQUEUE) @map("offer_timeout_action")
+  offerCooldownSec Int          @default(60) @map("offer_cooldown_sec")
+  maxWaitAction   QueueMaxWaitAction @default(ABANDON) @map("max_wait_action")
   priority        Int           @default(0)
   isActive        Boolean       @default(true) @map("is_active")
   createdAt       DateTime      @default(now()) @map("created_at")
@@ -299,6 +314,8 @@ model Interaction {
   assignedAt DateTime? @map("assigned_at")
   answeredAt DateTime? @map("answered_at")
   endedAt    DateTime? @map("ended_at")
+  offerExpiresAt DateTime? @map("offer_expires_at")
+  requeueAt      DateTime? @map("requeue_at")
 
   tenant       Tenant             @relation(fields: [tenantId], references: [id])
   queue        Queue?             @relation(fields: [queueId], references: [id])
