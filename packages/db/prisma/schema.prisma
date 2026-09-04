@@ -18,18 +18,22 @@ model Tenant {
   defaultOfferTimeoutAction QueueOfferTimeoutAction @default(COOLDOWN_REQUEUE) @map("default_offer_timeout_action")
   defaultOfferCooldownSec   Int                     @default(60) @map("default_offer_cooldown_sec")
   defaultMaxWaitSec         Int?                    @map("default_max_wait_sec")
-  defaultMaxWaitAction      QueueMaxWaitAction     @default(VOICEMAIL) @map("default_max_wait_action")
+  defaultMaxWaitAction      QueueMaxWaitAction      @default(VOICEMAIL) @map("default_max_wait_action")
   createdAt                 DateTime                @default(now()) @map("created_at")
 
-  users             User[]
-  teams             Team[]
-  queues            Queue[]
-  voiceDestinations VoiceDestination[]
-  queueAuditEvents  QueueAuditEvent[]
-  skills            Skill[]
-  contacts          Contact[]
-  interactions      Interaction[]
-  conversations     Conversation[]
+  users               User[]
+  teams               Team[]
+  queues              Queue[]
+  voiceDestinations   VoiceDestination[]
+  queueAuditEvents    QueueAuditEvent[]
+  skills              Skill[]
+  contacts            Contact[]
+  interactions        Interaction[]
+  conversations       Conversation[]
+  qmTranscriptionJobs QmTranscriptionJob[]
+  qmAuditEvents       QmAuditEvent[]
+  qmTranscripts       QmTranscript[]
+  qmEvaluations       QmEvaluation[]
 
   @@map("tenants")
 }
@@ -72,7 +76,7 @@ model Team {
   tenantId String @map("tenant_id") @db.Uuid
   name     String
 
-  tenant  Tenant @relation(fields: [tenantId], references: [id])
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
   members User[]
   queues  Queue[]
 
@@ -109,31 +113,41 @@ enum QueueRoutingStrategy {
   ROUND_ROBIN
 }
 
+enum QueueTranscriptionMode {
+  OFF
+  AUTOMATIC
+  MANUAL
+}
+
 model Queue {
-  id              String        @id @default(uuid()) @db.Uuid
-  tenantId        String        @map("tenant_id") @db.Uuid
-  name            String
+  id                            String                   @id @default(uuid()) @db.Uuid
+  tenantId                      String                   @map("tenant_id") @db.Uuid
+  name                          String
   // universal queue: รองรับหลาย channel ใน queue เดียว
-  channels        ChannelType[]
-  slaThresholdSec Int           @default(20) @map("sla_threshold_sec")
-  maxWaitSec      Int?                   @map("max_wait_sec")
-  offerTimeoutSec Int?                   @map("offer_timeout_sec")
-  offerTimeoutAction QueueOfferTimeoutAction? @map("offer_timeout_action")
-  offerCooldownSec Int?                  @map("offer_cooldown_sec")
-  maxWaitAction   QueueMaxWaitAction?    @map("max_wait_action")
-  routingStrategy QueueRoutingStrategy   @default(LONGEST_AVAILABLE_IDLE) @map("routing_strategy")
-  priority        Int           @default(0)
-  teamId          String?       @map("team_id") @db.Uuid
-  isActive        Boolean       @default(true) @map("is_active")
-  recordingEnabled          Boolean @default(false) @map("recording_enabled")
-  recordingAnnouncement     String? @map("recording_announcement")
-  recordingAnnouncementLanguage String? @map("recording_announcement_language")
-  recordingPauseResumeEnabled Boolean @default(false) @map("recording_pause_resume_enabled")
-  recordingAgentSelfAccess    Boolean @default(false) @map("recording_agent_self_access")
-  recordingDownloadAllowed    Boolean @default(false) @map("recording_download_allowed")
-  recordingRetentionDays      Int?    @map("recording_retention_days")
-  recordingChannelLayout      RecordingChannelLayout @default(STEREO) @map("recording_channel_layout")
-  createdAt       DateTime      @default(now()) @map("created_at")
+  channels                      ChannelType[]
+  slaThresholdSec               Int                      @default(20) @map("sla_threshold_sec")
+  maxWaitSec                    Int?                     @map("max_wait_sec")
+  offerTimeoutSec               Int?                     @map("offer_timeout_sec")
+  offerTimeoutAction            QueueOfferTimeoutAction? @map("offer_timeout_action")
+  offerCooldownSec              Int?                     @map("offer_cooldown_sec")
+  maxWaitAction                 QueueMaxWaitAction?      @map("max_wait_action")
+  routingStrategy               QueueRoutingStrategy     @default(LONGEST_AVAILABLE_IDLE) @map("routing_strategy")
+  priority                      Int                      @default(0)
+  teamId                        String?                  @map("team_id") @db.Uuid
+  isActive                      Boolean                  @default(true) @map("is_active")
+  recordingEnabled              Boolean                  @default(false) @map("recording_enabled")
+  recordingAnnouncement         String?                  @map("recording_announcement")
+  recordingAnnouncementLanguage String?                  @map("recording_announcement_language")
+  recordingPauseResumeEnabled   Boolean                  @default(false) @map("recording_pause_resume_enabled")
+  recordingAgentSelfAccess      Boolean                  @default(false) @map("recording_agent_self_access")
+  recordingDownloadAllowed      Boolean                  @default(false) @map("recording_download_allowed")
+  recordingRetentionDays        Int?                     @map("recording_retention_days")
+  recordingChannelLayout        RecordingChannelLayout   @default(STEREO) @map("recording_channel_layout")
+  transcriptionMode             QueueTranscriptionMode   @default(OFF) @map("transcription_mode")
+  transcriptionLanguage         String                   @default("th-TH") @map("transcription_language")
+  transcriptionMaxAttempts      Int                      @default(3) @map("transcription_max_attempts")
+  autoQmEnabled                 Boolean                  @default(false) @map("auto_qm_enabled")
+  createdAt                     DateTime                 @default(now()) @map("created_at")
 
   tenant            Tenant             @relation(fields: [tenantId], references: [id])
   team              Team?              @relation(fields: [teamId], references: [id])
@@ -248,14 +262,14 @@ enum AgentStateType {
 
 // append-only log ของทุกการเปลี่ยน state — ใช้ทำ reporting (occupancy, adherence)
 model AgentStateLog {
-  id        BigInt         @id @default(autoincrement())
-  tenantId  String         @map("tenant_id") @db.Uuid
-  userId    String         @map("user_id") @db.Uuid
-  state     AgentStateType
-  reason    String?
-  actorUserId String?       @map("actor_user_id") @db.Uuid
-  startedAt DateTime       @default(now()) @map("started_at")
-  endedAt   DateTime?      @map("ended_at")
+  id          BigInt         @id @default(autoincrement())
+  tenantId    String         @map("tenant_id") @db.Uuid
+  userId      String         @map("user_id") @db.Uuid
+  state       AgentStateType
+  reason      String?
+  actorUserId String?        @map("actor_user_id") @db.Uuid
+  startedAt   DateTime       @default(now()) @map("started_at")
+  endedAt     DateTime?      @map("ended_at")
 
   user User @relation(fields: [userId], references: [id])
 
@@ -343,30 +357,33 @@ model Interaction {
   wrapUpCode                String?              @map("wrap_up_code")
   metadata                  Json?
 
-  queuedAt   DateTime  @default(now()) @map("queued_at")
-  assignedAt DateTime? @map("assigned_at")
-  answeredAt DateTime? @map("answered_at")
-  endedAt    DateTime? @map("ended_at")
-  offerExpiresAt DateTime? @map("offer_expires_at")
-  requeueAt      DateTime? @map("requeue_at")
-  ivrDestinationId    String?       @map("ivr_destination_id") @db.Uuid
-  ivrStage            IvrInputStage? @map("ivr_stage")
-  ivrAttempts         Int           @default(0) @map("ivr_attempts")
-  ivrInputExpiresAt   DateTime?     @map("ivr_input_expires_at")
+  queuedAt          DateTime       @default(now()) @map("queued_at")
+  assignedAt        DateTime?      @map("assigned_at")
+  answeredAt        DateTime?      @map("answered_at")
+  endedAt           DateTime?      @map("ended_at")
+  offerExpiresAt    DateTime?      @map("offer_expires_at")
+  requeueAt         DateTime?      @map("requeue_at")
+  ivrDestinationId  String?        @map("ivr_destination_id") @db.Uuid
+  ivrStage          IvrInputStage? @map("ivr_stage")
+  ivrAttempts       Int            @default(0) @map("ivr_attempts")
+  ivrInputExpiresAt DateTime?      @map("ivr_input_expires_at")
 
-  tenant       Tenant             @relation(fields: [tenantId], references: [id])
-  queue        Queue?             @relation(fields: [queueId], references: [id])
-  agent        User?              @relation(fields: [agentId], references: [id])
-  contact      Contact?           @relation(fields: [contactId], references: [id])
-  conversation Conversation?      @relation(fields: [conversationId], references: [id])
-  reopenedFrom Interaction?       @relation("InteractionReopenChain", fields: [reopenedFromInteractionId], references: [id])
-  reopenedBy   Interaction[]      @relation("InteractionReopenChain")
-  events       InteractionEvent[]
-  messages     Message[]
-  recordings   Recording[]
+  tenant              Tenant               @relation(fields: [tenantId], references: [id])
+  queue               Queue?               @relation(fields: [queueId], references: [id])
+  agent               User?                @relation(fields: [agentId], references: [id])
+  contact             Contact?             @relation(fields: [contactId], references: [id])
+  conversation        Conversation?        @relation(fields: [conversationId], references: [id])
+  reopenedFrom        Interaction?         @relation("InteractionReopenChain", fields: [reopenedFromInteractionId], references: [id])
+  reopenedBy          Interaction[]        @relation("InteractionReopenChain")
+  events              InteractionEvent[]
+  messages            Message[]
+  recordings          Recording[]
+  qmTranscriptionJobs QmTranscriptionJob[]
+  qmTranscripts       QmTranscript[]
+  qmEvaluations       QmEvaluation[]
 
-  @@index([tenantId, queuedAt])
   @@unique([tenantId, externalId])
+  @@index([tenantId, queuedAt])
   @@index([tenantId, conversationId, queuedAt])
   @@index([tenantId, reopenedFromInteractionId])
   @@index([tenantId, ivrInputExpiresAt])
@@ -547,26 +564,28 @@ enum RecordingAuditAction {
 }
 
 model Recording {
-  id            String                 @id @default(uuid()) @db.Uuid
-  tenantId      String                 @map("tenant_id") @db.Uuid
-  interactionId String                 @map("interaction_id") @db.Uuid
+  id             String                 @id @default(uuid()) @db.Uuid
+  tenantId       String                 @map("tenant_id") @db.Uuid
+  interactionId  String                 @map("interaction_id") @db.Uuid
   // key ใน object storage (MinIO/S3)
-  storageKey    String                 @map("storage_key")
+  storageKey     String                 @map("storage_key")
   // path บน telephony node สำหรับคำสั่ง pause/resume; ไม่เปิดให้ browser ใช้
-  telephonyPath String                 @map("telephony_path")
-  channelLayout RecordingChannelLayout @default(STEREO) @map("channel_layout")
-  pauseIntervals Json                  @default("[]") @map("pause_intervals")
-  durationSec   Int?                   @map("duration_sec")
-  startedAt     DateTime               @map("started_at")
-  endedAt       DateTime?              @map("ended_at")
-  deletedAt     DateTime?              @map("deleted_at")
+  telephonyPath  String                 @map("telephony_path")
+  channelLayout  RecordingChannelLayout @default(STEREO) @map("channel_layout")
+  pauseIntervals Json                   @default("[]") @map("pause_intervals")
+  durationSec    Int?                   @map("duration_sec")
+  startedAt      DateTime               @map("started_at")
+  endedAt        DateTime?              @map("ended_at")
+  deletedAt      DateTime?              @map("deleted_at")
 
-  interaction Interaction           @relation(fields: [interactionId], references: [id])
-  auditEvents  RecordingAuditEvent[]
-  legalHolds   RecordingLegalHold[]
+  interaction         Interaction           @relation(fields: [interactionId], references: [id])
+  auditEvents         RecordingAuditEvent[]
+  legalHolds          RecordingLegalHold[]
+  qmTranscriptionJobs QmTranscriptionJob[]
+  qmTranscripts       QmTranscript[]
 
-  @@index([tenantId, interactionId])
   @@unique([tenantId, interactionId])
+  @@index([tenantId, interactionId])
   @@index([tenantId, deletedAt])
   @@map("recordings")
 }
@@ -601,4 +620,158 @@ model RecordingLegalHold {
 
   @@index([tenantId, recordingId, releasedAt])
   @@map("recording_legal_holds")
+}
+
+// ─────────────────────────── Quality Management ───────────────────────────
+
+enum QmTranscriptionStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum QmTranscriptionTrigger {
+  AUTOMATIC
+  MANUAL
+}
+
+enum QmAuditAction {
+  TRANSCRIPTION_REQUESTED
+  TRANSCRIPTION_STARTED
+  TRANSCRIPTION_RETRY_SCHEDULED
+  TRANSCRIPTION_FAILED
+  TRANSCRIPTION_READY
+  AUTO_QM_DRAFT_CREATED
+  TRANSCRIPT_ACCESSED
+  EVALUATION_PUBLISHED
+}
+
+enum QmTranscriptSpeaker {
+  AGENT
+  CONTACT
+  SYSTEM
+  IVR
+}
+
+enum QmEvaluationSource {
+  AUTO_DRAFT
+  HUMAN
+}
+
+enum QmEvaluationStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model QmTranscriptionJob {
+  id            String                 @id @default(uuid()) @db.Uuid
+  tenantId      String                 @map("tenant_id") @db.Uuid
+  interactionId String                 @map("interaction_id") @db.Uuid
+  recordingId   String                 @map("recording_id") @db.Uuid
+  sourceEventId String?                @map("source_event_id") @db.Uuid
+  status        QmTranscriptionStatus  @default(PENDING)
+  trigger       QmTranscriptionTrigger
+  languageHint  String                 @map("language_hint")
+  attempts      Int                    @default(0)
+  maxAttempts   Int                    @map("max_attempts")
+  nextAttemptAt DateTime?              @map("next_attempt_at")
+  dispatchedAt  DateTime?              @map("dispatched_at")
+  failureCode   String?                @map("failure_code")
+  failureReason String?                @map("failure_reason")
+  providerId    String?                @map("provider_id")
+  startedAt     DateTime?              @map("started_at")
+  completedAt   DateTime?              @map("completed_at")
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
+  interaction Interaction   @relation(fields: [interactionId], references: [id])
+  recording   Recording     @relation(fields: [recordingId], references: [id])
+  transcript  QmTranscript?
+
+  @@unique([tenantId, interactionId])
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([tenantId, status, createdAt])
+  @@map("qm_transcription_jobs")
+}
+
+model QmTranscript {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  interactionId String   @map("interaction_id") @db.Uuid
+  recordingId   String   @map("recording_id") @db.Uuid
+  jobId         String   @unique @map("job_id") @db.Uuid
+  providerId    String   @map("provider_id")
+  modelId       String   @map("model_id")
+  language      String
+  confidenceAvg Float    @map("confidence_avg")
+  baseline      Json
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  tenant      Tenant                @relation(fields: [tenantId], references: [id])
+  interaction Interaction           @relation(fields: [interactionId], references: [id])
+  recording   Recording             @relation(fields: [recordingId], references: [id])
+  job         QmTranscriptionJob    @relation(fields: [jobId], references: [id])
+  segments    QmTranscriptSegment[]
+
+  @@unique([tenantId, interactionId, providerId, modelId])
+  @@index([tenantId, interactionId, createdAt])
+  @@map("qm_transcripts")
+}
+
+model QmTranscriptSegment {
+  id           String              @id @default(uuid()) @db.Uuid
+  tenantId     String              @map("tenant_id") @db.Uuid
+  transcriptId String              @map("transcript_id") @db.Uuid
+  speaker      QmTranscriptSpeaker
+  startMs      Int                 @map("start_ms")
+  endMs        Int                 @map("end_ms")
+  text         String
+  confidence   Float?
+
+  transcript QmTranscript @relation(fields: [transcriptId], references: [id])
+
+  @@index([tenantId, transcriptId, startMs])
+  @@map("qm_transcript_segments")
+}
+
+model QmEvaluation {
+  id            String             @id @default(uuid()) @db.Uuid
+  tenantId      String             @map("tenant_id") @db.Uuid
+  interactionId String             @map("interaction_id") @db.Uuid
+  agentId       String             @map("agent_id") @db.Uuid
+  evaluatorId   String?            @map("evaluator_id") @db.Uuid
+  source        QmEvaluationSource @default(AUTO_DRAFT)
+  status        QmEvaluationStatus @default(DRAFT)
+  providerId    String             @map("provider_id")
+  modelId       String             @map("model_id")
+  promptVersion String             @map("prompt_version")
+  answers       Json
+  publishedAt   DateTime?          @map("published_at")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+  interaction Interaction @relation(fields: [interactionId], references: [id])
+
+  @@unique([tenantId, interactionId, source])
+  @@index([tenantId, agentId, status])
+  @@map("qm_evaluations")
+}
+
+model QmAuditEvent {
+  id           String        @id @default(uuid()) @db.Uuid
+  tenantId     String        @map("tenant_id") @db.Uuid
+  actorUserId  String?       @map("actor_user_id") @db.Uuid
+  action       QmAuditAction
+  resourceType String        @map("resource_type")
+  resourceId   String        @map("resource_id") @db.Uuid
+  details      Json          @default("{}")
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, resourceType, resourceId, createdAt])
+  @@map("qm_audit_events")
 }

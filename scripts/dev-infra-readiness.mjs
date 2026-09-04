@@ -8,6 +8,8 @@ const requiredTopics = [
   'dc.telephony.commands',
   'dc.channel.commands',
   'dc.journey.events',
+  'dc.qm.jobs',
+  'dc.qm.events',
 ];
 
 function check(name, action) {

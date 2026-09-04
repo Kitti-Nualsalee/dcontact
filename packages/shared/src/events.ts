@@ -22,6 +22,10 @@ export const KAFKA_TOPICS = {
   TELEPHONY_COMMANDS: 'dc.telephony.commands',
   /** ส่งข้อความออกช่องทาง digital: router → channels (key = conversationId) */
   CHANNEL_COMMANDS: 'dc.channel.commands',
+  /** งานถอดเสียง/วิเคราะห์แบบ asynchronous ของ QM (key = jobId) */
+  QM_JOBS: 'dc.qm.jobs',
+  /** ผลลัพธ์ QM สำหรับ API/WebSocket fan-out (key = tenantId) */
+  QM_EVENTS: 'dc.qm.events',
   /**
    * เหตุการณ์จากระบบธุรกิจของลูกค้า → journey engine (key = contactRef)
    * เข้าทาง `POST /api/v1/events` แล้วถูก dedupe ด้วย (tenantId, source, eventId) ก่อนวางลง topic

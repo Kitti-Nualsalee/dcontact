@@ -42,6 +42,8 @@ import {
 } from './recording-api.js';
 import { KafkaTelephonyCommandPublisher } from './recording-command-publisher.js';
 import { MinioRecordingStorage } from './minio-recording-storage.js';
+import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
+import { KafkaQmJobPublisher } from './qm-job-publisher.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -59,6 +61,7 @@ const gateway = new WorkspaceSessionGateway(verifier, new WorkspaceSessionRegist
 const supervisorLiveEvents = new SupervisorLiveEventStream();
 const recordingCommandPublisher = new KafkaTelephonyCommandPublisher();
 const recordingStorage = new MinioRecordingStorage();
+const qmJobPublisher = new KafkaQmJobPublisher();
 const httpAdapter = new WorkspaceSessionHttpAdapter(gateway);
 async function tenantScope<T>(tenantId: string, work: () => Promise<T> | T): Promise<T> {
   return withTenantDatabaseTransaction(prisma, tenantId, async (transaction) => {
@@ -100,6 +103,7 @@ class WorkspaceSessionController {
     QueueAuditController,
     SupervisorLiveController,
     RecordingController,
+    QmController,
   ],
   providers: [
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
@@ -108,6 +112,8 @@ class WorkspaceSessionController {
     { provide: RECORDING_DATABASE, useValue: prisma },
     { provide: TELEPHONY_COMMAND_PUBLISHER, useValue: recordingCommandPublisher },
     { provide: RECORDING_STORAGE, useValue: recordingStorage },
+    { provide: QM_DATABASE, useValue: prisma },
+    { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },
