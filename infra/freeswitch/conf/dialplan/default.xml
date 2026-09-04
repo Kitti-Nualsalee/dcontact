@@ -1,11 +1,13 @@
 <include>
-  <!-- Phase 1: สายเข้า DID 2000 ถูก park ให้ Router เลือก agent ผ่าน Kafka ก่อน bridge -->
-  <extension name="dcontact-inbound-voice">
-    <condition field="destination_number" expression="^2000$">
-      <action application="park"/>
-    </condition>
-  </extension>
   <context name="default">
+
+    <!-- Phase 1: สายเข้า DID 2000 ถูก park ให้ Router เลือก agent ผ่าน Kafka ก่อน bridge -->
+    <extension name="dcontact-inbound-voice">
+      <condition field="destination_number" expression="^2000$">
+        <action application="set" data="domain_name=$${domain}"/>
+        <action application="park"/>
+      </condition>
+    </extension>
 
     <!-- 9196: echo test — ใช้ตรวจว่า media path ทำงาน (ได้ยินเสียงตัวเองสะท้อนกลับ) -->
     <extension name="echo-test">

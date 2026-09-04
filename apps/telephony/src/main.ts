@@ -19,11 +19,17 @@ async function main() {
   socket.on('error', (error) => console.error('[telephony] ESL connection error', error));
   let buffer = '';
   let authenticated = false;
-  const commandAdapter = new FreeSwitchCommandAdapter({
-    command: async (command) => {
-      await new Promise<void>((resolve, reject) => socket.write(`${command}\n\n`, (error) => error ? reject(error) : resolve()));
+  const commandAdapter = new FreeSwitchCommandAdapter(
+    {
+      command: async (command) => {
+        await new Promise<void>((resolve, reject) =>
+          socket.write(`${command}\n\n`, (error) => (error ? reject(error) : resolve())),
+        );
+      },
     },
-  }, process.env.FREESWITCH_SIP_DOMAIN ?? 'dcontact.local', nodeId);
+    process.env.FREESWITCH_SIP_DOMAIN ?? 'dcontact.local',
+    nodeId,
+  );
   const consumer = await createConsumer<TelephonyCommand>({
     clientId: `dcontact-telephony-${nodeId}`,
     groupId: `dcontact-telephony-command-${nodeId}-v1`,
@@ -37,7 +43,7 @@ async function main() {
       const separator = buffer.search(/\r?\n\r?\n/);
       if (separator < 0) return;
       const header = buffer.slice(0, separator);
-      const length = Number(/^Content-Length:\s*(\d+)$/mi.exec(header)?.[1] ?? 0);
+      const length = Number(/^Content-Length:\s*(\d+)$/im.exec(header)?.[1] ?? 0);
       const separatorLength = buffer.startsWith('\r\n', separator) ? 4 : 2;
       if (buffer.length < separator + separatorLength + length) return;
       const frame = buffer.slice(0, separator + separatorLength + length);
@@ -48,7 +54,7 @@ async function main() {
       }
       if (!authenticated && /\+OK accepted/i.test(frame)) {
         authenticated = true;
-        socket.write('events plain CHANNEL_CREATE CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE\n\n');
+        socket.write('events plain CHANNEL_CREATE CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE\n\n');
         continue;
       }
       const source = parseEslEvent(frame);
@@ -56,11 +62,14 @@ async function main() {
       try {
         const sipDomain = source.variable_domain_name;
         if (typeof sipDomain !== 'string') continue;
-        const tenant = await database.tenant.findUnique({ where: { sipDomain }, select: { id: true } });
+        const tenant = await database.tenant.findUnique({
+          where: { sipDomain },
+          select: { id: true },
+        });
         if (!tenant) continue;
         const event = normalizeFreeSwitchEvent(source, {
           telephonyNodeId: nodeId,
-          resolveTenantId: (domain) => domain === sipDomain ? tenant.id : undefined,
+          resolveTenantId: (domain) => (domain === sipDomain ? tenant.id : undefined),
           eventId: randomUUID,
           now: () => new Date().toISOString(),
         });
@@ -70,7 +79,12 @@ async function main() {
       }
     }
   });
-  const shutdown = async () => { await Promise.all([consumer.disconnect(), producer.disconnect(), database.$disconnect()]); socket.end(); process.exit(0); };
-  process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown);
+  const shutdown = async () => {
+    await Promise.all([consumer.disconnect(), producer.disconnect(), database.$disconnect()]);
+    socket.end();
+    process.exit(0);
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 }
 void main();

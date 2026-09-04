@@ -6,6 +6,7 @@ export interface FreeSwitchEvent {
   'Unique-ID'?: unknown;
   'Caller-Caller-ID-Number'?: unknown;
   'Caller-Destination-Number'?: unknown;
+  'Bridge-A-Unique-ID'?: unknown;
   variable_domain_name?: unknown;
 }
 
@@ -25,7 +26,7 @@ export class FreeSwitchNormalizationError extends Error {
 
 const eventTypes: Record<string, TelephonyCallEventType> = {
   CHANNEL_CREATE: 'call.created',
-  CHANNEL_ANSWER: 'call.answered',
+  CHANNEL_BRIDGE: 'call.answered',
   CHANNEL_HANGUP_COMPLETE: 'call.hangup',
 };
 
@@ -43,9 +44,13 @@ export function normalizeFreeSwitchEvent(
 ): KafkaEventEnvelope<TelephonyCallEvent> {
   const sourceType = requiredString(event, 'Event-Name');
   const type = eventTypes[sourceType];
-  if (!type) throw new FreeSwitchNormalizationError(`FreeSWITCH event is not supported: ${sourceType}`);
+  if (!type)
+    throw new FreeSwitchNormalizationError(`FreeSWITCH event is not supported: ${sourceType}`);
 
-  const callUuid = requiredString(event, 'Unique-ID');
+  const callUuid =
+    sourceType === 'CHANNEL_BRIDGE'
+      ? requiredString(event, 'Bridge-A-Unique-ID')
+      : requiredString(event, 'Unique-ID');
   const sipDomain = requiredString(event, 'variable_domain_name');
   const tenantId = dependencies.resolveTenantId(sipDomain);
   if (!tenantId) throw new FreeSwitchNormalizationError(`no tenant for SIP domain: ${sipDomain}`);
@@ -64,6 +69,12 @@ export function normalizeFreeSwitchEvent(
     occurredAt,
     correlationId: callUuid,
     orderingKey: callUuid,
-    payload: { callUuid, vendor: 'freeswitch', telephonyNodeId: dependencies.telephonyNodeId, caller, destination },
+    payload: {
+      callUuid,
+      vendor: 'freeswitch',
+      telephonyNodeId: dependencies.telephonyNodeId,
+      caller,
+      destination,
+    },
   };
 }

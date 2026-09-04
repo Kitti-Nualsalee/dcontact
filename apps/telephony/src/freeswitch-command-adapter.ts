@@ -10,13 +10,17 @@ export class FreeSwitchCommandAdapter {
     private readonly esl: FreeSwitchEslCommandClient,
     private readonly sipDomain = process.env.FREESWITCH_SIP_DOMAIN ?? 'dcontact.local',
     private readonly telephonyNodeId = process.env.TELEPHONY_NODE_ID ?? 'fs-local',
+    private readonly agentDialTemplate = process.env.FREESWITCH_AGENT_DIAL_TEMPLATE ??
+      'user/{extension}@{domain}',
   ) {}
 
   async handle(command: TelephonyCommand): Promise<void> {
     if (command.vendor !== 'freeswitch' || command.telephonyNodeId !== this.telephonyNodeId) return;
-    if (command.type !== 'call.bridge') throw new Error(`unsupported telephony command ${command.type}`);
-    await this.esl.command(
-      `api uuid_bridge ${command.callUuid} user/${command.agentExtension}@${this.sipDomain}`,
-    );
+    if (command.type !== 'call.bridge')
+      throw new Error(`unsupported telephony command ${command.type}`);
+    const dialString = this.agentDialTemplate
+      .replaceAll('{extension}', command.agentExtension)
+      .replaceAll('{domain}', this.sipDomain);
+    await this.esl.command(`api uuid_transfer ${command.callUuid} bridge:${dialString} inline`);
   }
 }

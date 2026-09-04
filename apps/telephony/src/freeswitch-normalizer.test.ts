@@ -35,3 +35,25 @@ test('CHANNEL_CREATE becomes a tenant-bound vendor-neutral call.created envelope
     },
   });
 });
+
+test('CHANNEL_BRIDGE reports media active against the original parked call UUID', () => {
+  const normalized = normalizeFreeSwitchEvent(
+    {
+      'Event-Name': 'CHANNEL_BRIDGE',
+      'Unique-ID': 'agent-leg-200',
+      'Bridge-A-Unique-ID': 'call-100',
+      'Caller-Caller-ID-Number': '1002',
+      'Caller-Destination-Number': '2000',
+      variable_domain_name: 'dcontact.local',
+    },
+    {
+      resolveTenantId: () => 'tenant-demo',
+      telephonyNodeId: 'fs-bkk-02',
+      eventId: () => 'event-bridge',
+      now: () => '2026-09-04T05:00:01.000Z',
+    },
+  );
+  assert.equal(normalized.type, 'call.answered');
+  assert.equal(normalized.payload.callUuid, 'call-100');
+  assert.equal(normalized.orderingKey, 'call-100');
+});

@@ -7,13 +7,26 @@ export interface RoutingSocket {
 
 export type RoutingSocketMode = 'connect' | 'claim';
 
+export interface WorkspaceRoutingOffer {
+  type: 'routing.offered';
+  interactionId: string;
+  tenantId: string;
+  userId: string;
+}
+
+export type WorkspaceRoutingEventHandler = (event: unknown) => void;
+
 export class WorkspaceRuntime {
   private routingSocket?: RoutingSocket;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly election: WorkspaceTabLeaderElection,
-    private readonly connectRoutingSocket: (mode: RoutingSocketMode) => RoutingSocket,
+    private readonly connectRoutingSocket: (
+      mode: RoutingSocketMode,
+      onEvent: WorkspaceRoutingEventHandler,
+    ) => RoutingSocket,
+    private readonly showRoutingOffer: (offer: WorkspaceRoutingOffer) => void = () => undefined,
   ) {}
 
   start(): void {
@@ -40,11 +53,27 @@ export class WorkspaceRuntime {
   }
 
   private connect(mode: RoutingSocketMode = 'connect'): void {
-    this.routingSocket ??= this.connectRoutingSocket(mode);
+    this.routingSocket ??= this.connectRoutingSocket(mode, (event) =>
+      this.handleRoutingEvent(event),
+    );
   }
 
   private disconnect(): void {
     this.routingSocket?.close();
     this.routingSocket = undefined;
+  }
+
+  private handleRoutingEvent(event: unknown): void {
+    if (!event || typeof event !== 'object' || Array.isArray(event)) return;
+    const candidate = event as Partial<WorkspaceRoutingOffer>;
+    if (
+      candidate.type !== 'routing.offered' ||
+      typeof candidate.interactionId !== 'string' ||
+      typeof candidate.tenantId !== 'string' ||
+      typeof candidate.userId !== 'string'
+    ) {
+      return;
+    }
+    this.showRoutingOffer(candidate as WorkspaceRoutingOffer);
   }
 }

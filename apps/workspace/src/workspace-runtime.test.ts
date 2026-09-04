@@ -48,3 +48,37 @@ test('moving work to a tab opens exactly one routing WebSocket', () => {
   assert.deepEqual(modes, ['claim']);
   runtime.stop();
 });
+
+test('the working tab exposes a routing offer to the workspace', () => {
+  let receive: ((event: unknown) => void) | undefined;
+  const offers: unknown[] = [];
+  const runtime = new WorkspaceRuntime(
+    {
+      start: () => true,
+      heartbeat: () => true,
+      claim: () => undefined,
+      stop: () => undefined,
+    } as never,
+    (_mode, onEvent) => {
+      receive = onEvent;
+      return { close: () => undefined };
+    },
+    (offer) => offers.push(offer),
+  );
+  runtime.start();
+  receive?.({
+    type: 'routing.offered',
+    tenantId: 'tenant-demo',
+    userId: 'agent-1000',
+    interactionId: 'interaction-1',
+  });
+  assert.deepEqual(offers, [
+    {
+      type: 'routing.offered',
+      tenantId: 'tenant-demo',
+      userId: 'agent-1000',
+      interactionId: 'interaction-1',
+    },
+  ]);
+  runtime.stop();
+});

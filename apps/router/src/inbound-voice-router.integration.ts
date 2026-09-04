@@ -73,7 +73,13 @@ test('call.created assigns one available tenant agent and duplicate input has no
     occurredAt: '2026-09-04T05:10:00.000Z',
     correlationId: callUuid,
     orderingKey: callUuid,
-    payload: { callUuid, vendor: 'freeswitch', telephonyNodeId: 'fs-bkk-02', caller: '1002', destination: '2000' },
+    payload: {
+      callUuid,
+      vendor: 'freeswitch',
+      telephonyNodeId: 'fs-bkk-02',
+      caller: '1002',
+      destination: '2000',
+    },
   } satisfies {
     eventId: string;
     type: 'call.created';
@@ -90,16 +96,30 @@ test('call.created assigns one available tenant agent and duplicate input has no
   assert.equal(first.status, 'ASSIGNED');
   assert.equal(first.agentId, userId);
   assert.equal(second.interactionId, first.interactionId);
-  assert.equal(published.filter((message) => message.topic === KAFKA_TOPICS.INTERACTION_EVENTS).length, 3);
+  assert.equal(
+    published.filter((message) => message.topic === KAFKA_TOPICS.INTERACTION_EVENTS).length,
+    3,
+  );
   assert.equal(published.filter((message) => message.type === 'routing.offered').length, 1);
   assert.deepEqual(
     published.find((message) => message.topic === KAFKA_TOPICS.TELEPHONY_COMMANDS)?.payload,
-    { callUuid, vendor: 'freeswitch', telephonyNodeId: 'fs-bkk-02', type: 'call.bridge', agentExtension: '1000' },
+    {
+      callUuid,
+      vendor: 'freeswitch',
+      telephonyNodeId: 'fs-bkk-02',
+      type: 'call.bridge',
+      agentExtension: '1000',
+    },
   );
 
   const answered = await router.handle({
     ...event,
     eventId: 'telephony-event-2',
+    type: 'call.answered',
+  });
+  await router.handle({
+    ...event,
+    eventId: 'telephony-event-3',
     type: 'call.answered',
   });
   assert.equal(answered.status, 'ACTIVE');
@@ -109,8 +129,5 @@ test('call.created assigns one available tenant agent and duplicate input has no
   });
   assert.equal(interaction.state, 'ACTIVE');
   assert.ok(interaction.answeredAt);
-  assert.equal(
-    published.filter((message) => message.type === 'interaction.answered').length,
-    1,
-  );
+  assert.equal(published.filter((message) => message.type === 'interaction.answered').length, 1);
 });

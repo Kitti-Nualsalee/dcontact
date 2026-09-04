@@ -10,7 +10,10 @@ import type { KafkaEventEnvelope } from '@d-contact/kafka';
 type PublishedEvent = KafkaEventEnvelope<Record<string, unknown>>;
 
 export interface InboundVoiceRouterDependencies {
-  publish(topic: (typeof KAFKA_TOPICS)[keyof typeof KAFKA_TOPICS], event: PublishedEvent): Promise<void>;
+  publish(
+    topic: (typeof KAFKA_TOPICS)[keyof typeof KAFKA_TOPICS],
+    event: PublishedEvent,
+  ): Promise<void>;
   eventId(): string;
   now(): string;
 }
@@ -41,63 +44,76 @@ export class InboundVoiceRouter {
       throw new Error('telephony event orderingKey must equal callUuid');
     }
 
-    const result = await withTenantDatabaseTransaction(this.database, event.tenantId, async (transaction) => {
-      const existing = await transaction.interaction.findFirst({
-        where: { tenantId: event.tenantId, externalId: event.payload.callUuid },
-        select: { id: true, state: true, agentId: true },
-      });
-      if (existing) return this.resultFromInteraction(existing);
-
-      const destination = await transaction.voiceDestination.findFirst({
-        where: {
-          tenantId: event.tenantId,
-          destination: event.payload.destination,
-          entryMode: 'DIRECT_QUEUE',
-          isActive: true,
-          queue: { isActive: true },
-        },
-        select: { queueId: true },
-      });
-      if (!destination) throw new Error('no active direct voice destination for inbound call');
-
-      let interaction;
-      try {
-        interaction = await transaction.interaction.create({
-          data: {
-            tenantId: event.tenantId,
-            channel: 'VOICE',
-            direction: 'INBOUND',
-            state: 'QUEUED',
-            queueId: destination.queueId,
-            externalId: event.payload.callUuid,
-            metadata: {
-              vendor: event.payload.vendor,
-              telephonyNodeId: event.payload.telephonyNodeId,
-              caller: event.payload.caller,
-              destination: event.payload.destination,
-            },
-          },
-          select: { id: true, state: true, agentId: true, queueId: true },
+    const result = await withTenantDatabaseTransaction(
+      this.database,
+      event.tenantId,
+      async (transaction) => {
+        const existing = await transaction.interaction.findFirst({
+          where: { tenantId: event.tenantId, externalId: event.payload.callUuid },
+          select: { id: true, state: true, agentId: true },
         });
-      } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-          const concurrent = await transaction.interaction.findFirstOrThrow({
-            where: { tenantId: event.tenantId, externalId: event.payload.callUuid },
-            select: { id: true, state: true, agentId: true },
+        if (existing) return this.resultFromInteraction(existing);
+
+        const destination = await transaction.voiceDestination.findFirst({
+          where: {
+            tenantId: event.tenantId,
+            destination: event.payload.destination,
+            entryMode: 'DIRECT_QUEUE',
+            isActive: true,
+            queue: { isActive: true },
+          },
+          select: { queueId: true },
+        });
+        if (!destination) throw new Error('no active direct voice destination for inbound call');
+
+        let interaction;
+        try {
+          interaction = await transaction.interaction.create({
+            data: {
+              tenantId: event.tenantId,
+              channel: 'VOICE',
+              direction: 'INBOUND',
+              state: 'QUEUED',
+              queueId: destination.queueId,
+              externalId: event.payload.callUuid,
+              metadata: {
+                vendor: event.payload.vendor,
+                telephonyNodeId: event.payload.telephonyNodeId,
+                caller: event.payload.caller,
+                destination: event.payload.destination,
+              },
+            },
+            select: { id: true, state: true, agentId: true, queueId: true },
           });
-          return this.resultFromInteraction(concurrent);
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+            const concurrent = await transaction.interaction.findFirstOrThrow({
+              where: { tenantId: event.tenantId, externalId: event.payload.callUuid },
+              select: { id: true, state: true, agentId: true },
+            });
+            return this.resultFromInteraction(concurrent);
+          }
+          throw error;
         }
-        throw error;
-      }
 
-      await transaction.interactionEvent.createMany({
-        data: [
-          { tenantId: event.tenantId, interactionId: interaction.id, type: 'interaction.created', payload: {} },
-          { tenantId: event.tenantId, interactionId: interaction.id, type: 'interaction.queued', payload: {} },
-        ],
-      });
+        await transaction.interactionEvent.createMany({
+          data: [
+            {
+              tenantId: event.tenantId,
+              interactionId: interaction.id,
+              type: 'interaction.created',
+              payload: {},
+            },
+            {
+              tenantId: event.tenantId,
+              interactionId: interaction.id,
+              type: 'interaction.queued',
+              payload: {},
+            },
+          ],
+        });
 
-      const agent = await transaction.$queryRaw<AvailableAgent[]>(Prisma.sql`
+        const agent = await transaction.$queryRaw<AvailableAgent[]>(Prisma.sql`
         SELECT u.id, u.extension
         FROM users u
         JOIN LATERAL (
@@ -116,41 +132,54 @@ export class InboundVoiceRouter {
         FOR UPDATE OF u SKIP LOCKED
         LIMIT 1
       `);
-      const available = agent[0];
-      if (!available) return { interactionId: interaction.id, status: 'QUEUED' as const };
+        const available = agent[0];
+        if (!available) return { interactionId: interaction.id, status: 'QUEUED' as const };
 
-      await transaction.agentStateLog.create({
-        data: { tenantId: event.tenantId, userId: available.id, state: 'RESERVED', reason: interaction.id },
-      });
-      const assigned = await transaction.interaction.update({
-        where: { id: interaction.id },
-        data: { state: 'ASSIGNED', agentId: available.id, assignedAt: new Date(this.dependencies.now()) },
-        select: { id: true, state: true, agentId: true, queueId: true },
-      });
-      await transaction.interactionEvent.create({
-        data: {
-          tenantId: event.tenantId,
+        await transaction.agentStateLog.create({
+          data: {
+            tenantId: event.tenantId,
+            userId: available.id,
+            state: 'RESERVED',
+            reason: interaction.id,
+          },
+        });
+        const assigned = await transaction.interaction.update({
+          where: { id: interaction.id },
+          data: {
+            state: 'ASSIGNED',
+            agentId: available.id,
+            assignedAt: new Date(this.dependencies.now()),
+          },
+          select: { id: true, state: true, agentId: true, queueId: true },
+        });
+        await transaction.interactionEvent.create({
+          data: {
+            tenantId: event.tenantId,
+            interactionId: assigned.id,
+            type: 'interaction.assigned',
+            payload: { agentId: available.id },
+          },
+        });
+        return {
           interactionId: assigned.id,
-          type: 'interaction.assigned',
-          payload: { agentId: available.id },
-        },
-      });
-      return {
-        interactionId: assigned.id,
-        status: 'ASSIGNED' as const,
-        agentId: available.id,
-        queueId: assigned.queueId,
-        agentExtension: available.extension,
-      };
-    });
+          status: 'ASSIGNED' as const,
+          agentId: available.id,
+          queueId: assigned.queueId,
+          agentExtension: available.extension,
+        };
+      },
+    );
 
     if (result.status === 'ASSIGNED' && 'agentExtension' in result) {
       await this.publishLifecycle(event, result.interactionId, result.agentId!, result.queueId);
-      await this.dependencies.publish(KAFKA_TOPICS.AGENT_EVENTS, this.envelope(event, result.interactionId, 'routing.offered', {
-        interactionId: result.interactionId,
-        userId: result.agentId!,
-        queueId: result.queueId,
-      }));
+      await this.dependencies.publish(
+        KAFKA_TOPICS.AGENT_EVENTS,
+        this.envelope(event, result.interactionId, 'routing.offered', {
+          interactionId: result.interactionId,
+          userId: result.agentId!,
+          queueId: result.queueId,
+        }),
+      );
       const command: TelephonyCommand = {
         callUuid: event.payload.callUuid,
         vendor: event.payload.vendor,
@@ -158,42 +187,56 @@ export class InboundVoiceRouter {
         type: 'call.bridge',
         agentExtension: result.agentExtension,
       };
-      await this.dependencies.publish(KAFKA_TOPICS.TELEPHONY_COMMANDS, this.envelope(event, event.payload.callUuid, 'call.bridge', command));
+      await this.dependencies.publish(
+        KAFKA_TOPICS.TELEPHONY_COMMANDS,
+        this.envelope(event, event.payload.callUuid, 'call.bridge', command),
+      );
     } else if (!('deduplicated' in result)) {
       await this.publishLifecycle(event, result.interactionId, undefined, undefined);
     }
     return { interactionId: result.interactionId, status: result.status, agentId: result.agentId };
   }
 
-  private async handleAnswered(event: KafkaEventEnvelope<TelephonyCallEvent>): Promise<InboundVoiceRoutingResult> {
-    const interaction = await withTenantDatabaseTransaction(this.database, event.tenantId, async (transaction) => {
-      const existing = await transaction.interaction.findFirstOrThrow({
-        where: { tenantId: event.tenantId, externalId: event.payload.callUuid },
-        select: { id: true, state: true, agentId: true },
-      });
-      if (existing.state === 'ACTIVE') return existing;
-      if (existing.state !== 'ASSIGNED' || !existing.agentId) {
-        throw new Error('call.answered requires an assigned interaction');
-      }
-      const active = await transaction.interaction.update({
-        where: { id: existing.id },
-        data: { state: 'ACTIVE', answeredAt: new Date(this.dependencies.now()) },
-        select: { id: true, state: true, agentId: true },
-      });
-      await transaction.agentStateLog.create({
-        data: { tenantId: event.tenantId, userId: existing.agentId, state: 'BUSY', reason: existing.id },
-      });
-      await transaction.interactionEvent.create({
-        data: {
-          tenantId: event.tenantId,
-          interactionId: existing.id,
-          type: 'interaction.answered',
-          payload: { agentId: existing.agentId },
-        },
-      });
-      return active;
-    });
-    if (interaction.state === 'ACTIVE') {
+  private async handleAnswered(
+    event: KafkaEventEnvelope<TelephonyCallEvent>,
+  ): Promise<InboundVoiceRoutingResult> {
+    const interaction = await withTenantDatabaseTransaction(
+      this.database,
+      event.tenantId,
+      async (transaction) => {
+        const existing = await transaction.interaction.findFirstOrThrow({
+          where: { tenantId: event.tenantId, externalId: event.payload.callUuid },
+          select: { id: true, state: true, agentId: true },
+        });
+        if (existing.state === 'ACTIVE') return { ...existing, transitioned: false as const };
+        if (existing.state !== 'ASSIGNED' || !existing.agentId) {
+          throw new Error('call.answered requires an assigned interaction');
+        }
+        const active = await transaction.interaction.update({
+          where: { id: existing.id },
+          data: { state: 'ACTIVE', answeredAt: new Date(this.dependencies.now()) },
+          select: { id: true, state: true, agentId: true },
+        });
+        await transaction.agentStateLog.create({
+          data: {
+            tenantId: event.tenantId,
+            userId: existing.agentId,
+            state: 'BUSY',
+            reason: existing.id,
+          },
+        });
+        await transaction.interactionEvent.create({
+          data: {
+            tenantId: event.tenantId,
+            interactionId: existing.id,
+            type: 'interaction.answered',
+            payload: { agentId: existing.agentId },
+          },
+        });
+        return { ...active, transitioned: true as const };
+      },
+    );
+    if (interaction.transitioned) {
       await this.dependencies.publish(
         KAFKA_TOPICS.INTERACTION_EVENTS,
         this.envelope(event, interaction.id, 'interaction.answered', {
@@ -207,7 +250,11 @@ export class InboundVoiceRouter {
     return { interactionId: interaction.id, status: 'ACTIVE', agentId: interaction.agentId! };
   }
 
-  private resultFromInteraction(interaction: { id: string; state: InteractionStateType; agentId: string | null }) {
+  private resultFromInteraction(interaction: {
+    id: string;
+    state: InteractionStateType;
+    agentId: string | null;
+  }) {
     return {
       interactionId: interaction.id,
       status: interaction.state === 'ASSIGNED' ? ('ASSIGNED' as const) : ('QUEUED' as const),
@@ -225,13 +272,16 @@ export class InboundVoiceRouter {
     for (const type of agentId
       ? ['interaction.created', 'interaction.queued', 'interaction.assigned']
       : ['interaction.created', 'interaction.queued']) {
-      await this.dependencies.publish(KAFKA_TOPICS.INTERACTION_EVENTS, this.envelope(input, interactionId, type, {
-        interactionId,
-        channel: 'VOICE',
-        state: type === 'interaction.assigned' ? 'ASSIGNED' : 'QUEUED',
-        ...(queueId ? { queueId } : {}),
-        ...(agentId ? { agentId } : {}),
-      }));
+      await this.dependencies.publish(
+        KAFKA_TOPICS.INTERACTION_EVENTS,
+        this.envelope(input, interactionId, type, {
+          interactionId,
+          channel: 'VOICE',
+          state: type === 'interaction.assigned' ? 'ASSIGNED' : 'QUEUED',
+          ...(queueId ? { queueId } : {}),
+          ...(agentId ? { agentId } : {}),
+        }),
+      );
     }
   }
 

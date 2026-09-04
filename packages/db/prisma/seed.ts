@@ -68,6 +68,12 @@ async function main() {
     create: { queueId: queue.id, skillId: skill.id, minLevel: 1 },
   });
 
+  await prisma.voiceDestination.upsert({
+    where: { tenantId_destination: { tenantId: tenant.id, destination: '2000' } },
+    update: { queueId: queue.id, isActive: true },
+    create: { tenantId: tenant.id, destination: '2000', queueId: queue.id },
+  });
+
   const agents = await prisma.user.findMany({
     where: { tenantId: tenant.id, role: 'AGENT' },
   });
@@ -77,6 +83,16 @@ async function main() {
       update: {},
       create: { userId: agent.id, skillId: skill.id, level: 3 },
     });
+    const latestState = await prisma.agentStateLog.findFirst({
+      where: { tenantId: tenant.id, userId: agent.id },
+      orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+      select: { state: true },
+    });
+    if (latestState?.state !== 'AVAILABLE') {
+      await prisma.agentStateLog.create({
+        data: { tenantId: tenant.id, userId: agent.id, state: 'AVAILABLE', reason: 'demo-seed' },
+      });
+    }
   }
 
   console.log(`Seeded tenant "${tenant.slug}" (${tenant.id})`);

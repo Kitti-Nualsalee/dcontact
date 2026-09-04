@@ -67,21 +67,21 @@ pnpm build
 python3 -m http.server 8090 --directory mockups
 ```
 
-> **ยังไม่มี service ให้รัน** — `apps/*` ถูกลบระหว่างออกแบบ (ดูหมายเหตุด้านบน)
-> สิ่งที่รันได้จริงตอนนี้คือ infra, migration/seed ของฐานข้อมูล และ mockup
-> คำสั่ง `pnpm --filter @d-contact/api dev` ฯลฯ จะกลับมาเมื่อเฟส 1 เริ่ม
+service แรกของ Phase 1 รันได้แล้ว: `apps/api`, `apps/router` และ `apps/telephony`
+ใช้ `pnpm --filter <package> dev` เพื่อรันแยก process ใน local development
 
-### ทดสอบ softphone spike (ของเดิม — ต้องกู้โค้ดก่อน)
+### ทดสอบ Inbound Voice Phase 1
 
-`git checkout 8165970 -- apps` แล้วรัน `pnpm --filter @d-contact/agent-desktop dev`
+หลัง `pnpm infra:ready` ให้รัน:
 
-1. เปิด http://localhost:5173 สองแท็บ
-2. แท็บแรก register ext `1000`, แท็บสอง ext `1001` (รหัส `DContactDev1`)
-3. โทร `1001` จากแท็บแรก หรือโทร `9196` (echo test) เพื่อทดสอบ media path
-4. ดู call events วิ่งใน log ของ `telephony` และ `router`
+```bash
+pnpm voice:demo
+```
 
-หมายเหตุ: โค้ดชุดนั้น produce ลง `dc.fs.events` (ชื่อเดิม) ซึ่งเลิกใช้แล้วตาม
-[ADR 023](docs/adr/023-conversation-vs-interaction.md) ข้อ 6 — ใช้อ้างอิงได้ แต่ไม่ใช่แบบล่าสุด
+คำสั่งนี้ใช้ SIPp image ที่ pin digest จำลอง caller และ agent softphone แล้วรัน FreeSWITCH ESL gateway,
+Router และ Kafka จริง โดยตรวจว่าสายเข้า `2000` ถูก bridge ด้วย codec PCMU, Interaction เป็น `ACTIVE`,
+มี lifecycle `created → queued → assigned → answered` และ command กลับไป `telephonyNodeId` ต้นทาง
+เมื่อผ่านจะแสดง `INBOUND_VOICE_PHASE_1_DEMO_PASS`
 
 > **Docker Desktop (macOS/Windows):** FreeSWITCH advertise `127.0.0.1` เป็น RTP address
 > (ตั้งใน `infra/freeswitch/conf/vars.xml`) เพื่อให้ browser บน host ส่ง media ผ่าน

@@ -22,6 +22,7 @@
     "infra:check": "node scripts/dev-infra-readiness.mjs && pnpm infra:identity:check",
     "infra:ready": "node scripts/phase-zero-readiness.mjs",
     "test:readiness": "node --test scripts/phase-zero-readiness.test.mjs",
+    "voice:demo": "node scripts/inbound-voice-demo.mjs",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   },
   "devDependencies": {
