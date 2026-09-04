@@ -74,6 +74,7 @@ model Team {
 
   tenant  Tenant @relation(fields: [tenantId], references: [id])
   members User[]
+  queues  Queue[]
 
   @@unique([tenantId, name])
   @@map("teams")
@@ -122,10 +123,12 @@ model Queue {
   maxWaitAction   QueueMaxWaitAction?    @map("max_wait_action")
   routingStrategy QueueRoutingStrategy   @default(LONGEST_AVAILABLE_IDLE) @map("routing_strategy")
   priority        Int           @default(0)
+  teamId          String?       @map("team_id") @db.Uuid
   isActive        Boolean       @default(true) @map("is_active")
   createdAt       DateTime      @default(now()) @map("created_at")
 
   tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  team              Team?              @relation(fields: [teamId], references: [id])
   skills            QueueSkill[]
   interactions      Interaction[]
   voiceDestinations VoiceDestination[]
@@ -134,6 +137,7 @@ model Queue {
   @@unique([tenantId, name])
   @@unique([tenantId, id])
   @@index([tenantId])
+  @@index([tenantId, teamId])
   @@map("queues")
 }
 
@@ -241,6 +245,7 @@ model AgentStateLog {
   userId    String         @map("user_id") @db.Uuid
   state     AgentStateType
   reason    String?
+  actorUserId String?       @map("actor_user_id") @db.Uuid
   startedAt DateTime       @default(now()) @map("started_at")
   endedAt   DateTime?      @map("ended_at")
 

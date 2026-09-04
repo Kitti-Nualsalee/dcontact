@@ -82,3 +82,75 @@ test('the working tab exposes a routing offer to the workspace', () => {
   ]);
   runtime.stop();
 });
+
+test('a sequence gap refreshes the REST snapshot before applying later live events', async () => {
+  let receive: ((event: unknown) => void) | undefined;
+  let snapshotRefreshes = 0;
+  const liveEvents: unknown[] = [];
+  const runtime = new WorkspaceRuntime(
+    {
+      start: () => true,
+      heartbeat: () => true,
+      claim: () => undefined,
+      stop: () => undefined,
+    } as never,
+    (_mode, onEvent) => {
+      receive = onEvent;
+      return { close: () => undefined };
+    },
+    undefined,
+    async () => {
+      snapshotRefreshes += 1;
+      return { sequence: 4 };
+    },
+    (event) => liveEvents.push(event),
+  );
+
+  runtime.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  receive?.({ type: 'workspace.live', sequence: 5, payload: { queueId: 'queue-1' } });
+  receive?.({ type: 'workspace.live', sequence: 7, payload: { queueId: 'queue-2' } });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(snapshotRefreshes, 2);
+  assert.deepEqual(liveEvents, [
+    { type: 'workspace.live', sequence: 5, payload: { queueId: 'queue-1' } },
+  ]);
+  runtime.stop();
+});
+
+test('a late snapshot cannot move the live sequence backwards after reconnect', async () => {
+  let receive: ((event: unknown) => void) | undefined;
+  let resolveSnapshot: ((snapshot: { sequence: number }) => void) | undefined;
+  const liveEvents: unknown[] = [];
+  const runtime = new WorkspaceRuntime(
+    {
+      start: () => true,
+      heartbeat: () => true,
+      claim: () => undefined,
+      stop: () => undefined,
+    } as never,
+    (_mode, onEvent) => {
+      receive = onEvent;
+      return { close: () => undefined };
+    },
+    undefined,
+    () =>
+      new Promise((resolve) => {
+        resolveSnapshot = resolve;
+      }),
+    (event) => liveEvents.push(event),
+  );
+
+  runtime.start();
+  receive?.({ type: 'workspace.live', sequence: 1, payload: { queueId: 'queue-1' } });
+  resolveSnapshot?.({ sequence: 0 });
+  await new Promise((resolve) => setImmediate(resolve));
+  receive?.({ type: 'workspace.live', sequence: 2, payload: { queueId: 'queue-1' } });
+
+  assert.deepEqual(liveEvents, [
+    { type: 'workspace.live', sequence: 1, payload: { queueId: 'queue-1' } },
+    { type: 'workspace.live', sequence: 2, payload: { queueId: 'queue-1' } },
+  ]);
+  runtime.stop();
+});

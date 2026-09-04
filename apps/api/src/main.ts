@@ -29,6 +29,11 @@ import {
   VoiceDestinationController,
 } from './tenant-queue-api.js';
 import { fanoutAgentOffer } from './agent-offer-fanout.js';
+import {
+  SupervisorLiveController,
+  SUPERVISOR_LIVE_DATABASE,
+  SupervisorLiveEventStream,
+} from './supervisor-live-api.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -43,6 +48,7 @@ const verifier = new KeycloakAccessTokenVerifier({
   jwksUri: required('KEYCLOAK_JWKS_URI'),
 });
 const gateway = new WorkspaceSessionGateway(verifier, new WorkspaceSessionRegistry());
+const supervisorLiveEvents = new SupervisorLiveEventStream();
 const httpAdapter = new WorkspaceSessionHttpAdapter(gateway);
 async function tenantScope<T>(tenantId: string, work: () => Promise<T> | T): Promise<T> {
   return withTenantDatabaseTransaction(prisma, tenantId, async (transaction) => {
@@ -56,6 +62,9 @@ async function tenantScope<T>(tenantId: string, work: () => Promise<T> | T): Pro
 }
 const socketAdapter = new WorkspaceSessionWebSocketAdapter(gateway, tenantScope, {
   write: (diagnostic) => console.log(JSON.stringify(diagnostic)),
+});
+supervisorLiveEvents.subscribe(async (event, recipientUserIds) => {
+  await socketAdapter.deliverLiveEvent(event, recipientUserIds);
 });
 const handleWorkspaceSession = createWorkspaceSessionHandler(httpAdapter, tenantScope);
 
@@ -79,9 +88,12 @@ class WorkspaceSessionController {
     TenantQueuePolicyController,
     VoiceDestinationController,
     QueueAuditController,
+    SupervisorLiveController,
   ],
   providers: [
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
+    { provide: SUPERVISOR_LIVE_DATABASE, useValue: prisma },
+    { provide: SupervisorLiveEventStream, useValue: supervisorLiveEvents },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },

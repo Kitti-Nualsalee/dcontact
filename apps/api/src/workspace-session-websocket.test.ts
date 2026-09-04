@@ -103,3 +103,75 @@ test('workspace WebSocket ignores caller tenant data and uses the verified token
   sockets.close();
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
+
+test('workspace live events reach only their tenant-scoped supervisor recipients', async () => {
+  const tenantId = '4e342ec5-d35b-41ed-bd44-1cf47a41af4b';
+  const gateway = new WorkspaceSessionGateway(
+    {
+      verifyAccessToken: async (token: string) => ({
+        tenant_id: tenantId,
+        tenant_slug: 'demo',
+        organization: { demo: { tenant_id: [tenantId] } },
+        dc_user_id: token === 'supervisor-a' ? 'supervisor-a' : 'supervisor-b',
+        sid: `keycloak-${token}`,
+        exp: 2_000_000_000,
+        realm_access: { roles: ['supervisor'] },
+      }),
+    },
+    new WorkspaceSessionRegistry(),
+  );
+  const adapter = new WorkspaceSessionWebSocketAdapter(gateway);
+  const messagesA: string[] = [];
+  const messagesB: string[] = [];
+  const socketA = { send: (message: string) => messagesA.push(message), close: () => undefined };
+  const socketB = { send: (message: string) => messagesB.push(message), close: () => undefined };
+
+  await adapter.handle(socketA, {
+    type: 'auth:connect',
+    accessToken: 'supervisor-a',
+    tabId: 'tab-a',
+  });
+  await adapter.handle(socketB, {
+    type: 'auth:connect',
+    accessToken: 'supervisor-b',
+    tabId: 'tab-b',
+  });
+  const delivered = await adapter.deliverLiveEvent(
+    {
+      type: 'workspace.live',
+      tenantId,
+      sequence: 1,
+      payload: { event: 'queue.availability_changed', queueId: 'queue-a', isActive: false },
+    },
+    ['supervisor-a'],
+  );
+
+  assert.equal(delivered, 1);
+  assert.match(messagesA.at(-1) ?? '', /queue\.availability_changed/);
+  assert.equal(messagesB.length, 1);
+});
+
+test('workspace socket rejects routing acknowledgement messages', async () => {
+  const gateway = new WorkspaceSessionGateway(
+    {
+      verifyAccessToken: async () => ({
+        tenant_id: '4e342ec5-d35b-41ed-bd44-1cf47a41af4b',
+        tenant_slug: 'demo',
+        organization: { demo: { tenant_id: ['4e342ec5-d35b-41ed-bd44-1cf47a41af4b'] } },
+        dc_user_id: 'supervisor-a',
+        sid: 'keycloak-session',
+        exp: 2_000_000_000,
+        realm_access: { roles: ['supervisor'] },
+      }),
+    },
+    new WorkspaceSessionRegistry(),
+  );
+  const adapter = new WorkspaceSessionWebSocketAdapter(gateway);
+  const closed: [number, string][] = [];
+  await adapter.handle(
+    { send: () => undefined, close: (code, reason) => closed.push([code, reason]) },
+    { type: 'routing.ack', accessToken: 'token', tabId: 'tab-a' } as never,
+  );
+
+  assert.deepEqual(closed, [[4400, 'invalid workspace message']]);
+});

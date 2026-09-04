@@ -24,6 +24,13 @@ export interface WorkspaceRoutingEvent {
   userId: string;
 }
 
+export interface WorkspaceLiveEvent {
+  type: 'workspace.live';
+  tenantId: string;
+  sequence: number;
+  payload: Record<string, unknown>;
+}
+
 export interface WorkspaceSessionDiagnostic {
   event: 'workspace.session.authenticated' | 'workspace.session.denied';
   correlationId: string;
@@ -53,6 +60,10 @@ export class WorkspaceSessionWebSocketAdapter {
     message: WorkspaceSessionSocketMessage,
     correlationId = 'unavailable',
   ): Promise<void> {
+    if (!['auth:connect', 'auth:refresh', 'auth:claim'].includes(message.type)) {
+      socket.close(4400, 'invalid workspace message');
+      return;
+    }
     if (!message.accessToken || !message.tabId) {
       this.diagnostics.write({
         event: 'workspace.session.denied',
@@ -119,6 +130,20 @@ export class WorkspaceSessionWebSocketAdapter {
       ) {
         continue;
       }
+      await this.withTenant(session.tenantId, () => socket.send(JSON.stringify(event)));
+      delivered += 1;
+    }
+    return delivered;
+  }
+
+  async deliverLiveEvent(
+    event: WorkspaceLiveEvent,
+    recipientUserIds: readonly string[],
+  ): Promise<number> {
+    const recipients = new Set(recipientUserIds);
+    let delivered = 0;
+    for (const [socket, session] of this.authenticatedSessions) {
+      if (session.tenantId !== event.tenantId || !recipients.has(session.userId)) continue;
       await this.withTenant(session.tenantId, () => socket.send(JSON.stringify(event)));
       delivered += 1;
     }

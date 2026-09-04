@@ -16,9 +16,20 @@ export interface WorkspaceRoutingOffer {
 
 export type WorkspaceRoutingEventHandler = (event: unknown) => void;
 
+export interface WorkspaceLiveSnapshot {
+  sequence: number;
+}
+
+export interface WorkspaceLiveEvent {
+  type: 'workspace.live';
+  sequence: number;
+  payload: Record<string, unknown>;
+}
+
 export class WorkspaceRuntime {
   private routingSocket?: RoutingSocket;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
+  private liveSequence?: number;
 
   constructor(
     private readonly election: WorkspaceTabLeaderElection,
@@ -27,6 +38,8 @@ export class WorkspaceRuntime {
       onEvent: WorkspaceRoutingEventHandler,
     ) => RoutingSocket,
     private readonly showRoutingOffer: (offer: WorkspaceRoutingOffer) => void = () => undefined,
+    private readonly loadLiveSnapshot?: () => Promise<WorkspaceLiveSnapshot>,
+    private readonly showLiveEvent: (event: WorkspaceLiveEvent) => void = () => undefined,
   ) {}
 
   start(): void {
@@ -53,9 +66,9 @@ export class WorkspaceRuntime {
   }
 
   private connect(mode: RoutingSocketMode = 'connect'): void {
-    this.routingSocket ??= this.connectRoutingSocket(mode, (event) =>
-      this.handleRoutingEvent(event),
-    );
+    if (this.routingSocket) return;
+    this.routingSocket = this.connectRoutingSocket(mode, (event) => this.handleRoutingEvent(event));
+    void this.refreshLiveSnapshot().catch(() => undefined);
   }
 
   private disconnect(): void {
@@ -65,6 +78,15 @@ export class WorkspaceRuntime {
 
   private handleRoutingEvent(event: unknown): void {
     if (!event || typeof event !== 'object' || Array.isArray(event)) return;
+    if (this.isLiveEvent(event)) {
+      if (this.liveSequence !== undefined && event.sequence !== this.liveSequence + 1) {
+        void this.refreshLiveSnapshot().catch(() => undefined);
+        return;
+      }
+      this.liveSequence = event.sequence;
+      this.showLiveEvent(event);
+      return;
+    }
     const candidate = event as Partial<WorkspaceRoutingOffer>;
     if (
       candidate.type !== 'routing.offered' ||
@@ -75,5 +97,26 @@ export class WorkspaceRuntime {
       return;
     }
     this.showRoutingOffer(candidate as WorkspaceRoutingOffer);
+  }
+
+  private isLiveEvent(event: object): event is WorkspaceLiveEvent {
+    const candidate = event as Partial<WorkspaceLiveEvent>;
+    return (
+      candidate.type === 'workspace.live' &&
+      Number.isSafeInteger(candidate.sequence) &&
+      (candidate.sequence ?? 0) > 0 &&
+      Boolean(candidate.payload) &&
+      typeof candidate.payload === 'object' &&
+      !Array.isArray(candidate.payload)
+    );
+  }
+
+  private async refreshLiveSnapshot(): Promise<void> {
+    if (!this.loadLiveSnapshot) return;
+    const snapshot = await this.loadLiveSnapshot();
+    if (!Number.isSafeInteger(snapshot.sequence) || snapshot.sequence < 0) return;
+    if (this.liveSequence === undefined || snapshot.sequence >= this.liveSequence) {
+      this.liveSequence = snapshot.sequence;
+    }
   }
 }
