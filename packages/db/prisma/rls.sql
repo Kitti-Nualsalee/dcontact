@@ -10,7 +10,7 @@ DECLARE
   t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
-    'users', 'teams', 'queues', 'skills',
+    'users', 'teams', 'queues', 'voice_destinations', 'queue_audit_events', 'skills',
     'agent_state_logs', 'contacts', 'contact_identities',
     'interactions', 'interaction_events', 'conversations', 'messages', 'recordings'
   ]
@@ -34,3 +34,6 @@ END $$;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO dcontact_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dcontact_app;
+
+-- Queue audit is append-only through the application role.
+REVOKE UPDATE, DELETE ON queue_audit_events FROM dcontact_app;

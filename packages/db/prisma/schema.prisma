@@ -16,13 +16,15 @@ model Tenant {
   sipDomain String   @unique @map("sip_domain")
   createdAt DateTime @default(now()) @map("created_at")
 
-  users         User[]
-  teams         Team[]
-  queues        Queue[]
-  skills        Skill[]
-  contacts      Contact[]
-  interactions  Interaction[]
-  conversations Conversation[]
+  users             User[]
+  teams             Team[]
+  queues            Queue[]
+  voiceDestinations VoiceDestination[]
+  queueAuditEvents  QueueAuditEvent[]
+  skills            Skill[]
+  contacts          Contact[]
+  interactions      Interaction[]
+  conversations     Conversation[]
 
   @@map("tenants")
 }
@@ -95,13 +97,63 @@ model Queue {
   isActive        Boolean       @default(true) @map("is_active")
   createdAt       DateTime      @default(now()) @map("created_at")
 
-  tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  skills       QueueSkill[]
-  interactions Interaction[]
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  skills            QueueSkill[]
+  interactions      Interaction[]
+  voiceDestinations VoiceDestination[]
+  auditEvents       QueueAuditEvent[]
 
   @@unique([tenantId, name])
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@map("queues")
+}
+
+enum VoiceDestinationEntryMode {
+  DIRECT_QUEUE
+}
+
+model VoiceDestination {
+  id          String                    @id @default(uuid()) @db.Uuid
+  tenantId    String                    @map("tenant_id") @db.Uuid
+  destination String
+  entryMode   VoiceDestinationEntryMode @default(DIRECT_QUEUE) @map("entry_mode")
+  queueId     String                    @map("queue_id") @db.Uuid
+  isActive    Boolean                   @default(true) @map("is_active")
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  queue  Queue  @relation(fields: [tenantId, queueId], references: [tenantId, id])
+
+  @@unique([tenantId, destination])
+  @@index([tenantId, queueId])
+  @@map("voice_destinations")
+}
+
+enum QueueAuditAction {
+  QUEUE_CREATED
+  QUEUE_UPDATED
+  QUEUE_ENABLED
+  QUEUE_DISABLED
+  DIRECT_DESTINATION_SET
+}
+
+model QueueAuditEvent {
+  id          String           @id @default(uuid()) @db.Uuid
+  tenantId    String           @map("tenant_id") @db.Uuid
+  queueId     String           @map("queue_id") @db.Uuid
+  actorUserId String           @map("actor_user_id") @db.Uuid
+  action      QueueAuditAction
+  details     Json
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  queue  Queue  @relation(fields: [tenantId, queueId], references: [tenantId, id])
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, queueId, createdAt])
+  @@map("queue_audit_events")
 }
 
 model Skill {

@@ -23,6 +23,9 @@ importers:
       '@d-contact/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@d-contact/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@d-contact/workspace-session':
         specifier: workspace:*
         version: link:../../packages/workspace-session

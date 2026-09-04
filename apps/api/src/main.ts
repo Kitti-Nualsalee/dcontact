@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { Controller, Get, Module, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
+import { Controller, Module, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import {
@@ -17,10 +17,14 @@ import {
   GatewayRoles,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
-  type AuthenticatedGatewayRequest,
   type GatewayDiagnosticSink,
 } from './gateway-auth.js';
-import { listTenantQueues } from './tenant-queue.js';
+import {
+  QueueAuditController,
+  QueueController,
+  TENANT_QUEUE_DATABASE,
+  VoiceDestinationController,
+} from './tenant-queue-api.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -64,20 +68,15 @@ class WorkspaceSessionController {
   }
 }
 
-@Controller('api/v1/queues')
-class QueueController {
-  @Get()
-  @GatewayRoles('agent', 'supervisor', 'admin')
-  async list(@Req() request: AuthenticatedGatewayRequest) {
-    const identity = request.gatewayIdentity;
-    if (!identity) throw new UnauthorizedException();
-    return listTenantQueues(prisma, identity.tenantId);
-  }
-}
-
 @Module({
-  controllers: [WorkspaceSessionController, QueueController],
+  controllers: [
+    WorkspaceSessionController,
+    QueueController,
+    VoiceDestinationController,
+    QueueAuditController,
+  ],
   providers: [
+    { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },
