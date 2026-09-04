@@ -1,0 +1,176 @@
+{
+  "realm": "dcontact",
+  "enabled": true,
+  "sslRequired": "NONE",
+  "displayName": "D-Contact (development only)",
+  "organizationsEnabled": true,
+  "registrationAllowed": false,
+  "resetPasswordAllowed": true,
+  "roles": {
+    "realm": [
+      { "name": "agent" },
+      { "name": "supervisor", "composite": true, "composites": { "realm": ["agent"] } },
+      { "name": "admin", "composite": true, "composites": { "realm": ["supervisor"] } }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "dcontact-api",
+      "name": "D-Contact API audience",
+      "enabled": true,
+      "bearerOnly": true,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "agent-desktop",
+      "name": "D-Contact Workspace (development)",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:5173/*"],
+      "webOrigins": ["http://localhost:5173"],
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "protocolMappers": [
+        {
+          "name": "dcontact-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.client.audience": "dcontact-api", "access.token.claim": "true" }
+        },
+        {
+          "name": "tenant_id fallback",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "false"
+          }
+        },
+        {
+          "name": "tenant_slug fallback",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_slug",
+            "claim.name": "tenant_slug",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "false"
+          }
+        },
+        {
+          "name": "dc_user_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "dc_user_id",
+            "claim.name": "dc_user_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "false"
+          }
+        }
+      ],
+      "defaultClientScopes": ["web-origins", "acr", "basic", "roles", "profile", "email"],
+      "optionalClientScopes": ["organization"]
+    },
+    {
+      "clientId": "dcontact-dev-readiness",
+      "name": "D-Contact readiness evidence (development only)",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "dcontact-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.client.audience": "dcontact-api", "access.token.claim": "true" }
+        },
+        {
+          "name": "tenant_id fallback",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "multivalued": "false"
+          }
+        },
+        {
+          "name": "tenant_slug fallback",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_slug",
+            "claim.name": "tenant_slug",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "multivalued": "false"
+          }
+        },
+        {
+          "name": "dc_user_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "dc_user_id",
+            "claim.name": "dc_user_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "multivalued": "false"
+          }
+        }
+      ],
+      "defaultClientScopes": ["acr", "basic", "roles", "profile", "email"],
+      "optionalClientScopes": ["organization"]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin@demo.local",
+      "email": "admin@demo.local",
+      "firstName": "Demo",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "admin1234", "temporary": false }],
+      "realmRoles": ["admin"]
+    },
+    {
+      "username": "agent1000@demo.local",
+      "email": "agent1000@demo.local",
+      "firstName": "Agent",
+      "lastName": "1000",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "agent1234", "temporary": false }],
+      "realmRoles": ["agent"]
+    },
+    {
+      "username": "agent1001@demo.local",
+      "email": "agent1001@demo.local",
+      "firstName": "Agent",
+      "lastName": "1001",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "agent1234", "temporary": false }],
+      "realmRoles": ["agent"]
+    }
+  ]
+}

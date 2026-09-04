@@ -54,8 +54,9 @@
 pnpm install
 
 # 1. เริ่มและยืนยัน Phase 0 dev foundation ด้วยคำสั่งเดียว
-#    FreeSWITCH + Postgres + Redis + MinIO + Redpanda (Kafka) + database baseline
+#    FreeSWITCH + Postgres + Redis + MinIO + Redpanda (Kafka) + Keycloak + database baseline
 #    Redpanda Console (ดู topics/messages): http://localhost:8085
+#    Keycloak Admin Console: http://localhost:8081 (admin / admin, เฉพาะ dev)
 pnpm infra:ready
 
 # 3. build ทั้งหมด (วันนี้ = packages/shared + kafka + db)
@@ -90,26 +91,34 @@ python3 -m http.server 8090 --directory mockups
 
 `pnpm infra:ready` คือ entry condition ก่อนเริ่ม ticket ของ Phase 1: เริ่ม Docker, ทำ database
 baseline และรัน `pnpm infra:check` ซึ่งตรวจ
-PostgreSQL, Redis, MinIO (รวม bucket `recordings`), Redpanda และ FreeSWITCH จาก interface
+PostgreSQL, Redis, MinIO (รวม bucket `recordings`), Redpanda, FreeSWITCH และ Keycloak จาก interface
 ที่ service ใช้งานจริง
+
+ส่วน identity จะ import realm `dcontact`, สร้าง Organization `demo`, เชื่อม dev users กับ
+`users.keycloak_id` ใน Postgres แล้วออก access token จริงเพื่อตรวจลายเซ็นผ่าน JWKS รวมถึง claims
+`tenant_id`, `tenant_slug`, `dc_user_id`, `realm_access.roles` และ native `organization` claim
 
 - ถ้า Docker service ใดยังไม่พร้อม ให้ดูสถานะของ Docker Compose แล้วรัน `pnpm infra:up` ซ้ำ
 - ถ้า PostgreSQL ไม่พร้อมหลังเคยหยุด Docker นาน ให้รอ health check ผ่านก่อนรัน migration
 - ถ้า MinIO หรือ bucket ไม่ผ่าน ให้ตรวจว่า port 9000 ไม่ถูกใช้งานโดยโปรแกรมอื่น และ volume ของ dev เขียนได้
 - ถ้า Redpanda topic หาย ให้ตรวจ health ของ Redpanda ก่อน ไม่สร้าง topic ชื่อเก่า `dc.fs.events`
 - ถ้า FreeSWITCH ไม่ผ่าน ให้ตรวจ Docker log ของ service และ port SIP/ESL ที่ประกาศไว้; ปัญหาเสียงบน Docker Desktop ให้ตรวจ UDP RTP ตามหมายเหตุด้านบน
+- ถ้า Keycloak ไม่ผ่าน ให้ตรวจ port 8081 แล้วรัน `pnpm infra:identity:link` ตามด้วย
+  `pnpm infra:identity:check`; realm และ credentials ใน `infra/keycloak/` ใช้เฉพาะ local dev
 
-## Credentials (dev seed — ใช้กับฐานข้อมูล ยังไม่มี API ให้ login)
+## Credentials (dev only)
 
-| user                 | password  | role                 |
-| -------------------- | --------- | -------------------- |
-| admin@demo.local     | admin1234 | ADMIN                |
-| agent1000@demo.local | agent1234 | AGENT (SIP ext 1000) |
-| agent1001@demo.local | agent1234 | AGENT (SIP ext 1001) |
+| user                 | password  | role                         |
+| -------------------- | --------- | ---------------------------- |
+| admin@demo.local     | admin1234 | admin / ADMIN                |
+| agent1000@demo.local | agent1234 | agent / AGENT (SIP ext 1000) |
+| agent1001@demo.local | agent1234 | agent / AGENT (SIP ext 1001) |
 
 ## หมายเหตุ production
 
 - ESL (8021) และ default passwords ทั้งหมดเป็น **dev only** — ห้ามใช้ใน production
+- Keycloak bootstrap admin, readiness client และรหัสผ่านใน realm import เป็น **dev only**;
+  production ต้องปิด Direct Access Grants และรับ credentials จาก secret manager
 - WebSocket softphone ต้องเปลี่ยนเป็น `wss:` (7443) + TLS cert จริง
 - App ต้องต่อ DB ด้วย role `dcontact_app` (NOBYPASSRLS) เพื่อให้ RLS ทำงานจริง
 - FreeSWITCH directory/dialplan จะเปลี่ยนเป็น generate จาก DB ต่อ tenant (mod_xml_curl) ใน Phase 1

@@ -18,6 +18,18 @@ services:
       timeout: 3s
       retries: 10
 
+  keycloak-db-init:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: dcontact
+    entrypoint: >
+      /bin/sh -ec "
+      exists=$$(psql -h postgres -U dcontact -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname = 'keycloak'\");
+      if [ \"$$exists\" != \"1\" ]; then createdb -h postgres -U dcontact keycloak; fi"
+
   redis:
     image: redis:7-alpine
     ports:
@@ -100,6 +112,29 @@ services:
       KAFKA_BROKERS: redpanda:29092
     ports:
       - '8085:8080'
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.0
+    command: start-dev --import-realm --features=organization
+    depends_on:
+      keycloak-db-init:
+        condition: service_completed_successfully
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: dcontact
+      KC_DB_PASSWORD: dcontact
+    ports:
+      - '8081:8080'
+    volumes:
+      - ../keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'bash -c "exec 3<>/dev/tcp/127.0.0.1/8080"']
+      interval: 10s
+      timeout: 5s
+      retries: 18
 
   freeswitch:
     image: safarov/freeswitch:latest

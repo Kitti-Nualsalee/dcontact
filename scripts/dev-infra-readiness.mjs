@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 
 const composeArguments = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
-const runningServices = ['postgres', 'redis', 'minio', 'redpanda', 'freeswitch'];
+const runningServices = ['postgres', 'redis', 'minio', 'redpanda', 'freeswitch', 'keycloak'];
 const requiredTopics = [
   'dc.telephony.events',
   'dc.channel.events',

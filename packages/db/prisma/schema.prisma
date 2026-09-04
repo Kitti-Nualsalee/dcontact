@@ -35,6 +35,7 @@ enum UserRole {
 
 model User {
   id           String   @id @default(uuid()) @db.Uuid
+  keycloakId   String?  @unique @map("keycloak_id") @db.Uuid
   tenantId     String   @map("tenant_id") @db.Uuid
   email        String
   passwordHash String   @map("password_hash")
