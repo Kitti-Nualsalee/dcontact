@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/main.ts",
     "test": "tsx --test src/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@d-contact/db": "workspace:*",
     "@d-contact/kafka": "workspace:*",
     "@d-contact/shared": "workspace:*"
   },
