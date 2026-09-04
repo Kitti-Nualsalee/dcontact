@@ -1,6 +1,4 @@
-import { execFileSync } from 'node:child_process';
-
-const composeArguments = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
+import { compose } from './dev-infra-compose.mjs';
 const runningServices = ['postgres', 'redis', 'minio', 'redpanda', 'freeswitch', 'keycloak'];
 const requiredTopics = [
   'dc.telephony.events',
@@ -11,13 +9,6 @@ const requiredTopics = [
   'dc.channel.commands',
   'dc.journey.events',
 ];
-
-function compose(...arguments_) {
-  return execFileSync('docker', [...composeArguments, ...arguments_], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
-}
 
 function check(name, action) {
   try {

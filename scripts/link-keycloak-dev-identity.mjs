@@ -1,20 +1,10 @@
-import { execFileSync } from 'node:child_process';
+import { compose } from './dev-infra-compose.mjs';
 
 const keycloakBaseUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
 const adminUsername = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME ?? 'admin';
 const adminPassword = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? 'admin';
 const realm = 'dcontact';
-
-function compose(...arguments_) {
-  return execFileSync(
-    'docker',
-    ['compose', '-f', 'infra/docker/docker-compose.dev.yml', ...arguments_],
-    {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  ).trim();
-}
+const fallbackOnly = process.argv.includes('--fallback-only');
 
 async function request(path, { method = 'GET', token, body, form, rawBody } = {}) {
   const headers = {};
@@ -155,9 +145,7 @@ async function main() {
   const organizationMapper = organizationScope?.protocolMappers?.find(
     (mapper) => mapper.protocolMapper === 'oidc-organization-membership-mapper',
   );
-  if (!basicScope || !organizationScope || !organizationMapper) {
-    throw new Error('Keycloak 26 ไม่มี native Organization mapper ตาม contract ที่ pin');
-  }
+  if (!basicScope) throw new Error('Keycloak ไม่มี basic client scope ที่ token contract ต้องใช้');
   const clients = await request(`/admin/realms/${realm}/clients`, { token });
   for (const clientId of ['agent-desktop', 'dcontact-dev-readiness']) {
     const client = clients.find((candidate) => candidate.clientId === clientId);
@@ -166,31 +154,37 @@ async function main() {
       `/admin/realms/${realm}/clients/${client.id}/default-client-scopes/${basicScope.id}`,
       { method: 'PUT', token },
     );
-    await request(
-      `/admin/realms/${realm}/clients/${client.id}/default-client-scopes/${organizationScope.id}`,
-      { method: 'DELETE', token },
-    );
-    await request(
-      `/admin/realms/${realm}/clients/${client.id}/optional-client-scopes/${organizationScope.id}`,
-      { method: 'PUT', token },
-    );
+    if (!fallbackOnly && organizationScope) {
+      await request(
+        `/admin/realms/${realm}/clients/${client.id}/default-client-scopes/${organizationScope.id}`,
+        { method: 'DELETE', token },
+      );
+      await request(
+        `/admin/realms/${realm}/clients/${client.id}/optional-client-scopes/${organizationScope.id}`,
+        { method: 'PUT', token },
+      );
+    }
   }
-  await request(
-    `/admin/realms/${realm}/client-scopes/${organizationScope.id}/protocol-mappers/models/${organizationMapper.id}`,
-    {
-      method: 'PUT',
-      token,
-      body: {
-        ...organizationMapper,
-        config: {
-          ...organizationMapper.config,
-          addOrganizationAttributes: 'true',
-          addOrganizationId: 'true',
-          'jsonType.label': 'JSON',
+  if (!fallbackOnly && organizationScope && organizationMapper) {
+    await request(
+      `/admin/realms/${realm}/client-scopes/${organizationScope.id}/protocol-mappers/models/${organizationMapper.id}`,
+      {
+        method: 'PUT',
+        token,
+        body: {
+          ...organizationMapper,
+          config: {
+            ...organizationMapper.config,
+            addOrganizationAttributes: 'true',
+            addOrganizationId: 'true',
+            'jsonType.label': 'JSON',
+          },
         },
       },
-    },
-  );
+    );
+  } else if (!fallbackOnly) {
+    console.warn('ไม่พบ native Organization mapper; ใช้ flat user-attribute claims เป็น fallback');
+  }
 
   let organizations = await request(`/admin/realms/${realm}/organizations`, { token });
   let organization = organizations.find((candidate) => candidate.alias === 'demo');
@@ -261,7 +255,8 @@ async function main() {
     updateDatabaseIdentity(databaseUser.id, keycloakUser.id);
   }
 
-  console.log(`เชื่อม Keycloak Organization demo กับ dev users ${users.length} คนแล้ว`);
+  const mode = fallbackOnly ? 'fallback user attributes' : 'native Organization + fallback';
+  console.log(`เชื่อม Keycloak Organization demo กับ dev users ${users.length} คนแล้ว (${mode})`);
 }
 
 main().catch((error) => {
