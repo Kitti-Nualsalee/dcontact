@@ -91,6 +91,24 @@ flowchart TB
 5. Agent รับ → `CHANNEL_ANSWER` ไหลเข้าเส้นเดิม → `ACTIVE`; ไม่รับใน N วิ → requeue
 6. วางสาย → `WRAPUP` → agent เลือก wrap-up code → `COMPLETED`
 
+### 3a. ปลายทางเสียง: direct queue หรือ IVR ขั้นต่ำ
+
+`VoiceDestination` ของ tenant กำหนด `entryMode` ได้เป็น `DIRECT_QUEUE` หรือ `IVR` โดย destination
+ของ IVR เก็บ prompt, เวลาเก็บคำตอบ, voice route, DTMF route และ default queue ไว้ใน tenant เดียวกัน
+จึงย้าย DID ระหว่างคิวหรือบริการได้โดยไม่ผูกกับ FreeSWITCH node
+
+- `DIRECT_QUEUE` ใช้เส้นเดิม: สร้าง `Interaction` เป็น `QUEUED` แล้ว matching agent ทันที
+- `IVR` ยังสร้าง `Interaction` เป็น `QUEUED` เช่นเดิม แต่ Router ส่ง `call.collect` ให้ gateway
+  เพื่อ answer สายและรับ voice ก่อน; หากไม่เข้า route หรือหมดเวลา จะเก็บ DTMF ต่อ
+- route ที่ตรงจะใส่ `queueId` แล้วใช้ matching/policy ของคิวนั้นตามปกติ; จึงไม่มี state ใหม่ใน
+  public lifecycle ของ Interaction
+- หากผู้โทรไม่เข้าใจหรือ timeout ครบ 2 รอบ จะเลือก default queue พร้อม
+  `interaction.ivr_resolved` ที่ระบุ `reason=ivr_max_attempts` ให้ตรวจสอบย้อนหลังได้
+
+FreeSWITCH gateway เก็บ tenant ที่ผูกกับ `callUuid` ตั้งแต่ `CHANNEL_CREATE` เพราะ event DTMF และ
+speech บางชนิดไม่มี `variable_domain_name`; จึง normalize กลับเป็น `call.input` ที่ tenant ถูกต้องโดย
+ไม่เดาจาก FreeSWITCH server
+
 **Digital ต่างแค่ต้นทางกับเนื้อหา**: channels gateway รับ webhook แทน ESL, ตัวข้อความเก็บใน
 `conversations`/`messages` แทน recording — ตั้งแต่ Kafka ลงไปใช้ router/queue/state machine
 ชุดเดียวกัน สิ่งเดียวที่ต่างคือ concurrency: voice = 1 สาย, chat = หลายห้องพร้อมกัน

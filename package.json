@@ -23,6 +23,7 @@
     "infra:ready": "node scripts/phase-zero-readiness.mjs",
     "test:readiness": "node --test scripts/phase-zero-readiness.test.mjs",
     "voice:demo": "node scripts/inbound-voice-demo.mjs",
+    "voice:ivr:demo": "INBOUND_DEMO_DTMF=2 node scripts/inbound-voice-demo.mjs",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   },
   "devDependencies": {

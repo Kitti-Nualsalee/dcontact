@@ -197,6 +197,7 @@ test('queue management REST API allows tenant Admin and rejects Agent mutation',
     destination,
     entryMode: 'DIRECT_QUEUE',
     queueId: payload.id,
+    ivrConfig: null,
     isActive: true,
   });
 

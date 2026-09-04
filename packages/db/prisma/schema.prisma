@@ -139,6 +139,7 @@ model Queue {
 
 enum VoiceDestinationEntryMode {
   DIRECT_QUEUE
+  IVR
 }
 
 model VoiceDestination {
@@ -147,6 +148,7 @@ model VoiceDestination {
   destination String
   entryMode   VoiceDestinationEntryMode @default(DIRECT_QUEUE) @map("entry_mode")
   queueId     String                    @map("queue_id") @db.Uuid
+  ivrConfig   Json?                     @map("ivr_config")
   isActive    Boolean                   @default(true) @map("is_active")
   createdAt   DateTime                  @default(now()) @map("created_at")
   updatedAt   DateTime                  @updatedAt @map("updated_at")
@@ -304,6 +306,11 @@ enum InteractionStateType {
   ABANDONED
 }
 
+enum IvrInputStage {
+  VOICE
+  DTMF
+}
+
 model Interaction {
   id                        String               @id @default(uuid()) @db.Uuid
   tenantId                  String               @map("tenant_id") @db.Uuid
@@ -329,6 +336,10 @@ model Interaction {
   endedAt    DateTime? @map("ended_at")
   offerExpiresAt DateTime? @map("offer_expires_at")
   requeueAt      DateTime? @map("requeue_at")
+  ivrDestinationId    String?       @map("ivr_destination_id") @db.Uuid
+  ivrStage            IvrInputStage? @map("ivr_stage")
+  ivrAttempts         Int           @default(0) @map("ivr_attempts")
+  ivrInputExpiresAt   DateTime?     @map("ivr_input_expires_at")
 
   tenant       Tenant             @relation(fields: [tenantId], references: [id])
   queue        Queue?             @relation(fields: [queueId], references: [id])
@@ -345,6 +356,7 @@ model Interaction {
   @@unique([tenantId, externalId])
   @@index([tenantId, conversationId, queuedAt])
   @@index([tenantId, reopenedFromInteractionId])
+  @@index([tenantId, ivrInputExpiresAt])
   @@map("interactions")
 }
 

@@ -19,6 +19,7 @@ async function main() {
   socket.on('error', (error) => console.error('[telephony] ESL connection error', error));
   let buffer = '';
   let authenticated = false;
+  const tenantIdByCallUuid = new Map<string, string>();
   const commandAdapter = new FreeSwitchCommandAdapter(
     {
       command: async (command) => {
@@ -54,34 +55,49 @@ async function main() {
       }
       if (!authenticated && /\+OK accepted/i.test(frame)) {
         authenticated = true;
-        socket.write('events plain CHANNEL_CREATE CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE\n\n');
+        socket.write(
+          'events plain CHANNEL_CREATE CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE DTMF DETECTED_SPEECH\n\n',
+        );
         continue;
       }
       const source = parseEslEvent(frame);
       if (!source) continue;
       try {
         const sipDomain = source.variable_domain_name;
-        if (typeof sipDomain !== 'string') continue;
-        const tenant = await database.tenant.findUnique({
-          where: { sipDomain },
-          select: { id: true },
-        });
-        if (!tenant) continue;
+        const sourceCallUuid =
+          typeof source['Unique-ID'] === 'string' ? source['Unique-ID'] : undefined;
+        const tenantId =
+          typeof sipDomain === 'string'
+            ? (
+                await database.tenant.findUnique({
+                  where: { sipDomain },
+                  select: { id: true },
+                })
+              )?.id
+            : sourceCallUuid
+              ? tenantIdByCallUuid.get(sourceCallUuid)
+              : undefined;
+        if (!tenantId) continue;
         const event = normalizeFreeSwitchEvent(source, {
           telephonyNodeId: nodeId,
-          resolveTenantId: (domain) => (domain === sipDomain ? tenant.id : undefined),
+          resolveTenantId: (domain) => (domain === sipDomain ? tenantId : undefined),
+          resolveTenantIdForCall: (callUuid) => tenantIdByCallUuid.get(callUuid),
           eventId: randomUUID,
           now: () => new Date().toISOString(),
         });
         await producer.send(KAFKA_TOPICS.TELEPHONY_EVENTS, event);
+        if (event.type === 'call.created')
+          tenantIdByCallUuid.set(event.payload.callUuid, event.tenantId);
+        if (event.type === 'call.hangup') tenantIdByCallUuid.delete(event.payload.callUuid);
       } catch (error) {
         console.error('[telephony] ignored ESL event', error);
       }
     }
   });
   const shutdown = async () => {
-    await Promise.all([consumer.disconnect(), producer.disconnect(), database.$disconnect()]);
+    socket.removeAllListeners('data');
     socket.end();
+    await Promise.all([consumer.disconnect(), producer.disconnect(), database.$disconnect()]);
     process.exit(0);
   };
   process.once('SIGINT', shutdown);

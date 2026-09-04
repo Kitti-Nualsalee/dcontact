@@ -73,6 +73,25 @@ interface DueOfferOutcome {
   reason?: string;
 }
 
+interface IvrConfiguration {
+  prompt: string;
+  inputTimeoutSec: number;
+  voiceRoutes: Record<string, string>;
+  dtmfRoutes: Record<string, string>;
+}
+
+interface IvrCollectRequest {
+  interactionId: string;
+  inputMode: 'VOICE' | 'DTMF';
+  prompt: string;
+  timeoutSec: number;
+}
+
+type TelephonyCallMetadata = Pick<
+  TelephonyCallEvent,
+  'vendor' | 'telephonyNodeId' | 'caller' | 'destination'
+>;
+
 export class InboundVoiceRouter {
   private readonly queuePolicySelection = {
     offerTimeoutSec: true,
@@ -100,6 +119,7 @@ export class InboundVoiceRouter {
   async handle(event: KafkaEventEnvelope<TelephonyCallEvent>): Promise<InboundVoiceRoutingResult> {
     if (event.type === 'call.answered') return this.handleAnswered(event);
     if (event.type === 'call.hangup') return this.handleHangup(event);
+    if (event.type === 'call.input') return this.handleIvrInput(event);
     if (event.type !== 'call.created') {
       throw new Error(`InboundVoiceRouter does not handle event type ${event.type}`);
     }
@@ -121,11 +141,16 @@ export class InboundVoiceRouter {
           where: {
             tenantId: event.tenantId,
             destination: event.payload.destination,
-            entryMode: 'DIRECT_QUEUE',
             isActive: true,
             queue: { isActive: true },
           },
-          select: { queueId: true, queue: { select: this.queuePolicySelection } },
+          select: {
+            id: true,
+            entryMode: true,
+            queueId: true,
+            ivrConfig: true,
+            queue: { select: this.queuePolicySelection },
+          },
         });
         if (!destination) throw new Error('no active direct voice destination for inbound call');
 
@@ -137,7 +162,16 @@ export class InboundVoiceRouter {
               channel: 'VOICE',
               direction: 'INBOUND',
               state: 'QUEUED',
-              queueId: destination.queueId,
+              queueId: destination.entryMode === 'DIRECT_QUEUE' ? destination.queueId : null,
+              ...(destination.entryMode === 'IVR'
+                ? {
+                    ivrDestinationId: destination.id,
+                    ivrStage: 'VOICE' as const,
+                    ivrInputExpiresAt: this.ivrInputExpiresAt(
+                      this.ivrConfiguration(destination.ivrConfig).inputTimeoutSec,
+                    ),
+                  }
+                : {}),
               externalId: event.payload.callUuid,
               metadata: {
                 vendor: event.payload.vendor,
@@ -175,6 +209,20 @@ export class InboundVoiceRouter {
             },
           ],
         });
+
+        if (destination.entryMode === 'IVR') {
+          const configuration = this.ivrConfiguration(destination.ivrConfig);
+          return {
+            interactionId: interaction.id,
+            status: 'QUEUED' as const,
+            ivrCollect: {
+              interactionId: interaction.id,
+              inputMode: 'VOICE' as const,
+              prompt: configuration.prompt,
+              timeoutSec: configuration.inputTimeoutSec,
+            },
+          };
+        }
 
         const policy = this.resolveQueuePolicy(destination.queue);
         const available = await this.findAvailableAgent(
@@ -221,7 +269,10 @@ export class InboundVoiceRouter {
       },
     );
 
-    if (result.status === 'ASSIGNED' && 'agentExtension' in result) {
+    if ('ivrCollect' in result) {
+      await this.publishLifecycle(event, result.interactionId, undefined, undefined);
+      await this.publishCollect(event, result.ivrCollect!);
+    } else if (result.status === 'ASSIGNED' && 'agentExtension' in result) {
       await this.publishLifecycle(event, result.interactionId, result.agentId!, result.queueId);
       await this.dependencies.publish(
         KAFKA_TOPICS.AGENT_EVENTS,
@@ -252,11 +303,39 @@ export class InboundVoiceRouter {
     const now = new Date(this.dependencies.now());
     const tenants = await this.database.tenant.findMany({ select: { id: true } });
     const outcomes: DueOfferOutcome[] = [];
+    const ivrTimeouts: KafkaEventEnvelope<TelephonyCallEvent>[] = [];
     for (const tenant of tenants) {
       const tenantOutcomes = await withTenantDatabaseTransaction(
         this.database,
         tenant.id,
         async (transaction) => {
+          const dueIvrInputs = await transaction.interaction.findMany({
+            where: {
+              tenantId: tenant.id,
+              channel: 'VOICE',
+              state: 'QUEUED',
+              ivrStage: { not: null },
+              ivrInputExpiresAt: { lte: now },
+            },
+            select: { id: true, externalId: true, metadata: true },
+          });
+          for (const dueIvrInput of dueIvrInputs) {
+            if (!dueIvrInput.externalId) continue;
+            const metadata = this.telephonyCallMetadata(dueIvrInput.metadata);
+            ivrTimeouts.push({
+              eventId: this.dependencies.eventId(),
+              type: 'call.input',
+              tenantId: tenant.id,
+              occurredAt: this.dependencies.now(),
+              correlationId: dueIvrInput.externalId,
+              orderingKey: dueIvrInput.externalId,
+              payload: {
+                ...metadata,
+                callUuid: dueIvrInput.externalId,
+                inputMode: 'TIMEOUT',
+              },
+            });
+          }
           const dueOffers = await transaction.interaction.findMany({
             where: {
               tenantId: tenant.id,
@@ -614,6 +693,7 @@ export class InboundVoiceRouter {
       outcomes.push(...tenantOutcomes);
     }
     for (const outcome of outcomes) await this.publishDueOfferOutcome(outcome);
+    for (const timeout of ivrTimeouts) await this.handle(timeout);
   }
 
   async declineOffer(command: DeclineOfferCommand): Promise<InboundVoiceRoutingResult> {
@@ -789,6 +869,189 @@ export class InboundVoiceRouter {
       interactionId: completed.id,
       status: completed.state,
       ...(completed.agentId ? { agentId: completed.agentId } : {}),
+    };
+  }
+
+  private async handleIvrInput(
+    event: KafkaEventEnvelope<TelephonyCallEvent>,
+  ): Promise<InboundVoiceRoutingResult> {
+    if (event.orderingKey !== event.payload.callUuid) {
+      throw new Error('telephony event orderingKey must equal callUuid');
+    }
+    const result = await withTenantDatabaseTransaction(
+      this.database,
+      event.tenantId,
+      async (transaction) => {
+        const interaction = await transaction.interaction.findFirstOrThrow({
+          where: { tenantId: event.tenantId, externalId: event.payload.callUuid },
+          select: {
+            id: true,
+            state: true,
+            agentId: true,
+            ivrDestinationId: true,
+            ivrStage: true,
+            ivrAttempts: true,
+            ivrInputExpiresAt: true,
+          },
+        });
+        if (
+          interaction.state !== 'QUEUED' ||
+          !interaction.ivrDestinationId ||
+          !interaction.ivrStage
+        ) {
+          return this.resultFromInteraction(interaction);
+        }
+        if (
+          event.payload.inputMode === 'TIMEOUT' &&
+          (!interaction.ivrInputExpiresAt ||
+            interaction.ivrInputExpiresAt > new Date(this.dependencies.now()))
+        ) {
+          return this.resultFromInteraction(interaction);
+        }
+        const destination = await transaction.voiceDestination.findFirstOrThrow({
+          where: { id: interaction.ivrDestinationId, tenantId: event.tenantId, entryMode: 'IVR' },
+          select: { queueId: true, ivrConfig: true, queue: { select: this.queuePolicySelection } },
+        });
+        const configuration = this.ivrConfiguration(destination.ivrConfig);
+        const inputMode = event.payload.inputMode;
+        const inputValue = event.payload.inputValue;
+        const route =
+          interaction.ivrStage === 'VOICE' && inputMode === 'VOICE' && inputValue
+            ? configuration.voiceRoutes[this.normalizedVoiceInput(inputValue)]
+            : interaction.ivrStage === 'VOICE' && inputMode === 'DTMF' && inputValue
+              ? configuration.dtmfRoutes[inputValue.trim()]
+              : interaction.ivrStage === 'DTMF' && inputMode === 'DTMF' && inputValue
+                ? configuration.dtmfRoutes[inputValue.trim()]
+                : undefined;
+        const attempts = route ? interaction.ivrAttempts : interaction.ivrAttempts + 1;
+        if (!route && interaction.ivrStage === 'VOICE' && attempts < 2) {
+          await transaction.interaction.updateMany({
+            where: { id: interaction.id, tenantId: event.tenantId, state: 'QUEUED' },
+            data: {
+              ivrStage: 'DTMF',
+              ivrAttempts: attempts,
+              ivrInputExpiresAt: this.ivrInputExpiresAt(configuration.inputTimeoutSec),
+            },
+          });
+          await transaction.interactionEvent.create({
+            data: {
+              tenantId: event.tenantId,
+              interactionId: interaction.id,
+              type: 'interaction.ivr_dtmf_fallback',
+              payload: {},
+            },
+          });
+          return {
+            interactionId: interaction.id,
+            status: 'QUEUED' as const,
+            ivrCollect: {
+              interactionId: interaction.id,
+              inputMode: 'DTMF' as const,
+              prompt: configuration.prompt,
+              timeoutSec: configuration.inputTimeoutSec,
+            },
+          };
+        }
+        const queueId = route ?? (attempts >= 2 ? destination.queueId : undefined);
+        if (!queueId) {
+          await transaction.interaction.updateMany({
+            where: { id: interaction.id, tenantId: event.tenantId, state: 'QUEUED' },
+            data: {
+              ivrStage: 'VOICE',
+              ivrAttempts: attempts,
+              ivrInputExpiresAt: this.ivrInputExpiresAt(configuration.inputTimeoutSec),
+            },
+          });
+          return {
+            interactionId: interaction.id,
+            status: 'QUEUED' as const,
+            ivrCollect: {
+              interactionId: interaction.id,
+              inputMode: 'VOICE' as const,
+              prompt: configuration.prompt,
+              timeoutSec: configuration.inputTimeoutSec,
+            },
+          };
+        }
+        const policy = this.resolveQueuePolicy(destination.queue);
+        const available = await this.findAvailableAgent(
+          transaction,
+          event.tenantId,
+          queueId,
+          policy.routingStrategy,
+        );
+        const resolved = await transaction.interaction.update({
+          where: { id: interaction.id },
+          data: {
+            queueId,
+            ivrStage: null,
+            ivrInputExpiresAt: null,
+            ivrAttempts: attempts,
+            ...(available
+              ? {
+                  state: 'ASSIGNED' as const,
+                  agentId: available.id,
+                  assignedAt: new Date(this.dependencies.now()),
+                  offerExpiresAt: this.offerExpiresAt(policy.offerTimeoutSec),
+                }
+              : {}),
+          },
+          select: { id: true, state: true, agentId: true },
+        });
+        if (available) {
+          await transaction.agentStateLog.create({
+            data: {
+              tenantId: event.tenantId,
+              userId: available.id,
+              state: 'RESERVED',
+              reason: resolved.id,
+            },
+          });
+        }
+        await transaction.interactionEvent.createMany({
+          data: [
+            {
+              tenantId: event.tenantId,
+              interactionId: resolved.id,
+              type: 'interaction.ivr_resolved',
+              payload: { queueId, ...(route ? { inputMode } : { reason: 'ivr_max_attempts' }) },
+            },
+            {
+              tenantId: event.tenantId,
+              interactionId: resolved.id,
+              type: available ? 'interaction.assigned' : 'interaction.queued',
+              payload: { queueId, ...(available ? { agentId: available.id } : {}) },
+            },
+          ],
+        });
+        return {
+          interactionId: resolved.id,
+          status: resolved.state,
+          ...(available
+            ? { agentId: available.id, agentExtension: available.extension, queueId }
+            : { queueId }),
+        };
+      },
+    );
+    if ('ivrCollect' in result) {
+      await this.publishCollect(event, result.ivrCollect!);
+    } else if (result.status === 'ASSIGNED' && 'agentExtension' in result) {
+      await this.publishIvrResolution(event, result);
+    } else if (!('deduplicated' in result)) {
+      await this.dependencies.publish(
+        KAFKA_TOPICS.INTERACTION_EVENTS,
+        this.envelope(event, result.interactionId, 'interaction.queued', {
+          interactionId: result.interactionId,
+          channel: 'VOICE',
+          state: 'QUEUED',
+          ...('queueId' in result && result.queueId ? { queueId: result.queueId } : {}),
+        }),
+      );
+    }
+    return {
+      interactionId: result.interactionId,
+      status: result.status,
+      ...('agentId' in result && result.agentId ? { agentId: result.agentId } : {}),
     };
   }
 
@@ -1050,6 +1313,42 @@ export class InboundVoiceRouter {
     };
   }
 
+  private ivrConfiguration(value: Prisma.JsonValue | null): IvrConfiguration {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('IVR destination is missing configuration');
+    }
+    const configuration = value as Partial<IvrConfiguration>;
+    const inputTimeoutSec = configuration.inputTimeoutSec;
+    if (
+      typeof configuration.prompt !== 'string' ||
+      typeof inputTimeoutSec !== 'number' ||
+      !Number.isInteger(inputTimeoutSec) ||
+      inputTimeoutSec < 1 ||
+      !configuration.voiceRoutes ||
+      typeof configuration.voiceRoutes !== 'object' ||
+      Array.isArray(configuration.voiceRoutes) ||
+      !configuration.dtmfRoutes ||
+      typeof configuration.dtmfRoutes !== 'object' ||
+      Array.isArray(configuration.dtmfRoutes)
+    ) {
+      throw new Error('IVR destination has invalid configuration');
+    }
+    return {
+      prompt: configuration.prompt,
+      inputTimeoutSec,
+      voiceRoutes: configuration.voiceRoutes as Record<string, string>,
+      dtmfRoutes: configuration.dtmfRoutes as Record<string, string>,
+    };
+  }
+
+  private normalizedVoiceInput(value: string) {
+    return value.trim().toLocaleLowerCase('th-TH').replaceAll(/\s+/g, ' ');
+  }
+
+  private ivrInputExpiresAt(seconds: number) {
+    return new Date(new Date(this.dependencies.now()).getTime() + seconds * 1_000);
+  }
+
   private offerExpiresAt(seconds: number) {
     return new Date(new Date(this.dependencies.now()).getTime() + seconds * 1_000);
   }
@@ -1103,6 +1402,26 @@ export class InboundVoiceRouter {
       throw new Error('voice interaction is missing telephony metadata');
     }
     return { vendor: metadata.vendor, telephonyNodeId: metadata.telephonyNodeId };
+  }
+
+  private telephonyCallMetadata(metadata: Prisma.JsonValue | null): TelephonyCallMetadata {
+    if (
+      !metadata ||
+      typeof metadata !== 'object' ||
+      Array.isArray(metadata) ||
+      (metadata.vendor !== 'freeswitch' && metadata.vendor !== 'asterisk') ||
+      typeof metadata.telephonyNodeId !== 'string' ||
+      typeof metadata.caller !== 'string' ||
+      typeof metadata.destination !== 'string'
+    ) {
+      throw new Error('voice interaction is missing telephony metadata');
+    }
+    return {
+      vendor: metadata.vendor,
+      telephonyNodeId: metadata.telephonyNodeId,
+      caller: metadata.caller,
+      destination: metadata.destination,
+    };
   }
 
   private async publishDueOfferOutcome(outcome: DueOfferOutcome) {
@@ -1184,6 +1503,52 @@ export class InboundVoiceRouter {
         }),
       );
     }
+  }
+
+  private async publishCollect(
+    event: KafkaEventEnvelope<TelephonyCallEvent>,
+    collect: IvrCollectRequest,
+  ) {
+    const command: TelephonyCommand = {
+      callUuid: event.payload.callUuid,
+      vendor: event.payload.vendor,
+      telephonyNodeId: event.payload.telephonyNodeId,
+      type: 'call.collect',
+      inputMode: collect.inputMode,
+      prompt: collect.prompt,
+      timeoutSec: collect.timeoutSec,
+    };
+    await this.dependencies.publish(
+      KAFKA_TOPICS.TELEPHONY_COMMANDS,
+      this.envelope(event, event.payload.callUuid, 'call.collect', command),
+    );
+  }
+
+  private async publishIvrResolution(
+    event: KafkaEventEnvelope<TelephonyCallEvent>,
+    result: InboundVoiceRoutingResult & { agentExtension: string; queueId: string },
+  ) {
+    await this.dependencies.publish(
+      KAFKA_TOPICS.INTERACTION_EVENTS,
+      this.envelope(event, result.interactionId, 'interaction.assigned', {
+        interactionId: result.interactionId,
+        channel: 'VOICE',
+        state: 'ASSIGNED',
+        agentId: result.agentId!,
+        queueId: result.queueId,
+      }),
+    );
+    const command: TelephonyCommand = {
+      callUuid: event.payload.callUuid,
+      vendor: event.payload.vendor,
+      telephonyNodeId: event.payload.telephonyNodeId,
+      type: 'call.bridge',
+      agentExtension: result.agentExtension,
+    };
+    await this.dependencies.publish(
+      KAFKA_TOPICS.TELEPHONY_COMMANDS,
+      this.envelope(event, event.payload.callUuid, 'call.bridge', command),
+    );
   }
 
   private envelope(

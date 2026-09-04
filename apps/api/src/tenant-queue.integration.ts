@@ -9,6 +9,7 @@ import {
   listTenantQueues,
   resolveDirectVoiceDestination,
   setDirectVoiceDestination,
+  setIvrVoiceDestination,
   setQueueRequiredSkills,
   TenantSkillNotFoundError,
   TenantQueueNotFoundError,
@@ -295,9 +296,92 @@ test('admin maps a direct destination only to an active voice queue in the same 
     destination,
     entryMode: 'DIRECT_QUEUE',
     queueId: queue.id,
+    ivrConfig: null,
     isActive: true,
   });
   assert.deepEqual(await listDirectVoiceDestinations(application, tenantId), [configured]);
+});
+
+test('admin configures tenant-scoped IVR routes with a default voice queue', async (t) => {
+  const tenantId = randomUUID();
+  const otherTenantId = randomUUID();
+  const actorUserId = randomUUID();
+  await owner.tenant.createMany({
+    data: [
+      {
+        id: tenantId,
+        name: `IVR owner ${tenantId}`,
+        slug: `ivr-owner-${tenantId}`,
+        sipDomain: `${tenantId}.ivr-owner.test`,
+      },
+      {
+        id: otherTenantId,
+        name: `IVR other ${otherTenantId}`,
+        slug: `ivr-other-${otherTenantId}`,
+        sipDomain: `${otherTenantId}.ivr-other.test`,
+      },
+    ],
+  });
+  t.after(async () => {
+    await owner.queueAuditEvent.deleteMany({
+      where: { tenantId: { in: [tenantId, otherTenantId] } },
+    });
+    await owner.voiceDestination.deleteMany({
+      where: { tenantId: { in: [tenantId, otherTenantId] } },
+    });
+    await owner.queue.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } });
+    await owner.tenant.deleteMany({ where: { id: { in: [tenantId, otherTenantId] } } });
+  });
+  const queue = await createVoiceQueue(application, {
+    tenantId,
+    actorUserId,
+    name: `IVR default ${tenantId}`,
+  });
+  const otherQueue = await createVoiceQueue(application, {
+    tenantId: otherTenantId,
+    actorUserId,
+    name: `IVR other ${otherTenantId}`,
+  });
+  await assert.rejects(
+    setIvrVoiceDestination(application, {
+      tenantId,
+      actorUserId,
+      destination: '2300',
+      defaultQueueId: queue.id,
+      configuration: {
+        prompt: 'เลือกบริการ',
+        inputTimeoutSec: 5,
+        voiceRoutes: { sales: otherQueue.id },
+        dtmfRoutes: { '1': queue.id },
+      },
+    }),
+    TenantQueueNotFoundError,
+  );
+  const configured = await setIvrVoiceDestination(application, {
+    tenantId,
+    actorUserId,
+    destination: '2300',
+    defaultQueueId: queue.id,
+    configuration: {
+      prompt: 'เลือกบริการ',
+      inputTimeoutSec: 5,
+      voiceRoutes: { sales: queue.id },
+      dtmfRoutes: { '1': queue.id },
+    },
+  });
+  assert.deepEqual(configured, {
+    id: configured.id,
+    destination: '2300',
+    entryMode: 'IVR',
+    queueId: queue.id,
+    ivrConfig: {
+      prompt: 'เลือกบริการ',
+      inputTimeoutSec: 5,
+      voiceRoutes: { sales: queue.id },
+      dtmfRoutes: { '1': queue.id },
+    },
+    isActive: true,
+  });
 });
 
 test('queue metadata mutations append tenant-scoped audit events that admin can read back', async (t) => {

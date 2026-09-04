@@ -16,11 +16,24 @@ export class FreeSwitchCommandAdapter {
 
   async handle(command: TelephonyCommand): Promise<void> {
     if (command.vendor !== 'freeswitch' || command.telephonyNodeId !== this.telephonyNodeId) return;
-    if (command.type !== 'call.bridge')
-      throw new Error(`unsupported telephony command ${command.type}`);
-    const dialString = this.agentDialTemplate
-      .replaceAll('{extension}', command.agentExtension)
-      .replaceAll('{domain}', this.sipDomain);
-    await this.esl.command(`api uuid_transfer ${command.callUuid} bridge:${dialString} inline`);
+    if (command.type === 'call.bridge') {
+      const dialString = this.agentDialTemplate
+        .replaceAll('{extension}', command.agentExtension)
+        .replaceAll('{domain}', this.sipDomain);
+      await this.esl.command(`api uuid_transfer ${command.callUuid} bridge:${dialString} inline`);
+      return;
+    }
+    if (command.type === 'call.collect') {
+      const prompt = command.prompt.trim().replaceAll(/\s+/g, '_');
+      await this.esl.command(`api uuid_answer ${command.callUuid}`);
+      await this.esl.command(`api uuid_broadcast ${command.callUuid} say:flite.slt:${prompt} aleg`);
+      if (command.inputMode === 'VOICE') {
+        await this.esl.command(
+          `api uuid_broadcast ${command.callUuid} detect_speech:pocketsphinx aleg`,
+        );
+      }
+      return;
+    }
+    throw new Error(`unsupported telephony command ${(command as { type: string }).type}`);
   }
 }

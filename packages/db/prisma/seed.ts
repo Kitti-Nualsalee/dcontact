@@ -73,6 +73,32 @@ async function main() {
     update: { queueId: queue.id, isActive: true },
     create: { tenantId: tenant.id, destination: '2000', queueId: queue.id },
   });
+  await prisma.voiceDestination.upsert({
+    where: { tenantId_destination: { tenantId: tenant.id, destination: '2001' } },
+    update: {
+      queueId: queue.id,
+      entryMode: 'IVR',
+      ivrConfig: {
+        prompt: 'Please choose support',
+        inputTimeoutSec: 5,
+        voiceRoutes: { support: queue.id },
+        dtmfRoutes: { '2': queue.id },
+      },
+      isActive: true,
+    },
+    create: {
+      tenantId: tenant.id,
+      destination: '2001',
+      entryMode: 'IVR',
+      queueId: queue.id,
+      ivrConfig: {
+        prompt: 'Please choose support',
+        inputTimeoutSec: 5,
+        voiceRoutes: { support: queue.id },
+        dtmfRoutes: { '2': queue.id },
+      },
+    },
+  });
 
   const agents = await prisma.user.findMany({
     where: { tenantId: tenant.id, role: 'AGENT' },

@@ -1,6 +1,7 @@
 export type TelephonyVendor = 'freeswitch' | 'asterisk';
 
-export type TelephonyCallEventType = 'call.created' | 'call.answered' | 'call.hangup';
+export type TelephonyCallEventType =
+  'call.created' | 'call.answered' | 'call.hangup' | 'call.input';
 
 export interface TelephonyCallEvent extends Record<string, unknown> {
   callUuid: string;
@@ -9,13 +10,27 @@ export interface TelephonyCallEvent extends Record<string, unknown> {
   telephonyNodeId: string;
   caller: string;
   destination: string;
+  inputMode?: 'VOICE' | 'DTMF' | 'TIMEOUT';
+  inputValue?: string;
 }
 
-export interface TelephonyCommand extends Record<string, unknown> {
+interface TelephonyCommandBase extends Record<string, unknown> {
   callUuid: string;
   vendor: TelephonyVendor;
   /** command ต้องกลับไป node เดียวกับ event ต้นทาง */
   telephonyNodeId: string;
+}
+
+export interface TelephonyBridgeCommand extends TelephonyCommandBase {
   type: 'call.bridge';
   agentExtension: string;
 }
+
+export interface TelephonyCollectCommand extends TelephonyCommandBase {
+  type: 'call.collect';
+  inputMode: 'VOICE' | 'DTMF';
+  prompt: string;
+  timeoutSec: number;
+}
+
+export type TelephonyCommand = TelephonyBridgeCommand | TelephonyCollectCommand;

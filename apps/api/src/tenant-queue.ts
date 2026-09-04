@@ -1,6 +1,6 @@
 import {
   withTenantDatabaseTransaction,
-  type Prisma,
+  Prisma,
   type PrismaClient,
   type QueueAuditAction,
 } from '@d-contact/db';
@@ -41,6 +41,22 @@ export interface SetDirectVoiceDestinationCommand {
   actorUserId: string;
   destination: string;
   queueId: string;
+  isActive?: boolean;
+}
+
+export interface IvrConfiguration {
+  prompt: string;
+  inputTimeoutSec: number;
+  voiceRoutes: Record<string, string>;
+  dtmfRoutes: Record<string, string>;
+}
+
+export interface SetIvrVoiceDestinationCommand {
+  tenantId: string;
+  actorUserId: string;
+  destination: string;
+  defaultQueueId: string;
+  configuration: IvrConfiguration;
   isActive?: boolean;
 }
 
@@ -113,6 +129,7 @@ const directVoiceDestinationSelection = {
   destination: true,
   entryMode: true,
   queueId: true,
+  ivrConfig: true,
   isActive: true,
 } as const;
 
@@ -352,7 +369,7 @@ export function setQueueRequiredSkills(
 export function listDirectVoiceDestinations(database: PrismaClient, tenantId: string) {
   return withTenantDatabaseTransaction(database, tenantId, (transaction) =>
     transaction.voiceDestination.findMany({
-      where: { tenantId, entryMode: 'DIRECT_QUEUE' },
+      where: { tenantId },
       select: directVoiceDestinationSelection,
       orderBy: { destination: 'asc' },
     }),
@@ -422,6 +439,8 @@ export function setDirectVoiceDestination(
       },
       update: {
         queueId: queue.id,
+        entryMode: 'DIRECT_QUEUE',
+        ivrConfig: Prisma.JsonNull,
         isActive: command.isActive,
       },
       create: {
@@ -429,6 +448,7 @@ export function setDirectVoiceDestination(
         destination: command.destination,
         entryMode: 'DIRECT_QUEUE',
         queueId: queue.id,
+        ivrConfig: Prisma.JsonNull,
         isActive: command.isActive,
       },
       select: directVoiceDestinationSelection,
@@ -436,6 +456,61 @@ export function setDirectVoiceDestination(
     await appendQueueAuditEvent(transaction, {
       tenantId: command.tenantId,
       queueId: queue.id,
+      actorUserId: command.actorUserId,
+      action: 'DIRECT_DESTINATION_SET',
+      details: { destination: configured },
+    });
+    return configured;
+  });
+}
+
+export function setIvrVoiceDestination(
+  database: PrismaClient,
+  command: SetIvrVoiceDestinationCommand,
+) {
+  return withTenantDatabaseTransaction(database, command.tenantId, async (transaction) => {
+    const routedQueueIds = [
+      command.defaultQueueId,
+      ...Object.values(command.configuration.voiceRoutes),
+      ...Object.values(command.configuration.dtmfRoutes),
+    ];
+    const queues = await transaction.queue.findMany({
+      where: {
+        tenantId: command.tenantId,
+        id: { in: routedQueueIds },
+        channels: { has: 'VOICE' },
+        isActive: true,
+      },
+      select: { id: true },
+    });
+    if (queues.length !== new Set(routedQueueIds).size) throw new TenantQueueNotFoundError();
+
+    const configured = await transaction.voiceDestination.upsert({
+      where: {
+        tenantId_destination: {
+          tenantId: command.tenantId,
+          destination: command.destination,
+        },
+      },
+      update: {
+        entryMode: 'IVR',
+        queueId: command.defaultQueueId,
+        ivrConfig: command.configuration as unknown as Prisma.InputJsonValue,
+        isActive: command.isActive,
+      },
+      create: {
+        tenantId: command.tenantId,
+        destination: command.destination,
+        entryMode: 'IVR',
+        queueId: command.defaultQueueId,
+        ivrConfig: command.configuration as unknown as Prisma.InputJsonValue,
+        isActive: command.isActive,
+      },
+      select: directVoiceDestinationSelection,
+    });
+    await appendQueueAuditEvent(transaction, {
+      tenantId: command.tenantId,
+      queueId: command.defaultQueueId,
       actorUserId: command.actorUserId,
       action: 'DIRECT_DESTINATION_SET',
       details: { destination: configured },

@@ -14,14 +14,15 @@ async function main() {
   });
   const consumer = await createConsumer<TelephonyCallEvent>({
     clientId: 'dcontact-router',
-    groupId: 'dcontact-router-inbound-voice-v1',
+    groupId: process.env.ROUTER_INBOUND_VOICE_GROUP_ID ?? 'dcontact-router-inbound-voice-v1',
     topics: [KAFKA_TOPICS.TELEPHONY_EVENTS],
     idempotency: createInMemoryIdempotencyStore(),
     handler: async ({ event }) => {
       if (
         event.type === 'call.created' ||
         event.type === 'call.answered' ||
-        event.type === 'call.hangup'
+        event.type === 'call.hangup' ||
+        event.type === 'call.input'
       ) {
         await router.handle(event);
       }

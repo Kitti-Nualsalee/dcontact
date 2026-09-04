@@ -23,6 +23,35 @@ test('call.bridge bridges the parked UUID to the assigned softphone extension', 
   assert.deepEqual(commands, ['api uuid_transfer call-100 bridge:user/1000@dcontact.local inline']);
 });
 
+test('call.collect starts voice recognition before DTMF fallback is requested by Router', async () => {
+  const commands: string[] = [];
+  const adapter = new FreeSwitchCommandAdapter(
+    {
+      command: async (value) => {
+        commands.push(value);
+      },
+    },
+    'dcontact.local',
+    'fs-bkk-02',
+  );
+
+  await adapter.handle({
+    callUuid: 'call-100',
+    vendor: 'freeswitch',
+    telephonyNodeId: 'fs-bkk-02',
+    type: 'call.collect',
+    inputMode: 'VOICE',
+    prompt: 'Please say sales or support',
+    timeoutSec: 5,
+  } as never);
+
+  assert.deepEqual(commands, [
+    'api uuid_answer call-100',
+    'api uuid_broadcast call-100 say:flite.slt:Please_say_sales_or_support aleg',
+    'api uuid_broadcast call-100 detect_speech:pocketsphinx aleg',
+  ]);
+});
+
 test('a command for another FreeSWITCH node is ignored', async () => {
   const commands: string[] = [];
   const adapter = new FreeSwitchCommandAdapter(

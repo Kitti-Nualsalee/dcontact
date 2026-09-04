@@ -23,6 +23,7 @@ import {
   listQueueRequiredSkills,
   listTenantQueues,
   setDirectVoiceDestination,
+  setIvrVoiceDestination,
   setQueueRequiredSkills,
   TenantSkillNotFoundError,
   TenantQueueNotFoundError,
@@ -56,6 +57,15 @@ interface SetDirectVoiceDestinationBody {
 
 interface SetQueueRequiredSkillsBody {
   requiredSkills?: unknown;
+}
+
+interface SetIvrVoiceDestinationBody {
+  defaultQueueId?: unknown;
+  prompt?: unknown;
+  inputTimeoutSec?: unknown;
+  voiceRoutes?: unknown;
+  dtmfRoutes?: unknown;
+  isActive?: unknown;
 }
 
 interface UpdateTenantQueuePolicyBody {
@@ -147,6 +157,48 @@ function requiredSkills(value: unknown) {
     throw new BadRequestException('requiredSkills.skillId must be unique');
   }
   return parsed as { skillId: string; minLevel: number }[];
+}
+
+function requiredIvrRoutes(value: unknown, field: string, normalizeKey: (key: string) => string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new BadRequestException(`${field} must be an object`);
+  }
+  const routes: Record<string, string> = {};
+  for (const [rawKey, rawQueueId] of Object.entries(value)) {
+    const key = normalizeKey(rawKey);
+    if (!key) throw new BadRequestException(`${field} contains an empty input`);
+    if (routes[key]) throw new BadRequestException(`${field} contains duplicate input ${key}`);
+    routes[key] = requiredIdentifier(rawQueueId, `${field}.${key}`);
+  }
+  return routes;
+}
+
+function ivrConfiguration(body: SetIvrVoiceDestinationBody) {
+  if (
+    typeof body.prompt !== 'string' ||
+    body.prompt.trim().length === 0 ||
+    body.prompt.length > 240
+  ) {
+    throw new BadRequestException('prompt must contain 1-240 characters');
+  }
+  const voiceRoutes = requiredIvrRoutes(body.voiceRoutes, 'voiceRoutes', (value) =>
+    value.trim().toLocaleLowerCase('th-TH').replaceAll(/\s+/g, ' '),
+  );
+  const dtmfRoutes = requiredIvrRoutes(body.dtmfRoutes, 'dtmfRoutes', (value) => value.trim());
+  if (Object.keys(voiceRoutes).length === 0 || Object.keys(dtmfRoutes).length === 0) {
+    throw new BadRequestException(
+      'voiceRoutes and dtmfRoutes must each contain at least one route',
+    );
+  }
+  if (Object.keys(dtmfRoutes).some((value) => !/^[0-9*#]$/.test(value))) {
+    throw new BadRequestException('dtmfRoutes keys must be one DTMF digit');
+  }
+  return {
+    prompt: body.prompt.trim(),
+    inputTimeoutSec: optionalInteger(body.inputTimeoutSec, 'inputTimeoutSec', 1) ?? 5,
+    voiceRoutes,
+    dtmfRoutes,
+  };
 }
 
 function identity(request: AuthenticatedGatewayRequest) {
@@ -360,6 +412,29 @@ export class VoiceDestinationController {
         actorUserId: actor.userId,
         destination: requiredDestination(destination),
         queueId: requiredIdentifier(body.queueId, 'queueId'),
+        isActive: optionalBoolean(body.isActive, 'isActive'),
+      });
+    } catch (error) {
+      if (error instanceof TenantQueueNotFoundError) throw new NotFoundException();
+      throw error;
+    }
+  }
+
+  @Put(':destination/ivr')
+  @GatewayRoles('admin')
+  async setIvr(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('destination') destination: string,
+    @Body() body: SetIvrVoiceDestinationBody,
+  ) {
+    const actor = identity(request);
+    try {
+      return await setIvrVoiceDestination(this.database, {
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        destination: requiredDestination(destination),
+        defaultQueueId: requiredIdentifier(body.defaultQueueId, 'defaultQueueId'),
+        configuration: ivrConfiguration(body),
         isActive: optionalBoolean(body.isActive, 'isActive'),
       });
     } catch (error) {
