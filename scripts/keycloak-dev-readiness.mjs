@@ -84,6 +84,7 @@ async function main() {
   const [encodedHeader, encodedPayload, encodedSignature] = accessToken.split('.');
   const header = base64UrlJson(encodedHeader);
   const claims = base64UrlJson(encodedPayload);
+  assert(header.typ === 'JWT', `Keycloak access token typ ไม่ตรง contract: ${header.typ}`);
   const signingJwk = jwks.keys.find((key) => key.kid === header.kid);
   assert(signingJwk, 'ไม่พบ signing key ของ token ใน JWKS');
   assert(

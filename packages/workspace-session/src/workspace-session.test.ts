@@ -102,6 +102,22 @@ test('only verified OIDC claims can establish a tenant-bound workspace identity'
   assert.deepEqual(identity, agent);
 });
 
+test('verified flat fallback claims preserve the tenant identity contract', () => {
+  const identity = toVerifiedWorkspaceIdentity(
+    {
+      tenant_id: agent.tenantId,
+      tenant_slug: 'demo',
+      dc_user_id: agent.userId,
+      sid: agent.sessionId,
+      exp: 1_788_430_200,
+      realm_access: { roles: ['agent'] },
+    },
+    new Date('2026-09-03T10:00:00.000Z'),
+  );
+
+  assert.deepEqual(identity, agent);
+});
+
 test('OIDC claims without a tenant context cannot open a workspace session', () => {
   assert.throws(
     () =>
@@ -169,7 +185,7 @@ test('Keycloak verifier accepts a signed access token through its JWKS boundary'
     sid: agent.sessionId,
     realm_access: { roles: ['agent'] },
   })
-    .setProtectedHeader({ alg: 'RS256', kid: 'test-key', typ: 'Bearer' })
+    .setProtectedHeader({ alg: 'RS256', kid: 'test-key', typ: 'JWT' })
     .setIssuer(issuer)
     .setAudience('dcontact-api')
     .setExpirationTime('10m')
@@ -190,6 +206,41 @@ test('the transport adapter rejects a browser-supplied session without a bearer 
   assert.deepEqual(response, { status: 401, body: { code: 'UNAUTHENTICATED' } });
 });
 
+test('the HTTP boundary reports invalid or expired access tokens as unauthenticated', async () => {
+  const gateway = new WorkspaceSessionGateway(
+    { verifyAccessToken: async () => Promise.reject(new Error('expired token')) },
+    new WorkspaceSessionRegistry(),
+  );
+  const adapter = new WorkspaceSessionHttpAdapter(gateway);
+
+  const response = await adapter.connect({ authorization: 'Bearer expired', tabId: 'tab-a' });
+
+  assert.deepEqual(response, { status: 401, body: { code: 'UNAUTHENTICATED' } });
+});
+
+test('the HTTP boundary rejects a verified identity without a workspace role', async () => {
+  const gateway = new WorkspaceSessionGateway(
+    {
+      verifyAccessToken: async () => ({
+        tenant_id: agent.tenantId,
+        tenant_slug: 'demo',
+        organization: { demo: { tenant_id: [agent.tenantId] } },
+        dc_user_id: agent.userId,
+        sid: agent.sessionId,
+        exp: 1_788_430_200,
+        realm_access: { roles: ['viewer'] },
+      }),
+    },
+    new WorkspaceSessionRegistry(() => new Date('2026-09-03T10:00:00.000Z')),
+    () => new Date('2026-09-03T10:00:00.000Z'),
+  );
+  const adapter = new WorkspaceSessionHttpAdapter(gateway);
+
+  const response = await adapter.connect({ authorization: 'Bearer verified', tabId: 'tab-a' });
+
+  assert.deepEqual(response, { status: 403, body: { code: 'FORBIDDEN' } });
+});
+
 test('WebSocket auth without a token is closed before it can receive routing events', async () => {
   const closed: unknown[] = [];
   const adapter = new WorkspaceSessionWebSocketAdapter({} as WorkspaceSessionGateway);
@@ -200,6 +251,62 @@ test('WebSocket auth without a token is closed before it can receive routing eve
   );
 
   assert.deepEqual(closed, [{ code: 4401, reason: 'workspace authentication required' }]);
+});
+
+test('WebSocket auth closes invalid tokens as unauthenticated', async () => {
+  const closed: unknown[] = [];
+  const diagnostics: unknown[] = [];
+  const adapter = new WorkspaceSessionWebSocketAdapter(
+    new WorkspaceSessionGateway(
+      { verifyAccessToken: async () => Promise.reject(new Error('invalid token')) },
+      new WorkspaceSessionRegistry(),
+    ),
+    undefined,
+    { write: (diagnostic) => diagnostics.push(diagnostic) },
+  );
+
+  await adapter.handle(
+    { send: () => undefined, close: (code, reason) => closed.push({ code, reason }) },
+    { type: 'auth:connect', accessToken: 'invalid-secret-token', tabId: 'tab-a' },
+    'correlation-ws-33',
+  );
+
+  assert.deepEqual(closed, [{ code: 4401, reason: 'workspace authentication failed' }]);
+  assert.deepEqual(diagnostics, [
+    {
+      event: 'workspace.session.denied',
+      correlationId: 'correlation-ws-33',
+      reason: 'unauthenticated',
+    },
+  ]);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /invalid-secret-token/);
+});
+
+test('WebSocket auth closes a verified identity without a workspace role as forbidden', async () => {
+  const closed: unknown[] = [];
+  const gateway = new WorkspaceSessionGateway(
+    {
+      verifyAccessToken: async () => ({
+        tenant_id: agent.tenantId,
+        tenant_slug: 'demo',
+        organization: { demo: { tenant_id: [agent.tenantId] } },
+        dc_user_id: agent.userId,
+        sid: agent.sessionId,
+        exp: 1_788_430_200,
+        realm_access: { roles: ['viewer'] },
+      }),
+    },
+    new WorkspaceSessionRegistry(() => new Date('2026-09-03T10:00:00.000Z')),
+    () => new Date('2026-09-03T10:00:00.000Z'),
+  );
+  const adapter = new WorkspaceSessionWebSocketAdapter(gateway);
+
+  await adapter.handle(
+    { send: () => undefined, close: (code, reason) => closed.push({ code, reason }) },
+    { type: 'auth:connect', accessToken: 'verified', tabId: 'tab-a' },
+  );
+
+  assert.deepEqual(closed, [{ code: 4403, reason: 'workspace authorization failed' }]);
 });
 
 test('a failed silent refresh disables new routing work without closing the visible session', async () => {

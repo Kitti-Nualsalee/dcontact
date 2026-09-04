@@ -1,4 +1,8 @@
-import type { WorkspaceSession, WorkspaceSessionGateway } from './workspace-session.js';
+import {
+  WorkspaceAuthorizationError,
+  type WorkspaceSession,
+  type WorkspaceSessionGateway,
+} from './workspace-session.js';
 
 export interface WorkspaceSessionSocket {
   send(message: string): void;
@@ -20,6 +24,20 @@ export interface WorkspaceRoutingEvent {
   userId: string;
 }
 
+export interface WorkspaceSessionDiagnostic {
+  event: 'workspace.session.authenticated' | 'workspace.session.denied';
+  correlationId: string;
+  reason?: 'unauthenticated' | 'forbidden';
+  tenantId?: string;
+  userId?: string;
+}
+
+export interface WorkspaceSessionDiagnosticSink {
+  write(diagnostic: WorkspaceSessionDiagnostic): void;
+}
+
+const silentDiagnostics: WorkspaceSessionDiagnosticSink = { write: () => undefined };
+
 /** Shared WebSocket handshake adapter; tokens never travel in a query string. */
 export class WorkspaceSessionWebSocketAdapter {
   private readonly authenticatedSessions = new Map<WorkspaceSessionSocket, WorkspaceSession>();
@@ -27,13 +45,20 @@ export class WorkspaceSessionWebSocketAdapter {
   constructor(
     private readonly gateway: WorkspaceSessionGateway,
     private readonly withTenant: WorkspaceTenantScope = async (_tenantId, work) => work(),
+    private readonly diagnostics: WorkspaceSessionDiagnosticSink = silentDiagnostics,
   ) {}
 
   async handle(
     socket: WorkspaceSessionSocket,
     message: WorkspaceSessionSocketMessage,
+    correlationId = 'unavailable',
   ): Promise<void> {
     if (!message.accessToken || !message.tabId) {
+      this.diagnostics.write({
+        event: 'workspace.session.denied',
+        correlationId,
+        reason: 'unauthenticated',
+      });
       socket.close(4401, 'workspace authentication required');
       return;
     }
@@ -49,7 +74,23 @@ export class WorkspaceSessionWebSocketAdapter {
         this.authenticatedSessions.set(socket, session);
         socket.send(JSON.stringify({ type: 'workspace.session', session }));
       });
-    } catch {
+      this.diagnostics.write({
+        event: 'workspace.session.authenticated',
+        correlationId,
+        tenantId: session.tenantId,
+        userId: session.userId,
+      });
+    } catch (error) {
+      if (error instanceof WorkspaceAuthorizationError) {
+        this.authenticatedSessions.delete(socket);
+        this.diagnostics.write({
+          event: 'workspace.session.denied',
+          correlationId,
+          reason: 'forbidden',
+        });
+        socket.close(4403, 'workspace authorization failed');
+        return;
+      }
       const current = this.authenticatedSessions.get(socket);
       if (message.type === 'auth:refresh' && current) {
         await this.withTenant(current.tenantId, () => {
@@ -59,6 +100,11 @@ export class WorkspaceSessionWebSocketAdapter {
         });
         return;
       }
+      this.diagnostics.write({
+        event: 'workspace.session.denied',
+        correlationId,
+        reason: 'unauthenticated',
+      });
       socket.close(4401, 'workspace authentication failed');
     }
   }

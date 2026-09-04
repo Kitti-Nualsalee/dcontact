@@ -35,21 +35,25 @@ export function toVerifiedWorkspaceIdentity(
   if (typeof claims.dc_user_id !== 'string' || claims.dc_user_id.length === 0) {
     throw new Error('verified OIDC token requires dc_user_id');
   }
-  if (
-    typeof claims.tenant_slug !== 'string' ||
-    !claims.organization ||
-    typeof claims.organization !== 'object' ||
-    !Object.hasOwn(claims.organization, claims.tenant_slug)
-  ) {
-    throw new Error('verified OIDC token requires matching Keycloak Organization context');
+  if (typeof claims.tenant_slug !== 'string' || claims.tenant_slug.length === 0) {
+    throw new Error('verified OIDC token requires tenant_slug');
   }
-  const organization = (claims.organization as Record<string, unknown>)[claims.tenant_slug];
-  const organizationTenantIds =
-    organization && typeof organization === 'object'
-      ? (organization as { tenant_id?: unknown }).tenant_id
-      : undefined;
-  if (!Array.isArray(organizationTenantIds) || organizationTenantIds[0] !== claims.tenant_id) {
-    throw new Error('tenant_id does not match Keycloak Organization attribute');
+  if (claims.organization !== undefined) {
+    if (
+      !claims.organization ||
+      typeof claims.organization !== 'object' ||
+      !Object.hasOwn(claims.organization, claims.tenant_slug)
+    ) {
+      throw new Error('verified OIDC token requires matching Keycloak Organization context');
+    }
+    const organization = (claims.organization as Record<string, unknown>)[claims.tenant_slug];
+    const organizationTenantIds =
+      organization && typeof organization === 'object'
+        ? (organization as { tenant_id?: unknown }).tenant_id
+        : undefined;
+    if (!Array.isArray(organizationTenantIds) || organizationTenantIds[0] !== claims.tenant_id) {
+      throw new Error('tenant_id does not match Keycloak Organization attribute');
+    }
   }
   if (typeof claims.sid !== 'string' || claims.sid.length === 0) {
     throw new Error('verified OIDC token requires sid');
@@ -94,6 +98,20 @@ export interface OidcAccessTokenVerifier {
   verifyAccessToken(accessToken: string): Promise<VerifiedOidcClaims>;
 }
 
+export class WorkspaceAuthenticationError extends Error {
+  constructor() {
+    super('workspace authentication failed');
+    this.name = 'WorkspaceAuthenticationError';
+  }
+}
+
+export class WorkspaceAuthorizationError extends Error {
+  constructor() {
+    super('workspace authorization failed');
+    this.name = 'WorkspaceAuthorizationError';
+  }
+}
+
 export interface KeycloakVerifierOptions {
   issuer: string;
   audience: string;
@@ -112,7 +130,7 @@ export class KeycloakAccessTokenVerifier implements OidcAccessTokenVerifier {
     const { payload } = await jwtVerify(accessToken, this.jwks, {
       issuer: this.options.issuer,
       audience: this.options.audience,
-      typ: 'Bearer',
+      typ: 'JWT',
     });
     return payload as JWTPayload & VerifiedOidcClaims;
   }
@@ -305,8 +323,17 @@ export class WorkspaceSessionGateway {
   }
 
   private async identityFrom(accessToken: string): Promise<VerifiedWorkspaceIdentity> {
-    if (!accessToken) throw new Error('workspace session requires an access token');
-    const claims = await this.verifier.verifyAccessToken(accessToken);
-    return toVerifiedWorkspaceIdentity(claims, this.now());
+    if (!accessToken) throw new WorkspaceAuthenticationError();
+    let identity: VerifiedWorkspaceIdentity;
+    try {
+      const claims = await this.verifier.verifyAccessToken(accessToken);
+      identity = toVerifiedWorkspaceIdentity(claims, this.now());
+    } catch {
+      throw new WorkspaceAuthenticationError();
+    }
+    if (!identity.roles.some((role) => ['agent', 'supervisor', 'admin'].includes(role))) {
+      throw new WorkspaceAuthorizationError();
+    }
+    return identity;
   }
 }

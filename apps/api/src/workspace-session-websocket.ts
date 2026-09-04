@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import type {
   WorkspaceSessionSocket,
@@ -12,7 +13,13 @@ export function attachWorkspaceSessionWebSocket(
 ): WebSocketServer {
   const sockets = new WebSocketServer({ noServer: true });
 
-  sockets.on('connection', (socket) => {
+  sockets.on('connection', (socket, request) => {
+    const suppliedCorrelationId = request.headers['x-correlation-id'];
+    const correlationId =
+      typeof suppliedCorrelationId === 'string' &&
+      /^[A-Za-z0-9._:-]{1,128}$/.test(suppliedCorrelationId)
+        ? suppliedCorrelationId
+        : randomUUID();
     socket.once('close', () => adapter.disconnect(socket as WorkspaceSessionSocket));
     socket.on('message', (data) => {
       let message: WorkspaceSessionSocketMessage;
@@ -22,7 +29,7 @@ export function attachWorkspaceSessionWebSocket(
         socket.close(4400, 'invalid workspace message');
         return;
       }
-      void adapter.handle(socket as WorkspaceSessionSocket, message);
+      void adapter.handle(socket as WorkspaceSessionSocket, message, correlationId);
     });
   });
 

@@ -29,7 +29,12 @@ test('workspace session endpoint forwards bearer token and tab id without browse
 
   await handler(
     {
-      headers: { authorization: 'Bearer token', 'x-workspace-tab-id': 'tab-a' },
+      headers: {
+        authorization: 'Bearer token',
+        'x-workspace-tab-id': 'tab-a',
+        'x-tenant-id': 'attacker-tenant',
+      },
+      url: '/api/v1/workspace-session/connect?tenantId=attacker-tenant',
     } as unknown as IncomingMessage,
     response,
   );

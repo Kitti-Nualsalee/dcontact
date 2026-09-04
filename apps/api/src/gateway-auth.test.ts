@@ -1,0 +1,111 @@
+import 'reflect-metadata';
+import assert from 'node:assert/strict';
+import type { AddressInfo } from 'node:net';
+import test from 'node:test';
+import { Body, Controller, Module, Post, Req } from '@nestjs/common';
+import { APP_GUARD, NestFactory } from '@nestjs/core';
+import type { VerifiedOidcClaims } from '@d-contact/workspace-session';
+import {
+  GATEWAY_DIAGNOSTICS,
+  GatewayRoles,
+  OIDC_ACCESS_TOKEN_VERIFIER,
+  OidcGlobalGuard,
+  type AuthenticatedGatewayRequest,
+  type GatewayDiagnostic,
+} from './gateway-auth.js';
+
+const tenantId = '4e342ec5-d35b-41ed-bd44-1cf47a41af4b';
+const userId = '619b9c43-8495-420d-b3d3-34d9fd0b5b89';
+
+function claims(roles: string[], exp = 2_000_000_000): VerifiedOidcClaims {
+  return {
+    tenant_id: tenantId,
+    tenant_slug: 'demo',
+    organization: { demo: { tenant_id: [tenantId] } },
+    dc_user_id: userId,
+    sid: 'keycloak-session-1',
+    exp,
+    realm_access: { roles },
+  };
+}
+
+@Controller('probe')
+class ProbeController {
+  @Post()
+  @GatewayRoles('agent', 'supervisor', 'admin')
+  probe(@Req() request: AuthenticatedGatewayRequest, @Body() _body: unknown) {
+    return {
+      tenantId: request.gatewayIdentity?.tenantId,
+      correlationId: request.correlationId,
+    };
+  }
+}
+
+test('API Gateway exposes 401/403 and derives tenant context only from verified claims', async (t) => {
+  const diagnostics: GatewayDiagnostic[] = [];
+  const verifier = {
+    verifyAccessToken: async (token: string) => {
+      if (token === 'invalid-token') throw new Error('invalid signature');
+      if (token === 'expired-token') return claims(['agent'], 1);
+      if (token === 'viewer-token') return claims(['viewer']);
+      if (token === 'agent-token') return claims(['agent']);
+      throw new Error('unknown token');
+    },
+  };
+
+  @Module({
+    controllers: [ProbeController],
+    providers: [
+      { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      {
+        provide: GATEWAY_DIAGNOSTICS,
+        useValue: { write: (event: GatewayDiagnostic) => diagnostics.push(event) },
+      },
+      { provide: APP_GUARD, useClass: OidcGlobalGuard },
+    ],
+  })
+  class TestModule {}
+
+  const app = await NestFactory.create(TestModule, { logger: false });
+  await app.listen(0, '127.0.0.1');
+  t.after(() => app.close());
+  const address = app.getHttpServer().address() as AddressInfo;
+  const endpoint = `http://127.0.0.1:${address.port}/probe?tenantId=attacker-tenant`;
+  const request = (token?: string, correlationId?: string) =>
+    fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(correlationId ? { 'x-correlation-id': correlationId } : {}),
+        'x-tenant-id': 'attacker-tenant',
+      },
+      body: JSON.stringify({ tenantId: 'attacker-tenant', credential: 'must-not-be-logged' }),
+    });
+
+  assert.equal((await request()).status, 401);
+  assert.equal((await request('invalid-token')).status, 401);
+  assert.equal((await request('expired-token')).status, 401);
+  assert.equal((await request('viewer-token')).status, 403);
+
+  const accepted = await request('agent-token', 'correlation-test-33');
+  assert.equal(accepted.status, 201);
+  assert.equal(accepted.headers.get('x-correlation-id'), 'correlation-test-33');
+  assert.deepEqual(await accepted.json(), {
+    tenantId,
+    correlationId: 'correlation-test-33',
+  });
+
+  assert.deepEqual(
+    diagnostics.map(({ event, reason }) => ({ event, reason })),
+    [
+      { event: 'gateway.request.denied', reason: 'unauthenticated' },
+      { event: 'gateway.request.denied', reason: 'unauthenticated' },
+      { event: 'gateway.request.denied', reason: 'unauthenticated' },
+      { event: 'gateway.request.denied', reason: 'forbidden' },
+      { event: 'gateway.request.authorized', reason: undefined },
+    ],
+  );
+  const serializedDiagnostics = JSON.stringify(diagnostics);
+  assert.doesNotMatch(serializedDiagnostics, /agent-token|invalid-token|must-not-be-logged/);
+});

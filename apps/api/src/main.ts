@@ -1,21 +1,10 @@
 import 'reflect-metadata';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import {
-  Controller,
-  type CanActivate,
-  type ExecutionContext,
-  Injectable,
-  Module,
-  Post,
-  Req,
-  Res,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Controller, Get, Module, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import {
   KeycloakAccessTokenVerifier,
-  toVerifiedWorkspaceIdentity,
   WorkspaceSessionGateway,
   WorkspaceSessionHttpAdapter,
   WorkspaceSessionRegistry,
@@ -23,6 +12,15 @@ import {
 } from '@d-contact/workspace-session';
 import { createWorkspaceSessionHandler } from './workspace-session-api.js';
 import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
+import {
+  GATEWAY_DIAGNOSTICS,
+  GatewayRoles,
+  OIDC_ACCESS_TOKEN_VERIFIER,
+  OidcGlobalGuard,
+  type AuthenticatedGatewayRequest,
+  type GatewayDiagnosticSink,
+} from './gateway-auth.js';
+import { listTenantQueues } from './tenant-queue.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -48,36 +46,42 @@ async function tenantScope<T>(tenantId: string, work: () => Promise<T> | T): Pro
     return work();
   });
 }
-const socketAdapter = new WorkspaceSessionWebSocketAdapter(gateway, tenantScope);
+const socketAdapter = new WorkspaceSessionWebSocketAdapter(gateway, tenantScope, {
+  write: (diagnostic) => console.log(JSON.stringify(diagnostic)),
+});
 const handleWorkspaceSession = createWorkspaceSessionHandler(httpAdapter, tenantScope);
 
-@Injectable()
-class OidcGlobalGuard implements CanActivate {
-  async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<IncomingMessage>();
-    const authorization = request.headers.authorization;
-    if (!authorization?.startsWith('Bearer ')) throw new UnauthorizedException();
-    try {
-      const claims = await verifier.verifyAccessToken(authorization.slice('Bearer '.length).trim());
-      toVerifiedWorkspaceIdentity(claims);
-      return true;
-    } catch {
-      throw new UnauthorizedException();
-    }
-  }
-}
+const diagnostics: GatewayDiagnosticSink = {
+  write: (diagnostic) => console.log(JSON.stringify(diagnostic)),
+};
 
 @Controller('api/v1/workspace-session')
 class WorkspaceSessionController {
   @Post('connect')
+  @GatewayRoles('agent', 'supervisor', 'admin')
   async connect(@Req() request: IncomingMessage, @Res() response: ServerResponse): Promise<void> {
     await handleWorkspaceSession(request, response);
   }
 }
 
+@Controller('api/v1/queues')
+class QueueController {
+  @Get()
+  @GatewayRoles('agent', 'supervisor', 'admin')
+  async list(@Req() request: AuthenticatedGatewayRequest) {
+    const identity = request.gatewayIdentity;
+    if (!identity) throw new UnauthorizedException();
+    return listTenantQueues(prisma, identity.tenantId);
+  }
+}
+
 @Module({
-  controllers: [WorkspaceSessionController],
-  providers: [{ provide: APP_GUARD, useClass: OidcGlobalGuard }],
+  controllers: [WorkspaceSessionController, QueueController],
+  providers: [
+    { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+    { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
+    { provide: APP_GUARD, useClass: OidcGlobalGuard },
+  ],
 })
 class AppModule {}
 

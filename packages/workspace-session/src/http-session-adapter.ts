@@ -1,5 +1,7 @@
 import {
   type WorkspaceSession,
+  WorkspaceAuthenticationError,
+  WorkspaceAuthorizationError,
   type WorkspaceSessionGateway,
   type WorkspaceSessionHandshake,
 } from './workspace-session.js';
@@ -12,6 +14,7 @@ export interface WorkspaceSessionHttpRequest {
 export type WorkspaceSessionHttpResponse =
   | { status: 200; body: WorkspaceSession }
   | { status: 401; body: { code: 'UNAUTHENTICATED' } }
+  | { status: 403; body: { code: 'FORBIDDEN' } }
   | { status: 400; body: { code: 'INVALID_WORKSPACE_SESSION' } };
 
 /**
@@ -27,7 +30,13 @@ export class WorkspaceSessionHttpAdapter {
 
     try {
       return { status: 200, body: await this.gateway.connect(handshake) };
-    } catch {
+    } catch (error) {
+      if (error instanceof WorkspaceAuthenticationError) {
+        return { status: 401, body: { code: 'UNAUTHENTICATED' } };
+      }
+      if (error instanceof WorkspaceAuthorizationError) {
+        return { status: 403, body: { code: 'FORBIDDEN' } };
+      }
       return { status: 400, body: { code: 'INVALID_WORKSPACE_SESSION' } };
     }
   }
