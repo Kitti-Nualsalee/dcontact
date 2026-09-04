@@ -3,6 +3,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Controller, Module, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { createConsumer, createInMemoryIdempotencyStore } from '@d-contact/kafka';
+import { KAFKA_TOPICS } from '@d-contact/shared';
 import {
   KeycloakAccessTokenVerifier,
   WorkspaceSessionGateway,
@@ -25,6 +27,7 @@ import {
   TENANT_QUEUE_DATABASE,
   VoiceDestinationController,
 } from './tenant-queue-api.js';
+import { fanoutAgentOffer } from './agent-offer-fanout.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -87,6 +90,15 @@ class AppModule {}
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   attachWorkspaceSessionWebSocket(app.getHttpServer(), socketAdapter);
+  await createConsumer({
+    clientId: 'dcontact-api',
+    groupId: 'dcontact-api-routing-offer-v1',
+    topics: [KAFKA_TOPICS.AGENT_EVENTS],
+    idempotency: createInMemoryIdempotencyStore(),
+    handler: async ({ event }) => {
+      if (event.type === 'routing.offered') await fanoutAgentOffer(socketAdapter, event);
+    },
+  });
   await app.listen(Number(process.env.PORT ?? 3000));
 }
 

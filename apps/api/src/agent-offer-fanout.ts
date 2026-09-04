@@ -13,19 +13,20 @@ interface RoutingOfferPayload extends Record<string, unknown> {
 
 export async function fanoutAgentOffer(
   delivery: RoutingEventDelivery,
-  event: KafkaEventEnvelope<RoutingOfferPayload>,
+  event: KafkaEventEnvelope<Record<string, unknown>>,
 ): Promise<number> {
   if (event.type !== 'routing.offered') throw new Error('agent event is not routing.offered');
-  if (event.payload.tenantId && event.payload.tenantId !== event.tenantId) {
+  const payload = event.payload as RoutingOfferPayload;
+  if (payload.tenantId && payload.tenantId !== event.tenantId) {
     throw new Error('routing offer tenantId does not match envelope');
   }
-  if (!event.payload.interactionId || !event.payload.userId) {
+  if (!payload.interactionId || !payload.userId) {
     throw new Error('routing offer requires interactionId and userId');
   }
   return delivery.deliverRoutingEvent({
     type: 'routing.offered',
     tenantId: event.tenantId,
-    interactionId: event.payload.interactionId,
-    userId: event.payload.userId,
+    interactionId: payload.interactionId,
+    userId: payload.userId,
   });
 }
