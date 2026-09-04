@@ -1,56 +1,79 @@
-import { Kafka, logLevel, type Consumer, type Producer } from 'kafkajs';
+import {
+  Kafka,
+  Partitioners,
+  logLevel,
+  type Consumer,
+  type IHeaders,
+  type Producer,
+} from 'kafkajs';
 import type { KafkaTopic } from '@d-contact/shared';
+import {
+  KAFKA_EVENT_HEADERS,
+  KafkaContractError,
+  assertKafkaTopic,
+  validateConsumedEvent,
+  validateEventEnvelope,
+  type KafkaEventEnvelope,
+  type KafkaEventHeaders,
+} from './contract';
+import type { EventIdempotencyStore, IdempotencyResult } from './idempotency';
+
+export * from './contract';
+export * from './idempotency';
 
 /**
- * Wrapper กลางรอบ kafkajs — ทุก service ต้อง produce/consume ผ่านไฟล์นี้เท่านั้น
- * เพื่อบังคับ convention เดียวกัน (JSON serde, tenantId header, graceful shutdown)
- * และให้เปลี่ยน client lib / เพิ่ม schema registry ได้ที่จุดเดียว (ดู ADR-003)
+ * Wrapper กลางรอบ kafkajs — service ใช้ public API นี้เพื่อบังคับ topic, envelope,
+ * tenant/correlation headers, ordering key และ idempotency boundary ตาม ADR-003
  */
 
-export interface EventEnvelope {
-  tenantId: string;
-  [key: string]: unknown;
+export interface KafkaConnectionOptions {
+  brokers?: string[];
 }
 
-export interface ConsumedMessage<T = EventEnvelope> {
-  topic: string;
-  key: string | null;
-  value: T;
-  /** tenantId จาก message header (fallback ไปที่ payload) */
-  tenantId: string | null;
-  timestamp: string;
-}
-
-function createKafka(clientId: string): Kafka {
+function createKafka(clientId: string, options: KafkaConnectionOptions): Kafka {
   return new Kafka({
     clientId,
-    brokers: (process.env.KAFKA_BROKERS ?? 'localhost:9092').split(','),
+    brokers: options.brokers ?? (process.env.KAFKA_BROKERS ?? 'localhost:9092').split(','),
     logLevel: logLevel.WARN,
     retry: { initialRetryTime: 300, retries: 10 },
   });
 }
 
 export interface DcProducer {
-  send(topic: KafkaTopic, key: string, event: EventEnvelope): Promise<void>;
+  /** key ถูก derive จาก envelope เพื่อไม่ให้ partition key กับ contract คลาดกัน */
+  send<TPayload extends Record<string, unknown>>(
+    topic: KafkaTopic,
+    event: KafkaEventEnvelope<TPayload>,
+  ): Promise<void>;
   disconnect(): Promise<void>;
 }
 
-export async function createProducer(clientId: string): Promise<DcProducer> {
-  const producer: Producer = createKafka(clientId).producer({
+export async function createProducer(
+  clientId: string,
+  options: KafkaConnectionOptions = {},
+): Promise<DcProducer> {
+  const producer: Producer = createKafka(clientId, options).producer({
     allowAutoTopicCreation: false,
+    createPartitioner: Partitioners.DefaultPartitioner,
   });
   await producer.connect();
-  console.log(`[kafka] producer connected (${clientId})`);
 
   return {
-    async send(topic, key, event) {
+    async send(topic, candidate) {
+      assertKafkaTopic(topic);
+      const event = validateEventEnvelope(candidate);
       await producer.send({
         topic,
         messages: [
           {
-            key,
+            key: event.orderingKey,
             value: JSON.stringify(event),
-            headers: { tenantId: event.tenantId },
+            headers: {
+              [KAFKA_EVENT_HEADERS.TENANT_ID]: event.tenantId,
+              [KAFKA_EVENT_HEADERS.EVENT_ID]: event.eventId,
+              [KAFKA_EVENT_HEADERS.CORRELATION_ID]: event.correlationId,
+              [KAFKA_EVENT_HEADERS.ORDERING_KEY]: event.orderingKey,
+            },
           },
         ],
       });
@@ -59,38 +82,113 @@ export async function createProducer(clientId: string): Promise<DcProducer> {
   };
 }
 
+export interface ConsumedEvent<TPayload extends Record<string, unknown> = Record<string, unknown>> {
+  topic: KafkaTopic;
+  key: string;
+  event: KafkaEventEnvelope<TPayload>;
+  timestamp: string;
+  idempotencyKey: Readonly<{
+    consumerGroup: string;
+    tenantId: string;
+    eventId: string;
+  }>;
+}
+
+export interface InvalidKafkaMessage {
+  topic: string;
+  partition: number;
+  offset: string;
+  error: KafkaContractError;
+}
+
+export interface CreateConsumerOptions<
+  TPayload extends Record<string, unknown>,
+> extends KafkaConnectionOptions {
+  clientId: string;
+  groupId: string;
+  topics: KafkaTopic[];
+  idempotency: EventIdempotencyStore;
+  handler: (message: ConsumedEvent<TPayload>) => Promise<void> | void;
+  onInvalidMessage?: (message: InvalidKafkaMessage) => Promise<void> | void;
+  onDuplicate?: (message: ConsumedEvent<TPayload>) => Promise<void> | void;
+}
+
 export interface DcConsumer {
   disconnect(): Promise<void>;
 }
 
-export async function createConsumer<T = EventEnvelope>(
-  groupId: string,
-  topics: KafkaTopic[],
-  handler: (message: ConsumedMessage<T>) => Promise<void> | void,
-): Promise<DcConsumer> {
-  const consumer: Consumer = createKafka(groupId).consumer({ groupId });
+function decodeHeaders(headers: IHeaders | undefined): KafkaEventHeaders {
+  if (!headers) return {};
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [name, value?.toString()]),
+  ) as KafkaEventHeaders;
+}
+
+export async function createConsumer<
+  TPayload extends Record<string, unknown> = Record<string, unknown>,
+>(options: CreateConsumerOptions<TPayload>): Promise<DcConsumer> {
+  for (const topic of options.topics) assertKafkaTopic(topic);
+
+  const consumer: Consumer = createKafka(options.clientId, options).consumer({
+    groupId: options.groupId,
+  });
   await consumer.connect();
-  await consumer.subscribe({ topics, fromBeginning: false });
-  console.log(`[kafka] consumer subscribed (group=${groupId}, topics=${topics.join(',')})`);
+  await consumer.subscribe({ topics: options.topics, fromBeginning: false });
 
   await consumer.run({
-    eachMessage: async ({ topic, message }) => {
-      if (!message.value) return;
-      let value: T;
+    eachMessage: async ({ topic, partition, message }) => {
+      let event: KafkaEventEnvelope<TPayload>;
       try {
-        value = JSON.parse(message.value.toString()) as T;
-      } catch {
-        console.error(`[kafka] skip malformed message on ${topic}`);
+        if (!message.value) {
+          throw new KafkaContractError('INVALID_JSON', 'message ไม่มี JSON payload');
+        }
+
+        let decoded: unknown;
+        try {
+          decoded = JSON.parse(message.value.toString());
+        } catch {
+          throw new KafkaContractError('INVALID_JSON', 'message payload ไม่ใช่ JSON ที่ถูกต้อง');
+        }
+
+        event = validateConsumedEvent<TPayload>(
+          topic,
+          message.key?.toString() ?? null,
+          decodeHeaders(message.headers),
+          decoded,
+        );
+      } catch (error) {
+        if (!(error instanceof KafkaContractError)) throw error;
+        const invalid = { topic, partition, offset: message.offset, error };
+        if (options.onInvalidMessage) {
+          await options.onInvalidMessage(invalid);
+        } else {
+          console.error(
+            `[kafka] ข้าม message ที่ผิด contract topic=${topic} partition=${partition} offset=${message.offset} code=${error.code}`,
+          );
+        }
         return;
       }
-      const headerTenant = message.headers?.tenantId?.toString() ?? null;
-      await handler({
+
+      // อย่ารวม business handler ไว้ใน contract-error catch: handler ที่ล้มเหลวต้องส่ง error
+      // กลับให้ KafkaJS เพื่อไม่ commit offset และต้อง retry ได้
+      assertKafkaTopic(topic);
+      const consumed: ConsumedEvent<TPayload> = {
         topic,
-        key: message.key?.toString() ?? null,
-        value,
-        tenantId: headerTenant ?? ((value as EventEnvelope)?.tenantId as string) ?? null,
+        key: event.orderingKey,
+        event,
         timestamp: message.timestamp,
-      });
+        idempotencyKey: {
+          consumerGroup: options.groupId,
+          tenantId: event.tenantId,
+          eventId: event.eventId,
+        },
+      };
+
+      const result: IdempotencyResult = await options.idempotency.execute(
+        consumed.idempotencyKey,
+        async () => options.handler(consumed),
+      );
+      if (result === 'duplicate') await options.onDuplicate?.(consumed);
     },
   });
 
