@@ -1,0 +1,176 @@
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+
+export const PHASE_ZERO_READINESS_CHECKS = [
+  {
+    id: 'environment',
+    dependency: 'Docker Compose dev environment',
+    boundaries: ['PostgreSQL', 'Redis', 'MinIO', 'Redpanda', 'FreeSWITCH', 'Keycloak'],
+    command: [pnpm, 'infra:up'],
+    remediation: 'ตรวจ Docker daemon/port/volume แล้วรัน pnpm infra:up',
+  },
+  {
+    id: 'database-baseline',
+    dependency: 'PostgreSQL baseline',
+    boundaries: ['migration', 'RLS policy', 'seed', 'Keycloak identity link'],
+    command: [pnpm, 'infra:bootstrap'],
+    remediation: 'ตรวจ PostgreSQL แล้วรัน pnpm infra:bootstrap',
+  },
+  {
+    id: 'infrastructure-boundaries',
+    dependency: 'Phase 0 infrastructure',
+    boundaries: [
+      'PostgreSQL connection',
+      'Redis state store',
+      'MinIO live endpoint',
+      'MinIO recordings bucket',
+      'Redpanda cluster/topics',
+      'FreeSWITCH ESL/SIP/WebSocket/RTP',
+    ],
+    command: [process.execPath, 'scripts/dev-infra-readiness.mjs'],
+    remediation:
+      'ใช้ dependency และข้อความ ✗ ใน detail เพื่อแก้ service แล้วรัน pnpm infra:ready ซ้ำ',
+  },
+  {
+    id: 'tenant-isolation',
+    dependency: 'PostgreSQL RLS boundary',
+    boundaries: [
+      'dcontact_app ไม่มี tenant context',
+      'dcontact_app ใช้ demo tenant context',
+      'cross-tenant read/write rejection',
+    ],
+    command: [pnpm, '--filter', '@d-contact/db', 'test:integration'],
+    remediation: 'ตรวจ migration และ packages/db/prisma/rls.sql แล้วรัน pnpm infra:bootstrap',
+  },
+  {
+    id: 'identity-contract',
+    dependency: 'Keycloak OIDC boundary',
+    boundaries: [
+      'OIDC discovery',
+      'JWKS signature',
+      'audience/tenant/user/role claims',
+      'tampered-token rejection',
+    ],
+    command: [process.execPath, 'scripts/keycloak-dev-readiness.mjs', '--auto-fallback'],
+    remediation: 'ตรวจ Keycloak realm แล้วรัน pnpm infra:identity:link',
+  },
+  {
+    id: 'gateway-boundary',
+    dependency: 'API Gateway identity boundary',
+    boundaries: ['401 invalid identity', '403 insufficient role', 'verified tenant derivation'],
+    command: [pnpm, '--filter', '@d-contact/api', 'test'],
+    remediation: 'ตรวจ API Gateway OIDC guard และ workspace session adapters',
+  },
+  {
+    id: 'event-backbone',
+    dependency: 'Redpanda Kafka contract',
+    boundaries: [
+      '@d-contact/kafka public producer/consumer',
+      'tenant/correlation/ordering envelope',
+      'duplicate-event idempotency',
+    ],
+    command: [pnpm, '--filter', '@d-contact/kafka', 'test:integration'],
+    remediation: 'ตรวจ Redpanda topics และ @d-contact/kafka contract',
+  },
+];
+
+/** ลบข้อมูลรับรองก่อนนำ child-process output มาแสดงใน diagnostic */
+export function sanitizeDiagnostic(value) {
+  return String(value ?? '')
+    .replaceAll(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
+    .replaceAll(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED_TOKEN]')
+    .replaceAll(/\bBearer\s+\S+/gi, 'Bearer [REDACTED]')
+    .replaceAll(
+      /((?:access|refresh|id)_token|authorization|password|passwd|secret|client_secret)(["']?\s*[:=]\s*["']?)([^"',\s}]+)/gi,
+      '$1$2[REDACTED]',
+    )
+    .replaceAll(
+      /(postgres(?:ql)?|redis|https?):\/\/([^:\s/@]+):([^@\s/]+)@/gi,
+      '$1://$2:[REDACTED]@',
+    )
+    .trim();
+}
+
+function diagnosticDetail(result) {
+  const safe = sanitizeDiagnostic(`${result.stderr ?? ''}\n${result.stdout ?? ''}`);
+  if (!safe)
+    return result.error?.code ?? `process exited with status ${result.status ?? 'unknown'}`;
+  return safe.split('\n').filter(Boolean).slice(-10).join('\n').slice(0, 1_500);
+}
+
+export function executeReadinessCheck(check, runner = spawnSync) {
+  const startedAt = new Date();
+  const started = performance.now();
+  const [command, ...arguments_] = check.command;
+  const result = runner(command, arguments_, {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const passed = result.status === 0 && !result.error;
+
+  return {
+    checkId: check.id,
+    dependency: check.dependency,
+    boundaries: check.boundaries,
+    status: passed ? 'PASS' : 'FAIL',
+    startedAt: startedAt.toISOString(),
+    durationMs: Math.round(performance.now() - started),
+    ...(passed
+      ? {}
+      : {
+          remediation: check.remediation,
+          detail: diagnosticDetail(result),
+        }),
+  };
+}
+
+export function skippedDiagnostic(check, blockedBy) {
+  return {
+    checkId: check.id,
+    dependency: check.dependency,
+    boundaries: check.boundaries,
+    status: 'SKIP',
+    blockedBy,
+  };
+}
+
+export function runPhaseZeroReadiness() {
+  const startedAt = new Date();
+  const diagnostics = [];
+  let blocker;
+
+  for (const check of PHASE_ZERO_READINESS_CHECKS) {
+    const diagnostic = blocker ? skippedDiagnostic(check, blocker) : executeReadinessCheck(check);
+    diagnostics.push(diagnostic);
+    process.stdout.write(`${JSON.stringify({ type: 'readiness.check', ...diagnostic })}\n`);
+    if (diagnostic.status === 'FAIL') blocker = diagnostic.checkId;
+  }
+
+  const failed = diagnostics.filter(({ status }) => status === 'FAIL');
+  const summary = {
+    type: 'readiness.summary',
+    workflow: 'phase-0-readiness',
+    workflowVersion: 1,
+    status: failed.length === 0 ? 'PASS' : 'FAIL',
+    startedAt: startedAt.toISOString(),
+    finishedAt: new Date().toISOString(),
+    passed: diagnostics.filter(({ status }) => status === 'PASS').length,
+    failed: failed.length,
+    skipped: diagnostics.filter(({ status }) => status === 'SKIP').length,
+    entryCondition: failed.length === 0 ? 'READY_FOR_INBOUND_VOICE_PHASE_1' : 'NOT_READY',
+  };
+  process.stdout.write(`${JSON.stringify(summary)}\n`);
+  return summary;
+}
+
+const invokedUrl = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
+if (invokedUrl === import.meta.url) {
+  const summary = runPhaseZeroReadiness();
+  if (summary.status === 'FAIL') process.exitCode = 1;
+}

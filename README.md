@@ -53,16 +53,17 @@
 ```bash
 pnpm install
 
-# 1. เริ่มและยืนยัน Phase 0 dev foundation ด้วยคำสั่งเดียว
+# 1. เริ่มและยืนยัน Phase 0 readiness ด้วยคำสั่งเดียว
 #    FreeSWITCH + Postgres + Redis + MinIO + Redpanda (Kafka) + Keycloak + database baseline
+#    รวม RLS tenant isolation, OIDC rejection และ Kafka produce/consume evidence
 #    Redpanda Console (ดู topics/messages): http://localhost:8085
 #    Keycloak Admin Console: http://localhost:8081 (admin / admin, เฉพาะ dev)
 pnpm infra:ready
 
-# 3. build ทั้งหมด (วันนี้ = packages/shared + kafka + db)
+# 2. build ทั้งหมด
 pnpm build
 
-# 4. ดู mockup ของหน้าจอทั้งหมด — http://localhost:8090
+# 3. ดู mockup ของหน้าจอทั้งหมด — http://localhost:8090
 python3 -m http.server 8090 --directory mockups
 ```
 
@@ -89,10 +90,18 @@ python3 -m http.server 8090 --directory mockups
 
 ### ตรวจและแก้ปัญหา dev infrastructure
 
-`pnpm infra:ready` คือ entry condition ก่อนเริ่ม ticket ของ Phase 1: เริ่ม Docker, ทำ database
-baseline และรัน `pnpm infra:check` ซึ่งตรวจ
-PostgreSQL, Redis, MinIO (รวม bucket `recordings`), Redpanda, FreeSWITCH และ Keycloak จาก interface
-ที่ service ใช้งานจริง
+`pnpm infra:ready` คือ **entry condition ก่อนเริ่ม ticket ของ Inbound Voice Phase 1** และรันได้จาก
+dev environment ใหม่หลัง `pnpm install` โดยคำสั่งเดียวจะเริ่ม Docker, ทำ migration/RLS/seed,
+เชื่อม Keycloak identity และตรวจ PostgreSQL, Redis, MinIO (รวม bucket `recordings`), Redpanda,
+FreeSWITCH และ Keycloak จาก interface ที่ service ใช้งานจริง
+
+workflow ยังรัน tenant-isolation evidence ผ่าน role `dcontact_app`, ตรวจว่า OIDC token ที่ถูกแก้ไข
+ถูกปฏิเสธ, ตรวจ API Gateway 401/403 และส่ง/รับ representative event ผ่าน public API ของ
+`@d-contact/kafka` กับ Redpanda จริง ผลแต่ละขั้นเป็น JSON diagnostic ที่มี `checkId`, `dependency`,
+`boundaries`, `status` และ remediation เมื่อไม่ผ่าน โดยไม่แสดง token หรือ secret เมื่อสรุปผล
+
+เมื่อพร้อม บรรทัดสุดท้ายจะมี `"entryCondition":"READY_FOR_INBOUND_VOICE_PHASE_1"`; ถ้าไม่พร้อม
+ขั้นที่ล้มเหลวจะแสดง `FAIL` และขั้นที่พึ่งพาจะเป็น `SKIP` พร้อม `blockedBy`
 
 ส่วน identity จะ import realm `dcontact`, สร้าง Organization `demo`, เชื่อม dev users กับ
 `users.keycloak_id` ใน Postgres แล้วออก access token จริงเพื่อตรวจลายเซ็นผ่าน JWKS รวมถึง claims

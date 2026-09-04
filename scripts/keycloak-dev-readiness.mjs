@@ -96,6 +96,18 @@ async function main() {
     ),
     'ตรวจลายเซ็น access token ด้วย JWKS ไม่ผ่าน',
   );
+  const tamperedPayload = Buffer.from(
+    JSON.stringify({ ...claims, tenant_id: 'identity-that-was-not-verified' }),
+  ).toString('base64url');
+  assert(
+    !verify(
+      'RSA-SHA256',
+      Buffer.from(`${encodedHeader}.${tamperedPayload}`),
+      createPublicKey({ key: signingJwk, format: 'jwk' }),
+      Buffer.from(encodedSignature, 'base64url'),
+    ),
+    'token ที่ payload ถูกแก้ไขต้องไม่ผ่านการตรวจลายเซ็น',
+  );
 
   const database = databaseIdentity('agent1000@demo.local');
   assert(claims.iss === issuer, 'token issuer ไม่ตรง contract');
@@ -128,6 +140,7 @@ async function main() {
 
   console.log('✓ OIDC discovery และ JWKS เข้าถึงได้');
   console.log('✓ Access token มีลายเซ็น audience และ claims ที่ตรงกับ Postgres');
+  console.log('✓ identity จาก token ที่ถูกแก้ไขถูกปฏิเสธก่อนสร้าง tenant context');
   if (!fallbackOnly && nativeTokenIssued)
     console.log('✓ Keycloak 26 native Organization mapper ส่ง tenant attributes ได้');
   console.log('✓ flat fallback claims คง public claim shape โดยไม่พึ่ง native mapper');

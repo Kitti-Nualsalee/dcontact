@@ -20,7 +20,8 @@
     "infra:identity:check": "node scripts/keycloak-dev-readiness.mjs --auto-fallback",
     "infra:bootstrap": "pnpm db:migrate && pnpm db:rls && pnpm db:seed && pnpm infra:identity:link",
     "infra:check": "node scripts/dev-infra-readiness.mjs && pnpm infra:identity:check",
-    "infra:ready": "pnpm infra:up && pnpm infra:bootstrap && pnpm infra:check",
+    "infra:ready": "node scripts/phase-zero-readiness.mjs",
+    "test:readiness": "node --test scripts/phase-zero-readiness.test.mjs",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   },
   "devDependencies": {
