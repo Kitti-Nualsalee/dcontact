@@ -15,7 +15,8 @@ export interface CreateVoiceQueueCommand {
   offerTimeoutSec?: number;
   offerTimeoutAction?: 'IMMEDIATE_REQUEUE' | 'COOLDOWN_REQUEUE' | 'ABANDON';
   offerCooldownSec?: number;
-  maxWaitAction?: 'REQUEUE' | 'ABANDON';
+  maxWaitAction?: 'WAIT' | 'CALLBACK' | 'VOICEMAIL';
+  routingStrategy?: 'LONGEST_AVAILABLE_IDLE' | 'LONGEST_SINCE_LAST_INTERACTION' | 'ROUND_ROBIN';
   priority?: number;
 }
 
@@ -29,7 +30,8 @@ export interface UpdateVoiceQueueCommand {
   offerTimeoutSec?: number;
   offerTimeoutAction?: 'IMMEDIATE_REQUEUE' | 'COOLDOWN_REQUEUE' | 'ABANDON';
   offerCooldownSec?: number;
-  maxWaitAction?: 'REQUEUE' | 'ABANDON';
+  maxWaitAction?: 'WAIT' | 'CALLBACK' | 'VOICEMAIL';
+  routingStrategy?: 'LONGEST_AVAILABLE_IDLE' | 'LONGEST_SINCE_LAST_INTERACTION' | 'ROUND_ROBIN';
   priority?: number;
   isActive?: boolean;
 }
@@ -42,10 +44,52 @@ export interface SetDirectVoiceDestinationCommand {
   isActive?: boolean;
 }
 
+export interface QueueRequiredSkill {
+  skillId: string;
+  minLevel: number;
+}
+
+export interface SetQueueRequiredSkillsCommand {
+  tenantId: string;
+  actorUserId: string;
+  queueId: string;
+  requiredSkills: QueueRequiredSkill[];
+}
+
+export interface UpdateTenantQueuePolicyCommand {
+  tenantId: string;
+  defaultOfferTimeoutSec?: number;
+  defaultOfferTimeoutAction?: 'IMMEDIATE_REQUEUE' | 'COOLDOWN_REQUEUE' | 'ABANDON';
+  defaultOfferCooldownSec?: number;
+  defaultMaxWaitSec?: number | null;
+  defaultMaxWaitAction?: 'WAIT' | 'CALLBACK' | 'VOICEMAIL';
+}
+
 export class TenantQueueNotFoundError extends Error {
   constructor() {
     super('voice queue was not found in the tenant');
     this.name = 'TenantQueueNotFoundError';
+  }
+}
+
+export class TenantSkillNotFoundError extends Error {
+  constructor() {
+    super('one or more skills were not found in the tenant');
+    this.name = 'TenantSkillNotFoundError';
+  }
+}
+
+export class InvalidQueueRequiredSkillsError extends Error {
+  constructor() {
+    super('required skills must use unique IDs and levels 1-5');
+    this.name = 'InvalidQueueRequiredSkillsError';
+  }
+}
+
+export class TenantQueuePolicyNotFoundError extends Error {
+  constructor() {
+    super('tenant queue policy was not found');
+    this.name = 'TenantQueuePolicyNotFoundError';
   }
 }
 
@@ -59,6 +103,7 @@ const queueMetadataSelection = {
   offerTimeoutAction: true,
   offerCooldownSec: true,
   maxWaitAction: true,
+  routingStrategy: true,
   priority: true,
   isActive: true,
 } as const;
@@ -78,6 +123,19 @@ const queueAuditSelection = {
   action: true,
   details: true,
   createdAt: true,
+} as const;
+
+const queueRequiredSkillSelection = {
+  skillId: true,
+  minLevel: true,
+} as const;
+
+const tenantQueuePolicySelection = {
+  defaultOfferTimeoutSec: true,
+  defaultOfferTimeoutAction: true,
+  defaultOfferCooldownSec: true,
+  defaultMaxWaitSec: true,
+  defaultMaxWaitAction: true,
 } as const;
 
 interface AppendQueueAuditEventCommand {
@@ -110,6 +168,40 @@ export function listTenantQueues(database: PrismaClient, tenantId: string) {
   );
 }
 
+export function getTenantQueuePolicy(database: PrismaClient, tenantId: string) {
+  return withTenantDatabaseTransaction(database, tenantId, async (transaction) => {
+    const policy = await transaction.tenant.findUnique({
+      where: { id: tenantId },
+      select: tenantQueuePolicySelection,
+    });
+    if (!policy) throw new TenantQueuePolicyNotFoundError();
+    return policy;
+  });
+}
+
+export function updateTenantQueuePolicy(
+  database: PrismaClient,
+  command: UpdateTenantQueuePolicyCommand,
+) {
+  return withTenantDatabaseTransaction(database, command.tenantId, async (transaction) => {
+    const result = await transaction.tenant.updateMany({
+      where: { id: command.tenantId },
+      data: {
+        defaultOfferTimeoutSec: command.defaultOfferTimeoutSec,
+        defaultOfferTimeoutAction: command.defaultOfferTimeoutAction,
+        defaultOfferCooldownSec: command.defaultOfferCooldownSec,
+        defaultMaxWaitSec: command.defaultMaxWaitSec,
+        defaultMaxWaitAction: command.defaultMaxWaitAction,
+      },
+    });
+    if (result.count !== 1) throw new TenantQueuePolicyNotFoundError();
+    return transaction.tenant.findUniqueOrThrow({
+      where: { id: command.tenantId },
+      select: tenantQueuePolicySelection,
+    });
+  });
+}
+
 export function createVoiceQueue(database: PrismaClient, command: CreateVoiceQueueCommand) {
   return withTenantDatabaseTransaction(database, command.tenantId, async (transaction) => {
     const queue = await transaction.queue.create({
@@ -123,6 +215,7 @@ export function createVoiceQueue(database: PrismaClient, command: CreateVoiceQue
         offerTimeoutAction: command.offerTimeoutAction,
         offerCooldownSec: command.offerCooldownSec,
         maxWaitAction: command.maxWaitAction,
+        routingStrategy: command.routingStrategy,
         priority: command.priority,
       },
       select: queueMetadataSelection,
@@ -156,6 +249,7 @@ export function updateVoiceQueue(database: PrismaClient, command: UpdateVoiceQue
         offerTimeoutAction: command.offerTimeoutAction,
         offerCooldownSec: command.offerCooldownSec,
         maxWaitAction: command.maxWaitAction,
+        routingStrategy: command.routingStrategy,
         priority: command.priority,
         isActive: command.isActive,
       },
@@ -180,6 +274,78 @@ export function updateVoiceQueue(database: PrismaClient, command: UpdateVoiceQue
       details: { before, after: queue },
     });
     return queue;
+  });
+}
+
+export function listQueueRequiredSkills(database: PrismaClient, tenantId: string, queueId: string) {
+  return withTenantDatabaseTransaction(database, tenantId, async (transaction) => {
+    const queue = await transaction.queue.findFirst({
+      where: { id: queueId, tenantId, channels: { has: 'VOICE' } },
+      select: { id: true },
+    });
+    if (!queue) throw new TenantQueueNotFoundError();
+    return transaction.queueSkill.findMany({
+      where: { queueId: queue.id },
+      select: queueRequiredSkillSelection,
+      orderBy: { skillId: 'asc' },
+    });
+  });
+}
+
+export function setQueueRequiredSkills(
+  database: PrismaClient,
+  command: SetQueueRequiredSkillsCommand,
+) {
+  return withTenantDatabaseTransaction(database, command.tenantId, async (transaction) => {
+    if (
+      new Set(command.requiredSkills.map((skill) => skill.skillId)).size !==
+        command.requiredSkills.length ||
+      command.requiredSkills.some(
+        (skill) => !Number.isInteger(skill.minLevel) || skill.minLevel < 1 || skill.minLevel > 5,
+      )
+    ) {
+      throw new InvalidQueueRequiredSkillsError();
+    }
+    const queue = await transaction.queue.findFirst({
+      where: {
+        id: command.queueId,
+        tenantId: command.tenantId,
+        channels: { has: 'VOICE' },
+      },
+      select: { id: true },
+    });
+    if (!queue) throw new TenantQueueNotFoundError();
+
+    const skillIds = command.requiredSkills.map((skill) => skill.skillId);
+    const skills = await transaction.skill.findMany({
+      where: { tenantId: command.tenantId, id: { in: skillIds } },
+      select: { id: true },
+    });
+    if (skills.length !== skillIds.length) throw new TenantSkillNotFoundError();
+
+    await transaction.queueSkill.deleteMany({ where: { queueId: queue.id } });
+    if (command.requiredSkills.length > 0) {
+      await transaction.queueSkill.createMany({
+        data: command.requiredSkills.map((skill) => ({
+          queueId: queue.id,
+          skillId: skill.skillId,
+          minLevel: skill.minLevel,
+        })),
+      });
+    }
+    const requiredSkills = await transaction.queueSkill.findMany({
+      where: { queueId: queue.id },
+      select: queueRequiredSkillSelection,
+      orderBy: { skillId: 'asc' },
+    });
+    await appendQueueAuditEvent(transaction, {
+      tenantId: command.tenantId,
+      queueId: queue.id,
+      actorUserId: command.actorUserId,
+      action: 'QUEUE_UPDATED',
+      details: { requiredSkills },
+    });
+    return requiredSkills;
   });
 }
 

@@ -354,7 +354,7 @@ test('call.created assigns one available tenant agent and duplicate input has no
   await owner.agentStateLog.create({ data: { tenantId, userId, state: 'OFFLINE' } });
   await owner.queue.update({
     where: { id: queueId },
-    data: { maxWaitSec: 5, maxWaitAction: 'ABANDON' },
+    data: { maxWaitSec: 5, maxWaitAction: 'VOICEMAIL' },
   });
   now = '2026-09-04T05:13:00.000Z';
   const maxWaitCallUuid = randomUUID();
@@ -378,12 +378,11 @@ test('call.created assigns one available tenant agent and duplicate input has no
   });
   assert.equal(maxWaitInteraction.state, 'ABANDONED');
   assert.ok(maxWaitInteraction.endedAt);
-  assert.equal(
-    await owner.interactionEvent.count({
-      where: { tenantId, interactionId: maxWaitOffer.interactionId, type: 'interaction.abandoned' },
-    }),
-    1,
-  );
+  const maxWaitEvent = await owner.interactionEvent.findFirstOrThrow({
+    where: { tenantId, interactionId: maxWaitOffer.interactionId, type: 'interaction.abandoned' },
+    select: { payload: true },
+  });
+  assert.deepEqual(maxWaitEvent.payload, { reason: 'max_wait_voicemail' });
 
   await owner.agentStateLog.create({ data: { tenantId, userId, state: 'AVAILABLE' } });
   await owner.queue.update({

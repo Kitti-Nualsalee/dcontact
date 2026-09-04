@@ -16,11 +16,18 @@ import type { PrismaClient } from '@d-contact/db';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import {
   createVoiceQueue,
+  getTenantQueuePolicy,
+  InvalidQueueRequiredSkillsError,
   listDirectVoiceDestinations,
   listQueueAuditEvents,
+  listQueueRequiredSkills,
   listTenantQueues,
   setDirectVoiceDestination,
+  setQueueRequiredSkills,
+  TenantSkillNotFoundError,
   TenantQueueNotFoundError,
+  TenantQueuePolicyNotFoundError,
+  updateTenantQueuePolicy,
   updateVoiceQueue,
 } from './tenant-queue.js';
 
@@ -34,6 +41,7 @@ interface CreateVoiceQueueBody {
   offerTimeoutAction?: unknown;
   offerCooldownSec?: unknown;
   maxWaitAction?: unknown;
+  routingStrategy?: unknown;
   priority?: unknown;
 }
 
@@ -44,6 +52,18 @@ interface UpdateVoiceQueueBody extends CreateVoiceQueueBody {
 interface SetDirectVoiceDestinationBody {
   queueId?: unknown;
   isActive?: unknown;
+}
+
+interface SetQueueRequiredSkillsBody {
+  requiredSkills?: unknown;
+}
+
+interface UpdateTenantQueuePolicyBody {
+  defaultOfferTimeoutSec?: unknown;
+  defaultOfferTimeoutAction?: unknown;
+  defaultOfferCooldownSec?: unknown;
+  defaultMaxWaitSec?: unknown;
+  defaultMaxWaitAction?: unknown;
 }
 
 function requiredName(value: unknown): string {
@@ -108,6 +128,27 @@ function requiredDestination(value: string): string {
   return destination;
 }
 
+function requiredSkills(value: unknown) {
+  if (!Array.isArray(value)) throw new BadRequestException('requiredSkills must be an array');
+  const parsed = value.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new BadRequestException('requiredSkills entries must be objects');
+    }
+    const skill = item as { skillId?: unknown; minLevel?: unknown };
+    return {
+      skillId: requiredIdentifier(skill.skillId, 'requiredSkills.skillId'),
+      minLevel: optionalInteger(skill.minLevel, 'requiredSkills.minLevel', 1),
+    };
+  });
+  if (parsed.some((skill) => skill.minLevel === undefined || skill.minLevel > 5)) {
+    throw new BadRequestException('requiredSkills.minLevel must be an integer from 1 to 5');
+  }
+  if (new Set(parsed.map((skill) => skill.skillId)).size !== parsed.length) {
+    throw new BadRequestException('requiredSkills.skillId must be unique');
+  }
+  return parsed as { skillId: string; minLevel: number }[];
+}
+
 function identity(request: AuthenticatedGatewayRequest) {
   if (!request.gatewayIdentity) throw new UnauthorizedException();
   return request.gatewayIdentity;
@@ -140,7 +181,16 @@ export class QueueController {
         'ABANDON',
       ]),
       offerCooldownSec: optionalInteger(body.offerCooldownSec, 'offerCooldownSec', 1),
-      maxWaitAction: optionalEnum(body.maxWaitAction, 'maxWaitAction', ['REQUEUE', 'ABANDON']),
+      maxWaitAction: optionalEnum(body.maxWaitAction, 'maxWaitAction', [
+        'WAIT',
+        'CALLBACK',
+        'VOICEMAIL',
+      ]),
+      routingStrategy: optionalEnum(body.routingStrategy, 'routingStrategy', [
+        'LONGEST_AVAILABLE_IDLE',
+        'LONGEST_SINCE_LAST_INTERACTION',
+        'ROUND_ROBIN',
+      ]),
       priority: optionalInteger(body.priority, 'priority', 0),
     });
   }
@@ -169,12 +219,118 @@ export class QueueController {
           'ABANDON',
         ]),
         offerCooldownSec: optionalInteger(body.offerCooldownSec, 'offerCooldownSec', 1),
-        maxWaitAction: optionalEnum(body.maxWaitAction, 'maxWaitAction', ['REQUEUE', 'ABANDON']),
+        maxWaitAction: optionalEnum(body.maxWaitAction, 'maxWaitAction', [
+          'WAIT',
+          'CALLBACK',
+          'VOICEMAIL',
+        ]),
+        routingStrategy: optionalEnum(body.routingStrategy, 'routingStrategy', [
+          'LONGEST_AVAILABLE_IDLE',
+          'LONGEST_SINCE_LAST_INTERACTION',
+          'ROUND_ROBIN',
+        ]),
         priority: optionalInteger(body.priority, 'priority', 0),
         isActive: optionalBoolean(body.isActive, 'isActive'),
       });
     } catch (error) {
       if (error instanceof TenantQueueNotFoundError) throw new NotFoundException();
+      throw error;
+    }
+  }
+
+  @Get(':queueId/required-skills')
+  @GatewayRoles('admin')
+  async listRequiredSkills(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('queueId') queueId: string,
+  ) {
+    try {
+      return await listQueueRequiredSkills(
+        this.database,
+        identity(request).tenantId,
+        requiredIdentifier(queueId, 'queueId'),
+      );
+    } catch (error) {
+      if (error instanceof TenantQueueNotFoundError) throw new NotFoundException();
+      throw error;
+    }
+  }
+
+  @Put(':queueId/required-skills')
+  @GatewayRoles('admin')
+  async setRequiredSkills(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('queueId') queueId: string,
+    @Body() body: SetQueueRequiredSkillsBody,
+  ) {
+    const actor = identity(request);
+    try {
+      return await setQueueRequiredSkills(this.database, {
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        queueId: requiredIdentifier(queueId, 'queueId'),
+        requiredSkills: requiredSkills(body.requiredSkills),
+      });
+    } catch (error) {
+      if (error instanceof TenantQueueNotFoundError || error instanceof TenantSkillNotFoundError) {
+        throw new NotFoundException();
+      }
+      if (error instanceof InvalidQueueRequiredSkillsError)
+        throw new BadRequestException(error.message);
+      throw error;
+    }
+  }
+}
+
+@Controller('api/v1/tenant/queue-policy')
+export class TenantQueuePolicyController {
+  constructor(@Inject(TENANT_QUEUE_DATABASE) private readonly database: PrismaClient) {}
+
+  @Get()
+  @GatewayRoles('admin')
+  async get(@Req() request: AuthenticatedGatewayRequest) {
+    try {
+      return await getTenantQueuePolicy(this.database, identity(request).tenantId);
+    } catch (error) {
+      if (error instanceof TenantQueuePolicyNotFoundError) throw new NotFoundException();
+      throw error;
+    }
+  }
+
+  @Patch()
+  @GatewayRoles('admin')
+  async update(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Body() body: UpdateTenantQueuePolicyBody,
+  ) {
+    if (Object.keys(body).length === 0) throw new BadRequestException('update body is required');
+    try {
+      return await updateTenantQueuePolicy(this.database, {
+        tenantId: identity(request).tenantId,
+        defaultOfferTimeoutSec: optionalInteger(
+          body.defaultOfferTimeoutSec,
+          'defaultOfferTimeoutSec',
+          1,
+        ),
+        defaultOfferTimeoutAction: optionalEnum(
+          body.defaultOfferTimeoutAction,
+          'defaultOfferTimeoutAction',
+          ['IMMEDIATE_REQUEUE', 'COOLDOWN_REQUEUE', 'ABANDON'],
+        ),
+        defaultOfferCooldownSec: optionalInteger(
+          body.defaultOfferCooldownSec,
+          'defaultOfferCooldownSec',
+          1,
+        ),
+        defaultMaxWaitSec: optionalNullableInteger(body.defaultMaxWaitSec, 'defaultMaxWaitSec', 1),
+        defaultMaxWaitAction: optionalEnum(body.defaultMaxWaitAction, 'defaultMaxWaitAction', [
+          'WAIT',
+          'CALLBACK',
+          'VOICEMAIL',
+        ]),
+      });
+    } catch (error) {
+      if (error instanceof TenantQueuePolicyNotFoundError) throw new NotFoundException();
       throw error;
     }
   }

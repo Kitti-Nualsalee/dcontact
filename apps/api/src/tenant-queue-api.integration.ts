@@ -16,6 +16,7 @@ import {
   QueueAuditController,
   QueueController,
   TENANT_QUEUE_DATABASE,
+  TenantQueuePolicyController,
   VoiceDestinationController,
 } from './tenant-queue-api.js';
 
@@ -64,7 +65,12 @@ test('queue management REST API allows tenant Admin and rejects Agent mutation',
   };
 
   @Module({
-    controllers: [QueueController, VoiceDestinationController, QueueAuditController],
+    controllers: [
+      QueueController,
+      TenantQueuePolicyController,
+      VoiceDestinationController,
+      QueueAuditController,
+    ],
     providers: [
       { provide: TENANT_QUEUE_DATABASE, useValue: application },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
@@ -79,8 +85,10 @@ test('queue management REST API allows tenant Admin and rejects Agent mutation',
   t.after(async () => {
     await app.close();
     await owner.queueAuditEvent.deleteMany({ where: { tenantId } });
+    await owner.queueSkill.deleteMany({ where: { queue: { tenantId } } });
     await owner.voiceDestination.deleteMany({ where: { tenantId } });
     await owner.queue.deleteMany({ where: { tenantId } });
+    await owner.skill.deleteMany({ where: { tenantId } });
     await owner.tenant.delete({ where: { id: tenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -94,7 +102,8 @@ test('queue management REST API allows tenant Admin and rejects Agent mutation',
     offerTimeoutSec: 20,
     offerTimeoutAction: 'COOLDOWN_REQUEUE',
     offerCooldownSec: 60,
-    maxWaitAction: 'ABANDON',
+    maxWaitAction: 'VOICEMAIL',
+    routingStrategy: 'LONGEST_AVAILABLE_IDLE',
     priority: 2,
   });
   const create = (token: string) =>
@@ -119,10 +128,57 @@ test('queue management REST API allows tenant Admin and rejects Agent mutation',
     offerTimeoutSec: 20,
     offerTimeoutAction: 'COOLDOWN_REQUEUE',
     offerCooldownSec: 60,
-    maxWaitAction: 'ABANDON',
+    maxWaitAction: 'VOICEMAIL',
+    routingStrategy: 'LONGEST_AVAILABLE_IDLE',
     priority: 2,
     isActive: true,
   });
+
+  const tenantPolicyEndpoint = `http://127.0.0.1:${address.port}/api/v1/tenant/queue-policy`;
+  assert.equal(
+    (await fetch(tenantPolicyEndpoint, { headers: { authorization: 'Bearer agent-token' } }))
+      .status,
+    403,
+  );
+  const tenantPolicy = await fetch(tenantPolicyEndpoint, {
+    method: 'PATCH',
+    headers: { authorization: 'Bearer admin-token', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      defaultOfferTimeoutSec: 33,
+      defaultMaxWaitSec: 180,
+      defaultMaxWaitAction: 'CALLBACK',
+    }),
+  });
+  assert.equal(tenantPolicy.status, 200);
+  assert.deepEqual(await tenantPolicy.json(), {
+    defaultOfferTimeoutSec: 33,
+    defaultOfferTimeoutAction: 'COOLDOWN_REQUEUE',
+    defaultOfferCooldownSec: 60,
+    defaultMaxWaitSec: 180,
+    defaultMaxWaitAction: 'CALLBACK',
+  });
+
+  const skillId = randomUUID();
+  await owner.skill.create({ data: { id: skillId, tenantId, name: `REST skill ${tenantId}` } });
+  const requiredSkillsEndpoint = `${endpoint}/${payload.id}/required-skills`;
+  const requiredSkillsBody = JSON.stringify({ requiredSkills: [{ skillId, minLevel: 2 }] });
+  assert.equal(
+    (
+      await fetch(requiredSkillsEndpoint, {
+        method: 'PUT',
+        headers: { authorization: 'Bearer agent-token', 'content-type': 'application/json' },
+        body: requiredSkillsBody,
+      })
+    ).status,
+    403,
+  );
+  const requiredSkills = await fetch(requiredSkillsEndpoint, {
+    method: 'PUT',
+    headers: { authorization: 'Bearer admin-token', 'content-type': 'application/json' },
+    body: requiredSkillsBody,
+  });
+  assert.equal(requiredSkills.status, 200);
+  assert.deepEqual(await requiredSkills.json(), [{ skillId, minLevel: 2 }]);
 
   const destination = `rest-${tenantId.slice(0, 8)}`;
   const configured = await fetch(
@@ -159,7 +215,7 @@ test('queue management REST API allows tenant Admin and rejects Agent mutation',
   const auditEvents = (await auditResponse.json()) as { action: string; actorUserId: string }[];
   assert.deepEqual(
     auditEvents.map((event) => event.action),
-    ['QUEUE_CREATED', 'DIRECT_DESTINATION_SET', 'QUEUE_DISABLED'],
+    ['QUEUE_CREATED', 'QUEUE_UPDATED', 'DIRECT_DESTINATION_SET', 'QUEUE_DISABLED'],
   );
   assert.ok(auditEvents.every((event) => event.actorUserId === adminUserId));
 });

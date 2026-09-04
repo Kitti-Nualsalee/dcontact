@@ -9,6 +9,8 @@ import {
   listTenantQueues,
   resolveDirectVoiceDestination,
   setDirectVoiceDestination,
+  setQueueRequiredSkills,
+  TenantSkillNotFoundError,
   TenantQueueNotFoundError,
   updateVoiceQueue,
 } from './tenant-queue.js';
@@ -64,7 +66,8 @@ test('admin creates a voice queue and reads its metadata in the same tenant', as
     offerTimeoutSec: 20,
     offerTimeoutAction: 'COOLDOWN_REQUEUE',
     offerCooldownSec: 60,
-    maxWaitAction: 'ABANDON',
+    maxWaitAction: 'VOICEMAIL',
+    routingStrategy: 'LONGEST_AVAILABLE_IDLE',
     priority: 4,
   });
 
@@ -77,7 +80,8 @@ test('admin creates a voice queue and reads its metadata in the same tenant', as
     offerTimeoutSec: 20,
     offerTimeoutAction: 'COOLDOWN_REQUEUE',
     offerCooldownSec: 60,
-    maxWaitAction: 'ABANDON',
+    maxWaitAction: 'VOICEMAIL',
+    routingStrategy: 'LONGEST_AVAILABLE_IDLE',
     priority: 4,
     isActive: true,
   });
@@ -140,7 +144,8 @@ test('admin updates and disables only a queue in the authenticated tenant', asyn
     offerTimeoutSec: 20,
     offerTimeoutAction: 'COOLDOWN_REQUEUE',
     offerCooldownSec: 60,
-    maxWaitAction: 'ABANDON',
+    maxWaitAction: 'VOICEMAIL',
+    routingStrategy: 'LONGEST_AVAILABLE_IDLE',
     priority: 8,
     isActive: false,
   });
@@ -154,10 +159,74 @@ test('admin updates and disables only a queue in the authenticated tenant', asyn
     offerTimeoutSec: 20,
     offerTimeoutAction: 'COOLDOWN_REQUEUE',
     offerCooldownSec: 60,
-    maxWaitAction: 'ABANDON',
+    maxWaitAction: 'VOICEMAIL',
+    routingStrategy: 'LONGEST_AVAILABLE_IDLE',
     priority: 8,
     isActive: false,
   });
+});
+
+test('admin configures tenant-scoped queue required skills and minimum levels', async (t) => {
+  const tenantId = randomUUID();
+  const otherTenantId = randomUUID();
+  const actorUserId = randomUUID();
+  const ownSkillId = randomUUID();
+  const otherSkillId = randomUUID();
+
+  await owner.tenant.createMany({
+    data: [
+      {
+        id: tenantId,
+        name: `Skills owner ${tenantId}`,
+        slug: `skills-owner-${tenantId}`,
+        sipDomain: `${tenantId}.skills-owner.test`,
+      },
+      {
+        id: otherTenantId,
+        name: `Skills other ${otherTenantId}`,
+        slug: `skills-other-${otherTenantId}`,
+        sipDomain: `${otherTenantId}.skills-other.test`,
+      },
+    ],
+  });
+  await owner.skill.createMany({
+    data: [
+      { id: ownSkillId, tenantId, name: `billing-${tenantId}` },
+      { id: otherSkillId, tenantId: otherTenantId, name: `billing-${otherTenantId}` },
+    ],
+  });
+  t.after(async () => {
+    await owner.queueAuditEvent.deleteMany({
+      where: { tenantId: { in: [tenantId, otherTenantId] } },
+    });
+    await owner.queueSkill.deleteMany({ where: { skillId: { in: [ownSkillId, otherSkillId] } } });
+    await owner.queue.deleteMany({ where: { tenantId: { in: [tenantId, otherTenantId] } } });
+    await owner.skill.deleteMany({ where: { id: { in: [ownSkillId, otherSkillId] } } });
+    await owner.tenant.deleteMany({ where: { id: { in: [tenantId, otherTenantId] } } });
+  });
+
+  const queue = await createVoiceQueue(application, {
+    tenantId,
+    actorUserId,
+    name: `Skill queue ${tenantId.slice(0, 8)}`,
+  });
+  const requiredSkills = await setQueueRequiredSkills(application, {
+    tenantId,
+    actorUserId,
+    queueId: queue.id,
+    requiredSkills: [{ skillId: ownSkillId, minLevel: 3 }],
+  });
+  assert.deepEqual(requiredSkills, [{ skillId: ownSkillId, minLevel: 3 }]);
+
+  await assert.rejects(
+    setQueueRequiredSkills(application, {
+      tenantId,
+      actorUserId,
+      queueId: queue.id,
+      requiredSkills: [{ skillId: otherSkillId, minLevel: 3 }],
+    }),
+    TenantSkillNotFoundError,
+  );
 });
 
 test('admin maps a direct destination only to an active voice queue in the same tenant', async (t) => {

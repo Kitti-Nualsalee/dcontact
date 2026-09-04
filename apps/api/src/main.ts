@@ -25,6 +25,7 @@ import {
   QueueAuditController,
   QueueController,
   TENANT_QUEUE_DATABASE,
+  TenantQueuePolicyController,
   VoiceDestinationController,
 } from './tenant-queue-api.js';
 import { fanoutAgentOffer } from './agent-offer-fanout.js';
@@ -75,6 +76,7 @@ class WorkspaceSessionController {
   controllers: [
     WorkspaceSessionController,
     QueueController,
+    TenantQueuePolicyController,
     VoiceDestinationController,
     QueueAuditController,
   ],

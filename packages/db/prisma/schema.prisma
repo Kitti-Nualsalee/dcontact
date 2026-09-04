@@ -10,11 +10,16 @@ datasource db {
 // ─────────────────────────── Tenancy & Users ───────────────────────────
 
 model Tenant {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String
-  slug      String   @unique
-  sipDomain String   @unique @map("sip_domain")
-  createdAt DateTime @default(now()) @map("created_at")
+  id                        String                  @id @default(uuid()) @db.Uuid
+  name                      String
+  slug                      String                  @unique
+  sipDomain                 String                  @unique @map("sip_domain")
+  defaultOfferTimeoutSec    Int                     @default(20) @map("default_offer_timeout_sec")
+  defaultOfferTimeoutAction QueueOfferTimeoutAction @default(COOLDOWN_REQUEUE) @map("default_offer_timeout_action")
+  defaultOfferCooldownSec   Int                     @default(60) @map("default_offer_cooldown_sec")
+  defaultMaxWaitSec         Int?                    @map("default_max_wait_sec")
+  defaultMaxWaitAction      QueueMaxWaitAction     @default(VOICEMAIL) @map("default_max_wait_action")
+  createdAt                 DateTime                @default(now()) @map("created_at")
 
   users             User[]
   teams             Team[]
@@ -92,8 +97,15 @@ enum QueueOfferTimeoutAction {
 }
 
 enum QueueMaxWaitAction {
-  REQUEUE
-  ABANDON
+  WAIT
+  CALLBACK
+  VOICEMAIL
+}
+
+enum QueueRoutingStrategy {
+  LONGEST_AVAILABLE_IDLE
+  LONGEST_SINCE_LAST_INTERACTION
+  ROUND_ROBIN
 }
 
 model Queue {
@@ -103,11 +115,12 @@ model Queue {
   // universal queue: รองรับหลาย channel ใน queue เดียว
   channels        ChannelType[]
   slaThresholdSec Int           @default(20) @map("sla_threshold_sec")
-  maxWaitSec      Int?          @map("max_wait_sec")
-  offerTimeoutSec Int           @default(20) @map("offer_timeout_sec")
-  offerTimeoutAction QueueOfferTimeoutAction @default(COOLDOWN_REQUEUE) @map("offer_timeout_action")
-  offerCooldownSec Int          @default(60) @map("offer_cooldown_sec")
-  maxWaitAction   QueueMaxWaitAction @default(ABANDON) @map("max_wait_action")
+  maxWaitSec      Int?                   @map("max_wait_sec")
+  offerTimeoutSec Int?                   @map("offer_timeout_sec")
+  offerTimeoutAction QueueOfferTimeoutAction? @map("offer_timeout_action")
+  offerCooldownSec Int?                  @map("offer_cooldown_sec")
+  maxWaitAction   QueueMaxWaitAction?    @map("max_wait_action")
+  routingStrategy QueueRoutingStrategy   @default(LONGEST_AVAILABLE_IDLE) @map("routing_strategy")
   priority        Int           @default(0)
   isActive        Boolean       @default(true) @map("is_active")
   createdAt       DateTime      @default(now()) @map("created_at")

@@ -42,6 +42,22 @@ interface AvailableAgent {
   extension: string;
 }
 
+interface QueuePolicySource {
+  offerTimeoutSec: number | null;
+  offerTimeoutAction: 'IMMEDIATE_REQUEUE' | 'COOLDOWN_REQUEUE' | 'ABANDON' | null;
+  offerCooldownSec: number | null;
+  maxWaitSec: number | null;
+  maxWaitAction: 'WAIT' | 'CALLBACK' | 'VOICEMAIL' | null;
+  routingStrategy: 'LONGEST_AVAILABLE_IDLE' | 'LONGEST_SINCE_LAST_INTERACTION' | 'ROUND_ROBIN';
+  tenant: {
+    defaultOfferTimeoutSec: number;
+    defaultOfferTimeoutAction: 'IMMEDIATE_REQUEUE' | 'COOLDOWN_REQUEUE' | 'ABANDON';
+    defaultOfferCooldownSec: number;
+    defaultMaxWaitSec: number | null;
+    defaultMaxWaitAction: 'WAIT' | 'CALLBACK' | 'VOICEMAIL';
+  };
+}
+
 interface DueOfferOutcome {
   interactionId: string;
   tenantId: string;
@@ -54,9 +70,28 @@ interface DueOfferOutcome {
   timedOut: boolean;
   requeued: boolean;
   abandoned?: boolean;
+  reason?: string;
 }
 
 export class InboundVoiceRouter {
+  private readonly queuePolicySelection = {
+    offerTimeoutSec: true,
+    offerTimeoutAction: true,
+    offerCooldownSec: true,
+    maxWaitSec: true,
+    maxWaitAction: true,
+    routingStrategy: true,
+    tenant: {
+      select: {
+        defaultOfferTimeoutSec: true,
+        defaultOfferTimeoutAction: true,
+        defaultOfferCooldownSec: true,
+        defaultMaxWaitSec: true,
+        defaultMaxWaitAction: true,
+      },
+    },
+  } as const;
+
   constructor(
     private readonly database: PrismaClient,
     private readonly dependencies: InboundVoiceRouterDependencies,
@@ -90,7 +125,7 @@ export class InboundVoiceRouter {
             isActive: true,
             queue: { isActive: true },
           },
-          select: { queueId: true, queue: { select: { offerTimeoutSec: true } } },
+          select: { queueId: true, queue: { select: this.queuePolicySelection } },
         });
         if (!destination) throw new Error('no active direct voice destination for inbound call');
 
@@ -141,7 +176,13 @@ export class InboundVoiceRouter {
           ],
         });
 
-        const available = await this.findAvailableAgent(transaction, event.tenantId);
+        const policy = this.resolveQueuePolicy(destination.queue);
+        const available = await this.findAvailableAgent(
+          transaction,
+          event.tenantId,
+          destination.queueId,
+          policy.routingStrategy,
+        );
         if (!available) return { interactionId: interaction.id, status: 'QUEUED' as const };
 
         await transaction.agentStateLog.create({
@@ -158,7 +199,7 @@ export class InboundVoiceRouter {
             state: 'ASSIGNED',
             agentId: available.id,
             assignedAt: new Date(this.dependencies.now()),
-            offerExpiresAt: this.offerExpiresAt(destination.queue.offerTimeoutSec),
+            offerExpiresAt: this.offerExpiresAt(policy.offerTimeoutSec),
           },
           select: { id: true, state: true, agentId: true, queueId: true },
         });
@@ -229,20 +270,17 @@ export class InboundVoiceRouter {
               agentId: true,
               externalId: true,
               metadata: true,
-              queue: {
-                select: {
-                  offerTimeoutAction: true,
-                  offerTimeoutSec: true,
-                  offerCooldownSec: true,
-                },
-              },
+              queue: { select: this.queuePolicySelection },
             },
           });
           const result: DueOfferOutcome[] = [];
           for (const dueOffer of dueOffers) {
-            if (!dueOffer.agentId || !dueOffer.externalId || !dueOffer.queue) continue;
+            if (!dueOffer.agentId || !dueOffer.externalId || !dueOffer.queue || !dueOffer.queueId) {
+              continue;
+            }
             const metadata = this.telephonyMetadata(dueOffer.metadata);
-            if (dueOffer.queue.offerTimeoutAction === 'ABANDON') {
+            const policy = this.resolveQueuePolicy(dueOffer.queue);
+            if (policy.offerTimeoutAction === 'ABANDON') {
               const abandoned = await transaction.interaction.updateMany({
                 where: {
                   id: dueOffer.id,
@@ -301,24 +339,24 @@ export class InboundVoiceRouter {
                 offerExpiresAt: { lte: now },
               },
               data:
-                dueOffer.queue.offerTimeoutAction === 'COOLDOWN_REQUEUE'
+                policy.offerTimeoutAction === 'COOLDOWN_REQUEUE'
                   ? {
                       state: 'QUEUED',
                       agentId: null,
                       offerExpiresAt: null,
-                      requeueAt: this.requeueAt(dueOffer.queue.offerCooldownSec),
+                      requeueAt: this.requeueAt(policy.offerCooldownSec),
                     }
                   : { state: 'QUEUED', agentId: null, offerExpiresAt: null, requeueAt: null },
             });
             if (claimed.count === 0) continue;
-            if (dueOffer.queue.offerTimeoutAction === 'COOLDOWN_REQUEUE') {
+            if (policy.offerTimeoutAction === 'COOLDOWN_REQUEUE') {
               await transaction.agentStateLog.create({
                 data: {
                   tenantId: tenant.id,
                   userId: dueOffer.agentId,
                   state: 'BREAK',
                   reason: `cooldown:${dueOffer.id}`,
-                  endedAt: this.requeueAt(dueOffer.queue.offerCooldownSec),
+                  endedAt: this.requeueAt(policy.offerCooldownSec),
                 },
               });
             } else {
@@ -347,7 +385,7 @@ export class InboundVoiceRouter {
                 },
               ],
             });
-            if (dueOffer.queue.offerTimeoutAction === 'COOLDOWN_REQUEUE') {
+            if (policy.offerTimeoutAction === 'COOLDOWN_REQUEUE') {
               result.push({
                 interactionId: dueOffer.id,
                 tenantId: tenant.id,
@@ -359,7 +397,12 @@ export class InboundVoiceRouter {
               });
               continue;
             }
-            const available = await this.findAvailableAgent(transaction, tenant.id);
+            const available = await this.findAvailableAgent(
+              transaction,
+              tenant.id,
+              dueOffer.queueId,
+              policy.routingStrategy,
+            );
             if (!available) {
               result.push({
                 interactionId: dueOffer.id,
@@ -378,7 +421,7 @@ export class InboundVoiceRouter {
                 state: 'ASSIGNED',
                 agentId: available.id,
                 assignedAt: now,
-                offerExpiresAt: this.offerExpiresAt(dueOffer.queue.offerTimeoutSec),
+                offerExpiresAt: this.offerExpiresAt(policy.offerTimeoutSec),
               },
             });
             if (reassigned.count === 0) continue;
@@ -423,12 +466,17 @@ export class InboundVoiceRouter {
               queueId: true,
               externalId: true,
               metadata: true,
-              queue: { select: { offerTimeoutSec: true } },
+              queue: { select: this.queuePolicySelection },
             },
           });
           for (const dueRequeue of dueRequeues) {
-            if (!dueRequeue.externalId || !dueRequeue.queue) continue;
-            const available = await this.findAvailableAgent(transaction, tenant.id);
+            if (!dueRequeue.externalId || !dueRequeue.queue || !dueRequeue.queueId) continue;
+            const available = await this.findAvailableAgent(
+              transaction,
+              tenant.id,
+              dueRequeue.queueId,
+              this.resolveQueuePolicy(dueRequeue.queue).routingStrategy,
+            );
             if (!available) continue;
             const assigned = await transaction.interaction.updateMany({
               where: {
@@ -441,7 +489,9 @@ export class InboundVoiceRouter {
                 state: 'ASSIGNED',
                 agentId: available.id,
                 assignedAt: now,
-                offerExpiresAt: this.offerExpiresAt(dueRequeue.queue.offerTimeoutSec),
+                offerExpiresAt: this.offerExpiresAt(
+                  this.resolveQueuePolicy(dueRequeue.queue).offerTimeoutSec,
+                ),
                 requeueAt: null,
               },
             });
@@ -479,7 +529,6 @@ export class InboundVoiceRouter {
               tenantId: tenant.id,
               channel: 'VOICE',
               state: 'QUEUED',
-              queue: { maxWaitSec: { not: null } },
             },
             select: {
               id: true,
@@ -487,16 +536,18 @@ export class InboundVoiceRouter {
               externalId: true,
               metadata: true,
               queuedAt: true,
-              queue: { select: { maxWaitSec: true, maxWaitAction: true } },
+              queue: { select: this.queuePolicySelection },
             },
           });
           for (const waiting of waitingInteractions) {
-            if (!waiting.externalId || !waiting.queue?.maxWaitSec) continue;
-            const maxWaitAt = new Date(
-              waiting.queuedAt.getTime() + waiting.queue.maxWaitSec * 1_000,
-            );
+            if (!waiting.externalId || !waiting.queue) continue;
+            const policy = this.resolveQueuePolicy(waiting.queue);
+            if (!policy.maxWaitSec) continue;
+            const maxWaitAt = new Date(waiting.queuedAt.getTime() + policy.maxWaitSec * 1_000);
             if (maxWaitAt > now) continue;
-            if (waiting.queue.maxWaitAction === 'ABANDON') {
+            if (policy.maxWaitAction !== 'WAIT') {
+              const reason =
+                policy.maxWaitAction === 'CALLBACK' ? 'max_wait_callback' : 'max_wait_voicemail';
               const abandoned = await transaction.interaction.updateMany({
                 where: {
                   id: waiting.id,
@@ -512,7 +563,7 @@ export class InboundVoiceRouter {
                   tenantId: tenant.id,
                   interactionId: waiting.id,
                   type: 'interaction.abandoned',
-                  payload: { reason: 'max_wait' },
+                  payload: { reason },
                 },
               });
               result.push({
@@ -524,6 +575,7 @@ export class InboundVoiceRouter {
                 timedOut: false,
                 requeued: false,
                 abandoned: true,
+                reason,
               });
               continue;
             }
@@ -542,7 +594,7 @@ export class InboundVoiceRouter {
                 tenantId: tenant.id,
                 interactionId: waiting.id,
                 type: 'interaction.queued',
-                payload: { reason: 'max_wait_requeue' },
+                payload: { reason: 'max_wait_wait' },
               },
             });
             result.push({
@@ -553,6 +605,7 @@ export class InboundVoiceRouter {
               ...this.telephonyMetadata(waiting.metadata),
               timedOut: false,
               requeued: true,
+              reason: 'max_wait_wait',
             });
           }
           return result;
@@ -575,10 +628,7 @@ export class InboundVoiceRouter {
             state: true,
             agentId: true,
             queue: {
-              select: {
-                offerTimeoutAction: true,
-                offerCooldownSec: true,
-              },
+              select: this.queuePolicySelection,
             },
           },
         });
@@ -589,10 +639,11 @@ export class InboundVoiceRouter {
         ) {
           return { ...existing, transitioned: false as const };
         }
-        const abandoned = existing.queue.offerTimeoutAction === 'ABANDON';
+        const policy = this.resolveQueuePolicy(existing.queue);
+        const abandoned = policy.offerTimeoutAction === 'ABANDON';
         const requeueAt =
-          existing.queue.offerTimeoutAction === 'COOLDOWN_REQUEUE'
-            ? this.requeueAt(existing.queue.offerCooldownSec)
+          policy.offerTimeoutAction === 'COOLDOWN_REQUEUE'
+            ? this.requeueAt(policy.offerCooldownSec)
             : new Date(this.dependencies.now());
         const updated = await transaction.interaction.updateMany({
           where: {
@@ -614,14 +665,12 @@ export class InboundVoiceRouter {
           data: {
             tenantId: command.tenantId,
             userId: command.agentId,
-            state: existing.queue.offerTimeoutAction === 'COOLDOWN_REQUEUE' ? 'BREAK' : 'AVAILABLE',
+            state: policy.offerTimeoutAction === 'COOLDOWN_REQUEUE' ? 'BREAK' : 'AVAILABLE',
             reason:
-              existing.queue.offerTimeoutAction === 'COOLDOWN_REQUEUE'
+              policy.offerTimeoutAction === 'COOLDOWN_REQUEUE'
                 ? `cooldown:${existing.id}`
                 : existing.id,
-            ...(existing.queue.offerTimeoutAction === 'COOLDOWN_REQUEUE'
-              ? { endedAt: requeueAt }
-              : {}),
+            ...(policy.offerTimeoutAction === 'COOLDOWN_REQUEUE' ? { endedAt: requeueAt } : {}),
           },
         });
         await transaction.interactionEvent.createMany({
@@ -937,27 +986,68 @@ export class InboundVoiceRouter {
     };
   }
 
-  private async findAvailableAgent(transaction: Prisma.TransactionClient, tenantId: string) {
+  private async findAvailableAgent(
+    transaction: Prisma.TransactionClient,
+    tenantId: string,
+    queueId: string,
+    routingStrategy: QueuePolicySource['routingStrategy'],
+  ) {
+    const ordering =
+      routingStrategy === 'LONGEST_SINCE_LAST_INTERACTION'
+        ? Prisma.sql`last_interaction.ended_at ASC NULLS FIRST, u.id`
+        : routingStrategy === 'ROUND_ROBIN'
+          ? Prisma.sql`last_assignment.assigned_at ASC NULLS FIRST, u.id`
+          : Prisma.sql`latest.started_at ASC, u.id`;
     const agents = await transaction.$queryRaw<AvailableAgent[]>(Prisma.sql`
       SELECT u.id, u.extension
       FROM users u
       JOIN LATERAL (
-        SELECT state
+        SELECT state, started_at
         FROM agent_state_logs states
         WHERE states.tenant_id = ${tenantId}::uuid AND states.user_id = u.id
         ORDER BY states.started_at DESC, states.id DESC
         LIMIT 1
       ) latest ON true
+      LEFT JOIN LATERAL (
+        SELECT MAX(ended_at) AS ended_at
+        FROM interactions
+        WHERE tenant_id = ${tenantId}::uuid AND agent_id = u.id AND ended_at IS NOT NULL
+      ) last_interaction ON true
+      LEFT JOIN LATERAL (
+        SELECT MAX(assigned_at) AS assigned_at
+        FROM interactions
+        WHERE tenant_id = ${tenantId}::uuid AND agent_id = u.id AND assigned_at IS NOT NULL
+      ) last_assignment ON true
       WHERE u.tenant_id = ${tenantId}::uuid
         AND u.role = 'AGENT'
         AND u.is_active = true
         AND u.extension IS NOT NULL
         AND latest.state = 'AVAILABLE'
-      ORDER BY u.id
+        AND NOT EXISTS (
+          SELECT 1
+          FROM queue_skills required_skill
+          LEFT JOIN agent_skills agent_skill
+            ON agent_skill.skill_id = required_skill.skill_id
+            AND agent_skill.user_id = u.id
+          WHERE required_skill.queue_id = ${queueId}::uuid
+            AND (agent_skill.user_id IS NULL OR agent_skill.level < required_skill.min_level)
+        )
+      ORDER BY ${ordering}
       FOR UPDATE OF u SKIP LOCKED
       LIMIT 1
     `);
     return agents[0];
+  }
+
+  private resolveQueuePolicy(queue: QueuePolicySource) {
+    return {
+      offerTimeoutSec: queue.offerTimeoutSec ?? queue.tenant.defaultOfferTimeoutSec,
+      offerTimeoutAction: queue.offerTimeoutAction ?? queue.tenant.defaultOfferTimeoutAction,
+      offerCooldownSec: queue.offerCooldownSec ?? queue.tenant.defaultOfferCooldownSec,
+      maxWaitSec: queue.maxWaitSec ?? queue.tenant.defaultMaxWaitSec,
+      maxWaitAction: queue.maxWaitAction ?? queue.tenant.defaultMaxWaitAction,
+      routingStrategy: queue.routingStrategy,
+    };
   }
 
   private offerExpiresAt(seconds: number) {
@@ -1035,6 +1125,7 @@ export class InboundVoiceRouter {
           channel: 'VOICE',
           state: 'ABANDONED',
           ...(outcome.queueId ? { queueId: outcome.queueId } : {}),
+          ...(outcome.reason ? { reason: outcome.reason } : {}),
         }),
       );
       return;
@@ -1047,6 +1138,7 @@ export class InboundVoiceRouter {
           channel: 'VOICE',
           state: outcome.agentId ? 'ASSIGNED' : 'QUEUED',
           ...(outcome.queueId ? { queueId: outcome.queueId } : {}),
+          ...(outcome.reason ? { reason: outcome.reason } : {}),
         }),
       );
     }

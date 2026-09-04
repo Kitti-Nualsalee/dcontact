@@ -173,17 +173,20 @@ flowchart TB
    เรียก API) แล้วจบด้วยการเลือกคิว/ปลายทาง: voice เลือก flow จาก DID, digital จากบัญชีช่องทาง;
    นอกเวลาทำการหรือ deflect (voicemail/callback) จบตรงนี้โดยไม่เข้า matching —
    ดู [flow-engine.md](flow-engine.md)
-4. **Matching** — ถาม Redis 3 เงื่อนไข: skill ครอบคลุม + Available + slot ว่างตาม channel;
-   จัดอันดับด้วย strategy ของคิว (default: longest idle) — ใช้ Redis เพราะยิงถี่และต้องตอบ ms;
-   ไม่มีใครว่าง → รอในคิว ปลุก matching ใหม่เมื่อ agent ว่าง (event) หรือ timer tick;
-   เกิน max wait → overflow (ย้ายคิว/callback/voicemail)
+4. **Matching** — state ต้อง `AVAILABLE` และต้องมี `AgentSkill` ครบทุก `QueueSkill` โดย level
+   ไม่น้อยกว่า `minLevel`; จัดอันดับตาม `routingStrategy` ของคิว: `LONGEST_AVAILABLE_IDLE`
+   (default), `LONGEST_SINCE_LAST_INTERACTION` หรือ `ROUND_ROBIN`. เมื่อคะแนนเท่ากันใช้
+   `agent ID` เป็น tie-breaker จึงได้ผลเดิมทุกครั้ง. ไม่มีใครว่าง → รอในคิว ปลุก matching ใหม่
+   เมื่อ agent ว่าง (event) หรือ timer tick. ค่า timeout/max wait อ่านจาก queue override ก่อน
+   แล้วจึง fallback เป็น tenant default
 5. **Reserve ต้อง atomic** (Lua/`SETNX`) — กัน 2 สายเลือก agent เดียวกันพร้อมกัน;
    จองแล้ว `ASSIGNED` + ring timer
 6. **ผลลัพธ์** — รับ = `ACTIVE`; ring timeout/decline ใช้ policy ของ queue: requeue ทันที,
    cooldown แล้ว requeue (ค่าเริ่มต้น 60 วินาที) หรือ `ABANDONED`; ทุกทางปล่อย reservation แบบ
    atomic และ append event เพียงครั้งเดียว. ลูกค้าวางก่อนรับงาน = `ABANDONED`; วางหลังรับงาน =
-   `WRAPUP` และ Agent อยู่ `ACW` จนเลือก wrap-up code ก่อนกลับ `AVAILABLE`. `maxWaitSec`
-   ใช้ action ของคิวเพื่อ requeue รอบใหม่หรือ `ABANDONED` เมื่อเกินเวลารอ
+   `WRAPUP` และ Agent อยู่ `ACW` จนเลือก wrap-up code ก่อนกลับ `AVAILABLE`. เมื่อเกิน
+   `maxWaitSec` เลือก `WAIT` เพื่อเริ่มรอรอบใหม่ หรือ `CALLBACK`/`VOICEMAIL` เพื่อออกจากคิว
+   ด้วย event reason ที่ชัดเจนให้ integration ปลายทางดำเนินการต่อ
 
 ### 4.1 สัญญาการรับงานฝั่ง digital (ต่างจาก voice ที่มีเสียงกริ่ง)
 
