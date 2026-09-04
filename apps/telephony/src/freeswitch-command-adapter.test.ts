@@ -72,3 +72,63 @@ test('a command for another FreeSWITCH node is ignored', async () => {
   });
   assert.deepEqual(commands, []);
 });
+
+test('recording pause and resume preserve the recording path on the owning FreeSWITCH node', async () => {
+  const commands: string[] = [];
+  const adapter = new FreeSwitchCommandAdapter(
+    { command: async (value) => void commands.push(value) },
+    'dcontact.local',
+    'fs-bkk-02',
+  );
+
+  await adapter.handle({
+    callUuid: 'call-100',
+    vendor: 'freeswitch',
+    telephonyNodeId: 'fs-bkk-02',
+    type: 'recording.pause',
+    recordingPath: '/var/recordings/tenant-a/call-100.wav',
+  } as never);
+  await adapter.handle({
+    callUuid: 'call-100',
+    vendor: 'freeswitch',
+    telephonyNodeId: 'fs-bkk-02',
+    type: 'recording.resume',
+    recordingPath: '/var/recordings/tenant-a/call-100.wav',
+  } as never);
+
+  assert.deepEqual(commands, [
+    'api uuid_record call-100 pause /var/recordings/tenant-a/call-100.wav',
+    'api uuid_record call-100 resume /var/recordings/tenant-a/call-100.wav',
+  ]);
+});
+
+test('recording announcement is sent before the telephony node starts its stereo recording', async () => {
+  const commands: string[] = [];
+  const adapter = new FreeSwitchCommandAdapter(
+    { command: async (value) => void commands.push(value) },
+    'dcontact.local',
+    'fs-bkk-02',
+  );
+
+  await adapter.handle({
+    callUuid: 'call-100',
+    vendor: 'freeswitch',
+    telephonyNodeId: 'fs-bkk-02',
+    type: 'recording.announce',
+    announcement: 'This call is recorded',
+    language: 'en-US',
+  } as never);
+  await adapter.handle({
+    callUuid: 'call-100',
+    vendor: 'freeswitch',
+    telephonyNodeId: 'fs-bkk-02',
+    type: 'recording.start',
+    recordingPath: '/var/recordings/tenant-a/call-100.wav',
+    channelLayout: 'STEREO',
+  } as never);
+
+  assert.deepEqual(commands, [
+    'api uuid_broadcast call-100 say:flite.slt:This_call_is_recorded aleg',
+    'api uuid_record call-100 start /var/recordings/tenant-a/call-100.wav',
+  ]);
+});

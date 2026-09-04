@@ -34,6 +34,14 @@ import {
   SUPERVISOR_LIVE_DATABASE,
   SupervisorLiveEventStream,
 } from './supervisor-live-api.js';
+import {
+  RecordingController,
+  RECORDING_DATABASE,
+  RECORDING_STORAGE,
+  TELEPHONY_COMMAND_PUBLISHER,
+} from './recording-api.js';
+import { KafkaTelephonyCommandPublisher } from './recording-command-publisher.js';
+import { MinioRecordingStorage } from './minio-recording-storage.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -49,6 +57,8 @@ const verifier = new KeycloakAccessTokenVerifier({
 });
 const gateway = new WorkspaceSessionGateway(verifier, new WorkspaceSessionRegistry());
 const supervisorLiveEvents = new SupervisorLiveEventStream();
+const recordingCommandPublisher = new KafkaTelephonyCommandPublisher();
+const recordingStorage = new MinioRecordingStorage();
 const httpAdapter = new WorkspaceSessionHttpAdapter(gateway);
 async function tenantScope<T>(tenantId: string, work: () => Promise<T> | T): Promise<T> {
   return withTenantDatabaseTransaction(prisma, tenantId, async (transaction) => {
@@ -89,11 +99,15 @@ class WorkspaceSessionController {
     VoiceDestinationController,
     QueueAuditController,
     SupervisorLiveController,
+    RecordingController,
   ],
   providers: [
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
     { provide: SUPERVISOR_LIVE_DATABASE, useValue: prisma },
     { provide: SupervisorLiveEventStream, useValue: supervisorLiveEvents },
+    { provide: RECORDING_DATABASE, useValue: prisma },
+    { provide: TELEPHONY_COMMAND_PUBLISHER, useValue: recordingCommandPublisher },
+    { provide: RECORDING_STORAGE, useValue: recordingStorage },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },

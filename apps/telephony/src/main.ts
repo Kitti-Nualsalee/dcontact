@@ -6,6 +6,7 @@ import { KAFKA_TOPICS, type TelephonyCommand } from '@d-contact/shared';
 import { parseEslEvent } from './esl-event.js';
 import { FreeSwitchCommandAdapter } from './freeswitch-command-adapter.js';
 import { normalizeFreeSwitchEvent } from './freeswitch-normalizer.js';
+import { TelephonyRecordingLifecycle } from './recording-lifecycle.js';
 
 const host = process.env.FREESWITCH_ESL_HOST ?? '127.0.0.1';
 const port = Number(process.env.FREESWITCH_ESL_PORT ?? 8021);
@@ -31,6 +32,7 @@ async function main() {
     process.env.FREESWITCH_SIP_DOMAIN ?? 'dcontact.local',
     nodeId,
   );
+  const recordingLifecycle = new TelephonyRecordingLifecycle(database, commandAdapter);
   const consumer = await createConsumer<TelephonyCommand>({
     clientId: `dcontact-telephony-${nodeId}`,
     groupId: `dcontact-telephony-command-${nodeId}-v1`,
@@ -85,6 +87,7 @@ async function main() {
           eventId: randomUUID,
           now: () => new Date().toISOString(),
         });
+        await recordingLifecycle.startForAnsweredCall(event);
         await producer.send(KAFKA_TOPICS.TELEPHONY_EVENTS, event);
         if (event.type === 'call.created')
           tenantIdByCallUuid.set(event.payload.callUuid, event.tenantId);

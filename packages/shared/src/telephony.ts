@@ -33,4 +33,26 @@ export interface TelephonyCollectCommand extends TelephonyCommandBase {
   timeoutSec: number;
 }
 
-export type TelephonyCommand = TelephonyBridgeCommand | TelephonyCollectCommand;
+export interface TelephonyRecordingControlCommand extends TelephonyCommandBase {
+  type: 'recording.pause' | 'recording.resume';
+  recordingPath: string;
+}
+
+export interface TelephonyRecordingAnnouncementCommand extends TelephonyCommandBase {
+  type: 'recording.announce';
+  announcement: string;
+  language: string;
+}
+
+export interface TelephonyRecordingStartCommand extends TelephonyCommandBase {
+  type: 'recording.start';
+  recordingPath: string;
+  channelLayout: 'PER_LEG' | 'STEREO';
+}
+
+export type TelephonyCommand =
+  | TelephonyBridgeCommand
+  | TelephonyCollectCommand
+  | TelephonyRecordingControlCommand
+  | TelephonyRecordingAnnouncementCommand
+  | TelephonyRecordingStartCommand;

@@ -125,6 +125,14 @@ model Queue {
   priority        Int           @default(0)
   teamId          String?       @map("team_id") @db.Uuid
   isActive        Boolean       @default(true) @map("is_active")
+  recordingEnabled          Boolean @default(false) @map("recording_enabled")
+  recordingAnnouncement     String? @map("recording_announcement")
+  recordingAnnouncementLanguage String? @map("recording_announcement_language")
+  recordingPauseResumeEnabled Boolean @default(false) @map("recording_pause_resume_enabled")
+  recordingAgentSelfAccess    Boolean @default(false) @map("recording_agent_self_access")
+  recordingDownloadAllowed    Boolean @default(false) @map("recording_download_allowed")
+  recordingRetentionDays      Int?    @map("recording_retention_days")
+  recordingChannelLayout      RecordingChannelLayout @default(STEREO) @map("recording_channel_layout")
   createdAt       DateTime      @default(now()) @map("created_at")
 
   tenant            Tenant             @relation(fields: [tenantId], references: [id])
@@ -522,18 +530,75 @@ model MessageAttachment {
 
 // ─────────────────────────── Recordings ───────────────────────────
 
-model Recording {
-  id            String    @id @default(uuid()) @db.Uuid
-  tenantId      String    @map("tenant_id") @db.Uuid
-  interactionId String    @map("interaction_id") @db.Uuid
-  // key ใน object storage (MinIO/S3)
-  storageKey    String    @map("storage_key")
-  durationSec   Int?      @map("duration_sec")
-  startedAt     DateTime  @map("started_at")
-  endedAt       DateTime? @map("ended_at")
+enum RecordingChannelLayout {
+  PER_LEG
+  STEREO
+}
 
-  interaction Interaction @relation(fields: [interactionId], references: [id])
+enum RecordingAuditAction {
+  PAUSED
+  RESUMED
+  PLAYBACK_URL_ISSUED
+  PLAYBACK_ACCESSED
+  DOWNLOAD_DENIED
+  RETENTION_DELETED
+  LEGAL_HOLD_PLACED
+  LEGAL_HOLD_RELEASED
+}
+
+model Recording {
+  id            String                 @id @default(uuid()) @db.Uuid
+  tenantId      String                 @map("tenant_id") @db.Uuid
+  interactionId String                 @map("interaction_id") @db.Uuid
+  // key ใน object storage (MinIO/S3)
+  storageKey    String                 @map("storage_key")
+  // path บน telephony node สำหรับคำสั่ง pause/resume; ไม่เปิดให้ browser ใช้
+  telephonyPath String                 @map("telephony_path")
+  channelLayout RecordingChannelLayout @default(STEREO) @map("channel_layout")
+  pauseIntervals Json                  @default("[]") @map("pause_intervals")
+  durationSec   Int?                   @map("duration_sec")
+  startedAt     DateTime               @map("started_at")
+  endedAt       DateTime?              @map("ended_at")
+  deletedAt     DateTime?              @map("deleted_at")
+
+  interaction Interaction           @relation(fields: [interactionId], references: [id])
+  auditEvents  RecordingAuditEvent[]
+  legalHolds   RecordingLegalHold[]
 
   @@index([tenantId, interactionId])
+  @@unique([tenantId, interactionId])
+  @@index([tenantId, deletedAt])
   @@map("recordings")
+}
+
+model RecordingAuditEvent {
+  id          String               @id @default(uuid()) @db.Uuid
+  tenantId    String               @map("tenant_id") @db.Uuid
+  recordingId String               @map("recording_id") @db.Uuid
+  actorUserId String?              @map("actor_user_id") @db.Uuid
+  action      RecordingAuditAction
+  reason      String?
+  details     Json                 @default("{}")
+  createdAt   DateTime             @default(now()) @map("created_at")
+
+  recording Recording @relation(fields: [recordingId], references: [id])
+
+  @@index([tenantId, recordingId, createdAt])
+  @@map("recording_audit_events")
+}
+
+model RecordingLegalHold {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  recordingId      String    @map("recording_id") @db.Uuid
+  reason           String
+  placedByUserId   String    @map("placed_by_user_id") @db.Uuid
+  placedAt         DateTime  @default(now()) @map("placed_at")
+  releasedByUserId String?   @map("released_by_user_id") @db.Uuid
+  releasedAt       DateTime? @map("released_at")
+
+  recording Recording @relation(fields: [recordingId], references: [id])
+
+  @@index([tenantId, recordingId, releasedAt])
+  @@map("recording_legal_holds")
 }

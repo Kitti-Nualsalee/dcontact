@@ -34,6 +34,23 @@ export class FreeSwitchCommandAdapter {
       }
       return;
     }
+    if (command.type === 'recording.pause' || command.type === 'recording.resume') {
+      await this.esl.command(
+        `api uuid_record ${command.callUuid} ${command.type === 'recording.pause' ? 'pause' : 'resume'} ${command.recordingPath}`,
+      );
+      return;
+    }
+    if (command.type === 'recording.announce') {
+      const announcement = command.announcement.trim().replaceAll(/\s+/g, '_');
+      await this.esl.command(
+        `api uuid_broadcast ${command.callUuid} say:flite.slt:${announcement} aleg`,
+      );
+      return;
+    }
+    if (command.type === 'recording.start') {
+      await this.esl.command(`api uuid_record ${command.callUuid} start ${command.recordingPath}`);
+      return;
+    }
     throw new Error(`unsupported telephony command ${(command as { type: string }).type}`);
   }
 }

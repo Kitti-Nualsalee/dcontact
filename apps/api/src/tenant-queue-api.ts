@@ -24,6 +24,7 @@ import {
   listTenantQueues,
   setDirectVoiceDestination,
   setIvrVoiceDestination,
+  updateQueueRecordingPolicy,
   setQueueRequiredSkills,
   TenantSkillNotFoundError,
   TenantQueueNotFoundError,
@@ -57,6 +58,17 @@ interface SetDirectVoiceDestinationBody {
 
 interface SetQueueRequiredSkillsBody {
   requiredSkills?: unknown;
+}
+
+interface UpdateQueueRecordingPolicyBody {
+  recordingEnabled?: unknown;
+  recordingAnnouncement?: unknown;
+  recordingAnnouncementLanguage?: unknown;
+  recordingPauseResumeEnabled?: unknown;
+  recordingAgentSelfAccess?: unknown;
+  recordingDownloadAllowed?: unknown;
+  recordingRetentionDays?: unknown;
+  recordingChannelLayout?: unknown;
 }
 
 interface SetIvrVoiceDestinationBody {
@@ -106,6 +118,44 @@ function optionalBoolean(value: unknown, field: string): boolean | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'boolean') throw new BadRequestException(`${field} must be a boolean`);
   return value;
+}
+
+function requiredBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') throw new BadRequestException(`${field} must be a boolean`);
+  return value;
+}
+
+function recordingAnnouncement(value: unknown, enabled: boolean): string | null {
+  if (value === null && !enabled) return null;
+  if (typeof value !== 'string' || value.trim().length === 0 || value.trim().length > 240) {
+    throw new BadRequestException(
+      'recordingAnnouncement must contain 1-240 characters when recording is enabled',
+    );
+  }
+  return value.trim();
+}
+
+function recordingAnnouncementLanguage(value: unknown, enabled: boolean): string | null {
+  if (value === null && !enabled) return null;
+  if (typeof value !== 'string' || !/^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(value)) {
+    throw new BadRequestException('recordingAnnouncementLanguage must be a BCP 47 language tag');
+  }
+  return value;
+}
+
+function recordingRetentionDays(value: unknown): number | null {
+  if (value === null) return null;
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 3_650) {
+    throw new BadRequestException(
+      'recordingRetentionDays must be an integer from 1 to 3650 or null',
+    );
+  }
+  return value as number;
+}
+
+function recordingChannelLayout(value: unknown): 'PER_LEG' | 'STEREO' {
+  if (value === 'PER_LEG' || value === 'STEREO') return value;
+  throw new BadRequestException('recordingChannelLayout must be PER_LEG or STEREO');
 }
 
 function optionalEnum<T extends string>(
@@ -283,6 +333,47 @@ export class QueueController {
         ]),
         priority: optionalInteger(body.priority, 'priority', 0),
         isActive: optionalBoolean(body.isActive, 'isActive'),
+      });
+    } catch (error) {
+      if (error instanceof TenantQueueNotFoundError) throw new NotFoundException();
+      throw error;
+    }
+  }
+
+  @Put(':queueId/recording-policy')
+  @GatewayRoles('admin')
+  async updateRecordingPolicy(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('queueId') queueId: string,
+    @Body() body: UpdateQueueRecordingPolicyBody,
+  ) {
+    const actor = identity(request);
+    const enabled = requiredBoolean(body.recordingEnabled, 'recordingEnabled');
+    try {
+      return await updateQueueRecordingPolicy(this.database, {
+        tenantId: actor.tenantId,
+        actorUserId: actor.userId,
+        queueId: requiredIdentifier(queueId, 'queueId'),
+        recordingEnabled: enabled,
+        recordingAnnouncement: recordingAnnouncement(body.recordingAnnouncement, enabled),
+        recordingAnnouncementLanguage: recordingAnnouncementLanguage(
+          body.recordingAnnouncementLanguage,
+          enabled,
+        ),
+        recordingPauseResumeEnabled: requiredBoolean(
+          body.recordingPauseResumeEnabled,
+          'recordingPauseResumeEnabled',
+        ),
+        recordingAgentSelfAccess: requiredBoolean(
+          body.recordingAgentSelfAccess,
+          'recordingAgentSelfAccess',
+        ),
+        recordingDownloadAllowed: requiredBoolean(
+          body.recordingDownloadAllowed,
+          'recordingDownloadAllowed',
+        ),
+        recordingRetentionDays: recordingRetentionDays(body.recordingRetentionDays),
+        recordingChannelLayout: recordingChannelLayout(body.recordingChannelLayout),
       });
     } catch (error) {
       if (error instanceof TenantQueueNotFoundError) throw new NotFoundException();

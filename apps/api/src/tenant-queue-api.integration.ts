@@ -209,6 +209,33 @@ test('queue management REST API allows tenant Admin and rejects Agent mutation',
   assert.equal(disabled.status, 200);
   assert.equal(((await disabled.json()) as { isActive: boolean }).isActive, false);
 
+  const recordingPolicy = await fetch(`${endpoint}/${payload.id}/recording-policy`, {
+    method: 'PUT',
+    headers: { authorization: 'Bearer admin-token', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      recordingEnabled: true,
+      recordingAnnouncement: 'สายนี้มีการบันทึกเสียงเพื่อพัฒนาบริการ',
+      recordingAnnouncementLanguage: 'th-TH',
+      recordingPauseResumeEnabled: true,
+      recordingAgentSelfAccess: true,
+      recordingDownloadAllowed: false,
+      recordingRetentionDays: 30,
+      recordingChannelLayout: 'PER_LEG',
+    }),
+  });
+  assert.equal(recordingPolicy.status, 200);
+  assert.deepEqual(await recordingPolicy.json(), {
+    queueId: payload.id,
+    recordingEnabled: true,
+    recordingAnnouncement: 'สายนี้มีการบันทึกเสียงเพื่อพัฒนาบริการ',
+    recordingAnnouncementLanguage: 'th-TH',
+    recordingPauseResumeEnabled: true,
+    recordingAgentSelfAccess: true,
+    recordingDownloadAllowed: false,
+    recordingRetentionDays: 30,
+    recordingChannelLayout: 'PER_LEG',
+  });
+
   const auditResponse = await fetch(`http://127.0.0.1:${address.port}/api/v1/queue-audit-events`, {
     headers: { authorization: 'Bearer admin-token' },
   });
@@ -216,7 +243,7 @@ test('queue management REST API allows tenant Admin and rejects Agent mutation',
   const auditEvents = (await auditResponse.json()) as { action: string; actorUserId: string }[];
   assert.deepEqual(
     auditEvents.map((event) => event.action),
-    ['QUEUE_CREATED', 'QUEUE_UPDATED', 'DIRECT_DESTINATION_SET', 'QUEUE_DISABLED'],
+    ['QUEUE_CREATED', 'QUEUE_UPDATED', 'DIRECT_DESTINATION_SET', 'QUEUE_DISABLED', 'QUEUE_UPDATED'],
   );
   assert.ok(auditEvents.every((event) => event.actorUserId === adminUserId));
 });

@@ -12,7 +12,8 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'users', 'teams', 'queues', 'voice_destinations', 'queue_audit_events', 'skills',
     'agent_state_logs', 'contacts', 'contact_identities',
-    'interactions', 'interaction_events', 'conversations', 'messages', 'recordings'
+    'interactions', 'interaction_events', 'conversations', 'messages', 'recordings',
+    'recording_audit_events', 'recording_legal_holds'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -37,3 +38,4 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dcontact_app;
 
 -- Queue audit is append-only through the application role.
 REVOKE UPDATE, DELETE ON queue_audit_events FROM dcontact_app;
+REVOKE UPDATE, DELETE ON recording_audit_events FROM dcontact_app;

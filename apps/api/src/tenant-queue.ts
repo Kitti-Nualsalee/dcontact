@@ -36,6 +36,20 @@ export interface UpdateVoiceQueueCommand {
   isActive?: boolean;
 }
 
+export interface UpdateQueueRecordingPolicyCommand {
+  tenantId: string;
+  actorUserId: string;
+  queueId: string;
+  recordingEnabled: boolean;
+  recordingAnnouncement: string | null;
+  recordingAnnouncementLanguage: string | null;
+  recordingPauseResumeEnabled: boolean;
+  recordingAgentSelfAccess: boolean;
+  recordingDownloadAllowed: boolean;
+  recordingRetentionDays: number | null;
+  recordingChannelLayout: 'PER_LEG' | 'STEREO';
+}
+
 export interface SetDirectVoiceDestinationCommand {
   tenantId: string;
   actorUserId: string;
@@ -145,6 +159,18 @@ const queueAuditSelection = {
 const queueRequiredSkillSelection = {
   skillId: true,
   minLevel: true,
+} as const;
+
+const queueRecordingPolicySelection = {
+  id: true,
+  recordingEnabled: true,
+  recordingAnnouncement: true,
+  recordingAnnouncementLanguage: true,
+  recordingPauseResumeEnabled: true,
+  recordingAgentSelfAccess: true,
+  recordingDownloadAllowed: true,
+  recordingRetentionDays: true,
+  recordingChannelLayout: true,
 } as const;
 
 const tenantQueuePolicySelection = {
@@ -291,6 +317,51 @@ export function updateVoiceQueue(database: PrismaClient, command: UpdateVoiceQue
       details: { before, after: queue },
     });
     return queue;
+  });
+}
+
+export function updateQueueRecordingPolicy(
+  database: PrismaClient,
+  command: UpdateQueueRecordingPolicyCommand,
+) {
+  return withTenantDatabaseTransaction(database, command.tenantId, async (transaction) => {
+    const before = await transaction.queue.findFirst({
+      where: { id: command.queueId, tenantId: command.tenantId, channels: { has: 'VOICE' } },
+      select: queueRecordingPolicySelection,
+    });
+    if (!before) throw new TenantQueueNotFoundError();
+    const queue = await transaction.queue.update({
+      where: { id: before.id },
+      data: {
+        recordingEnabled: command.recordingEnabled,
+        recordingAnnouncement: command.recordingAnnouncement,
+        recordingAnnouncementLanguage: command.recordingAnnouncementLanguage,
+        recordingPauseResumeEnabled: command.recordingPauseResumeEnabled,
+        recordingAgentSelfAccess: command.recordingAgentSelfAccess,
+        recordingDownloadAllowed: command.recordingDownloadAllowed,
+        recordingRetentionDays: command.recordingRetentionDays,
+        recordingChannelLayout: command.recordingChannelLayout,
+      },
+      select: queueRecordingPolicySelection,
+    });
+    await appendQueueAuditEvent(transaction, {
+      tenantId: command.tenantId,
+      queueId: queue.id,
+      actorUserId: command.actorUserId,
+      action: 'QUEUE_UPDATED',
+      details: { before, after: queue, changed: 'recordingPolicy' },
+    });
+    return {
+      queueId: queue.id,
+      recordingEnabled: queue.recordingEnabled,
+      recordingAnnouncement: queue.recordingAnnouncement,
+      recordingAnnouncementLanguage: queue.recordingAnnouncementLanguage,
+      recordingPauseResumeEnabled: queue.recordingPauseResumeEnabled,
+      recordingAgentSelfAccess: queue.recordingAgentSelfAccess,
+      recordingDownloadAllowed: queue.recordingDownloadAllowed,
+      recordingRetentionDays: queue.recordingRetentionDays,
+      recordingChannelLayout: queue.recordingChannelLayout,
+    };
   });
 }
 
