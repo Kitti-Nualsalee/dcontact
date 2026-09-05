@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>D-Contact — Supervisor live-control prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink:#172033; --muted:#687386; --line:#e3e8ef; --bg:#f6f8fa; --card:#fff;
+      --teal:#0f766e; --teal-soft:#ecfdf8; --rose:#be123c; --rose-soft:#fff1f2;
+      --amber:#a16207; --amber-soft:#fffbeb; --blue:#1d4ed8; --blue-soft:#eff6ff;
+      --shadow:0 18px 46px rgba(15,23,42,.10);
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 Inter,"Noto Sans Thai",system-ui,sans-serif; }
+    button,select,input,textarea { font:inherit; }
+    button { cursor:pointer; }
+    button:disabled { cursor:not-allowed; opacity:.48; }
+    .shell { min-height:100vh; display:grid; grid-template-columns:224px minmax(0,1fr); }
+    .rail { position:sticky; top:0; height:100vh; padding:20px 14px; background:#102329; color:#d9eeee; }
+    .brand { display:flex; align-items:center; gap:10px; padding:0 8px 22px; font-weight:750; font-size:17px; }
+    .logo { width:34px; height:34px; display:grid; place-items:center; border-radius:10px; background:#1b8b80; color:white; }
+    .nav { display:grid; gap:6px; }
+    .nav button { border:0; border-radius:10px; padding:10px 12px; color:#aac5c5; background:transparent; text-align:left; display:flex; gap:9px; align-items:center; }
+    .nav button[aria-current="page"] { color:#fff; background:#1c3b40; }
+    .nav small { margin-left:auto; color:#75d7cb; font-weight:700; }
+    .rail-note { position:absolute; left:16px; right:16px; bottom:18px; padding:12px; border:1px solid #315159; border-radius:12px; color:#a8c6c8; font-size:12px; }
+    .main { min-width:0; }
+    .topbar { min-height:68px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 24px; border-bottom:1px solid var(--line); background:rgba(255,255,255,.92); position:sticky; top:0; z-index:5; backdrop-filter:blur(8px); }
+    .topbar h1 { margin:0; font-size:17px; }
+    .topbar p { margin:2px 0 0; color:var(--muted); font-size:12px; }
+    .profile { display:flex; align-items:center; gap:10px; color:var(--muted); }
+    .avatar { width:34px; height:34px; display:grid; place-items:center; border-radius:50%; background:#d8f3ee; color:var(--teal); font-weight:750; }
+    .content { padding:24px; max-width:1480px; margin:auto; }
+    .question { padding:15px 17px; border:1px solid #cfe8e3; background:#f2fbf9; border-radius:14px; margin-bottom:16px; }
+    .question strong { display:block; margin-bottom:4px; }
+    .question p { margin:0; color:#38565a; }
+    .statusbar { display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:12px; margin-bottom:18px; border:1px solid var(--line); background:white; }
+    .statusbar.degraded { border-color:#f2c6ce; background:var(--rose-soft); }
+    .statusbar.syncing { border-color:#f4dba2; background:var(--amber-soft); }
+    .dot { width:9px; height:9px; border-radius:50%; background:#16a34a; box-shadow:0 0 0 4px #dcfce7; }
+    .degraded .dot { background:var(--rose); box-shadow:0 0 0 4px #ffe4e6; }
+    .syncing .dot { background:#d97706; box-shadow:0 0 0 4px #fef3c7; }
+    .statusbar .time { margin-left:auto; color:var(--muted); font-size:12px; }
+    .readonly { display:none; padding:7px 10px; border-radius:999px; background:#e8eef7; color:#43536c; font-size:12px; font-weight:700; }
+    body.mobile-mode .readonly { display:inline-flex; }
+    .view-head { display:flex; justify-content:space-between; align-items:flex-end; gap:14px; margin-bottom:16px; }
+    .view-head h2 { margin:0; font-size:22px; letter-spacing:-.02em; }
+    .view-head p { margin:3px 0 0; color:var(--muted); }
+    .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .pill,.chip { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:6px 10px; font-size:12px; font-weight:650; border:1px solid transparent; }
+    .pill.live { color:#08715e; background:#e9fbf5; border-color:#c3efe2; }
+    .pill.warn { color:var(--amber); background:var(--amber-soft); border-color:#fde6a9; }
+    .pill.off { color:#596477; background:#eef2f6; border-color:#dde3ea; }
+    select,.field { min-height:38px; padding:8px 10px; border:1px solid #d8dee7; border-radius:9px; background:#fff; color:var(--ink); }
+    .chips { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:16px; }
+    .chip { background:#fff; border-color:var(--line); color:#526071; }
+    .chip.active { border-color:#8acfc5; color:var(--teal); background:var(--teal-soft); }
+    .risk-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:16px; }
+    .risk { min-width:0; border:1px solid var(--line); border-radius:13px; background:#fff; padding:14px; }
+    .risk.danger { border-color:#fecdd3; background:#fff7f8; }
+    .risk.warning { border-color:#fde6a9; background:#fffdf6; }
+    .eyebrow { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+    .risk b { display:block; margin-top:4px; font-size:18px; }
+    .risk p { margin:4px 0 0; color:var(--muted); font-size:12px; }
+    .grid { display:grid; grid-template-columns:minmax(0,1fr) 290px; gap:16px; align-items:start; }
+    .panel { border:1px solid var(--line); background:var(--card); border-radius:14px; overflow:hidden; }
+    .panel-head { min-height:48px; display:flex; justify-content:space-between; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid var(--line); }
+    .panel-head h3 { margin:0; font-size:14px; }
+    .cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+    .agent { border:1px solid var(--line); border-radius:13px; padding:14px; background:#fff; min-width:0; }
+    .agent.risk-agent { border-color:#fecdd3; box-shadow:inset 3px 0 0 #f43f5e; }
+    .agent-top { display:flex; gap:10px; align-items:flex-start; }
+    .agent h3 { margin:0; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .meta { color:var(--muted); font-size:12px; }
+    .state { display:inline-flex; align-items:center; gap:6px; margin-top:7px; font-size:11px; font-weight:750; }
+    .state:before { content:""; width:7px; height:7px; border-radius:50%; background:#94a3b8; }
+    .state.available { color:#08715e; }.state.available:before{background:#10b981}
+    .state.oncall { color:#1d4ed8; }.state.oncall:before{background:#3b82f6}
+    .state.acw { color:#a16207; }.state.acw:before{background:#f59e0b}
+    .state.break { color:#7c3aed; }.state.break:before{background:#8b5cf6}
+    .work { min-height:53px; margin:12px 0; padding:9px 10px; border-radius:9px; background:#f7f9fb; color:#4f5b6c; font-size:12px; }
+    .work b { display:block; color:#263244; font-weight:650; }
+    .actions { display:flex; gap:7px; border-top:1px solid #eef1f4; padding-top:10px; }
+    .btn { min-height:36px; border:1px solid #d7dde5; border-radius:9px; padding:7px 10px; background:#fff; color:#354255; font-weight:650; }
+    .btn:hover:not(:disabled) { border-color:#8fc9c2; color:var(--teal); }
+    .btn.primary { color:#fff; border-color:var(--teal); background:var(--teal); }
+    .btn.danger { color:#fff; border-color:#be123c; background:#be123c; }
+    .btn.ghost { border-color:transparent; background:#f2f5f8; }
+    .btn.small { min-height:32px; padding:5px 8px; font-size:12px; }
+    .actions .btn:first-child { flex:1; }
+    .side { display:grid; gap:12px; }
+    .state-panel { padding:14px; }
+    .state-panel h3 { margin:0 0 10px; }
+    .kv { display:grid; grid-template-columns:1fr auto; gap:8px; padding:7px 0; border-bottom:1px solid #eef1f4; }
+    .kv:last-child { border:0; }.kv span{color:var(--muted)}.kv b{text-align:right}
+    .change { margin-top:11px; padding:10px; border-radius:9px; background:#f4f7f9; color:#526071; font-size:12px; }
+    .audit { list-style:none; padding:0; margin:0; }
+    .audit li { padding:10px 14px; border-bottom:1px solid #eef1f4; font-size:12px; }
+    .audit li:last-child { border:0; }.audit time{color:var(--muted);display:block;margin-top:2px}
+    .table-wrap { overflow:auto; }
+    table { width:100%; border-collapse:collapse; min-width:760px; }
+    th,td { padding:11px 13px; border-bottom:1px solid #eef1f4; text-align:left; vertical-align:middle; }
+    th { font-size:11px; color:var(--muted); background:#fafbfc; font-weight:650; }
+    tr:last-child td { border:0; }
+    tr.breach { background:#fff7f8; }
+    .sla { width:100px; height:5px; border-radius:99px; overflow:hidden; background:#e9edf2; }
+    .sla span { display:block; height:100%; background:#10b981; }.sla.over span{background:#e11d48}
+    .queue-list { display:grid; gap:12px; }
+    .queue { border:1px solid var(--line); background:#fff; border-radius:14px; overflow:hidden; }
+    .queue-top { padding:13px 15px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .queue-top h3 { margin:0; }.queue-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:15px}
+    .metric span{display:block;color:var(--muted);font-size:11px}.metric b{font-size:21px}.queue-actions{padding:0 15px 15px;display:flex;gap:8px;flex-wrap:wrap}
+    .alert-row { display:flex; gap:12px; padding:14px; border-bottom:1px solid var(--line); }
+    .alert-row:last-child{border:0}.alert-row strong{display:block}.alert-row p{margin:3px 0;color:var(--muted);font-size:12px}.alert-icon{font-size:20px}
+    .empty { padding:48px 20px; text-align:center; color:var(--muted); }.empty b{display:block;color:var(--ink);font-size:16px;margin-bottom:4px}
+    .drawer { position:fixed; inset:0; z-index:20; display:none; background:rgba(15,23,42,.34); }
+    .drawer.open { display:block; }
+    .drawer-card { margin-left:auto; width:min(430px,100%); height:100%; background:#fff; box-shadow:var(--shadow); padding:22px; overflow:auto; }
+    .drawer-card h2 { margin:5px 0 2px; }.drawer-card hr{border:0;border-top:1px solid var(--line);margin:18px 0}
+    .detail-list { display:grid; gap:10px; margin-top:16px; }.detail{padding:11px;border:1px solid var(--line);border-radius:10px}.detail span{display:block;color:var(--muted);font-size:11px}
+    .modal { position:fixed; inset:0; z-index:30; display:none; place-items:center; padding:18px; background:rgba(15,23,42,.48); }
+    .modal.open { display:grid; }.modal-card{width:min(480px,100%);background:#fff;border-radius:16px;padding:21px;box-shadow:var(--shadow)}
+    .modal-card h2{margin:0}.modal-card p{color:var(--muted)}.modal-card label{display:block;margin:14px 0 5px;font-weight:650}.modal-card input,.modal-card select{width:100%}
+    .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.impact{padding:11px;border-radius:10px;background:var(--amber-soft);color:#7c4a03;font-size:12px}
+    .lab { margin-top:22px; border:1px solid var(--line); border-radius:14px; background:#fff; overflow:hidden; }
+    .lab-head { padding:13px 15px; border-bottom:1px solid var(--line); }.lab-head h2{margin:0;font-size:15px}.lab-head p{margin:3px 0 0;color:var(--muted);font-size:12px}
+    .freeplay { display:flex; flex-wrap:wrap; gap:8px; padding:13px 15px; border-bottom:1px solid var(--line); }
+    .walk-tabs { display:flex; overflow:auto; gap:5px; padding:11px 15px 0; }.walk-tabs button{white-space:nowrap;border:0;border-bottom:2px solid transparent;background:none;padding:8px;color:var(--muted)}.walk-tabs button.active{border-color:var(--teal);color:var(--teal);font-weight:700}
+    .walk { padding:14px 15px 16px; }.walk p{margin:0 0 11px;color:var(--muted)}.steps{display:flex;gap:8px;flex-wrap:wrap}.step.done{text-decoration:line-through;color:#8a94a4}.step.next{border-color:#56b7aa;box-shadow:0 0 0 3px #e3f8f3}
+    .toast { position:fixed; left:50%; bottom:22px; z-index:50; transform:translateX(-50%) translateY(90px); opacity:0; max-width:min(560px,calc(100% - 28px)); padding:10px 14px; border-radius:10px; background:#16282d; color:white; box-shadow:var(--shadow); transition:.18s; }
+    .toast.show { transform:translateX(-50%) translateY(0); opacity:1; }
+    .mobile-nav { display:none; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+    @media(max-width:1080px){.risk-grid{grid-template-columns:repeat(2,1fr)}.cards{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}.side{grid-template-columns:1fr 1fr}.queue-metrics{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:720px){
+      .shell{display:block}.rail{display:none}.topbar{padding:10px 14px}.content{padding:14px 12px 82px}.profile div:last-child{display:none}
+      .question{font-size:12px}.view-head{align-items:flex-start;flex-direction:column}.risk-grid,.cards,.side{grid-template-columns:1fr}.risk-grid{gap:8px}.cards{gap:9px}
+      .toolbar select{max-width:180px}.queue-metrics{grid-template-columns:repeat(2,1fr)}.desktop-only{display:none!important}.readonly{display:inline-flex}
+      .mobile-nav{position:fixed;display:grid;grid-template-columns:repeat(4,1fr);left:0;right:0;bottom:0;z-index:10;background:#fff;border-top:1px solid var(--line);padding:7px 5px calc(7px + env(safe-area-inset-bottom))}
+      .mobile-nav button{border:0;background:none;color:var(--muted);font-size:11px;padding:5px 2px}.mobile-nav button[aria-current="page"]{color:var(--teal);font-weight:750}
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand"><span class="logo">D</span><span>D-Contact</span></div>
+      <nav class="nav" aria-label="เมนู Supervisor">
+        <button data-view="pulse" aria-current="page"><span>◉</span> Team pulse <small>LIVE</small></button>
+        <button data-view="live"><span>◫</span> Live interactions</button>
+        <button data-view="queues"><span>⇄</span> Queue control</button>
+        <button data-view="alerts"><span>!</span> Alerts <small>3</small></button>
+      </nav>
+      <div class="rail-note">Prototype เท่านั้น<br>ไม่มี production API และไม่รวม monitor / whisper / barge</div>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <div><h1>Supervisor workspace</h1><p>Acme Thailand · Support A</p></div>
+        <div class="profile"><span class="readonly">มือถือ · ดูอย่างเดียว</span><span class="avatar">ส</span><div><b>สมพร หัวหน้าทีม</b><br><small>Supervisor</small></div></div>
+      </header>
+      <main class="content">
+        <section class="question">
+          <strong>คำถามที่ต้นแบบนี้ต้องตอบ</strong>
+          <p>หัวหน้ามองความเสี่ยงและสั่งเฉพาะ safe controls ได้ทันหรือไม่ โดยไม่หลุด team scope, ไม่สับสนข้อมูล stale และไม่เผลอเปลี่ยนระบบจากมือถือ?</p>
+        </section>
+        <div id="statusbar" class="statusbar" role="status" aria-live="polite"></div>
+        <section id="view"></section>
+        <section class="lab" aria-label="พื้นที่ทดลอง state model">
+          <div class="lab-head"><h2>ทดลอง state model</h2><p>กดได้อิสระ หรือเดินตามสถานการณ์เพื่อดู state และข้อห้ามเปลี่ยนไปพร้อมหน้าจอ</p></div>
+          <div id="freeplay" class="freeplay"></div>
+          <div id="walkTabs" class="walk-tabs"></div>
+          <div id="walk" class="walk"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+  <nav class="mobile-nav" aria-label="เมนูมือถือ">
+    <button data-view="pulse" aria-current="page">Pulse</button><button data-view="live">Live</button><button data-view="queues">Queues</button><button data-view="alerts">Alerts</button>
+  </nav>
+  <div id="drawer" class="drawer" aria-hidden="true"><aside class="drawer-card"></aside></div>
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true"></div>
+  <div id="critical" role="alert" aria-live="assertive" class="sr-only"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    // Portable pure state module: no DOM access. This is the decision logic under test.
+    const SupervisorModel = (() => {
+      const seed = () => ({
+        view:'pulse', connection:'LIVE', sequence:148, lastUpdated:'11:42:08', mode:'DESKTOP',
+        scope:{team:'Support A', queues:['Billing Inquiries','General Support','Technical Support']},
+        filter:'ALL', selected:null, pending:null, lastChange:'โหลด snapshot และต่อ ordered live stream แล้ว', liveMessage:'ข้อมูลสดพร้อมใช้งาน',
+        agents:[
+          {id:'a1',name:'สมชาย วงศ์ประเสริฐ',ext:'1000',state:'ON_CALL',age:'04:31',work:'สายเสียง · General Support',detail:'+66 81 234 5678',risk:false},
+          {id:'a2',name:'สมหญิง ใจดี',ext:'1001',state:'ACW',age:'06:42',work:'Wrap-up · Billing Inquiries',detail:'เกินเพดาน ACW 01:42',risk:true},
+          {id:'a3',name:'อรทัย พูลสวัสดิ์',ext:'1003',state:'BREAK',age:'26:24',work:null,detail:'หลุด adherence 26 นาที',risk:true},
+          {id:'a4',name:'John Anderson',ext:'1002',state:'AVAILABLE',age:'00:38',work:null,detail:'พร้อมรับงาน',risk:false},
+          {id:'a5',name:'ปกรณ์ ศรีสุข',ext:'1004',state:'ON_CALL',age:'19:23',work:'สายเสียง · Technical Support',detail:'สายยาวกว่า AHT 2.4 เท่า',risk:true},
+          {id:'a6',name:'ณัฐพล มีสุข',ext:'1006',state:'AVAILABLE',age:'03:34',work:null,detail:'พร้อมรับงาน',risk:false}
+        ],
+        interactions:[
+          {id:'ix1',state:'QUEUED',contact:'+66 92 887 1120',queue:'Billing Inquiries',agent:null,time:'04:12',sla:128,flag:'เกิน SLA'},
+          {id:'ix2',state:'QUEUED',contact:'+66 81 553 7781',queue:'Billing Inquiries',agent:null,time:'03:04',sla:112,flag:'เกิน SLA'},
+          {id:'ix3',state:'ACTIVE',contact:'+66 81 234 5678',queue:'General Support',agent:'สมชาย วงศ์ประเสริฐ',time:'04:31',sla:0,flag:null},
+          {id:'ix4',state:'ACTIVE',contact:'+66 84 111 2233',queue:'Technical Support',agent:'ปกรณ์ ศรีสุข',time:'19:23',sla:0,flag:'สายยาวผิดปกติ'},
+          {id:'ix5',state:'WRAPUP',contact:'maysa@brightedu.ac.th',queue:'Billing Inquiries',agent:'สมหญิง ใจดี',time:'06:42',sla:0,flag:'ACW เกิน 5 นาที'}
+        ],
+        queues:[
+          {id:'q1',name:'Billing Inquiries',active:true,waiting:8,longest:'04:12',sla:61,staff:'3/6'},
+          {id:'q2',name:'Technical Support',active:true,waiting:5,longest:'00:47',sla:76,staff:'6/7'},
+          {id:'q3',name:'General Support',active:true,waiting:3,longest:'00:19',sla:92,staff:'12/11'}
+        ],
+        alerts:[
+          {id:'al1',level:'CRITICAL',title:'Billing Inquiries — SLA ต่ำกว่าเป้า 10 นาที',detail:'SLA 61% · รอ 8 · คนบนพื้น 3/6',ack:false},
+          {id:'al2',level:'CRITICAL',title:'สายรอนานเกิน 3 นาที',detail:'+66 92 887 1120 รอ 04:12',ack:false},
+          {id:'al3',level:'WARNING',title:'ปกรณ์ ศรีสุข — สายยาวผิดปกติ',detail:'19:23 · AHT ของคิว 08:04',ack:false}
+        ],
+        audit:[{text:'เชื่อมต่อ live stream',at:'11:42:08'}]
+      });
+      const isWritable = state => state.mode === 'DESKTOP' && state.connection === 'LIVE';
+      const safeAgent = agent => agent && !['ON_CALL','RESERVED','ACW'].includes(agent.state);
+      const stamp = state => ({...state,lastUpdated:new Date(Date.now()).toLocaleTimeString('th-TH',{hour12:false})});
+      function reduce(state, action) {
+        if (action.type === 'RESET') return seed();
+        if (action.type === 'VIEW') return {...state,view:action.view,selected:null,lastChange:`เปิด ${action.view}`};
+        if (action.type === 'FILTER') return {...state,filter:action.filter,lastChange:`กรอง Team pulse: ${action.filter}`};
+        if (action.type === 'SELECT') return {...state,selected:{kind:action.kind,id:action.id},lastChange:'เปิดรายละเอียดแบบ read-only'};
+        if (action.type === 'CLOSE_DETAIL') return {...state,selected:null};
+        if (action.type === 'MODE') return {...state,mode:action.mode,pending:null,lastChange:action.mode==='MOBILE'?'เข้าสู่ narrow viewport: mutations เป็น read-only':'กลับ desktop: mutations ใช้ได้เมื่อ live'};
+        if (action.type === 'EMPTY') return {...state,agents:[],interactions:[],alerts:[],lastChange:'แสดง empty state ใน scope ปัจจุบัน'};
+        if (action.type === 'LIVE_EVENT') return stamp({...state,sequence:state.sequence+1,interactions:state.interactions.map((x,i)=>i===0?{...x,time:'04:24',sla:134}:x),lastChange:'รับ event ใหม่และอัปเดตแถวโดยไม่ประกาศทั้งตาราง',liveMessage:'ข้อมูลสรุปเปลี่ยน: สายรอนานสุด 04:24'});
+        if (action.type === 'GAP') return {...state,connection:'SYNCING',pending:null,lastChange:`พบ sequence gap: คาด ${state.sequence+1} แต่ได้ ${state.sequence+3}; หยุด apply event`,liveMessage:'ข้อมูลสดขาดช่วง กำลังซิงก์ใหม่'};
+        if (action.type === 'DEGRADE') return {...state,connection:'DEGRADED',pending:null,lastChange:'ขาดการเชื่อมต่อ: คง snapshot ล่าสุดและปิดทุก mutation',liveMessage:'ข้อมูลอาจล่าช้า การควบคุมถูกปิดชั่วคราว'};
+        if (action.type === 'RECONCILE') return stamp({...state,connection:'LIVE',sequence:state.sequence+4,lastChange:'โหลด snapshot ใหม่ ทิ้ง event เก่า และกลับ live',liveMessage:'ซิงก์ข้อมูลล่าสุดสำเร็จ'});
+        if (action.type === 'REQUEST_AGENT') {
+          const agent=state.agents.find(x=>x.id===action.id);
+          if (!isWritable(state)) return {...state,lastChange:'ปฏิเสธคำสั่ง: หน้าจอเป็น read-only หรือข้อมูลไม่ live'};
+          if (!safeAgent(agent)) return {...state,lastChange:'ปฏิเสธคำสั่ง: agent มีงานอยู่ในมือ ต้องจบ Interaction ก่อน'};
+          return {...state,pending:{kind:'AGENT_STATE',id:action.id,target:'AVAILABLE'},lastChange:'รอ supervisor เลือก safe state และกรอกเหตุผล'};
+        }
+        if (action.type === 'REQUEST_QUEUE') {
+          if (!isWritable(state)) return {...state,lastChange:'ปฏิเสธคำสั่ง: หน้าจอเป็น read-only หรือข้อมูลไม่ live'};
+          const queue=state.queues.find(x=>x.id===action.id);
+          return {...state,pending:{kind:'QUEUE',id:action.id,target:!queue.active},lastChange:'รอยืนยันผลกระทบและเหตุผลก่อนเปลี่ยนคิว'};
+        }
+        if (action.type === 'CANCEL') return {...state,pending:null,lastChange:'ยกเลิกคำสั่งโดยไม่เปลี่ยน state'};
+        if (action.type === 'CONFIRM_AGENT') {
+          if (!state.pending || state.pending.kind!=='AGENT_STATE' || !action.reason.trim()) return {...state,lastChange:'ยังไม่ส่ง: ต้องมีเหตุผล'};
+          const agent=state.agents.find(x=>x.id===state.pending.id);
+          if (!isWritable(state) || !safeAgent(agent)) return {...state,pending:null,lastChange:'คำสั่งหมดสิทธิ์ระหว่างรอยืนยัน; ต้อง reconcile ใหม่'};
+          const next=action.target;
+          return stamp({...state,sequence:state.sequence+1,pending:null,agents:state.agents.map(x=>x.id===agent.id?{...x,state:next,age:'00:00',detail:`บังคับโดย supervisor: ${action.reason}`} : x),audit:[{text:`บังคับ ${agent.name} → ${next} · ${action.reason}`,at:'ตอนนี้'},...state.audit],lastChange:'server ยืนยัน agent.state_changed และบันทึก audit แล้ว',liveMessage:`สถานะ ${agent.name} เปลี่ยนเป็น ${next}`});
+        }
+        if (action.type === 'CONFIRM_QUEUE') {
+          if (!state.pending || state.pending.kind!=='QUEUE' || !action.reason.trim()) return {...state,lastChange:'ยังไม่ส่ง: ต้องมีเหตุผล'};
+          if (!isWritable(state)) return {...state,pending:null,lastChange:'คำสั่งหมดสิทธิ์ระหว่างรอยืนยัน; ต้อง reconcile ใหม่'};
+          const queue=state.queues.find(x=>x.id===state.pending.id), target=state.pending.target;
+          return stamp({...state,sequence:state.sequence+1,pending:null,queues:state.queues.map(x=>x.id===queue.id?{...x,active:target}:x),audit:[{text:`${target?'เปิด':'ปิด'} ${queue.name} · ${action.reason}`,at:'ตอนนี้'},...state.audit],lastChange:'server ยืนยัน queue.availability_changed และบันทึก audit แล้ว',liveMessage:`คิว ${queue.name} ${target?'เปิดแล้ว':'ปิดรับงานใหม่แล้ว'}`});
+        }
+        if (action.type === 'ACK_ALERT') {
+          if (!isWritable(state)) return {...state,lastChange:'รับทราบไม่ได้ใน read-only/degraded mode'};
+          return {...state,alerts:state.alerts.map(x=>x.id===action.id?{...x,ack:true}:x),audit:[{text:'รับทราบ alert',at:'ตอนนี้'},...state.audit],lastChange:'บันทึกผู้รับทราบและเวลาแล้ว'};
+        }
+        return state;
+      }
+      return {seed,reduce,isWritable,safeAgent};
+    })();
+
+    const narrowViewport=window.matchMedia('(max-width: 720px)');
+    let state=SupervisorModel.seed();
+    if(narrowViewport.matches) state=SupervisorModel.reduce(state,{type:'MODE',mode:'MOBILE'});
+    let walkIndex=0, activeWalk='overview', toastTimer;
+    const walks={
+      overview:{title:'ภาพรวมสด',desc:'ดูว่าความเสี่ยงนำสายตา แต่ queued และ active ยังอยู่ในภาพเดียวกัน',steps:[['รีเซ็ต snapshot',{type:'RESET'}],['รับ live event',{type:'LIVE_EVENT'}],['เปิด Live interactions',{type:'VIEW',view:'live'}],['ดูรายละเอียดสายเสี่ยง',{type:'SELECT',kind:'interaction',id:'ix1'}]]},
+      force:{title:'Force-safe state',desc:'ลองเปลี่ยนเฉพาะ agent ที่ไม่มีงานอยู่ในมือ พร้อม reason และ audit',steps:[['รีเซ็ต snapshot',{type:'RESET'}],['เปิดรายละเอียดอรทัย',{type:'SELECT',kind:'agent',id:'a3'}],['ขอเปลี่ยนสถานะ',{type:'REQUEST_AGENT',id:'a3'}],['ยืนยัน Available + เหตุผล',{type:'WALK_AGENT'}]]},
+      queue:{title:'ปิดคิวอย่างปลอดภัย',desc:'การปิดคิวหยุดรับงานใหม่ แต่ไม่ย้ายหรือจบงานที่มีอยู่ และต้องมีเหตุผล',steps:[['เปิด Queue control',{type:'VIEW',view:'queues'}],['ขอปิด Billing',{type:'REQUEST_QUEUE',id:'q1'}],['ยืนยันผลกระทบ',{type:'WALK_QUEUE'}]]},
+      gap:{title:'Sequence gap',desc:'เมื่อ event ขาดช่วง หน้าจอคงข้อมูลเดิมแต่ปิด mutation จน snapshot reconcile สำเร็จ',steps:[['รีเซ็ต snapshot',{type:'RESET'}],['จำลอง sequence gap',{type:'GAP'}],['ลองบังคับสถานะ (ต้องถูกปฏิเสธ)',{type:'REQUEST_AGENT',id:'a3'}],['โหลด snapshot ใหม่',{type:'RECONCILE'}]]},
+      mobile:{title:'มือถือ read-only',desc:'บน narrow viewport หัวหน้าดูความเสี่ยงและรายละเอียดได้ แต่คำสั่งเปลี่ยน state ถูกปิด',steps:[['เปิดโหมดมือถือ',{type:'MODE',mode:'MOBILE'}],['เปิด Queue control',{type:'VIEW',view:'queues'}],['ลองปิดคิว (ต้องถูกปฏิเสธ)',{type:'REQUEST_QUEUE',id:'q1'}],['กลับ desktop',{type:'MODE',mode:'DESKTOP'}]]},
+      empty:{title:'Empty state',desc:'เมื่อไม่มี agent หรืองานใน scope ต้องบอกว่าข้อมูลว่างเพราะอะไรและยังเห็น scope ชัด',steps:[['รีเซ็ต snapshot',{type:'RESET'}],['ล้างข้อมูลใน scope',{type:'EMPTY'}]]}
+    };
+
+    const labels={ALL:'ทั้งหมด',AVAILABLE:'Available',ON_CALL:'On interaction',ACW:'ACW',BREAK:'Break',OFFLINE:'Offline'};
+    function dispatch(action,message){
+      if(action.type==='WALK_AGENT') action={type:'CONFIRM_AGENT',target:'AVAILABLE',reason:'กลับจากพักและพร้อมรับสายแล้ว'};
+      if(action.type==='WALK_QUEUE') action={type:'CONFIRM_QUEUE',reason:'SIP trunk ขัดข้อง รอทีม telephony ตรวจสอบ'};
+      const before=state.lastChange; state=SupervisorModel.reduce(state,action);
+      if(action.type==='RESET'&&narrowViewport.matches) state=SupervisorModel.reduce(state,{type:'MODE',mode:'MOBILE'});
+      render();
+      if(message || state.lastChange!==before) showToast(message||state.lastChange);
+    }
+    function showToast(text){const el=document.getElementById('toast');el.textContent=text;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2600)}
+    function mutationDisabled(){return !SupervisorModel.isWritable(state)}
+    function setView(view){dispatch({type:'VIEW',view});}
+    function statusClass(s){return s==='LIVE'?'live':s==='SYNCING'?'syncing':'degraded'}
+    function renderStatus(){
+      const el=document.getElementById('statusbar'), copy=state.connection==='LIVE'?'ข้อมูลสด · mutation ใช้ได้บน desktop':state.connection==='SYNCING'?'กำลังซิงก์ snapshot · แสดงข้อมูลล่าสุดแบบ read-only':'การเชื่อมต่อขัดข้อง · ข้อมูลอาจล่าช้าและปิดทุกคำสั่ง';
+      el.className=`statusbar ${statusClass(state.connection)}`; el.innerHTML=`<span class="dot"></span><b>${copy}</b><span class="pill ${statusClass(state.connection)}">seq ${state.sequence}</span><span class="time">ยืนยันล่าสุด ${state.lastUpdated}</span>`;
+    }
+    function stateBadge(value){return `<span class="state ${value.toLowerCase().replace('_','')}">${labels[value]||value}</span>`}
+    function empty(title,body){return `<div class="panel empty"><b>${title}</b><span>${body}</span></div>`}
+    function renderPulse(){
+      const visible=state.filter==='ALL'?state.agents:state.agents.filter(a=>a.state===state.filter), counts=Object.fromEntries(['AVAILABLE','ON_CALL','ACW','BREAK','OFFLINE'].map(k=>[k,state.agents.filter(a=>a.state===k).length]));
+      const chips=['ALL','AVAILABLE','ON_CALL','ACW','BREAK','OFFLINE'].map(k=>`<button class="chip ${state.filter===k?'active':''}" data-filter="${k}">${labels[k]} <b>${k==='ALL'?state.agents.length:counts[k]}</b></button>`).join('');
+      const risks=`<div class="risk danger"><span class="eyebrow">คิวเสี่ยง SLA</span><b>Billing · 61%</b><p>รอ 8 งาน · ขาด 3 คน</p></div><div class="risk warning"><span class="eyebrow">สถานะค้างนาน</span><b>${state.agents.filter(a=>a.risk).length} คน</b><p>ACW, Break และสายยาว</p></div><div class="risk"><span class="eyebrow">รอในคิว</span><b>${state.interactions.filter(x=>x.state==='QUEUED').length} งาน</b><p>รวม queued และ active ในภาพเดียว</p></div><div class="risk"><span class="eyebrow">Scope</span><b>${state.scope.team}</b><p>${state.scope.queues.length} คิวที่ได้รับสิทธิ์</p></div>`;
+      const cards=visible.map(a=>`<article class="agent ${a.risk?'risk-agent':''}"><div class="agent-top"><span class="avatar">${a.name[0]}</span><div style="min-width:0"><h3>${a.name}</h3><span class="meta">${a.ext} · ${state.scope.team}</span><br>${stateBadge(a.state)} <span class="meta">${a.age}</span></div></div><div class="work">${a.work?`<b>${a.work}</b>${a.detail}`:`<b>ไม่มีงานอยู่ในมือ</b>${a.detail}`}</div><div class="actions"><button class="btn small" data-select-agent="${a.id}">ดูรายละเอียด</button><button class="btn small desktop-only" data-force-agent="${a.id}" ${mutationDisabled()||!SupervisorModel.safeAgent(a)?'disabled':''}>เปลี่ยนสถานะ</button></div></article>`).join('');
+      return `<div class="view-head"><div><h2>Team pulse</h2><p>ความเสี่ยงและสถานะสดเฉพาะทีมที่คุณดูแล</p></div><div class="toolbar"><span class="pill live">LIVE · event-driven</span><select aria-label="ทีม"><option>Support A</option></select></div></div><div class="chips">${chips}</div><div class="risk-grid">${risks}</div><div class="grid"><div>${cards?`<div class="cards">${cards}</div>`:empty('ยังไม่มี agent ใน scope นี้','ตรวจ team filter หรือสิทธิ์ span of control')}</div>${renderSide()}</div>`;
+    }
+    function renderLive(){
+      if(!state.interactions.length) return `<div class="view-head"><div><h2>Live interactions</h2><p>งานรอและกำลังทำในตารางเดียว</p></div></div>${empty('ไม่มีงานสดใน scope นี้','เมื่อมี queued หรือ active Interaction จะแสดงที่นี่')}<div class="grid" style="margin-top:16px"><div></div>${renderSide()}</div>`;
+      const rows=state.interactions.map(x=>`<tr class="${x.sla>=100?'breach':''}"><td><span class="pill ${x.state==='QUEUED'?'warn':'live'}">${x.state}</span></td><td><b>${x.contact}</b>${x.flag?`<div class="meta">⚑ ${x.flag}</div>`:''}</td><td>${x.queue}</td><td>${x.agent||'<span class="meta">ยังไม่มีคนรับ</span>'}</td><td><b>${x.time}</b></td><td>${x.state==='QUEUED'?`<div class="sla ${x.sla>=100?'over':''}"><span style="width:${Math.min(x.sla,100)}%"></span></div><small>${x.sla}%</small>`:'—'}</td><td><button class="btn small" data-select-interaction="${x.id}">ดูรายละเอียด</button></td></tr>`).join('');
+      return `<div class="view-head"><div><h2>Live interactions</h2><p>งานรอและกำลังทำในตารางเดียว · ไม่มี monitor/whisper/barge ใน Phase 2</p></div><div class="toolbar"><span>รอ <b>${state.interactions.filter(x=>x.state==='QUEUED').length}</b> · กำลังทำ <b>${state.interactions.filter(x=>x.state!=='QUEUED').length}</b></span></div></div><div class="grid"><div class="panel table-wrap"><table aria-label="Live interactions" aria-live="off"><thead><tr><th>สถานะ</th><th>ลูกค้า</th><th>คิว</th><th>เอเจนต์</th><th>เวลา</th><th>SLA</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>${renderSide()}</div>`;
+    }
+    function renderQueues(){
+      const list=state.queues.map(q=>`<article class="queue"><div class="queue-top"><div><h3>${q.name}</h3><span class="meta">VOICE · Support A</span></div><span class="pill ${q.active?'live':'off'}">${q.active?'เปิดรับงาน':'ปิดรับงานใหม่'}</span></div><div class="queue-metrics"><div class="metric"><span>รออยู่</span><b>${q.waiting}</b></div><div class="metric"><span>รอนานสุด</span><b>${q.longest}</b></div><div class="metric"><span>SLA กะนี้</span><b>${q.sla}%</b></div><div class="metric"><span>คนบนพื้น/ต้องการ</span><b>${q.staff}</b></div></div><div class="queue-actions"><button class="btn small" data-queue-detail="${q.id}">ดูงานในคิว</button><button class="btn small desktop-only ${q.active?'danger':''}" data-queue="${q.id}" ${mutationDisabled()?'disabled':''}>${q.active?'ปิดรับงานใหม่':'เปิดคิว'}</button></div></article>`).join('');
+      return `<div class="view-head"><div><h2>Queue control</h2><p>คำสั่งชั่วคราวสำหรับกะนี้ · ทุกการเปลี่ยนต้องมี reason และ audit</p></div><span class="pill warn">กะ 08:00–17:30 · Asia/Bangkok</span></div><div class="grid"><div class="queue-list">${list||empty('ไม่มีคิวใน scope นี้','Supervisor เห็นและควบคุมได้เฉพาะคิวของทีม')}</div>${renderSide()}</div>`;
+    }
+    function renderAlerts(){
+      const rows=state.alerts.map(a=>`<div class="alert-row"><span class="alert-icon">${a.level==='CRITICAL'?'⛔':'⚠️'}</span><div style="flex:1"><strong>${a.title}</strong><p>${a.detail}</p><span class="pill ${a.level==='CRITICAL'?'warn':'off'}">${a.level}</span></div>${a.ack?'<span class="meta">✓ รับทราบแล้ว</span>':`<button class="btn small desktop-only" data-alert="${a.id}" ${mutationDisabled()?'disabled':''}>รับทราบ</button>`}</div>`).join('');
+      return `<div class="view-head"><div><h2>Alerts</h2><p>แจ้งเฉพาะสิ่งที่ต้องตัดสินใจ · critical ประกาศครั้งเดียว ไม่อ่านข้อความทั้งตารางซ้ำ</p></div><span class="pill warn">ยังไม่รับทราบ ${state.alerts.filter(a=>!a.ack).length}</span></div><div class="grid"><div class="panel">${rows||empty('ไม่มี alert ที่ต้องจัดการ','ระบบยังคงรับ live updates ตามปกติ')}</div>${renderSide()}</div>`;
+    }
+    function renderSide(){return `<aside class="side"><div class="panel state-panel"><h3>สถานะปัจจุบัน</h3><div class="kv"><span>Connection</span><b>${state.connection}</b></div><div class="kv"><span>Sequence</span><b>${state.sequence}</b></div><div class="kv"><span>Viewport</span><b>${state.mode}</b></div><div class="kv"><span>Mutation</span><b>${SupervisorModel.isWritable(state)?'ENABLED':'READ-ONLY'}</b></div><div class="kv"><span>Scope</span><b>${state.scope.team}</b></div><div class="kv"><span>Pending</span><b>${state.pending?.kind||'—'}</b></div><div class="change"><b>เปลี่ยนล่าสุด</b><br>${state.lastChange}</div></div><div class="panel"><div class="panel-head"><h3>Audit ล่าสุด</h3></div><ul class="audit">${state.audit.slice(0,3).map(a=>`<li>${a.text}<time>${a.at}</time></li>`).join('')}</ul></div></aside>`}
+    function renderView(){document.getElementById('view').innerHTML=state.view==='pulse'?renderPulse():state.view==='live'?renderLive():state.view==='queues'?renderQueues():renderAlerts()}
+    function renderDrawer(){
+      const wrap=document.getElementById('drawer'), card=wrap.querySelector('.drawer-card');
+      if(!state.selected){wrap.classList.remove('open');wrap.setAttribute('aria-hidden','true');return}
+      let title='',body='';
+      if(state.selected.kind==='agent'){
+        const a=state.agents.find(x=>x.id===state.selected.id); if(!a){dispatch({type:'CLOSE_DETAIL'});return}
+        const guided=activeWalk==='force'&&walkIndex===2;
+        title=a.name; body=`<p class="meta">Agent ${a.ext} · ${state.scope.team}</p>${stateBadge(a.state)}<div class="detail-list"><div class="detail"><span>อยู่สถานะนี้</span><b>${a.age}</b></div><div class="detail"><span>งานปัจจุบัน</span><b>${a.work||'ไม่มีงานอยู่ในมือ'}</b></div><div class="detail"><span>สิ่งที่ต้องสังเกต</span><b>${a.detail}</b></div></div><hr><p class="meta">Phase 2 ไม่มี monitor, whisper หรือ barge จากหน้านี้</p>${SupervisorModel.safeAgent(a)?`<button class="btn primary desktop-only" ${guided?'data-guided-request':'data-force-agent="'+a.id+'"'} ${mutationDisabled()?'disabled':''}>${guided?'3. ขอเปลี่ยนสถานะ':'เปลี่ยนเป็น safe state'}</button>`:'<div class="impact">Agent มี Interaction อยู่ในมือ จึงเปลี่ยน state จาก Supervisor ไม่ได้</div>'}`;
+      } else {
+        const x=state.interactions.find(y=>y.id===state.selected.id); if(!x){dispatch({type:'CLOSE_DETAIL'});return}
+        title=x.contact; body=`<p class="meta">Interaction ${x.id}</p><div class="detail-list"><div class="detail"><span>สถานะ</span><b>${x.state}</b></div><div class="detail"><span>คิว</span><b>${x.queue}</b></div><div class="detail"><span>เอเจนต์</span><b>${x.agent||'ยังไม่มีคนรับ'}</b></div><div class="detail"><span>เวลา / SLA</span><b>${x.time}${x.sla?' · '+x.sla+'%':''}</b></div></div><hr><p class="meta">แผงนี้เป็น read-only detail surface; ไม่มีการ assign, transfer หรือแทรกสายโดยนัย</p>`;
+      }
+      card.innerHTML=`<button class="btn ghost" data-close-detail>← ปิด</button><h2>${title}</h2>${body}`;wrap.classList.add('open');wrap.setAttribute('aria-hidden','false');
+    }
+    function renderModal(){
+      const el=document.getElementById('modal'); if(!state.pending){el.classList.remove('open');el.setAttribute('aria-hidden','true');el.innerHTML='';return}
+      if(state.pending.kind==='AGENT_STATE'){
+        const a=state.agents.find(x=>x.id===state.pending.id), guided=activeWalk==='force'&&walkIndex===3; el.innerHTML=`<div class="modal-card"><h2>เปลี่ยน safe state</h2><p>${a.name} · ปัจจุบัน ${labels[a.state]}</p><label for="target">สถานะปลายทาง</label><select id="target"><option value="AVAILABLE">Available</option><option value="BREAK">Break</option><option value="OFFLINE">Offline</option></select><label for="reason">เหตุผล *</label><input id="reason" class="field" maxlength="240" placeholder="เช่น กลับจากพักและพร้อมรับสายแล้ว"><div class="impact">ระบบจะบันทึก supervisor, เวลา, state ก่อน/หลัง และเหตุผลใน audit log</div><div class="modal-actions"><button class="btn" data-cancel>ยกเลิก</button><button class="btn primary" ${guided?'data-guided-agent':'data-confirm-agent'}>${guided?'4. ยืนยันด้วยเหตุผลตัวอย่าง':'ยืนยันการเปลี่ยน'}</button></div></div>`;
+      } else {
+        const q=state.queues.find(x=>x.id===state.pending.id),verb=state.pending.target?'เปิด':'ปิด',guided=activeWalk==='queue'&&walkIndex===2; el.innerHTML=`<div class="modal-card"><h2>${verb}คิว ${q.name}</h2><p>${state.pending.target?'คิวจะเริ่มรับงานใหม่หลัง server ยืนยัน':'หยุดรับงานใหม่ แต่งานที่ queued/active อยู่จะไม่ถูกย้ายหรือจบ'}</p><label for="reason">เหตุผล *</label><input id="reason" class="field" maxlength="240" placeholder="เช่น SIP trunk ขัดข้อง"><div class="impact">คำสั่งมีผลเฉพาะคิวใน team scope และบันทึก audit ก่อนแจ้ง live event</div><div class="modal-actions"><button class="btn" data-cancel>ยกเลิก</button><button class="btn ${state.pending.target?'primary':'danger'}" ${guided?'data-guided-queue':'data-confirm-queue'}>${guided?`${walkIndex+1}. ยืนยันด้วยเหตุผลตัวอย่าง`:`ยืนยัน${verb}คิว`}</button></div></div>`;
+      }
+      el.classList.add('open');el.setAttribute('aria-hidden','false');setTimeout(()=>document.getElementById('reason')?.focus(),0);
+    }
+    function renderLab(){
+      const actions=[['รับ live event',{type:'LIVE_EVENT'}],['ทำ sequence gap',{type:'GAP'}],['reconcile snapshot',{type:'RECONCILE'}],['ตัดการเชื่อมต่อ',{type:'DEGRADE'}],['โหมดมือถือ',{type:'MODE',mode:'MOBILE'}],['empty state',{type:'EMPTY'}],['รีเซ็ต',{type:'RESET'}]];
+      document.getElementById('freeplay').innerHTML=actions.map(([l,a])=>`<button class="btn small" data-action='${JSON.stringify(a)}'>${l}</button>`).join('');
+      document.getElementById('walkTabs').innerHTML=Object.entries(walks).map(([k,w])=>`<button data-walk="${k}" class="${activeWalk===k?'active':''}">${w.title}</button>`).join('');
+      const w=walks[activeWalk];document.getElementById('walk').innerHTML=`<p>${w.desc}</p><div class="steps">${w.steps.map(([l,a],i)=>`<button class="btn small step ${i<walkIndex?'done':i===walkIndex?'next':''}" data-step="${i}" data-step-action='${JSON.stringify(a)}' ${i!==walkIndex?'disabled':''}>${i+1}. ${l}</button>`).join('')}</div>`;
+    }
+    function syncNav(){document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-current',b.dataset.view===state.view?'page':'false'));document.body.classList.toggle('mobile-mode',state.mode==='MOBILE')}
+    function render(){renderStatus();renderView();renderDrawer();renderModal();renderLab();syncNav()}
+    document.addEventListener('click',e=>{
+      const b=e.target.closest('button');if(!b)return;
+      if(b.dataset.view)return setView(b.dataset.view);
+      if(b.dataset.filter)return dispatch({type:'FILTER',filter:b.dataset.filter});
+      if(b.dataset.selectAgent)return dispatch({type:'SELECT',kind:'agent',id:b.dataset.selectAgent});
+      if(b.dataset.selectInteraction)return dispatch({type:'SELECT',kind:'interaction',id:b.dataset.selectInteraction});
+      if(b.dataset.queueDetail)return dispatch({type:'VIEW',view:'live'});
+      if(b.dataset.forceAgent)return dispatch({type:'REQUEST_AGENT',id:b.dataset.forceAgent});
+      if(b.hasAttribute('data-guided-request')){walkIndex++;dispatch({type:'REQUEST_AGENT',id:'a3'});renderLab();return}
+      if(b.dataset.queue)return dispatch({type:'REQUEST_QUEUE',id:b.dataset.queue});
+      if(b.dataset.alert)return dispatch({type:'ACK_ALERT',id:b.dataset.alert});
+      if(b.hasAttribute('data-close-detail'))return dispatch({type:'CLOSE_DETAIL'});
+      if(b.hasAttribute('data-cancel'))return dispatch({type:'CANCEL'});
+      if(b.hasAttribute('data-confirm-agent'))return dispatch({type:'CONFIRM_AGENT',target:document.getElementById('target').value,reason:document.getElementById('reason').value});
+      if(b.hasAttribute('data-confirm-queue'))return dispatch({type:'CONFIRM_QUEUE',reason:document.getElementById('reason').value});
+      if(b.hasAttribute('data-guided-agent')){walkIndex++;dispatch({type:'WALK_AGENT'});renderLab();return}
+      if(b.hasAttribute('data-guided-queue')){walkIndex++;dispatch({type:'WALK_QUEUE'});renderLab();return}
+      if(b.dataset.action)return dispatch(JSON.parse(b.dataset.action));
+      if(b.dataset.walk){activeWalk=b.dataset.walk;walkIndex=0;dispatch({type:'RESET'});return}
+      if(b.dataset.stepAction){walkIndex++;dispatch(JSON.parse(b.dataset.stepAction));renderLab();}
+    });
+    document.getElementById('drawer').addEventListener('click',e=>{if(e.target.id==='drawer')dispatch({type:'CLOSE_DETAIL'})});
+    narrowViewport.addEventListener('change',e=>dispatch({type:'MODE',mode:e.matches?'MOBILE':'DESKTOP'}));
+    render();
+  </script>
+</body>
+</html>
