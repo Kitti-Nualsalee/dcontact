@@ -183,6 +183,9 @@ importers:
       react-oidc-context:
         specifier: 3.3.1
         version: 3.3.1(oidc-client-ts@3.5.0)(react@19.2.8)
+      sip.js:
+        specifier: 0.21.2
+        version: 0.21.2
     devDependencies:
       '@playwright/test':
         specifier: 1.63.0
@@ -2127,6 +2130,13 @@ packages:
       }
     engines: { node: '>= 0.4' }
 
+  sip.js@0.21.2:
+    resolution:
+      {
+        integrity: sha512-tSqTcIgrOd2IhP/rd70JablvAp+fSfLSxO4hGNY6LkWRY1SKygTO7OtJEV/BQb8oIxtMRx0LE7nUF2MaqGbFzA==,
+      }
+    engines: { node: '>=10.0' }
+
   source-map-js@1.2.1:
     resolution:
       {
@@ -3462,6 +3472,8 @@ snapshots:
       side-channel-list: 1.0.1
       side-channel-map: 1.0.1
       side-channel-weakmap: 1.0.2
+
+  sip.js@0.21.2: {}
 
   source-map-js@1.2.1: {}
 

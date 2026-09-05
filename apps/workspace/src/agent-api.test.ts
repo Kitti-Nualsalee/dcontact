@@ -20,10 +20,12 @@ test('Agent API ส่งเฉพาะ bearer token และไม่รั�
   });
 
   const snapshot = await api.snapshot();
+  await api.sipCredentials();
 
   assert.equal(snapshot.agent.id, 'agent-1');
   assert.equal(requests[0]?.input, 'https://api.example/api/v1/workspace/agent/snapshot');
   assert.deepEqual(requests[0]?.init?.headers, { authorization: 'Bearer access-token-in-memory' });
+  assert.equal(requests[1]?.input, 'https://api.example/api/v1/workspace/agent/sip-credentials');
 });
 
 test('Agent API ปฏิเสธการเรียกเมื่อไม่มี access token ใน memory', async () => {

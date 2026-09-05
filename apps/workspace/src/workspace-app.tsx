@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentWorkspaceApi, AgentWorkspaceSnapshot } from './agent-api.js';
 import { createBrowserWorkspaceLeaderElection } from './leader-election.js';
+import { BrowserSoftphone, type BrowserSipTransport, type SoftphoneState } from './softphone.js';
+import type { SipJsTransportCallbacks } from './sip-js-transport.js';
 
 type MediaReadiness = 'UNCHECKED' | 'CHECKING' | 'READY' | 'BLOCKED';
 type Availability = 'OFFLINE' | 'AVAILABLE';
@@ -9,12 +11,41 @@ export interface WorkspaceAppProps {
   api?: AgentWorkspaceApi;
   tenantLabel?: string;
   onSignOut?: () => void;
+  createSoftphone?: SoftphoneFactory;
+}
+
+export type SoftphoneFactory = (
+  remoteAudio: HTMLAudioElement,
+  callbacks: SipJsTransportCallbacks,
+) => BrowserSoftphone;
+
+export function createDeterministicSoftphone(
+  callbacks: SipJsTransportCallbacks = {},
+): BrowserSoftphone {
+  const transport: BrowserSipTransport = {
+    configure: async () => undefined,
+    register: async () => {
+      window.setTimeout(() => callbacks.onInvitation?.(), 0);
+    },
+    unregister: async () => undefined,
+    accept: async () => {
+      window.setTimeout(() => callbacks.onSessionEstablished?.(), 0);
+    },
+    reject: async () => undefined,
+    hold: async () => undefined,
+    resume: async () => undefined,
+    sendDtmf: async () => undefined,
+    hangup: async () => undefined,
+    setMuted: () => undefined,
+  };
+  return new BrowserSoftphone(transport);
 }
 
 export function WorkspaceApp({
   api,
   tenantLabel = 'acme.d-contact.io',
   onSignOut,
+  createSoftphone,
 }: WorkspaceAppProps) {
   const leaderElection = useMemo(
     () => createBrowserWorkspaceLeaderElection(crypto.randomUUID()),
@@ -26,7 +57,12 @@ export function WorkspaceApp({
   const [mediaError, setMediaError] = useState<string>();
   const [snapshot, setSnapshot] = useState<AgentWorkspaceSnapshot>();
   const [snapshotError, setSnapshotError] = useState<string>();
+  const [softphoneState, setSoftphoneState] = useState<SoftphoneState>({ phase: 'OFFLINE' });
+  const [softphoneError, setSoftphoneError] = useState<string>();
+  const [muted, setMuted] = useState(false);
   const mediaStream = useRef<MediaStream | undefined>(undefined);
+  const remoteAudio = useRef<HTMLAudioElement | null>(null);
+  const softphone = useRef<BrowserSoftphone | undefined>(undefined);
 
   useEffect(() => {
     if (!api) return;
@@ -48,6 +84,42 @@ export function WorkspaceApp({
   }, [api]);
 
   useEffect(() => {
+    if (!createSoftphone || !remoteAudio.current) return;
+    const phone = createSoftphone(remoteAudio.current, {
+      onInvitation: () => {
+        void api
+          ?.snapshot()
+          .then(async (nextSnapshot) => {
+            setSnapshot(nextSnapshot);
+            const interaction = nextSnapshot.interaction;
+            if (interaction?.state !== 'ASSIGNED') return;
+            setSoftphoneState(await phone.receiveInvitation(interaction.id));
+          })
+          .catch(() => setSnapshotError('ยืนยัน incoming offer กับ API ไม่สำเร็จ'));
+      },
+      onSessionEstablished: () => setSoftphoneState(phone.connected()),
+      onSessionTerminated: () => {
+        setSoftphoneState(phone.terminated());
+        setMuted(false);
+        void api
+          ?.snapshot()
+          .then(setSnapshot)
+          .catch(() => undefined);
+      },
+      onRegistrationLost: () => {
+        void phone.registrationLost().then(setSoftphoneState);
+      },
+      onAutoplayBlocked: () =>
+        setSoftphoneError('Browser บล็อกเสียงสายเข้า โปรดกดอนุญาตเล่นเสียงแล้วลองอีกครั้ง'),
+    });
+    softphone.current = phone;
+    return () => {
+      softphone.current = undefined;
+      void phone.stop();
+    };
+  }, [api, createSoftphone]);
+
+  useEffect(() => {
     setWorkingTab(leaderElection.start());
     const heartbeat = window.setInterval(() => setWorkingTab(leaderElection.heartbeat()), 1_000);
     return () => {
@@ -62,6 +134,7 @@ export function WorkspaceApp({
     mediaStream.current = undefined;
     setMediaReadiness('UNCHECKED');
     setAvailability('OFFLINE');
+    void softphone.current?.stop().then(setSoftphoneState);
   }, [workingTab]);
 
   useEffect(
@@ -86,6 +159,7 @@ export function WorkspaceApp({
             setAvailability('OFFLINE');
             setMediaReadiness('BLOCKED');
             setMediaError('ไมโครโฟนหยุดทำงาน ระบบปิดรับสายใหม่แล้ว โปรดตรวจอุปกรณ์เสียงอีกครั้ง');
+            void softphone.current?.stop().then(setSoftphoneState);
           },
           { once: true },
         );
@@ -97,12 +171,71 @@ export function WorkspaceApp({
       setMediaError(
         'Workspace ใช้ไมโครโฟนไม่ได้ โปรดอนุญาตสิทธิ์หรือเชื่อมต่ออุปกรณ์เสียงแล้วลองใหม่',
       );
+      setSoftphoneState({ phase: 'OFFLINE' });
+      return;
+    }
+
+    if (api && softphone.current) {
+      setSoftphoneError(undefined);
+      try {
+        const lease = await api.sipCredentials();
+        setSoftphoneState({
+          phase: 'REGISTERING',
+          telephonyNodeId: lease.telephonyNodeId,
+        });
+        setSoftphoneState(
+          await softphone.current.start(lease, { ownsWorkingTab: true, mediaReady: true }),
+        );
+      } catch {
+        setAvailability('OFFLINE');
+        setSoftphoneState({ phase: 'OFFLINE' });
+        setSoftphoneError('ลงทะเบียน browser softphone ไม่สำเร็จ ระบบจึงยังไม่เปิดรับสายใหม่');
+      }
     }
   }
 
   function becomeAvailable() {
-    if (!workingTab || mediaReadiness !== 'READY') return;
+    if (!workingTab || mediaReadiness !== 'READY' || (api && softphoneState.phase !== 'READY'))
+      return;
     setAvailability('AVAILABLE');
+  }
+
+  async function acceptCall() {
+    if (!softphone.current || softphoneState.phase !== 'RINGING') return;
+    setSoftphoneState(await softphone.current.accept());
+  }
+
+  function toggleMute() {
+    if (!softphone.current) return;
+    const next = !muted;
+    softphone.current.setMuted(next);
+    setMuted(next);
+  }
+
+  async function toggleHold() {
+    if (!softphone.current) return;
+    if (softphoneState.phase === 'ACTIVE') {
+      setSoftphoneState(await softphone.current.hold());
+      return;
+    }
+    if (softphoneState.phase === 'HELD') {
+      setSoftphoneState(await softphone.current.resume());
+    }
+  }
+
+  async function sendDtmf(value: string) {
+    if (!softphone.current || softphoneState.phase !== 'ACTIVE') return;
+    setSoftphoneState(await softphone.current.sendDtmf(value));
+  }
+
+  async function hangup() {
+    if (!softphone.current) return;
+    setSoftphoneState(await softphone.current.hangup());
+    setMuted(false);
+    void api
+      ?.snapshot()
+      .then(setSnapshot)
+      .catch(() => undefined);
   }
 
   function moveWorkHere() {
@@ -116,6 +249,17 @@ export function WorkspaceApp({
     READY: 'อุปกรณ์เสียงพร้อม',
     BLOCKED: 'อุปกรณ์เสียงไม่พร้อม',
   }[mediaReadiness];
+  const softphoneLabel = {
+    OFFLINE: 'โทรศัพท์ยังไม่พร้อม',
+    REGISTERING: 'กำลังลงทะเบียนโทรศัพท์',
+    READY: 'โทรศัพท์พร้อม',
+    RINGING: 'มีสายเรียกเข้า',
+    CONNECTING: 'กำลังเชื่อมต่อสาย',
+    ACTIVE: 'กำลังสนทนา',
+    HELD: 'พักสาย',
+    RECONNECTING: 'กำลังกู้คืนโทรศัพท์',
+    RECOVERY_REQUIRED: 'ต้องกู้คืนโทรศัพท์ด้วยตนเอง',
+  }[softphoneState.phase];
 
   return (
     <div className="workspace-shell">
@@ -175,6 +319,15 @@ export function WorkspaceApp({
             >
               {availability}
             </span>
+            <span
+              className={
+                'status-chip ' + (softphoneState.phase === 'READY' ? 'success' : 'neutral')
+              }
+              role="status"
+              aria-label="สถานะ browser softphone"
+            >
+              {softphoneLabel}
+            </span>
             {onSignOut ? (
               <button type="button" className="signout-action" onClick={onSignOut}>
                 ออกจากระบบ
@@ -213,12 +366,65 @@ export function WorkspaceApp({
                     <dd>Interaction v{snapshot.interaction.version}</dd>
                   </div>
                 </dl>
+                <div className="offer-actions">
+                  <button
+                    type="button"
+                    className="primary-action"
+                    disabled={softphoneState.phase !== 'RINGING'}
+                    onClick={() => void acceptCall()}
+                  >
+                    รับสาย
+                  </button>
+                </div>
+              </article>
+            ) : null}
+
+            {softphoneState.phase === 'ACTIVE' || softphoneState.phase === 'HELD' ? (
+              <article className="panel call-controls" aria-labelledby="call-controls-title">
+                <div>
+                  <p className="step">BROWSER SOFTPHONE</p>
+                  <h2 id="call-controls-title">ควบคุมสาย</h2>
+                </div>
+                <div className="control-row">
+                  <button type="button" className="secondary-action" onClick={toggleMute}>
+                    {muted ? 'เปิดไมค์' : 'ปิดไมค์'}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    onClick={() => void toggleHold()}
+                  >
+                    {softphoneState.phase === 'HELD' ? 'กลับเข้าสาย' : 'พักสาย'}
+                  </button>
+                  <button type="button" className="danger-action" onClick={() => void hangup()}>
+                    วางสาย
+                  </button>
+                </div>
+                <div className="dtmf-pad" aria-label="แป้น DTMF">
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      aria-label={`ส่ง DTMF ${value}`}
+                      disabled={softphoneState.phase !== 'ACTIVE'}
+                      onClick={() => void sendDtmf(value)}
+                    >
+                      {value}
+                    </button>
+                  ))}
+                </div>
               </article>
             ) : null}
 
             {snapshotError ? (
               <p className="snapshot-warning" role="status">
                 {snapshotError}
+              </p>
+            ) : null}
+
+            {softphoneError ? (
+              <p className="snapshot-warning" role="alert">
+                {softphoneError}
               </p>
             ) : null}
 
@@ -294,7 +500,12 @@ export function WorkspaceApp({
               <button
                 type="button"
                 className="primary-action"
-                disabled={!workingTab || mediaReadiness !== 'READY' || availability === 'AVAILABLE'}
+                disabled={
+                  !workingTab ||
+                  mediaReadiness !== 'READY' ||
+                  availability === 'AVAILABLE' ||
+                  Boolean(api && softphoneState.phase !== 'READY')
+                }
                 onClick={becomeAvailable}
               >
                 เปิดรับสาย
@@ -326,6 +537,8 @@ export function WorkspaceApp({
           </section>
         </main>
       </section>
+
+      <audio ref={remoteAudio} autoPlay className="remote-audio" />
 
       {workingTab === false ? (
         <div className="passive-overlay">

@@ -2,7 +2,12 @@ import { useMemo } from 'react';
 import { AuthProvider, useAuth } from 'react-oidc-context';
 import { createAgentWorkspaceApi } from './agent-api.js';
 import { createOidcSettings, resolveTenantAlias } from './auth-session.js';
-import { WorkspaceApp } from './workspace-app.js';
+import { SipJsBrowserTransport } from './sip-js-transport.js';
+import { BrowserSoftphone } from './softphone.js';
+import { WorkspaceApp, type SoftphoneFactory } from './workspace-app.js';
+
+const createProductionSoftphone: SoftphoneFactory = (remoteAudio, callbacks) =>
+  new BrowserSoftphone(new SipJsBrowserTransport(remoteAudio, callbacks));
 
 function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorkspaceProps) {
   const auth = useAuth();
@@ -48,6 +53,7 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
       api={api}
       tenantLabel={tenantAlias}
       onSignOut={() => void auth.signoutRedirect()}
+      createSoftphone={createProductionSoftphone}
     />
   );
 }

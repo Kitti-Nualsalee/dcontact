@@ -44,7 +44,12 @@ import { KafkaTelephonyCommandPublisher } from './recording-command-publisher.js
 import { MinioRecordingStorage } from './minio-recording-storage.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
 import { KafkaQmJobPublisher } from './qm-job-publisher.js';
-import { AgentWorkspaceController, AGENT_WORKSPACE_DATABASE } from './agent-workspace-api.js';
+import {
+  AgentWorkspaceController,
+  AGENT_SIP_LEASE_PROVIDER,
+  AGENT_WORKSPACE_DATABASE,
+  configuredAgentSipLeaseProvider,
+} from './agent-workspace-api.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -117,6 +122,7 @@ class WorkspaceSessionController {
     { provide: QM_DATABASE, useValue: prisma },
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
+    { provide: AGENT_SIP_LEASE_PROVIDER, useValue: configuredAgentSipLeaseProvider() },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },

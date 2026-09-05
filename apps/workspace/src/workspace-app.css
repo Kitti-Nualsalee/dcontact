@@ -23,6 +23,14 @@ body {
   min-height: 100vh;
 }
 
+.remote-audio {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 button {
   font: inherit;
 }
@@ -329,6 +337,47 @@ h1 {
 .incoming-offer dd {
   margin: 5px 0 0;
   color: #0f172a;
+  font-weight: 800;
+}
+
+.offer-actions {
+  min-width: 140px;
+}
+
+.call-controls {
+  grid-column: 1 / -1;
+}
+
+.control-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.danger-action {
+  min-height: 44px;
+  border: 1px solid #e11d48;
+  border-radius: 10px;
+  color: white;
+  background: #e11d48;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.dtmf-pad {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(42px, 1fr));
+  gap: 8px;
+}
+
+.dtmf-pad button {
+  min-height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  color: #0f172a;
+  background: #f8fafc;
+  cursor: pointer;
   font-weight: 800;
 }
 

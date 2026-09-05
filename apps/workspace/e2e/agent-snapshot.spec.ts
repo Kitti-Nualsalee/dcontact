@@ -34,4 +34,22 @@ test('Workspace แสดง incoming offer จาก authoritative Agent snapsh
   await expect(page.getByText('บริการลูกค้า')).toBeVisible();
   await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
   await expect(page.getByText('Interaction v17')).toBeVisible();
+
+  await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+  await expect(page.getByRole('button', { name: 'รับสาย', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'รับสาย', exact: true }).click();
+  await expect(page.getByRole('status', { name: 'สถานะ browser softphone' })).toHaveText(
+    'กำลังสนทนา',
+  );
+  await expect(page.getByRole('button', { name: 'รับสาย', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'ปิดไมค์' }).click();
+  await expect(page.getByRole('button', { name: 'เปิดไมค์' })).toBeVisible();
+  await page.getByRole('button', { name: 'ส่ง DTMF 5' }).click();
+  await page.getByRole('button', { name: 'พักสาย' }).click();
+  await expect(page.getByRole('status', { name: 'สถานะ browser softphone' })).toHaveText('พักสาย');
+  await page.getByRole('button', { name: 'กลับเข้าสาย' }).click();
+  await page.getByRole('button', { name: 'วางสาย' }).click();
+  await expect(page.getByRole('status', { name: 'สถานะ browser softphone' })).toHaveText(
+    'โทรศัพท์พร้อม',
+  );
 });
