@@ -295,7 +295,7 @@
     function statusClass(s){return s==='LIVE'?'live':s==='SYNCING'?'syncing':'degraded'}
     function renderStatus(){
       const el=document.getElementById('statusbar'), copy=state.connection==='LIVE'?'ข้อมูลสด · mutation ใช้ได้บน desktop':state.connection==='SYNCING'?'กำลังซิงก์ snapshot · แสดงข้อมูลล่าสุดแบบ read-only':'การเชื่อมต่อขัดข้อง · ข้อมูลอาจล่าช้าและปิดทุกคำสั่ง';
-      el.className=`statusbar ${statusClass(state.connection)}`; el.innerHTML=`<span class="dot"></span><b>${copy}</b><span class="pill ${statusClass(state.connection)}">seq ${state.sequence}</span><span class="time">ยืนยันล่าสุด ${state.lastUpdated}</span>`;
+      el.className=`statusbar ${statusClass(state.connection)}`; el.innerHTML=`<span class="dot"></span><div><b>${copy}</b><div class="meta">แถวตาม event · counters batch 2 วินาที · aria-live summary ไม่เกิน 1 ครั้ง/5 วินาที</div></div><span class="pill ${statusClass(state.connection)}">seq ${state.sequence}</span><span class="time">ยืนยันล่าสุด ${state.lastUpdated}</span><span class="sr-only">${state.liveMessage}</span>`;
     }
     function stateBadge(value){return `<span class="state ${value.toLowerCase().replace('_','')}">${labels[value]||value}</span>`}
     function empty(title,body){return `<div class="panel empty"><b>${title}</b><span>${body}</span></div>`}
