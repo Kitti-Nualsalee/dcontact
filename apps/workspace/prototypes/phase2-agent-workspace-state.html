@@ -425,6 +425,7 @@
             if (state.owner !== "WORKING") return reject(state, "passive tab เปลี่ยน presence ไม่ได้");
             if (state.presence === "COOLDOWN") {
               // state ใหม่ระหว่าง cooldown จะกลายเป็นแถวล่าสุดและทำให้ releaseExpiredCooldowns ไม่เขียนทับ
+              if (state.cooldownLeft > 0) return reject(state, "Phase 2 Pilot ไม่อนุญาตให้ Agent ข้าม cooldown ก่อนครบเวลา");
               if (state.media !== "READY" || state.sip !== "REGISTERED") return reject(state, "ต้องตรวจไมโครโฟนและ SIP registration ก่อน");
               next.presence = "AVAILABLE";
               next.cooldownLeft = 0;
@@ -964,7 +965,7 @@
         title: "ปฏิเสธแล้วติด cooldown",
         description: "คิวที่ตั้ง COOLDOWN_REQUEUE ทำให้ router เขียน BREAK reason cooldown กัน Agent จากทุกคิวชั่วคราว แล้ว releaseExpiredCooldowns เขียน AVAILABLE อัตโนมัติเมื่อ endedAt ครบและไม่มี state ใหม่กว่า",
         steps: [
-          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["DECLINE_OFFER", "ปฏิเสธพร้อมเหตุผล"], ["RECEIVE_OFFER", "ลองรับสายใหม่ระหว่าง cooldown", true], ["TICK_COOLDOWN", "ผ่านไป 10 วินาที"], ["TICK_COOLDOWN", "ผ่านไป 10 วินาที"], ["TICK_COOLDOWN", "ครบเวลาและคืน AVAILABLE อัตโนมัติ"], ["RECEIVE_OFFER", "จึงได้รับ offer ใหม่"]
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["DECLINE_OFFER", "ปฏิเสธพร้อมเหตุผล"], ["SET_AVAILABLE", "ลองข้าม cooldown ก่อนเวลา", true], ["RECEIVE_OFFER", "ลองรับสายใหม่ระหว่าง cooldown", true], ["TICK_COOLDOWN", "ผ่านไป 10 วินาที"], ["TICK_COOLDOWN", "ผ่านไป 10 วินาที"], ["TICK_COOLDOWN", "ครบเวลาและคืน AVAILABLE อัตโนมัติ"], ["RECEIVE_OFFER", "จึงได้รับ offer ใหม่"]
         ]
       },
       {
