@@ -304,6 +304,9 @@
     // Pure state module: no DOM access. This is the only part intended to inform production design.
     const WorkspaceMachine = (() => {
       const callPhases = new Set(["CONNECTING", "ACTIVE", "HELD", "DEGRADED", "ENDING"]);
+      // WRAPUP ยังเป็น "งานในมือ" แม้ไม่มี media แล้ว: presence ต้องไม่ถูกเหตุขัดข้องเขียนทับเป็น OFFLINE
+      const workPhases = new Set([...callPhases, "WRAPUP"]);
+      const COOLDOWN_SECONDS = 30;
 
       const initial = () => ({
         revision: 0,
@@ -319,6 +322,9 @@
         muted: false,
         recording: "ON",
         recoverTo: null,
+        // นโยบายของคิวตาม Phase 1: offerTimeoutAction ของ router (IMMEDIATE_REQUEUE | COOLDOWN_REQUEUE)
+        queuePolicy: "COOLDOWN_REQUEUE",
+        cooldownLeft: 0,
         updateAvailable: false,
         wrapupDraft: "",
         lastChange: "เปิด Workspace และกำลังตรวจ session",
@@ -327,6 +333,7 @@
 
       const copy = (state) => JSON.parse(JSON.stringify(state));
       const hasCall = (state) => !!state.interaction && callPhases.has(state.interaction.phase);
+      const hasWork = (state) => !!state.interaction && workPhases.has(state.interaction.phase);
       const canReceiveOffer = (state) =>
         state.owner === "WORKING" &&
         state.auth === "AUTHENTICATED" &&
@@ -369,6 +376,16 @@
 
           case "SET_AVAILABLE":
             if (state.owner !== "WORKING") return reject(state, "passive tab เปลี่ยน presence ไม่ได้");
+            if (state.presence === "COOLDOWN") {
+              // router เลือกเอเจนต์จาก agent_state_logs แถวล่าสุดที่เป็น AVAILABLE เท่านั้น
+              // ไม่มี sweeper ใดเขียน AVAILABLE ให้เมื่อ cooldown ครบ endedAt จึงเป็นข้อมูลประกอบ ไม่ใช่ตัวปลดล็อก
+              if (state.media !== "READY" || state.sip !== "REGISTERED") return reject(state, "ต้องตรวจไมโครโฟนและ SIP registration ก่อน");
+              next.presence = "AVAILABLE";
+              next.cooldownLeft = 0;
+              return changed(next, state.cooldownLeft > 0
+                ? "ออกจาก cooldown ก่อนครบเวลา: router เขียน AVAILABLE แถวใหม่ทันที แต่งานเดิมยังไม่ถูกเสนอซ้ำจนถึง requeueAt"
+                : "กลับมาพร้อมรับสายหลัง cooldown ครบเวลา");
+            }
             if (state.auth !== "AUTHENTICATED") return reject(state, "session ไม่พร้อม");
             if (state.media !== "READY" || state.sip !== "REGISTERED") return reject(state, "ต้องตรวจไมโครโฟนและ SIP registration ก่อน");
             if (state.websocket !== "CONNECTED") return reject(state, "routing WebSocket ยังไม่พร้อม");
@@ -399,14 +416,37 @@
           case "DECLINE_OFFER":
             if (!state.offer) return reject(state, "ไม่มี offer ให้ปฏิเสธ");
             next.offer = null;
+            if (state.queuePolicy === "COOLDOWN_REQUEUE") {
+              next.presence = "COOLDOWN";
+              next.cooldownLeft = COOLDOWN_SECONDS;
+              return changed(next, "ปฏิเสธพร้อม reason แล้ว Router เขียน agent state เป็น BREAK reason cooldown และตั้ง requeueAt ของงาน");
+            }
             next.presence = "AVAILABLE";
-            return changed(next, "ปฏิเสธ offer พร้อม reason แล้ว Router คืนงานเข้าคิว");
+            return changed(next, "ปฏิเสธ offer พร้อม reason แล้ว Router คืนงานเข้าคิวทันทีตาม IMMEDIATE_REQUEUE");
 
           case "OFFER_TIMEOUT":
             if (!state.offer) return reject(state, "ไม่มี offer ให้หมดเวลา");
             next.offer = null;
+            if (state.queuePolicy === "COOLDOWN_REQUEUE") {
+              next.presence = "COOLDOWN";
+              next.cooldownLeft = COOLDOWN_SECONDS;
+              return changed(next, "offer หมดเวลา Router เขียน BREAK reason cooldown ให้เอเจนต์ และคืนงานเข้าคิวพร้อม requeueAt");
+            }
             next.presence = "AVAILABLE";
             return changed(next, "offer หมดเวลา Router คืนงานเข้าคิวโดยไม่สร้าง Interaction ซ้ำ");
+
+          case "TICK_COOLDOWN":
+            if (state.presence !== "COOLDOWN") return reject(state, "ไม่ได้อยู่ในช่วง cooldown");
+            if (state.cooldownLeft === 0) return reject(state, "cooldown ครบเวลาแล้ว รอเอเจนต์กดเปิดรับสายเอง");
+            next.cooldownLeft = Math.max(0, state.cooldownLeft - 10);
+            return changed(next, next.cooldownLeft === 0
+              ? "cooldown ครบเวลาแล้ว แต่ router ไม่เขียน AVAILABLE ให้เอง เอเจนต์ยังไม่ได้รับ offer จนกว่าจะกดเปิดรับสาย"
+              : "เหลือ cooldown อีก " + next.cooldownLeft + " วินาที");
+
+          case "TOGGLE_QUEUE_POLICY":
+            if (state.presence === "COOLDOWN") return reject(state, "เปลี่ยนนโยบายคิวระหว่างติด cooldown ไม่ได้ในต้นแบบนี้");
+            next.queuePolicy = state.queuePolicy === "COOLDOWN_REQUEUE" ? "IMMEDIATE_REQUEUE" : "COOLDOWN_REQUEUE";
+            return changed(next, "สลับ offerTimeoutAction ของคิวเป็น " + next.queuePolicy);
 
           case "SIP_CONNECTED":
             if (!state.interaction || state.interaction.phase !== "CONNECTING") return reject(state, "ไม่มีสายที่กำลังเชื่อมต่อ");
@@ -466,10 +506,12 @@
             if (hasCall(state) && state.interaction.phase !== "ENDING") {
               next.recoverTo = state.interaction.phase === "HELD" ? "HELD" : "ACTIVE";
               next.interaction.phase = "DEGRADED";
-            } else {
+            } else if (!hasWork(state)) {
               next.presence = "OFFLINE";
             }
-            return changed(next, "network หาย UI ไม่ลบ Interaction และหยุดรับ offer ใหม่");
+            return changed(next, hasWork(state)
+              ? "network หาย UI ไม่ลบ Interaction คง presence ของงานที่ถืออยู่ และหยุดรับ offer ใหม่"
+              : "network หาย UI หยุดรับ offer ใหม่");
 
           case "TRANSPORT_RECONNECTED":
             if (state.websocket === "CONNECTED" && state.sip === "REGISTERED") return reject(state, "transport เชื่อมต่ออยู่แล้ว");
@@ -478,13 +520,20 @@
             return changed(next, "transport กลับมาแล้ว แต่ยังต้องขอ snapshot ก่อนยืนยัน business state");
 
           case "SNAPSHOT_ACTIVE":
-            if (!state.interaction || !["DEGRADED", "ENDING"].includes(state.interaction.phase)) return reject(state, "ไม่มี Interaction ที่ต้อง reconcile");
-            next.interaction.phase = state.recoverTo || "ACTIVE";
+            if (!state.interaction && state.websocket !== "RECONCILING") return reject(state, "ไม่มีอะไรต้อง reconcile");
+            if (state.interaction && !["DEGRADED", "ENDING", "WRAPUP"].includes(state.interaction.phase)) return reject(state, "ไม่มี Interaction ที่ต้อง reconcile");
             next.websocket = "CONNECTED";
             next.recoverTo = null;
-            next.pendingCommand = null;
-            next.presence = "BUSY";
-            return changed(next, "REST snapshot ยืนยันว่า Interaction เดิมยังอยู่ จึงกลับสู่สถานะ server-owned");
+            if (state.interaction) {
+              const wrapup = state.interaction.phase === "WRAPUP";
+              next.interaction.phase = wrapup ? "WRAPUP" : (state.recoverTo || "ACTIVE");
+              next.pendingCommand = wrapup ? state.pendingCommand : null;
+              next.presence = wrapup ? "WRAPUP" : "BUSY";
+              return changed(next, wrapup
+                ? "REST snapshot ยืนยันว่างานยังอยู่ใน wrap-up จึงคืน presence WRAPUP ไม่ใช่ OFFLINE"
+                : "REST snapshot ยืนยันว่า Interaction เดิมยังอยู่ จึงกลับสู่สถานะ server-owned");
+            }
+            return changed(next, "REST snapshot ยืนยันว่าไม่มี Interaction ค้าง จึงกลับมารับ event ตามลำดับได้");
 
           case "SEQUENCE_GAP":
             if (state.websocket !== "CONNECTED") return reject(state, "WebSocket ขาดอยู่แล้ว");
@@ -497,8 +546,10 @@
 
           case "AUTH_REFRESH_FAILED":
             next.auth = "DEGRADED";
-            if (!hasCall(state)) next.presence = "OFFLINE";
-            return changed(next, hasCall(state) ? "refresh token ล้มเหลว ไม่ redirect ระหว่างสาย และกัน offer ใหม่" : "session หมดอายุ ต้อง login ใหม่ก่อนรับงาน");
+            if (!hasWork(state)) next.presence = "OFFLINE";
+            return changed(next, hasWork(state)
+              ? "refresh token ล้มเหลว ไม่ redirect ระหว่างถืองาน คง presence เดิม และกัน offer ใหม่"
+              : "session หมดอายุ ต้อง login ใหม่ก่อนรับงาน");
 
           case "AUTH_RESTORED":
             next.auth = "AUTHENTICATED";
@@ -512,10 +563,12 @@
             if (hasCall(state) && state.interaction.phase !== "ENDING") {
               next.recoverTo = state.interaction.phase === "HELD" ? "HELD" : "ACTIVE";
               next.interaction.phase = "DEGRADED";
-            } else {
+            } else if (!hasWork(state)) {
               next.presence = "OFFLINE";
             }
-            return changed(next, "ไมโครโฟนหลุด UI เตือนชัดและคงปุ่มวางสาย");
+            return changed(next, hasWork(state)
+              ? "ไมโครโฟนหลุด UI เตือนชัด คง presence ของงานที่ถืออยู่ และคงปุ่มวางสาย"
+              : "ไมโครโฟนหลุด จึงรับงานใหม่ไม่ได้");
 
           case "DEVICE_RESTORED":
             if (state.media !== "DEVICE_LOST" && state.media !== "BLOCKED") return reject(state, "อุปกรณ์ไม่ได้อยู่ในสถานะเสีย");
@@ -602,7 +655,7 @@
         ["BOOTSTRAP_OK", "เข้าสู่ระบบสำเร็จ"], ["MEDIA_READY", "อุปกรณ์พร้อม"], ["MEDIA_DENIED", "ไม่อนุญาตไมค์"], ["SET_AVAILABLE", "เปิดรับสาย"]
       ]},
       { title: "Offer และสาย", actions: [
-        ["RECEIVE_OFFER", "มีสายเสนอ"], ["TICK_OFFER", "ผ่านไป 5 วินาที"], ["ACCEPT_OFFER", "รับสาย"], ["DECLINE_OFFER", "ปฏิเสธ"], ["OFFER_TIMEOUT", "หมดเวลารับ"], ["SIP_CONNECTED", "เสียงสองทางพร้อม"]
+        ["RECEIVE_OFFER", "มีสายเสนอ"], ["TICK_OFFER", "ผ่านไป 5 วินาที"], ["ACCEPT_OFFER", "รับสาย"], ["DECLINE_OFFER", "ปฏิเสธ"], ["OFFER_TIMEOUT", "หมดเวลารับ"], ["SIP_CONNECTED", "เสียงสองทางพร้อม"], ["TICK_COOLDOWN", "cooldown ผ่านไป 10 วินาที"], ["TOGGLE_QUEUE_POLICY", "สลับนโยบายคิว"]
       ]},
       { title: "Call control", actions: [
         ["TOGGLE_MUTE", "เปิด/ปิดไมค์"], ["REQUEST_HOLD", "ขอพักสาย"], ["CONFIRM_HOLD", "ยืนยันพักสาย"], ["FAIL_HOLD", "พักสายล้มเหลว"], ["REQUEST_RESUME", "ขอกลับเข้าร่วม"], ["CONFIRM_RESUME", "ยืนยันกลับเข้าร่วม"], ["REQUEST_RECORD_PAUSE", "สลับการบันทึก"], ["CONFIRM_RECORDING", "ยืนยันการบันทึก"], ["REQUEST_HANGUP", "ขอวางสาย"], ["INTERACTION_ENDED", "server ยืนยันจบ"], ["SUBMIT_WRAPUP", "ส่ง wrap-up"]
@@ -646,6 +699,22 @@
         ]
       },
       {
+        id: "cooldown",
+        title: "ปฏิเสธแล้วติด cooldown",
+        description: "คิวที่ตั้ง COOLDOWN_REQUEUE ทำให้ router เขียน agent state เป็น BREAK reason cooldown ไม่ใช่ AVAILABLE เอเจนต์จึงไม่ได้รับ offer จนกว่าจะมีแถว AVAILABLE ใหม่ และ endedAt ของ cooldown ไม่ได้ปลดล็อกให้เอง",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["DECLINE_OFFER", "ปฏิเสธพร้อมเหตุผล"], ["RECEIVE_OFFER", "ลองรับสายใหม่ระหว่าง cooldown", true], ["TICK_COOLDOWN", "ผ่านไป 10 วินาที"], ["TICK_COOLDOWN", "ผ่านไป 10 วินาที"], ["TICK_COOLDOWN", "ครบเวลา cooldown"], ["RECEIVE_OFFER", "ครบเวลาแล้วแต่ยังไม่ได้ offer", true], ["SET_AVAILABLE", "เอเจนต์กดเปิดรับสายเอง"], ["RECEIVE_OFFER", "จึงได้รับ offer ใหม่"]
+        ]
+      },
+      {
+        id: "wrapup",
+        title: "Wrap-up ตอนขาดการเชื่อมต่อ",
+        description: "wrap-up เป็นงานในมือเหมือนสาย เหตุขัดข้องจึงห้ามเขียน presence ทับเป็น OFFLINE และ snapshot ต้องคืนสถานะ WRAPUP ได้",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["ACCEPT_OFFER", "รับสาย"], ["SIP_CONNECTED", "เสียงพร้อม"], ["REQUEST_HANGUP", "วางสาย"], ["INTERACTION_ENDED", "server ปิดสาย"], ["AUTH_REFRESH_FAILED", "refresh ล้มเหลวระหว่าง wrap-up"], ["SUBMIT_WRAPUP", "ลองส่ง wrap-up", true], ["AUTH_RESTORED", "session กลับมา"], ["SNAPSHOT_ACTIVE", "snapshot ยืนยันว่ายังอยู่ wrap-up"], ["SUBMIT_WRAPUP", "ส่ง wrap-up สำเร็จ"]
+        ]
+      },
+      {
         id: "tabs",
         title: "สองแท็บ",
         description: "passive tab ไม่มี routing WebSocket/SIP และเมื่อย้าย ownership ต้องตรวจ media readiness ใหม่ ห้ามย้ายระหว่างมี Interaction",
@@ -665,13 +734,13 @@
       media: { UNCHECKED: "ยังไม่ตรวจอุปกรณ์", READY: "ไมโครโฟนพร้อม", BLOCKED: "ไม่ได้รับอนุญาต", DEVICE_LOST: "อุปกรณ์หลุด" },
       websocket: { DISCONNECTED: "ไม่ได้เชื่อมต่อ", CONNECTED: "เชื่อมต่อแล้ว", RECONCILING: "กำลัง reconcile" },
       sip: { DISCONNECTED: "ไม่ได้ register", REGISTERED: "register แล้ว", RECONNECTING: "กำลัง reconnect" },
-      presence: { OFFLINE: "ยังไม่พร้อมรับงาน", AVAILABLE: "พร้อมรับสาย", RESERVED: "มี offer รอตอบ", BUSY: "กำลังคุย", WRAPUP: "กำลังสรุปงาน" }
+      presence: { OFFLINE: "ยังไม่พร้อมรับงาน", AVAILABLE: "พร้อมรับสาย", RESERVED: "มี offer รอตอบ", BUSY: "กำลังคุย", WRAPUP: "กำลังสรุปงาน", COOLDOWN: "cooldown (BREAK)" }
     };
 
     const text = (group, value) => labels[group] && labels[group][value] ? labels[group][value] : value;
     const chipClass = (value) => {
       if (["AUTHENTICATED", "READY", "CONNECTED", "REGISTERED", "AVAILABLE", "ACTIVE"].includes(value)) return "green";
-      if (["CHECKING", "UNCHECKED", "RECONNECTING", "RECONCILING", "RESERVED", "CONNECTING", "ENDING", "WRAPUP"].includes(value)) return "amber";
+      if (["CHECKING", "UNCHECKED", "RECONNECTING", "RECONCILING", "RESERVED", "CONNECTING", "ENDING", "WRAPUP", "COOLDOWN"].includes(value)) return "amber";
       if (["DEGRADED", "BLOCKED", "DEVICE_LOST", "DISCONNECTED"].includes(value)) return "rose";
       if (["HELD", "PASSIVE"].includes(value)) return "indigo";
       return "slate";
@@ -729,7 +798,8 @@
         [state.auth === "AUTHENTICATED", "session ใช้งานได้"],
         [state.media === "READY", "ไมโครโฟนพร้อม"],
         [state.websocket === "CONNECTED", "routing WebSocket พร้อม"],
-        [state.sip === "REGISTERED", "SIP register แล้ว"]
+        [state.sip === "REGISTERED", "SIP register แล้ว"],
+        [state.presence !== "COOLDOWN", state.presence === "COOLDOWN" ? "ติด cooldown เหลือ " + state.cooldownLeft + " วินาที (router เขียน BREAK ให้)" : "ไม่ติด cooldown"]
       ];
       document.getElementById("readiness-list").innerHTML = readiness.map(([ok, label]) =>
         '<div><strong style="color:' + (ok ? 'var(--green-700)' : 'var(--slate-400)') + '">' + (ok ? 'ผ่าน' : 'รอ') + '</strong> · ' + label + '</div>'
@@ -760,6 +830,7 @@
         ["Presence", text("presence", state.presence)],
         ["Interaction", interaction ? interaction.id + " · " + interaction.phase : "ไม่มี"],
         ["Recording", state.recording === "ON" ? "กำลังบันทึก" : "หยุดชั่วคราว"],
+        ["นโยบายคิว", state.queuePolicy + (state.presence === "COOLDOWN" ? " · เหลือ " + state.cooldownLeft + " วินาที" : "")],
         ["Offer ใหม่", derived.newOffersAllowed ? "อนุญาต" : "ปิด"],
         ["Version", state.updateAvailable ? "รอ reload" : "ปัจจุบัน"]
       ];
