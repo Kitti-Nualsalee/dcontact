@@ -1,0 +1,827 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>D-Contact — Agent Workspace state prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --teal-900: #134e4a;
+      --teal-800: #115e59;
+      --teal-700: #0f766e;
+      --teal-100: #ccfbf1;
+      --teal-50: #f0fdfa;
+      --slate-950: #0f172a;
+      --slate-800: #1e293b;
+      --slate-700: #334155;
+      --slate-600: #475569;
+      --slate-500: #64748b;
+      --slate-400: #94a3b8;
+      --slate-300: #cbd5e1;
+      --slate-200: #e2e8f0;
+      --slate-100: #f1f5f9;
+      --slate-50: #f8fafc;
+      --amber-700: #b45309;
+      --amber-100: #fef3c7;
+      --rose-700: #be123c;
+      --rose-100: #ffe4e6;
+      --green-700: #15803d;
+      --green-100: #dcfce7;
+      --indigo-700: #4338ca;
+      --indigo-100: #e0e7ff;
+      --shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+      font-family: Inter, "Noto Sans Thai", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--slate-800); background: var(--slate-50); }
+    button, select, input { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, [role="tab"]:focus-visible { outline: 3px solid #22d3ee; outline-offset: 2px; }
+    button:disabled { cursor: not-allowed; opacity: .52; }
+    .app { min-height: 100vh; display: grid; grid-template-columns: 62px 265px minmax(0, 1fr); }
+    .rail { background: var(--teal-800); color: white; padding: 14px 10px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    .rail-logo { width: 36px; height: 36px; border-radius: 10px; background: white; color: var(--teal-800); display: grid; place-items: center; font-weight: 800; }
+    .rail-item { width: 40px; min-height: 40px; border: 0; border-radius: 10px; background: transparent; color: #ccfbf1; font-weight: 700; }
+    .rail-item.active { background: rgba(255,255,255,.18); color: white; }
+    .sidebar { background: white; border-right: 1px solid var(--slate-200); min-height: 100vh; padding: 20px 18px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; margin-bottom: 24px; }
+    .brand-mark { width: 35px; height: 35px; border-radius: 9px; display: grid; place-items: center; color: white; background: var(--teal-700); }
+    .search { width: 100%; border: 1px solid var(--slate-300); border-radius: 9px; padding: 10px 12px; color: var(--slate-600); background: white; }
+    .nav-label { margin: 28px 8px 8px; color: var(--amber-700); font-size: 12px; letter-spacing: .08em; font-weight: 800; }
+    .nav-item { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: transparent; padding: 10px 12px; border-radius: 9px; color: var(--slate-700); text-align: left; font-weight: 650; }
+    .nav-item.active { color: var(--teal-800); background: var(--teal-50); }
+    .nav-badge { margin-left: auto; border-radius: 999px; background: var(--rose-100); color: var(--rose-700); padding: 2px 7px; font-size: 12px; }
+    .sidebar-note { position: sticky; top: calc(100vh - 52px); color: var(--slate-400); font-size: 12px; padding-top: 22px; }
+
+    .shell { min-width: 0; }
+    .topbar { height: 62px; background: white; border-bottom: 1px solid var(--slate-200); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; gap: 12px; position: sticky; top: 0; z-index: 20; }
+    .tenant { padding: 6px 10px; border-radius: 8px; color: var(--teal-800); background: var(--teal-50); font-size: 13px; font-weight: 650; }
+    .top-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 4px 9px; border-radius: 999px; font-size: 12px; font-weight: 750; border: 1px solid transparent; }
+    .chip.green { color: var(--green-700); background: var(--green-100); }
+    .chip.amber { color: var(--amber-700); background: var(--amber-100); }
+    .chip.rose { color: var(--rose-700); background: var(--rose-100); }
+    .chip.indigo { color: var(--indigo-700); background: var(--indigo-100); }
+    .chip.slate { color: var(--slate-600); background: var(--slate-100); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+    main { padding: 24px; padding-bottom: 112px; }
+    .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 23px; color: var(--slate-950); }
+    .subtitle { margin: 3px 0 0; color: var(--slate-500); font-size: 14px; }
+    .prototype-badge { border: 1px dashed var(--amber-700); background: #fffbeb; color: var(--amber-700); border-radius: 8px; padding: 7px 10px; font-size: 12px; font-weight: 800; }
+    .question { margin-bottom: 18px; border: 1px solid #bae6fd; background: #f0f9ff; border-radius: 12px; padding: 13px 16px; color: #0c4a6e; font-size: 13px; line-height: 1.55; }
+
+    .workspace-grid { display: grid; grid-template-columns: minmax(230px, .85fr) minmax(340px, 1.3fr) minmax(270px, 1fr); gap: 14px; align-items: stretch; }
+    .panel { background: white; border: 1px solid var(--slate-200); border-radius: 12px; overflow: hidden; min-width: 0; }
+    .panel-head { min-height: 48px; padding: 12px 14px; border-bottom: 1px solid var(--slate-100); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .panel-title { margin: 0; font-size: 14px; font-weight: 800; color: var(--slate-700); }
+    .panel-body { padding: 14px; }
+    .offer { border-left: 4px solid var(--amber-700); background: #fffbeb; padding: 12px; border-radius: 8px; }
+    .offer.empty { border-left-color: var(--slate-300); background: var(--slate-50); color: var(--slate-500); }
+    .offer-name { margin: 0; font-weight: 800; color: var(--slate-900); }
+    .offer-meta { margin: 4px 0 10px; color: var(--slate-500); font-size: 12px; }
+    .offer-countdown { color: var(--rose-700); font-weight: 850; }
+    .button-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .btn { min-height: 37px; border-radius: 8px; padding: 8px 12px; border: 1px solid var(--slate-300); background: white; color: var(--slate-700); font-weight: 700; }
+    .btn.primary { border-color: var(--teal-700); background: var(--teal-700); color: white; }
+    .btn.danger { border-color: var(--rose-700); background: var(--rose-700); color: white; }
+    .btn.warning { border-color: #f59e0b; background: #f59e0b; color: #451a03; }
+    .btn.small { min-height: 32px; padding: 6px 9px; font-size: 12px; }
+    .call-card { min-height: 315px; display: flex; flex-direction: column; justify-content: space-between; }
+    .call-identity { text-align: center; padding: 24px 14px 10px; }
+    .avatar { width: 58px; height: 58px; margin: 0 auto 10px; border-radius: 50%; display: grid; place-items: center; background: var(--teal-100); color: var(--teal-800); font-size: 22px; font-weight: 850; }
+    .call-name { margin: 0; font-size: 19px; font-weight: 850; }
+    .call-meta { margin: 5px 0; color: var(--slate-500); font-size: 13px; }
+    .call-stage { margin: 12px auto 0; width: fit-content; }
+    .call-message { margin: 12px 18px; min-height: 47px; border-radius: 8px; padding: 10px 12px; background: var(--slate-50); color: var(--slate-600); font-size: 13px; text-align: center; }
+    .controls { padding: 14px; border-top: 1px solid var(--slate-100); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .control { border: 1px solid var(--slate-300); background: white; border-radius: 9px; min-height: 54px; padding: 7px; color: var(--slate-700); font-size: 12px; font-weight: 750; }
+    .control.on { border-color: var(--teal-700); background: var(--teal-50); color: var(--teal-800); }
+    .control.hangup { border-color: var(--rose-700); color: var(--rose-700); }
+
+    .state-list { display: grid; grid-template-columns: minmax(105px, .8fr) minmax(0, 1.2fr); gap: 8px 10px; margin: 0; font-size: 12px; }
+    .state-list dt { color: var(--slate-500); }
+    .state-list dd { margin: 0; color: var(--slate-800); font-weight: 750; overflow-wrap: anywhere; }
+    .state-rule { margin-top: 14px; border-top: 1px solid var(--slate-100); padding-top: 12px; font-size: 12px; color: var(--slate-600); line-height: 1.55; }
+    .notice { margin-top: 14px; min-height: 60px; border-radius: 9px; padding: 10px 12px; background: var(--slate-100); color: var(--slate-700); font-size: 12px; line-height: 1.5; }
+    .notice.error { background: var(--rose-100); color: var(--rose-700); }
+
+    .lab { margin-top: 18px; display: grid; gap: 14px; }
+    .lab-section { background: white; border: 1px solid var(--slate-200); border-radius: 12px; padding: 16px; }
+    .lab-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .lab h2 { margin: 0; font-size: 16px; }
+    .lab p { margin: 4px 0 0; color: var(--slate-500); font-size: 13px; }
+    .action-groups { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .action-group { border: 1px solid var(--slate-200); border-radius: 9px; padding: 10px; }
+    .action-group h3 { margin: 0 0 8px; color: var(--slate-500); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    .action-group .button-row { gap: 6px; }
+    .scenario-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .scenario-tab { border: 1px solid var(--slate-300); background: white; color: var(--slate-600); border-radius: 999px; padding: 7px 11px; font-weight: 700; }
+    .scenario-tab[aria-selected="true"] { border-color: var(--teal-700); color: var(--teal-800); background: var(--teal-50); }
+    .scenario-description { border-left: 3px solid var(--teal-700); padding-left: 12px; margin-bottom: 12px; color: var(--slate-600); font-size: 13px; }
+    .scenario-steps { display: flex; flex-wrap: wrap; gap: 7px; counter-reset: steps; }
+    .scenario-step { counter-increment: steps; border: 1px solid var(--slate-300); background: white; border-radius: 8px; padding: 8px 10px; color: var(--slate-700); font-weight: 700; }
+    .scenario-step::before { content: counter(steps) ". "; color: var(--slate-400); }
+    .scenario-step.current { border-color: var(--teal-700); color: var(--teal-800); box-shadow: 0 0 0 2px var(--teal-100); }
+    .scenario-step.done { border-color: #86efac; background: #f0fdf4; color: var(--green-700); }
+
+    .callbar { position: fixed; left: 350px; right: 24px; bottom: 16px; z-index: 30; min-height: 66px; border-radius: 14px; background: var(--slate-950); color: white; box-shadow: var(--shadow); padding: 11px 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .callbar.hidden { display: none; }
+    .callbar-main { min-width: 0; }
+    .callbar-title { margin: 0; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .callbar-meta { margin: 3px 0 0; color: var(--slate-300); font-size: 12px; }
+    .callbar .button-row { justify-content: flex-end; flex-shrink: 0; }
+    .callbar .btn { border-color: #475569; background: #1e293b; color: white; }
+    .callbar .btn.danger { background: var(--rose-700); border-color: var(--rose-700); }
+
+    .passive-overlay { position: fixed; inset: 62px 0 0 327px; z-index: 25; background: rgba(248,250,252,.94); display: grid; place-items: center; padding: 24px; }
+    .passive-overlay.hidden { display: none; }
+    .passive-card { max-width: 520px; background: white; border: 1px solid var(--slate-200); border-radius: 14px; box-shadow: var(--shadow); padding: 28px; text-align: center; }
+    .passive-card h2 { margin: 0 0 8px; }
+    .passive-card p { color: var(--slate-500); line-height: 1.6; }
+
+    @media (max-width: 1050px) {
+      .app { grid-template-columns: 56px 210px minmax(0, 1fr); }
+      .workspace-grid { grid-template-columns: 1fr 1.35fr; }
+      .workspace-grid .state-panel { grid-column: 1 / -1; }
+      .action-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .callbar { left: 285px; }
+      .passive-overlay { left: 266px; }
+    }
+    @media (max-width: 780px) {
+      .app { display: block; }
+      .rail, .sidebar { display: none; }
+      .workspace-grid { grid-template-columns: 1fr; }
+      .workspace-grid .state-panel { grid-column: auto; }
+      .action-groups { grid-template-columns: 1fr; }
+      .callbar { left: 12px; right: 12px; }
+      .passive-overlay { left: 0; }
+      .topbar { padding: 0 12px; }
+      main { padding: 16px 12px 122px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail" aria-label="พื้นที่หลัก">
+      <div class="rail-logo" aria-label="D-Contact">D</div>
+      <button class="rail-item" aria-label="ภาพรวม">01</button>
+      <button class="rail-item active" aria-label="Agent Workspace">02</button>
+      <button class="rail-item" aria-label="Supervisor">03</button>
+      <button class="rail-item" aria-label="Quality">04</button>
+    </aside>
+
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">D</span> D-Contact</div>
+      <label>
+        <span style="position:absolute;left:-9999px">ค้นหาเมนู</span>
+        <input class="search" placeholder="ค้นหาเมนู" disabled>
+      </label>
+      <div class="nav-label">AGENT WORKSPACE</div>
+      <button class="nav-item active">กล่องงานของฉัน <span class="nav-badge">1</span></button>
+      <button class="nav-item">ประวัติการติดต่อ</button>
+      <div class="sidebar-note">PROTOTYPE · ไม่มีข้อมูลจริง</div>
+    </aside>
+
+    <section class="shell">
+      <header class="topbar">
+        <span class="tenant">acme.d-contact.io</span>
+        <div class="top-status" aria-label="สถานะ Workspace">
+          <span id="header-owner" class="chip slate"><span class="dot"></span>แท็บทำงาน</span>
+          <span id="header-auth" class="chip amber"><span class="dot"></span>กำลังตรวจ session</span>
+          <span id="header-presence" class="chip slate"><span class="dot"></span>ยังไม่พร้อมรับงาน</span>
+        </div>
+      </header>
+
+      <main>
+        <div class="page-head">
+          <div>
+            <h1>Agent Workspace · วงจรสายขาเข้า</h1>
+            <p class="subtitle">ลองกดเหตุการณ์และดูว่า UI ควรอนุญาต ปฏิเสธ หรือคืนสภาพอย่างไร</p>
+          </div>
+          <span class="prototype-badge">THROWAWAY PROTOTYPE</span>
+        </div>
+
+        <div class="question">
+          <strong>คำถามที่ต้นแบบนี้ตอบ:</strong> state model นี้ทำให้เอเจนต์เข้าใจได้หรือไม่ว่าเมื่อใดพร้อมรับสาย ใครเป็นเจ้าของ Interaction และยังทำอะไรได้บ้างเมื่อ auth, network, media device หรือ tab ownership มีปัญหา โดยไม่ให้ browser กลายเป็นแหล่งความจริงแทน Router/API
+        </div>
+
+        <section class="workspace-grid" aria-label="Workspace จำลอง">
+          <article class="panel">
+            <div class="panel-head"><h2 class="panel-title">งานสายเข้าที่กำลังเสนอ</h2><span id="offer-count" class="chip slate">0 งาน</span></div>
+            <div class="panel-body">
+              <div id="offer-card" class="offer empty">
+                <p class="offer-name">ยังไม่มีสายเสนอ</p>
+                <p class="offer-meta">ต้องผ่าน login, media readiness และ AVAILABLE ก่อน</p>
+              </div>
+              <div style="margin-top:14px">
+                <h3 style="margin:0 0 8px;font-size:13px">เงื่อนไขรับ offer ใหม่</h3>
+                <div id="readiness-list" style="display:grid;gap:6px;font-size:12px;color:var(--slate-600)"></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel call-card">
+            <div>
+              <div class="panel-head"><h2 class="panel-title">สายที่อยู่ในมือ</h2><span id="command-status" class="chip slate">ไม่มีคำสั่งค้าง</span></div>
+              <div class="call-identity">
+                <div class="avatar" aria-hidden="true">NP</div>
+                <p id="call-name" class="call-name">ยังไม่มี Interaction</p>
+                <p id="call-meta" class="call-meta">Router/API จะเป็นผู้ยืนยันสายที่อยู่ในมือ</p>
+                <span id="call-stage" class="chip slate call-stage">IDLE</span>
+              </div>
+              <div id="call-message" class="call-message">เริ่มจาก “เข้าสู่ระบบสำเร็จ” แล้วตรวจไมโครโฟนก่อนเปิดรับสาย</div>
+            </div>
+            <div class="controls" aria-label="Call controls">
+              <button class="control" data-action="TOGGLE_MUTE" aria-label="เปิดหรือปิดเสียงไมโครโฟน">ไมค์<br><span id="mute-label">เปิด</span></button>
+              <button class="control" data-action="REQUEST_HOLD" aria-label="ขอพักสาย">พักสาย<br><span id="hold-label">ยังไม่พัก</span></button>
+              <button class="control" data-action="REQUEST_RECORD_PAUSE" aria-label="ขอหยุดบันทึกเสียงชั่วคราว">บันทึก<br><span id="record-label">กำลังบันทึก</span></button>
+              <button class="control hangup" data-action="REQUEST_HANGUP" aria-label="วางสาย">วางสาย<br><span>ปลอดภัยเสมอ</span></button>
+            </div>
+          </article>
+
+          <article class="panel state-panel">
+            <div class="panel-head"><h2 class="panel-title">สถานะที่ UI ต้องมองเห็น</h2><span id="revision" class="chip slate">revision 0</span></div>
+            <div class="panel-body">
+              <dl id="state-list" class="state-list"></dl>
+              <div id="state-rule" class="state-rule"></div>
+              <div id="notice" class="notice" aria-live="polite">ยังไม่มีเหตุการณ์</div>
+            </div>
+          </article>
+        </section>
+
+        <section class="lab" aria-label="พื้นที่ทดลอง state model">
+          <article class="lab-section">
+            <div class="lab-head">
+              <div><h2>ลองอิสระ</h2><p>ทุกปุ่มกดได้เสมอ ถ้า action ผิดกติกา UI ต้องอธิบายและไม่เปลี่ยน state</p></div>
+              <button class="btn small" id="reset-freeplay">เริ่มใหม่</button>
+            </div>
+            <div id="free-actions" class="action-groups"></div>
+          </article>
+
+          <article class="lab-section">
+            <div class="lab-head">
+              <div><h2>เดินตามสถานการณ์</h2><p>เลือก tab แล้วกดขั้นที่มีกรอบสีเขียวตามลำดับ</p></div>
+              <span id="scenario-progress" class="chip slate">0 / 0</span>
+            </div>
+            <div id="scenario-tabs" class="scenario-tabs" role="tablist" aria-label="สถานการณ์"></div>
+            <div id="scenario-description" class="scenario-description"></div>
+            <div id="scenario-steps" class="scenario-steps"></div>
+          </article>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <div id="callbar" class="callbar hidden" aria-label="แถบสายที่กำลังใช้งาน">
+    <div class="callbar-main">
+      <p id="callbar-title" class="callbar-title">กำลังคุยสาย · คุณนภา จันทร์เพ็ญ</p>
+      <p id="callbar-meta" class="callbar-meta">VIP Customers · Interaction เป็นของ Router/API</p>
+    </div>
+    <div class="button-row">
+      <button class="btn small" data-action="TOGGLE_MUTE">เปิด/ปิดไมค์</button>
+      <button class="btn small" data-action="REQUEST_HOLD">พักสาย</button>
+      <button class="btn small danger" data-action="REQUEST_HANGUP">วางสาย</button>
+    </div>
+  </div>
+
+  <div id="passive-overlay" class="passive-overlay hidden">
+    <div class="passive-card">
+      <span class="chip amber">PASSIVE TAB</span>
+      <h2>แท็บนี้ไม่ใช่แท็บทำงาน</h2>
+      <p>แท็บนี้ไม่ต่อ routing WebSocket และไม่ register SIP จึงไม่มีสิทธิ์รับ offer กดรับสาย หรือเปลี่ยน presence การย้ายงานมาที่นี่ทำได้เฉพาะเมื่อไม่มีสายและไม่อยู่ใน wrap-up</p>
+      <div class="button-row" style="justify-content:center">
+        <button class="btn" data-action="SET_AVAILABLE">ลองเปิดรับสายจากแท็บรอง</button>
+        <button class="btn primary" data-action="CLAIM_TAB">ย้ายแท็บทำงานมาที่นี่</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Pure state module: no DOM access. This is the only part intended to inform production design.
+    const WorkspaceMachine = (() => {
+      const callPhases = new Set(["CONNECTING", "ACTIVE", "HELD", "DEGRADED", "ENDING"]);
+
+      const initial = () => ({
+        revision: 0,
+        owner: "WORKING",
+        auth: "CHECKING",
+        media: "UNCHECKED",
+        websocket: "DISCONNECTED",
+        sip: "DISCONNECTED",
+        presence: "OFFLINE",
+        offer: null,
+        interaction: null,
+        pendingCommand: null,
+        muted: false,
+        recording: "ON",
+        recoverTo: null,
+        updateAvailable: false,
+        wrapupDraft: "",
+        lastChange: "เปิด Workspace และกำลังตรวจ session",
+        rejected: false
+      });
+
+      const copy = (state) => JSON.parse(JSON.stringify(state));
+      const hasCall = (state) => !!state.interaction && callPhases.has(state.interaction.phase);
+      const canReceiveOffer = (state) =>
+        state.owner === "WORKING" &&
+        state.auth === "AUTHENTICATED" &&
+        state.media === "READY" &&
+        state.websocket === "CONNECTED" &&
+        state.sip === "REGISTERED" &&
+        state.presence === "AVAILABLE" &&
+        !state.offer &&
+        !state.interaction;
+
+      const reject = (state, message) => ({ ...state, lastChange: "ไม่อนุญาต: " + message, rejected: true });
+      const changed = (next, message) => {
+        next.revision += 1;
+        next.lastChange = message;
+        next.rejected = false;
+        return next;
+      };
+
+      function transition(state, action) {
+        const next = copy(state);
+        switch (action.type) {
+          case "BOOTSTRAP_OK":
+            if (state.auth !== "CHECKING") return reject(state, "session ถูกตรวจแล้ว");
+            next.auth = "AUTHENTICATED";
+            next.websocket = "CONNECTED";
+            return changed(next, "เข้าสู่ระบบสำเร็จ แต่ยังไม่รับงานจนกว่าจะตรวจอุปกรณ์เสียง");
+
+          case "MEDIA_READY":
+            if (state.owner !== "WORKING" || state.auth !== "AUTHENTICATED") return reject(state, "ต้องเป็นแท็บทำงานและ login สำเร็จก่อน");
+            next.media = "READY";
+            next.sip = "REGISTERED";
+            return changed(next, "ไมโครโฟนพร้อมและ SIP register สำเร็จ");
+
+          case "MEDIA_DENIED":
+            if (hasCall(state)) return reject(state, "ห้ามจำลอง permission denied ทับสายที่กำลังทำงาน ให้ใช้เหตุการณ์อุปกรณ์หลุด");
+            next.media = "BLOCKED";
+            next.sip = "DISCONNECTED";
+            next.presence = "OFFLINE";
+            return changed(next, "browser ไม่อนุญาตใช้ไมโครโฟน จึงเปิดรับสายไม่ได้");
+
+          case "SET_AVAILABLE":
+            if (state.owner !== "WORKING") return reject(state, "passive tab เปลี่ยน presence ไม่ได้");
+            if (state.auth !== "AUTHENTICATED") return reject(state, "session ไม่พร้อม");
+            if (state.media !== "READY" || state.sip !== "REGISTERED") return reject(state, "ต้องตรวจไมโครโฟนและ SIP registration ก่อน");
+            if (state.websocket !== "CONNECTED") return reject(state, "routing WebSocket ยังไม่พร้อม");
+            if (state.offer || state.interaction) return reject(state, "ยังมี Interaction อยู่ในมือ");
+            next.presence = "AVAILABLE";
+            return changed(next, "พร้อมรับ offer ใหม่");
+
+          case "RECEIVE_OFFER":
+            if (!canReceiveOffer(state)) return reject(state, "รับ offer ได้เฉพาะ working tab ที่ AVAILABLE และทุก transport พร้อม");
+            next.offer = { id: "INT-VOICE-2401", customer: "คุณนภา จันทร์เพ็ญ", queue: "VIP Customers", seconds: 20 };
+            next.presence = "RESERVED";
+            return changed(next, "Router เสนอ Interaction พร้อมเวลาตอบรับ 20 วินาที");
+
+          case "TICK_OFFER":
+            if (!state.offer) return reject(state, "ไม่มี offer ที่กำลังนับถอยหลัง");
+            next.offer.seconds = Math.max(0, next.offer.seconds - 5);
+            return changed(next, "เวลาตอบรับลดลง 5 วินาที");
+
+          case "ACCEPT_OFFER":
+            if (!state.offer) return reject(state, "ไม่มี offer ให้รับ");
+            if (state.auth !== "AUTHENTICATED" || state.owner !== "WORKING") return reject(state, "session หรือ tab ownership ไม่พร้อม");
+            next.interaction = { id: state.offer.id, customer: state.offer.customer, queue: state.offer.queue, phase: "CONNECTING" };
+            next.offer = null;
+            next.presence = "BUSY";
+            next.pendingCommand = "ACCEPT";
+            return changed(next, "ส่ง accept แล้ว รอ Router ack และ SIP media");
+
+          case "DECLINE_OFFER":
+            if (!state.offer) return reject(state, "ไม่มี offer ให้ปฏิเสธ");
+            next.offer = null;
+            next.presence = "AVAILABLE";
+            return changed(next, "ปฏิเสธ offer พร้อม reason แล้ว Router คืนงานเข้าคิว");
+
+          case "OFFER_TIMEOUT":
+            if (!state.offer) return reject(state, "ไม่มี offer ให้หมดเวลา");
+            next.offer = null;
+            next.presence = "AVAILABLE";
+            return changed(next, "offer หมดเวลา Router คืนงานเข้าคิวโดยไม่สร้าง Interaction ซ้ำ");
+
+          case "SIP_CONNECTED":
+            if (!state.interaction || state.interaction.phase !== "CONNECTING") return reject(state, "ไม่มีสายที่กำลังเชื่อมต่อ");
+            next.interaction.phase = "ACTIVE";
+            next.pendingCommand = null;
+            return changed(next, "Router ack ตรงกับ SIP media สองทาง สายจึงเป็น ACTIVE");
+
+          case "TOGGLE_MUTE":
+            if (!hasCall(state) || state.interaction.phase === "ENDING") return reject(state, "mute ใช้ได้เมื่อมี browser media อยู่ในมือ");
+            if (state.media !== "READY") return reject(state, "ไม่มีไมโครโฟนให้ควบคุม");
+            next.muted = !state.muted;
+            return changed(next, next.muted ? "ปิด local microphone track แล้ว" : "เปิด local microphone track แล้ว");
+
+          case "REQUEST_HOLD":
+            if (!state.interaction || state.interaction.phase !== "ACTIVE") return reject(state, "ขอพักสายได้เฉพาะ ACTIVE");
+            if (state.pendingCommand) return reject(state, "มีคำสั่งอื่นรอผลอยู่");
+            next.pendingCommand = "HOLD";
+            return changed(next, "ส่งคำสั่ง HOLD แล้ว แต่ UI ยังไม่แสดง HELD จนกว่าจะได้ ack");
+
+          case "CONFIRM_HOLD":
+            if (state.pendingCommand !== "HOLD" || !state.interaction) return reject(state, "ไม่มี HOLD ที่รอผล");
+            next.pendingCommand = null;
+            next.interaction.phase = "HELD";
+            return changed(next, "Router/telephony ยืนยัน HOLD แล้ว");
+
+          case "FAIL_HOLD":
+            if (state.pendingCommand !== "HOLD") return reject(state, "ไม่มี HOLD ที่รอผล");
+            next.pendingCommand = null;
+            return changed(next, "HOLD ล้มเหลว สายยัง ACTIVE และ UI แจ้งให้ลองใหม่");
+
+          case "REQUEST_RESUME":
+            if (!state.interaction || state.interaction.phase !== "HELD") return reject(state, "resume ใช้ได้เฉพาะ HELD");
+            next.pendingCommand = "RESUME";
+            return changed(next, "ส่งคำสั่ง RESUME แล้ว รอ ack");
+
+          case "CONFIRM_RESUME":
+            if (state.pendingCommand !== "RESUME" || !state.interaction) return reject(state, "ไม่มี RESUME ที่รอผล");
+            next.pendingCommand = null;
+            next.interaction.phase = "ACTIVE";
+            return changed(next, "กลับมาคุยสายหลังได้ ack");
+
+          case "REQUEST_RECORD_PAUSE":
+            if (!state.interaction || !["ACTIVE", "HELD"].includes(state.interaction.phase)) return reject(state, "หยุดอัดได้เฉพาะสายที่เชื่อมแล้ว");
+            if (state.pendingCommand) return reject(state, "มีคำสั่งอื่นรอผลอยู่");
+            next.pendingCommand = state.recording === "ON" ? "PAUSE_RECORDING" : "RESUME_RECORDING";
+            return changed(next, "ส่งคำสั่งบันทึกเสียงแล้ว รอ server ack ก่อนเปลี่ยนป้ายสถานะ");
+
+          case "CONFIRM_RECORDING":
+            if (!state.pendingCommand || !state.pendingCommand.includes("RECORDING")) return reject(state, "ไม่มีคำสั่งบันทึกเสียงที่รอผล");
+            next.recording = state.pendingCommand === "PAUSE_RECORDING" ? "PAUSED" : "ON";
+            next.pendingCommand = null;
+            return changed(next, next.recording === "PAUSED" ? "server ยืนยันว่าหยุดบันทึกเสียงแล้ว" : "server ยืนยันว่ากลับมาบันทึกเสียงแล้ว");
+
+          case "NETWORK_LOST":
+            next.websocket = "DISCONNECTED";
+            next.sip = "RECONNECTING";
+            if (hasCall(state) && state.interaction.phase !== "ENDING") {
+              next.recoverTo = state.interaction.phase === "HELD" ? "HELD" : "ACTIVE";
+              next.interaction.phase = "DEGRADED";
+            } else {
+              next.presence = "OFFLINE";
+            }
+            return changed(next, "network หาย UI ไม่ลบ Interaction และหยุดรับ offer ใหม่");
+
+          case "TRANSPORT_RECONNECTED":
+            if (state.websocket === "CONNECTED" && state.sip === "REGISTERED") return reject(state, "transport เชื่อมต่ออยู่แล้ว");
+            next.websocket = "CONNECTED";
+            next.sip = state.media === "READY" ? "REGISTERED" : "DISCONNECTED";
+            return changed(next, "transport กลับมาแล้ว แต่ยังต้องขอ snapshot ก่อนยืนยัน business state");
+
+          case "SNAPSHOT_ACTIVE":
+            if (!state.interaction || !["DEGRADED", "ENDING"].includes(state.interaction.phase)) return reject(state, "ไม่มี Interaction ที่ต้อง reconcile");
+            next.interaction.phase = state.recoverTo || "ACTIVE";
+            next.websocket = "CONNECTED";
+            next.recoverTo = null;
+            next.pendingCommand = null;
+            next.presence = "BUSY";
+            return changed(next, "REST snapshot ยืนยันว่า Interaction เดิมยังอยู่ จึงกลับสู่สถานะ server-owned");
+
+          case "SEQUENCE_GAP":
+            if (state.websocket !== "CONNECTED") return reject(state, "WebSocket ขาดอยู่แล้ว");
+            if (hasCall(state)) {
+              next.recoverTo = state.interaction.phase === "HELD" ? "HELD" : "ACTIVE";
+              next.interaction.phase = "DEGRADED";
+            }
+            next.websocket = "RECONCILING";
+            return changed(next, "พบ sequence gap จึงหยุดเชื่อ event ต่อและขอ snapshot");
+
+          case "AUTH_REFRESH_FAILED":
+            next.auth = "DEGRADED";
+            if (!hasCall(state)) next.presence = "OFFLINE";
+            return changed(next, hasCall(state) ? "refresh token ล้มเหลว ไม่ redirect ระหว่างสาย และกัน offer ใหม่" : "session หมดอายุ ต้อง login ใหม่ก่อนรับงาน");
+
+          case "AUTH_RESTORED":
+            next.auth = "AUTHENTICATED";
+            next.websocket = "CONNECTED";
+            if (state.media === "READY") next.sip = "REGISTERED";
+            return changed(next, "session กลับมาโดยไม่ทำลาย Interaction เดิม");
+
+          case "DEVICE_LOST":
+            next.media = "DEVICE_LOST";
+            next.sip = "RECONNECTING";
+            if (hasCall(state) && state.interaction.phase !== "ENDING") {
+              next.recoverTo = state.interaction.phase === "HELD" ? "HELD" : "ACTIVE";
+              next.interaction.phase = "DEGRADED";
+            } else {
+              next.presence = "OFFLINE";
+            }
+            return changed(next, "ไมโครโฟนหลุด UI เตือนชัดและคงปุ่มวางสาย");
+
+          case "DEVICE_RESTORED":
+            if (state.media !== "DEVICE_LOST" && state.media !== "BLOCKED") return reject(state, "อุปกรณ์ไม่ได้อยู่ในสถานะเสีย");
+            next.media = "READY";
+            next.sip = "REGISTERED";
+            if (state.interaction && state.interaction.phase === "DEGRADED" && state.websocket === "CONNECTED" && state.auth === "AUTHENTICATED") {
+              next.interaction.phase = state.recoverTo || "ACTIVE";
+              next.recoverTo = null;
+            }
+            return changed(next, "ตรวจอุปกรณ์ใหม่สำเร็จและคืน media path");
+
+          case "REQUEST_HANGUP":
+            if (!hasCall(state)) return reject(state, "ไม่มีสายให้วาง");
+            next.interaction.phase = "ENDING";
+            next.pendingCommand = "HANGUP";
+            return changed(next, "ส่งวางสายแล้ว UI รอ server end event และไม่สร้าง wrap-up เอง");
+
+          case "INTERACTION_ENDED":
+            if (!state.interaction || !["ENDING", "ACTIVE", "HELD", "DEGRADED"].includes(state.interaction.phase)) return reject(state, "ไม่มี Interaction ที่ server ยืนยันว่าจบ");
+            next.interaction.phase = "WRAPUP";
+            next.pendingCommand = null;
+            next.presence = "WRAPUP";
+            next.recoverTo = null;
+            next.wrapupDraft = "สรุปผลการสนทนา…";
+            return changed(next, "server ยืนยันจบสายแล้ว เข้าสู่ WRAPUP และกัน offer ใหม่");
+
+          case "SUBMIT_WRAPUP":
+            if (!state.interaction || state.interaction.phase !== "WRAPUP") return reject(state, "ยังไม่อยู่ใน WRAPUP");
+            if (state.auth !== "AUTHENTICATED" || state.websocket !== "CONNECTED") return reject(state, "เก็บ draft ไว้และรอ session กลับมาก่อนส่ง wrap-up");
+            next.interaction = null;
+            next.wrapupDraft = "";
+            next.presence = "OFFLINE";
+            next.muted = false;
+            next.recording = "ON";
+            return changed(next, "ส่ง wrap-up สำเร็จ กลับสู่ยังไม่พร้อมรับงานเพื่อให้เอเจนต์เลือก AVAILABLE เอง");
+
+          case "BECOME_PASSIVE":
+            if (state.offer || state.interaction) return reject(state, "ห้ามย้าย tab ownership ระหว่างมี offer, สาย หรือ wrap-up");
+            next.owner = "PASSIVE";
+            next.websocket = "DISCONNECTED";
+            next.sip = "DISCONNECTED";
+            next.presence = "OFFLINE";
+            return changed(next, "แท็บนี้เป็น passive และตัด routing/SIP connections");
+
+          case "CLAIM_TAB":
+            if (state.owner !== "PASSIVE") return reject(state, "แท็บนี้เป็น working tab อยู่แล้ว");
+            next.owner = "WORKING";
+            next.websocket = state.auth === "AUTHENTICATED" ? "CONNECTED" : "DISCONNECTED";
+            next.media = "UNCHECKED";
+            next.sip = "DISCONNECTED";
+            next.presence = "OFFLINE";
+            return changed(next, "ย้าย working tab แล้ว ต้องตรวจ media readiness ใหม่ก่อน AVAILABLE");
+
+          case "VERSION_AVAILABLE":
+            next.updateAvailable = true;
+            return changed(next, state.interaction || state.offer ? "มีเวอร์ชันใหม่ แต่เลื่อน reload จนกว่างานในมือจะจบ" : "มีเวอร์ชันใหม่ สามารถ reload เมื่อพร้อม");
+
+          case "RELOAD_VERSION":
+            if (state.interaction || state.offer || state.presence === "AVAILABLE") return reject(state, "reload ได้เมื่อไม่มีงานและไม่เปิดรับ offer เท่านั้น");
+            next.updateAvailable = false;
+            next.media = "UNCHECKED";
+            next.sip = "DISCONNECTED";
+            return changed(next, "reload เวอร์ชันใหม่แล้ว ต้องตรวจ media readiness ใหม่");
+
+          default:
+            return reject(state, "ไม่รู้จัก action นี้");
+        }
+      }
+
+      const derived = (state) => ({
+        hasCall: hasCall(state),
+        canReceiveOffer: canReceiveOffer(state),
+        newOffersAllowed: canReceiveOffer(state),
+        canHangup: hasCall(state),
+        needsSnapshot: state.websocket === "RECONCILING" || (state.interaction && state.interaction.phase === "DEGRADED"),
+        canReload: !state.interaction && !state.offer && state.presence !== "AVAILABLE"
+      });
+
+      return { initial, transition, derived };
+    })();
+
+    const actionGroups = [
+      { title: "เริ่มงาน", actions: [
+        ["BOOTSTRAP_OK", "เข้าสู่ระบบสำเร็จ"], ["MEDIA_READY", "อุปกรณ์พร้อม"], ["MEDIA_DENIED", "ไม่อนุญาตไมค์"], ["SET_AVAILABLE", "เปิดรับสาย"]
+      ]},
+      { title: "Offer และสาย", actions: [
+        ["RECEIVE_OFFER", "มีสายเสนอ"], ["TICK_OFFER", "ผ่านไป 5 วินาที"], ["ACCEPT_OFFER", "รับสาย"], ["DECLINE_OFFER", "ปฏิเสธ"], ["OFFER_TIMEOUT", "หมดเวลารับ"], ["SIP_CONNECTED", "เสียงสองทางพร้อม"]
+      ]},
+      { title: "Call control", actions: [
+        ["TOGGLE_MUTE", "เปิด/ปิดไมค์"], ["REQUEST_HOLD", "ขอพักสาย"], ["CONFIRM_HOLD", "ยืนยันพักสาย"], ["FAIL_HOLD", "พักสายล้มเหลว"], ["REQUEST_RESUME", "ขอกลับเข้าร่วม"], ["CONFIRM_RESUME", "ยืนยันกลับเข้าร่วม"], ["REQUEST_RECORD_PAUSE", "สลับการบันทึก"], ["CONFIRM_RECORDING", "ยืนยันการบันทึก"], ["REQUEST_HANGUP", "ขอวางสาย"], ["INTERACTION_ENDED", "server ยืนยันจบ"], ["SUBMIT_WRAPUP", "ส่ง wrap-up"]
+      ]},
+      { title: "เหตุขัดข้อง", actions: [
+        ["NETWORK_LOST", "network หาย"], ["TRANSPORT_RECONNECTED", "transport กลับมา"], ["SNAPSHOT_ACTIVE", "snapshot ยืนยัน ACTIVE"], ["SEQUENCE_GAP", "พบ sequence gap"], ["AUTH_REFRESH_FAILED", "refresh token ล้มเหลว"], ["AUTH_RESTORED", "session กลับมา"], ["DEVICE_LOST", "ไมโครโฟนหลุด"], ["DEVICE_RESTORED", "อุปกรณ์กลับมา"], ["BECOME_PASSIVE", "แท็บนี้เป็น passive"], ["CLAIM_TAB", "ย้ายงานมาที่แท็บนี้"], ["VERSION_AVAILABLE", "มีเวอร์ชันใหม่"], ["RELOAD_VERSION", "reload เวอร์ชันใหม่"]
+      ]}
+    ];
+
+    const scenarios = [
+      {
+        id: "happy",
+        title: "รับสายจนจบ",
+        description: "ดูว่า AVAILABLE เกิดหลัง media readiness เท่านั้น, accept ต้องรอ ack และ wrap-up ไม่ถูกสร้างก่อน server ยืนยันจบสาย",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "Router เสนอสาย"], ["ACCEPT_OFFER", "เอเจนต์รับ"], ["SIP_CONNECTED", "เสียงพร้อม"], ["REQUEST_HOLD", "ขอพักสาย"], ["CONFIRM_HOLD", "พักสายสำเร็จ"], ["REQUEST_RESUME", "ขอกลับ"], ["CONFIRM_RESUME", "กลับมาคุย"], ["REQUEST_HANGUP", "วางสาย"], ["INTERACTION_ENDED", "server ปิดสาย"], ["SUBMIT_WRAPUP", "ส่ง wrap-up"]
+        ]
+      },
+      {
+        id: "network",
+        title: "Network หลุด",
+        description: "Interaction ไม่หายจากจอเมื่อ network ขาด การต่อ transport ได้ไม่ได้แปลว่า business state ถูกต้องจนกว่าจะ reconcile snapshot",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["ACCEPT_OFFER", "รับสาย"], ["SIP_CONNECTED", "เสียงพร้อม"], ["NETWORK_LOST", "network หลุด"], ["TRANSPORT_RECONNECTED", "transport กลับ"], ["SNAPSHOT_ACTIVE", "ยืนยันจาก snapshot"], ["REQUEST_HANGUP", "วางสาย"], ["INTERACTION_ENDED", "server ปิดสาย"]
+        ]
+      },
+      {
+        id: "auth",
+        title: "Auth หมดกลางสาย",
+        description: "ห้าม redirect ระหว่างถือสาย UI ต้องเตือน กัน offer ใหม่ และเปิดทางวางสายได้ ก่อน re-auth และส่ง wrap-up",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["ACCEPT_OFFER", "รับสาย"], ["SIP_CONNECTED", "เสียงพร้อม"], ["AUTH_REFRESH_FAILED", "refresh ล้มเหลว"], ["REQUEST_HANGUP", "วางสายอย่างปลอดภัย"], ["INTERACTION_ENDED", "server ปิดสาย"], ["SUBMIT_WRAPUP", "ลองส่ง wrap-up", true], ["AUTH_RESTORED", "session กลับมา"], ["SUBMIT_WRAPUP", "ส่ง wrap-up สำเร็จ"]
+        ]
+      },
+      {
+        id: "device",
+        title: "ไมโครโฟนหลุด",
+        description: "media failure ไม่ควรลบ Interaction ปุ่มวางสายยังต้องใช้ได้ และระบบคืน ACTIVE หลังตรวจอุปกรณ์ใหม่สำเร็จ",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["ACCEPT_OFFER", "รับสาย"], ["SIP_CONNECTED", "เสียงพร้อม"], ["DEVICE_LOST", "ไมโครโฟนหลุด"], ["DEVICE_RESTORED", "ตรวจอุปกรณ์ใหม่"], ["REQUEST_HANGUP", "วางสาย"], ["INTERACTION_ENDED", "server ปิดสาย"]
+        ]
+      },
+      {
+        id: "tabs",
+        title: "สองแท็บ",
+        description: "passive tab ไม่มี routing WebSocket/SIP และเมื่อย้าย ownership ต้องตรวจ media readiness ใหม่ ห้ามย้ายระหว่างมี Interaction",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["BECOME_PASSIVE", "กลายเป็น passive"], ["SET_AVAILABLE", "ลองเปิดรับสาย", true], ["CLAIM_TAB", "ย้ายงานมาที่นี่"], ["SET_AVAILABLE", "ลองก่อนตรวจอุปกรณ์", true], ["MEDIA_READY", "ตรวจอุปกรณ์ใหม่"], ["SET_AVAILABLE", "เปิดรับสาย"]
+        ]
+      }
+    ];
+
+    let state = WorkspaceMachine.initial();
+    let activeScenario = 0;
+    let scenarioStep = 0;
+
+    const labels = {
+      owner: { WORKING: "แท็บทำงาน", PASSIVE: "แท็บรอง" },
+      auth: { CHECKING: "กำลังตรวจ session", AUTHENTICATED: "ยืนยันตัวตนแล้ว", DEGRADED: "session มีปัญหา" },
+      media: { UNCHECKED: "ยังไม่ตรวจอุปกรณ์", READY: "ไมโครโฟนพร้อม", BLOCKED: "ไม่ได้รับอนุญาต", DEVICE_LOST: "อุปกรณ์หลุด" },
+      websocket: { DISCONNECTED: "ไม่ได้เชื่อมต่อ", CONNECTED: "เชื่อมต่อแล้ว", RECONCILING: "กำลัง reconcile" },
+      sip: { DISCONNECTED: "ไม่ได้ register", REGISTERED: "register แล้ว", RECONNECTING: "กำลัง reconnect" },
+      presence: { OFFLINE: "ยังไม่พร้อมรับงาน", AVAILABLE: "พร้อมรับสาย", RESERVED: "มี offer รอตอบ", BUSY: "กำลังคุย", WRAPUP: "กำลังสรุปงาน" }
+    };
+
+    const text = (group, value) => labels[group] && labels[group][value] ? labels[group][value] : value;
+    const chipClass = (value) => {
+      if (["AUTHENTICATED", "READY", "CONNECTED", "REGISTERED", "AVAILABLE", "ACTIVE"].includes(value)) return "green";
+      if (["CHECKING", "UNCHECKED", "RECONNECTING", "RECONCILING", "RESERVED", "CONNECTING", "ENDING", "WRAPUP"].includes(value)) return "amber";
+      if (["DEGRADED", "BLOCKED", "DEVICE_LOST", "DISCONNECTED"].includes(value)) return "rose";
+      if (["HELD", "PASSIVE"].includes(value)) return "indigo";
+      return "slate";
+    };
+
+    function dispatch(type, fromScenario = false, advanceOnReject = false) {
+      const beforeRevision = state.revision;
+      state = WorkspaceMachine.transition(state, { type });
+      const accepted = state.revision !== beforeRevision;
+      if (fromScenario && (accepted || advanceOnReject)) scenarioStep += 1;
+      render();
+    }
+
+    function scenarioAwareDispatch(type) {
+      const current = scenarios[activeScenario].steps[scenarioStep];
+      if (current && current[0] === type) {
+        dispatch(type, true, !!current[2]);
+      } else {
+        dispatch(type, false);
+      }
+    }
+
+    function resetState() {
+      state = WorkspaceMachine.initial();
+      scenarioStep = 0;
+      render();
+    }
+
+    function renderChip(element, value, label) {
+      element.className = "chip " + chipClass(value);
+      element.innerHTML = '<span class="dot"></span>' + label;
+    }
+
+    function render() {
+      const derived = WorkspaceMachine.derived(state);
+      renderChip(document.getElementById("header-owner"), state.owner, text("owner", state.owner));
+      renderChip(document.getElementById("header-auth"), state.auth, text("auth", state.auth));
+      renderChip(document.getElementById("header-presence"), state.presence, text("presence", state.presence));
+
+      const offerCard = document.getElementById("offer-card");
+      document.getElementById("offer-count").textContent = state.offer ? "1 งาน" : "0 งาน";
+      if (state.offer) {
+        offerCard.className = "offer";
+        offerCard.innerHTML = '<p class="offer-name">สายจาก ' + state.offer.customer + '</p>' +
+          '<p class="offer-meta">' + state.offer.queue + ' · ' + state.offer.id + '</p>' +
+          '<p class="offer-countdown">เหลือ ' + state.offer.seconds + ' วินาที</p>' +
+          '<div class="button-row"><button class="btn primary small" data-action="ACCEPT_OFFER">รับสาย</button><button class="btn small" data-action="DECLINE_OFFER">ปฏิเสธ</button></div>';
+      } else {
+        offerCard.className = "offer empty";
+        offerCard.innerHTML = '<p class="offer-name">ยังไม่มีสายเสนอ</p><p class="offer-meta">ต้องผ่าน login, media readiness และ AVAILABLE ก่อน</p>';
+      }
+
+      const readiness = [
+        [state.owner === "WORKING", "เป็นแท็บทำงาน"],
+        [state.auth === "AUTHENTICATED", "session ใช้งานได้"],
+        [state.media === "READY", "ไมโครโฟนพร้อม"],
+        [state.websocket === "CONNECTED", "routing WebSocket พร้อม"],
+        [state.sip === "REGISTERED", "SIP register แล้ว"]
+      ];
+      document.getElementById("readiness-list").innerHTML = readiness.map(([ok, label]) =>
+        '<div><strong style="color:' + (ok ? 'var(--green-700)' : 'var(--slate-400)') + '">' + (ok ? 'ผ่าน' : 'รอ') + '</strong> · ' + label + '</div>'
+      ).join("");
+
+      const interaction = state.interaction;
+      document.getElementById("call-name").textContent = interaction ? interaction.customer : "ยังไม่มี Interaction";
+      document.getElementById("call-meta").textContent = interaction ? interaction.queue + " · " + interaction.id : "Router/API จะเป็นผู้ยืนยันสายที่อยู่ในมือ";
+      const stage = interaction ? interaction.phase : "IDLE";
+      const stageEl = document.getElementById("call-stage");
+      stageEl.className = "chip " + chipClass(stage) + " call-stage";
+      stageEl.textContent = stage;
+      document.getElementById("call-message").textContent = state.lastChange;
+
+      const command = document.getElementById("command-status");
+      command.className = "chip " + (state.pendingCommand ? "amber" : "slate");
+      command.textContent = state.pendingCommand ? "รอผล: " + state.pendingCommand : "ไม่มีคำสั่งค้าง";
+      document.getElementById("mute-label").textContent = state.muted ? "ปิดอยู่" : "เปิด";
+      document.getElementById("hold-label").textContent = stage === "HELD" ? "พักอยู่" : "ยังไม่พัก";
+      document.getElementById("record-label").textContent = state.recording === "PAUSED" ? "หยุดอัด" : "กำลังบันทึก";
+
+      const stateRows = [
+        ["Tab ownership", text("owner", state.owner)],
+        ["Auth", text("auth", state.auth)],
+        ["Media", text("media", state.media)],
+        ["Routing WS", text("websocket", state.websocket)],
+        ["SIP", text("sip", state.sip)],
+        ["Presence", text("presence", state.presence)],
+        ["Interaction", interaction ? interaction.id + " · " + interaction.phase : "ไม่มี"],
+        ["Recording", state.recording === "ON" ? "กำลังบันทึก" : "หยุดชั่วคราว"],
+        ["Offer ใหม่", derived.newOffersAllowed ? "อนุญาต" : "ปิด"],
+        ["Version", state.updateAvailable ? "รอ reload" : "ปัจจุบัน"]
+      ];
+      document.getElementById("state-list").innerHTML = stateRows.map(([key, value]) => '<dt>' + key + '</dt><dd>' + value + '</dd>').join("");
+      document.getElementById("revision").textContent = "revision " + state.revision;
+      document.getElementById("state-rule").innerHTML = '<strong>Authority:</strong> Router/API ยืนยัน Interaction และ wrap-up · SIP.js ยืนยัน transport/dialog/media · UI แสดง pending จนกว่าจะได้ ack';
+      const notice = document.getElementById("notice");
+      notice.className = "notice" + (state.rejected ? " error" : "");
+      notice.textContent = state.lastChange;
+
+      document.querySelectorAll('[data-action="TOGGLE_MUTE"]').forEach((el) => el.classList.toggle("on", state.muted));
+      const callbar = document.getElementById("callbar");
+      callbar.classList.toggle("hidden", !interaction || interaction.phase === "WRAPUP");
+      if (interaction) {
+        document.getElementById("callbar-title").textContent = interaction.phase + " · " + interaction.customer;
+        document.getElementById("callbar-meta").textContent = interaction.queue + " · " + interaction.id + (state.auth === "DEGRADED" ? " · AUTH DEGRADED" : "");
+      }
+      document.getElementById("passive-overlay").classList.toggle("hidden", state.owner !== "PASSIVE");
+      renderScenario();
+      bindActionButtons();
+    }
+
+    function renderActions() {
+      document.getElementById("free-actions").innerHTML = actionGroups.map(group =>
+        '<section class="action-group"><h3>' + group.title + '</h3><div class="button-row">' +
+        group.actions.map(([type, label]) => '<button class="btn small" data-action="' + type + '">' + label + '</button>').join("") +
+        '</div></section>'
+      ).join("");
+    }
+
+    function renderScenarioTabs() {
+      document.getElementById("scenario-tabs").innerHTML = scenarios.map((scenario, index) =>
+        '<button class="scenario-tab" role="tab" aria-selected="' + (index === activeScenario) + '" data-scenario="' + index + '">' + scenario.title + '</button>'
+      ).join("");
+      document.querySelectorAll("[data-scenario]").forEach(button => button.addEventListener("click", () => {
+        activeScenario = Number(button.dataset.scenario);
+        resetState();
+        renderScenarioTabs();
+      }));
+    }
+
+    function renderScenario() {
+      const scenario = scenarios[activeScenario];
+      document.getElementById("scenario-description").textContent = scenario.description;
+      document.getElementById("scenario-progress").textContent = Math.min(scenarioStep, scenario.steps.length) + " / " + scenario.steps.length;
+      document.getElementById("scenario-steps").innerHTML = scenario.steps.map(([type, label, advanceOnReject], index) => {
+        const status = index < scenarioStep ? "done" : index === scenarioStep ? "current" : "";
+        return '<button class="scenario-step ' + status + '" data-scenario-action="' + type + '" data-advance-on-reject="' + !!advanceOnReject + '" ' + (index === scenarioStep ? "" : "disabled") + '>' + label + '</button>';
+      }).join("");
+      document.querySelectorAll("[data-scenario-action]").forEach(button => button.addEventListener("click", () => dispatch(button.dataset.scenarioAction, true, button.dataset.advanceOnReject === "true")));
+    }
+
+    function bindActionButtons() {
+      document.querySelectorAll("[data-action]").forEach(button => {
+        button.onclick = () => scenarioAwareDispatch(button.dataset.action);
+      });
+    }
+
+    document.getElementById("reset-freeplay").addEventListener("click", resetState);
+    renderActions();
+    renderScenarioTabs();
+    render();
+  </script>
+</body>
+</html>
