@@ -326,10 +326,17 @@ consult · คำแนะนำจากผู้ช่วย · สคริ�
 
 ## 7. สถานะ implementation
 
-`apps/router/src/main.ts` ปัจจุบันมีแค่ consume + log (ข้อ 1 บางส่วน) —
-ข้อ 2–6 คือเนื้องานหลักของ Phase 1 ลำดับที่แนะนำ: **2 → 4 → 5 → 6**
-(ข้อ 3 hardcode คิวเดียวไปก่อนได้) และการ resolve SIP domain → tenant UUID
-ยังเป็น TODO ใน telephony (ตอนนี้ใช้ domain เป็น tenant key ชั่วคราว)
+Inbound Voice Phase 1 implement เส้นทางหลักแล้ว:
+
+- `apps/telephony` resolve `sipDomain` เป็น tenant UUID จาก PostgreSQL, normalize FreeSWITCH events
+  และส่ง command กลับไปยัง `telephonyNodeId` ที่เป็นเจ้าของสาย
+- `apps/router` สร้าง Interaction, รองรับ direct queue/IVR, skill routing, reservation,
+  offer timeout/no-answer/max wait และ mandatory wrap-up
+- recording ถูกสร้างโดย telephony, archive เข้า MinIO/S3 ตาม tenant prefix และส่งเข้า transcript/QM
+  หลัง `interaction.ended`
+- `apps/workspace` มี session, single-working-tab และ reconnect/sequence runtime พร้อม tests
+  แต่ React UI และ SIP.js browser softphone ยังเป็นงานของเฟสถัดไป
+- acceptance สอง tenant และ softphone E2E ตรวจได้ด้วย `pnpm voice:acceptance`
 
 **Multi-vendor (§3b):** `apps/telephony` (FreeSWITCH) เป็น gateway ตัวแรกที่ implement ใน Phase 1;
 `apps/asterisk-gateway` เป็น Phase 1+ — envelope contract, `vendor` header, และ command routing

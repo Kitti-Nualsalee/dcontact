@@ -18,12 +18,10 @@
 
 ## โครงสร้าง
 
-> **สถานะตอนนี้: ยังไม่มีโค้ดของ service ใด ๆ** — `apps/*` ทั้งตารางเป็น **แผนผังที่ตั้งใจไว้**
-> ไม่ใช่โฟลเดอร์ที่มีอยู่จริง โครงร่างที่เคยเขียนไว้ (api/router/telephony/channels/agent-desktop)
-> ถูกลบทิ้งเมื่อ 2026-08-14 ระหว่างที่ยังออกแบบระบบอยู่ เพราะ skeleton ที่ไม่ตรงกับแบบล่าสุด
-> ทำให้สับสนมากกว่าช่วย — กู้กลับได้ด้วย `git checkout 8165970 -- apps` ถ้าต้องการอ้างอิง
-> วินัยเดียวกับตารางของโมดูลใน [docs/README.md](docs/README.md): **โค้ดเกิดพร้อมเฟสที่ใช้มัน**
-> ของที่มีอยู่จริงวันนี้คือ `packages/*` · `infra/` · `mockups/` · `docs/`
+> **สถานะตอนนี้:** Phase 0 และ Inbound Voice Phase 1 ผ่าน automated acceptance แล้ว
+> มี implementation ใน `apps/api`, `apps/router`, `apps/telephony`, `apps/workspace` และ `apps/qm`
+> พร้อมชุดพิสูจน์สอง tenant ใน `apps/phase-one-acceptance` ส่วน path อื่นในตารางยังเป็นแผนผัง
+> และจะสร้างเมื่อเริ่มเฟสที่ใช้จริง
 
 | path                    | หน้าที่                                                                                                                                                   |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -67,21 +65,26 @@ pnpm build
 python3 -m http.server 8090 --directory mockups
 ```
 
-service แรกของ Phase 1 รันได้แล้ว: `apps/api`, `apps/router` และ `apps/telephony`
-ใช้ `pnpm --filter <package> dev` เพื่อรันแยก process ใน local development
+service ของ Phase 1 รันได้แล้ว: `apps/api`, `apps/router`, `apps/telephony` และ `apps/qm`
+ส่วน `apps/workspace` ตอนนี้เป็น runtime/session library ที่มี automated tests แต่ยังไม่มี React UI
+ใช้ `pnpm --filter <package> dev` เพื่อรัน service ที่มี `dev` script แยก process ใน local development
 
 ### ทดสอบ Inbound Voice Phase 1
 
-หลัง `pnpm infra:ready` ให้รัน:
+หลัง `pnpm infra:ready` ให้รัน acceptance ทั้งเฟส:
 
 ```bash
-pnpm voice:demo
+pnpm voice:acceptance
 ```
 
-คำสั่งนี้ใช้ SIPp image ที่ pin digest จำลอง caller และ agent softphone แล้วรัน FreeSWITCH ESL gateway,
-Router และ Kafka จริง โดยตรวจว่าสายเข้า `2000` ถูก bridge ด้วย codec PCMU, Interaction เป็น `ACTIVE`,
-มี lifecycle `created → queued → assigned → answered` และ command กลับไป `telephonyNodeId` ต้นทาง
-เมื่อผ่านจะแสดง `INBOUND_VOICE_PHASE_1_DEMO_PASS`
+คำสั่งนี้ตรวจ 13 boundaries รวม Phase 0, Keycloak Organizations สอง tenant, Kafka contract,
+Router/Workspace/API, recording-to-QM และ SIPp/FreeSWITCH E2E ทั้ง direct queue กับ IVR/DTMF
+สายต้องจบ `COMPLETED`, recording ต้องถูก archive และ tenant isolation ต้องผ่านทุกชั้น
+เมื่อสำเร็จจะแสดง `INBOUND_VOICE_PHASE_1_ACCEPTED`
+
+ใช้ `pnpm voice:demo` หรือ `pnpm voice:ivr:demo` เมื่อต้องการรันเฉพาะ softphone E2E
+รายละเอียดหลักฐานและขอบเขต baseline อยู่ใน
+[docs/inbound-voice-phase-one-acceptance.md](docs/inbound-voice-phase-one-acceptance.md)
 
 > **Docker Desktop (macOS/Windows):** FreeSWITCH advertise `127.0.0.1` เป็น RTP address
 > (ตั้งใน `infra/freeswitch/conf/vars.xml`) เพื่อให้ browser บน host ส่ง media ผ่าน
@@ -103,7 +106,7 @@ workflow ยังรัน tenant-isolation evidence ผ่าน role `dcontac
 เมื่อพร้อม บรรทัดสุดท้ายจะมี `"entryCondition":"READY_FOR_INBOUND_VOICE_PHASE_1"`; ถ้าไม่พร้อม
 ขั้นที่ล้มเหลวจะแสดง `FAIL` และขั้นที่พึ่งพาจะเป็น `SKIP` พร้อม `blockedBy`
 
-ส่วน identity จะ import realm `dcontact`, สร้าง Organization `demo`, เชื่อม dev users กับ
+ส่วน identity จะ import realm `dcontact`, สร้าง Organizations `demo` และ `demo-two`, เชื่อม dev users กับ
 `users.keycloak_id` ใน Postgres แล้วออก access token จริงเพื่อตรวจลายเซ็นผ่าน JWKS รวมถึง claims
 `tenant_id`, `tenant_slug`, `dc_user_id`, `realm_access.roles` และ native `organization` claim
 
@@ -117,11 +120,13 @@ workflow ยังรัน tenant-isolation evidence ผ่าน role `dcontac
 
 ## Credentials (dev only)
 
-| user                 | password  | role                         |
-| -------------------- | --------- | ---------------------------- |
-| admin@demo.local     | admin1234 | admin / ADMIN                |
-| agent1000@demo.local | agent1234 | agent / AGENT (SIP ext 1000) |
-| agent1001@demo.local | agent1234 | agent / AGENT (SIP ext 1001) |
+| user                     | password  | role                         |
+| ------------------------ | --------- | ---------------------------- |
+| admin@demo.local         | admin1234 | admin / ADMIN                |
+| agent1000@demo.local     | agent1234 | agent / AGENT (SIP ext 1000) |
+| agent1001@demo.local     | agent1234 | agent / AGENT (SIP ext 1001) |
+| admin@demo-two.local     | admin1234 | admin / ADMIN                |
+| agent2000@demo-two.local | agent1234 | agent / AGENT (SIP ext 2000) |
 
 ## หมายเหตุ production
 
@@ -130,4 +135,5 @@ workflow ยังรัน tenant-isolation evidence ผ่าน role `dcontac
   production ต้องปิด Direct Access Grants และรับ credentials จาก secret manager
 - WebSocket softphone ต้องเปลี่ยนเป็น `wss:` (7443) + TLS cert จริง
 - App ต้องต่อ DB ด้วย role `dcontact_app` (NOBYPASSRLS) เพื่อให้ RLS ทำงานจริง
-- FreeSWITCH directory/dialplan จะเปลี่ยนเป็น generate จาก DB ต่อ tenant (mod_xml_curl) ใน Phase 1
+- ก่อนเชื่อม production SIP trunk ต้องเปลี่ยน FreeSWITCH directory/dialplan เป็น config ที่สร้างจาก
+  tenant metadata (เช่น `mod_xml_curl`) แทน static dev configuration
