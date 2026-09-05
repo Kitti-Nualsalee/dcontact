@@ -126,6 +126,11 @@ class AppModule {}
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
+  app.enableCors({
+    origin: process.env.WORKSPACE_ORIGIN ?? 'http://localhost:5173',
+    allowedHeaders: ['authorization', 'content-type', 'x-correlation-id'],
+    exposedHeaders: ['x-correlation-id'],
+  });
   attachWorkspaceSessionWebSocket(app.getHttpServer(), socketAdapter);
   await createConsumer({
     clientId: 'dcontact-api',

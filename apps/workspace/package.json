@@ -2,6 +2,7 @@
   "name": "@d-contact/workspace",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "dev": "vite",
@@ -10,8 +11,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "oidc-client-ts": "3.5.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-oidc-context": "3.3.1"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

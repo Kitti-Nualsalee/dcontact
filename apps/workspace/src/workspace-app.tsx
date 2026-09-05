@@ -1,10 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { AgentWorkspaceApi, AgentWorkspaceSnapshot } from './agent-api.js';
 import { createBrowserWorkspaceLeaderElection } from './leader-election.js';
 
 type MediaReadiness = 'UNCHECKED' | 'CHECKING' | 'READY' | 'BLOCKED';
 type Availability = 'OFFLINE' | 'AVAILABLE';
 
-export function WorkspaceApp() {
+export interface WorkspaceAppProps {
+  api?: AgentWorkspaceApi;
+  tenantLabel?: string;
+  onSignOut?: () => void;
+}
+
+export function WorkspaceApp({
+  api,
+  tenantLabel = 'acme.d-contact.io',
+  onSignOut,
+}: WorkspaceAppProps) {
   const leaderElection = useMemo(
     () => createBrowserWorkspaceLeaderElection(crypto.randomUUID()),
     [],
@@ -13,7 +24,28 @@ export function WorkspaceApp() {
   const [mediaReadiness, setMediaReadiness] = useState<MediaReadiness>('UNCHECKED');
   const [availability, setAvailability] = useState<Availability>('OFFLINE');
   const [mediaError, setMediaError] = useState<string>();
+  const [snapshot, setSnapshot] = useState<AgentWorkspaceSnapshot>();
+  const [snapshotError, setSnapshotError] = useState<string>();
   const mediaStream = useRef<MediaStream | undefined>(undefined);
+
+  useEffect(() => {
+    if (!api) return;
+    let active = true;
+    void api
+      .snapshot()
+      .then((nextSnapshot) => {
+        if (!active) return;
+        setSnapshot(nextSnapshot);
+        setSnapshotError(undefined);
+      })
+      .catch(() => {
+        if (!active) return;
+        setSnapshotError('โหลดสถานะจาก API ไม่สำเร็จ การควบคุมระยะไกลจะยังไม่พร้อมใช้งาน');
+      });
+    return () => {
+      active = false;
+    };
+  }, [api]);
 
   useEffect(() => {
     setWorkingTab(leaderElection.start());
@@ -119,7 +151,10 @@ export function WorkspaceApp() {
 
       <section className="workspace">
         <header className="topbar">
-          <span className="tenant">acme.d-contact.io</span>
+          <div className="identity-strip">
+            <span className="tenant">{tenantLabel}</span>
+            {snapshot ? <strong>{snapshot.agent.displayName}</strong> : null}
+          </div>
           <div className="status-strip" aria-label="สถานะ Workspace">
             <span
               className={'status-chip ' + (workingTab ? 'success' : 'neutral')}
@@ -140,6 +175,11 @@ export function WorkspaceApp() {
             >
               {availability}
             </span>
+            {onSignOut ? (
+              <button type="button" className="signout-action" onClick={onSignOut}>
+                ออกจากระบบ
+              </button>
+            ) : null}
           </div>
         </header>
 
@@ -154,6 +194,34 @@ export function WorkspaceApp() {
           </div>
 
           <section className="workspace-grid" aria-label="การเตรียมพร้อมรับสาย">
+            {snapshot?.interaction?.state === 'ASSIGNED' ? (
+              <article className="panel incoming-offer" aria-labelledby="incoming-offer-title">
+                <div>
+                  <p className="step">VOICE OFFER</p>
+                  <h2 id="incoming-offer-title">สายเรียกเข้า</h2>
+                  <strong className="caller-number">
+                    {snapshot.interaction.caller ?? 'ไม่แสดงหมายเลข'}
+                  </strong>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Queue</dt>
+                    <dd>{snapshot.interaction.queue?.name ?? 'ไม่ระบุ'}</dd>
+                  </div>
+                  <div>
+                    <dt>Authority</dt>
+                    <dd>Interaction v{snapshot.interaction.version}</dd>
+                  </div>
+                </dl>
+              </article>
+            ) : null}
+
+            {snapshotError ? (
+              <p className="snapshot-warning" role="status">
+                {snapshotError}
+              </p>
+            ) : null}
+
             <article className="panel readiness-panel">
               <div className="panel-heading">
                 <div>
@@ -239,7 +307,7 @@ export function WorkspaceApp() {
               <dl>
                 <div>
                   <dt>Interaction</dt>
-                  <dd>Router / API</dd>
+                  <dd>{snapshot?.interaction?.state ?? 'Router / API'}</dd>
                 </div>
                 <div>
                   <dt>Browser media</dt>
@@ -247,7 +315,7 @@ export function WorkspaceApp() {
                 </div>
                 <div>
                   <dt>Presence</dt>
-                  <dd>{availability}</dd>
+                  <dd>{snapshot?.agent.state ?? availability}</dd>
                 </div>
               </dl>
               <p className="authority-note">
