@@ -206,7 +206,7 @@
         </div>
 
         <div class="question">
-          <strong>คำถามที่ต้นแบบนี้ตอบ:</strong> state model นี้ทำให้เอเจนต์เข้าใจได้หรือไม่ว่าเมื่อใดพร้อมรับสาย ใครเป็นเจ้าของ Interaction และยังทำอะไรได้บ้างเมื่อ auth, network, media device หรือ tab ownership มีปัญหา โดยไม่ให้ browser กลายเป็นแหล่งความจริงแทน Router/API
+          <strong>คำถามที่ต้นแบบนี้ตอบ:</strong> state model นี้ทำให้เอเจนต์เข้าใจได้หรือไม่ว่าเมื่อใดพร้อมรับสาย ใครเป็นเจ้าของ Interaction และยังทำอะไรได้บ้างเมื่อ auth, network, media device หรือ tab ownership มีปัญหา รวมถึง command idempotency, ack timeout, accept ownership race, forced logout, SIP credential rotation และ registration retry ceiling โดยไม่ให้ browser กลายเป็นแหล่งความจริงแทน Router/API
         </div>
 
         <section class="workspace-grid" aria-label="Workspace จำลอง">
@@ -319,12 +319,29 @@
         offer: null,
         interaction: null,
         pendingCommand: null,
+        commandId: null,
+        commandVersion: null,
+        commandElapsed: 0,
+        commandRetried: false,
+        commandRetryAllowed: false,
+        controlMode: "NORMAL",
+        interactionVersion: null,
+        dedupeWindow: "อย่างน้อย 24 ชั่วโมงหลัง Interaction จบ",
         muted: false,
         recording: "ON",
         recoverTo: null,
         // นโยบายของคิวตาม Phase 1: offerTimeoutAction ของ router (IMMEDIATE_REQUEUE | COOLDOWN_REQUEUE)
         queuePolicy: "COOLDOWN_REQUEUE",
         cooldownLeft: 0,
+        routingEnabled: true,
+        logout: "NONE",
+        logoutDeadline: 0,
+        supervisorFollowup: false,
+        sipLeaseStatus: "NONE",
+        sipLeaseLeft: 0,
+        sipRegisterAttempts: 0,
+        sipRetryDelay: 0,
+        sipManualRetryRequired: false,
         updateAvailable: false,
         wrapupDraft: "",
         lastChange: "เปิด Workspace และกำลังตรวจ session",
@@ -334,12 +351,17 @@
       const copy = (state) => JSON.parse(JSON.stringify(state));
       const hasCall = (state) => !!state.interaction && callPhases.has(state.interaction.phase);
       const hasWork = (state) => !!state.interaction && workPhases.has(state.interaction.phase);
+      const leaseAllowsOffer = (state) => ["ACTIVE", "ROTATING"].includes(state.sipLeaseStatus) && state.sipLeaseLeft > 0;
       const canReceiveOffer = (state) =>
         state.owner === "WORKING" &&
         state.auth === "AUTHENTICATED" &&
         state.media === "READY" &&
         state.websocket === "CONNECTED" &&
         state.sip === "REGISTERED" &&
+        leaseAllowsOffer(state) &&
+        state.routingEnabled &&
+        state.controlMode === "NORMAL" &&
+        !state.sipManualRetryRequired &&
         state.presence === "AVAILABLE" &&
         !state.offer &&
         !state.interaction;
@@ -350,6 +372,23 @@
         next.lastChange = message;
         next.rejected = false;
         return next;
+      };
+      const commandIdFor = (state) => "cmd-" + String(state.revision + 1).padStart(3, "0");
+      const beginCommand = (next, state, type, retryAllowed = true) => {
+        next.pendingCommand = type;
+        next.commandId = commandIdFor(state);
+        next.commandVersion = state.interactionVersion ?? (state.offer && state.offer.version) ?? null;
+        next.commandElapsed = 0;
+        next.commandRetried = false;
+        next.commandRetryAllowed = retryAllowed;
+        next.controlMode = "NORMAL";
+      };
+      const settleCommand = (next) => {
+        next.pendingCommand = null;
+        next.commandElapsed = 0;
+        next.commandRetried = false;
+        next.commandRetryAllowed = false;
+        next.controlMode = "NORMAL";
       };
 
       function transition(state, action) {
@@ -363,14 +402,22 @@
 
           case "MEDIA_READY":
             if (state.owner !== "WORKING" || state.auth !== "AUTHENTICATED") return reject(state, "ต้องเป็นแท็บทำงานและ login สำเร็จก่อน");
+            if (!state.routingEnabled || state.logout !== "NONE") return reject(state, "logout flow เริ่มแล้ว ห้ามสร้าง SIP credential ใหม่");
             next.media = "READY";
             next.sip = "REGISTERED";
-            return changed(next, "ไมโครโฟนพร้อมและ SIP register สำเร็จ");
+            next.sipLeaseStatus = "ACTIVE";
+            next.sipLeaseLeft = 900;
+            next.sipRegisterAttempts = 0;
+            next.sipRetryDelay = 0;
+            next.sipManualRetryRequired = false;
+            return changed(next, "ไมโครโฟนพร้อม, SIP register สำเร็จ และรับ credential lease 15 นาทีไว้ใน memory");
 
           case "MEDIA_DENIED":
             if (hasCall(state)) return reject(state, "ห้ามจำลอง permission denied ทับสายที่กำลังทำงาน ให้ใช้เหตุการณ์อุปกรณ์หลุด");
             next.media = "BLOCKED";
             next.sip = "DISCONNECTED";
+            next.sipLeaseStatus = "NONE";
+            next.sipLeaseLeft = 0;
             next.presence = "OFFLINE";
             return changed(next, "browser ไม่อนุญาตใช้ไมโครโฟน จึงเปิดรับสายไม่ได้");
 
@@ -388,14 +435,17 @@
             }
             if (state.auth !== "AUTHENTICATED") return reject(state, "session ไม่พร้อม");
             if (state.media !== "READY" || state.sip !== "REGISTERED") return reject(state, "ต้องตรวจไมโครโฟนและ SIP registration ก่อน");
+            if (!leaseAllowsOffer(state) || state.sipManualRetryRequired) return reject(state, "SIP credential lease หรือ registration retry ยังไม่พร้อม");
             if (state.websocket !== "CONNECTED") return reject(state, "routing WebSocket ยังไม่พร้อม");
+            if (!state.routingEnabled || state.logout !== "NONE") return reject(state, "routing ถูกปิดจาก logout policy");
+            if (state.controlMode !== "NORMAL") return reject(state, "call control ยังไม่กลับสู่สถานะปกติ");
             if (state.offer || state.interaction) return reject(state, "ยังมี Interaction อยู่ในมือ");
             next.presence = "AVAILABLE";
             return changed(next, "พร้อมรับ offer ใหม่");
 
           case "RECEIVE_OFFER":
             if (!canReceiveOffer(state)) return reject(state, "รับ offer ได้เฉพาะ working tab ที่ AVAILABLE และทุก transport พร้อม");
-            next.offer = { id: "INT-VOICE-2401", customer: "คุณนภา จันทร์เพ็ญ", queue: "VIP Customers", seconds: 20 };
+            next.offer = { id: "INT-VOICE-2401", customer: "คุณนภา จันทร์เพ็ญ", queue: "VIP Customers", seconds: 20, version: 7 };
             next.presence = "RESERVED";
             return changed(next, "Router เสนอ Interaction พร้อมเวลาตอบรับ 20 วินาที");
 
@@ -408,13 +458,24 @@
             if (!state.offer) return reject(state, "ไม่มี offer ให้รับ");
             if (state.auth !== "AUTHENTICATED" || state.owner !== "WORKING") return reject(state, "session หรือ tab ownership ไม่พร้อม");
             next.interaction = { id: state.offer.id, customer: state.offer.customer, queue: state.offer.queue, phase: "CONNECTING" };
+            next.interactionVersion = state.offer.version;
+            beginCommand(next, state, "ACCEPT", false);
             next.offer = null;
             next.presence = "BUSY";
-            next.pendingCommand = "ACCEPT";
-            return changed(next, "ส่ง accept แล้ว รอ Router ack และ SIP media");
+            return changed(next, "ส่ง accept พร้อม commandId และ interactionVersion หลังขอ compare-and-set ownership; ห้าม auto-retry");
+
+          case "ACCEPT_RACE_LOST":
+            if (!state.offer) return reject(state, "ไม่มี offer ให้ทดสอบ ownership race");
+            next.offer = null;
+            next.presence = "AVAILABLE";
+            next.commandId = commandIdFor(state);
+            next.commandVersion = state.offer.version;
+            return changed(next, "Router ปฏิเสธ compare-and-set เพราะ offer หมดอายุหรือถูกถือแล้ว จึงไม่ answer SIP และไม่สร้าง Interaction");
 
           case "DECLINE_OFFER":
             if (!state.offer) return reject(state, "ไม่มี offer ให้ปฏิเสธ");
+            next.commandId = commandIdFor(state);
+            next.commandVersion = state.offer.version;
             next.offer = null;
             if (state.queuePolicy === "COOLDOWN_REQUEUE") {
               next.presence = "COOLDOWN";
@@ -451,8 +512,9 @@
           case "SIP_CONNECTED":
             if (!state.interaction || state.interaction.phase !== "CONNECTING") return reject(state, "ไม่มีสายที่กำลังเชื่อมต่อ");
             next.interaction.phase = "ACTIVE";
-            next.pendingCommand = null;
-            return changed(next, "Router ack ตรงกับ SIP media สองทาง สายจึงเป็น ACTIVE");
+            next.interactionVersion = (state.interactionVersion ?? 0) + 1;
+            settleCommand(next);
+            return changed(next, "Router ack ตรงกับ SIP media สองทาง สายจึงเป็น ACTIVE; dedupe command เดิมไว้อย่างน้อย 24 ชั่วโมงหลังสายจบ");
 
           case "TOGGLE_MUTE":
             if (!hasCall(state) || state.interaction.phase === "ENDING") return reject(state, "mute ใช้ได้เมื่อมี browser media อยู่ในมือ");
@@ -462,43 +524,67 @@
 
           case "REQUEST_HOLD":
             if (!state.interaction || state.interaction.phase !== "ACTIVE") return reject(state, "ขอพักสายได้เฉพาะ ACTIVE");
+            if (state.controlMode === "CONTROL_DEGRADED") return reject(state, "CONTROL_DEGRADED บล็อกคำสั่งที่อาจขัดกับ server state");
             if (state.pendingCommand) return reject(state, "มีคำสั่งอื่นรอผลอยู่");
-            next.pendingCommand = "HOLD";
-            return changed(next, "ส่งคำสั่ง HOLD แล้ว แต่ UI ยังไม่แสดง HELD จนกว่าจะได้ ack");
+            beginCommand(next, state, "HOLD");
+            return changed(next, "ส่ง desired-state HOLD พร้อม commandId และ interactionVersion แต่ UI ยังไม่แสดง HELD จนกว่าจะได้ ack");
 
           case "CONFIRM_HOLD":
             if (state.pendingCommand !== "HOLD" || !state.interaction) return reject(state, "ไม่มี HOLD ที่รอผล");
-            next.pendingCommand = null;
+            settleCommand(next);
             next.interaction.phase = "HELD";
+            next.interactionVersion = (state.interactionVersion ?? 0) + 1;
             return changed(next, "Router/telephony ยืนยัน HOLD แล้ว");
 
           case "FAIL_HOLD":
             if (state.pendingCommand !== "HOLD") return reject(state, "ไม่มี HOLD ที่รอผล");
-            next.pendingCommand = null;
+            settleCommand(next);
             return changed(next, "HOLD ล้มเหลว สายยัง ACTIVE และ UI แจ้งให้ลองใหม่");
 
           case "REQUEST_RESUME":
             if (!state.interaction || state.interaction.phase !== "HELD") return reject(state, "resume ใช้ได้เฉพาะ HELD");
-            next.pendingCommand = "RESUME";
+            if (state.controlMode === "CONTROL_DEGRADED") return reject(state, "CONTROL_DEGRADED บล็อกคำสั่งที่อาจขัดกับ server state");
+            if (state.pendingCommand) return reject(state, "มีคำสั่งอื่นรอผลอยู่");
+            beginCommand(next, state, "RESUME");
             return changed(next, "ส่งคำสั่ง RESUME แล้ว รอ ack");
 
           case "CONFIRM_RESUME":
             if (state.pendingCommand !== "RESUME" || !state.interaction) return reject(state, "ไม่มี RESUME ที่รอผล");
-            next.pendingCommand = null;
+            settleCommand(next);
             next.interaction.phase = "ACTIVE";
+            next.interactionVersion = (state.interactionVersion ?? 0) + 1;
             return changed(next, "กลับมาคุยสายหลังได้ ack");
 
           case "REQUEST_RECORD_PAUSE":
             if (!state.interaction || !["ACTIVE", "HELD"].includes(state.interaction.phase)) return reject(state, "หยุดอัดได้เฉพาะสายที่เชื่อมแล้ว");
+            if (state.controlMode === "CONTROL_DEGRADED") return reject(state, "CONTROL_DEGRADED บล็อกคำสั่ง recording ที่ยังไม่ทราบ server state");
             if (state.pendingCommand) return reject(state, "มีคำสั่งอื่นรอผลอยู่");
-            next.pendingCommand = state.recording === "ON" ? "PAUSE_RECORDING" : "RESUME_RECORDING";
+            beginCommand(next, state, state.recording === "ON" ? "PAUSE_RECORDING" : "RESUME_RECORDING");
             return changed(next, "ส่งคำสั่งบันทึกเสียงแล้ว รอ server ack ก่อนเปลี่ยนป้ายสถานะ");
 
           case "CONFIRM_RECORDING":
             if (!state.pendingCommand || !state.pendingCommand.includes("RECORDING")) return reject(state, "ไม่มีคำสั่งบันทึกเสียงที่รอผล");
             next.recording = state.pendingCommand === "PAUSE_RECORDING" ? "PAUSED" : "ON";
-            next.pendingCommand = null;
+            next.interactionVersion = (state.interactionVersion ?? 0) + 1;
+            settleCommand(next);
             return changed(next, next.recording === "PAUSED" ? "server ยืนยันว่าหยุดบันทึกเสียงแล้ว" : "server ยืนยันว่ากลับมาบันทึกเสียงแล้ว");
+
+          case "ACK_TIMEOUT_5":
+            if (!state.pendingCommand) return reject(state, "ไม่มีคำสั่งที่รอ ack");
+            next.commandElapsed = 5;
+            next.websocket = "RECONCILING";
+            next.controlMode = "SYNCING";
+            if (state.commandRetryAllowed && !state.commandRetried) {
+              next.commandRetried = true;
+              return changed(next, "ครบ 5 วินาที: โหลด snapshot แล้ว retry desired state หนึ่งครั้งด้วย commandId เดิม");
+            }
+            return changed(next, "ครบ 5 วินาที: โหลด snapshot แต่ไม่ retry ACCEPT ตามสัญญา");
+
+          case "ACK_TIMEOUT_15":
+            if (!state.pendingCommand) return reject(state, "ไม่มีคำสั่งที่รอผล");
+            next.commandElapsed = 15;
+            next.controlMode = "CONTROL_DEGRADED";
+            return changed(next, "ครบ 15 วินาทียังไม่ทราบผล: เข้า CONTROL_DEGRADED บล็อกคำสั่งขัดกัน แต่ local mute และ safe hangup ยังใช้ได้");
 
           case "NETWORK_LOST":
             next.websocket = "DISCONNECTED";
@@ -516,7 +602,7 @@
           case "TRANSPORT_RECONNECTED":
             if (state.websocket === "CONNECTED" && state.sip === "REGISTERED") return reject(state, "transport เชื่อมต่ออยู่แล้ว");
             next.websocket = "CONNECTED";
-            next.sip = state.media === "READY" ? "REGISTERED" : "DISCONNECTED";
+            next.sip = state.media === "READY" && leaseAllowsOffer(state) && !state.sipManualRetryRequired ? "REGISTERED" : "DISCONNECTED";
             return changed(next, "transport กลับมาแล้ว แต่ยังต้องขอ snapshot ก่อนยืนยัน business state");
 
           case "SNAPSHOT_ACTIVE":
@@ -527,7 +613,7 @@
             if (state.interaction) {
               const wrapup = state.interaction.phase === "WRAPUP";
               next.interaction.phase = wrapup ? "WRAPUP" : (state.recoverTo || "ACTIVE");
-              next.pendingCommand = wrapup ? state.pendingCommand : null;
+              if (!wrapup && state.controlMode === "NORMAL") settleCommand(next);
               next.presence = wrapup ? "WRAPUP" : "BUSY";
               return changed(next, wrapup
                 ? "REST snapshot ยืนยันว่างานยังอยู่ใน wrap-up จึงคืน presence WRAPUP ไม่ใช่ OFFLINE"
@@ -554,8 +640,77 @@
           case "AUTH_RESTORED":
             next.auth = "AUTHENTICATED";
             next.websocket = "CONNECTED";
-            if (state.media === "READY") next.sip = "REGISTERED";
+            if (state.media === "READY" && leaseAllowsOffer(state) && !state.sipManualRetryRequired) next.sip = "REGISTERED";
             return changed(next, "session กลับมาโดยไม่ทำลาย Interaction เดิม");
+
+          case "LEASE_REFRESH_DUE":
+            if (state.sipLeaseStatus !== "ACTIVE") return reject(state, "ไม่มี active SIP credential lease ให้ rotate");
+            next.sipLeaseStatus = "ROTATING";
+            next.sipLeaseLeft = 120;
+            return changed(next, "เหลือ 2 นาที: ขอ credential ใหม่และ register ชุดใหม่แบบ make-before-break โดย registration เดิมยังทำงาน");
+
+          case "LEASE_ROTATED":
+            if (state.sipLeaseStatus !== "ROTATING") return reject(state, "ยังไม่ได้เริ่ม rotate credential");
+            next.sipLeaseStatus = "ACTIVE";
+            next.sipLeaseLeft = 900;
+            next.sip = "REGISTERED";
+            return changed(next, "registration ใหม่พร้อมแล้วจึงถอน credential เดิม; active dialog ไม่ถูก teardown");
+
+          case "LEASE_REFRESH_FAILED":
+            if (!["ACTIVE", "ROTATING"].includes(state.sipLeaseStatus)) return reject(state, "ไม่มี lease ที่กำลัง refresh");
+            next.sipLeaseStatus = "EXPIRING";
+            next.sipLeaseLeft = Math.min(state.sipLeaseLeft || 60, 60);
+            if (!hasWork(state)) next.presence = "OFFLINE";
+            return changed(next, hasWork(state)
+              ? "rotate ล้มเหลว: หยุด offer ใหม่ แต่ไม่ตัด active dialog และยังให้ safe hangup"
+              : "rotate ล้มเหลว: หยุด offer ใหม่ก่อน registration หมดอายุ");
+
+          case "LEASE_EXPIRED":
+            if (!["ACTIVE", "ROTATING", "EXPIRING"].includes(state.sipLeaseStatus)) return reject(state, "ไม่มี lease ที่ใกล้หมดอายุ");
+            next.sipLeaseStatus = "EXPIRED";
+            next.sipLeaseLeft = 0;
+            next.sip = hasCall(state) ? "DIALOG_ONLY" : "DISCONNECTED";
+            if (!hasWork(state)) next.presence = "OFFLINE";
+            return changed(next, hasCall(state)
+              ? "credential หมดอายุแล้ว registration หยุด แต่ active dialog เดิมอยู่ต่อจนจบ"
+              : "credential หมดอายุแล้ว ต้องขอ lease และ register ใหม่ก่อนรับ offer");
+
+          case "SIP_REGISTER_FAILED": {
+            if (hasCall(state)) return reject(state, "ห้ามจำลอง registration retry ทับ active dialog");
+            if (state.media !== "READY" || state.auth !== "AUTHENTICATED") return reject(state, "ต้อง login และตรวจอุปกรณ์ก่อน register");
+            if (state.sipManualRetryRequired) return reject(state, "ครบเพดานแล้ว ต้องให้ผู้ใช้กด retry");
+            const attempt = state.sipRegisterAttempts + 1;
+            const delays = [1, 2, 4, 8, 15, 15];
+            next.sipRegisterAttempts = attempt;
+            next.sipRetryDelay = delays[Math.min(attempt, delays.length) - 1];
+            next.sip = attempt >= 6 ? "DISCONNECTED" : "RECONNECTING";
+            next.presence = "OFFLINE";
+            if (attempt >= 6) {
+              next.sipManualRetryRequired = true;
+              return changed(next, "SIP register ล้มเหลวครบ 6 ครั้ง หยุด automatic retry และแสดงปุ่มให้ผู้ใช้ลองใหม่");
+            }
+            return changed(next, "SIP register ล้มเหลวครั้งที่ " + attempt + " จาก 6; retry อัตโนมัติใน " + next.sipRetryDelay + " วินาที");
+          }
+
+          case "MANUAL_SIP_RETRY":
+            if (!state.sipManualRetryRequired) return reject(state, "automatic retry ยังไม่ถึงเพดาน");
+            next.sipManualRetryRequired = false;
+            next.sipRegisterAttempts = 0;
+            next.sipRetryDelay = 0;
+            next.sip = "RECONNECTING";
+            return changed(next, "ผู้ใช้เริ่ม registration retry รอบใหม่ด้วยตนเอง");
+
+          case "SIP_REGISTERED":
+            if (state.media !== "READY" || state.auth !== "AUTHENTICATED") return reject(state, "ต้อง login และตรวจอุปกรณ์ก่อน register");
+            if (!state.routingEnabled || state.logout !== "NONE") return reject(state, "logout flow เริ่มแล้ว ห้าม register ใหม่");
+            if (state.sipManualRetryRequired) return reject(state, "ครบเพดานแล้ว ต้องให้ผู้ใช้กด retry ก่อนเริ่มรอบใหม่");
+            next.sip = "REGISTERED";
+            next.sipLeaseStatus = "ACTIVE";
+            next.sipLeaseLeft = 900;
+            next.sipRegisterAttempts = 0;
+            next.sipRetryDelay = 0;
+            next.sipManualRetryRequired = false;
+            return changed(next, "SIP register สำเร็จใน retry รอบใหม่ แต่ยังกลับ AVAILABLE เองไม่ได้");
 
           case "DEVICE_LOST":
             next.media = "DEVICE_LOST";
@@ -573,7 +728,7 @@
           case "DEVICE_RESTORED":
             if (state.media !== "DEVICE_LOST" && state.media !== "BLOCKED") return reject(state, "อุปกรณ์ไม่ได้อยู่ในสถานะเสีย");
             next.media = "READY";
-            next.sip = "REGISTERED";
+            next.sip = leaseAllowsOffer(state) && !state.sipManualRetryRequired ? "REGISTERED" : "DISCONNECTED";
             if (state.interaction && state.interaction.phase === "DEGRADED" && state.websocket === "CONNECTED" && state.auth === "AUTHENTICATED") {
               next.interaction.phase = state.recoverTo || "ACTIVE";
               next.recoverTo = null;
@@ -583,13 +738,23 @@
           case "REQUEST_HANGUP":
             if (!hasCall(state)) return reject(state, "ไม่มีสายให้วาง");
             next.interaction.phase = "ENDING";
-            next.pendingCommand = "HANGUP";
-            return changed(next, "ส่งวางสายแล้ว UI รอ server end event และไม่สร้าง wrap-up เอง");
+            beginCommand(next, state, state.controlMode === "CONTROL_DEGRADED" || state.auth !== "AUTHENTICATED" || state.sip !== "REGISTERED" ? "SAFE_HANGUP" : "HANGUP", false);
+            return changed(next, state.controlMode === "CONTROL_DEGRADED" || state.auth !== "AUTHENTICATED" || state.sip !== "REGISTERED"
+              ? "ส่ง server-side hangup ถ้าถึง API ได้ มิฉะนั้นใช้ SIP BYE เป็น safe fallback แล้วรอ reconcile"
+              : "ส่งวางสายพร้อม command envelope แล้ว UI รอ server end event และไม่สร้าง wrap-up เอง");
 
           case "INTERACTION_ENDED":
             if (!state.interaction || !["ENDING", "ACTIVE", "HELD", "DEGRADED"].includes(state.interaction.phase)) return reject(state, "ไม่มี Interaction ที่ server ยืนยันว่าจบ");
+            if (state.logout === "DRAINING") {
+              next.interaction = null;
+              next.interactionVersion = (state.interactionVersion ?? 0) + 1;
+              next.supervisorFollowup = true;
+              settleCommand(next);
+              return changed(next, "server ยืนยันจบสายระหว่าง forced logout; สร้าง supervisor follow-up สำหรับ disposition ที่ค้าง");
+            }
             next.interaction.phase = "WRAPUP";
-            next.pendingCommand = null;
+            next.interactionVersion = (state.interactionVersion ?? 0) + 1;
+            settleCommand(next);
             next.presence = "WRAPUP";
             next.recoverTo = null;
             next.wrapupDraft = "สรุปผลการสนทนา…";
@@ -605,11 +770,59 @@
             next.recording = "ON";
             return changed(next, "ส่ง wrap-up สำเร็จ กลับสู่ยังไม่พร้อมรับงานเพื่อให้เอเจนต์เลือก AVAILABLE เอง");
 
+          case "NORMAL_LOGOUT":
+            if (state.offer || hasWork(state)) return reject(state, "normal logout ถูก block ระหว่างมี offer, ACTIVE หรือ WRAPUP");
+            next.routingEnabled = false;
+            next.auth = "SIGNED_OUT";
+            next.websocket = "DISCONNECTED";
+            next.sip = "DISCONNECTED";
+            next.sipLeaseStatus = "REVOKED";
+            next.sipLeaseLeft = 0;
+            next.sip = hasCall(state) ? "DIALOG_ONLY" : "DISCONNECTED";
+            next.media = "UNCHECKED";
+            next.logout = "REDIRECTED";
+            next.presence = "OFFLINE";
+            return changed(next, "normal logout สำเร็จเมื่อไม่มีงาน แล้วล้าง secret และ redirect");
+
+          case "FORCED_LOGOUT":
+            if (state.logout !== "NONE") return reject(state, "logout flow เริ่มแล้ว");
+            next.routingEnabled = false;
+            next.offer = null;
+            next.presence = "OFFLINE";
+            next.sipLeaseStatus = "REVOKED";
+            next.sipLeaseLeft = 0;
+            next.sip = hasCall(state) ? "DIALOG_ONLY" : "DISCONNECTED";
+            next.logout = "DRAINING";
+            next.logoutDeadline = 15;
+            if (hasCall(state)) {
+              next.interaction.phase = "ENDING";
+              beginCommand(next, state, "FORCED_HANGUP", false);
+              return changed(next, "forced/backchannel logout ปิด routing, revoke SIP lease และสั่ง server-side hangup; รอไม่เกิน 15 วินาทีก่อนล้าง secret");
+            }
+            return changed(next, "forced/backchannel logout ปิด routing และ revoke SIP lease; รอล้าง secret โดยไม่รับงานใหม่");
+
+          case "FORCED_LOGOUT_TIMEOUT":
+            if (state.logout !== "DRAINING") return reject(state, "ไม่มี forced logout ที่กำลังรอ");
+            next.supervisorFollowup = state.supervisorFollowup || !!state.interaction || !!state.wrapupDraft;
+            next.interaction = null;
+            next.offer = null;
+            next.wrapupDraft = "";
+            settleCommand(next);
+            next.auth = "SIGNED_OUT";
+            next.websocket = "DISCONNECTED";
+            next.sip = "DISCONNECTED";
+            next.media = "UNCHECKED";
+            next.logout = "REDIRECTED";
+            next.logoutDeadline = 0;
+            return changed(next, "ครบเพดาน 15 วินาที: ล้าง secret และ redirect พร้อม audit และ supervisor follow-up สำหรับ disposition ที่ค้าง");
+
           case "BECOME_PASSIVE":
             if (state.offer || state.interaction) return reject(state, "ห้ามย้าย tab ownership ระหว่างมี offer, สาย หรือ wrap-up");
             next.owner = "PASSIVE";
             next.websocket = "DISCONNECTED";
             next.sip = "DISCONNECTED";
+            next.sipLeaseStatus = "REVOKED";
+            next.sipLeaseLeft = 0;
             next.presence = "OFFLINE";
             return changed(next, "แท็บนี้เป็น passive และตัด routing/SIP connections");
 
@@ -619,6 +832,8 @@
             next.websocket = state.auth === "AUTHENTICATED" ? "CONNECTED" : "DISCONNECTED";
             next.media = "UNCHECKED";
             next.sip = "DISCONNECTED";
+            next.sipLeaseStatus = "NONE";
+            next.sipLeaseLeft = 0;
             next.presence = "OFFLINE";
             return changed(next, "ย้าย working tab แล้ว ต้องตรวจ media readiness ใหม่ก่อน AVAILABLE");
 
@@ -631,6 +846,8 @@
             next.updateAvailable = false;
             next.media = "UNCHECKED";
             next.sip = "DISCONNECTED";
+            next.sipLeaseStatus = "NONE";
+            next.sipLeaseLeft = 0;
             return changed(next, "reload เวอร์ชันใหม่แล้ว ต้องตรวจ media readiness ใหม่");
 
           default:
@@ -643,7 +860,7 @@
         canReceiveOffer: canReceiveOffer(state),
         newOffersAllowed: canReceiveOffer(state),
         canHangup: hasCall(state),
-        needsSnapshot: state.websocket === "RECONCILING" || (state.interaction && state.interaction.phase === "DEGRADED"),
+        needsSnapshot: state.websocket === "RECONCILING" || state.controlMode !== "NORMAL" || (state.interaction && state.interaction.phase === "DEGRADED"),
         canReload: !state.interaction && !state.offer && state.presence !== "AVAILABLE"
       });
 
@@ -655,13 +872,16 @@
         ["BOOTSTRAP_OK", "เข้าสู่ระบบสำเร็จ"], ["MEDIA_READY", "อุปกรณ์พร้อม"], ["MEDIA_DENIED", "ไม่อนุญาตไมค์"], ["SET_AVAILABLE", "เปิดรับสาย"]
       ]},
       { title: "Offer และสาย", actions: [
-        ["RECEIVE_OFFER", "มีสายเสนอ"], ["TICK_OFFER", "ผ่านไป 5 วินาที"], ["ACCEPT_OFFER", "รับสาย"], ["DECLINE_OFFER", "ปฏิเสธ"], ["OFFER_TIMEOUT", "หมดเวลารับ"], ["SIP_CONNECTED", "เสียงสองทางพร้อม"], ["TICK_COOLDOWN", "cooldown ผ่านไป 10 วินาที"], ["TOGGLE_QUEUE_POLICY", "สลับนโยบายคิว"]
+        ["RECEIVE_OFFER", "มีสายเสนอ"], ["TICK_OFFER", "ผ่านไป 5 วินาที"], ["ACCEPT_OFFER", "รับสาย"], ["ACCEPT_RACE_LOST", "accept แพ้ ownership race"], ["DECLINE_OFFER", "ปฏิเสธ"], ["OFFER_TIMEOUT", "หมดเวลารับ"], ["SIP_CONNECTED", "เสียงสองทางพร้อม"], ["TICK_COOLDOWN", "cooldown ผ่านไป 10 วินาที"], ["TOGGLE_QUEUE_POLICY", "สลับนโยบายคิว"]
       ]},
       { title: "Call control", actions: [
-        ["TOGGLE_MUTE", "เปิด/ปิดไมค์"], ["REQUEST_HOLD", "ขอพักสาย"], ["CONFIRM_HOLD", "ยืนยันพักสาย"], ["FAIL_HOLD", "พักสายล้มเหลว"], ["REQUEST_RESUME", "ขอกลับเข้าร่วม"], ["CONFIRM_RESUME", "ยืนยันกลับเข้าร่วม"], ["REQUEST_RECORD_PAUSE", "สลับการบันทึก"], ["CONFIRM_RECORDING", "ยืนยันการบันทึก"], ["REQUEST_HANGUP", "ขอวางสาย"], ["INTERACTION_ENDED", "server ยืนยันจบ"], ["SUBMIT_WRAPUP", "ส่ง wrap-up"]
+        ["TOGGLE_MUTE", "เปิด/ปิดไมค์"], ["REQUEST_HOLD", "ขอพักสาย"], ["CONFIRM_HOLD", "ยืนยันพักสาย"], ["FAIL_HOLD", "พักสายล้มเหลว"], ["REQUEST_RESUME", "ขอกลับเข้าร่วม"], ["CONFIRM_RESUME", "ยืนยันกลับเข้าร่วม"], ["REQUEST_RECORD_PAUSE", "สลับการบันทึก"], ["CONFIRM_RECORDING", "ยืนยันการบันทึก"], ["ACK_TIMEOUT_5", "ack ครบ 5 วินาที"], ["ACK_TIMEOUT_15", "ยังไม่ทราบผล 15 วินาที"], ["REQUEST_HANGUP", "ขอวางสาย"], ["INTERACTION_ENDED", "server ยืนยันจบ"], ["SUBMIT_WRAPUP", "ส่ง wrap-up"]
       ]},
       { title: "เหตุขัดข้อง", actions: [
         ["NETWORK_LOST", "network หาย"], ["TRANSPORT_RECONNECTED", "transport กลับมา"], ["SNAPSHOT_ACTIVE", "snapshot ยืนยัน ACTIVE"], ["SEQUENCE_GAP", "พบ sequence gap"], ["AUTH_REFRESH_FAILED", "refresh token ล้มเหลว"], ["AUTH_RESTORED", "session กลับมา"], ["DEVICE_LOST", "ไมโครโฟนหลุด"], ["DEVICE_RESTORED", "อุปกรณ์กลับมา"], ["BECOME_PASSIVE", "แท็บนี้เป็น passive"], ["CLAIM_TAB", "ย้ายงานมาที่แท็บนี้"], ["VERSION_AVAILABLE", "มีเวอร์ชันใหม่"], ["RELOAD_VERSION", "reload เวอร์ชันใหม่"]
+      ]},
+      { title: "SIP lease และ logout", actions: [
+        ["LEASE_REFRESH_DUE", "lease เหลือ 2 นาที"], ["LEASE_ROTATED", "registration ใหม่พร้อม"], ["LEASE_REFRESH_FAILED", "rotate ล้มเหลว"], ["LEASE_EXPIRED", "lease หมดอายุ"], ["SIP_REGISTER_FAILED", "SIP register ล้มเหลว"], ["MANUAL_SIP_RETRY", "ผู้ใช้กด retry SIP"], ["SIP_REGISTERED", "SIP register สำเร็จ"], ["NORMAL_LOGOUT", "ออกจากระบบปกติ"], ["FORCED_LOGOUT", "forced logout"], ["FORCED_LOGOUT_TIMEOUT", "forced logout ครบ 15 วินาที"]
       ]}
     ];
 
@@ -699,6 +919,46 @@
         ]
       },
       {
+        id: "command-contract",
+        title: "Ack timeout และ degraded",
+        description: "remote command ต้องพก commandId กับ interactionVersion, retry key เดิมได้ครั้งเดียวหลัง snapshot ที่ 5 วินาที และเข้า CONTROL_DEGRADED ที่ 15 วินาทีโดยเหลือเฉพาะ local mute กับ safe hangup",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["ACCEPT_OFFER", "รับสาย"], ["SIP_CONNECTED", "เสียงพร้อม"], ["REQUEST_HOLD", "ขอพักสาย"], ["ACK_TIMEOUT_5", "รอ ack 5 วินาที"], ["ACK_TIMEOUT_15", "ยังไม่ทราบผลครบ 15 วินาที"], ["REQUEST_RECORD_PAUSE", "ลองสั่ง recording ที่ขัดกัน", true], ["TOGGLE_MUTE", "local mute ยังใช้ได้"], ["REQUEST_HANGUP", "safe hangup ยังใช้ได้"]
+        ]
+      },
+      {
+        id: "accept-race",
+        title: "Accept แพ้ race",
+        description: "Router/API ต้อง compare-and-set offer ownership ก่อน SIP answer ถ้า offer หมดเวลาหรือถูกถือแล้ว browser ห้ามสร้าง Interaction และห้าม retry accept",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["ACCEPT_RACE_LOST", "Router ปฏิเสธ ownership"], ["SIP_CONNECTED", "ลองอ้างว่าเสียงพร้อม", true]
+        ]
+      },
+      {
+        id: "lease",
+        title: "SIP lease rotation",
+        description: "credential lease อยู่ใน memory 15 นาที เริ่ม rotate ก่อนหมด 2 นาทีแบบ make-before-break; ถ้า rotate ล้มเหลวให้หยุด offer ใหม่แต่ห้าม teardown active dialog",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "รับ lease 15 นาที"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["ACCEPT_OFFER", "รับสาย"], ["SIP_CONNECTED", "เสียงพร้อม"], ["LEASE_REFRESH_DUE", "เหลือ 2 นาที เริ่ม rotate"], ["LEASE_ROTATED", "registration ใหม่พร้อมก่อนถอนของเดิม"], ["LEASE_REFRESH_DUE", "รอบถัดไปเหลือ 2 นาที"], ["LEASE_REFRESH_FAILED", "rotate ล้มเหลว"], ["LEASE_EXPIRED", "lease หมดอายุ"], ["TOGGLE_MUTE", "active dialog ยังควบคุม local media ได้"], ["REQUEST_HANGUP", "วางสายเดิมอย่างปลอดภัย"]
+        ]
+      },
+      {
+        id: "sip-retry",
+        title: "SIP retry ถึงเพดาน",
+        description: "SIP register ใช้ bounded backoff 1/2/4/8/15 วินาทีไม่เกิน 6 ครั้งต่อรอบ จากนั้นหยุดและรอผู้ใช้กด retry โดยห้ามกลับ AVAILABLE อัตโนมัติ",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SIP_REGISTER_FAILED", "ล้มเหลวครั้งที่ 1"], ["SIP_REGISTER_FAILED", "ล้มเหลวครั้งที่ 2"], ["SIP_REGISTER_FAILED", "ล้มเหลวครั้งที่ 3"], ["SIP_REGISTER_FAILED", "ล้มเหลวครั้งที่ 4"], ["SIP_REGISTER_FAILED", "ล้มเหลวครั้งที่ 5"], ["SIP_REGISTER_FAILED", "ล้มเหลวครั้งที่ 6"], ["SIP_REGISTERED", "ลองสำเร็จโดยไม่กด retry", true], ["MANUAL_SIP_RETRY", "ผู้ใช้กด retry"], ["SIP_REGISTERED", "registration รอบใหม่สำเร็จ"], ["RECEIVE_OFFER", "ลองรับ offer ก่อน AVAILABLE", true], ["SET_AVAILABLE", "เอเจนต์เปิดรับสายเอง"]
+        ]
+      },
+      {
+        id: "forced-logout",
+        title: "Forced logout กลางสาย",
+        description: "normal logout ต้องถูก block ระหว่างมีงาน แต่ forced/backchannel logout ปิด routing, revoke SIP lease, สั่ง server-side hangup และล้าง secret ภายใน 15 วินาทีพร้อม supervisor follow-up",
+        steps: [
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["ACCEPT_OFFER", "รับสาย"], ["SIP_CONNECTED", "เสียงพร้อม"], ["NORMAL_LOGOUT", "ลองออกจากระบบปกติ", true], ["FORCED_LOGOUT", "ได้รับ backchannel logout"], ["FORCED_LOGOUT_TIMEOUT", "ครบเพดาน 15 วินาที"]
+        ]
+      },
+      {
         id: "cooldown",
         title: "ปฏิเสธแล้วติด cooldown",
         description: "คิวที่ตั้ง COOLDOWN_REQUEUE ทำให้ router เขียน agent state เป็น BREAK reason cooldown ไม่ใช่ AVAILABLE เอเจนต์จึงไม่ได้รับ offer จนกว่าจะมีแถว AVAILABLE ใหม่ และ endedAt ของ cooldown ไม่ได้ปลดล็อกให้เอง",
@@ -730,18 +990,18 @@
 
     const labels = {
       owner: { WORKING: "แท็บทำงาน", PASSIVE: "แท็บรอง" },
-      auth: { CHECKING: "กำลังตรวจ session", AUTHENTICATED: "ยืนยันตัวตนแล้ว", DEGRADED: "session มีปัญหา" },
+      auth: { CHECKING: "กำลังตรวจ session", AUTHENTICATED: "ยืนยันตัวตนแล้ว", DEGRADED: "session มีปัญหา", SIGNED_OUT: "ออกจากระบบแล้ว" },
       media: { UNCHECKED: "ยังไม่ตรวจอุปกรณ์", READY: "ไมโครโฟนพร้อม", BLOCKED: "ไม่ได้รับอนุญาต", DEVICE_LOST: "อุปกรณ์หลุด" },
       websocket: { DISCONNECTED: "ไม่ได้เชื่อมต่อ", CONNECTED: "เชื่อมต่อแล้ว", RECONCILING: "กำลัง reconcile" },
-      sip: { DISCONNECTED: "ไม่ได้ register", REGISTERED: "register แล้ว", RECONNECTING: "กำลัง reconnect" },
+      sip: { DISCONNECTED: "ไม่ได้ register", REGISTERED: "register แล้ว", RECONNECTING: "กำลัง reconnect", DIALOG_ONLY: "เหลือ active dialog เท่านั้น" },
       presence: { OFFLINE: "ยังไม่พร้อมรับงาน", AVAILABLE: "พร้อมรับสาย", RESERVED: "มี offer รอตอบ", BUSY: "กำลังคุย", WRAPUP: "กำลังสรุปงาน", COOLDOWN: "cooldown (BREAK)" }
     };
 
     const text = (group, value) => labels[group] && labels[group][value] ? labels[group][value] : value;
     const chipClass = (value) => {
       if (["AUTHENTICATED", "READY", "CONNECTED", "REGISTERED", "AVAILABLE", "ACTIVE"].includes(value)) return "green";
-      if (["CHECKING", "UNCHECKED", "RECONNECTING", "RECONCILING", "RESERVED", "CONNECTING", "ENDING", "WRAPUP", "COOLDOWN"].includes(value)) return "amber";
-      if (["DEGRADED", "BLOCKED", "DEVICE_LOST", "DISCONNECTED"].includes(value)) return "rose";
+      if (["CHECKING", "UNCHECKED", "RECONNECTING", "RECONCILING", "RESERVED", "CONNECTING", "ENDING", "WRAPUP", "COOLDOWN", "SYNCING", "DIALOG_ONLY"].includes(value)) return "amber";
+      if (["DEGRADED", "BLOCKED", "DEVICE_LOST", "DISCONNECTED", "CONTROL_DEGRADED", "SIGNED_OUT"].includes(value)) return "rose";
       if (["HELD", "PASSIVE"].includes(value)) return "indigo";
       return "slate";
     };
@@ -799,6 +1059,9 @@
         [state.media === "READY", "ไมโครโฟนพร้อม"],
         [state.websocket === "CONNECTED", "routing WebSocket พร้อม"],
         [state.sip === "REGISTERED", "SIP register แล้ว"],
+        [["ACTIVE", "ROTATING"].includes(state.sipLeaseStatus) && state.sipLeaseLeft > 0, "SIP lease ใช้งานได้"],
+        [state.routingEnabled, "routing policy เปิดอยู่"],
+        [state.controlMode === "NORMAL", state.controlMode === "NORMAL" ? "call control ปกติ" : "call control: " + state.controlMode],
         [state.presence !== "COOLDOWN", state.presence === "COOLDOWN" ? "ติด cooldown เหลือ " + state.cooldownLeft + " วินาที (router เขียน BREAK ให้)" : "ไม่ติด cooldown"]
       ];
       document.getElementById("readiness-list").innerHTML = readiness.map(([ok, label]) =>
@@ -815,8 +1078,8 @@
       document.getElementById("call-message").textContent = state.lastChange;
 
       const command = document.getElementById("command-status");
-      command.className = "chip " + (state.pendingCommand ? "amber" : "slate");
-      command.textContent = state.pendingCommand ? "รอผล: " + state.pendingCommand : "ไม่มีคำสั่งค้าง";
+      command.className = "chip " + (state.controlMode === "CONTROL_DEGRADED" ? "rose" : state.pendingCommand ? "amber" : "slate");
+      command.textContent = state.controlMode === "CONTROL_DEGRADED" ? "CONTROL_DEGRADED" : state.pendingCommand ? "รอผล: " + state.pendingCommand : "ไม่มีคำสั่งค้าง";
       document.getElementById("mute-label").textContent = state.muted ? "ปิดอยู่" : "เปิด";
       document.getElementById("hold-label").textContent = stage === "HELD" ? "พักอยู่" : "ยังไม่พัก";
       document.getElementById("record-label").textContent = state.recording === "PAUSED" ? "หยุดอัด" : "กำลังบันทึก";
@@ -827,11 +1090,20 @@
         ["Media", text("media", state.media)],
         ["Routing WS", text("websocket", state.websocket)],
         ["SIP", text("sip", state.sip)],
+        ["SIP credential lease", state.sipLeaseStatus + (state.sipLeaseLeft ? " · เหลือ " + state.sipLeaseLeft + " วินาที" : "")],
+        ["SIP register retry", state.sipManualRetryRequired ? "ครบ 6 ครั้ง · รอผู้ใช้กด retry" : state.sipRegisterAttempts ? "ครั้งที่ " + state.sipRegisterAttempts + " · backoff " + state.sipRetryDelay + " วินาที" : "พร้อม"],
         ["Presence", text("presence", state.presence)],
         ["Interaction", interaction ? interaction.id + " · " + interaction.phase : "ไม่มี"],
+        ["interactionVersion", state.interactionVersion ?? "—"],
+        ["Command envelope", state.pendingCommand ? state.commandId + " · " + state.pendingCommand + " · v" + state.commandVersion : state.commandId ? state.commandId + " · outcome แล้ว" : "ไม่มี"],
+        ["Ack / retry", state.pendingCommand ? state.commandElapsed + " วินาที · " + (state.commandRetried ? "retry key เดิมแล้ว" : state.commandRetryAllowed ? "retry ได้ 1 ครั้ง" : "ห้าม auto-retry") : "—"],
+        ["Control mode", state.controlMode],
+        ["Dedupe", state.dedupeWindow],
         ["Recording", state.recording === "ON" ? "กำลังบันทึก" : "หยุดชั่วคราว"],
         ["นโยบายคิว", state.queuePolicy + (state.presence === "COOLDOWN" ? " · เหลือ " + state.cooldownLeft + " วินาที" : "")],
         ["Offer ใหม่", derived.newOffersAllowed ? "อนุญาต" : "ปิด"],
+        ["Logout", state.logout + (state.logoutDeadline ? " · เพดาน " + state.logoutDeadline + " วินาที" : "")],
+        ["Supervisor follow-up", state.supervisorFollowup ? "ต้องติดตาม disposition ที่ค้าง" : "ไม่มี"],
         ["Version", state.updateAvailable ? "รอ reload" : "ปัจจุบัน"]
       ];
       document.getElementById("state-list").innerHTML = stateRows.map(([key, value]) => '<dt>' + key + '</dt><dd>' + value + '</dd>').join("");
@@ -842,6 +1114,10 @@
       notice.textContent = state.lastChange;
 
       document.querySelectorAll('[data-action="TOGGLE_MUTE"]').forEach((el) => el.classList.toggle("on", state.muted));
+      const holdControl = document.querySelector('.controls [data-action="REQUEST_HOLD"]');
+      const recordingControl = document.querySelector('.controls [data-action="REQUEST_RECORD_PAUSE"]');
+      holdControl.disabled = state.controlMode === "CONTROL_DEGRADED" || !interaction || stage !== "ACTIVE";
+      recordingControl.disabled = state.controlMode === "CONTROL_DEGRADED" || !interaction || !["ACTIVE", "HELD"].includes(stage);
       const callbar = document.getElementById("callbar");
       callbar.classList.toggle("hidden", !interaction || interaction.phase === "WRAPUP");
       if (interaction) {
