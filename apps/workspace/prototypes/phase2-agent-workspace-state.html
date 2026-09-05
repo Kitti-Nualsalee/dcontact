@@ -424,13 +424,12 @@
           case "SET_AVAILABLE":
             if (state.owner !== "WORKING") return reject(state, "passive tab เปลี่ยน presence ไม่ได้");
             if (state.presence === "COOLDOWN") {
-              // router เลือกเอเจนต์จาก agent_state_logs แถวล่าสุดที่เป็น AVAILABLE เท่านั้น
-              // ไม่มี sweeper ใดเขียน AVAILABLE ให้เมื่อ cooldown ครบ endedAt จึงเป็นข้อมูลประกอบ ไม่ใช่ตัวปลดล็อก
+              // state ใหม่ระหว่าง cooldown จะกลายเป็นแถวล่าสุดและทำให้ releaseExpiredCooldowns ไม่เขียนทับ
               if (state.media !== "READY" || state.sip !== "REGISTERED") return reject(state, "ต้องตรวจไมโครโฟนและ SIP registration ก่อน");
               next.presence = "AVAILABLE";
               next.cooldownLeft = 0;
               return changed(next, state.cooldownLeft > 0
-                ? "ออกจาก cooldown ก่อนครบเวลา: router เขียน AVAILABLE แถวใหม่ทันที แต่งานเดิมยังไม่ถูกเสนอซ้ำจนถึง requeueAt"
+                ? "ออกจาก cooldown ก่อนครบเวลา: เขียน AVAILABLE แถวใหม่และทำให้ sweeper ไม่แตะ cooldown เก่า แต่งานเดิมยังรอ requeueAt"
                 : "กลับมาพร้อมรับสายหลัง cooldown ครบเวลา");
             }
             if (state.auth !== "AUTHENTICATED") return reject(state, "session ไม่พร้อม");
@@ -498,11 +497,13 @@
 
           case "TICK_COOLDOWN":
             if (state.presence !== "COOLDOWN") return reject(state, "ไม่ได้อยู่ในช่วง cooldown");
-            if (state.cooldownLeft === 0) return reject(state, "cooldown ครบเวลาแล้ว รอเอเจนต์กดเปิดรับสายเอง");
+            if (state.cooldownLeft === 0) return reject(state, "cooldown ถูกปล่อยแล้ว");
             next.cooldownLeft = Math.max(0, state.cooldownLeft - 10);
-            return changed(next, next.cooldownLeft === 0
-              ? "cooldown ครบเวลาแล้ว แต่ router ไม่เขียน AVAILABLE ให้เอง เอเจนต์ยังไม่ได้รับ offer จนกว่าจะกดเปิดรับสาย"
-              : "เหลือ cooldown อีก " + next.cooldownLeft + " วินาที");
+            if (next.cooldownLeft === 0) {
+              next.presence = "AVAILABLE";
+              return changed(next, "cooldown ครบเวลา: releaseExpiredCooldowns เขียน AVAILABLE อัตโนมัติเมื่อ cooldown ยังเป็น state ล่าสุด");
+            }
+            return changed(next, "เหลือ cooldown อีก " + next.cooldownLeft + " วินาที");
 
           case "TOGGLE_QUEUE_POLICY":
             if (state.presence === "COOLDOWN") return reject(state, "เปลี่ยนนโยบายคิวระหว่างติด cooldown ไม่ได้ในต้นแบบนี้");
@@ -961,9 +962,9 @@
       {
         id: "cooldown",
         title: "ปฏิเสธแล้วติด cooldown",
-        description: "คิวที่ตั้ง COOLDOWN_REQUEUE ทำให้ router เขียน agent state เป็น BREAK reason cooldown ไม่ใช่ AVAILABLE เอเจนต์จึงไม่ได้รับ offer จนกว่าจะมีแถว AVAILABLE ใหม่ และ endedAt ของ cooldown ไม่ได้ปลดล็อกให้เอง",
+        description: "คิวที่ตั้ง COOLDOWN_REQUEUE ทำให้ router เขียน BREAK reason cooldown กัน Agent จากทุกคิวชั่วคราว แล้ว releaseExpiredCooldowns เขียน AVAILABLE อัตโนมัติเมื่อ endedAt ครบและไม่มี state ใหม่กว่า",
         steps: [
-          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["DECLINE_OFFER", "ปฏิเสธพร้อมเหตุผล"], ["RECEIVE_OFFER", "ลองรับสายใหม่ระหว่าง cooldown", true], ["TICK_COOLDOWN", "ผ่านไป 10 วินาที"], ["TICK_COOLDOWN", "ผ่านไป 10 วินาที"], ["TICK_COOLDOWN", "ครบเวลา cooldown"], ["RECEIVE_OFFER", "ครบเวลาแล้วแต่ยังไม่ได้ offer", true], ["SET_AVAILABLE", "เอเจนต์กดเปิดรับสายเอง"], ["RECEIVE_OFFER", "จึงได้รับ offer ใหม่"]
+          ["BOOTSTRAP_OK", "เข้าสู่ระบบ"], ["MEDIA_READY", "ตรวจอุปกรณ์"], ["SET_AVAILABLE", "เปิดรับสาย"], ["RECEIVE_OFFER", "มีสายเสนอ"], ["DECLINE_OFFER", "ปฏิเสธพร้อมเหตุผล"], ["RECEIVE_OFFER", "ลองรับสายใหม่ระหว่าง cooldown", true], ["TICK_COOLDOWN", "ผ่านไป 10 วินาที"], ["TICK_COOLDOWN", "ผ่านไป 10 วินาที"], ["TICK_COOLDOWN", "ครบเวลาและคืน AVAILABLE อัตโนมัติ"], ["RECEIVE_OFFER", "จึงได้รับ offer ใหม่"]
         ]
       },
       {
