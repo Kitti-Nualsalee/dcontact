@@ -47,6 +47,17 @@ export function WorkspaceApp() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       for (const track of mediaStream.current?.getTracks() ?? []) track.stop();
       mediaStream.current = stream;
+      for (const track of stream.getTracks()) {
+        track.addEventListener(
+          'ended',
+          () => {
+            setAvailability('OFFLINE');
+            setMediaReadiness('BLOCKED');
+            setMediaError('ไมโครโฟนหยุดทำงาน ระบบปิดรับสายใหม่แล้ว โปรดตรวจอุปกรณ์เสียงอีกครั้ง');
+          },
+          { once: true },
+        );
+      }
       setMediaReadiness('READY');
     } catch {
       setAvailability('OFFLINE');
