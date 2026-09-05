@@ -77,6 +77,106 @@ function resetPreviousDemoInteractions() {
   ]);
 }
 
+function resetPreviousDemoMedia() {
+  const channels = JSON.parse(
+    run('docker', [
+      ...compose,
+      'exec',
+      '-T',
+      'freeswitch',
+      'fs_cli',
+      '-x',
+      'show channels as json',
+    ]),
+  );
+  for (const channel of channels.rows ?? []) {
+    if (channel.initial_dest === '2000' || channel.initial_dest === '2001') {
+      run('docker', [
+        ...compose,
+        'exec',
+        '-T',
+        'freeswitch',
+        'fs_cli',
+        '-x',
+        `uuid_kill ${channel.uuid} NORMAL_CLEARING`,
+      ]);
+    }
+  }
+}
+
+function latestDemoEvidence() {
+  return run('docker', [
+    ...compose,
+    'exec',
+    '-T',
+    'postgres',
+    'psql',
+    '-U',
+    'dcontact',
+    '-d',
+    'dcontact',
+    '-Atc',
+    `SELECT concat_ws('|', i.tenant_id, i.id, i.agent_id, i.state,
+       i.metadata->>'telephonyNodeId', count(DISTINCT e.id),
+       coalesce(r.id::text, ''), coalesce(r.duration_sec::text, ''),
+       CASE WHEN r.archived_at IS NULL THEN 'OPEN' ELSE 'ARCHIVED' END)
+     FROM interactions i
+     LEFT JOIN interaction_events e ON e.interaction_id=i.id
+     LEFT JOIN recordings r ON r.interaction_id=i.id
+     WHERE i.tenant_id=(SELECT id FROM tenants WHERE slug='demo')
+       AND i.metadata->>'telephonyNodeId'='${nodeId}'
+     GROUP BY i.id, r.id ORDER BY i.queued_at DESC LIMIT 1`,
+  ]).trim();
+}
+
+async function waitForDemoState(expectedState) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const evidence = latestDemoEvidence();
+    if (evidence.split('|')[3] === expectedState) return evidence;
+    await wait(500);
+  }
+  throw new Error(`demo interaction ไม่เข้าสู่ ${expectedState}: ${latestDemoEvidence()}`);
+}
+
+function currentMedia() {
+  return JSON.parse(
+    run('docker', [
+      ...compose,
+      'exec',
+      '-T',
+      'freeswitch',
+      'fs_cli',
+      '-x',
+      'show channels as json',
+    ]),
+  );
+}
+
+async function waitForInboundLeg(destination) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const media = currentMedia();
+    const leg = (media.rows ?? []).find((row) => row.initial_dest === destination);
+    if (leg?.uuid) return leg;
+    await wait(500);
+  }
+  throw new Error(`ไม่พบ inbound leg ของ ${destination}`);
+}
+
+async function waitForActiveMedia(destination) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const media = currentMedia();
+    const active = (media.rows ?? []).filter(
+      (row) =>
+        row.callstate === 'ACTIVE' && row.read_codec === 'PCMU' && row.write_codec === 'PCMU',
+    );
+    if (active.length >= 2 && active.some((row) => row.initial_dest === destination)) {
+      return { media, active };
+    }
+    await wait(500);
+  }
+  throw new Error(`FreeSWITCH ไม่ยืนยัน media สอง leg ของ ${destination}`);
+}
+
 async function cleanup() {
   for (const child of children) child.kill('SIGTERM');
   spawnSync('docker', ['rm', '-f', agentContainer], { stdio: 'ignore' });
@@ -120,6 +220,7 @@ try {
     waitForConsumerGroup(routerGroupId),
     waitForConsumerGroup(`dcontact-telephony-command-${nodeId}-v1`),
   ]);
+  resetPreviousDemoMedia();
   resetPreviousDemoInteractions();
   run('pnpm', ['db:seed']);
   await wait(1_000);
@@ -151,26 +252,9 @@ try {
   let caller = '';
   callerProcess.stdout.on('data', (chunk) => (caller += chunk.toString()));
   callerProcess.stderr.on('data', (chunk) => (caller += chunk.toString()));
-  await wait(1_500);
-  let media = JSON.parse(
-    run('docker', [
-      ...compose,
-      'exec',
-      '-T',
-      'freeswitch',
-      'fs_cli',
-      '-x',
-      'show channels as json',
-    ]),
-  );
   if (ivrDtmf) {
     await wait(5_500);
-    const inboundLeg = (media.rows ?? []).find(
-      (row) => row.callstate === 'ACTIVE' && row.dest === '2001',
-    );
-    if (!inboundLeg?.uuid) {
-      throw new Error(`ไม่พบ IVR leg ที่รับ DTMF: ${JSON.stringify(media)}`);
-    }
+    const inboundLeg = await waitForInboundLeg('2001');
     run('docker', [
       ...compose,
       'exec',
@@ -180,25 +264,8 @@ try {
       '-x',
       `uuid_recv_dtmf ${inboundLeg.uuid} ${ivrDtmf}`,
     ]);
-    await wait(1_000);
-    media = JSON.parse(
-      run('docker', [
-        ...compose,
-        'exec',
-        '-T',
-        'freeswitch',
-        'fs_cli',
-        '-x',
-        'show channels as json',
-      ]),
-    );
   }
-  const activeMediaLegs = (media.rows ?? []).filter(
-    (row) => row.callstate === 'ACTIVE' && row.read_codec === 'PCMU' && row.write_codec === 'PCMU',
-  );
-  if (activeMediaLegs.length < 2) {
-    throw new Error(`FreeSWITCH ไม่ยืนยัน media สอง leg: ${JSON.stringify(media)}`);
-  }
+  const { active: activeMediaLegs } = await waitForActiveMedia(ivrDtmf ? '2001' : '2000');
   const callerExit = await new Promise((resolveExit) =>
     callerProcess.once('close', (code) => resolveExit(code)),
   );
@@ -206,29 +273,66 @@ try {
   if (!caller.includes('Successful call') || !caller.match(/Successful call\s+\|\s+0\s+\|\s+1/)) {
     throw new Error(`SIPp ไม่ยืนยัน successful media call\n${caller}`);
   }
-  await wait(1_000);
-
-  const evidence = run('docker', [
+  const inboundLeg = activeMediaLegs.find(
+    (row) => row.initial_dest === (ivrDtmf ? '2001' : '2000'),
+  );
+  if (!inboundLeg?.uuid) throw new Error('ไม่พบ inbound media leg สำหรับปิดสายทดสอบ');
+  run('docker', [
     ...compose,
     'exec',
     '-T',
-    'postgres',
-    'psql',
-    '-U',
-    'dcontact',
-    '-d',
-    'dcontact',
-    '-Atc',
-    `SELECT i.state || '|' || (i.metadata->>'telephonyNodeId') || '|' || count(e.id)
-     FROM interactions i JOIN interaction_events e ON e.interaction_id=i.id
-     WHERE i.tenant_id=(SELECT id FROM tenants WHERE slug='demo')
-     GROUP BY i.id ORDER BY i.queued_at DESC LIMIT 1`,
-  ]).trim();
-  const expectedEventCount = ivrDtmf ? 6 : 4;
-  if (evidence !== `ACTIVE|${nodeId}|${expectedEventCount}`) {
-    throw new Error(`หลักฐาน lifecycle ไม่ครบ: ${evidence || 'ไม่พบ interaction'}`);
+    'freeswitch',
+    'fs_cli',
+    '-x',
+    `uuid_kill ${inboundLeg.uuid} NORMAL_CLEARING`,
+  ]);
+
+  const wrapupEvidence = await waitForDemoState('WRAPUP');
+  const [
+    tenantId,
+    interactionId,
+    agentId,
+    ,
+    observedNodeId,
+    eventCount,
+    recordingId,
+    durationSec,
+    archiveState,
+  ] = wrapupEvidence.split('|');
+  const minimumEventCount = ivrDtmf ? 6 : 5;
+  if (
+    observedNodeId !== nodeId ||
+    Number(eventCount) < minimumEventCount ||
+    !recordingId ||
+    Number(durationSec) < 1 ||
+    archiveState !== 'ARCHIVED'
+  ) {
+    throw new Error(`หลักฐาน recording/wrap-up ไม่ครบ: ${wrapupEvidence}`);
   }
-  console.log(`INBOUND_VOICE_PHASE_1_DEMO_PASS ${evidence}`);
+  run('pnpm', [
+    '--filter',
+    '@d-contact/router',
+    'demo:wrapup',
+    '--',
+    tenantId,
+    interactionId,
+    agentId,
+    ivrDtmf ? 'IVR_DEMO_RESOLVED' : 'DIRECT_DEMO_RESOLVED',
+  ]);
+  const completedEvidence = await waitForDemoState('COMPLETED');
+  console.log(
+    `PHASE_ONE_EVIDENCE ${JSON.stringify({
+      kind: ivrDtmf ? 'ivr-softphone-e2e' : 'direct-queue-softphone-e2e',
+      tenantId,
+      interactionId,
+      state: 'COMPLETED',
+      eventCount: Number(completedEvidence.split('|')[5]),
+      recordingId,
+      recordingDurationSec: Number(durationSec),
+      recordingState: archiveState,
+    })}`,
+  );
+  console.log(`INBOUND_VOICE_PHASE_1_DEMO_PASS ${completedEvidence}`);
 } finally {
   await cleanup();
 }

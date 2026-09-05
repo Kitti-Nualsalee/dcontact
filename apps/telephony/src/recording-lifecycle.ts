@@ -1,13 +1,22 @@
 import type { KafkaEventEnvelope } from '@d-contact/kafka';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
-import type { TelephonyCallEvent } from '@d-contact/shared';
-import type { FreeSwitchCommandAdapter } from './freeswitch-command-adapter.js';
+import type { TelephonyCallEvent, TelephonyCommand } from '@d-contact/shared';
+
+export interface TelephonyRecordingCommandSink {
+  handle(command: TelephonyCommand): Promise<void>;
+}
+
+export interface RecordingArchive {
+  prepare(input: { tenantId: string; telephonyPath: string }): Promise<void>;
+  archive(input: { tenantId: string; storageKey: string; telephonyPath: string }): Promise<void>;
+}
 
 /** Telephony เป็นเจ้าของการสร้าง recording เมื่อ media bridge เริ่มขึ้น. */
 export class TelephonyRecordingLifecycle {
   constructor(
     private readonly database: PrismaClient,
-    private readonly commands: FreeSwitchCommandAdapter,
+    private readonly commands: TelephonyRecordingCommandSink,
+    private readonly archive: RecordingArchive,
     private readonly recordingsDirectory = process.env.FREESWITCH_RECORDINGS_DIR ??
       '/var/lib/freeswitch/recordings',
   ) {}
@@ -59,6 +68,10 @@ export class TelephonyRecordingLifecycle {
       },
     );
     if (!recording) return;
+    await this.archive.prepare({
+      tenantId: event.tenantId,
+      telephonyPath: recording.telephonyPath,
+    });
     if (recording.announcement && recording.language) {
       await this.commands.handle({
         callUuid: event.payload.callUuid,
@@ -77,5 +90,91 @@ export class TelephonyRecordingLifecycle {
       recordingPath: recording.telephonyPath,
       channelLayout: recording.channelLayout,
     });
+  }
+
+  async finishForHungupCall(event: KafkaEventEnvelope<TelephonyCallEvent>): Promise<void> {
+    if (event.type !== 'call.hangup' || event.payload.vendor !== 'freeswitch') return;
+    const endedAt = new Date(event.occurredAt);
+    const recording = await withTenantDatabaseTransaction(
+      this.database,
+      event.tenantId,
+      async (transaction) => {
+        const current = await transaction.recording.findFirst({
+          where: {
+            tenantId: event.tenantId,
+            interaction: { externalId: event.payload.callUuid },
+          },
+          select: {
+            id: true,
+            storageKey: true,
+            telephonyPath: true,
+            startedAt: true,
+            endedAt: true,
+            archivedAt: true,
+          },
+        });
+        if (!current || current.archivedAt) return undefined;
+        if (!current.endedAt) {
+          await transaction.recording.updateMany({
+            where: { id: current.id, tenantId: event.tenantId, endedAt: null },
+            data: {
+              endedAt,
+              durationSec: Math.max(
+                0,
+                Math.floor((endedAt.getTime() - current.startedAt.getTime()) / 1_000),
+              ),
+            },
+          });
+        }
+        return current;
+      },
+    );
+    if (!recording) return;
+    await this.archiveRecording(event.tenantId, recording);
+  }
+
+  async retryPendingArchives(telephonyNodeId: string): Promise<string[]> {
+    const tenants = await this.database.tenant.findMany({ select: { id: true } });
+    const archived: string[] = [];
+    for (const { id: tenantId } of tenants) {
+      const pending = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+        transaction.recording.findMany({
+          where: {
+            tenantId,
+            endedAt: { not: null },
+            archivedAt: null,
+            deletedAt: null,
+            interaction: {
+              metadata: { path: ['telephonyNodeId'], equals: telephonyNodeId },
+            },
+          },
+          select: { id: true, storageKey: true, telephonyPath: true },
+          orderBy: { endedAt: 'asc' },
+          take: 20,
+        }),
+      );
+      for (const recording of pending) {
+        await this.archiveRecording(tenantId, recording);
+        archived.push(recording.id);
+      }
+    }
+    return archived;
+  }
+
+  private async archiveRecording(
+    tenantId: string,
+    recording: { id: string; storageKey: string; telephonyPath: string },
+  ): Promise<void> {
+    await this.archive.archive({
+      tenantId,
+      storageKey: recording.storageKey,
+      telephonyPath: recording.telephonyPath,
+    });
+    await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.recording.updateMany({
+        where: { id: recording.id, tenantId, archivedAt: null },
+        data: { archivedAt: new Date() },
+      }),
+    );
   }
 }

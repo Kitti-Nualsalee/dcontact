@@ -22,8 +22,10 @@
     "infra:check": "node scripts/dev-infra-readiness.mjs && pnpm infra:identity:check",
     "infra:ready": "node scripts/phase-zero-readiness.mjs",
     "test:readiness": "node --test scripts/phase-zero-readiness.test.mjs",
+    "test:phase-one-readiness": "node --test scripts/phase-one-readiness.test.mjs scripts/phase-one-tenants.test.mjs",
     "voice:demo": "node scripts/inbound-voice-demo.mjs",
     "voice:ivr:demo": "INBOUND_DEMO_DTMF=2 node scripts/inbound-voice-demo.mjs",
+    "voice:acceptance": "node scripts/phase-one-readiness.mjs",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   },
   "devDependencies": {

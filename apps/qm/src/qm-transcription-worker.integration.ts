@@ -128,15 +128,21 @@ test('transcription provider uses encrypted no-training input and stops after bo
         (input as { dataUse: string }).dataUse === 'NO_TRAINING',
     ),
   );
-  assert.deepEqual(
-    (await worker.getAuditTrail(tenantId, jobId)).map((event) => event.action),
-    [
-      'TRANSCRIPTION_STARTED',
-      'TRANSCRIPTION_RETRY_SCHEDULED',
-      'TRANSCRIPTION_STARTED',
-      'TRANSCRIPTION_RETRY_SCHEDULED',
-      'TRANSCRIPTION_STARTED',
-      'TRANSCRIPTION_FAILED',
-    ],
+  const auditActions = (await worker.getAuditTrail(tenantId, jobId)).map((event) => event.action);
+  assert.deepEqual(auditActions, [
+    'TRANSCRIPTION_STARTED',
+    'TRANSCRIPTION_RETRY_SCHEDULED',
+    'TRANSCRIPTION_STARTED',
+    'TRANSCRIPTION_RETRY_SCHEDULED',
+    'TRANSCRIPTION_STARTED',
+    'TRANSCRIPTION_FAILED',
+  ]);
+  console.log(
+    `PHASE_ONE_EVIDENCE ${JSON.stringify({
+      kind: 'transcription-failed-retry-audit',
+      attempts: providerInputs.length,
+      finalStatus: 'FAILED',
+      auditActions,
+    })}`,
   );
 });

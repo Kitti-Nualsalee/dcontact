@@ -62,6 +62,20 @@ test('successful check ไม่สะท้อน child output ที่อา�
   assert.equal('detail' in diagnostic, false);
 });
 
+test('successful check เก็บเฉพาะ structured evidence ที่ประกาศ prefix ไว้', () => {
+  const diagnostic = executeReadinessCheck(
+    { ...PHASE_ZERO_READINESS_CHECKS[0], evidencePrefix: 'PHASE_ONE_EVIDENCE ' },
+    () => ({
+      status: 0,
+      stdout: 'password=dev-only\nPHASE_ONE_EVIDENCE {"kind":"thai-baseline","latencyMs":42}\n',
+      stderr: '',
+    }),
+  );
+
+  assert.deepEqual(diagnostic.evidence, [{ kind: 'thai-baseline', latencyMs: 42 }]);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /dev-only/);
+});
+
 test('downstream check แสดง blocker เมื่อ prerequisite ล้มเหลว', () => {
   const diagnostic = skippedDiagnostic(PHASE_ZERO_READINESS_CHECKS[4], 'database-baseline');
 

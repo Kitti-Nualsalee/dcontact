@@ -1,19 +1,16 @@
 {
-  "name": "@d-contact/router",
+  "name": "@d-contact/phase-one-acceptance",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/main.ts",
-    "demo:wrapup": "tsx src/demo-complete-wrapup.ts",
     "test": "tsx --test src/*.integration.ts",
-    "test:integration": "tsx --test src/*.integration.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@d-contact/db": "workspace:*",
     "@d-contact/kafka": "workspace:*",
-    "@d-contact/shared": "workspace:*"
+    "@d-contact/shared": "workspace:*",
+    "reflect-metadata": "^0.2.2"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

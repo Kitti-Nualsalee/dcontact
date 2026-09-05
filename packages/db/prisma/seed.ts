@@ -53,12 +53,37 @@ async function main() {
 
   const queue = await prisma.queue.upsert({
     where: { tenantId_name: { tenantId: tenant.id, name: 'General Support' } },
-    update: {},
+    update: {
+      recordingEnabled: true,
+      recordingAnnouncement: 'สายนี้มีการบันทึกเสียงเพื่อพัฒนาบริการ',
+      recordingAnnouncementLanguage: 'th-TH',
+      recordingPauseResumeEnabled: true,
+      recordingAgentSelfAccess: true,
+      recordingDownloadAllowed: false,
+      recordingRetentionDays: 30,
+      recordingChannelLayout: 'STEREO',
+      transcriptionMode: 'AUTOMATIC',
+      transcriptionLanguage: 'th-TH',
+      transcriptionMaxAttempts: 3,
+      autoQmEnabled: true,
+    },
     create: {
       tenantId: tenant.id,
       name: 'General Support',
       channels: ['VOICE', 'WEBCHAT', 'LINE', 'FACEBOOK', 'WHATSAPP', 'EMAIL'],
       slaThresholdSec: 20,
+      recordingEnabled: true,
+      recordingAnnouncement: 'สายนี้มีการบันทึกเสียงเพื่อพัฒนาบริการ',
+      recordingAnnouncementLanguage: 'th-TH',
+      recordingPauseResumeEnabled: true,
+      recordingAgentSelfAccess: true,
+      recordingDownloadAllowed: false,
+      recordingRetentionDays: 30,
+      recordingChannelLayout: 'STEREO',
+      transcriptionMode: 'AUTOMATIC',
+      transcriptionLanguage: 'th-TH',
+      transcriptionMaxAttempts: 3,
+      autoQmEnabled: true,
     },
   });
 
@@ -121,9 +146,115 @@ async function main() {
     }
   }
 
+  const secondTenant = await prisma.tenant.upsert({
+    where: { slug: 'demo-two' },
+    update: {},
+    create: {
+      name: 'Demo Company Two',
+      slug: 'demo-two',
+      sipDomain: 'demo-two.dcontact.local',
+    },
+  });
+  await prisma.user.upsert({
+    where: {
+      tenantId_email: { tenantId: secondTenant.id, email: 'admin@demo-two.local' },
+    },
+    update: {},
+    create: {
+      tenantId: secondTenant.id,
+      email: 'admin@demo-two.local',
+      passwordHash,
+      displayName: 'Demo Two Admin',
+      role: 'ADMIN',
+    },
+  });
+  const secondAgent = await prisma.user.upsert({
+    where: {
+      tenantId_email: { tenantId: secondTenant.id, email: 'agent2000@demo-two.local' },
+    },
+    update: {},
+    create: {
+      tenantId: secondTenant.id,
+      email: 'agent2000@demo-two.local',
+      passwordHash: agentHash,
+      displayName: 'Agent 2000',
+      role: 'AGENT',
+      extension: '2000',
+      sipPassword: 'DContactDev1',
+    },
+  });
+  const secondSkill = await prisma.skill.upsert({
+    where: { tenantId_name: { tenantId: secondTenant.id, name: 'general' } },
+    update: {},
+    create: { tenantId: secondTenant.id, name: 'general' },
+  });
+  const secondQueue = await prisma.queue.upsert({
+    where: { tenantId_name: { tenantId: secondTenant.id, name: 'General Support' } },
+    update: {
+      recordingEnabled: true,
+      recordingAnnouncement: 'สายนี้มีการบันทึกเสียงเพื่อพัฒนาบริการ',
+      recordingAnnouncementLanguage: 'th-TH',
+      recordingAgentSelfAccess: true,
+      recordingRetentionDays: 30,
+      transcriptionMode: 'AUTOMATIC',
+      transcriptionLanguage: 'th-TH',
+      transcriptionMaxAttempts: 3,
+      autoQmEnabled: true,
+    },
+    create: {
+      tenantId: secondTenant.id,
+      name: 'General Support',
+      channels: ['VOICE'],
+      recordingEnabled: true,
+      recordingAnnouncement: 'สายนี้มีการบันทึกเสียงเพื่อพัฒนาบริการ',
+      recordingAnnouncementLanguage: 'th-TH',
+      recordingAgentSelfAccess: true,
+      recordingRetentionDays: 30,
+      transcriptionMode: 'AUTOMATIC',
+      transcriptionLanguage: 'th-TH',
+      transcriptionMaxAttempts: 3,
+      autoQmEnabled: true,
+    },
+  });
+  await prisma.queueSkill.upsert({
+    where: {
+      queueId_skillId: { queueId: secondQueue.id, skillId: secondSkill.id },
+    },
+    update: {},
+    create: { queueId: secondQueue.id, skillId: secondSkill.id, minLevel: 1 },
+  });
+  await prisma.voiceDestination.upsert({
+    where: { tenantId_destination: { tenantId: secondTenant.id, destination: '3000' } },
+    update: { queueId: secondQueue.id, isActive: true },
+    create: { tenantId: secondTenant.id, destination: '3000', queueId: secondQueue.id },
+  });
+  await prisma.agentSkill.upsert({
+    where: { userId_skillId: { userId: secondAgent.id, skillId: secondSkill.id } },
+    update: { level: 3 },
+    create: { userId: secondAgent.id, skillId: secondSkill.id, level: 3 },
+  });
+  const secondLatestState = await prisma.agentStateLog.findFirst({
+    where: { tenantId: secondTenant.id, userId: secondAgent.id },
+    orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+    select: { state: true },
+  });
+  if (secondLatestState?.state !== 'AVAILABLE') {
+    await prisma.agentStateLog.create({
+      data: {
+        tenantId: secondTenant.id,
+        userId: secondAgent.id,
+        state: 'AVAILABLE',
+        reason: 'phase-one-second-tenant-seed',
+      },
+    });
+  }
+
   console.log(`Seeded tenant "${tenant.slug}" (${tenant.id})`);
   console.log('  admin@demo.local / admin1234');
   console.log('  agent1000@demo.local, agent1001@demo.local / agent1234 (SIP ext 1000, 1001)');
+  console.log(`Seeded tenant "${secondTenant.slug}" (${secondTenant.id})`);
+  console.log('  admin@demo-two.local / admin1234');
+  console.log('  agent2000@demo-two.local / agent1234 (SIP ext 2000)');
 }
 
 main()

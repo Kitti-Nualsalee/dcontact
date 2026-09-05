@@ -226,19 +226,15 @@ test('an agent pauses and resumes only its permitted active recording with a rea
 
   const address = app.getHttpServer().address() as AddressInfo;
   const endpoint = `http://127.0.0.1:${address.port}/api/v1/recordings/${recordingId}`;
-  assert.equal(
-    (
-      await fetch(
-        `http://127.0.0.1:${address.port}/api/v1/recordings/${foreignRecordingId}/playback`,
-        {
-          method: 'POST',
-          headers: { authorization: 'Bearer agent-token', 'content-type': 'application/json' },
-          body: JSON.stringify({ download: false }),
-        },
-      )
-    ).status,
-    404,
+  const crossTenantPlayback = await fetch(
+    `http://127.0.0.1:${address.port}/api/v1/recordings/${foreignRecordingId}/playback`,
+    {
+      method: 'POST',
+      headers: { authorization: 'Bearer agent-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ download: false }),
+    },
   );
+  assert.equal(crossTenantPlayback.status, 404);
   const control = (operation: 'pause' | 'resume', token: string, reason: string) =>
     fetch(`${endpoint}/${operation}`, {
       method: 'POST',
@@ -356,5 +352,14 @@ test('an agent pauses and resumes only its permitted active recording with a rea
       'LEGAL_HOLD_RELEASED',
       'RETENTION_DELETED',
     ],
+  );
+  console.log(
+    `PHASE_ONE_EVIDENCE ${JSON.stringify({
+      kind: 'signed-playback-tenant-isolation',
+      ownPlaybackStatus: playback.status,
+      crossTenantPlaybackStatus: crossTenantPlayback.status,
+      downloadDefaultDenied: true,
+      auditActions: ['PLAYBACK_URL_ISSUED', 'DOWNLOAD_DENIED'],
+    })}`,
   );
 });

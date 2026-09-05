@@ -1,4 +1,5 @@
 import { compose } from './dev-infra-compose.mjs';
+import { PHASE_ONE_TENANT_IDENTITIES } from './phase-one-tenants.mjs';
 
 const keycloakBaseUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
 const adminUsername = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME ?? 'admin';
@@ -73,14 +74,14 @@ function databaseUsers() {
     '-F',
     '|',
     '-c',
-    "SELECT u.id, u.tenant_id, u.email FROM users u JOIN tenants t ON t.id = u.tenant_id WHERE t.slug = 'demo' ORDER BY u.email;",
+    "SELECT u.id, u.tenant_id, u.email, lower(u.role::text), t.slug FROM users u JOIN tenants t ON t.id = u.tenant_id WHERE t.slug IN ('demo', 'demo-two') ORDER BY t.slug, u.email;",
   );
   return output
     .split('\n')
     .filter(Boolean)
     .map((line) => {
-      const [id, tenantId, email] = line.split('|');
-      return { id, tenantId, email };
+      const [id, tenantId, email, role, tenantSlug] = line.split('|');
+      return { id, tenantId, email, role, tenantSlug };
     });
 }
 
@@ -108,10 +109,7 @@ async function main() {
   allowDevHttpForAdminRealm();
   const token = await adminToken();
   const users = databaseUsers();
-  if (users.length === 0) throw new Error('ไม่พบ dev users ของ tenant demo; รัน pnpm db:seed ก่อน');
-  const tenantId = users[0].tenantId;
-  if (users.some((user) => user.tenantId !== tenantId))
-    throw new Error('dev users ไม่ได้อยู่ tenant เดียวกัน');
+  if (users.length === 0) throw new Error('ไม่พบ dev users ของ Phase 1; รัน pnpm db:seed ก่อน');
 
   const userProfile = await request(`/admin/realms/${realm}/users/profile`, { token });
   const protectedAttributes = ['tenant_id', 'tenant_slug', 'dc_user_id'];
@@ -186,77 +184,137 @@ async function main() {
     console.warn('ไม่พบ native Organization mapper; ใช้ flat user-attribute claims เป็น fallback');
   }
 
-  let organizations = await request(`/admin/realms/${realm}/organizations`, { token });
-  let organization = organizations.find((candidate) => candidate.alias === 'demo');
-  if (!organization) {
-    await request(`/admin/realms/${realm}/organizations`, {
-      method: 'POST',
-      token,
-      body: {
-        name: 'Demo Company',
-        alias: 'demo',
-        enabled: true,
-        domains: [{ name: 'demo.d-contact.local', verified: true }],
-        attributes: { tenant_id: [tenantId], tenant_slug: ['demo'] },
-      },
-    });
-    organizations = await request(`/admin/realms/${realm}/organizations`, { token });
-    organization = organizations.find((candidate) => candidate.alias === 'demo');
-  }
-  if (!organization) throw new Error('สร้าง Keycloak Organization demo ไม่สำเร็จ');
+  const mode = fallbackOnly ? 'fallback user attributes' : 'native Organization + fallback';
+  for (const tenantIdentity of PHASE_ONE_TENANT_IDENTITIES) {
+    const tenantUsers = users.filter((user) => user.tenantSlug === tenantIdentity.slug);
+    if (tenantUsers.length === 0) {
+      throw new Error(`ไม่พบ dev users ของ tenant ${tenantIdentity.slug}; รัน pnpm db:seed ก่อน`);
+    }
+    const tenantId = tenantUsers[0].tenantId;
+    if (tenantUsers.some((user) => user.tenantId !== tenantId)) {
+      throw new Error(`dev users ของ ${tenantIdentity.slug} มี tenant_id ไม่ตรงกัน`);
+    }
 
-  const fullOrganization = await request(
-    `/admin/realms/${realm}/organizations/${organization.id}`,
-    { token },
-  );
-  await request(`/admin/realms/${realm}/organizations/${organization.id}`, {
-    method: 'PUT',
-    token,
-    body: {
-      ...fullOrganization,
-      enabled: true,
-      attributes: { ...fullOrganization.attributes, tenant_id: [tenantId], tenant_slug: ['demo'] },
-    },
-  });
+    let organizations = await request(`/admin/realms/${realm}/organizations`, { token });
+    let organization = organizations.find((candidate) => candidate.alias === tenantIdentity.slug);
+    if (!organization) {
+      await request(`/admin/realms/${realm}/organizations`, {
+        method: 'POST',
+        token,
+        body: {
+          name: tenantIdentity.name,
+          alias: tenantIdentity.slug,
+          enabled: true,
+          domains: [{ name: tenantIdentity.domain, verified: true }],
+          attributes: { tenant_id: [tenantId], tenant_slug: [tenantIdentity.slug] },
+        },
+      });
+      organizations = await request(`/admin/realms/${realm}/organizations`, { token });
+      organization = organizations.find((candidate) => candidate.alias === tenantIdentity.slug);
+    }
+    if (!organization) {
+      throw new Error(`สร้าง Keycloak Organization ${tenantIdentity.slug} ไม่สำเร็จ`);
+    }
 
-  for (const databaseUser of users) {
-    const matches = await request(
-      `/admin/realms/${realm}/users?${new URLSearchParams({ username: databaseUser.email, exact: 'true' })}`,
+    const fullOrganization = await request(
+      `/admin/realms/${realm}/organizations/${organization.id}`,
       { token },
     );
-    if (matches.length !== 1)
-      throw new Error(`Keycloak user ${databaseUser.email} ต้องมีหนึ่งรายการ`);
-    const keycloakUser = matches[0];
-    await request(`/admin/realms/${realm}/users/${keycloakUser.id}`, {
+    await request(`/admin/realms/${realm}/organizations/${organization.id}`, {
       method: 'PUT',
       token,
       body: {
-        ...keycloakUser,
+        ...fullOrganization,
+        enabled: true,
         attributes: {
-          ...keycloakUser.attributes,
+          ...fullOrganization.attributes,
           tenant_id: [tenantId],
-          tenant_slug: ['demo'],
-          dc_user_id: [databaseUser.id],
+          tenant_slug: [tenantIdentity.slug],
         },
       },
     });
 
-    const members = await request(
-      `/admin/realms/${realm}/organizations/${organization.id}/members?max=100`,
-      { token },
-    );
-    if (!members.some((member) => member.id === keycloakUser.id)) {
-      await request(`/admin/realms/${realm}/organizations/${organization.id}/members`, {
+    for (const databaseUser of tenantUsers) {
+      let matches = await request(
+        `/admin/realms/${realm}/users?${new URLSearchParams({ username: databaseUser.email, exact: 'true' })}`,
+        { token },
+      );
+      if (matches.length === 0) {
+        await request(`/admin/realms/${realm}/users`, {
+          method: 'POST',
+          token,
+          body: {
+            username: databaseUser.email,
+            email: databaseUser.email,
+            firstName: databaseUser.email.split('@')[0],
+            lastName: tenantIdentity.name,
+            enabled: true,
+            emailVerified: true,
+          },
+        });
+        matches = await request(
+          `/admin/realms/${realm}/users?${new URLSearchParams({ username: databaseUser.email, exact: 'true' })}`,
+          { token },
+        );
+      }
+      if (matches.length !== 1) {
+        throw new Error(`Keycloak user ${databaseUser.email} ต้องมีหนึ่งรายการ`);
+      }
+      const keycloakUser = matches[0];
+      await request(`/admin/realms/${realm}/users/${keycloakUser.id}`, {
+        method: 'PUT',
+        token,
+        body: {
+          ...keycloakUser,
+          firstName: keycloakUser.firstName || databaseUser.email.split('@')[0],
+          lastName: keycloakUser.lastName || tenantIdentity.name,
+          enabled: true,
+          emailVerified: true,
+          attributes: {
+            ...keycloakUser.attributes,
+            tenant_id: [tenantId],
+            tenant_slug: [tenantIdentity.slug],
+            dc_user_id: [databaseUser.id],
+          },
+        },
+      });
+      await request(`/admin/realms/${realm}/users/${keycloakUser.id}/reset-password`, {
+        method: 'PUT',
+        token,
+        body: {
+          type: 'password',
+          value: databaseUser.role === 'admin' ? 'admin1234' : 'agent1234',
+          temporary: false,
+        },
+      });
+      const realmRole = await request(
+        `/admin/realms/${realm}/roles/${encodeURIComponent(databaseUser.role)}`,
+        { token },
+      );
+      await request(`/admin/realms/${realm}/users/${keycloakUser.id}/role-mappings/realm`, {
         method: 'POST',
         token,
-        rawBody: keycloakUser.id,
+        body: [realmRole],
       });
-    }
-    updateDatabaseIdentity(databaseUser.id, keycloakUser.id);
-  }
 
-  const mode = fallbackOnly ? 'fallback user attributes' : 'native Organization + fallback';
-  console.log(`เชื่อม Keycloak Organization demo กับ dev users ${users.length} คนแล้ว (${mode})`);
+      const members = await request(
+        `/admin/realms/${realm}/organizations/${organization.id}/members?max=100`,
+        { token },
+      );
+      if (!members.some((member) => member.id === keycloakUser.id)) {
+        await request(`/admin/realms/${realm}/organizations/${organization.id}/members`, {
+          method: 'POST',
+          token,
+          rawBody: keycloakUser.id,
+        });
+      }
+      updateDatabaseIdentity(databaseUser.id, keycloakUser.id);
+    }
+
+    console.log(
+      `เชื่อม Keycloak Organization ${tenantIdentity.slug} กับ dev users ${tenantUsers.length} คนแล้ว (${mode})`,
+    );
+  }
 }
 
 main().catch((error) => {

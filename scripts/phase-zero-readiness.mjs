@@ -102,6 +102,21 @@ function diagnosticDetail(result) {
   return safe.split('\n').filter(Boolean).slice(-10).join('\n').slice(0, 1_500);
 }
 
+function structuredEvidence(result, prefix) {
+  if (!prefix) return [];
+  return sanitizeDiagnostic(`${result.stdout ?? ''}\n${result.stderr ?? ''}`)
+    .split('\n')
+    .flatMap((line) => {
+      const marker = line.indexOf(prefix);
+      if (marker < 0) return [];
+      try {
+        return [JSON.parse(line.slice(marker + prefix.length))];
+      } catch {
+        return [];
+      }
+    });
+}
+
 export function executeReadinessCheck(check, runner = spawnSync) {
   const startedAt = new Date();
   const started = performance.now();
@@ -113,6 +128,7 @@ export function executeReadinessCheck(check, runner = spawnSync) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const passed = result.status === 0 && !result.error;
+  const evidence = passed ? structuredEvidence(result, check.evidencePrefix) : [];
 
   return {
     checkId: check.id,
@@ -121,6 +137,7 @@ export function executeReadinessCheck(check, runner = spawnSync) {
     status: passed ? 'PASS' : 'FAIL',
     startedAt: startedAt.toISOString(),
     durationMs: Math.round(performance.now() - started),
+    ...(evidence.length > 0 ? { evidence } : {}),
     ...(passed
       ? {}
       : {

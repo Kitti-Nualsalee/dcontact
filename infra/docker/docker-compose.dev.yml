@@ -146,6 +146,7 @@ services:
       - '16384-16420:16384-16420/udp' # RTP media
     volumes:
       - ../freeswitch/conf:/etc/freeswitch
+      - ./data/freeswitch-recordings:/var/lib/freeswitch/recordings
     restart: unless-stopped
     healthcheck:
       test: ['CMD-SHELL', 'fs_cli -x status']

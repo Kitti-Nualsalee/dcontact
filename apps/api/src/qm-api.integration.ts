@@ -45,12 +45,15 @@ test('supervisor starts manual transcription, audits transcript access, and huma
   const tenantId = randomUUID();
   const foreignTenantId = randomUUID();
   const teamId = randomUUID();
+  const foreignTeamId = randomUUID();
   const adminId = randomUUID();
   const supervisorId = randomUUID();
   const agentId = randomUUID();
   const queueId = randomUUID();
   const interactionId = randomUUID();
   const recordingId = randomUUID();
+  const foreignSupervisorId = randomUUID();
+  const foreignAgentId = randomUUID();
   const foreignQueueId = randomUUID();
   const foreignInteractionId = randomUUID();
   const foreignEvaluationId = randomUUID();
@@ -70,7 +73,16 @@ test('supervisor starts manual transcription, audits transcript access, and huma
       },
     ],
   });
-  await owner.team.create({ data: { id: teamId, tenantId, name: `QM team ${tenantId}` } });
+  await owner.team.createMany({
+    data: [
+      { id: teamId, tenantId, name: `QM team ${tenantId}` },
+      {
+        id: foreignTeamId,
+        tenantId: foreignTenantId,
+        name: `QM team ${foreignTenantId}`,
+      },
+    ],
+  });
   await owner.user.createMany({
     data: [
       {
@@ -99,6 +111,24 @@ test('supervisor starts manual transcription, audits transcript access, and huma
         displayName: 'Agent',
         role: 'AGENT',
       },
+      {
+        id: foreignSupervisorId,
+        tenantId: foreignTenantId,
+        teamId: foreignTeamId,
+        email: `supervisor-${foreignTenantId}@test.local`,
+        passwordHash: 'test',
+        displayName: 'Foreign supervisor',
+        role: 'SUPERVISOR',
+      },
+      {
+        id: foreignAgentId,
+        tenantId: foreignTenantId,
+        teamId: foreignTeamId,
+        email: `agent-${foreignTenantId}@test.local`,
+        passwordHash: 'test',
+        displayName: 'Foreign agent',
+        role: 'AGENT',
+      },
     ],
   });
   await owner.queue.create({
@@ -115,6 +145,7 @@ test('supervisor starts manual transcription, audits transcript access, and huma
     data: {
       id: foreignQueueId,
       tenantId: foreignTenantId,
+      teamId: foreignTeamId,
       name: `Foreign QM queue ${foreignTenantId}`,
       channels: ['VOICE'],
     },
@@ -124,7 +155,7 @@ test('supervisor starts manual transcription, audits transcript access, and huma
       (id, tenant_id, channel, direction, state, queue_id, agent_id, ended_at)
       VALUES
       (${interactionId}::uuid, ${tenantId}::uuid, 'VOICE', 'INBOUND', 'WRAPUP', ${queueId}::uuid, ${agentId}::uuid, NOW()),
-      (${foreignInteractionId}::uuid, ${foreignTenantId}::uuid, 'VOICE', 'INBOUND', 'WRAPUP', ${foreignQueueId}::uuid, NULL, NOW())`,
+      (${foreignInteractionId}::uuid, ${foreignTenantId}::uuid, 'VOICE', 'INBOUND', 'WRAPUP', ${foreignQueueId}::uuid, ${foreignAgentId}::uuid, NOW())`,
   );
   await owner.recording.create({
     data: {
@@ -143,7 +174,7 @@ test('supervisor starts manual transcription, audits transcript access, and huma
       id: foreignEvaluationId,
       tenantId: foreignTenantId,
       interactionId: foreignInteractionId,
-      agentId: randomUUID(),
+      agentId: foreignAgentId,
       source: 'AUTO_DRAFT',
       status: 'DRAFT',
       providerId: 'foreign-scorer',
@@ -159,6 +190,9 @@ test('supervisor starts manual transcription, audits transcript access, and huma
       if (token === 'admin-token') return claims(tenantId, adminId, 'admin');
       if (token === 'supervisor-token') return claims(tenantId, supervisorId, 'supervisor');
       if (token === 'agent-token') return claims(tenantId, agentId, 'agent');
+      if (token === 'foreign-supervisor-token') {
+        return claims(foreignTenantId, foreignSupervisorId, 'supervisor');
+      }
       throw new Error('invalid token');
     },
   };
@@ -193,9 +227,12 @@ test('supervisor starts manual transcription, audits transcript access, and huma
     await owner.queue.deleteMany({ where: { tenantId } });
     await owner.user.deleteMany({ where: { tenantId } });
     await owner.team.deleteMany({ where: { tenantId } });
+    await owner.qmAuditEvent.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.qmEvaluation.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.interaction.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.queue.deleteMany({ where: { tenantId: foreignTenantId } });
+    await owner.user.deleteMany({ where: { tenantId: foreignTenantId } });
+    await owner.team.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.tenant.deleteMany({ where: { id: { in: [tenantId, foreignTenantId] } } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -323,10 +360,32 @@ test('supervisor starts manual transcription, audits transcript access, and huma
     status: 'PUBLISHED',
     evaluatorId: supervisorId,
   });
+  const foreignPublish = await fetch(`${root}/qm/evaluations/${foreignEvaluationId}/publish`, {
+    method: 'POST',
+    headers: auth('foreign-supervisor-token'),
+    body: '{}',
+  });
+  assert.equal(foreignPublish.status, 201);
+  assert.deepEqual(await foreignPublish.json(), {
+    id: foreignEvaluationId,
+    status: 'PUBLISHED',
+    evaluatorId: foreignSupervisorId,
+  });
   assert.deepEqual(
     (await owner.qmAuditEvent.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } })).map(
       (event) => event.action,
     ),
     ['TRANSCRIPTION_REQUESTED', 'TRANSCRIPT_ACCESSED', 'EVALUATION_PUBLISHED'],
+  );
+  console.log(
+    `PHASE_ONE_EVIDENCE ${JSON.stringify({
+      kind: 'qm-human-publish-api',
+      transcriptionStatus: job.status,
+      transcriptLanguage: 'th-TH',
+      draftHiddenFromAgent: true,
+      crossTenantEvaluationHidden: true,
+      publishedStatusByTenant: ['PUBLISHED', 'PUBLISHED'],
+      auditActions: ['TRANSCRIPTION_REQUESTED', 'TRANSCRIPT_ACCESSED', 'EVALUATION_PUBLISHED'],
+    })}`,
   );
 });

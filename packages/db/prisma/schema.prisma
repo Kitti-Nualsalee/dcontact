@@ -576,6 +576,7 @@ model Recording {
   durationSec    Int?                   @map("duration_sec")
   startedAt      DateTime               @map("started_at")
   endedAt        DateTime?              @map("ended_at")
+  archivedAt     DateTime?              @map("archived_at")
   deletedAt      DateTime?              @map("deleted_at")
 
   interaction         Interaction           @relation(fields: [interactionId], references: [id])
