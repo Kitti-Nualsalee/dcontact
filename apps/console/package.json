@@ -1,0 +1,26 @@
+{
+  "name": "@d-contact/console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "dev": "vite",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "oidc-client-ts": "3.5.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-oidc-context": "3.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^20.14.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "typescript": "^5.5.4",
+    "vite": "6.4.3"
+  }
+}

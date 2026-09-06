@@ -1,0 +1,142 @@
+:root {
+  font-family: Inter, 'Noto Sans Thai', sans-serif;
+  color: #0f172a;
+  background: #f8fafc;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button {
+  font: inherit;
+}
+.console-shell > header {
+  height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 24px;
+  color: white;
+  background: #0f766e;
+}
+.console-shell > header span {
+  opacity: 0.8;
+}
+.console-shell main {
+  padding: 28px;
+}
+.heading,
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.eyebrow {
+  margin: 0;
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+h1 {
+  margin: 6px 0 24px;
+  font-size: 25px;
+}
+.tenant-chip {
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: #ccfbf1;
+  color: #115e59;
+  font-weight: 700;
+}
+.review-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1.4fr 0.8fr;
+  gap: 16px;
+}
+.panel {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: white;
+}
+.panel h2 {
+  margin-top: 0;
+  font-size: 16px;
+}
+.primary {
+  padding: 9px 13px;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  background: #0f766e;
+  font-weight: 700;
+}
+.media-panel audio {
+  display: block;
+  width: 100%;
+  margin-top: 18px;
+}
+.pci-gap,
+.warning {
+  margin-top: 14px;
+  padding: 10px;
+  border-radius: 8px;
+  color: #92400e;
+  background: #fef3c7;
+}
+.segment {
+  padding: 12px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+.segment span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+.segment p {
+  margin: 5px 0;
+}
+.score {
+  margin: 20px 0;
+  font-size: 46px;
+  font-weight: 800;
+}
+.draft-note {
+  color: #92400e;
+}
+.modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #0f172a99;
+}
+.modal > div {
+  max-width: 440px;
+  padding: 24px;
+  border-radius: 14px;
+  background: white;
+}
+.modal button {
+  margin: 16px 8px 0 0;
+  padding: 9px 13px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+}
+.empty {
+  padding: 40px;
+}
+@media (max-width: 900px) {
+  .review-grid {
+    grid-template-columns: 1fr;
+  }
+  .console-shell main {
+    padding: 18px;
+  }
+}
