@@ -14,6 +14,18 @@ export interface SupervisorSnapshot {
 
 export interface SupervisorWorkspaceApi {
   snapshot(): Promise<SupervisorSnapshot>;
+  forceAgentState(input: {
+    agentId: string;
+    state: 'OFFLINE' | 'AVAILABLE' | 'BREAK';
+    reason: string;
+    commandId: string;
+  }): Promise<void>;
+  setQueueAvailability(input: {
+    queueId: string;
+    isActive: boolean;
+    reason: string;
+    commandId: string;
+  }): Promise<void>;
 }
 
 export function createSupervisorWorkspaceApi(options: {
@@ -22,16 +34,52 @@ export function createSupervisorWorkspaceApi(options: {
   fetch?: typeof globalThis.fetch;
 }): SupervisorWorkspaceApi {
   const request = options.fetch ?? globalThis.fetch;
+  const baseUrl = options.baseUrl.replace(/\/$/, '');
+  const authorizedRequest = async (path: string, init?: RequestInit): Promise<Response> => {
+    const accessToken = options.accessToken();
+    if (!accessToken) throw new Error('authenticated access token is required');
+    return request(`${baseUrl}${path}`, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        ...(init?.body ? { 'content-type': 'application/json' } : {}),
+        ...init?.headers,
+      },
+    });
+  };
   return {
     async snapshot() {
-      const accessToken = options.accessToken();
-      if (!accessToken) throw new Error('authenticated access token is required');
-      const response = await request(
-        `${options.baseUrl.replace(/\/$/, '')}/api/v1/workspace/supervisor/snapshot`,
-        { headers: { authorization: `Bearer ${accessToken}` } },
-      );
+      const response = await authorizedRequest('/api/v1/workspace/supervisor/snapshot');
       if (!response.ok) throw new Error(`Supervisor snapshot failed with HTTP ${response.status}`);
       return (await response.json()) as SupervisorSnapshot;
+    },
+    async forceAgentState(input) {
+      const response = await authorizedRequest(
+        `/api/v1/workspace/supervisor/agents/${encodeURIComponent(input.agentId)}/state`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            state: input.state,
+            reason: input.reason,
+            commandId: input.commandId,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(`Agent state mutation failed with HTTP ${response.status}`);
+    },
+    async setQueueAvailability(input) {
+      const response = await authorizedRequest(
+        `/api/v1/workspace/supervisor/queues/${encodeURIComponent(input.queueId)}/availability`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            isActive: input.isActive,
+            reason: input.reason,
+            commandId: input.commandId,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(`Queue mutation failed with HTTP ${response.status}`);
     },
   };
 }

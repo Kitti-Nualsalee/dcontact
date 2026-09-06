@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SupervisorSnapshot, SupervisorWorkspaceApi } from './supervisor-api.js';
 
+type MutationDraft =
+  | {
+      kind: 'agent';
+      id: string;
+      label: string;
+      state: 'OFFLINE' | 'AVAILABLE' | 'BREAK';
+      reason: string;
+    }
+  | { kind: 'queue'; id: string; label: string; isActive: boolean; reason: string };
+
 export interface SupervisorWorkspaceProps {
   api: SupervisorWorkspaceApi;
   tenantLabel?: string;
@@ -14,6 +24,11 @@ export function SupervisorWorkspace({
 }: SupervisorWorkspaceProps) {
   const [snapshot, setSnapshot] = useState<SupervisorSnapshot>();
   const [error, setError] = useState<string>();
+  const [desktopControls, setDesktopControls] = useState(() => window.innerWidth >= 760);
+  const [mutation, setMutation] = useState<MutationDraft>();
+  const [mutationState, setMutationState] = useState<'idle' | 'pending' | 'confirmed' | 'rejected'>(
+    'idle',
+  );
 
   useEffect(() => {
     let active = true;
@@ -31,6 +46,14 @@ export function SupervisorWorkspace({
       active = false;
     };
   }, [api]);
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 760px)');
+    const update = () => setDesktopControls(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
 
   const risks = useMemo(() => {
     if (!snapshot) return [];
@@ -51,6 +74,35 @@ export function SupervisorWorkspace({
         })),
     ];
   }, [snapshot]);
+
+  const submitMutation = async () => {
+    if (!mutation || !mutation.reason.trim()) return;
+    setMutationState('pending');
+    setMutation(undefined);
+    const commandId = crypto.randomUUID();
+    try {
+      if (mutation.kind === 'agent') {
+        await api.forceAgentState({
+          agentId: mutation.id,
+          state: mutation.state,
+          reason: mutation.reason.trim(),
+          commandId,
+        });
+      } else {
+        await api.setQueueAvailability({
+          queueId: mutation.id,
+          isActive: mutation.isActive,
+          reason: mutation.reason.trim(),
+          commandId,
+        });
+      }
+      const authoritative = await api.snapshot();
+      setSnapshot(authoritative);
+      setMutationState('confirmed');
+    } catch {
+      setMutationState('rejected');
+    }
+  };
 
   return (
     <div className="supervisor-shell">
@@ -99,6 +151,14 @@ export function SupervisorWorkspace({
             </p>
           ) : null}
 
+          <div className="mutation-status" aria-live="polite">
+            {mutationState === 'pending' ? 'กำลังรอ server ยืนยัน' : null}
+            {mutationState === 'confirmed' ? 'server ยืนยันสถานะล่าสุดแล้ว' : null}
+            {mutationState === 'rejected'
+              ? 'คำสั่งไม่สำเร็จ กรุณาตรวจสถานะล่าสุดก่อนลองใหม่'
+              : null}
+          </div>
+
           <section className="pulse-grid" aria-label="Team pulse">
             <article className="metric-card risk">
               <span>ต้องตรวจสอบ</span>
@@ -146,9 +206,67 @@ export function SupervisorWorkspace({
                       <strong>{agent.displayName}</strong>
                       <small>Ext. {agent.extension ?? '—'}</small>
                     </span>
-                    <span className={`agent-state ${agent.state.toLowerCase()}`}>
-                      {agent.state}
+                    <span className="row-actions">
+                      <span className={`agent-state ${agent.state.toLowerCase()}`}>
+                        {agent.state}
+                      </span>
+                      {desktopControls &&
+                      ['OFFLINE', 'AVAILABLE', 'BREAK'].includes(agent.state) ? (
+                        <button
+                          type="button"
+                          className="secondary-action compact-action"
+                          disabled={mutationState === 'pending'}
+                          aria-label={`เปลี่ยนสถานะ ${agent.displayName}`}
+                          onClick={() => {
+                            setMutationState('idle');
+                            setMutation({
+                              kind: 'agent',
+                              id: agent.id,
+                              label: agent.displayName,
+                              state: agent.state === 'BREAK' ? 'AVAILABLE' : 'BREAK',
+                              reason: '',
+                            });
+                          }}
+                        >
+                          เปลี่ยนสถานะ
+                        </button>
+                      ) : null}
                     </span>
+                  </li>
+                ))}
+              </ul>
+            </article>
+
+            <article className="panel queue-control-panel">
+              <p className="step">QUEUE CONTROL</p>
+              <h2>Queues</h2>
+              <ul className="agent-list">
+                {(snapshot?.queues ?? []).map((queue) => (
+                  <li key={queue.id}>
+                    <span>
+                      <strong>{queue.name}</strong>
+                      <small>{queue.isActive ? 'เปิดรับงาน' : 'ปิดรับงาน'}</small>
+                    </span>
+                    {desktopControls ? (
+                      <button
+                        type="button"
+                        className="secondary-action compact-action"
+                        disabled={mutationState === 'pending'}
+                        aria-label={`${queue.isActive ? 'ปิด' : 'เปิด'} Queue ${queue.name}`}
+                        onClick={() => {
+                          setMutationState('idle');
+                          setMutation({
+                            kind: 'queue',
+                            id: queue.id,
+                            label: queue.name,
+                            isActive: !queue.isActive,
+                            reason: '',
+                          });
+                        }}
+                      >
+                        {queue.isActive ? 'ปิด Queue' : 'เปิด Queue'}
+                      </button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -156,6 +274,69 @@ export function SupervisorWorkspace({
           </section>
         </main>
       </section>
+
+      {mutation ? (
+        <section className="confirmation-backdrop" role="dialog" aria-modal="true">
+          <form
+            className="confirmation-card"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitMutation();
+            }}
+          >
+            <p className="step">CONFIRM REMOTE CONTROL</p>
+            <h2>
+              {mutation.kind === 'agent'
+                ? `เปลี่ยนสถานะ ${mutation.label}`
+                : `${mutation.isActive ? 'เปิด' : 'ปิด'} Queue ${mutation.label}`}
+            </h2>
+            {mutation.kind === 'agent' ? (
+              <label>
+                สถานะใหม่
+                <select
+                  value={mutation.state}
+                  onChange={(event) =>
+                    setMutation({
+                      ...mutation,
+                      state: event.target.value as 'OFFLINE' | 'AVAILABLE' | 'BREAK',
+                    })
+                  }
+                >
+                  <option value="OFFLINE">OFFLINE</option>
+                  <option value="AVAILABLE">AVAILABLE</option>
+                  <option value="BREAK">BREAK</option>
+                </select>
+              </label>
+            ) : null}
+            <label>
+              เหตุผล
+              <textarea
+                required
+                maxLength={240}
+                value={mutation.reason}
+                onChange={(event) => setMutation({ ...mutation, reason: event.target.value })}
+              />
+            </label>
+            <p className="confirmation-impact">
+              คำสั่งนี้มีผลกับ routing และจะถูกบันทึกใน audit log
+            </p>
+            <div className="confirmation-actions">
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => setMutation(undefined)}
+              >
+                ยกเลิก
+              </button>
+              <button type="submit" className="primary-action" disabled={!mutation.reason.trim()}>
+                {mutation.kind === 'agent'
+                  ? 'ยืนยันเปลี่ยนสถานะ'
+                  : `ยืนยัน${mutation.isActive ? 'เปิด' : 'ปิด'} Queue`}
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : null}
     </div>
   );
 }
