@@ -17,6 +17,7 @@ const e2eHttpApi = createAgentWorkspaceApi({
 });
 const e2eApi: AgentWorkspaceApi = {
   snapshot: () => e2eHttpApi.snapshot(),
+  submitWrapup: (input) => e2eHttpApi.submitWrapup(input),
   sipCredentials: async () => ({
     leaseId: 'e2e-lease',
     extension: '1000',

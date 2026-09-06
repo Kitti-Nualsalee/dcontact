@@ -60,6 +60,9 @@ export function WorkspaceApp({
   const [softphoneState, setSoftphoneState] = useState<SoftphoneState>({ phase: 'OFFLINE' });
   const [softphoneError, setSoftphoneError] = useState<string>();
   const [muted, setMuted] = useState(false);
+  const [wrapupDisposition, setWrapupDisposition] = useState<string>();
+  const [wrapupPending, setWrapupPending] = useState(false);
+  const [wrapupError, setWrapupError] = useState<string>();
   const mediaStream = useRef<MediaStream | undefined>(undefined);
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
   const softphone = useRef<BrowserSoftphone | undefined>(undefined);
@@ -238,6 +241,26 @@ export function WorkspaceApp({
       .catch(() => undefined);
   }
 
+  async function submitWrapup() {
+    const interaction = snapshot?.interaction;
+    if (!api || !interaction || interaction.state !== 'WRAPUP' || !wrapupDisposition) return;
+    setWrapupPending(true);
+    setWrapupError(undefined);
+    try {
+      await api.submitWrapup({
+        interactionId: interaction.id,
+        disposition: wrapupDisposition,
+        commandId: crypto.randomUUID(),
+      });
+      setSnapshot(await api.snapshot());
+      setWrapupDisposition(undefined);
+    } catch {
+      setWrapupError('ส่ง disposition ไม่สำเร็จ โปรดลองใหม่ด้วยข้อมูลเดิม');
+    } finally {
+      setWrapupPending(false);
+    }
+  }
+
   function moveWorkHere() {
     leaderElection.claim();
     setWorkingTab(true);
@@ -413,6 +436,50 @@ export function WorkspaceApp({
                     </button>
                   ))}
                 </div>
+              </article>
+            ) : null}
+
+            {snapshot?.interaction?.state === 'WRAPUP' ? (
+              <article className="panel" aria-labelledby="wrapup-title">
+                <div>
+                  <p className="step">WRAP-UP</p>
+                  <h2 id="wrapup-title">สรุปผลหลังสาย</h2>
+                  <p className="panel-copy">ส่ง disposition ก่อนกลับสู่สถานะรับงาน</p>
+                </div>
+                <div className="control-row" aria-label="เลือก disposition">
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    aria-pressed={wrapupDisposition === 'CUSTOMER_ASSISTED'}
+                    disabled={wrapupPending}
+                    onClick={() => setWrapupDisposition('CUSTOMER_ASSISTED')}
+                  >
+                    ลูกค้าได้รับความช่วยเหลือ
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    aria-pressed={wrapupDisposition === 'FOLLOW_UP_REQUIRED'}
+                    disabled={wrapupPending}
+                    onClick={() => setWrapupDisposition('FOLLOW_UP_REQUIRED')}
+                  >
+                    ต้องติดตามต่อ
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="primary-action"
+                  disabled={!wrapupDisposition || wrapupPending}
+                  onClick={() => void submitWrapup()}
+                >
+                  ส่ง disposition
+                </button>
+                {wrapupPending ? <p role="status">กำลังรอ server ยืนยัน</p> : null}
+                {wrapupError ? (
+                  <p role="alert" className="error-message">
+                    {wrapupError}
+                  </p>
+                ) : null}
               </article>
             ) : null}
 
