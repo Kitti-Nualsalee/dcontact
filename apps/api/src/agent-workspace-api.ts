@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import {
+  BadRequestException,
+  Body,
   Controller,
   ForbiddenException,
   Get,
   Inject,
   NotFoundException,
+  Param,
+  Post,
   Req,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -110,6 +114,22 @@ function callerFrom(metadata: unknown): string | null {
   return typeof caller === 'string' ? caller : null;
 }
 
+function requiredUuid(value: string, field: string): string {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw new BadRequestException(`${field} must be a UUID`);
+  }
+  return value;
+}
+
+function wrapupBody(value: { disposition?: unknown; commandId?: unknown }) {
+  if (typeof value.disposition !== 'string' || !/^[A-Z][A-Z0-9_]{1,79}$/.test(value.disposition)) {
+    throw new BadRequestException('disposition must be an uppercase code');
+  }
+  if (typeof value.commandId !== 'string')
+    throw new BadRequestException('commandId must be a UUID');
+  return { disposition: value.disposition, commandId: requiredUuid(value.commandId, 'commandId') };
+}
+
 @Controller('api/v1/workspace/agent')
 export class AgentWorkspaceController {
   constructor(
@@ -181,6 +201,80 @@ export class AgentWorkspaceController {
             }
           : null,
       };
+    });
+  }
+
+  @Post('interactions/:interactionId/wrapup')
+  @GatewayRoles('agent')
+  async submitWrapup(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('interactionId') interactionId: string,
+    @Body() body: { disposition?: unknown; commandId?: unknown },
+  ) {
+    const actor = identity(request);
+    const input = wrapupBody(body);
+    return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
+      const resourceId = requiredUuid(interactionId, 'interactionId');
+      const receipt = await transaction.commandReceipt.findUnique({
+        where: { tenantId_commandId: { tenantId: actor.tenantId, commandId: input.commandId } },
+        select: { actorUserId: true, action: true, resourceId: true, result: true },
+      });
+      if (receipt) {
+        if (
+          receipt.actorUserId !== actor.userId ||
+          receipt.action !== 'AGENT_WRAPUP_SUBMIT' ||
+          receipt.resourceId !== resourceId
+        ) {
+          throw new BadRequestException('commandId was already used for another command');
+        }
+        return receipt.result;
+      }
+      const interaction = await transaction.interaction.findFirst({
+        where: { id: resourceId, tenantId: actor.tenantId, agentId: actor.userId, state: 'WRAPUP' },
+        select: { id: true },
+      });
+      if (!interaction) throw new NotFoundException();
+      await transaction.interaction.updateMany({
+        where: {
+          id: interaction.id,
+          tenantId: actor.tenantId,
+          agentId: actor.userId,
+          state: 'WRAPUP',
+        },
+        data: { state: 'COMPLETED', wrapUpCode: input.disposition },
+      });
+      await transaction.interactionEvent.create({
+        data: {
+          tenantId: actor.tenantId,
+          interactionId: interaction.id,
+          type: 'interaction.wrapup_completed',
+          payload: { disposition: input.disposition, commandId: input.commandId },
+        },
+      });
+      await transaction.agentStateLog.create({
+        data: {
+          tenantId: actor.tenantId,
+          userId: actor.userId,
+          state: 'AVAILABLE',
+          reason: 'wrapup_completed',
+        },
+      });
+      const result = {
+        interactionId: interaction.id,
+        state: 'COMPLETED',
+        disposition: input.disposition,
+      };
+      await transaction.commandReceipt.create({
+        data: {
+          tenantId: actor.tenantId,
+          commandId: input.commandId,
+          actorUserId: actor.userId,
+          action: 'AGENT_WRAPUP_SUBMIT',
+          resourceId: interaction.id,
+          result,
+        },
+      });
+      return result;
     });
   }
 

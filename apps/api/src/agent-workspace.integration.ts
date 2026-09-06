@@ -184,6 +184,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   t.after(async () => {
     await app.close();
     for (const tenantId of [tenantAId, tenantBId]) {
+      await owner.commandReceipt.deleteMany({ where: { tenantId } });
       await owner.interactionEvent.deleteMany({ where: { tenantId } });
       await owner.interaction.deleteMany({ where: { tenantId } });
       await owner.agentStateLog.deleteMany({ where: { tenantId } });
@@ -218,6 +219,44 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
       answeredAt: null,
       endedAt: null,
     },
+  });
+
+  await owner.$executeRaw(
+    Prisma.sql`UPDATE interactions SET state = 'WRAPUP', ended_at = ${new Date('2026-09-06T10:01:00.000Z')} WHERE id = ${interactionAId}::uuid`,
+  );
+  const wrapup = await fetch(
+    `http://127.0.0.1:${address.port}/api/v1/workspace/agent/interactions/${interactionAId}/wrapup`,
+    {
+      method: 'POST',
+      headers: { authorization: 'Bearer agent-a-token', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        disposition: 'CUSTOMER_ASSISTED',
+        commandId: '04e5b24d-f298-4e5e-83d9-2cadfd7ed204',
+      }),
+    },
+  );
+  assert.equal(wrapup.status, 201);
+  assert.deepEqual(await wrapup.json(), {
+    interactionId: interactionAId,
+    state: 'COMPLETED',
+    disposition: 'CUSTOMER_ASSISTED',
+  });
+  const repeatedWrapup = await fetch(
+    `http://127.0.0.1:${address.port}/api/v1/workspace/agent/interactions/${interactionAId}/wrapup`,
+    {
+      method: 'POST',
+      headers: { authorization: 'Bearer agent-a-token', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        disposition: 'CUSTOMER_ASSISTED',
+        commandId: '04e5b24d-f298-4e5e-83d9-2cadfd7ed204',
+      }),
+    },
+  );
+  assert.equal(repeatedWrapup.status, 201);
+  assert.deepEqual(await repeatedWrapup.json(), {
+    interactionId: interactionAId,
+    state: 'COMPLETED',
+    disposition: 'CUSTOMER_ASSISTED',
   });
 
   const credentialsResponse = await fetch(
