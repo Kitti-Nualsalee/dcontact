@@ -1,0 +1,241 @@
+/* ============================================================
+   D-Contact design tokens — แหล่งความจริงเดียวของสี ตัวอักษร ระยะ และเงา
+
+   ที่มา: สกัดจาก mockups/assets/app.css ที่ผู้ใช้ยืนยันเป็น visual contract
+   (ADR-026 ข้อ 6 · สเปก #50) — งานนี้คือ "ทำให้เป็นระบบ" ไม่ใช่ออกแบบใหม่
+   ค่าสีทุกตัวมาจาก mockup เดิม ยกเว้นที่ระบุไว้ว่าแก้เพราะคอนทราสต์ตก WCAG AA
+
+   กติกาการใช้
+   1. โค้ดแอปอ้าง token เท่านั้น ห้ามเขียน hex ตรง ๆ และห้ามใช้คลาสสีของ Tailwind
+      (`bg-teal-700`, `text-slate-400`) เพราะจะกลายเป็นแหล่งความจริงที่สอง
+   2. สีในระบบนี้ทำงานสองแบบที่ห้ามปนกัน — ดูหัวข้อ SEVERITY กับ IDENTITY ข้างล่าง
+   3. ถ้าต้องการสีที่ยังไม่มี ให้เพิ่ม token ใหม่พร้อมชื่อบทบาท ไม่ใช่หยิบค่าใกล้เคียงมาใช้
+   ============================================================ */
+
+:root {
+  /* ---------- SURFACE — พื้นหลังไล่ตามความลึก ---------- */
+  --dc-surface-page: #f8fafc;        /* พื้นหลังหน้าจอ */
+  --dc-surface-raised: #ffffff;      /* การ์ด ตาราง แผง */
+  --dc-surface-sunken: #f1f5f9;      /* ร่องในการ์ด แถบ progress ที่ยังว่าง */
+  --dc-surface-hover: #f8fafc;       /* แถวหรือปุ่มตอน hover */
+  --dc-surface-selected: #f0fdfa;    /* แถวที่เลือกอยู่ (โทนแบรนด์) */
+  --dc-surface-inverse: #0f172a;     /* wallboard, monitor bar */
+  --dc-surface-brand: #0f766e;       /* rail ด้านซ้าย */
+
+  /* ---------- BORDER ---------- */
+  --dc-border-subtle: #e2e8f0;       /* เส้นคั่นในตาราง ขอบการ์ด */
+  --dc-border-default: #cbd5e1;      /* ขอบ input ปุ่มรอง */
+  --dc-border-strong: #94a3b8;       /* ขอบตอน hover ของ control */
+  --dc-border-brand: #0f766e;
+
+  /* ---------- TEXT ----------
+     --dc-text-disabled คือค่าเดียวที่ห้ามใช้กับข้อความที่มีความหมาย
+     (#94a3b8 บนขาว = 2.6:1 ตก AA) เดิม mockup ใช้มัน 310 จุดกับเวลาและข้อความรอง
+     ข้อความรองที่อ่านจริงต้องใช้ --dc-text-muted (#64748b = 4.8:1) ขึ้นไป */
+  --dc-text-primary: #1e293b;
+  --dc-text-secondary: #475569;
+  --dc-text-muted: #64748b;          /* ระดับต่ำสุดที่ยังใช้กับข้อความได้ — เฉพาะบน
+                                        --dc-surface-raised และ --dc-surface-page
+                                        บนพื้นร่องได้ 4.34:1 จึงต้องใช้ text-secondary แทน */
+  --dc-text-disabled: #94a3b8;       /* เฉพาะ control ที่กดไม่ได้ และไอคอนตกแต่ง */
+  --dc-text-brand: #0f766e;
+  --dc-text-brand-strong: #134e4a;   /* ชื่อแบรนด์ ไอคอนในเมนูย่อย */
+  --dc-text-on-brand: #ffffff;
+  --dc-text-on-inverse: #e2e8f0;
+  --dc-text-on-inverse-muted: #94a3b8;
+
+  /* ---------- BRAND RAMP ---------- */
+  --dc-brand-50: #f0fdfa;
+  --dc-brand-100: #ccfbf1;
+  --dc-brand-200: #99f6e4;
+  --dc-brand-600: #0d9488;
+  --dc-brand-700: #0f766e;           /* สีหลักของระบบ */
+  --dc-brand-800: #115e59;
+  --dc-brand-900: #134e4a;
+
+  /* ============================================================
+     SEVERITY — สีที่บอก "ระดับความรุนแรง"
+     หนึ่งบทบาทต้องมีตระกูลสีเดียว ห้ามมีสองตระกูลทำงานเดียวกัน
+     การยุบที่ทำในชั้นนี้: rose-* ถูกยุบเข้า red-* (เดิม badge, chat dot และ
+     สถานะโต้แย้งใช้ rose ขณะที่ SLA breach ใช้ red ทั้งที่หมายถึงเรื่องเดียวกัน)
+     ============================================================ */
+  --dc-success-bg: #dcfce7;
+  --dc-success-fg: #15803d;          /* ใช้กับตัวอักษรบน --dc-success-bg */
+  --dc-success-solid: #16a34a;       /* แถบ ไอคอน จุด — ไม่ใช่ตัวอักษรเล็ก */
+
+  --dc-attention-bg: #fef3c7;
+  --dc-attention-bg-subtle: #fffbeb;
+  --dc-attention-fg: #b45309;
+  --dc-attention-fg-strong: #92400e;
+  --dc-attention-solid: #f59e0b;
+  --dc-attention-border: #fde68a;
+
+  --dc-critical-bg: #fee2e2;
+  --dc-critical-bg-subtle: #fff1f2;
+  --dc-critical-fg: #b91c1c;
+  --dc-critical-fg-strong: #9f1239;
+  --dc-critical-solid: #dc2626;
+  --dc-critical-border: #fecaca;
+
+  --dc-info-bg: #e0e7ff;
+  --dc-info-bg-subtle: #eef2ff;
+  --dc-info-fg: #4338ca;
+  --dc-info-solid: #6366f1;
+
+  --dc-neutral-bg: #f1f5f9;
+  --dc-neutral-fg: #475569;          /* เดิม #64748b = 4.34:1 ตก AA บนพื้นของตัวเอง */
+  --dc-neutral-solid: #94a3b8;
+
+  --dc-accent-bg: #ede9fe;           /* หมวดหมู่ ป้าย AI — purple-* ถูกยุบเข้า violet-* */
+  --dc-accent-fg: #6d28d9;
+  --dc-accent-solid: #8b5cf6;
+
+  /* ============================================================
+     IDENTITY — สีที่บอก "นี่คือใคร/อะไร" ไม่ใช่ระดับความรุนแรง
+     ห้ามยุบให้เหลือน้อยลง: เขียวของ LINE กับเขียวของ WhatsApp ที่ดูซ้ำกัน
+     คือคนละช่องทาง ถ้ายุบแล้วป้ายช่องทางจะแยกกันไม่ออก
+     และห้ามหยิบค่าจากกลุ่ม SEVERITY มาใช้ ไม่งั้นป้ายช่องทางสีแดงจะอ่านเป็นการเตือน
+     ============================================================ */
+  --dc-channel-voice-bg: #e0e7ff;
+  --dc-channel-voice-fg: #4338ca;
+  --dc-channel-webchat-bg: #ccfbf1;
+  --dc-channel-webchat-fg: #0f766e;
+  --dc-channel-line-bg: #dcfce7;
+  --dc-channel-line-fg: #15803d;
+  --dc-channel-facebook-bg: #dbeafe;
+  --dc-channel-facebook-fg: #1d4ed8;
+  --dc-channel-whatsapp-bg: #d1fae5;
+  --dc-channel-whatsapp-fg: #047857;
+  --dc-channel-email-bg: #fef3c7;
+  --dc-channel-email-fg: #b45309;
+
+  /* คู่สนทนา — ใช้ใน transcript, waveform, bubble */
+  --dc-party-agent: #0f766e;
+  --dc-party-contact: #4f46e5;
+  --dc-party-contact-soft: #6366f1;  /* แท่ง waveform ฝั่งลูกค้า */
+  --dc-party-system: #94a3b8;
+
+  /* กิจกรรมในตารางกะและ timeline (WFM) — identity ล้วน */
+  --dc-shift-day-bg: #e0e7ff;
+  --dc-shift-day-fg: #3730a3;
+  --dc-shift-mid-bg: #ccfbf1;
+  --dc-shift-mid-fg: #0f766e;
+  --dc-shift-eve-bg: #fef3c7;
+  --dc-shift-eve-fg: #b45309;
+  --dc-shift-night-bg: #ede9fe;
+  --dc-shift-night-fg: #6d28d9;
+  --dc-shift-off-bg: #f1f5f9;
+  --dc-shift-off-fg: #475569;        /* เดิม #64748b ตก AA */
+  --dc-shift-leave-bg: #fee2e2;
+  --dc-shift-leave-fg: #b91c1c;
+  --dc-shift-train-bg: #ede9fe;
+  --dc-shift-train-fg: #6d28d9;
+
+  --dc-activity-work: #0f766e;
+  --dc-activity-break: #94a3b8;
+  --dc-activity-lunch: #f59e0b;
+  --dc-activity-training: #8b5cf6;
+  --dc-activity-meeting: #0ea5e9;
+  --dc-activity-off: #e2e8f0;
+  --dc-activity-out-of-adherence: #dc2626;
+
+  /* ---------- สถานะเอเจนต์ ---------- */
+  --dc-agent-available-bg: #dcfce7;
+  --dc-agent-available-fg: #15803d;
+  --dc-agent-busy-bg: #fee2e2;
+  --dc-agent-busy-fg: #b91c1c;
+  --dc-agent-acw-bg: #fef3c7;
+  --dc-agent-acw-fg: #b45309;
+  --dc-agent-break-bg: #e2e8f0;
+  --dc-agent-break-fg: #475569;
+  --dc-agent-offline-bg: #f1f5f9;
+  --dc-agent-offline-fg: #475569;    /* เดิม #64748b ตก AA */
+  /* cooldown ที่ระบบสั่ง ต้องแยกจาก break ที่เอเจนต์กดเอง (ADR/#49) */
+  --dc-agent-cooldown-bg: #fef3c7;
+  --dc-agent-cooldown-fg: #92400e;
+
+  /* ============================================================
+     TYPOGRAPHY
+     root กลับไป 16px (ค่าปกติของเบราว์เซอร์) ขนาดตัวอักษรถูกนิยามเป็นค่าสัมบูรณ์
+     จึงออกมาใกล้เคียงของเดิมที่อนุมัติไว้ตอน root 18px แต่ระยะห่างของ Tailwind
+     ไม่พองขึ้น 12.5% อีก — เดิมตาราง 6 คอลัมน์ต้องการ 1323px บนจอ 1440px
+     scale หลัก 7 ขั้น (เดิมมี 17 ขนาดกระจัดกระจายตั้งแต่ 9px ถึง 44px)
+     ============================================================ */
+  --dc-font-sans: 'Inter', 'Noto Sans Thai', system-ui, -apple-system, sans-serif;
+  --dc-font-numeric: 'Inter', system-ui, sans-serif; /* ใช้คู่กับ font-variant-numeric: tabular-nums */
+
+  --dc-text-2xs: 0.6875rem;  /* 11px — ตัวเลขบน badge, จุดแจ้งเตือน */
+  --dc-text-xs: 0.75rem;     /* 12px — meta, legend, timestamp */
+  --dc-text-sm: 0.8125rem;   /* 13px — label ของฟอร์ม, ข้อความรอง */
+  --dc-text-base: 0.875rem;  /* 14px — ตัวหลักในตาราง การ์ด แชท */
+  --dc-text-md: 1rem;        /* 16px — เมนู, ข้อความยาว */
+  --dc-text-lg: 1.125rem;    /* 18px — หัวข้อของแผง */
+  --dc-text-xl: 1.25rem;     /* 20px — หัวข้อหน้า, ชื่อแบรนด์ */
+  --dc-text-metric: 1.625rem;   /* 26px — ตัวเลขบนการ์ด */
+  --dc-text-wallboard: 2.75rem; /* 44px — ตัวเลขบนจอใหญ่ ระยะไกล */
+
+  --dc-leading-tight: 1.15;  /* ตัวเลขและหัวข้อ */
+  --dc-leading-snug: 1.35;
+  --dc-leading-normal: 1.5;  /* ข้อความไทยต้องการมากกว่าอังกฤษเล็กน้อย */
+
+  --dc-weight-regular: 400;
+  --dc-weight-medium: 500;
+  --dc-weight-semibold: 600;
+  --dc-weight-bold: 700;
+
+  /* ---------- RADIUS ---------- */
+  --dc-radius-xs: 4px;    /* จุด แถบเล็ก */
+  --dc-radius-sm: 6px;    /* chip, ป้าย */
+  --dc-radius-md: 8px;    /* ปุ่ม input */
+  --dc-radius-lg: 10px;   /* การ์ดย่อย แถวที่เลือกได้ */
+  --dc-radius-xl: 14px;   /* การ์ดหลัก แผง */
+  --dc-radius-pill: 999px;
+
+  /* ---------- ELEVATION ---------- */
+  --dc-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --dc-shadow-panel: -12px 0 32px -18px rgba(15, 23, 42, 0.4); /* แผงที่เลื่อนเข้ามาจากขอบ */
+  --dc-shadow-floating: 0 10px 30px rgba(15, 23, 42, 0.3);     /* monitor bar */
+  --dc-ring-warning: 0 0 0 3px rgba(254, 226, 226, 0.5);       /* การ์ดเอเจนต์ที่ต้องดู */
+
+  /* ---------- FOCUS ----------
+     mockup เดิมมี focus style อยู่ 2 บรรทัดในทั้งไฟล์ (เฉพาะตัวลากแบ่งคอลัมน์)
+     ทุก control ที่กดได้ต้องใช้ token นี้ — เอเจนต์ทำงานด้วยคีย์บอร์ดตลอดกะ */
+  --dc-focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px #0f766e;
+  --dc-focus-ring-inverse: 0 0 0 2px #0f172a, 0 0 0 4px #99f6e4;
+
+  /* ---------- MOTION ---------- */
+  --dc-duration-fast: 120ms;
+  --dc-duration-base: 180ms;
+  --dc-ease: cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+/* ผู้ใช้ที่ตั้งค่าลดการเคลื่อนไหว — ระบบนี้มีจุดกะพริบถาวรอยู่จริง (จุดแดงตอนอัดเสียง) */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dc-duration-fast: 0ms;
+    --dc-duration-base: 0ms;
+  }
+}
+
+/* ฐานของทั้งสองแอป — ตั้ง root กลับเป็น 16px ตามเหตุผลในหัวข้อ TYPOGRAPHY */
+html {
+  font-size: 16px;
+}
+
+body {
+  font-family: var(--dc-font-sans);
+  font-size: var(--dc-text-base);
+  line-height: var(--dc-leading-normal);
+  color: var(--dc-text-primary);
+  background: var(--dc-surface-page);
+}
+
+/* ตัวเลขที่ต้องอ่านเทียบกันเป็นคอลัมน์ (เวลารอ, SLA, ตัวนับ) ต้องกว้างเท่ากันทุกหลัก */
+.dc-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:where(a, button, [role='button'], input, select, textarea, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}

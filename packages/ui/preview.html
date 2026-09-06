@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact design tokens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="src/tokens.css">
+<style>
+  /* หน้านี้ใช้ token ล้วน ไม่มี hex ของตัวเอง — ถ้ามีสีหลุดออกมาแปลว่า token ขาด */
+  body { margin: 0; padding: 32px 28px 64px; max-width: 1100px; }
+  h1 { font-size: var(--dc-text-xl); font-weight: var(--dc-weight-bold);
+       color: var(--dc-text-brand-strong); margin: 0 0 4px; letter-spacing: -0.01em; }
+  .lede { color: var(--dc-text-muted); font-size: var(--dc-text-sm); margin: 0 0 32px; max-width: 68ch; }
+  h2 { font-size: var(--dc-text-lg); font-weight: var(--dc-weight-semibold);
+       margin: 36px 0 4px; color: var(--dc-text-primary); }
+  h2 + p { margin: 0 0 14px; font-size: var(--dc-text-sm); color: var(--dc-text-muted); max-width: 68ch; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  .sw { background: var(--dc-surface-raised); border: 1px solid var(--dc-border-subtle);
+        border-radius: var(--dc-radius-lg); overflow: hidden; box-shadow: var(--dc-shadow-card); }
+  .sw i { display: block; height: 46px; }
+  .sw b { display: block; font-size: var(--dc-text-xs); font-weight: var(--dc-weight-semibold);
+          padding: 7px 10px 0; color: var(--dc-text-primary); }
+  .sw span { display: block; font-size: var(--dc-text-2xs); color: var(--dc-text-muted);
+             padding: 1px 10px 8px; font-variant-numeric: tabular-nums; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: var(--dc-text-xs);
+          font-weight: var(--dc-weight-semibold); border-radius: var(--dc-radius-pill); padding: 3px 11px; }
+  .pill::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .badge { display: inline-flex; font-size: var(--dc-text-xs); font-weight: var(--dc-weight-semibold);
+           border-radius: var(--dc-radius-sm); padding: 3px 9px; }
+  .type td { padding: 7px 14px 7px 0; vertical-align: baseline; }
+  .type { border-collapse: collapse; }
+  .type td:first-child { font-size: var(--dc-text-xs); color: var(--dc-text-muted);
+                         font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .card { background: var(--dc-surface-raised); border: 1px solid var(--dc-border-subtle);
+          border-radius: var(--dc-radius-xl); padding: 16px 18px; box-shadow: var(--dc-shadow-card); }
+  .metric { font-size: var(--dc-text-metric); font-weight: var(--dc-weight-bold);
+            line-height: var(--dc-leading-tight); font-variant-numeric: tabular-nums; }
+  .metric-label { font-size: var(--dc-text-xs); color: var(--dc-text-muted); }
+  .btn { font-size: var(--dc-text-sm); font-weight: var(--dc-weight-medium); border-radius: var(--dc-radius-md);
+         padding: 8px 14px; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--dc-brand-700); color: var(--dc-text-on-brand); }
+  .btn-primary:hover { background: var(--dc-brand-800); }
+  .btn-secondary { background: var(--dc-surface-raised); color: var(--dc-text-secondary);
+                   border-color: var(--dc-border-default); }
+  .btn-secondary:hover { background: var(--dc-surface-hover); border-color: var(--dc-border-strong); }
+  .inp { height: 38px; padding: 0 12px; border: 1px solid var(--dc-border-default);
+         border-radius: var(--dc-radius-md); font-size: var(--dc-text-base); font-family: inherit;
+         background: var(--dc-surface-raised); color: var(--dc-text-primary); min-width: 210px; }
+  .inverse { background: var(--dc-surface-inverse); border-radius: var(--dc-radius-xl); padding: 20px 22px;
+             color: var(--dc-text-on-inverse); display: flex; gap: 40px; }
+  .inverse .metric { font-size: var(--dc-text-wallboard); }
+  .inverse .metric-label { color: var(--dc-text-on-inverse-muted); text-transform: uppercase;
+                           letter-spacing: 0.05em; }
+  .note { border-radius: var(--dc-radius-xl); padding: 12px 15px; font-size: var(--dc-text-sm);
+          line-height: var(--dc-leading-normal); max-width: 78ch; }
+  .note-warn { background: var(--dc-attention-bg-subtle); border: 1px solid var(--dc-attention-border);
+               color: var(--dc-attention-fg-strong); }
+</style>
+</head>
+<body>
+
+<h1>D-Contact design tokens</h1>
+<p class="lede">สกัดจาก <code>mockups/assets/app.css</code> ที่เป็น visual contract ของ Phase 2 หน้านี้ใช้ token ล้วนทุกค่า ถ้ามีสีที่ยังต้องเขียน hex เองแปลว่า token ยังขาด</p>
+
+<h2>พื้นผิวและเส้นขอบ</h2>
+<p>ไล่ตามความลึก ไม่ใช่ตามความสว่าง — การ์ดอยู่บนพื้นหน้า ร่องอยู่ในการ์ด</p>
+<div class="grid" id="surfaces"></div>
+
+<h2>ตัวอักษร</h2>
+<p><code>--dc-text-disabled</code> เป็นค่าเดียวที่ห้ามใช้กับข้อความที่มีความหมาย เดิม mockup ใช้มันกับเวลาและข้อความรอง 310 จุด</p>
+<div class="grid" id="texts"></div>
+
+<h2>ระดับความรุนแรง</h2>
+<p>หนึ่งบทบาทหนึ่งตระกูลสี ป้ายด้านล่างคือสถานะเอเจนต์จริงที่ต้องอ่านได้ตลอดกะ</p>
+<div class="row" id="severity" style="margin-bottom:12px"></div>
+<div class="row" id="agent-states"></div>
+
+<h2>ตัวตน</h2>
+<p>ช่องทางและกะไม่ใช่ระดับความรุนแรง เขียวของ LINE กับเขียวของ WhatsApp ที่ดูซ้ำกันคือคนละช่องทาง ห้ามยุบ</p>
+<div class="row" id="channels" style="margin-bottom:12px"></div>
+<div class="row" id="shifts"></div>
+
+<h2>สเกลตัวอักษร</h2>
+<p>7 ขั้นหลักบวก 2 ขั้นสำหรับตัวเลขขนาดใหญ่ (เดิมมี 17 ขนาดตั้งแต่ 9px ถึง 44px) วัดบน root 16px</p>
+<table class="type" id="scale"></table>
+
+<h2>ตัวอย่างจริง</h2>
+<p>ประกอบจาก token ล้วน เทียบกับ mockup ได้โดยตรง</p>
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; margin-bottom:14px">
+  <div class="card">
+    <div class="metric" style="color:var(--dc-critical-solid)">17</div>
+    <div class="metric-label">สายรอในคิวตอนนี้</div>
+  </div>
+  <div class="card">
+    <div class="metric">86%</div>
+    <div class="metric-label">SLA วันนี้</div>
+  </div>
+  <div class="card">
+    <div class="metric" style="color:var(--dc-success-solid)">14<span style="color:var(--dc-text-muted)">/32</span></div>
+    <div class="metric-label">เอเจนต์ที่พร้อมรับสาย</div>
+  </div>
+</div>
+<div class="row" style="margin-bottom:14px">
+  <button class="btn btn-primary">รับสาย</button>
+  <button class="btn btn-secondary">พักสาย</button>
+  <input class="inp" value="ค้นหาการติดต่อ" aria-label="ค้นหาการติดต่อ">
+</div>
+<div class="inverse" style="margin-bottom:14px">
+  <div><div class="metric">04:12</div><div class="metric-label">รอนานสุด</div></div>
+  <div><div class="metric">1,344</div><div class="metric-label">รับแล้ววันนี้</div></div>
+</div>
+<div class="note note-warn">คิว Billing Inquiries ต่ำกว่าเป้า SLA มา 10 นาที — คนบนพื้น 3 จาก 6</div>
+
+<script>
+  const css = getComputedStyle(document.documentElement);
+  const val = (n) => css.getPropertyValue('--dc-' + n).trim();
+  const swatch = (name, bg, border) =>
+    `<div class="sw"><i style="background:${bg}${border ? ';border-bottom:1px solid var(--dc-border-subtle)' : ''}"></i>` +
+    `<b>${name}</b><span>${val(name)}</span></div>`;
+
+  document.getElementById('surfaces').innerHTML =
+    ['surface-page','surface-raised','surface-sunken','surface-selected','surface-inverse','surface-brand',
+     'border-subtle','border-default','border-strong']
+      .map((n) => swatch(n, `var(--dc-${n})`, n === 'surface-raised')).join('');
+
+  document.getElementById('texts').innerHTML =
+    ['text-primary','text-secondary','text-muted','text-disabled','text-brand','text-brand-strong']
+      .map((n) => swatch(n, `var(--dc-${n})`)).join('');
+
+  const pill = (label, fg, bg) =>
+    `<span class="pill" style="color:var(--dc-${fg});background:var(--dc-${bg})">${label}</span>`;
+
+  document.getElementById('severity').innerHTML =
+    [['สำเร็จ','success-fg','success-bg'],['ต้องดู','attention-fg','attention-bg'],
+     ['วิกฤต','critical-fg','critical-bg'],['ข้อมูล','info-fg','info-bg'],
+     ['กลาง','neutral-fg','neutral-bg'],['หมวดหมู่','accent-fg','accent-bg']]
+      .map(([l,f,b]) => pill(l,f,b)).join('');
+
+  document.getElementById('agent-states').innerHTML =
+    [['พร้อมรับสาย','agent-available-fg','agent-available-bg'],['กำลังคุย','agent-busy-fg','agent-busy-bg'],
+     ['สรุปงาน','agent-acw-fg','agent-acw-bg'],['พัก','agent-break-fg','agent-break-bg'],
+     ['ออฟไลน์','agent-offline-fg','agent-offline-bg'],['cooldown','agent-cooldown-fg','agent-cooldown-bg']]
+      .map(([l,f,b]) => pill(l,f,b)).join('');
+
+  const badge = (label, fg, bg) =>
+    `<span class="badge" style="color:var(--dc-${fg});background:var(--dc-${bg})">${label}</span>`;
+
+  document.getElementById('channels').innerHTML =
+    ['voice','webchat','line','facebook','whatsapp','email']
+      .map((c) => badge(c, `channel-${c}-fg`, `channel-${c}-bg`)).join('');
+
+  document.getElementById('shifts').innerHTML =
+    [['กะเช้า','day'],['กะกลางวัน','mid'],['กะเย็น','eve'],['กะดึก','night'],['วันหยุด','off'],['ลา','leave']]
+      .map(([l,s]) => badge(l, `shift-${s}-fg`, `shift-${s}-bg`)).join('');
+
+  document.getElementById('scale').innerHTML =
+    [['2xs','ตัวเลขบน badge'],['xs','meta และเวลา'],['sm','label ของฟอร์ม'],['base','ตัวหลักในตาราง'],
+     ['md','เมนูและข้อความยาว'],['lg','หัวข้อของแผง'],['xl','หัวข้อหน้า'],
+     ['metric','ตัวเลขบนการ์ด'],['wallboard','จอใหญ่']]
+      .map(([k, use]) => {
+        const rem = val('text-' + k);
+        const px = (parseFloat(rem) * 16).toFixed(2).replace(/\.?0+$/, '');
+        return `<tr><td>${px}px · --dc-text-${k}</td>` +
+          `<td style="font-size:var(--dc-text-${k});font-weight:var(--dc-weight-${k === 'metric' || k === 'wallboard' ? 'bold' : 'regular'})">${use}</td></tr>`;
+      }).join('');
+</script>
+</body>
+</html>
