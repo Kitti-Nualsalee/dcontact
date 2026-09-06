@@ -19,7 +19,7 @@ export interface QmContext {
 }
 
 export interface ConsoleApi {
-  context(interactionId: string): Promise<QmContext>;
+  context(contextId: string): Promise<QmContext>;
   playback(recordingId: string): Promise<{ url: string; expiresAt: string }>;
   publish(evaluationId: string, commandId: string): Promise<void>;
 }
@@ -46,7 +46,7 @@ export function createConsoleApi(input: {
   return {
     context: async (id) =>
       (await (
-        await call(`/api/v1/qm/interactions/${encodeURIComponent(id)}/context`)
+        await call(`/api/v1/qm/console-contexts/${encodeURIComponent(id)}`)
       ).json()) as QmContext,
     playback: async (id) =>
       (await (

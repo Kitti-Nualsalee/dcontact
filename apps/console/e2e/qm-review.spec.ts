@@ -5,7 +5,7 @@ test('ผู้ตรวจฟัง signed playback เห็น transcript gap
 }) => {
   let status: 'DRAFT' | 'PUBLISHED' = 'DRAFT';
   let publishBody: Record<string, unknown> | undefined;
-  await page.route('**/api/v1/qm/interactions/interaction-100/context', (route) =>
+  await page.route('**/api/v1/qm/console-contexts/e5e94bea-4a4f-4f45-a4fb-d0d1db07e899', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -51,7 +51,7 @@ test('ผู้ตรวจฟัง signed playback เห็น transcript gap
     await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' });
   });
 
-  await page.goto('/?interaction=interaction-100');
+  await page.goto('/?context=e5e94bea-4a4f-4f45-a4fb-d0d1db07e899');
   await expect(page.getByRole('heading', { name: 'Interaction interaction-100' })).toBeVisible();
   await expect(page.getByText('ช่วง PCI ไม่มีหลักฐานเสียง')).toBeVisible();
   await expect(page.getByText('สวัสดีค่ะ')).toBeVisible();
@@ -70,7 +70,7 @@ test('ผู้ตรวจฟัง signed playback เห็น transcript gap
 });
 
 test('ลบ media แล้ว transcript และ evaluation ยังแสดงอยู่', async ({ page }) => {
-  await page.route('**/api/v1/qm/interactions/interaction-deleted/context', (route) =>
+  await page.route('**/api/v1/qm/console-contexts/48ef8d3d-c90e-4e71-a5e0-ebd58d78de59', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -94,7 +94,7 @@ test('ลบ media แล้ว transcript และ evaluation ยังแส�
     }),
   );
 
-  await page.goto('/?interaction=interaction-deleted');
+  await page.goto('/?context=48ef8d3d-c90e-4e71-a5e0-ebd58d78de59');
   await expect(page.getByText('ไฟล์เสียงถูกลบตาม retention แล้ว')).toBeVisible();
   await expect(page.getByText('หลักฐานที่เก็บไว้')).toBeVisible();
   await expect(page.getByText('92')).toBeVisible();

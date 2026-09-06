@@ -34,6 +34,8 @@ model Tenant {
   qmAuditEvents       QmAuditEvent[]
   qmTranscripts       QmTranscript[]
   qmEvaluations       QmEvaluation[]
+  qmConsoleContexts   QmConsoleContext[]
+  commandReceipts     CommandReceipt[]
 
   @@map("tenants")
 }
@@ -381,6 +383,7 @@ model Interaction {
   qmTranscriptionJobs QmTranscriptionJob[]
   qmTranscripts       QmTranscript[]
   qmEvaluations       QmEvaluation[]
+  qmConsoleContexts   QmConsoleContext[]
 
   @@unique([tenantId, externalId])
   @@index([tenantId, queuedAt])
@@ -759,6 +762,41 @@ model QmEvaluation {
   @@unique([tenantId, interactionId, source])
   @@index([tenantId, agentId, status])
   @@map("qm_evaluations")
+}
+
+/// opaque context สำหรับเปิด Console ข้ามแอป: URL ไม่มี Interaction ID หรือ token
+model QmConsoleContext {
+  id              String      @id @default(uuid()) @db.Uuid
+  tenantId        String      @map("tenant_id") @db.Uuid
+  interactionId   String      @map("interaction_id") @db.Uuid
+  issuedForUserId String      @map("issued_for_user_id") @db.Uuid
+  expiresAt       DateTime    @map("expires_at")
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+  interaction Interaction @relation(fields: [interactionId], references: [id])
+
+  @@index([tenantId, issuedForUserId, expiresAt])
+  @@index([tenantId, interactionId, expiresAt])
+  @@map("qm_console_contexts")
+}
+
+/// receipt durable สำหรับ retry ของ remote mutation: commandId เดิมห้ามทำ side effect ซ้ำ
+model CommandReceipt {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  commandId   String   @map("command_id") @db.Uuid
+  actorUserId String   @map("actor_user_id") @db.Uuid
+  action      String
+  resourceId  String   @map("resource_id") @db.Uuid
+  result      Json
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, commandId])
+  @@index([tenantId, resourceId, createdAt])
+  @@map("command_receipts")
 }
 
 model QmAuditEvent {

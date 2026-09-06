@@ -29,6 +29,10 @@ interface QmQueuePolicyBody {
   autoQmEnabled?: unknown;
 }
 
+interface PublishEvaluationBody {
+  commandId?: unknown;
+}
+
 function identity(request: AuthenticatedGatewayRequest) {
   if (!request.gatewayIdentity) throw new ForbiddenException();
   return request.gatewayIdentity;
@@ -39,6 +43,39 @@ function uuid(value: string, field: string): string {
     throw new BadRequestException(`${field} must be a UUID`);
   }
   return value;
+}
+
+function commandId(body: PublishEvaluationBody): string {
+  if (!body || typeof body !== 'object') throw new BadRequestException('commandId is required');
+  return uuid(body.commandId as string, 'commandId');
+}
+
+function pauseIntervals(value: unknown): { startMs: number; endMs: number; reason: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((interval) => {
+    if (!interval || typeof interval !== 'object') return [];
+    const candidate = interval as { startMs?: unknown; endMs?: unknown; reason?: unknown };
+    if (
+      !Number.isInteger(candidate.startMs) ||
+      !Number.isInteger(candidate.endMs) ||
+      typeof candidate.reason !== 'string'
+    ) {
+      return [];
+    }
+    return [
+      {
+        startMs: candidate.startMs as number,
+        endMs: candidate.endMs as number,
+        reason: candidate.reason,
+      },
+    ];
+  });
+}
+
+function evaluationAnswers(value: unknown): { score?: number } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const score = (value as { score?: unknown }).score;
+  return typeof score === 'number' ? { score } : {};
 }
 
 function qmPolicy(body: QmQueuePolicyBody): {
@@ -318,6 +355,142 @@ export class QmController {
     });
   }
 
+  @Post('qm/interactions/:interactionId/console-context')
+  @GatewayRoles('supervisor', 'admin')
+  async createConsoleContext(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('interactionId') interactionId: string,
+  ) {
+    const actor = identity(request);
+    return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
+      const interaction = await transaction.interaction.findFirst({
+        where: { id: uuid(interactionId, 'interactionId'), tenantId: actor.tenantId },
+        select: { id: true, agent: { select: { teamId: true } } },
+      });
+      if (!interaction) throw new NotFoundException();
+      const supervisor = actor.roles.includes('supervisor')
+        ? await transaction.user.findFirst({
+            where: { id: actor.userId, tenantId: actor.tenantId, role: 'SUPERVISOR' },
+            select: { teamId: true },
+          })
+        : null;
+      if (
+        !actor.roles.includes('admin') &&
+        !isTeamSupervisor(actor, supervisor, interaction.agent?.teamId)
+      ) {
+        throw new NotFoundException();
+      }
+      const expiresAt = new Date(Date.now() + 5 * 60_000);
+      const context = await transaction.qmConsoleContext.create({
+        data: {
+          tenantId: actor.tenantId,
+          interactionId: interaction.id,
+          issuedForUserId: actor.userId,
+          expiresAt,
+        },
+        select: { id: true, expiresAt: true },
+      });
+      return { contextId: context.id, expiresAt: context.expiresAt.toISOString() };
+    });
+  }
+
+  @Get('qm/console-contexts/:contextId')
+  @GatewayRoles('supervisor', 'admin')
+  async getConsoleContext(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('contextId') contextId: string,
+  ) {
+    const actor = identity(request);
+    return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
+      const issued = await transaction.qmConsoleContext.findFirst({
+        where: {
+          id: uuid(contextId, 'contextId'),
+          tenantId: actor.tenantId,
+          issuedForUserId: actor.userId,
+          expiresAt: { gt: new Date() },
+        },
+        select: { interactionId: true },
+      });
+      if (!issued) throw new NotFoundException();
+      const interaction = await transaction.interaction.findFirst({
+        where: { id: issued.interactionId, tenantId: actor.tenantId },
+        select: {
+          id: true,
+          channel: true,
+          queue: { select: { name: true } },
+          agent: { select: { teamId: true } },
+          recordings: {
+            orderBy: { startedAt: 'desc' },
+            take: 1,
+            select: { id: true, deletedAt: true, pauseIntervals: true },
+          },
+          qmTranscripts: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              language: true,
+              segments: {
+                orderBy: { startMs: 'asc' },
+                select: { id: true, speaker: true, startMs: true, endMs: true, text: true },
+              },
+            },
+          },
+          qmEvaluations: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { id: true, status: true, source: true, answers: true },
+          },
+        },
+      });
+      if (!interaction) throw new NotFoundException();
+      const supervisor = actor.roles.includes('supervisor')
+        ? await transaction.user.findFirst({
+            where: { id: actor.userId, tenantId: actor.tenantId, role: 'SUPERVISOR' },
+            select: { teamId: true },
+          })
+        : null;
+      if (
+        !actor.roles.includes('admin') &&
+        !isTeamSupervisor(actor, supervisor, interaction.agent?.teamId)
+      ) {
+        throw new NotFoundException();
+      }
+      const recording = interaction.recordings[0];
+      const transcript = interaction.qmTranscripts[0];
+      const evaluation = interaction.qmEvaluations[0];
+      return {
+        interaction: {
+          id: interaction.id,
+          channel: interaction.channel,
+          queueName: interaction.queue?.name ?? 'ไม่ระบุ queue',
+        },
+        recording: recording
+          ? {
+              id: recording.id,
+              status: recording.deletedAt ? 'DELETED' : 'AVAILABLE',
+              pauseIntervals: pauseIntervals(recording.pauseIntervals),
+            }
+          : null,
+        transcript: transcript
+          ? {
+              id: transcript.id,
+              language: transcript.language,
+              segments: transcript.segments,
+            }
+          : null,
+        evaluation: evaluation
+          ? {
+              id: evaluation.id,
+              status: evaluation.status,
+              source: evaluation.source,
+              answers: evaluationAnswers(evaluation.answers),
+            }
+          : null,
+      };
+    });
+  }
+
   @Get('qm/transcripts/:transcriptId')
   @GatewayRoles('agent', 'supervisor', 'admin')
   async getTranscript(
@@ -439,12 +612,29 @@ export class QmController {
   async publishEvaluation(
     @Req() request: AuthenticatedGatewayRequest,
     @Param('evaluationId') evaluationId: string,
+    @Body() body: PublishEvaluationBody,
   ) {
     const actor = identity(request);
+    const receiptCommandId = commandId(body);
     return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
+      const requestedEvaluationId = uuid(evaluationId, 'evaluationId');
+      const existingReceipt = await transaction.commandReceipt.findUnique({
+        where: { tenantId_commandId: { tenantId: actor.tenantId, commandId: receiptCommandId } },
+        select: { actorUserId: true, action: true, resourceId: true, result: true },
+      });
+      if (existingReceipt) {
+        if (
+          existingReceipt.actorUserId !== actor.userId ||
+          existingReceipt.action !== 'QM_EVALUATION_PUBLISH' ||
+          existingReceipt.resourceId !== requestedEvaluationId
+        ) {
+          throw new BadRequestException('commandId was already used for another command');
+        }
+        return existingReceipt.result;
+      }
       const evaluation = await transaction.qmEvaluation.findFirst({
         where: {
-          id: uuid(evaluationId, 'evaluationId'),
+          id: requestedEvaluationId,
           tenantId: actor.tenantId,
           status: 'DRAFT',
         },
@@ -479,7 +669,17 @@ export class QmController {
           action: 'EVALUATION_PUBLISHED',
           resourceType: 'QM_EVALUATION',
           resourceId: evaluation.id,
-          details: { publishedAt: publishedAt.toISOString() },
+          details: { publishedAt: publishedAt.toISOString(), commandId: receiptCommandId },
+        },
+      });
+      await transaction.commandReceipt.create({
+        data: {
+          tenantId: actor.tenantId,
+          commandId: receiptCommandId,
+          actorUserId: actor.userId,
+          action: 'QM_EVALUATION_PUBLISH',
+          resourceId: evaluation.id,
+          result,
         },
       });
       return result;

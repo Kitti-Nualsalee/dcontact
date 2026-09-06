@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react';
 import type { ConsoleApi, QmContext } from './console-api.js';
 
-export function ConsoleApp({ api, interactionId }: { api: ConsoleApi; interactionId: string }) {
+export function ConsoleApp({ api, contextId }: { api: ConsoleApi; contextId: string }) {
   const [context, setContext] = useState<QmContext>();
   const [playbackUrl, setPlaybackUrl] = useState<string>();
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
 
-  const refresh = async () => setContext(await api.context(interactionId));
+  const refresh = async () => setContext(await api.context(contextId));
   useEffect(() => {
     void refresh().catch(() => setError('เปิด Interaction context ไม่สำเร็จ'));
-  }, [api, interactionId]);
+  }, [api, contextId]);
 
   const publish = async () => {
     const evaluation = context?.evaluation;
@@ -38,7 +38,7 @@ export function ConsoleApp({ api, interactionId }: { api: ConsoleApi; interactio
         <div className="heading">
           <div>
             <p className="eyebrow">RECORDING · TRANSCRIPT · QM</p>
-            <h1>Interaction {interactionId}</h1>
+            <h1>Interaction {context?.interaction.id ?? 'กำลังโหลด'}</h1>
           </div>
           <span className="tenant-chip">{context?.interaction.queueName ?? 'กำลังโหลด'}</span>
         </div>
