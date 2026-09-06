@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createOidcSettings, resolveTenantAlias } from './auth-session.js';
+import {
+  createOidcSettings,
+  resolveAuthorizedWorkspaceView,
+  resolveTenantAlias,
+} from './auth-session.js';
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -54,4 +58,31 @@ test('OIDC ใช้ Authorization Code + PKCE และไม่เก็บ ac
   await settings.userStore?.set('oidc.user:test', '{"access_token":"secret"}');
   assert.equal(sessionStorage.length, 0);
   assert.equal(await settings.userStore?.get('oidc.user:test'), '{"access_token":"secret"}');
+});
+
+test('Supervisor Workspace เปิดได้เฉพาะ realm role supervisor หรือ admin', () => {
+  const supervisorUrl = new URL('https://acme.d-contact.io/?view=supervisor');
+
+  assert.equal(
+    resolveAuthorizedWorkspaceView(supervisorUrl, { realm_access: { roles: ['supervisor'] } }),
+    'supervisor',
+  );
+  assert.equal(
+    resolveAuthorizedWorkspaceView(supervisorUrl, { realm_access: { roles: ['admin'] } }),
+    'supervisor',
+  );
+  assert.equal(
+    resolveAuthorizedWorkspaceView(supervisorUrl, { realm_access: { roles: ['agent'] } }),
+    'forbidden',
+  );
+  assert.equal(resolveAuthorizedWorkspaceView(supervisorUrl, {}), 'forbidden');
+});
+
+test('Agent Workspace เป็น view เริ่มต้นแม้ profile มีข้อมูล role ผิดรูปแบบ', () => {
+  assert.equal(
+    resolveAuthorizedWorkspaceView(new URL('https://acme.d-contact.io/'), {
+      realm_access: { roles: 'supervisor' },
+    }),
+    'agent',
+  );
 });

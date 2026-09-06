@@ -52,6 +52,16 @@ button:disabled {
   grid-template-columns: 64px 250px minmax(0, 1fr);
 }
 
+.supervisor-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.supervisor-main {
+  min-width: 0;
+}
+
 .product-rail {
   display: flex;
   flex-direction: column;
@@ -392,6 +402,108 @@ h1 {
   font-size: 13px;
 }
 
+.narrow-readonly {
+  display: none;
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: #92400e;
+  background: #fef3c7;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pulse-grid {
+  max-width: 1180px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 auto 16px;
+}
+
+.metric-card {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  min-height: 110px;
+  padding: 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: white;
+}
+
+.metric-card span {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.metric-card strong {
+  color: #0f172a;
+  font-size: 34px;
+}
+
+.metric-card.risk {
+  border-color: #fdba74;
+  background: #fff7ed;
+}
+
+.supervisor-grid {
+  max-width: 1180px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.8fr);
+  gap: 16px;
+  margin: 0 auto;
+}
+
+.risk-list,
+.agent-list {
+  padding: 0;
+  margin: 18px 0 0;
+  list-style: none;
+}
+
+.risk-list li,
+.agent-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.risk-list li strong,
+.risk-list li span,
+.agent-list li strong,
+.agent-list li small {
+  display: block;
+}
+
+.risk-list li span,
+.agent-list li small {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.agent-state {
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: #475569;
+  background: #f1f5f9;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.agent-state.busy {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.agent-state.acw {
+  color: #92400e;
+  background: #fef3c7;
+}
+
 .panel-heading {
   display: flex;
   align-items: flex-start;
@@ -667,6 +779,19 @@ h1 {
 
   .product-rail {
     display: none;
+  }
+
+  .supervisor-shell {
+    display: block;
+  }
+
+  .narrow-readonly {
+    display: inline-flex;
+  }
+
+  .pulse-grid,
+  .supervisor-grid {
+    grid-template-columns: 1fr;
   }
 
   .passive-overlay {

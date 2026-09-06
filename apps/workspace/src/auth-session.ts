@@ -17,6 +17,26 @@ export function resolveTenantAlias(location: URL): string {
   throw new Error('tenant alias is required');
 }
 
+export type AuthorizedWorkspaceView = 'agent' | 'supervisor' | 'forbidden';
+
+export function resolveAuthorizedWorkspaceView(
+  location: URL,
+  profile: unknown,
+): AuthorizedWorkspaceView {
+  if (location.searchParams.get('view') !== 'supervisor') return 'agent';
+
+  const roles = readRealmRoles(profile);
+  return roles.includes('supervisor') || roles.includes('admin') ? 'supervisor' : 'forbidden';
+}
+
+function readRealmRoles(profile: unknown): string[] {
+  if (!profile || typeof profile !== 'object') return [];
+  const realmAccess = (profile as { realm_access?: unknown }).realm_access;
+  if (!realmAccess || typeof realmAccess !== 'object') return [];
+  const roles = (realmAccess as { roles?: unknown }).roles;
+  return Array.isArray(roles) && roles.every((role) => typeof role === 'string') ? roles : [];
+}
+
 export function createOidcSettings(input: OidcSettingsInput): UserManagerSettings {
   const redirectUrl = new URL('/', input.origin);
   redirectUrl.searchParams.set('tenant', input.tenantAlias);
