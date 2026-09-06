@@ -55,15 +55,19 @@ test('ผู้ตรวจฟัง signed playback เห็น transcript gap
   await expect(page.getByRole('heading', { name: 'Interaction interaction-100' })).toBeVisible();
   await expect(page.getByText('ช่วง PCI ไม่มีหลักฐานเสียง')).toBeVisible();
   await expect(page.getByText('สวัสดีค่ะ')).toBeVisible();
-  await page.getByRole('button', { name: 'ขอสิทธิ์ฟัง recording' }).click();
+  await page.getByRole('button', { name: 'ขอสิทธิ์ฟัง recording' }).focus();
+  await expect(page.getByRole('button', { name: 'ขอสิทธิ์ฟัง recording' })).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(page.locator('audio')).toHaveAttribute(
     'src',
     'https://media.example/signed-recording.wav',
   );
 
-  await page.getByRole('button', { name: 'Publish evaluation' }).click();
+  await page.getByRole('button', { name: 'Publish evaluation' }).focus();
+  await page.keyboard.press('Enter');
   await expect(page.getByRole('dialog')).toContainText('Agent จะเห็นผลประเมินนี้');
-  await page.getByRole('button', { name: 'ยืนยัน Publish' }).click();
+  await page.getByRole('button', { name: 'ยืนยัน Publish' }).focus();
+  await page.keyboard.press('Enter');
   await expect(page.getByText('กำลังรอ server ยืนยัน')).toBeVisible();
   await expect(page.getByText('PUBLISHED')).toBeVisible();
   expect(publishBody?.commandId).toEqual(expect.any(String));

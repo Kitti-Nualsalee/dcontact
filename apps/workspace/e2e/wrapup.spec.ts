@@ -46,8 +46,11 @@ test('Agent ส่ง disposition จาก WRAPUP และรอ authoritative
 
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'สรุปผลหลังสาย' })).toBeVisible();
-  await page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
-  await page.getByRole('button', { name: 'ส่ง disposition' }).click();
+  await page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).focus();
+  await expect(page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'ส่ง disposition' }).focus();
+  await page.keyboard.press('Enter');
   await expect(page.getByText('กำลังรอ server ยืนยัน')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'สรุปผลหลังสาย' })).toHaveCount(0);
   expect(requestBody).toMatchObject({ disposition: 'CUSTOMER_ASSISTED' });
