@@ -50,6 +50,7 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
   const adminUserId = randomUUID();
   const supervisorUserId = randomUUID();
   const agentAId = randomUUID();
+  const safeAgentId = randomUUID();
   const agentBId = randomUUID();
   const teamAId = randomUUID();
   const teamBId = randomUUID();
@@ -109,6 +110,16 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
         displayName: 'Agent B',
         role: 'AGENT',
       },
+      {
+        id: safeAgentId,
+        tenantId,
+        teamId: teamAId,
+        extension: '5102',
+        email: `agent-safe-${tenantId}@test.local`,
+        passwordHash: 'test',
+        displayName: 'Agent Safe',
+        role: 'AGENT',
+      },
     ],
   });
   await owner.queue.createMany({
@@ -121,6 +132,7 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
     data: [
       { tenantId, userId: agentAId, state: 'AVAILABLE' },
       { tenantId, userId: agentBId, state: 'AVAILABLE' },
+      { tenantId, userId: safeAgentId, state: 'AVAILABLE' },
     ],
   });
   await owner.$executeRaw(
@@ -170,6 +182,7 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
   await app.listen(0, '127.0.0.1');
   t.after(async () => {
     await app.close();
+    await owner.commandReceipt.deleteMany({ where: { tenantId } });
     await owner.interaction.deleteMany({ where: { tenantId } });
     await owner.agentStateLog.deleteMany({ where: { tenantId } });
     await owner.queueAuditEvent.deleteMany({ where: { tenantId } });
@@ -196,10 +209,10 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
   const supervisorSnapshot = await request('/snapshot', 'supervisor-token');
   assert.equal(supervisorSnapshot.status, 200, await supervisorSnapshot.clone().text());
   assert.deepEqual(
-    ((await supervisorSnapshot.json()) as { agents: { id: string }[] }).agents.map(
-      (agent) => agent.id,
-    ),
-    [agentAId],
+    ((await supervisorSnapshot.json()) as { agents: { id: string }[] }).agents
+      .map((agent) => agent.id)
+      .sort(),
+    [agentAId, safeAgentId].sort(),
   );
   const supervisorQueueSnapshot = (await (
     await request('/snapshot', 'supervisor-token')
@@ -217,16 +230,43 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
     ((await adminSnapshot.json()) as { agents: { id: string }[] }).agents
       .map((agent) => agent.id)
       .sort(),
-    [agentAId, agentBId].sort(),
+    [agentAId, agentBId, safeAgentId].sort(),
   );
 
-  const forced = await request(`/agents/${agentAId}/state`, 'supervisor-token', {
+  const unsafe = await request(`/agents/${agentAId}/state`, 'supervisor-token', {
     method: 'PUT',
-    body: JSON.stringify({ state: 'BREAK', reason: 'พักตามตาราง' }),
+    body: JSON.stringify({
+      state: 'BREAK',
+      reason: 'ห้ามรบกวนสายที่กำลัง active',
+      commandId: '04e5b24d-f298-4e5e-83d9-2cadfd7ed204',
+    }),
+  });
+  assert.equal(unsafe.status, 409);
+  const forced = await request(`/agents/${safeAgentId}/state`, 'supervisor-token', {
+    method: 'PUT',
+    body: JSON.stringify({
+      state: 'BREAK',
+      reason: 'พักตามตาราง',
+      commandId: 'e5e94bea-4a4f-4f45-a4fb-d0d1db07e899',
+    }),
   });
   assert.equal(forced.status, 200);
   assert.deepEqual(await forced.json(), {
-    agentId: agentAId,
+    agentId: safeAgentId,
+    state: 'BREAK',
+    reason: 'พักตามตาราง',
+  });
+  const repeatedForce = await request(`/agents/${safeAgentId}/state`, 'supervisor-token', {
+    method: 'PUT',
+    body: JSON.stringify({
+      state: 'BREAK',
+      reason: 'พักตามตาราง',
+      commandId: 'e5e94bea-4a4f-4f45-a4fb-d0d1db07e899',
+    }),
+  });
+  assert.equal(repeatedForce.status, 200);
+  assert.deepEqual(await repeatedForce.json(), {
+    agentId: safeAgentId,
     state: 'BREAK',
     reason: 'พักตามตาราง',
   });
@@ -253,7 +293,11 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
 
   const disabled = await request(`/queues/${queueAId}/availability`, 'supervisor-token', {
     method: 'PUT',
-    body: JSON.stringify({ isActive: false, reason: 'ปิดรับสายชั่วคราว' }),
+    body: JSON.stringify({
+      isActive: false,
+      reason: 'ปิดรับสายชั่วคราว',
+      commandId: '48ef8d3d-c90e-4e71-a5e0-ebd58d78de59',
+    }),
   });
   assert.equal(disabled.status, 200);
   assert.equal(((await disabled.json()) as { isActive: boolean }).isActive, false);
