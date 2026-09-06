@@ -9,6 +9,7 @@ const nodeId = `fs-demo-${process.pid}`;
 const routerGroupId = `dcontact-router-demo-${process.pid}`;
 const children = [];
 const ivrDtmf = process.env.INBOUND_DEMO_DTMF;
+let cleaningUp = false;
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: process.cwd(), encoding: 'utf8', ...options });
@@ -178,9 +179,18 @@ async function waitForActiveMedia(destination) {
 }
 
 async function cleanup() {
+  if (cleaningUp) return;
+  cleaningUp = true;
   for (const child of children) child.kill('SIGTERM');
   spawnSync('docker', ['rm', '-f', agentContainer], { stdio: 'ignore' });
 }
+
+function exitAfterCleanup(signal) {
+  void cleanup().finally(() => process.exit(signal === 'SIGINT' ? 130 : 143));
+}
+
+process.once('SIGINT', () => exitAfterCleanup('SIGINT'));
+process.once('SIGTERM', () => exitAfterCleanup('SIGTERM'));
 
 try {
   run('docker', [...compose, 'ps', '--status', 'running']);
