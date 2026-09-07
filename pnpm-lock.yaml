@@ -105,6 +105,10 @@ importers:
         version: 6.4.3(@types/node@20.19.43)(tsx@4.23.1)
 
   apps/contact-governance:
+    dependencies:
+      '@d-contact/db':
+        specifier: workspace:*
+        version: link:../../packages/db
     devDependencies:
       '@types/node':
         specifier: ^20.14.0

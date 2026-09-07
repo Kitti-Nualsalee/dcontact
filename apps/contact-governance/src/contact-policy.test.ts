@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evaluateContactPolicy } from './index.js';
+import { evaluateContactPolicy } from './contact-policy.js';
 
 test('hard restriction blocks contact even when consent is still valid', () => {
   const result = evaluateContactPolicy({
