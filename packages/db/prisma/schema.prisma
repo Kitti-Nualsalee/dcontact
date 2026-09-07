@@ -37,6 +37,11 @@ model Tenant {
   qmEvaluations       QmEvaluation[]
   qmConsoleContexts   QmConsoleContext[]
   commandReceipts     CommandReceipt[]
+  cgRestrictions      CgRestriction[]
+  cgConsents          CgConsent[]
+  cgDecisionLogs      CgDecisionLog[]
+  cgReservations      CgReservation[]
+  jrEventInbox        JrEventInbox[]
 
   @@map("tenants")
 }
@@ -297,10 +302,14 @@ model Contact {
   displayName String?  @map("display_name")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  tenant        Tenant            @relation(fields: [tenantId], references: [id])
-  identities    ContactIdentity[]
-  interactions  Interaction[]
-  conversations Conversation[]
+  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  identities     ContactIdentity[]
+  interactions   Interaction[]
+  conversations  Conversation[]
+  cgRestrictions CgRestriction[]
+  cgConsents     CgConsent[]
+  cgDecisionLogs CgDecisionLog[]
+  cgReservations CgReservation[]
 
   @@index([tenantId])
   @@map("contacts")
@@ -314,10 +323,194 @@ model ContactIdentity {
   type      IdentityType
   value     String // เบอร์โทร / LINE user id / email ฯลฯ
 
-  contact Contact @relation(fields: [contactId], references: [id])
+  contact        Contact         @relation(fields: [contactId], references: [id])
+  cgRestrictions CgRestriction[]
+  cgConsents     CgConsent[]
+  cgDecisionLogs CgDecisionLog[]
+  cgReservations CgReservation[]
 
   @@unique([tenantId, type, value])
   @@map("contact_identities")
+}
+
+// ─────────────────────────── Contact Governance & Journey Inbox ───────────────────────────
+
+enum CgRestrictionType {
+  DNC
+  OBJECTION
+  CONSENT_REVOKED
+  INBOUND_SAFETY
+  REGULATORY
+}
+
+enum CgConsentStatus {
+  GRANTED
+  REVOKED
+  EXPIRED
+}
+
+enum CgDecision {
+  ALLOW
+  BLOCK
+  DEFER
+  REVIEW
+}
+
+enum CgReservationState {
+  RESERVED
+  CONFIRMED
+  RELEASED
+  REFUNDED
+}
+
+enum JrEventInboxState {
+  PENDING
+  PUBLISHED
+  PROCESSED
+  FAILED
+}
+
+model CgRestriction {
+  id          String            @id @default(uuid()) @db.Uuid
+  tenantId    String            @map("tenant_id") @db.Uuid
+  contactId   String?           @map("contact_id") @db.Uuid
+  identityId  String?           @map("identity_id") @db.Uuid
+  type        CgRestrictionType
+  channel     ChannelType?
+  purpose     String?
+  scope       String
+  overridable Boolean           @default(false)
+  reasonCode  String            @map("reason_code")
+  source      String
+  evidence    Json?
+  startsAt    DateTime          @default(now()) @map("starts_at")
+  expiresAt   DateTime?         @map("expires_at")
+  createdBy   String            @map("created_by")
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id])
+  contact  Contact?         @relation(fields: [contactId], references: [id])
+  identity ContactIdentity? @relation(fields: [identityId], references: [id])
+
+  @@index([tenantId, contactId, startsAt])
+  @@index([tenantId, identityId, startsAt])
+  @@index([tenantId, type, startsAt])
+  @@map("cg_restrictions")
+}
+
+model CgConsent {
+  id            String          @id @default(uuid()) @db.Uuid
+  tenantId      String          @map("tenant_id") @db.Uuid
+  contactId     String          @map("contact_id") @db.Uuid
+  identityId    String?         @map("identity_id") @db.Uuid
+  purpose       String
+  channel       ChannelType
+  status        CgConsentStatus
+  lawfulBasis   String          @map("lawful_basis")
+  noticeVersion String?         @map("notice_version")
+  evidence      Json            @default("{}")
+  grantedAt     DateTime?       @map("granted_at")
+  revokedAt     DateTime?       @map("revoked_at")
+  expiresAt     DateTime?       @map("expires_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id])
+  contact  Contact          @relation(fields: [contactId], references: [id])
+  identity ContactIdentity? @relation(fields: [identityId], references: [id])
+
+  @@index([tenantId, contactId, purpose, channel, status])
+  @@index([tenantId, identityId, purpose, channel, status])
+  @@map("cg_consents")
+}
+
+model CgReservation {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  contactId       String             @map("contact_id") @db.Uuid
+  identityId      String?            @map("identity_id") @db.Uuid
+  channel         ChannelType
+  purpose         String
+  source          String
+  sourceId        String             @map("source_id")
+  teamId          String?            @map("team_id") @db.Uuid
+  segmentSnapshot Json?              @map("segment_snapshot")
+  scopeVersion    Int?               @map("scope_version")
+  actionKey       String             @map("action_key")
+  inputHash       String             @map("input_hash")
+  state           CgReservationState @default(RESERVED)
+  expiresAt       DateTime           @map("expires_at")
+  confirmedAt     DateTime?          @map("confirmed_at")
+  releasedAt      DateTime?          @map("released_at")
+  refundedAt      DateTime?          @map("refunded_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  tenant       Tenant           @relation(fields: [tenantId], references: [id])
+  contact      Contact          @relation(fields: [contactId], references: [id])
+  identity     ContactIdentity? @relation(fields: [identityId], references: [id])
+  decisionLogs CgDecisionLog[]
+
+  @@unique([tenantId, actionKey])
+  @@index([tenantId, contactId, state, createdAt])
+  @@index([tenantId, state, expiresAt])
+  @@map("cg_reservations")
+}
+
+model CgDecisionLog {
+  id              String      @id @default(uuid()) @db.Uuid
+  tenantId        String      @map("tenant_id") @db.Uuid
+  contactId       String?     @map("contact_id") @db.Uuid
+  identityId      String?     @map("identity_id") @db.Uuid
+  channel         ChannelType
+  purpose         String
+  source          String
+  sourceId        String      @map("source_id")
+  teamId          String?     @map("team_id") @db.Uuid
+  segmentSnapshot Json?       @map("segment_snapshot")
+  scopeVersion    Int?        @map("scope_version")
+  actionKey       String      @map("action_key")
+  inputHash       String?     @map("input_hash")
+  decision        CgDecision
+  reasonCode      String      @map("reason_code")
+  policyVersion   Int         @map("policy_version")
+  gate            String
+  trace           Json
+  reservationId   String?     @map("reservation_id") @db.Uuid
+  decidedAt       DateTime    @default(now()) @map("decided_at")
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id])
+  contact     Contact?         @relation(fields: [contactId], references: [id])
+  identity    ContactIdentity? @relation(fields: [identityId], references: [id])
+  reservation CgReservation?   @relation(fields: [reservationId], references: [id])
+
+  @@index([tenantId, actionKey, decidedAt])
+  @@index([tenantId, contactId, decidedAt])
+  @@map("cg_decision_logs")
+}
+
+model JrEventInbox {
+  id              String            @id @default(uuid()) @db.Uuid
+  tenantId        String            @map("tenant_id") @db.Uuid
+  source          String
+  eventId         String            @map("event_id")
+  eventType       String            @map("event_type")
+  occurredAt      DateTime          @map("occurred_at")
+  payload         Json
+  payloadHash     String            @map("payload_hash")
+  state           JrEventInboxState @default(PENDING)
+  publishAttempts Int               @default(0) @map("publish_attempts")
+  lastError       String?           @map("last_error")
+  publishedAt     DateTime?         @map("published_at")
+  processedAt     DateTime?         @map("processed_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, source, eventId])
+  @@index([tenantId, state, createdAt])
+  @@map("jr_event_inbox")
 }
 
 // ─────────────────────────── Interactions (record กลางทุก channel) ───────────────────────────
