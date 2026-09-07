@@ -37,6 +37,15 @@ export function evaluateContactPolicy(facts: ContactPolicyFacts): ContactPolicyR
     };
   }
 
+  if (facts.identityResolution === 'NOT_FOUND') {
+    return {
+      decision: 'REVIEW',
+      reasonCode: 'IDENTITY_NOT_FOUND',
+      policyVersion: facts.policyVersion,
+      trace: [{ gate: 'IDENTITY', outcome: 'REVIEW', reasonCode: 'IDENTITY_NOT_FOUND' }],
+    };
+  }
+
   const trace: ContactPolicyTraceEntry[] = [{ gate: 'IDENTITY', outcome: 'PASS' }];
   if (facts.activeRestriction) {
     trace.push({
@@ -53,6 +62,26 @@ export function evaluateContactPolicy(facts: ContactPolicyFacts): ContactPolicyR
   }
 
   trace.push({ gate: 'HARD_RESTRICTION', outcome: 'PASS' });
+  if (facts.consent?.status === 'REVOKED') {
+    trace.push({ gate: 'CONSENT', outcome: 'BLOCK', reasonCode: 'CONSENT_REVOKED' });
+    return {
+      decision: 'BLOCK',
+      reasonCode: 'CONSENT_REVOKED',
+      policyVersion: facts.policyVersion,
+      trace,
+    };
+  }
+
+  if (facts.consent?.status === 'EXPIRED') {
+    trace.push({ gate: 'CONSENT', outcome: 'BLOCK', reasonCode: 'CONSENT_EXPIRED' });
+    return {
+      decision: 'BLOCK',
+      reasonCode: 'CONSENT_EXPIRED',
+      policyVersion: facts.policyVersion,
+      trace,
+    };
+  }
+
   if (facts.consent?.status === 'GRANTED') {
     trace.push({ gate: 'CONSENT', outcome: 'ALLOW', reasonCode: 'POLICY_PASSED' });
     return {
@@ -63,5 +92,11 @@ export function evaluateContactPolicy(facts: ContactPolicyFacts): ContactPolicyR
     };
   }
 
-  throw new Error('contact policy evaluation is not implemented for these facts');
+  trace.push({ gate: 'CONSENT', outcome: 'BLOCK', reasonCode: 'CONSENT_REQUIRED' });
+  return {
+    decision: 'BLOCK',
+    reasonCode: 'CONSENT_REQUIRED',
+    policyVersion: facts.policyVersion,
+    trace,
+  };
 }
