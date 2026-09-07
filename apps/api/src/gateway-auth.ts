@@ -11,17 +11,22 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import {
+  toVerifiedServiceIdentity,
   toVerifiedWorkspaceIdentity,
   type OidcAccessTokenVerifier,
+  type VerifiedOidcClaims,
+  type VerifiedServiceIdentity,
   type VerifiedWorkspaceIdentity,
 } from '@d-contact/workspace-session';
 
 export const OIDC_ACCESS_TOKEN_VERIFIER = Symbol('OIDC_ACCESS_TOKEN_VERIFIER');
 export const GATEWAY_DIAGNOSTICS = Symbol('GATEWAY_DIAGNOSTICS');
 const GATEWAY_ROLES = Symbol('GATEWAY_ROLES');
+const GATEWAY_SERVICE_ROLES = Symbol('GATEWAY_SERVICE_ROLES');
 
 export interface AuthenticatedGatewayRequest extends IncomingMessage {
   gatewayIdentity?: VerifiedWorkspaceIdentity;
+  gatewayServiceIdentity?: VerifiedServiceIdentity;
   correlationId?: string;
 }
 
@@ -31,6 +36,7 @@ export interface GatewayDiagnostic {
   reason?: 'unauthenticated' | 'forbidden';
   tenantId?: string;
   userId?: string;
+  clientId?: string;
 }
 
 export interface GatewayDiagnosticSink {
@@ -38,6 +44,8 @@ export interface GatewayDiagnosticSink {
 }
 
 export const GatewayRoles = (...roles: string[]) => SetMetadata(GATEWAY_ROLES, roles);
+export const GatewayServiceRoles = (...roles: string[]) =>
+  SetMetadata(GATEWAY_SERVICE_ROLES, roles);
 
 function requestCorrelationId(request: IncomingMessage): string {
   const supplied = request.headers['x-correlation-id'];
@@ -64,12 +72,60 @@ export class OidcGlobalGuard implements CanActivate {
     response.setHeader('x-correlation-id', correlationId);
 
     const authorization = request.headers.authorization;
-    let identity: VerifiedWorkspaceIdentity;
+    let claims: VerifiedOidcClaims;
     try {
       if (!authorization?.startsWith('Bearer ')) throw new Error('missing bearer token');
       const accessToken = authorization.slice('Bearer '.length).trim();
       if (!accessToken) throw new Error('missing bearer token');
-      identity = toVerifiedWorkspaceIdentity(await this.verifier.verifyAccessToken(accessToken));
+      claims = await this.verifier.verifyAccessToken(accessToken);
+    } catch {
+      this.diagnostics.write({
+        event: 'gateway.request.denied',
+        correlationId,
+        reason: 'unauthenticated',
+      });
+      throw new UnauthorizedException();
+    }
+
+    const requiredServiceRoles = this.reflector.getAllAndOverride<readonly string[]>(
+      GATEWAY_SERVICE_ROLES,
+      [context.getHandler(), context.getClass()],
+    );
+    if (requiredServiceRoles) {
+      let identity: VerifiedServiceIdentity;
+      try {
+        identity = toVerifiedServiceIdentity(claims);
+      } catch {
+        this.diagnostics.write({
+          event: 'gateway.request.denied',
+          correlationId,
+          reason: 'unauthenticated',
+        });
+        throw new UnauthorizedException();
+      }
+      if (!identity.roles.some((role) => requiredServiceRoles.includes(role))) {
+        this.diagnostics.write({
+          event: 'gateway.request.denied',
+          correlationId,
+          reason: 'forbidden',
+          tenantId: identity.tenantId,
+          clientId: identity.clientId,
+        });
+        throw new ForbiddenException();
+      }
+      request.gatewayServiceIdentity = identity;
+      this.diagnostics.write({
+        event: 'gateway.request.authorized',
+        correlationId,
+        tenantId: identity.tenantId,
+        clientId: identity.clientId,
+      });
+      return true;
+    }
+
+    let identity: VerifiedWorkspaceIdentity;
+    try {
+      identity = toVerifiedWorkspaceIdentity(claims);
     } catch {
       this.diagnostics.write({
         event: 'gateway.request.denied',

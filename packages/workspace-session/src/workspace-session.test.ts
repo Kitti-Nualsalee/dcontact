@@ -7,6 +7,7 @@ import {
   KeycloakAccessTokenVerifier,
   WorkspaceSessionRegistry,
   WorkspaceSessionGateway,
+  toVerifiedServiceIdentity,
   toVerifiedWorkspaceIdentity,
   type VerifiedWorkspaceIdentity,
 } from './workspace-session.js';
@@ -100,6 +101,29 @@ test('only verified OIDC claims can establish a tenant-bound workspace identity'
   );
 
   assert.deepEqual(identity, agent);
+});
+
+test('client credentials claims establish a tenant-bound service identity', () => {
+  const identity = toVerifiedServiceIdentity(
+    {
+      tenant_id: agent.tenantId,
+      tenant_slug: 'demo',
+      organization: { demo: { tenant_id: [agent.tenantId] } },
+      azp: 'billing-events',
+      sub: 'service-account-billing-events',
+      exp: 1_788_430_200,
+      realm_access: { roles: ['journey-ingress'] },
+    },
+    new Date('2026-09-03T10:00:00.000Z'),
+  );
+
+  assert.deepEqual(identity, {
+    tenantId: agent.tenantId,
+    clientId: 'billing-events',
+    subject: 'service-account-billing-events',
+    roles: ['journey-ingress'],
+    expiresAt: agent.expiresAt,
+  });
 });
 
 test('verified flat fallback claims preserve the tenant identity contract', () => {
