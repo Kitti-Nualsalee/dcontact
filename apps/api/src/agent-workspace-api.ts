@@ -90,12 +90,26 @@ export function configuredAgentSipLeaseProvider(
         typeof node.telephonyNodeId === 'string' &&
         node.telephonyNodeId.length > 0 &&
         typeof node.wssUrl === 'string' &&
-        node.wssUrl.startsWith('wss://'),
+        isBrowserSipWebSocketUrl(node.wssUrl),
     )
   ) {
-    throw new Error('SIP_BROWSER_NODES_JSON requires telephonyNodeId and wssUrl');
+    throw new Error(
+      'SIP_BROWSER_NODES_JSON requires telephonyNodeId and a wss:// endpoint or localhost ws:// endpoint',
+    );
   }
   return new ConfiguredAgentSipLeaseProvider(nodes, iceServers);
+}
+
+function isBrowserSipWebSocketUrl(value: string): boolean {
+  try {
+    const endpoint = new URL(value);
+    if (endpoint.protocol === 'wss:') return true;
+    return (
+      endpoint.protocol === 'ws:' && ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function parseJson<T>(value: string | undefined, fallback: T): T {
