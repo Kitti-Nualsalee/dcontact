@@ -1,3 +1,11 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+supportedArchitectures:
+  os:
+    - current
+    - darwin
+  cpu:
+    - arm64
+    - x64
