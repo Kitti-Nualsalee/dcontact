@@ -300,14 +300,23 @@ try {
     archiveState,
   ] = wrapupEvidence.split('|');
   const minimumEventCount = ivrDtmf ? 6 : 5;
-  if (
-    observedNodeId !== nodeId ||
-    Number(eventCount) < minimumEventCount ||
-    !recordingId ||
-    Number(durationSec) < 1 ||
-    archiveState !== 'ARCHIVED'
-  ) {
-    throw new Error(`หลักฐาน recording/wrap-up ไม่ครบ: ${wrapupEvidence}`);
+  // รายงานเป็นเงื่อนไขที่ไม่ผ่านทีละข้อ ไม่ใช่ evidence ทั้งก้อน เพราะข้อความเดิมบอกได้แค่ว่า
+  // "ไม่ครบ" แล้วทิ้งให้ไปไล่เดาเองว่าค่าไหนผิด ซึ่งกิน field ที่ต่างกันคนละสาเหตุกันทั้งนั้น
+  const unmet = [
+    observedNodeId !== nodeId &&
+      `telephonyNodeId ควรเป็น ${nodeId} แต่ได้ ${observedNodeId} — ตรวจว่า telephony node ที่รับสายคือ node ของ demo`,
+    Number(eventCount) < minimumEventCount &&
+      `event ของ interaction ควรมีอย่างน้อย ${minimumEventCount} แต่ได้ ${eventCount} — ตรวจ Router lifecycle`,
+    !recordingId && 'ไม่มีแถวใน recordings — ตรวจ recording.start ของ telephony',
+    Number(durationSec) < 1 &&
+      `recording duration ควรมากกว่า 0 วินาที แต่ได้ ${durationSec} — ตรวจ recording.stop และ endedAt`,
+    archiveState !== 'ARCHIVED' &&
+      `recording ยังเป็น ${archiveState} — ตรวจ FREESWITCH_RECORDINGS_HOST_DIR, bucket ของ MinIO และ error ของ telephony`,
+  ].filter(Boolean);
+  if (unmet.length > 0) {
+    throw new Error(
+      `หลักฐาน recording/wrap-up ไม่ครบ (${unmet.length} ข้อ):\n  - ${unmet.join('\n  - ')}\n  evidence: ${wrapupEvidence}`,
+    );
   }
   run('pnpm', [
     '--filter',

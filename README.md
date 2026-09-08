@@ -51,6 +51,12 @@
 ```bash
 pnpm install
 
+# 0. สร้างไฟล์ env — repo ไม่มี dotenv loader จึงต้องมีไฟล์จริงทั้งสองที่
+#    รากใช้กับ service และ script ส่วน packages/db ใช้กับ Prisma CLI ซึ่งอ่าน .env
+#    ในไดเรกทอรีของตัวเองเท่านั้น (ทั้งสองไฟล์อยู่ใน .gitignore)
+cp .env.example .env
+cp .env.example packages/db/.env
+
 # 1. เริ่มและยืนยัน Phase 0 readiness ด้วยคำสั่งเดียว
 #    FreeSWITCH + Postgres + Redis + MinIO + Redpanda (Kafka) + Keycloak + database baseline
 #    รวม RLS tenant isolation, OIDC rejection และ Kafka produce/consume evidence

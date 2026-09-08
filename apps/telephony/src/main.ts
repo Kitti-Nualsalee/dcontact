@@ -48,9 +48,13 @@ async function main() {
         process.env.S3_SECRET_KEY ?? process.env.MINIO_SECRET_KEY ?? 'dcontact-secret',
       region: process.env.S3_REGION ?? process.env.MINIO_REGION ?? 'us-east-1',
       telephonyDirectory: recordingsDirectory,
-      hostDirectory:
-        process.env.FREESWITCH_RECORDINGS_HOST_DIR ??
-        resolve(repositoryRoot, 'infra/docker/data/freeswitch-recordings'),
+      // resolve เทียบ repository root เสมอ: service ถูกสตาร์ทด้วย `pnpm --filter` ซึ่ง cwd คือ
+      // apps/telephony ค่าสัมพัทธ์จึงเคยชี้ไปยัง apps/telephony/infra/... ที่ไม่มีไฟล์อยู่จริง
+      // ทำให้ recording ไม่ถูก archive; ค่าที่เป็น absolute อยู่แล้วจะถูกใช้ตามเดิม
+      hostDirectory: resolve(
+        repositoryRoot,
+        process.env.FREESWITCH_RECORDINGS_HOST_DIR ?? 'infra/docker/data/freeswitch-recordings',
+      ),
     }),
     recordingsDirectory,
   );
