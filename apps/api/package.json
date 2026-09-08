@@ -13,6 +13,7 @@
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/s3-request-presigner": "^3.0.0",
     "@d-contact/db": "workspace:*",
+    "@d-contact/journey": "workspace:*",
     "@d-contact/kafka": "workspace:*",
     "@d-contact/shared": "workspace:*",
     "@d-contact/workspace-session": "workspace:*",

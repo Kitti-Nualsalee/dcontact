@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Controller, Module, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { EventInboxService } from '@d-contact/journey';
 import { createConsumer, createInMemoryIdempotencyStore } from '@d-contact/kafka';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import {
@@ -50,6 +51,7 @@ import {
   AGENT_WORKSPACE_DATABASE,
   configuredAgentSipLeaseProvider,
 } from './agent-workspace-api.js';
+import { JOURNEY_EVENT_INBOX, JourneyEventController } from './journey-event-api.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -68,6 +70,7 @@ const supervisorLiveEvents = new SupervisorLiveEventStream();
 const recordingCommandPublisher = new KafkaTelephonyCommandPublisher();
 const recordingStorage = new MinioRecordingStorage();
 const qmJobPublisher = new KafkaQmJobPublisher();
+const journeyEventInbox = new EventInboxService(prisma);
 const httpAdapter = new WorkspaceSessionHttpAdapter(gateway);
 async function tenantScope<T>(tenantId: string, work: () => Promise<T> | T): Promise<T> {
   return withTenantDatabaseTransaction(prisma, tenantId, async (transaction) => {
@@ -111,6 +114,7 @@ class WorkspaceSessionController {
     RecordingController,
     QmController,
     AgentWorkspaceController,
+    JourneyEventController,
   ],
   providers: [
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
@@ -123,6 +127,7 @@ class WorkspaceSessionController {
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
     { provide: AGENT_SIP_LEASE_PROVIDER, useValue: configuredAgentSipLeaseProvider() },
+    { provide: JOURNEY_EVENT_INBOX, useValue: journeyEventInbox },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },

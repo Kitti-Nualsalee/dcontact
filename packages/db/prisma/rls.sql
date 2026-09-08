@@ -15,7 +15,9 @@ BEGIN
     'interactions', 'interaction_events', 'conversations', 'messages', 'recordings',
     'recording_audit_events', 'recording_legal_holds',
     'qm_transcription_jobs', 'qm_audit_events', 'qm_transcripts',
-    'qm_transcript_segments', 'qm_evaluations', 'qm_console_contexts', 'command_receipts'
+    'qm_transcript_segments', 'qm_evaluations', 'qm_console_contexts', 'command_receipts',
+    'cg_restrictions', 'cg_consents', 'cg_decision_logs', 'cg_reservations',
+    'jr_event_inbox', 'jr_enrollments', 'jr_actions'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -42,3 +44,4 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dcontact_app;
 REVOKE UPDATE, DELETE ON queue_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON recording_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON qm_audit_events FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_decision_logs FROM dcontact_app;

@@ -7,6 +7,40 @@ const adminPassword = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? 'admin';
 const realm = 'dcontact';
 const fallbackOnly = process.argv.includes('--fallback-only');
 
+function eventClientRepresentation(identity) {
+  return {
+    clientId: identity.eventClientId,
+    name: `D-Contact Event Ingress — ${identity.slug} (development)`,
+    enabled: true,
+    publicClient: false,
+    secret: identity.eventClientSecret,
+    protocol: 'openid-connect',
+    standardFlowEnabled: false,
+    directAccessGrantsEnabled: false,
+    serviceAccountsEnabled: true,
+    protocolMappers: [
+      {
+        name: 'dcontact-api audience',
+        protocol: 'openid-connect',
+        protocolMapper: 'oidc-audience-mapper',
+        config: { 'included.client.audience': 'dcontact-api', 'access.token.claim': 'true' },
+      },
+      ...['tenant_id', 'tenant_slug'].map((attribute) => ({
+        name: attribute,
+        protocol: 'openid-connect',
+        protocolMapper: 'oidc-usermodel-attribute-mapper',
+        config: {
+          'user.attribute': attribute,
+          'claim.name': attribute,
+          'jsonType.label': 'String',
+          'access.token.claim': 'true',
+          multivalued: 'false',
+        },
+      })),
+    ],
+  };
+}
+
 async function request(path, { method = 'GET', token, body, form, rawBody } = {}) {
   const headers = {};
   if (token) headers.authorization = `Bearer ${token}`;
@@ -144,7 +178,7 @@ async function main() {
     (mapper) => mapper.protocolMapper === 'oidc-organization-membership-mapper',
   );
   if (!basicScope) throw new Error('Keycloak ไม่มี basic client scope ที่ token contract ต้องใช้');
-  const clients = await request(`/admin/realms/${realm}/clients`, { token });
+  let clients = await request(`/admin/realms/${realm}/clients`, { token });
   for (const clientId of ['agent-desktop', 'dcontact-dev-readiness']) {
     const client = clients.find((candidate) => candidate.clientId === clientId);
     if (!client) throw new Error(`ไม่พบ Keycloak client ${clientId}`);
@@ -183,6 +217,21 @@ async function main() {
   } else if (!fallbackOnly) {
     console.warn('ไม่พบ native Organization mapper; ใช้ flat user-attribute claims เป็น fallback');
   }
+
+  let realmRoles = await request(`/admin/realms/${realm}/roles`, { token });
+  if (!realmRoles.some((role) => role.name === 'journey-ingress')) {
+    await request(`/admin/realms/${realm}/roles`, {
+      method: 'POST',
+      token,
+      body: {
+        name: 'journey-ingress',
+        description: 'รับ external business events สำหรับ Journey ของ tenant',
+      },
+    });
+    realmRoles = await request(`/admin/realms/${realm}/roles`, { token });
+  }
+  const journeyIngressRole = realmRoles.find((role) => role.name === 'journey-ingress');
+  if (!journeyIngressRole) throw new Error('สร้าง Keycloak role journey-ingress ไม่สำเร็จ');
 
   const mode = fallbackOnly ? 'fallback user attributes' : 'native Organization + fallback';
   for (const tenantIdentity of PHASE_ONE_TENANT_IDENTITIES) {
@@ -233,6 +282,76 @@ async function main() {
         },
       },
     });
+
+    let eventClient = clients.find(
+      (candidate) => candidate.clientId === tenantIdentity.eventClientId,
+    );
+    if (!eventClient) {
+      await request(`/admin/realms/${realm}/clients`, {
+        method: 'POST',
+        token,
+        body: eventClientRepresentation(tenantIdentity),
+      });
+      clients = await request(`/admin/realms/${realm}/clients`, { token });
+      eventClient = clients.find(
+        (candidate) => candidate.clientId === tenantIdentity.eventClientId,
+      );
+    }
+    if (!eventClient) {
+      throw new Error(`สร้าง Keycloak client ${tenantIdentity.eventClientId} ไม่สำเร็จ`);
+    }
+    const fullEventClient = await request(`/admin/realms/${realm}/clients/${eventClient.id}`, {
+      token,
+    });
+    await request(`/admin/realms/${realm}/clients/${eventClient.id}`, {
+      method: 'PUT',
+      token,
+      body: { ...fullEventClient, ...eventClientRepresentation(tenantIdentity) },
+    });
+    await request(
+      `/admin/realms/${realm}/clients/${eventClient.id}/default-client-scopes/${basicScope.id}`,
+      { method: 'PUT', token },
+    );
+    if (organizationScope) {
+      await request(
+        `/admin/realms/${realm}/clients/${eventClient.id}/optional-client-scopes/${organizationScope.id}`,
+        { method: 'PUT', token },
+      );
+    }
+
+    const serviceAccount = await request(
+      `/admin/realms/${realm}/clients/${eventClient.id}/service-account-user`,
+      { token },
+    );
+    await request(`/admin/realms/${realm}/users/${serviceAccount.id}`, {
+      method: 'PUT',
+      token,
+      body: {
+        ...serviceAccount,
+        enabled: true,
+        attributes: {
+          ...serviceAccount.attributes,
+          tenant_id: [tenantId],
+          tenant_slug: [tenantIdentity.slug],
+        },
+      },
+    });
+    await request(`/admin/realms/${realm}/users/${serviceAccount.id}/role-mappings/realm`, {
+      method: 'POST',
+      token,
+      body: [journeyIngressRole],
+    });
+    const organizationMembers = await request(
+      `/admin/realms/${realm}/organizations/${organization.id}/members?max=100`,
+      { token },
+    );
+    if (!organizationMembers.some((member) => member.id === serviceAccount.id)) {
+      await request(`/admin/realms/${realm}/organizations/${organization.id}/members`, {
+        method: 'POST',
+        token,
+        rawBody: serviceAccount.id,
+      });
+    }
 
     for (const databaseUser of tenantUsers) {
       let matches = await request(
@@ -313,6 +432,9 @@ async function main() {
 
     console.log(
       `เชื่อม Keycloak Organization ${tenantIdentity.slug} กับ dev users ${tenantUsers.length} คนแล้ว (${mode})`,
+    );
+    console.log(
+      `เชื่อม service client ${tenantIdentity.eventClientId} กับ ${tenantIdentity.slug} แล้ว`,
     );
   }
 }

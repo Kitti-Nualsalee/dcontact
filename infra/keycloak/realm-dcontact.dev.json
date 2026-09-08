@@ -10,7 +10,8 @@
     "realm": [
       { "name": "agent" },
       { "name": "supervisor", "composite": true, "composites": { "realm": ["agent"] } },
-      { "name": "admin", "composite": true, "composites": { "realm": ["supervisor"] } }
+      { "name": "admin", "composite": true, "composites": { "realm": ["supervisor"] } },
+      { "name": "journey-ingress" }
     ]
   },
   "clients": [
@@ -138,6 +139,96 @@
         }
       ],
       "defaultClientScopes": ["acr", "basic", "roles", "profile", "email"],
+      "optionalClientScopes": ["organization"]
+    },
+    {
+      "clientId": "dcontact-events-demo",
+      "name": "D-Contact Event Ingress — demo (development)",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dcontact-events-demo-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "dcontact-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.client.audience": "dcontact-api", "access.token.claim": "true" }
+        },
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "multivalued": "false"
+          }
+        },
+        {
+          "name": "tenant_slug",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_slug",
+            "claim.name": "tenant_slug",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "multivalued": "false"
+          }
+        }
+      ],
+      "defaultClientScopes": ["acr", "basic", "roles", "profile"],
+      "optionalClientScopes": ["organization"]
+    },
+    {
+      "clientId": "dcontact-events-demo-two",
+      "name": "D-Contact Event Ingress — demo-two (development)",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dcontact-events-demo-two-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "dcontact-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.client.audience": "dcontact-api", "access.token.claim": "true" }
+        },
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "multivalued": "false"
+          }
+        },
+        {
+          "name": "tenant_slug",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_slug",
+            "claim.name": "tenant_slug",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "multivalued": "false"
+          }
+        }
+      ],
+      "defaultClientScopes": ["acr", "basic", "roles", "profile"],
       "optionalClientScopes": ["organization"]
     }
   ],
