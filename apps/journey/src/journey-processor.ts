@@ -83,6 +83,7 @@ export class JourneyProcessor {
   async processEvent(
     tenantId: string,
     input: ProcessJourneyEventInput,
+    transaction?: Prisma.TransactionClient,
   ): Promise<JourneyProcessingResult> {
     const event = await this.loadEventAndPrepareEnrollment(tenantId, input);
     const enrollmentId = input.receiptId;
@@ -112,7 +113,7 @@ export class JourneyProcessor {
         };
     const authorization = await this.governance.authorizeAndReserve(tenantId, authorizationInput);
 
-    await this.persistOutcome(tenantId, input, actionKey, resolved, authorization);
+    await this.persistOutcome(tenantId, input, actionKey, resolved, authorization, transaction);
 
     return {
       receiptId: input.receiptId,
@@ -200,8 +201,9 @@ export class JourneyProcessor {
     actionKey: string,
     resolved: ResolvedContact | undefined,
     authorization: AuthorizationOutcome,
+    transaction?: Prisma.TransactionClient,
   ): Promise<void> {
-    await withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+    const persist = async (transactionClient: Prisma.TransactionClient): Promise<void> => {
       const state: JrEnrollmentState =
         authorization.decision === 'ALLOW'
           ? 'AUTHORIZED'
@@ -210,7 +212,7 @@ export class JourneyProcessor {
             : authorization.decision === 'DEFER'
               ? 'DEFERRED'
               : 'BLOCKED';
-      await transaction.jrEnrollment.updateMany({
+      await transactionClient.jrEnrollment.updateMany({
         where: { id: input.receiptId, tenantId },
         data: {
           state,
@@ -225,7 +227,7 @@ export class JourneyProcessor {
             'Journey action ที่ authorize แล้วต้องมี contact และ reservation evidence',
           );
         }
-        await transaction.jrAction.upsert({
+        await transactionClient.jrAction.upsert({
           where: { tenantId_actionKey: { tenantId, actionKey } },
           create: {
             tenantId,
@@ -242,7 +244,7 @@ export class JourneyProcessor {
         });
       }
 
-      await transaction.jrEventInbox.updateMany({
+      await transactionClient.jrEventInbox.updateMany({
         where: {
           id: input.receiptId,
           tenantId,
@@ -250,6 +252,11 @@ export class JourneyProcessor {
         },
         data: { state: 'PROCESSED', processedAt: this.now() },
       });
-    });
+    };
+    if (transaction) {
+      await persist(transaction);
+      return;
+    }
+    await withTenantDatabaseTransaction(this.database, tenantId, persist);
   }
 }

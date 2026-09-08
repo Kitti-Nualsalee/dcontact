@@ -27,14 +27,14 @@ export interface EventIdempotencyStore<TContext = undefined> {
   ): Promise<IdempotencyResult>;
 }
 
-/** production ต้องไม่ใช้ adapter in-memory ที่ประกาศ EPHEMERAL. */
+/** production ต้องใช้ adapter ที่ยืนยัน durable boundary อย่างชัดเจน. */
 export function assertIdempotencyStoreAllowed<TContext>(
   store: EventIdempotencyStore<TContext>,
   runtime: EventConsumerRuntime,
 ): void {
-  if (runtime === 'production' && store.durability === 'EPHEMERAL') {
+  if (runtime === 'production' && store.durability !== 'DURABLE') {
     throw new Error(
-      'production Kafka consumer ห้ามใช้ EventIdempotencyStore ที่ประกาศ durability เป็น EPHEMERAL',
+      'production Kafka consumer ต้องใช้ EventIdempotencyStore ที่ประกาศ durability เป็น DURABLE',
     );
   }
 }

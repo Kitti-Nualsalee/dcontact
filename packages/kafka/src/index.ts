@@ -121,7 +121,7 @@ export interface CreateConsumerOptions<
   clientId: string;
   groupId: string;
   topics: KafkaTopic[];
-  /** default ตาม NODE_ENV; production ปฏิเสธ store ที่ประกาศ EPHEMERAL */
+  /** default ตาม NODE_ENV; production รับเฉพาะ store ที่ประกาศ DURABLE */
   runtime?: EventConsumerRuntime;
   idempotency: EventIdempotencyStore<TContext>;
   handler: (message: ConsumedEvent<TPayload>, context: TContext) => Promise<void> | void;

@@ -185,7 +185,7 @@ test('production consumer ปฏิเสธ in-memory store และ durable c
   const ephemeral = createInMemoryIdempotencyStore();
   assert.throws(
     () => assertIdempotencyStoreAllowed(ephemeral, 'production'),
-    /durability เป็น EPHEMERAL/,
+    /durability เป็น DURABLE/,
   );
 
   const transaction = { transactionId: 'tx-1' };
@@ -213,6 +213,11 @@ test('production consumer ปฏิเสธ in-memory store และ durable c
   );
   assert.equal(await durableFixture.execute(key, async () => undefined), 'duplicate');
   assert.doesNotThrow(() => assertIdempotencyStoreAllowed(durableFixture, 'production'));
+  assert.throws(
+    () =>
+      assertIdempotencyStoreAllowed({ execute: async (_key, _work) => 'processed' }, 'production'),
+    /durability เป็น DURABLE/,
+  );
 });
 
 test('createConsumer ปฏิเสธ in-memory store ก่อนเชื่อมต่อ production broker', async () => {
@@ -226,6 +231,6 @@ test('createConsumer ปฏิเสธ in-memory store ก่อนเชื่
         idempotency: createInMemoryIdempotencyStore(),
         handler: async () => undefined,
       }),
-    /durability เป็น EPHEMERAL/,
+    /durability เป็น DURABLE/,
   );
 });

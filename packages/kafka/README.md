@@ -12,7 +12,7 @@ Public contract สำหรับ service ที่ publish/consume domain even
 - consumer ที่เจอ schema version ไม่รองรับจะได้รับ `UNSUPPORTED_SCHEMA_VERSION` ผ่าน `onInvalidMessage` พร้อม `dlqReason` เพื่อ route เข้า DLQ โดยไม่เดา contract
 - package derive Kafka partition key จาก `orderingKey` ใน envelope และ consumer ตรวจว่าทั้งสามตำแหน่งตรงกัน
 - idempotency boundary คือ unique `(consumerGroup, tenantId, eventId)`
-- adapter ใหม่สำหรับ production ควรประกาศ `durability: 'DURABLE'` และส่ง transaction context เข้า handler เพื่อให้ business side effect กับ dedupe key atomic
+- production consumer ต้องใช้ adapter ที่ประกาศ `durability: 'DURABLE'` และส่ง transaction context เข้า handler เพื่อให้ business side effect กับ dedupe key atomic หรือทำ durable claim/complete lifecycle ที่เทียบเท่า
 - `createInMemoryIdempotencyStore()` มี `durability: 'EPHEMERAL'`; `createConsumer()` ปฏิเสธมันเมื่อ `NODE_ENV=production`
 - Kafka/Redpanda เป็น event transport; ห้ามใช้ Redis pub/sub แทน และห้ามเข้าฐานข้อมูลของ service อื่น
 
