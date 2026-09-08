@@ -27,6 +27,8 @@
     "voice:ivr:demo": "INBOUND_DEMO_DTMF=2 node scripts/inbound-voice-demo.mjs",
     "voice:acceptance": "node scripts/phase-one-readiness.mjs",
     "voice:phase2:acceptance": "node scripts/phase-two-readiness.mjs",
+    "cxa:phase1:acceptance": "node scripts/cxa-phase-one-readiness.mjs",
+    "test:cxa-phase-one-readiness": "node --test scripts/cxa-phase-one-readiness.test.mjs scripts/cxa-schema-readiness.test.mjs",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   },
   "devDependencies": {
