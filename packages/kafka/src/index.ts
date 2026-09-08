@@ -11,12 +11,18 @@ import {
   KAFKA_EVENT_HEADERS,
   KafkaContractError,
   assertKafkaTopic,
+  isKafkaEventEnvelopeV2,
   validateConsumedEvent,
   validateEventEnvelope,
   type KafkaEventEnvelope,
   type KafkaEventHeaders,
 } from './contract';
-import type { EventIdempotencyStore, IdempotencyResult } from './idempotency';
+import {
+  assertIdempotencyStoreAllowed,
+  type EventConsumerRuntime,
+  type EventIdempotencyStore,
+  type IdempotencyResult,
+} from './idempotency';
 
 export * from './contract';
 export * from './idempotency';
@@ -62,18 +68,23 @@ export async function createProducer(
     async send(topic, candidate) {
       assertKafkaTopic(topic);
       const event = validateEventEnvelope(candidate);
+      const headers: Record<string, string> = {
+        [KAFKA_EVENT_HEADERS.TENANT_ID]: event.tenantId,
+        [KAFKA_EVENT_HEADERS.EVENT_ID]: event.eventId,
+        [KAFKA_EVENT_HEADERS.CORRELATION_ID]: event.correlationId,
+        [KAFKA_EVENT_HEADERS.ORDERING_KEY]: event.orderingKey,
+      };
+      if (isKafkaEventEnvelopeV2(event)) {
+        headers[KAFKA_EVENT_HEADERS.SCHEMA_VERSION] = String(event.schemaVersion);
+        headers[KAFKA_EVENT_HEADERS.AGGREGATE_ID] = event.aggregateId;
+      }
       await producer.send({
         topic,
         messages: [
           {
             key: event.orderingKey,
             value: JSON.stringify(event),
-            headers: {
-              [KAFKA_EVENT_HEADERS.TENANT_ID]: event.tenantId,
-              [KAFKA_EVENT_HEADERS.EVENT_ID]: event.eventId,
-              [KAFKA_EVENT_HEADERS.CORRELATION_ID]: event.correlationId,
-              [KAFKA_EVENT_HEADERS.ORDERING_KEY]: event.orderingKey,
-            },
+            headers,
           },
         ],
       });
@@ -99,16 +110,21 @@ export interface InvalidKafkaMessage {
   partition: number;
   offset: string;
   error: KafkaContractError;
+  /** ใช้ reason นี้ route invalid contract ไปยัง DLQ ของ consumer */
+  dlqReason: KafkaContractError['code'];
 }
 
 export interface CreateConsumerOptions<
   TPayload extends Record<string, unknown>,
+  TContext = undefined,
 > extends KafkaConnectionOptions {
   clientId: string;
   groupId: string;
   topics: KafkaTopic[];
-  idempotency: EventIdempotencyStore;
-  handler: (message: ConsumedEvent<TPayload>) => Promise<void> | void;
+  /** default ตาม NODE_ENV; production ปฏิเสธ store ที่ประกาศ EPHEMERAL */
+  runtime?: EventConsumerRuntime;
+  idempotency: EventIdempotencyStore<TContext>;
+  handler: (message: ConsumedEvent<TPayload>, context: TContext) => Promise<void> | void;
   onInvalidMessage?: (message: InvalidKafkaMessage) => Promise<void> | void;
   onDuplicate?: (message: ConsumedEvent<TPayload>) => Promise<void> | void;
 }
@@ -126,7 +142,12 @@ function decodeHeaders(headers: IHeaders | undefined): KafkaEventHeaders {
 
 export async function createConsumer<
   TPayload extends Record<string, unknown> = Record<string, unknown>,
->(options: CreateConsumerOptions<TPayload>): Promise<DcConsumer> {
+  TContext = undefined,
+>(options: CreateConsumerOptions<TPayload, TContext>): Promise<DcConsumer> {
+  assertIdempotencyStoreAllowed(
+    options.idempotency,
+    options.runtime ?? (process.env.NODE_ENV === 'production' ? 'production' : 'non-production'),
+  );
   for (const topic of options.topics) assertKafkaTopic(topic);
 
   const consumer: Consumer = createKafka(options.clientId, options).consumer({
@@ -158,7 +179,13 @@ export async function createConsumer<
         );
       } catch (error) {
         if (!(error instanceof KafkaContractError)) throw error;
-        const invalid = { topic, partition, offset: message.offset, error };
+        const invalid = {
+          topic,
+          partition,
+          offset: message.offset,
+          error,
+          dlqReason: error.code,
+        };
         if (options.onInvalidMessage) {
           await options.onInvalidMessage(invalid);
         } else {
@@ -186,7 +213,7 @@ export async function createConsumer<
 
       const result: IdempotencyResult = await options.idempotency.execute(
         consumed.idempotencyKey,
-        async () => options.handler(consumed),
+        async (context) => options.handler(consumed, context),
       );
       if (result === 'duplicate') await options.onDuplicate?.(consumed);
     },

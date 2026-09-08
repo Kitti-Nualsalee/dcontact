@@ -6,7 +6,8 @@ import {
   createConsumer,
   createInMemoryIdempotencyStore,
   createProducer,
-  type KafkaEventEnvelope,
+  isKafkaEventEnvelopeV2,
+  type KafkaEventEnvelopeV2,
 } from '@d-contact/kafka';
 
 test(
@@ -16,7 +17,7 @@ test(
     const suffix = randomUUID();
     const clientId = `issue-34-${suffix}`;
     const groupId = `issue-34-${suffix}`;
-    const received: KafkaEventEnvelope[] = [];
+    const received: KafkaEventEnvelopeV2[] = [];
     let duplicateCount = 0;
     let resolveDuplicate!: () => void;
     const duplicateObserved = new Promise<void>((resolve) => {
@@ -30,6 +31,7 @@ test(
       brokers: ['localhost:9092'],
       idempotency: createInMemoryIdempotencyStore(),
       handler: (message) => {
+        assert.ok(isKafkaEventEnvelopeV2(message.event));
         received.push(message.event);
       },
       onDuplicate: () => {
@@ -39,13 +41,17 @@ test(
     });
     const producer = await createProducer(`${clientId}-producer`, { brokers: ['localhost:9092'] });
 
-    const event: KafkaEventEnvelope<{ state: string; sourceService: string }> = {
+    const event: KafkaEventEnvelopeV2<{ state: string; sourceService: string }> = {
+      schemaVersion: 2,
       eventId: `event-${suffix}`,
       type: 'agent.state_changed',
       tenantId: `tenant-${suffix}`,
       occurredAt: new Date().toISOString(),
       correlationId: `correlation-${suffix}`,
       orderingKey: `agent-${suffix}`,
+      aggregateType: 'agent',
+      aggregateId: `agent-${suffix}`,
+      aggregateVersion: 1,
       payload: { state: 'READY', sourceService: 'representative-service' },
     };
 

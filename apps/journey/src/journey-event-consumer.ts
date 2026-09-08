@@ -34,7 +34,7 @@ function createDurableJourneyIdempotencyStore(database: PrismaClient): EventIdem
           ),
       );
       if (alreadyProcessed) return 'duplicate';
-      await work();
+      await work(undefined);
       return 'processed';
     },
   };
