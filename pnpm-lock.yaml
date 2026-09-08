@@ -125,6 +125,9 @@ importers:
 
   apps/journey:
     dependencies:
+      '@d-contact/contact-governance':
+        specifier: workspace:*
+        version: link:../contact-governance
       '@d-contact/db':
         specifier: workspace:*
         version: link:../../packages/db

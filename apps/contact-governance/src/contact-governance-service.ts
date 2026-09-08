@@ -16,9 +16,7 @@ import { transitionReservation, type ReservationCommand } from './reservation.js
 
 const RESERVATION_TTL_MS = 15 * 60 * 1_000;
 
-export interface AuthorizeAndReserveInput {
-  contactId: string;
-  identityId?: string;
+interface AuthorizationInputBase {
   channel: ChannelType;
   purpose: string;
   source: string;
@@ -27,6 +25,20 @@ export interface AuthorizeAndReserveInput {
   policyVersion: number;
   teamId?: string;
 }
+
+export type AuthorizeAndReserveInput = AuthorizationInputBase &
+  (
+    | {
+        contactId: string;
+        identityId?: string;
+        identityResolution?: never;
+      }
+    | {
+        contactId?: never;
+        identityId?: never;
+        identityResolution: 'AMBIGUOUS' | 'NOT_FOUND';
+      }
+  );
 
 export interface AuthorizationOutcome {
   decisionId: string;
@@ -118,6 +130,7 @@ function hashAuthorizationInput(input: AuthorizeAndReserveInput): string {
     source: input.source,
     sourceId: input.sourceId,
     teamId: input.teamId ?? null,
+    ...(input.identityResolution ? { identityResolution: input.identityResolution } : {}),
   });
   return createHash('sha256').update(canonicalInput).digest('hex');
 }
@@ -189,9 +202,11 @@ export class ContactGovernanceService {
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`action:${tenantId}:${input.actionKey}`}))`,
       );
-      await transaction.$queryRaw(
-        Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`contact:${tenantId}:${input.contactId}`}))`,
-      );
+      if (input.contactId) {
+        await transaction.$queryRaw(
+          Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`contact:${tenantId}:${input.contactId}`}))`,
+        );
+      }
 
       const existing = await transaction.cgDecisionLog.findFirst({
         where: { tenantId, actionKey: input.actionKey },
@@ -206,10 +221,12 @@ export class ContactGovernanceService {
       }
 
       const now = this.now();
-      const contact = await transaction.contact.findFirst({
-        where: { id: input.contactId, tenantId },
-        select: { id: true },
-      });
+      const contact = input.contactId
+        ? await transaction.contact.findFirst({
+            where: { id: input.contactId, tenantId },
+            select: { id: true },
+          })
+        : null;
       const identity = input.identityId
         ? await transaction.contactIdentity.findFirst({
             where: { id: input.identityId, contactId: input.contactId, tenantId },
@@ -217,7 +234,8 @@ export class ContactGovernanceService {
           })
         : undefined;
       const identityResolution =
-        !contact || (input.identityId && !identity) ? 'NOT_FOUND' : 'RESOLVED';
+        input.identityResolution ??
+        (!contact || (input.identityId && !identity) ? 'NOT_FOUND' : 'RESOLVED');
 
       const restriction = contact
         ? await transaction.cgRestriction.findFirst({
@@ -287,6 +305,9 @@ export class ContactGovernanceService {
       let reservationExpiresAt: Date | undefined;
 
       if (policyResult.decision === 'ALLOW') {
+        if (!input.contactId) {
+          throw new Error('ALLOW requires a resolved contact');
+        }
         reservationId = this.id();
         reservationExpiresAt = new Date(now.getTime() + RESERVATION_TTL_MS);
         await transaction.cgReservation.create({

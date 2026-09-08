@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@d-contact/contact-governance": "workspace:*",
     "@d-contact/db": "workspace:*",
     "@d-contact/kafka": "workspace:*",
     "@d-contact/shared": "workspace:*"
