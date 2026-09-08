@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -20,11 +21,13 @@ type ForceableAgentState = 'OFFLINE' | 'AVAILABLE' | 'BREAK';
 interface ForceAgentStateBody {
   state?: unknown;
   reason?: unknown;
+  commandId?: unknown;
 }
 
 interface SetQueueAvailabilityBody {
   isActive?: unknown;
   reason?: unknown;
+  commandId?: unknown;
 }
 
 interface SupervisorScope {
@@ -104,6 +107,11 @@ function queueAvailability(value: unknown): boolean {
   return value;
 }
 
+function requiredCommandId(value: unknown): string {
+  if (typeof value !== 'string') throw new BadRequestException('commandId must be a UUID');
+  return requiredIdentifier(value, 'commandId');
+}
+
 @Controller('api/v1/workspace/supervisor')
 export class SupervisorLiveController {
   constructor(
@@ -151,6 +159,41 @@ export class SupervisorLiveController {
         });
         if (!target) throw new NotFoundException();
         this.assertInScope(scope, target.teamId);
+        const receiptCommandId = requiredCommandId(body.commandId);
+        const existingReceipt = await transaction.commandReceipt.findUnique({
+          where: { tenantId_commandId: { tenantId: actor.tenantId, commandId: receiptCommandId } },
+          select: { actorUserId: true, action: true, resourceId: true, result: true },
+        });
+        if (existingReceipt) {
+          if (
+            existingReceipt.actorUserId !== actor.userId ||
+            existingReceipt.action !== 'SUPERVISOR_FORCE_AGENT_STATE' ||
+            existingReceipt.resourceId !== target.id
+          ) {
+            throw new BadRequestException('commandId was already used for another command');
+          }
+          return {
+            result: existingReceipt.result as {
+              agentId: string;
+              state: ForceableAgentState;
+              reason: string;
+            },
+            recipients: [],
+          };
+        }
+        const unsafeInteraction = await transaction.interaction.findFirst({
+          where: {
+            tenantId: actor.tenantId,
+            agentId: target.id,
+            state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
+          },
+          select: { id: true },
+        });
+        if (unsafeInteraction) {
+          throw new ConflictException(
+            'agent has an active Interaction; force-safe boundary rejected',
+          );
+        }
         await transaction.agentStateLog.create({
           data: {
             tenantId: actor.tenantId,
@@ -160,18 +203,31 @@ export class SupervisorLiveController {
             actorUserId: actor.userId,
           },
         });
+        const result = { agentId: target.id, state, reason };
+        await transaction.commandReceipt.create({
+          data: {
+            tenantId: actor.tenantId,
+            commandId: receiptCommandId,
+            actorUserId: actor.userId,
+            action: 'SUPERVISOR_FORCE_AGENT_STATE',
+            resourceId: target.id,
+            result,
+          },
+        });
         return {
-          target,
+          result,
           recipients: await this.recipients(transaction, actor.tenantId, target.teamId),
         };
       },
     );
-    this.events.publish(
-      actor.tenantId,
-      { event: 'agent.state_changed', agentId: changed.target.id, state, reason },
-      changed.recipients,
-    );
-    return { agentId: changed.target.id, state, reason };
+    if (changed.recipients.length > 0) {
+      this.events.publish(
+        actor.tenantId,
+        { event: 'agent.state_changed', agentId: changed.result.agentId, state, reason },
+        changed.recipients,
+      );
+    }
+    return changed.result;
   }
 
   @Put('queues/:queueId/availability')
@@ -200,6 +256,24 @@ export class SupervisorLiveController {
         });
         if (!queue) throw new NotFoundException();
         this.assertInScope(scope, queue.teamId);
+        const receiptCommandId = requiredCommandId(body.commandId);
+        const existingReceipt = await transaction.commandReceipt.findUnique({
+          where: { tenantId_commandId: { tenantId: actor.tenantId, commandId: receiptCommandId } },
+          select: { actorUserId: true, action: true, resourceId: true, result: true },
+        });
+        if (existingReceipt) {
+          if (
+            existingReceipt.actorUserId !== actor.userId ||
+            existingReceipt.action !== 'SUPERVISOR_QUEUE_AVAILABILITY' ||
+            existingReceipt.resourceId !== queue.id
+          ) {
+            throw new BadRequestException('commandId was already used for another command');
+          }
+          return {
+            result: existingReceipt.result as { id: string; isActive: boolean },
+            recipients: [],
+          };
+        }
         await transaction.queue.update({ where: { id: queue.id }, data: { isActive } });
         await transaction.queueAuditEvent.create({
           data: {
@@ -207,21 +281,39 @@ export class SupervisorLiveController {
             queueId: queue.id,
             actorUserId: actor.userId,
             action: isActive ? 'QUEUE_ENABLED' : 'QUEUE_DISABLED',
-            details: { reason, before: { isActive: queue.isActive }, after: { isActive } },
+            details: {
+              reason,
+              commandId: receiptCommandId,
+              before: { isActive: queue.isActive },
+              after: { isActive },
+            },
+          },
+        });
+        const result = { id: queue.id, isActive };
+        await transaction.commandReceipt.create({
+          data: {
+            tenantId: actor.tenantId,
+            commandId: receiptCommandId,
+            actorUserId: actor.userId,
+            action: 'SUPERVISOR_QUEUE_AVAILABILITY',
+            resourceId: queue.id,
+            result,
           },
         });
         return {
-          queue,
+          result,
           recipients: await this.recipients(transaction, actor.tenantId, queue.teamId),
         };
       },
     );
-    this.events.publish(
-      actor.tenantId,
-      { event: 'queue.availability_changed', queueId: changed.queue.id, isActive, reason },
-      changed.recipients,
-    );
-    return { id: changed.queue.id, isActive };
+    if (changed.recipients.length > 0) {
+      this.events.publish(
+        actor.tenantId,
+        { event: 'queue.availability_changed', queueId: changed.result.id, isActive, reason },
+        changed.recipients,
+      );
+    }
+    return changed.result;
   }
 
   private async snapshotFor(

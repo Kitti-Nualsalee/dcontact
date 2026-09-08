@@ -6,6 +6,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["mockups/serve.py", "8090"],
       "port": 8090
+    },
+    {
+      "name": "ui-tokens",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8095", "--directory", "packages/ui"],
+      "port": 8095
     }
   ]
 }

@@ -44,6 +44,12 @@ import { KafkaTelephonyCommandPublisher } from './recording-command-publisher.js
 import { MinioRecordingStorage } from './minio-recording-storage.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
 import { KafkaQmJobPublisher } from './qm-job-publisher.js';
+import {
+  AgentWorkspaceController,
+  AGENT_SIP_LEASE_PROVIDER,
+  AGENT_WORKSPACE_DATABASE,
+  configuredAgentSipLeaseProvider,
+} from './agent-workspace-api.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -104,6 +110,7 @@ class WorkspaceSessionController {
     SupervisorLiveController,
     RecordingController,
     QmController,
+    AgentWorkspaceController,
   ],
   providers: [
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
@@ -114,6 +121,8 @@ class WorkspaceSessionController {
     { provide: RECORDING_STORAGE, useValue: recordingStorage },
     { provide: QM_DATABASE, useValue: prisma },
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
+    { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
+    { provide: AGENT_SIP_LEASE_PROVIDER, useValue: configuredAgentSipLeaseProvider() },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },
@@ -123,6 +132,11 @@ class AppModule {}
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
+  app.enableCors({
+    origin: process.env.WORKSPACE_ORIGIN ?? 'http://localhost:5173',
+    allowedHeaders: ['authorization', 'content-type', 'x-correlation-id'],
+    exposedHeaders: ['x-correlation-id'],
+  });
   attachWorkspaceSessionWebSocket(app.getHttpServer(), socketAdapter);
   await createConsumer({
     clientId: 'dcontact-api',

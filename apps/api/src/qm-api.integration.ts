@@ -216,6 +216,8 @@ test('supervisor starts manual transcription, audits transcript access, and huma
   await app.listen(0, '127.0.0.1');
   t.after(async () => {
     await app.close();
+    await owner.commandReceipt.deleteMany({ where: { tenantId } });
+    await owner.qmConsoleContext.deleteMany({ where: { tenantId } });
     await owner.qmAuditEvent.deleteMany({ where: { tenantId } });
     await owner.qmEvaluation.deleteMany({ where: { tenantId } });
     await owner.qmTranscriptSegment.deleteMany({ where: { tenantId } });
@@ -227,6 +229,8 @@ test('supervisor starts manual transcription, audits transcript access, and huma
     await owner.queue.deleteMany({ where: { tenantId } });
     await owner.user.deleteMany({ where: { tenantId } });
     await owner.team.deleteMany({ where: { tenantId } });
+    await owner.commandReceipt.deleteMany({ where: { tenantId: foreignTenantId } });
+    await owner.qmConsoleContext.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.qmAuditEvent.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.qmEvaluation.deleteMany({ where: { tenantId: foreignTenantId } });
     await owner.interaction.deleteMany({ where: { tenantId: foreignTenantId } });
@@ -318,6 +322,59 @@ test('supervisor starts manual transcription, audits transcript access, and huma
     },
   });
 
+  const consoleContext = await fetch(`${root}/qm/interactions/${interactionId}/console-context`, {
+    method: 'POST',
+    headers: auth('supervisor-token'),
+    body: '{}',
+  });
+  assert.equal(consoleContext.status, 201);
+  const consoleContextBody = (await consoleContext.json()) as {
+    contextId: string;
+    expiresAt: string;
+  };
+  assert.match(consoleContextBody.contextId, /^[0-9a-f-]{36}$/i);
+  assert.match(consoleContextBody.expiresAt, /^\d{4}-\d{2}-\d{2}T/);
+
+  const context = await fetch(`${root}/qm/console-contexts/${consoleContextBody.contextId}`, {
+    headers: auth('supervisor-token'),
+  });
+  assert.equal(context.status, 200);
+  assert.deepEqual(await context.json(), {
+    interaction: { id: interactionId, channel: 'VOICE', queueName: `QM API queue ${tenantId}` },
+    recording: { id: recordingId, status: 'AVAILABLE', pauseIntervals: [] },
+    transcript: {
+      id: transcript.id,
+      language: 'th-TH',
+      segments: [
+        {
+          id: (
+            await owner.qmTranscriptSegment.findFirstOrThrow({
+              where: { transcriptId: transcript.id },
+            })
+          ).id,
+          speaker: 'AGENT',
+          startMs: 1_000,
+          endMs: 3_000,
+          text: 'สวัสดีค่ะ ยินดีให้บริการค่ะ',
+        },
+      ],
+    },
+    evaluation: {
+      id: evaluation.id,
+      status: 'DRAFT',
+      source: 'AUTO_DRAFT',
+      answers: {},
+    },
+  });
+  assert.equal(
+    (
+      await fetch(`${root}/qm/console-contexts/${consoleContextBody.contextId}`, {
+        headers: auth('admin-token'),
+      })
+    ).status,
+    404,
+  );
+
   assert.equal(
     (await fetch(`${root}/qm/evaluations/${evaluation.id}`, { headers: auth('agent-token') }))
       .status,
@@ -352,7 +409,7 @@ test('supervisor starts manual transcription, audits transcript access, and huma
   const publish = await fetch(`${root}/qm/evaluations/${evaluation.id}/publish`, {
     method: 'POST',
     headers: auth('supervisor-token'),
-    body: '{}',
+    body: JSON.stringify({ commandId: 'e5e94bea-4a4f-4f45-a4fb-d0d1db07e899' }),
   });
   assert.equal(publish.status, 201);
   assert.deepEqual(await publish.json(), {
@@ -360,10 +417,21 @@ test('supervisor starts manual transcription, audits transcript access, and huma
     status: 'PUBLISHED',
     evaluatorId: supervisorId,
   });
+  const repeatedPublish = await fetch(`${root}/qm/evaluations/${evaluation.id}/publish`, {
+    method: 'POST',
+    headers: auth('supervisor-token'),
+    body: JSON.stringify({ commandId: 'e5e94bea-4a4f-4f45-a4fb-d0d1db07e899' }),
+  });
+  assert.equal(repeatedPublish.status, 201);
+  assert.deepEqual(await repeatedPublish.json(), {
+    id: evaluation.id,
+    status: 'PUBLISHED',
+    evaluatorId: supervisorId,
+  });
   const foreignPublish = await fetch(`${root}/qm/evaluations/${foreignEvaluationId}/publish`, {
     method: 'POST',
     headers: auth('foreign-supervisor-token'),
-    body: '{}',
+    body: JSON.stringify({ commandId: '48ef8d3d-c90e-4e71-a5e0-ebd58d78de59' }),
   });
   assert.equal(foreignPublish.status, 201);
   assert.deepEqual(await foreignPublish.json(), {

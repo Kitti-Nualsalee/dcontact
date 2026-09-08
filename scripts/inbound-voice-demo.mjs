@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { observeChildExit, stopChild } from './child-process-lifecycle.mjs';
 
 const compose = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
 const sippImage =
@@ -9,6 +10,7 @@ const nodeId = `fs-demo-${process.pid}`;
 const routerGroupId = `dcontact-router-demo-${process.pid}`;
 const children = [];
 const ivrDtmf = process.env.INBOUND_DEMO_DTMF;
+let cleaningUp = false;
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: process.cwd(), encoding: 'utf8', ...options });
@@ -178,9 +180,18 @@ async function waitForActiveMedia(destination) {
 }
 
 async function cleanup() {
-  for (const child of children) child.kill('SIGTERM');
+  if (cleaningUp) return;
+  cleaningUp = true;
+  for (const child of children) stopChild(child);
   spawnSync('docker', ['rm', '-f', agentContainer], { stdio: 'ignore' });
 }
+
+function exitAfterCleanup(signal) {
+  void cleanup().finally(() => process.exit(signal === 'SIGINT' ? 130 : 143));
+}
+
+process.once('SIGINT', () => exitAfterCleanup('SIGINT'));
+process.once('SIGTERM', () => exitAfterCleanup('SIGTERM'));
 
 try {
   run('docker', [...compose, 'ps', '--status', 'running']);
@@ -249,6 +260,10 @@ try {
     '-nostdin',
     '-trace_err',
   ]);
+  const callerExitPromise = observeChildExit(callerProcess, {
+    timeoutMs: 30_000,
+    label: 'SIPp caller',
+  });
   let caller = '';
   callerProcess.stdout.on('data', (chunk) => (caller += chunk.toString()));
   callerProcess.stderr.on('data', (chunk) => (caller += chunk.toString()));
@@ -266,9 +281,7 @@ try {
     ]);
   }
   const { active: activeMediaLegs } = await waitForActiveMedia(ivrDtmf ? '2001' : '2000');
-  const callerExit = await new Promise((resolveExit) =>
-    callerProcess.once('close', (code) => resolveExit(code)),
-  );
+  const callerExit = await callerExitPromise;
   if (callerExit !== 0) throw new Error(`SIPp caller ล้มเหลว\n${caller}`);
   if (!caller.includes('Successful call') || !caller.match(/Successful call\s+\|\s+0\s+\|\s+1/)) {
     throw new Error(`SIPp ไม่ยืนยัน successful media call\n${caller}`);
