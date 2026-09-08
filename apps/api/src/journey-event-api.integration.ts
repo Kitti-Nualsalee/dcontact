@@ -15,7 +15,7 @@ import {
 } from './gateway-auth.js';
 import { JOURNEY_EVENT_INBOX, JourneyEventController } from './journey-event-api.js';
 
-test('event ingress derives tenant from client credentials and enforces idempotency', async (t) => {
+test('event ingress ใช้ tenant จาก client credentials และบังคับ idempotency', async (t) => {
   const owner = new PrismaClient();
   const application = new PrismaClient({
     datasources: {
@@ -43,6 +43,7 @@ test('event ingress derives tenant from client credentials and enforces idempote
     organization: { [`journey-api-${tenantId}`]: { tenant_id: [tenantId] } },
     azp: 'billing-events',
     sub: 'service-account-billing-events',
+    preferred_username: 'service-account-billing-events',
     exp: 2_000_000_000,
     realm_access: { roles },
   });
@@ -57,7 +58,7 @@ test('event ingress derives tenant from client credentials and enforces idempote
           sid: 'user-session',
         };
       }
-      throw new Error('invalid token');
+      throw new Error('token ไม่ถูกต้อง');
     },
   };
 

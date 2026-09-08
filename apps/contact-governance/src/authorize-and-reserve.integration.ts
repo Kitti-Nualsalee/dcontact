@@ -49,7 +49,7 @@ async function createTenantFixture(t: TestContext) {
   return { owner, application, tenantId, contactId };
 }
 
-test('authorizeAndReserve atomically returns the same decision and reservation on retry', async (t) => {
+test('authorizeAndReserve คืน decision และ reservation เดิมแบบ atomic เมื่อ retry', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   const decisionId = randomUUID();
   const reservationId = randomUUID();
@@ -108,7 +108,7 @@ test('authorizeAndReserve atomically returns the same decision and reservation o
   );
 });
 
-test('hard restriction writes an explainable decision without a reservation', async (t) => {
+test('hard restriction เขียน decision ที่อธิบายได้โดยไม่สร้าง reservation', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   const decisionId = randomUUID();
   const now = new Date('2026-09-07T07:00:00.000Z');
@@ -161,7 +161,7 @@ test('hard restriction writes an explainable decision without a reservation', as
   assert.equal(await owner.cgReservation.count({ where: { tenantId } }), 0);
 });
 
-test('revoked consent blocks reservation at the canonical database boundary', async (t) => {
+test('consent ที่ถูกเพิกถอนปิดกั้น reservation ที่ canonical database boundary', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   const decisionId = randomUUID();
 
@@ -200,7 +200,7 @@ test('revoked consent blocks reservation at the canonical database boundary', as
   assert.equal(await owner.cgReservation.count({ where: { tenantId } }), 0);
 });
 
-test('persisted reservation transitions are idempotent and cannot move backward', async (t) => {
+test('reservation transition ที่ persist แล้วเป็น idempotent และย้อน state ไม่ได้', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   const now = new Date('2026-09-07T08:00:00.000Z');
 
@@ -247,22 +247,21 @@ test('persisted reservation transitions are idempotent and cannot move backward'
     InvalidReservationTransitionError,
   );
 
-  const refunded = await service.changeReservationState(
-    tenantId,
-    authorization.reservationId,
-    'REFUND',
-  );
+  const refunded = await service.changeReservationState(tenantId, authorization.reservationId, {
+    type: 'REFUND',
+    outcome: 'DELIVERY_FAILED',
+  });
   const refundedRetry = await service.changeReservationState(
     tenantId,
     authorization.reservationId,
-    'REFUND',
+    { type: 'REFUND', outcome: 'DELIVERY_FAILED' },
   );
   assert.equal(refunded.state, 'REFUNDED');
   assert.deepEqual(refundedRetry, refunded);
   assert.equal(await owner.cgReservation.count({ where: { tenantId, state: 'REFUNDED' } }), 1);
 });
 
-test('delivery validation fails closed after expiry and sweeper releases quota once', async (t) => {
+test('delivery validation เป็น fail-closed หลังหมดอายุและ sweeper คืน quota ครั้งเดียว', async (t) => {
   const { owner, application, tenantId, contactId } = await createTenantFixture(t);
   await owner.cgConsent.create({
     data: {

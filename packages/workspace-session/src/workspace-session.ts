@@ -26,8 +26,64 @@ export interface VerifiedOidcClaims {
   sid?: unknown;
   azp?: unknown;
   sub?: unknown;
+  preferred_username?: unknown;
   exp?: unknown;
   realm_access?: { roles?: unknown };
+}
+
+interface VerifiedTenantContext {
+  tenantId: string;
+  tenantSlug: string;
+}
+
+interface VerifiedSecurityContext {
+  roles: string[];
+  expiresAt: Date;
+}
+
+function verifiedTenantContext(
+  claims: VerifiedOidcClaims,
+  requireOrganization: boolean,
+): VerifiedTenantContext {
+  if (typeof claims.tenant_id !== 'string' || claims.tenant_id.length === 0) {
+    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี tenant_id');
+  }
+  if (typeof claims.tenant_slug !== 'string' || claims.tenant_slug.length === 0) {
+    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี tenant_slug');
+  }
+  if (claims.organization === undefined && !requireOrganization) {
+    return { tenantId: claims.tenant_id, tenantSlug: claims.tenant_slug };
+  }
+  if (
+    !claims.organization ||
+    typeof claims.organization !== 'object' ||
+    !Object.hasOwn(claims.organization, claims.tenant_slug)
+  ) {
+    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี Keycloak Organization context ที่ตรงกัน');
+  }
+  const organization = (claims.organization as Record<string, unknown>)[claims.tenant_slug];
+  const organizationTenantIds =
+    organization && typeof organization === 'object'
+      ? (organization as { tenant_id?: unknown }).tenant_id
+      : undefined;
+  if (!Array.isArray(organizationTenantIds) || organizationTenantIds[0] !== claims.tenant_id) {
+    throw new Error('tenant_id ไม่ตรงกับ Keycloak Organization attribute');
+  }
+  return { tenantId: claims.tenant_id, tenantSlug: claims.tenant_slug };
+}
+
+function verifiedSecurityContext(claims: VerifiedOidcClaims, now: Date): VerifiedSecurityContext {
+  if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) {
+    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี exp');
+  }
+  if (!Array.isArray(claims.realm_access?.roles) || !claims.realm_access.roles.every(isString)) {
+    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี realm_access.roles');
+  }
+  const expiresAt = new Date(claims.exp * 1_000);
+  if (expiresAt.getTime() <= now.getTime()) {
+    throw new Error('OIDC token ที่ตรวจสอบแล้วหมดอายุ');
+  }
+  return { roles: claims.realm_access.roles, expiresAt };
 }
 
 /**
@@ -39,109 +95,49 @@ export function toVerifiedWorkspaceIdentity(
   claims: VerifiedOidcClaims,
   now: Date = new Date(),
 ): VerifiedWorkspaceIdentity {
-  if (typeof claims.tenant_id !== 'string' || claims.tenant_id.length === 0) {
-    throw new Error('verified OIDC token requires tenant_id');
-  }
+  const tenant = verifiedTenantContext(claims, false);
+  const security = verifiedSecurityContext(claims, now);
   if (typeof claims.dc_user_id !== 'string' || claims.dc_user_id.length === 0) {
-    throw new Error('verified OIDC token requires dc_user_id');
-  }
-  if (typeof claims.tenant_slug !== 'string' || claims.tenant_slug.length === 0) {
-    throw new Error('verified OIDC token requires tenant_slug');
-  }
-  if (claims.organization !== undefined) {
-    if (
-      !claims.organization ||
-      typeof claims.organization !== 'object' ||
-      !Object.hasOwn(claims.organization, claims.tenant_slug)
-    ) {
-      throw new Error('verified OIDC token requires matching Keycloak Organization context');
-    }
-    const organization = (claims.organization as Record<string, unknown>)[claims.tenant_slug];
-    const organizationTenantIds =
-      organization && typeof organization === 'object'
-        ? (organization as { tenant_id?: unknown }).tenant_id
-        : undefined;
-    if (!Array.isArray(organizationTenantIds) || organizationTenantIds[0] !== claims.tenant_id) {
-      throw new Error('tenant_id does not match Keycloak Organization attribute');
-    }
+    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี dc_user_id');
   }
   if (typeof claims.sid !== 'string' || claims.sid.length === 0) {
-    throw new Error('verified OIDC token requires sid');
-  }
-  if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) {
-    throw new Error('verified OIDC token requires exp');
-  }
-  if (!Array.isArray(claims.realm_access?.roles) || !claims.realm_access.roles.every(isString)) {
-    throw new Error('verified OIDC token requires realm_access.roles');
-  }
-
-  const expiresAt = new Date(claims.exp * 1_000);
-  if (expiresAt.getTime() <= now.getTime()) {
-    throw new Error('verified OIDC token is expired');
+    throw new Error('OIDC token ที่ตรวจสอบแล้วต้องมี sid');
   }
 
   return {
-    tenantId: claims.tenant_id,
+    tenantId: tenant.tenantId,
     userId: claims.dc_user_id,
     sessionId: claims.sid,
-    roles: claims.realm_access.roles,
-    expiresAt,
+    roles: security.roles,
+    expiresAt: security.expiresAt,
   };
 }
 
-/** Converts a verified Keycloak client_credentials token into a tenant-bound service identity. */
+/** แปลง Keycloak client_credentials token ที่ตรวจสอบแล้วเป็น service identity ที่ผูกกับ tenant */
 export function toVerifiedServiceIdentity(
   claims: VerifiedOidcClaims,
   now: Date = new Date(),
 ): VerifiedServiceIdentity {
+  const tenant = verifiedTenantContext(claims, true);
+  const security = verifiedSecurityContext(claims, now);
   if (claims.dc_user_id !== undefined || claims.sid !== undefined) {
-    throw new Error('verified service token cannot contain workspace user claims');
-  }
-  if (typeof claims.tenant_id !== 'string' || claims.tenant_id.length === 0) {
-    throw new Error('verified OIDC service token requires tenant_id');
-  }
-  if (typeof claims.tenant_slug !== 'string' || claims.tenant_slug.length === 0) {
-    throw new Error('verified OIDC service token requires tenant_slug');
-  }
-  if (
-    !claims.organization ||
-    typeof claims.organization !== 'object' ||
-    !Object.hasOwn(claims.organization, claims.tenant_slug)
-  ) {
-    throw new Error('verified OIDC service token requires matching Keycloak Organization context');
-  }
-  const organization = (claims.organization as Record<string, unknown>)[claims.tenant_slug];
-  const organizationTenantIds =
-    organization && typeof organization === 'object'
-      ? (organization as { tenant_id?: unknown }).tenant_id
-      : undefined;
-  if (!Array.isArray(organizationTenantIds) || organizationTenantIds[0] !== claims.tenant_id) {
-    throw new Error('tenant_id does not match Keycloak Organization attribute');
+    throw new Error('service token ที่ตรวจสอบแล้วต้องไม่มี workspace user claims');
   }
   if (typeof claims.azp !== 'string' || claims.azp.length === 0) {
-    throw new Error('verified OIDC service token requires azp');
+    throw new Error('OIDC service token ที่ตรวจสอบแล้วต้องมี azp');
+  }
+  if (claims.preferred_username !== `service-account-${claims.azp}`) {
+    throw new Error('service token ที่ตรวจสอบแล้วต้องเป็น Keycloak service account');
   }
   if (typeof claims.sub !== 'string' || claims.sub.length === 0) {
-    throw new Error('verified OIDC service token requires sub');
+    throw new Error('OIDC service token ที่ตรวจสอบแล้วต้องมี sub');
   }
-  if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp)) {
-    throw new Error('verified OIDC service token requires exp');
-  }
-  if (!Array.isArray(claims.realm_access?.roles) || !claims.realm_access.roles.every(isString)) {
-    throw new Error('verified OIDC service token requires realm_access.roles');
-  }
-
-  const expiresAt = new Date(claims.exp * 1_000);
-  if (expiresAt.getTime() <= now.getTime()) {
-    throw new Error('verified OIDC service token is expired');
-  }
-
   return {
-    tenantId: claims.tenant_id,
+    tenantId: tenant.tenantId,
     clientId: claims.azp,
     subject: claims.sub,
-    roles: claims.realm_access.roles,
-    expiresAt,
+    roles: security.roles,
+    expiresAt: security.expiresAt,
   };
 }
 

@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { InvalidReservationTransitionError, transitionReservation } from './reservation.js';
+import {
+  InvalidReservationTransitionError,
+  RefundNotAllowedError,
+  transitionReservation,
+} from './reservation.js';
 
-test('confirm reservation once and return the same state on retry', () => {
+test('confirm reservation หนึ่งครั้งและคืน state เดิมเมื่อ retry', () => {
   const reserved = {
     id: 'reservation-001',
     state: 'RESERVED' as const,
@@ -18,7 +22,7 @@ test('confirm reservation once and return the same state on retry', () => {
   assert.deepEqual(retried, confirmed);
 });
 
-test('release a pending reservation once and return the same state on retry', () => {
+test('release reservation ที่รออยู่หนึ่งครั้งและคืน state เดิมเมื่อ retry', () => {
   const reserved = {
     id: 'reservation-002',
     state: 'RESERVED' as const,
@@ -34,14 +38,15 @@ test('release a pending reservation once and return the same state on retry', ()
   assert.deepEqual(retried, released);
 });
 
-test('refund a confirmed reservation once and return the same state on retry', () => {
+test('refund reservation ที่ยืนยันแล้วหนึ่งครั้งและคืน state เดิมเมื่อ retry', () => {
   const confirmed = {
     id: 'reservation-003',
     state: 'CONFIRMED' as const,
   };
 
-  const refunded = transitionReservation(confirmed, 'REFUND');
-  const retried = transitionReservation(refunded, 'REFUND');
+  const refund = { type: 'REFUND' as const, outcome: 'DELIVERY_FAILED' as const };
+  const refunded = transitionReservation(confirmed, refund);
+  const retried = transitionReservation(refunded, refund);
 
   assert.deepEqual(refunded, {
     id: 'reservation-003',
@@ -50,7 +55,22 @@ test('refund a confirmed reservation once and return the same state on retry', (
   assert.deepEqual(retried, refunded);
 });
 
-test('reject a backward reservation transition', () => {
+test('ปฏิเสธ refund เมื่อ outcome ไม่ใช่การส่งล้มเหลว', () => {
+  assert.throws(
+    () =>
+      transitionReservation(
+        { id: 'reservation-005', state: 'CONFIRMED' },
+        { type: 'REFUND', outcome: 'DELIVERED' },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof RefundNotAllowedError);
+      assert.equal(error.code, 'REFUND_NOT_ALLOWED');
+      return true;
+    },
+  );
+});
+
+test('ปฏิเสธ reservation transition ที่ย้อน state', () => {
   assert.throws(
     () =>
       transitionReservation(

@@ -4,6 +4,15 @@ import { CXA_PHASE_ONE_READINESS_CHECKS, cxaPhaseOneSummary } from './cxa-phase-
 
 test('CX Automation Phase 1 gate ครบ regression, schema, governance, ingress, Kafka และ two-tenant journey', () => {
   assert.equal(CXA_PHASE_ONE_READINESS_CHECKS[0]?.id, 'phase-two-regression');
+  assert.deepEqual(
+    CXA_PHASE_ONE_READINESS_CHECKS.find(({ id }) => id === 'tenant-isolation')?.command,
+    [
+      process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+      '--filter',
+      '@d-contact/db',
+      'test:integration',
+    ],
+  );
   const serialized = JSON.stringify(CXA_PHASE_ONE_READINESS_CHECKS);
   for (const boundary of [
     'INBOUND_VOICE_PHASE_2_PILOT_READY',
@@ -12,6 +21,7 @@ test('CX Automation Phase 1 gate ครบ regression, schema, governance, ingre
     'authorizeAndReserve',
     'durable event inbox',
     'OAuth2 client_credentials',
+    'real Keycloak token endpoint',
     'Kafka recovery',
     'IDENTITY_AMBIGUOUS',
     'decision/reservation link',

@@ -68,7 +68,7 @@ export class IdempotencyConflictError extends Error {
   readonly code = 'IDEMPOTENCY_CONFLICT';
 
   constructor(readonly actionKey: string) {
-    super(`actionKey was already used with different canonical input: ${actionKey}`);
+    super(`actionKey ถูกใช้กับ canonical input อื่นแล้ว: ${actionKey}`);
     this.name = 'IdempotencyConflictError';
   }
 }
@@ -77,7 +77,7 @@ export class ReservationNotFoundError extends Error {
   readonly code = 'RESERVATION_NOT_FOUND';
 
   constructor(readonly reservationId: string) {
-    super(`reservation was not found in the active tenant: ${reservationId}`);
+    super(`ไม่พบ reservation ใน active tenant: ${reservationId}`);
     this.name = 'ReservationNotFoundError';
   }
 }
@@ -90,7 +90,7 @@ export class ReservationNotUsableError extends Error {
     readonly code: ReservationNotUsableCode,
     readonly reservationId: string,
   ) {
-    super(`reservation cannot be used for delivery: ${code}`);
+    super(`ไม่สามารถใช้ reservation สำหรับ delivery: ${code}`);
     this.name = 'ReservationNotUsableError';
   }
 }
@@ -306,7 +306,7 @@ export class ContactGovernanceService {
 
       if (policyResult.decision === 'ALLOW') {
         if (!input.contactId) {
-          throw new Error('ALLOW requires a resolved contact');
+          throw new Error('ผล ALLOW ต้องมี contact ที่ resolve แล้ว');
         }
         reservationId = this.id();
         reservationExpiresAt = new Date(now.getTime() + RESERVATION_TTL_MS);

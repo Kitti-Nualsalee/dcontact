@@ -25,6 +25,25 @@ export const CXA_PHASE_ONE_READINESS_CHECKS = [
     remediation: 'ตรวจ CG/JR migration, Prisma schema และ tenant RLS policy',
   },
   {
+    id: 'tenant-isolation',
+    dependency: 'Application-role tenant isolation semantics',
+    boundaries: ['cross-tenant read denial', 'cross-tenant mutation denial', 'append-only audit'],
+    command: [pnpm, '--filter', '@d-contact/db', 'test:integration'],
+    remediation: 'ตรวจ service role privileges และ RLS USING/WITH CHECK ของ CG/JR tables',
+  },
+  {
+    id: 'service-identity',
+    dependency: 'Keycloak tenant-bound machine identity',
+    boundaries: [
+      'real Keycloak token endpoint',
+      'OAuth2 client_credentials',
+      'journey-ingress role',
+      'two tenant service identities',
+    ],
+    command: [process.execPath, 'scripts/cxa-service-identity-readiness.mjs'],
+    remediation: 'รัน pnpm infra:identity:link แล้วตรวจ Keycloak service account claims',
+  },
+  {
     id: 'governance-contract',
     dependency: 'Contact policy และ reservation state contract',
     boundaries: [

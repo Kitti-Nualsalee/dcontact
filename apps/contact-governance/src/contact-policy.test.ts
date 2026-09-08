@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { evaluateContactPolicy } from './contact-policy.js';
 
-test('hard restriction blocks contact even when consent is still valid', () => {
+test('hard restriction ปิดกั้นการติดต่อแม้ consent ยังมีผล', () => {
   const result = evaluateContactPolicy({
     policyVersion: 7,
     identityResolution: 'RESOLVED',
@@ -28,7 +28,7 @@ test('hard restriction blocks contact even when consent is still valid', () => {
   });
 });
 
-test('ambiguous identity requires review before policy evaluation', () => {
+test('identity ที่กำกวมต้อง REVIEW ก่อนประเมิน policy', () => {
   const result = evaluateContactPolicy({
     policyVersion: 3,
     identityResolution: 'AMBIGUOUS',
@@ -42,7 +42,7 @@ test('ambiguous identity requires review before policy evaluation', () => {
   });
 });
 
-test('unresolved identity requires review before policy evaluation', () => {
+test('identity ที่ resolve ไม่ได้ต้อง REVIEW ก่อนประเมิน policy', () => {
   const result = evaluateContactPolicy({
     policyVersion: 4,
     identityResolution: 'NOT_FOUND',
@@ -56,7 +56,7 @@ test('unresolved identity requires review before policy evaluation', () => {
   });
 });
 
-test('resolved identity with valid consent is eligible for reservation', () => {
+test('identity ที่ resolve ได้พร้อม consent ที่มีผลสามารถสร้าง reservation', () => {
   const result = evaluateContactPolicy({
     policyVersion: 9,
     identityResolution: 'RESOLVED',
@@ -78,7 +78,7 @@ test('resolved identity with valid consent is eligible for reservation', () => {
   });
 });
 
-test('revoked consent blocks contact without evaluating an allow path', () => {
+test('consent ที่ถูกเพิกถอนปิดกั้นการติดต่อโดยไม่ประเมินทาง ALLOW', () => {
   const result = evaluateContactPolicy({
     policyVersion: 11,
     identityResolution: 'RESOLVED',
@@ -100,7 +100,7 @@ test('revoked consent blocks contact without evaluating an allow path', () => {
   });
 });
 
-test('expired consent blocks contact fail-closed', () => {
+test('consent ที่หมดอายุปิดกั้นการติดต่อแบบ fail-closed', () => {
   const result = evaluateContactPolicy({
     policyVersion: 12,
     identityResolution: 'RESOLVED',
@@ -122,7 +122,7 @@ test('expired consent blocks contact fail-closed', () => {
   });
 });
 
-test('missing consent blocks promotional contact fail-closed', () => {
+test('การไม่มี consent ปิดกั้น promotional contact แบบ fail-closed', () => {
   const result = evaluateContactPolicy({
     policyVersion: 13,
     identityResolution: 'RESOLVED',
