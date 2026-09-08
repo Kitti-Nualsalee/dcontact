@@ -1,0 +1,18 @@
+# Local/generated tool artifacts
+.claude/
+.playwright-mcp/
+pnpm-lock.yaml
+
+# Historical reference documents and static prototypes
+docs/
+mockups/
+
+# Existing source formatting debt; keep new files under Prettier enforcement
+apps/api/src/agent-offer-fanout.test.ts
+packages/ui/package.json
+packages/ui/preview.html
+packages/ui/README.md
+packages/ui/scripts/check-contrast.mjs
+packages/ui/scripts/generate-tokens.mjs
+packages/ui/src/tokens.css
+packages/ui/src/tokens.generated.ts

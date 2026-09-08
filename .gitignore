@@ -21,3 +21,6 @@ infra/freeswitch/conf/tls/
 .DS_Store
 *.log
 coverage/
+test-results/
+playwright-report/
+blob-report/
