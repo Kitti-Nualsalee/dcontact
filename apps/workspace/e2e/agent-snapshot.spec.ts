@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test('Workspace แสดง incoming offer จาก authoritative Agent snapshot', async ({ page }) => {
   await page.route('**/api/v1/workspace/agent/snapshot', async (route) => {

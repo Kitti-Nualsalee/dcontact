@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test('Agent เปิดรับสายได้หลัง browser ยืนยัน media readiness เท่านั้น', async ({ page }) => {
   await page.goto('/');
@@ -23,18 +23,6 @@ test('Agent เปิดรับสายได้หลัง browser ยื�
 });
 
 test('Agent ถูกถอนจาก AVAILABLE เมื่อ media track จบระหว่างรอรับสาย', async ({ page }) => {
-  await page.addInitScript(() => {
-    class TestMediaTrack extends EventTarget {
-      stop() {}
-    }
-
-    const track = new TestMediaTrack();
-    Object.defineProperty(window, '__dContactTestMediaTrack', { value: track });
-    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
-      configurable: true,
-      value: async () => ({ getTracks: () => [track] }),
-    });
-  });
   await page.goto('/');
   await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
   await page.getByRole('button', { name: 'เปิดรับสาย' }).click();
