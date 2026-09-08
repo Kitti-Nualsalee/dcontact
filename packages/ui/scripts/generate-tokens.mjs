@@ -20,14 +20,30 @@ const seen = new Set();
 for (const [, name, value] of css.matchAll(/(--dc-[a-z0-9-]+):\s*([^;]+);/g)) {
   if (seen.has(name)) continue; // ค่าที่ประกาศซ้ำใน media query ไม่นับ
   seen.add(name);
-  entries.push([name, value.trim().replace(/\s*\/\*[\s\S]*$/, '').trim()]);
+  entries.push([
+    name,
+    value
+      .trim()
+      .replace(/\s*\/\*[\s\S]*$/, '')
+      .trim(),
+  ]);
 }
 
 const camel = (name) =>
   name.replace(/^--dc-/, '').replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
 
-const body = entries.map(([name, value]) => `  ${camel(name)}: ${JSON.stringify(value)},`).join('\n');
-const varBody = entries.map(([name]) => `  ${camel(name)}: '${name}',`).join('\n');
+// ไฟล์ที่สร้างยังอยู่ใต้ prettier --check จึงต้องเลือก quote แบบเดียวกับ prettier:
+// single quote เป็นค่าตั้งต้น แต่สลับเป็น double quote เมื่อค่ามี ' มากกว่า " (escape น้อยกว่า)
+const quote = (value) => {
+  const singles = (value.match(/'/g) ?? []).length;
+  const doubles = (value.match(/"/g) ?? []).length;
+  const q = singles > doubles ? '"' : "'";
+  const escaped = value.replace(/\\/g, '\\\\').split(q).join(`\\${q}`);
+  return `${q}${escaped}${q}`;
+};
+
+const body = entries.map(([name, value]) => `  ${camel(name)}: ${quote(value)},`).join('\n');
+const varBody = entries.map(([name]) => `  ${camel(name)}: ${quote(name)},`).join('\n');
 
 writeFileSync(
   outPath,

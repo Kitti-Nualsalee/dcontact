@@ -51,6 +51,27 @@ test('failed check ระบุ dependency, boundary และ remediation แ�
   assert.doesNotMatch(diagnostic.detail, /do-not-print/);
 });
 
+test('failed check เก็บข้อความ assertion ไว้ ไม่ใช่แค่บรรทัดสรุปท้ายสุด', () => {
+  const assertionMessage = 'Expected: "อุปกรณ์เสียงพร้อม" Received: "กำลังตรวจอุปกรณ์"';
+  const stdout = [
+    '  1) [chromium] › e2e/media-readiness.spec.ts:3:1 › Agent เปิดรับสาย',
+    `    Error: ${assertionMessage}`,
+    ...Array.from({ length: 40 }, (_, index) => `      at frame ${index}`),
+    '  2 failed',
+    '  5 passed (13.5s)',
+  ].join('\n');
+
+  const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], () => ({
+    status: 1,
+    stdout,
+    stderr: '',
+  }));
+
+  assert.equal(diagnostic.status, 'FAIL');
+  assert.match(diagnostic.detail, /Expected: "อุปกรณ์เสียงพร้อม"/);
+  assert.match(diagnostic.detail, /2 failed/);
+});
+
 test('successful check ไม่สะท้อน child output ที่อาจมี dev credential', () => {
   const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[0], () => ({
     status: 0,

@@ -9,7 +9,11 @@
     "./tokens.css": "./src/tokens.css",
     "./tailwind-preset": "./src/tailwind-preset.cjs"
   },
-  "files": ["dist", "src/tokens.css", "src/tailwind-preset.cjs"],
+  "files": [
+    "dist",
+    "src/tokens.css",
+    "src/tailwind-preset.cjs"
+  ],
   "scripts": {
     "generate": "node scripts/generate-tokens.mjs",
     "build": "pnpm generate && tsc -p tsconfig.json",

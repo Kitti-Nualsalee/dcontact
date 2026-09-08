@@ -23,7 +23,11 @@ for (const [, name, value] of css.matchAll(/(--dc-[a-z0-9-]+):\s*(#[0-9a-fA-F]{3
 const channel = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 function luminance(hex) {
   let h = hex.replace('#', '');
-  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  if (h.length === 3)
+    h = h
+      .split('')
+      .map((c) => c + c)
+      .join('');
   const [r, g, b] = [0, 2, 4].map((i) => channel(parseInt(h.slice(i, i + 2), 16) / 255));
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }

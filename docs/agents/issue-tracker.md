@@ -35,3 +35,15 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children, excluding tickets with an open blocker or an assignee; the first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
 - **Resolve**: post the answer with `gh issue comment <n> --body "<answer>"`, close the issue, then append a context pointer to the map's Decisions-so-far.
+
+## Work stage
+
+`docs/agents/work-stage.md` is the canonical Stage catalog and precedence rule. Tracked work has
+exactly one active `stage:*` label on its primary artifact: the map when charting, the claimed decision
+ticket when resolving a decision, the implementation issue while building, and the pull request while
+reviewing or accepting.
+
+The label is the lowercase Stage name (`stage:wayfinding`, `stage:decision`, and so on), with
+`STATE_CONFLICT` represented as `stage:conflict`. Keep the map's **Current work state** block in sync
+using the template in the canonical protocol. Verify linked tracker, Git, CI, and acceptance evidence;
+the label alone is not sufficient proof.
