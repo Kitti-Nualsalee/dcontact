@@ -134,3 +134,64 @@ test('scope denial retains authorization semantics instead of a governance block
     assert.equal(decision.reasonCode, 'TEAM_SEGMENT_NOT_ALLOWED');
   }
 });
+
+test('redacted contract log fixture keeps every contact reference out of serialized results', () => {
+  const rawReferences = ['+66812345678', 'customer@example.test', 'line-user-123', 'crm-cif-456'];
+  const resolutions: readonly CustomerContextResolution[] = [
+    {
+      status: 'RESOLVED',
+      contactId: contactId('contact-a'),
+      identityId: identityId('identity-a'),
+      segmentMemberships: [
+        {
+          segmentId: segmentId('LOND'),
+          membershipVersion: 4,
+          effectiveFrom: '2026-09-08T00:00:00.000Z',
+        },
+      ],
+      snapshotVersion: 9,
+      evaluatedAt: '2026-09-08T00:00:00.000Z',
+    },
+    { status: 'AMBIGUOUS', reasonCode: 'IDENTITY_AMBIGUOUS' },
+    { status: 'NOT_FOUND', reasonCode: 'IDENTITY_NOT_FOUND' },
+  ];
+  const logFixture = {
+    resolutions,
+    scopeDecision: {
+      decision: 'DENY' as const,
+      reasonCode: 'TEAM_SEGMENT_NOT_ALLOWED' as const,
+      evaluatedAt: '2026-09-08T00:00:00.000Z',
+    },
+  };
+
+  const serialized = JSON.stringify(logFixture);
+
+  for (const rawReference of rawReferences) {
+    assert.equal(serialized.includes(rawReference), false);
+  }
+  assert.deepEqual(JSON.parse(serialized), {
+    resolutions: [
+      {
+        status: 'RESOLVED',
+        contactId: 'contact-a',
+        identityId: 'identity-a',
+        segmentMemberships: [
+          {
+            segmentId: 'LOND',
+            membershipVersion: 4,
+            effectiveFrom: '2026-09-08T00:00:00.000Z',
+          },
+        ],
+        snapshotVersion: 9,
+        evaluatedAt: '2026-09-08T00:00:00.000Z',
+      },
+      { status: 'AMBIGUOUS', reasonCode: 'IDENTITY_AMBIGUOUS' },
+      { status: 'NOT_FOUND', reasonCode: 'IDENTITY_NOT_FOUND' },
+    ],
+    scopeDecision: {
+      decision: 'DENY',
+      reasonCode: 'TEAM_SEGMENT_NOT_ALLOWED',
+      evaluatedAt: '2026-09-08T00:00:00.000Z',
+    },
+  });
+});
