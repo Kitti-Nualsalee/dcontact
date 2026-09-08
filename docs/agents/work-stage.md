@@ -67,13 +67,17 @@ Mapping ปัจจุบันเมื่อโมเดลเหล่าน
 2. หาก merge เข้า target และ completion evidence ครบ → `COMPLETE`
 3. หากมี PR เปิดและ review clear แต่ acceptance gate หรือ merge ยังไม่ครบ → `ACCEPTANCE`
 4. หากมี PR เปิดแต่ review/required preliminary CI ยังไม่ clear → `REVIEW`
-5. หากมี implementation issue/branch แต่ยังไม่มี PR → `IMPLEMENTATION`
+5. หาก issue มี `ready-for-agent`, มี implementation branch และยังไม่มี PR → `IMPLEMENTATION`
 6. หาก Wayfinder child ถูก claim → `DECISION`
-7. หาก decision blockers ปิดครบและยังไม่มี implementation-ready specification → `PHASE_SPEC`
+7. หาก decision blockers ปิดครบและ implementation-ready specification ยังไม่ผ่าน → `PHASE_SPEC`
 8. หาก map เปิด, ไม่มี child ถูก claim และมี unblocked frontier → `WAYFINDING`
 
 การที่ map มี frontier พร้อมกับ child ที่ถูก claim หรือ PR มี CI ผ่าน ไม่ใช่ conflict; precedence ข้างต้น
 ใช้แยก progression ปกติเหล่านี้ให้เหลือ Stage เดียว
+
+branch ที่สร้างไว้ล่วงหน้าแต่ issue ยังไม่มี `ready-for-agent` ไม่ทำให้ Stage เปลี่ยนเป็น `IMPLEMENTATION`:
+หาก branch ยังไม่มี scoped implementation changes ให้คง `PHASE_SPEC`; หากมี implementation changes
+ที่มาก่อน authoritative specification ให้ใช้ `STATE_CONFLICT` และ reconcile ก่อนทำต่อ
 
 อย่าใช้ open issue ทั้ง repository เพื่อเดา Stage หากมีหลาย effort ทำคู่ขนาน ให้ระบุ map/phase ที่กำลังตอบเสมอ
 
