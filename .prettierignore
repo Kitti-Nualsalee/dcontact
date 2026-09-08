@@ -1,0 +1,12 @@
+# Local/generated tool artifacts
+.playwright-mcp/
+**/test-results/
+pnpm-lock.yaml
+
+# Historical reference documents and static prototypes
+docs/*.md
+docs/adr/*.md
+mockups/
+
+# Existing source formatting debt; keep new files under Prettier enforcement
+apps/api/src/agent-offer-fanout.test.ts
