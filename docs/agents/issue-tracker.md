@@ -35,3 +35,34 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children, excluding tickets with an open blocker or an assignee; the first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
 - **Resolve**: post the answer with `gh issue comment <n> --body "<answer>"`, close the issue, then append a context pointer to the map's Decisions-so-far.
+
+## Work stage
+
+Tracked work has exactly one active `stage:*` label on its primary artifact. The primary artifact is
+the Wayfinder map while planning, the implementation issue while building, and the pull request while
+reviewing or accepting.
+
+- `stage:wayfinding` — destination/frontier is still being charted.
+- `stage:decision` — an explicit architecture, domain, security, or product decision is being resolved.
+- `stage:phase-spec` — decisions are sufficient to produce an implementation-ready phase specification.
+- `stage:implementation` — code is being written against an accepted specification.
+- `stage:review` — a pull request exists and is being checked against the specification and ADRs.
+- `stage:acceptance` — review is clear and the required integration/release evidence is being collected.
+- `stage:complete` — the change is merged and its completion evidence is recorded.
+- `stage:conflict` — issue, branch, pull request, or evidence disagree; reconcile before mutation.
+
+Put the following block inside the Wayfinder map's **Notes** section and update it whenever the stage
+changes:
+
+```markdown
+### Current work state
+
+- Stage: `<STAGE>`
+- Active phase: `<phase or program>`
+- Active artifact: `[<issue or PR title>](<url>)` or `ยังไม่มี`
+- Recommended model tier: `<ARCHITECT | IMPLEMENTER | MECHANICAL>`
+- Next gate: `<observable condition required to advance>`
+```
+
+Do not infer stage from labels alone. Verify the linked issue, branch, pull request, CI, and acceptance
+comment before updating the state.

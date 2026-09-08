@@ -4,6 +4,15 @@
 
 Issues and specs for this repo live as GitHub issues. See `docs/agents/issue-tracker.md`.
 
+### Work stage routing
+
+Before acting on tracked work, determine the current work stage from the linked Wayfinder map,
+issue, branch, pull request, and acceptance evidence. Follow `docs/agents/work-stage.md`.
+
+In the first user-facing update, report the stage, active phase or artifact, recommended model tier,
+and next gate. Treat the tracker as the source of truth instead of relying on chat history. If the
+evidence conflicts, report `STATE_CONFLICT` and reconcile it before changing code or tracker state.
+
 ### Domain docs
 
 This is a multi-context repository. `CONTEXT-MAP.md` points to the relevant per-context `CONTEXT.md` files, while `docs/adr/` holds system-wide decisions. See `docs/agents/domain.md`.
