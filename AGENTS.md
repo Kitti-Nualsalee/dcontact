@@ -9,9 +9,11 @@ Issues and specs for this repo live as GitHub issues. See `docs/agents/issue-tra
 Before acting on tracked work, determine the current work stage from the linked Wayfinder map,
 issue, branch, pull request, and acceptance evidence. Follow `docs/agents/work-stage.md`.
 
-In the first user-facing update, report the stage, active phase or artifact, recommended model tier,
-and next gate. Treat the tracker as the source of truth instead of relying on chat history. If the
-evidence conflicts, report `STATE_CONFLICT` and reconcile it before changing code or tracker state.
+In the first user-facing update, report the scope and the provisional stage from available context,
+then say which evidence you will inspect. After the minimum read-only inspection and before any
+mutation, report the confirmed stage, active artifact, recommended model tier, and next gate. Treat
+the tracker as the source of truth instead of relying on chat history. If the evidence conflicts,
+report `STATE_CONFLICT` and reconcile it before changing code or tracker state.
 
 ### Domain docs
 

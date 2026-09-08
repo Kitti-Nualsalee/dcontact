@@ -38,31 +38,12 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 
 ## Work stage
 
-Tracked work has exactly one active `stage:*` label on its primary artifact. The primary artifact is
-the Wayfinder map while planning, the implementation issue while building, and the pull request while
+`docs/agents/work-stage.md` is the canonical Stage catalog and precedence rule. Tracked work has
+exactly one active `stage:*` label on its primary artifact: the map when charting, the claimed decision
+ticket when resolving a decision, the implementation issue while building, and the pull request while
 reviewing or accepting.
 
-- `stage:wayfinding` — destination/frontier is still being charted.
-- `stage:decision` — an explicit architecture, domain, security, or product decision is being resolved.
-- `stage:phase-spec` — decisions are sufficient to produce an implementation-ready phase specification.
-- `stage:implementation` — code is being written against an accepted specification.
-- `stage:review` — a pull request exists and is being checked against the specification and ADRs.
-- `stage:acceptance` — review is clear and the required integration/release evidence is being collected.
-- `stage:complete` — the change is merged and its completion evidence is recorded.
-- `stage:conflict` — issue, branch, pull request, or evidence disagree; reconcile before mutation.
-
-Put the following block inside the Wayfinder map's **Notes** section and update it whenever the stage
-changes:
-
-```markdown
-### Current work state
-
-- Stage: `<STAGE>`
-- Active phase: `<phase or program>`
-- Active artifact: `[<issue or PR title>](<url>)` or `ยังไม่มี`
-- Recommended model tier: `<ARCHITECT | IMPLEMENTER | MECHANICAL>`
-- Next gate: `<observable condition required to advance>`
-```
-
-Do not infer stage from labels alone. Verify the linked issue, branch, pull request, CI, and acceptance
-comment before updating the state.
+The label is the lowercase Stage name (`stage:wayfinding`, `stage:decision`, and so on), with
+`STATE_CONFLICT` represented as `stage:conflict`. Keep the map's **Current work state** block in sync
+using the template in the canonical protocol. Verify linked tracker, Git, CI, and acceptance evidence;
+the label alone is not sufficient proof.

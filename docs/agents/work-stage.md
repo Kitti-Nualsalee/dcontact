@@ -14,7 +14,10 @@
 
 ## Status card
 
-ก่อนใช้ tool ในงานที่ติดตามผ่าน issue ให้ Agent แจ้งสั้น ๆ ในรูปแบบนี้:
+ก่อนใช้ tool ครั้งแรก ให้ Agent แจ้งขอบเขต, Stage แบบ provisional จากบริบทที่มี และหลักฐานที่จะตรวจ
+จากนั้นใช้ read-only tools เท่าที่จำเป็นเพื่อยืนยัน tracker, Git, PR และ acceptance evidence ก่อน mutation
+
+หลังยืนยันหลักฐานและก่อนแก้ไฟล์หรือ tracker ให้แจ้ง status card นี้:
 
 ```text
 สถานะ: <STAGE>
@@ -29,16 +32,16 @@ Next gate: <หลักฐานที่ต้องมีเพื่อไ�
 
 ## Stage และ model routing
 
-| Stage            | หลักฐาน                                           | งานที่อนุญาต                                                  | Model tier                                                                     |
-| ---------------- | ------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `WAYFINDING`     | map เปิดและยังมี fog/frontier                     | ตั้ง Destination, สร้าง decision tickets, dependency          | `ARCHITECT` `high/xhigh`                                                       |
-| `DECISION`       | มี Wayfinder ticket ที่ถูก claim                  | research, grilling, prototype และบันทึกคำตอบ                  | `ARCHITECT` `high/xhigh`; ใช้ tier ต่ำกว่าสำหรับ research เชิงกลได้            |
-| `PHASE_SPEC`     | decision blockers ปิดครบ                          | สร้าง implementation-ready spec และแตก implementation tickets | `ARCHITECT` `high`                                                             |
-| `IMPLEMENTATION` | spec มี `ready-for-agent`, มี branch, ยังไม่มี PR | เขียนโค้ดและ tests ตาม ticket                                 | `IMPLEMENTER` `medium/high`; `MECHANICAL` สำหรับงานซ้ำรูปแบบ                   |
-| `REVIEW`         | มี PR เปิด                                        | review เทียบ spec/ADR, แก้ findings, ตรวจ diff                | `ARCHITECT` `high` สำหรับ review; `IMPLEMENTER` สำหรับ remediation             |
-| `ACCEPTANCE`     | review clear และ CI ขั้นต้นผ่าน                   | รัน integration/release gates และเก็บ evidence                | `IMPLEMENTER` `medium/high`; ใช้ `ARCHITECT` วิเคราะห์ failure ที่ข้าม context |
-| `COMPLETE`       | merge แล้ว, issue ปิด, evidence ถูกบันทึก         | อัปเดต map และเปิด frontier ถัดไป                             | ไม่ต้องใช้โมเดลเก่ง เว้นแต่ต้องตัดสินใจใหม่                                    |
-| `STATE_CONFLICT` | tracker/Git/PR/evidence ไม่ตรงกัน                 | ตรวจและคืนแหล่งจริงให้สอดคล้อง                                | `ARCHITECT` `high` หากต้องตัดสินผลกระทบ                                        |
+| Stage            | หลักฐานที่ทำให้ Stage นี้เป็นคำตอบเดียว                                                                    | งานที่อนุญาต                                                  | Model tier                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `WAYFINDING`     | map เปิด, ไม่มี child ถูก claim และมี unblocked frontier                                                   | ตั้ง Destination, สร้าง decision tickets, dependency          | `ARCHITECT` `high/xhigh`                                                       |
+| `DECISION`       | มี Wayfinder child ถูก claim และ child นั้นเป็น primary artifact                                           | research, grilling, prototype และบันทึกคำตอบ                  | `ARCHITECT` `high/xhigh`; ใช้ tier ต่ำกว่าสำหรับ research เชิงกลได้            |
+| `PHASE_SPEC`     | decision blockers ที่จำเป็นปิดครบ แต่ implementation-ready specification ยังไม่ผ่าน                        | สร้าง implementation-ready spec และแตก implementation tickets | `ARCHITECT` `high`                                                             |
+| `IMPLEMENTATION` | spec มี `ready-for-agent`, มี implementation branch และยังไม่มี PR ของ branch นั้น                         | เขียนโค้ดและ tests ตาม ticket                                 | `IMPLEMENTER` `medium/high`; `MECHANICAL` สำหรับงานซ้ำรูปแบบ                   |
+| `REVIEW`         | มี PR เปิด และ review ยังไม่ clear, มี finding เปิด หรือ required preliminary CI ยังไม่ผ่าน                | review เทียบ spec/ADR, แก้ findings, ตรวจ diff                | `ARCHITECT` `high` สำหรับ review; `IMPLEMENTER` สำหรับ remediation             |
+| `ACCEPTANCE`     | มี PR เปิด, review findings ปิดและ preliminary CI ผ่าน แต่ completion/acceptance gate หรือ merge ยังไม่ครบ | รัน integration/release gates และเก็บ evidence                | `IMPLEMENTER` `medium/high`; ใช้ `ARCHITECT` วิเคราะห์ failure ที่ข้าม context |
+| `COMPLETE`       | merge เข้า target ที่ถูกต้องและ completion evidence ถูกบันทึกครบ                                           | อัปเดต map และเปิด frontier ถัดไป                             | ไม่ต้องใช้โมเดลเก่ง เว้นแต่ต้องตัดสินใจใหม่                                    |
+| `STATE_CONFLICT` | primary artifact มีหลาย `stage:*` label หรือ identity/base/spec/evidence ของ linked artifacts ขัดกันจริง   | ตรวจและคืนแหล่งจริงให้สอดคล้อง                                | `ARCHITECT` `high` หากต้องตัดสินผลกระทบ                                        |
 
 Mapping ปัจจุบันเมื่อโมเดลเหล่านี้มีให้ใช้:
 
@@ -58,16 +61,19 @@ Mapping ปัจจุบันเมื่อโมเดลเหล่าน
 4. ตรวจ PR state, review decision และ CI
 5. ตรวจ acceptance criteria และ evidence ล่าสุด
 
-ตัดสิน Stage ตามกติกา:
+ตัดสิน Stage ด้วย precedence ต่อไปนี้และหยุดที่ข้อแรกที่ตรง:
 
-- map ยังมี decision ticket ที่เปิดและ unblocked → `WAYFINDING`
-- มี decision ticket ถูก claim → `DECISION`
-- decisions ที่จำเป็นปิดครบ แต่ยังไม่มี implementation-ready issue → `PHASE_SPEC`
-- มี issue `ready-for-agent` และ branch implementation โดยยังไม่มี PR → `IMPLEMENTATION`
-- มี PR เปิดหรือ review finding ที่ยังไม่ปิด → `REVIEW`
-- review clear แต่ acceptance/release evidence ยังไม่ครบ → `ACCEPTANCE`
-- merge เข้า target ที่ถูกต้องและ evidence ครบ → `COMPLETE`
-- หลักฐานเข้าหลาย Stage โดยไม่มี transition ที่อธิบายได้ → `STATE_CONFLICT`
+1. หาก primary artifact มีหลาย `stage:*` label หรือ linked identity/base/spec/evidence ขัดกันจริง → `STATE_CONFLICT`
+2. หาก merge เข้า target และ completion evidence ครบ → `COMPLETE`
+3. หากมี PR เปิดและ review clear แต่ acceptance gate หรือ merge ยังไม่ครบ → `ACCEPTANCE`
+4. หากมี PR เปิดแต่ review/required preliminary CI ยังไม่ clear → `REVIEW`
+5. หากมี implementation issue/branch แต่ยังไม่มี PR → `IMPLEMENTATION`
+6. หาก Wayfinder child ถูก claim → `DECISION`
+7. หาก decision blockers ปิดครบและยังไม่มี implementation-ready specification → `PHASE_SPEC`
+8. หาก map เปิด, ไม่มี child ถูก claim และมี unblocked frontier → `WAYFINDING`
+
+การที่ map มี frontier พร้อมกับ child ที่ถูก claim หรือ PR มี CI ผ่าน ไม่ใช่ conflict; precedence ข้างต้น
+ใช้แยก progression ปกติเหล่านี้ให้เหลือ Stage เดียว
 
 อย่าใช้ open issue ทั้ง repository เพื่อเดา Stage หากมีหลาย effort ทำคู่ขนาน ให้ระบุ map/phase ที่กำลังตอบเสมอ
 
