@@ -21,6 +21,8 @@ async function createTenantFixture(t: TestContext) {
   const tenantId = randomUUID();
 
   t.after(async () => {
+    await owner.jrAction.deleteMany({ where: { tenantId } });
+    await owner.jrEnrollment.deleteMany({ where: { tenantId } });
     await owner.cgDecisionLog.deleteMany({ where: { tenantId } });
     await owner.cgReservation.deleteMany({ where: { tenantId } });
     await owner.cgConsent.deleteMany({ where: { tenantId } });
@@ -188,8 +190,56 @@ test('event ที่ resolve contact ได้สร้าง action ที่�
   const decision = await owner.cgDecisionLog.findUniqueOrThrow({ where: { id: decisionId } });
   assert.equal(decision.sourceId, receiptId);
   assert.equal(decision.reservationId, reservationId);
+  assert.deepEqual(
+    await owner.jrEnrollment.findUniqueOrThrow({
+      where: { id: receiptId },
+      select: {
+        id: true,
+        tenantId: true,
+        eventInboxId: true,
+        journeyVersion: true,
+        contactId: true,
+        decisionId: true,
+        state: true,
+      },
+    }),
+    {
+      id: receiptId,
+      tenantId,
+      eventInboxId: receiptId,
+      journeyVersion: 4,
+      contactId,
+      decisionId,
+      state: 'AUTHORIZED',
+    },
+  );
+  assert.deepEqual(
+    await owner.jrAction.findUniqueOrThrow({
+      where: { tenantId_actionKey: { tenantId, actionKey: processed.actionKey } },
+      select: {
+        tenantId: true,
+        enrollmentId: true,
+        actionKey: true,
+        contactId: true,
+        identityId: true,
+        decisionId: true,
+        reservationId: true,
+      },
+    }),
+    {
+      tenantId,
+      enrollmentId: receiptId,
+      actionKey: processed.actionKey,
+      contactId,
+      identityId,
+      decisionId,
+      reservationId,
+    },
+  );
   assert.equal(await owner.cgDecisionLog.count({ where: { tenantId } }), 1);
   assert.equal(await owner.cgReservation.count({ where: { tenantId } }), 1);
+  assert.equal(await owner.jrEnrollment.count({ where: { tenantId } }), 1);
+  assert.equal(await owner.jrAction.count({ where: { tenantId } }), 1);
 });
 
 test('สอง tenant ใช้ identity เดียวกันแต่ได้ policy ของตนเองและไม่ประมวลผล receipt ข้ามกัน', async (t) => {

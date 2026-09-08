@@ -12,6 +12,8 @@ export const CANONICAL_CXA_TABLES = [
   'cg_decision_logs',
   'cg_reservations',
   'cg_restrictions',
+  'jr_actions',
+  'jr_enrollments',
   'jr_event_inbox',
 ];
 
@@ -39,7 +41,7 @@ export function parseCanonicalSchemaEvidence(value) {
   const match = String(value)
     .trim()
     .match(/^(\d+)\|(\d+)\|(\d+)$/);
-  if (!match) throw new TypeError('schema evidence must contain table|RLS|policy counts');
+  if (!match) throw new TypeError('schema evidence ต้องมีจำนวน table|RLS|policy');
   const [, tables, rlsEnabled, tenantPolicies] = match.map(Number);
   const expected = CANONICAL_CXA_TABLES.length;
   return {
@@ -62,7 +64,7 @@ function execute(command, arguments_, options = {}) {
   });
   if (result.status !== 0 || result.error) {
     throw new Error(
-      `${command} failed with status ${result.status ?? result.error?.code ?? 'unknown'}`,
+      `${command} ล้มเหลวด้วย status ${result.status ?? result.error?.code ?? 'unknown'}`,
     );
   }
   return String(result.stdout ?? '').trim();
@@ -88,7 +90,7 @@ function inspectDatabase(databaseName) {
 export function runCxaSchemaReadiness() {
   const existingDatabase = process.env.CXA_ACCEPTANCE_DATABASE_NAME ?? 'dcontact';
   if (!/^[a-zA-Z0-9_]+$/.test(existingDatabase)) {
-    throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME has an invalid database name');
+    throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME มีชื่อฐานข้อมูลไม่ถูกต้อง');
   }
   const freshDatabase = `dcontact_cxa_verify_${randomBytes(6).toString('hex')}`;
 

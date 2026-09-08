@@ -1,7 +1,13 @@
-import type { ContactGovernanceService } from '@d-contact/contact-governance';
+import type {
+  AuthorizeAndReserveInput,
+  AuthorizationOutcome,
+  ContactGovernanceService,
+} from '@d-contact/contact-governance';
 import {
+  Prisma,
   type ChannelType,
   type CgDecision,
+  type JrEnrollmentState,
   type PrismaClient,
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
@@ -49,8 +55,17 @@ export class JourneyEventNotReadyError extends Error {
   readonly code = 'JOURNEY_EVENT_NOT_READY';
 
   constructor(readonly receiptId: string) {
-    super(`journey event is not published in the active tenant: ${receiptId}`);
+    super(`Journey event ยังไม่ถูก publish ใน active tenant: ${receiptId}`);
     this.name = 'JourneyEventNotReadyError';
+  }
+}
+
+export class JourneyEnrollmentConflictError extends Error {
+  readonly code = 'JOURNEY_ENROLLMENT_CONFLICT';
+
+  constructor(readonly receiptId: string) {
+    super(`receipt ถูก enroll ด้วย Journey version อื่นแล้ว: ${receiptId}`);
+    this.name = 'JourneyEnrollmentConflictError';
   }
 }
 
@@ -69,7 +84,7 @@ export class JourneyProcessor {
     tenantId: string,
     input: ProcessJourneyEventInput,
   ): Promise<JourneyProcessingResult> {
-    const event = await this.loadEvent(tenantId, input.receiptId);
+    const event = await this.loadEventAndPrepareEnrollment(tenantId, input);
     const enrollmentId = input.receiptId;
     const actionKey = createJourneyActionKey({
       enrollmentId,
@@ -77,31 +92,27 @@ export class JourneyProcessor {
       stepId: input.stepId,
     });
     const resolved = await this.resolveContact(tenantId, event);
-    const authorization = await this.governance.authorizeAndReserve(
-      tenantId,
-      resolved
-        ? {
-            contactId: resolved.contactId,
-            identityId: resolved.identityId,
-            channel: input.channel,
-            purpose: input.purpose,
-            source: 'JOURNEY',
-            sourceId: input.receiptId,
-            actionKey,
-            policyVersion: input.policyVersion,
-          }
-        : {
-            identityResolution: event.contactRef.kind === 'CRM_ID' ? 'AMBIGUOUS' : 'NOT_FOUND',
-            channel: input.channel,
-            purpose: input.purpose,
-            source: 'JOURNEY',
-            sourceId: input.receiptId,
-            actionKey,
-            policyVersion: input.policyVersion,
-          },
-    );
+    const authorizationBase = {
+      channel: input.channel,
+      purpose: input.purpose,
+      source: 'JOURNEY',
+      sourceId: input.receiptId,
+      actionKey,
+      policyVersion: input.policyVersion,
+    };
+    const authorizationInput: AuthorizeAndReserveInput = resolved
+      ? {
+          ...authorizationBase,
+          contactId: resolved.contactId,
+          identityId: resolved.identityId,
+        }
+      : {
+          ...authorizationBase,
+          identityResolution: event.contactRef.kind === 'CRM_ID' ? 'AMBIGUOUS' : 'NOT_FOUND',
+        };
+    const authorization = await this.governance.authorizeAndReserve(tenantId, authorizationInput);
 
-    await this.markProcessed(tenantId, input.receiptId);
+    await this.persistOutcome(tenantId, input, actionKey, resolved, authorization);
 
     return {
       receiptId: input.receiptId,
@@ -125,13 +136,38 @@ export class JourneyProcessor {
     };
   }
 
-  private async loadEvent(tenantId: string, receiptId: string): Promise<InboundBusinessEvent> {
+  private async loadEventAndPrepareEnrollment(
+    tenantId: string,
+    input: ProcessJourneyEventInput,
+  ): Promise<InboundBusinessEvent> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`journey-enrollment:${tenantId}:${input.receiptId}`}))`,
+      );
       const inbox = await transaction.jrEventInbox.findFirst({
-        where: { id: receiptId, tenantId, state: { in: ['PUBLISHED', 'PROCESSED'] } },
+        where: { id: input.receiptId, tenantId, state: { in: ['PUBLISHED', 'PROCESSED'] } },
         select: { payload: true },
       });
-      if (!inbox) throw new JourneyEventNotReadyError(receiptId);
+      if (!inbox) throw new JourneyEventNotReadyError(input.receiptId);
+
+      const enrollment = await transaction.jrEnrollment.findFirst({
+        where: { tenantId, eventInboxId: input.receiptId },
+        select: { journeyVersion: true },
+      });
+      if (enrollment && enrollment.journeyVersion !== input.journeyVersion) {
+        throw new JourneyEnrollmentConflictError(input.receiptId);
+      }
+      if (!enrollment) {
+        await transaction.jrEnrollment.create({
+          data: {
+            id: input.receiptId,
+            tenantId,
+            eventInboxId: input.receiptId,
+            journeyVersion: input.journeyVersion,
+            state: 'PENDING',
+          },
+        });
+      }
       return inbox.payload as unknown as InboundBusinessEvent;
     });
   }
@@ -158,10 +194,60 @@ export class JourneyProcessor {
     });
   }
 
-  private async markProcessed(tenantId: string, receiptId: string): Promise<void> {
+  private async persistOutcome(
+    tenantId: string,
+    input: ProcessJourneyEventInput,
+    actionKey: string,
+    resolved: ResolvedContact | undefined,
+    authorization: AuthorizationOutcome,
+  ): Promise<void> {
     await withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      const state: JrEnrollmentState =
+        authorization.decision === 'ALLOW'
+          ? 'AUTHORIZED'
+          : authorization.decision === 'REVIEW'
+            ? 'REVIEW'
+            : authorization.decision === 'DEFER'
+              ? 'DEFERRED'
+              : 'BLOCKED';
+      await transaction.jrEnrollment.updateMany({
+        where: { id: input.receiptId, tenantId },
+        data: {
+          state,
+          contactId: resolved?.contactId,
+          decisionId: authorization.decisionId,
+        },
+      });
+
+      if (authorization.decision === 'ALLOW') {
+        if (!resolved || !authorization.reservationId) {
+          throw new Error(
+            'Journey action ที่ authorize แล้วต้องมี contact และ reservation evidence',
+          );
+        }
+        await transaction.jrAction.upsert({
+          where: { tenantId_actionKey: { tenantId, actionKey } },
+          create: {
+            tenantId,
+            enrollmentId: input.receiptId,
+            actionKey,
+            contactId: resolved.contactId,
+            identityId: resolved.identityId,
+            channel: input.channel,
+            purpose: input.purpose,
+            decisionId: authorization.decisionId,
+            reservationId: authorization.reservationId,
+          },
+          update: {},
+        });
+      }
+
       await transaction.jrEventInbox.updateMany({
-        where: { id: receiptId, tenantId, state: { in: ['PUBLISHED', 'PROCESSED'] } },
+        where: {
+          id: input.receiptId,
+          tenantId,
+          state: { in: ['PUBLISHED', 'PROCESSED'] },
+        },
         data: { state: 'PROCESSED', processedAt: this.now() },
       });
     });

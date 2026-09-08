@@ -35,7 +35,7 @@ async function createTenantFixture(t: TestContext) {
   return { owner, application, tenantId };
 }
 
-test('event inbox returns one durable receipt for canonical duplicate payloads', async (t) => {
+test('event inbox คืน durable receipt เดียวสำหรับ canonical payload ที่ซ้ำกัน', async (t) => {
   const { owner, application, tenantId } = await createTenantFixture(t);
   const receiptId = randomUUID();
   const now = new Date('2026-09-07T10:00:00.000Z');
@@ -81,7 +81,7 @@ test('event inbox returns one durable receipt for canonical duplicate payloads',
   );
 });
 
-test('failed publisher keeps durable inbox state and recovery publishes one logical event', async (t) => {
+test('publisher ที่ล้มเหลวเก็บ durable inbox state และ recovery ส่งหนึ่ง logical event', async (t) => {
   const { owner, application, tenantId } = await createTenantFixture(t);
   const receiptId = randomUUID();
   const service = new EventInboxService(application, {
@@ -103,7 +103,7 @@ test('failed publisher keeps durable inbox state and recovery publishes one logi
   const published: unknown[] = [];
   const publisher = {
     publish: async (message: unknown) => {
-      if (fail) throw new Error('simulated Kafka outage');
+      if (fail) throw new Error('จำลอง Kafka ขัดข้อง');
       published.push(message);
     },
   };

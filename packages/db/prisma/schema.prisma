@@ -42,6 +42,8 @@ model Tenant {
   cgDecisionLogs      CgDecisionLog[]
   cgReservations      CgReservation[]
   jrEventInbox        JrEventInbox[]
+  jrEnrollments       JrEnrollment[]
+  jrActions           JrAction[]
 
   @@map("tenants")
 }
@@ -310,6 +312,8 @@ model Contact {
   cgConsents     CgConsent[]
   cgDecisionLogs CgDecisionLog[]
   cgReservations CgReservation[]
+  jrEnrollments  JrEnrollment[]
+  jrActions      JrAction[]
 
   @@index([tenantId])
   @@map("contacts")
@@ -328,6 +332,7 @@ model ContactIdentity {
   cgConsents     CgConsent[]
   cgDecisionLogs CgDecisionLog[]
   cgReservations CgReservation[]
+  jrActions      JrAction[]
 
   @@unique([tenantId, type, value])
   @@map("contact_identities")
@@ -368,6 +373,14 @@ enum JrEventInboxState {
   PUBLISHED
   PROCESSED
   FAILED
+}
+
+enum JrEnrollmentState {
+  PENDING
+  REVIEW
+  BLOCKED
+  DEFERRED
+  AUTHORIZED
 }
 
 model CgRestriction {
@@ -446,10 +459,11 @@ model CgReservation {
   createdAt       DateTime           @default(now()) @map("created_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")
 
-  tenant       Tenant           @relation(fields: [tenantId], references: [id])
-  contact      Contact          @relation(fields: [contactId], references: [id])
-  identity     ContactIdentity? @relation(fields: [identityId], references: [id])
-  decisionLogs CgDecisionLog[]
+  tenant         Tenant           @relation(fields: [tenantId], references: [id])
+  contact        Contact          @relation(fields: [contactId], references: [id])
+  identity       ContactIdentity? @relation(fields: [identityId], references: [id])
+  decisionLogs   CgDecisionLog[]
+  journeyActions JrAction[]
 
   @@unique([tenantId, actionKey])
   @@index([tenantId, contactId, state, createdAt])
@@ -479,10 +493,12 @@ model CgDecisionLog {
   reservationId   String?     @map("reservation_id") @db.Uuid
   decidedAt       DateTime    @default(now()) @map("decided_at")
 
-  tenant      Tenant           @relation(fields: [tenantId], references: [id])
-  contact     Contact?         @relation(fields: [contactId], references: [id])
-  identity    ContactIdentity? @relation(fields: [identityId], references: [id])
-  reservation CgReservation?   @relation(fields: [reservationId], references: [id])
+  tenant             Tenant           @relation(fields: [tenantId], references: [id])
+  contact            Contact?         @relation(fields: [contactId], references: [id])
+  identity           ContactIdentity? @relation(fields: [identityId], references: [id])
+  reservation        CgReservation?   @relation(fields: [reservationId], references: [id])
+  journeyEnrollments JrEnrollment[]
+  journeyActions     JrAction[]
 
   @@index([tenantId, actionKey, decidedAt])
   @@index([tenantId, contactId, decidedAt])
@@ -506,11 +522,60 @@ model JrEventInbox {
   createdAt       DateTime          @default(now()) @map("created_at")
   updatedAt       DateTime          @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  enrollments JrEnrollment[]
 
   @@unique([tenantId, source, eventId])
   @@index([tenantId, state, createdAt])
   @@map("jr_event_inbox")
+}
+
+model JrEnrollment {
+  id             String            @id @default(uuid()) @db.Uuid
+  tenantId       String            @map("tenant_id") @db.Uuid
+  eventInboxId   String            @map("event_inbox_id") @db.Uuid
+  journeyVersion Int               @map("journey_version")
+  contactId      String?           @map("contact_id") @db.Uuid
+  decisionId     String?           @map("decision_id") @db.Uuid
+  state          JrEnrollmentState @default(PENDING)
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  tenant     Tenant         @relation(fields: [tenantId], references: [id])
+  eventInbox JrEventInbox   @relation(fields: [eventInboxId], references: [id])
+  contact    Contact?       @relation(fields: [contactId], references: [id])
+  decision   CgDecisionLog? @relation(fields: [decisionId], references: [id])
+  actions    JrAction[]
+
+  @@unique([tenantId, eventInboxId])
+  @@index([tenantId, contactId, state])
+  @@map("jr_enrollments")
+}
+
+model JrAction {
+  id            String      @id @default(uuid()) @db.Uuid
+  tenantId      String      @map("tenant_id") @db.Uuid
+  enrollmentId  String      @map("enrollment_id") @db.Uuid
+  actionKey     String      @map("action_key")
+  contactId     String      @map("contact_id") @db.Uuid
+  identityId    String      @map("identity_id") @db.Uuid
+  channel       ChannelType
+  purpose       String
+  decisionId    String      @map("decision_id") @db.Uuid
+  reservationId String      @map("reservation_id") @db.Uuid
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id])
+  enrollment  JrEnrollment    @relation(fields: [enrollmentId], references: [id])
+  contact     Contact         @relation(fields: [contactId], references: [id])
+  identity    ContactIdentity @relation(fields: [identityId], references: [id])
+  decision    CgDecisionLog   @relation(fields: [decisionId], references: [id])
+  reservation CgReservation   @relation(fields: [reservationId], references: [id])
+
+  @@unique([tenantId, actionKey])
+  @@index([tenantId, enrollmentId])
+  @@index([tenantId, contactId, createdAt])
+  @@map("jr_actions")
 }
 
 // ─────────────────────────── Interactions (record กลางทุก channel) ───────────────────────────
@@ -960,12 +1025,12 @@ model QmEvaluation {
 
 /// opaque context สำหรับเปิด Console ข้ามแอป: URL ไม่มี Interaction ID หรือ token
 model QmConsoleContext {
-  id              String      @id @default(uuid()) @db.Uuid
-  tenantId        String      @map("tenant_id") @db.Uuid
-  interactionId   String      @map("interaction_id") @db.Uuid
-  issuedForUserId String      @map("issued_for_user_id") @db.Uuid
-  expiresAt       DateTime    @map("expires_at")
-  createdAt       DateTime    @default(now()) @map("created_at")
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  interactionId   String   @map("interaction_id") @db.Uuid
+  issuedForUserId String   @map("issued_for_user_id") @db.Uuid
+  expiresAt       DateTime @map("expires_at")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   tenant      Tenant      @relation(fields: [tenantId], references: [id])
   interaction Interaction @relation(fields: [interactionId], references: [id])

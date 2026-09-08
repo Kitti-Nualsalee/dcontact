@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createJourneyActionKey } from './action-key.js';
 
-test('journey action key is stable across retries', () => {
+test('Journey action key คงที่ข้าม retry', () => {
   const input = {
     enrollmentId: 'enrollment-001',
     journeyVersion: 3,

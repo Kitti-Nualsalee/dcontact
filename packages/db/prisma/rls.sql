@@ -17,7 +17,7 @@ BEGIN
     'qm_transcription_jobs', 'qm_audit_events', 'qm_transcripts',
     'qm_transcript_segments', 'qm_evaluations', 'qm_console_contexts', 'command_receipts',
     'cg_restrictions', 'cg_consents', 'cg_decision_logs', 'cg_reservations',
-    'jr_event_inbox'
+    'jr_event_inbox', 'jr_enrollments', 'jr_actions'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);

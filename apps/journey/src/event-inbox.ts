@@ -41,7 +41,7 @@ export class EventIdempotencyConflictError extends Error {
     readonly source: string,
     readonly eventId: string,
   ) {
-    super(`eventId was already used with a different canonical payload: ${source}/${eventId}`);
+    super(`eventId ถูกใช้กับ canonical payload อื่นแล้ว: ${source}/${eventId}`);
     this.name = 'EventIdempotencyConflictError';
   }
 }
@@ -50,7 +50,7 @@ function canonicalJson(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new TypeError('event payload contains a non-finite number');
+    if (!Number.isFinite(value)) throw new TypeError('event payload มีตัวเลขที่ไม่เป็น finite');
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -62,7 +62,7 @@ function canonicalJson(value: unknown): string {
       .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
       .join(',')}}`;
   }
-  throw new TypeError(`event payload contains unsupported value type: ${typeof value}`);
+  throw new TypeError(`event payload มี value type ที่ไม่รองรับ: ${typeof value}`);
 }
 
 function hashEvent(event: InboundBusinessEvent): string {
@@ -110,7 +110,7 @@ export class EventInboxService {
     const payloadHash = hashEvent(event);
     const occurredAt = new Date(event.occurredAt);
     if (Number.isNaN(occurredAt.getTime()))
-      throw new TypeError('event occurredAt must be ISO-8601');
+      throw new TypeError('event occurredAt ต้องเป็นรูปแบบ ISO-8601');
 
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
       await transaction.$queryRaw(

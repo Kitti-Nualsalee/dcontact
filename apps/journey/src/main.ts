@@ -1,12 +1,43 @@
+import { ContactGovernanceService } from '@d-contact/contact-governance';
 import { PrismaClient } from '@d-contact/db';
 import { createProducer } from '@d-contact/kafka';
 import { EventInboxService } from './event-inbox.js';
+import { createJourneyEventConsumer } from './journey-event-consumer.js';
 import { createJourneyKafkaPublisher } from './journey-kafka-publisher.js';
+import { JourneyProcessor } from './journey-processor.js';
+
+function positiveInteger(name: string, fallback: number): number {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isInteger(value) || value < 1) throw new Error(`${name} ต้องเป็นจำนวนเต็มบวก`);
+  return value;
+}
+
+function configuredChannel(): 'EMAIL' | 'LINE' {
+  const channel = process.env.JOURNEY_TRIGGER_CHANNEL ?? 'EMAIL';
+  if (channel !== 'EMAIL' && channel !== 'LINE') {
+    throw new Error('JOURNEY_TRIGGER_CHANNEL ต้องเป็น EMAIL หรือ LINE');
+  }
+  return channel;
+}
 
 const database = new PrismaClient();
 const producer = await createProducer('dcontact-journey-publisher');
 const publisher = createJourneyKafkaPublisher(producer);
 const inbox = new EventInboxService(database);
+const processor = new JourneyProcessor(database, new ContactGovernanceService(database));
+const consumer = await createJourneyEventConsumer({
+  database,
+  processor,
+  clientId: 'dcontact-journey-consumer',
+  groupId: process.env.JOURNEY_CONSUMER_GROUP_ID ?? 'dcontact-journey-events-v1',
+  definition: {
+    journeyVersion: positiveInteger('JOURNEY_TRIGGER_VERSION', 1),
+    stepId: process.env.JOURNEY_TRIGGER_STEP_ID ?? 'event-trigger',
+    channel: configuredChannel(),
+    purpose: process.env.JOURNEY_TRIGGER_PURPOSE ?? 'MARKETING',
+    policyVersion: positiveInteger('JOURNEY_POLICY_VERSION', 1),
+  },
+});
 let draining = false;
 let stopping = false;
 
@@ -40,7 +71,7 @@ async function shutdown(): Promise<void> {
   if (stopping) return;
   stopping = true;
   clearInterval(timer);
-  await Promise.all([producer.disconnect(), database.$disconnect()]);
+  await Promise.all([consumer.disconnect(), producer.disconnect(), database.$disconnect()]);
 }
 
 process.once('SIGINT', () => void shutdown());
