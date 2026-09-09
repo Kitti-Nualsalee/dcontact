@@ -10,6 +10,7 @@ import {
   sha256,
 } from './cxa-e0-readiness.mjs';
 import { cxaE0AdapterProfileSummary } from './cxa-e0-profile-readiness.mjs';
+import { executeReadinessCheck } from './phase-zero-readiness.mjs';
 
 const context = {
   repository: 'Kitti-Nualsalee/dcontact',
@@ -173,6 +174,26 @@ test('E0 adapter profile fail closed และห้าม actual provider traff
     () => cxaE0AdapterProfileSummary({ CXA_E0_ADAPTER_PROFILE: 'LIVE_PROVIDER' }),
     /TEST_ADAPTER เท่านั้น/,
   );
+});
+
+test('adapter profile evidence ถูกเก็บจาก child process ใน manifest diagnostic', () => {
+  const profileCheck = CXA_E0_READINESS_CHECKS.find(
+    ({ id }) => id === 'observability-pii-redaction',
+  );
+  const diagnostic = executeReadinessCheck({
+    ...profileCheck,
+    command: profileCheck.commands[1],
+  });
+  assert.equal(diagnostic.status, 'PASS');
+  assert.deepEqual(diagnostic.evidence, [
+    {
+      type: 'adapter-profile.readiness',
+      workflow: 'cx-automation-e0-adapter-profile',
+      status: 'PASS',
+      adapterProfile: 'TEST_ADAPTER',
+      actualProviderTraffic: false,
+    },
+  ]);
 });
 
 test('manifest factory ระบุ migration และ rollback evidence จาก check เดียวกัน', () => {

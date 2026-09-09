@@ -106,7 +106,7 @@ export const CXA_E0_READINESS_CHECKS = [
       [pnpm, '--filter', '@d-contact/journey', 'test'],
       [process.execPath, 'scripts/cxa-e0-profile-readiness.mjs'],
     ],
-    evidencePrefix: '{',
+    evidencePrefix: 'CXA_E0_ADAPTER_PROFILE_EVIDENCE:',
     remediation: 'ตรวจ Journey Kafka key/header/log และ adapter profile ที่ไม่มี provider traffic',
   },
   {

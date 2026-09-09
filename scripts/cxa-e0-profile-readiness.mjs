@@ -31,7 +31,9 @@ export function cxaE0AdapterProfileSummary(environment = process.env) {
 const invokedUrl = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
 if (invokedUrl === import.meta.url) {
   try {
-    process.stdout.write(`${JSON.stringify(cxaE0AdapterProfileSummary())}\n`);
+    process.stdout.write(
+      `CXA_E0_ADAPTER_PROFILE_EVIDENCE:${JSON.stringify(cxaE0AdapterProfileSummary())}\n`,
+    );
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
