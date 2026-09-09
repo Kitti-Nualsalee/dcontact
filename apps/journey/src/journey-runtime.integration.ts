@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { ContactGovernanceService } from '@d-contact/contact-governance';
 import { PrismaClient } from '@d-contact/db';
+import { createJourneyFoundationPorts } from '@d-contact/journey-composition';
 import { createProducer } from '@d-contact/kafka';
 import type { InboundBusinessEvent } from '@d-contact/shared';
 import { EventInboxService } from './event-inbox.js';
@@ -72,7 +72,7 @@ test(
       },
     });
 
-    const processor = new JourneyProcessor(application, new ContactGovernanceService(application));
+    const processor = new JourneyProcessor(application, createJourneyFoundationPorts(application));
     const consumer = await createJourneyEventConsumer({
       database: application,
       processor,

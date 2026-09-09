@@ -12,9 +12,7 @@ test('Journey producer ส่ง V2 ingress และไม่เผย contact 
     },
     async disconnect() {},
   };
-  const publisher = createJourneyKafkaPublisher(producer, {
-    orderingKeySecret: 'journey-kafka-unit-secret',
-  });
+  const publisher = createJourneyKafkaPublisher(producer);
   const contactRef = { kind: 'EMAIL' as const, value: 'customer@example.test' };
 
   await publisher.publish({
@@ -39,6 +37,6 @@ test('Journey producer ส่ง V2 ingress และไม่เผย contact 
   assert.equal(event.aggregateType, 'journey_event_receipt');
   assert.equal(event.aggregateId, 'receipt-a');
   assert.equal(event.aggregateVersion, 0);
-  assert.match(event.orderingKey, /^journey-contact:[A-Za-z0-9_-]+$/);
+  assert.equal(event.orderingKey, 'receipt-a');
   assert.ok(!event.orderingKey.includes(contactRef.value));
 });

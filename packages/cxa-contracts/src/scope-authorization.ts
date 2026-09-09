@@ -30,6 +30,9 @@ export type TeamContactScopeAuthorization = AllowedTeamContactScope | DeniedTeam
  * trusted team scope itself; callers cannot pass a segment or membership to be
  * treated as authorization evidence.
  */
-export interface TeamContactScopeAuthorizer {
-  authorize(input: AuthorizeTeamContactScopeInput): Promise<TeamContactScopeAuthorization>;
+export interface TeamContactScopeAuthorizer<TContext = undefined> {
+  authorize(
+    input: AuthorizeTeamContactScopeInput,
+    context?: TContext,
+  ): Promise<TeamContactScopeAuthorization>;
 }

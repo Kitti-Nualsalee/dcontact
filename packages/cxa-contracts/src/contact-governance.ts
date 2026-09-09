@@ -128,10 +128,11 @@ export class ReservationNotUsableError extends Error {
 }
 
 /** Port แคบสำหรับ Foundation; คง signature เดิมเพื่อ expand โดยไม่เปลี่ยน behavior */
-export interface ContactAuthorizationPort {
+export interface ContactAuthorizationPort<TContext = undefined> {
   authorizeAndReserve(
     tenantId: string,
     input: AuthorizeAndReserveInput,
+    context?: TContext,
   ): Promise<AuthorizationOutcome>;
 }
 

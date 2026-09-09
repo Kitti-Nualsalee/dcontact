@@ -124,7 +124,7 @@ function toReservationView(reservation: {
   };
 }
 
-export class ContactGovernanceService implements ContactAuthorizationPort {
+export class ContactGovernanceService implements ContactAuthorizationPort<Prisma.TransactionClient> {
   private readonly now: () => Date;
   private readonly id: () => string;
 
