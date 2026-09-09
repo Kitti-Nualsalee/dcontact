@@ -1,7 +1,7 @@
 /** Reusable acceptance suite for #67: any DeliveryPort implementation runs this against its own harness. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { ActionKey, ReservationId } from '../identifiers.js';
+import type { ActionKey, ReservationId, TenantId } from '../identifiers.js';
 import type { DeliveryPort, EnqueueDeliveryCommand } from '../delivery.js';
 
 export interface DeliveryConformanceHarness {
@@ -12,6 +12,8 @@ export interface DeliveryConformanceHarness {
   unknownReservationId: ReservationId;
   /** A distinct actionKey never associated with `command.reservationId`. */
   mismatchedActionKey: ActionKey;
+  /** A different tenant with no fixture for `command.reservationId`; proves tenant isolation, not just an unrelated unknown id. */
+  otherTenantId: TenantId;
   /** Advances the harness clock so `command`'s reservation/lease can expire. */
   advance(ms: number): void;
 }
@@ -59,6 +61,13 @@ export function runDeliveryPortConformanceSuite(
     const { delivery, command, mismatchedActionKey } = makeHarness();
     const result = await delivery.enqueue({ ...command, actionKey: mismatchedActionKey });
     isError('RESERVATION_BINDING_CONFLICT')(result);
+    assert.equal((await delivery.enqueue(command)).status, 'QUEUED');
+  });
+
+  test(`${suiteName}: reusing another tenant's valid reservationId fails closed without leaking existence`, async () => {
+    const { delivery, command, otherTenantId } = makeHarness();
+    const result = await delivery.enqueue({ ...command, tenantId: otherTenantId });
+    isError('RESERVATION_NOT_FOUND')(result);
     assert.equal((await delivery.enqueue(command)).status, 'QUEUED');
   });
 

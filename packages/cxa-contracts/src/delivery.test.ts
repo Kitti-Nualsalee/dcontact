@@ -67,6 +67,7 @@ function setup(): DeliveryConformanceHarness & {
     command,
     unknownReservationId: reservationId('reservation-missing'),
     mismatchedActionKey: actionKey('action-b'),
+    otherTenantId: tenantId('tenant-b'),
     advance: (ms: number) => {
       now += ms;
     },
