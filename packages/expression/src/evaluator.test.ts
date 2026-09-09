@@ -151,6 +151,12 @@ test('in is lenient across mixed-type candidates and equal only on same type+val
   assert.equal((run(inNode(1, ['a', 1, true])) as { value: unknown }).value, true);
   assert.equal((run(inNode(2, ['a', 1, true])) as { value: unknown }).value, false);
   assert.equal((run(inNode(null, [null])) as { value: unknown }).value, true);
+  assert.equal((run(inNode('a', [])) as { value: unknown }).value, false);
+});
+
+test('vacuous and/or over an empty operand list follow the boolean identity', () => {
+  assert.equal((run({ type: 'and', operands: [] }) as { value: unknown }).value, true);
+  assert.equal((run({ type: 'or', operands: [] }) as { value: unknown }).value, false);
 });
 
 test('coalesce returns first non-null; all-null coalesce is null', () => {
