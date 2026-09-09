@@ -106,6 +106,7 @@ export const CXA_E0_READINESS_CHECKS = [
       [pnpm, '--filter', '@d-contact/journey', 'test'],
       [process.execPath, 'scripts/cxa-e0-profile-readiness.mjs'],
     ],
+    evidencePrefix: '{',
     remediation: 'ตรวจ Journey Kafka key/header/log และ adapter profile ที่ไม่มี provider traffic',
   },
   {
@@ -146,7 +147,7 @@ export function sha256(value) {
 }
 
 const sensitiveKey =
-  /(?:access|refresh|id)_token|authorization|password|passwd|secret|client_secret/i;
+  /^(?:(?:access|refresh|id)_token|authorization|password|passwd|secret|client_secret|phone(?:Number)?|email(?:Address)?|contact(?:Ref|Id)?|line(?:Id)?|crm(?:Id)?|identity(?:Id|Ref)?)$/i;
 const sensitiveValue = [
   /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/,
   /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/,
@@ -306,15 +307,48 @@ export function assertValidEvidenceManifest(manifest) {
   if (manifest.marker !== undefined && manifest.marker !== E0_MARKER) {
     throw new TypeError('evidence manifest มี marker ไม่ถูกต้อง');
   }
-  for (const artifact of manifest.artifacts ?? []) {
+  const checks = manifest.checks ?? [];
+  const artifacts = manifest.artifacts ?? [];
+  for (const artifact of artifacts) {
     if (artifact.commitSha !== manifest.commitSha) {
       throw new TypeError('evidence artifact อ้าง commit ไม่ตรงกับ manifest');
     }
     const checkId = String(artifact.id).replace(/^check:/, '');
-    const check = manifest.checks?.find(({ id }) => id === checkId);
+    const check = checks.find(({ id }) => id === checkId);
     if (!check || artifact.sha256 !== sha256(check)) {
       throw new TypeError('SHA-256 ของ evidence artifact ไม่ตรงกับ check');
     }
+  }
+  if (manifest.marker !== E0_MARKER) return;
+
+  const dimensions = manifest.dimensions ?? [];
+  const mandatoryChecksPassed = E0_DIMENSIONS.every(
+    (dimension) =>
+      dimensions.filter(({ name }) => name === dimension).length === 1 &&
+      dimensions.find(({ name }) => name === dimension)?.status === 'PASS' &&
+      checks.filter((check) => check.dimension === dimension).length === 1 &&
+      checks.find((check) => check.dimension === dimension)?.status === 'PASS',
+  );
+  if (!mandatoryChecksPassed || checks.length !== E0_DIMENSIONS.length) {
+    throw new TypeError('marker ต้องมี mandatory E0 checks ทั้งเก้ามิติและทุกมิติ PASS');
+  }
+  if (
+    artifacts.length !== checks.length ||
+    new Set(artifacts.map(({ id }) => id)).size !== checks.length
+  ) {
+    throw new TypeError('marker ต้องมี evidence artifact หนึ่งรายการต่อ check');
+  }
+  const adapterProfileEvidence = checks
+    .find(({ id }) => id === 'observability-pii-redaction')
+    ?.subchecks?.flatMap(({ evidence = [] }) => evidence)
+    .some(
+      (evidence) =>
+        evidence?.type === 'adapter-profile.readiness' &&
+        evidence.adapterProfile === 'TEST_ADAPTER' &&
+        evidence.actualProviderTraffic === false,
+    );
+  if (!adapterProfileEvidence) {
+    throw new TypeError('marker ต้องมี evidence ว่า TEST_ADAPTER ปิด actual provider traffic');
   }
 }
 

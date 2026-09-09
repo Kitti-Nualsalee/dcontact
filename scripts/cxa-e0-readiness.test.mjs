@@ -7,6 +7,7 @@ import {
   createCxaE0EvidenceManifest,
   cxaE0Summary,
   runCxaE0Readiness,
+  sha256,
 } from './cxa-e0-readiness.mjs';
 import { cxaE0AdapterProfileSummary } from './cxa-e0-profile-readiness.mjs';
 
@@ -25,6 +26,17 @@ function passingExecutor(check) {
     boundaries: check.boundaries,
     status: 'PASS',
     durationMs: 1,
+    ...(check.id === 'observability-pii-redaction'
+      ? {
+          evidence: [
+            {
+              type: 'adapter-profile.readiness',
+              adapterProfile: 'TEST_ADAPTER',
+              actualProviderTraffic: false,
+            },
+          ],
+        }
+      : {}),
   };
 }
 
@@ -110,9 +122,39 @@ test('manifest ผูก check artifact กับ commit เดียวแล�
   assert.throws(() => assertValidEvidenceManifest(changedHash), /SHA-256/);
 });
 
+test('marker ถูกปฏิเสธเมื่อ mandatory check, artifact หรือ adapter evidence ไม่ครบ', () => {
+  const result = runFixture();
+
+  const missingCheck = structuredClone(result.manifest);
+  missingCheck.checks = [];
+  missingCheck.artifacts = [];
+  assert.throws(() => assertValidEvidenceManifest(missingCheck), /mandatory E0 checks/);
+
+  const missingArtifact = structuredClone(result.manifest);
+  missingArtifact.artifacts.pop();
+  assert.throws(() => assertValidEvidenceManifest(missingArtifact), /หนึ่งรายการต่อ check/);
+
+  const missingProfileEvidence = structuredClone(result.manifest);
+  missingProfileEvidence.checks
+    .find(({ id }) => id === 'observability-pii-redaction')
+    .subchecks.forEach((subcheck) => {
+      subcheck.evidence = [];
+    });
+  missingProfileEvidence.artifacts = missingProfileEvidence.checks.map((check) => ({
+    id: `check:${check.id}`,
+    kind: 'readiness-diagnostic',
+    commitSha: context.commitSha,
+    sha256: sha256(check),
+  }));
+  assert.throws(() => assertValidEvidenceManifest(missingProfileEvidence), /TEST_ADAPTER/);
+});
+
 test('evidence manifest ปฏิเสธ PII และ credential', () => {
   assert.throws(() => assertPiiSafeEvidence({ value: 'customer@example.test' }), /PII/);
   assert.throws(() => assertPiiSafeEvidence({ client_secret: 'do-not-record' }), /field ต้องห้าม/);
+  assert.throws(() => assertPiiSafeEvidence({ contactRef: 'line-user-1234' }), /field ต้องห้าม/);
+  assert.throws(() => assertPiiSafeEvidence({ lineId: 'U1234' }), /field ต้องห้าม/);
+  assert.throws(() => assertPiiSafeEvidence({ crmId: 'crm-1234' }), /field ต้องห้าม/);
 });
 
 test('E0 adapter profile fail closed และห้าม actual provider traffic', () => {
