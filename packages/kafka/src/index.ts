@@ -189,8 +189,8 @@ export async function createConsumer<
         if (options.onInvalidMessage) {
           await options.onInvalidMessage(invalid);
         } else {
-          console.error(
-            `[kafka] ข้าม message ที่ผิด contract topic=${topic} partition=${partition} offset=${message.offset} code=${error.code}`,
+          throw new Error(
+            `Kafka invalid message ต้องมี onInvalidMessage สำหรับ DLQ routing: ${error.code}`,
           );
         }
         return;

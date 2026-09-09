@@ -26,6 +26,7 @@ async function createFixture(t: TestContext) {
     },
   });
   t.after(async () => {
+    await owner.kafkaConsumerInbox.deleteMany({ where: { tenantId } });
     await owner.jrEventInbox.deleteMany({ where: { tenantId } });
     await owner.tenant.deleteMany({ where: { id: tenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
@@ -52,7 +53,7 @@ async function createFixture(t: TestContext) {
   return { application, createInbox, tenantId };
 }
 
-function key(tenantId: string, eventId: string) {
+function createJourneyIdempotencyKey(tenantId: string, eventId: string) {
   return { consumerGroup: 'journey-idempotency-integration', tenantId, eventId };
 }
 
@@ -63,7 +64,7 @@ test('Journey durable idempotency claim/complete ป้องกัน concurren
   const concurrentEventId = await createInbox();
   let concurrentHandlerCount = 0;
   const concurrent = await Promise.all([
-    store.execute(key(tenantId, concurrentEventId), async (transaction) => {
+    store.execute(createJourneyIdempotencyKey(tenantId, concurrentEventId), async (transaction) => {
       concurrentHandlerCount += 1;
       await new Promise((resolve) => setTimeout(resolve, 30));
       await transaction.jrEventInbox.update({
@@ -71,8 +72,12 @@ test('Journey durable idempotency claim/complete ป้องกัน concurren
         data: { state: 'PROCESSED', processedAt: new Date() },
       });
     }),
-    store.execute(key(tenantId, concurrentEventId), async () => {
+    store.execute(createJourneyIdempotencyKey(tenantId, concurrentEventId), async (transaction) => {
       concurrentHandlerCount += 1;
+      await transaction.jrEventInbox.update({
+        where: { id: concurrentEventId },
+        data: { state: 'PROCESSED', processedAt: new Date() },
+      });
     }),
   ]);
   assert.deepEqual([...concurrent].sort(), ['duplicate', 'processed']);
@@ -81,37 +86,46 @@ test('Journey durable idempotency claim/complete ป้องกัน concurren
   const beforeCommitEventId = await createInbox();
   await assert.rejects(
     () =>
-      store.execute(key(tenantId, beforeCommitEventId), async () => {
+      store.execute(createJourneyIdempotencyKey(tenantId, beforeCommitEventId), async () => {
         throw new Error('จำลอง crash ก่อน complete commit');
       }),
     /crash ก่อน complete commit/,
   );
   assert.equal(
-    await store.execute(key(tenantId, beforeCommitEventId), async (transaction) => {
-      await transaction.jrEventInbox.update({
-        where: { id: beforeCommitEventId },
-        data: { state: 'PROCESSED', processedAt: new Date() },
-      });
-    }),
+    await store.execute(
+      createJourneyIdempotencyKey(tenantId, beforeCommitEventId),
+      async (transaction) => {
+        await transaction.jrEventInbox.update({
+          where: { id: beforeCommitEventId },
+          data: { state: 'PROCESSED', processedAt: new Date() },
+        });
+      },
+    ),
     'processed',
   );
 
   const afterCommitEventId = await createInbox();
   assert.equal(
-    await store.execute(key(tenantId, afterCommitEventId), async (transaction) => {
-      await transaction.jrEventInbox.update({
-        where: { id: afterCommitEventId },
-        data: { state: 'PROCESSED', processedAt: new Date() },
-      });
-    }),
+    await store.execute(
+      createJourneyIdempotencyKey(tenantId, afterCommitEventId),
+      async (transaction) => {
+        await transaction.jrEventInbox.update({
+          where: { id: afterCommitEventId },
+          data: { state: 'PROCESSED', processedAt: new Date() },
+        });
+      },
+    ),
     'processed',
   );
   const restartedStore = createDurableJourneyIdempotencyStore(application);
   let restartedHandlerCalled = false;
   assert.equal(
-    await restartedStore.execute(key(tenantId, afterCommitEventId), async () => {
-      restartedHandlerCalled = true;
-    }),
+    await restartedStore.execute(
+      createJourneyIdempotencyKey(tenantId, afterCommitEventId),
+      async () => {
+        restartedHandlerCalled = true;
+      },
+    ),
     'duplicate',
   );
   assert.equal(restartedHandlerCalled, false);

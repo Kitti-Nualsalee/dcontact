@@ -20,9 +20,9 @@ export interface CreateJourneyEventConsumerOptions {
 }
 
 /**
- * ใช้ jr_event_inbox เป็น complete record ของ Journey consumer. Advisory lock
- * ทำให้ worker พร้อมกันมีผู้เรียก handler สำเร็จได้เพียงรายเดียว; เมื่อ handler
- * commit state PROCESSED แล้ว retry/restart จะคืน duplicate โดยไม่เรียก handler.
+ * ใช้ kafka_consumer_inbox เป็น complete record ของ Journey consumer. Advisory
+ * lock ทำให้ worker พร้อมกันมีผู้เรียก handler สำเร็จได้เพียงรายเดียว; complete
+ * record มี unique (consumerGroup, tenantId, eventId) และ commit ร่วมกับ outcome.
  */
 export function createDurableJourneyIdempotencyStore(
   database: PrismaClient,
@@ -34,26 +34,44 @@ export function createDurableJourneyIdempotencyStore(
         await transaction.$queryRaw(
           Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`journey-kafka:${key.consumerGroup}:${key.tenantId}:${key.eventId}`}))`,
         );
+        const completed = await transaction.kafkaConsumerInbox.findUnique({
+          where: {
+            consumerGroup_tenantId_eventId: {
+              consumerGroup: key.consumerGroup,
+              tenantId: key.tenantId,
+              eventId: key.eventId,
+            },
+          },
+          select: { completedAt: true },
+        });
+        if (completed) return 'duplicate';
+
         const inbox = await transaction.jrEventInbox.findFirst({
           where: { id: key.eventId, tenantId: key.tenantId },
-          select: { state: true },
+          select: { id: true },
         });
         if (!inbox) {
           throw new Error('ไม่พบ Journey inbox event สำหรับ Kafka idempotency boundary');
         }
-        if (inbox.state === 'PROCESSED') return 'duplicate';
 
         await work(transaction);
 
-        const completed = await transaction.jrEventInbox.findFirst({
+        const processedInbox = await transaction.jrEventInbox.findFirst({
           where: { id: key.eventId, tenantId: key.tenantId, state: 'PROCESSED' },
           select: { id: true },
         });
-        if (!completed) {
+        if (!processedInbox) {
           throw new Error(
             'Journey Kafka handler ต้อง commit inbox state เป็น PROCESSED ก่อนสำเร็จ',
           );
         }
+        await transaction.kafkaConsumerInbox.create({
+          data: {
+            consumerGroup: key.consumerGroup,
+            tenantId: key.tenantId,
+            eventId: key.eventId,
+          },
+        });
         return 'processed';
       });
     },

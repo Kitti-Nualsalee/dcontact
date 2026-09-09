@@ -42,6 +42,7 @@ model Tenant {
   cgDecisionLogs      CgDecisionLog[]
   cgReservations      CgReservation[]
   jrEventInbox        JrEventInbox[]
+  kafkaConsumerInbox  KafkaConsumerInbox[]
   jrEnrollments       JrEnrollment[]
   jrActions           JrAction[]
 
@@ -528,6 +529,19 @@ model JrEventInbox {
   @@unique([tenantId, source, eventId])
   @@index([tenantId, state, createdAt])
   @@map("jr_event_inbox")
+}
+
+model KafkaConsumerInbox {
+  consumerGroup String   @map("consumer_group")
+  tenantId      String   @map("tenant_id") @db.Uuid
+  eventId       String   @map("event_id")
+  completedAt   DateTime @default(now()) @map("completed_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@id([consumerGroup, tenantId, eventId])
+  @@index([tenantId, completedAt])
+  @@map("kafka_consumer_inbox")
 }
 
 model JrEnrollment {

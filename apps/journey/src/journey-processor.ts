@@ -85,14 +85,14 @@ export class JourneyProcessor {
     input: ProcessJourneyEventInput,
     transaction?: Prisma.TransactionClient,
   ): Promise<JourneyProcessingResult> {
-    const event = await this.loadEventAndPrepareEnrollment(tenantId, input);
+    const event = await this.loadEventAndPrepareEnrollment(tenantId, input, transaction);
     const enrollmentId = input.receiptId;
     const actionKey = createJourneyActionKey({
       enrollmentId,
       journeyVersion: input.journeyVersion,
       stepId: input.stepId,
     });
-    const resolved = await this.resolveContact(tenantId, event);
+    const resolved = await this.resolveContact(tenantId, event, transaction);
     const authorizationBase = {
       channel: input.channel,
       purpose: input.purpose,
@@ -111,7 +111,11 @@ export class JourneyProcessor {
           ...authorizationBase,
           identityResolution: event.contactRef.kind === 'CRM_ID' ? 'AMBIGUOUS' : 'NOT_FOUND',
         };
-    const authorization = await this.governance.authorizeAndReserve(tenantId, authorizationInput);
+    const authorization = await this.governance.authorizeAndReserve(
+      tenantId,
+      authorizationInput,
+      transaction,
+    );
 
     await this.persistOutcome(tenantId, input, actionKey, resolved, authorization, transaction);
 
@@ -140,8 +144,12 @@ export class JourneyProcessor {
   private async loadEventAndPrepareEnrollment(
     tenantId: string,
     input: ProcessJourneyEventInput,
+    transaction?: Prisma.TransactionClient,
   ): Promise<InboundBusinessEvent> {
-    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+    const load = async (
+      transactionClient: Prisma.TransactionClient,
+    ): Promise<InboundBusinessEvent> => {
+      const transaction = transactionClient;
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`journey-enrollment:${tenantId}:${input.receiptId}`}))`,
       );
@@ -170,17 +178,22 @@ export class JourneyProcessor {
         });
       }
       return inbox.payload as unknown as InboundBusinessEvent;
-    });
+    };
+    return transaction
+      ? load(transaction)
+      : withTenantDatabaseTransaction(this.database, tenantId, load);
   }
 
   private async resolveContact(
     tenantId: string,
     event: InboundBusinessEvent,
+    transaction?: Prisma.TransactionClient,
   ): Promise<ResolvedContact | undefined> {
     const identityType = event.contactRef.kind;
     if (identityType === 'CRM_ID') return undefined;
 
-    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+    const resolve = async (transactionClient: Prisma.TransactionClient) => {
+      const transaction = transactionClient;
       const identity = await transaction.contactIdentity.findUnique({
         where: {
           tenantId_type_value: {
@@ -192,7 +205,10 @@ export class JourneyProcessor {
         select: { id: true, contactId: true },
       });
       return identity ? { identityId: identity.id, contactId: identity.contactId } : undefined;
-    });
+    };
+    return transaction
+      ? resolve(transaction)
+      : withTenantDatabaseTransaction(this.database, tenantId, resolve);
   }
 
   private async persistOutcome(
