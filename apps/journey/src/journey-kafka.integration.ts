@@ -6,11 +6,14 @@ import {
   createConsumer,
   createInMemoryIdempotencyStore,
   createProducer,
-  type KafkaEventEnvelope,
+  type KafkaEventEnvelopeV2,
 } from '@d-contact/kafka';
 import { KAFKA_TOPICS, type InboundBusinessEvent } from '@d-contact/shared';
 import { EventInboxService } from './event-inbox.js';
-import { createJourneyKafkaPublisher } from './journey-kafka-publisher.js';
+import {
+  createJourneyContactOrderingKey,
+  createJourneyKafkaPublisher,
+} from './journey-kafka-publisher.js';
 
 test('durable Journey inbox ส่ง event ที่รับแล้วผ่าน Redpanda', { timeout: 30_000 }, async (t) => {
   const owner = new PrismaClient();
@@ -26,7 +29,7 @@ test('durable Journey inbox ส่ง event ที่รับแล้วผ่
   const tenantId = randomUUID();
   const receiptId = randomUUID();
   const suffix = randomUUID();
-  const received: KafkaEventEnvelope[] = [];
+  const received: KafkaEventEnvelopeV2[] = [];
   let resolveReceived!: () => void;
   const eventObserved = new Promise<void>((resolve) => {
     resolveReceived = resolve;
@@ -48,7 +51,7 @@ test('durable Journey inbox ส่ง event ที่รับแล้วผ่
     idempotency: createInMemoryIdempotencyStore(),
     handler: (message) => {
       if (message.event.eventId !== receiptId) return;
-      received.push(message.event);
+      received.push(message.event as KafkaEventEnvelopeV2);
       resolveReceived();
     },
   });
@@ -77,7 +80,11 @@ test('durable Journey inbox ส่ง event ที่รับแล้วผ่
     payload: { invoiceId: 'invoice-001' },
   };
   await service.accept(tenantId, event);
-  const result = await service.publishNext(tenantId, createJourneyKafkaPublisher(producer));
+  const orderingKeySecret = 'journey-kafka-integration-secret';
+  const result = await service.publishNext(
+    tenantId,
+    createJourneyKafkaPublisher(producer, { orderingKeySecret }),
+  );
 
   let timeout: NodeJS.Timeout | undefined;
   await Promise.race([
@@ -94,12 +101,17 @@ test('durable Journey inbox ส่ง event ที่รับแล้วผ่
   assert.equal(result?.state, 'PUBLISHED');
   assert.deepEqual(received, [
     {
+      schemaVersion: 2,
+      eventKind: 'INGRESS',
       eventId: receiptId,
       type: 'journey.business_event.received',
       tenantId,
       occurredAt: event.occurredAt,
       correlationId: receiptId,
-      orderingKey: 'EMAIL:customer@example.test',
+      orderingKey: createJourneyContactOrderingKey(tenantId, event.contactRef, orderingKeySecret),
+      aggregateType: 'journey_event_receipt',
+      aggregateId: receiptId,
+      aggregateVersion: 0,
       payload: { event },
     },
   ]);
