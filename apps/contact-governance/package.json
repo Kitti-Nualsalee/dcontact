@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@d-contact/db": "workspace:*"
+    "@d-contact/db": "workspace:*",
+    "@d-contact/cxa-contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

@@ -1,35 +1,17 @@
-export type ReservationState = 'RESERVED' | 'CONFIRMED' | 'RELEASED' | 'REFUNDED';
-export interface RefundReservationCommand {
-  type: 'REFUND';
-  outcome: 'DELIVERY_FAILED' | 'DELIVERED';
-}
-
-export type ReservationCommand = 'CONFIRM' | 'RELEASE' | RefundReservationCommand;
-
-export interface ReservationSnapshot {
-  id: string;
-  state: ReservationState;
-}
-
-export class InvalidReservationTransitionError extends Error {
-  readonly code = 'INVALID_RESERVATION_TRANSITION';
-
-  constructor(state: ReservationState, command: ReservationCommand) {
-    super(
-      `ไม่รองรับ reservation transition: ${state} -> ${typeof command === 'string' ? command : command.type}`,
-    );
-    this.name = 'InvalidReservationTransitionError';
-  }
-}
-
-export class RefundNotAllowedError extends Error {
-  readonly code = 'REFUND_NOT_ALLOWED';
-
-  constructor(readonly outcome: RefundReservationCommand['outcome']) {
-    super(`ไม่อนุญาตให้ refund reservation สำหรับ outcome ${outcome}`);
-    this.name = 'RefundNotAllowedError';
-  }
-}
+import {
+  InvalidReservationTransitionError,
+  RefundNotAllowedError,
+  type ReservationSnapshot,
+  type ReservationCommand,
+} from '@d-contact/cxa-contracts';
+export {
+  InvalidReservationTransitionError,
+  RefundNotAllowedError,
+  type ReservationState,
+  type RefundReservationCommand,
+  type ReservationCommand,
+  type ReservationSnapshot,
+} from '@d-contact/cxa-contracts';
 
 export function transitionReservation(
   reservation: ReservationSnapshot,
