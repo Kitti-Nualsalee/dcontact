@@ -109,6 +109,9 @@ importers:
 
   apps/contact-governance:
     dependencies:
+      '@d-contact/cxa-contracts':
+        specifier: workspace:*
+        version: link:../../packages/cxa-contracts
       '@d-contact/db':
         specifier: workspace:*
         version: link:../../packages/db

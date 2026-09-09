@@ -1,10 +1,5 @@
-export type ContactDecision = 'ALLOW' | 'BLOCK' | 'DEFER' | 'REVIEW';
-
-export interface ContactPolicyTraceEntry {
-  gate: 'IDENTITY' | 'HARD_RESTRICTION' | 'CONSENT';
-  outcome: 'PASS' | 'ALLOW' | 'BLOCK' | 'REVIEW';
-  reasonCode?: string;
-}
+import type { ContactPolicyTraceEntry, ContactDecision } from '@d-contact/cxa-contracts';
+export type { ContactPolicyTraceEntry, ContactDecision } from '@d-contact/cxa-contracts';
 
 export interface ContactPolicyFacts {
   policyVersion: number;

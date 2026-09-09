@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   Prisma,
-  type ChannelType,
   type CgDecision,
   type CgReservationState,
   type PrismaClient,
@@ -14,85 +13,30 @@ import {
 } from './contact-policy.js';
 import { transitionReservation, type ReservationCommand } from './reservation.js';
 
+import {
+  IdempotencyConflictError,
+  ReservationNotFoundError,
+  ReservationNotUsableError,
+  type AuthorizeAndReserveInput,
+  type AuthorizationOutcome,
+  type ContactAuthorizationPort,
+  type ReservationView,
+} from '@d-contact/cxa-contracts';
+export {
+  IdempotencyConflictError,
+  ReservationNotFoundError,
+  ReservationNotUsableError,
+  type AuthorizeAndReserveInput,
+  type AuthorizationOutcome,
+  type ReservationNotUsableCode,
+  type ReservationView,
+} from '@d-contact/cxa-contracts';
+
 const RESERVATION_TTL_MS = 15 * 60 * 1_000;
-
-interface AuthorizationInputBase {
-  channel: ChannelType;
-  purpose: string;
-  source: string;
-  sourceId: string;
-  actionKey: string;
-  policyVersion: number;
-  teamId?: string;
-}
-
-export type AuthorizeAndReserveInput = AuthorizationInputBase &
-  (
-    | {
-        contactId: string;
-        identityId?: string;
-        identityResolution?: never;
-      }
-    | {
-        contactId?: never;
-        identityId?: never;
-        identityResolution: 'AMBIGUOUS' | 'NOT_FOUND';
-      }
-  );
-
-export interface AuthorizationOutcome {
-  decisionId: string;
-  decision: CgDecision;
-  reasonCode: string;
-  policyVersion: number;
-  trace: ContactPolicyTraceEntry[];
-  reservationId?: string;
-  reservationExpiresAt?: string;
-}
 
 export interface ContactGovernanceServiceOptions {
   now?: () => Date;
   id?: () => string;
-}
-
-export interface ReservationView {
-  id: string;
-  state: CgReservationState;
-  expiresAt: string;
-  confirmedAt?: string;
-  releasedAt?: string;
-  refundedAt?: string;
-}
-
-export class IdempotencyConflictError extends Error {
-  readonly code = 'IDEMPOTENCY_CONFLICT';
-
-  constructor(readonly actionKey: string) {
-    super(`actionKey ถูกใช้กับ canonical input อื่นแล้ว: ${actionKey}`);
-    this.name = 'IdempotencyConflictError';
-  }
-}
-
-export class ReservationNotFoundError extends Error {
-  readonly code = 'RESERVATION_NOT_FOUND';
-
-  constructor(readonly reservationId: string) {
-    super(`ไม่พบ reservation ใน active tenant: ${reservationId}`);
-    this.name = 'ReservationNotFoundError';
-  }
-}
-
-export type ReservationNotUsableCode =
-  'RESERVATION_NOT_FOUND' | 'RESERVATION_NOT_RESERVED' | 'RESERVATION_EXPIRED';
-
-export class ReservationNotUsableError extends Error {
-  constructor(
-    readonly code: ReservationNotUsableCode,
-    readonly reservationId: string,
-  ) {
-    super(`ไม่สามารถใช้ reservation สำหรับ delivery: ${code}`);
-    this.name = 'ReservationNotUsableError';
-  }
 }
 
 const decisionSelection = {
@@ -180,7 +124,7 @@ function toReservationView(reservation: {
   };
 }
 
-export class ContactGovernanceService {
+export class ContactGovernanceService implements ContactAuthorizationPort {
   private readonly now: () => Date;
   private readonly id: () => string;
 
