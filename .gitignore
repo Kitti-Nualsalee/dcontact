@@ -24,3 +24,6 @@ coverage/
 test-results/
 playwright-report/
 blob-report/
+
+# generated CX Automation acceptance evidence (export or attach outside git when needed)
+artifacts/cxa-e0/
