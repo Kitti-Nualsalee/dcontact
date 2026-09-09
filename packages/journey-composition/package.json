@@ -1,5 +1,5 @@
 {
-  "name": "@d-contact/journey",
+  "name": "@d-contact/journey-composition",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,18 +7,14 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js",
     "test": "tsx --test src/*.test.ts",
-    "test:integration": "tsx --test --test-concurrency=1 src/*.integration.ts",
+    "test:integration": "tsx --test src/*.integration.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@d-contact/contact-governance": "workspace:*",
     "@d-contact/cxa-contracts": "workspace:*",
-    "@d-contact/db": "workspace:*",
-    "@d-contact/journey-composition": "workspace:*",
-    "@d-contact/kafka": "workspace:*",
-    "@d-contact/shared": "workspace:*"
+    "@d-contact/db": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

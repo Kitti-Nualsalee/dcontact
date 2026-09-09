@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 import { Prisma, PrismaClient } from '@d-contact/db';
 import {
-  ContactGovernanceService,
   type AuthorizationOutcome,
   type AuthorizeAndReserveInput,
-} from '@d-contact/contact-governance';
+  type ContactAuthorizationPort,
+} from '@d-contact/cxa-contracts';
+import { createJourneyFoundationPorts } from '@d-contact/journey-composition';
 import type { InboundBusinessEvent } from '@d-contact/shared';
 import { createDurableJourneyIdempotencyStore } from './journey-event-consumer.js';
 import { JourneyProcessor } from './journey-processor.js';
@@ -195,16 +196,21 @@ test('crash หลัง Governance reserve rollback handler ทั้งชุ�
   });
   await owner.$disconnect();
 
-  class CrashAfterReserve extends ContactGovernanceService {
-    override async authorizeAndReserve(
+  const foundationPorts = createJourneyFoundationPorts(application);
+  const crashAfterReserve: ContactAuthorizationPort<Prisma.TransactionClient> = {
+    async authorizeAndReserve(
       crashTenantId: string,
       authorizationInput: AuthorizeAndReserveInput,
       transaction?: Prisma.TransactionClient,
     ): Promise<AuthorizationOutcome> {
-      await super.authorizeAndReserve(crashTenantId, authorizationInput, transaction);
+      await foundationPorts.contactAuthorizationPort.authorizeAndReserve(
+        crashTenantId,
+        authorizationInput,
+        transaction,
+      );
       throw new Error('จำลอง crash หลัง reserve');
-    }
-  }
+    },
+  };
   const input = {
     receiptId,
     journeyVersion: 1,
@@ -217,11 +223,10 @@ test('crash หลัง Governance reserve rollback handler ทั้งชุ�
   await assert.rejects(
     () =>
       store.execute(createJourneyIdempotencyKey(tenantId, receiptId), async (tx) => {
-        await new JourneyProcessor(application, new CrashAfterReserve(application)).processEvent(
-          tenantId,
-          input,
-          tx,
-        );
+        await new JourneyProcessor(application, {
+          ...foundationPorts,
+          contactAuthorizationPort: crashAfterReserve,
+        }).processEvent(tenantId, input, tx);
       }),
     /crash หลัง reserve/,
   );
@@ -233,7 +238,7 @@ test('crash หลัง Governance reserve rollback handler ทั้งชุ�
     await store.execute(createJourneyIdempotencyKey(tenantId, receiptId), async (tx) => {
       await new JourneyProcessor(
         application,
-        new ContactGovernanceService(application),
+        createJourneyFoundationPorts(application),
       ).processEvent(tenantId, input, tx);
     }),
     'processed',

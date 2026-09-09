@@ -50,6 +50,9 @@ export type CustomerContextResolution =
  * and segment membership from authoritative data; consumers never supply a
  * membership snapshot for this port to trust.
  */
-export interface CustomerContextReader {
-  resolveCurrentContext(input: ResolveCurrentContextInput): Promise<CustomerContextResolution>;
+export interface CustomerContextReader<TContext = undefined> {
+  resolveCurrentContext(
+    input: ResolveCurrentContextInput,
+    context?: TContext,
+  ): Promise<CustomerContextResolution>;
 }

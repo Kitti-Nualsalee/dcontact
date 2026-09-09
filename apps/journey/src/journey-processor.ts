@@ -1,8 +1,16 @@
 import type {
   AuthorizeAndReserveInput,
   AuthorizationOutcome,
-  ContactGovernanceService,
-} from '@d-contact/contact-governance';
+  ContactAuthorizationPort,
+  CustomerContextReader,
+  CustomerContextResolution,
+  TeamContactScopeAuthorizer,
+} from '@d-contact/cxa-contracts';
+import {
+  contactId as toContactId,
+  teamId as toTeamId,
+  tenantId as toTenantId,
+} from '@d-contact/cxa-contracts';
 import {
   Prisma,
   type ChannelType,
@@ -21,6 +29,7 @@ export interface ProcessJourneyEventInput {
   channel: ChannelType;
   purpose: string;
   policyVersion: number;
+  teamId?: string;
 }
 
 export interface AuthorizedJourneyAction {
@@ -35,11 +44,12 @@ export interface JourneyProcessingResult {
   receiptId: string;
   enrollmentId: string;
   actionKey: string;
-  decisionId: string;
-  decision: CgDecision;
+  decisionId?: string;
+  decision?: CgDecision;
   reasonCode: string;
   reservationId?: string;
   action?: AuthorizedJourneyAction;
+  scopeDecision?: 'DENY';
 }
 
 export interface JourneyProcessorOptions {
@@ -49,6 +59,12 @@ export interface JourneyProcessorOptions {
 interface ResolvedContact {
   contactId: string;
   identityId: string;
+}
+
+export interface JourneyProcessorPorts {
+  customerContextReader: CustomerContextReader<Prisma.TransactionClient>;
+  teamContactScopeAuthorizer: TeamContactScopeAuthorizer<Prisma.TransactionClient>;
+  contactAuthorizationPort: ContactAuthorizationPort<Prisma.TransactionClient>;
 }
 
 export class JourneyEventNotReadyError extends Error {
@@ -74,7 +90,7 @@ export class JourneyProcessor {
 
   constructor(
     private readonly database: PrismaClient,
-    private readonly governance: ContactGovernanceService,
+    private readonly ports: JourneyProcessorPorts,
     options: JourneyProcessorOptions = {},
   ) {
     this.now = options.now ?? (() => new Date());
@@ -92,7 +108,37 @@ export class JourneyProcessor {
       journeyVersion: input.journeyVersion,
       stepId: input.stepId,
     });
-    const resolved = await this.resolveContact(tenantId, event, transaction);
+    const resolution = await this.ports.customerContextReader.resolveCurrentContext(
+      {
+        tenantId: toTenantId(tenantId),
+        contactRef: event.contactRef,
+        at: this.now().toISOString(),
+      },
+      transaction,
+    );
+    const resolved = this.toResolvedContact(resolution);
+    if (resolved && input.teamId) {
+      const scope = await this.ports.teamContactScopeAuthorizer.authorize(
+        {
+          tenantId: toTenantId(tenantId),
+          teamId: toTeamId(input.teamId),
+          contactId: toContactId(resolved.contactId),
+          permission: 'CONTACT',
+          at: this.now().toISOString(),
+        },
+        transaction,
+      );
+      if (scope.decision === 'DENY') {
+        await this.persistScopeDenied(tenantId, input, resolved, transaction);
+        return {
+          receiptId: input.receiptId,
+          enrollmentId,
+          actionKey,
+          reasonCode: scope.reasonCode,
+          scopeDecision: 'DENY',
+        };
+      }
+    }
     const authorizationBase = {
       channel: input.channel,
       purpose: input.purpose,
@@ -109,9 +155,9 @@ export class JourneyProcessor {
         }
       : {
           ...authorizationBase,
-          identityResolution: event.contactRef.kind === 'CRM_ID' ? 'AMBIGUOUS' : 'NOT_FOUND',
+          identityResolution: resolution.status === 'AMBIGUOUS' ? 'AMBIGUOUS' : 'NOT_FOUND',
         };
-    const authorization = await this.governance.authorizeAndReserve(
+    const authorization = await this.ports.contactAuthorizationPort.authorizeAndReserve(
       tenantId,
       authorizationInput,
       transaction,
@@ -184,31 +230,33 @@ export class JourneyProcessor {
       : withTenantDatabaseTransaction(this.database, tenantId, load);
   }
 
-  private async resolveContact(
-    tenantId: string,
-    event: InboundBusinessEvent,
-    transaction?: Prisma.TransactionClient,
-  ): Promise<ResolvedContact | undefined> {
-    const identityType = event.contactRef.kind;
-    if (identityType === 'CRM_ID') return undefined;
+  private toResolvedContact(resolution: CustomerContextResolution): ResolvedContact | undefined {
+    return resolution.status === 'RESOLVED' && resolution.identityId
+      ? { contactId: resolution.contactId, identityId: resolution.identityId }
+      : undefined;
+  }
 
-    const resolve = async (transactionClient: Prisma.TransactionClient) => {
-      const transaction = transactionClient;
-      const identity = await transaction.contactIdentity.findUnique({
-        where: {
-          tenantId_type_value: {
-            tenantId,
-            type: identityType,
-            value: event.contactRef.value,
-          },
-        },
-        select: { id: true, contactId: true },
+  private async persistScopeDenied(
+    tenantId: string,
+    input: ProcessJourneyEventInput,
+    resolved: ResolvedContact,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const persist = async (transactionClient: Prisma.TransactionClient): Promise<void> => {
+      await transactionClient.jrEnrollment.updateMany({
+        where: { id: input.receiptId, tenantId },
+        data: { state: 'BLOCKED', contactId: resolved.contactId, decisionId: null },
       });
-      return identity ? { identityId: identity.id, contactId: identity.contactId } : undefined;
+      await transactionClient.jrEventInbox.updateMany({
+        where: { id: input.receiptId, tenantId, state: { in: ['PUBLISHED', 'PROCESSED'] } },
+        data: { state: 'PROCESSED', processedAt: this.now() },
+      });
     };
-    return transaction
-      ? resolve(transaction)
-      : withTenantDatabaseTransaction(this.database, tenantId, resolve);
+    if (transaction) {
+      await persist(transaction);
+      return;
+    }
+    await withTenantDatabaseTransaction(this.database, tenantId, persist);
   }
 
   private async persistOutcome(

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
-import { ContactGovernanceService } from '@d-contact/contact-governance';
 import { PrismaClient } from '@d-contact/db';
+import { createJourneyFoundationPorts } from '@d-contact/journey-composition';
 import type { InboundBusinessEvent } from '@d-contact/shared';
 import { EventInboxService } from './event-inbox.js';
 import { JourneyEventNotReadyError, JourneyProcessor } from './journey-processor.js';
@@ -30,6 +30,7 @@ async function createTenantFixture(t: TestContext) {
     await owner.jrEventInbox.deleteMany({ where: { tenantId } });
     await owner.contactIdentity.deleteMany({ where: { tenantId } });
     await owner.contact.deleteMany({ where: { tenantId } });
+    await owner.team.deleteMany({ where: { tenantId } });
     await owner.tenant.deleteMany({ where: { id: tenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -66,13 +67,18 @@ test('CRM_ID ที่ resolve ไม่ได้ให้ REVIEW evidence โ�
   await inbox.accept(tenantId, event);
   await inbox.publishNext(tenantId, { publish: async () => undefined });
 
-  const governance = new ContactGovernanceService(application, {
-    now: () => new Date('2026-09-08T01:02:00.000Z'),
-    id: () => decisionId,
-  });
-  const processor = new JourneyProcessor(application, governance, {
-    now: () => new Date('2026-09-08T01:03:00.000Z'),
-  });
+  const processor = new JourneyProcessor(
+    application,
+    createJourneyFoundationPorts(application, {
+      contactGovernance: {
+        now: () => new Date('2026-09-08T01:02:00.000Z'),
+        id: () => decisionId,
+      },
+    }),
+    {
+      now: () => new Date('2026-09-08T01:03:00.000Z'),
+    },
+  );
   const input = {
     receiptId,
     journeyVersion: 3,
@@ -102,10 +108,54 @@ test('CRM_ID ที่ resolve ไม่ได้ให้ REVIEW evidence โ�
   );
 });
 
+test('identity ที่ไม่พบผ่าน Customer Context ให้ REVIEW evidence โดยไม่สร้าง action', async (t) => {
+  const { owner, application, tenantId } = await createTenantFixture(t);
+  const receiptId = randomUUID();
+  const decisionId = randomUUID();
+  const event: InboundBusinessEvent = {
+    source: 'billing',
+    eventId: 'payment-failed-not-found-001',
+    type: 'payment.failed',
+    occurredAt: '2026-09-08T01:30:00.000Z',
+    schemaVersion: 1,
+    contactRef: { kind: 'EMAIL', value: 'not-found@example.test' },
+    payload: {},
+  };
+  const inbox = new EventInboxService(application, { id: () => receiptId });
+  await inbox.accept(tenantId, event);
+  await inbox.publishNext(tenantId, { publish: async () => undefined });
+
+  const processor = new JourneyProcessor(
+    application,
+    createJourneyFoundationPorts(application, { contactGovernance: { id: () => decisionId } }),
+  );
+  const result = await processor.processEvent(tenantId, {
+    receiptId,
+    journeyVersion: 1,
+    stepId: 'not-found',
+    channel: 'EMAIL',
+    purpose: 'SERVICE_NOTIFICATION',
+    policyVersion: 1,
+  });
+
+  assert.deepEqual(result, {
+    receiptId,
+    enrollmentId: receiptId,
+    actionKey: `${receiptId}:1:not-found`,
+    decisionId,
+    decision: 'REVIEW',
+    reasonCode: 'IDENTITY_NOT_FOUND',
+  });
+  assert.equal(await owner.cgDecisionLog.count({ where: { tenantId } }), 1);
+  assert.equal(await owner.cgReservation.count({ where: { tenantId } }), 0);
+  assert.equal(await owner.jrAction.count({ where: { tenantId } }), 0);
+});
+
 test('event ที่ resolve contact ได้สร้าง action ที่เชื่อม decision และ reservation เดิมข้าม retry', async (t) => {
   const { owner, application, tenantId } = await createTenantFixture(t);
   const contactId = '30000000-0000-4000-8000-000000000001';
   const identityId = '40000000-0000-4000-8000-000000000001';
+  const teamId = randomUUID();
   const receiptId = '50000000-0000-4000-8000-000000000001';
   const decisionId = '60000000-0000-4000-8000-000000000001';
   const reservationId = '70000000-0000-4000-8000-000000000001';
@@ -136,6 +186,7 @@ test('event ที่ resolve contact ได้สร้าง action ที่�
       },
     },
   });
+  await owner.team.create({ data: { id: teamId, tenantId, name: 'Journey scope allow' } });
   const event: InboundBusinessEvent = {
     source: 'billing',
     eventId: 'payment-failed-resolved-001',
@@ -153,11 +204,20 @@ test('event ที่ resolve contact ได้สร้าง action ที่�
   await inbox.publishNext(tenantId, { publish: async () => undefined });
 
   const ids = [decisionId, reservationId];
-  const governance = new ContactGovernanceService(application, {
-    now: () => new Date('2026-09-08T02:02:00.000Z'),
-    id: () => ids.shift() ?? randomUUID(),
+  const foundationPorts = createJourneyFoundationPorts(application, {
+    contactGovernance: {
+      now: () => new Date('2026-09-08T02:02:00.000Z'),
+      id: () => ids.shift() ?? randomUUID(),
+    },
   });
-  const processor = new JourneyProcessor(application, governance);
+  const processor = new JourneyProcessor(application, {
+    ...foundationPorts,
+    teamContactScopeAuthorizer: {
+      async authorize(input) {
+        return { decision: 'ALLOW', scopeVersion: 1, evaluatedAt: input.at };
+      },
+    },
+  });
   const input = {
     receiptId,
     journeyVersion: 4,
@@ -165,6 +225,7 @@ test('event ที่ resolve contact ได้สร้าง action ที่�
     channel: 'EMAIL' as const,
     purpose: 'MARKETING',
     policyVersion: 1,
+    teamId,
   };
 
   const processed = await processor.processEvent(tenantId, input);
@@ -242,6 +303,78 @@ test('event ที่ resolve contact ได้สร้าง action ที่�
   assert.equal(await owner.jrAction.count({ where: { tenantId } }), 1);
 });
 
+test('scope ที่ปฏิเสธจบ Journey ก่อน Contact Governance และเก็บ inbox เป็นผลลัพธ์ terminal', async (t) => {
+  const { owner, application, tenantId } = await createTenantFixture(t);
+  const contactId = randomUUID();
+  const identityId = randomUUID();
+  const receiptId = randomUUID();
+  const teamId = randomUUID();
+  const event: InboundBusinessEvent = {
+    source: 'billing',
+    eventId: 'scope-denied-001',
+    type: 'payment.failed',
+    occurredAt: '2026-09-08T03:30:00.000Z',
+    schemaVersion: 1,
+    contactRef: { kind: 'EMAIL', value: 'scope-denied@example.test' },
+    payload: {},
+  };
+  await owner.contact.create({
+    data: {
+      id: contactId,
+      tenantId,
+      identities: {
+        create: { id: identityId, tenantId, type: 'EMAIL', value: event.contactRef.value },
+      },
+    },
+  });
+  await owner.team.create({ data: { id: teamId, tenantId, name: 'Journey scope deny' } });
+  const inbox = new EventInboxService(application, { id: () => receiptId });
+  await inbox.accept(tenantId, event);
+  await inbox.publishNext(tenantId, { publish: async () => undefined });
+
+  const foundationPorts = createJourneyFoundationPorts(application);
+  let governanceCalls = 0;
+  const processor = new JourneyProcessor(application, {
+    ...foundationPorts,
+    contactAuthorizationPort: {
+      async authorizeAndReserve(...args) {
+        governanceCalls += 1;
+        return foundationPorts.contactAuthorizationPort.authorizeAndReserve(...args);
+      },
+    },
+  });
+
+  const result = await processor.processEvent(tenantId, {
+    receiptId,
+    journeyVersion: 1,
+    stepId: 'scope-check',
+    channel: 'EMAIL',
+    purpose: 'MARKETING',
+    policyVersion: 1,
+    teamId,
+  });
+
+  assert.deepEqual(result, {
+    receiptId,
+    enrollmentId: receiptId,
+    actionKey: `${receiptId}:1:scope-check`,
+    reasonCode: 'TEAM_SEGMENT_NOT_ALLOWED',
+    scopeDecision: 'DENY',
+  });
+  assert.equal(governanceCalls, 0);
+  assert.equal(await owner.cgDecisionLog.count({ where: { tenantId } }), 0);
+  assert.equal(await owner.cgReservation.count({ where: { tenantId } }), 0);
+  assert.equal(await owner.jrAction.count({ where: { tenantId } }), 0);
+  assert.equal(
+    (await owner.jrEnrollment.findUniqueOrThrow({ where: { id: receiptId } })).state,
+    'BLOCKED',
+  );
+  assert.equal(
+    (await owner.jrEventInbox.findUniqueOrThrow({ where: { id: receiptId } })).state,
+    'PROCESSED',
+  );
+});
+
 test('สอง tenant ใช้ identity เดียวกันแต่ได้ policy ของตนเองและไม่ประมวลผล receipt ข้ามกัน', async (t) => {
   const tenantA = await createTenantFixture(t);
   const tenantB = await createTenantFixture(t);
@@ -302,11 +435,11 @@ test('สอง tenant ใช้ identity เดียวกันแต่ไ�
 
   const processorA = new JourneyProcessor(
     tenantA.application,
-    new ContactGovernanceService(tenantA.application),
+    createJourneyFoundationPorts(tenantA.application),
   );
   const processorB = new JourneyProcessor(
     tenantB.application,
-    new ContactGovernanceService(tenantB.application),
+    createJourneyFoundationPorts(tenantB.application),
   );
   const commonInput = {
     journeyVersion: 1,

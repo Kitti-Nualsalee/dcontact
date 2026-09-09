@@ -1,5 +1,5 @@
-import { ContactGovernanceService } from '@d-contact/contact-governance';
 import { PrismaClient } from '@d-contact/db';
+import { createJourneyFoundationPorts } from '@d-contact/journey-composition';
 import { createDlqPublisher, createProducer } from '@d-contact/kafka';
 import { EventInboxService } from './event-inbox.js';
 import { createJourneyEventConsumer } from './journey-event-consumer.js';
@@ -20,12 +20,17 @@ function configuredChannel(): 'EMAIL' | 'LINE' {
   return channel;
 }
 
+function configuredTeamId(): string | undefined {
+  const value = process.env.JOURNEY_TRIGGER_TEAM_ID?.trim();
+  return value || undefined;
+}
+
 const database = new PrismaClient();
 const producer = await createProducer('dcontact-journey-publisher');
 const dlq = await createDlqPublisher('dcontact-journey-dlq');
 const publisher = createJourneyKafkaPublisher(producer);
 const inbox = new EventInboxService(database);
-const processor = new JourneyProcessor(database, new ContactGovernanceService(database));
+const processor = new JourneyProcessor(database, createJourneyFoundationPorts(database));
 const consumer = await createJourneyEventConsumer({
   database,
   processor,
@@ -38,6 +43,7 @@ const consumer = await createJourneyEventConsumer({
     channel: configuredChannel(),
     purpose: process.env.JOURNEY_TRIGGER_PURPOSE ?? 'MARKETING',
     policyVersion: positiveInteger('JOURNEY_POLICY_VERSION', 1),
+    teamId: configuredTeamId(),
   },
 });
 let draining = false;

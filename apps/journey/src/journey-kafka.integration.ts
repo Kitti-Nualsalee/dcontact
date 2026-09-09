@@ -10,10 +10,7 @@ import {
 } from '@d-contact/kafka';
 import { KAFKA_TOPICS, type InboundBusinessEvent } from '@d-contact/shared';
 import { EventInboxService } from './event-inbox.js';
-import {
-  createJourneyContactOrderingKey,
-  createJourneyKafkaPublisher,
-} from './journey-kafka-publisher.js';
+import { createJourneyKafkaPublisher } from './journey-kafka-publisher.js';
 
 test('durable Journey inbox ส่ง event ที่รับแล้วผ่าน Redpanda', { timeout: 30_000 }, async (t) => {
   const owner = new PrismaClient();
@@ -80,11 +77,7 @@ test('durable Journey inbox ส่ง event ที่รับแล้วผ่
     payload: { invoiceId: 'invoice-001' },
   };
   await service.accept(tenantId, event);
-  const orderingKeySecret = 'journey-kafka-integration-secret';
-  const result = await service.publishNext(
-    tenantId,
-    createJourneyKafkaPublisher(producer, { orderingKeySecret }),
-  );
+  const result = await service.publishNext(tenantId, createJourneyKafkaPublisher(producer));
 
   let timeout: NodeJS.Timeout | undefined;
   await Promise.race([
@@ -108,7 +101,7 @@ test('durable Journey inbox ส่ง event ที่รับแล้วผ่
       tenantId,
       occurredAt: event.occurredAt,
       correlationId: receiptId,
-      orderingKey: createJourneyContactOrderingKey(tenantId, event.contactRef, orderingKeySecret),
+      orderingKey: receiptId,
       aggregateType: 'journey_event_receipt',
       aggregateId: receiptId,
       aggregateVersion: 0,
