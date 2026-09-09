@@ -34,6 +34,7 @@ const headers = {
 
 const v2Event: KafkaEventEnvelopeV2<{ state: string }> = {
   schemaVersion: 2,
+  eventKind: 'CANONICAL',
   eventId: 'event-35',
   type: 'agent.state_changed',
   tenantId: 'tenant-a',
@@ -57,6 +58,10 @@ const v2Headers = {
 
 test('อนุญาตเฉพาะ topic กลางและปฏิเสธ dc.fs.events', () => {
   assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.AGENT_EVENTS));
+  assert.throws(
+    () => assertKafkaTopic(KAFKA_TOPICS.DEAD_LETTER),
+    (error: unknown) => error instanceof KafkaContractError && error.code === 'UNAPPROVED_TOPIC',
+  );
   assert.throws(
     () => assertKafkaTopic('dc.fs.events'),
     (error: unknown) => error instanceof KafkaContractError && error.code === 'UNAPPROVED_TOPIC',
@@ -130,6 +135,14 @@ test('ปฏิเสธ schema version ที่ไม่รองรับเ�
   assert.throws(
     () => validateEventEnvelope({ ...v2Event, aggregateVersion: -1 }),
     (error: unknown) => error instanceof KafkaContractError && error.code === 'INVALID_ENVELOPE',
+  );
+  assert.throws(
+    () => validateEventEnvelope({ ...v2Event, aggregateVersion: 0 }),
+    (error: unknown) => error instanceof KafkaContractError && error.code === 'INVALID_ENVELOPE',
+  );
+  assert.deepEqual(
+    validateEventEnvelope({ ...v2Event, eventKind: 'INGRESS', aggregateVersion: 0 }),
+    { ...v2Event, eventKind: 'INGRESS', aggregateVersion: 0 },
   );
 });
 
@@ -232,5 +245,27 @@ test('createConsumer ปฏิเสธ in-memory store ก่อนเชื่
         handler: async () => undefined,
       }),
     /durability เป็น DURABLE/,
+  );
+});
+
+test('production consumer ต้องมี DlqPublisher ก่อนเชื่อมต่อ broker', async () => {
+  const durableFixture: EventIdempotencyStore = {
+    durability: 'DURABLE',
+    execute: async (_key, work) => {
+      await work(undefined);
+      return 'processed';
+    },
+  };
+  await assert.rejects(
+    () =>
+      createConsumer({
+        clientId: 'contract-test',
+        groupId: 'contract-test',
+        topics: [KAFKA_TOPICS.AGENT_EVENTS],
+        runtime: 'production',
+        idempotency: durableFixture,
+        handler: async () => undefined,
+      }),
+    /DlqPublisher/,
   );
 });

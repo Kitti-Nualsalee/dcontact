@@ -32,6 +32,8 @@ export const KAFKA_TOPICS = {
    * ดู ADR-025 (CX automation)
    */
   JOURNEY_EVENTS: 'dc.journey.events',
+  /** quarantine สำหรับ Kafka contract ที่ตรวจไม่ผ่าน; access/retention แยกจาก topic ธุรกิจ */
+  DEAD_LETTER: 'dc.platform.dlq',
 } as const;
 
 export type KafkaTopic = (typeof KAFKA_TOPICS)[keyof typeof KAFKA_TOPICS];

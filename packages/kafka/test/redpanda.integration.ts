@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
+import { Kafka } from 'kafkajs';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import {
   createConsumer,
+  createDlqPublisher,
   createInMemoryIdempotencyStore,
   createProducer,
   isKafkaEventEnvelopeV2,
@@ -43,6 +45,7 @@ test(
 
     const event: KafkaEventEnvelopeV2<{ state: string; sourceService: string }> = {
       schemaVersion: 2,
+      eventKind: 'CANONICAL',
       eventId: `event-${suffix}`,
       type: 'agent.state_changed',
       tenantId: `tenant-${suffix}`,
@@ -77,6 +80,129 @@ test(
     } finally {
       await producer.disconnect();
       await consumer.disconnect();
+    }
+  },
+);
+
+test(
+  'schema version ที่ไม่รองรับถูกเขียนเข้า DLQ ก่อน consumer commit offset ต้นทาง',
+  { timeout: 30_000 },
+  async () => {
+    const suffix = randomUUID();
+    const clientId = `issue-66-dlq-${suffix}`;
+    const broker = 'localhost:9092';
+    const kafka = new Kafka({ clientId, brokers: [broker] });
+    const admin = kafka.admin();
+    const dlqConsumer = kafka.consumer({ groupId: `${clientId}-dlq-observer` });
+    const rawProducer = kafka.producer({ allowAutoTopicCreation: false });
+    const dlqMessages: Array<Record<string, unknown>> = [];
+    let resolveDlq!: () => void;
+    const dlqObserved = new Promise<void>((resolve) => {
+      resolveDlq = resolve;
+    });
+
+    await admin.connect();
+    const topics = await admin.listTopics();
+    if (!topics.includes(KAFKA_TOPICS.DEAD_LETTER)) {
+      await admin.createTopics({ topics: [{ topic: KAFKA_TOPICS.DEAD_LETTER }] });
+    }
+    await dlqConsumer.connect();
+    await dlqConsumer.subscribe({ topic: KAFKA_TOPICS.DEAD_LETTER, fromBeginning: false });
+    await dlqConsumer.run({
+      eachMessage: async ({ message }) => {
+        if (!message.value) return;
+        dlqMessages.push(JSON.parse(message.value.toString()) as Record<string, unknown>);
+        resolveDlq();
+      },
+    });
+
+    const dlq = await createDlqPublisher(`${clientId}-publisher`, { brokers: [broker] });
+    const sourceGroupId = `${clientId}-source`;
+    const consumer = await createConsumer({
+      clientId: `${clientId}-consumer`,
+      groupId: sourceGroupId,
+      topics: [KAFKA_TOPICS.AGENT_EVENTS],
+      brokers: [broker],
+      idempotency: createInMemoryIdempotencyStore(),
+      dlq,
+      handler: async () => assert.fail('invalid event must not reach business handler'),
+    });
+    await rawProducer.connect();
+
+    try {
+      const invalid = {
+        schemaVersion: 3,
+        eventId: `event-${suffix}`,
+        type: 'agent.state_changed',
+        tenantId: `tenant-${suffix}`,
+        occurredAt: new Date().toISOString(),
+        correlationId: `correlation-${suffix}`,
+        orderingKey: `agent-${suffix}`,
+        aggregateType: 'agent',
+        aggregateId: `agent-${suffix}`,
+        aggregateVersion: 1,
+        payload: { state: 'READY' },
+      };
+      const sourceMetadata = await rawProducer.send({
+        topic: KAFKA_TOPICS.AGENT_EVENTS,
+        messages: [
+          {
+            key: invalid.orderingKey,
+            value: JSON.stringify(invalid),
+            headers: {
+              tenantId: invalid.tenantId,
+              eventId: invalid.eventId,
+              correlationId: invalid.correlationId,
+              orderingKey: invalid.orderingKey,
+              schemaVersion: '3',
+              aggregateId: invalid.aggregateId,
+            },
+          },
+        ],
+      });
+      let timeout: NodeJS.Timeout | undefined;
+      await Promise.race([
+        dlqObserved,
+        new Promise<never>(
+          (_, reject) =>
+            (timeout = setTimeout(
+              () => reject(new Error('ไม่พบ invalid event ใน DLQ ภายในเวลา')),
+              10_000,
+            )),
+        ),
+      ]);
+      if (timeout) clearTimeout(timeout);
+
+      const source = sourceMetadata[0];
+      assert.ok(source);
+      const sourceOffset = BigInt(source.baseOffset);
+      const deadline = Date.now() + 10_000;
+      while (true) {
+        const offsets = await admin.fetchOffsets({
+          groupId: sourceGroupId,
+          topics: [KAFKA_TOPICS.AGENT_EVENTS],
+        });
+        const committed = offsets
+          .flatMap((topic) => topic.partitions)
+          .find((partition) => partition.partition === source.partition)?.offset;
+        if (committed && BigInt(committed) > sourceOffset) break;
+        if (Date.now() >= deadline) {
+          throw new Error('source offset ไม่ถูก commit หลัง DLQ acknowledgement');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      assert.equal(dlqMessages.length, 1);
+      assert.equal(dlqMessages[0]?.sourceTopic, KAFKA_TOPICS.AGENT_EVENTS);
+      assert.equal(dlqMessages[0]?.reason, 'UNSUPPORTED_SCHEMA_VERSION');
+    } finally {
+      await Promise.all([
+        rawProducer.disconnect(),
+        consumer.disconnect(),
+        dlq.disconnect(),
+        dlqConsumer.disconnect(),
+        admin.disconnect(),
+      ]);
     }
   },
 );

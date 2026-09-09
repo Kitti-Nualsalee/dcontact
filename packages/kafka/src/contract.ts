@@ -25,6 +25,9 @@ interface KafkaEventEnvelopeBase<
   payload: TPayload;
 }
 
+/** แยก canonical aggregate event ออกจาก ingress และ command ที่ยังไม่มี version จริง. */
+export type KafkaEventKind = 'CANONICAL' | 'INGRESS' | 'COMMAND';
+
 /** Wire format ที่ใช้มาก่อน Kafka envelope V2. */
 export interface KafkaEventEnvelopeV1<
   TPayload extends Record<string, unknown> = Record<string, unknown>,
@@ -41,6 +44,7 @@ export interface KafkaEventEnvelopeV2<
   TPayload extends Record<string, unknown> = Record<string, unknown>,
 > extends KafkaEventEnvelopeBase<TPayload> {
   schemaVersion: 2;
+  eventKind: KafkaEventKind;
   aggregateType: string;
   aggregateId: string;
   /** Canonical aggregate event เริ่มที่ 1; ingress/command อาจใช้ 0. */
@@ -86,7 +90,10 @@ export class KafkaContractError extends Error {
   }
 }
 
-const APPROVED_TOPICS = new Set<string>(Object.values(KAFKA_TOPICS));
+/** DLQ เก็บ forensic record ไม่ใช่ Kafka envelope จึงห้ามเข้า business consumer. */
+const APPROVED_TOPICS = new Set<string>(
+  Object.values(KAFKA_TOPICS).filter((topic) => topic !== KAFKA_TOPICS.DEAD_LETTER),
+);
 
 export function isKafkaTopic(topic: string): topic is KafkaTopic {
   return APPROVED_TOPICS.has(topic);
@@ -110,6 +117,15 @@ function requireNonNegativeInteger(value: unknown, field: string): asserts value
   }
 }
 
+function requireKafkaEventKind(value: unknown): asserts value is KafkaEventKind {
+  if (value !== 'CANONICAL' && value !== 'INGRESS' && value !== 'COMMAND') {
+    throw new KafkaContractError(
+      'INVALID_ENVELOPE',
+      'eventKind ต้องเป็น CANONICAL, INGRESS หรือ COMMAND',
+    );
+  }
+}
+
 export function isKafkaEventEnvelopeV2<TPayload extends Record<string, unknown>>(
   event: KafkaEventEnvelope<TPayload>,
 ): event is KafkaEventEnvelopeV2<TPayload> {
@@ -125,6 +141,7 @@ export function validateEventEnvelope<TPayload extends Record<string, unknown>>(
 
   const candidate = value as Partial<KafkaEventEnvelopeBase<TPayload>> & {
     schemaVersion?: unknown;
+    eventKind?: unknown;
     aggregateType?: unknown;
     aggregateId?: unknown;
     aggregateVersion?: unknown;
@@ -162,7 +179,14 @@ export function validateEventEnvelope<TPayload extends Record<string, unknown>>(
 
   requireNonEmptyString(candidate.aggregateType, 'aggregateType');
   requireNonEmptyString(candidate.aggregateId, 'aggregateId');
+  requireKafkaEventKind(candidate.eventKind);
   requireNonNegativeInteger(candidate.aggregateVersion, 'aggregateVersion');
+  if (candidate.eventKind === 'CANONICAL' && candidate.aggregateVersion < 1) {
+    throw new KafkaContractError(
+      'INVALID_ENVELOPE',
+      'canonical aggregate event ต้องมี aggregateVersion ตั้งแต่ 1',
+    );
+  }
   return candidate as KafkaEventEnvelopeV2<TPayload>;
 }
 

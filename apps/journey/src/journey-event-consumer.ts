@@ -3,6 +3,7 @@ import {
   createConsumer,
   type CreateConsumerOptions,
   type DcConsumer,
+  type DlqPublisher,
   type EventIdempotencyStore,
 } from '@d-contact/kafka';
 import { KAFKA_TOPICS, type InboundBusinessEvent } from '@d-contact/shared';
@@ -17,10 +18,11 @@ export interface CreateJourneyEventConsumerOptions {
   clientId: string;
   groupId: string;
   brokers?: string[];
+  dlq?: DlqPublisher;
 }
 
 /**
- * ใช้ kafka_consumer_inbox เป็น complete record ของ Journey consumer. Advisory
+ * ใช้ jr_kafka_consumer_inbox เป็น complete record ของ Journey consumer. Advisory
  * lock ทำให้ worker พร้อมกันมีผู้เรียก handler สำเร็จได้เพียงรายเดียว; complete
  * record มี unique (consumerGroup, tenantId, eventId) และ commit ร่วมกับ outcome.
  */
@@ -34,7 +36,7 @@ export function createDurableJourneyIdempotencyStore(
         await transaction.$queryRaw(
           Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`journey-kafka:${key.consumerGroup}:${key.tenantId}:${key.eventId}`}))`,
         );
-        const completed = await transaction.kafkaConsumerInbox.findUnique({
+        const completed = await transaction.jrKafkaConsumerInbox.findUnique({
           where: {
             consumerGroup_tenantId_eventId: {
               consumerGroup: key.consumerGroup,
@@ -65,7 +67,7 @@ export function createDurableJourneyIdempotencyStore(
             'Journey Kafka handler ต้อง commit inbox state เป็น PROCESSED ก่อนสำเร็จ',
           );
         }
-        await transaction.kafkaConsumerInbox.create({
+        await transaction.jrKafkaConsumerInbox.create({
           data: {
             consumerGroup: key.consumerGroup,
             tenantId: key.tenantId,
@@ -89,6 +91,7 @@ export function createJourneyEventConsumer(
     groupId: options.groupId,
     topics: [KAFKA_TOPICS.JOURNEY_EVENTS],
     ...(options.brokers ? { brokers: options.brokers } : {}),
+    ...(options.dlq ? { dlq: options.dlq } : {}),
     idempotency: createDurableJourneyIdempotencyStore(options.database),
     handler: async ({ event }, transaction) => {
       if (event.type !== 'journey.business_event.received') return;

@@ -93,7 +93,7 @@ test(
     t.after(async () => {
       await producer.disconnect();
       await consumer.disconnect();
-      await owner.kafkaConsumerInbox.deleteMany({ where: { tenantId } });
+      await owner.jrKafkaConsumerInbox.deleteMany({ where: { tenantId } });
       await owner.jrAction.deleteMany({ where: { tenantId } });
       await owner.jrEnrollment.deleteMany({ where: { tenantId } });
       await owner.cgDecisionLog.deleteMany({ where: { tenantId } });

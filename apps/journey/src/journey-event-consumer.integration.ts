@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
-import { PrismaClient } from '@d-contact/db';
+import { Prisma, PrismaClient } from '@d-contact/db';
+import {
+  ContactGovernanceService,
+  type AuthorizationOutcome,
+  type AuthorizeAndReserveInput,
+} from '@d-contact/contact-governance';
+import type { InboundBusinessEvent } from '@d-contact/shared';
 import { createDurableJourneyIdempotencyStore } from './journey-event-consumer.js';
+import { JourneyProcessor } from './journey-processor.js';
 
 async function createFixture(t: TestContext) {
   const owner = new PrismaClient();
@@ -26,8 +33,15 @@ async function createFixture(t: TestContext) {
     },
   });
   t.after(async () => {
-    await owner.kafkaConsumerInbox.deleteMany({ where: { tenantId } });
+    await owner.jrAction.deleteMany({ where: { tenantId } });
+    await owner.jrEnrollment.deleteMany({ where: { tenantId } });
+    await owner.cgDecisionLog.deleteMany({ where: { tenantId } });
+    await owner.cgReservation.deleteMany({ where: { tenantId } });
+    await owner.cgConsent.deleteMany({ where: { tenantId } });
+    await owner.jrKafkaConsumerInbox.deleteMany({ where: { tenantId } });
     await owner.jrEventInbox.deleteMany({ where: { tenantId } });
+    await owner.contactIdentity.deleteMany({ where: { tenantId } });
+    await owner.contact.deleteMany({ where: { tenantId } });
     await owner.tenant.deleteMany({ where: { id: tenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -129,4 +143,105 @@ test('Journey durable idempotency claim/complete ป้องกัน concurren
     'duplicate',
   );
   assert.equal(restartedHandlerCalled, false);
+});
+
+test('crash หลัง Governance reserve rollback handler ทั้งชุดก่อน retry', async (t) => {
+  const { application, tenantId } = await createFixture(t);
+  const contactId = randomUUID();
+  const identityId = randomUUID();
+  const receiptId = randomUUID();
+  const event: InboundBusinessEvent = {
+    source: 'fault-injection',
+    eventId: receiptId,
+    type: 'payment.failed',
+    occurredAt: '2026-09-09T00:00:00.000Z',
+    schemaVersion: 1,
+    contactRef: { kind: 'EMAIL', value: 'fault-injection@example.test' },
+    payload: {},
+  };
+  const owner = new PrismaClient();
+  await owner.contact.create({
+    data: {
+      id: contactId,
+      tenantId,
+      identities: {
+        create: { id: identityId, tenantId, type: 'EMAIL', value: event.contactRef.value },
+      },
+      cgConsents: {
+        create: {
+          tenantId,
+          identityId,
+          purpose: 'MARKETING',
+          channel: 'EMAIL',
+          status: 'GRANTED',
+          lawfulBasis: 'CONSENT',
+          evidence: {},
+        },
+      },
+    },
+  });
+  await owner.jrEventInbox.create({
+    data: {
+      id: receiptId,
+      tenantId,
+      source: event.source,
+      eventId: receiptId,
+      eventType: event.type,
+      occurredAt: new Date(event.occurredAt),
+      payload: event as unknown as Prisma.InputJsonValue,
+      payloadHash: 'fault-injection',
+      state: 'PUBLISHED',
+    },
+  });
+  await owner.$disconnect();
+
+  class CrashAfterReserve extends ContactGovernanceService {
+    override async authorizeAndReserve(
+      crashTenantId: string,
+      authorizationInput: AuthorizeAndReserveInput,
+      transaction?: Prisma.TransactionClient,
+    ): Promise<AuthorizationOutcome> {
+      await super.authorizeAndReserve(crashTenantId, authorizationInput, transaction);
+      throw new Error('จำลอง crash หลัง reserve');
+    }
+  }
+  const input = {
+    receiptId,
+    journeyVersion: 1,
+    stepId: 'fault',
+    channel: 'EMAIL' as const,
+    purpose: 'MARKETING',
+    policyVersion: 1,
+  };
+  const store = createDurableJourneyIdempotencyStore(application);
+  await assert.rejects(
+    () =>
+      store.execute(createJourneyIdempotencyKey(tenantId, receiptId), async (tx) => {
+        await new JourneyProcessor(application, new CrashAfterReserve(application)).processEvent(
+          tenantId,
+          input,
+          tx,
+        );
+      }),
+    /crash หลัง reserve/,
+  );
+  const verify = new PrismaClient();
+  assert.equal(await verify.cgReservation.count({ where: { tenantId } }), 0);
+  assert.equal(await verify.cgDecisionLog.count({ where: { tenantId } }), 0);
+  assert.equal(await verify.jrEnrollment.count({ where: { tenantId } }), 0);
+  assert.equal(
+    await store.execute(createJourneyIdempotencyKey(tenantId, receiptId), async (tx) => {
+      await new JourneyProcessor(
+        application,
+        new ContactGovernanceService(application),
+      ).processEvent(tenantId, input, tx);
+    }),
+    'processed',
+  );
+  assert.equal(await verify.cgReservation.count({ where: { tenantId } }), 1);
+  assert.equal(await verify.cgDecisionLog.count({ where: { tenantId } }), 1);
+  assert.equal(await verify.jrEnrollment.count({ where: { tenantId } }), 1);
+  assert.equal(await verify.jrAction.count({ where: { tenantId } }), 1);
+  assert.equal(await verify.jrKafkaConsumerInbox.count({ where: { tenantId } }), 1);
+  await verify.$disconnect();
 });

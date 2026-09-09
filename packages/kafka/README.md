@@ -5,14 +5,14 @@ Public contract สำหรับ service ที่ publish/consume domain even
 
 ## กติกา contract
 
-- ใช้ topic จาก `KAFKA_TOPICS` เท่านั้น; `dc.fs.events` ถูกปฏิเสธทั้ง type และ runtime
+- producer/consumer ของ business event ใช้ topic จาก `KAFKA_TOPICS` เท่านั้น; `dc.fs.events` และ DLQ ถูกปฏิเสธที่ Kafka envelope boundary
 - producer กำหนด `eventId` คงที่เมื่อ retry เหตุการณ์เดิม
-- V1 (ไม่มี top-level `schemaVersion`) ยัง decode ได้ระหว่าง migration; V2 ใช้ `schemaVersion: 2` พร้อม `aggregateType`, `aggregateId`, `aggregateVersion`
+- V1 (ไม่มี top-level `schemaVersion`) ยัง decode ได้ระหว่าง migration; V2 ใช้ `schemaVersion: 2` พร้อม `eventKind`, `aggregateType`, `aggregateId`, `aggregateVersion` โดย `CANONICAL` เริ่ม version 1 ส่วน `INGRESS`/`COMMAND` ใช้ 0 ได้
 - V2 มี `schemaVersion` และ `aggregateId` ใน header เพิ่มจาก `tenantId`, `eventId`, `correlationId` และ `orderingKey`; consumer ตรวจว่า key/header/payload ตรงกันก่อนเข้า handler
-- consumer ที่เจอ schema version ไม่รองรับจะได้รับ `UNSUPPORTED_SCHEMA_VERSION` ผ่าน `onInvalidMessage` พร้อม `dlqReason` เพื่อ route เข้า DLQ โดยไม่เดา contract
+- consumer ที่เจอ schema version ไม่รองรับจะถูกส่งเข้า `DlqPublisher` พร้อม `UNSUPPORTED_SCHEMA_VERSION`; ต้องรอ broker ยืนยันการเขียน DLQ ก่อนจึง commit offset ต้นทาง
 - package derive Kafka partition key จาก `orderingKey` ใน envelope และ consumer ตรวจว่าทั้งสามตำแหน่งตรงกัน
 - idempotency boundary คือ unique `(consumerGroup, tenantId, eventId)`
-- production consumer ต้องใช้ adapter ที่ประกาศ `durability: 'DURABLE'` และส่ง transaction context เข้า handler เพื่อให้ business side effect กับ dedupe key atomic หรือทำ durable claim/complete lifecycle ที่เทียบเท่า
+- production consumer ต้องใช้ adapter ที่ประกาศ `durability: 'DURABLE'`, กำหนด `DlqPublisher`, และส่ง transaction context เข้า handler เพื่อให้ business side effect กับ dedupe key atomic หรือทำ durable claim/complete lifecycle ที่เทียบเท่า
 - `createInMemoryIdempotencyStore()` มี `durability: 'EPHEMERAL'`; `createConsumer()` ปฏิเสธมันเมื่อ `NODE_ENV=production`
 - Kafka/Redpanda เป็น event transport; ห้ามใช้ Redis pub/sub แทน และห้ามเข้าฐานข้อมูลของ service อื่น
 
@@ -22,6 +22,7 @@ Public contract สำหรับ service ที่ publish/consume domain even
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import {
   createConsumer,
+  createDlqPublisher,
   createInMemoryIdempotencyStore,
   createProducer,
   type KafkaEventEnvelopeV2,
@@ -29,6 +30,7 @@ import {
 
 const event: KafkaEventEnvelopeV2<{ state: string }> = {
   schemaVersion: 2,
+  eventKind: 'CANONICAL',
   eventId: '01K4...',
   type: 'agent.state_changed',
   tenantId: 'tenant-uuid',
@@ -42,6 +44,7 @@ const event: KafkaEventEnvelopeV2<{ state: string }> = {
 };
 
 const producer = await createProducer('new-service');
+const dlq = await createDlqPublisher('new-service-dlq');
 await producer.send(KAFKA_TOPICS.AGENT_EVENTS, event);
 
 const consumer = await createConsumer({
@@ -50,6 +53,7 @@ const consumer = await createConsumer({
   topics: [KAFKA_TOPICS.AGENT_EVENTS],
   // ตัวอย่างเท่านั้น — production ให้เปลี่ยนเป็น durable adapter ของ service นี้
   idempotency: createInMemoryIdempotencyStore(),
+  dlq,
   handler: async ({ event, idempotencyKey }) => {
     // ทำงานเฉพาะข้อมูลที่ service นี้เป็นเจ้าของ
   },
