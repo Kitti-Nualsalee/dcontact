@@ -83,15 +83,16 @@ export class JourneyProcessor {
   async processEvent(
     tenantId: string,
     input: ProcessJourneyEventInput,
+    transaction?: Prisma.TransactionClient,
   ): Promise<JourneyProcessingResult> {
-    const event = await this.loadEventAndPrepareEnrollment(tenantId, input);
+    const event = await this.loadEventAndPrepareEnrollment(tenantId, input, transaction);
     const enrollmentId = input.receiptId;
     const actionKey = createJourneyActionKey({
       enrollmentId,
       journeyVersion: input.journeyVersion,
       stepId: input.stepId,
     });
-    const resolved = await this.resolveContact(tenantId, event);
+    const resolved = await this.resolveContact(tenantId, event, transaction);
     const authorizationBase = {
       channel: input.channel,
       purpose: input.purpose,
@@ -110,9 +111,13 @@ export class JourneyProcessor {
           ...authorizationBase,
           identityResolution: event.contactRef.kind === 'CRM_ID' ? 'AMBIGUOUS' : 'NOT_FOUND',
         };
-    const authorization = await this.governance.authorizeAndReserve(tenantId, authorizationInput);
+    const authorization = await this.governance.authorizeAndReserve(
+      tenantId,
+      authorizationInput,
+      transaction,
+    );
 
-    await this.persistOutcome(tenantId, input, actionKey, resolved, authorization);
+    await this.persistOutcome(tenantId, input, actionKey, resolved, authorization, transaction);
 
     return {
       receiptId: input.receiptId,
@@ -139,8 +144,12 @@ export class JourneyProcessor {
   private async loadEventAndPrepareEnrollment(
     tenantId: string,
     input: ProcessJourneyEventInput,
+    transaction?: Prisma.TransactionClient,
   ): Promise<InboundBusinessEvent> {
-    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+    const load = async (
+      transactionClient: Prisma.TransactionClient,
+    ): Promise<InboundBusinessEvent> => {
+      const transaction = transactionClient;
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`journey-enrollment:${tenantId}:${input.receiptId}`}))`,
       );
@@ -169,17 +178,22 @@ export class JourneyProcessor {
         });
       }
       return inbox.payload as unknown as InboundBusinessEvent;
-    });
+    };
+    return transaction
+      ? load(transaction)
+      : withTenantDatabaseTransaction(this.database, tenantId, load);
   }
 
   private async resolveContact(
     tenantId: string,
     event: InboundBusinessEvent,
+    transaction?: Prisma.TransactionClient,
   ): Promise<ResolvedContact | undefined> {
     const identityType = event.contactRef.kind;
     if (identityType === 'CRM_ID') return undefined;
 
-    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+    const resolve = async (transactionClient: Prisma.TransactionClient) => {
+      const transaction = transactionClient;
       const identity = await transaction.contactIdentity.findUnique({
         where: {
           tenantId_type_value: {
@@ -191,7 +205,10 @@ export class JourneyProcessor {
         select: { id: true, contactId: true },
       });
       return identity ? { identityId: identity.id, contactId: identity.contactId } : undefined;
-    });
+    };
+    return transaction
+      ? resolve(transaction)
+      : withTenantDatabaseTransaction(this.database, tenantId, resolve);
   }
 
   private async persistOutcome(
@@ -200,8 +217,9 @@ export class JourneyProcessor {
     actionKey: string,
     resolved: ResolvedContact | undefined,
     authorization: AuthorizationOutcome,
+    transaction?: Prisma.TransactionClient,
   ): Promise<void> {
-    await withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+    const persist = async (transactionClient: Prisma.TransactionClient): Promise<void> => {
       const state: JrEnrollmentState =
         authorization.decision === 'ALLOW'
           ? 'AUTHORIZED'
@@ -210,7 +228,7 @@ export class JourneyProcessor {
             : authorization.decision === 'DEFER'
               ? 'DEFERRED'
               : 'BLOCKED';
-      await transaction.jrEnrollment.updateMany({
+      await transactionClient.jrEnrollment.updateMany({
         where: { id: input.receiptId, tenantId },
         data: {
           state,
@@ -225,7 +243,7 @@ export class JourneyProcessor {
             'Journey action ที่ authorize แล้วต้องมี contact และ reservation evidence',
           );
         }
-        await transaction.jrAction.upsert({
+        await transactionClient.jrAction.upsert({
           where: { tenantId_actionKey: { tenantId, actionKey } },
           create: {
             tenantId,
@@ -242,7 +260,7 @@ export class JourneyProcessor {
         });
       }
 
-      await transaction.jrEventInbox.updateMany({
+      await transactionClient.jrEventInbox.updateMany({
         where: {
           id: input.receiptId,
           tenantId,
@@ -250,6 +268,11 @@ export class JourneyProcessor {
         },
         data: { state: 'PROCESSED', processedAt: this.now() },
       });
-    });
+    };
+    if (transaction) {
+      await persist(transaction);
+      return;
+    }
+    await withTenantDatabaseTransaction(this.database, tenantId, persist);
   }
 }

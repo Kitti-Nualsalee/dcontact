@@ -139,10 +139,12 @@ export class ContactGovernanceService implements ContactAuthorizationPort {
   async authorizeAndReserve(
     tenantId: string,
     input: AuthorizeAndReserveInput,
+    transaction?: Prisma.TransactionClient,
   ): Promise<AuthorizationOutcome> {
     const inputHash = hashAuthorizationInput(input);
 
-    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+    const authorize = async (transactionClient: Prisma.TransactionClient) => {
+      const transaction = transactionClient;
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`action:${tenantId}:${input.actionKey}`}))`,
       );
@@ -297,7 +299,10 @@ export class ContactGovernanceService implements ContactAuthorizationPort {
       });
 
       return toOutcome(created);
-    });
+    };
+    return transaction
+      ? authorize(transaction)
+      : withTenantDatabaseTransaction(this.database, tenantId, authorize);
   }
 
   async changeReservationState(

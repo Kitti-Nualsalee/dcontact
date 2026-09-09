@@ -5,9 +5,11 @@ export const KAFKA_EVENT_HEADERS = {
   EVENT_ID: 'eventId',
   CORRELATION_ID: 'correlationId',
   ORDERING_KEY: 'orderingKey',
+  SCHEMA_VERSION: 'schemaVersion',
+  AGGREGATE_ID: 'aggregateId',
 } as const;
 
-export interface KafkaEventEnvelope<
+interface KafkaEventEnvelopeBase<
   TPayload extends Record<string, unknown> = Record<string, unknown>,
 > {
   /** ID คงที่ของเหตุการณ์เดิม แม้ producer จะ retry */
@@ -23,6 +25,48 @@ export interface KafkaEventEnvelope<
   payload: TPayload;
 }
 
+/** แยก canonical aggregate event ออกจาก ingress และ command ที่ยังไม่มี version จริง. */
+export type KafkaEventKind = 'CANONICAL' | 'INGRESS' | 'COMMAND';
+
+/** Wire format ที่ใช้มาก่อน Kafka envelope V2. */
+export interface KafkaEventEnvelopeV1<
+  TPayload extends Record<string, unknown> = Record<string, unknown>,
+> extends KafkaEventEnvelopeBase<TPayload> {
+  /** V1 ระบุด้วยการไม่มี schemaVersion ที่ top-level envelope. */
+  schemaVersion?: undefined;
+}
+
+/**
+ * envelope แบบ versioned สำหรับ producer ใหม่ของ E0/C1. Aggregate metadata
+ * รองรับ replay และ projection ordering โดยไม่สร้างข้อมูลปลอมให้ legacy message.
+ */
+export interface KafkaEventEnvelopeV2<
+  TPayload extends Record<string, unknown> = Record<string, unknown>,
+> extends KafkaEventEnvelopeBase<TPayload> {
+  schemaVersion: 2;
+  eventKind: KafkaEventKind;
+  aggregateType: string;
+  aggregateId: string;
+  /** Canonical aggregate event เริ่มที่ 1; ingress/command อาจใช้ 0. */
+  aggregateVersion: number;
+}
+
+/** ยังรับ V1 ระหว่างที่ producer ทยอย migrate เป็น V2. */
+export type KafkaEventEnvelope<TPayload extends Record<string, unknown> = Record<string, unknown>> =
+  KafkaEventEnvelopeV1<TPayload> | KafkaEventEnvelopeV2<TPayload>;
+
+export type NormalizedKafkaEventEnvelope<
+  TPayload extends Record<string, unknown> = Record<string, unknown>,
+> =
+  | {
+      format: 'V1_LEGACY';
+      event: KafkaEventEnvelopeV1<TPayload>;
+    }
+  | {
+      format: 'V2';
+      event: KafkaEventEnvelopeV2<TPayload>;
+    };
+
 export type KafkaEventHeaders = Partial<
   Record<(typeof KAFKA_EVENT_HEADERS)[keyof typeof KAFKA_EVENT_HEADERS], string>
 >;
@@ -31,6 +75,7 @@ export type KafkaContractErrorCode =
   | 'UNAPPROVED_TOPIC'
   | 'INVALID_JSON'
   | 'INVALID_ENVELOPE'
+  | 'UNSUPPORTED_SCHEMA_VERSION'
   | 'MISSING_HEADER'
   | 'HEADER_PAYLOAD_MISMATCH'
   | 'ORDERING_KEY_MISMATCH';
@@ -45,7 +90,10 @@ export class KafkaContractError extends Error {
   }
 }
 
-const APPROVED_TOPICS = new Set<string>(Object.values(KAFKA_TOPICS));
+/** DLQ เก็บ forensic record ไม่ใช่ Kafka envelope จึงห้ามเข้า business consumer. */
+const APPROVED_TOPICS = new Set<string>(
+  Object.values(KAFKA_TOPICS).filter((topic) => topic !== KAFKA_TOPICS.DEAD_LETTER),
+);
 
 export function isKafkaTopic(topic: string): topic is KafkaTopic {
   return APPROVED_TOPICS.has(topic);
@@ -63,6 +111,27 @@ function requireNonEmptyString(value: unknown, field: string): asserts value is 
   }
 }
 
+function requireNonNegativeInteger(value: unknown, field: string): asserts value is number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new KafkaContractError('INVALID_ENVELOPE', `${field} ต้องเป็นจำนวนเต็มที่ไม่ติดลบ`);
+  }
+}
+
+function requireKafkaEventKind(value: unknown): asserts value is KafkaEventKind {
+  if (value !== 'CANONICAL' && value !== 'INGRESS' && value !== 'COMMAND') {
+    throw new KafkaContractError(
+      'INVALID_ENVELOPE',
+      'eventKind ต้องเป็น CANONICAL, INGRESS หรือ COMMAND',
+    );
+  }
+}
+
+export function isKafkaEventEnvelopeV2<TPayload extends Record<string, unknown>>(
+  event: KafkaEventEnvelope<TPayload>,
+): event is KafkaEventEnvelopeV2<TPayload> {
+  return event.schemaVersion === 2;
+}
+
 export function validateEventEnvelope<TPayload extends Record<string, unknown>>(
   value: unknown,
 ): KafkaEventEnvelope<TPayload> {
@@ -70,7 +139,13 @@ export function validateEventEnvelope<TPayload extends Record<string, unknown>>(
     throw new KafkaContractError('INVALID_ENVELOPE', 'event envelope ต้องเป็น object');
   }
 
-  const candidate = value as Partial<KafkaEventEnvelope<TPayload>>;
+  const candidate = value as Partial<KafkaEventEnvelopeBase<TPayload>> & {
+    schemaVersion?: unknown;
+    eventKind?: unknown;
+    aggregateType?: unknown;
+    aggregateId?: unknown;
+    aggregateVersion?: unknown;
+  };
   requireNonEmptyString(candidate.eventId, 'eventId');
   requireNonEmptyString(candidate.type, 'type');
   requireNonEmptyString(candidate.tenantId, 'tenantId');
@@ -92,7 +167,37 @@ export function validateEventEnvelope<TPayload extends Record<string, unknown>>(
     requireNonEmptyString(candidate.causationId, 'causationId');
   }
 
-  return candidate as KafkaEventEnvelope<TPayload>;
+  if (candidate.schemaVersion === undefined) {
+    return candidate as KafkaEventEnvelopeV1<TPayload>;
+  }
+  if (candidate.schemaVersion !== 2) {
+    throw new KafkaContractError(
+      'UNSUPPORTED_SCHEMA_VERSION',
+      `ไม่รองรับ Kafka envelope schemaVersion: ${String(candidate.schemaVersion)}`,
+    );
+  }
+
+  requireNonEmptyString(candidate.aggregateType, 'aggregateType');
+  requireNonEmptyString(candidate.aggregateId, 'aggregateId');
+  requireKafkaEventKind(candidate.eventKind);
+  requireNonNegativeInteger(candidate.aggregateVersion, 'aggregateVersion');
+  if (candidate.eventKind === 'CANONICAL' && candidate.aggregateVersion < 1) {
+    throw new KafkaContractError(
+      'INVALID_ENVELOPE',
+      'canonical aggregate event ต้องมี aggregateVersion ตั้งแต่ 1',
+    );
+  }
+  return candidate as KafkaEventEnvelopeV2<TPayload>;
+}
+
+/**
+ * คงความต่าง V1/V2 สำหรับ consumer ที่ต้องทำ replay/projection. V1 เป็น legacy
+ * อย่างชัดเจนและไม่รับ aggregate metadata ที่ถูกสร้างขึ้นระหว่าง normalize.
+ */
+export function normalizeKafkaEventEnvelope<TPayload extends Record<string, unknown>>(
+  event: KafkaEventEnvelope<TPayload>,
+): NormalizedKafkaEventEnvelope<TPayload> {
+  return isKafkaEventEnvelopeV2(event) ? { format: 'V2', event } : { format: 'V1_LEGACY', event };
 }
 
 function requiredHeader(headers: KafkaEventHeaders, name: keyof KafkaEventHeaders): string {
@@ -132,6 +237,17 @@ export function validateConsumedEvent<TPayload extends Record<string, unknown>>(
       'ORDERING_KEY_MISMATCH',
       'Kafka key, orderingKey header และ orderingKey ใน payload ต้องตรงกัน',
     );
+  }
+
+  if (isKafkaEventEnvelopeV2(event)) {
+    const schemaVersion = requiredHeader(headers, KAFKA_EVENT_HEADERS.SCHEMA_VERSION);
+    const aggregateId = requiredHeader(headers, KAFKA_EVENT_HEADERS.AGGREGATE_ID);
+    if (schemaVersion !== String(event.schemaVersion) || aggregateId !== event.aggregateId) {
+      throw new KafkaContractError(
+        'HEADER_PAYLOAD_MISMATCH',
+        'schemaVersion หรือ aggregateId ใน header ไม่ตรงกับ payload',
+      );
+    }
   }
 
   return event;

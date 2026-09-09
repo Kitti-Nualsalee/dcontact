@@ -1,6 +1,6 @@
 import { ContactGovernanceService } from '@d-contact/contact-governance';
 import { PrismaClient } from '@d-contact/db';
-import { createProducer } from '@d-contact/kafka';
+import { createDlqPublisher, createProducer } from '@d-contact/kafka';
 import { EventInboxService } from './event-inbox.js';
 import { createJourneyEventConsumer } from './journey-event-consumer.js';
 import { createJourneyKafkaPublisher } from './journey-kafka-publisher.js';
@@ -22,6 +22,7 @@ function configuredChannel(): 'EMAIL' | 'LINE' {
 
 const database = new PrismaClient();
 const producer = await createProducer('dcontact-journey-publisher');
+const dlq = await createDlqPublisher('dcontact-journey-dlq');
 const publisher = createJourneyKafkaPublisher(producer);
 const inbox = new EventInboxService(database);
 const processor = new JourneyProcessor(database, new ContactGovernanceService(database));
@@ -30,6 +31,7 @@ const consumer = await createJourneyEventConsumer({
   processor,
   clientId: 'dcontact-journey-consumer',
   groupId: process.env.JOURNEY_CONSUMER_GROUP_ID ?? 'dcontact-journey-events-v1',
+  dlq,
   definition: {
     journeyVersion: positiveInteger('JOURNEY_TRIGGER_VERSION', 1),
     stepId: process.env.JOURNEY_TRIGGER_STEP_ID ?? 'event-trigger',
@@ -71,7 +73,12 @@ async function shutdown(): Promise<void> {
   if (stopping) return;
   stopping = true;
   clearInterval(timer);
-  await Promise.all([consumer.disconnect(), producer.disconnect(), database.$disconnect()]);
+  await Promise.all([
+    consumer.disconnect(),
+    producer.disconnect(),
+    dlq.disconnect(),
+    database.$disconnect(),
+  ]);
 }
 
 process.once('SIGINT', () => void shutdown());

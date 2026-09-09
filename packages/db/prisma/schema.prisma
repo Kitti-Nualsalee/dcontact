@@ -42,6 +42,7 @@ model Tenant {
   cgDecisionLogs      CgDecisionLog[]
   cgReservations      CgReservation[]
   jrEventInbox        JrEventInbox[]
+  jrKafkaConsumerInbox JrKafkaConsumerInbox[]
   jrEnrollments       JrEnrollment[]
   jrActions           JrAction[]
 
@@ -528,6 +529,20 @@ model JrEventInbox {
   @@unique([tenantId, source, eventId])
   @@index([tenantId, state, createdAt])
   @@map("jr_event_inbox")
+}
+
+/// Journey-owned durable completion record for its Kafka consumer boundary.
+model JrKafkaConsumerInbox {
+  consumerGroup String   @map("consumer_group")
+  tenantId      String   @map("tenant_id") @db.Uuid
+  eventId       String   @map("event_id")
+  completedAt   DateTime @default(now()) @map("completed_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@id([consumerGroup, tenantId, eventId])
+  @@index([tenantId, completedAt])
+  @@map("jr_kafka_consumer_inbox")
 }
 
 model JrEnrollment {
