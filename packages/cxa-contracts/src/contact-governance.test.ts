@@ -87,6 +87,21 @@ function setup(refund = true) {
 
 const code = (code: string) => ({ code });
 
+async function beginSubmission(
+  port: ContactGovernancePort,
+  claim: ClaimReservationForDeliveryInput,
+) {
+  return port.beginProviderSubmission({
+    tenantId: claim.tenantId,
+    correlationId: claim.correlationId,
+    reservationId: claim.reservationId,
+    actionKey: claim.actionKey,
+    deliveryId: claim.deliveryId,
+    expectedLeaseVersion: 1,
+    providerRequestKey: providerRequestKey('provider-a'),
+  });
+}
+
 test('authorization คง signature เดิมและ duplicate/conflict contract โดยไม่ import concrete app', async () => {
   const { port, claim, authorization } = setup();
   const input = { ...authorization, correlationId: 'trace' };
@@ -187,6 +202,7 @@ test('lease หมดหลัง claim ก่อน submit ปล่อยไ�
 test('timeout หลัง submit ห้าม release แม้ TTL หมด; reconcile ด้วย request key เดิม', async () => {
   const { port, claim, binding, confirm, outcome, advance } = setup();
   await port.claimReservationForDelivery(claim);
+  await beginSubmission(port, claim);
   const uncertain = { ...outcome, outcome: 'UNKNOWN_RECONCILING' as const };
   assert.equal((await port.settleDelivery(uncertain)).status, 'UNKNOWN_RECONCILING');
   advance(20 * 60_000);
@@ -210,6 +226,7 @@ test('timeout หลัง submit ห้าม release แม้ TTL หมด; 
 test('confirm duplicate, concurrent outcome และ late outcome ไม่ย้อน terminal state', async () => {
   const { port, claim, confirm, outcome } = setup();
   await port.claimReservationForDelivery(claim);
+  await beginSubmission(port, claim);
   const accepted = await port.confirmProviderAcceptance(confirm);
   assert.deepEqual(await port.confirmProviderAcceptance(confirm), accepted);
   const results = await Promise.all(Array.from({ length: 12 }, () => port.settleDelivery(outcome)));
@@ -230,6 +247,7 @@ test('terminal failure refund ตาม Governance fixture policy เท่า�
   for (const refund of [true, false]) {
     const { port, claim, confirm, outcome } = setup(refund);
     await port.claimReservationForDelivery(claim);
+    await beginSubmission(port, claim);
     await port.confirmProviderAcceptance(confirm);
     const failed = await port.settleDelivery({ ...outcome, outcome: 'DELIVERY_FAILED' });
     assert.equal(failed.state, refund ? 'REFUNDED' : 'CONFIRMED');
@@ -244,6 +262,7 @@ test('terminal failure refund ตาม Governance fixture policy เท่า�
 test('provider rejection ก่อน accept release; terminal failure ที่ไม่มี acceptance ต้อง reconcile', async () => {
   const { port, claim, outcome } = setup();
   await port.claimReservationForDelivery(claim);
+  await beginSubmission(port, claim);
   await assert.rejects(
     port.settleDelivery({ ...outcome, outcome: 'DELIVERY_FAILED' }),
     code('DELIVERY_RECONCILIATION_REQUIRED'),
@@ -257,6 +276,7 @@ test('provider rejection ก่อน accept release; terminal failure ที่
 test('confirm/release/outcome ปฏิเสธ tenant และ delivery swap ก่อนเปลี่ยน state', async () => {
   const { port, claim, confirm, binding, outcome } = setup();
   await port.claimReservationForDelivery(claim);
+  await beginSubmission(port, claim);
   for (const change of [
     { tenantId: tenantId('tenant-b') },
     { deliveryId: deliveryId('delivery-b') },
@@ -287,6 +307,7 @@ test('claim สอง delivery แข่งกันต้องมีผู้�
 test('delivered ที่มาก่อน acceptance callback ยืนยันได้และ callback ช้าไม่ย้อน terminal', async () => {
   const { port, claim, confirm, outcome, binding } = setup();
   await port.claimReservationForDelivery(claim);
+  await beginSubmission(port, claim);
   assert.equal((await port.settleDelivery(outcome)).state, 'CONFIRMED');
   await assert.rejects(
     port.confirmProviderAcceptance(confirm),
@@ -324,8 +345,16 @@ test('outcomeRef เดียวกันข้าม tenant แยกกัน 
       reservationId: reservationId(`reservation-${suffix}`),
       deliveryId: deliveryId(`delivery-${suffix}`),
     });
+    await beginSubmission(port, {
+      ...claim,
+      tenantId: tenant,
+      actionKey: actionKey(`action-${suffix}`),
+      reservationId: reservationId(`reservation-${suffix}`),
+      deliveryId: deliveryId(`delivery-${suffix}`),
+    });
   }
   await port.claimReservationForDelivery(claim);
+  await beginSubmission(port, claim);
   await port.settleDelivery(outcome);
   assert.equal(
     (
@@ -348,4 +377,245 @@ test('outcomeRef เดียวกันข้าม tenant แยกกัน 
     }),
     code('IDEMPOTENCY_CONFLICT'),
   );
+});
+
+test('crash ก่อน barrier ปล่อย lease ได้ แต่ crash หลัง barrier ห้ามคืนสิทธิ์แม้ไม่มี callback', async () => {
+  for (const begun of [false, true]) {
+    const { port, claim, binding, advance } = setup();
+    await port.claimReservationForDelivery(claim);
+    if (begun) {
+      const barrier = await beginSubmission(port, claim);
+      assert.equal(barrier.state, 'RESERVED');
+      assert.equal(barrier.status, 'UNKNOWN_RECONCILING');
+    }
+    // worker หายไปโดยไม่ confirm/settle; ทั้ง lease และ reservation TTL หมดแล้ว
+    advance(20 * 60_000);
+    const release = port.releaseBeforeSubmit({ ...binding, reason: 'LEASE_EXPIRED' });
+    if (begun) await assert.rejects(release, code('DELIVERY_RECONCILIATION_REQUIRED'));
+    else assert.equal((await release).state, 'RELEASED');
+  }
+});
+
+test('begin duplicate คืน snapshot เดิมและ request key อื่น conflict; snapshot ไม่ใช่สิทธิ์ส่งซ้ำ', async () => {
+  const { port, claim, confirm, binding, advance } = setup();
+  await port.claimReservationForDelivery(claim);
+  const first = await beginSubmission(port, claim);
+  assert.deepEqual(await beginSubmission(port, claim), first);
+  await assert.rejects(
+    port.beginProviderSubmission({
+      ...confirm,
+      expectedLeaseVersion: 1,
+      providerRequestKey: providerRequestKey('other-key'),
+    }),
+    code('IDEMPOTENCY_CONFLICT'),
+  );
+  advance(20 * 60_000);
+  assert.deepEqual(await beginSubmission(port, claim), first);
+  await assert.rejects(
+    port.releaseBeforeSubmit({ ...binding, reason: 'CANCELLED_BEFORE_SUBMIT' }),
+    code('DELIVERY_RECONCILIATION_REQUIRED'),
+  );
+  assert.equal((await port.confirmProviderAcceptance(confirm)).state, 'CONFIRMED');
+});
+
+test('ห้าม confirm/settle provider fact ก่อนมี submission barrier', async () => {
+  const { port, claim, confirm, outcome } = setup();
+  await port.claimReservationForDelivery(claim);
+  await assert.rejects(
+    port.confirmProviderAcceptance(confirm),
+    code('INVALID_RESERVATION_TRANSITION'),
+  );
+  await assert.rejects(port.settleDelivery(outcome), code('INVALID_RESERVATION_TRANSITION'));
+  await beginSubmission(port, claim);
+  assert.equal((await port.settleDelivery(outcome)).status, 'SETTLED');
+});
+
+test('renew ต่อ expiry และเพิ่ม version; duplicate เดิมไม่ต่อซ้ำ ส่วน conflicting request ไม่ผ่าน', async () => {
+  const { port, claim, binding } = setup();
+  const initial = await port.claimReservationForDelivery(claim);
+  assert.equal(initial.leaseVersion, 1);
+  const renew = { ...binding, expectedLeaseVersion: 1, leaseExpiresAt: '2026-09-09T00:10:00Z' };
+  const renewed = await port.renewReservationLease(renew);
+  assert.equal(renewed.leaseVersion, 2);
+  assert.equal(renewed.leaseExpiresAt, renew.leaseExpiresAt);
+  assert.deepEqual(
+    await port.renewReservationLease({ ...renew, correlationId: 'retry-trace' }),
+    renewed,
+  );
+  await assert.rejects(
+    port.renewReservationLease({ ...renew, leaseExpiresAt: '2026-09-09T00:12:00Z' }),
+    code('IDEMPOTENCY_CONFLICT'),
+  );
+  const second = await port.renewReservationLease({
+    ...renew,
+    expectedLeaseVersion: 2,
+    leaseExpiresAt: '2026-09-09T00:15:00Z',
+  });
+  assert.equal(second.leaseVersion, 3);
+});
+
+test('renew fence stale begin และ expiry sweeper ต้องอ่าน lease ใหม่', async () => {
+  const { port, claim, binding, confirm, advance } = setup();
+  await port.claimReservationForDelivery(claim);
+  await port.renewReservationLease({
+    ...binding,
+    expectedLeaseVersion: 1,
+    leaseExpiresAt: '2026-09-09T00:10:00Z',
+  });
+  // Claim retry คืน snapshot version เก่าได้ แต่เอาไป begin ไม่ได้
+  assert.equal((await port.claimReservationForDelivery(claim)).leaseVersion, 1);
+  await assert.rejects(beginSubmission(port, claim), code('STALE_RESERVATION_LEASE'));
+  advance(6 * 60_000);
+  await assert.rejects(
+    port.releaseBeforeSubmit({ ...binding, reason: 'LEASE_EXPIRED' }),
+    code('INVALID_RESERVATION_LEASE'),
+  );
+  assert.equal(
+    (await port.beginProviderSubmission({ ...confirm, expectedLeaseVersion: 2 })).status,
+    'UNKNOWN_RECONCILING',
+  );
+});
+
+test('renew ปฏิเสธ invalid expiry/version, expired lease และการต่อเกิน reservation TTL', async () => {
+  const { port, claim, binding, advance } = setup();
+  await port.claimReservationForDelivery(claim);
+  const renew = { ...binding, expectedLeaseVersion: 1, leaseExpiresAt: '2026-09-09T00:10:00Z' };
+  for (const leaseExpiresAt of [
+    'invalid',
+    claim.leaseExpiresAt,
+    '2026-09-09T00:04:00Z',
+    '2026-09-09T00:16:00Z',
+  ]) {
+    await assert.rejects(
+      port.renewReservationLease({ ...renew, leaseExpiresAt }),
+      code('INVALID_RESERVATION_LEASE'),
+    );
+  }
+  for (const expectedLeaseVersion of [0, 0.5, 2, -1, NaN]) {
+    await assert.rejects(
+      port.renewReservationLease({ ...renew, expectedLeaseVersion }),
+      code('STALE_RESERVATION_LEASE'),
+    );
+  }
+  advance(5 * 60_000);
+  await assert.rejects(port.renewReservationLease(renew), code('RESERVATION_EXPIRED'));
+  await assert.rejects(beginSubmission(port, claim), code('RESERVATION_EXPIRED'));
+});
+
+test('renew/begin ปฏิเสธ tenant, reservation, action และ delivery swap', async () => {
+  const { port, claim, binding, confirm } = setup();
+  await port.claimReservationForDelivery(claim);
+  for (const change of [
+    { tenantId: tenantId('tenant-b') },
+    { reservationId: reservationId('reservation-b') },
+    { actionKey: actionKey('action-b') },
+    { deliveryId: deliveryId('delivery-b') },
+  ]) {
+    const error = code(
+      'tenantId' in change || 'reservationId' in change
+        ? 'RESERVATION_NOT_FOUND'
+        : 'RESERVATION_BINDING_CONFLICT',
+    );
+    await assert.rejects(
+      port.renewReservationLease({
+        ...binding,
+        ...change,
+        expectedLeaseVersion: 1,
+        leaseExpiresAt: '2026-09-09T00:10:00Z',
+      }),
+      error,
+    );
+    await assert.rejects(
+      port.beginProviderSubmission({ ...confirm, ...change, expectedLeaseVersion: 1 }),
+      error,
+    );
+  }
+  assert.equal((await beginSubmission(port, claim)).status, 'UNKNOWN_RECONCILING');
+});
+
+test('renew ห้ามเปลี่ยน state หลัง barrier/terminal และ begin ห้ามหลัง release', async () => {
+  for (const state of ['BARRIER', 'SETTLED', 'RELEASED']) {
+    const { port, claim, binding, outcome } = setup();
+    await port.claimReservationForDelivery(claim);
+    if (state === 'RELEASED') {
+      await port.releaseBeforeSubmit({ ...binding, reason: 'CANCELLED_BEFORE_SUBMIT' });
+      await assert.rejects(beginSubmission(port, claim), code('INVALID_RESERVATION_TRANSITION'));
+    } else {
+      await beginSubmission(port, claim);
+      if (state === 'SETTLED') await port.settleDelivery(outcome);
+    }
+    await assert.rejects(
+      port.renewReservationLease({
+        ...binding,
+        expectedLeaseVersion: 1,
+        leaseExpiresAt: '2026-09-09T00:10:00Z',
+      }),
+      code(
+        state === 'BARRIER' ? 'DELIVERY_RECONCILIATION_REQUIRED' : 'INVALID_RESERVATION_TRANSITION',
+      ),
+    );
+  }
+});
+
+test('race renew กับ begin ใช้ version เดียวกัน สำเร็จได้ operation เดียวทั้งสองลำดับ', async () => {
+  for (const beginFirst of [false, true]) {
+    const { port, claim, binding, confirm } = setup();
+    await port.claimReservationForDelivery(claim);
+    const renew = () =>
+      port.renewReservationLease({
+        ...binding,
+        expectedLeaseVersion: 1,
+        leaseExpiresAt: '2026-09-09T00:10:00Z',
+      });
+    const begin = () => beginSubmission(port, claim);
+    const operations = beginFirst ? [begin, renew] : [renew, begin];
+    const results = await Promise.allSettled(operations.map((operation) => operation()));
+    assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+    assert.equal(results.filter((r) => r.status === 'rejected').length, 1);
+    if (!beginFirst) await port.beginProviderSubmission({ ...confirm, expectedLeaseVersion: 2 });
+    await assert.rejects(
+      port.releaseBeforeSubmit({ ...binding, reason: 'CANCELLED_BEFORE_SUBMIT' }),
+      code('DELIVERY_RECONCILIATION_REQUIRED'),
+    );
+  }
+});
+
+test('race begin กับ cancel สำเร็จได้ operation เดียวและ terminal ไม่ย้อน', async () => {
+  for (const beginFirst of [false, true]) {
+    const { port, claim, binding } = setup();
+    await port.claimReservationForDelivery(claim);
+    const release = () =>
+      port.releaseBeforeSubmit({ ...binding, reason: 'CANCELLED_BEFORE_SUBMIT' });
+    const begin = () => beginSubmission(port, claim);
+    const results = await Promise.allSettled(
+      (beginFirst ? [begin, release] : [release, begin]).map((operation) => operation()),
+    );
+    assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+    assert.equal(results.filter((r) => r.status === 'rejected').length, 1);
+  }
+});
+
+test('race renewal กับ expiry release อ้าง lease ปัจจุบัน; concurrent renew มี version เดียว', async () => {
+  for (const expired of [false, true]) {
+    const { port, claim, binding, advance } = setup();
+    await port.claimReservationForDelivery(claim);
+    if (expired) advance(5 * 60_000);
+    const results = await Promise.allSettled([
+      port.renewReservationLease({
+        ...binding,
+        expectedLeaseVersion: 1,
+        leaseExpiresAt: '2026-09-09T00:10:00Z',
+      }),
+      port.releaseBeforeSubmit({ ...binding, reason: 'LEASE_EXPIRED' }),
+    ]);
+    assert.equal(results[0].status, expired ? 'rejected' : 'fulfilled');
+    assert.equal(results[1].status, expired ? 'fulfilled' : 'rejected');
+  }
+  const { port, claim, binding } = setup();
+  await port.claimReservationForDelivery(claim);
+  const renew = { ...binding, expectedLeaseVersion: 1, leaseExpiresAt: '2026-09-09T00:10:00Z' };
+  const same = await Promise.all(
+    Array.from({ length: 8 }, () => port.renewReservationLease(renew)),
+  );
+  for (const result of same) assert.equal(result.leaseVersion, 2);
 });

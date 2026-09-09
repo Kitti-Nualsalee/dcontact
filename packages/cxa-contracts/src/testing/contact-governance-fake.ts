@@ -2,6 +2,8 @@
 import {
   type AuthorizeAndReserveInput,
   type AuthorizationOutcome,
+  type BeginProviderSubmissionInput,
+  type RenewReservationLeaseInput,
   type ClaimReservationForDeliveryInput,
   type ConfirmProviderAcceptanceInput,
   type ContactGovernancePort,
@@ -144,7 +146,58 @@ export class ContactGovernanceFake implements ContactGovernancePort {
       f.claim = structuredClone(input);
       f.view.deliveryId = input.deliveryId;
       f.view.status = 'CLAIMED';
+      f.view.leaseVersion = 1;
+      f.view.leaseExpiresAt = input.leaseExpiresAt;
     });
+  }
+
+  private activeLease(f: Fixture, expectedVersion: number): void {
+    if (f.terminal || f.view.state !== 'RESERVED')
+      throw new ReservationBindingError('INVALID_RESERVATION_TRANSITION');
+    if (f.providerRequestKey) throw new ReservationBindingError('DELIVERY_RECONCILIATION_REQUIRED');
+    if (
+      !Number.isInteger(expectedVersion) ||
+      expectedVersion < 1 ||
+      f.view.leaseVersion !== expectedVersion
+    )
+      throw new ReservationBindingError('STALE_RESERVATION_LEASE');
+    if (!f.view.leaseExpiresAt || Date.parse(f.view.leaseExpiresAt) <= this.now())
+      throw new ReservationBindingError('RESERVATION_EXPIRED');
+  }
+
+  async renewReservationLease(
+    input: RenewReservationLeaseInput,
+  ): Promise<ReservationSettlementView> {
+    return this.once(`renew:${input.expectedLeaseVersion}`, input, (f) => {
+      this.bound(f, input.deliveryId);
+      this.activeLease(f, input.expectedLeaseVersion);
+      const expiry = Date.parse(input.leaseExpiresAt);
+      if (
+        !Number.isFinite(expiry) ||
+        expiry <= Date.parse(f.view.leaseExpiresAt!) ||
+        expiry > Date.parse(f.outcome.reservationExpiresAt!)
+      )
+        throw new ReservationBindingError('INVALID_RESERVATION_LEASE');
+      f.view.leaseExpiresAt = input.leaseExpiresAt;
+      f.view.leaseVersion = input.expectedLeaseVersion + 1;
+    });
+  }
+
+  async beginProviderSubmission(
+    input: BeginProviderSubmissionInput,
+  ): Promise<ReservationSettlementView> {
+    return this.once('begin', input, (f) => {
+      this.bound(f, input.deliveryId);
+      this.activeLease(f, input.expectedLeaseVersion);
+      // จำลอง atomic barrier ก่อน I/O เท่านั้น; production persistence เป็นงาน CG2
+      f.providerRequestKey = input.providerRequestKey;
+      f.view.status = 'UNKNOWN_RECONCILING';
+    });
+  }
+
+  private submission(f: Fixture, key: string): void {
+    if (!f.providerRequestKey) throw new ReservationBindingError('INVALID_RESERVATION_TRANSITION');
+    this.provider(f, key);
   }
 
   async confirmProviderAcceptance(
@@ -152,7 +205,7 @@ export class ContactGovernanceFake implements ContactGovernancePort {
   ): Promise<ReservationSettlementView> {
     return this.once('confirm', input, (f) => {
       this.bound(f, input.deliveryId);
-      this.provider(f, input.providerRequestKey);
+      this.submission(f, input.providerRequestKey);
       if (f.terminal) throw new ReservationBindingError('INVALID_RESERVATION_TRANSITION');
       f.providerRequestKey = input.providerRequestKey;
       f.view.state = 'CONFIRMED';
@@ -167,7 +220,7 @@ export class ContactGovernanceFake implements ContactGovernancePort {
         throw new ReservationBindingError('DELIVERY_RECONCILIATION_REQUIRED');
       if (f.view.state !== 'RESERVED' || f.terminal || f.providerRequestKey)
         throw new ReservationBindingError('INVALID_RESERVATION_TRANSITION');
-      const expiry = Date.parse(f.claim?.leaseExpiresAt ?? f.outcome.reservationExpiresAt!);
+      const expiry = Date.parse(f.view.leaseExpiresAt ?? f.outcome.reservationExpiresAt!);
       if (input.reason === 'LEASE_EXPIRED' && expiry > this.now())
         throw new ReservationBindingError('INVALID_RESERVATION_LEASE');
       f.view.state = 'RELEASED';
@@ -184,7 +237,7 @@ export class ContactGovernanceFake implements ContactGovernancePort {
       throw new ReservationBindingError('IDEMPOTENCY_CONFLICT');
     const result = this.once(`settle:${input.outcomeRef}`, input, (f) => {
       this.bound(f, input.deliveryId);
-      this.provider(f, input.providerRequestKey);
+      this.submission(f, input.providerRequestKey);
       if (f.terminal) return;
       if (input.outcome === 'PROVIDER_REJECTED' && f.view.state === 'CONFIRMED')
         throw new ReservationBindingError('INVALID_RESERVATION_TRANSITION');
