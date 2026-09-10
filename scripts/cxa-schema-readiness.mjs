@@ -19,6 +19,7 @@ export const CANONICAL_CXA_TABLES = [
   'jr_actions',
   'jr_enrollments',
   'jr_event_inbox',
+  'jr_journey_definitions',
   'jr_schedule_occurrences',
   'jr_step_runs',
 ];
