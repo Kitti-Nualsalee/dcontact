@@ -185,3 +185,74 @@ test('dcontact_app แยก Contact Governance และ Journey rows ระห
     },
   );
 });
+
+test('cg_attempts/cg_touches บังคับ tenant RLS, composite binding และ immutable application grants', (t) => {
+  const tenantId = randomUUID();
+  const contactId = randomUUID();
+  const reservationId = randomUUID();
+  const attemptId = randomUUID();
+  const touchId = randomUUID();
+  const suffix = tenantId.slice(0, 8);
+
+  queryAsOwner(
+    `BEGIN;
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${tenantId}', 'CG fact RLS ${suffix}', 'cg-fact-rls-${suffix}', 'cg-fact-rls-${suffix}.test');
+     INSERT INTO contacts (id, tenant_id, display_name) VALUES ('${contactId}', '${tenantId}', 'CG fact RLS contact');
+     INSERT INTO cg_reservations (id, tenant_id, contact_id, channel, purpose, source, source_id, action_key, input_hash, state, expires_at, updated_at) VALUES ('${reservationId}', '${tenantId}', '${contactId}', 'EMAIL', 'MARKETING', 'JOURNEY', 'journey-c1-1', 'action-${suffix}', 'hash-${suffix}', 'RESERVED', now() + interval '15 minutes', now());
+     INSERT INTO cg_attempts (id, tenant_id, reservation_id, delivery_id, outcome_ref, contact_id, channel, purpose, source, outcome, occurred_at, correlation_id) VALUES ('${attemptId}', '${tenantId}', '${reservationId}', 'delivery-${suffix}', 'outcome-${suffix}', '${contactId}', 'EMAIL', 'MARKETING', 'JOURNEY', 'DELIVERED', now(), 'correlation-${suffix}');
+     INSERT INTO cg_touches (id, tenant_id, attempt_id, reservation_id, delivery_id, outcome_ref, contact_id, channel, purpose, source, outcome, occurred_at, correlation_id) VALUES ('${touchId}', '${tenantId}', '${attemptId}', '${reservationId}', 'delivery-${suffix}', 'outcome-${suffix}', '${contactId}', 'EMAIL', 'MARKETING', 'JOURNEY', 'DELIVERED', now(), 'correlation-${suffix}');
+     COMMIT;`,
+  );
+
+  t.after(() =>
+    queryAsOwner(
+      `DELETE FROM cg_touches WHERE tenant_id = '${tenantId}';
+       DELETE FROM cg_attempts WHERE tenant_id = '${tenantId}';
+       DELETE FROM cg_reservations WHERE tenant_id = '${tenantId}';
+       DELETE FROM contacts WHERE tenant_id = '${tenantId}';
+       DELETE FROM tenants WHERE id = '${tenantId}';`,
+    ),
+  );
+
+  const demoTenantId = queryAsOwner("SELECT id FROM tenants WHERE slug = 'demo';");
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${demoTenantId}', true); SELECT (SELECT count(*) FROM cg_attempts WHERE id = '${attemptId}'), (SELECT count(*) FROM cg_touches WHERE id = '${touchId}'); COMMIT;`,
+    ),
+    /\n0\|0\nCOMMIT$/,
+  );
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); SELECT (SELECT count(*) FROM cg_attempts WHERE id = '${attemptId}'), (SELECT count(*) FROM cg_touches WHERE id = '${touchId}'); COMMIT;`,
+    ),
+    /\n1\|1\nCOMMIT$/,
+  );
+
+  for (const mutation of [
+    `UPDATE cg_attempts SET outcome = 'DELIVERY_FAILED' WHERE id = '${attemptId}'`,
+    `DELETE FROM cg_touches WHERE id = '${touchId}'`,
+  ]) {
+    assert.throws(
+      () =>
+        queryAsApplicationRole(
+          `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${mutation}; COMMIT;`,
+        ),
+      /permission denied/i,
+    );
+  }
+
+  assert.throws(
+    () =>
+      queryAsOwner(
+        `INSERT INTO cg_attempts (id, tenant_id, reservation_id, delivery_id, outcome_ref, contact_id, channel, purpose, source, outcome, occurred_at, correlation_id) VALUES ('${randomUUID()}', '${demoTenantId}', '${reservationId}', 'delivery-swap', 'outcome-swap', '${contactId}', 'EMAIL', 'MARKETING', 'JOURNEY', 'DELIVERED', now(), 'correlation-swap');`,
+      ),
+    /foreign key constraint/i,
+  );
+
+  assert.equal(
+    queryAsOwner(
+      "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('cg_attempts', 'cg_touches') AND policyname = 'tenant_isolation' AND qual IS NOT NULL AND with_check IS NOT NULL;",
+    ),
+    '2',
+  );
+});
