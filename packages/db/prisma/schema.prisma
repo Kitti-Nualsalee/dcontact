@@ -49,6 +49,8 @@ model Tenant {
   jrEnrollments                JrEnrollment[]
   jrActions                    JrAction[]
   jrJourneyDefinitions         JrJourneyDefinition[]
+  jrScheduleOccurrences        JrScheduleOccurrence[]
+  jrStepRuns                   JrStepRun[]
 
   @@map("tenants")
 }
@@ -417,6 +419,32 @@ enum JrEnrollmentState {
   AUTHORIZED
 }
 
+/// C1.5: สถานะการเดินของ enrollment แยกจาก `JrEnrollmentState` ซึ่งบันทึกผล authorize
+enum JrRunState {
+  RUNNING
+  WAITING
+  TERMINAL
+}
+
+/// เหตุผลเดียวที่ enrollment จบ — บันทึกครั้งแรกครั้งเดียว ห้ามเขียนทับ
+enum JrTerminalReason {
+  GRAPH_EXIT
+  GOAL_REACHED
+  EXIT_RULE
+  MAX_AGE
+  CANCELLED
+}
+
+enum JrStepRunState {
+  COMPLETED
+  AWAITING_SEND
+}
+
+enum JrScheduleOccurrenceState {
+  CLAIMED
+  ENROLLED
+}
+
 model CgRestriction {
   id          String            @id @default(uuid()) @db.Uuid
   tenantId    String            @map("tenant_id") @db.Uuid
@@ -682,26 +710,94 @@ model JrKafkaConsumerInbox {
   @@map("jr_kafka_consumer_inbox")
 }
 
+/// C1.5 ขยาย enrollment ให้เป็น durable execution cursor: `event_inbox_id` ถูกผ่อนเป็น
+/// nullable เพราะ Schedule trigger ไม่มี event ตั้งต้น และ `(current_step_id, step_sequence)`
+/// เป็นตำแหน่งเดียวที่บอกว่า enrollment เดินไปถึงไหน — worker ทุกตัวต้อง CAS ที่ step_sequence
 model JrEnrollment {
   id             String            @id @default(uuid()) @db.Uuid
   tenantId       String            @map("tenant_id") @db.Uuid
-  eventInboxId   String            @map("event_inbox_id") @db.Uuid
+  eventInboxId   String?           @map("event_inbox_id") @db.Uuid
+  occurrenceId   String?           @map("occurrence_id") @db.Uuid
+  journeyId      String?           @map("journey_id") @db.Uuid
   journeyVersion Int               @map("journey_version")
   contactId      String?           @map("contact_id") @db.Uuid
   decisionId     String?           @map("decision_id") @db.Uuid
   state          JrEnrollmentState @default(PENDING)
+  runState       JrRunState        @default(RUNNING) @map("run_state")
+  currentStepId  String?           @map("current_step_id")
+  stepSequence   Int               @default(0) @map("step_sequence")
+  waitUntil      DateTime?         @map("wait_until")
+  maxAgeAt       DateTime?         @map("max_age_at")
+  terminalReason JrTerminalReason? @map("terminal_reason")
+  terminalStepId String?           @map("terminal_step_id")
+  terminalAt     DateTime?         @map("terminal_at")
+  claimedBy      String?           @map("claimed_by")
+  claimExpiresAt DateTime?         @map("claim_expires_at")
+  correlationId  String?           @map("correlation_id")
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @updatedAt @map("updated_at")
 
-  tenant     Tenant         @relation(fields: [tenantId], references: [id])
-  eventInbox JrEventInbox   @relation(fields: [eventInboxId], references: [id])
-  contact    Contact?       @relation(fields: [contactId], references: [id])
-  decision   CgDecisionLog? @relation(fields: [decisionId], references: [id])
+  tenant     Tenant                @relation(fields: [tenantId], references: [id])
+  eventInbox JrEventInbox?         @relation(fields: [eventInboxId], references: [id])
+  occurrence JrScheduleOccurrence? @relation(fields: [occurrenceId], references: [id])
+  contact    Contact?              @relation(fields: [contactId], references: [id])
+  decision   CgDecisionLog?        @relation(fields: [decisionId], references: [id])
   actions    JrAction[]
+  stepRuns   JrStepRun[]
 
+  @@unique([tenantId, id])
   @@unique([tenantId, eventInboxId])
+  @@unique([tenantId, occurrenceId], map: "jr_enrollments_tenant_occurrence_key")
   @@index([tenantId, contactId, state])
+  @@index([tenantId, runState, waitUntil], map: "jr_enrollments_tenant_run_state_wait_until_idx")
+  @@index([tenantId, runState, maxAgeAt], map: "jr_enrollments_tenant_run_state_max_age_idx")
   @@map("jr_enrollments")
+}
+
+/// หนึ่งแถวต่อหนึ่ง occurrence ของ Schedule trigger — unique key กัน cron ที่ยิงซ้ำ
+/// (ตัว scheduler เอง, worker หลายตัว หรือ restart) ไม่ให้ enroll ซ้ำใน tenant เดียวกัน
+model JrScheduleOccurrence {
+  id             String                    @id @default(uuid()) @db.Uuid
+  tenantId       String                    @map("tenant_id") @db.Uuid
+  journeyId      String                    @map("journey_id") @db.Uuid
+  journeyVersion Int                       @map("journey_version")
+  occurrenceAt   DateTime                  @map("occurrence_at")
+  state          JrScheduleOccurrenceState @default(CLAIMED)
+  correlationId  String                    @map("correlation_id")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  enrollments JrEnrollment[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, journeyId, journeyVersion, occurrenceAt], map: "jr_schedule_occurrences_tenant_occurrence_key")
+  @@index([tenantId, state, occurrenceAt], map: "jr_schedule_occurrences_tenant_state_occurrence_idx")
+  @@map("jr_schedule_occurrences")
+}
+
+/// Ledger ของทุก node ที่ enrollment เดินผ่าน `(enrollment_id, step_sequence)` เป็น unique
+/// จึงเป็นตัวกันไม่ให้ worker สองตัวรัน node เดียวกันซ้ำ แม้จะ claim งานพร้อมกัน
+model JrStepRun {
+  id            String         @id @default(uuid()) @db.Uuid
+  tenantId      String         @map("tenant_id") @db.Uuid
+  enrollmentId  String         @map("enrollment_id") @db.Uuid
+  stepSequence  Int            @map("step_sequence")
+  stepId        String         @map("step_id")
+  stepType      String         @map("step_type")
+  state         JrStepRunState
+  nextStepId    String?        @map("next_step_id")
+  branchResult  Boolean?       @map("branch_result")
+  correlationId String         @map("correlation_id")
+  causationId   String?        @map("causation_id")
+  startedAt     DateTime       @map("started_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  tenant     Tenant       @relation(fields: [tenantId], references: [id])
+  enrollment JrEnrollment @relation(fields: [tenantId, enrollmentId], references: [tenantId, id], map: "jr_step_runs_tenant_enrollment_fkey")
+
+  @@unique([tenantId, enrollmentId, stepSequence], map: "jr_step_runs_tenant_enrollment_sequence_key")
+  @@index([tenantId, enrollmentId, stepId], map: "jr_step_runs_tenant_enrollment_step_idx")
+  @@map("jr_step_runs")
 }
 
 model JrAction {

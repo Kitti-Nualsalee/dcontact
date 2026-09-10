@@ -19,7 +19,8 @@ BEGIN
     'cg_restrictions', 'cg_consents', 'cg_decision_logs', 'cg_reservations',
     'cg_attempts', 'cg_touches',
     'cg_reservation_command_receipts',
-    'jr_event_inbox', 'jr_enrollments', 'jr_actions', 'jr_journey_definitions'
+    'jr_event_inbox', 'jr_enrollments', 'jr_actions', 'jr_journey_definitions',
+    'jr_schedule_occurrences', 'jr_step_runs'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -53,3 +54,7 @@ REVOKE UPDATE, DELETE ON cg_reservation_command_receipts FROM dcontact_app;
 -- Journey definition content is immutable; only the publish transition (status/published_at)
 -- may change a row, and the application enforces that narrowing — not a DB-level column grant.
 REVOKE DELETE ON jr_journey_definitions FROM dcontact_app;
+-- Occurrence เดินสถานะได้ แต่หลักฐานว่า schedule เคยยิงต้องอยู่ตลอด
+REVOKE DELETE ON jr_schedule_occurrences FROM dcontact_app;
+-- Step run เป็น ledger เขียนครั้งเดียว: เดินซ้ำได้เฉพาะเพราะแถวเดิมยังอยู่
+REVOKE UPDATE, DELETE ON jr_step_runs FROM dcontact_app;

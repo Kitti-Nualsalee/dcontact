@@ -320,3 +320,78 @@ test('cg reservation command receipts บังคับ tenant RLS และเ
     '1',
   );
 });
+
+test('jr schedule occurrences และ step runs บังคับ tenant RLS และเป็น durable evidence', (t) => {
+  const tenantId = randomUUID();
+  const journeyId = randomUUID();
+  const occurrenceId = randomUUID();
+  const enrollmentId = randomUUID();
+  const stepRunId = randomUUID();
+  const suffix = tenantId.slice(0, 8);
+
+  queryAsOwner(
+    `BEGIN;
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${tenantId}', 'JR exec RLS ${suffix}', 'jr-exec-rls-${suffix}', 'jr-exec-rls-${suffix}.test');
+     INSERT INTO jr_schedule_occurrences (id, tenant_id, journey_id, journey_version, occurrence_at, state, correlation_id) VALUES ('${occurrenceId}', '${tenantId}', '${journeyId}', 1, now(), 'CLAIMED', 'corr-${suffix}');
+     INSERT INTO jr_enrollments (id, tenant_id, occurrence_id, journey_id, journey_version, state, run_state, current_step_id, step_sequence, updated_at) VALUES ('${enrollmentId}', '${tenantId}', '${occurrenceId}', '${journeyId}', 1, 'PENDING', 'RUNNING', 'entry', 0, now());
+     COMMIT;`,
+  );
+
+  t.after(() =>
+    queryAsOwner(
+      `DELETE FROM jr_step_runs WHERE tenant_id = '${tenantId}';
+       DELETE FROM jr_enrollments WHERE tenant_id = '${tenantId}';
+       DELETE FROM jr_schedule_occurrences WHERE tenant_id = '${tenantId}';
+       DELETE FROM tenants WHERE id = '${tenantId}';`,
+    ),
+  );
+
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN;
+       SELECT set_config('app.tenant_id', '${tenantId}', true);
+       INSERT INTO jr_step_runs (id, tenant_id, enrollment_id, step_sequence, step_id, step_type, state, correlation_id, started_at) VALUES ('${stepRunId}', '${tenantId}', '${enrollmentId}', 1, 'entry', 'BRANCH', 'COMPLETED', 'corr-${suffix}', now());
+       SELECT count(*) FROM jr_step_runs WHERE id = '${stepRunId}';
+       COMMIT;`,
+    ),
+    /\nINSERT 0 1\n1\nCOMMIT$/,
+  );
+
+  const demoTenantId = queryAsOwner("SELECT id FROM tenants WHERE slug = 'demo';");
+  for (const table of ['jr_step_runs', 'jr_schedule_occurrences']) {
+    assert.match(
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${demoTenantId}', true); SELECT count(*) FROM ${table} WHERE tenant_id = '${tenantId}'; COMMIT;`,
+      ),
+      /\n0\nCOMMIT$/,
+    );
+  }
+
+  // occurrence เดินสถานะได้ แต่ step run เป็น ledger ที่แก้ไม่ได้
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE jr_schedule_occurrences SET state = 'ENROLLED' WHERE id = '${occurrenceId}'; COMMIT;`,
+    ),
+    /\nUPDATE 1\nCOMMIT$/,
+  );
+  for (const mutation of [
+    `UPDATE jr_step_runs SET step_id = 'mutated' WHERE id = '${stepRunId}'`,
+    `DELETE FROM jr_step_runs WHERE id = '${stepRunId}'`,
+    `DELETE FROM jr_schedule_occurrences WHERE id = '${occurrenceId}'`,
+  ]) {
+    assert.throws(
+      () =>
+        queryAsApplicationRole(
+          `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${mutation}; COMMIT;`,
+        ),
+      /permission denied/i,
+    );
+  }
+
+  assert.equal(
+    queryAsOwner(
+      "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('jr_schedule_occurrences', 'jr_step_runs') AND policyname = 'tenant_isolation' AND qual IS NOT NULL AND with_check IS NOT NULL;",
+    ),
+    '2',
+  );
+});

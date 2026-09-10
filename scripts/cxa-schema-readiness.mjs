@@ -18,6 +18,8 @@ export const CANONICAL_CXA_TABLES = [
   'jr_actions',
   'jr_enrollments',
   'jr_event_inbox',
+  'jr_schedule_occurrences',
+  'jr_step_runs',
 ];
 
 const tableArray = `ARRAY[${CANONICAL_CXA_TABLES.map((table) => `'${table}'`).join(',')}]`;
