@@ -27,30 +27,30 @@ function isError(code: string) {
 
 export function runDeliveryPortConformanceSuite(
   suiteName: string,
-  makeHarness: () => DeliveryConformanceHarness,
+  makeHarness: () => DeliveryConformanceHarness | Promise<DeliveryConformanceHarness>,
 ): void {
   test(`${suiteName}: happy path enqueues once and persists before returning QUEUED`, async () => {
-    const { delivery, command } = makeHarness();
+    const { delivery, command } = await makeHarness();
     const result = await delivery.enqueue(command);
     assert.equal(result.status, 'QUEUED');
   });
 
   test(`${suiteName}: duplicate canonical input replays the same delivery`, async () => {
-    const { delivery, command } = makeHarness();
+    const { delivery, command } = await makeHarness();
     const first = await delivery.enqueue(command);
     const second = await delivery.enqueue(command);
     assert.deepEqual(second, first);
   });
 
   test(`${suiteName}: same actionKey with different input is IDEMPOTENCY_CONFLICT`, async () => {
-    const { delivery, command } = makeHarness();
+    const { delivery, command } = await makeHarness();
     await delivery.enqueue(command);
     const conflict = await delivery.enqueue({ ...command, contentRef: 'different-content' });
     isError('IDEMPOTENCY_CONFLICT')(conflict);
   });
 
   test(`${suiteName}: unknown reservation is rejected without creating a delivery`, async () => {
-    const { delivery, command, unknownReservationId } = makeHarness();
+    const { delivery, command, unknownReservationId } = await makeHarness();
     const result = await delivery.enqueue({ ...command, reservationId: unknownReservationId });
     isError('RESERVATION_NOT_FOUND')(result);
     // ยังไม่มี outbox row: retry ด้วย reservation ที่ถูกต้องต้องสำเร็จปกติ
@@ -58,31 +58,36 @@ export function runDeliveryPortConformanceSuite(
   });
 
   test(`${suiteName}: mismatched actionKey binding is rejected without creating a delivery`, async () => {
-    const { delivery, command, mismatchedActionKey } = makeHarness();
+    const { delivery, command, mismatchedActionKey } = await makeHarness();
     const result = await delivery.enqueue({ ...command, actionKey: mismatchedActionKey });
     isError('RESERVATION_BINDING_CONFLICT')(result);
     assert.equal((await delivery.enqueue(command)).status, 'QUEUED');
   });
 
   test(`${suiteName}: reusing another tenant's valid reservationId fails closed without leaking existence`, async () => {
-    const { delivery, command, otherTenantId } = makeHarness();
+    const { delivery, command, otherTenantId } = await makeHarness();
     const result = await delivery.enqueue({ ...command, tenantId: otherTenantId });
     isError('RESERVATION_NOT_FOUND')(result);
     assert.equal((await delivery.enqueue(command)).status, 'QUEUED');
   });
 
   test(`${suiteName}: expired reservation is rejected without creating a delivery`, async () => {
-    const { delivery, command, advance } = makeHarness();
+    const { delivery, command, advance } = await makeHarness();
     advance(20 * 60_000);
     const result = await delivery.enqueue(command);
     isError('RESERVATION_EXPIRED')(result);
   });
 
   test(`${suiteName}: concurrent identical enqueue creates exactly one delivery`, async () => {
-    const { delivery, command } = makeHarness();
+    const { delivery, command } = await makeHarness();
     const results = await Promise.all(Array.from({ length: 8 }, () => delivery.enqueue(command)));
     const queued = results.filter((r) => r.status === 'QUEUED');
-    assert.equal(queued.length, 1);
+    // A racy check-then-act implementation may let only the winner through and
+    // report IDEMPOTENCY_CONFLICT to the rest; a lock-serialized durable one may
+    // replay QUEUED to every identical caller. Both are correct: the invariant
+    // this test protects is "exactly one delivery ever gets created", not which
+    // shape a given implementation's losers take.
+    assert.ok(queued.length >= 1, 'อย่างน้อยหนึ่ง call ต้องสำเร็จเป็น QUEUED');
     const deliveryIds = new Set(queued.map((r) => (r as { deliveryId: string }).deliveryId));
     assert.equal(deliveryIds.size, 1);
     for (const rejected of results.filter((r) => r.status === 'ERROR')) {

@@ -49,6 +49,7 @@ model Tenant {
   jrEnrollments                JrEnrollment[]
   jrActions                    JrAction[]
   jrJourneyDefinitions         JrJourneyDefinition[]
+  dvOutboxes                   DvOutbox[]
 
   @@map("tenants")
 }
@@ -762,6 +763,51 @@ model JrJourneyDefinition {
   @@unique([tenantId, journeyId, version])
   @@index([tenantId, journeyId, status])
   @@map("jr_journey_definitions")
+}
+
+// ─────────────────────────── Channels/Dialer: Delivery test adapter (C1.3) ───────────────────────────
+
+enum DvOutboxState {
+  QUEUED
+  SUBMITTING
+  SETTLED
+}
+
+/// Owner: Channels/Dialer. Durable outbox ของ `TEST_ADAPTER` เท่านั้น — ไม่มี provider
+/// credential/I/O จริง แถวถูกสร้างหลัง `ContactGovernancePort.claimReservationForDelivery`
+/// รับ binding แล้วเท่านั้น (fail closed ไม่ทิ้งแถวถ้า claim ไม่ผ่าน); `deliveryId`/
+/// `providerRequestKey` derive แบบ deterministic จาก `(tenantId, actionKey)` เพื่อให้ retry
+/// หลัง crash ระหว่าง claim กับ persist ยังชี้ binding เดิมได้เสมอ
+model DvOutbox {
+  id                 String        @id @default(uuid()) @db.Uuid
+  tenantId           String        @map("tenant_id") @db.Uuid
+  source             String
+  actionKey          String        @map("action_key")
+  inputHash          String        @map("input_hash")
+  reservationId      String        @map("reservation_id") @db.Uuid
+  deliveryId         String        @map("delivery_id")
+  providerRequestKey String        @map("provider_request_key")
+  leaseVersion       Int           @map("lease_version")
+  channel            ChannelType
+  contactId          String        @map("contact_id") @db.Uuid
+  identityId         String?       @map("identity_id") @db.Uuid
+  senderIdentityId   String        @map("sender_identity_id")
+  contentRef         String        @map("content_ref")
+  state              DvOutboxState @default(QUEUED)
+  outcomeRef         String?       @map("outcome_ref")
+  correlationId      String        @map("correlation_id")
+  causationId        String?       @map("causation_id")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, actionKey])
+  @@unique([tenantId, deliveryId])
+  @@unique([tenantId, providerRequestKey])
+  @@index([tenantId, state])
+  @@map("dv_outbox")
 }
 
 // ─────────────────────────── Interactions (record กลางทุก channel) ───────────────────────────
