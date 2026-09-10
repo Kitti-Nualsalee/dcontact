@@ -8,10 +8,12 @@ const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const composeArguments = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
 
 export const CANONICAL_CXA_TABLES = [
+  'cg_attempts',
   'cg_consents',
   'cg_decision_logs',
   'cg_reservations',
   'cg_restrictions',
+  'cg_touches',
   'jr_actions',
   'jr_enrollments',
   'jr_event_inbox',

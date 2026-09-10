@@ -22,29 +22,31 @@ model Tenant {
   defaultMaxWaitAction      QueueMaxWaitAction      @default(VOICEMAIL) @map("default_max_wait_action")
   createdAt                 DateTime                @default(now()) @map("created_at")
 
-  users               User[]
-  teams               Team[]
-  queues              Queue[]
-  voiceDestinations   VoiceDestination[]
-  queueAuditEvents    QueueAuditEvent[]
-  skills              Skill[]
-  contacts            Contact[]
-  interactions        Interaction[]
-  conversations       Conversation[]
-  qmTranscriptionJobs QmTranscriptionJob[]
-  qmAuditEvents       QmAuditEvent[]
-  qmTranscripts       QmTranscript[]
-  qmEvaluations       QmEvaluation[]
-  qmConsoleContexts   QmConsoleContext[]
-  commandReceipts     CommandReceipt[]
-  cgRestrictions      CgRestriction[]
-  cgConsents          CgConsent[]
-  cgDecisionLogs      CgDecisionLog[]
-  cgReservations      CgReservation[]
-  jrEventInbox        JrEventInbox[]
+  users                User[]
+  teams                Team[]
+  queues               Queue[]
+  voiceDestinations    VoiceDestination[]
+  queueAuditEvents     QueueAuditEvent[]
+  skills               Skill[]
+  contacts             Contact[]
+  interactions         Interaction[]
+  conversations        Conversation[]
+  qmTranscriptionJobs  QmTranscriptionJob[]
+  qmAuditEvents        QmAuditEvent[]
+  qmTranscripts        QmTranscript[]
+  qmEvaluations        QmEvaluation[]
+  qmConsoleContexts    QmConsoleContext[]
+  commandReceipts      CommandReceipt[]
+  cgRestrictions       CgRestriction[]
+  cgConsents           CgConsent[]
+  cgDecisionLogs       CgDecisionLog[]
+  cgReservations       CgReservation[]
+  cgAttempts           CgAttempt[]
+  cgTouches            CgTouch[]
+  jrEventInbox         JrEventInbox[]
   jrKafkaConsumerInbox JrKafkaConsumerInbox[]
-  jrEnrollments       JrEnrollment[]
-  jrActions           JrAction[]
+  jrEnrollments        JrEnrollment[]
+  jrActions            JrAction[]
 
   @@map("tenants")
 }
@@ -313,9 +315,12 @@ model Contact {
   cgConsents     CgConsent[]
   cgDecisionLogs CgDecisionLog[]
   cgReservations CgReservation[]
+  cgAttempts     CgAttempt[]
+  cgTouches      CgTouch[]
   jrEnrollments  JrEnrollment[]
   jrActions      JrAction[]
 
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@map("contacts")
 }
@@ -333,8 +338,11 @@ model ContactIdentity {
   cgConsents     CgConsent[]
   cgDecisionLogs CgDecisionLog[]
   cgReservations CgReservation[]
+  cgAttempts     CgAttempt[]
+  cgTouches      CgTouch[]
   jrActions      JrAction[]
 
+  @@unique([tenantId, id])
   @@unique([tenantId, type, value])
   @@map("contact_identities")
 }
@@ -367,6 +375,12 @@ enum CgReservationState {
   CONFIRMED
   RELEASED
   REFUNDED
+}
+
+enum CgFactOutcome {
+  PROVIDER_REJECTED
+  DELIVERED
+  DELIVERY_FAILED
 }
 
 enum JrEventInboxState {
@@ -465,11 +479,82 @@ model CgReservation {
   identity       ContactIdentity? @relation(fields: [identityId], references: [id])
   decisionLogs   CgDecisionLog[]
   journeyActions JrAction[]
+  attempts       CgAttempt[]
+  touches        CgTouch[]
 
+  @@unique([tenantId, id])
   @@unique([tenantId, actionKey])
   @@index([tenantId, contactId, state, createdAt])
   @@index([tenantId, state, expiresAt])
   @@map("cg_reservations")
+}
+
+/// Fact ของ Contact Governance แบบ immutable: หนึ่ง canonical attempt ต่อ outcomeRef ใน tenant
+model CgAttempt {
+  id            String        @id @default(uuid()) @db.Uuid
+  tenantId      String        @map("tenant_id") @db.Uuid
+  reservationId String        @map("reservation_id") @db.Uuid
+  deliveryId    String        @map("delivery_id")
+  outcomeRef    String        @map("outcome_ref")
+  contactId     String        @map("contact_id") @db.Uuid
+  identityId    String?       @map("identity_id") @db.Uuid
+  channel       ChannelType
+  purpose       String
+  source        String
+  outcome       CgFactOutcome
+  occurredAt    DateTime      @map("occurred_at")
+  correlationId String        @map("correlation_id")
+  causationId   String?       @map("causation_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id])
+  reservation CgReservation    @relation(fields: [tenantId, reservationId], references: [tenantId, id])
+  contact     Contact          @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  identity    ContactIdentity? @relation(fields: [tenantId, identityId], references: [tenantId, id])
+  touch       CgTouch?
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, outcomeRef])
+  @@unique([tenantId, reservationId, deliveryId, outcomeRef], map: "cg_attempts_binding_key")
+  @@index([tenantId, contactId, occurredAt])
+  @@index([tenantId, reservationId, occurredAt])
+  @@index([tenantId, deliveryId, occurredAt])
+  @@map("cg_attempts")
+}
+
+/// Successful Touch แบบ immutable ที่ตัดสินจาก policy ของ Contact Governance
+model CgTouch {
+  id            String        @id @default(uuid()) @db.Uuid
+  tenantId      String        @map("tenant_id") @db.Uuid
+  attemptId     String        @map("attempt_id") @db.Uuid
+  reservationId String        @map("reservation_id") @db.Uuid
+  deliveryId    String        @map("delivery_id")
+  outcomeRef    String        @map("outcome_ref")
+  contactId     String        @map("contact_id") @db.Uuid
+  identityId    String?       @map("identity_id") @db.Uuid
+  channel       ChannelType
+  purpose       String
+  source        String
+  outcome       CgFactOutcome
+  occurredAt    DateTime      @map("occurred_at")
+  correlationId String        @map("correlation_id")
+  causationId   String?       @map("causation_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id])
+  attempt     CgAttempt        @relation(fields: [tenantId, attemptId], references: [tenantId, id])
+  reservation CgReservation    @relation(fields: [tenantId, reservationId], references: [tenantId, id])
+  contact     Contact          @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  identity    ContactIdentity? @relation(fields: [tenantId, identityId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, attemptId])
+  @@unique([tenantId, outcomeRef])
+  @@unique([tenantId, reservationId, deliveryId, outcomeRef], map: "cg_touches_binding_key")
+  @@index([tenantId, contactId, occurredAt])
+  @@index([tenantId, reservationId, occurredAt])
+  @@index([tenantId, deliveryId, occurredAt])
+  @@map("cg_touches")
 }
 
 model CgDecisionLog {

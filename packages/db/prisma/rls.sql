@@ -17,13 +17,14 @@ BEGIN
     'qm_transcription_jobs', 'qm_audit_events', 'qm_transcripts',
     'qm_transcript_segments', 'qm_evaluations', 'qm_console_contexts', 'command_receipts',
     'cg_restrictions', 'cg_consents', 'cg_decision_logs', 'cg_reservations',
+    'cg_attempts', 'cg_touches',
     'jr_event_inbox', 'jr_enrollments', 'jr_actions'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format(
-      'CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true)::uuid)',
+      'CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true)::uuid) WITH CHECK (tenant_id = current_setting(''app.tenant_id'', true)::uuid)',
       t
     );
   END LOOP;
@@ -45,3 +46,5 @@ REVOKE UPDATE, DELETE ON queue_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON recording_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON qm_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_decision_logs FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_attempts FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_touches FROM dcontact_app;
