@@ -134,6 +134,9 @@ importers:
       '@d-contact/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@d-contact/expression':
+        specifier: workspace:*
+        version: link:../../packages/expression
       '@d-contact/journey-composition':
         specifier: workspace:*
         version: link:../../packages/journey-composition
