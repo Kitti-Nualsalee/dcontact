@@ -49,6 +49,7 @@ model Tenant {
   jrEnrollments                JrEnrollment[]
   jrActions                    JrAction[]
   jrJourneyDefinitions         JrJourneyDefinition[]
+  dlOutboxEntries              DlOutboxEntry[]
   jrScheduleOccurrences        JrScheduleOccurrence[]
   jrStepRuns                   JrStepRun[]
 
@@ -539,6 +540,7 @@ model CgReservation {
   attempts        CgAttempt[]
   touches         CgTouch[]
   commandReceipts CgReservationCommandReceipt[]
+  outboxEntries   DlOutboxEntry[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, actionKey])
@@ -858,6 +860,66 @@ model JrJourneyDefinition {
   @@unique([tenantId, journeyId, version])
   @@index([tenantId, journeyId, status])
   @@map("jr_journey_definitions")
+}
+
+// ─────────────────────────── Delivery outbox (Channels/Dialer) ───────────────────────────
+
+enum DlDeliveryState {
+  QUEUED
+  SUBMITTING
+  SUBMITTED
+  RECONCILING
+  SETTLED
+}
+
+/// C1 เปิดเฉพาะ TEST_ADAPTER; provider จริงต้องผ่าน certification ก่อนเพิ่มค่าใหม่
+enum DlDeliveryAdapter {
+  TEST_ADAPTER
+}
+
+/// C1.3: durable outbox ของ Channels/Dialer — หนึ่งแถวต่อหนึ่ง delivery ที่ claim สำเร็จแล้ว
+/// row ถูก persist ก่อนตอบ QUEUED เสมอ และ `(tenant_id, action_key)` เป็น idempotency identity
+/// เดียวของ adapter: input เดิมเล่นซ้ำ delivery เดิม, input ต่างเป็น conflict
+/// เก็บได้เฉพาะ opaque id/ref — ห้าม message body, phone, email หรือ external contact reference
+model DlOutboxEntry {
+  id                 String            @id @default(uuid()) @db.Uuid
+  tenantId           String            @map("tenant_id") @db.Uuid
+  actionKey          String            @map("action_key")
+  reservationId      String            @map("reservation_id") @db.Uuid
+  deliveryId         String            @map("delivery_id")
+  providerRequestKey String            @map("provider_request_key")
+  adapter            DlDeliveryAdapter @default(TEST_ADAPTER)
+  channel            ChannelType
+  contactId          String            @map("contact_id") @db.Uuid
+  identityId         String?           @map("identity_id") @db.Uuid
+  purpose            String
+  source             String
+  senderIdentityId   String            @map("sender_identity_id")
+  /// reference ที่ channel owner resolve เป็นเนื้อหา — ไม่ใช่เนื้อหาเอง
+  contentRef         String            @map("content_ref")
+  inputHash          String            @map("input_hash")
+  state              DlDeliveryState   @default(QUEUED)
+  /// lease ที่ claim คืนมา ใช้เป็น expected version ของ beginProviderSubmission
+  leaseVersion       Int               @map("lease_version")
+  leaseExpiresAt     DateTime          @map("lease_expires_at")
+  submittedAt        DateTime?         @map("submitted_at")
+  outcome            CgFactOutcome?
+  outcomeRef         String?           @map("outcome_ref")
+  settledAt          DateTime?         @map("settled_at")
+  correlationId      String            @map("correlation_id")
+  causationId        String?           @map("causation_id")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
+  reservation CgReservation @relation(fields: [tenantId, reservationId], references: [tenantId, id], map: "dl_outbox_entries_tenant_reservation_fkey")
+
+  @@unique([tenantId, actionKey], map: "dl_outbox_entries_tenant_action_key")
+  @@unique([tenantId, deliveryId], map: "dl_outbox_entries_tenant_delivery_key")
+  @@unique([tenantId, providerRequestKey], map: "dl_outbox_entries_tenant_provider_request_key")
+  @@unique([tenantId, outcomeRef], map: "dl_outbox_entries_tenant_outcome_ref_key")
+  @@index([tenantId, state, leaseExpiresAt], map: "dl_outbox_entries_tenant_state_lease_expiry_idx")
+  @@map("dl_outbox_entries")
 }
 
 // ─────────────────────────── Interactions (record กลางทุก channel) ───────────────────────────

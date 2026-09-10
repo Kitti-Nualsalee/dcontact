@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CANONICAL_CXA_TABLES, parseCanonicalSchemaEvidence } from './cxa-schema-readiness.mjs';
 
-test('schema readiness ล็อก canonical Contact Governance/Journey รวม command receipts, facts และ durable execution', () => {
+test('schema readiness ล็อก canonical Contact Governance/Journey/Delivery รวม command receipts, facts และ durable execution', () => {
   assert.deepEqual(CANONICAL_CXA_TABLES, [
     'cg_attempts',
     'cg_consents',
@@ -11,6 +11,7 @@ test('schema readiness ล็อก canonical Contact Governance/Journey รว�
     'cg_reservation_command_receipts',
     'cg_restrictions',
     'cg_touches',
+    'dl_outbox_entries',
     'jr_actions',
     'jr_enrollments',
     'jr_event_inbox',
@@ -20,16 +21,16 @@ test('schema readiness ล็อก canonical Contact Governance/Journey รว�
 });
 
 test('schema evidence ผ่านเมื่อมี table, RLS และ tenant policy ครบทุกตารางเท่านั้น', () => {
-  assert.deepEqual(parseCanonicalSchemaEvidence('12|12|12'), {
-    tables: 12,
-    rlsEnabled: 12,
-    tenantPolicies: 12,
+  assert.deepEqual(parseCanonicalSchemaEvidence('13|13|13'), {
+    tables: 13,
+    rlsEnabled: 13,
+    tenantPolicies: 13,
     status: 'PASS',
   });
-  assert.deepEqual(parseCanonicalSchemaEvidence('12|11|12'), {
-    tables: 12,
-    rlsEnabled: 11,
-    tenantPolicies: 12,
+  assert.deepEqual(parseCanonicalSchemaEvidence('13|12|13'), {
+    tables: 13,
+    rlsEnabled: 12,
+    tenantPolicies: 13,
     status: 'FAIL',
   });
   assert.throws(() => parseCanonicalSchemaEvidence('unexpected'), /schema evidence/i);
