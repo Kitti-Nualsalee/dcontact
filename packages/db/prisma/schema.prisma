@@ -49,6 +49,8 @@ model Tenant {
   jrEnrollments                JrEnrollment[]
   jrActions                    JrAction[]
   jrJourneyDefinitions         JrJourneyDefinition[]
+  jrExecutions                 JrExecution[]
+  jrExecutionSteps             JrExecutionStep[]
 
   @@map("tenants")
 }
@@ -756,12 +758,82 @@ model JrJourneyDefinition {
   publishedAt     DateTime?                 @map("published_at")
   createdAt       DateTime                  @default(now()) @map("created_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant     Tenant        @relation(fields: [tenantId], references: [id])
+  executions JrExecution[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, journeyId, version])
   @@index([tenantId, journeyId, status])
   @@map("jr_journey_definitions")
+}
+
+enum JrExecutionStatus {
+  ACTIVE
+  WAITING
+  SUBMITTING
+  COMPLETED
+  EXITED
+  CANCELLED
+  FAILED
+}
+
+/// C1.5: หนึ่งแถวต่อหนึ่ง durable run ของ published JrJourneyDefinition — เดินผ่าน
+/// SEND/WAIT/BRANCH ด้วย optimistic `stepVersion` (CAS); เข้า SUBMITTING แปลว่า
+/// persist submission barrier แล้ว ยังไม่ยืนยันว่า provider รับ — cancel หลังจุดนี้
+/// ต้อง reconcile ไม่ใช่ release ตรง ๆ (วินัยเดียวกับ ContactGovernancePort)
+model JrExecution {
+  id               String            @id @default(uuid()) @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
+  journeyId        String            @map("journey_id") @db.Uuid
+  journeyVersion   Int               @map("journey_version")
+  enrollmentKey    String            @map("enrollment_key")
+  status           JrExecutionStatus @default(ACTIVE)
+  currentStepId    String            @map("current_step_id")
+  pendingActionKey String?           @map("pending_action_key")
+  stepVersion      Int               @default(0) @map("step_version")
+  waitUntil        DateTime?         @map("wait_until")
+  cancelledAt      DateTime?         @map("cancelled_at")
+  cancelReason     String?           @map("cancel_reason")
+  goalReachedAt    DateTime?         @map("goal_reached_at")
+  exitEventType    String?           @map("exit_event_type")
+  exitEventAt      DateTime?         @map("exit_event_at")
+  terminalReason   String?           @map("terminal_reason")
+  terminalAt       DateTime?         @map("terminal_at")
+  correlationId    String            @map("correlation_id")
+  enrolledAt       DateTime          @default(now()) @map("enrolled_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  tenant     Tenant              @relation(fields: [tenantId], references: [id])
+  definition JrJourneyDefinition @relation(fields: [tenantId, journeyId, journeyVersion], references: [tenantId, journeyId, version])
+  steps      JrExecutionStep[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, journeyId, journeyVersion, enrollmentKey])
+  @@index([tenantId, status, waitUntil])
+  @@map("jr_executions")
+}
+
+/// Append-only evidence log ของทุก transition ที่ execution commit จริง — หนึ่งแถว
+/// ต่อหนึ่ง `fromStepVersion` จึงกัน retry ของ transition เดิมไม่ให้ log ซ้ำ
+model JrExecutionStep {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  executionId     String   @map("execution_id") @db.Uuid
+  fromStepVersion Int      @map("from_step_version")
+  stepId          String   @map("step_id")
+  stepType        String   @map("step_type")
+  result          String
+  correlationId   String   @map("correlation_id")
+  causationId     String?  @map("causation_id")
+  occurredAt      DateTime @default(now()) @map("occurred_at")
+
+  tenant    Tenant      @relation(fields: [tenantId], references: [id])
+  execution JrExecution @relation(fields: [tenantId, executionId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, executionId, fromStepVersion])
+  @@index([tenantId, executionId, occurredAt])
+  @@map("jr_execution_steps")
 }
 
 // ─────────────────────────── Interactions (record กลางทุก channel) ───────────────────────────
