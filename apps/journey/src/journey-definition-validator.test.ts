@@ -12,6 +12,8 @@ function validDefinition(
   return {
     name: 'ทวงหนี้ค้างชำระ',
     ownerTeamId: 'team-1',
+    purpose: 'MARKETING',
+    senderIdentityId: 'sender-1',
     trigger: { kind: 'EVENT', eventType: 'payment.failed' },
     graph: {
       entryStepId: 'send-line',
@@ -65,6 +67,17 @@ test('goal ที่ไม่ใช่ EVENT หรือขาด eventType ถ
     evaluator,
   );
   assert.deepEqual(codes, ['GOAL_INVALID']);
+});
+
+test('purpose หรือ senderIdentityId ว่างเปล่าถูกปฏิเสธเป็น DELIVERY_DEFAULTS_INVALID', () => {
+  assert.deepEqual(
+    validateJourneyDefinitionStructure(validDefinition({ purpose: '' }), evaluator),
+    ['DELIVERY_DEFAULTS_INVALID'],
+  );
+  assert.deepEqual(
+    validateJourneyDefinitionStructure(validDefinition({ senderIdentityId: '  ' }), evaluator),
+    ['DELIVERY_DEFAULTS_INVALID'],
+  );
 });
 
 test('exitRules ว่างเปล่าถูกปฏิเสธ', () => {

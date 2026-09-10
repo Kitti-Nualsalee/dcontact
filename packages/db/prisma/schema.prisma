@@ -837,22 +837,27 @@ enum JrJourneyDefinitionStatus {
 /// (trigger/graph/goal/exitRules/maxDurationDays) ไม่ถูกแก้หลังสร้าง; publish เป็นเพียง
 /// state transition DRAFT -> PUBLISHED ที่ idempotent ต่อ (tenantId, journeyId, version)
 model JrJourneyDefinition {
-  id              String                    @id @default(uuid()) @db.Uuid
-  tenantId        String                    @map("tenant_id") @db.Uuid
-  journeyId       String                    @map("journey_id") @db.Uuid
-  version         Int
-  name            String
-  ownerTeamId     String                    @map("owner_team_id") @db.Uuid
-  status          JrJourneyDefinitionStatus @default(DRAFT)
-  trigger         Json
-  graph           Json
-  goal            Json
-  exitRules       Json                      @map("exit_rules")
-  maxDurationDays Int                       @map("max_duration_days")
-  inputHash       String                    @map("input_hash")
-  correlationId   String                    @map("correlation_id")
-  publishedAt     DateTime?                 @map("published_at")
-  createdAt       DateTime                  @default(now()) @map("created_at")
+  id               String                    @id @default(uuid()) @db.Uuid
+  tenantId         String                    @map("tenant_id") @db.Uuid
+  journeyId        String                    @map("journey_id") @db.Uuid
+  version          Int
+  name             String
+  ownerTeamId      String                    @map("owner_team_id") @db.Uuid
+  /// consent/policy purpose (เช่น MARKETING, SERVICE) ที่ SEND ทุกโหนดในเวอร์ชันนี้ใช้เรียก
+  /// authorizeAndReserve — C1.6 อ่านค่านี้แทนการให้แต่ละ SEND step ประกาศเอง
+  purpose          String
+  /// sender identity ที่ผูกกับ delivery binding — C1 เป็น TEST_ADAPTER เท่านั้น
+  senderIdentityId String                    @map("sender_identity_id")
+  status           JrJourneyDefinitionStatus @default(DRAFT)
+  trigger          Json
+  graph            Json
+  goal             Json
+  exitRules        Json                      @map("exit_rules")
+  maxDurationDays  Int                       @map("max_duration_days")
+  inputHash        String                    @map("input_hash")
+  correlationId    String                    @map("correlation_id")
+  publishedAt      DateTime?                 @map("published_at")
+  createdAt        DateTime                  @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 

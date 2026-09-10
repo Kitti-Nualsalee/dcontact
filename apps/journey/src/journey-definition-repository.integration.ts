@@ -93,6 +93,8 @@ function input(
     version: 1,
     name: 'ทวงหนี้ค้างชำระ',
     ownerTeamId: f.teamId,
+    purpose: 'MARKETING',
+    senderIdentityId: 'sender-c1-4',
     trigger: { kind: 'EVENT', eventType: 'payment.failed' },
     graph: validGraph(),
     goal: { kind: 'EVENT', eventType: 'payment.succeeded' },

@@ -29,6 +29,8 @@ interface StoredJourneyDefinition {
   version: number;
   name: string;
   ownerTeamId: string;
+  purpose: string;
+  senderIdentityId: string;
   status: JrJourneyDefinitionStatus;
   trigger: Prisma.JsonValue;
   graph: Prisma.JsonValue;
@@ -45,6 +47,8 @@ function canonicalContentHash(content: JourneyDefinitionContent): string {
   const canonical = JSON.stringify({
     name: content.name,
     ownerTeamId: content.ownerTeamId,
+    purpose: content.purpose,
+    senderIdentityId: content.senderIdentityId,
     trigger: content.trigger,
     graph: content.graph,
     goal: content.goal,
@@ -61,6 +65,8 @@ function toSnapshot(row: StoredJourneyDefinition): JourneyVersionSnapshot {
     version: row.version,
     name: row.name,
     ownerTeamId: row.ownerTeamId,
+    purpose: row.purpose,
+    senderIdentityId: row.senderIdentityId,
     status: row.status,
     trigger: row.trigger as unknown as JourneyTrigger,
     graph: row.graph as unknown as JourneyGraph,
@@ -135,6 +141,8 @@ export class JourneyDefinitionRepository {
           version: input.version,
           name: input.name,
           ownerTeamId: input.ownerTeamId,
+          purpose: input.purpose,
+          senderIdentityId: input.senderIdentityId,
           trigger: input.trigger as unknown as Prisma.InputJsonValue,
           graph: input.graph as unknown as Prisma.InputJsonValue,
           goal: input.goal as unknown as Prisma.InputJsonValue,

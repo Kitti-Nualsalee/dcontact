@@ -51,6 +51,10 @@ export interface JourneyGraph {
 export interface JourneyDefinitionContent {
   name: string;
   ownerTeamId: string;
+  /** consent/policy purpose (เช่น MARKETING, SERVICE) ที่ SEND ทุก step ในเวอร์ชันนี้ใช้ร่วมกัน */
+  purpose: string;
+  /** sender identity ที่ผูกกับ delivery binding ของ SEND ทุก step — C1 เป็น TEST_ADAPTER เท่านั้น */
+  senderIdentityId: string;
   trigger: JourneyTrigger;
   graph: JourneyGraph;
   goal: JourneyGoal;
@@ -87,6 +91,7 @@ export interface PublishJourneyVersionInput {
 export type JourneyDefinitionValidationCode =
   | 'TRIGGER_INVALID'
   | 'GOAL_INVALID'
+  | 'DELIVERY_DEFAULTS_INVALID'
   | 'EXIT_RULE_INVALID'
   | 'MAX_DURATION_INVALID'
   | 'GRAPH_ENTRY_MISSING'

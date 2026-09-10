@@ -108,6 +108,8 @@ async function fixture(t: TestContext, expression: ExpressionDocument = OPT_IN) 
       version: 1,
       name: `Journey ${suffix}`,
       ownerTeamId: ownerTeamIds.get(tenantId) ?? '',
+      purpose: 'MARKETING',
+      senderIdentityId: `sender-${suffix}`,
       trigger: { kind: 'EVENT', eventType: 'order.created' },
       graph: graph(expression),
       goal: { kind: 'EVENT', eventType: 'order.paid' },
