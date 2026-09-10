@@ -24,6 +24,7 @@ async function createTenantFixture(t: TestContext) {
   const contactId = randomUUID();
 
   t.after(async () => {
+    await owner.cgReservationCommandReceipt.deleteMany({ where: { tenantId } });
     await owner.cgDecisionLog.deleteMany({ where: { tenantId } });
     await owner.cgReservation.deleteMany({ where: { tenantId } });
     await owner.cgConsent.deleteMany({ where: { tenantId } });

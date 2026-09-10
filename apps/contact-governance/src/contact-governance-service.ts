@@ -12,14 +12,24 @@ import {
   type ContactPolicyTraceEntry,
 } from './contact-policy.js';
 import { transitionReservation, type ReservationCommand } from './reservation.js';
+import { ReservationRuntime, type ReservationRuntimeOptions } from './reservation-runtime.js';
 
 import {
   IdempotencyConflictError,
+  ReservationBindingError,
   ReservationNotFoundError,
   ReservationNotUsableError,
   type AuthorizeAndReserveInput,
   type AuthorizationOutcome,
   type ContactAuthorizationPort,
+  type ContactGovernancePort,
+  type ClaimReservationForDeliveryInput,
+  type RenewReservationLeaseInput,
+  type BeginProviderSubmissionInput,
+  type ConfirmProviderAcceptanceInput,
+  type ReleaseBeforeSubmitInput,
+  type SettleDeliveryInput,
+  type ReservationSettlementView,
   type ReservationView,
 } from '@d-contact/cxa-contracts';
 export {
@@ -34,10 +44,7 @@ export {
 
 const RESERVATION_TTL_MS = 15 * 60 * 1_000;
 
-export interface ContactGovernanceServiceOptions {
-  now?: () => Date;
-  id?: () => string;
-}
+export interface ContactGovernanceServiceOptions extends ReservationRuntimeOptions {}
 
 const decisionSelection = {
   id: true,
@@ -61,6 +68,9 @@ const reservationSelection = {
   confirmedAt: true,
   releasedAt: true,
   refundedAt: true,
+  deliveryId: true,
+  providerRequestKey: true,
+  submissionStartedAt: true,
 } as const;
 
 function hashAuthorizationInput(input: AuthorizeAndReserveInput): string {
@@ -124,9 +134,12 @@ function toReservationView(reservation: {
   };
 }
 
-export class ContactGovernanceService implements ContactAuthorizationPort<Prisma.TransactionClient> {
+export class ContactGovernanceService
+  implements ContactAuthorizationPort<Prisma.TransactionClient>, ContactGovernancePort
+{
   private readonly now: () => Date;
   private readonly id: () => string;
+  private readonly reservationRuntime: ReservationRuntime;
 
   constructor(
     private readonly database: PrismaClient,
@@ -134,6 +147,39 @@ export class ContactGovernanceService implements ContactAuthorizationPort<Prisma
   ) {
     this.now = options.now ?? (() => new Date());
     this.id = options.id ?? randomUUID;
+    this.reservationRuntime = new ReservationRuntime(database, {
+      ...options,
+      now: this.now,
+      id: this.id,
+    });
+  }
+
+  claimReservationForDelivery(
+    input: ClaimReservationForDeliveryInput,
+  ): Promise<ReservationSettlementView> {
+    return this.reservationRuntime.claim(input);
+  }
+
+  renewReservationLease(input: RenewReservationLeaseInput): Promise<ReservationSettlementView> {
+    return this.reservationRuntime.renew(input);
+  }
+
+  beginProviderSubmission(input: BeginProviderSubmissionInput): Promise<ReservationSettlementView> {
+    return this.reservationRuntime.beginSubmission(input);
+  }
+
+  confirmProviderAcceptance(
+    input: ConfirmProviderAcceptanceInput,
+  ): Promise<ReservationSettlementView> {
+    return this.reservationRuntime.confirm(input);
+  }
+
+  releaseBeforeSubmit(input: ReleaseBeforeSubmitInput): Promise<ReservationSettlementView> {
+    return this.reservationRuntime.release(input);
+  }
+
+  settleDelivery(input: SettleDeliveryInput): Promise<ReservationSettlementView> {
+    return this.reservationRuntime.settle(input);
   }
 
   async authorizeAndReserve(
@@ -270,6 +316,7 @@ export class ContactGovernanceService implements ContactAuthorizationPort<Prisma
             actionKey: input.actionKey,
             inputHash,
             expiresAt: reservationExpiresAt,
+            settlementStatus: 'UNCLAIMED',
           },
         });
       }
@@ -319,6 +366,13 @@ export class ContactGovernanceService implements ContactAuthorizationPort<Prisma
         select: reservationSelection,
       });
       if (!current) throw new ReservationNotFoundError(reservationId);
+      if (current.deliveryId) {
+        throw new ReservationBindingError(
+          current.submissionStartedAt || current.providerRequestKey
+            ? 'DELIVERY_RECONCILIATION_REQUIRED'
+            : 'INVALID_RESERVATION_TRANSITION',
+        );
+      }
 
       const next = transitionReservation({ id: current.id, state: current.state }, command);
       if (next.state === current.state) return toReservationView(current);
@@ -373,14 +427,19 @@ export class ContactGovernanceService implements ContactAuthorizationPort<Prisma
           FROM cg_reservations
           WHERE tenant_id = ${tenantId}::uuid
             AND state = 'RESERVED'
-            AND expires_at <= ${now}
-          ORDER BY expires_at, id
+            AND submission_started_at IS NULL
+            AND provider_request_key IS NULL
+            AND (settlement_status IS NULL OR settlement_status IN ('UNCLAIMED', 'CLAIMED'))
+            AND COALESCE(lease_expires_at, expires_at) <= ${now}
+          ORDER BY COALESCE(lease_expires_at, expires_at), id
           LIMIT ${limit}
           FOR UPDATE SKIP LOCKED
         )
         UPDATE cg_reservations AS reservation
         SET state = 'RELEASED',
+            settlement_status = 'SETTLED',
             released_at = ${now},
+            settled_at = ${now},
             updated_at = ${now}
         FROM expired
         WHERE reservation.id = expired.id
