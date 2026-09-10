@@ -27,3 +27,8 @@ blob-report/
 
 # generated CX Automation acceptance evidence (export or attach outside git when needed)
 artifacts/cxa-e0/
+artifacts/cxa-c1/
+
+skills-lock.json
+*.agents
+*.claude
