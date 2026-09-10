@@ -31,6 +31,14 @@ function validateGoal(goal: JourneyDefinitionContent['goal']): JourneyDefinition
   return goal.kind === 'EVENT' && isNonEmptyString(goal.eventType) ? [] : ['GOAL_INVALID'];
 }
 
+function validateDeliveryDefaults(
+  content: JourneyDefinitionContent,
+): JourneyDefinitionValidationCode[] {
+  return isNonEmptyString(content.purpose) && isNonEmptyString(content.senderIdentityId)
+    ? []
+    : ['DELIVERY_DEFAULTS_INVALID'];
+}
+
 function validateExitRules(
   exitRules: JourneyDefinitionContent['exitRules'],
 ): JourneyDefinitionValidationCode[] {
@@ -194,6 +202,7 @@ export function validateJourneyDefinitionStructure(
   const codes = [
     ...validateTrigger(content.trigger),
     ...validateGoal(content.goal),
+    ...validateDeliveryDefaults(content),
     ...validateExitRules(content.exitRules),
     ...validateMaxDuration(content.maxDurationDays),
     ...graphCodes,
