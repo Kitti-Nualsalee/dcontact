@@ -320,3 +320,69 @@ test('cg reservation command receipts บังคับ tenant RLS และเ
     '1',
   );
 });
+
+test('dl outbox entries บังคับ tenant RLS และห้าม application role ลบ delivery ที่ claim แล้ว', (t) => {
+  const tenantId = randomUUID();
+  const contactId = randomUUID();
+  const reservationId = randomUUID();
+  const entryId = randomUUID();
+  const suffix = tenantId.slice(0, 8);
+
+  queryAsOwner(
+    `BEGIN;
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${tenantId}', 'DL outbox RLS ${suffix}', 'dl-outbox-rls-${suffix}', 'dl-outbox-rls-${suffix}.test');
+     INSERT INTO contacts (id, tenant_id, display_name) VALUES ('${contactId}', '${tenantId}', 'DL outbox RLS contact');
+     INSERT INTO cg_reservations (id, tenant_id, contact_id, channel, purpose, source, source_id, action_key, input_hash, state, expires_at, updated_at) VALUES ('${reservationId}', '${tenantId}', '${contactId}', 'EMAIL', 'MARKETING', 'JOURNEY', 'journey-c1-3', 'action-${suffix}', 'hash-${suffix}', 'RESERVED', now() + interval '15 minutes', now());
+     COMMIT;`,
+  );
+
+  t.after(() =>
+    queryAsOwner(
+      `DELETE FROM dl_outbox_entries WHERE tenant_id = '${tenantId}';
+       DELETE FROM cg_reservations WHERE tenant_id = '${tenantId}';
+       DELETE FROM contacts WHERE tenant_id = '${tenantId}';
+       DELETE FROM tenants WHERE id = '${tenantId}';`,
+    ),
+  );
+
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN;
+       SELECT set_config('app.tenant_id', '${tenantId}', true);
+       INSERT INTO dl_outbox_entries (id, tenant_id, action_key, reservation_id, delivery_id, provider_request_key, channel, contact_id, purpose, source, sender_identity_id, content_ref, input_hash, lease_version, lease_expires_at, correlation_id, updated_at) VALUES ('${entryId}', '${tenantId}', 'action-${suffix}', '${reservationId}', 'dlv-${suffix}', 'prq-${suffix}', 'EMAIL', '${contactId}', 'MARKETING', 'JOURNEY', 'sender-${suffix}', 'template:welcome/v3', 'canonical-hash', 1, now() + interval '10 minutes', 'corr-${suffix}', now());
+       SELECT count(*) FROM dl_outbox_entries WHERE id = '${entryId}';
+       COMMIT;`,
+    ),
+    /\nINSERT 0 1\n1\nCOMMIT$/,
+  );
+
+  const demoTenantId = queryAsOwner("SELECT id FROM tenants WHERE slug = 'demo';");
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${demoTenantId}', true); SELECT count(*) FROM dl_outbox_entries WHERE id = '${entryId}'; COMMIT;`,
+    ),
+    /\n0\nCOMMIT$/,
+  );
+
+  // outbox เดินสถานะได้ (UPDATE ยังต้องผ่าน) แต่ห้ามหายไปทั้งแถว
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE dl_outbox_entries SET state = 'SUBMITTING' WHERE id = '${entryId}'; COMMIT;`,
+    ),
+    /\nUPDATE 1\nCOMMIT$/,
+  );
+  assert.throws(
+    () =>
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); DELETE FROM dl_outbox_entries WHERE id = '${entryId}'; COMMIT;`,
+      ),
+    /permission denied/i,
+  );
+
+  assert.equal(
+    queryAsOwner(
+      "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'dl_outbox_entries' AND policyname = 'tenant_isolation' AND qual IS NOT NULL AND with_check IS NOT NULL;",
+    ),
+    '1',
+  );
+});
