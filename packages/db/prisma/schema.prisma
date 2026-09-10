@@ -854,8 +854,7 @@ model JrJourneyDefinition {
   publishedAt     DateTime?                 @map("published_at")
   createdAt       DateTime                  @default(now()) @map("created_at")
 
-  tenant     Tenant        @relation(fields: [tenantId], references: [id])
-  executions JrExecution[]
+  tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@unique([tenantId, id])
   @@unique([tenantId, journeyId, version])

@@ -41,6 +41,10 @@ BEGIN
   END IF;
 END $$;
 
+-- ไม่มีสิ่งนี้แล้ว dcontact_app มองไม่เห็น schema เลย (fail กับ "permission denied
+-- for schema public") บน environment ที่สร้างใหม่ทั้งหมด — เคย implicit ผ่าน default
+-- privilege ของ Postgres รุ่นเก่า/การตั้งค่าที่ไม่ได้ track ไว้ในนี้
+GRANT USAGE ON SCHEMA public TO dcontact_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO dcontact_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dcontact_app;
 
