@@ -256,3 +256,67 @@ test('cg_attempts/cg_touches บังคับ tenant RLS, composite binding �
     '2',
   );
 });
+
+test('cg reservation command receipts บังคับ tenant RLS และเป็น append-only สำหรับ application role', (t) => {
+  const tenantId = randomUUID();
+  const contactId = randomUUID();
+  const reservationId = randomUUID();
+  const receiptId = randomUUID();
+  const suffix = tenantId.slice(0, 8);
+
+  queryAsOwner(
+    `BEGIN;
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${tenantId}', 'CG receipt RLS ${suffix}', 'cg-receipt-rls-${suffix}', 'cg-receipt-rls-${suffix}.test');
+     INSERT INTO contacts (id, tenant_id, display_name) VALUES ('${contactId}', '${tenantId}', 'CG receipt RLS contact');
+     INSERT INTO cg_reservations (id, tenant_id, contact_id, channel, purpose, source, source_id, action_key, input_hash, state, expires_at, updated_at) VALUES ('${reservationId}', '${tenantId}', '${contactId}', 'EMAIL', 'MARKETING', 'JOURNEY', 'journey-c1-2', 'action-${suffix}', 'hash-${suffix}', 'RESERVED', now() + interval '15 minutes', now());
+     COMMIT;`,
+  );
+
+  t.after(() =>
+    queryAsOwner(
+      `DELETE FROM cg_reservation_command_receipts WHERE tenant_id = '${tenantId}';
+       DELETE FROM cg_reservations WHERE tenant_id = '${tenantId}';
+       DELETE FROM contacts WHERE tenant_id = '${tenantId}';
+       DELETE FROM tenants WHERE id = '${tenantId}';`,
+    ),
+  );
+
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN;
+       SELECT set_config('app.tenant_id', '${tenantId}', true);
+       INSERT INTO cg_reservation_command_receipts (id, tenant_id, reservation_id, operation, idempotency_key, input_hash, response) VALUES ('${receiptId}', '${tenantId}', '${reservationId}', 'CLAIM', 'claim-${suffix}', 'canonical-hash', '{}');
+       SELECT count(*) FROM cg_reservation_command_receipts WHERE id = '${receiptId}';
+       COMMIT;`,
+    ),
+    /\nINSERT 0 1\n1\nCOMMIT$/,
+  );
+
+  const demoTenantId = queryAsOwner("SELECT id FROM tenants WHERE slug = 'demo';");
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${demoTenantId}', true); SELECT count(*) FROM cg_reservation_command_receipts WHERE id = '${receiptId}'; COMMIT;`,
+    ),
+    /\n0\nCOMMIT$/,
+  );
+
+  for (const mutation of [
+    `UPDATE cg_reservation_command_receipts SET input_hash = 'mutated' WHERE id = '${receiptId}'`,
+    `DELETE FROM cg_reservation_command_receipts WHERE id = '${receiptId}'`,
+  ]) {
+    assert.throws(
+      () =>
+        queryAsApplicationRole(
+          `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${mutation}; COMMIT;`,
+        ),
+      /permission denied/i,
+    );
+  }
+
+  assert.equal(
+    queryAsOwner(
+      "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'cg_reservation_command_receipts' AND policyname = 'tenant_isolation' AND qual IS NOT NULL AND with_check IS NOT NULL;",
+    ),
+    '1',
+  );
+});

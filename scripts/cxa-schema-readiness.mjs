@@ -12,6 +12,7 @@ export const CANONICAL_CXA_TABLES = [
   'cg_consents',
   'cg_decision_logs',
   'cg_reservations',
+  'cg_reservation_command_receipts',
   'cg_restrictions',
   'cg_touches',
   'jr_actions',

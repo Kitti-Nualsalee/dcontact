@@ -22,32 +22,33 @@ model Tenant {
   defaultMaxWaitAction      QueueMaxWaitAction      @default(VOICEMAIL) @map("default_max_wait_action")
   createdAt                 DateTime                @default(now()) @map("created_at")
 
-  users                User[]
-  teams                Team[]
-  queues               Queue[]
-  voiceDestinations    VoiceDestination[]
-  queueAuditEvents     QueueAuditEvent[]
-  skills               Skill[]
-  contacts             Contact[]
-  interactions         Interaction[]
-  conversations        Conversation[]
-  qmTranscriptionJobs  QmTranscriptionJob[]
-  qmAuditEvents        QmAuditEvent[]
-  qmTranscripts        QmTranscript[]
-  qmEvaluations        QmEvaluation[]
-  qmConsoleContexts    QmConsoleContext[]
-  commandReceipts      CommandReceipt[]
-  cgRestrictions       CgRestriction[]
-  cgConsents           CgConsent[]
-  cgDecisionLogs       CgDecisionLog[]
-  cgReservations       CgReservation[]
-  cgAttempts           CgAttempt[]
-  cgTouches            CgTouch[]
-  jrEventInbox         JrEventInbox[]
-  jrKafkaConsumerInbox JrKafkaConsumerInbox[]
-  jrEnrollments        JrEnrollment[]
-  jrActions            JrAction[]
-  jrJourneyDefinitions JrJourneyDefinition[]
+  users                        User[]
+  teams                        Team[]
+  queues                       Queue[]
+  voiceDestinations            VoiceDestination[]
+  queueAuditEvents             QueueAuditEvent[]
+  skills                       Skill[]
+  contacts                     Contact[]
+  interactions                 Interaction[]
+  conversations                Conversation[]
+  qmTranscriptionJobs          QmTranscriptionJob[]
+  qmAuditEvents                QmAuditEvent[]
+  qmTranscripts                QmTranscript[]
+  qmEvaluations                QmEvaluation[]
+  qmConsoleContexts            QmConsoleContext[]
+  commandReceipts              CommandReceipt[]
+  cgRestrictions               CgRestriction[]
+  cgConsents                   CgConsent[]
+  cgDecisionLogs               CgDecisionLog[]
+  cgReservations               CgReservation[]
+  cgReservationCommandReceipts CgReservationCommandReceipt[]
+  cgAttempts                   CgAttempt[]
+  cgTouches                    CgTouch[]
+  jrEventInbox                 JrEventInbox[]
+  jrKafkaConsumerInbox         JrKafkaConsumerInbox[]
+  jrEnrollments                JrEnrollment[]
+  jrActions                    JrAction[]
+  jrJourneyDefinitions         JrJourneyDefinition[]
 
   @@map("tenants")
 }
@@ -384,6 +385,23 @@ enum CgFactOutcome {
   DELIVERY_FAILED
 }
 
+enum CgDeliverySettlementStatus {
+  UNCLAIMED
+  CLAIMED
+  UNKNOWN_RECONCILING
+  ACCEPTED
+  SETTLED
+}
+
+enum CgReservationCommandOperation {
+  CLAIM
+  RENEW
+  BEGIN_SUBMISSION
+  CONFIRM
+  RELEASE
+  SETTLE
+}
+
 enum JrEventInboxState {
   PENDING
   PUBLISHED
@@ -454,40 +472,73 @@ model CgConsent {
 }
 
 model CgReservation {
-  id              String             @id @default(uuid()) @db.Uuid
-  tenantId        String             @map("tenant_id") @db.Uuid
-  contactId       String             @map("contact_id") @db.Uuid
-  identityId      String?            @map("identity_id") @db.Uuid
-  channel         ChannelType
-  purpose         String
-  source          String
-  sourceId        String             @map("source_id")
-  teamId          String?            @map("team_id") @db.Uuid
-  segmentSnapshot Json?              @map("segment_snapshot")
-  scopeVersion    Int?               @map("scope_version")
-  actionKey       String             @map("action_key")
-  inputHash       String             @map("input_hash")
-  state           CgReservationState @default(RESERVED)
-  expiresAt       DateTime           @map("expires_at")
-  confirmedAt     DateTime?          @map("confirmed_at")
-  releasedAt      DateTime?          @map("released_at")
-  refundedAt      DateTime?          @map("refunded_at")
-  createdAt       DateTime           @default(now()) @map("created_at")
-  updatedAt       DateTime           @updatedAt @map("updated_at")
+  id                  String                      @id @default(uuid()) @db.Uuid
+  tenantId            String                      @map("tenant_id") @db.Uuid
+  contactId           String                      @map("contact_id") @db.Uuid
+  identityId          String?                     @map("identity_id") @db.Uuid
+  channel             ChannelType
+  purpose             String
+  source              String
+  sourceId            String                      @map("source_id")
+  teamId              String?                     @map("team_id") @db.Uuid
+  segmentSnapshot     Json?                       @map("segment_snapshot")
+  scopeVersion        Int?                        @map("scope_version")
+  actionKey           String                      @map("action_key")
+  inputHash           String                      @map("input_hash")
+  state               CgReservationState          @default(RESERVED)
+  expiresAt           DateTime                    @map("expires_at")
+  confirmedAt         DateTime?                   @map("confirmed_at")
+  releasedAt          DateTime?                   @map("released_at")
+  refundedAt          DateTime?                   @map("refunded_at")
+  deliveryId          String?                     @map("delivery_id")
+  senderIdentityId    String?                     @map("sender_identity_id")
+  providerRequestKey  String?                     @map("provider_request_key")
+  leaseVersion        Int?                        @map("lease_version")
+  leaseExpiresAt      DateTime?                   @map("lease_expires_at")
+  submissionStartedAt DateTime?                   @map("submission_started_at")
+  settlementStatus    CgDeliverySettlementStatus? @map("settlement_status")
+  terminalOutcome     CgFactOutcome?              @map("terminal_outcome")
+  terminalOutcomeRef  String?                     @map("terminal_outcome_ref")
+  settledAt           DateTime?                   @map("settled_at")
+  createdAt           DateTime                    @default(now()) @map("created_at")
+  updatedAt           DateTime                    @updatedAt @map("updated_at")
 
-  tenant         Tenant           @relation(fields: [tenantId], references: [id])
-  contact        Contact          @relation(fields: [contactId], references: [id])
-  identity       ContactIdentity? @relation(fields: [identityId], references: [id])
-  decisionLogs   CgDecisionLog[]
-  journeyActions JrAction[]
-  attempts       CgAttempt[]
-  touches        CgTouch[]
+  tenant          Tenant                        @relation(fields: [tenantId], references: [id])
+  contact         Contact                       @relation(fields: [contactId], references: [id])
+  identity        ContactIdentity?              @relation(fields: [identityId], references: [id])
+  decisionLogs    CgDecisionLog[]
+  journeyActions  JrAction[]
+  attempts        CgAttempt[]
+  touches         CgTouch[]
+  commandReceipts CgReservationCommandReceipt[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, actionKey])
+  @@unique([tenantId, deliveryId])
+  @@unique([tenantId, providerRequestKey])
   @@index([tenantId, contactId, state, createdAt])
   @@index([tenantId, state, expiresAt])
+  @@index([tenantId, settlementStatus, leaseExpiresAt], map: "cg_reservations_tenant_id_settlement_status_lease_expiry_idx")
   @@map("cg_reservations")
+}
+
+/// ผลลัพธ์ durable ของ command เพื่อให้ duplicate คืน snapshot เดิมหลัง restart
+model CgReservationCommandReceipt {
+  id             String                        @id @default(uuid()) @db.Uuid
+  tenantId       String                        @map("tenant_id") @db.Uuid
+  reservationId  String                        @map("reservation_id") @db.Uuid
+  operation      CgReservationCommandOperation
+  idempotencyKey String                        @map("idempotency_key")
+  inputHash      String                        @map("input_hash")
+  response       Json
+  createdAt      DateTime                      @default(now()) @map("created_at")
+
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
+  reservation CgReservation @relation(fields: [tenantId, reservationId], references: [tenantId, id], map: "cg_reservation_command_receipts_tenant_reservation_fkey")
+
+  @@unique([tenantId, operation, idempotencyKey], map: "cg_reservation_command_receipts_tenant_operation_key")
+  @@index([tenantId, reservationId, createdAt], map: "cg_reservation_command_receipts_tenant_reservation_created_idx")
+  @@map("cg_reservation_command_receipts")
 }
 
 /// Fact ของ Contact Governance แบบ immutable: หนึ่ง canonical attempt ต่อ outcomeRef ใน tenant
