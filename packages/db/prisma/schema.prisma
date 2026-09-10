@@ -49,8 +49,9 @@ model Tenant {
   jrEnrollments                JrEnrollment[]
   jrActions                    JrAction[]
   jrJourneyDefinitions         JrJourneyDefinition[]
-  jrExecutions                 JrExecution[]
-  jrExecutionSteps             JrExecutionStep[]
+  dlOutboxEntries              DlOutboxEntry[]
+  jrScheduleOccurrences        JrScheduleOccurrence[]
+  jrStepRuns                   JrStepRun[]
 
   @@map("tenants")
 }
@@ -419,6 +420,32 @@ enum JrEnrollmentState {
   AUTHORIZED
 }
 
+/// C1.5: สถานะการเดินของ enrollment แยกจาก `JrEnrollmentState` ซึ่งบันทึกผล authorize
+enum JrRunState {
+  RUNNING
+  WAITING
+  TERMINAL
+}
+
+/// เหตุผลเดียวที่ enrollment จบ — บันทึกครั้งแรกครั้งเดียว ห้ามเขียนทับ
+enum JrTerminalReason {
+  GRAPH_EXIT
+  GOAL_REACHED
+  EXIT_RULE
+  MAX_AGE
+  CANCELLED
+}
+
+enum JrStepRunState {
+  COMPLETED
+  AWAITING_SEND
+}
+
+enum JrScheduleOccurrenceState {
+  CLAIMED
+  ENROLLED
+}
+
 model CgRestriction {
   id          String            @id @default(uuid()) @db.Uuid
   tenantId    String            @map("tenant_id") @db.Uuid
@@ -513,6 +540,7 @@ model CgReservation {
   attempts        CgAttempt[]
   touches         CgTouch[]
   commandReceipts CgReservationCommandReceipt[]
+  outboxEntries   DlOutboxEntry[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, actionKey])
@@ -684,26 +712,94 @@ model JrKafkaConsumerInbox {
   @@map("jr_kafka_consumer_inbox")
 }
 
+/// C1.5 ขยาย enrollment ให้เป็น durable execution cursor: `event_inbox_id` ถูกผ่อนเป็น
+/// nullable เพราะ Schedule trigger ไม่มี event ตั้งต้น และ `(current_step_id, step_sequence)`
+/// เป็นตำแหน่งเดียวที่บอกว่า enrollment เดินไปถึงไหน — worker ทุกตัวต้อง CAS ที่ step_sequence
 model JrEnrollment {
   id             String            @id @default(uuid()) @db.Uuid
   tenantId       String            @map("tenant_id") @db.Uuid
-  eventInboxId   String            @map("event_inbox_id") @db.Uuid
+  eventInboxId   String?           @map("event_inbox_id") @db.Uuid
+  occurrenceId   String?           @map("occurrence_id") @db.Uuid
+  journeyId      String?           @map("journey_id") @db.Uuid
   journeyVersion Int               @map("journey_version")
   contactId      String?           @map("contact_id") @db.Uuid
   decisionId     String?           @map("decision_id") @db.Uuid
   state          JrEnrollmentState @default(PENDING)
+  runState       JrRunState        @default(RUNNING) @map("run_state")
+  currentStepId  String?           @map("current_step_id")
+  stepSequence   Int               @default(0) @map("step_sequence")
+  waitUntil      DateTime?         @map("wait_until")
+  maxAgeAt       DateTime?         @map("max_age_at")
+  terminalReason JrTerminalReason? @map("terminal_reason")
+  terminalStepId String?           @map("terminal_step_id")
+  terminalAt     DateTime?         @map("terminal_at")
+  claimedBy      String?           @map("claimed_by")
+  claimExpiresAt DateTime?         @map("claim_expires_at")
+  correlationId  String?           @map("correlation_id")
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @updatedAt @map("updated_at")
 
-  tenant     Tenant         @relation(fields: [tenantId], references: [id])
-  eventInbox JrEventInbox   @relation(fields: [eventInboxId], references: [id])
-  contact    Contact?       @relation(fields: [contactId], references: [id])
-  decision   CgDecisionLog? @relation(fields: [decisionId], references: [id])
+  tenant     Tenant                @relation(fields: [tenantId], references: [id])
+  eventInbox JrEventInbox?         @relation(fields: [eventInboxId], references: [id])
+  occurrence JrScheduleOccurrence? @relation(fields: [occurrenceId], references: [id])
+  contact    Contact?              @relation(fields: [contactId], references: [id])
+  decision   CgDecisionLog?        @relation(fields: [decisionId], references: [id])
   actions    JrAction[]
+  stepRuns   JrStepRun[]
 
+  @@unique([tenantId, id])
   @@unique([tenantId, eventInboxId])
+  @@unique([tenantId, occurrenceId], map: "jr_enrollments_tenant_occurrence_key")
   @@index([tenantId, contactId, state])
+  @@index([tenantId, runState, waitUntil], map: "jr_enrollments_tenant_run_state_wait_until_idx")
+  @@index([tenantId, runState, maxAgeAt], map: "jr_enrollments_tenant_run_state_max_age_idx")
   @@map("jr_enrollments")
+}
+
+/// หนึ่งแถวต่อหนึ่ง occurrence ของ Schedule trigger — unique key กัน cron ที่ยิงซ้ำ
+/// (ตัว scheduler เอง, worker หลายตัว หรือ restart) ไม่ให้ enroll ซ้ำใน tenant เดียวกัน
+model JrScheduleOccurrence {
+  id             String                    @id @default(uuid()) @db.Uuid
+  tenantId       String                    @map("tenant_id") @db.Uuid
+  journeyId      String                    @map("journey_id") @db.Uuid
+  journeyVersion Int                       @map("journey_version")
+  occurrenceAt   DateTime                  @map("occurrence_at")
+  state          JrScheduleOccurrenceState @default(CLAIMED)
+  correlationId  String                    @map("correlation_id")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  enrollments JrEnrollment[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, journeyId, journeyVersion, occurrenceAt], map: "jr_schedule_occurrences_tenant_occurrence_key")
+  @@index([tenantId, state, occurrenceAt], map: "jr_schedule_occurrences_tenant_state_occurrence_idx")
+  @@map("jr_schedule_occurrences")
+}
+
+/// Ledger ของทุก node ที่ enrollment เดินผ่าน `(enrollment_id, step_sequence)` เป็น unique
+/// จึงเป็นตัวกันไม่ให้ worker สองตัวรัน node เดียวกันซ้ำ แม้จะ claim งานพร้อมกัน
+model JrStepRun {
+  id            String         @id @default(uuid()) @db.Uuid
+  tenantId      String         @map("tenant_id") @db.Uuid
+  enrollmentId  String         @map("enrollment_id") @db.Uuid
+  stepSequence  Int            @map("step_sequence")
+  stepId        String         @map("step_id")
+  stepType      String         @map("step_type")
+  state         JrStepRunState
+  nextStepId    String?        @map("next_step_id")
+  branchResult  Boolean?       @map("branch_result")
+  correlationId String         @map("correlation_id")
+  causationId   String?        @map("causation_id")
+  startedAt     DateTime       @map("started_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  tenant     Tenant       @relation(fields: [tenantId], references: [id])
+  enrollment JrEnrollment @relation(fields: [tenantId, enrollmentId], references: [tenantId, id], map: "jr_step_runs_tenant_enrollment_fkey")
+
+  @@unique([tenantId, enrollmentId, stepSequence], map: "jr_step_runs_tenant_enrollment_sequence_key")
+  @@index([tenantId, enrollmentId, stepId], map: "jr_step_runs_tenant_enrollment_step_idx")
+  @@map("jr_step_runs")
 }
 
 model JrAction {
@@ -767,73 +863,64 @@ model JrJourneyDefinition {
   @@map("jr_journey_definitions")
 }
 
-enum JrExecutionStatus {
-  ACTIVE
-  WAITING
+// ─────────────────────────── Delivery outbox (Channels/Dialer) ───────────────────────────
+
+enum DlDeliveryState {
+  QUEUED
   SUBMITTING
-  COMPLETED
-  EXITED
-  CANCELLED
-  FAILED
+  SUBMITTED
+  RECONCILING
+  SETTLED
 }
 
-/// C1.5: หนึ่งแถวต่อหนึ่ง durable run ของ published JrJourneyDefinition — เดินผ่าน
-/// SEND/WAIT/BRANCH ด้วย optimistic `stepVersion` (CAS); เข้า SUBMITTING แปลว่า
-/// persist submission barrier แล้ว ยังไม่ยืนยันว่า provider รับ — cancel หลังจุดนี้
-/// ต้อง reconcile ไม่ใช่ release ตรง ๆ (วินัยเดียวกับ ContactGovernancePort)
-model JrExecution {
-  id               String            @id @default(uuid()) @db.Uuid
-  tenantId         String            @map("tenant_id") @db.Uuid
-  journeyId        String            @map("journey_id") @db.Uuid
-  journeyVersion   Int               @map("journey_version")
-  enrollmentKey    String            @map("enrollment_key")
-  status           JrExecutionStatus @default(ACTIVE)
-  currentStepId    String            @map("current_step_id")
-  pendingActionKey String?           @map("pending_action_key")
-  stepVersion      Int               @default(0) @map("step_version")
-  waitUntil        DateTime?         @map("wait_until")
-  cancelledAt      DateTime?         @map("cancelled_at")
-  cancelReason     String?           @map("cancel_reason")
-  goalReachedAt    DateTime?         @map("goal_reached_at")
-  exitEventType    String?           @map("exit_event_type")
-  exitEventAt      DateTime?         @map("exit_event_at")
-  terminalReason   String?           @map("terminal_reason")
-  terminalAt       DateTime?         @map("terminal_at")
-  correlationId    String            @map("correlation_id")
-  enrolledAt       DateTime          @default(now()) @map("enrolled_at")
-  updatedAt        DateTime          @updatedAt @map("updated_at")
-
-  tenant     Tenant              @relation(fields: [tenantId], references: [id])
-  definition JrJourneyDefinition @relation(fields: [tenantId, journeyId, journeyVersion], references: [tenantId, journeyId, version])
-  steps      JrExecutionStep[]
-
-  @@unique([tenantId, id])
-  @@unique([tenantId, journeyId, journeyVersion, enrollmentKey])
-  @@index([tenantId, status, waitUntil])
-  @@map("jr_executions")
+/// C1 เปิดเฉพาะ TEST_ADAPTER; provider จริงต้องผ่าน certification ก่อนเพิ่มค่าใหม่
+enum DlDeliveryAdapter {
+  TEST_ADAPTER
 }
 
-/// Append-only evidence log ของทุก transition ที่ execution commit จริง — หนึ่งแถว
-/// ต่อหนึ่ง `fromStepVersion` จึงกัน retry ของ transition เดิมไม่ให้ log ซ้ำ
-model JrExecutionStep {
-  id              String   @id @default(uuid()) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  executionId     String   @map("execution_id") @db.Uuid
-  fromStepVersion Int      @map("from_step_version")
-  stepId          String   @map("step_id")
-  stepType        String   @map("step_type")
-  result          String
-  correlationId   String   @map("correlation_id")
-  causationId     String?  @map("causation_id")
-  occurredAt      DateTime @default(now()) @map("occurred_at")
+/// C1.3: durable outbox ของ Channels/Dialer — หนึ่งแถวต่อหนึ่ง delivery ที่ claim สำเร็จแล้ว
+/// row ถูก persist ก่อนตอบ QUEUED เสมอ และ `(tenant_id, action_key)` เป็น idempotency identity
+/// เดียวของ adapter: input เดิมเล่นซ้ำ delivery เดิม, input ต่างเป็น conflict
+/// เก็บได้เฉพาะ opaque id/ref — ห้าม message body, phone, email หรือ external contact reference
+model DlOutboxEntry {
+  id                 String            @id @default(uuid()) @db.Uuid
+  tenantId           String            @map("tenant_id") @db.Uuid
+  actionKey          String            @map("action_key")
+  reservationId      String            @map("reservation_id") @db.Uuid
+  deliveryId         String            @map("delivery_id")
+  providerRequestKey String            @map("provider_request_key")
+  adapter            DlDeliveryAdapter @default(TEST_ADAPTER)
+  channel            ChannelType
+  contactId          String            @map("contact_id") @db.Uuid
+  identityId         String?           @map("identity_id") @db.Uuid
+  purpose            String
+  source             String
+  senderIdentityId   String            @map("sender_identity_id")
+  /// reference ที่ channel owner resolve เป็นเนื้อหา — ไม่ใช่เนื้อหาเอง
+  contentRef         String            @map("content_ref")
+  inputHash          String            @map("input_hash")
+  state              DlDeliveryState   @default(QUEUED)
+  /// lease ที่ claim คืนมา ใช้เป็น expected version ของ beginProviderSubmission
+  leaseVersion       Int               @map("lease_version")
+  leaseExpiresAt     DateTime          @map("lease_expires_at")
+  submittedAt        DateTime?         @map("submitted_at")
+  outcome            CgFactOutcome?
+  outcomeRef         String?           @map("outcome_ref")
+  settledAt          DateTime?         @map("settled_at")
+  correlationId      String            @map("correlation_id")
+  causationId        String?           @map("causation_id")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
 
-  tenant    Tenant      @relation(fields: [tenantId], references: [id])
-  execution JrExecution @relation(fields: [tenantId, executionId], references: [tenantId, id])
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
+  reservation CgReservation @relation(fields: [tenantId, reservationId], references: [tenantId, id], map: "dl_outbox_entries_tenant_reservation_fkey")
 
-  @@unique([tenantId, id])
-  @@unique([tenantId, executionId, fromStepVersion])
-  @@index([tenantId, executionId, occurredAt])
-  @@map("jr_execution_steps")
+  @@unique([tenantId, actionKey], map: "dl_outbox_entries_tenant_action_key")
+  @@unique([tenantId, deliveryId], map: "dl_outbox_entries_tenant_delivery_key")
+  @@unique([tenantId, providerRequestKey], map: "dl_outbox_entries_tenant_provider_request_key")
+  @@unique([tenantId, outcomeRef], map: "dl_outbox_entries_tenant_outcome_ref_key")
+  @@index([tenantId, state, leaseExpiresAt], map: "dl_outbox_entries_tenant_state_lease_expiry_idx")
+  @@map("dl_outbox_entries")
 }
 
 // ─────────────────────────── Interactions (record กลางทุก channel) ───────────────────────────
