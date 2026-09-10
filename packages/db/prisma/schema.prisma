@@ -47,6 +47,7 @@ model Tenant {
   jrKafkaConsumerInbox JrKafkaConsumerInbox[]
   jrEnrollments        JrEnrollment[]
   jrActions            JrAction[]
+  jrJourneyDefinitions JrJourneyDefinition[]
 
   @@map("tenants")
 }
@@ -676,6 +677,40 @@ model JrAction {
   @@index([tenantId, enrollmentId])
   @@index([tenantId, contactId, createdAt])
   @@map("jr_actions")
+}
+
+enum JrJourneyDefinitionStatus {
+  DRAFT
+  PUBLISHED
+}
+
+/// C1.4: หนึ่งแถวต่อหนึ่ง version ของ Journey definition แบบ immutable — เนื้อหา
+/// (trigger/graph/goal/exitRules/maxDurationDays) ไม่ถูกแก้หลังสร้าง; publish เป็นเพียง
+/// state transition DRAFT -> PUBLISHED ที่ idempotent ต่อ (tenantId, journeyId, version)
+model JrJourneyDefinition {
+  id              String                    @id @default(uuid()) @db.Uuid
+  tenantId        String                    @map("tenant_id") @db.Uuid
+  journeyId       String                    @map("journey_id") @db.Uuid
+  version         Int
+  name            String
+  ownerTeamId     String                    @map("owner_team_id") @db.Uuid
+  status          JrJourneyDefinitionStatus @default(DRAFT)
+  trigger         Json
+  graph           Json
+  goal            Json
+  exitRules       Json                      @map("exit_rules")
+  maxDurationDays Int                       @map("max_duration_days")
+  inputHash       String                    @map("input_hash")
+  correlationId   String                    @map("correlation_id")
+  publishedAt     DateTime?                 @map("published_at")
+  createdAt       DateTime                  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, journeyId, version])
+  @@index([tenantId, journeyId, status])
+  @@map("jr_journey_definitions")
 }
 
 // ─────────────────────────── Interactions (record กลางทุก channel) ───────────────────────────

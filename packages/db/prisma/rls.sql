@@ -18,7 +18,7 @@ BEGIN
     'qm_transcript_segments', 'qm_evaluations', 'qm_console_contexts', 'command_receipts',
     'cg_restrictions', 'cg_consents', 'cg_decision_logs', 'cg_reservations',
     'cg_attempts', 'cg_touches',
-    'jr_event_inbox', 'jr_enrollments', 'jr_actions'
+    'jr_event_inbox', 'jr_enrollments', 'jr_actions', 'jr_journey_definitions'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -48,3 +48,6 @@ REVOKE UPDATE, DELETE ON qm_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_decision_logs FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_attempts FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_touches FROM dcontact_app;
+-- Journey definition content is immutable; only the publish transition (status/published_at)
+-- may change a row, and the application enforces that narrowing — not a DB-level column grant.
+REVOKE DELETE ON jr_journey_definitions FROM dcontact_app;
