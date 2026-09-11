@@ -17,7 +17,16 @@ type IdentifierKind =
   | 'ReservationId'
   | 'DeliveryId'
   | 'ProviderRequestKey'
-  | 'OutcomeRef';
+  | 'OutcomeRef'
+  | 'InteractionId'
+  | 'OutcomeId'
+  | 'CommandId'
+  | 'JourneyId'
+  | 'EnrollmentId'
+  | 'CaseId'
+  | 'CampaignId'
+  | 'RecordId'
+  | 'CallbackId';
 
 export type BrandedIdentifier<TKind extends IdentifierKind> = string & {
   readonly [identifierBrand]: TKind;
@@ -33,6 +42,15 @@ export type ReservationId = BrandedIdentifier<'ReservationId'>;
 export type DeliveryId = BrandedIdentifier<'DeliveryId'>;
 export type ProviderRequestKey = BrandedIdentifier<'ProviderRequestKey'>;
 export type OutcomeRef = BrandedIdentifier<'OutcomeRef'>;
+export type InteractionId = BrandedIdentifier<'InteractionId'>;
+export type OutcomeId = BrandedIdentifier<'OutcomeId'>;
+export type CommandId = BrandedIdentifier<'CommandId'>;
+export type JourneyId = BrandedIdentifier<'JourneyId'>;
+export type EnrollmentId = BrandedIdentifier<'EnrollmentId'>;
+export type CaseId = BrandedIdentifier<'CaseId'>;
+export type CampaignId = BrandedIdentifier<'CampaignId'>;
+export type RecordId = BrandedIdentifier<'RecordId'>;
+export type CallbackId = BrandedIdentifier<'CallbackId'>;
 
 function identifier<TKind extends IdentifierKind>(
   value: string,
@@ -82,4 +100,40 @@ export function providerRequestKey(value: string): ProviderRequestKey {
 
 export function outcomeRef(value: string): OutcomeRef {
   return identifier(value, 'OutcomeRef');
+}
+
+export function interactionId(value: string): InteractionId {
+  return identifier(value, 'InteractionId');
+}
+
+export function outcomeId(value: string): OutcomeId {
+  return identifier(value, 'OutcomeId');
+}
+
+export function commandId(value: string): CommandId {
+  return identifier(value, 'CommandId');
+}
+
+export function journeyId(value: string): JourneyId {
+  return identifier(value, 'JourneyId');
+}
+
+export function enrollmentId(value: string): EnrollmentId {
+  return identifier(value, 'EnrollmentId');
+}
+
+export function caseId(value: string): CaseId {
+  return identifier(value, 'CaseId');
+}
+
+export function campaignId(value: string): CampaignId {
+  return identifier(value, 'CampaignId');
+}
+
+export function recordId(value: string): RecordId {
+  return identifier(value, 'RecordId');
+}
+
+export function callbackId(value: string): CallbackId {
+  return identifier(value, 'CallbackId');
 }

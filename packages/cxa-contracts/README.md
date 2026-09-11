@@ -17,3 +17,12 @@
 รัน `pnpm --filter @d-contact/cxa-contracts test` เพื่อพิสูจน์ duplicate/conflict, concurrent claim/outcome, tenant/binding swap, expiry, timeout และ out-of-order outcome ส่วน `pnpm --filter @d-contact/contact-governance test:integration` พิสูจน์ authorization/reservation เดิมกับ PostgreSQL/RLS
 
 E0.4 ไม่ได้เปลี่ยน Journey composition; การใช้ ports และถอด concrete imports ใน Journey เป็น #65 ผลทดสอบ E0 ไม่ใช่หลักฐานว่า CG2 complete หรือเปิด provider traffic ได้
+
+## J2 interaction-result orchestration
+
+- `interaction-result.ts` กำหนด closed V1 payload สำหรับ canonical interaction outcome, Cases/Dialer commands/results, owner query และ deterministic error mapping
+- `J2OwnerPort.persistCommand()` ยืนยันเพียงว่า owner persist command/outboxแล้ว; Journeyต้องรอ canonical owner resultก่อนถือว่า business effectสำเร็จ
+- canonical outcome hashรวม semantic outcome fields ส่วน owner request hashรวม tenant, action, target, intentและ expected owner version แต่ไม่รวม Kafka correlation/causation/transport timestamp
+- transition retryใช้ `commandId`, `actionKey` และ request hashเดิม; cancel/supersedeใช้ command identityใหม่แต่ link positive effectผ่าน original `actionKey`
+- payloadเป็น internal-ID/code-only: `outcomeCode` ใช้ allowlist ต่อ outcome type และ validatorปฏิเสธ unknown fields, unsupported version, PII-shaped reference (รวม phone ที่คั่นด้วยสัญลักษณ์) และ command/result bindingที่ไม่ตรง
+- `assertInteractionOutcomeEnvelope`, `assertOwnerCommandCausation` และ `assertOwnerResultBinding` ผูก V2 metadata, tenant, root correlation และ immediate causation กับ closed payload; Kafka ยังคงเป็น owner ของ codec/header validation

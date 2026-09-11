@@ -42,6 +42,14 @@ export const KAFKA_TOPICS = {
    * — Contact Governance consume เป็น read-only projection ลง cg_consumer_acknowledgements เท่านั้น
    */
   CONTACT_GOVERNANCE_ACKNOWLEDGEMENTS: 'dc.contact-governance.acknowledgements',
+  /** Journey → Cases durable owner commands (key = actionKey). */
+  CASE_COMMANDS: 'dc.case.commands',
+  /** Cases canonical command results (key = actionKey). */
+  CASE_EVENTS: 'dc.case.events',
+  /** Journey → Dialer campaign/callback durable owner commands (key = actionKey). */
+  DIALER_COMMANDS: 'dc.dialer.commands',
+  /** Dialer canonical command results (key = actionKey). */
+  DIALER_EVENTS: 'dc.dialer.events',
   /** quarantine สำหรับ Kafka contract ที่ตรวจไม่ผ่าน; access/retention แยกจาก topic ธุรกิจ */
   DEAD_LETTER: 'dc.platform.dlq',
 } as const;
