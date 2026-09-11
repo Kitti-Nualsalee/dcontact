@@ -6,6 +6,7 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "prototype:preference-center": "pnpm --filter @d-contact/console dev -- --host 127.0.0.1 --open '/prototype/preference-center?variant=A'",
     "typecheck": "turbo run typecheck",
     "lint": "prettier --check .",
     "format": "prettier --write .",

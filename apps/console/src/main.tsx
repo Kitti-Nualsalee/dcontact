@@ -3,13 +3,25 @@ import { createRoot } from 'react-dom/client';
 import { ConsoleAuthRoot } from './auth-root.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
+import { PreferenceCenterPrototype } from './preference-center-prototype.js';
 import './style.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('root element is required');
+const isPreferencePrototype = window.location.pathname === '/prototype/preference-center';
 createRoot(root).render(
   <StrictMode>
-    {import.meta.env.MODE === 'e2e' ? <ConsoleE2eRoot /> : <ConsoleAuthRoot />}
+    {isPreferencePrototype ? (
+      import.meta.env.PROD ? (
+        <main className="empty">Prototype route is unavailable in production.</main>
+      ) : (
+        <PreferenceCenterPrototype />
+      )
+    ) : import.meta.env.MODE === 'e2e' ? (
+      <ConsoleE2eRoot />
+    ) : (
+      <ConsoleAuthRoot />
+    )}
   </StrictMode>,
 );
 
