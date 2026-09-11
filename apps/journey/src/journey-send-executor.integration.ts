@@ -156,6 +156,10 @@ async function fixture(t: TestContext) {
     await owner.jrJourneyDefinition.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.cgTouch.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.cgAttempt.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.cgReservation.updateMany({
+      where: { tenantId: rawTenantId },
+      data: { authorizationDecisionId: null },
+    });
     await owner.cgDecisionLog.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.cgReservation.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.cgConsent.deleteMany({ where: { tenantId: rawTenantId } });

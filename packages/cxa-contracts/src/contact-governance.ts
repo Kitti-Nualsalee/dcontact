@@ -14,9 +14,19 @@ export type ContactChannel = 'VOICE' | 'WEBCHAT' | 'LINE' | 'FACEBOOK' | 'WHATSA
 
 export type ContactDecision = 'ALLOW' | 'BLOCK' | 'DEFER' | 'REVIEW';
 
+export type ContactPolicyGate =
+  | 'IDENTITY'
+  | 'HARD_RESTRICTION'
+  | 'CONSENT'
+  | 'PREFERENCE'
+  | 'TEMPORAL_POLICY'
+  | 'ATTEMPT_TOUCH_CAP'
+  | 'CALLBACK_EXCEPTION'
+  | 'SENDER_IDENTITY';
+
 export interface ContactPolicyTraceEntry {
-  gate: 'IDENTITY' | 'HARD_RESTRICTION' | 'CONSENT';
-  outcome: 'PASS' | 'ALLOW' | 'BLOCK' | 'REVIEW';
+  gate: ContactPolicyGate;
+  outcome: 'PASS' | 'ALLOW' | 'BLOCK' | 'DEFER' | 'REVIEW';
   reasonCode?: string;
 }
 
@@ -61,6 +71,10 @@ interface AuthorizationInputBase {
   actionKey: string;
   policyVersion: number;
   teamId?: string;
+  /** CG3: dimension เพิ่มเติมสำหรับ preference/policy scope matching */
+  contactKind?: string;
+  /** CG3: ยังไม่ผ่าน authority check เต็มรูปแบบ (S1.6); ใช้เตรียม trace/contract เท่านั้น */
+  senderIdentityId?: string;
 }
 
 export type AuthorizeAndReserveInput = AuthorizationInputBase &
@@ -85,6 +99,19 @@ export interface AuthorizationOutcome {
   trace: ContactPolicyTraceEntry[];
   reservationId?: string;
   reservationExpiresAt?: string;
+  /** CG3: canonical CgContactStateHead.aggregateVersion ที่ใช้ประเมิน ณ เวลา decide */
+  aggregateVersion?: number;
+  /** CG3: version ของ preference record ที่ชนะ (ถ้ามี) */
+  preferenceVersion?: number;
+  /** CG3: instant แรกที่ผ่านทุก temporal gate ที่เกี่ยวข้อง; มีเฉพาะ DEFER ที่คำนวณได้ */
+  nextEligibleAt?: string;
+  /** CG3: แหล่ง timezone ที่ใช้ประเมิน (customer-explicit/customer-360/tenant-default) */
+  timezoneSource?: string;
+  /** CG3: scope ของ preference/policy ที่ match แบบ PII-free */
+  matchedScope?: Record<string, string | null>;
+  matchedWindowRef?: string;
+  exceptionMode?: 'NO_OVERRIDE' | 'SCOPED_OVERRIDE' | 'TIME_POLICY_OVERRIDE';
+  exceptionRef?: string;
 }
 
 export interface ReservationView {
@@ -215,7 +242,8 @@ export type ReservationBindingErrorCode =
   | 'INVALID_RESERVATION_LEASE'
   | 'STALE_RESERVATION_LEASE'
   | 'DELIVERY_RECONCILIATION_REQUIRED'
-  | 'IDEMPOTENCY_CONFLICT';
+  | 'IDEMPOTENCY_CONFLICT'
+  | 'GOVERNANCE_VERSION_STALE';
 
 export class ReservationBindingError extends Error {
   constructor(readonly code: ReservationBindingErrorCode) {

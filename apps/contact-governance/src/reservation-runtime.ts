@@ -52,6 +52,7 @@ const reservationRuntimeSelection = {
   terminalOutcome: true,
   terminalOutcomeRef: true,
   settledAt: true,
+  authorizationAggregateVersion: true,
 } as const;
 
 type ReservationRuntimeRow = {
@@ -78,6 +79,7 @@ type ReservationRuntimeRow = {
   terminalOutcome: CgFactOutcome | null;
   terminalOutcomeRef: string | null;
   settledAt: Date | null;
+  authorizationAggregateVersion: number | null;
 };
 
 export interface SettlementPolicyDecision {
@@ -373,6 +375,19 @@ export class ReservationRuntime {
         }
         if (reservation.submissionStartedAt || reservation.providerRequestKey) {
           fail('DELIVERY_RECONCILIATION_REQUIRED');
+        }
+        // revalidate CG3 authorization ก่อนข้าม submission barrier (#98 §3: GOVERNANCE_VERSION_STALE)
+        if (reservation.authorizationAggregateVersion !== null) {
+          const head = await transaction.cgContactStateHead.findUnique({
+            where: {
+              tenantId_contactId: { tenantId: input.tenantId, contactId: reservation.contactId },
+            },
+            select: { aggregateVersion: true },
+          });
+          const currentAggregateVersion = head?.aggregateVersion ?? 0;
+          if (currentAggregateVersion !== reservation.authorizationAggregateVersion) {
+            fail('GOVERNANCE_VERSION_STALE');
+          }
         }
         const competingRequest = await transaction.cgReservation.findFirst({
           where: {

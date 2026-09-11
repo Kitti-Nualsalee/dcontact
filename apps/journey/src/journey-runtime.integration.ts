@@ -95,6 +95,10 @@ test(
       await owner.jrKafkaConsumerInbox.deleteMany({ where: { tenantId } });
       await owner.jrAction.deleteMany({ where: { tenantId } });
       await owner.jrEnrollment.deleteMany({ where: { tenantId } });
+      await owner.cgReservation.updateMany({
+        where: { tenantId },
+        data: { authorizationDecisionId: null },
+      });
       await owner.cgDecisionLog.deleteMany({ where: { tenantId } });
       await owner.cgReservation.deleteMany({ where: { tenantId } });
       await owner.cgConsent.deleteMany({ where: { tenantId } });

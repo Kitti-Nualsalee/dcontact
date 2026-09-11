@@ -1,16 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   Prisma,
+  type CgCallbackMode,
   type CgDecision,
   type CgReservationState,
   type PrismaClient,
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
-import {
-  evaluateContactPolicy,
-  type ContactPolicyResult,
-  type ContactPolicyTraceEntry,
-} from './contact-policy.js';
+import { evaluateContactPolicy, type ContactPolicyTraceEntry } from './contact-policy.js';
+import { evaluateCg3Policy } from './cg3-policy-evaluator.js';
+import { loadCg3Facts } from './cg3-fact-loader.js';
 import { transitionReservation, type ReservationCommand } from './reservation.js';
 import { ReservationRuntime, type ReservationRuntimeOptions } from './reservation-runtime.js';
 
@@ -53,6 +52,14 @@ const decisionSelection = {
   reasonCode: true,
   policyVersion: true,
   trace: true,
+  aggregateVersion: true,
+  preferenceVersion: true,
+  nextEligibleAt: true,
+  timezoneSource: true,
+  matchedScope: true,
+  matchedWindowRef: true,
+  exceptionMode: true,
+  exceptionRef: true,
   reservation: {
     select: {
       id: true,
@@ -84,6 +91,8 @@ function hashAuthorizationInput(input: AuthorizeAndReserveInput): string {
     source: input.source,
     sourceId: input.sourceId,
     teamId: input.teamId ?? null,
+    contactKind: input.contactKind ?? null,
+    senderIdentityId: input.senderIdentityId ?? null,
     ...(input.identityResolution ? { identityResolution: input.identityResolution } : {}),
   });
   return createHash('sha256').update(canonicalInput).digest('hex');
@@ -95,6 +104,14 @@ function toOutcome(decision: {
   reasonCode: string;
   policyVersion: number;
   trace: Prisma.JsonValue;
+  aggregateVersion: number | null;
+  preferenceVersion: number | null;
+  nextEligibleAt: Date | null;
+  timezoneSource: string | null;
+  matchedScope: Prisma.JsonValue;
+  matchedWindowRef: string | null;
+  exceptionMode: string | null;
+  exceptionRef: string | null;
   reservation: { id: string; expiresAt: Date } | null;
 }): AuthorizationOutcome {
   return {
@@ -103,6 +120,20 @@ function toOutcome(decision: {
     reasonCode: decision.reasonCode,
     policyVersion: decision.policyVersion,
     trace: decision.trace as unknown as ContactPolicyTraceEntry[],
+    ...(decision.aggregateVersion !== null ? { aggregateVersion: decision.aggregateVersion } : {}),
+    ...(decision.preferenceVersion !== null
+      ? { preferenceVersion: decision.preferenceVersion }
+      : {}),
+    ...(decision.nextEligibleAt ? { nextEligibleAt: decision.nextEligibleAt.toISOString() } : {}),
+    ...(decision.timezoneSource ? { timezoneSource: decision.timezoneSource } : {}),
+    ...(decision.matchedScope
+      ? { matchedScope: decision.matchedScope as unknown as Record<string, string | null> }
+      : {}),
+    ...(decision.matchedWindowRef ? { matchedWindowRef: decision.matchedWindowRef } : {}),
+    ...(decision.exceptionMode
+      ? { exceptionMode: decision.exceptionMode as AuthorizationOutcome['exceptionMode'] }
+      : {}),
+    ...(decision.exceptionRef ? { exceptionRef: decision.exceptionRef } : {}),
     ...(decision.reservation
       ? {
           reservationId: decision.reservation.id,
@@ -110,10 +141,6 @@ function toOutcome(decision: {
         }
       : {}),
   };
-}
-
-function finalGate(result: ContactPolicyResult): string {
-  return result.trace.at(-1)?.gate ?? 'IDENTITY';
 }
 
 function toReservationView(reservation: {
@@ -197,6 +224,11 @@ export class ContactGovernanceService
       if (input.contactId) {
         await transaction.$queryRaw(
           Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`contact:${tenantId}:${input.contactId}`}))`,
+        );
+        // ล็อกเดียวกับ Cg3PreferenceRepository.append() เพื่อไม่ให้ preference/callback mutation
+        // แทรกระหว่างที่ authorizeAndReserve กำลังโหลด CG3 facts มาประเมิน (S1-CG3-CC01)
+        await transaction.$queryRaw(
+          Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg3-contact:${tenantId}:${input.contactId}`}))`,
         );
       }
 
@@ -293,10 +325,106 @@ export class ContactGovernanceService
           : {}),
       });
       const decisionId = this.id();
+
+      let trace: ContactPolicyTraceEntry[] = policyResult.trace;
+      let decision = policyResult.decision;
+      let reasonCode = policyResult.reasonCode;
+      let cg3AggregateVersion: number | undefined;
+      let cg3PolicyVersion: number | undefined;
+      let cg3PreferenceVersion: number | undefined;
+      let cg3NextEligibleAt: Date | undefined;
+      let cg3TimezoneSource: string | undefined;
+      let cg3MatchedScope: Record<string, string | null> | undefined;
+      let cg3MatchedWindowRef: string | undefined;
+      let cg3ExceptionMode: string | undefined;
+      let cg3ExceptionRef: string | undefined;
+
+      if (policyResult.decision === 'ALLOW' && input.contactId) {
+        const facts = await loadCg3Facts(transaction, {
+          tenantId,
+          contactId: input.contactId,
+          identityId: input.identityId,
+          channel: input.channel,
+          purpose: input.purpose,
+          contactKind: input.contactKind,
+          now,
+        });
+        const cg3 = evaluateCg3Policy({
+          now,
+          identityId: input.identityId,
+          channel: input.channel,
+          purpose: input.purpose,
+          contactKind: input.contactKind,
+          senderIdentityId: input.senderIdentityId,
+          preferences: facts.preferences,
+          policy: facts.policy,
+          activeCallback: facts.activeCallback,
+        });
+        trace = [
+          ...policyResult.trace.map((entry, index) =>
+            index === policyResult.trace.length - 1 && entry.outcome === 'ALLOW'
+              ? { gate: entry.gate, outcome: 'PASS' as const }
+              : entry,
+          ),
+          ...cg3.trace,
+        ];
+        cg3AggregateVersion = facts.aggregateVersion;
+        cg3PolicyVersion = facts.policy?.version;
+        cg3PreferenceVersion = cg3.preferenceVersion;
+        cg3NextEligibleAt = cg3.nextEligibleAt ? new Date(cg3.nextEligibleAt) : undefined;
+        cg3TimezoneSource = cg3.timezoneSource;
+        cg3MatchedScope = cg3.matchedScope;
+        cg3MatchedWindowRef = cg3.matchedWindowRef;
+        cg3ExceptionMode = cg3.exceptionMode;
+        cg3ExceptionRef = cg3.exceptionRef;
+
+        if (cg3.decision) {
+          decision = cg3.decision;
+          reasonCode = cg3.reasonCode!;
+        } else {
+          decision = 'ALLOW';
+          reasonCode = 'POLICY_PASSED';
+        }
+
+        if (cg3.consumedCallbackRequestId) {
+          const original = await transaction.cgCallbackRequest.findUniqueOrThrow({
+            where: { tenantId_id: { tenantId, id: cg3.consumedCallbackRequestId } },
+          });
+          await transaction.cgCallbackRequest.create({
+            data: {
+              id: this.id(),
+              tenantId,
+              seriesId: original.seriesId,
+              version: original.version + 1,
+              contactId: original.contactId,
+              identityId: original.identityId,
+              channel: original.channel,
+              purpose: original.purpose,
+              requestedAt: original.requestedAt,
+              requestedTimezone: original.requestedTimezone,
+              expiresAt: original.expiresAt,
+              sourceKind: original.sourceKind,
+              sourceVersion: original.sourceVersion,
+              oneUseTokenHash: createHash('sha256')
+                .update(`consume:${original.id}:${decisionId}`)
+                .digest('hex'),
+              approvedExceptionId: original.approvedExceptionId,
+              mutationKind: 'CONSUME',
+              supersedesId: original.id,
+              evidenceRef: `system:authorizeAndReserve:${decisionId}`,
+              requestHash: createHash('sha256')
+                .update(`consume:${original.id}:${original.version + 1}`)
+                .digest('hex'),
+              actorClass: 'SYSTEM',
+            },
+          });
+        }
+      }
+
       let reservationId: string | undefined;
       let reservationExpiresAt: Date | undefined;
 
-      if (policyResult.decision === 'ALLOW') {
+      if (decision === 'ALLOW') {
         if (!input.contactId) {
           throw new Error('ผล ALLOW ต้องมี contact ที่ resolve แล้ว');
         }
@@ -317,6 +445,8 @@ export class ContactGovernanceService
             inputHash,
             expiresAt: reservationExpiresAt,
             settlementStatus: 'UNCLAIMED',
+            authorizationAggregateVersion: cg3AggregateVersion,
+            authorizationPolicyVersion: cg3PolicyVersion,
           },
         });
       }
@@ -334,16 +464,31 @@ export class ContactGovernanceService
           teamId: input.teamId,
           actionKey: input.actionKey,
           inputHash,
-          decision: policyResult.decision,
-          reasonCode: policyResult.reasonCode,
+          decision,
+          reasonCode,
           policyVersion: policyResult.policyVersion,
-          gate: finalGate(policyResult),
-          trace: policyResult.trace as unknown as Prisma.InputJsonValue,
+          gate: trace.at(-1)?.gate ?? 'IDENTITY',
+          trace: trace as unknown as Prisma.InputJsonValue,
           reservationId,
           decidedAt: now,
+          aggregateVersion: cg3AggregateVersion,
+          preferenceVersion: cg3PreferenceVersion,
+          nextEligibleAt: cg3NextEligibleAt,
+          timezoneSource: cg3TimezoneSource,
+          matchedScope: cg3MatchedScope as unknown as Prisma.InputJsonValue | undefined,
+          matchedWindowRef: cg3MatchedWindowRef,
+          exceptionMode: cg3ExceptionMode as CgCallbackMode | undefined,
+          exceptionRef: cg3ExceptionRef,
         },
         select: decisionSelection,
       });
+
+      if (reservationId) {
+        await transaction.cgReservation.update({
+          where: { id: reservationId },
+          data: { authorizationDecisionId: decisionId },
+        });
+      }
 
       return toOutcome(created);
     };
