@@ -7,5 +7,8 @@ export * from './cg3-fact-loader.js';
 export * from './cg3-callback-persistence.js';
 export * from './cg3-policy-persistence.js';
 export * from './cg3-query.js';
+export * from './cg3-event-relay.js';
+export * from './cg3-cache.js';
+export * from './cg3-acknowledgement-consumer.js';
 export * from './reservation.js';
 export * from './reservation-runtime.js';
