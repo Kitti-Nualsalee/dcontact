@@ -226,6 +226,21 @@ export interface AppendPreferenceInput {
   correlationId: string;
 }
 
+export interface RevokePreferenceInput {
+  tenantId: string;
+  contactId: string;
+  preferenceId: string;
+  sourceKind?: CgSourceKind;
+  sourceVersion?: string;
+  occurredAt: string;
+  evidenceRef: string;
+  actorClass: string;
+  actorRef: string;
+  idempotencyKey: string;
+  expectedVersion: number;
+  correlationId: string;
+}
+
 export interface PreferenceView {
   id: string;
   tenantId: string;
@@ -645,6 +660,207 @@ export class Cg3PreferenceRepository {
           expectedVersion: input.expectedVersion,
           aggregateVersion,
           responseStatus: 201,
+          responseBody: json(result),
+        },
+      });
+      return result;
+    });
+  }
+
+  async revoke(input: RevokePreferenceInput): Promise<PreferenceMutationResult> {
+    nonEmpty(input.tenantId, 'tenantId');
+    nonEmpty(input.contactId, 'contactId');
+    nonEmpty(input.preferenceId, 'preferenceId');
+    nonEmpty(input.evidenceRef, 'evidenceRef');
+    nonEmpty(input.actorClass, 'actorClass');
+    nonEmpty(input.actorRef, 'actorRef');
+    nonEmpty(input.idempotencyKey, 'idempotencyKey');
+    nonEmpty(input.correlationId, 'correlationId');
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 0) {
+      throw new RangeError('expectedVersion ต้องเป็น integer ตั้งแต่ 0');
+    }
+    const occurredAt = instant(input.occurredAt, 'occurredAt');
+    const requestHash = stableDigest({
+      tenantId: input.tenantId,
+      contactId: input.contactId,
+      preferenceId: input.preferenceId,
+      occurredAt: occurredAt.toISOString(),
+      evidenceRef: input.evidenceRef,
+      actorClass: input.actorClass,
+      actorRef: input.actorRef,
+      expectedVersion: input.expectedVersion,
+    });
+
+    return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg3-contact:${input.tenantId}:${input.contactId}`}))`,
+      );
+
+      const receipt = await transaction.cgCommandReceipt.findUnique({
+        where: {
+          tenantId_operation_idempotencyKey: {
+            tenantId: input.tenantId,
+            operation: 'PREFERENCE_REVOKE',
+            idempotencyKey: input.idempotencyKey,
+          },
+        },
+      });
+      if (receipt) {
+        if (receipt.requestHash !== requestHash) {
+          throw new Cg3IdempotencyConflictError(input.idempotencyKey);
+        }
+        return receipt.responseBody as unknown as PreferenceMutationResult;
+      }
+
+      const target = await transaction.cgPreference.findFirst({
+        where: { id: input.preferenceId, tenantId: input.tenantId, contactId: input.contactId },
+      });
+      if (!target) throw new Cg3ResourceNotFoundError();
+
+      const head = await transaction.cgContactStateHead.findUnique({
+        where: {
+          tenantId_contactId: { tenantId: input.tenantId, contactId: input.contactId },
+        },
+      });
+      const actualVersion = head?.aggregateVersion ?? 0;
+      if (actualVersion !== input.expectedVersion) {
+        throw new Cg3VersionConflictError(input.expectedVersion, actualVersion);
+      }
+
+      const latestInScope = await transaction.cgPreference.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          contactId: input.contactId,
+          scopeHash: target.scopeHash,
+        },
+        orderBy: { version: 'desc' },
+      });
+      if (!latestInScope || latestInScope.id !== target.id) {
+        // preference นี้ถูก supersede ไปแล้ว ไม่ใช่ active version อีกต่อไป
+        throw new Cg3ResourceNotFoundError();
+      }
+
+      const mutationId = this.id();
+      const aggregateVersion = actualVersion + 1;
+      const revoked = await transaction.cgPreference.create({
+        data: {
+          id: this.id(),
+          tenantId: input.tenantId,
+          seriesId: target.seriesId,
+          version: target.version + 1,
+          contactId: input.contactId,
+          identityId: target.identityId,
+          channel: target.channel,
+          purpose: target.purpose,
+          contactKind: target.contactKind,
+          scopeHash: target.scopeHash,
+          decision: null,
+          timezone: target.timezone,
+          preferredWindows: json(target.preferredWindows as unknown),
+          sourceKind: input.sourceKind ?? target.sourceKind,
+          sourceVersion: input.sourceVersion,
+          occurredAt,
+          effectiveFrom: occurredAt,
+          effectiveTo: target.effectiveTo,
+          mutationKind: 'REVOKE',
+          supersedesId: target.id,
+          requestHash,
+          evidenceRef: input.evidenceRef,
+          actorClass: input.actorClass,
+        },
+      });
+      const afterDigest = stableDigest({
+        previous: head?.currentDigest ?? null,
+        preference: preferenceView(revoked),
+      });
+
+      if (head) {
+        const updated = await transaction.cgContactStateHead.updateMany({
+          where: {
+            tenantId: input.tenantId,
+            contactId: input.contactId,
+            aggregateVersion: input.expectedVersion,
+          },
+          data: { aggregateVersion, currentDigest: afterDigest, latestMutationId: mutationId },
+        });
+        if (updated.count !== 1) {
+          throw new Cg3VersionConflictError(input.expectedVersion, actualVersion);
+        }
+      } else {
+        await transaction.cgContactStateHead.create({
+          data: {
+            tenantId: input.tenantId,
+            contactId: input.contactId,
+            aggregateVersion,
+            currentDigest: afterDigest,
+            latestMutationId: mutationId,
+          },
+        });
+      }
+
+      const payload = validateCgEventPayloadV1({
+        contractVersion: 1,
+        mutationId,
+        subjectVersion: aggregateVersion,
+        ...(target.identityId ? { identityId: target.identityId } : {}),
+        affectedScope: {
+          identityId: target.identityId,
+          channel: target.channel,
+          purpose: target.purpose,
+          contactKind: target.contactKind,
+        },
+        effectiveAt: occurredAt.toISOString(),
+        stateDigest: afterDigest,
+      });
+      const eventId = this.id();
+      await transaction.cgEventOutbox.create({
+        data: {
+          id: eventId,
+          mutationId,
+          tenantId: input.tenantId,
+          aggregateType: 'CONTACT',
+          aggregateId: input.contactId,
+          aggregateVersion,
+          eventType: 'preference.changed',
+          orderingKey: `${input.tenantId}:${input.contactId}`,
+          payload: json(payload),
+          payloadHash: stableDigest(payload),
+        },
+      });
+      await transaction.cgAuditLog.create({
+        data: {
+          id: this.id(),
+          tenantId: input.tenantId,
+          mutationId,
+          aggregateType: 'CONTACT',
+          aggregateId: input.contactId,
+          aggregateVersion,
+          action: 'PREFERENCE_REVOKE',
+          actorClass: input.actorClass,
+          actorRef: input.actorRef,
+          sourceKind: input.sourceKind ?? target.sourceKind,
+          evidenceRef: input.evidenceRef,
+          beforeDigest: head?.currentDigest,
+          afterDigest,
+          occurredAt,
+        },
+      });
+      const result: PreferenceMutationResult = {
+        mutationId,
+        eventId,
+        aggregateVersion,
+        preference: preferenceView(revoked),
+      };
+      await transaction.cgCommandReceipt.create({
+        data: {
+          id: this.id(),
+          tenantId: input.tenantId,
+          operation: 'PREFERENCE_REVOKE',
+          idempotencyKey: input.idempotencyKey,
+          requestHash,
+          expectedVersion: input.expectedVersion,
+          aggregateVersion,
+          responseStatus: 200,
           responseBody: json(result),
         },
       });

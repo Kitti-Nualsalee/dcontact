@@ -26,6 +26,12 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.0.0
         version: 3.1126.0
+      '@d-contact/contact-governance':
+        specifier: workspace:*
+        version: link:../contact-governance
+      '@d-contact/cxa-contracts':
+        specifier: workspace:*
+        version: link:../../packages/cxa-contracts
       '@d-contact/db':
         specifier: workspace:*
         version: link:../../packages/db
