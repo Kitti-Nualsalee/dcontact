@@ -25,6 +25,11 @@ async function createTenantFixture(t: TestContext) {
 
   t.after(async () => {
     await owner.cgReservationCommandReceipt.deleteMany({ where: { tenantId } });
+    // cg_reservations.authorization_decision_id -> cg_decision_logs.id ต้อง null ก่อนลบ decision log
+    await owner.cgReservation.updateMany({
+      where: { tenantId },
+      data: { authorizationDecisionId: null },
+    });
     await owner.cgDecisionLog.deleteMany({ where: { tenantId } });
     await owner.cgReservation.deleteMany({ where: { tenantId } });
     await owner.cgConsent.deleteMany({ where: { tenantId } });
