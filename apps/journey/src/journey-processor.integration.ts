@@ -174,7 +174,6 @@ test('event ที่ resolve contact ได้สร้าง action ที่�
       },
       cgConsents: {
         create: {
-          tenantId,
           identityId,
           purpose: 'MARKETING',
           channel: 'EMAIL',
@@ -402,7 +401,6 @@ test('สอง tenant ใช้ identity เดียวกันแต่ไ�
         },
         cgConsents: {
           create: {
-            tenantId,
             purpose: 'MARKETING',
             channel: 'EMAIL',
             status,

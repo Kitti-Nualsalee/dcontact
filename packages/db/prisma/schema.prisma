@@ -44,6 +44,15 @@ model Tenant {
   cgReservationCommandReceipts CgReservationCommandReceipt[]
   cgAttempts                   CgAttempt[]
   cgTouches                    CgTouch[]
+  cgPreferences                CgPreference[]
+  cgPolicies                   CgPolicy[]
+  cgHolidayCalendarEntries     CgHolidayCalendarEntry[]
+  cgCallbackRequests           CgCallbackRequest[]
+  cgContactStateHeads          CgContactStateHead[]
+  cgEventOutbox                CgEventOutbox[]
+  cgCommandReceipts            CgCommandReceipt[]
+  cgAuditLogs                  CgAuditLog[]
+  cgConsumerAcknowledgements   CgConsumerAcknowledgement[]
   jrEventInbox                 JrEventInbox[]
   jrKafkaConsumerInbox         JrKafkaConsumerInbox[]
   jrEnrollments                JrEnrollment[]
@@ -312,7 +321,7 @@ model Contact {
   displayName String?  @map("display_name")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  tenant         Tenant              @relation(fields: [tenantId], references: [id])
   identities     ContactIdentity[]
   interactions   Interaction[]
   conversations  Conversation[]
@@ -322,6 +331,9 @@ model Contact {
   cgReservations CgReservation[]
   cgAttempts     CgAttempt[]
   cgTouches      CgTouch[]
+  cgPreferences  CgPreference[]
+  cgCallbacks    CgCallbackRequest[]
+  cgStateHead    CgContactStateHead?
   jrEnrollments  JrEnrollment[]
   jrActions      JrAction[]
 
@@ -338,13 +350,15 @@ model ContactIdentity {
   type      IdentityType
   value     String // เบอร์โทร / LINE user id / email ฯลฯ
 
-  contact        Contact         @relation(fields: [contactId], references: [id])
+  contact        Contact             @relation(fields: [contactId], references: [id])
   cgRestrictions CgRestriction[]
   cgConsents     CgConsent[]
   cgDecisionLogs CgDecisionLog[]
   cgReservations CgReservation[]
   cgAttempts     CgAttempt[]
   cgTouches      CgTouch[]
+  cgPreferences  CgPreference[]
+  cgCallbacks    CgCallbackRequest[]
   jrActions      JrAction[]
 
   @@unique([tenantId, id])
@@ -403,6 +417,70 @@ enum CgReservationCommandOperation {
   CONFIRM
   RELEASE
   SETTLE
+}
+
+enum CgPreferenceDecision {
+  ALLOW
+  BLOCK
+  DEFER
+}
+
+enum CgPreferenceMutationKind {
+  SET
+  REVOKE
+}
+
+enum CgSourceKind {
+  CUSTOMER
+  PROVIDER
+  AGENT
+  CRM
+  FLOW
+  ADMIN
+  COMPLIANCE
+  SYSTEM
+}
+
+enum CgPolicyStatus {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+}
+
+enum CgCallbackMode {
+  NO_OVERRIDE
+  SCOPED_OVERRIDE
+  TIME_POLICY_OVERRIDE
+}
+
+enum CgHolidayEffect {
+  CLOSED
+  WINDOWS
+}
+
+enum CgCallbackMutationKind {
+  REQUEST
+  CONSUME
+  REVOKE
+}
+
+enum CgAggregateType {
+  CONTACT
+  POLICY
+}
+
+enum CgEventOutboxState {
+  PENDING
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+enum CgConsumerAckOutcome {
+  APPLIED
+  NO_OP
+  FAILED
+  QUARANTINED
 }
 
 enum JrEventInboxState {
@@ -465,8 +543,8 @@ model CgRestriction {
   createdAt   DateTime          @default(now()) @map("created_at")
 
   tenant   Tenant           @relation(fields: [tenantId], references: [id])
-  contact  Contact?         @relation(fields: [contactId], references: [id])
-  identity ContactIdentity? @relation(fields: [identityId], references: [id])
+  contact  Contact?         @relation(fields: [tenantId, contactId], references: [tenantId, id], map: "cg_restrictions_tenant_contact_fkey")
+  identity ContactIdentity? @relation(fields: [tenantId, identityId], references: [tenantId, id], map: "cg_restrictions_tenant_identity_fkey")
 
   @@index([tenantId, contactId, startsAt])
   @@index([tenantId, identityId, startsAt])
@@ -492,8 +570,8 @@ model CgConsent {
   updatedAt     DateTime        @updatedAt @map("updated_at")
 
   tenant   Tenant           @relation(fields: [tenantId], references: [id])
-  contact  Contact          @relation(fields: [contactId], references: [id])
-  identity ContactIdentity? @relation(fields: [identityId], references: [id])
+  contact  Contact          @relation(fields: [tenantId, contactId], references: [tenantId, id], map: "cg_consents_tenant_contact_fkey")
+  identity ContactIdentity? @relation(fields: [tenantId, identityId], references: [tenantId, id], map: "cg_consents_tenant_identity_fkey")
 
   @@index([tenantId, contactId, purpose, channel, status])
   @@index([tenantId, identityId, purpose, channel, status])
@@ -501,46 +579,50 @@ model CgConsent {
 }
 
 model CgReservation {
-  id                  String                      @id @default(uuid()) @db.Uuid
-  tenantId            String                      @map("tenant_id") @db.Uuid
-  contactId           String                      @map("contact_id") @db.Uuid
-  identityId          String?                     @map("identity_id") @db.Uuid
-  channel             ChannelType
-  purpose             String
-  source              String
-  sourceId            String                      @map("source_id")
-  teamId              String?                     @map("team_id") @db.Uuid
-  segmentSnapshot     Json?                       @map("segment_snapshot")
-  scopeVersion        Int?                        @map("scope_version")
-  actionKey           String                      @map("action_key")
-  inputHash           String                      @map("input_hash")
-  state               CgReservationState          @default(RESERVED)
-  expiresAt           DateTime                    @map("expires_at")
-  confirmedAt         DateTime?                   @map("confirmed_at")
-  releasedAt          DateTime?                   @map("released_at")
-  refundedAt          DateTime?                   @map("refunded_at")
-  deliveryId          String?                     @map("delivery_id")
-  senderIdentityId    String?                     @map("sender_identity_id")
-  providerRequestKey  String?                     @map("provider_request_key")
-  leaseVersion        Int?                        @map("lease_version")
-  leaseExpiresAt      DateTime?                   @map("lease_expires_at")
-  submissionStartedAt DateTime?                   @map("submission_started_at")
-  settlementStatus    CgDeliverySettlementStatus? @map("settlement_status")
-  terminalOutcome     CgFactOutcome?              @map("terminal_outcome")
-  terminalOutcomeRef  String?                     @map("terminal_outcome_ref")
-  settledAt           DateTime?                   @map("settled_at")
-  createdAt           DateTime                    @default(now()) @map("created_at")
-  updatedAt           DateTime                    @updatedAt @map("updated_at")
+  id                            String                      @id @default(uuid()) @db.Uuid
+  tenantId                      String                      @map("tenant_id") @db.Uuid
+  contactId                     String                      @map("contact_id") @db.Uuid
+  identityId                    String?                     @map("identity_id") @db.Uuid
+  channel                       ChannelType
+  purpose                       String
+  source                        String
+  sourceId                      String                      @map("source_id")
+  teamId                        String?                     @map("team_id") @db.Uuid
+  segmentSnapshot               Json?                       @map("segment_snapshot")
+  scopeVersion                  Int?                        @map("scope_version")
+  actionKey                     String                      @map("action_key")
+  inputHash                     String                      @map("input_hash")
+  state                         CgReservationState          @default(RESERVED)
+  expiresAt                     DateTime                    @map("expires_at")
+  confirmedAt                   DateTime?                   @map("confirmed_at")
+  releasedAt                    DateTime?                   @map("released_at")
+  refundedAt                    DateTime?                   @map("refunded_at")
+  deliveryId                    String?                     @map("delivery_id")
+  senderIdentityId              String?                     @map("sender_identity_id")
+  providerRequestKey            String?                     @map("provider_request_key")
+  leaseVersion                  Int?                        @map("lease_version")
+  leaseExpiresAt                DateTime?                   @map("lease_expires_at")
+  submissionStartedAt           DateTime?                   @map("submission_started_at")
+  settlementStatus              CgDeliverySettlementStatus? @map("settlement_status")
+  terminalOutcome               CgFactOutcome?              @map("terminal_outcome")
+  terminalOutcomeRef            String?                     @map("terminal_outcome_ref")
+  settledAt                     DateTime?                   @map("settled_at")
+  authorizationAggregateVersion Int?                        @map("authorization_aggregate_version")
+  authorizationPolicyVersion    Int?                        @map("authorization_policy_version")
+  authorizationDecisionId       String?                     @map("authorization_decision_id") @db.Uuid
+  createdAt                     DateTime                    @default(now()) @map("created_at")
+  updatedAt                     DateTime                    @updatedAt @map("updated_at")
 
-  tenant          Tenant                        @relation(fields: [tenantId], references: [id])
-  contact         Contact                       @relation(fields: [contactId], references: [id])
-  identity        ContactIdentity?              @relation(fields: [identityId], references: [id])
-  decisionLogs    CgDecisionLog[]
-  journeyActions  JrAction[]
-  attempts        CgAttempt[]
-  touches         CgTouch[]
-  commandReceipts CgReservationCommandReceipt[]
-  outboxEntries   DlOutboxEntry[]
+  tenant                Tenant                        @relation(fields: [tenantId], references: [id])
+  contact               Contact                       @relation(fields: [contactId], references: [id])
+  identity              ContactIdentity?              @relation(fields: [identityId], references: [id])
+  decisionLogs          CgDecisionLog[]
+  journeyActions        JrAction[]
+  attempts              CgAttempt[]
+  touches               CgTouch[]
+  commandReceipts       CgReservationCommandReceipt[]
+  outboxEntries         DlOutboxEntry[]
+  authorizationDecision CgDecisionLog?                @relation("CgAuthorizationDecision", fields: [tenantId, authorizationDecisionId], references: [tenantId, id], map: "cg_reservations_tenant_authorization_decision_fkey")
 
   @@unique([tenantId, id])
   @@unique([tenantId, actionKey])
@@ -640,37 +722,285 @@ model CgTouch {
 }
 
 model CgDecisionLog {
-  id              String      @id @default(uuid()) @db.Uuid
-  tenantId        String      @map("tenant_id") @db.Uuid
-  contactId       String?     @map("contact_id") @db.Uuid
-  identityId      String?     @map("identity_id") @db.Uuid
-  channel         ChannelType
-  purpose         String
-  source          String
-  sourceId        String      @map("source_id")
-  teamId          String?     @map("team_id") @db.Uuid
-  segmentSnapshot Json?       @map("segment_snapshot")
-  scopeVersion    Int?        @map("scope_version")
-  actionKey       String      @map("action_key")
-  inputHash       String?     @map("input_hash")
-  decision        CgDecision
-  reasonCode      String      @map("reason_code")
-  policyVersion   Int         @map("policy_version")
-  gate            String
-  trace           Json
-  reservationId   String?     @map("reservation_id") @db.Uuid
-  decidedAt       DateTime    @default(now()) @map("decided_at")
+  id                String          @id @default(uuid()) @db.Uuid
+  tenantId          String          @map("tenant_id") @db.Uuid
+  contactId         String?         @map("contact_id") @db.Uuid
+  identityId        String?         @map("identity_id") @db.Uuid
+  channel           ChannelType
+  purpose           String
+  source            String
+  sourceId          String          @map("source_id")
+  teamId            String?         @map("team_id") @db.Uuid
+  segmentSnapshot   Json?           @map("segment_snapshot")
+  scopeVersion      Int?            @map("scope_version")
+  actionKey         String          @map("action_key")
+  inputHash         String?         @map("input_hash")
+  decision          CgDecision
+  reasonCode        String          @map("reason_code")
+  policyVersion     Int             @map("policy_version")
+  gate              String
+  trace             Json
+  reservationId     String?         @map("reservation_id") @db.Uuid
+  aggregateVersion  Int?            @map("aggregate_version")
+  preferenceVersion Int?            @map("preference_version")
+  nextEligibleAt    DateTime?       @map("next_eligible_at")
+  timezoneSource    String?         @map("timezone_source")
+  matchedScope      Json?           @map("matched_scope")
+  matchedWindowRef  String?         @map("matched_window_ref")
+  exceptionMode     CgCallbackMode? @map("exception_mode")
+  exceptionRef      String?         @map("exception_ref")
+  decidedAt         DateTime        @default(now()) @map("decided_at")
 
-  tenant             Tenant           @relation(fields: [tenantId], references: [id])
-  contact            Contact?         @relation(fields: [contactId], references: [id])
-  identity           ContactIdentity? @relation(fields: [identityId], references: [id])
-  reservation        CgReservation?   @relation(fields: [reservationId], references: [id])
-  journeyEnrollments JrEnrollment[]
-  journeyActions     JrAction[]
+  tenant                 Tenant           @relation(fields: [tenantId], references: [id])
+  contact                Contact?         @relation(fields: [contactId], references: [id])
+  identity               ContactIdentity? @relation(fields: [identityId], references: [id])
+  reservation            CgReservation?   @relation(fields: [reservationId], references: [id])
+  journeyEnrollments     JrEnrollment[]
+  journeyActions         JrAction[]
+  authorizedReservations CgReservation[]  @relation("CgAuthorizationDecision")
 
+  @@unique([tenantId, id])
   @@index([tenantId, actionKey, decidedAt])
   @@index([tenantId, contactId, decidedAt])
   @@map("cg_decision_logs")
+}
+
+model CgPreference {
+  id               String                   @id @default(uuid()) @db.Uuid
+  tenantId         String                   @map("tenant_id") @db.Uuid
+  seriesId         String                   @map("series_id") @db.Uuid
+  version          Int
+  contactId        String                   @map("contact_id") @db.Uuid
+  identityId       String?                  @map("identity_id") @db.Uuid
+  channel          ChannelType?
+  purpose          String?
+  contactKind      String?                  @map("contact_kind")
+  scopeHash        String                   @map("scope_hash") @db.Char(64)
+  decision         CgPreferenceDecision?
+  timezone         String?
+  preferredWindows Json                     @default("[]") @map("preferred_windows")
+  sourceKind       CgSourceKind             @map("source_kind")
+  sourceVersion    String?                  @map("source_version")
+  occurredAt       DateTime                 @map("occurred_at")
+  effectiveFrom    DateTime                 @map("effective_from")
+  effectiveTo      DateTime?                @map("effective_to")
+  mutationKind     CgPreferenceMutationKind @map("mutation_kind")
+  supersedesId     String?                  @map("supersedes_id") @db.Uuid
+  requestHash      String                   @map("request_hash") @db.Char(64)
+  evidenceRef      String                   @map("evidence_ref")
+  actorClass       String                   @map("actor_class")
+  createdAt        DateTime                 @default(now()) @map("created_at")
+
+  tenant       Tenant           @relation(fields: [tenantId], references: [id])
+  contact      Contact          @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  identity     ContactIdentity? @relation(fields: [tenantId, identityId], references: [tenantId, id])
+  supersedes   CgPreference?    @relation("CgPreferenceSupersession", fields: [tenantId, supersedesId], references: [tenantId, id])
+  supersededBy CgPreference[]   @relation("CgPreferenceSupersession")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, seriesId, version])
+  @@unique([tenantId, contactId, scopeHash, version])
+  @@unique([tenantId, contactId, scopeHash, sourceKind, sourceVersion], map: "cg_preferences_source_version_key")
+  @@index([tenantId, contactId, effectiveFrom, effectiveTo, version(sort: Desc)])
+  @@index([tenantId, identityId, scopeHash, version(sort: Desc)])
+  @@map("cg_preferences")
+}
+
+model CgPolicy {
+  id               String         @id @default(uuid()) @db.Uuid
+  tenantId         String         @map("tenant_id") @db.Uuid
+  policyId         String         @map("policy_id") @db.Uuid
+  version          Int
+  purpose          String?
+  contactKind      String?        @map("contact_kind")
+  channel          ChannelType?
+  timezoneFallback String?        @map("timezone_fallback")
+  quietHours       Json           @default("[]") @map("quiet_hours")
+  callbackMode     CgCallbackMode @default(SCOPED_OVERRIDE) @map("callback_mode")
+  overridableRules Json           @default("[]") @map("overridable_rules")
+  status           CgPolicyStatus @default(DRAFT)
+  contentDigest    String         @map("content_digest") @db.Char(64)
+  makerActorRef    String         @map("maker_actor_ref")
+  checkerActorRef  String?        @map("checker_actor_ref")
+  approvalRef      String?        @map("approval_ref")
+  effectiveFrom    DateTime       @map("effective_from")
+  effectiveTo      DateTime?      @map("effective_to")
+  publishedAt      DateTime?      @map("published_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+
+  tenant   Tenant                   @relation(fields: [tenantId], references: [id])
+  holidays CgHolidayCalendarEntry[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, policyId, version])
+  @@index([tenantId, status, effectiveFrom, effectiveTo, version(sort: Desc)])
+  @@map("cg_policies")
+}
+
+model CgHolidayCalendarEntry {
+  id            String          @id @default(uuid()) @db.Uuid
+  tenantId      String          @map("tenant_id") @db.Uuid
+  policyId      String          @map("policy_id") @db.Uuid
+  policyVersion Int             @map("policy_version")
+  localDate     DateTime        @map("local_date") @db.Date
+  effect        CgHolidayEffect
+  windows       Json            @default("[]")
+  labelCode     String?         @map("label_code")
+  entryDigest   String          @map("entry_digest") @db.Char(64)
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  tenant Tenant   @relation(fields: [tenantId], references: [id])
+  policy CgPolicy @relation(fields: [tenantId, policyId, policyVersion], references: [tenantId, policyId, version])
+
+  @@unique([tenantId, policyId, policyVersion, localDate])
+  @@index([tenantId, localDate, policyId, policyVersion])
+  @@map("cg_holiday_calendar_entries")
+}
+
+model CgCallbackRequest {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  tenantId            String                 @map("tenant_id") @db.Uuid
+  seriesId            String                 @map("series_id") @db.Uuid
+  version             Int
+  contactId           String                 @map("contact_id") @db.Uuid
+  identityId          String?                @map("identity_id") @db.Uuid
+  channel             ChannelType
+  purpose             String
+  requestedAt         DateTime               @map("requested_at")
+  requestedTimezone   String                 @map("requested_timezone")
+  expiresAt           DateTime               @map("expires_at")
+  sourceKind          CgSourceKind           @map("source_kind")
+  sourceVersion       String?                @map("source_version")
+  oneUseTokenHash     String                 @map("one_use_token_hash") @db.Char(64)
+  approvedExceptionId String?                @map("approved_exception_id") @db.Uuid
+  mutationKind        CgCallbackMutationKind @map("mutation_kind")
+  supersedesId        String?                @map("supersedes_id") @db.Uuid
+  evidenceRef         String                 @map("evidence_ref")
+  requestHash         String                 @map("request_hash") @db.Char(64)
+  actorClass          String                 @map("actor_class")
+  createdAt           DateTime               @default(now()) @map("created_at")
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id])
+  contact      Contact             @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  identity     ContactIdentity?    @relation(fields: [tenantId, identityId], references: [tenantId, id])
+  supersedes   CgCallbackRequest?  @relation("CgCallbackSupersession", fields: [tenantId, supersedesId], references: [tenantId, id])
+  supersededBy CgCallbackRequest[] @relation("CgCallbackSupersession")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, seriesId, version])
+  @@unique([tenantId, oneUseTokenHash])
+  @@unique([tenantId, contactId, sourceKind, sourceVersion], map: "cg_callback_requests_source_version_key")
+  @@index([tenantId, contactId, expiresAt, version(sort: Desc)])
+  @@index([tenantId, identityId, channel, purpose, expiresAt])
+  @@map("cg_callback_requests")
+}
+
+model CgContactStateHead {
+  tenantId         String   @map("tenant_id") @db.Uuid
+  contactId        String   @map("contact_id") @db.Uuid
+  aggregateVersion Int      @default(0) @map("aggregate_version")
+  currentDigest    String   @map("current_digest") @db.Char(64)
+  latestMutationId String?  @map("latest_mutation_id") @db.Uuid
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  contact Contact @relation(fields: [tenantId, contactId], references: [tenantId, id])
+
+  @@id([tenantId, contactId])
+  @@map("cg_contact_state_heads")
+}
+
+model CgEventOutbox {
+  id               String             @id @default(uuid()) @db.Uuid
+  mutationId       String             @map("mutation_id") @db.Uuid
+  tenantId         String             @map("tenant_id") @db.Uuid
+  aggregateType    CgAggregateType    @map("aggregate_type")
+  aggregateId      String             @map("aggregate_id") @db.Uuid
+  aggregateVersion Int                @map("aggregate_version")
+  eventType        String             @map("event_type")
+  orderingKey      String             @map("ordering_key")
+  contractVersion  Int                @default(1) @map("contract_version")
+  payload          Json
+  payloadHash      String             @map("payload_hash") @db.Char(64)
+  state            CgEventOutboxState @default(PENDING)
+  attempts         Int                @default(0)
+  availableAt      DateTime           @default(now()) @map("available_at")
+  leaseOwner       String?            @map("lease_owner")
+  leaseExpiresAt   DateTime?          @map("lease_expires_at")
+  publishedAt      DateTime?          @map("published_at")
+  brokerRef        String?            @map("broker_ref")
+  createdAt        DateTime           @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, mutationId, eventType])
+  @@index([tenantId, state, availableAt, leaseExpiresAt])
+  @@index([tenantId, aggregateType, aggregateId, aggregateVersion])
+  @@map("cg_event_outbox")
+}
+
+model CgCommandReceipt {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  operation        String
+  idempotencyKey   String   @map("idempotency_key")
+  requestHash      String   @map("request_hash") @db.Char(64)
+  expectedVersion  Int      @map("expected_version")
+  aggregateVersion Int      @map("aggregate_version")
+  responseStatus   Int      @map("response_status")
+  responseBody     Json     @map("response_body")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, operation, idempotencyKey])
+  @@index([tenantId, createdAt])
+  @@map("cg_command_receipts")
+}
+
+model CgAuditLog {
+  id               String          @id @default(uuid()) @db.Uuid
+  tenantId         String          @map("tenant_id") @db.Uuid
+  mutationId       String          @map("mutation_id") @db.Uuid
+  aggregateType    CgAggregateType @map("aggregate_type")
+  aggregateId      String          @map("aggregate_id") @db.Uuid
+  aggregateVersion Int             @map("aggregate_version")
+  action           String
+  actorClass       String          @map("actor_class")
+  actorRef         String          @map("actor_ref")
+  sourceKind       CgSourceKind    @map("source_kind")
+  evidenceRef      String          @map("evidence_ref")
+  beforeDigest     String?         @map("before_digest") @db.Char(64)
+  afterDigest      String          @map("after_digest") @db.Char(64)
+  occurredAt       DateTime        @map("occurred_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, mutationId])
+  @@index([tenantId, aggregateType, aggregateId, aggregateVersion])
+  @@index([tenantId, occurredAt])
+  @@map("cg_audit_logs")
+}
+
+model CgConsumerAcknowledgement {
+  id             String               @id @default(uuid()) @db.Uuid
+  tenantId       String               @map("tenant_id") @db.Uuid
+  eventId        String               @map("event_id")
+  consumer       String
+  aggregateType  CgAggregateType      @map("aggregate_type")
+  aggregateId    String               @map("aggregate_id") @db.Uuid
+  appliedVersion Int                  @map("applied_version")
+  outcome        CgConsumerAckOutcome
+  affectedCount  Int                  @default(0) @map("affected_count")
+  payloadHash    String               @map("payload_hash") @db.Char(64)
+  appliedAt      DateTime             @map("applied_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, eventId, consumer, appliedVersion])
+  @@index([tenantId, aggregateType, aggregateId, appliedVersion])
+  @@map("cg_consumer_acknowledgements")
 }
 
 model JrEventInbox {
