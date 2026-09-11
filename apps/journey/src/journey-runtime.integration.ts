@@ -60,7 +60,6 @@ test(
         },
         cgConsents: {
           create: {
-            tenantId,
             identityId,
             purpose: 'MARKETING',
             channel: 'EMAIL',

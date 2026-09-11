@@ -19,6 +19,9 @@ BEGIN
     'cg_restrictions', 'cg_consents', 'cg_decision_logs', 'cg_reservations',
     'cg_attempts', 'cg_touches',
     'cg_reservation_command_receipts',
+    'cg_preferences', 'cg_policies', 'cg_holiday_calendar_entries',
+    'cg_callback_requests', 'cg_contact_state_heads', 'cg_event_outbox',
+    'cg_command_receipts', 'cg_audit_logs', 'cg_consumer_acknowledgements',
     'jr_event_inbox', 'jr_enrollments', 'jr_actions', 'jr_journey_definitions',
     'dl_outbox_entries',
     'jr_schedule_occurrences', 'jr_step_runs'
@@ -56,6 +59,15 @@ REVOKE UPDATE, DELETE ON cg_decision_logs FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_attempts FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_touches FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_reservation_command_receipts FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_preferences FROM dcontact_app;
+REVOKE DELETE ON cg_policies FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_holiday_calendar_entries FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_callback_requests FROM dcontact_app;
+REVOKE DELETE ON cg_contact_state_heads FROM dcontact_app;
+REVOKE DELETE ON cg_event_outbox FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_command_receipts FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_audit_logs FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_consumer_acknowledgements FROM dcontact_app;
 -- Journey definition content is immutable; only the publish transition (status/published_at)
 -- may change a row, and the application enforces that narrowing — not a DB-level column grant.
 REVOKE DELETE ON jr_journey_definitions FROM dcontact_app;

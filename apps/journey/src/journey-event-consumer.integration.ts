@@ -170,7 +170,6 @@ test('crash หลัง Governance reserve rollback handler ทั้งชุ�
       },
       cgConsents: {
         create: {
-          tenantId,
           identityId,
           purpose: 'MARKETING',
           channel: 'EMAIL',
