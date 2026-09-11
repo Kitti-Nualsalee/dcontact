@@ -4,5 +4,8 @@ export * from './contact-policy.js';
 export * from './cg3-persistence.js';
 export * from './cg3-policy-evaluator.js';
 export * from './cg3-fact-loader.js';
+export * from './cg3-callback-persistence.js';
+export * from './cg3-policy-persistence.js';
+export * from './cg3-query.js';
 export * from './reservation.js';
 export * from './reservation-runtime.js';

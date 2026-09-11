@@ -52,6 +52,14 @@ import {
   configuredAgentSipLeaseProvider,
 } from './agent-workspace-api.js';
 import { JOURNEY_EVENT_INBOX, JourneyEventController } from './journey-event-api.js';
+import {
+  CONTACT_GOVERNANCE_DATABASE,
+  ContactGovernanceCallbackRequestsController,
+  ContactGovernanceContactQueryController,
+  ContactGovernanceDecisionQueryController,
+  ContactGovernancePoliciesController,
+  ContactGovernancePreferencesController,
+} from './contact-governance-api.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -115,9 +123,15 @@ class WorkspaceSessionController {
     QmController,
     AgentWorkspaceController,
     JourneyEventController,
+    ContactGovernancePreferencesController,
+    ContactGovernanceCallbackRequestsController,
+    ContactGovernancePoliciesController,
+    ContactGovernanceContactQueryController,
+    ContactGovernanceDecisionQueryController,
   ],
   providers: [
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
+    { provide: CONTACT_GOVERNANCE_DATABASE, useValue: prisma },
     { provide: SUPERVISOR_LIVE_DATABASE, useValue: prisma },
     { provide: SupervisorLiveEventStream, useValue: supervisorLiveEvents },
     { provide: RECORDING_DATABASE, useValue: prisma },
@@ -139,8 +153,8 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   app.enableCors({
     origin: process.env.WORKSPACE_ORIGIN ?? 'http://localhost:5173',
-    allowedHeaders: ['authorization', 'content-type', 'x-correlation-id'],
-    exposedHeaders: ['x-correlation-id'],
+    allowedHeaders: ['authorization', 'content-type', 'x-correlation-id', 'idempotency-key'],
+    exposedHeaders: ['x-correlation-id', 'etag'],
   });
   attachWorkspaceSessionWebSocket(app.getHttpServer(), socketAdapter);
   await createConsumer({

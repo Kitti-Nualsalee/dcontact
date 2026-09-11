@@ -91,36 +91,47 @@ export class OidcGlobalGuard implements CanActivate {
       GATEWAY_SERVICE_ROLES,
       [context.getHandler(), context.getClass()],
     );
+    const requiredWorkspaceRoles = this.reflector.getAllAndOverride<readonly string[]>(
+      GATEWAY_ROLES,
+      [context.getHandler(), context.getClass()],
+    );
+
     if (requiredServiceRoles) {
-      let identity: VerifiedServiceIdentity;
+      let serviceIdentity: VerifiedServiceIdentity | undefined;
       try {
-        identity = toVerifiedServiceIdentity(claims);
+        serviceIdentity = toVerifiedServiceIdentity(claims);
       } catch {
-        this.diagnostics.write({
-          event: 'gateway.request.denied',
-          correlationId,
-          reason: 'unauthenticated',
-        });
-        throw new UnauthorizedException();
+        // token ไม่ใช่ service principal shape; ถ้า route รองรับ workspace ด้วยให้ fallback
+        // ไปลอง workspace ต่อ (dual-mode route) ไม่เช่นนั้นคงพฤติกรรมเดิม: unauthenticated
+        if (requiredWorkspaceRoles === undefined) {
+          this.diagnostics.write({
+            event: 'gateway.request.denied',
+            correlationId,
+            reason: 'unauthenticated',
+          });
+          throw new UnauthorizedException();
+        }
       }
-      if (!identity.roles.some((role) => requiredServiceRoles.includes(role))) {
+      if (serviceIdentity) {
+        if (!serviceIdentity.roles.some((role) => requiredServiceRoles.includes(role))) {
+          this.diagnostics.write({
+            event: 'gateway.request.denied',
+            correlationId,
+            reason: 'forbidden',
+            tenantId: serviceIdentity.tenantId,
+            clientId: serviceIdentity.clientId,
+          });
+          throw new ForbiddenException();
+        }
+        request.gatewayServiceIdentity = serviceIdentity;
         this.diagnostics.write({
-          event: 'gateway.request.denied',
+          event: 'gateway.request.authorized',
           correlationId,
-          reason: 'forbidden',
-          tenantId: identity.tenantId,
-          clientId: identity.clientId,
+          tenantId: serviceIdentity.tenantId,
+          clientId: serviceIdentity.clientId,
         });
-        throw new ForbiddenException();
+        return true;
       }
-      request.gatewayServiceIdentity = identity;
-      this.diagnostics.write({
-        event: 'gateway.request.authorized',
-        correlationId,
-        tenantId: identity.tenantId,
-        clientId: identity.clientId,
-      });
-      return true;
     }
 
     let identity: VerifiedWorkspaceIdentity;
@@ -135,11 +146,7 @@ export class OidcGlobalGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
-    const requiredRoles =
-      this.reflector.getAllAndOverride<readonly string[]>(GATEWAY_ROLES, [
-        context.getHandler(),
-        context.getClass(),
-      ]) ?? [];
+    const requiredRoles = requiredWorkspaceRoles ?? [];
     if (requiredRoles.length > 0 && !identity.roles.some((role) => requiredRoles.includes(role))) {
       this.diagnostics.write({
         event: 'gateway.request.denied',
