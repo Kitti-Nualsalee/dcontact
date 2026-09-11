@@ -47,7 +47,7 @@ interface PrototypeState {
 }
 
 const variantNames: Record<VariantKey, string> = {
-  A: 'Guided summary',
+  A: 'Guided + history',
   B: 'Policy matrix',
   C: 'Evidence timeline',
 };
@@ -452,7 +452,7 @@ function VariantA({ controller }: { controller: Controller }) {
       <main id="main-a" className="pcp-a-main">
         <div className="pcp-a-title">
           <div>
-            <p className="pcp-kicker">VARIANT A · GUIDED SUMMARY</p>
+            <p className="pcp-kicker">SELECTED HYBRID · GUIDED + HISTORY</p>
             <h1>คุณต้องการให้เราติดต่ออย่างไร</h1>
             <p>ตั้งค่าเป็นรายช่องทางและวัตถุประสงค์ การอนุญาตตรงนี้ไม่ใช่การให้ consent ใหม่</p>
           </div>
@@ -551,11 +551,78 @@ function VariantA({ controller }: { controller: Controller }) {
             </section>
           </aside>
         </section>
+        <PreferenceHistory state={state} />
         <p className="pcp-a-footnote">
           ข้อห้ามตามกฎหมาย การถอน consent และ DNC จะอยู่เหนือการตั้งค่าหน้านี้เสมอ
         </p>
       </main>
     </div>
+  );
+}
+
+function PreferenceHistory({ state }: { state: PrototypeState }) {
+  const canViewTechnicalEvidence = state.role !== 'CUSTOMER';
+
+  return (
+    <section className="pcp-a-history" id="history" aria-labelledby="preference-history-title">
+      <div className="pcp-a-history-heading">
+        <div>
+          <span className="pcp-card-number">04</span>
+          <h2 id="preference-history-title">ประวัติการตั้งค่า</h2>
+          <p>ดูว่าใครเปลี่ยนอะไร เมื่อใด และการเปลี่ยนแปลงมีผลแล้วหรือยัง</p>
+        </div>
+        <span className="pcp-readonly-pill">อ่านอย่างเดียว · {state.audit.length} รายการ</span>
+      </div>
+
+      <div className="pcp-a-history-preview">
+        {state.audit.slice(0, 3).map((entry, index) => (
+          <article key={entry.id}>
+            <span className="pcp-history-version">v{state.aggregateVersion - index}</span>
+            <div>
+              <time>{entry.at}</time>
+              <h3>{entry.action}</h3>
+              <p>{historyActorLabel(entry.actor, state.role)}</p>
+            </div>
+            <strong>{entry.outcome}</strong>
+          </article>
+        ))}
+      </div>
+
+      <details className="pcp-a-history-details">
+        <summary>
+          <span>ดูหลักฐานและประวัติทั้งหมด</span>
+          <small>
+            {canViewTechnicalEvidence ? 'รวม evidence reference' : 'แสดงภาษาที่เข้าใจง่าย'}
+          </small>
+        </summary>
+        <div className="pcp-a-history-timeline">
+          {state.audit.map((entry, index) => (
+            <article key={entry.id}>
+              <div className="pcp-a-history-rail">
+                <span>{state.aggregateVersion - index}</span>
+              </div>
+              <div>
+                <time>{entry.at}</time>
+                <h3>{entry.action}</h3>
+                <p>
+                  {historyActorLabel(entry.actor, state.role)} · {entry.outcome}
+                </p>
+                {canViewTechnicalEvidence ? (
+                  <code>
+                    {entry.id} · digest {String(84012 + index).padStart(8, '0')} · tenant-s1-pilot
+                  </code>
+                ) : null}
+              </div>
+            </article>
+          ))}
+        </div>
+        <p className="pcp-a-history-safety">
+          {canViewTechnicalEvidence
+            ? 'Evidence แสดง reference แบบ tenant-scoped และไม่มี raw identity'
+            : 'รายละเอียดภายในและข้อมูลผู้ปฏิบัติงานถูกซ่อนไว้ในมุมมองลูกค้า'}
+        </p>
+      </details>
+    </section>
   );
 }
 
@@ -929,4 +996,9 @@ function purposeLabel(purpose: PreferenceRow['purpose']): string {
   if (purpose === 'SERVICE_NOTIFICATION') return 'แจ้งเตือนบริการ';
   if (purpose === 'MARKETING') return 'ข่าวสารและข้อเสนอ';
   return 'ความปลอดภัยของบัญชี';
+}
+
+function historyActorLabel(actor: string, role: Role): string {
+  if (role !== 'CUSTOMER') return actor;
+  return actor.includes('ลูกค้า') ? 'คุณ' : 'เจ้าหน้าที่';
 }
