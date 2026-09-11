@@ -58,6 +58,10 @@ const v2Headers = {
 
 test('อนุญาตเฉพาะ topic กลางและปฏิเสธ dc.fs.events', () => {
   assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.AGENT_EVENTS));
+  assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.CASE_COMMANDS));
+  assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.CASE_EVENTS));
+  assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.DIALER_COMMANDS));
+  assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.DIALER_EVENTS));
   assert.throws(
     () => assertKafkaTopic(KAFKA_TOPICS.DEAD_LETTER),
     (error: unknown) => error instanceof KafkaContractError && error.code === 'UNAPPROVED_TOPIC',
@@ -66,6 +70,47 @@ test('อนุญาตเฉพาะ topic กลางและปฏิเ�
     () => assertKafkaTopic('dc.fs.events'),
     (error: unknown) => error instanceof KafkaContractError && error.code === 'UNAPPROVED_TOPIC',
   );
+});
+
+test('J2 outcome, owner command และ owner result ใช้ V2 aggregate/ordering contract โดยไม่เปลี่ยน envelope', () => {
+  const outcomeEvent: KafkaEventEnvelopeV2<Record<string, unknown>> = {
+    schemaVersion: 2,
+    eventKind: 'CANONICAL',
+    eventId: 'event-outcome-1',
+    type: 'interaction.outcome_recorded',
+    tenantId: 'tenant-a',
+    occurredAt: '2026-09-11T10:00:00.000Z',
+    correlationId: 'correlation-j2',
+    orderingKey: 'interaction-a',
+    aggregateType: 'interaction_outcome',
+    aggregateId: 'outcome-a',
+    aggregateVersion: 2,
+    payload: { contractVersion: 1 },
+  };
+  assert.deepEqual(validateEventEnvelope(outcomeEvent), outcomeEvent);
+
+  const commandEvent: KafkaEventEnvelopeV2<Record<string, unknown>> = {
+    ...outcomeEvent,
+    eventKind: 'COMMAND',
+    eventId: 'command-a',
+    type: 'dialer.campaign_target_admission_requested',
+    orderingKey: 'enrollment-a:1:campaign-a',
+    aggregateType: 'journey_action',
+    aggregateId: 'enrollment-a:1:campaign-a',
+    aggregateVersion: 0,
+  };
+  assert.deepEqual(validateEventEnvelope(commandEvent), commandEvent);
+
+  const resultEvent: KafkaEventEnvelopeV2<Record<string, unknown>> = {
+    ...commandEvent,
+    eventKind: 'CANONICAL',
+    eventId: 'result-a',
+    type: 'dialer.campaign_target_admission_completed',
+    aggregateType: 'dialer_command_receipt',
+    aggregateId: 'command-a',
+    aggregateVersion: 1,
+  };
+  assert.deepEqual(validateEventEnvelope(resultEvent), resultEvent);
 });
 
 test('ตรวจ envelope, tenant/correlation headers และ ordering key ก่อนเข้า handler', () => {

@@ -4,3 +4,4 @@ export * from './identifiers.js';
 export * from './scope-authorization.js';
 export * from './contact-governance.js';
 export * from './delivery.js';
+export * from './interaction-result.js';

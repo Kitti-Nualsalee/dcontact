@@ -2,11 +2,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   actionKey,
+  callbackId,
+  campaignId,
+  caseId,
+  commandId,
   contactId,
   deliveryId,
+  enrollmentId,
   identityId,
+  interactionId,
+  journeyId,
+  outcomeId,
   outcomeRef,
   providerRequestKey,
+  recordId,
   reservationId,
   segmentId,
   teamId,
@@ -25,6 +34,15 @@ test('stable identifiers preserve their string JSON boundary', () => {
     deliveryId: deliveryId('delivery-a'),
     providerRequestKey: providerRequestKey('provider-request-a'),
     outcomeRef: outcomeRef('provider:outcome-a'),
+    interactionId: interactionId('interaction-a'),
+    outcomeId: outcomeId('outcome-a'),
+    commandId: commandId('command-a'),
+    journeyId: journeyId('journey-a'),
+    enrollmentId: enrollmentId('enrollment-a'),
+    caseId: caseId('case-a'),
+    campaignId: campaignId('campaign-a'),
+    recordId: recordId('record-a'),
+    callbackId: callbackId('callback-a'),
   };
 
   assert.deepEqual(JSON.parse(JSON.stringify(identifiers)), identifiers);
