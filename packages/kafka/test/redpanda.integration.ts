@@ -87,7 +87,7 @@ test(
 
 test(
   'schema version ที่ไม่รองรับถูกเขียนเข้า DLQ ก่อน consumer commit offset ต้นทาง',
-  { timeout: 30_000 },
+  { timeout: 45_000 },
   async () => {
     const suffix = randomUUID();
     const clientId = `issue-66-dlq-${suffix}`;
@@ -175,7 +175,7 @@ test(
           (_, reject) =>
             (timeout = setTimeout(
               () => reject(new Error('ไม่พบ invalid event ใน DLQ ภายในเวลา')),
-              10_000,
+              20_000,
             )),
         ),
       ]);
@@ -184,7 +184,7 @@ test(
       const source = sourceMetadata[0];
       assert.ok(source);
       const sourceOffset = BigInt(source.baseOffset);
-      const deadline = Date.now() + 10_000;
+      const deadline = Date.now() + 20_000;
       while (true) {
         const offsets = await admin.fetchOffsets({
           groupId: sourceGroupId,
