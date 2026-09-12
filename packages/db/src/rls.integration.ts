@@ -565,3 +565,83 @@ test('J2.3 outcome receipt/owner action บังคับ tenant RLS และ�
     '6',
   );
 });
+
+test('J2.4 Cases cs_cases/cs_command_inbox บังคับ tenant RLS และห้าม application role ลบแถว', (t) => {
+  const tenantId = randomUUID();
+  const contactId = randomUUID();
+  const caseId = randomUUID();
+  const suffix = tenantId.slice(0, 8);
+
+  queryAsOwner(
+    `BEGIN;
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${tenantId}', 'J2.4 RLS ${suffix}', 'j2-4-rls-${suffix}', 'j2-4-rls-${suffix}.test');
+     INSERT INTO contacts (id, tenant_id, display_name) VALUES ('${contactId}', '${tenantId}', 'J2.4 RLS contact');
+     COMMIT;`,
+  );
+
+  t.after(() =>
+    queryAsOwner(
+      `DELETE FROM cs_command_inbox WHERE tenant_id = '${tenantId}';
+       DELETE FROM cs_case_activities WHERE tenant_id = '${tenantId}';
+       DELETE FROM cs_case_links WHERE tenant_id = '${tenantId}';
+       DELETE FROM cs_cases WHERE tenant_id = '${tenantId}';
+       DELETE FROM cs_routing_policies WHERE tenant_id = '${tenantId}';
+       DELETE FROM cs_case_type_policies WHERE tenant_id = '${tenantId}';
+       DELETE FROM contacts WHERE tenant_id = '${tenantId}';
+       DELETE FROM tenants WHERE id = '${tenantId}';`,
+    ),
+  );
+
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN;
+       SELECT set_config('app.tenant_id', '${tenantId}', true);
+       INSERT INTO cs_cases (id, tenant_id, contact_id, case_type_key, updated_at) VALUES ('${caseId}', '${tenantId}', '${contactId}', 'COLLECTIONS', now());
+       INSERT INTO cs_command_inbox (id, tenant_id, command_id, action_key, request_hash, status, code, category, reason_code, failure_class, retry_disposition, correlation_id, observed_at) VALUES ('${randomUUID()}', '${tenantId}', 'command-${suffix}', 'action-${suffix}', '${'a'.repeat(64)}', 'CREATED', 'CREATED', 'BUSINESS', 'CASE_NO_MATCH', 'NONE', 'NONE', 'corr-${suffix}', now());
+       SELECT count(*) FROM cs_cases WHERE id = '${caseId}';
+       SELECT count(*) FROM cs_command_inbox WHERE tenant_id = '${tenantId}';
+       COMMIT;`,
+    ),
+    /\nINSERT 0 1\nINSERT 0 1\n1\n1\nCOMMIT$/,
+  );
+
+  const demoTenantId = queryAsOwner("SELECT id FROM tenants WHERE slug = 'demo';");
+  for (const table of ['cs_cases', 'cs_command_inbox']) {
+    assert.match(
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${demoTenantId}', true); SELECT count(*) FROM ${table} WHERE tenant_id = '${tenantId}'; COMMIT;`,
+      ),
+      /\n0\nCOMMIT$/,
+    );
+  }
+
+  // case เดินสถานะได้ (UPDATE ผ่าน) แต่ห้ามหายไปทั้งแถว
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE cs_cases SET status = 'RESOLVED' WHERE id = '${caseId}'; COMMIT;`,
+    ),
+    /\nUPDATE 1\nCOMMIT$/,
+  );
+  for (const mutation of [
+    `DELETE FROM cs_cases WHERE id = '${caseId}'`,
+    `DELETE FROM cs_command_inbox WHERE tenant_id = '${tenantId}'`,
+  ]) {
+    assert.throws(
+      () =>
+        queryAsApplicationRole(
+          `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${mutation}; COMMIT;`,
+        ),
+      /permission denied/i,
+    );
+  }
+
+  assert.equal(
+    queryAsOwner(
+      `SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN (
+         'cs_case_type_policies', 'cs_routing_policies', 'cs_cases',
+         'cs_case_links', 'cs_case_activities', 'cs_command_inbox'
+       ) AND policyname = 'tenant_isolation' AND qual IS NOT NULL AND with_check IS NOT NULL;`,
+    ),
+    '6',
+  );
+});
