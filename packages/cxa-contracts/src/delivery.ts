@@ -67,3 +67,41 @@ export type EnqueueDeliveryResult = DeliveryQueued | DeliveryEnqueueFailure;
 export interface DeliveryPort {
   enqueue(command: EnqueueDeliveryCommand): Promise<EnqueueDeliveryResult>;
 }
+
+/**
+ * Delivery รายงาน lifecycle ที่ durable เข้า Journey owner-local inbox. นี่เป็น
+ * immutable binding notification ไม่ใช่สิทธิ์ให้ Delivery เขียน Journey table โดยตรง
+ * และ `eventId` ต้องคงที่เมื่อ retry transition เดิม
+ */
+export interface JourneyActionLifecycleRecord {
+  tenantId: TenantId;
+  actionKey: ActionKey;
+  reservationId: ReservationId;
+  deliveryId: DeliveryId;
+  providerRequestKey: ProviderRequestKey;
+  state: 'PRE_BARRIER' | 'POST_BARRIER' | 'ACCEPTED';
+  eventId: string;
+  occurredAt: string;
+  correlationId: string;
+}
+
+export interface JourneyActionLifecyclePort {
+  record(input: JourneyActionLifecycleRecord): Promise<void>;
+}
+
+/**
+ * คำสั่งจาก Journey ไปยัง Delivery owner หลังข้าม submission barrier แล้วเท่านั้น.
+ * Journey ไม่ settle reservation หรือสื่อสารกับ provider แทน Delivery.
+ */
+export interface ReconcileJourneyDeliveryCommand {
+  tenantId: TenantId;
+  actionKey: ActionKey;
+  reservationId: ReservationId;
+  deliveryId: DeliveryId;
+  providerRequestKey: ProviderRequestKey;
+  correlationId: string;
+}
+
+export interface JourneyDeliveryReconcilePort {
+  requestReconcile(input: ReconcileJourneyDeliveryCommand): Promise<void>;
+}

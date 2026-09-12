@@ -50,6 +50,8 @@ export const KAFKA_TOPICS = {
   DIALER_COMMANDS: 'dc.dialer.commands',
   /** Dialer canonical command results (key = actionKey). */
   DIALER_EVENTS: 'dc.dialer.events',
+  /** Journey → Delivery reconcile command หลัง submission barrier (key = actionKey). */
+  DELIVERY_COMMANDS: 'dc.delivery.commands',
   /** quarantine สำหรับ Kafka contract ที่ตรวจไม่ผ่าน; access/retention แยกจาก topic ธุรกิจ */
   DEAD_LETTER: 'dc.platform.dlq',
 } as const;

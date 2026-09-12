@@ -114,6 +114,39 @@ export interface AuthorizationOutcome {
   exceptionRef?: string;
 }
 
+/**
+ * S1.5 ตรวจ canonical แบบ read-only สำหรับ action ที่มี reservation เดิมแล้ว
+ * ห้ามสร้าง decision, reservation, Attempt หรือ Touch ใหม่; Journey เป็นผู้เก็บ
+ * ผล consumer แบบ at-least-once รอบการเรียกนี้
+ */
+export interface RevalidateAuthorizedActionInput {
+  tenantId: TenantId;
+  reservationId: ReservationId;
+  actionKey: ActionKey;
+  correlationId: string;
+  sourceAggregateType: 'CONTACT' | 'POLICY';
+  sourceAggregateId: string;
+  sourceAggregateVersion: number;
+  /** context ประวัติที่หายต้อง REVIEW แบบ fail-closed ห้ามอนุมานเป็น ALLOW */
+  contactKind?: string;
+}
+
+export interface RevalidateAuthorizedActionOutcome {
+  decision: ContactDecision;
+  reasonCode: string;
+  observedAggregateVersion: number;
+  observedPolicyVersion?: number;
+  nextEligibleAt?: string;
+  /** digest ทึบของ facts ที่ประเมินแล้ว ไม่มี PII หรือ policy body */
+  decisionDigest: string;
+}
+
+export interface ContactGovernanceRevalidationPort {
+  revalidateAuthorizedAction(
+    input: RevalidateAuthorizedActionInput,
+  ): Promise<RevalidateAuthorizedActionOutcome>;
+}
+
 export interface ReservationView {
   id: string;
   state: ReservationState;

@@ -7,6 +7,8 @@ import {
   identityId,
   tenantId,
   type ContactAuthorizationPort,
+  type ContactGovernancePort,
+  type ContactGovernanceRevalidationPort,
   type CustomerContextReader,
   type TeamContactScopeAuthorizer,
 } from '@d-contact/cxa-contracts';
@@ -25,6 +27,25 @@ export interface JourneyFoundationPorts {
 
 export interface JourneyFoundationPortOptions {
   contactGovernance?: ContactGovernanceServiceOptions;
+}
+
+/** S1.5 composition boundary: Journey runtime receives only stable cross-domain ports. */
+export interface JourneyRealtimeGovernancePorts {
+  revalidation: ContactGovernanceRevalidationPort;
+  settlement: ContactGovernancePort;
+}
+
+export function createJourneyRealtimeGovernancePorts(
+  database: PrismaClient,
+  options: JourneyFoundationPortOptions = {},
+): JourneyRealtimeGovernancePorts {
+  const governance = new ContactGovernanceService(database, options.contactGovernance);
+  // package นี้อาจถูก build ก่อน Contact Governance ใน local incremental build;
+  // runtime object เดียวกัน implements contract ทั้งสองตาม source owner.
+  return {
+    revalidation: governance as unknown as ContactGovernanceRevalidationPort,
+    settlement: governance,
+  };
 }
 
 /**
