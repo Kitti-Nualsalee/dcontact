@@ -130,7 +130,7 @@ workflow ยังรัน tenant-isolation evidence ผ่าน role `dcontac
 
 ## หมายเหตุ production
 
-- ESL (8021) และ default passwords ทั้งหมดเป็น **dev only** — ห้ามใช้ใน production
+- ESL (8022 บน host, container ยังฟัง 8021 เหมือนเดิม) และ default passwords ทั้งหมดเป็น **dev only** — ห้ามใช้ใน production
 - Keycloak bootstrap admin, readiness client และรหัสผ่านใน realm import เป็น **dev only**;
   production ต้องปิด Direct Access Grants และรับ credentials จาก secret manager
 - WebSocket softphone ต้องเปลี่ยนเป็น `wss:` (7443) + TLS cert จริง
