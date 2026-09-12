@@ -330,7 +330,7 @@ export class ContactGovernanceService
           identityId: reservation.identityId ?? undefined,
           channel: reservation.channel,
           purpose: reservation.purpose,
-          contactKind: reservation.authorizationContactKind,
+          contactKind: reservation.authorizationContactKind ?? undefined,
           now,
         }),
       ]);
@@ -384,7 +384,7 @@ export class ContactGovernanceService
         identityId: reservation.identityId ?? undefined,
         channel: reservation.channel,
         purpose: reservation.purpose,
-        contactKind: reservation.authorizationContactKind,
+        contactKind: reservation.authorizationContactKind ?? undefined,
         senderIdentityId: reservation.senderIdentityId ?? undefined,
         preferences: facts.preferences,
         policy: facts.policy,
