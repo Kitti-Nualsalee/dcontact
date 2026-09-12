@@ -1,0 +1,20 @@
+{
+  "name": "@d-contact/dialer-composition",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@d-contact/contact-governance": "workspace:*",
+    "@d-contact/cxa-contracts": "workspace:*",
+    "@d-contact/db": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
