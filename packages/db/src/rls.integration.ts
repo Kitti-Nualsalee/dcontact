@@ -461,3 +461,107 @@ test('jr schedule occurrences และ step runs บังคับ tenant RLS 
     '2',
   );
 });
+
+test('J2.3 outcome receipt/owner action บังคับ tenant RLS และห้าม application role ลบแถว', (t) => {
+  const tenantId = randomUUID();
+  const receiptId = randomUUID();
+  const actionId = randomUUID();
+  const enrollmentId = randomUUID();
+  const outcomeId = randomUUID();
+  const suffix = tenantId.slice(0, 8);
+
+  queryAsOwner(
+    `BEGIN;
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${tenantId}', 'J2.3 RLS ${suffix}', 'j2-3-rls-${suffix}', 'j2-3-rls-${suffix}.test');
+     COMMIT;`,
+  );
+
+  t.after(() =>
+    queryAsOwner(
+      `DELETE FROM jr_owner_result_inbox WHERE tenant_id = '${tenantId}';
+       DELETE FROM jr_owner_command_outbox WHERE tenant_id = '${tenantId}';
+       DELETE FROM jr_owner_actions WHERE tenant_id = '${tenantId}';
+       DELETE FROM jr_outcome_heads WHERE tenant_id = '${tenantId}';
+       DELETE FROM jr_outcome_receipts WHERE tenant_id = '${tenantId}';
+       DELETE FROM jr_recovery_audit WHERE tenant_id = '${tenantId}';
+       DELETE FROM tenants WHERE id = '${tenantId}';`,
+    ),
+  );
+
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN;
+       SELECT set_config('app.tenant_id', '${tenantId}', true);
+       INSERT INTO jr_outcome_receipts (id, tenant_id, source, event_id, outcome_type, outcome_id, outcome_version, payload_hash, correlation_id) VALUES ('${receiptId}', '${tenantId}', 'INTERACTION', 'event-${suffix}', 'INTERACTION_ABANDONED', '${outcomeId}', 1, '${'a'.repeat(64)}', 'corr-${suffix}');
+       INSERT INTO jr_owner_actions (id, tenant_id, action_key, enrollment_id, kind, request_hash, correlation_id) VALUES ('${actionId}', '${tenantId}', 'action-${suffix}', '${enrollmentId}', 'ENSURE_CASE', '${'b'.repeat(64)}', 'corr-${suffix}');
+       SELECT count(*) FROM jr_outcome_receipts WHERE id = '${receiptId}';
+       SELECT count(*) FROM jr_owner_actions WHERE id = '${actionId}';
+       COMMIT;`,
+    ),
+    /\nINSERT 0 1\nINSERT 0 1\n1\n1\nCOMMIT$/,
+  );
+
+  const demoTenantId = queryAsOwner("SELECT id FROM tenants WHERE slug = 'demo';");
+  for (const table of ['jr_outcome_receipts', 'jr_owner_actions']) {
+    assert.match(
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${demoTenantId}', true); SELECT count(*) FROM ${table} WHERE tenant_id = '${tenantId}'; COMMIT;`,
+      ),
+      /\n0\nCOMMIT$/,
+    );
+  }
+
+  // receipt/action เดินสถานะได้ (UPDATE ผ่าน) แต่ห้ามหายไปทั้งแถว
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE jr_outcome_receipts SET state = 'APPLIED' WHERE id = '${receiptId}'; UPDATE jr_owner_actions SET state = 'DISPATCHED' WHERE id = '${actionId}'; COMMIT;`,
+    ),
+    /\nUPDATE 1\nUPDATE 1\nCOMMIT$/,
+  );
+  for (const mutation of [
+    `DELETE FROM jr_outcome_receipts WHERE id = '${receiptId}'`,
+    `DELETE FROM jr_owner_actions WHERE id = '${actionId}'`,
+  ]) {
+    assert.throws(
+      () =>
+        queryAsApplicationRole(
+          `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${mutation}; COMMIT;`,
+        ),
+      /permission denied/i,
+    );
+  }
+
+  // recovery audit เป็น append-only: INSERT ผ่าน แต่ UPDATE/DELETE ต้องถูกปฏิเสธ
+  const auditId = randomUUID();
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN;
+       SELECT set_config('app.tenant_id', '${tenantId}', true);
+       INSERT INTO jr_recovery_audit (id, tenant_id, operation, target_kind, target_ref, reason_code, actor_id) VALUES ('${auditId}', '${tenantId}', 'RECONCILE', 'ACTION', 'action-${suffix}', 'MANUAL_TEST', '${randomUUID()}');
+       COMMIT;`,
+    ),
+    /\nINSERT 0 1\nCOMMIT$/,
+  );
+  for (const mutation of [
+    `UPDATE jr_recovery_audit SET reason_code = 'MUTATED' WHERE id = '${auditId}'`,
+    `DELETE FROM jr_recovery_audit WHERE id = '${auditId}'`,
+  ]) {
+    assert.throws(
+      () =>
+        queryAsApplicationRole(
+          `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${mutation}; COMMIT;`,
+        ),
+      /permission denied/i,
+    );
+  }
+
+  assert.equal(
+    queryAsOwner(
+      `SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN (
+         'jr_outcome_receipts', 'jr_outcome_heads', 'jr_owner_actions',
+         'jr_owner_command_outbox', 'jr_owner_result_inbox', 'jr_recovery_audit'
+       ) AND policyname = 'tenant_isolation' AND qual IS NOT NULL AND with_check IS NOT NULL;`,
+    ),
+    '6',
+  );
+});

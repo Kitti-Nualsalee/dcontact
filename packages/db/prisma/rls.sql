@@ -85,3 +85,17 @@ REVOKE DELETE ON ob_attempts FROM dcontact_app;
 REVOKE DELETE ON ob_governance_consumer_inbox FROM dcontact_app;
 REVOKE DELETE ON ob_governance_acknowledgement_outbox FROM dcontact_app;
 REVOKE DELETE ON ob_governance_effect_outbox FROM dcontact_app;
+-- S1.5: CG3 realtime invalidation ledgers ของ Journey — พลาดตกหล่นตอนแรก ทำให้
+-- blanket GRANT ด้านบนคืนสิทธิ์ DELETE ให้โดยไม่ตั้งใจ (ตรงข้ามกับที่ migration เดิมตั้งใจ)
+REVOKE DELETE ON jr_governance_consumer_inbox FROM dcontact_app;
+REVOKE DELETE ON jr_governance_acknowledgement_outbox FROM dcontact_app;
+REVOKE DELETE ON jr_governance_effect_outbox FROM dcontact_app;
+REVOKE DELETE ON jr_action_lifecycle_inbox FROM dcontact_app;
+-- J2.3: outcome/action durable foundation — receipt/head/action/command/result เดินสถานะได้
+-- (UPDATE ยังอยู่) แต่ห้ามหายทั้งแถว; recovery audit เป็น append-only ล้วน
+REVOKE DELETE ON jr_outcome_receipts FROM dcontact_app;
+REVOKE DELETE ON jr_outcome_heads FROM dcontact_app;
+REVOKE DELETE ON jr_owner_actions FROM dcontact_app;
+REVOKE DELETE ON jr_owner_command_outbox FROM dcontact_app;
+REVOKE DELETE ON jr_owner_result_inbox FROM dcontact_app;
+REVOKE UPDATE, DELETE ON jr_recovery_audit FROM dcontact_app;
