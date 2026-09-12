@@ -238,6 +238,183 @@ test('BRANCH ที่อ้าง forbidden reference segment ถูกปฏ�
   assert.deepEqual(codes, ['BRANCH_EXPRESSION_INVALID']);
 });
 
+test('trigger INTERACTION_OUTCOME ที่ outcomeType อยู่ใน allowlist ผ่านการตรวจ', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      trigger: {
+        kind: 'INTERACTION_OUTCOME',
+        outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+        outcomeCode: 'CALLBACK_REQUESTED',
+        coalescingPolicy: 'PER_LOGICAL_OUTCOME',
+      },
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, []);
+});
+
+test('trigger INTERACTION_OUTCOME ที่ outcomeType ไม่อยู่ใน allowlist ถูกปฏิเสธ', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      trigger: {
+        kind: 'INTERACTION_OUTCOME',
+        // @ts-expect-error -- ทดสอบ type ที่ไม่อยู่ใน allowlist โดยตั้งใจ
+        outcomeType: 'INTERACTION_QUEUED',
+        coalescingPolicy: 'PER_LOGICAL_OUTCOME',
+      },
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, ['TRIGGER_INVALID']);
+});
+
+test('trigger INTERACTION_OUTCOME ที่ coalescingPolicy ไม่ใช่ PER_LOGICAL_OUTCOME ถูกปฏิเสธ', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      trigger: {
+        kind: 'INTERACTION_OUTCOME',
+        outcomeType: 'INTERACTION_ABANDONED',
+        // @ts-expect-error -- V1 รองรับ PER_LOGICAL_OUTCOME เท่านั้น
+        coalescingPolicy: 'PER_INTERACTION',
+      },
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, ['TRIGGER_INVALID']);
+});
+
+test('trigger INTERACTION_OUTCOME ที่ outcomeCode เป็น free text ถูกปฏิเสธ', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      trigger: {
+        kind: 'INTERACTION_OUTCOME',
+        outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+        outcomeCode: 'call the customer back please',
+        coalescingPolicy: 'PER_LOGICAL_OUTCOME',
+      },
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, ['TRIGGER_INVALID']);
+});
+
+test('ENSURE_CASE step ที่ครบ field ผ่านการตรวจและ reject path เข้าเงื่อนไข reachability', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      graph: {
+        entryStepId: 'ensure-case',
+        steps: [
+          {
+            id: 'ensure-case',
+            type: 'ENSURE_CASE',
+            caseTypeId: 'case-type-collections',
+            routingIntentRef: 'routing-collections-default',
+            next: 'exit-linked',
+            onReject: 'exit-rejected',
+          },
+          { id: 'exit-linked', type: 'EXIT', reason: 'GOAL_REACHED' },
+          { id: 'exit-rejected', type: 'EXIT', reason: 'CASE_REJECTED' },
+        ],
+      },
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, []);
+});
+
+test('ADMIT_CAMPAIGN_TARGET ที่ขาด onReject ถูกปฏิเสธเป็น GRAPH_STEP_SHAPE_INVALID', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      graph: {
+        entryStepId: 'admit',
+        steps: [
+          {
+            id: 'admit',
+            type: 'ADMIT_CAMPAIGN_TARGET',
+            campaignId: 'campaign-1',
+            next: 'exit-goal',
+            onReject: '',
+          },
+          { id: 'exit-goal', type: 'EXIT', reason: 'GOAL_REACHED' },
+        ],
+      },
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, ['GRAPH_STEP_SHAPE_INVALID']);
+});
+
+test('SCHEDULE_CALLBACK ที่ requestedInSeconds ติดลบถูกปฏิเสธเป็น GRAPH_STEP_SHAPE_INVALID', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      graph: {
+        entryStepId: 'callback',
+        steps: [
+          {
+            id: 'callback',
+            type: 'SCHEDULE_CALLBACK',
+            requestedInSeconds: -60,
+            next: 'exit-goal',
+            onReject: 'exit-rejected',
+          },
+          { id: 'exit-goal', type: 'EXIT', reason: 'GOAL_REACHED' },
+          { id: 'exit-rejected', type: 'EXIT', reason: 'REJECTED' },
+        ],
+      },
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, ['GRAPH_STEP_SHAPE_INVALID']);
+});
+
+test('action intent step ที่ target reference เป็น free text/PII ถูกปฏิเสธเป็น ACTION_INTENT_REFERENCE_INVALID', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      graph: {
+        entryStepId: 'admit',
+        steps: [
+          {
+            id: 'admit',
+            type: 'ADMIT_CAMPAIGN_TARGET',
+            campaignId: 'somebody@example.com',
+            next: 'exit-goal',
+            onReject: 'exit-rejected',
+          },
+          { id: 'exit-goal', type: 'EXIT', reason: 'GOAL_REACHED' },
+          { id: 'exit-rejected', type: 'EXIT', reason: 'REJECTED' },
+        ],
+      },
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, ['ACTION_INTENT_REFERENCE_INVALID']);
+});
+
+test('SCHEDULE_CALLBACK ที่ queueId เป็น opaque id ผ่าน แต่ agentId มีช่องว่างถูกปฏิเสธ', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      graph: {
+        entryStepId: 'callback',
+        steps: [
+          {
+            id: 'callback',
+            type: 'SCHEDULE_CALLBACK',
+            requestedInSeconds: 3600,
+            queueId: 'queue-collections',
+            agentId: 'agent 42',
+            next: 'exit-goal',
+            onReject: 'exit-rejected',
+          },
+          { id: 'exit-goal', type: 'EXIT', reason: 'GOAL_REACHED' },
+          { id: 'exit-rejected', type: 'EXIT', reason: 'REJECTED' },
+        ],
+      },
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, ['ACTION_INTENT_REFERENCE_INVALID']);
+});
+
 test('หลาย field ผิดพร้อมกันคืน code ครบโดยไม่ซ้ำ', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
