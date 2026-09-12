@@ -57,7 +57,12 @@ jobs:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
 
       - name: Bootstrap acceptance infrastructure
-        run: pnpm infra:ready
+        run: |
+          pnpm infra:ready || {
+            docker compose -f infra/docker/docker-compose.dev.yml ps
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color redpanda
+            exit 1
+          }
 
       - name: Run S1 convergence acceptance on final main SHA
         run: pnpm s1:acceptance
