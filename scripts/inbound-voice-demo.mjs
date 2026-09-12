@@ -23,12 +23,14 @@ function run(command, args, options = {}) {
 }
 
 function start(command, args, options = {}) {
-  const { diagnostic, ...spawnOptions } = options;
+  const { diagnostic, processGroup = false, ...spawnOptions } = options;
   const child = spawn(command, args, {
     cwd: process.cwd(),
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: processGroup && process.platform !== 'win32',
     ...spawnOptions,
   });
+  child.demoProcessGroup = processGroup && process.platform !== 'win32';
   if (diagnostic) {
     child.stderr.on('data', (chunk) => process.stderr.write(`[${diagnostic}] ${chunk}`));
   }
@@ -191,8 +193,23 @@ async function waitForActiveMedia(destination) {
 async function cleanup() {
   if (cleaningUp) return;
   cleaningUp = true;
-  for (const child of children) stopChild(child);
+  for (const child of children) {
+    if (child.demoProcessGroup && child.pid) {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      try {
+        process.kill(-child.pid, 'SIGTERM');
+      } catch {
+        stopChild(child);
+      }
+    } else {
+      stopChild(child);
+    }
+  }
   spawnSync('docker', ['rm', '-f', agentContainer], { stdio: 'ignore' });
+  // Router และ Telephony shutdown แบบ async; เว้นช่วงให้ disconnect Kafka/DB/ESL
+  // ก่อน demo ถัดไปสร้าง consumer และ subscribe ESL ชุดใหม่
+  await wait(1_000);
 }
 
 function exitAfterCleanup(signal) {
@@ -214,6 +231,7 @@ try {
 
   start('pnpm', ['--filter', '@d-contact/router', 'dev'], {
     diagnostic: 'router',
+    processGroup: true,
     env: {
       ...process.env,
       ROUTER_INBOUND_VOICE_GROUP_ID: routerGroupId,
@@ -226,6 +244,7 @@ try {
       FREESWITCH_AGENT_DIAL_TEMPLATE: `sofia/internal/{extension}@${agentContainer}:5060`,
     },
     diagnostic: 'telephony',
+    processGroup: true,
   });
   start('docker', [
     'run',
