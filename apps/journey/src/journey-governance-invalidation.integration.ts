@@ -60,7 +60,9 @@ async function fixture(t: TestContext) {
       sipDomain: `${tenantId}.journey-cg3.test`,
     },
   });
-  await owner.contact.create({ data: { id: contactId, tenantId, displayName: 'CG3 test contact' } });
+  await owner.contact.create({
+    data: { id: contactId, tenantId, displayName: 'CG3 test contact' },
+  });
   await owner.contactIdentity.create({
     data: {
       id: identityId,
@@ -82,16 +84,19 @@ async function fixture(t: TestContext) {
       evidence: {},
     },
   });
-  const authorization = await new ContactGovernanceService(application).authorizeAndReserve(tenantId, {
-    contactId,
-    identityId,
-    channel: 'EMAIL',
-    purpose: 'MARKETING',
-    source: 'JOURNEY',
-    sourceId: enrollmentId,
-    actionKey,
-    policyVersion: 1,
-  });
+  const authorization = await new ContactGovernanceService(application).authorizeAndReserve(
+    tenantId,
+    {
+      contactId,
+      identityId,
+      channel: 'EMAIL',
+      purpose: 'MARKETING',
+      source: 'JOURNEY',
+      sourceId: enrollmentId,
+      actionKey,
+      policyVersion: 1,
+    },
+  );
   assert.equal(authorization.decision, 'ALLOW');
   assert.ok(authorization.reservationId);
   await owner.jrEnrollment.create({
@@ -117,7 +122,10 @@ async function fixture(t: TestContext) {
     await owner.jrGovernanceConsumerInbox.deleteMany({ where: { tenantId } });
     await owner.jrAction.deleteMany({ where: { tenantId } });
     await owner.jrEnrollment.deleteMany({ where: { tenantId } });
-    await owner.cgReservation.updateMany({ where: { tenantId }, data: { authorizationDecisionId: null } });
+    await owner.cgReservation.updateMany({
+      where: { tenantId },
+      data: { authorizationDecisionId: null },
+    });
     await owner.cgDecisionLog.deleteMany({ where: { tenantId } });
     await owner.cgReservation.deleteMany({ where: { tenantId } });
     await owner.cgConsent.deleteMany({ where: { tenantId } });
@@ -147,12 +155,10 @@ test('CG3 restrictive event cancel งาน Journey ก่อน barrier แบ
       throw new Error('งานก่อน barrier ต้องไม่ reconcile');
     },
   };
-  const service = new JourneyGovernanceInvalidationService(
-    f.application,
-    revalidator,
-    settlement,
-    { consumer: 'journey-cg3-test', now: () => new Date('2026-09-12T09:00:01.000Z') },
-  );
+  const service = new JourneyGovernanceInvalidationService(f.application, revalidator, settlement, {
+    consumer: 'journey-cg3-test',
+    now: () => new Date('2026-09-12T09:00:01.000Z'),
+  });
   const event = preferenceEvent(f.tenantId, f.contactId, f.identityId);
   const applied = await service.apply(event);
   assert.deepEqual(applied, { outcome: 'APPLIED', affectedCount: 1, state: 'APPLIED' });
@@ -162,13 +168,19 @@ test('CG3 restrictive event cancel งาน Journey ก่อน barrier แบ
   const action = await f.owner.jrAction.findFirstOrThrow({ where: { tenantId: f.tenantId } });
   assert.equal(action.realtimeState, 'CANCELLED');
   assert.equal(action.appliedAggregateVersion, 1);
-  assert.equal(await f.owner.jrGovernanceConsumerInbox.count({ where: { tenantId: f.tenantId } }), 1);
+  assert.equal(
+    await f.owner.jrGovernanceConsumerInbox.count({ where: { tenantId: f.tenantId } }),
+    1,
+  );
   const acknowledgement = await f.owner.jrGovernanceAcknowledgementOutbox.findFirstOrThrow({
     where: { tenantId: f.tenantId },
   });
   assert.equal(acknowledgement.outcome, 'APPLIED');
   assert.equal(acknowledgement.affectedCount, 1);
-  assert.equal(await f.owner.jrGovernanceEffectOutbox.count({ where: { tenantId: f.tenantId } }), 1);
+  assert.equal(
+    await f.owner.jrGovernanceEffectOutbox.count({ where: { tenantId: f.tenantId } }),
+    1,
+  );
   const effectRelay = new JourneyGovernanceEffectRelay(f.application, settlement, {
     now: () => new Date('2026-09-12T09:00:01.500Z'),
   });
@@ -189,7 +201,11 @@ test('CG3 restrictive event cancel งาน Journey ก่อน barrier แบ
   assert.equal(published.length, 1);
   assert.equal(published[0]?.event.eventId, event.eventId);
   assert.equal(
-    (await f.owner.jrGovernanceAcknowledgementOutbox.findFirstOrThrow({ where: { tenantId: f.tenantId } })).state,
+    (
+      await f.owner.jrGovernanceAcknowledgementOutbox.findFirstOrThrow({
+        where: { tenantId: f.tenantId },
+      })
+    ).state,
     'PUBLISHED',
   );
 
@@ -222,12 +238,10 @@ test('CG3 restrictive event หลัง barrier เปลี่ยน Journey a
       reconciles.push(`${input.deliveryId}:${input.providerRequestKey}`);
     },
   };
-  const service = new JourneyGovernanceInvalidationService(
-    f.application,
-    revalidator,
-    settlement,
-    { consumer: 'journey-cg3-post-barrier', now: () => new Date('2026-09-12T09:01:00.000Z') },
-  );
+  const service = new JourneyGovernanceInvalidationService(f.application, revalidator, settlement, {
+    consumer: 'journey-cg3-post-barrier',
+    now: () => new Date('2026-09-12T09:01:00.000Z'),
+  });
   const event = preferenceEvent(f.tenantId, f.contactId, f.identityId);
   await service.apply(event);
   assert.equal(releases, 0);
@@ -335,7 +349,11 @@ test('CG3 version gap ครั้งแรก fail closed โดย hold action
   const f = await fixture(t);
   const service = new JourneyGovernanceInvalidationService(
     f.application,
-    { async revalidate() { return { decision: 'ALLOW' as const }; } },
+    {
+      async revalidate() {
+        return { decision: 'ALLOW' as const };
+      },
+    },
     {
       async releaseBeforeBarrier() {},
       async requestReconcile() {},
@@ -352,8 +370,12 @@ test('CG3 version gap ครั้งแรก fail closed โดย hold action
     'HELD',
   );
   assert.equal(
-    (await f.owner.jrGovernanceConsumerInbox.findFirstOrThrow({ where: { tenantId: f.tenantId } })).state,
+    (await f.owner.jrGovernanceConsumerInbox.findFirstOrThrow({ where: { tenantId: f.tenantId } }))
+      .state,
     'GAP',
   );
-  assert.equal(await f.owner.jrGovernanceAcknowledgementOutbox.count({ where: { tenantId: f.tenantId } }), 0);
+  assert.equal(
+    await f.owner.jrGovernanceAcknowledgementOutbox.count({ where: { tenantId: f.tenantId } }),
+    0,
+  );
 });

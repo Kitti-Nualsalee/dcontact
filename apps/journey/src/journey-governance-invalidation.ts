@@ -114,7 +114,9 @@ export function createJourneyCanonicalRevalidator(
         sourceAggregateType: source.aggregateType,
         sourceAggregateId: source.aggregateId,
         sourceAggregateVersion: source.aggregateVersion,
-        ...(event.affectedScope.contactKind ? { contactKind: event.affectedScope.contactKind } : {}),
+        ...(event.affectedScope.contactKind
+          ? { contactKind: event.affectedScope.contactKind }
+          : {}),
       });
       if (outcome.decision === 'ALLOW') return { decision: 'ALLOW' };
       if (outcome.decision === 'BLOCK') {
@@ -177,7 +179,9 @@ export function createJourneyRealtimeSettlementPort(
     },
     async requestReconcile(input) {
       if (!input.deliveryId || !input.providerRequestKey) {
-        throw new Error('post-barrier Journey action ต้องมี deliveryId และ providerRequestKey ก่อน reconcile');
+        throw new Error(
+          'post-barrier Journey action ต้องมี deliveryId และ providerRequestKey ก่อน reconcile',
+        );
       }
       await governance.settleDelivery({
         tenantId: toTenantId(input.tenantId),
@@ -220,7 +224,10 @@ export class JourneyGovernanceVersionGapError extends Error {
 
 export class JourneyGovernanceHashConflictError extends Error {
   readonly code = 'EVENT_HASH_CONFLICT' as const;
-  constructor(readonly aggregateId: string, readonly aggregateVersion: number) {
+  constructor(
+    readonly aggregateId: string,
+    readonly aggregateVersion: number,
+  ) {
     super(`CG3 event hash conflict สำหรับ ${aggregateId} version ${aggregateVersion}`);
   }
 }
@@ -234,7 +241,8 @@ function record(value: unknown, name: string): Record<string, unknown> {
 
 function optionalString(value: unknown, name: string): string | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string' || value.length === 0) throw new TypeError(`${name} ต้องเป็น string`);
+  if (typeof value !== 'string' || value.length === 0)
+    throw new TypeError(`${name} ต้องเป็น string`);
   return value;
 }
 
@@ -269,18 +277,28 @@ export function parseJourneyCg3EventPayload(value: unknown): JourneyCg3EventPayl
   }
   const scope = record(payload.affectedScope, 'affectedScope');
   const identityId = optionalString(scope.identityId, 'affectedScope.identityId') ?? null;
-  const channel = optionalString(scope.channel, 'affectedScope.channel') as ContactChannel | undefined;
+  const channel = optionalString(scope.channel, 'affectedScope.channel') as
+    ContactChannel | undefined;
   const purpose = optionalString(scope.purpose, 'affectedScope.purpose') ?? null;
   const contactKind = optionalString(scope.contactKind, 'affectedScope.contactKind') ?? null;
   const policyVersion = payload.policyVersion;
-  if (policyVersion !== undefined && (!Number.isInteger(policyVersion) || (policyVersion as number) < 1)) {
+  if (
+    policyVersion !== undefined &&
+    (!Number.isInteger(policyVersion) || (policyVersion as number) < 1)
+  ) {
     throw new TypeError('CG3 policyVersion ต้องเป็น positive integer');
   }
   return {
     contractVersion: 1,
-    mutationId: optionalString(payload.mutationId, 'mutationId') ?? (() => { throw new TypeError('mutationId ต้องมีค่า'); })(),
+    mutationId:
+      optionalString(payload.mutationId, 'mutationId') ??
+      (() => {
+        throw new TypeError('mutationId ต้องมีค่า');
+      })(),
     subjectVersion: payload.subjectVersion as number,
-    ...(optionalString(payload.identityId, 'identityId') ? { identityId: optionalString(payload.identityId, 'identityId') } : {}),
+    ...(optionalString(payload.identityId, 'identityId')
+      ? { identityId: optionalString(payload.identityId, 'identityId') }
+      : {}),
     affectedScope: { identityId, channel: channel ?? null, purpose, contactKind },
     effectiveAt: new Date(effectiveAt).toISOString(),
     ...(policyVersion === undefined ? {} : { policyVersion: policyVersion as number }),
@@ -337,7 +355,8 @@ export class JourneyGovernanceInvalidationService {
     event: KafkaEventEnvelopeV2<Record<string, unknown>>,
     transaction: Prisma.TransactionClient,
   ): Promise<JourneyGovernanceApplyResult> {
-    if (event.eventKind !== 'CANONICAL') throw new TypeError('Journey รับเฉพาะ CG3 canonical event');
+    if (event.eventKind !== 'CANONICAL')
+      throw new TypeError('Journey รับเฉพาะ CG3 canonical event');
     const aggregateType = this.aggregateType(event.aggregateType);
     if (
       (aggregateType === 'CONTACT' && !CONTACT_EVENTS.has(event.type)) ||
@@ -363,7 +382,12 @@ export class JourneyGovernanceInvalidationService {
     });
     if (inbox && inbox.state !== 'GAP') {
       return {
-        outcome: inbox.state === 'QUARANTINED' ? 'QUARANTINED' : inbox.state === 'NO_OP' ? 'NO_OP' : 'APPLIED',
+        outcome:
+          inbox.state === 'QUARANTINED'
+            ? 'QUARANTINED'
+            : inbox.state === 'NO_OP'
+              ? 'NO_OP'
+              : 'APPLIED',
         affectedCount: 0,
         state: inbox.state,
       };
@@ -468,7 +492,10 @@ export class JourneyGovernanceInvalidationService {
       if (!state) {
         await transaction.jrAction.update({
           where: { id: action.id },
-          data: { appliedAggregateVersion: event.aggregateVersion, appliedPayloadHash: payloadHash },
+          data: {
+            appliedAggregateVersion: event.aggregateVersion,
+            appliedPayloadHash: payloadHash,
+          },
         });
         continue;
       }
@@ -479,7 +506,9 @@ export class JourneyGovernanceInvalidationService {
           where: { id: action.id },
           data: {
             realtimeState: state,
-            ...(decision.decision === 'DEFER' ? { nextEligibleAt: new Date(decision.nextEligibleAt) } : {}),
+            ...(decision.decision === 'DEFER'
+              ? { nextEligibleAt: new Date(decision.nextEligibleAt) }
+              : {}),
             appliedAggregateVersion: event.aggregateVersion,
             appliedPayloadHash: payloadHash,
           },
@@ -524,7 +553,9 @@ export class JourneyGovernanceInvalidationService {
       where: {
         tenantId: event.tenantId,
         realtimeState: { in: ACTIVE_ACTION_STATES },
-        ...(event.aggregateType === 'contact_governance_contact' ? { contactId: event.aggregateId } : {}),
+        ...(event.aggregateType === 'contact_governance_contact'
+          ? { contactId: event.aggregateId }
+          : {}),
       },
       select: {
         id: true,
@@ -541,21 +572,19 @@ export class JourneyGovernanceInvalidationService {
       },
     });
     return rows
-      .map(
-        (row): JourneyRealtimeAction => ({
-          id: row.id,
-          tenantId: row.tenantId,
-          actionKey: row.actionKey,
-          contactId: row.contactId,
-          identityId: row.identityId,
-          channel: row.channel,
-          purpose: row.purpose,
-          reservationId: row.reservationId,
-          realtimeState: row.realtimeState,
-          ...(row.deliveryId ? { deliveryId: row.deliveryId } : {}),
-          ...(row.providerRequestKey ? { providerRequestKey: row.providerRequestKey } : {}),
-        }),
-      )
+      .map((row): JourneyRealtimeAction => ({
+        id: row.id,
+        tenantId: row.tenantId,
+        actionKey: row.actionKey,
+        contactId: row.contactId,
+        identityId: row.identityId,
+        channel: row.channel,
+        purpose: row.purpose,
+        reservationId: row.reservationId,
+        realtimeState: row.realtimeState,
+        ...(row.deliveryId ? { deliveryId: row.deliveryId } : {}),
+        ...(row.providerRequestKey ? { providerRequestKey: row.providerRequestKey } : {}),
+      }))
       .filter((action) => matchesScope(action, payload.affectedScope));
   }
 
@@ -638,9 +667,14 @@ export class JourneyGovernanceInvalidationService {
       appliedAt: now,
     } as const;
     if (existingInboxId) {
-      await transaction.jrGovernanceConsumerInbox.update({ where: { id: existingInboxId }, data: inboxData });
+      await transaction.jrGovernanceConsumerInbox.update({
+        where: { id: existingInboxId },
+        data: inboxData,
+      });
     } else {
-      await transaction.jrGovernanceConsumerInbox.create({ data: { id: randomUUID(), ...inboxData } });
+      await transaction.jrGovernanceConsumerInbox.create({
+        data: { id: randomUUID(), ...inboxData },
+      });
     }
     await transaction.jrGovernanceAcknowledgementOutbox.upsert({
       where: {

@@ -275,7 +275,8 @@ export class ContactGovernanceService
       }
       if (
         input.sourceAggregateVersion < 1 ||
-        (input.sourceAggregateType === 'CONTACT' && input.sourceAggregateId !== reservation.contactId)
+        (input.sourceAggregateType === 'CONTACT' &&
+          input.sourceAggregateId !== reservation.contactId)
       ) {
         return review('GOVERNANCE_CONTEXT_UNAVAILABLE', 0);
       }

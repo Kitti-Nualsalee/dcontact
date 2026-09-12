@@ -1,8 +1,4 @@
-import {
-  Prisma,
-  withTenantDatabaseTransaction,
-  type PrismaClient,
-} from '@d-contact/db';
+import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import type { DcProducer } from '@d-contact/kafka';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 

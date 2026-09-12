@@ -1,8 +1,4 @@
-import {
-  Prisma,
-  withTenantDatabaseTransaction,
-  type PrismaClient,
-} from '@d-contact/db';
+import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import {
   createConsumer,
   isKafkaEventEnvelopeV2,
@@ -73,7 +69,10 @@ export interface CreateJourneyGovernanceConsumerOptions {
 export function createJourneyGovernanceConsumer(
   options: CreateJourneyGovernanceConsumerOptions,
 ): Promise<DcConsumer> {
-  const consumerOptions: CreateConsumerOptions<Record<string, unknown>, Prisma.TransactionClient> = {
+  const consumerOptions: CreateConsumerOptions<
+    Record<string, unknown>,
+    Prisma.TransactionClient
+  > = {
     clientId: options.clientId,
     groupId: options.groupId,
     topics: [KAFKA_TOPICS.CONTACT_GOVERNANCE_EVENTS],

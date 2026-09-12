@@ -1,7 +1,10 @@
 /** S1.5 — Journey-owned immutable inbox สำหรับ Delivery barrier lifecycle. */
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
-import type { JourneyActionLifecyclePort, JourneyActionLifecycleRecord } from '@d-contact/cxa-contracts';
+import type {
+  JourneyActionLifecyclePort,
+  JourneyActionLifecycleRecord,
+} from '@d-contact/cxa-contracts';
 
 function bindingHash(input: JourneyActionLifecycleRecord): string {
   return createHash('sha256')
@@ -62,7 +65,9 @@ export class JourneyActionLifecycleInboxService implements JourneyActionLifecycl
             ? ['PRE_BARRIER']
             : ['POST_BARRIER'];
       if (!expected.includes(action.realtimeState)) {
-        throw new Error(`Journey lifecycle transition ไม่ถูกต้องจาก ${action.realtimeState} ไป ${input.state}`);
+        throw new Error(
+          `Journey lifecycle transition ไม่ถูกต้องจาก ${action.realtimeState} ไป ${input.state}`,
+        );
       }
       await transaction.jrAction.update({
         where: { id: action.id },

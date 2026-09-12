@@ -26,18 +26,21 @@ export class JourneyGovernanceEffectRelay {
 
   /** ส่งได้สูงสุดหนึ่ง command; caller กำหนด polling/backoff เอง. */
   async executeNext(tenantId: string): Promise<'SUCCEEDED' | 'RETRY' | undefined> {
-    const claimed = await withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
-      const candidates = await transaction.$queryRaw<
-        Array<{
-          id: string;
-          action_key: string;
-          reservation_id: string;
-          delivery_id: string | null;
-          provider_request_key: string | null;
-          correlation_id: string;
-          kind: 'RELEASE_BEFORE_BARRIER' | 'REQUEST_RECONCILE';
-        }>
-      >(Prisma.sql`
+    const claimed = await withTenantDatabaseTransaction(
+      this.database,
+      tenantId,
+      async (transaction) => {
+        const candidates = await transaction.$queryRaw<
+          Array<{
+            id: string;
+            action_key: string;
+            reservation_id: string;
+            delivery_id: string | null;
+            provider_request_key: string | null;
+            correlation_id: string;
+            kind: 'RELEASE_BEFORE_BARRIER' | 'REQUEST_RECONCILE';
+          }>
+        >(Prisma.sql`
         SELECT id, action_key, reservation_id, delivery_id, provider_request_key, correlation_id, kind
         FROM jr_governance_effect_outbox
         WHERE tenant_id = ${tenantId}::uuid
@@ -47,14 +50,15 @@ export class JourneyGovernanceEffectRelay {
         LIMIT 1
         FOR UPDATE SKIP LOCKED
       `);
-      const effect = candidates[0];
-      if (!effect) return undefined;
-      await transaction.jrGovernanceEffectOutbox.update({
-        where: { id: effect.id },
-        data: { state: 'PROCESSING', attempts: { increment: 1 } },
-      });
-      return effect;
-    });
+        const effect = candidates[0];
+        if (!effect) return undefined;
+        await transaction.jrGovernanceEffectOutbox.update({
+          where: { id: effect.id },
+          data: { state: 'PROCESSING', attempts: { increment: 1 } },
+        });
+        return effect;
+      },
+    );
     if (!claimed) return undefined;
 
     try {
@@ -72,7 +76,9 @@ export class JourneyGovernanceEffectRelay {
           reservationId: claimed.reservation_id,
           actionKey: claimed.action_key,
           ...(claimed.delivery_id ? { deliveryId: claimed.delivery_id } : {}),
-          ...(claimed.provider_request_key ? { providerRequestKey: claimed.provider_request_key } : {}),
+          ...(claimed.provider_request_key
+            ? { providerRequestKey: claimed.provider_request_key }
+            : {}),
           correlationId: claimed.correlation_id,
         });
       }
@@ -84,7 +90,8 @@ export class JourneyGovernanceEffectRelay {
       );
       return 'SUCCEEDED';
     } catch (error) {
-      const message = error instanceof Error ? error.message.slice(0, 1_000) : 'unknown effect failure';
+      const message =
+        error instanceof Error ? error.message.slice(0, 1_000) : 'unknown effect failure';
       await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
         transaction.jrGovernanceEffectOutbox.update({
           where: { id: claimed.id },
