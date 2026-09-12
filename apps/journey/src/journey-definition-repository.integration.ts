@@ -296,6 +296,90 @@ test('publish version ที่ ownerTeamId ไม่ใช่ทีมจริ
   );
 });
 
+test('J2.2: definition ที่ใช้ INTERACTION_OUTCOME trigger และ action intent steps publish ได้จริง', async (t) => {
+  const f = await fixture(t);
+  const journeyId = randomUUID();
+  const repository = new JourneyDefinitionRepository(f.application, evaluator);
+  const draft = await repository.createVersion(
+    input(f, journeyId, {
+      trigger: {
+        kind: 'INTERACTION_OUTCOME',
+        outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+        outcomeCode: 'CALLBACK_REQUESTED',
+        coalescingPolicy: 'PER_LOGICAL_OUTCOME',
+      },
+      graph: {
+        entryStepId: 'schedule-callback',
+        steps: [
+          {
+            id: 'schedule-callback',
+            type: 'SCHEDULE_CALLBACK',
+            requestedInSeconds: 3600,
+            queueId: 'queue-collections',
+            next: 'ensure-case',
+            onReject: 'exit-rejected',
+          },
+          {
+            id: 'ensure-case',
+            type: 'ENSURE_CASE',
+            caseTypeId: 'case-type-collections',
+            routingIntentRef: 'routing-collections-default',
+            next: 'exit-linked',
+            onReject: 'exit-rejected',
+          },
+          { id: 'exit-linked', type: 'EXIT', reason: 'GOAL_REACHED' },
+          { id: 'exit-rejected', type: 'EXIT', reason: 'OWNER_REJECTED' },
+        ],
+      },
+    } as Partial<CreateJourneyVersionInput>),
+  );
+
+  const published = await repository.publishVersion({
+    tenantId: f.tenantId,
+    journeyId,
+    version: 1,
+    expectedContentHash: draft.contentHash,
+    correlationId: 'publish-j2-2',
+  });
+  assert.equal(published.status, 'PUBLISHED');
+
+  const stored = await repository.getVersion(f.tenantId, journeyId, 1);
+  assert.equal(stored?.trigger.kind, 'INTERACTION_OUTCOME');
+});
+
+test('J2.2: outcomeType นอก allowlist ถูกปฏิเสธตอน publish และไม่เปลี่ยนสถานะ', async (t) => {
+  const f = await fixture(t);
+  const journeyId = randomUUID();
+  const repository = new JourneyDefinitionRepository(f.application, evaluator);
+  const draft = await repository.createVersion(
+    input(f, journeyId, {
+      trigger: {
+        kind: 'INTERACTION_OUTCOME',
+        outcomeType: 'INTERACTION_QUEUED',
+        coalescingPolicy: 'PER_LOGICAL_OUTCOME',
+      },
+    } as unknown as Partial<CreateJourneyVersionInput>),
+  );
+
+  await assert.rejects(
+    () =>
+      repository.publishVersion({
+        tenantId: f.tenantId,
+        journeyId,
+        version: 1,
+        expectedContentHash: draft.contentHash,
+        correlationId: 'publish-j2-2-invalid',
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof JourneyDefinitionValidationError);
+      assert.deepEqual(error.reasonCodes, ['TRIGGER_INVALID']);
+      return true;
+    },
+  );
+  const stored = await repository.getVersion(f.tenantId, journeyId, 1);
+  assert.equal(stored?.status, 'DRAFT');
+});
+
 test('journeyId เดียวกันแยก tenant ได้อิสระต่อกัน', async (t) => {
   const tenantA = await fixture(t);
   const tenantB = await fixture(t);

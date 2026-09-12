@@ -1,16 +1,25 @@
 import type { ExpressionEvaluator } from '@d-contact/cxa-contracts';
-import type {
-  JourneyDefinitionContent,
-  JourneyDefinitionValidationCode,
-  JourneyGraph,
-  JourneyGraphStep,
+import {
+  INTERACTION_OUTCOME_TYPES,
+  type JourneyDefinitionContent,
+  type JourneyDefinitionValidationCode,
+  type JourneyGraph,
+  type JourneyGraphStep,
 } from './journey-definition.js';
 
 const MAX_DURATION_DAYS = 3650;
 const KNOWN_EXIT_RULE_KINDS = new Set(['GOAL', 'EVENT', 'HIGHER_PRIORITY_JOURNEY']);
+const KNOWN_OUTCOME_TYPES = new Set<string>(INTERACTION_OUTCOME_TYPES);
+
+/** opaque internal ID เท่านั้น — ปฏิเสธ free text, email, เบอร์โทร หรือช่องว่าง (#121) */
+const OPAQUE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isOpaqueId(value: unknown): value is string {
+  return typeof value === 'string' && OPAQUE_ID_PATTERN.test(value);
 }
 
 function validateTrigger(
@@ -23,6 +32,13 @@ function validateTrigger(
     return isNonEmptyString(trigger.cron) && isNonEmptyString(trigger.timezone)
       ? []
       : ['TRIGGER_INVALID'];
+  }
+  if (trigger.kind === 'INTERACTION_OUTCOME') {
+    if (!KNOWN_OUTCOME_TYPES.has(trigger.outcomeType)) return ['TRIGGER_INVALID'];
+    if (trigger.outcomeCode !== undefined && !isOpaqueId(trigger.outcomeCode)) {
+      return ['TRIGGER_INVALID'];
+    }
+    return trigger.coalescingPolicy === 'PER_LOGICAL_OUTCOME' ? [] : ['TRIGGER_INVALID'];
   }
   return ['TRIGGER_INVALID'];
 }
@@ -79,6 +95,25 @@ function stepShapeValid(step: JourneyGraphStep): boolean {
       );
     case 'EXIT':
       return isNonEmptyString(step.reason);
+    case 'ENSURE_CASE':
+      return (
+        isNonEmptyString(step.caseTypeId) &&
+        isNonEmptyString(step.next) &&
+        isNonEmptyString(step.onReject)
+      );
+    case 'ADMIT_CAMPAIGN_TARGET':
+      return (
+        isNonEmptyString(step.campaignId) &&
+        isNonEmptyString(step.next) &&
+        isNonEmptyString(step.onReject)
+      );
+    case 'SCHEDULE_CALLBACK':
+      return (
+        Number.isFinite(step.requestedInSeconds) &&
+        step.requestedInSeconds >= 0 &&
+        isNonEmptyString(step.next) &&
+        isNonEmptyString(step.onReject)
+      );
     default:
       return false;
   }
@@ -93,7 +128,39 @@ function stepSuccessors(step: JourneyGraphStep): string[] {
       return [step.whenTrue, step.whenFalse];
     case 'EXIT':
       return [];
+    case 'ENSURE_CASE':
+    case 'ADMIT_CAMPAIGN_TARGET':
+    case 'SCHEDULE_CALLBACK':
+      return [step.next, step.onReject];
   }
+}
+
+/**
+ * ตรวจ target reference ของ action intent step แยกจาก shape เพราะเป็นคนละความหมาย:
+ * shape ผิด (ขาด field) กับ shape ถูกแต่ค่าไม่ใช่ opaque internal ID (เช่น free text
+ * หรือ PII) ต้องแยก reason code ให้ operator แก้ถูกจุด (#121 internal-ID shape)
+ */
+function validateActionIntentReferences(
+  steps: readonly JourneyGraphStep[],
+): JourneyDefinitionValidationCode[] {
+  for (const step of steps) {
+    if (step.type === 'ENSURE_CASE') {
+      if (!isOpaqueId(step.caseTypeId)) return ['ACTION_INTENT_REFERENCE_INVALID'];
+      if (step.routingIntentRef !== undefined && !isOpaqueId(step.routingIntentRef)) {
+        return ['ACTION_INTENT_REFERENCE_INVALID'];
+      }
+    } else if (step.type === 'ADMIT_CAMPAIGN_TARGET') {
+      if (!isOpaqueId(step.campaignId)) return ['ACTION_INTENT_REFERENCE_INVALID'];
+    } else if (step.type === 'SCHEDULE_CALLBACK') {
+      if (step.queueId !== undefined && !isOpaqueId(step.queueId)) {
+        return ['ACTION_INTENT_REFERENCE_INVALID'];
+      }
+      if (step.agentId !== undefined && !isOpaqueId(step.agentId)) {
+        return ['ACTION_INTENT_REFERENCE_INVALID'];
+      }
+    }
+  }
+  return [];
 }
 
 function validateGraphStructure(graph: JourneyGraph): {
@@ -206,7 +273,12 @@ export function validateJourneyDefinitionStructure(
     ...validateExitRules(content.exitRules),
     ...validateMaxDuration(content.maxDurationDays),
     ...graphCodes,
-    ...(graphCodes.length === 0 ? validateBranchExpressions(branchSteps, evaluator) : []),
+    ...(graphCodes.length === 0
+      ? [
+          ...validateBranchExpressions(branchSteps, evaluator),
+          ...validateActionIntentReferences(content.graph.steps),
+        ]
+      : []),
   ];
   return dedupe(codes);
 }
