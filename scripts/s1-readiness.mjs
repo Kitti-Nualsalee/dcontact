@@ -247,7 +247,13 @@ function executeCompositeCheck(check, execute) {
   const subchecks = [];
   for (const command of check.commands) {
     const result = execute({ ...check, checkId: check.id, command });
-    subchecks.push({ command, status: result.status, durationMs: result.durationMs ?? null });
+    subchecks.push({
+      command,
+      status: result.status,
+      durationMs: result.durationMs ?? null,
+      ...(result.detail ? { detail: result.detail } : {}),
+      ...(result.remediation ? { remediation: result.remediation } : {}),
+    });
     if (result.status !== 'PASS') {
       return {
         id: check.id,

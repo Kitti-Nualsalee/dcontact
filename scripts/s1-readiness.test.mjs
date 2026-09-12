@@ -63,6 +63,33 @@ test('PR SHA หรือ check ที่ล้มต้องไม่ออก
   assert.deepEqual(s1Summary(context, failed).markers, []);
 });
 
+test('subcheck ที่ล้มเก็บ diagnostic ที่ sanitize แล้วใน manifest', () => {
+  const result = runS1Readiness({
+    context,
+    executeCheck: (check) => {
+      if (check.id === 'S1-REG-01' && check.command.at(-1) === 'lint') {
+        return {
+          checkId: check.id,
+          status: 'FAIL',
+          durationMs: 2,
+          detail: 'Formatting check failed in a tracked source file.',
+          remediation: 'Run pnpm lint and format the reported source file.',
+        };
+      }
+      return passing(check);
+    },
+    emit: () => undefined,
+    writeManifest: false,
+  });
+  const regression = result.manifest.checks.find((check) => check.id === 'S1-REG-01');
+  const lint = regression.subchecks.find((check) => check.command.at(-1) === 'lint');
+  assert.equal(lint.status, 'FAIL');
+  assert.equal(lint.detail, 'Formatting check failed in a tracked source file.');
+  assert.equal(lint.remediation, 'Run pnpm lint and format the reported source file.');
+  assert.deepEqual(result.summary.markers, []);
+  assert.doesNotThrow(() => assertValidS1Manifest(result.manifest));
+});
+
 test('manifest ปฏิเสธ flags, SHA, artifacts หรือจำนวน check ที่ไม่ปลอดภัย', () => {
   const diagnostics = S1_READINESS_CHECKS.map((item) => ({
     id: item.id,
