@@ -65,6 +65,10 @@ model Tenant {
   dlOutboxEntries              DlOutboxEntry[]
   jrScheduleOccurrences        JrScheduleOccurrence[]
   jrStepRuns                   JrStepRun[]
+  obAttempts                   ObAttempt[]
+  obGovernanceConsumerInbox    ObGovernanceConsumerInbox[]
+  obGovernanceAcknowledgements ObGovernanceAcknowledgementOutbox[]
+  obGovernanceEffects          ObGovernanceEffectOutbox[]
 
   @@map("tenants")
 }
@@ -340,6 +344,7 @@ model Contact {
   cgStateHead    CgContactStateHead?
   jrEnrollments  JrEnrollment[]
   jrActions      JrAction[]
+  obAttempts     ObAttempt[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -364,6 +369,7 @@ model ContactIdentity {
   cgPreferences  CgPreference[]
   cgCallbacks    CgCallbackRequest[]
   jrActions      JrAction[]
+  obAttempts     ObAttempt[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, type, value])
@@ -578,6 +584,48 @@ enum JrActionLifecycleState {
   ACCEPTED
 }
 
+/// S1.7: Dialer เก็บ raw outbound attempt ของตนเองและใช้ state นี้สำหรับ
+/// CG3 invalidation เท่านั้น ไม่ใช่ source of truth ของ reservation หรือ policy.
+enum ObAttemptRealtimeState {
+  QUEUED
+  RESERVED
+  PRE_BARRIER
+  POST_BARRIER
+  ACCEPTED
+  IN_PROGRESS
+  CANCELLED
+  DEFERRED
+  PARKED
+  HELD
+  CANCEL_REQUESTED
+  SETTLED
+}
+
+enum ObGovernanceConsumerState {
+  APPLIED
+  NO_OP
+  GAP
+  QUARANTINED
+}
+
+enum ObGovernanceAcknowledgementState {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+enum ObGovernanceEffectState {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum ObGovernanceEffectKind {
+  RELEASE_BEFORE_BARRIER
+  REQUEST_RECONCILE
+}
+
 model CgRestriction {
   id          String            @id @default(uuid()) @db.Uuid
   tenantId    String            @map("tenant_id") @db.Uuid
@@ -679,6 +727,7 @@ model CgReservation {
   touches               CgTouch[]
   commandReceipts       CgReservationCommandReceipt[]
   outboxEntries         DlOutboxEntry[]
+  obAttempts            ObAttempt[]
   authorizationDecision CgDecisionLog?                @relation("CgAuthorizationDecision", fields: [tenantId, authorizationDecisionId], references: [tenantId, id], map: "cg_reservations_tenant_authorization_decision_fkey")
 
   @@unique([tenantId, id])
@@ -1320,6 +1369,110 @@ model JrActionLifecycleInbox {
   @@unique([tenantId, eventId])
   @@index([tenantId, actionKey, occurredAt])
   @@map("jr_action_lifecycle_inbox")
+}
+
+/// S1.7: raw Dialer call record. Governance fieldsเป็น projection เพื่อหยุด
+/// originate/future action เท่านั้น; `cg_*` ยังคงเป็น canonical reservation/policy owner.
+model ObAttempt {
+  id                      String                 @id @default(uuid()) @db.Uuid
+  tenantId                String                 @map("tenant_id") @db.Uuid
+  actionKey               String                 @map("action_key")
+  contactId               String                 @map("contact_id") @db.Uuid
+  identityId              String                 @map("identity_id") @db.Uuid
+  channel                 ChannelType
+  purpose                 String
+  reservationId           String?                @map("reservation_id") @db.Uuid
+  realtimeState           ObAttemptRealtimeState @default(RESERVED) @map("realtime_state")
+  nextEligibleAt          DateTime?              @map("next_eligible_at")
+  appliedAggregateVersion Int?                   @map("applied_aggregate_version")
+  appliedPayloadHash      String?                @map("applied_payload_hash")
+  deliveryId              String?                @map("delivery_id") @db.Uuid
+  providerRequestKey      String?                @map("provider_request_key")
+  cancelRequestedAt       DateTime?              @map("cancel_requested_at")
+  nextOutboundBlocked     Boolean                @default(false) @map("next_outbound_blocked")
+  createdAt               DateTime               @default(now()) @map("created_at")
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id])
+  contact     Contact         @relation(fields: [tenantId, contactId], references: [tenantId, id], map: "ob_attempts_tenant_contact_fkey")
+  identity    ContactIdentity @relation(fields: [tenantId, identityId], references: [tenantId, id], map: "ob_attempts_tenant_identity_fkey")
+  reservation CgReservation?  @relation(fields: [tenantId, reservationId], references: [tenantId, id], map: "ob_attempts_tenant_reservation_fkey")
+
+  @@unique([tenantId, actionKey])
+  @@index([tenantId, contactId, realtimeState])
+  @@map("ob_attempts")
+}
+
+/// completion record ของ Dialer CG3 consumer อยู่ transaction เดียวกับ raw attempt,
+/// effect outbox และ acknowledgement outbox ก่อน Kafka offset.
+model ObGovernanceConsumerInbox {
+  id               String                    @id @default(uuid()) @db.Uuid
+  consumer         String
+  tenantId         String                    @map("tenant_id") @db.Uuid
+  eventId          String                    @map("event_id")
+  aggregateType    CgAggregateType           @map("aggregate_type")
+  aggregateId      String                    @map("aggregate_id") @db.Uuid
+  aggregateVersion Int                       @map("aggregate_version")
+  payloadHash      String                    @map("payload_hash")
+  state            ObGovernanceConsumerState
+  affectedCount    Int                       @default(0) @map("affected_count")
+  appliedAt        DateTime                  @default(now()) @map("applied_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([consumer, tenantId, eventId])
+  @@unique([consumer, tenantId, aggregateType, aggregateId, aggregateVersion, payloadHash])
+  @@index([tenantId, aggregateType, aggregateId, aggregateVersion])
+  @@map("ob_governance_consumer_inbox")
+}
+
+model ObGovernanceAcknowledgementOutbox {
+  id                String                           @id @default(uuid()) @db.Uuid
+  tenantId          String                           @map("tenant_id") @db.Uuid
+  eventId           String                           @map("event_id")
+  consumer          String
+  aggregateType     CgAggregateType                  @map("aggregate_type")
+  aggregateId       String                           @map("aggregate_id") @db.Uuid
+  appliedVersion    Int                              @map("applied_version")
+  outcome           CgConsumerAckOutcome
+  affectedCount     Int                              @default(0) @map("affected_count")
+  sourcePayloadHash String                           @map("source_payload_hash")
+  state             ObGovernanceAcknowledgementState @default(PENDING)
+  attempts          Int                              @default(0)
+  availableAt       DateTime                         @default(now()) @map("available_at")
+  publishedAt       DateTime?                        @map("published_at")
+  lastError         String?                          @map("last_error")
+  createdAt         DateTime                         @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, eventId, consumer, appliedVersion])
+  @@index([tenantId, state, availableAt])
+  @@map("ob_governance_acknowledgement_outbox")
+}
+
+model ObGovernanceEffectOutbox {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  tenantId           String                  @map("tenant_id") @db.Uuid
+  eventId            String                  @map("event_id")
+  attemptId          String                  @map("attempt_id") @db.Uuid
+  actionKey          String                  @map("action_key")
+  reservationId      String                  @map("reservation_id") @db.Uuid
+  deliveryId         String?                 @map("delivery_id") @db.Uuid
+  providerRequestKey String?                 @map("provider_request_key")
+  correlationId      String                  @map("correlation_id")
+  kind               ObGovernanceEffectKind
+  state              ObGovernanceEffectState @default(PENDING)
+  attempts           Int                     @default(0)
+  availableAt        DateTime                @default(now()) @map("available_at")
+  completedAt        DateTime?               @map("completed_at")
+  lastError          String?                 @map("last_error")
+  createdAt          DateTime                @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, eventId, attemptId, kind])
+  @@index([tenantId, state, availableAt])
+  @@map("ob_governance_effect_outbox")
 }
 
 enum JrJourneyDefinitionStatus {
