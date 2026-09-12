@@ -56,7 +56,7 @@ test('failed check เก็บข้อความ assertion ไว้ ไม�
   const stdout = [
     '  1) [chromium] › e2e/media-readiness.spec.ts:3:1 › Agent เปิดรับสาย',
     `    Error: ${assertionMessage}`,
-    ...Array.from({ length: 120 }, (_, index) => `      at frame ${index}`),
+    ...Array.from({ length: 120 }, (_, index) => `      at frame ${index} ${'x'.repeat(1_000)}`),
     '  2 failed',
     '  5 passed (13.5s)',
   ].join('\n');
