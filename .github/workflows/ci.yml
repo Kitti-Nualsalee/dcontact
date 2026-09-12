@@ -30,3 +30,49 @@ jobs:
 
       - name: Prettier check
         run: pnpm lint
+
+  s1-convergence-acceptance:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure local acceptance environment
+        run: cp .env.example .env
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      - name: Bootstrap acceptance infrastructure
+        run: pnpm infra:ready
+
+      - name: Run S1 convergence acceptance on final main SHA
+        run: pnpm s1:acceptance
+        env:
+          S1_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Upload immutable S1 evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s1-evidence-${{ github.sha }}
+          path: artifacts/s1/${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Stop acceptance infrastructure
+        if: always()
+        run: pnpm infra:down
