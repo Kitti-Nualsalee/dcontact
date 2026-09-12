@@ -53,6 +53,11 @@ jobs:
           cp .env.example .env
           mkdir -p infra/docker/data/redpanda
           chmod 777 infra/docker/data/redpanda
+          # Docker creates a bind-mount source as root when it is absent. Create
+          # this one before Compose so both the Node archiver and FreeSWITCH can
+          # create tenant-scoped recording directories on GitHub runners.
+          mkdir -p infra/docker/data/freeswitch-recordings
+          chmod 777 infra/docker/data/freeswitch-recordings
 
       - run: pnpm install --frozen-lockfile
 
