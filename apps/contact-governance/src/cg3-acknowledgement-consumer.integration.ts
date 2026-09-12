@@ -54,6 +54,7 @@ test(
       groupId: `cg3-ack-${suffix}`,
       brokers: ['localhost:9092'],
     });
+    await consumer.ready();
 
     t.after(async () => {
       await producer.disconnect();

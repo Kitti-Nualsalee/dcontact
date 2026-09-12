@@ -1,5 +1,5 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { mkdir, readFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
 import type { RecordingArchive } from './recording-lifecycle.js';
 
@@ -39,7 +39,10 @@ export class MinioRecordingArchive implements RecordingArchive {
   }
 
   async prepare(input: { tenantId: string; telephonyPath: string }): Promise<void> {
-    await mkdir(dirname(this.hostPath(input)), { recursive: true });
+    const directory = dirname(this.hostPath(input));
+    await mkdir(directory, { recursive: true });
+    // FreeSWITCH runs as a different UID inside the dev Compose container.
+    await chmod(directory, 0o777);
   }
 
   async archive(input: {
