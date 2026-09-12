@@ -1,6 +1,7 @@
 # Local/generated tool artifacts
 .playwright-mcp/
 **/test-results/
+infra/docker/data/
 pnpm-lock.yaml
 
 # Historical reference documents and static prototypes

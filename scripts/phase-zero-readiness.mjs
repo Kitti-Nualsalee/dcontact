@@ -108,10 +108,19 @@ function diagnosticDetail(result) {
   const safe = sanitizeDiagnostic(`${result.stderr ?? ''}\n${result.stdout ?? ''}`);
   if (!safe)
     return result.error?.code ?? `process exited with status ${result.status ?? 'unknown'}`;
-  const tail = safe.split('\n').filter(Boolean).slice(-DIAGNOSTIC_DETAIL_LINES).join('\n');
-  return tail.length <= DIAGNOSTIC_DETAIL_CHARACTERS
-    ? tail
-    : tail.slice(-DIAGNOSTIC_DETAIL_CHARACTERS);
+  const lines = safe.split('\n').filter(Boolean);
+  const headCount = Math.ceil(DIAGNOSTIC_DETAIL_LINES / 2);
+  const detail =
+    lines.length <= DIAGNOSTIC_DETAIL_LINES
+      ? lines.join('\n')
+      : [
+          ...lines.slice(0, headCount),
+          '... diagnostic output truncated ...',
+          ...lines.slice(-headCount),
+        ].join('\n');
+  if (detail.length <= DIAGNOSTIC_DETAIL_CHARACTERS) return detail;
+  const half = Math.floor((DIAGNOSTIC_DETAIL_CHARACTERS - 40) / 2);
+  return `${detail.slice(0, half)}\n... diagnostic output truncated ...\n${detail.slice(-half)}`;
 }
 
 function structuredEvidence(result, prefix) {
