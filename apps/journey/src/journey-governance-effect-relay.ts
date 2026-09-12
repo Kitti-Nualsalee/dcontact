@@ -6,15 +6,21 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import type { JourneyRealtimeSettlementPort } from './journey-governance-invalidation.js';
+import {
+  noOpJourneyGovernanceMetrics,
+  type JourneyGovernanceMetrics,
+} from './journey-governance-metrics.js';
 
 export interface JourneyGovernanceEffectRelayOptions {
   now?: () => Date;
   retryDelayMs?: number;
+  metrics?: JourneyGovernanceMetrics;
 }
 
 export class JourneyGovernanceEffectRelay {
   private readonly now: () => Date;
   private readonly retryDelayMs: number;
+  private readonly metrics: JourneyGovernanceMetrics;
 
   constructor(
     private readonly database: PrismaClient,
@@ -23,6 +29,7 @@ export class JourneyGovernanceEffectRelay {
   ) {
     this.now = options.now ?? (() => new Date());
     this.retryDelayMs = options.retryDelayMs ?? 30_000;
+    this.metrics = options.metrics ?? noOpJourneyGovernanceMetrics;
   }
 
   /** ส่งได้สูงสุดหนึ่ง command; caller กำหนด polling/backoff เอง. */
@@ -40,10 +47,11 @@ export class JourneyGovernanceEffectRelay {
             delivery_id: string | null;
             provider_request_key: string | null;
             correlation_id: string;
+            created_at: Date;
             kind: 'RELEASE_BEFORE_BARRIER' | 'REQUEST_RECONCILE';
           }>
         >(Prisma.sql`
-        SELECT id, action_id, action_key, reservation_id, delivery_id, provider_request_key, correlation_id, kind
+        SELECT id, action_id, action_key, reservation_id, delivery_id, provider_request_key, correlation_id, created_at, kind
         FROM jr_governance_effect_outbox
         WHERE tenant_id = ${tenantId}::uuid
           AND state = 'PENDING'
@@ -62,6 +70,12 @@ export class JourneyGovernanceEffectRelay {
       },
     );
     if (!claimed) return undefined;
+    if (claimed.kind === 'REQUEST_RECONCILE') {
+      this.metrics.observe(
+        'journey_cg3_reconcile_age_ms',
+        this.now().getTime() - claimed.created_at.getTime(),
+      );
+    }
 
     try {
       if (claimed.kind === 'RELEASE_BEFORE_BARRIER') {
@@ -171,5 +185,15 @@ export class JourneyGovernanceEffectRelay {
       );
       return 'RETRY';
     }
+  }
+
+  /** ใช้กับ loop monitor เพื่อรายงาน command ที่รอ reconcile โดยไม่มี identifier หรือ PII. */
+  async observeReconcileBacklog(tenantId: string): Promise<void> {
+    const pending = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.jrGovernanceEffectOutbox.count({
+        where: { tenantId, kind: 'REQUEST_RECONCILE', state: { in: ['PENDING', 'PROCESSING'] } },
+      }),
+    );
+    this.metrics.observe('journey_cg3_reconcile_backlog', pending);
   }
 }

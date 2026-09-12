@@ -18,6 +18,10 @@ import {
 import type { DcProducer, KafkaEventEnvelopeV2 } from '@d-contact/kafka';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import {
+  noOpJourneyGovernanceMetrics,
+  type JourneyGovernanceMetrics,
+} from './journey-governance-metrics.js';
+import {
   actionKey as toActionKey,
   deliveryId as toDeliveryId,
   providerRequestKey as toProviderRequestKey,
@@ -229,6 +233,7 @@ export function createJourneyKafkaReconcilePort(
 export interface JourneyGovernanceInvalidationOptions {
   consumer: string;
   now?: () => Date;
+  metrics?: JourneyGovernanceMetrics;
 }
 
 export type JourneyGovernanceApplyResult = {
@@ -359,6 +364,7 @@ function targetState(decision: JourneyRevalidationDecision): JrRealtimeActionSta
 
 export class JourneyGovernanceInvalidationService {
   private readonly now: () => Date;
+  private readonly metrics: JourneyGovernanceMetrics;
 
   constructor(
     private readonly database: PrismaClient,
@@ -367,6 +373,7 @@ export class JourneyGovernanceInvalidationService {
     private readonly options: JourneyGovernanceInvalidationOptions,
   ) {
     this.now = options.now ?? (() => new Date());
+    this.metrics = options.metrics ?? noOpJourneyGovernanceMetrics;
   }
 
   async apply(
@@ -450,6 +457,7 @@ export class JourneyGovernanceInvalidationService {
     }
     if (prior && event.aggregateVersion === prior.aggregateVersion) {
       if (prior.payloadHash !== payloadHash) {
+        this.metrics.increment('journey_cg3_hash_conflict_total');
         await this.holdMatchingActions(transaction, event, payload, payloadHash, now);
         return this.complete(
           transaction,
@@ -477,6 +485,7 @@ export class JourneyGovernanceInvalidationService {
       (!prior && event.aggregateVersion > 1) ||
       (prior && event.aggregateVersion > prior.aggregateVersion + 1)
     ) {
+      this.metrics.increment('journey_cg3_version_gap_total');
       await this.holdMatchingActions(transaction, event, payload, payloadHash, now);
       if (inbox) {
         await transaction.jrGovernanceConsumerInbox.update({
@@ -518,6 +527,9 @@ export class JourneyGovernanceInvalidationService {
         },
       });
       const state = targetState(decision);
+      if ('reasonCode' in decision && decision.reasonCode === 'GOVERNANCE_VERSION_STALE') {
+        this.metrics.increment('journey_cg3_stale_revalidation_total');
+      }
       if (!state) {
         await transaction.jrAction.update({
           where: { id: action.id },
@@ -530,6 +542,7 @@ export class JourneyGovernanceInvalidationService {
       }
       affectedCount += 1;
       if (PRE_BARRIER_STATES.has(action.realtimeState)) {
+        this.metrics.increment('journey_cg3_pre_barrier_cancellation_total');
         await this.stageEffect(transaction, event, action, 'RELEASE_BEFORE_BARRIER', now);
         await transaction.jrAction.update({
           where: { id: action.id },
@@ -543,6 +556,7 @@ export class JourneyGovernanceInvalidationService {
           },
         });
       } else if (POST_BARRIER_STATES.has(action.realtimeState)) {
+        this.metrics.increment('journey_cg3_post_barrier_cancellation_total');
         if (!action.deliveryId || !action.providerRequestKey) {
           bindingMissing = true;
           await transaction.jrAction.update({
@@ -694,6 +708,10 @@ export class JourneyGovernanceInvalidationService {
     affectedCount: number,
     now: Date,
   ): Promise<JourneyGovernanceApplyResult> {
+    const eventAt = new Date(event.occurredAt).getTime();
+    if (!Number.isNaN(eventAt)) {
+      this.metrics.observe('journey_cg3_mutation_to_apply_ms', now.getTime() - eventAt);
+    }
     const state = outcome === 'APPLIED' ? 'APPLIED' : outcome === 'NO_OP' ? 'NO_OP' : 'QUARANTINED';
     const inboxData = {
       consumer: this.options.consumer,

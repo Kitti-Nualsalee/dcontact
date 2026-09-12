@@ -8,5 +8,6 @@ export * from './journey-processor.js';
 export * from './journey-governance-invalidation.js';
 export * from './journey-governance-consumer.js';
 export * from './journey-governance-effect-relay.js';
+export * from './journey-governance-metrics.js';
 export * from './journey-action-lifecycle-inbox.js';
 export * from './journey-governance-ack-relay.js';

@@ -17,6 +17,7 @@ import {
 import { createJourneyGovernanceConsumer } from './journey-governance-consumer.js';
 import { JourneyGovernanceAcknowledgementRelay } from './journey-governance-ack-relay.js';
 import { JourneyGovernanceEffectRelay } from './journey-governance-effect-relay.js';
+import { JsonJourneyGovernanceMetrics } from './journey-governance-metrics.js';
 
 function positiveInteger(name: string, fallback: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -48,11 +49,15 @@ const realtimeSettlement = createJourneyRealtimeSettlementPort(
   realtimeGovernance.settlement,
   createJourneyKafkaReconcilePort(producer),
 );
+const governanceMetrics = new JsonJourneyGovernanceMetrics();
 const governanceInvalidation = new JourneyGovernanceInvalidationService(
   database,
   createJourneyCanonicalRevalidator(realtimeGovernance.revalidation),
   realtimeSettlement,
-  { consumer: process.env.JOURNEY_GOVERNANCE_CONSUMER_GROUP_ID ?? 'dcontact-journey-cg3-v1' },
+  {
+    consumer: process.env.JOURNEY_GOVERNANCE_CONSUMER_GROUP_ID ?? 'dcontact-journey-cg3-v1',
+    metrics: governanceMetrics,
+  },
 );
 const governanceConsumer = await createJourneyGovernanceConsumer({
   database,
@@ -62,7 +67,9 @@ const governanceConsumer = await createJourneyGovernanceConsumer({
   dlq,
 });
 const governanceAcknowledgements = new JourneyGovernanceAcknowledgementRelay(database, producer);
-const governanceEffects = new JourneyGovernanceEffectRelay(database, realtimeSettlement);
+const governanceEffects = new JourneyGovernanceEffectRelay(database, realtimeSettlement, {
+  metrics: governanceMetrics,
+});
 const consumer = await createJourneyEventConsumer({
   database,
   processor,
@@ -91,6 +98,7 @@ async function drainInbox(): Promise<void> {
         const result = await inbox.publishNext(tenant.id, publisher);
         if (!result || result.state === 'FAILED') break;
       }
+      await governanceEffects.observeReconcileBacklog(tenant.id);
       for (let handled = 0; handled < 100; handled += 1) {
         const result = await governanceEffects.executeNext(tenant.id);
         if (!result || result === 'RETRY') break;
