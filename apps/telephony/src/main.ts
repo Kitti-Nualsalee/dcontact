@@ -11,7 +11,8 @@ import { TelephonyRecordingLifecycle } from './recording-lifecycle.js';
 import { MinioRecordingArchive } from './minio-recording-archive.js';
 
 const host = process.env.FREESWITCH_ESL_HOST ?? '127.0.0.1';
-const port = Number(process.env.FREESWITCH_ESL_PORT ?? 8021);
+// Docker Compose exposes FreeSWITCH ESL on host port 8022; container-internal ESL remains 8021.
+const port = Number(process.env.FREESWITCH_ESL_PORT ?? 8022);
 const password = process.env.FREESWITCH_ESL_PASSWORD ?? 'ClueCon';
 const nodeId = process.env.TELEPHONY_NODE_ID ?? 'fs-local';
 const repositoryRoot = resolve(__dirname, '../../..');
