@@ -81,6 +81,7 @@ model Tenant {
   obCampaignAdmissionPolicies  ObCampaignAdmissionPolicy[]
   obCampaignTargets            ObCampaignTarget[]
   obDialerCommandInbox         ObDialerCommandInbox[]
+  obCallbacks                  ObCallback[]
   obAttempts                   ObAttempt[]
   obGovernanceConsumerInbox    ObGovernanceConsumerInbox[]
   obGovernanceAcknowledgements ObGovernanceAcknowledgementOutbox[]
@@ -363,6 +364,7 @@ model Contact {
   jrActions         JrAction[]
   obAttempts        ObAttempt[]
   obCampaignTargets ObCampaignTarget[]
+  obCallbacks       ObCallback[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1594,6 +1596,52 @@ model ObDialerCommandInbox {
   @@unique([tenantId, actionKey])
   @@index([tenantId, commandId])
   @@map("ob_dialer_command_inbox")
+}
+
+// ─────────────────── J2.6: Dialer SCHEDULE_CALLBACK/CANCEL/SUPERSEDE owner ───────────────────
+// reuse ob_dialer_command_inbox เดิมของ J2.5 (commandType เก็บไว้เผื่อไว้แล้ว) — ที่นี่เพิ่ม
+// เฉพาะ canonical ob_callbacks; ไม่มี actual originate/telephony command ใน J2.6 (out of scope)
+
+/// SCHEDULED เท่านั้นที่ reversible; ORIGINATING/ACTIVE/CONSUMED เป็น fixture-only state
+/// ที่จำลอง progress จากกลไก originate จริงซึ่งยังไม่ถูกสร้างใน J2.6 — ใช้ทดสอบขอบเขต
+/// irreversible (ตอบ TOO_LATE) เท่านั้น
+enum ObCallbackState {
+  SCHEDULED
+  ORIGINATING
+  ACTIVE
+  CONSUMED
+  CANCELLED
+  SUPERSEDED
+}
+
+/// canonical Callback record หนึ่งแถวต่อ SCHEDULE_CALLBACK ที่สำเร็จ — ไม่มี Governance
+/// reservation หรือ telephony command ที่นี่; originate จริงเป็น ticket ถัดไป
+model ObCallback {
+  id                        String          @id @default(uuid()) @db.Uuid
+  tenantId                  String          @map("tenant_id") @db.Uuid
+  contactId                 String          @map("contact_id") @db.Uuid
+  queueId                   String          @map("queue_id") @db.Uuid
+  agentId                   String?         @map("agent_id") @db.Uuid
+  requestedFor              DateTime        @map("requested_for")
+  expiresAt                 DateTime        @map("expires_at")
+  state                     ObCallbackState @default(SCHEDULED)
+  version                   Int             @default(1)
+  sourceOwnerTeamId         String          @map("source_owner_team_id") @db.Uuid
+  targetOwnerTeamId         String          @map("target_owner_team_id") @db.Uuid
+  cancelledAt               DateTime?       @map("cancelled_at")
+  cancelReasonCode          String?         @map("cancel_reason_code")
+  supersededAt              DateTime?       @map("superseded_at")
+  supersedingOutcomeType    String?         @map("superseding_outcome_type")
+  supersedingOutcomeId      String?         @map("superseding_outcome_id") @db.Uuid
+  supersedingOutcomeVersion Int?            @map("superseding_outcome_version")
+  createdAt                 DateTime        @default(now()) @map("created_at")
+  updatedAt                 DateTime        @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  contact Contact @relation(fields: [tenantId, contactId], references: [tenantId, id])
+
+  @@index([tenantId, contactId, state])
+  @@map("ob_callbacks")
 }
 
 // ─────────────────────── J2.3: outcome/action durable foundation ───────────────────────
