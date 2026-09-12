@@ -34,6 +34,8 @@ jobs:
   s1-convergence-acceptance:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,8 +58,6 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm db:generate
-        env:
-          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
 
       - name: Bootstrap acceptance infrastructure
         run: |
