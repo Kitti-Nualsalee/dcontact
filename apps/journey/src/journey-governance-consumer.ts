@@ -11,9 +11,8 @@ import { KAFKA_TOPICS } from '@d-contact/shared';
 import type { JourneyGovernanceInvalidationService } from './journey-governance-invalidation.js';
 
 /**
- * `GAP` intentionally is not terminal idempotency: a redriven event must re-enter
- * the handler after the missing version has been restored. Other states have a
- * committed Journey effect and are strict duplicates.
+ * `GAP` ไม่เป็น terminal idempotency โดยตั้งใจ: redrive ต้องกลับเข้า handler ได้เมื่อ
+ * version ที่หายถูกกู้แล้ว ส่วน state อื่นมี Journey effect ที่ commit แล้วจึงเป็น duplicate เคร่งครัด
  */
 export function createDurableJourneyGovernanceIdempotencyStore(
   database: PrismaClient,
@@ -65,7 +64,7 @@ export interface CreateJourneyGovernanceConsumerOptions {
   dlq?: DlqPublisher;
 }
 
-/** Subscribe only to canonical CG3 facts; validation and fail-closed version handling live in the service. */
+/** รับเฉพาะ canonical CG3 facts; validation และ fail-closed version handling อยู่ใน service */
 export function createJourneyGovernanceConsumer(
   options: CreateJourneyGovernanceConsumerOptions,
 ): Promise<DcConsumer> {

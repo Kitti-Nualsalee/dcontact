@@ -115,9 +115,9 @@ export interface AuthorizationOutcome {
 }
 
 /**
- * S1.5 read-only canonical check for an action that already owns a reservation.
- * It must never create a new decision, reservation, Attempt or Touch; Journey
- * persists its at-least-once consumer result around this call.
+ * S1.5 ตรวจ canonical แบบ read-only สำหรับ action ที่มี reservation เดิมแล้ว
+ * ห้ามสร้าง decision, reservation, Attempt หรือ Touch ใหม่; Journey เป็นผู้เก็บ
+ * ผล consumer แบบ at-least-once รอบการเรียกนี้
  */
 export interface RevalidateAuthorizedActionInput {
   tenantId: TenantId;
@@ -127,7 +127,7 @@ export interface RevalidateAuthorizedActionInput {
   sourceAggregateType: 'CONTACT' | 'POLICY';
   sourceAggregateId: string;
   sourceAggregateVersion: number;
-  /** Missing historical context is fail-closed REVIEW, never an implicit ALLOW. */
+  /** context ประวัติที่หายต้อง REVIEW แบบ fail-closed ห้ามอนุมานเป็น ALLOW */
   contactKind?: string;
 }
 
@@ -137,7 +137,7 @@ export interface RevalidateAuthorizedActionOutcome {
   observedAggregateVersion: number;
   observedPolicyVersion?: number;
   nextEligibleAt?: string;
-  /** Opaque digest of the canonical facts evaluated; no PII or policy body. */
+  /** digest ทึบของ facts ที่ประเมินแล้ว ไม่มี PII หรือ policy body */
   decisionDigest: string;
 }
 

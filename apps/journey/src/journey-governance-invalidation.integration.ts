@@ -379,3 +379,78 @@ test('CG3 version gap ครั้งแรก fail closed โดย hold action
     0,
   );
 });
+
+test('release ที่แพ้ barrier เปลี่ยนเป็น CANCEL_REQUESTED แล้วส่ง reconcile command', async (t) => {
+  const f = await fixture(t);
+  const releaseError = Object.assign(new Error('barrier won'), {
+    code: 'DELIVERY_RECONCILIATION_REQUIRED',
+  });
+  const settlement: JourneyRealtimeSettlementPort = {
+    async releaseBeforeBarrier() {
+      throw releaseError;
+    },
+    async requestReconcile() {},
+  };
+  const service = new JourneyGovernanceInvalidationService(
+    f.application,
+    {
+      async revalidate() {
+        return { decision: 'BLOCK' as const, reasonCode: 'DNC' };
+      },
+    },
+    settlement,
+    { consumer: 'journey-cg3-race', now: () => new Date('2026-09-12T09:00:01.000Z') },
+  );
+  const event = preferenceEvent(f.tenantId, f.contactId, f.identityId);
+  await service.apply(event);
+  const deliveryId = randomUUID();
+  const providerRequestKey = `provider-${randomUUID()}`;
+  await f.owner.jrAction.updateMany({
+    where: { tenantId: f.tenantId },
+    data: { realtimeState: 'POST_BARRIER', deliveryId, providerRequestKey },
+  });
+  const relay = new JourneyGovernanceEffectRelay(f.application, settlement, {
+    now: () => new Date('2026-09-12T09:00:02.000Z'),
+  });
+  assert.equal(await relay.executeNext(f.tenantId), 'SUCCEEDED');
+  const action = await f.owner.jrAction.findFirstOrThrow({ where: { tenantId: f.tenantId } });
+  assert.equal(action.realtimeState, 'CANCEL_REQUESTED');
+  assert.equal(
+    await f.owner.jrGovernanceEffectOutbox.count({
+      where: { tenantId: f.tenantId, kind: 'REQUEST_RECONCILE', state: 'PENDING' },
+    }),
+    1,
+  );
+});
+
+test('post-barrier ที่ไม่มี immutable binding ถูก HOLD และ acknowledgement เป็น FAILED', async (t) => {
+  const f = await fixture(t);
+  await f.owner.jrAction.updateMany({
+    where: { tenantId: f.tenantId },
+    data: { realtimeState: 'POST_BARRIER' },
+  });
+  const service = new JourneyGovernanceInvalidationService(
+    f.application,
+    {
+      async revalidate() {
+        return { decision: 'BLOCK' as const, reasonCode: 'DNC' };
+      },
+    },
+    { async releaseBeforeBarrier() {}, async requestReconcile() {} },
+    { consumer: 'journey-cg3-binding-missing', now: () => new Date('2026-09-12T09:00:01.000Z') },
+  );
+  const result = await service.apply(preferenceEvent(f.tenantId, f.contactId, f.identityId));
+  assert.equal(result.outcome, 'FAILED');
+  assert.equal(
+    (await f.owner.jrAction.findFirstOrThrow({ where: { tenantId: f.tenantId } })).realtimeState,
+    'HELD',
+  );
+  assert.equal(
+    (
+      await f.owner.jrGovernanceAcknowledgementOutbox.findFirstOrThrow({
+        where: { tenantId: f.tenantId },
+      })
+    ).outcome,
+    'FAILED',
+  );
+});

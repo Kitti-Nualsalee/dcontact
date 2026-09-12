@@ -336,7 +336,8 @@ export class ContactGovernanceService
         }),
       ]);
       if (
-        facts.aggregateVersion < input.sourceAggregateVersion ||
+        (input.sourceAggregateType === 'CONTACT' &&
+          facts.aggregateVersion < input.sourceAggregateVersion) ||
         (input.sourceAggregateType === 'POLICY' &&
           (facts.policy?.version ?? 0) < input.sourceAggregateVersion)
       ) {

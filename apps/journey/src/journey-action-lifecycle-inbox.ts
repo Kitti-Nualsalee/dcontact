@@ -23,9 +23,9 @@ function bindingHash(input: JourneyActionLifecycleRecord): string {
 }
 
 /**
- * Rejects missing/conflicting binding and never infers a lifecycle transition.
- * Delivery retries the same eventId safely; a changed payload under the same id
- * is quarantined by throwing before any Journey action can advance.
+ * ปฏิเสธ binding ที่หายหรือขัดกัน และห้ามอนุมาน lifecycle transition เอง
+ * Delivery retry eventId เดิมได้ปลอดภัย; payload ที่เปลี่ยนใต้ id เดิมจะถูก quarantine
+ * ด้วยการ throw ก่อน Journey action ใดขยับสถานะ
  */
 export class JourneyActionLifecycleInboxService implements JourneyActionLifecyclePort {
   constructor(private readonly database: PrismaClient) {}

@@ -1,11 +1,10 @@
 /**
- * S1.5 — owner-local CG3 realtime invalidation boundary for Journey.
+ * S1.5 — ขอบเขต CG3 realtime invalidation ที่ Journey เป็น owner
  *
- * Contact Governance remains the sole writer of policy/reservation facts. Journey
- * only stores its own action cursor, applies the CG3 event at-least-once, and puts
- * its effect plus acknowledgement in owner-local outboxes in the same transaction.
- * A restrictive event can therefore be replayed safely without resurrecting an
- * action that has already been cancelled or sent to reconciliation.
+ * Contact Governance ยังคงเป็นผู้เขียน policy/reservation facts แต่เพียงผู้เดียว
+ * Journey เก็บเฉพาะ action cursor ของตน apply CG3 event แบบ at-least-once และใส่
+ * effect กับ acknowledgement ใน owner-local outbox transaction เดียวกัน จึง replay
+ * restrictive event ได้โดยไม่ resurrect action ที่ cancel หรือส่ง reconcile ไปแล้ว
  */
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -16,17 +15,18 @@ import {
   type PrismaClient,
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
-import type { KafkaEventEnvelopeV2 } from '@d-contact/kafka';
+import type { DcProducer, KafkaEventEnvelopeV2 } from '@d-contact/kafka';
+import { KAFKA_TOPICS } from '@d-contact/shared';
 import {
   actionKey as toActionKey,
   deliveryId as toDeliveryId,
-  outcomeRef as toOutcomeRef,
   providerRequestKey as toProviderRequestKey,
   reservationId as toReservationId,
   tenantId as toTenantId,
   type ContactChannel,
   type ContactGovernancePort,
   type ContactGovernanceRevalidationPort,
+  type JourneyDeliveryReconcilePort,
 } from '@d-contact/cxa-contracts';
 
 const ACTIVE_ACTION_STATES: JrRealtimeActionState[] = [
@@ -85,7 +85,7 @@ export interface JourneyRealtimeAction {
   providerRequestKey?: string;
 }
 
-/** Narrow port: Journey asks the Governance owner to evaluate canonical current facts. */
+/** narrow port ที่ Journey ใช้ขอ canonical current facts จาก Governance owner */
 export interface JourneyCanonicalRevalidator {
   revalidate(input: {
     tenantId: string;
@@ -138,8 +138,8 @@ export function createJourneyCanonicalRevalidator(
 }
 
 /**
- * Delivery/Governance side effects remain outside Journey's database. Both methods
- * must be idempotent for the action key; the effect relay calls them after commit.
+ * side effect ของ Delivery/Governance อยู่นอกฐานข้อมูล Journey และต้อง idempotent ต่อ
+ * action key; effect relay จะเรียกหลัง commit
  */
 export interface JourneyRealtimeSettlementPort {
   releaseBeforeBarrier(input: {
@@ -165,6 +165,7 @@ export interface JourneyRealtimeSettlementPort {
  */
 export function createJourneyRealtimeSettlementPort(
   governance: ContactGovernancePort,
+  delivery: JourneyDeliveryReconcilePort,
 ): JourneyRealtimeSettlementPort {
   return {
     async releaseBeforeBarrier(input) {
@@ -183,16 +184,43 @@ export function createJourneyRealtimeSettlementPort(
           'post-barrier Journey action ต้องมี deliveryId และ providerRequestKey ก่อน reconcile',
         );
       }
-      await governance.settleDelivery({
+      await delivery.requestReconcile({
         tenantId: toTenantId(input.tenantId),
         correlationId: input.correlationId,
         reservationId: toReservationId(input.reservationId),
         actionKey: toActionKey(input.actionKey),
         deliveryId: toDeliveryId(input.deliveryId),
         providerRequestKey: toProviderRequestKey(input.providerRequestKey),
-        outcomeRef: toOutcomeRef(`journey-cancel-request:${input.actionKey}`),
-        outcome: 'UNKNOWN_RECONCILING',
+      });
+    },
+  };
+}
+
+/** Journey เพียง publish command; Delivery owner เป็นผู้ reconcile provider/reservation เอง. */
+export function createJourneyKafkaReconcilePort(
+  producer: DcProducer,
+): JourneyDeliveryReconcilePort {
+  return {
+    async requestReconcile(input) {
+      await producer.send(KAFKA_TOPICS.DELIVERY_COMMANDS, {
+        schemaVersion: 2,
+        eventKind: 'CANONICAL',
+        eventId: `journey-reconcile:${input.actionKey}`,
+        type: 'delivery.reconcile_requested',
+        tenantId: input.tenantId,
         occurredAt: new Date().toISOString(),
+        correlationId: input.correlationId,
+        orderingKey: input.actionKey,
+        aggregateType: 'journey_action',
+        aggregateId: input.actionKey,
+        aggregateVersion: 1,
+        payload: {
+          contractVersion: 1,
+          actionKey: input.actionKey,
+          reservationId: input.reservationId,
+          deliveryId: input.deliveryId,
+          providerRequestKey: input.providerRequestKey,
+        },
       });
     },
   };
@@ -476,6 +504,7 @@ export class JourneyGovernanceInvalidationService {
 
     const actions = await this.actionsFor(transaction, event, payload);
     let affectedCount = 0;
+    let bindingMissing = false;
     for (const action of actions) {
       const decision = await this.revalidator.revalidate({
         tenantId: event.tenantId,
@@ -514,6 +543,18 @@ export class JourneyGovernanceInvalidationService {
           },
         });
       } else if (POST_BARRIER_STATES.has(action.realtimeState)) {
+        if (!action.deliveryId || !action.providerRequestKey) {
+          bindingMissing = true;
+          await transaction.jrAction.update({
+            where: { id: action.id },
+            data: {
+              realtimeState: 'HELD',
+              appliedAggregateVersion: event.aggregateVersion,
+              appliedPayloadHash: payloadHash,
+            },
+          });
+          continue;
+        }
         await this.stageEffect(transaction, event, action, 'REQUEST_RECONCILE', now);
         await transaction.jrAction.update({
           where: { id: action.id },
@@ -532,7 +573,7 @@ export class JourneyGovernanceInvalidationService {
       event,
       aggregateType,
       payloadHash,
-      affectedCount === 0 ? 'NO_OP' : 'APPLIED',
+      bindingMissing ? 'FAILED' : affectedCount === 0 ? 'NO_OP' : 'APPLIED',
       affectedCount,
       now,
     );
@@ -649,7 +690,7 @@ export class JourneyGovernanceInvalidationService {
     event: KafkaEventEnvelopeV2<Record<string, unknown>>,
     aggregateType: CgAggregateType,
     payloadHash: string,
-    outcome: Extract<CgConsumerAckOutcome, 'APPLIED' | 'NO_OP' | 'QUARANTINED'>,
+    outcome: Extract<CgConsumerAckOutcome, 'APPLIED' | 'NO_OP' | 'FAILED' | 'QUARANTINED'>,
     affectedCount: number,
     now: Date,
   ): Promise<JourneyGovernanceApplyResult> {

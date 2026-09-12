@@ -11,6 +11,7 @@ import { JourneyProcessor } from './journey-processor.js';
 import {
   JourneyGovernanceInvalidationService,
   createJourneyCanonicalRevalidator,
+  createJourneyKafkaReconcilePort,
   createJourneyRealtimeSettlementPort,
 } from './journey-governance-invalidation.js';
 import { createJourneyGovernanceConsumer } from './journey-governance-consumer.js';
@@ -43,7 +44,10 @@ const publisher = createJourneyKafkaPublisher(producer);
 const inbox = new EventInboxService(database);
 const processor = new JourneyProcessor(database, createJourneyFoundationPorts(database));
 const realtimeGovernance = createJourneyRealtimeGovernancePorts(database);
-const realtimeSettlement = createJourneyRealtimeSettlementPort(realtimeGovernance.settlement);
+const realtimeSettlement = createJourneyRealtimeSettlementPort(
+  realtimeGovernance.settlement,
+  createJourneyKafkaReconcilePort(producer),
+);
 const governanceInvalidation = new JourneyGovernanceInvalidationService(
   database,
   createJourneyCanonicalRevalidator(realtimeGovernance.revalidation),

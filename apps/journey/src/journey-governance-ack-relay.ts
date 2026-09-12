@@ -22,7 +22,7 @@ const aggregateTypeName = {
   POLICY: 'contact_governance_policy',
 } as const;
 
-/** Durable Journey outbox relay. It never re-applies an event and never emits raw contact data. */
+/** Durable Journey outbox relay; ไม่ apply event ซ้ำและไม่ปล่อย raw contact data */
 export class JourneyGovernanceAcknowledgementRelay {
   private readonly now: () => Date;
   private readonly backoffMs: (attempts: number) => number;
