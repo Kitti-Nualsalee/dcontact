@@ -142,7 +142,7 @@ services:
       - '5060:5060/udp' # SIP UDP
       - '5060:5060/tcp' # SIP TCP
       - '5066:5066/tcp' # SIP over WebSocket (dev softphone)
-      - '8021:8021/tcp' # ESL — dev only, ห้าม expose ใน production
+      - '8022:8021/tcp' # ESL — dev only, ห้าม expose ใน production; host port เปลี่ยนจาก 8021 เพราะบางเครื่อง dev มี launchd socket จองพอร์ตนี้ไว้อยู่แล้ว
       - '16384-16420:16384-16420/udp' # RTP media
     volumes:
       - ../freeswitch/conf:/etc/freeswitch
