@@ -1678,12 +1678,16 @@ enum JrOwnerActionState {
   ACK_UNKNOWN
   CANCEL_REQUESTED
   CANCELLED
+  /// J2.8: ผลจริงของ SUPERSEDE_CALLBACK/SUPERSEDE_CAMPAIGN_TARGET
+  SUPERSEDED
   TOO_LATE
   RECONCILING
 }
 
 enum JrOwnerCommandState {
   PENDING
+  /// J2.8: เคลมไว้ระหว่างเรียก owner port — กัน worker คนละตัว claim ซ้ำ
+  PROCESSING
   SENT
   FAILED
 }
@@ -1695,6 +1699,7 @@ enum JrOwnerResultKind {
   REJECTED
   ACK_UNKNOWN
   CANCELLED
+  SUPERSEDED
   TOO_LATE
   RECONCILING
 }
@@ -1806,6 +1811,9 @@ model JrOwnerCommandOutbox {
   actionKey     String              @map("action_key")
   kind          JrOwnerActionKind
   requestHash   String              @map("request_hash") @db.Char(64)
+  /// J2.8: full J2OwnerCommandPayloadV1 envelope พร้อม relay — null สำหรับ command เก่า
+  /// ก่อน J2.8 ที่ยัง reconstruct payload ไม่ได้จาก fragment เดิม
+  payload       Json?
   correlationId String              @map("correlation_id")
   state         JrOwnerCommandState @default(PENDING)
   attempts      Int                 @default(0)
