@@ -420,6 +420,8 @@ function executeCompositeCheck(check, executeCheck) {
       status: result.status,
       durationMs: result.durationMs,
       ...(result.evidence ? { evidence: result.evidence } : {}),
+      ...(result.detail ? { detail: result.detail } : {}),
+      ...(result.remediation ? { remediation: result.remediation } : {}),
     });
     if (result.status === 'FAIL') {
       return {
