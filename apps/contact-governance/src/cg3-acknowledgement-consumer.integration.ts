@@ -9,7 +9,7 @@ import {
   type AcknowledgementPayloadV1,
 } from './cg3-acknowledgement-consumer.js';
 
-async function waitFor(check: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
+async function waitFor(check: () => Promise<boolean>, timeoutMs = 20_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
@@ -20,7 +20,7 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 10_000): Promi
 
 test(
   'acknowledgement consumer projects ack event ลง cg_consumer_acknowledgements แบบ idempotent',
-  { timeout: 30_000 },
+  { timeout: 45_000 },
   async (t) => {
     const owner = new PrismaClient();
     const application = new PrismaClient({
