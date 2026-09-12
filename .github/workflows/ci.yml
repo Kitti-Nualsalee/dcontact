@@ -59,8 +59,8 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
-      - name: Build workspace-session dependency for gateway acceptance
-        run: pnpm --filter @d-contact/workspace-session build
+      - name: Build workspace prerequisites for gateway acceptance
+        run: pnpm build
 
       - name: Bootstrap acceptance infrastructure
         run: |
