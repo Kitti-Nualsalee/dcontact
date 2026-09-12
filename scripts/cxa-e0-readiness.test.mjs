@@ -109,6 +109,31 @@ test('เมื่อแต่ละมิติล้ม marker ต้องไ
   }
 });
 
+test('subcheck ที่ล้มส่งต่อ diagnostic ที่ sanitize แล้วลง evidence manifest', () => {
+  const result = runFixture({
+    executeCheck(check) {
+      if (check.id === 'regression' && check.command.at(-1) === 'cxa:phase1:acceptance') {
+        return {
+          checkId: check.id,
+          status: 'FAIL',
+          durationMs: 1,
+          detail: 'Phase 1 acceptance failed at service identity boundary.',
+          remediation: 'Inspect the Phase 1 readiness diagnostic.',
+        };
+      }
+      return passingExecutor(check);
+    },
+  });
+  const regression = result.manifest.checks.find((check) => check.id === 'regression');
+  const failure = regression.subchecks.find(
+    (check) => check.command.at(-1) === 'cxa:phase1:acceptance',
+  );
+  assert.equal(failure.detail, 'Phase 1 acceptance failed at service identity boundary.');
+  assert.equal(failure.remediation, 'Inspect the Phase 1 readiness diagnostic.');
+  assert.equal(result.manifest.marker, undefined);
+  assert.doesNotThrow(() => assertValidEvidenceManifest(result.manifest));
+});
+
 test('manifest ผูก check artifact กับ commit เดียวและปฏิเสธ SHA/commit mismatch', () => {
   const result = runFixture();
   assert.equal(result.manifest.marker, 'CX_AUTOMATION_E0_CONTRACTS_ACCEPTED');
