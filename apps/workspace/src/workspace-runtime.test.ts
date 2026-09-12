@@ -154,3 +154,41 @@ test('a late snapshot cannot move the live sequence backwards after reconnect', 
   ]);
   runtime.stop();
 });
+
+test('governance invalidation ของ owner-local live stream บล็อก outbound จนยืนยัน canonical version', () => {
+  let receive: ((event: unknown) => void) | undefined;
+  const alerts: unknown[] = [];
+  const runtime = new WorkspaceRuntime(
+    {
+      start: () => true,
+      heartbeat: () => true,
+      claim: () => undefined,
+      stop: () => undefined,
+    } as never,
+    (_mode, onEvent) => {
+      receive = onEvent;
+      return { close: () => undefined };
+    },
+    undefined,
+    undefined,
+    undefined,
+    (alert) => alerts.push(alert),
+  );
+  runtime.start();
+  receive?.({
+    type: 'workspace.live',
+    sequence: 1,
+    payload: {
+      event: 'contact_governance.invalidated',
+      aggregateVersion: 9,
+      action: 'BLOCK_NEXT_OUTBOUND',
+    },
+  });
+  runtime.confirmGovernanceVersion(9);
+
+  assert.deepEqual(
+    alerts.map((alert) => (alert as { state: string }).state),
+    ['BLOCK_NEXT_OUTBOUND', 'READY'],
+  );
+  runtime.stop();
+});

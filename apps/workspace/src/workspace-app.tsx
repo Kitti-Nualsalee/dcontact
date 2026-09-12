@@ -3,6 +3,7 @@ import type { AgentWorkspaceApi, AgentWorkspaceSnapshot } from './agent-api.js';
 import { createBrowserWorkspaceLeaderElection } from './leader-election.js';
 import { BrowserSoftphone, type BrowserSipTransport, type SoftphoneState } from './softphone.js';
 import type { SipJsTransportCallbacks } from './sip-js-transport.js';
+import { WorkspaceOutboundGate, type WorkspaceGovernanceAlert } from './workspace-governance.js';
 
 type MediaReadiness = 'UNCHECKED' | 'CHECKING' | 'READY' | 'BLOCKED';
 type Availability = 'OFFLINE' | 'AVAILABLE';
@@ -63,9 +64,12 @@ export function WorkspaceApp({
   const [wrapupDisposition, setWrapupDisposition] = useState<string>();
   const [wrapupPending, setWrapupPending] = useState(false);
   const [wrapupError, setWrapupError] = useState<string>();
+  const [governanceAlert, setGovernanceAlert] = useState<WorkspaceGovernanceAlert>();
+  const [liveRetry, setLiveRetry] = useState(0);
   const mediaStream = useRef<MediaStream | undefined>(undefined);
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
   const softphone = useRef<BrowserSoftphone | undefined>(undefined);
+  const governanceGate = useMemo(() => new WorkspaceOutboundGate(), []);
 
   useEffect(() => {
     if (!api) return;
@@ -85,6 +89,24 @@ export function WorkspaceApp({
       active = false;
     };
   }, [api]);
+
+  useEffect(() => {
+    if (!api?.subscribeLive || !workingTab) return;
+    let disposed = false;
+    const connection = api.subscribeLive({
+      onEvent: (event) => {
+        const alert = governanceGate.apply(event);
+        if (alert) setGovernanceAlert(alert);
+      },
+      onDisconnect: () => {
+        if (!disposed) setGovernanceAlert(governanceGate.markDisconnected());
+      },
+    });
+    return () => {
+      disposed = true;
+      connection.close();
+    };
+  }, [api, governanceGate, liveRetry, workingTab]);
 
   useEffect(() => {
     if (!createSoftphone || !remoteAudio.current) return;
@@ -368,6 +390,31 @@ export function WorkspaceApp({
             </div>
             <span className="phase-badge">PHASE 2</span>
           </div>
+
+          {governanceAlert ? (
+            <section
+              className={'governance-workspace-alert ' + governanceAlert.state.toLowerCase()}
+              role="alert"
+            >
+              <div>
+                <strong>
+                  {governanceAlert.state === 'READY'
+                    ? 'ตรวจสอบการติดต่อแล้ว'
+                    : 'ต้องตรวจสอบการติดต่อก่อน outbound'}
+                </strong>
+                <p>{governanceAlert.message}</p>
+              </div>
+              {governanceAlert.state !== 'READY' ? (
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => setLiveRetry((value) => value + 1)}
+                >
+                  ลองเชื่อมต่อสถานะใหม่
+                </button>
+              ) : null}
+            </section>
+          ) : null}
 
           <section className="workspace-grid" aria-label="การเตรียมพร้อมรับสาย">
             {snapshot?.interaction?.state === 'ASSIGNED' ? (

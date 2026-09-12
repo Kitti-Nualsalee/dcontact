@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createAgentWorkspaceApi } from './agent-api.js';
+import { createAgentWorkspaceApi, workspaceSocketUrl } from './agent-api.js';
 
 test('Agent API ส่งเฉพาะ bearer token และไม่รับ tenant/user จาก browser', async () => {
   const requests: { input: string; init?: RequestInit }[] = [];
@@ -50,4 +50,15 @@ test('Agent API ปฏิเสธการเรียกเมื่อไม�
   });
 
   await assert.rejects(api.snapshot(), /authenticated access token/);
+});
+
+test('live event ของ Workspace ใช้ D-Contact WebSocket โดยไม่ใส่ token ใน URL', () => {
+  assert.equal(
+    workspaceSocketUrl('https://api.example/anything?access_token=must-not-survive'),
+    'wss://api.example/api/v1/workspace-session',
+  );
+  assert.equal(
+    workspaceSocketUrl('http://localhost:3000'),
+    'ws://localhost:3000/api/v1/workspace-session',
+  );
 });

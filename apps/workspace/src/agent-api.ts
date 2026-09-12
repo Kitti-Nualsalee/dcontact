@@ -27,6 +27,16 @@ export interface AgentWorkspaceApi {
     disposition: string;
     commandId: string;
   }): Promise<void>;
+  subscribeLive?(handlers: WorkspaceLiveHandlers): WorkspaceLiveConnection;
+}
+
+export interface WorkspaceLiveHandlers {
+  onEvent(event: unknown): void;
+  onDisconnect(): void;
+}
+
+export interface WorkspaceLiveConnection {
+  close(): void;
 }
 
 export interface AgentWorkspaceApiOptions {
@@ -72,5 +82,41 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
         },
       );
     },
+    subscribeLive(handlers) {
+      const socket = new WebSocket(workspaceSocketUrl(options.baseUrl));
+      socket.addEventListener('open', () => {
+        const accessToken = options.accessToken();
+        if (!accessToken) {
+          socket.close();
+          return;
+        }
+        socket.send(
+          JSON.stringify({
+            type: 'auth:connect',
+            accessToken,
+            tabId: crypto.randomUUID(),
+          }),
+        );
+      });
+      socket.addEventListener('message', (event) => {
+        try {
+          handlers.onEvent(JSON.parse(String(event.data)));
+        } catch {
+          // ข้อความที่อ่านไม่ได้ไม่มี authority ใด จึงไม่เปลี่ยน Workspace state
+        }
+      });
+      socket.addEventListener('close', handlers.onDisconnect);
+      return { close: () => socket.close() };
+    },
   };
+}
+
+export function workspaceSocketUrl(baseUrl: string): string {
+  const fallbackOrigin =
+    typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+  const url = new URL(baseUrl || fallbackOrigin, fallbackOrigin);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.pathname = '/api/v1/workspace-session';
+  url.search = '';
+  return url.toString();
 }
