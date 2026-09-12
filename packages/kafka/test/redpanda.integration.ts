@@ -59,6 +59,7 @@ test(
     };
 
     try {
+      await consumer.ready();
       await producer.send(KAFKA_TOPICS.AGENT_EVENTS, event);
       await producer.send(KAFKA_TOPICS.AGENT_EVENTS, event);
       let timeout: NodeJS.Timeout | undefined;
@@ -108,6 +109,11 @@ test(
     }
     await dlqConsumer.connect();
     await dlqConsumer.subscribe({ topic: KAFKA_TOPICS.DEAD_LETTER, fromBeginning: false });
+    let resolveDlqGroupJoin!: () => void;
+    const dlqGroupJoined = new Promise<void>((resolve) => {
+      resolveDlqGroupJoin = resolve;
+    });
+    dlqConsumer.on(dlqConsumer.events.GROUP_JOIN, () => resolveDlqGroupJoin());
     await dlqConsumer.run({
       eachMessage: async ({ message }) => {
         if (!message.value) return;
@@ -115,6 +121,7 @@ test(
         resolveDlq();
       },
     });
+    await dlqGroupJoined;
 
     const dlq = await createDlqPublisher(`${clientId}-publisher`, { brokers: [broker] });
     const sourceGroupId = `${clientId}-source`;
@@ -127,6 +134,7 @@ test(
       dlq,
       handler: async () => assert.fail('invalid event must not reach business handler'),
     });
+    await consumer.ready();
     await rawProducer.connect();
 
     try {

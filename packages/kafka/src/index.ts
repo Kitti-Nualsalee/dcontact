@@ -169,6 +169,8 @@ export interface CreateConsumerOptions<
 }
 
 export interface DcConsumer {
+  /** resolve หลัง consumer group join เสร็จ เพื่อให้ producer ส่ง event โดยไม่ตกหล่น */
+  ready(): Promise<void>;
   disconnect(): Promise<void>;
 }
 
@@ -201,6 +203,13 @@ export async function createConsumer<
   });
   await consumer.connect();
   await consumer.subscribe({ topics: options.topics, fromBeginning: false });
+  let removeGroupJoin: () => void = () => undefined;
+  const groupJoined = new Promise<void>((resolve) => {
+    removeGroupJoin = consumer.on(consumer.events.GROUP_JOIN, () => {
+      removeGroupJoin();
+      resolve();
+    });
+  });
 
   await consumer.run({
     eachMessage: async ({ topic, partition, message }) => {
@@ -267,5 +276,5 @@ export async function createConsumer<
     },
   });
 
-  return { disconnect: () => consumer.disconnect() };
+  return { ready: () => groupJoined, disconnect: () => consumer.disconnect() };
 }
