@@ -100,9 +100,11 @@ export function sanitizeDiagnostic(value) {
  * ตอนตั้งไว้ 10 บรรทัด/1500 อักษร diagnostic ของ Playwright ที่ล้มเก็บได้เพียงบรรทัด
  * "N failed" กับรายชื่อ test ส่วนข้อความ assertion จริงถูกตัดทิ้งทั้งหมด ทำให้ผลของ gate
  * บอกได้แค่ว่าล้ม แต่บอกไม่ได้ว่าล้มเพราะอะไร ซึ่งใช้เป็นหลักฐานปิดเฟสไม่ได้
+ * Nested readiness จะ serialize diagnostic ซ้ำหลายชั้น จึงต้องมี character window ที่กว้างพอ
+ * ให้ยังเห็น assertion ต้นเหตุ โดยทุกข้อความผ่าน sanitize ก่อนเก็บเสมอ
  */
 const DIAGNOSTIC_DETAIL_LINES = 80;
-const DIAGNOSTIC_DETAIL_CHARACTERS = 8_000;
+const DIAGNOSTIC_DETAIL_CHARACTERS = 32_000;
 
 function diagnosticDetail(result) {
   const safe = sanitizeDiagnostic(`${result.stderr ?? ''}\n${result.stdout ?? ''}`);
