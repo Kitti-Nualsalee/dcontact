@@ -645,3 +645,87 @@ test('J2.4 Cases cs_cases/cs_command_inbox บังคับ tenant RLS แล�
     '6',
   );
 });
+
+test('J2.5 Dialer ob_campaign_targets/ob_dialer_command_inbox บังคับ tenant RLS และห้าม application role ลบแถว', (t) => {
+  const tenantId = randomUUID();
+  const contactId = randomUUID();
+  const campaignId = randomUUID();
+  const sourceTeamId = randomUUID();
+  const targetTeamId = randomUUID();
+  const suffix = tenantId.slice(0, 8);
+
+  queryAsOwner(
+    `BEGIN;
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${tenantId}', 'J2.5 RLS ${suffix}', 'j2-5-rls-${suffix}', 'j2-5-rls-${suffix}.test');
+     INSERT INTO contacts (id, tenant_id, display_name) VALUES ('${contactId}', '${tenantId}', 'J2.5 RLS contact');
+     INSERT INTO teams (id, tenant_id, name) VALUES ('${sourceTeamId}', '${tenantId}', 'Journey');
+     INSERT INTO teams (id, tenant_id, name) VALUES ('${targetTeamId}', '${tenantId}', 'Dialer');
+     INSERT INTO ob_campaigns (id, tenant_id, key) VALUES ('${campaignId}', '${tenantId}', 'campaign-${suffix}');
+     COMMIT;`,
+  );
+
+  t.after(() =>
+    queryAsOwner(
+      `DELETE FROM ob_dialer_command_inbox WHERE tenant_id = '${tenantId}';
+       DELETE FROM ob_campaign_targets WHERE tenant_id = '${tenantId}';
+       DELETE FROM ob_campaign_admission_policies WHERE tenant_id = '${tenantId}';
+       DELETE FROM ob_campaigns WHERE tenant_id = '${tenantId}';
+       DELETE FROM teams WHERE tenant_id = '${tenantId}';
+       DELETE FROM contacts WHERE tenant_id = '${tenantId}';
+       DELETE FROM tenants WHERE id = '${tenantId}';`,
+    ),
+  );
+
+  const targetId = randomUUID();
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN;
+       SELECT set_config('app.tenant_id', '${tenantId}', true);
+       INSERT INTO ob_campaign_targets (id, tenant_id, campaign_id, contact_id, source_owner_team_id, target_owner_team_id, admission_policy_version, updated_at) VALUES ('${targetId}', '${tenantId}', '${campaignId}', '${contactId}', '${sourceTeamId}', '${targetTeamId}', 1, now());
+       INSERT INTO ob_dialer_command_inbox (id, tenant_id, command_id, action_key, command_type, request_hash, status, code, category, reason_code, failure_class, retry_disposition, correlation_id, observed_at) VALUES ('${randomUUID()}', '${tenantId}', 'command-${suffix}', 'action-${suffix}', 'ADMIT_CAMPAIGN_TARGET', '${'a'.repeat(64)}', 'ADMITTED', 'ADMITTED', 'BUSINESS', 'CAMPAIGN_ACTIVE_ADMITTED', 'NONE', 'NONE', 'corr-${suffix}', now());
+       SELECT count(*) FROM ob_campaign_targets WHERE id = '${targetId}';
+       SELECT count(*) FROM ob_dialer_command_inbox WHERE tenant_id = '${tenantId}';
+       COMMIT;`,
+    ),
+    /\nINSERT 0 1\nINSERT 0 1\n1\n1\nCOMMIT$/,
+  );
+
+  const demoTenantId = queryAsOwner("SELECT id FROM tenants WHERE slug = 'demo';");
+  for (const table of ['ob_campaign_targets', 'ob_dialer_command_inbox']) {
+    assert.match(
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${demoTenantId}', true); SELECT count(*) FROM ${table} WHERE tenant_id = '${tenantId}'; COMMIT;`,
+      ),
+      /\n0\nCOMMIT$/,
+    );
+  }
+
+  // target เดินสถานะได้ (UPDATE ผ่าน) แต่ห้ามหายไปทั้งแถว
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE ob_campaign_targets SET state = 'DEFERRED' WHERE id = '${targetId}'; COMMIT;`,
+    ),
+    /\nUPDATE 1\nCOMMIT$/,
+  );
+  for (const mutation of [
+    `DELETE FROM ob_campaign_targets WHERE id = '${targetId}'`,
+    `DELETE FROM ob_dialer_command_inbox WHERE tenant_id = '${tenantId}'`,
+  ]) {
+    assert.throws(
+      () =>
+        queryAsApplicationRole(
+          `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${mutation}; COMMIT;`,
+        ),
+      /permission denied/i,
+    );
+  }
+
+  assert.equal(
+    queryAsOwner(
+      `SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN (
+         'ob_campaigns', 'ob_campaign_admission_policies', 'ob_campaign_targets', 'ob_dialer_command_inbox'
+       ) AND policyname = 'tenant_isolation' AND qual IS NOT NULL AND with_check IS NOT NULL;`,
+    ),
+    '4',
+  );
+});

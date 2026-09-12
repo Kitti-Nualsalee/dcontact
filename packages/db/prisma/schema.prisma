@@ -77,6 +77,10 @@ model Tenant {
   csCaseLinks                  CsCaseLink[]
   csCaseActivities             CsCaseActivity[]
   csCommandInbox               CsCommandInbox[]
+  obCampaigns                  ObCampaign[]
+  obCampaignAdmissionPolicies  ObCampaignAdmissionPolicy[]
+  obCampaignTargets            ObCampaignTarget[]
+  obDialerCommandInbox         ObDialerCommandInbox[]
   obAttempts                   ObAttempt[]
   obGovernanceConsumerInbox    ObGovernanceConsumerInbox[]
   obGovernanceAcknowledgements ObGovernanceAcknowledgementOutbox[]
@@ -341,23 +345,24 @@ model Contact {
   displayName String?  @map("display_name")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  tenant         Tenant              @relation(fields: [tenantId], references: [id])
-  identities     ContactIdentity[]
-  interactions   Interaction[]
-  conversations  Conversation[]
-  csCases        CsCase[]
-  cgRestrictions CgRestriction[]
-  cgConsents     CgConsent[]
-  cgDecisionLogs CgDecisionLog[]
-  cgReservations CgReservation[]
-  cgAttempts     CgAttempt[]
-  cgTouches      CgTouch[]
-  cgPreferences  CgPreference[]
-  cgCallbacks    CgCallbackRequest[]
-  cgStateHead    CgContactStateHead?
-  jrEnrollments  JrEnrollment[]
-  jrActions      JrAction[]
-  obAttempts     ObAttempt[]
+  tenant            Tenant              @relation(fields: [tenantId], references: [id])
+  identities        ContactIdentity[]
+  interactions      Interaction[]
+  conversations     Conversation[]
+  csCases           CsCase[]
+  cgRestrictions    CgRestriction[]
+  cgConsents        CgConsent[]
+  cgDecisionLogs    CgDecisionLog[]
+  cgReservations    CgReservation[]
+  cgAttempts        CgAttempt[]
+  cgTouches         CgTouch[]
+  cgPreferences     CgPreference[]
+  cgCallbacks       CgCallbackRequest[]
+  cgStateHead       CgContactStateHead?
+  jrEnrollments     JrEnrollment[]
+  jrActions         JrAction[]
+  obAttempts        ObAttempt[]
+  obCampaignTargets ObCampaignTarget[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -1486,6 +1491,109 @@ model ObGovernanceEffectOutbox {
   @@unique([tenantId, eventId, attemptId, kind])
   @@index([tenantId, state, availableAt])
   @@map("ob_governance_effect_outbox")
+}
+
+// ──────────────────────── J2.5: Dialer ADMIT_CAMPAIGN_TARGET owner ────────────────────────
+// Dialer เป็น canonical writer เต็มรูปแบบของ ob_campaign_* — Journey สร้าง/start/pause/edit
+// Campaign ไม่ได้และไม่ originate/send ที่นี่ (ดู #133 ขอบเขต J2.5); admission เฉพาะ
+// existing campaign เท่านั้น
+
+enum ObCampaignStatus {
+  ACTIVE
+  SCHEDULED
+  PAUSED
+  STOPPED
+  COMPLETED
+}
+
+/// ADMITTED = originate ได้ตามปกติเมื่อ campaign active; DEFERRED = admission สำเร็จแต่
+/// campaign ยัง scheduled/paused — ทั้งคู่รายงานผลเป็น J2OwnerResultStatus 'ADMITTED'
+/// เพราะ Journey สนใจแค่ว่า admit สำเร็จหรือไม่ ไม่ใช่ pacing/schedule ภายใน
+enum ObCampaignTargetState {
+  ADMITTED
+  DEFERRED
+}
+
+/// fixture ของ campaign ที่ "มีอยู่แล้ว" — ไม่มี Campaign CRUD/UI ใน J2.5 (out of scope)
+model ObCampaign {
+  id        String           @id @default(uuid()) @db.Uuid
+  tenantId  String           @map("tenant_id") @db.Uuid
+  key       String
+  status    ObCampaignStatus @default(ACTIVE)
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, key])
+  @@map("ob_campaigns")
+}
+
+/// versioned policy ต่อ campaign — ตัดสิน duplicate contact ข้าม campaign เท่านั้น;
+/// duplicate ภายใน campaign เดียวกันบังคับด้วย unique constraint ของ ob_campaign_targets เสมอ
+model ObCampaignAdmissionPolicy {
+  id                          String   @id @default(uuid()) @db.Uuid
+  tenantId                    String   @map("tenant_id") @db.Uuid
+  campaignId                  String   @map("campaign_id") @db.Uuid
+  version                     Int      @default(1)
+  allowCrossCampaignDuplicate Boolean  @default(false) @map("allow_cross_campaign_duplicate")
+  createdAt                   DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, campaignId])
+  @@map("ob_campaign_admission_policies")
+}
+
+/// canonical target record หนึ่งแถวต่อ (campaign, contact) — recordId/version ที่ J2
+/// ownerAggregate อ้างถึง; ไม่มี Governance reservation, Attempt หรือ provider I/O ที่นี่
+model ObCampaignTarget {
+  id                     String                @id @default(uuid()) @db.Uuid
+  tenantId               String                @map("tenant_id") @db.Uuid
+  campaignId             String                @map("campaign_id") @db.Uuid
+  contactId              String                @map("contact_id") @db.Uuid
+  version                Int                   @default(1)
+  state                  ObCampaignTargetState @default(ADMITTED)
+  sourceOwnerTeamId      String                @map("source_owner_team_id") @db.Uuid
+  targetOwnerTeamId      String                @map("target_owner_team_id") @db.Uuid
+  admissionPolicyVersion Int                   @map("admission_policy_version")
+  createdAt              DateTime              @default(now()) @map("created_at")
+  updatedAt              DateTime              @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  contact Contact @relation(fields: [tenantId, contactId], references: [tenantId, id])
+
+  @@unique([tenantId, campaignId, contactId])
+  @@index([tenantId, contactId])
+  @@map("ob_campaign_targets")
+}
+
+/// durable command+result เดียวกันต่อ actionKey — pull model เหมือน cs_command_inbox
+/// ของ J2.4; commandType เก็บไว้เผื่อ SCHEDULE_CALLBACK, CANCEL_x และ SUPERSEDE_x ของ
+/// ticket ถัดไป แม้ J2.5 จะ populate เฉพาะ ADMIT_CAMPAIGN_TARGET เท่านั้น
+model ObDialerCommandInbox {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  commandId        String   @map("command_id")
+  actionKey        String   @map("action_key")
+  commandType      String   @map("command_type")
+  requestHash      String   @map("request_hash") @db.Char(64)
+  status           String
+  code             String
+  category         String
+  reasonCode       String   @map("reason_code")
+  failureClass     String   @map("failure_class")
+  retryDisposition String   @map("retry_disposition")
+  recordId         String?  @map("record_id") @db.Uuid
+  recordVersion    Int?     @map("record_version")
+  correlationId    String   @map("correlation_id")
+  observedAt       DateTime @map("observed_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, actionKey])
+  @@index([tenantId, commandId])
+  @@map("ob_dialer_command_inbox")
 }
 
 // ─────────────────────── J2.3: outcome/action durable foundation ───────────────────────
