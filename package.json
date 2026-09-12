@@ -7,7 +7,7 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "typecheck": "turbo run typecheck",
-    "lint": "prettier --check .",
+    "lint": "git ls-files -z | xargs -0 prettier --check --ignore-unknown",
     "format": "prettier --write .",
     "db:generate": "pnpm --filter @d-contact/db generate",
     "db:migrate": "pnpm --filter @d-contact/db migrate:deploy",
