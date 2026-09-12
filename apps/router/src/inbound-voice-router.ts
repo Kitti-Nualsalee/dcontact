@@ -127,147 +127,162 @@ export class InboundVoiceRouter {
       throw new Error('telephony event orderingKey must equal callUuid');
     }
 
-    const result = await withTenantDatabaseTransaction(
-      this.database,
-      event.tenantId,
-      async (transaction) => {
-        const existing = await transaction.interaction.findFirst({
-          where: { tenantId: event.tenantId, externalId: event.payload.callUuid },
-          select: { id: true, state: true, agentId: true },
-        });
-        if (existing) return this.resultFromInteraction(existing);
-
-        const destination = await transaction.voiceDestination.findFirst({
-          where: {
-            tenantId: event.tenantId,
-            destination: event.payload.destination,
-            isActive: true,
-            queue: { isActive: true },
-          },
-          select: {
-            id: true,
-            entryMode: true,
-            queueId: true,
-            ivrConfig: true,
-            queue: { select: this.queuePolicySelection },
-          },
-        });
-        if (!destination) throw new Error('no active direct voice destination for inbound call');
-
-        let interaction;
-        try {
-          interaction = await transaction.interaction.create({
-            data: {
-              tenantId: event.tenantId,
-              channel: 'VOICE',
-              direction: 'INBOUND',
-              state: 'QUEUED',
-              queueId: destination.entryMode === 'DIRECT_QUEUE' ? destination.queueId : null,
-              ...(destination.entryMode === 'IVR'
-                ? {
-                    ivrDestinationId: destination.id,
-                    ivrStage: 'VOICE' as const,
-                    ivrInputExpiresAt: this.ivrInputExpiresAt(
-                      this.ivrConfiguration(destination.ivrConfig).inputTimeoutSec,
-                    ),
-                  }
-                : {}),
-              externalId: event.payload.callUuid,
-              metadata: {
-                vendor: event.payload.vendor,
-                telephonyNodeId: event.payload.telephonyNodeId,
-                caller: event.payload.caller,
-                destination: event.payload.destination,
-              },
-            },
-            select: { id: true, state: true, agentId: true, queueId: true },
-          });
-        } catch (error) {
-          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-            const concurrent = await transaction.interaction.findFirstOrThrow({
+    const duplicateInteraction = new Error('concurrent inbound interaction create');
+    const result = await (async () => {
+      try {
+        return await withTenantDatabaseTransaction(
+          this.database,
+          event.tenantId,
+          async (transaction) => {
+            const existing = await transaction.interaction.findFirst({
               where: { tenantId: event.tenantId, externalId: event.payload.callUuid },
               select: { id: true, state: true, agentId: true },
             });
-            return this.resultFromInteraction(concurrent);
-          }
+            if (existing) return this.resultFromInteraction(existing);
+
+            const destination = await transaction.voiceDestination.findFirst({
+              where: {
+                tenantId: event.tenantId,
+                destination: event.payload.destination,
+                isActive: true,
+                queue: { isActive: true },
+              },
+              select: {
+                id: true,
+                entryMode: true,
+                queueId: true,
+                ivrConfig: true,
+                queue: { select: this.queuePolicySelection },
+              },
+            });
+            if (!destination)
+              throw new Error('no active direct voice destination for inbound call');
+
+            let interaction;
+            try {
+              interaction = await transaction.interaction.create({
+                data: {
+                  tenantId: event.tenantId,
+                  channel: 'VOICE',
+                  direction: 'INBOUND',
+                  state: 'QUEUED',
+                  queueId: destination.entryMode === 'DIRECT_QUEUE' ? destination.queueId : null,
+                  ...(destination.entryMode === 'IVR'
+                    ? {
+                        ivrDestinationId: destination.id,
+                        ivrStage: 'VOICE' as const,
+                        ivrInputExpiresAt: this.ivrInputExpiresAt(
+                          this.ivrConfiguration(destination.ivrConfig).inputTimeoutSec,
+                        ),
+                      }
+                    : {}),
+                  externalId: event.payload.callUuid,
+                  metadata: {
+                    vendor: event.payload.vendor,
+                    telephonyNodeId: event.payload.telephonyNodeId,
+                    caller: event.payload.caller,
+                    destination: event.payload.destination,
+                  },
+                },
+                select: { id: true, state: true, agentId: true, queueId: true },
+              });
+            } catch (error) {
+              if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                // PostgreSQL aborts the current transaction after a unique violation.
+                // Read the concurrent winner in a fresh transaction below instead.
+                throw duplicateInteraction;
+              }
+              throw error;
+            }
+
+            await transaction.interactionEvent.createMany({
+              data: [
+                {
+                  tenantId: event.tenantId,
+                  interactionId: interaction.id,
+                  type: 'interaction.created',
+                  payload: {},
+                },
+                {
+                  tenantId: event.tenantId,
+                  interactionId: interaction.id,
+                  type: 'interaction.queued',
+                  payload: {},
+                },
+              ],
+            });
+
+            if (destination.entryMode === 'IVR') {
+              const configuration = this.ivrConfiguration(destination.ivrConfig);
+              return {
+                interactionId: interaction.id,
+                status: 'QUEUED' as const,
+                ivrCollect: {
+                  interactionId: interaction.id,
+                  inputMode: 'VOICE' as const,
+                  prompt: configuration.prompt,
+                  timeoutSec: configuration.inputTimeoutSec,
+                },
+              };
+            }
+
+            const policy = this.resolveQueuePolicy(destination.queue);
+            const available = await this.findAvailableAgent(
+              transaction,
+              event.tenantId,
+              destination.queueId,
+              policy.routingStrategy,
+            );
+            if (!available) return { interactionId: interaction.id, status: 'QUEUED' as const };
+
+            await transaction.agentStateLog.create({
+              data: {
+                tenantId: event.tenantId,
+                userId: available.id,
+                state: 'RESERVED',
+                reason: interaction.id,
+              },
+            });
+            const assigned = await transaction.interaction.update({
+              where: { id: interaction.id },
+              data: {
+                state: 'ASSIGNED',
+                agentId: available.id,
+                assignedAt: new Date(this.dependencies.now()),
+                offerExpiresAt: this.offerExpiresAt(policy.offerTimeoutSec),
+              },
+              select: { id: true, state: true, agentId: true, queueId: true },
+            });
+            await transaction.interactionEvent.create({
+              data: {
+                tenantId: event.tenantId,
+                interactionId: assigned.id,
+                type: 'interaction.assigned',
+                payload: { agentId: available.id },
+              },
+            });
+            return {
+              interactionId: assigned.id,
+              status: 'ASSIGNED' as const,
+              agentId: available.id,
+              queueId: assigned.queueId,
+              agentExtension: available.extension,
+            };
+          },
+        );
+      } catch (error) {
+        if (error !== duplicateInteraction) {
           throw error;
         }
-
-        await transaction.interactionEvent.createMany({
-          data: [
-            {
-              tenantId: event.tenantId,
-              interactionId: interaction.id,
-              type: 'interaction.created',
-              payload: {},
-            },
-            {
-              tenantId: event.tenantId,
-              interactionId: interaction.id,
-              type: 'interaction.queued',
-              payload: {},
-            },
-          ],
+        return withTenantDatabaseTransaction(this.database, event.tenantId, async (transaction) => {
+          const concurrent = await transaction.interaction.findFirstOrThrow({
+            where: { tenantId: event.tenantId, externalId: event.payload.callUuid },
+            select: { id: true, state: true, agentId: true },
+          });
+          return this.resultFromInteraction(concurrent);
         });
-
-        if (destination.entryMode === 'IVR') {
-          const configuration = this.ivrConfiguration(destination.ivrConfig);
-          return {
-            interactionId: interaction.id,
-            status: 'QUEUED' as const,
-            ivrCollect: {
-              interactionId: interaction.id,
-              inputMode: 'VOICE' as const,
-              prompt: configuration.prompt,
-              timeoutSec: configuration.inputTimeoutSec,
-            },
-          };
-        }
-
-        const policy = this.resolveQueuePolicy(destination.queue);
-        const available = await this.findAvailableAgent(
-          transaction,
-          event.tenantId,
-          destination.queueId,
-          policy.routingStrategy,
-        );
-        if (!available) return { interactionId: interaction.id, status: 'QUEUED' as const };
-
-        await transaction.agentStateLog.create({
-          data: {
-            tenantId: event.tenantId,
-            userId: available.id,
-            state: 'RESERVED',
-            reason: interaction.id,
-          },
-        });
-        const assigned = await transaction.interaction.update({
-          where: { id: interaction.id },
-          data: {
-            state: 'ASSIGNED',
-            agentId: available.id,
-            assignedAt: new Date(this.dependencies.now()),
-            offerExpiresAt: this.offerExpiresAt(policy.offerTimeoutSec),
-          },
-          select: { id: true, state: true, agentId: true, queueId: true },
-        });
-        await transaction.interactionEvent.create({
-          data: {
-            tenantId: event.tenantId,
-            interactionId: assigned.id,
-            type: 'interaction.assigned',
-            payload: { agentId: available.id },
-          },
-        });
-        return {
-          interactionId: assigned.id,
-          status: 'ASSIGNED' as const,
-          agentId: available.id,
-          queueId: assigned.queueId,
-          agentExtension: available.extension,
-        };
-      },
-    );
+      }
+    })();
 
     if ('ivrCollect' in result) {
       await this.publishLifecycle(event, result.interactionId, undefined, undefined);
