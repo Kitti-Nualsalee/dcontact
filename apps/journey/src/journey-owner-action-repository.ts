@@ -54,6 +54,8 @@ export interface EnsureOwnerActionInput {
   correlationId: string;
   /** command ที่จะ dispatch พร้อมกันในธุรกรรมเดียว — ห้ามเรียก owner ระหว่าง transaction นี้ */
   commandId: string;
+  /** J2OwnerCommandPayloadV1 เต็มรูปแบบพร้อม relay จริง (J2.8); undefined สำหรับ caller เก่า */
+  commandPayload?: unknown;
 }
 
 export interface EnsureOwnerActionResult {
@@ -99,6 +101,7 @@ const RESULT_KIND_TO_ACTION_STATE: Record<JrOwnerResultKind, JrOwnerActionState>
   REJECTED: 'REJECTED',
   ACK_UNKNOWN: 'ACK_UNKNOWN',
   CANCELLED: 'CANCELLED',
+  SUPERSEDED: 'SUPERSEDED',
   TOO_LATE: 'TOO_LATE',
   RECONCILING: 'RECONCILING',
 };
@@ -157,6 +160,9 @@ export class JourneyOwnerActionRepository {
           requestHash: input.requestHash,
           correlationId: input.correlationId,
           state: 'PENDING',
+          ...(input.commandPayload !== undefined
+            ? { payload: input.commandPayload as Prisma.InputJsonValue }
+            : {}),
         },
         update: {},
       });
@@ -301,6 +307,8 @@ export class JourneyOwnerActionRepository {
     actionKey: string;
     cancelCommandId: string;
     correlationId: string;
+    /** J2OwnerCommandPayloadV1 ของ CANCEL_x / SUPERSEDE_x เต็มรูปแบบพร้อม relay จริง (J2.8) */
+    commandPayload?: unknown;
   }): Promise<JrOwnerAction> {
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
       const action = await transaction.jrOwnerAction.findUnique({
@@ -327,6 +335,9 @@ export class JourneyOwnerActionRepository {
           requestHash: action.requestHash,
           correlationId: input.correlationId,
           state: 'PENDING',
+          ...(input.commandPayload !== undefined
+            ? { payload: input.commandPayload as Prisma.InputJsonValue }
+            : {}),
         },
         update: {},
       });
