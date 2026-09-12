@@ -113,3 +113,5 @@ REVOKE DELETE ON ob_campaigns FROM dcontact_app;
 REVOKE DELETE ON ob_campaign_admission_policies FROM dcontact_app;
 REVOKE DELETE ON ob_campaign_targets FROM dcontact_app;
 REVOKE DELETE ON ob_dialer_command_inbox FROM dcontact_app;
+-- J2.6: Dialer SCHEDULE_CALLBACK owner slice — callback เดินสถานะได้แต่ห้ามหายทั้งแถว
+REVOKE DELETE ON ob_callbacks FROM dcontact_app;

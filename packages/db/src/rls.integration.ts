@@ -729,3 +729,74 @@ test('J2.5 Dialer ob_campaign_targets/ob_dialer_command_inbox บังคับ
     '4',
   );
 });
+
+test('J2.6 Dialer ob_callbacks บังคับ tenant RLS และห้าม application role ลบแถว', (t) => {
+  const tenantId = randomUUID();
+  const contactId = randomUUID();
+  const queueId = randomUUID();
+  const sourceTeamId = randomUUID();
+  const targetTeamId = randomUUID();
+  const suffix = tenantId.slice(0, 8);
+
+  queryAsOwner(
+    `BEGIN;
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${tenantId}', 'J2.6 RLS ${suffix}', 'j2-6-rls-${suffix}', 'j2-6-rls-${suffix}.test');
+     INSERT INTO contacts (id, tenant_id, display_name) VALUES ('${contactId}', '${tenantId}', 'J2.6 RLS contact');
+     INSERT INTO teams (id, tenant_id, name) VALUES ('${sourceTeamId}', '${tenantId}', 'Journey');
+     INSERT INTO teams (id, tenant_id, name) VALUES ('${targetTeamId}', '${tenantId}', 'Dialer');
+     INSERT INTO queues (id, tenant_id, name) VALUES ('${queueId}', '${tenantId}', 'Callback queue');
+     COMMIT;`,
+  );
+
+  t.after(() =>
+    queryAsOwner(
+      `DELETE FROM ob_callbacks WHERE tenant_id = '${tenantId}';
+       DELETE FROM queues WHERE tenant_id = '${tenantId}';
+       DELETE FROM teams WHERE tenant_id = '${tenantId}';
+       DELETE FROM contacts WHERE tenant_id = '${tenantId}';
+       DELETE FROM tenants WHERE id = '${tenantId}';`,
+    ),
+  );
+
+  const callbackId = randomUUID();
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN;
+       SELECT set_config('app.tenant_id', '${tenantId}', true);
+       INSERT INTO ob_callbacks (id, tenant_id, contact_id, queue_id, requested_for, expires_at, source_owner_team_id, target_owner_team_id, updated_at) VALUES ('${callbackId}', '${tenantId}', '${contactId}', '${queueId}', now() + interval '6 hours', now() + interval '30 hours', '${sourceTeamId}', '${targetTeamId}', now());
+       SELECT count(*) FROM ob_callbacks WHERE id = '${callbackId}';
+       COMMIT;`,
+    ),
+    /\nINSERT 0 1\n1\nCOMMIT$/,
+  );
+
+  const demoTenantId = queryAsOwner("SELECT id FROM tenants WHERE slug = 'demo';");
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${demoTenantId}', true); SELECT count(*) FROM ob_callbacks WHERE tenant_id = '${tenantId}'; COMMIT;`,
+    ),
+    /\n0\nCOMMIT$/,
+  );
+
+  // callback เดินสถานะได้ (UPDATE ผ่าน) แต่ห้ามหายไปทั้งแถว
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE ob_callbacks SET state = 'CANCELLED' WHERE id = '${callbackId}'; COMMIT;`,
+    ),
+    /\nUPDATE 1\nCOMMIT$/,
+  );
+  assert.throws(
+    () =>
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); DELETE FROM ob_callbacks WHERE id = '${callbackId}'; COMMIT;`,
+      ),
+    /permission denied/i,
+  );
+
+  assert.equal(
+    queryAsOwner(
+      "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'ob_callbacks' AND policyname = 'tenant_isolation' AND qual IS NOT NULL AND with_check IS NOT NULL;",
+    ),
+    '1',
+  );
+});
