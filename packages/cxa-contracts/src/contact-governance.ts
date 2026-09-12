@@ -114,6 +114,39 @@ export interface AuthorizationOutcome {
   exceptionRef?: string;
 }
 
+/**
+ * S1.5 read-only canonical check for an action that already owns a reservation.
+ * It must never create a new decision, reservation, Attempt or Touch; Journey
+ * persists its at-least-once consumer result around this call.
+ */
+export interface RevalidateAuthorizedActionInput {
+  tenantId: TenantId;
+  reservationId: ReservationId;
+  actionKey: ActionKey;
+  correlationId: string;
+  sourceAggregateType: 'CONTACT' | 'POLICY';
+  sourceAggregateId: string;
+  sourceAggregateVersion: number;
+  /** Missing historical context is fail-closed REVIEW, never an implicit ALLOW. */
+  contactKind?: string;
+}
+
+export interface RevalidateAuthorizedActionOutcome {
+  decision: ContactDecision;
+  reasonCode: string;
+  observedAggregateVersion: number;
+  observedPolicyVersion?: number;
+  nextEligibleAt?: string;
+  /** Opaque digest of the canonical facts evaluated; no PII or policy body. */
+  decisionDigest: string;
+}
+
+export interface ContactGovernanceRevalidationPort {
+  revalidateAuthorizedAction(
+    input: RevalidateAuthorizedActionInput,
+  ): Promise<RevalidateAuthorizedActionOutcome>;
+}
+
 export interface ReservationView {
   id: string;
   state: ReservationState;

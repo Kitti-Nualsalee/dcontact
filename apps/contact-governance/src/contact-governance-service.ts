@@ -22,6 +22,7 @@ import {
   type AuthorizationOutcome,
   type ContactAuthorizationPort,
   type ContactGovernancePort,
+  type ContactGovernanceRevalidationPort,
   type ClaimReservationForDeliveryInput,
   type RenewReservationLeaseInput,
   type BeginProviderSubmissionInput,
@@ -30,6 +31,8 @@ import {
   type SettleDeliveryInput,
   type ReservationSettlementView,
   type ReservationView,
+  type RevalidateAuthorizedActionInput,
+  type RevalidateAuthorizedActionOutcome,
 } from '@d-contact/cxa-contracts';
 export {
   IdempotencyConflictError,
@@ -162,7 +165,10 @@ function toReservationView(reservation: {
 }
 
 export class ContactGovernanceService
-  implements ContactAuthorizationPort<Prisma.TransactionClient>, ContactGovernancePort
+  implements
+    ContactAuthorizationPort<Prisma.TransactionClient>,
+    ContactGovernancePort,
+    ContactGovernanceRevalidationPort
 {
   private readonly now: () => Date;
   private readonly id: () => string;
@@ -207,6 +213,194 @@ export class ContactGovernanceService
 
   settleDelivery(input: SettleDeliveryInput): Promise<ReservationSettlementView> {
     return this.reservationRuntime.settle(input);
+  }
+
+  /**
+   * ประเมินสิทธิ์ของ reservation เดิมกับ canonical facts ปัจจุบันโดยไม่สร้าง fact ใหม่
+   * Journey เป็นเจ้าของผล at-least-once และ acknowledgement ของการเรียกนี้เอง
+   */
+  async revalidateAuthorizedAction(
+    input: RevalidateAuthorizedActionInput,
+  ): Promise<RevalidateAuthorizedActionOutcome> {
+    const tenantId = input.tenantId;
+    const digest = (
+      decision: RevalidateAuthorizedActionOutcome['decision'],
+      reasonCode: string,
+      aggregateVersion: number,
+      policyVersion?: number,
+    ) =>
+      createHash('sha256')
+        .update(
+          JSON.stringify({
+            decision,
+            reasonCode,
+            aggregateVersion,
+            policyVersion: policyVersion ?? null,
+          }),
+        )
+        .digest('hex');
+    const review = (
+      reasonCode: string,
+      aggregateVersion: number,
+      policyVersion?: number,
+    ): RevalidateAuthorizedActionOutcome => ({
+      decision: 'REVIEW',
+      reasonCode,
+      observedAggregateVersion: aggregateVersion,
+      ...(policyVersion !== undefined ? { observedPolicyVersion: policyVersion } : {}),
+      decisionDigest: digest('REVIEW', reasonCode, aggregateVersion, policyVersion),
+    });
+
+    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      const reservation = await transaction.cgReservation.findFirst({
+        where: { id: input.reservationId, tenantId, actionKey: input.actionKey },
+        select: {
+          contactId: true,
+          identityId: true,
+          channel: true,
+          purpose: true,
+          senderIdentityId: true,
+          authorizationContactKind: true,
+          authorizationContextVersion: true,
+        },
+      });
+      if (!reservation) return review('GOVERNANCE_CONTEXT_UNAVAILABLE', 0);
+      // context ที่ไม่มี version คือข้อมูลก่อน S1.5: หยุดไว้เพื่อไม่อนุญาตจาก binding ที่พิสูจน์ไม่ได้.
+      // contactKind=null ที่ถูกบันทึกพร้อม version 1 เป็น wildcard ที่มีความหมายชัดเจน.
+      if (
+        reservation.authorizationContextVersion !== 1 ||
+        (input.contactKind ?? null) !== reservation.authorizationContactKind
+      ) {
+        return review('GOVERNANCE_CONTEXT_UNAVAILABLE', 0);
+      }
+      if (
+        input.sourceAggregateVersion < 1 ||
+        (input.sourceAggregateType === 'CONTACT' && input.sourceAggregateId !== reservation.contactId)
+      ) {
+        return review('GOVERNANCE_CONTEXT_UNAVAILABLE', 0);
+      }
+
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`contact:${tenantId}:${reservation.contactId}`}))`,
+      );
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg3-contact:${tenantId}:${reservation.contactId}`}))`,
+      );
+      const now = this.now();
+      const [identity, restriction, consent, facts] = await Promise.all([
+        reservation.identityId
+          ? transaction.contactIdentity.findFirst({
+              where: { id: reservation.identityId, contactId: reservation.contactId, tenantId },
+              select: { id: true },
+            })
+          : Promise.resolve({ id: reservation.contactId }),
+        transaction.cgRestriction.findFirst({
+          where: {
+            tenantId,
+            startsAt: { lte: now },
+            AND: [
+              { OR: [{ contactId: null }, { contactId: reservation.contactId }] },
+              reservation.identityId
+                ? { OR: [{ identityId: null }, { identityId: reservation.identityId }] }
+                : { identityId: null },
+              { OR: [{ channel: null }, { channel: reservation.channel }] },
+              { OR: [{ purpose: null }, { purpose: reservation.purpose }] },
+              { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+            ],
+          },
+          orderBy: { startsAt: 'desc' },
+          select: { type: true, reasonCode: true, overridable: true },
+        }),
+        transaction.cgConsent.findFirst({
+          where: {
+            tenantId,
+            contactId: reservation.contactId,
+            purpose: reservation.purpose,
+            channel: reservation.channel,
+            OR: reservation.identityId
+              ? [{ identityId: null }, { identityId: reservation.identityId }]
+              : [{ identityId: null }],
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { status: true, lawfulBasis: true, expiresAt: true },
+        }),
+        loadCg3Facts(transaction, {
+          tenantId,
+          contactId: reservation.contactId,
+          identityId: reservation.identityId ?? undefined,
+          channel: reservation.channel,
+          purpose: reservation.purpose,
+          contactKind: reservation.authorizationContactKind,
+          now,
+        }),
+      ]);
+      if (
+        facts.aggregateVersion < input.sourceAggregateVersion ||
+        (input.sourceAggregateType === 'POLICY' &&
+          (facts.policy?.version ?? 0) < input.sourceAggregateVersion)
+      ) {
+        return review('GOVERNANCE_VERSION_STALE', facts.aggregateVersion, facts.policy?.version);
+      }
+      const baseline = evaluateContactPolicy({
+        policyVersion: facts.policy?.version ?? 0,
+        identityResolution: identity ? 'RESOLVED' : 'NOT_FOUND',
+        ...(restriction
+          ? {
+              activeRestriction: {
+                type: restriction.type,
+                reasonCode: restriction.reasonCode,
+                overridable: restriction.overridable,
+              },
+            }
+          : {}),
+        ...(consent
+          ? {
+              consent: {
+                status:
+                  consent.status === 'GRANTED' && consent.expiresAt && consent.expiresAt <= now
+                    ? ('EXPIRED' as const)
+                    : consent.status,
+                lawfulBasis: consent.lawfulBasis,
+              },
+            }
+          : {}),
+      });
+      if (baseline.decision !== 'ALLOW') {
+        return {
+          decision: baseline.decision,
+          reasonCode: baseline.reasonCode,
+          observedAggregateVersion: facts.aggregateVersion,
+          ...(facts.policy ? { observedPolicyVersion: facts.policy.version } : {}),
+          decisionDigest: digest(
+            baseline.decision,
+            baseline.reasonCode,
+            facts.aggregateVersion,
+            facts.policy?.version,
+          ),
+        };
+      }
+      const cg3 = evaluateCg3Policy({
+        now,
+        identityId: reservation.identityId ?? undefined,
+        channel: reservation.channel,
+        purpose: reservation.purpose,
+        contactKind: reservation.authorizationContactKind,
+        senderIdentityId: reservation.senderIdentityId ?? undefined,
+        preferences: facts.preferences,
+        policy: facts.policy,
+        activeCallback: facts.activeCallback,
+      });
+      const decision = cg3.decision ?? 'ALLOW';
+      const reasonCode = cg3.reasonCode ?? 'POLICY_PASSED';
+      return {
+        decision,
+        reasonCode,
+        observedAggregateVersion: facts.aggregateVersion,
+        ...(facts.policy ? { observedPolicyVersion: facts.policy.version } : {}),
+        ...(cg3.nextEligibleAt ? { nextEligibleAt: cg3.nextEligibleAt } : {}),
+        decisionDigest: digest(decision, reasonCode, facts.aggregateVersion, facts.policy?.version),
+      };
+    });
   }
 
   async authorizeAndReserve(
@@ -447,6 +641,8 @@ export class ContactGovernanceService
             settlementStatus: 'UNCLAIMED',
             authorizationAggregateVersion: cg3AggregateVersion,
             authorizationPolicyVersion: cg3PolicyVersion,
+            authorizationContactKind: input.contactKind,
+            authorizationContextVersion: 1,
           },
         });
       }

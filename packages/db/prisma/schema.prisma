@@ -55,6 +55,10 @@ model Tenant {
   cgConsumerAcknowledgements   CgConsumerAcknowledgement[]
   jrEventInbox                 JrEventInbox[]
   jrKafkaConsumerInbox         JrKafkaConsumerInbox[]
+  jrGovernanceConsumerInbox    JrGovernanceConsumerInbox[]
+  jrGovernanceAcknowledgements JrGovernanceAcknowledgementOutbox[]
+  jrGovernanceEffects          JrGovernanceEffectOutbox[]
+  jrActionLifecycleInbox       JrActionLifecycleInbox[]
   jrEnrollments                JrEnrollment[]
   jrActions                    JrAction[]
   jrJourneyDefinitions         JrJourneyDefinition[]
@@ -524,6 +528,56 @@ enum JrScheduleOccurrenceState {
   ENROLLED
 }
 
+/// S1.5: Journey เป็นเจ้าของ lifecycle ของ action หลังรับ CG3 mutation. ค่านี้บอก
+/// ขอบเขตที่ยกเลิกได้ ไม่ใช่สถานะของ reservation หรือ provider delivery.
+enum JrRealtimeActionState {
+  QUEUED
+  RESERVED
+  PRE_BARRIER
+  POST_BARRIER
+  ACCEPTED
+  CANCELLED
+  DEFERRED
+  PARKED
+  HELD
+  CANCEL_REQUESTED
+  SETTLED
+}
+
+/// ผล durable ของ CG3 event ใน Journey consumer. GAP/QUARANTINED ต้อง fail closed
+/// และไม่อนุญาตให้ action กลับไป dispatch จนกว่าจะ replay/reconcile สำเร็จ.
+enum JrGovernanceConsumerState {
+  APPLIED
+  NO_OP
+  GAP
+  QUARANTINED
+}
+
+enum JrGovernanceAcknowledgementState {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+/// งานภายนอกของ Journey ที่ต้องเกิดหลัง owner-local inbox/action commit เท่านั้น
+enum JrGovernanceEffectState {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum JrGovernanceEffectKind {
+  RELEASE_BEFORE_BARRIER
+  REQUEST_RECONCILE
+}
+
+enum JrActionLifecycleState {
+  PRE_BARRIER
+  POST_BARRIER
+  ACCEPTED
+}
+
 model CgRestriction {
   id          String            @id @default(uuid()) @db.Uuid
   tenantId    String            @map("tenant_id") @db.Uuid
@@ -609,6 +663,9 @@ model CgReservation {
   settledAt                     DateTime?                   @map("settled_at")
   authorizationAggregateVersion Int?                        @map("authorization_aggregate_version")
   authorizationPolicyVersion    Int?                        @map("authorization_policy_version")
+  /// S1.5: context ที่ immutable เพื่อ canonical re-evaluation แบบ fail-closed
+  authorizationContactKind      String?                     @map("authorization_contact_kind")
+  authorizationContextVersion  Int                         @default(0) @map("authorization_context_version")
   authorizationDecisionId       String?                     @map("authorization_decision_id") @db.Uuid
   createdAt                     DateTime                    @default(now()) @map("created_at")
   updatedAt                     DateTime                    @updatedAt @map("updated_at")
@@ -1143,6 +1200,13 @@ model JrAction {
   purpose       String
   decisionId    String      @map("decision_id") @db.Uuid
   reservationId String      @map("reservation_id") @db.Uuid
+  realtimeState JrRealtimeActionState @default(RESERVED) @map("realtime_state")
+  nextEligibleAt DateTime?  @map("next_eligible_at")
+  appliedAggregateVersion Int? @map("applied_aggregate_version")
+  appliedPayloadHash String? @map("applied_payload_hash")
+  deliveryId    String?     @map("delivery_id") @db.Uuid
+  providerRequestKey String? @map("provider_request_key")
+  cancelRequestedAt DateTime? @map("cancel_requested_at")
   createdAt     DateTime    @default(now()) @map("created_at")
 
   tenant      Tenant          @relation(fields: [tenantId], references: [id])
@@ -1155,7 +1219,107 @@ model JrAction {
   @@unique([tenantId, actionKey])
   @@index([tenantId, enrollmentId])
   @@index([tenantId, contactId, createdAt])
+  @@index([tenantId, contactId, realtimeState])
   @@map("jr_actions")
+}
+
+/// owner-local inbox ของ CG3 consumer: completion record อยู่ transaction เดียวกับ
+/// Journey side effect และ acknowledgement outbox ก่อน Kafka offset ถูก commit.
+model JrGovernanceConsumerInbox {
+  id               String                     @id @default(uuid()) @db.Uuid
+  consumer         String
+  tenantId         String                     @map("tenant_id") @db.Uuid
+  eventId          String                     @map("event_id")
+  aggregateType    CgAggregateType            @map("aggregate_type")
+  aggregateId      String                     @map("aggregate_id") @db.Uuid
+  aggregateVersion Int                        @map("aggregate_version")
+  payloadHash      String                     @map("payload_hash")
+  state            JrGovernanceConsumerState
+  affectedCount    Int                        @default(0) @map("affected_count")
+  appliedAt        DateTime                   @default(now()) @map("applied_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([consumer, tenantId, eventId])
+  @@unique([consumer, tenantId, aggregateType, aggregateId, aggregateVersion, payloadHash])
+  @@index([tenantId, aggregateType, aggregateId, aggregateVersion])
+  @@map("jr_governance_consumer_inbox")
+}
+
+/// Journey publish acknowledgement หลัง durable apply สำเร็จแล้วเท่านั้น. Relay retry
+/// ได้โดยไม่ต้อง apply event ซ้ำ และ payload มี opaque id/digest เท่านั้น.
+model JrGovernanceAcknowledgementOutbox {
+  id               String                              @id @default(uuid()) @db.Uuid
+  tenantId         String                              @map("tenant_id") @db.Uuid
+  eventId          String                              @map("event_id")
+  consumer         String
+  aggregateType    CgAggregateType                     @map("aggregate_type")
+  aggregateId      String                              @map("aggregate_id") @db.Uuid
+  appliedVersion   Int                                 @map("applied_version")
+  outcome          CgConsumerAckOutcome
+  affectedCount    Int                                 @default(0) @map("affected_count")
+  sourcePayloadHash String                              @map("source_payload_hash")
+  state            JrGovernanceAcknowledgementState    @default(PENDING)
+  attempts         Int                                 @default(0)
+  availableAt      DateTime                            @default(now()) @map("available_at")
+  publishedAt      DateTime?                           @map("published_at")
+  lastError        String?                             @map("last_error")
+  createdAt        DateTime                            @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, eventId, consumer, appliedVersion])
+  @@index([tenantId, state, availableAt])
+  @@map("jr_governance_acknowledgement_outbox")
+}
+
+/// Transactional outbox สำหรับ release/reconcile จาก CG3 invalidation. การมีแถวนี้
+/// คือเงื่อนไขก่อน acknowledgement APPLIED; relay เรียก owner ภายนอกหลัง commit เท่านั้น.
+model JrGovernanceEffectOutbox {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  tenantId           String                  @map("tenant_id") @db.Uuid
+  eventId            String                  @map("event_id")
+  actionId           String                  @map("action_id") @db.Uuid
+  actionKey          String                  @map("action_key")
+  reservationId      String                  @map("reservation_id") @db.Uuid
+  deliveryId         String?                 @map("delivery_id") @db.Uuid
+  providerRequestKey String?                 @map("provider_request_key")
+  correlationId      String                  @map("correlation_id")
+  kind               JrGovernanceEffectKind
+  state              JrGovernanceEffectState @default(PENDING)
+  attempts           Int                     @default(0)
+  availableAt        DateTime                @default(now()) @map("available_at")
+  completedAt        DateTime?               @map("completed_at")
+  lastError          String?                 @map("last_error")
+  createdAt          DateTime                @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, eventId, actionId, kind])
+  @@index([tenantId, state, availableAt])
+  @@map("jr_governance_effect_outbox")
+}
+
+/// Delivery ส่ง lifecycle แบบ immutable เข้า Journey owner; hash ป้องกัน eventId เดิมแต่ binding เปลี่ยน.
+model JrActionLifecycleInbox {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  tenantId           String                 @map("tenant_id") @db.Uuid
+  eventId            String                 @map("event_id")
+  actionKey          String                 @map("action_key")
+  reservationId      String                 @map("reservation_id") @db.Uuid
+  deliveryId         String                 @map("delivery_id") @db.Uuid
+  providerRequestKey String                 @map("provider_request_key")
+  state              JrActionLifecycleState
+  occurredAt         DateTime               @map("occurred_at")
+  correlationId      String                 @map("correlation_id")
+  bindingHash        String                 @map("binding_hash")
+  receivedAt         DateTime               @default(now()) @map("received_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, eventId])
+  @@index([tenantId, actionKey, occurredAt])
+  @@map("jr_action_lifecycle_inbox")
 }
 
 enum JrJourneyDefinitionStatus {

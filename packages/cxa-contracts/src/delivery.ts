@@ -67,3 +67,24 @@ export type EnqueueDeliveryResult = DeliveryQueued | DeliveryEnqueueFailure;
 export interface DeliveryPort {
   enqueue(command: EnqueueDeliveryCommand): Promise<EnqueueDeliveryResult>;
 }
+
+/**
+ * Delivery reports its durable lifecycle into Journey's owner-local inbox. This
+ * is an immutable binding notification, not permission for Delivery to write a
+ * Journey table directly. `eventId` is stable for retry of the same transition.
+ */
+export interface JourneyActionLifecycleRecord {
+  tenantId: TenantId;
+  actionKey: ActionKey;
+  reservationId: ReservationId;
+  deliveryId: DeliveryId;
+  providerRequestKey: ProviderRequestKey;
+  state: 'PRE_BARRIER' | 'POST_BARRIER' | 'ACCEPTED';
+  eventId: string;
+  occurredAt: string;
+  correlationId: string;
+}
+
+export interface JourneyActionLifecyclePort {
+  record(input: JourneyActionLifecycleRecord): Promise<void>;
+}

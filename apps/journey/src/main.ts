@@ -1,10 +1,21 @@
 import { PrismaClient } from '@d-contact/db';
-import { createJourneyFoundationPorts } from '@d-contact/journey-composition';
+import {
+  createJourneyFoundationPorts,
+  createJourneyRealtimeGovernancePorts,
+} from '@d-contact/journey-composition';
 import { createDlqPublisher, createProducer } from '@d-contact/kafka';
 import { EventInboxService } from './event-inbox.js';
 import { createJourneyEventConsumer } from './journey-event-consumer.js';
 import { createJourneyKafkaPublisher } from './journey-kafka-publisher.js';
 import { JourneyProcessor } from './journey-processor.js';
+import {
+  JourneyGovernanceInvalidationService,
+  createJourneyCanonicalRevalidator,
+  createJourneyRealtimeSettlementPort,
+} from './journey-governance-invalidation.js';
+import { createJourneyGovernanceConsumer } from './journey-governance-consumer.js';
+import { JourneyGovernanceAcknowledgementRelay } from './journey-governance-ack-relay.js';
+import { JourneyGovernanceEffectRelay } from './journey-governance-effect-relay.js';
 
 function positiveInteger(name: string, fallback: number): number {
   const value = Number(process.env[name] ?? fallback);
@@ -31,6 +42,23 @@ const dlq = await createDlqPublisher('dcontact-journey-dlq');
 const publisher = createJourneyKafkaPublisher(producer);
 const inbox = new EventInboxService(database);
 const processor = new JourneyProcessor(database, createJourneyFoundationPorts(database));
+const realtimeGovernance = createJourneyRealtimeGovernancePorts(database);
+const realtimeSettlement = createJourneyRealtimeSettlementPort(realtimeGovernance.settlement);
+const governanceInvalidation = new JourneyGovernanceInvalidationService(
+  database,
+  createJourneyCanonicalRevalidator(realtimeGovernance.revalidation),
+  realtimeSettlement,
+  { consumer: process.env.JOURNEY_GOVERNANCE_CONSUMER_GROUP_ID ?? 'dcontact-journey-cg3-v1' },
+);
+const governanceConsumer = await createJourneyGovernanceConsumer({
+  database,
+  service: governanceInvalidation,
+  clientId: 'dcontact-journey-cg3-consumer',
+  groupId: process.env.JOURNEY_GOVERNANCE_CONSUMER_GROUP_ID ?? 'dcontact-journey-cg3-v1',
+  dlq,
+});
+const governanceAcknowledgements = new JourneyGovernanceAcknowledgementRelay(database, producer);
+const governanceEffects = new JourneyGovernanceEffectRelay(database, realtimeSettlement);
 const consumer = await createJourneyEventConsumer({
   database,
   processor,
@@ -59,6 +87,14 @@ async function drainInbox(): Promise<void> {
         const result = await inbox.publishNext(tenant.id, publisher);
         if (!result || result.state === 'FAILED') break;
       }
+      for (let handled = 0; handled < 100; handled += 1) {
+        const result = await governanceEffects.executeNext(tenant.id);
+        if (!result || result === 'RETRY') break;
+      }
+      for (let handled = 0; handled < 100; handled += 1) {
+        const result = await governanceAcknowledgements.publishNext(tenant.id);
+        if (!result || result.state === 'FAILED') break;
+      }
     }
   } catch (error) {
     console.error(
@@ -81,6 +117,7 @@ async function shutdown(): Promise<void> {
   clearInterval(timer);
   await Promise.all([
     consumer.disconnect(),
+    governanceConsumer.disconnect(),
     producer.disconnect(),
     dlq.disconnect(),
     database.$disconnect(),
