@@ -1,4 +1,5 @@
 import type { WorkspaceTabLeaderElection } from './leader-election.js';
+import { WorkspaceOutboundGate, type WorkspaceGovernanceAlert } from './workspace-governance.js';
 
 export interface RoutingSocket {
   close(): void;
@@ -30,6 +31,7 @@ export class WorkspaceRuntime {
   private routingSocket?: RoutingSocket;
   private heartbeatTimer?: ReturnType<typeof setInterval>;
   private liveSequence?: number;
+  private readonly governance = new WorkspaceOutboundGate();
 
   constructor(
     private readonly election: WorkspaceTabLeaderElection,
@@ -40,6 +42,8 @@ export class WorkspaceRuntime {
     private readonly showRoutingOffer: (offer: WorkspaceRoutingOffer) => void = () => undefined,
     private readonly loadLiveSnapshot?: () => Promise<WorkspaceLiveSnapshot>,
     private readonly showLiveEvent: (event: WorkspaceLiveEvent) => void = () => undefined,
+    private readonly showGovernanceAlert: (alert: WorkspaceGovernanceAlert) => void = () =>
+      undefined,
   ) {}
 
   start(): void {
@@ -76,14 +80,22 @@ export class WorkspaceRuntime {
     this.routingSocket = undefined;
   }
 
+  confirmGovernanceVersion(version: number): void {
+    const alert = this.governance.confirmCanonicalVersion(version);
+    if (alert) this.showGovernanceAlert(alert);
+  }
+
   private handleRoutingEvent(event: unknown): void {
     if (!event || typeof event !== 'object' || Array.isArray(event)) return;
     if (this.isLiveEvent(event)) {
       if (this.liveSequence !== undefined && event.sequence !== this.liveSequence + 1) {
+        this.showGovernanceAlert(this.governance.markDisconnected());
         void this.refreshLiveSnapshot().catch(() => undefined);
         return;
       }
       this.liveSequence = event.sequence;
+      const alert = this.governance.apply(event);
+      if (alert) this.showGovernanceAlert(alert);
       this.showLiveEvent(event);
       return;
     }

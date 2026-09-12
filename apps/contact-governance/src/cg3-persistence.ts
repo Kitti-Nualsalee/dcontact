@@ -422,6 +422,16 @@ export class Cg3PreferenceRepository {
     });
   }
 
+  async aggregateVersion(query: { tenantId: string; contactId: string }): Promise<number> {
+    return withTenantDatabaseTransaction(this.database, query.tenantId, async (transaction) => {
+      const head = await transaction.cgContactStateHead.findUnique({
+        where: { tenantId_contactId: query },
+        select: { aggregateVersion: true },
+      });
+      return head?.aggregateVersion ?? 0;
+    });
+  }
+
   async append(input: AppendPreferenceInput): Promise<PreferenceMutationResult> {
     nonEmpty(input.tenantId, 'tenantId');
     nonEmpty(input.contactId, 'contactId');

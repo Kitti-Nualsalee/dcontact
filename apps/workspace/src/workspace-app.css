@@ -173,6 +173,47 @@ button:disabled {
   min-width: 0;
 }
 
+.governance-workspace-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 24px 18px;
+  padding: 14px 16px;
+  border: 1px solid #f0b3a8;
+  border-radius: 10px;
+  color: #8b321d;
+  background: #fff1ed;
+}
+
+.governance-workspace-alert.block_next_outbound {
+  border-color: #f0b3a8;
+  color: #8b321d;
+  background: #fff1ed;
+}
+
+.governance-workspace-alert.stale {
+  border-color: #f0d08a;
+  color: #805300;
+  background: #fff9e8;
+}
+
+.governance-workspace-alert.ready {
+  border-color: #9ed7c7;
+  color: #12654d;
+  background: #e9f8f2;
+}
+
+.governance-workspace-alert strong,
+.governance-workspace-alert p {
+  margin: 0;
+}
+
+.governance-workspace-alert p {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
 .topbar {
   min-height: 64px;
   display: flex;

@@ -400,6 +400,69 @@ test('effective-policy และ decision query คืน generic 404 ข้า�
   assert.equal(((await missingDecision.json()) as { code: string }).code, 'RESOURCE_NOT_FOUND');
 });
 
+test('effective-preference คืน canonical decision/version โดยไม่ให้ Console สรุปจาก history เอง', async (t) => {
+  const { contactId, base } = await fixture(t);
+  const now = new Date().toISOString();
+  const created = await post(`${base}/preferences`, 'admin-token', {
+    contactId,
+    channel: 'LINE',
+    purpose: 'MARKETING',
+    decision: 'BLOCK',
+    occurredAt: now,
+    effectiveFrom: now,
+    evidenceRef: 'customer-request',
+    expectedVersion: 0,
+  });
+  assert.equal(created.status, 201);
+
+  const response = await fetch(
+    `${base}/contacts/${contactId}/effective-preference?channel=LINE&purpose=MARKETING`,
+    { headers: { authorization: 'Bearer admin-token' } },
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('etag'), 'cg-contact-v1');
+  assert.deepEqual(await response.json(), {
+    aggregateVersion: 1,
+    preference: { decision: 'BLOCK', version: 1 },
+  });
+});
+
+test('contact history รวม callback แบบ append-only เพื่อให้ UI ส่ง expectedVersion ของ callback series ถูกต้อง', async (t) => {
+  const { contactId, base } = await fixture(t);
+  const now = new Date().toISOString();
+  const callback = await post(`${base}/callback-requests`, 'admin-token', {
+    contactId,
+    channel: 'LINE',
+    purpose: 'SERVICE_NOTIFICATION',
+    requestedAt: now,
+    requestedTimezone: 'Asia/Bangkok',
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    evidenceRef: 'callback-request',
+    expectedVersion: 0,
+  });
+  assert.equal(callback.status, 201);
+
+  const history = await fetch(`${base}/contacts/${contactId}/preferences`, {
+    headers: { authorization: 'Bearer admin-token' },
+  });
+  assert.equal(history.status, 200);
+  const body = (await history.json()) as {
+    preferences: unknown[];
+    callbacks: Array<{ channel: string; purpose: string; version: number; mutationKind: string }>;
+  };
+  assert.deepEqual(body.preferences, []);
+  assert.equal(body.callbacks.length, 1);
+  assert.deepEqual(
+    body.callbacks[0] && {
+      channel: body.callbacks[0].channel,
+      purpose: body.callbacks[0].purpose,
+      version: body.callbacks[0].version,
+      mutationKind: body.callbacks[0].mutationKind,
+    },
+    { channel: 'LINE', purpose: 'SERVICE_NOTIFICATION', version: 1, mutationKind: 'REQUEST' },
+  );
+});
+
 test('body ที่ส่ง tenantId มาเองถูกปฏิเสธ; token ที่ไม่มี role ที่ถูกต้องได้ 403', async (t) => {
   const { contactId, base } = await fixture(t);
   const now = new Date().toISOString();

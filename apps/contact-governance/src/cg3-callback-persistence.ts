@@ -66,6 +66,12 @@ export interface RequestCallbackResult {
   oneUseToken: string;
 }
 
+export interface CallbackHistoryQuery {
+  tenantId: string;
+  contactId: string;
+  limit?: number;
+}
+
 function nonEmpty(value: string, field: string): string {
   const normalized = value.trim();
   if (!normalized) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
@@ -302,6 +308,21 @@ export class Cg3CallbackRepository {
         },
       });
       return result;
+    });
+  }
+
+  async history(query: CallbackHistoryQuery): Promise<CallbackRequestView[]> {
+    const limit = query.limit ?? 100;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+      throw new RangeError('callback history limit ต้องเป็น integer ระหว่าง 1 ถึง 500');
+    }
+    return withTenantDatabaseTransaction(this.database, query.tenantId, async (transaction) => {
+      const callbacks = await transaction.cgCallbackRequest.findMany({
+        where: { tenantId: query.tenantId, contactId: query.contactId },
+        orderBy: [{ requestedAt: 'desc' }, { version: 'desc' }, { id: 'desc' }],
+        take: limit,
+      });
+      return callbacks.map(view);
     });
   }
 }

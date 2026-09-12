@@ -19,7 +19,7 @@ import {
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import type { PrismaClient } from '@d-contact/db';
+import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import type { ContactChannel } from '@d-contact/cxa-contracts';
 import {
   Cg3CallbackRepository,
@@ -32,6 +32,8 @@ import {
   Cg3VersionConflictError,
   decisionById,
   effectivePolicy,
+  loadCg3Facts,
+  resolveEffectivePreference,
   type LocalTimeWindow,
 } from '@d-contact/contact-governance';
 import {
@@ -368,9 +370,11 @@ export class ContactGovernancePoliciesController {
 @Controller('api/v1/contact-governance/contacts')
 export class ContactGovernanceContactQueryController {
   private readonly preferences: Cg3PreferenceRepository;
+  private readonly callbacks: Cg3CallbackRepository;
 
   constructor(@Inject(CONTACT_GOVERNANCE_DATABASE) private readonly database: PrismaClient) {
     this.preferences = new Cg3PreferenceRepository(database);
+    this.callbacks = new Cg3CallbackRepository(database);
   }
 
   @Get(':contactId/preferences')
@@ -382,13 +386,17 @@ export class ContactGovernanceContactQueryController {
   ) {
     const actor = workspaceActor(request);
     try {
-      const history = await this.preferences.history({
-        tenantId: actor.tenantId,
-        contactId: requiredUuidParam(contactId, 'contactId'),
-      });
-      const aggregateVersion = history[0]?.version ?? 0;
+      const canonicalContactId = requiredUuidParam(contactId, 'contactId');
+      const [preferences, callbacks, aggregateVersion] = await Promise.all([
+        this.preferences.history({ tenantId: actor.tenantId, contactId: canonicalContactId }),
+        this.callbacks.history({ tenantId: actor.tenantId, contactId: canonicalContactId }),
+        this.preferences.aggregateVersion({
+          tenantId: actor.tenantId,
+          contactId: canonicalContactId,
+        }),
+      ]);
       response.setHeader('ETag', `cg-contact-v${aggregateVersion}`);
-      return { preferences: history };
+      return { preferences, callbacks };
     } catch (error) {
       mapDomainError(error);
     }
@@ -415,6 +423,50 @@ export class ContactGovernanceContactQueryController {
       });
       response.setHeader('ETag', `cg-contact-v${result.policy?.version ?? 0}`);
       return result;
+    } catch (error) {
+      mapDomainError(error);
+    }
+  }
+
+  @Get(':contactId/effective-preference')
+  @GatewayRoles('agent', 'admin', 'compliance')
+  async effectivePreference(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('contactId') contactId: string,
+    @Query('channel') channel: unknown,
+    @Query('purpose') purpose: unknown,
+    @Query('contactKind') contactKind: unknown,
+    @Res({ passthrough: true }) response: ServerResponse,
+  ) {
+    const actor = workspaceActor(request);
+    try {
+      const query = {
+        tenantId: actor.tenantId,
+        contactId: requiredUuidParam(contactId, 'contactId'),
+        channel: requiredChannel(channel),
+        purpose: requiredString(purpose, 'purpose'),
+        contactKind: optionalString(contactKind, 'contactKind'),
+        now: new Date(),
+      };
+      const facts = await withTenantDatabaseTransaction(
+        this.database,
+        actor.tenantId,
+        (transaction) => loadCg3Facts(transaction, query),
+      );
+      const preference = resolveEffectivePreference(facts.preferences, {
+        now: query.now,
+        channel: query.channel,
+        purpose: query.purpose,
+        contactKind: query.contactKind,
+        preferences: facts.preferences,
+      });
+      response.setHeader('ETag', `cg-contact-v${facts.aggregateVersion}`);
+      return {
+        aggregateVersion: facts.aggregateVersion,
+        ...(preference
+          ? { preference: { decision: preference.decision, version: preference.version } }
+          : {}),
+      };
     } catch (error) {
       mapDomainError(error);
     }
