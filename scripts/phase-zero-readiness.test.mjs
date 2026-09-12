@@ -56,7 +56,7 @@ test('failed check เก็บข้อความ assertion ไว้ ไม�
   const stdout = [
     '  1) [chromium] › e2e/media-readiness.spec.ts:3:1 › Agent เปิดรับสาย',
     `    Error: ${assertionMessage}`,
-    ...Array.from({ length: 40 }, (_, index) => `      at frame ${index}`),
+    ...Array.from({ length: 120 }, (_, index) => `      at frame ${index}`),
     '  2 failed',
     '  5 passed (13.5s)',
   ].join('\n');
@@ -70,6 +70,7 @@ test('failed check เก็บข้อความ assertion ไว้ ไม�
   assert.equal(diagnostic.status, 'FAIL');
   assert.match(diagnostic.detail, /Expected: "อุปกรณ์เสียงพร้อม"/);
   assert.match(diagnostic.detail, /2 failed/);
+  assert.match(diagnostic.detail, /diagnostic output truncated/);
 });
 
 test('successful check ไม่สะท้อน child output ที่อาจมี dev credential', () => {
