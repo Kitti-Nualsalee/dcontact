@@ -47,7 +47,10 @@ jobs:
           cache: pnpm
 
       - name: Configure local acceptance environment
-        run: cp .env.example .env
+        run: |
+          cp .env.example .env
+          mkdir -p infra/docker/data/redpanda
+          chmod 777 infra/docker/data/redpanda
 
       - run: pnpm install --frozen-lockfile
 
