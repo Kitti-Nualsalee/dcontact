@@ -140,6 +140,15 @@ async function waitForDemoState(expectedState) {
   throw new Error(`demo interaction ไม่เข้าสู่ ${expectedState}: ${latestDemoEvidence()}`);
 }
 
+async function waitForArchivedDemoRecording() {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const evidence = latestDemoEvidence();
+    if (evidence.split('|')[8] === 'ARCHIVED') return evidence;
+    await wait(500);
+  }
+  throw new Error(`demo recording ไม่ถูก archive: ${latestDemoEvidence()}`);
+}
+
 function currentMedia() {
   return JSON.parse(
     run('docker', [
@@ -198,6 +207,10 @@ try {
   run('docker', ['pull', sippImage]);
   run('pnpm', ['db:seed']);
   run('docker', [...compose, 'exec', '-T', 'freeswitch', 'fs_cli', '-x', 'reloadxml']);
+  // ปิดสายค้างก่อนเริ่ม consumer ใหม่ เพื่อไม่ให้ hangup เก่าทำ demo group crash.
+  resetPreviousDemoMedia();
+  resetPreviousDemoInteractions();
+  run('pnpm', ['db:seed']);
 
   start('pnpm', ['--filter', '@d-contact/router', 'dev'], {
     diagnostic: 'router',
@@ -231,9 +244,6 @@ try {
     waitForConsumerGroup(routerGroupId),
     waitForConsumerGroup(`dcontact-telephony-command-${nodeId}-v1`),
   ]);
-  resetPreviousDemoMedia();
-  resetPreviousDemoInteractions();
-  run('pnpm', ['db:seed']);
   await wait(1_000);
 
   const fixture = resolve(
@@ -300,7 +310,8 @@ try {
     `uuid_kill ${inboundLeg.uuid} NORMAL_CLEARING`,
   ]);
 
-  const wrapupEvidence = await waitForDemoState('WRAPUP');
+  await waitForDemoState('WRAPUP');
+  const wrapupEvidence = await waitForArchivedDemoRecording();
   const [
     tenantId,
     interactionId,

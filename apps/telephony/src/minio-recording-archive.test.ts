@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -24,6 +24,12 @@ test('recording archive maps the FreeSWITCH path to a tenant-safe shared volume 
   const telephonyPath = `/var/lib/freeswitch/recordings/${tenantId}/call.wav`;
 
   await archive.prepare({ tenantId, telephonyPath });
+  const recordingDirectory = await stat(join(hostDirectory, tenantId));
+  assert.equal(
+    recordingDirectory.mode & 0o777,
+    0o777,
+    'FreeSWITCH container ต้องเขียน tenant recording directory ได้',
+  );
   await writeFile(join(hostDirectory, tenantId, 'call.wav'), Buffer.from('RIFF-test-wave'));
   await archive.archive({
     tenantId,
