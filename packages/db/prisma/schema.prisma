@@ -65,6 +65,12 @@ model Tenant {
   dlOutboxEntries              DlOutboxEntry[]
   jrScheduleOccurrences        JrScheduleOccurrence[]
   jrStepRuns                   JrStepRun[]
+  jrOutcomeReceipts            JrOutcomeReceipt[]
+  jrOutcomeHeads               JrOutcomeHead[]
+  jrOwnerActions               JrOwnerAction[]
+  jrOwnerCommandOutbox         JrOwnerCommandOutbox[]
+  jrOwnerResultInbox           JrOwnerResultInbox[]
+  jrRecoveryAudit              JrRecoveryAudit[]
   obAttempts                   ObAttempt[]
   obGovernanceConsumerInbox    ObGovernanceConsumerInbox[]
   obGovernanceAcknowledgements ObGovernanceAcknowledgementOutbox[]
@@ -1473,6 +1479,225 @@ model ObGovernanceEffectOutbox {
   @@unique([tenantId, eventId, attemptId, kind])
   @@index([tenantId, state, availableAt])
   @@map("ob_governance_effect_outbox")
+}
+
+// ─────────────────────── J2.3: outcome/action durable foundation ───────────────────────
+// Journey เป็นเจ้าของ receipt/action/command/result เหล่านี้เท่านั้น — ไม่ใช่ canonical
+// Case/Campaign/Callback state ของ owner ตาม #121; ที่นี่ยังไม่มี trigger matching, owner
+// implementation หรือ relay transport จริง (J2.3 คือ schema/primitive เท่านั้น)
+
+/// ผลดำเนินการของ receipt แต่ละใบ — ตรงกับ diagram ที่ยืนยันใน #123
+/// (RETRYABLE_FAILURE เป็น transient ระหว่าง retry เท่านั้น ไม่ persist เป็น state แยก
+/// แถวที่ retry ได้จะถูกส่งกลับไป READY พร้อม backoff บน `availableAt`)
+enum JrOutcomeReceiptState {
+  RECEIVED
+  WAITING_FOR_GAP
+  READY
+  PROCESSING
+  APPLIED
+  IGNORED_SUPERSEDED
+  REVIEW
+  QUARANTINED
+}
+
+enum JrOwnerActionKind {
+  ENSURE_CASE
+  ADMIT_CAMPAIGN_TARGET
+  SCHEDULE_CALLBACK
+}
+
+/// ตรงกับ business action lifecycle ที่ยืนยันใน #123 ทุก state
+enum JrOwnerActionState {
+  PENDING
+  DISPATCHED
+  ACKNOWLEDGED
+  REJECTED
+  ACK_UNKNOWN
+  CANCEL_REQUESTED
+  CANCELLED
+  TOO_LATE
+  RECONCILING
+}
+
+enum JrOwnerCommandState {
+  PENDING
+  SENT
+  FAILED
+}
+
+/// ผลที่ owner ตอบกลับมาได้ — แยกจาก JrOwnerActionState เพราะ PENDING/DISPATCHED/
+/// CANCEL_REQUESTED ไม่ใช่ "ผล" ที่ owner ส่งกลับ
+enum JrOwnerResultKind {
+  ACKNOWLEDGED
+  REJECTED
+  ACK_UNKNOWN
+  CANCELLED
+  TOO_LATE
+  RECONCILING
+}
+
+enum JrOwnerResultOutcome {
+  APPLIED
+  DUPLICATE
+  CONFLICT
+}
+
+enum JrRecoveryOperation {
+  REPLAY
+  RECONCILE
+  CANCEL
+  SKIP_QUARANTINE
+}
+
+enum JrRecoveryTargetKind {
+  RECEIPT
+  ACTION
+}
+
+/// J2.3 — durable receipt ของ canonical interaction outcome revision หนึ่งใบ transport
+/// identity `(source, eventId)` แยกจาก logical stream identity
+/// `(outcomeType, outcomeId, outcomeVersion)` ตามที่ยืนยันใน #123; ไม่มี raw contact
+/// data — เก็บเฉพาะ internal ID, hash และ metadata
+model JrOutcomeReceipt {
+  id               String                @id @default(uuid()) @db.Uuid
+  tenantId         String                @map("tenant_id") @db.Uuid
+  source           String
+  eventId          String                @map("event_id")
+  outcomeType      String                @map("outcome_type")
+  outcomeId        String                @map("outcome_id") @db.Uuid
+  outcomeVersion   Int                   @map("outcome_version")
+  payloadHash      String                @map("payload_hash") @db.Char(64)
+  state            JrOutcomeReceiptState @default(RECEIVED)
+  attempts         Int                   @default(0)
+  leaseOwner       String?               @map("lease_owner")
+  leaseExpiresAt   DateTime?             @map("lease_expires_at")
+  availableAt      DateTime              @default(now()) @map("available_at")
+  reviewReasonCode String?               @map("review_reason_code")
+  lastError        String?               @map("last_error")
+  correlationId    String                @map("correlation_id")
+  causationId      String?               @map("causation_id")
+  receivedAt       DateTime              @default(now()) @map("received_at")
+  appliedAt        DateTime?             @map("applied_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, source, eventId])
+  @@unique([tenantId, outcomeType, outcomeId, outcomeVersion])
+  @@index([tenantId, state, availableAt])
+  @@map("jr_outcome_receipts")
+}
+
+/// head ของ logical outcome stream หนึ่งเส้น — เทียบเท่า `CgContactStateHead` ของ CG3
+/// แต่ scope เป็น `(outcomeType, outcomeId)` ของ J2 เอง ไม่ใช่ contact aggregate
+model JrOutcomeHead {
+  tenantId             String   @map("tenant_id") @db.Uuid
+  outcomeType          String   @map("outcome_type")
+  outcomeId            String   @map("outcome_id") @db.Uuid
+  lastAppliedVersion   Int      @default(0) @map("last_applied_version")
+  lastAppliedReceiptId String?  @map("last_applied_receipt_id") @db.Uuid
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@id([tenantId, outcomeType, outcomeId])
+  @@map("jr_outcome_heads")
+}
+
+/// J2.3 — Journey-owned record ของ owner action intent หนึ่งชิ้น ผูกกับ stable
+/// `actionKey = enrollmentId:journeyVersion:stepId` ตาม #123; เก็บเฉพาะ owner
+/// aggregate reference/version เป็น audit snapshot ไม่ใช่ canonical owner state
+model JrOwnerAction {
+  id                    String             @id @default(uuid()) @db.Uuid
+  tenantId              String             @map("tenant_id") @db.Uuid
+  actionKey             String             @map("action_key")
+  enrollmentId          String             @map("enrollment_id") @db.Uuid
+  outcomeReceiptId      String?            @map("outcome_receipt_id") @db.Uuid
+  kind                  JrOwnerActionKind
+  requestHash           String             @map("request_hash") @db.Char(64)
+  state                 JrOwnerActionState @default(PENDING)
+  ownerAggregateRef     String?            @map("owner_aggregate_ref")
+  ownerAggregateVersion Int?               @map("owner_aggregate_version")
+  attempts              Int                @default(0)
+  dispatchedAt          DateTime?          @map("dispatched_at")
+  acknowledgedAt        DateTime?          @map("acknowledged_at")
+  cancelRequestedAt     DateTime?          @map("cancel_requested_at")
+  lastError             String?            @map("last_error")
+  correlationId         String             @map("correlation_id")
+  createdAt             DateTime           @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, actionKey])
+  @@index([tenantId, enrollmentId])
+  @@index([tenantId, state])
+  @@map("jr_owner_actions")
+}
+
+/// transactional outbox ของ command ที่จะ relay ไปยัง owner — J2.3 มีแค่ตาราง/primitive
+/// การ relay transport จริงเป็น scope ของ ticket ถัดไป
+model JrOwnerCommandOutbox {
+  id            String              @id @default(uuid()) @db.Uuid
+  tenantId      String              @map("tenant_id") @db.Uuid
+  commandId     String              @map("command_id")
+  actionId      String              @map("action_id") @db.Uuid
+  actionKey     String              @map("action_key")
+  kind          JrOwnerActionKind
+  requestHash   String              @map("request_hash") @db.Char(64)
+  correlationId String              @map("correlation_id")
+  state         JrOwnerCommandState @default(PENDING)
+  attempts      Int                 @default(0)
+  availableAt   DateTime            @default(now()) @map("available_at")
+  sentAt        DateTime?           @map("sent_at")
+  lastError     String?             @map("last_error")
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, commandId])
+  @@index([tenantId, state, availableAt])
+  @@map("jr_owner_command_outbox")
+}
+
+/// inbox ของผลที่ owner ส่งกลับมาต่อ command หนึ่งใบ — idempotent apply ต่อ
+/// `(tenantId, commandId)`; ผลที่มาซ้ำ/ขัดกันไม่ทำให้ action ขยับสถานะซ้ำ
+model JrOwnerResultInbox {
+  id                    String                @id @default(uuid()) @db.Uuid
+  tenantId              String                @map("tenant_id") @db.Uuid
+  commandId             String                @map("command_id")
+  actionKey             String                @map("action_key")
+  resultKind            JrOwnerResultKind     @map("result_kind")
+  ownerAggregateRef     String?               @map("owner_aggregate_ref")
+  ownerAggregateVersion Int?                  @map("owner_aggregate_version")
+  resultHash            String                @map("result_hash") @db.Char(64)
+  outcome               JrOwnerResultOutcome  @default(APPLIED)
+  correlationId         String                @map("correlation_id")
+  receivedAt            DateTime              @default(now()) @map("received_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, commandId])
+  @@index([tenantId, actionKey])
+  @@map("jr_owner_result_inbox")
+}
+
+/// audit ของ manual recovery (replay/reconcile/cancel/skip-quarantine) แบบ append-only
+/// เท่านั้น — ตาราง reuse identity เดิม ห้ามแก้ canonical row/offset/receipt โดยตรง
+model JrRecoveryAudit {
+  id          String               @id @default(uuid()) @db.Uuid
+  tenantId    String               @map("tenant_id") @db.Uuid
+  operation   JrRecoveryOperation
+  targetKind  JrRecoveryTargetKind @map("target_kind")
+  /// opaque reference เดิมที่ reuse ได้ (eventId/outcomeId หรือ actionKey) ไม่ใช่ raw PII
+  targetRef   String               @map("target_ref")
+  reasonCode  String               @map("reason_code")
+  actorId     String               @map("actor_id") @db.Uuid
+  evidenceRef String?              @map("evidence_ref")
+  occurredAt  DateTime             @default(now()) @map("occurred_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, targetKind, targetRef, occurredAt])
+  @@map("jr_recovery_audit")
 }
 
 enum JrJourneyDefinitionStatus {
