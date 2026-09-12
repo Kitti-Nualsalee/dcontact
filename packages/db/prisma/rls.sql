@@ -107,3 +107,9 @@ REVOKE DELETE ON cs_cases FROM dcontact_app;
 REVOKE DELETE ON cs_case_links FROM dcontact_app;
 REVOKE DELETE ON cs_case_activities FROM dcontact_app;
 REVOKE DELETE ON cs_command_inbox FROM dcontact_app;
+-- J2.5: Dialer ADMIT_CAMPAIGN_TARGET owner slice — fixture/target/command เดินสถานะได้
+-- แต่ห้ามหายทั้งแถว
+REVOKE DELETE ON ob_campaigns FROM dcontact_app;
+REVOKE DELETE ON ob_campaign_admission_policies FROM dcontact_app;
+REVOKE DELETE ON ob_campaign_targets FROM dcontact_app;
+REVOKE DELETE ON ob_dialer_command_inbox FROM dcontact_app;
