@@ -99,3 +99,11 @@ REVOKE DELETE ON jr_owner_actions FROM dcontact_app;
 REVOKE DELETE ON jr_owner_command_outbox FROM dcontact_app;
 REVOKE DELETE ON jr_owner_result_inbox FROM dcontact_app;
 REVOKE UPDATE, DELETE ON jr_recovery_audit FROM dcontact_app;
+-- J2.4: Cases ENSURE_CASE owner slice — fixture/case/link/activity/command เดินสถานะได้
+-- แต่ห้ามหายทั้งแถว
+REVOKE DELETE ON cs_case_type_policies FROM dcontact_app;
+REVOKE DELETE ON cs_routing_policies FROM dcontact_app;
+REVOKE DELETE ON cs_cases FROM dcontact_app;
+REVOKE DELETE ON cs_case_links FROM dcontact_app;
+REVOKE DELETE ON cs_case_activities FROM dcontact_app;
+REVOKE DELETE ON cs_command_inbox FROM dcontact_app;
