@@ -32,7 +32,10 @@ BEGIN
     'cg_policy_activation_job', 'cg_exception', 'cg_exception_head', 'cg_exception_approval',
     'cg_scope_kill_switch', 'cg4_backfill_ledger', 'cg_exception_contact_head',
     -- CG4.3 (#186)
-    'cg_delegation'
+    'cg_delegation',
+    -- J3.2 (#213)
+    'c360_segment_definitions', 'c360_segment_definition_heads',
+    'c360_fact_snapshots', 'c360_segment_evaluations'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -138,3 +141,8 @@ REVOKE DELETE ON cg_scope_kill_switch FROM dcontact_app;
 REVOKE DELETE ON cg_exception_contact_head FROM dcontact_app;
 -- CG4.3 (#186): delegation is append-only, same reasoning as above.
 REVOKE UPDATE, DELETE ON cg_delegation FROM dcontact_app;
+-- J3.2: definition เดินได้เฉพาะ lifecycle ผ่าน DB trigger; snapshot/evaluation เป็น immutable
+REVOKE DELETE ON c360_segment_definitions FROM dcontact_app;
+REVOKE DELETE ON c360_segment_definition_heads FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_fact_snapshots FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_segment_evaluations FROM dcontact_app;
