@@ -184,6 +184,9 @@ importers:
 
   apps/dialer:
     dependencies:
+      '@d-contact/contact-governance':
+        specifier: workspace:*
+        version: link:../contact-governance
       '@d-contact/cxa-contracts':
         specifier: workspace:*
         version: link:../../packages/cxa-contracts
