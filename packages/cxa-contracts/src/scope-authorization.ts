@@ -40,9 +40,7 @@ export interface DeferredTeamContactScope {
 }
 
 export type TeamContactScopeAuthorization =
-  | AllowedTeamContactScope
-  | DeniedTeamContactScope
-  | DeferredTeamContactScope;
+  AllowedTeamContactScope | DeniedTeamContactScope | DeferredTeamContactScope;
 
 /**
  * IAM owns this authorization boundary. It must resolve current membership and

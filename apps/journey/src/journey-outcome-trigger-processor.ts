@@ -9,11 +9,7 @@
  * เพื่อให้ enrollment/action/receipt-transition เป็น atomic unit เดียว
  */
 import { randomUUID } from 'node:crypto';
-import {
-  Prisma,
-  type PrismaClient,
-  withTenantDatabaseTransaction,
-} from '@d-contact/db';
+import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import {
   actionKey as toActionKey,
   campaignId as toCampaignId,
@@ -46,12 +42,7 @@ export interface InteractionOutcomeReceiptPayload {
 }
 
 export type TriggerProcessingOutcome =
-  | 'ENROLLED'
-  | 'NO_MATCH'
-  | 'REVIEW'
-  | 'DEFERRED'
-  | 'BLOCKED'
-  | undefined;
+  'ENROLLED' | 'NO_MATCH' | 'REVIEW' | 'DEFERRED' | 'BLOCKED' | undefined;
 
 export interface JourneyOutcomeTriggerProcessorPorts {
   identityResolver: CustomerIdentityResolver<Prisma.TransactionClient>;
@@ -86,7 +77,11 @@ function buildCommandDraft(
     contractVersion: 1 as const,
     commandId: toCommandId(randomUUID()),
     actionKey: toActionKey(
-      createJourneyActionKey({ enrollmentId, journeyVersion: matched.version, stepId: entryStep.id }),
+      createJourneyActionKey({
+        enrollmentId,
+        journeyVersion: matched.version,
+        stepId: entryStep.id,
+      }),
     ),
     journeyId: toJourneyId(matched.journeyId),
     journeyVersion: matched.version,
@@ -106,7 +101,10 @@ function buildCommandDraft(
     return {
       ...common,
       commandType: 'ENSURE_CASE',
-      intent: { caseTypePolicyRef: entryStep.caseTypeId, routingPolicyRef: entryStep.routingIntentRef },
+      intent: {
+        caseTypePolicyRef: entryStep.caseTypeId,
+        routingPolicyRef: entryStep.routingIntentRef,
+      },
     };
   }
   if (entryStep.type === 'ADMIT_CAMPAIGN_TARGET') {

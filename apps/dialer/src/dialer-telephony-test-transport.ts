@@ -15,8 +15,7 @@ export interface TelephonyOriginateRequest {
 }
 
 export type TelephonyOriginateResponse =
-  | { status: 'ACCEPTED' }
-  | { status: 'REJECTED'; reasonCode: string };
+  { status: 'ACCEPTED' } | { status: 'REJECTED'; reasonCode: string };
 
 export interface TelephonyTransport {
   originate(request: TelephonyOriginateRequest): Promise<TelephonyOriginateResponse>;
@@ -26,7 +25,9 @@ export class ProviderTrafficNotAllowedError extends Error {
   readonly code = 'PROVIDER_TRAFFIC_NOT_ALLOWED';
 
   constructor(readonly adapter: string) {
-    super(`Dialer originate barrier ไม่รับ adapter อื่นนอกจาก ${TELEPHONY_TEST_ADAPTER}: ${adapter}`);
+    super(
+      `Dialer originate barrier ไม่รับ adapter อื่นนอกจาก ${TELEPHONY_TEST_ADAPTER}: ${adapter}`,
+    );
     this.name = 'ProviderTrafficNotAllowedError';
   }
 }

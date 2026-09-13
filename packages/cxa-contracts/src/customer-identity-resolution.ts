@@ -37,9 +37,7 @@ export interface UnresolvedContactIdentity {
 }
 
 export type ContactIdentityResolution =
-  | ResolvedContactIdentity
-  | AmbiguousContactIdentity
-  | UnresolvedContactIdentity;
+  ResolvedContactIdentity | AmbiguousContactIdentity | UnresolvedContactIdentity;
 
 /**
  * Customer 360 owns this read boundary, same as `CustomerContextReader`. Callers

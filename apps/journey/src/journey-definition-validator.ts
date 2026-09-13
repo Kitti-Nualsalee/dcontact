@@ -167,7 +167,11 @@ function validateActionIntentReferences(
   return [];
 }
 
-const ACTION_INTENT_STEP_TYPES = new Set(['ENSURE_CASE', 'ADMIT_CAMPAIGN_TARGET', 'SCHEDULE_CALLBACK']);
+const ACTION_INTENT_STEP_TYPES = new Set([
+  'ENSURE_CASE',
+  'ADMIT_CAMPAIGN_TARGET',
+  'SCHEDULE_CALLBACK',
+]);
 
 /**
  * J2.7: enrollment/action intent ต้องถูกสร้าง atomic กับ receipt transition — ผูก

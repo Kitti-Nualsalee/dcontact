@@ -35,6 +35,8 @@
     "test:cxa-c1-readiness": "node --test scripts/cxa-c1-readiness.test.mjs",
     "s1:acceptance": "node scripts/s1-readiness.mjs",
     "test:s1-readiness": "node --test scripts/s1-readiness.test.mjs",
+    "cxa:j2:acceptance": "node scripts/cxa-j2-readiness.mjs",
+    "test:cxa-j2-readiness": "node --test scripts/cxa-j2-readiness.test.mjs",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   },
   "devDependencies": {

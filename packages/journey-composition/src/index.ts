@@ -114,7 +114,9 @@ export interface JourneyOutcomeTriggerPorts {
   teamContactScopeAuthorizer: TeamContactScopeAuthorizer<Prisma.TransactionClient>;
 }
 
-export function createJourneyOutcomeTriggerPorts(database: PrismaClient): JourneyOutcomeTriggerPorts {
+export function createJourneyOutcomeTriggerPorts(
+  database: PrismaClient,
+): JourneyOutcomeTriggerPorts {
   return {
     identityResolver: new PrismaCustomerIdentityResolver(database),
     teamContactScopeAuthorizer: new PrismaTeamContactScopeAuthorizer(database),

@@ -10,10 +10,7 @@
 export type DialerActorRole = 'TENANT_ADMIN' | 'COMPLIANCE' | 'PLATFORM_OPERATOR';
 
 export type DialerBarrierBusinessState =
-  | 'DISABLED'
-  | 'SHADOW_RECEIPT'
-  | 'OWNER_CONFORMANCE'
-  | 'SCOPED_INTERNAL_ENABLED';
+  'DISABLED' | 'SHADOW_RECEIPT' | 'OWNER_CONFORMANCE' | 'SCOPED_INTERNAL_ENABLED';
 
 export type DialerBarrierEffectiveState = DialerBarrierBusinessState | 'KILLED';
 
@@ -93,11 +90,7 @@ export class DialerOwnerBarrierGate {
     return state.killed ? 'KILLED' : state.businessState;
   }
 
-  propose(
-    tenantId: string,
-    actorRole: DialerActorRole,
-    target: DialerBarrierBusinessState,
-  ): void {
+  propose(tenantId: string, actorRole: DialerActorRole, target: DialerBarrierBusinessState): void {
     if (actorRole !== 'TENANT_ADMIN') throw new DialerGateAuthorizationError(actorRole, 'propose');
     const state = this.stateFor(tenantId);
     if (state.killed) throw new DialerGateInvalidTransitionError(state.businessState, target);
@@ -107,7 +100,12 @@ export class DialerOwnerBarrierGate {
       throw new DialerGateInvalidTransitionError(state.businessState, target);
     }
     state.pendingProposal = target;
-    this.log({ tenantId, action: 'PROPOSE', actorRole, detail: `${state.businessState}->${target}` });
+    this.log({
+      tenantId,
+      action: 'PROPOSE',
+      actorRole,
+      detail: `${state.businessState}->${target}`,
+    });
   }
 
   approve(tenantId: string, actorRole: DialerActorRole): void {
@@ -140,7 +138,12 @@ export class DialerOwnerBarrierGate {
     state.killed = true;
     state.killTrigger = trigger;
     state.pendingProposal = undefined;
-    this.log({ tenantId, action: 'KILL', actorRole: 'PLATFORM_OPERATOR', detail: `SYSTEM:${trigger}` });
+    this.log({
+      tenantId,
+      action: 'KILL',
+      actorRole: 'PLATFORM_OPERATOR',
+      detail: `SYSTEM:${trigger}`,
+    });
   }
 
   killTriggerFor(tenantId: string): DialerBarrierKillTrigger | undefined {

@@ -116,7 +116,9 @@ async function publishOutcomeJourney(
 
 function allowResolver(contactId: string) {
   return {
-    async resolveByContactId(_input: ResolveContactIdentityInput): Promise<ContactIdentityResolution> {
+    async resolveByContactId(
+      _input: ResolveContactIdentityInput,
+    ): Promise<ContactIdentityResolution> {
       return {
         status: 'RESOLVED',
         contactId: toContactId(contactId),
@@ -130,12 +132,18 @@ function allowResolver(contactId: string) {
 
 function fixedScope(decision: TeamContactScopeAuthorization['decision']) {
   return {
-    async authorize(_input: AuthorizeTeamContactScopeInput): Promise<TeamContactScopeAuthorization> {
+    async authorize(
+      _input: AuthorizeTeamContactScopeInput,
+    ): Promise<TeamContactScopeAuthorization> {
       if (decision === 'ALLOW') {
         return { decision: 'ALLOW', scopeVersion: 1, evaluatedAt: new Date().toISOString() };
       }
       if (decision === 'DEFER') {
-        return { decision: 'DEFER', reasonCode: 'SCOPE_CONTEXT_STALE', evaluatedAt: new Date().toISOString() };
+        return {
+          decision: 'DEFER',
+          reasonCode: 'SCOPE_CONTEXT_STALE',
+          evaluatedAt: new Date().toISOString(),
+        };
       }
       return {
         decision: 'DENY',
@@ -185,7 +193,9 @@ test('outcome ที่ match trigger และผ่าน WORK scope ทั้
   const outcome = await processor.executeNext(f.tenantId, 'worker-1');
   assert.equal(outcome, 'ENROLLED');
 
-  const enrollment = await f.owner.jrEnrollment.findFirstOrThrow({ where: { tenantId: f.tenantId } });
+  const enrollment = await f.owner.jrEnrollment.findFirstOrThrow({
+    where: { tenantId: f.tenantId },
+  });
   assert.equal(enrollment.state, 'AUTHORIZED');
   assert.equal(enrollment.contactId, f.contactId);
   assert.equal(enrollment.currentStepId, 'admit');
@@ -203,7 +213,9 @@ test('outcome ที่ match trigger และผ่าน WORK scope ทั้
   });
   assert.ok(outbox.payload, 'command payload ต้องถูก stage พร้อม relay จริง');
 
-  const receipt = await f.owner.jrOutcomeReceipt.findFirstOrThrow({ where: { tenantId: f.tenantId } });
+  const receipt = await f.owner.jrOutcomeReceipt.findFirstOrThrow({
+    where: { tenantId: f.tenantId },
+  });
   assert.equal(receipt.state, 'APPLIED');
 });
 
@@ -221,7 +233,9 @@ test('receipt ที่ไม่มี contactId เข้า REVIEW/IDENTITY_UN
   const outcome = await processor.executeNext(f.tenantId, 'worker-1');
   assert.equal(outcome, 'REVIEW');
 
-  const receipt = await f.owner.jrOutcomeReceipt.findFirstOrThrow({ where: { tenantId: f.tenantId } });
+  const receipt = await f.owner.jrOutcomeReceipt.findFirstOrThrow({
+    where: { tenantId: f.tenantId },
+  });
   assert.equal(receipt.state, 'REVIEW');
   assert.equal(receipt.reviewReasonCode, 'IDENTITY_UNRESOLVED');
   assert.equal(await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }), 0);
@@ -241,7 +255,9 @@ test('scope ที่ stale คืน DEFER ไม่มี side effect แล�
   const outcome = await processor.executeNext(f.tenantId, 'worker-1');
   assert.equal(outcome, 'DEFERRED');
 
-  const receipt = await f.owner.jrOutcomeReceipt.findFirstOrThrow({ where: { tenantId: f.tenantId } });
+  const receipt = await f.owner.jrOutcomeReceipt.findFirstOrThrow({
+    where: { tenantId: f.tenantId },
+  });
   assert.equal(receipt.state, 'READY');
   assert.equal(await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }), 0);
 });
@@ -260,11 +276,15 @@ test('scope denial สร้าง enrollment BLOCKED โดยไม่มี o
   const outcome = await processor.executeNext(f.tenantId, 'worker-1');
   assert.equal(outcome, 'BLOCKED');
 
-  const enrollment = await f.owner.jrEnrollment.findFirstOrThrow({ where: { tenantId: f.tenantId } });
+  const enrollment = await f.owner.jrEnrollment.findFirstOrThrow({
+    where: { tenantId: f.tenantId },
+  });
   assert.equal(enrollment.state, 'BLOCKED');
   assert.equal(await f.owner.jrOwnerAction.count({ where: { tenantId: f.tenantId } }), 0);
 
-  const receipt = await f.owner.jrOutcomeReceipt.findFirstOrThrow({ where: { tenantId: f.tenantId } });
+  const receipt = await f.owner.jrOutcomeReceipt.findFirstOrThrow({
+    where: { tenantId: f.tenantId },
+  });
   assert.equal(receipt.state, 'APPLIED');
 });
 
@@ -281,7 +301,9 @@ test('outcome ที่ไม่มี published journey จับคู่ถ�
   const outcome = await processor.executeNext(f.tenantId, 'worker-1');
   assert.equal(outcome, 'NO_MATCH');
 
-  const receipt = await f.owner.jrOutcomeReceipt.findFirstOrThrow({ where: { tenantId: f.tenantId } });
+  const receipt = await f.owner.jrOutcomeReceipt.findFirstOrThrow({
+    where: { tenantId: f.tenantId },
+  });
   assert.equal(receipt.state, 'APPLIED');
   assert.equal(await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }), 0);
 });

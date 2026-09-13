@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DialerGateAuthorizationError, DialerGateInvalidTransitionError, DialerOwnerBarrierGate } from './dialer-owner-barrier-gate.js';
+import {
+  DialerGateAuthorizationError,
+  DialerGateInvalidTransitionError,
+  DialerOwnerBarrierGate,
+} from './dialer-owner-barrier-gate.js';
 
 function clock(startMs = 0) {
   let now = startMs;
@@ -38,10 +42,7 @@ test('actor role ที่ไม่ตรงถูกปฏิเสธเป็
     DialerGateAuthorizationError,
   );
   gate.propose(tenant, 'TENANT_ADMIN', 'SHADOW_RECEIPT');
-  assert.throws(
-    () => gate.approve(tenant, 'TENANT_ADMIN'),
-    DialerGateAuthorizationError,
-  );
+  assert.throws(() => gate.approve(tenant, 'TENANT_ADMIN'), DialerGateAuthorizationError);
 });
 
 test('kill ชนะทุก state ทันทีและปฏิเสธ propose ต่อจากนั้น', () => {
