@@ -299,6 +299,7 @@ test('unique scope head, immutable exception/published policy และ kill-swi
     headPolicyId: policy.policyId,
     headPolicyVersion: policy.version,
     headPolicyRevisionId: policy.id,
+    headDigest: 'e'.repeat(64),
   };
   await f.owner.cg4PolicyScopeHead.create({ data: head });
   await assert.rejects(f.owner.cg4PolicyScopeHead.create({ data: { ...head, id: randomUUID() } }));
