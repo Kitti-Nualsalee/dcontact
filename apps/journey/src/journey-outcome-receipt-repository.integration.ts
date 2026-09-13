@@ -46,6 +46,7 @@ function baseInput(
     outcomeId: randomUUID(),
     outcomeVersion: 1,
     payloadHash: 'a'.repeat(64),
+    payload: { interactionId: randomUUID(), occurredAt: new Date().toISOString() },
     correlationId: 'corr-1',
     ...overrides,
   };

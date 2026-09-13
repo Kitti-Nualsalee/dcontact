@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DcExprEvaluator } from '@d-contact/expression';
-import type { JourneyDefinitionContent } from './journey-definition.js';
+import type { JourneyDefinitionContent, JourneyGraph } from './journey-definition.js';
 import { validateJourneyDefinitionStructure } from './journey-definition-validator.js';
 
 const evaluator = new DcExprEvaluator();
@@ -238,6 +238,25 @@ test('BRANCH ที่อ้าง forbidden reference segment ถูกปฏ�
   assert.deepEqual(codes, ['BRANCH_EXPRESSION_INVALID']);
 });
 
+/** entry step ต้องเป็น action-intent step เมื่อ trigger เป็น INTERACTION_OUTCOME (#135) */
+function outcomeTriggerGraph(): JourneyGraph {
+  return {
+    entryStepId: 'admit',
+    steps: [
+      {
+        id: 'admit',
+        type: 'ADMIT_CAMPAIGN_TARGET',
+        campaignId: 'campaign-1',
+        targetOwnerTeamId: 'team-dialer',
+        next: 'exit-goal',
+        onReject: 'exit-rejected',
+      },
+      { id: 'exit-goal', type: 'EXIT', reason: 'GOAL_REACHED' },
+      { id: 'exit-rejected', type: 'EXIT', reason: 'REJECTED' },
+    ],
+  };
+}
+
 test('trigger INTERACTION_OUTCOME ที่ outcomeType อยู่ใน allowlist ผ่านการตรวจ', () => {
   const codes = validateJourneyDefinitionStructure(
     validDefinition({
@@ -247,6 +266,7 @@ test('trigger INTERACTION_OUTCOME ที่ outcomeType อยู่ใน allow
         outcomeCode: 'CALLBACK_REQUESTED',
         coalescingPolicy: 'PER_LOGICAL_OUTCOME',
       },
+      graph: outcomeTriggerGraph(),
     }),
     evaluator,
   );
@@ -262,6 +282,7 @@ test('trigger INTERACTION_OUTCOME ที่ outcomeType ไม่อยู่ใ
         outcomeType: 'INTERACTION_QUEUED',
         coalescingPolicy: 'PER_LOGICAL_OUTCOME',
       },
+      graph: outcomeTriggerGraph(),
     }),
     evaluator,
   );
@@ -277,6 +298,7 @@ test('trigger INTERACTION_OUTCOME ที่ coalescingPolicy ไม่ใช่ 
         // @ts-expect-error -- V1 รองรับ PER_LOGICAL_OUTCOME เท่านั้น
         coalescingPolicy: 'PER_INTERACTION',
       },
+      graph: outcomeTriggerGraph(),
     }),
     evaluator,
   );
@@ -292,10 +314,25 @@ test('trigger INTERACTION_OUTCOME ที่ outcomeCode เป็น free text �
         outcomeCode: 'call the customer back please',
         coalescingPolicy: 'PER_LOGICAL_OUTCOME',
       },
+      graph: outcomeTriggerGraph(),
     }),
     evaluator,
   );
   assert.deepEqual(codes, ['TRIGGER_INVALID']);
+});
+
+test('trigger INTERACTION_OUTCOME ที่ entry step ไม่ใช่ action-intent step ถูกปฏิเสธเป็น ENTRY_STEP_ACTION_INTENT_REQUIRED', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      trigger: {
+        kind: 'INTERACTION_OUTCOME',
+        outcomeType: 'INTERACTION_ABANDONED',
+        coalescingPolicy: 'PER_LOGICAL_OUTCOME',
+      },
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, ['ENTRY_STEP_ACTION_INTENT_REQUIRED']);
 });
 
 test('ENSURE_CASE step ที่ครบ field ผ่านการตรวจและ reject path เข้าเงื่อนไข reachability', () => {
@@ -309,6 +346,7 @@ test('ENSURE_CASE step ที่ครบ field ผ่านการตรว�
             type: 'ENSURE_CASE',
             caseTypeId: 'case-type-collections',
             routingIntentRef: 'routing-collections-default',
+            targetOwnerTeamId: 'team-cases',
             next: 'exit-linked',
             onReject: 'exit-rejected',
           },
@@ -332,6 +370,7 @@ test('ADMIT_CAMPAIGN_TARGET ที่ขาด onReject ถูกปฏิเส
             id: 'admit',
             type: 'ADMIT_CAMPAIGN_TARGET',
             campaignId: 'campaign-1',
+            targetOwnerTeamId: 'team-dialer',
             next: 'exit-goal',
             onReject: '',
           },
@@ -354,6 +393,8 @@ test('SCHEDULE_CALLBACK ที่ requestedInSeconds ติดลบถูกป
             id: 'callback',
             type: 'SCHEDULE_CALLBACK',
             requestedInSeconds: -60,
+            queueId: 'queue-collections',
+            targetOwnerTeamId: 'team-dialer',
             next: 'exit-goal',
             onReject: 'exit-rejected',
           },
@@ -377,6 +418,7 @@ test('action intent step ที่ target reference เป็น free text/PII �
             id: 'admit',
             type: 'ADMIT_CAMPAIGN_TARGET',
             campaignId: 'somebody@example.com',
+            targetOwnerTeamId: 'team-dialer',
             next: 'exit-goal',
             onReject: 'exit-rejected',
           },
@@ -402,6 +444,7 @@ test('SCHEDULE_CALLBACK ที่ queueId เป็น opaque id ผ่าน �
             requestedInSeconds: 3600,
             queueId: 'queue-collections',
             agentId: 'agent 42',
+            targetOwnerTeamId: 'team-dialer',
             next: 'exit-goal',
             onReject: 'exit-rejected',
           },

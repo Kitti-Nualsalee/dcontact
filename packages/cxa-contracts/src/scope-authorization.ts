@@ -1,6 +1,11 @@
 import type { ContactId, TeamId, TenantId } from './identifiers.js';
 
-export type ContactScopePermission = 'CONTACT';
+/**
+ * `WORK` is additive for J2 (#122): a cross-team owner-command checkpoint distinct
+ * from the C1 `CONTACT` outbound-send permission. Adding it does not change what
+ * `CONTACT` means or how existing C1 callers evaluate it.
+ */
+export type ContactScopePermission = 'CONTACT' | 'WORK';
 
 export interface AuthorizeTeamContactScopeInput {
   tenantId: TenantId;
@@ -23,7 +28,21 @@ export interface DeniedTeamContactScope {
   evaluatedAt: string;
 }
 
-export type TeamContactScopeAuthorization = AllowedTeamContactScope | DeniedTeamContactScope;
+/**
+ * Additive for J2 (#122): current membership/scope projection is stale or could not
+ * be refreshed. This must never be treated as `ALLOW` after a later refresh — the
+ * caller retries authorization from scratch instead of caching this result.
+ */
+export interface DeferredTeamContactScope {
+  decision: 'DEFER';
+  reasonCode: 'SCOPE_CONTEXT_STALE';
+  evaluatedAt: string;
+}
+
+export type TeamContactScopeAuthorization =
+  | AllowedTeamContactScope
+  | DeniedTeamContactScope
+  | DeferredTeamContactScope;
 
 /**
  * IAM owns this authorization boundary. It must resolve current membership and

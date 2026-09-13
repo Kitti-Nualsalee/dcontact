@@ -98,12 +98,15 @@ function stepShapeValid(step: JourneyGraphStep): boolean {
     case 'ENSURE_CASE':
       return (
         isNonEmptyString(step.caseTypeId) &&
+        isNonEmptyString(step.routingIntentRef) &&
+        isNonEmptyString(step.targetOwnerTeamId) &&
         isNonEmptyString(step.next) &&
         isNonEmptyString(step.onReject)
       );
     case 'ADMIT_CAMPAIGN_TARGET':
       return (
         isNonEmptyString(step.campaignId) &&
+        isNonEmptyString(step.targetOwnerTeamId) &&
         isNonEmptyString(step.next) &&
         isNonEmptyString(step.onReject)
       );
@@ -111,6 +114,8 @@ function stepShapeValid(step: JourneyGraphStep): boolean {
       return (
         Number.isFinite(step.requestedInSeconds) &&
         step.requestedInSeconds >= 0 &&
+        isNonEmptyString(step.queueId) &&
+        isNonEmptyString(step.targetOwnerTeamId) &&
         isNonEmptyString(step.next) &&
         isNonEmptyString(step.onReject)
       );
@@ -146,21 +151,37 @@ function validateActionIntentReferences(
   for (const step of steps) {
     if (step.type === 'ENSURE_CASE') {
       if (!isOpaqueId(step.caseTypeId)) return ['ACTION_INTENT_REFERENCE_INVALID'];
-      if (step.routingIntentRef !== undefined && !isOpaqueId(step.routingIntentRef)) {
-        return ['ACTION_INTENT_REFERENCE_INVALID'];
-      }
+      if (!isOpaqueId(step.routingIntentRef)) return ['ACTION_INTENT_REFERENCE_INVALID'];
+      if (!isOpaqueId(step.targetOwnerTeamId)) return ['ACTION_INTENT_REFERENCE_INVALID'];
     } else if (step.type === 'ADMIT_CAMPAIGN_TARGET') {
       if (!isOpaqueId(step.campaignId)) return ['ACTION_INTENT_REFERENCE_INVALID'];
+      if (!isOpaqueId(step.targetOwnerTeamId)) return ['ACTION_INTENT_REFERENCE_INVALID'];
     } else if (step.type === 'SCHEDULE_CALLBACK') {
-      if (step.queueId !== undefined && !isOpaqueId(step.queueId)) {
-        return ['ACTION_INTENT_REFERENCE_INVALID'];
-      }
+      if (!isOpaqueId(step.queueId)) return ['ACTION_INTENT_REFERENCE_INVALID'];
       if (step.agentId !== undefined && !isOpaqueId(step.agentId)) {
         return ['ACTION_INTENT_REFERENCE_INVALID'];
       }
+      if (!isOpaqueId(step.targetOwnerTeamId)) return ['ACTION_INTENT_REFERENCE_INVALID'];
     }
   }
   return [];
+}
+
+const ACTION_INTENT_STEP_TYPES = new Set(['ENSURE_CASE', 'ADMIT_CAMPAIGN_TARGET', 'SCHEDULE_CALLBACK']);
+
+/**
+ * J2.7: enrollment/action intent ต้องถูกสร้าง atomic กับ receipt transition — ผูก
+ * entry step ของ trigger ประเภทนี้ให้เป็น action-intent step โดยตรง แทนที่จะสร้าง step
+ * runner ที่สองสำหรับ mid-graph action intent ซึ่งไม่อยู่ใน scope ของ J2.7 (ดู #135)
+ */
+function validateOutcomeTriggerEntryStep(
+  content: JourneyDefinitionContent,
+): JourneyDefinitionValidationCode[] {
+  if (content.trigger.kind !== 'INTERACTION_OUTCOME') return [];
+  const entryStep = content.graph.steps.find((step) => step.id === content.graph.entryStepId);
+  return entryStep && ACTION_INTENT_STEP_TYPES.has(entryStep.type)
+    ? []
+    : ['ENTRY_STEP_ACTION_INTENT_REQUIRED'];
 }
 
 function validateGraphStructure(graph: JourneyGraph): {
@@ -277,6 +298,7 @@ export function validateJourneyDefinitionStructure(
       ? [
           ...validateBranchExpressions(branchSteps, evaluator),
           ...validateActionIntentReferences(content.graph.steps),
+          ...validateOutcomeTriggerEntryStep(content),
         ]
       : []),
   ];

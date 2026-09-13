@@ -10,6 +10,7 @@ import {
   type ContactGovernancePort,
   type ContactGovernanceRevalidationPort,
   type CustomerContextReader,
+  type CustomerIdentityResolver,
   type TeamContactScopeAuthorizer,
 } from '@d-contact/cxa-contracts';
 import {
@@ -101,6 +102,50 @@ class PrismaCustomerContextReader implements CustomerContextReader<Prisma.Transa
         : { status: 'NOT_FOUND' as const, reasonCode: 'IDENTITY_NOT_FOUND' as const };
     };
 
+    return transaction
+      ? resolve(transaction)
+      : withTenantDatabaseTransaction(this.database, input.tenantId, resolve);
+  }
+}
+
+/** J2.7 composition boundary: outcome trigger processing รับเพียง narrow ports เช่นเดียวกับ #135 */
+export interface JourneyOutcomeTriggerPorts {
+  identityResolver: CustomerIdentityResolver<Prisma.TransactionClient>;
+  teamContactScopeAuthorizer: TeamContactScopeAuthorizer<Prisma.TransactionClient>;
+}
+
+export function createJourneyOutcomeTriggerPorts(database: PrismaClient): JourneyOutcomeTriggerPorts {
+  return {
+    identityResolver: new PrismaCustomerIdentityResolver(database),
+    teamContactScopeAuthorizer: new PrismaTeamContactScopeAuthorizer(database),
+  };
+}
+
+class PrismaCustomerIdentityResolver implements CustomerIdentityResolver<Prisma.TransactionClient> {
+  constructor(private readonly database: PrismaClient) {}
+
+  async resolveByContactId(
+    input: Parameters<CustomerIdentityResolver<Prisma.TransactionClient>['resolveByContactId']>[0],
+    transaction?: Prisma.TransactionClient,
+  ) {
+    const resolve = async (client: Prisma.TransactionClient) => {
+      const contact = await client.contact.findFirst({
+        where: { id: input.contactId, tenantId: input.tenantId },
+        select: { id: true },
+      });
+      // E0/J2 ยังไม่มี contact-merge ledger จึงยังไม่มี survivor ต่างจาก input จริง —
+      // ปฏิบัติเหมือน PrismaTeamContactScopeAuthorizer: ซื่อสัตย์ต่อ capability ปัจจุบัน
+      // แทนที่จะ fake merge resolution ที่ระบบยังไม่รองรับ
+      return contact
+        ? {
+            status: 'RESOLVED' as const,
+            contactId: contactId(contact.id),
+            segmentMemberships: [],
+            snapshotVersion: 1,
+            evaluatedAt: input.at,
+          }
+        : { status: 'NOT_FOUND' as const, reasonCode: 'IDENTITY_NOT_FOUND' as const };
+    };
     return transaction
       ? resolve(transaction)
       : withTenantDatabaseTransaction(this.database, input.tenantId, resolve);

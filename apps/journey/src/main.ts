@@ -1,12 +1,17 @@
 import { PrismaClient } from '@d-contact/db';
+import { DcExprEvaluator } from '@d-contact/expression';
 import {
   createJourneyFoundationPorts,
+  createJourneyOutcomeTriggerPorts,
   createJourneyRealtimeGovernancePorts,
 } from '@d-contact/journey-composition';
 import { createDlqPublisher, createProducer } from '@d-contact/kafka';
 import { EventInboxService } from './event-inbox.js';
 import { createJourneyEventConsumer } from './journey-event-consumer.js';
 import { createJourneyKafkaPublisher } from './journey-kafka-publisher.js';
+import { JourneyDefinitionRepository } from './journey-definition-repository.js';
+import { createJourneyOutcomeConsumer } from './journey-outcome-consumer.js';
+import { JourneyOutcomeTriggerProcessor } from './journey-outcome-trigger-processor.js';
 import { JourneyProcessor } from './journey-processor.js';
 import {
   JourneyGovernanceInvalidationService,
@@ -70,6 +75,18 @@ const governanceAcknowledgements = new JourneyGovernanceAcknowledgementRelay(dat
 const governanceEffects = new JourneyGovernanceEffectRelay(database, realtimeSettlement, {
   metrics: governanceMetrics,
 });
+const journeyDefinitions = new JourneyDefinitionRepository(database, new DcExprEvaluator());
+const outcomeTriggerProcessor = new JourneyOutcomeTriggerProcessor(
+  database,
+  journeyDefinitions,
+  createJourneyOutcomeTriggerPorts(database),
+);
+const outcomeConsumer = await createJourneyOutcomeConsumer({
+  database,
+  clientId: 'dcontact-journey-outcome-consumer',
+  groupId: process.env.JOURNEY_OUTCOME_CONSUMER_GROUP_ID ?? 'dcontact-journey-outcomes-v1',
+  dlq,
+});
 const consumer = await createJourneyEventConsumer({
   database,
   processor,
@@ -107,6 +124,10 @@ async function drainInbox(): Promise<void> {
         const result = await governanceAcknowledgements.publishNext(tenant.id);
         if (!result || result.state === 'FAILED') break;
       }
+      for (let handled = 0; handled < 100; handled += 1) {
+        const result = await outcomeTriggerProcessor.executeNext(tenant.id, 'journey-main');
+        if (!result) break;
+      }
     }
   } catch (error) {
     console.error(
@@ -129,6 +150,7 @@ async function shutdown(): Promise<void> {
   clearInterval(timer);
   await Promise.all([
     consumer.disconnect(),
+    outcomeConsumer.disconnect(),
     governanceConsumer.disconnect(),
     producer.disconnect(),
     dlq.disconnect(),

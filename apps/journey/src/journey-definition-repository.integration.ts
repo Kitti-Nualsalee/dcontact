@@ -316,6 +316,7 @@ test('J2.2: definition ที่ใช้ INTERACTION_OUTCOME trigger และ 
             type: 'SCHEDULE_CALLBACK',
             requestedInSeconds: 3600,
             queueId: 'queue-collections',
+            targetOwnerTeamId: f.teamId,
             next: 'ensure-case',
             onReject: 'exit-rejected',
           },
@@ -324,6 +325,7 @@ test('J2.2: definition ที่ใช้ INTERACTION_OUTCOME trigger และ 
             type: 'ENSURE_CASE',
             caseTypeId: 'case-type-collections',
             routingIntentRef: 'routing-collections-default',
+            targetOwnerTeamId: f.teamId,
             next: 'exit-linked',
             onReject: 'exit-rejected',
           },
@@ -357,6 +359,22 @@ test('J2.2: outcomeType นอก allowlist ถูกปฏิเสธตอน
         kind: 'INTERACTION_OUTCOME',
         outcomeType: 'INTERACTION_QUEUED',
         coalescingPolicy: 'PER_LOGICAL_OUTCOME',
+      },
+      graph: {
+        entryStepId: 'ensure-case',
+        steps: [
+          {
+            id: 'ensure-case',
+            type: 'ENSURE_CASE',
+            caseTypeId: 'case-type-collections',
+            routingIntentRef: 'routing-collections-default',
+            targetOwnerTeamId: f.teamId,
+            next: 'exit-linked',
+            onReject: 'exit-rejected',
+          },
+          { id: 'exit-linked', type: 'EXIT', reason: 'GOAL_REACHED' },
+          { id: 'exit-rejected', type: 'EXIT', reason: 'OWNER_REJECTED' },
+        ],
       },
     } as unknown as Partial<CreateJourneyVersionInput>),
   );
