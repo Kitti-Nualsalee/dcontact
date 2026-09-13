@@ -10,5 +10,6 @@ export * from './cg3-query.js';
 export * from './cg3-event-relay.js';
 export * from './cg3-cache.js';
 export * from './cg3-acknowledgement-consumer.js';
+export * from './cg4-rule-registry.js';
 export * from './reservation.js';
 export * from './reservation-runtime.js';

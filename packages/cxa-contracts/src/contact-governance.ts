@@ -9,6 +9,7 @@ import type {
   ReservationId,
   TenantId,
 } from './identifiers.js';
+import type { Cg4DecisionTracePinsV1 } from './contact-governance-cg4.js';
 
 export type ContactChannel = 'VOICE' | 'WEBCHAT' | 'LINE' | 'FACEBOOK' | 'WHATSAPP' | 'EMAIL';
 
@@ -19,10 +20,14 @@ export type ContactPolicyGate =
   | 'HARD_RESTRICTION'
   | 'CONSENT'
   | 'PREFERENCE'
+  | 'MODULE_RULE'
   | 'TEMPORAL_POLICY'
   | 'ATTEMPT_TOUCH_CAP'
   | 'CALLBACK_EXCEPTION'
-  | 'SENDER_IDENTITY';
+  | 'APPROVED_EXCEPTION'
+  | 'SENDER_IDENTITY'
+  | 'KILL_SWITCH'
+  | 'RESERVATION';
 
 export interface ContactPolicyTraceEntry {
   gate: ContactPolicyGate;
@@ -112,6 +117,8 @@ export interface AuthorizationOutcome {
   matchedWindowRef?: string;
   exceptionMode?: 'NO_OVERRIDE' | 'SCOPED_OVERRIDE' | 'TIME_POLICY_OVERRIDE';
   exceptionRef?: string;
+  /** CG4: digest ของ immutable facts/policy/exception ที่ decision ใช้; เพิ่มแบบ additive เพื่อ replay */
+  cg4?: Cg4DecisionTracePinsV1;
 }
 
 /**
