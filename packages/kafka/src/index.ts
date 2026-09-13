@@ -169,7 +169,17 @@ export interface CreateConsumerOptions<
 }
 
 export interface DcConsumer {
-  /** resolve หลัง consumer group join เสร็จ เพื่อให้ producer ส่ง event โดยไม่ตกหล่น */
+  /**
+   * resolve หลัง consumer group join แล้ว *และ* pin starting offset ของทุก partition ที่ได้รับ
+   * assignment ด้วย consumer.seek() เรียบร้อย — เพื่อให้ producer ส่ง event โดยไม่ตกหล่น
+   * เดิมพึ่ง GROUP_JOIN event เฉยๆ ไม่พอ: consumer group ใหม่ที่ subscribe ด้วย
+   * `fromBeginning: false` ยัง resolve "latest" offset ไม่เสร็จตอน join กลุ่ม (เกิดใน fetch loop
+   * initialization ทีหลัง แบบ lazy) เกิด race จริงที่ message ที่ publish ระหว่างสองจังหวะนี้หายไป
+   * ถาวร (พบจาก flaky test ที่ fail จริง ~25% ไม่ใช่ timing เฉยๆ — เพิ่ม timeout ไม่ช่วย) แก้โดย
+   * fetch high-water-mark offset ของแต่ละ topic ผ่าน Admin client ก่อน subscribe/run แล้ว seek
+   * ไปที่ offset นั้นทันทีที่รู้ partition assignment จาก GROUP_JOIN — ปิด race แบบ deterministic
+   * แทนที่จะพึ่ง event timing ภายในของ kafkajs
+   */
   ready(): Promise<void>;
   disconnect(): Promise<void>;
 }
@@ -198,15 +208,41 @@ export async function createConsumer<
   }
   for (const topic of options.topics) assertKafkaTopic(topic);
 
-  const consumer: Consumer = createKafka(options.clientId, options).consumer({
+  const kafka = createKafka(options.clientId, options);
+  const consumer: Consumer = kafka.consumer({
     groupId: options.groupId,
   });
   await consumer.connect();
+
+  // จับ high-water-mark offset ปัจจุบันของแต่ละ topic ก่อน subscribe/run เพื่อ seek แบบ
+  // deterministic ทีหลัง — ดูรายละเอียด race ที่แก้ใน DcConsumer.ready() doc comment
+  const admin = kafka.admin();
+  await admin.connect();
+  const startOffsetsByTopic = new Map<string, Array<{ partition: number; offset: string }>>();
+  for (const topic of options.topics) {
+    const offsets = await admin.fetchTopicOffsets(topic);
+    startOffsetsByTopic.set(
+      topic,
+      offsets.map(({ partition, offset }) => ({ partition, offset })),
+    );
+  }
+  await admin.disconnect();
+
   await consumer.subscribe({ topics: options.topics, fromBeginning: false });
   let removeGroupJoin: () => void = () => undefined;
-  const groupJoined = new Promise<void>((resolve) => {
-    removeGroupJoin = consumer.on(consumer.events.GROUP_JOIN, () => {
+  const ready = new Promise<void>((resolve) => {
+    removeGroupJoin = consumer.on(consumer.events.GROUP_JOIN, (event) => {
       removeGroupJoin();
+      for (const [topic, partitions] of Object.entries(event.payload.memberAssignment)) {
+        const startOffsets = startOffsetsByTopic.get(topic);
+        if (!startOffsets) continue;
+        for (const partition of partitions) {
+          const startOffset = startOffsets.find((entry) => entry.partition === partition);
+          if (startOffset) {
+            consumer.seek({ topic, partition, offset: startOffset.offset });
+          }
+        }
+      }
       resolve();
     });
   });
@@ -276,5 +312,5 @@ export async function createConsumer<
     },
   });
 
-  return { ready: () => groupJoined, disconnect: () => consumer.disconnect() };
+  return { ready: () => ready, disconnect: () => consumer.disconnect() };
 }
