@@ -10,6 +10,9 @@ import {
 import { evaluateContactPolicy, type ContactPolicyTraceEntry } from './contact-policy.js';
 import { evaluateCg3Policy } from './cg3-policy-evaluator.js';
 import { loadCg3Facts } from './cg3-fact-loader.js';
+import { toCg4PolicyBinding } from './cg4-exception-evaluation.js';
+import { CG4_CONTRACT_VERSION } from '@d-contact/cxa-contracts';
+import { stableDigest } from './cg3-persistence.js';
 import { transitionReservation, type ReservationCommand } from './reservation.js';
 import { ReservationRuntime, type ReservationRuntimeOptions } from './reservation-runtime.js';
 
@@ -20,6 +23,7 @@ import {
   ReservationNotUsableError,
   type AuthorizeAndReserveInput,
   type AuthorizationOutcome,
+  type Cg4DecisionTracePinsV1,
   type ContactAuthorizationPort,
   type ContactGovernancePort,
   type ContactGovernanceRevalidationPort,
@@ -63,6 +67,7 @@ const decisionSelection = {
   matchedWindowRef: true,
   exceptionMode: true,
   exceptionRef: true,
+  cg4: true,
   reservation: {
     select: {
       id: true,
@@ -115,6 +120,7 @@ function toOutcome(decision: {
   matchedWindowRef: string | null;
   exceptionMode: string | null;
   exceptionRef: string | null;
+  cg4: Prisma.JsonValue;
   reservation: { id: string; expiresAt: Date } | null;
 }): AuthorizationOutcome {
   return {
@@ -137,6 +143,7 @@ function toOutcome(decision: {
       ? { exceptionMode: decision.exceptionMode as AuthorizationOutcome['exceptionMode'] }
       : {}),
     ...(decision.exceptionRef ? { exceptionRef: decision.exceptionRef } : {}),
+    ...(decision.cg4 ? { cg4: decision.cg4 as unknown as Cg4DecisionTracePinsV1 } : {}),
     ...(decision.reservation
       ? {
           reservationId: decision.reservation.id,
@@ -426,6 +433,12 @@ export class ContactGovernanceService
         await transaction.$queryRaw(
           Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg3-contact:${tenantId}:${input.contactId}`}))`,
         );
+        // CG4.4 (#187): ล็อกเดียวกับ Cg4FoundationRepository/Cg4ExceptionLifecycleRepository
+        // เพื่อ serialize authorize กับ approve/revoke ของ exception: revoke ที่ commit ก่อน
+        // ต้องทำให้ decision นี้ใช้ exception นั้นไม่ได้ และกลับกัน
+        await transaction.$queryRaw(
+          Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg4-contact:${tenantId}:${input.contactId}`}))`,
+        );
       }
 
       const existing = await transaction.cgDecisionLog.findFirst({
@@ -534,6 +547,7 @@ export class ContactGovernanceService
       let cg3MatchedWindowRef: string | undefined;
       let cg3ExceptionMode: string | undefined;
       let cg3ExceptionRef: string | undefined;
+      let cg4Pins: Cg4DecisionTracePinsV1 | undefined;
 
       if (policyResult.decision === 'ALLOW' && input.contactId) {
         const facts = await loadCg3Facts(transaction, {
@@ -555,6 +569,9 @@ export class ContactGovernanceService
           preferences: facts.preferences,
           policy: facts.policy,
           activeCallback: facts.activeCallback,
+          source: input.source,
+          sourceId: input.sourceId,
+          activeExceptions: facts.activeExceptions,
         });
         trace = [
           ...policyResult.trace.map((entry, index) =>
@@ -573,6 +590,22 @@ export class ContactGovernanceService
         cg3MatchedWindowRef = cg3.matchedWindowRef;
         cg3ExceptionMode = cg3.exceptionMode;
         cg3ExceptionRef = cg3.exceptionRef;
+        if (cg3.appliedExceptions?.length) {
+          const [applied] = cg3.appliedExceptions;
+          const appliedFacts = facts.activeExceptions.find(
+            (candidate) => candidate.revisionId === applied!.revisionId,
+          )!;
+          const policy = toCg4PolicyBinding(appliedFacts);
+          cg4Pins = {
+            contractVersion: CG4_CONTRACT_VERSION,
+            policy,
+            decisionStateDigest: stableDigest({
+              policy,
+              appliedExceptions: cg3.appliedExceptions,
+            }),
+            appliedExceptions: cg3.appliedExceptions,
+          };
+        }
 
         if (cg3.decision) {
           decision = cg3.decision;
@@ -677,6 +710,7 @@ export class ContactGovernanceService
           matchedWindowRef: cg3MatchedWindowRef,
           exceptionMode: cg3ExceptionMode as CgCallbackMode | undefined,
           exceptionRef: cg3ExceptionRef,
+          cg4: cg4Pins as unknown as Prisma.InputJsonValue | undefined,
         },
         select: decisionSelection,
       });
