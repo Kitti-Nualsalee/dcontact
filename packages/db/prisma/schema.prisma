@@ -517,7 +517,7 @@ enum CgConsumerAckOutcome {
 // เพื่อให้ migration เป็น expand-only และค่อยสลับ writer ใน ticket ถัดไป.
 enum Cg4PolicyStatus {
   DRAFT
-  PENDING_APPROVAL
+  IN_REVIEW
   APPROVED
   PUBLISHED
   SCHEDULED

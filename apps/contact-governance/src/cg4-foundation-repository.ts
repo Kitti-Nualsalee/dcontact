@@ -7,7 +7,7 @@ import {
   type PrismaClient,
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
-import type { ContactChannel } from '@d-contact/cxa-contracts';
+import type { Cg4SourceType, ContactChannel } from '@d-contact/cxa-contracts';
 import {
   Cg3IdempotencyConflictError,
   Cg3ResourceNotFoundError,
@@ -27,7 +27,7 @@ export interface RecordCg4ExceptionInput {
   scopeKind: Cg4ExceptionScopeKind;
   channel: ContactChannel;
   purpose: string;
-  sourceType: string;
+  sourceType: Cg4SourceType;
   sourceId: string;
   allowedRuleCodes: readonly string[];
   policyId: string;
@@ -113,6 +113,16 @@ function sha256(value: string, field: string): string {
   return value;
 }
 
+const CG4_SOURCE_TYPES = new Set<Cg4SourceType>([
+  'JOURNEY',
+  'CAMPAIGN',
+  'DIALER',
+  'CHANNEL',
+  'SURVEY',
+  'AGENT',
+  'EXTERNAL',
+]);
+
 function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
@@ -192,6 +202,9 @@ export class Cg4FoundationRepository {
     }
     if (input.exceptionId) nonEmpty(input.exceptionId, 'exceptionId');
     if (input.identityId) nonEmpty(input.identityId, 'identityId');
+    if (!CG4_SOURCE_TYPES.has(input.sourceType)) {
+      throw new TypeError('sourceType ไม่อยู่ใน CG4 source registry');
+    }
     if (
       (input.scopeKind === 'IDENTITY' && !input.identityId) ||
       (input.scopeKind === 'CONTACT_WIDE' && input.identityId)
