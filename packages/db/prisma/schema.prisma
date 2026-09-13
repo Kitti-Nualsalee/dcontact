@@ -90,6 +90,15 @@ model Tenant {
   c360SegmentDefinitionHeads   C360SegmentDefinitionHead[]
   c360FactSnapshots            C360FactSnapshot[]
   c360SegmentEvaluations       C360SegmentEvaluation[]
+  c360SegmentMembershipHeads   C360SegmentMembershipHead[]
+  c360SegmentMembershipChanges C360SegmentMembershipChange[]
+  c360SegmentMembershipOutbox  C360SegmentMembershipOutbox[]
+  c360SegmentEvidence          C360SegmentEvidence[]
+  c360EvidenceAccessAudit      C360EvidenceAccessAudit[]
+  c360MembershipReceipts       C360MembershipCommandReceipt[]
+  c360MembershipQuarantine     C360MembershipQuarantine[]
+  c360IdentityHeads            C360IdentityHead[]
+  c360IdentityLineage          C360IdentityLineage[]
 
   @@map("tenants")
 }
@@ -350,26 +359,33 @@ model Contact {
   displayName String?  @map("display_name")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  tenant            Tenant              @relation(fields: [tenantId], references: [id])
-  identities        ContactIdentity[]
-  interactions      Interaction[]
-  conversations     Conversation[]
-  csCases           CsCase[]
-  cgRestrictions    CgRestriction[]
-  cgConsents        CgConsent[]
-  cgDecisionLogs    CgDecisionLog[]
-  cgReservations    CgReservation[]
-  cgAttempts        CgAttempt[]
-  cgTouches         CgTouch[]
-  cgPreferences     CgPreference[]
-  cgCallbacks       CgCallbackRequest[]
-  cgStateHead       CgContactStateHead?
-  jrEnrollments     JrEnrollment[]
-  jrActions         JrAction[]
-  obAttempts        ObAttempt[]
-  obCampaignTargets ObCampaignTarget[]
-  obCallbacks       ObCallback[]
-  c360FactSnapshots C360FactSnapshot[]
+  tenant                 Tenant                        @relation(fields: [tenantId], references: [id])
+  identities             ContactIdentity[]
+  interactions           Interaction[]
+  conversations          Conversation[]
+  csCases                CsCase[]
+  cgRestrictions         CgRestriction[]
+  cgConsents             CgConsent[]
+  cgDecisionLogs         CgDecisionLog[]
+  cgReservations         CgReservation[]
+  cgAttempts             CgAttempt[]
+  cgTouches              CgTouch[]
+  cgPreferences          CgPreference[]
+  cgCallbacks            CgCallbackRequest[]
+  cgStateHead            CgContactStateHead?
+  jrEnrollments          JrEnrollment[]
+  jrActions              JrAction[]
+  obAttempts             ObAttempt[]
+  obCampaignTargets      ObCampaignTarget[]
+  obCallbacks            ObCallback[]
+  c360FactSnapshots      C360FactSnapshot[]
+  c360MembershipHeads    C360SegmentMembershipHead[]
+  c360MembershipChanges  C360SegmentMembershipChange[]
+  c360SegmentEvidence    C360SegmentEvidence[]
+  c360IdentitySubjects   C360IdentityHead[]            @relation("C360IdentitySubject")
+  c360IdentityCanonicals C360IdentityHead[]            @relation("C360IdentityCanonical")
+  c360LineageSources     C360IdentityLineage[]         @relation("C360LineageSource")
+  c360LineageTargets     C360IdentityLineage[]         @relation("C360LineageTarget")
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -415,6 +431,45 @@ enum C360SegmentEvaluationOutcome {
   ERROR
 }
 
+enum C360SegmentMembershipState {
+  IN
+  OUT
+  INVALIDATED
+}
+
+enum C360SegmentMembershipChangeKind {
+  ENTERED
+  LEFT
+  CORRECTED
+  REFILTER_REQUIRED
+  IDENTITY_INVALIDATED
+}
+
+enum C360SegmentMembershipOutboxState {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+enum C360MembershipCommandStatus {
+  TRANSITIONED
+  NO_CHANGE
+  DUPLICATE_NO_OP
+  QUARANTINED
+}
+
+enum C360IdentityState {
+  ACTIVE
+  MERGED
+  AMBIGUOUS
+}
+
+enum C360IdentityOperation {
+  MERGE
+  SPLIT
+  UNMERGE
+}
+
 /// J3.2: immutable version ของ segment definition; เป็นนิยาม DC_EXPR ไม่ใช่ member list
 model C360SegmentDefinition {
   id               String                      @id @default(uuid()) @db.Uuid
@@ -431,9 +486,11 @@ model C360SegmentDefinition {
   publishedAt      DateTime?                   @map("published_at")
   createdAt        DateTime                    @default(now()) @map("created_at")
 
-  tenant      Tenant                      @relation(fields: [tenantId], references: [id])
-  heads       C360SegmentDefinitionHead[]
-  evaluations C360SegmentEvaluation[]
+  tenant            Tenant                        @relation(fields: [tenantId], references: [id])
+  heads             C360SegmentDefinitionHead[]
+  evaluations       C360SegmentEvaluation[]
+  membershipHeads   C360SegmentMembershipHead[]
+  membershipChanges C360SegmentMembershipChange[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, segmentId, version])
@@ -470,9 +527,11 @@ model C360FactSnapshot {
   correlationId   String   @map("correlation_id")
   capturedAt      DateTime @default(now()) @map("captured_at")
 
-  tenant      Tenant                  @relation(fields: [tenantId], references: [id])
-  contact     Contact                 @relation(fields: [tenantId, contactId], references: [tenantId, id])
-  evaluations C360SegmentEvaluation[]
+  tenant            Tenant                        @relation(fields: [tenantId], references: [id])
+  contact           Contact                       @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  evaluations       C360SegmentEvaluation[]
+  membershipHeads   C360SegmentMembershipHead[]
+  membershipChanges C360SegmentMembershipChange[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, contactId, snapshotVersion])
@@ -496,14 +555,242 @@ model C360SegmentEvaluation {
   evaluatorVersion         String                       @map("evaluator_version")
   evaluatedAt              DateTime                     @default(now()) @map("evaluated_at")
 
-  tenant     Tenant                @relation(fields: [tenantId], references: [id])
-  definition C360SegmentDefinition @relation(fields: [tenantId, segmentId, segmentDefinitionVersion], references: [tenantId, segmentId, version])
-  snapshot   C360FactSnapshot      @relation(fields: [tenantId, contactId, snapshotVersion], references: [tenantId, contactId, snapshotVersion])
+  tenant            Tenant                        @relation(fields: [tenantId], references: [id])
+  definition        C360SegmentDefinition         @relation(fields: [tenantId, segmentId, segmentDefinitionVersion], references: [tenantId, segmentId, version])
+  snapshot          C360FactSnapshot              @relation(fields: [tenantId, contactId, snapshotVersion], references: [tenantId, contactId, snapshotVersion])
+  membershipHeads   C360SegmentMembershipHead[]
+  membershipChanges C360SegmentMembershipChange[]
+  evidence          C360SegmentEvidence?
 
   @@unique([tenantId, id])
   @@unique([tenantId, contactId, segmentId, segmentDefinitionVersion, snapshotVersion], map: "c360_segment_evaluations_exact_input_key")
   @@index([tenantId, segmentId, segmentDefinitionVersion, evaluatedAt])
   @@map("c360_segment_evaluations")
+}
+
+/// Materialized canonical membership ต่อ tenant/contact/segment; แก้ได้ผ่าน CAS owner transaction เท่านั้น
+model C360SegmentMembershipHead {
+  tenantId                 String                     @map("tenant_id") @db.Uuid
+  contactId                String                     @map("contact_id") @db.Uuid
+  segmentId                String                     @map("segment_id")
+  state                    C360SegmentMembershipState
+  membershipRevision       Int                        @default(0) @map("membership_revision")
+  entryId                  String?                    @map("entry_id")
+  segmentDefinitionVersion Int                        @map("segment_definition_version")
+  snapshotVersion          Int                        @map("snapshot_version")
+  evaluationId             String                     @map("evaluation_id") @db.Uuid
+  evaluatedAt              DateTime                   @map("evaluated_at")
+  stateDigest              String                     @map("state_digest") @db.Char(64)
+  evidenceRef              String                     @map("evidence_ref")
+  lineageRevision          Int                        @default(0) @map("lineage_revision")
+  updatedAt                DateTime                   @updatedAt @map("updated_at")
+
+  tenant     Tenant                @relation(fields: [tenantId], references: [id])
+  contact    Contact               @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  definition C360SegmentDefinition @relation(fields: [tenantId, segmentId, segmentDefinitionVersion], references: [tenantId, segmentId, version])
+  snapshot   C360FactSnapshot      @relation(fields: [tenantId, contactId, snapshotVersion], references: [tenantId, contactId, snapshotVersion])
+  evaluation C360SegmentEvaluation @relation(fields: [tenantId, evaluationId], references: [tenantId, id])
+
+  @@id([tenantId, contactId, segmentId])
+  @@index([tenantId, segmentId, state, membershipRevision])
+  @@index([tenantId, entryId])
+  @@map("c360_segment_membership_heads")
+}
+
+/// Immutable canonical membership change; ทุก revision ที่ emit ต้องมี outbox row เดียวกัน
+model C360SegmentMembershipChange {
+  id                       String                          @id @default(uuid()) @db.Uuid
+  tenantId                 String                          @map("tenant_id") @db.Uuid
+  contactId                String                          @map("contact_id") @db.Uuid
+  segmentId                String                          @map("segment_id")
+  membershipRevision       Int                             @map("membership_revision")
+  changeKind               C360SegmentMembershipChangeKind @map("change_kind")
+  entryId                  String?                         @map("entry_id")
+  segmentDefinitionVersion Int                             @map("segment_definition_version")
+  snapshotVersion          Int                             @map("snapshot_version")
+  evaluationId             String                          @map("evaluation_id") @db.Uuid
+  evaluatedAt              DateTime                        @map("evaluated_at")
+  stateDigest              String                          @map("state_digest") @db.Char(64)
+  evidenceRef              String                          @map("evidence_ref")
+  supersedesRevision       Int?                            @map("supersedes_revision")
+  lineageRevision          Int                             @default(0) @map("lineage_revision")
+  correlationId            String                          @map("correlation_id")
+  causationId              String?                         @map("causation_id")
+  createdAt                DateTime                        @default(now()) @map("created_at")
+
+  tenant     Tenant                         @relation(fields: [tenantId], references: [id])
+  contact    Contact                        @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  definition C360SegmentDefinition          @relation(fields: [tenantId, segmentId, segmentDefinitionVersion], references: [tenantId, segmentId, version])
+  snapshot   C360FactSnapshot               @relation(fields: [tenantId, contactId, snapshotVersion], references: [tenantId, contactId, snapshotVersion])
+  evaluation C360SegmentEvaluation          @relation(fields: [tenantId, evaluationId], references: [tenantId, id])
+  outbox     C360SegmentMembershipOutbox?
+  receipts   C360MembershipCommandReceipt[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, contactId, segmentId, membershipRevision], map: "c360_membership_changes_stream_revision_key")
+  @@index([tenantId, entryId, membershipRevision])
+  @@map("c360_segment_membership_changes")
+}
+
+/// Transactional outbox สำหรับ customer.segment.changed; payload เป็น closed PII-safe J3 contract
+model C360SegmentMembershipOutbox {
+  id                 String                           @id @default(uuid()) @db.Uuid
+  tenantId           String                           @map("tenant_id") @db.Uuid
+  changeId           String                           @map("change_id") @db.Uuid
+  eventId            String                           @map("event_id")
+  contactId          String                           @map("contact_id") @db.Uuid
+  segmentId          String                           @map("segment_id")
+  membershipRevision Int                              @map("membership_revision")
+  payload            Json
+  payloadHash        String                           @map("payload_hash") @db.Char(64)
+  correlationId      String                           @map("correlation_id")
+  causationId        String?                          @map("causation_id")
+  state              C360SegmentMembershipOutboxState @default(PENDING)
+  attempts           Int                              @default(0)
+  availableAt        DateTime                         @default(now()) @map("available_at")
+  publishedAt        DateTime?                        @map("published_at")
+  brokerRef          String?                          @map("broker_ref")
+  createdAt          DateTime                         @default(now()) @map("created_at")
+
+  tenant Tenant                      @relation(fields: [tenantId], references: [id])
+  change C360SegmentMembershipChange @relation(fields: [tenantId, changeId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, changeId])
+  @@unique([tenantId, eventId])
+  @@index([tenantId, state, availableAt, createdAt])
+  @@index([tenantId, contactId, segmentId, membershipRevision])
+  @@map("c360_segment_membership_outbox")
+}
+
+/// Opaque handle ไปยัง owner-local evaluation facts; ไม่มี raw attribute ใน record นี้
+model C360SegmentEvidence {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  evidenceRef    String   @map("evidence_ref")
+  evaluationId   String   @map("evaluation_id") @db.Uuid
+  contactId      String   @map("contact_id") @db.Uuid
+  evidenceDigest String   @map("evidence_digest") @db.Char(64)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  tenant      Tenant                    @relation(fields: [tenantId], references: [id])
+  contact     Contact                   @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  evaluation  C360SegmentEvaluation     @relation(fields: [tenantId, evaluationId], references: [tenantId, id])
+  accessAudit C360EvidenceAccessAudit[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, evidenceRef])
+  @@unique([tenantId, evaluationId])
+  @@map("c360_segment_evidence")
+}
+
+/// Append-only audit เมื่อ owner-side tooling resolve evidence; Journey ไม่มี API อ่าน raw facts
+model C360EvidenceAccessAudit {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  evidenceRef   String   @map("evidence_ref")
+  actorClass    String   @map("actor_class")
+  actorRef      String   @map("actor_ref")
+  reasonCode    String   @map("reason_code")
+  correlationId String   @map("correlation_id")
+  accessedAt    DateTime @default(now()) @map("accessed_at")
+
+  tenant   Tenant              @relation(fields: [tenantId], references: [id])
+  evidence C360SegmentEvidence @relation(fields: [tenantId, evidenceRef], references: [tenantId, evidenceRef])
+
+  @@unique([tenantId, id])
+  @@index([tenantId, evidenceRef, accessedAt])
+  @@map("c360_evidence_access_audit")
+}
+
+/// Idempotent owner command receipt; เก็บเฉพาะ sanitized outcome binding
+model C360MembershipCommandReceipt {
+  id                 String                      @id @default(uuid()) @db.Uuid
+  tenantId           String                      @map("tenant_id") @db.Uuid
+  commandId          String                      @map("command_id")
+  requestHash        String                      @map("request_hash") @db.Char(64)
+  status             C360MembershipCommandStatus
+  contactId          String                      @map("contact_id") @db.Uuid
+  segmentId          String                      @map("segment_id")
+  membershipRevision Int                         @map("membership_revision")
+  changeId           String?                     @map("change_id") @db.Uuid
+  entryId            String?                     @map("entry_id")
+  responseDigest     String                      @map("response_digest") @db.Char(64)
+  createdAt          DateTime                    @default(now()) @map("created_at")
+
+  tenant Tenant                       @relation(fields: [tenantId], references: [id])
+  change C360SegmentMembershipChange? @relation(fields: [tenantId, changeId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, commandId])
+  @@index([tenantId, contactId, segmentId, membershipRevision])
+  @@map("c360_membership_command_receipts")
+}
+
+/// Append-only conflict evidence; ไม่มี raw fact หรือ replacement payload
+model C360MembershipQuarantine {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  commandId         String   @map("command_id")
+  contactId         String   @map("contact_id") @db.Uuid
+  segmentId         String   @map("segment_id")
+  attemptedRevision Int      @map("attempted_revision")
+  attemptedHash     String   @map("attempted_hash") @db.Char(64)
+  canonicalHash     String?  @map("canonical_hash") @db.Char(64)
+  errorCode         String   @map("error_code")
+  correlationId     String   @map("correlation_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, commandId, attemptedHash])
+  @@index([tenantId, contactId, segmentId, attemptedRevision])
+  @@map("c360_membership_quarantine")
+}
+
+/// Current canonical identity map แยกจาก Contact CRUD; lineageRevision เดินด้วย CAS
+model C360IdentityHead {
+  tenantId           String            @map("tenant_id") @db.Uuid
+  contactId          String            @map("contact_id") @db.Uuid
+  state              C360IdentityState @default(ACTIVE)
+  canonicalContactId String            @map("canonical_contact_id") @db.Uuid
+  lineageRevision    Int               @default(0) @map("lineage_revision")
+  stateDigest        String            @map("state_digest") @db.Char(64)
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+  subject   Contact @relation("C360IdentitySubject", fields: [tenantId, contactId], references: [tenantId, id])
+  canonical Contact @relation("C360IdentityCanonical", fields: [tenantId, canonicalContactId], references: [tenantId, id])
+
+  @@id([tenantId, contactId])
+  @@index([tenantId, canonicalContactId, state])
+  @@map("c360_identity_heads")
+}
+
+/// Immutable merge/split/unmerge lineage; raw identity valuesไม่อยู่ใน ledger
+model C360IdentityLineage {
+  id              String                @id @default(uuid()) @db.Uuid
+  tenantId        String                @map("tenant_id") @db.Uuid
+  commandId       String                @map("command_id")
+  operation       C360IdentityOperation
+  sourceContactId String                @map("source_contact_id") @db.Uuid
+  targetContactId String                @map("target_contact_id") @db.Uuid
+  lineageRevision Int                   @map("lineage_revision")
+  requestHash     String                @map("request_hash") @db.Char(64)
+  stateDigest     String                @map("state_digest") @db.Char(64)
+  correlationId   String                @map("correlation_id")
+  occurredAt      DateTime              @map("occurred_at")
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id])
+  source Contact @relation("C360LineageSource", fields: [tenantId, sourceContactId], references: [tenantId, id])
+  target Contact @relation("C360LineageTarget", fields: [tenantId, targetContactId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, commandId])
+  @@index([tenantId, sourceContactId, lineageRevision])
+  @@index([tenantId, targetContactId, occurredAt])
+  @@map("c360_identity_lineage")
 }
 
 // ─────────────────────────── Contact Governance & Journey Inbox ───────────────────────────

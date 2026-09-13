@@ -35,7 +35,12 @@ BEGIN
     'cg_delegation',
     -- J3.2 (#213)
     'c360_segment_definitions', 'c360_segment_definition_heads',
-    'c360_fact_snapshots', 'c360_segment_evaluations'
+    'c360_fact_snapshots', 'c360_segment_evaluations',
+    -- J3.3 (#214)
+    'c360_segment_membership_heads', 'c360_segment_membership_changes',
+    'c360_segment_membership_outbox', 'c360_segment_evidence',
+    'c360_evidence_access_audit', 'c360_membership_command_receipts',
+    'c360_membership_quarantine', 'c360_identity_heads', 'c360_identity_lineage'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -146,3 +151,13 @@ REVOKE DELETE ON c360_segment_definitions FROM dcontact_app;
 REVOKE DELETE ON c360_segment_definition_heads FROM dcontact_app;
 REVOKE UPDATE, DELETE ON c360_fact_snapshots FROM dcontact_app;
 REVOKE UPDATE, DELETE ON c360_segment_evaluations FROM dcontact_app;
+-- J3.3: heads/outbox เป็น CAS state; canonical facts, receipts, audit และ lineage เป็น append-only
+REVOKE DELETE ON c360_segment_membership_heads FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_segment_membership_changes FROM dcontact_app;
+REVOKE DELETE ON c360_segment_membership_outbox FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_segment_evidence FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_evidence_access_audit FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_membership_command_receipts FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_membership_quarantine FROM dcontact_app;
+REVOKE DELETE ON c360_identity_heads FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_identity_lineage FROM dcontact_app;
