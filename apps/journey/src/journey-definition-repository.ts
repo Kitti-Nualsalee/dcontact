@@ -246,9 +246,7 @@ export class JourneyDefinitionRepository {
       }
 
       if (content.trigger.kind === 'INTERACTION_OUTCOME') {
-        const entryStep = content.graph.steps.find(
-          (step) => step.id === content.graph.entryStepId,
-        );
+        const entryStep = content.graph.steps.find((step) => step.id === content.graph.entryStepId);
         const targetOwnerTeamId =
           entryStep &&
           (entryStep.type === 'ENSURE_CASE' ||

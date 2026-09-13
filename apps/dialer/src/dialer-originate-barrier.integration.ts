@@ -43,7 +43,9 @@ async function fixture(t: TestContext) {
   });
   await owner.team.create({ data: { id: teamId, tenantId, name: 'Dialer' } });
   await owner.contact.create({ data: { id: contactId, tenantId, displayName: 'J2.9 contact' } });
-  await owner.queue.create({ data: { id: queueId, tenantId, name: 'Collections', channels: ['VOICE'] } });
+  await owner.queue.create({
+    data: { id: queueId, tenantId, name: 'Collections', channels: ['VOICE'] },
+  });
   await owner.cgConsent.create({
     data: {
       tenantId,

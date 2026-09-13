@@ -239,9 +239,7 @@ export class DialerOriginateBarrier {
     return accepted ? 'ORIGINATED' : 'REJECTED';
   }
 
-  private mapNonAllowDecision(
-    decision: 'BLOCK' | 'DEFER' | 'REVIEW' | 'ALLOW',
-  ): OriginateOutcome {
+  private mapNonAllowDecision(decision: 'BLOCK' | 'DEFER' | 'REVIEW' | 'ALLOW'): OriginateOutcome {
     if (decision === 'BLOCK') return 'GOVERNANCE_BLOCKED';
     if (decision === 'DEFER') return 'GOVERNANCE_DEFERRED';
     return 'GOVERNANCE_REVIEW';

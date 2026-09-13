@@ -492,7 +492,7 @@ test('J2.3 outcome receipt/owner action บังคับ tenant RLS และ�
     queryAsApplicationRole(
       `BEGIN;
        SELECT set_config('app.tenant_id', '${tenantId}', true);
-       INSERT INTO jr_outcome_receipts (id, tenant_id, source, event_id, outcome_type, outcome_id, outcome_version, payload_hash, correlation_id) VALUES ('${receiptId}', '${tenantId}', 'INTERACTION', 'event-${suffix}', 'INTERACTION_ABANDONED', '${outcomeId}', 1, '${'a'.repeat(64)}', 'corr-${suffix}');
+       INSERT INTO jr_outcome_receipts (id, tenant_id, source, event_id, outcome_type, outcome_id, outcome_version, payload_hash, payload, correlation_id) VALUES ('${receiptId}', '${tenantId}', 'INTERACTION', 'event-${suffix}', 'INTERACTION_ABANDONED', '${outcomeId}', 1, '${'a'.repeat(64)}', '{}', 'corr-${suffix}');
        INSERT INTO jr_owner_actions (id, tenant_id, action_key, enrollment_id, kind, request_hash, correlation_id) VALUES ('${actionId}', '${tenantId}', 'action-${suffix}', '${enrollmentId}', 'ENSURE_CASE', '${'b'.repeat(64)}', 'corr-${suffix}');
        SELECT count(*) FROM jr_outcome_receipts WHERE id = '${receiptId}';
        SELECT count(*) FROM jr_owner_actions WHERE id = '${actionId}';
