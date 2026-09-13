@@ -532,6 +532,18 @@ enum Cg4ApprovalDecision {
   REJECTED
 }
 
+// CG4.5 (#188): semantic diff class ของ policy version; ตัดสิน required quorum ตาม #173 §2
+enum Cg4PolicyDiffClass {
+  TIGHTENING
+  NEUTRAL
+  RELAXATION
+}
+
+enum Cg4PolicyTestOutcome {
+  PASS
+  FAIL
+}
+
 enum Cg4ActivationJobState {
   PENDING
   CLAIMED
@@ -1219,9 +1231,26 @@ model Cg4Policy {
   supersedesId    String?         @map("supersedes_id") @db.Uuid
   createdAt       DateTime        @default(now()) @map("created_at")
 
+  // CG4.5 (#188). draftRevision เป็น CAS token ของ draft ที่ยังแก้ได้; หลัง submit
+  // content ถูก freeze และการแก้ต่อต้องสร้าง version ใหม่ (#176 §1). กลุ่ม
+  // diffClass/testArtifactDigest/approvalDigest/baseHead* คือ binding ที่ approval
+  // ผูกไว้ ใช้ตรวจ staleness ตอน publish โดยไม่ต้องเชื่อ payload จาก caller.
+  schemaVersion      Int                 @default(1) @map("schema_version")
+  evaluatorVersion   String              @default("CG4_EVALUATOR_V1") @map("evaluator_version")
+  draftRevision      Int                 @default(1) @map("draft_revision")
+  diffClass          Cg4PolicyDiffClass? @map("diff_class")
+  testArtifactDigest String?             @map("test_artifact_digest") @db.Char(64)
+  approvalDigest     String?             @map("approval_digest") @db.Char(64)
+  baseHeadVersion    Int?                @map("base_head_version")
+  baseHeadDigest     String?             @map("base_head_digest") @db.Char(64)
+  activateAt         DateTime?           @map("activate_at")
+  /// rollback สร้าง version ใหม่จาก content ของ version เป้าหมายเสมอ ห้าม pointer flip (#176 §6)
+  rollbackOfId       String?             @map("rollback_of_id") @db.Uuid
+
   @@unique([tenantId, id])
   @@unique([tenantId, policyId, version])
   @@index([tenantId, scopeKey, status])
+  @@index([tenantId, rollbackOfId])
   @@map("cg_policy")
 }
 
@@ -1233,6 +1262,13 @@ model Cg4PolicyScopeHead {
   headPolicyVersion    Int      @map("head_policy_version")
   headPolicyRevisionId String   @map("head_policy_revision_id") @db.Uuid
   updatedAt            DateTime @updatedAt @map("updated_at")
+
+  // CG4.5 (#188): headVersion เป็น monotonic aggregate version สำหรับ CAS ตอน publish
+  // (#176 §3) ส่วน nextActivationAt คือ `validUntil` bound ของ mutable head cache (#176 §5)
+  headVersion      Int       @default(0) @map("head_version")
+  headDigest       String    @map("head_digest") @db.Char(64)
+  latestMutationId String?   @map("latest_mutation_id") @db.Uuid
+  nextActivationAt DateTime? @map("next_activation_at")
 
   @@unique([tenantId, id])
   @@unique([tenantId, scopeKey])
@@ -1250,8 +1286,22 @@ model Cg4PolicyTestArtifact {
   result         Json
   createdAt      DateTime @default(now()) @map("created_at")
 
+  // CG4.5 (#188): artifact ผูกกับ content/fixture/head ที่ใช้รันจริง ไม่ใช่แค่ผลลัพธ์
+  // อย่างเดียว — approval ที่ผูก artifact นี้จึงตรวจ staleness ได้ตอน publish (#176 §2)
+  contentDigest         String               @map("content_digest") @db.Char(64)
+  platformFixtureDigest String               @map("platform_fixture_digest") @db.Char(64)
+  tenantFixtureDigest   String               @map("tenant_fixture_digest") @db.Char(64)
+  baseHeadVersion       Int                  @map("base_head_version")
+  baseHeadDigest        String               @map("base_head_digest") @db.Char(64)
+  diffClass             Cg4PolicyDiffClass   @map("diff_class")
+  outcome               Cg4PolicyTestOutcome
+  passed                Int
+  failed                Int
+
   @@unique([tenantId, id])
-  @@unique([tenantId, policyId, policyVersion, suiteVersion])
+  // draft ยังแก้ได้ก่อน submit จึงมี artifact ได้หลายใบต่อ version — แยกกันด้วย content digest
+  @@unique([tenantId, policyId, policyVersion, suiteVersion, contentDigest])
+  @@index([tenantId, policyId, policyVersion, artifactDigest])
   @@map("cg_policy_test_artifact")
 }
 
@@ -1261,22 +1311,22 @@ model Cg4PolicyTestArtifact {
 // and the IAM epoch/scope version at evaluation. Re-validation compares the current
 // subject snapshot's epoch/scopeVersion against these to detect a stale approval.
 model Cg4PolicyApproval {
-  id                 String               @id @default(uuid()) @db.Uuid
-  tenantId           String               @map("tenant_id") @db.Uuid
-  policyId           String               @map("policy_id") @db.Uuid
-  policyVersion      Int                  @map("policy_version")
+  id                 String              @id @default(uuid()) @db.Uuid
+  tenantId           String              @map("tenant_id") @db.Uuid
+  policyId           String              @map("policy_id") @db.Uuid
+  policyVersion      Int                 @map("policy_version")
   decision           Cg4ApprovalDecision
-  approverRef        String               @map("approver_ref")
-  evidenceRef        String               @map("evidence_ref")
-  decidedAt          DateTime             @map("decided_at")
+  approverRef        String              @map("approver_ref")
+  evidenceRef        String              @map("evidence_ref")
+  decidedAt          DateTime            @map("decided_at")
   capability         String
-  capabilitySource   Cg4CapabilitySource  @map("capability_source")
-  delegationId       String?              @map("delegation_id") @db.Uuid
-  directCompliance   Boolean              @map("direct_compliance")
-  emergencyAuthority Boolean              @map("emergency_authority")
-  authorizationEpoch Int                  @map("authorization_epoch")
-  scopeVersion       Int                  @map("scope_version")
-  createdAt          DateTime             @default(now()) @map("created_at")
+  capabilitySource   Cg4CapabilitySource @map("capability_source")
+  delegationId       String?             @map("delegation_id") @db.Uuid
+  directCompliance   Boolean             @map("direct_compliance")
+  emergencyAuthority Boolean             @map("emergency_authority")
+  authorizationEpoch Int                 @map("authorization_epoch")
+  scopeVersion       Int                 @map("scope_version")
+  createdAt          DateTime            @default(now()) @map("created_at")
 
   @@unique([tenantId, id])
   @@unique([tenantId, policyId, policyVersion, approverRef])
@@ -1325,7 +1375,7 @@ model Cg4Exception {
   startsAt            DateTime              @map("starts_at")
   expiresAt           DateTime              @map("expires_at")
   tier                Cg4ExceptionTier
-  status              Cg4ExceptionStatus   @default(PENDING)
+  status              Cg4ExceptionStatus    @default(PENDING)
   reasonCode          String                @map("reason_code")
   ticketRef           String?               @map("ticket_ref")
   evidenceRef         String                @map("evidence_ref")
@@ -1345,13 +1395,13 @@ model Cg4Exception {
 }
 
 model Cg4ExceptionHead {
-  id                String              @id @default(uuid()) @db.Uuid
-  tenantId          String              @map("tenant_id") @db.Uuid
-  exceptionId       String              @map("exception_id") @db.Uuid
-  currentRevisionId String              @map("current_revision_id") @db.Uuid
-  currentRevision   Int                 @map("current_revision")
+  id                String             @id @default(uuid()) @db.Uuid
+  tenantId          String             @map("tenant_id") @db.Uuid
+  exceptionId       String             @map("exception_id") @db.Uuid
+  currentRevisionId String             @map("current_revision_id") @db.Uuid
+  currentRevision   Int                @map("current_revision")
   status            Cg4ExceptionStatus
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
 
   @@unique([tenantId, id])
   @@unique([tenantId, exceptionId])
@@ -1375,22 +1425,22 @@ model Cg4ContactExceptionHead {
 
 // See Cg4PolicyApproval for why the columns from `capability` onward exist.
 model Cg4ExceptionApproval {
-  id                 String               @id @default(uuid()) @db.Uuid
-  tenantId           String               @map("tenant_id") @db.Uuid
-  exceptionId        String               @map("exception_id") @db.Uuid
-  exceptionRevision  Int                  @map("exception_revision")
+  id                 String              @id @default(uuid()) @db.Uuid
+  tenantId           String              @map("tenant_id") @db.Uuid
+  exceptionId        String              @map("exception_id") @db.Uuid
+  exceptionRevision  Int                 @map("exception_revision")
   decision           Cg4ApprovalDecision
-  approverRef        String               @map("approver_ref")
-  evidenceRef        String               @map("evidence_ref")
-  decidedAt          DateTime             @map("decided_at")
+  approverRef        String              @map("approver_ref")
+  evidenceRef        String              @map("evidence_ref")
+  decidedAt          DateTime            @map("decided_at")
   capability         String
-  capabilitySource   Cg4CapabilitySource  @map("capability_source")
-  delegationId       String?              @map("delegation_id") @db.Uuid
-  directCompliance   Boolean              @map("direct_compliance")
-  emergencyAuthority Boolean              @map("emergency_authority")
-  authorizationEpoch Int                  @map("authorization_epoch")
-  scopeVersion       Int                  @map("scope_version")
-  createdAt          DateTime             @default(now()) @map("created_at")
+  capabilitySource   Cg4CapabilitySource @map("capability_source")
+  delegationId       String?             @map("delegation_id") @db.Uuid
+  directCompliance   Boolean             @map("direct_compliance")
+  emergencyAuthority Boolean             @map("emergency_authority")
+  authorizationEpoch Int                 @map("authorization_epoch")
+  scopeVersion       Int                 @map("scope_version")
+  createdAt          DateTime            @default(now()) @map("created_at")
 
   @@unique([tenantId, id])
   @@unique([tenantId, exceptionId, exceptionRevision, approverRef])
