@@ -32,7 +32,9 @@ BEGIN
     'cg_policy_activation_job', 'cg_exception', 'cg_exception_head', 'cg_exception_approval',
     'cg_scope_kill_switch', 'cg4_backfill_ledger', 'cg_exception_contact_head',
     -- CG4.3 (#186)
-    'cg_delegation'
+    'cg_delegation',
+    -- CG4.6 (#189)
+    'cg_consumer_inbox', 'cg_scope_pause'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -138,3 +140,7 @@ REVOKE DELETE ON cg_scope_kill_switch FROM dcontact_app;
 REVOKE DELETE ON cg_exception_contact_head FROM dcontact_app;
 -- CG4.3 (#186): delegation is append-only, same reasoning as above.
 REVOKE UPDATE, DELETE ON cg_delegation FROM dcontact_app;
+-- CG4.6 (#189): the inbox is the completion record for at-least-once delivery, so a row
+-- must never be rewritten or removed; a scope pause advances state but keeps its history.
+REVOKE UPDATE, DELETE ON cg_consumer_inbox FROM dcontact_app;
+REVOKE DELETE ON cg_scope_pause FROM dcontact_app;
