@@ -6,6 +6,7 @@
  * preserving their JSON representation as a string at process boundaries.
  */
 declare const identifierBrand: unique symbol;
+declare const positiveIntegerBrand: unique symbol;
 
 type IdentifierKind =
   | 'TenantId'
@@ -13,6 +14,9 @@ type IdentifierKind =
   | 'IdentityId'
   | 'TeamId'
   | 'SegmentId'
+  | 'SegmentMembershipStreamId'
+  | 'SegmentEntryId'
+  | 'SegmentEvidenceRef'
   | 'ActionKey'
   | 'ReservationId'
   | 'DeliveryId'
@@ -35,8 +39,15 @@ type IdentifierKind =
   | 'Cg4SubjectId'
   | 'Cg4DelegationId';
 
+type PositiveIntegerKind =
+  'SegmentDefinitionVersion' | 'MembershipRevision' | 'CustomerSnapshotVersion';
+
 export type BrandedIdentifier<TKind extends IdentifierKind> = string & {
   readonly [identifierBrand]: TKind;
+};
+
+export type BrandedPositiveInteger<TKind extends PositiveIntegerKind> = number & {
+  readonly [positiveIntegerBrand]: TKind;
 };
 
 export type TenantId = BrandedIdentifier<'TenantId'>;
@@ -44,6 +55,12 @@ export type ContactId = BrandedIdentifier<'ContactId'>;
 export type IdentityId = BrandedIdentifier<'IdentityId'>;
 export type TeamId = BrandedIdentifier<'TeamId'>;
 export type SegmentId = BrandedIdentifier<'SegmentId'>;
+export type SegmentMembershipStreamId = BrandedIdentifier<'SegmentMembershipStreamId'>;
+export type SegmentEntryId = BrandedIdentifier<'SegmentEntryId'>;
+export type SegmentEvidenceRef = BrandedIdentifier<'SegmentEvidenceRef'>;
+export type SegmentDefinitionVersion = BrandedPositiveInteger<'SegmentDefinitionVersion'>;
+export type MembershipRevision = BrandedPositiveInteger<'MembershipRevision'>;
+export type CustomerSnapshotVersion = BrandedPositiveInteger<'CustomerSnapshotVersion'>;
 export type ActionKey = BrandedIdentifier<'ActionKey'>;
 export type ReservationId = BrandedIdentifier<'ReservationId'>;
 export type DeliveryId = BrandedIdentifier<'DeliveryId'>;
@@ -77,6 +94,16 @@ function identifier<TKind extends IdentifierKind>(
   return value as BrandedIdentifier<TKind>;
 }
 
+function positiveInteger<TKind extends PositiveIntegerKind>(
+  value: number,
+  kind: TKind,
+): BrandedPositiveInteger<TKind> {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new TypeError(`${kind} ต้องเป็นจำนวนเต็มตั้งแต่ 1`);
+  }
+  return value as BrandedPositiveInteger<TKind>;
+}
+
 export function tenantId(value: string): TenantId {
   return identifier(value, 'TenantId');
 }
@@ -95,6 +122,30 @@ export function teamId(value: string): TeamId {
 
 export function segmentId(value: string): SegmentId {
   return identifier(value, 'SegmentId');
+}
+
+export function segmentMembershipStreamId(value: string): SegmentMembershipStreamId {
+  return identifier(value, 'SegmentMembershipStreamId');
+}
+
+export function segmentEntryId(value: string): SegmentEntryId {
+  return identifier(value, 'SegmentEntryId');
+}
+
+export function segmentEvidenceRef(value: string): SegmentEvidenceRef {
+  return identifier(value, 'SegmentEvidenceRef');
+}
+
+export function segmentDefinitionVersion(value: number): SegmentDefinitionVersion {
+  return positiveInteger(value, 'SegmentDefinitionVersion');
+}
+
+export function membershipRevision(value: number): MembershipRevision {
+  return positiveInteger(value, 'MembershipRevision');
+}
+
+export function customerSnapshotVersion(value: number): CustomerSnapshotVersion {
+  return positiveInteger(value, 'CustomerSnapshotVersion');
 }
 
 export function actionKey(value: string): ActionKey {
