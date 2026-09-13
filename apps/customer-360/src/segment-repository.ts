@@ -87,6 +87,17 @@ export interface C360PublishedSegmentDefinition {
   headVersion: number;
 }
 
+/** Sanitized owner reference สำหรับ consumer validation; ไม่เปิด canonical definition JSON */
+export interface C360PublishedSegmentReference {
+  tenantId: string;
+  segmentId: string;
+  segmentDefinitionVersion: number;
+  status: 'PUBLISHED';
+  contentDigest: string;
+  evaluatorVersion: string;
+  headVersion: number;
+}
+
 export interface C360FactSnapshot {
   id: string;
   tenantId: string;
@@ -288,7 +299,7 @@ export class C360SegmentRepository {
   async resolvePublished(
     tenantIdValue: string,
     segmentIdValue: string,
-  ): Promise<C360PublishedSegmentDefinition | undefined> {
+  ): Promise<C360PublishedSegmentReference | undefined> {
     const tenantId = nonEmpty(tenantIdValue, 'tenantId');
     const segmentId = nonEmpty(segmentIdValue, 'segmentId');
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
@@ -306,7 +317,15 @@ export class C360SegmentRepository {
         },
       });
       if (!definition || definition.status !== 'PUBLISHED') return undefined;
-      return { definition: toDefinition(definition), headVersion: head.headVersion };
+      return {
+        tenantId: definition.tenantId,
+        segmentId: definition.segmentId,
+        segmentDefinitionVersion: definition.version,
+        status: 'PUBLISHED',
+        contentDigest: definition.contentDigest,
+        evaluatorVersion: definition.evaluatorVersion,
+        headVersion: head.headVersion,
+      };
     });
   }
 

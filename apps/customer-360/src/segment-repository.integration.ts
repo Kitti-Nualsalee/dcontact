@@ -112,6 +112,17 @@ test('definition/snapshot เดิมให้ evaluation record เดิม�
   const f = await fixture(t);
   const segmentId = 'segment:gold-overdue';
   const published = await publishFirst(f, segmentId);
+  const reference = await f.repository.resolvePublished(f.tenantId, segmentId);
+  assert.deepEqual(reference, {
+    tenantId: f.tenantId,
+    segmentId,
+    segmentDefinitionVersion: published.definition.version,
+    status: 'PUBLISHED',
+    contentDigest: published.definition.contentDigest,
+    evaluatorVersion: published.definition.evaluatorVersion,
+    headVersion: published.headVersion,
+  });
+  assert.doesNotMatch(JSON.stringify(reference), /"definition"|ลูกค้าทดสอบ|"expression"/);
   const snapshot = await f.repository.recordFactSnapshot({
     tenantId: f.tenantId,
     contactId: f.contactId,
