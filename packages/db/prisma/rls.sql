@@ -26,7 +26,11 @@ BEGIN
     'ob_attempts', 'ob_governance_consumer_inbox', 'ob_governance_acknowledgement_outbox',
     'ob_governance_effect_outbox',
     'dl_outbox_entries',
-    'jr_schedule_occurrences', 'jr_step_runs'
+    'jr_schedule_occurrences', 'jr_step_runs',
+    -- CG4.2 (#185)
+    'cg_policy', 'cg_policy_scope_head', 'cg_policy_test_artifact', 'cg_policy_approval',
+    'cg_policy_activation_job', 'cg_exception', 'cg_exception_head', 'cg_exception_approval',
+    'cg_scope_kill_switch', 'cg4_backfill_ledger', 'cg_exception_contact_head'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -115,3 +119,18 @@ REVOKE DELETE ON ob_campaign_targets FROM dcontact_app;
 REVOKE DELETE ON ob_dialer_command_inbox FROM dcontact_app;
 -- J2.6: Dialer SCHEDULE_CALLBACK owner slice — callback เดินสถานะได้แต่ห้ามหายทั้งแถว
 REVOKE DELETE ON ob_callbacks FROM dcontact_app;
+-- CG4.2 (#185): blanket GRANT ด้านบนคืนสิทธิ์ UPDATE/DELETE ให้ตารางที่ยังไม่เคยอยู่ใน
+-- array/REVOKE ชุดนี้มาก่อน ต้อง REVOKE ซ้ำที่นี่ให้ตรงกับ grant ที่ migration ตั้งใจไว้
+-- ไม่งั้น cg_exception/cg_exception_approval ที่ควร append-only จะกลาย mutable/deletable
+-- ทันทีที่ environment รัน db:rls
+REVOKE UPDATE, DELETE ON cg_policy_test_artifact FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_policy_approval FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_exception FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg_exception_approval FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg4_backfill_ledger FROM dcontact_app;
+REVOKE DELETE ON cg_policy FROM dcontact_app;
+REVOKE DELETE ON cg_policy_scope_head FROM dcontact_app;
+REVOKE DELETE ON cg_policy_activation_job FROM dcontact_app;
+REVOKE DELETE ON cg_exception_head FROM dcontact_app;
+REVOKE DELETE ON cg_scope_kill_switch FROM dcontact_app;
+REVOKE DELETE ON cg_exception_contact_head FROM dcontact_app;
