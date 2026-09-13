@@ -172,6 +172,46 @@ export class JourneyDefinitionRepository {
     return withTenantDatabaseTransaction(this.database, tenantId, read);
   }
 
+  /**
+   * V1: อย่างมากหนึ่ง published journey ต่อ (outcomeType, outcomeCode) ต่อ tenant —
+   * ตาม `JrEnrollment`'s `@@unique([tenantId, outcomeReceiptId])` ที่ออกแบบให้ trigger
+   * source หนึ่งอันมีได้แค่หนึ่ง enrollment (แบบเดียวกับ EVENT/SCHEDULE trigger เดิม);
+   * multi-journey fan-out ต่อ outcome เดียวเป็น scope ของ ticket ถัดไป (#135)
+   */
+  async findPublishedByOutcomeTrigger(
+    tenantId: string,
+    outcomeType: string,
+    outcomeCode: string | undefined,
+  ): Promise<readonly JourneyVersionSnapshot[]> {
+    const read = async (transaction: Prisma.TransactionClient) => {
+      const latestPerJourney = await transaction.jrJourneyDefinition.groupBy({
+        by: ['journeyId'],
+        where: { tenantId, status: 'PUBLISHED' },
+        _max: { version: true },
+      });
+      if (latestPerJourney.length === 0) return [];
+      const rows = await transaction.jrJourneyDefinition.findMany({
+        where: {
+          tenantId,
+          status: 'PUBLISHED',
+          OR: latestPerJourney.map((group) => ({
+            journeyId: group.journeyId,
+            version: group._max.version ?? -1,
+          })),
+        },
+      });
+      return rows
+        .map((row) => toSnapshot(row as StoredJourneyDefinition))
+        .filter((snapshot) => {
+          if (snapshot.trigger.kind !== 'INTERACTION_OUTCOME') return false;
+          if (snapshot.trigger.outcomeType !== outcomeType) return false;
+          if (snapshot.trigger.outcomeCode === undefined) return true;
+          return snapshot.trigger.outcomeCode === outcomeCode;
+        });
+    };
+    return withTenantDatabaseTransaction(this.database, tenantId, read);
+  }
+
   async publishVersion(input: PublishJourneyVersionInput): Promise<JourneyVersionSnapshot> {
     const persist = async (transaction: Prisma.TransactionClient) => {
       await transaction.$queryRaw(
@@ -203,6 +243,28 @@ export class JourneyDefinitionRepository {
       });
       if (!ownerTeam) {
         throw new JourneyDefinitionValidationError(['OWNER_TEAM_UNTRUSTED']);
+      }
+
+      if (content.trigger.kind === 'INTERACTION_OUTCOME') {
+        const entryStep = content.graph.steps.find(
+          (step) => step.id === content.graph.entryStepId,
+        );
+        const targetOwnerTeamId =
+          entryStep &&
+          (entryStep.type === 'ENSURE_CASE' ||
+            entryStep.type === 'ADMIT_CAMPAIGN_TARGET' ||
+            entryStep.type === 'SCHEDULE_CALLBACK')
+            ? entryStep.targetOwnerTeamId
+            : undefined;
+        const targetTeam = targetOwnerTeamId
+          ? await transaction.team.findFirst({
+              where: { id: targetOwnerTeamId, tenantId: input.tenantId },
+              select: { id: true },
+            })
+          : undefined;
+        if (!targetTeam) {
+          throw new JourneyDefinitionValidationError(['TARGET_TEAM_UNTRUSTED']);
+        }
       }
 
       const published = await transaction.jrJourneyDefinition.update({

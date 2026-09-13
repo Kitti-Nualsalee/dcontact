@@ -24,6 +24,8 @@ export interface IngestOutcomeReceiptInput {
   outcomeId: string;
   outcomeVersion: number;
   payloadHash: string;
+  /** J2.7: `InteractionOutcomePayloadV1` ที่ validate แล้ว — internal ID/code เท่านั้น */
+  payload: unknown;
   correlationId: string;
   causationId?: string;
 }
@@ -123,6 +125,7 @@ export class JourneyOutcomeReceiptRepository {
             outcomeId: input.outcomeId,
             outcomeVersion: input.outcomeVersion,
             payloadHash: input.payloadHash,
+            payload: input.payload as Prisma.InputJsonValue,
             state,
             correlationId: input.correlationId,
             ...(input.causationId ? { causationId: input.causationId } : {}),
@@ -194,8 +197,12 @@ export class JourneyOutcomeReceiptRepository {
    * markApplied ของ worker คนละตัวแข่งกันเลื่อน head พร้อมกัน; เลื่อนเฉพาะเมื่อ
    * version นี้ยังมากกว่า head ปัจจุบัน (CAS โดย read-then-write ภายใต้ lock เดียว)
    */
-  async markApplied(tenantId: string, receiptId: string): Promise<JrOutcomeReceipt> {
-    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+  async markApplied(
+    tenantId: string,
+    receiptId: string,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<JrOutcomeReceipt> {
+    const run = async (transaction: Prisma.TransactionClient) => {
       const receipt = await transaction.jrOutcomeReceipt.update({
         where: { id: receiptId },
         data: { state: 'APPLIED', appliedAt: new Date() },
@@ -259,7 +266,10 @@ export class JourneyOutcomeReceiptRepository {
         }
       }
       return receipt;
-    });
+    };
+    return transaction
+      ? run(transaction)
+      : withTenantDatabaseTransaction(this.database, tenantId, run);
   }
 
   async markReview(

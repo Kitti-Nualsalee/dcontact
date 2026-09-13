@@ -1172,40 +1172,45 @@ model JrKafkaConsumerInbox {
 /// nullable เพราะ Schedule trigger ไม่มี event ตั้งต้น และ `(current_step_id, step_sequence)`
 /// เป็นตำแหน่งเดียวที่บอกว่า enrollment เดินไปถึงไหน — worker ทุกตัวต้อง CAS ที่ step_sequence
 model JrEnrollment {
-  id             String            @id @default(uuid()) @db.Uuid
-  tenantId       String            @map("tenant_id") @db.Uuid
-  eventInboxId   String?           @map("event_inbox_id") @db.Uuid
-  occurrenceId   String?           @map("occurrence_id") @db.Uuid
-  journeyId      String?           @map("journey_id") @db.Uuid
-  journeyVersion Int               @map("journey_version")
-  contactId      String?           @map("contact_id") @db.Uuid
-  decisionId     String?           @map("decision_id") @db.Uuid
-  state          JrEnrollmentState @default(PENDING)
-  runState       JrRunState        @default(RUNNING) @map("run_state")
-  currentStepId  String?           @map("current_step_id")
-  stepSequence   Int               @default(0) @map("step_sequence")
-  waitUntil      DateTime?         @map("wait_until")
-  maxAgeAt       DateTime?         @map("max_age_at")
-  terminalReason JrTerminalReason? @map("terminal_reason")
-  terminalStepId String?           @map("terminal_step_id")
-  terminalAt     DateTime?         @map("terminal_at")
-  claimedBy      String?           @map("claimed_by")
-  claimExpiresAt DateTime?         @map("claim_expires_at")
-  correlationId  String?           @map("correlation_id")
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
+  id               String            @id @default(uuid()) @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
+  eventInboxId     String?           @map("event_inbox_id") @db.Uuid
+  occurrenceId     String?           @map("occurrence_id") @db.Uuid
+  /// J2.7: enrollment ที่เกิดจาก INTERACTION_OUTCOME trigger — nullable เหมือน
+  /// eventInboxId/occurrenceId เพราะ trigger source ของ enrollment มีได้แบบเดียวเท่านั้น
+  outcomeReceiptId String?           @map("outcome_receipt_id") @db.Uuid
+  journeyId        String?           @map("journey_id") @db.Uuid
+  journeyVersion   Int               @map("journey_version")
+  contactId        String?           @map("contact_id") @db.Uuid
+  decisionId       String?           @map("decision_id") @db.Uuid
+  state            JrEnrollmentState @default(PENDING)
+  runState         JrRunState        @default(RUNNING) @map("run_state")
+  currentStepId    String?           @map("current_step_id")
+  stepSequence     Int               @default(0) @map("step_sequence")
+  waitUntil        DateTime?         @map("wait_until")
+  maxAgeAt         DateTime?         @map("max_age_at")
+  terminalReason   JrTerminalReason? @map("terminal_reason")
+  terminalStepId   String?           @map("terminal_step_id")
+  terminalAt       DateTime?         @map("terminal_at")
+  claimedBy        String?           @map("claimed_by")
+  claimExpiresAt   DateTime?         @map("claim_expires_at")
+  correlationId    String?           @map("correlation_id")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
 
-  tenant     Tenant                @relation(fields: [tenantId], references: [id])
-  eventInbox JrEventInbox?         @relation(fields: [eventInboxId], references: [id])
-  occurrence JrScheduleOccurrence? @relation(fields: [occurrenceId], references: [id])
-  contact    Contact?              @relation(fields: [contactId], references: [id])
-  decision   CgDecisionLog?        @relation(fields: [decisionId], references: [id])
-  actions    JrAction[]
-  stepRuns   JrStepRun[]
+  tenant         Tenant                @relation(fields: [tenantId], references: [id])
+  eventInbox     JrEventInbox?         @relation(fields: [eventInboxId], references: [id])
+  occurrence     JrScheduleOccurrence? @relation(fields: [occurrenceId], references: [id])
+  outcomeReceipt JrOutcomeReceipt?     @relation(fields: [outcomeReceiptId], references: [id])
+  contact        Contact?              @relation(fields: [contactId], references: [id])
+  decision       CgDecisionLog?        @relation(fields: [decisionId], references: [id])
+  actions        JrAction[]
+  stepRuns       JrStepRun[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, eventInboxId])
   @@unique([tenantId, occurrenceId], map: "jr_enrollments_tenant_occurrence_key")
+  @@unique([tenantId, outcomeReceiptId], map: "jr_enrollments_tenant_outcome_receipt_key")
   @@index([tenantId, contactId, state])
   @@index([tenantId, runState, waitUntil], map: "jr_enrollments_tenant_run_state_wait_until_idx")
   @@index([tenantId, runState, maxAgeAt], map: "jr_enrollments_tenant_run_state_max_age_idx")
@@ -1735,6 +1740,11 @@ model JrOutcomeReceipt {
   outcomeId        String                @map("outcome_id") @db.Uuid
   outcomeVersion   Int                   @map("outcome_version")
   payloadHash      String                @map("payload_hash") @db.Char(64)
+  /// J2.7: `InteractionOutcomePayloadV1` ที่ผ่าน `assertInteractionOutcomeEnvelope` แล้ว —
+  /// internal ID/code เท่านั้น ไม่มี raw PII; จำเป็นสำหรับ trigger matching และสร้าง owner
+  /// command ในเฟส apply ที่แยกจาก ingest (`JourneyOutcomeReceiptRepository.ingest` ที่ตัวเอง
+  /// ยังเป็นแค่ hash-based dedup/ordering ledger ตาม J2.3)
+  payload          Json
   state            JrOutcomeReceiptState @default(RECEIVED)
   attempts         Int                   @default(0)
   leaseOwner       String?               @map("lease_owner")
@@ -1747,7 +1757,8 @@ model JrOutcomeReceipt {
   receivedAt       DateTime              @default(now()) @map("received_at")
   appliedAt        DateTime?             @map("applied_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  enrollments JrEnrollment[]
 
   @@unique([tenantId, source, eventId])
   @@unique([tenantId, outcomeType, outcomeId, outcomeVersion])

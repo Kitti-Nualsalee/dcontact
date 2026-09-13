@@ -73,8 +73,10 @@ export interface JourneyEnsureCaseStep {
   type: 'ENSURE_CASE';
   /** case-type/policy reference ที่ Cases ใช้เลือก dedupe/reopen policy — internal ID เท่านั้น */
   caseTypeId: string;
-  /** routing intent reference ที่อนุญาตส่งต่อ Cases; optional ตาม #121 */
-  routingIntentRef?: string;
+  /** routing intent reference ที่อนุญาตส่งต่อ Cases — required ตาม J2OwnerCommandPayloadV1.intent (#131) */
+  routingIntentRef: string;
+  /** target owner team ของ command นี้ (#122) — pin จาก published version เดียวกับ ownerTeamId */
+  targetOwnerTeamId: string;
   /** transition เมื่อได้ CREATED/LINKED/REOPENED */
   next: string;
   /** transition เมื่อ Cases ตอบ REJECTED */
@@ -86,6 +88,8 @@ export interface JourneyAdmitCampaignTargetStep {
   type: 'ADMIT_CAMPAIGN_TARGET';
   /** Campaign ที่มีอยู่แล้วเท่านั้น — ห้ามสร้าง/แก้ Campaign จาก Journey ตาม #121 */
   campaignId: string;
+  /** target owner team ของ command นี้ (#122) — pin จาก published version เดียวกับ ownerTeamId */
+  targetOwnerTeamId: string;
   /** transition เมื่อได้ ADMITTED/ALREADY_ADMITTED */
   next: string;
   /** transition เมื่อ Dialer ตอบ REJECTED */
@@ -97,9 +101,11 @@ export interface JourneyScheduleCallbackStep {
   type: 'SCHEDULE_CALLBACK';
   /** เวลาที่ขอ callback แบบ relative จาก trigger — definition เป็น declarative ล่วงหน้า */
   requestedInSeconds: number;
-  /** queue/agent affinity reference; optional ตาม #121 */
-  queueId?: string;
+  /** queue affinity reference — required ตาม J2OwnerCommandPayloadV1.intent (#131) */
+  queueId: string;
   agentId?: string;
+  /** target owner team ของ command นี้ (#122) — pin จาก published version เดียวกับ ownerTeamId */
+  targetOwnerTeamId: string;
   /** transition เมื่อได้ SCHEDULED/ALREADY_SCHEDULED */
   next: string;
   /** transition เมื่อ Dialer ตอบ REJECTED */
@@ -171,7 +177,9 @@ export type JourneyDefinitionValidationCode =
   | 'GRAPH_STEP_SHAPE_INVALID'
   | 'BRANCH_EXPRESSION_INVALID'
   | 'ACTION_INTENT_REFERENCE_INVALID'
-  | 'OWNER_TEAM_UNTRUSTED';
+  | 'OWNER_TEAM_UNTRUSTED'
+  | 'TARGET_TEAM_UNTRUSTED'
+  | 'ENTRY_STEP_ACTION_INTENT_REQUIRED';
 
 export class JourneyDefinitionValidationError extends Error {
   readonly code = 'DEFINITION_INVALID' as const;

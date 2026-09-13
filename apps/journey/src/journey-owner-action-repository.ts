@@ -120,8 +120,11 @@ export class JourneyOwnerActionRepository {
    * สร้าง action + stage command แรกใน transaction เดียว — retry ด้วย actionKey/
    * requestHash เดิมคืน action เดิมโดยไม่สร้าง command ซ้ำ (idempotent ต่อ #123)
    */
-  async ensureAction(input: EnsureOwnerActionInput): Promise<EnsureOwnerActionResult> {
-    return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+  async ensureAction(
+    input: EnsureOwnerActionInput,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<EnsureOwnerActionResult> {
+    const run = async (transaction: Prisma.TransactionClient) => {
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${actionLockKey(input.tenantId, input.actionKey)}))`,
       );
@@ -167,7 +170,10 @@ export class JourneyOwnerActionRepository {
         update: {},
       });
       return { action, isNew: true };
-    });
+    };
+    return transaction
+      ? run(transaction)
+      : withTenantDatabaseTransaction(this.database, input.tenantId, run);
   }
 
   getAction(tenantId: string, actionKey: string): Promise<JrOwnerAction | null> {
