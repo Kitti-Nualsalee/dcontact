@@ -564,6 +564,11 @@ enum Cg4KillSwitchState {
   CLEARED
 }
 
+enum Cg4CapabilitySource {
+  DIRECT
+  DELEGATED
+}
+
 enum JrEventInboxState {
   PENDING
   PUBLISHED
@@ -1239,16 +1244,28 @@ model Cg4PolicyTestArtifact {
   @@map("cg_policy_test_artifact")
 }
 
+// CG4.3 (#186): columns from `capability` onward are the maker-checker authorization
+// snapshot pinned at vote time — capability actually used, whether it came direct or
+// via delegation, whether this checker held direct-Compliance/emergency authority,
+// and the IAM epoch/scope version at evaluation. Re-validation compares the current
+// subject snapshot's epoch/scopeVersion against these to detect a stale approval.
 model Cg4PolicyApproval {
-  id             String              @id @default(uuid()) @db.Uuid
-  tenantId       String              @map("tenant_id") @db.Uuid
-  policyId       String              @map("policy_id") @db.Uuid
-  policyVersion  Int                 @map("policy_version")
-  decision       Cg4ApprovalDecision
-  approverRef    String              @map("approver_ref")
-  evidenceRef    String              @map("evidence_ref")
-  decidedAt      DateTime            @map("decided_at")
-  createdAt      DateTime            @default(now()) @map("created_at")
+  id                 String               @id @default(uuid()) @db.Uuid
+  tenantId           String               @map("tenant_id") @db.Uuid
+  policyId           String               @map("policy_id") @db.Uuid
+  policyVersion      Int                  @map("policy_version")
+  decision           Cg4ApprovalDecision
+  approverRef        String               @map("approver_ref")
+  evidenceRef        String               @map("evidence_ref")
+  decidedAt          DateTime             @map("decided_at")
+  capability         String
+  capabilitySource   Cg4CapabilitySource  @map("capability_source")
+  delegationId       String?              @map("delegation_id") @db.Uuid
+  directCompliance   Boolean              @map("direct_compliance")
+  emergencyAuthority Boolean              @map("emergency_authority")
+  authorizationEpoch Int                  @map("authorization_epoch")
+  scopeVersion       Int                  @map("scope_version")
+  createdAt          DateTime             @default(now()) @map("created_at")
 
   @@unique([tenantId, id])
   @@unique([tenantId, policyId, policyVersion, approverRef])
@@ -1342,21 +1359,52 @@ model Cg4ContactExceptionHead {
   @@map("cg_exception_contact_head")
 }
 
+// See Cg4PolicyApproval for why the columns from `capability` onward exist.
 model Cg4ExceptionApproval {
-  id                String              @id @default(uuid()) @db.Uuid
-  tenantId          String              @map("tenant_id") @db.Uuid
-  exceptionId       String              @map("exception_id") @db.Uuid
-  exceptionRevision Int                 @map("exception_revision")
-  decision          Cg4ApprovalDecision
-  approverRef       String              @map("approver_ref")
-  evidenceRef       String              @map("evidence_ref")
-  decidedAt         DateTime            @map("decided_at")
-  createdAt         DateTime            @default(now()) @map("created_at")
+  id                 String               @id @default(uuid()) @db.Uuid
+  tenantId           String               @map("tenant_id") @db.Uuid
+  exceptionId        String               @map("exception_id") @db.Uuid
+  exceptionRevision  Int                  @map("exception_revision")
+  decision           Cg4ApprovalDecision
+  approverRef        String               @map("approver_ref")
+  evidenceRef        String               @map("evidence_ref")
+  decidedAt          DateTime             @map("decided_at")
+  capability         String
+  capabilitySource   Cg4CapabilitySource  @map("capability_source")
+  delegationId       String?              @map("delegation_id") @db.Uuid
+  directCompliance   Boolean              @map("direct_compliance")
+  emergencyAuthority Boolean              @map("emergency_authority")
+  authorizationEpoch Int                  @map("authorization_epoch")
+  scopeVersion       Int                  @map("scope_version")
+  createdAt          DateTime             @default(now()) @map("created_at")
 
   @@unique([tenantId, id])
   @@unique([tenantId, exceptionId, exceptionRevision, approverRef])
   @@index([tenantId, exceptionId, exceptionRevision, decidedAt])
   @@map("cg_exception_approval")
+}
+
+// CG4.3 (#186): a maker-checker delegation grant per #173 §3 — exact capability, exact
+// scope, a maximum risk tier and a hard <=8h window. Append-only: a delegation is never
+// edited, only allowed to expire. `capability` is constrained at the DB layer (see
+// migration) to the delegable set (cg.exception.request, cg.exception.approve.standard)
+// so a stray write can never grant a HIGH/EMERGENCY or policy-publish/rollback capability
+// by delegation.
+model Cg4Delegation {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  delegatorSubjectId String   @map("delegator_subject_id")
+  delegateSubjectId  String   @map("delegate_subject_id")
+  capability         String
+  scopeKey           String   @map("scope_key")
+  grantVersion       Int      @map("grant_version")
+  startsAt           DateTime @map("starts_at")
+  expiresAt          DateTime @map("expires_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, delegateSubjectId, capability, scopeKey, expiresAt])
+  @@map("cg_delegation")
 }
 
 model Cg4ScopeKillSwitch {

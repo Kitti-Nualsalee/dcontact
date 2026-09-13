@@ -5,5 +5,6 @@ export * from './identifiers.js';
 export * from './scope-authorization.js';
 export * from './contact-governance.js';
 export * from './contact-governance-cg4.js';
+export * from './contact-governance-cg4-authorization.js';
 export * from './delivery.js';
 export * from './interaction-result.js';
