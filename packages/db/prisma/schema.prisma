@@ -513,6 +513,57 @@ enum CgConsumerAckOutcome {
   QUARANTINED
 }
 
+// CG4 canonical policy และ exception records แยกจาก cg_policies ของ CG3
+// เพื่อให้ migration เป็น expand-only และค่อยสลับ writer ใน ticket ถัดไป.
+enum Cg4PolicyStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PUBLISHED
+  SCHEDULED
+  ACTIVE
+  SUPERSEDED
+  REJECTED
+  WITHDRAWN
+}
+
+enum Cg4ApprovalDecision {
+  APPROVED
+  REJECTED
+}
+
+enum Cg4ActivationJobState {
+  PENDING
+  CLAIMED
+  COMPLETE
+  FAILED
+  CANCELLED
+}
+
+enum Cg4ExceptionScopeKind {
+  IDENTITY
+  CONTACT_WIDE
+}
+
+enum Cg4ExceptionStatus {
+  PENDING
+  APPROVED
+  REVOKED
+  EXPIRED
+  SUPERSEDED
+}
+
+enum Cg4ExceptionTier {
+  STANDARD
+  HIGH
+  EMERGENCY
+}
+
+enum Cg4KillSwitchState {
+  ACTIVE
+  CLEARED
+}
+
 enum JrEventInboxState {
   PENDING
   PUBLISHED
@@ -1127,6 +1178,205 @@ model CgConsumerAcknowledgement {
   @@unique([tenantId, eventId, consumer, appliedVersion])
   @@index([tenantId, aggregateType, aggregateId, appliedVersion])
   @@map("cg_consumer_acknowledgements")
+}
+
+// ─────────────────────────── CG4 canonical foundation ───────────────────────────
+// ตารางกลุ่มนี้เป็น additive foundation ตาม #185. FK tenant-bound และ lifecycle
+// orchestration จริงจะเริ่มใน CG4.3+; CG4.2 ไม่ย้าย writer จาก CG3.
+
+model Cg4Policy {
+  id              String          @id @default(uuid()) @db.Uuid
+  tenantId        String          @map("tenant_id") @db.Uuid
+  policyId        String          @map("policy_id") @db.Uuid
+  version         Int
+  scopeKey        String          @map("scope_key")
+  content         Json
+  contentDigest   String          @map("content_digest") @db.Char(64)
+  registryVersion String          @map("registry_version")
+  status          Cg4PolicyStatus @default(DRAFT)
+  effectiveFrom   DateTime        @map("effective_from")
+  effectiveTo     DateTime?       @map("effective_to")
+  makerActorRef   String          @map("maker_actor_ref")
+  submittedAt     DateTime?       @map("submitted_at")
+  approvedAt      DateTime?       @map("approved_at")
+  publishedAt     DateTime?       @map("published_at")
+  supersedesId    String?         @map("supersedes_id") @db.Uuid
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, policyId, version])
+  @@index([tenantId, scopeKey, status])
+  @@map("cg_policy")
+}
+
+model Cg4PolicyScopeHead {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  scopeKey             String   @map("scope_key")
+  headPolicyId         String   @map("head_policy_id") @db.Uuid
+  headPolicyVersion    Int      @map("head_policy_version")
+  headPolicyRevisionId String   @map("head_policy_revision_id") @db.Uuid
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, scopeKey])
+  @@index([tenantId, headPolicyId, headPolicyVersion])
+  @@map("cg_policy_scope_head")
+}
+
+model Cg4PolicyTestArtifact {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  policyId       String   @map("policy_id") @db.Uuid
+  policyVersion  Int      @map("policy_version")
+  suiteVersion   String   @map("suite_version")
+  artifactDigest String   @map("artifact_digest") @db.Char(64)
+  result         Json
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, policyId, policyVersion, suiteVersion])
+  @@map("cg_policy_test_artifact")
+}
+
+model Cg4PolicyApproval {
+  id             String              @id @default(uuid()) @db.Uuid
+  tenantId       String              @map("tenant_id") @db.Uuid
+  policyId       String              @map("policy_id") @db.Uuid
+  policyVersion  Int                 @map("policy_version")
+  decision       Cg4ApprovalDecision
+  approverRef    String              @map("approver_ref")
+  evidenceRef    String              @map("evidence_ref")
+  decidedAt      DateTime            @map("decided_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, policyId, policyVersion, approverRef])
+  @@index([tenantId, policyId, policyVersion, decidedAt])
+  @@map("cg_policy_approval")
+}
+
+model Cg4PolicyActivationJob {
+  id             String                @id @default(uuid()) @db.Uuid
+  tenantId       String                @map("tenant_id") @db.Uuid
+  policyId       String                @map("policy_id") @db.Uuid
+  policyVersion  Int                   @map("policy_version")
+  scopeKey       String                @map("scope_key")
+  scheduledFor   DateTime              @map("scheduled_for")
+  state          Cg4ActivationJobState @default(PENDING)
+  attempts       Int                   @default(0)
+  leaseOwner     String?               @map("lease_owner")
+  leaseExpiresAt DateTime?             @map("lease_expires_at")
+  completedAt    DateTime?             @map("completed_at")
+  lastError      String?               @map("last_error")
+  createdAt      DateTime              @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, policyId, policyVersion])
+  @@index([tenantId, state, scheduledFor])
+  @@map("cg_policy_activation_job")
+}
+
+model Cg4Exception {
+  id                  String                @id @default(uuid()) @db.Uuid
+  tenantId            String                @map("tenant_id") @db.Uuid
+  exceptionId         String                @map("exception_id") @db.Uuid
+  revision            Int
+  contactId           String                @map("contact_id") @db.Uuid
+  identityId          String?               @map("identity_id") @db.Uuid
+  scopeKind           Cg4ExceptionScopeKind @map("scope_kind")
+  channel             ChannelType
+  purpose             String
+  sourceType          String                @map("source_type")
+  sourceId            String                @map("source_id")
+  allowedRuleCodes    String[]              @map("allowed_rule_codes")
+  policyId            String                @map("policy_id") @db.Uuid
+  policyVersion       Int                   @map("policy_version")
+  policyContentDigest String                @map("policy_content_digest") @db.Char(64)
+  registryVersion     String                @map("registry_version")
+  startsAt            DateTime              @map("starts_at")
+  expiresAt           DateTime              @map("expires_at")
+  tier                Cg4ExceptionTier
+  status              Cg4ExceptionStatus   @default(PENDING)
+  reasonCode          String                @map("reason_code")
+  ticketRef           String?               @map("ticket_ref")
+  evidenceRef         String                @map("evidence_ref")
+  actorRef            String                @map("actor_ref")
+  requestHash         String                @map("request_hash") @db.Char(64)
+  supersedesId        String?               @map("supersedes_id") @db.Uuid
+  createdAt           DateTime              @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, exceptionId, revision])
+  @@index([tenantId, contactId, status, expiresAt])
+  @@index([tenantId, policyId, policyVersion])
+  @@map("cg_exception")
+}
+
+model Cg4ExceptionHead {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  exceptionId       String              @map("exception_id") @db.Uuid
+  currentRevisionId String              @map("current_revision_id") @db.Uuid
+  currentRevision   Int                 @map("current_revision")
+  status            Cg4ExceptionStatus
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, exceptionId])
+  @@map("cg_exception_head")
+}
+
+model Cg4ExceptionApproval {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  exceptionId       String              @map("exception_id") @db.Uuid
+  exceptionRevision Int                 @map("exception_revision")
+  decision          Cg4ApprovalDecision
+  approverRef       String              @map("approver_ref")
+  evidenceRef       String              @map("evidence_ref")
+  decidedAt         DateTime            @map("decided_at")
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, exceptionId, exceptionRevision, approverRef])
+  @@index([tenantId, exceptionId, exceptionRevision, decidedAt])
+  @@map("cg_exception_approval")
+}
+
+model Cg4ScopeKillSwitch {
+  id               String             @id @default(uuid()) @db.Uuid
+  tenantId         String             @map("tenant_id") @db.Uuid
+  scopeKey         String             @map("scope_key")
+  state            Cg4KillSwitchState @default(ACTIVE)
+  reasonCode       String             @map("reason_code")
+  evidenceRef      String             @map("evidence_ref")
+  activatedByRef   String             @map("activated_by_ref")
+  activatedAt      DateTime           @map("activated_at")
+  clearApprovalRef String?            @map("clear_approval_ref")
+  clearedAt        DateTime?          @map("cleared_at")
+  createdAt        DateTime           @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, scopeKey, state])
+  @@map("cg_scope_kill_switch")
+}
+
+// Ledger ว่างใน CG4.2: เก็บ deterministic source→target mapping เมื่อ ticket
+// backfill ถัดไปได้รับ authority โดยไม่สร้าง historic event ปลอมใน migration นี้.
+model Cg4BackfillLedger {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  sourceTable  String   @map("source_table")
+  sourceKey    String   @map("source_key")
+  targetKind   String   @map("target_kind")
+  targetId     String   @map("target_id") @db.Uuid
+  sourceDigest String   @map("source_digest") @db.Char(64)
+  recordedAt   DateTime @default(now()) @map("recorded_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, sourceTable, sourceKey])
+  @@map("cg4_backfill_ledger")
 }
 
 model JrEventInbox {
