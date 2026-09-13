@@ -1,9 +1,11 @@
 import type {
+  Cg4AppliedExceptionPin,
   ContactChannel,
   ContactDecision,
   ContactPolicyTraceEntry,
 } from '@d-contact/cxa-contracts';
 import type { LocalTimeWindow } from './cg3-persistence.js';
+import { resolveCg4ExceptionCoverage, type Cg4ExceptionFacts } from './cg4-exception-evaluation.js';
 
 /**
  * Pure, deterministic CG3 gate evaluator ตาม decision #101/#98 ของ
@@ -65,6 +67,11 @@ export interface Cg3EvaluationInput {
   preferences: Cg3PreferenceCandidate[];
   policy?: Cg3PolicyFacts;
   activeCallback?: Cg3CallbackFacts;
+  /** CG4.4 (#187): exact source binding an Approved exception must match. */
+  source?: string;
+  sourceId?: string;
+  /** CG4.4 (#187): APPROVED exceptions whose window covers `now`, unfiltered by scope. */
+  activeExceptions?: Cg4ExceptionFacts[];
 }
 
 export interface Cg3GateOutcome {
@@ -81,6 +88,8 @@ export interface Cg3GateOutcome {
   exceptionRef?: string;
   /** ถ้ามี callback ที่ valid และถูกใช้ override จริง ให้ service consume มันแบบ atomic */
   consumedCallbackRequestId?: string;
+  /** CG4.4 (#187): exception revision ที่ยก provisional failure จริง สำหรับ pin ใน decision trace */
+  appliedExceptions?: Cg4AppliedExceptionPin[];
 }
 
 const REASON = {
@@ -93,6 +102,7 @@ const REASON = {
   CALLBACK_OVERRIDE_EXPIRED: 'CALLBACK_OVERRIDE_EXPIRED',
   EXCEPTION_APPROVAL_REQUIRED: 'EXCEPTION_APPROVAL_REQUIRED',
   CUSTOMER_REQUESTED_CALLBACK: 'CUSTOMER_REQUESTED_CALLBACK',
+  APPROVED_EXCEPTION_APPLIED: 'APPROVED_EXCEPTION_APPLIED',
 } as const;
 
 // ---- Preference gate ------------------------------------------------------
@@ -332,6 +342,36 @@ function findNextEligibleAt(
 
 // ---- Callback exception ----------------------------------------------------
 
+/**
+ * CG4.4 (#187): an Approved exception lifts a provisional failure only when every scope
+ * dimension matches exactly and its pinned policy/registry binding is still current.
+ * `seriesId` narrows the search to one series, which is how a CG3 callback's
+ * `approvedExceptionId` reference is validated against canonical state.
+ */
+function approvedExceptionFor(
+  input: Cg3EvaluationInput,
+  reasonCode: string,
+  seriesId?: string,
+): Cg4AppliedExceptionPin | undefined {
+  const candidates = input.activeExceptions ?? [];
+  if (candidates.length === 0 || input.source === undefined || input.sourceId === undefined) {
+    return undefined;
+  }
+  const coverage = resolveCg4ExceptionCoverage({
+    exceptions: seriesId ? candidates.filter((entry) => entry.seriesId === seriesId) : candidates,
+    context: {
+      ...(input.identityId !== undefined ? { identityId: input.identityId } : {}),
+      channel: input.channel,
+      purpose: input.purpose,
+      source: input.source,
+      sourceId: input.sourceId,
+      now: input.now,
+    },
+    reasonCode,
+  });
+  return coverage.covered ? coverage.pin : undefined;
+}
+
 function callbackIsExactScopeMatch(callback: Cg3CallbackFacts, input: Cg3EvaluationInput): boolean {
   return (
     callback.identityId === (input.identityId ?? null) &&
@@ -429,107 +469,159 @@ export function evaluateCg3Policy(input: Cg3EvaluationInput): Cg3GateOutcome {
     }
   }
 
+  const appliedExceptions: Cg4AppliedExceptionPin[] = [];
+  // แยกให้ชัดว่า "ใคร" เป็นคนยก provisional block: callback ที่ถูกใช้จริงต้องถูก consume แบบ
+  // one-use ส่วน exception ที่ยกเองไม่แตะ callback เลย
+  let callbackOverrodeBlock = false;
+
   if (temporalBlock) {
-    const overridable = input.policy?.overridableRules.includes(temporalBlock.reasonCode) ?? false;
-    if (!overridable) {
+    // A valid customer callback owns the override when it applies: it is one-use evidence
+    // that this send exercised, so it must be consumed rather than bypassed. In
+    // TIME_POLICY_OVERRIDE mode it additionally needs a resolving Approved exception
+    // behind it, which is then pinned by the callback path itself.
+    const callbackMode = input.policy?.callbackMode ?? 'SCOPED_OVERRIDE';
+    const pendingCallback = input.activeCallback;
+    const callbackWillOverride =
+      pendingCallback !== undefined &&
+      callbackMode !== 'NO_OVERRIDE' &&
+      callbackIsExactScopeMatch(pendingCallback, input) &&
+      new Date(pendingCallback.expiresAt) > input.now &&
+      (input.policy?.overridableRules.includes(temporalBlock.reasonCode) ?? false) &&
+      (callbackMode !== 'TIME_POLICY_OVERRIDE' ||
+        approvedExceptionFor(
+          input,
+          temporalBlock.reasonCode,
+          pendingCallback.approvedExceptionId ?? undefined,
+        ) !== undefined);
+
+    // Otherwise an Approved exception is its own override mechanism: it depends on the
+    // exception's own pinned CG4 policy allowlist, not on CG3's `overridableRules`, so it
+    // can lift a rule that CG3 alone would treat as final.
+    const appliedException = callbackWillOverride
+      ? undefined
+      : approvedExceptionFor(input, temporalBlock.reasonCode);
+    if (appliedException) {
       trace.push({
         gate: 'TEMPORAL_POLICY',
         outcome: 'DEFER',
         reasonCode: temporalBlock.reasonCode,
       });
-      return {
-        trace,
-        decision: 'DEFER',
+      trace.push({
+        gate: 'APPROVED_EXCEPTION',
+        outcome: 'PASS',
+        reasonCode: REASON.APPROVED_EXCEPTION_APPLIED,
+      });
+      appliedExceptions.push(appliedException);
+    } else {
+      const overridable =
+        input.policy?.overridableRules.includes(temporalBlock.reasonCode) ?? false;
+      if (!overridable) {
+        trace.push({
+          gate: 'TEMPORAL_POLICY',
+          outcome: 'DEFER',
+          reasonCode: temporalBlock.reasonCode,
+        });
+        return {
+          trace,
+          decision: 'DEFER',
+          reasonCode: temporalBlock.reasonCode,
+          preferenceVersion: winner?.version,
+          nextEligibleAt,
+          timezoneSource: resolvedTimezone?.source,
+          matchedWindowRef: temporalBlock.matchedWindowRef,
+        };
+      }
+      trace.push({
+        gate: 'TEMPORAL_POLICY',
+        outcome: 'DEFER',
         reasonCode: temporalBlock.reasonCode,
-        preferenceVersion: winner?.version,
-        nextEligibleAt,
-        timezoneSource: resolvedTimezone?.source,
-        matchedWindowRef: temporalBlock.matchedWindowRef,
-      };
-    }
-    trace.push({
-      gate: 'TEMPORAL_POLICY',
-      outcome: 'DEFER',
-      reasonCode: temporalBlock.reasonCode,
-    });
+      });
 
-    // --- CALLBACK_EXCEPTION (เฉพาะเมื่อ temporal เป็น provisional/overridable) ---
-    const mode = input.policy?.callbackMode ?? 'SCOPED_OVERRIDE';
-    const callback = input.activeCallback;
-    const callbackScopeMatches = callback ? callbackIsExactScopeMatch(callback, input) : false;
-    const callbackExpired = callback ? new Date(callback.expiresAt) <= input.now : false;
+      // --- CALLBACK_EXCEPTION (เฉพาะเมื่อ temporal เป็น provisional/overridable) ---
+      const mode = input.policy?.callbackMode ?? 'SCOPED_OVERRIDE';
+      const callback = input.activeCallback;
+      const callbackScopeMatches = callback ? callbackIsExactScopeMatch(callback, input) : false;
+      const callbackExpired = callback ? new Date(callback.expiresAt) <= input.now : false;
 
-    if (mode === 'NO_OVERRIDE' || !callback) {
-      trace.push({
-        gate: 'CALLBACK_EXCEPTION',
-        outcome: 'DEFER',
-        reasonCode: callback ? REASON.CALLBACK_OVERRIDE_NOT_ALLOWED : temporalBlock.reasonCode,
-      });
-      return {
-        trace,
-        decision: 'DEFER',
-        reasonCode: callback ? REASON.CALLBACK_OVERRIDE_NOT_ALLOWED : temporalBlock.reasonCode,
-        preferenceVersion: winner?.version,
-        nextEligibleAt,
-        timezoneSource: resolvedTimezone?.source,
-        matchedWindowRef: temporalBlock.matchedWindowRef,
-      };
-    }
-    if (!callbackScopeMatches) {
-      trace.push({
-        gate: 'CALLBACK_EXCEPTION',
-        outcome: 'DEFER',
-        reasonCode: REASON.CALLBACK_OVERRIDE_NOT_ALLOWED,
-      });
-      return {
-        trace,
-        decision: 'DEFER',
-        reasonCode: REASON.CALLBACK_OVERRIDE_NOT_ALLOWED,
-        preferenceVersion: winner?.version,
-        nextEligibleAt,
-        timezoneSource: resolvedTimezone?.source,
-        matchedWindowRef: temporalBlock.matchedWindowRef,
-      };
-    }
-    if (callbackExpired) {
-      trace.push({
-        gate: 'CALLBACK_EXCEPTION',
-        outcome: 'DEFER',
-        reasonCode: REASON.CALLBACK_OVERRIDE_EXPIRED,
-      });
-      return {
-        trace,
-        decision: 'DEFER',
-        reasonCode: REASON.CALLBACK_OVERRIDE_EXPIRED,
-        preferenceVersion: winner?.version,
-        nextEligibleAt,
-        timezoneSource: resolvedTimezone?.source,
-        matchedWindowRef: temporalBlock.matchedWindowRef,
-      };
-    }
-    if (mode === 'TIME_POLICY_OVERRIDE' && !callback.approvedExceptionId) {
-      trace.push({
-        gate: 'CALLBACK_EXCEPTION',
-        outcome: 'REVIEW',
-        reasonCode: REASON.EXCEPTION_APPROVAL_REQUIRED,
-      });
-      return {
-        trace,
-        decision: 'REVIEW',
-        reasonCode: REASON.EXCEPTION_APPROVAL_REQUIRED,
-        preferenceVersion: winner?.version,
-        nextEligibleAt,
-        timezoneSource: resolvedTimezone?.source,
-        matchedWindowRef: temporalBlock.matchedWindowRef,
-      };
-    }
+      if (mode === 'NO_OVERRIDE' || !callback) {
+        trace.push({
+          gate: 'CALLBACK_EXCEPTION',
+          outcome: 'DEFER',
+          reasonCode: callback ? REASON.CALLBACK_OVERRIDE_NOT_ALLOWED : temporalBlock.reasonCode,
+        });
+        return {
+          trace,
+          decision: 'DEFER',
+          reasonCode: callback ? REASON.CALLBACK_OVERRIDE_NOT_ALLOWED : temporalBlock.reasonCode,
+          preferenceVersion: winner?.version,
+          nextEligibleAt,
+          timezoneSource: resolvedTimezone?.source,
+          matchedWindowRef: temporalBlock.matchedWindowRef,
+        };
+      }
+      if (!callbackScopeMatches) {
+        trace.push({
+          gate: 'CALLBACK_EXCEPTION',
+          outcome: 'DEFER',
+          reasonCode: REASON.CALLBACK_OVERRIDE_NOT_ALLOWED,
+        });
+        return {
+          trace,
+          decision: 'DEFER',
+          reasonCode: REASON.CALLBACK_OVERRIDE_NOT_ALLOWED,
+          preferenceVersion: winner?.version,
+          nextEligibleAt,
+          timezoneSource: resolvedTimezone?.source,
+          matchedWindowRef: temporalBlock.matchedWindowRef,
+        };
+      }
+      if (callbackExpired) {
+        trace.push({
+          gate: 'CALLBACK_EXCEPTION',
+          outcome: 'DEFER',
+          reasonCode: REASON.CALLBACK_OVERRIDE_EXPIRED,
+        });
+        return {
+          trace,
+          decision: 'DEFER',
+          reasonCode: REASON.CALLBACK_OVERRIDE_EXPIRED,
+          preferenceVersion: winner?.version,
+          nextEligibleAt,
+          timezoneSource: resolvedTimezone?.source,
+          matchedWindowRef: temporalBlock.matchedWindowRef,
+        };
+      }
+      // TIME_POLICY_OVERRIDE ต้องมี Approved exception จริงรองรับ: reference ที่ไม่ resolve เป็น
+      // exception ที่ active/ตรง scope/ตรง rule ถือว่าไม่มี (fail closed) โดยไม่เปลี่ยน callback mode
+      const referencedException = callback.approvedExceptionId
+        ? approvedExceptionFor(input, temporalBlock.reasonCode, callback.approvedExceptionId)
+        : undefined;
+      if (mode === 'TIME_POLICY_OVERRIDE' && !referencedException) {
+        trace.push({
+          gate: 'CALLBACK_EXCEPTION',
+          outcome: 'REVIEW',
+          reasonCode: REASON.EXCEPTION_APPROVAL_REQUIRED,
+        });
+        return {
+          trace,
+          decision: 'REVIEW',
+          reasonCode: REASON.EXCEPTION_APPROVAL_REQUIRED,
+          preferenceVersion: winner?.version,
+          nextEligibleAt,
+          timezoneSource: resolvedTimezone?.source,
+          matchedWindowRef: temporalBlock.matchedWindowRef,
+        };
+      }
 
-    // valid override: ยก provisional temporal block แล้วเดินต่อ (ไม่ใช่ ALLOW ทันที)
-    trace.push({
-      gate: 'CALLBACK_EXCEPTION',
-      outcome: 'PASS',
-      reasonCode: REASON.CUSTOMER_REQUESTED_CALLBACK,
-    });
+      // valid override: ยก provisional temporal block แล้วเดินต่อ (ไม่ใช่ ALLOW ทันที)
+      trace.push({
+        gate: 'CALLBACK_EXCEPTION',
+        outcome: 'PASS',
+        reasonCode: REASON.CUSTOMER_REQUESTED_CALLBACK,
+      });
+      callbackOverrodeBlock = true;
+      if (referencedException) appliedExceptions.push(referencedException);
+    }
   } else {
     trace.push({ gate: 'TEMPORAL_POLICY', outcome: 'PASS' });
   }
@@ -566,9 +658,10 @@ export function evaluateCg3Policy(input: Cg3EvaluationInput): Cg3GateOutcome {
     ...(input.policy && temporalBlock
       ? { exceptionMode: input.policy.callbackMode, exceptionRef: input.activeCallback?.requestId }
       : {}),
-    ...(input.activeCallback && temporalBlock
+    ...(input.activeCallback && callbackOverrodeBlock
       ? { consumedCallbackRequestId: input.activeCallback.requestId }
       : {}),
+    ...(appliedExceptions.length > 0 ? { appliedExceptions } : {}),
   };
 }
 

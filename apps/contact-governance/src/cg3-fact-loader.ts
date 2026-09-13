@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from '@d-contact/db';
 import type { ContactChannel } from '@d-contact/cxa-contracts';
-import type { LocalTimeWindow } from './cg3-persistence.js';
+import { stableDigest, type LocalTimeWindow } from './cg3-persistence.js';
+import type { Cg4ExceptionFacts } from './cg4-exception-evaluation.js';
 import type {
   Cg3CallbackFacts,
   Cg3HolidayEntry,
@@ -23,6 +24,116 @@ export interface Cg3Facts {
   preferences: Cg3PreferenceCandidate[];
   policy?: Cg3PolicyFacts;
   activeCallback?: Cg3CallbackFacts;
+  /**
+   * CG4.4 (#187): APPROVED exception series whose window covers `now`. Scope matching is
+   * left to the pure evaluator so the decision stays replayable from these facts alone.
+   */
+  activeExceptions: Cg4ExceptionFacts[];
+}
+
+function policyAllowedRuleCodes(content: unknown): string[] {
+  if (!content || typeof content !== 'object' || Array.isArray(content)) return [];
+  const value = (content as Record<string, unknown>).allowedOperationalRuleCodes;
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
+/**
+ * CG4 exception facts for one contact, resolved to each series' current revision. Only
+ * series whose head is APPROVED and whose current revision is the time-active one are
+ * returned; everything else is left out so a stale revision can never be matched.
+ */
+export async function loadCg4ExceptionFacts(
+  transaction: Prisma.TransactionClient,
+  query: Cg3FactQuery,
+): Promise<Cg4ExceptionFacts[]> {
+  const revisions = await transaction.cg4Exception.findMany({
+    where: {
+      tenantId: query.tenantId,
+      contactId: query.contactId,
+      startsAt: { lte: query.now },
+      expiresAt: { gt: query.now },
+    },
+    orderBy: [{ startsAt: 'asc' }, { revision: 'asc' }],
+  });
+  if (revisions.length === 0) return [];
+
+  const [heads, policies, approvals] = await Promise.all([
+    transaction.cg4ExceptionHead.findMany({
+      where: {
+        tenantId: query.tenantId,
+        exceptionId: { in: [...new Set(revisions.map((row) => row.exceptionId))] },
+        status: 'APPROVED',
+      },
+    }),
+    transaction.cg4Policy.findMany({
+      where: {
+        tenantId: query.tenantId,
+        OR: revisions.map((row) => ({ policyId: row.policyId, version: row.policyVersion })),
+      },
+    }),
+    transaction.cg4ExceptionApproval.findMany({
+      where: {
+        tenantId: query.tenantId,
+        exceptionId: { in: [...new Set(revisions.map((row) => row.exceptionId))] },
+      },
+      orderBy: [{ approverRef: 'asc' }],
+    }),
+  ]);
+
+  const approvedRevisionIds = new Set(heads.map((head) => head.currentRevisionId));
+  const policyByKey = new Map(
+    policies.map((policy) => [`${policy.policyId}:${policy.version}`, policy]),
+  );
+
+  return revisions
+    .filter((revision) => approvedRevisionIds.has(revision.id))
+    .map((revision) => {
+      const policy = policyByKey.get(`${revision.policyId}:${revision.policyVersion}`);
+      const revisionApprovals = approvals.filter(
+        (approval) =>
+          approval.exceptionId === revision.exceptionId &&
+          approval.exceptionRevision === revision.revision,
+      );
+      return {
+        seriesId: revision.exceptionId,
+        revisionId: revision.id,
+        revision: revision.revision,
+        workflowState: 'APPROVED' as const,
+        identityId: revision.identityId,
+        scopeKind:
+          revision.scopeKind === 'IDENTITY'
+            ? ('EXACT_IDENTITY' as const)
+            : ('CONTACT_WIDE' as const),
+        channel: revision.channel,
+        purpose: revision.purpose,
+        sourceType: revision.sourceType,
+        sourceId: revision.sourceId,
+        allowedRuleCodes: revision.allowedRuleCodes,
+        policyId: revision.policyId,
+        policyVersionId: policy?.id ?? revision.policyId,
+        policyVersion: revision.policyVersion,
+        policyContentDigest: revision.policyContentDigest,
+        currentPolicyContentDigest: policy?.contentDigest ?? null,
+        policyAllowedRuleCodes: policyAllowedRuleCodes(policy?.content),
+        registryVersion: revision.registryVersion,
+        startsAt: revision.startsAt,
+        expiresAt: revision.expiresAt,
+        tier: revision.tier,
+        contentDigest: revision.requestHash,
+        approvalDigest: stableDigest(
+          revisionApprovals.map((approval) => ({
+            approverRef: approval.approverRef,
+            decision: approval.decision,
+            capability: approval.capability,
+            capabilitySource: approval.capabilitySource,
+            authorizationEpoch: approval.authorizationEpoch,
+            scopeVersion: approval.scopeVersion,
+            decidedAt: approval.decidedAt.toISOString(),
+          })),
+        ),
+      };
+    });
 }
 
 function specificity(scope: {
@@ -162,5 +273,6 @@ export async function loadCg3Facts(
     preferences,
     ...(policy ? { policy } : {}),
     ...(activeCallback ? { activeCallback } : {}),
+    activeExceptions: await loadCg4ExceptionFacts(transaction, query),
   };
 }

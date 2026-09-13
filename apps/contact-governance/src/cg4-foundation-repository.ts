@@ -3,6 +3,7 @@ import {
   Prisma,
   type Cg4Exception,
   type Cg4ExceptionScopeKind,
+  type Cg4ExceptionStatus,
   type Cg4ExceptionTier,
   type PrismaClient,
   withTenantDatabaseTransaction,
@@ -15,6 +16,7 @@ import {
   stableDigest,
 } from './cg3-persistence.js';
 import { resolveCg4OverrideEligibility } from './cg4-rule-registry.js';
+import { Cg4InvalidLifecycleTransitionError } from './cg4-exception-lifecycle.js';
 
 /**
  * CG4.2 primitive สำหรับเขียน exception revision แบบ append-only เท่านั้น.
@@ -43,6 +45,8 @@ export interface RecordCg4ExceptionInput {
   actorRef: string;
   occurredAt: string;
   exceptionId?: string;
+  /** CG4.4 (#187): series this request renews; renewal is always a new series. */
+  renewsExceptionId?: string;
   idempotencyKey: string;
   expectedVersion: number;
 }
@@ -67,7 +71,7 @@ export interface Cg4ExceptionView {
   startsAt: string;
   expiresAt: string;
   tier: Cg4ExceptionTier;
-  status: 'PENDING' | 'APPROVED' | 'REVOKED' | 'EXPIRED' | 'SUPERSEDED';
+  status: Cg4ExceptionStatus;
   reasonCode: string;
   ticketRef?: string;
   evidenceRef: string;
@@ -204,6 +208,7 @@ export class Cg4FoundationRepository {
     if (input.exceptionId) nonEmpty(input.exceptionId, 'exceptionId');
     if (input.identityId) nonEmpty(input.identityId, 'identityId');
     if (input.ticketRef) nonEmpty(input.ticketRef, 'ticketRef');
+    if (input.renewsExceptionId) nonEmpty(input.renewsExceptionId, 'renewsExceptionId');
     if (!CG4_SOURCE_TYPES.has(input.sourceType)) {
       throw new TypeError('sourceType ไม่อยู่ใน CG4 source registry');
     }
@@ -255,6 +260,7 @@ export class Cg4FoundationRepository {
       actorRef: input.actorRef,
       occurredAt: occurredAt.toISOString(),
       exceptionId: input.exceptionId ?? null,
+      renewsExceptionId: input.renewsExceptionId ?? null,
       expectedVersion: input.expectedVersion,
     });
 
@@ -351,6 +357,34 @@ export class Cg4FoundationRepository {
           select: { id: true },
         });
         if (!previous) throw new Cg3ResourceNotFoundError();
+        // CG4.4 (#187): only a PENDING series takes another content revision. Approved
+        // content is immutable and a terminal series never reopens — changing either
+        // means requesting a renewal series instead.
+        if (exceptionHead.status !== 'PENDING') {
+          throw new Cg4InvalidLifecycleTransitionError(exceptionHead.status, 'PENDING');
+        }
+      }
+
+      // CG4.4 (#187): a renewal points back at the series it renews; it never extends it.
+      if (input.renewsExceptionId) {
+        const renewed = await transaction.cg4ExceptionHead.findUnique({
+          where: {
+            tenantId_exceptionId: {
+              tenantId: input.tenantId,
+              exceptionId: input.renewsExceptionId,
+            },
+          },
+        });
+        if (!renewed) throw new Cg3ResourceNotFoundError();
+        const renewedRevision = await transaction.cg4Exception.findFirst({
+          where: {
+            tenantId: input.tenantId,
+            id: renewed.currentRevisionId,
+            contactId: input.contactId,
+          },
+          select: { id: true },
+        });
+        if (!renewedRevision) throw new Cg3ResourceNotFoundError();
       }
 
       const mutationId = this.id();
@@ -384,6 +418,7 @@ export class Cg4FoundationRepository {
           actorRef: input.actorRef,
           requestHash,
           supersedesId: exceptionHead?.currentRevisionId,
+          renewsExceptionId: input.renewsExceptionId,
         },
       });
       const exceptionView = view(exception);

@@ -8,6 +8,7 @@ import {
   type Cg3EvaluationInput,
   type Cg3PreferenceCandidate,
 } from './cg3-policy-evaluator.js';
+import type { Cg4ExceptionFacts } from './cg4-exception-evaluation.js';
 
 function preference(overrides: Partial<Cg3PreferenceCandidate> = {}): Cg3PreferenceCandidate {
   return {
@@ -297,28 +298,111 @@ test('callback: TIME_POLICY_OVERRIDE โดยไม่มี approvedExceptionI
   assert.equal(result.reasonCode, 'EXCEPTION_APPROVAL_REQUIRED');
 });
 
-test('callback: TIME_POLICY_OVERRIDE พร้อม approvedExceptionId ให้ผ่านต่อ', () => {
+const TIME_POLICY_OVERRIDE_POLICY = {
+  version: 1,
+  timezoneFallback: 'Asia/Bangkok',
+  quietHours: [{ daysOfWeek: [1, 2, 3, 4, 5, 6, 7], startLocal: '21:00', endLocal: '08:00' }],
+  callbackMode: 'TIME_POLICY_OVERRIDE' as const,
+  overridableRules: ['QUIET_HOURS'],
+  holidays: [],
+};
+
+const CALLBACK_WITH_EXCEPTION = {
+  requestId: 'callback-1',
+  identityId: null,
+  channel: 'LINE' as const,
+  purpose: 'MARKETING',
+  expiresAt: '2026-09-16T00:00:00.000Z',
+  approvedExceptionId: 'exception-1',
+};
+
+/**
+ * CG4.4 (#187): `approvedExceptionId` เป็น reference เฉย ๆ ไม่ใช่หลักฐาน — ต้อง resolve เป็น
+ * exception ที่ active/ตรง scope/ตรง rule จริงถึงจะ override ได้ (#174 §4 fail closed)
+ */
+function activeExceptionFact(overrides: Partial<Cg4ExceptionFacts> = {}): Cg4ExceptionFacts {
+  const digest = 'a'.repeat(64);
+  return {
+    seriesId: 'exception-1',
+    revisionId: 'revision-1',
+    revision: 1,
+    workflowState: 'APPROVED',
+    identityId: null,
+    scopeKind: 'CONTACT_WIDE',
+    channel: 'LINE',
+    purpose: 'MARKETING',
+    sourceType: 'JOURNEY',
+    sourceId: 'journey-1',
+    allowedRuleCodes: ['QUIET_HOURS'],
+    policyId: 'policy-1',
+    policyVersionId: 'policy-version-1',
+    policyVersion: 1,
+    policyContentDigest: digest,
+    currentPolicyContentDigest: digest,
+    policyAllowedRuleCodes: ['QUIET_HOURS'],
+    registryVersion: 'CG4_RULE_REGISTRY_V1',
+    startsAt: new Date('2026-09-15T19:00:00.000Z'),
+    expiresAt: new Date('2026-09-15T23:00:00.000Z'),
+    tier: 'HIGH',
+    contentDigest: 'b'.repeat(64),
+    approvalDigest: 'c'.repeat(64),
+    ...overrides,
+  };
+}
+
+test('callback: TIME_POLICY_OVERRIDE ที่ approvedExceptionId ไม่ resolve เป็น exception จริง ให้ REVIEW (fail closed)', () => {
   const input = overridablePolicyInput({
-    policy: {
-      version: 1,
-      timezoneFallback: 'Asia/Bangkok',
-      quietHours: [{ daysOfWeek: [1, 2, 3, 4, 5, 6, 7], startLocal: '21:00', endLocal: '08:00' }],
-      callbackMode: 'TIME_POLICY_OVERRIDE',
-      overridableRules: ['QUIET_HOURS'],
-      holidays: [],
-    },
-    activeCallback: {
-      requestId: 'callback-1',
-      identityId: null,
-      channel: 'LINE',
-      purpose: 'MARKETING',
-      expiresAt: '2026-09-16T00:00:00.000Z',
-      approvedExceptionId: 'exception-1',
-    },
+    policy: TIME_POLICY_OVERRIDE_POLICY,
+    activeCallback: CALLBACK_WITH_EXCEPTION,
+  });
+  const result = evaluateCg3Policy(input);
+  assert.equal(result.decision, 'REVIEW');
+  assert.equal(result.reasonCode, 'EXCEPTION_APPROVAL_REQUIRED');
+});
+
+test('callback: TIME_POLICY_OVERRIDE ที่ approvedExceptionId resolve เป็น active exception ให้ผ่านต่อและ pin exception', () => {
+  const input = overridablePolicyInput({
+    policy: TIME_POLICY_OVERRIDE_POLICY,
+    activeCallback: CALLBACK_WITH_EXCEPTION,
+    source: 'JOURNEY',
+    sourceId: 'journey-1',
+    activeExceptions: [activeExceptionFact()],
   });
   const result = evaluateCg3Policy(input);
   assert.equal(result.decision, undefined);
   assert.equal(result.exceptionRef, 'callback-1');
+  assert.equal(result.consumedCallbackRequestId, 'callback-1');
+  assert.equal(result.appliedExceptions?.length, 1);
+  assert.equal(result.appliedExceptions?.[0]?.seriesId, 'exception-1');
+});
+
+test('callback: exception ที่ถูก revoke แล้วทำให้ TIME_POLICY_OVERRIDE กลับไป REVIEW', () => {
+  const input = overridablePolicyInput({
+    policy: TIME_POLICY_OVERRIDE_POLICY,
+    activeCallback: CALLBACK_WITH_EXCEPTION,
+    source: 'JOURNEY',
+    sourceId: 'journey-1',
+    activeExceptions: [activeExceptionFact({ workflowState: 'REVOKED' })],
+  });
+  const result = evaluateCg3Policy(input);
+  assert.equal(result.decision, 'REVIEW');
+  assert.equal(result.reasonCode, 'EXCEPTION_APPROVAL_REQUIRED');
+});
+
+test('approved exception ยก quiet hours ได้แม้ CG3 overridableRules ว่าง และไม่ consume callback', () => {
+  const input = overridablePolicyInput({
+    policy: { ...TIME_POLICY_OVERRIDE_POLICY, callbackMode: 'NO_OVERRIDE', overridableRules: [] },
+    source: 'JOURNEY',
+    sourceId: 'journey-1',
+    activeExceptions: [activeExceptionFact()],
+  });
+  const result = evaluateCg3Policy(input);
+  assert.equal(result.decision, undefined);
+  assert.equal(result.consumedCallbackRequestId, undefined);
+  assert.equal(result.appliedExceptions?.length, 1);
+  const gates = result.trace.map((entry) => `${entry.gate}:${entry.outcome}`);
+  assert.ok(gates.includes('TEMPORAL_POLICY:DEFER'));
+  assert.ok(gates.includes('APPROVED_EXCEPTION:PASS'));
 });
 
 // ---- S1-CG3-F02: preference/callback/exception ห้ามข้าม hard restriction/consent/non-overridable ----

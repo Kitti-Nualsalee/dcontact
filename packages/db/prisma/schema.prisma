@@ -545,9 +545,16 @@ enum Cg4ExceptionScopeKind {
   CONTACT_WIDE
 }
 
+// Workflow state per #177. `Cg4ExceptionHead.status` is the authority; a revision row
+// keeps whatever status it was inserted with (always PENDING) because `cg_exception` is
+// insert-only. EXPIRED is an *effective* state computed from database time at evaluation
+// and is never persisted here — persisting it would make the expiry scheduler a
+// correctness authority, which #177 forbids.
 enum Cg4ExceptionStatus {
   PENDING
   APPROVED
+  REJECTED
+  CANCELLED
   REVOKED
   EXPIRED
   SUPERSEDED
@@ -931,6 +938,10 @@ model CgDecisionLog {
   matchedWindowRef  String?         @map("matched_window_ref")
   exceptionMode     CgCallbackMode? @map("exception_mode")
   exceptionRef      String?         @map("exception_ref")
+  // CG4.4 (#187): Cg4DecisionTracePinsV1 — pinned policy binding + applied exception
+  // revisions/digests so an override decision can be replayed deterministically. Kept
+  // separate from `exceptionMode`/`exceptionRef`, which stay CG3-callback-only.
+  cg4               Json?
   decidedAt         DateTime        @default(now()) @map("decided_at")
 
   tenant                 Tenant           @relation(fields: [tenantId], references: [id])
@@ -1321,6 +1332,9 @@ model Cg4Exception {
   actorRef            String                @map("actor_ref")
   requestHash         String                @map("request_hash") @db.Char(64)
   supersedesId        String?               @map("supersedes_id") @db.Uuid
+  // CG4.4 (#187): renewal is always a NEW series that points back at the one it renews —
+  // never an in-place extension of the original's expiresAt.
+  renewsExceptionId   String?               @map("renews_exception_id") @db.Uuid
   createdAt           DateTime              @default(now()) @map("created_at")
 
   @@unique([tenantId, id])

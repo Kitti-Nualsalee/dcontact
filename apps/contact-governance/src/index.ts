@@ -15,5 +15,7 @@ export * from './cg4-foundation-repository.js';
 export * from './cg4-authorization-engine.js';
 export * from './cg4-delegation-repository.js';
 export * from './cg4-approval-repository.js';
+export * from './cg4-exception-evaluation.js';
+export * from './cg4-exception-lifecycle.js';
 export * from './reservation.js';
 export * from './reservation-runtime.js';
