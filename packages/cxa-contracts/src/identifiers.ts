@@ -31,7 +31,9 @@ type IdentifierKind =
   | 'ContactPolicyVersionId'
   | 'ContactExceptionSeriesId'
   | 'ContactExceptionRevisionId'
-  | 'ContactMutationId';
+  | 'ContactMutationId'
+  | 'Cg4SubjectId'
+  | 'Cg4DelegationId';
 
 export type BrandedIdentifier<TKind extends IdentifierKind> = string & {
   readonly [identifierBrand]: TKind;
@@ -61,6 +63,9 @@ export type ContactPolicyVersionId = BrandedIdentifier<'ContactPolicyVersionId'>
 export type ContactExceptionSeriesId = BrandedIdentifier<'ContactExceptionSeriesId'>;
 export type ContactExceptionRevisionId = BrandedIdentifier<'ContactExceptionRevisionId'>;
 export type ContactMutationId = BrandedIdentifier<'ContactMutationId'>;
+/** Stable, immutable IAM subject id of a human — never email, display name, session or role. */
+export type Cg4SubjectId = BrandedIdentifier<'Cg4SubjectId'>;
+export type Cg4DelegationId = BrandedIdentifier<'Cg4DelegationId'>;
 
 function identifier<TKind extends IdentifierKind>(
   value: string,
@@ -166,4 +171,12 @@ export function contactExceptionRevisionId(value: string): ContactExceptionRevis
 
 export function contactMutationId(value: string): ContactMutationId {
   return identifier(value, 'ContactMutationId');
+}
+
+export function cg4SubjectId(value: string): Cg4SubjectId {
+  return identifier(value, 'Cg4SubjectId');
+}
+
+export function cg4DelegationId(value: string): Cg4DelegationId {
+  return identifier(value, 'Cg4DelegationId');
 }
