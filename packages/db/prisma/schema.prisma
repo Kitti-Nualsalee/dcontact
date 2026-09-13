@@ -1519,6 +1519,12 @@ enum ObCampaignStatus {
 enum ObCampaignTargetState {
   ADMITTED
   DEFERRED
+  /// J2.9: originate barrier claimed a governance reservation, TEST_ADAPTER pending
+  ORIGINATING
+  /// J2.9: TEST_ADAPTER accepted — simulated call in progress
+  ACTIVE
+  /// J2.9: simulated call settled (terminal, no further origination for this target)
+  CONSUMED
 }
 
 /// fixture ของ campaign ที่ "มีอยู่แล้ว" — ไม่มี Campaign CRUD/UI ใน J2.5 (out of scope)
