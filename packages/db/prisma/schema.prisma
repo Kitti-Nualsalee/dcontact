@@ -86,6 +86,10 @@ model Tenant {
   obGovernanceConsumerInbox    ObGovernanceConsumerInbox[]
   obGovernanceAcknowledgements ObGovernanceAcknowledgementOutbox[]
   obGovernanceEffects          ObGovernanceEffectOutbox[]
+  c360SegmentDefinitions       C360SegmentDefinition[]
+  c360SegmentDefinitionHeads   C360SegmentDefinitionHead[]
+  c360FactSnapshots            C360FactSnapshot[]
+  c360SegmentEvaluations       C360SegmentEvaluation[]
 
   @@map("tenants")
 }
@@ -365,6 +369,7 @@ model Contact {
   obAttempts        ObAttempt[]
   obCampaignTargets ObCampaignTarget[]
   obCallbacks       ObCallback[]
+  c360FactSnapshots C360FactSnapshot[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -394,6 +399,111 @@ model ContactIdentity {
   @@unique([tenantId, id])
   @@unique([tenantId, type, value])
   @@map("contact_identities")
+}
+
+// ─────────────────────────── Customer 360 segment evaluator ───────────────────────────
+
+enum C360SegmentDefinitionStatus {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+}
+
+enum C360SegmentEvaluationOutcome {
+  MATCH
+  NO_MATCH
+  ERROR
+}
+
+/// J3.2: immutable version ของ segment definition; เป็นนิยาม DC_EXPR ไม่ใช่ member list
+model C360SegmentDefinition {
+  id               String                      @id @default(uuid()) @db.Uuid
+  tenantId         String                      @map("tenant_id") @db.Uuid
+  segmentId        String                      @map("segment_id")
+  version          Int
+  status           C360SegmentDefinitionStatus @default(DRAFT)
+  definition       Json
+  contentDigest    String                      @map("content_digest") @db.Char(64)
+  evaluatorVersion String                      @map("evaluator_version")
+  correlationId    String                      @map("correlation_id")
+  effectiveFrom    DateTime?                   @map("effective_from")
+  effectiveTo      DateTime?                   @map("effective_to")
+  publishedAt      DateTime?                   @map("published_at")
+  createdAt        DateTime                    @default(now()) @map("created_at")
+
+  tenant      Tenant                      @relation(fields: [tenantId], references: [id])
+  heads       C360SegmentDefinitionHead[]
+  evaluations C360SegmentEvaluation[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, segmentId, version])
+  @@index([tenantId, segmentId, status, version(sort: Desc)])
+  @@map("c360_segment_definitions")
+}
+
+/// CAS head แยกต่อ logical segment stream; headVersion เป็น authority ของ concurrent publish
+model C360SegmentDefinitionHead {
+  tenantId       String   @map("tenant_id") @db.Uuid
+  segmentId      String   @map("segment_id")
+  headVersion    Int      @default(0) @map("head_version")
+  currentVersion Int?     @map("current_version")
+  currentDigest  String?  @map("current_digest") @db.Char(64)
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tenant            Tenant                 @relation(fields: [tenantId], references: [id])
+  currentDefinition C360SegmentDefinition? @relation(fields: [tenantId, segmentId, currentVersion], references: [tenantId, segmentId, version])
+
+  @@id([tenantId, segmentId])
+  @@map("c360_segment_definition_heads")
+}
+
+/// Owner-local typed attribute/computed snapshot; external CRM ต้อง sync ก่อนสร้างแถวนี้
+model C360FactSnapshot {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  contactId       String   @map("contact_id") @db.Uuid
+  snapshotVersion Int      @map("snapshot_version")
+  attributes      Json
+  computed        Json
+  sourceCutoffAt  DateTime @map("source_cutoff_at")
+  contentDigest   String   @map("content_digest") @db.Char(64)
+  correlationId   String   @map("correlation_id")
+  capturedAt      DateTime @default(now()) @map("captured_at")
+
+  tenant      Tenant                  @relation(fields: [tenantId], references: [id])
+  contact     Contact                 @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  evaluations C360SegmentEvaluation[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, contactId, snapshotVersion])
+  @@index([tenantId, contactId, capturedAt(sort: Desc)])
+  @@map("c360_fact_snapshots")
+}
+
+/// Durable evaluation checkpoint; ไม่มี raw attribute/PII มีเพียง binding, outcome และ digest
+model C360SegmentEvaluation {
+  id                       String                       @id @default(uuid()) @db.Uuid
+  tenantId                 String                       @map("tenant_id") @db.Uuid
+  contactId                String                       @map("contact_id") @db.Uuid
+  segmentId                String                       @map("segment_id")
+  segmentDefinitionVersion Int                          @map("segment_definition_version")
+  snapshotVersion          Int                          @map("snapshot_version")
+  outcome                  C360SegmentEvaluationOutcome
+  matched                  Boolean?
+  errorCode                String?                      @map("error_code")
+  inputDigest              String                       @map("input_digest") @db.Char(64)
+  evaluationDigest         String                       @map("evaluation_digest") @db.Char(64)
+  evaluatorVersion         String                       @map("evaluator_version")
+  evaluatedAt              DateTime                     @default(now()) @map("evaluated_at")
+
+  tenant     Tenant                @relation(fields: [tenantId], references: [id])
+  definition C360SegmentDefinition @relation(fields: [tenantId, segmentId, segmentDefinitionVersion], references: [tenantId, segmentId, version])
+  snapshot   C360FactSnapshot      @relation(fields: [tenantId, contactId, snapshotVersion], references: [tenantId, contactId, snapshotVersion])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, contactId, segmentId, segmentDefinitionVersion, snapshotVersion], map: "c360_segment_evaluations_exact_input_key")
+  @@index([tenantId, segmentId, segmentDefinitionVersion, evaluatedAt])
+  @@map("c360_segment_evaluations")
 }
 
 // ─────────────────────────── Contact Governance & Journey Inbox ───────────────────────────
