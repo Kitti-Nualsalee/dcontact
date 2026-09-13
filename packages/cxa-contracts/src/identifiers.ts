@@ -26,7 +26,12 @@ type IdentifierKind =
   | 'CaseId'
   | 'CampaignId'
   | 'RecordId'
-  | 'CallbackId';
+  | 'CallbackId'
+  | 'ContactPolicyId'
+  | 'ContactPolicyVersionId'
+  | 'ContactExceptionSeriesId'
+  | 'ContactExceptionRevisionId'
+  | 'ContactMutationId';
 
 export type BrandedIdentifier<TKind extends IdentifierKind> = string & {
   readonly [identifierBrand]: TKind;
@@ -51,6 +56,11 @@ export type CaseId = BrandedIdentifier<'CaseId'>;
 export type CampaignId = BrandedIdentifier<'CampaignId'>;
 export type RecordId = BrandedIdentifier<'RecordId'>;
 export type CallbackId = BrandedIdentifier<'CallbackId'>;
+export type ContactPolicyId = BrandedIdentifier<'ContactPolicyId'>;
+export type ContactPolicyVersionId = BrandedIdentifier<'ContactPolicyVersionId'>;
+export type ContactExceptionSeriesId = BrandedIdentifier<'ContactExceptionSeriesId'>;
+export type ContactExceptionRevisionId = BrandedIdentifier<'ContactExceptionRevisionId'>;
+export type ContactMutationId = BrandedIdentifier<'ContactMutationId'>;
 
 function identifier<TKind extends IdentifierKind>(
   value: string,
@@ -136,4 +146,24 @@ export function recordId(value: string): RecordId {
 
 export function callbackId(value: string): CallbackId {
   return identifier(value, 'CallbackId');
+}
+
+export function contactPolicyId(value: string): ContactPolicyId {
+  return identifier(value, 'ContactPolicyId');
+}
+
+export function contactPolicyVersionId(value: string): ContactPolicyVersionId {
+  return identifier(value, 'ContactPolicyVersionId');
+}
+
+export function contactExceptionSeriesId(value: string): ContactExceptionSeriesId {
+  return identifier(value, 'ContactExceptionSeriesId');
+}
+
+export function contactExceptionRevisionId(value: string): ContactExceptionRevisionId {
+  return identifier(value, 'ContactExceptionRevisionId');
+}
+
+export function contactMutationId(value: string): ContactMutationId {
+  return identifier(value, 'ContactMutationId');
 }

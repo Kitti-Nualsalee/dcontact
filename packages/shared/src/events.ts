@@ -33,12 +33,13 @@ export const KAFKA_TOPICS = {
    */
   JOURNEY_EVENTS: 'dc.journey.events',
   /**
-   * CG3 canonical snapshot notifications (key = tenantId:contactId หรือ tenantId:policyId)
-   * — restriction/consent/preference/policy changed; payload มีแค่ version/scope/digest ไม่มี raw PII (#104)
+   * CG3/CG4 canonical snapshot notifications (key = tenantId:contactId หรือ tenantId:policyId)
+   * — restriction/consent/preference/policy/exception/kill changed; payload มีเฉพาะ version/scope/digest
+   * และไม่มี raw PII (#104, #179)
    */
   CONTACT_GOVERNANCE_EVENTS: 'dc.contact-governance.events',
   /**
-   * downstream consumer (Journey/Dialer/Workspace) ประกาศว่า apply CG3 event แล้ว
+   * downstream consumer (Journey/Dialer/Channels/Workspace) ประกาศว่า apply CG3/CG4 event แล้ว
    * — Contact Governance consume เป็น read-only projection ลง cg_consumer_acknowledgements เท่านั้น
    */
   CONTACT_GOVERNANCE_ACKNOWLEDGEMENTS: 'dc.contact-governance.acknowledgements',
