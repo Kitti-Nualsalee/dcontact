@@ -1327,6 +1327,21 @@ model Cg4ExceptionHead {
   @@map("cg_exception_head")
 }
 
+// CG4 มี concurrency head เป็นของตัวเอง แยกจาก CgContactStateHead (CG3-owned):
+// การใช้ head ร่วมกันจะทำให้ optimistic-concurrency version และ digest chain
+// ของ CG3 preference กับ CG4 exception ชนกันข้ามระบบสำหรับ contact เดียวกัน.
+model Cg4ContactExceptionHead {
+  tenantId         String   @map("tenant_id") @db.Uuid
+  contactId        String   @map("contact_id") @db.Uuid
+  aggregateVersion Int      @default(0) @map("aggregate_version")
+  currentDigest    String   @map("current_digest") @db.Char(64)
+  latestMutationId String?  @map("latest_mutation_id") @db.Uuid
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@id([tenantId, contactId])
+  @@map("cg_exception_contact_head")
+}
+
 model Cg4ExceptionApproval {
   id                String              @id @default(uuid()) @db.Uuid
   tenantId          String              @map("tenant_id") @db.Uuid

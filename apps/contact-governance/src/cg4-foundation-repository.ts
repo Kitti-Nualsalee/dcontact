@@ -41,6 +41,7 @@ export interface RecordCg4ExceptionInput {
   ticketRef?: string;
   evidenceRef: string;
   actorRef: string;
+  occurredAt: string;
   exceptionId?: string;
   idempotencyKey: string;
   expectedVersion: number;
@@ -202,6 +203,7 @@ export class Cg4FoundationRepository {
     }
     if (input.exceptionId) nonEmpty(input.exceptionId, 'exceptionId');
     if (input.identityId) nonEmpty(input.identityId, 'identityId');
+    if (input.ticketRef) nonEmpty(input.ticketRef, 'ticketRef');
     if (!CG4_SOURCE_TYPES.has(input.sourceType)) {
       throw new TypeError('sourceType ไม่อยู่ใน CG4 source registry');
     }
@@ -220,6 +222,7 @@ export class Cg4FoundationRepository {
       throw new RangeError('expectedVersion ต้องเป็น integer ตั้งแต่ 0');
     }
     sha256(input.policyContentDigest, 'policyContentDigest');
+    const occurredAt = instant(input.occurredAt, 'occurredAt');
     const startsAt = instant(input.startsAt, 'startsAt');
     const expiresAt = instant(input.expiresAt, 'expiresAt');
     if (expiresAt <= startsAt) throw new RangeError('expiresAt ต้องอยู่หลัง startsAt');
@@ -250,6 +253,7 @@ export class Cg4FoundationRepository {
       ticketRef: input.ticketRef ?? null,
       evidenceRef: input.evidenceRef,
       actorRef: input.actorRef,
+      occurredAt: occurredAt.toISOString(),
       exceptionId: input.exceptionId ?? null,
       expectedVersion: input.expectedVersion,
     });
@@ -325,7 +329,7 @@ export class Cg4FoundationRepository {
         }
       }
 
-      const contactHead = await transaction.cgContactStateHead.findUnique({
+      const contactHead = await transaction.cg4ContactExceptionHead.findUnique({
         where: { tenantId_contactId: { tenantId: input.tenantId, contactId: input.contactId } },
       });
       const actualVersion = contactHead?.aggregateVersion ?? 0;
@@ -406,7 +410,7 @@ export class Cg4FoundationRepository {
         });
       }
       if (contactHead) {
-        const updated = await transaction.cgContactStateHead.updateMany({
+        const updated = await transaction.cg4ContactExceptionHead.updateMany({
           where: {
             tenantId: input.tenantId,
             contactId: input.contactId,
@@ -417,7 +421,7 @@ export class Cg4FoundationRepository {
         if (updated.count !== 1)
           throw new Cg3VersionConflictError(input.expectedVersion, actualVersion);
       } else {
-        await transaction.cgContactStateHead.create({
+        await transaction.cg4ContactExceptionHead.create({
           data: {
             tenantId: input.tenantId,
             contactId: input.contactId,
@@ -473,7 +477,7 @@ export class Cg4FoundationRepository {
           evidenceRef: input.evidenceRef,
           beforeDigest: contactHead?.currentDigest,
           afterDigest,
-          occurredAt: startsAt,
+          occurredAt,
         },
       });
       const result: RecordCg4ExceptionResult = {

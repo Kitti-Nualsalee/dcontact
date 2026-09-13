@@ -4,6 +4,7 @@ import test, { type TestContext } from 'node:test';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import {
   Cg3IdempotencyConflictError,
+  Cg3PreferenceRepository,
   Cg3ResourceNotFoundError,
   Cg3VersionConflictError,
   stableDigest,
@@ -48,6 +49,8 @@ async function fixture(t: TestContext) {
     await owner.cgEventOutbox.deleteMany({ where: { tenantId } });
     await owner.cgAuditLog.deleteMany({ where: { tenantId } });
     await owner.cgContactStateHead.deleteMany({ where: { tenantId } });
+    await owner.cg4ContactExceptionHead.deleteMany({ where: { tenantId } });
+    await owner.cgPreference.deleteMany({ where: { tenantId } });
     await owner.cg4Policy.deleteMany({ where: { tenantId } });
     await owner.contactIdentity.deleteMany({ where: { tenantId } });
     await owner.contact.deleteMany({ where: { tenantId } });
@@ -111,6 +114,7 @@ function command(
     ticketRef: 'ticket:opaque:1',
     evidenceRef: 'evidence:opaque:1',
     actorRef: 'actor:compliance:opaque',
+    occurredAt: '2026-09-13T00:30:00.000Z',
     idempotencyKey: 'cg4-exception-1',
     expectedVersion: 0,
     ...overrides,
@@ -149,6 +153,43 @@ test('CG4 exception revision/head/contact aggregate/receipt/audit/outbox ถู�
     }),
     1,
   );
+});
+
+test('CG4 exception aggregate version/digest ไม่ชนกับ CG3 preference บน contact เดียวกัน', async (t) => {
+  const f = await fixture(t);
+  const preferences = new Cg3PreferenceRepository(f.application);
+  await preferences.append({
+    tenantId: f.tenantId,
+    contactId: f.contactId,
+    identityId: f.identityId,
+    channel: 'LINE',
+    purpose: 'SERVICE_NOTIFICATION',
+    decision: 'BLOCK',
+    preferredWindows: [],
+    sourceKind: 'CUSTOMER',
+    occurredAt: '2026-09-13T00:00:00.000Z',
+    effectiveFrom: '2026-09-13T00:00:00.000Z',
+    evidenceRef: 'evidence:cg3:opaque:1',
+    actorClass: 'CUSTOMER',
+    actorRef: 'actor:customer:opaque',
+    idempotencyKey: 'cg3-preference-1',
+    expectedVersion: 0,
+    correlationId: 'correlation:cg3:opaque:1',
+  });
+
+  const repository = new Cg4FoundationRepository(f.application);
+  const created = await repository.recordException(command(f, { expectedVersion: 0 }));
+  assert.equal(created.aggregateVersion, 1);
+
+  const cg3Head = await f.owner.cgContactStateHead.findUniqueOrThrow({
+    where: { tenantId_contactId: { tenantId: f.tenantId, contactId: f.contactId } },
+  });
+  assert.equal(cg3Head.aggregateVersion, 1);
+  const cg4Head = await f.owner.cg4ContactExceptionHead.findUniqueOrThrow({
+    where: { tenantId_contactId: { tenantId: f.tenantId, contactId: f.contactId } },
+  });
+  assert.equal(cg4Head.aggregateVersion, 1);
+  assert.notEqual(cg3Head.currentDigest, cg4Head.currentDigest);
 });
 
 test('CG4 exception ใช้ CAS ต่อ contact aggregate และ revision ใหม่ append-only', async (t) => {
@@ -280,6 +321,22 @@ test('unique scope head, immutable exception/published policy และ kill-swi
       }),
     ),
   );
+  // ข้าม SCHEDULED ไป ACTIVE โดยตรงต้องถูกปฏิเสธ
+  await assert.rejects(
+    withTenantDatabaseTransaction(f.application, f.tenantId, (transaction) =>
+      transaction.cg4Policy.update({
+        where: { id: policy.id },
+        data: { status: 'ACTIVE' },
+      }),
+    ),
+  );
+  const scheduled = await withTenantDatabaseTransaction(f.application, f.tenantId, (transaction) =>
+    transaction.cg4Policy.update({
+      where: { id: policy.id },
+      data: { status: 'SCHEDULED' },
+    }),
+  );
+  assert.equal(scheduled.status, 'SCHEDULED');
 
   const killSwitch = await f.owner.cg4ScopeKillSwitch.create({
     data: {
