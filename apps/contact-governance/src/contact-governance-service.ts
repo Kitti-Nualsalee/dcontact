@@ -641,7 +641,39 @@ export class ContactGovernanceService
       let cg3ExceptionRef: string | undefined;
       let cg4Pins: Cg4DecisionTracePinsV1 | undefined;
 
-      if (policyResult.decision === 'ALLOW' && input.contactId) {
+      // Scoped kill switch เป็น non-overridable gate (#174 §2) ตรวจหลัง identity/hard restriction/
+      // consent และก่อน CG3/exception: exception ยกไม่ได้ และไม่ consume one-use callback ให้กับ
+      // decision ที่ต้อง hold อยู่แล้ว ใช้ scope matching ชุดเดียวกับ revalidation (#228)
+      const killSwitchActive =
+        policyResult.decision === 'ALLOW' && input.contactId
+          ? (
+              await transaction.cg4ScopeKillSwitch.findMany({
+                where: { tenantId, state: 'ACTIVE' },
+                select: { scopeKey: true },
+              })
+            ).some(({ scopeKey }) =>
+              killSwitchCoversReservation(scopeKey, {
+                contactId: input.contactId!,
+                channel: input.channel,
+                purpose: input.purpose,
+                source: input.source,
+                authorizationContactKind: input.contactKind ?? null,
+              }),
+            )
+          : false;
+
+      if (killSwitchActive) {
+        decision = 'REVIEW';
+        reasonCode = GOVERNANCE_KILL_SWITCH_ACTIVE;
+        trace = [
+          ...policyResult.trace.map((entry, index) =>
+            index === policyResult.trace.length - 1 && entry.outcome === 'ALLOW'
+              ? { gate: entry.gate, outcome: 'PASS' as const }
+              : entry,
+          ),
+          { gate: 'KILL_SWITCH', outcome: 'REVIEW', reasonCode: GOVERNANCE_KILL_SWITCH_ACTIVE },
+        ];
+      } else if (policyResult.decision === 'ALLOW' && input.contactId) {
         const facts = await loadCg3Facts(transaction, {
           tenantId,
           contactId: input.contactId,
