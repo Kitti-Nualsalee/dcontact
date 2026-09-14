@@ -104,7 +104,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      rpk topic create dc.telephony.events dc.channel.events dc.interaction.events dc.agent.events dc.telephony.commands dc.channel.commands dc.journey.events dc.qm.jobs dc.qm.events dc.contact-governance.events dc.contact-governance.acknowledgements dc.platform.dlq
+      rpk topic create dc.telephony.events dc.channel.events dc.interaction.events dc.agent.events dc.telephony.commands dc.channel.commands dc.journey.events dc.qm.jobs dc.qm.events dc.contact-governance.events dc.contact-governance.acknowledgements dc.case.commands dc.dialer.commands dc.platform.dlq
       --brokers redpanda:29092 --topic-config retention.ms=604800000 || true;
       exit 0"
 
