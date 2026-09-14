@@ -372,8 +372,5 @@ for (const scenario of SCENARIOS) {
 }
 
 test('ทุก profile ที่ประกาศไว้ถูกทดสอบจริง — กันการเพิ่ม profile แล้วลืมเขียน conformance', () => {
-  assert.deepEqual(
-    PROFILES.map((p) => p.name).sort(),
-    ['CG3_INTEGRATED', 'TEST_ADAPTER'],
-  );
+  assert.deepEqual(PROFILES.map((p) => p.name).sort(), ['CG3_INTEGRATED', 'TEST_ADAPTER']);
 });
