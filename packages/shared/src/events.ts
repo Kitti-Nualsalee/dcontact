@@ -33,6 +33,11 @@ export const KAFKA_TOPICS = {
    */
   JOURNEY_EVENTS: 'dc.journey.events',
   /**
+   * canonical Customer 360 facts (key = contactId:segmentId) — Customer 360 เป็น owner/producer;
+   * Journey และ consumer อื่นอ่านแบบ read-only และตรวจ revision ก่อน apply
+   */
+  CUSTOMER_EVENTS: 'dc.customer.events',
+  /**
    * CG3/CG4 canonical snapshot notifications (key = tenantId:contactId หรือ tenantId:policyId)
    * — restriction/consent/preference/policy/exception/kill changed; payload มีเฉพาะ version/scope/digest
    * และไม่มี raw PII (#104, #179)

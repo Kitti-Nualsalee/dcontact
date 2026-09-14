@@ -62,6 +62,7 @@ test('อนุญาตเฉพาะ topic กลางและปฏิเ�
   assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.CASE_EVENTS));
   assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.DIALER_COMMANDS));
   assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.DIALER_EVENTS));
+  assert.doesNotThrow(() => assertKafkaTopic(KAFKA_TOPICS.CUSTOMER_EVENTS));
   assert.throws(
     () => assertKafkaTopic(KAFKA_TOPICS.DEAD_LETTER),
     (error: unknown) => error instanceof KafkaContractError && error.code === 'UNAPPROVED_TOPIC',
@@ -69,6 +70,63 @@ test('อนุญาตเฉพาะ topic กลางและปฏิเ�
   assert.throws(
     () => assertKafkaTopic('dc.fs.events'),
     (error: unknown) => error instanceof KafkaContractError && error.code === 'UNAPPROVED_TOPIC',
+  );
+});
+
+test('J3 customer membership ใช้ topic กลางและ Kafka V2 header/stream binding เดิม', () => {
+  const membershipEvent: KafkaEventEnvelopeV2<Record<string, unknown>> = {
+    schemaVersion: 2,
+    eventKind: 'CANONICAL',
+    eventId: 'event-membership-7',
+    type: 'customer.segment.changed',
+    tenantId: 'tenant-a',
+    occurredAt: '2026-09-13T04:00:01.000Z',
+    correlationId: 'correlation-j3',
+    orderingKey: 'contact-a:segment-a',
+    aggregateType: 'customer_segment_membership',
+    aggregateId: 'contact-a:segment-a',
+    aggregateVersion: 7,
+    payload: {
+      contractVersion: 1,
+      changeKind: 'ENTERED',
+      contactId: 'contact-a',
+      segmentId: 'segment-a',
+      entryId: 'entry-a',
+      segmentDefinitionVersion: 3,
+      membershipRevision: 7,
+      snapshotVersion: 11,
+      evaluatedAt: '2026-09-13T04:00:00.000Z',
+      stateDigest: 'a'.repeat(64),
+    },
+  };
+  const membershipHeaders = {
+    tenantId: membershipEvent.tenantId,
+    eventId: membershipEvent.eventId,
+    correlationId: membershipEvent.correlationId,
+    orderingKey: membershipEvent.orderingKey,
+    schemaVersion: '2',
+    aggregateId: membershipEvent.aggregateId,
+  };
+
+  assert.deepEqual(
+    validateConsumedEvent(
+      KAFKA_TOPICS.CUSTOMER_EVENTS,
+      membershipEvent.orderingKey,
+      membershipHeaders,
+      membershipEvent,
+    ),
+    membershipEvent,
+  );
+  assert.throws(
+    () =>
+      validateConsumedEvent(
+        KAFKA_TOPICS.CUSTOMER_EVENTS,
+        membershipEvent.orderingKey,
+        { ...membershipHeaders, tenantId: 'tenant-b' },
+        membershipEvent,
+      ),
+    (error: unknown) =>
+      error instanceof KafkaContractError && error.code === 'HEADER_PAYLOAD_MISMATCH',
   );
 });
 
