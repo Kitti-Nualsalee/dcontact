@@ -2526,6 +2526,10 @@ model JrOwnerAction {
   state                 JrOwnerActionState @default(PENDING)
   ownerAggregateRef     String?            @map("owner_aggregate_ref")
   ownerAggregateVersion Int?               @map("owner_aggregate_version")
+  /// J2.8 follow-up: optimistic-concurrency token ของ action เอง — ขยับทุกครั้งที่ state
+  /// เปลี่ยน เพื่อให้ admin recovery API บังคับ expectedVersion ได้ (attempts ใช้แทนไม่ได้
+  /// เพราะนับเฉพาะ dispatch และไม่ขยับตอน cancel)
+  version               Int                @default(1)
   attempts              Int                @default(0)
   dispatchedAt          DateTime?          @map("dispatched_at")
   acknowledgedAt        DateTime?          @map("acknowledged_at")
