@@ -800,3 +800,99 @@ test('CG4.8: re-authorization คืน REVIEW เมื่อ kill switch ค�
   });
   assert.equal(cg4PolicyWithoutHead.reasonCode, 'GOVERNANCE_VERSION_STALE');
 });
+
+// ── Remediation: scoped kill switch ใน authorizeAndReserve (#183 ข้อ 1) ──────────
+
+function activateKillSwitch(f: Fixture, scopeKey: string) {
+  return f.owner.cg4ScopeKillSwitch.create({
+    data: {
+      tenantId: f.tenant,
+      scopeKey,
+      state: 'ACTIVE',
+      reasonCode: 'INCIDENT',
+      evidenceRef: 'evidence:kill:authorize',
+      activatedByRef: 'operator-synthetic',
+      activatedAt: NOW,
+    },
+  });
+}
+
+test('CG4 kill switch: authorizeAndReserve คืน REVIEW โดยไม่มี reservation และ approved exception ยกไม่ได้', async (t) => {
+  const f = await fixture(t);
+  const service = new ContactGovernanceService(f.application, { now: () => NOW });
+  await approvedException(f);
+
+  // kill switch ของ channel อื่นไม่มีผลกับ LINE
+  await activateKillSwitch(f, 'channel=VOICE|contactKind=*|purpose=*|sourceType=*');
+  const unaffected = await service.authorizeAndReserve(f.tenant, {
+    contactId: f.contact,
+    identityId: f.identity,
+    ...authorizeInput({ actionKey: 'cg4-kill-other:1:step-001' }),
+  });
+  assert.equal(unaffected.decision, 'ALLOW');
+  assert.ok(unaffected.reservationId);
+
+  await activateKillSwitch(f, 'channel=LINE|contactKind=*|purpose=MARKETING|sourceType=JOURNEY');
+  const input = {
+    contactId: f.contact,
+    identityId: f.identity,
+    ...authorizeInput({ actionKey: 'cg4-kill:1:step-001' }),
+  };
+  const held = await service.authorizeAndReserve(f.tenant, input);
+  assert.equal(held.decision, 'REVIEW');
+  assert.equal(held.reasonCode, 'GOVERNANCE_KILL_SWITCH_ACTIVE');
+  assert.equal(held.reservationId, undefined);
+  // exception ที่ยัง active ไม่ถูกประเมินและไม่ถูก pin
+  assert.equal(held.cg4, undefined);
+  assert.deepEqual(held.trace.at(-1), {
+    gate: 'KILL_SWITCH',
+    outcome: 'REVIEW',
+    reasonCode: 'GOVERNANCE_KILL_SWITCH_ACTIVE',
+  });
+  assert.equal(
+    await f.owner.cgReservation.count({
+      where: { tenantId: f.tenant, actionKey: 'cg4-kill:1:step-001' },
+    }),
+    0,
+  );
+
+  // replay ด้วย actionKey/input เดิมคืน decision เดิม ไม่สร้างผลใหม่
+  const replay = await service.authorizeAndReserve(f.tenant, input);
+  assert.equal(replay.decisionId, held.decisionId);
+  assert.equal(replay.decision, 'REVIEW');
+});
+
+test('CG4 kill switch: contact scope ครอบเฉพาะ contact นั้น', async (t) => {
+  const f = await fixture(t);
+  const service = new ContactGovernanceService(f.application, { now: () => NOW });
+  await approvedException(f);
+  await activateKillSwitch(f, `contact:${randomUUID()}`);
+  const otherContact = await service.authorizeAndReserve(f.tenant, {
+    contactId: f.contact,
+    identityId: f.identity,
+    ...authorizeInput({ actionKey: 'cg4-kill-contact-other:1:step-001' }),
+  });
+  assert.equal(otherContact.decision, 'ALLOW');
+
+  await activateKillSwitch(f, `contact:${f.contact}`);
+  const held = await service.authorizeAndReserve(f.tenant, {
+    contactId: f.contact,
+    identityId: f.identity,
+    ...authorizeInput({ actionKey: 'cg4-kill-contact:1:step-001' }),
+  });
+  assert.deepEqual([held.decision, held.reasonCode], ['REVIEW', 'GOVERNANCE_KILL_SWITCH_ACTIVE']);
+});
+
+test('CG4 kill switch: scopeKey ที่อ่านไม่ออกถือว่าครอบแบบ fail closed', async (t) => {
+  const f = await fixture(t);
+  const service = new ContactGovernanceService(f.application, { now: () => NOW });
+  await approvedException(f);
+  await activateKillSwitch(f, 'legacy-scope-not-canonical');
+  const held = await service.authorizeAndReserve(f.tenant, {
+    contactId: f.contact,
+    identityId: f.identity,
+    ...authorizeInput({ actionKey: 'cg4-kill-unparseable:1:step-001' }),
+  });
+  assert.deepEqual([held.decision, held.reasonCode], ['REVIEW', 'GOVERNANCE_KILL_SWITCH_ACTIVE']);
+  assert.equal(held.reservationId, undefined);
+});
