@@ -443,6 +443,57 @@ export class JourneyOwnerActionRepository {
     });
   }
 
+  /**
+   * action ที่ dispatch ออกไปแล้วแต่ owner ยังเงียบเกิน deadline และยังไม่หมดโควต้า retry
+   *
+   * `attempts` เป็นตัวคุม bounded retry: เกินเพดานแล้วจะไม่ถูกหยิบอีก ปล่อยให้คนตัดสินใจ
+   * ผ่าน admin recovery API แทนการวนเรียก owner ไปเรื่อย ๆ
+   */
+  findStaleDispatched(
+    tenantId: string,
+    dispatchedBefore: Date,
+    maxAttempts: number,
+    limit = 10,
+  ): Promise<JrOwnerAction[]> {
+    return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.jrOwnerAction.findMany({
+        where: {
+          tenantId,
+          state: { in: ['DISPATCHED', 'ACK_UNKNOWN'] },
+          dispatchedAt: { not: null, lte: dispatchedBefore },
+          attempts: { lt: maxAttempts },
+        },
+        orderBy: { dispatchedAt: 'asc' },
+        take: limit,
+      }),
+    );
+  }
+
+  /**
+   * DISPATCHED/ACK_UNKNOWN -> ACK_UNKNOWN พร้อมนับ attempt เพิ่มหนึ่ง
+   *
+   * ใช้ version guard เพื่อไม่ทับ action ที่เพิ่งได้ผลจริงระหว่างทาง — คืน null เมื่อแพ้ race
+   */
+  async markAckUnknown(
+    tenantId: string,
+    actionKey: string,
+    expectedVersion: number,
+  ): Promise<JrOwnerAction | null> {
+    const moved = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.jrOwnerAction.updateMany({
+        where: {
+          tenantId,
+          actionKey,
+          version: expectedVersion,
+          state: { in: ['DISPATCHED', 'ACK_UNKNOWN'] },
+        },
+        data: { state: 'ACK_UNKNOWN', attempts: { increment: 1 }, version: { increment: 1 } },
+      }),
+    );
+    if (moved.count === 0) return null;
+    return this.getAction(tenantId, actionKey) as Promise<JrOwnerAction>;
+  }
+
   findResultsFor(tenantId: string, actionKey: string): Promise<JrOwnerResultInbox[]> {
     return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
       transaction.jrOwnerResultInbox.findMany({
