@@ -453,6 +453,13 @@ test('GET คืน ETag ที่ผูกกับ revision ปัจจุบ
   const etag = response.headers.get('etag');
   assert.ok(etag);
   assert.match(etag, new RegExp(`^"cg4-exception:${seriesId}:1:`));
+  // CG4.9 (#192): query คืน current CAS version ที่ Console ต้องส่งกลับเป็น expectedVersion (#179 §2)
+  const view = (await response.json()) as { aggregateVersion: number };
+  assert.equal(view.aggregateVersion, 1);
+  const listing = (await (
+    await get(`${f.base}/contacts/${f.primary.contactId}/exceptions`, 'checker-token')
+  ).json()) as { exceptions: Array<{ aggregateVersion: number }> };
+  assert.equal(listing.exceptions[0]?.aggregateVersion, 1);
 });
 
 test('history และ contact listing ถูก redact ตาม viewer และไม่ข้าม tenant', async (t) => {
