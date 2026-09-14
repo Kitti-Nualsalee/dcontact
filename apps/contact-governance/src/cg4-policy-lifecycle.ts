@@ -32,6 +32,7 @@ import {
   evaluateCg4Quorum,
 } from './cg4-authorization-engine.js';
 import {
+  cg4EventScopeDimensions,
   cg4PolicyScopesAmbiguous,
   compileCg4Policy,
   Cg4PolicyValidationError,
@@ -1704,7 +1705,7 @@ export class Cg4PolicyLifecycleRepository {
       subjectVersion: input.candidate.version,
       state: input.activate ? 'ACTIVE' : 'SCHEDULED',
       effectiveAt: input.activateAt.toISOString(),
-      affectedScope: { scopeKey: input.scopeKey },
+      affectedScope: { scopeKey: input.scopeKey, ...cg4EventScopeDimensions(input.scopeKey) },
       scopeDigest: stableDigest({ scopeKey: input.scopeKey }),
       policyVersion: input.candidate.version,
       policyContentDigest: input.candidate.contentDigest,
@@ -1910,9 +1911,13 @@ export class Cg4PolicyLifecycleRepository {
       });
 
       let killSwitchId: string;
+      // CG4.8 (#191): เปิดซ้ำขณะที่ยัง ACTIVE ไม่เปลี่ยน canonical state จึงไม่ออก event ใหม่ —
+      // event ซ้ำที่ version เดิมแต่ mutationId ต่างจะเป็น hash conflict ที่ทุก consumer
+      let alreadyActive = false;
       if (input.action === 'ACTIVATE') {
         if (existing) {
           killSwitchId = existing.id;
+          alreadyActive = true;
         } else {
           const created = await transaction.cg4ScopeKillSwitch.create({
             data: {
@@ -1958,6 +1963,9 @@ export class Cg4PolicyLifecycleRepository {
       const mutationId = this.id();
       const eventId = this.id();
       const stateDigest = stableDigest({ scopeKey: input.scopeKey, state, killSwitchId });
+      // CG4.8 (#191): kill switch หนึ่งตัวมี lifecycle ACTIVE(1) → CLEARED(2) บน aggregate ของ
+      // ตัวเอง; version คงที่ 1 ทำให้ CLEAR ถูกทุก consumer quarantine เป็น hash conflict
+      const killSwitchVersion = state === 'ACTIVE' ? 1 : 2;
       const payload = {
         contractVersion: 1,
         mutationId,
@@ -1966,10 +1974,10 @@ export class Cg4PolicyLifecycleRepository {
             ? 'KILL_SWITCH_ACTIVATED'
             : ('KILL_SWITCH_CLEARED' as Cg4TransitionKind),
         subjectId: killSwitchId,
-        subjectVersion: 1,
+        subjectVersion: killSwitchVersion,
         state,
         effectiveAt: occurredAt.toISOString(),
-        affectedScope: { scopeKey: input.scopeKey },
+        affectedScope: { scopeKey: input.scopeKey, ...cg4EventScopeDimensions(input.scopeKey) },
         scopeDigest: stableDigest({ scopeKey: input.scopeKey }),
         ruleRegistryVersion: CG4_RULE_REGISTRY_VERSION,
         policySchemaVersion: CG4_POLICY_SCHEMA_VERSION,
@@ -1977,25 +1985,27 @@ export class Cg4PolicyLifecycleRepository {
         stateDigest,
         restrictiveness: state === 'ACTIVE' ? 'TIGHTENING' : 'RELAXATION',
       };
-      await transaction.cgEventOutbox.create({
-        data: {
-          id: eventId,
-          mutationId,
-          tenantId: input.tenantId,
-          aggregateType: 'POLICY',
-          aggregateId: killSwitchId,
-          aggregateVersion: 1,
-          eventType: CG4_EVENT_TYPES.KILL_SWITCH_CHANGED,
-          orderingKey: `${input.tenantId}:${input.scopeKey}`,
-          payload: json(payload),
-          payloadHash: stableDigest(payload),
-        },
-      });
+      if (!alreadyActive) {
+        await transaction.cgEventOutbox.create({
+          data: {
+            id: eventId,
+            mutationId,
+            tenantId: input.tenantId,
+            aggregateType: 'POLICY',
+            aggregateId: killSwitchId,
+            aggregateVersion: killSwitchVersion,
+            eventType: CG4_EVENT_TYPES.KILL_SWITCH_CHANGED,
+            orderingKey: `${input.tenantId}:${input.scopeKey}`,
+            payload: json(payload),
+            payloadHash: stableDigest(payload),
+          },
+        });
+      }
       await this.audit(transaction, {
         tenantId: input.tenantId,
         mutationId,
         aggregateId: killSwitchId,
-        aggregateVersion: 1,
+        aggregateVersion: killSwitchVersion,
         action: `CG4_KILL_SWITCH_${input.action}`,
         actorRef: input.actor.subjectId,
         evidenceRef: input.clearApprovalRef ?? input.evidenceRef,
@@ -2016,7 +2026,7 @@ export class Cg4PolicyLifecycleRepository {
         idempotencyKey: input.idempotencyKey,
         requestHash,
         expectedVersion: 1,
-        aggregateVersion: 1,
+        aggregateVersion: killSwitchVersion,
         body: result,
       });
       return result;

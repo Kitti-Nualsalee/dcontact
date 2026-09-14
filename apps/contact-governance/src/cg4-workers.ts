@@ -7,6 +7,7 @@ import {
   CG4_RULE_REGISTRY_VERSION,
 } from '@d-contact/cxa-contracts';
 import { stableDigest } from './cg3-persistence.js';
+import { nextContactStreamVersion } from './cg4-contact-stream.js';
 import type { Cg4PolicyLifecycleRepository } from './cg4-policy-lifecycle.js';
 
 /**
@@ -316,6 +317,12 @@ export class Cg4ExpirySweeper {
         // Expiry removes an override, so downstream must re-authorize queued work.
         restrictiveness: 'TIGHTENING',
       };
+      // CG4.8 (#191): event ใช้ version ของ contact stream ร่วมกับ CG3 (#179 §4)
+      const streamVersion = await nextContactStreamVersion(transaction, {
+        tenantId,
+        contactId: revision.contactId,
+        mutationId,
+      });
       await transaction.cgEventOutbox.create({
         data: {
           id: eventId,
@@ -323,7 +330,7 @@ export class Cg4ExpirySweeper {
           tenantId,
           aggregateType: 'CONTACT',
           aggregateId: revision.contactId,
-          aggregateVersion,
+          aggregateVersion: streamVersion,
           eventType: CG4_EVENT_TYPES.EXCEPTION_CHANGED,
           orderingKey: `${tenantId}:${revision.contactId}`,
           payload: json(payload),
@@ -337,7 +344,7 @@ export class Cg4ExpirySweeper {
           mutationId,
           aggregateType: 'CONTACT',
           aggregateId: revision.contactId,
-          aggregateVersion,
+          aggregateVersion: streamVersion,
           action: 'CG4_EXCEPTION_EXPIRY',
           actorClass: 'SYSTEM',
           actorRef: 'cg4-expiry-sweeper',

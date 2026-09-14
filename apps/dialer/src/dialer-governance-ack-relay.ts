@@ -57,6 +57,7 @@ export class DialerGovernanceAcknowledgementRelay {
             outcome: row.outcome,
             affectedCount: row.affectedCount,
             sourcePayloadHash: row.sourcePayloadHash,
+            ...(row.appliedStateDigest ? { appliedStateDigest: row.appliedStateDigest } : {}),
           },
         });
         await transaction.obGovernanceAcknowledgementOutbox.update({

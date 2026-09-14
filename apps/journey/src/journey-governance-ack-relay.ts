@@ -77,6 +77,7 @@ export class JourneyGovernanceAcknowledgementRelay {
             outcome: row.outcome === 'QUARANTINED' ? 'FAILED' : row.outcome,
             affectedCount: row.affectedCount,
             sourcePayloadHash: row.sourcePayloadHash,
+            ...(row.appliedStateDigest ? { appliedStateDigest: row.appliedStateDigest } : {}),
           },
         });
         await transaction.jrGovernanceAcknowledgementOutbox.update({

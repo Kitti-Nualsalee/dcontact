@@ -81,6 +81,8 @@ async function fixture(t: TestContext) {
     await owner.cg4ExceptionHead.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4Exception.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4ContactExceptionHead.deleteMany({ where: { tenantId: tenant } });
+    // CG4.8 (#191): exception event ขยับ contact stream version ใน cg_contact_state_heads ด้วย
+    await owner.cgContactStateHead.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4Policy.deleteMany({ where: { tenantId: tenant } });
     await owner.cgEventOutbox.deleteMany({ where: { tenantId: tenant } });
     await owner.cgAuditLog.deleteMany({ where: { tenantId: tenant } });
@@ -505,6 +507,8 @@ test('expiry sweeper ออก event ให้ series ที่หมดอา�
   const event = await f.owner.cgEventOutbox.findFirstOrThrow({
     where: { tenantId: f.tenant, eventType: 'exception.changed' },
   });
+  // CG4.8 (#191): envelope ใช้ version ของ contact stream ร่วมกับ CG3 (ไม่มี CG3 write ก่อนหน้า = 1)
+  assert.equal(event.aggregateVersion, 1);
   const payload = event.payload as Record<string, unknown>;
   assert.equal(payload.transitionKind, 'EXCEPTION_EXPIRED');
   assert.equal(payload.state, 'EXPIRED');

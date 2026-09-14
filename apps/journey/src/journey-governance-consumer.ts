@@ -1,7 +1,9 @@
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
+import { isGovernanceContractRejection } from '@d-contact/cxa-contracts';
 import {
   createConsumer,
   isKafkaEventEnvelopeV2,
+  KafkaContractError,
   type CreateConsumerOptions,
   type DcConsumer,
   type DlqPublisher,
@@ -78,12 +80,47 @@ export function createJourneyGovernanceConsumer(
     ...(options.brokers ? { brokers: options.brokers } : {}),
     ...(options.dlq ? { dlq: options.dlq } : {}),
     idempotency: createDurableJourneyGovernanceIdempotencyStore(options.database),
-    handler: async ({ event }, transaction) => {
+    handler: async ({ event, topic, partition, offset }, transaction) => {
       if (!isKafkaEventEnvelopeV2(event)) {
         throw new TypeError('Journey CG3 consumer ไม่รับ Kafka V1 event');
       }
-      await options.service.apply(event, transaction);
+      const result = await options.service.apply(event, transaction);
+      if (options.dlq && result.state === 'QUARANTINED') {
+        await publishGovernanceContractRejection(options.dlq, result.reasonCode, {
+          topic,
+          partition,
+          offset,
+          event,
+        });
+      }
     },
   };
   return createConsumer(consumerOptions);
+}
+
+/**
+ * CG4.8 (#191): contract/version ที่ตีความไม่ได้ต้องเข้า DLQ (#179 §4) นอกเหนือจาก quarantine และ
+ * hold scope ที่ commit ใน owner-local transaction เดียวกัน DLQ publish อยู่ใน transaction นั้น:
+ * ถ้า publish ล้มเหลว transaction rollback แล้ว event ถูก retry จึงไม่มี quarantine ที่ไม่มีสำเนาใน DLQ
+ * hash conflict ไม่ส่ง DLQ เพราะ contract อ่านได้ — เป็น quarantine + alert ของ owner
+ */
+export async function publishGovernanceContractRejection(
+  dlq: DlqPublisher,
+  reasonCode: string | undefined,
+  source: { topic: string; partition?: number; offset?: string; event: unknown },
+): Promise<boolean> {
+  if (!isGovernanceContractRejection(reasonCode)) return false;
+  const dlqReason =
+    reasonCode === 'MALFORMED_PAYLOAD' || reasonCode === 'UNSUPPORTED_EVENT_TYPE'
+      ? 'INVALID_ENVELOPE'
+      : 'UNSUPPORTED_SCHEMA_VERSION';
+  await dlq.publish({
+    topic: source.topic,
+    partition: source.partition ?? -1,
+    offset: source.offset ?? '-1',
+    error: new KafkaContractError(dlqReason, reasonCode),
+    dlqReason,
+    value: Buffer.from(JSON.stringify(source.event)),
+  });
+  return true;
 }

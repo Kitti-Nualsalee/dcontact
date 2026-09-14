@@ -136,6 +136,13 @@ export interface RevalidateAuthorizedActionInput {
   sourceAggregateVersion: number;
   /** context ประวัติที่หายต้อง REVIEW แบบ fail-closed ห้ามอนุมานเป็น ALLOW */
   contactKind?: string;
+  /**
+   * CG4.8 (#191) additive: CG4 policy/kill event ใช้ scope head หรือ kill switch เป็น version
+   * authority ไม่ใช่ CG3 policy version; ไม่ระบุ = พฤติกรรม CG3 เดิม
+   */
+  sourceContract?: 'CG3' | 'CG4';
+  sourceEventType?: string;
+  sourceScopeKey?: string;
 }
 
 export interface RevalidateAuthorizedActionOutcome {

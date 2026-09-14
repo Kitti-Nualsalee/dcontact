@@ -11,7 +11,12 @@ import { evaluateContactPolicy, type ContactPolicyTraceEntry } from './contact-p
 import { evaluateCg3Policy } from './cg3-policy-evaluator.js';
 import { loadCg3Facts } from './cg3-fact-loader.js';
 import { toCg4PolicyBinding } from './cg4-exception-evaluation.js';
-import { CG4_CONTRACT_VERSION } from '@d-contact/cxa-contracts';
+import { parseCg4PolicyScopeKey } from './cg4-policy-compiler.js';
+import {
+  CG4_CONTRACT_VERSION,
+  CG4_EVENT_TYPES,
+  GOVERNANCE_KILL_SWITCH_ACTIVE,
+} from '@d-contact/cxa-contracts';
 import { stableDigest } from './cg3-persistence.js';
 import { transitionReservation, type ReservationCommand } from './reservation.js';
 import { ReservationRuntime, type ReservationRuntimeOptions } from './reservation-runtime.js';
@@ -49,6 +54,38 @@ export {
 } from '@d-contact/cxa-contracts';
 
 const RESERVATION_TTL_MS = 15 * 60 * 1_000;
+
+/**
+ * CG4.8 (#191): kill switch ครอบ reservation เมื่อทุก dimension ที่ scope ผูกไว้ตรงกัน
+ * scopeKey ที่อ่านไม่ออก หรือ dimension ที่ reservation ไม่มีค่า ถือว่าครอบแบบ fail closed
+ */
+function killSwitchCoversReservation(
+  scopeKey: string,
+  reservation: {
+    contactId: string;
+    channel: string;
+    purpose: string;
+    source: string;
+    authorizationContactKind: string | null;
+  },
+): boolean {
+  if (scopeKey.startsWith('contact:')) return scopeKey === `contact:${reservation.contactId}`;
+  let dimensions: Readonly<Record<string, string | undefined>>;
+  try {
+    dimensions = parseCg4PolicyScopeKey(scopeKey);
+  } catch {
+    return true;
+  }
+  const request: Readonly<Record<string, string | undefined>> = {
+    channel: reservation.channel,
+    purpose: reservation.purpose,
+    sourceType: reservation.source,
+    contactKind: reservation.authorizationContactKind ?? undefined,
+  };
+  return Object.entries(dimensions).every(
+    ([dimension, value]) => request[dimension] === undefined || request[dimension] === value,
+  );
+}
 
 export interface ContactGovernanceServiceOptions extends ReservationRuntimeOptions {}
 
@@ -262,6 +299,8 @@ export class ContactGovernanceService
       const reservation = await transaction.cgReservation.findFirst({
         where: { id: input.reservationId, tenantId, actionKey: input.actionKey },
         select: {
+          source: true,
+          sourceId: true,
           contactId: true,
           identityId: true,
           channel: true,
@@ -293,6 +332,11 @@ export class ContactGovernanceService
       );
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg3-contact:${tenantId}:${reservation.contactId}`}))`,
+      );
+      // CG4.8 (#191): ลำดับ lock เดียวกับ authorizeAndReserve เพื่อ serialize กับ revoke/expiry
+      // ของ exception และไม่สร้างลำดับ lock ใหม่ที่ deadlock ได้
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg4-contact:${tenantId}:${reservation.contactId}`}))`,
       );
       const now = this.now();
       const [identity, restriction, consent, facts] = await Promise.all([
@@ -342,13 +386,56 @@ export class ContactGovernanceService
           now,
         }),
       ]);
-      if (
+      if (input.sourceContract === 'CG4' && input.sourceAggregateType === 'POLICY') {
+        // CG4.8 (#191): CG4 policy event มี version ของ scope head และ kill switch มี aggregate ของ
+        // ตัวเอง การเทียบกับ CG3 policy version จะตัดสินว่า stale ทุกครั้งแล้ว hold งานทั้ง tenant
+        if (input.sourceEventType === CG4_EVENT_TYPES.KILL_SWITCH_CHANGED) {
+          const killSwitch = await transaction.cg4ScopeKillSwitch.findFirst({
+            where: { tenantId, id: input.sourceAggregateId },
+            select: { id: true },
+          });
+          if (!killSwitch) {
+            return review(
+              'GOVERNANCE_STATE_UNAVAILABLE',
+              facts.aggregateVersion,
+              facts.policy?.version,
+            );
+          }
+        } else {
+          const head = input.sourceScopeKey
+            ? await transaction.cg4PolicyScopeHead.findUnique({
+                where: { tenantId_scopeKey: { tenantId, scopeKey: input.sourceScopeKey } },
+                select: { headVersion: true },
+              })
+            : null;
+          if (!head || head.headVersion < input.sourceAggregateVersion) {
+            return review(
+              'GOVERNANCE_VERSION_STALE',
+              facts.aggregateVersion,
+              facts.policy?.version,
+            );
+          }
+        }
+      } else if (
         (input.sourceAggregateType === 'CONTACT' &&
           facts.aggregateVersion < input.sourceAggregateVersion) ||
         (input.sourceAggregateType === 'POLICY' &&
           (facts.policy?.version ?? 0) < input.sourceAggregateVersion)
       ) {
         return review('GOVERNANCE_VERSION_STALE', facts.aggregateVersion, facts.policy?.version);
+      }
+      // CG4.8 (#191): kill switch เป็น non-overridable gate (#174 §2) ที่ re-authorization
+      // ต้องเห็นเหมือน consumer ที่ได้ event; clear แล้วไม่ resume งานที่ hold ไว้
+      const activeKillSwitches = await transaction.cg4ScopeKillSwitch.findMany({
+        where: { tenantId, state: 'ACTIVE' },
+        select: { scopeKey: true },
+      });
+      if (
+        activeKillSwitches.some(({ scopeKey }) =>
+          killSwitchCoversReservation(scopeKey, reservation),
+        )
+      ) {
+        return review(GOVERNANCE_KILL_SWITCH_ACTIVE, facts.aggregateVersion, facts.policy?.version);
       }
       const baseline = evaluateContactPolicy({
         policyVersion: facts.policy?.version ?? 0,
@@ -398,6 +485,11 @@ export class ContactGovernanceService
         preferences: facts.preferences,
         policy: facts.policy,
         activeCallback: facts.activeCallback,
+        // CG4.8 (#191): re-authorization ต้องเห็น exception ชุดเดียวกับ authorizeAndReserve
+        // ไม่งั้นงานที่ได้รับอนุญาตผ่าน exception ที่ยัง active จะถูกยกเลิกจาก event อื่น
+        source: reservation.source,
+        sourceId: reservation.sourceId,
+        activeExceptions: facts.activeExceptions,
       });
       const decision = cg3.decision ?? 'ALLOW';
       const reasonCode = cg3.reasonCode ?? 'POLICY_PASSED';
