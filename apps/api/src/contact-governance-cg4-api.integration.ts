@@ -179,6 +179,7 @@ async function dropTenant(tenantId: string): Promise<void> {
   await owner.cg4CapabilityGrant.deleteMany({ where: { tenantId } });
   await owner.cg4AuthorizationSubject.deleteMany({ where: { tenantId } });
   await owner.cgEventOutbox.deleteMany({ where: { tenantId } });
+  await owner.cgConsumerAcknowledgement.deleteMany({ where: { tenantId } });
   await owner.cgAuditLog.deleteMany({ where: { tenantId } });
   await owner.cgCommandReceipt.deleteMany({ where: { tenantId } });
   await owner.contactIdentity.deleteMany({ where: { tenantId } });
@@ -942,4 +943,100 @@ test('cancel ทำได้เฉพาะ maker ของ request นั้น
   const byMaker = await post(`${f.base}/exceptions/${seriesId}/cancel`, 'maker-token', payload);
   const cancelled = await expectJson<{ workflowState: string }>(byMaker, 200);
   assert.equal(cancelled.workflowState, 'CANCELLED');
+});
+
+test('CG4.11: acknowledgement query แบบ additive ตรวจ input และไม่ข้าม tenant', async (t) => {
+  const f = await fixture(t);
+  const aggregateId = randomUUID();
+  await owner.cgConsumerAcknowledgement.create({
+    data: {
+      tenantId: f.primary.tenantId,
+      eventId: randomUUID(),
+      consumer: 'journey-governance-cg4',
+      aggregateType: 'POLICY',
+      aggregateId,
+      appliedVersion: 3,
+      outcome: 'APPLIED',
+      affectedCount: 1,
+      payloadHash: 'a'.repeat(64),
+      appliedStateDigest: 'b'.repeat(64),
+      appliedAt: new Date('2026-09-15T00:00:00.000Z'),
+    },
+  });
+
+  const invalidType = await get(
+    `${f.base}/acknowledgements?aggregateType=EXCEPTION&aggregateId=${aggregateId}`,
+    'checker-token',
+  );
+  assert.equal(invalidType.status, 400);
+  const invalidId = await get(
+    `${f.base}/acknowledgements?aggregateType=POLICY&aggregateId=not-a-uuid`,
+    'checker-token',
+  );
+  assert.equal(invalidId.status, 400);
+
+  const own = await expectJson<{
+    acknowledgements: Array<{
+      consumer: string;
+      appliedVersion: number;
+      appliedStateDigest: string;
+    }>;
+  }>(
+    await get(
+      `${f.base}/acknowledgements?aggregateType=POLICY&aggregateId=${aggregateId}`,
+      'checker-token',
+    ),
+    200,
+  );
+  assert.deepEqual(
+    own.acknowledgements.map((ack) => [ack.consumer, ack.appliedVersion, ack.appliedStateDigest]),
+    [['journey-governance-cg4', 3, 'b'.repeat(64)]],
+  );
+
+  const otherTenant = await expectJson<{ acknowledgements: unknown[] }>(
+    await get(
+      `${f.base}/acknowledgements?aggregateType=POLICY&aggregateId=${aggregateId}`,
+      'other-maker-token',
+    ),
+    200,
+  );
+  assert.deepEqual(otherTenant.acknowledgements, []);
+});
+
+test('CG4.11: observability คืน snapshot/alerts/metrics ของ tenant ตัวเองโดยไม่มี customer identifier', async (t) => {
+  const f = await fixture(t);
+  await owner.cg4ScopeKillSwitch.create({
+    data: {
+      id: randomUUID(),
+      tenantId: f.primary.tenantId,
+      scopeKey: SCOPE_KEY,
+      state: 'ACTIVE',
+      reasonCode: 'CG4_11_OBSERVABILITY',
+      evidenceRef: 'evidence://kill',
+      activatedByRef: f.primary.checker,
+      activatedAt: new Date(),
+    },
+  });
+
+  const forbidden = await get(`${f.base}/observability`, 'maker-token');
+  assert.equal(forbidden.status, 403);
+
+  const body = await expectJson<{
+    snapshot: { tenantId: string; killSwitches: { active: number } };
+    alerts: Array<{ code: string }>;
+    metrics: Array<{ name: string; labels: Record<string, string> }>;
+  }>(await get(`${f.base}/observability`, 'checker-token'), 200);
+  assert.equal(body.snapshot.tenantId, f.primary.tenantId);
+  assert.equal(body.snapshot.killSwitches.active, 1);
+  assert.ok(body.alerts.some((alert) => alert.code === 'GOVERNANCE_KILL_SWITCH_ACTIVE'));
+  assert.ok(body.metrics.every((metric) => Object.keys(metric.labels).join() === 'tenant_id'));
+  const serialized = JSON.stringify(body);
+  for (const value of [
+    f.primary.contactId,
+    f.primary.identityId,
+    f.primary.checker,
+    f.other.tenantId,
+  ]) {
+    assert.equal(serialized.includes(value), false, value);
+  }
 });

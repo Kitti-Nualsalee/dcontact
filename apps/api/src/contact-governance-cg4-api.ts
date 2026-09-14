@@ -54,7 +54,11 @@ import {
   Cg3ResourceNotFoundError,
   Cg3VersionConflictError,
   cg4ContactExceptions,
+  cg4DownstreamAcknowledgements,
   cg4EffectiveScope,
+  cg4MetricSamples,
+  cg4ObservabilitySnapshot,
+  evaluateCg4Alerts,
   cg4ExceptionApprovals,
   cg4ExceptionBySeriesId,
   cg4ExceptionHistory,
@@ -1293,6 +1297,82 @@ export class ContactGovernanceCg4KillSwitchController extends Cg4ControllerBase 
   }
 }
 
+// ---- CG4.11 (#194): additive read-only queries -----------------------------
+
+/**
+ * Downstream acknowledgement ของ event หนึ่ง aggregate (#179 §4 additive query): consumer,
+ * version ที่ apply, outcome และ applied state digest — ไม่มี payload หรือ identity ของผู้ถูกติดต่อ
+ */
+@Controller('api/v1/contact-governance/acknowledgements')
+export class ContactGovernanceCg4AcknowledgementController extends Cg4ControllerBase {
+  constructor(
+    @Inject(CG4_DATABASE) database: PrismaClient,
+    @Inject(CG4_EVIDENCE_ACCESS_SINK) evidenceAccess: Cg4EvidenceAccessSink,
+  ) {
+    super(database, evidenceAccess);
+  }
+
+  @Get()
+  @GatewayRoles('admin', 'compliance', 'platform-operator')
+  async list(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Query('aggregateType') aggregateType: string,
+    @Query('aggregateId') aggregateId: string,
+    @Query('limit') limit?: string,
+  ) {
+    const actor = await this.actor(request);
+    if (aggregateType !== 'POLICY' && aggregateType !== 'CONTACT') {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'aggregateType ต้องเป็น POLICY หรือ CONTACT',
+      });
+    }
+    const parsedLimit = limit === undefined ? undefined : Number(limit);
+    if (
+      parsedLimit !== undefined &&
+      (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 500)
+    ) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'limit ต้องอยู่ระหว่าง 1-500',
+      });
+    }
+    const acknowledgements = await cg4DownstreamAcknowledgements(
+      this.database,
+      this.queryContext(actor),
+      {
+        aggregateType,
+        aggregateId: requiredUuid(aggregateId, 'aggregateId'),
+        ...(parsedLimit !== undefined ? { limit: parsedLimit } : {}),
+      },
+    );
+    return { acknowledgements };
+  }
+}
+
+/** metrics/alerts ของ tenant ตาม #179 §7 (`CG4-OB01`) — label มีแค่ tenant_id */
+@Controller('api/v1/contact-governance/observability')
+export class ContactGovernanceCg4ObservabilityController extends Cg4ControllerBase {
+  constructor(
+    @Inject(CG4_DATABASE) database: PrismaClient,
+    @Inject(CG4_EVIDENCE_ACCESS_SINK) evidenceAccess: Cg4EvidenceAccessSink,
+  ) {
+    super(database, evidenceAccess);
+  }
+
+  @Get()
+  @GatewayRoles('compliance', 'platform-operator')
+  async snapshot(@Req() request: AuthenticatedGatewayRequest) {
+    const actor = await this.actor(request);
+    const snapshot = await cg4ObservabilitySnapshot(this.database, { tenantId: actor.tenantId });
+    return {
+      snapshot,
+      alerts: evaluateCg4Alerts(snapshot),
+      metrics: cg4MetricSamples(snapshot),
+    };
+  }
+}
+
 export const CG4_API_CONTROLLERS = [
   ContactGovernanceCg4ExceptionController,
   ContactGovernanceCg4ContactQueryController,
@@ -1300,6 +1380,8 @@ export const CG4_API_CONTROLLERS = [
   ContactGovernanceCg4PolicyVersionController,
   ContactGovernanceCg4ScopeQueryController,
   ContactGovernanceCg4KillSwitchController,
+  ContactGovernanceCg4AcknowledgementController,
+  ContactGovernanceCg4ObservabilityController,
 ];
 
 export type { Cg4Capability };
