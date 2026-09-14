@@ -55,6 +55,8 @@ model Tenant {
   cgConsumerAcknowledgements   CgConsumerAcknowledgement[]
   cgConsumerInbox              CgConsumerInbox[]
   cgScopePauses                CgScopePause[]
+  cg4AuthorizationSubjects     Cg4AuthorizationSubject[]
+  cg4CapabilityGrants          Cg4CapabilityGrant[]
   jrEventInbox                 JrEventInbox[]
   jrKafkaConsumerInbox         JrKafkaConsumerInbox[]
   jrGovernanceConsumerInbox    JrGovernanceConsumerInbox[]
@@ -730,6 +732,11 @@ enum Cg4CapabilitySource {
   DELEGATED
 }
 
+enum Cg4AuthenticationStrength {
+  STANDARD
+  STRONG
+}
+
 enum JrEventInboxState {
   PENDING
   PUBLISHED
@@ -1348,6 +1355,51 @@ model CgConsumerAcknowledgement {
   @@unique([tenantId, eventId, consumer, appliedVersion])
   @@index([tenantId, aggregateType, aggregateId, appliedVersion])
   @@map("cg_consumer_acknowledgements")
+}
+
+// ─────────────────────────── CG4.7 authorization store ───────────────────────────
+// CG4.3 ประกาศ `Cg4AuthorizationPort` ไว้ให้ IAM เป็นเจ้าของ แต่ repo นี้ยังไม่มี IAM
+// service จริง สองตารางนี้คือ canonical store ที่ port อ่านในระหว่างนั้น — แยกจาก
+// `users.role` โดยตั้งใจ เพราะ #173 ห้ามใช้ role string แทน domain capability.
+// เมื่อ IAM service พร้อม ให้เปลี่ยน adapter ที่อ่านตารางนี้ ไม่ต้องแก้ repository ใด ๆ
+model Cg4AuthorizationSubject {
+  id                        String                    @id @default(uuid()) @db.Uuid
+  tenantId                  String                    @map("tenant_id") @db.Uuid
+  /// stable human subject id; ตรงกับ workspace user id ที่ gateway verify มาแล้ว
+  subjectId                 String                    @map("subject_id")
+  authenticationStrength    Cg4AuthenticationStrength @default(STANDARD) @map("authentication_strength")
+  directComplianceAuthority Boolean                   @default(false) @map("direct_compliance_authority")
+  emergencyAuthority        Boolean                   @default(false) @map("emergency_authority")
+  /// group/shared/service principal เป็น delegate หรือ checker ไม่ได้ (#173 §3)
+  isServicePrincipal        Boolean                   @default(false) @map("is_service_principal")
+  authorizationEpoch        Int                       @default(1) @map("authorization_epoch")
+  scopeVersion              Int                       @default(1) @map("scope_version")
+  updatedAt                 DateTime                  @updatedAt @map("updated_at")
+  createdAt                 DateTime                  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, subjectId])
+  @@map("cg_authorization_subject")
+}
+
+model Cg4CapabilityGrant {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  subjectId    String    @map("subject_id")
+  capability   String
+  scopeKey     String    @map("scope_key")
+  expiresAt    DateTime? @map("expires_at")
+  grantedByRef String    @map("granted_by_ref")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, subjectId, capability, scopeKey])
+  @@index([tenantId, subjectId, expiresAt])
+  @@map("cg_capability_grant")
 }
 
 // ─────────────────────────── CG4.6 events, inbox และ recovery ───────────────────────────

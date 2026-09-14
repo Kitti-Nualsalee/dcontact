@@ -35,6 +35,8 @@ BEGIN
     'cg_delegation',
     -- CG4.6 (#189)
     'cg_consumer_inbox', 'cg_scope_pause',
+    -- CG4.7 (#190)
+    'cg_authorization_subject', 'cg_capability_grant',
     -- J3.2 (#213)
     'c360_segment_definitions', 'c360_segment_definition_heads',
     'c360_fact_snapshots', 'c360_segment_evaluations'
@@ -147,6 +149,11 @@ REVOKE UPDATE, DELETE ON cg_delegation FROM dcontact_app;
 -- must never be rewritten or removed; a scope pause advances state but keeps its history.
 REVOKE UPDATE, DELETE ON cg_consumer_inbox FROM dcontact_app;
 REVOKE DELETE ON cg_scope_pause FROM dcontact_app;
+-- CG4.7 (#190): Contact Governance only reads its authorization state. Grants are
+-- administered outside the application role so a compromised app cannot widen its own
+-- capabilities — the blanket GRANT above would otherwise hand it exactly that.
+REVOKE INSERT, UPDATE, DELETE ON cg_authorization_subject FROM dcontact_app;
+REVOKE INSERT, UPDATE, DELETE ON cg_capability_grant FROM dcontact_app;
 -- J3.2: definition เดินได้เฉพาะ lifecycle ผ่าน DB trigger; snapshot/evaluation เป็น immutable
 REVOKE DELETE ON c360_segment_definitions FROM dcontact_app;
 REVOKE DELETE ON c360_segment_definition_heads FROM dcontact_app;
