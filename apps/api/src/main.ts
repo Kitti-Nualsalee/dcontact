@@ -60,6 +60,11 @@ import {
   ContactGovernancePoliciesController,
   ContactGovernancePreferencesController,
 } from './contact-governance-api.js';
+import {
+  CG4_API_CONTROLLERS,
+  CG4_DATABASE,
+  CG4_EVIDENCE_ACCESS_SINK,
+} from './contact-governance-cg4-api.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -128,10 +133,20 @@ class WorkspaceSessionController {
     ContactGovernancePoliciesController,
     ContactGovernanceContactQueryController,
     ContactGovernanceDecisionQueryController,
+    ...CG4_API_CONTROLLERS,
   ],
   providers: [
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
     { provide: CONTACT_GOVERNANCE_DATABASE, useValue: prisma },
+    { provide: CG4_DATABASE, useValue: prisma },
+    {
+      // Evidence access is itself auditable (#190): opaque ids only, no evidence body.
+      provide: CG4_EVIDENCE_ACCESS_SINK,
+      useValue: {
+        record: (access: Record<string, unknown>) =>
+          console.log(JSON.stringify({ event: 'contact_governance.evidence.read', ...access })),
+      },
+    },
     { provide: SUPERVISOR_LIVE_DATABASE, useValue: prisma },
     { provide: SupervisorLiveEventStream, useValue: supervisorLiveEvents },
     { provide: RECORDING_DATABASE, useValue: prisma },

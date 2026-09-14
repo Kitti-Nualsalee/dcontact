@@ -29,5 +29,8 @@ export * from './cg4-consumer-inbox.js';
 export * from './cg4-cache.js';
 export * from './cg4-event-relay.js';
 export * from './cg4-workers.js';
+export * from './cg4-authorization-port.js';
+export * from './cg4-redaction.js';
+export * from './cg4-query.js';
 export * from './reservation.js';
 export * from './reservation-runtime.js';
