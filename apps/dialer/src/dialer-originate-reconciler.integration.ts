@@ -227,7 +227,10 @@ test('originate ที่สำเร็จตามปกติล้าง lea
     },
   });
 
-  assert.equal(await barrier.originateCampaignTarget(f.tenantId, target.id, 'corr-1'), 'ORIGINATED');
+  assert.equal(
+    await barrier.originateCampaignTarget(f.tenantId, target.id, 'corr-1'),
+    'ORIGINATED',
+  );
 
   const settled = await f.owner.obCampaignTarget.findUniqueOrThrow({ where: { id: target.id } });
   assert.equal(settled.state, 'CONSUMED');
