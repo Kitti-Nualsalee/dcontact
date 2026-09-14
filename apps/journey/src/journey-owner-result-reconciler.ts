@@ -27,7 +27,7 @@ export type ReconcileOutcome = ApplyOwnerResultOutcome | 'NO_RESULT_YET';
  * (CREATED/LINKED/REOPENED/ADMITTED/ALREADY_ADMITTED/SCHEDULED/ALREADY_SCHEDULED)
  * ยุบเป็น ACKNOWLEDGED เดียวเพราะ Journey สนใจแค่ "owner รับแล้ว" ไม่ใช่รายละเอียด
  * ภายในของ owner นั้น ๆ */
-const STATUS_TO_RESULT_KIND: Record<
+export const STATUS_TO_RESULT_KIND: Record<
   J2OwnerResultStatus,
   'ACKNOWLEDGED' | 'REJECTED' | 'CANCELLED' | 'SUPERSEDED' | 'TOO_LATE'
 > = {
@@ -46,7 +46,12 @@ const STATUS_TO_RESULT_KIND: Record<
 
 /** hash เนื้อหาของผลเอง (ไม่ใช่ requestHash ของ command เดิม) เพื่อตรวจ conflict ของ
  * ผลที่มาซ้ำภายใต้ commandId เดียวกันแต่เนื้อหาต่าง */
-function hashResult(result: J2OwnerResultPayloadV1): string {
+/**
+ * export เพื่อให้ result consumer (push path) ใช้ตัวเดียวกับ reconciler (pull path)
+ * — ผลใบเดียวกันที่มาสองทางต้องได้ resultHash เท่ากัน ไม่งั้น applyResult จะมองเป็น
+ * CONFLICT ทั้งที่เป็นผลเดียวกัน
+ */
+export function hashResult(result: J2OwnerResultPayloadV1): string {
   const canonical = JSON.stringify({
     status: result.status,
     code: result.code,
