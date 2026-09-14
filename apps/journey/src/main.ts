@@ -25,6 +25,7 @@ import { JourneyGovernanceAcknowledgementRelay } from './journey-governance-ack-
 import { JourneyGovernanceEffectRelay } from './journey-governance-effect-relay.js';
 import { JourneyOwnerCommandRelay } from './journey-owner-command-relay.js';
 import { createKafkaOwnerCommandPort } from './journey-owner-kafka-port.js';
+import { createJourneyOwnerResultConsumer } from './journey-owner-result-consumer.js';
 import { JsonJourneyGovernanceMetrics } from './journey-governance-metrics.js';
 
 function positiveInteger(name: string, fallback: number): number {
@@ -91,6 +92,15 @@ const ownerCommandRelay = new JourneyOwnerCommandRelay(
   createKafkaOwnerCommandPort({ topic: KAFKA_TOPICS.CASE_COMMANDS, producer }),
   createKafkaOwnerCommandPort({ topic: KAFKA_TOPICS.DIALER_COMMANDS, producer }),
 );
+
+// ขารับผลกลับจาก owner — คู่ตรงข้ามของ ownerCommandRelay ที่ publish ออกไป
+const ownerResultConsumer = await createJourneyOwnerResultConsumer({
+  database,
+  clientId: 'dcontact-journey-owner-result-consumer',
+  groupId:
+    process.env.JOURNEY_OWNER_RESULT_CONSUMER_GROUP_ID ?? 'dcontact-journey-owner-results-v1',
+  dlq,
+});
 
 const outcomeConsumer = await createJourneyOutcomeConsumer({
   database,
@@ -166,6 +176,7 @@ async function shutdown(): Promise<void> {
   await Promise.all([
     consumer.disconnect(),
     outcomeConsumer.disconnect(),
+    ownerResultConsumer.disconnect(),
     governanceConsumer.disconnect(),
     producer.disconnect(),
     dlq.disconnect(),
