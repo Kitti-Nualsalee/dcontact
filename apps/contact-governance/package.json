@@ -11,7 +11,8 @@
     "start": "node dist/main.js",
     "test": "tsx --test src/*.test.ts",
     "test:integration": "tsx --test --test-concurrency=1 src/*.integration.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "cg4:backfill": "tsx src/cg4-legacy-backfill-main.ts"
   },
   "dependencies": {
     "@d-contact/db": "workspace:*",

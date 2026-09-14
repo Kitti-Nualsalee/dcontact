@@ -730,6 +730,14 @@ enum Cg4KillSwitchState {
 enum Cg4CapabilitySource {
   DIRECT
   DELEGATED
+  // CG4.10 (#193): approval เดิมของ CG3 ที่ย้ายมาเป็นหลักฐาน baseline ใช้ได้เฉพาะ LEGACY_CG3 version
+  LEGACY_MIGRATED
+}
+
+/// CG4.10 (#193): ที่มาของ policy version — CG4 writer หรือ backfill จาก cg_policies ของ CG3
+enum Cg4PolicyOrigin {
+  CG4
+  LEGACY_CG3
 }
 
 enum Cg4AuthenticationStrength {
@@ -1501,6 +1509,10 @@ model Cg4Policy {
   activateAt         DateTime?           @map("activate_at")
   /// rollback สร้าง version ใหม่จาก content ของ version เป้าหมายเสมอ ห้าม pointer flip (#176 §6)
   rollbackOfId       String?             @map("rollback_of_id") @db.Uuid
+  /// CG4.10 (#193): เปลี่ยนไม่ได้หลังสร้าง (trigger cg4_policy_origin_immutable); LEGACY_CG3 ต้องมี
+  /// legacySourceRowId ชี้ cg_policies ต้นทาง และ map ได้ครั้งเดียวต่อ row (partial unique index)
+  origin             Cg4PolicyOrigin     @default(CG4)
+  legacySourceRowId  String?             @map("legacy_source_row_id") @db.Uuid
 
   @@unique([tenantId, id])
   @@unique([tenantId, policyId, version])
