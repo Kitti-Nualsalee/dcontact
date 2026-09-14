@@ -28,6 +28,7 @@ import { assertOwnerResultEnvelope } from '@d-contact/cxa-contracts';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
 import { STATUS_TO_RESULT_KIND, hashResult } from './journey-owner-result-reconciler.js';
+import { noOpJourneyOwnerMetrics, type JourneyOwnerMetrics } from './journey-owner-metrics.js';
 
 /**
  * `applyResult` เป็น durable dedup boundary ของตัวเองผ่าน unique (tenantId, commandId)
@@ -61,12 +62,14 @@ export interface CreateJourneyOwnerResultConsumerOptions {
   groupId: string;
   brokers?: string[];
   dlq?: DlqPublisher;
+  metrics?: JourneyOwnerMetrics;
 }
 
 export function createJourneyOwnerResultConsumer(
   options: CreateJourneyOwnerResultConsumerOptions,
 ): Promise<DcConsumer> {
   const actions = new JourneyOwnerActionRepository(options.database);
+  const metrics = options.metrics ?? noOpJourneyOwnerMetrics;
 
   const consumerOptions: CreateConsumerOptions<Record<string, unknown>, undefined> = {
     clientId: options.clientId,
@@ -98,19 +101,22 @@ export function createJourneyOwnerResultConsumer(
           }),
       );
       if (!command) {
+        metrics.increment('journey_owner_result_binding_rejected_total');
         throw new OwnerResultBindingError(result.commandId, 'ไม่พบ command ต้นเรื่องใน outbox');
       }
       if (command.actionKey !== result.actionKey) {
+        metrics.increment('journey_owner_result_binding_rejected_total');
         throw new OwnerResultBindingError(
           result.commandId,
           `actionKey ไม่ตรง (${command.actionKey} vs ${result.actionKey})`,
         );
       }
       if (command.requestHash !== result.requestHash) {
+        metrics.increment('journey_owner_result_binding_rejected_total');
         throw new OwnerResultBindingError(result.commandId, 'requestHash ไม่ตรงกับ command');
       }
 
-      await actions.applyResult({
+      const applied = await actions.applyResult({
         tenantId: envelope.tenantId,
         commandId: result.commandId,
         actionKey: result.actionKey,

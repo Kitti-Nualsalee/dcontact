@@ -24,6 +24,7 @@ import type { PrismaClient } from '@d-contact/db';
 import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
 import { JourneyRecoveryAuditLog } from './journey-recovery-audit.js';
 import type { JourneyOwnerResultReconciler } from './journey-owner-result-reconciler.js';
+import { noOpJourneyOwnerMetrics, type JourneyOwnerMetrics } from './journey-owner-metrics.js';
 
 export type AckEscalationOutcome =
   /** ถาม owner แล้วได้ผลจริง apply เรียบร้อย */
@@ -42,6 +43,7 @@ export interface JourneyOwnerAckEscalatorOptions {
   /** ถาม owner ได้กี่รอบก่อนส่งต่อให้คน */
   maxAttempts?: number;
   actorId?: string;
+  metrics?: JourneyOwnerMetrics;
 }
 
 const DEFAULT_ACK_DEADLINE_MS = 60_000;
@@ -60,6 +62,7 @@ export class JourneyOwnerAckEscalator {
   private readonly ackDeadlineMs: number;
   private readonly maxAttempts: number;
   private readonly actorId: string;
+  private readonly metrics: JourneyOwnerMetrics;
 
   constructor(
     database: PrismaClient,
@@ -72,6 +75,7 @@ export class JourneyOwnerAckEscalator {
     this.ackDeadlineMs = options.ackDeadlineMs ?? DEFAULT_ACK_DEADLINE_MS;
     this.maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     this.actorId = options.actorId ?? ACK_ESCALATOR_ACTOR_ID;
+    this.metrics = options.metrics ?? noOpJourneyOwnerMetrics;
   }
 
   /** จัดการหนึ่ง action ต่อครั้ง; คืน undefined เมื่อไม่มีอะไรค้างแล้ว */
@@ -84,9 +88,15 @@ export class JourneyOwnerAckEscalator {
     // แพ้ race กับผลที่เพิ่งมาถึงพอดี — ฝั่งนั้นถูกต้องกว่า ไม่ต้องทำอะไรต่อ
     if (!marked) return 'SUPERSEDED';
 
+    this.metrics.increment('journey_owner_ack_unknown_total');
+    this.metrics.observe('journey_owner_ack_attempts', marked.attempts);
+
     // ถาม owner ก่อนเสมอ ห้าม retry แบบมั่ว ๆ
     const reconciled = await this.reconciler.reconcile(tenantId, stale.actionKey);
-    if (reconciled !== 'NO_RESULT_YET') return 'RECONCILED';
+    if (reconciled !== 'NO_RESULT_YET') {
+      this.metrics.increment('journey_owner_ack_reconciled_total');
+      return 'RECONCILED';
+    }
 
     if (marked.attempts < this.maxAttempts) return 'WAITING';
 
@@ -98,6 +108,7 @@ export class JourneyOwnerAckEscalator {
       reasonCode: 'ACK_UNKNOWN_DEADLINE_EXCEEDED',
       actorId: this.actorId,
     });
+    this.metrics.increment('journey_owner_ack_escalated_total');
     return 'ESCALATED';
   }
 }
