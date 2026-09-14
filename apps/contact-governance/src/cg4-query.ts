@@ -60,6 +60,12 @@ export interface Cg4ExceptionRevisionView {
 export interface Cg4ExceptionSeriesView extends Cg4ExceptionRevisionView {
   workflowState: string;
   effectiveState: string;
+  /**
+   * CG4.9 (#192): the contact's exception CAS version, echoed back as `expectedVersion` on
+   * approve/cancel/revoke. #179 §2 requires queries to return the current version; without
+   * it a Console could only guess the number and fail as VERSION_CONFLICT.
+   */
+  aggregateVersion: number;
   /** Concurrency token the caller echoes back as `expectedRevision`. */
   etag: string;
 }
@@ -148,9 +154,14 @@ export async function cg4ExceptionBySeriesId(
       where: { tenantId: context.tenantId, id: head.currentRevisionId },
     });
     if (!row) return undefined;
+    const contactHead = await transaction.cg4ContactExceptionHead.findUnique({
+      where: { tenantId_contactId: { tenantId: context.tenantId, contactId: row.contactId } },
+      select: { aggregateVersion: true },
+    });
     return {
       ...exceptionRevisionView(row, context.level),
       workflowState: head.status,
+      aggregateVersion: contactHead?.aggregateVersion ?? 0,
       effectiveState: resolveCg4EffectiveState({
         workflowState: head.status as 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'REVOKED',
         startsAt: row.startsAt,
@@ -195,6 +206,10 @@ export async function cg4ContactExceptions(
       },
     });
     const currentRevisionIds = new Map(heads.map((head) => [head.currentRevisionId, head]));
+    const contactHead = await transaction.cg4ContactExceptionHead.findUnique({
+      where: { tenantId_contactId: { tenantId: context.tenantId, contactId } },
+      select: { aggregateVersion: true },
+    });
     return revisions
       .filter((row) => currentRevisionIds.has(row.id))
       .map((row) => {
@@ -202,6 +217,7 @@ export async function cg4ContactExceptions(
         return {
           ...exceptionRevisionView(row, context.level),
           workflowState: head.status,
+          aggregateVersion: contactHead?.aggregateVersion ?? 0,
           effectiveState: resolveCg4EffectiveState({
             workflowState: head.status as
               'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'REVOKED',

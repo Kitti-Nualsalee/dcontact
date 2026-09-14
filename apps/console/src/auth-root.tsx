@@ -2,6 +2,9 @@ import { useMemo } from 'react';
 import { AuthProvider, useAuth } from 'react-oidc-context';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
+import { GovernanceConsole } from './governance-console.js';
+import { createGovernanceApi } from './governance-api.js';
+import { parseGovernanceLocation, type GovernanceViewer } from './governance-model.js';
 import { PreferenceCenter } from './preference-center.js';
 import {
   createConsoleOidcSettings,
@@ -67,10 +70,11 @@ export function ConsoleAuthRoot() {
   let contextId: string | undefined;
   const url = new URL(window.location.href);
   const preferenceView = url.searchParams.get('view') === 'preferences';
+  const governanceView = url.searchParams.get('view') === 'governance';
   const contactId = preferenceView ? (url.searchParams.get('contactId') ?? undefined) : undefined;
   try {
     tenantAlias = resolveTenantAlias(url);
-    contextId = preferenceView ? undefined : resolveConsoleContextId(url);
+    contextId = preferenceView || governanceView ? undefined : resolveConsoleContextId(url);
   } catch {
     return (
       <Status
@@ -95,7 +99,11 @@ export function ConsoleAuthRoot() {
   });
   return (
     <AuthProvider {...settings}>
-      <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
+      {governanceView ? (
+        <GovernanceSurface apiBaseUrl={apiBaseUrl} />
+      ) : (
+        <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
+      )}
     </AuthProvider>
   );
 }
@@ -123,6 +131,45 @@ function ConsoleSurface({
       contextId={contextId}
       contactId={contactId}
       viewer={viewer}
+    />
+  );
+}
+
+/**
+ * CG4.9 (#192): viewer มาจาก role ใน token เพื่อซ่อนปุ่มที่รู้ว่าจะไม่ผ่านเท่านั้น — สิทธิ์จริงถูก
+ * re-authorize ที่ API ทุก command และระดับการเห็น evidence มาจาก capability ฝั่ง server
+ */
+function GovernanceSurface({ apiBaseUrl }: { apiBaseUrl: string }) {
+  const auth = useAuth();
+  const accessToken = auth.user?.access_token;
+  const api = useMemo(
+    () => createGovernanceApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
+    return (
+      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
+    );
+  if (auth.error || !auth.isAuthenticated || !accessToken)
+    return (
+      <Status
+        title="Contact Governance"
+        detail="เข้าสู่ระบบก่อนเปิด Exceptions, Policies และ Audit"
+        action={() => void auth.signinRedirect()}
+      />
+    );
+  const roles = (auth.user?.profile.realm_access as { roles?: unknown } | undefined)?.roles;
+  const viewer: GovernanceViewer =
+    Array.isArray(roles) && roles.includes('compliance')
+      ? 'COMPLIANCE'
+      : Array.isArray(roles) && roles.includes('admin')
+        ? 'TENANT_ADMIN'
+        : 'SUPERVISOR';
+  return (
+    <GovernanceConsole
+      api={api}
+      viewer={viewer}
+      initialLocation={parseGovernanceLocation(new URL(window.location.href))}
     />
   );
 }
