@@ -8,14 +8,32 @@ import {
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
 import { evaluateContactPolicy, type ContactPolicyTraceEntry } from './contact-policy.js';
-import { evaluateCg3Policy } from './cg3-policy-evaluator.js';
+import {
+  evaluateCg3Policy,
+  type Cg3GateOutcome,
+  type Cg3PolicyFacts,
+} from './cg3-policy-evaluator.js';
 import { loadCg3Facts } from './cg3-fact-loader.js';
 import { toCg4PolicyBinding } from './cg4-exception-evaluation.js';
-import { parseCg4PolicyScopeKey } from './cg4-policy-compiler.js';
+import { buildCg4PolicyScopeKey, parseCg4PolicyScopeKey } from './cg4-policy-compiler.js';
+import {
+  cg4PolicyFailClosedOutcome,
+  cg4ShadowDecisionDigest,
+  loadCg4PolicyFacts,
+  type Cg4PolicyReadResult,
+} from './cg4-policy-reader.js';
+import type { Cg4PolicyRequestScope } from './cg4-policy-resolution.js';
+import {
+  cg4PolicyReaderFor,
+  cg4PolicyRequestScope,
+  GOVERNANCE_SHADOW_MISMATCH,
+  loadCg4RolloutState,
+} from './cg4-rollout.js';
 import {
   CG4_CONTRACT_VERSION,
   CG4_EVENT_TYPES,
   GOVERNANCE_KILL_SWITCH_ACTIVE,
+  type Cg4PolicyBinding,
 } from '@d-contact/cxa-contracts';
 import { stableDigest } from './cg3-persistence.js';
 import { transitionReservation, type ReservationCommand } from './reservation.js';
@@ -85,6 +103,24 @@ function killSwitchCoversReservation(
   return Object.entries(dimensions).every(
     ([dimension, value]) => request[dimension] === undefined || request[dimension] === value,
   );
+}
+
+/** ผลฝั่ง CG4 ของ shadow evaluation: reader ที่ fail closed ถือเป็นผล REVIEW ที่นำมาเทียบได้ */
+function shadowOutcome(
+  read: Cg4PolicyReadResult,
+  evaluate: (policy: Cg3PolicyFacts | undefined) => Cg3GateOutcome,
+): Cg3GateOutcome {
+  if (read.outcome === 'FAIL_CLOSED') return cg4PolicyFailClosedOutcome('POLICY_HEAD', read.reason);
+  return evaluate(read.outcome === 'RESOLVED' ? read.facts : undefined);
+}
+
+/** scope ของ request เป็น opaque dimension key สำหรับหลักฐาน mismatch (ไม่มี contact identity) */
+function requestScopeKey(request: Cg4PolicyRequestScope): string {
+  try {
+    return buildCg4PolicyScopeKey({ ...request });
+  } catch {
+    return `channel=${request.channel ?? '*'}|purpose=${request.purpose ?? '*'}`;
+  }
 }
 
 export interface ContactGovernanceServiceOptions extends ReservationRuntimeOptions {}
@@ -475,22 +511,65 @@ export class ContactGovernanceService
           ),
         };
       }
-      const cg3 = evaluateCg3Policy({
-        now,
-        identityId: reservation.identityId ?? undefined,
+      const evaluate = (policy: Cg3PolicyFacts | undefined) =>
+        evaluateCg3Policy({
+          now,
+          identityId: reservation.identityId ?? undefined,
+          channel: reservation.channel,
+          purpose: reservation.purpose,
+          contactKind: reservation.authorizationContactKind ?? undefined,
+          senderIdentityId: reservation.senderIdentityId ?? undefined,
+          preferences: facts.preferences,
+          policy,
+          activeCallback: facts.activeCallback,
+          // CG4.8 (#191): re-authorization ต้องเห็น exception ชุดเดียวกับ authorizeAndReserve
+          // ไม่งั้นงานที่ได้รับอนุญาตผ่าน exception ที่ยัง active จะถูกยกเลิกจาก event อื่น
+          source: reservation.source,
+          sourceId: reservation.sourceId,
+          activeExceptions: facts.activeExceptions,
+        });
+      // CG4.10 (#193): re-authorization ใช้ reader เดียวกับ authorizeAndReserve ภายใต้ rollout เดียวกัน
+      // แต่ไม่บันทึก shadow mismatch เพราะการเรียกนี้ห้ามสร้าง fact ใหม่
+      const policyRequest = cg4PolicyRequestScope({
         channel: reservation.channel,
         purpose: reservation.purpose,
-        contactKind: reservation.authorizationContactKind ?? undefined,
-        senderIdentityId: reservation.senderIdentityId ?? undefined,
-        preferences: facts.preferences,
-        policy: facts.policy,
-        activeCallback: facts.activeCallback,
-        // CG4.8 (#191): re-authorization ต้องเห็น exception ชุดเดียวกับ authorizeAndReserve
-        // ไม่งั้นงานที่ได้รับอนุญาตผ่าน exception ที่ยัง active จะถูกยกเลิกจาก event อื่น
+        contactKind: reservation.authorizationContactKind,
         source: reservation.source,
-        sourceId: reservation.sourceId,
-        activeExceptions: facts.activeExceptions,
       });
+      const reader = cg4PolicyReaderFor(
+        await loadCg4RolloutState(transaction, tenantId),
+        policyRequest,
+      );
+      let cg3: Cg3GateOutcome;
+      if (reader.mode === 'CG4') {
+        const read = await loadCg4PolicyFacts(transaction, {
+          tenantId,
+          request: policyRequest,
+          now,
+        });
+        if (read.outcome === 'FAIL_CLOSED') {
+          return review(read.reason, facts.aggregateVersion, facts.policy?.version);
+        }
+        cg3 = evaluate(read.outcome === 'RESOLVED' ? read.facts : undefined);
+      } else {
+        cg3 = evaluate(facts.policy);
+        if (reader.mode === 'CG3_WITH_SHADOW' && reader.pilot) {
+          const read = await loadCg4PolicyFacts(transaction, {
+            tenantId,
+            request: policyRequest,
+            now,
+          });
+          if (
+            cg4ShadowDecisionDigest(cg3) !== cg4ShadowDecisionDigest(shadowOutcome(read, evaluate))
+          ) {
+            return review(
+              GOVERNANCE_SHADOW_MISMATCH,
+              facts.aggregateVersion,
+              facts.policy?.version,
+            );
+          }
+        }
+      }
       const decision = cg3.decision ?? 'ALLOW';
       const reasonCode = cg3.reasonCode ?? 'POLICY_PASSED';
       return {
@@ -683,20 +762,78 @@ export class ContactGovernanceService
           contactKind: input.contactKind,
           now,
         });
-        const cg3 = evaluateCg3Policy({
-          now,
-          identityId: input.identityId,
-          channel: input.channel,
-          purpose: input.purpose,
-          contactKind: input.contactKind,
-          senderIdentityId: input.senderIdentityId,
-          preferences: facts.preferences,
-          policy: facts.policy,
-          activeCallback: facts.activeCallback,
-          source: input.source,
-          sourceId: input.sourceId,
-          activeExceptions: facts.activeExceptions,
-        });
+        const evaluate = (policy: Cg3PolicyFacts | undefined) =>
+          evaluateCg3Policy({
+            now,
+            identityId: input.identityId,
+            channel: input.channel,
+            purpose: input.purpose,
+            contactKind: input.contactKind,
+            senderIdentityId: input.senderIdentityId,
+            preferences: facts.preferences,
+            policy,
+            activeCallback: facts.activeCallback,
+            source: input.source,
+            sourceId: input.sourceId,
+            activeExceptions: facts.activeExceptions,
+          });
+        // CG4.10 (#193): rollout stage เลือกว่า policy มาจาก CG3 loader หรือ head ของ CG4 (#179 §6)
+        const policyRequest = cg4PolicyRequestScope(input);
+        const reader = cg4PolicyReaderFor(
+          await loadCg4RolloutState(transaction, tenantId),
+          policyRequest,
+        );
+        let cg3: Cg3GateOutcome;
+        let headBinding: Cg4PolicyBinding | undefined;
+        let evaluatedPolicyVersion = facts.policy?.version;
+        if (reader.mode === 'CG4') {
+          const read = await loadCg4PolicyFacts(transaction, {
+            tenantId,
+            request: policyRequest,
+            now,
+          });
+          if (read.outcome === 'FAIL_CLOSED') {
+            cg3 = cg4PolicyFailClosedOutcome('POLICY_HEAD', read.reason);
+            evaluatedPolicyVersion = undefined;
+          } else {
+            headBinding = read.outcome === 'RESOLVED' ? read.binding : undefined;
+            evaluatedPolicyVersion = headBinding?.policyVersion;
+            cg3 = evaluate(read.outcome === 'RESOLVED' ? read.facts : undefined);
+          }
+        } else {
+          cg3 = evaluate(facts.policy);
+          if (reader.mode === 'CG3_WITH_SHADOW') {
+            const read = await loadCg4PolicyFacts(transaction, {
+              tenantId,
+              request: policyRequest,
+              now,
+            });
+            const cg3Digest = cg4ShadowDecisionDigest(cg3);
+            const cg4Digest = cg4ShadowDecisionDigest(shadowOutcome(read, evaluate));
+            if (cg3Digest !== cg4Digest) {
+              await transaction.cg4ShadowMismatch.create({
+                data: {
+                  id: this.id(),
+                  tenantId,
+                  decisionId,
+                  requestScopeKey: requestScopeKey(policyRequest),
+                  pilot: reader.pilot,
+                  cg3Digest,
+                  cg4Digest,
+                  cg3PolicyVersion: facts.policy?.version ?? null,
+                  cg4PolicyVersionId:
+                    read.outcome === 'RESOLVED' ? read.binding.policyVersionId : null,
+                  cg4Outcome: read.outcome,
+                  detectedAt: now,
+                },
+              });
+              // mismatch บน pilot scope fail closed; นอก pilot ให้ CG3 ตัดสินต่อแต่มีหลักฐานค้างไว้
+              if (reader.pilot) {
+                cg3 = cg4PolicyFailClosedOutcome('MIGRATION_SHADOW', GOVERNANCE_SHADOW_MISMATCH);
+              }
+            }
+          }
+        }
         trace = [
           ...policyResult.trace.map((entry, index) =>
             index === policyResult.trace.length - 1 && entry.outcome === 'ALLOW'
@@ -706,7 +843,7 @@ export class ContactGovernanceService
           ...cg3.trace,
         ];
         cg3AggregateVersion = facts.aggregateVersion;
-        cg3PolicyVersion = facts.policy?.version;
+        cg3PolicyVersion = evaluatedPolicyVersion;
         cg3PreferenceVersion = cg3.preferenceVersion;
         cg3NextEligibleAt = cg3.nextEligibleAt ? new Date(cg3.nextEligibleAt) : undefined;
         cg3TimezoneSource = cg3.timezoneSource;
@@ -714,20 +851,22 @@ export class ContactGovernanceService
         cg3MatchedWindowRef = cg3.matchedWindowRef;
         cg3ExceptionMode = cg3.exceptionMode;
         cg3ExceptionRef = cg3.exceptionRef;
-        if (cg3.appliedExceptions?.length) {
-          const [applied] = cg3.appliedExceptions;
-          const appliedFacts = facts.activeExceptions.find(
-            (candidate) => candidate.revisionId === applied!.revisionId,
-          )!;
-          const policy = toCg4PolicyBinding(appliedFacts);
+        if (cg3.appliedExceptions?.length || headBinding) {
+          const appliedExceptions = cg3.appliedExceptions ?? [];
+          // หลัง switch decision pin policy version ของ head ที่ใช้ตัดสินจริง; ก่อนหน้านั้นคง binding
+          // ของ exception ที่ถูกใช้ตามเดิม (CG4.4)
+          const policy =
+            headBinding ??
+            toCg4PolicyBinding(
+              facts.activeExceptions.find(
+                (candidate) => candidate.revisionId === appliedExceptions[0]!.revisionId,
+              )!,
+            );
           cg4Pins = {
             contractVersion: CG4_CONTRACT_VERSION,
             policy,
-            decisionStateDigest: stableDigest({
-              policy,
-              appliedExceptions: cg3.appliedExceptions,
-            }),
-            appliedExceptions: cg3.appliedExceptions,
+            decisionStateDigest: stableDigest({ policy, appliedExceptions }),
+            appliedExceptions,
           };
         }
 

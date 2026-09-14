@@ -25,8 +25,9 @@ import {
   Cg3CallbackRepository,
   Cg3IdempotencyConflictError,
   Cg3InvalidLifecycleTransitionError,
-  Cg3PolicyRepository,
   Cg3PreferenceRepository,
+  Cg4DatabaseAuthorizationPort,
+  Cg4PolicyLifecycleRepository,
   Cg3ResourceNotFoundError,
   Cg3SourceAuthorityConflictError,
   Cg3VersionConflictError,
@@ -41,6 +42,7 @@ import {
   GatewayServiceRoles,
   type AuthenticatedGatewayRequest,
 } from './gateway-auth.js';
+import { mapCg4Error } from './contact-governance-cg4-api.js';
 
 export const CONTACT_GOVERNANCE_DATABASE = Symbol('CONTACT_GOVERNANCE_DATABASE');
 
@@ -322,14 +324,25 @@ export class ContactGovernanceCallbackRequestsController {
   }
 }
 
-// ---- POST /api/v1/contact-governance/policies/:id/publish ------------------
+// ---- POST /api/v1/contact-governance/policies/:id/publish (compatibility alias) ----
 
+export const LEGACY_POLICY_PUBLISH_SUCCESSOR =
+  '/api/v1/contact-governance/policy-versions/{versionId}/publish';
+
+/**
+ * CG4.10 (#193): route เดิมของ CG3 คงไว้เป็น compatibility alias ระหว่าง migration แต่เข้า
+ * CG4 validation/quorum/test/head transaction เดียวกับ successor (#179 §2) — `approvalRef` เป็นเพียง
+ * evidence ref ไม่ใช่ authority จึง publish อะไรที่ยังไม่ผ่าน test + quorum ของ CG4 ไม่ได้
+ * ทุก response มี deprecation metadata; route ถูกถอดใน versioned API ถัดไปหลัง compatibility window
+ */
 @Controller('api/v1/contact-governance/policies')
 export class ContactGovernancePoliciesController {
-  private readonly policies: Cg3PolicyRepository;
+  private readonly policies: Cg4PolicyLifecycleRepository;
+  private readonly authorization: Cg4DatabaseAuthorizationPort;
 
-  constructor(@Inject(CONTACT_GOVERNANCE_DATABASE) database: PrismaClient) {
-    this.policies = new Cg3PolicyRepository(database);
+  constructor(@Inject(CONTACT_GOVERNANCE_DATABASE) private readonly database: PrismaClient) {
+    this.policies = new Cg4PolicyLifecycleRepository(database);
+    this.authorization = new Cg4DatabaseAuthorizationPort(database);
   }
 
   @Post(':id/publish')
@@ -339,28 +352,92 @@ export class ContactGovernancePoliciesController {
     @Req() request: AuthenticatedGatewayRequest,
     @Param('id') id: string,
     @Body() body: unknown,
+    @Res({ passthrough: true }) response: ServerResponse,
   ) {
-    const actor = workspaceActor(request);
+    const identity = request.gatewayIdentity;
+    if (!identity) throw new UnauthorizedException();
+    response.setHeader('Deprecation', 'true');
+    response.setHeader('Link', `<${LEGACY_POLICY_PUBLISH_SUCCESSOR}>; rel="successor-version"`);
+    const deprecation = { deprecated: true, successor: LEGACY_POLICY_PUBLISH_SUCCESSOR };
+
     const idempotencyKey = requiredIdempotencyKey(request);
     const candidate = (body ?? {}) as Record<string, unknown>;
     if (candidate.approvalRef === undefined || candidate.approvalRef === null) {
-      throw new UnprocessableEntityException({ code: 'POLICY_APPROVAL_REQUIRED' });
+      throw new UnprocessableEntityException({ code: 'POLICY_APPROVAL_REQUIRED', deprecation });
+    }
+    const approvalRef = requiredString(candidate.approvalRef, 'approvalRef');
+    const expectedVersion = requiredInteger(candidate.expectedVersion, 'expectedVersion');
+    const rowId = requiredUuidParam(id, 'id');
+
+    // id เดิมคือแถว cg_policies ของ CG3 ซึ่ง backfill map ไว้; รับ policy version id ของ CG4 ด้วย
+    const version = await withTenantDatabaseTransaction(
+      this.database,
+      identity.tenantId,
+      (transaction) =>
+        transaction.cg4Policy.findFirst({
+          where: {
+            tenantId: identity.tenantId,
+            OR: [{ id: rowId }, { legacySourceRowId: rowId }],
+          },
+        }),
+    );
+    if (!version) {
+      throw new UnprocessableEntityException({ code: 'LEGACY_POLICY_NOT_MIGRATED', deprecation });
+    }
+    if (version.version !== expectedVersion) {
+      throw new ConflictException({
+        code: 'VERSION_CONFLICT',
+        expectedVersion,
+        actualVersion: version.version,
+      });
+    }
+    // version ที่ยังไม่มี binding ของ approval ไม่มีอะไรให้ CG4 ตรวจ; ถ้ามีแล้วส่งต่อให้ publish เสมอ
+    // เพื่อให้ retry ด้วย Idempotency-Key เดิมได้ receipt เดิม และสถานะอื่นถูกปฏิเสธโดย lifecycle เอง
+    if (
+      !version.testArtifactDigest ||
+      !version.approvalDigest ||
+      version.baseHeadVersion === null ||
+      !version.baseHeadDigest
+    ) {
+      throw new UnprocessableEntityException({
+        code: 'POLICY_CG4_APPROVAL_REQUIRED',
+        lifecycleState: version.status,
+        policyVersionId: version.id,
+        deprecation,
+      });
     }
 
+    let subject: Awaited<ReturnType<Cg4DatabaseAuthorizationPort['resolveSubject']>>;
     try {
-      return await this.policies.publish({
-        tenantId: actor.tenantId,
-        policyRowId: requiredUuidParam(id, 'id'),
-        expectedVersion: requiredInteger(candidate.expectedVersion, 'expectedVersion'),
-        checkerActorRef: actor.actorRef,
-        approvalRef: requiredString(candidate.approvalRef, 'approvalRef'),
-        idempotencyKey,
-        actorClass: actor.actorClass,
-        actorRef: actor.actorRef,
-        correlationId: request.correlationId ?? idempotencyKey,
+      subject = await this.authorization.resolveSubject({
+        tenantId: identity.tenantId as never,
+        subjectId: identity.userId as never,
       });
+    } catch {
+      throw new ServiceUnavailableException({ code: 'AUTHORIZATION_CONTEXT_UNAVAILABLE' });
+    }
+    if (!subject) throw new ForbiddenException({ code: 'CAPABILITY_REQUIRED' });
+
+    try {
+      // expected bindings มาจาก version ที่ approve ไว้เอง: publish ยังตรวจ digest, test ที่สด,
+      // quorum และ head CAS ซ้ำใน transaction ทั้งหมด หาก head ขยับหลัง approve จะได้ conflict
+      const result = await this.policies.publish({
+        tenantId: identity.tenantId,
+        policyId: version.policyId,
+        version: version.version,
+        expectedContentDigest: version.contentDigest,
+        expectedTestArtifactDigest: version.testArtifactDigest,
+        expectedApprovalDigest: version.approvalDigest,
+        expectedScopeHeadVersion: version.baseHeadVersion,
+        expectedScopeHeadDigest: version.baseHeadDigest,
+        actor: subject,
+        evidenceRef: approvalRef,
+        occurredAt: new Date().toISOString(),
+        idempotencyKey,
+      });
+      return { ...result, deprecation };
     } catch (error) {
-      mapDomainError(error);
+      mapCg4Error(error);
     }
   }
 }

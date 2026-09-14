@@ -730,6 +730,14 @@ enum Cg4KillSwitchState {
 enum Cg4CapabilitySource {
   DIRECT
   DELEGATED
+  // CG4.10 (#193): approval เดิมของ CG3 ที่ย้ายมาเป็นหลักฐาน baseline ใช้ได้เฉพาะ LEGACY_CG3 version
+  LEGACY_MIGRATED
+}
+
+/// CG4.10 (#193): ที่มาของ policy version — CG4 writer หรือ backfill จาก cg_policies ของ CG3
+enum Cg4PolicyOrigin {
+  CG4
+  LEGACY_CG3
 }
 
 enum Cg4AuthenticationStrength {
@@ -1501,6 +1509,10 @@ model Cg4Policy {
   activateAt         DateTime?           @map("activate_at")
   /// rollback สร้าง version ใหม่จาก content ของ version เป้าหมายเสมอ ห้าม pointer flip (#176 §6)
   rollbackOfId       String?             @map("rollback_of_id") @db.Uuid
+  /// CG4.10 (#193): เปลี่ยนไม่ได้หลังสร้าง (trigger cg4_policy_origin_immutable); LEGACY_CG3 ต้องมี
+  /// legacySourceRowId ชี้ cg_policies ต้นทาง และ map ได้ครั้งเดียวต่อ row (partial unique index)
+  origin             Cg4PolicyOrigin     @default(CG4)
+  legacySourceRowId  String?             @map("legacy_source_row_id") @db.Uuid
 
   @@unique([tenantId, id])
   @@unique([tenantId, policyId, version])
@@ -1759,6 +1771,78 @@ model Cg4BackfillLedger {
   @@unique([tenantId, id])
   @@unique([tenantId, sourceTable, sourceKey])
   @@map("cg4_backfill_ledger")
+}
+
+/// CG4.10 (#193): development rollout ของ #178 ทุก stage ไม่มี provider traffic
+enum Cg4RolloutStage {
+  DISABLED
+  SHADOW_EVALUATION
+  SCOPED_SYNTHETIC
+  INTERNAL_ENABLED
+}
+
+/// CG4.10 (#193): ไม่มีแถว = DISABLED. switchedAt ตั้งครั้งเดียวเมื่อเข้า SCOPED_SYNTHETIC และหลังจากนั้น
+/// trigger cg4_rollout_state_guard ห้ามกลับไป DISABLED/SHADOW_EVALUATION (#179 §6 ห้ามย้อน writer)
+model Cg4RolloutState {
+  id                 String          @id @default(uuid()) @db.Uuid
+  tenantId           String          @map("tenant_id") @db.Uuid
+  stage              Cg4RolloutStage @default(DISABLED)
+  syntheticScopeKeys String[]        @default([]) @map("synthetic_scope_keys")
+  shadowStartedAt    DateTime?       @map("shadow_started_at")
+  switchedAt         DateTime?       @map("switched_at")
+  mutationFrozen     Boolean         @default(false) @map("mutation_frozen")
+  version            Int
+  updatedByRef       String          @map("updated_by_ref")
+  evidenceRef        String          @map("evidence_ref")
+  updatedAt          DateTime        @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId])
+  @@map("cg4_rollout_state")
+}
+
+/// CG4.10 (#193): ประวัติ transition/freeze แบบ append-only
+model Cg4RolloutTransition {
+  id                 String          @id @default(uuid()) @db.Uuid
+  tenantId           String          @map("tenant_id") @db.Uuid
+  action             String
+  fromStage          Cg4RolloutStage @map("from_stage")
+  toStage            Cg4RolloutStage @map("to_stage")
+  fromVersion        Int             @map("from_version")
+  toVersion          Int             @map("to_version")
+  mutationFrozen     Boolean         @map("mutation_frozen")
+  syntheticScopeKeys String[]        @map("synthetic_scope_keys")
+  reasonCode         String          @map("reason_code")
+  actorRef           String          @map("actor_ref")
+  evidenceRef        String          @map("evidence_ref")
+  stateDigest        String          @map("state_digest") @db.Char(64)
+  occurredAt         DateTime        @map("occurred_at")
+  createdAt          DateTime        @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, toVersion])
+  @@map("cg4_rollout_transition")
+}
+
+/// CG4.10 (#193): shadow evaluation ที่ผลของ CG3 loader กับ head-based evaluator ต่างกัน เก็บเฉพาะ digest
+model Cg4ShadowMismatch {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  decisionId         String   @map("decision_id") @db.Uuid
+  requestScopeKey    String   @map("request_scope_key")
+  pilot              Boolean
+  cg3Digest          String   @map("cg3_digest") @db.Char(64)
+  cg4Digest          String   @map("cg4_digest") @db.Char(64)
+  cg3PolicyVersion   Int?     @map("cg3_policy_version")
+  cg4PolicyVersionId String?  @map("cg4_policy_version_id") @db.Uuid
+  cg4Outcome         String   @map("cg4_outcome")
+  detectedAt         DateTime @map("detected_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, decisionId])
+  @@index([tenantId, detectedAt])
+  @@map("cg4_shadow_mismatch")
 }
 
 model JrEventInbox {

@@ -27,6 +27,10 @@ export type ContactPolicyGate =
   | 'APPROVED_EXCEPTION'
   | 'SENDER_IDENTITY'
   | 'KILL_SWITCH'
+  /** CG4.10 (#193): head-based policy reader ของ CG4 ตรวจ policy ไม่ได้และ fail closed */
+  | 'POLICY_HEAD'
+  /** CG4.10 (#193): shadow digest ของ CG3 กับ CG4 ต่างกันบน pilot scope */
+  | 'MIGRATION_SHADOW'
   | 'RESERVATION';
 
 export interface ContactPolicyTraceEntry {

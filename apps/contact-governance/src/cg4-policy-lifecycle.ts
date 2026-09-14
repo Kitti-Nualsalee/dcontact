@@ -40,7 +40,9 @@ import {
   type Cg4PolicyContentV1,
 } from './cg4-policy-compiler.js';
 import { previewCg4Policy, type Cg4PolicyPreview } from './cg4-policy-preview.js';
+import { cg4KillSwitchEvent } from './cg4-kill-switch-event.js';
 import type { Cg4PolicyFixturePack } from './cg4-policy-fixtures.js';
+import { assertCg4MutationNotFrozen } from './cg4-rollout.js';
 
 /**
  * CG4.5 (#188): the policy studio runtime — immutable versions, deterministic tests,
@@ -1538,6 +1540,8 @@ export class Cg4PolicyLifecycleRepository {
       quorum: Cg4QuorumEvaluation;
     },
   ): Promise<Cg4PolicyPublishResult> {
+    // CG4.10 (#193): freeze หยุดทุกทางที่ขยับ head (publish และ scheduled activation) ระหว่าง reconcile
+    await assertCg4MutationNotFrozen(transaction, input.tenantId);
     const headVersion = input.head.headVersion + 1;
 
     if (input.activate) {
@@ -1962,44 +1966,21 @@ export class Cg4PolicyLifecycleRepository {
       const state = input.action === 'ACTIVATE' ? ('ACTIVE' as const) : ('CLEARED' as const);
       const mutationId = this.id();
       const eventId = this.id();
-      const stateDigest = stableDigest({ scopeKey: input.scopeKey, state, killSwitchId });
-      // CG4.8 (#191): kill switch หนึ่งตัวมี lifecycle ACTIVE(1) → CLEARED(2) บน aggregate ของ
-      // ตัวเอง; version คงที่ 1 ทำให้ CLEAR ถูกทุก consumer quarantine เป็น hash conflict
-      const killSwitchVersion = state === 'ACTIVE' ? 1 : 2;
-      const payload = {
-        contractVersion: 1,
-        mutationId,
-        transitionKind:
-          state === 'ACTIVE'
-            ? 'KILL_SWITCH_ACTIVATED'
-            : ('KILL_SWITCH_CLEARED' as Cg4TransitionKind),
-        subjectId: killSwitchId,
-        subjectVersion: killSwitchVersion,
-        state,
-        effectiveAt: occurredAt.toISOString(),
-        affectedScope: { scopeKey: input.scopeKey, ...cg4EventScopeDimensions(input.scopeKey) },
-        scopeDigest: stableDigest({ scopeKey: input.scopeKey }),
-        ruleRegistryVersion: CG4_RULE_REGISTRY_VERSION,
-        policySchemaVersion: CG4_POLICY_SCHEMA_VERSION,
-        evaluatorVersion: CG4_EVALUATOR_VERSION,
+      const {
+        version: killSwitchVersion,
         stateDigest,
-        restrictiveness: state === 'ACTIVE' ? 'TIGHTENING' : 'RELAXATION',
-      };
+        outbox,
+      } = cg4KillSwitchEvent({
+        tenantId: input.tenantId,
+        scopeKey: input.scopeKey,
+        killSwitchId,
+        state,
+        mutationId,
+        eventId,
+        occurredAt,
+      });
       if (!alreadyActive) {
-        await transaction.cgEventOutbox.create({
-          data: {
-            id: eventId,
-            mutationId,
-            tenantId: input.tenantId,
-            aggregateType: 'POLICY',
-            aggregateId: killSwitchId,
-            aggregateVersion: killSwitchVersion,
-            eventType: CG4_EVENT_TYPES.KILL_SWITCH_CHANGED,
-            orderingKey: `${input.tenantId}:${input.scopeKey}`,
-            payload: json(payload),
-            payloadHash: stableDigest(payload),
-          },
-        });
+        await transaction.cgEventOutbox.create({ data: outbox });
       }
       await this.audit(transaction, {
         tenantId: input.tenantId,

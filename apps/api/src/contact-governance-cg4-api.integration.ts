@@ -21,6 +21,10 @@ import {
   CG4_DATABASE,
   CG4_EVIDENCE_ACCESS_SINK,
 } from './contact-governance-cg4-api.js';
+import {
+  CONTACT_GOVERNANCE_DATABASE,
+  ContactGovernancePoliciesController,
+} from './contact-governance-api.js';
 
 /**
  * CG4.7 (#190): the command/query surface end to end, with two tenants in every fixture.
@@ -207,9 +211,11 @@ async function fixture(t: TestContext) {
   };
 
   @Module({
-    controllers: [...CG4_API_CONTROLLERS],
+    // CG4.10 (#193): legacy publish alias ต้องทำงานร่วมกับ controller ของ CG4 บน prefix เดียวกัน
+    controllers: [...CG4_API_CONTROLLERS, ContactGovernancePoliciesController],
     providers: [
       { provide: CG4_DATABASE, useValue: application },
+      { provide: CONTACT_GOVERNANCE_DATABASE, useValue: application },
       {
         provide: CG4_EVIDENCE_ACCESS_SINK,
         useValue: { record: (access: Cg4EvidenceAccessRecord) => void evidenceReads.push(access) },
@@ -690,6 +696,111 @@ test('policy เดินครบวงจรผ่าน API: draft → tests 
   const head = (await effective.json()) as { activePolicyVersion: number; headVersion: number };
   assert.equal(head.activePolicyVersion, 1);
   assert.equal(head.headVersion, 1);
+});
+
+test('CG4.10: legacy POST /policies/{id}/publish เข้า CG4 transaction เดียวกันพร้อม deprecation metadata', async (t) => {
+  const f = await fixture(t);
+  await owner.cg4Policy.deleteMany({ where: { tenantId: f.primary.tenantId } });
+
+  const created = await post(`${f.base}/policies`, 'maker-token', {
+    scope: { channel: 'VOICE', purpose: 'SERVICE_NOTIFICATION' },
+    content: POLICY_CONTENT,
+    effectiveFrom: '2026-01-01T00:00:00.000Z',
+    evidenceRef: 'evidence://policy',
+  });
+  const draft = await expectJson<{
+    policyVersionId: string;
+    contentDigest: string;
+    draftRevision: number;
+  }>(created, 201);
+
+  // approvalRef อย่างเดียวไม่ใช่ authority: version ที่ยังไม่ผ่าน test/quorum ถูกปฏิเสธ
+  const early = await post(`${f.base}/policies/${draft.policyVersionId}/publish`, 'checker-token', {
+    expectedVersion: 1,
+    approvalRef: 'approval://legacy',
+  });
+  assert.equal(early.headers.get('deprecation'), 'true');
+  const earlyBody = await expectJson<{ code: string; lifecycleState: string }>(early, 422);
+  assert.equal(earlyBody.code, 'POLICY_CG4_APPROVAL_REQUIRED');
+  assert.equal(earlyBody.lifecycleState, 'DRAFT');
+
+  const tested = await post(
+    `${f.base}/policy-versions/${draft.policyVersionId}/tests`,
+    'maker-token',
+    {
+      expectedContentDigest: draft.contentDigest,
+      tenantPack: TENANT_PACK,
+      pinnedEvaluationTime: '2026-01-05T00:00:00.000Z',
+      pinnedTimezone: 'Asia/Bangkok',
+      evidenceRef: 'evidence://tests',
+    },
+  );
+  const artifact = await expectJson<{
+    artifactDigest: string;
+    baseHeadVersion: number;
+    baseHeadDigest: string;
+  }>(tested, 201);
+  await expectJson(
+    await post(`${f.base}/policy-versions/${draft.policyVersionId}/submit`, 'maker-token', {
+      expectedDraftRevision: draft.draftRevision,
+      expectedContentDigest: draft.contentDigest,
+      expectedTestArtifactDigest: artifact.artifactDigest,
+      evidenceRef: 'evidence://submit',
+    }),
+    200,
+  );
+  await expectJson(
+    await post(`${f.base}/policy-versions/${draft.policyVersionId}/approvals`, 'checker-token', {
+      decision: 'APPROVE',
+      expectedContentDigest: draft.contentDigest,
+      expectedTestArtifactDigest: artifact.artifactDigest,
+      expectedScopeHeadVersion: artifact.baseHeadVersion,
+      expectedScopeHeadDigest: artifact.baseHeadDigest,
+      activateAt: '2026-01-05T00:00:00.000Z',
+      evidenceRef: 'evidence://approval',
+    }),
+    200,
+  );
+
+  const stale = await post(`${f.base}/policies/${draft.policyVersionId}/publish`, 'checker-token', {
+    expectedVersion: 2,
+    approvalRef: 'approval://legacy',
+  });
+  assert.equal((await expectJson<{ code: string }>(stale, 409)).code, 'VERSION_CONFLICT');
+
+  const key = randomUUID();
+  const legacy = await post(
+    `${f.base}/policies/${draft.policyVersionId}/publish`,
+    'checker-token',
+    { expectedVersion: 1, approvalRef: 'approval://legacy' },
+    key,
+  );
+  assert.equal(legacy.headers.get('deprecation'), 'true');
+  assert.match(legacy.headers.get('link') ?? '', /rel="successor-version"/);
+  const result = await expectJson<{
+    lifecycleState: string;
+    headVersion: number;
+    deprecation: { deprecated: boolean; successor: string };
+  }>(legacy, 200);
+  assert.equal(result.lifecycleState, 'ACTIVE');
+  assert.equal(result.headVersion, 1);
+  assert.equal(result.deprecation.deprecated, true);
+  assert.match(result.deprecation.successor, /policy-versions\/\{versionId\}\/publish$/);
+
+  // retry ด้วย key เดิมคืน receipt เดิมจาก CG4 ไม่ขยับ head ซ้ำ
+  const replay = await post(
+    `${f.base}/policies/${draft.policyVersionId}/publish`,
+    'checker-token',
+    { expectedVersion: 1, approvalRef: 'approval://legacy' },
+    key,
+  );
+  assert.equal((await expectJson<{ headVersion: number }>(replay, 200)).headVersion, 1);
+  assert.equal(
+    await owner.cgEventOutbox.count({
+      where: { tenantId: f.primary.tenantId, eventType: 'policy.changed' },
+    }),
+    1,
+  );
 });
 
 test('maker submit แล้ว approve ตัวเองไม่ได้ แม้จะมี publish capability', async (t) => {

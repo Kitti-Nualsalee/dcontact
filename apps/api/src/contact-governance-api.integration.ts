@@ -319,7 +319,7 @@ test('callback-requests สร้างได้ และคืน one-use toke
   assert.equal(body.callbackRequest.mutationKind, 'REQUEST');
 });
 
-test('policy publish ต้องการ checker ต่างจาก maker และ approvalRef', async (t) => {
+test('legacy policy publish alias เข้าทาง CG4: approvalRef อย่างเดียว publish ไม่ได้', async (t) => {
   const { tenantId, base } = await fixture(t);
   const policyRowId = randomUUID();
   const policyId = randomUUID();
@@ -346,18 +346,29 @@ test('policy publish ต้องการ checker ต่างจาก maker �
     },
   );
   assert.equal(missingApproval.status, 422);
+  assert.equal(missingApproval.headers.get('deprecation'), 'true');
   assert.equal(
     ((await missingApproval.json()) as { code: string }).code,
     'POLICY_APPROVAL_REQUIRED',
   );
 
-  const published = await post(`${base}/policies/${policyRowId}/publish`, 'compliance-token', {
+  // CG4.10 (#193): approvalRef ที่เป็นแค่ string ไม่ใช่ authority (#179 §2) — row ที่ยังไม่ backfill
+  // เข้า CG4 ไม่มี test/quorum/head ให้ตรวจ จึง fail closed และ CG3 row ไม่ถูกแตะ
+  const bypass = await post(`${base}/policies/${policyRowId}/publish`, 'compliance-token', {
     expectedVersion: 1,
     approvalRef: 'approval-001',
   });
-  assert.equal(published.status, 200);
-  const body = (await published.json()) as { policy: { status: string } };
-  assert.equal(body.policy.status, 'PUBLISHED');
+  assert.equal(bypass.status, 422);
+  assert.match(
+    bypass.headers.get('link') ?? '',
+    /policy-versions\/\{versionId\}\/publish.*successor-version/,
+  );
+  const body = (await bypass.json()) as { code: string; deprecation: { deprecated: boolean } };
+  assert.equal(body.code, 'LEGACY_POLICY_NOT_MIGRATED');
+  assert.equal(body.deprecation.deprecated, true);
+  const row = await owner.cgPolicy.findUniqueOrThrow({ where: { id: policyRowId } });
+  assert.equal(row.status, 'DRAFT');
+  assert.equal(row.approvalRef, null);
 });
 
 test('effective-policy และ decision query คืน generic 404 ข้าม tenant พร้อม ETag', async (t) => {
