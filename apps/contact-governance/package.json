@@ -12,7 +12,8 @@
     "test": "tsx --test src/*.test.ts",
     "test:integration": "tsx --test --test-concurrency=1 src/*.integration.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "cg4:backfill": "tsx src/cg4-legacy-backfill-main.ts"
+    "cg4:backfill": "tsx src/cg4-legacy-backfill-main.ts",
+    "cg4:rollout": "tsx src/cg4-rollout-main.ts"
   },
   "dependencies": {
     "@d-contact/db": "workspace:*",

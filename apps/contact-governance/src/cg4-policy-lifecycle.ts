@@ -42,6 +42,7 @@ import {
 import { previewCg4Policy, type Cg4PolicyPreview } from './cg4-policy-preview.js';
 import { cg4KillSwitchEvent } from './cg4-kill-switch-event.js';
 import type { Cg4PolicyFixturePack } from './cg4-policy-fixtures.js';
+import { assertCg4MutationNotFrozen } from './cg4-rollout.js';
 
 /**
  * CG4.5 (#188): the policy studio runtime — immutable versions, deterministic tests,
@@ -1539,6 +1540,8 @@ export class Cg4PolicyLifecycleRepository {
       quorum: Cg4QuorumEvaluation;
     },
   ): Promise<Cg4PolicyPublishResult> {
+    // CG4.10 (#193): freeze หยุดทุกทางที่ขยับ head (publish และ scheduled activation) ระหว่าง reconcile
+    await assertCg4MutationNotFrozen(transaction, input.tenantId);
     const headVersion = input.head.headVersion + 1;
 
     if (input.activate) {

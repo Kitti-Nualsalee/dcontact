@@ -36,3 +36,5 @@ export * from './reservation.js';
 export * from './reservation-runtime.js';
 export * from './cg4-kill-switch-event.js';
 export * from './cg4-legacy-backfill.js';
+export * from './cg4-rollout.js';
+export * from './cg4-policy-reader.js';

@@ -37,6 +37,8 @@ BEGIN
     'cg_consumer_inbox', 'cg_scope_pause',
     -- CG4.7 (#190)
     'cg_authorization_subject', 'cg_capability_grant',
+    -- CG4.10 (#193)
+    'cg4_rollout_state', 'cg4_rollout_transition', 'cg4_shadow_mismatch',
     -- J3.2 (#213)
     'c360_segment_definitions', 'c360_segment_definition_heads',
     'c360_fact_snapshots', 'c360_segment_evaluations'
@@ -154,6 +156,10 @@ REVOKE DELETE ON cg_scope_pause FROM dcontact_app;
 -- capabilities — the blanket GRANT above would otherwise hand it exactly that.
 REVOKE INSERT, UPDATE, DELETE ON cg_authorization_subject FROM dcontact_app;
 REVOKE INSERT, UPDATE, DELETE ON cg_capability_grant FROM dcontact_app;
+-- CG4.10 (#193): rollout state เดินได้แต่ลบไม่ได้; transition/shadow mismatch เป็นหลักฐาน append-only
+REVOKE DELETE ON cg4_rollout_state FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg4_rollout_transition FROM dcontact_app;
+REVOKE UPDATE, DELETE ON cg4_shadow_mismatch FROM dcontact_app;
 -- J3.2: definition เดินได้เฉพาะ lifecycle ผ่าน DB trigger; snapshot/evaluation เป็น immutable
 REVOKE DELETE ON c360_segment_definitions FROM dcontact_app;
 REVOKE DELETE ON c360_segment_definition_heads FROM dcontact_app;
