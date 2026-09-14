@@ -14,10 +14,12 @@ import {
   type J2DialerOwnerPort,
 } from '@d-contact/cxa-contracts';
 import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
+import { noOpJourneyOwnerMetrics, type JourneyOwnerMetrics } from './journey-owner-metrics.js';
 
 export interface JourneyOwnerCommandRelayOptions {
   now?: () => Date;
   retryDelayMs?: number;
+  metrics?: JourneyOwnerMetrics;
 }
 
 export type JourneyOwnerCommandRelayResult = 'SENT' | 'RETRY' | undefined;
@@ -26,6 +28,7 @@ export class JourneyOwnerCommandRelay {
   private readonly now: () => Date;
   private readonly retryDelayMs: number;
   private readonly actions: JourneyOwnerActionRepository;
+  private readonly metrics: JourneyOwnerMetrics;
 
   constructor(
     private readonly database: PrismaClient,
@@ -36,6 +39,7 @@ export class JourneyOwnerCommandRelay {
     this.now = options.now ?? (() => new Date());
     this.retryDelayMs = options.retryDelayMs ?? 30_000;
     this.actions = new JourneyOwnerActionRepository(database);
+    this.metrics = options.metrics ?? noOpJourneyOwnerMetrics;
   }
 
   /** relay ได้สูงสุดหนึ่ง command ต่อครั้ง; caller กำหนด polling/backoff เอง */
@@ -78,6 +82,7 @@ export class JourneyOwnerCommandRelay {
         this.retryDelayMs,
         error instanceof Error ? error.message : 'invalid staged payload',
       );
+      this.metrics.increment('journey_owner_command_dispatch_failed_total');
       return 'RETRY';
     }
 
@@ -89,6 +94,7 @@ export class JourneyOwnerCommandRelay {
         await this.dialerPort.persistCommand(tenant, payload);
       }
       await this.actions.markCommandDispatched(tenantId, claimed.command_id);
+      this.metrics.increment('journey_owner_command_dispatched_total');
       return 'SENT';
     } catch (error) {
       const message =
@@ -99,6 +105,7 @@ export class JourneyOwnerCommandRelay {
         this.retryDelayMs,
         message,
       );
+      this.metrics.increment('journey_owner_command_dispatch_failed_total');
       return 'RETRY';
     }
   }

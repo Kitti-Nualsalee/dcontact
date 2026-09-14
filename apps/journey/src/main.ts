@@ -27,6 +27,7 @@ import { JourneyOwnerCommandRelay } from './journey-owner-command-relay.js';
 import { createKafkaOwnerCommandPort } from './journey-owner-kafka-port.js';
 import { createJourneyOwnerResultConsumer } from './journey-owner-result-consumer.js';
 import { JourneyOwnerAckEscalator } from './journey-owner-ack-escalator.js';
+import { JsonJourneyOwnerMetrics } from './journey-owner-metrics.js';
 import { JourneyOwnerResultReconciler } from './journey-owner-result-reconciler.js';
 import { JsonJourneyGovernanceMetrics } from './journey-governance-metrics.js';
 
@@ -96,13 +97,17 @@ const ownerDialerPort = createKafkaOwnerCommandPort({
   producer,
 });
 // owner เงียบเกิน deadline -> ถาม owner ก่อน ไม่ retry มั่ว; ครบเพดานแล้วส่งต่อให้คน
+const ownerMetrics = new JsonJourneyOwnerMetrics();
 const ownerAckEscalator = new JourneyOwnerAckEscalator(
   database,
   new JourneyOwnerResultReconciler(database, ownerCasePort, ownerDialerPort),
+  { metrics: ownerMetrics },
 );
 // J2.8 (#136): owner command ออกทาง Kafka จริง — Cases/Dialer consume จาก topic ของตัวเอง
 // แทนการถูกเรียกแบบ in-process; relay mark SENT ต่อเมื่อ broker ack แล้วเท่านั้น
-const ownerCommandRelay = new JourneyOwnerCommandRelay(database, ownerCasePort, ownerDialerPort);
+const ownerCommandRelay = new JourneyOwnerCommandRelay(database, ownerCasePort, ownerDialerPort, {
+  metrics: ownerMetrics,
+});
 
 // ขารับผลกลับจาก owner — คู่ตรงข้ามของ ownerCommandRelay ที่ publish ออกไป
 const ownerResultConsumer = await createJourneyOwnerResultConsumer({
@@ -111,6 +116,7 @@ const ownerResultConsumer = await createJourneyOwnerResultConsumer({
   groupId:
     process.env.JOURNEY_OWNER_RESULT_CONSUMER_GROUP_ID ?? 'dcontact-journey-owner-results-v1',
   dlq,
+  metrics: ownerMetrics,
 });
 
 const outcomeConsumer = await createJourneyOutcomeConsumer({
