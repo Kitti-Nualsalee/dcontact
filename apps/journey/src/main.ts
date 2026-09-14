@@ -6,6 +6,7 @@ import {
   createJourneyRealtimeGovernancePorts,
 } from '@d-contact/journey-composition';
 import { createDlqPublisher, createProducer } from '@d-contact/kafka';
+import { KAFKA_TOPICS } from '@d-contact/shared';
 import { EventInboxService } from './event-inbox.js';
 import { createJourneyEventConsumer } from './journey-event-consumer.js';
 import { createJourneyKafkaPublisher } from './journey-kafka-publisher.js';
@@ -22,6 +23,9 @@ import {
 import { createJourneyGovernanceConsumer } from './journey-governance-consumer.js';
 import { JourneyGovernanceAcknowledgementRelay } from './journey-governance-ack-relay.js';
 import { JourneyGovernanceEffectRelay } from './journey-governance-effect-relay.js';
+import { JourneyOwnerCommandRelay } from './journey-owner-command-relay.js';
+import { createKafkaOwnerCommandPort } from './journey-owner-kafka-port.js';
+import { createJourneyOwnerResultConsumer } from './journey-owner-result-consumer.js';
 import { JsonJourneyGovernanceMetrics } from './journey-governance-metrics.js';
 
 function positiveInteger(name: string, fallback: number): number {
@@ -81,6 +85,23 @@ const outcomeTriggerProcessor = new JourneyOutcomeTriggerProcessor(
   journeyDefinitions,
   createJourneyOutcomeTriggerPorts(database),
 );
+// J2.8 (#136): owner command ออกทาง Kafka จริง — Cases/Dialer consume จาก topic ของตัวเอง
+// แทนการถูกเรียกแบบ in-process; relay mark SENT ต่อเมื่อ broker ack แล้วเท่านั้น
+const ownerCommandRelay = new JourneyOwnerCommandRelay(
+  database,
+  createKafkaOwnerCommandPort({ topic: KAFKA_TOPICS.CASE_COMMANDS, producer }),
+  createKafkaOwnerCommandPort({ topic: KAFKA_TOPICS.DIALER_COMMANDS, producer }),
+);
+
+// ขารับผลกลับจาก owner — คู่ตรงข้ามของ ownerCommandRelay ที่ publish ออกไป
+const ownerResultConsumer = await createJourneyOwnerResultConsumer({
+  database,
+  clientId: 'dcontact-journey-owner-result-consumer',
+  groupId:
+    process.env.JOURNEY_OWNER_RESULT_CONSUMER_GROUP_ID ?? 'dcontact-journey-owner-results-v1',
+  dlq,
+});
+
 const outcomeConsumer = await createJourneyOutcomeConsumer({
   database,
   clientId: 'dcontact-journey-outcome-consumer',
@@ -128,6 +149,10 @@ async function drainInbox(): Promise<void> {
         const result = await outcomeTriggerProcessor.executeNext(tenant.id, 'journey-main');
         if (!result) break;
       }
+      for (let handled = 0; handled < 100; handled += 1) {
+        const result = await ownerCommandRelay.executeNext(tenant.id);
+        if (!result || result === 'RETRY') break;
+      }
     }
   } catch (error) {
     console.error(
@@ -151,6 +176,7 @@ async function shutdown(): Promise<void> {
   await Promise.all([
     consumer.disconnect(),
     outcomeConsumer.disconnect(),
+    ownerResultConsumer.disconnect(),
     governanceConsumer.disconnect(),
     producer.disconnect(),
     dlq.disconnect(),
