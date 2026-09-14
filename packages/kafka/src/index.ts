@@ -98,6 +98,9 @@ export interface ConsumedEvent<TPayload extends Record<string, unknown> = Record
   key: string;
   event: KafkaEventEnvelope<TPayload>;
   timestamp: string;
+  /** additive: ตำแหน่งต้นทาง ใช้เมื่อ handler ต้องส่ง business-level contract rejection เข้า DLQ */
+  partition?: number;
+  offset?: string;
   idempotencyKey: Readonly<{
     consumerGroup: string;
     tenantId: string;
@@ -297,6 +300,8 @@ export async function createConsumer<
         key: event.orderingKey,
         event,
         timestamp: message.timestamp,
+        partition,
+        offset: message.offset,
         idempotencyKey: {
           consumerGroup: options.groupId,
           tenantId: event.tenantId,

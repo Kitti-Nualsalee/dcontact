@@ -91,6 +91,19 @@ export function parseCg4PolicyScopeKey(scopeKey: string): Cg4PolicyScopeDimensio
   return dimensions;
 }
 
+/**
+ * CG4.8 (#191): dimension ที่ใส่ใน `affectedScope` ของ event ให้ downstream match งานของตัวเอง
+ * ได้โดยไม่ต้อง parse scopeKey เอง scopeKey ที่ไม่ใช่ canonical form (เช่น `contact:<id>`)
+ * ส่งเฉพาะ scopeKey ซึ่ง downstream ต้องถือว่ากว้างที่สุดแบบ fail closed
+ */
+export function cg4EventScopeDimensions(scopeKey: string): Cg4PolicyScopeDimensions {
+  try {
+    return parseCg4PolicyScopeKey(scopeKey);
+  } catch {
+    return {};
+  }
+}
+
 export function cg4PolicyScopeSpecificity(scopeKey: string): number {
   return Object.keys(parseCg4PolicyScopeKey(scopeKey)).length;
 }

@@ -1,16 +1,23 @@
 /**
  * S1.5 — ขอบเขต CG3 realtime invalidation ที่ Journey เป็น owner
+ * CG4.8 (#191) — ขยายให้รับ CG4 exception/policy/kill-switch events บน stream เดียวกัน
  *
- * Contact Governance ยังคงเป็นผู้เขียน policy/reservation facts แต่เพียงผู้เดียว
- * Journey เก็บเฉพาะ action cursor ของตน apply CG3 event แบบ at-least-once และใส่
- * effect กับ acknowledgement ใน owner-local outbox transaction เดียวกัน จึง replay
- * restrictive event ได้โดยไม่ resurrect action ที่ cancel หรือส่ง reconcile ไปแล้ว
+ * Contact Governance ยังคงเป็นผู้เขียน policy/exception/reservation facts แต่เพียงผู้เดียว
+ * Journey เก็บเฉพาะ action cursor ของตน apply event แบบ at-least-once และใส่ effect กับ
+ * acknowledgement ใน owner-local outbox transaction เดียวกัน จึง replay restrictive event ได้
+ * โดยไม่ resurrect action ที่ cancel หรือส่ง reconcile ไปแล้ว
+ *
+ * กติกา CG4 (#179 §4/§5, #124):
+ * - tightening/neutral ขอ canonical re-authorization; kill switch hold ทันที
+ * - relaxation (approve exception, clear kill switch, policy ผ่อนลง) ไม่ resume หรือ retry งานเดิม
+ * - contract/version ที่ไม่รู้จัก quarantine และ hold scope ของ aggregate นั้นแบบ fail closed
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   Prisma,
   type CgAggregateType,
   type CgConsumerAckOutcome,
+  type JrGovernanceConsumerState,
   type JrRealtimeActionState,
   type PrismaClient,
   withTenantDatabaseTransaction,
@@ -23,13 +30,22 @@ import {
 } from './journey-governance-metrics.js';
 import {
   actionKey as toActionKey,
+  classifyGovernanceEvent,
+  classifyGovernanceStreamPosition,
+  isGovernanceContractRejection,
   deliveryId as toDeliveryId,
+  GOVERNANCE_KILL_SWITCH_ACTIVE,
+  governancePayloadDigest,
+  governanceScopeCovers,
   providerRequestKey as toProviderRequestKey,
   reservationId as toReservationId,
   tenantId as toTenantId,
   type ContactChannel,
   type ContactGovernancePort,
   type ContactGovernanceRevalidationPort,
+  type GovernanceDownstreamEvent,
+  type GovernanceDownstreamRejection,
+  type GovernanceDownstreamScope,
   type JourneyDeliveryReconcilePort,
 } from '@d-contact/cxa-contracts';
 
@@ -48,7 +64,11 @@ const POST_BARRIER_STATES = new Set<JrRealtimeActionState>([
   'ACCEPTED',
   'CANCEL_REQUESTED',
 ]);
-const CONTACT_EVENTS = new Set(['restriction.changed', 'consent.changed', 'preference.changed']);
+/** แถว inbox ที่ขยับ cursor ของ stream */
+const CURSOR_STATES: JrGovernanceConsumerState[] = ['APPLIED', 'NO_OP'];
+/** Journey-owned direct SEND เป็น source เดียวที่ Journey ถือ reservation */
+const JOURNEY_SOURCE_TYPES = Object.freeze(['JOURNEY']);
+export const CANONICAL_RELOAD_REASON = 'CANONICAL_RELOAD' as const;
 
 export interface Cg3EventScope {
   identityId: string | null;
@@ -100,6 +120,10 @@ export interface JourneyCanonicalRevalidator {
       aggregateId: string;
       aggregateVersion: number;
       correlationId: string;
+      /** CG4.8: ให้ Governance ใช้ version authority ของ event family นั้น */
+      contract?: 'CG3' | 'CG4';
+      eventType?: string;
+      scopeKey?: string;
     };
   }): Promise<JourneyRevalidationDecision>;
 }
@@ -121,6 +145,9 @@ export function createJourneyCanonicalRevalidator(
         ...(event.affectedScope.contactKind
           ? { contactKind: event.affectedScope.contactKind }
           : {}),
+        ...(source.contract ? { sourceContract: source.contract } : {}),
+        ...(source.eventType ? { sourceEventType: source.eventType } : {}),
+        ...(source.scopeKey ? { sourceScopeKey: source.scopeKey } : {}),
       });
       if (outcome.decision === 'ALLOW') return { decision: 'ALLOW' };
       if (outcome.decision === 'BLOCK') {
@@ -239,7 +266,9 @@ export interface JourneyGovernanceInvalidationOptions {
 export type JourneyGovernanceApplyResult = {
   outcome: CgConsumerAckOutcome;
   affectedCount: number;
-  state: 'APPLIED' | 'NO_OP' | 'GAP' | 'QUARANTINED';
+  state: 'APPLIED' | 'NO_OP' | 'GAP' | 'QUARANTINED' | 'DUPLICATE';
+  /** controlled reason เมื่อ quarantine ไม่มี payload หรือ PII */
+  reasonCode?: string;
 };
 
 export class JourneyGovernanceVersionGapError extends Error {
@@ -265,86 +294,57 @@ export class JourneyGovernanceHashConflictError extends Error {
   }
 }
 
-function record(value: unknown, name: string): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError(`${name} ต้องเป็น object`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function optionalString(value: unknown, name: string): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string' || value.length === 0)
-    throw new TypeError(`${name} ต้องเป็น string`);
-  return value;
-}
-
-function hashPayload(value: unknown): string {
-  const canonical = (item: unknown): string => {
-    if (item === null || typeof item === 'boolean' || typeof item === 'number') {
-      return JSON.stringify(item);
-    }
-    if (typeof item === 'string') return JSON.stringify(item);
-    if (Array.isArray(item)) return `[${item.map(canonical).join(',')}]`;
-    const fields = Object.entries(record(item, 'payload'))
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => `${JSON.stringify(key)}:${canonical(nested)}`);
-    return `{${fields.join(',')}}`;
-  };
-  return createHash('sha256').update(canonical(value)).digest('hex');
-}
-
-export function parseJourneyCg3EventPayload(value: unknown): JourneyCg3EventPayloadV1 {
-  const payload = record(value, 'CG3 payload');
-  if (payload.contractVersion !== 1) throw new TypeError('CG3 contractVersion ต้องเป็น 1');
-  if (!Number.isInteger(payload.subjectVersion) || (payload.subjectVersion as number) < 1) {
-    throw new TypeError('CG3 subjectVersion ต้องเป็น positive integer');
-  }
-  const digest = optionalString(payload.stateDigest, 'stateDigest');
-  if (!digest || !/^[a-f0-9]{64}$/.test(digest)) {
-    throw new TypeError('CG3 stateDigest ต้องเป็น SHA-256 lowercase');
-  }
-  const effectiveAt = optionalString(payload.effectiveAt, 'effectiveAt');
-  if (!effectiveAt || Number.isNaN(new Date(effectiveAt).getTime())) {
-    throw new TypeError('CG3 effectiveAt ต้องเป็น ISO-8601');
-  }
-  const scope = record(payload.affectedScope, 'affectedScope');
-  const identityId = optionalString(scope.identityId, 'affectedScope.identityId') ?? null;
-  const channel = optionalString(scope.channel, 'affectedScope.channel') as
-    ContactChannel | undefined;
-  const purpose = optionalString(scope.purpose, 'affectedScope.purpose') ?? null;
-  const contactKind = optionalString(scope.contactKind, 'affectedScope.contactKind') ?? null;
-  const policyVersion = payload.policyVersion;
-  if (
-    policyVersion !== undefined &&
-    (!Number.isInteger(policyVersion) || (policyVersion as number) < 1)
+export class JourneyCanonicalReloadConflictError extends Error {
+  readonly code = 'CANONICAL_RELOAD_CONFLICT' as const;
+  constructor(
+    readonly aggregateId: string,
+    readonly aggregateVersion: number,
   ) {
-    throw new TypeError('CG3 policyVersion ต้องเป็น positive integer');
+    super(
+      `canonical reload ขัดกับ digest ที่ apply แล้วที่ ${aggregateId} version ${aggregateVersion}`,
+    );
   }
+}
+
+/** คงไว้สำหรับ caller เดิม; การตีความ event จริงอยู่ที่ `classifyGovernanceEvent` */
+export function parseJourneyCg3EventPayload(value: unknown): JourneyCg3EventPayloadV1 {
+  const classification = classifyGovernanceEvent({
+    type: 'preference.changed',
+    aggregateType: 'contact_governance_contact',
+    aggregateId: 'payload-only',
+    aggregateVersion:
+      value &&
+      typeof value === 'object' &&
+      Number.isInteger((value as Record<string, unknown>).subjectVersion)
+        ? ((value as Record<string, unknown>).subjectVersion as number)
+        : 0,
+    payload: value,
+  });
+  if (!classification?.ok) {
+    throw new TypeError(classification?.detail ?? 'CG3 payload ไม่ถูกต้อง');
+  }
+  const payload = value as Record<string, unknown>;
+  return {
+    ...toRevalidationPayload(classification.event),
+    ...(typeof payload.identityId === 'string' ? { identityId: payload.identityId } : {}),
+  };
+}
+
+function toRevalidationPayload(event: GovernanceDownstreamEvent): JourneyCg3EventPayloadV1 {
   return {
     contractVersion: 1,
-    mutationId:
-      optionalString(payload.mutationId, 'mutationId') ??
-      (() => {
-        throw new TypeError('mutationId ต้องมีค่า');
-      })(),
-    subjectVersion: payload.subjectVersion as number,
-    ...(optionalString(payload.identityId, 'identityId')
-      ? { identityId: optionalString(payload.identityId, 'identityId') }
-      : {}),
-    affectedScope: { identityId, channel: channel ?? null, purpose, contactKind },
-    effectiveAt: new Date(effectiveAt).toISOString(),
-    ...(policyVersion === undefined ? {} : { policyVersion: policyVersion as number }),
-    stateDigest: digest,
+    mutationId: event.mutationId,
+    subjectVersion: event.subjectVersion,
+    affectedScope: {
+      identityId: event.scope.identityId,
+      channel: event.scope.channel,
+      purpose: event.scope.purpose,
+      contactKind: event.scope.contactKind,
+    },
+    effectiveAt: event.effectiveAt,
+    ...(event.policyVersion === undefined ? {} : { policyVersion: event.policyVersion }),
+    stateDigest: event.stateDigest,
   };
-}
-
-function matchesScope(action: JourneyRealtimeAction, scope: Cg3EventScope): boolean {
-  return (
-    (!scope.identityId || scope.identityId === action.identityId) &&
-    (!scope.channel || scope.channel === action.channel) &&
-    (!scope.purpose || scope.purpose === action.purpose)
-  );
 }
 
 function targetState(decision: JourneyRevalidationDecision): JrRealtimeActionState | undefined {
@@ -360,6 +360,13 @@ function targetState(decision: JourneyRevalidationDecision): JrRealtimeActionSta
     case 'ALLOW':
       return undefined;
   }
+}
+
+type CursorRow = { aggregateVersion: number; payloadHash: string; reasonCode: string | null };
+
+interface CompleteOptions {
+  reasonCode?: string;
+  appliedStateDigest?: string;
 }
 
 export class JourneyGovernanceInvalidationService {
@@ -390,20 +397,25 @@ export class JourneyGovernanceInvalidationService {
     event: KafkaEventEnvelopeV2<Record<string, unknown>>,
     transaction: Prisma.TransactionClient,
   ): Promise<JourneyGovernanceApplyResult> {
-    if (event.eventKind !== 'CANONICAL')
-      throw new TypeError('Journey รับเฉพาะ CG3 canonical event');
-    const aggregateType = this.aggregateType(event.aggregateType);
-    if (
-      (aggregateType === 'CONTACT' && !CONTACT_EVENTS.has(event.type)) ||
-      (aggregateType === 'POLICY' && event.type !== 'policy.changed')
-    ) {
-      throw new TypeError(`CG3 event type ไม่รองรับ: ${event.type}`);
+    if (event.eventKind !== 'CANONICAL') {
+      throw new TypeError('Journey รับเฉพาะ Contact Governance canonical event');
     }
-    const payload = parseJourneyCg3EventPayload(event.payload);
-    if (payload.subjectVersion !== event.aggregateVersion) {
-      throw new TypeError('CG3 subjectVersion ต้องตรงกับ envelope aggregateVersion');
+    const classification = classifyGovernanceEvent({
+      type: event.type,
+      aggregateType: event.aggregateType,
+      aggregateId: event.aggregateId,
+      aggregateVersion: event.aggregateVersion,
+      payload: event.payload,
+    });
+    if (!classification) {
+      throw new TypeError(`Contact Governance aggregateType ไม่รองรับ: ${event.aggregateType}`);
     }
-    const payloadHash = hashPayload(event.payload);
+    const aggregateType: CgAggregateType = classification.ok
+      ? classification.event.aggregate
+      : classification.aggregate;
+    const payloadHash = classification.ok
+      ? classification.event.payloadDigest
+      : classification.payloadDigest;
     const now = this.now();
     const inbox = await transaction.jrGovernanceConsumerInbox.findUnique({
       where: {
@@ -413,52 +425,90 @@ export class JourneyGovernanceInvalidationService {
           eventId: event.eventId,
         },
       },
-      select: { id: true, state: true },
+      select: { id: true, state: true, reasonCode: true },
     });
     if (inbox && inbox.state !== 'GAP') {
       return {
         outcome:
           inbox.state === 'QUARANTINED'
             ? 'QUARANTINED'
-            : inbox.state === 'NO_OP'
-              ? 'NO_OP'
-              : 'APPLIED',
+            : inbox.state === 'APPLIED'
+              ? 'APPLIED'
+              : 'NO_OP',
         affectedCount: 0,
         state: inbox.state,
+        ...(isGovernanceContractRejection(inbox.reasonCode ?? undefined)
+          ? { reasonCode: inbox.reasonCode as string }
+          : {}),
       };
     }
 
     await transaction.$queryRaw(
       Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`journey-cg3:${this.options.consumer}:${event.tenantId}:${event.aggregateType}:${event.aggregateId}`}))`,
     );
-    const prior = await transaction.jrGovernanceConsumerInbox.findFirst({
-      where: {
-        consumer: this.options.consumer,
-        tenantId: event.tenantId,
-        aggregateType,
-        aggregateId: event.aggregateId,
-        state: { in: ['APPLIED', 'NO_OP'] },
-      },
-      orderBy: { aggregateVersion: 'desc' },
-      select: { aggregateVersion: true, payloadHash: true },
+
+    if (!classification.ok) {
+      return this.quarantineUnsupported(transaction, inbox?.id, event, classification, now);
+    }
+    const stream = classification.event;
+
+    const prior = await this.cursorRow(
+      transaction,
+      event.tenantId,
+      aggregateType,
+      event.aggregateId,
+    );
+    const appliedAtIncoming =
+      prior && event.aggregateVersion < prior.aggregateVersion
+        ? await this.cursorRow(
+            transaction,
+            event.tenantId,
+            aggregateType,
+            event.aggregateId,
+            event.aggregateVersion,
+          )
+        : undefined;
+    const position = classifyGovernanceStreamPosition({
+      ...(prior
+        ? {
+            cursor: {
+              version: prior.aggregateVersion,
+              digest: comparable(prior, stream, payloadHash),
+            },
+          }
+        : {}),
+      ...(appliedAtIncoming
+        ? {
+            appliedAtIncomingVersion: {
+              digest: comparable(appliedAtIncoming, stream, payloadHash),
+            },
+          }
+        : {}),
+      incoming: { version: event.aggregateVersion, digest: payloadHash },
     });
 
-    if (prior && event.aggregateVersion < prior.aggregateVersion) {
-      return this.complete(
-        transaction,
-        inbox?.id,
-        event,
-        aggregateType,
-        payloadHash,
-        'NO_OP',
-        0,
-        now,
-      );
-    }
-    if (prior && event.aggregateVersion === prior.aggregateVersion) {
-      if (prior.payloadHash !== payloadHash) {
+    switch (position.kind) {
+      case 'DUPLICATE':
+      case 'SUPERSEDED':
+        // version นี้ apply แล้ว (หรือถูก canonical reload ข้ามไป) — บันทึก completion ของ eventId
+        // นี้โดยไม่ขยับ cursor และไม่ส่ง acknowledgement ซ้ำ
+        this.metrics.increment('journey_cg4_duplicate_total');
+        await this.recordInbox(transaction, inbox?.id, event, aggregateType, payloadHash, {
+          state: 'DUPLICATE',
+          affectedCount: 0,
+          now,
+          ...(position.kind === 'SUPERSEDED' ? { reasonCode: 'SUPERSEDED_BY_RELOAD' } : {}),
+        });
+        return { outcome: 'NO_OP', affectedCount: 0, state: 'DUPLICATE' };
+      case 'HASH_CONFLICT': {
         this.metrics.increment('journey_cg3_hash_conflict_total');
-        await this.holdMatchingActions(transaction, event, payload, payloadHash, now);
+        const held = await this.holdMatchingActions(
+          transaction,
+          event,
+          stream.scope,
+          payloadHash,
+          now,
+        );
         return this.complete(
           transaction,
           inbox?.id,
@@ -466,9 +516,32 @@ export class JourneyGovernanceInvalidationService {
           aggregateType,
           payloadHash,
           'QUARANTINED',
-          0,
+          held,
           now,
+          {
+            reasonCode: 'EVENT_HASH_CONFLICT',
+          },
         );
+      }
+      case 'GAP':
+        this.metrics.increment('journey_cg3_version_gap_total');
+        await this.holdMatchingActions(transaction, event, stream.scope, payloadHash, now);
+        await this.recordInbox(transaction, inbox?.id, event, aggregateType, payloadHash, {
+          state: 'GAP',
+          affectedCount: 0,
+          now,
+          reasonCode: 'EVENT_GAP',
+        });
+        return { outcome: 'FAILED', affectedCount: 0, state: 'GAP' };
+      case 'APPLY':
+        break;
+    }
+
+    if (stream.effect === 'NO_OP') {
+      // relaxation และ activation ที่ยังไม่ถึงเวลาไม่แตะงานใดเลย: งานที่ HELD/DEFERRED/CANCELLED
+      // ต้องรอ owner ตัดสินใหม่ ไม่ถูก resume หรือ retry จาก event ที่ผ่อนลง
+      if (stream.restrictiveness === 'RELAXATION') {
+        this.metrics.increment('journey_cg4_relaxation_noop_total');
       }
       return this.complete(
         transaction,
@@ -479,53 +552,37 @@ export class JourneyGovernanceInvalidationService {
         'NO_OP',
         0,
         now,
+        {
+          appliedStateDigest: stream.stateDigest,
+        },
       );
     }
-    if (
-      (!prior && event.aggregateVersion > 1) ||
-      (prior && event.aggregateVersion > prior.aggregateVersion + 1)
-    ) {
-      this.metrics.increment('journey_cg3_version_gap_total');
-      await this.holdMatchingActions(transaction, event, payload, payloadHash, now);
-      if (inbox) {
-        await transaction.jrGovernanceConsumerInbox.update({
-          where: { id: inbox.id },
-          data: { state: 'GAP', affectedCount: 0, appliedAt: now },
-        });
-      } else {
-        await transaction.jrGovernanceConsumerInbox.create({
-          data: {
-            id: randomUUID(),
-            consumer: this.options.consumer,
-            tenantId: event.tenantId,
-            eventId: event.eventId,
-            aggregateType,
-            aggregateId: event.aggregateId,
-            aggregateVersion: event.aggregateVersion,
-            payloadHash,
-            state: 'GAP',
-            appliedAt: now,
-          },
-        });
-      }
-      return { outcome: 'FAILED', affectedCount: 0, state: 'GAP' };
-    }
 
-    const actions = await this.actionsFor(transaction, event, payload);
+    const actions = await this.actionsFor(transaction, event, stream.scope);
+    const revalidationPayload = toRevalidationPayload(stream);
     let affectedCount = 0;
     let bindingMissing = false;
     for (const action of actions) {
-      const decision = await this.revalidator.revalidate({
-        tenantId: event.tenantId,
-        action,
-        event: payload,
-        source: {
-          aggregateType,
-          aggregateId: event.aggregateId,
-          aggregateVersion: event.aggregateVersion,
-          correlationId: event.correlationId,
-        },
-      });
+      let decision: JourneyRevalidationDecision;
+      if (stream.effect === 'HOLD_SCOPE') {
+        this.metrics.increment('journey_cg4_kill_switch_hold_total');
+        decision = { decision: 'REVIEW', reasonCode: GOVERNANCE_KILL_SWITCH_ACTIVE };
+      } else {
+        decision = await this.revalidator.revalidate({
+          tenantId: event.tenantId,
+          action,
+          event: revalidationPayload,
+          source: {
+            aggregateType,
+            aggregateId: event.aggregateId,
+            aggregateVersion: event.aggregateVersion,
+            correlationId: event.correlationId,
+            contract: stream.family,
+            eventType: stream.eventType,
+            ...(stream.scope.scopeKey ? { scopeKey: stream.scope.scopeKey } : {}),
+          },
+        });
+      }
       const state = targetState(decision);
       if ('reasonCode' in decision && decision.reasonCode === 'GOVERNANCE_VERSION_STALE') {
         this.metrics.increment('journey_cg3_stale_revalidation_total');
@@ -590,19 +647,200 @@ export class JourneyGovernanceInvalidationService {
       bindingMissing ? 'FAILED' : affectedCount === 0 ? 'NO_OP' : 'APPLIED',
       affectedCount,
       now,
+      { appliedStateDigest: stream.stateDigest },
     );
   }
 
-  private aggregateType(value: string): CgAggregateType {
-    if (value === 'contact_governance_contact') return 'CONTACT';
-    if (value === 'contact_governance_policy') return 'POLICY';
-    throw new TypeError(`CG3 aggregateType ไม่รองรับ: ${value}`);
+  /**
+   * Canonical reload หลัง gap หรือ quarantine (#179 §4 "canonical reload/replay แล้วค่อย ack")
+   *
+   * ผู้เรียกอ่าน version/state digest ปัจจุบันจาก Contact Governance query API แล้วส่งเข้ามา
+   * Journey บันทึก cursor ใหม่, audit และ acknowledgement ของ reload เท่านั้น — งานที่ถูก HELD
+   * ระหว่างช่องว่างยังคง HELD เพราะ reload ไม่ใช่ approved result ของงานนั้น (#124 REVIEW)
+   */
+  async resumeFromCanonical(input: {
+    tenantId: string;
+    aggregateType: CgAggregateType;
+    aggregateId: string;
+    canonicalVersion: number;
+    canonicalStateDigest: string;
+    actorId: string;
+    reasonCode: string;
+    evidenceRef?: string;
+  }): Promise<{ cursorVersion: number; reloaded: boolean; heldActions: number }> {
+    if (!Number.isInteger(input.canonicalVersion) || input.canonicalVersion < 1) {
+      throw new TypeError('canonicalVersion ต้องเป็น positive integer');
+    }
+    if (!/^[a-f0-9]{64}$/.test(input.canonicalStateDigest)) {
+      throw new TypeError('canonicalStateDigest ต้องเป็น SHA-256 lowercase');
+    }
+    const aggregateTypeName =
+      input.aggregateType === 'CONTACT'
+        ? 'contact_governance_contact'
+        : 'contact_governance_policy';
+    const result = await withTenantDatabaseTransaction(
+      this.database,
+      input.tenantId,
+      async (transaction) => {
+        await transaction.$queryRaw(
+          Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`journey-cg3:${this.options.consumer}:${input.tenantId}:${aggregateTypeName}:${input.aggregateId}`}))`,
+        );
+        const heldActions = await transaction.jrAction.count({
+          where: {
+            tenantId: input.tenantId,
+            realtimeState: 'HELD',
+            ...(input.aggregateType === 'CONTACT' ? { contactId: input.aggregateId } : {}),
+          },
+        });
+        const prior = await this.cursorRow(
+          transaction,
+          input.tenantId,
+          input.aggregateType,
+          input.aggregateId,
+        );
+        if (prior && prior.aggregateVersion >= input.canonicalVersion) {
+          const atVersion =
+            prior.aggregateVersion === input.canonicalVersion
+              ? prior
+              : await this.cursorRow(
+                  transaction,
+                  input.tenantId,
+                  input.aggregateType,
+                  input.aggregateId,
+                  input.canonicalVersion,
+                );
+          if (
+            atVersion?.reasonCode === CANONICAL_RELOAD_REASON &&
+            atVersion.payloadHash !== input.canonicalStateDigest
+          ) {
+            throw new JourneyCanonicalReloadConflictError(
+              input.aggregateId,
+              input.canonicalVersion,
+            );
+          }
+          return {
+            cursorVersion: prior.aggregateVersion,
+            reloaded: false,
+            heldActions,
+          };
+        }
+        const eventId = randomUUID();
+        const now = this.now();
+        await transaction.jrGovernanceConsumerInbox.create({
+          data: {
+            id: randomUUID(),
+            consumer: this.options.consumer,
+            tenantId: input.tenantId,
+            eventId,
+            aggregateType: input.aggregateType,
+            aggregateId: input.aggregateId,
+            aggregateVersion: input.canonicalVersion,
+            // reload รู้เพียง canonical state digest ไม่รู้ payload digest ของ event ที่หาย จึงเก็บ
+            // state digest และเทียบกับ stateDigest ของ event ที่ส่งซ้ำภายหลัง
+            payloadHash: input.canonicalStateDigest,
+            state: 'NO_OP',
+            reasonCode: CANONICAL_RELOAD_REASON,
+            affectedCount: 0,
+            appliedAt: now,
+          },
+        });
+        await transaction.jrGovernanceAcknowledgementOutbox.create({
+          data: {
+            id: randomUUID(),
+            tenantId: input.tenantId,
+            eventId,
+            consumer: this.options.consumer,
+            aggregateType: input.aggregateType,
+            aggregateId: input.aggregateId,
+            appliedVersion: input.canonicalVersion,
+            outcome: 'NO_OP',
+            affectedCount: 0,
+            sourcePayloadHash: input.canonicalStateDigest,
+            appliedStateDigest: input.canonicalStateDigest,
+            state: 'PENDING',
+            availableAt: now,
+          },
+        });
+        // audit อยู่ใน transaction เดียวกับ cursor/ack: reload ที่ไม่มีบันทึกว่าใครทำและเพราะอะไร
+        // ต้องเกิดขึ้นไม่ได้ (J2-RC02 audited replay/reconcile)
+        await transaction.jrRecoveryAudit.create({
+          data: {
+            id: randomUUID(),
+            tenantId: input.tenantId,
+            operation: 'RECONCILE',
+            targetKind: 'RECEIPT',
+            targetRef: eventId,
+            reasonCode: input.reasonCode,
+            actorId: input.actorId,
+            ...(input.evidenceRef ? { evidenceRef: input.evidenceRef } : {}),
+          },
+        });
+        return { cursorVersion: input.canonicalVersion, reloaded: true, heldActions };
+      },
+    );
+    if (result.reloaded) this.metrics.increment('journey_cg4_canonical_reload_total');
+    return result;
+  }
+
+  private async cursorRow(
+    transaction: Prisma.TransactionClient,
+    tenantId: string,
+    aggregateType: CgAggregateType,
+    aggregateId: string,
+    aggregateVersion?: number,
+  ): Promise<CursorRow | undefined> {
+    const row = await transaction.jrGovernanceConsumerInbox.findFirst({
+      where: {
+        consumer: this.options.consumer,
+        tenantId,
+        aggregateType,
+        aggregateId,
+        state: { in: CURSOR_STATES },
+        ...(aggregateVersion === undefined ? {} : { aggregateVersion }),
+      },
+      orderBy: { aggregateVersion: 'desc' },
+      select: { aggregateVersion: true, payloadHash: true, reasonCode: true },
+    });
+    return row ?? undefined;
+  }
+
+  /**
+   * contract/version ที่ build นี้ตีความไม่ได้: ไม่มี scope ที่เชื่อถือได้ จึง hold งานทั้ง
+   * aggregate (contact เดียว หรือทั้ง tenant สำหรับ policy stream) และไม่ขยับ cursor ทำให้
+   * event ถัดไปเป็น gap จนกว่าจะ canonical reload
+   */
+  private async quarantineUnsupported(
+    transaction: Prisma.TransactionClient,
+    existingInboxId: string | undefined,
+    event: KafkaEventEnvelopeV2<Record<string, unknown>>,
+    rejection: GovernanceDownstreamRejection,
+    now: Date,
+  ): Promise<JourneyGovernanceApplyResult> {
+    this.metrics.increment('journey_cg4_unsupported_contract_total');
+    const held = await this.holdMatchingActions(
+      transaction,
+      event,
+      null,
+      rejection.payloadDigest,
+      now,
+    );
+    return this.complete(
+      transaction,
+      existingInboxId,
+      event,
+      rejection.aggregate,
+      rejection.payloadDigest,
+      'QUARANTINED',
+      held,
+      now,
+      { reasonCode: rejection.reason },
+    );
   }
 
   private async actionsFor(
     transaction: Prisma.TransactionClient,
     event: KafkaEventEnvelopeV2<Record<string, unknown>>,
-    payload: JourneyCg3EventPayloadV1,
+    scope: GovernanceDownstreamScope | null,
   ): Promise<JourneyRealtimeAction[]> {
     const rows = await transaction.jrAction.findMany({
       where: {
@@ -640,18 +878,27 @@ export class JourneyGovernanceInvalidationService {
         ...(row.deliveryId ? { deliveryId: row.deliveryId } : {}),
         ...(row.providerRequestKey ? { providerRequestKey: row.providerRequestKey } : {}),
       }))
-      .filter((action) => matchesScope(action, payload.affectedScope));
+      .filter(
+        (action) =>
+          !scope ||
+          governanceScopeCovers(scope, {
+            identityId: action.identityId,
+            channel: action.channel,
+            purpose: action.purpose,
+            sourceTypes: JOURNEY_SOURCE_TYPES,
+          }),
+      );
   }
 
   private async holdMatchingActions(
     transaction: Prisma.TransactionClient,
     event: KafkaEventEnvelopeV2<Record<string, unknown>>,
-    payload: JourneyCg3EventPayloadV1,
+    scope: GovernanceDownstreamScope | null,
     payloadHash: string,
     now: Date,
-  ): Promise<void> {
-    const actions = await this.actionsFor(transaction, event, payload);
-    if (actions.length === 0) return;
+  ): Promise<number> {
+    const actions = await this.actionsFor(transaction, event, scope);
+    if (actions.length === 0) return 0;
     await transaction.jrAction.updateMany({
       where: { id: { in: actions.map((action) => action.id) } },
       data: {
@@ -661,6 +908,7 @@ export class JourneyGovernanceInvalidationService {
         cancelRequestedAt: now,
       },
     });
+    return actions.length;
   }
 
   /** เก็บ command ใน Journey outbox ก่อน ack; ห้ามเรียก Governance/Delivery ระหว่าง transaction นี้. */
@@ -698,6 +946,39 @@ export class JourneyGovernanceInvalidationService {
     });
   }
 
+  private async recordInbox(
+    transaction: Prisma.TransactionClient,
+    existingInboxId: string | undefined,
+    event: KafkaEventEnvelopeV2<Record<string, unknown>>,
+    aggregateType: CgAggregateType,
+    payloadHash: string,
+    row: {
+      state: JrGovernanceConsumerState;
+      affectedCount: number;
+      now: Date;
+      reasonCode?: string;
+    },
+  ): Promise<void> {
+    const data = {
+      consumer: this.options.consumer,
+      tenantId: event.tenantId,
+      eventId: event.eventId,
+      aggregateType,
+      aggregateId: event.aggregateId,
+      aggregateVersion: event.aggregateVersion,
+      payloadHash,
+      state: row.state,
+      affectedCount: row.affectedCount,
+      appliedAt: row.now,
+      reasonCode: row.reasonCode ?? null,
+    };
+    if (existingInboxId) {
+      await transaction.jrGovernanceConsumerInbox.update({ where: { id: existingInboxId }, data });
+    } else {
+      await transaction.jrGovernanceConsumerInbox.create({ data: { id: randomUUID(), ...data } });
+    }
+  }
+
   private async complete(
     transaction: Prisma.TransactionClient,
     existingInboxId: string | undefined,
@@ -707,34 +988,19 @@ export class JourneyGovernanceInvalidationService {
     outcome: Extract<CgConsumerAckOutcome, 'APPLIED' | 'NO_OP' | 'FAILED' | 'QUARANTINED'>,
     affectedCount: number,
     now: Date,
+    options: CompleteOptions = {},
   ): Promise<JourneyGovernanceApplyResult> {
     const eventAt = new Date(event.occurredAt).getTime();
     if (!Number.isNaN(eventAt)) {
       this.metrics.observe('journey_cg3_mutation_to_apply_ms', now.getTime() - eventAt);
     }
     const state = outcome === 'APPLIED' ? 'APPLIED' : outcome === 'NO_OP' ? 'NO_OP' : 'QUARANTINED';
-    const inboxData = {
-      consumer: this.options.consumer,
-      tenantId: event.tenantId,
-      eventId: event.eventId,
-      aggregateType,
-      aggregateId: event.aggregateId,
-      aggregateVersion: event.aggregateVersion,
-      payloadHash,
+    await this.recordInbox(transaction, existingInboxId, event, aggregateType, payloadHash, {
       state,
       affectedCount,
-      appliedAt: now,
-    } as const;
-    if (existingInboxId) {
-      await transaction.jrGovernanceConsumerInbox.update({
-        where: { id: existingInboxId },
-        data: inboxData,
-      });
-    } else {
-      await transaction.jrGovernanceConsumerInbox.create({
-        data: { id: randomUUID(), ...inboxData },
-      });
-    }
+      now,
+      ...(options.reasonCode ? { reasonCode: options.reasonCode } : {}),
+    });
     await transaction.jrGovernanceAcknowledgementOutbox.upsert({
       where: {
         tenantId_eventId_consumer_appliedVersion: {
@@ -755,11 +1021,35 @@ export class JourneyGovernanceInvalidationService {
         outcome,
         affectedCount,
         sourcePayloadHash: payloadHash,
+        ...(options.appliedStateDigest ? { appliedStateDigest: options.appliedStateDigest } : {}),
         state: 'PENDING',
         availableAt: now,
       },
       update: {},
     });
-    return { outcome, affectedCount, state };
+    return {
+      outcome,
+      affectedCount,
+      state,
+      ...(isGovernanceContractRejection(options.reasonCode)
+        ? { reasonCode: options.reasonCode }
+        : {}),
+    };
   }
 }
+
+/**
+ * แถวที่มาจาก canonical reload เก็บ state digest ไว้แทน payload digest จึงต้องเทียบกับ
+ * stateDigest ของ event ที่เข้ามา; แถวปกติเทียบ payload digest ตามเดิม
+ */
+function comparable(
+  row: CursorRow,
+  stream: GovernanceDownstreamEvent,
+  payloadHash: string,
+): string {
+  if (row.reasonCode !== CANONICAL_RELOAD_REASON) return row.payloadHash;
+  return row.payloadHash === stream.stateDigest ? payloadHash : row.payloadHash;
+}
+
+/** คงไว้ให้ test/tooling เดิมคำนวณ digest แบบเดียวกับ inbox */
+export const journeyGovernancePayloadDigest = governancePayloadDigest;

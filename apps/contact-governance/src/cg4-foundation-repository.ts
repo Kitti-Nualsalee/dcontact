@@ -15,6 +15,7 @@ import {
   Cg3VersionConflictError,
   stableDigest,
 } from './cg3-persistence.js';
+import { nextContactStreamVersion } from './cg4-contact-stream.js';
 import { resolveCg4OverrideEligibility } from './cg4-rule-registry.js';
 import { Cg4InvalidLifecycleTransitionError } from './cg4-exception-lifecycle.js';
 
@@ -467,11 +468,18 @@ export class Cg4FoundationRepository {
         });
       }
 
+      // CG4.8 (#191): event ใช้ version ของ contact stream ร่วมกับ CG3 ส่วน aggregateVersion
+      // ด้านบนยังเป็น CAS ของ exception command ตามเดิม
+      const streamVersion = await nextContactStreamVersion(transaction, {
+        tenantId: input.tenantId,
+        contactId: input.contactId,
+        mutationId,
+      });
       const eventId = this.id();
       const payload = {
         contractVersion: 1,
         mutationId,
-        subjectVersion: aggregateVersion,
+        subjectVersion: streamVersion,
         ...(input.identityId ? { identityId: input.identityId } : {}),
         affectedScope: {
           identityId: input.identityId ?? null,
@@ -490,7 +498,7 @@ export class Cg4FoundationRepository {
           tenantId: input.tenantId,
           aggregateType: 'CONTACT',
           aggregateId: input.contactId,
-          aggregateVersion,
+          aggregateVersion: streamVersion,
           eventType: 'exception.recorded',
           orderingKey: `${input.tenantId}:${input.contactId}`,
           payload: json(payload),
@@ -504,7 +512,7 @@ export class Cg4FoundationRepository {
           mutationId,
           aggregateType: 'CONTACT',
           aggregateId: input.contactId,
-          aggregateVersion,
+          aggregateVersion: streamVersion,
           action: 'CG4_EXCEPTION_RECORDED',
           actorClass: 'COMPLIANCE',
           actorRef: input.actorRef,

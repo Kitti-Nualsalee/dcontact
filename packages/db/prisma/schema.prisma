@@ -801,6 +801,8 @@ enum JrGovernanceConsumerState {
   NO_OP
   GAP
   QUARANTINED
+  // CG4.8 (#191): version+digest ซ้ำกับที่ apply แล้วแต่ eventId ต่าง; ไม่ขยับ cursor
+  DUPLICATE
 }
 
 enum JrGovernanceAcknowledgementState {
@@ -850,6 +852,8 @@ enum ObGovernanceConsumerState {
   NO_OP
   GAP
   QUARANTINED
+  // CG4.8 (#191): version+digest ซ้ำกับที่ apply แล้วแต่ eventId ต่าง; ไม่ขยับ cursor
+  DUPLICATE
 }
 
 enum ObGovernanceAcknowledgementState {
@@ -1338,17 +1342,18 @@ model CgAuditLog {
 }
 
 model CgConsumerAcknowledgement {
-  id             String               @id @default(uuid()) @db.Uuid
-  tenantId       String               @map("tenant_id") @db.Uuid
-  eventId        String               @map("event_id")
-  consumer       String
-  aggregateType  CgAggregateType      @map("aggregate_type")
-  aggregateId    String               @map("aggregate_id") @db.Uuid
-  appliedVersion Int                  @map("applied_version")
-  outcome        CgConsumerAckOutcome
-  affectedCount  Int                  @default(0) @map("affected_count")
-  payloadHash    String               @map("payload_hash") @db.Char(64)
-  appliedAt      DateTime             @map("applied_at")
+  id                 String               @id @default(uuid()) @db.Uuid
+  tenantId           String               @map("tenant_id") @db.Uuid
+  eventId            String               @map("event_id")
+  consumer           String
+  aggregateType      CgAggregateType      @map("aggregate_type")
+  aggregateId        String               @map("aggregate_id") @db.Uuid
+  appliedVersion     Int                  @map("applied_version")
+  outcome            CgConsumerAckOutcome
+  affectedCount      Int                  @default(0) @map("affected_count")
+  payloadHash        String               @map("payload_hash") @db.Char(64)
+  appliedStateDigest String?              @map("applied_state_digest") @db.Char(64)
+  appliedAt          DateTime             @map("applied_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -1938,11 +1943,14 @@ model JrGovernanceConsumerInbox {
   state            JrGovernanceConsumerState
   affectedCount    Int                       @default(0) @map("affected_count")
   appliedAt        DateTime                  @default(now()) @map("applied_at")
+  /// CG4.8 (#191): controlled reason ของ quarantine/unsupported contract; ไม่มี payload หรือ PII
+  reasonCode       String?                   @map("reason_code")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@unique([consumer, tenantId, eventId])
-  @@unique([consumer, tenantId, aggregateType, aggregateId, aggregateVersion, payloadHash])
+  // cursor unique ต่อ version เฉพาะ state APPLIED|NO_OP เป็น partial unique index ใน migration
+  // 20260914060000_add_cg4_downstream_invalidation (Prisma แสดง partial index ไม่ได้)
   @@index([tenantId, aggregateType, aggregateId, aggregateVersion])
   @@map("jr_governance_consumer_inbox")
 }
@@ -1950,22 +1958,23 @@ model JrGovernanceConsumerInbox {
 /// Journey publish acknowledgement หลัง durable apply สำเร็จแล้วเท่านั้น. Relay retry
 /// ได้โดยไม่ต้อง apply event ซ้ำ และ payload มี opaque id/digest เท่านั้น.
 model JrGovernanceAcknowledgementOutbox {
-  id                String                           @id @default(uuid()) @db.Uuid
-  tenantId          String                           @map("tenant_id") @db.Uuid
-  eventId           String                           @map("event_id")
-  consumer          String
-  aggregateType     CgAggregateType                  @map("aggregate_type")
-  aggregateId       String                           @map("aggregate_id") @db.Uuid
-  appliedVersion    Int                              @map("applied_version")
-  outcome           CgConsumerAckOutcome
-  affectedCount     Int                              @default(0) @map("affected_count")
-  sourcePayloadHash String                           @map("source_payload_hash")
-  state             JrGovernanceAcknowledgementState @default(PENDING)
-  attempts          Int                              @default(0)
-  availableAt       DateTime                         @default(now()) @map("available_at")
-  publishedAt       DateTime?                        @map("published_at")
-  lastError         String?                          @map("last_error")
-  createdAt         DateTime                         @default(now()) @map("created_at")
+  id                 String                           @id @default(uuid()) @db.Uuid
+  tenantId           String                           @map("tenant_id") @db.Uuid
+  eventId            String                           @map("event_id")
+  consumer           String
+  aggregateType      CgAggregateType                  @map("aggregate_type")
+  aggregateId        String                           @map("aggregate_id") @db.Uuid
+  appliedVersion     Int                              @map("applied_version")
+  outcome            CgConsumerAckOutcome
+  affectedCount      Int                              @default(0) @map("affected_count")
+  sourcePayloadHash  String                           @map("source_payload_hash")
+  appliedStateDigest String?                          @map("applied_state_digest") @db.Char(64)
+  state              JrGovernanceAcknowledgementState @default(PENDING)
+  attempts           Int                              @default(0)
+  availableAt        DateTime                         @default(now()) @map("available_at")
+  publishedAt        DateTime?                        @map("published_at")
+  lastError          String?                          @map("last_error")
+  createdAt          DateTime                         @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -2068,32 +2077,36 @@ model ObGovernanceConsumerInbox {
   state            ObGovernanceConsumerState
   affectedCount    Int                       @default(0) @map("affected_count")
   appliedAt        DateTime                  @default(now()) @map("applied_at")
+  /// CG4.8 (#191): controlled reason ของ quarantine/unsupported contract; ไม่มี payload หรือ PII
+  reasonCode       String?                   @map("reason_code")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
   @@unique([consumer, tenantId, eventId])
-  @@unique([consumer, tenantId, aggregateType, aggregateId, aggregateVersion, payloadHash])
+  // cursor unique ต่อ version เฉพาะ state APPLIED|NO_OP เป็น partial unique index ใน migration
+  // 20260914060000_add_cg4_downstream_invalidation (Prisma แสดง partial index ไม่ได้)
   @@index([tenantId, aggregateType, aggregateId, aggregateVersion])
   @@map("ob_governance_consumer_inbox")
 }
 
 model ObGovernanceAcknowledgementOutbox {
-  id                String                           @id @default(uuid()) @db.Uuid
-  tenantId          String                           @map("tenant_id") @db.Uuid
-  eventId           String                           @map("event_id")
-  consumer          String
-  aggregateType     CgAggregateType                  @map("aggregate_type")
-  aggregateId       String                           @map("aggregate_id") @db.Uuid
-  appliedVersion    Int                              @map("applied_version")
-  outcome           CgConsumerAckOutcome
-  affectedCount     Int                              @default(0) @map("affected_count")
-  sourcePayloadHash String                           @map("source_payload_hash")
-  state             ObGovernanceAcknowledgementState @default(PENDING)
-  attempts          Int                              @default(0)
-  availableAt       DateTime                         @default(now()) @map("available_at")
-  publishedAt       DateTime?                        @map("published_at")
-  lastError         String?                          @map("last_error")
-  createdAt         DateTime                         @default(now()) @map("created_at")
+  id                 String                           @id @default(uuid()) @db.Uuid
+  tenantId           String                           @map("tenant_id") @db.Uuid
+  eventId            String                           @map("event_id")
+  consumer           String
+  aggregateType      CgAggregateType                  @map("aggregate_type")
+  aggregateId        String                           @map("aggregate_id") @db.Uuid
+  appliedVersion     Int                              @map("applied_version")
+  outcome            CgConsumerAckOutcome
+  affectedCount      Int                              @default(0) @map("affected_count")
+  sourcePayloadHash  String                           @map("source_payload_hash")
+  appliedStateDigest String?                          @map("applied_state_digest") @db.Char(64)
+  state              ObGovernanceAcknowledgementState @default(PENDING)
+  attempts           Int                              @default(0)
+  availableAt        DateTime                         @default(now()) @map("available_at")
+  publishedAt        DateTime?                        @map("published_at")
+  lastError          String?                          @map("last_error")
+  createdAt          DateTime                         @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 

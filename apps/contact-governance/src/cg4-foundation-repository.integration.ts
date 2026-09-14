@@ -155,7 +155,7 @@ test('CG4 exception revision/head/contact aggregate/receipt/audit/outbox ถู�
   );
 });
 
-test('CG4 exception aggregate version/digest ไม่ชนกับ CG3 preference บน contact เดียวกัน', async (t) => {
+test('CG4.8: exception event ต่อ contact stream version ของ CG3 แต่ CAS/digest ของ exception command ยังแยก', async (t) => {
   const f = await fixture(t);
   const preferences = new Cg3PreferenceRepository(f.application);
   await preferences.append({
@@ -177,14 +177,28 @@ test('CG4 exception aggregate version/digest ไม่ชนกับ CG3 prefer
     correlationId: 'correlation:cg3:opaque:1',
   });
 
+  const cg3Before = await f.owner.cgContactStateHead.findUniqueOrThrow({
+    where: { tenantId_contactId: { tenantId: f.tenantId, contactId: f.contactId } },
+  });
+
   const repository = new Cg4FoundationRepository(f.application);
+  // expectedVersion ของ exception command ไม่ขึ้นกับ preference ที่เพิ่ง append (migration 20260913122000)
   const created = await repository.recordException(command(f, { expectedVersion: 0 }));
   assert.equal(created.aggregateVersion, 1);
+
+  // แต่ event อยู่บน contact stream เดียวกับ CG3 จึงต้องได้ version ถัดไป ไม่ใช่ 1 ซ้ำ (#179 §4)
+  const event = await f.owner.cgEventOutbox.findFirstOrThrow({
+    where: { tenantId: f.tenantId, eventType: 'exception.recorded' },
+  });
+  assert.equal(event.aggregateVersion, 2);
+  assert.equal((event.payload as Record<string, unknown>).subjectVersion, 2);
 
   const cg3Head = await f.owner.cgContactStateHead.findUniqueOrThrow({
     where: { tenantId_contactId: { tenantId: f.tenantId, contactId: f.contactId } },
   });
-  assert.equal(cg3Head.aggregateVersion, 1);
+  assert.equal(cg3Head.aggregateVersion, 2);
+  // digest chain ของ CG3 ไม่ถูกแตะ
+  assert.equal(cg3Head.currentDigest, cg3Before.currentDigest);
   const cg4Head = await f.owner.cg4ContactExceptionHead.findUniqueOrThrow({
     where: { tenantId_contactId: { tenantId: f.tenantId, contactId: f.contactId } },
   });

@@ -30,6 +30,7 @@ import {
   resolveCg4RequiredExceptionCapability,
   Cg4SelfApprovalError,
 } from './cg4-authorization-engine.js';
+import { nextContactStreamVersion } from './cg4-contact-stream.js';
 import { resolveCg4EffectiveState } from './cg4-exception-evaluation.js';
 
 /**
@@ -396,6 +397,12 @@ export class Cg4ExceptionLifecycleRepository {
             })
           : 'INACTIVE';
 
+      // CG4.8 (#191): event ใช้ version ของ contact stream ร่วมกับ CG3 (#179 §4)
+      const streamVersion = await nextContactStreamVersion(transaction, {
+        tenantId: input.tenantId,
+        contactId: revision.contactId,
+        mutationId,
+      });
       const eventId = this.id();
       const payload = {
         contractVersion: 1,
@@ -437,7 +444,7 @@ export class Cg4ExceptionLifecycleRepository {
           tenantId: input.tenantId,
           aggregateType: 'CONTACT',
           aggregateId: revision.contactId,
-          aggregateVersion,
+          aggregateVersion: streamVersion,
           eventType: CG4_EVENT_TYPES.EXCEPTION_CHANGED,
           orderingKey: `${input.tenantId}:${revision.contactId}`,
           payload: json(payload),
@@ -451,7 +458,7 @@ export class Cg4ExceptionLifecycleRepository {
           mutationId,
           aggregateType: 'CONTACT',
           aggregateId: revision.contactId,
-          aggregateVersion,
+          aggregateVersion: streamVersion,
           action: `CG4_EXCEPTION_${input.action}`,
           actorClass: 'COMPLIANCE',
           actorRef: input.actor.subjectId,

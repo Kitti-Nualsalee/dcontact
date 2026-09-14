@@ -164,6 +164,8 @@ async function dropTenant(tenantId: string): Promise<void> {
   await owner.cg4ExceptionHead.deleteMany({ where: { tenantId } });
   await owner.cg4Exception.deleteMany({ where: { tenantId } });
   await owner.cg4ContactExceptionHead.deleteMany({ where: { tenantId } });
+  // CG4.8 (#191): exception event ขยับ contact stream version ใน cg_contact_state_heads ด้วย
+  await owner.cgContactStateHead.deleteMany({ where: { tenantId } });
   await owner.cg4PolicyApproval.deleteMany({ where: { tenantId } });
   await owner.cg4PolicyTestArtifact.deleteMany({ where: { tenantId } });
   await owner.cg4PolicyActivationJob.deleteMany({ where: { tenantId } });

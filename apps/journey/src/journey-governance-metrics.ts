@@ -7,7 +7,13 @@ export type JourneyGovernanceMetric =
   | 'journey_cg3_version_gap_total'
   | 'journey_cg3_hash_conflict_total'
   | 'journey_cg3_reconcile_age_ms'
-  | 'journey_cg3_reconcile_backlog';
+  | 'journey_cg3_reconcile_backlog'
+  // CG4.8 (#191)
+  | 'journey_cg4_duplicate_total'
+  | 'journey_cg4_relaxation_noop_total'
+  | 'journey_cg4_kill_switch_hold_total'
+  | 'journey_cg4_unsupported_contract_total'
+  | 'journey_cg4_canonical_reload_total';
 
 export interface JourneyGovernanceMetrics {
   increment(

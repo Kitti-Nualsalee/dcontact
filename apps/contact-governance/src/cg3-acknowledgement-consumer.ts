@@ -33,6 +33,8 @@ export interface AcknowledgementPayloadV1 {
   affectedCount: number;
   /** payloadHash ของ cg event ต้นทางที่ consumer นั้น apply — ใช้ตรวจ hash conflict */
   sourcePayloadHash: string;
+  /** CG4.8 (#191) additive: stateDigest ของ Governance ที่ consumer apply แล้ว */
+  appliedStateDigest?: string;
 }
 
 function isAcknowledgementPayloadV1(value: unknown): value is AcknowledgementPayloadV1 {
@@ -48,7 +50,10 @@ function isAcknowledgementPayloadV1(value: unknown): value is AcknowledgementPay
       candidate.outcome === 'NO_OP' ||
       candidate.outcome === 'FAILED') &&
     Number.isInteger(candidate.affectedCount) &&
-    typeof candidate.sourcePayloadHash === 'string'
+    typeof candidate.sourcePayloadHash === 'string' &&
+    (candidate.appliedStateDigest === undefined ||
+      (typeof candidate.appliedStateDigest === 'string' &&
+        /^[a-f0-9]{64}$/.test(candidate.appliedStateDigest)))
   );
 }
 
@@ -121,6 +126,7 @@ async function applyAcknowledgement(
       outcome,
       affectedCount: payload.affectedCount,
       payloadHash: payload.sourcePayloadHash,
+      ...(payload.appliedStateDigest ? { appliedStateDigest: payload.appliedStateDigest } : {}),
       appliedAt: new Date(),
     },
   });

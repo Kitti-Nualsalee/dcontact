@@ -627,6 +627,16 @@ test('kill switch เปิดได้ทันที บล็อก relaxatio
   });
   assert.equal(activated.state, 'ACTIVE');
 
+  // CG4.8 (#191): เปิดซ้ำขณะยัง ACTIVE ไม่เปลี่ยน canonical state จึงไม่ออก event ใหม่
+  const reactivated = await f.repository.killSwitch({
+    tenantId: f.tenant,
+    scopeKey: SCOPE_KEY,
+    action: 'ACTIVATE',
+    reasonCode: 'INCIDENT_REPEATED',
+    ...command({ actor: subject('operator-3', ['cg.policy.publish']) }),
+  });
+  assert.equal(reactivated.killSwitchId, activated.killSwitchId);
+
   const relaxing = await approvedCandidate(f, {
     content: content({ allowedOperationalRuleCodes: ['QUIET_HOURS'] }),
     checkers: ['checker-1', 'checker-2'],
@@ -672,6 +682,28 @@ test('kill switch เปิดได้ทันที บล็อก relaxatio
   });
   assert.equal(cleared.state, 'CLEARED');
   assert.equal(cleared.killSwitchId, activated.killSwitchId);
+
+  // CG4.8 (#191): ACTIVE(1) → CLEARED(2) บน aggregate ของ kill switch; version คงที่จะถูกทุก
+  // consumer quarantine เป็น hash conflict
+  const killEvents = await f.owner.cgEventOutbox.findMany({
+    where: { tenantId: f.tenant, eventType: 'governance.kill-switch.changed' },
+    orderBy: { aggregateVersion: 'asc' },
+  });
+  assert.deepEqual(
+    killEvents.map((event) => [
+      event.aggregateId,
+      event.aggregateVersion,
+      (event.payload as { state: string }).state,
+    ]),
+    [
+      [activated.killSwitchId, 1, 'ACTIVE'],
+      [activated.killSwitchId, 2, 'CLEARED'],
+    ],
+  );
+  const affectedScope = (killEvents[0]!.payload as { affectedScope: Record<string, string> })
+    .affectedScope;
+  assert.equal(affectedScope.channel, 'VOICE');
+  assert.equal(affectedScope.purpose, 'SERVICE_NOTIFICATION');
 });
 
 test('database บังคับว่า active head ต่อ scope มีได้ version เดียว', async (t) => {
