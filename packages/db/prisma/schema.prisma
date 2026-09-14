@@ -53,6 +53,8 @@ model Tenant {
   cgCommandReceipts            CgCommandReceipt[]
   cgAuditLogs                  CgAuditLog[]
   cgConsumerAcknowledgements   CgConsumerAcknowledgement[]
+  cgConsumerInbox              CgConsumerInbox[]
+  cgScopePauses                CgScopePause[]
   jrEventInbox                 JrEventInbox[]
   jrKafkaConsumerInbox         JrKafkaConsumerInbox[]
   jrGovernanceConsumerInbox    JrGovernanceConsumerInbox[]
@@ -614,6 +616,36 @@ enum CgEventOutboxState {
   PUBLISHING
   PUBLISHED
   FAILED
+  // CG4.6 (#189): payload ที่ contract/schema/registry version ไม่รองรับ หรือหลุด
+  // restricted field ห้าม publish และห้าม retry — กันไว้รอ forward-fix แทน
+  QUARANTINED
+}
+
+// CG4.6 (#189): inbox/scope-pause vocabulary ตาม #179 §4
+enum CgInboxState {
+  APPLIED
+  DUPLICATE
+  GAP_HELD
+  OUT_OF_ORDER
+  QUARANTINED
+  UNSUPPORTED
+}
+
+enum CgScopePauseKind {
+  CONTACT
+  POLICY_SCOPE
+}
+
+enum CgScopePauseReason {
+  EVENT_GAP
+  EVENT_OUT_OF_ORDER
+  HASH_CONFLICT
+  UNSUPPORTED_CONTRACT
+}
+
+enum CgScopePauseState {
+  ACTIVE
+  CLEARED
 }
 
 enum CgConsumerAckOutcome {
@@ -1316,6 +1348,62 @@ model CgConsumerAcknowledgement {
   @@unique([tenantId, eventId, consumer, appliedVersion])
   @@index([tenantId, aggregateType, aggregateId, appliedVersion])
   @@map("cg_consumer_acknowledgements")
+}
+
+// ─────────────────────────── CG4.6 events, inbox และ recovery ───────────────────────────
+// Projection ฝั่งรับของ canonical event (#179 §4). ไม่ใช่ truth: cursor ของ consumer
+// group คือแถว APPLIED ที่ version สูงสุด และทุก decision ที่ไม่ใช่ APPLY/DUPLICATE
+// จะเปิด CgScopePause ค้างไว้จนกว่าจะ reload canonical state.
+model CgConsumerInbox {
+  id               String          @id @default(uuid()) @db.Uuid
+  tenantId         String          @map("tenant_id") @db.Uuid
+  consumerGroup    String          @map("consumer_group")
+  eventId          String          @map("event_id") @db.Uuid
+  aggregateType    CgAggregateType @map("aggregate_type")
+  aggregateId      String          @map("aggregate_id") @db.Uuid
+  aggregateVersion Int             @map("aggregate_version")
+  eventType        String          @map("event_type")
+  payloadHash      String          @map("payload_hash") @db.Char(64)
+  state            CgInboxState
+  detail           String?
+  receivedAt       DateTime        @map("received_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, consumerGroup, eventId])
+  @@index([tenantId, consumerGroup, aggregateType, aggregateId, aggregateVersion])
+  @@index([tenantId, consumerGroup, state])
+  @@map("cg_consumer_inbox")
+}
+
+// Scope ที่ถูกกักไว้เพราะ stream ไม่ต่อเนื่องหรือขัดแย้งกัน readerต้อง fail closed
+// สำหรับ scope นี้จนกว่าจะ reload canonical แล้ว clear (#176 §5, #179 §4).
+model CgScopePause {
+  id               String             @id @default(uuid()) @db.Uuid
+  tenantId         String             @map("tenant_id") @db.Uuid
+  consumerGroup    String             @map("consumer_group")
+  scopeKind        CgScopePauseKind   @map("scope_kind")
+  /// contactId หรือ policy scopeKey แล้วแต่ scopeKind
+  scopeRef         String             @map("scope_ref")
+  state            CgScopePauseState  @default(ACTIVE)
+  reason           CgScopePauseReason
+  detail           String?
+  eventId          String?            @map("event_id") @db.Uuid
+  observedVersion  Int?               @map("observed_version")
+  expectedVersion  Int?               @map("expected_version")
+  pausedAt         DateTime           @map("paused_at")
+  clearedAt        DateTime?          @map("cleared_at")
+  clearedToVersion Int?               @map("cleared_to_version")
+  createdAt        DateTime           @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, id])
+  @@index([tenantId, consumerGroup, scopeKind, scopeRef, state])
+  @@index([tenantId, state, pausedAt])
+  @@map("cg_scope_pause")
 }
 
 // ─────────────────────────── CG4 canonical foundation ───────────────────────────

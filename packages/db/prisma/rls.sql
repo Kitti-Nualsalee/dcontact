@@ -33,6 +33,8 @@ BEGIN
     'cg_scope_kill_switch', 'cg4_backfill_ledger', 'cg_exception_contact_head',
     -- CG4.3 (#186)
     'cg_delegation',
+    -- CG4.6 (#189)
+    'cg_consumer_inbox', 'cg_scope_pause',
     -- J3.2 (#213)
     'c360_segment_definitions', 'c360_segment_definition_heads',
     'c360_fact_snapshots', 'c360_segment_evaluations'
@@ -141,6 +143,10 @@ REVOKE DELETE ON cg_scope_kill_switch FROM dcontact_app;
 REVOKE DELETE ON cg_exception_contact_head FROM dcontact_app;
 -- CG4.3 (#186): delegation is append-only, same reasoning as above.
 REVOKE UPDATE, DELETE ON cg_delegation FROM dcontact_app;
+-- CG4.6 (#189): the inbox is the completion record for at-least-once delivery, so a row
+-- must never be rewritten or removed; a scope pause advances state but keeps its history.
+REVOKE UPDATE, DELETE ON cg_consumer_inbox FROM dcontact_app;
+REVOKE DELETE ON cg_scope_pause FROM dcontact_app;
 -- J3.2: definition เดินได้เฉพาะ lifecycle ผ่าน DB trigger; snapshot/evaluation เป็น immutable
 REVOKE DELETE ON c360_segment_definitions FROM dcontact_app;
 REVOKE DELETE ON c360_segment_definition_heads FROM dcontact_app;
