@@ -15,9 +15,10 @@
  * rather than needing a second CG3-canonical-event invalidation listener
  * like `dialer-governance.ts` (S1.7) built for the separate `ObAttempt`
  * aggregate. A crash between two of this barrier's own short transactions
- * can leave a target/callback stuck in `ORIGINATING`; recovering that via a
- * durable lease/outbox (like `DeliveryTestAdapter`'s) is out of scope for
- * this slice — see PR description.
+ * still leaves a target/callback stuck in `ORIGINATING`, so every entry into
+ * that state stamps `originateLeaseExpiresAt`; `DialerOriginateReconciler`
+ * sweeps the expired ones into `RECONCILING` without ever re-originating or
+ * releasing the reservation itself.
  */
 import { randomUUID } from 'node:crypto';
 import { type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
@@ -51,17 +52,23 @@ export type OriginateOutcome =
   | 'NOT_ELIGIBLE'
   | 'EXPIRED';
 
+/** lease เดียวกันทั้งฝั่ง Governance claim และ row ที่ค้างใน ORIGINATING */
+export const DEFAULT_ORIGINATE_LEASE_MS = 30_000;
+
 export interface DialerOriginateBarrierOptions {
   now?: () => Date;
   transport?: TelephonyTransport;
   /** callback ที่ยังไม่ถึง `requestedFor` ภายใน tolerance นี้ยังไม่ eligible ให้ originate */
   callbackEarlyToleranceMs?: number;
+  /** เกินช่วงนี้แล้วยังค้าง ORIGINATING ถือว่า process ตายกลางคัน ให้ reconciler เก็บกวาด */
+  originateLeaseMs?: number;
 }
 
 export class DialerOriginateBarrier {
   private readonly now: () => Date;
   private readonly transport: TelephonyTransport;
   private readonly callbackEarlyToleranceMs: number;
+  private readonly originateLeaseMs: number;
 
   constructor(
     private readonly database: PrismaClient,
@@ -78,6 +85,11 @@ export class DialerOriginateBarrier {
     }
     this.transport = options.transport;
     this.callbackEarlyToleranceMs = options.callbackEarlyToleranceMs ?? 5 * 60 * 1_000;
+    this.originateLeaseMs = options.originateLeaseMs ?? DEFAULT_ORIGINATE_LEASE_MS;
+  }
+
+  private originateLeaseExpiry(): Date {
+    return new Date(this.now().getTime() + this.originateLeaseMs);
   }
 
   async originateCampaignTarget(
@@ -137,7 +149,11 @@ export class DialerOriginateBarrier {
       (transaction) =>
         transaction.obCampaignTarget.updateMany({
           where: { tenantId, id: target.id, state: 'ADMITTED' },
-          data: { state: 'ORIGINATING', version: { increment: 1 } },
+          data: {
+            state: 'ORIGINATING',
+            originateLeaseExpiresAt: this.originateLeaseExpiry(),
+            version: { increment: 1 },
+          },
         }),
     );
     if (originating.count === 0) return 'NOT_ELIGIBLE';
@@ -156,8 +172,8 @@ export class DialerOriginateBarrier {
       transaction.obCampaignTarget.updateMany({
         where: { tenantId, id: target.id, state: 'ORIGINATING' },
         data: accepted
-          ? { state: 'CONSUMED', version: { increment: 1 } }
-          : { state: 'DEFERRED', version: { increment: 1 } },
+          ? { state: 'CONSUMED', originateLeaseExpiresAt: null, version: { increment: 1 } }
+          : { state: 'DEFERRED', originateLeaseExpiresAt: null, version: { increment: 1 } },
       }),
     );
     return accepted ? 'ORIGINATED' : 'REJECTED';
@@ -213,7 +229,11 @@ export class DialerOriginateBarrier {
       (transaction) =>
         transaction.obCallback.updateMany({
           where: { tenantId, id: callback.id, state: 'SCHEDULED' },
-          data: { state: 'ORIGINATING', version: { increment: 1 } },
+          data: {
+            state: 'ORIGINATING',
+            originateLeaseExpiresAt: this.originateLeaseExpiry(),
+            version: { increment: 1 },
+          },
         }),
     );
     if (originating.count === 0) return 'NOT_ELIGIBLE';
@@ -232,8 +252,8 @@ export class DialerOriginateBarrier {
       transaction.obCallback.updateMany({
         where: { tenantId, id: callback.id, state: 'ORIGINATING' },
         data: accepted
-          ? { state: 'CONSUMED', version: { increment: 1 } }
-          : { state: 'SCHEDULED', version: { increment: 1 } },
+          ? { state: 'CONSUMED', originateLeaseExpiresAt: null, version: { increment: 1 } }
+          : { state: 'SCHEDULED', originateLeaseExpiresAt: null, version: { increment: 1 } },
       }),
     );
     return accepted ? 'ORIGINATED' : 'REJECTED';
@@ -274,7 +294,7 @@ export class DialerOriginateBarrier {
     const tenant = toTenantId(tenantId);
     const deliveryId = toDeliveryId(randomUUID());
     const providerRequestKey = toProviderRequestKey(randomUUID());
-    const leaseExpiresAt = new Date(this.now().getTime() + 30_000).toISOString();
+    const leaseExpiresAt = this.originateLeaseExpiry().toISOString();
     const command = {
       tenantId: tenant,
       correlationId,

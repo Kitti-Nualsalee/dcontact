@@ -2249,6 +2249,9 @@ enum ObCampaignTargetState {
   ACTIVE
   /// J2.9: simulated call settled (terminal, no further origination for this target)
   CONSUMED
+  /// J2.9 follow-up: originate lease หมดขณะค้างใน ORIGINATING (เช่น process ตายกลางคัน)
+  /// — ต้องให้ CG3 primitive/คนตัดสิน ห้าม originate ซ้ำและห้าม release reservation เอง
+  RECONCILING
 }
 
 /// fixture ของ campaign ที่ "มีอยู่แล้ว" — ไม่มี Campaign CRUD/UI ใน J2.5 (out of scope)
@@ -2293,6 +2296,9 @@ model ObCampaignTarget {
   sourceOwnerTeamId      String                @map("source_owner_team_id") @db.Uuid
   targetOwnerTeamId      String                @map("target_owner_team_id") @db.Uuid
   admissionPolicyVersion Int                   @map("admission_policy_version")
+  /// J2.9 follow-up: ตั้งตอนเข้า ORIGINATING และล้างตอนออก — sweeper ใช้ตัวนี้แยก
+  /// "กำลัง originate อยู่จริง" ออกจาก "ค้างเพราะ process ตาย"
+  originateLeaseExpiresAt DateTime?            @map("originate_lease_expires_at")
   createdAt              DateTime              @default(now()) @map("created_at")
   updatedAt              DateTime              @updatedAt @map("updated_at")
 
@@ -2301,6 +2307,7 @@ model ObCampaignTarget {
 
   @@unique([tenantId, campaignId, contactId])
   @@index([tenantId, contactId])
+  @@index([tenantId, state, originateLeaseExpiresAt], map: "ob_campaign_targets_originate_lease_idx")
   @@map("ob_campaign_targets")
 }
 
@@ -2347,6 +2354,8 @@ enum ObCallbackState {
   CONSUMED
   CANCELLED
   SUPERSEDED
+  /// J2.9 follow-up: ความหมายเดียวกับ ObCampaignTargetState.RECONCILING
+  RECONCILING
 }
 
 /// canonical Callback record หนึ่งแถวต่อ SCHEDULE_CALLBACK ที่สำเร็จ — ไม่มี Governance
@@ -2369,6 +2378,8 @@ model ObCallback {
   supersedingOutcomeType    String?         @map("superseding_outcome_type")
   supersedingOutcomeId      String?         @map("superseding_outcome_id") @db.Uuid
   supersedingOutcomeVersion Int?            @map("superseding_outcome_version")
+  /// J2.9 follow-up: ความหมายเดียวกับ ObCampaignTarget.originateLeaseExpiresAt
+  originateLeaseExpiresAt   DateTime?       @map("originate_lease_expires_at")
   createdAt                 DateTime        @default(now()) @map("created_at")
   updatedAt                 DateTime        @updatedAt @map("updated_at")
 
@@ -2376,6 +2387,7 @@ model ObCallback {
   contact Contact @relation(fields: [tenantId, contactId], references: [tenantId, id])
 
   @@index([tenantId, contactId, state])
+  @@index([tenantId, state, originateLeaseExpiresAt], map: "ob_callbacks_originate_lease_idx")
   @@map("ob_callbacks")
 }
 
