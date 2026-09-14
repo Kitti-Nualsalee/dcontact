@@ -53,6 +53,10 @@ import {
 } from './agent-workspace-api.js';
 import { JOURNEY_EVENT_INBOX, JourneyEventController } from './journey-event-api.js';
 import {
+  JOURNEY_RECOVERY_DATABASE,
+  JourneyOwnerRecoveryController,
+} from './journey-owner-recovery-api.js';
+import {
   CONTACT_GOVERNANCE_DATABASE,
   ContactGovernanceCallbackRequestsController,
   ContactGovernanceContactQueryController,
@@ -128,6 +132,7 @@ class WorkspaceSessionController {
     QmController,
     AgentWorkspaceController,
     JourneyEventController,
+    JourneyOwnerRecoveryController,
     ContactGovernancePreferencesController,
     ContactGovernanceCallbackRequestsController,
     ContactGovernancePoliciesController,
@@ -157,6 +162,7 @@ class WorkspaceSessionController {
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
     { provide: AGENT_SIP_LEASE_PROVIDER, useValue: configuredAgentSipLeaseProvider() },
     { provide: JOURNEY_EVENT_INBOX, useValue: journeyEventInbox },
+    { provide: JOURNEY_RECOVERY_DATABASE, useValue: prisma },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },
