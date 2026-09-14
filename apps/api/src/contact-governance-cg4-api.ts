@@ -47,7 +47,9 @@ import {
   Cg4PolicyLifecycleRepository,
   Cg4PolicyValidationError,
   Cg4QuorumNotMetError,
+  Cg4RolloutError,
   Cg4SelfApprovalError,
+  GOVERNANCE_MUTATION_FROZEN,
   Cg3IdempotencyConflictError,
   Cg3ResourceNotFoundError,
   Cg3VersionConflictError,
@@ -222,7 +224,14 @@ function requiredFixturePack(value: unknown): Cg4PolicyFixturePack {
   return pack as unknown as Cg4PolicyFixturePack;
 }
 
-function mapCg4Error(error: unknown): never {
+export function mapCg4Error(error: unknown): never {
+  // CG4.10 (#193): freeze ระหว่าง reconcile/forward-fix เป็น conflict ชั่วคราว ไม่ใช่ validation
+  if (error instanceof Cg4RolloutError) {
+    if (error.code === GOVERNANCE_MUTATION_FROZEN || error.code === 'ROLLOUT_VERSION_CONFLICT') {
+      throw new ConflictException({ code: error.code, message: error.message });
+    }
+    throw new UnprocessableEntityException({ code: error.code, message: error.message });
+  }
   if (error instanceof Cg3IdempotencyConflictError) {
     throw new ConflictException({ code: error.code, idempotencyKey: error.idempotencyKey });
   }
