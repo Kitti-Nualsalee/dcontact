@@ -228,7 +228,11 @@ export class JourneySegmentReceiptRepository {
         if (raced.payloadHash !== input.payloadHash) {
           const quarantined = await transaction.jrSegmentReceipt.update({
             where: { id: raced.id },
-            data: { state: 'QUARANTINED', reviewReasonCode: 'EVENT_HASH_CONFLICT' },
+            data: {
+              state: 'QUARANTINED',
+              reviewReasonCode: 'EVENT_HASH_CONFLICT',
+              version: { increment: 1 },
+            },
           });
           return { outcome: 'QUARANTINED' as const, receipt: quarantined };
         }
@@ -267,7 +271,12 @@ export class JourneySegmentReceiptRepository {
       if (!candidate) return undefined;
       return transaction.jrSegmentReceipt.update({
         where: { id: candidate.id },
-        data: { state: 'PROCESSING', leaseOwner: workerId, leaseExpiresAt },
+        data: {
+          state: 'PROCESSING',
+          leaseOwner: workerId,
+          leaseExpiresAt,
+          version: { increment: 1 },
+        },
       });
     });
   }
@@ -474,7 +483,12 @@ export class JourneySegmentReceiptRepository {
        */
       return transaction.jrSegmentRefilterCursor.update({
         where: { id: candidate.id },
-        data: { state: 'REVALIDATING', leaseOwner: workerId, leaseExpiresAt },
+        data: {
+          state: 'REVALIDATING',
+          leaseOwner: workerId,
+          leaseExpiresAt,
+          version: { increment: 1 },
+        },
         include: { receipt: { select: { entryId: true, changeKind: true } } },
       });
     });
@@ -501,6 +515,7 @@ export class JourneySegmentReceiptRepository {
           settledAt: this.now(),
           leaseOwner: null,
           leaseExpiresAt: null,
+          version: { increment: 1 },
         },
       }),
     );
@@ -530,6 +545,7 @@ export class JourneySegmentReceiptRepository {
           availableAt,
           leaseOwner: null,
           leaseExpiresAt: null,
+          version: { increment: 1 },
         },
       }),
     );
@@ -566,6 +582,7 @@ export class JourneySegmentReceiptRepository {
           reviewReasonCode: reasonCode,
           leaseOwner: null,
           leaseExpiresAt: null,
+          version: { increment: 1 },
         },
       }),
     );
@@ -592,6 +609,7 @@ export class JourneySegmentReceiptRepository {
           lastError: reason.slice(0, 1_000),
           leaseOwner: null,
           leaseExpiresAt: null,
+          version: { increment: 1 },
         },
       }),
     );
@@ -653,12 +671,12 @@ export class JourneySegmentReceiptRepository {
       if (pending.membershipRevision <= lastAppliedRevision) {
         await transaction.jrSegmentReceipt.update({
           where: { id: pending.id },
-          data: { state: 'IGNORED_SUPERSEDED' },
+          data: { state: 'IGNORED_SUPERSEDED', version: { increment: 1 } },
         });
       } else if (pending.membershipRevision === lastAppliedRevision + 1) {
         await transaction.jrSegmentReceipt.update({
           where: { id: pending.id },
-          data: { state: 'READY' },
+          data: { state: 'READY', version: { increment: 1 } },
         });
       }
     }
@@ -705,6 +723,7 @@ export class JourneySegmentReceiptRepository {
         appliedAt: this.now(),
         leaseOwner: null,
         leaseExpiresAt: null,
+        version: { increment: 1 },
       },
     });
   }

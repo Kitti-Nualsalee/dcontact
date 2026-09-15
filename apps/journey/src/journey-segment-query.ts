@@ -20,6 +20,7 @@ export interface SegmentReceiptView {
   supersedesRevision: number | null;
   state: string;
   attempts: number;
+  version: number;
   reviewReasonCode: string | null;
   receivedAt: string;
   appliedAt: string | null;
@@ -30,6 +31,7 @@ export interface SegmentRefilterView {
   membershipRevision: number;
   state: string;
   attempts: number;
+  version: number;
   reasonCode: string | null;
   availableAt: string;
   settledAt: string | null;
@@ -102,6 +104,7 @@ export class JourneySegmentQuery {
           supersedesRevision: true,
           state: true,
           attempts: true,
+          version: true,
           reviewReasonCode: true,
           receivedAt: true,
           appliedAt: true,
@@ -116,6 +119,7 @@ export class JourneySegmentQuery {
           membershipRevision: true,
           state: true,
           attempts: true,
+          version: true,
           reasonCode: true,
           availableAt: true,
           settledAt: true,
@@ -172,6 +176,7 @@ export class JourneySegmentQuery {
           supersedesRevision: receipt.supersedesRevision,
           state: receipt.state,
           attempts: receipt.attempts,
+          version: receipt.version,
           reviewReasonCode: receipt.reviewReasonCode,
           receivedAt: receipt.receivedAt.toISOString(),
           appliedAt: receipt.appliedAt?.toISOString() ?? null,
@@ -181,6 +186,7 @@ export class JourneySegmentQuery {
           membershipRevision: cursor.membershipRevision,
           state: cursor.state,
           attempts: cursor.attempts,
+          version: cursor.version,
           reasonCode: cursor.reasonCode,
           availableAt: cursor.availableAt.toISOString(),
           settledAt: cursor.settledAt?.toISOString() ?? null,
