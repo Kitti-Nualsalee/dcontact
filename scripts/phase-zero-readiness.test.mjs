@@ -123,6 +123,35 @@ test('signal/exitCode ของ test file ที่ process ตาย ต้อ�
   assert.match(diagnostic.detail, /diagnostic output truncated/);
 });
 
+test('บรรทัด # Error ของ async activity หลังเทสจบ ต้องรอดจากการ truncate', () => {
+  // รูปนี้คัดมาจาก output จริงของ node --test ที่จำลอง promise reject หลัง test body จบ
+  // เป็นอาการที่เจอบน CI: ตัวเทสรายงาน ok แต่ "ไฟล์" ล้มโดยไม่มีอะไรบอกสาเหตุ
+  const lines = [];
+  for (let i = 1; i <= 60; i += 1) lines.push(`ok ${i} - passing case ${i}`);
+  lines.push('ok 61 - เทสที่ผ่านแต่ทิ้ง async activity ไว้');
+  lines.push(
+    '# Error: Test "เทสที่ผ่านแต่ทิ้ง async activity ไว้" at src/x.integration.ts:3:1 generated' +
+      ' asynchronous activity after the test ended. This activity created the error "Error:' +
+      ' connection closed" and would have caused the test to fail, but instead triggered an' +
+      ' unhandledRejection event.',
+  );
+  lines.push('not ok 61 - src/x.integration.ts');
+  lines.push("  failureType: 'testCodeFailure'");
+  for (let i = 62; i <= 140; i += 1) lines.push(`ok ${i} - passing case ${i}`);
+  lines.push('# tests 140', '# pass 139', '# fail 1');
+
+  const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], () => ({
+    status: 1,
+    stdout: lines.join('\n'),
+    stderr: '',
+  }));
+
+  assert.equal(diagnostic.status, 'FAIL');
+  assert.match(diagnostic.detail, /generated asynchronous activity after the test ended/);
+  assert.match(diagnostic.detail, /connection closed/);
+  assert.match(diagnostic.detail, /diagnostic output truncated/);
+});
+
 test('successful check ไม่สะท้อน child output ที่อาจมี dev credential', () => {
   const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[0], () => ({
     status: 0,

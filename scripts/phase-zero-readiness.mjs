@@ -114,6 +114,13 @@ const DIAGNOSTIC_DETAIL_CHARACTERS = 32_000;
  * มีตัวล้มแต่ไม่บอกว่าตัวไหน — เจอจริงสองรอบติดกันตอนไล่ J2 acceptance จนต้องเดา
  */
 /**
+ * `# Error:` คือบรรทัดเดียวที่บอกว่า test file ล้มเพราะ async activity ที่รอดออกมาหลังเทสจบ
+ *
+ * เมื่อ promise reject หลัง test body จบไปแล้ว node:test จะรายงานตัวเทสว่า ok ตามปกติ แล้วค่อย
+ * ทำให้ "ไฟล์" ล้มด้วย failureType: 'testCodeFailure' กับ error: 'test failed' ซึ่งไม่บอกอะไรเลย
+ * รายละเอียดจริงอยู่ในบรรทัด diagnostic ที่ขึ้นต้นด้วย `# Error: Test "<ชื่อเทส>" at <ไฟล์>:<บรรทัด>
+ * generated asynchronous activity after the test ended...` พร้อมข้อความ error ต้นทาง
+ *
  * exitCode/signal คือบรรทัดเดียวที่แยก "เทสใน assert ไม่ผ่าน" ออกจาก "process ตายทั้งตัว"
  *
  * node:test รายงาน test file ที่ process จบไม่สวยด้วย failureType: 'testCodeFailure' และ
@@ -122,7 +129,7 @@ const DIAGNOSTIC_DETAIL_CHARACTERS = 32_000;
  * truncate จะเหลือแต่ failure ที่ไม่มีสาเหตุ แล้วต้องเดาเอาเองว่า flaky เพราะอะไร
  */
 const FAILURE_LINE_PATTERN =
-  /^\s*(?:not ok\b|# fail\b|error:|failureType:|code: 'ERR_|exitCode:|signal:|AssertionError|\s*at .*\.(?:test|integration)\.ts)/;
+  /^\s*(?:not ok\b|# fail\b|# Error\b|error:|failureType:|code: 'ERR_|exitCode:|signal:|AssertionError|\s*at .*\.(?:test|integration)\.ts)/;
 
 function diagnosticDetail(result) {
   const safe = sanitizeDiagnostic(`${result.stderr ?? ''}\n${result.stdout ?? ''}`);
