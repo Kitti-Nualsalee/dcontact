@@ -200,6 +200,20 @@ export function executeReadinessCheck(check, runner = spawnSync) {
   };
 }
 
+// checks หลายรายการมักอ้างคำสั่งเดิมซ้ำ (เช่น governance test:integration ถูกอ้างจาก
+// หลาย dimension) การรันซ้ำแต่ละครั้งกิน CI time โดยไม่เพิ่ม coverage เพราะผลลัพธ์
+// deterministic ต่อ SHA เดียวกัน — cache ผลตาม command เพื่อรันครั้งเดียวต่อ process
+export function createMemoizedExecuteCheck(execute = executeReadinessCheck) {
+  const cache = new Map();
+  return (check) => {
+    const key = JSON.stringify(check.command);
+    if (cache.has(key)) return cache.get(key);
+    const result = execute(check);
+    cache.set(key, result);
+    return result;
+  };
+}
+
 export function skippedDiagnostic(check, blockedBy) {
   return {
     checkId: check.id,

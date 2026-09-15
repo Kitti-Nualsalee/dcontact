@@ -49,6 +49,11 @@ jobs:
   s1-convergence-acceptance:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # push เข้า main ถี่กว่าเวลารัน S1 (~1 ชม.) ทำให้ run เก่าซ้อนกับ run ใหม่และ fail
+    # ทั้งคู่โดยเปล่าประโยชน์ — ยกเลิก run ที่ยังไม่จบของ SHA เก่าเมื่อมี push ใหม่เข้ามา
+    concurrency:
+      group: s1-convergence-acceptance-${{ github.ref }}
+      cancel-in-progress: true
     env:
       DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
     steps:

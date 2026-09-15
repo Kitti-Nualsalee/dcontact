@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { executeReadinessCheck } from './phase-zero-readiness.mjs';
+import { createMemoizedExecuteCheck, executeReadinessCheck } from './phase-zero-readiness.mjs';
 import { assertPiiSafeEvidence, sha256 } from './cxa-c1-readiness.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -443,7 +443,8 @@ export function runCxaJ2Readiness(options = {}) {
   const startedAt = options.now?.() ?? new Date();
   const context = options.context ?? createEvidenceContext(options.environment ?? process.env);
   const checks = options.checks ?? CXA_J2_READINESS_CHECKS;
-  const executeCheck = options.executeCheck ?? executeReadinessCheck;
+  // check หลายรายการอ้างคำสั่งเดียวกัน — memoize ตาม command กัน CI รันซ้ำโดยไม่เพิ่ม coverage
+  const executeCheck = options.executeCheck ?? createMemoizedExecuteCheck();
   const emit = options.emit ?? ((value) => process.stdout.write(`${JSON.stringify(value)}\n`));
   const diagnostics = checks.map((check) => {
     const diagnostic = executeCompositeCheck(check, executeCheck);
