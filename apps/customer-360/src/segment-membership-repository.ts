@@ -106,7 +106,15 @@ export class C360MembershipRepositoryError extends Error {
       | 'MEMBERSHIP_CONTEXT_STALE'
       | 'IDENTITY_AMBIGUOUS'
       | 'IDENTITY_LINEAGE_CONFLICT'
-      | 'EVALUATION_FAILED',
+      | 'EVALUATION_FAILED'
+      /**
+       * ช่วง revision ที่ขอมีรูโหว่ที่อธิบายด้วย supersession ไม่ได้
+       *
+       * แยกจาก SUPERSEDED โดยเจตนา: SUPERSEDED แปลว่า "เรารู้ว่าอะไรกลืน revision พวกนั้นไป
+       * ให้ไป reconcile จาก head" ซึ่งเป็นคำสัญญาที่ caller เชื่อแล้วข้าม change ที่หายไปได้
+       * ถ้าเราตอบแบบนั้นโดยไม่มีหลักฐาน เท่ากับกลบ data loss ให้ดูเหมือนเหตุการณ์ปกติ
+       */
+      | 'MEMBERSHIP_CHANGE_GAP',
     message: string,
   ) {
     super(message);
@@ -1180,6 +1188,48 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
       if (contiguous) {
         return { status: 'CHANGES', changes: rows.map(payloadFromChange) };
       }
+
+      // ไม่ contiguous ยังบอกไม่ได้ว่า SUPERSEDED — ต้องพิสูจน์ก่อนว่ามี change ใบหลังที่
+      // ประกาศว่ากลืน revision ที่หายไปจริง (supersedesRevision) ไม่งั้นรูโหว่นั้นคือ data
+      // loss ที่เราไม่รู้สาเหตุ และการตอบ SUPERSEDED จะทำให้ caller ข้ามมันไปอย่างสบายใจ
+      const missing: number[] = [];
+      const present = new Set(rows.map((row) => row.membershipRevision));
+      for (
+        let revision = input.afterRevision + 1;
+        revision <= input.throughRevision;
+        revision += 1
+      ) {
+        if (!present.has(revision)) missing.push(revision);
+      }
+
+      const supersedingRows = await transaction.c360SegmentMembershipChange.findMany({
+        where: {
+          tenantId: input.tenantId,
+          contactId: input.contactId,
+          segmentId: input.segmentId,
+          supersedesRevision: { not: null },
+          membershipRevision: { gt: input.afterRevision },
+        },
+        select: { membershipRevision: true, supersedesRevision: true },
+      });
+
+      // change ใบหนึ่งกลืนช่วง [supersedesRevision, membershipRevision] ของตัวเอง
+      const explained = (revision: number) =>
+        supersedingRows.some(
+          (row) =>
+            row.supersedesRevision !== null &&
+            revision >= row.supersedesRevision &&
+            revision <= row.membershipRevision,
+        );
+
+      const unexplained = missing.filter((revision) => !explained(revision));
+      if (unexplained.length > 0) {
+        throw new C360MembershipRepositoryError(
+          'MEMBERSHIP_CHANGE_GAP',
+          `membership change revision ${unexplained.join(', ')} หายไปโดยไม่มี supersession ใดอธิบาย`,
+        );
+      }
+
       return {
         status: 'SUPERSEDED',
         currentRevision: contractMembershipRevision(head.membershipRevision),

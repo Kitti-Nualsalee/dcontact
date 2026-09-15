@@ -453,6 +453,9 @@ enum C360SegmentMembershipOutboxState {
   PENDING
   PUBLISHED
   FAILED
+  /// J3.3 remediation: payload เสียถาวร (validate/hash/envelope ไม่ผ่าน) retry ไปก็ไม่ช่วย
+  /// — terminal state ที่ต้องให้คนเข้ามาดู ไม่ใช่วนอยู่ในคิวเงียบ ๆ
+  QUARANTINED
 }
 
 enum C360MembershipCommandStatus {
@@ -653,6 +656,8 @@ model C360SegmentMembershipOutbox {
   attempts           Int                              @default(0)
   availableAt        DateTime                         @default(now()) @map("available_at")
   publishedAt        DateTime?                        @map("published_at")
+  lastError          String?                          @map("last_error")
+  quarantinedAt      DateTime?                        @map("quarantined_at")
   brokerRef          String?                          @map("broker_ref")
   createdAt          DateTime                         @default(now()) @map("created_at")
 

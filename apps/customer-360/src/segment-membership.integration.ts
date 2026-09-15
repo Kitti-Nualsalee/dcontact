@@ -33,6 +33,15 @@ const APPLICATION_DATABASE_URL =
   process.env.APPLICATION_DATABASE_URL ??
   'postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public';
 
+/**
+ * เวลาที่ caller ใช้ถาม resolveEntry ต้องอยู่ "หลัง" evaluatedAt ของ change เสมอ
+ *
+ * evaluatedAt มาจาก transaction_timestamp() ของ Postgres คือเวลาจริงตอนรันเทส การ hardcode
+ * วันที่ใกล้ ๆ ไว้จึงเป็น time bomb: พอเลยวันนั้นไป at จะน้อยกว่า evaluatedAt แล้ว resolveEntry
+ * คืน STALE ทุกครั้งโดยไม่เกี่ยวกับสิ่งที่เทสตั้งใจตรวจ (เจอจริงตอนวันที่ข้ามไป 15 ก.ย.)
+ */
+const AFTER_EVALUATION = '2099-01-01T00:00:00.000Z';
+
 function segmentDefinition(name = 'ลูกค้า Gold'): C360SegmentDefinitionContentV1 {
   return {
     contractVersion: 1,
@@ -242,7 +251,7 @@ test('membership lifecycle คง entry เดิมระหว่าง correc
     segmentId: contractSegmentId(f.segmentId),
     entryId: segmentEntryId(reentered.entryId!),
     membershipRevision: membershipRevision(4),
-    at: '2026-09-14T00:00:00.000Z',
+    at: AFTER_EVALUATION,
   });
   assert.equal(eligible.status, 'ELIGIBLE');
   const oldEntry = await f.memberships.resolveEntry({
@@ -251,7 +260,7 @@ test('membership lifecycle คง entry เดิมระหว่าง correc
     segmentId: contractSegmentId(f.segmentId),
     entryId: segmentEntryId(entered.entryId!),
     membershipRevision: membershipRevision(1),
-    at: '2026-09-14T00:00:00.000Z',
+    at: AFTER_EVALUATION,
   });
   assert.equal(oldEntry.status, 'STALE');
 
@@ -365,7 +374,7 @@ test('merge/split/unmerge เก็บ lineage และไม่ย้าย pr
         segmentId: contractSegmentId(f.segmentId),
         entryId: segmentEntryId(sourceEntry.entryId!),
         membershipRevision: membershipRevision(1),
-        at: '2026-09-14T00:00:00.000Z',
+        at: AFTER_EVALUATION,
       })
     ).status,
     'NOT_ELIGIBLE',
@@ -529,6 +538,204 @@ test(
     }
   },
 );
+
+test(
+  'readChanges แยก gap ที่ supersession อธิบายได้ ออกจาก gap ที่อธิบายไม่ได้',
+  { timeout: 30_000 },
+  async (t) => {
+    const f = await fixture(t);
+    await snapshot(f, f.contactId, 1, 'GOLD');
+    const first = await f.memberships.commitEvaluation(commitInput(f));
+    await snapshot(f, f.contactId, 2, 'SILVER');
+    const second = await f.memberships.commitEvaluation(
+      commitInput(f, { snapshotVersion: 2, expectedMembershipRevision: first.membershipRevision }),
+    );
+    await snapshot(f, f.contactId, 3, 'GOLD');
+    const third = await f.memberships.commitEvaluation(
+      commitInput(f, { snapshotVersion: 3, expectedMembershipRevision: second.membershipRevision }),
+    );
+
+    // ต่อเนื่องครบ -> CHANGES ตามปกติ
+    const contiguous = await f.memberships.readChanges({
+      tenantId: contractTenantId(f.tenantId),
+      contactId: contractContactId(f.contactId),
+      segmentId: contractSegmentId(f.segmentId),
+      afterRevision: 0,
+      throughRevision: membershipRevision(third.membershipRevision),
+    });
+    assert.equal(contiguous.status, 'CHANGES');
+
+    // เจาะรูตรงกลางโดยไม่มีใครประกาศว่ากลืนมันไป -> ต้องไม่ยอมตอบ SUPERSEDED
+    //
+    // ต้องใช้ owner client เพราะ rls.sql REVOKE UPDATE/DELETE บน change ledger ไว้แล้ว
+    // (ตัว ledger เป็น immutable by design) การจำลอง data loss จึงต้อง bypass ชั้นนั้น
+    // ledger เป็น immutable จริงทั้ง REVOKE และ trigger — ต้องปลด trigger ชั่วคราวเพื่อ
+    // จำลอง data loss ที่ระบบไม่ได้ตั้งใจให้เกิด (นั่นคือประเด็นของเทสนี้พอดี)
+    //
+    // ลงทะเบียนเปิดคืนไว้ก่อนปิดเสมอ: ถ้า assert ตัวไหนพังกลางคัน trigger ต้องไม่ค้าง
+    // สถานะ disabled ทิ้งไว้บน DB ที่เทสตัวอื่นใช้ร่วมกัน
+    const guards: Array<[string, string]> = [
+      ['c360_segment_membership_changes', 'c360_membership_change_immutable'],
+      ['c360_membership_command_receipts', 'c360_membership_receipt_immutable'],
+    ];
+    t.after(async () => {
+      for (const [table, trigger] of guards) {
+        await f.owner.$executeRawUnsafe(`ALTER TABLE ${table} ENABLE TRIGGER ${trigger}`);
+      }
+    });
+    for (const [table, trigger] of guards) {
+      await f.owner.$executeRawUnsafe(`ALTER TABLE ${table} DISABLE TRIGGER ${trigger}`);
+    }
+    // outbox และ command receipt มี FK ชี้มาที่ change row จึงต้องเก็บกวาดก่อน
+    await f.owner.c360MembershipCommandReceipt.deleteMany({
+      where: {
+        tenantId: f.tenantId,
+        contactId: f.contactId,
+        segmentId: f.segmentId,
+        membershipRevision: second.membershipRevision,
+      },
+    });
+    await f.owner.c360SegmentMembershipOutbox.deleteMany({
+      where: {
+        tenantId: f.tenantId,
+        contactId: f.contactId,
+        segmentId: f.segmentId,
+        membershipRevision: second.membershipRevision,
+      },
+    });
+    await f.owner.c360SegmentMembershipChange.deleteMany({
+      where: {
+        tenantId: f.tenantId,
+        contactId: f.contactId,
+        segmentId: f.segmentId,
+        membershipRevision: second.membershipRevision,
+      },
+    });
+
+    await assert.rejects(
+      () =>
+        f.memberships.readChanges({
+          tenantId: contractTenantId(f.tenantId),
+          contactId: contractContactId(f.contactId),
+          segmentId: contractSegmentId(f.segmentId),
+          afterRevision: 0,
+          throughRevision: membershipRevision(third.membershipRevision),
+        }),
+      (error: unknown) =>
+        error instanceof Error && (error as { code?: string }).code === 'MEMBERSHIP_CHANGE_GAP',
+      'gap ที่ไม่มี supersession อธิบาย ต้องไม่ถูกกลบเป็น SUPERSEDED',
+    );
+
+    // พอมี change ใบหลังประกาศว่ากลืน revision ที่หายไป -> SUPERSEDED ได้อย่างมีหลักฐาน
+    await f.owner.c360SegmentMembershipChange.updateMany({
+      where: {
+        tenantId: f.tenantId,
+        contactId: f.contactId,
+        segmentId: f.segmentId,
+        membershipRevision: third.membershipRevision,
+      },
+      data: { supersedesRevision: second.membershipRevision },
+    });
+
+    const superseded = await f.memberships.readChanges({
+      tenantId: contractTenantId(f.tenantId),
+      contactId: contractContactId(f.contactId),
+      segmentId: contractSegmentId(f.segmentId),
+      afterRevision: 0,
+      throughRevision: membershipRevision(third.membershipRevision),
+    });
+    assert.equal(superseded.status, 'SUPERSEDED');
+  },
+);
+
+test('payload ที่เสียถาวรถูก quarantine ไม่ใช่ retry วนไปเรื่อย ๆ', async (t) => {
+  const f = await fixture(t);
+  await snapshot(f, f.contactId, 1, 'GOLD');
+  await f.memberships.commitEvaluation(commitInput(f));
+
+  // ทำให้ payload ไม่ตรงกับ payload_hash ที่ commit ไว้ = corruption ที่ retry ไปก็ไม่หาย
+  await f.owner.$executeRawUnsafe(
+    'ALTER TABLE c360_segment_membership_outbox DISABLE TRIGGER c360_membership_outbox_guard',
+  );
+  t.after(async () => {
+    await f.owner.$executeRawUnsafe(
+      'ALTER TABLE c360_segment_membership_outbox ENABLE TRIGGER c360_membership_outbox_guard',
+    );
+  });
+  const row = await f.owner.c360SegmentMembershipOutbox.findFirstOrThrow({
+    where: { tenantId: f.tenantId },
+  });
+  await f.owner.c360SegmentMembershipOutbox.update({
+    where: { id: row.id },
+    data: { payloadHash: 'a'.repeat(64) },
+  });
+  await f.owner.$executeRawUnsafe(
+    'ALTER TABLE c360_segment_membership_outbox ENABLE TRIGGER c360_membership_outbox_guard',
+  );
+
+  const neverCalled = {
+    async send() {
+      throw new Error('ต้องไม่ publish payload ที่ hash ไม่ตรง');
+    },
+    async disconnect() {},
+  };
+  const relay = new C360SegmentMembershipRelay(f.application, neverCalled as never);
+
+  const attempt = await relay.publishNext(f.tenantId);
+  assert.equal(attempt?.state, 'QUARANTINED');
+
+  const quarantined = await f.owner.c360SegmentMembershipOutbox.findFirstOrThrow({
+    where: { tenantId: f.tenantId, id: row.id },
+  });
+  assert.equal(quarantined.state, 'QUARANTINED');
+  assert.notEqual(quarantined.quarantinedAt, null);
+  assert.match(quarantined.lastError ?? '', /hash/);
+
+  // terminal จริง — รอบถัดไปต้องไม่หยิบขึ้นมา retry อีก
+  assert.equal(await relay.publishNext(f.tenantId), undefined);
+});
+
+test('relay ไม่ส่ง revision ถัดไปก่อน revision ก่อนหน้าของ stream เดียวกัน', async (t) => {
+  const f = await fixture(t);
+  await snapshot(f, f.contactId, 1, 'GOLD');
+  const first = await f.memberships.commitEvaluation(commitInput(f));
+  await snapshot(f, f.contactId, 2, 'SILVER');
+  const second = await f.memberships.commitEvaluation(
+    commitInput(f, { snapshotVersion: 2, expectedMembershipRevision: first.membershipRevision }),
+  );
+
+  // ดันให้ revision แรกยังไม่พร้อมส่ง (จำลอง worker ที่ค้างหรือ backoff อยู่)
+  await f.owner.c360SegmentMembershipOutbox.updateMany({
+    where: { tenantId: f.tenantId, membershipRevision: first.membershipRevision },
+    data: { state: 'FAILED', availableAt: new Date(Date.now() + 60_000) },
+  });
+
+  const sent: number[] = [];
+  const recorder = {
+    async send(_topic: unknown, event: { aggregateVersion: number }) {
+      sent.push(event.aggregateVersion);
+    },
+    async disconnect() {},
+  };
+  const relay = new C360SegmentMembershipRelay(f.application, recorder as never);
+
+  // revision 2 พร้อมส่ง แต่ต้องไม่ถูกหยิบเพราะ revision 1 ยังค้างอยู่
+  assert.equal(await relay.publishNext(f.tenantId), undefined);
+  assert.deepEqual(
+    sent,
+    [],
+    `ต้องไม่ส่ง revision ${second.membershipRevision} ก่อน revision ${first.membershipRevision}`,
+  );
+
+  // พอ revision 1 พร้อม ลำดับก็เดินตามปกติ
+  await f.owner.c360SegmentMembershipOutbox.updateMany({
+    where: { tenantId: f.tenantId, membershipRevision: first.membershipRevision },
+    data: { availableAt: new Date(Date.now() - 1_000) },
+  });
+  await relay.publishNext(f.tenantId);
+  await relay.publishNext(f.tenantId);
+  assert.deepEqual(sent, [first.membershipRevision, second.membershipRevision]);
+});
 
 test('outbox insert ล้มเหลวทำให้ evaluation/change/head rollback ทั้ง transaction', async (t) => {
   const f = await fixture(t);
