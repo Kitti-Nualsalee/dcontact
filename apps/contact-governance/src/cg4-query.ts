@@ -3,7 +3,13 @@ import {
   type Cg4PolicyStatus,
   type PrismaClient,
 } from '@d-contact/db';
-import type { Cg4Digest, Cg4ExceptionRiskTier, Cg4PolicyDiffClass } from '@d-contact/cxa-contracts';
+import type {
+  Cg4Digest,
+  Cg4ExceptionRiskTier,
+  Cg4ExceptionWorkflowState,
+  Cg4PolicyDiffClass,
+  ContactChannel,
+} from '@d-contact/cxa-contracts';
 import { resolveCg4EffectiveState } from './cg4-exception-evaluation.js';
 import {
   redactCg4Actor,
@@ -228,6 +234,177 @@ export async function cg4ContactExceptions(
           etag: exceptionEtag(row.exceptionId, row.revision, row.requestHash),
         };
       });
+  });
+}
+
+// ── Tenant-wide exception queue (additive, #179 decision gap) ───────────────
+
+/**
+ * CG4.9's frozen queries let a checker open one contact at a time, but #180 Variant A
+ * starts from a queue ordered by risk/expiry — so this closes that gap without touching
+ * any existing route, error vocabulary or event.
+ *
+ * `Cg4ExceptionTier` is declared `STANDARD < HIGH < EMERGENCY` in the schema, so Postgres's
+ * native enum ordering already sorts by urgency descending; the tie-break is `expiresAt`
+ * ascending (soonest first) then `exceptionId` for a fully deterministic order.
+ *
+ * The cursor is an opaque, base64-encoded copy of the last returned row's sort key rather
+ * than an offset, so a page boundary survives concurrent inserts/transitions instead of
+ * skipping or repeating rows. `MAX_QUEUE_SCAN` bounds one tenant's PENDING backlog to a
+ * size this synthetic-scale system is designed for; a tenant beyond that needs its own
+ * follow-up, not a deeper scan here.
+ */
+
+const MAX_QUEUE_SCAN = 1_000;
+
+export interface Cg4ExceptionQueueFilter {
+  workflowState?: Cg4ExceptionWorkflowState;
+  riskTier?: Cg4ExceptionRiskTier;
+  channel?: ContactChannel;
+  purpose?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface Cg4ExceptionQueuePage {
+  items: Cg4ExceptionSeriesView[];
+  nextCursor?: string;
+}
+
+export interface Cg4ExceptionQueueCursorKey {
+  tier: Cg4ExceptionRiskTier;
+  expiresAt: string;
+  seriesId: string;
+}
+
+const QUEUE_TIER_RANK: Record<Cg4ExceptionRiskTier, number> = {
+  EMERGENCY: 0,
+  HIGH: 1,
+  STANDARD: 2,
+};
+
+export function encodeQueueCursor(key: Cg4ExceptionQueueCursorKey): string {
+  return Buffer.from(JSON.stringify(key), 'utf8').toString('base64url');
+}
+
+/** A cursor a caller could not have minted (malformed/tampered) is simply ignored — the
+ *  first page is always a safe fallback, never an error that leaks internal shape. */
+export function decodeQueueCursor(
+  cursor: string | undefined,
+): Cg4ExceptionQueueCursorKey | undefined {
+  if (!cursor) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as Cg4ExceptionQueueCursorKey).tier === 'string' &&
+      typeof (parsed as Cg4ExceptionQueueCursorKey).expiresAt === 'string' &&
+      typeof (parsed as Cg4ExceptionQueueCursorKey).seriesId === 'string'
+    ) {
+      return parsed as Cg4ExceptionQueueCursorKey;
+    }
+  } catch {
+    // fall through to undefined
+  }
+  return undefined;
+}
+
+function queueSortKey(row: Cg4ExceptionSeriesView): Cg4ExceptionQueueCursorKey {
+  return { tier: row.riskTier, expiresAt: row.expiresAt, seriesId: row.seriesId };
+}
+
+function afterCursor(row: Cg4ExceptionSeriesView, cursor: Cg4ExceptionQueueCursorKey): boolean {
+  const rank = QUEUE_TIER_RANK[row.riskTier];
+  const cursorRank = QUEUE_TIER_RANK[cursor.tier];
+  if (rank !== cursorRank) return rank > cursorRank;
+  if (row.expiresAt !== cursor.expiresAt) return row.expiresAt > cursor.expiresAt;
+  return row.seriesId > cursor.seriesId;
+}
+
+/**
+ * Tenant-wide PENDING (or any single `workflowState`) queue, sorted by risk then expiry.
+ * `workflowState`/`riskTier`/`channel`/`purpose` are the only filters — never identity or
+ * any other PII-shaped field, so this can never become an identity lookup in disguise.
+ */
+export async function cg4PendingExceptionQueue(
+  database: PrismaClient,
+  context: Cg4QueryContext,
+  filter: Cg4ExceptionQueueFilter = {},
+  now = new Date(),
+): Promise<Cg4ExceptionQueuePage> {
+  const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
+  return withTenantDatabaseTransaction(database, context.tenantId, async (transaction) => {
+    const heads = await transaction.cg4ExceptionHead.findMany({
+      where: {
+        tenantId: context.tenantId,
+        ...(filter.workflowState ? { status: filter.workflowState } : {}),
+      },
+      select: { currentRevisionId: true },
+    });
+    if (heads.length === 0) return { items: [] };
+
+    // head.status (not the revision row's own status) is canonical — the same rule
+    // `cg4ContactExceptions` follows — so filtering narrows to current revisions first and
+    // only riskTier/channel/purpose are pushed into this second, DB-sorted query.
+    const rows = await transaction.cg4Exception.findMany({
+      where: {
+        tenantId: context.tenantId,
+        id: { in: heads.map((head) => head.currentRevisionId) },
+        ...(filter.riskTier ? { tier: filter.riskTier } : {}),
+        ...(filter.channel ? { channel: filter.channel } : {}),
+        ...(filter.purpose ? { purpose: filter.purpose } : {}),
+      },
+      // native enum declaration order (STANDARD < HIGH < EMERGENCY) makes `desc` most-urgent-first
+      orderBy: [{ tier: 'desc' }, { expiresAt: 'asc' }, { exceptionId: 'asc' }],
+      take: MAX_QUEUE_SCAN,
+    });
+    if (rows.length === 0) return { items: [] };
+
+    const headByRevisionId = new Map(
+      (
+        await transaction.cg4ExceptionHead.findMany({
+          where: { tenantId: context.tenantId, currentRevisionId: { in: rows.map((r) => r.id) } },
+        })
+      ).map((head) => [head.currentRevisionId, head]),
+    );
+    const contactHeads = await transaction.cg4ContactExceptionHead.findMany({
+      where: {
+        tenantId: context.tenantId,
+        contactId: { in: [...new Set(rows.map((r) => r.contactId))] },
+      },
+      select: { contactId: true, aggregateVersion: true },
+    });
+    const aggregateVersionByContact = new Map(
+      contactHeads.map((head) => [head.contactId, head.aggregateVersion]),
+    );
+
+    const sorted = rows
+      .filter((row) => headByRevisionId.has(row.id))
+      .map((row) => {
+        const head = headByRevisionId.get(row.id)!;
+        return {
+          ...exceptionRevisionView(row, context.level),
+          workflowState: head.status,
+          aggregateVersion: aggregateVersionByContact.get(row.contactId) ?? 0,
+          effectiveState: resolveCg4EffectiveState({
+            workflowState: head.status as Cg4ExceptionWorkflowState,
+            startsAt: row.startsAt,
+            expiresAt: row.expiresAt,
+            now,
+          }),
+          etag: exceptionEtag(row.exceptionId, row.revision, row.requestHash),
+        } satisfies Cg4ExceptionSeriesView;
+      });
+
+    const cursor = decodeQueueCursor(filter.cursor);
+    const afterPage = cursor ? sorted.filter((row) => afterCursor(row, cursor)) : sorted;
+    const items = afterPage.slice(0, limit);
+    const hasMore = afterPage.length > limit;
+    return {
+      items,
+      ...(hasMore ? { nextCursor: encodeQueueCursor(queueSortKey(items.at(-1)!)) } : {}),
+    };
   });
 }
 

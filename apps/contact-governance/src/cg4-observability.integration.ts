@@ -370,6 +370,13 @@ async function observedTenant(t: TestContext) {
     where: { tenantId: tenant, eventType: 'policy.changed' },
     orderBy: { createdAt: 'asc' },
   });
+  // cg_event_outbox.created_at เป็น @default(now()) ของ Postgres เอง — ไม่ผูกกับ fake clock
+  // ของ fixture นี้เลย ต้อง backdate เองให้ age เทียบกับ T0 คงที่ ไม่งั้น GOVERNANCE_OUTBOX_LAG
+  // จะ flaky ตามวันจริงที่รันเทสต์ (อายุจะกลายเป็นค่าติดลบที่ถูก clamp เป็น 0 เมื่อเวลาจริงเดินผ่าน T0)
+  await owner.cgEventOutbox.updateMany({
+    where: { tenantId: tenant, publishedAt: null },
+    data: { createdAt: new Date(T0.getTime() - 600_000) },
+  });
   await owner.cgConsumerInbox.create({
     data: {
       tenantId: tenant,

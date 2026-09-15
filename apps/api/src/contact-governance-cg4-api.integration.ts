@@ -1040,3 +1040,95 @@ test('CG4.11: observability คืน snapshot/alerts/metrics ของ tenant �
     assert.equal(serialized.includes(value), false, value);
   }
 });
+
+// ---- CG4.11+: tenant-wide exception queue (#179 decision gap) -------------
+
+async function seedQueueSeries(
+  tenant: TenantFixture,
+  overrides: { tier?: string; expiresAt?: string; status?: string } = {},
+): Promise<string> {
+  const exceptionId = randomUUID();
+  const revisionId = randomUUID();
+  const status = overrides.status ?? 'PENDING';
+  await owner.cg4Exception.create({
+    data: {
+      id: revisionId,
+      tenantId: tenant.tenantId,
+      exceptionId,
+      revision: 1,
+      contactId: tenant.contactId,
+      scopeKind: 'CONTACT_WIDE',
+      channel: 'VOICE',
+      purpose: 'SERVICE_NOTIFICATION',
+      sourceType: 'DIALER',
+      sourceId: 'source-queue',
+      allowedRuleCodes: ['QUIET_HOURS'],
+      policyId: tenant.policyId,
+      policyVersion: 1,
+      policyContentDigest: DIGEST,
+      registryVersion: 'CG4_RULE_REGISTRY_V1',
+      startsAt: new Date('2026-09-01T00:00:00.000Z'),
+      expiresAt: new Date(overrides.expiresAt ?? '2026-09-20T00:00:00.000Z'),
+      tier: (overrides.tier ?? 'STANDARD') as never,
+      status: status as never,
+      reasonCode: 'OPERATIONAL',
+      evidenceRef: 'evidence:queue',
+      actorRef: 'maker-queue',
+      requestHash: randomUUID().replaceAll('-', '').padEnd(64, '0'),
+    },
+  });
+  await owner.cg4ExceptionHead.create({
+    data: {
+      id: randomUUID(),
+      tenantId: tenant.tenantId,
+      exceptionId,
+      currentRevisionId: revisionId,
+      currentRevision: 1,
+      status: status as never,
+    },
+  });
+  return exceptionId;
+}
+
+test('CG4.11+: GET /exceptions เป็นคิวระดับ tenant, cross-tenant คือว่างเปล่าไม่ใช่ 403, บันทึก evidence access ต่อรายการ', async (t) => {
+  const f = await fixture(t);
+  const mine = await seedQueueSeries(f.primary, { tier: 'EMERGENCY' });
+  await seedQueueSeries(f.other, { tier: 'EMERGENCY' });
+
+  const mineOnly = await expectJson<{ items: Array<{ seriesId: string }> }>(
+    await get(`${f.base}/exceptions`, 'checker-token'),
+    200,
+  );
+  assert.deepEqual(
+    mineOnly.items.map((item) => item.seriesId),
+    [mine],
+  );
+  assert.ok(
+    f.evidenceReads.some((read) => read.resourceKind === 'EXCEPTION' && read.level === 'EVIDENCE'),
+  );
+
+  // tenant อื่นเห็นเฉพาะของตัวเอง (ว่างเปล่าถ้าไม่มี ไม่ใช่ 403 หรือเห็นของ tenant เรา)
+  const otherView = await expectJson<{ items: Array<{ seriesId: string }> }>(
+    await get(`${f.base}/exceptions`, 'other-maker-token'),
+    200,
+  );
+  assert.equal(
+    otherView.items.some((item) => item.seriesId === mine),
+    false,
+  );
+});
+
+test('CG4.11+: GET /exceptions ปฏิเสธ filter ที่ผิดชนิดและ limit นอกช่วง', async (t) => {
+  const f = await fixture(t);
+  for (const query of [
+    'riskTier=URGENT',
+    'workflowState=DONE',
+    'channel=SMS',
+    'limit=0',
+    'limit=201',
+  ]) {
+    const response = await get(`${f.base}/exceptions?${query}`, 'checker-token');
+    assert.equal(response.status, 400, query);
+    assert.equal(((await response.json()) as { code: string }).code, 'VALIDATION_FAILED');
+  }
+});
