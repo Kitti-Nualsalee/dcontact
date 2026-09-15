@@ -26,6 +26,7 @@ import type {
   Cg4AuthorizationSubject,
   Cg4Capability,
   Cg4ExceptionRiskTier,
+  Cg4ExceptionWorkflowState,
   Cg4SourceType,
   ContactChannel,
 } from '@d-contact/cxa-contracts';
@@ -63,6 +64,7 @@ import {
   cg4ExceptionBySeriesId,
   cg4ExceptionHistory,
   cg4ExceptionMakerSubjectId,
+  cg4PendingExceptionQueue,
   cg4KillSwitches,
   cg4PolicyApprovals,
   cg4PolicyMakerSubjectId,
@@ -155,6 +157,49 @@ const SOURCE_TYPES = new Set([
   'EXTERNAL',
 ]);
 const RISK_TIERS = new Set(['STANDARD', 'HIGH', 'EMERGENCY']);
+const WORKFLOW_STATES = new Set(['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'REVOKED']);
+
+function optionalChannel(value: unknown): ContactChannel | undefined {
+  if (value === undefined) return undefined;
+  const raw = requiredString(value, 'channel', 32);
+  if (!CONTACT_CHANNELS.has(raw)) {
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'channel ไม่ถูกต้อง' });
+  }
+  return raw as ContactChannel;
+}
+
+function optionalRiskTier(value: unknown): Cg4ExceptionRiskTier | undefined {
+  if (value === undefined) return undefined;
+  const raw = requiredString(value, 'riskTier', 16);
+  if (!RISK_TIERS.has(raw)) {
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'riskTier ไม่ถูกต้อง' });
+  }
+  return raw as Cg4ExceptionRiskTier;
+}
+
+function optionalWorkflowState(value: unknown): Cg4ExceptionWorkflowState | undefined {
+  if (value === undefined) return undefined;
+  const raw = requiredString(value, 'workflowState', 16);
+  if (!WORKFLOW_STATES.has(raw)) {
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      message: 'workflowState ไม่ถูกต้อง',
+    });
+  }
+  return raw as Cg4ExceptionWorkflowState;
+}
+
+function optionalLimit(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 200) {
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      message: 'limit ต้องอยู่ระหว่าง 1-200',
+    });
+  }
+  return parsed;
+}
 
 function requiredChannel(value: unknown): ContactChannel {
   const raw = requiredString(value, 'channel', 32);
@@ -656,6 +701,42 @@ export class ContactGovernanceCg4ExceptionController extends Cg4ControllerBase {
     @Body() payload: unknown,
   ) {
     return this.transition(request, seriesId, payload, 'REVOKE');
+  }
+
+  /**
+   * Tenant-wide queue (#179 decision gap): additive, read-only, sorted by risk/expiry so a
+   * checker sees everything in their responsibility instead of opening one contact at a
+   * time. Filters are limited to workflowState/riskTier/channel/purpose on purpose — never
+   * identity or any other PII-shaped field.
+   */
+  @Get()
+  @GatewayRoles('admin', 'compliance')
+  async queue(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Query('workflowState') workflowState: string,
+    @Query('riskTier') riskTier: string,
+    @Query('channel') channel: string,
+    @Query('purpose') purpose: string,
+    @Query('limit') limit: string,
+    @Query('cursor') cursor: string,
+  ) {
+    const actor = await this.actor(request);
+    const page = await cg4PendingExceptionQueue(this.database, this.queryContext(actor), {
+      workflowState: optionalWorkflowState(workflowState),
+      riskTier: optionalRiskTier(riskTier),
+      channel: optionalChannel(channel),
+      purpose: purpose === undefined ? undefined : requiredString(purpose, 'purpose'),
+      limit: optionalLimit(limit),
+      cursor: cursor === undefined ? undefined : requiredString(cursor, 'cursor', 4096),
+    });
+    // Evidence-level fields (ticket/evidence/actor) are already resolved per item inside
+    // the view, so each item viewed at that level is its own auditable access — the same
+    // fact the single-contact listing records, just once per series here instead of once
+    // per contact.
+    for (const item of page.items) {
+      await this.auditEvidence(actor, 'EXCEPTION', item.seriesId);
+    }
+    return page;
   }
 
   @Get(':seriesId')
