@@ -113,8 +113,16 @@ const DIAGNOSTIC_DETAIL_CHARACTERS = 32_000;
  * test ที่ล้มไปอยู่กลาง output พอดี แล้วโดนตัดทิ้ง เหลือแต่ `# fail 1` ท้ายสุดซึ่งบอกว่า
  * มีตัวล้มแต่ไม่บอกว่าตัวไหน — เจอจริงสองรอบติดกันตอนไล่ J2 acceptance จนต้องเดา
  */
+/**
+ * exitCode/signal คือบรรทัดเดียวที่แยก "เทสใน assert ไม่ผ่าน" ออกจาก "process ตายทั้งตัว"
+ *
+ * node:test รายงาน test file ที่ process จบไม่สวยด้วย failureType: 'testCodeFailure' และ
+ * error: 'test failed' เหมือนกันหมด รายละเอียดที่บอกสาเหตุจริงอยู่ที่ signal: (เช่น SIGSEGV
+ * ของ Prisma engine ตอน memory พร่อง) หรือ exitCode: เท่านั้น ถ้าไม่เก็บสองบรรทัดนี้ไว้ตอน
+ * truncate จะเหลือแต่ failure ที่ไม่มีสาเหตุ แล้วต้องเดาเอาเองว่า flaky เพราะอะไร
+ */
 const FAILURE_LINE_PATTERN =
-  /^\s*(?:not ok\b|# fail\b|error:|failureType:|code: 'ERR_|AssertionError|\s*at .*\.(?:test|integration)\.ts)/;
+  /^\s*(?:not ok\b|# fail\b|error:|failureType:|code: 'ERR_|exitCode:|signal:|AssertionError|\s*at .*\.(?:test|integration)\.ts)/;
 
 function diagnosticDetail(result) {
   const safe = sanitizeDiagnostic(`${result.stderr ?? ''}\n${result.stdout ?? ''}`);
