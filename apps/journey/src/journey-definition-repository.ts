@@ -245,6 +245,33 @@ export class JourneyDefinitionRepository {
         throw new JourneyDefinitionValidationError(['OWNER_TEAM_UNTRUSTED']);
       }
 
+      /**
+       * J3.4 (#215): SEGMENT_ENTRY ต้องอ้าง segment ที่ publish อยู่จริงใน tenant นี้
+       *
+       * ตรวจที่ publish ไม่ใช่ที่ runtime เพราะ definition ที่ publish แล้วเป็น immutable —
+       * ปล่อยให้ publish สำเร็จด้วย segmentId ที่พิมพ์ผิดหรือเป็นของ tenant อื่น จะได้เวอร์ชัน
+       * ที่ไม่มีวันถูก trigger เลยโดยไม่มีอะไรบอก
+       *
+       * currentVersion ต้องไม่เป็น null คือ segment นั้นต้องมีเวอร์ชันที่ publish แล้ว ไม่ใช่
+       * แค่ DRAFT — ผูก Journey เข้ากับ segment ที่ยังไม่ประกาศใช้ก็ได้ผลเดียวกันคือไม่มีวันยิง
+       *
+       * นี่เป็น config-time reference check ไม่ใช่ runtime authorization: การตัดสินว่า contact
+       * ใดอยู่ใน segment จริงยังเป็นของ Customer 360 ที่ runtime เท่านั้น (stop condition #215)
+       */
+      if (content.trigger.kind === 'SEGMENT_ENTRY') {
+        const segment = await transaction.c360SegmentDefinitionHead.findFirst({
+          where: {
+            tenantId: input.tenantId,
+            segmentId: content.trigger.segmentId,
+            currentVersion: { not: null },
+          },
+          select: { segmentId: true },
+        });
+        if (!segment) {
+          throw new JourneyDefinitionValidationError(['SEGMENT_REFERENCE_UNTRUSTED']);
+        }
+      }
+
       if (content.trigger.kind === 'INTERACTION_OUTCOME') {
         const entryStep = content.graph.steps.find((step) => step.id === content.graph.entryStepId);
         const targetOwnerTeamId =
