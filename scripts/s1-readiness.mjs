@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertPiiSafeEvidence, sha256 } from './cxa-c1-readiness.mjs';
-import { executeReadinessCheck } from './phase-zero-readiness.mjs';
+import { createMemoizedExecuteCheck, executeReadinessCheck } from './phase-zero-readiness.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -277,7 +277,9 @@ function executeCompositeCheck(check, execute) {
 
 export function runS1Readiness(options = {}) {
   const context = options.context ?? createS1Context(options.environment ?? process.env);
-  const execute = options.executeCheck ?? executeReadinessCheck;
+  // check หลายรายการอ้างคำสั่งเดียวกัน (เช่น governance test:integration ถูกอ้างจาก
+  // F01/F02/RT01/ID01/CC01) — memoize ตาม command กัน CI รันซ้ำโดยไม่เพิ่ม coverage
+  const execute = options.executeCheck ?? createMemoizedExecuteCheck();
   const startedAt = options.now?.() ?? new Date();
   const diagnostics = S1_READINESS_CHECKS.map((item) => executeCompositeCheck(item, execute));
   const summary = s1Summary(context, diagnostics, startedAt);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   PHASE_ZERO_READINESS_CHECKS,
+  createMemoizedExecuteCheck,
   executeReadinessCheck,
   sanitizeDiagnostic,
   skippedDiagnostic,
@@ -155,4 +156,34 @@ test('downstream check แสดง blocker เมื่อ prerequisite ล้�
     { status: diagnostic.status, blockedBy: diagnostic.blockedBy },
     { status: 'SKIP', blockedBy: 'database-baseline' },
   );
+});
+
+test('memoized executor รันคำสั่งซ้ำแค่ครั้งเดียวต่อ process แต่ผลลัพธ์ยังตรงกับคำสั่งนั้น', () => {
+  let calls = 0;
+  const execute = (check) => {
+    calls += 1;
+    return { status: 'PASS', durationMs: 1, command: check.command };
+  };
+  const memoized = createMemoizedExecuteCheck(execute);
+
+  const first = memoized({ command: ['pnpm', 'a'] });
+  const second = memoized({ command: ['pnpm', 'a'] });
+  const third = memoized({ command: ['pnpm', 'b'] });
+
+  assert.equal(calls, 2);
+  assert.deepEqual(first, second);
+  assert.notDeepEqual(first, third);
+});
+
+test('memoized executor ไม่แชร์ cache กันข้าม instance', () => {
+  let calls = 0;
+  const execute = (check) => {
+    calls += 1;
+    return { status: 'PASS', command: check.command };
+  };
+
+  createMemoizedExecuteCheck(execute)({ command: ['pnpm', 'a'] });
+  createMemoizedExecuteCheck(execute)({ command: ['pnpm', 'a'] });
+
+  assert.equal(calls, 2);
 });
