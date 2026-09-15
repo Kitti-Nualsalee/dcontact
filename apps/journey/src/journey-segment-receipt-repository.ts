@@ -14,6 +14,7 @@ import {
   Prisma,
   type JrSegmentReceipt,
   type JrSegmentReceiptState,
+  type JrSegmentRefilterCursor,
   type PrismaClient,
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
@@ -107,6 +108,11 @@ export interface SegmentOutboxEventInput {
   payload: Record<string, unknown>;
   payloadHash: string;
 }
+
+/** cursor ที่เคลมมาแล้วพร้อม receipt ต้นทาง — อ่านมาในทรานแซกชันเดียวกันเพื่อไม่หลุด RLS context */
+export type ClaimedRefilterCursor = JrSegmentRefilterCursor & {
+  receipt: { entryId: string | null; changeKind: string };
+};
 
 function streamLockKey(tenantId: string, contactId: string, segmentId: string): string {
   return `jr-segment-stream:${tenantId}:${contactId}:${segmentId}`;
@@ -408,6 +414,102 @@ export class JourneySegmentReceiptRepository {
       await this.advanceHead(transaction, receipt);
       return this.markApplied(transaction, receipt.id);
     });
+  }
+
+  /**
+   * เคลมงาน re-filter หนึ่งใบด้วย lease/CAS
+   *
+   * รวม REVALIDATING ที่ lease หมดอายุกลับเข้าคิว และ DEFERRED/HELD ที่ถึงเวลาลองใหม่แล้ว
+   * — งานที่ถูกกันไว้ต้องมีวันกลับมาเสมอ ไม่งั้น contact จะค้างอยู่กับสถานะที่ไม่มีใครตามต่อ
+   */
+  async claimNextRefilter(
+    tenantId: string,
+    workerId: string,
+    leaseSeconds = 30,
+  ): Promise<ClaimedRefilterCursor | undefined> {
+    const now = this.now();
+    const leaseExpiresAt = new Date(now.getTime() + leaseSeconds * 1_000);
+    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      const candidates = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM jr_segment_refilter_cursors
+        WHERE tenant_id = ${tenantId}::uuid
+          AND (
+            (state IN ('PENDING', 'DEFERRED', 'HELD', 'RECONCILING') AND available_at <= ${now})
+            OR (state = 'REVALIDATING' AND lease_expires_at <= ${now})
+          )
+        ORDER BY available_at, membership_revision
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      `);
+      const candidate = candidates[0];
+      if (!candidate) return undefined;
+      /**
+       * ดึง receipt มาด้วยในคำสั่งเดียว — การอ่านทีหลังนอก transaction นี้จะหลุดจาก tenant
+       * context ที่ RLS ใช้ (`current_setting('app.tenant_id')` กลายเป็นสตริงว่างแล้ว cast
+       * เป็น uuid ไม่ได้) และการเปิด transaction ใหม่ก็เปิดช่องให้ข้อมูลเปลี่ยนคั่นกลาง
+       */
+      return transaction.jrSegmentRefilterCursor.update({
+        where: { id: candidate.id },
+        data: { state: 'REVALIDATING', leaseOwner: workerId, leaseExpiresAt },
+        include: { receipt: { select: { entryId: true, changeKind: true } } },
+      });
+    });
+  }
+
+  /**
+   * ปิดงาน re-filter ที่ตัดสินได้แล้ว — NO_OP กับ CANCELLED เท่านั้นที่เป็นปลายทาง
+   *
+   * CHECK constraint ของ #216 บังคับว่า settledAt ต้องมีเฉพาะสองสถานะนี้ ที่นี่จึงตั้งให้
+   * สอดคล้องกันแทนที่จะปล่อยให้ caller เดาเอง
+   */
+  async settleRefilter(
+    tenantId: string,
+    cursorId: string,
+    state: 'NO_OP' | 'CANCELLED',
+    reasonCode: string,
+  ): Promise<JrSegmentRefilterCursor> {
+    return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.jrSegmentRefilterCursor.update({
+        where: { id: cursorId },
+        data: {
+          state,
+          reasonCode,
+          settledAt: this.now(),
+          leaseOwner: null,
+          leaseExpiresAt: null,
+        },
+      }),
+    );
+  }
+
+  /**
+   * พักงาน re-filter ไว้ก่อนโดยยังไม่ปิด — ปล่อย lease และเลื่อนเวลาลองใหม่เสมอ
+   *
+   * DEFERRED ใช้เมื่อ context ยังไม่พร้อม, HELD เมื่อมีงานฝั่ง owner ค้างอยู่, RECONCILING
+   * เมื่อรอ canonical fact ใบใหม่จาก Customer 360 ทั้งสามต้องกลับมาเองได้ ไม่ใช่รอคนมากด
+   */
+  async holdRefilter(
+    tenantId: string,
+    cursorId: string,
+    state: 'DEFERRED' | 'HELD' | 'RECONCILING',
+    reasonCode: string,
+    backoffMs: number,
+  ): Promise<JrSegmentRefilterCursor> {
+    const availableAt = new Date(this.now().getTime() + backoffMs);
+    return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.jrSegmentRefilterCursor.update({
+        where: { id: cursorId },
+        data: {
+          state,
+          reasonCode,
+          attempts: { increment: 1 },
+          availableAt,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+        },
+      }),
+    );
   }
 
   async markReview(
