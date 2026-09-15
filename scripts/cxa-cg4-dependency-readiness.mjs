@@ -10,6 +10,19 @@ export const CG3_MARKER = 'CONTACT_GOVERNANCE_CG3_ACCEPTED';
 export const J2_MARKER = 'JOURNEY_J2_ACCEPTED';
 
 /**
+ * regression ของ `CG4-REG01` ที่ S1 รันอยู่แล้วใน `S1-REG-01` บน SHA เดียวกัน — CG4 ไม่รันซ้ำเอง
+ * แต่ต้องพิสูจน์จาก S1 manifest ว่าทุกคำสั่ง PASS จริง (subcheck ที่ไม่ได้รันเพราะตัวก่อนหน้าล้มถือว่า MISSING)
+ */
+export const S1_REGRESSION_SCRIPTS = Object.freeze([
+  'build',
+  'typecheck',
+  'lint',
+  'cxa:e0:acceptance',
+  'cxa:c1:acceptance',
+  'voice:acceptance',
+]);
+
+/**
  * CG4-REG01 (#178): dependency marker บน SHA เดียวกัน — S1 ต้องถูก rerun ใน workflow เดียวกันจนออก
  * `CONTACT_GOVERNANCE_CG3_ACCEPTED`; J2 marker ไม่เป็น prerequisite แต่ถ้ามีบน SHA เดียวกันให้บันทึก
  * `ACCEPTED_SAME_SHA` ไม่งั้นเป็น `CONTRACT_COMPATIBLE` ซึ่ง targeted conformance ของ CG4-REG02 พิสูจน์
@@ -27,6 +40,17 @@ function git(arguments_) {
 function readManifest(path) {
   if (!existsSync(path)) return undefined;
   return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+export function s1RegressionStatus(s1) {
+  const regression = s1?.checks?.find((item) => item.id === 'S1-REG-01');
+  return Object.fromEntries(
+    S1_REGRESSION_SCRIPTS.map((script) => [
+      script,
+      regression?.subchecks?.find((subcheck) => subcheck.command?.at(-1) === script)?.status ??
+        'MISSING',
+    ]),
+  );
 }
 
 export function cxaCg4DependencySummary(options = {}) {
@@ -48,16 +72,21 @@ export function cxaCg4DependencySummary(options = {}) {
   const s1 = options.s1Manifest ?? readManifest(s1Path);
   const j2 = options.j2Manifest ?? readManifest(j2Path);
 
-  const cg3SameSha =
-    s1 !== undefined &&
-    s1.commitSha === commitSha &&
-    s1.finalMainSha === commitSha &&
-    (s1.markers ?? []).includes(CG3_MARKER);
+  const sameSha = s1 !== undefined && s1.commitSha === commitSha && s1.finalMainSha === commitSha;
+  const cg3SameSha = sameSha && (s1.markers ?? []).includes(CG3_MARKER);
+  const s1Regression = s1RegressionStatus(sameSha ? s1 : undefined);
+  const regressionPassed = Object.values(s1Regression).every((status) => status === 'PASS');
 
   if (finalMain && !cg3SameSha) {
     throw new Error(
       `CG4 acceptance ต้องมี ${CG3_MARKER} จาก S1 manifest บน SHA เดียวกัน (${s1 ? 'marker/SHA ไม่ตรง' : 'ไม่พบ manifest'})`,
     );
+  }
+  if (finalMain && !regressionPassed) {
+    const failed = Object.entries(s1Regression)
+      .filter(([, status]) => status !== 'PASS')
+      .map(([script, status]) => `${script}=${status}`);
+    throw new Error(`CG4-REG01 ต้องมี regression ของ S1-REG-01 PASS ครบ: ${failed.join(', ')}`);
   }
   const j2SameSha =
     j2 !== undefined && j2.commitSha === commitSha && (j2.markers ?? []).includes(J2_MARKER);
@@ -70,6 +99,7 @@ export function cxaCg4DependencySummary(options = {}) {
     cg3: cg3SameSha ? 'INTEGRATED_SAME_SHA' : 'CANDIDATE_NOT_FINAL_MAIN',
     cg3Marker: cg3SameSha ? CG3_MARKER : null,
     s1ManifestSha256: s1 ? sha256(s1) : null,
+    s1Regression,
     j2: j2SameSha ? 'ACCEPTED_SAME_SHA' : 'CONTRACT_COMPATIBLE',
     j2ManifestSha256: j2SameSha ? sha256(j2) : null,
   };
