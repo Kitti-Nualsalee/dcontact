@@ -842,3 +842,73 @@ test('outbox insert ล้มเหลวทำให้ evaluation/change/head 
     0,
   );
 });
+
+test('merge chain ย้าย canonical ของ contact ที่ถูก merge ไว้ก่อนหน้าและ re-evaluate ให้ครบ', async (t) => {
+  const f = await fixture(t);
+  await snapshot(f, f.contactId, 1, 'GOLD');
+  await f.memberships.commitEvaluation(commitInput(f));
+
+  // A -> B
+  const first = await f.memberships.recordIdentityTransition({
+    tenantId: f.tenantId,
+    commandId: `command:merge:${randomUUID()}`,
+    operation: 'MERGE',
+    sourceContactId: f.contactId,
+    targetContactId: f.targetContactId,
+    expectedSourceLineageRevision: 0,
+    correlationId: `correlation:${randomUUID()}`,
+  });
+
+  // B -> C : A ถูก merge ไว้ใต้ B อยู่แล้ว canonical ของ A จึงต้องตามไป C ด้วย
+  const second = await f.memberships.recordIdentityTransition({
+    tenantId: f.tenantId,
+    commandId: `command:merge:${randomUUID()}`,
+    operation: 'MERGE',
+    sourceContactId: f.targetContactId,
+    targetContactId: f.thirdContactId,
+    expectedSourceLineageRevision: 0,
+    correlationId: `correlation:${randomUUID()}`,
+  });
+
+  const heads = new Map(
+    (await f.owner.c360IdentityHead.findMany({ where: { tenantId: f.tenantId } })).map((head) => [
+      head.contactId,
+      head,
+    ]),
+  );
+  assert.equal(
+    heads.get(f.contactId)?.canonicalContactId,
+    f.thirdContactId,
+    'canonical ของ A ต้องชี้ไป C ไม่ใช่ B ที่ไม่ได้เป็น canonical แล้ว',
+  );
+  assert.equal(heads.get(f.contactId)?.state, 'MERGED');
+  assert.ok(
+    (heads.get(f.contactId)?.lineageRevision ?? 0) > first.lineageRevision,
+    'A ต้องได้ lineage revision ใหม่เมื่อ canonical เปลี่ยน',
+  );
+
+  // owner re-evaluation: membership ของ A ต้องถูกแจ้ง ไม่ใช่เงียบไว้กับ owner เดิม
+  assert.ok(
+    second.invalidatedChanges.some((change) => change.contactId === f.contactId),
+    'merge รอบสองต้อง re-evaluate membership ของ A ที่ย้าย canonical ตามไปด้วย',
+  );
+
+  // ย้อน B ออกจาก C : A เคยถูก merge เข้า B จึงต้องกลับไปอยู่ใต้ B ตามเดิม
+  await f.memberships.recordIdentityTransition({
+    tenantId: f.tenantId,
+    commandId: `command:unmerge:${randomUUID()}`,
+    operation: 'UNMERGE',
+    sourceContactId: f.targetContactId,
+    targetContactId: f.thirdContactId,
+    expectedSourceLineageRevision: second.lineageRevision,
+    correlationId: `correlation:${randomUUID()}`,
+  });
+  const afterUnmerge = await f.owner.c360IdentityHead.findFirstOrThrow({
+    where: { tenantId: f.tenantId, contactId: f.contactId },
+  });
+  assert.equal(
+    afterUnmerge.canonicalContactId,
+    f.targetContactId,
+    'A ต้องกลับไปอยู่ใต้ B ที่เคย merge มันไว้ ไม่ใช่ค้างอยู่ที่ C',
+  );
+});

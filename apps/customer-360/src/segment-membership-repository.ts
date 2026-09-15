@@ -1055,16 +1055,29 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
         });
       }
 
-      const affected =
-        input.operation === 'MERGE'
-          ? [
-              { contactId: input.sourceContactId, kind: 'IDENTITY_INVALIDATED' as const },
-              { contactId: input.targetContactId, kind: 'REFILTER_REQUIRED' as const },
-            ]
-          : [
-              { contactId: input.sourceContactId, kind: 'IDENTITY_INVALIDATED' as const },
-              { contactId: input.targetContactId, kind: 'IDENTITY_INVALIDATED' as const },
-            ];
+      const repointed = await this.repointMergeChain(transaction, input);
+
+      const affected: Array<{
+        contactId: string;
+        kind: 'REFILTER_REQUIRED' | 'IDENTITY_INVALIDATED';
+        revision: number;
+      }> = [
+        {
+          contactId: input.sourceContactId,
+          kind: 'IDENTITY_INVALIDATED',
+          revision: sourceRevision,
+        },
+        {
+          contactId: input.targetContactId,
+          kind: input.operation === 'MERGE' ? 'REFILTER_REQUIRED' : 'IDENTITY_INVALIDATED',
+          revision: targetRevision,
+        },
+        ...repointed.map((entry) => ({
+          contactId: entry.contactId,
+          kind: 'IDENTITY_INVALIDATED' as const,
+          revision: entry.revision,
+        })),
+      ];
       const invalidatedChanges: SegmentMembershipChangePayloadV1[] = [];
       for (const affectedContact of affected.sort((left, right) =>
         left.contactId < right.contactId ? -1 : left.contactId > right.contactId ? 1 : 0,
@@ -1073,8 +1086,7 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
           where: { tenantId: input.tenantId, contactId: affectedContact.contactId },
           orderBy: { segmentId: 'asc' },
         });
-        const revision =
-          affectedContact.contactId === input.sourceContactId ? sourceRevision : targetRevision;
+        const revision = affectedContact.revision;
         for (const head of heads) {
           invalidatedChanges.push(
             await this.persistIdentityInvalidation(
@@ -1098,6 +1110,88 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
         stateDigest: lineage.stateDigest,
       };
     });
+  }
+
+  /**
+   * ย้าย canonical ของ contact ที่ถูก merge ไว้ใต้ contact ที่กำลังเปลี่ยนสถานะ
+   *
+   * canonicalContactId เป็น pointer ชั้นเดียว ไม่มี resolver เดิน chain อยู่ที่ไหนเลยในระบบนี้
+   * ถ้า A ถูก merge เข้า B แล้ว B ถูก merge เข้า C ต่อ โดยไม่ย้าย A ตามไป pointer ของ A จะชี้ค้าง
+   * ไว้ที่ B ซึ่งไม่ได้เป็น canonical อีกต่อไป owner guard ของ commitEvaluation อ่าน pointer นี้ตรง ๆ
+   * (identity.canonicalContactId !== input.contactId) จึงตัดสินเจ้าของจาก contact ที่ตายไปแล้ว และ
+   * membership ของ A ก็ไม่เคยถูกแจ้งว่าเจ้าของเปลี่ยนมือ
+   *
+   * ขาย้อนกลับก็ต้องสมมาตร: ตอน SPLIT/UNMERGE ดึง source ออกจาก target คนที่ต้องตามกลับมาคือคนที่
+   * "ตาม source เข้าไป" เท่านั้น ไม่ใช่ทุกคนที่อยู่ใต้ target — แยกสองกลุ่มนี้ด้วย merge edge ล่าสุด
+   * ของแต่ละใบใน ledger เพราะ head เก็บแค่ปลายทางปัจจุบัน ไม่ได้เก็บว่ามาทางไหน
+   */
+  private async repointMergeChain(
+    transaction: Transaction,
+    input: {
+      tenantId: string;
+      commandId: string;
+      operation: 'MERGE' | 'SPLIT' | 'UNMERGE';
+      sourceContactId: string;
+      targetContactId: string;
+    },
+  ): Promise<Array<{ contactId: string; revision: number }>> {
+    const isMerge = input.operation === 'MERGE';
+    const anchor = isMerge ? input.sourceContactId : input.targetContactId;
+    const nextCanonical = isMerge ? input.targetContactId : input.sourceContactId;
+    const candidates = await transaction.c360IdentityHead.findMany({
+      where: {
+        tenantId: input.tenantId,
+        canonicalContactId: anchor,
+        contactId: { notIn: [input.sourceContactId, input.targetContactId] },
+        state: 'MERGED',
+      },
+      orderBy: { contactId: 'asc' },
+    });
+    let moving = candidates;
+    if (!isMerge && candidates.length > 0) {
+      const edges = await transaction.c360IdentityLineage.findMany({
+        where: {
+          tenantId: input.tenantId,
+          operation: 'MERGE',
+          sourceContactId: { in: candidates.map((head) => head.contactId) },
+        },
+        orderBy: { lineageRevision: 'desc' },
+        select: { sourceContactId: true, targetContactId: true },
+      });
+      const latestEdge = new Map<string, string>();
+      for (const edge of edges) {
+        if (!latestEdge.has(edge.sourceContactId)) {
+          latestEdge.set(edge.sourceContactId, edge.targetContactId);
+        }
+      }
+      moving = candidates.filter(
+        (head) => latestEdge.get(head.contactId) === input.sourceContactId,
+      );
+    }
+
+    const repointed: Array<{ contactId: string; revision: number }> = [];
+    for (const head of moving) {
+      const revision = head.lineageRevision + 1;
+      await transaction.c360IdentityHead.update({
+        where: {
+          tenantId_contactId: { tenantId: input.tenantId, contactId: head.contactId },
+        },
+        data: {
+          canonicalContactId: nextCanonical,
+          lineageRevision: revision,
+          stateDigest: stableDigest({
+            tenantId: input.tenantId,
+            contactId: head.contactId,
+            state: 'MERGED',
+            canonicalContactId: nextCanonical,
+            lineageRevision: revision,
+            cause: input.commandId,
+          }),
+        },
+      });
+      repointed.push({ contactId: head.contactId, revision });
+    }
+    return repointed;
   }
 
   private async identityTransitionResult(
