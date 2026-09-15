@@ -103,6 +103,11 @@ model Tenant {
   c360MembershipQuarantine     C360MembershipQuarantine[]
   c360IdentityHeads            C360IdentityHead[]
   c360IdentityLineage          C360IdentityLineage[]
+  jrSegmentReceipts            JrSegmentReceipt[]
+  jrSegmentHeads               JrSegmentHead[]
+  jrSegmentEnrollmentIntents   JrSegmentEnrollmentIntent[]
+  jrSegmentRefilterCursors     JrSegmentRefilterCursor[]
+  jrSegmentOutbox              JrSegmentOutbox[]
 
   @@map("tenants")
 }
@@ -390,6 +395,10 @@ model Contact {
   c360IdentityCanonicals C360IdentityHead[]            @relation("C360IdentityCanonical")
   c360LineageSources     C360IdentityLineage[]         @relation("C360LineageSource")
   c360LineageTargets     C360IdentityLineage[]         @relation("C360LineageTarget")
+  jrSegmentReceipts      JrSegmentReceipt[]
+  jrSegmentHeads         JrSegmentHead[]
+  jrSegmentIntents       JrSegmentEnrollmentIntent[]
+  jrSegmentRefilters     JrSegmentRefilterCursor[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -2754,11 +2763,16 @@ enum JrRecoveryOperation {
   RECONCILE
   CANCEL
   SKIP_QUARANTINE
+  /// J3.5 (#216): สั่งประเมิน membership ใหม่ผ่าน re-filter cursor ไม่ใช่แก้ receipt/head ตรง
+  REVALIDATE
 }
 
 enum JrRecoveryTargetKind {
   RECEIPT
   ACTION
+  /// J3.5 (#216): เพิ่มแบบ additive — ค่าเดิมสองตัวยังหมายถึง J2 receipt/action เหมือนเดิม
+  SEGMENT_RECEIPT
+  SEGMENT_REFILTER
 }
 
 /// J2.3 — durable receipt ของ canonical interaction outcome revision หนึ่งใบ transport
@@ -2918,6 +2932,198 @@ model JrRecoveryAudit {
 
   @@index([tenantId, targetKind, targetRef, occurredAt])
   @@map("jr_recovery_audit")
+}
+
+// ───────────────────── J3.5: Journey segment receipt/head/intent/re-filter ─────────────────────
+// J3 เป็นเจ้าของตารางชุดนี้เองทั้งหมด แยกขาดจาก jr_event_inbox ของ J1 และ jr_outcome_* ของ J2
+// (stop condition #216 ห้าม repurpose ตารางเดิม) และไม่มี shared write ไปยัง c360_* ใด ๆ
+
+enum JrSegmentReceiptState {
+  RECEIVED
+  WAITING_FOR_GAP
+  READY
+  PROCESSING
+  APPLIED
+  IGNORED_SUPERSEDED
+  REVIEW
+  QUARANTINED
+}
+
+/// วงจรของงาน re-filter หนึ่งใบ — HELD คือถูกกันไว้เพราะมี owner action ค้างอยู่
+/// ส่วน DEFERRED คือ scope/context ยังไม่พร้อมและต้องเริ่มประเมินใหม่ ไม่ใช่รอแล้วผ่านเอง
+enum JrSegmentRefilterState {
+  PENDING
+  REVALIDATING
+  NO_OP
+  CANCELLED
+  DEFERRED
+  HELD
+  RECONCILING
+}
+
+enum JrSegmentOutboxState {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+/// durable receipt ของ membership change หนึ่ง revision
+///
+/// transport identity `(source, eventId)` แยกจาก logical identity
+/// `(contactId, segmentId, membershipRevision)` — ส่งซ้ำจาก broker ชนที่ transport ส่วน
+/// revision เดิมที่มาคนละ event ชนที่ logical ทั้งสองกรณีต้องไม่สร้างแถวที่สอง
+///
+/// ไม่เก็บ payload เป็น Json แต่แตกเป็น field ที่รู้จักทั้งหมด เพราะ acceptance ของ #216
+/// บังคับว่า raw attribute/identity/PII ห้ามอยู่ใน J3 rows — การเก็บ blob ทำให้พิสูจน์ไม่ได้ว่า
+/// วันหนึ่งจะไม่มีใครยัด attribute ดิบเข้ามา ส่วนค่าที่ต้องใช้จริงมีแค่ reference กับ digest
+model JrSegmentReceipt {
+  id                       String                @id @default(uuid()) @db.Uuid
+  tenantId                 String                @map("tenant_id") @db.Uuid
+  source                   String
+  eventId                  String                @map("event_id")
+  contactId                String                @map("contact_id") @db.Uuid
+  segmentId                String                @map("segment_id")
+  membershipRevision       Int                   @map("membership_revision")
+  changeKind               String                @map("change_kind")
+  /// entry ของการเข้า segment ครั้งนั้น — null เมื่อ change ไม่ได้สร้าง entry (LEFT/invalidation)
+  entryId                  String?               @map("entry_id")
+  supersedesRevision       Int?                  @map("supersedes_revision")
+  segmentDefinitionVersion Int                   @map("segment_definition_version")
+  payloadHash              String                @map("payload_hash") @db.Char(64)
+  /// reference ไปยัง evidence ของ Customer 360 ไม่ใช่ตัว evidence เอง
+  evidenceRef              String?               @map("evidence_ref")
+  state                    JrSegmentReceiptState @default(RECEIVED)
+  attempts                 Int                   @default(0)
+  leaseOwner               String?               @map("lease_owner")
+  leaseExpiresAt           DateTime?             @map("lease_expires_at")
+  availableAt              DateTime              @default(now()) @map("available_at")
+  reviewReasonCode         String?               @map("review_reason_code")
+  lastError                String?               @map("last_error")
+  correlationId            String                @map("correlation_id")
+  causationId              String?               @map("causation_id")
+  receivedAt               DateTime              @default(now()) @map("received_at")
+  appliedAt                DateTime?             @map("applied_at")
+
+  tenant    Tenant                      @relation(fields: [tenantId], references: [id])
+  contact   Contact                     @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  intents   JrSegmentEnrollmentIntent[]
+  refilters JrSegmentRefilterCursor[]
+  outbox    JrSegmentOutbox[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, source, eventId])
+  @@unique([tenantId, contactId, segmentId, membershipRevision])
+  @@index([tenantId, state, availableAt])
+  @@index([tenantId, contactId, segmentId, membershipRevision])
+  @@map("jr_segment_receipts")
+}
+
+/// head ของ membership stream หนึ่งเส้นในมุมของ J3
+///
+/// `lastAppliedRevision` ขยับขึ้นอย่างเดียว (บังคับด้วย CHECK + CAS) ส่วน terminal* คือ
+/// first-terminal protection: เมื่อ entry หนึ่งจบไปแล้ว revision ที่มาทีหลังห้ามชุบชีวิตมันกลับ
+model JrSegmentHead {
+  tenantId             String   @map("tenant_id") @db.Uuid
+  contactId            String   @map("contact_id") @db.Uuid
+  segmentId            String   @map("segment_id")
+  lastAppliedRevision  Int      @default(0) @map("last_applied_revision")
+  lastAppliedReceiptId String?  @map("last_applied_receipt_id") @db.Uuid
+  terminalEntryId      String?  @map("terminal_entry_id")
+  terminalRevision     Int?     @map("terminal_revision")
+  terminalReasonCode   String?  @map("terminal_reason_code")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  contact Contact @relation(fields: [tenantId, contactId], references: [tenantId, id])
+
+  @@id([tenantId, contactId, segmentId])
+  @@index([tenantId, segmentId])
+  @@map("jr_segment_heads")
+}
+
+/// enrollment intent หนึ่งใบที่เกิดจากการเข้า segment
+///
+/// เก็บ "เหตุผล" ได้แค่ reference/version/digest เท่านั้นและเป็น immutable (บังคับด้วย trigger)
+/// — ถ้าเก็บค่า attribute หรือ JSON นิยาม segment ไว้ เหตุผลจะกลายเป็นสำเนาที่เพี้ยนจาก
+/// Customer 360 ทันทีที่นิยามถูกแก้ และ Journey จะกลายเป็นเจ้าของข้อมูลที่ตัวเองไม่ได้เป็นเจ้าของ
+model JrSegmentEnrollmentIntent {
+  id                       String   @id @default(uuid()) @db.Uuid
+  tenantId                 String   @map("tenant_id") @db.Uuid
+  journeyId                String   @map("journey_id")
+  journeyVersion           Int      @map("journey_version")
+  contactId                String   @map("contact_id") @db.Uuid
+  segmentId                String   @map("segment_id")
+  entryId                  String   @map("entry_id")
+  receiptId                String   @map("receipt_id") @db.Uuid
+  reasonMembershipRevision Int      @map("reason_membership_revision")
+  reasonDefinitionVersion  Int      @map("reason_definition_version")
+  reasonEvidenceRef        String?  @map("reason_evidence_ref")
+  reasonDigest             String   @map("reason_digest") @db.Char(64)
+  correlationId            String   @map("correlation_id")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id])
+  contact Contact          @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  receipt JrSegmentReceipt @relation(fields: [tenantId, receiptId], references: [tenantId, id])
+
+  @@unique([tenantId, journeyId, journeyVersion, contactId, segmentId, entryId])
+  @@index([tenantId, receiptId])
+  @@map("jr_segment_enrollment_intents")
+}
+
+/// งาน re-filter ที่เกิดจาก membership change ที่ไม่ได้พา enrollment ใหม่เข้ามา
+model JrSegmentRefilterCursor {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  tenantId           String                 @map("tenant_id") @db.Uuid
+  contactId          String                 @map("contact_id") @db.Uuid
+  segmentId          String                 @map("segment_id")
+  membershipRevision Int                    @map("membership_revision")
+  receiptId          String                 @map("receipt_id") @db.Uuid
+  state              JrSegmentRefilterState @default(PENDING)
+  attempts           Int                    @default(0)
+  leaseOwner         String?                @map("lease_owner")
+  leaseExpiresAt     DateTime?              @map("lease_expires_at")
+  availableAt        DateTime               @default(now()) @map("available_at")
+  reasonCode         String?                @map("reason_code")
+  correlationId      String                 @map("correlation_id")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  settledAt          DateTime?              @map("settled_at")
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id])
+  contact Contact          @relation(fields: [tenantId, contactId], references: [tenantId, id])
+  receipt JrSegmentReceipt @relation(fields: [tenantId, receiptId], references: [tenantId, id])
+
+  @@unique([tenantId, contactId, segmentId, membershipRevision])
+  @@index([tenantId, state, availableAt])
+  @@map("jr_segment_refilter_cursors")
+}
+
+/// local outbox ของ J3 — commit พร้อม receipt/head/intent ในทรานแซกชันเดียว
+model JrSegmentOutbox {
+  id            String               @id @default(uuid()) @db.Uuid
+  tenantId      String               @map("tenant_id") @db.Uuid
+  receiptId     String               @map("receipt_id") @db.Uuid
+  eventId       String               @map("event_id") @db.Uuid
+  eventType     String               @map("event_type")
+  orderingKey   String               @map("ordering_key")
+  payloadHash   String               @map("payload_hash") @db.Char(64)
+  payload       Json
+  state         JrSegmentOutboxState @default(PENDING)
+  attempts      Int                  @default(0)
+  availableAt   DateTime             @default(now()) @map("available_at")
+  lastError     String?              @map("last_error")
+  correlationId String               @map("correlation_id")
+  causationId   String?              @map("causation_id")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  publishedAt   DateTime?            @map("published_at")
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id])
+  receipt JrSegmentReceipt @relation(fields: [tenantId, receiptId], references: [tenantId, id])
+
+  @@unique([tenantId, eventId])
+  @@index([tenantId, state, availableAt])
+  @@map("jr_segment_outbox")
 }
 
 // ─────────────────────────────── J2.4: Cases ENSURE_CASE owner ───────────────────────────────
