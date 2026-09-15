@@ -32,6 +32,8 @@ async function fixture(t: TestContext) {
 
   t.after(async () => {
     await owner.jrJourneyDefinition.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.c360SegmentDefinitionHead.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.c360SegmentDefinition.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.team.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.tenant.deleteMany({ where: { id: rawTenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
@@ -414,4 +416,197 @@ test('journeyId เดียวกันแยก tenant ได้อิสร�
   assert.equal(stored?.maxDurationDays, 7);
   const storedOtherTenant = await repositoryB.getVersion(tenantB.tenantId, journeyId, 1);
   assert.equal(storedOtherTenant?.maxDurationDays, 30);
+});
+
+/**
+ * สร้าง segment ของ Customer 360 ให้ Journey อ้างถึงได้
+ *
+ * `published` = false จำลอง segment ที่มีแต่ยังไม่ประกาศใช้ — head ไม่มี currentVersion
+ * ซึ่งต้องถูกปฏิเสธเหมือนกับ segment ที่ไม่มีอยู่จริง
+ */
+async function segment(
+  f: Awaited<ReturnType<typeof fixture>>,
+  segmentId: string,
+  published = true,
+) {
+  await f.owner.c360SegmentDefinition.create({
+    data: {
+      tenantId: f.tenantId,
+      segmentId,
+      version: 1,
+      status: published ? 'PUBLISHED' : 'DRAFT',
+      definition: { contractVersion: 1, name: segmentId },
+      contentDigest: 'a'.repeat(64),
+      evaluatorVersion: 'DC_EXPR:1',
+      correlationId: 'correlation:j3-4:segment',
+      // lifecycle check ของ #213 บังคับว่า PUBLISHED ต้องมีทั้ง effectiveFrom และ publishedAt
+      ...(published ? { effectiveFrom: new Date(), publishedAt: new Date() } : {}),
+    },
+  });
+  await f.owner.c360SegmentDefinitionHead.create({
+    data: {
+      tenantId: f.tenantId,
+      segmentId,
+      // state check ของ #213: headVersion 0 = ยังไม่มีเวอร์ชันที่ประกาศใช้ (current ต้องเป็น null)
+      headVersion: published ? 1 : 0,
+      ...(published ? { currentVersion: 1, currentDigest: 'a'.repeat(64) } : {}),
+    },
+  });
+  return segmentId;
+}
+
+function segmentTrigger(segmentId: string) {
+  return { kind: 'SEGMENT_ENTRY', segmentId, coalescingPolicy: 'PER_SEGMENT_ENTRY' } as const;
+}
+
+test('SEGMENT_ENTRY ที่อ้าง segment ที่ publish แล้ว publish ได้และ round-trip ครบ', async (t) => {
+  const f = await fixture(t);
+  const journeyId = randomUUID();
+  const segmentId = await segment(f, `segment-gold-${f.tenantId.slice(0, 8)}`);
+  const repository = new JourneyDefinitionRepository(f.application, evaluator);
+
+  const draft = await repository.createVersion(
+    input(f, journeyId, { trigger: segmentTrigger(segmentId) }),
+  );
+  const published = await repository.publishVersion({
+    tenantId: f.tenantId,
+    journeyId,
+    version: 1,
+    expectedContentHash: draft.contentHash,
+    correlationId: 'correlation:j3-4:publish',
+  });
+
+  assert.equal(published.status, 'PUBLISHED');
+  assert.deepEqual(published.trigger, segmentTrigger(segmentId));
+  // immutable snapshot: อ่านกลับมาต้องได้ของเดิมทุก field รวม content hash
+  const reread = await repository.getVersion(f.tenantId, journeyId, 1);
+  assert.deepEqual(reread, published);
+  assert.equal(reread?.contentHash, draft.contentHash);
+});
+
+test('SEGMENT_ENTRY ที่ segment ไม่มีอยู่ เป็นของ tenant อื่น หรือยังไม่ publish ถูกปฏิเสธด้วย code เดียวกัน', async (t) => {
+  const f = await fixture(t);
+  const other = await fixture(t);
+  const repository = new JourneyDefinitionRepository(f.application, evaluator);
+
+  const foreign = await segment(other, `segment-foreign-${other.tenantId.slice(0, 8)}`);
+  const draftOnly = await segment(f, `segment-draft-${f.tenantId.slice(0, 8)}`, false);
+  const cases: Array<[string, string]> = [
+    ['ไม่มีอยู่จริง', `segment-missing-${f.tenantId.slice(0, 8)}`],
+    ['เป็นของ tenant อื่น', foreign],
+    ['มีแต่ยังไม่ publish', draftOnly],
+  ];
+
+  for (const [label, segmentId] of cases) {
+    const journeyId = randomUUID();
+    const draft = await repository.createVersion(
+      input(f, journeyId, { trigger: segmentTrigger(segmentId) }),
+    );
+    await assert.rejects(
+      () =>
+        repository.publishVersion({
+          tenantId: f.tenantId,
+          journeyId,
+          version: 1,
+          expectedContentHash: draft.contentHash,
+          correlationId: 'correlation:j3-4:publish',
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof JourneyDefinitionValidationError);
+        // code เดียวกันทุกเคส ไม่งั้นผู้เรียกเดาได้ว่า segmentId นั้นมีอยู่ใน tenant อื่นหรือไม่
+        assert.deepEqual(error.reasonCodes, ['SEGMENT_REFERENCE_UNTRUSTED']);
+        return true;
+      },
+      `${label} ต้อง fail closed`,
+    );
+    // ปฏิเสธแล้วต้องไม่ทิ้งสถานะ PUBLISHED ไว้
+    assert.equal((await repository.getVersion(f.tenantId, journeyId, 1))?.status, 'DRAFT');
+  }
+});
+
+test('definition ของ SEGMENT_ENTRY ไม่เก็บค่า attribute หรือ JSON นิยาม segment ไว้เลย', async (t) => {
+  const f = await fixture(t);
+  const journeyId = randomUUID();
+  const segmentId = await segment(f, `segment-gold-${f.tenantId.slice(0, 8)}`);
+  const repository = new JourneyDefinitionRepository(f.application, evaluator);
+  await repository.createVersion(input(f, journeyId, { trigger: segmentTrigger(segmentId) }));
+
+  const row = await f.owner.jrJourneyDefinition.findFirstOrThrow({
+    where: { tenantId: f.tenantId, journeyId, version: 1 },
+  });
+  // trigger ต้องมีแค่สามคีย์นี้เป๊ะ ๆ ไม่มีร่องรอยของนิยาม segment เลย
+  assert.deepEqual(row.trigger, segmentTrigger(segmentId));
+  assert.deepEqual(Object.keys(row.trigger as object).sort(), [
+    'coalescingPolicy',
+    'kind',
+    'segmentId',
+  ]);
+
+  /**
+   * ทั้งแถวต้องไม่มีสิ่งที่เป็นของ Customer 360 ปนอยู่
+   *
+   * ไม่ตรวจคำว่า DC_EXPR หรือ expression ทั้งแถว เพราะ BRANCH step ใน graph ของ Journey เอง
+   * ใช้ DC_EXPR โดยชอบธรรม — สิ่งที่ห้ามคือนิยาม/สมาชิก/ค่า attribute ของ segment
+   */
+  const wire = JSON.stringify(row);
+  for (const forbidden of [
+    'contractVersion',
+    'memberContactIds',
+    'membershipSnapshot',
+    'contentDigest',
+    'evaluatorVersion',
+  ]) {
+    assert.doesNotMatch(wire, new RegExp(forbidden), `${forbidden} ต้องไม่ถูก persist`);
+  }
+});
+
+test('trigger เดิม EVENT/SCHEDULE/INTERACTION_OUTCOME ยัง round-trip เท่าเดิม', async (t) => {
+  const f = await fixture(t);
+  const repository = new JourneyDefinitionRepository(f.application, evaluator);
+  const triggers = [
+    { kind: 'EVENT', eventType: 'payment.failed' },
+    { kind: 'SCHEDULE', cron: '0 9 * * *', timezone: 'Asia/Bangkok' },
+  ] as const;
+
+  for (const trigger of triggers) {
+    const journeyId = randomUUID();
+    const draft = await repository.createVersion(input(f, journeyId, { trigger }));
+    assert.deepEqual(draft.trigger, trigger);
+    const published = await repository.publishVersion({
+      tenantId: f.tenantId,
+      journeyId,
+      version: 1,
+      expectedContentHash: draft.contentHash,
+      correlationId: 'correlation:j3-4:publish',
+    });
+    assert.equal(published.status, 'PUBLISHED');
+    assert.deepEqual(published.trigger, trigger);
+  }
+});
+
+test('findPublishedByOutcomeTrigger ไม่หยิบ definition ของ SEGMENT_ENTRY มาปน', async (t) => {
+  const f = await fixture(t);
+  const journeyId = randomUUID();
+  const segmentId = await segment(f, `segment-gold-${f.tenantId.slice(0, 8)}`);
+  const repository = new JourneyDefinitionRepository(f.application, evaluator);
+  const draft = await repository.createVersion(
+    input(f, journeyId, { trigger: segmentTrigger(segmentId) }),
+  );
+  await repository.publishVersion({
+    tenantId: f.tenantId,
+    journeyId,
+    version: 1,
+    expectedContentHash: draft.contentHash,
+    correlationId: 'correlation:j3-4:publish',
+  });
+
+  const matched = await repository.findPublishedByOutcomeTrigger(
+    f.tenantId,
+    'INTERACTION_ABANDONED',
+    undefined,
+  );
+  assert.deepEqual(
+    matched.filter((snapshot) => snapshot.journeyId === journeyId),
+    [],
+  );
 });

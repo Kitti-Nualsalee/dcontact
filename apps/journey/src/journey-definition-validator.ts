@@ -22,6 +22,27 @@ function isOpaqueId(value: unknown): value is string {
   return typeof value === 'string' && OPAQUE_ID_PATTERN.test(value);
 }
 
+const OUTCOME_TRIGGER_FIELDS = new Set(['kind', 'outcomeType', 'outcomeCode', 'coalescingPolicy']);
+const SEGMENT_TRIGGER_FIELDS = new Set(['kind', 'segmentId', 'coalescingPolicy']);
+
+/**
+ * J3.4 (#215): trigger ต้องเป็น closed shape — field ที่ไม่รู้จักถือว่าไม่ผ่าน
+ *
+ * ไม่ใช่แค่ความเข้มงวดทางรูปแบบ แต่เป็นขอบเขตความเชื่อถือ: ถ้าปล่อยผ่าน caller จะแนบ
+ * segment expression, member list, ค่า attribute ดิบ หรือ snapshot ที่ตัวเองคำนวณมาไว้ใน
+ * trigger ได้ แล้วของพวกนั้นจะถูก persist ลง definition และติดไปกับ published version
+ * ตลอดไป ทั้งที่ Journey ไม่ใช่เจ้าของนิยาม segment และห้ามเก็บ PII (#215)
+ *
+ * เงียบ ๆ ทิ้ง field แปลกปลอมไปก็ไม่ได้ เพราะ content hash คำนวณจากสิ่งที่ caller ส่งมา
+ * ผู้เรียกจะเข้าใจว่าของที่แนบมามีผล ทั้งที่ระบบไม่เคยอ่านมันเลย
+ */
+function unknownTriggerFields(
+  trigger: object,
+  allowed: ReadonlySet<string>,
+): JourneyDefinitionValidationCode[] {
+  return Object.keys(trigger).every((key) => allowed.has(key)) ? [] : ['TRIGGER_INVALID'];
+}
+
 function validateTrigger(
   trigger: JourneyDefinitionContent['trigger'],
 ): JourneyDefinitionValidationCode[] {
@@ -38,7 +59,13 @@ function validateTrigger(
     if (trigger.outcomeCode !== undefined && !isOpaqueId(trigger.outcomeCode)) {
       return ['TRIGGER_INVALID'];
     }
-    return trigger.coalescingPolicy === 'PER_LOGICAL_OUTCOME' ? [] : ['TRIGGER_INVALID'];
+    if (trigger.coalescingPolicy !== 'PER_LOGICAL_OUTCOME') return ['TRIGGER_INVALID'];
+    return unknownTriggerFields(trigger, OUTCOME_TRIGGER_FIELDS);
+  }
+  if (trigger.kind === 'SEGMENT_ENTRY') {
+    if (!isOpaqueId(trigger.segmentId)) return ['TRIGGER_INVALID'];
+    if (trigger.coalescingPolicy !== 'PER_SEGMENT_ENTRY') return ['TRIGGER_INVALID'];
+    return unknownTriggerFields(trigger, SEGMENT_TRIGGER_FIELDS);
   }
   return ['TRIGGER_INVALID'];
 }

@@ -472,3 +472,125 @@ test('หลาย field ผิดพร้อมกันคืน code คร�
     ['GOAL_INVALID', 'MAX_DURATION_INVALID', 'TRIGGER_INVALID'].sort(),
   );
 });
+
+test('trigger SEGMENT_ENTRY ที่ครบตามสัญญาผ่านการตรวจ', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      trigger: {
+        kind: 'SEGMENT_ENTRY',
+        segmentId: 'segment-gold',
+        coalescingPolicy: 'PER_SEGMENT_ENTRY',
+      },
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, []);
+});
+
+test('trigger SEGMENT_ENTRY ที่ coalescingPolicy ไม่ใช่ PER_SEGMENT_ENTRY ถูกปฏิเสธ', () => {
+  for (const coalescingPolicy of ['PER_LOGICAL_OUTCOME', 'PER_MEMBERSHIP_REVISION', '']) {
+    const codes = validateJourneyDefinitionStructure(
+      validDefinition({
+        trigger: {
+          kind: 'SEGMENT_ENTRY',
+          segmentId: 'segment-gold',
+          coalescingPolicy,
+        } as unknown as JourneyDefinitionContent['trigger'],
+      }),
+      evaluator,
+    );
+    assert.deepEqual(codes, ['TRIGGER_INVALID'], `policy ${coalescingPolicy} ต้องไม่ผ่าน`);
+  }
+});
+
+test('trigger SEGMENT_ENTRY ที่ segmentId ไม่ใช่ opaque id ถูกปฏิเสธ', () => {
+  /**
+   * ค่าเหล่านี้คือรูปแบบที่ free text, ช่องว่าง, อีเมล และ path traversal จะเล็ดลอดเข้ามา
+   *
+   * หมายเหตุ: OPAQUE_ID_PATTERN อนุญาตตัวเลขกับขีดกลาง สตริงที่หน้าตาเหมือนเบอร์โทรจึงผ่าน
+   * รูปแบบนี้ได้ — การกัน PII ไม่ได้พึ่ง pattern ตัวนี้ แต่พึ่ง closed shape ของ trigger ที่
+   * ไม่ยอมให้แนบ field ใดนอกจาก segmentId เข้ามาตั้งแต่แรก
+   */
+  for (const segmentId of [
+    '',
+    '   ',
+    'ลูกค้า Gold',
+    'a@b.com',
+    '../other-tenant',
+    'x'.repeat(129),
+  ]) {
+    const codes = validateJourneyDefinitionStructure(
+      validDefinition({
+        trigger: { kind: 'SEGMENT_ENTRY', segmentId, coalescingPolicy: 'PER_SEGMENT_ENTRY' },
+      }),
+      evaluator,
+    );
+    assert.deepEqual(
+      codes,
+      ['TRIGGER_INVALID'],
+      `segmentId ${JSON.stringify(segmentId)} ต้องไม่ผ่าน`,
+    );
+  }
+});
+
+test('trigger SEGMENT_ENTRY ที่แนบนิยาม segment, member list หรือ attribute ดิบมาด้วยถูกปฏิเสธ', () => {
+  // Journey ไม่ใช่เจ้าของนิยาม segment — ของพวกนี้ห้าม persist ลง definition เด็ดขาด
+  const smuggled: Array<Record<string, unknown>> = [
+    {
+      expression: { language: 'DC_EXPR', version: 1, expression: { type: 'literal', value: true } },
+    },
+    { memberContactIds: ['contact-1', 'contact-2'] },
+    { attributes: { tier: 'GOLD', phone: '081-234-5678' } },
+    { membershipSnapshot: { revision: 7, state: 'IN' } },
+    { segmentDefinitionVersion: 3 },
+  ];
+  for (const extra of smuggled) {
+    const codes = validateJourneyDefinitionStructure(
+      validDefinition({
+        trigger: {
+          kind: 'SEGMENT_ENTRY',
+          segmentId: 'segment-gold',
+          coalescingPolicy: 'PER_SEGMENT_ENTRY',
+          ...extra,
+        } as unknown as JourneyDefinitionContent['trigger'],
+      }),
+      evaluator,
+    );
+    assert.deepEqual(
+      codes,
+      ['TRIGGER_INVALID'],
+      `field ${Object.keys(extra)[0]} ต้องไม่ถูกปล่อยผ่าน`,
+    );
+  }
+});
+
+test('trigger INTERACTION_OUTCOME ที่แนบ field แปลกปลอมก็ถูกปฏิเสธเช่นกัน', () => {
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      trigger: {
+        kind: 'INTERACTION_OUTCOME',
+        outcomeType: 'INTERACTION_ABANDONED',
+        coalescingPolicy: 'PER_LOGICAL_OUTCOME',
+        callerSnapshot: { contactId: 'contact-1' },
+      } as unknown as JourneyDefinitionContent['trigger'],
+      graph: outcomeTriggerGraph(),
+    }),
+    evaluator,
+  );
+  assert.deepEqual(codes, ['TRIGGER_INVALID']);
+});
+
+test('SEGMENT_ENTRY ไม่ต้องบังคับให้ entry step เป็น action intent เหมือน INTERACTION_OUTCOME', () => {
+  // ข้อบังคับนั้นผูกกับ receipt transition ของ J2.7 โดยเฉพาะ ไม่ใช่กติกาของ trigger ทุกชนิด
+  const codes = validateJourneyDefinitionStructure(
+    validDefinition({
+      trigger: {
+        kind: 'SEGMENT_ENTRY',
+        segmentId: 'segment-gold',
+        coalescingPolicy: 'PER_SEGMENT_ENTRY',
+      },
+    }),
+    evaluator,
+  );
+  assert.ok(!codes.includes('ENTRY_STEP_ACTION_INTENT_REQUIRED'));
+});

@@ -18,6 +18,13 @@ export type InteractionOutcomeType = (typeof INTERACTION_OUTCOME_TYPES)[number];
 /** V1 รองรับ coalescing policy เดียวตาม #120; ค่าอื่นต้องกลับไป Phase Spec ก่อน */
 export type JourneyOutcomeCoalescingPolicy = 'PER_LOGICAL_OUTCOME';
 
+/**
+ * J3.4 (#215): SEGMENT_ENTRY coalesce ต่อ "การเข้า segment หนึ่งครั้ง" ไม่ใช่ต่อ membership
+ * revision — การแก้ค่า (CORRECTED) ของการเข้าครั้งเดิมจึงไม่ใช่ trigger ใหม่ ค่าอื่นต้องกลับไป
+ * Phase Spec ก่อนเช่นเดียวกับ PER_LOGICAL_OUTCOME
+ */
+export type JourneySegmentCoalescingPolicy = 'PER_SEGMENT_ENTRY';
+
 export type JourneyTrigger =
   | { kind: 'EVENT'; eventType: string }
   | { kind: 'SCHEDULE'; cron: string; timezone: string }
@@ -27,6 +34,20 @@ export type JourneyTrigger =
       /** disposition/outcome code ย่อยภายใน outcomeType (เช่น CALLBACK_REQUESTED); optional เมื่อ type ไม่มี sub-code */
       outcomeCode?: string;
       coalescingPolicy: JourneyOutcomeCoalescingPolicy;
+    }
+  /**
+   * J3.4 (#215): trigger จาก canonical segment membership ของ Customer 360
+   *
+   * เก็บได้แค่ segmentId แบบ opaque เท่านั้น — ห้าม raw attribute, segment expression,
+   * member list หรือ snapshot ที่ caller ส่งมา เพราะ Journey ไม่ใช่เจ้าของนิยาม segment และ
+   * การฝังนิยามไว้ที่นี่จะทำให้ published version ค้างอยู่กับนิยามเก่าที่ Customer 360 แก้ไปแล้ว
+   * (ดู stop condition ของ #215) การตัดสินว่า contact อยู่ใน segment จริงไหมเป็นของ
+   * Customer 360 ที่ runtime เท่านั้น
+   */
+  | {
+      kind: 'SEGMENT_ENTRY';
+      segmentId: string;
+      coalescingPolicy: JourneySegmentCoalescingPolicy;
     };
 
 export type JourneyGoal = { kind: 'EVENT'; eventType: string };
@@ -179,7 +200,15 @@ export type JourneyDefinitionValidationCode =
   | 'ACTION_INTENT_REFERENCE_INVALID'
   | 'OWNER_TEAM_UNTRUSTED'
   | 'TARGET_TEAM_UNTRUSTED'
-  | 'ENTRY_STEP_ACTION_INTENT_REQUIRED';
+  | 'ENTRY_STEP_ACTION_INTENT_REQUIRED'
+  /**
+   * J3.4 (#215): segment ที่อ้างไม่ใช่ segment ที่ publish อยู่ใน tenant นี้
+   *
+   * ใช้ code เดียวครอบทั้ง "ไม่มีอยู่จริง", "เป็นของ tenant อื่น" และ "มีแต่ยังไม่ publish"
+   * โดยตั้งใจ — ถ้าแยก code ผู้เรียกจะเดาได้ว่า segmentId ที่ลองยิงมามีอยู่ใน tenant อื่นหรือไม่
+   * ซึ่งเป็นการรั่ว existence ข้าม tenant
+   */
+  | 'SEGMENT_REFERENCE_UNTRUSTED';
 
 export class JourneyDefinitionValidationError extends Error {
   readonly code = 'DEFINITION_INVALID' as const;
