@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { ConsoleAuthRoot } from './auth-root.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
+import { GovernanceConsole } from './governance-console.js';
+import { createGovernanceApi } from './governance-api.js';
+import { parseGovernanceLocation, type GovernanceViewer } from './governance-model.js';
 import { PreferenceCenter } from './preference-center.js';
 import './style.css';
 
@@ -22,6 +25,23 @@ function ConsoleE2eRoot() {
     baseUrl: (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
     accessToken: () => 'e2e-access-token',
   });
+  if (url.searchParams.get('view') === 'governance') {
+    // viewer จาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token เท่านั้น
+    const requested = url.searchParams.get('viewer');
+    const viewer: GovernanceViewer =
+      requested === 'SUPERVISOR' || requested === 'TENANT_ADMIN' ? requested : 'COMPLIANCE';
+    return (
+      <GovernanceConsole
+        api={createGovernanceApi({
+          baseUrl:
+            (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
+          accessToken: () => 'e2e-access-token',
+        })}
+        viewer={viewer}
+        initialLocation={parseGovernanceLocation(url)}
+      />
+    );
+  }
   return url.searchParams.get('view') === 'preferences' && contactId ? (
     <PreferenceCenter api={api} contactId={contactId} viewer="ADMIN" />
   ) : contextId ? (

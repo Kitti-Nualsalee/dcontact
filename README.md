@@ -54,7 +54,8 @@ pnpm install
 # 1. เริ่มและยืนยัน Phase 0 readiness ด้วยคำสั่งเดียว
 #    FreeSWITCH + Postgres + Redis + MinIO + Redpanda (Kafka) + Keycloak + database baseline
 #    รวม RLS tenant isolation, OIDC rejection และ Kafka produce/consume evidence
-#    Redpanda Console (ดู topics/messages): http://localhost:8085
+#    Redpanda Console (ดู topics/messages): `pnpm infra:console` แล้วเปิด http://localhost:8085
+#      (แยกเป็น profile เพราะ CI ไม่ต้องใช้ และกิน memory ~266 MiB)
 #    Keycloak Admin Console: http://localhost:8081 (admin / admin, เฉพาะ dev)
 pnpm infra:ready
 

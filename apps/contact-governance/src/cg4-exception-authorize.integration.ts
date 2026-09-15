@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 import { Prisma, PrismaClient } from '@d-contact/db';
 import {
+  actionKey as actionKeyBrand,
   cg4SubjectId,
+  reservationId as reservationIdBrand,
   tenantId as tenantIdBrand,
   type Cg4AuthorizationSubject,
 } from '@d-contact/cxa-contracts';
@@ -58,6 +60,7 @@ async function fixture(t: TestContext) {
     await owner.cg4Exception.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4ContactExceptionHead.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4Policy.deleteMany({ where: { tenantId: tenant } });
+    await owner.cg4ScopeKillSwitch.deleteMany({ where: { tenantId: tenant } });
     await owner.cgCallbackRequest.deleteMany({ where: { tenantId: tenant } });
     await owner.cgPolicy.deleteMany({ where: { tenantId: tenant } });
     await owner.cgEventOutbox.deleteMany({ where: { tenantId: tenant } });
@@ -643,4 +646,253 @@ test('CG4.4: transition ใช้ CAS กับ revision/contact aggregate แ�
     where: { tenantId: f.tenant, eventType: 'exception.changed' },
   });
   assert.equal(outbox.length, 2); // APPROVE + REVOKE
+});
+
+// ── CG4.8 (#191): contact stream และ re-authorization ของ downstream ─────────────
+
+async function contactStreamVersion(f: Fixture): Promise<number> {
+  const head = await f.owner.cgContactStateHead.findUnique({
+    where: { tenantId_contactId: { tenantId: f.tenant, contactId: f.contact } },
+  });
+  return head?.aggregateVersion ?? 0;
+}
+
+async function reservedAction(f: Fixture, service: ContactGovernanceService, actionKey: string) {
+  const authorized = await service.authorizeAndReserve(f.tenant, {
+    contactId: f.contact,
+    identityId: f.identity,
+    ...authorizeInput({ actionKey }),
+  });
+  assert.equal(authorized.decision, 'ALLOW');
+  assert.ok(authorized.reservationId);
+  return async (
+    overrides: Partial<Parameters<ContactGovernanceService['revalidateAuthorizedAction']>[0]> = {},
+  ) =>
+    service.revalidateAuthorizedAction({
+      tenantId: tenantIdBrand(f.tenant),
+      reservationId: reservationIdBrand(authorized.reservationId!),
+      actionKey: actionKeyBrand(actionKey),
+      correlationId: 'cg48-revalidate',
+      sourceAggregateType: 'CONTACT',
+      sourceAggregateId: f.contact,
+      sourceAggregateVersion: await contactStreamVersion(f),
+      sourceContract: 'CG4',
+      sourceEventType: 'exception.changed',
+      ...overrides,
+    });
+}
+
+test('CG4.8: exception event ต่อ version ของ contact stream จาก CG3 ส่วน CAS ของ exception command ยังแยก', async (t) => {
+  const f = await fixture(t);
+  await f.owner.cgContactStateHead.create({
+    data: {
+      tenantId: f.tenant,
+      contactId: f.contact,
+      aggregateVersion: 5,
+      currentDigest: 'c'.repeat(64),
+    },
+  });
+  const { created, transitioned } = await approvedException(f);
+  assert.equal(created.aggregateVersion, 1);
+  assert.equal(transitioned.aggregateVersion, 2);
+
+  const events = await f.owner.cgEventOutbox.findMany({
+    where: { tenantId: f.tenant, aggregateType: 'CONTACT', aggregateId: f.contact },
+    orderBy: { aggregateVersion: 'asc' },
+  });
+  assert.deepEqual(
+    events.map((event) => [event.eventType, event.aggregateVersion]),
+    [
+      ['exception.recorded', 6],
+      ['exception.changed', 7],
+    ],
+  );
+  assert.equal(await contactStreamVersion(f), 7);
+  const head = await f.owner.cgContactStateHead.findUniqueOrThrow({
+    where: { tenantId_contactId: { tenantId: f.tenant, contactId: f.contact } },
+  });
+  assert.equal(head.currentDigest, 'c'.repeat(64));
+});
+
+test('CG4.8: re-authorization เห็น approved exception ชุดเดียวกับ authorize และ revoke ทำให้งานเดิมไม่ผ่าน', async (t) => {
+  const f = await fixture(t);
+  const service = new ContactGovernanceService(f.application, { now: () => NOW });
+  const { created, row, transitioned, lifecycle } = await approvedException(f);
+  const revalidate = await reservedAction(f, service, 'cg48-revalidate:1:step-001');
+
+  // เดิม revalidation ไม่ส่ง source/activeExceptions จึงให้ DEFER ทั้งที่ exception ยัง active
+  const before = await revalidate();
+  assert.equal(before.decision, 'ALLOW');
+
+  await lifecycle.transition({
+    tenantId: f.tenant,
+    exceptionId: created.exception.exceptionId,
+    expectedRevision: created.exception.revision,
+    expectedContentDigest: row.requestHash,
+    action: 'REVOKE',
+    reasonCode: 'COMPLIANCE_WITHDRAWN',
+    evidenceRef: 'evidence:revoke:cg48',
+    actor: subject('compliance-9', 'cg.exception.revoke'),
+    scopeKey: SCOPE_KEY,
+    occurredAt: '2026-09-15T19:45:00.000Z',
+    expectedVersion: transitioned.aggregateVersion,
+    idempotencyKey: randomUUID(),
+  });
+  const after = await revalidate();
+  assert.equal(after.decision, 'DEFER');
+  assert.equal(after.reasonCode, 'QUIET_HOURS');
+
+  // event ที่ version ใหม่กว่า canonical ยังตามไม่ทันต้อง REVIEW ไม่ใช่ผลเก่า
+  const stale = await revalidate({ sourceAggregateVersion: (await contactStreamVersion(f)) + 1 });
+  assert.equal(stale.reasonCode, 'GOVERNANCE_VERSION_STALE');
+});
+
+test('CG4.8: re-authorization คืน REVIEW เมื่อ kill switch ครอบ scope และไม่สนใจ kill switch ของ channel อื่น', async (t) => {
+  const f = await fixture(t);
+  const service = new ContactGovernanceService(f.application, { now: () => NOW });
+  await approvedException(f);
+  const revalidate = await reservedAction(f, service, 'cg48-kill:1:step-001');
+  const killSwitch = (scopeKey: string) =>
+    f.owner.cg4ScopeKillSwitch.create({
+      data: {
+        tenantId: f.tenant,
+        scopeKey,
+        state: 'ACTIVE',
+        reasonCode: 'INCIDENT',
+        evidenceRef: 'evidence:kill:cg48',
+        activatedByRef: 'operator-synthetic',
+        activatedAt: NOW,
+      },
+    });
+
+  await killSwitch('channel=VOICE|contactKind=*|purpose=*|sourceType=*');
+  assert.equal((await revalidate()).decision, 'ALLOW');
+
+  const lineKill = await killSwitch(
+    'channel=LINE|contactKind=*|purpose=MARKETING|sourceType=JOURNEY',
+  );
+  const held = await revalidate();
+  assert.deepEqual([held.decision, held.reasonCode], ['REVIEW', 'GOVERNANCE_KILL_SWITCH_ACTIVE']);
+
+  // kill switch event จริงไม่ถูกเทียบกับ CG3 policy version จึงไม่เป็น stale
+  const viaKillEvent = await revalidate({
+    sourceAggregateType: 'POLICY',
+    sourceAggregateId: lineKill.id,
+    sourceAggregateVersion: 1,
+    sourceEventType: 'governance.kill-switch.changed',
+  });
+  assert.equal(viaKillEvent.reasonCode, 'GOVERNANCE_KILL_SWITCH_ACTIVE');
+
+  const unknownKill = await revalidate({
+    sourceAggregateType: 'POLICY',
+    sourceAggregateId: randomUUID(),
+    sourceAggregateVersion: 1,
+    sourceEventType: 'governance.kill-switch.changed',
+  });
+  assert.equal(unknownKill.reasonCode, 'GOVERNANCE_STATE_UNAVAILABLE');
+
+  const cg4PolicyWithoutHead = await revalidate({
+    sourceAggregateType: 'POLICY',
+    sourceAggregateId: f.cg4PolicyId,
+    sourceAggregateVersion: 1,
+    sourceEventType: 'policy.changed',
+    sourceScopeKey: 'channel=LINE|contactKind=*|purpose=MARKETING|sourceType=*',
+  });
+  assert.equal(cg4PolicyWithoutHead.reasonCode, 'GOVERNANCE_VERSION_STALE');
+});
+
+// ── Remediation: scoped kill switch ใน authorizeAndReserve (#183 ข้อ 1) ──────────
+
+function activateKillSwitch(f: Fixture, scopeKey: string) {
+  return f.owner.cg4ScopeKillSwitch.create({
+    data: {
+      tenantId: f.tenant,
+      scopeKey,
+      state: 'ACTIVE',
+      reasonCode: 'INCIDENT',
+      evidenceRef: 'evidence:kill:authorize',
+      activatedByRef: 'operator-synthetic',
+      activatedAt: NOW,
+    },
+  });
+}
+
+test('CG4 kill switch: authorizeAndReserve คืน REVIEW โดยไม่มี reservation และ approved exception ยกไม่ได้', async (t) => {
+  const f = await fixture(t);
+  const service = new ContactGovernanceService(f.application, { now: () => NOW });
+  await approvedException(f);
+
+  // kill switch ของ channel อื่นไม่มีผลกับ LINE
+  await activateKillSwitch(f, 'channel=VOICE|contactKind=*|purpose=*|sourceType=*');
+  const unaffected = await service.authorizeAndReserve(f.tenant, {
+    contactId: f.contact,
+    identityId: f.identity,
+    ...authorizeInput({ actionKey: 'cg4-kill-other:1:step-001' }),
+  });
+  assert.equal(unaffected.decision, 'ALLOW');
+  assert.ok(unaffected.reservationId);
+
+  await activateKillSwitch(f, 'channel=LINE|contactKind=*|purpose=MARKETING|sourceType=JOURNEY');
+  const input = {
+    contactId: f.contact,
+    identityId: f.identity,
+    ...authorizeInput({ actionKey: 'cg4-kill:1:step-001' }),
+  };
+  const held = await service.authorizeAndReserve(f.tenant, input);
+  assert.equal(held.decision, 'REVIEW');
+  assert.equal(held.reasonCode, 'GOVERNANCE_KILL_SWITCH_ACTIVE');
+  assert.equal(held.reservationId, undefined);
+  // exception ที่ยัง active ไม่ถูกประเมินและไม่ถูก pin
+  assert.equal(held.cg4, undefined);
+  assert.deepEqual(held.trace.at(-1), {
+    gate: 'KILL_SWITCH',
+    outcome: 'REVIEW',
+    reasonCode: 'GOVERNANCE_KILL_SWITCH_ACTIVE',
+  });
+  assert.equal(
+    await f.owner.cgReservation.count({
+      where: { tenantId: f.tenant, actionKey: 'cg4-kill:1:step-001' },
+    }),
+    0,
+  );
+
+  // replay ด้วย actionKey/input เดิมคืน decision เดิม ไม่สร้างผลใหม่
+  const replay = await service.authorizeAndReserve(f.tenant, input);
+  assert.equal(replay.decisionId, held.decisionId);
+  assert.equal(replay.decision, 'REVIEW');
+});
+
+test('CG4 kill switch: contact scope ครอบเฉพาะ contact นั้น', async (t) => {
+  const f = await fixture(t);
+  const service = new ContactGovernanceService(f.application, { now: () => NOW });
+  await approvedException(f);
+  await activateKillSwitch(f, `contact:${randomUUID()}`);
+  const otherContact = await service.authorizeAndReserve(f.tenant, {
+    contactId: f.contact,
+    identityId: f.identity,
+    ...authorizeInput({ actionKey: 'cg4-kill-contact-other:1:step-001' }),
+  });
+  assert.equal(otherContact.decision, 'ALLOW');
+
+  await activateKillSwitch(f, `contact:${f.contact}`);
+  const held = await service.authorizeAndReserve(f.tenant, {
+    contactId: f.contact,
+    identityId: f.identity,
+    ...authorizeInput({ actionKey: 'cg4-kill-contact:1:step-001' }),
+  });
+  assert.deepEqual([held.decision, held.reasonCode], ['REVIEW', 'GOVERNANCE_KILL_SWITCH_ACTIVE']);
+});
+
+test('CG4 kill switch: scopeKey ที่อ่านไม่ออกถือว่าครอบแบบ fail closed', async (t) => {
+  const f = await fixture(t);
+  const service = new ContactGovernanceService(f.application, { now: () => NOW });
+  await approvedException(f);
+  await activateKillSwitch(f, 'legacy-scope-not-canonical');
+  const held = await service.authorizeAndReserve(f.tenant, {
+    contactId: f.contact,
+    identityId: f.identity,
+    ...authorizeInput({ actionKey: 'cg4-kill-unparseable:1:step-001' }),
+  });
+  assert.deepEqual([held.decision, held.reasonCode], ['REVIEW', 'GOVERNANCE_KILL_SWITCH_ACTIVE']);
+  assert.equal(held.reservationId, undefined);
 });

@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # 01:00 ICT — J2 acceptance กินเวลา ~3 ชม. จึงรันรอบดึกแทนทุก push
+    - cron: '0 18 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -30,6 +34,10 @@ jobs:
 
       - name: Prettier check
         run: pnpm lint
+
+      # CG4.11 (#194): registry/validator/marker suppression รันได้โดยไม่ต้องมี infrastructure
+      - name: CG4 readiness validator tests
+        run: pnpm test:cxa-cg4-readiness
 
   s1-convergence-acceptance:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -89,6 +97,150 @@ jobs:
         with:
           name: s1-evidence-${{ github.sha }}
           path: artifacts/s1/${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Stop acceptance infrastructure
+        if: always()
+        run: pnpm infra:down
+
+  cxa-j2-acceptance:
+    # J2-REG01 รัน C1 และ S1 acceptance ซ้อนอยู่ข้างใน รวมแล้วราว 3 ชม. ถ้าผูกกับทุก push
+    # job จะทับกันเองเพราะ main ขยับถี่กว่านั้น จึงรันรอบดึกวันละครั้ง (และสั่งเองได้)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    concurrency:
+      group: cxa-j2-acceptance
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure local acceptance environment
+        run: |
+          cp .env.example .env
+          mkdir -p infra/docker/data/redpanda
+          chmod 777 infra/docker/data/redpanda
+          # Docker creates a bind-mount source as root when it is absent. Create
+          # this one before Compose so both the Node archiver and FreeSWITCH can
+          # create tenant-scoped recording directories on GitHub runners.
+          mkdir -p infra/docker/data/freeswitch-recordings
+          chmod 777 infra/docker/data/freeswitch-recordings
+
+      - run: pnpm install --frozen-lockfile
+
+      # phase-two-readiness เรียก workspace/console test:e2e ซึ่งใช้ Playwright
+      - name: Install Playwright Chromium for browser acceptance
+        run: pnpm --filter @d-contact/workspace exec playwright install --with-deps chromium
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build workspace prerequisites for gateway acceptance
+        run: pnpm build
+
+      - name: Bootstrap acceptance infrastructure
+        run: |
+          pnpm infra:ready || {
+            docker compose -f infra/docker/docker-compose.dev.yml ps
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color redpanda
+            exit 1
+          }
+
+      - name: Run J2 acceptance on final main SHA
+        run: pnpm cxa:j2:acceptance
+        env:
+          CXA_J2_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Upload immutable J2 evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-j2-evidence-${{ github.sha }}
+          path: artifacts/cxa-j2/${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Stop acceptance infrastructure
+        if: always()
+        run: pnpm infra:down
+
+  cxa-cg4-acceptance:
+    # CG4.11 (#194): CG4-REG01 rerun E0/C1/Inbound Voice/S1 ซ้อนอยู่ข้างใน จึงรันรอบดึกหรือสั่งเอง
+    # บน main เท่านั้น — marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    concurrency:
+      group: cxa-cg4-acceptance
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure local acceptance environment
+        run: |
+          cp .env.example .env
+          mkdir -p infra/docker/data/redpanda
+          chmod 777 infra/docker/data/redpanda
+          mkdir -p infra/docker/data/freeswitch-recordings
+          chmod 777 infra/docker/data/freeswitch-recordings
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium for browser acceptance
+        run: |
+          pnpm --filter @d-contact/workspace exec playwright install --with-deps chromium
+          pnpm --filter @d-contact/console exec playwright install chromium
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build workspace prerequisites
+        run: pnpm build
+
+      - name: Bootstrap acceptance infrastructure
+        run: |
+          pnpm infra:ready || {
+            docker compose -f infra/docker/docker-compose.dev.yml ps
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color redpanda
+            exit 1
+          }
+
+      - name: Run CG4 acceptance on final main SHA
+        run: pnpm cxa:cg4:acceptance
+        env:
+          CXA_CG4_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Upload immutable CG4 evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-cg4-evidence-${{ github.sha }}
+          path: |
+            artifacts/cxa-cg4/${{ github.run_id }}.json
+            artifacts/s1/${{ github.run_id }}.json
           if-no-files-found: error
           retention-days: 90
 

@@ -106,20 +106,42 @@ export function sanitizeDiagnostic(value) {
 const DIAGNOSTIC_DETAIL_LINES = 80;
 const DIAGNOSTIC_DETAIL_CHARACTERS = 32_000;
 
+/**
+ * บรรทัดที่บอก "อะไรล้ม" ต้องรอดจากการตัดเสมอ ไม่ว่าจะอยู่ตำแหน่งไหนของ output
+ *
+ * head/tail window อย่างเดียวไม่พอ: TAP ของ suite ที่มีร้อยกว่า test จะดัน `not ok` ของ
+ * test ที่ล้มไปอยู่กลาง output พอดี แล้วโดนตัดทิ้ง เหลือแต่ `# fail 1` ท้ายสุดซึ่งบอกว่า
+ * มีตัวล้มแต่ไม่บอกว่าตัวไหน — เจอจริงสองรอบติดกันตอนไล่ J2 acceptance จนต้องเดา
+ */
+const FAILURE_LINE_PATTERN =
+  /^\s*(?:not ok\b|# fail\b|error:|failureType:|code: 'ERR_|AssertionError|\s*at .*\.(?:test|integration)\.ts)/;
+
 function diagnosticDetail(result) {
   const safe = sanitizeDiagnostic(`${result.stderr ?? ''}\n${result.stdout ?? ''}`);
   if (!safe)
     return result.error?.code ?? `process exited with status ${result.status ?? 'unknown'}`;
   const lines = safe.split('\n').filter(Boolean);
   const headCount = Math.ceil(DIAGNOSTIC_DETAIL_LINES / 2);
-  const detail =
-    lines.length <= DIAGNOSTIC_DETAIL_LINES
-      ? lines.join('\n')
-      : [
-          ...lines.slice(0, headCount),
-          '... diagnostic output truncated ...',
-          ...lines.slice(-headCount),
-        ].join('\n');
+  let detail;
+  if (lines.length <= DIAGNOSTIC_DETAIL_LINES) {
+    detail = lines.join('\n');
+  } else {
+    const head = lines.slice(0, headCount);
+    const tail = lines.slice(-headCount);
+    const tailStart = lines.length - headCount;
+    // เก็บบรรทัดที่บ่งบอกความล้มเหลวซึ่งอยู่นอก head/tail window ไว้ด้วย
+    const rescued = lines
+      .slice(headCount, tailStart)
+      .filter((line) => FAILURE_LINE_PATTERN.test(line));
+    detail = [
+      ...head,
+      ...(rescued.length > 0
+        ? ['... diagnostic output truncated (เก็บเฉพาะบรรทัดที่บ่งบอกความล้มเหลว) ...', ...rescued]
+        : []),
+      '... diagnostic output truncated ...',
+      ...tail,
+    ].join('\n');
+  }
   if (detail.length <= DIAGNOSTIC_DETAIL_CHARACTERS) return detail;
   const half = Math.floor((DIAGNOSTIC_DETAIL_CHARACTERS - 40) / 2);
   return `${detail.slice(0, half)}\n... diagnostic output truncated ...\n${detail.slice(-half)}`;

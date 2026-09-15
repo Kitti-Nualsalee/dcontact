@@ -367,7 +367,9 @@ export type Cg4AuthorizationReviewReason =
   | 'POLICY_ACTIVATION_PENDING'
   | 'POLICY_ACTIVATION_CONFLICT'
   | 'GOVERNANCE_POLICY_VERSION_UNSUPPORTED'
-  | 'GOVERNANCE_STATE_UNAVAILABLE';
+  | 'GOVERNANCE_STATE_UNAVAILABLE'
+  /** CG4.10 (#193): mismatch ของ shadow evaluation บน pilot scope fail closed (#179 §6) */
+  | 'GOVERNANCE_SHADOW_MISMATCH';
 
 export type Cg4ErrorCode =
   | 'VALIDATION_FAILED'

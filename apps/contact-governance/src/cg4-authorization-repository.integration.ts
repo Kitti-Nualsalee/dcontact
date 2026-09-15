@@ -48,6 +48,8 @@ async function fixture(t: TestContext) {
     await owner.cg4ExceptionHead.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4Exception.deleteMany({ where: { tenantId: tenant } });
     await owner.cg4ContactExceptionHead.deleteMany({ where: { tenantId: tenant } });
+    // CG4.8 (#191): exception event ขยับ contact stream version ใน cg_contact_state_heads ด้วย
+    await owner.cgContactStateHead.deleteMany({ where: { tenantId: tenant } });
     await owner.cgCommandReceipt.deleteMany({ where: { tenantId: tenant } });
     await owner.cgEventOutbox.deleteMany({ where: { tenantId: tenant } });
     await owner.cgAuditLog.deleteMany({ where: { tenantId: tenant } });

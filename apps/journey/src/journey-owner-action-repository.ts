@@ -91,6 +91,28 @@ export class OwnerActionNotFoundError extends Error {
   }
 }
 
+/** admin recovery ต้องอ้าง version ที่เห็นจริง — กัน replay ทับ state ที่ขยับไปแล้ว */
+export class OwnerActionVersionConflictError extends Error {
+  readonly code = 'VERSION_CONFLICT' as const;
+
+  constructor(
+    readonly actionKey: string,
+    readonly expectedVersion: number,
+    readonly actualVersion: number,
+  ) {
+    super(`owner action ${actionKey} อยู่ที่ version ${actualVersion} ไม่ใช่ ${expectedVersion}`);
+    this.name = 'OwnerActionVersionConflictError';
+  }
+}
+
+/** state ที่ยัง replay command ได้ — terminal แล้วห้ามส่งซ้ำเด็ดขาด */
+const REPLAYABLE_ACTION_STATES: JrOwnerActionState[] = [
+  'PENDING',
+  'DISPATCHED',
+  'ACK_UNKNOWN',
+  'CANCEL_REQUESTED',
+];
+
 function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
@@ -193,7 +215,7 @@ export class JourneyOwnerActionRepository {
       });
       await transaction.jrOwnerAction.updateMany({
         where: { tenantId, actionKey: command.actionKey, state: 'PENDING' },
-        data: { state: 'DISPATCHED', dispatchedAt: new Date() },
+        data: { state: 'DISPATCHED', dispatchedAt: new Date(), version: { increment: 1 } },
       });
       return command;
     });
@@ -265,6 +287,7 @@ export class JourneyOwnerActionRepository {
                 ? { ownerAggregateVersion: input.ownerAggregateVersion }
                 : {}),
               ...(input.resultKind === 'ACKNOWLEDGED' ? { acknowledgedAt: new Date() } : {}),
+              version: { increment: 1 },
             },
           })
         : action;
@@ -315,17 +338,30 @@ export class JourneyOwnerActionRepository {
     correlationId: string;
     /** J2OwnerCommandPayloadV1 ของ CANCEL_x / SUPERSEDE_x เต็มรูปแบบพร้อม relay จริง (J2.8) */
     commandPayload?: unknown;
+    /** admin recovery (#136) ต้องส่งมาเสมอ; caller ภายในที่ไม่ได้แข่งกับใครเว้นได้ */
+    expectedVersion?: number;
   }): Promise<JrOwnerAction> {
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
       const action = await transaction.jrOwnerAction.findUnique({
         where: { tenantId_actionKey: { tenantId: input.tenantId, actionKey: input.actionKey } },
       });
       if (!action) throw new OwnerActionNotFoundError(input.actionKey);
+      if (input.expectedVersion !== undefined && action.version !== input.expectedVersion) {
+        throw new OwnerActionVersionConflictError(
+          input.actionKey,
+          input.expectedVersion,
+          action.version,
+        );
+      }
       if (!CANCELLABLE_ACTION_STATES.includes(action.state)) return action;
 
       const cancelled = await transaction.jrOwnerAction.update({
         where: { id: action.id },
-        data: { state: 'CANCEL_REQUESTED', cancelRequestedAt: new Date() },
+        data: {
+          state: 'CANCEL_REQUESTED',
+          cancelRequestedAt: new Date(),
+          version: { increment: 1 },
+        },
       });
       await transaction.jrOwnerCommandOutbox.upsert({
         where: {
@@ -349,6 +385,113 @@ export class JourneyOwnerActionRepository {
       });
       return cancelled;
     });
+  }
+
+  /**
+   * คืน command ของ action ให้กลับเข้าคิว relay อีกครั้ง สำหรับ admin recovery (#136)
+   *
+   * ไม่ใช่ blind retry: ต้องอ้าง `expectedVersion` ที่เห็นจริง, action ต้องยังไม่ terminal
+   * และ `commandId` เดิมถูก reuse เสมอ — owner จึง dedupe ได้ตาม at-least-once contract
+   * ของ J2.8 ไม่ใช่การสร้าง effect ใหม่
+   */
+  async replayCommands(input: {
+    tenantId: string;
+    actionKey: string;
+    expectedVersion: number;
+  }): Promise<{ action: JrOwnerAction; replayedCommandIds: string[] }> {
+    return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${actionLockKey(input.tenantId, input.actionKey)}))`,
+      );
+      const action = await transaction.jrOwnerAction.findUnique({
+        where: { tenantId_actionKey: { tenantId: input.tenantId, actionKey: input.actionKey } },
+      });
+      if (!action) throw new OwnerActionNotFoundError(input.actionKey);
+      if (action.version !== input.expectedVersion) {
+        throw new OwnerActionVersionConflictError(
+          input.actionKey,
+          input.expectedVersion,
+          action.version,
+        );
+      }
+      if (!REPLAYABLE_ACTION_STATES.includes(action.state)) {
+        return { action, replayedCommandIds: [] };
+      }
+
+      const commands = await transaction.jrOwnerCommandOutbox.findMany({
+        where: {
+          tenantId: input.tenantId,
+          actionKey: input.actionKey,
+          state: { in: ['SENT', 'FAILED'] },
+        },
+      });
+      if (commands.length === 0) return { action, replayedCommandIds: [] };
+
+      await transaction.jrOwnerCommandOutbox.updateMany({
+        where: {
+          tenantId: input.tenantId,
+          actionKey: input.actionKey,
+          state: { in: ['SENT', 'FAILED'] },
+        },
+        data: { state: 'PENDING', availableAt: new Date(), sentAt: null },
+      });
+      const replayed = await transaction.jrOwnerAction.update({
+        where: { id: action.id },
+        data: { version: { increment: 1 } },
+      });
+      return { action: replayed, replayedCommandIds: commands.map((c) => c.commandId) };
+    });
+  }
+
+  /**
+   * action ที่ dispatch ออกไปแล้วแต่ owner ยังเงียบเกิน deadline และยังไม่หมดโควต้า retry
+   *
+   * `attempts` เป็นตัวคุม bounded retry: เกินเพดานแล้วจะไม่ถูกหยิบอีก ปล่อยให้คนตัดสินใจ
+   * ผ่าน admin recovery API แทนการวนเรียก owner ไปเรื่อย ๆ
+   */
+  findStaleDispatched(
+    tenantId: string,
+    dispatchedBefore: Date,
+    maxAttempts: number,
+    limit = 10,
+  ): Promise<JrOwnerAction[]> {
+    return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.jrOwnerAction.findMany({
+        where: {
+          tenantId,
+          state: { in: ['DISPATCHED', 'ACK_UNKNOWN'] },
+          dispatchedAt: { not: null, lte: dispatchedBefore },
+          attempts: { lt: maxAttempts },
+        },
+        orderBy: { dispatchedAt: 'asc' },
+        take: limit,
+      }),
+    );
+  }
+
+  /**
+   * DISPATCHED/ACK_UNKNOWN -> ACK_UNKNOWN พร้อมนับ attempt เพิ่มหนึ่ง
+   *
+   * ใช้ version guard เพื่อไม่ทับ action ที่เพิ่งได้ผลจริงระหว่างทาง — คืน null เมื่อแพ้ race
+   */
+  async markAckUnknown(
+    tenantId: string,
+    actionKey: string,
+    expectedVersion: number,
+  ): Promise<JrOwnerAction | null> {
+    const moved = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.jrOwnerAction.updateMany({
+        where: {
+          tenantId,
+          actionKey,
+          version: expectedVersion,
+          state: { in: ['DISPATCHED', 'ACK_UNKNOWN'] },
+        },
+        data: { state: 'ACK_UNKNOWN', attempts: { increment: 1 }, version: { increment: 1 } },
+      }),
+    );
+    if (moved.count === 0) return null;
+    return this.getAction(tenantId, actionKey) as Promise<JrOwnerAction>;
   }
 
   findResultsFor(tenantId: string, actionKey: string): Promise<JrOwnerResultInbox[]> {

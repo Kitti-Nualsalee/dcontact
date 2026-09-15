@@ -57,3 +57,66 @@ export function scanForForbiddenTelephonyTokens(
   }
   return { forbiddenTokensFound: [...found], clean: found.size === 0 };
 }
+
+/** SDK ที่ "ประกาศไว้" ก็นับว่าเลย boundary แล้ว เพราะติดตั้งอยู่จริงและ import ได้ทันที */
+const FORBIDDEN_DEPENDENCY_PREFIXES = [
+  'twilio',
+  '@twilio/',
+  'nexmo',
+  '@vonage/',
+  'plivo',
+  '@sinch/',
+  'telnyx',
+  'bandwidth',
+  'messagebird',
+  'infobip',
+  '@ringcentral',
+  '@aws-sdk/client-connect',
+  '@aws-sdk/client-chime',
+  'asterisk-manager',
+  'modesl',
+  'esl',
+  'esl-lite',
+  'drachtio-srf',
+  'sip.js',
+  'jssip',
+] as const;
+
+export interface DialerDependencyScanResult {
+  forbiddenDependenciesFound: string[];
+  clean: boolean;
+}
+
+/**
+ * ตรวจ dependency ที่ประกาศใน package.json — FORBIDDEN_TOKENS จับได้เฉพาะตอนมีคน
+ * import จริง แต่แค่เพิ่ม dependency ก็เปิดทางไว้แล้ว จึงต้องตรวจอีกชั้น
+ */
+export function scanForForbiddenDependencies(manifest: {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+}): DialerDependencyScanResult {
+  const declared = Object.keys({
+    ...(manifest.dependencies ?? {}),
+    ...(manifest.devDependencies ?? {}),
+    ...(manifest.optionalDependencies ?? {}),
+  });
+  const found = declared.filter((name) =>
+    FORBIDDEN_DEPENDENCY_PREFIXES.some(
+      (prefix) => name === prefix || name.startsWith(`${prefix}/`) || name.startsWith(prefix),
+    ),
+  );
+  return { forbiddenDependenciesFound: found, clean: found.length === 0 };
+}
+
+/**
+ * ไฟล์ที่ยกเว้นจาก negative scan ได้ — มีแค่โมดูลนี้กับ test ของมันเอง เพราะต้องเก็บ
+ * denylist ไว้เป็น string ตรง ๆ ถ้าไม่ยกเว้นจะ match ตัวเองตลอด
+ *
+ * รายการนี้ต้องไม่โตขึ้น: ทุกไฟล์อื่นใน `apps/dialer/src` ต้องถูก scan เสมอ ไม่งั้นการ
+ * เพิ่มไฟล์ใหม่จะกลายเป็นทางลัดข้าม boundary โดยไม่มีใครรู้
+ */
+export const NEGATIVE_SCAN_EXEMPT_FILES = [
+  'dialer-originate-evidence.ts',
+  'dialer-originate-evidence.test.ts',
+] as const;

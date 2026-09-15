@@ -32,6 +32,7 @@ import {
   evaluateCg4Quorum,
 } from './cg4-authorization-engine.js';
 import {
+  cg4EventScopeDimensions,
   cg4PolicyScopesAmbiguous,
   compileCg4Policy,
   Cg4PolicyValidationError,
@@ -39,7 +40,9 @@ import {
   type Cg4PolicyContentV1,
 } from './cg4-policy-compiler.js';
 import { previewCg4Policy, type Cg4PolicyPreview } from './cg4-policy-preview.js';
+import { cg4KillSwitchEvent } from './cg4-kill-switch-event.js';
 import type { Cg4PolicyFixturePack } from './cg4-policy-fixtures.js';
+import { assertCg4MutationNotFrozen } from './cg4-rollout.js';
 
 /**
  * CG4.5 (#188): the policy studio runtime — immutable versions, deterministic tests,
@@ -1537,6 +1540,8 @@ export class Cg4PolicyLifecycleRepository {
       quorum: Cg4QuorumEvaluation;
     },
   ): Promise<Cg4PolicyPublishResult> {
+    // CG4.10 (#193): freeze หยุดทุกทางที่ขยับ head (publish และ scheduled activation) ระหว่าง reconcile
+    await assertCg4MutationNotFrozen(transaction, input.tenantId);
     const headVersion = input.head.headVersion + 1;
 
     if (input.activate) {
@@ -1704,7 +1709,7 @@ export class Cg4PolicyLifecycleRepository {
       subjectVersion: input.candidate.version,
       state: input.activate ? 'ACTIVE' : 'SCHEDULED',
       effectiveAt: input.activateAt.toISOString(),
-      affectedScope: { scopeKey: input.scopeKey },
+      affectedScope: { scopeKey: input.scopeKey, ...cg4EventScopeDimensions(input.scopeKey) },
       scopeDigest: stableDigest({ scopeKey: input.scopeKey }),
       policyVersion: input.candidate.version,
       policyContentDigest: input.candidate.contentDigest,
@@ -1910,9 +1915,13 @@ export class Cg4PolicyLifecycleRepository {
       });
 
       let killSwitchId: string;
+      // CG4.8 (#191): เปิดซ้ำขณะที่ยัง ACTIVE ไม่เปลี่ยน canonical state จึงไม่ออก event ใหม่ —
+      // event ซ้ำที่ version เดิมแต่ mutationId ต่างจะเป็น hash conflict ที่ทุก consumer
+      let alreadyActive = false;
       if (input.action === 'ACTIVATE') {
         if (existing) {
           killSwitchId = existing.id;
+          alreadyActive = true;
         } else {
           const created = await transaction.cg4ScopeKillSwitch.create({
             data: {
@@ -1957,45 +1966,27 @@ export class Cg4PolicyLifecycleRepository {
       const state = input.action === 'ACTIVATE' ? ('ACTIVE' as const) : ('CLEARED' as const);
       const mutationId = this.id();
       const eventId = this.id();
-      const stateDigest = stableDigest({ scopeKey: input.scopeKey, state, killSwitchId });
-      const payload = {
-        contractVersion: 1,
-        mutationId,
-        transitionKind:
-          state === 'ACTIVE'
-            ? 'KILL_SWITCH_ACTIVATED'
-            : ('KILL_SWITCH_CLEARED' as Cg4TransitionKind),
-        subjectId: killSwitchId,
-        subjectVersion: 1,
-        state,
-        effectiveAt: occurredAt.toISOString(),
-        affectedScope: { scopeKey: input.scopeKey },
-        scopeDigest: stableDigest({ scopeKey: input.scopeKey }),
-        ruleRegistryVersion: CG4_RULE_REGISTRY_VERSION,
-        policySchemaVersion: CG4_POLICY_SCHEMA_VERSION,
-        evaluatorVersion: CG4_EVALUATOR_VERSION,
+      const {
+        version: killSwitchVersion,
         stateDigest,
-        restrictiveness: state === 'ACTIVE' ? 'TIGHTENING' : 'RELAXATION',
-      };
-      await transaction.cgEventOutbox.create({
-        data: {
-          id: eventId,
-          mutationId,
-          tenantId: input.tenantId,
-          aggregateType: 'POLICY',
-          aggregateId: killSwitchId,
-          aggregateVersion: 1,
-          eventType: CG4_EVENT_TYPES.KILL_SWITCH_CHANGED,
-          orderingKey: `${input.tenantId}:${input.scopeKey}`,
-          payload: json(payload),
-          payloadHash: stableDigest(payload),
-        },
+        outbox,
+      } = cg4KillSwitchEvent({
+        tenantId: input.tenantId,
+        scopeKey: input.scopeKey,
+        killSwitchId,
+        state,
+        mutationId,
+        eventId,
+        occurredAt,
       });
+      if (!alreadyActive) {
+        await transaction.cgEventOutbox.create({ data: outbox });
+      }
       await this.audit(transaction, {
         tenantId: input.tenantId,
         mutationId,
         aggregateId: killSwitchId,
-        aggregateVersion: 1,
+        aggregateVersion: killSwitchVersion,
         action: `CG4_KILL_SWITCH_${input.action}`,
         actorRef: input.actor.subjectId,
         evidenceRef: input.clearApprovalRef ?? input.evidenceRef,
@@ -2016,7 +2007,7 @@ export class Cg4PolicyLifecycleRepository {
         idempotencyKey: input.idempotencyKey,
         requestHash,
         expectedVersion: 1,
-        aggregateVersion: 1,
+        aggregateVersion: killSwitchVersion,
         body: result,
       });
       return result;

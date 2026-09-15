@@ -284,9 +284,18 @@ test('evidence for a live delivery stays inside the PII allowlist', async (t) =>
 test('reading the outbox without a tenant context fails closed', async (t) => {
   const context = await fixture(t);
   const queued = await enqueued(context);
-  // นอก withTenantDatabaseTransaction จะไม่มี app.tenant_id ให้ policy ใช้ — query จึงพัง
-  // ทั้ง statement แทนที่จะเงียบ ๆ คืนแถวของ tenant อื่น (RLS ระดับตารางดูที่ rls.integration.ts)
-  await assert.rejects(() =>
-    context.application.dlOutboxEntry.findMany({ where: { deliveryId: queued.deliveryId } }),
-  );
+
+  // นอก withTenantDatabaseTransaction จะไม่มี app.tenant_id ให้ policy ใช้ ซึ่งจบได้สองแบบ
+  // ขึ้นกับว่า connection ที่ pool หยิบมาเคยรัน tenant transaction มาก่อนหรือยัง:
+  //
+  //   connection ใหม่เอี่ยม      -> current_setting(...) = NULL -> policy เป็น NULL -> คืน 0 แถว
+  //   เคยผ่าน transaction แล้ว   -> set_config(..., true) ย้อนกลับเป็น '' -> ''::uuid พังทั้ง statement
+  //
+  // เดิม test นี้ assert เฉพาะกรณีหลัง จึงผ่านบนเครื่อง dev ที่ pool อุ่นแล้ว แต่ fail บน CI
+  // ที่ DB สร้างใหม่ — และที่สำคัญกว่าคือมันไปผูกกับผลข้างเคียงของการ cast '' แทนที่จะตรวจ
+  // คุณสมบัติความปลอดภัยจริง ซึ่งคือ "ไม่มีแถวของ tenant ไหนรั่วออกมา" และเป็นจริงทั้งสองแบบ
+  const leaked = await context.application.dlOutboxEntry
+    .findMany({ where: { deliveryId: queued.deliveryId } })
+    .catch(() => []);
+  assert.deepEqual(leaked, [], 'RLS ต้องไม่ปล่อยแถวออกมาเมื่อไม่มี tenant context');
 });

@@ -73,6 +73,30 @@ test('failed check เก็บข้อความ assertion ไว้ ไม�
   assert.match(diagnostic.detail, /diagnostic output truncated/);
 });
 
+test('บรรทัด not ok ที่อยู่กลาง TAP output ยาว ๆ ต้องไม่ถูกตัดทิ้ง', () => {
+  // จำลอง TAP ของ suite ใหญ่: test ที่ล้มอยู่ตรงกลาง ไกลจากทั้งหัวและท้าย output
+  // เคสนี้เกิดจริงตอนไล่ J2 acceptance — เห็นแค่ "# fail 1" แต่ไม่รู้ว่า test ไหนล้ม
+  const lines = [];
+  for (let i = 1; i <= 60; i += 1) lines.push(`ok ${i} - passing case ${i}`);
+  lines.push('not ok 61 - ตัวที่ล้มจริงซ่อนอยู่กลาง output');
+  lines.push("  error: 'เงื่อนไขไม่เป็นจริงภายในเวลาที่กำหนด'");
+  for (let i = 62; i <= 140; i += 1) lines.push(`ok ${i} - passing case ${i}`);
+  lines.push('# tests 140', '# pass 139', '# fail 1');
+
+  const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], () => ({
+    status: 1,
+    stdout: lines.join('\n'),
+    stderr: '',
+  }));
+
+  assert.equal(diagnostic.status, 'FAIL');
+  assert.match(diagnostic.detail, /not ok 61 - ตัวที่ล้มจริงซ่อนอยู่กลาง output/);
+  assert.match(diagnostic.detail, /เงื่อนไขไม่เป็นจริงภายในเวลาที่กำหนด/);
+  // ยังต้องตัดอยู่ ไม่ใช่เก็บทุกบรรทัด
+  assert.match(diagnostic.detail, /diagnostic output truncated/);
+  assert.equal(diagnostic.detail.includes('ok 100 - passing case 100'), false);
+});
+
 test('successful check ไม่สะท้อน child output ที่อาจมี dev credential', () => {
   const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[0], () => ({
     status: 0,
