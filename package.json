@@ -13,7 +13,7 @@
     "db:migrate": "pnpm --filter @d-contact/db migrate:deploy",
     "db:rls": "pnpm --filter @d-contact/db apply-rls",
     "db:seed": "pnpm --filter @d-contact/db seed",
-    "infra:up": "docker compose -f infra/docker/docker-compose.dev.yml up -d --wait postgres redis minio redpanda freeswitch redpanda-console keycloak && docker compose -f infra/docker/docker-compose.dev.yml run --rm --no-deps minio-init && docker compose -f infra/docker/docker-compose.dev.yml run --rm --no-deps redpanda-init",
+    "infra:up": "docker compose -f infra/docker/docker-compose.dev.yml up -d --wait postgres redis minio redpanda freeswitch keycloak && docker compose -f infra/docker/docker-compose.dev.yml run --rm --no-deps minio-init && docker compose -f infra/docker/docker-compose.dev.yml run --rm --no-deps redpanda-init",
     "infra:identity:link": "node scripts/link-keycloak-dev-identity.mjs",
     "infra:identity:native-check": "node scripts/keycloak-dev-readiness.mjs",
     "infra:identity:fallback-check": "node scripts/link-keycloak-dev-identity.mjs --fallback-only && node scripts/keycloak-dev-readiness.mjs --fallback-only",
@@ -39,6 +39,7 @@
     "test:cxa-j2-readiness": "node --test scripts/cxa-j2-readiness.test.mjs",
     "cxa:cg4:acceptance": "node scripts/cxa-cg4-readiness.mjs",
     "test:cxa-cg4-readiness": "node --test scripts/cxa-cg4-readiness.test.mjs",
+    "infra:console": "docker compose -f infra/docker/docker-compose.dev.yml --profile tools up -d redpanda-console",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   },
   "devDependencies": {

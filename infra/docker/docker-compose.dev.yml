@@ -109,7 +109,11 @@ services:
       exit 0"
 
   # Web UI สำหรับดู topics/messages ตอน dev
+  # เครื่องมือของ dev ล้วน ๆ — ไม่มีเทสหรือสคริปต์ไหนเรียกใช้ จึงอยู่ใน profile แยกเพื่อ
+  # ไม่ให้กิน memory ของ CI runner ระหว่าง acceptance (วัดได้ ~266 MiB) เปิดเองด้วย
+  # `pnpm infra:console`
   redpanda-console:
+    profiles: ['tools']
     image: redpandadata/console:v2.7.2
     depends_on:
       redpanda:
