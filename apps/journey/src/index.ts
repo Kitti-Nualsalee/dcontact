@@ -22,3 +22,4 @@ export * from './journey-segment-trigger-processor.js';
 export * from './journey-segment-refilter-processor.js';
 export * from './journey-segment-query.js';
 export * from './journey-segment-recovery.js';
+export * from './journey-segment-baseline.js';
