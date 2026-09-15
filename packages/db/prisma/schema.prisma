@@ -2196,6 +2196,12 @@ model JrEnrollment {
   /// J2.7: enrollment ที่เกิดจาก INTERACTION_OUTCOME trigger — nullable เหมือน
   /// eventInboxId/occurrenceId เพราะ trigger source ของ enrollment มีได้แบบเดียวเท่านั้น
   outcomeReceiptId String?           @map("outcome_receipt_id") @db.Uuid
+  /// J3.7 (#218): enrollment ที่เกิดจาก SEGMENT_ENTRY trigger
+  ///
+  /// ผูกกับ "intent" ไม่ใช่ receipt เหมือน outcomeReceiptId เพราะ segment หนึ่ง revision
+  /// fan-out ไปได้หลาย journey พร้อมกัน ส่วน intent เป็นหนึ่งใบต่อ (journey, version, entry)
+  /// อยู่แล้ว ความสัมพันธ์จึงเป็น 1:1 จริง และ unique ด้านล่างบังคับได้ตรงไปตรงมา
+  segmentIntentId  String?           @map("segment_intent_id") @db.Uuid
   journeyId        String?           @map("journey_id") @db.Uuid
   journeyVersion   Int               @map("journey_version")
   contactId        String?           @map("contact_id") @db.Uuid
@@ -2219,6 +2225,7 @@ model JrEnrollment {
   eventInbox     JrEventInbox?         @relation(fields: [eventInboxId], references: [id])
   occurrence     JrScheduleOccurrence? @relation(fields: [occurrenceId], references: [id])
   outcomeReceipt JrOutcomeReceipt?     @relation(fields: [outcomeReceiptId], references: [id])
+  segmentIntent  JrSegmentEnrollmentIntent? @relation(fields: [tenantId, segmentIntentId], references: [tenantId, id])
   contact        Contact?              @relation(fields: [contactId], references: [id])
   decision       CgDecisionLog?        @relation(fields: [decisionId], references: [id])
   actions        JrAction[]
@@ -2228,6 +2235,7 @@ model JrEnrollment {
   @@unique([tenantId, eventInboxId])
   @@unique([tenantId, occurrenceId], map: "jr_enrollments_tenant_occurrence_key")
   @@unique([tenantId, outcomeReceiptId], map: "jr_enrollments_tenant_outcome_receipt_key")
+  @@unique([tenantId, segmentIntentId], map: "jr_enrollments_tenant_segment_intent_key")
   @@index([tenantId, contactId, state])
   @@index([tenantId, runState, waitUntil], map: "jr_enrollments_tenant_run_state_wait_until_idx")
   @@index([tenantId, runState, maxAgeAt], map: "jr_enrollments_tenant_run_state_max_age_idx")
@@ -3067,6 +3075,9 @@ model JrSegmentEnrollmentIntent {
   contact Contact          @relation(fields: [tenantId, contactId], references: [tenantId, id])
   receipt JrSegmentReceipt @relation(fields: [tenantId, receiptId], references: [tenantId, id])
 
+  enrollment JrEnrollment?
+
+  @@unique([tenantId, id])
   @@unique([tenantId, journeyId, journeyVersion, contactId, segmentId, entryId])
   @@index([tenantId, receiptId])
   @@map("jr_segment_enrollment_intents")

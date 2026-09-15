@@ -71,6 +71,8 @@ async function fixture(t: TestContext) {
   t.after(async () => {
     await owner.jrSegmentOutbox.deleteMany({ where: { tenantId } });
     await owner.jrSegmentRefilterCursor.deleteMany({ where: { tenantId } });
+    // enrollment อ้าง intent ด้วย FK จึงต้องลบก่อน
+    await owner.jrEnrollment.deleteMany({ where: { tenantId } });
     await owner.jrSegmentEnrollmentIntent.deleteMany({ where: { tenantId } });
     await owner.jrSegmentHead.deleteMany({ where: { tenantId } });
     await owner.jrSegmentReceipt.deleteMany({ where: { tenantId } });
