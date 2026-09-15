@@ -8,6 +8,13 @@ on:
     # 01:00 ICT — J2 acceptance กินเวลา ~3 ชม. จึงรันรอบดึกแทนทุก push
     - cron: '0 18 * * *'
   workflow_dispatch:
+    inputs:
+      acceptance:
+        # CG4.11 (#194): สั่งเฉพาะชุดที่ต้องการได้ ไม่ต้องลาก J2 (~3 ชม.) มาด้วยทุกครั้ง
+        description: 'acceptance ที่จะรัน (all | cg4 | j2)'
+        type: choice
+        options: [all, cg4, j2]
+        default: all
 
 jobs:
   build:
@@ -107,7 +114,7 @@ jobs:
   cxa-j2-acceptance:
     # J2-REG01 รัน C1 และ S1 acceptance ซ้อนอยู่ข้างใน รวมแล้วราว 3 ชม. ถ้าผูกกับทุก push
     # job จะทับกันเองเพราะ main ขยับถี่กว่านั้น จึงรันรอบดึกวันละครั้ง (และสั่งเองได้)
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4')
     runs-on: ubuntu-latest
     timeout-minutes: 330
     concurrency:
@@ -177,11 +184,12 @@ jobs:
         run: pnpm infra:down
 
   cxa-cg4-acceptance:
-    # CG4.11 (#194): CG4-REG01 rerun E0/C1/Inbound Voice/S1 ซ้อนอยู่ข้างใน จึงรันรอบดึกหรือสั่งเอง
-    # บน main เท่านั้น — marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
-    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    # CG4.11 (#194): รันรอบดึกหรือสั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg4`)
+    # CG4-REG01 rerun S1 ครั้งเดียว (E0/C1/Inbound Voice อยู่ใน S1-REG-01) และแต่ละ suite รันครั้งเดียว
+    # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
+    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2')) && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 180
     concurrency:
       group: cxa-cg4-acceptance
       cancel-in-progress: false
