@@ -46,7 +46,13 @@ export class EventIdempotencyConflictError extends Error {
   }
 }
 
-function canonicalJson(value: unknown): string {
+/**
+ * canonical JSON ที่ใช้ทำ hash ให้เสถียรข้ามลำดับคีย์
+ *
+ * export ออกมาให้ J3 ใช้ซ้ำ (#217) แทนที่จะเขียนสำเนาที่สี่ — การมีกติกา canonicalization
+ * หลายชุดที่ต้องคอยให้ตรงกันคือที่มาของ hash ที่ไม่ตรงกันโดยไม่มีใครรู้
+ */
+export function canonicalJson(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
   if (typeof value === 'number') {

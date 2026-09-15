@@ -212,6 +212,46 @@ export class JourneyDefinitionRepository {
     return withTenantDatabaseTransaction(this.database, tenantId, read);
   }
 
+  /**
+   * J3.6 (#217): published SEGMENT_ENTRY definitions ทั้งหมดที่อ้าง segment นี้
+   *
+   * ต่างจาก `findPublishedByOutcomeTrigger` ที่คืนได้อย่างมากหนึ่งใบ — segment เดียวมีได้หลาย
+   * journey ที่สนใจพร้อมกัน และ unique ของ enrollment intent เป็นระดับ (journey, version)
+   * จึงรองรับ fan-out อยู่แล้ว การบังคับให้เหลือใบเดียวที่นี่จะทำให้ journey ที่เหลือเงียบหายไป
+   * โดยไม่มีใครรู้
+   */
+  async findPublishedBySegmentTrigger(
+    tenantId: string,
+    segmentId: string,
+  ): Promise<readonly JourneyVersionSnapshot[]> {
+    const read = async (transaction: Prisma.TransactionClient) => {
+      const latestPerJourney = await transaction.jrJourneyDefinition.groupBy({
+        by: ['journeyId'],
+        where: { tenantId, status: 'PUBLISHED' },
+        _max: { version: true },
+      });
+      if (latestPerJourney.length === 0) return [];
+      const rows = await transaction.jrJourneyDefinition.findMany({
+        where: {
+          tenantId,
+          status: 'PUBLISHED',
+          OR: latestPerJourney.map((group) => ({
+            journeyId: group.journeyId,
+            version: group._max.version ?? -1,
+          })),
+        },
+        orderBy: { journeyId: 'asc' },
+      });
+      return rows
+        .map((row) => toSnapshot(row as StoredJourneyDefinition))
+        .filter(
+          (snapshot) =>
+            snapshot.trigger.kind === 'SEGMENT_ENTRY' && snapshot.trigger.segmentId === segmentId,
+        );
+    };
+    return withTenantDatabaseTransaction(this.database, tenantId, read);
+  }
+
   async publishVersion(input: PublishJourneyVersionInput): Promise<JourneyVersionSnapshot> {
     const persist = async (transaction: Prisma.TransactionClient) => {
       await transaction.$queryRaw(
