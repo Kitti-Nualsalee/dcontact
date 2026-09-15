@@ -648,6 +648,62 @@ test(
   },
 );
 
+test('SPLIT/UNMERGE ปฏิเสธคู่ contact ที่ไม่เคย merge กัน', async (t) => {
+  const f = await fixture(t);
+
+  // สองใบนี้ไม่เคยถูก merge เข้าหากันเลย — ย้อนอะไรไม่ได้เพราะไม่มีอะไรให้ย้อน
+  for (const operation of ['UNMERGE', 'SPLIT'] as const) {
+    await assert.rejects(
+      () =>
+        f.memberships.recordIdentityTransition({
+          tenantId: f.tenantId,
+          commandId: `command:${operation}:${randomUUID()}`,
+          operation,
+          sourceContactId: f.contactId,
+          targetContactId: f.thirdContactId,
+          expectedSourceLineageRevision: 0,
+          correlationId: `correlation:${randomUUID()}`,
+        }),
+      (error: unknown) =>
+        error instanceof Error && (error as { code?: string }).code === 'IDENTITY_LINEAGE_CONFLICT',
+      `${operation} ต้องไม่สร้าง lineage จาก contact ที่ไม่เคย merge กัน`,
+    );
+  }
+
+  // ledger ต้องสะอาด ไม่มีประวัติที่ไม่เคยเกิดขึ้นจริงถูกบันทึกไว้
+  assert.equal(await f.owner.c360IdentityLineage.count({ where: { tenantId: f.tenantId } }), 0);
+});
+
+test('UNMERGE ที่ย้อน merge จริงยังทำได้ตามปกติ', async (t) => {
+  const f = await fixture(t);
+  const merge = await f.memberships.recordIdentityTransition({
+    tenantId: f.tenantId,
+    commandId: `command:merge:${randomUUID()}`,
+    operation: 'MERGE',
+    sourceContactId: f.contactId,
+    targetContactId: f.targetContactId,
+    expectedSourceLineageRevision: 0,
+    correlationId: `correlation:${randomUUID()}`,
+  });
+  assert.equal(merge.operation, 'MERGE');
+
+  const unmerge = await f.memberships.recordIdentityTransition({
+    tenantId: f.tenantId,
+    commandId: `command:unmerge:${randomUUID()}`,
+    operation: 'UNMERGE',
+    sourceContactId: f.contactId,
+    targetContactId: f.targetContactId,
+    expectedSourceLineageRevision: merge.lineageRevision,
+    correlationId: `correlation:${randomUUID()}`,
+  });
+  assert.equal(unmerge.operation, 'UNMERGE');
+
+  const head = await f.owner.c360IdentityHead.findFirstOrThrow({
+    where: { tenantId: f.tenantId, contactId: f.contactId },
+  });
+  assert.equal(head.state, 'ACTIVE');
+});
+
 test('payload ที่เสียถาวรถูก quarantine ไม่ใช่ retry วนไปเรื่อย ๆ', async (t) => {
   const f = await fixture(t);
   await snapshot(f, f.contactId, 1, 'GOLD');

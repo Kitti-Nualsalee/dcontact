@@ -960,6 +960,40 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
           'MERGE รับเฉพาะ source/target ที่เป็น ACTIVE canonical contact',
         );
       }
+
+      /**
+       * SPLIT/UNMERGE คือการ "ย้อน" การรวมที่เคยเกิดขึ้น จึงต้องมี merge edge จริงให้ย้อน
+       *
+       * เดิมไม่ตรวจอะไรเลย ทำให้สร้าง lineage ระหว่าง contact สองใบที่ไม่เคยถูก merge กัน
+       * ได้ ผลคือ ledger บันทึกประวัติที่ไม่เคยเกิดขึ้นจริง และ membership ของ contact ที่
+       * ไม่เกี่ยวข้องกันถูก re-evaluate โดยไม่มีเหตุผล
+       *
+       * พิสูจน์สองชั้น: head ต้องบอกว่าตอนนี้ source ถูก merge เข้า target อยู่จริง และต้องมี
+       * lineage row ของ MERGE คู่นี้อยู่ใน ledger
+       */
+      if (input.operation === 'SPLIT' || input.operation === 'UNMERGE') {
+        if (source.state !== 'MERGED' || source.canonicalContactId !== input.targetContactId) {
+          throw new C360MembershipRepositoryError(
+            'IDENTITY_LINEAGE_CONFLICT',
+            `${input.operation} ต้องย้อน merge ที่ยังมีผลอยู่ แต่ ${input.sourceContactId} ไม่ได้ถูก merge เข้า ${input.targetContactId}`,
+          );
+        }
+        const mergeEdge = await transaction.c360IdentityLineage.findFirst({
+          where: {
+            tenantId: input.tenantId,
+            operation: 'MERGE',
+            sourceContactId: input.sourceContactId,
+            targetContactId: input.targetContactId,
+          },
+          orderBy: { lineageRevision: 'desc' },
+        });
+        if (!mergeEdge) {
+          throw new C360MembershipRepositoryError(
+            'IDENTITY_LINEAGE_CONFLICT',
+            `ไม่พบ merge edge ของ ${input.sourceContactId} -> ${input.targetContactId} ที่ ${input.operation} จะย้อน`,
+          );
+        }
+      }
       const occurredAt = await this.databaseTime(transaction);
       const sourceRevision = source.lineageRevision + 1;
       const nextSourceState = input.operation === 'MERGE' ? 'MERGED' : 'ACTIVE';
