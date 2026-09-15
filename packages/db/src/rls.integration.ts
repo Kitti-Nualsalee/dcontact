@@ -800,3 +800,208 @@ test('J2.6 Dialer ob_callbacks บังคับ tenant RLS และห้า�
     '1',
   );
 });
+
+test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, composite binding และ immutable intent', (t) => {
+  const tenantId = randomUUID();
+  const otherTenantId = randomUUID();
+  const contactId = randomUUID();
+  const otherContactId = randomUUID();
+  /**
+   * contacts.id เป็น primary key ระดับ global จึง reuse ข้าม tenant ไม่ได้ — ตัวที่ reuse ได้จริง
+   * และต้องพิสูจน์คือ segment_id กับ event_id ซึ่งเป็น TEXT ที่ tenant ตั้งเองได้อิสระ ทั้งคู่ต้อง
+   * ชนกันเองภายใน tenant เท่านั้น ไม่ใช่ข้าม tenant
+   */
+  const suffix = tenantId.slice(0, 8);
+  const receiptId = randomUUID();
+  const segmentId = `segment-${suffix}`;
+  const hash = 'a'.repeat(64);
+
+  queryAsOwner(
+    `BEGIN;
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${tenantId}', 'J3.5 RLS ${suffix}', 'j3-5-rls-${suffix}', 'j3-5-rls-${suffix}.test');
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${otherTenantId}', 'J3.5 other ${suffix}', 'j3-5-other-${suffix}', 'j3-5-other-${suffix}.test');
+     INSERT INTO contacts (id, tenant_id) VALUES ('${contactId}', '${tenantId}');
+     INSERT INTO contacts (id, tenant_id) VALUES ('${otherContactId}', '${otherTenantId}');
+     COMMIT;`,
+  );
+
+  t.after(() =>
+    queryAsOwner(
+      `DELETE FROM jr_segment_outbox WHERE tenant_id IN ('${tenantId}', '${otherTenantId}');
+       DELETE FROM jr_segment_refilter_cursors WHERE tenant_id IN ('${tenantId}', '${otherTenantId}');
+       DELETE FROM jr_segment_enrollment_intents WHERE tenant_id IN ('${tenantId}', '${otherTenantId}');
+       DELETE FROM jr_segment_heads WHERE tenant_id IN ('${tenantId}', '${otherTenantId}');
+       DELETE FROM jr_segment_receipts WHERE tenant_id IN ('${tenantId}', '${otherTenantId}');
+       DELETE FROM jr_recovery_audit WHERE tenant_id IN ('${tenantId}', '${otherTenantId}');
+       DELETE FROM contacts WHERE tenant_id IN ('${tenantId}', '${otherTenantId}');
+       DELETE FROM tenants WHERE id IN ('${tenantId}', '${otherTenantId}');`,
+    ),
+  );
+
+  const insertReceipt = (id: string, eventId: string, revision: number) =>
+    `INSERT INTO jr_segment_receipts (id, tenant_id, source, event_id, contact_id, segment_id, membership_revision, change_kind, entry_id, segment_definition_version, payload_hash, correlation_id) VALUES ('${id}', '${tenantId}', 'CUSTOMER_360', '${eventId}', '${contactId}', '${segmentId}', ${revision}, 'ENTERED', 'entry-${suffix}', 1, '${hash}', 'corr-${suffix}')`;
+
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN;
+       SELECT set_config('app.tenant_id', '${tenantId}', true);
+       ${insertReceipt(receiptId, `event-${suffix}`, 1)};
+       INSERT INTO jr_segment_heads (tenant_id, contact_id, segment_id, last_applied_revision, updated_at) VALUES ('${tenantId}', '${contactId}', '${segmentId}', 1, now());
+       COMMIT;`,
+    ),
+    /\nINSERT 0 1\nINSERT 0 1\nCOMMIT$/,
+  );
+
+  // transport identity: event เดิมส่งซ้ำมาจาก broker ต้องชนถึงแม้จะเป็นคนละ row id
+  assert.throws(
+    () =>
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${insertReceipt(randomUUID(), `event-${suffix}`, 2)}; COMMIT;`,
+      ),
+    /jr_segment_receipts_transport_key|duplicate key/i,
+  );
+
+  // logical identity: revision เดิมที่มาคนละ event ก็ต้องชน — คนละเหตุผลกับข้างบน
+  assert.throws(
+    () =>
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${insertReceipt(randomUUID(), `event-other-${suffix}`, 1)}; COMMIT;`,
+      ),
+    /jr_segment_receipts_logical_key|duplicate key/i,
+  );
+
+  // composite binding: tenant อื่นอ้าง contact ที่ไม่ใช่ของตัวเองต้องผูกไม่ได้
+  assert.throws(
+    () =>
+      queryAsApplicationRole(
+        `BEGIN;
+         SELECT set_config('app.tenant_id', '${otherTenantId}', true);
+         INSERT INTO jr_segment_receipts (id, tenant_id, source, event_id, contact_id, segment_id, membership_revision, change_kind, segment_definition_version, payload_hash, correlation_id) VALUES ('${randomUUID()}', '${otherTenantId}', 'CUSTOMER_360', 'event-x-${suffix}', '${contactId}', '${segmentId}', 1, 'ENTERED', 1, '${hash}', 'corr-${suffix}');
+         COMMIT;`,
+      ),
+    /foreign key|violates/i,
+  );
+
+  // reused ID: segment_id และ event_id ชุดเดียวกันเป๊ะ ๆ ต้องอยู่ได้ทั้งสอง tenant พร้อมกัน
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN;
+       SELECT set_config('app.tenant_id', '${otherTenantId}', true);
+       INSERT INTO jr_segment_receipts (id, tenant_id, source, event_id, contact_id, segment_id, membership_revision, change_kind, segment_definition_version, payload_hash, correlation_id) VALUES ('${randomUUID()}', '${otherTenantId}', 'CUSTOMER_360', 'event-${suffix}', '${otherContactId}', '${segmentId}', 1, 'ENTERED', 1, '${hash}', 'corr-${suffix}');
+       COMMIT;`,
+    ),
+    /\nINSERT 0 1\nCOMMIT$/,
+  );
+
+  // RLS: อีก tenant มองไม่เห็นแถวของ tenant นี้เลยแม้ contact id จะซ้ำกัน
+  for (const table of [
+    'jr_segment_receipts',
+    'jr_segment_heads',
+    'jr_segment_refilter_cursors',
+    'jr_segment_outbox',
+  ]) {
+    assert.match(
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${otherTenantId}', true); SELECT count(*) FROM ${table} WHERE tenant_id = '${tenantId}'; COMMIT;`,
+      ),
+      /\n0\nCOMMIT$/,
+      `${table} ต้องไม่รั่วข้าม tenant`,
+    );
+  }
+
+  // lease ต้องมาเป็นคู่ — owner ที่ไม่มีวันหมดอายุคือ lease ค้างตลอดกาลเมื่อ worker ตาย
+  assert.throws(
+    () =>
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE jr_segment_receipts SET state = 'PROCESSING', lease_owner = 'worker-1' WHERE id = '${receiptId}'; COMMIT;`,
+      ),
+    /jr_segment_receipts_lease_check/i,
+  );
+
+  // APPLIED ต้องมี applied_at เสมอ และห้ามมีเมื่อยังไม่ APPLIED
+  assert.throws(
+    () =>
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE jr_segment_receipts SET state = 'APPLIED' WHERE id = '${receiptId}'; COMMIT;`,
+      ),
+    /jr_segment_receipts_state_check/i,
+  );
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE jr_segment_receipts SET state = 'APPLIED', applied_at = now() WHERE id = '${receiptId}'; COMMIT;`,
+    ),
+    /\nUPDATE 1\nCOMMIT$/,
+  );
+
+  // first-terminal protection: terminal ต้องมาครบชุดและห้ามล้ำหน้า revision ที่ apply แล้ว
+  assert.throws(
+    () =>
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE jr_segment_heads SET terminal_entry_id = 'entry-${suffix}' WHERE tenant_id = '${tenantId}' AND contact_id = '${contactId}' AND segment_id = '${segmentId}'; COMMIT;`,
+      ),
+    /jr_segment_heads_terminal_check/i,
+  );
+  assert.throws(
+    () =>
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); UPDATE jr_segment_heads SET terminal_entry_id = 'entry-${suffix}', terminal_revision = 99, terminal_reason_code = 'LEFT' WHERE tenant_id = '${tenantId}' AND contact_id = '${contactId}' AND segment_id = '${segmentId}'; COMMIT;`,
+      ),
+    /jr_segment_heads_terminal_check/i,
+  );
+
+  // enrollment intent: เขียนได้ครั้งเดียว แก้หรือลบไม่ได้ทั้งที่ระดับ grant และ trigger
+  const intentId = randomUUID();
+  const journeyId = `journey-${suffix}`;
+  const insertIntent = (id: string) =>
+    `INSERT INTO jr_segment_enrollment_intents (id, tenant_id, journey_id, journey_version, contact_id, segment_id, entry_id, receipt_id, reason_membership_revision, reason_definition_version, reason_digest, correlation_id) VALUES ('${id}', '${tenantId}', '${journeyId}', 1, '${contactId}', '${segmentId}', 'entry-${suffix}', '${receiptId}', 1, 1, '${hash}', 'corr-${suffix}')`;
+
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${insertIntent(intentId)}; COMMIT;`,
+    ),
+    /\nINSERT 0 1\nCOMMIT$/,
+  );
+  // intent เดิมซ้ำต้องชน unique ไม่ใช่สร้างเหตุผลใบที่สองให้ enrollment เดียวกัน
+  assert.throws(
+    () =>
+      queryAsApplicationRole(
+        `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${insertIntent(randomUUID())}; COMMIT;`,
+      ),
+    /jr_segment_enrollment_intents_key|duplicate key/i,
+  );
+  for (const mutation of [
+    `UPDATE jr_segment_enrollment_intents SET reason_digest = '${'b'.repeat(64)}' WHERE id = '${intentId}'`,
+    `DELETE FROM jr_segment_enrollment_intents WHERE id = '${intentId}'`,
+  ]) {
+    assert.throws(
+      () =>
+        queryAsApplicationRole(
+          `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${mutation}; COMMIT;`,
+        ),
+      /permission denied|append-only/i,
+    );
+  }
+
+  // recovery audit รับ target/operation ใหม่ได้แบบ additive โดยค่าเดิมยังใช้ได้เหมือนเดิม
+  assert.match(
+    queryAsApplicationRole(
+      `BEGIN;
+       SELECT set_config('app.tenant_id', '${tenantId}', true);
+       INSERT INTO jr_recovery_audit (id, tenant_id, operation, target_kind, target_ref, reason_code, actor_id) VALUES ('${randomUUID()}', '${tenantId}', 'REVALIDATE', 'SEGMENT_REFILTER', 'entry-${suffix}', 'MANUAL_TEST', '${randomUUID()}');
+       INSERT INTO jr_recovery_audit (id, tenant_id, operation, target_kind, target_ref, reason_code, actor_id) VALUES ('${randomUUID()}', '${tenantId}', 'REPLAY', 'SEGMENT_RECEIPT', 'event-${suffix}', 'MANUAL_TEST', '${randomUUID()}');
+       INSERT INTO jr_recovery_audit (id, tenant_id, operation, target_kind, target_ref, reason_code, actor_id) VALUES ('${randomUUID()}', '${tenantId}', 'RECONCILE', 'ACTION', 'action-${suffix}', 'MANUAL_TEST', '${randomUUID()}');
+       COMMIT;`,
+    ),
+    /\nINSERT 0 1\nINSERT 0 1\nINSERT 0 1\nCOMMIT$/,
+  );
+
+  assert.equal(
+    queryAsOwner(
+      `SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN (
+         'jr_segment_receipts', 'jr_segment_heads', 'jr_segment_enrollment_intents',
+         'jr_segment_refilter_cursors', 'jr_segment_outbox'
+       ) AND policyname = 'tenant_isolation' AND qual IS NOT NULL AND with_check IS NOT NULL;`,
+    ),
+    '5',
+  );
+});
