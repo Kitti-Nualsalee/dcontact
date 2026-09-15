@@ -10,6 +10,7 @@ import type {
 import { PrismaClient } from '@d-contact/db';
 import { DcExprEvaluator } from '@d-contact/expression';
 import { JourneyDefinitionRepository } from './journey-definition-repository.js';
+import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
 import { JourneySegmentReceiptRepository } from './journey-segment-receipt-repository.js';
 import { JourneySegmentRefilterProcessor } from './journey-segment-refilter-processor.js';
 
@@ -73,6 +74,8 @@ async function fixture(t: TestContext) {
     await owner.jrSegmentRefilterCursor.deleteMany({ where: { tenantId } });
     // enrollment อ้าง intent ด้วย FK จึงต้องลบก่อน
     await owner.jrEnrollment.deleteMany({ where: { tenantId } });
+    await owner.jrOwnerCommandOutbox.deleteMany({ where: { tenantId } });
+    await owner.jrOwnerAction.deleteMany({ where: { tenantId } });
     await owner.jrSegmentEnrollmentIntent.deleteMany({ where: { tenantId } });
     await owner.jrSegmentHead.deleteMany({ where: { tenantId } });
     await owner.jrSegmentReceipt.deleteMany({ where: { tenantId } });
@@ -123,6 +126,7 @@ async function fixture(t: TestContext) {
     suffix,
     definitions: new JourneyDefinitionRepository(application, evaluator),
     receipts: new JourneySegmentReceiptRepository(application),
+    actions: new JourneyOwnerActionRepository(application),
   };
 }
 
@@ -402,5 +406,187 @@ test('ไม่มีงาน re-filter คืน undefined โดยไม่�
   assert.equal(
     await processor(f, eligible(f, 'entry')).executeNext(f.tenantId, 'worker-1'),
     undefined,
+  );
+});
+
+/** สร้าง enrollment จริงผ่าน applyEnrollment แล้วคืน enrollmentId */
+async function enrollFor(f: Fixture, entryId: string, journeyId: string) {
+  const received = await f.receipts.ingest({
+    tenantId: f.tenantId,
+    source: 'CUSTOMER_360',
+    eventId: `event-${randomUUID()}`,
+    contactId: f.contactId,
+    segmentId: f.segmentId,
+    membershipRevision: 1,
+    changeKind: 'ENTERED',
+    entryId,
+    segmentDefinitionVersion: 1,
+    payloadHash: HASH,
+    correlationId: `corr-${f.suffix}`,
+  });
+  await f.receipts.applyEnrollment(
+    {
+      tenantId: f.tenantId,
+      receiptId: received.receipt.id,
+      entryId,
+      canonicalContactId: f.contactId,
+      intents: [
+        {
+          journeyId,
+          journeyVersion: 1,
+          entryStepId: 'send',
+          reasonMembershipRevision: 1,
+          reasonDefinitionVersion: 1,
+          reasonDigest: HASH,
+        },
+      ],
+      correlationId: `corr-${f.suffix}`,
+    },
+    {
+      eventType: 'journey.segment_entry.recorded',
+      orderingKey: `${f.contactId}:${f.segmentId}`,
+      payload: { contractVersion: 1 },
+      payloadHash: HASH,
+    },
+  );
+  const enrollment = await f.owner.jrEnrollment.findFirstOrThrow({
+    where: { tenantId: f.tenantId },
+  });
+  return enrollment.id;
+}
+
+async function ownerAction(f: Fixture, enrollmentId: string, actionKey: string) {
+  return f.actions.ensureAction({
+    tenantId: f.tenantId,
+    actionKey,
+    enrollmentId,
+    kind: 'ENSURE_CASE',
+    requestHash: 'b'.repeat(64),
+    correlationId: `corr-${f.suffix}`,
+    commandId: `command-${randomUUID()}`,
+  });
+}
+
+test('pre-barrier: action ที่ owner ยังไม่ ack ถูกสั่งยกเลิกพร้อมเข้าคิว cancel command', async (t) => {
+  const f = await fixture(t);
+  const entryId = `entry-${f.suffix}`;
+  const journeyId = await publishJourney(f);
+  const enrollmentId = await enrollFor(f, entryId, journeyId);
+  const actionKey = `action-${f.suffix}`;
+  await ownerAction(f, enrollmentId, actionKey);
+
+  await queueRefilter(f, 2, 'LEFT', entryId);
+  const outcome = await processor(f, {
+    status: 'NOT_ELIGIBLE',
+    reasonCode: 'SEGMENT_ENTRY_NOT_ELIGIBLE',
+  }).executeNext(f.tenantId, 'worker-1');
+  assert.equal(outcome, 'CANCELLED');
+
+  const action = await f.owner.jrOwnerAction.findFirstOrThrow({
+    where: { tenantId: f.tenantId, actionKey },
+  });
+  assert.equal(action.state, 'CANCEL_REQUESTED');
+
+  // cancel command ต้องเข้าคิวด้วย binding เดิมของ action
+  const cancelCommand = await f.owner.jrOwnerCommandOutbox.findFirstOrThrow({
+    where: { tenantId: f.tenantId, commandId: `cancel:segment-refilter:${actionKey}` },
+  });
+  assert.equal(cancelCommand.actionKey, actionKey);
+  assert.equal(cancelCommand.state, 'PENDING');
+
+  // enrollment ต้องจบด้วยเหตุ CANCELLED
+  const enrollment = await f.owner.jrEnrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
+  assert.equal(enrollment.runState, 'TERMINAL');
+  assert.equal(enrollment.terminalReason, 'CANCELLED');
+  assert.equal(enrollment.state, 'BLOCKED');
+});
+
+test('post-barrier: action ที่ owner ack แล้วไม่ถูกแตะ เพราะ owner fact ลบไม่ได้', async (t) => {
+  const f = await fixture(t);
+  const entryId = `entry-${f.suffix}`;
+  const journeyId = await publishJourney(f);
+  const enrollmentId = await enrollFor(f, entryId, journeyId);
+  const actionKey = `action-${f.suffix}`;
+  await ownerAction(f, enrollmentId, actionKey);
+  // owner สร้าง Case จริงไปแล้ว — ผ่าน barrier
+  await f.owner.jrOwnerAction.updateMany({
+    where: { tenantId: f.tenantId, actionKey },
+    data: { state: 'ACKNOWLEDGED' },
+  });
+
+  await queueRefilter(f, 2, 'LEFT', entryId);
+  assert.equal(
+    await processor(f, {
+      status: 'NOT_ELIGIBLE',
+      reasonCode: 'SEGMENT_ENTRY_NOT_ELIGIBLE',
+    }).executeNext(f.tenantId, 'worker-1'),
+    'CANCELLED',
+  );
+
+  const action = await f.owner.jrOwnerAction.findFirstOrThrow({
+    where: { tenantId: f.tenantId, actionKey },
+  });
+  assert.equal(action.state, 'ACKNOWLEDGED', 'ของที่ owner สร้างแล้วห้ามถูกย้อน');
+  assert.equal(
+    await f.owner.jrOwnerCommandOutbox.count({
+      where: { tenantId: f.tenantId, commandId: `cancel:segment-refilter:${actionKey}` },
+    }),
+    0,
+    'ห้ามสั่งยกเลิกสิ่งที่ยกเลิกไม่ได้',
+  );
+});
+
+test('enrollment ที่จบด้วยเหตุอื่นแล้วห้ามถูกเขียนทับเป็น CANCELLED', async (t) => {
+  const f = await fixture(t);
+  const entryId = `entry-${f.suffix}`;
+  const journeyId = await publishJourney(f);
+  const enrollmentId = await enrollFor(f, entryId, journeyId);
+  // ถึงเป้าหมายไปก่อนแล้ว — first-terminal-commit-wins
+  await f.owner.jrEnrollment.update({
+    where: { id: enrollmentId },
+    data: { runState: 'TERMINAL', terminalReason: 'GOAL_REACHED', state: 'AUTHORIZED' },
+  });
+
+  await queueRefilter(f, 2, 'LEFT', entryId);
+  await processor(f, {
+    status: 'NOT_ELIGIBLE',
+    reasonCode: 'SEGMENT_ENTRY_NOT_ELIGIBLE',
+  }).executeNext(f.tenantId, 'worker-1');
+
+  const enrollment = await f.owner.jrEnrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
+  assert.equal(enrollment.terminalReason, 'GOAL_REACHED', 'เหตุผลที่จบต้องบันทึกครั้งเดียว');
+  assert.equal(enrollment.state, 'AUTHORIZED');
+});
+
+test('ยกเลิกซ้ำไม่สั่ง owner ยกเลิกเป็นครั้งที่สอง', async (t) => {
+  const f = await fixture(t);
+  const entryId = `entry-${f.suffix}`;
+  const journeyId = await publishJourney(f);
+  const enrollmentId = await enrollFor(f, entryId, journeyId);
+  const actionKey = `action-${f.suffix}`;
+  await ownerAction(f, enrollmentId, actionKey);
+
+  for (const revision of [2, 3]) {
+    await queueRefilter(f, revision, 'LEFT', entryId);
+    await new JourneySegmentRefilterProcessor(
+      f.application,
+      f.definitions,
+      {
+        membershipReader: reader({
+          status: 'NOT_ELIGIBLE',
+          reasonCode: 'SEGMENT_ENTRY_NOT_ELIGIBLE',
+        }) as never,
+        teamContactScopeAuthorizer: authorizer(ALLOW) as never,
+      },
+      { now: () => new Date(Date.now() + revision * 120_000) },
+    ).executeNext(f.tenantId, `worker-${revision}`);
+  }
+
+  // commandId คำนวณจาก actionKey จึง upsert ทับใบเดิม ไม่ใช่สั่งซ้ำ
+  assert.equal(
+    await f.owner.jrOwnerCommandOutbox.count({
+      where: { tenantId: f.tenantId, commandId: `cancel:segment-refilter:${actionKey}` },
+    }),
+    1,
   );
 });
