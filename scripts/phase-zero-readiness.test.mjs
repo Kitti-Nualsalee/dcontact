@@ -97,6 +97,32 @@ test('บรรทัด not ok ที่อยู่กลาง TAP output ย
   assert.equal(diagnostic.detail.includes('ok 100 - passing case 100'), false);
 });
 
+test('signal/exitCode ของ test file ที่ process ตาย ต้องรอดจากการ truncate', () => {
+  // เจอจริงตอนไล่ J2/S1: journey-owner-ack-escalator ล้มแบบ file-level โดยเทสข้างในผ่านหมด
+  // เหลือแต่ failureType/error ที่เหมือนกันทุกเคส ไม่มีอะไรบอกว่าเป็น SIGSEGV หรือ exit 1
+  const lines = [];
+  for (let i = 1; i <= 60; i += 1) lines.push(`ok ${i} - passing case ${i}`);
+  lines.push('not ok 61 - src/journey-owner-ack-escalator.integration.ts');
+  lines.push("  failureType: 'testCodeFailure'");
+  lines.push("  error: 'test failed'");
+  lines.push("  code: 'ERR_TEST_FAILURE'");
+  lines.push("  signal: 'SIGSEGV'");
+  lines.push('  exitCode: 1');
+  for (let i = 62; i <= 140; i += 1) lines.push(`ok ${i} - passing case ${i}`);
+  lines.push('# tests 140', '# pass 139', '# fail 1');
+
+  const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], () => ({
+    status: 1,
+    stdout: lines.join('\n'),
+    stderr: '',
+  }));
+
+  assert.equal(diagnostic.status, 'FAIL');
+  assert.match(diagnostic.detail, /signal: 'SIGSEGV'/);
+  assert.match(diagnostic.detail, /exitCode: 1/);
+  assert.match(diagnostic.detail, /diagnostic output truncated/);
+});
+
 test('successful check ไม่สะท้อน child output ที่อาจมี dev credential', () => {
   const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[0], () => ({
     status: 0,
