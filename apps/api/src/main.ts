@@ -57,6 +57,10 @@ import {
   JourneyOwnerRecoveryController,
 } from './journey-owner-recovery-api.js';
 import {
+  JOURNEY_SEGMENT_DATABASE,
+  JourneySegmentRecoveryController,
+} from './journey-segment-recovery-api.js';
+import {
   CONTACT_GOVERNANCE_DATABASE,
   ContactGovernanceCallbackRequestsController,
   ContactGovernanceContactQueryController,
@@ -133,6 +137,7 @@ class WorkspaceSessionController {
     AgentWorkspaceController,
     JourneyEventController,
     JourneyOwnerRecoveryController,
+    JourneySegmentRecoveryController,
     ContactGovernancePreferencesController,
     ContactGovernanceCallbackRequestsController,
     ContactGovernancePoliciesController,
@@ -163,6 +168,7 @@ class WorkspaceSessionController {
     { provide: AGENT_SIP_LEASE_PROVIDER, useValue: configuredAgentSipLeaseProvider() },
     { provide: JOURNEY_EVENT_INBOX, useValue: journeyEventInbox },
     { provide: JOURNEY_RECOVERY_DATABASE, useValue: prisma },
+    { provide: JOURNEY_SEGMENT_DATABASE, useValue: prisma },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },
