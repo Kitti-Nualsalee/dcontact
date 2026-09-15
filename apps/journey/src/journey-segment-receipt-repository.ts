@@ -390,6 +390,26 @@ export class JourneySegmentReceiptRepository {
     });
   }
 
+  /**
+   * ปิด receipt โดยไม่สร้างงานอะไรต่อ — head ยังต้องเลื่อน
+   *
+   * ใช้กับ change ที่ไม่มี journey ไหนสนใจ หรือ contact ที่ไม่ eligible แล้ว ถ้าไม่เลื่อน head
+   * revision ถัดไปของ stream เดียวกันจะติด WAITING_FOR_GAP ตลอดไปเพราะรอ revision นี้ที่ไม่มี
+   * วันถูก apply และไม่สร้าง outbox เพราะไม่มีอะไรให้ประกาศ
+   */
+  async applyNoOp(tenantId: string, receiptId: string): Promise<JrSegmentReceipt> {
+    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      const receipt = await transaction.jrSegmentReceipt.findUniqueOrThrow({
+        where: { id: receiptId },
+      });
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${streamLockKey(tenantId, receipt.contactId, receipt.segmentId)}))`,
+      );
+      await this.advanceHead(transaction, receipt);
+      return this.markApplied(transaction, receipt.id);
+    });
+  }
+
   async markReview(
     tenantId: string,
     receiptId: string,
