@@ -10,7 +10,7 @@
  * สไลซ์นี้ครอบวงจรชีวิตของ cursor กับการตัดสินใจ ส่วนการยกเลิกงานฝั่ง owner (pre-barrier
  * cancel/release เทียบกับ post-barrier CANCEL_REQUESTED → RECONCILING) เป็นสไลซ์ถัดไป
  */
-import type { Prisma, PrismaClient } from '@d-contact/db';
+import { type Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import {
   contactId as toContactId,
   membershipRevision as toMembershipRevision,
@@ -22,7 +22,14 @@ import {
   type TeamContactScopeAuthorizer,
 } from '@d-contact/cxa-contracts';
 import type { JourneyDefinitionRepository } from './journey-definition-repository.js';
+import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
 import { JourneySegmentReceiptRepository } from './journey-segment-receipt-repository.js';
+
+/**
+ * state ที่ยังยกเลิกงานฝั่ง owner ได้ — ตรงกับ `CANCELLABLE_ACTION_STATES` ของ J2
+ * ACKNOWLEDGED ไม่อยู่ในนี้เพราะ owner สร้าง entity จริงไปแล้ว
+ */
+const CANCELLABLE_OWNER_ACTION_STATES = new Set(['PENDING', 'DISPATCHED', 'ACK_UNKNOWN']);
 
 export type RefilterOutcome =
   'NO_OP' | 'CANCELLED' | 'DEFERRED' | 'HELD' | 'RECONCILING' | undefined;
@@ -44,9 +51,10 @@ export class JourneySegmentRefilterProcessor {
   private readonly retryDelayMs: number;
   private readonly leaseSeconds: number;
   private readonly receipts: JourneySegmentReceiptRepository;
+  private readonly actions: JourneyOwnerActionRepository;
 
   constructor(
-    database: PrismaClient,
+    private readonly database: PrismaClient,
     private readonly definitions: JourneyDefinitionRepository,
     private readonly ports: JourneySegmentRefilterProcessorPorts,
     options: JourneySegmentRefilterProcessorOptions = {},
@@ -57,6 +65,9 @@ export class JourneySegmentRefilterProcessor {
     this.receipts = new JourneySegmentReceiptRepository(database, {
       ...(options.id ? { id: options.id } : {}),
       ...(options.now ? { now: options.now } : {}),
+    });
+    this.actions = new JourneyOwnerActionRepository(database, {
+      ...(options.id ? { id: options.id } : {}),
     });
   }
 
@@ -136,12 +147,7 @@ export class JourneySegmentRefilterProcessor {
      * ตัดสินว่า "ต้องยกเลิก" เป็นของรอบนี้ และเป็น fact ที่เสถียรแล้วเพราะถามจาก canonical
      */
     if (resolution.status !== 'ELIGIBLE') {
-      await this.receipts.settleRefilter(
-        tenantId,
-        cursor.id,
-        'CANCELLED',
-        'SEGMENT_ENTRY_NOT_ELIGIBLE',
-      );
+      await this.cancelWork(tenantId, cursor, receipt.entryId, 'SEGMENT_ENTRY_NOT_ELIGIBLE');
       return 'CANCELLED';
     }
 
@@ -197,17 +203,88 @@ export class JourneySegmentRefilterProcessor {
      * และห้ามบันทึกเป็น Governance BLOCK เพราะนี่เป็นเรื่องสิทธิ์ของทีม ไม่ใช่นโยบายติดต่อลูกค้า
      */
     if (scopes.every((scope) => scope.decision === 'DENY')) {
-      await this.receipts.settleRefilter(
-        tenantId,
-        cursor.id,
-        'CANCELLED',
-        'TEAM_SEGMENT_NOT_ALLOWED',
-      );
+      await this.cancelWork(tenantId, cursor, receipt.entryId, 'TEAM_SEGMENT_NOT_ALLOWED');
       return 'CANCELLED';
     }
 
     // ทุกอย่างยังเหมือนเดิม — correction ไม่ได้เปลี่ยนอะไรที่ Journey ต้องทำ
     await this.receipts.settleRefilter(tenantId, cursor.id, 'NO_OP', 'MEMBERSHIP_UNCHANGED');
     return 'NO_OP';
+  }
+
+  /**
+   * ยกเลิกงานที่ค้างอยู่ของ entry นี้ แล้วค่อยปิด cursor
+   *
+   * แยกตาม barrier ที่ J2 นิยามไว้แล้วใน `CANCELLABLE_ACTION_STATES`:
+   *
+   * - pre-barrier (PENDING/DISPATCHED/ACK_UNKNOWN) — owner ยังไม่ได้สร้าง entity จริง ยกเลิกได้
+   *   ผ่าน `requestCancellation` ซึ่งเข้าคิว cancel command ด้วย binding เดิมของ action
+   * - post-barrier (ACKNOWLEDGED) — owner สร้าง Case/target ไปแล้ว ของนั้นเป็น fact ของเขา
+   *   Journey ลบไม่ได้และไม่ควรพยายาม (stop condition ของ #218 ห้าม delete owner fact)
+   *   จึงปล่อยไว้แล้วบันทึกว่ามาไม่ทัน
+   *
+   * cancelCommandId คำนวณจาก actionKey ไม่ใช่สุ่ม — restart หรือ replay จึง upsert ทับใบเดิม
+   * แทนที่จะสั่ง owner ยกเลิกซ้ำเป็นครั้งที่สอง
+   */
+  private async cancelWork(
+    tenantId: string,
+    cursor: { id: string; contactId: string; segmentId: string },
+    entryId: string,
+    reasonCode: string,
+  ): Promise<void> {
+    const enrollments = await withTenantDatabaseTransaction(
+      this.database,
+      tenantId,
+      async (transaction) => {
+        const intents = await transaction.jrSegmentEnrollmentIntent.findMany({
+          where: {
+            tenantId,
+            contactId: cursor.contactId,
+            segmentId: cursor.segmentId,
+            entryId,
+          },
+          select: { id: true },
+        });
+        if (intents.length === 0) return [];
+        return transaction.jrEnrollment.findMany({
+          where: { tenantId, segmentIntentId: { in: intents.map((intent) => intent.id) } },
+          select: { id: true, runState: true, terminalReason: true },
+        });
+      },
+    );
+
+    for (const enrollment of enrollments) {
+      const actions = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+        transaction.jrOwnerAction.findMany({
+          where: { tenantId, enrollmentId: enrollment.id },
+          select: { actionKey: true, state: true, version: true },
+        }),
+      );
+
+      for (const action of actions) {
+        if (!CANCELLABLE_OWNER_ACTION_STATES.has(action.state)) continue;
+        await this.actions.requestCancellation({
+          tenantId,
+          actionKey: action.actionKey,
+          cancelCommandId: `cancel:segment-refilter:${action.actionKey}`,
+          correlationId: `refilter:${cursor.id}`,
+          expectedVersion: action.version,
+        });
+      }
+
+      /**
+       * first-terminal-commit-wins: enrollment ที่จบไปแล้วด้วยเหตุอื่น (goal, exit rule, max age)
+       * ห้ามถูกเขียนทับเป็น CANCELLED — เหตุผลที่จบต้องบันทึกครั้งเดียวตามที่ schema กำหนด
+       */
+      if (enrollment.runState === 'TERMINAL' || enrollment.terminalReason !== null) continue;
+      await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+        transaction.jrEnrollment.updateMany({
+          where: { tenantId, id: enrollment.id, terminalReason: null },
+          data: { state: 'BLOCKED', runState: 'TERMINAL', terminalReason: 'CANCELLED' },
+        }),
+      );
+    }
+
+    await this.receipts.settleRefilter(tenantId, cursor.id, 'CANCELLED', reasonCode);
   }
 }
