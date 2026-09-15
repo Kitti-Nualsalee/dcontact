@@ -156,7 +156,34 @@ async function harness(t: TestContext) {
       headers: { authorization: `Bearer ${token}`, ...headers },
     });
 
-  return { owner, tenantId, otherTenantId, contactId, otherContactId, segmentId, seedStream, call };
+  const post = (
+    path: string,
+    token: string,
+    init: { idempotencyKey?: string; body?: unknown } = {},
+  ) =>
+    fetch(`http://127.0.0.1:${port}/internal/journey/segment-streams/${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+        ...(init.idempotencyKey ? { 'idempotency-key': init.idempotencyKey } : {}),
+      },
+      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+    });
+
+  return {
+    owner,
+    application,
+    receipts,
+    tenantId,
+    otherTenantId,
+    contactId,
+    otherContactId,
+    segmentId,
+    seedStream,
+    call,
+    post,
+  };
 }
 
 test('คืน stream ของ tenant ตัวเองพร้อม ETag และไม่มี payload หลุดออกไป', async (t) => {
@@ -252,4 +279,204 @@ test('gap ใน stream ถูกรายงานให้ operator เห็�
   const view = (await response.json()) as { gaps: number[]; receipts: unknown[] };
   assert.deepEqual(view.gaps, [2]);
   assert.equal(view.receipts.length, 2);
+});
+
+/** ดัน receipt ไปอยู่สถานะ REVIEW แล้วคืน eventId กับ version ที่ operator จะเห็น */
+async function reviewedReceipt(h: Awaited<ReturnType<typeof harness>>) {
+  const entryId = `entry-${h.tenantId.slice(0, 8)}`;
+  const received = await h.receipts.ingest({
+    tenantId: h.tenantId,
+    source: 'CUSTOMER_360',
+    eventId: `event-${randomUUID()}`,
+    contactId: h.contactId,
+    segmentId: h.segmentId,
+    membershipRevision: 9,
+    changeKind: 'ENTERED',
+    entryId,
+    segmentDefinitionVersion: 1,
+    payloadHash: HASH,
+    correlationId: 'corr-review',
+  });
+  await h.receipts.markReview(h.tenantId, received.receipt.id, 'IDENTITY_AMBIGUOUS');
+  const row = await h.owner.jrSegmentReceipt.findUniqueOrThrow({
+    where: { id: received.receipt.id },
+  });
+  return { eventId: row.eventId, version: row.version, id: row.id };
+}
+
+test('REPLAY คืน receipt เข้าคิวด้วย identity เดิมและบันทึก audit', async (t) => {
+  const h = await harness(t);
+  const target = await reviewedReceipt(h);
+  const before = await h.owner.jrSegmentReceipt.findUniqueOrThrow({ where: { id: target.id } });
+
+  const response = await h.post(`receipts/${target.eventId}/replay`, 'admin-token', {
+    idempotencyKey: randomUUID(),
+    body: { expectedVersion: target.version, reasonCode: 'OPERATOR_REPLAY' },
+  });
+  assert.equal(response.status, 201);
+  const result = (await response.json()) as { state: string; version: number };
+  assert.equal(result.state, 'READY');
+  assert.equal(result.version, target.version + 1);
+
+  // identity เดิมทุกอย่างต้องไม่ถูกแตะ
+  const after = await h.owner.jrSegmentReceipt.findUniqueOrThrow({ where: { id: target.id } });
+  assert.equal(after.eventId, before.eventId);
+  assert.equal(after.membershipRevision, before.membershipRevision);
+  assert.equal(after.entryId, before.entryId);
+  assert.equal(after.payloadHash, before.payloadHash);
+
+  const audit = await h.owner.jrRecoveryAudit.findFirstOrThrow({
+    where: { tenantId: h.tenantId, targetRef: target.eventId },
+  });
+  assert.equal(audit.operation, 'REPLAY');
+  assert.equal(audit.targetKind, 'SEGMENT_RECEIPT');
+  assert.equal(audit.reasonCode, 'OPERATOR_REPLAY');
+});
+
+test('blind retry ด้วย version เก่าถูกปฏิเสธเป็น 409 และไม่แก้อะไร', async (t) => {
+  const h = await harness(t);
+  const target = await reviewedReceipt(h);
+
+  const first = await h.post(`receipts/${target.eventId}/replay`, 'admin-token', {
+    idempotencyKey: randomUUID(),
+    body: { expectedVersion: target.version, reasonCode: 'OPERATOR_REPLAY' },
+  });
+  assert.equal(first.status, 201);
+
+  // operator คนที่สองยังถือหน้าจอเก่าอยู่
+  const stale = await h.post(`receipts/${target.eventId}/replay`, 'admin-token', {
+    idempotencyKey: randomUUID(),
+    body: { expectedVersion: target.version, reasonCode: 'OPERATOR_REPLAY' },
+  });
+  assert.equal(stale.status, 409);
+  const conflict = (await stale.json()) as { code: string; actualVersion: number };
+  assert.equal(conflict.code, 'VERSION_CONFLICT');
+  assert.equal(conflict.actualVersion, target.version + 1);
+  assert.equal(
+    await h.owner.jrRecoveryAudit.count({ where: { tenantId: h.tenantId } }),
+    1,
+    'คำสั่งที่ถูกปฏิเสธต้องไม่ถูกบันทึกเป็น audit',
+  );
+});
+
+test('recovery ไม่รับ payload ทดแทน และบังคับ Idempotency-Key กับ reasonCode', async (t) => {
+  const h = await harness(t);
+  const target = await reviewedReceipt(h);
+
+  const cases: Array<[string, { idempotencyKey?: string; body: unknown }]> = [
+    ['ขาด Idempotency-Key', { body: { expectedVersion: 1, reasonCode: 'X_REPLAY' } }],
+    [
+      'reasonCode เป็นประโยคอิสระ',
+      { idempotencyKey: randomUUID(), body: { expectedVersion: 1, reasonCode: 'ลูกค้าโทรมาบ่น' } },
+    ],
+    ['ขาด expectedVersion', { idempotencyKey: randomUUID(), body: { reasonCode: 'X_REPLAY' } }],
+    [
+      'แนบ payload ทดแทน',
+      {
+        idempotencyKey: randomUUID(),
+        body: {
+          expectedVersion: 1,
+          reasonCode: 'X_REPLAY',
+          payload: { membershipRevision: 99, contactId: 'ปลอม' },
+        },
+      },
+    ],
+  ];
+
+  for (const [label, init] of cases) {
+    const response = await h.post(`receipts/${target.eventId}/replay`, 'admin-token', init);
+    assert.equal(response.status, 400, label);
+    assert.equal(((await response.json()) as { code: string }).code, 'VALIDATION_FAILED', label);
+  }
+  assert.equal(await h.owner.jrRecoveryAudit.count({ where: { tenantId: h.tenantId } }), 0);
+});
+
+test('receipt ที่ APPLIED แล้ว replay ไม่ได้ — effect เกิดไปแล้ว', async (t) => {
+  const h = await harness(t);
+  await h.seedStream(h.tenantId, h.contactId);
+  const applied = await h.owner.jrSegmentReceipt.findFirstOrThrow({
+    where: { tenantId: h.tenantId, state: 'APPLIED' },
+  });
+
+  const response = await h.post(`receipts/${applied.eventId}/replay`, 'admin-token', {
+    idempotencyKey: randomUUID(),
+    body: { expectedVersion: applied.version, reasonCode: 'OPERATOR_REPLAY' },
+  });
+  assert.equal(response.status, 409);
+  assert.equal(((await response.json()) as { code: string }).code, 'RECOVERY_NOT_ALLOWED');
+});
+
+test('recovery ข้าม tenant แยกไม่ออกจากเป้าหมายที่ไม่เคยมี', async (t) => {
+  const h = await harness(t);
+  await h.seedStream(h.otherTenantId, h.otherContactId);
+  const foreign = await h.owner.jrSegmentReceipt.findFirstOrThrow({
+    where: { tenantId: h.otherTenantId },
+  });
+
+  const bodies = new Set<string>();
+  for (const eventId of [foreign.eventId, `event-${randomUUID()}`]) {
+    const response = await h.post(`receipts/${eventId}/replay`, 'admin-token', {
+      idempotencyKey: randomUUID(),
+      body: { expectedVersion: 1, reasonCode: 'OPERATOR_REPLAY' },
+    });
+    assert.equal(response.status, 404);
+    bodies.add(await response.text());
+  }
+  assert.equal(bodies.size, 1, 'ทั้งสองเคสต้องตอบเหมือนกันทุกตัวอักษร');
+});
+
+test('REVALIDATE ปลุกงาน re-filter ที่ถูกพักไว้ แต่ปลุกงานที่จบแล้วไม่ได้', async (t) => {
+  const h = await harness(t);
+  const entryId = `entry-${h.tenantId.slice(0, 8)}`;
+  const received = await h.receipts.ingest({
+    tenantId: h.tenantId,
+    source: 'CUSTOMER_360',
+    eventId: `event-${randomUUID()}`,
+    contactId: h.contactId,
+    segmentId: h.segmentId,
+    membershipRevision: 5,
+    changeKind: 'CORRECTED',
+    entryId,
+    segmentDefinitionVersion: 1,
+    payloadHash: HASH,
+    correlationId: 'corr-refilter',
+  });
+  await h.receipts.applyRefilter(
+    {
+      tenantId: h.tenantId,
+      receiptId: received.receipt.id,
+      reasonCode: 'CORRECTED',
+      correlationId: 'corr-refilter',
+    },
+    {
+      eventType: 'journey.segment_entry.recorded',
+      orderingKey: `${h.contactId}:${h.segmentId}`,
+      payload: { contractVersion: 1 },
+      payloadHash: HASH,
+    },
+  );
+  const cursor = await h.owner.jrSegmentRefilterCursor.findFirstOrThrow({
+    where: { tenantId: h.tenantId },
+  });
+
+  const ok = await h.post(`refilters/${cursor.id}/revalidate`, 'admin-token', {
+    idempotencyKey: randomUUID(),
+    body: { expectedVersion: cursor.version, reasonCode: 'OPERATOR_REVALIDATE' },
+  });
+  assert.equal(ok.status, 201);
+  assert.equal(((await ok.json()) as { state: string }).state, 'PENDING');
+
+  // ปิดงานแล้วปลุกไม่ได้ — ห้าม revive cancelled work
+  const settled = await h.receipts.settleRefilter(
+    h.tenantId,
+    cursor.id,
+    'CANCELLED',
+    'SEGMENT_ENTRY_NOT_ELIGIBLE',
+  );
+  const denied = await h.post(`refilters/${cursor.id}/revalidate`, 'admin-token', {
+    idempotencyKey: randomUUID(),
+    body: { expectedVersion: settled.version, reasonCode: 'OPERATOR_REVALIDATE' },
+  });
+  assert.equal(denied.status, 409);
+  assert.equal(((await denied.json()) as { code: string }).code, 'RECOVERY_NOT_ALLOWED');
 });

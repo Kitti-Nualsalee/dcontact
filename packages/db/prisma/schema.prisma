@@ -3012,6 +3012,12 @@ model JrSegmentReceipt {
   causationId              String?               @map("causation_id")
   receivedAt               DateTime              @default(now()) @map("received_at")
   appliedAt                DateTime?             @map("applied_at")
+  /// J3.8 (#219): optimistic-concurrency token — ขยับทุกครั้งที่ state เปลี่ยน
+  ///
+  /// แยกจาก `attempts` โดยตั้งใจ: attempts ขยับเฉพาะตอน retry ไม่ขยับตอน state เปลี่ยนด้วย
+  /// เหตุอื่น ใช้เป็น token แล้ว operator จะเห็นค่าเดิมทั้งที่ของเปลี่ยนไปแล้ว ซึ่งคือ blind
+  /// retry ที่ acceptance สั่งให้ปฏิเสธพอดี
+  version                  Int                   @default(1)
 
   tenant    Tenant                      @relation(fields: [tenantId], references: [id])
   contact   Contact                     @relation(fields: [tenantId, contactId], references: [tenantId, id])
@@ -3100,6 +3106,8 @@ model JrSegmentRefilterCursor {
   correlationId      String                 @map("correlation_id")
   createdAt          DateTime               @default(now()) @map("created_at")
   settledAt          DateTime?              @map("settled_at")
+  /// J3.8 (#219): optimistic-concurrency token เหมือน jr_segment_receipts.version
+  version            Int                    @default(1)
 
   tenant  Tenant           @relation(fields: [tenantId], references: [id])
   contact Contact          @relation(fields: [tenantId, contactId], references: [tenantId, id])
