@@ -912,3 +912,208 @@ test('merge chain ย้าย canonical ของ contact ที่ถูก me
     'A ต้องกลับไปอยู่ใต้ B ที่เคย merge มันไว้ ไม่ใช่ค้างอยู่ที่ C',
   );
 });
+
+test(
+  'crash หลัง broker รับ event แต่ก่อน mark PUBLISHED: restart ส่ง envelope เดิมและ consumer ไม่ประมวลผลซ้ำ',
+  { timeout: 30_000 },
+  async (t) => {
+    const f = await fixture(t);
+    await snapshot(f, f.contactId, 1, 'GOLD');
+    const entered = await f.memberships.commitEvaluation(commitInput(f));
+
+    const suffix = randomUUID();
+    const handled: Array<Record<string, unknown>> = [];
+    let resolveSecond!: () => void;
+    const secondObserved = new Promise<void>((resolve) => {
+      resolveSecond = resolve;
+    });
+    let physicalDeliveries = 0;
+    const consumer = await createConsumer({
+      clientId: `j3-crash-${suffix}-consumer`,
+      groupId: `j3-crash-${suffix}`,
+      topics: [KAFKA_TOPICS.CUSTOMER_EVENTS],
+      brokers: ['localhost:9092'],
+      idempotency: createInMemoryIdempotencyStore(),
+      handler: (message) => {
+        if (message.event.tenantId !== f.tenantId) return;
+        handled.push(message.event as unknown as Record<string, unknown>);
+      },
+    });
+    const producer = await createProducer(`j3-crash-${suffix}-producer`, {
+      brokers: ['localhost:9092'],
+    });
+    const counting: DcProducer = {
+      async send(topic, event) {
+        await producer.send(topic, event);
+        physicalDeliveries += 1;
+        if (physicalDeliveries === 2) resolveSecond();
+      },
+      async disconnect() {},
+    };
+
+    try {
+      await consumer.ready();
+      const relay = new C360SegmentMembershipRelay(f.application, counting, {
+        now: () => new Date('2099-09-13T12:00:00.000Z'),
+      });
+      const first = await relay.publishNext(f.tenantId);
+      assert.equal(first?.state, 'PUBLISHED');
+
+      /**
+       * crash window อยู่ระหว่าง producer.send() ที่ broker ack แล้ว กับ update state เป็น
+       * PUBLISHED ในทรานแซกชันเดียวกัน ถ้า process ตายตรงนั้น ทรานแซกชัน rollback ทั้งก้อน
+       * broker จึงถือ event ไว้แล้วแต่ outbox ยังเป็น PENDING ด้วย attempts เดิม
+       *
+       * relay ดัก error เองและ mark FAILED จึงจำลองด้วย producer ที่ throw ไม่ได้ (นั่นคือ
+       * graceful failure ไม่ใช่ crash) ตั้งสถานะที่ crash ทิ้งไว้ตรง ๆ แทนแล้วรัน restart
+       *
+       * c360_membership_outbox_guard ห้ามทุก update บนแถวที่ PUBLISHED แล้ว และห้าม attempts
+       * ถอยหลัง ซึ่งถูกต้องสำหรับ transition จริง แต่ rollback ไม่ได้เดินผ่าน guard — มันย้อน
+       * แถวกลับเหมือนไม่เคยมีการเขียน จึงปิด guard เฉพาะคำสั่งจำลองนี้ (ลงทะเบียนเปิดคืนก่อนปิด)
+       */
+      t.after(async () => {
+        await f.owner.$executeRawUnsafe(
+          'ALTER TABLE c360_segment_membership_outbox ENABLE TRIGGER c360_membership_outbox_guard',
+        );
+      });
+      await f.owner.$executeRawUnsafe(
+        'ALTER TABLE c360_segment_membership_outbox DISABLE TRIGGER c360_membership_outbox_guard',
+      );
+      await f.owner.c360SegmentMembershipOutbox.update({
+        where: { id: first!.outboxId },
+        data: { state: 'PENDING', attempts: 0, publishedAt: null },
+      });
+      await f.owner.$executeRawUnsafe(
+        'ALTER TABLE c360_segment_membership_outbox ENABLE TRIGGER c360_membership_outbox_guard',
+      );
+
+      const replayed = await relay.publishNext(f.tenantId);
+      assert.equal(replayed?.state, 'PUBLISHED');
+      assert.equal(
+        replayed?.eventId,
+        first?.eventId,
+        'restart ต้องใช้ eventId เดิมที่ commit ไว้ ไม่ใช่ออกใบใหม่',
+      );
+      assert.equal(
+        physicalDeliveries,
+        2,
+        'broker ต้องได้รับ event สองครั้งจริงตามที่ crash ทิ้งไว้',
+      );
+
+      // รอให้ delivery ใบที่สองถึง broker แล้วให้ consumer มีเวลาตัดสินใจ dedupe
+      let timeout: NodeJS.Timeout | undefined;
+      await Promise.race([
+        secondObserved,
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('delivery ใบที่สองไม่ถึง broker')), 10_000);
+        }),
+      ]);
+      if (timeout) clearTimeout(timeout);
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+
+      assert.equal(
+        handled.length,
+        1,
+        'consumer ต้อง dedupe ด้วย eventId เดิม ไม่ประมวลผล event ซ้ำหลัง restart',
+      );
+
+      // durable owner: การส่งซ้ำต้องไม่แตะ ledger เลย
+      assert.equal(
+        await f.owner.c360SegmentMembershipChange.count({ where: { tenantId: f.tenantId } }),
+        1,
+        'restart ต้องไม่สร้าง membership revision ใหม่',
+      );
+      assert.equal(
+        await f.owner.c360SegmentMembershipOutbox.count({ where: { tenantId: f.tenantId } }),
+        1,
+        'restart ต้องไม่สร้าง outbox row ใหม่',
+      );
+      const head = await f.owner.c360SegmentMembershipHead.findFirstOrThrow({
+        where: { tenantId: f.tenantId, contactId: f.contactId, segmentId: f.segmentId },
+      });
+      assert.equal(head.membershipRevision, entered.membershipRevision);
+      assert.equal(await relay.publishNext(f.tenantId), undefined);
+    } finally {
+      await producer.disconnect();
+      await consumer.disconnect();
+    }
+  },
+);
+
+test('projection rebuild จาก change ledger ได้สถานะเดิมและไม่สร้าง revision/event ใหม่', async (t) => {
+  const f = await fixture(t);
+  await snapshot(f, f.contactId, 1, 'GOLD');
+  await f.memberships.commitEvaluation(commitInput(f));
+  await snapshot(f, f.contactId, 2, 'GOLD');
+  await f.memberships.commitEvaluation(
+    commitInput(f, { snapshotVersion: 2, expectedMembershipRevision: 1 }),
+  );
+  await snapshot(f, f.contactId, 3, 'SILVER');
+  await f.memberships.commitEvaluation(
+    commitInput(f, { snapshotVersion: 3, expectedMembershipRevision: 2 }),
+  );
+  await snapshot(f, f.contactId, 4, 'GOLD');
+  const last = await f.memberships.commitEvaluation(
+    commitInput(f, { snapshotVersion: 4, expectedMembershipRevision: 3 }),
+  );
+
+  const head = await f.owner.c360SegmentMembershipHead.findFirstOrThrow({
+    where: { tenantId: f.tenantId, contactId: f.contactId, segmentId: f.segmentId },
+  });
+  const changesBefore = await f.owner.c360SegmentMembershipChange.count({
+    where: { tenantId: f.tenantId },
+  });
+  const outboxBefore = await f.owner.c360SegmentMembershipOutbox.count({
+    where: { tenantId: f.tenantId },
+  });
+
+  // rebuild แบบเดียวกับ consumer ที่ล้าง projection ทิ้งแล้วไล่ ledger ใหม่ตั้งแต่ revision 0
+  const read = await f.memberships.readChanges({
+    tenantId: contractTenantId(f.tenantId),
+    contactId: contractContactId(f.contactId),
+    segmentId: contractSegmentId(f.segmentId),
+    afterRevision: 0,
+    throughRevision: membershipRevision(head.membershipRevision),
+  });
+  assert.equal(read.status, 'CHANGES');
+  if (read.status !== 'CHANGES') return;
+
+  let state: 'IN' | 'OUT' | 'INVALIDATED' | undefined;
+  let entryId: string | null = null;
+  let revision = 0;
+  for (const change of read.changes) {
+    assert.equal(change.membershipRevision, revision + 1, 'ledger ต้องเรียงติดกันไม่มีรู');
+    revision = change.membershipRevision;
+    switch (change.changeKind) {
+      case 'ENTERED':
+      case 'CORRECTED':
+        state = 'IN';
+        entryId = change.entryId ?? null;
+        break;
+      case 'LEFT':
+        state = 'OUT';
+        entryId = null;
+        break;
+      case 'IDENTITY_INVALIDATED':
+        state = 'INVALIDATED';
+        break;
+      case 'REFILTER_REQUIRED':
+        break;
+    }
+  }
+
+  assert.equal(revision, head.membershipRevision, 'rebuild ต้องไล่ถึง revision ปัจจุบันพอดี');
+  assert.equal(state, head.state, 'สถานะที่ fold จาก ledger ต้องตรงกับ head');
+  assert.equal(entryId, head.entryId, 'entryId ที่ fold จาก ledger ต้องตรงกับ head');
+  assert.equal(entryId, last.entryId);
+
+  // rebuild เป็น read path ล้วน ห้ามเขียนอะไรกลับเข้า ledger หรือ outbox
+  assert.equal(
+    await f.owner.c360SegmentMembershipChange.count({ where: { tenantId: f.tenantId } }),
+    changesBefore,
+  );
+  assert.equal(
+    await f.owner.c360SegmentMembershipOutbox.count({ where: { tenantId: f.tenantId } }),
+    outboxBefore,
+  );
+});
