@@ -28,7 +28,18 @@ import { Cg4RolloutRepository } from './cg4-rollout.js';
  * แล้วจำลองเฉพาะฝั่ง downstream consumer (inbox/pause/ack) ที่เป็นของ owner อื่น
  */
 
-const T0 = new Date('2026-09-15T05:00:00.000Z'); // 12:00 Asia/Bangkok
+/**
+ * T0 ต้องอยู่หลังเวลาจริงเสมอ ไม่ใช่วันที่ใกล้ ๆ ตอนเขียนเทส
+ *
+ * state ส่วนใหญ่ถูก backdate จาก T0 ตรง ๆ (quorum 7200s, activation 3600s, pause 1800s) แต่แถว
+ * ใน cgEventOutbox ถูกสร้างโดย owner path จริง createdAt จึงเป็นนาฬิกาของฐานข้อมูล ไม่ใช่ T0
+ * oldestPendingOutboxAgeSeconds คือ T0 ลบ createdAt พอเวลาจริงเดินผ่าน T0 ไป ค่านี้ติดลบ แล้ว
+ * GOVERNANCE_OUTBOX_LAG ก็ไม่ยิงอีกเลย
+ *
+ * เดิมตั้งไว้ 2026-09-15T05:00Z ซึ่งระเบิดตอน 05:00Z ของวันนั้นพอดี ทำให้ CG4-OB01 ล้มทุก run
+ * ตั้งแต่นั้นมา (ตอนแรกดูเหมือน flaky เพราะ run ก่อนหน้าเวลานั้นยังผ่าน)
+ */
+const T0 = new Date('2099-09-15T05:00:00.000Z'); // 12:00 Asia/Bangkok
 const LINE_MARKETING = buildCg4PolicyScopeKey({ channel: 'LINE', purpose: 'MARKETING' });
 const VOICE_SERVICE = buildCg4PolicyScopeKey({ channel: 'VOICE', purpose: 'SERVICE' });
 const NIGHT = { daysOfWeek: [1, 2, 3, 4, 5, 6, 7], startLocal: '21:00', endLocal: '08:00' };
