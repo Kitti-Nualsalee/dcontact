@@ -63,6 +63,8 @@ async function fixture(t: TestContext) {
   t.after(async () => {
     await owner.jrSegmentOutbox.deleteMany({ where: { tenantId } });
     await owner.jrSegmentRefilterCursor.deleteMany({ where: { tenantId } });
+    // enrollment อ้าง intent ด้วย FK จึงต้องลบก่อน
+    await owner.jrEnrollment.deleteMany({ where: { tenantId } });
     await owner.jrSegmentEnrollmentIntent.deleteMany({ where: { tenantId } });
     await owner.jrSegmentHead.deleteMany({ where: { tenantId } });
     await owner.jrSegmentReceipt.deleteMany({ where: { tenantId } });
@@ -458,4 +460,87 @@ test('ไม่มี receipt ที่พร้อมประมวลผล�
     await processor(f, eligible(f, f.contactId, 'entry')).executeNext(f.tenantId, 'worker-1'),
     undefined,
   );
+});
+
+test('enrollment จริงเกิดพร้อม intent ในทรานแซกชันเดียว และผูกกันแบบหนึ่งต่อหนึ่ง', async (t) => {
+  const f = await fixture(t);
+  const entryId = `entry-${f.suffix}`;
+  const journeyA = randomUUID();
+  const journeyB = randomUUID();
+  await publishJourney(f, journeyA);
+  await publishJourney(f, journeyB);
+  await ingest(f, 1, 'ENTERED', entryId);
+
+  await processor(f, eligible(f, f.contactId, entryId)).executeNext(f.tenantId, 'worker-1');
+
+  const intents = await f.owner.jrSegmentEnrollmentIntent.findMany({
+    where: { tenantId: f.tenantId },
+  });
+  const enrollments = await f.owner.jrEnrollment.findMany({ where: { tenantId: f.tenantId } });
+  assert.equal(intents.length, 2);
+  assert.equal(enrollments.length, 2, 'fan-out ต้องได้ enrollment ครบทุก journey');
+
+  // ทุก enrollment ต้องชี้กลับไปหา intent ของตัวเอง ไม่ใช่ชี้มั่ว
+  for (const enrollment of enrollments) {
+    assert.ok(
+      intents.some((intent) => intent.id === enrollment.segmentIntentId),
+      'enrollment ต้องผูกกับ intent ที่มีอยู่จริง',
+    );
+    assert.equal(enrollment.contactId, f.contactId);
+    assert.equal(enrollment.currentStepId, 'send', 'ต้องเริ่มที่ entry step ของ graph ที่ publish');
+    assert.equal(enrollment.state, 'PENDING');
+  }
+  assert.deepEqual(enrollments.map((row) => row.journeyId).sort(), [journeyA, journeyB].sort());
+
+  // trigger source ต้องเป็นแบบเดียว — ไม่มีการปนกับ source เดิมของ J1/J2
+  for (const enrollment of enrollments) {
+    assert.equal(enrollment.eventInboxId, null);
+    assert.equal(enrollment.occurrenceId, null);
+    assert.equal(enrollment.outcomeReceiptId, null);
+  }
+});
+
+test('apply ซ้ำไม่สร้าง enrollment ใบที่สอง', async (t) => {
+  const f = await fixture(t);
+  const entryId = `entry-${f.suffix}`;
+  await publishJourney(f, randomUUID());
+  const received = await ingest(f, 1, 'ENTERED', entryId);
+
+  for (const worker of ['worker-1', 'worker-2']) {
+    await f.receipts.applyEnrollment(
+      {
+        tenantId: f.tenantId,
+        receiptId: received.receipt.id,
+        entryId,
+        canonicalContactId: f.contactId,
+        intents: [
+          {
+            journeyId: (
+              await f.owner.jrJourneyDefinition.findFirstOrThrow({
+                where: { tenantId: f.tenantId },
+              })
+            ).journeyId,
+            journeyVersion: 1,
+            entryStepId: 'send',
+            reasonMembershipRevision: 1,
+            reasonDefinitionVersion: 1,
+            reasonDigest: HASH,
+          },
+        ],
+        correlationId: `corr-${worker}`,
+      },
+      {
+        eventType: 'journey.segment_entry.recorded',
+        orderingKey: `${f.contactId}:${f.segmentId}`,
+        payload: { contractVersion: 1 },
+        payloadHash: HASH,
+      },
+    );
+  }
+
+  assert.equal(
+    await f.owner.jrSegmentEnrollmentIntent.count({ where: { tenantId: f.tenantId } }),
+    1,
+  );
+  assert.equal(await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }), 1);
 });

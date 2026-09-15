@@ -32,6 +32,8 @@ async function fixture(t: TestContext) {
   t.after(async () => {
     await owner.jrSegmentOutbox.deleteMany({ where: { tenantId } });
     await owner.jrSegmentRefilterCursor.deleteMany({ where: { tenantId } });
+    // enrollment อ้าง intent ด้วย FK จึงต้องลบก่อน
+    await owner.jrEnrollment.deleteMany({ where: { tenantId } });
     await owner.jrSegmentEnrollmentIntent.deleteMany({ where: { tenantId } });
     await owner.jrSegmentHead.deleteMany({ where: { tenantId } });
     await owner.jrSegmentReceipt.deleteMany({ where: { tenantId } });
@@ -244,12 +246,13 @@ test('revision ที่หายไประหว่างทางถูก I
 
 test('หนึ่ง entry สร้าง enrollment ได้อย่างมากหนึ่งใบต่อ journey version แม้ apply ซ้ำ', async (t) => {
   const f = await fixture(t);
-  const journeyId = `journey-${f.suffix}`;
+  const journeyId = randomUUID();
   const entryId = `entry-${f.suffix}`;
   const intents = [
     {
       journeyId,
       journeyVersion: 1,
+      entryStepId: 'send',
       reasonMembershipRevision: 1,
       reasonDefinitionVersion: 1,
       reasonDigest: HASH,
@@ -308,8 +311,9 @@ test('merge: enrollment ผูกกับ survivor แต่ receipt ยัง�
       canonicalContactId: f.survivorId,
       intents: [
         {
-          journeyId: `journey-${f.suffix}`,
+          journeyId: randomUUID(),
           journeyVersion: 1,
+          entryStepId: 'send',
           reasonMembershipRevision: 1,
           reasonDefinitionVersion: 1,
           reasonDigest: HASH,
@@ -379,8 +383,9 @@ test('entry ที่ถูกปิดแล้วสร้าง enrollment �
           canonicalContactId: f.contactId,
           intents: [
             {
-              journeyId: `journey-${f.suffix}`,
+              journeyId: randomUUID(),
               journeyVersion: 1,
+              entryStepId: 'send',
               reasonMembershipRevision: 3,
               reasonDefinitionVersion: 1,
               reasonDigest: HASH,
@@ -486,8 +491,9 @@ test('outbox ถูกเขียนในทรานแซกชันเด�
       canonicalContactId: f.contactId,
       intents: [
         {
-          journeyId: `journey-${f.suffix}`,
+          journeyId: randomUUID(),
           journeyVersion: 1,
+          entryStepId: 'send',
           reasonMembershipRevision: 1,
           reasonDefinitionVersion: 1,
           reasonDigest: HASH,

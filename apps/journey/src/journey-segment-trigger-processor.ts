@@ -199,6 +199,7 @@ export class JourneySegmentTriggerProcessor {
     const intents: SegmentEnrollmentIntentInput[] = allowed.map((definition) => ({
       journeyId: definition.journeyId,
       journeyVersion: definition.version,
+      entryStepId: definition.graph.entryStepId,
       reasonMembershipRevision: resolution.membershipRevision,
       reasonDefinitionVersion: resolution.segmentDefinitionVersion,
       reasonDigest: resolution.stateDigest,

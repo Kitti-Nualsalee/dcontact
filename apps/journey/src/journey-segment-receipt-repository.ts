@@ -75,6 +75,8 @@ export class SegmentEntryTerminalError extends Error {
 export interface SegmentEnrollmentIntentInput {
   journeyId: string;
   journeyVersion: number;
+  /** entry step ของ graph ที่ published ไว้ — enrollment เริ่มเดินจากจุดนี้ */
+  entryStepId: string;
   reasonMembershipRevision: number;
   reasonDefinitionVersion: number;
   reasonEvidenceRef?: string;
@@ -298,9 +300,10 @@ export class JourneySegmentReceiptRepository {
         // อย่างมากหนึ่ง enrollment ต่อ journey version แม้มี consumer หลายตัวยิงพร้อมกัน
         await transaction.$executeRaw`SAVEPOINT segment_intent`;
         try {
+          const intentId = this.id();
           await transaction.jrSegmentEnrollmentIntent.create({
             data: {
-              id: this.id(),
+              id: intentId,
               tenantId: input.tenantId,
               journeyId: intent.journeyId,
               journeyVersion: intent.journeyVersion,
@@ -313,6 +316,26 @@ export class JourneySegmentReceiptRepository {
               reasonDigest: intent.reasonDigest,
               correlationId: input.correlationId,
               ...(intent.reasonEvidenceRef ? { reasonEvidenceRef: intent.reasonEvidenceRef } : {}),
+            },
+          });
+          /**
+           * enrollment จริงต้องเกิดในทรานแซกชันเดียวกับ intent
+           *
+           * intent คือ "เหตุผล" ส่วน enrollment คือ "งาน" — ถ้าแยกกันเขียน จะมีช่วงที่มีเหตุผล
+           * แต่ไม่มีงาน (หรือกลับกัน) แล้วการยกเลิกตอน re-filter จะหา action ที่ต้องยกเลิกไม่เจอ
+           */
+          await transaction.jrEnrollment.create({
+            data: {
+              id: this.id(),
+              tenantId: input.tenantId,
+              segmentIntentId: intentId,
+              journeyId: intent.journeyId,
+              journeyVersion: intent.journeyVersion,
+              contactId: input.canonicalContactId,
+              currentStepId: intent.entryStepId,
+              state: 'PENDING',
+              runState: 'WAITING',
+              correlationId: input.correlationId,
             },
           });
           await transaction.$executeRaw`RELEASE SAVEPOINT segment_intent`;
