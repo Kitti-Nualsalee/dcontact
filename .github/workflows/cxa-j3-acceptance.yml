@@ -1,0 +1,104 @@
+name: cxa-j3-acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cxa-j3-acceptance:
+    # J3 completion อนุญาตเฉพาะ main; PR ตรวจ validator ใน CI เดิม
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    concurrency:
+      group: cxa-j3-acceptance
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure local acceptance environment
+        run: |
+          cp .env.example .env
+          mkdir -p infra/docker/data/redpanda
+          chmod 777 infra/docker/data/redpanda
+          mkdir -p infra/docker/data/freeswitch-recordings
+          chmod 777 infra/docker/data/freeswitch-recordings
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium for browser acceptance
+        run: |
+          pnpm --filter @d-contact/workspace exec playwright install --with-deps chromium
+          pnpm --filter @d-contact/console exec playwright install chromium
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build workspace prerequisites
+        run: pnpm build
+
+      - name: Bootstrap acceptance infrastructure
+        run: |
+          pnpm infra:ready || {
+            docker compose -f infra/docker/docker-compose.dev.yml ps
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color redpanda
+            exit 1
+          }
+
+      - name: Run J3 acceptance on final main SHA
+        run: pnpm cxa:j3:acceptance
+        env:
+          CXA_J3_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Upload immutable cxa-j3 evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-j3-evidence-${{ github.sha }}
+          path: artifacts/cxa-j3/${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload immutable s1 evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s1-evidence-${{ github.sha }}
+          path: artifacts/s1/${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload immutable cxa-j2 evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-j2-evidence-${{ github.sha }}
+          path: artifacts/cxa-j2/${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload immutable cxa-cg4 evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-cg4-evidence-${{ github.sha }}
+          path: artifacts/cxa-cg4/${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Stop acceptance infrastructure
+        if: always()
+        run: pnpm infra:down

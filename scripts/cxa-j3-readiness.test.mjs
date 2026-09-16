@@ -6,6 +6,7 @@ import {
   CXA_J3_READINESS_CHECKS,
   assertValidCxaJ3EvidenceManifest,
   j3SuitePlan,
+  executeJ3Suite,
   parseTapSummary,
   runCxaJ3Readiness,
   sha256,
@@ -172,4 +173,28 @@ test('owner profile ปฏิเสธการอ้างว่า IAM integra
     () => cxaJ3ProfileSummary({ CXA_PROVIDER_TRAFFIC_ENABLED: 'true' }),
     /CXA_PROVIDER_TRAFFIC_ENABLED/,
   );
+});
+
+test('J3-TI01 ส่ง DB integration เป็น executable และ argv ชุดเดียวถึง runner', () => {
+  const suites = j3SuitePlan().filter((suite) => suite.checkIds.includes('J3-TI01'));
+  const calls = [];
+  for (const suite of suites) {
+    executeJ3Suite(suite, (command, args) => {
+      calls.push([command, ...args]);
+      return { status: 0, stdout: '', stderr: '' };
+    });
+  }
+  assert.ok(
+    calls.some(
+      (call) =>
+        JSON.stringify(call) ===
+        JSON.stringify([
+          process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+          '--filter',
+          '@d-contact/db',
+          'test:integration',
+        ]),
+    ),
+  );
+  assert.ok(suites.every((suite) => Array.isArray(suite.command)));
 });
