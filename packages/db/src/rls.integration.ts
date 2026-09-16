@@ -1005,3 +1005,19 @@ test('J3.5 jr_segment_* บังคับ RLS, transport/logical identity, comp
     '5',
   );
 });
+
+test('J3 bootstrap คงสิทธิ์ immutable evidence และ rollout ตาม migration', () => {
+  for (const [table, updateAllowed] of [
+    ['jr_segment_enrollment_intents', false],
+    ['jr_segment_shadow_mismatches', false],
+    ['jr_segment_rollout_state', true],
+  ] as const) {
+    assert.equal(
+      queryAsOwner(
+        `SELECT has_table_privilege('dcontact_app', '${table}', 'SELECT'), has_table_privilege('dcontact_app', '${table}', 'INSERT'), has_table_privilege('dcontact_app', '${table}', 'UPDATE'), has_table_privilege('dcontact_app', '${table}', 'DELETE');`,
+      ),
+      `t|t|${updateAllowed ? 't' : 'f'}|f`,
+      table,
+    );
+  }
+});
