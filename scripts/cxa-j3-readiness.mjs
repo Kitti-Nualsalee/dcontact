@@ -117,7 +117,7 @@ export const CXA_J3_READINESS_CHECKS = Object.freeze([
     'two-tenant binding/RLS และ generic foreign result',
     ['tenant envelope/read/query/recovery', 'RLS all J3 tables', 'no foreign disclosure'],
     [
-      ...db,
+      db,
       ...api('journey-segment-recovery-api.integration.ts'),
       ...journey('journey-segment-consumer.integration.ts'),
     ],
