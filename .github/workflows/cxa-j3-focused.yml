@@ -1,0 +1,73 @@
+name: cxa-j3-focused
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cxa-j3-focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    concurrency:
+      group: cxa-j3-focused-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure local candidate environment
+        run: |
+          cp .env.example .env
+          mkdir -p infra/docker/data/redpanda
+          chmod 777 infra/docker/data/redpanda
+          mkdir -p infra/docker/data/freeswitch-recordings
+          chmod 777 infra/docker/data/freeswitch-recordings
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium for J3 candidate tests
+        run: |
+          pnpm --filter @d-contact/workspace exec playwright install --with-deps chromium
+          pnpm --filter @d-contact/console exec playwright install chromium
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build workspace prerequisites
+        run: pnpm build
+
+      - name: Bootstrap candidate infrastructure
+        run: |
+          pnpm infra:ready || {
+            docker compose -f infra/docker/docker-compose.dev.yml ps
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color redpanda
+            exit 1
+          }
+
+      - name: Run J3-focused candidate checks
+        run: pnpm cxa:j3:focused
+
+      - name: Upload J3-focused candidate manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-j3-focused-evidence-${{ github.sha }}
+          path: artifacts/cxa-j3-focused/${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Stop candidate infrastructure
+        if: always()
+        run: pnpm infra:down
