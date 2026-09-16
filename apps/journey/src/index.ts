@@ -23,3 +23,4 @@ export * from './journey-segment-refilter-processor.js';
 export * from './journey-segment-query.js';
 export * from './journey-segment-recovery.js';
 export * from './journey-segment-baseline.js';
+export * from './journey-segment-rollout.js';

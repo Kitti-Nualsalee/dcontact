@@ -108,6 +108,8 @@ model Tenant {
   jrSegmentEnrollmentIntents   JrSegmentEnrollmentIntent[]
   jrSegmentRefilterCursors     JrSegmentRefilterCursor[]
   jrSegmentOutbox              JrSegmentOutbox[]
+  jrSegmentRollout             JrSegmentRolloutState?
+  jrSegmentShadowMismatches    JrSegmentShadowMismatch[]
 
   @@map("tenants")
 }
@@ -399,6 +401,7 @@ model Contact {
   jrSegmentHeads         JrSegmentHead[]
   jrSegmentIntents       JrSegmentEnrollmentIntent[]
   jrSegmentRefilters     JrSegmentRefilterCursor[]
+  jrSegmentShadow        JrSegmentShadowMismatch[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -3143,6 +3146,65 @@ model JrSegmentOutbox {
   @@unique([tenantId, eventId])
   @@index([tenantId, state, availableAt])
   @@map("jr_segment_outbox")
+}
+
+// ───────────────────── J3.10: Segment rollout stage และ shadow evaluation ─────────────────────
+
+/// ลำดับการเปิดใช้ J3 ต่อ tenant — เดินหน้าอย่างเดียว ย้อนกลับข้าม switch point ไม่ได้
+enum JrSegmentRolloutStage {
+  DISABLED
+  /// baseline membership เดิมอยู่ ยังไม่รับ event
+  OWNER_BACKFILL
+  /// รับ event แล้วเทียบ digest กับ Customer 360 แต่ยังไม่สร้าง effect ใด ๆ
+  SHADOW_MEMBERSHIP
+  /// เดิน receipt/re-filter จริงแต่ยังไม่สร้าง enrollment
+  SHADOW_RECEIPT_REFILTER
+  /// เปิดเต็มรูปแบบ — enrollment เกิดได้จริง
+  SCOPED_INTERNAL_ENABLED
+}
+
+/// ไม่มีแถว = DISABLED. switchedAt ตั้งครั้งเดียวตอนเข้า SCOPED_INTERNAL_ENABLED และหลังจากนั้น
+/// trigger jr_segment_rollout_guard ห้ามย้อนกลับไป stage ก่อนหน้า
+model JrSegmentRolloutState {
+  id             String                @id @default(uuid()) @db.Uuid
+  tenantId       String                @map("tenant_id") @db.Uuid
+  stage          JrSegmentRolloutStage @default(DISABLED)
+  shadowStartedAt DateTime?            @map("shadow_started_at")
+  switchedAt     DateTime?             @map("switched_at")
+  /// rollback = หยุด effect ใหม่ ไม่ใช่ย้อน stage หรือลบของที่เกิดไปแล้ว
+  mutationFrozen Boolean               @default(false) @map("mutation_frozen")
+  version        Int                   @default(1)
+  updatedByRef   String                @map("updated_by_ref")
+  evidenceRef    String?               @map("evidence_ref")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId])
+  @@map("jr_segment_rollout_state")
+}
+
+/// ผลการเทียบระหว่างสิ่งที่ J3 คำนวณกับ canonical ของ Customer 360 ระหว่าง shadow
+///
+/// เก็บได้แค่ digest กับ revision — ไม่มีค่า attribute ไม่มีเหตุผลแบบ free text เพราะ mismatch
+/// report เป็นของที่คนจะเปิดดูตอน incident และไม่ควรกลายเป็นช่องรั่วของ PII
+model JrSegmentShadowMismatch {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  contactId          String   @map("contact_id") @db.Uuid
+  segmentId          String   @map("segment_id")
+  membershipRevision Int      @map("membership_revision")
+  mismatchKind       String   @map("mismatch_kind")
+  expectedDigest     String?  @map("expected_digest") @db.Char(64)
+  observedDigest     String?  @map("observed_digest") @db.Char(64)
+  detectedAt         DateTime @default(now()) @map("detected_at")
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  contact Contact @relation(fields: [tenantId, contactId], references: [tenantId, id])
+
+  @@unique([tenantId, contactId, segmentId, membershipRevision, mismatchKind])
+  @@index([tenantId, detectedAt])
+  @@map("jr_segment_shadow_mismatches")
 }
 
 // ─────────────────────────────── J2.4: Cases ENSURE_CASE owner ───────────────────────────────
