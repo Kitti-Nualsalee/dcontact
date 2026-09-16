@@ -46,6 +46,9 @@ jobs:
       - name: CG4 readiness validator tests
         run: pnpm test:cxa-cg4-readiness
 
+      - name: J3 readiness validator tests
+        run: pnpm test:cxa-j3-readiness
+
   s1-convergence-acceptance:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
