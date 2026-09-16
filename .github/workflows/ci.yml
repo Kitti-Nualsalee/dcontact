@@ -10,10 +10,10 @@ on:
   workflow_dispatch:
     inputs:
       acceptance:
-        # CG4.11 (#194): สั่งเฉพาะชุดที่ต้องการได้ ไม่ต้องลาก J2 (~3 ชม.) มาด้วยทุกครั้ง
-        description: 'acceptance ที่จะรัน (all | cg4 | j2)'
+        # สั่งเฉพาะชุดที่ต้องการได้ ไม่ต้องลาก convergence ที่ใช้เวลานานมาทุก main push
+        description: 'acceptance ที่จะรัน (all | s1 | cg4 | j2)'
         type: choice
-        options: [all, cg4, j2]
+        options: [all, s1, cg4, j2]
         default: all
 
 jobs:
@@ -50,10 +50,10 @@ jobs:
         run: pnpm test:cxa-j3-readiness
 
   s1-convergence-acceptance:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # S1 ใช้เวลานานและ J3 final gate เรียกเองอยู่แล้ว: ไม่รันทุก main push
+    # เพื่อให้ development ใช้ focused gate ได้ก่อน แล้วเรียก S1 เมื่อเลือก manual เท่านั้น
+    if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 's1'
     runs-on: ubuntu-latest
-    # push เข้า main ถี่กว่าเวลารัน S1 (~1 ชม.) ทำให้ run เก่าซ้อนกับ run ใหม่และ fail
-    # ทั้งคู่โดยเปล่าประโยชน์ — ยกเลิก run ที่ยังไม่จบของ SHA เก่าเมื่อมี push ใหม่เข้ามา
     concurrency:
       group: s1-convergence-acceptance-${{ github.ref }}
       cancel-in-progress: true
