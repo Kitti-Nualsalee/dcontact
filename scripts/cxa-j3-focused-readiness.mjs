@@ -66,8 +66,10 @@ export function createCxaJ3FocusedEvidenceManifest(context, checks, suites) {
     repository: context.repository,
     commitSha: context.commitSha,
     ref: context.ref,
-    run: { id: context.runId, attempt: context.attempt, url: context.runUrl },
-    artifact: { ...context.artifact },
+    // Candidate evidence ใช้ run ID เพื่อย้อนกลับไปหน้า Actions ได้ โดยไม่ต้องคัดลอก URL
+    // ที่อาจมีเลขบังเอิญตรงรูปแบบ PII เข้ามาใน evidence bundle.
+    run: { id: context.runId, attempt: context.attempt },
+    artifact: { name: context.artifact.name },
     suites: suites.map(({ id, command, checkIds, status, durationMs, tap }) => ({
       id,
       command,
@@ -99,7 +101,9 @@ export function assertValidCxaJ3FocusedEvidenceManifest(manifest) {
     manifest.candidateScope !== 'J3-focused' ||
     manifest.markerEligible !== false ||
     JSON.stringify(manifest.excludes) !== JSON.stringify([FOCUSED_CHECK_ID]) ||
-    JSON.stringify(manifest.markers) !== JSON.stringify([])
+    JSON.stringify(manifest.markers) !== JSON.stringify([]) ||
+    Object.hasOwn(manifest.run ?? {}, 'url') ||
+    Object.hasOwn(manifest.artifact ?? {}, 'url')
   )
     throw new TypeError('J3 focused manifest มี scope หรือ marker policy ไม่ถูกต้อง');
 
