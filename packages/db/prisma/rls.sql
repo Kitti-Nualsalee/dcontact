@@ -180,3 +180,8 @@ REVOKE UPDATE, DELETE ON c360_membership_command_receipts FROM dcontact_app;
 REVOKE UPDATE, DELETE ON c360_membership_quarantine FROM dcontact_app;
 REVOKE DELETE ON c360_identity_heads FROM dcontact_app;
 REVOKE UPDATE, DELETE ON c360_identity_lineage FROM dcontact_app;
+
+-- J3.5/J3.10: bootstrap ต้องไม่คืนสิทธิ์แก้/ลบหลักฐานที่ migration กำหนดเป็น append-only
+REVOKE UPDATE, DELETE ON jr_segment_enrollment_intents FROM dcontact_app;
+REVOKE UPDATE, DELETE ON jr_segment_shadow_mismatches FROM dcontact_app;
+REVOKE DELETE ON jr_segment_rollout_state FROM dcontact_app;
