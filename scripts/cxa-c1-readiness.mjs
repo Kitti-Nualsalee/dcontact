@@ -215,8 +215,12 @@ export function assertPiiSafeEvidence(value) {
       return;
     }
     const isDigestOrCommit = /^(?:sha256|commitSha|baseSha)$/i.test(fieldName);
+    // GitHub Actions run ID เป็น metadata ของ evidence bundle ไม่ใช่ business identifier
+    // จึงอาจเหมือนรูปแบบเบอร์โทรไทยโดยบังเอิญได้
+    const isGitHubActionsRunId = path === '$.run.id';
     if (
       !isDigestOrCommit &&
+      !isGitHubActionsRunId &&
       typeof candidate === 'string' &&
       sensitiveValue.some((pattern) => pattern.test(candidate))
     ) {

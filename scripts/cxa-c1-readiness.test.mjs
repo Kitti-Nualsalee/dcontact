@@ -179,6 +179,12 @@ test('evidence manifest ปฏิเสธ PII และ credential', () => {
   assert.throws(() => assertPiiSafeEvidence({ crmId: 'crm-1234' }), /field ต้องห้าม/);
 });
 
+test('GitHub Actions run metadata ไม่ใช่ PII แต่เลขเดียวกันใน business evidence ยังถูกปฏิเสธ', () => {
+  const runId = '35056293603';
+  assert.doesNotThrow(() => assertPiiSafeEvidence({ run: { id: runId, attempt: 1 } }));
+  assert.throws(() => assertPiiSafeEvidence({ value: runId }), /PII/);
+});
+
 test('C1 adapter profile fail closed และห้าม actual provider traffic', () => {
   assert.deepEqual(cxaC1AdapterProfileSummary({}), {
     type: 'adapter-profile.readiness',
