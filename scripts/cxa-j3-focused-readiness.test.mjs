@@ -101,4 +101,32 @@ test('J3 focused evidence เป็น candidate เท่านั้นแล�
     () => assertValidCxaJ3FocusedEvidenceManifest(markerAttempt),
     /scope หรือ marker policy/,
   );
+
+  const urlAttempt = structuredClone(result.manifest);
+  urlAttempt.run.url = 'https://github.com/Kitti-Nualsalee/dcontact/actions/runs/35090448437';
+  assert.throws(
+    () => assertValidCxaJ3FocusedEvidenceManifest(urlAttempt),
+    /PII|scope หรือ marker policy/,
+  );
+});
+
+test('J3 focused candidate ยอมรับ GitHub Actions run URL ที่มีเลขคล้ายเบอร์โทร', () => {
+  const githubActionsContext = {
+    ...context,
+    runId: '35090448437',
+    runUrl: 'https://github.com/Kitti-Nualsalee/dcontact/actions/runs/35090448437/attempts/1',
+    artifact: {
+      ...context.artifact,
+      url: 'https://github.com/Kitti-Nualsalee/dcontact/actions/runs/35090448437/attempts/1#artifacts',
+    },
+  };
+  assert.doesNotThrow(() =>
+    runCxaJ3FocusedReadiness({
+      context: githubActionsContext,
+      executeSuite: passingSuite,
+      now: () => new Date('2099-01-01T00:00:00.000Z'),
+      emit: () => undefined,
+      writeManifest: false,
+    }),
+  );
 });
