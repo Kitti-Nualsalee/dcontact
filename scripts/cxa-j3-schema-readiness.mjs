@@ -27,6 +27,8 @@ export const CANONICAL_J3_TABLES = [
   'jr_segment_enrollment_intents',
   'jr_segment_refilter_cursors',
   'jr_segment_outbox',
+  'jr_segment_rollout_state',
+  'jr_segment_shadow_mismatches',
 ];
 
 /**
@@ -53,6 +55,8 @@ export const REQUIRED_J3_CONSTRAINTS = [
   'jr_segment_refilter_cursors_version_check',
   'jr_segment_outbox_state_check',
   'jr_enrollments_single_trigger_source_check',
+  'jr_segment_rollout_state_stage_check',
+  'jr_segment_rollout_state_version_check',
 ];
 
 /** unique index ที่เป็น identity boundary — สองชั้นของ receipt และ 1:1 ของ enrollment intent */
@@ -63,6 +67,8 @@ export const REQUIRED_J3_UNIQUE_INDEXES = [
   'jr_segment_refilter_cursors_key',
   'jr_segment_outbox_event_key',
   'jr_enrollments_tenant_segment_intent_key',
+  'jr_segment_rollout_state_tenant_key',
+  'jr_segment_shadow_mismatches_key',
 ];
 
 /** trigger ที่บังคับ append-only — ของที่แก้ย้อนหลังได้ก็ไม่ใช่หลักฐาน */
@@ -71,6 +77,8 @@ export const REQUIRED_J3_TRIGGERS = [
   'c360_identity_lineage_immutable',
   'c360_membership_outbox_guard',
   'jr_segment_enrollment_intents_immutable',
+  'jr_segment_rollout_guard',
+  'jr_segment_shadow_mismatches_immutable',
 ];
 
 function sqlArray(values) {
