@@ -317,7 +317,11 @@ export const CG5_BOUND_API_SCOPES = Object.freeze([
 
 export const CG5_RESERVED_API_SCOPES = Object.freeze([CG5_API_SCOPES.RESTRICTIONS_WRITE] as const);
 
-export function isCg5BoundApiScope(scope: string): scope is (typeof CG5_BOUND_API_SCOPES)[number] {
+/** scope ที่ผูกกับ route ได้จริง — แยก type ออกจาก `Cg5ApiScope` ซึ่งรวมชื่อที่จองไว้ด้วย */
+export type Cg5BoundApiScope = (typeof CG5_BOUND_API_SCOPES)[number];
+export type Cg5ReservedApiScope = (typeof CG5_RESERVED_API_SCOPES)[number];
+
+export function isCg5BoundApiScope(scope: string): scope is Cg5BoundApiScope {
   return (CG5_BOUND_API_SCOPES as readonly string[]).includes(scope);
 }
 
@@ -348,7 +352,7 @@ export class Cg5ContractError extends Error {
   }
 }
 
-export function assertCg5BoundApiScope(scope: string): asserts scope is Cg5ApiScope {
+export function assertCg5BoundApiScope(scope: string): asserts scope is Cg5BoundApiScope {
   if (!isCg5BoundApiScope(scope)) {
     throw new Cg5ContractError('SCOPE_NOT_BOUND', `scope ${scope} ยังไม่ผูกกับ route ใดในเฟสนี้`);
   }

@@ -24,6 +24,7 @@ import {
   cg5RuleMetadata,
   isCg5RuleCode,
   validateCg5TenantConfig,
+  type Cg5BoundApiScope,
   type Cg5ConfigField,
   type Cg5MetricDimensions,
 } from './index.js';
@@ -103,7 +104,13 @@ test('alert เปลี่ยนสถานะได้เฉพาะเส�
 test('scope เขียนถูกจองชื่อไว้แต่ยังผูกกับ route ไม่ได้', () => {
   assert.deepEqual([...CG5_BOUND_API_SCOPES], ['governance:read', 'governance:evidence']);
   assert.deepEqual([...CG5_RESERVED_API_SCOPES], ['governance:restrictions:write']);
-  assertCg5BoundApiScope('governance:read');
+
+  // หลัง assert ผ่าน type ต้องแคบเหลือเฉพาะ scope ที่ผูก route ได้ ไม่ใช่ Cg5ApiScope ทั้งชุด
+  const scope: string = 'governance:read';
+  assertCg5BoundApiScope(scope);
+  const bound: Cg5BoundApiScope = scope;
+  assert.equal(bound, 'governance:read');
+
   assert.throws(
     () => assertCg5BoundApiScope('governance:restrictions:write'),
     (error: unknown) => error instanceof Cg5ContractError && error.code === 'SCOPE_NOT_BOUND',
