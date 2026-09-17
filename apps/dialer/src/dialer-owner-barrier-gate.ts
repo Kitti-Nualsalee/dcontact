@@ -1,12 +1,27 @@
 /**
- * J2.9 — rollout gate ของ Dialer originate barrier (mirrors
- * `apps/delivery/src/line-rollout-gate.ts`'s maker-checker/kill-switch shape,
- * scoped per tenant แทน LINE pilot tuple เพราะ J2.9 ไม่มี allowlist requirement)
+ * J2.9 — rollout gate ของ Dialer originate barrier (maker-checker/kill-switch shape เดียวกับ
+ * `apps/delivery/src/line-rollout-gate.ts` แต่ scoped ต่อ tenant)
  *
  * Gate ตัดสินว่า "เปิดสถานีทำงานได้แค่ไหน" แยกจาก `DialerOriginateBarrier` ที่ตัดสินว่า
- * "originate ใบนี้ไปถึงไหนแล้ว" ทุก state (รวม SCOPED_INTERNAL_ENABLED) ไม่มี provider I/O
- * จริง — ความต่างระหว่าง state คือขอบเขตที่ยอมให้ barrier ทำงาน ไม่ใช่ transport ที่ต่างกัน
+ * "originate ใบนี้ไปถึงไหนแล้ว" ทุก state ไม่มี provider I/O จริง — ต่างกันที่ barrier เดินไปได้ไกลแค่ไหน:
+ *
+ * - `SHADOW_RECEIPT` ตรวจ current scope แล้วหยุด
+ * - `OWNER_CONFORMANCE` ตรวจเงื่อนไขฝั่ง owner ครบแล้วหยุดก่อนจอง Governance reservation
+ * - `SCOPED_INTERNAL_ENABLED` จอง reservation + TEST_ADAPTER originate เฉพาะ campaign/queue ใน allowlist
+ *
+ * J2.9 (#137) ย้าย state/kill/audit มาไว้ใน `ob_originate_rollout_*` แทน `Map` ในหน่วยความจำ — kill ที่
+ * สั่งบน instance หนึ่งต้องหยุดทุก instance และไม่หายตอน restart ฐานข้อมูลบังคับซ้ำด้วย trigger ว่า state
+ * เดินหน้าทีละขั้น kill ยกเลิกไม่ได้ (J2 ไม่มีสิทธิ์ยก kill switch ตาม #124) และ audit เป็น append-only
+ *
+ * นี่คือ development rollout authority model ไม่ใช่ production release API หรือ IAM จริง
  */
+import {
+  Prisma,
+  type ObOriginateRolloutScopeKind,
+  type PrismaClient,
+  withTenantDatabaseTransaction,
+} from '@d-contact/db';
+
 export type DialerActorRole = 'TENANT_ADMIN' | 'COMPLIANCE' | 'PLATFORM_OPERATOR';
 
 export type DialerBarrierBusinessState =
@@ -20,6 +35,8 @@ export type DialerBarrierKillTrigger =
   | 'RESERVATION_REUSE'
   | 'PROVIDER_TRAFFIC_DETECTED'
   | 'DUPLICATE_ORIGINATE';
+
+export type DialerRolloutScopeKind = ObOriginateRolloutScopeKind;
 
 export class DialerGateAuthorizationError extends Error {
   readonly code = 'DIALER_GATE_AUTHORIZATION_DENIED';
@@ -35,12 +52,36 @@ export class DialerGateAuthorizationError extends Error {
 export class DialerGateInvalidTransitionError extends Error {
   readonly code = 'DIALER_GATE_INVALID_TRANSITION';
   constructor(
-    readonly from: DialerBarrierBusinessState,
+    readonly from: DialerBarrierEffectiveState,
     readonly to: DialerBarrierBusinessState,
   ) {
     super(`เลื่อน gate ทีละขั้นเท่านั้น: ${from} -> ${to}`);
     this.name = 'DialerGateInvalidTransitionError';
   }
+}
+
+/** maker-checker: คนเสนอกับคนอนุมัติต้องเป็นคนละคน ไม่ใช่แค่คนละ role */
+export class DialerGateSelfApprovalError extends Error {
+  readonly code = 'DIALER_GATE_SELF_APPROVAL';
+  constructor() {
+    super('ผู้อนุมัติต้องไม่ใช่ผู้เสนอ');
+    this.name = 'DialerGateSelfApprovalError';
+  }
+}
+
+export interface DialerGateActor {
+  role: DialerActorRole;
+  /** opaque reference ของผู้กระทำ (เช่น user id) — ใช้แยก maker/checker และลง audit */
+  ref: string;
+}
+
+export interface DialerGateAuditEntry {
+  tenantId: string;
+  action: 'PROPOSE' | 'APPROVE' | 'KILL' | 'SCOPE_ALLOW' | 'SCOPE_REVOKE';
+  actorRole: DialerActorRole;
+  actorRef: string;
+  detail: string;
+  occurredAt: Date;
 }
 
 const ADVANCE_ORDER: DialerBarrierBusinessState[] = [
@@ -50,103 +91,250 @@ const ADVANCE_ORDER: DialerBarrierBusinessState[] = [
   'SCOPED_INTERNAL_ENABLED',
 ];
 
-interface TenantGateState {
-  businessState: DialerBarrierBusinessState;
-  killed: boolean;
-  killTrigger?: DialerBarrierKillTrigger;
-  pendingProposal?: DialerBarrierBusinessState;
-}
+const SYSTEM_ACTOR_REF = 'system';
 
-export interface DialerGateAuditEntry {
-  tenantId: string;
-  action: 'PROPOSE' | 'APPROVE' | 'KILL';
-  actorRole: DialerActorRole;
-  atMs: number;
-  detail: string;
-}
+type Transaction = Prisma.TransactionClient;
 
 export class DialerOwnerBarrierGate {
-  private readonly tenants = new Map<string, TenantGateState>();
-  readonly audit: DialerGateAuditEntry[] = [];
+  constructor(private readonly database: PrismaClient) {}
 
-  constructor(private readonly clock: { nowMs(): number } = { nowMs: () => Date.now() }) {}
-
-  private stateFor(tenantId: string): TenantGateState {
-    let state = this.tenants.get(tenantId);
-    if (!state) {
-      state = { businessState: 'DISABLED', killed: false };
-      this.tenants.set(tenantId, state);
-    }
-    return state;
+  private run<T>(tenantId: string, work: (transaction: Transaction) => Promise<T>): Promise<T> {
+    return withTenantDatabaseTransaction(this.database, tenantId, work);
   }
 
-  private log(entry: Omit<DialerGateAuditEntry, 'atMs'>): void {
-    this.audit.push({ ...entry, atMs: this.clock.nowMs() });
+  /** ล็อกแถวของ tenant (สร้างเป็น DISABLED ถ้ายังไม่มี) — การเปลี่ยน state ทุกทางผ่านจุดนี้ */
+  private async lockedState(transaction: Transaction, tenantId: string) {
+    await transaction.$queryRaw(
+      Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`ob-originate-rollout:${tenantId}`}))`,
+    );
+    return (
+      (await transaction.obOriginateRollout.findUnique({ where: { tenantId } })) ??
+      transaction.obOriginateRollout.create({
+        data: { tenantId, updatedByRef: SYSTEM_ACTOR_REF },
+      })
+    );
   }
 
-  /** effective state: KILLED ชนะทุก state เสมอ */
-  currentState(tenantId: string): DialerBarrierEffectiveState {
-    const state = this.stateFor(tenantId);
-    return state.killed ? 'KILLED' : state.businessState;
+  private audit(
+    transaction: Transaction,
+    tenantId: string,
+    entry: Pick<DialerGateAuditEntry, 'action' | 'actorRole' | 'actorRef' | 'detail'>,
+  ) {
+    return transaction.obOriginateRolloutAudit.create({ data: { tenantId, ...entry } });
   }
 
-  propose(tenantId: string, actorRole: DialerActorRole, target: DialerBarrierBusinessState): void {
-    if (actorRole !== 'TENANT_ADMIN') throw new DialerGateAuthorizationError(actorRole, 'propose');
-    const state = this.stateFor(tenantId);
-    if (state.killed) throw new DialerGateInvalidTransitionError(state.businessState, target);
-    const fromIndex = ADVANCE_ORDER.indexOf(state.businessState);
-    const toIndex = ADVANCE_ORDER.indexOf(target);
-    if (toIndex !== fromIndex + 1) {
-      throw new DialerGateInvalidTransitionError(state.businessState, target);
-    }
-    state.pendingProposal = target;
-    this.log({
-      tenantId,
-      action: 'PROPOSE',
-      actorRole,
-      detail: `${state.businessState}->${target}`,
+  /** effective state: KILLED ชนะทุก state เสมอ; tenant ที่ไม่มีแถวคือ DISABLED (fail closed) */
+  async currentState(tenantId: string): Promise<DialerBarrierEffectiveState> {
+    const row = await this.run(tenantId, (transaction) =>
+      transaction.obOriginateRollout.findUnique({
+        where: { tenantId },
+        select: { state: true, killed: true },
+      }),
+    );
+    if (!row) return 'DISABLED';
+    return row.killed ? 'KILLED' : row.state;
+  }
+
+  async killTriggerFor(tenantId: string): Promise<DialerBarrierKillTrigger | undefined> {
+    const row = await this.run(tenantId, (transaction) =>
+      transaction.obOriginateRollout.findUnique({
+        where: { tenantId },
+        select: { killTrigger: true },
+      }),
+    );
+    return (row?.killTrigger as DialerBarrierKillTrigger | null) ?? undefined;
+  }
+
+  async propose(
+    tenantId: string,
+    actor: DialerGateActor,
+    target: DialerBarrierBusinessState,
+  ): Promise<void> {
+    if (actor.role !== 'TENANT_ADMIN')
+      throw new DialerGateAuthorizationError(actor.role, 'propose');
+    await this.run(tenantId, async (transaction) => {
+      const state = await this.lockedState(transaction, tenantId);
+      if (state.killed) throw new DialerGateInvalidTransitionError('KILLED', target);
+      if (ADVANCE_ORDER.indexOf(target) !== ADVANCE_ORDER.indexOf(state.state) + 1) {
+        throw new DialerGateInvalidTransitionError(state.state, target);
+      }
+      await transaction.obOriginateRollout.update({
+        where: { tenantId },
+        data: {
+          pendingState: target,
+          pendingByRef: actor.ref,
+          updatedByRef: actor.ref,
+          version: { increment: 1 },
+        },
+      });
+      await this.audit(transaction, tenantId, {
+        action: 'PROPOSE',
+        actorRole: actor.role,
+        actorRef: actor.ref,
+        detail: `${state.state}->${target}`,
+      });
     });
   }
 
-  approve(tenantId: string, actorRole: DialerActorRole): void {
-    if (actorRole !== 'COMPLIANCE') throw new DialerGateAuthorizationError(actorRole, 'approve');
-    const state = this.stateFor(tenantId);
-    if (state.killed || !state.pendingProposal) {
-      throw new DialerGateInvalidTransitionError(state.businessState, state.businessState);
-    }
-    const target = state.pendingProposal;
-    state.businessState = target;
-    state.pendingProposal = undefined;
-    this.log({ tenantId, action: 'APPROVE', actorRole, detail: target });
+  async approve(tenantId: string, actor: DialerGateActor): Promise<void> {
+    if (actor.role !== 'COMPLIANCE') throw new DialerGateAuthorizationError(actor.role, 'approve');
+    await this.run(tenantId, async (transaction) => {
+      const state = await this.lockedState(transaction, tenantId);
+      if (state.killed || !state.pendingState) {
+        throw new DialerGateInvalidTransitionError(
+          state.killed ? 'KILLED' : state.state,
+          state.state,
+        );
+      }
+      if (state.pendingByRef === actor.ref) throw new DialerGateSelfApprovalError();
+      await transaction.obOriginateRollout.update({
+        where: { tenantId },
+        data: {
+          state: state.pendingState,
+          pendingState: null,
+          pendingByRef: null,
+          updatedByRef: actor.ref,
+          version: { increment: 1 },
+        },
+      });
+      await this.audit(transaction, tenantId, {
+        action: 'APPROVE',
+        actorRole: actor.role,
+        actorRef: actor.ref,
+        detail: state.pendingState,
+      });
+    });
   }
 
   /** kill ใช้ได้ทั้ง Compliance และ Platform Operator; ชนะทุก state ทันทีไม่ต้องรออีกฝ่าย */
-  kill(tenantId: string, actorRole: DialerActorRole, trigger: DialerBarrierKillTrigger): void {
-    if (actorRole !== 'COMPLIANCE' && actorRole !== 'PLATFORM_OPERATOR') {
-      throw new DialerGateAuthorizationError(actorRole, 'kill');
+  async kill(
+    tenantId: string,
+    actor: DialerGateActor,
+    trigger: DialerBarrierKillTrigger,
+  ): Promise<void> {
+    if (actor.role !== 'COMPLIANCE' && actor.role !== 'PLATFORM_OPERATOR') {
+      throw new DialerGateAuthorizationError(actor.role, 'kill');
     }
-    const state = this.stateFor(tenantId);
-    state.killed = true;
-    state.killTrigger = trigger;
-    state.pendingProposal = undefined;
-    this.log({ tenantId, action: 'KILL', actorRole, detail: trigger });
+    await this.killAs(tenantId, actor, trigger, trigger);
   }
 
   /** kill ที่ระบบ trigger เอง (เช่น negative scan ล้มเหลว) ไม่ใช่คำสั่งของ actor */
-  systemKill(tenantId: string, trigger: DialerBarrierKillTrigger): void {
-    const state = this.stateFor(tenantId);
-    state.killed = true;
-    state.killTrigger = trigger;
-    state.pendingProposal = undefined;
-    this.log({
+  async systemKill(tenantId: string, trigger: DialerBarrierKillTrigger): Promise<void> {
+    await this.killAs(
       tenantId,
-      action: 'KILL',
-      actorRole: 'PLATFORM_OPERATOR',
-      detail: `SYSTEM:${trigger}`,
+      { role: 'PLATFORM_OPERATOR', ref: SYSTEM_ACTOR_REF },
+      trigger,
+      `SYSTEM:${trigger}`,
+    );
+  }
+
+  private async killAs(
+    tenantId: string,
+    actor: DialerGateActor,
+    trigger: DialerBarrierKillTrigger,
+    detail: string,
+  ): Promise<void> {
+    await this.run(tenantId, async (transaction) => {
+      const state = await this.lockedState(transaction, tenantId);
+      // kill ซ้ำเป็น no-op — trigger แรกคือเหตุที่ถูกต้อง ห้ามเขียนทับ
+      if (!state.killed) {
+        await transaction.obOriginateRollout.update({
+          where: { tenantId },
+          data: {
+            killed: true,
+            killTrigger: trigger,
+            killedAt: new Date(),
+            pendingState: null,
+            pendingByRef: null,
+            updatedByRef: actor.ref,
+            version: { increment: 1 },
+          },
+        });
+      }
+      await this.audit(transaction, tenantId, {
+        action: 'KILL',
+        actorRole: actor.role,
+        actorRef: actor.ref,
+        detail,
+      });
     });
   }
 
-  killTriggerFor(tenantId: string): DialerBarrierKillTrigger | undefined {
-    return this.stateFor(tenantId).killTrigger;
+  /** เพิ่ม scope ที่ SCOPED_INTERNAL_ENABLED originate ได้ — ขยายขอบเขตจึงต้องเป็น Compliance */
+  async allowScope(
+    tenantId: string,
+    actor: DialerGateActor,
+    scopeKind: DialerRolloutScopeKind,
+    scopeRef: string,
+  ): Promise<void> {
+    if (actor.role !== 'COMPLIANCE')
+      throw new DialerGateAuthorizationError(actor.role, 'allowScope');
+    await this.run(tenantId, async (transaction) => {
+      await transaction.obOriginateRolloutScope.upsert({
+        where: { tenantId_scopeKind_scopeRef: { tenantId, scopeKind, scopeRef } },
+        create: { tenantId, scopeKind, scopeRef, addedByRef: actor.ref },
+        update: {},
+      });
+      await this.audit(transaction, tenantId, {
+        action: 'SCOPE_ALLOW',
+        actorRole: actor.role,
+        actorRef: actor.ref,
+        detail: `${scopeKind}:${scopeRef}`,
+      });
+    });
+  }
+
+  /** ถอน scope — การลดขอบเขตปลอดภัยเสมอ Compliance หรือ Platform Operator สั่งได้ทันที */
+  async revokeScope(
+    tenantId: string,
+    actor: DialerGateActor,
+    scopeKind: DialerRolloutScopeKind,
+    scopeRef: string,
+  ): Promise<void> {
+    if (actor.role !== 'COMPLIANCE' && actor.role !== 'PLATFORM_OPERATOR') {
+      throw new DialerGateAuthorizationError(actor.role, 'revokeScope');
+    }
+    await this.run(tenantId, async (transaction) => {
+      await transaction.obOriginateRolloutScope.deleteMany({
+        where: { tenantId, scopeKind, scopeRef },
+      });
+      await this.audit(transaction, tenantId, {
+        action: 'SCOPE_REVOKE',
+        actorRole: actor.role,
+        actorRef: actor.ref,
+        detail: `${scopeKind}:${scopeRef}`,
+      });
+    });
+  }
+
+  async isScopeAllowed(
+    tenantId: string,
+    scopeKind: DialerRolloutScopeKind,
+    scopeRef: string,
+  ): Promise<boolean> {
+    const row = await this.run(tenantId, (transaction) =>
+      transaction.obOriginateRolloutScope.findUnique({
+        where: { tenantId_scopeKind_scopeRef: { tenantId, scopeKind, scopeRef } },
+        select: { id: true },
+      }),
+    );
+    return row !== null;
+  }
+
+  async auditFor(tenantId: string): Promise<DialerGateAuditEntry[]> {
+    const rows = await this.run(tenantId, (transaction) =>
+      transaction.obOriginateRolloutAudit.findMany({
+        where: { tenantId },
+        orderBy: { occurredAt: 'asc' },
+      }),
+    );
+    return rows.map((row) => ({
+      tenantId: row.tenantId,
+      action: row.action as DialerGateAuditEntry['action'],
+      actorRole: row.actorRole as DialerActorRole,
+      actorRef: row.actorRef,
+      detail: row.detail,
+      occurredAt: row.occurredAt,
+    }));
   }
 }

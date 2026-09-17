@@ -31,6 +31,9 @@ import {
   teamId as toTeamId,
   tenantId as toTenantId,
   actionKey as toActionKey,
+  ReservationBindingError,
+  ReservationNotUsableError,
+  type AuthorizationOutcome,
   type ContactGovernancePort,
   type TeamContactScopeAuthorizer,
 } from '@d-contact/cxa-contracts';
@@ -45,12 +48,26 @@ export type OriginateOutcome =
   | 'REJECTED'
   | 'GATE_CLOSED'
   | 'SHADOW_OBSERVED'
+  /** OWNER_CONFORMANCE: เงื่อนไขฝั่ง owner ผ่านครบแล้วหยุดก่อนจอง Governance reservation */
+  | 'CONFORMANCE_OBSERVED'
+  /** SCOPED_INTERNAL_ENABLED แต่ campaign/queue ไม่อยู่ใน allowlist — ไม่แตะ state */
+  | 'OUT_OF_SCOPE'
   | 'SCOPE_DENIED'
+  /** Governance ตอบไม่ได้ (throw) — fail closed โดยไม่เปลี่ยน state ให้ลองใหม่รอบหน้า */
+  | 'GOVERNANCE_UNAVAILABLE'
+  /** reservation ถูก invalidate ระหว่างจองกับ claim (restrictive mutation ชนะ) ก่อนมี provider I/O */
+  | 'RESERVATION_INVALIDATED'
   | 'GOVERNANCE_BLOCKED'
   | 'GOVERNANCE_DEFERRED'
   | 'GOVERNANCE_REVIEW'
   | 'NOT_ELIGIBLE'
   | 'EXPIRED';
+
+const SIMULATION_OUTCOME = {
+  ACCEPTED: 'ORIGINATED',
+  REJECTED: 'REJECTED',
+  INVALIDATED: 'RESERVATION_INVALIDATED',
+} as const satisfies Record<string, OriginateOutcome>;
 
 /** lease เดียวกันทั้งฝั่ง Governance claim และ row ที่ค้างใน ORIGINATING */
 export const DEFAULT_ORIGINATE_LEASE_MS = 30_000;
@@ -97,7 +114,7 @@ export class DialerOriginateBarrier {
     campaignTargetId: string,
     correlationId: string,
   ): Promise<OriginateOutcome> {
-    const gateState = this.gate.currentState(tenantId);
+    const gateState = await this.gate.currentState(tenantId);
     if (gateState === 'DISABLED' || gateState === 'KILLED') return 'GATE_CLOSED';
 
     const target = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
@@ -126,9 +143,13 @@ export class DialerOriginateBarrier {
       return 'SCOPE_DENIED';
     }
     if (gateState === 'SHADOW_RECEIPT') return 'SHADOW_OBSERVED';
+    if (gateState === 'OWNER_CONFORMANCE') return 'CONFORMANCE_OBSERVED';
+    if (!(await this.gate.isScopeAllowed(tenantId, 'CAMPAIGN', target.campaignId))) {
+      return 'OUT_OF_SCOPE';
+    }
 
     const actionKey = toActionKey(`originate:campaign-target:${target.id}`);
-    const authOutcome = await this.governance.authorizeAndReserve(toTenantId(tenantId), {
+    const authOutcome = await this.authorize(tenantId, {
       channel: 'VOICE',
       purpose: 'CAMPAIGN_OUTREACH',
       source: 'DIALER_ORIGINATE',
@@ -138,6 +159,7 @@ export class DialerOriginateBarrier {
       contactId: target.contactId,
       correlationId,
     });
+    if (authOutcome === 'UNAVAILABLE') return 'GOVERNANCE_UNAVAILABLE';
     if (authOutcome.decision !== 'ALLOW' || !authOutcome.reservationId) {
       await this.deferCampaignTarget(tenantId, target.id, target.version);
       return this.mapNonAllowDecision(authOutcome.decision);
@@ -158,7 +180,7 @@ export class DialerOriginateBarrier {
     );
     if (originating.count === 0) return 'NOT_ELIGIBLE';
 
-    const accepted = await this.runTelephonySimulation(
+    const simulated = await this.runTelephonySimulation(
       tenantId,
       correlationId,
       authOutcome.reservationId,
@@ -171,12 +193,13 @@ export class DialerOriginateBarrier {
     await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
       transaction.obCampaignTarget.updateMany({
         where: { tenantId, id: target.id, state: 'ORIGINATING' },
-        data: accepted
-          ? { state: 'CONSUMED', originateLeaseExpiresAt: null, version: { increment: 1 } }
-          : { state: 'DEFERRED', originateLeaseExpiresAt: null, version: { increment: 1 } },
+        data:
+          simulated === 'ACCEPTED'
+            ? { state: 'CONSUMED', originateLeaseExpiresAt: null, version: { increment: 1 } }
+            : { state: 'DEFERRED', originateLeaseExpiresAt: null, version: { increment: 1 } },
       }),
     );
-    return accepted ? 'ORIGINATED' : 'REJECTED';
+    return SIMULATION_OUTCOME[simulated];
   }
 
   async originateCallback(
@@ -184,7 +207,7 @@ export class DialerOriginateBarrier {
     callbackId: string,
     correlationId: string,
   ): Promise<OriginateOutcome> {
-    const gateState = this.gate.currentState(tenantId);
+    const gateState = await this.gate.currentState(tenantId);
     if (gateState === 'DISABLED' || gateState === 'KILLED') return 'GATE_CLOSED';
 
     const callback = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
@@ -207,9 +230,13 @@ export class DialerOriginateBarrier {
     });
     if (scope.decision !== 'ALLOW') return 'SCOPE_DENIED';
     if (gateState === 'SHADOW_RECEIPT') return 'SHADOW_OBSERVED';
+    if (gateState === 'OWNER_CONFORMANCE') return 'CONFORMANCE_OBSERVED';
+    if (!(await this.gate.isScopeAllowed(tenantId, 'CALLBACK_QUEUE', callback.queueId))) {
+      return 'OUT_OF_SCOPE';
+    }
 
     const actionKey = toActionKey(`originate:callback:${callback.id}`);
-    const authOutcome = await this.governance.authorizeAndReserve(toTenantId(tenantId), {
+    const authOutcome = await this.authorize(tenantId, {
       channel: 'VOICE',
       purpose: 'CALLBACK_OUTREACH',
       source: 'DIALER_ORIGINATE',
@@ -219,6 +246,7 @@ export class DialerOriginateBarrier {
       contactId: callback.contactId,
       correlationId,
     });
+    if (authOutcome === 'UNAVAILABLE') return 'GOVERNANCE_UNAVAILABLE';
     if (authOutcome.decision !== 'ALLOW' || !authOutcome.reservationId) {
       return this.mapNonAllowDecision(authOutcome.decision);
     }
@@ -238,7 +266,7 @@ export class DialerOriginateBarrier {
     );
     if (originating.count === 0) return 'NOT_ELIGIBLE';
 
-    const accepted = await this.runTelephonySimulation(
+    const simulated = await this.runTelephonySimulation(
       tenantId,
       correlationId,
       authOutcome.reservationId,
@@ -251,12 +279,25 @@ export class DialerOriginateBarrier {
     await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
       transaction.obCallback.updateMany({
         where: { tenantId, id: callback.id, state: 'ORIGINATING' },
-        data: accepted
-          ? { state: 'CONSUMED', originateLeaseExpiresAt: null, version: { increment: 1 } }
-          : { state: 'SCHEDULED', originateLeaseExpiresAt: null, version: { increment: 1 } },
+        data:
+          simulated === 'ACCEPTED'
+            ? { state: 'CONSUMED', originateLeaseExpiresAt: null, version: { increment: 1 } }
+            : { state: 'SCHEDULED', originateLeaseExpiresAt: null, version: { increment: 1 } },
       }),
     );
-    return accepted ? 'ORIGINATED' : 'REJECTED';
+    return SIMULATION_OUTCOME[simulated];
+  }
+
+  /** Governance ที่ throw คือตอบไม่ได้ — ไม่ถือเป็น ALLOW และไม่เปลี่ยน owner state (#124 fail closed) */
+  private async authorize(
+    tenantId: string,
+    input: Parameters<ContactGovernancePort['authorizeAndReserve']>[1],
+  ): Promise<AuthorizationOutcome | 'UNAVAILABLE'> {
+    try {
+      return await this.governance.authorizeAndReserve(toTenantId(tenantId), input);
+    } catch {
+      return 'UNAVAILABLE';
+    }
   }
 
   private mapNonAllowDecision(decision: 'BLOCK' | 'DEFER' | 'REVIEW' | 'ALLOW'): OriginateOutcome {
@@ -290,7 +331,7 @@ export class DialerOriginateBarrier {
     contactId: string,
     targetKind: 'campaign_target' | 'callback',
     targetId: string,
-  ): Promise<boolean> {
+  ): Promise<'ACCEPTED' | 'REJECTED' | 'INVALIDATED'> {
     const tenant = toTenantId(tenantId);
     const deliveryId = toDeliveryId(randomUUID());
     const providerRequestKey = toProviderRequestKey(randomUUID());
@@ -303,14 +344,26 @@ export class DialerOriginateBarrier {
       deliveryId,
     };
 
-    await this.governance.claimReservationForDelivery({
-      ...command,
-      contactId: toContactId(contactId),
-      channel: 'VOICE',
-      purpose: targetKind === 'campaign_target' ? 'CAMPAIGN_OUTREACH' : 'CALLBACK_OUTREACH',
-      senderIdentityId: 'dialer-originate-test-adapter',
-      leaseExpiresAt,
-    });
+    try {
+      await this.governance.claimReservationForDelivery({
+        ...command,
+        contactId: toContactId(contactId),
+        channel: 'VOICE',
+        purpose: targetKind === 'campaign_target' ? 'CAMPAIGN_OUTREACH' : 'CALLBACK_OUTREACH',
+        senderIdentityId: 'dialer-originate-test-adapter',
+        leaseExpiresAt,
+      });
+    } catch (error) {
+      // restriction/kill switch ที่มาถึงหลังจองทำให้ reservation ไม่อยู่ใน RESERVED แล้ว — ยังไม่มี provider
+      // I/O จึงถอยได้อย่างปลอดภัย error อื่น (DB/Governance ล่ม) ปล่อยให้ lease sweeper ตัดสินแทนการเดา
+      if (
+        (error instanceof ReservationBindingError || error instanceof ReservationNotUsableError) &&
+        (error.code === 'RESERVATION_NOT_RESERVED' || error.code === 'RESERVATION_EXPIRED')
+      ) {
+        return 'INVALIDATED';
+      }
+      throw error;
+    }
     await this.governance.beginProviderSubmission({
       ...command,
       expectedLeaseVersion: 1,
@@ -333,7 +386,7 @@ export class DialerOriginateBarrier {
         outcome: 'DELIVERED',
         occurredAt: this.now().toISOString(),
       });
-      return true;
+      return 'ACCEPTED';
     }
 
     await this.governance.settleDelivery({
@@ -343,6 +396,6 @@ export class DialerOriginateBarrier {
       outcome: 'PROVIDER_REJECTED',
       occurredAt: this.now().toISOString(),
     });
-    return false;
+    return 'REJECTED';
   }
 }

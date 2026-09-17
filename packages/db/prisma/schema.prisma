@@ -113,6 +113,9 @@ model Tenant {
   jrSegmentShadowMismatches    JrSegmentShadowMismatch[]
 
   @@map("tenants")
+  obOriginateRollouts      ObOriginateRollout[]
+  obOriginateRolloutScopes ObOriginateRolloutScope[]
+  obOriginateRolloutAudit  ObOriginateRolloutAudit[]
 }
 
 enum UserRole {
@@ -2575,6 +2578,73 @@ enum ObCampaignTargetState {
   CANCELLED
   /// J2.8: SUPERSEDE_CAMPAIGN_TARGET ก่อนถึง originate barrier (terminal)
   SUPERSEDED
+}
+
+/// J2.9 (#137): rollout ของ Dialer originate barrier — เดินหน้าทีละขั้นเท่านั้นและทุก state ไม่มี provider I/O
+enum ObOriginateRolloutState {
+  DISABLED
+  /// ตรวจ current scope แล้วหยุด ไม่แตะ Governance/owner state
+  SHADOW_RECEIPT
+  /// ตรวจเงื่อนไขฝั่ง owner ครบ (campaign/callback/scope) แล้วหยุดก่อนจอง Governance reservation
+  OWNER_CONFORMANCE
+  /// จอง reservation + TEST_ADAPTER originate เฉพาะ scope ใน ob_originate_rollout_scopes
+  SCOPED_INTERNAL_ENABLED
+}
+
+enum ObOriginateRolloutScopeKind {
+  CAMPAIGN
+  CALLBACK_QUEUE
+}
+
+/// J2.9 (#137): gate ต่อ tenant ที่ทุก Dialer instance อ่านร่วมกัน — kill ชนะทุก state และยกเลิกไม่ได้
+model ObOriginateRollout {
+  id              String                   @id @default(uuid()) @db.Uuid
+  tenantId        String                   @map("tenant_id") @db.Uuid
+  state           ObOriginateRolloutState  @default(DISABLED)
+  pendingState    ObOriginateRolloutState? @map("pending_state")
+  pendingByRef    String?                  @map("pending_by_ref")
+  killed          Boolean                  @default(false)
+  killTrigger     String?                  @map("kill_trigger")
+  killedAt        DateTime?                @map("killed_at")
+  version         Int                      @default(1)
+  updatedByRef    String                   @map("updated_by_ref")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId])
+  @@map("ob_originate_rollout_state")
+}
+
+/// J2.9 (#137): allowlist ของ SCOPED_INTERNAL_ENABLED — นอก list ไม่ originate แม้ gate เปิดถึงขั้นสุดท้าย
+model ObOriginateRolloutScope {
+  id         String                      @id @default(uuid()) @db.Uuid
+  tenantId   String                      @map("tenant_id") @db.Uuid
+  scopeKind  ObOriginateRolloutScopeKind @map("scope_kind")
+  scopeRef   String                      @map("scope_ref") @db.Uuid
+  addedByRef String                      @map("added_by_ref")
+  createdAt  DateTime                    @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, scopeKind, scopeRef])
+  @@map("ob_originate_rollout_scopes")
+}
+
+/// J2.9 (#137): audit ของ gate แบบ append-only
+model ObOriginateRolloutAudit {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  action     String
+  actorRole  String   @map("actor_role")
+  actorRef   String   @map("actor_ref")
+  detail     String
+  occurredAt DateTime @default(now()) @map("occurred_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, occurredAt])
+  @@map("ob_originate_rollout_audit")
 }
 
 /// fixture ของ campaign ที่ "มีอยู่แล้ว" — ไม่มี Campaign CRUD/UI ใน J2.5 (out of scope)
