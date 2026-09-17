@@ -7,13 +7,14 @@ import type {
   TeamContactScopeAuthorization,
   TeamContactScopeAuthorizer,
 } from '@d-contact/cxa-contracts';
-import { PrismaClient } from '@d-contact/db';
+import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { DcExprEvaluator } from '@d-contact/expression';
 import { IamTeamContactScopeAuthorizer, IamTeamSegmentScopeRepository } from '@d-contact/iam';
 import { JourneyDefinitionRepository } from './journey-definition-repository.js';
 import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
 import { JourneySegmentReceiptRepository } from './journey-segment-receipt-repository.js';
 import { JourneySegmentRefilterProcessor } from './journey-segment-refilter-processor.js';
+import { JourneyIamScopeInvalidationService } from './journey-iam-scope-invalidation.js';
 
 const evaluator = new DcExprEvaluator();
 const HASH = 'a'.repeat(64);
@@ -72,6 +73,7 @@ async function fixture(t: TestContext) {
 
   t.after(async () => {
     await owner.jrSegmentOutbox.deleteMany({ where: { tenantId } });
+    await owner.jrIamScopeInvalidationInbox.deleteMany({ where: { tenantId } });
     await owner.jrSegmentRefilterCursor.deleteMany({ where: { tenantId } });
     // enrollment อ้าง intent ด้วย FK จึงต้องลบก่อน
     await owner.jrEnrollment.deleteMany({ where: { tenantId } });
@@ -141,14 +143,14 @@ async function fixture(t: TestContext) {
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
-async function publishJourney(f: Fixture) {
+async function publishJourney(f: Fixture, ownerTeamId = f.teamId) {
   const journeyId = randomUUID();
   const draft = await f.definitions.createVersion({
     tenantId: f.tenantId,
     journeyId,
     version: 1,
     name: 'เข้าเซกเมนต์',
-    ownerTeamId: f.teamId,
+    ownerTeamId,
     purpose: 'MARKETING',
     senderIdentityId: 'sender-1',
     trigger: {
@@ -413,6 +415,153 @@ test('IAM WORK grant ถูก revoke แล้ว re-filter ยกเลิก 
     1,
   );
   assert.equal(await f.owner.cgDecisionLog.count({ where: { tenantId: f.tenantId } }), 0);
+});
+
+test('IAM revoke ของทีม A สร้าง durable cursor และ cancel เฉพาะ Journey ของทีม A', async (t) => {
+  const f = await fixture(t);
+  const entryId = `entry-${f.suffix}`;
+  const teamB = randomUUID();
+  await f.owner.team.create({ data: { id: teamB, tenantId: f.tenantId, name: 'Retention' } });
+  const journeyA = await publishJourney(f, f.teamId);
+  const journeyB = await publishJourney(f, teamB);
+
+  const received = await f.receipts.ingest({
+    tenantId: f.tenantId,
+    source: 'CUSTOMER_360',
+    eventId: `event-${randomUUID()}`,
+    contactId: f.contactId,
+    segmentId: f.segmentId,
+    membershipRevision: 1,
+    changeKind: 'ENTERED',
+    entryId,
+    segmentDefinitionVersion: 1,
+    payloadHash: HASH,
+    correlationId: `corr-${f.suffix}`,
+  });
+  await f.receipts.applyEnrollment(
+    {
+      tenantId: f.tenantId,
+      receiptId: received.receipt.id,
+      entryId,
+      canonicalContactId: f.contactId,
+      intents: [
+        {
+          journeyId: journeyA,
+          journeyVersion: 1,
+          entryStepId: 'send',
+          reasonMembershipRevision: 1,
+          reasonDefinitionVersion: 1,
+          reasonDigest: HASH,
+        },
+        {
+          journeyId: journeyB,
+          journeyVersion: 1,
+          entryStepId: 'send',
+          reasonMembershipRevision: 1,
+          reasonDefinitionVersion: 1,
+          reasonDigest: HASH,
+        },
+      ],
+      correlationId: `corr-${f.suffix}`,
+    },
+    {
+      eventType: 'journey.segment_entry.recorded',
+      orderingKey: `${f.contactId}:${f.segmentId}`,
+      payload: { contractVersion: 1 },
+      payloadHash: HASH,
+    },
+  );
+  const intents = await f.owner.jrSegmentEnrollmentIntent.findMany({
+    where: { tenantId: f.tenantId, receiptId: received.receipt.id },
+    select: { id: true, journeyId: true },
+  });
+  const enrollmentA = await f.owner.jrEnrollment.findFirstOrThrow({
+    where: {
+      tenantId: f.tenantId,
+      segmentIntentId: intents.find((i) => i.journeyId === journeyA)?.id,
+    },
+  });
+  const enrollmentB = await f.owner.jrEnrollment.findFirstOrThrow({
+    where: {
+      tenantId: f.tenantId,
+      segmentIntentId: intents.find((i) => i.journeyId === journeyB)?.id,
+    },
+  });
+  const actionA = `team-a-${f.suffix}`;
+  const actionB = `team-b-${f.suffix}`;
+  await ownerAction(f, enrollmentA.id, actionA);
+  await ownerAction(f, enrollmentB.id, actionB);
+
+  const event = {
+    schemaVersion: 2,
+    eventKind: 'CANONICAL',
+    eventId: `iam-revoke:${randomUUID()}`,
+    type: 'team.segment-scope.changed',
+    tenantId: f.tenantId,
+    occurredAt: '2099-01-01T00:00:00.000Z',
+    correlationId: `iam-revoke-${f.suffix}`,
+    orderingKey: f.teamId,
+    aggregateType: 'iam_team_scope',
+    aggregateId: f.teamId,
+    aggregateVersion: 2,
+    payload: {
+      contractVersion: 1,
+      teamId: f.teamId,
+      grantId: randomUUID(),
+      scopeVersion: 2,
+      kind: 'REVOKED',
+    },
+  } as const;
+  const service = new JourneyIamScopeInvalidationService();
+  const result = await withTenantDatabaseTransaction(f.application, f.tenantId, (transaction) =>
+    service.apply(event, 'journey-iam-scope-test', transaction),
+  );
+  assert.deepEqual(result, { state: 'RECORDED', scheduledCursorCount: 1 });
+  assert.equal(
+    await f.owner.jrIamScopeInvalidationInbox.count({ where: { tenantId: f.tenantId } }),
+    1,
+  );
+  const scopedCursor = await f.owner.jrSegmentRefilterCursor.findFirstOrThrow({
+    where: { tenantId: f.tenantId, scopeTeamId: f.teamId },
+  });
+  assert.equal(scopedCursor.receiptId, received.receipt.id);
+
+  assert.equal(
+    await processor(f, eligible(f, entryId)).executeNext(f.tenantId, 'iam-scope-worker'),
+    'CANCELLED',
+  );
+  assert.equal(
+    (
+      await f.owner.jrOwnerAction.findFirstOrThrow({
+        where: { tenantId: f.tenantId, actionKey: actionA },
+      })
+    ).state,
+    'CANCEL_REQUESTED',
+  );
+  assert.equal(
+    (
+      await f.owner.jrOwnerAction.findFirstOrThrow({
+        where: { tenantId: f.tenantId, actionKey: actionB },
+      })
+    ).state,
+    'PENDING',
+    'revoke ทีม A ต้องไม่ cancel action ของทีม B',
+  );
+  assert.equal(
+    (await f.owner.jrEnrollment.findUniqueOrThrow({ where: { id: enrollmentB.id } })).runState,
+    'WAITING',
+  );
+
+  const duplicate = await withTenantDatabaseTransaction(f.application, f.tenantId, (transaction) =>
+    service.apply(event, 'journey-iam-scope-test', transaction),
+  );
+  assert.deepEqual(duplicate, { state: 'DUPLICATE' });
+  assert.equal(
+    await f.owner.jrSegmentRefilterCursor.count({
+      where: { tenantId: f.tenantId, scopeTeamId: f.teamId },
+    }),
+    1,
+  );
 });
 
 test('entry เปลี่ยนไปแล้วต้องไม่ถือว่าเป็น correction ของ entry เดิม', async (t) => {

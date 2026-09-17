@@ -3125,7 +3125,9 @@ model JrSegmentRefilterCursor {
   contact Contact          @relation(fields: [tenantId, contactId], references: [tenantId, id])
   receipt JrSegmentReceipt @relation(fields: [tenantId, receiptId], references: [tenantId, id])
 
-  @@unique([tenantId, contactId, segmentId, membershipRevision])
+  /// membership re-filter ปกติใช้ scopeTeamId = null; IAM revoke แยกหนึ่งงานต่อทีมเพื่อ
+  /// ห้าม revoke ทีมหนึ่งไป cancel Journey ของทีมอื่นใน entry เดียวกัน
+  @@unique([tenantId, contactId, segmentId, membershipRevision, scopeTeamId])
   @@index([tenantId, state, availableAt])
   @@index([tenantId, scopeTeamId])
   @@map("jr_segment_refilter_cursors")
