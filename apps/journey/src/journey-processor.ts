@@ -85,6 +85,15 @@ export class JourneyEnrollmentConflictError extends Error {
   }
 }
 
+export class JourneyScopeContextStaleError extends Error {
+  readonly code = 'SCOPE_CONTEXT_STALE';
+
+  constructor(readonly receiptId: string) {
+    super(`Journey scope ยังไม่สดสำหรับ receipt: ${receiptId}`);
+    this.name = 'JourneyScopeContextStaleError';
+  }
+}
+
 export class JourneyProcessor {
   private readonly now: () => Date;
 
@@ -101,7 +110,7 @@ export class JourneyProcessor {
     input: ProcessJourneyEventInput,
     transaction?: Prisma.TransactionClient,
   ): Promise<JourneyProcessingResult> {
-    const event = await this.loadEventAndPrepareEnrollment(tenantId, input, transaction);
+    const event = await this.loadEvent(tenantId, input, transaction);
     const enrollmentId = input.receiptId;
     const actionKey = createJourneyActionKey({
       enrollmentId,
@@ -129,6 +138,7 @@ export class JourneyProcessor {
         transaction,
       );
       if (scope.decision === 'DENY') {
+        await this.ensureEnrollment(tenantId, input, transaction);
         await this.persistScopeDenied(tenantId, input, resolved, transaction);
         return {
           receiptId: input.receiptId,
@@ -138,7 +148,13 @@ export class JourneyProcessor {
           scopeDecision: 'DENY',
         };
       }
+      if (scope.decision === 'DEFER') {
+        // ห้ามสร้าง enrollment หรือเรียก Governance จาก scope ที่ stale; Kafka handler จะไม่
+        // mark receipt ว่า PROCESSED จึง retry โดย resolve IAM ใหม่ทั้งเส้นทาง.
+        throw new JourneyScopeContextStaleError(input.receiptId);
+      }
     }
+    await this.ensureEnrollment(tenantId, input, transaction);
     const authorizationBase = {
       channel: input.channel,
       purpose: input.purpose,
@@ -187,7 +203,7 @@ export class JourneyProcessor {
     };
   }
 
-  private async loadEventAndPrepareEnrollment(
+  private async loadEvent(
     tenantId: string,
     input: ProcessJourneyEventInput,
     transaction?: Prisma.TransactionClient,
@@ -195,17 +211,29 @@ export class JourneyProcessor {
     const load = async (
       transactionClient: Prisma.TransactionClient,
     ): Promise<InboundBusinessEvent> => {
-      const transaction = transactionClient;
-      await transaction.$queryRaw(
-        Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`journey-enrollment:${tenantId}:${input.receiptId}`}))`,
-      );
-      const inbox = await transaction.jrEventInbox.findFirst({
+      const inbox = await transactionClient.jrEventInbox.findFirst({
         where: { id: input.receiptId, tenantId, state: { in: ['PUBLISHED', 'PROCESSED'] } },
         select: { payload: true },
       });
       if (!inbox) throw new JourneyEventNotReadyError(input.receiptId);
 
-      const enrollment = await transaction.jrEnrollment.findFirst({
+      return inbox.payload as unknown as InboundBusinessEvent;
+    };
+    return transaction
+      ? load(transaction)
+      : withTenantDatabaseTransaction(this.database, tenantId, load);
+  }
+
+  private async ensureEnrollment(
+    tenantId: string,
+    input: ProcessJourneyEventInput,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const ensure = async (transactionClient: Prisma.TransactionClient): Promise<void> => {
+      await transactionClient.$queryRaw(
+        Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`journey-enrollment:${tenantId}:${input.receiptId}`}))`,
+      );
+      const enrollment = await transactionClient.jrEnrollment.findFirst({
         where: { tenantId, eventInboxId: input.receiptId },
         select: { journeyVersion: true },
       });
@@ -213,7 +241,7 @@ export class JourneyProcessor {
         throw new JourneyEnrollmentConflictError(input.receiptId);
       }
       if (!enrollment) {
-        await transaction.jrEnrollment.create({
+        await transactionClient.jrEnrollment.create({
           data: {
             id: input.receiptId,
             tenantId,
@@ -223,11 +251,12 @@ export class JourneyProcessor {
           },
         });
       }
-      return inbox.payload as unknown as InboundBusinessEvent;
     };
-    return transaction
-      ? load(transaction)
-      : withTenantDatabaseTransaction(this.database, tenantId, load);
+    if (transaction) {
+      await ensure(transaction);
+      return;
+    }
+    await withTenantDatabaseTransaction(this.database, tenantId, ensure);
   }
 
   private toResolvedContact(resolution: CustomerContextResolution): ResolvedContact | undefined {
