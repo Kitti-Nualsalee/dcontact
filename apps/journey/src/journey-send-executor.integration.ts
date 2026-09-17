@@ -43,6 +43,12 @@ class DenyAllScope implements TeamContactScopeAuthorizer {
   }
 }
 
+class DeferredScope implements TeamContactScopeAuthorizer {
+  async authorize(input: AuthorizeTeamContactScopeInput): Promise<TeamContactScopeAuthorization> {
+    return { decision: 'DEFER', reasonCode: 'SCOPE_CONTEXT_STALE', evaluatedAt: input.at };
+  }
+}
+
 /** จำลอง cancel ที่แซงเข้ามาทันทีหลัง reservation ถูกจอง แต่ก่อน enqueue — ต่อ port จริงทุกจุดอื่น */
 class CancelAfterReserveGovernance implements ContactGovernancePort {
   constructor(
@@ -322,6 +328,35 @@ test('SEND ที่ scope DENY ไม่ authorize/reserve หรือ enqueue
   assert.equal(result.kind, 'SCOPE_DENIED');
   if (result.kind === 'SCOPE_DENIED') assert.equal(result.reasonCode, 'TEAM_SEGMENT_NOT_ALLOWED');
   assert.equal(result.enrollment.currentStepId, 'exit-done');
+  assert.equal(await f.owner.dlOutboxEntry.count({ where: { tenantId: f.rawTenantId } }), 0);
+  assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.rawTenantId } }), 0);
+});
+
+test('SEND ที่ scope stale ไม่ reserve หรือ enqueue และคง cursor เพื่อ resolve IAM ใหม่', async (t) => {
+  const f = await fixture(t);
+  const parked = await f.enrollAndAdvanceToSend();
+  const executor = new JourneySendExecutor(
+    f.execution,
+    f.definitions,
+    new DeferredScope(),
+    f.governance,
+    f.delivery,
+  );
+
+  const result = await executor.handleSend({
+    tenantId: f.rawTenantId,
+    enrollmentId: parked.enrollment.enrollmentId,
+    stepId: parked.stepId,
+    stepSequence: parked.stepSequence,
+    contact: { contactId: f.rawContactId, identityId: f.rawIdentityId },
+    correlationId: `send-stale-${f.suffix}`,
+  });
+
+  assert.equal(result.kind, 'SCOPE_DEFERRED');
+  if (result.kind === 'SCOPE_DEFERRED') {
+    assert.equal(result.reasonCode, 'SCOPE_CONTEXT_STALE');
+    assert.equal(result.enrollment.currentStepId, 'send-reminder');
+  }
   assert.equal(await f.owner.dlOutboxEntry.count({ where: { tenantId: f.rawTenantId } }), 0);
   assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
