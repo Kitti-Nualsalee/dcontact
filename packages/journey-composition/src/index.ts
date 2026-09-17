@@ -130,23 +130,59 @@ class PrismaCustomerIdentityResolver implements CustomerIdentityResolver<Prisma.
     input: Parameters<CustomerIdentityResolver<Prisma.TransactionClient>['resolveByContactId']>[0],
     transaction?: Prisma.TransactionClient,
   ) {
+    const notFound = { status: 'NOT_FOUND' as const, reasonCode: 'IDENTITY_NOT_FOUND' as const };
+    const ambiguous = { status: 'AMBIGUOUS' as const, reasonCode: 'IDENTITY_AMBIGUOUS' as const };
     const resolve = async (client: Prisma.TransactionClient) => {
       const contact = await client.contact.findFirst({
         where: { id: input.contactId, tenantId: input.tenantId },
         select: { id: true },
       });
-      // E0/J2 ยังไม่มี contact-merge ledger จึงยังไม่มี survivor ต่างจาก input จริง —
-      // ปฏิบัติเหมือน PrismaTeamContactScopeAuthorizer: ซื่อสัตย์ต่อ capability ปัจจุบัน
-      // แทนที่จะ fake merge resolution ที่ระบบยังไม่รองรับ
-      return contact
-        ? {
-            status: 'RESOLVED' as const,
-            contactId: contactId(contact.id),
-            segmentMemberships: [],
-            snapshotVersion: 1,
-            evaluatedAt: input.at,
-          }
-        : { status: 'NOT_FOUND' as const, reasonCode: 'IDENTITY_NOT_FOUND' as const };
+      if (!contact) return notFound;
+
+      /**
+       * Customer 360 identity head (J3) เป็น authority ของ merge/split/unmerge — head เก็บ
+       * canonical pointer แบบ flatten แล้ว (repointMergeChain) จึงอ่านชั้นเดียวพอ
+       * ไม่มี head = contact ไม่เคยผ่าน identity operation ใด ๆ จึงเป็น survivor ของตัวเอง
+       */
+      const head = await client.c360IdentityHead.findUnique({
+        where: { tenantId_contactId: { tenantId: input.tenantId, contactId: input.contactId } },
+        select: { state: true, canonicalContactId: true, lineageRevision: true },
+      });
+      const resolved = (survivorId: string, lineageRevision: number) => ({
+        status: 'RESOLVED' as const,
+        contactId: contactId(survivorId),
+        ...(survivorId !== input.contactId
+          ? { originalContactId: contactId(input.contactId) }
+          : {}),
+        segmentMemberships: [],
+        snapshotVersion: lineageRevision + 1,
+        evaluatedAt: input.at,
+      });
+      if (!head) return resolved(input.contactId, 0);
+      if (head.state === 'AMBIGUOUS') return ambiguous;
+      if (head.state === 'ACTIVE') {
+        return head.canonicalContactId === input.contactId
+          ? resolved(input.contactId, head.lineageRevision)
+          : ambiguous;
+      }
+
+      // MERGED: survivor ต้องยัง ACTIVE และชี้ตัวเองใน tenant เดียวกัน — ถ้า chain ยังไม่นิ่ง
+      // (survivor ถูก merge/ambiguous ต่อ) ถือว่ายัง resolve ไม่ได้ ไม่เดา survivor เอง
+      const survivor = await client.c360IdentityHead.findUnique({
+        where: {
+          tenantId_contactId: { tenantId: input.tenantId, contactId: head.canonicalContactId },
+        },
+        select: { state: true, canonicalContactId: true },
+      });
+      // survivor ที่ไม่มี head = ไม่เคยผ่าน identity operation เอง; FK ของ head รับประกันว่า
+      // canonical contact อยู่ใน tenant เดียวกัน จึงไม่มีทาง redirect ข้าม tenant
+      if (
+        survivor &&
+        (survivor.state !== 'ACTIVE' || survivor.canonicalContactId !== head.canonicalContactId)
+      ) {
+        return ambiguous;
+      }
+      return resolved(head.canonicalContactId, head.lineageRevision);
     };
     return transaction
       ? resolve(transaction)

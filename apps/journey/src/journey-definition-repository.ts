@@ -88,6 +88,21 @@ export interface JourneyDefinitionRepositoryOptions {
  * แล้วไม่ถูกแก้ไข การ publish เป็นเพียง state transition ที่ idempotent ต่อ
  * (tenantId, journeyId, version) ตาม C1.4 acceptance
  */
+/**
+ * J2.7: trigger ของ version นี้ match outcome revision หรือไม่ — ใช้ทั้งตอนหา published
+ * journey และตอน re-evaluate enrollment เดิมกับ version ที่ pin ไว้เมื่อ correction มาถึง
+ */
+export function matchesOutcomeTrigger(
+  snapshot: JourneyVersionSnapshot,
+  outcomeType: string,
+  outcomeCode: string | undefined,
+): boolean {
+  if (snapshot.trigger.kind !== 'INTERACTION_OUTCOME') return false;
+  if (snapshot.trigger.outcomeType !== outcomeType) return false;
+  if (snapshot.trigger.outcomeCode === undefined) return true;
+  return snapshot.trigger.outcomeCode === outcomeCode;
+}
+
 export class JourneyDefinitionRepository {
   private readonly id: () => string;
 
@@ -200,14 +215,14 @@ export class JourneyDefinitionRepository {
           })),
         },
       });
-      return rows
-        .map((row) => toSnapshot(row as StoredJourneyDefinition))
-        .filter((snapshot) => {
-          if (snapshot.trigger.kind !== 'INTERACTION_OUTCOME') return false;
-          if (snapshot.trigger.outcomeType !== outcomeType) return false;
-          if (snapshot.trigger.outcomeCode === undefined) return true;
-          return snapshot.trigger.outcomeCode === outcomeCode;
-        });
+      return (
+        rows
+          .map((row) => toSnapshot(row as StoredJourneyDefinition))
+          .filter((snapshot) => matchesOutcomeTrigger(snapshot, outcomeType, outcomeCode))
+          // หลาย journey match outcome เดียวกันได้ (fan-out) — เรียงให้ลำดับประมวลผลคงที่
+          // ไม่ขึ้นกับลำดับแถวที่ Postgres คืนมา
+          .sort((left, right) => left.journeyId.localeCompare(right.journeyId))
+      );
     };
     return withTenantDatabaseTransaction(this.database, tenantId, read);
   }
