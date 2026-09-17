@@ -12,7 +12,8 @@
   "dependencies": {
     "@d-contact/contact-governance": "workspace:*",
     "@d-contact/cxa-contracts": "workspace:*",
-    "@d-contact/db": "workspace:*"
+    "@d-contact/db": "workspace:*",
+    "@d-contact/iam": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.4"

@@ -828,6 +828,111 @@ export function assertOwnerResultEnvelope(
   return { ...envelope, payload: result };
 }
 
+/**
+ * J2.8 (#136): envelope ของผลที่ owner publish กลับ — owner ทุกรายใช้ builder เดียวกันจึงไม่ต้องรู้
+ * metadata rule ของ contract เอง ผลลัพธ์ผ่าน `assertOwnerResultEnvelope` เสมอ
+ *
+ * eventId คงที่ต่อ commandId: receipt ของ owner immutable การ publish ซ้ำหลัง redelivery จึงเป็น
+ * event เดิม ไม่ใช่ผลใบใหม่ และ causation ชี้ command envelope ที่ทำให้เกิดผลนี้
+ */
+export function createOwnerResultEnvelope(
+  command: J2KafkaEnvelopeV2<J2OwnerCommandPayloadV1>,
+  resultValue: J2OwnerResultPayloadV1,
+  occurredAt: string,
+): J2KafkaEnvelopeV2<J2OwnerResultPayloadV1> {
+  const result = validateOwnerResultPayload(resultValue);
+  const envelope = assertOwnerResultEnvelope({
+    schemaVersion: 2,
+    eventKind: 'CANONICAL',
+    eventId: `${result.commandId}:result`,
+    type: J2_RESULT_EVENT_TYPE[result.commandType],
+    tenantId: command.tenantId,
+    occurredAt,
+    correlationId: command.correlationId,
+    causationId: command.eventId,
+    orderingKey: result.actionKey,
+    aggregateType: RECEIPT_AGGREGATE_TYPE_BY_COMMAND[result.commandType],
+    aggregateId: result.commandId,
+    aggregateVersion: 1,
+    payload: result,
+  });
+  assertOwnerResultBinding(command, envelope);
+  return envelope;
+}
+
+const J2_COMMAND_ENVELOPE_TYPES = new Set<string>(Object.values(J2_COMMAND_EVENT_TYPE));
+
+export type OwnerCommandProcessingOutcome =
+  | { outcome: 'PROCESSED'; commandId: CommandId }
+  | { outcome: 'IGNORED' }
+  /** ห้าม retry: command อ่านไม่ได้ตาม contract หรือ commandId/actionKey เดิมแต่เนื้อหาต่าง */
+  | {
+      outcome: 'QUARANTINED';
+      code: 'PAYLOAD_VALIDATION_FAILED' | 'UNSUPPORTED_CONTRACT_VERSION' | 'IDEMPOTENCY_CONFLICT';
+    };
+
+function isIdempotencyConflict(error: unknown): boolean {
+  return (
+    error instanceof Error && (error as Error & { code?: unknown }).code === 'IDEMPOTENCY_CONFLICT'
+  );
+}
+
+/**
+ * J2.8 (#136): ประมวลผล owner command หนึ่งใบสำหรับ owner transport ใดก็ได้ (ไม่ผูก Kafka)
+ *
+ * 1. `assertOwnerCommandEnvelope` — envelope/requestHash ต้องผ่าน contract
+ * 2. `owner.persistCommand` — receipt + canonical mutation ใน transaction เดียวของ owner
+ * 3. อ่านผลจาก receipt แล้ว `publish(createOwnerResultEnvelope(...))`
+ *
+ * crash ระหว่าง 2 กับ 3 → redelivery เจอ receipt เดิมแล้ว publish ผลเดิมซ้ำด้วย eventId เดิม receipt
+ * ของ owner จึงทำหน้าที่ result outbox โดยตรง
+ *
+ * แยกผลสามแบบให้ transport ตัดสิน: `IGNORED` (ไม่ใช่ J2 owner command), `QUARANTINED` (ผิด contract
+ * หรือ IDEMPOTENCY_CONFLICT — retry กี่ครั้งก็ได้ผลเดิม ต้องกักไว้ไม่ให้ block คิว) ส่วน error อื่น
+ * (DB/broker ล่ม) ถูกโยนต่อเพื่อให้ retry ด้วย identity เดิม
+ */
+export async function processOwnerCommandEvent<TCommand extends J2OwnerCommandPayloadV1>(
+  event: unknown,
+  options: {
+    owner: J2OwnerPort<TCommand>;
+    publish: (envelope: J2KafkaEnvelopeV2<J2OwnerResultPayloadV1>) => Promise<void>;
+    now: () => Date;
+  },
+): Promise<OwnerCommandProcessingOutcome> {
+  const type = (event as { type?: unknown } | null)?.type;
+  if (typeof type !== 'string' || !J2_COMMAND_ENVELOPE_TYPES.has(type)) {
+    return { outcome: 'IGNORED' };
+  }
+
+  let command: J2KafkaEnvelopeV2<J2OwnerCommandPayloadV1>;
+  try {
+    command = assertOwnerCommandEnvelope(event);
+  } catch (error) {
+    if (error instanceof J2PayloadContractError)
+      return { outcome: 'QUARANTINED', code: error.code };
+    throw error;
+  }
+  const tenant = tenantId(command.tenantId);
+  const payload = command.payload as TCommand;
+  try {
+    await options.owner.persistCommand(tenant, payload);
+  } catch (error) {
+    if (isIdempotencyConflict(error))
+      return { outcome: 'QUARANTINED', code: 'IDEMPOTENCY_CONFLICT' };
+    throw error;
+  }
+  const result = await options.owner.queryAction(tenant, {
+    contractVersion: J2_CONTRACT_VERSION,
+    actionKey: payload.actionKey,
+    requestHash: payload.requestHash,
+  });
+  if (!result) {
+    throw new Error(`owner receipt ของ command ${payload.commandId} หายหลัง persistCommand`);
+  }
+  await options.publish(createOwnerResultEnvelope(command, result, options.now().toISOString()));
+  return { outcome: 'PROCESSED', commandId: payload.commandId };
+}
+
 export function assertOwnerCommandCausation(outcomeValue: unknown, commandValue: unknown): void {
   const outcome = assertInteractionOutcomeEnvelope(outcomeValue);
   const command = assertOwnerCommandEnvelope(commandValue);

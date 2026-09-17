@@ -17,6 +17,7 @@ import {
   campaignId,
   canonicalInteractionOutcomeHash,
   canonicalOwnerRequestHash,
+  createOwnerResultEnvelope,
   commandId,
   contactId,
   enrollmentId,
@@ -304,6 +305,56 @@ test('binds J2 V2 outcome, command and result envelopes to their canonical linea
     assertOwnerResultQueryBinding(
       { contractVersion: 1, actionKey: command.actionKey, requestHash: 'b'.repeat(64) },
       result,
+    ),
+  );
+});
+
+test('owner result envelope builder produces a bound, replay-stable canonical event', () => {
+  const command = withOwnerRequestHash(tenant, commandDraft);
+  const commandEvent = assertOwnerCommandEnvelope({
+    schemaVersion: 2,
+    eventKind: 'COMMAND',
+    eventId: command.commandId,
+    type: J2_COMMAND_EVENT_TYPE[command.commandType],
+    tenantId: tenant,
+    occurredAt: '2026-09-11T10:00:00.500Z',
+    correlationId: 'correlation-a',
+    orderingKey: command.actionKey,
+    aggregateType: 'journey_action',
+    aggregateId: command.actionKey,
+    aggregateVersion: 0,
+    payload: command,
+  });
+  const result: J2OwnerResultPayloadV1 = {
+    contractVersion: 1,
+    commandId: command.commandId,
+    actionKey: command.actionKey,
+    requestHash: command.requestHash,
+    commandType: command.commandType,
+    status: 'ADMITTED',
+    code: 'ADMITTED',
+    category: 'BUSINESS',
+    reasonCode: 'CAMPAIGN_TARGET_ADMITTED',
+    failureClass: 'NONE',
+    retryDisposition: 'NONE',
+    observedAt: '2026-09-11T10:00:01.000Z',
+    ownerAggregate: { type: 'campaign_target', id: 'record-a', version: 1 },
+  };
+
+  const first = createOwnerResultEnvelope(commandEvent, result, '2026-09-11T10:00:02.000Z');
+  const replayed = createOwnerResultEnvelope(commandEvent, result, '2026-09-11T10:05:00.000Z');
+  assert.deepEqual(assertOwnerResultEnvelope(first), first);
+  assert.equal(first.eventId, replayed.eventId, 'redelivery ต้อง publish event เดิม');
+  assert.equal(first.causationId, commandEvent.eventId);
+  assert.equal(first.correlationId, commandEvent.correlationId);
+  assert.equal(first.aggregateType, 'dialer_command_receipt');
+  assert.doesNotThrow(() => assertOwnerResultBinding(commandEvent, first));
+
+  assert.throws(() =>
+    createOwnerResultEnvelope(
+      commandEvent,
+      { ...result, requestHash: 'a'.repeat(64) },
+      '2026-09-11T10:00:02.000Z',
     ),
   );
 });

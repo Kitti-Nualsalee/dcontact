@@ -87,6 +87,12 @@ importers:
       '@d-contact/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@d-contact/kafka':
+        specifier: workspace:*
+        version: link:../../packages/kafka
+      '@d-contact/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
     devDependencies:
       '@types/node':
         specifier: ^20.14.0
@@ -469,6 +475,9 @@ importers:
       '@d-contact/db':
         specifier: workspace:*
         version: link:../db
+      '@d-contact/iam':
+        specifier: workspace:*
+        version: link:../iam
     devDependencies:
       typescript:
         specifier: ^5.5.4

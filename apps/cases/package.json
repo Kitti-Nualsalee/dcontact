@@ -7,13 +7,17 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
     "test": "tsx --test src/*.test.ts",
     "test:integration": "tsx --test --test-concurrency=1 src/*.integration.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@d-contact/cxa-contracts": "workspace:*",
     "@d-contact/db": "workspace:*",
-    "@d-contact/cxa-contracts": "workspace:*"
+    "@d-contact/kafka": "workspace:*",
+    "@d-contact/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

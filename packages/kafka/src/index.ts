@@ -125,6 +125,32 @@ export interface DcDlqPublisher extends DlqPublisher {
   disconnect(): Promise<void>;
 }
 
+/**
+ * handler ที่ตัดสินแล้วว่า message ผ่าน envelope แต่ละเมิด domain contract (retry กี่ครั้งก็ได้ผลเดิม)
+ * ต้องกักไว้ใน DLQ แล้วปล่อยให้ offset commit — ถ้า throw แทน wrapper จะ retry ไม่รู้จบและ block ทั้ง
+ * partition ไม่มี DLQ ให้ throw เพื่อไม่ให้ message หายเงียบ
+ */
+export async function quarantineConsumedEvent(
+  dlq: DlqPublisher | undefined,
+  consumed: Pick<
+    ConsumedEvent<Record<string, unknown>>,
+    'topic' | 'partition' | 'offset' | 'event'
+  >,
+  reasonCode: string,
+): Promise<void> {
+  if (!dlq) {
+    throw new Error(`message ถูก quarantine (${reasonCode}) แต่ consumer ไม่มี DlqPublisher`);
+  }
+  await dlq.publish({
+    topic: consumed.topic,
+    partition: consumed.partition ?? -1,
+    offset: consumed.offset ?? '-1',
+    error: new KafkaContractError('INVALID_ENVELOPE', reasonCode),
+    dlqReason: 'INVALID_ENVELOPE',
+    value: Buffer.from(JSON.stringify(consumed.event)),
+  });
+}
+
 /** ส่ง invalid contract เข้า DLQ กลาง; ห้ามเขียน payload/key/header ต้นฉบับลง log. */
 export async function createDlqPublisher(
   clientId: string,

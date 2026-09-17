@@ -7,3 +7,5 @@ export * from './campaign-fixtures.js';
 export * from './dialer-admit-campaign-target-service.js';
 export * from './dialer-callback-service.js';
 export * from './dialer-command-inbox.js';
+export * from './dialer-owner-command-service.js';
+export * from './dialer-owner-command-consumer.js';
