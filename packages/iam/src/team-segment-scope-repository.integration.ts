@@ -8,11 +8,17 @@ import {
   segmentDefinitionVersion,
   segmentEntryId,
   segmentId,
+  teamId as toTeamId,
+  tenantId as toTenantId,
 } from '@d-contact/cxa-contracts';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { createProducer } from '@d-contact/kafka';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import { createIamCustomerSegmentProjectionConsumer } from './customer-segment-projection-consumer.js';
+import {
+  IamTeamContactScopeAuthorizer,
+  IamTeamSegmentConfigurationAuthorizer,
+} from './team-scope-authorizers.js';
 import { IamTeamSegmentScopeRepository } from './team-segment-scope-repository.js';
 
 const OWNER_DATABASE_URL =
@@ -167,6 +173,172 @@ test('membership projection ไม่ย้อน revision และ dedup event
   });
   assert.equal(projection.state, 'IN');
   assert.equal(projection.membershipRevision, 2);
+});
+
+test('runtime และ configuration adapter แยก authority และ fail closed เมื่อ projection ไม่สด', async (t) => {
+  const f = await fixture(t);
+  const now = () => new Date('2099-01-01T00:00:00.000Z');
+  const runtime = new IamTeamContactScopeAuthorizer(f.application, now);
+  const configuration = new IamTeamSegmentConfigurationAuthorizer(f.application, now);
+  const runtimeInput = {
+    tenantId: toTenantId(f.tenantId),
+    teamId: toTeamId(f.teamId),
+    contactId: toContactId(f.contactId),
+    permission: 'WORK' as const,
+    at: now().toISOString(),
+  };
+  const configurationInput = {
+    tenantId: runtimeInput.tenantId,
+    teamId: runtimeInput.teamId,
+    segmentId: segmentId('VIP'),
+    permission: 'WORK' as const,
+    at: runtimeInput.at,
+  };
+  assert.deepEqual(await configuration.authorizeConfiguration(configurationInput), {
+    decision: 'DENY',
+    reasonCode: 'TEAM_SEGMENT_NOT_ALLOWED',
+    evaluatedAt: runtimeInput.at,
+  });
+  await f.repository.grant({
+    tenantId: f.tenantId,
+    teamId: f.teamId,
+    segmentId: 'VIP',
+    permission: 'WORK',
+    correlationId: 'grant-work',
+  });
+  assert.deepEqual(await configuration.authorizeConfiguration(configurationInput), {
+    decision: 'ALLOW',
+    scopeVersion: 1,
+    evaluatedAt: runtimeInput.at,
+  });
+  assert.deepEqual(
+    await configuration.authorizeConfiguration({ ...configurationInput, permission: 'CONTACT' }),
+    {
+      decision: 'DENY',
+      reasonCode: 'TEAM_SEGMENT_NOT_ALLOWED',
+      evaluatedAt: runtimeInput.at,
+    },
+  );
+  assert.deepEqual(await runtime.authorize(runtimeInput), {
+    decision: 'DEFER',
+    reasonCode: 'SCOPE_CONTEXT_STALE',
+    evaluatedAt: runtimeInput.at,
+  });
+  await f.repository.applyMembershipChange({
+    tenantId: f.tenantId,
+    eventId: 'iam-runtime-entered',
+    occurredAt: runtimeInput.at,
+    consumerGroup: 'iam-runtime-test',
+    payload: {
+      contractVersion: 1,
+      contactId: toContactId(f.contactId),
+      segmentId: segmentId('VIP'),
+      membershipRevision: membershipRevision(1),
+      changeKind: 'ENTERED',
+      entryId: segmentEntryId('iam-runtime-entry'),
+      segmentDefinitionVersion: segmentDefinitionVersion(1),
+      snapshotVersion: customerSnapshotVersion(1),
+      evaluatedAt: runtimeInput.at,
+      stateDigest: 'c'.repeat(64),
+    },
+  });
+  assert.deepEqual(await runtime.authorize(runtimeInput), {
+    decision: 'ALLOW',
+    scopeVersion: 1,
+    evaluatedAt: runtimeInput.at,
+  });
+  assert.deepEqual(
+    await withTenantDatabaseTransaction(f.application, f.tenantId, (transaction) =>
+      runtime.authorize(runtimeInput, transaction),
+    ),
+    { decision: 'ALLOW', scopeVersion: 1, evaluatedAt: runtimeInput.at },
+  );
+  await f.repository.grant({
+    tenantId: f.tenantId,
+    teamId: f.teamId,
+    segmentId: 'VIP',
+    permission: 'CONTACT',
+    correlationId: 'grant-contact',
+  });
+  assert.deepEqual(await runtime.authorize({ ...runtimeInput, permission: 'CONTACT' }), {
+    decision: 'ALLOW',
+    scopeVersion: 2,
+    evaluatedAt: runtimeInput.at,
+  });
+  await f.repository.applyMembershipChange({
+    tenantId: f.tenantId,
+    eventId: 'iam-runtime-invalidated',
+    occurredAt: runtimeInput.at,
+    consumerGroup: 'iam-runtime-test',
+    payload: {
+      contractVersion: 1,
+      contactId: toContactId(f.contactId),
+      segmentId: segmentId('VIP'),
+      membershipRevision: membershipRevision(2),
+      changeKind: 'IDENTITY_INVALIDATED',
+      segmentDefinitionVersion: segmentDefinitionVersion(1),
+      snapshotVersion: customerSnapshotVersion(1),
+      evaluatedAt: runtimeInput.at,
+      stateDigest: 'd'.repeat(64),
+    },
+  });
+  assert.deepEqual(await runtime.authorize(runtimeInput), {
+    decision: 'DEFER',
+    reasonCode: 'SCOPE_CONTEXT_STALE',
+    evaluatedAt: runtimeInput.at,
+  });
+  await f.owner.team.update({ where: { id: f.teamId }, data: { isActive: false } });
+  assert.deepEqual(await configuration.authorizeConfiguration(configurationInput), {
+    decision: 'DENY',
+    reasonCode: 'TEAM_NOT_FOUND',
+    evaluatedAt: runtimeInput.at,
+  });
+});
+
+test('runtime adapter ไม่รับ caller-supplied segment เป็น authority', async (t) => {
+  const f = await fixture(t);
+  const runtime = new IamTeamContactScopeAuthorizer(
+    f.application,
+    () => new Date('2099-01-01T00:00:00.000Z'),
+  );
+  await f.repository.grant({
+    tenantId: f.tenantId,
+    teamId: f.teamId,
+    segmentId: 'VIP',
+    permission: 'WORK',
+    correlationId: 'grant-vip',
+  });
+  await f.repository.applyMembershipChange({
+    tenantId: f.tenantId,
+    eventId: 'iam-other-segment',
+    occurredAt: '2099-01-01T00:00:00.000Z',
+    consumerGroup: 'iam-runtime-test',
+    payload: {
+      contractVersion: 1,
+      contactId: toContactId(f.contactId),
+      segmentId: segmentId('OTHER'),
+      membershipRevision: membershipRevision(1),
+      changeKind: 'ENTERED',
+      entryId: segmentEntryId('iam-other-entry'),
+      segmentDefinitionVersion: segmentDefinitionVersion(1),
+      snapshotVersion: customerSnapshotVersion(1),
+      evaluatedAt: '2099-01-01T00:00:00.000Z',
+      stateDigest: 'e'.repeat(64),
+    },
+  });
+  const callerSuppliedSegment = {
+    tenantId: toTenantId(f.tenantId),
+    teamId: toTeamId(f.teamId),
+    contactId: toContactId(f.contactId),
+    permission: 'WORK' as const,
+    at: '2099-01-01T00:00:00.000Z',
+    segmentId: segmentId('OTHER'),
+  };
+  assert.deepEqual(await runtime.authorize(callerSuppliedSegment), {
+    decision: 'DEFER',
+    reasonCode: 'SCOPE_CONTEXT_STALE',
+    evaluatedAt: callerSuppliedSegment.at,
+  });
 });
 
 test(
