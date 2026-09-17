@@ -30,6 +30,7 @@ import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db'
 import {
   JourneyOwnerActionRepository,
   JourneyRecoveryAuditLog,
+  OwnerActionCancellationUnavailableError,
   OwnerActionNotFoundError,
   OwnerActionVersionConflictError,
 } from '@d-contact/journey';
@@ -97,6 +98,9 @@ function mapRecoveryError(error: unknown): never {
       expectedVersion: error.expectedVersion,
       actualVersion: error.actualVersion,
     });
+  }
+  if (error instanceof OwnerActionCancellationUnavailableError) {
+    throw new ConflictException({ code: error.code });
   }
   // generic โดยตั้งใจ: action ของ tenant อื่นต้องแยกไม่ออกจาก action ที่ไม่เคยมี
   if (error instanceof OwnerActionNotFoundError) {
@@ -289,7 +293,8 @@ export class JourneyOwnerRecoveryController {
       const action = await this.repository.requestCancellation({
         tenantId,
         actionKey,
-        cancelCommandId: idempotencyKey,
+        cancelRequestKey: idempotencyKey,
+        reasonCode,
         correlationId: request.correlationId ?? idempotencyKey,
         expectedVersion,
       });

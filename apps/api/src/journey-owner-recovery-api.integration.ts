@@ -257,7 +257,7 @@ test('replay ที่ version ตรงคืน command เข้าคิว�
   assert.equal(audit.evidenceRef, 'replay-key-1');
 });
 
-test('cancel ผ่าน API เลื่อน action เป็น CANCEL_REQUESTED และ audit เป็น CANCEL', async (t) => {
+test('cancel ผ่าน API ของ action ที่ command ยังไม่ออกจาก Journey ยกเลิกในบ้านและ audit เป็น CANCEL', async (t) => {
   const h = await harness(t);
   const actionKey = `action-${randomUUID()}`;
   await h.seedAction(h.tenantId, actionKey);
@@ -269,8 +269,15 @@ test('cancel ผ่าน API เลื่อน action เป็น CANCEL_REQU
 
   assert.equal(response.status, 201);
   const result = (await response.json()) as { state: string; version: number };
-  assert.equal(result.state, 'CANCEL_REQUESTED');
+  assert.equal(result.state, 'CANCELLED');
   assert.equal(result.version, 2);
+  const commands = await h.owner.jrOwnerCommandOutbox.findMany({
+    where: { tenantId: h.tenantId, actionKey },
+  });
+  assert.deepEqual(
+    commands.map(({ state }) => state),
+    ['CANCELLED'],
+  );
 
   const audit = await h.owner.jrRecoveryAudit.findFirstOrThrow({
     where: { tenantId: h.tenantId, targetRef: actionKey },

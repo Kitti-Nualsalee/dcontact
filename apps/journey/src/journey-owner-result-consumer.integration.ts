@@ -9,7 +9,22 @@ import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 import { PrismaClient } from '@d-contact/db';
 import { createProducer } from '@d-contact/kafka';
-import { J2_EVENT_TYPES, type J2OwnerResultPayloadV1 } from '@d-contact/cxa-contracts';
+import {
+  J2_EVENT_TYPES,
+  J2_RESULT_EVENT_TYPE,
+  actionKey as toActionKey,
+  campaignId,
+  commandId as toCommandId,
+  contactId,
+  enrollmentId as toEnrollmentId,
+  interactionId,
+  journeyId,
+  outcomeId,
+  teamId,
+  tenantId as toTenantId,
+  withOwnerRequestHash,
+  type J2OwnerResultPayloadV1,
+} from '@d-contact/cxa-contracts';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
 import { createJourneyOwnerResultConsumer } from './journey-owner-result-consumer.js';
@@ -130,7 +145,71 @@ async function fixture(t: TestContext) {
     });
   }
 
-  return { owner, tenantId, dispatchedCommand, resultPayload, publishResult };
+  /** action ของ Dialer ที่มี command payload จริง — cancel command จึงถูกสร้างตาม contract ได้ */
+  async function dispatchedDialerCommand() {
+    const enrollment = randomUUID();
+    const actionKey = `${enrollment}:1:admit-campaign`;
+    const command = withOwnerRequestHash(toTenantId(tenantId), {
+      contractVersion: 1,
+      commandId: toCommandId(randomUUID()),
+      actionKey: toActionKey(actionKey),
+      journeyId: journeyId(randomUUID()),
+      journeyVersion: 1,
+      enrollmentId: toEnrollmentId(enrollment),
+      stepId: 'admit-campaign',
+      sourceOutcome: {
+        outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+        outcomeId: outcomeId(randomUUID()),
+        outcomeVersion: 1,
+      },
+      interactionId: interactionId(randomUUID()),
+      contactId: contactId(randomUUID()),
+      sourceOwnerTeamId: teamId(randomUUID()),
+      targetOwnerTeamId: teamId(randomUUID()),
+      commandType: 'ADMIT_CAMPAIGN_TARGET',
+      intent: { campaignId: campaignId('campaign-collections') },
+    });
+    await repository.ensureAction({
+      tenantId,
+      actionKey,
+      enrollmentId: enrollment,
+      kind: 'ADMIT_CAMPAIGN_TARGET',
+      requestHash: command.requestHash,
+      correlationId: command.commandId,
+      commandId: command.commandId,
+      commandPayload: command,
+    });
+    await repository.markCommandDispatched(tenantId, command.commandId);
+    return { actionKey, command };
+  }
+
+  function publishDialerResult(payload: J2OwnerResultPayloadV1, correlationId: string) {
+    return producer.send(KAFKA_TOPICS.DIALER_EVENTS, {
+      schemaVersion: 2,
+      eventKind: 'CANONICAL',
+      eventId: randomUUID(),
+      type: J2_RESULT_EVENT_TYPE[payload.commandType],
+      tenantId,
+      occurredAt: new Date().toISOString(),
+      correlationId,
+      orderingKey: payload.actionKey,
+      aggregateType: 'dialer_command_receipt',
+      aggregateId: payload.commandId,
+      aggregateVersion: 1,
+      payload: payload as unknown as Record<string, unknown>,
+    });
+  }
+
+  return {
+    owner,
+    tenantId,
+    repository,
+    dispatchedCommand,
+    dispatchedDialerCommand,
+    resultPayload,
+    publishResult,
+    publishDialerResult,
+  };
 }
 
 test('result ที่ bind ถูกต้องถูก apply ลง action และ inbox', { timeout: 60_000 }, async (t) => {
@@ -247,3 +326,60 @@ test('ผลที่มาช้าหลัง action เข้า terminal �
   });
   assert.equal(final.state, 'REJECTED', 'terminal ที่ commit แล้วต้องชนะเสมอ');
 });
+
+test(
+  'ผล ADMITTED ของ command เดิมที่มาก่อนผล CANCELLED ของ cancel command ไม่ทำให้ Journey เห็น state ต่างจาก owner',
+  { timeout: 60_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const { actionKey, command } = await f.dispatchedDialerCommand();
+    await f.repository.requestCancellation({
+      tenantId: f.tenantId,
+      actionKey,
+      cancelRequestKey: 'outcome-corrected',
+      reasonCode: 'OUTCOME_CORRECTED',
+      correlationId: 'corr-cancel',
+    });
+    const cancel = await f.owner.jrOwnerCommandOutbox.findFirstOrThrow({
+      where: { tenantId: f.tenantId, actionKey, NOT: { commandId: command.commandId } },
+    });
+    const targetId = randomUUID();
+
+    await f.publishDialerResult(
+      f.resultPayload(command.commandId, actionKey, {
+        requestHash: command.requestHash,
+        commandType: 'ADMIT_CAMPAIGN_TARGET',
+        status: 'ADMITTED',
+        ownerAggregate: { type: 'campaign_target', id: targetId, version: 1 },
+      }),
+      command.commandId,
+    );
+    await f.publishDialerResult(
+      f.resultPayload(cancel.commandId, actionKey, {
+        requestHash: cancel.requestHash,
+        commandType: 'CANCEL_CAMPAIGN_TARGET',
+        status: 'CANCELLED',
+        ownerAggregate: { type: 'campaign_target', id: targetId, version: 2 },
+      }),
+      cancel.commandId,
+    );
+
+    await waitFor(async () => {
+      const action = await f.owner.jrOwnerAction.findFirstOrThrow({
+        where: { tenantId: f.tenantId, actionKey },
+      });
+      return action.state === 'CANCELLED';
+    });
+    const results = await f.owner.jrOwnerResultInbox.findMany({
+      where: { tenantId: f.tenantId, actionKey },
+      orderBy: { receivedAt: 'asc' },
+    });
+    assert.deepEqual(
+      results.map(({ resultKind, outcome }) => [resultKind, outcome]),
+      [
+        ['ACKNOWLEDGED', 'APPLIED'],
+        ['CANCELLED', 'APPLIED'],
+      ],
+    );
+  },
+);

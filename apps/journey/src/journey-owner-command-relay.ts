@@ -52,11 +52,22 @@ export class JourneyOwnerCommandRelay {
           Array<{ id: string; command_id: string; payload: unknown }>
         >(Prisma.sql`
           SELECT id, command_id, payload
-          FROM jr_owner_command_outbox
+          FROM jr_owner_command_outbox AS command
           WHERE tenant_id = ${tenantId}::uuid
             AND state = 'PENDING'
             AND payload IS NOT NULL
             AND available_at <= ${this.now()}
+            -- cancel/supersede ต้องตามหลัง command ต้นเรื่องของ action เดียวกันเสมอ ถ้าตัวแรก
+            -- ยัง retry ค้าง (backoff ทำให้ available_at ช้ากว่า) owner จะเห็น cancel ก่อนมี
+            -- effect ให้ยกเลิกแล้วปฏิเสธทิ้ง ขณะที่ effect เดิมถูกสร้างตามมาทีหลัง
+            AND NOT EXISTS (
+              SELECT 1
+              FROM jr_owner_command_outbox AS earlier
+              WHERE earlier.tenant_id = command.tenant_id
+                AND earlier.action_id = command.action_id
+                AND earlier.created_at < command.created_at
+                AND earlier.state IN ('PENDING', 'PROCESSING', 'FAILED')
+            )
           ORDER BY available_at, created_at
           LIMIT 1
           FOR UPDATE SKIP LOCKED

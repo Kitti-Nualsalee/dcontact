@@ -467,7 +467,7 @@ async function ownerAction(f: Fixture, enrollmentId: string, actionKey: string) 
   });
 }
 
-test('pre-barrier: action ที่ owner ยังไม่ ack ถูกสั่งยกเลิกพร้อมเข้าคิว cancel command', async (t) => {
+test('pre-barrier: action ที่ command ยังไม่ออกจาก Journey ถูกยกเลิกในบ้านและห้าม dispatch', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   const journeyId = await publishJourney(f);
@@ -485,14 +485,15 @@ test('pre-barrier: action ที่ owner ยังไม่ ack ถูกสั
   const action = await f.owner.jrOwnerAction.findFirstOrThrow({
     where: { tenantId: f.tenantId, actionKey },
   });
-  assert.equal(action.state, 'CANCEL_REQUESTED');
-
-  // cancel command ต้องเข้าคิวด้วย binding เดิมของ action
-  const cancelCommand = await f.owner.jrOwnerCommandOutbox.findFirstOrThrow({
-    where: { tenantId: f.tenantId, commandId: `cancel:segment-refilter:${actionKey}` },
+  // command ยังไม่เคยออกจาก Journey — ยกเลิกในบ้านได้ทันทีโดยไม่ต้องส่ง cancel ให้ owner (#123)
+  assert.equal(action.state, 'CANCELLED');
+  const commands = await f.owner.jrOwnerCommandOutbox.findMany({
+    where: { tenantId: f.tenantId, actionKey },
   });
-  assert.equal(cancelCommand.actionKey, actionKey);
-  assert.equal(cancelCommand.state, 'PENDING');
+  assert.deepEqual(
+    commands.map(({ state }) => state),
+    ['CANCELLED'],
+  );
 
   // enrollment ต้องจบด้วยเหตุ CANCELLED
   const enrollment = await f.owner.jrEnrollment.findUniqueOrThrow({ where: { id: enrollmentId } });
@@ -528,11 +529,9 @@ test('post-barrier: action ที่ owner ack แล้วไม่ถูกแ
   });
   assert.equal(action.state, 'ACKNOWLEDGED', 'ของที่ owner สร้างแล้วห้ามถูกย้อน');
   assert.equal(
-    await f.owner.jrOwnerCommandOutbox.count({
-      where: { tenantId: f.tenantId, commandId: `cancel:segment-refilter:${actionKey}` },
-    }),
-    0,
-    'ห้ามสั่งยกเลิกสิ่งที่ยกเลิกไม่ได้',
+    await f.owner.jrOwnerCommandOutbox.count({ where: { tenantId: f.tenantId, actionKey } }),
+    1,
+    'ห้ามสั่งยกเลิกสิ่งที่ยกเลิกไม่ได้ — มีแค่ command ต้นเรื่อง',
   );
 });
 
@@ -582,11 +581,12 @@ test('ยกเลิกซ้ำไม่สั่ง owner ยกเลิก�
     ).executeNext(f.tenantId, `worker-${revision}`);
   }
 
-  // commandId คำนวณจาก actionKey จึง upsert ทับใบเดิม ไม่ใช่สั่งซ้ำ
-  assert.equal(
-    await f.owner.jrOwnerCommandOutbox.count({
-      where: { tenantId: f.tenantId, commandId: `cancel:segment-refilter:${actionKey}` },
-    }),
-    1,
+  // รอบที่สองเจอ action ที่ terminal แล้ว — ไม่มี command ใหม่และไม่มีอะไรกลับไป dispatch ได้
+  const commands = await f.owner.jrOwnerCommandOutbox.findMany({
+    where: { tenantId: f.tenantId, actionKey },
+  });
+  assert.deepEqual(
+    commands.map(({ state }) => state),
+    ['CANCELLED'],
   );
 });

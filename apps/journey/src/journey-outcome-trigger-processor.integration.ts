@@ -14,7 +14,10 @@ import {
 import type { CreateJourneyVersionInput, JourneyGraph } from './journey-definition.js';
 import { JourneyDefinitionRepository } from './journey-definition-repository.js';
 import { JourneyOutcomeReceiptRepository } from './journey-outcome-receipt-repository.js';
-import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
+import {
+  JourneyOwnerActionRepository,
+  cancelCommandIdFor,
+} from './journey-owner-action-repository.js';
 import { JourneyOutcomeTriggerProcessor } from './journey-outcome-trigger-processor.js';
 
 const APPLICATION_DATABASE_URL =
@@ -402,6 +405,14 @@ test('correction ที่ไม่ match trigger แล้วขอ cancel acti
   await ingestReceipt(receipts, f, { outcomeId, interactionId });
   assert.equal(await processor.executeNext(f.tenantId, 'worker-1'), 'ENROLLED');
   const [original] = await f.owner.jrOwnerAction.findMany({ where: { tenantId: f.tenantId } });
+  const [originalCommand] = await f.owner.jrOwnerCommandOutbox.findMany({
+    where: { tenantId: f.tenantId },
+  });
+  // relay ส่ง command ออกไปแล้ว — การยกเลิกต้องไปทาง owner
+  await new JourneyOwnerActionRepository(f.application).markCommandDispatched(
+    f.tenantId,
+    originalCommand!.commandId,
+  );
 
   await ingestReceipt(receipts, f, {
     outcomeId,
@@ -415,10 +426,26 @@ test('correction ที่ไม่ match trigger แล้วขอ cancel acti
   assert.equal(actions.length, 1, 'ห้ามออก action key ใหม่เพื่อ cancel');
   assert.equal(actions[0]!.actionKey, original!.actionKey);
   assert.equal(actions[0]!.state, 'CANCEL_REQUESTED');
-  const cancelCommand = await f.owner.jrOwnerCommandOutbox.findFirst({
-    where: { tenantId: f.tenantId, commandId: `cancel:outcome-correction:${original!.actionKey}` },
+  const cancelCommand = await f.owner.jrOwnerCommandOutbox.findUniqueOrThrow({
+    where: {
+      tenantId_commandId: {
+        tenantId: f.tenantId,
+        commandId: cancelCommandIdFor(
+          f.tenantId,
+          original!.actionKey,
+          `outcome-correction:${original!.actionKey}`,
+        ),
+      },
+    },
   });
-  assert.ok(cancelCommand, 'cancel command ต้องใช้ id ที่คำนวณจาก actionKey เดิม');
+  const cancelPayload = cancelCommand.payload as {
+    commandType: string;
+    actionKey: string;
+    intent: { reasonCode: string };
+  };
+  assert.equal(cancelPayload.commandType, 'CANCEL_CAMPAIGN_TARGET');
+  assert.equal(cancelPayload.actionKey, original!.actionKey);
+  assert.equal(cancelPayload.intent.reasonCode, 'OUTCOME_CORRECTED');
 
   const enrollment = await f.owner.jrEnrollment.findFirstOrThrow({
     where: { tenantId: f.tenantId },
@@ -431,6 +458,36 @@ test('correction ที่ไม่ match trigger แล้วขอ cancel acti
   assert.equal(await processor.executeNext(f.tenantId, 'worker-1'), 'UNCHANGED');
   assert.equal(await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }), 1);
   assert.equal(await f.owner.jrOwnerAction.count({ where: { tenantId: f.tenantId } }), 1);
+});
+
+test('correction ก่อน command เดิมออกจาก Journey ยกเลิกในบ้าน ไม่มี command ใดถูก dispatch', async (t) => {
+  const f = await fixture(t);
+  const definitions = new JourneyDefinitionRepository(f.application, evaluator);
+  const receipts = new JourneyOutcomeReceiptRepository(f.application);
+  await publishOutcomeJourney(definitions, f);
+  const outcomeId = randomUUID();
+  const interactionId = randomUUID();
+  const processor = processorWith(f, definitions);
+
+  await ingestReceipt(receipts, f, { outcomeId, interactionId });
+  assert.equal(await processor.executeNext(f.tenantId, 'worker-1'), 'ENROLLED');
+  await ingestReceipt(receipts, f, {
+    outcomeId,
+    interactionId,
+    outcomeVersion: 2,
+    outcomeCode: 'RESOLVED_FIRST_CONTACT',
+  });
+  assert.equal(await processor.executeNext(f.tenantId, 'worker-1'), 'CANCELLED');
+
+  const action = await f.owner.jrOwnerAction.findFirstOrThrow({ where: { tenantId: f.tenantId } });
+  assert.equal(action.state, 'CANCELLED');
+  const commands = await f.owner.jrOwnerCommandOutbox.findMany({
+    where: { tenantId: f.tenantId },
+  });
+  assert.deepEqual(
+    commands.map(({ state }) => state),
+    ['CANCELLED'],
+  );
 });
 
 test('revision แรกไม่ match แต่ correction match — enroll ครั้งเดียวผูกกับ revision ที่ match', async (t) => {

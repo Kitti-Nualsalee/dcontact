@@ -467,7 +467,7 @@ export class JourneyOutcomeTriggerProcessor {
    * (pre-barrier) ด้วย actionKey เดิม และหยุด enrollment — action ที่ owner รับไปแล้ว
    * (เช่น Case ที่ commit แล้ว) คงอยู่เป็น fact ของ owner; Journey ไม่ลบหรือชดเชยเอง (#123)
    *
-   * cancelCommandId คำนวณจาก actionKey จึง replay ได้โดยไม่สั่ง owner ยกเลิกซ้ำ; enrollment ที่
+   * cancelRequestKey คำนวณจาก actionKey จึง replay ได้โดยไม่สั่ง owner ยกเลิกซ้ำ; enrollment ที่
    * terminal ไปแล้วด้วยเหตุอื่นไม่ถูกเขียนทับ (first terminal commit wins)
    */
   private async withdrawEnrollment(
@@ -488,7 +488,8 @@ export class JourneyOutcomeTriggerProcessor {
         {
           tenantId,
           actionKey: action.actionKey,
-          cancelCommandId: `cancel:outcome-correction:${action.actionKey}`,
+          cancelRequestKey: `outcome-correction:${action.actionKey}`,
+          reasonCode: 'OUTCOME_CORRECTED',
           correlationId,
           expectedVersion: action.version,
         },

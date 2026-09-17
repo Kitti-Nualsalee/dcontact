@@ -2753,6 +2753,8 @@ enum JrOwnerCommandState {
   PROCESSING
   SENT
   FAILED
+  /// J2.8: action ถูกยกเลิกก่อน command ออกจาก Journey — ห้าม dispatch ตลอดไป
+  CANCELLED
 }
 
 /// ผลที่ owner ตอบกลับมาได้ — แยกจาก JrOwnerActionState เพราะ PENDING/DISPATCHED/

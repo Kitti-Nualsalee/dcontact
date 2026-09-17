@@ -13,6 +13,7 @@ import {
   outcomeId,
   teamId,
   tenantId as toTenantId,
+  assertOwnerRequestHash,
   withOwnerRequestHash,
   type J2CaseOwnerPort,
   type J2DialerOwnerPort,
@@ -310,31 +311,12 @@ test('cancel command ที่ stage ผ่าน requestCancellation ก็ rel
   });
   await relay.executeNext(f.rawTenantId);
 
-  const cancelCommandId = randomUUID();
-  const cancelDraft: J2OwnerCommandDraftV1 = {
-    contractVersion: 1,
-    commandId: commandId(cancelCommandId),
-    actionKey: actionKey(rawActionKey),
-    journeyId: command.journeyId,
-    journeyVersion: 1,
-    enrollmentId: command.enrollmentId,
-    stepId: command.stepId,
-    sourceOutcome: command.sourceOutcome,
-    interactionId: command.interactionId,
-    contactId: command.contactId,
-    sourceOwnerTeamId: command.sourceOwnerTeamId,
-    targetOwnerTeamId: command.targetOwnerTeamId,
-    commandType: 'CANCEL_CAMPAIGN_TARGET',
-    intent: { originalActionKey: command.actionKey, reasonCode: 'OUTCOME_CORRECTED' },
-  };
-  const cancelCommand = withOwnerRequestHash(toTenantId(f.rawTenantId), cancelDraft);
-
   await actions.requestCancellation({
     tenantId: f.rawTenantId,
     actionKey: rawActionKey,
-    cancelCommandId,
+    cancelRequestKey: 'outcome-corrected',
+    reasonCode: 'OUTCOME_CORRECTED',
     correlationId: 'corr-cancel',
-    commandPayload: cancelCommand,
   });
 
   const result = await relay.executeNext(f.rawTenantId);
@@ -342,6 +324,76 @@ test('cancel command ที่ stage ผ่าน requestCancellation ก็ rel
   assert.equal(dialerPort.persisted.length, 2);
   const action = await actions.getAction(f.rawTenantId, rawActionKey);
   assert.equal(action?.state, 'CANCEL_REQUESTED', 'dispatch ของ cancel command ไม่ทับ state นี้');
+
+  // payload ที่ออกไปต้องผ่าน contract: actionKey เดิม, commandId ใหม่, requestHash ของ cancel เอง
+  const sent = dialerPort.persisted[1] as {
+    commandId: string;
+    actionKey: string;
+    requestHash: string;
+    commandType: string;
+    intent: { originalActionKey: string; reasonCode: string };
+  };
+  assert.equal(sent.commandType, 'CANCEL_CAMPAIGN_TARGET');
+  assert.equal(sent.actionKey, rawActionKey);
+  assert.equal(sent.intent.originalActionKey, rawActionKey);
+  assert.equal(sent.intent.reasonCode, 'OUTCOME_CORRECTED');
+  assert.notEqual(sent.commandId, command.commandId);
+  assert.deepEqual(
+    assertOwnerRequestHash(toTenantId(f.rawTenantId), sent).requestHash,
+    sent.requestHash,
+  );
+  const stagedCancel = await f.owner.jrOwnerCommandOutbox.findFirstOrThrow({
+    where: { tenantId: f.rawTenantId, commandId: sent.commandId },
+  });
+  assert.equal(stagedCancel.requestHash, sent.requestHash);
+});
+
+test('cancel ไม่ถูกส่งก่อน command ต้นเรื่องของ action เดียวกันที่ยัง retry ค้างอยู่', async (t) => {
+  const f = await fixture(t);
+  const actions = new JourneyOwnerActionRepository(f.application);
+  const dialerPort = fakePort();
+  const relay = new JourneyOwnerCommandRelay(f.application, fakePort(), dialerPort);
+
+  const rawActionKey = `${randomUUID()}:1:admit-campaign`;
+  const command = admitCampaignCommand(f.rawTenantId, rawActionKey);
+  await actions.ensureAction({
+    tenantId: f.rawTenantId,
+    actionKey: rawActionKey,
+    enrollmentId: randomUUID(),
+    kind: 'ADMIT_CAMPAIGN_TARGET',
+    requestHash: command.requestHash,
+    correlationId: 'corr-1',
+    commandId: command.commandId,
+    commandPayload: command,
+  });
+  // relay claim ไปแล้ว (อยู่ระหว่างส่ง) — ถือว่าออกจาก Journey แล้ว cancel ต้องไปทาง owner
+  await f.owner.jrOwnerCommandOutbox.update({
+    where: { tenantId_commandId: { tenantId: f.rawTenantId, commandId: command.commandId } },
+    data: { state: 'PROCESSING' },
+  });
+  const requested = await actions.requestCancellation({
+    tenantId: f.rawTenantId,
+    actionKey: rawActionKey,
+    cancelRequestKey: 'corrected',
+    correlationId: 'corr-cancel',
+  });
+  assert.equal(requested.state, 'CANCEL_REQUESTED');
+
+  // ส่งไม่สำเร็จ → กลับเป็น PENDING พร้อม backoff; cancel ห้ามแซงไปก่อน
+  await actions.markCommandFailed(f.rawTenantId, command.commandId, 60_000, 'broker down');
+  assert.equal(await relay.executeNext(f.rawTenantId), undefined);
+  assert.equal(dialerPort.persisted.length, 0);
+
+  await f.owner.jrOwnerCommandOutbox.update({
+    where: { tenantId_commandId: { tenantId: f.rawTenantId, commandId: command.commandId } },
+    data: { availableAt: new Date(Date.now() - 1_000) },
+  });
+  assert.equal(await relay.executeNext(f.rawTenantId), 'SENT');
+  assert.equal(await relay.executeNext(f.rawTenantId), 'SENT');
+  assert.deepEqual(
+    dialerPort.persisted.map((sent) => (sent as { commandType: string }).commandType),
+    ['ADMIT_CAMPAIGN_TARGET', 'CANCEL_CAMPAIGN_TARGET'],
+  );
 });
 
 test('tenant คนละใบไม่ relay command ของกันและกัน', async (t) => {
