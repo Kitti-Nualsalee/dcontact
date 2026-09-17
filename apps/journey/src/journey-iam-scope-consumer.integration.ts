@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
-import { PrismaClient } from '@d-contact/db';
+import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { createProducer } from '@d-contact/kafka';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import { createJourneyIamScopeConsumer } from './journey-iam-scope-consumer.js';
@@ -114,6 +114,67 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs = 20_000): Promi
   }
   throw new Error('ไม่พบ IAM invalidation inbox ภายในเวลาที่กำหนด');
 }
+
+function scopeEvent(
+  f: Awaited<ReturnType<typeof fixture>>,
+  kind: 'GRANTED' | 'TEAM_DEACTIVATED' | 'DELEGATION_REVOKED',
+  scopeVersion: number,
+) {
+  return {
+    schemaVersion: 2 as const,
+    eventKind: 'CANONICAL' as const,
+    eventId: `iam-${kind.toLowerCase()}:${randomUUID()}`,
+    type: 'team.segment-scope.changed' as const,
+    tenantId: f.tenantId,
+    occurredAt: '2099-01-01T00:00:00.000Z',
+    correlationId: `iam-${kind.toLowerCase()}-${f.suffix}`,
+    orderingKey: f.teamId,
+    aggregateType: 'iam_team_scope' as const,
+    aggregateId: f.teamId,
+    aggregateVersion: scopeVersion,
+    payload: {
+      contractVersion: 1 as const,
+      teamId: f.teamId,
+      grantId: randomUUID(),
+      scopeVersion,
+      kind,
+    },
+  };
+}
+
+test('GRANTED ไม่ revive งานเดิม ส่วน team/delegation revoke ถูกบันทึกแบบ fail closed', async (t) => {
+  const f = await fixture(t);
+  const service = new JourneyIamScopeInvalidationService();
+  const consumer = 'journey-iam-scope-contract-test';
+  const apply = (event: ReturnType<typeof scopeEvent>) =>
+    withTenantDatabaseTransaction(f.application, f.tenantId, (transaction) =>
+      service.apply(event, consumer, transaction),
+    );
+
+  const deactivated = await apply(scopeEvent(f, 'TEAM_DEACTIVATED', 2));
+  assert.deepEqual(deactivated, { state: 'RECORDED', scheduledCursorCount: 1 });
+  const granted = await apply(scopeEvent(f, 'GRANTED', 3));
+  assert.deepEqual(granted, { state: 'RECORDED', scheduledCursorCount: 0 });
+  const delegationRevoked = await apply(scopeEvent(f, 'DELEGATION_REVOKED', 4));
+  assert.deepEqual(delegationRevoked, { state: 'RECORDED', scheduledCursorCount: 0 });
+
+  const cursor = await f.owner.jrSegmentRefilterCursor.findFirstOrThrow({
+    where: { tenantId: f.tenantId, scopeTeamId: f.teamId },
+  });
+  assert.equal(cursor.reasonCode, 'IAM_SCOPE_TEAM_DEACTIVATED');
+  assert.equal(
+    await f.owner.jrIamScopeInvalidationInbox.count({
+      where: { tenantId: f.tenantId, consumer },
+    }),
+    3,
+    'relaxation และ restrictive event ทุกใบต้องมี audit/dedup record แม้ cursor เดิมมีอยู่แล้ว',
+  );
+  assert.equal(
+    await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }),
+    0,
+    'GRANTED ห้ามสร้างหรือ revive enrollment จาก intent เก่า',
+  );
+});
 
 test(
   'consumer รับ IAM revoke จาก Redpanda แล้ว commit inbox/cursor แบบ durable',
