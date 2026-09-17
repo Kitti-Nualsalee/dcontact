@@ -9,6 +9,7 @@ import type {
 } from '@d-contact/cxa-contracts';
 import { PrismaClient } from '@d-contact/db';
 import { DcExprEvaluator } from '@d-contact/expression';
+import { IamTeamContactScopeAuthorizer, IamTeamSegmentScopeRepository } from '@d-contact/iam';
 import { JourneyDefinitionRepository } from './journey-definition-repository.js';
 import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
 import { JourneySegmentReceiptRepository } from './journey-segment-receipt-repository.js';
@@ -80,6 +81,13 @@ async function fixture(t: TestContext) {
     await owner.jrSegmentHead.deleteMany({ where: { tenantId } });
     await owner.jrSegmentReceipt.deleteMany({ where: { tenantId } });
     await owner.jrJourneyDefinition.deleteMany({ where: { tenantId } });
+    await owner.iamScopeConsumerInbox.deleteMany({ where: { tenantId } });
+    await owner.iamScopeInvalidationOutbox.deleteMany({ where: { tenantId } });
+    await owner.iamContactSegmentScopeProjection.deleteMany({ where: { tenantId } });
+    await owner.iamTeamSegmentScopeRevocation.deleteMany({ where: { tenantId } });
+    await owner.iamTeamSegmentScopeActiveGrant.deleteMany({ where: { tenantId } });
+    await owner.iamTeamSegmentScopeGrant.deleteMany({ where: { tenantId } });
+    await owner.iamTeamScopeVersion.deleteMany({ where: { tenantId } });
     await owner.c360SegmentDefinitionHead.deleteMany({ where: { tenantId } });
     await owner.c360SegmentDefinition.deleteMany({ where: { tenantId } });
     await owner.contact.deleteMany({ where: { tenantId } });
@@ -127,6 +135,7 @@ async function fixture(t: TestContext) {
     definitions: new JourneyDefinitionRepository(application, evaluator),
     receipts: new JourneySegmentReceiptRepository(application),
     actions: new JourneyOwnerActionRepository(application),
+    iam: new IamTeamSegmentScopeRepository(application),
   };
 }
 
@@ -360,6 +369,50 @@ test('scope ถูกเพิกถอนหลัง enroll แล้วจบ
     0,
     'การเพิกถอนสิทธิ์ของทีมห้ามถูกบันทึกเป็น Governance BLOCK',
   );
+});
+
+test('IAM WORK grant ถูก revoke แล้ว re-filter ยกเลิก action ก่อน barrier ผ่าน owner command เดิม', async (t) => {
+  const f = await fixture(t);
+  const entryId = `entry-${f.suffix}`;
+  const journeyId = await publishJourney(f);
+  const enrollmentId = await enrollFor(f, entryId, journeyId);
+  const actionKey = `iam-revoke-${f.suffix}`;
+  await ownerAction(f, enrollmentId, actionKey);
+  const grant = await f.iam.grant({
+    tenantId: f.tenantId,
+    teamId: f.teamId,
+    segmentId: f.segmentId,
+    permission: 'WORK',
+    correlationId: `iam-grant-${f.suffix}`,
+  });
+  await f.iam.revoke({
+    tenantId: f.tenantId,
+    grantId: grant.grant.id,
+    reasonCode: 'ADMIN_REVOKE',
+    correlationId: `iam-revoke-${f.suffix}`,
+  });
+  await queueRefilter(f, 2, 'CORRECTED', entryId);
+
+  const processor = new JourneySegmentRefilterProcessor(f.application, f.definitions, {
+    membershipReader: reader(eligible(f, entryId, 2)) as never,
+    teamContactScopeAuthorizer: new IamTeamContactScopeAuthorizer(f.application),
+  });
+  assert.equal(await processor.executeNext(f.tenantId, 'iam-revoke-worker'), 'CANCELLED');
+  assert.equal(
+    (
+      await f.owner.jrOwnerAction.findFirstOrThrow({
+        where: { tenantId: f.tenantId, actionKey },
+      })
+    ).state,
+    'CANCEL_REQUESTED',
+  );
+  assert.equal(
+    await f.owner.jrOwnerCommandOutbox.count({
+      where: { tenantId: f.tenantId, commandId: `cancel:segment-refilter:${actionKey}` },
+    }),
+    1,
+  );
+  assert.equal(await f.owner.cgDecisionLog.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
 test('entry เปลี่ยนไปแล้วต้องไม่ถือว่าเป็น correction ของ entry เดิม', async (t) => {
