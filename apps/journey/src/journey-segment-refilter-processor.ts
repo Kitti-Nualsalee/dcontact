@@ -79,6 +79,33 @@ export class JourneySegmentRefilterProcessor {
     const receipt = cursor.receipt;
 
     /**
+     * IAM invalidation เป็น canonical authorization fact ของ owner team โดยตรง ไม่ต้องถาม
+     * Customer 360 ซ้ำ: membership ที่ยัง ELIGIBLE ไม่ได้ทำให้สิทธิ์ทีมกลับมา และการรอ read
+     * นั้นจะเปิดช่องให้ action เดินต่อทั้งที่ revoke commit แล้ว. cursor นี้จึง cancel เฉพาะ
+     * intent ของ scopeTeamId แล้วจบ; งาน membership refilter ปกติยังใช้เส้นทางเดิมด้านล่าง.
+     */
+    if (cursor.scopeTeamId) {
+      if (!receipt?.entryId) {
+        await this.receipts.holdRefilter(
+          tenantId,
+          cursor.id,
+          'RECONCILING',
+          'IAM_SCOPE_RECEIPT_ENTRY_MISSING',
+          this.retryDelayMs,
+        );
+        return 'RECONCILING';
+      }
+      await this.cancelWork(
+        tenantId,
+        cursor,
+        receipt.entryId,
+        'TEAM_SEGMENT_NOT_ALLOWED',
+        cursor.scopeTeamId,
+      );
+      return 'CANCELLED';
+    }
+
+    /**
      * merge/split/unmerge ทำให้ stream เดิมไม่ใช่ความจริงอีกต่อไป — ต้องรอ canonical fact ใบใหม่
      * จาก Customer 360 ไม่ใช่เดาเองว่า enrollment ควรย้ายไปไหน การย้ายหรือโคลน enrollment ของ
      * predecessor ไปหา survivor เป็นสิ่งที่ stop condition ของ #218 ห้ามตรง ๆ
@@ -228,9 +255,10 @@ export class JourneySegmentRefilterProcessor {
    */
   private async cancelWork(
     tenantId: string,
-    cursor: { id: string; contactId: string; segmentId: string },
+    cursor: { id: string; contactId: string; segmentId: string; scopeTeamId?: string | null },
     entryId: string,
     reasonCode: string,
+    scopeTeamId?: string,
   ): Promise<void> {
     const enrollments = await withTenantDatabaseTransaction(
       this.database,
@@ -243,11 +271,30 @@ export class JourneySegmentRefilterProcessor {
             segmentId: cursor.segmentId,
             entryId,
           },
-          select: { id: true },
+          select: { id: true, journeyId: true, journeyVersion: true },
         });
         if (intents.length === 0) return [];
+        const scopedIntentIds = scopeTeamId
+          ? (
+              await transaction.jrJourneyDefinition.findMany({
+                where: { tenantId, ownerTeamId: scopeTeamId },
+                select: { journeyId: true, version: true },
+              })
+            ).reduce((ids, definition) => {
+              for (const intent of intents) {
+                if (
+                  intent.journeyId === definition.journeyId &&
+                  intent.journeyVersion === definition.version
+                ) {
+                  ids.push(intent.id);
+                }
+              }
+              return ids;
+            }, [] as string[])
+          : intents.map((intent) => intent.id);
+        if (scopedIntentIds.length === 0) return [];
         return transaction.jrEnrollment.findMany({
-          where: { tenantId, segmentIntentId: { in: intents.map((intent) => intent.id) } },
+          where: { tenantId, segmentIntentId: { in: scopedIntentIds } },
           select: { id: true, runState: true, terminalReason: true },
         });
       },

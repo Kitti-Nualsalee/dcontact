@@ -5,7 +5,11 @@ import { PrismaClient } from '@d-contact/db';
 import { createJourneyFoundationPorts } from '@d-contact/journey-composition';
 import type { InboundBusinessEvent } from '@d-contact/shared';
 import { EventInboxService } from './event-inbox.js';
-import { JourneyEventNotReadyError, JourneyProcessor } from './journey-processor.js';
+import {
+  JourneyEventNotReadyError,
+  JourneyProcessor,
+  JourneyScopeContextStaleError,
+} from './journey-processor.js';
 
 async function createTenantFixture(t: TestContext) {
   const owner = new PrismaClient();
@@ -375,6 +379,67 @@ test('scope ที่ปฏิเสธจบ Journey ก่อน Contact Gover
   assert.equal(
     (await owner.jrEventInbox.findUniqueOrThrow({ where: { id: receiptId } })).state,
     'PROCESSED',
+  );
+});
+
+test('scope ที่ stale ไม่สร้าง enrollment หรือเรียก Governance และปล่อย inbox ให้ retry', async (t) => {
+  const { owner, application, tenantId } = await createTenantFixture(t);
+  const contactId = randomUUID();
+  const identityId = randomUUID();
+  const receiptId = randomUUID();
+  const teamId = randomUUID();
+  const event: InboundBusinessEvent = {
+    source: 'billing',
+    eventId: 'scope-stale-001',
+    type: 'payment.failed',
+    occurredAt: '2099-01-01T00:00:00.000Z',
+    schemaVersion: 1,
+    contactRef: { kind: 'EMAIL', value: 'scope-stale@example.test' },
+    payload: {},
+  };
+  await owner.contact.create({
+    data: {
+      id: contactId,
+      tenantId,
+      identities: {
+        create: { id: identityId, tenantId, type: 'EMAIL', value: event.contactRef.value },
+      },
+    },
+  });
+  await owner.team.create({ data: { id: teamId, tenantId, name: 'Journey scope stale' } });
+  const inbox = new EventInboxService(application, { id: () => receiptId });
+  await inbox.accept(tenantId, event);
+  await inbox.publishNext(tenantId, { publish: async () => undefined });
+
+  const foundationPorts = createJourneyFoundationPorts(application);
+  const processor = new JourneyProcessor(application, {
+    ...foundationPorts,
+    teamContactScopeAuthorizer: {
+      async authorize(input) {
+        return { decision: 'DEFER', reasonCode: 'SCOPE_CONTEXT_STALE', evaluatedAt: input.at };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      processor.processEvent(tenantId, {
+        receiptId,
+        journeyVersion: 1,
+        stepId: 'scope-stale',
+        channel: 'EMAIL',
+        purpose: 'MARKETING',
+        policyVersion: 1,
+        teamId,
+      }),
+    (error: unknown) => error instanceof JourneyScopeContextStaleError,
+  );
+  assert.equal(await owner.jrEnrollment.count({ where: { tenantId } }), 0);
+  assert.equal(await owner.cgDecisionLog.count({ where: { tenantId } }), 0);
+  assert.equal(await owner.cgReservation.count({ where: { tenantId } }), 0);
+  assert.equal(
+    (await owner.jrEventInbox.findUniqueOrThrow({ where: { id: receiptId } })).state,
+    'PUBLISHED',
   );
 });
 

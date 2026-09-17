@@ -20,6 +20,8 @@ export * from './journey-segment-receipt-repository.js';
 export * from './journey-segment-consumer.js';
 export * from './journey-segment-trigger-processor.js';
 export * from './journey-segment-refilter-processor.js';
+export * from './journey-iam-scope-invalidation.js';
+export * from './journey-iam-scope-consumer.js';
 export * from './journey-segment-query.js';
 export * from './journey-segment-recovery.js';
 export * from './journey-segment-baseline.js';

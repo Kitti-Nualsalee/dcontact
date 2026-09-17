@@ -50,6 +50,7 @@ export type SendCompositionResult =
   | { kind: 'SENT'; enrollment: EnrollmentView }
   | { kind: 'SUPPRESSED'; reasonCode: string; enrollment: EnrollmentView }
   | { kind: 'SCOPE_DENIED'; reasonCode: string; enrollment: EnrollmentView }
+  | { kind: 'SCOPE_DEFERRED'; reasonCode: 'SCOPE_CONTEXT_STALE'; enrollment: EnrollmentView }
   | { kind: 'RACE_LOST'; enrollment: EnrollmentView }
   | { kind: 'RELEASED_BEFORE_SUBMIT'; enrollment: EnrollmentView };
 
@@ -136,6 +137,15 @@ export class JourneySendExecutor {
         reasonCode: scopeDecision.reasonCode,
         enrollment: view,
       }));
+    }
+    if (scopeDecision.decision === 'DEFER') {
+      // scope ที่ stale ยังยืนยัน CONTACT permission ไม่ได้ จึงต้องคง cursor ไว้ให้ worker
+      // รอบถัดไป resolve IAM ใหม่ทั้งหมดก่อนเข้า Governance reservation หรือ Delivery.
+      return {
+        kind: 'SCOPE_DEFERRED',
+        reasonCode: scopeDecision.reasonCode,
+        enrollment,
+      };
     }
 
     const actionKey = `${input.enrollmentId}:${input.stepSequence}`;

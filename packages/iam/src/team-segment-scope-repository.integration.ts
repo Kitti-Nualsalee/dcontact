@@ -13,6 +13,7 @@ import {
 } from '@d-contact/cxa-contracts';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { createProducer } from '@d-contact/kafka';
+import type { DcProducer, KafkaEventEnvelope } from '@d-contact/kafka';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import { createIamCustomerSegmentProjectionConsumer } from './customer-segment-projection-consumer.js';
 import {
@@ -20,6 +21,7 @@ import {
   IamTeamSegmentConfigurationAuthorizer,
 } from './team-scope-authorizers.js';
 import { IamTeamSegmentScopeRepository } from './team-segment-scope-repository.js';
+import { IamScopeInvalidationRelay } from './scope-invalidation-relay.js';
 
 const OWNER_DATABASE_URL =
   process.env.DATABASE_URL ??
@@ -128,6 +130,31 @@ test('grant/revoke เดิน scope version และเขียน restricti
     await f.owner.iamTeamSegmentScopeRevocation.count({ where: { tenantId: f.tenantId } }),
     1,
   );
+});
+
+test('IAM outbox relay publish event ที่ตรวจ contract แล้วไป dc.admin.events เพียงครั้งเดียว', async (t) => {
+  const f = await fixture(t);
+  await f.repository.grant({
+    tenantId: f.tenantId,
+    teamId: f.teamId,
+    segmentId: 'VIP',
+    permission: 'WORK',
+    correlationId: 'relay-grant',
+  });
+  const sent: Array<{ topic: string; event: KafkaEventEnvelope }> = [];
+  const producer: DcProducer = {
+    async send(topic, event) {
+      sent.push({ topic, event });
+    },
+    async disconnect() {},
+  };
+  const relay = new IamScopeInvalidationRelay(f.owner, producer);
+  assert.equal(await relay.publishNext(f.tenantId), 'PUBLISHED');
+  assert.equal(await relay.publishNext(f.tenantId), undefined);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.topic, KAFKA_TOPICS.ADMIN_EVENTS);
+  assert.equal(sent[0]?.event.type, 'team.segment-scope.changed');
+  assert.equal(sent[0]?.event.orderingKey, f.teamId);
 });
 
 test('membership projection ไม่ย้อน revision และ dedup event id แบบ durable', async (t) => {

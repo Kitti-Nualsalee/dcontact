@@ -131,6 +131,7 @@ export const CXA_J3_READINESS_CHECKS = Object.freeze([
     journey(
       'journey-segment-consumer.integration.ts',
       'journey-segment-refilter-processor.integration.ts',
+      'journey-send-executor.integration.ts',
     ),
   ),
   check(
@@ -138,7 +139,13 @@ export const CXA_J3_READINESS_CHECKS = Object.freeze([
     'authorization',
     'owner boundary and restrictive invalidation',
     ['no direct cross-owner write', 'IAM test adapter declared', 'relaxation cannot revive'],
-    [...journey('journey-segment-refilter-processor.integration.ts'), profile],
+    [
+      ...journey(
+        'journey-segment-refilter-processor.integration.ts',
+        'journey-iam-scope-consumer.integration.ts',
+      ),
+      profile,
+    ],
     { evidencePrefix: 'CXA_J3_PROFILE_EVIDENCE:' },
   ),
   check(
