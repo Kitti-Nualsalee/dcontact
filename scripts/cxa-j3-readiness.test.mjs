@@ -159,6 +159,36 @@ test('J3-F04 และ J3-CC02 ครอบ Kafka owner-result boundary จร�
   }
 });
 
+test('J3 authorization checks ครอบ IAM revoke ที่ inbound และ outbound boundary', () => {
+  const command = (file) =>
+    JSON.stringify([
+      process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+      '--filter',
+      '@d-contact/journey',
+      'exec',
+      'tsx',
+      '--test',
+      '--test-concurrency=1',
+      `src/${file}`,
+    ]);
+  const au01 = CXA_J3_READINESS_CHECKS.find(({ id }) => id === 'J3-AU01');
+  const au02 = CXA_J3_READINESS_CHECKS.find(({ id }) => id === 'J3-AU02');
+  assert.ok(au01 && au02, 'J3-AU01/AU02 ต้องอยู่ใน registry');
+  assert.ok(
+    au01.commands.some(
+      (candidate) => JSON.stringify(candidate) === command('journey-send-executor.integration.ts'),
+    ),
+    'AU01 ต้องพิสูจน์ CONTACT revoke ก่อน Governance/Delivery',
+  );
+  assert.ok(
+    au02.commands.some(
+      (candidate) =>
+        JSON.stringify(candidate) === command('journey-iam-scope-consumer.integration.ts'),
+    ),
+    'AU02 ต้องพิสูจน์ IAM invalidation Kafka consumer',
+  );
+});
+
 test('manifest เก็บ TAP count และ digest ของ title พร้อม marker เมื่อ final main ผ่านครบ', () => {
   const result = run();
   assert.equal(result.summary.status, 'PASS');
