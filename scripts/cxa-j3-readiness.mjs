@@ -109,6 +109,7 @@ export const CXA_J3_READINESS_CHECKS = Object.freeze([
     journey(
       'journey-segment-refilter-processor.integration.ts',
       'journey-segment-baseline.integration.ts',
+      'journey-owner-result-consumer.integration.ts',
     ),
   ),
   check(
@@ -175,7 +176,10 @@ export const CXA_J3_READINESS_CHECKS = Object.freeze([
     'concurrency',
     'invalidation races with enrollment and irreversible owner boundary',
     ['first terminal wins', 'pre-barrier cancel/release', 'post-barrier reconcile'],
-    journey('journey-segment-refilter-processor.integration.ts'),
+    journey(
+      'journey-segment-refilter-processor.integration.ts',
+      'journey-owner-result-consumer.integration.ts',
+    ),
   ),
   check(
     'J3-RC01',
