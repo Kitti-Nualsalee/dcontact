@@ -16,8 +16,11 @@ import {
   assertOwnerResultQueryBinding,
   campaignId,
   canonicalInteractionOutcomeHash,
+  assertOwnerActionQueryEnvelope,
   canonicalOwnerRequestHash,
+  createOwnerActionQueryEnvelope,
   createOwnerResultEnvelope,
+  processOwnerCommandEvent,
   commandId,
   contactId,
   enrollmentId,
@@ -356,6 +359,75 @@ test('owner result envelope builder produces a bound, replay-stable canonical ev
       { ...result, requestHash: 'a'.repeat(64) },
       '2026-09-11T10:00:02.000Z',
     ),
+  );
+});
+
+test('owner answers an action query only from an existing receipt, never by deciding again', async () => {
+  const command = withOwnerRequestHash(tenant, commandDraft);
+  const stored: J2OwnerResultPayloadV1 = {
+    contractVersion: 1,
+    commandId: command.commandId,
+    actionKey: command.actionKey,
+    requestHash: command.requestHash,
+    commandType: command.commandType,
+    status: 'ADMITTED',
+    code: 'ADMITTED',
+    category: 'BUSINESS',
+    reasonCode: 'CAMPAIGN_TARGET_ADMITTED',
+    failureClass: 'NONE',
+    retryDisposition: 'NONE',
+    observedAt: '2026-09-11T10:00:01.000Z',
+    ownerAggregate: { type: 'campaign_target', id: 'record-a', version: 1 },
+  };
+  const persisted: unknown[] = [];
+  const published: Array<J2KafkaEnvelopeV2<J2OwnerResultPayloadV1>> = [];
+  let receipt: J2OwnerResultPayloadV1 | undefined;
+  const owner = {
+    async persistCommand(_tenant: unknown, value: typeof command) {
+      persisted.push(value);
+      return { status: 'PERSISTED' as const, ...value };
+    },
+    async queryAction(_tenant: unknown, query: { actionKey: string; requestHash: string }) {
+      return receipt && query.requestHash === receipt.requestHash ? receipt : undefined;
+    },
+  };
+  const options = {
+    owner: owner as never,
+    publish: async (envelope: J2KafkaEnvelopeV2<J2OwnerResultPayloadV1>) => {
+      published.push(envelope);
+    },
+    now: () => new Date('2026-09-11T10:10:00.000Z'),
+  };
+  const queryEvent = createOwnerActionQueryEnvelope(
+    tenant,
+    { contractVersion: 1, actionKey: command.actionKey, requestHash: command.requestHash },
+    { eventId: 'query-a', correlationId: 'correlation-a', occurredAt: '2026-09-11T10:09:00.000Z' },
+  );
+  assert.deepEqual(assertOwnerActionQueryEnvelope(queryEvent), queryEvent);
+  assert.throws(() => assertOwnerActionQueryEnvelope({ ...queryEvent, orderingKey: 'other' }));
+
+  assert.deepEqual(await processOwnerCommandEvent(queryEvent, options), {
+    outcome: 'QUERY_NO_RECEIPT',
+  });
+  assert.equal(persisted.length, 0, 'query ห้ามกลายเป็นการสร้าง effect');
+  assert.equal(published.length, 0);
+
+  receipt = stored;
+  assert.deepEqual(await processOwnerCommandEvent(queryEvent, options), {
+    outcome: 'QUERY_ANSWERED',
+    commandId: command.commandId,
+  });
+  assert.equal(published.length, 1);
+  assert.equal(published[0]!.eventId, `${command.commandId}:result`);
+  assert.equal(published[0]!.causationId, 'query-a');
+  assert.equal(persisted.length, 0);
+
+  assert.deepEqual(
+    await processOwnerCommandEvent(
+      { ...queryEvent, payload: { ...queryEvent.payload, requestHash: 'not-a-hash' } },
+      options,
+    ),
+    { outcome: 'QUARANTINED', code: 'PAYLOAD_VALIDATION_FAILED' },
   );
 });
 

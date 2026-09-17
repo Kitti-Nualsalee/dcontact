@@ -13,6 +13,7 @@ import {
   assertOwnerResultEnvelope,
   campaignId,
   commandId,
+  createOwnerActionQueryEnvelope,
   contactId,
   enrollmentId,
   interactionId,
@@ -200,6 +201,19 @@ async function fixture(t: TestContext) {
     publishCommand,
     publishRaw: (event: Parameters<typeof producer.send>[1]) =>
       producer.send(KAFKA_TOPICS.DIALER_COMMANDS, event),
+    publishQuery: (command: J2DialerOwnerCommandV1) =>
+      producer.send(
+        KAFKA_TOPICS.DIALER_COMMANDS,
+        createOwnerActionQueryEnvelope(
+          toTenantId(tenantId),
+          { contractVersion: 1, actionKey: command.actionKey, requestHash: command.requestHash },
+          {
+            eventId: `query:${randomUUID()}`,
+            correlationId: command.actionKey,
+            occurredAt: new Date().toISOString(),
+          },
+        ) as unknown as Parameters<typeof producer.send>[1],
+      ),
   };
 }
 
@@ -322,5 +336,30 @@ test(
       ['PAYLOAD_VALIDATION_FAILED', 'IDEMPOTENCY_CONFLICT'],
     );
     assert.equal(await f.owner.obDialerCommandInbox.count({ where: { tenantId: f.tenantId } }), 2);
+  },
+);
+
+test(
+  'owner action query ตอบจาก receipt ด้วยผลเดิม และไม่ตัดสิน command ที่ owner ไม่เคยได้รับ',
+  { timeout: 90_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const received = f.admitCommand();
+    const neverReceived = f.admitCommand();
+
+    await f.publishCommand(received);
+    await waitFor(() => f.results.length === 1);
+    await f.publishQuery(neverReceived);
+    await f.publishQuery(received);
+    await waitFor(() => f.duplicateResults.length === 1);
+
+    assert.equal(f.duplicateResults[0]!.eventId, f.results[0]!.eventId);
+    assert.deepEqual(f.duplicateResults[0]!.payload, f.results[0]!.payload);
+    assert.notEqual(f.duplicateResults[0]!.causationId, received.commandId, 'causation ชี้ query');
+    // query ของ command ที่ไม่เคยมาถึงต้องไม่สร้าง target/receipt และไม่มีผลใหม่
+    assert.equal(f.results.length, 1);
+    assert.equal(await f.owner.obCampaignTarget.count({ where: { tenantId: f.tenantId } }), 1);
+    assert.equal(await f.owner.obDialerCommandInbox.count({ where: { tenantId: f.tenantId } }), 1);
+    assert.equal(f.quarantined.length, 0);
   },
 );

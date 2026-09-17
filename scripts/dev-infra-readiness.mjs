@@ -1,16 +1,18 @@
+import { readFileSync } from 'node:fs';
 import { compose } from './dev-infra-compose.mjs';
 const runningServices = ['postgres', 'redis', 'minio', 'redpanda', 'freeswitch', 'keycloak'];
+// derive จาก KAFKA_TOPICS ของ packages/shared (source of truth เดียว) แทน list ที่เขียนซ้ำไว้ที่นี่ —
+// list เดิม drift จน topic ใหม่หายจาก env ที่ bootstrap แล้วโดยไม่มีใครรู้ และ consumer test ค้างจน timeout
+const kafkaTopicSource = readFileSync(
+  new URL('../packages/shared/src/events.ts', import.meta.url),
+  'utf8',
+);
 const requiredTopics = [
-  'dc.telephony.events',
-  'dc.channel.events',
-  'dc.interaction.events',
-  'dc.agent.events',
-  'dc.telephony.commands',
-  'dc.channel.commands',
-  'dc.journey.events',
-  'dc.qm.jobs',
-  'dc.qm.events',
-];
+  ...kafkaTopicSource
+    .slice(kafkaTopicSource.indexOf('export const KAFKA_TOPICS'))
+    .split('} as const')[0]
+    .matchAll(/'(dc\.[a-z0-9.-]+)'/g),
+].map(([, topic]) => topic);
 
 function check(name, action) {
   try {

@@ -78,7 +78,15 @@ export class JourneyOwnerResultReconciler {
    * ปลอดภัยเสมอ (idempotent); ไม่มีผลกลับมาไม่ใช่ error แค่ยังรอ (ACK_UNKNOWN
    * escalation เป็นการตัดสินใจของ caller เอง ไม่ใช่ที่นี่)
    */
-  async reconcile(tenantId: string, actionKey: string): Promise<ReconcileOutcome> {
+  async reconcile(
+    tenantId: string,
+    actionKey: string,
+    /**
+     * requestHash ของ command ที่ต้องการถาม — ค่าเริ่มต้นคือ command ต้นเรื่องของ action ส่วน cancel/
+     * supersede ใช้ actionKey เดิมแต่ hash ของตัวเอง owner จึงแยก receipt สองใบด้วยค่านี้
+     */
+    requestHash?: string,
+  ): Promise<ReconcileOutcome> {
     const action = await this.actions.getAction(tenantId, actionKey);
     if (!action) throw new OwnerActionNotFoundError(actionKey);
 
@@ -86,7 +94,7 @@ export class JourneyOwnerResultReconciler {
     const result = await port.queryAction(toTenantId(tenantId), {
       contractVersion: 1,
       actionKey: toActionKey(actionKey),
-      requestHash: action.requestHash,
+      requestHash: requestHash ?? action.requestHash,
     });
     if (!result) return 'NO_RESULT_YET';
 

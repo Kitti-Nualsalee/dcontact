@@ -61,11 +61,17 @@ async function fixture(t: TestContext) {
   });
 
   const repository = new JourneyOwnerActionRepository(application);
+  const quarantined: string[] = [];
   const consumer = await createJourneyOwnerResultConsumer({
     database: application,
     clientId: `j2-8-result-${suffix}-consumer`,
     groupId: `j2-8-result-${suffix}`,
     brokers: ['localhost:9092'],
+    dlq: {
+      async publish(message) {
+        if (message.value?.toString().includes(tenantId)) quarantined.push(message.error.message);
+      },
+    },
   });
   await consumer.ready();
   const producer = await createProducer(`j2-8-result-${suffix}-producer`, {
@@ -203,6 +209,7 @@ async function fixture(t: TestContext) {
   return {
     owner,
     tenantId,
+    quarantined,
     repository,
     dispatchedCommand,
     dispatchedDialerCommand,
@@ -381,5 +388,60 @@ test(
         ['CANCELLED', 'APPLIED'],
       ],
     );
+  },
+);
+
+test(
+  'result ที่ bind ไม่ตรงหรือผิด contract ถูกกักเข้า DLQ และไม่ block ผลถัดไปใน partition เดียวกัน',
+  { timeout: 60_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const bad = await f.dispatchedCommand();
+    const good = await f.dispatchedCommand();
+
+    // ผลอ้าง command ที่ไม่มีใน outbox
+    await f.publishResult(f.resultPayload(randomUUID(), bad.actionKey), bad.commandId);
+    // result event ที่ผิด contract (success ต้องมี ownerAggregate) — ห้ามถูกข้ามเงียบ
+    const { ownerAggregate: _missing, ...withoutAggregate } = f.resultPayload(
+      bad.commandId,
+      bad.actionKey,
+    );
+    await f.publishResult(withoutAggregate as J2OwnerResultPayloadV1, bad.commandId);
+    await f.publishResult(f.resultPayload(good.commandId, good.actionKey), good.commandId);
+
+    await waitFor(async () => {
+      const action = await f.owner.jrOwnerAction.findFirstOrThrow({
+        where: { tenantId: f.tenantId, actionKey: good.actionKey },
+      });
+      return action.state === 'ACKNOWLEDGED' && f.quarantined.length === 2;
+    });
+    assert.deepEqual(f.quarantined, ['OWNER_RESULT_BINDING_CONFLICT', 'PAYLOAD_VALIDATION_FAILED']);
+    const untouched = await f.owner.jrOwnerAction.findFirstOrThrow({
+      where: { tenantId: f.tenantId, actionKey: bad.actionKey },
+    });
+    assert.equal(untouched.state, 'DISPATCHED');
+  },
+);
+
+test(
+  'ผลซ้ำที่เนื้อหาขัดกับผลที่ apply ไปแล้วถูกกักเป็น EVENT_HASH_CONFLICT',
+  { timeout: 60_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const { actionKey, commandId } = await f.dispatchedCommand();
+
+    await f.publishResult(f.resultPayload(commandId, actionKey), commandId);
+    await waitFor(async () => {
+      const action = await f.owner.jrOwnerAction.findFirstOrThrow({
+        where: { tenantId: f.tenantId, actionKey },
+      });
+      return action.state === 'ACKNOWLEDGED';
+    });
+    await f.publishResult(
+      f.resultPayload(commandId, actionKey, { status: 'LINKED', code: 'LINKED' } as never),
+      commandId,
+    );
+    await waitFor(() => Promise.resolve(f.quarantined.length === 1));
+    assert.deepEqual(f.quarantined, ['EVENT_HASH_CONFLICT']);
   },
 );

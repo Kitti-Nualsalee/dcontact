@@ -82,7 +82,7 @@ export class JourneyOwnerAckEscalator {
   async escalateNext(tenantId: string): Promise<AckEscalationOutcome | undefined> {
     const deadline = new Date(this.now().getTime() - this.ackDeadlineMs);
     const [stale] = await this.actions.findStaleDispatched(tenantId, deadline, this.maxAttempts, 1);
-    if (!stale) return undefined;
+    if (!stale) return this.escalateNextCancel(tenantId, deadline);
 
     const marked = await this.actions.markAckUnknown(tenantId, stale.actionKey, stale.version);
     // แพ้ race กับผลที่เพิ่งมาถึงพอดี — ฝั่งนั้นถูกต้องกว่า ไม่ต้องทำอะไรต่อ
@@ -106,6 +106,55 @@ export class JourneyOwnerAckEscalator {
       targetKind: 'ACTION',
       targetRef: stale.actionKey,
       reasonCode: 'ACK_UNKNOWN_DEADLINE_EXCEEDED',
+      actorId: this.actorId,
+    });
+    this.metrics.increment('journey_owner_ack_escalated_total');
+    return 'ESCALATED';
+  }
+
+  /**
+   * cancel/supersede ที่ owner ยังไม่ยืนยัน — ลำดับเดียวกับ ACK_UNKNOWN (ถามก่อนเสมอ, นับ attempt,
+   * ครบเพดานส่งต่อให้คน) แต่คง state CANCEL_REQUESTED ไว้และถามด้วย requestHash ของ cancel command
+   * ไม่ใช่ของ command ต้นเรื่อง ไม่งั้นจะได้ผล ADMITTED/SCHEDULED เดิมกลับมาแทนผลของการยกเลิก
+   */
+  private async escalateNextCancel(
+    tenantId: string,
+    deadline: Date,
+  ): Promise<AckEscalationOutcome | undefined> {
+    const [stale] = await this.actions.findStaleCancelRequested(
+      tenantId,
+      deadline,
+      this.maxAttempts,
+      1,
+    );
+    if (!stale) return undefined;
+
+    const marked = await this.actions.markCancelUnconfirmed(
+      tenantId,
+      stale.actionKey,
+      stale.version,
+    );
+    if (!marked) return 'SUPERSEDED';
+    this.metrics.increment('journey_owner_ack_unknown_total');
+    this.metrics.observe('journey_owner_ack_attempts', marked.action.attempts);
+
+    const reconciled = await this.reconciler.reconcile(
+      tenantId,
+      stale.actionKey,
+      marked.cancelRequestHash,
+    );
+    if (reconciled !== 'NO_RESULT_YET') {
+      this.metrics.increment('journey_owner_ack_reconciled_total');
+      return 'RECONCILED';
+    }
+    if (marked.action.attempts < this.maxAttempts) return 'WAITING';
+
+    await this.audit.record({
+      tenantId,
+      operation: 'RECONCILE',
+      targetKind: 'ACTION',
+      targetRef: stale.actionKey,
+      reasonCode: 'CANCEL_UNCONFIRMED_DEADLINE_EXCEEDED',
       actorId: this.actorId,
     });
     this.metrics.increment('journey_owner_ack_escalated_total');
