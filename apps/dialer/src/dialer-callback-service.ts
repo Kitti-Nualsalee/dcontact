@@ -30,6 +30,11 @@ import {
   type TeamContactScopeAuthorizer,
   type TenantId,
 } from '@d-contact/cxa-contracts';
+import {
+  findPositiveReceipt,
+  persistDialerCommand,
+  queryDialerAction,
+} from './dialer-command-inbox.js';
 
 // `commandType` ของ CANCEL_*/SUPERSEDE_* ใน J2DialerOwnerCommandV1 เป็น union ร่วมกับ
 // Campaign (เช่น 'CANCEL_CAMPAIGN_TARGET' | 'CANCEL_CALLBACK') — Extract ด้วย commandType
@@ -58,14 +63,8 @@ const REVERSIBLE_STATES = new Set(['SCHEDULED']);
 /** ระยะเวลาที่ callback ยัง valid หลัง requestedFor ก่อนถือว่า expired */
 const EXPIRY_GRACE_MS = 24 * 60 * 60 * 1_000;
 
-export class CallbackCommandHashConflictError extends Error {
-  readonly code = 'IDEMPOTENCY_CONFLICT' as const;
-
-  constructor(readonly actionKey: string) {
-    super(`Dialer callback command actionKey มีอยู่แล้วด้วย requestHash ต่างกัน: ${actionKey}`);
-    this.name = 'CallbackCommandHashConflictError';
-  }
-}
+/** alias คงชื่อเดิมไว้ให้ caller — receipt identity ของ Dialer ทั้งหมดอยู่ที่ dialer-command-inbox */
+export { DialerCommandHashConflictError as CallbackCommandHashConflictError } from './dialer-command-inbox.js';
 
 export class CallbackCommandNotImplementedError extends Error {
   constructor(readonly commandType: string) {
@@ -161,87 +160,21 @@ export class DialerCallbackService implements J2DialerOwnerPort {
     if (!isCallbackCommand(command)) {
       throw new CallbackCommandNotImplementedError(command.commandType);
     }
-
-    await withTenantDatabaseTransaction(this.database, tenant, async (transaction) => {
-      await transaction.$queryRaw(
-        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`ob-command:${tenant}:${command.actionKey}`}))`,
-      );
-      const existing = await transaction.obDialerCommandInbox.findUnique({
-        where: { tenantId_actionKey: { tenantId: tenant, actionKey: command.actionKey } },
-      });
-      if (existing) {
-        if (existing.requestHash !== command.requestHash) {
-          throw new CallbackCommandHashConflictError(command.actionKey);
-        }
-        return;
-      }
-
-      const decision = await this.decide(transaction, tenant, command);
-      await transaction.obDialerCommandInbox.create({
-        data: {
-          id: this.id(),
-          tenantId: tenant,
-          commandId: command.commandId,
-          actionKey: command.actionKey,
-          commandType: command.commandType,
-          requestHash: command.requestHash,
-          status: decision.status,
-          code: decision.code,
-          category: decision.category,
-          reasonCode: decision.reasonCode,
-          failureClass: decision.failureClass,
-          retryDisposition: decision.retryDisposition,
-          ...(decision.recordId ? { recordId: decision.recordId } : {}),
-          ...(decision.recordVersion !== undefined
-            ? { recordVersion: decision.recordVersion }
-            : {}),
-          correlationId: command.commandId,
-          observedAt: this.now(),
-        },
-      });
+    return persistDialerCommand({
+      database: this.database,
+      tenant,
+      command,
+      id: this.id,
+      now: this.now,
+      decide: (transaction) => this.decide(transaction, tenant, command),
     });
-    return {
-      status: 'PERSISTED',
-      commandId: command.commandId,
-      actionKey: command.actionKey,
-      requestHash: command.requestHash,
-    };
   }
 
-  async queryAction(
+  queryAction(
     tenant: TenantId,
     query: J2OwnerActionQueryV1,
   ): Promise<J2OwnerResultPayloadV1 | undefined> {
-    const row = await withTenantDatabaseTransaction(this.database, tenant, (transaction) =>
-      transaction.obDialerCommandInbox.findUnique({
-        where: { tenantId_actionKey: { tenantId: tenant, actionKey: query.actionKey } },
-      }),
-    );
-    if (!row || row.requestHash !== query.requestHash) return undefined;
-    if (!CALLBACK_COMMAND_TYPES.has(row.commandType)) return undefined;
-    return {
-      contractVersion: 1,
-      commandId: toCommandId(row.commandId),
-      actionKey: toActionKey(row.actionKey),
-      requestHash: row.requestHash,
-      commandType: row.commandType as J2OwnerResultPayloadV1['commandType'],
-      status: row.status as J2OwnerResultPayloadV1['status'],
-      code: row.code as J2OwnerResultPayloadV1['code'],
-      category: row.category as J2OwnerResultPayloadV1['category'],
-      reasonCode: row.reasonCode,
-      failureClass: row.failureClass as J2OwnerResultPayloadV1['failureClass'],
-      retryDisposition: row.retryDisposition as J2OwnerResultPayloadV1['retryDisposition'],
-      observedAt: row.observedAt.toISOString(),
-      ...(row.recordId && row.recordVersion !== null
-        ? {
-            ownerAggregate: {
-              type: 'callback' as const,
-              id: row.recordId,
-              version: row.recordVersion,
-            },
-          }
-        : {}),
-    };
+    return queryDialerAction(this.database, tenant, query, CALLBACK_COMMAND_TYPES);
   }
 
   private async decide(
@@ -250,6 +183,10 @@ export class DialerCallbackService implements J2DialerOwnerPort {
     command: CallbackCommand,
   ): Promise<CallbackDecision> {
     const tenantId: string = tenant;
+    // cancel/supersede ไม่ตรวจ scope ซ้ำ (ดู decideCancelOrSupersede) — ยกเลิกต้องทำได้แม้ scope ถูกถอน
+    if (command.commandType !== 'SCHEDULE_CALLBACK') {
+      return this.decideCancelOrSupersede(transaction, tenantId, command);
+    }
     const [contact, sourceTeam, targetTeam] = await Promise.all([
       transaction.contact.findFirst({
         where: { id: command.contactId, tenantId },
@@ -302,10 +239,7 @@ export class DialerCallbackService implements J2DialerOwnerPort {
       return callbackRejection('TEAM_SEGMENT_NOT_ALLOWED', 'AUTHORIZATION', 'WORK_SCOPE_DENIED');
     }
 
-    if (command.commandType === 'SCHEDULE_CALLBACK') {
-      return this.decideSchedule(transaction, tenantId, command);
-    }
-    return this.decideCancelOrSupersede(transaction, tenantId, command);
+    return this.decideSchedule(transaction, tenantId, command);
   }
 
   private async decideSchedule(
@@ -368,19 +302,23 @@ export class DialerCallbackService implements J2DialerOwnerPort {
     return positive('SCHEDULED', 'CALLBACK_SCHEDULED', created.id, created.version);
   }
 
+  /**
+   * ไม่ตรวจ CONTACT scope ซ้ำ — การยกเลิกลดการติดต่อ และเป็นทางที่ Journey ใช้ตอน scope ถูกถอน
+   * แต่ต้อง bind กับ callback เดิมจริง: contact และทีมทั้งสองต้องตรงกับที่ schedule ไว้
+   */
   private async decideCancelOrSupersede(
     transaction: Prisma.TransactionClient,
     tenantId: string,
     command: CancelOrSupersedeCallbackCommand,
   ): Promise<CallbackDecision> {
-    const original = await transaction.obDialerCommandInbox.findUnique({
-      where: {
-        tenantId_actionKey: { tenantId, actionKey: command.intent.originalActionKey },
-      },
-    });
+    const original = await findPositiveReceipt(
+      transaction,
+      tenantId,
+      command.intent.originalActionKey,
+      'SCHEDULE_CALLBACK',
+    );
     if (
       !original ||
-      original.commandType !== 'SCHEDULE_CALLBACK' ||
       !original.recordId ||
       (original.status !== 'SCHEDULED' && original.status !== 'ALREADY_SCHEDULED')
     ) {
@@ -392,6 +330,13 @@ export class DialerCallbackService implements J2DialerOwnerPort {
     });
     if (!callback)
       return callbackRejection('OWNER_REJECTED', 'BUSINESS', 'ORIGINAL_ACTION_NOT_FOUND');
+    if (
+      callback.contactId !== command.contactId ||
+      callback.sourceOwnerTeamId !== command.sourceOwnerTeamId ||
+      callback.targetOwnerTeamId !== command.targetOwnerTeamId
+    ) {
+      return callbackRejection('BINDING_MISMATCH', 'CONTRACT', 'ORIGINAL_ACTION_BINDING_MISMATCH');
+    }
 
     const targetStatus = command.commandType === 'CANCEL_CALLBACK' ? 'CANCELLED' : 'SUPERSEDED';
     const alreadyTerminalByThisKind =

@@ -1,22 +1,18 @@
 /**
- * J2.5 — Dialer owner implementation of `J2DialerOwnerPort` for
- * `ADMIT_CAMPAIGN_TARGET` only. Dialer is the sole canonical writer of
- * `ob_campaign_*` per #121 — Journey never creates/starts/pauses/edits a
- * Campaign, and admission here never originates/sends (that's a separate,
- * later concern; see #133 out of scope).
+ * J2.5 — Dialer owner implementation of `J2DialerOwnerPort` for Campaign targets. Dialer is the
+ * sole canonical writer of `ob_campaign_*` per #121 — Journey never creates/starts/pauses/edits a
+ * Campaign, and admission here never originates/sends (that's the originate barrier, J2.9).
  *
- * `SCHEDULE_CALLBACK`/`CANCEL_*`/`SUPERSEDE_*` are other tickets' scope
- * (J2.6/J2.8) — this service satisfies the `J2DialerOwnerPort` type but
- * fails closed with `DialerCommandNotImplementedError` for them rather than
- * inventing behavior the Phase Contract hasn't authorized.
+ * J2.8 (#136) เพิ่ม `CANCEL_CAMPAIGN_TARGET`/`SUPERSEDE_CAMPAIGN_TARGET`: target ที่ยังไม่ถึง
+ * originate barrier (ADMITTED/DEFERRED) ยกเลิก/แทนที่ได้ ส่วน state ที่ barrier claim ไปแล้ว
+ * ตอบ `TOO_LATE` ตาม #123 — callback command ยังเป็นขอบเขตของ `DialerCallbackService`
  */
 import { randomUUID } from 'node:crypto';
-import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { Prisma, type PrismaClient } from '@d-contact/db';
 import {
-  actionKey as toActionKey,
-  commandId as toCommandId,
   tenantId as toTenantId,
   J2_ERROR_CONTRACT,
+  type CancelOwnerActionIntentV1,
   type J2DialerOwnerCommandV1,
   type J2DialerOwnerPort,
   type J2ErrorCode,
@@ -24,28 +20,40 @@ import {
   type J2OwnerActionQueryV1,
   type J2OwnerCommandPersistedV1,
   type J2OwnerResultPayloadV1,
+  type SupersedeOwnerActionIntentV1,
   type TeamContactScopeAuthorizer,
   type TenantId,
 } from '@d-contact/cxa-contracts';
-
-export class DialerCommandHashConflictError extends Error {
-  readonly code = 'IDEMPOTENCY_CONFLICT' as const;
-
-  constructor(readonly actionKey: string) {
-    super(`Dialer command actionKey มีอยู่แล้วด้วย requestHash ต่างกัน: ${actionKey}`);
-    this.name = 'DialerCommandHashConflictError';
-  }
-}
+import {
+  findPositiveReceipt,
+  persistDialerCommand,
+  queryDialerAction,
+  type DialerCommandDecision,
+} from './dialer-command-inbox.js';
 
 export class DialerCommandNotImplementedError extends Error {
   constructor(readonly commandType: string) {
-    super(`Dialer ยังไม่รองรับ command type นี้ใน J2.5: ${commandType}`);
+    super(`Dialer ยังไม่รองรับ command type นี้: ${commandType}`);
     this.name = 'DialerCommandNotImplementedError';
   }
 }
 
-export interface AdmitDecision {
-  status: 'ADMITTED' | 'ALREADY_ADMITTED' | 'REJECTED';
+type AdmitCommand = Extract<J2DialerOwnerCommandV1, { commandType: 'ADMIT_CAMPAIGN_TARGET' }>;
+type CancelOrSupersedeTargetCommand =
+  | Extract<J2DialerOwnerCommandV1, { intent: CancelOwnerActionIntentV1 }>
+  | Extract<J2DialerOwnerCommandV1, { intent: SupersedeOwnerActionIntentV1 }>;
+
+const CAMPAIGN_TARGET_COMMAND_TYPES: ReadonlySet<string> = new Set([
+  'ADMIT_CAMPAIGN_TARGET',
+  'CANCEL_CAMPAIGN_TARGET',
+  'SUPERSEDE_CAMPAIGN_TARGET',
+]);
+
+/** target ที่ originate barrier ยังไม่ claim — ยกเลิก/แทนที่ได้โดยไม่มี effect ที่ย้อนไม่ได้ */
+const REVERSIBLE_TARGET_STATES = new Set(['ADMITTED', 'DEFERRED']);
+
+export interface AdmitDecision extends DialerCommandDecision {
+  status: 'ADMITTED' | 'ALREADY_ADMITTED' | 'CANCELLED' | 'SUPERSEDED' | 'TOO_LATE' | 'REJECTED';
   code: string;
   category: string;
   reasonCode: string;
@@ -72,7 +80,7 @@ export function rejection(
 }
 
 export function admitted(
-  status: 'ADMITTED' | 'ALREADY_ADMITTED',
+  status: 'ADMITTED' | 'ALREADY_ADMITTED' | 'CANCELLED' | 'SUPERSEDED',
   reasonCode: string,
   recordId: string,
   recordVersion: number,
@@ -84,6 +92,20 @@ export function admitted(
     reasonCode,
     failureClass: 'NONE',
     retryDisposition: 'NONE',
+    recordId,
+    recordVersion,
+  };
+}
+
+function targetTooLate(recordId: string, recordVersion: number): AdmitDecision {
+  const error = J2_ERROR_CONTRACT.ACTION_TOO_LATE;
+  return {
+    status: 'TOO_LATE',
+    code: 'ACTION_TOO_LATE',
+    category: error.category,
+    reasonCode: 'CAMPAIGN_TARGET_IRREVERSIBLE',
+    failureClass: 'BUSINESS',
+    retryDisposition: error.retryDisposition,
     recordId,
     recordVersion,
   };
@@ -107,95 +129,121 @@ export class DialerAdmitCampaignTargetService implements J2DialerOwnerPort {
     tenant: TenantId,
     command: J2DialerOwnerCommandV1,
   ): Promise<J2OwnerCommandPersistedV1> {
-    if (command.commandType !== 'ADMIT_CAMPAIGN_TARGET') {
+    if (!CAMPAIGN_TARGET_COMMAND_TYPES.has(command.commandType)) {
       throw new DialerCommandNotImplementedError(command.commandType);
     }
-
-    await withTenantDatabaseTransaction(this.database, tenant, async (transaction) => {
-      await transaction.$queryRaw(
-        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`ob-command:${tenant}:${command.actionKey}`}))`,
-      );
-      const existing = await transaction.obDialerCommandInbox.findUnique({
-        where: { tenantId_actionKey: { tenantId: tenant, actionKey: command.actionKey } },
-      });
-      if (existing) {
-        if (existing.requestHash !== command.requestHash) {
-          throw new DialerCommandHashConflictError(command.actionKey);
-        }
-        return;
-      }
-
-      const decision = await this.decide(transaction, tenant, command);
-      await transaction.obDialerCommandInbox.create({
-        data: {
-          id: this.id(),
-          tenantId: tenant,
-          commandId: command.commandId,
-          actionKey: command.actionKey,
-          commandType: command.commandType,
-          requestHash: command.requestHash,
-          status: decision.status,
-          code: decision.code,
-          category: decision.category,
-          reasonCode: decision.reasonCode,
-          failureClass: decision.failureClass,
-          retryDisposition: decision.retryDisposition,
-          ...(decision.recordId ? { recordId: decision.recordId } : {}),
-          ...(decision.recordVersion !== undefined
-            ? { recordVersion: decision.recordVersion }
-            : {}),
-          correlationId: command.commandId,
-          observedAt: this.now(),
-        },
-      });
+    return persistDialerCommand({
+      database: this.database,
+      tenant,
+      command,
+      id: this.id,
+      now: this.now,
+      decide: (transaction) =>
+        command.commandType === 'ADMIT_CAMPAIGN_TARGET'
+          ? this.decide(transaction, tenant, command as AdmitCommand)
+          : this.decideCancelOrSupersede(
+              transaction,
+              tenant,
+              command as CancelOrSupersedeTargetCommand,
+            ),
     });
-    return {
-      status: 'PERSISTED',
-      commandId: command.commandId,
-      actionKey: command.actionKey,
-      requestHash: command.requestHash,
-    };
   }
 
-  async queryAction(
+  queryAction(
     tenant: TenantId,
     query: J2OwnerActionQueryV1,
   ): Promise<J2OwnerResultPayloadV1 | undefined> {
-    const row = await withTenantDatabaseTransaction(this.database, tenant, (transaction) =>
-      transaction.obDialerCommandInbox.findUnique({
-        where: { tenantId_actionKey: { tenantId: tenant, actionKey: query.actionKey } },
-      }),
+    return queryDialerAction(this.database, tenant, query, CAMPAIGN_TARGET_COMMAND_TYPES);
+  }
+
+  /**
+   * ไม่ตรวจ CONTACT scope ซ้ำ — การยกเลิกคือการ "ลด" การติดต่อ และเป็นทางที่ Journey ใช้ตอน scope
+   * ถูกถอน (J3 refilter) การบังคับ scope ที่นี่จะทำให้ยกเลิกไม่ได้พอดีตอนที่ต้องยกเลิกที่สุด
+   * แต่ต้อง bind กับ target เดิมจริง: contact และทีมทั้งสองต้องตรงกับที่ admit ไว้
+   */
+  private async decideCancelOrSupersede(
+    transaction: Prisma.TransactionClient,
+    tenantId: string,
+    command: CancelOrSupersedeTargetCommand,
+  ): Promise<AdmitDecision> {
+    const original = await findPositiveReceipt(
+      transaction,
+      tenantId,
+      command.intent.originalActionKey,
+      'ADMIT_CAMPAIGN_TARGET',
     );
-    if (!row || row.requestHash !== query.requestHash) return undefined;
-    return {
-      contractVersion: 1,
-      commandId: toCommandId(row.commandId),
-      actionKey: toActionKey(row.actionKey),
-      requestHash: row.requestHash,
-      commandType: 'ADMIT_CAMPAIGN_TARGET',
-      status: row.status as J2OwnerResultPayloadV1['status'],
-      code: row.code as J2OwnerResultPayloadV1['code'],
-      category: row.category as J2OwnerResultPayloadV1['category'],
-      reasonCode: row.reasonCode,
-      failureClass: row.failureClass as J2OwnerResultPayloadV1['failureClass'],
-      retryDisposition: row.retryDisposition as J2OwnerResultPayloadV1['retryDisposition'],
-      observedAt: row.observedAt.toISOString(),
-      ...(row.recordId && row.recordVersion !== null
+    if (
+      !original?.recordId ||
+      (original.status !== 'ADMITTED' && original.status !== 'ALREADY_ADMITTED')
+    ) {
+      return rejection('OWNER_REJECTED', 'BUSINESS', 'ORIGINAL_ACTION_NOT_FOUND');
+    }
+    const target = await transaction.obCampaignTarget.findFirst({
+      where: { id: original.recordId, tenantId },
+    });
+    if (
+      !target ||
+      target.contactId !== command.contactId ||
+      target.sourceOwnerTeamId !== command.sourceOwnerTeamId ||
+      target.targetOwnerTeamId !== command.targetOwnerTeamId
+    ) {
+      return rejection('BINDING_MISMATCH', 'CONTRACT', 'ORIGINAL_ACTION_BINDING_MISMATCH');
+    }
+
+    const supersede = 'supersedingOutcome' in command.intent;
+    const targetState = supersede ? 'SUPERSEDED' : 'CANCELLED';
+    if (target.state === targetState) {
+      return admitted(
+        targetState,
+        supersede ? 'CAMPAIGN_TARGET_ALREADY_SUPERSEDED' : 'CAMPAIGN_TARGET_ALREADY_CANCELLED',
+        target.id,
+        target.version,
+      );
+    }
+    if (!REVERSIBLE_TARGET_STATES.has(target.state)) {
+      return targetTooLate(target.id, target.version);
+    }
+
+    // CAS บน version + state — originate barrier claim ด้วย state ADMITTED + version เดียวกัน
+    // จึงชนะได้ฝั่งเดียว ถ้า barrier ชนะก่อน การยกเลิกต้องกลายเป็น TOO_LATE ไม่ใช่ทับ ORIGINATING
+    const now = this.now();
+    const intent = command.intent as SupersedeOwnerActionIntentV1;
+    const moved = await transaction.obCampaignTarget.updateMany({
+      where: { id: target.id, tenantId, version: target.version, state: target.state },
+      data: supersede
         ? {
-            ownerAggregate: {
-              type: 'campaign_target' as const,
-              id: row.recordId,
-              version: row.recordVersion,
-            },
+            state: 'SUPERSEDED',
+            supersededAt: now,
+            supersedingOutcomeType: intent.supersedingOutcome.outcomeType,
+            supersedingOutcomeId: intent.supersedingOutcome.outcomeId,
+            supersedingOutcomeVersion: intent.supersedingOutcome.outcomeVersion,
+            version: { increment: 1 },
           }
-        : {}),
-    };
+        : {
+            state: 'CANCELLED',
+            cancelledAt: now,
+            cancelReasonCode: command.intent.reasonCode,
+            version: { increment: 1 },
+          },
+    });
+    if (moved.count === 0) {
+      const current = await transaction.obCampaignTarget.findFirstOrThrow({
+        where: { id: target.id, tenantId },
+      });
+      return targetTooLate(current.id, current.version);
+    }
+    return admitted(
+      targetState,
+      supersede ? 'CAMPAIGN_TARGET_SUPERSEDED' : 'CAMPAIGN_TARGET_CANCELLED',
+      target.id,
+      target.version + 1,
+    );
   }
 
   private async decide(
     transaction: Prisma.TransactionClient,
     tenantId: string,
-    command: Extract<J2DialerOwnerCommandV1, { commandType: 'ADMIT_CAMPAIGN_TARGET' }>,
+    command: AdmitCommand,
   ): Promise<AdmitDecision> {
     const [contact, sourceTeam, targetTeam] = await Promise.all([
       transaction.contact.findFirst({

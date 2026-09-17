@@ -12,6 +12,7 @@ import {
   outcomeId,
   teamId,
   tenantId as toTenantId,
+  assertOwnerRequestHash,
   withOwnerRequestHash,
   type CancelOwnerActionIntentV1,
   type J2DialerOwnerCommandV1,
@@ -150,7 +151,8 @@ function cancelCommandFor(
   const draft = {
     contractVersion: 1,
     commandId: commandId(randomUUID()),
-    actionKey: actionKey(`${enrollment}:1:cancel-callback`),
+    // J2.1 contract: cancel/supersede ใช้ actionKey เดิมของ positive effect แต่ commandId ใหม่
+    actionKey: actionKey(originalActionKey),
     journeyId: journeyId('journey-outbound'),
     journeyVersion: 1,
     enrollmentId: enrollmentId(enrollment),
@@ -167,7 +169,10 @@ function cancelCommandFor(
     commandType: 'CANCEL_CALLBACK',
     intent: { originalActionKey: actionKey(originalActionKey), reasonCode: 'OUTCOME_CORRECTED' },
   } as const;
-  return withOwnerRequestHash(toTenantId(f.rawTenantId), draft) as CancelCommand;
+  return assertOwnerRequestHash(
+    toTenantId(f.rawTenantId),
+    withOwnerRequestHash(toTenantId(f.rawTenantId), draft),
+  ) as CancelCommand;
 }
 
 function supersedeCommandFor(
@@ -178,7 +183,8 @@ function supersedeCommandFor(
   const draft = {
     contractVersion: 1,
     commandId: commandId(randomUUID()),
-    actionKey: actionKey(`${enrollment}:1:supersede-callback`),
+    // J2.1 contract: cancel/supersede ใช้ actionKey เดิมของ positive effect แต่ commandId ใหม่
+    actionKey: actionKey(originalActionKey),
     journeyId: journeyId('journey-outbound'),
     journeyVersion: 1,
     enrollmentId: enrollmentId(enrollment),
@@ -203,7 +209,10 @@ function supersedeCommandFor(
       },
     },
   } as const;
-  return withOwnerRequestHash(toTenantId(f.rawTenantId), draft) as SupersedeCommand;
+  return assertOwnerRequestHash(
+    toTenantId(f.rawTenantId),
+    withOwnerRequestHash(toTenantId(f.rawTenantId), draft),
+  ) as SupersedeCommand;
 }
 
 test('ไม่มี callback เดิม: SCHEDULE_CALLBACK สร้าง record ใหม่และตอบ SCHEDULED', async (t) => {
@@ -522,4 +531,86 @@ test('tenant คนละใบไม่เห็น callback ของกัน
     requestHash: command.requestHash,
   });
   assert.equal(otherView, undefined);
+});
+
+test('cancel ตาม contract (actionKey เดิม) ไม่ชนกับ receipt ของ SCHEDULE และ query แยกด้วย requestHash', async (t) => {
+  const f = await fixture(t);
+  const service = new DialerCallbackService(f.application, allowAllScope);
+  const tenant = toTenantId(f.rawTenantId);
+  const schedule = scheduleCommandFor(f);
+  await service.persistCommand(tenant, schedule);
+  const cancel = cancelCommandFor(f, schedule.actionKey);
+  assert.equal(cancel.actionKey, schedule.actionKey);
+
+  await service.persistCommand(tenant, cancel);
+  // retry ของ cancel ใบเดิมเป็น duplicate ไม่ตัดสินใหม่
+  await service.persistCommand(tenant, cancel);
+
+  const [scheduled, cancelled] = await Promise.all(
+    [schedule, cancel].map((command) =>
+      service.queryAction(tenant, {
+        contractVersion: 1,
+        actionKey: command.actionKey,
+        requestHash: command.requestHash,
+      }),
+    ),
+  );
+  assert.equal(scheduled?.commandType, 'SCHEDULE_CALLBACK');
+  assert.equal(scheduled?.status, 'SCHEDULED');
+  assert.equal(cancelled?.commandType, 'CANCEL_CALLBACK');
+  assert.equal(cancelled?.status, 'CANCELLED');
+  assert.equal(await f.owner.obDialerCommandInbox.count({ where: { tenantId: f.rawTenantId } }), 2);
+});
+
+test('scope ที่ถูกถอนไม่ขวาง cancel — การยกเลิกคือทางที่ Journey ใช้ตอน scope ถูกถอน', async (t) => {
+  const f = await fixture(t);
+  const tenant = toTenantId(f.rawTenantId);
+  const schedule = scheduleCommandFor(f);
+  await new DialerCallbackService(f.application, allowAllScope).persistCommand(tenant, schedule);
+
+  const denying = new DialerCallbackService(f.application, {
+    async authorize() {
+      return {
+        decision: 'DENY' as const,
+        reasonCode: 'TEAM_SEGMENT_NOT_ALLOWED' as const,
+        evaluatedAt: new Date().toISOString(),
+      };
+    },
+  });
+  const cancel = cancelCommandFor(f, schedule.actionKey);
+  await denying.persistCommand(tenant, cancel);
+  const result = await denying.queryAction(tenant, {
+    contractVersion: 1,
+    actionKey: cancel.actionKey,
+    requestHash: cancel.requestHash,
+  });
+  assert.equal(result?.status, 'CANCELLED');
+});
+
+test('cancel ที่ contact/team ไม่ตรงกับ callback เดิมถูกปฏิเสธเป็น BINDING_MISMATCH', async (t) => {
+  const f = await fixture(t);
+  const other = await fixture(t);
+  const service = new DialerCallbackService(f.application, allowAllScope);
+  const tenant = toTenantId(f.rawTenantId);
+  const schedule = scheduleCommandFor(f);
+  await service.persistCommand(tenant, schedule);
+
+  const draft = {
+    ...cancelCommandFor(f, schedule.actionKey),
+    contactId: contactId(other.rawContactId),
+  };
+  const { requestHash: _stale, ...unhashed } = draft;
+  const mismatched = withOwnerRequestHash(tenant, unhashed) as CancelCommand;
+  await service.persistCommand(tenant, mismatched);
+  const result = await service.queryAction(tenant, {
+    contractVersion: 1,
+    actionKey: mismatched.actionKey,
+    requestHash: mismatched.requestHash,
+  });
+  assert.equal(result?.status, 'REJECTED');
+  assert.equal(result?.code, 'BINDING_MISMATCH');
+  const callback = await f.owner.obCallback.findFirstOrThrow({
+    where: { tenantId: f.rawTenantId },
+  });
+  assert.equal(callback.state, 'SCHEDULED');
 });

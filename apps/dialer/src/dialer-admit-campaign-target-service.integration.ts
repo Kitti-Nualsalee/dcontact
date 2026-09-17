@@ -13,16 +13,15 @@ import {
   outcomeId,
   teamId,
   tenantId as toTenantId,
+  assertOwnerRequestHash,
   withOwnerRequestHash,
   type AdmitCampaignTargetIntentV1,
   type J2DialerOwnerCommandV1,
   type TeamContactScopeAuthorizer,
 } from '@d-contact/cxa-contracts';
 import { CampaignFixtures } from './campaign-fixtures.js';
-import {
-  DialerAdmitCampaignTargetService,
-  DialerCommandHashConflictError,
-} from './dialer-admit-campaign-target-service.js';
+import { DialerAdmitCampaignTargetService } from './dialer-admit-campaign-target-service.js';
+import { DialerCommandHashConflictError } from './dialer-command-inbox.js';
 
 const APPLICATION_DATABASE_URL =
   process.env.APPLICATION_DATABASE_URL ??
@@ -392,4 +391,154 @@ test('tenant คนละใบไม่เห็น campaign target ของ�
     requestHash: command.requestHash,
   });
   assert.equal(otherView, undefined);
+});
+
+/** J2.1 contract: actionKey เดิมของ admit, commandId ใหม่ — supersede เพิ่ม superseding outcome */
+function targetCancelFor(
+  f: Awaited<ReturnType<typeof fixture>>,
+  admit: Extract<J2DialerOwnerCommandV1, { commandType: 'ADMIT_CAMPAIGN_TARGET' }>,
+  supersede = false,
+): J2DialerOwnerCommandV1 {
+  const { requestHash: _hash, commandType: _type, intent: _intent, ...common } = admit;
+  const draft = supersede
+    ? {
+        ...common,
+        commandId: commandId(randomUUID()),
+        commandType: 'SUPERSEDE_CAMPAIGN_TARGET' as const,
+        intent: {
+          originalActionKey: admit.actionKey,
+          reasonCode: 'OUTCOME_CORRECTED',
+          supersedingOutcome: {
+            outcomeType: 'INTERACTION_DISPOSITION_RECORDED' as const,
+            outcomeId: outcomeId(randomUUID()),
+            outcomeVersion: 2,
+          },
+        },
+      }
+    : {
+        ...common,
+        commandId: commandId(randomUUID()),
+        commandType: 'CANCEL_CAMPAIGN_TARGET' as const,
+        intent: { originalActionKey: admit.actionKey, reasonCode: 'OUTCOME_CORRECTED' },
+      };
+  return assertOwnerRequestHash(
+    toTenantId(f.rawTenantId),
+    withOwnerRequestHash(toTenantId(f.rawTenantId), draft),
+  ) as J2DialerOwnerCommandV1;
+}
+
+async function resultOf(
+  service: DialerAdmitCampaignTargetService,
+  f: Awaited<ReturnType<typeof fixture>>,
+  command: J2DialerOwnerCommandV1,
+) {
+  return service.queryAction(toTenantId(f.rawTenantId), {
+    contractVersion: 1,
+    actionKey: command.actionKey,
+    requestHash: command.requestHash,
+  });
+}
+
+test('CANCEL_CAMPAIGN_TARGET ยกเลิก target ที่ยังไม่ถึง originate barrier และ retry ได้ผลเดิม', async (t) => {
+  const f = await fixture(t);
+  const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
+  const tenant = toTenantId(f.rawTenantId);
+  const admit = commandFor(f);
+  await service.persistCommand(tenant, admit);
+
+  const cancel = targetCancelFor(f, admit);
+  await service.persistCommand(tenant, cancel);
+  await service.persistCommand(tenant, cancel);
+
+  const result = await resultOf(service, f, cancel);
+  assert.equal(result?.commandType, 'CANCEL_CAMPAIGN_TARGET');
+  assert.equal(result?.status, 'CANCELLED');
+  assert.equal(result?.ownerAggregate?.type, 'campaign_target');
+  assert.equal((await resultOf(service, f, admit))?.status, 'ADMITTED');
+
+  const target = await f.owner.obCampaignTarget.findUniqueOrThrow({
+    where: { id: result!.ownerAggregate!.id },
+  });
+  assert.equal(target.state, 'CANCELLED');
+  assert.equal(target.cancelReasonCode, 'OUTCOME_CORRECTED');
+  assert.equal(target.version, result!.ownerAggregate!.version);
+  assert.equal(await f.owner.obDialerCommandInbox.count({ where: { tenantId: f.rawTenantId } }), 2);
+});
+
+test('SUPERSEDE_CAMPAIGN_TARGET บันทึก superseding outcome linkage', async (t) => {
+  const f = await fixture(t);
+  const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
+  const tenant = toTenantId(f.rawTenantId);
+  const admit = commandFor(f);
+  await service.persistCommand(tenant, admit);
+  const supersede = targetCancelFor(f, admit, true);
+
+  await service.persistCommand(tenant, supersede);
+  const result = await resultOf(service, f, supersede);
+  assert.equal(result?.status, 'SUPERSEDED');
+  const target = await f.owner.obCampaignTarget.findUniqueOrThrow({
+    where: { id: result!.ownerAggregate!.id },
+  });
+  assert.equal(target.state, 'SUPERSEDED');
+  assert.equal(target.supersedingOutcomeVersion, 2);
+});
+
+test('target ที่ originate barrier claim แล้วตอบ TOO_LATE และไม่ย้อน state', async (t) => {
+  const f = await fixture(t);
+  const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
+  const tenant = toTenantId(f.rawTenantId);
+  const admit = commandFor(f);
+  await service.persistCommand(tenant, admit);
+  const admitted = await resultOf(service, f, admit);
+  await f.owner.obCampaignTarget.update({
+    where: { id: admitted!.ownerAggregate!.id },
+    data: { state: 'ORIGINATING', version: { increment: 1 } },
+  });
+
+  const cancel = targetCancelFor(f, admit);
+  await service.persistCommand(tenant, cancel);
+  const result = await resultOf(service, f, cancel);
+  assert.equal(result?.status, 'TOO_LATE');
+  assert.equal(result?.code, 'ACTION_TOO_LATE');
+  const target = await f.owner.obCampaignTarget.findUniqueOrThrow({
+    where: { id: admitted!.ownerAggregate!.id },
+  });
+  assert.equal(target.state, 'ORIGINATING');
+});
+
+test('cancel ไม่ถูกขวางด้วย scope ที่ถูกถอน แต่ต้อง bind กับ contact ของ target เดิม', async (t) => {
+  const f = await fixture(t);
+  const other = await fixture(t);
+  const tenant = toTenantId(f.rawTenantId);
+  const admit = commandFor(f);
+  await new DialerAdmitCampaignTargetService(f.application, allowAllScope).persistCommand(
+    tenant,
+    admit,
+  );
+  const denying = new DialerAdmitCampaignTargetService(f.application, denyAllScope);
+
+  const { requestHash: _hash, ...cancelDraft } = {
+    ...targetCancelFor(f, admit),
+    contactId: contactId(other.rawContactId),
+  };
+  const mismatched = withOwnerRequestHash(tenant, cancelDraft as never) as J2DialerOwnerCommandV1;
+  await denying.persistCommand(tenant, mismatched);
+  const rejected = await resultOf(denying, f, mismatched);
+  assert.equal(rejected?.status, 'REJECTED');
+  assert.equal(rejected?.code, 'BINDING_MISMATCH');
+
+  const cancel = targetCancelFor(f, admit);
+  await denying.persistCommand(tenant, cancel);
+  assert.equal((await resultOf(denying, f, cancel))?.status, 'CANCELLED');
+});
+
+test('cancel ที่ไม่มี admit ต้นเรื่องถูกปฏิเสธเป็น ORIGINAL_ACTION_NOT_FOUND', async (t) => {
+  const f = await fixture(t);
+  const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
+  const cancel = targetCancelFor(f, commandFor(f));
+
+  await service.persistCommand(toTenantId(f.rawTenantId), cancel);
+  const result = await resultOf(service, f, cancel);
+  assert.equal(result?.status, 'REJECTED');
+  assert.equal(result?.reasonCode, 'ORIGINAL_ACTION_NOT_FOUND');
 });
