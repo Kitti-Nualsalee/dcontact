@@ -2198,6 +2198,10 @@ model JrEnrollment {
   occurrenceId     String?           @map("occurrence_id") @db.Uuid
   /// J2.7: enrollment ที่เกิดจาก INTERACTION_OUTCOME trigger — nullable เหมือน
   /// eventInboxId/occurrenceId เพราะ trigger source ของ enrollment มีได้แบบเดียวเท่านั้น
+  ///
+  /// ชี้ receipt revision แรกของ logical outcome ที่ทำให้ journey นี้ match — correction
+  /// revision ถัดไปของ outcome เดิม re-evaluate enrollment ใบนี้ ไม่สร้างใบใหม่ (#123) และ
+  /// receipt หนึ่งใบ fan-out ได้หลาย published journey จึง unique ระดับ (receipt, journey)
   outcomeReceiptId String?           @map("outcome_receipt_id") @db.Uuid
   /// J3.7 (#218): enrollment ที่เกิดจาก SEGMENT_ENTRY trigger
   ///
@@ -2237,7 +2241,7 @@ model JrEnrollment {
   @@unique([tenantId, id])
   @@unique([tenantId, eventInboxId])
   @@unique([tenantId, occurrenceId], map: "jr_enrollments_tenant_occurrence_key")
-  @@unique([tenantId, outcomeReceiptId], map: "jr_enrollments_tenant_outcome_receipt_key")
+  @@unique([tenantId, outcomeReceiptId, journeyId], map: "jr_enrollments_tenant_outcome_receipt_journey_key")
   @@unique([tenantId, segmentIntentId], map: "jr_enrollments_tenant_segment_intent_key")
   @@index([tenantId, contactId, state])
   @@index([tenantId, runState, waitUntil], map: "jr_enrollments_tenant_run_state_wait_until_idx")

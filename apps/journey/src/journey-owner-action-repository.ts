@@ -331,17 +331,20 @@ export class JourneyOwnerActionRepository {
    * ขอ cancel — เฉพาะ state ที่ยัง reversible ตาม #123; state อื่นเป็น no-op
    * idempotent (ไม่ throw) เพราะ Journey ห้ามออก action key ใหม่เพื่อ cancel ซ้ำ
    */
-  async requestCancellation(input: {
-    tenantId: string;
-    actionKey: string;
-    cancelCommandId: string;
-    correlationId: string;
-    /** J2OwnerCommandPayloadV1 ของ CANCEL_x / SUPERSEDE_x เต็มรูปแบบพร้อม relay จริง (J2.8) */
-    commandPayload?: unknown;
-    /** admin recovery (#136) ต้องส่งมาเสมอ; caller ภายในที่ไม่ได้แข่งกับใครเว้นได้ */
-    expectedVersion?: number;
-  }): Promise<JrOwnerAction> {
-    return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+  async requestCancellation(
+    input: {
+      tenantId: string;
+      actionKey: string;
+      cancelCommandId: string;
+      correlationId: string;
+      /** J2OwnerCommandPayloadV1 ของ CANCEL_x / SUPERSEDE_x เต็มรูปแบบพร้อม relay จริง (J2.8) */
+      commandPayload?: unknown;
+      /** admin recovery (#136) ต้องส่งมาเสมอ; caller ภายในที่ไม่ได้แข่งกับใครเว้นได้ */
+      expectedVersion?: number;
+    },
+    transaction?: Prisma.TransactionClient,
+  ): Promise<JrOwnerAction> {
+    const run = async (transaction: Prisma.TransactionClient) => {
       const action = await transaction.jrOwnerAction.findUnique({
         where: { tenantId_actionKey: { tenantId: input.tenantId, actionKey: input.actionKey } },
       });
@@ -384,7 +387,10 @@ export class JourneyOwnerActionRepository {
         update: {},
       });
       return cancelled;
-    });
+    };
+    return transaction
+      ? run(transaction)
+      : withTenantDatabaseTransaction(this.database, input.tenantId, run);
   }
 
   /**
