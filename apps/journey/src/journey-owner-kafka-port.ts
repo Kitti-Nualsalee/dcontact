@@ -14,19 +14,19 @@
  *     persistence จริง ส่วน effect ฝั่ง owner เป็นคนละเรื่องที่ตามมาทีหลัง relay จึง mark
  *     SENT ได้อย่างซื่อสัตย์โดยไม่ได้อ้างว่า owner ทำงานเสร็จแล้ว
  *
- *   queryAction — ยังคืน undefined เสมอ จนกว่าจะมี result consumer (ข้อสองของ #136)
- *     เหตุผลเต็มอยู่ที่ตัว method — สรุปคือยอมบอกว่า "ยังไม่มีผล" ดีกว่าแต่งฟิลด์ที่
- *     ตาราง projection ไม่ได้เก็บไว้ขึ้นมาเองให้ reconciler ใช้ตัดสิน state
+ *   queryAction — publish owner action query แล้วคืน undefined ผลจริงกลับมาทาง result consumer
  *
  * ordering key ใช้ actionKey (ตาม envelope contract ของ J2.1) เพื่อให้ command ของ action เดียวกันไปอยู่ partition เดียวกัน
  * เสมอ — owner จึงเห็นลำดับ CANCEL/SUPERSEDE หลัง command ต้นเรื่องแน่นอน
  */
+import { randomUUID } from 'node:crypto';
 import type { DcProducer } from '@d-contact/kafka';
 import type { KafkaTopic } from '@d-contact/shared';
 import {
   actionKey as toActionKey,
   commandId as toCommandId,
   assertOwnerCommandEnvelope,
+  createOwnerActionQueryEnvelope,
   assertOwnerRequestHash,
   J2_COMMAND_EVENT_TYPE,
   type J2OwnerActionQueryV1,
@@ -84,22 +84,27 @@ export function createKafkaOwnerCommandPort<TCommand extends J2OwnerCommandPaylo
     },
 
     /**
-     * ยังคืน `undefined` เสมอ — และนั่นคือคำตอบที่ซื่อสัตย์ที่สุดตอนนี้
+     * ถาม owner แบบ async: publish `journey.owner_action_query_requested` ไปยัง topic ของ owner แล้ว
+     * คืน `undefined` ทันที ("ยังไม่มีผลในมือ") — owner ตอบจาก receipt ที่มีอยู่ด้วย result event เดิม
+     * ซึ่งไหลกลับมาทาง result consumer และ apply แบบ idempotent เหมือนผลปกติ
      *
-     * ผลจาก owner ฝั่ง Kafka ต้องเดินทางกลับมาเป็น `J2OwnerResultPayloadV1` เต็มใบผ่าน
-     * result consumer (ข้อสองของ #136 ที่ยังไม่ได้ทำ) ตาราง `jr_owner_result_inbox` เก็บ
-     * แค่ projection ย่อสำหรับ idempotency ไม่มี `commandType`, `code`, `category`,
-     * `failureClass` หรือ `retryDisposition` ให้ประกอบกลับ
-     *
-     * ถ้าจะ synthesize ฟิลด์ที่หายไปเองก็เท่ากับป้อนค่าที่แต่งขึ้นให้ reconciler ใช้ตัดสิน
-     * state ของ action ซึ่งอันตรายกว่าการบอกว่า "ยังไม่มีผล" มาก — reconciler ตีความ
-     * undefined เป็น "ยังรออยู่" (ACK_UNKNOWN) ซึ่งเป็น fail-safe และตรงกับความจริงว่า
-     * ยังไม่มีใครส่งผลกลับมา
+     * ไม่ synthesize ผลจาก `jr_owner_result_inbox` ในบ้าน และไม่ retry command เดิมแทนการถาม: owner
+     * ที่ไม่เคยได้รับ command จะไม่ตอบอะไร ปล่อยให้ bounded escalation ส่งต่อให้คนตัดสินผ่าน replay
+     * ที่ audit ไว้ (#123)
      */
     async queryAction(
-      _tenant: TenantId,
-      _query: J2OwnerActionQueryV1,
+      tenant: TenantId,
+      query: J2OwnerActionQueryV1,
     ): Promise<J2OwnerResultPayloadV1 | undefined> {
+      const envelope = createOwnerActionQueryEnvelope(tenant, query, {
+        eventId: `query:${randomUUID()}`,
+        correlationId: query.actionKey,
+        occurredAt: now().toISOString(),
+      });
+      await options.producer.send(
+        options.topic,
+        envelope as unknown as Parameters<DcProducer['send']>[1],
+      );
       return undefined;
     },
   };

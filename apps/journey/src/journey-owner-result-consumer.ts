@@ -13,18 +13,24 @@
  *      (`assertOwnerResultBinding` ของ contract ต้องใช้ command envelope ต้นฉบับซึ่ง consumer
  *      ไม่มี เราจึงเทียบกับ durable copy ที่ outbox เก็บไว้แทน ซึ่งให้การรับประกันเดียวกัน)
  *
- * result ที่ bind ไม่ได้จะถูก "ข้ามเงียบ" ไม่ได้เด็ดขาด — โยน error ให้ wrapper ส่งเข้า DLQ
- * เพราะผลที่อ้าง command ผิดคือสัญญาณว่ามีบางอย่างผิดจริง ไม่ใช่ event ที่ไม่เกี่ยวข้อง
+ * result ที่ bind ไม่ได้ ผิด contract หรือ hash ขัดกับผลที่ apply ไปแล้วจะถูก "ข้ามเงียบ" ไม่ได้ —
+ * กักเข้า DLQ ผ่าน `quarantineConsumedEvent` แล้วปล่อย offset (wrapper ของ Kafka retry error จาก
+ * handler ไม่รู้จบ ถ้า throw แทนจะ block ทั้ง partition) ส่วน error ชั่วคราว (DB) ยัง throw ให้ retry
  */
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import {
   createConsumer,
+  quarantineConsumedEvent,
   type CreateConsumerOptions,
   type DcConsumer,
   type DlqPublisher,
   type EventIdempotencyStore,
 } from '@d-contact/kafka';
-import { assertOwnerResultEnvelope } from '@d-contact/cxa-contracts';
+import {
+  J2PayloadContractError,
+  J2_RESULT_EVENT_TYPE,
+  assertOwnerResultEnvelope,
+} from '@d-contact/cxa-contracts';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
 import { STATUS_TO_RESULT_KIND, hashResult } from './journey-owner-result-reconciler.js';
@@ -43,6 +49,8 @@ export function createDurableOwnerResultIdempotencyStore(): EventIdempotencyStor
     },
   };
 }
+
+const OWNER_RESULT_EVENT_TYPES = new Set<string>(Object.values(J2_RESULT_EVENT_TYPE));
 
 export class OwnerResultBindingError extends Error {
   readonly code = 'OWNER_RESULT_BINDING_CONFLICT' as const;
@@ -78,12 +86,20 @@ export function createJourneyOwnerResultConsumer(
     ...(options.brokers ? { brokers: options.brokers } : {}),
     ...(options.dlq ? { dlq: options.dlq } : {}),
     idempotency: createDurableOwnerResultIdempotencyStore(),
-    handler: async ({ event }) => {
-      // topic เดียวกันมี event ชนิดอื่นของ owner ปนอยู่ได้ — ข้ามเฉพาะที่ไม่ใช่ result
+    handler: async (consumed) => {
+      const quarantine = (reasonCode: string) =>
+        quarantineConsumedEvent(options.dlq, consumed, reasonCode);
+
+      // topic เดียวกันมี event ชนิดอื่นของ owner ปนอยู่ได้ — ข้ามเฉพาะที่ไม่ใช่ result ส่วน result
+      // ที่ผิด contract ห้ามข้ามเงียบ เพราะนั่นคือผลจริงของ action ที่จะหายไปโดยไม่มีใครรู้
+      if (!OWNER_RESULT_EVENT_TYPES.has(String(consumed.event.type))) return;
       let envelope;
       try {
-        envelope = assertOwnerResultEnvelope(event);
-      } catch {
+        envelope = assertOwnerResultEnvelope(consumed.event);
+      } catch (error) {
+        if (!(error instanceof J2PayloadContractError)) throw error;
+        metrics.increment('journey_owner_result_binding_rejected_total');
+        await quarantine(error.code);
         return;
       }
       const result = envelope.payload;
@@ -100,20 +116,18 @@ export function createJourneyOwnerResultConsumer(
             },
           }),
       );
-      if (!command) {
+      const bindingError = !command
+        ? 'ไม่พบ command ต้นเรื่องใน outbox'
+        : command.actionKey !== result.actionKey
+          ? 'actionKey ไม่ตรงกับ command'
+          : command.requestHash !== result.requestHash
+            ? 'requestHash ไม่ตรงกับ command'
+            : undefined;
+      // bind ไม่ตรง retry กี่รอบก็ไม่ตรง — ถ้า throw จะวน retry ไม่รู้จบและ block ทั้ง partition
+      if (bindingError) {
         metrics.increment('journey_owner_result_binding_rejected_total');
-        throw new OwnerResultBindingError(result.commandId, 'ไม่พบ command ต้นเรื่องใน outbox');
-      }
-      if (command.actionKey !== result.actionKey) {
-        metrics.increment('journey_owner_result_binding_rejected_total');
-        throw new OwnerResultBindingError(
-          result.commandId,
-          `actionKey ไม่ตรง (${command.actionKey} vs ${result.actionKey})`,
-        );
-      }
-      if (command.requestHash !== result.requestHash) {
-        metrics.increment('journey_owner_result_binding_rejected_total');
-        throw new OwnerResultBindingError(result.commandId, 'requestHash ไม่ตรงกับ command');
+        await quarantine(new OwnerResultBindingError(result.commandId, bindingError).code);
+        return;
       }
 
       const applied = await actions.applyResult({
@@ -126,6 +140,14 @@ export function createJourneyOwnerResultConsumer(
         ...(result.ownerAggregate ? { ownerAggregateRef: result.ownerAggregate.id } : {}),
         ...(result.ownerAggregate ? { ownerAggregateVersion: result.ownerAggregate.version } : {}),
       });
+      if (applied.outcome === 'CONFLICT') {
+        metrics.increment('journey_owner_result_conflict_total');
+        await quarantine('EVENT_HASH_CONFLICT');
+      } else if (applied.outcome === 'DUPLICATE') {
+        metrics.increment('journey_owner_result_duplicate_total');
+      } else {
+        metrics.increment('journey_owner_result_applied_total');
+      }
     },
   };
   return createConsumer(consumerOptions);

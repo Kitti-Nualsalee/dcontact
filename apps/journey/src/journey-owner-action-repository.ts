@@ -549,6 +549,9 @@ export class JourneyOwnerActionRepository {
         data: {
           state: 'CANCEL_REQUESTED',
           cancelRequestedAt: new Date(),
+          // ช่วง cancel เป็นการไล่ตามผลใบใหม่ (ของ cancel command) — เริ่มนับเพดานใหม่ ไม่กินโควต้า
+          // ที่ ACK_UNKNOWN ของ command ต้นเรื่องใช้ไปแล้ว
+          attempts: 0,
           version: { increment: 1 },
         },
       });
@@ -680,6 +683,58 @@ export class JourneyOwnerActionRepository {
     );
     if (moved.count === 0) return null;
     return this.getAction(tenantId, actionKey) as Promise<JrOwnerAction>;
+  }
+
+  /** action ที่ขอ cancel/supersede ไปแล้วแต่ owner ยังไม่ยืนยันผลเกิน deadline และยังไม่หมดโควต้า */
+  findStaleCancelRequested(
+    tenantId: string,
+    requestedBefore: Date,
+    maxAttempts: number,
+    limit = 10,
+  ): Promise<JrOwnerAction[]> {
+    return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.jrOwnerAction.findMany({
+        where: {
+          tenantId,
+          state: 'CANCEL_REQUESTED',
+          cancelRequestedAt: { not: null, lte: requestedBefore },
+          attempts: { lt: maxAttempts },
+        },
+        orderBy: { cancelRequestedAt: 'asc' },
+        take: limit,
+      }),
+    );
+  }
+
+  /**
+   * นับ attempt ของการไล่ตามผล cancel โดยคง state CANCEL_REQUESTED ไว้ (ต่างจาก markAckUnknown) —
+   * version guard กันทับ action ที่เพิ่งได้ผลของ cancel ระหว่างทาง คืน null เมื่อแพ้ race
+   */
+  async markCancelUnconfirmed(
+    tenantId: string,
+    actionKey: string,
+    expectedVersion: number,
+  ): Promise<{ action: JrOwnerAction; cancelRequestHash: string } | null> {
+    return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      const moved = await transaction.jrOwnerAction.updateMany({
+        where: { tenantId, actionKey, version: expectedVersion, state: 'CANCEL_REQUESTED' },
+        data: { attempts: { increment: 1 }, version: { increment: 1 } },
+      });
+      if (moved.count === 0) return null;
+      const action = await transaction.jrOwnerAction.findUniqueOrThrow({
+        where: { tenantId_actionKey: { tenantId, actionKey } },
+      });
+      const commands = await transaction.jrOwnerCommandOutbox.findMany({
+        where: { tenantId, actionId: action.id },
+        orderBy: { createdAt: 'desc' },
+        select: { requestHash: true, payload: true },
+      });
+      const cancel = commands.find(({ payload }) =>
+        CANCEL_COMMAND_TYPES.has(payloadCommandType(payload) ?? ''),
+      );
+      if (!cancel) throw new OwnerActionCancellationUnavailableError(actionKey);
+      return { action, cancelRequestHash: cancel.requestHash };
+    });
   }
 
   findResultsFor(tenantId: string, actionKey: string): Promise<JrOwnerResultInbox[]> {

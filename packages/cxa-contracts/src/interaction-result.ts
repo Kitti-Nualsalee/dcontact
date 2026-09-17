@@ -243,6 +243,11 @@ export const J2_EVENT_TYPES = {
   CAMPAIGN_TARGET_SUPERSEDE_COMPLETED: 'dialer.campaign_target_supersede_completed',
   CALLBACK_SUPERSEDE_REQUESTED: 'dialer.callback_supersede_requested',
   CALLBACK_SUPERSEDE_COMPLETED: 'dialer.callback_supersede_completed',
+  /**
+   * J2.8 (#136) additive: Journey ถาม owner ด้วย `J2OwnerActionQueryV1` ก่อน retry ตอน ACK_UNKNOWN
+   * owner ตอบจาก receipt ที่มีอยู่เท่านั้น (ผลเดิม event เดิม) ไม่มีวันตัดสินหรือสร้าง effect ใหม่
+   */
+  OWNER_ACTION_QUERY_REQUESTED: 'journey.owner_action_query_requested',
 } as const;
 
 export type J2EventType = (typeof J2_EVENT_TYPES)[keyof typeof J2_EVENT_TYPES];
@@ -828,42 +833,98 @@ export function assertOwnerResultEnvelope(
   return { ...envelope, payload: result };
 }
 
-/**
- * J2.8 (#136): envelope ของผลที่ owner publish กลับ — owner ทุกรายใช้ builder เดียวกันจึงไม่ต้องรู้
- * metadata rule ของ contract เอง ผลลัพธ์ผ่าน `assertOwnerResultEnvelope` เสมอ
- *
- * eventId คงที่ต่อ commandId: receipt ของ owner immutable การ publish ซ้ำหลัง redelivery จึงเป็น
- * event เดิม ไม่ใช่ผลใบใหม่ และ causation ชี้ command envelope ที่ทำให้เกิดผลนี้
- */
-export function createOwnerResultEnvelope(
-  command: J2KafkaEnvelopeV2<J2OwnerCommandPayloadV1>,
-  resultValue: J2OwnerResultPayloadV1,
+function ownerResultEnvelope(
+  source: { tenantId: string; correlationId: string; eventId: string },
+  result: J2OwnerResultPayloadV1,
   occurredAt: string,
 ): J2KafkaEnvelopeV2<J2OwnerResultPayloadV1> {
-  const result = validateOwnerResultPayload(resultValue);
-  const envelope = assertOwnerResultEnvelope({
+  return assertOwnerResultEnvelope({
     schemaVersion: 2,
     eventKind: 'CANONICAL',
     eventId: `${result.commandId}:result`,
     type: J2_RESULT_EVENT_TYPE[result.commandType],
-    tenantId: command.tenantId,
+    tenantId: source.tenantId,
     occurredAt,
-    correlationId: command.correlationId,
-    causationId: command.eventId,
+    correlationId: source.correlationId,
+    causationId: source.eventId,
     orderingKey: result.actionKey,
     aggregateType: RECEIPT_AGGREGATE_TYPE_BY_COMMAND[result.commandType],
     aggregateId: result.commandId,
     aggregateVersion: 1,
     payload: result,
   });
+}
+
+/**
+ * J2.8 (#136): envelope ของผลที่ owner publish กลับ — owner ทุกรายใช้ builder เดียวกันจึงไม่ต้องรู้
+ * metadata rule ของ contract เอง ผลลัพธ์ผ่าน `assertOwnerResultEnvelope` เสมอ
+ *
+ * eventId คงที่ต่อ commandId: receipt ของ owner immutable การ publish ซ้ำหลัง redelivery หรือตอบ
+ * query จึงเป็น event เดิม ไม่ใช่ผลใบใหม่ และ causation ชี้ message ที่ทำให้ publish ครั้งนี้
+ */
+export function createOwnerResultEnvelope(
+  command: J2KafkaEnvelopeV2<J2OwnerCommandPayloadV1>,
+  resultValue: J2OwnerResultPayloadV1,
+  occurredAt: string,
+): J2KafkaEnvelopeV2<J2OwnerResultPayloadV1> {
+  const envelope = ownerResultEnvelope(
+    command,
+    validateOwnerResultPayload(resultValue),
+    occurredAt,
+  );
   assertOwnerResultBinding(command, envelope);
   return envelope;
+}
+
+export function assertOwnerActionQueryEnvelope(
+  value: unknown,
+): J2KafkaEnvelopeV2<J2OwnerActionQueryV1> {
+  const envelope = validateEnvelope(value);
+  const query = validateOwnerActionQuery(envelope.payload);
+  if (
+    envelope.eventKind !== 'COMMAND' ||
+    envelope.type !== J2_EVENT_TYPES.OWNER_ACTION_QUERY_REQUESTED ||
+    envelope.aggregateType !== 'journey_action' ||
+    envelope.aggregateId !== query.actionKey ||
+    envelope.aggregateVersion !== 0 ||
+    envelope.orderingKey !== query.actionKey
+  ) {
+    fail('envelope', 'owner action query V2 metadata ไม่ตรงกับ payload');
+  }
+  return { ...envelope, payload: query };
+}
+
+/** query ใช้ orderingKey = actionKey เดียวกับ command จึงตามหลัง command ต้นเรื่องใน partition เดียวกัน */
+export function createOwnerActionQueryEnvelope(
+  tenant: TenantId,
+  queryValue: J2OwnerActionQueryV1,
+  metadata: { eventId: string; correlationId: string; occurredAt: string },
+): J2KafkaEnvelopeV2<J2OwnerActionQueryV1> {
+  const query = validateOwnerActionQuery(queryValue);
+  return assertOwnerActionQueryEnvelope({
+    schemaVersion: 2,
+    eventKind: 'COMMAND',
+    eventId: metadata.eventId,
+    type: J2_EVENT_TYPES.OWNER_ACTION_QUERY_REQUESTED,
+    tenantId: tenant,
+    occurredAt: metadata.occurredAt,
+    correlationId: metadata.correlationId,
+    orderingKey: query.actionKey,
+    aggregateType: 'journey_action',
+    aggregateId: query.actionKey,
+    aggregateVersion: 0,
+    payload: query,
+  });
 }
 
 const J2_COMMAND_ENVELOPE_TYPES = new Set<string>(Object.values(J2_COMMAND_EVENT_TYPE));
 
 export type OwnerCommandProcessingOutcome =
   | { outcome: 'PROCESSED'; commandId: CommandId }
+  /** ตอบ query จาก receipt ที่มีอยู่ — publish ผลเดิมด้วย event เดิม */
+  | { outcome: 'QUERY_ANSWERED'; commandId: CommandId }
+  /** owner ยังไม่เคยได้รับ command ใบนั้น — ไม่ตอบ ปล่อยให้ Journey ตัดสินผ่าน bounded escalation */
+  | { outcome: 'QUERY_NO_RECEIPT' }
   | { outcome: 'IGNORED' }
   /** ห้าม retry: command อ่านไม่ได้ตาม contract หรือ commandId/actionKey เดิมแต่เนื้อหาต่าง */
   | {
@@ -900,6 +961,9 @@ export async function processOwnerCommandEvent<TCommand extends J2OwnerCommandPa
   },
 ): Promise<OwnerCommandProcessingOutcome> {
   const type = (event as { type?: unknown } | null)?.type;
+  if (type === J2_EVENT_TYPES.OWNER_ACTION_QUERY_REQUESTED) {
+    return answerOwnerActionQuery(event, options);
+  }
   if (typeof type !== 'string' || !J2_COMMAND_ENVELOPE_TYPES.has(type)) {
     return { outcome: 'IGNORED' };
   }
@@ -931,6 +995,30 @@ export async function processOwnerCommandEvent<TCommand extends J2OwnerCommandPa
   }
   await options.publish(createOwnerResultEnvelope(command, result, options.now().toISOString()));
   return { outcome: 'PROCESSED', commandId: payload.commandId };
+}
+
+async function answerOwnerActionQuery<TCommand extends J2OwnerCommandPayloadV1>(
+  event: unknown,
+  options: {
+    owner: J2OwnerPort<TCommand>;
+    publish: (envelope: J2KafkaEnvelopeV2<J2OwnerResultPayloadV1>) => Promise<void>;
+    now: () => Date;
+  },
+): Promise<OwnerCommandProcessingOutcome> {
+  let query: J2KafkaEnvelopeV2<J2OwnerActionQueryV1>;
+  try {
+    query = assertOwnerActionQueryEnvelope(event);
+  } catch (error) {
+    if (error instanceof J2PayloadContractError)
+      return { outcome: 'QUARANTINED', code: error.code };
+    throw error;
+  }
+  // owner.queryAction อ่านใน tenant context ของ envelope เท่านั้น — actionKey ของ tenant อื่นหาไม่เจอ
+  const result = await options.owner.queryAction(tenantId(query.tenantId), query.payload);
+  if (!result) return { outcome: 'QUERY_NO_RECEIPT' };
+  assertOwnerResultQueryBinding(query.payload, result);
+  await options.publish(ownerResultEnvelope(query, result, options.now().toISOString()));
+  return { outcome: 'QUERY_ANSWERED', commandId: result.commandId };
 }
 
 export function assertOwnerCommandCausation(outcomeValue: unknown, commandValue: unknown): void {

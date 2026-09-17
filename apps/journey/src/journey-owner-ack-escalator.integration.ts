@@ -8,7 +8,20 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 import { PrismaClient } from '@d-contact/db';
-import type { J2OwnerResultPayloadV1 } from '@d-contact/cxa-contracts';
+import {
+  actionKey as toActionKey,
+  campaignId,
+  commandId as toCommandId,
+  contactId,
+  enrollmentId as toEnrollmentId,
+  interactionId,
+  journeyId,
+  outcomeId,
+  teamId,
+  tenantId as toTenantId,
+  withOwnerRequestHash,
+  type J2OwnerResultPayloadV1,
+} from '@d-contact/cxa-contracts';
 import { JourneyOwnerAckEscalator } from './journey-owner-ack-escalator.js';
 import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
 import { JourneyOwnerResultReconciler } from './journey-owner-result-reconciler.js';
@@ -211,4 +224,124 @@ test('tenant คนละใบไม่ escalate ของกันและก
     where: { tenantId: other.tenantId, actionKey: theirs.actionKey },
   });
   assert.equal(untouched.state, 'DISPATCHED');
+});
+
+/** action ของ Dialer ที่ออกไปแล้วและขอ cancel ไว้เมื่อ `agoMs` ที่ผ่านมา — cancel command มี hash ของตัวเอง */
+async function cancelRequestedAgo(f: Awaited<ReturnType<typeof fixture>>, agoMs: number) {
+  const enrollment = randomUUID();
+  const actionKey = `${enrollment}:1:admit-campaign`;
+  const command = withOwnerRequestHash(toTenantId(f.tenantId), {
+    contractVersion: 1,
+    commandId: toCommandId(randomUUID()),
+    actionKey: toActionKey(actionKey),
+    journeyId: journeyId(randomUUID()),
+    journeyVersion: 1,
+    enrollmentId: toEnrollmentId(enrollment),
+    stepId: 'admit-campaign',
+    sourceOutcome: {
+      outcomeType: 'INTERACTION_DISPOSITION_RECORDED',
+      outcomeId: outcomeId(randomUUID()),
+      outcomeVersion: 1,
+    },
+    interactionId: interactionId(randomUUID()),
+    contactId: contactId(randomUUID()),
+    sourceOwnerTeamId: teamId(randomUUID()),
+    targetOwnerTeamId: teamId(randomUUID()),
+    commandType: 'ADMIT_CAMPAIGN_TARGET',
+    intent: { campaignId: campaignId('campaign-collections') },
+  });
+  await f.repository.ensureAction({
+    tenantId: f.tenantId,
+    actionKey,
+    enrollmentId: enrollment,
+    kind: 'ADMIT_CAMPAIGN_TARGET',
+    requestHash: command.requestHash,
+    correlationId: command.commandId,
+    commandId: command.commandId,
+    commandPayload: command,
+  });
+  await f.repository.markCommandDispatched(f.tenantId, command.commandId);
+  // ช่วง ACK_UNKNOWN ของ command ต้นเรื่องกินโควต้าไปแล้ว — cancel ต้องเริ่มนับใหม่
+  await f.owner.jrOwnerAction.updateMany({
+    where: { tenantId: f.tenantId, actionKey },
+    data: { attempts: 2 },
+  });
+  await f.repository.requestCancellation({
+    tenantId: f.tenantId,
+    actionKey,
+    cancelRequestKey: 'corrected',
+    correlationId: 'corr-cancel',
+  });
+  await f.owner.jrOwnerAction.updateMany({
+    where: { tenantId: f.tenantId, actionKey },
+    data: { cancelRequestedAt: new Date(Date.now() - agoMs) },
+  });
+  const cancel = await f.owner.jrOwnerCommandOutbox.findFirstOrThrow({
+    where: { tenantId: f.tenantId, actionKey, NOT: { commandId: command.commandId } },
+  });
+  return { actionKey, command, cancel };
+}
+
+test('CANCEL_REQUESTED ที่ owner ยังไม่ยืนยันถูกถามด้วย requestHash ของ cancel และมีเพดานของตัวเอง', async (t) => {
+  const f = await fixture(t);
+  const { actionKey, cancel } = await cancelRequestedAgo(f, 5_000);
+  const queries: string[] = [];
+  const recordingPort = {
+    ...f.silentPort,
+    async queryAction(_tenant: unknown, query: { requestHash: string }) {
+      queries.push(query.requestHash);
+      return undefined;
+    },
+  };
+  const escalate = escalator(f, recordingPort, { maxAttempts: 2 });
+
+  assert.equal(await escalate.escalateNext(f.tenantId), 'WAITING');
+  assert.equal(await escalate.escalateNext(f.tenantId), 'ESCALATED');
+  assert.equal(await escalate.escalateNext(f.tenantId), undefined, 'ครบเพดานแล้วต้องไม่ถูกหยิบอีก');
+
+  assert.deepEqual(queries, [cancel.requestHash, cancel.requestHash]);
+  const action = await f.owner.jrOwnerAction.findFirstOrThrow({
+    where: { tenantId: f.tenantId, actionKey },
+  });
+  assert.equal(action.state, 'CANCEL_REQUESTED', 'ห้ามแปลง cancel ที่ยังไม่ยืนยันเป็น ACK_UNKNOWN');
+  assert.equal(action.attempts, 2);
+  const audit = await f.owner.jrRecoveryAudit.findFirstOrThrow({
+    where: { tenantId: f.tenantId, targetRef: actionKey },
+  });
+  assert.equal(audit.reasonCode, 'CANCEL_UNCONFIRMED_DEADLINE_EXCEEDED');
+});
+
+test('owner ยืนยันผลของ cancel ตอนถูกถาม -> apply เป็น CANCELLED', async (t) => {
+  const f = await fixture(t);
+  const { actionKey, cancel } = await cancelRequestedAgo(f, 5_000);
+  const answeringPort = {
+    ...f.silentPort,
+    async queryAction(
+      _tenant: unknown,
+      query: { actionKey: string; requestHash: string },
+    ): Promise<J2OwnerResultPayloadV1 | undefined> {
+      if (query.requestHash !== cancel.requestHash) return undefined;
+      return {
+        contractVersion: 1,
+        commandId: cancel.commandId,
+        actionKey: query.actionKey,
+        requestHash: cancel.requestHash,
+        commandType: 'CANCEL_CAMPAIGN_TARGET',
+        status: 'CANCELLED',
+        code: 'CANCELLED',
+        category: 'BUSINESS',
+        reasonCode: 'CAMPAIGN_TARGET_CANCELLED',
+        failureClass: 'NONE',
+        retryDisposition: 'NONE',
+        observedAt: new Date().toISOString(),
+        ownerAggregate: { type: 'campaign_target', id: randomUUID(), version: 2 },
+      } as J2OwnerResultPayloadV1;
+    },
+  };
+
+  assert.equal(await escalator(f, answeringPort).escalateNext(f.tenantId), 'RECONCILED');
+  const action = await f.owner.jrOwnerAction.findFirstOrThrow({
+    where: { tenantId: f.tenantId, actionKey },
+  });
+  assert.equal(action.state, 'CANCELLED');
 });

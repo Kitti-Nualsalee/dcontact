@@ -36,6 +36,7 @@
     "s1:acceptance": "node scripts/s1-readiness.mjs",
     "test:s1-readiness": "node --test scripts/s1-readiness.test.mjs",
     "cxa:j2:acceptance": "node scripts/cxa-j2-readiness.mjs",
+    "test:integration:j2:fast": "pnpm --parallel --filter @d-contact/journey --filter @d-contact/dialer --filter @d-contact/cases --filter @d-contact/api exec sh -c 'tsx --test --test-concurrency=4 src/*.integration.ts'",
     "test:cxa-j2-readiness": "node --test scripts/cxa-j2-readiness.test.mjs",
     "cxa:j3:schema": "node scripts/cxa-j3-schema-readiness.mjs",
     "test:cxa-j3-schema-readiness": "node --test scripts/cxa-j3-schema-readiness.test.mjs",

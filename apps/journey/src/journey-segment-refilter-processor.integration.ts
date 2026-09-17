@@ -373,7 +373,7 @@ test('scope ถูกเพิกถอนหลัง enroll แล้วจบ
   );
 });
 
-test('IAM WORK grant ถูก revoke แล้ว re-filter ยกเลิก action ก่อน barrier ผ่าน owner command เดิม', async (t) => {
+test('IAM WORK grant ถูก revoke แล้ว re-filter ยกเลิก action ที่ command ยังไม่ออกจาก Journey', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   const journeyId = await publishJourney(f);
@@ -400,19 +400,22 @@ test('IAM WORK grant ถูก revoke แล้ว re-filter ยกเลิก 
     teamContactScopeAuthorizer: new IamTeamContactScopeAuthorizer(f.application),
   });
   assert.equal(await processor.executeNext(f.tenantId, 'iam-revoke-worker'), 'CANCELLED');
+  // command ยังไม่ออกจาก Journey — ยกเลิกในบ้านและห้าม dispatch ตาม semantics ของ #306
   assert.equal(
     (
       await f.owner.jrOwnerAction.findFirstOrThrow({
         where: { tenantId: f.tenantId, actionKey },
       })
     ).state,
-    'CANCEL_REQUESTED',
+    'CANCELLED',
   );
-  assert.equal(
-    await f.owner.jrOwnerCommandOutbox.count({
-      where: { tenantId: f.tenantId, commandId: `cancel:segment-refilter:${actionKey}` },
-    }),
-    1,
+  assert.deepEqual(
+    (
+      await f.owner.jrOwnerCommandOutbox.findMany({
+        where: { tenantId: f.tenantId, actionKey },
+      })
+    ).map(({ state }) => state),
+    ['CANCELLED'],
   );
   assert.equal(await f.owner.cgDecisionLog.count({ where: { tenantId: f.tenantId } }), 0);
 });
@@ -536,7 +539,7 @@ test('IAM revoke ของทีม A สร้าง durable cursor และ c
         where: { tenantId: f.tenantId, actionKey: actionA },
       })
     ).state,
-    'CANCEL_REQUESTED',
+    'CANCELLED',
   );
   assert.equal(
     (

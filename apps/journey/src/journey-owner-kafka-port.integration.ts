@@ -20,6 +20,7 @@ import {
   outcomeId as toOutcomeId,
   teamId as toTeamId,
   tenantId as toTenantId,
+  assertOwnerActionQueryEnvelope,
   assertOwnerCommandEnvelope,
   withOwnerRequestHash,
   type J2CaseOwnerCommandV1,
@@ -241,4 +242,34 @@ test('payload ที่ผิด contract ถูกปฏิเสธก่อ�
     } as never),
   );
   assert.deepEqual(sent, [], 'payload ที่ผิด contract ต้องไม่ถูก publish');
+});
+
+test('queryAction ถาม owner ผ่าน topic ด้วย query envelope ตาม contract และไม่แต่งผลขึ้นเอง', async (t) => {
+  const f = await fixture(t);
+  const sent: Array<{ topic: unknown; event: unknown }> = [];
+  const port = createKafkaOwnerCommandPort({
+    topic: KAFKA_TOPICS.DIALER_COMMANDS,
+    producer: {
+      async send(topic: unknown, event: unknown) {
+        sent.push({ topic, event });
+      },
+      async disconnect() {},
+    } as never,
+  });
+  const actionKey = `query-action-${randomUUID()}`;
+  const requestHash = 'd'.repeat(64);
+
+  const answer = await port.queryAction(toTenantId(f.tenantId), {
+    contractVersion: 1,
+    actionKey: toActionKey(actionKey),
+    requestHash,
+  });
+
+  assert.equal(answer, undefined, 'ผลจริงต้องกลับมาทาง result consumer เท่านั้น');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.topic, KAFKA_TOPICS.DIALER_COMMANDS);
+  const envelope = assertOwnerActionQueryEnvelope(sent[0]!.event);
+  assert.equal(envelope.tenantId, f.tenantId);
+  assert.equal(envelope.orderingKey, actionKey);
+  assert.deepEqual(envelope.payload, { contractVersion: 1, actionKey, requestHash });
 });
