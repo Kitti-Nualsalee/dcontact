@@ -2570,6 +2570,10 @@ enum ObCampaignTargetState {
   /// J2.9 follow-up: originate lease หมดขณะค้างใน ORIGINATING (เช่น process ตายกลางคัน)
   /// — ต้องให้ CG3 primitive/คนตัดสิน ห้าม originate ซ้ำและห้าม release reservation เอง
   RECONCILING
+  /// J2.8: CANCEL_CAMPAIGN_TARGET ก่อนถึง originate barrier (terminal)
+  CANCELLED
+  /// J2.8: SUPERSEDE_CAMPAIGN_TARGET ก่อนถึง originate barrier (terminal)
+  SUPERSEDED
 }
 
 /// fixture ของ campaign ที่ "มีอยู่แล้ว" — ไม่มี Campaign CRUD/UI ใน J2.5 (out of scope)
@@ -2617,6 +2621,12 @@ model ObCampaignTarget {
   /// J2.9 follow-up: ตั้งตอนเข้า ORIGINATING และล้างตอนออก — sweeper ใช้ตัวนี้แยก
   /// "กำลัง originate อยู่จริง" ออกจาก "ค้างเพราะ process ตาย"
   originateLeaseExpiresAt DateTime?            @map("originate_lease_expires_at")
+  cancelledAt               DateTime?          @map("cancelled_at")
+  cancelReasonCode          String?            @map("cancel_reason_code")
+  supersededAt              DateTime?          @map("superseded_at")
+  supersedingOutcomeType    String?            @map("superseding_outcome_type")
+  supersedingOutcomeId      String?            @map("superseding_outcome_id") @db.Uuid
+  supersedingOutcomeVersion Int?               @map("superseding_outcome_version")
   createdAt              DateTime              @default(now()) @map("created_at")
   updatedAt              DateTime              @updatedAt @map("updated_at")
 
@@ -2653,8 +2663,10 @@ model ObDialerCommandInbox {
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
-  @@unique([tenantId, actionKey])
-  @@index([tenantId, commandId])
+  /// J2.8: cancel/supersede ใช้ actionKey เดิมของ positive effect แต่ commandId ใหม่ (J2.1
+  /// contract) — receipt หนึ่งใบต่อ command จึง unique ที่ commandId ไม่ใช่ actionKey
+  @@unique([tenantId, commandId], map: "ob_dialer_command_inbox_tenant_command_key")
+  @@index([tenantId, actionKey, commandType], map: "ob_dialer_command_inbox_tenant_action_idx")
   @@map("ob_dialer_command_inbox")
 }
 
