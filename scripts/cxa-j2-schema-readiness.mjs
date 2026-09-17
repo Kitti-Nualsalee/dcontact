@@ -26,6 +26,10 @@ export const CANONICAL_J2_TABLES = [
   'ob_campaign_targets',
   'ob_dialer_command_inbox',
   'ob_callbacks',
+  // J2.9 (#137): rollout gate ของ originate barrier ที่แชร์ข้าม Dialer instance
+  'ob_originate_rollout_state',
+  'ob_originate_rollout_scopes',
+  'ob_originate_rollout_audit',
 ];
 
 const tableArray = `ARRAY[${CANONICAL_J2_TABLES.map((table) => `'${table}'`).join(',')}]`;

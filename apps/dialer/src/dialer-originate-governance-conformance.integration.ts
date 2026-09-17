@@ -22,7 +22,7 @@ import {
   type TeamContactScopeAuthorizer,
 } from '@d-contact/cxa-contracts';
 import { ContactGovernanceFake } from '@d-contact/cxa-contracts/testing/contact-governance-fake.js';
-import { CampaignFixtures } from './campaign-fixtures.js';
+import { CampaignFixtures, openOriginateGate } from './campaign-fixtures.js';
 import { DialerOriginateBarrier, type OriginateOutcome } from './dialer-originate-barrier.js';
 import { DialerOwnerBarrierGate } from './dialer-owner-barrier-gate.js';
 import { ScriptedTelephonyTransport } from './dialer-telephony-test-transport.js';
@@ -91,6 +91,9 @@ async function fixture(t: TestContext) {
   });
 
   t.after(async () => {
+    await owner.obOriginateRolloutAudit.deleteMany({ where: { tenantId } });
+    await owner.obOriginateRolloutScope.deleteMany({ where: { tenantId } });
+    await owner.obOriginateRollout.deleteMany({ where: { tenantId } });
     await owner.cgReservationCommandReceipt.deleteMany({ where: { tenantId } });
     await owner.cgTouch.deleteMany({ where: { tenantId } });
     await owner.cgAttempt.deleteMany({ where: { tenantId } });
@@ -167,13 +170,11 @@ const cg3IntegratedProfile: GovernanceProfile = {
 
 const PROFILES = [testAdapterProfile, cg3IntegratedProfile];
 
-function openGate(tenantId: string): DialerOwnerBarrierGate {
-  const gate = new DialerOwnerBarrierGate();
-  gate.propose(tenantId, 'TENANT_ADMIN', 'SHADOW_RECEIPT');
-  gate.approve(tenantId, 'COMPLIANCE');
-  gate.propose(tenantId, 'TENANT_ADMIN', 'OWNER_CONFORMANCE');
-  gate.approve(tenantId, 'COMPLIANCE');
-  return gate;
+function openGate(f: Fixture): Promise<DialerOwnerBarrierGate> {
+  return openOriginateGate(f.application, f.tenantId, 'SCOPED_INTERNAL_ENABLED', {
+    campaigns: [f.campaignId],
+    callbackQueues: [f.queueId],
+  });
 }
 
 function admittedTarget(f: Fixture) {
@@ -239,7 +240,7 @@ const SCENARIOS: Scenario[] = [
         f.application,
         port,
         allowAllScope,
-        openGate(f.tenantId),
+        await openGate(f),
         { transport: new ScriptedTelephonyTransport() },
       );
       const outcome = await barrier.originateCampaignTarget(f.tenantId, target.id, 'corr-1');
@@ -268,7 +269,7 @@ const SCENARIOS: Scenario[] = [
         f.application,
         port,
         allowAllScope,
-        openGate(f.tenantId),
+        await openGate(f),
         { transport },
       );
       const outcome = await barrier.originateCampaignTarget(f.tenantId, target.id, 'corr-1');
@@ -295,7 +296,7 @@ const SCENARIOS: Scenario[] = [
         f.application,
         port,
         allowAllScope,
-        openGate(f.tenantId),
+        await openGate(f),
         { transport: new ScriptedTelephonyTransport() },
       );
       const outcome = await barrier.originateCallback(f.tenantId, callback.id, 'corr-1');
@@ -316,7 +317,7 @@ const SCENARIOS: Scenario[] = [
         f.application,
         profile.create(f),
         denyAllScope,
-        openGate(f.tenantId),
+        await openGate(f),
         { transport: new ScriptedTelephonyTransport() },
       );
       const outcome = await barrier.originateCampaignTarget(f.tenantId, target.id, 'corr-1');
@@ -337,7 +338,7 @@ const SCENARIOS: Scenario[] = [
         f.application,
         profile.create(f),
         allowAllScope,
-        new DialerOwnerBarrierGate(),
+        new DialerOwnerBarrierGate(f.application),
         { transport: new ScriptedTelephonyTransport() },
       );
       const outcome = await barrier.originateCampaignTarget(f.tenantId, target.id, 'corr-1');

@@ -12,6 +12,10 @@ import {
   type PrismaClient,
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
+import {
+  DialerOwnerBarrierGate,
+  type DialerBarrierBusinessState,
+} from './dialer-owner-barrier-gate.js';
 
 export interface UpsertCampaignInput {
   tenantId: string;
@@ -60,4 +64,40 @@ export class CampaignFixtures {
       }),
     );
   }
+}
+
+export interface OpenOriginateGateOptions {
+  campaigns?: readonly string[];
+  callbackQueues?: readonly string[];
+}
+
+/**
+ * fixture ของ test: เลื่อน originate gate ไปถึง `target` ผ่าน maker-checker จริง (คนละ actor) และเพิ่ม
+ * allowlist ของ SCOPED_INTERNAL_ENABLED — ไม่ใช่ทางลัดข้าม authority model ของ gate
+ */
+export async function openOriginateGate(
+  database: PrismaClient,
+  tenantId: string,
+  target: DialerBarrierBusinessState,
+  scopes: OpenOriginateGateOptions = {},
+): Promise<DialerOwnerBarrierGate> {
+  const gate = new DialerOwnerBarrierGate(database);
+  const maker = { role: 'TENANT_ADMIN' as const, ref: 'fixture-tenant-admin' };
+  const checker = { role: 'COMPLIANCE' as const, ref: 'fixture-compliance' };
+  const order: DialerBarrierBusinessState[] = [
+    'SHADOW_RECEIPT',
+    'OWNER_CONFORMANCE',
+    'SCOPED_INTERNAL_ENABLED',
+  ];
+  for (const state of order.slice(0, order.indexOf(target) + 1)) {
+    await gate.propose(tenantId, maker, state);
+    await gate.approve(tenantId, checker);
+  }
+  for (const campaignId of scopes.campaigns ?? []) {
+    await gate.allowScope(tenantId, checker, 'CAMPAIGN', campaignId);
+  }
+  for (const queueId of scopes.callbackQueues ?? []) {
+    await gate.allowScope(tenantId, checker, 'CALLBACK_QUEUE', queueId);
+  }
+  return gate;
 }

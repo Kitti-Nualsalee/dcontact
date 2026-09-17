@@ -9,10 +9,9 @@ import test, { type TestContext } from 'node:test';
 import { PrismaClient } from '@d-contact/db';
 import { ContactGovernanceService } from '@d-contact/contact-governance';
 import type { TeamContactScopeAuthorizer } from '@d-contact/cxa-contracts';
-import { CampaignFixtures } from './campaign-fixtures.js';
+import { CampaignFixtures, openOriginateGate } from './campaign-fixtures.js';
 import { DialerOriginateBarrier } from './dialer-originate-barrier.js';
 import { DialerOriginateReconciler } from './dialer-originate-reconciler.js';
-import { DialerOwnerBarrierGate } from './dialer-owner-barrier-gate.js';
 import { ScriptedTelephonyTransport } from './dialer-telephony-test-transport.js';
 
 const APPLICATION_DATABASE_URL =
@@ -57,6 +56,9 @@ async function fixture(t: TestContext) {
     await owner.cgTouch.deleteMany({ where: { tenantId } });
     await owner.cgAttempt.deleteMany({ where: { tenantId } });
     await owner.cgReservation.deleteMany({ where: { tenantId } });
+    await owner.obOriginateRolloutAudit.deleteMany({ where: { tenantId } });
+    await owner.obOriginateRolloutScope.deleteMany({ where: { tenantId } });
+    await owner.obOriginateRollout.deleteMany({ where: { tenantId } });
     await owner.cgDecisionLog.deleteMany({ where: { tenantId } });
     await owner.cgConsent.deleteMany({ where: { tenantId } });
     await owner.obCampaignTarget.deleteMany({ where: { tenantId } });
@@ -202,11 +204,9 @@ test('originate ที่สำเร็จตามปกติล้าง lea
       expiresAt: new Date('2026-12-01T00:00:00.000Z'),
     },
   });
-  const gate = new DialerOwnerBarrierGate();
-  gate.propose(f.tenantId, 'TENANT_ADMIN', 'SHADOW_RECEIPT');
-  gate.approve(f.tenantId, 'COMPLIANCE');
-  gate.propose(f.tenantId, 'TENANT_ADMIN', 'OWNER_CONFORMANCE');
-  gate.approve(f.tenantId, 'COMPLIANCE');
+  const gate = await openOriginateGate(f.application, f.tenantId, 'SCOPED_INTERNAL_ENABLED', {
+    campaigns: [f.campaignId],
+  });
   const barrier = new DialerOriginateBarrier(
     f.application,
     new ContactGovernanceService(f.application),
