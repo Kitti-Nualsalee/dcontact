@@ -216,3 +216,33 @@ test('memoized executor ไม่แชร์ cache กันข้าม instan
 
   assert.equal(calls, 2);
 });
+
+test('ข้อความ assertion ที่ตามหลังบรรทัด failure ต้องรอดจากการ truncate ไม่ใช่เหลือแค่ error code', () => {
+  // รูปนี้คัดมาจาก CG4-OB02 ที่ล้มบน CI ระหว่าง J2 acceptance: เดิมเหลือแค่ code: 'ERR_ASSERTION'
+  // จนบอกไม่ได้ว่า assert ตัวไหนล้ม ต้องเดาเอาเองว่า flaky เพราะอะไร
+  const lines = [];
+  for (let index = 1; index <= 60; index += 1) lines.push(`ok ${index} - passing case ${index}`);
+  lines.push('not ok 61 - CG4-OB02: negative scan ไม่พบ PII');
+  lines.push("  failureType: 'testCodeFailure'");
+  lines.push('  error: |-');
+  lines.push('    metrics มี 0812345678');
+  lines.push('    + actual - expected');
+  lines.push('    + true');
+  lines.push('    - false');
+  lines.push("  code: 'ERR_ASSERTION'");
+  for (let index = 62; index <= 140; index += 1) lines.push(`ok ${index} - passing case ${index}`);
+  lines.push('# tests 140', '# pass 139', '# fail 1');
+
+  const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], () => ({
+    status: 1,
+    stdout: lines.join('\n'),
+    stderr: '',
+  }));
+
+  assert.equal(diagnostic.status, 'FAIL');
+  assert.match(diagnostic.detail, /CG4-OB02/);
+  assert.match(diagnostic.detail, /metrics มี 0812345678/);
+  assert.match(diagnostic.detail, /\+ actual - expected/);
+  // บรรทัดของเทสที่ผ่านซึ่งอยู่นอก window ต้องไม่ถูกดึงกลับมาปนจนกลบสาเหตุ
+  assert.doesNotMatch(diagnostic.detail, /passing case 100/);
+});
