@@ -86,3 +86,8 @@ test('รายการที่ต้องมีไม่ซ้ำกัน�
     assert.equal(new Set(list).size, list.length, `${label} มีรายการซ้ำ`);
   }
 });
+
+test('schema registry ใช้ unique cursor key ต่อ owner team หลัง IAM scope invalidation', () => {
+  assert.ok(REQUIRED_J3_UNIQUE_INDEXES.includes('jr_segment_refilter_cursors_team_scope_key'));
+  assert.ok(!REQUIRED_J3_UNIQUE_INDEXES.includes('jr_segment_refilter_cursors_key'));
+});
