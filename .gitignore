@@ -33,3 +33,6 @@ artifacts/cxa-j2/
 skills-lock.json
 *.agents
 *.claude
+
+# ข้อมูลรับรองของเครื่องมือภายนอก (เช่น Jira API token) ห้าม commit
+.jira
