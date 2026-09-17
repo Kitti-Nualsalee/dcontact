@@ -490,6 +490,31 @@ importers:
         specifier: ^5.5.4
         version: 5.9.3
 
+  packages/iam:
+    dependencies:
+      '@d-contact/cxa-contracts':
+        specifier: workspace:*
+        version: link:../cxa-contracts
+      '@d-contact/db':
+        specifier: workspace:*
+        version: link:../db
+      '@d-contact/kafka':
+        specifier: workspace:*
+        version: link:../kafka
+      '@d-contact/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      tsx:
+        specifier: ^4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+
   packages/journey-composition:
     dependencies:
       '@d-contact/contact-governance':

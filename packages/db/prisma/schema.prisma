@@ -157,6 +157,7 @@ model Team {
   queues  Queue[]
 
   @@unique([tenantId, name])
+  @@unique([tenantId, id])
   @@map("teams")
 }
 
@@ -3933,4 +3934,128 @@ model QmAuditEvent {
 
   @@index([tenantId, resourceType, resourceId, createdAt])
   @@map("qm_audit_events")
+}
+
+// ─────────────────────────── Administration / IAM ───────────────────────────
+
+enum IamScopePermission {
+  WORK
+  CONTACT
+}
+
+enum IamScopeProjectionState {
+  IN
+  OUT
+  INVALIDATED
+}
+
+enum IamScopeOutboxState {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+enum IamScopeInvalidationKind {
+  GRANTED
+  REVOKED
+  TEAM_DEACTIVATED
+  DELEGATION_REVOKED
+}
+
+model IamTeamSegmentScopeGrant {
+  id           String             @id @db.Uuid
+  tenantId     String             @map("tenant_id") @db.Uuid
+  teamId       String             @map("team_id") @db.Uuid
+  segmentId    String             @map("segment_id")
+  permission   IamScopePermission
+  grantVersion Int                @map("grant_version")
+  startsAt     DateTime           @default(now()) @map("starts_at")
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, teamId, segmentId, permission])
+  @@map("iam_team_segment_scope_grants")
+}
+
+/// Mutable head only; grant and revocation rows remain append-only audit evidence.
+model IamTeamSegmentScopeActiveGrant {
+  tenantId   String             @map("tenant_id") @db.Uuid
+  teamId     String             @map("team_id") @db.Uuid
+  segmentId  String             @map("segment_id")
+  permission IamScopePermission
+  grantId    String             @map("grant_id") @db.Uuid
+  updatedAt  DateTime           @updatedAt @map("updated_at")
+
+  @@id([tenantId, teamId, segmentId, permission])
+  @@unique([tenantId, grantId])
+  @@map("iam_team_segment_scope_active_grants")
+}
+
+model IamTeamSegmentScopeRevocation {
+  id           String   @id @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  grantId      String   @map("grant_id") @db.Uuid
+  scopeVersion Int      @map("scope_version")
+  reasonCode   String   @map("reason_code")
+  revokedAt    DateTime @default(now()) @map("revoked_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, grantId])
+  @@map("iam_team_segment_scope_revocations")
+}
+
+model IamTeamScopeVersion {
+  tenantId     String   @map("tenant_id") @db.Uuid
+  teamId       String   @map("team_id") @db.Uuid
+  scopeVersion Int      @default(0) @map("scope_version")
+  updatedAt    DateTime @default(now()) @map("updated_at")
+
+  @@id([tenantId, teamId])
+  @@map("iam_team_scope_versions")
+}
+
+model IamContactSegmentScopeProjection {
+  tenantId          String                  @map("tenant_id") @db.Uuid
+  contactId         String                  @map("contact_id") @db.Uuid
+  segmentId         String                  @map("segment_id")
+  state             IamScopeProjectionState
+  membershipRevision Int                    @map("membership_revision")
+  entryId           String?                 @map("entry_id")
+  sourceEventId     String                  @map("source_event_id")
+  sourceOccurredAt  DateTime                @map("source_occurred_at")
+  updatedAt         DateTime                @default(now()) @map("updated_at")
+
+  @@id([tenantId, contactId, segmentId])
+  @@map("iam_contact_segment_scope_projection")
+}
+
+model IamScopeInvalidationOutbox {
+  id           String                   @id @db.Uuid
+  tenantId     String                   @map("tenant_id") @db.Uuid
+  teamId       String                   @map("team_id") @db.Uuid
+  eventId      String                   @map("event_id")
+  scopeVersion Int                      @map("scope_version")
+  kind         IamScopeInvalidationKind
+  payload      Json
+  payloadHash  String                   @map("payload_hash") @db.Char(64)
+  state        IamScopeOutboxState      @default(PENDING)
+  attempts     Int                      @default(0)
+  availableAt  DateTime                 @default(now()) @map("available_at")
+  publishedAt  DateTime?                @map("published_at")
+  createdAt    DateTime                 @default(now()) @map("created_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, eventId])
+  @@index([tenantId, state, availableAt, createdAt])
+  @@map("iam_scope_invalidation_outbox")
+}
+
+model IamScopeConsumerInbox {
+  consumerGroup String   @map("consumer_group")
+  tenantId      String   @map("tenant_id") @db.Uuid
+  eventId       String   @map("event_id")
+  completedAt   DateTime @default(now()) @map("completed_at")
+
+  @@id([consumerGroup, tenantId, eventId])
+  @@map("iam_scope_consumer_inbox")
 }
