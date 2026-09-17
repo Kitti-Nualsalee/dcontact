@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
@@ -1017,6 +1018,58 @@ test('J3 bootstrap คงสิทธิ์ immutable evidence และ rollout
         `SELECT has_table_privilege('dcontact_app', '${table}', 'SELECT'), has_table_privilege('dcontact_app', '${table}', 'INSERT'), has_table_privilege('dcontact_app', '${table}', 'UPDATE'), has_table_privilege('dcontact_app', '${table}', 'DELETE');`,
       ),
       `t|t|${updateAllowed ? 't' : 'f'}|f`,
+      table,
+    );
+  }
+});
+
+/**
+ * J2.10 (#138): migration ถอนสิทธิ์ที่ตารางหนึ่งต้องเป็น append-only/undeletable ไว้ แต่ rls.sql
+ * (bootstrap) GRANT SELECT/INSERT/UPDATE/DELETE ทุกตารางก่อนแล้วค่อย REVOKE ทีละตาราง — ตารางใหม่
+ * ที่ลืมใส่รายการ REVOKE จึงได้สิทธิ์คืนเงียบ ๆ บน environment ที่ bootstrap (CI) แต่ไม่ใช่บนเครื่อง
+ * ที่รันแค่ migrate เทสนี้อ่าน REVOKE ทั้งหมดจาก migration แล้วยืนยันกับสิทธิ์จริงหลัง bootstrap
+ */
+function revokedApplicationPrivilegesFromMigrations(): Array<[string, string]> {
+  const migrations = resolve(repositoryRoot, 'packages/db/prisma/migrations');
+  const pattern = /REVOKE\s+([A-Za-z,\s]+?)\s+ON\s+"?([a-z0-9_]+)"?\s+FROM\s+dcontact_app/gi;
+  const revoked = new Set<string>();
+  for (const entry of readdirSync(migrations, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const sql = readFileSync(resolve(migrations, entry.name, 'migration.sql'), 'utf8');
+    for (const match of sql.matchAll(pattern)) {
+      for (const privilege of match[1].split(',')) {
+        revoked.add(`${match[2]} ${privilege.trim().toUpperCase()}`);
+      }
+    }
+  }
+  return [...revoked].sort().map((row) => row.split(' ') as [string, string]);
+}
+
+test('bootstrap ไม่คืนสิทธิ์ที่ migration ถอนจาก dcontact_app', () => {
+  const revoked = revokedApplicationPrivilegesFromMigrations();
+  assert.ok(revoked.length >= 40, `อ่าน REVOKE จาก migration ได้ ${revoked.length} รายการ`);
+  const values = revoked.map(([table, privilege]) => `('${table}','${privilege}')`).join(',');
+  assert.equal(
+    queryAsOwner(
+      `SELECT coalesce(string_agg(t || ':' || p, ', ' ORDER BY t, p), '') FROM (VALUES ${values})
+         AS revoked(t, p) WHERE has_table_privilege('dcontact_app', t, p);`,
+    ),
+    '',
+    'packages/db/prisma/rls.sql ต้อง REVOKE สิทธิ์เหล่านี้ซ้ำหลัง GRANT ... ON ALL TABLES',
+  );
+});
+
+test('J2.9 rollout gate: state ลบไม่ได้และ audit เป็น append-only สำหรับ application role', () => {
+  for (const [table, expected] of [
+    ['ob_originate_rollout_state', 't|t|t|f'],
+    ['ob_originate_rollout_scopes', 't|t|f|t'],
+    ['ob_originate_rollout_audit', 't|t|f|f'],
+  ] as const) {
+    assert.equal(
+      queryAsOwner(
+        `SELECT has_table_privilege('dcontact_app', '${table}', 'SELECT'), has_table_privilege('dcontact_app', '${table}', 'INSERT'), has_table_privilege('dcontact_app', '${table}', 'UPDATE'), has_table_privilege('dcontact_app', '${table}', 'DELETE');`,
+      ),
+      expected,
       table,
     );
   }
