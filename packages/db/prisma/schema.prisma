@@ -148,9 +148,10 @@ model User {
 }
 
 model Team {
-  id       String @id @default(uuid()) @db.Uuid
-  tenantId String @map("tenant_id") @db.Uuid
+  id       String  @id @default(uuid()) @db.Uuid
+  tenantId String  @map("tenant_id") @db.Uuid
   name     String
+  isActive Boolean @default(true) @map("is_active")
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   members User[]

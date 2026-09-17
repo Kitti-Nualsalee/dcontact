@@ -1,4 +1,4 @@
-import type { ContactId, TeamId, TenantId } from './identifiers.js';
+import type { ContactId, SegmentId, TeamId, TenantId } from './identifiers.js';
 
 /**
  * `WORK` is additive for J2 (#122): a cross-team owner-command checkpoint distinct
@@ -52,4 +52,29 @@ export interface TeamContactScopeAuthorizer<TContext = undefined> {
     input: AuthorizeTeamContactScopeInput,
     context?: TContext,
   ): Promise<TeamContactScopeAuthorization>;
+}
+
+/** Publish-time capability check; it deliberately has no contact identifier. */
+export interface AuthorizeTeamSegmentConfigurationInput {
+  tenantId: TenantId;
+  teamId: TeamId;
+  segmentId: SegmentId;
+  permission: ContactScopePermission;
+  at: string;
+}
+
+export type TeamSegmentConfigurationAuthorization =
+  | AllowedTeamContactScope
+  | Readonly<{
+      decision: 'DENY';
+      reasonCode: 'TEAM_SEGMENT_NOT_ALLOWED' | 'TEAM_NOT_FOUND';
+      evaluatedAt: string;
+    }>;
+
+/** Configuration ALLOW never authorizes a later runtime contact action. */
+export interface TeamSegmentConfigurationAuthorizer<TContext = undefined> {
+  authorizeConfiguration(
+    input: AuthorizeTeamSegmentConfigurationInput,
+    context?: TContext,
+  ): Promise<TeamSegmentConfigurationAuthorization>;
 }
