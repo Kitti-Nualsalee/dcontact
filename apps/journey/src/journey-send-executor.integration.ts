@@ -10,6 +10,7 @@ import { PrismaClient } from '@d-contact/db';
 import { DcExprEvaluator } from '@d-contact/expression';
 import { ContactGovernanceService } from '@d-contact/contact-governance';
 import { DeliveryTestAdapter } from '@d-contact/delivery';
+import { IamTeamContactScopeAuthorizer, IamTeamSegmentScopeRepository } from '@d-contact/iam';
 import type {
   AuthorizeTeamContactScopeInput,
   ContactGovernancePort,
@@ -18,6 +19,14 @@ import type {
   EnqueueDeliveryResult,
   TeamContactScopeAuthorization,
   TeamContactScopeAuthorizer,
+} from '@d-contact/cxa-contracts';
+import {
+  contactId as toContactId,
+  customerSnapshotVersion,
+  membershipRevision,
+  segmentDefinitionVersion,
+  segmentEntryId,
+  segmentId,
 } from '@d-contact/cxa-contracts';
 import { JourneyDefinitionRepository } from './journey-definition-repository.js';
 import type { CreateJourneyVersionInput, JourneyGraph } from './journey-definition.js';
@@ -170,6 +179,13 @@ async function fixture(t: TestContext) {
     await owner.cgReservation.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.cgConsent.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.contactIdentity.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.iamScopeInvalidationOutbox.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.iamScopeConsumerInbox.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.iamContactSegmentScopeProjection.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.iamTeamSegmentScopeRevocation.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.iamTeamSegmentScopeActiveGrant.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.iamTeamSegmentScopeGrant.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.iamTeamScopeVersion.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.contact.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.team.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.tenant.deleteMany({ where: { id: rawTenantId } });
@@ -330,6 +346,65 @@ test('SEND ที่ scope DENY ไม่ authorize/reserve หรือ enqueue
   assert.equal(result.enrollment.currentStepId, 'exit-done');
   assert.equal(await f.owner.dlOutboxEntry.count({ where: { tenantId: f.rawTenantId } }), 0);
   assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.rawTenantId } }), 0);
+});
+
+test('IAM CONTACT grant ที่ถูก revoke หยุด SEND ก่อน Governance reservation และ Delivery', async (t) => {
+  const f = await fixture(t);
+  const scope = new IamTeamSegmentScopeRepository(f.application);
+  const scopeSegment = `send-scope-${f.suffix}`;
+  const grant = await scope.grant({
+    tenantId: f.rawTenantId,
+    teamId: f.rawTeamId,
+    segmentId: scopeSegment,
+    permission: 'CONTACT',
+    correlationId: `grant-contact-${f.suffix}`,
+  });
+  await scope.applyMembershipChange({
+    tenantId: f.rawTenantId,
+    consumerGroup: 'journey-send-iam-test',
+    eventId: `membership-${f.suffix}`,
+    occurredAt: '2099-01-01T00:00:00.000Z',
+    payload: {
+      contractVersion: 1,
+      contactId: toContactId(f.rawContactId),
+      segmentId: segmentId(scopeSegment),
+      membershipRevision: membershipRevision(1),
+      changeKind: 'ENTERED',
+      entryId: segmentEntryId(`entry-${f.suffix}`),
+      segmentDefinitionVersion: segmentDefinitionVersion(1),
+      snapshotVersion: customerSnapshotVersion(1),
+      evaluatedAt: '2099-01-01T00:00:00.000Z',
+      stateDigest: 'c'.repeat(64),
+    },
+  });
+  if (grant.outcome !== 'GRANTED') throw new Error('fixture ต้องสร้าง CONTACT grant ใหม่');
+  await scope.revoke({
+    tenantId: f.rawTenantId,
+    grantId: grant.grant.id,
+    reasonCode: 'ADMIN_REVOKE',
+    correlationId: `revoke-contact-${f.suffix}`,
+  });
+
+  const parked = await f.enrollAndAdvanceToSend();
+  const executor = new JourneySendExecutor(
+    f.execution,
+    f.definitions,
+    new IamTeamContactScopeAuthorizer(f.application),
+    f.governance,
+    f.delivery,
+  );
+  const result = await executor.handleSend({
+    tenantId: f.rawTenantId,
+    enrollmentId: parked.enrollment.enrollmentId,
+    stepId: parked.stepId,
+    stepSequence: parked.stepSequence,
+    contact: { contactId: f.rawContactId, identityId: f.rawIdentityId },
+    correlationId: `send-after-revoke-${f.suffix}`,
+  });
+
+  assert.equal(result.kind, 'SCOPE_DENIED');
+  assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.rawTenantId } }), 0);
+  assert.equal(await f.owner.dlOutboxEntry.count({ where: { tenantId: f.rawTenantId } }), 0);
 });
 
 test('SEND ที่ scope stale ไม่ reserve หรือ enqueue และคง cursor เพื่อ resolve IAM ใหม่', async (t) => {
