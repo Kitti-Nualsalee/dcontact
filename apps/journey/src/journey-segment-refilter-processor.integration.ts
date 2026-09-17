@@ -373,7 +373,7 @@ test('scope ถูกเพิกถอนหลัง enroll แล้วจบ
   );
 });
 
-test('IAM WORK grant ถูก revoke แล้ว re-filter ยกเลิก action ที่ command ยังไม่ออกจาก Journey', async (t) => {
+test('IAM WORK grant ถูก revoke แล้ว re-filter ปิด action ที่ยังไม่ dispatch ใน Journey โดยไม่สร้าง owner command เพิ่ม', async (t) => {
   const f = await fixture(t);
   const entryId = `entry-${f.suffix}`;
   const journeyId = await publishJourney(f);
@@ -400,7 +400,6 @@ test('IAM WORK grant ถูก revoke แล้ว re-filter ยกเลิก 
     teamContactScopeAuthorizer: new IamTeamContactScopeAuthorizer(f.application),
   });
   assert.equal(await processor.executeNext(f.tenantId, 'iam-revoke-worker'), 'CANCELLED');
-  // command ยังไม่ออกจาก Journey — ยกเลิกในบ้านและห้าม dispatch ตาม semantics ของ #306
   assert.equal(
     (
       await f.owner.jrOwnerAction.findFirstOrThrow({
@@ -409,13 +408,19 @@ test('IAM WORK grant ถูก revoke แล้ว re-filter ยกเลิก 
     ).state,
     'CANCELLED',
   );
-  assert.deepEqual(
-    (
-      await f.owner.jrOwnerCommandOutbox.findMany({
-        where: { tenantId: f.tenantId, actionKey },
-      })
-    ).map(({ state }) => state),
-    ['CANCELLED'],
+  assert.equal(
+    await f.owner.jrOwnerCommandOutbox.count({
+      where: { tenantId: f.tenantId, actionKey, state: 'CANCELLED' },
+    }),
+    1,
+    'command เดิมที่ยังไม่ dispatch ต้องถูกยกเลิกใน Journey',
+  );
+  assert.equal(
+    await f.owner.jrOwnerCommandOutbox.count({
+      where: { tenantId: f.tenantId, commandId: `cancel:segment-refilter:${actionKey}` },
+    }),
+    0,
+    'ห้ามสร้าง cancel command เมื่อ owner ยังไม่ได้รับ command ต้นเรื่อง',
   );
   assert.equal(await f.owner.cgDecisionLog.count({ where: { tenantId: f.tenantId } }), 0);
 });
@@ -540,6 +545,19 @@ test('IAM revoke ของทีม A สร้าง durable cursor และ c
       })
     ).state,
     'CANCELLED',
+  );
+  assert.equal(
+    await f.owner.jrOwnerCommandOutbox.count({
+      where: { tenantId: f.tenantId, actionKey: actionA, state: 'CANCELLED' },
+    }),
+    1,
+    'revoke ทีม A ต้องยกเลิกเฉพาะ command ที่ยังไม่ dispatch ของทีม A',
+  );
+  assert.equal(
+    await f.owner.jrOwnerCommandOutbox.count({
+      where: { tenantId: f.tenantId, commandId: `cancel:segment-refilter:${actionA}` },
+    }),
+    0,
   );
   assert.equal(
     (

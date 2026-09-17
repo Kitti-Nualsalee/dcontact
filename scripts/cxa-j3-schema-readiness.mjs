@@ -64,7 +64,7 @@ export const REQUIRED_J3_UNIQUE_INDEXES = [
   'jr_segment_receipts_transport_key',
   'jr_segment_receipts_logical_key',
   'jr_segment_enrollment_intents_key',
-  'jr_segment_refilter_cursors_key',
+  'jr_segment_refilter_cursors_team_scope_key',
   'jr_segment_outbox_event_key',
   'jr_enrollments_tenant_segment_intent_key',
   'jr_segment_rollout_state_tenant_key',
