@@ -20,6 +20,8 @@ import {
   outcomeId as toOutcomeId,
   teamId as toTeamId,
   tenantId as toTenantId,
+  assertOwnerCommandEnvelope,
+  withOwnerRequestHash,
   type J2CaseOwnerCommandV1,
 } from '@d-contact/cxa-contracts';
 import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
@@ -68,15 +70,15 @@ async function fixture(t: TestContext) {
 
 /** shape เดียวกับที่ JourneyOutcomeTriggerProcessor สร้างจริง ไม่ได้ย่อให้ test ผ่านง่าย */
 function ensureCaseCommand(
+  tenantId: string,
   enrollmentId: string,
   actionKey: string,
   commandId: string,
 ): J2CaseOwnerCommandV1 {
-  return {
+  return withOwnerRequestHash(toTenantId(tenantId), {
     contractVersion: 1,
     commandId: toCommandId(commandId),
     actionKey: toActionKey(actionKey),
-    requestHash: 'b'.repeat(64),
     journeyId: toJourneyId(randomUUID()),
     journeyVersion: 1,
     enrollmentId: toEnrollmentId(enrollmentId),
@@ -92,7 +94,7 @@ function ensureCaseCommand(
     targetOwnerTeamId: toTeamId(randomUUID()),
     commandType: 'ENSURE_CASE',
     intent: { caseTypePolicyRef: 'support', routingPolicyRef: 'default' },
-  };
+  }) as J2CaseOwnerCommandV1;
 }
 
 test(
@@ -101,7 +103,7 @@ test(
   async (t) => {
     const f = await fixture(t);
     const suffix = randomUUID();
-    const received: Array<{ orderingKey: string; payload: Record<string, unknown> }> = [];
+    const received: Array<Record<string, unknown>> = [];
 
     const consumer = await createConsumer({
       clientId: `j2-8-kafka-${suffix}-consumer`,
@@ -110,10 +112,7 @@ test(
       topics: [KAFKA_TOPICS.CASE_COMMANDS],
       idempotency: createInMemoryIdempotencyStore(),
       handler: (message) => {
-        received.push({
-          orderingKey: message.event.orderingKey,
-          payload: message.event.payload as Record<string, unknown>,
-        });
+        received.push(message.event as unknown as Record<string, unknown>);
       },
     });
     await consumer.ready();
@@ -135,7 +134,7 @@ test(
     const commandId = randomUUID();
     const persisted = await port.persistCommand(
       toTenantId(f.tenantId),
-      ensureCaseCommand(f.enrollmentId, actionKey, commandId),
+      ensureCaseCommand(f.tenantId, f.enrollmentId, actionKey, commandId),
     );
 
     assert.equal(persisted.status, 'PERSISTED');
@@ -143,10 +142,13 @@ test(
     assert.equal(persisted.actionKey, actionKey);
 
     await waitFor(() => received.length === 1);
-    // ordering key ผูก actionKey — command ของ action เดียวกันอยู่ partition เดียวกันเสมอ
-    assert.equal(received[0]!.orderingKey, `${f.tenantId}:${actionKey}`);
-    assert.equal(received[0]!.payload.actionKey, actionKey);
-    assert.equal(received[0]!.payload.commandType, 'ENSURE_CASE');
+    // owner ต้องตรวจ envelope ที่ได้รับด้วย contract เดียวกันผ่าน — ordering key ผูก actionKey
+    // (cancel/supersede ใช้ actionKey เดิมจึงอยู่ partition เดียวกัน) และ eventId = commandId
+    const envelope = assertOwnerCommandEnvelope(received[0]);
+    assert.equal(envelope.orderingKey, actionKey);
+    assert.equal(envelope.eventId, commandId);
+    assert.equal(envelope.type, 'case.ensure_requested');
+    assert.equal(envelope.payload.commandType, 'ENSURE_CASE');
   },
 );
 
@@ -159,15 +161,16 @@ test(
     const actionKey = `kafka-relay-${randomUUID()}`;
     const commandId = randomUUID();
 
+    const command = ensureCaseCommand(f.tenantId, f.enrollmentId, actionKey, commandId);
     await repository.ensureAction({
       tenantId: f.tenantId,
       actionKey,
       enrollmentId: f.enrollmentId,
       kind: 'ENSURE_CASE',
-      requestHash: 'b'.repeat(64),
+      requestHash: command.requestHash,
       correlationId: commandId,
       commandId,
-      commandPayload: ensureCaseCommand(f.enrollmentId, actionKey, commandId),
+      commandPayload: command,
     });
 
     // port ที่ publish ไม่สำเร็จ = broker ล่ม — relay ต้องไม่ mark SENT

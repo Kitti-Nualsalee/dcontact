@@ -223,7 +223,7 @@ export class JourneySegmentRefilterProcessor {
    *   Journey ลบไม่ได้และไม่ควรพยายาม (stop condition ของ #218 ห้าม delete owner fact)
    *   จึงปล่อยไว้แล้วบันทึกว่ามาไม่ทัน
    *
-   * cancelCommandId คำนวณจาก actionKey ไม่ใช่สุ่ม — restart หรือ replay จึง upsert ทับใบเดิม
+   * cancelRequestKey คำนวณจาก actionKey ไม่ใช่สุ่ม — restart หรือ replay จึง upsert ทับใบเดิม
    * แทนที่จะสั่ง owner ยกเลิกซ้ำเป็นครั้งที่สอง
    */
   private async cancelWork(
@@ -266,7 +266,8 @@ export class JourneySegmentRefilterProcessor {
         await this.actions.requestCancellation({
           tenantId,
           actionKey: action.actionKey,
-          cancelCommandId: `cancel:segment-refilter:${action.actionKey}`,
+          cancelRequestKey: `segment-refilter:${action.actionKey}`,
+          reasonCode,
           correlationId: `refilter:${cursor.id}`,
           expectedVersion: action.version,
         });
