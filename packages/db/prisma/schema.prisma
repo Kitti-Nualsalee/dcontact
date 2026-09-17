@@ -60,6 +60,7 @@ model Tenant {
   jrEventInbox                 JrEventInbox[]
   jrKafkaConsumerInbox         JrKafkaConsumerInbox[]
   jrGovernanceConsumerInbox    JrGovernanceConsumerInbox[]
+  jrIamScopeInvalidationInbox  JrIamScopeInvalidationInbox[]
   jrGovernanceAcknowledgements JrGovernanceAcknowledgementOutbox[]
   jrGovernanceEffects          JrGovernanceEffectOutbox[]
   jrActionLifecycleInbox       JrActionLifecycleInbox[]
@@ -3113,6 +3114,8 @@ model JrSegmentRefilterCursor {
   availableAt        DateTime               @default(now()) @map("available_at")
   reasonCode         String?                @map("reason_code")
   correlationId      String                 @map("correlation_id")
+  /// populated only for restrictive IAM invalidation; prevents cancelling another team's work
+  scopeTeamId        String?                @map("scope_team_id") @db.Uuid
   createdAt          DateTime               @default(now()) @map("created_at")
   settledAt          DateTime?              @map("settled_at")
   /// J3.8 (#219): optimistic-concurrency token เหมือน jr_segment_receipts.version
@@ -3124,7 +3127,23 @@ model JrSegmentRefilterCursor {
 
   @@unique([tenantId, contactId, segmentId, membershipRevision])
   @@index([tenantId, state, availableAt])
+  @@index([tenantId, scopeTeamId])
   @@map("jr_segment_refilter_cursors")
+}
+
+/// Durable dedup boundary for IAM scope invalidations consumed by Journey.
+model JrIamScopeInvalidationInbox {
+  consumer     String   @map("consumer")
+  tenantId     String   @map("tenant_id") @db.Uuid
+  eventId      String   @map("event_id")
+  scopeVersion Int      @map("scope_version")
+  completedAt  DateTime @default(now()) @map("completed_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@id([consumer, tenantId, eventId])
+  @@index([tenantId, scopeVersion])
+  @@map("jr_iam_scope_invalidation_inbox")
 }
 
 /// local outbox ของ J3 — commit พร้อม receipt/head/intent ในทรานแซกชันเดียว
