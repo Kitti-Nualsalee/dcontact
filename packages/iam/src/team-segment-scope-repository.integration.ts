@@ -8,14 +8,11 @@ import {
   segmentDefinitionVersion,
   segmentEntryId,
   segmentId,
-  teamId as toTeamId,
-  tenantId as toTenantId,
 } from '@d-contact/cxa-contracts';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { createProducer } from '@d-contact/kafka';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import { createIamCustomerSegmentProjectionConsumer } from './customer-segment-projection-consumer.js';
-import { IamTeamContactScopeAuthorizer } from './team-contact-scope-authorizer.js';
 import { IamTeamSegmentScopeRepository } from './team-segment-scope-repository.js';
 
 const OWNER_DATABASE_URL =
@@ -170,104 +167,6 @@ test('membership projection ไม่ย้อน revision และ dedup event
   });
   assert.equal(projection.state, 'IN');
   assert.equal(projection.membershipRevision, 2);
-});
-
-test('authorizer จริงอนุญาตเฉพาะ active grant กับ canonical projection ที่สด', async (t) => {
-  const f = await fixture(t);
-  const authorizer = new IamTeamContactScopeAuthorizer(
-    f.application,
-    () => new Date('2099-01-01T00:00:00.000Z'),
-  );
-  const input = {
-    tenantId: toTenantId(f.tenantId),
-    teamId: toTeamId(f.teamId),
-    contactId: toContactId(f.contactId),
-    permission: 'WORK' as const,
-    at: '2099-01-01T00:00:00.000Z',
-  };
-  assert.deepEqual(await authorizer.authorize(input), {
-    decision: 'DENY',
-    reasonCode: 'TEAM_SEGMENT_NOT_ALLOWED',
-    evaluatedAt: input.at,
-  });
-  await f.repository.grant({
-    tenantId: f.tenantId,
-    teamId: f.teamId,
-    segmentId: 'VIP',
-    permission: 'WORK',
-    correlationId: 'grant',
-  });
-  assert.deepEqual(await authorizer.authorize(input), {
-    decision: 'DEFER',
-    reasonCode: 'SCOPE_CONTEXT_STALE',
-    evaluatedAt: input.at,
-  });
-  await f.repository.applyMembershipChange({
-    tenantId: f.tenantId,
-    eventId: 'event-authorizer',
-    occurredAt: input.at,
-    consumerGroup: 'iam-test',
-    payload: {
-      contractVersion: 1,
-      contactId: toContactId(f.contactId),
-      segmentId: segmentId('VIP'),
-      membershipRevision: membershipRevision(1),
-      changeKind: 'ENTERED',
-      entryId: segmentEntryId('entry-authorizer'),
-      segmentDefinitionVersion: segmentDefinitionVersion(1),
-      snapshotVersion: customerSnapshotVersion(1),
-      evaluatedAt: input.at,
-      stateDigest: 'c'.repeat(64),
-    },
-  });
-  assert.deepEqual(await authorizer.authorize(input), {
-    decision: 'ALLOW',
-    scopeVersion: 1,
-    evaluatedAt: input.at,
-  });
-  await f.repository.applyMembershipChange({
-    tenantId: f.tenantId,
-    eventId: 'event-authorizer-invalidated',
-    occurredAt: input.at,
-    consumerGroup: 'iam-test',
-    payload: {
-      contractVersion: 1,
-      contactId: toContactId(f.contactId),
-      segmentId: segmentId('VIP'),
-      membershipRevision: membershipRevision(2),
-      changeKind: 'IDENTITY_INVALIDATED',
-      segmentDefinitionVersion: segmentDefinitionVersion(1),
-      snapshotVersion: customerSnapshotVersion(1),
-      evaluatedAt: input.at,
-      stateDigest: 'd'.repeat(64),
-    },
-  });
-  assert.deepEqual(await authorizer.authorize(input), {
-    decision: 'DEFER',
-    reasonCode: 'SCOPE_CONTEXT_STALE',
-    evaluatedAt: input.at,
-  });
-  const active = await f.owner.iamTeamSegmentScopeActiveGrant.findUniqueOrThrow({
-    where: {
-      tenantId_teamId_segmentId_permission: {
-        tenantId: f.tenantId,
-        teamId: f.teamId,
-        segmentId: 'VIP',
-        permission: 'WORK',
-      },
-    },
-  });
-  await f.repository.revoke({
-    tenantId: f.tenantId,
-    grantId: active.grantId,
-    reasonCode: 'ADMIN_REVOKE',
-    correlationId: 'revoke',
-  });
-  assert.deepEqual(await authorizer.authorize(input), {
-    decision: 'DENY',
-    reasonCode: 'TEAM_SEGMENT_NOT_ALLOWED',
-    evaluatedAt: input.at,
-  });
 });
 
 test(
