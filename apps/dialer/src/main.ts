@@ -1,5 +1,8 @@
 import { PrismaClient } from '@d-contact/db';
-import { createDialerRealtimeGovernancePorts } from '@d-contact/dialer-composition';
+import {
+  createDialerOwnerScopeAuthorizer,
+  createDialerRealtimeGovernancePorts,
+} from '@d-contact/dialer-composition';
 import { createDlqPublisher, createProducer } from '@d-contact/kafka';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import {
@@ -11,6 +14,8 @@ import { DialerGovernanceAcknowledgementRelay } from './dialer-governance-ack-re
 import { createDialerGovernanceConsumer } from './dialer-governance-consumer.js';
 import { DialerGovernanceEffectRelay } from './dialer-governance-effect-relay.js';
 import { JsonDialerGovernanceMetrics } from './dialer-governance-metrics.js';
+import { createDialerOwnerCommandConsumer } from './dialer-owner-command-consumer.js';
+import { DialerOwnerCommandService } from './dialer-owner-command-service.js';
 
 const database = new PrismaClient();
 const producer = await createProducer('dcontact-dialer-publisher');
@@ -56,6 +61,15 @@ const consumer = await createDialerGovernanceConsumer({
   groupId: process.env.DIALER_GOVERNANCE_CONSUMER_GROUP_ID ?? 'dcontact-dialer-cg3-v1',
   dlq,
 });
+// J2.8 (#136): รับ owner command จาก Journey ทาง dc.dialer.commands และตอบผลกลับ dc.dialer.events
+const ownerCommandConsumer = await createDialerOwnerCommandConsumer({
+  owner: new DialerOwnerCommandService(database, createDialerOwnerScopeAuthorizer(database)),
+  producer,
+  clientId: 'dcontact-dialer-owner-command-consumer',
+  groupId:
+    process.env.DIALER_OWNER_COMMAND_CONSUMER_GROUP_ID ?? 'dcontact-dialer-owner-commands-v1',
+  dlq,
+});
 const acknowledgements = new DialerGovernanceAcknowledgementRelay(database, producer);
 const effects = new DialerGovernanceEffectRelay(database, settlement, { metrics });
 let draining = false;
@@ -96,6 +110,7 @@ async function shutdown(): Promise<void> {
   clearInterval(timer);
   await Promise.all([
     consumer.disconnect(),
+    ownerCommandConsumer.disconnect(),
     producer.disconnect(),
     dlq.disconnect(),
     database.$disconnect(),
