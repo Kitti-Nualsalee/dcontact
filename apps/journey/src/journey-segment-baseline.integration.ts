@@ -4,6 +4,7 @@ import test, { type TestContext } from 'node:test';
 import { PrismaClient } from '@d-contact/db';
 import { JourneySegmentBaseline } from './journey-segment-baseline.js';
 import { JourneySegmentReceiptRepository } from './journey-segment-receipt-repository.js';
+import { JourneySegmentRollout } from './journey-segment-rollout.js';
 
 const HASH = 'a'.repeat(64);
 
@@ -23,6 +24,8 @@ async function fixture(t: TestContext) {
   const segmentId = `segment-gold-${suffix}`;
 
   t.after(async () => {
+    await owner.jrSegmentShadowMismatch.deleteMany({ where: { tenantId } });
+    await owner.jrSegmentRolloutState.deleteMany({ where: { tenantId } });
     await owner.jrSegmentOutbox.deleteMany({ where: { tenantId } });
     await owner.jrSegmentRefilterCursor.deleteMany({ where: { tenantId } });
     await owner.jrEnrollment.deleteMany({ where: { tenantId } });
@@ -295,4 +298,94 @@ test('rebuild ของ stream ที่ไม่มี receipt ที่ apply 
   assert.equal(result.rebuilt, false);
   assert.equal(result.lastAppliedRevision, 0);
   assert.equal(await f.owner.jrSegmentHead.count({ where: { tenantId: f.tenantId } }), 0);
+});
+
+test('crash/kill drill ข้ามทุก rollout stage resume ได้โดยไม่ข้าม stream หรือสร้าง effect ซ้ำ', async (t) => {
+  const f = await fixture(t);
+  for (let index = 0; index < 5; index += 1) await existingMembership(f, index + 1);
+
+  // OWNER_BACKFILL: worker แรก commit ได้แค่ batch แรกก่อนถูก kill
+  const firstWorker = new JourneySegmentBaseline(f.application);
+  const rolloutBeforeKill = new JourneySegmentRollout(f.application);
+  let view = await rolloutBeforeKill.read(f.tenantId);
+  view = await rolloutBeforeKill.advance({
+    tenantId: f.tenantId,
+    to: 'OWNER_BACKFILL',
+    expectedVersion: view.version,
+    updatedByRef: 'drill:first-worker',
+  });
+  const firstBatch = await firstWorker.baselineNext({ tenantId: f.tenantId, batchSize: 2 });
+  assert.equal(firstBatch.baselined, 2);
+  assert.ok(firstBatch.nextCursor, 'worker ที่ถูก kill ต้องทิ้ง fact ที่ commit แล้วไว้ให้ resume');
+
+  // process ใหม่ไม่มี cursor ใน memory: rerun จาก durable heads ต้อง skip สิ่งที่ commit แล้ว
+  const resumedWorker = new JourneySegmentBaseline(f.application);
+  const resumed = await resumedWorker.baselineTenant(f.tenantId, 2);
+  assert.equal(resumed.baselined, 3);
+  assert.equal(resumed.skipped, 2);
+  assert.equal(await f.owner.jrSegmentHead.count({ where: { tenantId: f.tenantId } }), 5);
+
+  // SHADOW_MEMBERSHIP: crash หลัง append mismatch ก่อน worker รับผลกลับ ต้องไม่ append ซ้ำ
+  const afterBackfillRestart = new JourneySegmentRollout(f.application);
+  view = await afterBackfillRestart.read(f.tenantId);
+  view = await afterBackfillRestart.advance({
+    tenantId: f.tenantId,
+    to: 'SHADOW_MEMBERSHIP',
+    expectedVersion: view.version,
+    updatedByRef: 'drill:restart-after-backfill',
+  });
+  const mismatch = await afterBackfillRestart.recordMismatch({
+    tenantId: f.tenantId,
+    contactId: (await f.owner.c360SegmentMembershipHead.findFirstOrThrow()).contactId,
+    segmentId: f.segmentId,
+    membershipRevision: 1,
+    expectedDigest: HASH,
+    observedDigest: 'b'.repeat(64),
+  });
+  assert.equal(mismatch, 'RECORDED');
+  const afterShadowRestart = new JourneySegmentRollout(f.application);
+  assert.equal(
+    await afterShadowRestart.recordMismatch({
+      tenantId: f.tenantId,
+      contactId: (await f.owner.c360SegmentMembershipHead.findFirstOrThrow()).contactId,
+      segmentId: f.segmentId,
+      membershipRevision: 1,
+      expectedDigest: HASH,
+      observedDigest: 'b'.repeat(64),
+    }),
+    'DUPLICATE',
+  );
+  assert.equal(await f.owner.jrSegmentShadowMismatch.count({ where: { tenantId: f.tenantId } }), 1);
+
+  // SHADOW_RECEIPT_REFILTER และ SCOPED_INTERNAL_ENABLED: stage/freeze ต้องรอดจาก process ใหม่
+  view = await afterShadowRestart.read(f.tenantId);
+  view = await afterShadowRestart.advance({
+    tenantId: f.tenantId,
+    to: 'SHADOW_RECEIPT_REFILTER',
+    expectedVersion: view.version,
+    updatedByRef: 'drill:restart-after-shadow-membership',
+  });
+  const afterRefilterRestart = new JourneySegmentRollout(f.application);
+  view = await afterRefilterRestart.read(f.tenantId);
+  view = await afterRefilterRestart.advance({
+    tenantId: f.tenantId,
+    to: 'SCOPED_INTERNAL_ENABLED',
+    expectedVersion: view.version,
+    updatedByRef: 'drill:restart-after-shadow-refilter',
+  });
+  assert.equal(await new JourneySegmentRollout(f.application).canEmitEffects(f.tenantId), true);
+
+  const frozen = await new JourneySegmentRollout(f.application).setFrozen({
+    tenantId: f.tenantId,
+    frozen: true,
+    expectedVersion: view.version,
+    updatedByRef: 'drill:kill-switch',
+  });
+  assert.equal(frozen.mutationFrozen, true);
+  assert.equal(await new JourneySegmentRollout(f.application).canEmitEffects(f.tenantId), false);
+  assert.equal(
+    await f.owner.jrSegmentEnrollmentIntent.count({ where: { tenantId: f.tenantId } }),
+    0,
+  );
+  assert.equal(await f.owner.jrSegmentOutbox.count({ where: { tenantId: f.tenantId } }), 0);
 });
