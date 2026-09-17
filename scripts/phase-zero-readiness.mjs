@@ -131,6 +131,36 @@ const DIAGNOSTIC_DETAIL_CHARACTERS = 32_000;
 const FAILURE_LINE_PATTERN =
   /^\s*(?:not ok\b|# fail\b|# Error\b|error:|failureType:|code: 'ERR_|exitCode:|signal:|AssertionError|\s*at .*\.(?:test|integration)\.ts)/;
 
+/**
+ * บรรทัด `not ok`/`error:` บอกว่า "อะไรล้ม" แต่ "ล้มเพราะอะไร" อยู่ในบรรทัดถัดมา (ข้อความ assertion,
+ * diff ของ actual/expected) ซึ่งไม่ match FAILURE_LINE_PATTERN เลยถูกตัดทิ้งหมด — เจอจริงตอนไล่
+ * CG4-OB02 ใน J2 acceptance ที่เหลือแค่ `code: 'ERR_ASSERTION'` โดยไม่รู้ว่า assert ตัวไหน
+ *
+ * จึงเก็บบล็อกต่อเนื่องหลังบรรทัด failure ไว้ด้วย จนกว่าจะเจอผลของเทสตัวถัดไป
+ */
+const FAILURE_BLOCK_CONTEXT_LINES = 12;
+
+function rescueFailureBlocks(lines) {
+  const rescued = [];
+  let remaining = 0;
+  for (const line of lines) {
+    if (FAILURE_LINE_PATTERN.test(line)) {
+      remaining = FAILURE_BLOCK_CONTEXT_LINES;
+      rescued.push(line);
+      continue;
+    }
+    if (remaining === 0) continue;
+    // ผลของเทสตัวถัดไปเริ่มแล้ว = จบบล็อกของความล้มเหลวนี้
+    if (/^\s*(?:ok\b|# Subtest:)/.test(line)) {
+      remaining = 0;
+      continue;
+    }
+    rescued.push(line);
+    remaining -= 1;
+  }
+  return rescued;
+}
+
 function diagnosticDetail(result) {
   const safe = sanitizeDiagnostic(`${result.stderr ?? ''}\n${result.stdout ?? ''}`);
   if (!safe)
@@ -145,9 +175,7 @@ function diagnosticDetail(result) {
     const tail = lines.slice(-headCount);
     const tailStart = lines.length - headCount;
     // เก็บบรรทัดที่บ่งบอกความล้มเหลวซึ่งอยู่นอก head/tail window ไว้ด้วย
-    const rescued = lines
-      .slice(headCount, tailStart)
-      .filter((line) => FAILURE_LINE_PATTERN.test(line));
+    const rescued = rescueFailureBlocks(lines.slice(headCount, tailStart));
     detail = [
       ...head,
       ...(rescued.length > 0
