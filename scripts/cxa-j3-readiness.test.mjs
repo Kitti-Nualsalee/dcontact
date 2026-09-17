@@ -137,6 +137,28 @@ test('suite plan รวมคำสั่งซ้ำและรันแต่
   assert.equal(result.manifest.suites.length, suites.length);
 });
 
+test('J3-F04 และ J3-CC02 ครอบ Kafka owner-result boundary จริง', () => {
+  const command = JSON.stringify([
+    process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+    '--filter',
+    '@d-contact/journey',
+    'exec',
+    'tsx',
+    '--test',
+    '--test-concurrency=1',
+    'src/journey-owner-result-consumer.integration.ts',
+  ]);
+
+  for (const checkId of ['J3-F04', 'J3-CC02']) {
+    const check = CXA_J3_READINESS_CHECKS.find(({ id }) => id === checkId);
+    assert.ok(check, `${checkId} ต้องอยู่ใน registry`);
+    assert.ok(
+      check.commands.some((candidate) => JSON.stringify(candidate) === command),
+      `${checkId} ต้องอ้าง suite owner-result ผ่าน Kafka`,
+    );
+  }
+});
+
 test('manifest เก็บ TAP count และ digest ของ title พร้อม marker เมื่อ final main ผ่านครบ', () => {
   const result = run();
   assert.equal(result.summary.status, 'PASS');
