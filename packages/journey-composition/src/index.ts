@@ -5,7 +5,6 @@ import {
 import {
   contactId,
   identityId,
-  tenantId,
   type ContactAuthorizationPort,
   type ContactGovernancePort,
   type ContactGovernanceRevalidationPort,
@@ -19,6 +18,7 @@ import {
   type PrismaClient,
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
+import { IamTeamContactScopeAuthorizer } from '@d-contact/iam';
 
 export interface JourneyFoundationPorts {
   customerContextReader: CustomerContextReader<Prisma.TransactionClient>;
@@ -59,7 +59,7 @@ export function createJourneyFoundationPorts(
 ): JourneyFoundationPorts {
   return {
     customerContextReader: new PrismaCustomerContextReader(database),
-    teamContactScopeAuthorizer: new PrismaTeamContactScopeAuthorizer(database),
+    teamContactScopeAuthorizer: new IamTeamContactScopeAuthorizer(database),
     contactAuthorizationPort: new ContactGovernanceService(database, options.contactGovernance),
   };
 }
@@ -119,7 +119,7 @@ export function createJourneyOutcomeTriggerPorts(
 ): JourneyOutcomeTriggerPorts {
   return {
     identityResolver: new PrismaCustomerIdentityResolver(database),
-    teamContactScopeAuthorizer: new PrismaTeamContactScopeAuthorizer(database),
+    teamContactScopeAuthorizer: new IamTeamContactScopeAuthorizer(database),
   };
 }
 
@@ -187,52 +187,5 @@ class PrismaCustomerIdentityResolver implements CustomerIdentityResolver<Prisma.
     return transaction
       ? resolve(transaction)
       : withTenantDatabaseTransaction(this.database, input.tenantId, resolve);
-  }
-}
-
-class PrismaTeamContactScopeAuthorizer implements TeamContactScopeAuthorizer<Prisma.TransactionClient> {
-  constructor(private readonly database: PrismaClient) {}
-
-  async authorize(
-    input: Parameters<TeamContactScopeAuthorizer<Prisma.TransactionClient>['authorize']>[0],
-    transaction?: Prisma.TransactionClient,
-  ) {
-    const authorize = async (client: Prisma.TransactionClient) => {
-      const [team, contact] = await Promise.all([
-        client.team.findFirst({
-          where: { id: input.teamId, tenantId: input.tenantId },
-          select: { id: true },
-        }),
-        client.contact.findFirst({
-          where: { id: input.contactId, tenantId: input.tenantId },
-          select: { id: true },
-        }),
-      ]);
-      if (!team) {
-        return {
-          decision: 'DENY' as const,
-          reasonCode: 'TEAM_NOT_FOUND' as const,
-          evaluatedAt: input.at,
-        };
-      }
-      if (!contact) {
-        return {
-          decision: 'DENY' as const,
-          reasonCode: 'CONTACT_NOT_FOUND' as const,
-          evaluatedAt: input.at,
-        };
-      }
-
-      // E0 ยังไม่มี persisted team-to-segment grants จึงต้อง fail closed จนกว่า IAM
-      // จะส่ง adapter ที่มี trusted scope grant มาแทนที่.
-      return {
-        decision: 'DENY' as const,
-        reasonCode: 'TEAM_SEGMENT_NOT_ALLOWED' as const,
-        evaluatedAt: input.at,
-      };
-    };
-    return transaction
-      ? authorize(transaction)
-      : withTenantDatabaseTransaction(this.database, tenantId(input.tenantId), authorize);
   }
 }
