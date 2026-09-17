@@ -3,6 +3,7 @@ export * from './customer-identity-resolution.js';
 export * from './expression.js';
 export * from './identifiers.js';
 export * from './scope-authorization.js';
+export * from './iam-scope-invalidation.js';
 export * from './contact-governance.js';
 export * from './contact-governance-cg4.js';
 export * from './contact-governance-cg5.js';

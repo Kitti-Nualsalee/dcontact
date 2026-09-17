@@ -37,6 +37,8 @@ export const KAFKA_TOPICS = {
    * Journey และ consumer อื่นอ่านแบบ read-only และตรวจ revision ก่อน apply
    */
   CUSTOMER_EVENTS: 'dc.customer.events',
+  /** IAM canonical scope invalidations (key = teamId); restrictive changes trigger re-filter. */
+  ADMIN_EVENTS: 'dc.admin.events',
   /**
    * CG3/CG4 canonical snapshot notifications (key = tenantId:contactId หรือ tenantId:policyId)
    * — restriction/consent/preference/policy/exception/kill changed; payload มีเฉพาะ version/scope/digest

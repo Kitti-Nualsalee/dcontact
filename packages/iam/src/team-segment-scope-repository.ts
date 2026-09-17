@@ -241,6 +241,7 @@ export class IamTeamSegmentScopeRepository {
       teamId: input.teamId,
       scopeVersion: input.scopeVersion,
       kind: input.kind,
+      occurredAt: this.now().toISOString(),
       correlationId: input.correlationId,
       grantId: input.grantId,
     };
