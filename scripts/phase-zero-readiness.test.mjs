@@ -246,3 +246,98 @@ test('ข้อความ assertion ที่ตามหลังบรรท
   // บรรทัดของเทสที่ผ่านซึ่งอยู่นอก window ต้องไม่ถูกดึงกลับมาปนจนกลบสาเหตุ
   assert.doesNotMatch(diagnostic.detail, /passing case 100/);
 });
+
+/**
+ * retry เฉพาะ process ที่ตายด้วย signal — กติกาต้องแคบพอที่ assertion แดงจะไม่ถูกรันซ้ำจนหายไป
+ */
+function signalCrashOutput(file = 'src/contact-governance-api.integration.ts') {
+  return [
+    'TAP version 13',
+    `# Subtest: ${file}`,
+    `not ok 1 - ${file}`,
+    '  ---',
+    '  duration_ms: 1569.606711',
+    "  failureType: 'testCodeFailure'",
+    '  exitCode: ~',
+    "  signal: 'SIGSEGV'",
+    "  error: 'test failed'",
+    "  code: 'ERR_TEST_FAILURE'",
+    '  ...',
+    '1..1',
+    '# tests 1',
+    '# pass 0',
+    '# fail 1',
+  ].join('\n');
+}
+
+function assertionFailureOutput() {
+  return [
+    'TAP version 13',
+    '# Subtest: metrics ต้องไม่มี PII',
+    'not ok 1 - metrics ต้องไม่มี PII',
+    '  ---',
+    "  failureType: 'testCodeFailure'",
+    "  code: 'ERR_ASSERTION'",
+    '  ...',
+    '1..1',
+    '# tests 1',
+    '# pass 0',
+    '# fail 1',
+  ].join('\n');
+}
+
+test('process ที่ตายด้วย signal โดยไม่มี assertion แดง ถูกรันซ้ำหนึ่งครั้งและผ่านได้', () => {
+  const observed = [];
+  const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], (...call) => {
+    observed.push(call[0]);
+    return observed.length === 1
+      ? { status: 1, stdout: signalCrashOutput(), stderr: '' }
+      : { status: 0, stdout: '1..1\n# pass 1\n# fail 0', stderr: '' };
+  });
+
+  assert.equal(observed.length, 2, 'ต้องรันซ้ำพอดีหนึ่งครั้ง');
+  assert.equal(diagnostic.status, 'PASS');
+  assert.equal(diagnostic.retriedAfterSignal, 'SIGSEGV');
+});
+
+test('signal ซ้ำรอบสองถือว่าแดงจริง และ diagnostic ยังบอกว่ามีการรันซ้ำ', () => {
+  let calls = 0;
+  const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], () => {
+    calls += 1;
+    return { status: 1, stdout: signalCrashOutput(), stderr: '' };
+  });
+
+  assert.equal(calls, 2, 'รันซ้ำได้ครั้งเดียว ไม่วนไม่จบ');
+  assert.equal(diagnostic.status, 'FAIL');
+  assert.equal(diagnostic.retriedAfterSignal, 'SIGSEGV');
+  assert.match(diagnostic.detail, /signal: 'SIGSEGV'/);
+});
+
+test('assertion ที่แดงจริงไม่ถูกรันซ้ำ แม้จะมีไฟล์ที่ตายด้วย signal ปนอยู่', () => {
+  for (const stdout of [
+    assertionFailureOutput(),
+    [signalCrashOutput(), assertionFailureOutput()].join('\n'),
+  ]) {
+    let calls = 0;
+    const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], () => {
+      calls += 1;
+      return { status: 1, stdout, stderr: '' };
+    });
+
+    assert.equal(calls, 1, 'assertion แดงต้องรันครั้งเดียว');
+    assert.equal(diagnostic.status, 'FAIL');
+    assert.equal(diagnostic.retriedAfterSignal, undefined);
+  }
+});
+
+test('คำสั่งที่ล้มโดยไม่มี TAP failure block เลย (เช่น build error) ไม่ถูกรันซ้ำ', () => {
+  let calls = 0;
+  const diagnostic = executeReadinessCheck(PHASE_ZERO_READINESS_CHECKS[2], () => {
+    calls += 1;
+    return { status: 1, stdout: '', stderr: 'error TS2345: type mismatch' };
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(diagnostic.status, 'FAIL');
+  assert.equal(diagnostic.retriedAfterSignal, undefined);
+});

@@ -205,16 +205,77 @@ function structuredEvidence(result, prefix) {
     });
 }
 
-export function executeReadinessCheck(check, runner = spawnSync) {
-  const startedAt = new Date();
-  const started = performance.now();
+/**
+ * node:test รายงานไฟล์ที่ process ตายกลางคันเป็น `not ok <file>` พร้อม `signal: 'SIGSEGV'` โดยไม่มี
+ * assertion ใดแดงเลย — โค้ด TypeScript ล้วนไม่มีทางทำให้ process ตายแบบนั้น crash อยู่ใน native
+ * layer (Prisma query engine / V8) docs/j3-handover.md บันทึกไว้ตั้งแต่ J3 ว่าไฟล์ที่ล้มเปลี่ยนไป
+ * เรื่อย ๆ ไม่สัมพันธ์กับจำนวน PrismaClient และรีโปรในเครื่องไม่ได้เลยจาก 16 รอบ
+ *
+ * ผลคือ acceptance run ที่ยาว ~3 ชั่วโมงถูกบล็อกด้วยความล้มเหลวที่ไม่ได้บอกอะไรเกี่ยวกับ product
+ * จึงรันคำสั่งนั้นซ้ำ "หนึ่งครั้ง" เฉพาะกรณีที่ทุกบล็อกที่ล้มตายด้วย signal เท่านั้น — ถ้ามี
+ * assertion แดงปนมาแม้ตัวเดียวถือเป็นผลจริงและไม่รันซ้ำ และถ้ารอบสองยังตายซ้ำก็ถือว่าแดงจริง
+ * diagnostic เก็บ `retriedAfterSignal` ไว้เสมอเพื่อให้ evidence บอกได้ว่ารอบนั้นมีการรันซ้ำ
+ */
+const CRASH_SIGNAL_PATTERN = /signal: '(SIG[A-Z0-9]+)'/;
+
+function tapFailureBlocks(output) {
+  const blocks = [];
+  let current;
+  for (const line of output.split('\n')) {
+    if (/^\s*not ok\b/.test(line)) {
+      current = [line];
+      blocks.push(current);
+      continue;
+    }
+    if (!current) continue;
+    if (/^\s*(?:ok\b|# Subtest:|1\.\.|# tests\b)/.test(line)) {
+      current = undefined;
+      continue;
+    }
+    current.push(line);
+  }
+  return blocks;
+}
+
+/** คืนชื่อ signal เมื่อ "ทุก" บล็อกที่ล้มตายด้วย signal; undefined เมื่อมีความล้มเหลวจริงปนอยู่ */
+function crashSignalOnlyFailure(result) {
+  const blocks = tapFailureBlocks(`${result.stdout ?? ''}\n${result.stderr ?? ''}`);
+  if (blocks.length === 0) return undefined;
+  const signals = new Set();
+  for (const block of blocks) {
+    const signal = block
+      .map((line) => CRASH_SIGNAL_PATTERN.exec(line)?.[1])
+      .find((match) => match !== undefined);
+    if (!signal) return undefined;
+    signals.add(signal);
+  }
+  return [...signals].sort().join(',');
+}
+
+function runCheckCommand(check, runner) {
   const [command, ...arguments_] = check.command;
-  const result = runner(command, arguments_, {
+  return runner(command, arguments_, {
     cwd: repositoryRoot,
     encoding: 'utf8',
     env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+}
+
+export function executeReadinessCheck(check, runner = spawnSync) {
+  const startedAt = new Date();
+  const started = performance.now();
+  let result = runCheckCommand(check, runner);
+  let retriedAfterSignal;
+  if (result.status !== 0 || result.error) {
+    retriedAfterSignal = crashSignalOnlyFailure(result);
+    if (retriedAfterSignal) {
+      process.stderr.write(
+        `# ${check.id}: process ตายด้วย ${retriedAfterSignal} โดยไม่มี assertion แดง — รันซ้ำหนึ่งครั้ง\n`,
+      );
+      result = runCheckCommand(check, runner);
+    }
+  }
   const passed = result.status === 0 && !result.error;
   const evidence = passed ? structuredEvidence(result, check.evidencePrefix) : [];
 
@@ -225,6 +286,7 @@ export function executeReadinessCheck(check, runner = spawnSync) {
     status: passed ? 'PASS' : 'FAIL',
     startedAt: startedAt.toISOString(),
     durationMs: Math.round(performance.now() - started),
+    ...(retriedAfterSignal ? { retriedAfterSignal } : {}),
     ...(evidence.length > 0 ? { evidence } : {}),
     ...(passed
       ? {}
