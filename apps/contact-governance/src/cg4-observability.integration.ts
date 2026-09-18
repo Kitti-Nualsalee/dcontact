@@ -558,7 +558,11 @@ test('CG4-OB02: negative scan ของ event/decision trace/shadow evidence/met
   const patterns = [
     /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/,
     /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/,
-    /(?:\+?66|0)\d{8,9}\b/,
+    // เบอร์ไทยขึ้นต้นด้วย 0/+66 แล้วตามด้วยรหัสพื้นที่/เครือข่าย 2-9 — รูปแบบเดิม (\d{8,9} ไม่มี \b
+    // ข้างหน้า) match เลขที่ต่อกันโดยบังเอิญกลาง random UUID ที่ถูก serialize ลงทุก surface ด้วย
+    // (วัดได้ ~1 ใน 410 UUID) เทสจึงแดงเป็นครั้งคราวโดยไม่มี PII หลุดจริง รูปแบบนี้ยังจับทั้งมือถือ
+    // และเบอร์บ้าน แต่ไม่ match UUID เลยใน 2,000,000 ตัวอย่าง
+    /\b(?:\+?66|0)[2-9]\d{7,8}\b/,
     /(?:postgres(?:ql)?|redis|https?):\/\/[^:\s/@]+:[^@\s/]+@/i,
   ];
   for (const [surface, value] of Object.entries(surfaces)) {

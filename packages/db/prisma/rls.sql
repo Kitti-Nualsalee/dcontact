@@ -185,3 +185,14 @@ REVOKE UPDATE, DELETE ON c360_identity_lineage FROM dcontact_app;
 REVOKE UPDATE, DELETE ON jr_segment_enrollment_intents FROM dcontact_app;
 REVOKE UPDATE, DELETE ON jr_segment_shadow_mismatches FROM dcontact_app;
 REVOKE DELETE ON jr_segment_rollout_state FROM dcontact_app;
+
+-- IAM scope authority: grant/revocation เป็นหลักฐาน append-only (ดู 20260917050000 /
+-- 20260917050200) — bootstrap เคยคืนสิทธิ์ที่ migration ถอนไว้ จึงต้องถอนซ้ำที่นี่
+REVOKE UPDATE, DELETE ON iam_scope_consumer_inbox FROM dcontact_app;
+REVOKE UPDATE, DELETE ON iam_team_segment_scope_grants FROM dcontact_app;
+
+-- J2.9 (#137): rollout gate ของ originate barrier — audit เป็น append-only และแถว state ลบไม่ได้
+-- (ลบแถวที่ถูก kill = สร้างใหม่เป็น DISABLED ได้ เท่ากับยก kill switch ซึ่ง #124 ห้ามไว้)
+REVOKE DELETE ON ob_originate_rollout_state FROM dcontact_app;
+REVOKE UPDATE ON ob_originate_rollout_scopes FROM dcontact_app;
+REVOKE UPDATE, DELETE ON ob_originate_rollout_audit FROM dcontact_app;
