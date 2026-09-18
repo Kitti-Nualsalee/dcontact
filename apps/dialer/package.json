@@ -10,7 +10,7 @@
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
     "test": "tsx --test src/*.test.ts",
-    "test:integration": "tsx --test --test-concurrency=1 src/*.integration.ts",
+    "test:integration": "node scripts/run-integration.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
