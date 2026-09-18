@@ -127,3 +127,10 @@ Prisma อยู่ที่ 5.22.0 ซึ่งเป็นตัวล่า�
 
 `engineType = "binary"` ทดสอบแล้วใช้งานได้และ**เร็วกว่า 11%** แต่ยังพิสูจน์ไม่ได้ว่าแก้ SIGSEGV
 และ deprecated ใน Prisma 6 — ยังไม่ควรเอามาใช้จนกว่าจะมีข้อมูลความถี่จริง
+
+**อัปเดต 2026-09-18 (J2.10):** อาการนี้บล็อก J2 acceptance สองรอบติด (SIGSEGV ที่
+`tenant-queue-api.integration.ts` แล้วรอบถัดมาที่ `contact-governance-api.integration.ts`
+ทั้งสองรอบไม่มี assertion แดงเลย) `scripts/phase-zero-readiness.mjs` จึงรันคำสั่งซ้ำหนึ่งครั้ง
+เฉพาะกรณีที่ **ทุก** บล็อกที่ล้มตายด้วย signal — มี assertion แดงปนแม้ตัวเดียวจะไม่รันซ้ำ และ
+ตายซ้ำรอบสองถือว่าแดงจริง diagnostic ที่มีการรันซ้ำจะมีฟิลด์ `retriedAfterSignal` ติดไว้เสมอ
+ใช้ฟิลด์นี้นับความถี่จริงจาก evidence manifest ได้ ถ้าความถี่สูงขึ้นค่อยกลับมาหาเหตุที่ native layer
