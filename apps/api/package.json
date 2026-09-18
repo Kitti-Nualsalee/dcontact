@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test src/*.test.ts",
-    "test:integration": "tsx --test --test-concurrency=1 src/*.integration.ts",
+    "test:integration": "node scripts/run-integration.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/main.ts"
   },
