@@ -100,11 +100,15 @@ export function cg4ScopeRefFor(event: {
 export interface Cg4ConsumerInboxOptions {
   id?: () => string;
   now?: () => Date;
+  parse?: (
+    event: Pick<Cg4InboundEvent, 'eventType' | 'payload'>,
+  ) => ReturnType<typeof parseCg4CanonicalEvent>;
 }
 
 export class Cg4ConsumerInbox {
   private readonly id: () => string;
   private readonly now: () => Date;
+  private readonly parse: NonNullable<Cg4ConsumerInboxOptions['parse']>;
 
   constructor(
     private readonly database: PrismaClient,
@@ -113,6 +117,7 @@ export class Cg4ConsumerInbox {
   ) {
     this.id = options.id ?? randomUUID;
     this.now = options.now ?? (() => new Date());
+    this.parse = options.parse ?? parseCg4CanonicalEvent;
   }
 
   /**
@@ -121,7 +126,10 @@ export class Cg4ConsumerInbox {
    * so two partitions delivering neighbouring versions concurrently cannot both read the
    * same cursor and both decide they are contiguous.
    */
-  async record(event: Cg4InboundEvent): Promise<Cg4InboxOutcome> {
+  async record(
+    event: Cg4InboundEvent,
+    apply?: (transaction: Prisma.TransactionClient, event: Cg4InboundEvent) => Promise<void>,
+  ): Promise<Cg4InboxOutcome> {
     return withTenantDatabaseTransaction(this.database, event.tenantId, async (transaction) => {
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`cg4-inbox:${this.consumerGroup}:${event.tenantId}:${event.aggregateId}`}))`,
@@ -167,7 +175,7 @@ export class Cg4ConsumerInbox {
           aggregateVersion: event.aggregateVersion,
           payloadHash: event.payloadHash,
         },
-        parse: parseCg4CanonicalEvent({ eventType: event.eventType, payload: event.payload }),
+        parse: this.parse({ eventType: event.eventType, payload: event.payload }),
       });
 
       const inboxId = this.id();
@@ -189,6 +197,7 @@ export class Cg4ConsumerInbox {
       });
 
       let pauseId: string | undefined;
+      if (decision.kind === 'APPLY') await apply?.(transaction, event);
       if (cg4InboxDecisionPausesScope(decision)) {
         const reason = cg4PauseReasonFor(decision) as CgScopePauseReason;
         pauseId = await this.pauseScope(transaction, {
