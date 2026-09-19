@@ -100,7 +100,7 @@ CREATE TABLE "cg5_alert_transition" (
 CREATE TABLE "cg5_export_job" (
     "export_id" UUID NOT NULL,
     "tenant_id" UUID NOT NULL,
-    "datasets" TEXT[],
+    "datasets" TEXT[] NOT NULL,
     "range_from" TIMESTAMP(3) NOT NULL,
     "range_to" TIMESTAMP(3) NOT NULL,
     "filters" JSONB NOT NULL,
@@ -202,42 +202,42 @@ CREATE INDEX "cg5_tenant_config_audit_tenant_id_occurred_at_idx" ON "cg5_tenant_
 
 ALTER TABLE "cg5_metric_bucket" ADD CONSTRAINT "cg5_metric_bucket_tenant_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "cg5_metric_bucket" ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON "cg5_metric_bucket" USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY tenant_isolation ON "cg5_metric_bucket" USING (tenant_id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
 GRANT SELECT, INSERT, UPDATE, DELETE ON "cg5_metric_bucket" TO dcontact_app;
 
 ALTER TABLE "cg5_policy_impact_bucket" ADD CONSTRAINT "cg5_policy_impact_bucket_tenant_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "cg5_policy_impact_bucket" ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON "cg5_policy_impact_bucket" USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY tenant_isolation ON "cg5_policy_impact_bucket" USING (tenant_id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
 GRANT SELECT, INSERT, UPDATE, DELETE ON "cg5_policy_impact_bucket" TO dcontact_app;
 
 ALTER TABLE "cg5_projection_cursor" ADD CONSTRAINT "cg5_projection_cursor_tenant_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "cg5_projection_cursor" ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON "cg5_projection_cursor" USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY tenant_isolation ON "cg5_projection_cursor" USING (tenant_id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
 GRANT SELECT, INSERT, UPDATE, DELETE ON "cg5_projection_cursor" TO dcontact_app;
 
 ALTER TABLE "cg5_alert_state" ADD CONSTRAINT "cg5_alert_state_tenant_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "cg5_alert_state" ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON "cg5_alert_state" USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY tenant_isolation ON "cg5_alert_state" USING (tenant_id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
 GRANT SELECT, INSERT, UPDATE, DELETE ON "cg5_alert_state" TO dcontact_app;
 
 ALTER TABLE "cg5_alert_transition" ADD CONSTRAINT "cg5_alert_transition_tenant_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "cg5_alert_transition" ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON "cg5_alert_transition" USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY tenant_isolation ON "cg5_alert_transition" USING (tenant_id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
 GRANT SELECT, INSERT, UPDATE, DELETE ON "cg5_alert_transition" TO dcontact_app;
 
 ALTER TABLE "cg5_export_job" ADD CONSTRAINT "cg5_export_job_tenant_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "cg5_export_job" ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON "cg5_export_job" USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY tenant_isolation ON "cg5_export_job" USING (tenant_id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
 GRANT SELECT, INSERT, UPDATE, DELETE ON "cg5_export_job" TO dcontact_app;
 
 ALTER TABLE "cg5_tenant_config" ADD CONSTRAINT "cg5_tenant_config_tenant_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "cg5_tenant_config" ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON "cg5_tenant_config" USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY tenant_isolation ON "cg5_tenant_config" USING (tenant_id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
 GRANT SELECT, INSERT, UPDATE, DELETE ON "cg5_tenant_config" TO dcontact_app;
 
 ALTER TABLE "cg5_tenant_config_audit" ADD CONSTRAINT "cg5_tenant_config_audit_tenant_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "cg5_tenant_config_audit" ENABLE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolation ON "cg5_tenant_config_audit" USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY tenant_isolation ON "cg5_tenant_config_audit" USING (tenant_id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
 GRANT SELECT, INSERT, UPDATE, DELETE ON "cg5_tenant_config_audit" TO dcontact_app;
 
 -- ประวัติ CG5 ให้ application role เพิ่มแถวได้เท่านั้น
