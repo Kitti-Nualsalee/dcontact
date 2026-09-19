@@ -1438,6 +1438,7 @@ model CgDecisionLog {
   @@unique([tenantId, id])
   @@index([tenantId, actionKey, decidedAt])
   @@index([tenantId, contactId, decidedAt])
+  @@index([tenantId, decidedAt, id], map: "cg_decision_logs_cg5_projection_scan_idx")
   @@map("cg_decision_logs")
 }
 
