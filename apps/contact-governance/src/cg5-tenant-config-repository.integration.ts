@@ -213,4 +213,17 @@ test('CG5 ตารางใหม่ทุกตารางเปิด RLS �
     Array<{ update: boolean; delete: boolean }>
   >`SELECT has_table_privilege('dcontact_app', 'cg5_alert_transition', 'UPDATE') AS update, has_table_privilege('dcontact_app', 'cg5_alert_transition', 'DELETE') AS delete`;
   assert.deepEqual(rights, [{ update: false, delete: false }]);
+  const columns = await owner.$queryRaw<Array<{ isNullable: string }>>`
+    SELECT is_nullable AS "isNullable"
+    FROM information_schema.columns
+    WHERE table_name = 'cg5_export_job' AND column_name = 'datasets'
+  `;
+  assert.deepEqual(columns, [{ isNullable: 'NO' }]);
+  const policies = await owner.$queryRaw<Array<{ predicate: string }>>`
+    SELECT pg_get_expr(polqual, polrelid) AS predicate
+    FROM pg_policy
+    WHERE polname = 'tenant_isolation' AND polrelid = 'cg5_export_job'::regclass
+  `;
+  assert.equal(policies.length, 1);
+  assert.doesNotMatch(policies[0]!.predicate, /NULLIF/);
 });
