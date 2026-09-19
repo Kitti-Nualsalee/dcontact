@@ -17,6 +17,11 @@ export interface Cg5ProjectionCursor {
   lastProcessedId: string | null;
 }
 
+export interface Cg5ProjectionRange {
+  from: Date;
+  to: Date;
+}
+
 export interface Cg5ProjectionRunResult {
   refreshIntervalSeconds: number;
   processed: Readonly<Record<Cg5ProjectionSource, number>>;
@@ -60,6 +65,35 @@ function metricFor(source: Cg5ProjectionSource): Cg5MetricKey {
 
 function sourceKey(source: Cg5ProjectionSource): string {
   return `cg5.incremental.${source.toLowerCase()}`;
+}
+
+function after(field: string, cursor: Cg5ProjectionCursor): Record<string, unknown> | null {
+  if (!cursor.lastProcessedAt || !cursor.lastProcessedId) return null;
+  return {
+    OR: [
+      { [field]: { gt: cursor.lastProcessedAt } },
+      { [field]: cursor.lastProcessedAt, id: { gt: cursor.lastProcessedId } },
+    ],
+  };
+}
+
+function whereAfter(
+  field: string,
+  cursor: Cg5ProjectionCursor,
+  range?: Cg5ProjectionRange,
+): Record<string, unknown> {
+  const clauses: Record<string, unknown>[] = [];
+  if (range) clauses.push({ [field]: { gte: range.from, lt: range.to } });
+  const afterCursor = after(field, cursor);
+  if (afterCursor) clauses.push(afterCursor);
+  if (clauses.length === 0) return {};
+  return clauses.length === 1 ? clauses[0]! : { AND: clauses };
+}
+
+function fiveMinuteRange(range: Cg5ProjectionRange): { gte: Date; lt: Date } {
+  const from = cg5BucketStart(range.from, 'FIVE_MIN');
+  const last = cg5BucketStart(new Date(range.to.valueOf() - 1), 'FIVE_MIN');
+  return { gte: from, lt: new Date(last.valueOf() + 300_000) };
 }
 
 async function incrementMetric(
@@ -123,16 +157,6 @@ async function incrementMetric(
   }
 }
 
-function after(field: string, cursor: Cg5ProjectionCursor): Record<string, unknown> {
-  if (!cursor.lastProcessedAt || !cursor.lastProcessedId) return {};
-  return {
-    OR: [
-      { [field]: { gt: cursor.lastProcessedAt } },
-      { [field]: cursor.lastProcessedAt, id: { gt: cursor.lastProcessedId } },
-    ],
-  };
-}
-
 export class Cg5IncrementalProjectionReader {
   private readonly config: PrismaCg5TenantConfigRepository;
 
@@ -157,6 +181,31 @@ export class Cg5IncrementalProjectionReader {
       processed[source] = await this.projectSource(tenantId, source);
     }
     return { refreshIntervalSeconds: config.config.refreshIntervalSeconds, processed };
+  }
+
+  /** Rebuilds canonical-volume metrics in a range and advances only stale source cursors. */
+  async rebuildRange(tenantId: string, range: Cg5ProjectionRange): Promise<void> {
+    if (!(range.from instanceof Date) || !(range.to instanceof Date) || range.from >= range.to) {
+      throw new TypeError('range ต้องมี from ก่อน to');
+    }
+    const bucketRange = fiveMinuteRange(range);
+    await withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      await transaction.cg5MetricBucket.deleteMany({
+        where: {
+          tenantId,
+          metricKey: { in: ['cg.decision', 'cg.frequency', 'cg.reservation'] },
+          granularity: 'FIVE_MIN',
+          bucketStart: bucketRange,
+        },
+      });
+      await transaction.cg5PolicyImpactBucket.deleteMany({
+        where: { tenantId, granularity: 'FIVE_MIN', bucketStart: bucketRange },
+      });
+    });
+    for (const source of CG5_PROJECTION_SOURCES) {
+      const last = await this.rebuildSource(tenantId, source, range);
+      if (last) await this.advanceCursor(tenantId, source, last);
+    }
   }
 
   private async projectSource(tenantId: string, source: Cg5ProjectionSource): Promise<number> {
@@ -208,15 +257,80 @@ export class Cg5IncrementalProjectionReader {
     }
   }
 
+  private async rebuildSource(
+    tenantId: string,
+    source: Cg5ProjectionSource,
+    range: Cg5ProjectionRange,
+  ): Promise<ProjectionRow | null> {
+    let cursor: Cg5ProjectionCursor = { lastProcessedAt: null, lastProcessedId: null };
+    let lastProcessed: ProjectionRow | null = null;
+    for (;;) {
+      const rows = await withTenantDatabaseTransaction(
+        this.database,
+        tenantId,
+        async (transaction) => {
+          await transaction.$queryRaw(
+            Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`cg5-projection:${tenantId}:${source}`}))`,
+          );
+          const batch = await this.readRows(transaction, tenantId, source, cursor, range);
+          for (const row of batch) await incrementMetric(transaction, tenantId, source, row);
+          return batch;
+        },
+      );
+      const last = rows.at(-1);
+      if (!last) return lastProcessed;
+      lastProcessed = last;
+      if (rows.length < this.batchSize) return lastProcessed;
+      cursor = { lastProcessedAt: last.occurredAt, lastProcessedId: last.id };
+    }
+  }
+
+  private async advanceCursor(
+    tenantId: string,
+    source: Cg5ProjectionSource,
+    last: ProjectionRow,
+  ): Promise<void> {
+    await withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      const existing = await transaction.cg5ProjectionCursor.findUnique({
+        where: { tenantId_sourceKey: { tenantId, sourceKey: sourceKey(source) } },
+      });
+      const boundary = existing?.lastProcessedAt;
+      const isNewer =
+        !boundary ||
+        last.occurredAt > boundary ||
+        (last.occurredAt.valueOf() === boundary.valueOf() &&
+          (!existing.lastProcessedId || last.id > existing.lastProcessedId));
+      if (!isNewer) return;
+      await transaction.cg5ProjectionCursor.upsert({
+        where: { tenantId_sourceKey: { tenantId, sourceKey: sourceKey(source) } },
+        create: {
+          tenantId,
+          sourceKey: sourceKey(source),
+          lastProcessedAt: last.occurredAt,
+          lastProcessedId: last.id,
+          state: 'ACTIVE',
+          lastRunAt: new Date(),
+        },
+        update: {
+          lastProcessedAt: last.occurredAt,
+          lastProcessedId: last.id,
+          state: 'ACTIVE',
+          lastRunAt: new Date(),
+        },
+      });
+    });
+  }
+
   private async readRows(
     transaction: Prisma.TransactionClient,
     tenantId: string,
     source: Cg5ProjectionSource,
     cursor: Cg5ProjectionCursor,
+    range?: Cg5ProjectionRange,
   ): Promise<ProjectionRow[]> {
     if (source === 'DECISION') {
       const rows = await transaction.cgDecisionLog.findMany({
-        where: { tenantId, ...after('decidedAt', cursor) },
+        where: { tenantId, ...whereAfter('decidedAt', cursor, range) },
         orderBy: [{ decidedAt: 'asc' }, { id: 'asc' }],
         take: this.batchSize,
         select: {
@@ -235,7 +349,7 @@ export class Cg5IncrementalProjectionReader {
     }
     if (source === 'ATTEMPT') {
       const rows = await transaction.cgAttempt.findMany({
-        where: { tenantId, ...after('occurredAt', cursor) },
+        where: { tenantId, ...whereAfter('occurredAt', cursor, range) },
         orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
         take: this.batchSize,
         select: { id: true, occurredAt: true, channel: true, purpose: true },
@@ -244,7 +358,7 @@ export class Cg5IncrementalProjectionReader {
     }
     if (source === 'TOUCH') {
       const rows = await transaction.cgTouch.findMany({
-        where: { tenantId, ...after('occurredAt', cursor) },
+        where: { tenantId, ...whereAfter('occurredAt', cursor, range) },
         orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
         take: this.batchSize,
         select: { id: true, occurredAt: true, channel: true, purpose: true },
@@ -252,7 +366,7 @@ export class Cg5IncrementalProjectionReader {
       return rows.map((row) => ({ ...row, teamId: null, gate: 'TOUCH' }));
     }
     const rows = await transaction.cgReservation.findMany({
-      where: { tenantId, ...after('createdAt', cursor) },
+      where: { tenantId, ...whereAfter('createdAt', cursor, range) },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: this.batchSize,
       select: { id: true, createdAt: true, channel: true, purpose: true, teamId: true },
