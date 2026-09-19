@@ -75,11 +75,7 @@ async function snapshot(owner: PrismaClient, tenantId: string) {
       row.value.toString(),
       row.sampleCount,
     ]),
-    impacts: impacts.map((row) => [
-      row.granularity,
-      row.bucketStart.toISOString(),
-      row.value,
-    ]),
+    impacts: impacts.map((row) => [row.granularity, row.bucketStart.toISOString(), row.value]),
   };
 }
 
