@@ -41,3 +41,4 @@ export * from './cg4-policy-reader.js';
 export * from './cg4-observability.js';
 
 export * from './cg5-tenant-config-repository.js';
+export * from './cg5-event-metrics-consumer.js';
