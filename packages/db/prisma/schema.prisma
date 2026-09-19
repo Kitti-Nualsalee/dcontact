@@ -4169,3 +4169,179 @@ model IamScopeConsumerInbox {
   @@id([consumerGroup, tenantId, eventId])
   @@map("iam_scope_consumer_inbox")
 }
+
+// CG5.2 (#286): read models แบบ additive และ config ราย tenant
+
+enum Cg5Granularity {
+  FIVE_MIN
+  HOUR
+  DAY
+}
+
+enum Cg5AlertStatus {
+  OPEN
+  ACKED
+  RESOLVED
+  SUPPRESSED
+}
+
+enum Cg5ExportStatus {
+  QUEUED
+  RUNNING
+  READY
+  FAILED
+  EXPIRED
+  REVOKED
+}
+
+model Cg5MetricBucket {
+  id           String         @id @default(uuid()) @db.Uuid
+  tenantId     String         @map("tenant_id") @db.Uuid
+  metricKey    String         @map("metric_key")
+  granularity  Cg5Granularity
+  bucketStart  DateTime       @map("bucket_start")
+  channel      String?
+  purpose      String?
+  decision     String?
+  gate         String?
+  reasonCode   String?        @map("reason_code")
+  teamId       String?        @map("team_id") @db.Uuid
+  dimensionKey String         @map("dimension_key") @db.Char(64)
+  value        Decimal        @db.Decimal(30, 8)
+  sampleCount  BigInt         @map("sample_count")
+  updatedAt    DateTime       @map("updated_at")
+
+  @@unique([tenantId, metricKey, granularity, bucketStart, dimensionKey], map: "cg5_metric_bucket_dimensions_key")
+  @@index([tenantId, metricKey, granularity, bucketStart], map: "cg5_metric_bucket_query_idx")
+  @@index([tenantId, granularity, bucketStart], map: "cg5_metric_bucket_retention_idx")
+  @@map("cg5_metric_bucket")
+}
+
+model Cg5PolicyImpactBucket {
+  id            String         @id @default(uuid()) @db.Uuid
+  tenantId      String         @map("tenant_id") @db.Uuid
+  granularity   Cg5Granularity
+  bucketStart   DateTime       @map("bucket_start")
+  policyVersion Int         @map("policy_version")
+  decision      String
+  value         BigInt
+
+  @@unique([tenantId, granularity, bucketStart, policyVersion, decision], map: "cg5_policy_impact_bucket_dimensions_key")
+  @@index([tenantId, granularity, bucketStart], map: "cg5_policy_impact_bucket_retention_idx")
+  @@map("cg5_policy_impact_bucket")
+}
+
+model Cg5ProjectionCursor {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  sourceKey       String    @map("source_key")
+  lastProcessedAt DateTime? @map("last_processed_at")
+  lastProcessedId String?   @map("last_processed_id")
+  state           String
+  lastRunAt       DateTime? @map("last_run_at")
+
+  @@unique([tenantId, sourceKey])
+  @@map("cg5_projection_cursor")
+}
+
+model Cg5AlertState {
+  id              String         @id @default(uuid()) @db.Uuid
+  tenantId        String         @map("tenant_id") @db.Uuid
+  ruleCode        String         @map("rule_code")
+  scopeKey        String         @map("scope_key") @db.Char(64)
+  channel         String?
+  purpose         String?
+  teamId          String?        @map("team_id") @db.Uuid
+  severity        String
+  state           Cg5AlertStatus
+  value           Decimal        @db.Decimal(30, 8)
+  threshold       Decimal        @db.Decimal(30, 8)
+  baselineRef     String?        @map("baseline_ref")
+  consecutiveHits Int            @map("consecutive_hits")
+  openedAt        DateTime?      @map("opened_at")
+  ackedAt         DateTime?      @map("acked_at")
+  ackedByRef      String?        @map("acked_by_ref")
+  resolvedAt      DateTime?      @map("resolved_at")
+  version         Int
+  updatedAt       DateTime       @map("updated_at")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, ruleCode, scopeKey])
+  @@index([tenantId, state, severity, updatedAt], map: "cg5_alert_state_query_idx")
+  @@map("cg5_alert_state")
+}
+
+model Cg5AlertTransition {
+  id          String          @id @default(uuid()) @db.Uuid
+  tenantId    String          @map("tenant_id") @db.Uuid
+  alertId     String          @map("alert_id") @db.Uuid
+  fromState   Cg5AlertStatus? @map("from_state")
+  toState     Cg5AlertStatus  @map("to_state")
+  fromVersion Int             @map("from_version")
+  toVersion   Int             @map("to_version")
+  actorRef    String          @map("actor_ref")
+  evidenceRef String          @map("evidence_ref")
+  stateDigest String          @map("state_digest") @db.Char(64)
+  occurredAt  DateTime        @map("occurred_at")
+
+  @@unique([tenantId, alertId, toVersion])
+  @@index([tenantId, occurredAt])
+  @@map("cg5_alert_transition")
+}
+
+model Cg5ExportJob {
+  exportId       String          @id @default(uuid()) @map("export_id") @db.Uuid
+  tenantId       String          @map("tenant_id") @db.Uuid
+  datasets       String[]
+  rangeFrom      DateTime        @map("range_from")
+  rangeTo        DateTime        @map("range_to")
+  filters        Json
+  evidenceLevel  String          @map("evidence_level")
+  reason         String
+  requestedByRef String          @map("requested_by_ref")
+  idempotencyKey String          @map("idempotency_key")
+  state          Cg5ExportStatus @default(QUEUED)
+  manifestDigest String?         @map("manifest_digest") @db.Char(64)
+  rowCounts      Json?
+  storagePrefix  String?         @map("storage_prefix")
+  expiresAt      DateTime?       @map("expires_at")
+  version        Int
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @map("updated_at")
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, state, expiresAt])
+  @@map("cg5_export_job")
+}
+
+model Cg5TenantConfig {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @unique @map("tenant_id") @db.Uuid
+  config       Json
+  version      Int
+  updatedByRef String   @map("updated_by_ref")
+  evidenceRef  String   @map("evidence_ref")
+  updatedAt    DateTime @map("updated_at")
+
+  @@map("cg5_tenant_config")
+}
+
+// แยก audit ของ config เพื่อไม่เปลี่ยน canonical cg_audit_logs
+model Cg5TenantConfigAudit {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  action           String
+  expectedVersion  Int      @map("expected_version")
+  actualVersion    Int      @map("actual_version")
+  resultingVersion Int      @map("resulting_version")
+  beforeDigest     String   @map("before_digest") @db.Char(64)
+  requestedDigest  String   @map("requested_digest") @db.Char(64)
+  afterDigest      String   @map("after_digest") @db.Char(64)
+  actorRef         String   @map("actor_ref")
+  evidenceRef      String   @map("evidence_ref")
+  occurredAt       DateTime @map("occurred_at")
+
+  @@index([tenantId, occurredAt])
+  @@map("cg5_tenant_config_audit")
+}

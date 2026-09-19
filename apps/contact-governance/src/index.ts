@@ -39,3 +39,5 @@ export * from './cg4-legacy-backfill.js';
 export * from './cg4-rollout.js';
 export * from './cg4-policy-reader.js';
 export * from './cg4-observability.js';
+
+export * from './cg5-tenant-config-repository.js';

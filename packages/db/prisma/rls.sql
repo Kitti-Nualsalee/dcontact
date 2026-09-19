@@ -39,6 +39,8 @@ BEGIN
     'cg_authorization_subject', 'cg_capability_grant',
     -- CG4.10 (#193)
     'cg4_rollout_state', 'cg4_rollout_transition', 'cg4_shadow_mismatch',
+    -- CG5.2 (#286)
+    'cg5_metric_bucket', 'cg5_policy_impact_bucket', 'cg5_projection_cursor', 'cg5_alert_state', 'cg5_alert_transition', 'cg5_export_job', 'cg5_tenant_config', 'cg5_tenant_config_audit',
     -- J3.2 (#213)
     'c360_segment_definitions', 'c360_segment_definition_heads',
     'c360_fact_snapshots', 'c360_segment_evaluations',
@@ -196,3 +198,7 @@ REVOKE UPDATE, DELETE ON iam_team_segment_scope_grants FROM dcontact_app;
 REVOKE DELETE ON ob_originate_rollout_state FROM dcontact_app;
 REVOKE UPDATE ON ob_originate_rollout_scopes FROM dcontact_app;
 REVOKE UPDATE, DELETE ON ob_originate_rollout_audit FROM dcontact_app;
+
+-- CG5.2: คงสิทธิ์ append-only หลัง bootstrap
+REVOKE UPDATE, DELETE ON cg5_alert_transition, cg5_tenant_config_audit FROM dcontact_app;
+REVOKE DELETE ON cg5_tenant_config FROM dcontact_app;
