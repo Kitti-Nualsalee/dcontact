@@ -1,0 +1,1051 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>D-Contact — J5 Canvas interaction prototype</title>
+  <style>
+    :root {
+      --page: #f8fafc;
+      --panel: #ffffff;
+      --sunken: #f1f5f9;
+      --border: #e2e8f0;
+      --border-strong: #94a3b8;
+      --text: #1e293b;
+      --secondary: #475569;
+      --muted: #64748b;
+      --brand: #0f766e;
+      --brand-dark: #115e59;
+      --brand-soft: #f0fdfa;
+      --info-bg: #eef2ff;
+      --info-fg: #4338ca;
+      --warn-bg: #fffbeb;
+      --warn-fg: #92400e;
+      --bad-bg: #fff1f2;
+      --bad-fg: #9f1239;
+      --ok-bg: #dcfce7;
+      --ok-fg: #15803d;
+      --focus: 0 0 0 2px #fff, 0 0 0 4px #0f766e;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    html { font-size: 16px; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--page);
+      font-family: Inter, "Noto Sans Thai", system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    button, input, select { font: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+      outline: none;
+      box-shadow: var(--focus);
+    }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .46; }
+    .skip {
+      position: fixed; left: 16px; top: -60px; z-index: 20;
+      padding: 10px 14px; color: white; background: var(--brand); border-radius: 8px;
+    }
+    .skip:focus { top: 12px; }
+    .topbar {
+      min-height: 64px; padding: 10px 20px; background: var(--panel);
+      border-bottom: 1px solid var(--border); display: flex; gap: 16px;
+      align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .brandmark {
+      width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
+      color: white; background: var(--brand); font-weight: 700; font-size: 17px;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: 18px; line-height: 1.25; margin-bottom: 2px; }
+    h2 { font-size: 15px; margin-bottom: 10px; }
+    h3 { font-size: 13px; margin-bottom: 8px; }
+    .muted { color: var(--muted); }
+    .tiny { font-size: 12px; }
+    .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .btn {
+      min-height: 38px; border-radius: 9px; border: 1px solid #cbd5e1;
+      background: white; color: var(--text); padding: 7px 12px; font-weight: 600;
+    }
+    .btn:hover:not(:disabled) { background: #f8fafc; border-color: var(--border-strong); }
+    .btn-primary { color: white; background: var(--brand); border-color: var(--brand); }
+    .btn-primary:hover:not(:disabled) { background: var(--brand-dark); }
+    .btn-danger { color: var(--bad-fg); border-color: #fecaca; background: var(--bad-bg); }
+    .btn-quiet { border-color: transparent; background: transparent; color: var(--secondary); }
+    .chip {
+      display: inline-flex; align-items: center; min-height: 24px; padding: 2px 8px;
+      border-radius: 999px; font-size: 12px; font-weight: 650; background: var(--sunken); color: var(--secondary);
+    }
+    .chip.ok { background: var(--ok-bg); color: var(--ok-fg); }
+    .chip.warn { background: var(--warn-bg); color: var(--warn-fg); }
+    .chip.bad { background: var(--bad-bg); color: var(--bad-fg); }
+    .chip.info { background: var(--info-bg); color: var(--info-fg); }
+    .wrap { max-width: 1600px; margin: 0 auto; padding: 16px 20px 28px; }
+    .intro {
+      display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start;
+      background: var(--info-bg); border: 1px solid #c7d2fe; color: #312e81;
+      border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px;
+    }
+    .intro strong { color: #1e1b4b; }
+    .throwaway { white-space: nowrap; }
+    .state-strip {
+      display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr));
+      background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+      overflow: hidden; margin-bottom: 12px;
+    }
+    .metric { padding: 10px 12px; border-right: 1px solid var(--border); }
+    .metric:last-child { border-right: 0; }
+    .metric-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+    .metric-value { display: block; margin-top: 3px; font-weight: 700; }
+    .mobile-notice {
+      display: none; padding: 11px 14px; border: 1px solid #fde68a; color: var(--warn-fg);
+      background: var(--warn-bg); border-radius: var(--radius); margin-bottom: 12px;
+    }
+    .workspace {
+      display: grid; grid-template-columns: 220px minmax(420px, 1fr) 310px;
+      min-height: 590px; background: var(--panel); border: 1px solid var(--border);
+      border-radius: 14px; overflow: hidden;
+    }
+    .pane { min-width: 0; padding: 14px; }
+    .pane + .pane { border-left: 1px solid var(--border); }
+    .pane-head { display: flex; gap: 8px; justify-content: space-between; align-items: start; margin-bottom: 12px; }
+    .palette { background: #fbfdff; }
+    .palette-list { display: grid; gap: 7px; }
+    .palette-btn {
+      width: 100%; min-height: 44px; text-align: left; padding: 8px 10px;
+      border-radius: 9px; border: 1px solid var(--border); background: white;
+    }
+    .palette-btn strong { display: block; font-size: 13px; }
+    .palette-btn span { display: block; color: var(--muted); font-size: 11px; }
+    .palette-btn:hover { border-color: var(--brand); background: var(--brand-soft); }
+    .canvas-pane { padding: 0; display: flex; flex-direction: column; }
+    .canvas-toolbar {
+      min-height: 52px; display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; border-bottom: 1px solid var(--border); gap: 8px;
+    }
+    .toolbar-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .icon-btn {
+      min-width: 36px; min-height: 34px; border-radius: 8px; border: 1px solid var(--border);
+      background: white; color: var(--secondary); font-weight: 700;
+    }
+    .view-switch { display: inline-flex; padding: 3px; border-radius: 9px; background: var(--sunken); }
+    .view-switch button { border: 0; padding: 5px 9px; border-radius: 7px; background: transparent; color: var(--secondary); }
+    .view-switch button.active { background: white; color: var(--brand); box-shadow: 0 1px 2px rgba(15,23,42,.1); }
+    .canvas-scroll { flex: 1; overflow: auto; padding: 16px; background: #f8fafc; }
+    .graph {
+      max-width: 690px; margin: 0 auto; padding: 4px 0 40px; list-style: none; counter-reset: step;
+    }
+    .node-wrap { position: relative; padding-bottom: 24px; }
+    .node-wrap:not(:last-child)::after {
+      content: ""; position: absolute; left: 28px; bottom: 3px; width: 2px; height: 18px; background: #94a3b8;
+    }
+    .node {
+      width: 100%; display: grid; grid-template-columns: 42px 1fr auto; gap: 10px;
+      align-items: center; text-align: left; padding: 11px 12px; border-radius: 11px;
+      border: 1px solid #cbd5e1; background: white; color: var(--text);
+    }
+    .node:hover { border-color: var(--brand); }
+    .node[aria-current="true"] { border-color: var(--brand); background: var(--brand-soft); box-shadow: 0 0 0 1px var(--brand); }
+    .node-index {
+      width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px;
+      background: var(--sunken); color: var(--secondary); font-weight: 750;
+    }
+    .node-title { display: block; font-weight: 700; }
+    .node-detail { display: block; color: var(--muted); font-size: 12px; }
+    .node-kind { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+    .branch-note { margin: 8px 0 0 52px; color: var(--secondary); font-size: 12px; }
+    .outline-only .node-wrap::after { display: none; }
+    .outline-only .graph { max-width: none; }
+    .validation {
+      border-top: 1px solid var(--border); padding: 12px; background: white;
+    }
+    .validation-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .issue-btn {
+      width: 100%; text-align: left; border: 1px solid #fecaca; background: var(--bad-bg);
+      color: var(--bad-fg); border-radius: 8px; padding: 8px 10px;
+    }
+    .success-note { color: var(--ok-fg); background: var(--ok-bg); border-radius: 8px; padding: 8px 10px; }
+    .inspector { background: #fbfdff; }
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-weight: 650; margin-bottom: 5px; font-size: 12px; }
+    .input {
+      width: 100%; min-height: 38px; border: 1px solid #cbd5e1; border-radius: 8px;
+      background: white; color: var(--text); padding: 7px 9px;
+    }
+    .row-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 14px; }
+    .state-box { border-radius: 10px; background: var(--sunken); padding: 10px; margin-top: 12px; }
+    .state-list { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; margin: 0; }
+    .state-list dt { color: var(--muted); }
+    .state-list dd { margin: 0; font-weight: 650; text-align: right; overflow-wrap: anywhere; }
+    .activity {
+      margin-top: 12px; border-left: 3px solid var(--brand); padding: 8px 10px;
+      background: var(--brand-soft); color: var(--brand-dark); border-radius: 0 8px 8px 0;
+    }
+    .actionbar {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+      background: white; border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 10px 12px; margin-top: 12px;
+    }
+    .actionbar .spacer { flex: 1; }
+    .scenarios {
+      background: white; border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 16px; margin-top: 12px;
+    }
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+    .tab {
+      border: 1px solid var(--border); background: white; color: var(--secondary);
+      border-radius: 999px; padding: 6px 10px;
+    }
+    .tab[aria-selected="true"] { color: white; background: var(--brand); border-color: var(--brand); }
+    .scenario-body { padding-top: 14px; }
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-top: 12px; }
+    .step {
+      text-align: left; min-height: 62px; padding: 9px 10px; border: 1px solid var(--border);
+      border-radius: 9px; background: white;
+    }
+    .step.current { border-color: var(--brand); background: var(--brand-soft); }
+    .step.done { border-color: #bbf7d0; background: #f0fdf4; }
+    .step-num { display: block; color: var(--muted); font-size: 11px; }
+    .dialog-backdrop {
+      position: fixed; inset: 0; z-index: 30; background: rgba(15, 23, 42, .5);
+      display: grid; place-items: center; padding: 20px;
+    }
+    .dialog { width: min(520px, 100%); background: white; border-radius: 14px; padding: 20px; box-shadow: 0 20px 60px rgba(15,23,42,.3); }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+    }
+    @media (max-width: 1100px) {
+      .workspace { grid-template-columns: 190px minmax(360px, 1fr) 270px; }
+      .state-strip { grid-template-columns: repeat(3, 1fr); }
+      .metric:nth-child(3) { border-right: 0; }
+      .metric:nth-child(-n+3) { border-bottom: 1px solid var(--border); }
+    }
+    @media (max-width: 820px) {
+      .topbar, .intro { grid-template-columns: 1fr; align-items: start; }
+      .topbar { position: static; display: block; }
+      .top-actions { justify-content: flex-start; margin-top: 10px; }
+      .mobile-notice { display: block; }
+      .workspace { grid-template-columns: 1fr; }
+      .pane + .pane { border-left: 0; border-top: 1px solid var(--border); }
+      .palette, .inspector, .actionbar .mutating { display: none; }
+      .canvas-scroll { min-height: 480px; }
+      .state-strip { grid-template-columns: repeat(2, 1fr); }
+      .metric:nth-child(2n) { border-right: 0; }
+      .metric { border-bottom: 1px solid var(--border); }
+    }
+    @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#canvas-main">ข้ามไปตัวแก้ไข Journey</a>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brandmark" aria-hidden="true">D</div>
+      <div>
+        <h1>ติดตามการชำระหลังติดต่อ</h1>
+        <div class="top-actions" aria-label="สถานะ Journey">
+          <span class="chip">Journey J5 prototype</span>
+          <span class="chip warn" id="header-draft">ฉบับร่าง</span>
+          <span class="chip ok">ทีมดูแลลูกค้า</span>
+        </div>
+      </div>
+    </div>
+    <div class="top-actions" aria-label="โหมดตัวต้นแบบ">
+      <button class="btn btn-quiet" data-action="SET_DESKTOP">Desktop edit</button>
+      <button class="btn btn-quiet" data-action="SET_MOBILE">Mobile preview</button>
+      <button class="btn" data-action="RESET">เริ่มใหม่</button>
+    </div>
+  </header>
+
+  <main class="wrap" id="canvas-main">
+    <section class="intro" aria-labelledby="prototype-question">
+      <div>
+        <strong id="prototype-question">คำถามที่ต้นแบบนี้ใช้ตอบ</strong>
+        <p style="margin:4px 0 0">ผู้ใช้จะสร้าง ตรวจ validation, preview, review และ publish Journey ได้อย่างปลอดภัยด้วย keyboard และ screen reader โดยไม่ต้องพึ่งตำแหน่งบน canvas ได้หรือไม่—รวมถึงตอน autosave ชน, session หมดอายุ และ template upgrade มี conflict?</p>
+      </div>
+      <span class="chip bad throwaway">THROWAWAY — ไม่ใช่ production</span>
+    </section>
+
+    <div class="mobile-notice" role="note">
+      หน้าจอแคบเป็น read-only preview: อ่านโครงสร้าง ตรวจสถานะ และดู simulation ได้ แต่การแก้ไข/review/publish ต้องใช้ desktop อย่างน้อย 1024px
+    </div>
+
+    <section class="state-strip" aria-label="สถานะสำคัญของฉบับร่าง">
+      <div class="metric"><span class="metric-label">Draft revision</span><span class="metric-value" id="m-revision">12</span></div>
+      <div class="metric"><span class="metric-label">Autosave</span><span class="metric-value" id="m-sync">บันทึกแล้ว</span></div>
+      <div class="metric"><span class="metric-label">Validation</span><span class="metric-value" id="m-validation">ยังไม่ได้ตรวจ</span></div>
+      <div class="metric"><span class="metric-label">Review</span><span class="metric-value" id="m-review">กำลังแก้ไข</span></div>
+      <div class="metric"><span class="metric-label">Authority</span><span class="metric-value" id="m-authority">ปัจจุบัน</span></div>
+      <div class="metric"><span class="metric-label">Published</span><span class="metric-value" id="m-published">Version 3</span></div>
+    </section>
+
+    <section class="workspace" aria-label="Journey authoring workspace">
+      <aside class="pane palette" aria-labelledby="palette-heading">
+        <div class="pane-head">
+          <div><h2 id="palette-heading">เพิ่มขั้นตอน</h2><p class="muted tiny">กดปุ่มเพื่อแทรกก่อนจุดจบ</p></div>
+        </div>
+        <div class="palette-list" id="palette-list"></div>
+        <div class="state-box tiny">
+          <strong>Keyboard path</strong>
+          <p style="margin:5px 0 0">Tab มาที่ palette → Enter เพื่อเพิ่ม → โฟกัสย้ายไป node ใหม่ → Alt+↑/↓ เพื่อเรียง → Delete เพื่อลบ</p>
+        </div>
+      </aside>
+
+      <section class="pane canvas-pane" aria-labelledby="structure-heading">
+        <div class="canvas-toolbar">
+          <div class="toolbar-group">
+            <button class="icon-btn mutating" data-action="UNDO">เลิกทำ</button>
+            <button class="icon-btn mutating" data-action="REDO">ทำซ้ำ</button>
+            <span class="muted tiny" id="presence-text">Pim กำลังดูอยู่</span>
+          </div>
+          <div class="toolbar-group">
+            <button class="icon-btn" data-action="ZOOM_OUT">ซูมออก</button>
+            <output id="zoom-output" aria-live="polite">100%</output>
+            <button class="icon-btn" data-action="ZOOM_IN">ซูมเข้า</button>
+            <button class="icon-btn" data-action="FIT_VIEW">พอดี</button>
+            <div class="view-switch" role="group" aria-label="รูปแบบการแสดงโครงสร้าง">
+              <button id="visual-switch" data-action="SHOW_VISUAL" class="active">Visual</button>
+              <button id="outline-switch" data-action="SHOW_OUTLINE">Outline</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="canvas-scroll" id="canvas-scroll">
+          <h2 id="structure-heading" class="sr-only">โครงสร้าง Journey ตามลำดับการทำงาน</h2>
+          <ol class="graph" id="graph-list" aria-label="โครงสร้าง Journey"></ol>
+        </div>
+
+        <div class="validation" aria-labelledby="validation-heading">
+          <div class="pane-head" style="margin-bottom:7px">
+            <h2 id="validation-heading" style="margin:0">ผลตรวจจาก server</h2>
+            <span class="chip" id="validation-digest">ยังไม่มี artifact</span>
+          </div>
+          <div id="validation-content"><p class="muted" style="margin:0">กด “ตรวจสอบ” เพื่อรับ authoritative diagnostics</p></div>
+        </div>
+      </section>
+
+      <aside class="pane inspector" aria-labelledby="inspector-heading">
+        <div class="pane-head">
+          <div><h2 id="inspector-heading">รายละเอียดขั้นตอน</h2><p class="muted tiny" id="selected-meta">เลือก node เพื่อแก้ไข</p></div>
+        </div>
+        <div id="inspector-content"></div>
+        <div class="state-box" aria-labelledby="full-state-heading">
+          <h3 id="full-state-heading">สถานะเต็มที่เกี่ยวข้อง</h3>
+          <dl class="state-list tiny" id="full-state"></dl>
+        </div>
+        <div class="activity tiny" id="last-event" aria-live="polite">พร้อมทดลอง interaction</div>
+      </aside>
+    </section>
+
+    <section class="actionbar" aria-label="คำสั่งหลัก">
+      <button class="btn mutating" data-action="AUTOSAVE">บันทึกฉบับร่าง</button>
+      <button class="btn" data-action="VALIDATE">ตรวจสอบ</button>
+      <button class="btn" data-action="SIMULATE">Preview simulation</button>
+      <button class="btn mutating" data-action="SUBMIT_REVIEW">ส่งให้ตรวจ</button>
+      <button class="btn mutating" data-action="APPROVE">อนุมัติในฐานะ reviewer</button>
+      <span class="spacer"></span>
+      <button class="btn" data-action="CHECK_UPGRADE">ดู Template diff</button>
+      <button class="btn btn-primary mutating" data-action="REQUEST_PUBLISH">Publish</button>
+    </section>
+
+    <section class="scenarios" aria-labelledby="scenario-heading">
+      <div class="pane-head">
+        <div><h2 id="scenario-heading">Guided walkthroughs</h2><p class="muted" style="margin:0">กดตามลำดับเพื่อสัมผัส awkward states ที่สเปกข้อความมักซ่อน</p></div>
+        <button class="btn" id="scenario-reset">เริ่ม scenario นี้ใหม่</button>
+      </div>
+      <div class="tabs" role="tablist" aria-label="สถานการณ์ทดลอง" id="scenario-tabs"></div>
+      <div class="scenario-body" id="scenario-body" role="tabpanel"></div>
+    </section>
+  </main>
+
+  <div id="dialog-root"></div>
+  <div class="sr-only" aria-live="assertive" id="assertive-live"></div>
+
+  <script>
+    const JourneyMachine = (function () {
+      const palette = {
+        WAIT: { title: 'รอ 24 ชั่วโมง', detail: 'ใช้ manual clock ใน preview' },
+        CONDITION: { title: 'ตรวจผลการชำระ', detail: 'แตกแขนงด้วย DC_EXPR:1' },
+        SEND: { title: 'ส่ง LINE แจ้งเตือน', detail: 'ผ่าน Contact Governance ก่อนเสมอ' },
+        CASE: { title: 'เปิดเคสติดตาม', detail: 'owner command ไปยัง Case' }
+      };
+
+      function initialState() {
+        return {
+          draftRevision: 12,
+          baseRevision: 12,
+          serverRevision: 12,
+          sync: 'SAVED',
+          validation: 'NOT_RUN',
+          diagnostics: [],
+          validationDigest: null,
+          review: 'EDITING',
+          candidate: null,
+          approval: null,
+          authority: 'CURRENT',
+          viewport: 'DESKTOP',
+          publishedVersion: 3,
+          zoom: 100,
+          view: 'VISUAL',
+          selectedId: 'condition-1',
+          focusTarget: null,
+          goal: 'payment.succeeded ภายใน 7 วัน',
+          simulation: null,
+          confirmationOpen: false,
+          upgrade: { available: true, inspected: false, conflict: true, resolution: null },
+          nodes: [
+            { id: 'trigger-1', kind: 'TRIGGER', title: 'ผลการติดต่อ: ชำระไม่สำเร็จ', detail: 'Interaction outcome · version pinned' },
+            { id: 'wait-1', kind: 'WAIT', title: 'รอ 24 ชั่วโมง', detail: 'หยุดทันทีเมื่อ goal สำเร็จ' },
+            { id: 'condition-1', kind: 'CONDITION', title: 'ชำระแล้วหรือยัง?', detail: 'ใช่ → จบ · ไม่ใช่ → ส่ง LINE' },
+            { id: 'send-1', kind: 'SEND', title: 'ส่ง LINE พร้อมลิงก์ชำระ', detail: 'TEST_ADAPTER · provider traffic ปิด' },
+            { id: 'case-1', kind: 'CASE', title: 'เปิดเคสให้ทีมติดตาม', detail: 'ENSURE_CASE · target team ตรวจใหม่ตอน publish' },
+            { id: 'end-1', kind: 'END', title: 'จบ Journey', detail: 'บันทึก exit reason' }
+          ],
+          history: [],
+          future: [],
+          lastEvent: 'พร้อมทดลอง interaction',
+          lastOutcome: 'OK'
+        };
+      }
+
+      function copy(value) { return JSON.parse(JSON.stringify(value)); }
+
+      function authoringSnapshot(state) {
+        return { nodes: copy(state.nodes), goal: state.goal, selectedId: state.selectedId };
+      }
+
+      function restoreAuthoring(state, snapshot) {
+        state.nodes = copy(snapshot.nodes);
+        state.goal = snapshot.goal;
+        state.selectedId = snapshot.selectedId;
+      }
+
+      function reject(state, message) {
+        state.lastEvent = message;
+        state.lastOutcome = 'ERROR';
+        return state;
+      }
+
+      function supersedeReview(state) {
+        if (state.review !== 'EDITING') {
+          state.review = 'SUPERSEDED';
+          state.candidate = null;
+          state.approval = null;
+        }
+      }
+
+      function mutateAuthoring(state, mutate, message) {
+        if (state.viewport !== 'DESKTOP') return reject(state, 'โหมด mobile เป็น read-only — กลับไป desktop เพื่อแก้ไข');
+        if (state.authority !== 'CURRENT') return reject(state, 'AUTHORIZATION_STALE — ต้องยืนยันตัวตนและ scope ใหม่');
+        state.history.push(authoringSnapshot(state));
+        state.future = [];
+        mutate();
+        state.sync = 'UNSAVED';
+        state.validation = 'NOT_RUN';
+        state.diagnostics = [];
+        state.validationDigest = null;
+        state.simulation = null;
+        supersedeReview(state);
+        state.lastEvent = message;
+        state.lastOutcome = 'OK';
+        return state;
+      }
+
+      function validate(state) {
+        const issues = [];
+        if (!state.goal) issues.push({ code: 'GOAL_REQUIRED', target: 'goal', label: 'กำหนดเป้าหมายที่วัดได้ก่อน publish' });
+        if (!state.nodes.some(function (node) { return node.kind === 'END'; })) {
+          issues.push({ code: 'TERMINAL_REQUIRED', target: 'graph', label: 'Journey ต้องมีจุดจบอย่างน้อยหนึ่งจุด' });
+        }
+        if (!state.nodes.some(function (node) { return node.kind === 'TRIGGER'; })) {
+          issues.push({ code: 'TRIGGER_REQUIRED', target: 'graph', label: 'Journey ต้องมี trigger หนึ่งจุด' });
+        }
+        state.diagnostics = issues;
+        state.validation = issues.length ? 'FAILED' : 'PASSED';
+        state.validationDigest = issues.length ? 'diag-8f2a' : 'compile-4d91';
+        state.lastEvent = issues.length ? 'Server พบ ' + issues.length + ' จุดที่ต้องแก้ — เลือกรายการเพื่อย้ายโฟกัส' : 'Server validation ผ่าน และ compile digest คงที่';
+        state.lastOutcome = issues.length ? 'ERROR' : 'OK';
+        return state;
+      }
+
+      function reducer(current, action) {
+        const state = copy(current);
+        const type = action.type;
+        state.focusTarget = null;
+        state.confirmationOpen = type === 'CANCEL_PUBLISH' ? false : state.confirmationOpen;
+
+        if (type === 'RESET') return initialState();
+        if (type === 'CANCEL_PUBLISH') { state.lastEvent = 'ยกเลิก publish โดยไม่เปลี่ยน draft หรือ approval'; return state; }
+        if (type === 'SET_DESKTOP') { state.viewport = 'DESKTOP'; state.lastEvent = 'กลับสู่ desktop edit mode'; return state; }
+        if (type === 'SET_MOBILE') { state.viewport = 'MOBILE_READ_ONLY'; state.lastEvent = 'Mobile preview เป็น read-only ตาม boundary ของ J5 V1'; return state; }
+        if (type === 'SHOW_VISUAL') { state.view = 'VISUAL'; state.lastEvent = 'แสดง visual canvas โดยคง semantic order เดิม'; return state; }
+        if (type === 'SHOW_OUTLINE') { state.view = 'OUTLINE'; state.lastEvent = 'แสดง outline ที่ keyboard และ screen reader ใช้เป็นเส้นทางหลัก'; return state; }
+        if (type === 'ZOOM_IN') { state.zoom = Math.min(160, state.zoom + 10); state.lastEvent = 'ซูมเฉพาะภาพ ไม่เปลี่ยน semantic order'; return state; }
+        if (type === 'ZOOM_OUT') { state.zoom = Math.max(50, state.zoom - 10); state.lastEvent = 'ซูมเฉพาะภาพ ไม่เปลี่ยน semantic order'; return state; }
+        if (type === 'FIT_VIEW') { state.zoom = 100; state.lastEvent = 'จัด visual canvas ให้พอดีหน้าจอ'; return state; }
+        if (type === 'SELECT_NODE') { state.selectedId = action.id; state.focusTarget = action.id; state.lastEvent = 'เลือก ' + action.id + ' และเปิด properties'; return state; }
+
+        if (type === 'ADD_NODE') {
+          return mutateAuthoring(state, function () {
+            const id = action.kind.toLowerCase() + '-' + (state.nodes.length + 1);
+            const endIndex = state.nodes.findIndex(function (node) { return node.kind === 'END'; });
+            const data = palette[action.kind];
+            state.nodes.splice(endIndex < 0 ? state.nodes.length : endIndex, 0, { id: id, kind: action.kind, title: data.title, detail: data.detail });
+            state.selectedId = id;
+            state.focusTarget = id;
+          }, 'เพิ่ม node ด้วย keyboard path และย้ายโฟกัสไป node ใหม่');
+        }
+
+        if (type === 'EDIT_TITLE') {
+          return mutateAuthoring(state, function () {
+            const node = state.nodes.find(function (item) { return item.id === state.selectedId; });
+            if (node) node.title = action.value || node.title;
+          }, 'แก้ชื่อ node ใน local draft — รอ autosave');
+        }
+
+        if (type === 'MOVE_UP' || type === 'MOVE_DOWN') {
+          return mutateAuthoring(state, function () {
+            const index = state.nodes.findIndex(function (node) { return node.id === state.selectedId; });
+            const next = type === 'MOVE_UP' ? index - 1 : index + 1;
+            if (index > 0 && next > 0 && next < state.nodes.length - 1) {
+              const item = state.nodes.splice(index, 1)[0];
+              state.nodes.splice(next, 0, item);
+            }
+          }, 'เปลี่ยน semantic order และ visual orderพร้อมกัน');
+        }
+
+        if (type === 'DELETE_NODE') {
+          return mutateAuthoring(state, function () {
+            const index = state.nodes.findIndex(function (node) { return node.id === state.selectedId; });
+            if (index <= 0 || index >= state.nodes.length - 1) return;
+            state.nodes.splice(index, 1);
+            state.selectedId = state.nodes[Math.max(0, index - 1)].id;
+            state.focusTarget = state.selectedId;
+          }, 'ลบ node และย้ายโฟกัสกลับไป node ก่อนหน้า');
+        }
+
+        if (type === 'REMOVE_GOAL') return mutateAuthoring(state, function () { state.goal = ''; }, 'ลบ goal เพื่อทดลอง validation failure');
+        if (type === 'RESTORE_GOAL') return mutateAuthoring(state, function () { state.goal = 'payment.succeeded ภายใน 7 วัน'; }, 'คืน goal ที่วัดผลได้');
+
+        if (type === 'UNDO') {
+          if (!state.history.length) return reject(state, 'ไม่มีรายการให้เลิกทำ');
+          state.future.push(authoringSnapshot(state));
+          restoreAuthoring(state, state.history.pop());
+          state.sync = 'UNSAVED';
+          supersedeReview(state);
+          state.lastEvent = 'เลิกทำ local change หนึ่งรายการ';
+          return state;
+        }
+        if (type === 'REDO') {
+          if (!state.future.length) return reject(state, 'ไม่มีรายการให้ทำซ้ำ');
+          state.history.push(authoringSnapshot(state));
+          restoreAuthoring(state, state.future.pop());
+          state.sync = 'UNSAVED';
+          supersedeReview(state);
+          state.lastEvent = 'ทำ local change ซ้ำหนึ่งรายการ';
+          return state;
+        }
+
+        if (type === 'REMOTE_EDIT') {
+          state.serverRevision += 1;
+          state.lastEvent = 'Pim บันทึก revision ' + state.serverRevision + ' จากอีก session';
+          state.lastOutcome = 'WARN';
+          return state;
+        }
+
+        if (type === 'AUTOSAVE') {
+          if (state.viewport !== 'DESKTOP') return reject(state, 'Mobile preview บันทึกไม่ได้');
+          if (state.authority !== 'CURRENT') { state.sync = 'RECOVERY_REQUIRED'; return reject(state, 'AUTHORIZATION_STALE — local delta ยังอยู่ แต่ยังส่งไม่ได้'); }
+          if (state.baseRevision !== state.serverRevision) { state.sync = 'CONFLICT'; return reject(state, 'DRAFT_VERSION_CONFLICT — server มี revision ' + state.serverRevision + ' แต่ local อิง ' + state.baseRevision); }
+          if (state.sync === 'SAVED') { state.lastEvent = 'ไม่มีการเปลี่ยนแปลงใหม่ — idempotent save คืนผลเดิม'; return state; }
+          state.serverRevision += 1;
+          state.draftRevision = state.serverRevision;
+          state.baseRevision = state.serverRevision;
+          state.sync = 'SAVED';
+          state.lastEvent = 'Autosave สำเร็จเป็น revision ' + state.draftRevision;
+          state.lastOutcome = 'OK';
+          return state;
+        }
+
+        if (type === 'RESOLVE_RELOAD') {
+          state.baseRevision = state.serverRevision;
+          state.draftRevision = state.serverRevision;
+          state.sync = 'SAVED';
+          state.history = [];
+          state.future = [];
+          state.lastEvent = 'โหลด authoritative draft ใหม่แล้ว; local delta เดิมไม่ถูก merge เงียบๆ';
+          state.lastOutcome = 'OK';
+          return state;
+        }
+
+        if (type === 'VALIDATE') return validate(state);
+        if (type === 'FOCUS_ERROR') {
+          const issue = state.diagnostics[0];
+          if (!issue) return reject(state, 'ไม่มี validation issue ให้ย้ายโฟกัส');
+          state.focusTarget = issue.target;
+          state.lastEvent = 'ย้ายโฟกัสไป ' + issue.target + ': ' + issue.label;
+          state.lastOutcome = 'WARN';
+          return state;
+        }
+
+        if (type === 'SIMULATE') {
+          if (state.validation !== 'PASSED') return reject(state, 'ต้องผ่าน authoritative validation ก่อน simulation');
+          state.simulation = '2 paths · 4 steps · provider calls 0 · canonical writes 0';
+          state.lastEvent = 'Simulation สำเร็จด้วย manual clock; ไม่มี provider/canonical effect';
+          return state;
+        }
+
+        if (type === 'SUBMIT_REVIEW') {
+          if (state.viewport !== 'DESKTOP') return reject(state, 'Mobile preview ส่ง reviewไม่ได้');
+          if (state.authority !== 'CURRENT') return reject(state, 'AUTHORIZATION_STALE');
+          if (state.sync !== 'SAVED') return reject(state, 'บันทึก draftให้สำเร็จก่อนส่ง review');
+          if (state.validation !== 'PASSED') return reject(state, 'ต้องผ่าน authoritative validation ก่อนส่ง review');
+          state.review = 'IN_REVIEW';
+          state.candidate = { revision: state.draftRevision, digest: state.validationDigest, submitter: 'cx-author-17' };
+          state.approval = null;
+          state.lastEvent = 'สร้าง immutable review candidate จาก revision ' + state.draftRevision;
+          return state;
+        }
+
+        if (type === 'APPROVE') {
+          if (state.review !== 'IN_REVIEW' || !state.candidate) return reject(state, 'ไม่มี current review candidate ให้ reviewer อนุมัติ');
+          if (state.authority !== 'CURRENT') return reject(state, 'APPROVAL_STALE — reviewer scopeไม่ปัจจุบัน');
+          state.review = 'APPROVED';
+          state.approval = { reviewer: 'cx-reviewer-04', revision: state.candidate.revision, epoch: 9 };
+          state.lastEvent = 'Independent reviewer อนุมัติ exact candidate revision ' + state.candidate.revision;
+          return state;
+        }
+
+        if (type === 'REQUEST_PUBLISH') {
+          if (state.viewport !== 'DESKTOP') return reject(state, 'Mobile preview publishไม่ได้');
+          if (state.authority !== 'CURRENT') return reject(state, 'AUTHORIZATION_STALE');
+          if (state.sync !== 'SAVED') return reject(state, 'ต้องบันทึก authoritative draft ก่อน publish');
+          if (state.review !== 'APPROVED' || !state.approval || state.approval.revision !== state.draftRevision) return reject(state, 'APPROVAL_REQUIRED หรือ APPROVAL_STALE');
+          state.confirmationOpen = true;
+          state.lastEvent = 'เปิด confirmation ที่แสดง revision, digest และผลกระทบก่อน publish';
+          return state;
+        }
+
+        if (type === 'CONFIRM_PUBLISH') {
+          if (!state.confirmationOpen) return reject(state, 'ไม่มี publish confirmation');
+          state.publishedVersion += 1;
+          state.confirmationOpen = false;
+          state.review = 'EDITING';
+          state.candidate = null;
+          state.approval = null;
+          state.lastEvent = 'Server publish สำเร็จเป็น immutable version ' + state.publishedVersion + '; enrollmentเดิมไม่เปลี่ยน';
+          return state;
+        }
+
+        if (type === 'EXPIRE_AUTH') {
+          state.authority = 'STALE';
+          state.lastEvent = 'Session/scope หมดอายุ — local deltaคงอยู่แต่ mutationหยุดทันที';
+          state.lastOutcome = 'WARN';
+          return state;
+        }
+        if (type === 'REAUTH') {
+          state.authority = 'CURRENT';
+          state.lastEvent = 'ยืนยันตัวตนใหม่และ resolve current capability/team scopeแล้ว';
+          state.lastOutcome = 'OK';
+          return state;
+        }
+
+        if (type === 'CHECK_UPGRADE') {
+          state.upgrade.inspected = true;
+          state.lastEvent = 'Three-way diff พบ 1 visual change, 1 runtime change และ 1 conflict';
+          state.lastOutcome = 'WARN';
+          return state;
+        }
+        if (type === 'RESOLVE_KEEP_MINE') {
+          if (!state.upgrade.inspected) return reject(state, 'ตรวจ diff ก่อนเลือก conflict resolution');
+          state.upgrade.conflict = false;
+          state.upgrade.resolution = 'KEEP_TENANT_CHANGE';
+          state.lastEvent = 'เลือกเก็บ tenant change สำหรับ conflict; ยังไม่แก้ draft';
+          return state;
+        }
+        if (type === 'APPLY_UPGRADE') {
+          if (!state.upgrade.inspected || state.upgrade.conflict) return reject(state, 'TEMPLATE_UPGRADE_CONFLICT — ต้องตัดสิน conflict ก่อน');
+          return mutateAuthoring(state, function () {
+            const endIndex = state.nodes.findIndex(function (node) { return node.kind === 'END'; });
+            state.nodes.splice(endIndex, 0, { id: 'wait-upgrade', kind: 'WAIT', title: 'รอ 2 ชั่วโมงก่อนเปิดเคส', detail: 'มาจาก template version 5' });
+            state.upgrade.available = false;
+          }, 'Apply upgrade สร้าง draft revisionใหม่เท่านั้น; ยังไม่ publish');
+        }
+
+        return reject(state, 'ไม่รู้จัก action ' + type);
+      }
+
+      return { initialState: initialState, reducer: reducer, palette: palette };
+    })();
+
+    const scenarios = [
+      {
+        id: 'happy', name: 'Keyboard happy path',
+        description: 'เพิ่ม node โดยไม่ลาก บันทึก ตรวจ simulation ส่ง review และ publish โดยดูว่าแต่ละ gateอาศัย authoritative state ไม่ใช่ toastลวง',
+        steps: [
+          ['เพิ่ม Wait node', { type: 'ADD_NODE', kind: 'WAIT' }],
+          ['บันทึก revisionใหม่', { type: 'AUTOSAVE' }],
+          ['ตรวจจาก server', { type: 'VALIDATE' }],
+          ['Preview แบบไม่มี side effect', { type: 'SIMULATE' }],
+          ['ส่ง immutable candidate', { type: 'SUBMIT_REVIEW' }],
+          ['Reviewer อนุมัติ', { type: 'APPROVE' }],
+          ['เปิด publish confirmation', { type: 'REQUEST_PUBLISH' }],
+          ['ยืนยัน publish', { type: 'CONFIRM_PUBLISH' }]
+        ]
+      },
+      {
+        id: 'validation', name: 'Validation focus',
+        description: 'ทำให้ goalหาย ตั้งใจดูว่า errorถูกประกาศและย้ายโฟกัสไปจุดที่แก้ได้ ไม่ใช่ใช้สีแดงหรือพิกัดบน canvasเพียงอย่างเดียว',
+        steps: [
+          ['ลบ goal', { type: 'REMOVE_GOAL' }],
+          ['บันทึก draft', { type: 'AUTOSAVE' }],
+          ['ตรวจให้พบ error', { type: 'VALIDATE' }],
+          ['ย้ายโฟกัสไป goal', { type: 'FOCUS_ERROR' }],
+          ['คืน goal', { type: 'RESTORE_GOAL' }],
+          ['บันทึกและตรวจใหม่', { type: 'AUTOSAVE' }],
+          ['ยืนยันว่า validationผ่าน', { type: 'VALIDATE' }]
+        ]
+      },
+      {
+        id: 'conflict', name: 'Concurrent edit',
+        description: 'แก้ local draft ขณะที่อีก sessionบันทึกก่อน แล้วดูว่า autosaveหยุดด้วย conflictและไม่มี silent merge',
+        steps: [
+          ['แก้ชื่อ local', { type: 'EDIT_TITLE', value: 'ตรวจยอดค้างล่าสุด' }],
+          ['อีก session บันทึก', { type: 'REMOTE_EDIT' }],
+          ['Autosave ชน revision', { type: 'AUTOSAVE' }],
+          ['โหลด authoritative draft', { type: 'RESOLVE_RELOAD' }],
+          ['แก้ใหม่แบบ explicit', { type: 'EDIT_TITLE', value: 'ตรวจยอดค้างหลัง reload' }],
+          ['บันทึกสำเร็จ', { type: 'AUTOSAVE' }]
+        ]
+      },
+      {
+        id: 'approval', name: 'Stale approval',
+        description: 'อนุมัติ candidate แล้วแก้ draftอีกครั้ง เพื่อยืนยันว่า approvalไม่ลอยตาม latest draftและ publishถูกปฏิเสธ',
+        steps: [
+          ['ตรวจ draft', { type: 'VALIDATE' }],
+          ['ส่ง review', { type: 'SUBMIT_REVIEW' }],
+          ['Reviewer อนุมัติ', { type: 'APPROVE' }],
+          ['แก้ชื่อหลังอนุมัติ', { type: 'EDIT_TITLE', value: 'แก้หลัง approval' }],
+          ['บันทึก revisionใหม่', { type: 'AUTOSAVE' }],
+          ['ลอง publish', { type: 'REQUEST_PUBLISH' }]
+        ]
+      },
+      {
+        id: 'recovery', name: 'Session recovery',
+        description: 'ให้ sessionหมดอายุระหว่างมี local delta จากนั้นยืนยันตัวตนใหม่และ re-check scopeก่อน autosave',
+        steps: [
+          ['แก้ชื่อ local', { type: 'EDIT_TITLE', value: 'งานที่ยังไม่ sync' }],
+          ['Session หมดอายุ', { type: 'EXPIRE_AUTH' }],
+          ['Autosave ถูกกันไว้', { type: 'AUTOSAVE' }],
+          ['ยืนยันตัวตนใหม่', { type: 'REAUTH' }],
+          ['Autosave หลัง re-auth', { type: 'AUTOSAVE' }]
+        ]
+      },
+      {
+        id: 'upgrade', name: 'Template upgrade',
+        description: 'ตรวจ three-way diff ตัดสิน conflict แล้ว applyเป็น draftใหม่เท่านั้น—published versionและ enrollmentเดิมไม่เปลี่ยน',
+        steps: [
+          ['เปิด three-way diff', { type: 'CHECK_UPGRADE' }],
+          ['เลือกเก็บ tenant change', { type: 'RESOLVE_KEEP_MINE' }],
+          ['Apply ไป draft', { type: 'APPLY_UPGRADE' }],
+          ['บันทึก revisionใหม่', { type: 'AUTOSAVE' }],
+          ['ตรวจ compile ใหม่', { type: 'VALIDATE' }]
+        ]
+      }
+    ];
+
+    let state = JourneyMachine.initialState();
+    let activeScenario = scenarios[0];
+    let scenarioStep = 0;
+
+    const syncLabels = { SAVED: 'บันทึกแล้ว', UNSAVED: 'ยังไม่บันทึก', CONFLICT: 'มี conflict', RECOVERY_REQUIRED: 'รอ re-auth' };
+    const validationLabels = { NOT_RUN: 'ยังไม่ได้ตรวจ', PASSED: 'ผ่าน', FAILED: 'ต้องแก้ไข' };
+    const reviewLabels = { EDITING: 'กำลังแก้ไข', IN_REVIEW: 'รอตรวจ', APPROVED: 'อนุมัติแล้ว', CHANGES_REQUESTED: 'ขอแก้ไข', SUPERSEDED: 'หมดอายุ' };
+
+    function dispatch(action, fromScenario) {
+      state = JourneyMachine.reducer(state, action);
+      if (fromScenario) scenarioStep = Math.min(activeScenario.steps.length, scenarioStep + 1);
+      render();
+      focusRequestedTarget();
+    }
+
+    function focusRequestedTarget() {
+      if (!state.focusTarget) return;
+      const target = state.focusTarget === 'goal'
+        ? document.getElementById('goal-input')
+        : document.querySelector('[data-node-id="' + state.focusTarget + '"]');
+      if (target) target.focus();
+    }
+
+    function actionButton(label, action, className) {
+      const button = document.createElement('button');
+      button.className = className || 'btn';
+      button.textContent = label;
+      button.addEventListener('click', function () { dispatch(action); });
+      return button;
+    }
+
+    function renderPalette() {
+      const root = document.getElementById('palette-list');
+      root.innerHTML = '';
+      Object.keys(JourneyMachine.palette).forEach(function (kind) {
+        const data = JourneyMachine.palette[kind];
+        const button = document.createElement('button');
+        button.className = 'palette-btn';
+        button.disabled = state.viewport !== 'DESKTOP' || state.authority !== 'CURRENT';
+        button.innerHTML = '<strong>เพิ่ม ' + data.title + '</strong><span>' + data.detail + '</span>';
+        button.addEventListener('click', function () { dispatch({ type: 'ADD_NODE', kind: kind }); });
+        root.appendChild(button);
+      });
+    }
+
+    function renderGraph() {
+      const root = document.getElementById('graph-list');
+      const scroll = document.getElementById('canvas-scroll');
+      scroll.classList.toggle('outline-only', state.view === 'OUTLINE');
+      root.style.transform = state.view === 'VISUAL' ? 'scale(' + (state.zoom / 100) + ')' : 'none';
+      root.style.transformOrigin = 'top center';
+      root.innerHTML = '';
+      state.nodes.forEach(function (node, index) {
+        const li = document.createElement('li');
+        li.className = 'node-wrap';
+        const button = document.createElement('button');
+        button.className = 'node';
+        button.dataset.nodeId = node.id;
+        button.setAttribute('aria-current', String(node.id === state.selectedId));
+        button.setAttribute('aria-label', 'ขั้นที่ ' + (index + 1) + ' ' + node.title + ' ชนิด ' + node.kind + '. ' + node.detail);
+        button.innerHTML = '<span class="node-index">' + (index + 1) + '</span><span><span class="node-title">' + node.title + '</span><span class="node-detail">' + node.detail + '</span></span><span class="node-kind">' + node.kind + '</span>';
+        button.addEventListener('click', function () { dispatch({ type: 'SELECT_NODE', id: node.id }); });
+        button.addEventListener('keydown', function (event) {
+          if (event.altKey && event.key === 'ArrowUp') { event.preventDefault(); dispatch({ type: 'MOVE_UP' }); }
+          if (event.altKey && event.key === 'ArrowDown') { event.preventDefault(); dispatch({ type: 'MOVE_DOWN' }); }
+          if (event.key === 'Delete') { event.preventDefault(); dispatch({ type: 'DELETE_NODE' }); }
+        });
+        li.appendChild(button);
+        if (node.kind === 'CONDITION') {
+          const note = document.createElement('p');
+          note.className = 'branch-note';
+          note.textContent = 'ทางเลือก: ชำระแล้ว → จบ · ยังไม่ชำระ → ขั้นถัดไป';
+          li.appendChild(note);
+        }
+        root.appendChild(li);
+      });
+    }
+
+    function renderInspector() {
+      const node = state.nodes.find(function (item) { return item.id === state.selectedId; });
+      const root = document.getElementById('inspector-content');
+      const meta = document.getElementById('selected-meta');
+      if (!node) {
+        meta.textContent = 'เลือก node เพื่อแก้ไข';
+        root.innerHTML = '<p class="muted">รายละเอียดจะปรากฏที่นี่</p>';
+        return;
+      }
+      meta.textContent = node.kind + ' · ' + node.id;
+      root.innerHTML = '';
+      const titleField = document.createElement('div');
+      titleField.className = 'field';
+      titleField.innerHTML = '<label for="node-title-input">ชื่อที่ผู้ใช้เห็น</label>';
+      const input = document.createElement('input');
+      input.id = 'node-title-input';
+      input.className = 'input';
+      input.value = node.title;
+      input.disabled = state.viewport !== 'DESKTOP' || state.authority !== 'CURRENT';
+      input.addEventListener('change', function () { dispatch({ type: 'EDIT_TITLE', value: input.value }); });
+      titleField.appendChild(input);
+      root.appendChild(titleField);
+
+      const goalField = document.createElement('div');
+      goalField.className = 'field';
+      goalField.innerHTML = '<label for="goal-input">เป้าหมาย Journey</label>';
+      const goal = document.createElement('input');
+      goal.id = 'goal-input';
+      goal.className = 'input';
+      goal.value = state.goal;
+      goal.readOnly = true;
+      goal.setAttribute('aria-describedby', 'goal-help');
+      goalField.appendChild(goal);
+      const help = document.createElement('p');
+      help.id = 'goal-help';
+      help.className = 'muted tiny';
+      help.textContent = state.goal ? 'Goal พร้อมสำหรับ validation' : 'จำเป็นต้องกำหนดก่อน publish';
+      goalField.appendChild(help);
+      root.appendChild(goalField);
+
+      const actions = document.createElement('div');
+      actions.className = 'row-actions';
+      actions.appendChild(actionButton('ขึ้น', { type: 'MOVE_UP' }, 'btn mutating'));
+      actions.appendChild(actionButton('ลง', { type: 'MOVE_DOWN' }, 'btn mutating'));
+      actions.appendChild(actionButton('ลบ', { type: 'DELETE_NODE' }, 'btn btn-danger mutating'));
+      root.appendChild(actions);
+
+      const goalActions = document.createElement('div');
+      goalActions.className = 'row-actions';
+      goalActions.style.gridTemplateColumns = '1fr 1fr';
+      goalActions.appendChild(actionButton('ทดลองลบ goal', { type: 'REMOVE_GOAL' }, 'btn mutating'));
+      goalActions.appendChild(actionButton('คืน goal', { type: 'RESTORE_GOAL' }, 'btn mutating'));
+      root.appendChild(goalActions);
+
+      if (state.sync === 'CONFLICT') root.appendChild(actionButton('โหลด authoritative draft', { type: 'RESOLVE_RELOAD' }, 'btn btn-primary'));
+      if (state.authority === 'STALE') root.appendChild(actionButton('ยืนยันตัวตนและ scope ใหม่', { type: 'REAUTH' }, 'btn btn-primary'));
+      if (state.upgrade.inspected && state.upgrade.conflict) root.appendChild(actionButton('Template conflict: เก็บของทีมเรา', { type: 'RESOLVE_KEEP_MINE' }, 'btn'));
+      if (state.upgrade.inspected && !state.upgrade.conflict && state.upgrade.available) root.appendChild(actionButton('Apply template upgrade ไป draft', { type: 'APPLY_UPGRADE' }, 'btn'));
+    }
+
+    function renderValidation() {
+      const root = document.getElementById('validation-content');
+      const digest = document.getElementById('validation-digest');
+      digest.textContent = state.validationDigest || 'ยังไม่มี artifact';
+      digest.className = 'chip ' + (state.validation === 'PASSED' ? 'ok' : state.validation === 'FAILED' ? 'bad' : '');
+      root.innerHTML = '';
+      if (state.validation === 'NOT_RUN') {
+        root.innerHTML = '<p class="muted" style="margin:0">กด “ตรวจสอบ” เพื่อรับ authoritative diagnostics</p>';
+      } else if (state.validation === 'PASSED') {
+        root.innerHTML = '<div class="success-note">ผ่าน 16 checks · compile deterministic · provider traffic 0 · canonical writes 0</div>';
+      } else {
+        const list = document.createElement('ul');
+        list.className = 'validation-list';
+        state.diagnostics.forEach(function (issue) {
+          const li = document.createElement('li');
+          const button = document.createElement('button');
+          button.className = 'issue-btn';
+          button.textContent = issue.code + ' — ' + issue.label;
+          button.addEventListener('click', function () { dispatch({ type: 'FOCUS_ERROR' }); });
+          li.appendChild(button);
+          list.appendChild(li);
+        });
+        root.appendChild(list);
+      }
+    }
+
+    function renderState() {
+      document.getElementById('m-revision').textContent = state.draftRevision + ' (server ' + state.serverRevision + ')';
+      document.getElementById('m-sync').textContent = syncLabels[state.sync];
+      document.getElementById('m-validation').textContent = validationLabels[state.validation];
+      document.getElementById('m-review').textContent = reviewLabels[state.review];
+      document.getElementById('m-authority').textContent = state.authority === 'CURRENT' ? 'ปัจจุบัน' : 'ต้องตรวจใหม่';
+      document.getElementById('m-published').textContent = 'Version ' + state.publishedVersion;
+      document.getElementById('zoom-output').textContent = state.zoom + '%';
+      document.getElementById('presence-text').textContent = state.viewport === 'DESKTOP' ? 'Pim กำลังดูอยู่ · presenceไม่ใช่ lock' : 'Mobile read-only preview';
+      document.getElementById('visual-switch').classList.toggle('active', state.view === 'VISUAL');
+      document.getElementById('outline-switch').classList.toggle('active', state.view === 'OUTLINE');
+      document.getElementById('header-draft').textContent = state.sync === 'SAVED' ? 'Draft r' + state.draftRevision : syncLabels[state.sync];
+      document.getElementById('last-event').textContent = state.lastEvent;
+      document.getElementById('assertive-live').textContent = state.lastOutcome === 'ERROR' ? state.lastEvent : '';
+      const full = document.getElementById('full-state');
+      const rows = [
+        ['Mode', state.viewport],
+        ['Base revision', state.baseRevision],
+        ['Selected', state.selectedId],
+        ['Goal', state.goal || 'ไม่มี'],
+        ['Candidate', state.candidate ? 'r' + state.candidate.revision : 'ไม่มี'],
+        ['Approval', state.approval ? state.approval.reviewer : 'ไม่มี'],
+        ['Simulation', state.simulation || 'ยังไม่รัน'],
+        ['Template', state.upgrade.available ? (state.upgrade.inspected ? 'diff เปิดแล้ว' : 'มี update') : 'applied']
+      ];
+      full.innerHTML = rows.map(function (row) { return '<dt>' + row[0] + '</dt><dd>' + row[1] + '</dd>'; }).join('');
+      document.querySelectorAll('.mutating').forEach(function (element) { element.disabled = state.viewport !== 'DESKTOP'; });
+    }
+
+    function renderDialog() {
+      const root = document.getElementById('dialog-root');
+      const wasOpen = root.childElementCount > 0;
+      root.innerHTML = '';
+      document.querySelector('.topbar').inert = state.confirmationOpen;
+      document.querySelector('.wrap').inert = state.confirmationOpen;
+      if (!state.confirmationOpen) {
+        if (wasOpen) setTimeout(function () { document.querySelector('[data-action="REQUEST_PUBLISH"]').focus(); }, 0);
+        return;
+      }
+      const backdrop = document.createElement('div');
+      backdrop.className = 'dialog-backdrop';
+      backdrop.innerHTML = '<section class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="publish-title" aria-describedby="publish-desc"><h2 id="publish-title">ยืนยัน publish immutable version ' + (state.publishedVersion + 1) + '</h2><p id="publish-desc">Draft revision ' + state.draftRevision + ' · digest ' + state.validationDigest + ' · reviewer ' + state.approval.reviewer + '</p><div class="success-note">มีผลเฉพาะ enrollment ใหม่หลัง activation; enrollmentเดิมยัง pin versionเดิม และ provider trafficยังปิด</div><div class="dialog-actions"><button class="btn" data-dialog-action="cancel">ยกเลิก</button><button class="btn btn-primary" data-dialog-action="confirm">ยืนยัน publish</button></div></section>';
+      backdrop.querySelector('[data-dialog-action="cancel"]').addEventListener('click', function () { dispatch({ type: 'CANCEL_PUBLISH' }); });
+      backdrop.querySelector('[data-dialog-action="confirm"]').addEventListener('click', function () {
+        const currentStep = activeScenario.steps[scenarioStep];
+        const advancesScenario = currentStep && currentStep[1].type === 'CONFIRM_PUBLISH';
+        dispatch({ type: 'CONFIRM_PUBLISH' }, advancesScenario);
+      });
+      backdrop.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          dispatch({ type: 'CANCEL_PUBLISH' });
+          return;
+        }
+        if (event.key !== 'Tab') return;
+        const controls = Array.from(backdrop.querySelectorAll('button'));
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      });
+      root.appendChild(backdrop);
+      setTimeout(function () { backdrop.querySelector('[data-dialog-action="cancel"]').focus(); }, 0);
+    }
+
+    function renderScenarios() {
+      const tabs = document.getElementById('scenario-tabs');
+      tabs.innerHTML = '';
+      scenarios.forEach(function (scenario) {
+        const button = document.createElement('button');
+        button.className = 'tab';
+        button.role = 'tab';
+        button.setAttribute('aria-selected', String(scenario.id === activeScenario.id));
+        button.textContent = scenario.name;
+        button.addEventListener('click', function () {
+          activeScenario = scenario;
+          scenarioStep = 0;
+          state = JourneyMachine.initialState();
+          render();
+        });
+        tabs.appendChild(button);
+      });
+      const body = document.getElementById('scenario-body');
+      body.innerHTML = '<p>' + activeScenario.description + '</p>';
+      const steps = document.createElement('div');
+      steps.className = 'steps';
+      activeScenario.steps.forEach(function (step, index) {
+        const button = document.createElement('button');
+        button.className = 'step ' + (index < scenarioStep ? 'done' : index === scenarioStep ? 'current' : '');
+        button.disabled = index !== scenarioStep;
+        button.innerHTML = '<span class="step-num">ขั้น ' + (index + 1) + '</span><strong>' + step[0] + '</strong>';
+        button.addEventListener('click', function () { dispatch(step[1], true); });
+        steps.appendChild(button);
+      });
+      body.appendChild(steps);
+    }
+
+    function render() {
+      renderPalette();
+      renderGraph();
+      renderInspector();
+      renderValidation();
+      renderState();
+      renderDialog();
+      renderScenarios();
+    }
+
+    document.addEventListener('click', function (event) {
+      const button = event.target.closest('[data-action]');
+      if (button) dispatch({ type: button.dataset.action });
+    });
+    document.getElementById('scenario-reset').addEventListener('click', function () {
+      state = JourneyMachine.initialState();
+      scenarioStep = 0;
+      render();
+    });
+    render();
+  </script>
+</body>
+</html>
