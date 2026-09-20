@@ -68,6 +68,7 @@ import {
   ContactGovernancePoliciesController,
   ContactGovernancePreferencesController,
 } from './contact-governance-api.js';
+import { ContactGovernanceCg5QueryController } from './contact-governance-cg5-api.js';
 import {
   CG4_API_CONTROLLERS,
   CG4_DATABASE,
@@ -143,6 +144,7 @@ class WorkspaceSessionController {
     ContactGovernancePoliciesController,
     ContactGovernanceContactQueryController,
     ContactGovernanceDecisionQueryController,
+    ContactGovernanceCg5QueryController,
     ...CG4_API_CONTROLLERS,
   ],
   providers: [
