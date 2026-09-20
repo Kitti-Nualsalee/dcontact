@@ -21,6 +21,7 @@ const aggregateTypeName = {
   CONTACT: 'contact_governance_contact',
   POLICY: 'contact_governance_policy',
   ALERT: 'contact_governance_alert',
+  EXPORT: 'contact_governance_export',
 } as const;
 
 /** Durable Journey outbox relay; ไม่ apply event ซ้ำและไม่ปล่อย raw contact data */

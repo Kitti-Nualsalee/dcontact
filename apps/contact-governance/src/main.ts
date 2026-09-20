@@ -6,6 +6,10 @@ import { Cg4Cache } from './cg4-cache.js';
 import { Cg4EventRelay } from './cg4-event-relay.js';
 import { Cg4PolicyLifecycleRepository } from './cg4-policy-lifecycle.js';
 import { Cg4ActivationWorker, Cg4ExpirySweeper } from './cg4-workers.js';
+import { Cg5ExportLifecycleService } from './cg5-export-lifecycle.js';
+import { Cg5ExportRunner } from './cg5-export-runner.js';
+import { PrismaCg5CanonicalExportReader } from './cg5-prisma-export-reader.js';
+import { MinioGovernanceExportStorage } from './minio-governance-export-storage.js';
 
 const database = new PrismaClient();
 const redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379');
@@ -30,6 +34,13 @@ const relay = new Cg4EventRelay(database, producer, {
 });
 const activation = new Cg4ActivationWorker(database, new Cg4PolicyLifecycleRepository(database));
 const expiry = new Cg4ExpirySweeper(database);
+const exportStorage = new MinioGovernanceExportStorage();
+const exportRunner = new Cg5ExportRunner(
+  database,
+  exportStorage,
+  new PrismaCg5CanonicalExportReader(database),
+);
+const exportLifecycle = new Cg5ExportLifecycleService(database, exportStorage);
 const consumer = await createCg3AcknowledgementConsumer({
   database,
   clientId: 'dcontact-contact-governance-consumer',
@@ -83,6 +94,8 @@ async function runWorkers(): Promise<void> {
         if (!result || result.outcome !== 'ACTIVATED') break;
       }
       await expiry.sweep(tenant.id);
+      await exportLifecycle.expireDue(tenant.id);
+      await exportRunner.runNext(tenant.id);
     }
   } catch (error) {
     reportFailure('contact_governance.workers.failed', error);

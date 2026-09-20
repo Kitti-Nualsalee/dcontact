@@ -43,6 +43,7 @@ import {
 } from './recording-api.js';
 import { KafkaTelephonyCommandPublisher } from './recording-command-publisher.js';
 import { MinioRecordingStorage } from './minio-recording-storage.js';
+import { MinioGovernanceExportStorage } from './minio-governance-export-storage.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
 import { KafkaQmJobPublisher } from './qm-job-publisher.js';
 import {
@@ -70,6 +71,10 @@ import {
 } from './contact-governance-api.js';
 import { Redis } from 'ioredis';
 import { Cg5QueryCache } from '@d-contact/contact-governance';
+import {
+  CG5_EXPORT_STORAGE,
+  ContactGovernanceCg5ExportController,
+} from './contact-governance-cg5-export-api.js';
 import {
   CG5_QUERY_CACHE,
   ContactGovernanceCg5QueryController,
@@ -99,6 +104,7 @@ const gateway = new WorkspaceSessionGateway(verifier, new WorkspaceSessionRegist
 const supervisorLiveEvents = new SupervisorLiveEventStream();
 const recordingCommandPublisher = new KafkaTelephonyCommandPublisher();
 const recordingStorage = new MinioRecordingStorage();
+const governanceExportStorage = new MinioGovernanceExportStorage();
 const qmJobPublisher = new KafkaQmJobPublisher();
 const journeyEventInbox = new EventInboxService(prisma);
 const httpAdapter = new WorkspaceSessionHttpAdapter(gateway);
@@ -153,12 +159,14 @@ class WorkspaceSessionController {
     ContactGovernanceContactQueryController,
     ContactGovernanceDecisionQueryController,
     ContactGovernanceCg5QueryController,
+    ContactGovernanceCg5ExportController,
     ...CG4_API_CONTROLLERS,
   ],
   providers: [
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
     { provide: CONTACT_GOVERNANCE_DATABASE, useValue: prisma },
     { provide: CG5_QUERY_CACHE, useValue: cg5QueryCache },
+    { provide: CG5_EXPORT_STORAGE, useValue: governanceExportStorage },
     { provide: CG4_DATABASE, useValue: prisma },
     {
       // Evidence access is itself auditable (#190): opaque ids only, no evidence body.
