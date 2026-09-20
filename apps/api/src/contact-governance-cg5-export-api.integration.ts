@@ -44,6 +44,8 @@ function claims(tenantId: string, userId: string): VerifiedOidcClaims {
 
 class FakeStorage implements Cg5ExportDownloadStorage {
   readonly calls: Array<{ tenantId: string; key: string }> = [];
+  async put(): Promise<void> {}
+  async delete(): Promise<void> {}
   async presignDownload(tenantId: string, key: string) {
     this.calls.push({ tenantId, key });
     return { url: `https://storage.test/${key}`, expiresAt: new Date('2026-09-20T00:05:00.000Z') };

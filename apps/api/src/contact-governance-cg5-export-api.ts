@@ -19,11 +19,13 @@ import {
   Cg4DatabaseAuthorizationPort,
   Cg5ExportIdempotencyConflictError,
   Cg5ExportJobRepository,
+  Cg5ExportLifecycleService,
   Cg5ExportRangeTooLargeError,
   Cg5ExportRateLimitError,
   PrismaCg5TenantConfigRepository,
   cg4RefDigest,
   resolveCg4EvidenceAccess,
+  type Cg5ExportObjectStorage,
 } from '@d-contact/contact-governance';
 import { CG5_EXPORT_DATASETS, type Cg5ExportDataset } from '@d-contact/cxa-contracts';
 import { CONTACT_GOVERNANCE_DATABASE } from './contact-governance-api.js';
@@ -31,7 +33,7 @@ import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.j
 
 export const CG5_EXPORT_STORAGE = Symbol('CG5_EXPORT_STORAGE');
 
-export interface Cg5ExportDownloadStorage {
+export interface Cg5ExportDownloadStorage extends Cg5ExportObjectStorage {
   presignDownload(
     tenantId: string,
     key: string,
@@ -149,14 +151,16 @@ export class ContactGovernanceCg5ExportController {
   private readonly jobs: Cg5ExportJobRepository;
   private readonly config: PrismaCg5TenantConfigRepository;
   private readonly authorization: Cg4DatabaseAuthorizationPort;
+  private readonly lifecycle: Cg5ExportLifecycleService;
 
   constructor(
-    @Inject(CONTACT_GOVERNANCE_DATABASE) database: PrismaClient,
+    @Inject(CONTACT_GOVERNANCE_DATABASE) private readonly database: PrismaClient,
     @Inject(CG5_EXPORT_STORAGE) private readonly storage: Cg5ExportDownloadStorage,
   ) {
     this.jobs = new Cg5ExportJobRepository(database);
     this.config = new PrismaCg5TenantConfigRepository(database);
     this.authorization = new Cg4DatabaseAuthorizationPort(database);
+    this.lifecycle = new Cg5ExportLifecycleService(database, storage);
   }
 
   @Post()
@@ -231,6 +235,9 @@ export class ContactGovernanceCg5ExportController {
     const actor = await this.actor(request);
     const id = uuid(exportId, 'exportId');
     const job = await this.jobs.get(actor.tenantId, id);
+    if (job?.state === 'READY' && job.expiresAt && job.expiresAt <= new Date()) {
+      await this.lifecycle.expireDue(actor.tenantId);
+    }
     if (
       !job ||
       job.state !== 'READY' ||

@@ -32,6 +32,7 @@ export class Cg5ExportLifecycleService {
         select: { exportId: true, storagePrefix: true, datasets: true },
       }),
     );
+    let expired = 0;
     for (const job of due) {
       try {
         await this.jobs.transition({
@@ -45,8 +46,9 @@ export class Cg5ExportLifecycleService {
         throw error;
       }
       await Promise.allSettled(objectKeys(job).map((key) => this.storage.delete(key)));
+      expired += 1;
     }
-    return due.length;
+    return expired;
   }
 
   /** Called by the data-erasure orchestrator; REVOKED is committed before object deletion. */
