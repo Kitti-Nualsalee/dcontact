@@ -19,7 +19,9 @@ async function fixture(t: TestContext) {
   const tenantId = randomUUID();
   const otherTenantId = randomUUID();
   for (const id of [tenantId, otherTenantId]) {
-    await owner.tenant.create({ data: { id, name: `CG5 query ${id}`, slug: id, sipDomain: `${id}.test` } });
+    await owner.tenant.create({
+      data: { id, name: `CG5 query ${id}`, slug: id, sipDomain: `${id}.test` },
+    });
   }
   t.after(async () => {
     const where = { tenantId: { in: [tenantId, otherTenantId] } };
@@ -49,7 +51,8 @@ test('CG5.7 ปฏิเสธ projection ที่ยังไม่พร้�
   const f = await fixture(t);
   await assert.rejects(
     f.service.metrics(f.tenantId, { kind: 'TENANT' }, { granularity: 'FIVE_MIN', limit: 20 }),
-    (error: unknown) => error instanceof Cg5ProjectionNotReadyError && error.code === 'CG5_PROJECTION_NOT_READY',
+    (error: unknown) =>
+      error instanceof Cg5ProjectionNotReadyError && error.code === 'CG5_PROJECTION_NOT_READY',
   );
 });
 
@@ -75,7 +78,12 @@ test('CG5.7 metrics กรอง tenant และ team scope ก่อน cursor
         updatedAt: at,
       },
     });
-  await Promise.all([insert(f.tenantId, teamA, 0), insert(f.tenantId, teamA, 5), insert(f.tenantId, teamB, 10), insert(f.otherTenantId, teamA, 15)]);
+  await Promise.all([
+    insert(f.tenantId, teamA, 0),
+    insert(f.tenantId, teamA, 5),
+    insert(f.tenantId, teamB, 10),
+    insert(f.otherTenantId, teamA, 15),
+  ]);
   const page = await f.service.metrics(
     f.tenantId,
     { kind: 'TEAM', teamId: teamA },
@@ -89,7 +97,10 @@ test('CG5.7 metrics กรอง tenant และ team scope ก่อน cursor
     { kind: 'TEAM', teamId: teamA },
     { granularity: 'FIVE_MIN', limit: 20, cursor: page.nextCursor! },
   );
-  assert.deepEqual(next.items.map((item) => item.teamId), [teamA]);
+  assert.deepEqual(
+    next.items.map((item) => item.teamId),
+    [teamA],
+  );
   await assert.rejects(
     f.service.metrics(
       f.tenantId,

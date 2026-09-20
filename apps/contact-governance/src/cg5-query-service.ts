@@ -40,7 +40,10 @@ export interface Cg5AlertQuery {
 function cursorWhere(cursor: Cg5PageCursor | undefined, field: 'bucketStart' | 'updatedAt') {
   if (!cursor) return undefined;
   return {
-    OR: [{ [field]: { lt: cursor.occurredAt } }, { [field]: cursor.occurredAt, id: { lt: cursor.id } }],
+    OR: [
+      { [field]: { lt: cursor.occurredAt } },
+      { [field]: cursor.occurredAt, id: { lt: cursor.id } },
+    ],
   };
 }
 
@@ -68,11 +71,20 @@ export class Cg5QueryService {
           granularity: query.granularity,
           ...(query.metricKey ? { metricKey: query.metricKey } : {}),
           ...(query.from || query.to
-            ? { bucketStart: { ...(query.from ? { gte: query.from } : {}), ...(query.to ? { lt: query.to } : {}) } }
+            ? {
+                bucketStart: {
+                  ...(query.from ? { gte: query.from } : {}),
+                  ...(query.to ? { lt: query.to } : {}),
+                },
+              }
             : {}),
           ...(query.channel ? { channel: query.channel } : {}),
           ...(query.purpose ? { purpose: query.purpose } : {}),
-          ...(scope.kind === 'TEAM' ? { teamId: scope.teamId } : query.teamId ? { teamId: query.teamId } : {}),
+          ...(scope.kind === 'TEAM'
+            ? { teamId: scope.teamId }
+            : query.teamId
+              ? { teamId: query.teamId }
+              : {}),
           ...(cursorWhere(query.cursor, 'bucketStart') ?? {}),
         },
         orderBy: [{ bucketStart: 'desc' }, { id: 'desc' }],
@@ -81,7 +93,10 @@ export class Cg5QueryService {
       const page = rows.slice(0, query.limit);
       const last = page.at(-1);
       return {
-        asOf: page.reduce<Date | null>((latest, row) => (!latest || row.updatedAt > latest ? row.updatedAt : latest), null),
+        asOf: page.reduce<Date | null>(
+          (latest, row) => (!latest || row.updatedAt > latest ? row.updatedAt : latest),
+          null,
+        ),
         items: page.map((row) => ({
           metricKey: row.metricKey,
           granularity: row.granularity,
@@ -104,7 +119,13 @@ export class Cg5QueryService {
   async policyImpact(
     tenantId: string,
     scope: Cg5QueryScope,
-    query: { granularity: Cg5Granularity; from?: Date; to?: Date; cursor?: Cg5PageCursor; limit: number },
+    query: {
+      granularity: Cg5Granularity;
+      from?: Date;
+      to?: Date;
+      cursor?: Cg5PageCursor;
+      limit: number;
+    },
   ) {
     await this.assertReady(tenantId);
     // These buckets intentionally have no team dimension. Returning them to a supervisor would leak tenant totals.
@@ -115,7 +136,12 @@ export class Cg5QueryService {
           tenantId,
           granularity: query.granularity,
           ...(query.from || query.to
-            ? { bucketStart: { ...(query.from ? { gte: query.from } : {}), ...(query.to ? { lt: query.to } : {}) } }
+            ? {
+                bucketStart: {
+                  ...(query.from ? { gte: query.from } : {}),
+                  ...(query.to ? { lt: query.to } : {}),
+                },
+              }
             : {}),
           ...(cursorWhere(query.cursor, 'bucketStart') ?? {}),
         },
@@ -125,7 +151,10 @@ export class Cg5QueryService {
       const page = rows.slice(0, query.limit);
       const last = page.at(-1);
       return {
-        asOf: page.reduce<Date | null>((latest, row) => (!latest || row.bucketStart > latest ? row.bucketStart : latest), null),
+        asOf: page.reduce<Date | null>(
+          (latest, row) => (!latest || row.bucketStart > latest ? row.bucketStart : latest),
+          null,
+        ),
         items: page.map((row) => ({
           bucketStart: row.bucketStart,
           policyVersion: row.policyVersion,
@@ -154,7 +183,10 @@ export class Cg5QueryService {
       const page = rows.slice(0, query.limit);
       const last = page.at(-1);
       return {
-        asOf: page.reduce<Date | null>((latest, row) => (!latest || row.updatedAt > latest ? row.updatedAt : latest), null),
+        asOf: page.reduce<Date | null>(
+          (latest, row) => (!latest || row.updatedAt > latest ? row.updatedAt : latest),
+          null,
+        ),
         items: page.map((row) => ({
           id: row.id,
           ruleCode: row.ruleCode,
