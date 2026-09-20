@@ -44,3 +44,5 @@ export * from './cg5-tenant-config-repository.js';
 export * from './cg5-event-metrics-consumer.js';
 export * from './cg5-incremental-projection-reader.js';
 export * from './cg5-projection-maintenance.js';
+export * from './cg5-anomaly-evaluator.js';
+export * from './cg5-alert-repository.js';
