@@ -62,6 +62,7 @@ const AGGREGATE_TYPE_MAP = {
   CONTACT: 'contact_governance_contact',
   POLICY: 'contact_governance_policy',
   ALERT: 'contact_governance_alert',
+  EXPORT: 'contact_governance_export',
 } as const;
 
 /** CG3 emits `policy.changed` from its own writer; those rows predate the CG4 contract. */
@@ -207,9 +208,14 @@ export class Cg4EventRelay {
    */
   private async invalidate(
     tenantId: string,
-    row: { aggregateType: 'CONTACT' | 'POLICY' | 'ALERT'; aggregateId: string; payload: unknown },
+    row: {
+      aggregateType: 'CONTACT' | 'POLICY' | 'ALERT' | 'EXPORT';
+      aggregateId: string;
+      payload: unknown;
+    },
   ): Promise<void> {
     if (!this.cache) return;
+    if (row.aggregateType === 'EXPORT' || row.aggregateType === 'ALERT') return;
     if (row.aggregateType === 'CONTACT') {
       await this.cache.invalidateContactHead(tenantId, row.aggregateId);
       const subjectId = (row.payload as { subjectId?: unknown } | null)?.subjectId;

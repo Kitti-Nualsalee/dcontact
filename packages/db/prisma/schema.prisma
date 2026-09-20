@@ -922,6 +922,7 @@ enum CgAggregateType {
   CONTACT
   POLICY
   ALERT
+  EXPORT
 }
 
 enum CgEventOutboxState {
