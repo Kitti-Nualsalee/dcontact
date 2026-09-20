@@ -21,7 +21,7 @@ export class Cg5AlertVersionConflictError extends Error {
     readonly expectedVersion: number,
     readonly actualVersion: number,
   ) {
-    super(`alert version conflict: expected , actual `);
+    super(`alert version conflict: expected ${expectedVersion}, actual ${actualVersion}`);
     this.name = 'Cg5AlertVersionConflictError';
   }
 }
@@ -200,7 +200,7 @@ export class Cg5AlertRepository {
           fromVersion: current.version,
           toVersion: version,
           actorRef: input.actorRef,
-          evidenceRef: `cg5-alert-ack::`,
+          evidenceRef: `cg5-alert-ack:${current.ruleCode}:${current.scopeKey}`,
           stateDigest,
           occurredAt: now,
         },
@@ -213,7 +213,7 @@ export class Cg5AlertRepository {
           aggregateId: current.id,
           aggregateVersion: version,
           eventType: CG5_EVENT_TYPES.ALERT_CHANGED,
-          orderingKey: `:`,
+          orderingKey: `${input.tenantId}:${current.id}`,
           payload: json(payload),
           payloadHash: stableDigest(payload),
         },
