@@ -46,3 +46,4 @@ export * from './cg5-incremental-projection-reader.js';
 export * from './cg5-projection-maintenance.js';
 export * from './cg5-anomaly-evaluator.js';
 export * from './cg5-alert-repository.js';
+export * from './cg5-anomaly-engine.js';
