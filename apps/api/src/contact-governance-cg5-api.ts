@@ -22,11 +22,12 @@ import {
   type Cg5PageCursor,
   type Cg5QueryScope,
 } from '@d-contact/contact-governance';
-import type { Cg5Granularity } from '@d-contact/cxa-contracts';
+import { CG5_METRIC_KEYS, type Cg5Granularity, type Cg5MetricKey } from '@d-contact/cxa-contracts';
 import { CONTACT_GOVERNANCE_DATABASE } from './contact-governance-api.js';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 
 const GRANULARITIES = new Set<Cg5Granularity>(['FIVE_MIN', 'HOUR', 'DAY']);
+const METRIC_KEYS = new Set<Cg5MetricKey>(CG5_METRIC_KEYS);
 const ALERT_STATES = new Set(['OPEN', 'ACKED', 'RESOLVED', 'SUPPRESSED']);
 const ALERT_SEVERITIES = new Set(['WARNING', 'CRITICAL']);
 
@@ -40,6 +41,14 @@ function requiredUuid(value: string, field: string): string {
     throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `${field} ต้องเป็น UUID` });
   }
   return value;
+}
+
+function metric(value: unknown): Cg5MetricKey | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || !METRIC_KEYS.has(value as Cg5MetricKey)) {
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'metricKey ไม่ถูกต้อง' });
+  }
+  return value as Cg5MetricKey;
 }
 
 function granularity(value: unknown): Cg5Granularity {
@@ -143,7 +152,7 @@ export class ContactGovernanceCg5QueryController {
     try {
       const result = await this.queries.metrics(actor.tenantId, await this.scope(actor), {
         granularity: granularity(requestedGranularity),
-        ...(typeof metricKey === 'string' ? { metricKey: metricKey as never } : {}),
+        ...(metric(metricKey) ? { metricKey: metric(metricKey) } : {}),
         ...(optionalDate(from, 'from') ? { from: optionalDate(from, 'from') } : {}),
         ...(optionalDate(to, 'to') ? { to: optionalDate(to, 'to') } : {}),
         ...(typeof channel === 'string' ? { channel } : {}),
