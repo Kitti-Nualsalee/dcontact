@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -41,6 +43,11 @@ jobs:
 
       - name: Prettier check
         run: pnpm lint
+
+      - name: CG5 external OpenAPI breaking-change guard
+        run: node scripts/cg5-openapi-breaking-check.mjs && node --test scripts/cg5-openapi-breaking-check.test.mjs
+        env:
+          CG5_EXTERNAL_OPENAPI_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
 
       # CG4.11 (#194): registry/validator/marker suppression รันได้โดยไม่ต้องมี infrastructure
       - name: CG4 readiness validator tests

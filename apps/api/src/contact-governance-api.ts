@@ -20,7 +20,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
-import type { ContactChannel } from '@d-contact/cxa-contracts';
+import { CG5_API_SCOPES, type ContactChannel } from '@d-contact/cxa-contracts';
 import {
   Cg3CallbackRepository,
   Cg3IdempotencyConflictError,
@@ -40,11 +40,22 @@ import {
 import {
   GatewayRoles,
   GatewayServiceRoles,
+  GatewayServiceScopes,
   type AuthenticatedGatewayRequest,
 } from './gateway-auth.js';
 import { mapCg4Error } from './contact-governance-cg4-api.js';
+import { CONTACT_GOVERNANCE_DATABASE } from './contact-governance-tokens.js';
+import {
+  CG5_TENANT_CLIENT_RATE_LIMITER,
+  Cg5ExternalReadService,
+  externalDecisionView,
+  externalEtag,
+  externalPolicyView,
+  setConditionalEtag,
+} from './contact-governance-external-read-api.js';
+import { TenantClientRateLimiter } from './tenant-client-rate-limiter.js';
 
-export const CONTACT_GOVERNANCE_DATABASE = Symbol('CONTACT_GOVERNANCE_DATABASE');
+export { CONTACT_GOVERNANCE_DATABASE } from './contact-governance-tokens.js';
 
 const CONTACT_CHANNELS = new Set(['VOICE', 'WEBCHAT', 'LINE', 'FACEBOOK', 'WHATSAPP', 'EMAIL']);
 const PRIVILEGED_ROLES = ['admin', 'compliance'];
@@ -449,9 +460,15 @@ export class ContactGovernanceContactQueryController {
   private readonly preferences: Cg3PreferenceRepository;
   private readonly callbacks: Cg3CallbackRepository;
 
-  constructor(@Inject(CONTACT_GOVERNANCE_DATABASE) private readonly database: PrismaClient) {
+  private readonly external: Cg5ExternalReadService;
+
+  constructor(
+    @Inject(CONTACT_GOVERNANCE_DATABASE) private readonly database: PrismaClient,
+    @Inject(CG5_TENANT_CLIENT_RATE_LIMITER) limiter: TenantClientRateLimiter,
+  ) {
     this.preferences = new Cg3PreferenceRepository(database);
     this.callbacks = new Cg3CallbackRepository(database);
+    this.external = new Cg5ExternalReadService(database, limiter);
   }
 
   @Get(':contactId/preferences')
@@ -481,6 +498,7 @@ export class ContactGovernanceContactQueryController {
 
   @Get(':contactId/effective-policy')
   @GatewayRoles('agent', 'admin', 'compliance')
+  @GatewayServiceScopes(CG5_API_SCOPES.READ)
   async effectivePolicy(
     @Req() request: AuthenticatedGatewayRequest,
     @Param('contactId') contactId: string,
@@ -489,15 +507,33 @@ export class ContactGovernanceContactQueryController {
     @Query('contactKind') contactKind: unknown,
     @Res({ passthrough: true }) response: ServerResponse,
   ) {
-    const actor = workspaceActor(request);
+    const canonicalContactId = requiredUuidParam(contactId, 'contactId');
+    const query = {
+      contactId: canonicalContactId,
+      channel: requiredChannel(channel),
+      purpose: requiredString(purpose, 'purpose'),
+      contactKind: optionalString(contactKind, 'contactKind'),
+    };
     try {
-      const result = await effectivePolicy(this.database, {
-        tenantId: actor.tenantId,
-        contactId: requiredUuidParam(contactId, 'contactId'),
-        channel: requiredChannel(channel),
-        purpose: requiredString(purpose, 'purpose'),
-        contactKind: optionalString(contactKind, 'contactKind'),
-      });
+      if (request.gatewayServiceIdentity) {
+        const context = await this.external.access(request, response);
+        const result = await effectivePolicy(this.database, {
+          tenantId: context.tenantId,
+          ...query,
+        });
+        const view = { policy: externalPolicyView(result.policy), holidays: result.holidays };
+        await this.external.recordEvidenceRead(context, {
+          aggregateId: canonicalContactId,
+          aggregateVersion: result.policy?.version ?? 0,
+          resourceKind: 'EFFECTIVE_POLICY',
+        });
+        if (setConditionalEtag(request, response, externalEtag('effective-policy', view))) {
+          return undefined;
+        }
+        return view;
+      }
+      const actor = workspaceActor(request);
+      const result = await effectivePolicy(this.database, { tenantId: actor.tenantId, ...query });
       response.setHeader('ETag', `cg-contact-v${result.policy?.version ?? 0}`);
       return result;
     } catch (error) {
@@ -507,6 +543,7 @@ export class ContactGovernanceContactQueryController {
 
   @Get(':contactId/effective-preference')
   @GatewayRoles('agent', 'admin', 'compliance')
+  @GatewayServiceScopes(CG5_API_SCOPES.READ)
   async effectivePreference(
     @Req() request: AuthenticatedGatewayRequest,
     @Param('contactId') contactId: string,
@@ -515,23 +552,40 @@ export class ContactGovernanceContactQueryController {
     @Query('contactKind') contactKind: unknown,
     @Res({ passthrough: true }) response: ServerResponse,
   ) {
-    const actor = workspaceActor(request);
+    const canonicalContactId = requiredUuidParam(contactId, 'contactId');
+    const query = {
+      contactId: canonicalContactId,
+      channel: requiredChannel(channel),
+      purpose: requiredString(purpose, 'purpose'),
+      contactKind: optionalString(contactKind, 'contactKind'),
+    };
     try {
-      const query = {
-        tenantId: actor.tenantId,
-        contactId: requiredUuidParam(contactId, 'contactId'),
-        channel: requiredChannel(channel),
-        purpose: requiredString(purpose, 'purpose'),
-        contactKind: optionalString(contactKind, 'contactKind'),
-        now: new Date(),
-      };
+      if (request.gatewayServiceIdentity) {
+        const context = await this.external.access(request, response);
+        const status = await this.external.contactStatus(context, query);
+        const view = {
+          aggregateVersion: status.aggregateVersion,
+          ...(status.preference ? { preference: status.preference } : {}),
+        };
+        await this.external.recordEvidenceRead(context, {
+          aggregateId: canonicalContactId,
+          aggregateVersion: status.aggregateVersion,
+          resourceKind: 'EFFECTIVE_PREFERENCE',
+        });
+        if (setConditionalEtag(request, response, externalEtag('effective-preference', view))) {
+          return undefined;
+        }
+        return view;
+      }
+      const actor = workspaceActor(request);
+      const now = new Date();
       const facts = await withTenantDatabaseTransaction(
         this.database,
         actor.tenantId,
-        (transaction) => loadCg3Facts(transaction, query),
+        (transaction) => loadCg3Facts(transaction, { tenantId: actor.tenantId, ...query, now }),
       );
       const preference = resolveEffectivePreference(facts.preferences, {
-        now: query.now,
+        now,
         channel: query.channel,
         purpose: query.purpose,
         contactKind: query.contactKind,
@@ -554,15 +608,44 @@ export class ContactGovernanceContactQueryController {
 
 @Controller('api/v1/contact-governance/decisions')
 export class ContactGovernanceDecisionQueryController {
-  constructor(@Inject(CONTACT_GOVERNANCE_DATABASE) private readonly database: PrismaClient) {}
+  private readonly external: Cg5ExternalReadService;
+
+  constructor(
+    @Inject(CONTACT_GOVERNANCE_DATABASE) private readonly database: PrismaClient,
+    @Inject(CG5_TENANT_CLIENT_RATE_LIMITER) limiter: TenantClientRateLimiter,
+  ) {
+    this.external = new Cg5ExternalReadService(database, limiter);
+  }
 
   @Get(':decisionId')
   @GatewayRoles('admin', 'compliance')
-  async find(@Req() request: AuthenticatedGatewayRequest, @Param('decisionId') decisionId: string) {
+  @GatewayServiceScopes(CG5_API_SCOPES.READ)
+  async find(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Res({ passthrough: true }) response: ServerResponse,
+    @Param('decisionId') decisionId: string,
+  ) {
+    const canonicalDecisionId = requiredUuidParam(decisionId, 'decisionId');
+    if (request.gatewayServiceIdentity) {
+      const context = await this.external.access(request, response);
+      const decision = await decisionById(this.database, {
+        tenantId: context.tenantId,
+        decisionId: canonicalDecisionId,
+      });
+      if (!decision) throw new NotFoundException({ code: 'RESOURCE_NOT_FOUND' });
+      const view = externalDecisionView(decision, context.level);
+      await this.external.recordEvidenceRead(context, {
+        aggregateId: canonicalDecisionId,
+        aggregateVersion: decision.aggregateVersion ?? 0,
+        resourceKind: 'DECISION',
+      });
+      if (setConditionalEtag(request, response, externalEtag('decision', view))) return undefined;
+      return view;
+    }
     const actor = workspaceActor(request);
     const decision = await decisionById(this.database, {
       tenantId: actor.tenantId,
-      decisionId: requiredUuidParam(decisionId, 'decisionId'),
+      decisionId: canonicalDecisionId,
     });
     if (!decision) throw new NotFoundException({ code: 'RESOURCE_NOT_FOUND' });
     return decision;

@@ -71,6 +71,11 @@ import {
 } from './contact-governance-api.js';
 import { Redis } from 'ioredis';
 import { Cg5QueryCache } from '@d-contact/contact-governance';
+import { TenantClientRateLimiter } from './tenant-client-rate-limiter.js';
+import {
+  CG5_TENANT_CLIENT_RATE_LIMITER,
+  ContactGovernanceExternalReadController,
+} from './contact-governance-external-read-api.js';
 import {
   CG5_EXPORT_STORAGE,
   ContactGovernanceCg5ExportController,
@@ -95,6 +100,7 @@ const prisma = new PrismaClient();
 const cg5QueryCache = new Cg5QueryCache(
   new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379'),
 );
+const cg5TenantClientRateLimiter = new TenantClientRateLimiter();
 const verifier = new KeycloakAccessTokenVerifier({
   issuer: required('KEYCLOAK_ISSUER'),
   audience: required('KEYCLOAK_AUDIENCE'),
@@ -158,6 +164,7 @@ class WorkspaceSessionController {
     ContactGovernancePoliciesController,
     ContactGovernanceContactQueryController,
     ContactGovernanceDecisionQueryController,
+    ContactGovernanceExternalReadController,
     ContactGovernanceCg5QueryController,
     ContactGovernanceCg5ExportController,
     ...CG4_API_CONTROLLERS,
@@ -166,6 +173,7 @@ class WorkspaceSessionController {
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
     { provide: CONTACT_GOVERNANCE_DATABASE, useValue: prisma },
     { provide: CG5_QUERY_CACHE, useValue: cg5QueryCache },
+    { provide: CG5_TENANT_CLIENT_RATE_LIMITER, useValue: cg5TenantClientRateLimiter },
     { provide: CG5_EXPORT_STORAGE, useValue: governanceExportStorage },
     { provide: CG4_DATABASE, useValue: prisma },
     {
@@ -199,8 +207,14 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
   app.enableCors({
     origin: process.env.WORKSPACE_ORIGIN ?? 'http://localhost:5173',
-    allowedHeaders: ['authorization', 'content-type', 'x-correlation-id', 'idempotency-key'],
-    exposedHeaders: ['x-correlation-id', 'etag'],
+    allowedHeaders: [
+      'authorization',
+      'content-type',
+      'x-correlation-id',
+      'idempotency-key',
+      'if-none-match',
+    ],
+    exposedHeaders: ['x-correlation-id', 'etag', 'retry-after'],
   });
   attachWorkspaceSessionWebSocket(app.getHttpServer(), socketAdapter);
   await createConsumer({

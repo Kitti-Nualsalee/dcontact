@@ -1,0 +1,167 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "D-Contact Contact Governance External Read API",
+    "version": "1.0.0",
+    "description": "Read-only service-identity API. Tenant is derived solely from the verified access token."
+  },
+  "paths": {
+    "/api/v1/contact-governance/contacts/{contactId}/status": {
+      "get": {
+        "x-dcontact-external": true,
+        "operationId": "getContactGovernanceStatus",
+        "security": [{ "oauth2": ["governance:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/contactId" },
+          { "$ref": "#/components/parameters/channel" },
+          { "$ref": "#/components/parameters/purpose" },
+          { "$ref": "#/components/parameters/contactKind" },
+          { "$ref": "#/components/parameters/ifNoneMatch" }
+        ],
+        "responses": {
+          "200": { "$ref": "#/components/responses/contactStatus" },
+          "304": { "description": "Not modified" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Missing scope" },
+          "429": { "$ref": "#/components/responses/rateLimited" }
+        }
+      }
+    },
+    "/api/v1/contact-governance/contacts/{contactId}/effective-preference": {
+      "get": {
+        "x-dcontact-external": true,
+        "operationId": "getEffectivePreference",
+        "security": [{ "oauth2": ["governance:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/contactId" },
+          { "$ref": "#/components/parameters/channel" },
+          { "$ref": "#/components/parameters/purpose" },
+          { "$ref": "#/components/parameters/contactKind" },
+          { "$ref": "#/components/parameters/ifNoneMatch" }
+        ],
+        "responses": {
+          "200": { "description": "Effective preference" },
+          "304": { "description": "Not modified" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Missing scope" },
+          "429": { "$ref": "#/components/responses/rateLimited" }
+        }
+      }
+    },
+    "/api/v1/contact-governance/contacts/{contactId}/effective-policy": {
+      "get": {
+        "x-dcontact-external": true,
+        "operationId": "getEffectivePolicy",
+        "security": [{ "oauth2": ["governance:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/contactId" },
+          { "$ref": "#/components/parameters/channel" },
+          { "$ref": "#/components/parameters/purpose" },
+          { "$ref": "#/components/parameters/contactKind" },
+          { "$ref": "#/components/parameters/ifNoneMatch" }
+        ],
+        "responses": {
+          "200": { "description": "Effective policy without maker/checker or approval references" },
+          "304": { "description": "Not modified" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Missing scope" },
+          "429": { "$ref": "#/components/responses/rateLimited" }
+        }
+      }
+    },
+    "/api/v1/contact-governance/contacts/{contactId}/effective-exceptions": {
+      "get": {
+        "x-dcontact-external": true,
+        "operationId": "getEffectiveExceptions",
+        "security": [{ "oauth2": ["governance:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/contactId" },
+          { "$ref": "#/components/parameters/ifNoneMatch" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Effective exceptions; evidence and actor references need governance:evidence"
+          },
+          "304": { "description": "Not modified" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Missing scope" },
+          "429": { "$ref": "#/components/responses/rateLimited" }
+        }
+      }
+    },
+    "/api/v1/contact-governance/decisions/{decisionId}": {
+      "get": {
+        "x-dcontact-external": true,
+        "operationId": "getGovernanceDecision",
+        "security": [{ "oauth2": ["governance:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/decisionId" },
+          { "$ref": "#/components/parameters/ifNoneMatch" }
+        ],
+        "responses": {
+          "200": { "description": "Decision without trace or raw reservation references" },
+          "304": { "description": "Not modified" },
+          "401": { "description": "Unauthenticated" },
+          "403": { "description": "Missing scope" },
+          "404": { "description": "Not found" },
+          "429": { "$ref": "#/components/responses/rateLimited" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "contactId": {
+        "name": "contactId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "decisionId": {
+        "name": "decisionId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "channel": {
+        "name": "channel",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": ["VOICE", "WEBCHAT", "LINE", "FACEBOOK", "WHATSAPP", "EMAIL"]
+        }
+      },
+      "purpose": {
+        "name": "purpose",
+        "in": "query",
+        "required": true,
+        "schema": { "type": "string", "maxLength": 256 }
+      },
+      "contactKind": {
+        "name": "contactKind",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "string", "maxLength": 256 }
+      },
+      "ifNoneMatch": {
+        "name": "If-None-Match",
+        "in": "header",
+        "required": false,
+        "schema": { "type": "string" }
+      }
+    },
+    "responses": {
+      "contactStatus": {
+        "description": "Effective status",
+        "headers": { "ETag": { "schema": { "type": "string" } } }
+      },
+      "rateLimited": {
+        "description": "Rate limit exceeded",
+        "headers": {
+          "Retry-After": { "required": true, "schema": { "type": "integer", "minimum": 1 } }
+        }
+      }
+    }
+  }
+}

@@ -20,6 +20,11 @@ import {
   ContactGovernancePoliciesController,
   ContactGovernancePreferencesController,
 } from './contact-governance-api.js';
+import {
+  CG5_TENANT_CLIENT_RATE_LIMITER,
+  ContactGovernanceExternalReadController,
+} from './contact-governance-external-read-api.js';
+import { TenantClientRateLimiter } from './tenant-client-rate-limiter.js';
 
 const owner = new PrismaClient();
 const application = new PrismaClient({
@@ -48,7 +53,11 @@ function workspaceClaims(
   };
 }
 
-function serviceClaims(tenantId: string, clientId: string): VerifiedOidcClaims {
+function serviceClaims(
+  tenantId: string,
+  clientId: string,
+  scope = 'governance:read governance:evidence',
+): VerifiedOidcClaims {
   return {
     tenant_id: tenantId,
     tenant_slug: `tenant-${tenantId}`,
@@ -58,6 +67,7 @@ function serviceClaims(tenantId: string, clientId: string): VerifiedOidcClaims {
     preferred_username: `service-account-${clientId}`,
     exp: 2_000_000_000,
     realm_access: { roles: ['contact-governance-source'] },
+    scope,
   };
 }
 
@@ -87,6 +97,7 @@ async function fixture(t: TestContext) {
         return workspaceClaims(tenantId, complianceUserId, 'compliance');
       }
       if (token === 'service-token') return serviceClaims(tenantId, clientId);
+      if (token === 'service-no-read-token') return serviceClaims(tenantId, clientId, '');
       throw new Error('invalid token');
     },
   };
@@ -98,9 +109,11 @@ async function fixture(t: TestContext) {
       ContactGovernancePoliciesController,
       ContactGovernanceContactQueryController,
       ContactGovernanceDecisionQueryController,
+      ContactGovernanceExternalReadController,
     ],
     providers: [
       { provide: CONTACT_GOVERNANCE_DATABASE, useValue: application },
+      { provide: CG5_TENANT_CLIENT_RATE_LIMITER, useValue: new TenantClientRateLimiter() },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
@@ -128,7 +141,7 @@ async function fixture(t: TestContext) {
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
 
-  return { tenantId, contactId, base };
+  return { tenantId, contactId, clientId, base };
 }
 
 function post(url: string, token: string, body: unknown, idempotencyKey = randomUUID()) {
@@ -142,6 +155,51 @@ function post(url: string, token: string, body: unknown, idempotencyKey = random
     body: JSON.stringify(body),
   });
 }
+
+test('external read ใช้ service scope, ETag และ evidence audit ที่ผูก clientId จาก token', async (t) => {
+  const { tenantId, contactId, clientId, base } = await fixture(t);
+  const now = new Date().toISOString();
+  const created = await post(`${base}/preferences`, 'admin-token', {
+    contactId,
+    channel: 'LINE',
+    purpose: 'MARKETING',
+    decision: 'BLOCK',
+    occurredAt: now,
+    effectiveFrom: now,
+    evidenceRef: 'workspace-evidence-must-not-leak',
+    expectedVersion: 0,
+  });
+  assert.equal(created.status, 201);
+
+  const endpoint = `${base}/contacts/${contactId}/status?channel=LINE&purpose=MARKETING`;
+  const forbidden = await fetch(endpoint, {
+    headers: { authorization: 'Bearer service-no-read-token' },
+  });
+  assert.equal(forbidden.status, 403);
+
+  const first = await fetch(endpoint, { headers: { authorization: 'Bearer service-token' } });
+  assert.equal(first.status, 200);
+  const etag = first.headers.get('etag');
+  assert.ok(etag);
+  assert.deepEqual(await first.json(), {
+    aggregateVersion: 1,
+    preference: { decision: 'BLOCK', version: 1 },
+    activeExceptionCount: 0,
+  });
+
+  const cached = await fetch(endpoint, {
+    headers: { authorization: 'Bearer service-token', 'if-none-match': etag ?? '' },
+  });
+  assert.equal(cached.status, 304);
+  assert.equal((await cached.text()).trim(), '');
+
+  const audit = await owner.cgAuditLog.findFirst({
+    where: { tenantId, action: 'CG5_EXTERNAL_EVIDENCE_READ', actorRef: clientId },
+    orderBy: { occurredAt: 'desc' },
+  });
+  assert.ok(audit);
+  assert.equal(audit?.aggregateId, contactId);
+});
 
 test('agent ถูกจำกัดให้ทำได้แค่ restrictive preference; admin relax ได้', async (t) => {
   const { contactId, base } = await fixture(t);

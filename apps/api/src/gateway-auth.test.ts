@@ -8,6 +8,7 @@ import type { VerifiedOidcClaims } from '@d-contact/workspace-session';
 import {
   GATEWAY_DIAGNOSTICS,
   GatewayRoles,
+  GatewayServiceScopes,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
   type AuthenticatedGatewayRequest,
@@ -27,6 +28,32 @@ function claims(roles: string[], exp = 2_000_000_000): VerifiedOidcClaims {
     exp,
     realm_access: { roles },
   };
+}
+
+function serviceClaims(scope: string): VerifiedOidcClaims {
+  return {
+    tenant_id: tenantId,
+    tenant_slug: 'demo',
+    organization: { demo: { tenant_id: [tenantId] } },
+    exp: 2_000_000_000,
+    realm_access: { roles: ['contact-governance-source'] },
+    azp: 'governance-reader',
+    preferred_username: 'service-account-governance-reader',
+    sub: 'service-subject-1',
+    scope,
+  };
+}
+
+@Controller('service-probe')
+class ServiceProbeController {
+  @Post()
+  @GatewayServiceScopes('governance:read')
+  probe(@Req() request: AuthenticatedGatewayRequest) {
+    return {
+      tenantId: request.gatewayServiceIdentity?.tenantId,
+      clientId: request.gatewayServiceIdentity?.clientId,
+    };
+  }
 }
 
 @Controller('probe')
@@ -49,12 +76,15 @@ test('API Gateway exposes 401/403 and derives tenant context only from verified 
       if (token === 'expired-token') return claims(['agent'], 1);
       if (token === 'viewer-token') return claims(['viewer']);
       if (token === 'agent-token') return claims(['agent']);
+      if (token === 'service-read-token')
+        return serviceClaims('governance:read governance:evidence');
+      if (token === 'service-no-scope-token') return serviceClaims('governance:evidence');
       throw new Error('unknown token');
     },
   };
 
   @Module({
-    controllers: [ProbeController],
+    controllers: [ProbeController, ServiceProbeController],
     providers: [
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
       {
@@ -108,4 +138,35 @@ test('API Gateway exposes 401/403 and derives tenant context only from verified 
   );
   const serializedDiagnostics = JSON.stringify(diagnostics);
   assert.doesNotMatch(serializedDiagnostics, /agent-token|invalid-token|must-not-be-logged/);
+});
+
+test('service route ต้องมี governance:read scope และ derivation tenant/client มาจาก token', async (t) => {
+  const verifier = {
+    verifyAccessToken: async (token: string) => {
+      if (token === 'read') return serviceClaims('governance:read');
+      if (token === 'evidence-only') return serviceClaims('governance:evidence');
+      throw new Error('unknown token');
+    },
+  };
+  @Module({
+    controllers: [ServiceProbeController],
+    providers: [
+      { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
+      { provide: APP_GUARD, useClass: OidcGlobalGuard },
+    ],
+  })
+  class ServiceTestModule {}
+  const app = await NestFactory.create(ServiceTestModule, { logger: false });
+  await app.listen(0, '127.0.0.1');
+  t.after(() => app.close());
+  const address = app.getHttpServer().address() as AddressInfo;
+  const endpoint = `http://127.0.0.1:${address.port}/service-probe?tenantId=attacker`;
+  const call = (token: string) =>
+    fetch(endpoint, { method: 'POST', headers: { authorization: `Bearer ${token}` } });
+
+  assert.equal((await call('evidence-only')).status, 403);
+  const accepted = await call('read');
+  assert.equal(accepted.status, 201);
+  assert.deepEqual(await accepted.json(), { tenantId, clientId: 'governance-reader' });
 });
