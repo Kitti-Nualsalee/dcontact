@@ -5,6 +5,7 @@ import { KAFKA_TOPICS } from '@d-contact/shared';
 const aggregateTypeName = {
   CONTACT: 'contact_governance_contact',
   POLICY: 'contact_governance_policy',
+  ALERT: 'contact_governance_alert',
 } as const;
 
 export class DialerGovernanceAcknowledgementRelay {
