@@ -63,3 +63,40 @@ test('CG5.6 alert state, transition และ outbox ถูกเขียนค
   assert.equal(await f.owner.cg4Policy.count({ where: { tenantId: f.tenantId } }), 0);
   assert.equal(await f.owner.cg4ExceptionHead.count({ where: { tenantId: f.tenantId } }), 0);
 });
+
+test('CG5.6 ACK ใช้ optimistic concurrency และไม่สร้าง event เมื่อ version เก่า', async (t) => {
+  const f = await fixture(t);
+  const repository = new Cg5AlertRepository(f.application);
+  const alert = await repository.record({
+    tenantId: f.tenantId,
+    ruleCode: 'CG5_PROJECTION_LAG',
+    scope: { channel: 'VOICE', purpose: 'SUPPORT', teamId: null },
+    state: 'OPEN',
+    severity: 'CRITICAL',
+    value: 301,
+    threshold: 300,
+  });
+  await repository.acknowledge({
+    tenantId: f.tenantId,
+    alertId: alert.id,
+    expectedVersion: 1,
+    actorRef: 'supervisor-1',
+  });
+  await assert.rejects(() =>
+    repository.acknowledge({
+      tenantId: f.tenantId,
+      alertId: alert.id,
+      expectedVersion: 1,
+      actorRef: 'supervisor-2',
+    }),
+  );
+  assert.equal(
+    (
+      await f.owner.cg5AlertState.findUniqueOrThrow({
+        where: { tenantId_id: { tenantId: f.tenantId, id: alert.id } },
+      })
+    ).state,
+    'ACKED',
+  );
+  assert.equal(await f.owner.cgEventOutbox.count({ where: { tenantId: f.tenantId } }), 2);
+});
