@@ -23,6 +23,7 @@ export const OIDC_ACCESS_TOKEN_VERIFIER = Symbol('OIDC_ACCESS_TOKEN_VERIFIER');
 export const GATEWAY_DIAGNOSTICS = Symbol('GATEWAY_DIAGNOSTICS');
 const GATEWAY_ROLES = Symbol('GATEWAY_ROLES');
 const GATEWAY_SERVICE_ROLES = Symbol('GATEWAY_SERVICE_ROLES');
+const GATEWAY_SERVICE_SCOPES = Symbol('GATEWAY_SERVICE_SCOPES');
 
 export interface AuthenticatedGatewayRequest extends IncomingMessage {
   gatewayIdentity?: VerifiedWorkspaceIdentity;
@@ -46,6 +47,8 @@ export interface GatewayDiagnosticSink {
 export const GatewayRoles = (...roles: string[]) => SetMetadata(GATEWAY_ROLES, roles);
 export const GatewayServiceRoles = (...roles: string[]) =>
   SetMetadata(GATEWAY_SERVICE_ROLES, roles);
+export const GatewayServiceScopes = (...scopes: string[]) =>
+  SetMetadata(GATEWAY_SERVICE_SCOPES, scopes);
 
 function requestCorrelationId(request: IncomingMessage): string {
   const supplied = request.headers['x-correlation-id'];
@@ -91,6 +94,10 @@ export class OidcGlobalGuard implements CanActivate {
       GATEWAY_SERVICE_ROLES,
       [context.getHandler(), context.getClass()],
     );
+    const requiredServiceScopes = this.reflector.getAllAndOverride<readonly string[]>(
+      GATEWAY_SERVICE_SCOPES,
+      [context.getHandler(), context.getClass()],
+    );
     const requiredWorkspaceRoles = this.reflector.getAllAndOverride<readonly string[]>(
       GATEWAY_ROLES,
       [context.getHandler(), context.getClass()],
@@ -121,6 +128,10 @@ export class OidcGlobalGuard implements CanActivate {
             tenantId: serviceIdentity.tenantId,
             clientId: serviceIdentity.clientId,
           });
+          throw new ForbiddenException();
+        }
+        if (requiredServiceScopes && !requiredServiceScopes.every((scope) => serviceIdentity.scopes.includes(scope))) {
+          this.diagnostics.write({ event: 'gateway.request.denied', correlationId, reason: 'forbidden', tenantId: serviceIdentity.tenantId, clientId: serviceIdentity.clientId });
           throw new ForbiddenException();
         }
         request.gatewayServiceIdentity = serviceIdentity;
