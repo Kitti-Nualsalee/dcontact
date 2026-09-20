@@ -28,7 +28,9 @@ export function evaluateCg5Anomaly(
   if (metadata.kind === 'FIXED_THRESHOLD') {
     const threshold = observation.ruleCode === 'CG5_PROJECTION_LAG' ? config.lagSloSeconds : 0;
     const value =
-      observation.ruleCode === 'CG5_PROJECTION_LAG' ? observation.projectionLagSeconds : observation.value;
+      observation.ruleCode === 'CG5_PROJECTION_LAG'
+        ? observation.projectionLagSeconds
+        : observation.value;
     return value > threshold
       ? { state: 'OPEN', value, threshold }
       : { state: 'RESOLVED', value, threshold };
