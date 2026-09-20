@@ -56,3 +56,4 @@ export * from './cg5-export-job-repository.js';
 
 export * from './cg5-export-worker.js';
 export * from './cg5-export-lifecycle.js';
+export * from './cg5-prisma-export-reader.js';
