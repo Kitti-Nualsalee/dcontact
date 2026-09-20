@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 import { PrismaClient } from '@d-contact/db';
-import { Cg5AlertRepository } from './cg5-alert-repository.js';
+import { Cg5AlertRepository, Cg5AlertVersionConflictError } from './cg5-alert-repository.js';
 
 async function fixture(t: TestContext) {
   const owner = new PrismaClient();
@@ -82,13 +82,20 @@ test('CG5.6 ACK ใช้ optimistic concurrency และไม่สร้า�
     expectedVersion: 1,
     actorRef: 'supervisor-1',
   });
-  await assert.rejects(() =>
-    repository.acknowledge({
-      tenantId: f.tenantId,
-      alertId: alert.id,
-      expectedVersion: 1,
-      actorRef: 'supervisor-2',
-    }),
+  await assert.rejects(
+    () =>
+      repository.acknowledge({
+        tenantId: f.tenantId,
+        alertId: alert.id,
+        expectedVersion: 1,
+        actorRef: 'supervisor-2',
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof Cg5AlertVersionConflictError);
+      assert.equal(error.expectedVersion, 1);
+      assert.equal(error.actualVersion, 2);
+      return true;
+    },
   );
   assert.equal(
     (
@@ -98,5 +105,14 @@ test('CG5.6 ACK ใช้ optimistic concurrency และไม่สร้า�
     ).state,
     'ACKED',
   );
-  assert.equal(await f.owner.cgEventOutbox.count({ where: { tenantId: f.tenantId } }), 2);
+  const [transition, outbox] = await Promise.all([
+    f.owner.cg5AlertTransition.findFirstOrThrow({
+      where: { tenantId: f.tenantId, alertId: alert.id, toState: 'ACKED' },
+    }),
+    f.owner.cgEventOutbox.findFirstOrThrow({
+      where: { tenantId: f.tenantId, aggregateId: alert.id, aggregateVersion: 2 },
+    }),
+  ]);
+  assert.match(transition.evidenceRef, /^cg5-alert-ack:CG5_PROJECTION_LAG:[a-f0-9]{64}$/);
+  assert.equal(outbox.orderingKey, `${f.tenantId}:${alert.id}`);
 });
