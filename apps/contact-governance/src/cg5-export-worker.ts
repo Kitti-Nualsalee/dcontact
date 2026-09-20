@@ -8,7 +8,7 @@ import {
 } from '@d-contact/cxa-contracts';
 import { cg4RefDigest } from './cg4-redaction.js';
 import { stableDigest } from './cg3-persistence.js';
-import { Cg5ExportJobRepository } from './cg5-export-job-repository.js';
+import { Cg5ExportJobRepository, Cg5ExportTransitionError } from './cg5-export-job-repository.js';
 
 export interface Cg5ExportObjectStorage {
   put(key: string, body: Uint8Array): Promise<void>;
@@ -119,14 +119,21 @@ export class Cg5ExportWorker {
         expiresAt: new Date(this.now().valueOf() + 86_400_000),
       });
     } catch (error) {
+      // Another runner may have claimed QUEUED first; this is a normal no-op, not a failed job.
+      if (!started && error instanceof Cg5ExportTransitionError) return;
       await Promise.allSettled(written.map((key) => this.storage.delete(key)));
       if (started) {
-        await this.jobs.transition({
-          tenantId,
-          exportId,
-          target: 'FAILED',
-          actorRef: 'cg5-export-worker',
-        });
+        try {
+          await this.jobs.transition({
+            tenantId,
+            exportId,
+            target: 'FAILED',
+            actorRef: 'cg5-export-worker',
+          });
+        } catch (transitionError) {
+          // A concurrent data-erasure revoke already made the object unavailable.
+          if (!(transitionError instanceof Cg5ExportTransitionError)) throw transitionError;
+        }
       }
       throw error;
     }
