@@ -53,3 +53,5 @@ export * from './cg5-query-service.js';
 export * from './cg5-query-cache.js';
 
 export * from './cg5-export-job-repository.js';
+
+export * from './cg5-export-worker.js';
