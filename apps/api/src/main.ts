@@ -68,7 +68,12 @@ import {
   ContactGovernancePoliciesController,
   ContactGovernancePreferencesController,
 } from './contact-governance-api.js';
-import { ContactGovernanceCg5QueryController } from './contact-governance-cg5-api.js';
+import { Redis } from 'ioredis';
+import { Cg5QueryCache } from '@d-contact/contact-governance';
+import {
+  CG5_QUERY_CACHE,
+  ContactGovernanceCg5QueryController,
+} from './contact-governance-cg5-api.js';
 import {
   CG4_API_CONTROLLERS,
   CG4_DATABASE,
@@ -82,6 +87,9 @@ function required(name: string): string {
 }
 
 const prisma = new PrismaClient();
+const cg5QueryCache = new Cg5QueryCache(
+  new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379'),
+);
 const verifier = new KeycloakAccessTokenVerifier({
   issuer: required('KEYCLOAK_ISSUER'),
   audience: required('KEYCLOAK_AUDIENCE'),
@@ -150,6 +158,7 @@ class WorkspaceSessionController {
   providers: [
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
     { provide: CONTACT_GOVERNANCE_DATABASE, useValue: prisma },
+    { provide: CG5_QUERY_CACHE, useValue: cg5QueryCache },
     { provide: CG4_DATABASE, useValue: prisma },
     {
       // Evidence access is itself auditable (#190): opaque ids only, no evidence body.

@@ -18,7 +18,9 @@ import {
   Cg5AlertRepository,
   Cg5AlertVersionConflictError,
   Cg5ProjectionNotReadyError,
+  Cg5QueryCache,
   Cg5QueryService,
+  PrismaCg5TenantConfigRepository,
   type Cg5PageCursor,
   type Cg5QueryScope,
 } from '@d-contact/contact-governance';
@@ -30,6 +32,8 @@ const GRANULARITIES = new Set<Cg5Granularity>(['FIVE_MIN', 'HOUR', 'DAY']);
 const METRIC_KEYS = new Set<Cg5MetricKey>(CG5_METRIC_KEYS);
 const ALERT_STATES = new Set(['OPEN', 'ACKED', 'RESOLVED', 'SUPPRESSED']);
 const ALERT_SEVERITIES = new Set(['WARNING', 'CRITICAL']);
+
+export const CG5_QUERY_CACHE = Symbol('CG5_QUERY_CACHE');
 
 function identity(request: AuthenticatedGatewayRequest) {
   if (!request.gatewayIdentity) throw new ForbiddenException();
@@ -103,12 +107,17 @@ function decodeCursor(value: unknown): Cg5PageCursor | undefined {
   }
 }
 
-function encodeCursor(cursor: Cg5PageCursor | null): string | null {
-  return cursor
-    ? Buffer.from(
-        JSON.stringify({ occurredAt: cursor.occurredAt.toISOString(), id: cursor.id }),
-      ).toString('base64url')
-    : null;
+function encodeCursor(
+  cursor: (Cg5PageCursor & { occurredAt: Date | string }) | null,
+): string | null {
+  if (!cursor) return null;
+  const occurredAt =
+    cursor.occurredAt instanceof Date ? cursor.occurredAt : new Date(cursor.occurredAt);
+  if (Number.isNaN(occurredAt.valueOf()))
+    throw new BadRequestException({ code: 'VALIDATION_FAILED' });
+  return Buffer.from(
+    JSON.stringify({ occurredAt: occurredAt.toISOString(), id: cursor.id }),
+  ).toString('base64url');
 }
 
 function enumList(
@@ -129,10 +138,15 @@ function enumList(
 export class ContactGovernanceCg5QueryController {
   private readonly queries: Cg5QueryService;
   private readonly alerts: Cg5AlertRepository;
+  private readonly config: PrismaCg5TenantConfigRepository;
 
-  constructor(@Inject(CONTACT_GOVERNANCE_DATABASE) private readonly database: PrismaClient) {
+  constructor(
+    @Inject(CONTACT_GOVERNANCE_DATABASE) private readonly database: PrismaClient,
+    @Inject(CG5_QUERY_CACHE) private readonly cache: Cg5QueryCache,
+  ) {
     this.queries = new Cg5QueryService(database);
     this.alerts = new Cg5AlertRepository(database);
+    this.config = new PrismaCg5TenantConfigRepository(database);
   }
 
   @Get('metrics')
@@ -150,7 +164,8 @@ export class ContactGovernanceCg5QueryController {
   ) {
     const actor = identity(request);
     try {
-      const result = await this.queries.metrics(actor.tenantId, await this.scope(actor), {
+      const scope = await this.scope(actor);
+      const query = {
         granularity: granularity(requestedGranularity),
         ...(metric(metricKey) ? { metricKey: metric(metricKey) } : {}),
         ...(optionalDate(from, 'from') ? { from: optionalDate(from, 'from') } : {}),
@@ -159,7 +174,10 @@ export class ContactGovernanceCg5QueryController {
         ...(typeof purpose === 'string' ? { purpose } : {}),
         ...(decodeCursor(cursor) ? { cursor: decodeCursor(cursor) } : {}),
         limit: limit(requestedLimit),
-      });
+      };
+      const result = await this.cached('metrics', actor.tenantId, scope, query, () =>
+        this.queries.metrics(actor.tenantId, scope, query),
+      );
       return { ...result, nextCursor: encodeCursor(result.nextCursor) };
     } catch (error) {
       this.mapError(error);
@@ -178,13 +196,17 @@ export class ContactGovernanceCg5QueryController {
   ) {
     const actor = identity(request);
     try {
-      const result = await this.queries.policyImpact(actor.tenantId, await this.scope(actor), {
+      const scope = await this.scope(actor);
+      const query = {
         granularity: granularity(requestedGranularity),
         ...(optionalDate(from, 'from') ? { from: optionalDate(from, 'from') } : {}),
         ...(optionalDate(to, 'to') ? { to: optionalDate(to, 'to') } : {}),
         ...(decodeCursor(cursor) ? { cursor: decodeCursor(cursor) } : {}),
         limit: limit(requestedLimit),
-      });
+      };
+      const result = await this.cached('policy-impact', actor.tenantId, scope, query, () =>
+        this.queries.policyImpact(actor.tenantId, scope, query),
+      );
       return { ...result, nextCursor: encodeCursor(result.nextCursor) };
     } catch (error) {
       this.mapError(error);
@@ -248,6 +270,21 @@ export class ContactGovernanceCg5QueryController {
     } catch (error) {
       this.mapError(error);
     }
+  }
+
+  private async cached<T extends { asOf: Date | null }>(
+    kind: 'metrics' | 'policy-impact',
+    tenantId: string,
+    scope: Cg5QueryScope,
+    query: unknown,
+    load: () => Promise<T>,
+  ): Promise<T> {
+    const { config } = await this.config.read(tenantId);
+    return this.cache.getOrLoad({
+      key: this.cache.key({ tenantId, kind, scope, query }),
+      refreshIntervalSeconds: config.refreshIntervalSeconds,
+      load,
+    });
   }
 
   private async scope(actor: {

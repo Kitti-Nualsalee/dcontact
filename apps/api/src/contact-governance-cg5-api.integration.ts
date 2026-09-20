@@ -7,9 +7,12 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient } from '@d-contact/db';
 import type { VerifiedOidcClaims } from '@d-contact/workspace-session';
-import { Cg5AlertRepository } from '@d-contact/contact-governance';
+import { Cg5AlertRepository, Cg5QueryCache } from '@d-contact/contact-governance';
 import { CONTACT_GOVERNANCE_DATABASE } from './contact-governance-api.js';
-import { ContactGovernanceCg5QueryController } from './contact-governance-cg5-api.js';
+import {
+  CG5_QUERY_CACHE,
+  ContactGovernanceCg5QueryController,
+} from './contact-governance-cg5-api.js';
 import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
@@ -39,6 +42,14 @@ function claims(tenantId: string, userId: string): VerifiedOidcClaims {
   };
 }
 
+const cacheValues = new Map<string, string>();
+const cache = new Cg5QueryCache({
+  get: async (key) => cacheValues.get(key) ?? null,
+  set: async (key, value) => {
+    cacheValues.set(key, value);
+  },
+});
+
 async function fixture(t: TestContext) {
   const tenantId = randomUUID();
   const otherTenantId = randomUUID();
@@ -59,6 +70,7 @@ async function fixture(t: TestContext) {
     controllers: [ContactGovernanceCg5QueryController],
     providers: [
       { provide: CONTACT_GOVERNANCE_DATABASE, useValue: application },
+      { provide: CG5_QUERY_CACHE, useValue: cache },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
@@ -144,6 +156,15 @@ test('CG5.7 route ปฏิเสธ projection ที่ยังไม่พ�
   );
   assert.equal(body.asOf, at.toISOString());
   assert.equal(body.nextCursor, null);
+  const cached = await request(
+    `${f.base}/metrics?granularity=FIVE_MIN&tenantId=${f.otherTenantId}`,
+  );
+  assert.equal(cached.status, 200);
+  const cachedBody = (await cached.json()) as { items: Array<{ value: string }> };
+  assert.deepEqual(
+    cachedBody.items.map((item) => item.value),
+    ['1'],
+  );
 });
 
 test('CG5.7 ack map optimistic conflict เป็น CG5_ALERT_VERSION_CONFLICT', async (t) => {
