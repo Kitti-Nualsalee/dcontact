@@ -114,6 +114,7 @@ test('client credentials claims สร้าง service identity ที่ผู
       preferred_username: 'service-account-billing-events',
       exp: 1_788_430_200,
       realm_access: { roles: ['journey-ingress'] },
+      scope: 'governance:read governance:evidence',
     },
     new Date('2026-09-03T10:00:00.000Z'),
   );
@@ -123,6 +124,7 @@ test('client credentials claims สร้าง service identity ที่ผู
     clientId: 'billing-events',
     subject: 'service-account-billing-events',
     roles: ['journey-ingress'],
+    scopes: ['governance:read', 'governance:evidence'],
     expiresAt: agent.expiresAt,
   });
 });

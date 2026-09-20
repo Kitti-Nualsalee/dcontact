@@ -15,6 +15,7 @@ export interface VerifiedServiceIdentity {
   clientId: string;
   subject: string;
   roles: readonly string[];
+  scopes: readonly string[];
   expiresAt: Date;
 }
 
@@ -29,6 +30,7 @@ export interface VerifiedOidcClaims {
   preferred_username?: unknown;
   exp?: unknown;
   realm_access?: { roles?: unknown };
+  scope?: unknown;
 }
 
 interface VerifiedTenantContext {
@@ -132,11 +134,14 @@ export function toVerifiedServiceIdentity(
   if (typeof claims.sub !== 'string' || claims.sub.length === 0) {
     throw new Error('OIDC service token ที่ตรวจสอบแล้วต้องมี sub');
   }
+  const scopes = typeof claims.scope === 'string' ? claims.scope.split(/\s+/).filter(Boolean) : [];
+  if (!scopes.every(isString)) throw new Error('OIDC service token scope ไม่ถูกต้อง');
   return {
     tenantId: tenant.tenantId,
     clientId: claims.azp,
     subject: claims.sub,
     roles: security.roles,
+    scopes,
     expiresAt: security.expiresAt,
   };
 }
