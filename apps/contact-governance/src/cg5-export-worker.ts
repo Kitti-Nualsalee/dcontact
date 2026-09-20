@@ -6,6 +6,7 @@ import {
   type Cg5ExportDataset,
   type Cg5ExportManifestV1,
 } from '@d-contact/cxa-contracts';
+import { cg4RefDigest } from './cg4-redaction.js';
 import { stableDigest } from './cg3-persistence.js';
 import { Cg5ExportJobRepository } from './cg5-export-job-repository.js';
 
@@ -33,7 +34,11 @@ function prefix(tenantId: string, exportId: string): string {
   return `governance-exports/${tenantId}/${exportId}`;
 }
 
-/** Worker writes only after reading canonical data; a failure removes every uploaded object before FAILED. */
+function manifestRequester(requestedByRef: string, evidenceLevel: string): string {
+  return evidenceLevel === 'EVIDENCE' ? requestedByRef : `redacted:${cg4RefDigest(requestedByRef)}`;
+}
+
+/** Worker writes only canonical datasets; a failure removes every uploaded object before FAILED. */
 export class Cg5ExportWorker {
   private readonly jobs: Cg5ExportJobRepository;
 
@@ -54,6 +59,7 @@ export class Cg5ExportWorker {
     if (job.state !== 'QUEUED') return;
     const storagePrefix = prefix(tenantId, exportId);
     const written: string[] = [];
+    let started = false;
     try {
       await this.jobs.transition({
         tenantId,
@@ -61,6 +67,9 @@ export class Cg5ExportWorker {
         target: 'RUNNING',
         actorRef: 'cg5-export-worker',
       });
+      started = true;
+      const requested = new Set(job.datasets as Cg5ExportDataset[]);
+      const seen = new Set<Cg5ExportDataset>();
       const files = await this.reader.read({
         tenantId,
         datasets: job.datasets as Cg5ExportDataset[],
@@ -72,6 +81,10 @@ export class Cg5ExportWorker {
       const fileDigests: Record<string, string> = {};
       const rowCounts = Object.fromEntries(job.datasets.map((dataset) => [dataset, 0]));
       for (const file of files) {
+        if (!requested.has(file.dataset) || seen.has(file.dataset)) {
+          throw new TypeError('canonical export reader ส่ง dataset ที่ไม่ได้ร้องขอหรือซ้ำ');
+        }
+        seen.add(file.dataset);
         const key = `${storagePrefix}/${file.dataset}.json`;
         await this.storage.put(key, file.body);
         written.push(key);
@@ -88,7 +101,7 @@ export class Cg5ExportWorker {
         rangeTo: job.rangeTo.toISOString(),
         rowCounts: rowCounts as Record<Cg5ExportDataset, number>,
         fileDigests,
-        requestedByRef: job.requestedByRef,
+        requestedByRef: manifestRequester(job.requestedByRef, job.evidenceLevel),
         generatedAt: this.now().toISOString(),
         tenantWatermark: stableDigest({ tenantId, exportId }),
       };
@@ -107,12 +120,14 @@ export class Cg5ExportWorker {
       });
     } catch (error) {
       await Promise.allSettled(written.map((key) => this.storage.delete(key)));
-      await this.jobs.transition({
-        tenantId,
-        exportId,
-        target: 'FAILED',
-        actorRef: 'cg5-export-worker',
-      });
+      if (started) {
+        await this.jobs.transition({
+          tenantId,
+          exportId,
+          target: 'FAILED',
+          actorRef: 'cg5-export-worker',
+        });
+      }
       throw error;
     }
   }

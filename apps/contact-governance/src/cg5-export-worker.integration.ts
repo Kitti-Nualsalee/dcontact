@@ -75,7 +75,9 @@ test('CG5.8 worker เขียน manifest ที่ hash ตรงกับไ
   )!;
   const manifest = JSON.parse(new TextDecoder().decode(manifestBody)) as {
     fileDigests: Record<string, string>;
+    requestedByRef: string;
   };
+  assert.equal(manifest.requestedByRef, 'redacted:c6c289e49e9c05b2');
   const body = storage.objects.get(
     `governance-exports/${f.tenantId}/${f.job.exportId}/AUDIT_LOG.json`,
   )!;

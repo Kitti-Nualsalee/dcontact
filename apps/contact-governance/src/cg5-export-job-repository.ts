@@ -19,6 +19,20 @@ export class Cg5ExportIdempotencyConflictError extends Error {
   }
 }
 
+export class Cg5ExportRangeTooLargeError extends Error {
+  constructor(readonly maxRangeDays: number) {
+    super(`export range เกิน ${maxRangeDays} วัน`);
+    this.name = 'Cg5ExportRangeTooLargeError';
+  }
+}
+
+export class Cg5ExportRateLimitError extends Error {
+  constructor(readonly maxPerDay: number) {
+    super(`export เกิน ${maxPerDay} งานต่อวัน`);
+    this.name = 'Cg5ExportRateLimitError';
+  }
+}
+
 export class Cg5ExportTransitionError extends Error {
   constructor(
     readonly state: Cg5ExportState,
@@ -54,9 +68,16 @@ export class Cg5ExportJobRepository {
     reason: string;
     requestedByRef: string;
     idempotencyKey: string;
+    limits?: { maxRangeDays: number; maxPerDay: number };
   }) {
     if (!input.datasets.length || input.rangeFrom >= input.rangeTo)
       throw new TypeError('export range หรือ dataset ไม่ถูกต้อง');
+    if (
+      input.limits &&
+      input.rangeTo.valueOf() - input.rangeFrom.valueOf() > input.limits.maxRangeDays * 86_400_000
+    ) {
+      throw new Cg5ExportRangeTooLargeError(input.limits.maxRangeDays);
+    }
     if (!input.reason.trim() || !input.requestedByRef.trim() || !input.idempotencyKey.trim())
       throw new TypeError('reason, requester และ idempotency key ต้องไม่ว่าง');
     assertCg5PiiFreePayload({
@@ -94,6 +115,19 @@ export class Cg5ExportJobRepository {
         return existing;
       }
       const now = this.now();
+      if (input.limits) {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`cg5-export-rate:${input.tenantId}`}))`,
+        );
+        const startOfDay = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+        );
+        const used = await tx.cg5ExportJob.count({
+          where: { tenantId: input.tenantId, createdAt: { gte: startOfDay } },
+        });
+        if (used >= input.limits.maxPerDay)
+          throw new Cg5ExportRateLimitError(input.limits.maxPerDay);
+      }
       const job = await tx.cg5ExportJob.create({
         data: {
           tenantId: input.tenantId,
@@ -119,7 +153,60 @@ export class Cg5ExportJobRepository {
         input.requestedByRef,
         requestDigest,
         now,
+        input.datasets,
+        input.evidenceLevel,
       );
+      return job;
+    });
+  }
+
+  async get(tenantId: string, exportId: string) {
+    return withTenantDatabaseTransaction(this.database, tenantId, (tx) =>
+      tx.cg5ExportJob.findFirst({ where: { tenantId, exportId } }),
+    );
+  }
+
+  async list(tenantId: string, limit = 50) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+      throw new TypeError('limit ไม่ถูกต้อง');
+    return withTenantDatabaseTransaction(this.database, tenantId, (tx) =>
+      tx.cg5ExportJob.findMany({
+        where: { tenantId },
+        orderBy: [{ createdAt: 'desc' }, { exportId: 'desc' }],
+        take: limit,
+      }),
+    );
+  }
+
+  /** Records a successful signed-URL issue; an expired/revoked export returns null. */
+  async recordDownload(input: { tenantId: string; exportId: string; actorRef: string }) {
+    return withTenantDatabaseTransaction(this.database, input.tenantId, async (tx) => {
+      const job = await tx.cg5ExportJob.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          exportId: input.exportId,
+          state: 'READY',
+          expiresAt: { gt: this.now() },
+        },
+      });
+      if (!job) return null;
+      await tx.cgAuditLog.create({
+        data: {
+          tenantId: input.tenantId,
+          mutationId: randomUUID(),
+          aggregateType: 'EXPORT',
+          aggregateId: input.exportId,
+          aggregateVersion: job.version,
+          action: 'CG5_EXPORT_DOWNLOADED',
+          actorClass: 'COMPLIANCE',
+          actorRef: input.actorRef,
+          sourceKind: 'COMPLIANCE',
+          evidenceRef: `cg5-export:${input.exportId}`,
+          afterDigest:
+            job.manifestDigest ?? stableDigest({ exportId: input.exportId, version: job.version }),
+          occurredAt: this.now(),
+        },
+      });
       return job;
     });
   }
@@ -171,6 +258,8 @@ export class Cg5ExportJobRepository {
         input.actorRef,
         digest,
         now,
+        current.datasets as Cg5ExportDataset[],
+        current.evidenceLevel as Cg5EvidenceLevel,
       );
       return job;
     });
@@ -185,6 +274,8 @@ export class Cg5ExportJobRepository {
     actorRef: string,
     digest: string,
     now: Date,
+    datasets: readonly Cg5ExportDataset[],
+    evidenceLevel: Cg5EvidenceLevel,
   ) {
     const mutationId = randomUUID();
     const payload = {
@@ -194,8 +285,8 @@ export class Cg5ExportJobRepository {
       subjectVersion: version,
       effectiveAt: now.toISOString(),
       state,
-      datasets: [],
-      evidenceLevel: 'SUMMARY' as const,
+      datasets,
+      evidenceLevel,
     };
     assertCg5PiiFreePayload(payload);
     await tx.cgAuditLog.create({
