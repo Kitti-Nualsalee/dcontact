@@ -103,7 +103,7 @@ export class OidcGlobalGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
-    if (requiredServiceRoles) {
+    if (requiredServiceRoles || requiredServiceScopes) {
       let serviceIdentity: VerifiedServiceIdentity | undefined;
       try {
         serviceIdentity = toVerifiedServiceIdentity(claims);
@@ -120,7 +120,10 @@ export class OidcGlobalGuard implements CanActivate {
         }
       }
       if (serviceIdentity) {
-        if (!serviceIdentity.roles.some((role) => requiredServiceRoles.includes(role))) {
+        if (
+          requiredServiceRoles &&
+          !serviceIdentity.roles.some((role) => requiredServiceRoles.includes(role))
+        ) {
           this.diagnostics.write({
             event: 'gateway.request.denied',
             correlationId,
@@ -130,8 +133,17 @@ export class OidcGlobalGuard implements CanActivate {
           });
           throw new ForbiddenException();
         }
-        if (requiredServiceScopes && !requiredServiceScopes.every((scope) => serviceIdentity.scopes.includes(scope))) {
-          this.diagnostics.write({ event: 'gateway.request.denied', correlationId, reason: 'forbidden', tenantId: serviceIdentity.tenantId, clientId: serviceIdentity.clientId });
+        if (
+          requiredServiceScopes &&
+          !requiredServiceScopes.every((scope) => serviceIdentity.scopes.includes(scope))
+        ) {
+          this.diagnostics.write({
+            event: 'gateway.request.denied',
+            correlationId,
+            reason: 'forbidden',
+            tenantId: serviceIdentity.tenantId,
+            clientId: serviceIdentity.clientId,
+          });
           throw new ForbiddenException();
         }
         request.gatewayServiceIdentity = serviceIdentity;
