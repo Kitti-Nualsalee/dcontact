@@ -10,7 +10,11 @@ import type { VerifiedOidcClaims } from '@d-contact/workspace-session';
 import { Cg5AlertRepository } from '@d-contact/contact-governance';
 import { CONTACT_GOVERNANCE_DATABASE } from './contact-governance-api.js';
 import { ContactGovernanceCg5QueryController } from './contact-governance-cg5-api.js';
-import { GATEWAY_DIAGNOSTICS, OIDC_ACCESS_TOKEN_VERIFIER, OidcGlobalGuard } from './gateway-auth.js';
+import {
+  GATEWAY_DIAGNOSTICS,
+  OIDC_ACCESS_TOKEN_VERIFIER,
+  OidcGlobalGuard,
+} from './gateway-auth.js';
 
 const owner = new PrismaClient();
 const application = new PrismaClient({
@@ -40,7 +44,9 @@ async function fixture(t: TestContext) {
   const otherTenantId = randomUUID();
   const userId = randomUUID();
   for (const id of [tenantId, otherTenantId]) {
-    await owner.tenant.create({ data: { id, name: `CG5 API ${id}`, slug: id, sipDomain: `${id}.test` } });
+    await owner.tenant.create({
+      data: { id, name: `CG5 API ${id}`, slug: id, sipDomain: `${id}.test` },
+    });
   }
   const verifier = {
     verifyAccessToken: async (token: string) => {
@@ -78,7 +84,12 @@ async function fixture(t: TestContext) {
 
 async function ready(tenantId: string) {
   await owner.cg5ProjectionCursor.create({
-    data: { tenantId, sourceKey: 'cg5.projection.readiness', state: 'READY', lastRunAt: new Date() },
+    data: {
+      tenantId,
+      sourceKey: 'cg5.projection.readiness',
+      state: 'READY',
+      lastRunAt: new Date(),
+    },
   });
 }
 
@@ -122,8 +133,15 @@ test('CG5.7 route ปฏิเสธ projection ที่ยังไม่พ�
     `${f.base}/metrics?granularity=FIVE_MIN&tenantId=${f.otherTenantId}`,
   );
   assert.equal(response.status, 200);
-  const body = (await response.json()) as { items: Array<{ value: string }>; asOf: string; nextCursor: string | null };
-  assert.deepEqual(body.items.map((item) => item.value), ['1']);
+  const body = (await response.json()) as {
+    items: Array<{ value: string }>;
+    asOf: string;
+    nextCursor: string | null;
+  };
+  assert.deepEqual(
+    body.items.map((item) => item.value),
+    ['1'],
+  );
   assert.equal(body.asOf, at.toISOString());
   assert.equal(body.nextCursor, null);
 });

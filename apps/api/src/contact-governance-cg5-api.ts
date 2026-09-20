@@ -54,7 +54,10 @@ function optionalDate(value: unknown, field: string): Date | undefined {
   if (typeof value !== 'string') throw new BadRequestException({ code: 'VALIDATION_FAILED' });
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `${field} ต้องเป็น ISO date` });
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      message: `${field} ต้องเป็น ISO date`,
+    });
   }
   return date;
 }
@@ -63,7 +66,10 @@ function limit(value: unknown): number {
   if (value === undefined || value === null || value === '') return 50;
   const number = typeof value === 'string' ? Number(value) : Number.NaN;
   if (!Number.isInteger(number) || number < 1 || number > 100) {
-    throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'limit ต้องอยู่ระหว่าง 1-100' });
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      message: 'limit ต้องอยู่ระหว่าง 1-100',
+    });
   }
   return number;
 }
@@ -73,9 +79,11 @@ function decodeCursor(value: unknown): Cg5PageCursor | undefined {
   if (typeof value !== 'string') throw new BadRequestException({ code: 'VALIDATION_FAILED' });
   try {
     const decoded: unknown = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
-    if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) throw new Error('invalid');
+    if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded))
+      throw new Error('invalid');
     const candidate = decoded as { occurredAt?: unknown; id?: unknown };
-    if (typeof candidate.occurredAt !== 'string' || typeof candidate.id !== 'string') throw new Error('invalid');
+    if (typeof candidate.occurredAt !== 'string' || typeof candidate.id !== 'string')
+      throw new Error('invalid');
     const occurredAt = new Date(candidate.occurredAt);
     if (Number.isNaN(occurredAt.valueOf()) || !/^[0-9a-f-]{36}$/i.test(candidate.id)) {
       throw new Error('invalid');
@@ -88,13 +96,17 @@ function decodeCursor(value: unknown): Cg5PageCursor | undefined {
 
 function encodeCursor(cursor: Cg5PageCursor | null): string | null {
   return cursor
-    ? Buffer.from(JSON.stringify({ occurredAt: cursor.occurredAt.toISOString(), id: cursor.id })).toString(
-        'base64url',
-      )
+    ? Buffer.from(
+        JSON.stringify({ occurredAt: cursor.occurredAt.toISOString(), id: cursor.id }),
+      ).toString('base64url')
     : null;
 }
 
-function enumList(value: unknown, allowed: ReadonlySet<string>, field: string): string[] | undefined {
+function enumList(
+  value: unknown,
+  allowed: ReadonlySet<string>,
+  field: string,
+): string[] | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   if (typeof value !== 'string') throw new BadRequestException({ code: 'VALIDATION_FAILED' });
   const values = value.split(',').filter(Boolean);
@@ -182,7 +194,9 @@ export class ContactGovernanceCg5QueryController {
     const actor = identity(request);
     try {
       const result = await this.queries.alerts(actor.tenantId, await this.scope(actor), {
-        ...(enumList(state, ALERT_STATES, 'state') ? { states: enumList(state, ALERT_STATES, 'state') as never } : {}),
+        ...(enumList(state, ALERT_STATES, 'state')
+          ? { states: enumList(state, ALERT_STATES, 'state') as never }
+          : {}),
         ...(enumList(severity, ALERT_SEVERITIES, 'severity')
           ? { severities: enumList(severity, ALERT_SEVERITIES, 'severity') as never }
           : {}),
@@ -204,8 +218,15 @@ export class ContactGovernanceCg5QueryController {
   ) {
     const actor = identity(request);
     const expectedVersion = body?.version;
-    if (typeof expectedVersion !== 'number' || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
-      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'version ต้องเป็น positive integer' });
+    if (
+      typeof expectedVersion !== 'number' ||
+      !Number.isInteger(expectedVersion) ||
+      expectedVersion < 1
+    ) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'version ต้องเป็น positive integer',
+      });
     }
     try {
       await this.alerts.acknowledge({
@@ -220,8 +241,13 @@ export class ContactGovernanceCg5QueryController {
     }
   }
 
-  private async scope(actor: { tenantId: string; userId: string; roles: readonly string[] }): Promise<Cg5QueryScope> {
-    if (actor.roles.includes('admin') || actor.roles.includes('compliance')) return { kind: 'TENANT' };
+  private async scope(actor: {
+    tenantId: string;
+    userId: string;
+    roles: readonly string[];
+  }): Promise<Cg5QueryScope> {
+    if (actor.roles.includes('admin') || actor.roles.includes('compliance'))
+      return { kind: 'TENANT' };
     if (!actor.roles.includes('supervisor')) throw new ForbiddenException();
     return withTenantDatabaseTransaction(this.database, actor.tenantId, async (tx) => {
       const supervisor = await tx.user.findFirst({
