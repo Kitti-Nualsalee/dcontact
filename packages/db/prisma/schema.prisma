@@ -921,6 +921,7 @@ enum CgCallbackMutationKind {
 enum CgAggregateType {
   CONTACT
   POLICY
+  ALERT
 }
 
 enum CgEventOutboxState {

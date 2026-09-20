@@ -37,6 +37,7 @@ function defaultBackoffMs(attempts: number): number {
 const AGGREGATE_TYPE_MAP = {
   CONTACT: 'contact_governance_contact',
   POLICY: 'contact_governance_policy',
+  ALERT: 'contact_governance_alert',
 } as const;
 
 export class Cg3EventRelay {
