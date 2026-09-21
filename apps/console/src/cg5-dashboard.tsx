@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Cg5Alert, Cg5ConsoleApi, Cg5EvidenceLevel, Cg5ExportJob } from './cg5-console-api.js';
+import type {
+  Cg5Alert,
+  Cg5ConsoleApi,
+  Cg5EvidenceLevel,
+  Cg5ExportJob,
+  Cg5PolicyImpactBucket,
+} from './cg5-console-api.js';
 import type { GovernanceViewer } from './governance-model.js';
 
 type Load<T> = { data?: T; error?: string; loading: boolean };
@@ -12,6 +18,14 @@ const metricLabels: Record<string, string> = {
 };
 function message(error: unknown) {
   return error instanceof Error ? error.message : 'โหลดข้อมูลไม่สำเร็จ';
+}
+function lagged(asOf: string | null | undefined) {
+  return !asOf || Date.now() - new Date(asOf).getTime() > 15 * 60 * 1000;
+}
+function exportState(state: string) {
+  if (state === 'REVOKED') return 'ถูกเพิกถอนแล้ว';
+  if (state === 'EXPIRED') return 'หมดอายุแล้ว';
+  return state;
 }
 function statusSymbol(state: string) {
   return state === 'OPEN'
@@ -26,6 +40,8 @@ function statusSymbol(state: string) {
 export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: GovernanceViewer }) {
   const [metrics, setMetrics] =
     useState<Load<Awaited<ReturnType<Cg5ConsoleApi['metrics']>>>>(empty());
+  const [impact, setImpact] =
+    useState<Load<{ asOf: string | null; items: Cg5PolicyImpactBucket[] }>>(empty());
   const [alerts, setAlerts] = useState<Load<Awaited<ReturnType<Cg5ConsoleApi['alerts']>>>>(empty());
   const [exports, setExports] = useState<Load<Cg5ExportJob[]>>(empty());
   const [state, setState] = useState<'ALL' | 'OPEN' | 'ACKED' | 'SUPPRESSED'>('ALL');
@@ -45,6 +61,18 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
       setMetrics({ loading: false, data: await api.metrics({ limit: 50 }) });
     } catch (error) {
       setMetrics({ loading: false, error: message(error) });
+    }
+  };
+  const reloadImpact = async () => {
+    if (viewer === 'SUPERVISOR') {
+      setImpact({ loading: false, data: { asOf: null, items: [] } });
+      return;
+    }
+    setImpact(empty());
+    try {
+      setImpact({ loading: false, data: await api.policyImpact() });
+    } catch (error) {
+      setImpact({ loading: false, error: message(error) });
     }
   };
   const reloadAlerts = async () => {
@@ -71,8 +99,9 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
   };
   useEffect(() => {
     void reloadMetrics();
+    void reloadImpact();
     void reloadExports();
-  }, [api]);
+  }, [api, viewer]);
   useEffect(() => {
     void reloadAlerts();
   }, [api, state, severity]);
@@ -87,6 +116,14 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
       })),
     [metrics.data],
   );
+  const reasons = useMemo(() => {
+    const grouped = new Map<string, number>();
+    for (const item of metrics.data?.items ?? []) {
+      if (item.reasonCode)
+        grouped.set(item.reasonCode, (grouped.get(item.reasonCode) ?? 0) + Number(item.value));
+    }
+    return [...grouped.entries()].sort((left, right) => right[1] - left[1]);
+  }, [metrics.data]);
   const acknowledge = async (alert: Cg5Alert) => {
     setAckError(undefined);
     try {
@@ -144,8 +181,14 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
             ? new Date(alerts.data.asOf).toLocaleString('th-TH')
             : 'ข้อมูลยังไม่พร้อม'}
         </span>
-        {metrics.error || alerts.error ? (
-          <p role="alert">⚠ ข้อมูลอาจล่าช้ากว่า SLO: {metrics.error ?? alerts.error}</p>
+        {metrics.error ||
+        alerts.error ||
+        lagged(metrics.data?.asOf) ||
+        lagged(alerts.data?.asOf) ? (
+          <p role="alert">
+            ⚠ ข้อมูลอาจล่าช้ากว่า SLO:{' '}
+            {metrics.error ?? alerts.error ?? 'ตรวจสอบเวลาประมวลผลล่าสุด'}
+          </p>
         ) : null}
       </section>
       <div className="cg5-cards">
@@ -156,6 +199,42 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
           </article>
         ))}
       </div>
+      <section className="gov-panel">
+        <h2>เหตุผลที่ติดต่อไม่ได้</h2>
+        {metrics.loading ? (
+          <p>กำลังโหลดเหตุผล…</p>
+        ) : reasons.length === 0 ? (
+          <p>ข้อมูลยังไม่พร้อม หรือยังไม่มีเหตุผลที่ติดต่อไม่ได้ในช่วงเวลานี้</p>
+        ) : (
+          <ul className="cg5-reasons">
+            {reasons.map(([reasonCode, value]) => (
+              <li key={reasonCode}>
+                <strong>{reasonCode}</strong> <span>{value.toLocaleString('th-TH')} รายการ</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {viewer === 'SUPERVISOR' ? null : (
+        <section className="gov-panel">
+          <h2>ผลหลังเปลี่ยนนโยบาย</h2>
+          {impact.loading ? (
+            <p>กำลังโหลดผลกระทบ…</p>
+          ) : impact.error ? (
+            <p role="alert">{impact.error}</p>
+          ) : impact.data?.items.length === 0 ? (
+            <p>ข้อมูลยังไม่พร้อม หรือยังไม่มีผลกระทบจากนโยบายในช่วงเวลานี้</p>
+          ) : (
+            <ul className="cg5-impact">
+              {impact.data?.items.map((item) => (
+                <li key={`${item.bucketStart}:${item.policyVersion}:${item.decision}`}>
+                  <strong>Policy v{item.policyVersion}</strong> · {item.decision} · {item.value}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
       <section className="gov-panel">
         <div className="cg5-title">
           <h2>Alert</h2>
@@ -185,7 +264,14 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
             </label>
           </div>
         </div>
-        {ackError ? <p role="alert">{ackError}</p> : null}
+        {ackError ? (
+          <p role="alert">
+            {ackError}{' '}
+            <button className="gov-secondary" type="button" onClick={() => void reloadAlerts()}>
+              โหลดรายการใหม่
+            </button>
+          </p>
+        ) : null}
         {alerts.loading ? (
           <p>กำลังโหลด alert…</p>
         ) : alerts.error ? (
@@ -288,14 +374,18 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
             {exports.data?.map((job) => (
               <li key={job.exportId}>
                 <strong>
-                  {job.state} · {job.evidenceLevel}
+                  {exportState(job.state)} · {job.evidenceLevel}
                 </strong>
                 <span>
                   {job.datasets.join(', ')} ·{' '}
                   {job.manifestDigest
                     ? `digest …${job.manifestDigest.slice(-8)}`
                     : 'ยังไม่มี digest'}{' '}
-                  · หมดอายุ {job.expiresAt ?? '—'} · ผู้สั่ง {job.requestedByRef}
+                  ·{' '}
+                  {job.state === 'REVOKED'
+                    ? 'ไฟล์ถูกเพิกถอนแล้ว'
+                    : `หมดอายุ ${job.expiresAt ?? '—'}`}{' '}
+                  · ผู้สั่ง {job.requestedByRef}
                 </span>
               </li>
             ))}

@@ -17,6 +17,13 @@ export interface Cg5MetricBucket {
   updatedAt: string;
 }
 
+export interface Cg5PolicyImpactBucket {
+  bucketStart: string;
+  policyVersion: number;
+  decision: string;
+  value: string;
+}
+
 export interface Cg5Alert {
   id: string;
   ruleCode: string;
@@ -66,6 +73,7 @@ export interface Cg5ConsoleApi {
     metricKey?: string;
     limit?: number;
   }): Promise<{ asOf: string | null; items: Cg5MetricBucket[] }>;
+  policyImpact(): Promise<{ asOf: string | null; items: Cg5PolicyImpactBucket[] }>;
   alerts(input?: {
     states?: Cg5AlertState[];
     severities?: Cg5AlertSeverity[];
@@ -123,6 +131,7 @@ export function createCg5ConsoleApi(input: {
       if (filter.metricKey) query.set('metricKey', filter.metricKey);
       return call(`/metrics?${query}`);
     },
+    policyImpact: () => call('/metrics/policy-impact?granularity=FIVE_MIN&limit=10'),
     alerts: (filter = {}) => {
       const query = new URLSearchParams({ limit: '50' });
       if (filter.states?.length) query.set('state', filter.states.join(','));

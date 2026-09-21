@@ -12,6 +12,7 @@ test('CG5 Console client เรียกเฉพาะ contract routes แล�
       return new Response(JSON.stringify({ items: [] }), { status: 200 });
     },
   });
+  await api.policyImpact();
   await api.alerts({ states: ['OPEN'], severities: ['CRITICAL'] });
   await api.requestExport({
     datasets: ['DECISION_TRACE'],
@@ -21,13 +22,14 @@ test('CG5 Console client เรียกเฉพาะ contract routes แล�
     reason: 'audit',
     idempotencyKey: 'intent-1',
   });
-  assert.match(requests[0]?.url ?? '', /\/alerts\?limit=50&state=OPEN&severity=CRITICAL$/);
-  assert.deepEqual(requests[1]?.init?.headers, {
+  assert.match(requests[0]?.url ?? '', /\/metrics\/policy-impact\?granularity=FIVE_MIN&limit=10$/);
+  assert.match(requests[1]?.url ?? '', /\/alerts\?limit=50&state=OPEN&severity=CRITICAL$/);
+  assert.deepEqual(requests[2]?.init?.headers, {
     authorization: 'Bearer token',
     'content-type': 'application/json',
     'idempotency-key': 'intent-1',
   });
-  const body = JSON.parse(requests[1]?.init?.body as string) as Record<string, unknown>;
+  const body = JSON.parse(requests[2]?.init?.body as string) as Record<string, unknown>;
   assert.equal('tenantId' in body, false);
   assert.equal('actorRef' in body, false);
 });
