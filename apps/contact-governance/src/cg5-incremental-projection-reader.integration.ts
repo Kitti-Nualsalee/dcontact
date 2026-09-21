@@ -104,3 +104,37 @@ test('CG5.4 rerun และ interrupt/resume ให้ projection เดีย�
   assert.deepEqual(await summary(f.owner, f.tenantId), completed);
   assert.equal(await f.owner.cgDecisionLog.count({ where: { tenantId: f.tenantId } }), 3);
 });
+
+test('CG5-CC02 reader สองตัวรันพร้อมกันบนคนละ connection ไม่นับซ้ำ', async (t) => {
+  const f = await fixture(t);
+  const second = new PrismaClient({
+    datasources: {
+      db: {
+        url:
+          process.env.APPLICATION_DATABASE_URL ??
+          'postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public',
+      },
+    },
+  });
+  t.after(() => second.$disconnect());
+  // batch เล็กเพื่อให้สองตัวแย่ง cursor กันหลายรอบ ไม่ใช่ตัวหนึ่งกวาดหมดในรอบเดียว
+  const readers = [
+    new Cg5IncrementalProjectionReader(f.application, 1),
+    new Cg5IncrementalProjectionReader(second, 1),
+  ];
+  await Promise.all([
+    ...readers.map((reader) => reader.run(f.tenantId)),
+    ...readers.map((reader) => reader.run(f.tenantId)),
+  ]);
+  const { metrics, impacts } = await summary(f.owner, f.tenantId);
+  assert.deepEqual(metrics, [
+    ['ALLOW', '1', 1n],
+    ['BLOCK', '1', 1n],
+    ['DEFER', '1', 1n],
+  ]);
+  assert.deepEqual(impacts, [
+    ['ALLOW', 1n],
+    ['BLOCK', 1n],
+    ['DEFER', 1n],
+  ]);
+});

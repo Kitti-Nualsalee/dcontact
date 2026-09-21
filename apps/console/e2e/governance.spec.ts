@@ -632,3 +632,113 @@ test('CG5: ACK version conflict ให้โหลด alert ใหม่โด�
   expect(acknowledgements).toBe(1);
   expect(problems).toEqual([]);
 });
+
+function cg5Alert(id: string, severity: 'WARNING' | 'CRITICAL', state = 'OPEN') {
+  return {
+    id,
+    ruleCode: `CG5_UX01_${severity}`,
+    state,
+    severity,
+    channel: null,
+    purpose: null,
+    teamId: null,
+    value: '5',
+    threshold: '3',
+    consecutiveHits: 2,
+    openedAt: null,
+    ackedAt: null,
+    resolvedAt: null,
+    version: 1,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+test('CG5-UX01: แถบความสดแยกตามแหล่ง และเตือนเฉพาะเมื่อแหล่งใดเกิน SLO', async ({ page }) => {
+  const problems = watchPage(page);
+  const mock = await mockGovernance(page);
+  let metricsAsOf = new Date().toISOString();
+  mock.on('GET', /^\/metrics$/, () => ({ body: { asOf: metricsAsOf, items: [] } }));
+  mock.on('GET', /^\/alerts$/, () => ({ body: { asOf: new Date().toISOString(), items: [] } }));
+  await page.goto('/?view=governance&viewer=COMPLIANCE');
+  const freshness = page.getByRole('region', { name: 'ความสดของข้อมูล' });
+  await expect(freshness).toContainText('Decision projection:');
+  await expect(freshness).toContainText('Alert state:');
+  await expect(freshness).not.toContainText('ข้อมูลยังไม่พร้อม');
+  await expect(freshness.getByRole('alert')).toHaveCount(0);
+
+  // projection ค้างนานกว่า SLO แต่ alert state ยังสด: ต้องเตือน โดยไม่ซ่อนเวลาของแต่ละแหล่ง
+  metricsAsOf = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  await page.reload();
+  await expect(freshness.getByRole('alert')).toContainText('ล่าช้ากว่า SLO');
+  await expect(freshness).not.toContainText('ข้อมูลยังไม่พร้อม');
+  expect(problems).toEqual([]);
+});
+
+test('CG5-UX01: ระหว่าง backfill แสดงว่าไม่พร้อม ไม่แสดงตัวเลขที่ยังไม่ครบ', async ({ page }) => {
+  const problems = watchPage(page, { allowHttpErrors: true });
+  const mock = await mockGovernance(page);
+  mock.on('GET', /^\/metrics$/, () => ({
+    status: 503,
+    body: { code: 'CG5_PROJECTION_NOT_READY', state: 'BACKFILL_RUNNING' },
+  }));
+  mock.on('GET', /^\/metrics\/policy-impact$/, () => ({
+    status: 503,
+    body: { code: 'CG5_PROJECTION_NOT_READY', state: 'BACKFILL_RUNNING' },
+  }));
+  await page.goto('/?view=governance&viewer=COMPLIANCE');
+  const freshness = page.getByRole('region', { name: 'ความสดของข้อมูล' });
+  await expect(freshness).toContainText('Decision projection: ข้อมูลยังไม่พร้อม');
+  await expect(freshness.getByRole('alert')).toContainText('CG5_PROJECTION_NOT_READY');
+  const cards = page.locator('.cg5-cards strong');
+  await expect(cards).toHaveCount(4);
+  for (const card of await cards.all()) {
+    await expect(card).toHaveText('ยังไม่พร้อม');
+  }
+  expect(problems).toEqual([]);
+});
+
+test('CG5-UX01: ตัวกรอง alert ส่งไปที่ API จริงและรวมแถวที่ถูกระงับ', async ({ page }) => {
+  const problems = watchPage(page);
+  const mock = await mockGovernance(page);
+  const all = [
+    cg5Alert(HIGH_ID, 'CRITICAL'),
+    cg5Alert(STANDARD_ID, 'WARNING'),
+    cg5Alert(APPROVED_ID, 'WARNING', 'SUPPRESSED'),
+  ];
+  mock.on('GET', /^\/alerts$/, (request) => {
+    const query = new URL(request.url()).searchParams;
+    const states = query.get('state')?.split(',');
+    const severities = query.get('severity')?.split(',');
+    return {
+      body: {
+        asOf: new Date().toISOString(),
+        items: all.filter(
+          (alert) =>
+            (!states || states.includes(alert.state)) &&
+            (!severities || severities.includes(alert.severity)),
+        ),
+      },
+    };
+  });
+  await page.goto('/?view=governance&viewer=COMPLIANCE');
+  const list = page.locator('.cg5-alerts');
+  await expect(list.locator('li')).toHaveCount(3);
+  await expect(list).toContainText('ระงับชั่วคราว');
+
+  await page.getByLabel('ความรุนแรง').selectOption('CRITICAL');
+  await expect(list.locator('li')).toHaveCount(1);
+  await expect(list).toContainText('CG5_UX01_CRITICAL');
+
+  await page.getByLabel('ความรุนแรง').selectOption('ALL');
+  await page.getByLabel('สถานะ').selectOption('SUPPRESSED');
+  await expect(list.locator('li')).toHaveCount(1);
+  await expect(list.locator('li.cg5-suppressed')).toHaveCount(1);
+
+  const alertQueries = mock.requests
+    .map((request) => new URL(request.url()))
+    .filter((url) => url.pathname.endsWith('/alerts'))
+    .map((url) => url.search);
+  expect(alertQueries.some((search) => search.includes('severity=CRITICAL'))).toBe(true);
+  expect(alertQueries.some((search) => search.includes('state=SUPPRESSED'))).toBe(true);
+  expect(problems).toEqual([]);
+});

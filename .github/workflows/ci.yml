@@ -11,9 +11,9 @@ on:
     inputs:
       acceptance:
         # สั่งเฉพาะชุดที่ต้องการได้ ไม่ต้องลาก convergence ที่ใช้เวลานานมาทุก main push
-        description: 'acceptance ที่จะรัน (all | s1 | cg4 | j2)'
+        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2)'
         type: choice
-        options: [all, s1, cg4, j2]
+        options: [all, s1, cg4, cg5, j2]
         default: all
 
 jobs:
@@ -55,6 +55,10 @@ jobs:
 
       - name: J3 readiness validator tests
         run: pnpm test:cxa-j3-readiness
+
+      # CG5.11 (#295): registry/validator/marker suppression และ MG01 migration scan ไม่ต้องใช้ infrastructure
+      - name: CG5 readiness validator tests
+        run: pnpm test:cxa-cg5-readiness
 
   s1-convergence-acceptance:
     # S1 ใช้เวลานานและ J3 final gate เรียกเองอยู่แล้ว: ไม่รันทุก main push
@@ -129,7 +133,7 @@ jobs:
   cxa-j2-acceptance:
     # J2-REG01 รัน C1 และ S1 acceptance ซ้อนอยู่ข้างใน รวมแล้วราว 3 ชม. ถ้าผูกกับทุก push
     # job จะทับกันเองเพราะ main ขยับถี่กว่านั้น จึงรันรอบดึกวันละครั้ง (และสั่งเองได้)
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4')
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4' && inputs.acceptance != 'cg5')
     runs-on: ubuntu-latest
     timeout-minutes: 330
     concurrency:
@@ -202,7 +206,7 @@ jobs:
     # CG4.11 (#194): รันรอบดึกหรือสั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg4`)
     # CG4-REG01 rerun S1 ครั้งเดียว (E0/C1/Inbound Voice อยู่ใน S1-REG-01) และแต่ละ suite รันครั้งเดียว
     # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
-    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2')) && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2' && inputs.acceptance != 'cg5')) && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     concurrency:
@@ -270,3 +274,68 @@ jobs:
       - name: Stop acceptance infrastructure
         if: always()
         run: pnpm infra:down
+
+  cxa-cg5-acceptance:
+    # CG5.11 (#295): รันรอบดึกหรือสั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg5`)
+    # ไม่บังคับ marker ของ CG3/CG4/J2/J3 บน SHA เดียวกัน แต่ CG5-REG01/REG02 รัน conformance แบบเจาะจงแทน (#273 §2)
+    # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
+    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'cg5'))) && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:
+      group: cxa-cg5-acceptance
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure local acceptance environment
+        run: |
+          cp .env.example .env
+          mkdir -p infra/docker/data/redpanda
+          chmod 777 infra/docker/data/redpanda
+          mkdir -p infra/docker/data/freeswitch-recordings
+          chmod 777 infra/docker/data/freeswitch-recordings
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium for browser acceptance
+        run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build workspace prerequisites
+        run: pnpm build
+
+      - name: Bootstrap acceptance infrastructure
+        run: |
+          pnpm infra:ready || {
+            docker compose -f infra/docker/docker-compose.dev.yml ps
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color redpanda
+            exit 1
+          }
+
+      - name: Run CG5 acceptance on final main SHA
+        run: pnpm cxa:cg5:acceptance
+        env:
+          CXA_CG5_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Upload immutable CG5 evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-cg5-evidence-${{ github.sha }}
+          path: artifacts/cxa-cg5/${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 90

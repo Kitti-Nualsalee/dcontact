@@ -151,7 +151,8 @@ test('CG5.8 export route idempotent, ซ่อน requester ใน SUMMARY แ�
       version: 2,
       storagePrefix: `governance-exports/${f.tenantId}/${one.exportId}`,
       manifestDigest: 'a'.repeat(64),
-      expiresAt: new Date('2026-09-21T00:00:00.000Z'),
+      // route เทียบกับเวลาจริง: วันที่คงที่จะกลายเป็น expired เมื่อเวลาผ่านไปและทำให้เทสต์ล้มเอง
+      expiresAt: new Date(Date.now() + 86_400_000),
     },
   });
   const foreignDownload = await request(`${f.base}/${one.exportId}/download`, 'other-token');
@@ -166,4 +167,48 @@ test('CG5.8 export route idempotent, ซ่อน requester ใน SUMMARY แ�
     }),
     1,
   );
+});
+
+test('CG5-TI02 ไฟล์ export อยู่ใต้ prefix ของ tenant และ tenant อื่นดึงไม่ได้แม้รู้ exportId', async (t) => {
+  const f = await fixture(t);
+  const created = await request(f.base, 'tenant-token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'idempotency-key': 'export-ti02' },
+    body: JSON.stringify(exportInput),
+  });
+  assert.equal(created.status, 201);
+  const { exportId } = (await created.json()) as { exportId: string };
+  await owner.cg5ExportJob.update({
+    where: { exportId },
+    data: {
+      state: 'READY',
+      version: 2,
+      storagePrefix: `governance-exports/${f.tenantId}/${exportId}`,
+      manifestDigest: 'b'.repeat(64),
+      expiresAt: new Date(Date.now() + 86_400_000),
+    },
+  });
+
+  // not-found แบบเดียวกับ ID ที่ไม่มีอยู่จริง: ไม่เผยว่ามี export นี้ใน tenant อื่น
+  const missing = await request(`${f.base}/${randomUUID()}`, 'other-token');
+  const missingBody = await missing.json();
+  for (const path of [`${f.base}/${exportId}`, `${f.base}/${exportId}/download`]) {
+    const foreign = await request(path, 'other-token');
+    assert.equal(foreign.status, missing.status, path);
+    assert.deepEqual(await foreign.json(), missingBody, path);
+  }
+  assert.equal(missing.status, 404);
+  assert.equal(f.storage.calls.length, 0);
+  assert.equal(
+    await owner.cgAuditLog.count({
+      where: { tenantId: f.otherTenantId, action: 'CG5_EXPORT_DOWNLOADED' },
+    }),
+    0,
+  );
+
+  const own = await request(`${f.base}/${exportId}/download`);
+  assert.equal(own.status, 200);
+  assert.deepEqual(f.storage.calls, [
+    { tenantId: f.tenantId, key: `governance-exports/${f.tenantId}/${exportId}/manifest.json` },
+  ]);
 });
