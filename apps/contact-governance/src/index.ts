@@ -59,3 +59,4 @@ export * from './cg5-export-lifecycle.js';
 export * from './cg5-prisma-export-reader.js';
 export * from './minio-governance-export-storage.js';
 export * from './cg5-export-runner.js';
+export * from './cg5-observability.js';

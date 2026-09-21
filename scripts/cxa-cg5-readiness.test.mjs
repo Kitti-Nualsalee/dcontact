@@ -187,11 +187,11 @@ test('run ที่ไม่ใช่ final main ได้ candidate manifest �
   }
 });
 
-test('check ที่ล้มหนึ่งตัวกัน marker และ OB01 ที่ไม่มี suite ล้มตรงไปตรงมา', () => {
+test('check ที่ล้มหนึ่งตัวกัน marker และทำให้มิติของมันล้ม', () => {
   const { summary, manifest } = run({
     executeSuite: (suite) =>
       isScript(suite, 'src/cg5-observability.test.ts')
-        ? { status: 'FAIL', durationMs: 1, detail: 'Could not find src/cg5-observability.test.ts' }
+        ? { status: 'FAIL', durationMs: 1, detail: 'not ok 1 - telemetry' }
         : passingSuite(suite),
   });
   assert.deepEqual(summary.markers, []);
@@ -301,7 +301,7 @@ test('MG01: migration จริงของ CG5 additive และ scanner จ�
   ]);
 });
 
-test('ทุกไฟล์เทสต์ที่ registry อ้างมีอยู่จริง ยกเว้น OB01 ที่รอ ticket telemetry', () => {
+test('ทุกไฟล์เทสต์ที่ registry อ้างมีอยู่จริง', () => {
   const packageRoots = {
     '@d-contact/contact-governance': 'apps/contact-governance',
     '@d-contact/api': 'apps/api',
@@ -315,5 +315,5 @@ test('ทุกไฟล์เทสต์ที่ registry อ้างมี�
     const root = command[1] === '--filter' ? packageRoots[command[2]] : '.';
     if (!existsSync(resolve(repositoryRoot, root, file))) missing.push(file);
   }
-  assert.deepEqual(missing, ['src/cg5-observability.test.ts']);
+  assert.deepEqual(missing, []);
 });
