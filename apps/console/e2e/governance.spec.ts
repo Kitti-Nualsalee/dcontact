@@ -573,8 +573,15 @@ test('CG5: filter alert, export validation และ Supervisor ไม่มี�
   await page.getByLabel('สถานะ').selectOption('OPEN');
   await expect(page.getByText('CG5_BLOCK_RATE_SHIFT')).toBeVisible();
   await expect(page.getByText('ต้องระบุเหตุผลก่อนสั่ง export')).toBeVisible();
+  const beforeSupervisor = mock.requests.length;
   await page.goto('/?view=governance&viewer=SUPERVISOR');
   await expect(page.getByText('ไม่มีสิทธิ์สั่ง export')).toBeVisible();
+  await expect(page.getByText('CG5_BLOCK_RATE_SHIFT')).toBeVisible();
+  const supervisorPaths = mock.requests
+    .slice(beforeSupervisor)
+    .map((request) => new URL(request.url()).pathname);
+  expect(supervisorPaths).not.toContain('/api/v1/contact-governance/exports');
+  expect(supervisorPaths).not.toContain('/api/v1/contact-governance/metrics/policy-impact');
   expect(problems).toEqual([]);
 });
 

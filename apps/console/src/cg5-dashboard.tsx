@@ -90,6 +90,10 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
     }
   };
   const reloadExports = async () => {
+    if (viewer === 'SUPERVISOR') {
+      setExports({ loading: false, data: [] });
+      return;
+    }
     setExports(empty());
     try {
       setExports({ loading: false, data: await api.exports() });
