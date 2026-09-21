@@ -137,6 +137,12 @@ async function mockGovernance(page: Page): Promise<Mock> {
     on: (method, path, handler) => handlers.push([method, path, handler]),
   };
   mock.on('GET', /^\/kill-switches$/, () => ({ body: { killSwitches: [] } }));
+  mock.on('GET', /^\/metrics$/, () => ({ body: { asOf: '2026-09-20T00:00:00.000Z', items: [] } }));
+  mock.on('GET', /^\/metrics\/policy-impact$/, () => ({
+    body: { asOf: '2026-09-20T00:00:00.000Z', items: [] },
+  }));
+  mock.on('GET', /^\/alerts$/, () => ({ body: { asOf: '2026-09-20T00:00:00.000Z', items: [] } }));
+  mock.on('GET', /^\/exports$/, () => ({ body: { items: [] } }));
   return mock;
 }
 
@@ -522,7 +528,7 @@ test('mobile: ไม่มี horizontal overflow, nav ใช้ keyboard ได
   await expect(page.getByRole('navigation', { name: 'Contact Governance' })).toBeVisible();
   await page.getByRole('textbox', { name: 'ID' }).fill('someone@example.com');
   await page.getByRole('button', { name: 'เปิด', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('รับเฉพาะ opaque ID');
+  await expect(page.getByRole('alert').filter({ hasText: 'รับเฉพาะ opaque ID' })).toBeVisible();
   expect(new URL(page.url()).search).not.toContain('example.com');
 
   await page.getByRole('textbox', { name: 'ID' }).fill(CONTACT_ID);
@@ -533,5 +539,96 @@ test('mobile: ไม่มี horizontal overflow, nav ใช้ keyboard ได
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   expect(overflow).toBeLessThanOrEqual(0);
+  expect(problems).toEqual([]);
+});
+
+test('CG5: filter alert, export validation และ Supervisor ไม่มีสิทธิ์ export', async ({ page }) => {
+  const problems = watchPage(page);
+  const mock = await mockGovernance(page);
+  mock.on('GET', /^\/alerts$/, () => ({
+    body: {
+      asOf: '2026-09-20T00:00:00.000Z',
+      items: [
+        {
+          id: HIGH_ID,
+          ruleCode: 'CG5_BLOCK_RATE_SHIFT',
+          state: 'OPEN',
+          severity: 'CRITICAL',
+          channel: 'LINE',
+          purpose: 'MARKETING',
+          teamId: 'team-1',
+          value: '8',
+          threshold: '3',
+          consecutiveHits: 2,
+          openedAt: null,
+          ackedAt: null,
+          resolvedAt: null,
+          version: 1,
+          updatedAt: '2026-09-20T00:00:00.000Z',
+        },
+      ],
+    },
+  }));
+  await page.goto('/?view=governance&viewer=COMPLIANCE');
+  await page.getByLabel('สถานะ').selectOption('OPEN');
+  await expect(page.getByText('CG5_BLOCK_RATE_SHIFT')).toBeVisible();
+  await expect(page.getByText('ต้องระบุเหตุผลก่อนสั่ง export')).toBeVisible();
+  const beforeSupervisor = mock.requests.length;
+  await page.goto('/?view=governance&viewer=SUPERVISOR');
+  await expect(page.getByText('ไม่มีสิทธิ์สั่ง export')).toBeVisible();
+  await expect(page.getByText('CG5_BLOCK_RATE_SHIFT')).toBeVisible();
+  const supervisorPaths = mock.requests
+    .slice(beforeSupervisor)
+    .map((request) => new URL(request.url()).pathname);
+  expect(supervisorPaths).not.toContain('/api/v1/contact-governance/exports');
+  expect(supervisorPaths).not.toContain('/api/v1/contact-governance/metrics/policy-impact');
+  expect(problems).toEqual([]);
+});
+
+test('CG5: ACK version conflict ให้โหลด alert ใหม่โดยไม่ส่ง ACK ซ้ำเอง', async ({ page }) => {
+  const problems = watchPage(page, { allowHttpErrors: true });
+  const mock = await mockGovernance(page);
+  let acknowledgements = 0;
+  let alertReads = 0;
+  mock.on('GET', /^\/alerts$/, () => {
+    alertReads += 1;
+    return {
+      body: {
+        asOf: '2026-09-20T00:00:00.000Z',
+        items: [
+          {
+            id: HIGH_ID,
+            ruleCode: 'CG5_ALERT_CONFLICT',
+            state: 'OPEN',
+            severity: 'WARNING',
+            channel: null,
+            purpose: null,
+            teamId: null,
+            value: '3',
+            threshold: '2',
+            consecutiveHits: 1,
+            openedAt: null,
+            ackedAt: null,
+            resolvedAt: null,
+            version: 1,
+            updatedAt: '2026-09-20T00:00:00.000Z',
+          },
+        ],
+      },
+    };
+  });
+  mock.on('POST', new RegExp(`^/alerts/${HIGH_ID}/ack$`), () => {
+    acknowledgements += 1;
+    return { status: 409, body: { code: 'CG5_ALERT_VERSION_CONFLICT' } };
+  });
+  await page.goto('/?view=governance&viewer=COMPLIANCE');
+  await page.getByRole('button', { name: 'รับทราบ' }).click();
+  const alert = page.getByRole('alert').filter({ hasText: 'CG5_ALERT_VERSION_CONFLICT' });
+  await expect(alert).toContainText('โหลดรายการใหม่');
+  expect(acknowledgements).toBe(1);
+  const readsBeforeReload = alertReads;
+  await alert.getByRole('button', { name: 'โหลดรายการใหม่' }).click();
+  await expect.poll(() => alertReads).toBeGreaterThan(readsBeforeReload);
+  expect(acknowledgements).toBe(1);
   expect(problems).toEqual([]);
 });

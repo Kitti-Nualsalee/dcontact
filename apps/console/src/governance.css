@@ -508,3 +508,83 @@
     transition: none;
   }
 }
+.cg5-dashboard {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.cg5-title,
+.cg5-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cg5-freshness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding: 12px;
+  border-left: 4px solid #0f766e;
+  background: #ecfdf5;
+}
+.cg5-freshness p {
+  width: 100%;
+  margin: 0;
+  color: #9f1239;
+}
+.cg5-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.cg5-cards p {
+  margin: 0;
+  color: #52635f;
+}
+.cg5-cards strong {
+  font-size: 28px;
+}
+.cg5-filters label,
+.cg5-export label {
+  display: grid;
+  gap: 4px;
+  font-weight: 700;
+}
+.cg5-alerts,
+.cg5-exports {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  list-style: none;
+}
+.cg5-alerts li,
+.cg5-exports li {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid #d5dfdb;
+  border-radius: 8px;
+}
+.cg5-suppressed {
+  border-style: dashed !important;
+}
+.cg5-export {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.cg5-export p,
+.cg5-export button {
+  grid-column: 1 / -1;
+}
+.cg5-export textarea {
+  min-height: 88px;
+}
+@media (max-width: 720px) {
+  .cg5-cards,
+  .cg5-export {
+    grid-template-columns: 1fr;
+  }
+}

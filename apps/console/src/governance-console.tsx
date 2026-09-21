@@ -40,6 +40,8 @@ import {
   type RecoveryState,
 } from './governance-model.js';
 import './governance.css';
+import { Cg5Dashboard } from './cg5-dashboard.js';
+import type { Cg5ConsoleApi } from './cg5-console-api.js';
 
 const VIEWER_LABEL: Readonly<Record<GovernanceViewer, string>> = {
   SUPERVISOR: 'Supervisor · summary',
@@ -54,8 +56,10 @@ export function GovernanceConsole({
   api,
   viewer,
   initialLocation,
+  cg5Api,
 }: {
   api: GovernanceApi;
+  cg5Api: Cg5ConsoleApi;
   viewer: GovernanceViewer;
   initialLocation: GovernanceLocation;
 }) {
@@ -130,7 +134,9 @@ export function GovernanceConsole({
             </button>
           </nav>
         ) : null}
-        {section === 'overview' ? <Overview api={api} go={go} location={location} /> : null}
+        {section === 'overview' ? (
+          <Overview api={api} cg5Api={cg5Api} viewer={viewer} go={go} location={location} />
+        ) : null}
         {section === 'exceptions' ? (
           <ExceptionWorkspace api={api} viewer={viewer} location={location} go={go} />
         ) : null}
@@ -470,10 +476,14 @@ function OpenById({ go }: { go: (location: GovernanceLocation) => void }) {
 
 function Overview({
   api,
+  cg5Api,
+  viewer,
   go,
   location,
 }: {
   api: GovernanceApi;
+  cg5Api: Cg5ConsoleApi;
+  viewer: GovernanceViewer;
   go: (location: GovernanceLocation) => void;
   location: GovernanceLocation;
 }) {
@@ -482,6 +492,7 @@ function Overview({
     <section aria-labelledby="gov-overview-title">
       <p className="gov-eyebrow">OVERVIEW</p>
       <h1 id="gov-overview-title">Contact Governance</h1>
+      <Cg5Dashboard api={cg5Api} viewer={viewer} />
       <OpenById go={go} />
       <section className="gov-panel" aria-labelledby="gov-kills-title">
         <h2 id="gov-kills-title">Kill switch ที่ใช้งานอยู่</h2>

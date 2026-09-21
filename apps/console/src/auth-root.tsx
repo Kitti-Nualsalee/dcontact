@@ -4,6 +4,7 @@ import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
 import { GovernanceConsole } from './governance-console.js';
 import { createGovernanceApi } from './governance-api.js';
+import { createCg5ConsoleApi } from './cg5-console-api.js';
 import { parseGovernanceLocation, type GovernanceViewer } from './governance-model.js';
 import { PreferenceCenter } from './preference-center.js';
 import {
@@ -146,6 +147,10 @@ function GovernanceSurface({ apiBaseUrl }: { apiBaseUrl: string }) {
     () => createGovernanceApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
     [accessToken, apiBaseUrl],
   );
+  const cg5Api = useMemo(
+    () => createCg5ConsoleApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
   if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
     return (
       <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
@@ -168,6 +173,7 @@ function GovernanceSurface({ apiBaseUrl }: { apiBaseUrl: string }) {
   return (
     <GovernanceConsole
       api={api}
+      cg5Api={cg5Api}
       viewer={viewer}
       initialLocation={parseGovernanceLocation(new URL(window.location.href))}
     />

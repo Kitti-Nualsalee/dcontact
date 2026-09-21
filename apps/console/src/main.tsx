@@ -5,6 +5,7 @@ import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
 import { GovernanceConsole } from './governance-console.js';
 import { createGovernanceApi } from './governance-api.js';
+import { createCg5ConsoleApi } from './cg5-console-api.js';
 import { parseGovernanceLocation, type GovernanceViewer } from './governance-model.js';
 import { PreferenceCenter } from './preference-center.js';
 import './style.css';
@@ -33,6 +34,11 @@ function ConsoleE2eRoot() {
     return (
       <GovernanceConsole
         api={createGovernanceApi({
+          baseUrl:
+            (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
+          accessToken: () => 'e2e-access-token',
+        })}
+        cg5Api={createCg5ConsoleApi({
           baseUrl:
             (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
           accessToken: () => 'e2e-access-token',
