@@ -355,6 +355,7 @@ export const CXA_CG5_READINESS_CHECKS = Object.freeze([
     ],
     governance(
       'cg5-observability.test.ts',
+      'cg5-observability.integration.ts',
       'cg5-alert-repository.integration.ts',
       'cg5-export-job-repository.integration.ts',
     ),
