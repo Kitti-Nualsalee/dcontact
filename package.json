@@ -45,6 +45,8 @@
     "test:cxa-j3-readiness": "node --test scripts/cxa-j3-readiness.test.mjs scripts/cxa-j3-focused-readiness.test.mjs",
     "cxa:cg4:acceptance": "node scripts/cxa-cg4-readiness.mjs",
     "test:cxa-cg4-readiness": "node --test scripts/cxa-cg4-readiness.test.mjs",
+    "cxa:cg5:acceptance": "node scripts/cxa-cg5-readiness.mjs",
+    "test:cxa-cg5-readiness": "node --test scripts/cxa-cg5-readiness.test.mjs",
     "infra:console": "docker compose -f infra/docker/docker-compose.dev.yml --profile tools up -d redpanda-console",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   },

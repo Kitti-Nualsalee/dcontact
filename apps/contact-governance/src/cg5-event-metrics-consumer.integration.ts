@@ -159,6 +159,32 @@ test('duplicate delivery เพิ่ม event metrics เพียงครั�
   assert.equal(await f.owner.cgAuditLog.count({ where: { tenantId: f.tenantId } }), 0);
 });
 
+test('CG5-CC02 consumer สองตัวรับ event เดียวกันพร้อมกันนับครั้งเดียว', async (t) => {
+  const f = await fixture(t);
+  const second = new PrismaClient({
+    datasources: {
+      db: {
+        url:
+          process.env.APPLICATION_DATABASE_URL ??
+          'postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public',
+      },
+    },
+  });
+  t.after(() => second.$disconnect());
+  const consumers = [f.consumer, new Cg5EventMetricsConsumer(second, { now: () => NOW })];
+  const original = event(f);
+  const settled = await Promise.allSettled(consumers.map((consumer) => consumer.consume(original)));
+  const applied = settled.filter(
+    (result) => result.status === 'fulfilled' && result.value.decision.kind === 'APPLY',
+  );
+  assert.equal(applied.length, 1);
+  // ตัวที่แพ้ race ได้ DUPLICATE หรือ error ที่ retry ได้ — retry ต้องเป็น DUPLICATE ไม่ใช่ APPLY ซ้ำ
+  assert.equal((await consumers[1]!.consume(original)).decision.kind, 'DUPLICATE');
+  const summary = await bucketSummary(f);
+  assert.equal(summary.length, 6);
+  assert.ok(summary.every((bucket) => bucket.value === '1' && bucket.sampleCount === 1n));
+});
+
 test('gap pause scope โดยไม่เพิ่ม projection bucket', async (t) => {
   const f = await fixture(t);
   await f.consumer.consume(event(f));
