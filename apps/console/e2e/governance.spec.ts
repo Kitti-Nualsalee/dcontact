@@ -137,6 +137,9 @@ async function mockGovernance(page: Page): Promise<Mock> {
     on: (method, path, handler) => handlers.push([method, path, handler]),
   };
   mock.on('GET', /^\/kill-switches$/, () => ({ body: { killSwitches: [] } }));
+  mock.on('GET', /^\/metrics$/, () => ({ body: { asOf: '2026-09-20T00:00:00.000Z', items: [] } }));
+  mock.on('GET', /^\/alerts$/, () => ({ body: { asOf: '2026-09-20T00:00:00.000Z', items: [] } }));
+  mock.on('GET', /^\/exports$/, () => ({ body: { items: [] } }));
   return mock;
 }
 
@@ -533,5 +536,41 @@ test('mobile: ไม่มี horizontal overflow, nav ใช้ keyboard ได
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   expect(overflow).toBeLessThanOrEqual(0);
+  expect(problems).toEqual([]);
+});
+
+test('CG5: filter alert, export validation และ Supervisor ไม่มีสิทธิ์ export', async ({ page }) => {
+  const problems = watchPage(page);
+  const mock = await mockGovernance(page);
+  mock.on('GET', /^\/alerts$/, () => ({
+    body: {
+      asOf: '2026-09-20T00:00:00.000Z',
+      items: [
+        {
+          id: HIGH_ID,
+          ruleCode: 'CG5_BLOCK_RATE_SHIFT',
+          state: 'OPEN',
+          severity: 'CRITICAL',
+          channel: 'LINE',
+          purpose: 'MARKETING',
+          teamId: 'team-1',
+          value: '8',
+          threshold: '3',
+          consecutiveHits: 2,
+          openedAt: null,
+          ackedAt: null,
+          resolvedAt: null,
+          version: 1,
+          updatedAt: '2026-09-20T00:00:00.000Z',
+        },
+      ],
+    },
+  }));
+  await page.goto('/?view=governance&viewer=COMPLIANCE');
+  await page.getByLabel('สถานะ').selectOption('OPEN');
+  await expect(page.getByText('CG5_BLOCK_RATE_SHIFT')).toBeVisible();
+  await expect(page.getByText('ต้องระบุเหตุผลก่อนสั่ง export')).toBeVisible();
+  await page.goto('/?view=governance&viewer=SUPERVISOR');
+  await expect(page.getByText('ไม่มีสิทธิ์สั่ง export')).toBeVisible();
   expect(problems).toEqual([]);
 });
