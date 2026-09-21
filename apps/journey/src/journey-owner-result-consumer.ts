@@ -33,6 +33,7 @@ import {
 } from '@d-contact/cxa-contracts';
 import { KAFKA_TOPICS } from '@d-contact/shared';
 import { JourneyOwnerActionRepository } from './journey-owner-action-repository.js';
+import { JourneyOwnerContinuationService } from './journey-owner-continuation.js';
 import { STATUS_TO_RESULT_KIND, hashResult } from './journey-owner-result-reconciler.js';
 import { noOpJourneyOwnerMetrics, type JourneyOwnerMetrics } from './journey-owner-metrics.js';
 
@@ -77,6 +78,7 @@ export function createJourneyOwnerResultConsumer(
   options: CreateJourneyOwnerResultConsumerOptions,
 ): Promise<DcConsumer> {
   const actions = new JourneyOwnerActionRepository(options.database);
+  const continuation = new JourneyOwnerContinuationService(options.database, actions);
   const metrics = options.metrics ?? noOpJourneyOwnerMetrics;
 
   const consumerOptions: CreateConsumerOptions<Record<string, unknown>, undefined> = {
@@ -130,7 +132,7 @@ export function createJourneyOwnerResultConsumer(
         return;
       }
 
-      const applied = await actions.applyResult({
+      const applied = await continuation.applyResultAndContinue({
         tenantId: envelope.tenantId,
         commandId: result.commandId,
         actionKey: result.actionKey,

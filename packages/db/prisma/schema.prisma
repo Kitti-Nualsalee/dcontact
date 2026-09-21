@@ -75,6 +75,7 @@ model Tenant {
   jrOwnerActions               JrOwnerAction[]
   jrOwnerCommandOutbox         JrOwnerCommandOutbox[]
   jrOwnerResultInbox           JrOwnerResultInbox[]
+  jrOwnerContinuations         JrOwnerContinuation[]
   jrRecoveryAudit              JrRecoveryAudit[]
   csCaseTypePolicies           CsCaseTypePolicy[]
   csRoutingPolicies            CsRoutingPolicy[]
@@ -2236,15 +2237,16 @@ model JrEnrollment {
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
 
-  tenant         Tenant                @relation(fields: [tenantId], references: [id])
-  eventInbox     JrEventInbox?         @relation(fields: [eventInboxId], references: [id])
-  occurrence     JrScheduleOccurrence? @relation(fields: [occurrenceId], references: [id])
-  outcomeReceipt JrOutcomeReceipt?     @relation(fields: [outcomeReceiptId], references: [id])
-  segmentIntent  JrSegmentEnrollmentIntent? @relation(fields: [tenantId, segmentIntentId], references: [tenantId, id])
-  contact        Contact?              @relation(fields: [contactId], references: [id])
-  decision       CgDecisionLog?        @relation(fields: [decisionId], references: [id])
-  actions        JrAction[]
-  stepRuns       JrStepRun[]
+  tenant             Tenant                     @relation(fields: [tenantId], references: [id])
+  eventInbox         JrEventInbox?              @relation(fields: [eventInboxId], references: [id])
+  occurrence         JrScheduleOccurrence?      @relation(fields: [occurrenceId], references: [id])
+  outcomeReceipt     JrOutcomeReceipt?          @relation(fields: [outcomeReceiptId], references: [id])
+  segmentIntent      JrSegmentEnrollmentIntent? @relation(fields: [tenantId, segmentIntentId], references: [tenantId, id])
+  contact            Contact?                   @relation(fields: [contactId], references: [id])
+  decision           CgDecisionLog?             @relation(fields: [decisionId], references: [id])
+  actions            JrAction[]
+  stepRuns           JrStepRun[]
+  ownerContinuations JrOwnerContinuation[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, eventInboxId])
@@ -2862,6 +2864,12 @@ enum JrOwnerResultOutcome {
   CONFLICT
 }
 
+/// J5.0 — ผลของ owner ที่มีผลต่อ cursor ของ Journey เท่านั้น
+enum JrOwnerContinuationOutcome {
+  ADVANCED
+  TERMINAL_IGNORED
+}
+
 enum JrRecoveryOperation {
   REPLAY
   RECONCILE
@@ -2942,6 +2950,10 @@ model JrOwnerAction {
   tenantId              String             @map("tenant_id") @db.Uuid
   actionKey             String             @map("action_key")
   enrollmentId          String             @map("enrollment_id") @db.Uuid
+  /// J5.0: ตำแหน่ง cursor ที่สร้าง action นี้ ค่า null หมายถึง legacy action ที่ยัง
+  /// พิสูจน์ binding แบบ deterministic ไม่ได้และจึงห้าม advance enrollment
+  stepId                String?            @map("step_id")
+  stepSequence          Int?               @map("step_sequence")
   outcomeReceiptId      String?            @map("outcome_receipt_id") @db.Uuid
   kind                  JrOwnerActionKind
   requestHash           String             @map("request_hash") @db.Char(64)
@@ -2960,8 +2972,10 @@ model JrOwnerAction {
   correlationId         String             @map("correlation_id")
   createdAt             DateTime           @default(now()) @map("created_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
+  continuation JrOwnerContinuation?
 
+  @@unique([tenantId, id])
   @@unique([tenantId, actionKey])
   @@index([tenantId, enrollmentId])
   @@index([tenantId, state])
@@ -3011,11 +3025,44 @@ model JrOwnerResultInbox {
   correlationId         String               @map("correlation_id")
   receivedAt            DateTime             @default(now()) @map("received_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant       Tenant               @relation(fields: [tenantId], references: [id])
+  continuation JrOwnerContinuation?
 
   @@unique([tenantId, commandId])
   @@index([tenantId, actionKey])
   @@map("jr_owner_result_inbox")
+}
+
+/// J5.0 — ledger หนึ่งแถวต่อ owner action ที่ตัดสิน cursor แล้ว
+///
+/// แถวนี้, step run และ enrollment CAS ถูก commit ใน transaction เดียวกับ owner result;
+/// unique action/command ทำให้ push, pull reconcile และ retry เดิน cursor ได้อย่างมากหนึ่งครั้ง
+model JrOwnerContinuation {
+  id               String                     @id @default(uuid()) @db.Uuid
+  tenantId         String                     @map("tenant_id") @db.Uuid
+  actionId         String                     @map("action_id") @db.Uuid
+  actionKey        String                     @map("action_key")
+  commandId        String                     @map("command_id")
+  enrollmentId     String                     @map("enrollment_id") @db.Uuid
+  fromStepId       String                     @map("from_step_id")
+  fromStepSequence Int                        @map("from_step_sequence")
+  resultKind       JrOwnerResultKind          @map("result_kind")
+  nextStepId       String?                    @map("next_step_id")
+  outcome          JrOwnerContinuationOutcome
+  resultHash       String                     @map("result_hash") @db.Char(64)
+  correlationId    String                     @map("correlation_id")
+  createdAt        DateTime                   @default(now()) @map("created_at")
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id])
+  action     JrOwnerAction      @relation(fields: [tenantId, actionId], references: [tenantId, id])
+  result     JrOwnerResultInbox @relation(fields: [tenantId, commandId], references: [tenantId, commandId])
+  enrollment JrEnrollment       @relation(fields: [tenantId, enrollmentId], references: [tenantId, id])
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, actionId])
+  @@unique([tenantId, commandId])
+  @@index([tenantId, enrollmentId, fromStepSequence])
+  @@map("jr_owner_continuations")
 }
 
 /// audit ของ manual recovery (replay/reconcile/cancel/skip-quarantine) แบบ append-only

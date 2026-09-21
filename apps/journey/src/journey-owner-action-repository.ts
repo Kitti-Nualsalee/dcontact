@@ -28,6 +28,10 @@ import {
   type PrismaClient,
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
+import {
+  continueOwnerResultInTransaction,
+  type OwnerContinuationCheckpoint,
+} from './journey-owner-continuation.js';
 
 /** state ที่ยังรับผลจาก owner ได้ต่อ ตาม lifecycle diagram ที่ยืนยันใน #123 */
 const OPEN_ACTION_STATES: JrOwnerActionState[] = [
@@ -108,6 +112,9 @@ export interface EnsureOwnerActionInput {
   tenantId: string;
   actionKey: string;
   enrollmentId: string;
+  /** J5.0: exact Journey cursor that created this action; both fields are all-or-none. */
+  stepId?: string;
+  stepSequence?: number;
   outcomeReceiptId?: string;
   kind: JrOwnerActionKind;
   requestHash: string;
@@ -216,12 +223,21 @@ const RESULT_KIND_TO_ACTION_STATE: Record<JrOwnerResultKind, JrOwnerActionState>
 
 export class JourneyOwnerActionRepository {
   private readonly id: () => string;
+  private readonly now: () => Date;
+  private readonly checkpoint?: (phase: OwnerContinuationCheckpoint) => void | Promise<void>;
 
   constructor(
     private readonly database: PrismaClient,
-    options: { id?: () => string } = {},
+    options: {
+      id?: () => string;
+      now?: () => Date;
+      /** test-only fault injection for proving transaction rollback at crash boundaries */
+      checkpoint?: (phase: OwnerContinuationCheckpoint) => void | Promise<void>;
+    } = {},
   ) {
     this.id = options.id ?? randomUUID;
+    this.now = options.now ?? (() => new Date());
+    this.checkpoint = options.checkpoint;
   }
 
   /**
@@ -232,6 +248,12 @@ export class JourneyOwnerActionRepository {
     input: EnsureOwnerActionInput,
     transaction?: Prisma.TransactionClient,
   ): Promise<EnsureOwnerActionResult> {
+    if (
+      (input.stepId === undefined) !== (input.stepSequence === undefined) ||
+      (input.stepSequence !== undefined && input.stepSequence < 0)
+    ) {
+      throw new TypeError('stepId และ stepSequence ต้องระบุคู่กัน และ stepSequence ต้องไม่ติดลบ');
+    }
     const run = async (transaction: Prisma.TransactionClient) => {
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${actionLockKey(input.tenantId, input.actionKey)}))`,
@@ -243,6 +265,12 @@ export class JourneyOwnerActionRepository {
         if (existing.requestHash !== input.requestHash) {
           throw new OwnerActionHashConflictError(input.actionKey);
         }
+        if (
+          input.stepId !== undefined &&
+          (existing.stepId !== input.stepId || existing.stepSequence !== input.stepSequence)
+        ) {
+          throw new OwnerActionHashConflictError(input.actionKey);
+        }
         return { action: existing, isNew: false };
       }
 
@@ -252,6 +280,9 @@ export class JourneyOwnerActionRepository {
           tenantId: input.tenantId,
           actionKey: input.actionKey,
           enrollmentId: input.enrollmentId,
+          ...(input.stepId !== undefined && input.stepSequence !== undefined
+            ? { stepId: input.stepId, stepSequence: input.stepSequence }
+            : {}),
           ...(input.outcomeReceiptId ? { outcomeReceiptId: input.outcomeReceiptId } : {}),
           kind: input.kind,
           requestHash: input.requestHash,
@@ -342,83 +373,188 @@ export class JourneyOwnerActionRepository {
    * ไม่ย้อน state และไม่สร้าง Case/Campaign/Callback effect ใหม่
    */
   async applyResult(input: ApplyOwnerResultInput): Promise<ApplyOwnerResultResult> {
-    return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
-      await transaction.$queryRaw(
-        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${actionLockKey(input.tenantId, input.actionKey)}))`,
-      );
-      const existingResult = await transaction.jrOwnerResultInbox.findUnique({
-        where: { tenantId_commandId: { tenantId: input.tenantId, commandId: input.commandId } },
-      });
-      const action = await transaction.jrOwnerAction.findUnique({
-        where: { tenantId_actionKey: { tenantId: input.tenantId, actionKey: input.actionKey } },
-      });
-      if (!action) throw new OwnerActionNotFoundError(input.actionKey);
+    return withTenantDatabaseTransaction(this.database, input.tenantId, (transaction) =>
+      this.applyResultInTransaction(transaction, input),
+    );
+  }
 
-      if (existingResult) {
-        if (existingResult.resultHash !== input.resultHash) {
-          return { outcome: 'CONFLICT' as const, action };
-        }
-        return { outcome: 'DUPLICATE' as const, action };
+  /**
+   * Transactional primitive for J5.0 callers that must commit owner result, action terminal
+   * state, continuation ledger, step run and cursor CAS as one unit.
+   */
+  async applyResultInTransaction(
+    transaction: Prisma.TransactionClient,
+    input: ApplyOwnerResultInput,
+  ): Promise<ApplyOwnerResultResult> {
+    await transaction.$queryRaw(
+      Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${actionLockKey(input.tenantId, input.actionKey)}))`,
+    );
+    const existingResult = await transaction.jrOwnerResultInbox.findUnique({
+      where: { tenantId_commandId: { tenantId: input.tenantId, commandId: input.commandId } },
+    });
+    const action = await transaction.jrOwnerAction.findUnique({
+      where: { tenantId_actionKey: { tenantId: input.tenantId, actionKey: input.actionKey } },
+    });
+    if (!action) throw new OwnerActionNotFoundError(input.actionKey);
+
+    if (existingResult) {
+      if (existingResult.resultHash !== input.resultHash) {
+        return { outcome: 'CONFLICT' as const, action };
       }
-
-      const isOpenForResult = OPEN_ACTION_STATES.includes(action.state);
-      const command = await transaction.jrOwnerCommandOutbox.findUnique({
-        where: { tenantId_commandId: { tenantId: input.tenantId, commandId: input.commandId } },
-        select: { payload: true },
-      });
-      const nextState = this.nextStateForResult(
-        action.state,
-        input.resultKind,
-        CANCEL_COMMAND_TYPES.has(payloadCommandType(command?.payload) ?? ''),
+      // J5.0 legacy recovery: result อาจ commit ก่อนมี continuation ledger ได้ การ replay
+      // ด้วยผลเดิมจึงเติม cursor evidence ที่ขาดผ่าน transaction เดียวกัน โดยไม่เปลี่ยน action ซ้ำ
+      await continueOwnerResultInTransaction(
+        transaction,
+        {
+          tenantId: input.tenantId,
+          commandId: existingResult.commandId,
+          resultKind: existingResult.resultKind,
+          resultHash: existingResult.resultHash,
+          correlationId: existingResult.correlationId,
+          action,
+          effectiveState: action.state,
+        },
+        {
+          id: this.id,
+          now: this.now,
+          ...(this.checkpoint ? { checkpoint: this.checkpoint } : {}),
+        },
       );
-      const updated = isOpenForResult
-        ? await transaction.jrOwnerAction.update({
-            where: { id: action.id },
-            data: {
-              state: nextState,
-              ...(input.ownerAggregateRef ? { ownerAggregateRef: input.ownerAggregateRef } : {}),
-              ...(input.ownerAggregateVersion !== undefined
-                ? { ownerAggregateVersion: input.ownerAggregateVersion }
-                : {}),
-              ...(input.resultKind === 'ACKNOWLEDGED' ? { acknowledgedAt: new Date() } : {}),
-              version: { increment: 1 },
-            },
-          })
-        : action;
+      return { outcome: 'DUPLICATE' as const, action };
+    }
 
-      // savepoint กันไม่ให้ P2002 ของ insert นี้ทำ action update ด้านบนถูก rollback
-      // ไปด้วย — Postgres abort ทั้ง transaction จนกว่าจะ rollback ถ้าไม่มี savepoint
-      await transaction.$executeRaw`SAVEPOINT apply_result_insert`;
-      try {
-        await transaction.jrOwnerResultInbox.create({
+    const isOpenForResult = OPEN_ACTION_STATES.includes(action.state);
+    const command = await transaction.jrOwnerCommandOutbox.findUnique({
+      where: { tenantId_commandId: { tenantId: input.tenantId, commandId: input.commandId } },
+      select: { payload: true },
+    });
+    const nextState = this.nextStateForResult(
+      action.state,
+      input.resultKind,
+      CANCEL_COMMAND_TYPES.has(payloadCommandType(command?.payload) ?? ''),
+    );
+    const updated = isOpenForResult
+      ? await transaction.jrOwnerAction.update({
+          where: { id: action.id },
           data: {
-            id: this.id(),
-            tenantId: input.tenantId,
-            commandId: input.commandId,
-            actionKey: input.actionKey,
-            resultKind: input.resultKind,
-            resultHash: input.resultHash,
-            outcome: isOpenForResult ? 'APPLIED' : 'DUPLICATE',
-            correlationId: input.correlationId,
+            state: nextState,
             ...(input.ownerAggregateRef ? { ownerAggregateRef: input.ownerAggregateRef } : {}),
             ...(input.ownerAggregateVersion !== undefined
               ? { ownerAggregateVersion: input.ownerAggregateVersion }
               : {}),
+            ...(input.resultKind === 'ACKNOWLEDGED' ? { acknowledgedAt: new Date() } : {}),
+            version: { increment: 1 },
           },
-        });
-        await transaction.$executeRaw`RELEASE SAVEPOINT apply_result_insert`;
-      } catch (error) {
-        if (!isUniqueViolation(error)) throw error;
-        await transaction.$executeRaw`ROLLBACK TO SAVEPOINT apply_result_insert`;
-        // race: อีก worker แทรก result เดิมสำเร็จก่อนแล้ว — ถือเป็น duplicate ปลอดภัย
-        return { outcome: 'DUPLICATE' as const, action: updated };
-      }
+        })
+      : action;
 
-      return {
-        outcome: isOpenForResult ? ('APPLIED' as const) : ('TERMINAL_IGNORED' as const),
+    // savepoint กันไม่ให้ P2002 ของ insert นี้ทำ action update ด้านบนถูก rollback
+    // ไปด้วย — Postgres abort ทั้ง transaction จนกว่าจะ rollback ถ้าไม่มี savepoint
+    await transaction.$executeRaw`SAVEPOINT apply_result_insert`;
+    try {
+      await transaction.jrOwnerResultInbox.create({
+        data: {
+          id: this.id(),
+          tenantId: input.tenantId,
+          commandId: input.commandId,
+          actionKey: input.actionKey,
+          resultKind: input.resultKind,
+          resultHash: input.resultHash,
+          outcome: isOpenForResult ? 'APPLIED' : 'DUPLICATE',
+          correlationId: input.correlationId,
+          ...(input.ownerAggregateRef ? { ownerAggregateRef: input.ownerAggregateRef } : {}),
+          ...(input.ownerAggregateVersion !== undefined
+            ? { ownerAggregateVersion: input.ownerAggregateVersion }
+            : {}),
+        },
+      });
+      await transaction.$executeRaw`RELEASE SAVEPOINT apply_result_insert`;
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      await transaction.$executeRaw`ROLLBACK TO SAVEPOINT apply_result_insert`;
+      // race: อีก worker แทรก result เดิมสำเร็จก่อนแล้ว — ถือเป็น duplicate ปลอดภัย
+      return { outcome: 'DUPLICATE' as const, action: updated };
+    }
+
+    await this.checkpoint?.('RESULT_PERSISTED');
+    await continueOwnerResultInTransaction(
+      transaction,
+      {
+        tenantId: input.tenantId,
+        commandId: input.commandId,
+        resultKind: input.resultKind,
+        resultHash: input.resultHash,
+        correlationId: input.correlationId,
         action: updated,
-      };
-    });
+        effectiveState: updated.state,
+      },
+      { id: this.id, now: this.now, ...(this.checkpoint ? { checkpoint: this.checkpoint } : {}) },
+    );
+
+    return {
+      outcome: isOpenForResult ? ('APPLIED' as const) : ('TERMINAL_IGNORED' as const),
+      action: updated,
+    };
+  }
+
+  /**
+   * J5.0 recovery สำหรับ result ที่ commit ก่อน deployment แต่ยังไม่มี continuation ledger.
+   * เลือกเฉพาะ action ที่มี deterministic step binding; unbound legacy rowsถูกทิ้งไว้ให้
+   * operator quarantine แทนการเดา cursor.
+   */
+  async reconcileCommittedContinuations(tenantId: string, limit = 50): Promise<number> {
+    const candidates = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.$queryRaw<
+        Array<{
+          commandId: string;
+          actionKey: string;
+          resultKind: JrOwnerResultKind;
+          resultHash: string;
+          correlationId: string;
+          ownerAggregateRef: string | null;
+          ownerAggregateVersion: number | null;
+        }>
+      >(Prisma.sql`
+        SELECT
+          result.command_id AS "commandId",
+          result.action_key AS "actionKey",
+          result.result_kind AS "resultKind",
+          result.result_hash AS "resultHash",
+          result.correlation_id AS "correlationId",
+          result.owner_aggregate_ref AS "ownerAggregateRef",
+          result.owner_aggregate_version AS "ownerAggregateVersion"
+        FROM jr_owner_result_inbox result
+        JOIN jr_owner_actions action
+          ON action.tenant_id = result.tenant_id AND action.action_key = result.action_key
+        LEFT JOIN jr_owner_continuations continuation
+          ON continuation.tenant_id = action.tenant_id AND continuation.action_id = action.id
+        WHERE result.tenant_id = ${tenantId}::uuid
+          AND result.result_kind IN ('ACKNOWLEDGED', 'REJECTED')
+          AND action.step_id IS NOT NULL
+          AND action.step_sequence IS NOT NULL
+          AND continuation.id IS NULL
+        ORDER BY result.received_at, result.command_id
+        LIMIT ${limit}
+      `),
+    );
+
+    let reconciled = 0;
+    for (const candidate of candidates) {
+      const outcome = await this.applyResult({
+        tenantId,
+        commandId: candidate.commandId,
+        actionKey: candidate.actionKey,
+        resultKind: candidate.resultKind,
+        resultHash: candidate.resultHash,
+        correlationId: candidate.correlationId,
+        ...(candidate.ownerAggregateRef ? { ownerAggregateRef: candidate.ownerAggregateRef } : {}),
+        ...(candidate.ownerAggregateVersion === null
+          ? {}
+          : { ownerAggregateVersion: candidate.ownerAggregateVersion }),
+      });
+      if (outcome.outcome === 'DUPLICATE') reconciled += 1;
+    }
+    return reconciled;
   }
 
   /**
