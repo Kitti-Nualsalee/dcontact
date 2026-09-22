@@ -37,6 +37,11 @@ export interface JourneyAuthoringAuthorizationRequest {
   readonly requireDirect?: boolean;
   /** pause/deprecate/transfer ทำได้แม้ team inactive; edit/review/publish/resume ทำไม่ได้ */
   readonly allowInactiveTeam?: boolean;
+  /**
+   * template ที่ visibility = TENANT อ่านได้ทุกคนใน tenant ที่ถือ capability นี้ใน scope ใดก็ได้
+   * (#330 §2) — ใช้กับ capability อ่านเท่านั้น
+   */
+  readonly anyTeam?: boolean;
 }
 
 export type JourneyAuthoringAuthorizationDecision =

@@ -62,6 +62,8 @@ export interface JourneyAuthoringActor {
 export interface JourneyAuthoringFeatureFlags {
   readonly canvasWrite: boolean;
   readonly publishUi: boolean;
+  readonly templateCatalog?: boolean;
+  readonly templateUpgrade?: boolean;
 }
 
 export function journeyAuthoringFlagsFromEnvironment(
@@ -70,5 +72,7 @@ export function journeyAuthoringFlagsFromEnvironment(
   return {
     canvasWrite: environment.J5_CANVAS_WRITE_ENABLED === 'true',
     publishUi: environment.J5_PUBLISH_UI_ENABLED === 'true',
+    templateCatalog: environment.J5_TEMPLATE_CATALOG_ENABLED === 'true',
+    templateUpgrade: environment.J5_TEMPLATE_UPGRADE_ENABLED === 'true',
   };
 }

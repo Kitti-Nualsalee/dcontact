@@ -81,6 +81,16 @@ export const JOURNEY_TEMPLATE_RESOURCE_KINDS = Object.freeze([
 ] as const);
 export type JourneyTemplateResourceKind = (typeof JOURNEY_TEMPLATE_RESOURCE_KINDS)[number];
 
+/**
+ * key สงวนของ bind target นอกเหนือจาก `templateNodeKey` ของ step: `@trigger` ชี้ config ของ trigger
+ * (เช่น `/config/segmentId`) และ `@settings` ชี้ค่าระดับ Journey (เช่น `/config/senderIdentityId`)
+ * เพราะ reference เฉพาะ tenant ทุกตัวต้องมาทาง parameter ห้ามฝังใน graph (#330 §4)
+ */
+export const JOURNEY_TEMPLATE_RESERVED_NODE_KEYS = Object.freeze([
+  '@trigger',
+  '@settings',
+] as const);
+
 /** ชี้ไปยัง scalar field ของ node ที่มี `templateNodeKey` นี้ เช่น `/config/waitSeconds` */
 export interface JourneyTemplateBindTargetV1 {
   readonly templateNodeKey: string;
@@ -275,6 +285,8 @@ export interface CheckTemplateUpgradeRequestV1 {
 }
 
 export interface ApplyTemplateUpgradeRequestV1 {
+  /** version เป้าหมายที่ proposal ถูกคำนวณจาก — server คำนวณซ้ำแล้วต้องได้ digest เดิม */
+  readonly targetVersion: number;
   readonly expectedHeadVersion: number;
   readonly expectedDraftRevision: number;
   readonly expectedDraftDigest: string;
@@ -290,6 +302,20 @@ export function isJourneyTemplateParameterType(
   value: unknown,
 ): value is JourneyTemplateParameterType {
   return typeof value === 'string' && PARAMETER_TYPE_SET.has(value);
+}
+
+/** การแจ้งเตือนเป็นข้อมูลเท่านั้น (#330 §9) — ไม่ auto-apply, ไม่ publish และไม่แตะ enrollment */
+export const JOURNEY_TEMPLATE_NOTICE_KINDS = Object.freeze([
+  'UPDATE_AVAILABLE',
+  'DEPRECATED',
+] as const);
+export type JourneyTemplateNoticeKind = (typeof JOURNEY_TEMPLATE_NOTICE_KINDS)[number];
+
+export interface JourneyTemplateNoticeV1 {
+  readonly kind: JourneyTemplateNoticeKind;
+  readonly journeyId: string;
+  readonly source: JourneyTemplateRefV1;
+  readonly latestVersion: number;
 }
 
 export function isJourneyTemplateResourceKind(

@@ -107,15 +107,15 @@ export interface JourneyDraftResult {
 }
 
 export class JourneyAuthoringRepository {
-  private readonly definitions: JourneyDefinitionRepository;
-  private readonly capabilities: readonly JourneyRuntimeCapability[];
-  private readonly flags: JourneyAuthoringFeatureFlags;
-  private readonly id: () => string;
-  private readonly now: () => Date;
+  protected readonly definitions: JourneyDefinitionRepository;
+  protected readonly capabilities: readonly JourneyRuntimeCapability[];
+  protected readonly flags: JourneyAuthoringFeatureFlags;
+  protected readonly id: () => string;
+  protected readonly now: () => Date;
 
   constructor(
-    private readonly database: PrismaClient,
-    private readonly options: JourneyAuthoringRepositoryOptions,
+    protected readonly database: PrismaClient,
+    protected readonly options: JourneyAuthoringRepositoryOptions,
   ) {
     this.definitions = new JourneyDefinitionRepository(database, options.evaluator);
     this.capabilities = options.capabilities ?? JOURNEY_RUNTIME_CAPABILITIES;
@@ -516,7 +516,7 @@ export class JourneyAuthoringRepository {
   }
 
   /** recompile → definition → head → review → audit/outbox ใน transaction ของผู้เรียก */
-  private async publishCompiled(
+  protected async publishCompiled(
     tx: Tx,
     context: JourneyCommandContext,
     head: JrJourneyHead,
@@ -1040,7 +1040,7 @@ export class JourneyAuthoringRepository {
 
   // ── Internals ───────────────────────────────────────────────────────────
 
-  private compile(
+  protected compile(
     tenantId: string,
     head: JrJourneyHead,
     document: Prisma.JsonValue,
@@ -1065,12 +1065,13 @@ export class JourneyAuthoringRepository {
    * idempotency receipt: ผลสำเร็จ commit พร้อม mutation; ผลล้มแบบ deterministic ถูกจำใน transaction แยก
    * เพื่อให้ key เดิมได้คำตอบเดิม — ไม่มี receipt แปลว่าไม่เคย commit
    */
-  private async command<T extends object>(
+  protected async command<T extends object>(
     context: JourneyCommandContext,
     commandName: string,
     resourceId: string,
     request: object,
     body: (tx: Tx, receiptId: string) => Promise<T>,
+    resourceKind: 'JOURNEY' | 'TEMPLATE' = 'JOURNEY',
   ): Promise<T> {
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(context.idempotencyKey)) {
       throw new JourneyAuthoringError('REQUEST_MALFORMED', { field: 'Idempotency-Key' });
@@ -1098,7 +1099,7 @@ export class JourneyAuthoringRepository {
             tenantId: context.tenantId,
             idempotencyKey: context.idempotencyKey,
             commandName,
-            resourceKind: 'JOURNEY',
+            resourceKind,
             resourceId,
             requestHash,
             state: 'COMMITTED',
@@ -1112,13 +1113,21 @@ export class JourneyAuthoringRepository {
       });
     } catch (error) {
       if (error instanceof JourneyAuthoringError && error.storedInReceipt) {
-        await this.rememberFailure(context, commandName, resourceId, requestHash, receiptId, error);
+        await this.rememberFailure(
+          context,
+          commandName,
+          resourceId,
+          requestHash,
+          receiptId,
+          error,
+          resourceKind,
+        );
       }
       throw error;
     }
   }
 
-  private replay<T>(
+  protected replay<T>(
     receipt: {
       requestHash: string;
       state: string;
@@ -1135,13 +1144,14 @@ export class JourneyAuthoringRepository {
     );
   }
 
-  private async rememberFailure(
+  protected async rememberFailure(
     context: JourneyCommandContext,
     commandName: string,
     resourceId: string,
     requestHash: string,
     receiptId: string,
     error: JourneyAuthoringError,
+    resourceKind: 'JOURNEY' | 'TEMPLATE' = 'JOURNEY',
   ) {
     await withTenantDatabaseTransaction(this.database, context.tenantId, async (tx) => {
       await tx.jrAuthoringCommandReceipt.createMany({
@@ -1151,7 +1161,7 @@ export class JourneyAuthoringRepository {
             tenantId: context.tenantId,
             idempotencyKey: context.idempotencyKey,
             commandName,
-            resourceKind: 'JOURNEY',
+            resourceKind,
             resourceId,
             requestHash,
             state: 'FAILED',
@@ -1167,14 +1177,20 @@ export class JourneyAuthoringRepository {
     });
   }
 
-  private async assertWriteEnabled(
+  protected async assertWriteEnabled(
     tx: Tx,
     tenantId: string,
     feature: keyof JourneyAuthoringFeatureFlags,
   ) {
     const rollout = await tx.jrAuthoringRolloutState.findUnique({ where: { tenantId } });
-    const tenantEnabled =
-      feature === 'canvasWrite' ? rollout?.canvasWriteEnabled : rollout?.publishUiEnabled;
+    const tenantEnabled = rollout
+      ? {
+          canvasWrite: rollout.canvasWriteEnabled,
+          publishUi: rollout.publishUiEnabled,
+          templateCatalog: rollout.templateCatalogEnabled,
+          templateUpgrade: rollout.templateUpgradeEnabled,
+        }[feature]
+      : false;
     if (
       !this.flags[feature] ||
       !rollout ||
@@ -1186,12 +1202,16 @@ export class JourneyAuthoringRepository {
     }
   }
 
-  private async authorize(
+  protected async authorize(
     tx: Tx,
     context: Pick<JourneyCommandContext, 'tenantId' | 'actor'>,
     capability: JourneyAuthoringCapability,
     scope: JourneyAuthoringAuthorizationScope,
-    options: { readonly requireDirect?: boolean; readonly allowInactiveTeam?: boolean } = {},
+    options: {
+      readonly requireDirect?: boolean;
+      readonly allowInactiveTeam?: boolean;
+      readonly anyTeam?: boolean;
+    } = {},
   ) {
     const decision = await this.options.authorization.authorize(tx, {
       tenantId: context.tenantId,
@@ -1205,22 +1225,27 @@ export class JourneyAuthoringRepository {
     if (scope.resource) {
       const visible =
         // อ่านผ่าน delegation ได้แต่ขอ direct (เช่น audit) ยังถือว่ามองเห็น จึงตอบ capability ไม่ใช่ not-found
-        (capability !== 'journey.read' || options.requireDirect === true) &&
+        ((capability !== 'journey.read' && capability !== 'template.read') ||
+          options.requireDirect === true) &&
         (
           await this.options.authorization.authorize(tx, {
             tenantId: context.tenantId,
             subjectId: context.actor.subjectId,
-            capability: 'journey.read',
+            capability: scope.resource.kind === 'TEMPLATE' ? 'template.read' : 'journey.read',
             scope,
           })
         ).allowed;
-      if (!visible) throw new JourneyAuthoringError('JOURNEY_NOT_FOUND');
+      if (!visible) {
+        throw new JourneyAuthoringError(
+          scope.resource.kind === 'TEMPLATE' ? 'TEMPLATE_NOT_FOUND' : 'JOURNEY_NOT_FOUND',
+        );
+      }
     }
     throw new JourneyAuthoringError(decision.code, { capability });
   }
 
   /** scope มาจาก canonical head เสมอ ไม่ใช่ค่าจาก client */
-  private scopeOf(
+  protected scopeOf(
     head: Pick<JrJourneyHead, 'ownerTeamId' | 'journeyId'>,
   ): JourneyAuthoringAuthorizationScope {
     return { teamId: head.ownerTeamId, resource: { kind: 'JOURNEY', id: head.journeyId } };
@@ -1230,7 +1255,7 @@ export class JourneyAuthoringRepository {
    * approval ต้องมาจากผู้อนุมัติอิสระที่ยังมีสิทธิ์ ณ ตอน publish (#331 §10, §13): vote ของ maker หรือ
    * delegation ไม่นับ และถ้า epoch/scope version ของผู้อนุมัติเปลี่ยนหรือถูกถอนสิทธิ์ → APPROVAL_STALE
    */
-  private async assertIndependentApproval(
+  protected async assertIndependentApproval(
     tx: Tx,
     tenantId: string,
     head: JrJourneyHead,
@@ -1262,7 +1287,7 @@ export class JourneyAuthoringRepository {
   }
 
   /** draft/owner/head เปลี่ยน → candidate และ approval ที่ยังเปิดอยู่ใช้ไม่ได้อีก (#331 §9) */
-  private async supersedeOpenReviews(tx: Tx, tenantId: string, journeyId: string) {
+  protected async supersedeOpenReviews(tx: Tx, tenantId: string, journeyId: string) {
     await tx.jrReviewCandidate.updateMany({
       where: {
         tenantId,
@@ -1275,7 +1300,7 @@ export class JourneyAuthoringRepository {
   }
 
   /** schema พังบันทึกไม่ได้; graph ที่ยังไม่สมบูรณ์บันทึกได้และคืน diagnostics ให้แก้ต่อ */
-  private assertSavable(document: unknown): JourneyDiagnosticV1[] {
+  protected assertSavable(document: unknown): JourneyDiagnosticV1[] {
     const diagnostics = validateAuthoringDocument(document, { capabilities: this.capabilities });
     const blocking = diagnostics.filter(
       (item) => item.severity === 'ERROR' && SCHEMA_BLOCKING.has(item.code),
@@ -1285,13 +1310,13 @@ export class JourneyAuthoringRepository {
     return diagnostics;
   }
 
-  private assertEditable(head: JrJourneyHead) {
+  protected assertEditable(head: JrJourneyHead) {
     if (head.lifecycle === 'DEPRECATED') {
       throw new JourneyAuthoringError('JOURNEY_LIFECYCLE_CONFLICT', { lifecycle: head.lifecycle });
     }
   }
 
-  private assertCas(head: JrJourneyHead, cas: JourneyDraftCas) {
+  protected assertCas(head: JrJourneyHead, cas: JourneyDraftCas) {
     if (head.version !== cas.expectedHeadVersion) {
       throw new JourneyAuthoringError('PUBLISHED_HEAD_CONFLICT', {
         currentHeadVersion: head.version,
@@ -1308,14 +1333,14 @@ export class JourneyAuthoringRepository {
     }
   }
 
-  private async lockJourney(tx: Tx, tenantId: string, journeyId: string) {
+  protected async lockJourney(tx: Tx, tenantId: string, journeyId: string) {
     await tx.$queryRaw(
       Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`jr-journey-authoring:${tenantId}:${journeyId}`}))`,
     );
   }
 
   /** missing/foreign/hidden ตอบ not-found แบบเดียวกัน — RLS ทำให้ของ tenant อื่นมองไม่เห็นอยู่แล้ว */
-  private async head(tx: Tx, tenantId: string, journeyId: string): Promise<JrJourneyHead> {
+  protected async head(tx: Tx, tenantId: string, journeyId: string): Promise<JrJourneyHead> {
     const head = /^[0-9a-f-]{36}$/i.test(journeyId)
       ? await tx.jrJourneyHead.findUnique({
           where: { tenantId_journeyId: { tenantId, journeyId } },
@@ -1325,14 +1350,14 @@ export class JourneyAuthoringRepository {
     return head;
   }
 
-  private async lockedHead(tx: Tx, tenantId: string, journeyId: string) {
+  protected async lockedHead(tx: Tx, tenantId: string, journeyId: string) {
     const head = await this.head(tx, tenantId, journeyId);
     await this.lockJourney(tx, tenantId, journeyId);
     // อ่านซ้ำหลังได้ lock เพื่อให้ CAS เทียบกับค่าที่ commit ล่าสุด
     return this.head(tx, tenantId, journeyId);
   }
 
-  private async publishedContent(tx: Tx, tenantId: string, journeyId: string, version: number) {
+  protected async publishedContent(tx: Tx, tenantId: string, journeyId: string, version: number) {
     const row = await tx.jrJourneyDefinition.findUnique({
       where: { tenantId_journeyId_version: { tenantId, journeyId, version } },
     });
@@ -1350,7 +1375,7 @@ export class JourneyAuthoringRepository {
     } as unknown as JourneyDefinitionContent;
   }
 
-  private async insertDraft(
+  protected async insertDraft(
     tx: Tx,
     context: JourneyCommandContext,
     journeyId: string,
@@ -1374,7 +1399,7 @@ export class JourneyAuthoringRepository {
     });
   }
 
-  private async appendDraft(
+  protected async appendDraft(
     tx: Tx,
     context: JourneyCommandContext,
     head: JrJourneyHead,
@@ -1422,7 +1447,7 @@ export class JourneyAuthoringRepository {
   }
 
   /** CAS บน head: version ต้องเท่าเดิมตอนเขียน และ trigger บังคับ +1 อีกชั้น */
-  private async casHead(
+  protected async casHead(
     tx: Tx,
     head: JrJourneyHead,
     data: Prisma.JrJourneyHeadUpdateManyMutationInput,
@@ -1441,7 +1466,7 @@ export class JourneyAuthoringRepository {
   }
 
   /** audit + outbox ใน transaction เดียวกับ mutation — metadata เท่านั้น */
-  private async record(
+  protected async record(
     tx: Tx,
     context: JourneyCommandContext,
     journeyId: string,
@@ -1450,6 +1475,7 @@ export class JourneyAuthoringRepository {
     reasonCode: string,
     beforeDigest: string | null,
     afterDigest: string | null,
+    resourceKind: 'JOURNEY' | 'TEMPLATE' = 'JOURNEY',
   ) {
     const occurredAt = this.now();
     const auditId = this.id();
@@ -1457,7 +1483,7 @@ export class JourneyAuthoringRepository {
       data: {
         id: auditId,
         tenantId: context.tenantId,
-        resourceKind: 'JOURNEY',
+        resourceKind,
         resourceId: journeyId,
         action,
         actorSubjectId: context.actor.subjectId,
@@ -1469,7 +1495,7 @@ export class JourneyAuthoringRepository {
       },
     });
     const payload: JsonObject = {
-      resourceKind: 'JOURNEY',
+      resourceKind,
       resourceId: journeyId,
       aggregateVersion: headVersion,
       action,
@@ -1483,10 +1509,11 @@ export class JourneyAuthoringRepository {
         tenantId: context.tenantId,
         // review ไม่ขยับ head version จึงผูก event กับ audit row แทน — หนึ่ง audit หนึ่ง event
         eventId: `journey-authoring:${auditId}`,
-        resourceKind: 'JOURNEY',
+        resourceKind,
         resourceId: journeyId,
         aggregateVersion: headVersion,
-        eventType: 'journey.authoring.changed',
+        eventType:
+          resourceKind === 'TEMPLATE' ? 'journey.template.changed' : 'journey.authoring.changed',
         payload,
         payloadHash: journeyAuthoringDigest(payload),
         correlationId: context.actor.correlationId,

@@ -35,3 +35,7 @@ export * from './journey-authoring-simulator.js';
 export * from './journey-authoring-model.js';
 export * from './journey-authoring-repository.js';
 export * from './journey-authoring-presence.js';
+export * from './journey-template-binder.js';
+export * from './journey-template-catalog.js';
+export * from './journey-template-upgrade.js';
+export * from './journey-template-repository.js';
