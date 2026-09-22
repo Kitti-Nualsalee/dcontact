@@ -288,7 +288,7 @@ test('J5-TI01 tenant catalog: TEAM มองเห็นเฉพาะทีม
   const content = f.builtIn.content;
   const published = await f.publishTenantTemplate(content.document, content.parameterSchema);
   const names = async (subjectId: string, tenant = f.tenantId) =>
-    (await f.repo.listVisibleTemplates(tenant, f.actor(subjectId)))
+    (await f.repo.listVisibleTemplates(tenant, f.actor(subjectId))).items
       .filter((entry) => entry.origin === 'TENANT')
       .map((entry) => entry.templateId);
 
@@ -317,7 +317,7 @@ test('J5-TI01 tenant catalog: TEAM มองเห็นเฉพาะทีม
   });
   assert.deepEqual(await names('outsider'), [published.templateId]);
   // tenant อื่นเห็นแค่ built-in
-  const foreign = await f.repo.listVisibleTemplates(f.otherTenantId, f.actor('author'));
+  const foreign = (await f.repo.listVisibleTemplates(f.otherTenantId, f.actor('author'))).items;
   assert.deepEqual(
     foreign.map((entry) => entry.origin),
     ['PLATFORM_BUILTIN', 'PLATFORM_BUILTIN'],
@@ -506,4 +506,56 @@ test('J5-CC01 maker-checker ของ template และ fork เป็น tenan
   assert.notEqual(forked.templateId, REMINDER);
   assert.equal(forkedHead.lifecycle, 'DRAFT_ONLY');
   assert.equal(forkedHead.activeVersion, null);
+});
+
+test('J5.5 getTemplate แนบ draft เฉพาะผู้แก้ได้ และ discard กลับเป็นเนื้อหา version ที่ active', async (t) => {
+  const f = await setup(t);
+  const content = f.builtIn.content;
+  const published = await f.publishTenantTemplate(content.document, content.parameterSchema);
+  const changed = structuredClone(content) as any;
+  changed.document.nodes.find((node: any) => node.templateNodeKey === 'done').config.reason =
+    'CHANGED';
+  let head = await f.owner.jrTemplateHead.findUniqueOrThrow({
+    where: { tenantId_templateId: { tenantId: f.tenantId, templateId: published.templateId } },
+  });
+  const updated = await f.repo.updateTemplateDraft(f.as('author'), {
+    templateId: published.templateId,
+    expectedHeadVersion: head.version,
+    expectedDraftRevision: head.currentDraftRevision,
+    expectedDraftDigest: head.currentDraftDigest,
+    document: changed.document,
+    parameterSchema: changed.parameterSchema,
+  });
+  assert.notEqual(updated.draftDigest, published.contentDigest);
+
+  const asAuthor = await f.repo.getTemplate(f.tenantId, f.actor('author'), {
+    templateId: published.templateId,
+  });
+  assert.equal(asAuthor.version?.version, 1);
+  assert.equal(asAuthor.draft?.digest, updated.draftDigest);
+  const asReviewer = await f.repo.getTemplate(f.tenantId, f.actor('reviewer'), {
+    templateId: published.templateId,
+  });
+  assert.equal(asReviewer.draft, null);
+  await rejects(
+    f.repo.getTemplate(f.tenantId, f.actor('outsider'), { templateId: published.templateId }),
+    'TEMPLATE_NOT_FOUND',
+  );
+  await rejects(
+    f.repo.getTemplate(f.tenantId, f.actor('author'), { templateId: REMINDER, version: 9 }),
+    'TEMPLATE_VERSION_NOT_FOUND',
+  );
+
+  head = await f.owner.jrTemplateHead.findUniqueOrThrow({
+    where: { tenantId_templateId: { tenantId: f.tenantId, templateId: published.templateId } },
+  });
+  const discarded = await f.repo.discardTemplateDraft(f.as('author'), {
+    templateId: published.templateId,
+    expectedHeadVersion: head.version,
+    expectedDraftRevision: head.currentDraftRevision,
+    expectedDraftDigest: head.currentDraftDigest,
+    reasonCode: 'DISCARD',
+  });
+  assert.equal(discarded.draftRevision, head.currentDraftRevision + 1);
+  assert.equal(discarded.draftDigest, published.contentDigest);
 });
