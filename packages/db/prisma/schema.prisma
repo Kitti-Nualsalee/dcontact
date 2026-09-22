@@ -1388,6 +1388,9 @@ model CgTouch {
   causationId   String?       @map("causation_id")
   /// S2: หลักฐาน response ของ Touch แบบ correlated — มีทั้งคู่หรือไม่มีทั้งคู่ (CHECK ใน migration)
   /// unique `(tenant_id, response_evidence_ref)` เป็น partial index ที่ Prisma ประกาศไม่ได้
+  /// S2.2: `cg_touches_provider_accepted_evidence_check` บังคับว่า Touch บน Attempt ที่ accepted
+  /// ต้องมี evidence เสมอ และ trigger `cg_touches_evidence_guard` บังคับว่า outcome ต้องตรงกับ
+  /// Attempt ที่ผูกอยู่ — ทั้งสองอยู่ใน migration เพราะ Prisma ประกาศ CHECK/trigger ไม่ได้
   evidenceKind        CgTouchEvidenceKind? @map("evidence_kind")
   responseEvidenceRef String?              @map("response_evidence_ref")
   createdAt     DateTime      @default(now()) @map("created_at")

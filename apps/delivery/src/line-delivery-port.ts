@@ -59,6 +59,12 @@ export class LineDeliveryNotFoundError extends Error {
   }
 }
 
+/**
+ * S1 simulation นี้ไม่มี provider จริงจึงไม่เคยออก `PROVIDER_ACCEPTED` (#361) — outcome ใบนั้น
+ * เป็นของ LINE adapter จริงใน S2.4 (#370) ที่เขียน `dl_provider_submission_attempts` เอง
+ */
+type LineSimulationSettleOutcome = Exclude<NormalizedDeliveryOutcome, 'PROVIDER_ACCEPTED'>;
+
 export class LineInvalidTransitionError extends Error {
   readonly code = 'LINE_INVALID_TRANSITION';
   constructor(
@@ -548,7 +554,7 @@ export class LineDeliveryPort implements DeliveryPort {
           record,
           correlationId,
           envelope.outcomeRef,
-          envelope.outcome as NormalizedDeliveryOutcome,
+          envelope.outcome as LineSimulationSettleOutcome,
         );
       }
       throw new LineInvalidTransitionError(record.state, envelope.outcome);
@@ -561,7 +567,7 @@ export class LineDeliveryPort implements DeliveryPort {
     record: LineDeliveryRecord,
     correlationId: string,
     outcomeRef: string,
-    outcome: NormalizedDeliveryOutcome,
+    outcome: LineSimulationSettleOutcome,
   ): Promise<LineDeliveryEvidence> {
     await this.governance.settleDelivery({
       ...this.governanceCommand(record, correlationId),

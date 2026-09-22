@@ -2,18 +2,23 @@ import { randomUUID } from 'node:crypto';
 import {
   Prisma,
   type CgFactOutcome,
+  type CgTouchEvidenceKind,
   type PrismaClient,
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
 import {
+  CorrelatedTouchError,
   ReservationBindingError,
   ReservationNotFoundError,
+  isTouchEvidenceKind,
   type ContactChannel,
   type ContactId,
+  type CorrelatedTouchView,
   type DeliveryId,
   type IdentityId,
   type NormalizedDeliveryOutcome,
   type OutcomeRef,
+  type RecordCorrelatedTouchInput,
   type ReservationId,
   type TenantId,
 } from '@d-contact/cxa-contracts';
@@ -56,6 +61,9 @@ export interface ContactFactView {
   occurredAt: string;
   correlationId: string;
   causationId?: string;
+  /** S2.2: มีเฉพาะ Touch ที่มาจาก explicit response — Attempt และ Touch ของ S1 ไม่มีทั้งคู่ */
+  evidenceKind?: CgTouchEvidenceKind;
+  responseEvidenceRef?: string;
   createdAt: string;
 }
 
@@ -96,8 +104,12 @@ interface StoredFact {
   occurredAt: Date;
   correlationId: string;
   causationId: string | null;
+  evidenceKind?: CgTouchEvidenceKind | null;
+  responseEvidenceRef?: string | null;
   createdAt: Date;
 }
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function nonEmpty(value: string, field: string): void {
   if (value.trim().length === 0) throw new TypeError(`${field} ต้องเป็น string ที่ไม่ว่าง`);
@@ -125,7 +137,24 @@ function view(fact: StoredFact): ContactFactView {
     occurredAt: fact.occurredAt.toISOString(),
     correlationId: fact.correlationId,
     ...(fact.causationId ? { causationId: fact.causationId } : {}),
+    ...(fact.evidenceKind ? { evidenceKind: fact.evidenceKind } : {}),
+    ...(fact.responseEvidenceRef ? { responseEvidenceRef: fact.responseEvidenceRef } : {}),
     createdAt: fact.createdAt.toISOString(),
+  };
+}
+
+function correlatedView(
+  touch: { id: string; attemptId: string; occurredAt: Date },
+  input: RecordCorrelatedTouchInput,
+): CorrelatedTouchView {
+  return {
+    touchId: touch.id,
+    attemptId: touch.attemptId,
+    reservationId: input.reservationId,
+    deliveryId: input.deliveryId,
+    responseEvidenceRef: input.responseEvidenceRef,
+    evidenceKind: input.evidenceKind,
+    occurredAt: touch.occurredAt.toISOString(),
   };
 }
 
@@ -201,7 +230,10 @@ export class AttemptTouchRepository {
         include: { touch: true },
       });
       if (existing) {
-        if (!matchesCanonicalInput(existing, Boolean(existing.touch), input, occurredAt)) {
+        // Touch ที่ correlate มาทีหลัง (มี evidence) ไม่ใช่ผลของ settle ใบนี้ จึงไม่นับเป็น
+        // canonical mismatch — ไม่งั้น replay ของ settle เดิมจะกลายเป็น conflict หลัง Touch มา
+        const settlementTouch = existing.touch !== null && existing.touch.evidenceKind === null;
+        if (!matchesCanonicalInput(existing, settlementTouch, input, occurredAt)) {
           throw new ReservationBindingError('IDEMPOTENCY_CONFLICT');
         }
         return {
@@ -243,6 +275,98 @@ export class AttemptTouchRepository {
         attempt: view(attempt),
         ...(touch ? { touch: view(touch) } : {}),
       };
+    };
+
+    return transaction
+      ? persist(transaction)
+      : withTenantDatabaseTransaction(this.database, input.tenantId, persist);
+  }
+
+  /**
+   * S2.2 (#362 §8): append Touch 1 ให้ accepted Attempt เดิมจาก explicit response เท่านั้น
+   *
+   * ไม่แตะ reservation, ไม่แตะ Attempt และไม่เขียน `dl_*` ใด ๆ — correlation row เป็นของ Channels
+   *
+   * ความปลอดภัยของ race มาจากฝั่ง database ไม่ใช่การเช็คในโค้ด: advisory xact lock ต่อ Attempt
+   * (row lock ใช้ไม่ได้เพราะ `dcontact_app` ไม่มีสิทธิ์ UPDATE บน cg_attempts ซึ่งเป็น append-only)
+   * บวก unique `cg_touches (tenant_id, attempt_id)` กับ partial unique
+   * `(tenant_id, response_evidence_ref)` ที่เป็นด่านสุดท้ายแม้ lock จะพลาด
+   */
+  async recordCorrelatedTouch(
+    input: RecordCorrelatedTouchInput,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<CorrelatedTouchView> {
+    nonEmpty(input.correlationId, 'correlationId');
+    nonEmpty(input.responseEvidenceRef, 'responseEvidenceRef');
+    if (!isTouchEvidenceKind(input.evidenceKind)) {
+      throw new CorrelatedTouchError('TOUCH_EVIDENCE_KIND_UNSUPPORTED');
+    }
+    const occurredAt = timestamp(input.occurredAt, 'occurredAt');
+    // attemptId เป็น UUID ของ cg_attempts; ค่าที่ cast ไม่ได้คือ "ยังไม่มี Attempt" ไม่ใช่ error ของ DB
+    if (!UUID_PATTERN.test(input.attemptId)) throw new CorrelatedTouchError('ATTEMPT_NOT_FOUND');
+
+    const persist = async (transactionClient: Prisma.TransactionClient) => {
+      await transactionClient.$queryRaw(
+        Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg-touch:${input.tenantId}:${input.attemptId}`}))`,
+      );
+
+      const attempt = await transactionClient.cgAttempt.findFirst({
+        where: { tenantId: input.tenantId, id: input.attemptId },
+        include: { touch: true, reservation: { select: { actionKey: true } } },
+      });
+      if (!attempt) throw new CorrelatedTouchError('ATTEMPT_NOT_FOUND');
+      if (
+        attempt.reservationId !== input.reservationId ||
+        attempt.deliveryId !== input.deliveryId ||
+        attempt.reservation.actionKey !== input.actionKey
+      ) {
+        throw new CorrelatedTouchError('TOUCH_BINDING_CONFLICT');
+      }
+      // acceptance เท่านั้นที่รับ Touch ได้; DELIVERED/DELIVERY_FAILED/PROVIDER_REJECTED ไม่ใช่ (#361 §D)
+      if (attempt.outcome !== 'PROVIDER_ACCEPTED') {
+        throw new CorrelatedTouchError('ATTEMPT_NOT_ACCEPTED');
+      }
+
+      if (attempt.touch) {
+        const duplicate =
+          attempt.touch.responseEvidenceRef === input.responseEvidenceRef &&
+          attempt.touch.evidenceKind === input.evidenceKind &&
+          attempt.touch.occurredAt.getTime() === occurredAt.getTime();
+        if (!duplicate) throw new CorrelatedTouchError('TOUCH_EVIDENCE_CONFLICT');
+        return correlatedView(attempt.touch, input);
+      }
+
+      try {
+        const touch = await transactionClient.cgTouch.create({
+          data: {
+            id: this.id(),
+            attemptId: attempt.id,
+            tenantId: attempt.tenantId,
+            reservationId: attempt.reservationId,
+            deliveryId: attempt.deliveryId,
+            // Touch อยู่กับ canonical outcome ใบเดิม; identity ของ response อยู่ที่ evidence ref
+            outcomeRef: attempt.outcomeRef,
+            contactId: attempt.contactId,
+            identityId: attempt.identityId,
+            channel: attempt.channel,
+            purpose: attempt.purpose,
+            source: attempt.source,
+            outcome: attempt.outcome,
+            occurredAt,
+            correlationId: input.correlationId,
+            causationId: attempt.outcomeRef,
+            evidenceKind: input.evidenceKind,
+            responseEvidenceRef: input.responseEvidenceRef,
+          },
+        });
+        return correlatedView(touch, input);
+      } catch (error) {
+        // evidence ref เดิมผูกกับ Attempt อื่น หรือมีผู้ชนะ race นอก lock ของแถวนี้
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new CorrelatedTouchError('TOUCH_EVIDENCE_CONFLICT');
+        }
+        throw error;
+      }
     };
 
     return transaction
