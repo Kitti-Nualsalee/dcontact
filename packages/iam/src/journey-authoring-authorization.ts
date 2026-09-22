@@ -120,7 +120,10 @@ export class IamJourneyAuthoringAuthorizer implements JourneyAuthoringAuthorizat
           {
             OR: [
               { scopeKind: 'TENANT', scopeId: tenantId },
-              { scopeKind: 'TEAM', scopeId: scope.teamId },
+              // visibility TENANT: grant อ่านของทีมใดก็ได้ใน tenant นี้ก็พอ
+              request.anyTeam && READ_ONLY.has(capability)
+                ? { scopeKind: 'TEAM' }
+                : { scopeKind: 'TEAM', scopeId: scope.teamId },
               ...(scope.resource
                 ? [{ scopeKind: scope.resource.kind, scopeId: scope.resource.id }]
                 : []),
