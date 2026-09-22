@@ -11,9 +11,9 @@ on:
     inputs:
       acceptance:
         # สั่งเฉพาะชุดที่ต้องการได้ ไม่ต้องลาก convergence ที่ใช้เวลานานมาทุก main push
-        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2)'
+        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2 | j5 | j5-focused)'
         type: choice
-        options: [all, s1, cg4, cg5, j2]
+        options: [all, s1, cg4, cg5, j2, j5, j5-focused]
         default: all
 
 jobs:
@@ -137,7 +137,7 @@ jobs:
   cxa-j2-acceptance:
     # J2-REG01 รัน C1 และ S1 acceptance ซ้อนอยู่ข้างใน รวมแล้วราว 3 ชม. ถ้าผูกกับทุก push
     # job จะทับกันเองเพราะ main ขยับถี่กว่านั้น จึงรันรอบดึกวันละครั้ง (และสั่งเองได้)
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4' && inputs.acceptance != 'cg5')
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused')
     runs-on: ubuntu-latest
     timeout-minutes: 330
     concurrency:
@@ -210,7 +210,7 @@ jobs:
     # CG4.11 (#194): รันรอบดึกหรือสั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg4`)
     # CG4-REG01 rerun S1 ครั้งเดียว (E0/C1/Inbound Voice อยู่ใน S1-REG-01) และแต่ละ suite รันครั้งเดียว
     # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
-    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2' && inputs.acceptance != 'cg5')) && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused')) && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     concurrency:
@@ -343,3 +343,139 @@ jobs:
           path: artifacts/cxa-cg5/${{ github.run_id }}.json
           if-no-files-found: error
           retention-days: 90
+
+  cxa-j5-acceptance:
+    # J5.7 (#345): full gate 16 checks — J5-REG01 รัน `cxa:j3:acceptance` (ซึ่งรัน S1/J2/CG4 ซ้อน) เพื่อให้
+    # J1/J2/J3/CG3 marker อยู่บน SHA เดียวกัน จึงใช้เวลาหลายชั่วโมงและสั่งเองเท่านั้น:
+    # `gh workflow run CI --ref main -f acceptance=j5` — marker ออกได้เฉพาะ clean final main SHA
+    if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 'j5' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    concurrency:
+      group: cxa-j5-acceptance
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure local acceptance environment
+        run: |
+          cp .env.example .env
+          mkdir -p infra/docker/data/redpanda
+          chmod 777 infra/docker/data/redpanda
+          mkdir -p infra/docker/data/freeswitch-recordings
+          chmod 777 infra/docker/data/freeswitch-recordings
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium for browser acceptance
+        run: |
+          pnpm --filter @d-contact/workspace exec playwright install --with-deps chromium
+          pnpm --filter @d-contact/console exec playwright install chromium
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build workspace prerequisites
+        run: pnpm build
+
+      - name: Bootstrap acceptance infrastructure
+        run: |
+          pnpm infra:ready || {
+            docker compose -f infra/docker/docker-compose.dev.yml ps
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color redpanda
+            exit 1
+          }
+
+      - name: Run J5 acceptance on final main SHA
+        run: pnpm cxa:j5:acceptance
+        env:
+          CXA_J5_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Upload immutable J5 evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-j5-evidence-${{ github.sha }}
+          path: |
+            artifacts/cxa-j5/full-${{ github.run_id }}.json
+            apps/console/test-results/
+          if-no-files-found: error
+          retention-days: 90
+
+  cxa-j5-focused:
+    # J5.7 (#345): candidate 15 checks (ไม่รวม J5-REG01) — ไม่ออก marker ไม่ว่าผลจะเป็นอย่างไร
+    if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 'j5-focused'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:
+      group: cxa-j5-focused
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure local acceptance environment
+        run: |
+          cp .env.example .env
+          mkdir -p infra/docker/data/redpanda
+          chmod 777 infra/docker/data/redpanda
+          mkdir -p infra/docker/data/freeswitch-recordings
+          chmod 777 infra/docker/data/freeswitch-recordings
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium for browser acceptance
+        run: |
+          pnpm --filter @d-contact/workspace exec playwright install --with-deps chromium
+          pnpm --filter @d-contact/console exec playwright install chromium
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build workspace prerequisites
+        run: pnpm build
+
+      - name: Bootstrap acceptance infrastructure
+        run: |
+          pnpm infra:ready || {
+            docker compose -f infra/docker/docker-compose.dev.yml ps
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color redpanda
+            exit 1
+          }
+
+      - name: Run J5 focused candidate
+        run: pnpm cxa:j5:focused
+        env:
+          CXA_J5_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Upload J5 candidate manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-j5-candidate-${{ github.sha }}
+          path: |
+            artifacts/cxa-j5/focused-${{ github.run_id }}.json
+            apps/console/test-results/
+          if-no-files-found: error
+          retention-days: 30
