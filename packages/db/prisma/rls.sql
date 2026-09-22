@@ -48,7 +48,14 @@ BEGIN
     'c360_segment_membership_heads', 'c360_segment_membership_changes',
     'c360_segment_membership_outbox', 'c360_segment_evidence',
     'c360_evidence_access_audit', 'c360_membership_command_receipts',
-    'c360_membership_quarantine', 'c360_identity_heads', 'c360_identity_lineage'
+    'c360_membership_quarantine', 'c360_identity_heads', 'c360_identity_lineage',
+    -- J5.1 (#339)
+    'jr_journey_heads', 'jr_journey_drafts', 'jr_authoring_command_receipts',
+    'jr_review_candidates', 'jr_review_decisions', 'jr_authoring_audit', 'jr_authoring_outbox',
+    'jr_template_heads', 'jr_template_drafts', 'jr_template_versions', 'jr_template_provenance',
+    'jr_template_upgrade_applications', 'jr_authoring_rollout_state',
+    'iam_authoring_subjects', 'iam_authoring_capability_grants', 'iam_authoring_delegations',
+    'iam_authoring_delegation_revocations', 'iam_authoring_scope_versions'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -204,3 +211,25 @@ REVOKE UPDATE, DELETE ON ob_originate_rollout_audit FROM dcontact_app;
 -- CG5.2: คงสิทธิ์ append-only หลัง bootstrap
 REVOKE UPDATE, DELETE ON cg5_alert_transition, cg5_tenant_config_audit FROM dcontact_app;
 REVOKE DELETE ON cg5_tenant_config FROM dcontact_app;
+
+-- J5.1 (#339): head/receipt/candidate/outbox/upgrade/rollout เดินสถานะได้แต่ห้ามหาย;
+-- draft/decision/audit/template version/provenance/delegation เป็น append-only;
+-- IAM authorization state อ่านได้อย่างเดียวจาก application role (แบบเดียวกับ CG4.7)
+REVOKE DELETE ON jr_journey_heads FROM dcontact_app;
+REVOKE DELETE ON jr_authoring_command_receipts FROM dcontact_app;
+REVOKE DELETE ON jr_review_candidates FROM dcontact_app;
+REVOKE DELETE ON jr_authoring_outbox FROM dcontact_app;
+REVOKE DELETE ON jr_template_heads FROM dcontact_app;
+REVOKE DELETE ON jr_template_upgrade_applications FROM dcontact_app;
+REVOKE DELETE ON jr_authoring_rollout_state FROM dcontact_app;
+REVOKE UPDATE, DELETE ON jr_journey_drafts FROM dcontact_app;
+REVOKE UPDATE, DELETE ON jr_review_decisions FROM dcontact_app;
+REVOKE UPDATE, DELETE ON jr_authoring_audit FROM dcontact_app;
+REVOKE UPDATE, DELETE ON jr_template_drafts FROM dcontact_app;
+REVOKE UPDATE, DELETE ON jr_template_versions FROM dcontact_app;
+REVOKE UPDATE, DELETE ON jr_template_provenance FROM dcontact_app;
+REVOKE UPDATE, DELETE ON iam_authoring_delegations FROM dcontact_app;
+REVOKE UPDATE, DELETE ON iam_authoring_delegation_revocations FROM dcontact_app;
+REVOKE INSERT, UPDATE, DELETE ON iam_authoring_subjects FROM dcontact_app;
+REVOKE INSERT, UPDATE, DELETE ON iam_authoring_capability_grants FROM dcontact_app;
+REVOKE INSERT, UPDATE, DELETE ON iam_authoring_scope_versions FROM dcontact_app;
