@@ -373,7 +373,7 @@ test('J5-ID01/RC01 publish atomic: key เดิมไม่ duplicate, resolve 
       await f.owner.jrJourneyDefinition.count({ where: { journeyId: created.journeyId } }),
       0,
     );
-    const resolved = await f.repository().resolvePublish(f.tenantId, {
+    const resolved = await f.repository().resolvePublish(f.tenantId, f.context().actor, {
       journeyId: created.journeyId,
       originalIdempotencyKey: publishKey,
     });
@@ -389,7 +389,7 @@ test('J5-ID01/RC01 publish atomic: key เดิมไม่ duplicate, resolve 
     published,
   );
   assert.deepEqual(
-    await f.repository().resolvePublish(f.tenantId, {
+    await f.repository().resolvePublish(f.tenantId, f.context().actor, {
       journeyId: created.journeyId,
       originalIdempotencyKey: publishKey,
     }),

@@ -1,0 +1,353 @@
+{
+  "catalogVersion": 1,
+  "templates": [
+    {
+      "templateId": "5b0c7a4e-8f1d-4c3a-9b2e-1a7d3c5e9f01",
+      "version": 1,
+      "name": "payment-reminder",
+      "lifecycle": "ACTIVE",
+      "publishedAt": "2026-09-22T00:00:00.000Z",
+      "content": {
+        "templateSchemaVersion": "J5_TEMPLATE_V1",
+        "authoringSchemaVersion": "J5_AUTHORING_V1",
+        "registryVersion": "J5_PALETTE_V1",
+        "requiredCapabilities": [],
+        "document": {
+          "schemaVersion": "J5_AUTHORING_V1",
+          "registryVersion": "J5_PALETTE_V1",
+          "trigger": {
+            "nodeId": "trigger",
+            "type": "EVENT_TRIGGER",
+            "config": {
+              "eventType": "payment.failed"
+            }
+          },
+          "nodes": [
+            {
+              "nodeId": "send",
+              "type": "SEND",
+              "templateNodeKey": "send-reminder",
+              "config": {
+                "channel": "LINE",
+                "contentRef": "placeholder-content"
+              }
+            },
+            {
+              "nodeId": "wait",
+              "type": "WAIT",
+              "templateNodeKey": "wait",
+              "config": {
+                "waitSeconds": 86400
+              }
+            },
+            {
+              "nodeId": "done",
+              "type": "EXIT",
+              "templateNodeKey": "done",
+              "config": {
+                "reason": "REMINDED"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "edgeId": "start",
+              "source": {
+                "nodeId": "trigger",
+                "portId": "start"
+              },
+              "target": {
+                "nodeId": "send"
+              }
+            },
+            {
+              "edgeId": "send-next",
+              "source": {
+                "nodeId": "send",
+                "portId": "next"
+              },
+              "target": {
+                "nodeId": "wait"
+              }
+            },
+            {
+              "edgeId": "wait-next",
+              "source": {
+                "nodeId": "wait",
+                "portId": "next"
+              },
+              "target": {
+                "nodeId": "done"
+              }
+            }
+          ],
+          "settings": {
+            "name": "payment-reminder",
+            "purpose": "SERVICE",
+            "senderIdentityId": "placeholder-sender",
+            "goal": {
+              "kind": "EVENT",
+              "eventType": "payment.received"
+            },
+            "exitRules": [
+              {
+                "kind": "GOAL"
+              }
+            ],
+            "maxDurationDays": 14
+          },
+          "layout": {
+            "nodes": {
+              "trigger": {
+                "x": 0,
+                "y": 0
+              },
+              "send": {
+                "x": 240,
+                "y": 0
+              },
+              "wait": {
+                "x": 480,
+                "y": 0
+              },
+              "done": {
+                "x": 720,
+                "y": 0
+              }
+            }
+          }
+        },
+        "parameterSchema": [
+          {
+            "parameterKey": "triggerEvent",
+            "labelKey": "template.param.triggerEvent",
+            "type": "CANONICAL_EVENT_TYPE",
+            "required": false,
+            "default": "payment.failed",
+            "bindTargets": [
+              {
+                "templateNodeKey": "@trigger",
+                "pointer": "/config/eventType"
+              }
+            ]
+          },
+          {
+            "parameterKey": "reminderContent",
+            "labelKey": "template.param.reminderContent",
+            "type": "OPAQUE_RESOURCE_REF",
+            "resourceKind": "CONTENT",
+            "required": true,
+            "bindTargets": [
+              {
+                "templateNodeKey": "send-reminder",
+                "pointer": "/config/contentRef"
+              }
+            ]
+          },
+          {
+            "parameterKey": "waitSeconds",
+            "labelKey": "template.param.waitSeconds",
+            "type": "DURATION_SECONDS",
+            "min": 3600,
+            "max": 1209600,
+            "required": false,
+            "default": 86400,
+            "bindTargets": [
+              {
+                "templateNodeKey": "wait",
+                "pointer": "/config/waitSeconds"
+              }
+            ]
+          },
+          {
+            "parameterKey": "senderIdentity",
+            "labelKey": "template.param.senderIdentity",
+            "type": "OPAQUE_RESOURCE_REF",
+            "resourceKind": "SENDER_IDENTITY",
+            "required": true,
+            "bindTargets": [
+              {
+                "templateNodeKey": "@settings",
+                "pointer": "/config/senderIdentityId"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "templateId": "5b0c7a4e-8f1d-4c3a-9b2e-1a7d3c5e9f02",
+      "version": 1,
+      "name": "abandoned-call-case",
+      "lifecycle": "ACTIVE",
+      "publishedAt": "2026-09-22T00:00:00.000Z",
+      "content": {
+        "templateSchemaVersion": "J5_TEMPLATE_V1",
+        "authoringSchemaVersion": "J5_AUTHORING_V1",
+        "registryVersion": "J5_PALETTE_V1",
+        "requiredCapabilities": ["OWNER_RESULT_CURSOR_CONTINUATION"],
+        "document": {
+          "schemaVersion": "J5_AUTHORING_V1",
+          "registryVersion": "J5_PALETTE_V1",
+          "trigger": {
+            "nodeId": "trigger",
+            "type": "INTERACTION_OUTCOME_TRIGGER",
+            "config": {
+              "outcomeType": "INTERACTION_ABANDONED",
+              "coalescingPolicy": "PER_LOGICAL_OUTCOME"
+            }
+          },
+          "nodes": [
+            {
+              "nodeId": "case",
+              "type": "ENSURE_CASE",
+              "templateNodeKey": "ensure-case",
+              "config": {
+                "caseTypeId": "placeholder",
+                "routingIntentRef": "placeholder",
+                "targetOwnerTeamId": "placeholder"
+              }
+            },
+            {
+              "nodeId": "ok",
+              "type": "EXIT",
+              "templateNodeKey": "case-ensured",
+              "config": {
+                "reason": "CASE_ENSURED"
+              }
+            },
+            {
+              "nodeId": "no",
+              "type": "EXIT",
+              "templateNodeKey": "case-rejected",
+              "config": {
+                "reason": "CASE_REJECTED"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "edgeId": "start",
+              "source": {
+                "nodeId": "trigger",
+                "portId": "start"
+              },
+              "target": {
+                "nodeId": "case"
+              }
+            },
+            {
+              "edgeId": "accepted",
+              "source": {
+                "nodeId": "case",
+                "portId": "accepted"
+              },
+              "target": {
+                "nodeId": "ok"
+              }
+            },
+            {
+              "edgeId": "rejected",
+              "source": {
+                "nodeId": "case",
+                "portId": "rejected"
+              },
+              "target": {
+                "nodeId": "no"
+              }
+            }
+          ],
+          "settings": {
+            "name": "abandoned-call-case",
+            "purpose": "SERVICE",
+            "senderIdentityId": "placeholder-sender",
+            "goal": {
+              "kind": "EVENT",
+              "eventType": "case.resolved"
+            },
+            "exitRules": [
+              {
+                "kind": "GOAL"
+              }
+            ],
+            "maxDurationDays": 14
+          },
+          "layout": {
+            "nodes": {
+              "trigger": {
+                "x": 0,
+                "y": 0
+              },
+              "case": {
+                "x": 240,
+                "y": 0
+              },
+              "ok": {
+                "x": 480,
+                "y": 0
+              },
+              "no": {
+                "x": 720,
+                "y": 0
+              }
+            }
+          }
+        },
+        "parameterSchema": [
+          {
+            "parameterKey": "caseType",
+            "labelKey": "template.param.caseType",
+            "type": "OPAQUE_RESOURCE_REF",
+            "resourceKind": "CASE_TYPE",
+            "required": true,
+            "bindTargets": [
+              {
+                "templateNodeKey": "ensure-case",
+                "pointer": "/config/caseTypeId"
+              }
+            ]
+          },
+          {
+            "parameterKey": "routingIntent",
+            "labelKey": "template.param.routingIntent",
+            "type": "OPAQUE_RESOURCE_REF",
+            "resourceKind": "ROUTING_INTENT",
+            "required": true,
+            "bindTargets": [
+              {
+                "templateNodeKey": "ensure-case",
+                "pointer": "/config/routingIntentRef"
+              }
+            ]
+          },
+          {
+            "parameterKey": "targetTeam",
+            "labelKey": "template.param.targetTeam",
+            "type": "OPAQUE_RESOURCE_REF",
+            "resourceKind": "TARGET_TEAM",
+            "required": true,
+            "bindTargets": [
+              {
+                "templateNodeKey": "ensure-case",
+                "pointer": "/config/targetOwnerTeamId"
+              }
+            ]
+          },
+          {
+            "parameterKey": "senderIdentity",
+            "labelKey": "template.param.senderIdentity",
+            "type": "OPAQUE_RESOURCE_REF",
+            "resourceKind": "SENDER_IDENTITY",
+            "required": true,
+            "bindTargets": [
+              {
+                "templateNodeKey": "@settings",
+                "pointer": "/config/senderIdentityId"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

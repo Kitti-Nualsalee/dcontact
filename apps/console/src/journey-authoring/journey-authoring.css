@@ -1,0 +1,266 @@
+/* ===== J5.6 Journey authoring (ต่อยอด token ของ governance console) ===== */
+@import '../governance.css';
+
+.j5-shell .gov-main {
+  max-width: 1600px;
+  margin: 0 auto;
+}
+.j5-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.j5-help {
+  margin: 4px 0;
+  color: #475569;
+  font-size: 13px;
+}
+.j5-status {
+  margin: 8px 0;
+  color: #075747;
+}
+.j5-status-error,
+.j5-field-error {
+  margin: 8px 0;
+  color: #991b1b;
+  font-weight: 600;
+}
+.j5-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.j5-workspace {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(360px, 2fr) minmax(260px, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 16px;
+}
+.j5-workspace > *,
+.j5-lower > * {
+  min-width: 0;
+}
+.j5-lower {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+/* ── outline ── */
+.j5-outline ol {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.j5-outline-item {
+  padding: 10px;
+  border: 1px solid #d5dfdb;
+  border-radius: 10px;
+}
+.j5-outline-item[aria-current='true'] {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 2px #99d5c9;
+}
+.j5-outline-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+.j5-outline-type,
+.j5-code {
+  color: #475569;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.j5-badge-error,
+.j5-node-issues {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #7f1d1d;
+  background: #fee2e2;
+  font-size: 12px;
+  font-weight: 700;
+}
+.j5-port-row,
+.j5-add-step,
+.j5-field {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+.j5-add-step {
+  grid-template-columns: 1fr auto;
+  align-items: end;
+}
+.j5-add-step label {
+  grid-column: 1 / -1;
+}
+.j5-outline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.j5-shell select,
+.j5-shell input,
+.j5-shell textarea {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #94a3b8;
+  border-radius: 8px;
+  font: inherit;
+  background: white;
+}
+.j5-shell textarea {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+.j5-shell [aria-invalid='true'] {
+  border-color: #b91c1c;
+}
+.j5-shell :focus-visible {
+  outline: 3px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
+/* ── canvas ── */
+.j5-canvas-scroll {
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid #d5dfdb;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle, #d5dfdb 1px, transparent 1px) 0 0 / 20px 20px,
+    #fbfdfc;
+}
+.j5-canvas-scroll > .j5-help {
+  position: sticky;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 6px 10px;
+  background: rgb(251 253 252 / 0.95);
+}
+.j5-canvas {
+  position: relative;
+}
+.j5-edges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.j5-edge {
+  fill: none;
+  stroke: #64748b;
+  stroke-width: 2;
+}
+.j5-edge-false_or_error,
+.j5-edge-rejected {
+  stroke: #b45309;
+  stroke-dasharray: 6 4;
+}
+.j5-edge-label {
+  fill: #334155;
+  font-size: 12px;
+}
+.j5-node {
+  position: absolute;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 2px solid #78a99c;
+  border-radius: 12px;
+  color: #0f172a;
+  background: white;
+  text-align: left;
+  cursor: grab;
+  touch-action: none;
+  transition:
+    box-shadow 120ms ease,
+    border-color 120ms ease;
+}
+.j5-node[aria-pressed='true'] {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 4px #99d5c9;
+}
+.j5-node-unsupported {
+  border-style: dashed;
+  border-color: #94a3b8;
+  background: #f1f5f9;
+  cursor: default;
+}
+.j5-node-type {
+  color: #475569;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+}
+
+/* ── panels ── */
+.j5-diagnostics ul,
+.j5-template-list {
+  display: grid;
+  gap: 6px;
+  padding-left: 18px;
+}
+.j5-diagnostic-error {
+  color: #7f1d1d;
+}
+.j5-table-scroll {
+  overflow-x: auto;
+}
+.j5-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.j5-table th,
+.j5-table td {
+  padding: 8px;
+  border-bottom: 1px solid #e5ece9;
+  text-align: left;
+}
+.j5-radio {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+}
+.j5-upgrade fieldset {
+  margin: 8px 0;
+  border: 1px solid #d5dfdb;
+  border-radius: 8px;
+}
+.j5-readonly-note {
+  padding: 10px;
+  border-left: 4px solid #94a3b8;
+  background: #f1f5f9;
+}
+
+/* ต่ำกว่า 960px: อ่านอย่างเดียวและเรียงเป็นคอลัมน์เดียว ไม่มี horizontal scroll ของหน้า */
+@media (max-width: 959.98px) {
+  .j5-workspace {
+    grid-template-columns: 1fr;
+  }
+  .j5-node {
+    cursor: default;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .j5-shell *,
+  .j5-shell *::before,
+  .j5-shell *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

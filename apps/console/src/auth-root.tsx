@@ -7,6 +7,9 @@ import { createGovernanceApi } from './governance-api.js';
 import { createCg5ConsoleApi } from './cg5-console-api.js';
 import { parseGovernanceLocation, type GovernanceViewer } from './governance-model.js';
 import { PreferenceCenter } from './preference-center.js';
+import { createJourneyAuthoringApi } from './journey-authoring/api.js';
+import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.js';
+import { clearRecovery } from './journey-authoring/state.js';
 import {
   createConsoleOidcSettings,
   resolveConsoleContextId,
@@ -72,10 +75,12 @@ export function ConsoleAuthRoot() {
   const url = new URL(window.location.href);
   const preferenceView = url.searchParams.get('view') === 'preferences';
   const governanceView = url.searchParams.get('view') === 'governance';
+  const journeyView = url.searchParams.get('view') === 'journeys';
   const contactId = preferenceView ? (url.searchParams.get('contactId') ?? undefined) : undefined;
   try {
     tenantAlias = resolveTenantAlias(url);
-    contextId = preferenceView || governanceView ? undefined : resolveConsoleContextId(url);
+    contextId =
+      preferenceView || governanceView || journeyView ? undefined : resolveConsoleContextId(url);
   } catch {
     return (
       <Status
@@ -100,7 +105,9 @@ export function ConsoleAuthRoot() {
   });
   return (
     <AuthProvider {...settings}>
-      {governanceView ? (
+      {journeyView ? (
+        <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+      ) : governanceView ? (
         <GovernanceSurface apiBaseUrl={apiBaseUrl} />
       ) : (
         <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
@@ -176,6 +183,42 @@ function GovernanceSurface({ apiBaseUrl }: { apiBaseUrl: string }) {
       cg5Api={cg5Api}
       viewer={viewer}
       initialLocation={parseGovernanceLocation(new URL(window.location.href))}
+    />
+  );
+}
+
+/**
+ * J5.6 (#344): Journey authoring — สิทธิ์ทั้งหมดตัดสินที่ API ด้วย capability ของ IAM ไม่อ่าน role ใน
+ * token; session recovery ผูก tenant alias + session และถูกล้างเมื่อ logout
+ */
+function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenantAlias: string }) {
+  const auth = useAuth();
+  const accessToken = auth.user?.access_token;
+  const api = useMemo(
+    () => createJourneyAuthoringApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
+    return (
+      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
+    );
+  if (auth.error || !auth.isAuthenticated || !accessToken) {
+    // ออกจากระบบหรือ session หมด: การแก้ที่ค้างของ tenant นี้ต้องไม่ติดไปกับผู้ใช้คนถัดไป
+    clearRecovery(window.sessionStorage, tenantAlias);
+    return (
+      <Status
+        title="Journey authoring"
+        detail="เข้าสู่ระบบก่อนแก้ไข Journey"
+        action={() => void auth.signinRedirect()}
+      />
+    );
+  }
+  const session = String(auth.user?.profile.sid ?? auth.user?.profile.sub ?? 'session');
+  return (
+    <JourneyAuthoringConsole
+      api={api}
+      scope={`${tenantAlias}:${session}`}
+      initialJourneyId={new URL(window.location.href).searchParams.get('journey') ?? undefined}
     />
   );
 }
