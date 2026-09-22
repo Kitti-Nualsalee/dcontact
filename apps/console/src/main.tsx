@@ -8,6 +8,8 @@ import { createGovernanceApi } from './governance-api.js';
 import { createCg5ConsoleApi } from './cg5-console-api.js';
 import { parseGovernanceLocation, type GovernanceViewer } from './governance-model.js';
 import { PreferenceCenter } from './preference-center.js';
+import { createJourneyAuthoringApi } from './journey-authoring/api.js';
+import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.js';
 import './style.css';
 
 const root = document.getElementById('root');
@@ -26,6 +28,19 @@ function ConsoleE2eRoot() {
     baseUrl: (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
     accessToken: () => 'e2e-access-token',
   });
+  if (url.searchParams.get('view') === 'journeys') {
+    return (
+      <JourneyAuthoringConsole
+        api={createJourneyAuthoringApi({
+          baseUrl:
+            (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
+          accessToken: () => 'e2e-access-token',
+        })}
+        scope="e2e"
+        initialJourneyId={url.searchParams.get('journey') ?? undefined}
+      />
+    );
+  }
   if (url.searchParams.get('view') === 'governance') {
     // viewer จาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token เท่านั้น
     const requested = url.searchParams.get('viewer');
