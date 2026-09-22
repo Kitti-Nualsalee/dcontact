@@ -4395,3 +4395,447 @@ model Cg5TenantConfigAudit {
   @@index([tenantId, occurredAt])
   @@map("cg5_tenant_config_audit")
 }
+
+// ── J5.1 (#339): Journey authoring, templates และ IAM authoring store ────────
+// composite FK, partial unique, CHECK และ trigger อยู่ใน migration 20260922090000
+// (model ไม่ประกาศ relation เพื่อไม่แตะ Tenant/Team เดิม — แบบเดียวกับตาราง CG5)
+
+enum JrJourneyLifecycle {
+  DRAFT_ONLY
+  ACTIVE
+  PAUSED
+  DEPRECATED
+}
+
+enum JrAuthoringResourceKind {
+  JOURNEY
+  TEMPLATE
+}
+
+enum JrAuthoringReceiptState {
+  PENDING
+  COMMITTED
+  FAILED
+}
+
+enum JrReviewState {
+  IN_REVIEW
+  APPROVED
+  CHANGES_REQUESTED
+  REJECTED
+  SUPERSEDED
+}
+
+enum JrReviewDecision {
+  APPROVE
+  REQUEST_CHANGES
+  REJECT
+}
+
+enum JrTemplateLifecycle {
+  DRAFT_ONLY
+  ACTIVE
+  DEPRECATED
+  ARCHIVED
+}
+
+enum JrTemplateVisibility {
+  TEAM
+  TENANT
+}
+
+enum JrTemplateOrigin {
+  TENANT
+  PLATFORM_BUILTIN
+}
+
+enum JrTemplateUpgradeState {
+  PROPOSED
+  APPLIED
+  STALE
+}
+
+enum JrAuthoringOutboxState {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+enum JrAuthoringRolloutStage {
+  DISABLED
+  INTERNAL_SYNTHETIC
+  SELECTED_TENANT
+  CONTROLLED_AUTHORING
+}
+
+model JrJourneyHead {
+  id                   String             @id @default(uuid()) @db.Uuid
+  tenantId             String             @map("tenant_id") @db.Uuid
+  journeyId            String             @map("journey_id") @db.Uuid
+  name                 String
+  ownerTeamId          String             @map("owner_team_id") @db.Uuid
+  lifecycle            JrJourneyLifecycle @default(DRAFT_ONLY)
+  /// CAS ของ head — trigger บังคับ +1 ทุกครั้งที่แก้
+  version              Int                @default(1)
+  currentDraftId       String             @map("current_draft_id") @db.Uuid
+  currentDraftRevision Int                @map("current_draft_revision")
+  currentDraftDigest   String             @map("current_draft_digest") @db.Char(64)
+  activeDefinitionId   String?            @map("active_definition_id") @db.Uuid
+  activeVersion        Int?               @map("active_version")
+  activeRuntimeHash    String?            @map("active_runtime_hash") @db.Char(64)
+  createdAt            DateTime           @default(now()) @map("created_at")
+  updatedAt            DateTime           @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "jr_journey_heads_tenant_id_id_key")
+  @@unique([tenantId, journeyId], map: "jr_journey_heads_tenant_journey_key")
+  @@index([tenantId, ownerTeamId, lifecycle], map: "jr_journey_heads_team_lifecycle_idx")
+  @@map("jr_journey_heads")
+}
+
+/// append-only revision: draft ใหม่คือแถวใหม่เสมอ
+model JrJourneyDraft {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  journeyId            String   @map("journey_id") @db.Uuid
+  revision             Int
+  basePublishedVersion Int?     @map("base_published_version")
+  schemaVersion        String   @map("schema_version")
+  registryVersion      String   @map("registry_version")
+  document             Json
+  contentDigest        String   @map("content_digest") @db.Char(64)
+  createdByRef         String   @map("created_by_ref")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "jr_journey_drafts_tenant_id_id_key")
+  @@unique([tenantId, journeyId, revision], map: "jr_journey_drafts_revision_key")
+  @@unique([tenantId, journeyId, id, revision, contentDigest], map: "jr_journey_drafts_binding_key")
+  @@index([tenantId, journeyId, createdAt], map: "jr_journey_drafts_created_idx")
+  @@map("jr_journey_drafts")
+}
+
+model JrAuthoringCommandReceipt {
+  id             String                  @id @default(uuid()) @db.Uuid
+  tenantId       String                  @map("tenant_id") @db.Uuid
+  idempotencyKey String                  @map("idempotency_key")
+  commandName    String                  @map("command_name")
+  resourceKind   JrAuthoringResourceKind @map("resource_kind")
+  resourceId     String                  @map("resource_id") @db.Uuid
+  requestHash    String                  @map("request_hash") @db.Char(64)
+  state          JrAuthoringReceiptState @default(PENDING)
+  httpStatus     Int?                    @map("http_status")
+  /// metadata-safe response เท่านั้น — ไม่มี document/graph/parameter value
+  response       Json?
+  errorCode      String?                 @map("error_code")
+  correlationId  String                  @map("correlation_id")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  completedAt    DateTime?               @map("completed_at")
+
+  @@unique([tenantId, id], map: "jr_authoring_command_receipts_tenant_id_id_key")
+  @@unique([tenantId, idempotencyKey], map: "jr_authoring_command_receipts_idempotency_key")
+  @@index([tenantId, resourceKind, resourceId, createdAt], map: "jr_authoring_command_receipts_resource_idx")
+  @@map("jr_authoring_command_receipts")
+}
+
+model JrReviewCandidate {
+  id                      String                  @id @default(uuid()) @db.Uuid
+  tenantId                String                  @map("tenant_id") @db.Uuid
+  resourceKind            JrAuthoringResourceKind @map("resource_kind")
+  resourceId              String                  @map("resource_id") @db.Uuid
+  draftRevision           Int                     @map("draft_revision")
+  draftDigest             String                  @map("draft_digest") @db.Char(64)
+  compileDigest           String                  @map("compile_digest") @db.Char(64)
+  runtimeHash             String                  @map("runtime_hash") @db.Char(64)
+  baseHeadVersion         Int                     @map("base_head_version")
+  baseHeadDigest          String?                 @map("base_head_digest") @db.Char(64)
+  referenceDigest         String                  @map("reference_digest") @db.Char(64)
+  capabilityDigest        String                  @map("capability_digest") @db.Char(64)
+  makerSubjectId          String                  @map("maker_subject_id")
+  makerAuthorizationEpoch Int                     @map("maker_authorization_epoch")
+  makerScopeVersion       Int                     @map("maker_scope_version")
+  /// มี IN_REVIEW ได้ใบเดียวต่อ resource (partial unique ใน migration)
+  state                   JrReviewState           @default(IN_REVIEW)
+  createdAt               DateTime                @default(now()) @map("created_at")
+  updatedAt               DateTime                @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "jr_review_candidates_tenant_id_id_key")
+  @@index([tenantId, resourceKind, resourceId, state], map: "jr_review_candidates_resource_idx")
+  @@map("jr_review_candidates")
+}
+
+model JrReviewDecisionRecord {
+  id                 String           @id @default(uuid()) @db.Uuid
+  tenantId           String           @map("tenant_id") @db.Uuid
+  candidateId        String           @map("candidate_id") @db.Uuid
+  decision           JrReviewDecision
+  reviewerSubjectId  String           @map("reviewer_subject_id")
+  capability         String
+  capabilitySource   String           @map("capability_source")
+  delegationId       String?          @map("delegation_id") @db.Uuid
+  authorizationEpoch Int              @map("authorization_epoch")
+  scopeVersion       Int              @map("scope_version")
+  evidenceRef        String           @map("evidence_ref")
+  reasonCode         String           @map("reason_code")
+  decidedAt          DateTime         @map("decided_at")
+  createdAt          DateTime         @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "jr_review_decisions_tenant_id_id_key")
+  @@unique([tenantId, candidateId, reviewerSubjectId], map: "jr_review_decisions_reviewer_key")
+  @@index([tenantId, candidateId, decidedAt], map: "jr_review_decisions_decided_idx")
+  @@map("jr_review_decisions")
+}
+
+model JrAuthoringAudit {
+  id             String                  @id @default(uuid()) @db.Uuid
+  tenantId       String                  @map("tenant_id") @db.Uuid
+  resourceKind   JrAuthoringResourceKind @map("resource_kind")
+  resourceId     String                  @map("resource_id") @db.Uuid
+  action         String
+  actorSubjectId String                  @map("actor_subject_id")
+  reasonCode     String                  @map("reason_code")
+  beforeDigest   String?                 @map("before_digest") @db.Char(64)
+  afterDigest    String?                 @map("after_digest") @db.Char(64)
+  correlationId  String                  @map("correlation_id")
+  evidenceRef    String?                 @map("evidence_ref")
+  occurredAt     DateTime                @map("occurred_at")
+  createdAt      DateTime                @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "jr_authoring_audit_tenant_id_id_key")
+  @@index([tenantId, resourceKind, resourceId, occurredAt], map: "jr_authoring_audit_resource_idx")
+  @@map("jr_authoring_audit")
+}
+
+model JrAuthoringOutbox {
+  id               String                  @id @default(uuid()) @db.Uuid
+  tenantId         String                  @map("tenant_id") @db.Uuid
+  eventId          String                  @map("event_id")
+  resourceKind     JrAuthoringResourceKind @map("resource_kind")
+  resourceId       String                  @map("resource_id") @db.Uuid
+  aggregateVersion Int                     @map("aggregate_version")
+  eventType        String                  @map("event_type")
+  /// metadata เท่านั้น: kind/id/version/digest/reason/correlation
+  payload          Json
+  payloadHash      String                  @map("payload_hash") @db.Char(64)
+  state            JrAuthoringOutboxState  @default(PENDING)
+  attempts         Int                     @default(0)
+  availableAt      DateTime                @default(now()) @map("available_at")
+  leaseOwner       String?                 @map("lease_owner")
+  leaseExpiresAt   DateTime?               @map("lease_expires_at")
+  sentAt           DateTime?               @map("sent_at")
+  lastError        String?                 @map("last_error")
+  correlationId    String                  @map("correlation_id")
+  createdAt        DateTime                @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "jr_authoring_outbox_tenant_id_id_key")
+  @@unique([tenantId, eventId], map: "jr_authoring_outbox_event_key")
+  @@index([tenantId, state, availableAt], map: "jr_authoring_outbox_state_idx")
+  @@map("jr_authoring_outbox")
+}
+
+model JrTemplateHead {
+  id                   String               @id @default(uuid()) @db.Uuid
+  tenantId             String               @map("tenant_id") @db.Uuid
+  templateId           String               @map("template_id") @db.Uuid
+  name                 String
+  ownerTeamId          String               @map("owner_team_id") @db.Uuid
+  visibility           JrTemplateVisibility @default(TEAM)
+  lifecycle            JrTemplateLifecycle  @default(DRAFT_ONLY)
+  version              Int                  @default(1)
+  currentDraftId       String               @map("current_draft_id") @db.Uuid
+  currentDraftRevision Int                  @map("current_draft_revision")
+  currentDraftDigest   String               @map("current_draft_digest") @db.Char(64)
+  activeVersion        Int?                 @map("active_version")
+  activeVersionId      String?              @map("active_version_id") @db.Uuid
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "jr_template_heads_tenant_id_id_key")
+  @@unique([tenantId, templateId], map: "jr_template_heads_tenant_template_key")
+  @@index([tenantId, ownerTeamId, visibility, lifecycle], map: "jr_template_heads_team_visibility_idx")
+  @@map("jr_template_heads")
+}
+
+model JrTemplateDraft {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  templateId      String   @map("template_id") @db.Uuid
+  revision        Int
+  schemaVersion   String   @map("schema_version")
+  registryVersion String   @map("registry_version")
+  document        Json
+  parameterSchema Json     @map("parameter_schema")
+  contentDigest   String   @map("content_digest") @db.Char(64)
+  createdByRef    String   @map("created_by_ref")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "jr_template_drafts_tenant_id_id_key")
+  @@unique([tenantId, templateId, revision], map: "jr_template_drafts_revision_key")
+  @@unique([tenantId, templateId, id, revision, contentDigest], map: "jr_template_drafts_binding_key")
+  @@index([tenantId, templateId, createdAt], map: "jr_template_drafts_created_idx")
+  @@map("jr_template_drafts")
+}
+
+/// immutable และมีได้เฉพาะ origin TENANT — built-in resolve จาก release asset ไม่มีแถวใน DB
+model JrTemplateVersion {
+  id                String               @id @default(uuid()) @db.Uuid
+  tenantId          String               @map("tenant_id") @db.Uuid
+  templateId        String               @map("template_id") @db.Uuid
+  version           Int
+  origin            JrTemplateOrigin     @default(TENANT)
+  visibility        JrTemplateVisibility
+  ownerTeamId       String               @map("owner_team_id") @db.Uuid
+  schemaVersion     String               @map("schema_version")
+  registryVersion   String               @map("registry_version")
+  document          Json
+  parameterSchema   Json                 @map("parameter_schema")
+  contentDigest     String               @map("content_digest") @db.Char(64)
+  compileDigest     String               @map("compile_digest") @db.Char(64)
+  nodeMappingDigest String               @map("node_mapping_digest") @db.Char(64)
+  publishedByRef    String               @map("published_by_ref")
+  publishedAt       DateTime             @map("published_at")
+  createdAt         DateTime             @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "jr_template_versions_tenant_id_id_key")
+  @@unique([tenantId, templateId, version], map: "jr_template_versions_version_key")
+  @@index([tenantId, visibility, publishedAt], map: "jr_template_versions_visibility_idx")
+  @@map("jr_template_versions")
+}
+
+model JrTemplateProvenance {
+  id                    String           @id @default(uuid()) @db.Uuid
+  tenantId              String           @map("tenant_id") @db.Uuid
+  journeyId             String           @map("journey_id") @db.Uuid
+  draftRevision         Int              @map("draft_revision")
+  templateOrigin        JrTemplateOrigin @map("template_origin")
+  sourceTemplateId      String           @map("source_template_id") @db.Uuid
+  sourceTemplateVersion Int              @map("source_template_version")
+  sourceContentDigest   String           @map("source_content_digest") @db.Char(64)
+  bindingDigest         String           @map("binding_digest") @db.Char(64)
+  nodeMapping           Json             @map("node_mapping")
+  nodeMappingDigest     String           @map("node_mapping_digest") @db.Char(64)
+  createdAt             DateTime         @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "jr_template_provenance_tenant_id_id_key")
+  @@unique([tenantId, journeyId, draftRevision], map: "jr_template_provenance_draft_key")
+  @@index([tenantId, sourceTemplateId, sourceTemplateVersion], map: "jr_template_provenance_source_idx")
+  @@map("jr_template_provenance")
+}
+
+model JrTemplateUpgradeApplication {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  tenantId            String                 @map("tenant_id") @db.Uuid
+  journeyId           String                 @map("journey_id") @db.Uuid
+  fromTemplateVersion Int                    @map("from_template_version")
+  toTemplateVersion   Int                    @map("to_template_version")
+  baseDraftDigest     String                 @map("base_draft_digest") @db.Char(64)
+  localDraftDigest    String                 @map("local_draft_digest") @db.Char(64)
+  proposedDraftDigest String                 @map("proposed_draft_digest") @db.Char(64)
+  conflictDigest      String                 @map("conflict_digest") @db.Char(64)
+  state               JrTemplateUpgradeState @default(PROPOSED)
+  requestHash         String                 @map("request_hash") @db.Char(64)
+  idempotencyKey      String                 @map("idempotency_key")
+  createdAt           DateTime               @default(now()) @map("created_at")
+  appliedAt           DateTime?              @map("applied_at")
+
+  @@unique([tenantId, id], map: "jr_template_upgrade_applications_tenant_id_id_key")
+  @@unique([tenantId, idempotencyKey], map: "jr_template_upgrade_applications_idempotency_key")
+  @@index([tenantId, journeyId, createdAt], map: "jr_template_upgrade_applications_journey_idx")
+  @@map("jr_template_upgrade_applications")
+}
+
+/// ไม่มีแถว = ปิดทุก feature; stage เดินหน้าอย่างเดียว rollback คือ freeze/ปิด flag
+model JrAuthoringRolloutState {
+  id                     String                  @id @default(uuid()) @db.Uuid
+  tenantId               String                  @map("tenant_id") @db.Uuid
+  stage                  JrAuthoringRolloutStage @default(DISABLED)
+  canvasWriteEnabled     Boolean                 @default(false) @map("canvas_write_enabled")
+  templateCatalogEnabled Boolean                 @default(false) @map("template_catalog_enabled")
+  templateUpgradeEnabled Boolean                 @default(false) @map("template_upgrade_enabled")
+  publishUiEnabled       Boolean                 @default(false) @map("publish_ui_enabled")
+  mutationFrozen         Boolean                 @default(false) @map("mutation_frozen")
+  version                Int                     @default(1)
+  updatedByRef           String                  @map("updated_by_ref")
+  evidenceRef            String                  @map("evidence_ref")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "jr_authoring_rollout_state_tenant_id_id_key")
+  @@unique([tenantId], map: "jr_authoring_rollout_state_tenant_key")
+  @@map("jr_authoring_rollout_state")
+}
+
+/// application role อ่านได้อย่างเดียว — authorization state จัดการนอก app role
+model IamAuthoringSubject {
+  id                     String   @id @default(uuid()) @db.Uuid
+  tenantId               String   @map("tenant_id") @db.Uuid
+  subjectId              String   @map("subject_id")
+  authenticationStrength String   @map("authentication_strength")
+  directReviewAuthority  Boolean  @default(false) @map("direct_review_authority")
+  isServicePrincipal     Boolean  @default(false) @map("is_service_principal")
+  authorizationEpoch     Int      @default(1) @map("authorization_epoch")
+  scopeVersion           Int      @default(1) @map("scope_version")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "iam_authoring_subjects_tenant_id_id_key")
+  @@unique([tenantId, subjectId], map: "iam_authoring_subjects_subject_key")
+  @@map("iam_authoring_subjects")
+}
+
+model IamAuthoringCapabilityGrant {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  subjectId    String    @map("subject_id")
+  capability   String
+  scopeKind    String    @map("scope_kind")
+  scopeId      String    @map("scope_id")
+  expiresAt    DateTime? @map("expires_at")
+  grantedByRef String    @map("granted_by_ref")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "iam_authoring_capability_grants_tenant_id_id_key")
+  @@unique([tenantId, subjectId, capability, scopeKind, scopeId], map: "iam_authoring_capability_grants_scope_key")
+  @@map("iam_authoring_capability_grants")
+}
+
+/// append-only, human-to-human, ไม่เกิน 8 ชั่วโมง และมอบได้แค่ read/edit
+model IamAuthoringDelegation {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  delegatorSubjectId String   @map("delegator_subject_id")
+  delegateSubjectId  String   @map("delegate_subject_id")
+  capability         String
+  scopeKind          String   @map("scope_kind")
+  scopeId            String   @map("scope_id")
+  startsAt           DateTime @map("starts_at")
+  expiresAt          DateTime @map("expires_at")
+  evidenceRef        String   @map("evidence_ref")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "iam_authoring_delegations_tenant_id_id_key")
+  @@index([tenantId, delegateSubjectId, expiresAt], map: "iam_authoring_delegations_delegate_idx")
+  @@map("iam_authoring_delegations")
+}
+
+model IamAuthoringDelegationRevocation {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  delegationId String   @map("delegation_id") @db.Uuid
+  reasonCode   String   @map("reason_code")
+  revokedByRef String   @map("revoked_by_ref")
+  revokedAt    DateTime @map("revoked_at")
+
+  @@unique([tenantId, id], map: "iam_authoring_delegation_revocations_tenant_id_id_key")
+  @@unique([tenantId, delegationId], map: "iam_authoring_delegation_revocations_delegation_key")
+  @@map("iam_authoring_delegation_revocations")
+}
+
+model IamAuthoringScopeVersion {
+  tenantId     String   @map("tenant_id") @db.Uuid
+  scopeKind    String   @map("scope_kind")
+  scopeId      String   @map("scope_id")
+  scopeVersion Int      @default(1) @map("scope_version")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@id([tenantId, scopeKind, scopeId], map: "iam_authoring_scope_versions_pkey")
+  @@map("iam_authoring_scope_versions")
+}

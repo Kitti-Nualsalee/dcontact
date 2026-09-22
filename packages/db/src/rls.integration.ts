@@ -1074,3 +1074,360 @@ test('J2.9 rollout gate: state ลบไม่ได้และ audit เป็
     );
   }
 });
+
+test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS และ append-only', (t) => {
+  const tenantA = randomUUID();
+  const tenantB = randomUUID();
+  const teamA = randomUUID();
+  const teamB = randomUUID();
+  const suffix = tenantA.slice(0, 8);
+  const journeyId = randomUUID();
+  const headId = randomUUID();
+  const draftId = randomUUID();
+  const legacyDefinitionId = randomUUID();
+  const templateId = randomUUID();
+  const hashA = 'a'.repeat(64);
+  const hashB = 'b'.repeat(64);
+
+  queryAsOwner(
+    `BEGIN;
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${tenantA}', 'J5.1 A ${suffix}', 'j5-1-a-${suffix}', 'j5-1-a-${suffix}.test');
+     INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${tenantB}', 'J5.1 B ${suffix}', 'j5-1-b-${suffix}', 'j5-1-b-${suffix}.test');
+     INSERT INTO teams (id, tenant_id, name) VALUES ('${teamA}', '${tenantA}', 'j5-a-${suffix}');
+     INSERT INTO teams (id, tenant_id, name) VALUES ('${teamB}', '${tenantB}', 'j5-b-${suffix}');
+     INSERT INTO jr_journey_definitions (id, tenant_id, journey_id, version, name, owner_team_id, purpose, sender_identity_id, status, trigger, graph, goal, exit_rules, max_duration_days, input_hash, correlation_id, published_at)
+       VALUES ('${legacyDefinitionId}', '${tenantA}', '${journeyId}', 1, 'legacy', '${teamA}', 'SERVICE', 'sender-test', 'PUBLISHED', '{"kind":"EVENT","eventType":"order.created"}', '{"entryStepId":"exit","steps":[{"id":"exit","type":"EXIT","reason":"DONE"}]}', '{"kind":"EVENT","eventType":"order.completed"}', '[]', 7, '${hashA}', 'corr-${suffix}', now());
+     INSERT INTO iam_authoring_subjects (id, tenant_id, subject_id, authentication_strength, updated_at) VALUES ('${randomUUID()}', '${tenantA}', 'human-a', 'STRONG', now());
+     INSERT INTO iam_authoring_subjects (id, tenant_id, subject_id, authentication_strength, updated_at) VALUES ('${randomUUID()}', '${tenantA}', 'human-b', 'STANDARD', now());
+     INSERT INTO iam_authoring_subjects (id, tenant_id, subject_id, authentication_strength, is_service_principal, updated_at) VALUES ('${randomUUID()}', '${tenantA}', 'service-a', 'STANDARD', true, now());
+     COMMIT;`,
+  );
+
+  t.after(() => {
+    const tenants = `('${tenantA}', '${tenantB}')`;
+    queryAsOwner(
+      `BEGIN;
+       DELETE FROM iam_authoring_delegation_revocations WHERE tenant_id IN ${tenants};
+       DELETE FROM iam_authoring_delegations WHERE tenant_id IN ${tenants};
+       DELETE FROM iam_authoring_capability_grants WHERE tenant_id IN ${tenants};
+       DELETE FROM iam_authoring_subjects WHERE tenant_id IN ${tenants};
+       DELETE FROM iam_authoring_scope_versions WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_authoring_rollout_state WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_review_decisions WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_review_candidates WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_authoring_command_receipts WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_authoring_audit WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_authoring_outbox WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_template_provenance WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_template_upgrade_applications WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_journey_heads WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_journey_drafts WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_template_heads WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_template_versions WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_template_drafts WHERE tenant_id IN ${tenants};
+       DELETE FROM jr_journey_definitions WHERE tenant_id IN ${tenants};
+       DELETE FROM teams WHERE tenant_id IN ${tenants};
+       DELETE FROM tenants WHERE id IN ${tenants};
+       COMMIT;`,
+    );
+  });
+
+  const as = (tenantId: string, sql: string) =>
+    queryAsApplicationRole(
+      `BEGIN; SELECT set_config('app.tenant_id', '${tenantId}', true); ${sql}; COMMIT;`,
+    );
+  const insertDraft = (tenantId: string, id: string, revision: number, journey = journeyId) =>
+    `INSERT INTO jr_journey_drafts (id, tenant_id, journey_id, revision, schema_version, registry_version, document, content_digest, created_by_ref) VALUES ('${id}', '${tenantId}', '${journey}', ${revision}, 'J5_AUTHORING_V1', 'J5_PALETTE_V1', '{}', '${hashA}', 'human-a')`;
+  const insertHead = (tenantId: string, team: string, journey = journeyId, id = headId) =>
+    `INSERT INTO jr_journey_heads (id, tenant_id, journey_id, name, owner_team_id, current_draft_id, current_draft_revision, current_draft_digest, updated_at) VALUES ('${id}', '${tenantId}', '${journey}', 'synthetic', '${team}', '${draftId}', 1, '${hashA}', now())`;
+
+  // head กับ draft แรกเกิดพร้อมกันใน transaction เดียวได้เพราะ FK ถูก defer ถึง commit
+  assert.match(
+    as(tenantA, `${insertHead(tenantA, teamA)}; ${insertDraft(tenantA, draftId, 1)}`),
+    /\nINSERT 0 1\nINSERT 0 1\nCOMMIT$/,
+  );
+  // head ชี้ draft ของ journey อื่น (หรือที่ไม่มีอยู่จริง) ล้มตอน commit
+  assert.throws(
+    () => as(tenantA, insertHead(tenantA, teamA, randomUUID(), randomUUID())),
+    /jr_journey_heads_current_draft_fkey|foreign key/i,
+  );
+  // tenant B ผูกกับ team หรือ journey ของ tenant A ไม่ได้
+  const foreignJourneyId = randomUUID();
+  const foreignDraftId = randomUUID();
+  assert.throws(
+    () =>
+      as(
+        tenantB,
+        `${insertHead(tenantB, teamA, foreignJourneyId, randomUUID()).replace(`'${draftId}'`, `'${foreignDraftId}'`)}; ${insertDraft(tenantB, foreignDraftId, 1, foreignJourneyId)}`,
+      ),
+    /jr_journey_heads_owner_team_fkey/,
+  );
+  assert.throws(
+    () => as(tenantB, insertDraft(tenantB, randomUUID(), 2)),
+    /jr_journey_drafts_head_fkey|foreign key/i,
+  );
+
+  // draft เป็น append-only ทั้งที่ grant และ trigger
+  for (const mutation of [
+    `UPDATE jr_journey_drafts SET content_digest = '${hashB}' WHERE id = '${draftId}'`,
+    `DELETE FROM jr_journey_drafts WHERE id = '${draftId}'`,
+  ]) {
+    assert.throws(() => as(tenantA, mutation), /permission denied|append-only/i);
+  }
+  assert.throws(
+    () => queryAsOwner(`UPDATE jr_journey_drafts SET revision = 9 WHERE id = '${draftId}';`),
+    /append-only/i,
+  );
+
+  // head เป็น CAS: version ต้อง +1 และ ACTIVE ต้องชี้ definition ที่มีอยู่จริงของ journey เดียวกัน
+  assert.throws(
+    () => as(tenantA, `UPDATE jr_journey_heads SET name = 'x' WHERE id = '${headId}'`),
+    /version ต้องเพิ่มทีละหนึ่ง/,
+  );
+  assert.throws(
+    () =>
+      as(
+        tenantA,
+        `UPDATE jr_journey_heads SET lifecycle = 'ACTIVE', version = 2 WHERE id = '${headId}'`,
+      ),
+    /jr_journey_heads_active_check/,
+  );
+  assert.match(
+    as(
+      tenantA,
+      `UPDATE jr_journey_heads SET lifecycle = 'ACTIVE', version = 2, active_definition_id = '${legacyDefinitionId}', active_version = 1, active_runtime_hash = '${hashA}' WHERE id = '${headId}'`,
+    ),
+    /\nUPDATE 1\nCOMMIT$/,
+  );
+  assert.throws(
+    () =>
+      as(
+        tenantA,
+        `UPDATE jr_journey_heads SET version = 3, active_version = 2 WHERE id = '${headId}'`,
+      ),
+    /jr_journey_heads_active_version_fkey|foreign key/i,
+  );
+
+  // mixed-version: writer เดิมยังเขียน definition ได้โดยไม่ต้องมี head และ legacy row ไม่ถูกแก้
+  assert.match(
+    as(
+      tenantA,
+      `INSERT INTO jr_journey_definitions (id, tenant_id, journey_id, version, name, owner_team_id, purpose, sender_identity_id, trigger, graph, goal, exit_rules, max_duration_days, input_hash, correlation_id) VALUES ('${randomUUID()}', '${tenantA}', '${randomUUID()}', 1, 'legacy-writer', '${teamA}', 'SERVICE', 'sender-test', '{}', '{}', '{}', '[]', 7, '${hashB}', 'corr-${suffix}')`,
+    ),
+    /\nINSERT 0 1\nCOMMIT$/,
+  );
+  assert.equal(
+    queryAsOwner(
+      `SELECT status || '|' || input_hash FROM jr_journey_definitions WHERE id = '${legacyDefinitionId}';`,
+    ),
+    `PUBLISHED|${hashA}`,
+  );
+
+  // receipt: key เดิมชน และเปลี่ยนสถานะได้ครั้งเดียวจาก PENDING
+  const receiptId = randomUUID();
+  const insertReceipt = (id: string) =>
+    `INSERT INTO jr_authoring_command_receipts (id, tenant_id, idempotency_key, command_name, resource_kind, resource_id, request_hash, correlation_id) VALUES ('${id}', '${tenantA}', 'key-${suffix}', 'UpdateJourneyDraft', 'JOURNEY', '${journeyId}', '${hashA}', 'corr-${suffix}')`;
+  assert.match(as(tenantA, insertReceipt(receiptId)), /\nINSERT 0 1\nCOMMIT$/);
+  assert.throws(
+    () => as(tenantA, insertReceipt(randomUUID())),
+    /jr_authoring_command_receipts_idempotency_key|duplicate key/i,
+  );
+  assert.throws(
+    () =>
+      as(
+        tenantA,
+        `UPDATE jr_authoring_command_receipts SET request_hash = '${hashB}' WHERE id = '${receiptId}'`,
+      ),
+    /แก้ key\/hash\/resource ไม่ได้/,
+  );
+  assert.match(
+    as(
+      tenantA,
+      `UPDATE jr_authoring_command_receipts SET state = 'COMMITTED', http_status = 200, completed_at = now() WHERE id = '${receiptId}'`,
+    ),
+    /\nUPDATE 1\nCOMMIT$/,
+  );
+  assert.throws(
+    () =>
+      as(
+        tenantA,
+        `UPDATE jr_authoring_command_receipts SET state = 'FAILED', http_status = 409, error_code = 'X' WHERE id = '${receiptId}'`,
+      ),
+    /ที่จบแล้วแก้ไม่ได้/,
+  );
+
+  // review: candidate IN_REVIEW ได้ใบเดียวต่อ resource และ vote นับเฉพาะ capability review
+  const candidateId = randomUUID();
+  const insertCandidate = (id: string) =>
+    `INSERT INTO jr_review_candidates (id, tenant_id, resource_kind, resource_id, draft_revision, draft_digest, compile_digest, runtime_hash, base_head_version, reference_digest, capability_digest, maker_subject_id, maker_authorization_epoch, maker_scope_version, updated_at) VALUES ('${id}', '${tenantA}', 'JOURNEY', '${journeyId}', 1, '${hashA}', '${hashA}', '${hashA}', 2, '${hashA}', '${hashA}', 'human-a', 1, 1, now())`;
+  assert.match(as(tenantA, insertCandidate(candidateId)), /\nINSERT 0 1\nCOMMIT$/);
+  assert.throws(
+    () => as(tenantA, insertCandidate(randomUUID())),
+    /jr_review_candidates_one_in_review_key|duplicate key/i,
+  );
+  assert.throws(
+    () =>
+      as(
+        tenantA,
+        `UPDATE jr_review_candidates SET compile_digest = '${hashB}' WHERE id = '${candidateId}'`,
+      ),
+    /แก้ binding ที่ pin ไว้ไม่ได้/,
+  );
+  const insertDecision = (capability: string) =>
+    `INSERT INTO jr_review_decisions (id, tenant_id, candidate_id, decision, reviewer_subject_id, capability, capability_source, authorization_epoch, scope_version, evidence_ref, reason_code, decided_at) VALUES ('${randomUUID()}', '${tenantA}', '${candidateId}', 'APPROVE', 'human-b', '${capability}', 'DIRECT_GRANT', 1, 1, 'evidence-${suffix}', 'LOOKS_GOOD', now())`;
+  assert.throws(
+    () => as(tenantA, insertDecision('journey.publish')),
+    /jr_review_decisions_capability_check/,
+  );
+  assert.match(as(tenantA, insertDecision('journey.review')), /\nINSERT 0 1\nCOMMIT$/);
+
+  // audit ใช้ closed code เท่านั้น ไม่รับ free text
+  assert.throws(
+    () =>
+      as(
+        tenantA,
+        `INSERT INTO jr_authoring_audit (id, tenant_id, resource_kind, resource_id, action, actor_subject_id, reason_code, correlation_id, occurred_at) VALUES ('${randomUUID()}', '${tenantA}', 'JOURNEY', '${journeyId}', 'edited by somchai', 'human-a', 'X', 'corr', now())`,
+      ),
+    /jr_authoring_audit_code_check/,
+  );
+
+  // template: built-in ห้ามมีแถวใน tenant table และ provenance ต้องอ้าง version ใน tenant เดียวกัน
+  const templateDraftId = randomUUID();
+  assert.match(
+    as(
+      tenantA,
+      `INSERT INTO jr_template_heads (id, tenant_id, template_id, name, owner_team_id, current_draft_id, current_draft_revision, current_draft_digest, updated_at) VALUES ('${randomUUID()}', '${tenantA}', '${templateId}', 'tpl', '${teamA}', '${templateDraftId}', 1, '${hashA}', now());
+       INSERT INTO jr_template_drafts (id, tenant_id, template_id, revision, schema_version, registry_version, document, parameter_schema, content_digest, created_by_ref) VALUES ('${templateDraftId}', '${tenantA}', '${templateId}', 1, 'J5_TEMPLATE_V1', 'J5_PALETTE_V1', '{}', '[]', '${hashA}', 'human-a')`,
+    ),
+    /\nINSERT 0 1\nINSERT 0 1\nCOMMIT$/,
+  );
+  const insertVersion = (origin: string, version: number) =>
+    `INSERT INTO jr_template_versions (id, tenant_id, template_id, version, origin, visibility, owner_team_id, schema_version, registry_version, document, parameter_schema, content_digest, compile_digest, node_mapping_digest, published_by_ref, published_at) VALUES ('${randomUUID()}', '${tenantA}', '${templateId}', ${version}, '${origin}', 'TEAM', '${teamA}', 'J5_TEMPLATE_V1', 'J5_PALETTE_V1', '{}', '[]', '${hashA}', '${hashA}', '${hashA}', 'human-a', now())`;
+  assert.throws(
+    () => as(tenantA, insertVersion('PLATFORM_BUILTIN', 1)),
+    /jr_template_versions_origin_check/,
+  );
+  assert.match(as(tenantA, insertVersion('TENANT', 1)), /\nINSERT 0 1\nCOMMIT$/);
+  const insertProvenance = (sourceVersion: number) =>
+    `INSERT INTO jr_template_provenance (id, tenant_id, journey_id, draft_revision, template_origin, source_template_id, source_template_version, source_content_digest, binding_digest, node_mapping, node_mapping_digest) VALUES ('${randomUUID()}', '${tenantA}', '${journeyId}', 1, 'TENANT', '${templateId}', ${sourceVersion}, '${hashA}', '${hashA}', '{}', '${hashA}')`;
+  assert.throws(() => as(tenantA, insertProvenance(9)), /ไม่มีใน tenant นี้/);
+  assert.match(as(tenantA, insertProvenance(1)), /\nINSERT 0 1\nCOMMIT$/);
+  // tenant B อ้าง template version ของ A ไม่ได้แม้รู้ ID
+  assert.throws(
+    () => as(tenantB, insertProvenance(1).replaceAll(`'${tenantA}'`, `'${tenantB}'`)),
+    /ไม่มีใน tenant นี้|foreign key/i,
+  );
+
+  // rollout: DISABLED เปิด feature ไม่ได้, stage ถอยไม่ได้, version ต้อง +1
+  assert.throws(
+    () =>
+      as(
+        tenantA,
+        `INSERT INTO jr_authoring_rollout_state (id, tenant_id, canvas_write_enabled, updated_by_ref, evidence_ref, updated_at) VALUES ('${randomUUID()}', '${tenantA}', true, 'ops', 'evidence', now())`,
+      ),
+    /jr_authoring_rollout_state_stage_check/,
+  );
+  assert.match(
+    as(
+      tenantA,
+      `INSERT INTO jr_authoring_rollout_state (id, tenant_id, stage, canvas_write_enabled, updated_by_ref, evidence_ref, updated_at) VALUES ('${randomUUID()}', '${tenantA}', 'INTERNAL_SYNTHETIC', true, 'ops', 'evidence', now())`,
+    ),
+    /\nINSERT 0 1\nCOMMIT$/,
+  );
+  assert.throws(
+    () =>
+      as(
+        tenantA,
+        `UPDATE jr_authoring_rollout_state SET stage = 'DISABLED', canvas_write_enabled = false, version = 2 WHERE tenant_id = '${tenantA}'`,
+      ),
+    /ย้อน stage ไม่ได้/,
+  );
+  assert.match(
+    as(
+      tenantA,
+      `UPDATE jr_authoring_rollout_state SET mutation_frozen = true, version = 2 WHERE tenant_id = '${tenantA}'`,
+    ),
+    /\nUPDATE 1\nCOMMIT$/,
+  );
+
+  // IAM: app ขยายสิทธิ์ตัวเองไม่ได้; delegation human-to-human ≤ 8 ชม. และมอบได้แค่ read/edit
+  assert.throws(
+    () =>
+      as(
+        tenantA,
+        `INSERT INTO iam_authoring_capability_grants (id, tenant_id, subject_id, capability, scope_kind, scope_id, granted_by_ref) VALUES ('${randomUUID()}', '${tenantA}', 'human-a', 'journey.publish', 'TENANT', '${tenantA}', 'self')`,
+      ),
+    /permission denied/i,
+  );
+  const insertDelegation = (to: string, capability: string, hours: number) =>
+    `INSERT INTO iam_authoring_delegations (id, tenant_id, delegator_subject_id, delegate_subject_id, capability, scope_kind, scope_id, starts_at, expires_at, evidence_ref) VALUES ('${randomUUID()}', '${tenantA}', 'human-a', '${to}', '${capability}', 'JOURNEY', '${journeyId}', now(), now() + interval '${hours} hours', 'evidence-${suffix}')`;
+  assert.throws(
+    () => as(tenantA, insertDelegation('human-b', 'journey.edit', 9)),
+    /iam_authoring_delegations_window_check/,
+  );
+  assert.throws(
+    () => as(tenantA, insertDelegation('human-b', 'journey.publish', 1)),
+    /iam_authoring_delegations_capability_check/,
+  );
+  assert.throws(
+    () => as(tenantA, insertDelegation('service-a', 'journey.edit', 1)),
+    /service principal/,
+  );
+  assert.match(
+    as(tenantA, insertDelegation('human-b', 'journey.edit', 8)),
+    /\nINSERT 0 1\nCOMMIT$/,
+  );
+
+  // RLS: tenant B มองไม่เห็นแถวใดของ tenant A ในทุกตารางของ J5.1
+  for (const table of [
+    'jr_journey_heads',
+    'jr_journey_drafts',
+    'jr_authoring_command_receipts',
+    'jr_review_candidates',
+    'jr_review_decisions',
+    'jr_template_heads',
+    'jr_template_drafts',
+    'jr_template_versions',
+    'jr_template_provenance',
+    'jr_authoring_rollout_state',
+    'iam_authoring_subjects',
+    'iam_authoring_delegations',
+  ]) {
+    assert.match(
+      as(tenantB, `SELECT count(*) FROM ${table} WHERE tenant_id = '${tenantA}'`),
+      /\n0\nCOMMIT$/,
+      `${table} ต้องไม่รั่วข้าม tenant`,
+    );
+  }
+});
+
+test('J5.1 bootstrap คงสิทธิ์ตาม migration: state ลบไม่ได้, หลักฐาน append-only, IAM อ่านอย่างเดียว', () => {
+  for (const [table, expected] of [
+    ['jr_journey_heads', 't|t|t|f'],
+    ['jr_authoring_command_receipts', 't|t|t|f'],
+    ['jr_review_candidates', 't|t|t|f'],
+    ['jr_authoring_outbox', 't|t|t|f'],
+    ['jr_template_heads', 't|t|t|f'],
+    ['jr_template_upgrade_applications', 't|t|t|f'],
+    ['jr_authoring_rollout_state', 't|t|t|f'],
+    ['jr_journey_drafts', 't|t|f|f'],
+    ['jr_review_decisions', 't|t|f|f'],
+    ['jr_authoring_audit', 't|t|f|f'],
+    ['jr_template_drafts', 't|t|f|f'],
+    ['jr_template_versions', 't|t|f|f'],
+    ['jr_template_provenance', 't|t|f|f'],
+    ['iam_authoring_delegations', 't|t|f|f'],
+    ['iam_authoring_delegation_revocations', 't|t|f|f'],
+    ['iam_authoring_subjects', 't|f|f|f'],
+    ['iam_authoring_capability_grants', 't|f|f|f'],
+    ['iam_authoring_scope_versions', 't|f|f|f'],
+  ] as const) {
+    assert.equal(
+      queryAsOwner(
+        `SELECT has_table_privilege('dcontact_app', '${table}', 'SELECT'), has_table_privilege('dcontact_app', '${table}', 'INSERT'), has_table_privilege('dcontact_app', '${table}', 'UPDATE'), has_table_privilege('dcontact_app', '${table}', 'DELETE');`,
+      ),
+      expected,
+      table,
+    );
+  }
+});
