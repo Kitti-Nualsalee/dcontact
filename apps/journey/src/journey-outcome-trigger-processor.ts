@@ -431,6 +431,16 @@ export class JourneyOutcomeTriggerProcessor {
     }
     if (input.scope === 'DENY') return 'BLOCKED';
 
+    const cursor = await transaction.jrEnrollment.findFirstOrThrow({
+      where: { tenantId, id: enrollmentId },
+      select: { currentStepId: true, stepSequence: true },
+    });
+    if (cursor.currentStepId !== entryStep.id) {
+      throw new TypeError(
+        `owner action entry step ${entryStep.id} ไม่ตรงกับ enrollment cursor ${cursor.currentStepId ?? 'null'}`,
+      );
+    }
+
     const command = withOwnerRequestHash(
       toTenantId(tenantId),
       buildCommandDraft(
@@ -450,6 +460,8 @@ export class JourneyOutcomeTriggerProcessor {
         tenantId,
         actionKey: command.actionKey,
         enrollmentId,
+        stepId: entryStep.id,
+        stepSequence: cursor.stepSequence,
         outcomeReceiptId: receipt.id,
         kind: ACTION_INTENT_KIND_BY_STEP_TYPE[entryStep.type],
         requestHash: command.requestHash,

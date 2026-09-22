@@ -12,6 +12,7 @@ export * from './journey-governance-metrics.js';
 export * from './journey-action-lifecycle-inbox.js';
 export * from './journey-governance-ack-relay.js';
 export * from './journey-owner-action-repository.js';
+export * from './journey-owner-continuation.js';
 export * from './journey-recovery-audit.js';
 export * from './journey-definition.js';
 export * from './journey-definition-validator.js';

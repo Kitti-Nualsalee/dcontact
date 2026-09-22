@@ -26,7 +26,7 @@ BEGIN
     'ob_attempts', 'ob_governance_consumer_inbox', 'ob_governance_acknowledgement_outbox',
     'ob_governance_effect_outbox',
     'dl_outbox_entries',
-    'jr_schedule_occurrences', 'jr_step_runs',
+    'jr_schedule_occurrences', 'jr_step_runs', 'jr_owner_continuations',
     -- CG4.2 (#185)
     'cg_policy', 'cg_policy_scope_head', 'cg_policy_test_artifact', 'cg_policy_approval',
     'cg_policy_activation_job', 'cg_exception', 'cg_exception_head', 'cg_exception_approval',
@@ -121,6 +121,8 @@ REVOKE DELETE ON jr_owner_actions FROM dcontact_app;
 REVOKE DELETE ON jr_owner_command_outbox FROM dcontact_app;
 REVOKE DELETE ON jr_owner_result_inbox FROM dcontact_app;
 REVOKE UPDATE, DELETE ON jr_recovery_audit FROM dcontact_app;
+-- J5.0: continuation เป็น immutable ledger ของการขยับ cursor หลัง owner result
+REVOKE UPDATE, DELETE ON jr_owner_continuations FROM dcontact_app;
 -- J2.4: Cases ENSURE_CASE owner slice — fixture/case/link/activity/command เดินสถานะได้
 -- แต่ห้ามหายทั้งแถว
 REVOKE DELETE ON cs_case_type_policies FROM dcontact_app;
