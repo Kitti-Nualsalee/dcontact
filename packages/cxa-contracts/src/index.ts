@@ -10,6 +10,7 @@ export * from './contact-governance-cg5.js';
 export * from './contact-governance-cg4-authorization.js';
 export * from './contact-governance-downstream.js';
 export * from './delivery.js';
+export * from './line-delivery.js';
 export * from './interaction-result.js';
 export * from './segment-membership.js';
 export * from './journey-authoring-errors-v1.js';

@@ -101,7 +101,7 @@ export class DeliveryTestAdapter implements DeliveryPort {
     this.now = options.now ?? (() => new Date());
     this.id = options.id ?? randomUUID;
     this.transport = options.transport ?? new ScriptedTestTransport();
-    this.outbox = new OutboxRepository(database);
+    this.outbox = new OutboxRepository(database, TEST_ADAPTER);
   }
 
   /**
@@ -187,7 +187,10 @@ export class DeliveryTestAdapter implements DeliveryPort {
   }
 
   private replay(entry: DlOutboxEntry, inputHash: string): EnqueueDeliveryResult {
-    if (entry.inputHash !== inputHash) return { status: 'ERROR', code: 'IDEMPOTENCY_CONFLICT' };
+    // actionKey เดียวกันที่ adapter อื่นถือไว้ไม่ใช่ replay ของเรา (mixed-version guard)
+    if (entry.adapter !== TEST_ADAPTER || entry.inputHash !== inputHash) {
+      return { status: 'ERROR', code: 'IDEMPOTENCY_CONFLICT' };
+    }
     return {
       status: 'QUEUED',
       deliveryId: toDeliveryId(entry.deliveryId),

@@ -48,7 +48,11 @@ export interface ContactFactView {
   channel: ContactChannel;
   purpose: string;
   source: string;
-  outcome: CanonicalFactOutcome;
+  /**
+   * vocabulary ที่เก็บจริง — กว้างกว่า write input เพราะ S2 (#365) เพิ่ม PROVIDER_ACCEPTED ใน DB
+   * ก่อนที่ S2.2 จะเปิดให้ settle ผ่าน port; read path ต้องไม่ตีความแถวใหม่ผิดเป็นค่าเดิม
+   */
+  outcome: CgFactOutcome;
   occurredAt: string;
   correlationId: string;
   causationId?: string;

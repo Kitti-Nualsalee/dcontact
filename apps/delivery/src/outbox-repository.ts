@@ -4,10 +4,17 @@
  * ทุก write ผ่าน `withTenantDatabaseTransaction` เพื่อให้ RLS ของ `dl_outbox_entries`
  * ทำงานจริงกับ application role และไม่มี query ไหนอ่านข้าม tenant ได้
  * repository ไม่รู้จัก Governance หรือ transport — มันเก็บสถานะอย่างเดียว
+ *
+ * Mixed-version guard (S2.1 #365): repository หนึ่งตัวผูกกับ adapter เดียว ทุก read/claim/advance
+ * ที่ทำงานกับ delivery กรองด้วย adapter นั้น worker ของ TEST_ADAPTER จึงไม่เคยหยิบแถว
+ * LINE_MESSAGING_API ไป submit/reconcile และกลับกัน ยกเว้น `findByActionKey` ที่ต้องเห็นทุก
+ * adapter เพราะ `(tenant_id, action_key)` เป็น idempotency identity ร่วม — ผู้เรียกต้องปฏิเสธ
+ * แถวของ adapter อื่นเอง
  */
 import {
   Prisma,
   type CgFactOutcome,
+  type DlDeliveryAdapter,
   type DlDeliveryState,
   type DlOutboxEntry,
   type PrismaClient,
@@ -50,8 +57,12 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 export class OutboxRepository {
-  constructor(private readonly database: PrismaClient) {}
+  constructor(
+    private readonly database: PrismaClient,
+    readonly adapter: DlDeliveryAdapter = 'TEST_ADAPTER',
+  ) {}
 
+  /** ไม่กรอง adapter โดยตั้งใจ — ดูหมายเหตุ mixed-version guard ด้านบน */
   findByActionKey(tenantId: string, actionKey: string): Promise<DlOutboxEntry | null> {
     return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
       transaction.dlOutboxEntry.findFirst({ where: { tenantId, actionKey } }),
@@ -60,7 +71,9 @@ export class OutboxRepository {
 
   findByDeliveryId(tenantId: string, deliveryId: string): Promise<DlOutboxEntry | null> {
     return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
-      transaction.dlOutboxEntry.findFirst({ where: { tenantId, deliveryId } }),
+      transaction.dlOutboxEntry.findFirst({
+        where: { tenantId, deliveryId, adapter: this.adapter },
+      }),
     );
   }
 
@@ -80,6 +93,7 @@ export class OutboxRepository {
             reservationId: input.reservationId,
             deliveryId: input.deliveryId,
             providerRequestKey: input.providerRequestKey,
+            adapter: this.adapter,
             channel: input.channel,
             contactId: input.contactId,
             ...(input.identityId ? { identityId: input.identityId } : {}),
@@ -120,11 +134,13 @@ export class OutboxRepository {
   ): Promise<DlOutboxEntry | null> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
       const updated = await transaction.dlOutboxEntry.updateMany({
-        where: { tenantId, deliveryId, state: { in: expected } },
+        where: { tenantId, deliveryId, adapter: this.adapter, state: { in: expected } },
         data,
       });
       if (updated.count === 0) return null;
-      return transaction.dlOutboxEntry.findFirst({ where: { tenantId, deliveryId } });
+      return transaction.dlOutboxEntry.findFirst({
+        where: { tenantId, deliveryId, adapter: this.adapter },
+      });
     });
   }
 
@@ -134,6 +150,7 @@ export class OutboxRepository {
       transaction.dlOutboxEntry.findMany({
         where: {
           tenantId,
+          adapter: this.adapter,
           state: { in: ['SUBMITTING', 'SUBMITTED'] },
           leaseExpiresAt: { lte: notAfter },
         },

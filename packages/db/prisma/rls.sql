@@ -55,7 +55,11 @@ BEGIN
     'jr_template_heads', 'jr_template_drafts', 'jr_template_versions', 'jr_template_provenance',
     'jr_template_upgrade_applications', 'jr_authoring_rollout_state',
     'iam_authoring_subjects', 'iam_authoring_capability_grants', 'iam_authoring_delegations',
-    'iam_authoring_delegation_revocations', 'iam_authoring_scope_versions'
+    'iam_authoring_delegation_revocations', 'iam_authoring_scope_versions',
+    -- S2.1 (#365)
+    'dl_provider_submission_attempts', 'dl_line_scope_gates', 'dl_line_credential_refs',
+    'dl_line_allowlist_entries', 'dl_line_run_authorizations', 'dl_line_cap_ledger',
+    'dl_line_webhook_inbox', 'dl_line_touch_correlations', 'dl_line_audit_events'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -233,3 +237,16 @@ REVOKE UPDATE, DELETE ON iam_authoring_delegation_revocations FROM dcontact_app;
 REVOKE INSERT, UPDATE, DELETE ON iam_authoring_subjects FROM dcontact_app;
 REVOKE INSERT, UPDATE, DELETE ON iam_authoring_capability_grants FROM dcontact_app;
 REVOKE INSERT, UPDATE, DELETE ON iam_authoring_scope_versions FROM dcontact_app;
+
+-- S2.1 (#365): gate/credential/allowlist/run/cap/inbox/correlation เดินสถานะได้แต่ห้ามหาย
+-- (ลบ gate ที่ถูก kill = สร้างใหม่เป็น DISABLED เท่ากับยก kill switch); attempt receipt และ
+-- audit เป็นหลักฐาน append-only
+REVOKE DELETE ON dl_line_scope_gates FROM dcontact_app;
+REVOKE DELETE ON dl_line_credential_refs FROM dcontact_app;
+REVOKE DELETE ON dl_line_allowlist_entries FROM dcontact_app;
+REVOKE DELETE ON dl_line_run_authorizations FROM dcontact_app;
+REVOKE DELETE ON dl_line_cap_ledger FROM dcontact_app;
+REVOKE DELETE ON dl_line_webhook_inbox FROM dcontact_app;
+REVOKE DELETE ON dl_line_touch_correlations FROM dcontact_app;
+REVOKE UPDATE, DELETE ON dl_provider_submission_attempts FROM dcontact_app;
+REVOKE UPDATE, DELETE ON dl_line_audit_events FROM dcontact_app;

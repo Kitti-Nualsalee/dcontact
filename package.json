@@ -47,6 +47,8 @@
     "test:cxa-cg4-readiness": "node --test scripts/cxa-cg4-readiness.test.mjs",
     "cxa:j5:schema": "node scripts/cxa-j5-schema-readiness.mjs",
     "test:cxa-j5-schema-readiness": "node --test scripts/cxa-j5-schema-readiness.test.mjs",
+    "cxa:s2:schema": "node scripts/cxa-s2-schema-readiness.mjs",
+    "test:cxa-s2-schema-readiness": "node --test scripts/cxa-s2-schema-readiness.test.mjs",
     "cxa:j5:focused": "node scripts/cxa-j5-readiness.mjs --focused",
     "cxa:j5:acceptance": "node scripts/cxa-j5-readiness.mjs",
     "test:cxa-j5-readiness": "node --test scripts/cxa-j5-readiness.test.mjs",
