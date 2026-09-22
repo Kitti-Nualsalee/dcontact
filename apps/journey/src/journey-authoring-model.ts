@@ -1,7 +1,7 @@
 import {
   JOURNEY_AUTHORING_HTTP_STATUS,
   JOURNEY_LIFECYCLE_TRANSITIONS,
-  type JourneyAuthoringCapability,
+  type JourneyAuthoringAuthentication,
   type JourneyAuthoringErrorCode,
   type JourneyDiagnosticV1,
   type JourneyLifecycle,
@@ -46,33 +46,16 @@ export function lifecycleAcceptsNewEnrollments(lifecycle: JourneyLifecycle | und
   return lifecycle !== 'PAUSED' && lifecycle !== 'DEPRECATED';
 }
 
+export type {
+  JourneyAuthoringAuthorizationDecision as JourneyAuthorizationDecision,
+  JourneyAuthoringAuthorizationPort,
+} from '@d-contact/cxa-contracts';
+
 export interface JourneyAuthoringActor {
   readonly subjectId: string;
   readonly correlationId: string;
-}
-
-export type JourneyAuthoringScope =
-  | { readonly kind: 'TEAM'; readonly teamId: string }
-  | { readonly kind: 'JOURNEY'; readonly journeyId: string };
-
-export type JourneyAuthorizationDecision =
-  | { readonly allowed: true; readonly authorizationEpoch: number; readonly scopeVersion: number }
-  | { readonly allowed: false; readonly code: JourneyAuthoringErrorCode };
-
-/**
- * port ของ IAM (J5.3 เป็นผู้ implement) — resolve capability/team/delegation/epoch ปัจจุบันใหม่ทุกครั้ง
- * ใน transaction เดียวกับ mutation; ห้ามอ่าน role string เป็น authority
- */
-export interface JourneyAuthoringAuthorizationPort {
-  authorize(
-    transaction: unknown,
-    request: {
-      readonly tenantId: string;
-      readonly subjectId: string;
-      readonly capability: JourneyAuthoringCapability;
-      readonly scope: JourneyAuthoringScope;
-    },
-  ): Promise<JourneyAuthorizationDecision>;
+  /** จาก verified token เท่านั้น — ใช้ตัดสิน strong/recent auth ไม่ใช่ใช้แทน authorization */
+  readonly authentication?: JourneyAuthoringAuthentication;
 }
 
 /** env kill switch ของแต่ละ feature — effective = env AND tenant rollout field (Phase Spec §9) */

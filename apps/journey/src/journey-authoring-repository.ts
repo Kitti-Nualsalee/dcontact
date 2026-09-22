@@ -8,6 +8,8 @@ import {
 import {
   JOURNEY_AUTHORING_REGISTRY_VERSION,
   JOURNEY_AUTHORING_SCHEMA_VERSION,
+  JOURNEY_STRONG_AUTH_MAX_AGE_SECONDS,
+  type JourneyAuthoringAuthorizationScope,
   type AuthoringDocumentV1,
   type CompileJourneyResultV1,
   type ExpressionEvaluator,
@@ -16,6 +18,10 @@ import {
   type JourneyDiagnosticV1,
   type JourneyLifecycle,
   type PublishJourneyDraftRequestV1,
+  type ReviewDecisionRequestV1,
+  type SubmitJourneyReviewRequestV1,
+  type TransferJourneyOwnershipRequestV1,
+  type JourneyReviewState,
   type PublishJourneyResultV1,
 } from '@d-contact/cxa-contracts';
 import {
@@ -127,10 +133,7 @@ export class JourneyAuthoringRepository {
     const journeyId = this.id();
     return this.command(context, 'CreateJourneyDraft', journeyId, input, async (tx) => {
       await this.assertWriteEnabled(tx, context.tenantId, 'canvasWrite');
-      await this.authorize(tx, context, 'journey.edit', {
-        kind: 'TEAM',
-        teamId: input.ownerTeamId,
-      });
+      await this.authorize(tx, context, 'journey.edit', { teamId: input.ownerTeamId });
       const diagnostics = this.assertSavable(input.document);
       await this.lockJourney(tx, context.tenantId, journeyId);
       const draft = await this.insertDraft(tx, context, journeyId, 1, null, input.document);
@@ -174,7 +177,7 @@ export class JourneyAuthoringRepository {
     return this.command(context, 'UpdateJourneyDraft', input.journeyId, input, async (tx) => {
       await this.assertWriteEnabled(tx, context.tenantId, 'canvasWrite');
       const head = await this.lockedHead(tx, context.tenantId, input.journeyId);
-      await this.authorize(tx, context, 'journey.edit', { kind: 'TEAM', teamId: head.ownerTeamId });
+      await this.authorize(tx, context, 'journey.edit', this.scopeOf(head));
       this.assertEditable(head);
       this.assertCas(head, input);
       const diagnostics = this.assertSavable(input.document);
@@ -199,7 +202,7 @@ export class JourneyAuthoringRepository {
     return this.command(context, 'DiscardJourneyDraft', input.journeyId, input, async (tx) => {
       await this.assertWriteEnabled(tx, context.tenantId, 'canvasWrite');
       const head = await this.lockedHead(tx, context.tenantId, input.journeyId);
-      await this.authorize(tx, context, 'journey.edit', { kind: 'TEAM', teamId: head.ownerTeamId });
+      await this.authorize(tx, context, 'journey.edit', this.scopeOf(head));
       this.assertEditable(head);
       this.assertCas(head, input);
       if (head.activeVersion === null) {
@@ -243,10 +246,7 @@ export class JourneyAuthoringRepository {
       async (tx) => {
         await this.assertWriteEnabled(tx, context.tenantId, 'canvasWrite');
         const head = await this.lockedHead(tx, context.tenantId, input.journeyId);
-        await this.authorize(tx, context, 'journey.edit', {
-          kind: 'TEAM',
-          teamId: head.ownerTeamId,
-        });
+        await this.authorize(tx, context, 'journey.edit', this.scopeOf(head));
         this.assertEditable(head);
         if (head.version !== input.expectedHeadVersion) {
           throw new JourneyAuthoringError('PUBLISHED_HEAD_CONFLICT', {
@@ -287,14 +287,8 @@ export class JourneyAuthoringRepository {
     return this.command(context, 'CloneJourneyFromVersion', cloneId, input, async (tx) => {
       await this.assertWriteEnabled(tx, context.tenantId, 'canvasWrite');
       const source = await this.head(tx, context.tenantId, input.journeyId);
-      await this.authorize(tx, context, 'journey.read', {
-        kind: 'TEAM',
-        teamId: source.ownerTeamId,
-      });
-      await this.authorize(tx, context, 'journey.edit', {
-        kind: 'TEAM',
-        teamId: input.targetOwnerTeamId,
-      });
+      await this.authorize(tx, context, 'journey.read', this.scopeOf(source));
+      await this.authorize(tx, context, 'journey.edit', { teamId: input.targetOwnerTeamId });
       const content = await this.publishedContent(
         tx,
         context.tenantId,
@@ -358,9 +352,10 @@ export class JourneyAuthoringRepository {
           : 'DeprecateJourney';
     return this.command(context, commandName, input.journeyId, input, async (tx) => {
       const head = await this.lockedHead(tx, context.tenantId, input.journeyId);
-      await this.authorize(tx, context, 'journey.lifecycle', {
-        kind: 'TEAM',
-        teamId: head.ownerTeamId,
+      // pause/deprecate ทำได้แม้ team inactive เพื่อหยุดงาน; resume ต้องใช้ team ที่ active
+      await this.authorize(tx, context, 'journey.lifecycle', this.scopeOf(head), {
+        requireDirect: true,
+        allowInactiveTeam: input.target !== 'ACTIVE',
       });
       if (head.version !== input.expectedHeadVersion) {
         throw new JourneyAuthoringError('PUBLISHED_HEAD_CONFLICT', {
@@ -405,10 +400,7 @@ export class JourneyAuthoringRepository {
       async (tx, receiptId) => {
         await this.assertWriteEnabled(tx, context.tenantId, 'publishUi');
         const head = await this.lockedHead(tx, context.tenantId, input.journeyId);
-        await this.authorize(tx, context, 'journey.publish', {
-          kind: 'TEAM',
-          teamId: head.ownerTeamId,
-        });
+        await this.authorize(tx, context, 'journey.publish', this.scopeOf(head));
         this.assertEditable(head);
         if (head.version !== input.expectedHeadVersion) {
           throw new JourneyAuthoringError('PUBLISHED_HEAD_CONFLICT', {
@@ -449,117 +441,481 @@ export class JourneyAuthoringRepository {
         if (pinned.some((matches) => !matches))
           throw new JourneyAuthoringError('REVIEW_CANDIDATE_STALE');
 
-        // recompile จาก draft ใน DB ด้วย capability ปัจจุบัน — client ส่งได้แค่ digest ไม่ใช่ runtime definition
-        const draft = await tx.jrJourneyDraft.findFirstOrThrow({
-          where: {
-            tenantId: context.tenantId,
-            journeyId: head.journeyId,
-            revision: head.currentDraftRevision,
-          },
+        await this.assertIndependentApproval(tx, context.tenantId, head, candidate.id);
+        return this.publishCompiled(tx, context, head, input, receiptId, {
+          candidateId: candidate.id,
+          action: 'JOURNEY_PUBLISHED',
+          reasonCode: 'PUBLISH',
         });
-        const compiled = this.compile(
-          context.tenantId,
-          head,
-          draft.document,
-          draft.revision,
-          draft.contentDigest,
-        );
-        if (!compiled.artifact) {
-          throw new JourneyAuthoringError('DEFINITION_INVALID', undefined, compiled.diagnostics);
-        }
-        const artifact = compiled.artifact;
-        if (
-          artifact.capabilityDigest !== input.capabilityDigest ||
-          artifact.referenceDigest !== input.referenceDigest
-        ) {
-          throw new JourneyAuthoringError('COMPILE_ARTIFACT_STALE');
-        }
-        if (artifact.compileDigest !== input.compileDigest) {
-          throw new JourneyAuthoringError('COMPILE_DIGEST_MISMATCH');
-        }
-
-        const latest = await tx.jrJourneyDefinition.findFirst({
-          where: { tenantId: context.tenantId, journeyId: head.journeyId },
-          orderBy: { version: 'desc' },
-          select: { version: true },
-        });
-        const version = (latest?.version ?? 0) + 1;
-        try {
-          const created = await this.definitions.createVersionInTransaction(tx, {
-            ...artifact.runtimeDefinition,
-            tenantId: context.tenantId,
-            journeyId: head.journeyId,
-            version,
-            correlationId: context.actor.correlationId,
-          });
-          await this.definitions.publishVersionInTransaction(tx, {
-            tenantId: context.tenantId,
-            journeyId: head.journeyId,
-            version,
-            expectedContentHash: created.contentHash,
-            correlationId: context.actor.correlationId,
-          });
-        } catch (error) {
-          if (error instanceof JourneyDefinitionValidationError) {
-            throw new JourneyAuthoringError(
-              error.reasonCodes.some((code) => REFERENCE_CODES.has(code))
-                ? 'REFERENCE_UNTRUSTED'
-                : 'DEFINITION_INVALID',
-              undefined,
-              error.reasonCodes.map((code) => ({
-                code: REFERENCE_CODES.has(code) ? 'REFERENCE_UNTRUSTED' : 'DEFINITION_INVALID',
-                severity: 'ERROR',
-                stage: 'PUBLISH',
-                messageKey: `journey.authoring.${code}`,
-                legacyReasonCode: code,
-              })),
-            );
-          }
-          throw error;
-        }
-        await this.options.checkpoint?.('DEFINITION_PUBLISHED');
-
-        const definition = await tx.jrJourneyDefinition.findUniqueOrThrow({
-          where: {
-            tenantId_journeyId_version: {
-              tenantId: context.tenantId,
-              journeyId: head.journeyId,
-              version,
-            },
-          },
-          select: { id: true },
-        });
-        // publish ขณะ PAUSED ไม่ resume เอง (Phase Contract §5)
-        const headVersion = await this.casHead(tx, head, {
-          lifecycle: head.lifecycle === 'DRAFT_ONLY' ? 'ACTIVE' : head.lifecycle,
-          activeDefinitionId: definition.id,
-          activeVersion: version,
-          activeRuntimeHash: artifact.runtimeHash,
-        });
-        await this.options.checkpoint?.('HEAD_ACTIVATED');
-        await tx.jrReviewCandidate.update({
-          where: { id: candidate.id },
-          data: { state: 'SUPERSEDED' },
-        });
-        await this.record(
-          tx,
-          context,
-          head.journeyId,
-          headVersion,
-          'JOURNEY_PUBLISHED',
-          'PUBLISH',
-          head.currentDraftDigest,
-          artifact.runtimeHash,
-        );
-        return {
-          outcome: 'PUBLISHED',
-          journeyId: head.journeyId,
-          version,
-          runtimeHash: artifact.runtimeHash,
-          receiptId,
-        };
       },
     );
+  }
+
+  /**
+   * ข้อยกเว้นเดียวของ maker-checker (#331 §10): direct `journey.publish` ของผู้มี direct review
+   * authority + strong auth ที่ยังสด + reason code; audit แยกเป็น JOURNEY_PUBLISHED_UNILATERAL และยังต้อง
+   * ผ่าน recompile/reference/head CAS ครบเหมือน publish ปกติ
+   */
+  async publishJourneyDraftUnilateral(
+    context: JourneyCommandContext,
+    input: Omit<PublishJourneyDraftRequestV1, 'reviewId' | 'baseHeadVersion' | 'baseHeadDigest'> & {
+      readonly journeyId: string;
+      readonly reasonCode: string;
+    },
+  ): Promise<PublishJourneyResultV1> {
+    return this.command(
+      context,
+      'PublishJourneyDraftUnilateral',
+      input.journeyId,
+      input,
+      async (tx, receiptId) => {
+        await this.assertWriteEnabled(tx, context.tenantId, 'publishUi');
+        const head = await this.lockedHead(tx, context.tenantId, input.journeyId);
+        const decision = await this.authorize(tx, context, 'journey.publish', this.scopeOf(head), {
+          requireDirect: true,
+        });
+        const authentication = context.actor.authentication;
+        const fresh =
+          authentication?.strength === 'STRONG' &&
+          this.now().getTime() - new Date(authentication.authenticatedAt).getTime() <=
+            JOURNEY_STRONG_AUTH_MAX_AGE_SECONDS * 1_000;
+        if (
+          !decision.directReviewAuthority ||
+          decision.authenticationStrength !== 'STRONG' ||
+          !fresh
+        ) {
+          throw new JourneyAuthoringError('STRONG_AUTH_REQUIRED');
+        }
+        if (!/^[A-Z][A-Z0-9_]*$/.test(input.reasonCode)) {
+          throw new JourneyAuthoringError('REQUEST_MALFORMED', { field: 'reasonCode' });
+        }
+        this.assertEditable(head);
+        if (head.version !== input.expectedHeadVersion) {
+          throw new JourneyAuthoringError('PUBLISHED_HEAD_CONFLICT', {
+            currentHeadVersion: head.version,
+          });
+        }
+        if (
+          head.currentDraftRevision !== input.draftRevision ||
+          head.currentDraftDigest !== input.draftDigest
+        ) {
+          throw new JourneyAuthoringError('DRAFT_VERSION_CONFLICT', {
+            currentDraftRevision: head.currentDraftRevision,
+            currentDraftDigest: head.currentDraftDigest,
+          });
+        }
+        // candidate ที่ค้างอยู่ใช้ไม่ได้อีกหลัง publish ทางตรง
+        await this.supersedeOpenReviews(tx, context.tenantId, head.journeyId);
+        return this.publishCompiled(tx, context, head, input, receiptId, {
+          candidateId: null,
+          action: 'JOURNEY_PUBLISHED_UNILATERAL',
+          reasonCode: input.reasonCode,
+        });
+      },
+    );
+  }
+
+  /** recompile → definition → head → review → audit/outbox ใน transaction ของผู้เรียก */
+  private async publishCompiled(
+    tx: Tx,
+    context: JourneyCommandContext,
+    head: JrJourneyHead,
+    input: {
+      readonly compileDigest: string;
+      readonly referenceDigest: string;
+      readonly capabilityDigest: string;
+    },
+    receiptId: string,
+    publication: {
+      readonly candidateId: string | null;
+      readonly action: string;
+      readonly reasonCode: string;
+    },
+  ): Promise<PublishJourneyResultV1> {
+    const { candidateId, action, reasonCode } = publication;
+    // recompile จาก draft ใน DB ด้วย capability ปัจจุบัน — client ส่งได้แค่ digest ไม่ใช่ runtime definition
+    const draft = await tx.jrJourneyDraft.findFirstOrThrow({
+      where: {
+        tenantId: context.tenantId,
+        journeyId: head.journeyId,
+        revision: head.currentDraftRevision,
+      },
+    });
+    const compiled = this.compile(
+      context.tenantId,
+      head,
+      draft.document,
+      draft.revision,
+      draft.contentDigest,
+    );
+    if (!compiled.artifact) {
+      throw new JourneyAuthoringError('DEFINITION_INVALID', undefined, compiled.diagnostics);
+    }
+    const artifact = compiled.artifact;
+    if (
+      artifact.capabilityDigest !== input.capabilityDigest ||
+      artifact.referenceDigest !== input.referenceDigest
+    ) {
+      throw new JourneyAuthoringError('COMPILE_ARTIFACT_STALE');
+    }
+    if (artifact.compileDigest !== input.compileDigest) {
+      throw new JourneyAuthoringError('COMPILE_DIGEST_MISMATCH');
+    }
+
+    const latest = await tx.jrJourneyDefinition.findFirst({
+      where: { tenantId: context.tenantId, journeyId: head.journeyId },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    });
+    const version = (latest?.version ?? 0) + 1;
+    try {
+      const created = await this.definitions.createVersionInTransaction(tx, {
+        ...artifact.runtimeDefinition,
+        tenantId: context.tenantId,
+        journeyId: head.journeyId,
+        version,
+        correlationId: context.actor.correlationId,
+      });
+      await this.definitions.publishVersionInTransaction(tx, {
+        tenantId: context.tenantId,
+        journeyId: head.journeyId,
+        version,
+        expectedContentHash: created.contentHash,
+        correlationId: context.actor.correlationId,
+      });
+    } catch (error) {
+      if (error instanceof JourneyDefinitionValidationError) {
+        throw new JourneyAuthoringError(
+          error.reasonCodes.some((code) => REFERENCE_CODES.has(code))
+            ? 'REFERENCE_UNTRUSTED'
+            : 'DEFINITION_INVALID',
+          undefined,
+          error.reasonCodes.map((code) => ({
+            code: REFERENCE_CODES.has(code) ? 'REFERENCE_UNTRUSTED' : 'DEFINITION_INVALID',
+            severity: 'ERROR',
+            stage: 'PUBLISH',
+            messageKey: `journey.authoring.${code}`,
+            legacyReasonCode: code,
+          })),
+        );
+      }
+      throw error;
+    }
+    await this.options.checkpoint?.('DEFINITION_PUBLISHED');
+
+    const definition = await tx.jrJourneyDefinition.findUniqueOrThrow({
+      where: {
+        tenantId_journeyId_version: {
+          tenantId: context.tenantId,
+          journeyId: head.journeyId,
+          version,
+        },
+      },
+      select: { id: true },
+    });
+    // publish ขณะ PAUSED ไม่ resume เอง (Phase Contract §5)
+    const headVersion = await this.casHead(tx, head, {
+      lifecycle: head.lifecycle === 'DRAFT_ONLY' ? 'ACTIVE' : head.lifecycle,
+      activeDefinitionId: definition.id,
+      activeVersion: version,
+      activeRuntimeHash: artifact.runtimeHash,
+    });
+    await this.options.checkpoint?.('HEAD_ACTIVATED');
+    if (candidateId) {
+      // approval ถูกใช้แล้ว — นำไป publish ซ้ำไม่ได้
+      await tx.jrReviewCandidate.update({
+        where: { id: candidateId },
+        data: { state: 'SUPERSEDED' },
+      });
+    }
+    await this.record(
+      tx,
+      context,
+      head.journeyId,
+      headVersion,
+      action,
+      reasonCode,
+      head.currentDraftDigest,
+      artifact.runtimeHash,
+    );
+    return {
+      outcome: 'PUBLISHED',
+      journeyId: head.journeyId,
+      version,
+      runtimeHash: artifact.runtimeHash,
+      receiptId,
+    };
+  }
+
+  // ── Review (maker-checker) และ ownership ──────────────────────────────
+
+  /**
+   * candidate แบบ immutable pin draft/compile/reference/capability/head และ authorization ของ maker
+   * (#331 §9) — ส่ง candidate ใหม่ทำให้ candidate ที่ยังเปิดอยู่ของ journey เดียวกันเป็น SUPERSEDED
+   */
+  async submitJourneyReview(
+    context: JourneyCommandContext,
+    input: SubmitJourneyReviewRequestV1 & { readonly journeyId: string },
+  ): Promise<{ readonly reviewId: string; readonly state: 'IN_REVIEW' }> {
+    return this.command(context, 'SubmitJourneyReview', input.journeyId, input, async (tx) => {
+      const head = await this.lockedHead(tx, context.tenantId, input.journeyId);
+      const decision = await this.authorize(tx, context, 'journey.edit', this.scopeOf(head));
+      this.assertEditable(head);
+      if (head.version !== input.baseHeadVersion) {
+        throw new JourneyAuthoringError('PUBLISHED_HEAD_CONFLICT', {
+          currentHeadVersion: head.version,
+        });
+      }
+      if (
+        head.currentDraftRevision !== input.draftRevision ||
+        head.currentDraftDigest !== input.draftDigest
+      ) {
+        throw new JourneyAuthoringError('DRAFT_VERSION_CONFLICT', {
+          currentDraftRevision: head.currentDraftRevision,
+          currentDraftDigest: head.currentDraftDigest,
+        });
+      }
+      const draft = await tx.jrJourneyDraft.findFirstOrThrow({
+        where: {
+          tenantId: context.tenantId,
+          journeyId: head.journeyId,
+          revision: head.currentDraftRevision,
+        },
+      });
+      const compiled = this.compile(
+        context.tenantId,
+        head,
+        draft.document,
+        draft.revision,
+        draft.contentDigest,
+      );
+      if (!compiled.artifact) {
+        throw new JourneyAuthoringError('DEFINITION_INVALID', undefined, compiled.diagnostics);
+      }
+      const artifact = compiled.artifact;
+      if (
+        artifact.compileDigest !== input.compileDigest ||
+        artifact.referenceDigest !== input.referenceDigest ||
+        artifact.capabilityDigest !== input.capabilityDigest
+      ) {
+        throw new JourneyAuthoringError('COMPILE_ARTIFACT_STALE');
+      }
+      await this.supersedeOpenReviews(tx, context.tenantId, head.journeyId);
+      const reviewId = this.id();
+      await tx.jrReviewCandidate.create({
+        data: {
+          id: reviewId,
+          tenantId: context.tenantId,
+          resourceKind: 'JOURNEY',
+          resourceId: head.journeyId,
+          draftRevision: head.currentDraftRevision,
+          draftDigest: head.currentDraftDigest,
+          compileDigest: artifact.compileDigest,
+          runtimeHash: artifact.runtimeHash,
+          baseHeadVersion: head.version,
+          baseHeadDigest: input.baseHeadDigest,
+          referenceDigest: artifact.referenceDigest,
+          capabilityDigest: artifact.capabilityDigest,
+          makerSubjectId: context.actor.subjectId,
+          makerAuthorizationEpoch: decision.authorizationEpoch,
+          makerScopeVersion: decision.scopeVersion,
+          state: 'IN_REVIEW',
+        },
+      });
+      await this.record(
+        tx,
+        context,
+        head.journeyId,
+        head.version,
+        'REVIEW_SUBMITTED',
+        'SUBMIT',
+        head.currentDraftDigest,
+        artifact.compileDigest,
+      );
+      return { reviewId, state: 'IN_REVIEW' as const };
+    });
+  }
+
+  /**
+   * ผู้ตัดสินต้องเป็นมนุษย์ที่มี direct `journey.review` ใน scope ตรง ไม่ใช่ maker และไม่ใช่ delegation
+   * (#331 §10) — vote เก็บ epoch/scope version ไว้ revalidate อีกครั้งตอน publish
+   */
+  async decideJourneyReview(
+    context: JourneyCommandContext,
+    input: ReviewDecisionRequestV1 & { readonly journeyId: string; readonly reviewId: string },
+  ): Promise<{ readonly reviewId: string; readonly state: JourneyReviewState }> {
+    return this.command(context, 'DecideJourneyReview', input.journeyId, input, async (tx) => {
+      const head = await this.lockedHead(tx, context.tenantId, input.journeyId);
+      const decision = await this.authorize(tx, context, 'journey.review', this.scopeOf(head), {
+        requireDirect: true,
+      });
+      if (!/^[A-Z][A-Z0-9_]*$/.test(input.reasonCode)) {
+        throw new JourneyAuthoringError('REQUEST_MALFORMED', { field: 'reasonCode' });
+      }
+      const candidate = await tx.jrReviewCandidate.findFirst({
+        where: {
+          tenantId: context.tenantId,
+          id: input.reviewId,
+          resourceKind: 'JOURNEY',
+          resourceId: head.journeyId,
+        },
+      });
+      if (!candidate) throw new JourneyAuthoringError('JOURNEY_NOT_FOUND');
+      if (candidate.state !== input.expectedReviewState) {
+        throw new JourneyAuthoringError('REVIEW_CANDIDATE_STALE', { state: candidate.state });
+      }
+      if (candidate.makerSubjectId === context.actor.subjectId) {
+        throw new JourneyAuthoringError('APPROVAL_SELF_FORBIDDEN');
+      }
+      if (
+        candidate.draftRevision !== head.currentDraftRevision ||
+        candidate.draftDigest !== head.currentDraftDigest ||
+        candidate.baseHeadVersion !== head.version
+      ) {
+        throw new JourneyAuthoringError('REVIEW_CANDIDATE_STALE');
+      }
+      await tx.jrReviewDecisionRecord.create({
+        data: {
+          id: this.id(),
+          tenantId: context.tenantId,
+          candidateId: candidate.id,
+          decision: input.decision,
+          reviewerSubjectId: context.actor.subjectId,
+          capability: 'journey.review',
+          capabilitySource: decision.source,
+          authorizationEpoch: decision.authorizationEpoch,
+          scopeVersion: decision.scopeVersion,
+          evidenceRef: input.evidenceRef,
+          reasonCode: input.reasonCode,
+          decidedAt: this.now(),
+        },
+      });
+      const state: JourneyReviewState =
+        input.decision === 'APPROVE'
+          ? 'APPROVED'
+          : input.decision === 'REJECT'
+            ? 'REJECTED'
+            : 'CHANGES_REQUESTED';
+      await tx.jrReviewCandidate.update({ where: { id: candidate.id }, data: { state } });
+      const action =
+        state === 'APPROVED'
+          ? 'REVIEW_APPROVED'
+          : state === 'REJECTED'
+            ? 'REVIEW_REJECTED'
+            : 'REVIEW_CHANGES_REQUESTED';
+      await this.record(
+        tx,
+        context,
+        head.journeyId,
+        head.version,
+        action,
+        input.reasonCode,
+        candidate.compileDigest,
+        candidate.compileDigest,
+      );
+      return { reviewId: candidate.id, state };
+    });
+  }
+
+  /**
+   * โอนเจ้าของเป็นคำสั่งที่ตรวจสอบได้ (#331 §5): ต้องมี direct `journey.transfer` ทั้งทีมต้นทางและปลายทาง,
+   * ทีมปลายทางต้อง active, draft ขึ้น revision ใหม่และ review เดิมทั้งหมด SUPERSEDED; published version
+   * และ enrollment เดิมไม่เปลี่ยน
+   */
+  async transferJourneyOwnership(
+    context: JourneyCommandContext,
+    input: TransferJourneyOwnershipRequestV1 & { readonly journeyId: string },
+  ): Promise<JourneyDraftResult> {
+    return this.command(context, 'TransferJourneyOwnership', input.journeyId, input, async (tx) => {
+      const head = await this.lockedHead(tx, context.tenantId, input.journeyId);
+      await this.authorize(tx, context, 'journey.transfer', this.scopeOf(head), {
+        requireDirect: true,
+        allowInactiveTeam: true,
+      });
+      await this.authorize(
+        tx,
+        context,
+        'journey.transfer',
+        { teamId: input.targetTeamId },
+        { requireDirect: true },
+      );
+      if (head.version !== input.expectedHeadVersion) {
+        throw new JourneyAuthoringError('PUBLISHED_HEAD_CONFLICT', {
+          currentHeadVersion: head.version,
+        });
+      }
+      if (input.targetTeamId === head.ownerTeamId) {
+        throw new JourneyAuthoringError('OWNERSHIP_TRANSFER_FORBIDDEN', { reason: 'SAME_TEAM' });
+      }
+      const current = await tx.jrJourneyDraft.findFirstOrThrow({
+        where: {
+          tenantId: context.tenantId,
+          journeyId: head.journeyId,
+          revision: head.currentDraftRevision,
+        },
+      });
+      return this.appendDraft(
+        tx,
+        context,
+        head,
+        current.document,
+        current.basePublishedVersion,
+        'OWNERSHIP_TRANSFERRED',
+        input.reasonCode,
+        [],
+        {
+          ownerTeamId: input.targetTeamId,
+        },
+      );
+    });
+  }
+
+  /** อ่าน audit ต้องใช้ direct `journey.read` (ไม่รับ delegation) และการอ่านเองถูก audit อีกชั้น */
+  async listJourneyAudit(
+    tenantId: string,
+    actor: JourneyAuthoringActor,
+    input: { readonly journeyId: string; readonly limit?: number; readonly before?: string },
+  ) {
+    return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
+      const head = await this.head(tx, tenantId, input.journeyId);
+      await this.authorize(tx, { tenantId, actor }, 'journey.read', this.scopeOf(head), {
+        requireDirect: true,
+      });
+      const rows = await tx.jrAuthoringAudit.findMany({
+        where: {
+          tenantId,
+          resourceKind: 'JOURNEY',
+          resourceId: head.journeyId,
+          ...(input.before ? { occurredAt: { lt: new Date(input.before) } } : {}),
+        },
+        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+        take: Math.min(Math.max(input.limit ?? 50, 1), 200),
+        select: {
+          id: true,
+          action: true,
+          actorSubjectId: true,
+          reasonCode: true,
+          beforeDigest: true,
+          afterDigest: true,
+          correlationId: true,
+          occurredAt: true,
+        },
+      });
+      await tx.jrAuthoringAudit.create({
+        data: {
+          id: this.id(),
+          tenantId,
+          resourceKind: 'JOURNEY',
+          resourceId: head.journeyId,
+          action: 'AUDIT_READ',
+          actorSubjectId: actor.subjectId,
+          reasonCode: 'AUDIT_READ',
+          correlationId: actor.correlationId,
+          occurredAt: this.now(),
+        },
+      });
+      return rows.map((row) => ({ ...row, occurredAt: row.occurredAt.toISOString() }));
+    });
   }
 
   /** publish ที่ไม่รู้ผล: อ่าน receipt ของ key เดิมเท่านั้น ไม่ publish ซ้ำ */
@@ -615,10 +971,7 @@ export class JourneyAuthoringRepository {
   ): Promise<CompileJourneyResultV1<JourneyDefinitionContent>> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
       const head = await this.head(tx, tenantId, input.journeyId);
-      await this.authorize(tx, { tenantId, actor }, 'journey.read', {
-        kind: 'TEAM',
-        teamId: head.ownerTeamId,
-      });
+      await this.authorize(tx, { tenantId, actor }, 'journey.read', this.scopeOf(head));
       const draft = await tx.jrJourneyDraft.findFirst({
         where: { tenantId, journeyId: head.journeyId, revision: input.draftRevision },
       });
@@ -647,10 +1000,7 @@ export class JourneyAuthoringRepository {
   ): Promise<JourneyAuthoringStateV1> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
       const head = await this.head(tx, tenantId, journeyId);
-      await this.authorize(tx, { tenantId, actor }, 'journey.read', {
-        kind: 'TEAM',
-        teamId: head.ownerTeamId,
-      });
+      await this.authorize(tx, { tenantId, actor }, 'journey.read', this.scopeOf(head));
       const draft = await tx.jrJourneyDraft.findFirstOrThrow({
         where: { tenantId, journeyId, revision: head.currentDraftRevision },
       });
@@ -840,15 +1190,88 @@ export class JourneyAuthoringRepository {
     tx: Tx,
     context: Pick<JourneyCommandContext, 'tenantId' | 'actor'>,
     capability: JourneyAuthoringCapability,
-    scope: { kind: 'TEAM'; teamId: string },
+    scope: JourneyAuthoringAuthorizationScope,
+    options: { readonly requireDirect?: boolean; readonly allowInactiveTeam?: boolean } = {},
   ) {
     const decision = await this.options.authorization.authorize(tx, {
       tenantId: context.tenantId,
       subjectId: context.actor.subjectId,
       capability,
       scope,
+      ...options,
     });
-    if (!decision.allowed) throw new JourneyAuthoringError(decision.code, { capability });
+    if (decision.allowed) return decision;
+    // object ที่มองไม่เห็นตอบ not-found แบบเดียวกับไม่มีอยู่จริง; อ่านได้แต่ขาดสิทธิ์แก้จึงตอบ capability (#331 §12)
+    if (scope.resource) {
+      const visible =
+        // อ่านผ่าน delegation ได้แต่ขอ direct (เช่น audit) ยังถือว่ามองเห็น จึงตอบ capability ไม่ใช่ not-found
+        (capability !== 'journey.read' || options.requireDirect === true) &&
+        (
+          await this.options.authorization.authorize(tx, {
+            tenantId: context.tenantId,
+            subjectId: context.actor.subjectId,
+            capability: 'journey.read',
+            scope,
+          })
+        ).allowed;
+      if (!visible) throw new JourneyAuthoringError('JOURNEY_NOT_FOUND');
+    }
+    throw new JourneyAuthoringError(decision.code, { capability });
+  }
+
+  /** scope มาจาก canonical head เสมอ ไม่ใช่ค่าจาก client */
+  private scopeOf(
+    head: Pick<JrJourneyHead, 'ownerTeamId' | 'journeyId'>,
+  ): JourneyAuthoringAuthorizationScope {
+    return { teamId: head.ownerTeamId, resource: { kind: 'JOURNEY', id: head.journeyId } };
+  }
+
+  /**
+   * approval ต้องมาจากผู้อนุมัติอิสระที่ยังมีสิทธิ์ ณ ตอน publish (#331 §10, §13): vote ของ maker หรือ
+   * delegation ไม่นับ และถ้า epoch/scope version ของผู้อนุมัติเปลี่ยนหรือถูกถอนสิทธิ์ → APPROVAL_STALE
+   */
+  private async assertIndependentApproval(
+    tx: Tx,
+    tenantId: string,
+    head: JrJourneyHead,
+    candidateId: string,
+  ) {
+    const candidate = await tx.jrReviewCandidate.findUniqueOrThrow({ where: { id: candidateId } });
+    const votes = await tx.jrReviewDecisionRecord.findMany({
+      where: { tenantId, candidateId, decision: 'APPROVE', delegationId: null },
+    });
+    const independent = votes.filter((vote) => vote.reviewerSubjectId !== candidate.makerSubjectId);
+    if (independent.length === 0) throw new JourneyAuthoringError('APPROVAL_REQUIRED');
+    for (const vote of independent) {
+      const current = await this.options.authorization.authorize(tx, {
+        tenantId,
+        subjectId: vote.reviewerSubjectId,
+        capability: 'journey.review',
+        scope: this.scopeOf(head),
+        requireDirect: true,
+      });
+      if (
+        current.allowed &&
+        current.authorizationEpoch === vote.authorizationEpoch &&
+        current.scopeVersion === vote.scopeVersion
+      ) {
+        return;
+      }
+    }
+    throw new JourneyAuthoringError('APPROVAL_STALE');
+  }
+
+  /** draft/owner/head เปลี่ยน → candidate และ approval ที่ยังเปิดอยู่ใช้ไม่ได้อีก (#331 §9) */
+  private async supersedeOpenReviews(tx: Tx, tenantId: string, journeyId: string) {
+    await tx.jrReviewCandidate.updateMany({
+      where: {
+        tenantId,
+        resourceKind: 'JOURNEY',
+        resourceId: journeyId,
+        state: { in: ['IN_REVIEW', 'APPROVED'] },
+      },
+      data: { state: 'SUPERSEDED' },
+    });
   }
 
   /** schema พังบันทึกไม่ได้; graph ที่ยังไม่สมบูรณ์บันทึกได้และคืน diagnostics ให้แก้ต่อ */
@@ -960,7 +1383,9 @@ export class JourneyAuthoringRepository {
     action: string,
     reasonCode: string,
     diagnostics: readonly JourneyDiagnosticV1[],
+    headChanges: Prisma.JrJourneyHeadUpdateManyMutationInput = {},
   ): Promise<JourneyDraftResult> {
+    await this.supersedeOpenReviews(tx, context.tenantId, head.journeyId);
     const revision = head.currentDraftRevision + 1;
     const draft = await this.insertDraft(
       tx,
@@ -975,6 +1400,7 @@ export class JourneyAuthoringRepository {
       currentDraftRevision: revision,
       currentDraftDigest: draft.contentDigest,
       name: (document as AuthoringDocumentV1).settings.name,
+      ...headChanges,
     });
     await this.record(
       tx,
@@ -1026,9 +1452,10 @@ export class JourneyAuthoringRepository {
     afterDigest: string | null,
   ) {
     const occurredAt = this.now();
+    const auditId = this.id();
     await tx.jrAuthoringAudit.create({
       data: {
-        id: this.id(),
+        id: auditId,
         tenantId: context.tenantId,
         resourceKind: 'JOURNEY',
         resourceId: journeyId,
@@ -1054,7 +1481,8 @@ export class JourneyAuthoringRepository {
       data: {
         id: this.id(),
         tenantId: context.tenantId,
-        eventId: `journey-authoring:${journeyId}:${headVersion}`,
+        // review ไม่ขยับ head version จึงผูก event กับ audit row แทน — หนึ่ง audit หนึ่ง event
+        eventId: `journey-authoring:${auditId}`,
         resourceKind: 'JOURNEY',
         resourceId: journeyId,
         aggregateVersion: headVersion,

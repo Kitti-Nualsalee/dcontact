@@ -15,3 +15,4 @@ export * from './segment-membership.js';
 export * from './journey-authoring-errors-v1.js';
 export * from './journey-authoring-v1.js';
 export * from './journey-template-v1.js';
+export * from './journey-authoring-authorization-v1.js';

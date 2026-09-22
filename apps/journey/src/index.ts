@@ -34,3 +34,4 @@ export * from './journey-authoring-compiler.js';
 export * from './journey-authoring-simulator.js';
 export * from './journey-authoring-model.js';
 export * from './journey-authoring-repository.js';
+export * from './journey-authoring-presence.js';
