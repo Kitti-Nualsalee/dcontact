@@ -6,6 +6,10 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 
 const repositoryRoot = resolve(process.cwd(), '../..');
+// ค่าเริ่มต้นคือ dev database เดิม; worktree ที่ต้องแยก database ตั้งค่านี้ได้ (ชื่อเดียวกับ readiness script)
+const databaseName = process.env.CXA_ACCEPTANCE_DATABASE_NAME ?? 'dcontact';
+if (!/^[a-zA-Z0-9_]+$/.test(databaseName))
+  throw new TypeError('CXA_ACCEPTANCE_DATABASE_NAME ไม่ถูกต้อง');
 
 function queryAsApplicationRole(sql: string): string {
   const compactSql = sql.replace(/\s+/g, ' ').trim();
@@ -20,7 +24,7 @@ function queryAsApplicationRole(sql: string): string {
       'postgres',
       'sh',
       '-c',
-      `PGPASSWORD=dcontact_app psql -h 127.0.0.1 -U dcontact_app -d dcontact -tAc ${JSON.stringify(compactSql)}`,
+      `PGPASSWORD=dcontact_app psql -h 127.0.0.1 -U dcontact_app -d ${databaseName} -tAc ${JSON.stringify(compactSql)}`,
     ],
     { cwd: repositoryRoot, encoding: 'utf8' },
   ).trim();
@@ -40,7 +44,7 @@ function queryAsOwner(sql: string): string {
       '-U',
       'dcontact',
       '-d',
-      'dcontact',
+      databaseName,
       '-tAc',
       sql,
     ],
@@ -1429,5 +1433,39 @@ test('J5.1 bootstrap คงสิทธิ์ตาม migration: state ลบ�
       expected,
       table,
     );
+  }
+});
+
+test('S2.1 LINE persistence: RLS ทุกตาราง, bootstrap คงสิทธิ์ตาม migration และ append-only evidence', () => {
+  const tables = [
+    ['dl_provider_submission_attempts', 't|t|f|f'],
+    ['dl_line_audit_events', 't|t|f|f'],
+    ['dl_line_scope_gates', 't|t|t|f'],
+    ['dl_line_credential_refs', 't|t|t|f'],
+    ['dl_line_allowlist_entries', 't|t|t|f'],
+    ['dl_line_run_authorizations', 't|t|t|f'],
+    ['dl_line_cap_ledger', 't|t|t|f'],
+    ['dl_line_webhook_inbox', 't|t|t|f'],
+    ['dl_line_touch_correlations', 't|t|t|f'],
+  ] as const;
+  for (const [table, expected] of tables) {
+    assert.equal(
+      queryAsOwner(
+        `SELECT has_table_privilege('dcontact_app', '${table}', 'SELECT'), has_table_privilege('dcontact_app', '${table}', 'INSERT'), has_table_privilege('dcontact_app', '${table}', 'UPDATE'), has_table_privilege('dcontact_app', '${table}', 'DELETE');`,
+      ),
+      expected,
+      table,
+    );
+    assert.equal(
+      queryAsOwner(
+        `SELECT relrowsecurity FROM pg_class WHERE relname = '${table}'; SELECT count(*) FROM pg_policies WHERE tablename = '${table}' AND policyname = 'tenant_isolation' AND qual IS NOT NULL AND with_check IS NOT NULL;`,
+      ),
+      't\n1',
+      `${table} ต้องมี RLS + tenant_isolation ทั้ง USING/WITH CHECK`,
+    );
+  }
+  // ไม่มี tenant context = ไม่เห็นอะไรเลยแม้แถวจะมีอยู่
+  for (const [table] of tables) {
+    assert.equal(queryAsApplicationRole(`SELECT count(*) FROM ${table};`), '0', table);
   }
 });

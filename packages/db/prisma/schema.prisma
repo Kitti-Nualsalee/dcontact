@@ -855,6 +855,14 @@ enum CgFactOutcome {
   PROVIDER_REJECTED
   DELIVERED
   DELIVERY_FAILED
+  /// S2 (#361): provider รับ request แล้ว (LINE 2xx/409) — ไม่ใช่ DELIVERED และไม่ใช่ Touch
+  PROVIDER_ACCEPTED
+}
+
+/// S2 (#361 §D): Touch ของ LINE เกิดได้จาก explicit response สองแบบนี้เท่านั้น
+enum CgTouchEvidenceKind {
+  USER_QUOTED_RESPONSE
+  SIGNED_POSTBACK
 }
 
 enum CgDeliverySettlementStatus {
@@ -1378,6 +1386,10 @@ model CgTouch {
   occurredAt    DateTime      @map("occurred_at")
   correlationId String        @map("correlation_id")
   causationId   String?       @map("causation_id")
+  /// S2: หลักฐาน response ของ Touch แบบ correlated — มีทั้งคู่หรือไม่มีทั้งคู่ (CHECK ใน migration)
+  /// unique `(tenant_id, response_evidence_ref)` เป็น partial index ที่ Prisma ประกาศไม่ได้
+  evidenceKind        CgTouchEvidenceKind? @map("evidence_kind")
+  responseEvidenceRef String?              @map("response_evidence_ref")
   createdAt     DateTime      @default(now()) @map("created_at")
 
   tenant      Tenant           @relation(fields: [tenantId], references: [id])
@@ -3550,9 +3562,11 @@ enum DlDeliveryState {
   SETTLED
 }
 
-/// C1 เปิดเฉพาะ TEST_ADAPTER; provider จริงต้องผ่าน certification ก่อนเพิ่มค่าใหม่
+/// C1 เปิดเฉพาะ TEST_ADAPTER; S2 (#365) เพิ่ม LINE_MESSAGING_API สำหรับ capped pilot
+/// worker แต่ละตัว claim เฉพาะ adapter ของตัวเอง (mixed-version guard ใน OutboxRepository)
 enum DlDeliveryAdapter {
   TEST_ADAPTER
+  LINE_MESSAGING_API
 }
 
 /// C1.3: durable outbox ของ Channels/Dialer — หนึ่งแถวต่อหนึ่ง delivery ที่ claim สำเร็จแล้ว
@@ -3596,8 +3610,383 @@ model DlOutboxEntry {
   @@unique([tenantId, deliveryId], map: "dl_outbox_entries_tenant_delivery_key")
   @@unique([tenantId, providerRequestKey], map: "dl_outbox_entries_tenant_provider_request_key")
   @@unique([tenantId, outcomeRef], map: "dl_outbox_entries_tenant_outcome_ref_key")
+  @@unique([tenantId, deliveryId, providerRequestKey, adapter], map: "dl_outbox_entries_tenant_delivery_request_adapter_key")
+  @@unique([tenantId, deliveryId, adapter], map: "dl_outbox_entries_tenant_delivery_adapter_key")
   @@index([tenantId, state, leaseExpiresAt], map: "dl_outbox_entries_tenant_state_lease_expiry_idx")
   @@map("dl_outbox_entries")
+}
+
+// ── S2 LINE provider pilot (#365) ────────────────────────────────────────────
+// FK/CHECK/trigger/partial unique อยู่ใน migration 20260922160100_add_s2_line_persistence
+// (แบบเดียวกับ J5.1: ไม่ประกาศ relation field ที่นี่) — ไม่มีคอลัมน์ใดเก็บ token/secret/raw
+// LINE user ID/message body
+
+enum DlLineProviderOutcomeCode {
+  LINE_ACCEPTED
+  LINE_ACCEPTED_REPLAY
+  LINE_REQUEST_REJECTED
+  LINE_AUTH_INVALID
+  LINE_RATE_LIMITED
+  LINE_MONTHLY_QUOTA_EXHAUSTED
+  LINE_PROVIDER_UNAVAILABLE
+  LINE_UNKNOWN_OUTCOME
+  LINE_RESPONSE_INVALID
+  LINE_RETRY_WINDOW_EXPIRED
+}
+
+enum DlLineProviderOutcomeClass {
+  ACCEPTED
+  TERMINAL_REJECTED
+  RETRYABLE_UNKNOWN
+  QUARANTINED
+}
+
+enum DlLineRejectionScope {
+  RECIPIENT
+  OPERATIONAL
+}
+
+enum DlLineRolloutState {
+  DISABLED
+  DRY_RUN
+  PROVIDER_CONFORMANCE
+  CAPPED_PILOT
+}
+
+enum DlLineKillReason {
+  CROSS_TENANT_LEAK
+  ALLOWLIST_BINDING_MISMATCH
+  CG3_BYPASS
+  DUPLICATE_BUSINESS_EFFECT
+  PII_OR_CREDENTIAL_LEAK
+  EVIDENCE_HASH_MISMATCH
+  UNKNOWN_OUTCOME_EXPIRED
+  PROVIDER_ATTEMPTS_EXHAUSTED
+  AUTH_FAILURE
+  QUOTA_EXHAUSTED
+  CAP_ACCOUNTING_INCONSISTENCY
+  OPERATOR_KILL
+  COMPLIANCE_KILL
+  PILOT_ROLLBACK
+}
+
+enum DlLineRunAuthorizationState {
+  PROPOSED
+  APPROVED
+  CONSUMED
+  EXPIRED
+  REVOKED
+}
+
+enum DlLineCapKind {
+  LOGICAL_DELIVERY
+  PROVIDER_ATTEMPT
+  CONCURRENT_SUBMISSION
+  CONCURRENT_UNKNOWN
+}
+
+enum DlLineCapReservationState {
+  RESERVED
+  COMMITTED
+  RELEASED
+}
+
+enum DlLineCredentialKind {
+  CHANNEL_ACCESS_TOKEN_V2_1
+  CHANNEL_ACCESS_TOKEN_LONG_LIVED
+  CHANNEL_SECRET
+}
+
+enum DlLineCredentialStatus {
+  CANDIDATE
+  ACTIVE
+  RETIRED
+  REVOKED
+}
+
+enum DlLineWebhookInboxState {
+  PENDING
+  PROCESSING
+  COMPLETED
+  QUARANTINED
+}
+
+enum DlLineWebhookCode {
+  WEBHOOK_ACCEPTED
+  WEBHOOK_DUPLICATE
+  WEBHOOK_EMPTY_VERIFICATION
+  WEBHOOK_SIGNATURE_INVALID
+  WEBHOOK_DESTINATION_MISMATCH
+  WEBHOOK_SCHEMA_INVALID
+  WEBHOOK_IDEMPOTENCY_CONFLICT
+  WEBHOOK_UNSUPPORTED_EVENT_TYPE
+  WEBHOOK_DURABILITY_UNAVAILABLE
+  WEBHOOK_QUARANTINED
+}
+
+enum DlLineTouchCorrelationState {
+  PENDING
+  BOUND
+  QUARANTINED
+}
+
+enum DlLineAuditCategory {
+  GATE
+  KILL
+  ALLOWLIST
+  RUN_AUTHORIZATION
+  CAP
+  CREDENTIAL
+  PROVIDER
+  WEBHOOK
+}
+
+enum DlLineActorKind {
+  TENANT_ADMIN
+  COMPLIANCE
+  PLATFORM_OPERATOR
+  SYSTEM
+}
+
+/// append-only receipt ของ HTTP attempt หนึ่งครั้ง (#357 §4) — ผูก providerRequestKey เดิมผ่าน
+/// composite FK (tenant, delivery, key, adapter) จึงเก็บ key ใหม่ไม่ได้
+model DlProviderSubmissionAttempt {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  tenantId              String                     @map("tenant_id") @db.Uuid
+  deliveryId            String                     @map("delivery_id")
+  providerRequestKey    String                     @map("provider_request_key")
+  adapter               DlDeliveryAdapter          @default(LINE_MESSAGING_API)
+  attemptNo             Int                        @map("attempt_no")
+  providerPayloadDigest String                     @map("provider_payload_digest") @db.Char(64)
+  startedAt             DateTime                   @map("started_at")
+  finishedAt            DateTime                   @map("finished_at")
+  httpStatus            Int?                       @map("http_status")
+  outcomeCode           DlLineProviderOutcomeCode  @map("outcome_code")
+  outcomeClass          DlLineProviderOutcomeClass @map("outcome_class")
+  rejectionScope        DlLineRejectionScope?      @map("rejection_scope")
+  lineRequestId         String?                    @map("line_request_id")
+  lineAcceptedRequestId String?                    @map("line_accepted_request_id")
+  sentMessageIds        String[]                   @default([]) @map("sent_message_ids")
+  createdAt             DateTime                   @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "dl_provider_submission_attempts_tenant_id_key")
+  @@unique([tenantId, deliveryId, attemptNo], map: "dl_provider_submission_attempts_attempt_key")
+  @@map("dl_provider_submission_attempts")
+}
+
+/// business state + technical switch + kill latch ต่อ exact scope (#358 §A/§F)
+model DlLineScopeGate {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  profile           String              @default("S2_LINE_LOCAL_PILOT_V1")
+  channel           ChannelType         @default(LINE)
+  channelAccountId  String              @map("channel_account_id")
+  senderIdentityId  String              @map("sender_identity_id")
+  purpose           String
+  contactKind       String              @map("contact_kind")
+  businessState     DlLineRolloutState  @default(DISABLED) @map("business_state")
+  technicalSwitchOn Boolean             @default(false) @map("technical_switch_on")
+  killed            Boolean             @default(false)
+  killReason        DlLineKillReason?   @map("kill_reason")
+  killedAt          DateTime?           @map("killed_at")
+  killClearedRef    String?             @map("kill_cleared_ref")
+  configDigest      String?             @map("config_digest") @db.Char(64)
+  version           Int                 @default(1)
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "dl_line_scope_gates_tenant_id_key")
+  @@unique([tenantId, channelAccountId, senderIdentityId, purpose, contactKind], map: "dl_line_scope_gates_scope_key")
+  @@unique([tenantId, id, channelAccountId, senderIdentityId, purpose, contactKind], map: "dl_line_scope_gates_binding_key")
+  @@map("dl_line_scope_gates")
+}
+
+/// reference + metadata ของ credential ใน macOS Keychain — ไม่มี secret value (#358 §G)
+model DlLineCredentialRef {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  tenantId              String                 @map("tenant_id") @db.Uuid
+  channelAccountId      String                 @map("channel_account_id")
+  credentialKind        DlLineCredentialKind   @map("credential_kind")
+  version               Int
+  status                DlLineCredentialStatus @default(CANDIDATE)
+  keychainService       String                 @map("keychain_service")
+  keychainAccount       String                 @map("keychain_account")
+  fingerprint           String                 @db.Char(64)
+  keyId                 String?                @map("key_id")
+  issuedAt              DateTime               @map("issued_at")
+  expiresAt             DateTime?              @map("expires_at")
+  verifiedAt            DateTime?              @map("verified_at")
+  activatedAt           DateTime?              @map("activated_at")
+  retiredAt             DateTime?              @map("retired_at")
+  revokedAt             DateTime?              @map("revoked_at")
+  longLivedExceptionRef String?                @map("long_lived_exception_ref")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "dl_line_credential_refs_tenant_id_key")
+  @@unique([tenantId, id, version], map: "dl_line_credential_refs_binding_key")
+  @@unique([tenantId, channelAccountId, credentialKind, version], map: "dl_line_credential_refs_version_key")
+  @@map("dl_line_credential_refs")
+}
+
+/// exact allowlist tuple รวม recipient fingerprint + content (#358 §B); แก้ได้แค่ revoke ครั้งเดียว
+model DlLineAllowlistEntry {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tenantId              String    @map("tenant_id") @db.Uuid
+  gateId                String    @map("gate_id") @db.Uuid
+  channelAccountId      String    @map("channel_account_id")
+  senderIdentityId      String    @map("sender_identity_id")
+  purpose               String
+  contactKind           String    @map("contact_kind")
+  recipientFingerprint  String    @map("recipient_fingerprint") @db.Char(64)
+  recipientProtectedRef String    @map("recipient_protected_ref")
+  contentRef            String    @map("content_ref")
+  contentDigest         String    @map("content_digest") @db.Char(64)
+  configDigest          String    @map("config_digest") @db.Char(64)
+  validFrom             DateTime  @map("valid_from")
+  validUntil            DateTime  @map("valid_until")
+  approvalAuditRef      String    @map("approval_audit_ref")
+  revokedAt             DateTime? @map("revoked_at")
+  revocationCode        String?   @map("revocation_code")
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "dl_line_allowlist_entries_tenant_id_key")
+  @@unique([tenantId, id, gateId], map: "dl_line_allowlist_entries_binding_key")
+  @@unique([tenantId, gateId, recipientFingerprint, contentDigest, configDigest], map: "dl_line_allowlist_entries_tuple_key")
+  @@map("dl_line_allowlist_entries")
+}
+
+/// immutable run proposal + approvals + one-shot consume (#358 §E)
+model DlLineRunAuthorization {
+  id                    String                      @id @default(uuid()) @db.Uuid
+  tenantId              String                      @map("tenant_id") @db.Uuid
+  gateId                String                      @map("gate_id") @db.Uuid
+  allowlistEntryId      String                      @map("allowlist_entry_id") @db.Uuid
+  credentialRefId       String                      @map("credential_ref_id") @db.Uuid
+  credentialVersion     Int                         @map("credential_version")
+  proposalDigest        String                      @map("proposal_digest") @db.Char(64)
+  configDigest          String                      @map("config_digest") @db.Char(64)
+  profile               String                      @default("S2_LINE_LOCAL_PILOT_V1")
+  capLogicalDeliveries  Int                         @map("cap_logical_deliveries")
+  capProviderAttempts   Int                         @map("cap_provider_attempts")
+  proposedBy            String                      @map("proposed_by")
+  proposedAt            DateTime                    @map("proposed_at")
+  tenantAdminApprovedBy String?                     @map("tenant_admin_approved_by")
+  tenantAdminApprovedAt DateTime?                   @map("tenant_admin_approved_at")
+  complianceApprovedBy  String?                     @map("compliance_approved_by")
+  complianceApprovedAt  DateTime?                   @map("compliance_approved_at")
+  expiresAt             DateTime                    @map("expires_at")
+  state                 DlLineRunAuthorizationState @default(PROPOSED)
+  consumedAt            DateTime?                   @map("consumed_at")
+  consumedDeliveryId    String?                     @map("consumed_delivery_id")
+  adapter               DlDeliveryAdapter           @default(LINE_MESSAGING_API)
+  closedAt              DateTime?                   @map("closed_at")
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  updatedAt             DateTime                    @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "dl_line_run_authorizations_tenant_id_key")
+  @@unique([tenantId, proposalDigest], map: "dl_line_run_authorizations_proposal_key")
+  @@index([tenantId, gateId, state, expiresAt], map: "dl_line_run_authorizations_gate_state_idx")
+  @@map("dl_line_run_authorizations")
+}
+
+/// หนึ่งแถวต่อหนึ่งหน่วย cap ที่จอง — นับภายใต้ row lock ของ gate (#358 §C)
+model DlLineCapLedgerEntry {
+  id                   String                    @id @default(uuid()) @db.Uuid
+  tenantId             String                    @map("tenant_id") @db.Uuid
+  gateId               String                    @map("gate_id") @db.Uuid
+  runAuthorizationId   String                    @map("run_authorization_id") @db.Uuid
+  deliveryId           String                    @map("delivery_id")
+  adapter              DlDeliveryAdapter         @default(LINE_MESSAGING_API)
+  capKind              DlLineCapKind             @map("cap_kind")
+  attemptNo            Int                       @default(0) @map("attempt_no")
+  recipientFingerprint String                    @map("recipient_fingerprint") @db.Char(64)
+  state                DlLineCapReservationState @default(RESERVED)
+  reservedAt           DateTime                  @map("reserved_at")
+  settledAt            DateTime?                 @map("settled_at")
+  createdAt            DateTime                  @default(now()) @map("created_at")
+  updatedAt            DateTime                  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "dl_line_cap_ledger_tenant_id_key")
+  @@unique([tenantId, deliveryId, capKind, attemptNo], map: "dl_line_cap_ledger_reservation_key")
+  @@index([tenantId, gateId, capKind, state, reservedAt], map: "dl_line_cap_ledger_gate_window_idx")
+  @@index([tenantId, gateId, recipientFingerprint, reservedAt], map: "dl_line_cap_ledger_recipient_window_idx")
+  @@map("dl_line_cap_ledger")
+}
+
+/// durable inbox หนึ่งแถวต่อ webhook event หลัง signature ผ่าน (#359 §C) — payload จริงอยู่ใน
+/// encrypted operational store ที่อ้างด้วย protectedPayloadRef
+model DlLineWebhookInboxEntry {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  tenantId            String                  @map("tenant_id") @db.Uuid
+  channelAccountId    String                  @map("channel_account_id")
+  webhookEventId      String                  @map("webhook_event_id")
+  payloadHash         String                  @map("payload_hash") @db.Char(64)
+  eventType           String                  @map("event_type")
+  deliveryMode        String                  @map("delivery_mode")
+  isRedelivery        Boolean                 @map("is_redelivery")
+  providerTimestamp   DateTime                @map("provider_timestamp")
+  receivedAt          DateTime                @map("received_at")
+  protectedPayloadRef String                  @map("protected_payload_ref")
+  state               DlLineWebhookInboxState @default(PENDING)
+  outcomeCode         DlLineWebhookCode?      @map("outcome_code")
+  attempts            Int                     @default(0)
+  leaseOwner          String?                 @map("lease_owner")
+  leaseExpiresAt      DateTime?               @map("lease_expires_at")
+  completedAt         DateTime?               @map("completed_at")
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "dl_line_webhook_inbox_tenant_id_key")
+  @@unique([tenantId, channelAccountId, webhookEventId], map: "dl_line_webhook_inbox_event_key")
+  @@index([tenantId, state, leaseExpiresAt, receivedAt], map: "dl_line_webhook_inbox_claim_idx")
+  @@map("dl_line_webhook_inbox")
+}
+
+/// การผูก response กับ accepted Attempt (#361 §D/§F) — ไม่มี raw body/user ID
+model DlLineTouchCorrelation {
+  id                  String                      @id @default(uuid()) @db.Uuid
+  tenantId            String                      @map("tenant_id") @db.Uuid
+  inboxEntryId        String                      @map("inbox_entry_id") @db.Uuid
+  evidenceKind        CgTouchEvidenceKind         @map("evidence_kind")
+  responseEvidenceRef String                      @map("response_evidence_ref")
+  quotedMessageId     String?                     @map("quoted_message_id")
+  providerTimestamp   DateTime                    @map("provider_timestamp")
+  windowExpiresAt     DateTime                    @map("window_expires_at")
+  state               DlLineTouchCorrelationState @default(PENDING)
+  deliveryId          String?                     @map("delivery_id")
+  adapter             DlDeliveryAdapter           @default(LINE_MESSAGING_API)
+  attemptId           String?                     @map("attempt_id") @db.Uuid
+  quarantineCode      String?                     @map("quarantine_code")
+  resolvedAt          DateTime?                   @map("resolved_at")
+  createdAt           DateTime                    @default(now()) @map("created_at")
+  updatedAt           DateTime                    @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "dl_line_touch_correlations_tenant_id_key")
+  @@unique([tenantId, responseEvidenceRef], map: "dl_line_touch_correlations_evidence_key")
+  @@unique([tenantId, inboxEntryId], map: "dl_line_touch_correlations_inbox_key")
+  @@index([tenantId, state, windowExpiresAt], map: "dl_line_touch_correlations_pending_idx")
+  @@map("dl_line_touch_correlations")
+}
+
+/// append-only audit ของ gate/kill/allowlist/run/cap/credential/provider/webhook — machine code เท่านั้น
+model DlLineAuditEvent {
+  id             String              @id @default(uuid()) @db.Uuid
+  tenantId       String              @map("tenant_id") @db.Uuid
+  eventId        String              @map("event_id")
+  category       DlLineAuditCategory
+  code           String
+  actorKind      DlLineActorKind     @map("actor_kind")
+  actorRef       String              @map("actor_ref")
+  subjectId      String?             @map("subject_id") @db.Uuid
+  deliveryId     String?             @map("delivery_id")
+  evidenceDigest String?             @map("evidence_digest") @db.Char(64)
+  occurredAt     DateTime            @map("occurred_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  @@unique([tenantId, eventId], map: "dl_line_audit_events_event_key")
+  @@index([tenantId, category, occurredAt], map: "dl_line_audit_events_category_idx")
+  @@map("dl_line_audit_events")
 }
 
 // ─────────────────────────── Interactions (record กลางทุก channel) ───────────────────────────

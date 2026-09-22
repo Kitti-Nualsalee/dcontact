@@ -64,6 +64,10 @@ jobs:
       - name: J5 schema readiness validator tests
         run: pnpm test:cxa-j5-schema-readiness
 
+      # S2.1 (#365): registry ของ LINE persistence ตรงกับ migration/rls.sql และ migration เป็น expand-only
+      - name: S2 schema readiness validator tests
+        run: pnpm test:cxa-s2-schema-readiness
+
   s1-convergence-acceptance:
     # S1 ใช้เวลานานและ J3 final gate เรียกเองอยู่แล้ว: ไม่รันทุก main push
     # เพื่อให้ development ใช้ focused gate ได้ก่อน แล้วเรียก S1 เมื่อเลือก manual เท่านั้น
