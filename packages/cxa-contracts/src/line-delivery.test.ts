@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import {
   DELIVERY_ADAPTERS,
+  LINE_ALWAYS_OPERATIONAL_REJECTIONS,
   LINE_CAP_KINDS,
   LINE_CAP_RESERVATION_STATES,
   LINE_CREDENTIAL_KINDS,
@@ -76,6 +77,17 @@ test('outcome code -> class ใน contract ตรงกับ CHECK ของ d
   // 2xx/409 เป็น acceptance เท่านั้น ไม่ใช่ delivered; unknown ยัง reconcile ด้วย key เดิม
   assert.equal(LINE_PROVIDER_OUTCOME_CLASS.LINE_ACCEPTED_REPLAY, 'ACCEPTED');
   assert.equal(LINE_PROVIDER_OUTCOME_CLASS.LINE_RESPONSE_INVALID, 'RETRYABLE_UNKNOWN');
+});
+
+test('operational rejection list ตรงกับ CHECK ของ dl_provider_submission_attempts_rejection_check', () => {
+  // ต่างจาก outcome class ตรงที่ CHECK นี้เป็น NOT (scope=RECIPIENT AND code IN (...)) ไม่ใช่ CASE
+  // ตรง ๆ — ยังต้อง parse รายชื่อ code ออกมาเทียบ ไม่งั้น TS กับ DB เดินแยกกันได้โดยไม่มีเทสต์จับ
+  const check = persistenceSql.match(
+    /"rejection_scope" = 'RECIPIENT'\s*\n\s*AND "outcome_code" IN \(([^)]*)\)/,
+  );
+  assert.ok(check);
+  const codesFromSql = [...check[1]!.matchAll(/'([A-Z_]+)'/g)].map((row) => row[1]!);
+  assert.deepEqual(codesFromSql.sort(), [...LINE_ALWAYS_OPERATIONAL_REJECTIONS].sort());
 });
 
 test('rejection scope: เฉพาะ TERMINAL_REJECTED ต้องมี scope และ auth/rate/quota เป็น operational', () => {
