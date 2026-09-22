@@ -1,0 +1,27 @@
+{
+  "name": "synthetic-j3-segment",
+  "ownerTeamId": "team-synthetic-1",
+  "purpose": "MARKETING",
+  "senderIdentityId": "sender-synthetic",
+  "trigger": {
+    "kind": "SEGMENT_ENTRY",
+    "segmentId": "segment-vip",
+    "coalescingPolicy": "PER_SEGMENT_ENTRY"
+  },
+  "graph": {
+    "entryStepId": "welcome",
+    "steps": [
+      {
+        "id": "welcome",
+        "type": "SEND",
+        "channel": "WHATSAPP",
+        "contentRef": "content-vip",
+        "next": "end"
+      },
+      { "id": "end", "type": "EXIT", "reason": "WELCOMED" }
+    ]
+  },
+  "goal": { "kind": "EVENT", "eventType": "order.created" },
+  "exitRules": [{ "kind": "GOAL" }, { "kind": "HIGHER_PRIORITY_JOURNEY" }],
+  "maxDurationDays": 30
+}

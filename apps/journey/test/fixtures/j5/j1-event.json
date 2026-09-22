@@ -1,0 +1,36 @@
+{
+  "name": "synthetic-j1-event",
+  "ownerTeamId": "team-synthetic-1",
+  "purpose": "SERVICE",
+  "senderIdentityId": "sender-synthetic",
+  "trigger": { "kind": "EVENT", "eventType": "payment.failed" },
+  "graph": {
+    "entryStepId": "send-reminder",
+    "steps": [
+      {
+        "id": "send-reminder",
+        "type": "SEND",
+        "channel": "LINE",
+        "contentRef": "content-reminder",
+        "next": "wait-1d"
+      },
+      { "id": "wait-1d", "type": "WAIT", "waitSeconds": 86400, "next": "is-paid" },
+      {
+        "id": "is-paid",
+        "type": "BRANCH",
+        "expression": {
+          "language": "DC_EXPR",
+          "version": 1,
+          "expression": { "type": "ref", "path": ["vars", "paid"] }
+        },
+        "whenTrue": "exit-paid",
+        "whenFalse": "exit-unpaid"
+      },
+      { "id": "exit-paid", "type": "EXIT", "reason": "PAID" },
+      { "id": "exit-unpaid", "type": "EXIT", "reason": "UNPAID" }
+    ]
+  },
+  "goal": { "kind": "EVENT", "eventType": "payment.received" },
+  "exitRules": [{ "kind": "GOAL" }, { "kind": "EVENT", "eventType": "account.closed" }],
+  "maxDurationDays": 14
+}

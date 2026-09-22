@@ -1,0 +1,30 @@
+{
+  "name": "synthetic-j2-outcome",
+  "ownerTeamId": "team-synthetic-1",
+  "purpose": "SERVICE",
+  "senderIdentityId": "sender-synthetic",
+  "trigger": {
+    "kind": "INTERACTION_OUTCOME",
+    "outcomeType": "INTERACTION_ABANDONED",
+    "coalescingPolicy": "PER_LOGICAL_OUTCOME"
+  },
+  "graph": {
+    "entryStepId": "ensure-case",
+    "steps": [
+      {
+        "id": "ensure-case",
+        "type": "ENSURE_CASE",
+        "caseTypeId": "case-type-abandon",
+        "routingIntentRef": "routing-callback",
+        "targetOwnerTeamId": "team-synthetic-2",
+        "next": "exit-case",
+        "onReject": "exit-rejected"
+      },
+      { "id": "exit-case", "type": "EXIT", "reason": "CASE_ENSURED" },
+      { "id": "exit-rejected", "type": "EXIT", "reason": "CASE_REJECTED" }
+    ]
+  },
+  "goal": { "kind": "EVENT", "eventType": "case.resolved" },
+  "exitRules": [{ "kind": "GOAL" }],
+  "maxDurationDays": 3
+}

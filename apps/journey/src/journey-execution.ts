@@ -22,6 +22,7 @@ import {
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
 import type { ExpressionContext, ExpressionEvaluator } from '@d-contact/cxa-contracts';
+import { planJourneyStep } from './journey-transition-planner.js';
 import type {
   JourneyGraph,
   JourneyGraphStep,
@@ -367,8 +368,14 @@ export class JourneyExecutionService {
 
       const step = stepOf(definition.graph, row.currentStepId);
       const sequence = row.stepSequence + 1;
+      // semantics ของ node มาจาก planner กลางชุดเดียวกับ simulator ของ J5 (#340)
+      const plan = planJourneyStep(step, {
+        now,
+        context: input.context ?? {},
+        evaluator: this.evaluator,
+      });
 
-      if (step.type === 'EXIT') {
+      if (plan.kind === 'EXIT') {
         await this.recordStepRun(transaction, tenantId, row, sequence, step, input, {
           state: 'COMPLETED',
         });
@@ -379,15 +386,15 @@ export class JourneyExecutionService {
         return { kind: 'TERMINAL' as const, reason: 'GRAPH_EXIT', enrollment: view(exited) };
       }
 
-      if (step.type === 'WAIT') {
-        const wakeAt = new Date(now.getTime() + step.waitSeconds * 1_000);
+      if (plan.kind === 'WAIT') {
+        const wakeAt = plan.wakeAt;
         await this.recordStepRun(transaction, tenantId, row, sequence, step, input, {
           state: 'COMPLETED',
-          nextStepId: step.next,
+          nextStepId: plan.nextStepId,
         });
         const waiting = await this.moveCursor(transaction, tenantId, row, sequence, {
           runState: 'WAITING',
-          currentStepId: step.next,
+          currentStepId: plan.nextStepId,
           waitUntil: wakeAt,
           claimedBy: null,
           claimExpiresAt: null,
@@ -400,15 +407,8 @@ export class JourneyExecutionService {
         };
       }
 
-      if (step.type === 'BRANCH') {
-        const evaluation = this.evaluator.evaluate({
-          document: step.expression,
-          context: input.context ?? {},
-          expectedType: 'boolean',
-        });
-        // BRANCH ที่ประเมินไม่ได้ต้อง fail closed ไปทาง whenFalse ไม่ใช่ค้างอยู่กับที่
-        const branchResult = evaluation.status === 'OK' && evaluation.value === true;
-        const nextStepId = branchResult ? step.whenTrue : step.whenFalse;
+      if (plan.kind === 'BRANCH') {
+        const { branchResult, nextStepId } = plan;
         await this.recordStepRun(transaction, tenantId, row, sequence, step, input, {
           state: 'COMPLETED',
           nextStepId,
@@ -430,7 +430,7 @@ export class JourneyExecutionService {
       // SEND: C1.5 หยุดตรงนี้ ไม่แตะ Governance/Delivery — C1.6 เป็นคนต่อ
       await this.recordStepRun(transaction, tenantId, row, sequence, step, input, {
         state: 'AWAITING_SEND',
-        nextStepId: step.next,
+        nextStepId: plan.kind === 'AWAIT_SEND' ? plan.nextStepId : plan.acceptedStepId,
       });
       const pending = await this.moveCursor(transaction, tenantId, row, sequence, {
         runState: 'RUNNING',

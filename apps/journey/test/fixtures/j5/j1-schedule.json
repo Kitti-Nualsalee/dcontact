@@ -1,0 +1,23 @@
+{
+  "name": "synthetic-j1-schedule",
+  "ownerTeamId": "team-synthetic-1",
+  "purpose": "SERVICE",
+  "senderIdentityId": "sender-synthetic",
+  "trigger": { "kind": "SCHEDULE", "cron": "0 9 * * 1", "timezone": "Asia/Bangkok" },
+  "graph": {
+    "entryStepId": "send-weekly",
+    "steps": [
+      {
+        "id": "send-weekly",
+        "type": "SEND",
+        "channel": "EMAIL",
+        "contentRef": "content-weekly",
+        "next": "done"
+      },
+      { "id": "done", "type": "EXIT", "reason": "SENT" }
+    ]
+  },
+  "goal": { "kind": "EVENT", "eventType": "survey.completed" },
+  "exitRules": [{ "kind": "GOAL" }],
+  "maxDurationDays": 7
+}
