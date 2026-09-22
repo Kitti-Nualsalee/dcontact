@@ -7,6 +7,7 @@ import {
   type AuthoringDocumentV1,
   type CheckTemplateUpgradeRequestV1,
   type JourneyAuthoringAuthorizationScope,
+  type JourneyReviewState,
   type JourneyTemplateContentV1,
   type JourneyTemplateLifecycle,
   type JourneyTemplateNoticeV1,
@@ -51,6 +52,7 @@ import {
  */
 
 type Tx = Prisma.TransactionClient;
+const TEMPLATE_SCAN_BATCH = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface TemplateSource {
@@ -175,49 +177,62 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
             currentDraftDigest: head.currentDraftDigest,
           });
         }
-        const content = this.contentOf(input.document, input.parameterSchema);
-        const diagnostics = this.assertTemplateSavable(content);
-        const revision = head.currentDraftRevision + 1;
-        const digest = journeyAuthoringDigest(content);
-        const draftId = this.id();
-        await tx.jrTemplateDraft.create({
-          data: {
-            id: draftId,
-            tenantId: context.tenantId,
-            templateId: head.templateId,
-            revision,
-            schemaVersion: JOURNEY_TEMPLATE_SCHEMA_VERSION,
-            registryVersion: JOURNEY_AUTHORING_REGISTRY_VERSION,
-            document: input.document as unknown as Prisma.InputJsonValue,
-            parameterSchema: input.parameterSchema as unknown as Prisma.InputJsonValue,
-            contentDigest: digest,
-            createdByRef: context.actor.subjectId,
-          },
-        });
-        await this.supersedeTemplateReviews(tx, context.tenantId, head.templateId);
-        const headVersion = await this.casTemplateHead(tx, head, {
-          currentDraftId: draftId,
-          currentDraftRevision: revision,
-          currentDraftDigest: digest,
-        });
-        await this.record(
+        return this.appendTemplateDraft(
           tx,
           context,
-          head.templateId,
-          headVersion,
+          head,
+          input.document,
+          input.parameterSchema,
           'TEMPLATE_DRAFT_UPDATED',
           'USER_EDIT',
-          head.currentDraftDigest,
-          digest,
-          'TEMPLATE',
         );
-        return {
-          templateId: head.templateId,
-          headVersion,
-          draftRevision: revision,
-          draftDigest: digest,
-          diagnostics,
-        };
+      },
+      'TEMPLATE',
+    );
+  }
+
+  /** ทิ้ง draft กลับเป็นเนื้อหาของ version ที่ active — เกิดเป็น revision ใหม่ ไม่ลบประวัติ */
+  async discardTemplateDraft(
+    context: JourneyCommandContext,
+    input: {
+      readonly templateId: string;
+      readonly expectedHeadVersion: number;
+      readonly expectedDraftRevision: number;
+      readonly expectedDraftDigest: string;
+      readonly reasonCode: string;
+    },
+  ) {
+    return this.command(
+      context,
+      'DiscardTemplateDraft',
+      input.templateId,
+      input,
+      async (tx) => {
+        await this.assertWriteEnabled(tx, context.tenantId, 'templateCatalog');
+        const head = await this.lockedTemplateHead(tx, context.tenantId, input.templateId);
+        await this.authorize(tx, context, 'template.edit', this.templateScope(head));
+        this.assertTemplateEditable(head);
+        this.assertTemplateCas(
+          head,
+          input.expectedHeadVersion,
+          input.expectedDraftRevision,
+          input.expectedDraftDigest,
+        );
+        if (head.activeVersion === null) {
+          throw new JourneyAuthoringError('JOURNEY_LIFECYCLE_CONFLICT', {
+            reason: 'NOTHING_TO_DISCARD_TO',
+          });
+        }
+        const active = await this.tenantVersionView(tx, head, head.activeVersion);
+        return this.appendTemplateDraft(
+          tx,
+          context,
+          head,
+          active.content.document,
+          active.content.parameterSchema,
+          'TEMPLATE_DRAFT_DISCARDED',
+          input.reasonCode,
+        );
       },
       'TEMPLATE',
     );
@@ -295,6 +310,8 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     input: {
       readonly templateId: string;
       readonly reviewId: string;
+      /** ค่าที่ reviewer เห็นอยู่ — ไม่ส่งมาถือว่า IN_REVIEW (สถานะเดียวที่ตัดสินได้) */
+      readonly expectedReviewState?: JourneyReviewState;
       readonly decision: 'APPROVE' | 'REJECT' | 'REQUEST_CHANGES';
       readonly reasonCode: string;
       readonly evidenceRef: string;
@@ -323,8 +340,12 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
           },
         });
         if (!candidate) throw new JourneyAuthoringError('TEMPLATE_NOT_FOUND');
-        if (candidate.state !== 'IN_REVIEW' || candidate.draftDigest !== head.currentDraftDigest) {
-          throw new JourneyAuthoringError('REVIEW_CANDIDATE_STALE');
+        if (
+          candidate.state !== (input.expectedReviewState ?? 'IN_REVIEW') ||
+          candidate.state !== 'IN_REVIEW' ||
+          candidate.draftDigest !== head.currentDraftDigest
+        ) {
+          throw new JourneyAuthoringError('REVIEW_CANDIDATE_STALE', { state: candidate.state });
         }
         if (candidate.makerSubjectId === context.actor.subjectId)
           throw new JourneyAuthoringError('APPROVAL_SELF_FORBIDDEN');
@@ -575,31 +596,125 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
   // ── Catalog ───────────────────────────────────────────────────────────────
 
   /**
-   * built-in ทั้งหมด + tenant template ที่ publish แล้วและผู้เรียกอ่านได้ตาม visibility — ARCHIVED
-   * ไม่อยู่ใน catalog ปกติ; ของที่อ่านไม่ได้ไม่ถูกนับหรือบอกใบ้ว่ามีอยู่
+   * built-in + tenant template ที่ publish แล้วและผู้เรียกอ่านได้ตาม visibility — ARCHIVED ไม่อยู่ใน
+   * catalog ปกติ; ของที่อ่านไม่ได้ไม่ถูกนับหรือบอกใบ้ว่ามีอยู่ built-in อยู่หน้าแรกเสมอ ส่วน tenant
+   * template เป็น keyset ตาม templateId
    */
   async listVisibleTemplates(
     tenantId: string,
     actor: JourneyAuthoringActor,
-  ): Promise<JourneyTemplateVersionViewV1[]> {
+    input: {
+      readonly origin?: JourneyTemplateOrigin;
+      readonly visibility?: JourneyTemplateVisibility;
+      readonly limit?: number;
+      readonly cursor?: string;
+    } = {},
+  ): Promise<{
+    readonly items: JourneyTemplateVersionViewV1[];
+    readonly nextCursor: string | null;
+  }> {
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
-      const heads = await tx.jrTemplateHead.findMany({
-        where: {
-          tenantId,
-          activeVersionId: { not: null },
-          lifecycle: { in: ['ACTIVE', 'DEPRECATED'] },
-        },
-        orderBy: { templateId: 'asc' },
-      });
-      const visible: JourneyTemplateVersionViewV1[] = [
-        ...this.catalog.list().filter((entry) => entry.lifecycle !== 'ARCHIVED'),
-      ];
-      for (const head of heads) {
-        if (!(await this.canRead(tx, tenantId, actor, head))) continue;
-        visible.push(await this.tenantVersionView(tx, head, head.activeVersion!));
+      const items: JourneyTemplateVersionViewV1[] =
+        input.cursor || input.origin === 'TENANT'
+          ? []
+          : this.catalog
+              .list()
+              .filter(
+                (entry) =>
+                  entry.lifecycle !== 'ARCHIVED' &&
+                  (!input.visibility || entry.visibility === input.visibility),
+              );
+      if (input.origin === 'PLATFORM_BUILTIN') return { items, nextCursor: null };
+      let after = input.cursor;
+      let tenantCount = 0;
+      for (;;) {
+        const heads = await tx.jrTemplateHead.findMany({
+          where: {
+            tenantId,
+            activeVersionId: { not: null },
+            lifecycle: { in: ['ACTIVE', 'DEPRECATED'] },
+            ...(input.visibility ? { visibility: input.visibility } : {}),
+            ...(after ? { templateId: { gt: after } } : {}),
+          },
+          orderBy: { templateId: 'asc' },
+          take: TEMPLATE_SCAN_BATCH,
+        });
+        for (const head of heads) {
+          after = head.templateId;
+          if (!(await this.canRead(tx, tenantId, actor, head))) continue;
+          items.push(await this.tenantVersionView(tx, head, head.activeVersion!));
+          tenantCount += 1;
+          if (tenantCount === limit) return { items, nextCursor: head.templateId };
+        }
+        if (heads.length < TEMPLATE_SCAN_BATCH) return { items, nextCursor: null };
       }
-      return visible;
     });
+  }
+
+  /**
+   * head + version (ค่าเริ่มต้นคือ active) ของ template ที่มองเห็นได้; draft แนบมาเฉพาะผู้มี
+   * template.edit เพราะ draft ยังไม่ผ่าน review
+   */
+  async getTemplate(
+    tenantId: string,
+    actor: JourneyAuthoringActor,
+    input: { readonly templateId: string; readonly version?: number },
+  ) {
+    const builtIn = this.catalog.get(input.templateId, input.version);
+    if (builtIn || this.catalog.get(input.templateId)) {
+      if (!builtIn) throw new JourneyAuthoringError('TEMPLATE_VERSION_NOT_FOUND');
+      return { origin: 'PLATFORM_BUILTIN' as const, head: null, version: builtIn, draft: null };
+    }
+    return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
+      const head = await this.templateHead(tx, tenantId, input.templateId);
+      if (!(await this.canRead(tx, tenantId, actor, head)))
+        throw new JourneyAuthoringError('TEMPLATE_NOT_FOUND');
+      const versionNumber = input.version ?? head.activeVersion;
+      const version =
+        versionNumber === null ? null : await this.tenantVersionView(tx, head, versionNumber);
+      const canEdit = (
+        await this.options.authorization.authorize(tx, {
+          tenantId,
+          subjectId: actor.subjectId,
+          capability: 'template.edit',
+          scope: this.templateScope(head),
+        })
+      ).allowed;
+      const draft = canEdit
+        ? await tx.jrTemplateDraft.findFirstOrThrow({
+            where: { tenantId, templateId: head.templateId, revision: head.currentDraftRevision },
+          })
+        : null;
+      return {
+        origin: 'TENANT' as const,
+        head: {
+          templateId: head.templateId,
+          name: head.name,
+          ownerTeamId: head.ownerTeamId,
+          visibility: head.visibility,
+          lifecycle: head.lifecycle,
+          version: head.version,
+          currentDraftRevision: head.currentDraftRevision,
+          currentDraftDigest: head.currentDraftDigest,
+          activeVersion: head.activeVersion,
+        },
+        version,
+        draft: draft
+          ? {
+              revision: draft.revision,
+              digest: draft.contentDigest,
+              document: draft.document as unknown as AuthoringDocumentV1,
+              parameterSchema: draft.parameterSchema as unknown as JourneyTemplateParameterV1[],
+            }
+          : null,
+      };
+    });
+  }
+
+  /** built-in ระบุด้วย id ที่คงที่ใน catalog; id อื่นทั้งหมดถือเป็น tenant template */
+  templateOrigin(templateId: string): JourneyTemplateOrigin {
+    return this.catalog.get(templateId) ? 'PLATFORM_BUILTIN' : 'TENANT';
   }
 
   // ── Instantiate / fork ────────────────────────────────────────────────────
@@ -939,6 +1054,60 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
     if (blocking.length > 0)
       throw new JourneyAuthoringError(blocking[0]!.code, undefined, blocking);
     return diagnostics;
+  }
+
+  private async appendTemplateDraft(
+    tx: Tx,
+    context: JourneyCommandContext,
+    head: JrTemplateHead,
+    document: AuthoringDocumentV1,
+    parameterSchema: readonly JourneyTemplateParameterV1[],
+    action: string,
+    reasonCode: string,
+  ) {
+    const content = this.contentOf(document, parameterSchema);
+    const diagnostics = this.assertTemplateSavable(content);
+    const revision = head.currentDraftRevision + 1;
+    const digest = journeyAuthoringDigest(content);
+    const draftId = this.id();
+    await tx.jrTemplateDraft.create({
+      data: {
+        id: draftId,
+        tenantId: context.tenantId,
+        templateId: head.templateId,
+        revision,
+        schemaVersion: JOURNEY_TEMPLATE_SCHEMA_VERSION,
+        registryVersion: JOURNEY_AUTHORING_REGISTRY_VERSION,
+        document: document as unknown as Prisma.InputJsonValue,
+        parameterSchema: parameterSchema as unknown as Prisma.InputJsonValue,
+        contentDigest: digest,
+        createdByRef: context.actor.subjectId,
+      },
+    });
+    await this.supersedeTemplateReviews(tx, context.tenantId, head.templateId);
+    const headVersion = await this.casTemplateHead(tx, head, {
+      currentDraftId: draftId,
+      currentDraftRevision: revision,
+      currentDraftDigest: digest,
+    });
+    await this.record(
+      tx,
+      context,
+      head.templateId,
+      headVersion,
+      action,
+      reasonCode,
+      head.currentDraftDigest,
+      digest,
+      'TEMPLATE',
+    );
+    return {
+      templateId: head.templateId,
+      headVersion,
+      draftRevision: revision,
+      draftDigest: digest,
+      diagnostics,
+    };
   }
 
   private templateScope(

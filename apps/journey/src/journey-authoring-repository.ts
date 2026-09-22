@@ -23,6 +23,9 @@ import {
   type TransferJourneyOwnershipRequestV1,
   type JourneyReviewState,
   type PublishJourneyResultV1,
+  type PlanPreviewV1,
+  type SimulationFixtureV1,
+  type SimulationResultV1,
 } from '@d-contact/cxa-contracts';
 import {
   JOURNEY_RUNTIME_CAPABILITIES,
@@ -38,6 +41,10 @@ import {
   type JourneyAuthoringAuthorizationPort,
   type JourneyAuthoringFeatureFlags,
 } from './journey-authoring-model.js';
+import {
+  previewJourneyPlan as planPreview,
+  simulateJourneyScenario as runSimulation,
+} from './journey-authoring-simulator.js';
 import { validateAuthoringDocument } from './journey-authoring-validator.js';
 import {
   JourneyDefinitionValidationError,
@@ -72,6 +79,20 @@ const REFERENCE_CODES = new Set([
   'TARGET_TEAM_UNTRUSTED',
   'SEGMENT_REFERENCE_UNTRUSTED',
 ]);
+
+/** จำนวนแถวที่สแกนต่อรอบตอนกรองสิทธิ์รายแถวของ list */
+const LIST_SCAN_BATCH = 200;
+
+export interface JourneyAuthoringSummary {
+  readonly journeyId: string;
+  readonly name: string;
+  readonly ownerTeamId: string;
+  readonly lifecycle: JourneyLifecycle;
+  readonly version: number;
+  readonly currentDraftRevision: number;
+  readonly activeVersion: number | null;
+  readonly updatedAt: string;
+}
 
 export type JourneyAuthoringCheckpoint = 'DEFINITION_PUBLISHED' | 'HEAD_ACTIVATED';
 
@@ -921,9 +942,13 @@ export class JourneyAuthoringRepository {
   /** publish ที่ไม่รู้ผล: อ่าน receipt ของ key เดิมเท่านั้น ไม่ publish ซ้ำ */
   async resolvePublish(
     tenantId: string,
+    actor: JourneyAuthoringActor,
     input: { readonly journeyId: string; readonly originalIdempotencyKey: string },
   ): Promise<PublishJourneyResultV1 & { readonly errorCode?: string }> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
+      // ผลของ publish เปิดเผย version/runtime hash — ต้องมองเห็น journey ก่อน ไม่ใช่รู้ key ก็อ่านได้
+      const head = await this.head(tx, tenantId, input.journeyId);
+      await this.authorize(tx, { tenantId, actor }, 'journey.read', this.scopeOf(head));
       const receipt = await tx.jrAuthoringCommandReceipt.findUnique({
         where: {
           tenantId_idempotencyKey: { tenantId, idempotencyKey: input.originalIdempotencyKey },
@@ -1038,7 +1063,188 @@ export class JourneyAuthoringRepository {
     });
   }
 
+  /**
+   * keyset ตาม journeyId และกรองสิทธิ์อ่านรายแถว — ไม่มี total/facet เพื่อไม่ให้นับของที่มองไม่เห็นได้;
+   * cursor คือ id ของแถวสุดท้ายที่ผู้เรียกเห็นเท่านั้น
+   */
+  async listVisibleJourneys(
+    tenantId: string,
+    actor: JourneyAuthoringActor,
+    input: {
+      readonly lifecycle?: JourneyLifecycle;
+      readonly ownerTeamId?: string;
+      readonly limit?: number;
+      readonly cursor?: string;
+    } = {},
+  ): Promise<{ readonly items: JourneyAuthoringSummary[]; readonly nextCursor: string | null }> {
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+    return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
+      const items: JourneyAuthoringSummary[] = [];
+      let after = input.cursor;
+      for (;;) {
+        const rows = await tx.jrJourneyHead.findMany({
+          where: {
+            tenantId,
+            ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
+            ...(input.ownerTeamId ? { ownerTeamId: input.ownerTeamId } : {}),
+            ...(after ? { journeyId: { gt: after } } : {}),
+          },
+          orderBy: { journeyId: 'asc' },
+          take: LIST_SCAN_BATCH,
+        });
+        for (const row of rows) {
+          after = row.journeyId;
+          const decision = await this.options.authorization.authorize(tx, {
+            tenantId,
+            subjectId: actor.subjectId,
+            capability: 'journey.read',
+            scope: this.scopeOf(row),
+          });
+          if (!decision.allowed) continue;
+          items.push({
+            journeyId: row.journeyId,
+            name: row.name,
+            ownerTeamId: row.ownerTeamId,
+            lifecycle: row.lifecycle,
+            version: row.version,
+            currentDraftRevision: row.currentDraftRevision,
+            activeVersion: row.activeVersion,
+            updatedAt: row.updatedAt.toISOString(),
+          });
+          if (items.length === limit) return { items, nextCursor: row.journeyId };
+        }
+        if (rows.length < LIST_SCAN_BATCH) return { items, nextCursor: null };
+      }
+    });
+  }
+
+  /** validate ของ revision ที่ระบุแน่นอน — draft ที่ขยับไปแล้วยังตรวจได้แต่บอก stale */
+  async validateJourneyDraft(
+    tenantId: string,
+    actor: JourneyAuthoringActor,
+    input: {
+      readonly journeyId: string;
+      readonly draftRevision: number;
+      readonly draftDigest: string;
+    },
+  ) {
+    return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
+      const { head, draft } = await this.readDraft(tx, tenantId, actor, input);
+      return {
+        draftRevision: draft.revision,
+        draftDigest: draft.contentDigest,
+        diagnostics: validateAuthoringDocument(draft.document, {
+          capabilities: this.capabilities,
+        }),
+        stale: draft.revision !== head.currentDraftRevision,
+      };
+    });
+  }
+
+  async previewJourneyPlan(
+    tenantId: string,
+    actor: JourneyAuthoringActor,
+    input: { readonly journeyId: string; readonly compileDigest: string },
+  ): Promise<PlanPreviewV1> {
+    return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
+      const artifact = await this.currentArtifact(tx, tenantId, actor, input);
+      return planPreview(artifact, this.capabilities);
+    });
+  }
+
+  /** simulation ใช้ fixture สังเคราะห์เท่านั้น และไม่มี port ไปยัง side effect จริง (#329 §8) */
+  async simulateJourneyScenario(
+    tenantId: string,
+    actor: JourneyAuthoringActor,
+    input: {
+      readonly journeyId: string;
+      readonly compileDigest: string;
+      readonly fixture: SimulationFixtureV1;
+    },
+  ): Promise<SimulationResultV1> {
+    return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
+      const artifact = await this.currentArtifact(tx, tenantId, actor, input);
+      return runSimulation(artifact, input.fixture, {
+        evaluator: this.options.evaluator,
+        capabilities: this.capabilities,
+      });
+    });
+  }
+
+  /**
+   * route ของ review decision มีแค่ reviewId — หา resource เจ้าของก่อน แล้วคำสั่งจริงตรวจสิทธิ์ต่อ;
+   * review ที่ไม่มีหรือเป็นของ resource ชนิดอื่นตอบ not-found แบบเดียวกัน
+   */
+  async reviewResourceId(
+    tenantId: string,
+    reviewId: string,
+    resourceKind: 'JOURNEY' | 'TEMPLATE',
+  ): Promise<string> {
+    const notFound = resourceKind === 'TEMPLATE' ? 'TEMPLATE_NOT_FOUND' : 'JOURNEY_NOT_FOUND';
+    if (!/^[0-9a-f-]{36}$/i.test(reviewId)) throw new JourneyAuthoringError(notFound);
+    const candidate = await withTenantDatabaseTransaction(this.database, tenantId, (tx) =>
+      tx.jrReviewCandidate.findFirst({
+        where: { tenantId, id: reviewId, resourceKind },
+        select: { resourceId: true },
+      }),
+    );
+    if (!candidate) throw new JourneyAuthoringError(notFound);
+    return candidate.resourceId;
+  }
+
   // ── Internals ───────────────────────────────────────────────────────────
+
+  private async readDraft(
+    tx: Tx,
+    tenantId: string,
+    actor: JourneyAuthoringActor,
+    input: {
+      readonly journeyId: string;
+      readonly draftRevision: number;
+      readonly draftDigest: string;
+    },
+  ) {
+    const head = await this.head(tx, tenantId, input.journeyId);
+    await this.authorize(tx, { tenantId, actor }, 'journey.read', this.scopeOf(head));
+    const draft = await tx.jrJourneyDraft.findFirst({
+      where: { tenantId, journeyId: head.journeyId, revision: input.draftRevision },
+    });
+    if (!draft || draft.contentDigest !== input.draftDigest) {
+      throw new JourneyAuthoringError('DRAFT_VERSION_CONFLICT', {
+        currentDraftRevision: head.currentDraftRevision,
+        currentDraftDigest: head.currentDraftDigest,
+      });
+    }
+    return { head, draft };
+  }
+
+  /** preview/simulation ผูกกับ compile digest ของ draft ปัจจุบัน — ต่างกันแปลว่า client ถือผลเก่าอยู่ */
+  private async currentArtifact(
+    tx: Tx,
+    tenantId: string,
+    actor: JourneyAuthoringActor,
+    input: { readonly journeyId: string; readonly compileDigest: string },
+  ) {
+    const head = await this.head(tx, tenantId, input.journeyId);
+    await this.authorize(tx, { tenantId, actor }, 'journey.read', this.scopeOf(head));
+    const draft = await tx.jrJourneyDraft.findFirstOrThrow({
+      where: { tenantId, journeyId: head.journeyId, revision: head.currentDraftRevision },
+    });
+    const compiled = this.compile(
+      tenantId,
+      head,
+      draft.document,
+      draft.revision,
+      draft.contentDigest,
+    );
+    if (!compiled.artifact) {
+      throw new JourneyAuthoringError('DEFINITION_INVALID', undefined, compiled.diagnostics);
+    }
+    if (compiled.artifact.compileDigest !== input.compileDigest) {
+      throw new JourneyAuthoringError('COMPILE_ARTIFACT_STALE');
+    }
+    return compiled.artifact;
+  }
 
   protected compile(
     tenantId: string,
