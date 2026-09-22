@@ -22,6 +22,8 @@ import {
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
 import type { ExpressionContext, ExpressionEvaluator } from '@d-contact/cxa-contracts';
+import { lifecycleAcceptsNewEnrollments } from './journey-authoring-model.js';
+import { planJourneyStep } from './journey-transition-planner.js';
 import type {
   JourneyGraph,
   JourneyGraphStep,
@@ -104,6 +106,22 @@ export class JourneyDefinitionNotPublishedError extends Error {
   ) {
     super(`Journey version ยังไม่ publish: ${journeyId}:${version}`);
     this.name = 'JourneyDefinitionNotPublishedError';
+  }
+}
+
+/**
+ * J5.2 (#340): head ที่ PAUSED/DEPRECATED หยุดรับ enrollment ใหม่เท่านั้น — enrollment เดิมยัง advance ต่อ
+ * และ replay ของ enrollment ที่สร้างไปแล้วยังคืนใบเดิม (Phase Contract §5)
+ */
+export class JourneyNotAcceptingEnrollmentsError extends Error {
+  readonly code = 'JOURNEY_LIFECYCLE_CONFLICT';
+
+  constructor(
+    readonly journeyId: string,
+    readonly lifecycle: string,
+  ) {
+    super(`Journey ${journeyId} อยู่ในสถานะ ${lifecycle} จึงไม่รับ enrollment ใหม่`);
+    this.name = 'JourneyNotAcceptingEnrollmentsError';
   }
 }
 
@@ -214,6 +232,7 @@ export class JourneyExecutionService {
         select: enrollmentSelection,
       });
       if (existing) return view(existing);
+      await this.assertAcceptsNewEnrollments(transaction, tenantId, input.journeyId);
 
       const created = await transaction.jrEnrollment.create({
         data: {
@@ -269,6 +288,7 @@ export class JourneyExecutionService {
         });
         if (enrollment) return view(enrollment);
       }
+      await this.assertAcceptsNewEnrollments(transaction, tenantId, input.journeyId);
 
       const occurrenceId = existing?.id ?? this.id();
       if (!existing) {
@@ -367,8 +387,14 @@ export class JourneyExecutionService {
 
       const step = stepOf(definition.graph, row.currentStepId);
       const sequence = row.stepSequence + 1;
+      // semantics ของ node มาจาก planner กลางชุดเดียวกับ simulator ของ J5 (#340)
+      const plan = planJourneyStep(step, {
+        now,
+        context: input.context ?? {},
+        evaluator: this.evaluator,
+      });
 
-      if (step.type === 'EXIT') {
+      if (plan.kind === 'EXIT') {
         await this.recordStepRun(transaction, tenantId, row, sequence, step, input, {
           state: 'COMPLETED',
         });
@@ -379,15 +405,15 @@ export class JourneyExecutionService {
         return { kind: 'TERMINAL' as const, reason: 'GRAPH_EXIT', enrollment: view(exited) };
       }
 
-      if (step.type === 'WAIT') {
-        const wakeAt = new Date(now.getTime() + step.waitSeconds * 1_000);
+      if (plan.kind === 'WAIT') {
+        const wakeAt = plan.wakeAt;
         await this.recordStepRun(transaction, tenantId, row, sequence, step, input, {
           state: 'COMPLETED',
-          nextStepId: step.next,
+          nextStepId: plan.nextStepId,
         });
         const waiting = await this.moveCursor(transaction, tenantId, row, sequence, {
           runState: 'WAITING',
-          currentStepId: step.next,
+          currentStepId: plan.nextStepId,
           waitUntil: wakeAt,
           claimedBy: null,
           claimExpiresAt: null,
@@ -400,15 +426,8 @@ export class JourneyExecutionService {
         };
       }
 
-      if (step.type === 'BRANCH') {
-        const evaluation = this.evaluator.evaluate({
-          document: step.expression,
-          context: input.context ?? {},
-          expectedType: 'boolean',
-        });
-        // BRANCH ที่ประเมินไม่ได้ต้อง fail closed ไปทาง whenFalse ไม่ใช่ค้างอยู่กับที่
-        const branchResult = evaluation.status === 'OK' && evaluation.value === true;
-        const nextStepId = branchResult ? step.whenTrue : step.whenFalse;
+      if (plan.kind === 'BRANCH') {
+        const { branchResult, nextStepId } = plan;
         await this.recordStepRun(transaction, tenantId, row, sequence, step, input, {
           state: 'COMPLETED',
           nextStepId,
@@ -430,7 +449,7 @@ export class JourneyExecutionService {
       // SEND: C1.5 หยุดตรงนี้ ไม่แตะ Governance/Delivery — C1.6 เป็นคนต่อ
       await this.recordStepRun(transaction, tenantId, row, sequence, step, input, {
         state: 'AWAITING_SEND',
-        nextStepId: step.next,
+        nextStepId: plan.kind === 'AWAIT_SEND' ? plan.nextStepId : plan.acceptedStepId,
       });
       const pending = await this.moveCursor(transaction, tenantId, row, sequence, {
         runState: 'RUNNING',
@@ -444,6 +463,21 @@ export class JourneyExecutionService {
         enrollment: view(pending),
       };
     });
+  }
+
+  private async assertAcceptsNewEnrollments(
+    transaction: Prisma.TransactionClient,
+    tenantId: string,
+    journeyId: string,
+  ) {
+    const head = await transaction.jrJourneyHead.findUnique({
+      where: { tenantId_journeyId: { tenantId, journeyId } },
+      select: { lifecycle: true },
+    });
+    // journey เดิมที่ยังไม่มี authoring head ไม่ถูกกระทบ
+    if (head && !lifecycleAcceptsNewEnrollments(head.lifecycle)) {
+      throw new JourneyNotAcceptingEnrollmentsError(journeyId, head.lifecycle);
+    }
   }
 
   /**

@@ -79,6 +79,27 @@ function toSnapshot(row: StoredJourneyDefinition): JourneyVersionSnapshot {
   };
 }
 
+/**
+ * J5.2 (#340): journey ที่ authoring head อยู่ PAUSED/DEPRECATED ไม่ถูกเลือกเป็นปลายทางของ trigger ใหม่
+ * version ที่ publish แล้วยังอยู่ครบ (enrollment เดิม pin version นั้นและเดินต่อได้)
+ */
+async function pausedJourneyIds(
+  transaction: Prisma.TransactionClient,
+  tenantId: string,
+  rows: ReadonlyArray<{ journeyId: string }>,
+): Promise<ReadonlySet<string>> {
+  if (rows.length === 0) return new Set();
+  const heads = await transaction.jrJourneyHead.findMany({
+    where: {
+      tenantId,
+      journeyId: { in: rows.map((row) => row.journeyId) },
+      lifecycle: { in: ['PAUSED', 'DEPRECATED'] },
+    },
+    select: { journeyId: true },
+  });
+  return new Set(heads.map((head) => head.journeyId));
+}
+
 export interface JourneyDefinitionRepositoryOptions {
   id?: () => string;
 }
@@ -115,6 +136,19 @@ export class JourneyDefinitionRepository {
   }
 
   async createVersion(input: CreateJourneyVersionInput): Promise<JourneyVersionSnapshot> {
+    return withTenantDatabaseTransaction(this.database, input.tenantId, (transaction) =>
+      this.createVersionInTransaction(transaction, input),
+    );
+  }
+
+  /**
+   * J5.2 (#340): เขียน version ใน transaction ของผู้เรียก เพื่อให้ publish ของ authoring commit
+   * definition, head, review, receipt, audit และ outbox พร้อมกันทั้งชุด — ตรรกะเดียวกับ `createVersion`
+   */
+  async createVersionInTransaction(
+    transaction: Prisma.TransactionClient,
+    input: CreateJourneyVersionInput,
+  ): Promise<JourneyVersionSnapshot> {
     const contentHash = canonicalContentHash(input);
 
     const persist = async (transaction: Prisma.TransactionClient) => {
@@ -170,7 +204,7 @@ export class JourneyDefinitionRepository {
       return toSnapshot(created);
     };
 
-    return withTenantDatabaseTransaction(this.database, input.tenantId, persist);
+    return persist(transaction);
   }
 
   async getVersion(
@@ -215,8 +249,10 @@ export class JourneyDefinitionRepository {
           })),
         },
       });
+      const paused = await pausedJourneyIds(transaction, tenantId, rows);
       return (
         rows
+          .filter((row) => !paused.has(row.journeyId))
           .map((row) => toSnapshot(row as StoredJourneyDefinition))
           .filter((snapshot) => matchesOutcomeTrigger(snapshot, outcomeType, outcomeCode))
           // หลาย journey match outcome เดียวกันได้ (fan-out) — เรียงให้ลำดับประมวลผลคงที่
@@ -257,7 +293,9 @@ export class JourneyDefinitionRepository {
         },
         orderBy: { journeyId: 'asc' },
       });
+      const paused = await pausedJourneyIds(transaction, tenantId, rows);
       return rows
+        .filter((row) => !paused.has(row.journeyId))
         .map((row) => toSnapshot(row as StoredJourneyDefinition))
         .filter(
           (snapshot) =>
@@ -268,6 +306,16 @@ export class JourneyDefinitionRepository {
   }
 
   async publishVersion(input: PublishJourneyVersionInput): Promise<JourneyVersionSnapshot> {
+    return withTenantDatabaseTransaction(this.database, input.tenantId, (transaction) =>
+      this.publishVersionInTransaction(transaction, input),
+    );
+  }
+
+  /** J5.2 (#340): publish ใน transaction ของผู้เรียก — ตรวจ reference ชุดเดียวกับ `publishVersion` */
+  async publishVersionInTransaction(
+    transaction: Prisma.TransactionClient,
+    input: PublishJourneyVersionInput,
+  ): Promise<JourneyVersionSnapshot> {
     const persist = async (transaction: Prisma.TransactionClient) => {
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`jr-journey-definition:${input.tenantId}:${input.journeyId}:${input.version}`}))`,
@@ -360,6 +408,6 @@ export class JourneyDefinitionRepository {
       return toSnapshot(published);
     };
 
-    return withTenantDatabaseTransaction(this.database, input.tenantId, persist);
+    return persist(transaction);
   }
 }
