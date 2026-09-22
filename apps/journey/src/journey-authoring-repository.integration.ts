@@ -26,7 +26,15 @@ import {
 
 const evaluator = new DcExprEvaluator();
 const allow: JourneyAuthoringAuthorizationPort = {
-  authorize: async () => ({ allowed: true, authorizationEpoch: 1, scopeVersion: 1 }),
+  authorize: async () => ({
+    allowed: true,
+    source: 'DIRECT',
+    delegationId: null,
+    authorizationEpoch: 1,
+    scopeVersion: 1,
+    directReviewAuthority: false,
+    authenticationStrength: 'STANDARD',
+  }),
 };
 const deny: JourneyAuthoringAuthorizationPort = {
   authorize: async () => ({ allowed: false, code: 'CAPABILITY_REQUIRED' }),
@@ -77,6 +85,7 @@ async function setup(t: TestContext) {
     await owner.jrAuthoringOutbox.deleteMany({ where });
     await owner.jrAuthoringAudit.deleteMany({ where });
     await owner.jrAuthoringCommandReceipt.deleteMany({ where });
+    await owner.jrReviewDecisionRecord.deleteMany({ where });
     await owner.jrReviewCandidate.deleteMany({ where });
     await owner.$transaction([
       owner.jrJourneyHead.deleteMany({ where }),
@@ -140,6 +149,22 @@ async function setup(t: TestContext) {
         makerAuthorizationEpoch: 1,
         makerScopeVersion: 1,
         state: 'APPROVED',
+      },
+    });
+    // vote อิสระหนึ่งใบ — J5.3 ตรวจ epoch/scope ของผู้อนุมัติซ้ำตอน publish
+    await owner.jrReviewDecisionRecord.create({
+      data: {
+        tenantId,
+        candidateId: candidate.id,
+        decision: 'APPROVE',
+        reviewerSubjectId: 'reviewer-1',
+        capability: 'journey.review',
+        capabilitySource: 'DIRECT',
+        authorizationEpoch: 1,
+        scopeVersion: 1,
+        evidenceRef: 'evidence',
+        reasonCode: 'APPROVED',
+        decidedAt: new Date(),
       },
     });
     return {
