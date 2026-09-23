@@ -50,6 +50,9 @@ import {
   type ContactAuthorizationPort,
   type ContactGovernancePort,
   type ContactGovernanceRevalidationPort,
+  type ContactTouchCorrelationPort,
+  type CorrelatedTouchView,
+  type RecordCorrelatedTouchInput,
   type ClaimReservationForDeliveryInput,
   type RenewReservationLeaseInput,
   type BeginProviderSubmissionInput,
@@ -248,6 +251,7 @@ export class ContactGovernanceService
   implements
     ContactAuthorizationPort<Prisma.TransactionClient>,
     ContactGovernancePort,
+    ContactTouchCorrelationPort,
     ContactGovernanceRevalidationPort
 {
   private readonly now: () => Date;
@@ -293,6 +297,14 @@ export class ContactGovernanceService
 
   settleDelivery(input: SettleDeliveryInput): Promise<ReservationSettlementView> {
     return this.reservationRuntime.settle(input);
+  }
+
+  /**
+   * S2.2 (#364): Contact Governance เป็นผู้เขียน Touch จาก explicit response แต่ผู้เดียว
+   * Channels ส่ง binding + evidence ref เข้ามาเท่านั้น ห้ามส่ง Boolean หรือเขียน cg_* เอง
+   */
+  recordCorrelatedTouch(input: RecordCorrelatedTouchInput): Promise<CorrelatedTouchView> {
+    return this.reservationRuntime.recordCorrelatedTouch(input);
   }
 
   /**

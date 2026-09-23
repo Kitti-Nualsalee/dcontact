@@ -14,7 +14,13 @@ import {
   deliveryId,
   reservationId,
   ReservationBindingError,
+  SettlementPolicyViolationError,
   type BeginProviderSubmissionInput,
+  type CorrelatedTouchView,
+  type DeliveryRejectionScope,
+  type DeliverySettlementPolicyDecision,
+  type NormalizedDeliveryOutcome,
+  type RecordCorrelatedTouchInput,
   type ClaimReservationForDeliveryInput,
   type ConfirmProviderAcceptanceInput,
   type ReleaseBeforeSubmitInput,
@@ -82,15 +88,20 @@ type ReservationRuntimeRow = {
   authorizationAggregateVersion: number | null;
 };
 
-export interface SettlementPolicyDecision {
-  countsAsSuccessfulTouch: boolean;
-  refundOnFailure: boolean;
-}
+/** S2.2: ใช้ชนิดเดียวกับสัญญาข้าม domain (#362 §4) — คืนครบทั้งสาม Boolean */
+export type SettlementPolicyDecision = DeliverySettlementPolicyDecision;
+
+/** settle ที่ผ่าน `UNKNOWN_RECONCILING` มาแล้ว — policy เห็นเฉพาะ outcome ที่ terminal จริง */
+export type TerminalSettleDeliveryInput = Omit<SettleDeliveryInput, 'outcome'> & {
+  outcome: TerminalDeliveryOutcome;
+};
 
 export type SettlementPolicy = (
-  input: SettleDeliveryInput,
+  input: TerminalSettleDeliveryInput,
   reservation: Readonly<ReservationRuntimeRow>,
 ) => SettlementPolicyDecision;
+
+export type TerminalDeliveryOutcome = Exclude<NormalizedDeliveryOutcome, 'UNKNOWN_RECONCILING'>;
 
 export interface ReservationRuntimeOptions {
   now?: () => Date;
@@ -98,11 +109,49 @@ export interface ReservationRuntimeOptions {
   settlementPolicy?: SettlementPolicy;
 }
 
-function defaultSettlementPolicy(input: SettleDeliveryInput): SettlementPolicyDecision {
-  return {
-    countsAsSuccessfulTouch: input.outcome === 'DELIVERED',
-    refundOnFailure: input.outcome === 'DELIVERY_FAILED',
-  };
+/**
+ * matrix Attempt/Touch/refund ของ Governance (#361, #362 §8)
+ *
+ * - `PROVIDER_ACCEPTED` (LINE `2xx/409`): Attempt 1, Touch 0, refund 0 — acceptance ไม่ใช่ delivery
+ *   และไม่ใช่ read; Touch มาได้ทางเดียวคือ `recordCorrelatedTouch`
+ * - `PROVIDER_REJECTED`: `RECIPIENT` = Attempt 1, `OPERATIONAL` = Attempt 0
+ *   ไม่ระบุ scope = พฤติกรรม S1 เดิม (Attempt 1) เพราะ channel เดิมไม่มี vocabulary นี้
+ * - `DELIVERED`/`DELIVERY_FAILED`: คงสัญญา S1 เดิมทั้งคู่
+ */
+export function defaultSettlementPolicy(input: {
+  outcome: TerminalDeliveryOutcome;
+  rejectionScope?: DeliveryRejectionScope | undefined;
+}): SettlementPolicyDecision {
+  switch (input.outcome) {
+    case 'PROVIDER_ACCEPTED':
+      return { countsAsAttempt: true, countsAsSuccessfulTouch: false, refundOnFailure: false };
+    case 'PROVIDER_REJECTED':
+      return {
+        countsAsAttempt: input.rejectionScope !== 'OPERATIONAL',
+        countsAsSuccessfulTouch: false,
+        refundOnFailure: false,
+      };
+    case 'DELIVERED':
+      return { countsAsAttempt: true, countsAsSuccessfulTouch: true, refundOnFailure: false };
+    case 'DELIVERY_FAILED':
+      return { countsAsAttempt: true, countsAsSuccessfulTouch: false, refundOnFailure: true };
+  }
+}
+
+/**
+ * invariant ที่ policy ตัวไหนก็ละเมิดไม่ได้ — กันไม่ให้ policy ที่ inject เข้ามาเปลี่ยนความหมายของ
+ * acceptance เป็น Touch หรือ refund นอกเส้นทาง failure (#362 §8, stop condition ของ #364)
+ */
+function assertSettlementDecision(
+  outcome: TerminalDeliveryOutcome,
+  decision: SettlementPolicyDecision,
+): void {
+  const legal =
+    (outcome === 'DELIVERED' || !decision.countsAsSuccessfulTouch) &&
+    (outcome === 'DELIVERY_FAILED' || !decision.refundOnFailure) &&
+    (outcome !== 'PROVIDER_ACCEPTED' || decision.countsAsAttempt) &&
+    (decision.countsAsAttempt || !decision.countsAsSuccessfulTouch);
+  if (!legal) throw new SettlementPolicyViolationError(outcome, decision);
 }
 
 function status(row: ReservationRuntimeRow): CgDeliverySettlementStatus {
@@ -482,6 +531,14 @@ export class ReservationRuntime {
     );
   }
 
+  /**
+   * Touch ที่มาจาก explicit response — append อย่างเดียว ไม่ผ่าน command receipt เพราะไม่ใช่
+   * reservation transition: reservation, lease และ terminal outcome ต้องเหมือนเดิมทุกประการ
+   */
+  recordCorrelatedTouch(input: RecordCorrelatedTouchInput): Promise<CorrelatedTouchView> {
+    return this.facts.recordCorrelatedTouch(input);
+  }
+
   settle(input: SettleDeliveryInput): Promise<ReservationSettlementView> {
     parseTimestamp(input.occurredAt, 'occurredAt');
     return this.command(
@@ -506,15 +563,18 @@ export class ReservationRuntime {
         }
 
         const now = this.now();
-        const policy = this.settlementPolicy(input, reservation);
+        const terminalOutcome: TerminalDeliveryOutcome = input.outcome;
+        const policy = this.settlementPolicy({ ...input, outcome: terminalOutcome }, reservation);
+        assertSettlementDecision(terminalOutcome, policy);
         let nextState: CgReservationState;
-        if (input.outcome === 'PROVIDER_REJECTED') {
+        if (terminalOutcome === 'PROVIDER_REJECTED') {
           if (reservation.state === 'CONFIRMED') fail('INVALID_RESERVATION_TRANSITION');
           nextState = 'RELEASED';
-        } else if (input.outcome === 'DELIVERY_FAILED') {
+        } else if (terminalOutcome === 'DELIVERY_FAILED') {
           if (reservation.state !== 'CONFIRMED') fail('DELIVERY_RECONCILIATION_REQUIRED');
           nextState = policy.refundOnFailure ? 'REFUNDED' : 'CONFIRMED';
         } else {
+          // PROVIDER_ACCEPTED และ DELIVERED: confirm + settle ในก้าวเดียว (#362 §6)
           nextState = 'CONFIRMED';
         }
 
@@ -533,6 +593,9 @@ export class ReservationRuntime {
           select: reservationRuntimeSelection,
         });
 
+        // operational rejection ปล่อยโควต้าคืนโดยไม่แตะผู้รับ จึงไม่มี Attempt/Touch (#361 §B)
+        if (!policy.countsAsAttempt) return view(updated);
+
         await this.facts.record(
           {
             tenantId: input.tenantId,
@@ -546,7 +609,7 @@ export class ReservationRuntime {
             channel: reservation.channel,
             purpose: reservation.purpose,
             source: reservation.source,
-            outcome: input.outcome,
+            outcome: terminalOutcome,
             occurredAt: input.occurredAt,
             correlationId: input.correlationId,
             countsAsSuccessfulTouch: policy.countsAsSuccessfulTouch,
