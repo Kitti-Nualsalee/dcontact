@@ -22,7 +22,7 @@ const migrationSql = (name) =>
     resolve(repositoryRoot, 'packages/db/prisma/migrations', name, 'migration.sql'),
     'utf8',
   );
-const [enumMigration, persistenceMigration] = S2_MIGRATIONS.map(migrationSql);
+const [enumMigration] = S2_MIGRATIONS.map(migrationSql);
 // registry ครอบทุกไฟล์ของเฟส ไม่ใช่เฉพาะไฟล์ persistence ของ S2.1
 const allMigrationSql = S2_MIGRATIONS.map(migrationSql).join('\n');
 const rlsBootstrap = readFileSync(resolve(repositoryRoot, 'packages/db/prisma/rls.sql'), 'utf8');
@@ -51,8 +51,9 @@ test('evidence ครบทุกตัวผ่าน และขาดตั�
 });
 
 test('ทุกชื่อใน registry มีอยู่จริงใน migration — ป้องกัน registry กับ SQL เดินแยกกัน', () => {
+  // ตารางของ S2 กระจายอยู่หลาย migration (S2.1 persistence, S2.5 webhook projection)
   for (const table of CANONICAL_S2_TABLES) {
-    assert.match(persistenceMigration, new RegExp(`CREATE TABLE "${table}"`), table);
+    assert.match(allMigrationSql, new RegExp(`CREATE TABLE "${table}"`), table);
   }
   for (const name of [
     ...REQUIRED_S2_CONSTRAINTS,
@@ -64,7 +65,7 @@ test('ทุกชื่อใน registry มีอยู่จริงใน 
   for (const [type, value] of REQUIRED_S2_ENUM_VALUES) {
     assert.ok(enumMigration.includes(`"${type}" ADD VALUE IF NOT EXISTS '${value}'`), type);
   }
-  const compositeForeignKeys = persistenceMigration.match(
+  const compositeForeignKeys = allMigrationSql.match(
     /FOREIGN KEY \("tenant_id", "[a-z_]+"[^)]*\)/g,
   );
   assert.ok((compositeForeignKeys?.length ?? 0) >= MINIMUM_S2_COMPOSITE_FOREIGN_KEYS);
@@ -78,7 +79,7 @@ test('migration ของ S2 ทุกไฟล์เป็น expand-only แ�
   assert.doesNotMatch(enumMigration, /CREATE TABLE|CHECK \(/);
   // ทุกตารางใหม่มี tenant_id NOT NULL
   for (const table of CANONICAL_S2_TABLES) {
-    const body = persistenceMigration.split(`CREATE TABLE "${table}" (`)[1]?.split(');')[0] ?? '';
+    const body = allMigrationSql.split(`CREATE TABLE "${table}" (`)[1]?.split(');')[0] ?? '';
     assert.match(body, /"tenant_id" UUID NOT NULL/, table);
   }
 });

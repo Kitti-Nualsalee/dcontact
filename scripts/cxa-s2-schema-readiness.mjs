@@ -11,14 +11,16 @@ const composeArguments = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'
 /**
  * migration ของ S2 — enum values แยกไฟล์เพราะ Postgres ใช้ค่าใหม่ใน transaction เดียวกันไม่ได้
  * ไฟล์ที่สามเป็นด่าน Attempt/Touch ของ S2.2 (#364) ซึ่งอ้างค่า enum ที่ commit ไปแล้ว
+ * ไฟล์ที่สี่เป็นที่เก็บ protected payload และ inbound message projection ของ S2.5 (#369)
  */
 export const S2_MIGRATIONS = Object.freeze([
   '20260922160000_add_s2_line_enum_values',
   '20260922160100_add_s2_line_persistence',
   '20260923101500_add_s2_2_correlated_touch_guard',
+  '20260923120000_add_s2_5_line_webhook_projection',
 ]);
 
-/** ตารางที่ S2.1 เพิ่มตาม Phase Contract #362 §3 */
+/** ตารางที่ S2 เพิ่มตาม Phase Contract #362 §3 — สองตัวท้ายมาจาก S2.5 (#369) */
 export const CANONICAL_S2_TABLES = Object.freeze([
   'dl_provider_submission_attempts',
   'dl_line_scope_gates',
@@ -29,12 +31,16 @@ export const CANONICAL_S2_TABLES = Object.freeze([
   'dl_line_webhook_inbox',
   'dl_line_touch_correlations',
   'dl_line_audit_events',
+  'dl_line_protected_payloads',
+  'dl_line_inbound_messages',
 ]);
 
 /** หลักฐาน append-only: application role ต้อง INSERT ได้แต่ UPDATE/DELETE ไม่ได้ */
 export const APPEND_ONLY_S2_TABLES = Object.freeze([
   'dl_provider_submission_attempts',
   'dl_line_audit_events',
+  'dl_line_protected_payloads',
+  'dl_line_inbound_messages',
 ]);
 
 /**
@@ -64,6 +70,8 @@ export const REQUIRED_S2_CONSTRAINTS = Object.freeze([
   'dl_line_audit_events_values_check',
   'cg_touches_response_evidence_check',
   'cg_touches_provider_accepted_evidence_check',
+  'dl_line_protected_payloads_values_check',
+  'dl_line_inbound_messages_values_check',
 ]);
 
 /** identity/idempotency boundary ตาม #362 §3 รวม partial unique */
@@ -85,6 +93,8 @@ export const REQUIRED_S2_UNIQUE_INDEXES = Object.freeze([
   'dl_line_touch_correlations_bound_attempt_key',
   'dl_line_audit_events_event_key',
   'cg_touches_tenant_response_evidence_key',
+  'dl_line_protected_payloads_ref_key',
+  'dl_line_inbound_messages_provider_key',
 ]);
 
 /** trigger ที่บังคับ append-only, CAS, one-shot, kill latch และ identity คงที่ */
@@ -101,10 +111,12 @@ export const REQUIRED_S2_TRIGGERS = Object.freeze([
   'dl_line_webhook_inbox_guard',
   'dl_line_touch_correlations_guard',
   'cg_touches_evidence_guard',
+  'dl_line_protected_payloads_immutable',
+  'dl_line_inbound_messages_immutable',
 ]);
 
 /** composite FK ขั้นต่ำ — ทุกเส้นที่อ้าง entity อื่นผูก tenant_id ร่วม (บางเส้นผูก adapter ด้วย) */
-export const MINIMUM_S2_COMPOSITE_FOREIGN_KEYS = 11;
+export const MINIMUM_S2_COMPOSITE_FOREIGN_KEYS = 12;
 
 /** ค่า enum ใหม่บน type เดิม */
 export const REQUIRED_S2_ENUM_VALUES = Object.freeze([

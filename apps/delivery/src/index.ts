@@ -19,3 +19,14 @@ export * from './line-audit-repository.js';
 export * from './line-control-policy.js';
 export * from './line-credential-boundary.js';
 export * from './line-control-plane.js';
+// S2.5 (#369): webhook ingress, protected payload และ Touch correlation — runtime/main ไม่ export
+// เพราะเป็น composition root ที่รู้ concrete service ของ owner อื่น
+export * from './line-webhook-signature.js';
+export * from './line-protected-payload.js';
+export * from './line-postback-token.js';
+export * from './line-webhook-event.js';
+export * from './line-webhook-ingress.js';
+export * from './line-inbound-repository.js';
+export * from './line-webhook-worker.js';
+export * from './line-webhook-server.js';
+export * from './line-keychain.js';

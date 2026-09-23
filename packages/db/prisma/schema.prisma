@@ -3946,6 +3946,41 @@ model DlLineWebhookInboxEntry {
   @@map("dl_line_webhook_inbox")
 }
 
+/// S2.5: ciphertext AES-256-GCM ของ webhook event ทั้งก้อน — กุญแจอยู่ Keychain ไม่อยู่ที่นี่
+/// append-only (trigger) และ application role ลบไม่ได้; ลบตาม retention เป็นงานของ owner role
+model DlLineProtectedPayload {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  payloadRef String   @map("payload_ref")
+  keyVersion Int      @map("key_version")
+  nonce      Bytes
+  authTag    Bytes    @map("auth_tag")
+  ciphertext Bytes
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "dl_line_protected_payloads_tenant_id_key")
+  @@unique([tenantId, payloadRef], map: "dl_line_protected_payloads_ref_key")
+  @@map("dl_line_protected_payloads")
+}
+
+/// S2.5: dedupe ชั้นที่สองของ #359 §E ด้วยคีย์ ADR-024 — มีแค่ opaque ref ไม่มี body/userId
+model DlLineInboundMessage {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  channelAccountId  String   @map("channel_account_id")
+  providerMessageId String   @map("provider_message_id")
+  inboxEntryId      String   @map("inbox_entry_id") @db.Uuid
+  webhookEventId    String   @map("webhook_event_id")
+  messageType       String   @map("message_type")
+  providerTimestamp DateTime @map("provider_timestamp")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "dl_line_inbound_messages_tenant_id_key")
+  @@unique([tenantId, channelAccountId, providerMessageId], map: "dl_line_inbound_messages_provider_key")
+  @@index([tenantId, inboxEntryId], map: "dl_line_inbound_messages_inbox_idx")
+  @@map("dl_line_inbound_messages")
+}
+
 /// การผูก response กับ accepted Attempt (#361 §D/§F) — ไม่มี raw body/user ID
 model DlLineTouchCorrelation {
   id                  String                      @id @default(uuid()) @db.Uuid

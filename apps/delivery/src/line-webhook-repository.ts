@@ -16,7 +16,9 @@ import {
   type PrismaClient,
   withTenantDatabaseTransaction,
 } from '@d-contact/db';
+import { randomUUID } from 'node:crypto';
 import type { LineWebhookCode, TouchEvidenceKind } from '@d-contact/cxa-contracts';
+import type { SealedLinePayload } from './line-protected-payload.js';
 import {
   LineIdempotencyConflictError,
   isUniqueViolation,
@@ -39,6 +41,14 @@ export interface AcceptLineWebhookBatchInput {
   channelAccountId: string;
   receivedAt: Date;
   events: LineWebhookEventInput[];
+  /**
+   * S2.5: ciphertext ของแต่ละ event — เขียนใน transaction เดียวกับ inbox row จึงไม่มี ref กำพร้า
+   * ref คำนวณจาก event ID + hash จึง duplicate ได้ ref เดิม (no-op) ส่วน conflict ได้ ref ใหม่
+   * ทำให้ payload ที่ขัดกันถูกเก็บเป็นหลักฐานโดยไม่ทับของเดิม
+   */
+  payloads?: SealedLinePayload[];
+  /** S2.5: request ที่ signature ผ่านแต่ต้องกักทั้งก้อน เช่น destination ไม่ตรง binding (#359 §A) */
+  quarantineAccepted?: LineWebhookQuarantineCode;
 }
 
 export interface LineWebhookAcceptance {
@@ -83,6 +93,16 @@ export class LineWebhookRepository {
   async acceptBatch(input: AcceptLineWebhookBatchInput): Promise<LineWebhookAcceptance[]> {
     if (input.events.length === 0) return [];
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+      if (input.payloads && input.payloads.length > 0) {
+        await transaction.dlLineProtectedPayload.createMany({
+          data: input.payloads.map((payload) => ({
+            id: randomUUID(),
+            tenantId: input.tenantId,
+            ...payload,
+          })),
+          skipDuplicates: true,
+        });
+      }
       const results: LineWebhookAcceptance[] = [];
       for (const event of input.events) {
         const inserted = await transaction.dlLineWebhookInboxEntry.createMany({
@@ -97,6 +117,32 @@ export class LineWebhookRepository {
           skipDuplicates: true,
         });
         if (inserted.count === 1) {
+          if (input.quarantineAccepted) {
+            await transaction.dlLineWebhookInboxEntry.updateMany({
+              where: { tenantId: input.tenantId, id: event.id, state: 'PENDING' },
+              data: {
+                state: 'QUARANTINED',
+                outcomeCode: input.quarantineAccepted,
+                completedAt: input.receivedAt,
+              },
+            });
+            await transaction.dlLineAuditEvent.createMany({
+              data: [
+                {
+                  tenantId: input.tenantId,
+                  eventId: `webhook-quarantine:${event.id}`,
+                  category: 'WEBHOOK',
+                  code: input.quarantineAccepted,
+                  actorKind: 'SYSTEM',
+                  actorRef: INGRESS_ACTOR,
+                  subjectId: event.id,
+                  evidenceDigest: event.payloadHash,
+                  occurredAt: input.receivedAt,
+                },
+              ],
+              skipDuplicates: true,
+            });
+          }
           results.push({
             webhookEventId: event.webhookEventId,
             inboxEntryId: event.id,

@@ -1447,6 +1447,9 @@ test('S2.1 LINE persistence: RLS ทุกตาราง, bootstrap คงส�
     ['dl_line_cap_ledger', 't|t|t|f'],
     ['dl_line_webhook_inbox', 't|t|t|f'],
     ['dl_line_touch_correlations', 't|t|t|f'],
+    // S2.5 (#369): ciphertext ของ webhook และ inbound message projection เป็น append-only
+    ['dl_line_protected_payloads', 't|t|f|f'],
+    ['dl_line_inbound_messages', 't|t|f|f'],
   ] as const;
   for (const [table, expected] of tables) {
     assert.equal(

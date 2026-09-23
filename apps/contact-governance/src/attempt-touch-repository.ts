@@ -303,15 +303,19 @@ export class AttemptTouchRepository {
     }
     const occurredAt = timestamp(input.occurredAt, 'occurredAt');
     // attemptId เป็น UUID ของ cg_attempts; ค่าที่ cast ไม่ได้คือ "ยังไม่มี Attempt" ไม่ใช่ error ของ DB
-    if (!UUID_PATTERN.test(input.attemptId)) throw new CorrelatedTouchError('ATTEMPT_NOT_FOUND');
+    if (input.attemptId !== undefined && !UUID_PATTERN.test(input.attemptId)) {
+      throw new CorrelatedTouchError('ATTEMPT_NOT_FOUND');
+    }
 
     const persist = async (transactionClient: Prisma.TransactionClient) => {
+      const attemptId = input.attemptId ?? (await this.acceptedAttemptId(transactionClient, input));
+      // lock ด้วย id ที่ resolve แล้วเสมอ — ผู้เรียกที่ส่ง attemptId กับที่ไม่ส่งจึงต่อคิวเดียวกัน
       await transactionClient.$queryRaw(
-        Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg-touch:${input.tenantId}:${input.attemptId}`}))`,
+        Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`cg-touch:${input.tenantId}:${attemptId}`}))`,
       );
 
       const attempt = await transactionClient.cgAttempt.findFirst({
-        where: { tenantId: input.tenantId, id: input.attemptId },
+        where: { tenantId: input.tenantId, id: attemptId },
         include: { touch: true, reservation: { select: { actionKey: true } } },
       });
       if (!attempt) throw new CorrelatedTouchError('ATTEMPT_NOT_FOUND');
@@ -372,6 +376,30 @@ export class AttemptTouchRepository {
     return transaction
       ? persist(transaction)
       : withTenantDatabaseTransaction(this.database, input.tenantId, persist);
+  }
+
+  /**
+   * Attempt ของ reservation+delivery หนึ่งคู่มีได้ใบเดียว (terminal outcome แรกชนะ) — ถ้ายังไม่มี
+   * คือ response มาก่อน acceptance commit; ถ้ามีแต่ไม่ใช่ acceptance ให้ด่านถัดไปตอบ NOT_ACCEPTED
+   */
+  private async acceptedAttemptId(
+    transaction: Prisma.TransactionClient,
+    input: RecordCorrelatedTouchInput,
+  ): Promise<string> {
+    if (!UUID_PATTERN.test(input.reservationId))
+      throw new CorrelatedTouchError('ATTEMPT_NOT_FOUND');
+    const attempts = await transaction.cgAttempt.findMany({
+      where: {
+        tenantId: input.tenantId,
+        reservationId: input.reservationId,
+        deliveryId: input.deliveryId,
+      },
+      select: { id: true },
+      take: 2,
+    });
+    if (attempts.length === 0) throw new CorrelatedTouchError('ATTEMPT_NOT_FOUND');
+    if (attempts.length > 1) throw new CorrelatedTouchError('TOUCH_BINDING_CONFLICT');
+    return attempts[0]!.id;
   }
 
   async history(

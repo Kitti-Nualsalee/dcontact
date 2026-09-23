@@ -564,3 +564,39 @@ test('trigger ของ DB ปฏิเสธ Touch ที่สร้างน�
   );
   assert.deepEqual(await counts(f), { attempts: 2, touches: 0 });
 });
+
+test('Channels ที่ไม่รู้ attemptId ได้ Touch เดียวกันจาก reservation+delivery binding และต่อคิวเดียวกับผู้ส่ง id', async (t) => {
+  const f = await fixture(t);
+  const binding = await f.reservation('resolve-by-binding');
+  const { attemptId } = await accept(f, binding);
+  const withoutId = touchInput(f, binding, attemptId);
+  delete withoutId.attemptId;
+
+  // race ระหว่างผู้เรียกที่ส่ง id กับไม่ส่ง id ต้องได้ snapshot เดียวกัน ไม่ใช่ conflict
+  const views = await Promise.all([
+    f.service.recordCorrelatedTouch(withoutId),
+    f.service.recordCorrelatedTouch(touchInput(f, binding, attemptId)),
+    f.service.recordCorrelatedTouch(withoutId),
+  ]);
+  for (const view of views) assert.deepEqual(view, views[0]);
+  assert.equal(views[0]!.attemptId, attemptId);
+  assert.deepEqual(await counts(f), { attempts: 1, touches: 1 });
+});
+
+test('resolve จาก binding: ยังไม่มี Attempt = ATTEMPT_NOT_FOUND และ reservation แปลกปลอมไม่ถึง DB', async (t) => {
+  const f = await fixture(t);
+  const binding = await f.reservation('resolve-pending');
+  const input = touchInput(f, binding, randomUUID());
+  delete input.attemptId;
+
+  await assert.rejects(f.service.recordCorrelatedTouch(input), touchError('ATTEMPT_NOT_FOUND'));
+  await assert.rejects(
+    f.service.recordCorrelatedTouch({ ...input, reservationId: reservationId('not-a-uuid') }),
+    touchError('ATTEMPT_NOT_FOUND'),
+  );
+
+  await accept(f, binding);
+  const view = await f.service.recordCorrelatedTouch(input);
+  assert.equal(view.deliveryId, binding.deliveryId);
+  assert.deepEqual(await counts(f), { attempts: 1, touches: 1 });
+});

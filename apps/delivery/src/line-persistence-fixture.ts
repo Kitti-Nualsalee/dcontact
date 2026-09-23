@@ -137,13 +137,17 @@ export async function createLinePersistenceFixture() {
   const control = new LineControlRepository(application);
 
   /** gate + allowlist + credential + run authorization ที่อนุมัติครบ พร้อม consume */
-  async function seedApprovedRun(tenantId: string, label = 'run') {
+  async function seedApprovedRun(
+    tenantId: string,
+    label = 'run',
+    options: { recipientFingerprint?: string } = {},
+  ) {
     const gate = await control.ensureGate(randomUUID(), scope(tenantId));
     const allowlist = await control.addAllowlistEntry({
       id: randomUUID(),
       ...scope(tenantId),
       gateId: gate.id,
-      recipientFingerprint: digest(`recipient-${label}`),
+      recipientFingerprint: options.recipientFingerprint ?? digest(`recipient-${label}`),
       recipientProtectedRef: `prot:recipient:${randomUUID()}`,
       contentRef: 'fixture:service-notification/v1',
       contentDigest: digest('content-v1'),
@@ -218,7 +222,9 @@ export async function createLinePersistenceFixture() {
       for (const tenantId of tenantIds) {
         const where = { where: { tenantId } };
         await owner.dlLineTouchCorrelation.deleteMany(where);
+        await owner.dlLineInboundMessage.deleteMany(where);
         await owner.dlLineWebhookInboxEntry.deleteMany(where);
+        await owner.dlLineProtectedPayload.deleteMany(where);
         await owner.dlLineCapLedgerEntry.deleteMany(where);
         await owner.dlLineRunAuthorization.deleteMany(where);
         await owner.dlLineAllowlistEntry.deleteMany(where);

@@ -59,7 +59,9 @@ BEGIN
     -- S2.1 (#365)
     'dl_provider_submission_attempts', 'dl_line_scope_gates', 'dl_line_credential_refs',
     'dl_line_allowlist_entries', 'dl_line_run_authorizations', 'dl_line_cap_ledger',
-    'dl_line_webhook_inbox', 'dl_line_touch_correlations', 'dl_line_audit_events'
+    'dl_line_webhook_inbox', 'dl_line_touch_correlations', 'dl_line_audit_events',
+    -- S2.5 (#369)
+    'dl_line_protected_payloads', 'dl_line_inbound_messages'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -250,3 +252,8 @@ REVOKE DELETE ON dl_line_webhook_inbox FROM dcontact_app;
 REVOKE DELETE ON dl_line_touch_correlations FROM dcontact_app;
 REVOKE UPDATE, DELETE ON dl_provider_submission_attempts FROM dcontact_app;
 REVOKE UPDATE, DELETE ON dl_line_audit_events FROM dcontact_app;
+
+-- S2.5 (#369): ciphertext ของ webhook และ inbound message projection เป็น append-only;
+-- ลบ payload ตาม retention เป็นงานของ owner role
+REVOKE UPDATE, DELETE ON dl_line_protected_payloads FROM dcontact_app;
+REVOKE UPDATE, DELETE ON dl_line_inbound_messages FROM dcontact_app;

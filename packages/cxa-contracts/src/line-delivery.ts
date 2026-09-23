@@ -25,6 +25,12 @@ export type DeliveryAdapter = (typeof DELIVERY_ADAPTERS)[number];
 /** profile เดียวของ S2 — caps ด้านล่างผูกกับชื่อนี้ ปรับสูงขึ้นต้องเป็น decision ใหม่ (#358 §C) */
 export const LINE_PILOT_PROFILE = 'S2_LINE_LOCAL_PILOT_V1';
 
+/**
+ * Channel ID ของ test OA `D-Contact` (#356) — S2 singleton binding ผูกได้กับ channel นี้เท่านั้น
+ * production/multi-account ต้องใช้ opaque endpoint binding ต่อ channel (#359 CONFIRMED)
+ */
+export const LINE_PILOT_CHANNEL_ID = '2007056595';
+
 export const LINE_PILOT_CAPS = Object.freeze({
   logicalDeliveriesPerRun: 1,
   runAuthorizationTtlMinutes: 30,
@@ -230,7 +236,11 @@ export interface RecordCorrelatedTouchInput {
   reservationId: ReservationId;
   actionKey: ActionKey;
   deliveryId: DeliveryId;
-  attemptId: string;
+  /**
+   * id ของ `cg_attempts` ถ้าผู้เรียกรู้ — Channels ไม่เห็นตารางของ Governance จึงละได้ แล้ว
+   * Governance resolve accepted Attempt จาก reservation + delivery binding เอง (S2.5 #369)
+   */
+  attemptId?: string;
   /** opaque ref ของ `(channelAccountId, webhookEventId)` — unique ต่อ tenant */
   responseEvidenceRef: OutcomeRef;
   evidenceKind: TouchEvidenceKind;
