@@ -15,6 +15,11 @@ import type { LineKeychainReference, LineSecretSource } from './line-credential-
 
 export const MACOS_SECURITY_BINARY = '/usr/bin/security';
 
+/** service เดียวของทุก item ของ channel หนึ่ง (token/secret/payload key/recipient) */
+export function lineKeychainServiceName(channelAccountId: string): string {
+  return `d-contact.line.${channelAccountId}`;
+}
+
 export type LineKeychainExec = (
   file: string,
   arguments_: readonly string[],
@@ -73,5 +78,53 @@ export class KeychainLineSecretSource implements LineSecretSource {
     const secret = stdout.replace(/\r?\n$/, '');
     if (!secret) throw new LineKeychainReadError();
     return secret;
+  }
+}
+
+export type LineKeychainStdinExec = (
+  file: string,
+  arguments_: readonly string[],
+  stdin: string,
+) => Promise<void>;
+
+const defaultStdinExec: LineKeychainStdinExec = (file, arguments_, stdin) =>
+  new Promise((resolve, reject) => {
+    const child = execFile(file, [...arguments_], { timeout: 10_000 }, (error) =>
+      error ? reject(new Error('keychain write failed')) : resolve(),
+    );
+    child.stdin?.end(stdin);
+  });
+
+/** ค่า Keychain ห้ามมี quote/backslash/newline เพราะ `security -i` แยกคำสั่งตามบรรทัด */
+const WRITABLE_VALUE = /^[A-Za-z0-9._~+/=-]{1,4096}$/;
+
+/**
+ * S2.6b (#403): เขียน item ลง Keychain โดยส่งคำสั่งผ่าน stdin ของ `security -i` — ค่าไม่ปรากฏใน
+ * argv ของ process จึงไม่เห็นผ่าน `ps` และ error ไม่พาค่าออกมา (`-U` = update ถ้ามีอยู่แล้ว)
+ */
+export class KeychainLineSecretWriter {
+  constructor(
+    private readonly exec: LineKeychainStdinExec = defaultStdinExec,
+    private readonly platform: NodeJS.Platform = process.platform,
+  ) {}
+
+  async write(reference: LineKeychainReference, value: string): Promise<void> {
+    if (
+      this.platform !== 'darwin' ||
+      !REFERENCE_PART.test(reference.keychainService) ||
+      !REFERENCE_PART.test(reference.keychainAccount) ||
+      !WRITABLE_VALUE.test(value)
+    ) {
+      throw new LineKeychainReadError();
+    }
+    try {
+      await this.exec(
+        MACOS_SECURITY_BINARY,
+        ['-i'],
+        `add-generic-password -U -s ${reference.keychainService} -a ${reference.keychainAccount} -w ${value}\n`,
+      );
+    } catch {
+      throw new LineKeychainReadError();
+    }
   }
 }

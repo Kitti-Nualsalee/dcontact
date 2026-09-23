@@ -60,6 +60,19 @@ export interface LineWebhookEndpointView {
   active: boolean;
 }
 
+/**
+ * revoke token ของ RB01 (#360 §D ข้อ 10) — v2.1 ต้องยืนยันด้วย channel ID + secret ส่วน long-lived
+ * revoke ด้วยตัว token เอง ค่าทั้งหมดอยู่ในหน่วยความจำของ protected runner เท่านั้น
+ */
+export type LineTokenRevocation =
+  | {
+      credentialKind: 'CHANNEL_ACCESS_TOKEN_V2_1';
+      accessToken: string;
+      channelId: string;
+      channelSecret: string;
+    }
+  | { credentialKind: 'CHANNEL_ACCESS_TOKEN_LONG_LIVED'; accessToken: string };
+
 /** ผลของ `POST /v2/bot/channel/webhook/test`: LINE ยิง signed empty webhook มาที่ endpoint จริง */
 export interface LineWebhookTestResult {
   success: boolean;
@@ -83,6 +96,9 @@ export interface LineProviderTransport {
   push(request: LinePushRequest): Promise<LineTransportResult>;
   getWebhookEndpoint(accessToken: string): Promise<LineWebhookEndpointView>;
   testWebhookEndpoint(accessToken: string): Promise<LineWebhookTestResult>;
+  revokeToken(
+    request: LineTokenRevocation,
+  ): Promise<{ revoked: boolean; httpStatus: number | null }>;
 }
 
 export interface LineClassification {
@@ -301,6 +317,32 @@ export class HttpLineProviderTransport implements LineProviderTransport {
       statusCode: typeof payload?.statusCode === 'number' ? payload.statusCode : null,
       ...(typeof payload?.reason === 'string' ? { reason: payload.reason } : {}),
     };
+  }
+
+  async revokeToken(
+    request: LineTokenRevocation,
+  ): Promise<{ revoked: boolean; httpStatus: number | null }> {
+    const [path, form] =
+      request.credentialKind === 'CHANNEL_ACCESS_TOKEN_V2_1'
+        ? [
+            '/oauth2/v2.1/revoke',
+            {
+              client_id: request.channelId,
+              client_secret: request.channelSecret,
+              access_token: request.accessToken,
+            },
+          ]
+        : ['/v2/oauth/revoke', { access_token: request.accessToken }];
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(form),
+      });
+      return { revoked: response.ok, httpStatus: response.status };
+    } catch {
+      return { revoked: false, httpStatus: null };
+    }
   }
 
   private async get<T>(accessToken: string, path: string): Promise<T | undefined> {

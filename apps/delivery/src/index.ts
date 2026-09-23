@@ -32,3 +32,7 @@ export * from './line-provider-conformance.js';
 export * from './line-provider-evidence-bundle.js';
 export * from './line-run-proposal-view.js';
 export * from './line-observability.js';
+export * from './line-delivery-enqueue.js';
+export * from './line-touch-governance.js';
+export * from './line-keychain-resolvers.js';
+export * from './line-webhook-secrets.js';

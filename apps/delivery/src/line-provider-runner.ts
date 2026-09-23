@@ -86,6 +86,7 @@ async function main(): Promise<void> {
         push: () => Promise.reject(new Error('PR01 ห้าม push')),
         getWebhookEndpoint: (token) => transport.getWebhookEndpoint(token),
         testWebhookEndpoint: (token) => transport.testWebhookEndpoint(token),
+        revokeToken: () => Promise.reject(new Error('PR01 ห้าม revoke')),
       },
       accessToken: handle,
       credential,

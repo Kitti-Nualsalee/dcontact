@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   KeychainLineSecretSource,
+  KeychainLineSecretWriter,
   LineKeychainReadError,
   MACOS_SECURITY_BINARY,
   type LineKeychainExec,
@@ -64,5 +65,46 @@ test('S2-LINE Keychain: error หรือค่าว่างจาก Keychai
   await assert.rejects(
     new KeychainLineSecretSource(recording('\n').exec, 'darwin').read(REFERENCE),
     LineKeychainReadError,
+  );
+});
+
+test('S2-LINE Keychain writer: ค่าไปทาง stdin ของ `security -i` ไม่อยู่ใน argv', async () => {
+  const calls: Array<{ file: string; arguments_: readonly string[]; stdin: string }> = [];
+  const writer = new KeychainLineSecretWriter(async (file, arguments_, stdin) => {
+    calls.push({ file, arguments_, stdin });
+  }, 'darwin');
+  await writer.write(REFERENCE, 'U0123456789abcdef0123456789abcdef');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.file, MACOS_SECURITY_BINARY);
+  assert.deepEqual(calls[0]!.arguments_, ['-i']);
+  assert.equal(
+    calls[0]!.stdin,
+    `add-generic-password -U -s ${REFERENCE.keychainService} -a ${REFERENCE.keychainAccount} -w U0123456789abcdef0123456789abcdef\n`,
+  );
+});
+
+test('S2-LINE Keychain writer: ค่าที่จะแทรกคำสั่งได้, นอก macOS หรือ error ของ process ถูกปฏิเสธโดยไม่พาค่า', async () => {
+  const calls: string[] = [];
+  const recordingWriter = (platform: NodeJS.Platform) =>
+    new KeychainLineSecretWriter(async (_file, _arguments, stdin) => {
+      calls.push(stdin);
+    }, platform);
+  await assert.rejects(
+    recordingWriter('darwin').write(REFERENCE, 'value\ndelete-keychain'),
+    LineKeychainReadError,
+  );
+  await assert.rejects(
+    recordingWriter('darwin').write(REFERENCE, 'a "quoted" value'),
+    LineKeychainReadError,
+  );
+  await assert.rejects(recordingWriter('linux').write(REFERENCE, 'value'), LineKeychainReadError);
+  assert.equal(calls.length, 0);
+  const failing = new KeychainLineSecretWriter(async () => {
+    throw new Error('security: secret-value leaked');
+  }, 'darwin');
+  await assert.rejects(
+    failing.write(REFERENCE, 'secret-value'),
+    (error: Error) =>
+      error instanceof LineKeychainReadError && !error.message.includes('secret-value'),
   );
 });

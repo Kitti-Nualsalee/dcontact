@@ -57,6 +57,10 @@ class ConformanceDouble implements LineProviderTransport {
     this.calls.push('webhook-test');
     return { success: this.webhookStatus === 200, statusCode: this.webhookStatus };
   }
+  async revokeToken() {
+    this.calls.push('revoke');
+    return { revoked: false, httpStatus: null };
+  }
 }
 
 const credential = (
