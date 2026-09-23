@@ -24,3 +24,6 @@ export * from './line-audit-repository.js';
 export * from './line-control-policy.js';
 export * from './line-credential-boundary.js';
 export * from './line-control-plane.js';
+export * from './line-provider-transport.js';
+export * from './line-push-request.js';
+export * from './line-outbound-adapter.js';
