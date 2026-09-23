@@ -16,3 +16,6 @@ export * from './line-attempt-repository.js';
 export * from './line-control-repository.js';
 export * from './line-webhook-repository.js';
 export * from './line-audit-repository.js';
+export * from './line-control-policy.js';
+export * from './line-credential-boundary.js';
+export * from './line-control-plane.js';

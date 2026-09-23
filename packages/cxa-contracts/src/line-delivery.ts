@@ -163,6 +163,9 @@ export const LINE_GATE_ERROR_CODES = [
   'RUN_DELIVERY_CAP_EXCEEDED',
   'LIFETIME_CAP_EXCEEDED',
   'PROVIDER_ATTEMPT_CAP_EXCEEDED',
+  // ledger กับสิ่งที่ผู้เรียกขอไม่ตรงกันจนนับ cap ต่อไม่ได้ (เช่น ปลุก delivery ที่ release แล้ว)
+  // — เป็น cap code ตาม #362 §10 และเป็น automatic kill trigger ตาม #358 §F
+  'CAP_ACCOUNTING_INCONSISTENCY',
   // one-shot/credential/config mismatch
   'RUN_AUTHORIZATION_MISSING',
   'RUN_AUTHORIZATION_EXPIRED',

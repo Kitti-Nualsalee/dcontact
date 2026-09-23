@@ -111,6 +111,8 @@ export interface LineCapLimit {
   sameRecipient?: boolean;
   /** นับเฉพาะ run authorization เดียวกัน (เช่น 1/run) */
   sameRun?: boolean;
+  /** นับเฉพาะ logical delivery เดียวกัน (เช่น provider attempts ≤4 ต่อหนึ่ง delivery) */
+  sameDelivery?: boolean;
   /** หน้าต่างเวลาแบบ rolling: นับเฉพาะ reservedAt >= since */
   since?: Date;
   /** concurrency slot นับเฉพาะ RESERVED; ค่าอื่นนับ RESERVED + COMMITTED */
@@ -234,6 +236,30 @@ export class LineControlRepository {
     );
   }
 
+  findAllowlistEntry(tenantId: string, id: string): Promise<DlLineAllowlistEntry | null> {
+    return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.dlLineAllowlistEntry.findFirst({ where: { tenantId, id } }),
+    );
+  }
+
+  /**
+   * exact tuple lookup ตาม unique index `..._tuple_key` — ผู้เรียกต้องรู้ recipient/content/config
+   * ครบถึงจะเจอแถว จึงใช้เป็น "ตรงทุกมิติ" ของ #358 §B ได้โดยไม่ต้องไล่เทียบทีละคอลัมน์
+   */
+  findAllowlistEntryByTuple(
+    tenantId: string,
+    gateId: string,
+    recipientFingerprint: string,
+    contentDigest: string,
+    configDigest: string,
+  ): Promise<DlLineAllowlistEntry | null> {
+    return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.dlLineAllowlistEntry.findFirst({
+        where: { tenantId, gateId, recipientFingerprint, contentDigest, configDigest },
+      }),
+    );
+  }
+
   /** revoke ได้ครั้งเดียว; คืน false ถ้าไม่พบหรือ revoke ไปแล้ว */
   revokeAllowlistEntry(tenantId: string, id: string, code: string, at: Date): Promise<boolean> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
@@ -255,6 +281,37 @@ export class LineControlRepository {
           keyId: input.keyId ?? null,
           expiresAt: input.expiresAt ?? null,
           longLivedExceptionRef: input.longLivedExceptionRef ?? null,
+        },
+      }),
+    );
+  }
+
+  findCredentialRef(tenantId: string, id: string): Promise<DlLineCredentialRef | null> {
+    return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.dlLineCredentialRef.findFirst({ where: { tenantId, id } }),
+    );
+  }
+
+  /**
+   * version ที่ ACTIVE อยู่จริงของ channel ตอนนี้ (unique index `..._one_active_key` บังคับว่ามีได้
+   * ตัวเดียวต่อ class) — ผู้เรียกใช้เทียบกับ version ที่ run authorization pin ไว้ เพื่อไม่ให้
+   * worker ข้าม barrier ด้วย token คนละ version กับที่อนุมัติ (#358 §G/§I)
+   */
+  findActiveCredentialRef(
+    tenantId: string,
+    channelAccountId: string,
+    credentialClass: 'ACCESS_TOKEN' | 'CHANNEL_SECRET',
+  ): Promise<DlLineCredentialRef | null> {
+    return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.dlLineCredentialRef.findFirst({
+        where: {
+          tenantId,
+          channelAccountId,
+          status: 'ACTIVE',
+          credentialKind:
+            credentialClass === 'CHANNEL_SECRET'
+              ? 'CHANNEL_SECRET'
+              : { in: ['CHANNEL_ACCESS_TOKEN_V2_1', 'CHANNEL_ACCESS_TOKEN_LONG_LIVED'] },
         },
       }),
     );
@@ -307,6 +364,12 @@ export class LineControlRepository {
   }
 
   // ── Run authorization ─────────────────────────────────────────────────────
+
+  findRun(tenantId: string, id: string): Promise<DlLineRunAuthorization | null> {
+    return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.dlLineRunAuthorization.findFirst({ where: { tenantId, id } }),
+    );
+  }
 
   /** proposal digest เดิมคืนแถวเดิม; digest เดิมที่ binding ต่างเป็น conflict */
   async proposeRun(input: ProposeLineRunInput): Promise<DlLineRunAuthorization> {
@@ -491,6 +554,7 @@ export class LineControlRepository {
               state: limit.activeOnly ? 'RESERVED' : { in: ['RESERVED', 'COMMITTED'] },
               ...(limit.sameRecipient ? { recipientFingerprint: input.recipientFingerprint } : {}),
               ...(limit.sameRun ? { runAuthorizationId: input.runAuthorizationId } : {}),
+              ...(limit.sameDelivery ? { deliveryId: input.deliveryId } : {}),
               ...(limit.since ? { reservedAt: { gte: limit.since } } : {}),
             },
           });
@@ -511,6 +575,20 @@ export class LineControlRepository {
           },
         });
         return { status: 'RESERVED', entry, replay: false };
+      }),
+    );
+  }
+
+  /** reservation ที่ยังถือ slot อยู่ของ scope นี้ — ใช้ตัดสิน auto-pause ของ unknown (#358 §C) */
+  listActiveCapEntries(
+    tenantId: string,
+    gateId: string,
+    capKind: LineCapKind,
+  ): Promise<DlLineCapLedgerEntry[]> {
+    return withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.dlLineCapLedgerEntry.findMany({
+        where: { tenantId, gateId, capKind, state: 'RESERVED' },
+        orderBy: [{ reservedAt: 'asc' }, { id: 'asc' }],
       }),
     );
   }
