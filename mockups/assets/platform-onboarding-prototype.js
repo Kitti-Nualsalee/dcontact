@@ -11,7 +11,7 @@
 
   var variants = ['A', 'B', 'C'];
   var variantNames = {
-    A: 'Guided onboarding',
+    A: 'Guided onboarding · selected',
     B: 'Operations workspace',
     C: 'Lifecycle mission control'
   };
@@ -33,10 +33,10 @@
   ];
 
   var queue = [
-    { name: 'Northstar Clinic', slug: 'northstar', plan: 'Growth', status: 'active', note: 'พร้อมส่งมอบ · invitation accepted', flow: 'handoff' },
-    { name: 'Metro Retail Lab', slug: 'metro-retail', plan: 'Starter', status: 'warning', note: 'ACTION_REQUIRED · bootstrap manifest', flow: 'failure' },
-    { name: 'Aster Logistics', slug: 'aster-logistics', plan: 'Growth', status: 'running', note: 'RUNNING · first admin', flow: 'progress' },
-    { name: 'Siam Service Desk', slug: 'siam-service', plan: 'Enterprise', status: 'active', note: 'ACTIVE · 18 ก.ย. 2026', flow: 'handoff' }
+    { name: 'Northstar Clinic', slug: 'northstar', domain: 'northstar.co.th', request: 'prv_01J8NORTH', admin: 'narin@northstar.co.th', plan: 'Growth', status: 'active', note: 'พร้อมส่งมอบ · invitation accepted', flow: 'handoff' },
+    { name: 'Metro Retail Lab', slug: 'metro-retail', domain: 'metroretail.co.th', request: 'prv_01J8METRO', admin: 'admin@metroretail.co.th', plan: 'Starter', status: 'warning', note: 'ACTION_REQUIRED · bootstrap manifest', flow: 'failure' },
+    { name: 'Aster Logistics', slug: 'aster-logistics', domain: 'asterlogistics.com', request: 'prv_01J8ASTER', admin: 'somchai@asterlogistics.com', plan: 'Growth', status: 'running', note: 'RUNNING · first admin', flow: 'progress' },
+    { name: 'Siam Service Desk', slug: 'siam-service', domain: 'siamservice.co.th', request: 'prv_01J8SIAM', admin: 'ops@siamservice.co.th', plan: 'Enterprise', status: 'active', note: 'ACTIVE · 18 ก.ย. 2026', flow: 'handoff' }
   ];
 
   function esc(value) {
@@ -86,12 +86,47 @@
       + '</div>';
   }
 
+  function actionHistory(mode) {
+    var histories = {
+      progress: [
+        ['12:41:03', 'System', 'Provisioning request accepted', 'สร้าง tenant UUID และ reserve slug/domain', 'prv_01J8ASTER'],
+        ['12:41:05', 'System', 'Keycloak Organization verified', 'พบ organization ที่สร้างสำเร็จและ adopt เข้า request', 'corr_31d2a'],
+        ['12:41:07', 'ops@d-contact.io', 'Plan snapshot confirmed', 'Growth · operational-baseline@1.0.0', 'audit_7ba19'],
+        ['12:41:09', 'System', 'First admin step started', 'ตรวจ platform-wide email uniqueness แล้ว', 'step_04']
+      ],
+      failure: [
+        ['12:32:11', 'System', 'Provisioning request accepted', 'จอง metro-retail และ metroretail.co.th', 'prv_01J8METRO'],
+        ['12:32:14', 'System', 'Keycloak Organization verified', 'Organization พร้อมใช้งาน', 'corr_8fa21'],
+        ['12:32:16', 'System', 'Bootstrap validation failed', 'Manifest digest ไม่ตรงกับเวอร์ชันที่อนุมัติ', 'err_manifest_digest'],
+        ['12:40:02', 'ops@d-contact.io', 'Recovery case opened', 'Operator เปิด request เพื่อเลือก recovery action', 'audit_c2f81']
+      ],
+      handoff: [
+        ['10:21:03', 'ops@d-contact.io', 'Provisioning confirmed', 'ยืนยัน identity, plan และ first admin', 'prv_01J8NORTH'],
+        ['10:21:05', 'System', 'Tenant resources created', 'Postgres tenant และ Keycloak Organization verified', 'corr_0d91c'],
+        ['10:21:09', 'System', 'Bootstrap completed', 'Pinned operational-baseline@1.0.0', 'step_03'],
+        ['10:21:12', 'System', 'Invitation delivered', 'Action invitation อายุ 72 ชั่วโมง', 'invite_29bd1'],
+        ['10:22:01', 'System', 'Isolation smoke passed', 'Platform/Tenant boundary checks ผ่านครบ', 'check_8ab12'],
+        ['10:22:03', 'System', 'Tenant activated', 'Tenant เปลี่ยนเป็น ACTIVE แบบ atomic', 'tnt_01J8NORTH'],
+        ['10:39:44', 'narin@northstar.co.th', 'Invitation accepted', 'Verify email และตั้ง password สำเร็จ', 'iam_34f0a'],
+        ['10:42:18', 'narin@northstar.co.th', 'TOTP enrolled', 'First admin พร้อมรับ handoff', 'iam_34f21']
+      ]
+    };
+    var events = histories[mode] || histories.progress;
+    return '<div class="proto-card a-history-card"><div class="proto-card-head"><div><div class="proto-card-title">Action history</div><p class="proto-help">Timeline แบบ append-only สำหรับตรวจว่าใครทำอะไร เมื่อไร และอ้างอิง context ใด</p></div><button class="proto-btn" data-action="export-history"><i class="ti ti-download"></i>Export</button></div><div class="proto-card-body"><div class="a-history">'
+      + events.map(function (event) {
+        var actorType = event[1] === 'System' ? 'system' : event[1].indexOf('@d-contact.io') >= 0 ? 'operator' : 'admin';
+        return '<div class="a-history-item"><div class="a-history-mark ' + actorType + '"><i class="ti ' + (actorType === 'system' ? 'ti-settings-automation' : actorType === 'operator' ? 'ti-user-shield' : 'ti-user-check') + '"></i></div><div class="a-history-content"><div class="a-history-head"><strong>' + esc(event[2]) + '</strong><time>' + esc(event[0]) + '</time></div><p>' + esc(event[3]) + '</p><div class="a-history-meta"><span class="proto-actor ' + actorType + '">' + esc(event[1]) + '</span><span class="proto-code">' + esc(event[4]) + '</span></div></div></div>';
+      }).join('')
+      + '</div></div></div>';
+  }
+
   function tenantTable() {
-    return '<div class="proto-card" style="overflow:hidden"><table class="proto-table"><thead><tr><th>Tenant</th><th>Identity</th><th>Plan</th><th>Provisioning</th><th>อัปเดตล่าสุด</th><th></th></tr></thead><tbody>'
+    return '<div class="proto-card proto-search-card"><div class="proto-search-tools"><div class="proto-search-input"><i class="ti ti-search"></i><input data-tenant-search type="search" placeholder="ค้นหาชื่อ, slug/domain, request ID หรือ first-admin email" aria-label="ค้นหา tenant"><button data-action="clear-search" aria-label="ล้างคำค้นหา"><i class="ti ti-x"></i></button></div><span class="proto-help" data-search-count>พบ ' + queue.length + ' tenants</span></div><div style="overflow:auto"><table class="proto-table"><thead><tr><th>Tenant</th><th>Identity</th><th>Plan</th><th>Provisioning</th><th>อัปเดตล่าสุด</th><th></th></tr></thead><tbody>'
       + queue.map(function (t) {
         var label = t.status === 'active' ? 'ACTIVE' : t.status === 'warning' ? 'ACTION_REQUIRED' : 'RUNNING';
-        return '<tr data-flow="' + t.flow + '"><td><strong>' + esc(t.name) + '</strong><br><span class="proto-help">' + esc(t.note) + '</span></td><td><span class="proto-code">' + esc(t.slug) + '</span></td><td>' + esc(t.plan) + '</td><td>' + chip(t.status, label) + '</td><td>2 นาทีที่แล้ว</td><td><button class="proto-link" data-flow="' + t.flow + '">เปิด →</button></td></tr>';
-      }).join('') + '</tbody></table></div>';
+        var searchIndex = [t.name,t.slug,t.domain,t.request,t.admin,t.plan,label].join(' ').toLowerCase();
+        return '<tr data-flow="' + t.flow + '" data-tenant-row data-search-index="' + esc(searchIndex) + '"><td><strong>' + esc(t.name) + '</strong><br><span class="proto-help">' + esc(t.note) + '</span></td><td><span class="proto-code">' + esc(t.slug) + '</span><br><span class="proto-help">' + esc(t.domain) + '</span></td><td>' + esc(t.plan) + '</td><td>' + chip(t.status, label) + '</td><td>2 นาทีที่แล้ว</td><td><button class="proto-link" data-flow="' + t.flow + '">เปิด →</button></td></tr>';
+      }).join('') + '<tr data-search-empty hidden><td colspan="6"><div class="proto-search-empty"><i class="ti ti-search-off"></i><strong>ไม่พบ tenant</strong><span>ลองค้นหาด้วยชื่อ, slug, domain, request ID หรืออีเมล</span></div></td></tr></tbody></table></div></div>';
   }
 
   function top(title, subtitle, action) {
@@ -127,15 +162,18 @@
     } else if (state.flow === 'review') {
       main = '<div class="proto-card"><div class="proto-card-head"><div><div class="proto-card-title">ตรวจสอบก่อน Provision</div><p class="proto-help">slug, primary domain และ first-admin email ถูก reserve หลังยืนยัน</p></div>' + chip('warning','ต้องยืนยัน') + '</div><div class="proto-card-body">' + reviewSummary() + '<hr class="proto-sep"><div class="proto-callout warning"><strong>ค่าที่แก้ไม่ได้หลังส่งคำขอ</strong><br>Tenant UUID จะถูกสร้างโดย server; slug และ primary domain จะคงเดิมตลอด onboarding หากยกเลิกจะติด tombstone 30 วัน</div><div class="proto-empty-gap"></div><label class="proto-check"><input type="checkbox" checked><span>ฉันตรวจสอบ identity, plan และ first admin แล้ว และเข้าใจว่าระบบจะเริ่ม durable provisioning</span></label><div class="proto-actions" style="justify-content:flex-end;margin-top:18px"><button class="proto-btn" data-flow="create">← แก้ไข</button><button class="proto-btn primary" data-action="confirm">ยืนยันและเริ่ม Provision</button></div></div></div>';
     } else if (state.flow === 'progress') {
-      main = '<div class="proto-card"><div class="proto-card-head"><div><div class="proto-card-title">กำลัง Provision · Nova Care Thailand</div><p class="proto-help">Request <span class="proto-code">prv_01J8NOVA</span> · ทำซ้ำได้อย่างปลอดภัย</p></div>' + chip('running','RUNNING') + '</div><div class="proto-card-body">' + checklist(false) + '<div class="proto-actions" style="justify-content:flex-end;margin-top:14px"><button class="proto-btn" data-action="simulate-failure">จำลอง failure</button><button class="proto-btn primary" data-action="next-step">เดินขั้นถัดไป →</button></div></div></div>';
+      main = '<div class="a-main-stack"><div class="proto-card"><div class="proto-card-head"><div><div class="proto-card-title">กำลัง Provision · Aster Logistics</div><p class="proto-help">Request <span class="proto-code">prv_01J8ASTER</span> · ทำซ้ำได้อย่างปลอดภัย</p></div>' + chip('running','RUNNING') + '</div><div class="proto-card-body">' + checklist(false) + '<div class="proto-actions" style="justify-content:flex-end;margin-top:14px"><button class="proto-btn" data-action="simulate-failure">จำลอง failure</button><button class="proto-btn primary" data-action="next-step">เดินขั้นถัดไป →</button></div></div></div>' + actionHistory('progress') + '</div>';
     } else if (state.flow === 'failure') {
       state.currentStep = 2;
-      main = '<div class="proto-card"><div class="proto-card-head"><div><div class="proto-card-title">Provisioning ต้องการการตัดสินใจ</div><p class="proto-help">Metro Retail Lab · request <span class="proto-code">prv_01J8METRO</span></p></div>' + chip('danger','ACTION_REQUIRED') + '</div><div class="proto-card-body"><div class="proto-callout danger"><strong>Bootstrap manifest digest ไม่ตรงกับเวอร์ชันที่อนุมัติ</strong><br>ขั้นตอนหยุดอย่างปลอดภัยก่อนสร้าง first admin · correlation <span class="proto-code">corr_8fa21</span></div><div class="proto-empty-gap"></div>' + checklist(false,2) + '<hr class="proto-sep"><div class="proto-card-title">แนะนำ: Reconcile ก่อน</div><p class="proto-help" style="margin:5px 0 12px">อ่านสถานะจริงจาก dependency แล้ว adopt ของที่สร้างสำเร็จ เพื่อลดการสร้างซ้ำ</p><div class="proto-actions"><button class="proto-btn primary" data-action="recover">Reconcile &amp; resume</button><button class="proto-btn" data-action="retry">Retry current step</button><button class="proto-btn" data-action="compensate">Safe compensate</button><button class="proto-btn danger" data-action="final-fail">Mark FAILED_FINAL</button></div></div></div>';
+      main = '<div class="a-main-stack"><div class="proto-card"><div class="proto-card-head"><div><div class="proto-card-title">Provisioning ต้องการการตัดสินใจ</div><p class="proto-help">Metro Retail Lab · request <span class="proto-code">prv_01J8METRO</span></p></div>' + chip('danger','ACTION_REQUIRED') + '</div><div class="proto-card-body"><div class="proto-callout danger"><strong>Bootstrap manifest digest ไม่ตรงกับเวอร์ชันที่อนุมัติ</strong><br>ขั้นตอนหยุดอย่างปลอดภัยก่อนสร้าง first admin · correlation <span class="proto-code">corr_8fa21</span></div><div class="proto-empty-gap"></div>' + checklist(false,2) + '<hr class="proto-sep"><div class="proto-card-title">แนะนำ: Reconcile ก่อน</div><p class="proto-help" style="margin:5px 0 12px">อ่านสถานะจริงจาก dependency แล้ว adopt ของที่สร้างสำเร็จ เพื่อลดการสร้างซ้ำ</p><div class="proto-actions"><button class="proto-btn primary" data-action="recover">Reconcile &amp; resume</button><button class="proto-btn" data-action="retry">Retry current step</button><button class="proto-btn" data-action="compensate">Safe compensate</button><button class="proto-btn danger" data-action="final-fail">Mark FAILED_FINAL</button></div></div></div>' + actionHistory('failure') + '</div>';
     } else {
-      main = '<div class="proto-card"><div class="proto-card-head"><div><div class="proto-card-title">พร้อมส่งมอบให้ลูกค้า</div><p class="proto-help">Northstar Clinic · Tenant ACTIVE</p></div>' + chip('success','READY FOR HANDOFF') + '</div><div class="proto-card-body"><div class="proto-callout success"><strong>Provisioning สำเร็จครบ 7 ขั้นตอน</strong><br>Tenant isolation smoke pass และสถานะถูกเปลี่ยนเป็น ACTIVE แบบ atomic</div><div class="proto-empty-gap"></div>' + checklist(false) + '<hr class="proto-sep"><div class="proto-field-grid"><div><div class="proto-card-title">First admin</div><p class="proto-help" style="margin-top:6px">Narin Chaiyasit<br>narin@novacare.co.th</p></div><div><div class="proto-card-title">Invitation</div><p class="proto-help" style="margin-top:6px">ส่งแล้ว · เหลือ 71 ชม. 48 นาที<br>ต้อง verify email + password + TOTP</p></div></div><div class="proto-actions" style="justify-content:flex-end;margin-top:18px"><button class="proto-btn" data-action="resend">ส่งคำเชิญอีกครั้ง</button><button class="proto-btn primary" data-action="copy-handoff">คัดลอก handoff summary</button></div></div></div>';
+      state.currentStep = 7;
+      main = '<div class="a-main-stack"><div class="proto-card"><div class="proto-card-head"><div><div class="proto-card-title">พร้อมส่งมอบให้ลูกค้า</div><p class="proto-help">Northstar Clinic · Tenant ACTIVE</p></div>' + chip('success','READY FOR HANDOFF') + '</div><div class="proto-card-body"><div class="proto-callout success"><strong>Provisioning สำเร็จครบ 7 ขั้นตอน</strong><br>Tenant isolation smoke pass และสถานะถูกเปลี่ยนเป็น ACTIVE แบบ atomic</div><div class="proto-empty-gap"></div>' + checklist(false) + '<hr class="proto-sep"><div class="proto-field-grid"><div><div class="proto-card-title">First admin</div><p class="proto-help" style="margin-top:6px">Narin Chaiyasit<br>narin@northstar.co.th</p></div><div><div class="proto-card-title">Invitation</div><p class="proto-help" style="margin-top:6px">Accepted · 10:39 วันนี้<br>Verify email + password + TOTP ครบแล้ว</p></div></div><div class="proto-actions" style="justify-content:flex-end;margin-top:18px"><button class="proto-btn" data-action="resend">ส่งคำเชิญอีกครั้ง</button><button class="proto-btn primary" data-action="copy-handoff">คัดลอก handoff summary</button></div></div></div>' + actionHistory('handoff') + '</div>';
     }
 
-    return '<div class="proto-shell">' + top('สร้าง tenant ใหม่', 'Guided workflow แยกข้อมูล การยืนยัน ความคืบหน้า และส่งมอบเป็นขั้นชัดเจน', '<button class="proto-btn" data-flow="list">← กลับรายการ</button>') + '<div class="a-layout">' + stepper(state.flow) + main + side + '</div></div>';
+    var detailTitle = state.flow === 'progress' ? 'Aster Logistics' : state.flow === 'failure' ? 'Metro Retail Lab' : state.flow === 'handoff' ? 'Northstar Clinic' : 'สร้าง tenant ใหม่';
+    var detailSubtitle = ['progress','failure','handoff'].indexOf(state.flow) >= 0 ? 'Tenant detail · provisioning, recovery และ Action history' : 'Guided workflow แยกข้อมูล การยืนยัน ความคืบหน้า และส่งมอบเป็นขั้นชัดเจน';
+    return '<div class="proto-shell">' + top(detailTitle, detailSubtitle, '<button class="proto-btn" data-flow="list">← กลับรายการ</button>') + '<div class="a-layout">' + stepper(state.flow) + main + side + '</div></div>';
   }
 
   function bQueue() {
@@ -237,6 +275,21 @@
     render();
   }
 
+  function filterTenantRows(query) {
+    var normalized = String(query || '').trim().toLowerCase();
+    var rows = Array.prototype.slice.call(document.querySelectorAll('[data-tenant-row]'));
+    var visible = 0;
+    rows.forEach(function (row) {
+      var match = !normalized || row.dataset.searchIndex.indexOf(normalized) >= 0;
+      row.hidden = !match;
+      if (match) visible += 1;
+    });
+    var count = document.querySelector('[data-search-count]');
+    if (count) count.textContent = normalized ? 'พบ ' + visible + ' จาก ' + rows.length + ' tenants' : 'พบ ' + rows.length + ' tenants';
+    var empty = document.querySelector('[data-search-empty]');
+    if (empty) empty.hidden = visible !== 0;
+  }
+
   function notify(message) {
     var old = document.querySelector('.proto-toast');
     if (old) old.remove();
@@ -268,6 +321,15 @@
     if (action === 'final-fail') { notify('Prototype: แสดง confirmation + reason ก่อน FAILED_FINAL'); }
     if (action === 'resend') { notify('ส่ง invitation ใหม่แล้ว · เริ่มอายุ 72 ชั่วโมง · 1/3 ครั้งในชั่วโมงนี้'); }
     if (action === 'copy-handoff') { notify('คัดลอก handoff summary แล้ว (mock)'); }
+    if (action === 'export-history') { notify('Export Action history เป็น audit evidence แล้ว (mock)'); }
+    if (action === 'clear-search') {
+      var input = document.querySelector('[data-tenant-search]');
+      if (input) { input.value = ''; filterTenantRows(''); input.focus(); }
+    }
+  });
+
+  document.addEventListener('input', function (event) {
+    if (event.target.matches('[data-tenant-search]')) filterTenantRows(event.target.value);
   });
 
   document.addEventListener('keydown', function (event) {
