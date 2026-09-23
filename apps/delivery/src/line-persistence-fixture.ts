@@ -56,6 +56,8 @@ export async function createLinePersistenceFixture() {
   async function seedDelivery(
     tenantId: string,
     adapter: 'LINE_MESSAGING_API' | 'TEST_ADAPTER' = 'LINE_MESSAGING_API',
+    /** S2.4 รันด้วยเวลาปัจจุบัน จึงต้องเลื่อน lease/expiry ตามนาฬิกาของเทสต์นั้น */
+    at?: Date,
   ) {
     sequence += 1;
     const reservationId = randomUUID();
@@ -74,8 +76,13 @@ export async function createLinePersistenceFixture() {
         sourceId: `journey-${sequence}`,
         actionKey,
         inputHash: digest(actionKey),
-        expiresAt: new Date('2026-09-22T10:15:00.000Z'),
+        expiresAt: new Date((at ?? new Date('2026-09-22T10:00:00.000Z')).getTime() + 15 * 60_000),
         settlementStatus: 'CLAIMED',
+        // S2.4 เรียก beginProviderSubmission ซึ่ง CAS กับ leaseVersion ของ reservation จริง
+        leaseVersion: 1,
+        leaseExpiresAt: new Date(
+          (at ?? new Date('2026-09-22T10:00:00.000Z')).getTime() + 10 * 60_000,
+        ),
         deliveryId,
       },
     });
@@ -95,7 +102,9 @@ export async function createLinePersistenceFixture() {
         contentRef: 'fixture:service-notification/v1',
         inputHash: digest(`input-${actionKey}`),
         leaseVersion: 1,
-        leaseExpiresAt: new Date('2026-09-22T10:10:00.000Z'),
+        leaseExpiresAt: new Date(
+          (at ?? new Date('2026-09-22T10:00:00.000Z')).getTime() + 10 * 60_000,
+        ),
         correlationId: `corr-${suffix}-${sequence}`,
       },
     });
@@ -137,7 +146,18 @@ export async function createLinePersistenceFixture() {
   const control = new LineControlRepository(application);
 
   /** gate + allowlist + credential + run authorization ที่อนุมัติครบ พร้อม consume */
-  async function seedApprovedRun(tenantId: string, label = 'run') {
+  async function seedApprovedRun(
+    tenantId: string,
+    label = 'run',
+    /** S2.4 ผูก allowlist กับ digest ของ fixture จริง จึงเปิดให้ override ได้แบบ additive */
+    overrides: {
+      contentRef?: string;
+      contentDigest?: string;
+      configDigest?: string;
+      /** run มี TTL 30 นาที — เทสต์ที่ใช้เวลาปัจจุบันต้องเสนอ run ที่เวลานั้นด้วย */
+      proposedAt?: Date;
+    } = {},
+  ) {
     const gate = await control.ensureGate(randomUUID(), scope(tenantId));
     const allowlist = await control.addAllowlistEntry({
       id: randomUUID(),
@@ -145,11 +165,15 @@ export async function createLinePersistenceFixture() {
       gateId: gate.id,
       recipientFingerprint: digest(`recipient-${label}`),
       recipientProtectedRef: `prot:recipient:${randomUUID()}`,
-      contentRef: 'fixture:service-notification/v1',
-      contentDigest: digest('content-v1'),
-      configDigest: digest('config-v1'),
-      validFrom: new Date('2026-09-22T00:00:00.000Z'),
-      validUntil: new Date('2026-09-29T00:00:00.000Z'),
+      contentRef: overrides.contentRef ?? 'fixture:service-notification/v1',
+      contentDigest: overrides.contentDigest ?? digest('content-v1'),
+      configDigest: overrides.configDigest ?? digest('config-v1'),
+      validFrom: new Date(
+        (overrides.proposedAt ?? new Date('2026-09-22T00:00:00.000Z')).getTime() - 86_400_000,
+      ),
+      validUntil: new Date(
+        (overrides.proposedAt ?? new Date('2026-09-22T00:00:00.000Z')).getTime() + 7 * 86_400_000,
+      ),
       approvalAuditRef: `audit:allowlist:${label}`,
     });
     const credential = await control.registerCredentialRef({
@@ -164,7 +188,7 @@ export async function createLinePersistenceFixture() {
       issuedAt: new Date('2026-09-22T00:00:00.000Z'),
       expiresAt: new Date('2026-10-20T00:00:00.000Z'),
     });
-    const proposedAt = new Date('2026-09-22T10:00:00.000Z');
+    const proposedAt = overrides.proposedAt ?? new Date('2026-09-22T10:00:00.000Z');
     const run = await control.proposeRun({
       id: randomUUID(),
       tenantId,
@@ -229,6 +253,8 @@ export async function createLinePersistenceFixture() {
         await owner.dlLineScopeGate.deleteMany(where);
         await owner.dlLineAuditEvent.deleteMany(where);
         await owner.dlProviderSubmissionAttempt.deleteMany(where);
+        // S2.4 เรียก CG command จริงจึงมี receipt ผูกกับ reservation ต้องล้างก่อน
+        await owner.cgReservationCommandReceipt.deleteMany(where);
         await owner.cgTouch.deleteMany(where);
         await owner.cgAttempt.deleteMany(where);
         await owner.dlOutboxEntry.deleteMany(where);
