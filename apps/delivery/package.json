@@ -10,7 +10,8 @@
     "test": "tsx --test src/*.test.ts",
     "test:integration": "tsx --test --test-concurrency=1 src/*.integration.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "provider:pr01": "tsx src/line-provider-runner.ts"
+    "provider:pr01": "tsx src/line-provider-runner.ts",
+    "pilot": "tsx src/line-pilot-cli.ts"
   },
   "dependencies": {
     "@d-contact/db": "workspace:*",

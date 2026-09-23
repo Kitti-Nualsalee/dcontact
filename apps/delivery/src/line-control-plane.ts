@@ -220,6 +220,7 @@ export class LineControlPlane {
     at: Date;
     subjectId?: string;
     deliveryId?: string;
+    evidenceDigest?: string;
     /** ค่าที่ทำให้คำสั่งนี้ต่างจากคำสั่งอื่นบน subject เดียวกัน */
     salt: readonly string[];
   }): Promise<void> {
@@ -237,6 +238,7 @@ export class LineControlPlane {
       actorRef: entry.actor.ref,
       ...(entry.subjectId ? { subjectId: entry.subjectId } : {}),
       ...(entry.deliveryId ? { deliveryId: entry.deliveryId } : {}),
+      ...(entry.evidenceDigest ? { evidenceDigest: entry.evidenceDigest } : {}),
       occurredAt: entry.at,
     });
   }
@@ -1089,6 +1091,35 @@ export class LineControlPlane {
       return { status: 'DENIED', code: reserved.code };
     }
     return { status: 'APPLIED', value: reserved.entry };
+  }
+
+  /**
+   * S2.7 (#368 decision 2026-09-23): replay probe ของ PR02 — exact request เดิมที่ยิงซ้ำหลัง accepted
+   * เพื่อพิสูจน์ `409` เป็น audit `PROVIDER` เท่านั้น ไม่ใช่ attempt receipt และไม่แตะ Governance
+   * ผู้เรียกต้องจอง `PROVIDER_ATTEMPT` ผ่าน `reserveProviderAttempt` ก่อนยิงแล้ว
+   */
+  async recordProviderReplayProbe(
+    actor: LineControlActor,
+    input: {
+      tenantId: string;
+      runAuthorizationId: string;
+      deliveryId: string;
+      evidenceDigest: string;
+      at: Date;
+    },
+  ): Promise<void> {
+    assertControlAuthority(actor.role, 'EXECUTE_RUN');
+    await this.record({
+      tenantId: input.tenantId,
+      category: 'PROVIDER',
+      code: 'PROVIDER_REPLAY_PROBE',
+      actor,
+      at: input.at,
+      subjectId: input.runAuthorizationId,
+      deliveryId: input.deliveryId,
+      evidenceDigest: input.evidenceDigest,
+      salt: [input.deliveryId, input.evidenceDigest],
+    });
   }
 
   /** ข้าม barrier แล้ว: หน่วย logical delivery กลายเป็น COMMITTED และคืน slot ของ concurrency */

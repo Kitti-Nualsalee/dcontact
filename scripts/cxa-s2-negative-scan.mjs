@@ -129,6 +129,12 @@ export const S2_SCAN_ALLOWLIST = Object.freeze([
       'token สังเคราะห์ของ credential resolver double ใน wiring test — ไม่ใช่ credential จริง',
   },
   {
+    path: 'apps/delivery/src/line-pilot-cli.ts',
+    rule: 'env-read',
+    reason:
+      'CLI ของ capped pilot อ่านเฉพาะ reference (tenant/credential ref/sender/payload key ref) จาก env ไม่มี secret',
+  },
+  {
     path: 'apps/delivery/src/line-provider-runner.ts',
     rule: 'env-read',
     reason:

@@ -43,6 +43,7 @@ import type {
   LineProviderTransport,
   LineTransportResult,
 } from './line-provider-transport.js';
+import { runLineReplayProbe, runLineRollbackDrill } from './line-pilot-drills.js';
 import { LineTouchGovernanceAdapter } from './line-touch-governance.js';
 import { LineWebhookIngress } from './line-webhook-ingress.js';
 import { EncryptedLineWebhookPayloadVault } from './line-webhook-payload-vault.js';
@@ -63,12 +64,16 @@ const SENT_MESSAGE_ID = '461230966842064897';
 
 class RecordingTransport implements LineProviderTransport {
   readonly requests: LinePushRequest[] = [];
+  readonly scripted: LineTransportResult[] = [];
+  revoked = true;
   async push(request: LinePushRequest): Promise<LineTransportResult> {
     this.requests.push(request);
-    return {
-      kind: 'RESPONSE',
-      response: { httpStatus: 200, requestId: 'req-pilot-1', sentMessageIds: [SENT_MESSAGE_ID] },
-    };
+    return (
+      this.scripted.shift() ?? {
+        kind: 'RESPONSE',
+        response: { httpStatus: 200, requestId: 'req-pilot-1', sentMessageIds: [SENT_MESSAGE_ID] },
+      }
+    );
   }
   async verifyToken() {
     return { valid: true };
@@ -89,7 +94,7 @@ class RecordingTransport implements LineProviderTransport {
     return { success: false, statusCode: null };
   }
   async revokeToken() {
-    return { revoked: true, httpStatus: 200 };
+    return { revoked: this.revoked, httpStatus: this.revoked ? 200 : 400 };
   }
 }
 
@@ -209,9 +214,51 @@ async function setup(t: TestContext) {
     };
   };
 
+  /** pilot หนึ่งใบที่ provider accept แล้ว — จุดเริ่มของ replay probe และ rollback drill */
+  const acceptedDelivery = async (tenantId: string) => {
+    const run = await approvedRun(tenantId);
+    keychain.set(
+      keychainKey(
+        lineRecipientKeychainReference(PILOT_CHANNEL_ACCOUNT_ID, run.recipientProtectedRef),
+      ),
+      USER_ID,
+    );
+    const queued = await enqueue.enqueue(
+      enqueueCommand(await fixture.seedReservation(tenantId, now)),
+    );
+    assert.ok(queued.status === 'QUEUED', JSON.stringify(queued));
+    const command = {
+      tenantId,
+      deliveryId: queued.deliveryId,
+      scope: fixture.scope(tenantId),
+      runAuthorizationId: run.run.id,
+      recipientFingerprint: lineSourceFingerprint(PILOT_CHANNEL_ACCOUNT_ID, USER_ID),
+      recipientProtectedRef: run.recipientProtectedRef,
+      correlationId: `corr-${queued.deliveryId}`,
+      quota: { type: 'limited' as const, targetLimit: 500, totalUsage: 1, observedAt: new Date() },
+    };
+    const submitted = await adapter.submit(command);
+    assert.equal(submitted.status, 'ACCEPTED', JSON.stringify(submitted));
+    return { run, queued, command };
+  };
+  const drillDeps = {
+    database: fixture.application,
+    control,
+    transport,
+    recipients: new KeychainLineRecipientResolver(
+      fixture.application,
+      new MapSecretSource(keychain),
+    ),
+    credentials: { resolve: async () => ({ accessToken: 'synthetic-channel-access-token' }) },
+    actor: OPERATOR,
+    configDigest: CONFIG_DIGEST,
+  };
+
   return {
     fixture,
     now,
+    acceptedDelivery,
+    drillDeps,
     control,
     governance,
     transport,
@@ -442,4 +489,127 @@ test('S2-LINE-AU01 access token resolver ผ่าน credential boundary: finge
     }),
     null,
   );
+});
+
+test('S2-LINE-PR02 replay probe: exact request เดิมได้ 409 + accepted/message ID เดิม และไม่เพิ่ม Attempt', async (t) => {
+  const f = await setup(t);
+  const tenantId = f.fixture.tenantA;
+  const { command, queued } = await f.acceptedDelivery(tenantId);
+  f.transport.scripted.push({
+    kind: 'RESPONSE',
+    response: {
+      httpStatus: 409,
+      requestId: 'req-pilot-2',
+      acceptedRequestId: 'req-pilot-1',
+      sentMessageIds: [SENT_MESSAGE_ID],
+    },
+  });
+
+  const probe = await runLineReplayProbe(f.drillDeps, command);
+  assert.equal(probe.status, 'PASS', JSON.stringify(probe));
+  assert.deepEqual(
+    [probe.pushStatus, probe.replayStatus, probe.acceptedRequestIdMatches, probe.messageIdsMatch],
+    [200, 409, true, true],
+  );
+  // ยิงซ้ำด้วย request เดิมทุก byte: key และผู้รับเดิม
+  assert.equal(f.transport.requests.length, 2);
+  assert.equal(f.transport.requests[1]!.retryKey, queued.providerRequestKey);
+  assert.deepEqual(f.transport.requests[1]!.messages, f.transport.requests[0]!.messages);
+  assert.equal(f.transport.requests[1]!.to, f.transport.requests[0]!.to);
+  assert.ok(!JSON.stringify(probe).includes(USER_ID));
+
+  const where = { where: { tenantId } };
+  assert.equal(await f.fixture.owner.cgAttempt.count(where), 1);
+  assert.equal(await f.fixture.owner.dlProviderSubmissionAttempt.count(where), 1);
+  const audit = await f.fixture.owner.dlLineAuditEvent.findMany({
+    where: { tenantId, code: 'PROVIDER_REPLAY_PROBE' },
+  });
+  assert.deepEqual(
+    audit.map((row) => [row.category, row.deliveryId, row.evidenceDigest]),
+    [['PROVIDER', queued.deliveryId, probe.evidenceDigest]],
+  );
+});
+
+test('S2-LINE-PR02 replay probe: 200 ซ้ำหรือ accepted ID ไม่ตรงคือ FAIL (ผู้รับอาจเห็นซ้ำ)', async (t) => {
+  const f = await setup(t);
+  const { command } = await f.acceptedDelivery(f.fixture.tenantA);
+  f.transport.scripted.push({
+    kind: 'RESPONSE',
+    response: { httpStatus: 200, requestId: 'req-dup', sentMessageIds: ['999'] },
+  });
+  const duplicated = await runLineReplayProbe(f.drillDeps, command);
+  assert.deepEqual([duplicated.status, duplicated.failure], ['FAIL', 'NOT_409']);
+
+  f.transport.scripted.push({
+    kind: 'RESPONSE',
+    response: {
+      httpStatus: 409,
+      requestId: 'req-3',
+      acceptedRequestId: 'req-other',
+      sentMessageIds: [SENT_MESSAGE_ID],
+    },
+  });
+  const mismatched = await runLineReplayProbe(f.drillDeps, command);
+  assert.deepEqual(
+    [mismatched.status, mismatched.failure],
+    ['FAIL', 'ACCEPTED_REQUEST_ID_MISMATCH'],
+  );
+});
+
+test('S2-LINE-RB01 rollback drill: switch off + kill + revoke แล้วส่งใหม่ถูกปฏิเสธก่อน I/O', async (t) => {
+  const f = await setup(t);
+  const tenantId = f.fixture.tenantA;
+  const { run, command } = await f.acceptedDelivery(tenantId);
+  const pushesBefore = f.transport.requests.length;
+
+  const evidence = await runLineRollbackDrill(f.drillDeps, OPERATOR, {
+    scope: f.fixture.scope(tenantId),
+    runAuthorizationId: run.run.id,
+    credentialRefId: run.credential.id,
+    recipientFingerprint: command.recipientFingerprint,
+    contentRef: FIXTURE_REF,
+    revocation: async () => ({
+      credentialKind: 'CHANNEL_ACCESS_TOKEN_LONG_LIVED',
+      accessToken: 'synthetic-channel-access-token',
+    }),
+    quota: command.quota,
+  });
+  assert.equal(evidence.status, 'PASS', JSON.stringify(evidence));
+  assert.deepEqual(
+    [evidence.technicalSwitchOn, evidence.killLatched, evidence.unresolvedDeliveries],
+    [false, true, 0],
+  );
+  assert.equal(evidence.freshSendDenialCode, 'LINE_GATE_KILLED');
+  assert.equal(f.transport.requests.length, pushesBefore);
+  const credential = await f.fixture.owner.dlLineCredentialRef.findUniqueOrThrow({
+    where: { id: run.credential.id },
+  });
+  assert.equal(credential.status, 'REVOKED');
+  const gate = await f.fixture.owner.dlLineScopeGate.findFirstOrThrow({ where: { tenantId } });
+  assert.equal(gate.killReason, 'PILOT_ROLLBACK');
+});
+
+test('S2-LINE-RB01 revoke ที่ provider ล้ม = FAIL แต่ scope ยังปิดและ metadata ยัง revoke', async (t) => {
+  const f = await setup(t);
+  const tenantId = f.fixture.tenantA;
+  const { run, command } = await f.acceptedDelivery(tenantId);
+  f.transport.revoked = false;
+
+  const evidence = await runLineRollbackDrill(f.drillDeps, OPERATOR, {
+    scope: f.fixture.scope(tenantId),
+    runAuthorizationId: run.run.id,
+    credentialRefId: run.credential.id,
+    recipientFingerprint: command.recipientFingerprint,
+    contentRef: FIXTURE_REF,
+    revocation: async () => ({
+      credentialKind: 'CHANNEL_ACCESS_TOKEN_LONG_LIVED',
+      accessToken: 'synthetic-channel-access-token',
+    }),
+  });
+  assert.equal(evidence.status, 'FAIL');
+  assert.deepEqual(
+    [evidence.providerRevoked, evidence.metadataRevoked, evidence.credentialRevoked],
+    [false, true, false],
+  );
+  assert.deepEqual([evidence.killLatched, evidence.technicalSwitchOn], [true, false]);
 });
