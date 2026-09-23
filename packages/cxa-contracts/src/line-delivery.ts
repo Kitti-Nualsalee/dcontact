@@ -16,6 +16,7 @@ import type {
   ReservationId,
   TenantId,
 } from './identifiers.js';
+import type { DeliveryRejectionScope, NormalizedDeliveryOutcome } from './contact-governance.js';
 
 /** identity ของ adapter ใน `dl_outbox_entries.adapter`; caller-facing DeliveryPort ไม่เห็นค่านี้ */
 export const DELIVERY_ADAPTERS = ['TEST_ADAPTER', 'LINE_MESSAGING_API'] as const;
@@ -85,8 +86,12 @@ export const LINE_PROVIDER_OUTCOME_CLASS: Readonly<
  * rejection แยกสองแบบเพราะนับ Attempt ต่างกัน (#361 §B): recipient-specific = Attempt 1,
  * operational (auth/schema/quota/rate) = Attempt 0. auth/rate/quota เป็น operational เสมอ
  */
-export const LINE_REJECTION_SCOPES = ['RECIPIENT', 'OPERATIONAL'] as const;
-export type LineRejectionScope = (typeof LINE_REJECTION_SCOPES)[number];
+/** ชื่อเฉพาะของ LINE ต่อ vocabulary กลาง — derive ตรง ๆ เพื่อให้ทั้งสองฝั่งเดินแยกกันไม่ได้ */
+export type LineRejectionScope = DeliveryRejectionScope;
+export const LINE_REJECTION_SCOPES: readonly LineRejectionScope[] = Object.freeze([
+  'RECIPIENT',
+  'OPERATIONAL',
+]);
 
 export const LINE_ALWAYS_OPERATIONAL_REJECTIONS: readonly LineProviderOutcomeCode[] = Object.freeze(
   ['LINE_AUTH_INVALID', 'LINE_RATE_LIMITED', 'LINE_MONTHLY_QUOTA_EXHAUSTED'],
@@ -238,6 +243,105 @@ export interface DeliverySettlementPolicyDecision {
   countsAsAttempt: boolean;
   countsAsSuccessfulTouch: boolean;
   refundOnFailure: boolean;
+}
+
+/** snapshot ของ Touch ที่ correlate แล้ว; duplicate คืนค่าชุดเดิมเสมอ */
+export interface CorrelatedTouchView {
+  touchId: string;
+  attemptId: string;
+  reservationId: ReservationId;
+  deliveryId: DeliveryId;
+  responseEvidenceRef: OutcomeRef;
+  evidenceKind: TouchEvidenceKind;
+  occurredAt: string;
+}
+
+export const CORRELATED_TOUCH_ERROR_CODES = [
+  /** ยังไม่มี accepted Attempt ใน tenant นี้ — response มาก่อน acceptance commit (#361 §F) */
+  'ATTEMPT_NOT_FOUND',
+  /** Attempt มีจริงแต่ไม่ใช่ `PROVIDER_ACCEPTED` — Touch เกาะ Attempt แบบอื่นไม่ได้ */
+  'ATTEMPT_NOT_ACCEPTED',
+  /** reservation/delivery/actionKey ที่ส่งมาไม่ตรงกับ Attempt */
+  'TOUCH_BINDING_CONFLICT',
+  /** evidence ref เดิมถูกใช้กับ binding อื่น หรือ Attempt นี้มี Touch จาก evidence อื่นแล้ว */
+  'TOUCH_EVIDENCE_CONFLICT',
+  /** evidence kind นอก `TOUCH_EVIDENCE_KINDS` — ไม่มี time-window inference */
+  'TOUCH_EVIDENCE_KIND_UNSUPPORTED',
+] as const;
+export type CorrelatedTouchErrorCode = (typeof CORRELATED_TOUCH_ERROR_CODES)[number];
+
+export class CorrelatedTouchError extends Error {
+  constructor(readonly code: CorrelatedTouchErrorCode) {
+    super(`ไม่สามารถบันทึก correlated Touch: ${code}`);
+    this.name = 'CorrelatedTouchError';
+  }
+}
+
+/** policy ที่ละเมิด #361/#362 §8 เช่น acceptance ที่อ้างว่าเป็น Touch หรือ refund นอก failure */
+export class SettlementPolicyViolationError extends Error {
+  readonly code = 'SETTLEMENT_POLICY_VIOLATION';
+
+  constructor(
+    readonly outcome: NormalizedDeliveryOutcome,
+    readonly decision: DeliverySettlementPolicyDecision,
+  ) {
+    super(`settlement policy ตัดสิน ${outcome} ผิดสัญญา`);
+    this.name = 'SettlementPolicyViolationError';
+  }
+}
+
+/**
+ * Owner: Contact Governance (#362 §4) — operation แยกจาก `ContactGovernancePort` เพราะผู้เรียกคือ
+ * webhook worker ของ Channels เท่านั้น ส่วน Journey/Dialer/Delivery adapter ไม่เคย correlate Touch
+ *
+ * สัญญา:
+ * - idempotent ต่อ `(tenantId, responseEvidenceRef)`; duplicate คืน snapshot เดิม ไม่สร้างแถวซ้ำ
+ * - append Touch ให้ accepted Attempt เดิมเท่านั้น และไม่เปลี่ยน reservation/Attempt ใด ๆ
+ * - Attempt หนึ่งใบมี Touch ได้ครั้งเดียว; evidence คนละใบบน Attempt เดิม = `TOUCH_EVIDENCE_CONFLICT`
+ * - response ที่ยังไม่มี Attempt คือ `ATTEMPT_NOT_FOUND` ให้ caller คง correlation เป็น PENDING
+ * - ไม่มี time-window inference: `evidenceKind` นอก `TOUCH_EVIDENCE_KINDS` ถูกปฏิเสธ
+ */
+export interface ContactTouchCorrelationPort {
+  recordCorrelatedTouch(input: RecordCorrelatedTouchInput): Promise<CorrelatedTouchView>;
+}
+
+export function isTouchEvidenceKind(value: unknown): value is TouchEvidenceKind {
+  return typeof value === 'string' && (TOUCH_EVIDENCE_KINDS as readonly string[]).includes(value);
+}
+
+/**
+ * fact ของ LINE หนึ่งใบ → canonical outcome ของ Governance (#357 §5, #362 §6)
+ * unknown และ quarantined ยังไม่ terminal จึงคง `UNKNOWN_RECONCILING` — sweeper ห้าม release
+ */
+export function lineNormalizedOutcome(
+  outcomeCode: LineProviderOutcomeCode,
+): NormalizedDeliveryOutcome {
+  switch (LINE_PROVIDER_OUTCOME_CLASS[outcomeCode]) {
+    case 'ACCEPTED':
+      return 'PROVIDER_ACCEPTED';
+    case 'TERMINAL_REJECTED':
+      return 'PROVIDER_REJECTED';
+    default:
+      return 'UNKNOWN_RECONCILING';
+  }
+}
+
+/**
+ * matrix Attempt/Touch/refund ของ LINE (#361 §B, #362 §8) — pure function ที่ Governance ใช้ตัดสิน
+ * acceptance คือ Attempt 1/Touch 0/refund 0 เสมอ: provider รับ request ไม่ใช่ delivery และไม่ใช่ read
+ */
+export function lineProviderSettlement(
+  outcomeCode: LineProviderOutcomeCode,
+  rejectionScope?: LineRejectionScope,
+): DeliverySettlementPolicyDecision {
+  const outcomeClass = assertLineOutcomeScope(outcomeCode, rejectionScope);
+  return Object.freeze({
+    countsAsAttempt:
+      outcomeClass === 'ACCEPTED' ||
+      (outcomeClass === 'TERMINAL_REJECTED' && rejectionScope === 'RECIPIENT'),
+    countsAsSuccessfulTouch: false,
+    refundOnFailure: false,
+  });
 }
 
 // ── PII-safe events (#362 §5) ───────────────────────────────────────────────

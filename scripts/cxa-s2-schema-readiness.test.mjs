@@ -23,6 +23,8 @@ const migrationSql = (name) =>
     'utf8',
   );
 const [enumMigration, persistenceMigration] = S2_MIGRATIONS.map(migrationSql);
+// registry ครอบทุกไฟล์ของเฟส ไม่ใช่เฉพาะไฟล์ persistence ของ S2.1
+const allMigrationSql = S2_MIGRATIONS.map(migrationSql).join('\n');
 const rlsBootstrap = readFileSync(resolve(repositoryRoot, 'packages/db/prisma/rls.sql'), 'utf8');
 
 const passing = [
@@ -57,7 +59,7 @@ test('ทุกชื่อใน registry มีอยู่จริงใน 
     ...REQUIRED_S2_UNIQUE_INDEXES,
     ...REQUIRED_S2_TRIGGERS,
   ]) {
-    assert.ok(persistenceMigration.includes(`"${name}"`), name);
+    assert.ok(allMigrationSql.includes(`"${name}"`), name);
   }
   for (const [type, value] of REQUIRED_S2_ENUM_VALUES) {
     assert.ok(enumMigration.includes(`"${type}" ADD VALUE IF NOT EXISTS '${value}'`), type);
@@ -68,12 +70,9 @@ test('ทุกชื่อใน registry มีอยู่จริงใน 
   assert.ok((compositeForeignKeys?.length ?? 0) >= MINIMUM_S2_COMPOSITE_FOREIGN_KEYS);
 });
 
-test('migration ของ S2.1 เป็น expand-only และ enum value แยก transaction', () => {
-  for (const [name, sql] of [
-    [S2_MIGRATIONS[0], enumMigration],
-    [S2_MIGRATIONS[1], persistenceMigration],
-  ]) {
-    assert.deepEqual(findDestructiveStatements(sql), [], name);
+test('migration ของ S2 ทุกไฟล์เป็น expand-only และ enum value แยก transaction', () => {
+  for (const name of S2_MIGRATIONS) {
+    assert.deepEqual(findDestructiveStatements(migrationSql(name)), [], name);
   }
   // ค่าใหม่ของ enum ห้ามถูกใช้ใน migration เดียวกับที่เพิ่ม
   assert.doesNotMatch(enumMigration, /CREATE TABLE|CHECK \(/);

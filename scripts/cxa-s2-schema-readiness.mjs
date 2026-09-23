@@ -8,10 +8,14 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const composeArguments = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
 
-/** migration ของ S2.1 (#365) — enum values แยกไฟล์เพราะ Postgres ใช้ค่าใหม่ใน transaction เดียวกันไม่ได้ */
+/**
+ * migration ของ S2 — enum values แยกไฟล์เพราะ Postgres ใช้ค่าใหม่ใน transaction เดียวกันไม่ได้
+ * ไฟล์ที่สามเป็นด่าน Attempt/Touch ของ S2.2 (#364) ซึ่งอ้างค่า enum ที่ commit ไปแล้ว
+ */
 export const S2_MIGRATIONS = Object.freeze([
   '20260922160000_add_s2_line_enum_values',
   '20260922160100_add_s2_line_persistence',
+  '20260923101500_add_s2_2_correlated_touch_guard',
 ]);
 
 /** ตารางที่ S2.1 เพิ่มตาม Phase Contract #362 §3 */
@@ -59,6 +63,7 @@ export const REQUIRED_S2_CONSTRAINTS = Object.freeze([
   'dl_line_touch_correlations_state_check',
   'dl_line_audit_events_values_check',
   'cg_touches_response_evidence_check',
+  'cg_touches_provider_accepted_evidence_check',
 ]);
 
 /** identity/idempotency boundary ตาม #362 §3 รวม partial unique */
@@ -95,6 +100,7 @@ export const REQUIRED_S2_TRIGGERS = Object.freeze([
   'dl_line_credential_refs_guard',
   'dl_line_webhook_inbox_guard',
   'dl_line_touch_correlations_guard',
+  'cg_touches_evidence_guard',
 ]);
 
 /** composite FK ขั้นต่ำ — ทุกเส้นที่อ้าง entity อื่นผูก tenant_id ร่วม (บางเส้นผูก adapter ด้วย) */

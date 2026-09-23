@@ -12,6 +12,7 @@ import {
   reservationId,
   tenantId,
   ReservationBindingError,
+  SettlementPolicyViolationError,
   type ClaimReservationForDeliveryInput,
   type ReservationBindingErrorCode,
 } from '@d-contact/cxa-contracts';
@@ -575,4 +576,137 @@ test('cross-tenant reservation swap ไม่เปิดเผย row และ
   });
   assert.equal(untouched.deliveryId, null);
   assert.equal(untouched.settlementStatus, 'UNCLAIMED');
+});
+
+// ── S2.2 (#364): provider acceptance และ rejection scope (#361 §B, #362 §8) ───
+
+test('acceptance settle เป็น CONFIRMED+SETTLED และเป็น Attempt 1/Touch 0/refund 0', async (t) => {
+  const f = await fixture(t);
+  const service = f.service();
+  const command = commands(f);
+  await service.claimReservationForDelivery(command.claim);
+  await service.beginProviderSubmission(command.begin);
+
+  const accepted = await service.settleDelivery({
+    ...command.delivered,
+    outcomeRef: outcomeRef('provider-accepted'),
+    outcome: 'PROVIDER_ACCEPTED',
+  });
+  assert.equal(accepted.state, 'CONFIRMED');
+  assert.equal(accepted.status, 'SETTLED');
+  assert.equal(await f.owner.cgAttempt.count({ where: { tenantId: f.tenantId } }), 1);
+  assert.equal(await f.owner.cgTouch.count({ where: { tenantId: f.tenantId } }), 0);
+
+  const row = await f.owner.cgReservation.findUniqueOrThrow({ where: { id: f.reservationId } });
+  assert.equal(row.terminalOutcome, 'PROVIDER_ACCEPTED');
+  assert.equal(row.refundedAt, null);
+});
+
+test('acceptance ที่ confirm ไปแล้วยัง settle เป็น PROVIDER_ACCEPTED ได้โดยไม่ย้อน state', async (t) => {
+  const f = await fixture(t);
+  const service = f.service();
+  const command = commands(f);
+  await service.claimReservationForDelivery(command.claim);
+  await service.beginProviderSubmission(command.begin);
+  await service.confirmProviderAcceptance(command.confirm);
+
+  const accepted = await service.settleDelivery({
+    ...command.delivered,
+    outcomeRef: outcomeRef('accepted-after-confirm'),
+    outcome: 'PROVIDER_ACCEPTED',
+  });
+  assert.equal(accepted.state, 'CONFIRMED');
+  assert.equal(accepted.status, 'SETTLED');
+  assert.equal(await f.owner.cgAttempt.count({ where: { tenantId: f.tenantId } }), 1);
+  assert.equal(await f.owner.cgTouch.count({ where: { tenantId: f.tenantId } }), 0);
+});
+
+test('operational rejection ปล่อยโควต้าโดยไม่สร้าง Attempt ส่วน recipient rejection สร้าง Attempt 1', async (t) => {
+  const f = await fixture(t);
+  const service = f.service();
+  const operational = commands(f, f, 'delivery-operational');
+  await service.claimReservationForDelivery(operational.claim);
+  await service.beginProviderSubmission(operational.begin);
+  const releasedOperational = await service.settleDelivery({
+    ...operational.delivered,
+    outcomeRef: outcomeRef('rejected-operational'),
+    outcome: 'PROVIDER_REJECTED',
+    rejectionScope: 'OPERATIONAL',
+  });
+  assert.equal(releasedOperational.state, 'RELEASED');
+  assert.equal(releasedOperational.status, 'SETTLED');
+  assert.equal(await f.owner.cgAttempt.count({ where: { tenantId: f.tenantId } }), 0);
+  assert.equal(await f.owner.cgTouch.count({ where: { tenantId: f.tenantId } }), 0);
+  // reservation ยัง settle ปกติ: Attempt 0 ไม่ได้แปลว่าเส้นทางค้าง
+  const operationalRow = await f.owner.cgReservation.findUniqueOrThrow({
+    where: { id: f.reservationId },
+  });
+  assert.equal(operationalRow.terminalOutcome, 'PROVIDER_REJECTED');
+
+  const other = await f.createReservation('recipient-rejection');
+  const recipient = commands(f, other, 'delivery-recipient');
+  await service.claimReservationForDelivery(recipient.claim);
+  await service.beginProviderSubmission(recipient.begin);
+  const releasedRecipient = await service.settleDelivery({
+    ...recipient.delivered,
+    outcomeRef: outcomeRef('rejected-recipient'),
+    outcome: 'PROVIDER_REJECTED',
+    rejectionScope: 'RECIPIENT',
+  });
+  assert.equal(releasedRecipient.state, 'RELEASED');
+  assert.equal(await f.owner.cgAttempt.count({ where: { tenantId: f.tenantId } }), 1);
+  assert.equal(await f.owner.cgTouch.count({ where: { tenantId: f.tenantId } }), 0);
+});
+
+test('duplicate ของ operational rejection ยังไม่สร้าง Attempt และคืน snapshot เดิม', async (t) => {
+  const f = await fixture(t);
+  const service = f.service();
+  const command = commands(f);
+  await service.claimReservationForDelivery(command.claim);
+  await service.beginProviderSubmission(command.begin);
+  const rejection = {
+    ...command.delivered,
+    outcomeRef: outcomeRef('rejected-operational-duplicate'),
+    outcome: 'PROVIDER_REJECTED' as const,
+    rejectionScope: 'OPERATIONAL' as const,
+  };
+
+  const results = await Promise.all(
+    Array.from({ length: 6 }, (_, index) =>
+      service.settleDelivery({ ...rejection, correlationId: `retry-${index}` }),
+    ),
+  );
+  for (const result of results) assert.deepEqual(result, results[0]);
+  assert.equal(await f.owner.cgAttempt.count({ where: { tenantId: f.tenantId } }), 0);
+});
+
+test('policy ที่อ้างว่า acceptance เป็น Touch ถูกปฏิเสธก่อนเขียน fact', async (t) => {
+  const f = await fixture(t);
+  const service = f.service({
+    settlementPolicy: () => ({
+      countsAsAttempt: true,
+      countsAsSuccessfulTouch: true,
+      refundOnFailure: false,
+    }),
+  });
+  const command = commands(f);
+  await service.claimReservationForDelivery(command.claim);
+  await service.beginProviderSubmission(command.begin);
+
+  await assert.rejects(
+    () =>
+      service.settleDelivery({
+        ...command.delivered,
+        outcomeRef: outcomeRef('policy-violation'),
+        outcome: 'PROVIDER_ACCEPTED',
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof SettlementPolicyViolationError);
+      assert.equal(error.code, 'SETTLEMENT_POLICY_VIOLATION');
+      return true;
+    },
+  );
+  const row = await f.owner.cgReservation.findUniqueOrThrow({ where: { id: f.reservationId } });
+  assert.equal(row.terminalOutcome, null);
+  assert.equal(await f.owner.cgAttempt.count({ where: { tenantId: f.tenantId } }), 0);
 });

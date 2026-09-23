@@ -264,14 +264,35 @@ export interface ReleaseBeforeSubmitInput extends ReservationDeliveryCommand {
   reason: 'CANCELLED_BEFORE_SUBMIT' | 'LEASE_EXPIRED';
 }
 
-/** Adapter ส่ง fact; countsAsAttempt/countsAsTouch และ refund เป็น authority ของ Governance */
+/**
+ * Adapter ส่ง fact; countsAsAttempt/countsAsTouch และ refund เป็น authority ของ Governance
+ *
+ * S2 (#361/#362 §6): `PROVIDER_ACCEPTED` คือ provider รับ request แล้ว (LINE `2xx/409`) —
+ * ไม่ใช่ `DELIVERED` และไม่ใช่ Touch. Channel ที่ไม่มีหลักฐาน delivery/read ห้าม emit `DELIVERED`
+ */
 export type NormalizedDeliveryOutcome =
-  'UNKNOWN_RECONCILING' | 'PROVIDER_REJECTED' | 'DELIVERED' | 'DELIVERY_FAILED';
+  | 'UNKNOWN_RECONCILING'
+  | 'PROVIDER_REJECTED'
+  | 'PROVIDER_ACCEPTED'
+  | 'DELIVERED'
+  | 'DELIVERY_FAILED';
+
+/**
+ * ขอบเขตของ provider rejection — fact ที่ adapter รายงาน ไม่ใช่ Boolean ที่ตัดสินเอง (#361 §B)
+ * `RECIPIENT` = ปลายทางเฉพาะรายถูกปฏิเสธ → Attempt 1
+ * `OPERATIONAL` = auth/schema/quota/rate ของระบบ → Attempt 0 (ไม่แตะผู้รับ)
+ */
+export type DeliveryRejectionScope = 'RECIPIENT' | 'OPERATIONAL';
 
 export interface SettleDeliveryInput extends BoundDeliveryCommand {
   providerRequestKey: ProviderRequestKey;
   outcomeRef: OutcomeRef;
   outcome: NormalizedDeliveryOutcome;
+  /**
+   * บังคับสำหรับ `PROVIDER_REJECTED` ของ channel ที่แยก scope ได้ (LINE ตาม #357 §5)
+   * ไม่ระบุ = พฤติกรรม S1 เดิมคือ Attempt 1; adapter ห้ามส่ง scope กับ outcome อื่น
+   */
+  rejectionScope?: DeliveryRejectionScope;
   occurredAt: string;
 }
 
@@ -316,6 +337,8 @@ export class ReservationBindingError extends Error {
  * หลัง barrier ห้าม release/refund/blind retry จาก timeout; terminal refund ยังเป็น Governance policy
  * Terminal outcome แรกชนะ; late outcome ไม่ย้อน state และไม่สร้าง Attempt/Touch ซ้ำ
  * Consumer ห้ามใช้ port นี้เป็นหลักฐานว่า CG2 หรือ provider traffic พร้อมแล้ว
+ * S2 (#362 §4/§8): Touch ที่มาจาก explicit response เป็น operation แยกบน
+ * `ContactTouchCorrelationPort.recordCorrelatedTouch` — settle ไม่เคยสร้าง Touch จาก acceptance
  */
 export interface ContactGovernancePort extends ContactAuthorizationPort {
   authorizeAndReserve(
