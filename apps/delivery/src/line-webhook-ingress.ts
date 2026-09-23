@@ -95,8 +95,14 @@ export function lineProtectedPayloadRef(channelAccountId: string, webhookEventId
   return `wh_${digest.slice(0, 48)}`;
 }
 
+/**
+ * hash ของ "ตัว event" ที่ใช้ตัดสิน duplicate กับ conflict — ไม่รวม `deliveryContext` เพราะ LINE
+ * เปลี่ยน `isRedelivery` เป็น true ตอนส่งซ้ำ ถ้านับด้วย redelivery ปกติทุกครั้งจะกลายเป็น
+ * idempotency conflict และถูก quarantine (#359 §D: redelivery เป็น metadata ไม่ใช่ identity)
+ */
 export function lineEventPayloadDigest(event: Record<string, unknown>): string {
-  return createHash('sha256').update(JSON.stringify(event)).digest('hex');
+  const { deliveryContext: _redeliveryMetadata, ...identity } = event;
+  return createHash('sha256').update(JSON.stringify(identity)).digest('hex');
 }
 
 export class LineWebhookIngress {
