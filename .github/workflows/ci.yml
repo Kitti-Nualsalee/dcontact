@@ -11,9 +11,9 @@ on:
     inputs:
       acceptance:
         # สั่งเฉพาะชุดที่ต้องการได้ ไม่ต้องลาก convergence ที่ใช้เวลานานมาทุก main push
-        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2 | j5 | j5-focused)'
+        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2 | j5 | j5-focused | s2 | s2-focused)'
         type: choice
-        options: [all, s1, cg4, cg5, j2, j5, j5-focused]
+        options: [all, s1, cg4, cg5, j2, j5, j5-focused, s2, s2-focused]
         default: all
 
 jobs:
@@ -67,6 +67,10 @@ jobs:
       # S2.1 (#365): registry ของ LINE persistence ตรงกับ migration/rls.sql และ migration เป็น expand-only
       - name: S2 schema readiness validator tests
         run: pnpm test:cxa-s2-schema-readiness
+
+      # S2.6 (#366): 19-check registry, manifest/bundle validator, marker suppression และ negative scan
+      - name: S2 readiness validator tests
+        run: pnpm test:cxa-s2-readiness
 
   s1-convergence-acceptance:
     # S1 ใช้เวลานานและ J3 final gate เรียกเองอยู่แล้ว: ไม่รันทุก main push
@@ -141,7 +145,7 @@ jobs:
   cxa-j2-acceptance:
     # J2-REG01 รัน C1 และ S1 acceptance ซ้อนอยู่ข้างใน รวมแล้วราว 3 ชม. ถ้าผูกกับทุก push
     # job จะทับกันเองเพราะ main ขยับถี่กว่านั้น จึงรันรอบดึกวันละครั้ง (และสั่งเองได้)
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused')
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused')
     runs-on: ubuntu-latest
     timeout-minutes: 330
     concurrency:
@@ -214,7 +218,7 @@ jobs:
     # CG4.11 (#194): รันรอบดึกหรือสั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg4`)
     # CG4-REG01 rerun S1 ครั้งเดียว (E0/C1/Inbound Voice อยู่ใน S1-REG-01) และแต่ละ suite รันครั้งเดียว
     # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
-    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused')) && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused')) && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     concurrency:
@@ -483,3 +487,194 @@ jobs:
             artifacts/cxa-j5/browser/
           if-no-files-found: error
           retention-days: 30
+
+  cxa-s2-provider-conformance:
+    # S2.6 (#366): S2-LINE-PR01 บน protected runner (macOS ที่ถือ Keychain + local ngrok binding)
+    # token/secret ไม่เข้า GitHub Actions — job นี้รับแค่ reference จาก `vars` และส่งออกเฉพาะ
+    # sanitized bundle; environment `line-provider-pilot` ต้องมี required reviewer ก่อนเริ่ม
+    # PR01 ไม่มี push — PR02/RB01 (S2.7) ต้องมี one-shot approval ใหม่ทุกครั้ง
+    if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 's2' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, macOS, line-pilot]
+    environment: line-provider-pilot
+    timeout-minutes: 30
+    concurrency:
+      group: cxa-s2-provider
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Run S2-LINE-PR01 provider conformance (no push)
+        run: pnpm --filter @d-contact/delivery provider:pr01
+        env:
+          CXA_S2_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+          CXA_S2_PILOT_TENANT_ID: ${{ vars.CXA_S2_PILOT_TENANT_ID }}
+          CXA_S2_CREDENTIAL_REF_ID: ${{ vars.CXA_S2_CREDENTIAL_REF_ID }}
+          CXA_S2_APPROVED_WEBHOOK_ENDPOINT_DIGEST: ${{ vars.CXA_S2_APPROVED_WEBHOOK_ENDPOINT_DIGEST }}
+          CXA_S2_PROVIDER_BUNDLE_DIR: ${{ github.workspace }}/artifacts/cxa-s2/provider
+
+      - name: Upload sanitized provider bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-s2-provider-bundle-${{ github.sha }}
+          path: artifacts/cxa-s2/provider/
+          if-no-files-found: error
+          retention-days: 90
+
+  cxa-s2-acceptance:
+    # S2.6 (#366): ingestion + 19 checks — ตรวจ bundle ซ้ำ (schema/hash/final-main/negative scan)
+    # แล้วรัน automated 16 checks บน SHA เดียวกัน; bundle หายหรือเสีย = candidate เท่านั้น
+    # `gh workflow run CI --ref main -f acceptance=s2` — marker ออกได้เฉพาะ clean final main SHA
+    needs: cxa-s2-provider-conformance
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.acceptance == 's2' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    concurrency:
+      group: cxa-s2-acceptance
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure local acceptance environment
+        run: |
+          cp .env.example .env
+          mkdir -p infra/docker/data/redpanda
+          chmod 777 infra/docker/data/redpanda
+          mkdir -p infra/docker/data/freeswitch-recordings
+          chmod 777 infra/docker/data/freeswitch-recordings
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium for regression acceptance
+        run: pnpm --filter @d-contact/workspace exec playwright install --with-deps chromium
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build workspace prerequisites
+        run: pnpm build
+
+      - name: Download sanitized provider bundle
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: cxa-s2-provider-bundle-${{ github.sha }}
+          path: artifacts/cxa-s2/provider
+
+      - name: Bootstrap acceptance infrastructure
+        run: |
+          pnpm infra:ready || {
+            docker compose -f infra/docker/docker-compose.dev.yml ps
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color redpanda
+            exit 1
+          }
+
+      - name: Run S2 acceptance on final main SHA
+        run: |
+          CXA_S2_PROVIDER_BUNDLES="$(find artifacts/cxa-s2/provider -name '*.json' 2>/dev/null | sort | paste -sd, -)" \
+            pnpm cxa:s2:acceptance
+        env:
+          CXA_S2_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+          CXA_S2_PROTECTED_ENVIRONMENT: line-provider-pilot
+
+      - name: Upload immutable S2 evidence manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-s2-evidence-${{ github.sha }}
+          path: |
+            artifacts/cxa-s2/full-${{ github.run_id }}.json
+            artifacts/cxa-s2/provider/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Stop acceptance infrastructure
+        if: always()
+        run: pnpm infra:down
+
+  cxa-s2-focused:
+    # S2.6 (#366): candidate 15 checks (ไม่รวม REG01 และ provider checks) — ไม่ออก marker ไม่ว่าผลจะเป็นอย่างไร
+    if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 's2-focused'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    concurrency:
+      group: cxa-s2-focused
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure local acceptance environment
+        run: |
+          cp .env.example .env
+          mkdir -p infra/docker/data/redpanda
+          chmod 777 infra/docker/data/redpanda
+          mkdir -p infra/docker/data/freeswitch-recordings
+          chmod 777 infra/docker/data/freeswitch-recordings
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build workspace prerequisites
+        run: pnpm build
+
+      - name: Bootstrap acceptance infrastructure
+        run: |
+          pnpm infra:ready || {
+            docker compose -f infra/docker/docker-compose.dev.yml ps
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color redpanda
+            exit 1
+          }
+
+      - name: Run S2 focused candidate
+        run: pnpm cxa:s2:focused
+
+      - name: Upload S2 candidate manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-s2-candidate-${{ github.sha }}-${{ github.run_id }}
+          path: artifacts/cxa-s2/focused-${{ github.run_id }}.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Stop acceptance infrastructure
+        if: always()
+        run: pnpm infra:down

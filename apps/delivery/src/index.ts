@@ -27,3 +27,8 @@ export * from './line-control-plane.js';
 export * from './line-provider-transport.js';
 export * from './line-push-request.js';
 export * from './line-outbound-adapter.js';
+export * from './line-keychain-secret-source.js';
+export * from './line-provider-conformance.js';
+export * from './line-provider-evidence-bundle.js';
+export * from './line-run-proposal-view.js';
+export * from './line-observability.js';
