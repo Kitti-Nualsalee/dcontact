@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertPiiSafeEvidence, sha256 } from './cxa-c1-readiness.mjs';
 import { cg4FailureDetail, parseTapSummary } from './cxa-cg4-readiness.mjs';
 import { J5_DEPENDENCY_PHASES } from './cxa-j5-dependency-readiness.mjs';
+import { J5_BROWSER_OUTPUT_RELATIVE } from './cxa-j5-browser-evidence.mjs';
 import {
   J5_ENVIRONMENT_PROFILES,
   J5_FIXED_FLAGS,
@@ -118,6 +119,7 @@ const dbIntegration = filter('@d-contact/db', 'test:integration');
 const consoleUnit = filter('@d-contact/console', 'test');
 const consoleBuild = filter('@d-contact/console', 'build');
 // `pnpm test:e2e -- …` ส่ง `--` ตรง ๆ ทำให้ Playwright มองธงที่ตามมาเป็นตัวกรองไฟล์ จึงเรียก exec โดยตรง
+// และเขียน trace ลง output dir ของ J5 เอง เพราะ e2e รอบอื่น (J3/CG4/CG5 acceptance) ล้าง test-results ทิ้ง
 const consoleE2e = filter(
   '@d-contact/console',
   'exec',
@@ -125,6 +127,7 @@ const consoleE2e = filter(
   'test',
   '--project=chromium',
   '--trace=on',
+  `--output=${J5_BROWSER_OUTPUT_RELATIVE}`,
 );
 const browserEvidence = node('scripts/cxa-j5-browser-evidence.mjs');
 const schema = node('scripts/cxa-j5-schema-readiness.mjs');

@@ -15,7 +15,12 @@ import {
 import { cxaJ5ProfileSummary } from './cxa-j5-profile-readiness.mjs';
 import { cxaJ5DependencySummary, j5PhaseMarkerStatus } from './cxa-j5-dependency-readiness.mjs';
 import { cxaJ5NegativeScan } from './cxa-j5-negative-scan.mjs';
-import { cxaJ5BrowserEvidence, J5_BROWSER_MATRIX } from './cxa-j5-browser-evidence.mjs';
+import {
+  cxaJ5BrowserEvidence,
+  J5_BROWSER_MATRIX,
+  J5_BROWSER_OUTPUT,
+  J5_BROWSER_OUTPUT_RELATIVE,
+} from './cxa-j5-browser-evidence.mjs';
 
 const SHA = 'c'.repeat(40);
 const finalMainContext = Object.freeze({
@@ -178,6 +183,10 @@ test('suite plan รันแต่ละคำสั่งครั้งเด
   assert.ok(journeyIntegration.checkIds.length >= 8);
   const e2e = suites.find(({ command }) => command.includes('playwright'));
   assert.ok(e2e.command.includes('--project=chromium'));
+  // trace ต้องเขียนนอก test-results ไม่งั้น e2e ของ J3/CG4/CG5 ที่รันทีหลังจะล้างหลักฐานทิ้ง (#396)
+  assert.ok(e2e.command.includes('--trace=on'));
+  assert.ok(e2e.command.includes(`--output=${J5_BROWSER_OUTPUT_RELATIVE}`));
+  assert.ok(!J5_BROWSER_OUTPUT.includes('test-results'));
 });
 
 test('full run บน clean final main ที่ทุกอย่างผ่านออก marker เดียว', () => {

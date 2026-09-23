@@ -26,7 +26,10 @@ export const J5_BROWSER_MATRIX = Object.freeze([
 ]);
 
 const SPEC = 'apps/console/e2e/journey-authoring.spec.ts';
-const RESULTS = 'apps/console/test-results';
+/** trace ของ J5 อยู่นอก `test-results` เพราะ e2e รอบอื่นในรันเดียวกันล้างโฟลเดอร์นั้นก่อนถึงขั้นอัปโหลด */
+export const J5_BROWSER_OUTPUT = 'artifacts/cxa-j5/browser';
+/** path เดียวกันเมื่อมองจาก `apps/console` ซึ่งเป็น cwd ของ `pnpm --filter … exec playwright` */
+export const J5_BROWSER_OUTPUT_RELATIVE = '../../artifacts/cxa-j5/browser';
 
 function files(directory) {
   if (!existsSync(directory)) return [];
@@ -39,7 +42,7 @@ function files(directory) {
 export function cxaJ5BrowserEvidence(options = {}) {
   const root = options.root ?? repositoryRoot;
   const spec = options.spec ?? readFileSync(resolve(root, SPEC), 'utf8');
-  const resultFiles = (options.files ?? files(resolve(root, RESULTS)))
+  const resultFiles = (options.files ?? files(resolve(root, J5_BROWSER_OUTPUT)))
     .filter((path) => /journey-authoring-/.test(path) && /\.(zip|png)$/.test(path))
     .sort();
   const digest = (path) =>

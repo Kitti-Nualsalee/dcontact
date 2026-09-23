@@ -29,6 +29,7 @@ blob-report/
 artifacts/cxa-e0/
 artifacts/cxa-c1/
 artifacts/cxa-j2/
+artifacts/cxa-j5/
 
 skills-lock.json
 *.agents

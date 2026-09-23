@@ -409,7 +409,7 @@ jobs:
           name: cxa-j5-evidence-${{ github.sha }}
           path: |
             artifacts/cxa-j5/full-${{ github.run_id }}.json
-            apps/console/test-results/
+            artifacts/cxa-j5/browser/
           if-no-files-found: error
           retention-days: 90
 
@@ -476,6 +476,6 @@ jobs:
           name: cxa-j5-candidate-${{ github.sha }}
           path: |
             artifacts/cxa-j5/focused-${{ github.run_id }}.json
-            apps/console/test-results/
+            artifacts/cxa-j5/browser/
           if-no-files-found: error
           retention-days: 30
