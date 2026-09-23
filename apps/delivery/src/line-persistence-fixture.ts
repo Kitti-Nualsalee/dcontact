@@ -218,6 +218,9 @@ export async function createLinePersistenceFixture() {
       for (const tenantId of tenantIds) {
         const where = { where: { tenantId } };
         await owner.dlLineTouchCorrelation.deleteMany(where);
+        await owner.dlLineInboundMessage.deleteMany(where);
+        await owner.dlLineWebhookPayload.deleteMany(where);
+        await owner.dlLineEventOutboxEntry.deleteMany(where);
         await owner.dlLineWebhookInboxEntry.deleteMany(where);
         await owner.dlLineCapLedgerEntry.deleteMany(where);
         await owner.dlLineRunAuthorization.deleteMany(where);

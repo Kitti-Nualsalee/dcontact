@@ -4,6 +4,7 @@ import { Controller, Module, Post, Req, Res, UnauthorizedException } from '@nest
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { EventInboxService, JourneyTemplateRepository } from '@d-contact/journey';
+import { LineWebhookIngress } from '@d-contact/delivery';
 import { DcExprEvaluator } from '@d-contact/expression';
 import { IamJourneyAuthoringAuthorizer } from '@d-contact/iam';
 import { createConsumer, createInMemoryIdempotencyStore } from '@d-contact/kafka';
@@ -64,6 +65,7 @@ import {
   JourneyAuthoringController,
 } from './journey-authoring-api.js';
 import { JourneyTemplateController } from './journey-template-api.js';
+import { LINE_WEBHOOK_INGRESS, LineWebhookController } from './line-webhook-api.js';
 import {
   JOURNEY_SEGMENT_DATABASE,
   JourneySegmentRecoveryController,
@@ -120,6 +122,18 @@ const recordingStorage = new MinioRecordingStorage();
 const governanceExportStorage = new MinioGovernanceExportStorage();
 const qmJobPublisher = new KafkaQmJobPublisher();
 const journeyEventInbox = new EventInboxService(prisma);
+/**
+ * S2.5 (#369): singleton webhook binding ของ pilot — ค่าทั้งหมดมาจาก deployment config
+ * ไม่ใช่จาก body ของ request; ไม่มี binding = route ปฏิเสธทุก request ด้วย signature ที่ตรวจไม่ผ่าน
+ */
+const lineWebhookIngress = new LineWebhookIngress(prisma, {
+  tenantId: required('LINE_WEBHOOK_TENANT_ID'),
+  channelAccountId: required('LINE_WEBHOOK_CHANNEL_ACCOUNT_ID'),
+  destination: required('LINE_WEBHOOK_DESTINATION'),
+  channelSecret: required('LINE_CHANNEL_SECRET'),
+  payloadKeyRef: required('LINE_WEBHOOK_PAYLOAD_KEY_REF'),
+  payloadKey: Buffer.from(required('LINE_WEBHOOK_PAYLOAD_KEY'), 'base64'),
+});
 // J5.5: feature flag มาจาก env kill switch (default ปิด) AND rollout row ของ tenant ภายใน repository
 const journeyAuthoring = new JourneyTemplateRepository(prisma, {
   authorization: new IamJourneyAuthoringAuthorizer(),
@@ -173,6 +187,7 @@ class WorkspaceSessionController {
     JourneySegmentRecoveryController,
     JourneyAuthoringController,
     JourneyTemplateController,
+    LineWebhookController,
     ContactGovernancePreferencesController,
     ContactGovernanceCallbackRequestsController,
     ContactGovernancePoliciesController,
@@ -211,6 +226,7 @@ class WorkspaceSessionController {
     { provide: JOURNEY_RECOVERY_DATABASE, useValue: prisma },
     { provide: JOURNEY_SEGMENT_DATABASE, useValue: prisma },
     { provide: JOURNEY_AUTHORING_REPOSITORY, useValue: journeyAuthoring },
+    { provide: LINE_WEBHOOK_INGRESS, useValue: lineWebhookIngress },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },
@@ -219,7 +235,8 @@ class WorkspaceSessionController {
 class AppModule {}
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: LINE signature คำนวณบน bytes ที่ได้รับจริง reserialize แล้ว verify ไม่ผ่าน (#359 §B)
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.enableCors({
     origin: process.env.WORKSPACE_ORIGIN ?? 'http://localhost:5173',
     allowedHeaders: [
