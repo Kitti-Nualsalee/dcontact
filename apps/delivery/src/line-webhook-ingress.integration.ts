@@ -127,11 +127,15 @@ test('S2-LINE-ID01 redelivery เดิมเป็น duplicate ส่วน pa
 
   const first = await ingress.handle(request([event]));
   assert.equal(first.accepted, 1);
+  // LINE ส่งซ้ำด้วย event ID เดิมแต่ตั้ง `deliveryContext.isRedelivery = true` (#359 §D) — ต้องยัง
+  // เป็น duplicate ไม่ใช่ idempotency conflict และแถวเดิมต้องไม่ถูก quarantine
   const redelivered = await ingress.handle(
-    request([{ ...event, deliveryContext: { isRedelivery: false } }]),
+    request([{ ...event, deliveryContext: { isRedelivery: true } }]),
   );
   assert.deepEqual([redelivered.code, redelivered.duplicates], ['WEBHOOK_DUPLICATE', 1]);
-  assert.equal((await inboxOf(fixture, fixture.tenantA)).length, 1);
+  const afterRedelivery = await inboxOf(fixture, fixture.tenantA);
+  assert.equal(afterRedelivery.length, 1);
+  assert.equal(afterRedelivery[0]!.state, 'PENDING');
 
   const tampered = await ingress.handle(
     request([{ ...event, message: { id: '999999999999', type: 'text', text: 'แก้ไขแล้ว' } }]),
