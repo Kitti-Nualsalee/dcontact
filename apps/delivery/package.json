@@ -11,7 +11,8 @@
     "test:integration": "tsx --test --test-concurrency=1 src/*.integration.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "provider:pr01": "tsx src/line-provider-runner.ts",
-    "pilot": "tsx src/line-pilot-cli.ts"
+    "pilot": "tsx src/line-pilot-cli.ts",
+    "pilot:setup": "tsx src/line-pilot-setup.ts"
   },
   "dependencies": {
     "@d-contact/db": "workspace:*",
