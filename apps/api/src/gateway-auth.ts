@@ -22,6 +22,7 @@ import {
 export const OIDC_ACCESS_TOKEN_VERIFIER = Symbol('OIDC_ACCESS_TOKEN_VERIFIER');
 export const GATEWAY_DIAGNOSTICS = Symbol('GATEWAY_DIAGNOSTICS');
 const GATEWAY_ROLES = Symbol('GATEWAY_ROLES');
+const GATEWAY_PUBLIC = Symbol('GATEWAY_PUBLIC');
 const GATEWAY_SERVICE_ROLES = Symbol('GATEWAY_SERVICE_ROLES');
 const GATEWAY_SERVICE_SCOPES = Symbol('GATEWAY_SERVICE_SCOPES');
 
@@ -45,6 +46,12 @@ export interface GatewayDiagnosticSink {
 }
 
 export const GatewayRoles = (...roles: string[]) => SetMetadata(GATEWAY_ROLES, roles);
+/**
+ * route ที่พิสูจน์ตัวตนด้วยวิธีของตัวเองแทน bearer token — S2.5 (#359 §B) ใช้กับ `POST /webhook/line`
+ * ซึ่ง provider ไม่ได้ถือ token ของเรา และ authority คือ HMAC signature บน raw body เท่านั้น
+ * handler ของ route แบบนี้ต้อง verify เองก่อนแตะ payload ทุกครั้ง
+ */
+export const GatewayPublic = () => SetMetadata(GATEWAY_PUBLIC, true);
 export const GatewayServiceRoles = (...roles: string[]) =>
   SetMetadata(GATEWAY_SERVICE_ROLES, roles);
 export const GatewayServiceScopes = (...scopes: string[]) =>
@@ -73,6 +80,15 @@ export class OidcGlobalGuard implements CanActivate {
     const correlationId = requestCorrelationId(request);
     request.correlationId = correlationId;
     response.setHeader('x-correlation-id', correlationId);
+
+    if (
+      this.reflector.getAllAndOverride<boolean>(GATEWAY_PUBLIC, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === true
+    ) {
+      return true;
+    }
 
     const authorization = request.headers.authorization;
     let claims: VerifiedOidcClaims;

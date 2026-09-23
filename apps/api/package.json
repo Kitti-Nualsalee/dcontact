@@ -15,6 +15,7 @@
     "@d-contact/contact-governance": "workspace:*",
     "@d-contact/cxa-contracts": "workspace:*",
     "@d-contact/db": "workspace:*",
+    "@d-contact/delivery": "workspace:*",
     "@d-contact/expression": "workspace:*",
     "@d-contact/iam": "workspace:*",
     "@d-contact/journey": "workspace:*",

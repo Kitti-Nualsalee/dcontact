@@ -112,11 +112,11 @@ model Tenant {
   jrSegmentOutbox              JrSegmentOutbox[]
   jrSegmentRollout             JrSegmentRolloutState?
   jrSegmentShadowMismatches    JrSegmentShadowMismatch[]
+  obOriginateRollouts          ObOriginateRollout[]
+  obOriginateRolloutScopes     ObOriginateRolloutScope[]
+  obOriginateRolloutAudit      ObOriginateRolloutAudit[]
 
   @@map("tenants")
-  obOriginateRollouts      ObOriginateRollout[]
-  obOriginateRolloutScopes ObOriginateRolloutScope[]
-  obOriginateRolloutAudit  ObOriginateRolloutAudit[]
 }
 
 enum UserRole {
@@ -1371,21 +1371,21 @@ model CgAttempt {
 
 /// Successful Touch แบบ immutable ที่ตัดสินจาก policy ของ Contact Governance
 model CgTouch {
-  id            String        @id @default(uuid()) @db.Uuid
-  tenantId      String        @map("tenant_id") @db.Uuid
-  attemptId     String        @map("attempt_id") @db.Uuid
-  reservationId String        @map("reservation_id") @db.Uuid
-  deliveryId    String        @map("delivery_id")
-  outcomeRef    String        @map("outcome_ref")
-  contactId     String        @map("contact_id") @db.Uuid
-  identityId    String?       @map("identity_id") @db.Uuid
-  channel       ChannelType
-  purpose       String
-  source        String
-  outcome       CgFactOutcome
-  occurredAt    DateTime      @map("occurred_at")
-  correlationId String        @map("correlation_id")
-  causationId   String?       @map("causation_id")
+  id                  String               @id @default(uuid()) @db.Uuid
+  tenantId            String               @map("tenant_id") @db.Uuid
+  attemptId           String               @map("attempt_id") @db.Uuid
+  reservationId       String               @map("reservation_id") @db.Uuid
+  deliveryId          String               @map("delivery_id")
+  outcomeRef          String               @map("outcome_ref")
+  contactId           String               @map("contact_id") @db.Uuid
+  identityId          String?              @map("identity_id") @db.Uuid
+  channel             ChannelType
+  purpose             String
+  source              String
+  outcome             CgFactOutcome
+  occurredAt          DateTime             @map("occurred_at")
+  correlationId       String               @map("correlation_id")
+  causationId         String?              @map("causation_id")
   /// S2: หลักฐาน response ของ Touch แบบ correlated — มีทั้งคู่หรือไม่มีทั้งคู่ (CHECK ใน migration)
   /// unique `(tenant_id, response_evidence_ref)` เป็น partial index ที่ Prisma ประกาศไม่ได้
   /// S2.2: `cg_touches_provider_accepted_evidence_check` บังคับว่า Touch บน Attempt ที่ accepted
@@ -1393,7 +1393,7 @@ model CgTouch {
   /// Attempt ที่ผูกอยู่ — ทั้งสองอยู่ใน migration เพราะ Prisma ประกาศ CHECK/trigger ไม่ได้
   evidenceKind        CgTouchEvidenceKind? @map("evidence_kind")
   responseEvidenceRef String?              @map("response_evidence_ref")
-  createdAt     DateTime      @default(now()) @map("created_at")
+  createdAt           DateTime             @default(now()) @map("created_at")
 
   tenant      Tenant           @relation(fields: [tenantId], references: [id])
   attempt     CgAttempt        @relation(fields: [tenantId, attemptId], references: [tenantId, id])
@@ -2618,17 +2618,17 @@ enum ObOriginateRolloutScopeKind {
 
 /// J2.9 (#137): gate ต่อ tenant ที่ทุก Dialer instance อ่านร่วมกัน — kill ชนะทุก state และยกเลิกไม่ได้
 model ObOriginateRollout {
-  id              String                   @id @default(uuid()) @db.Uuid
-  tenantId        String                   @map("tenant_id") @db.Uuid
-  state           ObOriginateRolloutState  @default(DISABLED)
-  pendingState    ObOriginateRolloutState? @map("pending_state")
-  pendingByRef    String?                  @map("pending_by_ref")
-  killed          Boolean                  @default(false)
-  killTrigger     String?                  @map("kill_trigger")
-  killedAt        DateTime?                @map("killed_at")
-  version         Int                      @default(1)
-  updatedByRef    String                   @map("updated_by_ref")
-  updatedAt       DateTime                 @updatedAt @map("updated_at")
+  id           String                   @id @default(uuid()) @db.Uuid
+  tenantId     String                   @map("tenant_id") @db.Uuid
+  state        ObOriginateRolloutState  @default(DISABLED)
+  pendingState ObOriginateRolloutState? @map("pending_state")
+  pendingByRef String?                  @map("pending_by_ref")
+  killed       Boolean                  @default(false)
+  killTrigger  String?                  @map("kill_trigger")
+  killedAt     DateTime?                @map("killed_at")
+  version      Int                      @default(1)
+  updatedByRef String                   @map("updated_by_ref")
+  updatedAt    DateTime                 @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -2700,26 +2700,26 @@ model ObCampaignAdmissionPolicy {
 /// canonical target record หนึ่งแถวต่อ (campaign, contact) — recordId/version ที่ J2
 /// ownerAggregate อ้างถึง; ไม่มี Governance reservation, Attempt หรือ provider I/O ที่นี่
 model ObCampaignTarget {
-  id                     String                @id @default(uuid()) @db.Uuid
-  tenantId               String                @map("tenant_id") @db.Uuid
-  campaignId             String                @map("campaign_id") @db.Uuid
-  contactId              String                @map("contact_id") @db.Uuid
-  version                Int                   @default(1)
-  state                  ObCampaignTargetState @default(ADMITTED)
-  sourceOwnerTeamId      String                @map("source_owner_team_id") @db.Uuid
-  targetOwnerTeamId      String                @map("target_owner_team_id") @db.Uuid
-  admissionPolicyVersion Int                   @map("admission_policy_version")
+  id                        String                @id @default(uuid()) @db.Uuid
+  tenantId                  String                @map("tenant_id") @db.Uuid
+  campaignId                String                @map("campaign_id") @db.Uuid
+  contactId                 String                @map("contact_id") @db.Uuid
+  version                   Int                   @default(1)
+  state                     ObCampaignTargetState @default(ADMITTED)
+  sourceOwnerTeamId         String                @map("source_owner_team_id") @db.Uuid
+  targetOwnerTeamId         String                @map("target_owner_team_id") @db.Uuid
+  admissionPolicyVersion    Int                   @map("admission_policy_version")
   /// J2.9 follow-up: ตั้งตอนเข้า ORIGINATING และล้างตอนออก — sweeper ใช้ตัวนี้แยก
   /// "กำลัง originate อยู่จริง" ออกจาก "ค้างเพราะ process ตาย"
-  originateLeaseExpiresAt DateTime?            @map("originate_lease_expires_at")
-  cancelledAt               DateTime?          @map("cancelled_at")
-  cancelReasonCode          String?            @map("cancel_reason_code")
-  supersededAt              DateTime?          @map("superseded_at")
-  supersedingOutcomeType    String?            @map("superseding_outcome_type")
-  supersedingOutcomeId      String?            @map("superseding_outcome_id") @db.Uuid
-  supersedingOutcomeVersion Int?               @map("superseding_outcome_version")
-  createdAt              DateTime              @default(now()) @map("created_at")
-  updatedAt              DateTime              @updatedAt @map("updated_at")
+  originateLeaseExpiresAt   DateTime?             @map("originate_lease_expires_at")
+  cancelledAt               DateTime?             @map("cancelled_at")
+  cancelReasonCode          String?               @map("cancel_reason_code")
+  supersededAt              DateTime?             @map("superseded_at")
+  supersedingOutcomeType    String?               @map("superseding_outcome_type")
+  supersedingOutcomeId      String?               @map("superseding_outcome_id") @db.Uuid
+  supersedingOutcomeVersion Int?                  @map("superseding_outcome_version")
+  createdAt                 DateTime              @default(now()) @map("created_at")
+  updatedAt                 DateTime              @updatedAt @map("updated_at")
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   contact Contact @relation(fields: [tenantId, contactId], references: [tenantId, id])
@@ -3342,17 +3342,17 @@ enum JrSegmentRolloutStage {
 /// ไม่มีแถว = DISABLED. switchedAt ตั้งครั้งเดียวตอนเข้า SCOPED_INTERNAL_ENABLED และหลังจากนั้น
 /// trigger jr_segment_rollout_guard ห้ามย้อนกลับไป stage ก่อนหน้า
 model JrSegmentRolloutState {
-  id             String                @id @default(uuid()) @db.Uuid
-  tenantId       String                @map("tenant_id") @db.Uuid
-  stage          JrSegmentRolloutStage @default(DISABLED)
-  shadowStartedAt DateTime?            @map("shadow_started_at")
-  switchedAt     DateTime?             @map("switched_at")
+  id              String                @id @default(uuid()) @db.Uuid
+  tenantId        String                @map("tenant_id") @db.Uuid
+  stage           JrSegmentRolloutStage @default(DISABLED)
+  shadowStartedAt DateTime?             @map("shadow_started_at")
+  switchedAt      DateTime?             @map("switched_at")
   /// rollback = หยุด effect ใหม่ ไม่ใช่ย้อน stage หรือลบของที่เกิดไปแล้ว
-  mutationFrozen Boolean               @default(false) @map("mutation_frozen")
-  version        Int                   @default(1)
-  updatedByRef   String                @map("updated_by_ref")
-  evidenceRef    String?               @map("evidence_ref")
-  updatedAt      DateTime              @updatedAt @map("updated_at")
+  mutationFrozen  Boolean               @default(false) @map("mutation_frozen")
+  version         Int                   @default(1)
+  updatedByRef    String                @map("updated_by_ref")
+  evidenceRef     String?               @map("evidence_ref")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -3779,24 +3779,24 @@ model DlProviderSubmissionAttempt {
 
 /// business state + technical switch + kill latch ต่อ exact scope (#358 §A/§F)
 model DlLineScopeGate {
-  id                String              @id @default(uuid()) @db.Uuid
-  tenantId          String              @map("tenant_id") @db.Uuid
-  profile           String              @default("S2_LINE_LOCAL_PILOT_V1")
-  channel           ChannelType         @default(LINE)
-  channelAccountId  String              @map("channel_account_id")
-  senderIdentityId  String              @map("sender_identity_id")
+  id                String             @id @default(uuid()) @db.Uuid
+  tenantId          String             @map("tenant_id") @db.Uuid
+  profile           String             @default("S2_LINE_LOCAL_PILOT_V1")
+  channel           ChannelType        @default(LINE)
+  channelAccountId  String             @map("channel_account_id")
+  senderIdentityId  String             @map("sender_identity_id")
   purpose           String
-  contactKind       String              @map("contact_kind")
-  businessState     DlLineRolloutState  @default(DISABLED) @map("business_state")
-  technicalSwitchOn Boolean             @default(false) @map("technical_switch_on")
-  killed            Boolean             @default(false)
-  killReason        DlLineKillReason?   @map("kill_reason")
-  killedAt          DateTime?           @map("killed_at")
-  killClearedRef    String?             @map("kill_cleared_ref")
-  configDigest      String?             @map("config_digest") @db.Char(64)
-  version           Int                 @default(1)
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  contactKind       String             @map("contact_kind")
+  businessState     DlLineRolloutState @default(DISABLED) @map("business_state")
+  technicalSwitchOn Boolean            @default(false) @map("technical_switch_on")
+  killed            Boolean            @default(false)
+  killReason        DlLineKillReason?  @map("kill_reason")
+  killedAt          DateTime?          @map("killed_at")
+  killClearedRef    String?            @map("kill_cleared_ref")
+  configDigest      String?            @map("config_digest") @db.Char(64)
+  version           Int                @default(1)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
 
   @@unique([tenantId, id], map: "dl_line_scope_gates_tenant_id_key")
   @@unique([tenantId, channelAccountId, senderIdentityId, purpose, contactKind], map: "dl_line_scope_gates_scope_key")
@@ -3970,6 +3970,77 @@ model DlLineTouchCorrelation {
   @@unique([tenantId, inboxEntryId], map: "dl_line_touch_correlations_inbox_key")
   @@index([tenantId, state, windowExpiresAt], map: "dl_line_touch_correlations_pending_idx")
   @@map("dl_line_touch_correlations")
+}
+
+/// projection dedupe ชั้นที่ 2 ของ inbound message (#359 §E, ADR-024) — ไม่มี body/userId
+model DlLineInboundMessage {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  channelAccountId  String   @map("channel_account_id")
+  providerMessageId String   @map("provider_message_id")
+  inboxEntryId      String   @map("inbox_entry_id") @db.Uuid
+  quotedMessageId   String?  @map("quoted_message_id")
+  sourceFingerprint String   @map("source_fingerprint") @db.Char(64)
+  providerTimestamp DateTime @map("provider_timestamp")
+  projectedAt       DateTime @map("projected_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "dl_line_inbound_messages_tenant_id_key")
+  @@unique([tenantId, channelAccountId, providerMessageId], map: "dl_line_inbound_messages_provider_key")
+  @@unique([tenantId, inboxEntryId], map: "dl_line_inbound_messages_inbox_key")
+  @@index([tenantId, quotedMessageId], map: "dl_line_inbound_messages_quote_idx")
+  @@map("dl_line_inbound_messages")
+}
+
+/// ciphertext ของ webhook payload สำหรับ manual replay (#359 §C/§D) — ไม่มี plaintext ใด ๆ
+model DlLineWebhookPayload {
+  id                  String   @id @default(uuid()) @db.Uuid
+  tenantId            String   @map("tenant_id") @db.Uuid
+  protectedPayloadRef String   @map("protected_payload_ref")
+  channelAccountId    String   @map("channel_account_id")
+  keyRef              String   @map("key_ref")
+  iv                  Bytes
+  authTag             Bytes    @map("auth_tag")
+  ciphertext          Bytes
+  payloadHash         String   @map("payload_hash") @db.Char(64)
+  receivedAt          DateTime @map("received_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "dl_line_webhook_payloads_tenant_id_key")
+  @@unique([tenantId, protectedPayloadRef], map: "dl_line_webhook_payloads_ref_key")
+  @@map("dl_line_webhook_payloads")
+}
+
+/// durable outbox ของ Delivery/Channels สำหรับ PII-safe events (#362 §5) — payload ถูก CHECK กัน PII
+model DlLineEventOutboxEntry {
+  id             String                 @id @default(uuid()) @db.Uuid
+  tenantId       String                 @map("tenant_id") @db.Uuid
+  eventId        String                 @map("event_id")
+  eventType      String                 @map("event_type")
+  orderingKey    String                 @map("ordering_key")
+  payload        Json
+  payloadHash    String                 @map("payload_hash") @db.Char(64)
+  occurredAt     DateTime               @map("occurred_at")
+  state          DlLineEventOutboxState @default(PENDING)
+  attempts       Int                    @default(0)
+  availableAt    DateTime               @default(now()) @map("available_at")
+  leaseOwner     String?                @map("lease_owner")
+  leaseExpiresAt DateTime?              @map("lease_expires_at")
+  publishedAt    DateTime?              @map("published_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+
+  @@unique([tenantId, id], map: "dl_line_event_outbox_tenant_id_key")
+  @@unique([tenantId, eventId], map: "dl_line_event_outbox_event_key")
+  @@index([tenantId, state, availableAt, leaseExpiresAt], map: "dl_line_event_outbox_claim_idx")
+  @@map("dl_line_event_outbox")
+}
+
+enum DlLineEventOutboxState {
+  PENDING
+  PUBLISHING
+  PUBLISHED
+  FAILED
 }
 
 /// append-only audit ของ gate/kill/allowlist/run/cap/credential/provider/webhook — machine code เท่านั้น
@@ -4567,15 +4638,15 @@ model IamTeamScopeVersion {
 }
 
 model IamContactSegmentScopeProjection {
-  tenantId          String                  @map("tenant_id") @db.Uuid
-  contactId         String                  @map("contact_id") @db.Uuid
-  segmentId         String                  @map("segment_id")
-  state             IamScopeProjectionState
-  membershipRevision Int                    @map("membership_revision")
-  entryId           String?                 @map("entry_id")
-  sourceEventId     String                  @map("source_event_id")
-  sourceOccurredAt  DateTime                @map("source_occurred_at")
-  updatedAt         DateTime                @default(now()) @map("updated_at")
+  tenantId           String                  @map("tenant_id") @db.Uuid
+  contactId          String                  @map("contact_id") @db.Uuid
+  segmentId          String                  @map("segment_id")
+  state              IamScopeProjectionState
+  membershipRevision Int                     @map("membership_revision")
+  entryId            String?                 @map("entry_id")
+  sourceEventId      String                  @map("source_event_id")
+  sourceOccurredAt   DateTime                @map("source_occurred_at")
+  updatedAt          DateTime                @default(now()) @map("updated_at")
 
   @@id([tenantId, contactId, segmentId])
   @@map("iam_contact_segment_scope_projection")
@@ -4664,7 +4735,7 @@ model Cg5PolicyImpactBucket {
   tenantId      String         @map("tenant_id") @db.Uuid
   granularity   Cg5Granularity
   bucketStart   DateTime       @map("bucket_start")
-  policyVersion Int         @map("policy_version")
+  policyVersion Int            @map("policy_version")
   decision      String
   value         BigInt
 

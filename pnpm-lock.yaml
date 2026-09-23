@@ -35,6 +35,9 @@ importers:
       '@d-contact/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@d-contact/delivery':
+        specifier: workspace:*
+        version: link:../delivery
       '@d-contact/expression':
         specifier: workspace:*
         version: link:../../packages/expression
