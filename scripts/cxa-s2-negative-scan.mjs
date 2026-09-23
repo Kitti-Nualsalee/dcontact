@@ -125,7 +125,8 @@ export const S2_SCAN_ALLOWLIST = Object.freeze([
   {
     path: 'apps/delivery/src/line-pilot-wiring.integration.ts',
     rule: 'secret-assignment',
-    reason: 'token สังเคราะห์ของ credential resolver double ใน wiring test — ไม่ใช่ credential จริง',
+    reason:
+      'token สังเคราะห์ของ credential resolver double ใน wiring test — ไม่ใช่ credential จริง',
   },
   {
     path: 'apps/delivery/src/line-provider-runner.ts',
