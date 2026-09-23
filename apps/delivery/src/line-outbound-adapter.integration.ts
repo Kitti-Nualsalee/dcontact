@@ -66,6 +66,12 @@ class FakeLineTransport implements LineProviderTransport {
   async validatePush() {
     return { valid: true };
   }
+  async getWebhookEndpoint() {
+    return { endpoint: null, active: false };
+  }
+  async testWebhookEndpoint() {
+    return { success: false, statusCode: null };
+  }
 }
 
 const ok = (id: string): LineTransportResult => ({

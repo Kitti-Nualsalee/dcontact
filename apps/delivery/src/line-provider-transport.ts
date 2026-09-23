@@ -49,7 +49,23 @@ export interface LineQuotaView {
 
 export interface LineTokenVerification {
   valid: boolean;
+  /** `client_id` ที่ LINE ผูกกับ token — ต้องเท่ากับ Channel ID ของ scope (#360 §D ข้อ 1) */
+  clientId?: string;
   expiresInSeconds?: number;
+}
+
+/** webhook ที่ตั้งไว้ฝั่ง LINE — endpoint เป็น URL ของเราเอง ไม่ใช่ข้อมูลลูกค้า */
+export interface LineWebhookEndpointView {
+  endpoint: string | null;
+  active: boolean;
+}
+
+/** ผลของ `POST /v2/bot/channel/webhook/test`: LINE ยิง signed empty webhook มาที่ endpoint จริง */
+export interface LineWebhookTestResult {
+  success: boolean;
+  /** status ที่ endpoint ของเราตอบ LINE กลับไป */
+  statusCode: number | null;
+  reason?: string;
 }
 
 /**
@@ -60,10 +76,13 @@ export interface LineProviderTransport {
   verifyToken(accessToken: string): Promise<LineTokenVerification>;
   getQuota(accessToken: string): Promise<LineQuotaView>;
   getConsumption(accessToken: string): Promise<{ totalUsage: number }>;
+  /** validate ไม่มีผู้รับ — LINE ตรวจเฉพาะรูปของ messages จึงไม่รับ `to` ตั้งแต่ต้น */
   validatePush(
-    request: Omit<LinePushRequest, 'retryKey'>,
+    request: Pick<LinePushRequest, 'messages' | 'accessToken'>,
   ): Promise<{ valid: boolean; errorCode?: string }>;
   push(request: LinePushRequest): Promise<LineTransportResult>;
+  getWebhookEndpoint(accessToken: string): Promise<LineWebhookEndpointView>;
+  testWebhookEndpoint(accessToken: string): Promise<LineWebhookTestResult>;
 }
 
 export interface LineClassification {
@@ -209,9 +228,10 @@ export class HttpLineProviderTransport implements LineProviderTransport {
     });
     if (!response.ok) return { valid: false };
     const payload = (await response.json().catch(() => undefined)) as
-      { expires_in?: number } | undefined;
+      { client_id?: unknown; expires_in?: number } | undefined;
     return {
       valid: true,
+      ...(typeof payload?.client_id === 'string' ? { clientId: payload.client_id } : {}),
       ...(typeof payload?.expires_in === 'number' ? { expiresInSeconds: payload.expires_in } : {}),
     };
   }
@@ -237,7 +257,7 @@ export class HttpLineProviderTransport implements LineProviderTransport {
 
   /** dry-run ของ LINE: ตรวจรูป payload โดยไม่ส่งจริง ใช้ตอน PROVIDER_CONFORMANCE (#358) */
   async validatePush(
-    request: Omit<LinePushRequest, 'retryKey'>,
+    request: Pick<LinePushRequest, 'messages' | 'accessToken'>,
   ): Promise<{ valid: boolean; errorCode?: string }> {
     const response = await this.fetchImpl(`${this.baseUrl}/v2/bot/message/validate/push`, {
       method: 'POST',
@@ -249,6 +269,38 @@ export class HttpLineProviderTransport implements LineProviderTransport {
     });
     if (response.ok) return { valid: true };
     return { valid: false, errorCode: `HTTP_${response.status}` };
+  }
+
+  async getWebhookEndpoint(accessToken: string): Promise<LineWebhookEndpointView> {
+    const payload = await this.get<{ endpoint?: unknown; active?: unknown }>(
+      accessToken,
+      '/v2/bot/channel/webhook/endpoint',
+    );
+    return {
+      endpoint: typeof payload?.endpoint === 'string' ? payload.endpoint : null,
+      active: payload?.active === true,
+    };
+  }
+
+  /** ไม่ส่ง `endpoint` ใน body = LINE ทดสอบ endpoint ที่ตั้งไว้แล้ว ไม่ใช่ URL ที่ผู้เรียกเลือกเอง */
+  async testWebhookEndpoint(accessToken: string): Promise<LineWebhookTestResult> {
+    const response = await this.fetchImpl(`${this.baseUrl}/v2/bot/channel/webhook/test`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: '{}',
+    });
+    if (!response.ok)
+      return { success: false, statusCode: null, reason: `HTTP_${response.status}` };
+    const payload = (await response.json().catch(() => undefined)) as
+      { success?: unknown; statusCode?: unknown; reason?: unknown } | undefined;
+    return {
+      success: payload?.success === true,
+      statusCode: typeof payload?.statusCode === 'number' ? payload.statusCode : null,
+      ...(typeof payload?.reason === 'string' ? { reason: payload.reason } : {}),
+    };
   }
 
   private async get<T>(accessToken: string, path: string): Promise<T | undefined> {
