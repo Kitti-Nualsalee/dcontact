@@ -53,6 +53,8 @@
     "cxa:s2:acceptance": "node scripts/cxa-s2-readiness.mjs",
     "cxa:s2:provider-bundle": "node scripts/cxa-s2-provider-bundle.mjs",
     "test:cxa-s2-readiness": "node --test scripts/cxa-s2-readiness.test.mjs",
+    "a1:schema": "node scripts/a1-schema-readiness.mjs",
+    "test:a1-schema-readiness": "node --test scripts/a1-schema-readiness.test.mjs",
     "cxa:j5:focused": "node scripts/cxa-j5-readiness.mjs --focused",
     "cxa:j5:acceptance": "node scripts/cxa-j5-readiness.mjs",
     "test:cxa-j5-readiness": "node --test scripts/cxa-j5-readiness.test.mjs",

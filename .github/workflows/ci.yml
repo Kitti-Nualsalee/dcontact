@@ -72,6 +72,61 @@ jobs:
       - name: S2 readiness validator tests
         run: pnpm test:cxa-s2-readiness
 
+      # A1.1 (#406): registry ของ control-plane schema ตรง migration/rls.sql และ migration เป็น expand-only
+      - name: A1 schema readiness validator tests
+        run: pnpm test:a1-schema-readiness
+
+  a1-platform-control-fast-gate:
+    # A1.1 (#406) / #393 Fast PR gate: idempotency, reservation race, tombstone, CAS, completion
+    # invariant, append-only และสิทธิ์ของ role บน Postgres จริง — ไม่ต้องใช้ Keycloak/UI
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dcontact
+          POSTGRES_PASSWORD: dcontact
+          POSTGRES_DB: dcontact
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U dcontact"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+      PLATFORM_DATABASE_URL: postgresql://dcontact_platform:dcontact_platform@localhost:5433/dcontact?schema=public
+      APPLICATION_DATABASE_URL: postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build platform-control dependencies
+        run: pnpm --filter "@d-contact/platform-control^..." build
+
+      - name: Migrate and bootstrap roles/RLS
+        run: pnpm db:migrate && pnpm db:rls
+
+      - name: Platform control unit tests
+        run: pnpm --filter @d-contact/platform-control test
+
+      - name: Platform control integration tests
+        run: pnpm --filter @d-contact/platform-control test:integration
+
   s1-convergence-acceptance:
     # S1 ใช้เวลานานและ J3 final gate เรียกเองอยู่แล้ว: ไม่รันทุก main push
     # เพื่อให้ development ใช้ focused gate ได้ก่อน แล้วเรียก S1 เมื่อเลือก manual เท่านั้น

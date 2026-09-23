@@ -21,7 +21,12 @@ model Tenant {
   defaultMaxWaitSec         Int?                    @map("default_max_wait_sec")
   defaultMaxWaitAction      QueueMaxWaitAction      @default(VOICEMAIL) @map("default_max_wait_action")
   createdAt                 DateTime                @default(now()) @map("created_at")
+  /// A1.1 (#406): tenant ที่สร้างผ่าน provisioning เริ่มที่ PROVISIONING; tenant เดิมทั้งหมดเป็น ACTIVE
+  lifecycleStatus           TenantLifecycleStatus   @default(ACTIVE) @map("lifecycle_status")
+  /// โดเมนขององค์กรลูกค้า (IDNA lowercase) — tenant เดิมเป็น NULL; uniqueness/tombstone คุมโดย reservation
+  primaryDomain             String?                 @unique @map("primary_domain")
 
+  pfProvisioningRequests       PfProvisioningRequest[]
   users                        User[]
   teams                        Team[]
   queues                       Queue[]
@@ -5301,4 +5306,251 @@ model IamAuthoringScopeVersion {
 
   @@id([tenantId, scopeKind, scopeId], map: "iam_authoring_scope_versions_pkey")
   @@map("iam_authoring_scope_versions")
+}
+
+// ─────────────────────────── A1 Platform control plane (#406) ───────────────────────────
+// platform-scoped metadata เท่านั้น: เข้าถึงผ่าน role `dcontact_platform` ซึ่งไม่มีสิทธิ์บน tenant business
+// tables และ `dcontact_app` ไม่มีสิทธิ์บนตาราง `pf_*` — ไม่ใช้ tenant RLS เพราะไม่ใช่ข้อมูลของ tenant
+
+enum TenantLifecycleStatus {
+  PROVISIONING
+  ACTIVE
+}
+
+enum PfProvisioningStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  ACTION_REQUIRED
+  FAILED_FINAL
+  CANCELLED
+}
+
+enum PfStepKey {
+  TENANT_RECORD
+  KEYCLOAK_ORGANIZATION
+  PLAN_BOOTSTRAP
+  FIRST_ADMIN
+  INVITATION
+  READINESS
+}
+
+enum PfStepState {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  ACTION_REQUIRED
+}
+
+enum PfReservationKind {
+  SLUG
+  PRIMARY_DOMAIN
+  FIRST_ADMIN_EMAIL
+}
+
+enum PfReservationState {
+  HELD
+  CONSUMED
+  TOMBSTONED
+}
+
+enum PfBootstrapTemplateStatus {
+  ACTIVE
+  DEPRECATED
+  REVOKED
+}
+
+enum PfActionKind {
+  REQUEST_ACCEPTED
+  COMMAND_REPLAYED
+  STATE_CHANGED
+  STEP_STARTED
+  STEP_SUCCEEDED
+  STEP_ACTION_REQUIRED
+  RECONCILE
+  RETRY_STEP
+  RESEND_INVITATION
+  SAFE_COMPENSATE
+  MARK_FAILED_FINAL
+  CANCEL
+  RESERVATION_TOMBSTONED
+  SECURITY_DENIED
+}
+
+enum PfActorKind {
+  PLATFORM_OPERATOR
+  PLATFORM_AUDITOR
+  SYSTEM
+}
+
+/// immutable versioned bootstrap manifest (#392) — เปลี่ยนได้แค่ status ACTIVE → DEPRECATED → REVOKED
+model PfBootstrapTemplate {
+  version       String                    @id
+  contentDigest String                    @map("content_digest") @db.Char(64)
+  status        PfBootstrapTemplateStatus @default(ACTIVE)
+  manifest      Json
+  createdAt     DateTime                  @default(now()) @map("created_at")
+  updatedAt     DateTime                  @updatedAt @map("updated_at")
+
+  requests PfProvisioningRequest[]
+
+  @@unique([version, contentDigest], map: "pf_bootstrap_templates_pin_key")
+  @@map("pf_bootstrap_templates")
+}
+
+/// durable intent ของคำขอสร้าง tenant (#389/#390) — identity/pin fields immutable หลัง accept
+model PfProvisioningRequest {
+  id                       String               @id @db.Uuid
+  tenantId                 String               @unique @map("tenant_id") @db.Uuid
+  idempotencyKeyHash       String               @unique @map("idempotency_key_hash") @db.Char(64)
+  payloadDigest            String               @map("payload_digest") @db.Char(64)
+  status                   PfProvisioningStatus @default(PENDING)
+  revision                 Int                  @default(1)
+  displayName              String               @map("display_name")
+  slug                     String
+  primaryDomain            String               @map("primary_domain")
+  sipDomain                String               @map("sip_domain")
+  locale                   String
+  timezone                 String
+  planCode                 String               @map("plan_code")
+  planVersion              Int                  @map("plan_version")
+  planSnapshotDigest       String               @map("plan_snapshot_digest") @db.Char(64)
+  bootstrapTemplateVersion String               @map("bootstrap_template_version")
+  bootstrapTemplateDigest  String               @map("bootstrap_template_digest") @db.Char(64)
+  /// operational PII ที่ A1.4 ต้องใช้ส่ง invitation — ห้ามออก log/audit/evidence (ใช้ hash แทน)
+  firstAdminEmail          String               @map("first_admin_email")
+  firstAdminEmailHash      String               @map("first_admin_email_hash") @db.Char(64)
+  firstAdminDisplayName    String               @map("first_admin_display_name")
+  requestedBy              String               @map("requested_by")
+  correlationId            String               @map("correlation_id")
+  failureCode              String?              @map("failure_code")
+  acceptedAt               DateTime             @map("accepted_at")
+  deadlineAt               DateTime             @map("deadline_at")
+  terminalAt               DateTime?            @map("terminal_at")
+  createdAt                DateTime             @default(now()) @map("created_at")
+  updatedAt                DateTime             @updatedAt @map("updated_at")
+
+  tenant       Tenant                      @relation(fields: [tenantId], references: [id])
+  template     PfBootstrapTemplate         @relation(fields: [bootstrapTemplateVersion, bootstrapTemplateDigest], references: [version, contentDigest], map: "pf_provisioning_requests_template_pin_fkey")
+  steps        PfProvisioningStep[]
+  receipts     PfProvisioningStepReceipt[]
+  commands     PfCommandReceipt[]
+  reservations PfIdentityReservation[]
+  actions      PfActionHistory[]
+
+  @@unique([tenantId, id], map: "pf_provisioning_requests_binding_key")
+  @@index([status, updatedAt], map: "pf_provisioning_requests_status_idx")
+  @@map("pf_provisioning_requests")
+}
+
+/// head ของ step ledger ต่อ (request, stepKey) — SUCCEEDED แล้วแก้ไม่ได้ (#390)
+model PfProvisioningStep {
+  requestId      String      @map("request_id") @db.Uuid
+  tenantId       String      @map("tenant_id") @db.Uuid
+  stepKey        PfStepKey   @map("step_key")
+  ordinal        Int
+  state          PfStepState @default(PENDING)
+  attempt        Int         @default(0)
+  revision       Int         @default(1)
+  leaseOwner     String?     @map("lease_owner")
+  leaseExpiresAt DateTime?   @map("lease_expires_at")
+  inputDigest    String?     @map("input_digest") @db.Char(64)
+  outputDigest   String?     @map("output_digest") @db.Char(64)
+  externalRef    String?     @map("external_ref")
+  errorCode      String?     @map("error_code")
+  startedAt      DateTime?   @map("started_at")
+  finishedAt     DateTime?   @map("finished_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_provisioning_steps_request_fkey")
+
+  @@id([requestId, stepKey])
+  @@unique([requestId, ordinal], map: "pf_provisioning_steps_ordinal_key")
+  @@map("pf_provisioning_steps")
+}
+
+/// append-only receipt ต่อ attempt ของ step — replay ของ SUCCEEDED คืนแถวเดิม
+model PfProvisioningStepReceipt {
+  id              String      @id @db.Uuid
+  requestId       String      @map("request_id") @db.Uuid
+  tenantId        String      @map("tenant_id") @db.Uuid
+  stepKey         PfStepKey   @map("step_key")
+  attempt         Int
+  outcome         PfStepState
+  inputDigest     String?     @map("input_digest") @db.Char(64)
+  outputDigest    String?     @map("output_digest") @db.Char(64)
+  externalRefHash String?     @map("external_ref_hash") @db.Char(64)
+  errorCode       String?     @map("error_code")
+  recordedAt      DateTime    @map("recorded_at")
+
+  request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_provisioning_step_receipts_request_fkey")
+
+  @@unique([requestId, stepKey, attempt], map: "pf_provisioning_step_receipts_attempt_key")
+  @@map("pf_provisioning_step_receipts")
+}
+
+/// append-only idempotency record ของ mutation ทุกชนิด (create + recovery actions)
+model PfCommandReceipt {
+  id                 String   @id @db.Uuid
+  idempotencyKeyHash String   @unique @map("idempotency_key_hash") @db.Char(64)
+  commandKind        String   @map("command_kind")
+  payloadDigest      String   @map("payload_digest") @db.Char(64)
+  requestId          String   @map("request_id") @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  actorSubject       String   @map("actor_subject")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_command_receipts_request_fkey")
+
+  @@map("pf_command_receipts")
+}
+
+/// head ของ slug/domain/email reservation ต่อค่า canonical หนึ่งค่า (#389) — email เก็บเป็น hash
+model PfIdentityReservation {
+  kind            PfReservationKind
+  valueKey        String             @map("value_key")
+  tenantId        String             @map("tenant_id") @db.Uuid
+  requestId       String             @map("request_id") @db.Uuid
+  state           PfReservationState @default(HELD)
+  tombstonedUntil DateTime?          @map("tombstoned_until")
+  revision        Int                @default(1)
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_identity_reservations_request_fkey")
+
+  @@id([kind, valueKey])
+  @@index([requestId], map: "pf_identity_reservations_request_idx")
+  @@map("pf_identity_reservations")
+}
+
+/// append-only Action history (#393 §5) — ไม่มี raw email/payload/secret; UI เป็น projection ของตารางนี้
+model PfActionHistory {
+  id                 String       @id @db.Uuid
+  tenantId           String       @map("tenant_id") @db.Uuid
+  requestId          String       @map("request_id") @db.Uuid
+  action             PfActionKind
+  actorKind          PfActorKind  @map("actor_kind")
+  actorSubject       String       @map("actor_subject")
+  actorRole          String?      @map("actor_role")
+  sessionRef         String?      @map("session_ref")
+  reasonCode         String?      @map("reason_code")
+  comment            String?
+  correlationId      String       @map("correlation_id")
+  idempotencyKeyHash String?      @map("idempotency_key_hash") @db.Char(64)
+  beforeState        String?      @map("before_state")
+  afterState         String?      @map("after_state")
+  outcome            String
+  errorCode          String?      @map("error_code")
+  stepKey            PfStepKey?   @map("step_key")
+  attempt            Int?
+  inputDigest        String?      @map("input_digest") @db.Char(64)
+  outputDigest       String?      @map("output_digest") @db.Char(64)
+  externalRefHash    String?      @map("external_ref_hash") @db.Char(64)
+  occurredAt         DateTime     @map("occurred_at")
+
+  request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_action_history_request_fkey")
+
+  @@index([tenantId, occurredAt, id], map: "pf_action_history_timeline_idx")
+  @@map("pf_action_history")
 }

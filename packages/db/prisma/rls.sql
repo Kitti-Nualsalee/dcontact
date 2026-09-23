@@ -257,3 +257,25 @@ REVOKE UPDATE, DELETE ON dl_line_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON dl_line_inbound_messages FROM dcontact_app;
 REVOKE DELETE ON dl_line_event_outbox FROM dcontact_app;
 REVOKE UPDATE, DELETE ON dl_line_webhook_payloads FROM dcontact_app;
+
+-- A1.1 (#406): control plane ของ Platform Admin ไม่ใช่ข้อมูลของ tenant — tenant application
+-- (`dcontact_app`) ต้องไม่เห็น `pf_*` เลย ส่วน `dcontact_platform` เห็นเฉพาะ metadata ที่จำเป็น
+-- และไม่มีสิทธิ์บน tenant business tables ใด ๆ (blanket GRANT ด้านบนให้เฉพาะ dcontact_app)
+REVOKE ALL ON pf_bootstrap_templates, pf_provisioning_requests, pf_provisioning_steps,
+  pf_provisioning_step_receipts, pf_command_receipts, pf_identity_reservations,
+  pf_action_history FROM dcontact_app;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dcontact_platform') THEN
+    CREATE ROLE dcontact_platform LOGIN PASSWORD 'dcontact_platform' NOBYPASSRLS;
+  END IF;
+END $$;
+
+GRANT USAGE ON SCHEMA public TO dcontact_platform;
+GRANT SELECT, INSERT ON tenants TO dcontact_platform;
+GRANT UPDATE (lifecycle_status, slug, sip_domain, primary_domain) ON tenants TO dcontact_platform;
+GRANT SELECT, INSERT, UPDATE ON pf_bootstrap_templates, pf_provisioning_requests,
+  pf_provisioning_steps, pf_identity_reservations TO dcontact_platform;
+GRANT SELECT, INSERT ON pf_provisioning_step_receipts, pf_command_receipts, pf_action_history
+  TO dcontact_platform;
