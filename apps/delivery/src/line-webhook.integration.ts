@@ -463,6 +463,37 @@ test('worker restart: lease ที่หมดถูกหยิบใหม่�
   );
 });
 
+test('worker ตายหลัง projection commit แต่ก่อนเปิด correlation: รอบใหม่ยังผูก Touch ได้', async (t) => {
+  const h = await harness(t);
+  const { sentMessageId } = await acceptedDelivery(h);
+  const messageId = nextMessageId();
+  await h.post(body(messageEvent({ messageId, quotedMessageId: sentMessageId })));
+  const [entry] = await h.ctx.owner.dlLineWebhookInboxEntry.findMany({
+    where: { tenantId: h.tenantId },
+  });
+  // จำลองรอบแรก: projection commit แล้ว worker ตายก่อน openCorrelation
+  const inbound = new LineInboundRepository(h.ctx.application);
+  const projection = {
+    tenantId: h.tenantId,
+    channelAccountId: PILOT_CHANNEL_ACCOUNT_ID,
+    providerMessageId: messageId,
+    inboxEntryId: entry!.id,
+    webhookEventId: entry!.webhookEventId,
+    messageType: 'text',
+    providerTimestamp: RESPONSE_AT,
+  };
+  assert.equal(await inbound.projectInboundMessage(projection), true);
+  // entry อื่นที่พก message เดิมไม่ใช่เจ้าของ projection
+  assert.equal(
+    await inbound.projectInboundMessage({ ...projection, inboxEntryId: randomUUID() }),
+    false,
+  );
+
+  assert.deepEqual(await h.worker.runOnce(), ['COMPLETED']);
+  assert.equal((await touches(h)).length, 1);
+  assert.equal((await correlations(h))[0]?.state, 'BOUND');
+});
+
 // ── F04/RC03: correlation ──────────────────────────────────────────────────
 
 test('quoted response ที่ตรงผู้รับสร้าง Touch เดียวผ่าน Governance และ redelivery ไม่เพิ่ม Touch', async (t) => {

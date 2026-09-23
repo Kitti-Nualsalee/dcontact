@@ -66,19 +66,27 @@ export class LineInboundRepository {
 
   /**
    * dedupe ชั้นที่สอง (#359 §E, ADR-024): message object เดิมที่มากับ event คนละตัวถูก project
-   * ครั้งเดียว — คืน true เฉพาะครั้งแรก ผู้เรียกใช้ค่านี้ตัดสินว่าจะสร้าง side effect ต่อหรือไม่
+   * ครั้งเดียว — คืน true เมื่อ inbox entry นี้เป็นเจ้าของ projection ผู้เรียกใช้ค่านี้ตัดสินว่าจะ
+   * สร้าง side effect ต่อหรือไม่ entry เดิมที่ถูกหยิบใหม่หลัง worker ตาย (projection commit แล้ว
+   * แต่ยังไม่ทันเปิด correlation) ยังได้ true เพื่อให้ทำขั้นที่ค้างต่อจนจบ
    */
-  async projectInboundMessage(input: ProjectInboundMessageInput): Promise<boolean> {
-    const inserted = await withTenantDatabaseTransaction(
-      this.database,
-      input.tenantId,
-      (transaction) =>
-        transaction.dlLineInboundMessage.createMany({
-          data: [{ id: randomUUID(), ...input }],
-          skipDuplicates: true,
-        }),
-    );
-    return inserted.count === 1;
+  projectInboundMessage(input: ProjectInboundMessageInput): Promise<boolean> {
+    return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+      const inserted = await transaction.dlLineInboundMessage.createMany({
+        data: [{ id: randomUUID(), ...input }],
+        skipDuplicates: true,
+      });
+      if (inserted.count === 1) return true;
+      const owner = await transaction.dlLineInboundMessage.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          channelAccountId: input.channelAccountId,
+          providerMessageId: input.providerMessageId,
+        },
+        select: { inboxEntryId: true },
+      });
+      return owner?.inboxEntryId === input.inboxEntryId;
+    });
   }
 
   async findQuotedDelivery(

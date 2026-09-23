@@ -36,7 +36,6 @@ const EVENT_TYPE = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 const DESTINATION = /^U[0-9a-f]{32}$/;
 const PROVIDER_ID = /^[0-9]{1,32}$/;
 const LINE_USER_ID = /^U[0-9a-f]{32}$/;
-const MAX_EVENTS = 100;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -83,7 +82,9 @@ export function parseLineWebhook(rawBody: Buffer): ParsedLineWebhook | null {
   if (!isRecord(decoded)) return null;
   const { destination, events } = decoded;
   if (typeof destination !== 'string' || !DESTINATION.test(destination)) return null;
-  if (!Array.isArray(events) || events.length > MAX_EVENTS) return null;
+  // ไม่จำกัดจำนวน event: LINE ไม่ได้ประกาศเพดาน และ request ที่ลงนามถูกแต่ถูกปัดด้วย 4xx จะถูก
+  // redeliver ซ้ำแบบเดิมจนข้อมูลหาย — ขนาดถูกคุมแล้วด้วยเพดาน body ก่อน verify
+  if (!Array.isArray(events)) return null;
   const parsed: ParsedLineWebhookEvent[] = [];
   const seen = new Set<string>();
   for (const raw of events) {

@@ -229,6 +229,14 @@ test('interpret: quoted response ใน 1:1 เท่านั้นที่พ
   });
   assert.ok(LINE_KNOWN_EVENT_TYPES.includes('postback'));
   assert.equal(parseLineWebhook(Buffer.from([0xff, 0xfe])), null);
+  // ไม่มีเพดานจำนวน event — 4xx กับ request ที่ลงนามถูกทำให้ LINE redeliver แบบเดิมจนข้อมูลหาย
+  const many = Array.from({ length: 150 }, (_, index) =>
+    event(`01J8Z00000000000000000${String(index).padStart(4, '0')}`),
+  );
+  const parsed = parseLineWebhook(
+    Buffer.from(JSON.stringify({ destination: DESTINATION, events: many })),
+  );
+  assert.equal(parsed?.events.length, 150);
 });
 
 test('runtime ไม่ start กับ channel อื่นนอก test OA และ env ไม่ต้องมีค่า secret', () => {
