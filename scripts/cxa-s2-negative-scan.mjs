@@ -135,6 +135,12 @@ export const S2_SCAN_ALLOWLIST = Object.freeze([
       'CLI ของ capped pilot อ่านเฉพาะ reference (tenant/credential ref/sender/payload key ref) จาก env ไม่มี secret',
   },
   {
+    path: 'apps/delivery/src/line-pilot-setup.ts',
+    rule: 'env-read',
+    reason:
+      'setup ของ pilot อ่านเฉพาะ reference (tenant/sender/actor refs) จาก env; token อ่านจาก Keychain',
+  },
+  {
     path: 'apps/delivery/src/line-provider-runner.ts',
     rule: 'env-read',
     reason:

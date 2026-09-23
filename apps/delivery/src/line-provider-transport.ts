@@ -319,6 +319,12 @@ export class HttpLineProviderTransport implements LineProviderTransport {
     };
   }
 
+  /** bot user ID = `destination` ของ webhook ที่ ingress ต้อง bind (#359 §B) — ไม่ใช่ข้อมูลลูกค้า */
+  async getBotInfo(accessToken: string): Promise<{ userId: string | null }> {
+    const payload = await this.get<{ userId?: unknown }>(accessToken, '/v2/bot/info');
+    return { userId: typeof payload?.userId === 'string' ? payload.userId : null };
+  }
+
   async revokeToken(
     request: LineTokenRevocation,
   ): Promise<{ revoked: boolean; httpStatus: number | null }> {
