@@ -123,6 +123,12 @@ export const S2_SCAN_ALLOWLIST = Object.freeze([
     reason: 'token สังเคราะห์ของ provider double — ไม่ใช่ credential จริงและไม่ออกนอก process',
   },
   {
+    path: 'apps/delivery/src/line-pilot-wiring.integration.ts',
+    rule: 'secret-assignment',
+    reason:
+      'token สังเคราะห์ของ credential resolver double ใน wiring test — ไม่ใช่ credential จริง',
+  },
+  {
     path: 'apps/delivery/src/line-provider-runner.ts',
     rule: 'env-read',
     reason:
@@ -156,6 +162,8 @@ export function s2ScanTargets() {
     ],
     readiness: list('scripts', /^cxa-s2-.*\.mjs$/, (name) => !name.endsWith('.test.mjs')),
     workflows: list('.github/workflows', /^ci\.yml$/),
+    // S2.6b (#403): ที่ประกอบ binding จริงต้องไม่รับ LINE secret จาก env (#362 §9)
+    compositionRoots: ['apps/api/src/main.ts', '.env.example'],
   };
 }
 
@@ -176,6 +184,10 @@ const RULES = {
   'skipped-test': (text) =>
     /\b(?:test|it|describe)\.(?:only|skip|todo)\s*\(|\{\s*(?:skip|todo|only)\s*:\s*true/.test(text)
       ? ['skipped/only/todo']
+      : [],
+  'line-secret-env': (text) =>
+    /LINE_CHANNEL_SECRET|LINE_CHANNEL_ACCESS_TOKEN|LINE_WEBHOOK_PAYLOAD_KEY(?!_REF)/.test(text)
+      ? ['LINE secret ผ่าน env']
       : [],
   // ข้อมูลลับต้องไม่ถูกส่งเป็น input/secret ของ workflow; runner อ่าน Keychain บนเครื่องเอง
   'workflow-secret': (text) =>
@@ -204,6 +216,7 @@ export function cxaS2NegativeScan(options = {}) {
     [targets.tests, ['skipped-test', 'credential-literal', 'secret-assignment', 'sdk-import']],
     [targets.readiness, ['credential-literal', 'raw-line-id', 'secret-assignment']],
     [targets.workflows, ['workflow-secret', 'credential-literal']],
+    [targets.compositionRoots ?? [], ['line-secret-env', 'credential-literal']],
   ];
   const violations = [];
   const scanned = new Map();
@@ -229,7 +242,7 @@ export function cxaS2NegativeScan(options = {}) {
     }
   });
 
-  const requiredGroups = ['sources', 'tests', 'readiness', 'workflows'];
+  const requiredGroups = ['sources', 'tests', 'readiness', 'workflows', 'compositionRoots'];
   const empty = requiredGroups.filter((group) => (targets[group] ?? []).length === 0);
   return {
     type: 'negative-scan.readiness',
@@ -241,6 +254,7 @@ export function cxaS2NegativeScan(options = {}) {
       source: targets.sources.length,
       tests: targets.tests.length,
       workflows: targets.workflows.length,
+      compositionRoots: (targets.compositionRoots ?? []).length,
       artifacts: artifacts.length,
     },
     emptyGroups: empty,

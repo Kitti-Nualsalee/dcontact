@@ -35,28 +35,7 @@ export class EncryptedLineWebhookPayloadVault implements LineWebhookPayloadReade
     tenantId: string,
     entry: DlLineWebhookInboxEntry,
   ): Promise<LineInboundProjection | null> {
-    const row = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
-      transaction.dlLineWebhookPayload.findFirst({
-        where: { tenantId, protectedPayloadRef: entry.protectedPayloadRef },
-      }),
-    );
-    if (!row) return null;
-    const key = this.keyring.key(row.keyRef);
-    if (!key) return null;
-
-    let plaintext: string;
-    try {
-      const decipher = createDecipheriv('aes-256-gcm', key, row.iv);
-      decipher.setAuthTag(row.authTag);
-      plaintext = Buffer.concat([decipher.update(row.ciphertext), decipher.final()]).toString(
-        'utf8',
-      );
-    } catch {
-      // auth tag ไม่ผ่าน = ciphertext ถูกแก้ ห้ามเดาเนื้อหา
-      return null;
-    }
-
-    const event = asObject(JSON.parse(plaintext) as unknown);
+    const event = await this.decrypt(tenantId, entry);
     if (!event) return null;
     const source = asObject(event.source);
     const message = asObject(event.message);
@@ -75,5 +54,47 @@ export class EncryptedLineWebhookPayloadVault implements LineWebhookPayloadReade
       isOneToOne: source?.type === 'user',
       ...(token ? { postbackToken: token } : {}),
     };
+  }
+
+  /**
+   * S2.6b (#403): ทางเดียวที่ userId ของผู้ส่งออกจาก vault — ใช้บันทึก recipient ของ pilot ลง
+   * Keychain เท่านั้น ค่าอยู่ได้แค่ใน callback และเฉพาะ event แบบ one-to-one
+   */
+  async withOneToOneSourceUserId<T>(
+    tenantId: string,
+    entry: DlLineWebhookInboxEntry,
+    work: (userId: string) => Promise<T>,
+  ): Promise<T | null> {
+    const event = await this.decrypt(tenantId, entry);
+    const source = asObject(event?.source);
+    if (source?.type !== 'user' || typeof source.userId !== 'string') return null;
+    return work(source.userId);
+  }
+
+  private async decrypt(
+    tenantId: string,
+    entry: DlLineWebhookInboxEntry,
+  ): Promise<Record<string, unknown> | undefined> {
+    const row = await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+      transaction.dlLineWebhookPayload.findFirst({
+        where: { tenantId, protectedPayloadRef: entry.protectedPayloadRef },
+      }),
+    );
+    if (!row) return undefined;
+    const key = this.keyring.key(row.keyRef);
+    if (!key) return undefined;
+
+    let plaintext: string;
+    try {
+      const decipher = createDecipheriv('aes-256-gcm', key, row.iv);
+      decipher.setAuthTag(row.authTag);
+      plaintext = Buffer.concat([decipher.update(row.ciphertext), decipher.final()]).toString(
+        'utf8',
+      );
+    } catch {
+      // auth tag ไม่ผ่าน = ciphertext ถูกแก้ ห้ามเดาเนื้อหา
+      return undefined;
+    }
+    return asObject(JSON.parse(plaintext) as unknown);
   }
 }

@@ -466,6 +466,87 @@ test('cross-tenant attempt/evidence ถูกซ่อนเป็น ATTEMPT_NO
   assert.deepEqual(await counts(tenantB), { attempts: 1, touches: 1 });
 });
 
+test('findAcceptedAttempt คืน binding ของ accepted Attempt เท่านั้น และไม่เห็นข้าม tenant', async (t) => {
+  const tenantA = await fixture(t);
+  const tenantB = await fixture(t);
+  const bindingA = await tenantA.reservation('lookup-a');
+  const pending = await tenantA.reservation('lookup-pending');
+
+  // ยังไม่มี acceptance = null ให้ Channels คง correlation เป็น PENDING
+  assert.equal(
+    await tenantA.service.findAcceptedAttempt({
+      tenantId: tenantA.tenantId,
+      deliveryId: pending.deliveryId,
+    }),
+    null,
+  );
+
+  const { attemptId } = await accept(tenantA, bindingA);
+  const view = await tenantA.service.findAcceptedAttempt({
+    tenantId: tenantA.tenantId,
+    deliveryId: bindingA.deliveryId,
+  });
+  assert.deepEqual(view, {
+    attemptId,
+    reservationId: bindingA.reservationId,
+    actionKey: bindingA.actionKey,
+    deliveryId: bindingA.deliveryId,
+    acceptedAt: view?.acceptedAt,
+  });
+  assert.ok(!Number.isNaN(Date.parse(view!.acceptedAt)));
+
+  // view ต่อ touchInput ได้ตรงโดยไม่ต้องอ่าน cg_* เอง
+  await tenantA.service.recordCorrelatedTouch(touchInput(tenantA, bindingA, view!.attemptId));
+  assert.deepEqual(await counts(tenantA), { attempts: 1, touches: 1 });
+
+  assert.equal(
+    await tenantB.service.findAcceptedAttempt({
+      tenantId: tenantB.tenantId,
+      deliveryId: bindingA.deliveryId,
+    }),
+    null,
+  );
+});
+
+test('findAcceptedAttempt ไม่คืน Attempt ที่ถูก reject', async (t) => {
+  const f = await fixture(t);
+  const binding = await f.reservation('lookup-rejected');
+  const base = {
+    tenantId: f.tenantId,
+    correlationId: 'correlation-lookup-rejected',
+    reservationId: binding.reservationId,
+    actionKey: binding.actionKey,
+    deliveryId: binding.deliveryId,
+  };
+  await f.service.claimReservationForDelivery({
+    ...base,
+    contactId: f.contactId,
+    identityId: f.identityId,
+    channel: 'LINE',
+    purpose: 'SERVICE_NOTIFICATION',
+    senderIdentityId: 'sender-approved',
+    leaseExpiresAt: '2026-09-23T09:15:00.000Z',
+  });
+  await f.service.beginProviderSubmission({
+    ...base,
+    expectedLeaseVersion: 1,
+    providerRequestKey: binding.providerRequestKey,
+  });
+  await f.service.settleDelivery({
+    ...base,
+    providerRequestKey: binding.providerRequestKey,
+    outcomeRef: binding.outcomeRef,
+    outcome: 'PROVIDER_REJECTED',
+    rejectionScope: 'RECIPIENT',
+    occurredAt: '2026-09-23T09:01:00.000Z',
+  });
+  assert.deepEqual(await counts(f), { attempts: 1, touches: 0 });
+  assert.equal(
+    await f.service.findAcceptedAttempt({ tenantId: f.tenantId, deliveryId: binding.deliveryId }),
+    null,
+  );
+});
+
 test('late correlated Touch ไม่ทำให้ replay ของ settle เดิมกลายเป็น conflict', async (t) => {
   const f = await fixture(t);
   const binding = await f.reservation('late-touch');

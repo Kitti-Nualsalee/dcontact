@@ -111,6 +111,31 @@ export async function createLinePersistenceFixture() {
     return { tenantId, reservationId, actionKey, deliveryId, providerRequestKey };
   }
 
+  /**
+   * S2.6b (#403): reservation ที่ Governance อนุมัติแล้วแต่ยังไม่มี delivery ผูก — ปลายทางของ
+   * `LineDeliveryEnqueue` ซึ่งต้อง claim ผ่าน Governance เอง
+   */
+  async function seedReservation(tenantId: string, at = new Date()) {
+    sequence += 1;
+    const reservationId = randomUUID();
+    const actionKey = `s2-enqueue-${suffix}-${sequence}`;
+    await owner.cgReservation.create({
+      data: {
+        id: reservationId,
+        tenantId,
+        contactId: contactIds.get(tenantId)!,
+        channel: 'LINE',
+        purpose: 'SERVICE_NOTIFICATION',
+        source: 'JOURNEY',
+        sourceId: `journey-${sequence}`,
+        actionKey,
+        inputHash: digest(actionKey),
+        expiresAt: new Date(at.getTime() + 15 * 60_000),
+      },
+    });
+    return { tenantId, reservationId, actionKey, contactId: contactIds.get(tenantId)! };
+  }
+
   /** Attempt ที่ Governance เขียนหลัง provider accepted — ใช้เป็นปลายทางของ Touch correlation */
   async function seedAcceptedAttempt(delivery: Awaited<ReturnType<typeof seedDelivery>>) {
     const id = randomUUID();
@@ -156,6 +181,9 @@ export async function createLinePersistenceFixture() {
       configDigest?: string;
       /** run มี TTL 30 นาที — เทสต์ที่ใช้เวลาปัจจุบันต้องเสนอ run ที่เวลานั้นด้วย */
       proposedAt?: Date;
+      /** S2.6b: recipient ที่ fingerprint ตรงผู้ส่ง webhook และ ref ของ Keychain */
+      recipientFingerprint?: string;
+      recipientProtectedRef?: string;
     } = {},
   ) {
     const gate = await control.ensureGate(randomUUID(), scope(tenantId));
@@ -163,8 +191,8 @@ export async function createLinePersistenceFixture() {
       id: randomUUID(),
       ...scope(tenantId),
       gateId: gate.id,
-      recipientFingerprint: digest(`recipient-${label}`),
-      recipientProtectedRef: `prot:recipient:${randomUUID()}`,
+      recipientFingerprint: overrides.recipientFingerprint ?? digest(`recipient-${label}`),
+      recipientProtectedRef: overrides.recipientProtectedRef ?? `prot:recipient:${randomUUID()}`,
       contentRef: overrides.contentRef ?? 'fixture:service-notification/v1',
       contentDigest: overrides.contentDigest ?? digest('content-v1'),
       configDigest: overrides.configDigest ?? digest('config-v1'),
@@ -234,6 +262,7 @@ export async function createLinePersistenceFixture() {
     lineOutbox: new OutboxRepository(application, 'LINE_MESSAGING_API'),
     testOutbox: new OutboxRepository(application, 'TEST_ADAPTER'),
     seedDelivery,
+    seedReservation,
     seedAcceptedAttempt,
     seedApprovedRun,
     scope,

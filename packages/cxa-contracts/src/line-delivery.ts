@@ -303,6 +303,24 @@ export class SettlementPolicyViolationError extends Error {
  */
 export interface ContactTouchCorrelationPort {
   recordCorrelatedTouch(input: RecordCorrelatedTouchInput): Promise<CorrelatedTouchView>;
+  /**
+   * S2.6b (#403): binding ของ accepted Attempt ที่ Channels ต้องใช้ประกอบ `recordCorrelatedTouch`
+   * โดยไม่อ่าน `cg_*` เอง — คืนเฉพาะ Attempt `PROVIDER_ACCEPTED` ของ delivery นั้นใน tenant นั้น
+   * ไม่มี = `null` (response มาก่อน acceptance commit หรือ delivery ของ tenant อื่น)
+   */
+  findAcceptedAttempt(input: {
+    tenantId: TenantId;
+    deliveryId: DeliveryId;
+  }): Promise<AcceptedAttemptView | null>;
+}
+
+/** snapshot ของ accepted Attempt — ไม่มี contact/identity/recipient */
+export interface AcceptedAttemptView {
+  attemptId: string;
+  reservationId: ReservationId;
+  actionKey: ActionKey;
+  deliveryId: DeliveryId;
+  acceptedAt: string;
 }
 
 export function isTouchEvidenceKind(value: unknown): value is TouchEvidenceKind {

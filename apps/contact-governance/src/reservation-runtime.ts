@@ -16,7 +16,9 @@ import {
   ReservationBindingError,
   SettlementPolicyViolationError,
   type BeginProviderSubmissionInput,
+  type AcceptedAttemptView,
   type CorrelatedTouchView,
+  type DeliveryId,
   type DeliveryRejectionScope,
   type DeliverySettlementPolicyDecision,
   type NormalizedDeliveryOutcome,
@@ -28,6 +30,7 @@ import {
   type ReservationSettlementView,
   type RenewReservationLeaseInput,
   type SettleDeliveryInput,
+  type TenantId,
 } from '@d-contact/cxa-contracts';
 import {
   AttemptTouchRepository,
@@ -537,6 +540,13 @@ export class ReservationRuntime {
    */
   recordCorrelatedTouch(input: RecordCorrelatedTouchInput): Promise<CorrelatedTouchView> {
     return this.facts.recordCorrelatedTouch(input);
+  }
+
+  findAcceptedAttempt(input: {
+    tenantId: TenantId;
+    deliveryId: DeliveryId;
+  }): Promise<AcceptedAttemptView | null> {
+    return this.facts.findAcceptedAttempt(input);
   }
 
   settle(input: SettleDeliveryInput): Promise<ReservationSettlementView> {

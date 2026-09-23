@@ -549,14 +549,16 @@ test('S2-LINE-OB02: source/test/workflow ของ repo ผ่าน negative sc
   const summary = cxaS2NegativeScan();
   assert.equal(summary.status, 'PASS', JSON.stringify(summary.violations));
   assert.ok(summary.layers.source > 0 && summary.layers.tests > 0 && summary.layers.workflows > 0);
+  assert.equal(summary.layers.compositionRoots, 2);
 });
 
-test('S2-LINE-OB02: scan จับ SDK, env, marker, skip, secret ใน workflow และ artifact ที่รั่ว', () => {
+test('S2-LINE-OB02: scan จับ SDK, env, marker, skip, secret ใน workflow/composition root และ artifact ที่รั่ว', () => {
   const files = {
     'src/a.ts':
       "import x from '@line/bot-sdk'; const v = process.env.X; const m = 'OUTBOUND_DELIVERY_LINE_PILOT_READY';",
     'src/a.test.ts': "test.skip('x', () => {});",
     'ci.yml': 'token: ${{ secrets.LINE_TOKEN }}',
+    'main.ts': "const secret = required('LINE_CHANNEL_SECRET');",
   };
   const summary = cxaS2NegativeScan({
     read: (path) => files[path],
@@ -565,6 +567,7 @@ test('S2-LINE-OB02: scan จับ SDK, env, marker, skip, secret ใน workflo
       tests: ['src/a.test.ts'],
       readiness: [],
       workflows: ['ci.yml'],
+      compositionRoots: ['main.ts'],
     },
     allowlist: [],
     artifacts: [{ path: 'bundle.json', value: { note: `U${'1'.repeat(32)}` } }],
@@ -575,6 +578,7 @@ test('S2-LINE-OB02: scan จับ SDK, env, marker, skip, secret ใน workflo
     'artifact-evidence',
     'env-read',
     'hard-coded-marker',
+    'line-secret-env',
     'sdk-import',
     'skipped-test',
     'workflow-secret',

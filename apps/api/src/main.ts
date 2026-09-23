@@ -4,7 +4,7 @@ import { Controller, Module, Post, Req, Res, UnauthorizedException } from '@nest
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { EventInboxService, JourneyTemplateRepository } from '@d-contact/journey';
-import { LineWebhookIngress } from '@d-contact/delivery';
+import { LineWebhookIngress, resolveLineWebhookSecrets } from '@d-contact/delivery';
 import { DcExprEvaluator } from '@d-contact/expression';
 import { IamJourneyAuthoringAuthorizer } from '@d-contact/iam';
 import { createConsumer, createInMemoryIdempotencyStore } from '@d-contact/kafka';
@@ -126,14 +126,21 @@ const journeyEventInbox = new EventInboxService(prisma);
  * S2.5 (#369): singleton webhook binding ของ pilot — ค่าทั้งหมดมาจาก deployment config
  * ไม่ใช่จาก body ของ request; ไม่มี binding = route ปฏิเสธทุก request ด้วย signature ที่ตรวจไม่ผ่าน
  */
-const lineWebhookIngress = new LineWebhookIngress(prisma, {
-  tenantId: required('LINE_WEBHOOK_TENANT_ID'),
-  channelAccountId: required('LINE_WEBHOOK_CHANNEL_ACCOUNT_ID'),
-  destination: required('LINE_WEBHOOK_DESTINATION'),
-  channelSecret: required('LINE_CHANNEL_SECRET'),
-  payloadKeyRef: required('LINE_WEBHOOK_PAYLOAD_KEY_REF'),
-  payloadKey: Buffer.from(required('LINE_WEBHOOK_PAYLOAD_KEY'), 'base64'),
-});
+// S2.6b (#403): secret ไม่มาจาก env อีกต่อไป — env เลือกได้แค่โหมด (#362 §9) และอ่าน Keychain ตอนบูต
+async function createLineWebhookIngress(): Promise<LineWebhookIngress> {
+  const secrets = await resolveLineWebhookSecrets({
+    mode: process.env.LINE_WEBHOOK_SECRET_SOURCE,
+    channelAccountId: required('LINE_WEBHOOK_CHANNEL_ACCOUNT_ID'),
+  });
+  return new LineWebhookIngress(prisma, {
+    tenantId: required('LINE_WEBHOOK_TENANT_ID'),
+    channelAccountId: required('LINE_WEBHOOK_CHANNEL_ACCOUNT_ID'),
+    destination: required('LINE_WEBHOOK_DESTINATION'),
+    channelSecret: secrets.channelSecret,
+    payloadKeyRef: required('LINE_WEBHOOK_PAYLOAD_KEY_REF'),
+    payloadKey: secrets.payloadKey,
+  });
+}
 // J5.5: feature flag มาจาก env kill switch (default ปิด) AND rollout row ของ tenant ภายใน repository
 const journeyAuthoring = new JourneyTemplateRepository(prisma, {
   authorization: new IamJourneyAuthoringAuthorizer(),
@@ -226,7 +233,7 @@ class WorkspaceSessionController {
     { provide: JOURNEY_RECOVERY_DATABASE, useValue: prisma },
     { provide: JOURNEY_SEGMENT_DATABASE, useValue: prisma },
     { provide: JOURNEY_AUTHORING_REPOSITORY, useValue: journeyAuthoring },
-    { provide: LINE_WEBHOOK_INGRESS, useValue: lineWebhookIngress },
+    { provide: LINE_WEBHOOK_INGRESS, useFactory: createLineWebhookIngress },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },

@@ -51,7 +51,10 @@ import {
   type ContactGovernancePort,
   type ContactGovernanceRevalidationPort,
   type ContactTouchCorrelationPort,
+  type AcceptedAttemptView,
   type CorrelatedTouchView,
+  type DeliveryId,
+  type TenantId,
   type RecordCorrelatedTouchInput,
   type ClaimReservationForDeliveryInput,
   type RenewReservationLeaseInput,
@@ -305,6 +308,14 @@ export class ContactGovernanceService
    */
   recordCorrelatedTouch(input: RecordCorrelatedTouchInput): Promise<CorrelatedTouchView> {
     return this.reservationRuntime.recordCorrelatedTouch(input);
+  }
+
+  /** S2.6b (#403): Channels ใช้ประกอบ binding ของ Touch โดยไม่อ่าน `cg_*` เอง */
+  findAcceptedAttempt(input: {
+    tenantId: TenantId;
+    deliveryId: DeliveryId;
+  }): Promise<AcceptedAttemptView | null> {
+    return this.reservationRuntime.findAcceptedAttempt(input);
   }
 
   /**

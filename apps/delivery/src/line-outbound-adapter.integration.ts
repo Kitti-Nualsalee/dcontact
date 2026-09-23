@@ -72,6 +72,9 @@ class FakeLineTransport implements LineProviderTransport {
   async testWebhookEndpoint() {
     return { success: false, statusCode: null };
   }
+  async revokeToken() {
+    return { revoked: true, httpStatus: 200 };
+  }
 }
 
 const ok = (id: string): LineTransportResult => ({

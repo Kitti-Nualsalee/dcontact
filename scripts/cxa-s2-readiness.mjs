@@ -163,6 +163,7 @@ export const S2_FAULT_SUITES = Object.freeze([
     id: 'S2FX-TENANT-SWAP',
     faults: ['guard tenant', 'channel/sender/recipient/content swap', 'credential swap'],
     sources: [
+      'apps/delivery/src/line-pilot-wiring.integration.ts',
       'apps/delivery/src/line-control-plane.integration.ts',
       'apps/delivery/src/line-outbound-adapter.integration.ts',
       'apps/delivery/src/line-webhook-worker.integration.ts',
@@ -179,6 +180,7 @@ export const S2_FAULT_SUITES = Object.freeze([
       'duplicate evidence',
     ],
     sources: [
+      'apps/delivery/src/line-pilot-wiring.integration.ts',
       'apps/delivery/src/line-webhook-worker.integration.ts',
       'apps/contact-governance/src/correlated-touch.integration.ts',
     ],

@@ -8,6 +8,10 @@ import {
 } from '@d-contact/db';
 import {
   CorrelatedTouchError,
+  actionKey as toActionKey,
+  deliveryId as toDeliveryId,
+  reservationId as toReservationId,
+  type AcceptedAttemptView,
   ReservationBindingError,
   ReservationNotFoundError,
   isTouchEvidenceKind,
@@ -292,6 +296,35 @@ export class AttemptTouchRepository {
    * บวก unique `cg_touches (tenant_id, attempt_id)` กับ partial unique
    * `(tenant_id, response_evidence_ref)` ที่เป็นด่านสุดท้ายแม้ lock จะพลาด
    */
+  /** S2.6b (#403): read-only; Attempt อื่นที่ไม่ใช่ acceptance ไม่ใช่เป้าของ Touch จึงไม่คืน */
+  async findAcceptedAttempt(input: {
+    tenantId: TenantId;
+    deliveryId: DeliveryId;
+  }): Promise<AcceptedAttemptView | null> {
+    const attempt = await withTenantDatabaseTransaction(
+      this.database,
+      input.tenantId,
+      (transaction) =>
+        transaction.cgAttempt.findFirst({
+          where: {
+            tenantId: input.tenantId,
+            deliveryId: input.deliveryId,
+            outcome: 'PROVIDER_ACCEPTED',
+          },
+          orderBy: { occurredAt: 'asc' },
+          include: { reservation: { select: { actionKey: true } } },
+        }),
+    );
+    if (!attempt) return null;
+    return {
+      attemptId: attempt.id,
+      reservationId: toReservationId(attempt.reservationId),
+      actionKey: toActionKey(attempt.reservation.actionKey),
+      deliveryId: toDeliveryId(attempt.deliveryId),
+      acceptedAt: attempt.occurredAt.toISOString(),
+    };
+  }
+
   async recordCorrelatedTouch(
     input: RecordCorrelatedTouchInput,
     transaction?: Prisma.TransactionClient,
