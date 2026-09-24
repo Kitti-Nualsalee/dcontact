@@ -10,6 +10,7 @@ import {
 } from './platform-auth.js';
 import { PlatformSessionController } from './platform-session.controller.js';
 import {
+  CatalogController,
   PLATFORM_SERVICES,
   ProvisioningRequestsController,
   TenantsController,
@@ -34,7 +35,9 @@ export class PlatformApiModule {
       module: PlatformApiModule,
       controllers: [
         PlatformSessionController,
-        ...(options.services ? [ProvisioningRequestsController, TenantsController] : []),
+        ...(options.services
+          ? [ProvisioningRequestsController, TenantsController, CatalogController]
+          : []),
         ...(options.controllers ?? []),
       ],
       providers: [

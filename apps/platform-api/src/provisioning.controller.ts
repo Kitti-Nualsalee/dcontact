@@ -234,6 +234,18 @@ export class ProvisioningRequestsController {
   }
 }
 
+@Controller('api/v1/catalog')
+export class CatalogController {
+  constructor(@Inject(PLATFORM_SERVICES) private readonly services: PlatformServices) {}
+
+  /** A1.7: ตัวเลือก plan/template ของ Guided onboarding — ไม่มี tenant data */
+  @Get()
+  @RequirePlatformCapability('CONTROL_PLANE_READ')
+  async catalog() {
+    return this.services.queries.catalog();
+  }
+}
+
 @Controller('api/v1/tenants')
 export class TenantsController {
   constructor(@Inject(PLATFORM_SERVICES) private readonly services: PlatformServices) {}

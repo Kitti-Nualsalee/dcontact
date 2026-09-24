@@ -205,6 +205,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
     const request = await create();
     const reads = [
       '/api/v1/tenants?limit=1',
+      '/api/v1/catalog',
       `/api/v1/provisioning-requests/${request.requestId}`,
       `/api/v1/tenants/${request.tenantId}/action-history`,
     ];
@@ -246,6 +247,19 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
     assert.equal(
       await owner.pfProvisioningRequest.count({ where: { tenantId: { in: tenants } } }),
       1,
+    );
+  });
+
+  test('catalog: เฉพาะ plan ล่าสุดที่ ACTIVE ต่อ code และ template ที่ ACTIVE', async () => {
+    const catalog = await call('GET', '/api/v1/catalog', { token: tokens.auditor });
+    assert.equal(catalog.status, 200);
+    const growth = catalog.body.plans.filter((plan: { code: string }) => plan.code === 'growth');
+    assert.equal(growth.length, 1);
+    assert.ok(growth[0].version >= planVersion);
+    assert.ok(
+      catalog.body.templates.some(
+        (template: { version: string }) => template.version === templateVersion,
+      ),
     );
   });
 
