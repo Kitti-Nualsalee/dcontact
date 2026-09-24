@@ -22,6 +22,7 @@ import {
 import { createPlatformFixture, OPERATOR, SIP_BASE } from './platform-fixture.js';
 import { createFakeProvisioningPorts } from './provisioning-fakes.js';
 import { ProvisioningSagaWorker } from './provisioning-saga.js';
+import { TenantBootstrapPort, TenantReadinessPort } from './tenant-bootstrap.js';
 
 test('#436: หลัง activate ด้วย generation ใหม่ ลิงก์ generation เก่าต้องเปลี่ยน credential ไม่ได้', async (t) => {
   const f = await createPlatformFixture();
@@ -41,8 +42,10 @@ test('#436: หลัง activate ด้วย generation ใหม่ ลิง
     {
       ...createFakeProvisioningPorts().ports,
       KEYCLOAK_ORGANIZATION: organizations,
+      PLAN_BOOTSTRAP: new TenantBootstrapPort(f.platform, f.provisioner),
       FIRST_ADMIN: firstAdmin,
       INVITATION: outbox.port(),
+      READINESS: new TenantReadinessPort(f.platform, f.provisioner),
     },
     {
       workerId: `gap-436-${randomUUID().slice(0, 8)}`,

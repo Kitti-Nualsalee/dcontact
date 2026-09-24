@@ -20,10 +20,10 @@ import {
 } from './invitation-outbox.js';
 import {
   FirstAdminPort,
-  firstAdminUserId,
   KeycloakOrganizationPort,
   PROVISIONING_REQUEST_ATTRIBUTE,
 } from './keycloak-provisioning-ports.js';
+import { firstAdminUserId } from './provisioning-ids.js';
 import {
   actionTokenClaims,
   cleanupKeycloak,
@@ -38,6 +38,7 @@ import {
 import { createPlatformFixture, OPERATOR, SIP_BASE } from './platform-fixture.js';
 import { createFakeProvisioningPorts } from './provisioning-fakes.js';
 import { ProvisioningSagaWorker } from './provisioning-saga.js';
+import { TenantBootstrapPort, TenantReadinessPort } from './tenant-bootstrap.js';
 
 type Fault = (url: string, method: string) => 'lose-response' | 'hang' | undefined;
 
@@ -88,11 +89,19 @@ async function setup(
     probe: options.probe ?? mailpitDeliveryProbe(MAILPIT_URL),
   });
   const fakes = createFakeProvisioningPorts();
+  const bootstrap = new TenantBootstrapPort(f.platform, f.provisioner);
+  // ทุก step เป็นตัวจริงยกเว้นไม่มี — readiness ตรวจ identity ใน Keycloak ซ้ำก่อน ACTIVE
   const ports = {
     ...fakes.ports,
     KEYCLOAK_ORGANIZATION: organizations,
+    PLAN_BOOTSTRAP: bootstrap,
     FIRST_ADMIN: firstAdmin,
     INVITATION: outbox.port(),
+    READINESS: new TenantReadinessPort(
+      f.platform,
+      f.provisioner,
+      async (context) => (await firstAdmin.find(context)).status === 'FOUND',
+    ),
   };
   const worker = new ProvisioningSagaWorker(f.platform, ports, {
     workerId: `boundary-${randomUUID().slice(0, 8)}`,
@@ -128,7 +137,19 @@ async function setup(
       where: { id: requestId },
       include: { steps: { orderBy: { ordinal: 'asc' } }, tenant: true, invitations: true },
     });
-  return { f, keycloak, organizations, firstAdmin, outbox, fakes, worker, accept, drain, state };
+  return {
+    f,
+    keycloak,
+    organizations,
+    bootstrap,
+    firstAdmin,
+    outbox,
+    fakes,
+    worker,
+    accept,
+    drain,
+    state,
+  };
 }
 
 async function organizationsOf(tenantId: string) {
@@ -229,6 +250,7 @@ test('replay/duplicate: execute ซ้ำระหว่าง PROVISIONING ไ�
       provisioningStepContext(request, 'KEYCLOAK_ORGANIZATION', 1),
       signal,
     );
+    await s.bootstrap.execute(provisioningStepContext(request, 'PLAN_BOOTSTRAP', 1));
     await s.firstAdmin.execute(provisioningStepContext(request, 'FIRST_ADMIN', 1), signal);
     await s.outbox.port().execute(provisioningStepContext(request, 'INVITATION', 1), signal);
   }
@@ -252,6 +274,7 @@ test('replay/duplicate: execute ซ้ำระหว่าง PROVISIONING ไ�
     'FIRST_ADMIN',
     'INVITATION',
     'KEYCLOAK_ORGANIZATION',
+    'PLAN_BOOTSTRAP',
   ]);
   // หลัง ACTIVE แล้ว provisioner แตะแถว users ของ tenant นี้ไม่ได้อีก (#388 decision)
   assert.equal(await s.f.provisioner.user.count({ where: { tenantId: accepted.tenantId } }), 0);

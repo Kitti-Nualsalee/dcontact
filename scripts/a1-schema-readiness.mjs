@@ -21,6 +21,9 @@ export const A1_MIGRATIONS = Object.freeze([
   '20260924100100_add_a1_3_step_scheduling',
   // A1.4 (#409): invitation outbox + role ของ tenant bootstrap (#388 decision)
   '20260924110000_add_a1_4_invitation_outbox',
+  // A1.5 (#410): action kind แยกไฟล์จาก plan catalog/baseline ที่ใช้มัน
+  '20260924120000_add_a1_5_action_kind',
+  '20260924120100_add_a1_5_bootstrap',
 ]);
 
 export const CANONICAL_A1_TABLES = Object.freeze([
@@ -32,12 +35,15 @@ export const CANONICAL_A1_TABLES = Object.freeze([
   'pf_identity_reservations',
   'pf_action_history',
   'pf_invitations',
+  'pf_plan_versions',
+  'pf_request_payload_revisions',
 ]);
 
 export const APPEND_ONLY_A1_TABLES = Object.freeze([
   'pf_provisioning_step_receipts',
   'pf_command_receipts',
   'pf_action_history',
+  'pf_request_payload_revisions',
 ]);
 
 /** ตารางที่ control-plane role มีสิทธิ์ได้ — นอกจากนี้ต้องเป็นศูนย์ (ห้ามอ่าน business data) */
@@ -55,6 +61,10 @@ export const REQUIRED_A1_CONSTRAINTS = Object.freeze([
   'tenants_provisioning_placeholder_check',
   'pf_provisioning_steps_attempt_floor_check',
   'pf_invitations_values_check',
+  'pf_plan_versions_values_check',
+  'pf_request_payload_revisions_values_check',
+  'tenant_plan_bindings_values_check',
+  'business_hours_values_check',
 ]);
 
 export const REQUIRED_A1_UNIQUE_INDEXES = Object.freeze([
@@ -67,6 +77,8 @@ export const REQUIRED_A1_UNIQUE_INDEXES = Object.freeze([
   'pf_command_receipts_idempotency_key_hash_key',
   'tenants_primary_domain_key',
   'pf_invitations_generation_key',
+  'pf_plan_versions_pin_key',
+  'pf_request_payload_revisions_revision_key',
 ]);
 
 export const REQUIRED_A1_TRIGGERS = Object.freeze([
@@ -85,19 +97,33 @@ export const REQUIRED_A1_TRIGGERS = Object.freeze([
   'pf_invitations_retained',
   'pf_invitations_insert_guard',
   'pf_invitations_guard',
+  'pf_plan_versions_retained',
+  'pf_plan_versions_guard',
+  'pf_request_payload_revisions_append_only',
 ]);
 
 /**
  * #388 decision "Tenant bootstrap write boundary": `dcontact_provisioner` มี table privilege ได้แค่นี้
  * (UPDATE keycloak_id และ SELECT id/lifecycle ของ tenants เป็น column grant จึงไม่อยู่ในรายการ)
  */
-export const PROVISIONER_TABLE_PRIVILEGES = Object.freeze([
-  ['users', 'SELECT'],
-  ['users', 'INSERT'],
+export const PROVISIONER_TABLES = Object.freeze([
+  'users',
+  // A1.5 (#410): operational baseline
+  'teams',
+  'queues',
+  'tenant_settings',
+  'tenant_plan_bindings',
+  'business_hours',
 ]);
+export const PROVISIONER_TABLE_PRIVILEGES = Object.freeze(
+  PROVISIONER_TABLES.flatMap((table) => [
+    [table, 'SELECT'],
+    [table, 'INSERT'],
+  ]),
+);
 
-/** steps/receipts/command/reservation/history/invitations ผูก (tenant_id, request_id) กับ request */
-export const MINIMUM_A1_COMPOSITE_FOREIGN_KEYS = 7;
+/** steps/receipts/command/reservation/history/invitations/payload revisions + plan pin */
+export const MINIMUM_A1_COMPOSITE_FOREIGN_KEYS = 9;
 
 function sqlArray(values) {
   return `ARRAY[${values.map((value) => `'${value}'`).join(',')}]`;
@@ -147,7 +173,7 @@ export const A1_SCHEMA_EVIDENCE_QUERY = `
     (SELECT count(*) FROM pg_roles WHERE rolname = 'dcontact_provisioner' AND NOT rolbypassrls AND NOT rolsuper)
     || '|' ||
     (SELECT count(*) FROM pg_policies
-      WHERE tablename = 'users' AND policyname = 'provisioner_provisioning_only'
+      WHERE tablename = ANY(${sqlArray(PROVISIONER_TABLES)}) AND policyname = 'provisioner_provisioning_only'
         AND permissive = 'RESTRICTIVE' AND roles = '{dcontact_provisioner}');
 `
   .replace(/\s+/g, ' ')
@@ -197,7 +223,7 @@ export function parseA1SchemaEvidence(value) {
       // provisioner เขียนได้แค่ bootstrap rows และหนี PROVISIONING-only policy ไม่ได้
       forbiddenProvisionerPrivileges === 0 &&
       provisionerRole === 1 &&
-      provisionerRestrictivePolicy === 1
+      provisionerRestrictivePolicy === PROVISIONER_TABLES.length
         ? 'PASS'
         : 'FAIL',
   };

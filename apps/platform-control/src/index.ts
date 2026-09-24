@@ -7,3 +7,7 @@ export * from './provisioning-fakes.js';
 export * from './keycloak-admin.js';
 export * from './keycloak-provisioning-ports.js';
 export * from './invitation-outbox.js';
+export * from './provisioning-ids.js';
+export * from './platform-catalog.js';
+export * from './tenant-bootstrap.js';
+export * from './provisioning-request-editor.js';

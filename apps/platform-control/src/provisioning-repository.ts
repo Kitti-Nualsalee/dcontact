@@ -171,6 +171,19 @@ export class ProvisioningControlRepository {
         if (!template || template.status !== 'ACTIVE') {
           throw new PlatformProvisioningError('BOOTSTRAP_TEMPLATE_UNAVAILABLE');
         }
+        // A1.5: pin ได้เฉพาะ plan snapshot ที่อยู่ใน catalog และยัง ACTIVE (FK บังคับซ้ำที่ DB)
+        const plan = await transaction.pfPlanVersion.findUnique({
+          where: {
+            planCode_version: { planCode: canonical.planCode, version: command.plan.version },
+          },
+        });
+        if (
+          !plan ||
+          plan.status !== 'ACTIVE' ||
+          plan.snapshotDigest !== command.plan.snapshotDigest
+        ) {
+          throw new PlatformProvisioningError('PLAN_UNAVAILABLE');
+        }
         // tenant ที่ ACTIVE/legacy ถือ slug/domain จริงใน tenants — ตรวจก่อน (unique ตอน activate เป็นด่านสุดท้าย)
         const taken = await transaction.tenant.findFirst({
           where: {
