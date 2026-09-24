@@ -146,6 +146,19 @@ services:
       timeout: 5s
       retries: 18
 
+  # A1.4 (#409): email sink ของ dev/test — Keycloak ส่ง invitation (execute-actions) มาที่นี่
+  # ไม่มีการส่งออกภายนอก; UI/API ที่ http://localhost:8025 ใช้ตรวจ delivery ใน real-boundary test
+  mailpit:
+    image: axllent/mailpit:v1.20
+    ports:
+      - '8025:8025'
+      - '1025:1025'
+    healthcheck:
+      test: ['CMD', 'nc', '-z', '127.0.0.1', '1025']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   freeswitch:
     image: safarov/freeswitch:latest
     ports:

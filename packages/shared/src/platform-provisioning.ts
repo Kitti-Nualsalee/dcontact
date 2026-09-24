@@ -107,6 +107,28 @@ export type PlatformPlanCode = (typeof PLATFORM_PLAN_CODES)[number];
 export const BOOTSTRAP_TEMPLATE_STATUSES = ['ACTIVE', 'DEPRECATED', 'REVOKED'] as const;
 export type BootstrapTemplateStatus = (typeof BOOTSTRAP_TEMPLATE_STATUSES)[number];
 
+// ── First Tenant Admin invitation (#392 Invitation contract) ─────────────────
+
+/** Keycloak execute-actions ที่ first-admin ต้องทำก่อนเข้า tenant ได้ — D-Contact ไม่ตั้งรหัสผ่านให้ */
+export const FIRST_ADMIN_REQUIRED_ACTIONS = Object.freeze([
+  'VERIFY_EMAIL',
+  'UPDATE_PASSWORD',
+  'CONFIGURE_TOTP',
+] as const);
+
+export const INVITATION_LIMITS = Object.freeze({
+  /** action link 72 ชั่วโมง — DB CHECK บังคับค่าเดียวกัน */
+  lifespanSeconds: 72 * 3600,
+  resendPerHour: 3,
+});
+
+/**
+ * `INTENT` = บันทึกก่อนส่ง, `SENT` = email provider รับแล้ว (ไม่ใช่ user activated),
+ * `FAILED` = พิสูจน์ได้ว่าไม่ได้ส่ง (ส่งใหม่ได้), `AMBIGUOUS` = ไม่รู้ผล ต้อง reconcile ห้ามยิงซ้ำ
+ */
+export const INVITATION_STATES = ['INTENT', 'SENT', 'FAILED', 'AMBIGUOUS'] as const;
+export type InvitationState = (typeof INVITATION_STATES)[number];
+
 // ── Errors (#388 checkpoint 1) ───────────────────────────────────────────────
 
 export const PLATFORM_PROVISIONING_ERROR_CODES = [
@@ -122,6 +144,8 @@ export const PLATFORM_PROVISIONING_ERROR_CODES = [
   'PREVIEW_STALE',
   /** A1.3: เงื่อนไขของ recovery action ไม่ผ่าน (เช่น Retry ขณะ resource มีอยู่แล้ว) */
   'RECOVERY_PRECONDITION_FAILED',
+  /** A1.4: resend เกิน 3 ครั้งต่อชั่วโมง (DB trigger บังคับแบบ race-safe) */
+  'INVITATION_RESEND_LIMITED',
   /** missing หรือ resource ของ tenant/request อื่น — ตอบเหมือนกันเพื่อไม่เผย existence */
   'NOT_FOUND',
 ] as const;

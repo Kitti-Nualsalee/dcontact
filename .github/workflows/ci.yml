@@ -105,6 +105,8 @@ jobs:
       DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
       PLATFORM_DATABASE_URL: postgresql://dcontact_platform:dcontact_platform@localhost:5433/dcontact?schema=public
       APPLICATION_DATABASE_URL: postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public
+      # A1.4 (#409): role ของ tenant bootstrap (#388 decision) — RLS ยอมเฉพาะ tenant ที่ยัง PROVISIONING
+      PROVISIONER_DATABASE_URL: postgresql://dcontact_provisioner:dcontact_provisioner@localhost:5433/dcontact?schema=public
     steps:
       - uses: actions/checkout@v4
 

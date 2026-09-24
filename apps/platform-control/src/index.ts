@@ -4,3 +4,6 @@ export * from './action-history.js';
 export * from './provisioning-saga.js';
 export * from './provisioning-recovery.js';
 export * from './provisioning-fakes.js';
+export * from './keycloak-admin.js';
+export * from './keycloak-provisioning-ports.js';
+export * from './invitation-outbox.js';

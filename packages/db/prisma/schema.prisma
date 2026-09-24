@@ -5438,6 +5438,7 @@ model PfProvisioningRequest {
   commands     PfCommandReceipt[]
   reservations PfIdentityReservation[]
   actions      PfActionHistory[]
+  invitations  PfInvitation[]
 
   @@unique([tenantId, id], map: "pf_provisioning_requests_binding_key")
   @@index([status, updatedAt], map: "pf_provisioning_requests_status_idx")
@@ -5493,6 +5494,42 @@ model PfProvisioningStepReceipt {
 
   @@unique([requestId, stepKey, attempt], map: "pf_provisioning_step_receipts_attempt_key")
   @@map("pf_provisioning_step_receipts")
+}
+
+enum PfInvitationState {
+  INTENT
+  SENT
+  FAILED
+  AMBIGUOUS
+}
+
+/// A1.4 (#409) invitation outbox ของ first Tenant Admin — หนึ่งแถวต่อ generation, intent ก่อนส่งเสมอ
+/// ไม่มี raw email/action token; resend cap และ generation ต่อเนื่องบังคับด้วย trigger
+model PfInvitation {
+  id              String            @id @db.Uuid
+  requestId       String            @map("request_id") @db.Uuid
+  tenantId        String            @map("tenant_id") @db.Uuid
+  generation      Int
+  state           PfInvitationState @default(INTENT)
+  revision        Int               @default(1)
+  keycloakUserId  String            @map("keycloak_user_id") @db.Uuid
+  recipientHash   String            @map("recipient_hash") @db.Char(64)
+  lifespanSeconds Int               @map("lifespan_seconds")
+  requestedByKind PfActorKind       @map("requested_by_kind")
+  requestedBy     String            @map("requested_by")
+  reasonCode      String?           @map("reason_code")
+  errorCode       String?           @map("error_code")
+  createdAt       DateTime          @map("created_at")
+  sentAt          DateTime?         @map("sent_at")
+  expiresAt       DateTime?         @map("expires_at")
+  supersededAt    DateTime?         @map("superseded_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_invitations_request_fkey")
+
+  @@unique([requestId, generation], map: "pf_invitations_generation_key")
+  @@index([tenantId, createdAt], map: "pf_invitations_tenant_idx")
+  @@map("pf_invitations")
 }
 
 /// append-only idempotency record ของ mutation ทุกชนิด (create + recovery actions)

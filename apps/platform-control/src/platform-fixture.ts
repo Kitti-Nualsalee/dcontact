@@ -12,6 +12,9 @@ import { ProvisioningControlRepository, type PlatformActor } from './provisionin
 const PLATFORM_DATABASE_URL =
   process.env.PLATFORM_DATABASE_URL ??
   'postgresql://dcontact_platform:dcontact_platform@localhost:5433/dcontact?schema=public';
+const PROVISIONER_DATABASE_URL =
+  process.env.PROVISIONER_DATABASE_URL ??
+  'postgresql://dcontact_provisioner:dcontact_provisioner@localhost:5433/dcontact?schema=public';
 const APPLICATION_DATABASE_URL =
   process.env.APPLICATION_DATABASE_URL ??
   'postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public';
@@ -35,6 +38,8 @@ export async function createPlatformFixture() {
   const owner = new PrismaClient();
   const platform = new PrismaClient({ datasources: { db: { url: PLATFORM_DATABASE_URL } } });
   const application = new PrismaClient({ datasources: { db: { url: APPLICATION_DATABASE_URL } } });
+  /** A1.4: role ที่ saga worker ใช้เขียนข้อมูลตั้งต้นของ tenant (#388 decision) */
+  const provisioner = new PrismaClient({ datasources: { db: { url: PROVISIONER_DATABASE_URL } } });
   const run = randomUUID().slice(0, 8);
   const templateVersion = `baseline-${run}`;
   await owner.pfBootstrapTemplate.create({
@@ -75,6 +80,7 @@ export async function createPlatformFixture() {
     owner,
     platform,
     application,
+    provisioner,
     run,
     templateVersion,
     input,
@@ -97,6 +103,8 @@ export async function createPlatformFixture() {
       await owner.$transaction(async (transaction) => {
         await transaction.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
         for (const table of [
+          'pf_invitations',
+          'users',
           'pf_action_history',
           'pf_command_receipts',
           'pf_identity_reservations',
@@ -118,7 +126,12 @@ export async function createPlatformFixture() {
           templateVersion,
         );
       });
-      await Promise.all([owner.$disconnect(), platform.$disconnect(), application.$disconnect()]);
+      await Promise.all([
+        owner.$disconnect(),
+        platform.$disconnect(),
+        application.$disconnect(),
+        provisioner.$disconnect(),
+      ]);
     },
   };
 }

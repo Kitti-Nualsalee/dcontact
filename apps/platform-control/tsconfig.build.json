@@ -1,4 +1,10 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["src/**/*.test.ts", "src/**/*.integration.ts", "src/platform-fixture.ts"]
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.integration.ts",
+    "src/**/*.boundary.ts",
+    "src/platform-fixture.ts",
+    "src/keycloak-test-support.ts"
+  ]
 }
