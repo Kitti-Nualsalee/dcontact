@@ -22,11 +22,16 @@ import {
   journeyAuthoringFlagsFromEnvironment,
   type JourneyAuthoringFeatureFlags,
 } from '@d-contact/journey';
-import { KeycloakAccessTokenVerifier } from '@d-contact/workspace-session';
+import {
+  CachedTenantLifecycleGate,
+  KeycloakAccessTokenVerifier,
+  type TenantLifecycleGate,
+} from '@d-contact/workspace-session';
 import {
   GATEWAY_DIAGNOSTICS,
   GatewayPublic,
   OIDC_ACCESS_TOKEN_VERIFIER,
+  TENANT_LIFECYCLE,
   OidcGlobalGuard,
   type GatewayDiagnosticSink,
 } from './gateway-auth.js';
@@ -83,6 +88,8 @@ export interface UatApiDependencies {
   uatRuns: unknown;
   verifier: unknown;
   diagnostics: GatewayDiagnosticSink;
+  /** A1.8a (#447): tenant ต้อง ACTIVE ก่อนใช้ UAT API ได้ */
+  lifecycle: TenantLifecycleGate;
   status: RuntimeProfileStatus;
 }
 
@@ -103,6 +110,7 @@ export function createUatApiModule(dependencies: UatApiDependencies): DynamicMod
       { provide: UAT_RUN_REPOSITORY, useValue: dependencies.uatRuns },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: dependencies.verifier },
       { provide: GATEWAY_DIAGNOSTICS, useValue: dependencies.diagnostics },
+      { provide: TENANT_LIFECYCLE, useValue: dependencies.lifecycle },
       { provide: RUNTIME_PROFILE_STATUS, useValue: dependencies.status },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],
@@ -136,6 +144,11 @@ export async function bootstrapUatApi(environment: NodeJS.ProcessEnv = process.e
       jwksUri: required('KEYCLOAK_JWKS_URI'),
     }),
     diagnostics: log,
+    lifecycle: new CachedTenantLifecycleGate((tenantId) =>
+      prisma.tenant
+        .findUnique({ where: { id: tenantId }, select: { lifecycleStatus: true } })
+        .then((tenant) => tenant?.lifecycleStatus),
+    ),
     status: { profile, routeGuard, journeyAuthoring },
   });
   // Console กับ API อยู่ same-origin ใน UAT (#373) จึงไม่เปิด CORS

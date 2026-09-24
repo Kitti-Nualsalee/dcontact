@@ -14,6 +14,7 @@ import {
   toVerifiedServiceIdentity,
   toVerifiedWorkspaceIdentity,
   type OidcAccessTokenVerifier,
+  type TenantLifecycleGate,
   type VerifiedOidcClaims,
   type VerifiedServiceIdentity,
   type VerifiedWorkspaceIdentity,
@@ -21,6 +22,8 @@ import {
 
 export const OIDC_ACCESS_TOKEN_VERIFIER = Symbol('OIDC_ACCESS_TOKEN_VERIFIER');
 export const GATEWAY_DIAGNOSTICS = Symbol('GATEWAY_DIAGNOSTICS');
+/** A1.8a (#447): tenant ต้อง ACTIVE ก่อนเข้า tenant API (#393) — required เพื่อไม่ fail open เมื่อลืม wiring */
+export const TENANT_LIFECYCLE = Symbol('TENANT_LIFECYCLE');
 const GATEWAY_ROLES = Symbol('GATEWAY_ROLES');
 const GATEWAY_PUBLIC = Symbol('GATEWAY_PUBLIC');
 const GATEWAY_SERVICE_ROLES = Symbol('GATEWAY_SERVICE_ROLES');
@@ -72,6 +75,8 @@ export class OidcGlobalGuard implements CanActivate {
     private readonly diagnostics: GatewayDiagnosticSink,
     @Inject(Reflector)
     private readonly reflector: Reflector,
+    @Inject(TENANT_LIFECYCLE)
+    private readonly lifecycle: TenantLifecycleGate,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -162,6 +167,16 @@ export class OidcGlobalGuard implements CanActivate {
           });
           throw new ForbiddenException();
         }
+        if (!(await this.lifecycle.isActive(serviceIdentity.tenantId))) {
+          this.diagnostics.write({
+            event: 'gateway.request.denied',
+            correlationId,
+            reason: 'unauthenticated',
+            tenantId: serviceIdentity.tenantId,
+            clientId: serviceIdentity.clientId,
+          });
+          throw new UnauthorizedException();
+        }
         request.gatewayServiceIdentity = serviceIdentity;
         this.diagnostics.write({
           event: 'gateway.request.authorized',
@@ -181,6 +196,18 @@ export class OidcGlobalGuard implements CanActivate {
         event: 'gateway.request.denied',
         correlationId,
         reason: 'unauthenticated',
+      });
+      throw new UnauthorizedException();
+    }
+
+    // tenant ที่ยังไม่ ACTIVE (เช่น first admin ของ tenant ที่ยัง PROVISIONING) = เหมือน token ใช้ไม่ได้
+    if (!(await this.lifecycle.isActive(identity.tenantId))) {
+      this.diagnostics.write({
+        event: 'gateway.request.denied',
+        correlationId,
+        reason: 'unauthenticated',
+        tenantId: identity.tenantId,
+        userId: identity.userId,
       });
       throw new UnauthorizedException();
     }

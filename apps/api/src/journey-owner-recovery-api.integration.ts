@@ -19,6 +19,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import {
   JOURNEY_RECOVERY_DATABASE,
@@ -73,6 +74,7 @@ async function harness(t: TestContext) {
     providers: [
       { provide: JOURNEY_RECOVERY_DATABASE, useValue: application },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],

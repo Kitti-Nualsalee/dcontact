@@ -12,6 +12,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import { JOURNEY_EVENT_INBOX, JourneyEventController } from './journey-event-api.js';
 
@@ -67,6 +68,7 @@ test('event ingress ใช้ tenant จาก client credentials และบ�
     providers: [
       { provide: JOURNEY_EVENT_INBOX, useValue: new EventInboxService(application) },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],
