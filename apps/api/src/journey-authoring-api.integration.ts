@@ -576,3 +576,95 @@ test('J5-OB01 template API: built-in catalog, instantiate แบบ idempotent �
   assert.equal(state.status, 200);
   assert.deepEqual(state.body.templateNotices, []);
 });
+
+test('U1.3 reviewer หา candidate ที่รอตรวจเอง, maker ไม่เห็นงานตัวเอง, tenant อื่นมองไม่เห็น และ audit ครบหลัง publish', async (t) => {
+  const f = await harness(t);
+  // author ถือ journey.review ด้วย เพื่อพิสูจน์ว่าไม่เห็นงานที่ตัวเองส่งตรวจเป็นงานที่อนุมัติได้
+  await f.owner.iamAuthoringCapabilityGrant.create({
+    data: {
+      tenantId: f.tenantId,
+      subjectId: f.users.author,
+      capability: 'journey.review',
+      scopeKind: 'TEAM',
+      scopeId: f.teamId,
+      grantedByRef: 'iam-admin',
+    },
+  });
+  const created = await f.call('POST', 'journeys', 'author', {
+    body: { ownerTeamId: f.teamId, document: f.document() },
+  });
+  const journeyId = created.body.journeyId as string;
+  const compiled = await f.call('POST', `journeys/${journeyId}/compile`, 'author', {
+    body: { draftRevision: 1, draftDigest: created.body.draftDigest, expectedHeadVersion: 1 },
+  });
+  const artifact = compiled.body.artifact;
+  const binding = {
+    draftRevision: 1,
+    draftDigest: created.body.draftDigest as string,
+    compileDigest: artifact.compileDigest as string,
+    referenceDigest: artifact.referenceDigest as string,
+    capabilityDigest: artifact.capabilityDigest as string,
+    baseHeadVersion: 1,
+    baseHeadDigest: null,
+  };
+  const review = await f.call('POST', `journeys/${journeyId}/reviews`, 'author', { body: binding });
+  assert.equal(review.status, 200, JSON.stringify(review.body));
+
+  const forReviewer = await f.call('GET', 'reviews', 'reviewer');
+  assert.equal(forReviewer.status, 200);
+  assert.deepEqual(forReviewer.body.items, [
+    {
+      reviewId: review.body.reviewId,
+      journeyId,
+      journeyName: f.document().settings.name,
+      ownerTeamId: f.teamId,
+      draftRevision: 1,
+      draftDigest: binding.draftDigest,
+      compileDigest: binding.compileDigest,
+      submittedAt: forReviewer.body.items[0].submittedAt,
+    },
+  ]);
+  for (const persona of ['author', 'outsider', 'foreign'] as const) {
+    assert.deepEqual((await f.call('GET', 'reviews', persona)).body.items, [], persona);
+  }
+
+  // list ช่วยหา: review state มาจาก server
+  const listed = (await f.call('GET', 'journeys', 'reviewer')).body.items;
+  assert.equal(
+    listed.find((item: { journeyId: string }) => item.journeyId === journeyId).reviewState,
+    'IN_REVIEW',
+  );
+
+  // detail: exact candidate + affordance ตาม capability; maker รู้ว่าต้องใช้ reviewer คนอื่น
+  const asReviewer = (await f.call('GET', `journeys/${journeyId}`, 'reviewer')).body;
+  assert.deepEqual(asReviewer.permissions, { edit: false, review: true, publish: false });
+  assert.equal(asReviewer.review.makerIsCaller, false);
+  assert.equal(asReviewer.review.compileDigest, binding.compileDigest);
+  const asAuthor = (await f.call('GET', `journeys/${journeyId}`, 'author')).body;
+  assert.deepEqual(asAuthor.permissions, { edit: true, review: true, publish: true });
+  assert.equal(asAuthor.review.makerIsCaller, true);
+
+  const vote = await f.call('POST', `reviews/${review.body.reviewId}/decisions`, 'reviewer', {
+    body: {
+      expectedReviewState: 'IN_REVIEW',
+      decision: 'APPROVE',
+      reasonCode: 'LOOKS_GOOD',
+      evidenceRef: 'u1-3',
+    },
+  });
+  assert.equal(vote.status, 200);
+  assert.deepEqual((await f.call('GET', 'reviews', 'reviewer')).body.items, []);
+  const published = await f.call('POST', `journeys/${journeyId}/publish`, 'author', {
+    body: { reviewId: review.body.reviewId, ...binding, expectedHeadVersion: 1 },
+  });
+  assert.equal(published.status, 200, JSON.stringify(published.body));
+
+  const audit = await f.call('GET', `journeys/${journeyId}/audit`, 'reviewer');
+  assert.equal(audit.status, 200);
+  // timeline ครบตั้งแต่สร้างจน publish (ใหม่สุดก่อน)
+  assert.deepEqual(
+    audit.body.items.map((item: { action: string }) => item.action),
+    ['JOURNEY_PUBLISHED', 'REVIEW_APPROVED', 'REVIEW_SUBMITTED', 'DRAFT_CREATED'],
+  );
+  assert.doesNotMatch(JSON.stringify(audit.body), /Bearer|@|eyJ/);
+});

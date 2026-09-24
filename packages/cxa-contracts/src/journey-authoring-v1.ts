@@ -557,7 +557,34 @@ export interface JourneyAuthoringStateV1 {
     readonly reviewId: string;
     readonly state: JourneyReviewState;
     readonly draftRevision: number;
+    /** U1.3 (#431): candidate ที่ถูกส่งตรวจ — reviewer ตรวจ exact candidate ได้โดยไม่ต้องเดา */
+    readonly draftDigest: string;
+    readonly compileDigest: string;
+    readonly submittedAt: string;
+    /** ผู้เรียกเป็นผู้ส่งตรวจ = ตัดสินเองไม่ได้ ต้องใช้ reviewer คนอื่น (maker-checker) */
+    readonly makerIsCaller: boolean;
   } | null;
+  /**
+   * U1.3 (#431): capability ที่ผู้เรียกถืออยู่บน Journey นี้ ณ ตอนอ่าน — ใช้แสดง affordance เท่านั้น
+   * server ตรวจสิทธิ์ซ้ำทุก mutation
+   */
+  readonly permissions: {
+    readonly edit: boolean;
+    readonly review: boolean;
+    readonly publish: boolean;
+  };
+}
+
+/** U1.3 (#431): review ที่ผู้เรียกตัดสินได้ — ไม่รวม candidate ที่ผู้เรียกเป็นผู้ส่งตรวจ */
+export interface JourneyPendingReviewV1 {
+  readonly reviewId: string;
+  readonly journeyId: string;
+  readonly journeyName: string;
+  readonly ownerTeamId: string;
+  readonly draftRevision: number;
+  readonly draftDigest: string;
+  readonly compileDigest: string;
+  readonly submittedAt: string;
 }
 
 /** receipt เก็บเฉพาะ metadata ที่ปลอดภัย — ไม่มี document/graph/parameter value */

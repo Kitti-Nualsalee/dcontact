@@ -15,6 +15,7 @@ import {
   type ExpressionEvaluator,
   type JourneyAuthoringCapability,
   type JourneyAuthoringStateV1,
+  type JourneyPendingReviewV1,
   type JourneyDiagnosticV1,
   type JourneyLifecycle,
   type PublishJourneyDraftRequestV1,
@@ -92,6 +93,8 @@ export interface JourneyAuthoringSummary {
   readonly currentDraftRevision: number;
   readonly activeVersion: number | null;
   readonly updatedAt: string;
+  /** U1.3 (#431): review ที่ยังเปิดของ Journey (ถ้ามี) — ให้ list ช่วยหา candidate ที่รอตรวจ */
+  readonly reviewState: 'IN_REVIEW' | 'APPROVED' | null;
 }
 
 export type JourneyAuthoringCheckpoint = 'DEFINITION_PUBLISHED' | 'HEAD_ACTIVATED';
@@ -1057,9 +1060,96 @@ export class JourneyAuthoringRepository {
           document: draft.document as unknown as AuthoringDocumentV1,
         },
         review: review
-          ? { reviewId: review.id, state: review.state, draftRevision: review.draftRevision }
+          ? {
+              reviewId: review.id,
+              state: review.state,
+              draftRevision: review.draftRevision,
+              draftDigest: review.draftDigest,
+              compileDigest: review.compileDigest,
+              submittedAt: review.createdAt.toISOString(),
+              makerIsCaller: review.makerSubjectId === actor.subjectId,
+            }
           : null,
+        permissions: await this.permissionsOn(tx, tenantId, actor, head),
       };
+    });
+  }
+
+  /** capability ที่ผู้เรียกถือบน Journey ณ ตอนอ่าน — สำหรับ affordance ของ UI เท่านั้น */
+  protected async permissionsOn(
+    tx: Tx,
+    tenantId: string,
+    actor: JourneyAuthoringActor,
+    head: JrJourneyHead,
+  ) {
+    const holds = async (capability: 'journey.edit' | 'journey.review' | 'journey.publish') =>
+      (
+        await this.options.authorization.authorize(tx, {
+          tenantId,
+          subjectId: actor.subjectId,
+          capability,
+          scope: this.scopeOf(head),
+        })
+      ).allowed;
+    return {
+      edit: await holds('journey.edit'),
+      review: await holds('journey.review'),
+      publish: await holds('journey.publish'),
+    };
+  }
+
+  /**
+   * U1.3 (#431): review ที่รอตรวจซึ่งผู้เรียกตัดสินได้ — keyset ตาม reviewId, กรอง `journey.review` ราย
+   * Journey ที่ server และไม่รวม candidate ที่ผู้เรียกส่งตรวจเอง (self-approval ห้ามอยู่แล้ว)
+   */
+  async listPendingReviews(
+    tenantId: string,
+    actor: JourneyAuthoringActor,
+    input: { readonly limit?: number; readonly cursor?: string } = {},
+  ): Promise<{ readonly items: JourneyPendingReviewV1[]; readonly nextCursor: string | null }> {
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+    return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
+      const items: JourneyPendingReviewV1[] = [];
+      let after = input.cursor;
+      for (;;) {
+        const rows = await tx.jrReviewCandidate.findMany({
+          where: {
+            tenantId,
+            resourceKind: 'JOURNEY',
+            state: 'IN_REVIEW',
+            makerSubjectId: { not: actor.subjectId },
+            ...(after ? { id: { gt: after } } : {}),
+          },
+          orderBy: { id: 'asc' },
+          take: LIST_SCAN_BATCH,
+        });
+        for (const row of rows) {
+          after = row.id;
+          const head = await tx.jrJourneyHead.findUnique({
+            where: { tenantId_journeyId: { tenantId, journeyId: row.resourceId } },
+          });
+          if (!head) continue;
+          const decision = await this.options.authorization.authorize(tx, {
+            tenantId,
+            subjectId: actor.subjectId,
+            capability: 'journey.review',
+            scope: this.scopeOf(head),
+          });
+          if (!decision.allowed) continue;
+          items.push({
+            reviewId: row.id,
+            journeyId: head.journeyId,
+            journeyName: head.name,
+            ownerTeamId: head.ownerTeamId,
+            draftRevision: row.draftRevision,
+            draftDigest: row.draftDigest,
+            compileDigest: row.compileDigest,
+            submittedAt: row.createdAt.toISOString(),
+          });
+          if (items.length === limit) return { items, nextCursor: row.id };
+        }
+        if (rows.length < LIST_SCAN_BATCH) return { items, nextCursor: null };
+      }
     });
   }
 
@@ -1101,6 +1191,16 @@ export class JourneyAuthoringRepository {
             scope: this.scopeOf(row),
           });
           if (!decision.allowed) continue;
+          const openReview = await tx.jrReviewCandidate.findFirst({
+            where: {
+              tenantId,
+              resourceKind: 'JOURNEY',
+              resourceId: row.journeyId,
+              state: { in: ['IN_REVIEW', 'APPROVED'] },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { state: true },
+          });
           items.push({
             journeyId: row.journeyId,
             name: row.name,
@@ -1110,6 +1210,7 @@ export class JourneyAuthoringRepository {
             currentDraftRevision: row.currentDraftRevision,
             activeVersion: row.activeVersion,
             updatedAt: row.updatedAt.toISOString(),
+            reviewState: (openReview?.state as 'IN_REVIEW' | 'APPROVED' | undefined) ?? null,
           });
           if (items.length === limit) return { items, nextCursor: row.journeyId };
         }

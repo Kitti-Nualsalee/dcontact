@@ -49,6 +49,32 @@ export interface JourneySummary {
   currentDraftRevision: number;
   activeVersion: number | null;
   updatedAt: string;
+  /** U1.3 (#431): review ที่ยังเปิดของ Journey จาก server */
+  reviewState?: 'IN_REVIEW' | 'APPROVED' | null;
+}
+
+/** U1.3 (#431): review ที่ผู้เรียกตัดสินได้ (server กรองสิทธิ์และตัดงานที่ตัวเองส่งออกแล้ว) */
+export interface PendingReview {
+  reviewId: string;
+  journeyId: string;
+  journeyName: string;
+  ownerTeamId: string;
+  draftRevision: number;
+  draftDigest: string;
+  compileDigest: string;
+  submittedAt: string;
+}
+
+/** แถว audit ของ Journey — actor เป็น opaque subject id ไม่มีชื่อ/อีเมล */
+export interface JourneyAuditEntry {
+  id: string;
+  action: string;
+  actorSubjectId: string;
+  reasonCode: string;
+  beforeDigest: string | null;
+  afterDigest: string | null;
+  correlationId: string;
+  occurredAt: string;
 }
 
 export interface JourneyHeadView {
@@ -71,7 +97,18 @@ export interface JourneySnapshot {
     basePublishedVersion: number | null;
     document: AuthoringDocumentV1;
   };
-  review: { reviewId: string; state: JourneyReviewState; draftRevision: number } | null;
+  review: {
+    reviewId: string;
+    state: JourneyReviewState;
+    draftRevision: number;
+    draftDigest: string;
+    compileDigest: string;
+    submittedAt: string;
+    /** ผู้เรียกเป็นผู้ส่งตรวจ — ตัดสินเองไม่ได้ */
+    makerIsCaller: boolean;
+  } | null;
+  /** capability ที่ server คืน — ใช้แสดง affordance เท่านั้น server ตรวจซ้ำทุก mutation */
+  permissions: { edit: boolean; review: boolean; publish: boolean };
   templateNotices: JourneyTemplateNoticeV1[];
 }
 
@@ -115,6 +152,11 @@ export interface JourneyAuthoringApi {
     items: JourneySummary[];
     nextCursor: string | null;
   }>;
+  pendingReviews(query?: { cursor?: string }): Promise<{
+    items: PendingReview[];
+    nextCursor: string | null;
+  }>;
+  audit(journeyId: string): Promise<{ items: JourneyAuditEntry[] }>;
   createJourney(
     input: { ownerTeamId: string; document: AuthoringDocumentV1 },
     key: string,
@@ -262,6 +304,9 @@ export function createJourneyAuthoringApi(input: {
       const suffix = params.size > 0 ? `?${params}` : '';
       return call('GET', `/journeys${suffix}`);
     },
+    pendingReviews: (query = {}) =>
+      call('GET', `/reviews${query.cursor ? `?cursor=${id(query.cursor)}` : ''}`),
+    audit: (journeyId) => call('GET', `/journeys/${id(journeyId)}/audit`),
     createJourney: (body, key) => call('POST', '/journeys', { body, key }),
     journey: (journeyId) => call('GET', `/journeys/${id(journeyId)}`),
     saveDraft: (journeyId, body, key) =>
