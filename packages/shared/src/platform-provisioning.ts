@@ -251,6 +251,10 @@ export const PLATFORM_PROVISIONING_ERROR_CODES = [
   'PLAN_UNAVAILABLE',
   /** A1.5: field นี้แก้ไม่ได้แล้ว (identity หรือ step เจ้าของสำเร็จไปแล้ว) */
   'FIELD_LOCKED',
+  /** A1.6: มี execute command ของ request นี้ที่ยังไม่จบ — คำสั่งซ้อนถูกปฏิเสธแบบ deterministic */
+  'COMMAND_IN_PROGRESS',
+  /** A1.6: control plane commit/read ไม่ได้ (ไม่ใช่ dependency ภายนอกหลังรับคำขอแล้ว) */
+  'SERVICE_UNAVAILABLE',
   /** missing หรือ resource ของ tenant/request อื่น — ตอบเหมือนกันเพื่อไม่เผย existence */
   'NOT_FOUND',
 ] as const;

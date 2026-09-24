@@ -24,6 +24,8 @@ export const A1_MIGRATIONS = Object.freeze([
   // A1.5 (#410): action kind แยกไฟล์จาก plan catalog/baseline ที่ใช้มัน
   '20260924120000_add_a1_5_action_kind',
   '20260924120100_add_a1_5_bootstrap',
+  // A1.6 (#411): durable operator command ของ Platform API
+  '20260924130000_add_a1_6_operator_commands',
 ]);
 
 export const CANONICAL_A1_TABLES = Object.freeze([
@@ -37,6 +39,7 @@ export const CANONICAL_A1_TABLES = Object.freeze([
   'pf_invitations',
   'pf_plan_versions',
   'pf_request_payload_revisions',
+  'pf_operator_commands',
 ]);
 
 export const APPEND_ONLY_A1_TABLES = Object.freeze([
@@ -65,6 +68,7 @@ export const REQUIRED_A1_CONSTRAINTS = Object.freeze([
   'pf_request_payload_revisions_values_check',
   'tenant_plan_bindings_values_check',
   'business_hours_values_check',
+  'pf_operator_commands_values_check',
 ]);
 
 export const REQUIRED_A1_UNIQUE_INDEXES = Object.freeze([
@@ -79,6 +83,9 @@ export const REQUIRED_A1_UNIQUE_INDEXES = Object.freeze([
   'pf_invitations_generation_key',
   'pf_plan_versions_pin_key',
   'pf_request_payload_revisions_revision_key',
+  'pf_operator_commands_idempotency_key_hash_key',
+  // execute ที่ยังไม่จบได้ครั้งละหนึ่งต่อ request (partial unique)
+  'pf_operator_commands_single_execute_key',
 ]);
 
 export const REQUIRED_A1_TRIGGERS = Object.freeze([
@@ -100,6 +107,8 @@ export const REQUIRED_A1_TRIGGERS = Object.freeze([
   'pf_plan_versions_retained',
   'pf_plan_versions_guard',
   'pf_request_payload_revisions_append_only',
+  'pf_operator_commands_retained',
+  'pf_operator_commands_guard',
 ]);
 
 /**
@@ -122,8 +131,8 @@ export const PROVISIONER_TABLE_PRIVILEGES = Object.freeze(
   ]),
 );
 
-/** steps/receipts/command/reservation/history/invitations/payload revisions + plan pin */
-export const MINIMUM_A1_COMPOSITE_FOREIGN_KEYS = 9;
+/** steps/receipts/command/reservation/history/invitations/payload revisions/operator commands + plan pin */
+export const MINIMUM_A1_COMPOSITE_FOREIGN_KEYS = 10;
 
 function sqlArray(values) {
   return `ARRAY[${values.map((value) => `'${value}'`).join(',')}]`;

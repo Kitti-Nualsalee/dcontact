@@ -129,6 +129,7 @@ export async function createPlatformFixture() {
       await owner.$transaction(async (transaction) => {
         await transaction.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
         for (const table of [
+          'pf_operator_commands',
           'pf_invitations',
           'pf_request_payload_revisions',
           'business_hours',

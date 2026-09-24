@@ -122,8 +122,8 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
-      - name: Build platform-control dependencies
-        run: pnpm --filter "@d-contact/platform-control^..." build
+      - name: Build platform-control + platform-api dependencies
+        run: pnpm --filter "@d-contact/platform-api^..." build
 
       - name: Migrate and bootstrap roles/RLS
         run: pnpm db:migrate && pnpm db:rls
@@ -133,6 +133,10 @@ jobs:
 
       - name: Platform control integration tests
         run: pnpm --filter @d-contact/platform-control test:integration
+
+      # A1.6 (#411): Platform API ผ่าน HTTP จริง — permission matrix, idempotency, 404/409/429/503
+      - name: Platform API integration
+        run: pnpm --filter @d-contact/platform-api test:integration
 
   s1-convergence-acceptance:
     # S1 ใช้เวลานานและ J3 final gate เรียกเองอยู่แล้ว: ไม่รันทุก main push
