@@ -26,9 +26,10 @@ export interface ApiRuntimeProfile {
 
 export const API_PROFILE_ENV = 'DCONTACT_API_PROFILE';
 
-/** route ที่ UAT first slice ต้องใช้เท่านั้น (#374 §1): Journey authoring/template + รายงาน profile */
+/** route ที่ UAT first slice ต้องใช้เท่านั้น (#374 §1): Journey authoring/template, UAT run + รายงาน profile */
 export const UAT_ALLOWED_ROUTE_PREFIXES = Object.freeze([
   '/api/v1/journey-authoring',
+  '/api/v1/uat-runs',
   '/api/v1/runtime-profile',
 ]);
 

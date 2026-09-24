@@ -6,7 +6,8 @@
  *
  * ต่างจาก `main.ts` โดยตั้งใจ: ไฟล์นี้ไม่ import/สร้าง Kafka consumer/publisher, LINE webhook ingress,
  * Redis, MinIO, telephony หรือ workspace session เลย จึงไม่มีทางเกิด side effect ภายนอกแม้ config จะผิด
- * controller ที่ mount มีเฉพาะ Journey authoring/template (unilateral publish ไม่มี HTTP route) และรายงาน profile
+ * controller ที่ mount มีเฉพาะ Journey authoring/template (unilateral publish ไม่มี HTTP route), UAT run
+ * (U1.1 #429) และรายงาน profile; Journey ของ run ที่ปิดแล้วถูก `UatJourneyWriteGuard` แช่แข็ง
  */
 import 'reflect-metadata';
 import { Controller, Get, Inject, type DynamicModule } from '@nestjs/common';
@@ -16,6 +17,8 @@ import { DcExprEvaluator } from '@d-contact/expression';
 import { IamJourneyAuthoringAuthorizer } from '@d-contact/iam';
 import {
   JourneyTemplateRepository,
+  UatJourneyWriteGuard,
+  UatRunRepository,
   journeyAuthoringFlagsFromEnvironment,
   type JourneyAuthoringFeatureFlags,
 } from '@d-contact/journey';
@@ -32,6 +35,7 @@ import {
   JourneyAuthoringController,
 } from './journey-authoring-api.js';
 import { JourneyTemplateController } from './journey-template-api.js';
+import { UAT_RUN_REPOSITORY, UatRunController } from './uat-run-api.js';
 import {
   RuntimeProfileRouteGuard,
   assertEntrypointProfile,
@@ -76,6 +80,7 @@ export class RuntimeProfileController {
 
 export interface UatApiDependencies {
   repository: unknown;
+  uatRuns: unknown;
   verifier: unknown;
   diagnostics: GatewayDiagnosticSink;
   status: RuntimeProfileStatus;
@@ -87,9 +92,15 @@ export class UatApiModule {}
 export function createUatApiModule(dependencies: UatApiDependencies): DynamicModule {
   return {
     module: UatApiModule,
-    controllers: [JourneyAuthoringController, JourneyTemplateController, RuntimeProfileController],
+    controllers: [
+      JourneyAuthoringController,
+      JourneyTemplateController,
+      UatRunController,
+      RuntimeProfileController,
+    ],
     providers: [
       { provide: JOURNEY_AUTHORING_REPOSITORY, useValue: dependencies.repository },
+      { provide: UAT_RUN_REPOSITORY, useValue: dependencies.uatRuns },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: dependencies.verifier },
       { provide: GATEWAY_DIAGNOSTICS, useValue: dependencies.diagnostics },
       { provide: RUNTIME_PROFILE_STATUS, useValue: dependencies.status },
@@ -110,12 +121,15 @@ export async function bootstrapUatApi(environment: NodeJS.ProcessEnv = process.e
   const routeGuard = new RuntimeProfileRouteGuard(profile, log);
   const prisma = new PrismaClient();
   const journeyAuthoring = journeyAuthoringFlagsFromEnvironment(environment);
+  const authoring = new JourneyTemplateRepository(prisma, {
+    authorization: new IamJourneyAuthoringAuthorizer(),
+    evaluator: new DcExprEvaluator(),
+    flags: journeyAuthoring,
+    writeGuard: new UatJourneyWriteGuard(),
+  });
   const module = createUatApiModule({
-    repository: new JourneyTemplateRepository(prisma, {
-      authorization: new IamJourneyAuthoringAuthorizer(),
-      evaluator: new DcExprEvaluator(),
-      flags: journeyAuthoring,
-    }),
+    repository: authoring,
+    uatRuns: new UatRunRepository(prisma, authoring),
     verifier: new KeycloakAccessTokenVerifier({
       issuer: required('KEYCLOAK_ISSUER'),
       audience: required('KEYCLOAK_AUDIENCE'),

@@ -61,7 +61,9 @@ BEGIN
     'dl_line_allowlist_entries', 'dl_line_run_authorizations', 'dl_line_cap_ledger',
     'dl_line_webhook_inbox', 'dl_line_touch_correlations', 'dl_line_audit_events',
     -- S2.5 (#369)
-    'dl_line_inbound_messages', 'dl_line_event_outbox', 'dl_line_webhook_payloads'
+    'dl_line_inbound_messages', 'dl_line_event_outbox', 'dl_line_webhook_payloads',
+    -- U1.1 (#429)
+    'uat_fixture_packs', 'uat_runs', 'uat_run_step_results', 'uat_command_receipts'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -108,6 +110,11 @@ REVOKE UPDATE, DELETE ON cg_consumer_acknowledgements FROM dcontact_app;
 -- Journey definition content is immutable; only the publish transition (status/published_at)
 -- may change a row, and the application enforces that narrowing — not a DB-level column grant.
 REVOKE DELETE ON jr_journey_definitions FROM dcontact_app;
+-- U1.1 (#429): fixture pack สร้างโดย UAT operator เท่านั้น; run ห้ามลบ; step result append-only
+REVOKE INSERT, UPDATE, DELETE ON uat_fixture_packs FROM dcontact_app;
+REVOKE DELETE ON uat_runs FROM dcontact_app;
+REVOKE UPDATE, DELETE ON uat_run_step_results FROM dcontact_app;
+REVOKE DELETE ON uat_command_receipts FROM dcontact_app;
 -- Delivery outbox rows advance through states, so UPDATE stays granted; a delivery that was
 -- already claimed must never disappear, because the reservation it settles points back at it.
 REVOKE DELETE ON dl_outbox_entries FROM dcontact_app;
