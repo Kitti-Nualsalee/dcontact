@@ -10,8 +10,7 @@
     "test": "tsx --test src/*.test.ts",
     "test:integration": "tsx --test --test-concurrency=1 src/*.integration.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:boundary": "tsx --test --test-concurrency=1 src/keycloak-provisioning.boundary.ts",
-    "test:boundary:436": "tsx --test src/invitation-stale-generation.boundary.ts",
+    "test:boundary": "tsx --test --test-concurrency=1 src/keycloak-provisioning.boundary.ts src/invitation-stale-generation.boundary.ts",
     "worker": "node dist/platform-worker-main.js",
     "dev-catalog": "node dist/dev-catalog-main.js"
   },

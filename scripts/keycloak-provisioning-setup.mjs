@@ -25,7 +25,10 @@ export const PROTECTED_USER_ATTRIBUTES = Object.freeze([
   'tenant_slug',
   'dc_user_id',
   'dc_provisioning_request_id',
+  // A1.4b (#436): control plane ตั้งตอน resend — ลิงก์ที่ออกก่อนเวลานี้ใช้ไม่ได้
+  'dc_invitation_not_before',
 ]);
+export const INVITATION_GUARD_FACTORY = 'io.dcontact.keycloak.InvitationGuardActionTokenHandler';
 
 const realm = 'dcontact';
 const keycloakBaseUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
@@ -142,7 +145,7 @@ async function ensureUserProfile(token) {
           name,
           displayName: name,
           permissions: {
-            view: name === 'dc_provisioning_request_id' ? ['admin'] : ['admin', 'user'],
+            view: name.startsWith('dc_') && name !== 'dc_user_id' ? ['admin'] : ['admin', 'user'],
             edit: ['admin'],
           },
           multivalued: false,
@@ -172,8 +175,26 @@ async function ensureSmtp(token) {
   });
 }
 
+/**
+ * fail closed: invitation guard (#436) ต้องถูกโหลดจริง ไม่อย่างนั้นลิงก์รุ่นเก่ายังใช้ได้
+ * Keycloak ไม่เปิดชื่อ class ของ provider ใน serverinfo จึงตรวจว่ามี provider `execute-actions`
+ * ที่ order สูงกว่าค่าเริ่มต้น (มีเฉพาะเมื่อ jar ของเราถูกโหลด)
+ */
+async function verifyInvitationGuard(token) {
+  const info = await request('/admin/serverinfo', { token });
+  const handlers = info.providers?.actionTokenHandler?.providers ?? {};
+  const executeActions = handlers['execute-actions'];
+  if (!executeActions || !(executeActions.order > 0)) {
+    throw new Error(
+      'Keycloak ไม่ได้โหลด invitation guard (#436) — รัน pnpm infra:keycloak:extensions แล้ว restart keycloak',
+    );
+  }
+  return executeActions.order;
+}
+
 export async function setupKeycloakProvisioning() {
   const token = await adminToken();
+  await verifyInvitationGuard(token);
   await ensureProvisionerClient(token);
   await ensureUserProfile(token);
   await ensureSmtp(token);
