@@ -39,3 +39,4 @@ export * from './journey-template-binder.js';
 export * from './journey-template-catalog.js';
 export * from './journey-template-upgrade.js';
 export * from './journey-template-repository.js';
+export * from './uat-run.js';
