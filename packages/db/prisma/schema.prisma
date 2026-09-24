@@ -5367,6 +5367,7 @@ enum PfActionKind {
   STEP_STARTED
   STEP_SUCCEEDED
   STEP_ACTION_REQUIRED
+  STEP_RETRY_SCHEDULED
   RECONCILE
   RETRY_STEP
   RESEND_INVITATION
@@ -5458,6 +5459,10 @@ model PfProvisioningStep {
   outputDigest   String?     @map("output_digest") @db.Char(64)
   externalRef    String?     @map("external_ref")
   errorCode      String?     @map("error_code")
+  /// A1.3: backoff + jitter หลัง transient failure; worker ไม่ claim ก่อนเวลานี้
+  nextAttemptAt  DateTime?   @map("next_attempt_at")
+  /// A1.3: จุดเริ่มงบ attempt ปัจจุบัน (operator Retry เปิดงบใหม่โดยไม่ reset attempt)
+  attemptFloor   Int         @default(0) @map("attempt_floor")
   startedAt      DateTime?   @map("started_at")
   finishedAt     DateTime?   @map("finished_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
@@ -5466,6 +5471,7 @@ model PfProvisioningStep {
 
   @@id([requestId, stepKey])
   @@unique([requestId, ordinal], map: "pf_provisioning_steps_ordinal_key")
+  @@index([state, nextAttemptAt, leaseExpiresAt], map: "pf_provisioning_steps_claim_idx")
   @@map("pf_provisioning_steps")
 }
 

@@ -517,6 +517,7 @@ test('isolation: control-plane role ไม่มีสิทธิ์บน tena
   );
 });
 
+// เทียบเป็นชุดคำ: ADD VALUE บน DB ที่ migrate ไปแล้วอาจเรียงต่างจาก fresh DB แต่ vocabulary ต้องตรงกัน
 test('contract: vocabulary ใน shared ตรงกับ Postgres enum ของ migration', async (t) => {
   const f = await fixture(t);
   const enumValues = async (type: string) =>
@@ -525,12 +526,20 @@ test('contract: vocabulary ใน shared ตรงกับ Postgres enum ขอ
         SELECT value.enumlabel AS value FROM pg_enum AS value
           JOIN pg_type AS type ON type.oid = value.enumtypid
          WHERE type.typname = ${type} ORDER BY value.enumsortorder`
-    ).map((row) => row.value);
-  assert.deepEqual(await enumValues('TenantLifecycleStatus'), [...TENANT_LIFECYCLE_STATUSES]);
-  assert.deepEqual(await enumValues('PfProvisioningStatus'), [...PROVISIONING_REQUEST_STATUSES]);
-  assert.deepEqual(await enumValues('PfStepKey'), [...PROVISIONING_STEP_KEYS]);
-  assert.deepEqual(await enumValues('PfReservationKind'), [...IDENTITY_RESERVATION_KINDS]);
-  assert.deepEqual(await enumValues('PfActionKind'), [...PLATFORM_ACTION_KINDS]);
+    )
+      .map((row) => row.value)
+      .sort();
+  assert.deepEqual(
+    await enumValues('TenantLifecycleStatus'),
+    [...TENANT_LIFECYCLE_STATUSES].sort(),
+  );
+  assert.deepEqual(
+    await enumValues('PfProvisioningStatus'),
+    [...PROVISIONING_REQUEST_STATUSES].sort(),
+  );
+  assert.deepEqual(await enumValues('PfStepKey'), [...PROVISIONING_STEP_KEYS].sort());
+  assert.deepEqual(await enumValues('PfReservationKind'), [...IDENTITY_RESERVATION_KINDS].sort());
+  assert.deepEqual(await enumValues('PfActionKind'), [...PLATFORM_ACTION_KINDS].sort());
 });
 
 test('template: REVOKED/ไม่มี template = BOOTSTRAP_TEMPLATE_UNAVAILABLE และ manifest แก้ไม่ได้', async (t) => {

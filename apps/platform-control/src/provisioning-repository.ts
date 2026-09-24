@@ -24,6 +24,7 @@ import {
   type ProvisioningRequestStatus,
   type ProvisioningStepKey,
 } from '@d-contact/shared';
+import { appendPlatformAction, type PlatformActionEntry } from './action-history.js';
 import {
   canonicalizeProvisioningRequest,
   deriveTenantSipDomain,
@@ -688,53 +689,9 @@ export class ProvisioningControlRepository {
 
   private appendAction(
     client: Prisma.TransactionClient | PrismaClient,
-    entry: {
-      tenantId: string;
-      requestId: string;
-      action: PlatformActionKind;
-      actor: PlatformActor;
-      correlationId: string;
-      outcome: 'SUCCEEDED' | 'REJECTED' | 'REPLAYED';
-      at: Date;
-      idempotencyKeyHash?: string;
-      beforeState?: string;
-      afterState?: string;
-      reasonCode?: string;
-      comment?: string;
-      errorCode?: string;
-      stepKey?: ProvisioningStepKey;
-      attempt?: number;
-      inputDigest?: string;
-      outputDigest?: string;
-      externalRefHash?: string;
-    },
+    entry: PlatformActionEntry,
   ) {
-    return client.pfActionHistory.create({
-      data: {
-        id: this.id(),
-        tenantId: entry.tenantId,
-        requestId: entry.requestId,
-        action: entry.action,
-        actorKind: entry.actor.kind,
-        actorSubject: entry.actor.subject,
-        ...(entry.actor.role ? { actorRole: entry.actor.role } : {}),
-        ...(entry.actor.sessionRef ? { sessionRef: entry.actor.sessionRef } : {}),
-        correlationId: entry.correlationId,
-        ...(entry.idempotencyKeyHash ? { idempotencyKeyHash: entry.idempotencyKeyHash } : {}),
-        ...(entry.beforeState ? { beforeState: entry.beforeState } : {}),
-        ...(entry.afterState ? { afterState: entry.afterState } : {}),
-        ...(entry.reasonCode ? { reasonCode: entry.reasonCode } : {}),
-        ...(entry.comment ? { comment: entry.comment } : {}),
-        ...(entry.errorCode ? { errorCode: entry.errorCode } : {}),
-        ...(entry.stepKey ? { stepKey: entry.stepKey } : {}),
-        ...(entry.attempt !== undefined ? { attempt: entry.attempt } : {}),
-        ...(entry.inputDigest ? { inputDigest: entry.inputDigest } : {}),
-        ...(entry.outputDigest ? { outputDigest: entry.outputDigest } : {}),
-        ...(entry.externalRefHash ? { externalRefHash: entry.externalRefHash } : {}),
-        outcome: entry.outcome,
-        occurredAt: entry.at,
-      },
-    });
+    return appendPlatformAction(client, this.id(), entry);
   }
 }
 
