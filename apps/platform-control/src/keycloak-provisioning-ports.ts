@@ -11,10 +11,10 @@
  *   ที่ยัง PROVISIONING) และ id เป็น deterministic ต่อ request จึง replay ไม่สร้างซ้ำ
  * - D-Contact ไม่ตั้งรหัสผ่าน: ผู้ใช้ได้ required actions ที่ต้องทำเองผ่าน invitation
  */
-import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@d-contact/db';
 import { FIRST_ADMIN_REQUIRED_ACTIONS } from '@d-contact/shared';
 import type { KeycloakAdminClient } from './keycloak-admin.js';
+import { bootstrapRowIds, firstAdminUserId } from './provisioning-ids.js';
 import {
   ProvisioningStepError,
   type ProvisioningAdoption,
@@ -46,17 +46,6 @@ interface KeycloakUser {
 
 const first = (attributes: Record<string, string[]> | undefined, name: string) =>
   attributes?.[name]?.[0];
-
-/** uuid ที่ deterministic ต่อ (namespace, value) — ใช้เป็น `users.id` ของ first-admin */
-export function deterministicUuid(namespace: string, value: string): string {
-  const hex = createHash('sha256').update(`${namespace}:${value}`).digest('hex');
-  const variant = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
-export function firstAdminUserId(requestId: string): string {
-  return deterministicUuid('dcontact:first-admin', requestId);
-}
 
 // ── Organization ────────────────────────────────────────────────────────────
 
@@ -211,9 +200,14 @@ export class FirstAdminPort implements ProvisioningStepPort {
   private async converged(user: KeycloakUser, context: ProvisioningStepContext) {
     const row = await this.provisioner.user.findUnique({
       where: { id: firstAdminUserId(context.requestId) },
-      select: { tenantId: true, keycloakId: true, role: true },
+      select: { tenantId: true, keycloakId: true, role: true, teamId: true },
     });
-    if (row?.tenantId !== context.tenantId || row.keycloakId !== user.id || row.role !== 'ADMIN') {
+    if (
+      row?.tenantId !== context.tenantId ||
+      row.keycloakId !== user.id ||
+      row.role !== 'ADMIN' ||
+      row.teamId !== bootstrapRowIds(context.requestId).adminTeamId
+    ) {
       return false;
     }
     const { body: roles } = await this.keycloak.admin<{ name: string }[]>(
@@ -247,6 +241,8 @@ export class FirstAdminPort implements ProvisioningStepPort {
           passwordHash: KEYCLOAK_MANAGED_PASSWORD,
           displayName: context.request.firstAdminDisplayName,
           role: 'ADMIN',
+          // Admin Team ถูก seed โดย PLAN_BOOTSTRAP ซึ่งมาก่อน FIRST_ADMIN เสมอ (#392 Bootstrap scope)
+          teamId: bootstrapRowIds(context.requestId).adminTeamId,
         },
       ],
       skipDuplicates: true,

@@ -6,7 +6,8 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaClient } from '@d-contact/db';
-import type { ProvisioningRequestInput } from '@d-contact/shared';
+import type { BootstrapManifestV1, ProvisioningRequestInput } from '@d-contact/shared';
+import { PlatformCatalog } from './platform-catalog.js';
 import { ProvisioningControlRepository, type PlatformActor } from './provisioning-repository.js';
 
 const PLATFORM_DATABASE_URL =
@@ -28,6 +29,25 @@ export const OPERATOR: PlatformActor = {
 export const WORKER: PlatformActor = { kind: 'SYSTEM', subject: 'provisioning-worker' };
 export const SIP_BASE = 'sip.dcontact.test';
 
+/** manifest v1 ของเทสต์ — ชื่อ/เวลาเป็นค่าสังเคราะห์ ไม่ใช่ baseline จริงของ production */
+export const FIXTURE_MANIFEST: BootstrapManifestV1 = {
+  schemaVersion: 1,
+  adminTeam: { name: 'Admin Team' },
+  drafts: {
+    generalTeam: { name: 'General Team' },
+    generalQueue: { name: 'General Queue' },
+    businessHours: {
+      name: 'Business hours',
+      weekly: [1, 2, 3, 4, 5].map((day) => ({ day, open: '09:00', close: '18:00' })),
+    },
+  },
+};
+
+/** ตัวเลขที่ต่างกันต่อ run เพื่อให้ snapshot ของแต่ละ run ไม่ซ้ำกัน */
+function sequenceSeed(run: string): number {
+  return parseInt(run.slice(0, 6), 16);
+}
+
 export function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -42,12 +62,15 @@ export async function createPlatformFixture() {
   const provisioner = new PrismaClient({ datasources: { db: { url: PROVISIONER_DATABASE_URL } } });
   const run = randomUUID().slice(0, 8);
   const templateVersion = `baseline-${run}`;
-  await owner.pfBootstrapTemplate.create({
-    data: {
-      version: templateVersion,
-      contentDigest: digest(templateVersion),
-      manifest: { teams: ['Admin'], drafts: ['General Team', 'General Queue', 'Business hours'] },
-    },
+  const catalog = new PlatformCatalog(platform);
+  const template = await catalog.publishBootstrapTemplate({
+    version: templateVersion,
+    manifest: FIXTURE_MANIFEST,
+  });
+  // plan version เป็น global ต่อ code — แต่ละ run ออก version ของตัวเองแล้วลบตอน dispose
+  const publishedPlan = await catalog.publishPlanVersion({
+    planCode: 'growth',
+    entitlements: { agent_seats: 25, queues: 10, recording: true, run_marker: sequenceSeed(run) },
   });
 
   let sequence = 0;
@@ -85,7 +108,10 @@ export async function createPlatformFixture() {
     templateVersion,
     input,
     repository,
-    plan: { version: 1, snapshotDigest: digest(`growth-v1-${run}`) },
+    catalog,
+    template,
+    publishedPlan,
+    plan: { version: publishedPlan.version, snapshotDigest: publishedPlan.snapshotDigest },
     track(tenantId: string) {
       tenantIds.add(tenantId);
       return tenantId;
@@ -104,7 +130,13 @@ export async function createPlatformFixture() {
         await transaction.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
         for (const table of [
           'pf_invitations',
+          'pf_request_payload_revisions',
+          'business_hours',
+          'tenant_plan_bindings',
+          'tenant_settings',
           'users',
+          'queues',
+          'teams',
           'pf_action_history',
           'pf_command_receipts',
           'pf_identity_reservations',
@@ -124,6 +156,10 @@ export async function createPlatformFixture() {
         await transaction.$executeRawUnsafe(
           `DELETE FROM "pf_bootstrap_templates" WHERE "version" = $1`,
           templateVersion,
+        );
+        await transaction.$executeRawUnsafe(
+          `DELETE FROM "pf_plan_versions" WHERE "plan_code" = 'growth' AND "version" = $1`,
+          publishedPlan.version,
         );
       });
       await Promise.all([

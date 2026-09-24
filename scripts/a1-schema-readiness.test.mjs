@@ -12,6 +12,7 @@ import {
   REQUIRED_A1_CONSTRAINTS,
   REQUIRED_A1_TRIGGERS,
   REQUIRED_A1_UNIQUE_INDEXES,
+  PROVISIONER_TABLES,
   parseA1SchemaEvidence,
 } from './a1-schema-readiness.mjs';
 
@@ -35,7 +36,7 @@ const complete = [
   1,
   0,
   1,
-  1,
+  PROVISIONER_TABLES.length,
 ];
 
 test('A1.1 evidence ครบผ่าน; ขาดชิ้นใดหรือมีสิทธิ์เกินไม่ผ่าน', () => {
@@ -52,6 +53,8 @@ test('A1.1 evidence ครบผ่าน; ขาดชิ้นใดหรื�
 test('A1.1 ทุกชื่อใน registry มีอยู่จริงใน migration', () => {
   for (const table of CANONICAL_A1_TABLES)
     assert.match(migration, new RegExp(`CREATE TABLE "${table}"`));
+  // A1.5: plan pin เพิ่มแบบ NOT VALID (ไม่ตรวจแถวเก่าย้อนหลัง) — ยังเป็น expand-only
+  assert.match(migration, /"pf_provisioning_requests_plan_pin_fkey"[^;]*NOT VALID;/);
   for (const name of [
     ...REQUIRED_A1_CONSTRAINTS,
     ...REQUIRED_A1_UNIQUE_INDEXES,
@@ -88,7 +91,11 @@ test('A1.1 rls.sql ถอน pf_* จาก dcontact_app หลัง blanket GR
   assert.ok(rls.indexOf('REVOKE ALL ON pf_invitations FROM dcontact_app') > blanket);
   assert.doesNotMatch(rls, /GRANT[^;]*DELETE[^;]*TO dcontact_provisioner/);
   for (const statement of rls.match(/GRANT [^;]*TO dcontact_provisioner/g) ?? []) {
-    assert.match(statement, /ON (SCHEMA public|tenants|users) TO/, statement);
+    assert.match(
+      statement,
+      /ON (SCHEMA public|tenants|users|"?teams"?, "?queues"?, "?tenant_settings"?, "?tenant_plan_bindings"?, "?business_hours"?)\s+TO/,
+      statement,
+    );
   }
   for (const table of APPEND_ONLY_A1_TABLES) {
     assert.doesNotMatch(rls, new RegExp(`GRANT[^;]*UPDATE[^;]*${table}[^;]*TO dcontact_platform`));

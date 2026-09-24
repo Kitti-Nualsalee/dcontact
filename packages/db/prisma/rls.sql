@@ -63,7 +63,9 @@ BEGIN
     -- S2.5 (#369)
     'dl_line_inbound_messages', 'dl_line_event_outbox', 'dl_line_webhook_payloads',
     -- U1.1 (#429)
-    'uat_fixture_packs', 'uat_runs', 'uat_run_step_results', 'uat_command_receipts'
+    'uat_fixture_packs', 'uat_runs', 'uat_run_step_results', 'uat_command_receipts',
+    -- A1.5 (#410): operational baseline ของ tenant
+    'tenant_settings', 'tenant_plan_bindings', 'business_hours'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -304,3 +306,12 @@ GRANT USAGE ON SCHEMA public TO dcontact_provisioner;
 GRANT SELECT (id, lifecycle_status) ON tenants TO dcontact_provisioner;
 GRANT SELECT, INSERT ON users TO dcontact_provisioner;
 GRANT UPDATE (keycloak_id) ON users TO dcontact_provisioner;
+
+-- A1.5 (#410): plan catalog และ payload revision เป็น control plane; provisioner seed baseline
+-- ได้เฉพาะ tenant ที่ยัง PROVISIONING (policy อยู่ใน migration ของ A1.5)
+REVOKE ALL ON pf_plan_versions, pf_request_payload_revisions FROM dcontact_app;
+GRANT SELECT, INSERT, UPDATE ON pf_plan_versions TO dcontact_platform;
+GRANT SELECT, INSERT ON pf_request_payload_revisions TO dcontact_platform;
+GRANT UPDATE (name) ON tenants TO dcontact_platform;
+GRANT SELECT, INSERT ON teams, queues, tenant_settings, tenant_plan_bindings, business_hours
+  TO dcontact_provisioner;

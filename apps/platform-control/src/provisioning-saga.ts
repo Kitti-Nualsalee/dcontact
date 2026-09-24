@@ -315,6 +315,14 @@ export class ProvisioningSagaWorker {
     if (attemptInBudget > this.maxAttempts) {
       return this.escalate(request, stepKey, lease, 'ATTEMPTS_EXHAUSTED');
     }
+    // #392: template ที่ถูก REVOKED ห้ามเริ่ม step ใหม่ — request ที่ค้างอยู่ไปรอ operator
+    const template = await this.database.pfBootstrapTemplate.findUnique({
+      where: { version: request.bootstrapTemplateVersion },
+      select: { status: true },
+    });
+    if (template?.status === 'REVOKED') {
+      return this.escalate(request, stepKey, lease, 'BOOTSTRAP_TEMPLATE_REVOKED');
+    }
 
     const port = this.ports[stepKey];
     const context = provisioningStepContext(request, stepKey, lease.attempt);

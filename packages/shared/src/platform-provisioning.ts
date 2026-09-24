@@ -129,6 +129,107 @@ export const INVITATION_LIMITS = Object.freeze({
 export const INVITATION_STATES = ['INTENT', 'SENT', 'FAILED', 'AMBIGUOUS'] as const;
 export type InvitationState = (typeof INVITATION_STATES)[number];
 
+// ── Bootstrap manifest + plan catalog (A1.5 #410, #392) ─────────────────────
+
+/**
+ * Operational baseline ที่ tenant ใหม่ได้รับ — Admin Team พร้อมใช้, ที่เหลือเป็น inactive draft ที่
+ * Tenant Admin ต้อง review/activate เอง (#392 ห้ามรับ traffic อัตโนมัติ)
+ */
+export interface BootstrapManifestV1 {
+  schemaVersion: 1;
+  adminTeam: { name: string };
+  drafts: {
+    generalTeam: { name: string };
+    generalQueue: { name: string };
+    /** จันทร์=1 … อาทิตย์=7, เวลา `HH:MM` ตาม timezone ของ tenant */
+    businessHours: { name: string; weekly: { day: number; open: string; close: string }[] };
+  };
+}
+
+/** entitlement/quota snapshot ของ plan version — ค่าเป็นตัวเลขหรือ flag เท่านั้น */
+export type PlanEntitlements = Readonly<Record<string, number | boolean>>;
+
+/**
+ * JSON แบบ canonical (key เรียง, ไม่มีช่องว่าง) — digest ของ manifest/plan คำนวณจากค่านี้เสมอ
+ * จึงตรวจซ้ำตอน readiness ได้ว่าเนื้อหาที่ใช้ seed ตรงกับที่ pin ไว้
+ */
+export function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+      throw new TypeError('canonicalJson: ตัวเลขต้อง finite');
+    }
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
+    .map(
+      (key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`,
+    )
+    .join(',')}}`;
+}
+
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const NAME = (value: unknown) =>
+  typeof value === 'string' && value.trim() === value && value.length >= 1 && value.length <= 80;
+
+/** คืนรายการ field ที่ผิด (ว่าง = ผ่าน) — ใช้ทั้งตอน publish และตอน seed */
+export function bootstrapManifestErrors(value: unknown): string[] {
+  const errors: string[] = [];
+  const manifest = value as Partial<BootstrapManifestV1> | null;
+  if (!manifest || typeof manifest !== 'object') return ['manifest'];
+  if (manifest.schemaVersion !== 1) errors.push('schemaVersion');
+  if (!NAME(manifest.adminTeam?.name)) errors.push('adminTeam.name');
+  const drafts = manifest.drafts;
+  if (!NAME(drafts?.generalTeam?.name)) errors.push('drafts.generalTeam.name');
+  if (!NAME(drafts?.generalQueue?.name)) errors.push('drafts.generalQueue.name');
+  if (!NAME(drafts?.businessHours?.name)) errors.push('drafts.businessHours.name');
+  if (drafts?.generalTeam?.name === manifest.adminTeam?.name)
+    errors.push('drafts.generalTeam.name');
+  const weekly = drafts?.businessHours?.weekly;
+  if (
+    !Array.isArray(weekly) ||
+    weekly.length > 7 ||
+    new Set(weekly.map((slot) => slot?.day)).size !== weekly.length ||
+    !weekly.every(
+      (slot) =>
+        Number.isInteger(slot?.day) &&
+        slot.day >= 1 &&
+        slot.day <= 7 &&
+        TIME.test(slot.open) &&
+        TIME.test(slot.close) &&
+        slot.open < slot.close,
+    )
+  ) {
+    errors.push('drafts.businessHours.weekly');
+  }
+  return errors;
+}
+
+export function planEntitlementErrors(value: unknown): string[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return ['entitlements'];
+  return Object.entries(value)
+    .filter(
+      ([key, entry]) =>
+        !/^[a-z][a-z0-9_]{1,63}$/.test(key) ||
+        !(
+          typeof entry === 'boolean' ||
+          (typeof entry === 'number' && Number.isInteger(entry) && entry >= 0)
+        ),
+    )
+    .map(([key]) => `entitlements.${key}`);
+}
+
+/** field ที่แก้ได้หลัง submit และ step ที่ต้องยังไม่สำเร็จ (#392 Correcting non-identity input) */
+export const EDITABLE_REQUEST_FIELDS = Object.freeze({
+  displayName: 'PLAN_BOOTSTRAP',
+  locale: 'PLAN_BOOTSTRAP',
+  timezone: 'PLAN_BOOTSTRAP',
+  firstAdminDisplayName: 'FIRST_ADMIN',
+} as const satisfies Record<string, ProvisioningStepKey>);
+export type EditableRequestField = keyof typeof EDITABLE_REQUEST_FIELDS;
+
 // ── Errors (#388 checkpoint 1) ───────────────────────────────────────────────
 
 export const PLATFORM_PROVISIONING_ERROR_CODES = [
@@ -146,6 +247,10 @@ export const PLATFORM_PROVISIONING_ERROR_CODES = [
   'RECOVERY_PRECONDITION_FAILED',
   /** A1.4: resend เกิน 3 ครั้งต่อชั่วโมง (DB trigger บังคับแบบ race-safe) */
   'INVITATION_RESEND_LIMITED',
+  /** A1.5: plan version ไม่อยู่ใน catalog หรือไม่ ACTIVE */
+  'PLAN_UNAVAILABLE',
+  /** A1.5: field นี้แก้ไม่ได้แล้ว (identity หรือ step เจ้าของสำเร็จไปแล้ว) */
+  'FIELD_LOCKED',
   /** missing หรือ resource ของ tenant/request อื่น — ตอบเหมือนกันเพื่อไม่เผย existence */
   'NOT_FOUND',
 ] as const;
@@ -179,6 +284,8 @@ export const PLATFORM_ACTION_KINDS = [
   'CANCEL',
   'RESERVATION_TOMBSTONED',
   'SECURITY_DENIED',
+  /** A1.5: operator แก้ field ที่ไม่ใช่ identity ก่อน step เจ้าของ field สำเร็จ */
+  'REQUEST_EDITED',
 ] as const;
 export type PlatformActionKind = (typeof PLATFORM_ACTION_KINDS)[number];
 

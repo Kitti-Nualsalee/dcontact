@@ -27,6 +27,9 @@ model Tenant {
   primaryDomain             String?                 @unique @map("primary_domain")
 
   pfProvisioningRequests       PfProvisioningRequest[]
+  settings                     TenantSettings?
+  planBinding                  TenantPlanBinding?
+  businessHours                BusinessHours[]
   users                        User[]
   teams                        Team[]
   queues                       Queue[]
@@ -5376,6 +5379,7 @@ enum PfActionKind {
   CANCEL
   RESERVATION_TOMBSTONED
   SECURITY_DENIED
+  REQUEST_EDITED
 }
 
 enum PfActorKind {
@@ -5433,12 +5437,14 @@ model PfProvisioningRequest {
 
   tenant       Tenant                      @relation(fields: [tenantId], references: [id])
   template     PfBootstrapTemplate         @relation(fields: [bootstrapTemplateVersion, bootstrapTemplateDigest], references: [version, contentDigest], map: "pf_provisioning_requests_template_pin_fkey")
+  plan         PfPlanVersion               @relation(fields: [planCode, planVersion, planSnapshotDigest], references: [planCode, version, snapshotDigest], onDelete: Restrict, onUpdate: Restrict, map: "pf_provisioning_requests_plan_pin_fkey")
   steps        PfProvisioningStep[]
   receipts     PfProvisioningStepReceipt[]
   commands     PfCommandReceipt[]
   reservations PfIdentityReservation[]
   actions      PfActionHistory[]
   invitations  PfInvitation[]
+  payloadRevisions PfRequestPayloadRevision[]
 
   @@unique([tenantId, id], map: "pf_provisioning_requests_binding_key")
   @@index([status, updatedAt], map: "pf_provisioning_requests_status_idx")
@@ -5494,6 +5500,42 @@ model PfProvisioningStepReceipt {
 
   @@unique([requestId, stepKey, attempt], map: "pf_provisioning_step_receipts_attempt_key")
   @@map("pf_provisioning_step_receipts")
+}
+
+/// A1.5 (#410) plan catalog — entitlement snapshot immutable ต่อ (code, version); request pin ด้วย digest
+model PfPlanVersion {
+  planCode       String                    @map("plan_code")
+  version        Int
+  status         PfBootstrapTemplateStatus @default(ACTIVE)
+  entitlements   Json
+  snapshotDigest String                    @map("snapshot_digest") @db.Char(64)
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @updatedAt @map("updated_at")
+
+  requests PfProvisioningRequest[]
+
+  @@id([planCode, version])
+  @@unique([planCode, version, snapshotDigest], map: "pf_plan_versions_pin_key")
+  @@map("pf_plan_versions")
+}
+
+/// A1.5 (#410) append-only: การแก้ field ที่ไม่ใช่ identity หลัง submit พร้อม digest ใหม่ของ payload
+model PfRequestPayloadRevision {
+  id              String      @id @db.Uuid
+  requestId       String      @map("request_id") @db.Uuid
+  tenantId        String      @map("tenant_id") @db.Uuid
+  requestRevision Int         @map("request_revision")
+  payloadDigest   String      @map("payload_digest") @db.Char(64)
+  changedFields   String[]    @map("changed_fields")
+  actorKind       PfActorKind @map("actor_kind")
+  actorSubject    String      @map("actor_subject")
+  reasonCode      String      @map("reason_code")
+  createdAt       DateTime    @map("created_at")
+
+  request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_request_payload_revisions_request_fkey")
+
+  @@unique([requestId, requestRevision], map: "pf_request_payload_revisions_revision_key")
+  @@map("pf_request_payload_revisions")
 }
 
 enum PfInvitationState {
@@ -5699,4 +5741,60 @@ model UatCommandReceipt {
   @@unique([tenantId, id], map: "uat_command_receipts_tenant_id_id_key")
   @@unique([tenantId, idempotencyKey], map: "uat_command_receipts_idempotency_key")
   @@map("uat_command_receipts")
+}
+
+// ─────────────────────────── A1.5 (#410) tenant operational baseline ───────────────────────────
+
+enum BusinessHoursStatus {
+  DRAFT
+  ACTIVE
+}
+
+/// ค่าตั้งต้นของ tenant จาก provisioning — locale/timezone และ bootstrap manifest ที่ใช้ seed
+model TenantSettings {
+  tenantId                 String   @id @map("tenant_id") @db.Uuid
+  locale                   String
+  timezone                 String
+  bootstrapTemplateVersion String   @map("bootstrap_template_version")
+  bootstrapTemplateDigest  String   @map("bootstrap_template_digest") @db.Char(64)
+  provisioningRequestId    String   @map("provisioning_request_id") @db.Uuid
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@map("tenant_settings")
+}
+
+/// plan ที่ pin ตอนรับคำขอ พร้อม entitlement snapshot — enforcement ผ่าน guard กลาง (ADR-009)
+model TenantPlanBinding {
+  tenantId              String   @id @map("tenant_id") @db.Uuid
+  planCode              String   @map("plan_code")
+  planVersion           Int      @map("plan_version")
+  snapshotDigest        String   @map("snapshot_digest") @db.Char(64)
+  entitlements          Json
+  provisioningRequestId String   @map("provisioning_request_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@map("tenant_plan_bindings")
+}
+
+/// เวลาทำการของ tenant — baseline เป็น DRAFT จนกว่า Tenant Admin จะ review/activate
+model BusinessHours {
+  id        String              @id @db.Uuid
+  tenantId  String              @map("tenant_id") @db.Uuid
+  name      String
+  timezone  String
+  weekly    Json
+  status    BusinessHoursStatus @default(DRAFT)
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, name])
+  @@unique([tenantId, id])
+  @@map("business_hours")
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { KeycloakAdminClient } from './keycloak-admin.js';
-import { deterministicUuid, firstAdminUserId } from './keycloak-provisioning-ports.js';
+import { deterministicUuid, firstAdminUserId } from './provisioning-ids.js';
 import { ProvisioningStepError } from './provisioning-saga.js';
 
 const SECRET_BODY = '{"errorMessage":"admin+leak@example.test already exists"}';
