@@ -65,6 +65,7 @@ function snapshot(document: AuthoringDocumentV1, revision = 1): JourneySnapshot 
     },
     draft: { revision, digest: 'a'.repeat(64), basePublishedVersion: null, document },
     review: null,
+    permissions: { edit: true, review: true, publish: true },
     templateNotices: [],
   };
 }

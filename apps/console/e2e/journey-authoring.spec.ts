@@ -53,9 +53,23 @@ interface JourneyState {
   document: Json;
   lifecycle: string;
   activeVersion: number | null;
-  review: { reviewId: string; state: string; draftRevision: number } | null;
+  review: {
+    reviewId: string;
+    state: string;
+    draftRevision: number;
+    draftDigest: string;
+    compileDigest: string;
+    submittedAt: string;
+    makerIsCaller: boolean;
+  } | null;
   notices: Json[];
 }
+
+/** capability ที่ server คืนตาม persona — reviewer ไม่มีสิทธิ์แก้/publish */
+const PERMISSIONS = {
+  author: { edit: true, review: true, publish: true },
+  reviewer: { edit: false, review: true, publish: false },
+};
 
 class AuthoringMock {
   readonly requests: Request[] = [];
@@ -64,6 +78,7 @@ class AuthoringMock {
   concurrentEdit = false;
   publishUnknown = false;
   publishCommitted = false;
+  persona: keyof typeof PERMISSIONS = 'author';
 
   constructor() {
     this.journeys.set(JOURNEY_ID, {
@@ -98,6 +113,7 @@ class AuthoringMock {
         document: journey.document,
       },
       review: journey.review,
+      permissions: PERMISSIONS[this.persona],
       templateNotices: journey.notices,
     };
   }
@@ -127,7 +143,28 @@ class AuthoringMock {
             currentDraftRevision: state.revision,
             activeVersion: state.activeVersion,
             updatedAt: '2026-09-22T00:00:00.000Z',
+            reviewState:
+              state.review && ['IN_REVIEW', 'APPROVED'].includes(state.review.state)
+                ? state.review.state
+                : null,
           })),
+          nextCursor: null,
+        });
+      }
+      if (method === 'GET' && path === '/reviews') {
+        return reply(200, {
+          items: [...this.journeys.entries()]
+            .filter(([, state]) => state.review?.state === 'IN_REVIEW')
+            .map(([id, state]) => ({
+              reviewId: state.review!.reviewId,
+              journeyId: id,
+              journeyName: (state.document.settings as Json).name,
+              ownerTeamId: 'team-synthetic',
+              draftRevision: state.review!.draftRevision,
+              draftDigest: state.review!.draftDigest,
+              compileDigest: state.review!.compileDigest,
+              submittedAt: state.review!.submittedAt,
+            })),
           nextCursor: null,
         });
       }
@@ -204,6 +241,32 @@ class AuthoringMock {
       if (!journey) return reply(404, { code: 'JOURNEY_NOT_FOUND' });
 
       if (method === 'GET' && tail === '') return reply(200, this.snapshot(journeyId!));
+      if (method === 'GET' && tail === '/audit') {
+        return reply(200, {
+          items: [
+            {
+              id: 'audit-2',
+              action: journey.review?.state === 'APPROVED' ? 'REVIEW_APPROVED' : 'REVIEW_SUBMITTED',
+              actorSubjectId: '0a1b2c3d-0000-4000-8000-000000000002',
+              reasonCode: 'REVIEW',
+              beforeDigest: null,
+              afterDigest: null,
+              correlationId: 'corr-synthetic-2',
+              occurredAt: '2026-09-22T01:00:00.000Z',
+            },
+            {
+              id: 'audit-1',
+              action: 'DRAFT_CREATED',
+              actorSubjectId: '0a1b2c3d-0000-4000-8000-000000000001',
+              reasonCode: 'CREATE',
+              beforeDigest: null,
+              afterDigest: DIGEST('1'),
+              correlationId: 'corr-synthetic-1',
+              occurredAt: '2026-09-22T00:00:00.000Z',
+            },
+          ],
+        });
+      }
       if (method === 'PUT' && tail === '/draft') {
         if (this.concurrentEdit) {
           this.concurrentEdit = false;
@@ -269,6 +332,10 @@ class AuthoringMock {
           reviewId: REVIEW_ID,
           state: 'IN_REVIEW',
           draftRevision: journey.revision,
+          draftDigest: DIGEST(String(journey.revision)),
+          compileDigest: DIGEST('a'),
+          submittedAt: '2026-09-22T01:00:00.000Z',
+          makerIsCaller: false,
         };
         return reply(200, { reviewId: REVIEW_ID, state: 'IN_REVIEW' });
       }
@@ -501,7 +568,15 @@ test('publish ที่ไม่รู้ผล (202) ต้อง resolve ด�
 }) => {
   const mock = new AuthoringMock();
   const journey = mock.journeys.get(JOURNEY_ID)!;
-  journey.review = { reviewId: REVIEW_ID, state: 'APPROVED', draftRevision: 1 };
+  journey.review = {
+    reviewId: REVIEW_ID,
+    state: 'APPROVED',
+    draftRevision: 1,
+    draftDigest: DIGEST('1'),
+    compileDigest: DIGEST('a'),
+    submittedAt: '2026-09-22T01:00:00.000Z',
+    makerIsCaller: false,
+  };
   mock.publishUnknown = true;
   await openEditor(page, mock);
   await page.getByRole('button', { name: 'Compile ฉบับร่าง' }).click();
@@ -614,4 +689,75 @@ test('a11y: editor ไม่มี serious/critical, 200% zoom ไม่ล้�
   );
   expect(overflow).toBeLessThanOrEqual(0);
   await expectNoSeriousA11yViolations(page);
+});
+
+test('U1.3 reviewer หา candidate ที่รอตรวจจากรายการ เปิดดู exact candidate แล้วอนุมัติ และดู audit ได้', async ({
+  page,
+}) => {
+  const mock = new AuthoringMock();
+  mock.persona = 'reviewer';
+  mock.journeys.get(JOURNEY_ID)!.review = {
+    reviewId: REVIEW_ID,
+    state: 'IN_REVIEW',
+    draftRevision: 1,
+    draftDigest: DIGEST('1'),
+    compileDigest: DIGEST('a'),
+    submittedAt: '2026-09-22T01:00:00.000Z',
+    makerIsCaller: false,
+  };
+  await mock.install(page);
+  await page.goto('/?view=journeys');
+
+  // รายการบอก review state จาก server; ตัวกรอง "รอตรวจ" แสดงงานที่ reviewer ตัดสินได้
+  await expect(page.getByRole('cell', { name: 'รอตรวจ' })).toBeVisible();
+  await page.getByRole('button', { name: 'รอตรวจ' }).click();
+  await expect(page.getByRole('button', { name: 'รอตรวจ' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('heading', { level: 2, name: 'งานที่รอให้คุณตรวจ' })).toBeVisible();
+  await expectNoSeriousA11yViolations(page);
+  await page.getByRole('button', { name: 'ติดตามการชำระ' }).click();
+
+  // reviewer เห็น exact candidate และปุ่มตัดสิน แต่ไม่มีปุ่มส่งตรวจ (ไม่มี journey.edit)
+  const candidate = page.getByRole('definition').filter({ hasText: DIGEST('a').slice(0, 12) });
+  await expect(candidate).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ส่งตรวจ' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'อนุมัติ', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Reason code').fill('LOOKS_GOOD');
+  await dialog.getByLabel('Evidence reference').fill('uat-431');
+  await dialog.getByRole('button', { name: 'อนุมัติ' }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'สถานะการตรวจ: APPROVED' }),
+  ).toBeVisible();
+  const decision = mock.requests.find((request) =>
+    new URL(request.url()).pathname.endsWith(`/reviews/${REVIEW_ID}/decisions`),
+  );
+  expect(decision?.postDataJSON()).toMatchObject({ decision: 'APPROVE', reasonCode: 'LOOKS_GOOD' });
+
+  // audit โหลดเมื่อกดเท่านั้น (การอ่าน audit ถูกบันทึกเป็น audit เอง)
+  expect(mock.requests.some((request) => request.url().endsWith('/audit'))).toBe(false);
+  await page.getByRole('button', { name: 'แสดงประวัติ' }).click();
+  const timeline = page.getByRole('list', { name: 'ประวัติการเปลี่ยนแปลง ใหม่สุดก่อน' });
+  await expect(timeline.getByRole('listitem')).toHaveCount(2);
+  await expect(timeline).toContainText('REVIEW_APPROVED');
+  await expect(timeline).toContainText('corr-synthetic-1');
+  await expectNoSeriousA11yViolations(page);
+});
+
+test('U1.3 ผู้ส่งตรวจเห็นเหตุผลว่าต้องใช้ reviewer คนอื่น และไม่มีปุ่มตัดสิน', async ({ page }) => {
+  const mock = new AuthoringMock();
+  mock.journeys.get(JOURNEY_ID)!.review = {
+    reviewId: REVIEW_ID,
+    state: 'IN_REVIEW',
+    draftRevision: 1,
+    draftDigest: DIGEST('1'),
+    compileDigest: DIGEST('a'),
+    submittedAt: '2026-09-22T01:00:00.000Z',
+    makerIsCaller: true,
+  };
+  await openEditor(page, mock);
+  await expect(page.getByRole('note').filter({ hasText: 'ต้องให้ reviewer คนอื่น' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'อนุมัติ', exact: true })).toHaveCount(0);
 });

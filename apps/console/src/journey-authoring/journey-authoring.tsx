@@ -12,6 +12,8 @@ import {
   type JourneyAuthoringApi,
   type JourneySnapshot,
   type JourneySummary,
+  type JourneyAuditEntry,
+  type PendingReview,
 } from './api.js';
 import { Canvas, nodeDomId } from './canvas.js';
 import { Diagnostics, diagnosticCounts } from './diagnostics.js';
@@ -155,8 +157,9 @@ function JourneyEditor({
 
   const document = editorDocument(state);
   const dirty = isDirty(state);
-  const { head } = state.snapshot;
-  const editable = !readOnly && head.lifecycle !== 'DEPRECATED';
+  const { head, permissions } = state.snapshot;
+  // U1.3 (#431): ผู้ที่ไม่มี journey.edit (เช่น reviewer) เห็นแบบอ่านอย่างเดียว — server ตรวจซ้ำอยู่แล้ว
+  const editable = !readOnly && head.lifecycle !== 'DEPRECATED' && permissions.edit;
   const counts = diagnosticCounts(state.diagnostics);
   const command = (next: AuthoringCommand) => {
     if (editable) dispatch({ type: 'COMMAND', command: next });
@@ -492,6 +495,7 @@ function JourneyEditor({
             onChanged={refresh}
           />
         </section>
+        <AuditTimeline api={api} journeyId={state.snapshot.head.journeyId} />
         <TemplateUpgrade
           api={api}
           snapshot={state.snapshot}
@@ -604,6 +608,101 @@ function BlankJourneyForm({
   );
 }
 
+const REVIEW_STATE_LABELS: Record<'IN_REVIEW' | 'APPROVED', string> = {
+  IN_REVIEW: 'รอตรวจ',
+  APPROVED: 'อนุมัติแล้ว รอ publish',
+};
+
+function shortDigest(digest: string): string {
+  return digest.slice(0, 12);
+}
+
+function serverTime(iso: string): string {
+  return new Date(iso).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+type ListFilter = 'ALL' | 'PENDING_REVIEW';
+
+/** U1.3 (#431): review ที่รอผู้ใช้คนนี้ตัดสิน — รายการกรองสิทธิ์ที่ server ทั้งหมด */
+function PendingReviewList({
+  api,
+  onOpen,
+}: {
+  api: JourneyAuthoringApi;
+  onOpen: (journeyId: string) => void;
+}) {
+  const [items, setItems] = useState<PendingReview[] | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(
+    (after?: string) =>
+      api
+        .pendingReviews(after ? { cursor: after } : {})
+        .then((page) => {
+          setItems((current) => (after ? [...(current ?? []), ...page.items] : page.items));
+          setCursor(page.nextCursor);
+        })
+        .catch((failure: unknown) => setError(errorMessage(codeOf(failure)))),
+    [api],
+  );
+  useEffect(() => {
+    void load();
+  }, [load]);
+  return (
+    <>
+      {error ? (
+        <p className="j5-status-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {items === null && !error ? <p role="status">กำลังโหลด…</p> : null}
+      {items?.length === 0 ? (
+        <p>ไม่มีงานที่รอให้คุณตรวจ (งานที่คุณส่งตรวจเองต้องให้ reviewer คนอื่นตัดสิน)</p>
+      ) : null}
+      {items && items.length > 0 ? (
+        <div className="j5-table-scroll">
+          <table className="j5-table">
+            <caption className="gov-visually-hidden">งานที่รอให้คุณตรวจ</caption>
+            <thead>
+              <tr>
+                <th scope="col">Journey</th>
+                <th scope="col">ฉบับร่างที่ส่งตรวจ</th>
+                <th scope="col">Compile digest</th>
+                <th scope="col">ส่งตรวจเมื่อ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.reviewId}>
+                  <td>
+                    <button
+                      type="button"
+                      className="gov-link"
+                      onClick={() => onOpen(item.journeyId)}
+                    >
+                      {item.journeyName}
+                    </button>
+                  </td>
+                  <td>revision {item.draftRevision}</td>
+                  <td>
+                    <code>{shortDigest(item.compileDigest)}</code>
+                  </td>
+                  <td>{serverTime(item.submittedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {cursor ? (
+        <button type="button" className="gov-secondary" onClick={() => void load(cursor)}>
+          โหลดเพิ่ม
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 function JourneyList({
   api,
   readOnly,
@@ -613,6 +712,7 @@ function JourneyList({
   readOnly: boolean;
   onOpen: (journeyId: string) => void;
 }) {
+  const [filter, setFilter] = useState<ListFilter>('ALL');
   const [items, setItems] = useState<JourneySummary[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -639,51 +739,79 @@ function JourneyList({
         </p>
       ) : null}
       <section className="gov-panel" aria-labelledby="j5-list-heading">
-        <h2 id="j5-list-heading">Journey ที่คุณมองเห็น</h2>
-        {error ? (
-          <p className="j5-status-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        {items === null && !error ? <p role="status">กำลังโหลด…</p> : null}
-        {items?.length === 0 ? <p>ยังไม่มี Journey ที่คุณมองเห็น</p> : null}
-        {items && items.length > 0 ? (
-          <div className="j5-table-scroll">
-            <table className="j5-table">
-              <thead>
-                <tr>
-                  <th scope="col">ชื่อ</th>
-                  <th scope="col">สถานะ</th>
-                  <th scope="col">Version ที่ใช้งาน</th>
-                  <th scope="col">ฉบับร่าง</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.journeyId}>
-                    <td>
-                      <button
-                        type="button"
-                        className="gov-link"
-                        onClick={() => onOpen(item.journeyId)}
-                      >
-                        {item.name}
-                      </button>
-                    </td>
-                    <td>{item.lifecycle}</td>
-                    <td>{item.activeVersion ?? '—'}</td>
-                    <td>revision {item.currentDraftRevision}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-        {cursor ? (
-          <button type="button" className="gov-secondary" onClick={() => void load(cursor)}>
-            โหลดเพิ่ม
+        <h2 id="j5-list-heading">
+          {filter === 'ALL' ? 'Journey ที่คุณมองเห็น' : 'งานที่รอให้คุณตรวจ'}
+        </h2>
+        <div className="j5-button-row" role="group" aria-label="ตัวกรองรายการ">
+          <button
+            type="button"
+            className={filter === 'ALL' ? 'gov-primary' : 'gov-secondary'}
+            aria-pressed={filter === 'ALL'}
+            onClick={() => setFilter('ALL')}
+          >
+            ทั้งหมด
           </button>
-        ) : null}
+          <button
+            type="button"
+            className={filter === 'PENDING_REVIEW' ? 'gov-primary' : 'gov-secondary'}
+            aria-pressed={filter === 'PENDING_REVIEW'}
+            onClick={() => setFilter('PENDING_REVIEW')}
+          >
+            รอตรวจ
+          </button>
+        </div>
+        {filter === 'PENDING_REVIEW' ? (
+          <PendingReviewList api={api} onOpen={onOpen} />
+        ) : (
+          <>
+            {error ? (
+              <p className="j5-status-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            {items === null && !error ? <p role="status">กำลังโหลด…</p> : null}
+            {items?.length === 0 ? <p>ยังไม่มี Journey ที่คุณมองเห็น</p> : null}
+            {items && items.length > 0 ? (
+              <div className="j5-table-scroll">
+                <table className="j5-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">ชื่อ</th>
+                      <th scope="col">สถานะ</th>
+                      <th scope="col">การตรวจ</th>
+                      <th scope="col">Version ที่ใช้งาน</th>
+                      <th scope="col">ฉบับร่าง</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <tr key={item.journeyId}>
+                        <td>
+                          <button
+                            type="button"
+                            className="gov-link"
+                            onClick={() => onOpen(item.journeyId)}
+                          >
+                            {item.name}
+                          </button>
+                        </td>
+                        <td>{item.lifecycle}</td>
+                        <td>{item.reviewState ? REVIEW_STATE_LABELS[item.reviewState] : '—'}</td>
+                        <td>{item.activeVersion ?? '—'}</td>
+                        <td>revision {item.currentDraftRevision}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            {cursor ? (
+              <button type="button" className="gov-secondary" onClick={() => void load(cursor)}>
+                โหลดเพิ่ม
+              </button>
+            ) : null}
+          </>
+        )}
       </section>
       {readOnly ? null : (
         <div className="j5-lower">
@@ -692,6 +820,53 @@ function JourneyList({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * U1.3 (#431): timeline ของ audit จาก server — actor เป็น opaque id, เวลาเป็นเวลา server
+ * การอ่าน audit ถูกบันทึกเป็น audit เอง จึงโหลดเมื่อผู้ใช้กดเท่านั้น
+ */
+function AuditTimeline({ api, journeyId }: { api: JourneyAuthoringApi; journeyId: string }) {
+  const [items, setItems] = useState<JourneyAuditEntry[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const load = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setItems((await api.audit(journeyId)).items);
+    } catch (failure) {
+      setError(errorMessage(codeOf(failure)));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="gov-panel" aria-labelledby="j5-audit-heading">
+      <h2 id="j5-audit-heading">ประวัติการเปลี่ยนแปลง (audit)</h2>
+      <button type="button" className="gov-secondary" disabled={busy} onClick={() => void load()}>
+        {items === null ? 'แสดงประวัติ' : 'โหลดประวัติใหม่'}
+      </button>
+      {error ? (
+        <p className="j5-status-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {items?.length === 0 ? <p role="status">ยังไม่มีประวัติ</p> : null}
+      {items && items.length > 0 ? (
+        <ol className="j5-audit" aria-label="ประวัติการเปลี่ยนแปลง ใหม่สุดก่อน">
+          {items.map((entry) => (
+            <li key={entry.id}>
+              <time dateTime={entry.occurredAt}>{serverTime(entry.occurredAt)}</time>{' '}
+              <strong>{entry.action}</strong> · ผู้ใช้{' '}
+              <code>{entry.actorSubjectId.slice(0, 8)}</code> · เหตุผล {entry.reasonCode} ·
+              correlation <code>{entry.correlationId}</code>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </section>
   );
 }
 

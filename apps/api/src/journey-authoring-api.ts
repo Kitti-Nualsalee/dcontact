@@ -311,6 +311,22 @@ export class JourneyAuthoringController {
     return handle(() => this.repository.listVisibleJourneys(tenantId, actor, filters));
   }
 
+  /** U1.3 (#431): review ที่รอตรวจซึ่งผู้เรียกตัดสินได้ — reviewer หา candidate เองโดยไม่ต้องรู้ id */
+  @Get('reviews')
+  pendingReviews(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const { tenantId, actor } = authoringActor(request);
+    return handle(() =>
+      this.repository.listPendingReviews(tenantId, actor, {
+        limit: queryLimit(limit),
+        ...(cursor !== undefined ? { cursor: parse.uuid(cursor, 'cursor') } : {}),
+      }),
+    );
+  }
+
   @Post('journeys')
   @HttpCode(200)
   create(@Req() request: AuthenticatedGatewayRequest, @Body() body: unknown) {

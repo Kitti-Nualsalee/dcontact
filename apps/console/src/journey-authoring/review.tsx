@@ -51,6 +51,17 @@ export function ReviewPanel({
   const artifact = compile?.artifact ?? null;
   const pendingReview =
     review && review.draftRevision === head.currentDraftRevision ? review : null;
+  const { permissions } = snapshot;
+  // ตัดสินได้เมื่อ server บอกว่าถือ journey.review และไม่ใช่ผู้ส่งตรวจ — ไม่ขึ้นกับสิทธิ์แก้ไข
+  const inReview = pendingReview?.state === 'IN_REVIEW';
+  const canDecide = inReview && permissions.review && !pendingReview.makerIsCaller;
+  const decisionBlockedReason = !inReview
+    ? null
+    : pendingReview.makerIsCaller
+      ? 'คุณเป็นผู้ส่งตรวจ candidate นี้ ต้องให้ reviewer คนอื่นเป็นผู้ตัดสิน'
+      : !permissions.review
+        ? 'คุณไม่มีสิทธิ์ตรวจ Journey นี้ (journey.review)'
+        : null;
 
   const run = async (work: () => Promise<void>) => {
     setBusy(true);
@@ -200,8 +211,23 @@ export function ReviewPanel({
       <p role="status" aria-live="polite">
         {pendingReview ? `สถานะการตรวจ: ${pendingReview.state}` : 'ฉบับร่างนี้ยังไม่ได้ส่งตรวจ'}
       </p>
-      {readOnly ? null : (
-        <div className="j5-button-row">
+      {pendingReview ? (
+        <dl className="j5-candidate" aria-label="Candidate ที่ส่งตรวจ">
+          <dt>ฉบับร่าง</dt>
+          <dd>revision {pendingReview.draftRevision}</dd>
+          <dt>Draft digest</dt>
+          <dd>
+            <code>{pendingReview.draftDigest.slice(0, 12)}</code>
+          </dd>
+          <dt>Compile digest</dt>
+          <dd>
+            <code>{pendingReview.compileDigest.slice(0, 12)}</code>
+          </dd>
+        </dl>
+      ) : null}
+      {decisionBlockedReason ? <p role="note">{decisionBlockedReason}</p> : null}
+      <div className="j5-button-row">
+        {readOnly || !permissions.edit ? null : (
           <button
             type="button"
             className="gov-primary"
@@ -212,21 +238,21 @@ export function ReviewPanel({
           >
             ส่งตรวจ
           </button>
-          {pendingReview?.state === 'IN_REVIEW'
-            ? (Object.keys(DECISION_LABELS) as Decision[]).map((decision) => (
-                <button
-                  key={decision}
-                  type="button"
-                  className={decision === 'APPROVE' ? 'gov-primary' : 'gov-secondary'}
-                  disabled={busy}
-                  onClick={() => setDeciding(decision)}
-                >
-                  {DECISION_LABELS[decision]}
-                </button>
-              ))
-            : null}
-        </div>
-      )}
+        )}
+        {canDecide
+          ? (Object.keys(DECISION_LABELS) as Decision[]).map((decision) => (
+              <button
+                key={decision}
+                type="button"
+                className={decision === 'APPROVE' ? 'gov-primary' : 'gov-secondary'}
+                disabled={busy}
+                onClick={() => setDeciding(decision)}
+              >
+                {DECISION_LABELS[decision]}
+              </button>
+            ))
+          : null}
+      </div>
       {error ? (
         <p className="j5-status-error" role="alert">
           {error}
