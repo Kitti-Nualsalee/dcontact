@@ -110,6 +110,43 @@ export function provisioningPlaceholder(tenantId: string) {
   return { slug: `~pv-${tenantId}`, sipDomain: `~pv-${tenantId}.invalid` };
 }
 
+/**
+ * reservation ของค่าหนึ่ง: รับช่วงแถวที่ tombstone หมดอายุแล้ว (เทียบกับนาฬิกาของ DB) หรือสร้างใหม่
+ * แถวที่ยัง HELD/CONSUMED/tombstone ไม่หมดอายุ = ชน PK → CONFLICT; row lock ทำให้ผู้ชนะมีคนเดียว
+ * (ใช้ร่วมกันระหว่าง accept และการแก้อีเมล first admin ของ A1.5b)
+ */
+export async function reserveIdentity(
+  transaction: Prisma.TransactionClient,
+  input: { kind: IdentityReservationKind; valueKey: string; tenantId: string; requestId: string },
+): Promise<'RESERVED' | 'CONFLICT'> {
+  const takenOver = await transaction.$executeRaw`
+    UPDATE "pf_identity_reservations"
+       SET "tenant_id" = ${input.tenantId}::uuid,
+           "request_id" = ${input.requestId}::uuid,
+           "state" = 'HELD',
+           "tombstoned_until" = NULL,
+           "revision" = "revision" + 1,
+           "updated_at" = now()
+     WHERE "kind" = ${input.kind}::"PfReservationKind"
+       AND "value_key" = ${input.valueKey}
+       AND "state" = 'TOMBSTONED'
+       AND "tombstoned_until" <= now()`;
+  if (takenOver === 1) return 'RESERVED';
+  // SAVEPOINT: unique violation ต้องไม่ทำให้ transaction ของผู้เรียกใช้ต่อไม่ได้
+  await transaction.$executeRawUnsafe('SAVEPOINT reserve_identity');
+  try {
+    await transaction.pfIdentityReservation.create({ data: input });
+    await transaction.$executeRawUnsafe('RELEASE SAVEPOINT reserve_identity');
+    return 'RESERVED';
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      await transaction.$executeRawUnsafe('ROLLBACK TO SAVEPOINT reserve_identity');
+      return 'CONFLICT';
+    }
+    throw error;
+  }
+}
+
 class ConflictSignal extends Error {
   constructor(readonly code: PlatformProvisioningErrorCode) {
     super(code);
@@ -307,34 +344,13 @@ export class ProvisioningControlRepository {
     return { outcome: 'ACCEPTED', requestId, tenantId, status: 'PENDING', revision: 1 };
   }
 
-  /**
-   * reservation ของค่าหนึ่ง: รับช่วงแถวที่ tombstone หมดอายุแล้ว (เทียบกับนาฬิกาของ DB) หรือสร้างใหม่
-   * แถวที่ยัง HELD/CONSUMED/tombstone ไม่หมดอายุ = ชน PK → conflict; row lock ทำให้ผู้ชนะมีคนเดียว
-   */
   private async reserve(
     transaction: Prisma.TransactionClient,
     input: { kind: IdentityReservationKind; valueKey: string; tenantId: string; requestId: string },
     conflict: PlatformProvisioningErrorCode,
   ): Promise<void> {
-    const takenOver = await transaction.$executeRaw`
-      UPDATE "pf_identity_reservations"
-         SET "tenant_id" = ${input.tenantId}::uuid,
-             "request_id" = ${input.requestId}::uuid,
-             "state" = 'HELD',
-             "tombstoned_until" = NULL,
-             "revision" = "revision" + 1,
-             "updated_at" = now()
-       WHERE "kind" = ${input.kind}::"PfReservationKind"
-         AND "value_key" = ${input.valueKey}
-         AND "state" = 'TOMBSTONED'
-         AND "tombstoned_until" <= now()`;
-    if (takenOver === 1) return;
-    try {
-      await transaction.pfIdentityReservation.create({ data: input });
-    } catch (error) {
-      if (isUniqueViolation(error)) throw new ConflictSignal(conflict);
-      throw error;
-    }
+    if ((await reserveIdentity(transaction, input)) === 'CONFLICT')
+      throw new ConflictSignal(conflict);
   }
 
   private async replay(

@@ -319,3 +319,7 @@ GRANT SELECT, INSERT ON teams, queues, tenant_settings, tenant_plan_bindings, bu
 -- A1.6 (#411): durable operator command เป็น control plane
 REVOKE ALL ON pf_operator_commands FROM dcontact_app;
 GRANT SELECT, INSERT, UPDATE ON pf_operator_commands TO dcontact_platform;
+
+-- A1.5b (#441): revision ของอีเมล first admin เป็น control plane
+REVOKE ALL ON pf_first_admin_email_revisions FROM dcontact_app;
+GRANT SELECT, INSERT ON pf_first_admin_email_revisions TO dcontact_platform;
