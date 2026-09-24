@@ -33,8 +33,12 @@ async function startUatApi(t: test.TestContext) {
       return { items: [], nextCursor: null };
     },
   };
+  const uatRuns = {
+    current: async (currentTenant: string) => ({ runId: 'run-1', tenantId: currentTenant }),
+  };
   const module = createUatApiModule({
     repository,
+    uatRuns,
     verifier: {
       verifyAccessToken: async (token: string) => {
         if (token === 'maker-token') return claims();
@@ -66,6 +70,13 @@ test('UAT API mount เฉพาะ Journey authoring ที่ยังต้�
   });
   assert.equal(authorized.status, 200);
   assert.deepEqual(listed, [tenantId]);
+
+  // UAT run API (U1.1 #429) ถูก mount และต้อง login เช่นกัน
+  assert.equal((await fetch(`${base}/api/v1/uat-runs/current`)).status, 401);
+  const run = await fetch(`${base}/api/v1/uat-runs/current`, {
+    headers: { authorization: 'Bearer maker-token' },
+  });
+  assert.deepEqual(await run.json(), { runId: 'run-1', tenantId });
 
   // route ของ provider/telephony/workspace ไม่มีใน UAT
   for (const path of [

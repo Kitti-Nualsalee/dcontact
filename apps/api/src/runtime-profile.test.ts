@@ -39,6 +39,7 @@ test('uat ปิด Kafka/LINE/egress และจำกัด route เฉพ�
   assert.equal(profile.providerEgress, 'BLOCKED');
   assert.deepEqual(profile.allowedRoutePrefixes, [
     '/api/v1/journey-authoring',
+    '/api/v1/uat-runs',
     '/api/v1/runtime-profile',
   ]);
 });

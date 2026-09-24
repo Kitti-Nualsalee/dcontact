@@ -158,6 +158,8 @@ async function harness(
   const app = await NestFactory.create(
     createUatApiModule({
       repository,
+      // UAT run API ครอบใน uat-run-api.integration.ts — ที่นี่พิสูจน์เฉพาะ J5 ผ่าน composition root ของ UAT
+      uatRuns: {},
       verifier,
       diagnostics: { write: () => undefined },
       status: {
