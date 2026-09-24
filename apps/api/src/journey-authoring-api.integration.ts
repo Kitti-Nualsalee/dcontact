@@ -12,8 +12,7 @@ import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { resolve } from 'node:path';
 import test, { type TestContext } from 'node:test';
-import { Module } from '@nestjs/common';
-import { APP_GUARD, NestFactory } from '@nestjs/core';
+import { NestFactory } from '@nestjs/core';
 import type { JourneyAuthoringCapability } from '@d-contact/cxa-contracts';
 import { PrismaClient } from '@d-contact/db';
 import { DcExprEvaluator } from '@d-contact/expression';
@@ -25,16 +24,8 @@ import {
   type JourneyDefinitionContent,
 } from '@d-contact/journey';
 import type { VerifiedOidcClaims } from '@d-contact/workspace-session';
-import {
-  GATEWAY_DIAGNOSTICS,
-  OIDC_ACCESS_TOKEN_VERIFIER,
-  OidcGlobalGuard,
-} from './gateway-auth.js';
-import {
-  JOURNEY_AUTHORING_REPOSITORY,
-  JourneyAuthoringController,
-} from './journey-authoring-api.js';
-import { JourneyTemplateController } from './journey-template-api.js';
+import { RuntimeProfileRouteGuard, resolveApiRuntimeProfile } from './runtime-profile.js';
+import { createUatApiModule } from './uat-api.js';
 
 const APPLICATION_DATABASE_URL =
   process.env.APPLICATION_DATABASE_URL ??
@@ -160,18 +151,24 @@ async function harness(
     checkpoint: options.checkpoint,
   });
 
-  @Module({
-    controllers: [JourneyAuthoringController, JourneyTemplateController],
-    providers: [
-      { provide: JOURNEY_AUTHORING_REPOSITORY, useValue: repository },
-      { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
-      { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
-      { provide: APP_GUARD, useClass: OidcGlobalGuard },
-    ],
-  })
-  class TestModule {}
-
-  const app = await NestFactory.create(TestModule, { logger: false });
+  // U1.2 (#430): ประกอบผ่าน composition root ของ UAT เพื่อพิสูจน์ว่า authoring/review/publish/simulate
+  // ทำงานครบใน profile ที่ปิด Kafka/LINE/egress (controller + guard ชุดเดียวกับที่ UAT deploy)
+  const profile = resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'uat' });
+  const routeGuard = new RuntimeProfileRouteGuard(profile, { write: () => undefined });
+  const app = await NestFactory.create(
+    createUatApiModule({
+      repository,
+      verifier,
+      diagnostics: { write: () => undefined },
+      status: {
+        profile,
+        routeGuard,
+        journeyAuthoring: { canvasWrite: true, publishUi: true },
+      },
+    }),
+    { logger: false },
+  );
+  app.use(routeGuard.middleware);
   await app.listen(0, '127.0.0.1');
   const port = (app.getHttpServer().address() as AddressInfo).port;
 
