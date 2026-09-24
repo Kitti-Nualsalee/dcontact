@@ -76,6 +76,11 @@ jobs:
       - name: A1 schema readiness validator tests
         run: pnpm test:a1-schema-readiness
 
+      # A1.2 (#407): token matrix + guard ผ่าน HTTP จริง (token ลงนามในเครื่อง ไม่ต้องใช้ Keycloak)
+      # real-boundary กับ Keycloak จริงรันด้วย `pnpm a1:auth:boundary` หลัง `pnpm infra:up`
+      - name: A1.2 platform auth boundary tests
+        run: pnpm --filter @d-contact/platform-api test
+
   a1-platform-control-fast-gate:
     # A1.1 (#406) / #393 Fast PR gate: idempotency, reservation race, tombstone, CAS, completion
     # invariant, append-only และสิทธิ์ของ role บน Postgres จริง — ไม่ต้องใช้ Keycloak/UI
