@@ -309,9 +309,7 @@ export function WorkspaceApp({
   return (
     <div className="workspace-shell">
       <aside className="product-rail" aria-label="พื้นที่หลัก">
-        <div className="product-mark" aria-label="D-Contact">
-          D
-        </div>
+        <img className="product-mark" src="/d-contact-icon-64.png" alt="D-Contact" />
         <button type="button" aria-label="ภาพรวม">
           01
         </button>
@@ -325,7 +323,7 @@ export function WorkspaceApp({
 
       <aside className="navigation">
         <div className="brand">
-          <span>D</span>
+          <img src="/d-contact-icon-64.png" alt="" />
           D-Contact
         </div>
         <p className="navigation-label">AGENT WORKSPACE</p>
