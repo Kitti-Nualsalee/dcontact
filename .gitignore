@@ -37,3 +37,7 @@ skills-lock.json
 
 # ข้อมูลรับรองของเครื่องมือภายนอก (เช่น Jira API token) ห้าม commit
 .jira
+
+# A1.4b (#436): Keycloak extension build output
+infra/keycloak/providers/
+infra/keycloak/extensions/*/target/

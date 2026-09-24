@@ -1,10 +1,11 @@
 /**
- * #436 acceptance check (ยังไม่ผ่าน — ตั้งใจให้ FAIL ตรง ๆ จนกว่า #436 จะเสร็จ ห้ามผ่อนเกณฑ์)
+ * A1.4b (#436) acceptance: ลิงก์ invitation รุ่นเก่าต้องไม่ให้สิทธิ์ซ้ำ (#392)
  *
- * #392: "เมื่อ required actions สำเร็จ invitation generations อื่นต้องไม่ให้สิทธิ์ซ้ำ"
- * Keycloak 26.0 execute-actions token ของ generation เก่ายังตั้งรหัสผ่าน/เพิ่ม OTP ได้หลัง activation
+ * - รุ่นที่ถูก resend แทนแล้วใช้ไม่ได้แม้ผู้ใช้ยังไม่ activate (`dc_invitation_not_before`)
+ * - หลัง activate ด้วยรุ่นใดก็ตาม รุ่นอื่นเปลี่ยน credential ไม่ได้ (ไม่มี required action ค้าง)
+ * ทั้งสองข้อบังคับโดย Keycloak extension `infra/keycloak/extensions/invitation-guard`
  *
- * รัน: `pnpm --filter @d-contact/platform-control test:boundary:436` (ต้องมี Keycloak + mailpit)
+ * รัน: `pnpm a1:provisioning:boundary` (ต้องมี Keycloak ที่โหลด extension + mailpit)
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -74,6 +75,18 @@ test('#436: หลัง activate ด้วย generation ใหม่ ลิง
   });
   const [stale, current] = await invitationLinks(input.firstAdmin.email);
   assert.ok(stale && current, 'ต้องมี invitation สอง generation');
+  const [pending] = (
+    await keycloakAdmin<{ id: string }[]>(
+      'GET',
+      `/users?${new URLSearchParams({ username: input.firstAdmin.email, exact: 'true' })}`,
+    )
+  ).body;
+  const credentialCount = async () =>
+    (await keycloakAdmin<unknown[]>('GET', `/users/${pending!.id}/credentials`)).body.length;
+
+  // รุ่นที่ถูก supersede ใช้ไม่ได้แม้ผู้ใช้ยังไม่ activate
+  await completeInvitation(stale, `Superseded-${randomUUID().slice(0, 8)}!`);
+  assert.equal(await credentialCount(), 0, 'ลิงก์รุ่นที่ถูกแทนแล้วยังตั้ง credential ได้ (#436)');
 
   await completeInvitation(current, `Current-${randomUUID().slice(0, 8)}!`);
   const [user] = (

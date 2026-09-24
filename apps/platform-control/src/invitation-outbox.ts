@@ -65,6 +65,9 @@ export function mailpitDeliveryProbe(
 
 type InvitationRow = Prisma.PfInvitationGetPayload<object>;
 
+/** intent ที่อายุน้อยกว่านี้ถือว่ากำลังส่งอยู่ (มากกว่า timeout ของ external call หนึ่งครั้ง) */
+const INTENT_IN_FLIGHT_MS = 120_000;
+
 export interface InvitationStatus {
   generation: number | null;
   delivery: 'NOT_STARTED' | 'INTENT' | 'SENT' | 'FAILED' | 'AMBIGUOUS';
@@ -298,6 +301,16 @@ export class InvitationOutbox {
       throw new PlatformProvisioningError('RECOVERY_PRECONDITION_FAILED');
     }
 
+    // รุ่นล่าสุดที่กำลังส่ง (INTENT อายุไม่ถึง 2 นาที) ห้ามถูกแทน — ไม่อย่างนั้นอีเมลที่ส่งไปแล้ว
+    // จะบันทึกผลไม่ได้และกินโควตา resend; INTENT ที่ค้างนานกว่านั้นถือว่า attempt ก่อนหน้า crash
+    if (
+      latest!.state === 'INTENT' &&
+      this.now().getTime() - latest!.updatedAt.getTime() < INTENT_IN_FLIGHT_MS
+    ) {
+      await audit(this.platform, { outcome: 'REJECTED', errorCode: 'REVISION_CONFLICT' });
+      throw new PlatformProvisioningError('REVISION_CONFLICT');
+    }
+
     let created: InvitationRow;
     try {
       created = await this.platform.$transaction(async (transaction) => {
@@ -335,6 +348,16 @@ export class InvitationOutbox {
     }
 
     try {
+      // #436: ลิงก์ของรุ่นก่อนหน้าต้องใช้ไม่ได้ก่อนส่งรุ่นใหม่ (invitation guard ใน Keycloak ตรวจ iat)
+      await this.supersedeLinks(created).catch(async (error: unknown) => {
+        await this.transition(created, {
+          state: 'FAILED',
+          errorCode: 'INVITATION_GUARD_UPDATE_FAILED',
+        });
+        throw error instanceof ProvisioningStepError
+          ? error
+          : new ProvisioningStepError('TRANSIENT', 'INVITATION_GUARD_UPDATE_FAILED');
+      });
       await this.send(created);
       await audit(this.platform, { outcome: 'SUCCEEDED', attempt: created.generation });
     } catch (error) {
@@ -346,6 +369,30 @@ export class InvitationOutbox {
       throw error;
     }
     return this.status(request.id);
+  }
+
+  /**
+   * ตั้ง `dc_invitation_not_before` บน Keycloak user — guard ปฏิเสธลิงก์ที่ `iat` เก่ากว่านี้
+   * Keycloak PUT แทน attributes ทั้งชุด จึงอ่านของเดิมมารวมก่อน
+   */
+  private async supersedeLinks(invitation: InvitationRow) {
+    const path = `/users/${encodeURIComponent(invitation.keycloakUserId)}`;
+    const { body: user } = await this.keycloak.admin<{ attributes?: Record<string, string[]> }>(
+      'GET',
+      path,
+    );
+    // iat ของ token มีหน่วยวินาที: ใช้ "วินาทีถัดไป" แล้วรอให้ถึงก่อนส่งรุ่นใหม่ — ลิงก์เก่าทุกอันมี
+    // iat น้อยกว่าเสมอ และลิงก์ใหม่มี iat ≥ not-before เสมอ (รอไม่เกิน 1 วินาที)
+    const notBefore = Math.floor(Date.now() / 1000) + 1;
+    await this.keycloak.admin('PUT', path, {
+      body: {
+        ...user,
+        attributes: { ...(user.attributes ?? {}), dc_invitation_not_before: [String(notBefore)] },
+      },
+    });
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.max(0, notBefore * 1000 - Date.now() + 20)),
+    );
   }
 
   /** delivery กับ activation แยกกัน (#392) — ไม่คืน email หรือ token */
