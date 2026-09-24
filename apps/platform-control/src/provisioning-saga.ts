@@ -376,23 +376,26 @@ export class ProvisioningSagaWorker {
     let lost = false;
     let pending: Promise<void> = Promise.resolve();
     const beat = () => {
-      pending = pending.then(async () => {
-        if (lost) return;
-        const extended = await this.database.pfProvisioningStep.updateMany({
-          where: {
-            requestId,
-            stepKey,
-            leaseOwner: this.options.workerId,
-            revision: lease.revision,
-          },
-          data: {
-            leaseExpiresAt: new Date(this.now().getTime() + this.leaseMs),
-            revision: { increment: 1 },
-          },
-        });
-        if (extended.count === 1) lease.revision += 1;
-        else lost = true;
-      });
+      pending = pending
+        .then(async () => {
+          if (lost) return;
+          const extended = await this.database.pfProvisioningStep.updateMany({
+            where: {
+              requestId,
+              stepKey,
+              leaseOwner: this.options.workerId,
+              revision: lease.revision,
+            },
+            data: {
+              leaseExpiresAt: new Date(this.now().getTime() + this.leaseMs),
+              revision: { increment: 1 },
+            },
+          });
+          if (extended.count === 1) lease.revision += 1;
+          else lost = true;
+        })
+        // DB error ครั้งเดียวต้องไม่ทำให้ heartbeat รอบถัดไปเงียบหาย — ถ้า lease หมดจริง CAS ตอนเขียนผลจะจับได้
+        .catch(() => undefined);
     };
     const timer = setInterval(beat, this.heartbeatMs);
     timer.unref?.();

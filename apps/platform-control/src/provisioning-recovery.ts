@@ -145,9 +145,27 @@ export class ProvisioningRecoveryService {
       const context = provisioningStepContext(request, stepKey, step.attempt);
       const found = await this.ports[stepKey].find(context);
       if (found.status !== 'FOUND') throw new PlatformProvisioningError('PREVIEW_STALE');
-      await this.ports[stepKey].compensate!(context, found.externalRef);
-      return this.commit(request, step, command, async (transaction) => {
-        await this.updateStep(transaction, step, {
+      const externalRefHash = platformIdentityHash('external-ref', found.externalRef);
+      // durable intent ก่อนแตะระบบภายนอก: CAS บน step ทำให้ operator สองคนที่กดพร้อมกันมีผู้ชนะคนเดียว
+      // crash หลังจุดนี้ทิ้ง `COMPENSATING` ไว้ให้ preview ใหม่ถาม `find` ว่า resource ยังอยู่หรือไม่
+      await this.database.$transaction((transaction) =>
+        this.updateStep(transaction, step, { errorCode: 'COMPENSATING' }),
+      );
+      const claimed = { ...step, revision: step.revision + 1 };
+      try {
+        await this.ports[stepKey].compensate!(context, found.externalRef);
+      } catch (error) {
+        await this.audit(this.database, request, command, {
+          outcome: 'REJECTED',
+          stepKey,
+          attempt: step.attempt,
+          externalRefHash,
+          errorCode: 'COMPENSATION_FAILED',
+        });
+        throw error;
+      }
+      return this.commit(request, claimed, command, async (transaction) => {
+        await this.updateStep(transaction, claimed, {
           errorCode: 'COMPENSATED',
           externalRef: null,
         });
@@ -155,7 +173,7 @@ export class ProvisioningRecoveryService {
           outcome: 'SUCCEEDED',
           stepKey,
           attempt: step.attempt,
-          externalRefHash: platformIdentityHash('external-ref', found.externalRef),
+          externalRefHash,
           afterState: 'ACTION_REQUIRED',
         });
         return { status: 'ACTION_REQUIRED', revision: request.revision };
@@ -171,11 +189,7 @@ export class ProvisioningRecoveryService {
           nextAttemptAt: null,
           errorCode: null,
         });
-        const revision = await this.resume(transaction, request, {
-          deadlineAt: new Date(
-            this.now().getTime() + PROVISIONING_SAGA_LIMITS.requestDeadlineMinutes * 60_000,
-          ),
-        });
+        const revision = await this.resume(transaction, request);
         await this.audit(transaction, request, command, {
           outcome: 'SUCCEEDED',
           stepKey,
@@ -226,7 +240,7 @@ export class ProvisioningRecoveryService {
           recordedAt: this.now(),
         },
       });
-      const revision = await this.resume(transaction, request, {});
+      const revision = await this.resume(transaction, request);
       await this.audit(transaction, request, command, {
         outcome: 'SUCCEEDED',
         stepKey,
@@ -338,14 +352,20 @@ export class ProvisioningRecoveryService {
     if (updated.count !== 1) throw new PlatformProvisioningError('REVISION_CONFLICT');
   }
 
+  /**
+   * กลับไป RUNNING พร้อม deadline ใหม่: การแทรกแซงของ operator เปิดหน้าต่างเวลาใหม่เสมอ ไม่เช่นนั้น
+   * request ที่ถูก escalate เพราะ `DEADLINE_EXCEEDED` จะถูก escalate ซ้ำทันทีที่ step ถัดไปถูก claim
+   */
   private async resume(
     transaction: Prisma.TransactionClient,
     request: LoadedRequest,
-    data: { deadlineAt?: Date },
   ): Promise<number> {
+    const deadlineAt = new Date(
+      this.now().getTime() + PROVISIONING_SAGA_LIMITS.requestDeadlineMinutes * 60_000,
+    );
     const updated = await transaction.pfProvisioningRequest.updateMany({
       where: { id: request.id, revision: request.revision, status: 'ACTION_REQUIRED' },
-      data: { status: 'RUNNING', failureCode: null, revision: { increment: 1 }, ...data },
+      data: { status: 'RUNNING', failureCode: null, deadlineAt, revision: { increment: 1 } },
     });
     if (updated.count !== 1) throw new PlatformProvisioningError('REVISION_CONFLICT');
     return request.revision + 1;
@@ -368,7 +388,7 @@ export class ProvisioningRecoveryService {
     return appendPlatformAction(client, this.id(), {
       tenantId: request.tenantId,
       requestId: request.id,
-      action: command.action === 'RETRY_STEP' ? 'RETRY_STEP' : command.action,
+      action: command.action,
       actor: command.actor,
       correlationId: command.correlationId,
       reasonCode: command.reasonCode,

@@ -424,6 +424,23 @@ test('recovery Reconcile: resource ที่มีจริงถูก adopt �
   assert.equal(actions[0]!.actorSubject, OPERATOR.subject);
 });
 
+test('recovery Reconcile หลัง deadline: เปิด deadline ใหม่ให้ step ถัดไป ไม่ ACTION_REQUIRED ซ้ำทันที', async (t) => {
+  const s = await setup(t);
+  const accepted = await s.accept();
+  s.fakes.systems.KEYCLOAK_ORGANIZATION.fail('lostResponse');
+  const worker = s.worker();
+  assert.equal((await worker.runOnce()).kind, 'RETRY_SCHEDULED');
+  s.advance(31 * 60_000);
+  const escalated = await worker.runOnce();
+  assert.equal(escalated.kind === 'ACTION_REQUIRED' && escalated.code, 'DEADLINE_EXCEEDED');
+
+  assert.equal((await recover(s, accepted.requestId, 'RECONCILE')).status, 'RUNNING');
+  await worker.drain();
+  const final = await state(s, accepted.requestId);
+  assert.deepEqual([final.status, final.lifecycle], ['SUCCEEDED', 'ACTIVE']);
+  assert.equal(s.fakes.systems.KEYCLOAK_ORGANIZATION.created, 1);
+});
+
 test('recovery Retry: เฉพาะเมื่อ resource ไม่มีจริง เปิดงบ attempt/deadline ใหม่ และไม่ข้าม step', async (t) => {
   const s = await setup(t);
   const accepted = await s.accept();
@@ -481,6 +498,60 @@ test('recovery Safe compensate: เฉพาะ resource ที่พิสู�
     [preview.stepKey, preview.allowed, preview.blockedBy],
     ['INVITATION', false, 'COMPENSATION_UNSUPPORTED'],
   );
+});
+
+test('recovery Safe compensate: operator สองคนกดพร้อมกันลบได้ครั้งเดียว; compensate ล้มเหลวลง audit', async (t) => {
+  const s = await setup(t);
+  const accepted = await s.accept();
+  s.fakes.systems.KEYCLOAK_ORGANIZATION.fail('lostResponse');
+  assert.equal((await s.worker('worker-a', { maxAttempts: 1 }).runOnce()).kind, 'ACTION_REQUIRED');
+  const system = s.fakes.systems.KEYCLOAK_ORGANIZATION;
+
+  // compensate ภายนอกล้มเหลว: ไม่มีอะไรหาย, ลง audit REJECTED และ preview ใหม่ยังเห็น resource
+  const original = system.compensate!;
+  (system as { compensate?: typeof original }).compensate = async () => {
+    throw new Error('keycloak unavailable');
+  };
+  await assert.rejects(recover(s, accepted.requestId, 'SAFE_COMPENSATE'), /keycloak unavailable/);
+  let compensateCalls = 0;
+  (system as { compensate?: typeof original }).compensate = (...args) => {
+    compensateCalls += 1;
+    return original(...args);
+  };
+  const failed = (
+    await s.f.repository().listActionHistory({ tenantId: accepted.tenantId, limit: 200 })
+  ).filter((row) => row.action === 'SAFE_COMPENSATE');
+  assert.deepEqual(
+    failed.map((row) => [row.outcome, row.errorCode]),
+    [['REJECTED', 'COMPENSATION_FAILED']],
+  );
+
+  // preview เดียวกันส่งพร้อมกันสองคน: ผู้ชนะคนเดียว ระบบภายนอกถูกลบครั้งเดียว
+  const preview = await s.recovery.preview({
+    requestId: accepted.requestId,
+    action: 'SAFE_COMPENSATE',
+  });
+  assert.equal(preview.allowed, true);
+  const command = {
+    requestId: accepted.requestId,
+    action: 'SAFE_COMPENSATE' as const,
+    expectedRevision: preview.revision,
+    previewDigest: preview.previewDigest,
+    reasonCode: 'OPERATOR_VERIFIED',
+    comment: 'ตรวจสอบแล้ว',
+    actor: OPERATOR,
+    correlationId: 'corr-compensate',
+  };
+  const results = await Promise.allSettled([
+    s.recovery.execute(command),
+    s.recovery.execute(command),
+  ]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  const loser = results.find((result) => result.status === 'rejected');
+  assert.equal((loser?.reason as PlatformProvisioningError).code, 'REVISION_CONFLICT');
+  // ผู้แพ้ต้องไม่เรียกระบบภายนอกเลย ไม่ใช่แค่ถูกระบบภายนอกปฏิเสธ
+  assert.equal(compensateCalls, 1);
+  assert.deepEqual(system.compensated, ['keycloak_organization-1']);
 });
 
 test('recovery guards: preview เก่า, revision เก่า, ไม่มี reason/comment และ request ที่ไม่ใช่ ACTION_REQUIRED ถูกปฏิเสธ', async (t) => {
