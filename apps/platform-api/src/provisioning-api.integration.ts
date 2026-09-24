@@ -169,6 +169,7 @@ after(async () => {
     await transaction.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
     for (const table of [
       'pf_operator_commands',
+      'pf_first_admin_email_revisions',
       'pf_invitations',
       'pf_request_payload_revisions',
       'pf_action_history',

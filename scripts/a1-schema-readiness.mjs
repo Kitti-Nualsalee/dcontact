@@ -26,6 +26,8 @@ export const A1_MIGRATIONS = Object.freeze([
   '20260924120100_add_a1_5_bootstrap',
   // A1.6 (#411): durable operator command ของ Platform API
   '20260924130000_add_a1_6_operator_commands',
+  // A1.5b (#441): guard ที่ให้แก้อีเมล first admin ได้ตามเงื่อนไข + revision
+  '20260924140000_add_a1_5b_first_admin_email_change',
 ]);
 
 export const CANONICAL_A1_TABLES = Object.freeze([
@@ -40,6 +42,7 @@ export const CANONICAL_A1_TABLES = Object.freeze([
   'pf_plan_versions',
   'pf_request_payload_revisions',
   'pf_operator_commands',
+  'pf_first_admin_email_revisions',
 ]);
 
 export const APPEND_ONLY_A1_TABLES = Object.freeze([
@@ -47,6 +50,7 @@ export const APPEND_ONLY_A1_TABLES = Object.freeze([
   'pf_command_receipts',
   'pf_action_history',
   'pf_request_payload_revisions',
+  'pf_first_admin_email_revisions',
 ]);
 
 /** ตารางที่ control-plane role มีสิทธิ์ได้ — นอกจากนี้ต้องเป็นศูนย์ (ห้ามอ่าน business data) */
@@ -69,6 +73,7 @@ export const REQUIRED_A1_CONSTRAINTS = Object.freeze([
   'tenant_plan_bindings_values_check',
   'business_hours_values_check',
   'pf_operator_commands_values_check',
+  'pf_first_admin_email_revisions_values_check',
 ]);
 
 export const REQUIRED_A1_UNIQUE_INDEXES = Object.freeze([
@@ -86,6 +91,7 @@ export const REQUIRED_A1_UNIQUE_INDEXES = Object.freeze([
   'pf_operator_commands_idempotency_key_hash_key',
   // execute ที่ยังไม่จบได้ครั้งละหนึ่งต่อ request (partial unique)
   'pf_operator_commands_single_execute_key',
+  'pf_first_admin_email_revisions_revision_key',
 ]);
 
 export const REQUIRED_A1_TRIGGERS = Object.freeze([
@@ -109,6 +115,7 @@ export const REQUIRED_A1_TRIGGERS = Object.freeze([
   'pf_request_payload_revisions_append_only',
   'pf_operator_commands_retained',
   'pf_operator_commands_guard',
+  'pf_first_admin_email_revisions_append_only',
 ]);
 
 /**
@@ -131,8 +138,8 @@ export const PROVISIONER_TABLE_PRIVILEGES = Object.freeze(
   ]),
 );
 
-/** steps/receipts/command/reservation/history/invitations/payload revisions/operator commands + plan pin */
-export const MINIMUM_A1_COMPOSITE_FOREIGN_KEYS = 10;
+/** steps/receipts/command/reservation/history/invitations/payload+email revisions/operator commands + plan pin */
+export const MINIMUM_A1_COMPOSITE_FOREIGN_KEYS = 11;
 
 function sqlArray(values) {
   return `ARRAY[${values.map((value) => `'${value}'`).join(',')}]`;

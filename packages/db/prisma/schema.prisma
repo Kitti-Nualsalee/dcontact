@@ -5446,6 +5446,7 @@ model PfProvisioningRequest {
   invitations  PfInvitation[]
   payloadRevisions PfRequestPayloadRevision[]
   operatorCommands PfOperatorCommand[]
+  emailRevisions   PfFirstAdminEmailRevision[]
 
   @@unique([tenantId, id], map: "pf_provisioning_requests_binding_key")
   @@index([status, updatedAt], map: "pf_provisioning_requests_status_idx")
@@ -5537,6 +5538,26 @@ model PfRequestPayloadRevision {
 
   @@unique([requestId, requestRevision], map: "pf_request_payload_revisions_revision_key")
   @@map("pf_request_payload_revisions")
+}
+
+/// A1.5b (#441) append-only: การเปลี่ยนอีเมล first admin (hash เท่านั้น) ก่อน identity step สำเร็จ
+model PfFirstAdminEmailRevision {
+  id                String      @id @db.Uuid
+  requestId         String      @map("request_id") @db.Uuid
+  tenantId          String      @map("tenant_id") @db.Uuid
+  requestRevision   Int         @map("request_revision")
+  previousEmailHash String      @map("previous_email_hash") @db.Char(64)
+  emailHash         String      @map("email_hash") @db.Char(64)
+  payloadDigest     String      @map("payload_digest") @db.Char(64)
+  actorKind         PfActorKind @map("actor_kind")
+  actorSubject      String      @map("actor_subject")
+  reasonCode        String      @map("reason_code")
+  createdAt         DateTime    @map("created_at")
+
+  request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_first_admin_email_revisions_request_fkey")
+
+  @@unique([requestId, requestRevision], map: "pf_first_admin_email_revisions_revision_key")
+  @@map("pf_first_admin_email_revisions")
 }
 
 enum PfOperatorCommandKind {

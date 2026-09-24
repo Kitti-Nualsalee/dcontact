@@ -329,7 +329,7 @@ test('edit: CAS บน revision, identity field ล็อก, field ล็อก
     s.editor.edit({
       ...base,
       expectedRevision: revision,
-      changes: { firstAdminEmail: 'x@example.test' },
+      changes: { primaryDomain: 'other.example.test' },
     }),
     'FIELD_LOCKED',
   );

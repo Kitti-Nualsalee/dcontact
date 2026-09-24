@@ -486,3 +486,58 @@ test('first-admin ทำ execute actions ครบแล้ว login ผ่า�
       (error as PlatformProvisioningError).code === 'RECOVERY_PRECONDITION_FAILED',
   );
 });
+
+test('A1.5b (#441): อีเมลชนกับ identity เดิม → แก้อีเมล → Retry → ACTIVE กับ Keycloak จริง', async (t) => {
+  const s = await setup(t);
+  const { ProvisioningRequestEditor } = await import('./provisioning-request-editor.js');
+  const { ProvisioningRecoveryService } = await import('./provisioning-recovery.js');
+  const accepted = await s.accept({
+    firstAdmin: { email: 'admin@demo.local', displayName: 'Taken' },
+  });
+  await s.drain();
+  const stuck = await s.state(accepted.requestId);
+  assert.deepEqual(
+    [stuck.status, stuck.failureCode],
+    ['ACTION_REQUIRED', 'FIRST_ADMIN_EMAIL_CONFLICT'],
+  );
+
+  const fixedEmail = `fixed-${randomUUID().slice(0, 8)}@example.test`;
+  await new ProvisioningRequestEditor(s.f.platform).edit({
+    requestId: accepted.requestId,
+    expectedRevision: stuck.revision,
+    changes: { firstAdminEmail: fixedEmail },
+    reasonCode: 'CUSTOMER_CORRECTION',
+    comment: 'ลูกค้าให้อีเมลใหม่',
+    actor: OPERATOR,
+    correlationId: 'corr-email-fix',
+  });
+  const recovery = new ProvisioningRecoveryService(
+    s.f.platform,
+    {
+      ...s.fakes.ports,
+      KEYCLOAK_ORGANIZATION: s.organizations,
+      PLAN_BOOTSTRAP: s.bootstrap,
+      FIRST_ADMIN: s.firstAdmin,
+      INVITATION: s.outbox.port(),
+    },
+    { sipBaseDomain: SIP_BASE },
+  );
+  const preview = await recovery.preview({ requestId: accepted.requestId, action: 'RETRY_STEP' });
+  assert.deepEqual([preview.allowed, preview.finding], [true, 'NOT_FOUND']);
+  await recovery.execute({
+    requestId: accepted.requestId,
+    action: 'RETRY_STEP',
+    expectedRevision: preview.revision,
+    previewDigest: preview.previewDigest,
+    reasonCode: 'OPERATOR_VERIFIED',
+    comment: 'แก้อีเมลแล้ว',
+    actor: OPERATOR,
+    correlationId: 'corr-email-retry',
+  });
+  await s.drain();
+  const final = await s.state(accepted.requestId);
+  assert.deepEqual([final.status, final.tenant.lifecycleStatus], ['SUCCEEDED', 'ACTIVE']);
+  // คำเชิญไปที่อีเมลใหม่ ไม่ใช่ของ identity เดิม
+  assert.equal((await messagesTo(fixedEmail)).length, 1);
+  assert.equal((await usersOf(accepted.tenantId)).length, 1);
+});
