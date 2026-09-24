@@ -138,6 +138,41 @@ jobs:
       - name: Platform API integration
         run: pnpm --filter @d-contact/platform-api test:integration
 
+  a1-platform-console:
+    # A1.7 (#412): Platform Console — logic + Playwright/axe กับ Platform API ที่ mock ตาม contract
+    # (UAT กับ Keycloak/API/worker จริงรันด้วย `pnpm a1:console:uat` ในเครื่อง)
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: pnpm --filter @d-contact/platform-console exec playwright install --with-deps chromium
+
+      - name: Platform Console unit tests + typecheck
+        run: pnpm --filter @d-contact/platform-console test && pnpm --filter @d-contact/platform-console typecheck
+
+      - name: Platform Console e2e (Playwright + axe)
+        run: pnpm --filter @d-contact/platform-console test:e2e
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-console-playwright
+          path: apps/platform-console/test-results
+          retention-days: 7
+
   s1-convergence-acceptance:
     # S1 ใช้เวลานานและ J3 final gate เรียกเองอยู่แล้ว: ไม่รันทุก main push
     # เพื่อให้ development ใช้ focused gate ได้ก่อน แล้วเรียก S1 เมื่อเลือก manual เท่านั้น

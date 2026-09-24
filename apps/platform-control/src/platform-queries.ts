@@ -246,6 +246,39 @@ export class PlatformQueries {
     };
   }
 
+  /**
+   * catalog ที่เลือกได้ตอนสร้าง request: plan version ล่าสุดที่ ACTIVE ต่อ code และ bootstrap template
+   * ที่ ACTIVE (#392 — DEPRECATED/REVOKED เลือกไม่ได้) UI ใช้แสดงตัวเลือกเท่านั้น API ยัง pin ตอน accept
+   */
+  async catalog() {
+    const [plans, templates] = await Promise.all([
+      this.database.pfPlanVersion.findMany({
+        where: { status: 'ACTIVE' },
+        orderBy: [{ planCode: 'asc' }, { version: 'desc' }],
+        select: { planCode: true, version: true, entitlements: true },
+      }),
+      this.database.pfBootstrapTemplate.findMany({
+        where: { status: 'ACTIVE' },
+        orderBy: { createdAt: 'desc' },
+        select: { version: true, contentDigest: true, createdAt: true },
+      }),
+    ]);
+    const latest = new Map<string, (typeof plans)[number]>();
+    for (const plan of plans) if (!latest.has(plan.planCode)) latest.set(plan.planCode, plan);
+    return {
+      plans: [...latest.values()].map((plan) => ({
+        code: plan.planCode,
+        version: plan.version,
+        entitlements: plan.entitlements,
+      })),
+      templates: templates.map((template) => ({
+        version: template.version,
+        contentDigest: template.contentDigest,
+        publishedAt: template.createdAt.toISOString(),
+      })),
+    };
+  }
+
   async actionHistory(input: { tenantId: string; cursor?: string; limit?: number }) {
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
     const tenant = UUID.test(input.tenantId)

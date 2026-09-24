@@ -99,12 +99,15 @@ export function createPlatformWorker(config: PlatformWorkerConfig) {
   async function run(signal: AbortSignal, pollMs = 1_000) {
     while (!signal.aborted) {
       if (!(await tick())) {
-        await new Promise((resolve) => {
-          const timer = setTimeout(resolve, pollMs);
-          signal.addEventListener('abort', () => {
+        await new Promise<void>((resolve) => {
+          // ถอด listener ทุกรอบ — loop ที่รันยาวต้องไม่สะสม listener บน signal เดียว
+          const wake = () => {
             clearTimeout(timer);
-            resolve(undefined);
-          });
+            signal.removeEventListener('abort', wake);
+            resolve();
+          };
+          const timer = setTimeout(wake, pollMs);
+          signal.addEventListener('abort', wake, { once: true });
         });
       }
     }
