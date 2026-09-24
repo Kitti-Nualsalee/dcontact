@@ -12,7 +12,9 @@ trap 'rm -rf "$work"; docker rm -f dcontact-kc-libs >/dev/null 2>&1 || true' EXI
 docker create --name dcontact-kc-libs "$keycloak_image" >/dev/null
 docker cp dcontact-kc-libs:/opt/keycloak/lib/lib/main "$work/lib"
 mkdir -p "$root/infra/keycloak/providers" "$work/classes"
+# รันด้วย uid/gid ของ host — บน Linux ไฟล์ที่ container สร้างจะไม่เป็นของ root (ลบ temp ได้)
 docker run --rm \
+  --user "$(id -u):$(id -g)" \
   -v "$extension/src/main":/src:ro \
   -v "$work":/work \
   eclipse-temurin:21-jdk \
