@@ -19,6 +19,8 @@ export const A1_MIGRATIONS = Object.freeze([
   // A1.3 (#408): action kind ของ retry แยกไฟล์จาก column ที่ scheduling ใช้
   '20260924100000_add_a1_3_action_kind',
   '20260924100100_add_a1_3_step_scheduling',
+  // A1.4 (#409): invitation outbox + role ของ tenant bootstrap (#388 decision)
+  '20260924110000_add_a1_4_invitation_outbox',
 ]);
 
 export const CANONICAL_A1_TABLES = Object.freeze([
@@ -29,6 +31,7 @@ export const CANONICAL_A1_TABLES = Object.freeze([
   'pf_command_receipts',
   'pf_identity_reservations',
   'pf_action_history',
+  'pf_invitations',
 ]);
 
 export const APPEND_ONLY_A1_TABLES = Object.freeze([
@@ -51,6 +54,7 @@ export const REQUIRED_A1_CONSTRAINTS = Object.freeze([
   'pf_action_history_values_check',
   'tenants_provisioning_placeholder_check',
   'pf_provisioning_steps_attempt_floor_check',
+  'pf_invitations_values_check',
 ]);
 
 export const REQUIRED_A1_UNIQUE_INDEXES = Object.freeze([
@@ -62,6 +66,7 @@ export const REQUIRED_A1_UNIQUE_INDEXES = Object.freeze([
   'pf_provisioning_step_receipts_attempt_key',
   'pf_command_receipts_idempotency_key_hash_key',
   'tenants_primary_domain_key',
+  'pf_invitations_generation_key',
 ]);
 
 export const REQUIRED_A1_TRIGGERS = Object.freeze([
@@ -77,10 +82,22 @@ export const REQUIRED_A1_TRIGGERS = Object.freeze([
   'pf_identity_reservations_guard',
   'pf_bootstrap_templates_guard',
   'tenants_lifecycle_guard',
+  'pf_invitations_retained',
+  'pf_invitations_insert_guard',
+  'pf_invitations_guard',
 ]);
 
-/** steps/receipts/command/reservation/history ผูก (tenant_id, request_id) กับ request */
-export const MINIMUM_A1_COMPOSITE_FOREIGN_KEYS = 6;
+/**
+ * #388 decision "Tenant bootstrap write boundary": `dcontact_provisioner` มี table privilege ได้แค่นี้
+ * (UPDATE keycloak_id และ SELECT id/lifecycle ของ tenants เป็น column grant จึงไม่อยู่ในรายการ)
+ */
+export const PROVISIONER_TABLE_PRIVILEGES = Object.freeze([
+  ['users', 'SELECT'],
+  ['users', 'INSERT'],
+]);
+
+/** steps/receipts/command/reservation/history/invitations ผูก (tenant_id, request_id) กับ request */
+export const MINIMUM_A1_COMPOSITE_FOREIGN_KEYS = 7;
 
 function sqlArray(values) {
   return `ARRAY[${values.map((value) => `'${value}'`).join(',')}]`;
@@ -119,7 +136,19 @@ export const A1_SCHEMA_EVIDENCE_QUERY = `
           OR (privilege_type = 'UPDATE' AND table_name = ANY(${sqlArray([...APPEND_ONLY_A1_TABLES, 'tenants'])}))
         ))
     || '|' ||
-    (SELECT count(*) FROM pg_roles WHERE rolname = 'dcontact_platform' AND NOT rolbypassrls AND NOT rolsuper);
+    (SELECT count(*) FROM pg_roles WHERE rolname = 'dcontact_platform' AND NOT rolbypassrls AND NOT rolsuper)
+    || '|' ||
+    (SELECT count(*) FROM information_schema.table_privileges
+      WHERE grantee = 'dcontact_provisioner'
+        AND (table_name || ':' || privilege_type) <> ALL(${sqlArray(
+          PROVISIONER_TABLE_PRIVILEGES.map(([table, privilege]) => `${table}:${privilege}`),
+        )}))
+    || '|' ||
+    (SELECT count(*) FROM pg_roles WHERE rolname = 'dcontact_provisioner' AND NOT rolbypassrls AND NOT rolsuper)
+    || '|' ||
+    (SELECT count(*) FROM pg_policies
+      WHERE tablename = 'users' AND policyname = 'provisioner_provisioning_only'
+        AND permissive = 'RESTRICTIVE' AND roles = '{dcontact_provisioner}');
 `
   .replace(/\s+/g, ' ')
   .trim();
@@ -127,8 +156,8 @@ export const A1_SCHEMA_EVIDENCE_QUERY = `
 export function parseA1SchemaEvidence(value) {
   const match = String(value)
     .trim()
-    .match(/^(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)$/);
-  if (!match) throw new TypeError('schema evidence ต้องมีแปดตัวเลขคั่นด้วย |');
+    .match(/^(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)\|(\d+)$/);
+  if (!match) throw new TypeError('schema evidence ต้องมีสิบเอ็ดตัวเลขคั่นด้วย |');
   const [
     ,
     tablesFound,
@@ -139,6 +168,9 @@ export function parseA1SchemaEvidence(value) {
     applicationPrivileges,
     forbiddenPlatformPrivileges,
     platformRole,
+    forbiddenProvisionerPrivileges,
+    provisionerRole,
+    provisionerRestrictivePolicy,
   ] = match.map(Number);
   return {
     tables: tablesFound,
@@ -149,6 +181,9 @@ export function parseA1SchemaEvidence(value) {
     applicationPrivileges,
     forbiddenPlatformPrivileges,
     platformRole,
+    forbiddenProvisionerPrivileges,
+    provisionerRole,
+    provisionerRestrictivePolicy,
     status:
       tablesFound === CANONICAL_A1_TABLES.length &&
       checks === REQUIRED_A1_CONSTRAINTS.length &&
@@ -158,7 +193,11 @@ export function parseA1SchemaEvidence(value) {
       // tenant app ไม่เห็น control plane และ control plane ไม่มีสิทธิ์นอก metadata/ลบ/แก้หลักฐาน
       applicationPrivileges === 0 &&
       forbiddenPlatformPrivileges === 0 &&
-      platformRole === 1
+      platformRole === 1 &&
+      // provisioner เขียนได้แค่ bootstrap rows และหนี PROVISIONING-only policy ไม่ได้
+      forbiddenProvisionerPrivileges === 0 &&
+      provisionerRole === 1 &&
+      provisionerRestrictivePolicy === 1
         ? 'PASS'
         : 'FAIL',
   };

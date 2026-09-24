@@ -33,13 +33,17 @@ const complete = [
   0,
   0,
   1,
+  0,
+  1,
+  1,
 ];
 
 test('A1.1 evidence ครบผ่าน; ขาดชิ้นใดหรือมีสิทธิ์เกินไม่ผ่าน', () => {
   assert.equal(parseA1SchemaEvidence(complete.join('|')).status, 'PASS');
   for (let index = 0; index < complete.length; index += 1) {
     const broken = [...complete];
-    broken[index] = index === 5 || index === 6 ? 1 : broken[index] === 0 ? 1 : broken[index] - 1;
+    // index 5/6/8 นับสิทธิ์เกิน (ต้องเป็นศูนย์) นอกนั้นขาดไปหนึ่งชิ้น
+    broken[index] = [5, 6, 8].includes(index) ? 1 : broken[index] - 1;
     assert.equal(parseA1SchemaEvidence(broken.join('|')).status, 'FAIL', `index ${index}`);
   }
   assert.throws(() => parseA1SchemaEvidence('1|2'));
@@ -80,6 +84,12 @@ test('A1.1 rls.sql ถอน pf_* จาก dcontact_app หลัง blanket GR
   assert.ok(blanket >= 0 && revoke > blanket);
   for (const table of CANONICAL_A1_TABLES) assert.ok(rls.includes(table), table);
   assert.doesNotMatch(rls, /GRANT[^;]*DELETE[^;]*TO dcontact_platform/);
+  // A1.4: invitation outbox ถูกถอนจาก tenant app และ provisioner ไม่มี DELETE หรือสิทธิ์นอก users/tenants
+  assert.ok(rls.indexOf('REVOKE ALL ON pf_invitations FROM dcontact_app') > blanket);
+  assert.doesNotMatch(rls, /GRANT[^;]*DELETE[^;]*TO dcontact_provisioner/);
+  for (const statement of rls.match(/GRANT [^;]*TO dcontact_provisioner/g) ?? []) {
+    assert.match(statement, /ON (SCHEMA public|tenants|users) TO/, statement);
+  }
   for (const table of APPEND_ONLY_A1_TABLES) {
     assert.doesNotMatch(rls, new RegExp(`GRANT[^;]*UPDATE[^;]*${table}[^;]*TO dcontact_platform`));
   }

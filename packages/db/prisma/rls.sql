@@ -286,3 +286,21 @@ GRANT SELECT, INSERT, UPDATE ON pf_bootstrap_templates, pf_provisioning_requests
   pf_provisioning_steps, pf_identity_reservations TO dcontact_platform;
 GRANT SELECT, INSERT ON pf_provisioning_step_receipts, pf_command_receipts, pf_action_history
   TO dcontact_platform;
+
+-- A1.4 (#409): invitation outbox เป็น control plane; tenant app ห้ามเห็น
+REVOKE ALL ON pf_invitations FROM dcontact_app;
+GRANT SELECT, INSERT, UPDATE ON pf_invitations TO dcontact_platform;
+
+-- #388 decision "Tenant bootstrap write boundary": saga worker เขียนข้อมูลตั้งต้นของ tenant ด้วย
+-- role แยกนี้เท่านั้น และได้เฉพาะ tenant ที่ยัง PROVISIONING (policy อยู่ใน migration ของ A1.4)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dcontact_provisioner') THEN
+    CREATE ROLE dcontact_provisioner LOGIN PASSWORD 'dcontact_provisioner' NOBYPASSRLS;
+  END IF;
+END $$;
+
+GRANT USAGE ON SCHEMA public TO dcontact_provisioner;
+GRANT SELECT (id, lifecycle_status) ON tenants TO dcontact_provisioner;
+GRANT SELECT, INSERT ON users TO dcontact_provisioner;
+GRANT UPDATE (keycloak_id) ON users TO dcontact_provisioner;
