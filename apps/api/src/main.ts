@@ -81,6 +81,7 @@ import {
 import { Redis } from 'ioredis';
 import { Cg5QueryCache } from '@d-contact/contact-governance';
 import { TenantClientRateLimiter } from './tenant-client-rate-limiter.js';
+import { assertEntrypointProfile } from './runtime-profile.js';
 import {
   CG5_TENANT_CLIENT_RATE_LIMITER,
   ContactGovernanceExternalReadController,
@@ -104,6 +105,9 @@ function required(name: string): string {
   if (!value) throw new Error(`${name} is required`);
   return value;
 }
+
+// U1.2 (#430): composition root นี้เปิด Kafka/LINE/telephony — ห้ามบูตด้วย UAT profile (ใช้ `uat-main.ts`)
+assertEntrypointProfile('default');
 
 const prisma = new PrismaClient();
 const cg5QueryCache = new Cg5QueryCache(

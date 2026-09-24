@@ -108,6 +108,19 @@ export interface JourneyAuthoringRepositoryOptions {
   readonly now?: () => Date;
   /** fault injection สำหรับพิสูจน์ว่า crash ทุก boundary ไม่ทิ้ง state ครึ่งเดียว */
   readonly checkpoint?: (name: JourneyAuthoringCheckpoint) => void | Promise<void>;
+  /**
+   * U1.1 (#429): ตรวจเพิ่มก่อน mutation ของ Journey ที่มีอยู่ (หลังได้ lock) — UAT ใช้ปิด Journey ของ run ที่
+   * ปิดแล้ว ไม่มี guard = พฤติกรรม J5 เดิมทุกประการ
+   */
+  readonly writeGuard?: JourneyAuthoringWriteGuard;
+}
+
+export interface JourneyAuthoringWriteGuard {
+  assertJourneyWritable(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    journeyId: string,
+  ): Promise<void>;
 }
 
 export interface JourneyCommandContext {
@@ -1660,6 +1673,7 @@ export class JourneyAuthoringRepository {
   protected async lockedHead(tx: Tx, tenantId: string, journeyId: string) {
     const head = await this.head(tx, tenantId, journeyId);
     await this.lockJourney(tx, tenantId, journeyId);
+    await this.options.writeGuard?.assertJourneyWritable(tx, tenantId, head.journeyId);
     // อ่านซ้ำหลังได้ lock เพื่อให้ CAS เทียบกับค่าที่ commit ล่าสุด
     return this.head(tx, tenantId, journeyId);
   }

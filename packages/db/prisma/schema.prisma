@@ -5560,3 +5560,106 @@ model PfActionHistory {
   @@index([tenantId, occurredAt, id], map: "pf_action_history_timeline_idx")
   @@map("pf_action_history")
 }
+
+// ── U1.1 (#429): UAT fixture pack และ run record ───────────────────────────────
+// Authority: Phase Contract #374, fixture/reset #376, evidence #379 — มีเฉพาะ UAT stack
+
+enum UatRunLifecycle {
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+enum UatStepOutcome {
+  PASS
+  FAIL
+  BLOCKED
+}
+
+enum UatSeverity {
+  S1
+  S2
+  S3
+  S4
+}
+
+enum UatStateLabel {
+  REAL_STATE
+  SIMULATION_ONLY
+}
+
+/// fixture pack แบบ versioned — แถวแก้/ลบไม่ได้ (trigger); pack version เดิม digest ต่าง = fail closed
+model UatFixturePack {
+  id          String   @id @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  environment String
+  packVersion String   @map("pack_version")
+  digest      String   @db.Char(64)
+  buildSha    String   @map("build_sha")
+  /// manifest สังเคราะห์ล้วน: opaque refs, baseline document, SimulationFixtureV1 — ไม่มี secret/PII
+  manifest    Json
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "uat_fixture_packs_tenant_id_id_key")
+  @@unique([tenantId, environment, packVersion], map: "uat_fixture_packs_version_key")
+  @@map("uat_fixture_packs")
+}
+
+/// UAT run หนึ่งรอบ — ACTIVE ได้หนึ่งแถวต่อ tenant; ปิดแล้วแก้ไม่ได้ (trigger)
+model UatRun {
+  id            String          @id @db.Uuid
+  tenantId      String          @map("tenant_id") @db.Uuid
+  fixturePackId String          @map("fixture_pack_id") @db.Uuid
+  sequence      Int
+  /// Journey draft ของรอบนี้ — null ระหว่าง `เริ่มรอบใหม่` ที่ยังไม่จบ (resume ด้วย key เดิม)
+  journeyId     String?         @map("journey_id") @db.Uuid
+  lifecycle     UatRunLifecycle @default(ACTIVE)
+  revision      Int             @default(1)
+  openedByRef   String          @map("opened_by_ref")
+  closedByRef   String?         @map("closed_by_ref")
+  openedAt      DateTime        @map("opened_at")
+  closedAt      DateTime?       @map("closed_at")
+
+  @@unique([tenantId, id], map: "uat_runs_tenant_id_id_key")
+  @@unique([tenantId, sequence], map: "uat_runs_sequence_key")
+  @@index([tenantId, journeyId], map: "uat_runs_journey_idx")
+  @@map("uat_runs")
+}
+
+/// ผลต่อ step แบบ append-only (#379) — บันทึกได้เฉพาะ run ที่ ACTIVE
+model UatRunStepResult {
+  id            String         @id @db.Uuid
+  tenantId      String         @map("tenant_id") @db.Uuid
+  runId         String         @map("run_id") @db.Uuid
+  stepId        String         @map("step_id")
+  outcome       UatStepOutcome
+  expected      String
+  actual        String
+  severity      UatSeverity?
+  correlationId String?        @map("correlation_id")
+  stateLabel    UatStateLabel  @map("state_label")
+  recordedByRef String         @map("recorded_by_ref")
+  recordedAt    DateTime       @map("recorded_at")
+
+  @@unique([tenantId, id], map: "uat_run_step_results_tenant_id_id_key")
+  @@index([tenantId, runId, recordedAt], map: "uat_run_step_results_run_idx")
+  @@map("uat_run_step_results")
+}
+
+/// idempotency ของคำสั่ง UAT run — response metadata-safe เท่านั้น
+model UatCommandReceipt {
+  id             String    @id @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  idempotencyKey String    @map("idempotency_key")
+  commandName    String    @map("command_name")
+  requestHash    String    @map("request_hash") @db.Char(64)
+  /// run ที่คำสั่งนี้สร้าง — ใช้ resume `เริ่มรอบใหม่` ที่ค้างหลัง crash
+  runId          String?   @map("run_id") @db.Uuid
+  response       Json?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+
+  @@unique([tenantId, id], map: "uat_command_receipts_tenant_id_id_key")
+  @@unique([tenantId, idempotencyKey], map: "uat_command_receipts_idempotency_key")
+  @@map("uat_command_receipts")
+}
