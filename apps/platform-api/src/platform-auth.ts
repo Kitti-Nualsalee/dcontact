@@ -27,6 +27,7 @@ import {
   type ExecutionContext,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { PlatformProvisioningError, type PlatformProvisioningErrorCode } from '@d-contact/shared';
 import {
   PlatformIdentityError,
   toVerifiedPlatformIdentity,
@@ -45,6 +46,8 @@ const PLATFORM_PUBLIC = Symbol('PLATFORM_PUBLIC');
 export interface AuthenticatedPlatformRequest extends IncomingMessage {
   platformIdentity?: VerifiedPlatformIdentity;
   correlationId?: string;
+  /** provisioning request ที่ route resolve แล้ว — ใส่ใน error envelope ได้ (ไม่ใช่กรณี 404) */
+  platformRequestId?: string;
 }
 
 export type PlatformAuthDenialReason =
@@ -152,10 +155,13 @@ export class PlatformAuthGuard implements CanActivate {
 
 export interface PlatformErrorEnvelope {
   status: number;
-  code: 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'BAD_REQUEST' | 'INTERNAL';
+  /** stable machine code — auth ใช้ชุดทั่วไป, domain ใช้ `PlatformProvisioningErrorCode` */
+  code: string;
   title: string;
   correlationId: string | null;
+  requestId?: string;
   retryable: boolean;
+  fieldErrors?: Readonly<Record<string, string>>;
 }
 
 const ENVELOPES: Record<number, Pick<PlatformErrorEnvelope, 'code' | 'title'>> = {
@@ -165,21 +171,83 @@ const ENVELOPES: Record<number, Pick<PlatformErrorEnvelope, 'code' | 'title'>> =
   404: { code: 'NOT_FOUND', title: 'ไม่พบรายการ' },
 };
 
-/** envelope แบบ generic ทุก error — ไม่ส่ง message/stack ของ Nest หรือเหตุผลการปฏิเสธออกไป */
+/** #388 checkpoint 1: status + title ที่ปลอดภัยของ domain error แต่ละ code */
+const DOMAIN_ERRORS: Record<PlatformProvisioningErrorCode, { status: number; title: string }> = {
+  VALIDATION_FAILED: { status: 400, title: 'ข้อมูลไม่ถูกต้อง' },
+  NOT_FOUND: { status: 404, title: 'ไม่พบรายการ' },
+  TENANT_SLUG_CONFLICT: { status: 409, title: 'slug นี้ถูกใช้แล้ว' },
+  TENANT_DOMAIN_CONFLICT: { status: 409, title: 'โดเมนนี้ถูกใช้แล้ว' },
+  FIRST_ADMIN_EMAIL_CONFLICT: { status: 409, title: 'อีเมลผู้ดูแลคนแรกถูกใช้แล้ว' },
+  IDEMPOTENCY_KEY_REUSED: { status: 409, title: 'Idempotency-Key นี้ใช้กับคำขออื่นแล้ว' },
+  REVISION_CONFLICT: { status: 409, title: 'ข้อมูลเปลี่ยนไปแล้ว กรุณาโหลดใหม่' },
+  INVALID_STATE_TRANSITION: { status: 409, title: 'สถานะปัจจุบันทำรายการนี้ไม่ได้' },
+  BOOTSTRAP_TEMPLATE_UNAVAILABLE: { status: 409, title: 'bootstrap template นี้ใช้ไม่ได้แล้ว' },
+  PLAN_UNAVAILABLE: { status: 409, title: 'plan นี้ใช้ไม่ได้แล้ว' },
+  PREVIEW_STALE: { status: 409, title: 'ผล preview เก่าแล้ว กรุณา preview ใหม่' },
+  RECOVERY_PRECONDITION_FAILED: { status: 409, title: 'เงื่อนไขของรายการนี้ไม่ผ่าน' },
+  FIELD_LOCKED: { status: 409, title: 'ข้อมูลนี้แก้ไม่ได้แล้ว' },
+  COMMAND_IN_PROGRESS: { status: 409, title: 'มีคำสั่งอื่นของคำขอนี้กำลังทำงาน' },
+  INVITATION_RESEND_LIMITED: { status: 429, title: 'ส่งคำเชิญซ้ำเกินจำนวนที่กำหนด' },
+  SERVICE_UNAVAILABLE: { status: 503, title: 'ระบบไม่พร้อมชั่วคราว กรุณาลองใหม่' },
+};
+
+/** Prisma ต่อ/commit ไม่ได้ = control plane ไม่พร้อม (503) — ไม่ใช่ dependency หลังรับคำขอ */
+function databaseUnavailable(exception: unknown): boolean {
+  const name = (exception as { name?: string } | null)?.name ?? '';
+  const code = (exception as { code?: string } | null)?.code ?? '';
+  return (
+    name === 'PrismaClientInitializationError' ||
+    (name === 'PrismaClientKnownRequestError' &&
+      ['P1001', 'P1002', 'P1008', 'P1017', 'P2024'].includes(code))
+  );
+}
+
+/**
+ * envelope เดียวกันทุก error — ไม่ส่ง message/stack ของ Nest, raw dependency error หรือเหตุผล
+ * ภายในของการปฏิเสธ auth ออกไป (#388 checkpoint 1)
+ */
 @Catch()
 export class PlatformErrorFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const request = host.switchToHttp().getRequest<AuthenticatedPlatformRequest>();
     const response = host.switchToHttp().getResponse<ServerResponse>();
-    const status = exception instanceof HttpException ? exception.getStatus() : 500;
-    const known = ENVELOPES[status];
-    const body: PlatformErrorEnvelope = {
-      status: known ? status : 500,
-      code: known?.code ?? 'INTERNAL',
-      title: known?.title ?? 'เกิดข้อผิดพลาดภายใน',
-      correlationId: request.correlationId ?? null,
-      retryable: !known,
-    };
+    const correlationId = request.correlationId ?? null;
+    let body: PlatformErrorEnvelope;
+    if (exception instanceof PlatformProvisioningError) {
+      const mapped = DOMAIN_ERRORS[exception.code];
+      body = {
+        status: mapped.status,
+        code: exception.code,
+        title: mapped.title,
+        correlationId,
+        ...(request.platformRequestId && mapped.status !== 404
+          ? { requestId: request.platformRequestId }
+          : {}),
+        retryable: mapped.status === 503 || mapped.status === 429,
+        ...(exception.fieldErrors ? { fieldErrors: exception.fieldErrors } : {}),
+      };
+      const retryAfter = (exception as { retryAfterSeconds?: number }).retryAfterSeconds;
+      if (mapped.status === 429 && retryAfter)
+        response.setHeader('retry-after', String(retryAfter));
+    } else if (databaseUnavailable(exception)) {
+      body = {
+        status: 503,
+        code: 'SERVICE_UNAVAILABLE',
+        title: DOMAIN_ERRORS.SERVICE_UNAVAILABLE.title,
+        correlationId,
+        retryable: true,
+      };
+    } else {
+      const status = exception instanceof HttpException ? exception.getStatus() : 500;
+      const known = ENVELOPES[status];
+      body = {
+        status: known ? status : 500,
+        code: known?.code ?? 'INTERNAL',
+        title: known?.title ?? 'เกิดข้อผิดพลาดภายใน',
+        correlationId,
+        retryable: !known,
+      };
+    }
     response.statusCode = body.status;
     response.setHeader('content-type', 'application/json; charset=utf-8');
     response.setHeader('cache-control', 'no-store');

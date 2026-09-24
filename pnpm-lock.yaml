@@ -341,6 +341,15 @@ importers:
 
   apps/platform-api:
     dependencies:
+      '@d-contact/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@d-contact/platform-control':
+        specifier: workspace:*
+        version: link:../platform-control
+      '@d-contact/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@d-contact/workspace-session':
         specifier: workspace:*
         version: link:../../packages/workspace-session

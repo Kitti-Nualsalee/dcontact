@@ -4,7 +4,9 @@
  */
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
+import { PrismaClient } from '@d-contact/db';
 import { PlatformApiModule } from './platform-api.module.js';
+import { createPlatformServices } from './platform-services.js';
 import { JosePlatformAccessTokenVerifier } from './platform-verifier.js';
 
 function required(name: string): string {
@@ -19,9 +21,16 @@ async function bootstrap() {
     issuer,
     jwksUri: process.env.PLATFORM_OIDC_JWKS_URI ?? `${issuer}/protocol/openid-connect/certs`,
   });
+  // role เฉพาะ control plane (#387) — ห้ามใช้ DATABASE_URL ของ tenant application
+  const database = new PrismaClient({
+    datasources: { db: { url: required('PLATFORM_DATABASE_URL') } },
+  });
   const app = await NestFactory.create(
     PlatformApiModule.register({
       verifier,
+      services: createPlatformServices(database, {
+        sipBaseDomain: required('PLATFORM_SIP_BASE_DOMAIN'),
+      }),
       diagnostics: {
         write: (diagnostic) => process.stdout.write(`${JSON.stringify(diagnostic)}\n`),
       },

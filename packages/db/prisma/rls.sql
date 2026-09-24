@@ -315,3 +315,7 @@ GRANT SELECT, INSERT ON pf_request_payload_revisions TO dcontact_platform;
 GRANT UPDATE (name) ON tenants TO dcontact_platform;
 GRANT SELECT, INSERT ON teams, queues, tenant_settings, tenant_plan_bindings, business_hours
   TO dcontact_provisioner;
+
+-- A1.6 (#411): durable operator command เป็น control plane
+REVOKE ALL ON pf_operator_commands FROM dcontact_app;
+GRANT SELECT, INSERT, UPDATE ON pf_operator_commands TO dcontact_platform;

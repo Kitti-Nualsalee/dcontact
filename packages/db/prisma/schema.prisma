@@ -5445,6 +5445,7 @@ model PfProvisioningRequest {
   actions      PfActionHistory[]
   invitations  PfInvitation[]
   payloadRevisions PfRequestPayloadRevision[]
+  operatorCommands PfOperatorCommand[]
 
   @@unique([tenantId, id], map: "pf_provisioning_requests_binding_key")
   @@index([status, updatedAt], map: "pf_provisioning_requests_status_idx")
@@ -5536,6 +5537,55 @@ model PfRequestPayloadRevision {
 
   @@unique([requestId, requestRevision], map: "pf_request_payload_revisions_revision_key")
   @@map("pf_request_payload_revisions")
+}
+
+enum PfOperatorCommandKind {
+  PREVIEW
+  EXECUTE
+}
+
+enum PfOperatorCommandState {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  REJECTED
+}
+
+/// A1.6 (#411) durable command ของ operator — API บันทึกแล้วตอบ 202, worker claim ด้วย lease/CAS แล้วทำจริง
+/// (single active EXECUTE ต่อ request บังคับด้วย partial unique index ใน migration)
+model PfOperatorCommand {
+  id                 String                 @id @db.Uuid
+  requestId          String                 @map("request_id") @db.Uuid
+  tenantId           String                 @map("tenant_id") @db.Uuid
+  kind               PfOperatorCommandKind
+  action             String
+  state              PfOperatorCommandState @default(QUEUED)
+  revision           Int                    @default(1)
+  expectedRevision   Int?                   @map("expected_revision")
+  previewDigest      String?                @map("preview_digest") @db.Char(64)
+  reasonCode         String?                @map("reason_code")
+  comment            String?
+  idempotencyKeyHash String?                @unique @map("idempotency_key_hash") @db.Char(64)
+  actorKind          PfActorKind            @map("actor_kind")
+  actorSubject       String                 @map("actor_subject")
+  actorRole          String?                @map("actor_role")
+  actorSessionRef    String?                @map("actor_session_ref")
+  correlationId      String                 @map("correlation_id")
+  attempt            Int                    @default(0)
+  leaseOwner         String?                @map("lease_owner")
+  leaseExpiresAt     DateTime?              @map("lease_expires_at")
+  result             Json?
+  errorCode          String?                @map("error_code")
+  createdAt          DateTime               @map("created_at")
+  startedAt          DateTime?              @map("started_at")
+  finishedAt         DateTime?              @map("finished_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_operator_commands_request_fkey")
+
+  @@index([state, createdAt], map: "pf_operator_commands_claim_idx")
+  @@index([requestId, createdAt], map: "pf_operator_commands_request_idx")
+  @@map("pf_operator_commands")
 }
 
 enum PfInvitationState {

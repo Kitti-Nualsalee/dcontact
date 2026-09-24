@@ -1,4 +1,9 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["src/**/*.test.ts", "src/**/*.boundary.ts", "src/test-tokens.ts"]
+  "exclude": [
+    "src/**/*.boundary.ts",
+    "src/**/*.integration.ts",
+    "src/**/*.test.ts",
+    "src/test-tokens.ts"
+  ]
 }

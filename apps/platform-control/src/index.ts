@@ -11,3 +11,6 @@ export * from './provisioning-ids.js';
 export * from './platform-catalog.js';
 export * from './tenant-bootstrap.js';
 export * from './provisioning-request-editor.js';
+export * from './operator-commands.js';
+export * from './platform-queries.js';
+export * from './platform-worker.js';
