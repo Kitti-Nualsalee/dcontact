@@ -14,7 +14,12 @@ const composeArguments = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'
  * เป็น expand-only และสิทธิ์ต้องแยกขาด: `dcontact_platform` เห็นแค่ `pf_*` + tenants metadata,
  * `dcontact_app` ไม่เห็น `pf_*` และไม่มี role ใดแก้/ลบหลักฐาน append-only ได้
  */
-export const A1_MIGRATIONS = Object.freeze(['20260924090000_add_a1_platform_control_plane']);
+export const A1_MIGRATIONS = Object.freeze([
+  '20260924090000_add_a1_platform_control_plane',
+  // A1.3 (#408): action kind ของ retry แยกไฟล์จาก column ที่ scheduling ใช้
+  '20260924100000_add_a1_3_action_kind',
+  '20260924100100_add_a1_3_step_scheduling',
+]);
 
 export const CANONICAL_A1_TABLES = Object.freeze([
   'pf_bootstrap_templates',
@@ -45,6 +50,7 @@ export const REQUIRED_A1_CONSTRAINTS = Object.freeze([
   'pf_identity_reservations_values_check',
   'pf_action_history_values_check',
   'tenants_provisioning_placeholder_check',
+  'pf_provisioning_steps_attempt_floor_check',
 ]);
 
 export const REQUIRED_A1_UNIQUE_INDEXES = Object.freeze([

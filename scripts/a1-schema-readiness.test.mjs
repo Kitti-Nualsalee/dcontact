@@ -16,10 +16,12 @@ import {
 } from './a1-schema-readiness.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const migration = readFileSync(
-  resolve(repositoryRoot, 'packages/db/prisma/migrations', A1_MIGRATIONS[0], 'migration.sql'),
-  'utf8',
-);
+const migration = A1_MIGRATIONS.map((name) =>
+  readFileSync(
+    resolve(repositoryRoot, 'packages/db/prisma/migrations', name, 'migration.sql'),
+    'utf8',
+  ),
+).join('\n');
 const rls = readFileSync(resolve(repositoryRoot, 'packages/db/prisma/rls.sql'), 'utf8');
 
 const complete = [
@@ -55,8 +57,14 @@ test('A1.1 ทุกชื่อใน registry มีอยู่จริง�
   }
 });
 
-test('A1.1 migration เป็น expand-only และ tenants ได้แค่คอลัมน์ใหม่ที่มี default/nullable', () => {
+test('A1 migration ทุกไฟล์เป็น expand-only และ tenants ได้แค่คอลัมน์ใหม่ที่มี default/nullable', () => {
   assert.deepEqual(findDestructiveStatements(migration), []);
+  // enum value ใหม่ต้องแทรกตามลำดับ contract และอยู่คนละไฟล์กับ migration ที่ใช้มัน
+  assert.match(
+    migration,
+    /ADD VALUE IF NOT EXISTS 'STEP_RETRY_SCHEDULED' AFTER 'STEP_ACTION_REQUIRED'/,
+  );
+  assert.match(migration, /ADD COLUMN "attempt_floor" INTEGER NOT NULL DEFAULT 0/);
   assert.match(
     migration,
     /ADD COLUMN\s+"lifecycle_status" "TenantLifecycleStatus" NOT NULL DEFAULT 'ACTIVE'/,

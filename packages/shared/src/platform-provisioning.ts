@@ -118,6 +118,10 @@ export const PLATFORM_PROVISIONING_ERROR_CODES = [
   'REVISION_CONFLICT',
   'INVALID_STATE_TRANSITION',
   'BOOTSTRAP_TEMPLATE_UNAVAILABLE',
+  /** A1.3: previewDigest ไม่ตรงสถานะปัจจุบัน — ต้อง preview ใหม่ก่อน execute recovery */
+  'PREVIEW_STALE',
+  /** A1.3: เงื่อนไขของ recovery action ไม่ผ่าน (เช่น Retry ขณะ resource มีอยู่แล้ว) */
+  'RECOVERY_PRECONDITION_FAILED',
   /** missing หรือ resource ของ tenant/request อื่น — ตอบเหมือนกันเพื่อไม่เผย existence */
   'NOT_FOUND',
 ] as const;
@@ -142,6 +146,7 @@ export const PLATFORM_ACTION_KINDS = [
   'STEP_STARTED',
   'STEP_SUCCEEDED',
   'STEP_ACTION_REQUIRED',
+  'STEP_RETRY_SCHEDULED',
   'RECONCILE',
   'RETRY_STEP',
   'RESEND_INVITATION',
@@ -152,6 +157,15 @@ export const PLATFORM_ACTION_KINDS = [
   'SECURITY_DENIED',
 ] as const;
 export type PlatformActionKind = (typeof PLATFORM_ACTION_KINDS)[number];
+
+/** recovery ของ operator เมื่อ request `ACTION_REQUIRED` (#390) — ทุกตัวต้อง preview ก่อน execute */
+export const PROVISIONING_RECOVERY_ACTIONS = [
+  'RECONCILE',
+  'RETRY_STEP',
+  'SAFE_COMPENSATE',
+  'MARK_FAILED_FINAL',
+] as const;
+export type ProvisioningRecoveryAction = (typeof PROVISIONING_RECOVERY_ACTIONS)[number];
 
 export const PLATFORM_ACTOR_KINDS = ['PLATFORM_OPERATOR', 'PLATFORM_AUDITOR', 'SYSTEM'] as const;
 export type PlatformActorKind = (typeof PLATFORM_ACTOR_KINDS)[number];
