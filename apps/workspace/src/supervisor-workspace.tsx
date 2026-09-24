@@ -107,9 +107,7 @@ export function SupervisorWorkspace({
   return (
     <div className="supervisor-shell">
       <aside className="product-rail" aria-label="พื้นที่หลัก">
-        <div className="product-mark" aria-label="D-Contact">
-          D
-        </div>
+        <img className="product-mark" src="/d-contact-icon-64.png" alt="D-Contact" />
         <button type="button" aria-label="Agent Workspace" onClick={() => navigate('agent')}>
           02
         </button>

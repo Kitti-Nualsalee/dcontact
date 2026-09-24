@@ -71,20 +71,12 @@ button:disabled {
   background: #115e59;
 }
 
-.product-mark,
-.brand span {
-  display: grid;
-  place-items: center;
-  font-weight: 900;
-}
-
 .product-mark {
+  display: block;
   width: 38px;
   height: 38px;
   margin-bottom: 4px;
-  border-radius: 11px;
-  color: #115e59;
-  background: white;
+  border-radius: 9px;
 }
 
 .product-rail button {
@@ -122,12 +114,10 @@ button:disabled {
   font-weight: 800;
 }
 
-.brand span {
+.brand img {
   width: 34px;
   height: 34px;
-  border-radius: 9px;
-  color: white;
-  background: #0f766e;
+  border-radius: 8px;
 }
 
 .navigation-label,

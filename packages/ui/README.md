@@ -3,7 +3,7 @@
 design token ของ D-Contact — แหล่งความจริงเดียวของสี ตัวอักษร มุมโค้ง เงา และ focus ring
 ที่ `apps/workspace` กับ `apps/console` ต้องใช้ร่วมกัน ตาม [ADR-026](../../docs/adr/026-frontend-app-split.md) ข้อ 6
 
-แพ็กเกจนี้ถือ **token เท่านั้น** ไม่มี component, routing, data fetching หรือ live-session authority
+แพ็กเกจนี้ถือ **token และไฟล์โลโก้เท่านั้น** ไม่มี component, routing, data fetching หรือ live-session authority
 
 ## ใช้ยังไง
 
@@ -109,6 +109,24 @@ scale เหลือ 7 ขั้นหลัก จากเดิม 17 ขน
 - **ยังไม่มี component** — ปุ่ม ป้าย ตาราง สถานะช่องทาง ยังอยู่ในแต่ละแอป
 - **ยังไม่มีโหมดมืด** — wallboard ใช้ `--dc-surface-inverse` เป็นพื้นเข้มบนธีมสว่าง ไม่ใช่ธีมมืดทั้งระบบ
 
+## โลโก้และไอคอนแอป
+
+ไฟล์ต้นฉบับของโลโก้อยู่ที่ `assets/brand/` (สร้างจากภาพต้นฉบับ ตัดขอบเป็นสี่เหลี่ยมจัตุรัส มุมนอกกรอบโปร่งใส)
+
+| ไฟล์ | ใช้ที่ไหน |
+| --- | --- |
+| `d-contact-icon-1024.png`, `-512.png` | ต้นฉบับสำหรับสื่อ/เอกสาร และสร้างขนาดอื่น |
+| `d-contact-icon-192.png`, `-64.png` | โลโก้ในแอป (rail, หัวเมนู) และ PWA manifest |
+| `favicon.ico` (16/32/48), `favicon-32.png` | favicon ของเบราว์เซอร์ |
+| `apple-touch-icon.png` | ไอคอนบน iOS (พื้นทึบ เพราะ iOS ตัดมุมเอง) |
+| `d-contact-splash-reference.png` | ภาพอ้างอิงหน้า splash แบบมีคำว่า D-CONTACT — ยังไม่ใช่ไฟล์ใช้งานจริง |
+
+`apps/console/public` และ `apps/workspace/public` ถือสำเนาของ favicon และ icon ขนาดเล็ก
+เพราะ Vite เสิร์ฟไฟล์จาก `public/` ของแต่ละแอป — ถ้าเปลี่ยนโลโก้ ให้เปลี่ยนที่นี่ก่อนแล้วคัดลอกไปทั้งสองแอป
+
+**สีของโลโก้ (น้ำเงินเข้ม/ฟ้า/ม่วง) ไม่ใช่ token ของ UI** — สีหลักของระบบยังเป็น teal ตาม `--dc-brand-700`
+การเปลี่ยนสีหลักให้ตรงกับโลโก้เป็นการตัดสินใจของ design system ที่ยังไม่ได้ทำ
+
 ## โครงไฟล์
 
 ```
@@ -118,4 +136,5 @@ src/tailwind-preset.cjs   ทำให้คลาสของ Tailwind ชี�
 scripts/generate-tokens.mjs
 scripts/check-contrast.mjs  ตัวตรวจ WCAG AA (pnpm --filter @d-contact/ui test)
 preview.html              แผ่น token พร้อมตัวอย่างจริง
+assets/brand/             โลโก้และไอคอนแอปทุกขนาด
 ```
