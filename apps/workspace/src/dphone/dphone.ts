@@ -109,9 +109,16 @@ export class BrowserDphone {
 
   async accept(): Promise<DphoneState> {
     if (this.state.phase !== 'RINGING') throw new Error('accept requires RINGING dphone');
-    const next: DphoneState = { ...this.state, phase: 'CONNECTING' };
-    await this.transport.accept();
-    this.state = next;
+    // SIP.js resolve accept() หลัง session Established แล้ว — `connected()` จึงถูกเรียกระหว่างรอ
+    // ต้องเป็น CONNECTING ก่อน await ไม่อย่างนั้นสายจริงค้างที่ CONNECTING (D1.16 #455)
+    const ringing = this.state;
+    this.state = { ...ringing, phase: 'CONNECTING' };
+    try {
+      await this.transport.accept();
+    } catch (error) {
+      if (this.state.phase === 'CONNECTING') this.state = ringing;
+      throw error;
+    }
     return this.state;
   }
 

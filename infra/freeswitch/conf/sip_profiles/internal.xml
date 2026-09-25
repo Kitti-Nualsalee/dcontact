@@ -42,6 +42,7 @@
     <param name="force-register-db-domain" value="$${domain}"/>
 
     <param name="apply-nat-acl" value="nat.auto"/>
-    <param name="local-network-acl" value="localnet.auto"/>
+    <param name="local-network-acl" value="dcontact_media_local"/>
+    <param name="apply-candidate-acl" value="dcontact_webrtc_candidates"/>
   </settings>
 </profile>

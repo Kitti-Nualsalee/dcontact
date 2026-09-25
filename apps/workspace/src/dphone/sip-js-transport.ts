@@ -6,6 +6,7 @@ import {
   UserAgent,
   Web,
   type Session,
+  type SessionDescriptionHandlerModifier,
 } from 'sip.js';
 import type { BrowserSipTransport, SipCredentialLease } from './dphone.js';
 
@@ -81,13 +82,11 @@ export class SipJsBrowserTransport implements BrowserSipTransport {
   }
 
   async hold(): Promise<void> {
-    await this.requiredSession().invite({
-      sessionDescriptionHandlerModifiers: [Web.holdModifier],
-    });
+    await this.reinvite([Web.holdModifier]);
   }
 
   async resume(): Promise<void> {
-    await this.requiredSession().invite({ sessionDescriptionHandlerModifiers: [] });
+    await this.reinvite([]);
   }
 
   async sendDtmf(value: string): Promise<void> {
@@ -110,6 +109,26 @@ export class SipJsBrowserTransport implements BrowserSipTransport {
     for (const sender of this.peerConnection()?.getSenders() ?? []) {
       if (sender.track?.kind === 'audio') sender.track.enabled = !muted;
     }
+  }
+
+  /**
+   * `Session.invite()` resolve ทันทีที่ส่ง re-INVITE — รอ 2xx/ACK ก่อน ไม่อย่างนั้น dphone แสดงพักสาย/กลับเข้าสาย
+   * ก่อน media เปลี่ยนจริง และคำสั่งถัดไปถูก SIP.js ปฏิเสธเงียบ ๆ ("Reinvite in progress") (D1.16 #455)
+   */
+  private reinvite(modifiers: SessionDescriptionHandlerModifier[]): Promise<void> {
+    const session = this.requiredSession();
+    return new Promise((resolve, reject) => {
+      session
+        .invite({
+          sessionDescriptionHandlerModifiers: modifiers,
+          requestDelegate: {
+            onAccept: () => resolve(),
+            onReject: (response) =>
+              reject(new Error(`re-INVITE rejected: ${response.message.statusCode}`)),
+          },
+        })
+        .catch(reject);
+    });
   }
 
   private receive(invitation: Invitation): void {
