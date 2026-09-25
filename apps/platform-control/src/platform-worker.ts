@@ -11,6 +11,7 @@
  *   state ที่ค้างอยู่ — เปิดอีกครั้งแล้ว lease ที่หมดอายุถูก adopt และทำต่อตาม saga
  */
 import type { PrismaClient } from '@d-contact/db';
+import { FirstAdminActivityReconciler } from './first-admin-activity.js';
 import {
   InvitationOutbox,
   mailpitDeliveryProbe,
@@ -20,6 +21,7 @@ import {
 import { KeycloakAdminClient } from './keycloak-admin.js';
 import { FirstAdminPort, KeycloakOrganizationPort } from './keycloak-provisioning-ports.js';
 import { OperatorCommandWorker } from './operator-commands.js';
+import type { PlatformWorkerMetrics } from './platform-metrics.js';
 import type { PlatformRollout } from './platform-rollout.js';
 import { ProvisioningRecoveryService } from './provisioning-recovery.js';
 import { ProvisioningSagaWorker, type ProvisioningStepPorts } from './provisioning-saga.js';
@@ -32,6 +34,7 @@ export interface PlatformWorkerConfig {
   keycloak: KeycloakAdminClient;
   sipBaseDomain: string;
   rollout: PlatformRollout;
+  metrics?: PlatformWorkerMetrics;
   probe?: InvitationDeliveryProbe;
   log?: (event: Record<string, unknown>) => void;
 }
@@ -41,7 +44,10 @@ export interface PlatformWorkerLoopConfig {
   workerId: string;
   saga: Pick<ProvisioningSagaWorker, 'runOnce'>;
   commands: Pick<OperatorCommandWorker, 'runOnce'>;
+  /** A1.8: reconcile เหตุการณ์ของ first admin จาก Keycloak ลง timeline */
+  activity?: Pick<FirstAdminActivityReconciler, 'runOnce'>;
   rollout: PlatformRollout;
+  metrics?: PlatformWorkerMetrics;
   log?: (event: Record<string, unknown>) => void;
 }
 
@@ -83,14 +89,16 @@ export function createPlatformWorker(config: PlatformWorkerConfig) {
       workerId: config.workerId,
       saga,
       commands,
+      activity: new FirstAdminActivityReconciler(config.platform, config.keycloak),
       rollout: config.rollout,
+      ...(config.metrics ? { metrics: config.metrics } : {}),
       ...(config.log ? { log: config.log } : {}),
     }),
   };
 }
 
 export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
-  const { saga, commands } = config;
+  const { saga, commands, activity } = config;
   const log = config.log ?? (() => undefined);
 
   let paused: boolean | null = null;
@@ -98,6 +106,7 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
   /** หนึ่งรอบ: ทำ step หนึ่งหน่วยและ command หนึ่งคำสั่ง — คืน true ถ้ามีงานทำ */
   async function tick(): Promise<boolean> {
     const enabled = config.rollout.claimsEnabled();
+    config.metrics?.claimsEnabled(enabled);
     if (paused !== !enabled) {
       paused = !enabled;
       log({
@@ -111,11 +120,16 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
     for (const [source, work] of [
       ['saga', () => saga.runOnce()],
       ['command', () => commands.runOnce()],
+      ...(activity ? [['activity', () => activity.runOnce()] as const] : []),
     ] as const) {
+      const started = performance.now();
       try {
         const result = await work();
         if (result.kind !== 'IDLE') {
           busy = true;
+          await config.metrics
+            ?.observe(source, result, (performance.now() - started) / 1000)
+            .catch(() => undefined);
           log({
             event: `platform.worker.${source}`,
             workerId: config.workerId,
@@ -124,6 +138,7 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
         }
       } catch (error) {
         busy = true;
+        config.metrics?.error(source);
         log({
           event: 'platform.worker.error',
           workerId: config.workerId,
@@ -168,6 +183,7 @@ function summarize(result: object): Record<string, unknown> {
     'state',
     'errorCode',
     'adopted',
+    'recorded',
   ];
   return Object.fromEntries(Object.entries(result).filter(([key]) => allowed.includes(key)));
 }

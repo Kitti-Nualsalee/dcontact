@@ -61,6 +61,7 @@
     "a1:provisioning:boundary": "pnpm --filter @d-contact/platform-control test:boundary",
     "a1:dev-catalog": "pnpm --filter @d-contact/platform-control dev-catalog",
     "a1:console:uat": "pnpm --filter @d-contact/platform-console test:uat",
+    "a1:alerts:test": "docker run --rm -v \"$PWD/infra/observability/prometheus:/rules:ro\" --entrypoint promtool prom/prometheus:v2.54.1 test rules /rules/platform-provisioning.rules.test.yml",
     "cxa:j5:focused": "node scripts/cxa-j5-readiness.mjs --focused",
     "cxa:j5:acceptance": "node scripts/cxa-j5-readiness.mjs",
     "test:cxa-j5-readiness": "node --test scripts/cxa-j5-readiness.test.mjs",
