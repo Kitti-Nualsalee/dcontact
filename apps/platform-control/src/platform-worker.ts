@@ -7,6 +7,8 @@
  *
  * - DB สอง role: `dcontact_platform` (control plane) และ `dcontact_provisioner` (bootstrap rows)
  * - log เป็น structured JSON ที่มีแค่ id/code/kind — ไม่มี email, token หรือ payload
+ * - A1.8 (#413): `platformProvisioning.enabled` ปิด = ไม่รับ lease/command ใหม่ (rollback) โดยไม่แตะ
+ *   state ที่ค้างอยู่ — เปิดอีกครั้งแล้ว lease ที่หมดอายุถูก adopt และทำต่อตาม saga
  */
 import type { PrismaClient } from '@d-contact/db';
 import {
@@ -18,6 +20,7 @@ import {
 import { KeycloakAdminClient } from './keycloak-admin.js';
 import { FirstAdminPort, KeycloakOrganizationPort } from './keycloak-provisioning-ports.js';
 import { OperatorCommandWorker } from './operator-commands.js';
+import type { PlatformRollout } from './platform-rollout.js';
 import { ProvisioningRecoveryService } from './provisioning-recovery.js';
 import { ProvisioningSagaWorker, type ProvisioningStepPorts } from './provisioning-saga.js';
 import { TenantBootstrapPort, TenantReadinessPort } from './tenant-bootstrap.js';
@@ -28,7 +31,17 @@ export interface PlatformWorkerConfig {
   provisioner: PrismaClient;
   keycloak: KeycloakAdminClient;
   sipBaseDomain: string;
+  rollout: PlatformRollout;
   probe?: InvitationDeliveryProbe;
+  log?: (event: Record<string, unknown>) => void;
+}
+
+/** ส่วนที่ loop ต้องใช้ — แยกจาก adapter จริงเพื่อให้ rollback drill ใช้ fake ports ได้ */
+export interface PlatformWorkerLoopConfig {
+  workerId: string;
+  saga: Pick<ProvisioningSagaWorker, 'runOnce'>;
+  commands: Pick<OperatorCommandWorker, 'runOnce'>;
+  rollout: PlatformRollout;
   log?: (event: Record<string, unknown>) => void;
 }
 
@@ -63,10 +76,37 @@ export function createPlatformWorker(config: PlatformWorkerConfig) {
     },
     { workerId: config.workerId },
   );
+  return {
+    saga,
+    commands,
+    ...createPlatformWorkerLoop({
+      workerId: config.workerId,
+      saga,
+      commands,
+      rollout: config.rollout,
+      ...(config.log ? { log: config.log } : {}),
+    }),
+  };
+}
+
+export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
+  const { saga, commands } = config;
   const log = config.log ?? (() => undefined);
+
+  let paused: boolean | null = null;
 
   /** หนึ่งรอบ: ทำ step หนึ่งหน่วยและ command หนึ่งคำสั่ง — คืน true ถ้ามีงานทำ */
   async function tick(): Promise<boolean> {
+    const enabled = config.rollout.claimsEnabled();
+    if (paused !== !enabled) {
+      paused = !enabled;
+      log({
+        event: enabled ? 'platform.worker.claims_enabled' : 'platform.worker.claims_paused',
+        workerId: config.workerId,
+      });
+    }
+    // rollback: ไม่ claim อะไรเลย — ไม่ใช่ claim แล้วปล่อย (ไม่เพิ่ม attempt/lease churn)
+    if (!enabled) return false;
     let busy = false;
     for (const [source, work] of [
       ['saga', () => saga.runOnce()],
@@ -113,7 +153,7 @@ export function createPlatformWorker(config: PlatformWorkerConfig) {
     }
   }
 
-  return { saga, commands, tick, run };
+  return { tick, run };
 }
 
 /** เก็บเฉพาะ field ที่ไม่ใช่ PII จากผลของ worker */

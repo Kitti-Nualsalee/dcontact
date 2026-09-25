@@ -2,12 +2,13 @@
  * `node dist/platform-worker-main.js` — worker ของ Platform provisioning (A1.6 #411)
  *
  * env: PLATFORM_DATABASE_URL, PROVISIONER_DATABASE_URL, PLATFORM_SIP_BASE_DOMAIN, KEYCLOAK_URL,
- * KEYCLOAK_PROVISIONER_SECRET (+ KEYCLOAK_REALM, KEYCLOAK_PROVISIONER_CLIENT_ID, MAILPIT_URL สำหรับ dev)
+ * KEYCLOAK_PROVISIONER_SECRET, PLATFORM_PROVISIONING_ENABLED (+ KEYCLOAK_REALM, KEYCLOAK_PROVISIONER_CLIENT_ID, MAILPIT_URL สำหรับ dev)
  */
 import { hostname } from 'node:os';
 import { PrismaClient } from '@d-contact/db';
 import { KeycloakAdminClient } from './keycloak-admin.js';
 import { createPlatformWorker, deliveryProbeFromEnv } from './platform-worker.js';
+import { PlatformRollout } from './platform-rollout.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -32,6 +33,8 @@ const worker = createPlatformWorker({
     clientSecret: required('KEYCLOAK_PROVISIONER_SECRET'),
   }),
   sipBaseDomain: required('PLATFORM_SIP_BASE_DOMAIN'),
+  // A1.8: default ปิด — ต้องตั้ง PLATFORM_PROVISIONING_ENABLED=true ให้ตรงกับ Platform API
+  rollout: PlatformRollout.fromEnv(process.env),
   probe: deliveryProbeFromEnv(process.env),
   log: (event) => process.stdout.write(`${JSON.stringify(event)}\n`),
 });

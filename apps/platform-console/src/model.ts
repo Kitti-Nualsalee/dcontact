@@ -23,10 +23,14 @@ export type StepState = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'ACTION_REQUIRED';
 export type Capability = 'CONTROL_PLANE_READ' | 'PROVISIONING_MUTATE';
 export type RecoveryAction = 'RECONCILE' | 'RETRY_STEP' | 'SAFE_COMPENSATE' | 'MARK_FAILED_FINAL';
 
+/** A1.8: rollout ของ mutation — API ตัด `PROVISIONING_MUTATE` ออกเองเมื่อไม่ใช่ `ALLOWED` */
+export type MutationRollout = 'ALLOWED' | 'DISABLED' | 'NOT_ALLOWLISTED' | 'NOT_GRANTED';
+
 export interface SessionView {
   subject: string;
   roles: string[];
   capabilities: Capability[];
+  mutations?: MutationRollout;
   expiresAt: string;
 }
 
@@ -402,6 +406,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   COMMAND_IN_PROGRESS: 'มีคำสั่งอื่นของคำขอนี้กำลังทำงาน',
   INVITATION_RESEND_LIMITED: 'ส่งคำเชิญซ้ำเกิน 3 ครั้งต่อชั่วโมงแล้ว',
   SERVICE_UNAVAILABLE: 'ระบบไม่พร้อมชั่วคราว ลองใหม่อีกครั้ง',
+  PROVISIONING_DISABLED: 'ระบบปิดการสร้างและแก้ไขชั่วคราว ดูสถานะได้ตามปกติ',
   NETWORK: 'เชื่อมต่อ Platform API ไม่ได้ ลองใหม่อีกครั้ง',
 };
 
@@ -411,6 +416,41 @@ export function errorMessage(error: Pick<ErrorEnvelope, 'code' | 'title'>): stri
 
 export function canMutate(session: SessionView | null): boolean {
   return session?.capabilities.includes('PROVISIONING_MUTATE') ?? false;
+}
+
+export interface ReadOnlyCopy {
+  chip: string;
+  /** ประกาศทั้งหน้า — เฉพาะ operator ที่ถูกปิดชั่วคราว (auditor อ่านอย่างเดียวเป็นปกติ) */
+  banner: string | null;
+  create: string;
+  decision: string;
+}
+
+/** ข้อความเมื่อ session เขียนไม่ได้ — แยก auditor ออกจาก operator ที่ถูก rollout ปิดไว้ */
+export function readOnlyCopy(session: SessionView): ReadOnlyCopy {
+  if (session.mutations === 'DISABLED') {
+    return {
+      chip: 'Platform Operator (ปิดการแก้ไขชั่วคราว)',
+      banner:
+        'ระบบปิดการสร้างและแก้ไข tenant ชั่วคราว — ดูสถานะและประวัติได้ตามปกติ งานที่ค้างอยู่จะทำต่อเมื่อเปิดอีกครั้ง',
+      create: 'ขณะนี้ปิดการสร้าง tenant ชั่วคราว',
+      decision: 'ปิดการแก้ไขชั่วคราว — ตัดสินใจได้เมื่อระบบเปิดอีกครั้ง',
+    };
+  }
+  if (session.mutations === 'NOT_ALLOWLISTED') {
+    return {
+      chip: 'Platform Operator (ยังไม่อยู่ในกลุ่ม canary)',
+      banner: 'บัญชีนี้ยังไม่อยู่ในกลุ่มผู้ใช้ช่วงเปิดทดลอง (canary) จึงดูได้อย่างเดียว',
+      create: 'บัญชีนี้ยังสร้าง tenant ไม่ได้ในช่วง canary',
+      decision: 'บัญชีนี้ยังไม่อยู่ในกลุ่ม canary — ต้องให้ operator ในกลุ่มตัดสินใจ',
+    };
+  }
+  return {
+    chip: 'Platform Auditor (อ่านอย่างเดียว)',
+    banner: null,
+    create: 'Platform Auditor สร้าง tenant ไม่ได้',
+    decision: 'Platform Auditor ดูได้อย่างเดียว — ต้องให้ Platform Operator ตัดสินใจ',
+  };
 }
 
 /** route ของ Console — มีแค่ id ที่ opaque ไม่มี email/คำค้นหา (#412) */
