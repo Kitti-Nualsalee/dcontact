@@ -11,6 +11,7 @@
  *   state ที่ค้างอยู่ — เปิดอีกครั้งแล้ว lease ที่หมดอายุถูก adopt และทำต่อตาม saga
  */
 import type { PrismaClient } from '@d-contact/db';
+import { FirstAdminActivityReconciler } from './first-admin-activity.js';
 import {
   InvitationOutbox,
   mailpitDeliveryProbe,
@@ -43,6 +44,8 @@ export interface PlatformWorkerLoopConfig {
   workerId: string;
   saga: Pick<ProvisioningSagaWorker, 'runOnce'>;
   commands: Pick<OperatorCommandWorker, 'runOnce'>;
+  /** A1.8: reconcile เหตุการณ์ของ first admin จาก Keycloak ลง timeline */
+  activity?: Pick<FirstAdminActivityReconciler, 'runOnce'>;
   rollout: PlatformRollout;
   metrics?: PlatformWorkerMetrics;
   log?: (event: Record<string, unknown>) => void;
@@ -86,6 +89,7 @@ export function createPlatformWorker(config: PlatformWorkerConfig) {
       workerId: config.workerId,
       saga,
       commands,
+      activity: new FirstAdminActivityReconciler(config.platform, config.keycloak),
       rollout: config.rollout,
       ...(config.metrics ? { metrics: config.metrics } : {}),
       ...(config.log ? { log: config.log } : {}),
@@ -94,7 +98,7 @@ export function createPlatformWorker(config: PlatformWorkerConfig) {
 }
 
 export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
-  const { saga, commands } = config;
+  const { saga, commands, activity } = config;
   const log = config.log ?? (() => undefined);
 
   let paused: boolean | null = null;
@@ -116,6 +120,7 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
     for (const [source, work] of [
       ['saga', () => saga.runOnce()],
       ['command', () => commands.runOnce()],
+      ...(activity ? [['activity', () => activity.runOnce()] as const] : []),
     ] as const) {
       const started = performance.now();
       try {
@@ -178,6 +183,7 @@ function summarize(result: object): Record<string, unknown> {
     'state',
     'errorCode',
     'adopted',
+    'recorded',
   ];
   return Object.fromEntries(Object.entries(result).filter(([key]) => allowed.includes(key)));
 }

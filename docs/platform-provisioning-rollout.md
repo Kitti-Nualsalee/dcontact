@@ -53,7 +53,8 @@ critical alert ใดๆ = หยุดขยาย canary และพิจา
 2. Keycloak: `platform-console` client, audience `dcontact-platform-api`, platform roles
    (`pnpm infra:identity:platform`) และ **jar ของ invitation-guard extension**
    (`bash scripts/keycloak-extensions-build.sh` → `infra/keycloak/providers/`) — setup จะตรวจว่า handler
-   `execute-actions` ถูก override แล้ว
+   `execute-actions` ถูก override แล้ว; setup ยังเปิด realm user events (อายุ ≥ 30 วัน, รวมกับค่าเดิม)
+   และให้ service account `dcontact-provisioner` มี `view-events` สำหรับ timeline ของ First admin
 3. deploy Platform API + worker โดย `PLATFORM_PROVISIONING_ENABLED` ยังไม่ตั้ง แล้ว deploy Platform Console
 4. ผ่าน real-boundary acceptance (`pnpm a1:acceptance:boundary`) บน SHA/config ที่จะเปิด
 5. เปิด canary: ตั้ง `PLATFORM_PROVISIONING_ENABLED=true` + allowlist เฉพาะ internal operator แล้ว restart
@@ -76,3 +77,10 @@ drill อัตโนมัติ: `A1.8 rollback drill` ใน `apps/platform-a
 
 Platform API และ worker สำหรับ `pnpm a1:console:uat` ต้องตั้ง `PLATFORM_PROVISIONING_ENABLED=true` และ
 `PLATFORM_OPERATOR_ALLOWLIST=<subject ของ operator ที่ใช้ทดสอบ>`
+
+## Timeline ของ First admin
+
+worker reconcile Keycloak user events ของ first admin ที่ได้คำเชิญแล้ว (ทุก 60 วินาทีต่อคำขอ, ติดตาม 30 วัน)
+ลง Action history ด้วย actor `FIRST_ADMIN`: `FIRST_ADMIN_EMAIL_VERIFIED`, `FIRST_ADMIN_PASSWORD_SET`,
+`FIRST_ADMIN_TOTP_ENROLLED`, `FIRST_ADMIN_ACTIVATED` — เก็บแค่ชนิดและเวลา (ไม่มี email/IP จาก event details)
+ถ้า event หมดอายุก่อน worker อ่าน จะเห็นเฉพาะ `FIRST_ADMIN_ACTIVATED` ที่เวลาตรวจพบ
