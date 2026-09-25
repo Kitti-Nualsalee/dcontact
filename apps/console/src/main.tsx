@@ -10,13 +10,22 @@ import { parseGovernanceLocation, type GovernanceViewer } from './governance-mod
 import { PreferenceCenter } from './preference-center.js';
 import { createJourneyAuthoringApi } from './journey-authoring/api.js';
 import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.js';
+import { SessionLocaleProvider } from '@d-contact/i18n/react';
+import { appI18n } from './i18n/index.js';
+import { LocaleProbe } from './i18n/locale-probe.js';
 import './style.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('root element is required');
 createRoot(root).render(
   <StrictMode>
-    {import.meta.env.MODE === 'e2e' ? <ConsoleE2eRoot /> : <ConsoleAuthRoot />}
+    {import.meta.env.MODE === 'e2e' ? (
+      <SessionLocaleProvider i18n={appI18n}>
+        <ConsoleE2eRoot />
+      </SessionLocaleProvider>
+    ) : (
+      <ConsoleAuthRoot />
+    )}
   </StrictMode>,
 );
 
@@ -28,6 +37,7 @@ function ConsoleE2eRoot() {
     baseUrl: (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
     accessToken: () => 'e2e-access-token',
   });
+  if (url.searchParams.get('view') === 'i18n') return <LocaleProbe />;
   if (url.searchParams.get('view') === 'journeys') {
     return (
       <JourneyAuthoringConsole

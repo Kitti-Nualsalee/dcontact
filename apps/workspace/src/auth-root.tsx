@@ -1,5 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { AuthProvider, useAuth } from 'react-oidc-context';
+import { SessionLocaleProvider } from '@d-contact/i18n/react';
+import { appI18n } from './i18n/index.js';
 import { createAgentWorkspaceApi } from './agent-api.js';
 import {
   createOidcSettings,
@@ -168,7 +170,35 @@ export function WorkspaceAuthRoot() {
         window.history.replaceState({}, document.title, cleanUrl);
       }}
     >
-      <AuthenticatedWorkspace apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+      <WorkspaceLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
+        <AuthenticatedWorkspace apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+      </WorkspaceLocale>
     </AuthProvider>
+  );
+}
+
+/**
+ * D1.11 (#450): ภาษา/timezone ตามลำดับ ผู้ใช้ → tenant → browser → th
+ * provider อยู่ตำแหน่งเดิมใน tree ตลอด (มี/ไม่มี session) — Workspace จึงไม่ remount เมื่อ token มาถึง
+ * หรือเมื่อสลับภาษา ซึ่งจะตัด WebRTC/WS ของสายที่คุยอยู่ (ADR-026)
+ */
+function WorkspaceLocale({
+  apiBaseUrl,
+  issuer,
+  children,
+}: {
+  apiBaseUrl: string;
+  issuer: string;
+  children: ReactNode;
+}) {
+  const auth = useAuth();
+  const accessToken = auth.isAuthenticated ? auth.user?.access_token : undefined;
+  const session = accessToken
+    ? { claims: auth.user?.profile, accessToken, apiBaseUrl, issuer }
+    : undefined;
+  return (
+    <SessionLocaleProvider i18n={appI18n} session={session}>
+      {children}
+    </SessionLocaleProvider>
   );
 }

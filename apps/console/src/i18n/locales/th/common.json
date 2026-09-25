@@ -1,0 +1,9 @@
+{
+  "app": { "name": "D-Contact Console" },
+  "language": {
+    "label": "ภาษา",
+    "th": "ไทย",
+    "en": "English",
+    "saveFailed": "เปลี่ยนภาษาแล้ว แต่บันทึกค่าไว้ใช้ครั้งหน้าไม่สำเร็จ"
+  }
+}

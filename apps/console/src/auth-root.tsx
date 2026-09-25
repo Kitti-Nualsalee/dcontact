@@ -1,5 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { AuthProvider, useAuth } from 'react-oidc-context';
+import { SessionLocaleProvider } from '@d-contact/i18n/react';
+import { appI18n } from './i18n/index.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
 import { GovernanceConsole } from './governance-console.js';
@@ -105,14 +107,41 @@ export function ConsoleAuthRoot() {
   });
   return (
     <AuthProvider {...settings}>
-      {journeyView ? (
-        <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-      ) : governanceView ? (
-        <GovernanceSurface apiBaseUrl={apiBaseUrl} />
-      ) : (
-        <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
-      )}
+      <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
+        {journeyView ? (
+          <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+        ) : governanceView ? (
+          <GovernanceSurface apiBaseUrl={apiBaseUrl} />
+        ) : (
+          <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
+        )}
+      </ConsoleLocale>
     </AuthProvider>
+  );
+}
+
+/**
+ * D1.11 (#450): ภาษา/timezone ตามลำดับ ผู้ใช้ → tenant → browser → th — ก่อน login ใช้ภาษา browser
+ * ผู้ใช้เปลี่ยนภาษาแล้วบันทึกลง Keycloak attribute `locale` ด้วย token ของตัวเอง
+ */
+function ConsoleLocale({
+  apiBaseUrl,
+  issuer,
+  children,
+}: {
+  apiBaseUrl: string;
+  issuer: string;
+  children: ReactNode;
+}) {
+  const auth = useAuth();
+  const accessToken = auth.isAuthenticated ? auth.user?.access_token : undefined;
+  const session = accessToken
+    ? { claims: auth.user?.profile, accessToken, apiBaseUrl, issuer }
+    : undefined;
+  return (
+    <SessionLocaleProvider i18n={appI18n} session={session}>
+      {children}
+    </SessionLocaleProvider>
   );
 }
 

@@ -68,6 +68,7 @@ import {
 } from './journey-authoring-api.js';
 import { JourneyTemplateController } from './journey-template-api.js';
 import { LINE_WEBHOOK_INGRESS, LineWebhookController } from './line-webhook-api.js';
+import { TENANT_LOCALE_DATABASE, TenantLocaleDefaultsController } from './tenant-locale-api.js';
 import {
   JOURNEY_SEGMENT_DATABASE,
   JourneySegmentRecoveryController,
@@ -220,9 +221,11 @@ class WorkspaceSessionController {
     ContactGovernanceCg5QueryController,
     ContactGovernanceCg5ExportController,
     ...CG4_API_CONTROLLERS,
+    TenantLocaleDefaultsController,
   ],
   providers: [
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
+    { provide: TENANT_LOCALE_DATABASE, useValue: prisma },
     { provide: CONTACT_GOVERNANCE_DATABASE, useValue: prisma },
     { provide: CG5_QUERY_CACHE, useValue: cg5QueryCache },
     { provide: CG5_TENANT_CLIENT_RATE_LIMITER, useValue: cg5TenantClientRateLimiter },
