@@ -10,6 +10,9 @@
  * - มี identity แต่ role ไม่ครอบ capability = 403
  * - A1.8 (#413): `PROVISIONING_MUTATE` ต้องผ่าน rollout ด้วย — flag ปิด = 503 `PROVISIONING_DISABLED`
  *   (rollback: อ่านได้ตามปกติ), subject ไม่อยู่ใน canary allowlist = 403
+ * - A1.8: tripwire `MIXED_TOKEN_TRIPWIRE` ตรวจ tenant context ซ้ำด้วยรายการของตัวเอง (ไม่ใช้ของ
+ *   `toVerifiedPlatformIdentity`) — ถ้าวันหนึ่ง identity check ถูกแก้จนหลุด token ก็ยังถูกปฏิเสธและเกิด
+ *   critical alert
  * - error body เป็น envelope เดียวกันทุกกรณี ไม่บอกเหตุผลเชิงลึกกับ client; เหตุผลจริงไปที่ diagnostics
  *   ซึ่งห้ามมี token หรือ claim ที่เป็น PII (email/ชื่อ)
  */
@@ -61,7 +64,8 @@ export type PlatformAuthDenialReason =
   | 'CAPABILITY_NOT_GRANTED'
   | 'ROUTE_UNDECLARED'
   | 'PROVISIONING_DISABLED'
-  | 'ROLLOUT_NOT_ALLOWLISTED';
+  | 'ROLLOUT_NOT_ALLOWLISTED'
+  | 'MIXED_TOKEN_TRIPWIRE';
 
 export interface PlatformAuthDiagnostic {
   event: 'platform.request.authorized' | 'platform.request.denied';
@@ -80,6 +84,19 @@ export const RequirePlatformCapability = (capability: PlatformCapability) =>
   SetMetadata(PLATFORM_CAPABILITY, capability);
 /** เฉพาะ liveness/readiness ที่ไม่คืนข้อมูล control plane */
 export const PlatformPublic = () => SetMetadata(PLATFORM_PUBLIC, true);
+
+/** claim ของ tenant token ที่ต้องไม่มีใน platform token — แยกจาก platform-identity โดยเจตนา */
+export function carriesTenantContext(claims: Record<string, unknown>): boolean {
+  const roles = (claims.realm_access as { roles?: unknown } | undefined)?.roles;
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  return (
+    ['tenant_id', 'tenant_slug', 'organization', 'dc_user_id'].some(
+      (claim) => claims[claim] !== undefined && claims[claim] !== null,
+    ) ||
+    (Array.isArray(roles) && roles.length > 0) ||
+    audiences.includes('dcontact-api')
+  );
+}
 
 function requestCorrelationId(request: IncomingMessage): string {
   const supplied = request.headers['x-correlation-id'];
@@ -150,6 +167,7 @@ export class PlatformAuthGuard implements CanActivate {
     } catch (error) {
       return deny(error instanceof PlatformIdentityError ? error.reason : 'TOKEN_INVALID', 401);
     }
+    if (carriesTenantContext(claims)) return deny('MIXED_TOKEN_TRIPWIRE', 401, identity.subject);
     if (!capability) return deny('ROUTE_UNDECLARED', 403, identity.subject);
     if (!identity.capabilities.includes(capability)) {
       return deny('CAPABILITY_NOT_GRANTED', 403, identity.subject);

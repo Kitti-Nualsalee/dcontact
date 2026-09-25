@@ -135,6 +135,10 @@ jobs:
       - name: Platform Console typecheck
         run: pnpm --filter @d-contact/platform-console typecheck
 
+      # A1.8 (#413): alert rule ของ Platform provisioning ต้องผ่าน promtool unit test
+      - name: Platform provisioning alert rules
+        run: pnpm a1:alerts:test
+
       # A1.8 (#413): runner เดียวรันทุก fast check ของ #393 แล้วออก acceptance-manifest.json
       # (non-waivable gate ที่ FAIL = job fail) — real-boundary รันด้วย `pnpm a1:acceptance:boundary`
       - name: A1 acceptance runner self-test

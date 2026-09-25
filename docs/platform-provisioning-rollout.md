@@ -20,13 +20,41 @@
 | เปิด, อยู่ใน allowlist | ปกติ | ปกติ | ปกติ |
 | เปิด, ไม่อยู่ใน allowlist | mutation = `403 FORBIDDEN` (diagnostic `ROLLOUT_NOT_ALLOWLISTED`) | — | อ่านอย่างเดียว + แจ้งว่ายังไม่อยู่ใน canary |
 
+## Observability
+
+| env | ค่าเริ่มต้น | ความหมาย |
+| --- | --- | --- |
+| `PLATFORM_WORKER_METRICS_PORT` | `9464` | `/metrics` ของ worker |
+| `PLATFORM_API_METRICS_PORT` | `9465` | `/metrics` ของ Platform API |
+| `PLATFORM_METRICS_HOST` | `0.0.0.0` | ห้ามเปิด port เหล่านี้ผ่าน ingress/hostname ของ Platform Console |
+
+- metrics ใช้ label ชุดปิด (source/kind/step/code/status/queue/invariant/decision/reason) — ไม่มี tenant,
+  request, subject, email หรือ domain; code ที่ไม่ใช่ stable code กลายเป็น `OTHER`
+- backlog, อายุคิว และ invariant อ่านจาก control plane DB ตอน scrape (cache 15 วินาที) ด้วย role
+  `dcontact_platform`
+- alert rules: `infra/observability/prometheus/platform-provisioning.rules.yml` (ทดสอบด้วย `pnpm a1:alerts:test`)
+- dashboard: `infra/observability/grafana/platform-provisioning.dashboard.json`
+- log เป็น structured JSON มี `correlationId`/`requestId`/`tenantId` แบบ opaque, `stepKey`, code และ outcome
+
+| alert | ระดับ | เงื่อนไข |
+| --- | --- | --- |
+| `PlatformProvisioningInvariantViolated` | critical | `premature_active`, `readiness_bypass`, `duplicate_ownership`, `cross_tenant_reference` หรือ `audit_gap` > 0 |
+| `PlatformMixedTokenAccepted` | critical | tripwire ของ Platform API เจอ tenant context ใน token ที่ผ่าน identity check |
+| `PlatformProvisioningPendingStale` / `PlatformInvitationOutboxStale` / `PlatformOperatorCommandStale` | warning | รายการเก่าสุดเกิน 5 นาที |
+| `PlatformActionRequiredStale` | warning | `ACTION_REQUIRED` เกิน 30 นาที |
+| `PlatformRetryExhausted` / `PlatformLeaseChurn` | warning | retry ครบ / เสีย lease > 3 ครั้งใน 15 นาที |
+| `PlatformHealthScrapeFailing` | warning | อ่านสถานะจาก DB ไม่ได้ 5 นาที |
+
+critical alert ใดๆ = หยุดขยาย canary และพิจารณา rollback ตามหัวข้อด้านล่าง
+
 ## ลำดับ rollout
 
 1. migration แบบ additive (`pnpm db:migrate && pnpm db:rls`)
 2. Keycloak: `platform-console` client, audience `dcontact-platform-api`, platform roles
    (`pnpm infra:identity:platform`) และ **jar ของ invitation-guard extension**
    (`bash scripts/keycloak-extensions-build.sh` → `infra/keycloak/providers/`) — setup จะตรวจว่า handler
-   `execute-actions` ถูก override แล้ว
+   `execute-actions` ถูก override แล้ว; setup ยังเปิด realm user events (อายุ ≥ 30 วัน, รวมกับค่าเดิม)
+   และให้ service account `dcontact-provisioner` มี `view-events` สำหรับ timeline ของ First admin
 3. deploy Platform API + worker โดย `PLATFORM_PROVISIONING_ENABLED` ยังไม่ตั้ง แล้ว deploy Platform Console
 4. ผ่าน real-boundary acceptance (`pnpm a1:acceptance:boundary`) บน SHA/config ที่จะเปิด
 5. เปิด canary: ตั้ง `PLATFORM_PROVISIONING_ENABLED=true` + allowlist เฉพาะ internal operator แล้ว restart
@@ -49,3 +77,10 @@ drill อัตโนมัติ: `A1.8 rollback drill` ใน `apps/platform-a
 
 Platform API และ worker สำหรับ `pnpm a1:console:uat` ต้องตั้ง `PLATFORM_PROVISIONING_ENABLED=true` และ
 `PLATFORM_OPERATOR_ALLOWLIST=<subject ของ operator ที่ใช้ทดสอบ>`
+
+## Timeline ของ First admin
+
+worker reconcile Keycloak user events ของ first admin ที่ได้คำเชิญแล้ว (ทุก 60 วินาทีต่อคำขอ, ติดตาม 30 วัน)
+ลง Action history ด้วย actor `FIRST_ADMIN`: `FIRST_ADMIN_EMAIL_VERIFIED`, `FIRST_ADMIN_PASSWORD_SET`,
+`FIRST_ADMIN_TOTP_ENROLLED`, `FIRST_ADMIN_ACTIVATED` — เก็บแค่ชนิดและเวลา (ไม่มี email/IP จาก event details)
+ถ้า event หมดอายุก่อน worker อ่าน จะเห็นเฉพาะ `FIRST_ADMIN_ACTIVATED` ที่เวลาตรวจพบ
