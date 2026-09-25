@@ -143,6 +143,8 @@ function AgentWorkspace({
   const dphone = useRef<BrowserDphone | undefined>(undefined);
   const liveConnectionId = useRef<string | undefined>(undefined);
   const popup = useRef<Window | null>(null);
+  // id ของหน้าต่างแยกที่ tab นี้เปิด — host รับ hello/bye/คำสั่งเฉพาะจาก id นี้
+  const remoteId = useRef<string | undefined>(undefined);
   const governanceGate = useMemo(() => new WorkspaceOutboundGate(), []);
 
   useEffect(() => {
@@ -390,7 +392,9 @@ function AgentWorkspace({
     if (!inShell || !workingTab) return;
     const bridge = createDphoneHost({
       onCommand: (command) => commandRef.current(command),
+      // bye ไม่ล้าง id: หน้าต่างแยกที่ reload จะส่ง hello ด้วย id เดิมและต่อกลับได้
       onRemotePresence: (present) => setDetached(present),
+      expectedRemote: () => remoteId.current,
     });
     host.current = bridge;
     return () => {
@@ -412,6 +416,7 @@ function AgentWorkspace({
     const timer = window.setInterval(() => {
       if (popup.current?.closed) {
         popup.current = null;
+        remoteId.current = undefined;
         setDetached(false);
       }
     }, 1_000);
@@ -419,18 +424,23 @@ function AgentWorkspace({
   }, [detached]);
 
   function detach() {
+    const id = crypto.randomUUID();
     const url = new URL('/dphone', window.location.origin);
     const tenant = new URL(window.location.href).searchParams.get('tenant');
     if (tenant) url.searchParams.set('tenant', tenant);
+    url.searchParams.set('remote', id);
+    remoteId.current = id;
     popup.current = window.open(url, 'dcontact-dphone', 'popup=yes,width=380,height=640');
     // popup ถูกบล็อก: คง widget ไว้ในหน้าเดิม ไม่มีอะไรเปลี่ยน
     if (popup.current) setDetached(true);
+    else remoteId.current = undefined;
   }
 
   function attach() {
     host.current?.recall();
     popup.current?.close();
     popup.current = null;
+    remoteId.current = undefined;
     setDetached(false);
   }
 

@@ -127,6 +127,7 @@ test('แยกหน้าต่าง /dphone แล้วสั่งพั�
   await expect(page.getByText('dphone เปิดอยู่ในหน้าต่างแยก')).toBeVisible();
   expect(new URL(popup.url()).pathname).toBe('/dphone');
   expect(new URL(popup.url()).searchParams.get('tenant')).toBe('demo');
+  expect(new URL(popup.url()).searchParams.get('remote')).toMatch(/^[0-9a-f-]{36}$/);
 
   const remote = popup.getByRole('region', { name: 'dphone' });
   await expect(remote.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
@@ -198,3 +199,23 @@ for (const language of ['th', 'en'] as const) {
     }
   });
 }
+
+test('หน้าต่าง /dphone ที่เปิดเอง (bookmark) ระหว่างมีสาย ไม่ทำให้ปุ่มคุมสายใน Workspace หายและสั่งสายไม่ได้', async ({
+  page,
+  context,
+}) => {
+  const dphone = await openWithCall(page);
+  const before = await evidence(page);
+  for (const path of ['/dphone', '/dphone?remote=not-ours']) {
+    const stray = await context.newPage();
+    await stray.goto(path);
+    await expect(stray.getByRole('status')).toHaveText(/ไม่พบ Workspace ที่ทำงานอยู่/, {
+      timeout: 6_000,
+    });
+    await expect(dphone.getByRole('button', { name: 'วางสาย' })).toBeVisible();
+    await expect(page.getByText('dphone เปิดอยู่ในหน้าต่างแยก')).toHaveCount(0);
+    await stray.close();
+  }
+  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('กำลังสนทนา');
+  expect(await evidence(page)).toEqual(before);
+});

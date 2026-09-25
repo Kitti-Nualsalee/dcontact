@@ -28,7 +28,14 @@ export function DphonePage() {
   }, [t]);
 
   useEffect(() => {
+    // id จาก working tab ตอนกดแยกหน้าต่าง — เปิดเองโดยไม่มี id จะไม่มี Workspace ตอบ
+    const remoteId = new URL(window.location.href).searchParams.get('remote');
+    if (!remoteId) {
+      setState('no-host');
+      return;
+    }
     const connection = createDphoneRemote({
+      remote: remoteId,
       onView: (next) => {
         setView(next);
         setState('connected');

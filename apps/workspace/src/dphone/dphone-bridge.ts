@@ -5,6 +5,8 @@
  *   BroadcastChannel (same-origin เท่านั้น) จึงแยก/รวมหน้าต่างได้โดยไม่ตัดสายและไม่สร้าง session ใหม่
  * - อยู่ใต้ leader election เดิม: เฉพาะ working tab เป็น host และรับคำสั่ง
  * - ข้อความทุกชนิดมี `v: 1` และถูกตรวจรูปก่อนใช้ — ข้อความแปลกปลอมถูกทิ้งเงียบ ๆ
+ * - หน้าต่างแยกมี `remote` id ที่ working tab สร้างตอนกดแยก: host ฟังเฉพาะ id นั้น หน้า `/dphone` ที่เปิดเอง
+ *   (bookmark) หรือหน้าต่างอื่นจึงไม่สลับสถานะ detached และสั่งสายไม่ได้
  * - การฝังในระบบภายนอก (iframe + postMessage + allowlist) เป็นงานของ map E1 ไม่ใช่ช่องทางนี้
  */
 import type { DphoneState } from './dphone.js';
@@ -27,11 +29,11 @@ export type DphoneCommand =
   | { type: 'dtmf'; value: string };
 
 type BridgeMessage =
-  | { v: 1; kind: 'state'; view: DphoneView }
-  | { v: 1; kind: 'command'; command: DphoneCommand }
-  | { v: 1; kind: 'hello' }
-  | { v: 1; kind: 'bye' }
-  | { v: 1; kind: 'closed' };
+  | { v: 1; kind: 'state'; remote: string; view: DphoneView }
+  | { v: 1; kind: 'command'; remote: string; command: DphoneCommand }
+  | { v: 1; kind: 'hello'; remote: string }
+  | { v: 1; kind: 'bye'; remote: string }
+  | { v: 1; kind: 'closed'; remote: string };
 
 const COMMANDS = new Set(['accept', 'toggleMute', 'toggleHold', 'hangup', 'dtmf']);
 
@@ -40,9 +42,11 @@ function isMessage(value: unknown): value is BridgeMessage {
   const message = value as {
     v?: unknown;
     kind?: unknown;
+    remote?: unknown;
     command?: { type?: unknown; value?: unknown };
   };
-  if (message.v !== 1) return false;
+  if (message.v !== 1 || typeof message.remote !== 'string' || message.remote.length === 0)
+    return false;
   if (message.kind === 'command') {
     const command = message.command;
     return (
@@ -64,21 +68,25 @@ export interface ChannelLike {
 
 const openChannel = (): ChannelLike => new BroadcastChannel(DPHONE_CHANNEL);
 
-/** ฝั่ง working tab: ส่ง view ล่าสุดให้หน้าต่างแยก และรับคำสั่งจากหน้าต่างนั้น */
+/** ฝั่ง working tab: ส่ง view ล่าสุดให้หน้าต่างแยกของตัวเอง และรับคำสั่งจากหน้าต่างนั้นเท่านั้น */
 export function createDphoneHost(handlers: {
   onCommand(command: DphoneCommand): void;
-  /** หน้าต่างแยกเปิดขึ้น (`hello`) หรือปิดไป (`bye`) */
+  /** หน้าต่างแยกที่ working tab เปิด (`hello`) หรือปิดไป (`bye`) */
   onRemotePresence(present: boolean): void;
+  /** id ของหน้าต่างแยกที่ working tab เปิดอยู่ — ไม่มี = ไม่รับหน้าต่างใดเลย */
+  expectedRemote(): string | undefined;
   channel?: ChannelLike;
 }) {
   const channel = handlers.channel ?? openChannel();
   let latest: DphoneView | undefined;
   const listener = (event: MessageEvent) => {
     if (!isMessage(event.data)) return;
+    const remote = handlers.expectedRemote();
+    if (!remote || event.data.remote !== remote) return;
     if (event.data.kind === 'command') handlers.onCommand(event.data.command);
     if (event.data.kind === 'hello') {
       handlers.onRemotePresence(true);
-      if (latest) channel.postMessage({ v: 1, kind: 'state', view: latest });
+      if (latest) channel.postMessage({ v: 1, kind: 'state', remote, view: latest });
     }
     if (event.data.kind === 'bye') handlers.onRemotePresence(false);
   };
@@ -86,11 +94,13 @@ export function createDphoneHost(handlers: {
   return {
     publish(view: DphoneView) {
       latest = view;
-      channel.postMessage({ v: 1, kind: 'state', view });
+      const remote = handlers.expectedRemote();
+      if (remote) channel.postMessage({ v: 1, kind: 'state', remote, view });
     },
-    /** working tab ดึง dphone กลับ — บอกหน้าต่างแยกให้ปิดตัวเอง */
+    /** working tab ดึง dphone กลับ — บอกหน้าต่างแยกของตัวเองให้ปิดตัวเอง */
     recall() {
-      channel.postMessage({ v: 1, kind: 'closed' });
+      const remote = handlers.expectedRemote();
+      if (remote) channel.postMessage({ v: 1, kind: 'closed', remote });
     },
     close() {
       channel.removeEventListener('message', listener);
@@ -99,26 +109,28 @@ export function createDphoneHost(handlers: {
   };
 }
 
-/** ฝั่งหน้าต่างแยก (`/dphone`): รับ view จาก working tab และส่งคำสั่งกลับ */
+/** ฝั่งหน้าต่างแยก (`/dphone?remote=<id>`): รับ view ของ id ตัวเองและส่งคำสั่งกลับ */
 export function createDphoneRemote(handlers: {
+  remote: string;
   onView(view: DphoneView): void;
   onClosed(): void;
   channel?: ChannelLike;
 }) {
   const channel = handlers.channel ?? openChannel();
+  const { remote } = handlers;
   const listener = (event: MessageEvent) => {
-    if (!isMessage(event.data)) return;
+    if (!isMessage(event.data) || event.data.remote !== remote) return;
     if (event.data.kind === 'state') handlers.onView(event.data.view);
     if (event.data.kind === 'closed') handlers.onClosed();
   };
   channel.addEventListener('message', listener);
-  channel.postMessage({ v: 1, kind: 'hello' });
+  channel.postMessage({ v: 1, kind: 'hello', remote });
   return {
     send(command: DphoneCommand) {
-      channel.postMessage({ v: 1, kind: 'command', command });
+      channel.postMessage({ v: 1, kind: 'command', remote, command });
     },
     close() {
-      channel.postMessage({ v: 1, kind: 'bye' });
+      channel.postMessage({ v: 1, kind: 'bye', remote });
       channel.removeEventListener('message', listener);
       channel.close();
     },
