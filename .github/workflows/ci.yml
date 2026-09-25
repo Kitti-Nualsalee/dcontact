@@ -148,7 +148,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: a1-acceptance-${{ github.sha }}
-          path: artifacts/a1/${{ github.run_id }}/acceptance-manifest.json
+          path: artifacts/a1/*/acceptance-manifest.json
           if-no-files-found: error
           retention-days: 90
 
@@ -158,7 +158,7 @@ jobs:
         with:
           name: a1-acceptance-logs-${{ github.sha }}
           path: |
-            artifacts/a1/${{ github.run_id }}/
+            artifacts/a1/
             apps/platform-console/test-results
           retention-days: 30
 
