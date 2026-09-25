@@ -11,9 +11,9 @@ on:
     inputs:
       acceptance:
         # สั่งเฉพาะชุดที่ต้องการได้ ไม่ต้องลาก convergence ที่ใช้เวลานานมาทุก main push
-        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2 | j5 | j5-focused | s2 | s2-focused)'
+        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused)'
         type: choice
-        options: [all, s1, cg4, cg5, j2, j5, j5-focused, s2, s2-focused]
+        options: [all, s1, cg4, cg5, j2, j5, j5-focused, s2-pr01, s2, s2-focused]
         default: all
 
 jobs:
@@ -239,7 +239,7 @@ jobs:
   cxa-j2-acceptance:
     # J2-REG01 รัน C1 และ S1 acceptance ซ้อนอยู่ข้างใน รวมแล้วราว 3 ชม. ถ้าผูกกับทุก push
     # job จะทับกันเองเพราะ main ขยับถี่กว่านั้น จึงรันรอบดึกวันละครั้ง (และสั่งเองได้)
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused')
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2-pr01' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused')
     runs-on: ubuntu-latest
     timeout-minutes: 330
     concurrency:
@@ -312,7 +312,7 @@ jobs:
     # CG4.11 (#194): รันรอบดึกหรือสั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg4`)
     # CG4-REG01 rerun S1 ครั้งเดียว (E0/C1/Inbound Voice อยู่ใน S1-REG-01) และแต่ละ suite รันครั้งเดียว
     # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
-    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused')) && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2-pr01' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused')) && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     concurrency:
@@ -587,9 +587,13 @@ jobs:
     # token/secret ไม่เข้า GitHub Actions — job นี้รับแค่ reference จาก `vars` และส่งออกเฉพาะ
     # sanitized bundle; environment `line-provider-pilot` ต้องมี required reviewer ก่อนเริ่ม
     # PR01 ไม่มี push — PR02/RB01 (S2.7) ต้องมี one-shot approval ใหม่ทุกครั้ง
-    if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 's2' && github.ref == 'refs/heads/main'
+    # หลัง RB01 revoke token แล้วให้รับ sanitized PR01/PR02/RB01 bundles ที่ protected runner
+    # สร้างไว้ก่อนหน้าใน SHA เดียวกัน; ห้ามรัน PR01 ซ้ำด้วย token ที่ถูก revoke
+    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 's2-pr01' || inputs.acceptance == 's2') && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, macOS, line-pilot]
     environment: line-provider-pilot
+    env:
+      CXA_S2_PROVIDER_BUNDLE_SOURCE_DIR: ${{ vars.CXA_S2_PROVIDER_BUNDLE_SOURCE_DIR }}
     timeout-minutes: 30
     concurrency:
       group: cxa-s2-provider
@@ -611,7 +615,12 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Build workspace prerequisites for provider runner
+        if: inputs.acceptance == 's2-pr01'
+        run: pnpm build
+
       - name: Run S2-LINE-PR01 provider conformance (no push)
+        if: inputs.acceptance == 's2-pr01'
         run: pnpm --filter @d-contact/delivery provider:pr01
         env:
           CXA_S2_EXPECTED_COMMIT_SHA: ${{ github.sha }}
@@ -619,6 +628,19 @@ jobs:
           CXA_S2_CREDENTIAL_REF_ID: ${{ vars.CXA_S2_CREDENTIAL_REF_ID }}
           CXA_S2_APPROVED_WEBHOOK_ENDPOINT_DIGEST: ${{ vars.CXA_S2_APPROVED_WEBHOOK_ENDPOINT_DIGEST }}
           CXA_S2_PROVIDER_BUNDLE_DIR: ${{ github.workspace }}/artifacts/cxa-s2/provider
+
+      - name: Import sanitized pilot bundles from protected runner
+        if: inputs.acceptance == 's2'
+        run: |
+          test -n "$CXA_S2_PROVIDER_BUNDLE_SOURCE_DIR"
+          source_dir="$CXA_S2_PROVIDER_BUNDLE_SOURCE_DIR/$GITHUB_SHA"
+          test -f "$source_dir/pr01.json"
+          test -f "$source_dir/pilot.json"
+          mkdir -p artifacts/cxa-s2/provider
+          cp "$source_dir/pr01.json" artifacts/cxa-s2/provider/pr01.json
+          cp "$source_dir/pilot.json" artifacts/cxa-s2/provider/pilot.json
+          CXA_S2_EXPECTED_COMMIT_SHA="$GITHUB_SHA" node scripts/cxa-s2-provider-bundle.mjs \
+            artifacts/cxa-s2/provider/pr01.json artifacts/cxa-s2/provider/pilot.json
 
       - name: Upload sanitized provider bundle
         if: always()
