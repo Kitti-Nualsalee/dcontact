@@ -1,0 +1,113 @@
+{
+  "type": "d1.real-call-acceptance",
+  "status": "PASS",
+  "tenantId": "a1115188-79a1-42e9-84e7-872d5553a325",
+  "telephonyNodeId": "fs-d1-16-88007",
+  "baseline": {
+    "sip": "f59e63c0-336f-1240-42bb-0000000000008Ut5NKFmN3m1H",
+    "ws": "003d8f93-ac2c-472d-a5ac-b93ae1529e27",
+    "timeOrigin": 1790332652594.2,
+    "navigations": ["navigate"]
+  },
+  "freeswitchLegs": {
+    "inbound": "0a2cdc77-13e8-443e-981e-f518960d59ac:ACTIVE",
+    "agent": "ed387844-d08c-4906-91ad-fb24111ff214:ACTIVE"
+  },
+  "steps": [
+    {
+      "step": "ย่อเป็นแถบ",
+      "evidence": {
+        "sip": "f59e63c0-336f-1240-42bb-0000000000008Ut5NKFmN3m1H",
+        "ws": "003d8f93-ac2c-472d-a5ac-b93ae1529e27",
+        "timeOrigin": 1790332652594.2,
+        "navigations": ["navigate"]
+      },
+      "legs": {
+        "inbound": "0a2cdc77-13e8-443e-981e-f518960d59ac:ACTIVE",
+        "agent": "ed387844-d08c-4906-91ad-fb24111ff214:ACTIVE"
+      }
+    },
+    {
+      "step": "ขยายพร้อมแป้นกด + DTMF",
+      "evidence": {
+        "sip": "f59e63c0-336f-1240-42bb-0000000000008Ut5NKFmN3m1H",
+        "ws": "003d8f93-ac2c-472d-a5ac-b93ae1529e27",
+        "timeOrigin": 1790332652594.2,
+        "navigations": ["navigate"]
+      },
+      "legs": {
+        "inbound": "0a2cdc77-13e8-443e-981e-f518960d59ac:ACTIVE",
+        "agent": "ed387844-d08c-4906-91ad-fb24111ff214:ACTIVE"
+      }
+    },
+    {
+      "step": "กะทัดรัด",
+      "evidence": {
+        "sip": "f59e63c0-336f-1240-42bb-0000000000008Ut5NKFmN3m1H",
+        "ws": "003d8f93-ac2c-472d-a5ac-b93ae1529e27",
+        "timeOrigin": 1790332652594.2,
+        "navigations": ["navigate"]
+      },
+      "legs": {
+        "inbound": "0a2cdc77-13e8-443e-981e-f518960d59ac:ACTIVE",
+        "agent": "ed387844-d08c-4906-91ad-fb24111ff214:ACTIVE"
+      }
+    },
+    {
+      "step": "สลับเป็น English",
+      "evidence": {
+        "sip": "f59e63c0-336f-1240-42bb-0000000000008Ut5NKFmN3m1H",
+        "ws": "003d8f93-ac2c-472d-a5ac-b93ae1529e27",
+        "timeOrigin": 1790332652594.2,
+        "navigations": ["navigate"]
+      },
+      "legs": {
+        "inbound": "0a2cdc77-13e8-443e-981e-f518960d59ac:ACTIVE",
+        "agent": "ed387844-d08c-4906-91ad-fb24111ff214:ACTIVE"
+      }
+    },
+    {
+      "step": "แยกหน้าต่าง + พัก/กลับเข้าสายจากหน้าต่างแยก",
+      "evidence": {
+        "sip": "f59e63c0-336f-1240-42bb-0000000000008Ut5NKFmN3m1H",
+        "ws": "003d8f93-ac2c-472d-a5ac-b93ae1529e27",
+        "timeOrigin": 1790332652594.2,
+        "navigations": ["navigate"]
+      },
+      "legs": {
+        "inbound": "0a2cdc77-13e8-443e-981e-f518960d59ac:ACTIVE",
+        "agent": "ed387844-d08c-4906-91ad-fb24111ff214:ACTIVE"
+      }
+    },
+    {
+      "step": "สลับกลับเป็นไทยขณะแยกหน้าต่าง",
+      "evidence": {
+        "sip": "f59e63c0-336f-1240-42bb-0000000000008Ut5NKFmN3m1H",
+        "ws": "003d8f93-ac2c-472d-a5ac-b93ae1529e27",
+        "timeOrigin": 1790332652594.2,
+        "navigations": ["navigate"]
+      },
+      "legs": {
+        "inbound": "0a2cdc77-13e8-443e-981e-f518960d59ac:ACTIVE",
+        "agent": "ed387844-d08c-4906-91ad-fb24111ff214:ACTIVE"
+      }
+    },
+    {
+      "step": "ดึง dphone กลับ",
+      "evidence": {
+        "sip": "f59e63c0-336f-1240-42bb-0000000000008Ut5NKFmN3m1H",
+        "ws": "003d8f93-ac2c-472d-a5ac-b93ae1529e27",
+        "timeOrigin": 1790332652594.2,
+        "navigations": ["navigate"]
+      },
+      "legs": {
+        "inbound": "0a2cdc77-13e8-443e-981e-f518960d59ac:ACTIVE",
+        "agent": "ed387844-d08c-4906-91ad-fb24111ff214:ACTIVE"
+      }
+    }
+  ],
+  "caller": "SIPp received BYE after agent hangup (Successful call 1)",
+  "recordedAt": "2026-09-25",
+  "commit": "a8a4391",
+  "runs": "3/3 PASS (pnpm d1:real-call)"
+}
