@@ -15,6 +15,7 @@ import {
   PlatformWorkerMetrics,
   startMetricsServer,
 } from './platform-metrics.js';
+import { startPlatformTracing } from './platform-tracing.js';
 import { PlatformRollout } from './platform-rollout.js';
 
 function required(name: string): string {
@@ -29,6 +30,8 @@ const platform = new PrismaClient({
 const provisioner = new PrismaClient({
   datasources: { db: { url: required('PROVISIONER_DATABASE_URL') } },
 });
+// A1.8b (#473): trace ต่อจาก traceparent ที่ API เก็บไว้ — เปิดเมื่อตั้ง OTEL_EXPORTER_OTLP_ENDPOINT
+const tracing = startPlatformTracing({ serviceName: 'dcontact-platform-worker' });
 // A1.8 (#413): /metrics บน port แยก (ไม่เปิดผ่าน ingress) — backlog/invariant อ่านจาก control plane DB
 const registry = new Registry();
 collectDefaultMetrics({ register: registry, prefix: 'dcontact_platform_worker_' });
@@ -62,4 +65,5 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 await worker.run(controller.signal, Number(process.env.PLATFORM_WORKER_POLL_MS ?? 1_000));
 metricsServer.close();
+await tracing.shutdown();
 await Promise.all([platform.$disconnect(), provisioner.$disconnect()]);

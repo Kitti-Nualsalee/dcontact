@@ -77,6 +77,7 @@
     "cxa:cg5:acceptance": "node scripts/cxa-cg5-readiness.mjs",
     "test:cxa-cg5-readiness": "node --test scripts/cxa-cg5-readiness.test.mjs",
     "infra:console": "docker compose -f infra/docker/docker-compose.dev.yml --profile tools up -d redpanda-console",
+    "infra:tracing": "docker compose -f infra/docker/docker-compose.dev.yml --profile tools up -d jaeger",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   },
   "devDependencies": {

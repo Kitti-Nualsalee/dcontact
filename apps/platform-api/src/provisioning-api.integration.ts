@@ -6,6 +6,9 @@
  * revision, target swap, concurrent recovery, generic 404, 429 + Retry-After, 503 และ dependency
  * failure หลังรับคำขอ
  *
+ * A1.8b (#473): trace เดียวต่อคำขอ — HTTP → saga step ทุก attempt (รวมหลัง worker restart) และ
+ * operator command ต่อจาก traceparent ใน DB โดยไม่มี email/slug/domain ใน span
+ *
  * A1.8 (#413) rollback drill: ปิด `platformProvisioning.enabled` ระหว่างมีงานค้าง → mutation ถูกปิด,
  * อ่านได้ปกติ, worker ไม่รับงาน, ledger ไม่เปลี่ยน → เปิดอีกครั้ง (deploy fix) แล้ว resume จนจบ
  */
@@ -16,11 +19,13 @@ import { after, before, describe, test } from 'node:test';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@d-contact/db';
+import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
 import {
   createFakeProvisioningPorts,
   createPlatformWorkerLoop,
   OperatorCommandWorker,
   PlatformRollout,
+  startPlatformTracing,
   type PlatformRolloutState,
   PlatformCatalog,
   ProvisioningRecoveryService,
@@ -130,6 +135,10 @@ async function actionRequired() {
   return (await call('GET', `/api/v1/provisioning-requests/${request.requestId}`)).body;
 }
 
+// A1.8b: in-memory exporter ทั้งไฟล์ (process แยกต่อไฟล์) — tracing จริงเปิดด้วย OTLP env
+const spans = new InMemorySpanExporter();
+const tracing = startPlatformTracing({ serviceName: 'platform-api-test', exporter: spans });
+
 before(async () => {
   await catalog.publishBootstrapTemplate({
     version: templateVersion,
@@ -172,6 +181,7 @@ before(async () => {
 });
 
 after(async () => {
+  await tracing.shutdown();
   await app?.close();
   await owner.$transaction(async (transaction) => {
     await transaction.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
@@ -682,5 +692,88 @@ describe('A1.8 rollback drill', { concurrency: false }, () => {
         'platform.worker.claims_enabled',
       ],
     );
+  });
+});
+
+describe('A1.8b distributed trace', { concurrency: false }, () => {
+  const traceIdOf = (traceparent: string | null) => traceparent?.split('-')[1];
+
+  test('trace เดียวต่อคำขอ: HTTP create → ทุก step รวม retry หลัง worker restart; ไม่มี PII ใน span', async () => {
+    spans.reset();
+    const body = input();
+    const accepted = await call('POST', '/api/v1/provisioning-requests', {
+      body,
+      key: `trace-${randomUUID()}`,
+    });
+    assert.equal(accepted.status, 202, accepted.text);
+    const { requestId, tenantId } = accepted.body.request;
+    tenants.push(tenantId);
+    const row = await owner.pfProvisioningRequest.findUniqueOrThrow({ where: { id: requestId } });
+    const traceId = traceIdOf(row.traceParent);
+    assert.ok(traceId, 'ต้องเก็บ traceparent ตอนรับคำขอ');
+    const http = spans.getFinishedSpans().find((span) => span.name.startsWith('HTTP POST'));
+    assert.equal(http?.name, 'HTTP POST /api/v1/provisioning-requests');
+    assert.equal(http?.spanContext().traceId, traceId);
+
+    // worker ตัวแรก: step แรกสร้าง resource แล้ว response หาย → retry; "restart" เป็น worker ใหม่
+    fakes.systems.KEYCLOAK_ORGANIZATION.fail('lostResponse');
+    const workerFor = (id: string) =>
+      new ProvisioningSagaWorker(platform, fakes.ports, {
+        workerId: `trace-${id}-${run}`,
+        sipBaseDomain: SIP_BASE,
+        scope: () => ({ tenantId }),
+        backoffBaseMs: 1,
+        backoffMaxMs: 1,
+      });
+    await workerFor('a').runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await workerFor('b').drain();
+    const status = await call('GET', `/api/v1/provisioning-requests/${requestId}`);
+    assert.equal(status.body.status, 'SUCCEEDED');
+
+    const provisioning = spans
+      .getFinishedSpans()
+      .filter((span) => span.name.startsWith('provisioning.'));
+    assert.ok(
+      provisioning.filter((span) => span.name === 'provisioning.step KEYCLOAK_ORGANIZATION')
+        .length >= 2,
+      'attempt แรกและ attempt หลัง restart ต้องมี span ทั้งคู่',
+    );
+    assert.ok(provisioning.some((span) => span.name === 'provisioning.step READINESS'));
+    assert.ok(provisioning.some((span) => span.name === 'provisioning.finalize'));
+    assert.deepEqual(
+      new Set(provisioning.map((span) => span.spanContext().traceId)),
+      new Set([traceId]),
+    );
+    const workers = new Set(provisioning.map((span) => span.attributes['dcontact.worker_id']));
+    assert.ok(workers.size >= 2, 'span มาจาก worker สองตัวแต่อยู่ trace เดียว');
+
+    const serialized = JSON.stringify(
+      spans.getFinishedSpans().map((span) => [span.name, span.attributes]),
+    );
+    for (const secret of [body.firstAdmin.email, body.slug, body.primaryDomain, '@']) {
+      assert.equal(serialized.includes(secret), false, `span รั่ว ${secret}`);
+    }
+  });
+
+  test('operator command ต่อ trace ของ HTTP request ที่ส่งคำสั่ง', async () => {
+    const stuck = await actionRequired();
+    spans.reset();
+    const queued = await call(
+      'POST',
+      `/api/v1/provisioning-requests/${stuck.requestId}/actions/retry/previews`,
+    );
+    assert.equal(queued.status, 202, queued.text);
+    const command = await owner.pfOperatorCommand.findUniqueOrThrow({
+      where: { id: queued.body.commandId },
+    });
+    const traceId = traceIdOf(command.traceParent);
+    assert.ok(traceId);
+    await commands.drain();
+    const commandSpan = spans
+      .getFinishedSpans()
+      .find((span) => span.name === 'operator.command PREVIEW');
+    assert.equal(commandSpan?.spanContext().traceId, traceId);
+    assert.equal(commandSpan?.attributes['dcontact.outcome'], 'SUCCEEDED');
   });
 });
