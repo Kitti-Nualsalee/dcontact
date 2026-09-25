@@ -32,6 +32,7 @@ import {
   TIMEZONES,
   actionLabel,
   canMutate,
+  readOnlyCopy,
   currentStep,
   describeHistory,
   draftToRequestBody,
@@ -129,6 +130,7 @@ export function PlatformConsoleApp({
   if (!session) return <Centered title="กำลังตรวจสอบ session" busy />;
 
   const mutate = canMutate(session);
+  const readOnly = readOnlyCopy(session);
   return (
     <NavigationContext.Provider value={navigations}>
       <div className="shell">
@@ -159,9 +161,7 @@ export function PlatformConsoleApp({
             ) : null}
           </nav>
           <div className="identity">
-            <span className="chip neutral">
-              {mutate ? 'Platform Operator' : 'Platform Auditor (อ่านอย่างเดียว)'}
-            </span>
+            <span className="chip neutral">{mutate ? 'Platform Operator' : readOnly.chip}</span>
             {onSignOut ? (
               <button className="button subtle" onClick={onSignOut}>
                 ออกจากระบบ
@@ -170,6 +170,11 @@ export function PlatformConsoleApp({
           </div>
         </header>
         <main id="main" className="main" tabIndex={-1}>
+          {!mutate && readOnly.banner ? (
+            <p role="status" className="callout warning">
+              {readOnly.banner}
+            </p>
+          ) : null}
           {route.name === 'list' ? (
             <TenantList api={api} navigate={navigate} canCreate={mutate} />
           ) : route.name === 'new' ? (
@@ -178,7 +183,7 @@ export function PlatformConsoleApp({
             ) : (
               <PageHeading title="สร้าง tenant" subtitle="บัญชีนี้เป็นแบบอ่านอย่างเดียว">
                 <p role="alert" className="callout warning">
-                  Platform Auditor สร้าง tenant ไม่ได้
+                  {readOnly.create}
                 </p>
               </PageHeading>
             )
@@ -188,6 +193,7 @@ export function PlatformConsoleApp({
               api={api}
               requestId={route.requestId}
               canMutate={mutate}
+              readOnlyNotice={readOnly.decision}
               navigate={navigate}
               pollMs={pollMs}
             />
@@ -910,12 +916,14 @@ function RequestDetail({
   api,
   requestId,
   canMutate,
+  readOnlyNotice,
   navigate,
   pollMs,
 }: {
   api: PlatformApi;
   requestId: string;
   canMutate: boolean;
+  readOnlyNotice: string;
   navigate: Navigate;
   pollMs: number;
 }) {
@@ -1094,9 +1102,7 @@ function RequestDetail({
                     </ul>
                   </>
                 ) : (
-                  <p className="callout info">
-                    Platform Auditor ดูได้อย่างเดียว — ต้องให้ Platform Operator ตัดสินใจ
-                  </p>
+                  <p className="callout info">{readOnlyNotice}</p>
                 )}
               </div>
             </section>

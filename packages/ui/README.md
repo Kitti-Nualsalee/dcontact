@@ -1,6 +1,6 @@
 # @d-contact/ui
 
-design token ของ D-Contact — แหล่งความจริงเดียวของสี ตัวอักษร มุมโค้ง เงา และ focus ring
+design token ของ D-Contact — แหล่งความจริงเดียวของสี ตัวอักษร มุมโค้ง ระยะห่าง ความสูงมาตรฐาน เงา และ focus ring
 ที่ `apps/workspace` กับ `apps/console` ต้องใช้ร่วมกัน ตาม [ADR-026](../../docs/adr/026-frontend-app-split.md) ข้อ 6
 
 แพ็กเกจนี้ถือ **token และไฟล์โลโก้เท่านั้น** ไม่มี component, routing, data fetching หรือ live-session authority
@@ -37,6 +37,29 @@ element.style.background = cssVar('surfaceRaised'); // 'var(--dc-surface-raised)
    `text-slate-400` คือคู่สีที่ทำให้ mockup ตก WCAG AA มากที่สุด
 3. **สีสองประเภทห้ามปนกัน** — ดูหัวข้อถัดไป
 4. รันตัวตรวจก่อน commit ที่แตะ token: `pnpm --filter @d-contact/ui test`
+
+## มุมโค้ง ระยะห่าง และ density (D1.4)
+
+ค่าชุดนี้ตัดสินใน [D1.4 #424](https://github.com/Kitti-Nualsalee/dcontact/issues/424):
+
+| กลุ่ม    | token                                                 | ค่า                                           |
+| -------- | ----------------------------------------------------- | --------------------------------------------- |
+| มุมโค้ง  | `--dc-radius-xs/sm/md/lg/xl/pill`                     | 2 · 3 · 4 · 5 · 7 · 999px (ลดครึ่งจากเดิม)    |
+| ระยะห่าง | `--dc-space-1..10`                                    | 2 · 4 · 6 · 8 · 12 · 16 · 20 · 24 · 32 · 40px |
+| control  | `--dc-control-md` / `--dc-control-sm`                 | 32 / 26px                                     |
+| แถว/แถบ  | `--dc-row-subnav` · `--dc-row-table` · `--dc-bar-top` | 36 · 36 · 44px                                |
+
+- ชื่อ radius เดิมคงไว้ทุกตัว แอปที่อ้างชื่ออยู่ได้ค่าใหม่โดยไม่ต้องแก้โค้ด
+- component ห้ามใช้ระยะห่างนอก scale — ค่าที่ไม่ตรงขั้นให้ปัดเข้าขั้นที่ใกล้สุด
+- ใน Tailwind ใช้ prefix `dc-` (`p-dc-5` = 12px) เพราะเลขขั้นของ Tailwind ไม่ตรงกับของเรา
+  (`p-2` ของ Tailwind = 8px แต่ `--dc-space-2` = 4px) และความสูงใช้ชื่อบทบาท เช่น `h-control-md`
+
+### โครงสำหรับธีมและ density ในอนาคต
+
+สีทั้งหมดอยู่ในบล็อก `:root, [data-theme='light']` และความสูงมาตรฐานอยู่ในบล็อก
+`:root, [data-density='default']` ธีมหรือ density ใหม่เพิ่มได้ด้วยบล็อกที่ประกาศชื่อเดิมซ้ำ เช่น
+`[data-theme='dark'] { --dc-surface-page: … }` หรือ `[data-density='touch'] { --dc-control-md: 44px }`
+โดยไม่แตะโค้ดแอป — D1 ยังไม่มีค่าชุดที่สอง (โหมดมืดอยู่นอกขอบเขต)
 
 ## severity กับ identity
 

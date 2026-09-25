@@ -49,7 +49,11 @@ class MockPlatformApi {
   hold = false;
   sequence = 0;
 
-  constructor(readonly role: 'platform_operator' | 'platform_auditor' = 'platform_operator') {}
+  constructor(
+    readonly role: 'platform_operator' | 'platform_auditor' = 'platform_operator',
+    /** A1.8: สิ่งที่ API ตอบใน session.mutations สำหรับ operator */
+    readonly rollout: 'ALLOWED' | 'DISABLED' | 'NOT_ALLOWLISTED' = 'ALLOWED',
+  ) {}
 
   id(prefix: number) {
     this.sequence += 1;
@@ -148,7 +152,7 @@ class MockPlatformApi {
       });
     if (request.headers().authorization !== 'Bearer e2e-access-token')
       return json(401, this.envelope(401, 'UNAUTHENTICATED'));
-    const mutate = this.role === 'platform_operator';
+    const mutate = this.role === 'platform_operator' && this.rollout === 'ALLOWED';
 
     if (path === '/api/v1/session') {
       return json(200, {
@@ -157,6 +161,7 @@ class MockPlatformApi {
         capabilities: mutate
           ? ['CONTROL_PLANE_READ', 'PROVISIONING_MUTATE']
           : ['CONTROL_PLANE_READ'],
+        mutations: this.role === 'platform_operator' ? this.rollout : 'NOT_GRANTED',
         expiresAt: '2026-09-24T04:00:00.000Z',
       });
     }
@@ -608,6 +613,40 @@ test('auditor: อ่านได้อย่างเดียว — ไม่
   await expectAccessible(page);
   await page.goto('/new');
   await expect(page.getByText('Platform Auditor สร้าง tenant ไม่ได้')).toBeVisible();
+});
+
+test('A1.8 rollback: operator เห็นประกาศปิดชั่วคราว, ไม่มีปุ่มสร้าง/recovery แต่ยังดูสถานะได้', async ({
+  page,
+}) => {
+  const api = new MockPlatformApi('platform_operator', 'DISABLED');
+  api.requests.set('00000001-0000-4000-8000-00000000beef', {
+    requestId: '00000001-0000-4000-8000-00000000beef',
+    tenantId: '00000002-0000-4000-8000-00000000beef',
+    status: 'ACTION_REQUIRED' as const,
+    revision: 3,
+    displayName: 'Harbor Freight Lab',
+    slug: 'harbor-freight',
+    primaryDomain: 'harbor.example.test',
+    plan: { code: 'starter', version: 1 },
+    failing: true,
+    polls: 5,
+    email: 'ops@harbor.example.test',
+  });
+  await open(page, api);
+  await expect(
+    page.getByRole('status').filter({ hasText: 'ปิดการสร้างและแก้ไข tenant ชั่วคราว' }),
+  ).toBeVisible();
+  await expect(page.getByText('Platform Operator (ปิดการแก้ไขชั่วคราว)')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'สร้าง tenant' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'เปิดรายละเอียด Harbor Freight Lab' }).click();
+  await expect(page.getByRole('heading', { name: 'ต้องการการตัดสินใจ' })).toBeVisible();
+  await expect(
+    page.getByText('ปิดการแก้ไขชั่วคราว — ตัดสินใจได้เมื่อระบบเปิดอีกครั้ง'),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: /Reconcile/ })).toHaveCount(0);
+  await expectAccessible(page);
+  await page.goto('/new');
+  await expect(page.getByText('ขณะนี้ปิดการสร้าง tenant ชั่วคราว')).toBeVisible();
 });
 
 test('keyboard: skip link และค้นหาด้วยคีย์บอร์ดล้วน; request ที่ไม่มีได้หน้า generic', async ({
