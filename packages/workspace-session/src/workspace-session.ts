@@ -154,6 +154,8 @@ export interface WorkspaceSession {
   status: WorkspaceSessionStatus;
   availability: 'OFFLINE' | 'AVAILABLE';
   activeInteractionId?: string;
+  /** E1.9: identity มี role `agent` (รับงาน routing ได้) — ใช้ตัดสินว่าต้องมี work-session lease ไหม */
+  agent?: boolean;
 }
 
 export interface WorkspaceSessionHandshake {
@@ -212,6 +214,10 @@ interface StoredSession extends WorkspaceSession {
   expiresAt: Date;
 }
 
+function isAgent(identity: VerifiedWorkspaceIdentity): boolean {
+  return identity.roles.includes('agent');
+}
+
 type Clock = () => Date;
 
 /**
@@ -250,6 +256,7 @@ export class WorkspaceSessionRegistry {
       routingEnabled: isLeader,
       status: isValid ? 'active' : 'reauthentication-required',
       availability: isLeader ? 'AVAILABLE' : 'OFFLINE',
+      agent: isAgent(identity),
     };
     this.sessions.set(key, session);
     return this.publicSession(session);
@@ -289,6 +296,7 @@ export class WorkspaceSessionRegistry {
     const isValid = identity.expiresAt.getTime() > this.now().getTime();
     stored.sessionId = identity.sessionId;
     stored.expiresAt = identity.expiresAt;
+    stored.agent = isAgent(identity);
     stored.status = isValid ? 'active' : 'reauthentication-required';
     stored.routingEnabled =
       isValid && this.workingTabs.get(this.userKey(identity.tenantId, identity.userId)) === tabId;

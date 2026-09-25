@@ -69,7 +69,9 @@ BEGIN
     -- D1.12 (#451): หมุดแอปของ tenant/ผู้ใช้
     'navigation_tenant_default_pins', 'navigation_user_pins', 'navigation_audit_events',
     -- D1.13 (#452): UI flag ระดับ tenant
-    'tenant_ui_flags', 'tenant_ui_flag_audit_events'
+    'tenant_ui_flags', 'tenant_ui_flag_audit_events',
+    -- E1.9 (#483): agent work-session lease
+    'agent_work_session_leases', 'agent_work_session_events'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -99,6 +101,9 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dcontact_app;
 -- Queue audit is append-only through the application role.
 REVOKE UPDATE, DELETE ON queue_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON navigation_audit_events FROM dcontact_app;
+-- E1.9 (#483): lease ถูกปล่อยด้วยการ UPDATE เท่านั้น ไม่ลบ; audit append-only
+REVOKE DELETE ON agent_work_session_leases FROM dcontact_app;
+REVOKE UPDATE, DELETE ON agent_work_session_events FROM dcontact_app;
 -- D1.13 (#452): แอปอ่าน UI flag ได้อย่างเดียว — platform operator เป็นผู้เปลี่ยน (ผ่าน dcontact_platform)
 REVOKE INSERT, UPDATE, DELETE ON tenant_ui_flags, tenant_ui_flag_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON recording_audit_events FROM dcontact_app;
