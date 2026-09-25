@@ -118,6 +118,12 @@ importers:
 
   apps/console:
     dependencies:
+      '@d-contact/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
+      i18next:
+        specifier: 26.4.2
+        version: 26.4.2(typescript@5.9.3)
       oidc-client-ts:
         specifier: 3.5.0
         version: 3.5.0
@@ -127,6 +133,9 @@ importers:
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
+      react-i18next:
+        specifier: 17.0.15
+        version: 17.0.15(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3)
       react-oidc-context:
         specifier: 3.3.1
         version: 3.3.1(oidc-client-ts@3.5.0)(react@19.2.8)
@@ -521,6 +530,12 @@ importers:
 
   apps/workspace:
     dependencies:
+      '@d-contact/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
+      i18next:
+        specifier: 26.4.2
+        version: 26.4.2(typescript@5.9.3)
       oidc-client-ts:
         specifier: 3.5.0
         version: 3.5.0
@@ -530,6 +545,9 @@ importers:
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
+      react-i18next:
+        specifier: 17.0.15
+        version: 17.0.15(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3)
       react-oidc-context:
         specifier: 3.3.1
         version: 3.3.1(oidc-client-ts@3.5.0)(react@19.2.8)
@@ -624,6 +642,31 @@ importers:
       '@types/node':
         specifier: ^20.14.0
         version: 20.19.43
+      tsx:
+        specifier: ^4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+
+  packages/i18n:
+    dependencies:
+      i18next:
+        specifier: 26.4.2
+        version: 26.4.2(typescript@5.9.3)
+      react-i18next:
+        specifier: 17.0.15
+        version: 17.0.15(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3)
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      '@types/react':
+        specifier: 19.2.18
+        version: 19.2.18
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
       tsx:
         specifier: ^4.23.1
         version: 4.23.1

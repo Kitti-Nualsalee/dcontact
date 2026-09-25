@@ -81,6 +81,10 @@ jobs:
       - name: A1.2 platform auth boundary tests
         run: pnpm --filter @d-contact/platform-api test
 
+      # D1.11 (#450): formatter/locale/catalog check — CI ล้มเมื่อ key ขาด th หรือ en
+      - name: D1.11 i18n foundation tests + catalog check
+        run: pnpm test:d1-i18n
+
   a1-platform-control-fast-gate:
     # A1.1 (#406) / #393 Fast PR gate: idempotency, reservation race, tombstone, CAS, completion
     # invariant, append-only และสิทธิ์ของ role บน Postgres จริง — ไม่ต้องใช้ Keycloak/UI
@@ -212,6 +216,40 @@ jobs:
         with:
           name: d1-ui-react-playwright
           path: packages/ui-react/test-results
+          retention-days: 7
+
+  d1-i18n-browser:
+    # D1.11 (#450): สลับภาษาไม่ reload (performance/marker ของหน้าเดิม) และ formatter บน Chromium จริง
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build Console dependencies
+        run: pnpm --filter "@d-contact/console^..." build
+
+      - name: Install Playwright browser
+        run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
+
+      - name: Console i18n e2e
+        run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-i18n-playwright
+          path: apps/console/test-results
           retention-days: 7
 
   s1-convergence-acceptance:

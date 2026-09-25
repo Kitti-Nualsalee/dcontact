@@ -1,0 +1,9 @@
+{
+  "app": { "name": "D-Contact Workspace" },
+  "language": {
+    "label": "Language",
+    "th": "ไทย",
+    "en": "English",
+    "saveFailed": "Language changed, but it could not be saved for next time"
+  }
+}
