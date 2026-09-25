@@ -65,7 +65,9 @@ BEGIN
     -- U1.1 (#429)
     'uat_fixture_packs', 'uat_runs', 'uat_run_step_results', 'uat_command_receipts',
     -- A1.5 (#410): operational baseline ของ tenant
-    'tenant_settings', 'tenant_plan_bindings', 'business_hours'
+    'tenant_settings', 'tenant_plan_bindings', 'business_hours',
+    -- D1.12 (#451): หมุดแอปของ tenant/ผู้ใช้
+    'navigation_tenant_default_pins', 'navigation_user_pins', 'navigation_audit_events'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -94,6 +96,7 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dcontact_app;
 
 -- Queue audit is append-only through the application role.
 REVOKE UPDATE, DELETE ON queue_audit_events FROM dcontact_app;
+REVOKE UPDATE, DELETE ON navigation_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON recording_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON qm_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_decision_logs FROM dcontact_app;

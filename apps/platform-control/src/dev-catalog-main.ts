@@ -23,10 +23,13 @@ const DEV_MANIFEST: BootstrapManifestV1 = {
   },
 };
 
+// D1.12 (#451): module key ที่ Navigation API ใช้คัดแอป (ADR-025 journey, ADR-027 contact governance)
+// เปิดทุก plan ของ dev เท่านั้น — การตัดสินว่าแพ็กเกจจริงไหนได้ module อะไรเป็นงาน L1 (ADR-009)
+const DEV_MODULES = { module_journey: true, module_contact_governance: true };
 const DEV_PLANS: Record<PlatformPlanCode, Record<string, number | boolean>> = {
-  starter: { agent_seats: 5, queues: 3, dev_only: true },
-  growth: { agent_seats: 25, queues: 10, dev_only: true },
-  enterprise: { agent_seats: 200, queues: 50, dev_only: true },
+  starter: { agent_seats: 5, queues: 3, dev_only: true, ...DEV_MODULES },
+  growth: { agent_seats: 25, queues: 10, dev_only: true, ...DEV_MODULES },
+  enterprise: { agent_seats: 200, queues: 50, dev_only: true, ...DEV_MODULES },
 };
 
 const database = new PrismaClient({
