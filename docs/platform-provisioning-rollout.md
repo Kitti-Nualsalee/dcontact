@@ -20,6 +20,33 @@
 | เปิด, อยู่ใน allowlist | ปกติ | ปกติ | ปกติ |
 | เปิด, ไม่อยู่ใน allowlist | mutation = `403 FORBIDDEN` (diagnostic `ROLLOUT_NOT_ALLOWLISTED`) | — | อ่านอย่างเดียว + แจ้งว่ายังไม่อยู่ใน canary |
 
+## Observability
+
+| env | ค่าเริ่มต้น | ความหมาย |
+| --- | --- | --- |
+| `PLATFORM_WORKER_METRICS_PORT` | `9464` | `/metrics` ของ worker |
+| `PLATFORM_API_METRICS_PORT` | `9465` | `/metrics` ของ Platform API |
+| `PLATFORM_METRICS_HOST` | `0.0.0.0` | ห้ามเปิด port เหล่านี้ผ่าน ingress/hostname ของ Platform Console |
+
+- metrics ใช้ label ชุดปิด (source/kind/step/code/status/queue/invariant/decision/reason) — ไม่มี tenant,
+  request, subject, email หรือ domain; code ที่ไม่ใช่ stable code กลายเป็น `OTHER`
+- backlog, อายุคิว และ invariant อ่านจาก control plane DB ตอน scrape (cache 15 วินาที) ด้วย role
+  `dcontact_platform`
+- alert rules: `infra/observability/prometheus/platform-provisioning.rules.yml` (ทดสอบด้วย `pnpm a1:alerts:test`)
+- dashboard: `infra/observability/grafana/platform-provisioning.dashboard.json`
+- log เป็น structured JSON มี `correlationId`/`requestId`/`tenantId` แบบ opaque, `stepKey`, code และ outcome
+
+| alert | ระดับ | เงื่อนไข |
+| --- | --- | --- |
+| `PlatformProvisioningInvariantViolated` | critical | `premature_active`, `readiness_bypass`, `duplicate_ownership`, `cross_tenant_reference` หรือ `audit_gap` > 0 |
+| `PlatformMixedTokenAccepted` | critical | tripwire ของ Platform API เจอ tenant context ใน token ที่ผ่าน identity check |
+| `PlatformProvisioningPendingStale` / `PlatformInvitationOutboxStale` / `PlatformOperatorCommandStale` | warning | รายการเก่าสุดเกิน 5 นาที |
+| `PlatformActionRequiredStale` | warning | `ACTION_REQUIRED` เกิน 30 นาที |
+| `PlatformRetryExhausted` / `PlatformLeaseChurn` | warning | retry ครบ / เสีย lease > 3 ครั้งใน 15 นาที |
+| `PlatformHealthScrapeFailing` | warning | อ่านสถานะจาก DB ไม่ได้ 5 นาที |
+
+critical alert ใดๆ = หยุดขยาย canary และพิจารณา rollback ตามหัวข้อด้านล่าง
+
 ## ลำดับ rollout
 
 1. migration แบบ additive (`pnpm db:migrate && pnpm db:rls`)

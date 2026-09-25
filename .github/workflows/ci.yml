@@ -131,6 +131,10 @@ jobs:
       - name: Platform control unit tests
         run: pnpm --filter @d-contact/platform-control test
 
+      # A1.8 (#413): alert rule ของ Platform provisioning ต้องผ่าน promtool unit test
+      - name: Platform provisioning alert rules
+        run: pnpm a1:alerts:test
+
       # A1.4b (#436): extension ใช้ internal SPI ของ Keycloak — compile เทียบ image เวอร์ชันเดียวกับ runtime
       - name: Build Keycloak invitation guard extension
         run: bash scripts/keycloak-extensions-build.sh
