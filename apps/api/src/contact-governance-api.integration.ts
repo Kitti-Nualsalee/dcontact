@@ -11,6 +11,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import {
   CONTACT_GOVERNANCE_DATABASE,
@@ -115,6 +116,7 @@ async function fixture(t: TestContext) {
       { provide: CONTACT_GOVERNANCE_DATABASE, useValue: application },
       { provide: CG5_TENANT_CLIENT_RATE_LIMITER, useValue: new TenantClientRateLimiter() },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],

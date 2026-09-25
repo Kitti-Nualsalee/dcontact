@@ -23,6 +23,10 @@ import {
   KeycloakOrganizationPort,
   PROVISIONING_REQUEST_ATTRIBUTE,
 } from './keycloak-provisioning-ports.js';
+import {
+  FIRST_ADMIN_KEYCLOAK_EVENT_TYPES,
+  FirstAdminActivityReconciler,
+} from './first-admin-activity.js';
 import { firstAdminUserId } from './provisioning-ids.js';
 import {
   actionTokenClaims,
@@ -456,6 +460,34 @@ test('first-admin ทำ execute actions ครบแล้ว login ผ่า�
   const completed = await completeInvitation(link!, password);
   assert.ok(completed.totpSecret, `ต้องผ่านหน้า TOTP (${completed.pages.join(' → ')})`);
   assert.equal((await s.outbox.status(accepted.requestId)).activation, 'ACTIVATED');
+
+  // A1.8 (#413): timeline แยก actor First admin จาก user events จริงของ Keycloak
+  // setup ของ realm ต้องเปิด event ชุดเดียวกับที่ reconciler อ่าน
+  const setupScript = (await import(
+    new URL('../../../scripts/keycloak-provisioning-setup.mjs', import.meta.url).href
+  )) as { FIRST_ADMIN_EVENT_TYPES: readonly string[] };
+  assert.deepEqual([...setupScript.FIRST_ADMIN_EVENT_TYPES], [...FIRST_ADMIN_KEYCLOAK_EVENT_TYPES]);
+  const activity = new FirstAdminActivityReconciler(s.f.platform, s.keycloak, {
+    scope: () => [accepted.tenantId],
+  });
+  const synced = await activity.runOnce();
+  assert.equal((synced as { code?: string }).code, 'ACTIVATED', JSON.stringify(synced));
+  const timeline = await s.f.owner.pfActionHistory.findMany({
+    where: { requestId: accepted.requestId, actorKind: 'FIRST_ADMIN' },
+    orderBy: { occurredAt: 'asc' },
+  });
+  assert.deepEqual(timeline.map((row) => row.action).sort(), [
+    'FIRST_ADMIN_ACTIVATED',
+    'FIRST_ADMIN_EMAIL_VERIFIED',
+    'FIRST_ADMIN_PASSWORD_SET',
+    'FIRST_ADMIN_TOTP_ENROLLED',
+  ]);
+  const invitation = await s.f.owner.pfInvitation.findFirstOrThrow({
+    where: { requestId: accepted.requestId, supersededAt: null },
+  });
+  assert.ok(timeline.every((row) => row.actorSubject === invitation.keycloakUserId));
+  assert.equal(JSON.stringify(timeline).includes(accepted.input.firstAdmin.email), false);
+  assert.deepEqual(await activity.runOnce(), { kind: 'IDLE' });
 
   const login = await tenantLogin({
     username: accepted.input.firstAdmin.email,

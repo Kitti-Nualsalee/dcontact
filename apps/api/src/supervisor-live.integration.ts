@@ -11,6 +11,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import {
   SupervisorLiveController,
@@ -172,6 +173,7 @@ test('supervisor sees and controls only its team while admin sees the tenant sna
       { provide: SUPERVISOR_LIVE_DATABASE, useValue: application },
       { provide: SupervisorLiveEventStream, useValue: liveEvents },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],

@@ -13,6 +13,7 @@ import {
   OidcGlobalGuard,
   type AuthenticatedGatewayRequest,
   type GatewayDiagnostic,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 
 const tenantId = '4e342ec5-d35b-41ed-bd44-1cf47a41af4b';
@@ -87,6 +88,7 @@ test('API Gateway exposes 401/403 and derives tenant context only from verified 
     controllers: [ProbeController, ServiceProbeController],
     providers: [
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       {
         provide: GATEWAY_DIAGNOSTICS,
         useValue: { write: (event: GatewayDiagnostic) => diagnostics.push(event) },
@@ -152,6 +154,7 @@ test('service route ต้องมี governance:read scope และ derivatio
     controllers: [ServiceProbeController],
     providers: [
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],
@@ -169,4 +172,64 @@ test('service route ต้องมี governance:read scope และ derivatio
   const accepted = await call('read');
   assert.equal(accepted.status, 201);
   assert.deepEqual(await accepted.json(), { tenantId, clientId: 'governance-reader' });
+});
+
+test('A1.8a (#447): tenant ที่ยังไม่ ACTIVE ถูกปฏิเสธ 401 ทั้ง workspace และ service identity', async (t) => {
+  const diagnostics: GatewayDiagnostic[] = [];
+  let active = false;
+  const checked: string[] = [];
+  @Module({
+    controllers: [ProbeController, ServiceProbeController],
+    providers: [
+      {
+        provide: OIDC_ACCESS_TOKEN_VERIFIER,
+        useValue: {
+          verifyAccessToken: async (token: string) =>
+            token === 'service-token' ? serviceClaims('governance:read') : claims(['admin']),
+        },
+      },
+      {
+        provide: TENANT_LIFECYCLE,
+        useValue: {
+          isActive: async (id: string) => {
+            checked.push(id);
+            return active;
+          },
+        },
+      },
+      {
+        provide: GATEWAY_DIAGNOSTICS,
+        useValue: { write: (event: GatewayDiagnostic) => diagnostics.push(event) },
+      },
+      { provide: APP_GUARD, useClass: OidcGlobalGuard },
+    ],
+  })
+  class LifecycleModule {}
+
+  const app = await NestFactory.create(LifecycleModule, { logger: false });
+  await app.listen(0, '127.0.0.1');
+  t.after(() => app.close());
+  const address = app.getHttpServer().address() as AddressInfo;
+  const call = (path: string, token: string, method = 'POST') =>
+    fetch(`http://127.0.0.1:${address.port}${path}`, {
+      method,
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      ...(method === 'POST' ? { body: '{}' } : {}),
+    });
+
+  // first admin ของ tenant ที่ยัง PROVISIONING: token ถูกต้องแต่เข้าไม่ได้ และตอบเหมือน token ใช้ไม่ได้
+  const denied = await call('/probe', 'first-admin-token');
+  assert.equal(denied.status, 401);
+  assert.deepEqual(checked, [tenantId]);
+  assert.deepEqual(
+    diagnostics.map(({ event, reason }) => ({ event, reason })),
+    [{ event: 'gateway.request.denied', reason: 'unauthenticated' }],
+  );
+
+  // service identity (client_credentials) ของ tenant ที่ยังไม่ ACTIVE ก็เข้าไม่ได้
+  assert.equal((await call('/service-probe', 'service-token')).status, 401);
+
+  active = true;
+  assert.equal((await call('/probe', 'first-admin-token')).status, 201);
+  assert.equal((await call('/service-probe', 'service-token')).status, 201);
 });

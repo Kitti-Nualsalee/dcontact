@@ -14,3 +14,6 @@ export * from './provisioning-request-editor.js';
 export * from './operator-commands.js';
 export * from './platform-queries.js';
 export * from './platform-worker.js';
+export * from './platform-rollout.js';
+export * from './platform-metrics.js';
+export * from './first-admin-activity.js';

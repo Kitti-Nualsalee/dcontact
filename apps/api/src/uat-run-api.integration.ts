@@ -30,6 +30,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import {
   JOURNEY_AUTHORING_REPOSITORY,
@@ -152,6 +153,7 @@ async function harness(t: TestContext) {
       { provide: JOURNEY_AUTHORING_REPOSITORY, useValue: authoring },
       { provide: UAT_RUN_REPOSITORY, useValue: runs },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],
