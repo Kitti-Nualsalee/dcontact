@@ -84,3 +84,15 @@ worker reconcile Keycloak user events ของ first admin ที่ได้�
 ลง Action history ด้วย actor `FIRST_ADMIN`: `FIRST_ADMIN_EMAIL_VERIFIED`, `FIRST_ADMIN_PASSWORD_SET`,
 `FIRST_ADMIN_TOTP_ENROLLED`, `FIRST_ADMIN_ACTIVATED` — เก็บแค่ชนิดและเวลา (ไม่มี email/IP จาก event details)
 ถ้า event หมดอายุก่อน worker อ่าน จะเห็นเฉพาะ `FIRST_ADMIN_ACTIVATED` ที่เวลาตรวจพบ
+
+## Distributed trace (A1.8b #473)
+
+- OpenTelemetry SDK + OTLP: ตั้ง `OTEL_EXPORTER_OTLP_ENDPOINT` (เช่น `http://collector:4318`) ให้ทั้ง Platform API
+  และ worker — ไม่ตั้ง = ปิด (no-op) และ collector ล่มไม่กระทบ provisioning
+- trace เดียวต่อคำขอ: Platform API เก็บ W3C traceparent ลง `pf_provisioning_requests.trace_parent` /
+  `pf_operator_commands.trace_parent`; worker ใช้เป็น parent ของ span ทุก step/attempt (รวมหลัง restart), finalize,
+  timeline ของ First admin และ operator command
+- span: `HTTP <method> <route template>` → `provisioning.step <STEP>` → `keycloak <METHOD> <path template>`
+  (id เป็น `{id}`, ไม่มี query) — attribute มีแค่ opaque id, step, attempt, code และ outcome
+- ไม่รับ `traceparent` จาก client และไม่ใช้ auto-instrumentation เพื่อไม่ให้ URL/SQL ที่มี email/slug/domain หลุด
+- dev: `pnpm infra:tracing` แล้วตั้ง `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` ดู trace ที่ http://localhost:16686

@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@d-contact/db';
 import type { PlatformActionKind } from '@d-contact/shared';
 import type { KeycloakAdminClient } from './keycloak-admin.js';
+import { setSpanAttributes, withSpan } from './platform-tracing.js';
 
 export type FirstAdminActivityKind = Extract<PlatformActionKind, `FIRST_ADMIN_${string}`>;
 
@@ -80,6 +81,7 @@ interface Candidate {
   tenant_id: string;
   keycloak_user_id: string;
   correlation_id: string;
+  trace_parent: string | null;
 }
 
 export class FirstAdminActivityReconciler {
@@ -106,7 +108,7 @@ export class FirstAdminActivityReconciler {
     const now = this.now();
     const scope = this.options.scope?.() ?? null;
     const candidates = await this.platform.$queryRawUnsafe<Candidate[]>(
-      `SELECT i.request_id, i.tenant_id, i.keycloak_user_id::text AS keycloak_user_id, r.correlation_id
+      `SELECT i.request_id, i.tenant_id, i.keycloak_user_id::text AS keycloak_user_id, r.correlation_id, r.trace_parent
        FROM pf_invitations i
        JOIN pf_provisioning_requests r ON r.id = i.request_id AND r.tenant_id = i.tenant_id
        WHERE i.state = 'SENT' AND i.superseded_at IS NULL
@@ -125,7 +127,22 @@ export class FirstAdminActivityReconciler {
     );
     if (!due) return { kind: 'IDLE' };
     this.nextCheck.set(due.request_id, now.getTime() + (this.options.intervalMs ?? 60_000));
-    return this.sync(due, now);
+    return withSpan(
+      'provisioning.first_admin_activity',
+      {
+        parent: due.trace_parent,
+        attributes: {
+          'dcontact.request_id': due.request_id,
+          'dcontact.tenant_id': due.tenant_id,
+          'dcontact.correlation_id': due.correlation_id,
+        },
+      },
+      async (span) => {
+        const result = await this.sync(due, now);
+        if (result.kind !== 'IDLE') setSpanAttributes(span, { 'dcontact.code': result.code });
+        return result;
+      },
+    );
   }
 
   private async sync(candidate: Candidate, now: Date): Promise<FirstAdminActivityResult> {
