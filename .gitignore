@@ -22,6 +22,7 @@ infra/freeswitch/conf/tls/
 *.log
 coverage/
 test-results/
+test-results-real/
 playwright-report/
 blob-report/
 

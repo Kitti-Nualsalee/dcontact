@@ -28,6 +28,7 @@
     "test:readiness": "node --test scripts/phase-zero-readiness.test.mjs scripts/prisma-platform-targets.test.mjs scripts/pnpm-platform-targets.test.mjs",
     "test:phase-one-readiness": "node --test scripts/phase-one-readiness.test.mjs scripts/phase-one-tenants.test.mjs scripts/child-process-lifecycle.test.mjs",
     "voice:demo": "node scripts/inbound-voice-demo.mjs",
+    "d1:real-call": "node scripts/d1-real-call-acceptance.mjs",
     "voice:ivr:demo": "INBOUND_DEMO_DTMF=2 node scripts/inbound-voice-demo.mjs",
     "voice:acceptance": "node scripts/phase-one-readiness.mjs",
     "voice:phase2:acceptance": "node scripts/phase-two-readiness.mjs",

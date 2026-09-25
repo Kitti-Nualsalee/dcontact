@@ -53,6 +53,36 @@ test('working tab ที่ media พร้อม register SIP และ accept 
   });
 });
 
+test('SIP.js แจ้ง Established ก่อน accept() resolve → dphone เป็น ACTIVE ไม่ค้างที่ CONNECTING', async () => {
+  let softphone: BrowserDphone;
+  softphone = new BrowserDphone(
+    transport({
+      // ลำดับจริงของ SIP.js: 200 OK → ACK → Established (callback) → accept() resolve
+      accept: async () => void softphone.connected(),
+    }),
+  );
+  await softphone.start(lease, { ownsWorkingTab: true, mediaReady: true });
+  softphone.receiveInvitation('interaction-1');
+
+  assert.equal((await softphone.accept()).phase, 'ACTIVE');
+  assert.equal(softphone.current().phase, 'ACTIVE');
+});
+
+test('accept ล้มเหลว → กลับเป็น RINGING เพื่อให้ลองรับสายใหม่หรือรอ BYE', async () => {
+  const softphone = new BrowserDphone(
+    transport({
+      accept: async () => {
+        throw new Error('getUserMedia failed');
+      },
+    }),
+  );
+  await softphone.start(lease, { ownsWorkingTab: true, mediaReady: true });
+  softphone.receiveInvitation('interaction-1');
+
+  await assert.rejects(softphone.accept(), /getUserMedia/);
+  assert.equal(softphone.current().phase, 'RINGING');
+});
+
 test('passive tab หรือ media ไม่พร้อมจะไม่ register และปฏิเสธ invitation', async () => {
   const calls: string[] = [];
   const softphone = new BrowserDphone(

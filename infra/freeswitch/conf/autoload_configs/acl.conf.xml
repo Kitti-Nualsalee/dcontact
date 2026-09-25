@@ -1,6 +1,41 @@
 <configuration name="acl.conf" description="Network Lists">
   <network-lists>
     <list name="localnet.auto" default="allow"/>
+    <!-- D1.16 (#455): network ที่ถือเป็น local สำหรับ media (profile internal `local-network-acl`)
+         FreeSWITCH ใช้ ext-rtp-ip (127.0.0.1) กับ peer ที่ไม่อยู่ใน list นี้ — browser บนเครื่อง host
+         เข้ามาทาง gateway ของ docker network (172.x.0.1) จึงได้ ICE candidate 127.0.0.1 ที่ publish ไว้
+         ส่วน SIPp/container อื่นใน network เดียวกันยังคุย media ด้วย IP ภายในตามเดิม -->
+    <list name="dcontact_media_local" default="deny">
+      <node type="deny" cidr="172.16.0.1/32"/>
+      <node type="deny" cidr="172.17.0.1/32"/>
+      <node type="deny" cidr="172.18.0.1/32"/>
+      <node type="deny" cidr="172.19.0.1/32"/>
+      <node type="deny" cidr="172.20.0.1/32"/>
+      <node type="deny" cidr="172.21.0.1/32"/>
+      <node type="deny" cidr="172.22.0.1/32"/>
+      <node type="deny" cidr="172.23.0.1/32"/>
+      <node type="deny" cidr="172.24.0.1/32"/>
+      <node type="deny" cidr="172.25.0.1/32"/>
+      <node type="deny" cidr="172.26.0.1/32"/>
+      <node type="deny" cidr="172.27.0.1/32"/>
+      <node type="deny" cidr="172.28.0.1/32"/>
+      <node type="deny" cidr="172.29.0.1/32"/>
+      <node type="deny" cidr="172.30.0.1/32"/>
+      <node type="deny" cidr="172.31.0.1/32"/>
+      <node type="allow" cidr="10.0.0.0/8"/>
+      <node type="allow" cidr="172.16.0.0/12"/>
+      <node type="allow" cidr="192.168.0.0/16"/>
+    </list>
+    <!-- D1.16 (#455): ICE candidate ของ browser ที่รับได้ (profile internal `apply-candidate-acl`)
+         ค่า default ของ FreeSWITCH คือ wan.auto ซึ่งทิ้ง candidate ภายใน (192.168.x / 10.x / 127.x) ทั้งหมด
+         browser บน dev มีแต่ candidate ภายใน สายไป WebRTC จึงล้มด้วย INCOMPATIBLE_DESTINATION
+         DEV ONLY: production ต้องจำกัดตามเครือข่ายจริง + TURN -->
+    <list name="dcontact_webrtc_candidates" default="deny">
+      <node type="allow" cidr="10.0.0.0/8"/>
+      <node type="allow" cidr="127.0.0.0/8"/>
+      <node type="allow" cidr="172.16.0.0/12"/>
+      <node type="allow" cidr="192.168.0.0/16"/>
+    </list>
     <!-- DEV ONLY: อนุญาต ESL จากทุกที่ (host เข้ามาทาง docker bridge)
          Production: จำกัดเฉพาะ subnet ของ backend services -->
     <list name="esl_allow" default="allow"/>
