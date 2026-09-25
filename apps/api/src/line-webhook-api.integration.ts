@@ -18,6 +18,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import { LINE_WEBHOOK_INGRESS, LineWebhookController } from './line-webhook-api.js';
 
@@ -85,6 +86,7 @@ async function harness(t: TestContext) {
         },
       },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],
   })
@@ -217,6 +219,7 @@ test('S2-LINE-F03 prisma ที่ล่มทำให้ตอบ 503 ไม�
       { provide: LINE_WEBHOOK_INGRESS, useValue: ingress },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: { verifyAccessToken: async () => ({}) } },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],
   })

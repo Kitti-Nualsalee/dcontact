@@ -4,6 +4,7 @@ import test from 'node:test';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 
 import {
+  CachedTenantLifecycleGate,
   KeycloakAccessTokenVerifier,
   WorkspaceSessionRegistry,
   WorkspaceSessionGateway,
@@ -13,6 +14,9 @@ import {
 } from './workspace-session.js';
 import { WorkspaceSessionHttpAdapter } from './http-session-adapter.js';
 import { WorkspaceSessionWebSocketAdapter } from './websocket-session-adapter.js';
+
+/** A1.8a (#447): tenant ของ fixture เป็น ACTIVE — การปฏิเสธ PROVISIONING มีเทสต์ของตัวเอง */
+const ACTIVE_TENANTS = { isActive: async () => true };
 
 const agent: VerifiedWorkspaceIdentity = {
   tenantId: '4e342ec5-d35b-41ed-bd44-1cf47a41af4b',
@@ -198,6 +202,7 @@ test('the handshake verifies an access token before it enables routing', async (
       },
     },
     new WorkspaceSessionRegistry(() => new Date('2026-09-03T10:00:00.000Z')),
+    ACTIVE_TENANTS,
     () => new Date('2026-09-03T10:00:00.000Z'),
   );
 
@@ -257,6 +262,7 @@ test('the HTTP boundary reports invalid or expired access tokens as unauthentica
   const gateway = new WorkspaceSessionGateway(
     { verifyAccessToken: async () => Promise.reject(new Error('expired token')) },
     new WorkspaceSessionRegistry(),
+    ACTIVE_TENANTS,
   );
   const adapter = new WorkspaceSessionHttpAdapter(gateway);
 
@@ -279,6 +285,7 @@ test('the HTTP boundary rejects a verified identity without a workspace role', a
       }),
     },
     new WorkspaceSessionRegistry(() => new Date('2026-09-03T10:00:00.000Z')),
+    ACTIVE_TENANTS,
     () => new Date('2026-09-03T10:00:00.000Z'),
   );
   const adapter = new WorkspaceSessionHttpAdapter(gateway);
@@ -307,6 +314,7 @@ test('WebSocket auth closes invalid tokens as unauthenticated', async () => {
     new WorkspaceSessionGateway(
       { verifyAccessToken: async () => Promise.reject(new Error('invalid token')) },
       new WorkspaceSessionRegistry(),
+      ACTIVE_TENANTS,
     ),
     undefined,
     { write: (diagnostic) => diagnostics.push(diagnostic) },
@@ -344,6 +352,7 @@ test('WebSocket auth closes a verified identity without a workspace role as forb
       }),
     },
     new WorkspaceSessionRegistry(() => new Date('2026-09-03T10:00:00.000Z')),
+    ACTIVE_TENANTS,
     () => new Date('2026-09-03T10:00:00.000Z'),
   );
   const adapter = new WorkspaceSessionWebSocketAdapter(gateway);
@@ -376,6 +385,7 @@ test('a failed silent refresh disables new routing work without closing the visi
       },
     },
     registry,
+    ACTIVE_TENANTS,
     () => new Date('2026-09-03T10:00:00.000Z'),
   );
   const adapter = new WorkspaceSessionWebSocketAdapter(gateway);
@@ -411,6 +421,7 @@ test('routing events are delivered only to the authenticated working tab', async
       }),
     },
     registry,
+    ACTIVE_TENANTS,
     () => new Date('2026-09-03T10:00:00.000Z'),
   );
   const adapter = new WorkspaceSessionWebSocketAdapter(gateway);
@@ -454,6 +465,7 @@ test('an authenticated WebSocket claim moves the server working tab within tenan
       }),
     },
     registry,
+    ACTIVE_TENANTS,
     () => new Date('2026-09-03T10:00:00.000Z'),
   );
   const scopedTenants: string[] = [];
@@ -476,4 +488,61 @@ test('an authenticated WebSocket claim moves the server working tab within tenan
   assert.equal(registry.canReceiveRoutingWork(agent.tenantId, agent.userId, 'tab-b'), true);
   assert.match(secondMessages.at(-1) ?? '', /"availability":"AVAILABLE"/);
   assert.deepEqual(scopedTenants, [agent.tenantId, agent.tenantId, agent.tenantId]);
+});
+
+test('A1.8a (#447): tenant ที่ยังไม่ ACTIVE ถูกปฏิเสธเหมือน token ใช้ไม่ได้ ที่ HTTP boundary', async () => {
+  const lifecycle = new Map<string, string>([[agent.tenantId, 'PROVISIONING']]);
+  const gateway = new WorkspaceSessionGateway(
+    {
+      verifyAccessToken: async () => ({
+        tenant_id: agent.tenantId,
+        tenant_slug: 'demo',
+        organization: { demo: { tenant_id: [agent.tenantId] } },
+        dc_user_id: agent.userId,
+        sid: agent.sessionId,
+        exp: 1_788_430_200,
+        realm_access: { roles: ['admin'] },
+      }),
+    },
+    new WorkspaceSessionRegistry(() => new Date('2026-09-03T10:00:00.000Z')),
+    new CachedTenantLifecycleGate(async (tenantId) => lifecycle.get(tenantId)),
+    () => new Date('2026-09-03T10:00:00.000Z'),
+  );
+  const adapter = new WorkspaceSessionHttpAdapter(gateway);
+  const denied = await adapter.connect({ authorization: 'Bearer first-admin', tabId: 'tab-a' });
+  // ไม่เผยสถานะ provisioning: ตอบแบบเดียวกับ token ใช้ไม่ได้
+  assert.deepEqual(denied, { status: 401, body: { code: 'UNAUTHENTICATED' } });
+
+  lifecycle.set(agent.tenantId, 'ACTIVE');
+  const allowed = await adapter.connect({ authorization: 'Bearer first-admin', tabId: 'tab-a' });
+  assert.equal(allowed.status, 200);
+});
+
+test('A1.8a (#447): CachedTenantLifecycleGate cache เฉพาะ ACTIVE และ fail closed เมื่อ loader ล้ม', async () => {
+  let now = 0;
+  let calls = 0;
+  const statuses = new Map<string, string>([
+    ['active', 'ACTIVE'],
+    ['provisioning', 'PROVISIONING'],
+  ]);
+  const gate = new CachedTenantLifecycleGate(
+    async (tenantId) => {
+      calls += 1;
+      if (tenantId === 'broken') throw new Error('db down');
+      return statuses.get(tenantId);
+    },
+    { ttlMs: 1_000, now: () => now },
+  );
+  assert.equal(await gate.isActive('active'), true);
+  assert.equal(await gate.isActive('active'), true);
+  assert.equal(calls, 1);
+  now = 1_001;
+  assert.equal(await gate.isActive('active'), true);
+  assert.equal(calls, 2);
+  // ผลที่ไม่ใช่ ACTIVE ไม่ถูก cache — เปิดทันทีเมื่อ provisioning จบ
+  assert.equal(await gate.isActive('provisioning'), false);
+  statuses.set('provisioning', 'ACTIVE');
+  assert.equal(await gate.isActive('provisioning'), true);
+  assert.equal(await gate.isActive('missing'), false);
+  assert.equal(await gate.isActive('broken'), false);
 });

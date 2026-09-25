@@ -1,14 +1,22 @@
-import { Module, type DynamicModule, type Type } from '@nestjs/common';
+import {
+  Module,
+  type DynamicModule,
+  type MiddlewareConsumer,
+  type NestModule,
+  type Type,
+} from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import {
   PLATFORM_ACCESS_TOKEN_VERIFIER,
   PLATFORM_AUTH_DIAGNOSTICS,
   PLATFORM_CLOCK,
+  PLATFORM_ROLLOUT,
   PlatformAuthGuard,
   PlatformErrorFilter,
   type PlatformAuthDiagnosticSink,
 } from './platform-auth.js';
 import { PlatformSessionController } from './platform-session.controller.js';
+import { PlatformTracingMiddleware } from './platform-tracing.middleware.js';
 import {
   CatalogController,
   PLATFORM_SERVICES,
@@ -17,10 +25,13 @@ import {
   type PlatformServices,
 } from './provisioning.controller.js';
 import type { PlatformAccessTokenVerifier } from './platform-verifier.js';
+import type { PlatformRollout } from '@d-contact/platform-control';
 
 export interface PlatformApiModuleOptions {
   verifier: PlatformAccessTokenVerifier;
   diagnostics: PlatformAuthDiagnosticSink;
+  /** A1.8: `platformProvisioning.enabled` + canary allowlist — บังคับส่ง ไม่มีค่า default ที่เปิดไว้ */
+  rollout: PlatformRollout;
   clock?: () => Date;
   /** controller เพิ่มเติม — อยู่ใต้ guard เดียวกันเสมอ */
   controllers?: Type[];
@@ -29,7 +40,12 @@ export interface PlatformApiModuleOptions {
 }
 
 @Module({})
-export class PlatformApiModule {
+export class PlatformApiModule implements NestModule {
+  /** A1.8b: server span ครอบทั้ง guard/handler — no-op เมื่อ tracing ปิด */
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(PlatformTracingMiddleware).forRoutes('*');
+  }
+
   static register(options: PlatformApiModuleOptions): DynamicModule {
     return {
       module: PlatformApiModule,
@@ -44,6 +60,7 @@ export class PlatformApiModule {
         { provide: PLATFORM_ACCESS_TOKEN_VERIFIER, useValue: options.verifier },
         { provide: PLATFORM_AUTH_DIAGNOSTICS, useValue: options.diagnostics },
         { provide: PLATFORM_CLOCK, useValue: options.clock ?? (() => new Date()) },
+        { provide: PLATFORM_ROLLOUT, useValue: options.rollout },
         ...(options.services ? [{ provide: PLATFORM_SERVICES, useValue: options.services }] : []),
         { provide: APP_GUARD, useClass: PlatformAuthGuard },
         { provide: APP_FILTER, useClass: PlatformErrorFilter },

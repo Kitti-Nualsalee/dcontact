@@ -24,6 +24,7 @@ import {
   type ProvisioningRequestStatus,
   type ProvisioningStepKey,
 } from '@d-contact/shared';
+import { currentTraceparent } from './platform-tracing.js';
 import { appendPlatformAction, type PlatformActionEntry } from './action-history.js';
 import {
   canonicalizeProvisioningRequest,
@@ -254,6 +255,8 @@ export class ProvisioningControlRepository {
           data: {
             id: requestId,
             tenantId,
+            // A1.8b: worker ต่อ span ของ saga เข้ากับ trace ของ HTTP request ที่รับคำขอนี้
+            traceParent: currentTraceparent(),
             idempotencyKeyHash: keyHash,
             payloadDigest,
             displayName: canonical.displayName,

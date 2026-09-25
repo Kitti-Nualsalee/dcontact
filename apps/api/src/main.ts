@@ -12,6 +12,7 @@ import { KAFKA_TOPICS } from '@d-contact/shared';
 import {
   KeycloakAccessTokenVerifier,
   WorkspaceSessionGateway,
+  CachedTenantLifecycleGate,
   WorkspaceSessionHttpAdapter,
   WorkspaceSessionRegistry,
   WorkspaceSessionWebSocketAdapter,
@@ -22,6 +23,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   GatewayRoles,
   OIDC_ACCESS_TOKEN_VERIFIER,
+  TENANT_LIFECYCLE,
   OidcGlobalGuard,
   type GatewayDiagnosticSink,
 } from './gateway-auth.js';
@@ -125,7 +127,17 @@ const verifier = new KeycloakAccessTokenVerifier({
   audience: required('KEYCLOAK_AUDIENCE'),
   jwksUri: required('KEYCLOAK_JWKS_URI'),
 });
-const gateway = new WorkspaceSessionGateway(verifier, new WorkspaceSessionRegistry());
+// A1.8a (#447): tenant ที่ยังไม่ ACTIVE (เช่นยัง provisioning) เข้า tenant API/workspace ไม่ได้
+const tenantLifecycle = new CachedTenantLifecycleGate((tenantId) =>
+  prisma.tenant
+    .findUnique({ where: { id: tenantId }, select: { lifecycleStatus: true } })
+    .then((tenant) => tenant?.lifecycleStatus),
+);
+const gateway = new WorkspaceSessionGateway(
+  verifier,
+  new WorkspaceSessionRegistry(),
+  tenantLifecycle,
+);
 const supervisorLiveEvents = new SupervisorLiveEventStream();
 const recordingCommandPublisher = new KafkaTelephonyCommandPublisher();
 const recordingStorage = new MinioRecordingStorage();
@@ -251,6 +263,7 @@ class WorkspaceSessionController {
     { provide: LINE_WEBHOOK_INGRESS, useFactory: createLineWebhookIngress },
     { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
     { provide: GATEWAY_DIAGNOSTICS, useValue: diagnostics },
+    { provide: TENANT_LIFECYCLE, useValue: tenantLifecycle },
     { provide: APP_GUARD, useClass: OidcGlobalGuard },
   ],
 })

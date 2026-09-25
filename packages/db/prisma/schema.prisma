@@ -5385,12 +5385,17 @@ enum PfActionKind {
   RESERVATION_TOMBSTONED
   SECURITY_DENIED
   REQUEST_EDITED
+  FIRST_ADMIN_EMAIL_VERIFIED
+  FIRST_ADMIN_PASSWORD_SET
+  FIRST_ADMIN_TOTP_ENROLLED
+  FIRST_ADMIN_ACTIVATED
 }
 
 enum PfActorKind {
   PLATFORM_OPERATOR
   PLATFORM_AUDITOR
   SYSTEM
+  FIRST_ADMIN
 }
 
 /// immutable versioned bootstrap manifest (#392) — เปลี่ยนได้แค่ status ACTIVE → DEPRECATED → REVOKED
@@ -5439,6 +5444,8 @@ model PfProvisioningRequest {
   terminalAt               DateTime?            @map("terminal_at")
   createdAt                DateTime             @default(now()) @map("created_at")
   updatedAt                DateTime             @updatedAt @map("updated_at")
+  /// A1.8b (#473): W3C traceparent ตอนรับคำขอ — worker ต่อ span เป็น trace เดียวกัน
+  traceParent              String?              @map("trace_parent")
 
   tenant           Tenant                      @relation(fields: [tenantId], references: [id])
   template         PfBootstrapTemplate         @relation(fields: [bootstrapTemplateVersion, bootstrapTemplateDigest], references: [version, contentDigest], map: "pf_provisioning_requests_template_pin_fkey")
@@ -5606,6 +5613,8 @@ model PfOperatorCommand {
   startedAt          DateTime?              @map("started_at")
   finishedAt         DateTime?              @map("finished_at")
   updatedAt          DateTime               @updatedAt @map("updated_at")
+  /// A1.8b (#473): W3C traceparent ของ request ที่ส่งคำสั่ง
+  traceParent        String?                @map("trace_parent")
 
   request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_operator_commands_request_fkey")
 

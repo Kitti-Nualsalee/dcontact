@@ -1,0 +1,106 @@
+rule_files:
+  - platform-provisioning.rules.yml
+evaluation_interval: 1m
+tests:
+  - name: invariant และ mixed token เป็น critical ทันที
+    interval: 1m
+    input_series:
+      - series: 'dcontact_platform_invariant_violations{invariant="premature_active",instance="w1"}'
+        values: '0 0 1 1'
+      - series: 'dcontact_platform_invariant_violations{invariant="audit_gap",instance="w1"}'
+        values: '0 0 0 0'
+      - series: 'dcontact_platform_api_auth_decisions_total{decision="denied",reason="MIXED_TOKEN_TRIPWIRE",capability="none"}'
+        values: '0 0 1 1'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PlatformProvisioningInvariantViolated
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: PlatformProvisioningInvariantViolated
+        exp_alerts:
+          - exp_labels: { severity: critical, invariant: premature_active }
+            exp_annotations:
+              summary: 'invariant premature_active ถูกละเมิด (1 แถว)'
+              runbook: docs/platform-provisioning-rollout.md#rollback
+      - eval_time: 3m
+        alertname: PlatformMixedTokenAccepted
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: 'token ที่มี tenant context ผ่าน identity check ของ Platform API (tripwire ปฏิเสธไว้แล้ว)'
+              runbook: docs/platform-provisioning-rollout.md#rollback
+
+  - name: อายุคิวตามเกณฑ์ 5 นาที / 30 นาที
+    interval: 1m
+    input_series:
+      - series: 'dcontact_platform_oldest_age_seconds{queue="pending_request"}'
+        values: '240 300 360'
+      - series: 'dcontact_platform_oldest_age_seconds{queue="invitation_outbox"}'
+        values: '0 0 301'
+      - series: 'dcontact_platform_oldest_age_seconds{queue="action_required"}'
+        values: '1700 1800 1860'
+      - series: 'dcontact_platform_oldest_age_seconds{queue="operator_command"}'
+        values: '0 0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PlatformProvisioningPendingStale
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: PlatformProvisioningPendingStale
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: 'มีคำขอ PENDING ค้างเกิน 5 นาที — worker หยุดหรือ rollout ปิดอยู่?'
+      - eval_time: 2m
+        alertname: PlatformInvitationOutboxStale
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: 'invitation outbox ค้าง (INTENT/AMBIGUOUS) เกิน 5 นาที'
+      - eval_time: 1m
+        alertname: PlatformActionRequiredStale
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: PlatformActionRequiredStale
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: 'มีคำขอ ACTION_REQUIRED รอ operator เกิน 30 นาที'
+      - eval_time: 2m
+        alertname: PlatformOperatorCommandStale
+        exp_alerts: []
+
+  - name: retry exhaustion, lease churn และ scrape ล้ม
+    interval: 1m
+    input_series:
+      - series: 'dcontact_platform_worker_results_total{source="saga",kind="ACTION_REQUIRED",step="INVITATION",code="ATTEMPTS_EXHAUSTED"}'
+        values: '0 0 1'
+      - series: 'dcontact_platform_worker_results_total{source="saga",kind="LEASE_LOST",step="READINESS",code="LEASE_LOST"}'
+        values: '0 1 2 3 5'
+      - series: 'dcontact_platform_health_scrape_success'
+        values: '1 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: PlatformRetryExhausted
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: 'step ใช้ retry ครบแล้วส่งให้ operator'
+      - eval_time: 3m
+        alertname: PlatformLeaseChurn
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: PlatformLeaseChurn
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: 'worker เสีย lease บ่อย (>3 ครั้งใน 15 นาที)'
+      - eval_time: 5m
+        alertname: PlatformHealthScrapeFailing
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: PlatformHealthScrapeFailing
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: 'อ่านสถานะ control plane จาก DB ไม่ได้ — invariant/backlog ไม่ถูกตรวจ'
