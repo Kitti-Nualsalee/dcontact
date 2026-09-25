@@ -255,6 +255,8 @@ export const PLATFORM_PROVISIONING_ERROR_CODES = [
   'COMMAND_IN_PROGRESS',
   /** A1.6: control plane commit/read ไม่ได้ (ไม่ใช่ dependency ภายนอกหลังรับคำขอแล้ว) */
   'SERVICE_UNAVAILABLE',
+  /** A1.8: `platformProvisioning.enabled` ปิดอยู่ (rollback) — อ่านสถานะ/ประวัติได้ แต่ mutation ไม่ได้ */
+  'PROVISIONING_DISABLED',
   /** missing หรือ resource ของ tenant/request อื่น — ตอบเหมือนกันเพื่อไม่เผย existence */
   'NOT_FOUND',
 ] as const;

@@ -5,6 +5,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { PrismaClient } from '@d-contact/db';
+import { PlatformRollout } from '@d-contact/platform-control';
 import { PlatformApiModule } from './platform-api.module.js';
 import { createPlatformServices } from './platform-services.js';
 import { JosePlatformAccessTokenVerifier } from './platform-verifier.js';
@@ -28,6 +29,8 @@ async function bootstrap() {
   const app = await NestFactory.create(
     PlatformApiModule.register({
       verifier,
+      // A1.8 (#413): default ปิด — PLATFORM_PROVISIONING_ENABLED=true + PLATFORM_OPERATOR_ALLOWLIST
+      rollout: PlatformRollout.fromEnv(process.env),
       services: createPlatformServices(database, {
         sipBaseDomain: required('PLATFORM_SIP_BASE_DOMAIN'),
       }),
