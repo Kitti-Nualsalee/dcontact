@@ -69,3 +69,42 @@ test('toShellModel แปล label ด้วย i18n ของแอป แล�
   assert.equal(model.apps[1]!.external, false);
   assert.equal(model.apps[1]!.href, '/?view=journeys&tenant=demo');
 });
+
+test('ไม่รู้ origin ของอีกแอป → ไม่สร้างลิงก์ และแอปนั้นถูกตัดออกจาก shell (ไม่เดาเป็น localhost)', () => {
+  assert.equal(
+    buildAppHref({ hostApp: 'workspace', path: '/', currentHost: 'console', hostOrigins: {} }),
+    null,
+  );
+  assert.equal(
+    buildAppHref({
+      hostApp: 'console',
+      path: '/?view=journeys',
+      currentHost: 'console',
+      hostOrigins: {},
+    }),
+    '/?view=journeys',
+  );
+  const model = toShellModel(
+    {
+      groups: [],
+      apps: [
+        { id: 'agent-workspace', groupId: 'live', labelKey: 'a', hostApp: 'workspace', path: '/' },
+        {
+          id: 'journeys',
+          groupId: 'automation',
+          labelKey: 'j',
+          hostApp: 'console',
+          path: '/?view=journeys',
+        },
+      ],
+      pins: { appIds: [], source: 'SYSTEM', revision: 0 },
+      limits: { maxPins: 15 },
+      features: { shellV2: true },
+    },
+    { currentHost: 'console', hostOrigins: {}, translate: (key) => key },
+  );
+  assert.deepEqual(
+    model.apps.map((app) => app.id),
+    ['journeys'],
+  );
+});

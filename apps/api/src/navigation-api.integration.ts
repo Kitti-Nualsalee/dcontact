@@ -405,3 +405,17 @@ test('audit เป็น append-only สำหรับ role ของแอป 
   assert.equal(own, 1);
   assert.deepEqual(fromOtherTenant, [0, 0], 'RLS ซ่อนแถวของ tenant อื่นแม้ระบุ tenantId ตรง');
 });
+
+test('ค่าเริ่มต้นของ tenant: admin สองคนส่ง revision เดียวกันพร้อมกัน — สำเร็จคนเดียว และ 409 บอก revision ล่าสุดจริง', async (t) => {
+  const { putDefault } = await harness(t);
+  await putDefault('journey-admin', { appIds: [], expectedRevision: 0 });
+  const results = await Promise.all(
+    Array.from({ length: 4 }, () =>
+      putDefault('journey-admin', { appIds: ['journeys'], expectedRevision: 1 }),
+    ),
+  );
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409, 409, 409]);
+  for (const conflict of results.filter((r) => r.status === 409)) {
+    assert.deepEqual(conflict.json.safeParams, { currentRevision: 2 });
+  }
+});

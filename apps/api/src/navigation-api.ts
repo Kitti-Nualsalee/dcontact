@@ -240,7 +240,12 @@ export class NavigationController {
             data: { appIds, revision, updatedByUserId: userId, updatedAt: new Date() },
           });
           if (updated.count === 0) {
-            throw fail('REVISION_CONFLICT', 409, { currentRevision: before?.revision ?? 0 });
+            // อ่านใหม่หลังชน — `before` อาจเก่าถ้า admin อีกคน commit ระหว่างทาง
+            const current = await tx.navigationTenantDefaultPins.findUnique({
+              where: { tenantId },
+              select: { revision: true },
+            });
+            throw fail('REVISION_CONFLICT', 409, { currentRevision: current?.revision ?? 0 });
           }
         }
         await tx.navigationAuditEvent.create({

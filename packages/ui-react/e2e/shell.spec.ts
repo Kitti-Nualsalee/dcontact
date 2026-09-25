@@ -109,15 +109,19 @@ test('keyboard: ปักหมุดด้วย Space → rail อัปเด
   await page.getByRole('button', { name: 'เลิกปักหมุด Governance' }).focus();
   await page.keyboard.press('Space');
   await expect(rail(page).getByRole('link', { name: 'Governance' })).toHaveCount(0);
-  const last = await page.evaluate(() => {
-    const all = (
-      window as unknown as {
-        __navRequests: { method: string; body: { expectedRevision: number } }[];
-      }
-    ).__navRequests;
-    return all.filter((r) => r.method === 'PUT').at(-1)!.body.expectedRevision;
-  });
-  expect(last).toBe(1);
+  // PUT ถูกส่งทีละคำขอ — รอคำขอเลิกปักที่ต่อคิวหลังคำขอแรก แล้วต้องใช้ revision ถัดไป
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const all = (
+          window as unknown as {
+            __navRequests: { method: string; body: { expectedRevision: number } }[];
+          }
+        ).__navRequests;
+        return all.filter((r) => r.method === 'PUT').at(-1)!.body.expectedRevision;
+      }),
+    )
+    .toBe(1);
 });
 
 test('สลับภาษาในแถบบนเปลี่ยนป้ายของ rail/launcher ทันทีโดยไม่ reload', async ({ page }) => {
@@ -131,4 +135,49 @@ test('สลับภาษาในแถบบนเปลี่ยนป้�
   await expect(rail(page).getByRole('link', { name: /Inbox/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'All apps' })).toBeVisible();
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
+});
+
+test('กดปัก/เลิกปักหมุดติดกันเร็ว ๆ — คำขอถูกส่งทีละคำขอด้วย revision ล่าสุด ไม่ชนกันเองและไม่มีหมุดหาย', async ({
+  page,
+}) => {
+  await page.goto('/?view=shell');
+  await page.getByRole('button', { name: 'แอปทั้งหมด' }).click();
+  // สองคลิกติดกันระหว่างที่ PUT แรกยังไม่ตอบ (mock หน่วง 150ms)
+  await page.getByRole('button', { name: 'ปักหมุด Governance', exact: true }).click();
+  await page.getByRole('button', { name: 'เลิกปักหมุด Journeys', exact: true }).click();
+  // launcher เป็น popover แบบ modal — ปิดก่อนตรวจ rail (ส่วนอื่นของหน้าถูกซ่อนจาก a11y tree ระหว่างเปิด)
+  await page.keyboard.press('Escape');
+  await expect(rail(page).getByRole('link', { name: 'Governance' })).toBeVisible();
+  await expect(rail(page).getByRole('link', { name: 'Journeys' })).toHaveCount(0);
+
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __navRequests: { method: string }[] }).__navRequests.filter(
+            (r) => r.method === 'PUT',
+          ).length,
+      ),
+    )
+    .toBeGreaterThanOrEqual(1);
+  // รอให้คิวว่าง แล้วตรวจว่า server ได้ชุดสุดท้ายโดยไม่มี 409 ระหว่างทาง
+  await page.waitForTimeout(300);
+  const puts = await page.evaluate(() =>
+    (
+      window as unknown as {
+        __navRequests: { method: string; body: { appIds: string[]; expectedRevision: number } }[];
+      }
+    ).__navRequests
+      .filter((r) => r.method === 'PUT')
+      .map((r) => r.body),
+  );
+  expect(puts.map((body) => body.expectedRevision)).toEqual(puts.map((_, index) => index));
+  expect(puts.at(-1)!.appIds).toEqual(['agent-workspace', 'contact-governance']);
+  // ไม่มี 409 → ไม่มีการโหลด navigation ใหม่หลัง PUT แรก
+  const methods = await page.evaluate(() =>
+    (window as unknown as { __navRequests: { method: string }[] }).__navRequests.map(
+      (r) => r.method,
+    ),
+  );
+  expect(methods.slice(methods.indexOf('PUT'))).not.toContain('GET');
 });

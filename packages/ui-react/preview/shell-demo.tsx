@@ -67,6 +67,8 @@ const mockFetch: typeof fetch = async (input, init) => {
     body: init?.body ? JSON.parse(String(init.body)) : undefined,
   });
   if (url.endsWith('/me/navigation/pins')) {
+    // หน่วงเหมือน network จริง — ให้ test กดครั้งถัดไประหว่างที่คำขอแรกยังไม่ตอบ
+    await new Promise((resolve) => setTimeout(resolve, 150));
     const body = JSON.parse(String(init?.body)) as { appIds: string[]; expectedRevision: number };
     if (body.expectedRevision !== store.revision) {
       return Response.json({ code: 'REVISION_CONFLICT' }, { status: 409 });

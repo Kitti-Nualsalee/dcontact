@@ -24,14 +24,21 @@ export interface AppHrefInput {
   path: string;
   /** แอปที่กำลังแสดงอยู่ */
   currentHost: HostApp;
-  hostOrigins: Record<HostApp, string>;
+  hostOrigins: Partial<Record<HostApp, string>>;
   /** ตัวระบุ organization ที่แอปใช้อยู่แล้ว (ไม่ใช่ข้อมูลบุคคล) — ส่งต่อเฉพาะเมื่อมี */
   tenantAlias?: string;
 }
 
-/** path ในแอปเดียวกัน = relative; อีกแอป = absolute ตาม origin ที่ตั้งค่าไว้ */
-export function buildAppHref(input: AppHrefInput): string {
-  const base = input.hostOrigins[input.hostApp];
+/**
+ * path ในแอปเดียวกัน = relative; อีกแอป = absolute ตาม origin ที่ตั้งค่าไว้
+ * ไม่รู้ origin ของอีกแอป = `null` (ห้ามเดาเป็น localhost — ลิงก์ใน production จะชี้เครื่องผู้ใช้)
+ */
+export function buildAppHref(input: AppHrefInput): string | null {
+  const base =
+    input.hostApp === input.currentHost
+      ? (input.hostOrigins[input.hostApp] ?? 'http://current.invalid')
+      : input.hostOrigins[input.hostApp];
+  if (!base) return null;
   const url = new URL(input.path, base);
   if (input.tenantAlias) url.searchParams.set('tenant', input.tenantAlias);
   return input.hostApp === input.currentHost
@@ -43,7 +50,7 @@ export function toShellModel(
   response: NavigationResponseV1,
   options: {
     currentHost: HostApp;
-    hostOrigins: Record<HostApp, string>;
+    hostOrigins: Partial<Record<HostApp, string>>;
     tenantAlias?: string;
     translate: (key: string) => string;
   },
@@ -53,19 +60,27 @@ export function toShellModel(
       id: group.id,
       label: options.translate(group.labelKey),
     })),
-    apps: response.apps.map((app) => ({
-      id: app.id,
-      groupId: app.groupId,
-      label: options.translate(app.labelKey),
-      external: app.hostApp !== options.currentHost,
-      href: buildAppHref({
+    // แอปที่ไม่รู้ origin (ไม่ได้ตั้งค่า deployment) ถูกตัดออกจาก shell แทนการสร้างลิงก์ที่ผิด
+    apps: response.apps.flatMap((app) => {
+      const href = buildAppHref({
         hostApp: app.hostApp,
         path: app.path,
         currentHost: options.currentHost,
         hostOrigins: options.hostOrigins,
         tenantAlias: options.tenantAlias,
-      }),
-    })),
+      });
+      return href === null
+        ? []
+        : [
+            {
+              id: app.id,
+              groupId: app.groupId,
+              label: options.translate(app.labelKey),
+              external: app.hostApp !== options.currentHost,
+              href,
+            },
+          ];
+    }),
   };
 }
 
@@ -73,7 +88,8 @@ export interface ShellNavigationOptions {
   apiBaseUrl: string;
   accessToken: () => string | undefined;
   currentHost: HostApp;
-  hostOrigins: Record<HostApp, string>;
+  /** origin ของอีกแอปที่ไม่ได้ระบุ = แอปของฝั่งนั้นไม่แสดงใน shell */
+  hostOrigins: Partial<Record<HostApp, string>>;
   tenantAlias?: string;
   translate: (key: string) => string;
   /** แจ้งเมื่อบันทึกหมุดไม่สำเร็จ (จอย้อนกลับค่าเดิมแล้ว) */
@@ -97,6 +113,16 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
   const optionsRef = useRef(options);
   optionsRef.current = options;
   const [response, setResponse] = useState<NavigationResponseV1 | null>(null);
+  // ref คือค่าล่าสุดจริง (รวม optimistic) — เขียนเฉพาะผ่าน update() ไม่เขียนตอน render
+  // เพราะ render ที่มาก่อน update จะ commit อาจเขียนค่าเก่าทับ แล้วการกดครั้งถัดไปคำนวณจากค่าเก่า
+  const responseRef = useRef<NavigationResponseV1 | null>(null);
+  const update = useCallback(
+    (next: (current: NavigationResponseV1 | null) => NavigationResponseV1 | null) => {
+      responseRef.current = next(responseRef.current);
+      setResponse(responseRef.current);
+    },
+    [],
+  );
   const [decision, setDecision] = useState<'pending' | 'shell' | 'legacy'>('pending');
 
   const request = useCallback(async (path: string, init?: RequestInit) => {
@@ -116,7 +142,7 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
     const reply = await request('me/navigation');
     if (!reply.ok) throw new Error(`navigation ${reply.status}`);
     const body = (await reply.json()) as NavigationResponseV1;
-    setResponse(body);
+    update(() => body);
     return body;
   }, [request]);
 
@@ -134,44 +160,74 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
     };
   }, [load]);
 
-  const responseRef = useRef(response);
-  responseRef.current = response;
+  // หมุดที่ server ยืนยันล่าสุด — ทุก PUT ใช้ revision นี้ และคำขอถูกส่งทีละคำขอ (ไม่ชนกันเอง)
+  const confirmed = useRef<{ appIds: string[]; revision: number } | null>(null);
+  const queue = useRef<Promise<void>>(Promise.resolve());
+
+  useEffect(() => {
+    if (response && confirmed.current === null) confirmed.current = response.pins;
+  }, [response]);
+
+  const reload = useCallback(async () => {
+    const body = await load();
+    confirmed.current = body.pins;
+  }, [load]);
 
   // ส่ง request นอก setState updater — StrictMode เรียก updater สองครั้ง ซึ่งจะยิง PUT ซ้ำ
   const togglePin = useCallback(
     (appId: string) => {
-      const previous = responseRef.current;
-      if (!previous) return;
-      const pinned = previous.pins.appIds.includes(appId);
+      const current = responseRef.current;
+      if (!current) return;
+      const pinned = current.pins.appIds.includes(appId);
       const appIds = pinned
-        ? previous.pins.appIds.filter((id) => id !== appId)
-        : [...previous.pins.appIds, appId];
-      const optimistic = { ...previous, pins: { ...previous.pins, appIds } };
-      responseRef.current = optimistic;
-      setResponse(optimistic);
-      void request('me/navigation/pins', {
-        method: 'PUT',
-        body: JSON.stringify({ appIds, expectedRevision: previous.pins.revision }),
-      })
-        .then(async (reply) => {
+        ? current.pins.appIds.filter((id) => id !== appId)
+        : [...current.pins.appIds, appId];
+      update(() => ({ ...current, pins: { ...current.pins, appIds } }));
+
+      queue.current = queue.current.then(async () => {
+        const base = confirmed.current ?? current.pins;
+        const desired = responseRef.current?.pins.appIds ?? appIds;
+        // คำขอก่อนหน้าบันทึกชุดเดียวกันไปแล้ว (กดติดกันหลายครั้ง) — ไม่ต้องส่งซ้ำ
+        if (
+          desired.length === base.appIds.length &&
+          desired.every((id, i) => id === base.appIds[i])
+        )
+          return;
+        try {
+          const reply = await request('me/navigation/pins', {
+            method: 'PUT',
+            body: JSON.stringify({ appIds: desired, expectedRevision: base.revision }),
+          });
           if (reply.ok) {
             const saved = (await reply.json()) as { appIds: string[]; revision: number };
-            setResponse((latest) =>
-              latest ? { ...latest, pins: { ...latest.pins, ...saved, source: 'USER' } } : latest,
+            confirmed.current = saved;
+            // คงลำดับที่ผู้ใช้เห็นอยู่ (อาจมีการกดเพิ่มระหว่างรอ) แต่รับ revision จาก server
+            update((latest) =>
+              latest
+                ? { ...latest, pins: { ...latest.pins, revision: saved.revision, source: 'USER' } }
+                : latest,
             );
             return;
           }
-          // revision ชน (อีกแท็บ/อีกเครื่องแก้ไปแล้ว) → ใช้ค่าล่าสุดจาก server
-          if (reply.status === 409) await load();
-          else setResponse(previous);
+          // revision ชนจริง (อีกแท็บ/อีกเครื่องแก้ไปแล้ว) → ใช้ค่าล่าสุดจาก server
+          if (reply.status === 409) await reload();
+          else {
+            const fallback = confirmed.current ?? base;
+            update((latest) =>
+              latest ? { ...latest, pins: { ...latest.pins, appIds: fallback.appIds } } : latest,
+            );
+          }
           optionsRef.current.onPinError?.(new Error(`pins ${reply.status}`));
-        })
-        .catch((error: unknown) => {
-          setResponse(previous);
+        } catch (error) {
+          const fallback = confirmed.current ?? base;
+          update((latest) =>
+            latest ? { ...latest, pins: { ...latest.pins, appIds: fallback.appIds } } : latest,
+          );
           optionsRef.current.onPinError?.(error);
-        });
+        }
+      });
     },
-    [load, request],
+    [reload, request, update],
   );
 
   if (decision === 'pending') return { status: 'loading' };

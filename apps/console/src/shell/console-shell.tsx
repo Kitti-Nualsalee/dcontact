@@ -21,11 +21,13 @@ import { useShellTokens } from './tokens.js';
 
 export type ConsoleShellApp = 'journeys' | 'contact-governance';
 
-export function hostOrigins(): Record<HostApp, string> {
+export function hostOrigins(): Partial<Record<HostApp, string>> {
   const env = import.meta.env as Record<string, string | undefined>;
   return {
     console: env.VITE_CONSOLE_URL ?? window.location.origin,
-    workspace: env.VITE_WORKSPACE_URL ?? 'http://localhost:5173',
+    // production ต้องตั้ง VITE_WORKSPACE_URL — ไม่ตั้ง = แอปฝั่งนั้นไม่แสดงใน shell (ไม่เดาเป็น localhost)
+    workspace:
+      env.VITE_WORKSPACE_URL ?? (import.meta.env.DEV ? 'http://localhost:5173' : undefined),
   };
 }
 
