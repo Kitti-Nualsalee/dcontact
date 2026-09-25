@@ -37,12 +37,14 @@ async function setup(t: TestContext) {
       createdAt: new Date(Date.now() - 60_000),
     },
   });
+  // CHECK ของ pf_invitations บังคับ expires_at = sent_at + 72 ชม. พอดี — คำนวณจากเวลาเดียวกัน
+  const sentAt = new Date(Date.now() - 50_000);
   await f.platform.pfInvitation.update({
     where: { id: invitation.id },
     data: {
       state: 'SENT',
-      sentAt: new Date(Date.now() - 50_000),
-      expiresAt: new Date(Date.now() + 259_150_000),
+      sentAt,
+      expiresAt: new Date(sentAt.getTime() + 259_200_000),
       revision: { increment: 1 },
     },
   });
