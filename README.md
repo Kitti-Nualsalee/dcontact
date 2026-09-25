@@ -100,8 +100,9 @@ pnpm platform:dev                        # Console http://localhost:5180 · API 
 pnpm platform:otp                        # รหัส OTP ของ platform-operator (`pnpm platform:otp auditor` สำหรับ auditor)
 ```
 
-`platform:dev` build dependency, ตั้งค่า Keycloak ของ platform แบบ idempotent แล้วเปิด provisioning
-พร้อมใส่ dev operator ใน `PLATFORM_OPERATOR_ALLOWLIST` ให้เอง อีเมลเชิญ first admin ดูที่ mailpit
+`platform:dev` build dependency, ตั้งค่า Keycloak ของ platform และ publish plan/template สำหรับทดสอบ
+(`a1:dev-catalog`) แบบ idempotent แล้วเปิด provisioning พร้อมใส่ dev operator ใน
+`PLATFORM_OPERATOR_ALLOWLIST` ให้เอง; Ctrl+C ปิดทุก process อีเมลเชิญ first admin ดูที่ mailpit
 http://localhost:8025 ค่า env ทุกตัว override จาก shell ได้ — production ตั้งตาม
 [docs/platform-provisioning-rollout.md](docs/platform-provisioning-rollout.md)
 

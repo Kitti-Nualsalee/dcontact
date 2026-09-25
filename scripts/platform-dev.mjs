@@ -8,7 +8,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * ต้องมี infra ก่อน: `pnpm infra:up && pnpm infra:bootstrap`
  * 1. build dependency ของ Platform API/worker (workspace packages ใช้ `dist/`)
  * 2. ตั้งค่า Keycloak ของ platform (idempotent) เพื่อเอา subject ของ dev operator ใส่ allowlist
- * 3. เปิด Platform API :3019, provisioning worker และ Console :5180 พร้อมกัน — ตัวใดหยุด ปิดทั้งหมด
+ * 3. publish bootstrap template และ plan สำหรับทดสอบ (`a1:dev-catalog`, idempotent) — ไม่มี plan ให้เลือก
+ *    ฟอร์มสร้าง tenant จะไปต่อไม่ได้
+ * 4. เปิด Platform API :3019, provisioning worker และ Console :5180 พร้อมกัน — ตัวใดหยุด ปิดทั้งหมด
  *
  * `pnpm platform:otp [auditor]` พิมพ์รหัส OTP ปัจจุบันของ dev user (secret อยู่ใน keycloak-platform-setup.mjs)
  *
@@ -114,6 +116,20 @@ function buildDependencies() {
   if (result.status !== 0) throw new Error('build dependency ไม่ผ่าน');
 }
 
+function publishDevCatalog(env) {
+  process.stdout.write('[platform:dev] publish plan/template สำหรับทดสอบ…\n');
+  const result = spawnSync('pnpm', ['--filter', '@d-contact/platform-control', 'dev-catalog'], {
+    cwd: repositoryRoot,
+    env: { ...process.env, PLATFORM_DATABASE_URL: env.PLATFORM_DATABASE_URL },
+    stdio: 'inherit',
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      'publish dev catalog ไม่ผ่าน — ตรวจว่ารัน `pnpm infra:bootstrap` (migrate) แล้ว',
+    );
+  }
+}
+
 async function operatorSubject() {
   const { setupKeycloakPlatform } = await import('./keycloak-platform-setup.mjs');
   let result;
@@ -142,12 +158,25 @@ function prefixLines(stream, name, target) {
   });
 }
 
+/**
+ * แต่ละ process อยู่ใน process group ของตัวเอง (`detached`) แล้วปิดทั้ง group — `pnpm` ไม่ส่ง signal
+ * ต่อให้ลูก (tsx watch, node worker) จึงฆ่าแค่ pid ของ pnpm ไม่พอ
+ */
+function signalGroup(child, signal) {
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // group ปิดไปแล้ว (ESRCH)
+  }
+}
+
 function runAll(processes) {
   const children = processes.map(({ name, command: [bin, ...args], env }) => {
     const child = spawn(bin, args, {
       cwd: repositoryRoot,
       env: { ...process.env, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
     });
     prefixLines(child.stdout, name, process.stdout);
     prefixLines(child.stderr, name, process.stderr);
@@ -156,26 +185,37 @@ function runAll(processes) {
 
   let stopping = false;
   const stopAll = (exitCode) => {
-    if (stopping) return;
+    if (stopping) {
+      // Ctrl+C ครั้งที่สอง = บังคับปิด
+      for (const { child } of children) signalGroup(child, 'SIGKILL');
+      return;
+    }
     stopping = true;
     process.exitCode = exitCode;
-    for (const { child } of children) if (child.exitCode === null) child.kill('SIGTERM');
+    for (const { child } of children) signalGroup(child, 'SIGTERM');
+    setTimeout(() => {
+      for (const { child } of children) signalGroup(child, 'SIGKILL');
+    }, 5000).unref();
   };
+  // `exit` ไม่รอ pipe ที่หลานยังถืออยู่ ต่างจาก `close`
   for (const { name, child } of children) {
-    child.once('close', (code) => {
-      if (!stopping)
-        process.stderr.write(`[platform:dev] ${name} หยุด (code ${code}) — ปิดทั้งหมด\n`);
-      stopAll(code ?? 1);
+    child.once('exit', (code, signal) => {
+      if (stopping) return;
+      process.stderr.write(
+        `[platform:dev] ${name} หยุด (${signal ?? `code ${code}`}) — ปิดทั้งหมด\n`,
+      );
+      stopAll(code || 1);
     });
   }
-  process.once('SIGINT', () => stopAll(0));
-  process.once('SIGTERM', () => stopAll(0));
+  process.on('SIGINT', () => stopAll(0));
+  process.on('SIGTERM', () => stopAll(0));
 }
 
 async function main() {
   buildDependencies();
   const subject = await operatorSubject();
   const envs = platformDevEnv({ operatorSubject: subject, env: process.env });
+  publishDevCatalog(envs.api);
   process.stdout.write(
     [
       '',
