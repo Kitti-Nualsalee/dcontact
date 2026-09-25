@@ -116,6 +116,7 @@ test('health collector: อายุคิว/invariant จาก DB, cache ร�
   };
   const registry = new Registry();
   new PlatformHealthCollector(database, registry, { now: () => now, minIntervalMs: 60_000 });
+  // scrape แรกต้องสะท้อนผลของ scrape นั้นเอง (เคยช้าไปหนึ่งรอบ = 0 ทั้งที่อ่านสำเร็จ — พบใน UAT)
   const text = await registry.metrics();
   for (const series of [
     'dcontact_platform_oldest_age_seconds{queue="pending_request"} 360',
@@ -132,11 +133,15 @@ test('health collector: อายุคิว/invariant จาก DB, cache ร�
   await registry.metrics();
   assert.equal(calls, perScrape, 'scrape ภายใน minInterval ต้องใช้ cache');
 
-  const failing = new Registry();
+  // DB ล่มระหว่างทาง: scrape นั้นต้องได้ 0 ทันที และไม่รายงาน invariant/อายุคิวค่าเก่า
+  const flapping = new Registry();
+  broken = false;
+  new PlatformHealthCollector(database, flapping, { now: () => now, minIntervalMs: 0 });
+  assert.ok((await flapping.metrics()).includes('dcontact_platform_health_scrape_success 1'));
   broken = true;
-  new PlatformHealthCollector(database, failing, { now: () => now });
-  const down = await failing.metrics();
+  const down = await flapping.metrics();
   assert.ok(down.includes('dcontact_platform_health_scrape_success 0'), down);
+  assert.equal(down.includes('dcontact_platform_invariant_violations{'), false, down);
   assert.equal(down.includes('secret'), false);
 });
 

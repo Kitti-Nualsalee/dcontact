@@ -184,7 +184,6 @@ interface HealthSnapshot {
 /** สถานะจาก DB ตอน scrape: backlog, อายุคิว และ invariant — cache `minIntervalMs` เพื่อคุมภาระ DB */
 export class PlatformHealthCollector {
   private cached: { at: number; snapshot: Promise<HealthSnapshot> } | null = null;
-  private readonly success: Gauge<string>;
 
   constructor(
     private readonly database: HealthDatabase,
@@ -221,13 +220,21 @@ export class PlatformHealthCollector {
           Object.entries(s.invariants).forEach(([invariant, n]) => gauge.set({ invariant }, n)),
       ],
     ];
-    this.success = new Gauge({
+    // gauge แต่ละตัว await snapshot ของ scrape เดียวกัน (promise ถูก cache) — ค่าไม่ช้ากว่ากันหนึ่งรอบ
+    new Gauge({
       name: 'dcontact_platform_health_scrape_success',
-      help: '1 = อ่านสถานะจาก DB สำเร็จในการ scrape ล่าสุด',
+      help: '1 = อ่านสถานะจาก DB สำเร็จใน scrape นี้',
       registers: [registry],
+      async collect() {
+        this.set(
+          await snapshot().then(
+            () => 1,
+            () => 0,
+          ),
+        );
+      },
     });
     for (const [name, help, labelNames, fill] of collectors) {
-      const collector = this;
       new Gauge({
         name,
         help,
@@ -235,13 +242,11 @@ export class PlatformHealthCollector {
         registers: [registry],
         async collect() {
           this.reset();
-          try {
-            fill(this, await snapshot());
-            collector.success.set(1);
-          } catch {
-            // ไม่ให้ scrape ล้มทั้งก้อน — alert จาก health_scrape_success แทน
-            collector.success.set(0);
-          }
+          // DB ล่ม = ไม่มี series ของ gauge นี้ (ไม่รายงานค่าเก่า) — alert จาก health_scrape_success แทน
+          await snapshot().then(
+            (value) => fill(this, value),
+            () => undefined,
+          );
         },
       });
     }
