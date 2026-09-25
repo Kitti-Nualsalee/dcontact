@@ -1,0 +1,90 @@
+{
+  "title": "D-Contact UI components",
+  "lede": "Shared components for Console and Workspace — tokens only; keyboard and axe are tested on this page",
+  "language": "Language",
+  "sections": {
+    "buttons": "Buttons",
+    "fields": "Fields",
+    "select": "Select",
+    "toggles": "Checkbox and Switch",
+    "table": "Table",
+    "badges": "Badges and status",
+    "tabs": "Tabs",
+    "dialog": "Dialog",
+    "toast": "Notifications"
+  },
+  "button": {
+    "primary": "Save",
+    "secondary": "Cancel",
+    "ghost": "More",
+    "danger": "Delete",
+    "small": "Small button",
+    "disabled": "Disabled"
+  },
+  "field": {
+    "name": "Journey name",
+    "nameHint": "Up to 80 characters",
+    "search": "Search contacts",
+    "searchPlaceholder": "Name, phone or email",
+    "required": "Name is required"
+  },
+  "select": {
+    "label": "Channel",
+    "voice": "Voice",
+    "line": "LINE",
+    "email": "Email",
+    "fax": "Fax (disabled)"
+  },
+  "toggle": {
+    "consent": "Accept terms",
+    "autoAnswer": "Auto-answer calls"
+  },
+  "table": {
+    "label": "Queues",
+    "queue": "Queue",
+    "waiting": "Waiting",
+    "sla": "SLA",
+    "status": "Status",
+    "sales": "Sales",
+    "support": "Support",
+    "billing": "Billing",
+    "ok": "Normal",
+    "warn": "Attention",
+    "breach": "SLA breached"
+  },
+  "badge": {
+    "success": "Success",
+    "attention": "Attention",
+    "critical": "Critical",
+    "info": "Info",
+    "neutral": "Draft",
+    "accent": "New",
+    "available": "Available",
+    "busy": "On a call",
+    "acw": "Wrap-up",
+    "break": "Break",
+    "offline": "Offline",
+    "cooldown": "Cooldown"
+  },
+  "tabs": {
+    "label": "Journey details",
+    "overview": "Overview",
+    "steps": "Steps",
+    "history": "History",
+    "overviewBody": "Status summary and latest version",
+    "stepsBody": "Steps in order",
+    "historyBody": "Change history"
+  },
+  "dialog": {
+    "open": "Open dialog",
+    "title": "Publish journey",
+    "body": "The new version applies to contacts who enter from now on; contacts already in progress keep the previous version",
+    "confirm": "Publish",
+    "cancel": "Cancel"
+  },
+  "toast": {
+    "show": "Show notification",
+    "title": "Saved",
+    "description": "Journey saved as draft"
+  }
+}

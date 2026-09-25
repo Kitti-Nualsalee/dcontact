@@ -41,3 +41,6 @@ skills-lock.json
 # A1.4b (#436): Keycloak extension build output
 infra/keycloak/providers/
 infra/keycloak/extensions/*/target/
+
+# D1.10 (#449): build ของ preview page ใน packages/ui-react
+dist-preview/
