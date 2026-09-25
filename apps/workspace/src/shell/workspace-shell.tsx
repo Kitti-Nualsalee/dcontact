@@ -89,7 +89,7 @@ export function WorkspaceShell({
         brand={
           <>
             <img src="/d-contact-icon-64.png" alt="" width={24} height={24} />
-            <span>D-Contact</span>
+            <span>{t('shell.brand')}</span>
           </>
         }
         breadcrumb={[

@@ -12,15 +12,13 @@ import {
   type JourneyAuthoringApi,
   type JourneySnapshot,
 } from './api.js';
+import { useTranslation } from '@d-contact/i18n/react';
+import { Button } from '@d-contact/ui-react';
 import { errorMessage } from './model.js';
-import { Dialog, REASON_FIELD } from './publish.js';
+import { Dialog, reasonField } from './publish.js';
 
 type Decision = 'APPROVE' | 'REQUEST_CHANGES' | 'REJECT';
-const DECISION_LABELS: Record<Decision, string> = {
-  APPROVE: 'อนุมัติ',
-  REQUEST_CHANGES: 'ขอให้แก้ไข',
-  REJECT: 'ไม่อนุมัติ',
-};
+const DECISIONS: readonly Decision[] = ['APPROVE', 'REQUEST_CHANGES', 'REJECT'];
 
 export function ReviewPanel({
   api,
@@ -39,9 +37,12 @@ export function ReviewPanel({
   onCompile: () => Promise<void>;
   onChanged: () => Promise<void>;
 }) {
+  const { t } = useTranslation('journeys');
+  const decisionLabel = (decision: Decision) => t(`review.decision.${decision}`);
   const contextId = useId();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // เก็บ code แล้วแปลตอน render — สลับภาษาแล้วข้อความ error เปลี่ยนตาม
+  const [error, setError] = useState<{ code?: string } | null>(null);
   const [preview, setPreview] = useState<PlanPreviewV1 | null>(null);
   const [simulation, setSimulation] = useState<SimulationResultV1 | null>(null);
   const [contextJson, setContextJson] = useState('{}');
@@ -58,9 +59,9 @@ export function ReviewPanel({
   const decisionBlockedReason = !inReview
     ? null
     : pendingReview.makerIsCaller
-      ? 'คุณเป็นผู้ส่งตรวจ candidate นี้ ต้องให้ reviewer คนอื่นเป็นผู้ตัดสิน'
+      ? t('review.blockedMaker')
       : !permissions.review
-        ? 'คุณไม่มีสิทธิ์ตรวจ Journey นี้ (journey.review)'
+        ? t('review.blockedPermission')
         : null;
 
   const run = async (work: () => Promise<void>) => {
@@ -69,9 +70,7 @@ export function ReviewPanel({
     try {
       await work();
     } catch (failure) {
-      setError(
-        errorMessage(failure instanceof JourneyAuthoringApiError ? failure.code : undefined),
-      );
+      setError({ code: failure instanceof JourneyAuthoringApiError ? failure.code : undefined });
     } finally {
       setBusy(false);
     }
@@ -116,7 +115,7 @@ export function ReviewPanel({
       try {
         context = JSON.parse(contextJson) as typeof context;
       } catch {
-        setError('context ของ simulation ต้องเป็น JSON object ของค่าสังเคราะห์');
+        setError({ code: 'SIMULATION_CONTEXT_INVALID' });
         return;
       }
       setSimulation(
@@ -135,66 +134,57 @@ export function ReviewPanel({
   return (
     <div className="j5-review">
       <div className="j5-button-row">
-        <button
-          type="button"
-          className="gov-secondary"
-          disabled={dirty || busy}
-          onClick={() => void run(onCompile)}
-        >
-          Compile ฉบับร่าง
-        </button>
-        <button
-          type="button"
-          className="gov-secondary"
-          disabled={!artifact || busy}
-          onClick={() =>
+        <Button isDisabled={dirty || busy} onPress={() => void run(onCompile)}>
+          {t('review.compile')}
+        </Button>
+        <Button
+          isDisabled={!artifact || busy}
+          onPress={() =>
             void run(async () =>
               setPreview(await api.preview(head.journeyId, artifact!.compileDigest)),
             )
           }
         >
-          ดูลำดับการทำงาน
-        </button>
+          {t('review.preview')}
+        </Button>
       </div>
-      {dirty ? <p className="j5-help">บันทึกฉบับร่างก่อน compile</p> : null}
+      {dirty ? <p className="j5-help">{t('review.saveBeforeCompile')}</p> : null}
       {artifact ? (
         <p className="j5-help">
-          compile แล้ว · digest {artifact.compileDigest.slice(0, 12)}
-          {compile?.stale ? ' · ผลนี้เก่ากว่าฉบับร่างล่าสุด' : ''}
+          {t('review.compiled', { digest: artifact.compileDigest.slice(0, 12) })}
+          {compile?.stale ? t('review.compiledStale') : ''}
         </p>
       ) : null}
       {preview ? (
-        <ol className="j5-preview" aria-label="ลำดับการทำงานจาก compile">
+        <ol className="j5-preview" aria-label={t('review.previewLabel')}>
           {preview.steps.map((step) => (
             <li key={step.nodeId}>
               {step.type} ({step.nodeId})
-              {step.capability !== 'AVAILABLE' ? ' · runtime ยังไม่รองรับ' : ''}
+              {step.capability !== 'AVAILABLE' ? t('review.runtimeUnsupported') : ''}
             </li>
           ))}
         </ol>
       ) : null}
       <div className="j5-field">
-        <label htmlFor={contextId}>Context สังเคราะห์สำหรับ simulation (JSON)</label>
+        <label htmlFor={contextId}>{t('review.contextLabel')}</label>
         <textarea
           id={contextId}
           rows={3}
           value={contextJson}
           onChange={(event) => setContextJson(event.target.value)}
         />
-        <small className="j5-help">ใช้ค่าสมมติเท่านั้น ห้ามใส่ข้อมูลลูกค้าจริง</small>
+        <small className="j5-help">{t('review.contextHint')}</small>
       </div>
-      <button
-        type="button"
-        className="gov-secondary"
-        disabled={!artifact || busy}
-        onClick={() => void simulate()}
-      >
-        จำลองการทำงาน
-      </button>
+      <Button isDisabled={!artifact || busy} onPress={() => void simulate()}>
+        {t('review.simulate')}
+      </Button>
       {simulation ? (
         <div className="j5-simulation" role="status">
           <p>
-            จบที่ {simulation.terminal} หลัง {simulation.transitions.length} ขั้นตอน (จำลองเท่านั้น)
+            {t('review.simulationResult', {
+              terminal: simulation.terminal,
+              steps: simulation.transitions.length,
+            })}
           </p>
           <ol>
             {simulation.transitions.map((transition) => (
@@ -207,19 +197,21 @@ export function ReviewPanel({
         </div>
       ) : null}
 
-      <h3>การตรวจ (maker-checker)</h3>
+      <h3>{t('review.heading')}</h3>
       <p role="status" aria-live="polite">
-        {pendingReview ? `สถานะการตรวจ: ${pendingReview.state}` : 'ฉบับร่างนี้ยังไม่ได้ส่งตรวจ'}
+        {pendingReview
+          ? t('review.state', { state: pendingReview.state })
+          : t('review.notSubmitted')}
       </p>
       {pendingReview ? (
-        <dl className="j5-candidate" aria-label="Candidate ที่ส่งตรวจ">
-          <dt>ฉบับร่าง</dt>
-          <dd>revision {pendingReview.draftRevision}</dd>
-          <dt>Draft digest</dt>
+        <dl className="j5-candidate" aria-label={t('review.candidateLabel')}>
+          <dt>{t('review.draft')}</dt>
+          <dd>{t('common.revision', { revision: pendingReview.draftRevision })}</dd>
+          <dt>{t('review.draftDigest')}</dt>
           <dd>
             <code>{pendingReview.draftDigest.slice(0, 12)}</code>
           </dd>
-          <dt>Compile digest</dt>
+          <dt>{t('review.compileDigest')}</dt>
           <dd>
             <code>{pendingReview.compileDigest.slice(0, 12)}</code>
           </dd>
@@ -228,50 +220,52 @@ export function ReviewPanel({
       {decisionBlockedReason ? <p role="note">{decisionBlockedReason}</p> : null}
       <div className="j5-button-row">
         {readOnly || !permissions.edit ? null : (
-          <button
-            type="button"
-            className="gov-primary"
-            disabled={
-              !artifact || compile?.stale || dirty || busy || pendingReview?.state === 'IN_REVIEW'
+          <Button
+            variant="primary"
+            isDisabled={
+              !artifact ||
+              compile?.stale === true ||
+              dirty ||
+              busy ||
+              pendingReview?.state === 'IN_REVIEW'
             }
-            onClick={() => void submit()}
+            onPress={() => void submit()}
           >
-            ส่งตรวจ
-          </button>
+            {t('review.submit')}
+          </Button>
         )}
         {canDecide
-          ? (Object.keys(DECISION_LABELS) as Decision[]).map((decision) => (
-              <button
+          ? DECISIONS.map((decision) => (
+              <Button
                 key={decision}
-                type="button"
-                className={decision === 'APPROVE' ? 'gov-primary' : 'gov-secondary'}
-                disabled={busy}
-                onClick={() => setDeciding(decision)}
+                variant={decision === 'APPROVE' ? 'primary' : 'secondary'}
+                isDisabled={busy}
+                onPress={() => setDeciding(decision)}
               >
-                {DECISION_LABELS[decision]}
-              </button>
+                {decisionLabel(decision)}
+              </Button>
             ))
           : null}
       </div>
       {error ? (
         <p className="j5-status-error" role="alert">
-          {error}
+          {errorMessage(error.code)}
         </p>
       ) : null}
       {deciding ? (
         <Dialog
-          title={`ยืนยัน${DECISION_LABELS[deciding]}`}
-          body={<p>ผู้ส่งตรวจตัดสินงานของตัวเองไม่ได้ server จะตรวจสิทธิ์ของคุณอีกครั้ง</p>}
+          title={t('review.confirmTitle', { decision: decisionLabel(deciding) })}
+          body={<p>{t('review.confirmBody')}</p>}
           fields={[
-            REASON_FIELD,
+            reasonField(),
             {
               name: 'evidenceRef',
-              label: 'Evidence reference',
-              hint: 'เช่นเลข ticket',
+              label: t('review.evidenceLabel'),
+              hint: t('review.evidenceHint'),
               pattern: /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/,
             },
           ]}
-          confirmLabel={DECISION_LABELS[deciding]}
+          confirmLabel={decisionLabel(deciding)}
           danger={deciding === 'REJECT'}
           onCancel={() => setDeciding(null)}
           onConfirm={(values) => void decide(deciding, values)}

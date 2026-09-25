@@ -3,6 +3,7 @@
  * และจำนวนปัญหาประกาศผ่าน live region (ไม่ใช้ toast เป็นตัวบอก blocker)
  */
 import type { AuthoringDocumentV1, JourneyDiagnosticV1 } from '@d-contact/cxa-contracts';
+import { useTranslation } from '@d-contact/i18n/react';
 import { errorMessage, nodeTitle, nodeTypeOf } from './model.js';
 
 export function diagnosticNodeId(diagnostic: JourneyDiagnosticV1): string | undefined {
@@ -35,12 +36,13 @@ export function Diagnostics({
   checked: boolean;
   onFocusNode: (nodeId: string) => void;
 }) {
+  const { t } = useTranslation('journeys');
   const errors = diagnostics.filter((entry) => entry.severity === 'ERROR');
   const summary = !checked
-    ? 'ยังไม่ได้ตรวจกับ server สำหรับฉบับที่เห็นอยู่'
+    ? t('diagnostics.notChecked')
     : errors.length === 0
-      ? 'server ตรวจแล้วไม่พบข้อผิดพลาด'
-      : `server พบข้อผิดพลาด ${errors.length} รายการ`;
+      ? t('diagnostics.clean')
+      : t('diagnostics.errors', { count: errors.length });
   return (
     <div className="j5-diagnostics">
       <p
@@ -64,12 +66,16 @@ export function Diagnostics({
                 className={`j5-diagnostic-${diagnostic.severity.toLowerCase()}`}
               >
                 <span className="j5-code">{diagnostic.code}</span> {errorMessage(diagnostic.code)}
-                {field ? <span className="j5-help"> · field {String(field)}</span> : null}
+                {field ? (
+                  <span className="j5-help">
+                    {t('diagnostics.field', { field: String(field) })}
+                  </span>
+                ) : null}
                 {known ? (
                   <>
                     {' '}
-                    <button type="button" className="gov-link" onClick={() => onFocusNode(nodeId)}>
-                      ไปที่ {nodeTitle(document, nodeId)}
+                    <button type="button" className="j5-link" onClick={() => onFocusNode(nodeId)}>
+                      {t('diagnostics.goTo', { node: nodeTitle(document, nodeId) })}
                     </button>
                   </>
                 ) : null}

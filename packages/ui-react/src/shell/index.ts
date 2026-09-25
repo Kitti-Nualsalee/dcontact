@@ -1,4 +1,4 @@
-export { AppShell, type AppShellProps } from './AppShell.js';
+export { AppShell, useInShell, type AppShellProps } from './AppShell.js';
 export { Rail, RailLink, type RailProps } from './Rail.js';
 export { AppLauncher, type AppLauncherProps } from './AppLauncher.js';
 export { SubNav, type SubNavItem, type SubNavProps, type SubNavSection } from './SubNav.js';

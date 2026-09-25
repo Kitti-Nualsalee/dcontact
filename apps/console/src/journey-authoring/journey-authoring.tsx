@@ -5,8 +5,13 @@
  *   และไม่มีปุ่มที่ส่ง mutation เลย
  * - สิทธิ์, review, publish และ rollout มาจาก server — ถ้า server ปฏิเสธจะเห็น code ที่ได้จริง
  * - `409` ตอนบันทึกเปิดทางเลือกให้ผู้ใช้: ดูความต่าง, โหลดฉบับล่าสุด หรือเก็บการแก้ของตัวเองไปต่อ
+ * - D1.14 (#453): ข้อความทั้งหมดอยู่ใน catalog `journeys`, ปุ่มจาก `@d-contact/ui-react`, CSS ใช้ token;
+ *   อยู่ใน AppShell (flag `ui.shell.v2`) แล้วไม่วาด chrome เดิมของตัวเอง — เนื้อหาไม่ถือ layout/shell เอง
  */
 import { useCallback, useEffect, useId, useReducer, useRef, useState } from 'react';
+import { useLocale, useTranslation } from '@d-contact/i18n/react';
+import { Button, useInShell } from '@d-contact/ui-react';
+import { useShellTokens } from '../shell/tokens.js';
 import {
   JourneyAuthoringApiError,
   type JourneyAuthoringApi,
@@ -26,7 +31,7 @@ import {
 } from './model.js';
 import { Outline } from './outline.js';
 import { JourneySettings, NodeProperties } from './properties.js';
-import { Dialog, PublishPanel, REASON_FIELD } from './publish.js';
+import { Dialog, PublishPanel, reasonField } from './publish.js';
 import { ReviewPanel } from './review.js';
 import {
   clearRecovery,
@@ -40,6 +45,7 @@ import {
   type EditorAction,
   type EditorState,
 } from './state.js';
+import { serverTime } from './server-time.js';
 import { TemplateCatalog, TemplateUpgrade } from './templates.js';
 import './journey-authoring.css';
 
@@ -85,11 +91,13 @@ function JourneyEditor({
   readOnly: boolean;
   onBack: () => void;
 }) {
+  const { t } = useTranslation('journeys');
   const [{ state }, dispatch] = useReducer(rootReducer, { state: null });
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // error เก็บเป็น code แล้วแปลตอน render — สลับภาษาแล้วข้อความเปลี่ยนตาม
+  const [loadError, setLoadError] = useState<{ code?: string } | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<{ code?: string } | null>(null);
   const [recoveryOffer, setRecoveryOffer] = useState<AuthoringCommand[] | null>(null);
   const [discarding, setDiscarding] = useState(false);
   const saveIntent = useRef<{ body: string; key: string } | null>(null);
@@ -120,7 +128,7 @@ function JourneyEditor({
           if (saved) setRecoveryOffer(saved);
         }
       })
-      .catch((error: unknown) => !cancelled && setLoadError(errorMessage(codeOf(error))));
+      .catch((error: unknown) => !cancelled && setLoadError({ code: codeOf(error) }));
     return () => {
       cancelled = true;
     };
@@ -134,8 +142,8 @@ function JourneyEditor({
   }, [baseRevision, commands, journeyId, readOnly, recoveryOffer, scope, storage]);
 
   useEffect(() => {
-    if (state?.rejected) setAnnouncement(`ทำคำสั่งไม่ได้: ${state.rejected}`);
-  }, [state?.rejected]);
+    if (state?.rejected) setAnnouncement(t('editor.rejected', { reason: state.rejected }));
+  }, [state?.rejected, t]);
 
   const refresh = useCallback(async () => {
     const snapshot = await fetchSnapshot();
@@ -144,16 +152,14 @@ function JourneyEditor({
 
   if (loadError) {
     return (
-      <section className="gov-panel" role="alert">
-        <h1>เปิด Journey ไม่ได้</h1>
-        <p>{loadError}</p>
-        <button type="button" className="gov-secondary" onClick={onBack}>
-          กลับไปหน้ารายการ
-        </button>
+      <section className="j5-panel" role="alert">
+        <h1>{t('editor.loadFailed')}</h1>
+        <p>{errorMessage(loadError.code)}</p>
+        <Button onPress={onBack}>{t('editor.backToList')}</Button>
       </section>
     );
   }
-  if (!state) return <p role="status">กำลังโหลด Journey…</p>;
+  if (!state) return <p role="status">{t('editor.loading')}</p>;
 
   const document = editorDocument(state);
   const dirty = isDirty(state);
@@ -191,18 +197,18 @@ function JourneyEditor({
       clearRecovery(storage, scope, journeyId);
       dispatch({ type: 'SNAPSHOT', snapshot: await fetchSnapshot() });
       dispatch({ type: 'DIAGNOSTICS', diagnostics: result.diagnostics });
-      setAnnouncement(`บันทึกเป็น revision ${result.draftRevision} แล้ว`);
+      setAnnouncement(t('editor.saved', { revision: result.draftRevision }));
     } catch (error) {
       if (error instanceof JourneyAuthoringApiError && error.conflict) {
         saveIntent.current = null;
         dispatch({ type: 'CONFLICT', latest: await fetchSnapshot() });
-        setAnnouncement('บันทึกไม่ได้ เพราะฉบับร่างถูกแก้โดยผู้อื่น');
+        setAnnouncement(t('editor.conflictAnnounce'));
       } else {
         if (error instanceof JourneyAuthoringApiError) {
           saveIntent.current = null;
           dispatch({ type: 'DIAGNOSTICS', diagnostics: error.diagnostics });
         }
-        setSaveError(errorMessage(codeOf(error)));
+        setSaveError({ code: codeOf(error) });
       }
     } finally {
       setSaving(false);
@@ -217,7 +223,7 @@ function JourneyEditor({
       });
       dispatch({ type: 'DIAGNOSTICS', diagnostics: result.diagnostics });
     } catch (error) {
-      setSaveError(errorMessage(codeOf(error)));
+      setSaveError({ code: codeOf(error) });
     }
   };
 
@@ -245,9 +251,9 @@ function JourneyEditor({
       );
       clearRecovery(storage, scope, journeyId);
       await refresh();
-      setAnnouncement('กลับไปใช้เนื้อหาของ version ที่ใช้งานอยู่แล้ว');
+      setAnnouncement(t('editor.discarded'));
     } catch (error) {
-      setSaveError(errorMessage(codeOf(error)));
+      setSaveError({ code: codeOf(error) });
     }
   };
 
@@ -266,138 +272,128 @@ function JourneyEditor({
         }
       }}
     >
-      <div className="gov-title-row">
+      <div className="j5-title-row">
         <div>
-          <button type="button" className="gov-link" onClick={onBack}>
-            ← รายการ Journey
+          <button type="button" className="j5-link" onClick={onBack}>
+            {t('editor.back')}
           </button>
           <h1 id={headingId}>{document.settings.name}</h1>
           <p className="j5-help">
-            {head.lifecycle} · revision {head.currentDraftRevision}
-            {dirty
-              ? ` · มีการแก้ไขที่ยังไม่บันทึก ${state.commands.length} รายการ`
-              : ' · บันทึกแล้ว'}
+            {t('editor.statusLine', {
+              lifecycle: head.lifecycle,
+              revision: head.currentDraftRevision,
+            })}
+            {dirty ? t('editor.unsaved', { count: state.commands.length }) : t('editor.savedState')}
           </p>
         </div>
         {editable ? (
           <div className="j5-button-row">
-            <button
-              type="button"
-              className="gov-secondary"
-              disabled={state.commands.length === 0}
-              onClick={() => dispatch({ type: 'UNDO' })}
+            <Button
+              isDisabled={state.commands.length === 0}
+              onPress={() => dispatch({ type: 'UNDO' })}
             >
-              เลิกทำ
-            </button>
-            <button
-              type="button"
-              className="gov-secondary"
-              disabled={state.undone.length === 0}
-              onClick={() => dispatch({ type: 'REDO' })}
+              {t('editor.undo')}
+            </Button>
+            <Button
+              isDisabled={state.undone.length === 0}
+              onPress={() => dispatch({ type: 'REDO' })}
             >
-              ทำซ้ำ
-            </button>
+              {t('editor.redo')}
+            </Button>
             {head.activeVersion !== null ? (
-              <button type="button" className="gov-secondary" onClick={() => setDiscarding(true)}>
-                ทิ้งฉบับร่าง
-              </button>
+              <Button onPress={() => setDiscarding(true)}>{t('editor.discardDraft')}</Button>
             ) : null}
-            <button
-              type="button"
-              className="gov-primary"
-              disabled={!dirty || saving || conflict !== null}
-              onClick={() => void save()}
+            <Button
+              variant="primary"
+              isDisabled={!dirty || saving || conflict !== null}
+              onPress={() => void save()}
             >
-              {saving ? 'กำลังบันทึก…' : 'บันทึกฉบับร่าง'}
-            </button>
+              {saving ? t('editor.saving') : t('editor.save')}
+            </Button>
           </div>
         ) : null}
       </div>
 
-      <p className="gov-live" role="status" aria-live="polite">
+      <p className="j5-live" role="status" aria-live="polite">
         {announcement}
       </p>
       {readOnly ? (
-        <p className="gov-boundary" role="note">
-          หน้าจอกว้างน้อยกว่า 960px จึงเปิดแบบอ่านอย่างเดียว เพื่อไม่ให้แก้ graph
-          บนพื้นที่ที่ตรวจสอบได้ไม่ครบ ใช้หน้าจอที่กว้างขึ้นเพื่อแก้ไข
+        <p className="j5-boundary" role="note">
+          {t('editor.readOnlyNote')}
         </p>
       ) : head.lifecycle === 'DEPRECATED' ? (
-        <p className="gov-boundary" role="note">
-          Journey นี้เลิกใช้แล้ว จึงแก้ไขไม่ได้
+        <p className="j5-boundary" role="note">
+          {t('editor.deprecatedNote')}
         </p>
       ) : null}
       {saveError ? (
         <p className="j5-status-error" role="alert">
-          {saveError}
+          {errorMessage(saveError.code)}
         </p>
       ) : null}
       {state.dropped > 0 ? (
         <p className="j5-status-error" role="alert">
-          การแก้ไข {state.dropped} รายการใช้กับฉบับล่าสุดไม่ได้และถูกตัดออก
+          {t('editor.dropped', { count: state.dropped })}
         </p>
       ) : null}
       {recoveryOffer ? (
-        <div className="gov-recovery" role="alert">
-          <p>พบการแก้ไขที่ยังไม่บันทึกจากแท็บนี้ {recoveryOffer.length} รายการ</p>
+        <div className="j5-recovery" role="alert">
+          <p>{t('editor.recoveryFound', { count: recoveryOffer.length })}</p>
           <div className="j5-button-row">
-            <button
-              type="button"
-              className="gov-primary"
-              onClick={() => {
+            <Button
+              variant="primary"
+              onPress={() => {
                 dispatch({ type: 'RESTORE', commands: recoveryOffer });
                 setRecoveryOffer(null);
               }}
             >
-              กู้คืนการแก้ไข
-            </button>
-            <button
-              type="button"
-              className="gov-secondary"
-              onClick={() => {
+              {t('editor.recoveryRestore')}
+            </Button>
+            <Button
+              onPress={() => {
                 clearRecovery(storage, scope, journeyId);
                 setRecoveryOffer(null);
               }}
             >
-              ทิ้งการแก้ไขที่ค้าง
-            </button>
+              {t('editor.recoveryDiscard')}
+            </Button>
           </div>
         </div>
       ) : null}
       {conflict ? (
-        <section className="gov-recovery" role="alert" aria-labelledby="j5-conflict-heading">
-          <h2 id="j5-conflict-heading">ฉบับร่างถูกแก้โดยผู้อื่น</h2>
+        <section className="j5-recovery" role="alert" aria-labelledby="j5-conflict-heading">
+          <h2 id="j5-conflict-heading">{t('editor.conflictTitle')}</h2>
           <p>
-            ฉบับล่าสุดคือ revision {conflict.head.currentDraftRevision} · ขั้นตอนที่ต่างจากของคุณ:{' '}
-            {changed.length > 0
-              ? changed.map((nodeId) => nodeTitle(document, nodeId)).join(', ')
-              : 'ต่างเฉพาะ settings/layout'}
+            {t('editor.conflictBody', {
+              revision: conflict.head.currentDraftRevision,
+              changes:
+                changed.length > 0
+                  ? changed.map((nodeId) => nodeTitle(document, nodeId)).join(', ')
+                  : t('editor.conflictSettingsOnly'),
+            })}
           </p>
           <div className="j5-button-row">
-            <button
-              type="button"
-              className="gov-secondary"
-              onClick={() => {
+            <Button
+              onPress={() => {
                 clearRecovery(storage, scope, journeyId);
                 dispatch({ type: 'SNAPSHOT', snapshot: conflict });
               }}
             >
-              โหลดฉบับล่าสุด (ทิ้งการแก้ของฉัน)
-            </button>
-            <button
-              type="button"
-              className="gov-primary"
-              onClick={() => dispatch({ type: 'SNAPSHOT', snapshot: conflict, keepCommands: true })}
+              {t('editor.conflictReload')}
+            </Button>
+            <Button
+              variant="primary"
+              onPress={() => dispatch({ type: 'SNAPSHOT', snapshot: conflict, keepCommands: true })}
             >
-              ใช้การแก้ของฉันต่อบนฉบับล่าสุด
-            </button>
+              {t('editor.conflictKeep')}
+            </Button>
           </div>
         </section>
       ) : null}
 
       <div className="j5-workspace">
-        <section className="gov-panel j5-pane-outline" aria-labelledby="j5-outline-heading">
-          <h2 id="j5-outline-heading">โครงสร้าง</h2>
+        <section className="j5-panel j5-pane-outline" aria-labelledby="j5-outline-heading">
+          <h2 id="j5-outline-heading">{t('editor.outline')}</h2>
           <Outline
             document={document}
             selectedNodeId={state.selectedNodeId}
@@ -407,8 +403,8 @@ function JourneyEditor({
             onCommand={command}
           />
         </section>
-        <section className="gov-panel j5-pane-canvas" aria-labelledby="j5-canvas-heading">
-          <h2 id="j5-canvas-heading">ผังการทำงาน</h2>
+        <section className="j5-panel j5-pane-canvas" aria-labelledby="j5-canvas-heading">
+          <h2 id="j5-canvas-heading">{t('editor.canvas')}</h2>
           <Canvas
             document={document}
             selectedNodeId={state.selectedNodeId}
@@ -418,9 +414,11 @@ function JourneyEditor({
             onCommand={command}
           />
         </section>
-        <section className="gov-panel j5-pane-properties" aria-labelledby="j5-properties-heading">
+        <section className="j5-panel j5-pane-properties" aria-labelledby="j5-properties-heading">
           <h2 id="j5-properties-heading">
-            {state.selectedNodeId ? nodeTitle(document, state.selectedNodeId) : 'ตั้งค่า Journey'}
+            {state.selectedNodeId
+              ? nodeTitle(document, state.selectedNodeId)
+              : t('editor.settings')}
           </h2>
           {state.selectedNodeId ? (
             <>
@@ -432,10 +430,10 @@ function JourneyEditor({
               />
               <button
                 type="button"
-                className="gov-link"
+                className="j5-link"
                 onClick={() => dispatch({ type: 'SELECT', nodeId: null })}
               >
-                กลับไปตั้งค่า Journey
+                {t('editor.backToSettings')}
               </button>
             </>
           ) : (
@@ -445,17 +443,12 @@ function JourneyEditor({
       </div>
 
       <div className="j5-lower">
-        <section className="gov-panel" aria-labelledby="j5-diagnostics-heading">
-          <h2 id="j5-diagnostics-heading">ผลตรวจจาก server</h2>
+        <section className="j5-panel" aria-labelledby="j5-diagnostics-heading">
+          <h2 id="j5-diagnostics-heading">{t('editor.diagnostics')}</h2>
           {readOnly ? null : (
-            <button
-              type="button"
-              className="gov-secondary"
-              disabled={dirty}
-              onClick={() => void validate()}
-            >
-              ตรวจฉบับร่างที่บันทึกแล้ว
-            </button>
+            <Button isDisabled={dirty} onPress={() => void validate()}>
+              {t('editor.validate')}
+            </Button>
           )}
           <Diagnostics
             document={document}
@@ -464,13 +457,13 @@ function JourneyEditor({
             onFocusNode={focusNode}
           />
         </section>
-        <section className="gov-panel" aria-labelledby="j5-review-heading">
-          <h2 id="j5-review-heading">Compile และการตรวจ</h2>
+        <section className="j5-panel" aria-labelledby="j5-review-heading">
+          <h2 id="j5-review-heading">{t('editor.review')}</h2>
           {readOnly ? (
             <p>
               {state.snapshot.review
-                ? `สถานะการตรวจ: ${state.snapshot.review.state}`
-                : 'ยังไม่ได้ส่งตรวจ'}
+                ? t('editor.reviewState', { state: state.snapshot.review.state })
+                : t('editor.notSubmitted')}
             </p>
           ) : (
             <ReviewPanel
@@ -484,8 +477,8 @@ function JourneyEditor({
             />
           )}
         </section>
-        <section className="gov-panel" aria-labelledby="j5-publish-heading">
-          <h2 id="j5-publish-heading">Publish</h2>
+        <section className="j5-panel" aria-labelledby="j5-publish-heading">
+          <h2 id="j5-publish-heading">{t('editor.publish')}</h2>
           <PublishPanel
             api={api}
             snapshot={state.snapshot}
@@ -506,15 +499,10 @@ function JourneyEditor({
       </div>
       {discarding ? (
         <Dialog
-          title="ทิ้งฉบับร่าง"
-          body={
-            <p>
-              ฉบับร่างจะกลับเป็นเนื้อหาของ version {head.activeVersion} เป็น revision ใหม่
-              ประวัติเดิมยังอยู่
-            </p>
-          }
-          fields={[REASON_FIELD]}
-          confirmLabel="ทิ้งฉบับร่าง"
+          title={t('editor.discardTitle')}
+          body={<p>{t('editor.discardBody', { version: head.activeVersion })}</p>}
+          fields={[reasonField()]}
+          confirmLabel={t('editor.discardTitle')}
           danger
           onCancel={() => setDiscarding(false)}
           onConfirm={(values) => void discard(values.reasonCode!)}
@@ -547,7 +535,8 @@ function BlankJourneyForm({
     sender: '',
     purpose: 'SERVICE',
   });
-  const [error, setError] = useState<string | null>(null);
+  const { t } = useTranslation('journeys');
+  const [error, setError] = useState<{ code?: string } | null>(null);
   const [key, setKey] = useState<string | null>(null);
   const field = (name: keyof typeof values, label: string) => (
     <div className="j5-field">
@@ -562,8 +551,8 @@ function BlankJourneyForm({
   );
   const complete = Object.values(values).every((value) => value.trim().length > 0);
   return (
-    <section className="gov-panel" aria-labelledby="j5-blank-heading">
-      <h2 id="j5-blank-heading">สร้าง Journey เปล่า</h2>
+    <section className="j5-panel" aria-labelledby="j5-blank-heading">
+      <h2 id="j5-blank-heading">{t('blank.heading')}</h2>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -586,39 +575,30 @@ function BlankJourneyForm({
             .then((result) => onCreated(result.journeyId))
             .catch((failure: unknown) => {
               if (failure instanceof JourneyAuthoringApiError) setKey(null);
-              setError(errorMessage(codeOf(failure)));
+              setError({ code: codeOf(failure) });
             });
         }}
       >
-        {field('name', 'ชื่อ Journey')}
-        {field('team', 'ทีมเจ้าของ (team ID)')}
-        {field('event', 'Event ที่เริ่ม Journey')}
-        {field('sender', 'Sender identity')}
-        {field('purpose', 'วัตถุประสงค์ (เช่น SERVICE)')}
-        <button type="submit" className="gov-primary" disabled={!complete}>
-          สร้างฉบับร่าง
-        </button>
+        {field('name', t('blank.name'))}
+        {field('team', t('blank.team'))}
+        {field('event', t('blank.event'))}
+        {field('sender', t('blank.sender'))}
+        {field('purpose', t('blank.purpose'))}
+        <Button type="submit" variant="primary" isDisabled={!complete}>
+          {t('blank.submit')}
+        </Button>
       </form>
       {error ? (
         <p className="j5-status-error" role="alert">
-          {error}
+          {errorMessage(error.code)}
         </p>
       ) : null}
     </section>
   );
 }
 
-const REVIEW_STATE_LABELS: Record<'IN_REVIEW' | 'APPROVED', string> = {
-  IN_REVIEW: 'รอตรวจ',
-  APPROVED: 'อนุมัติแล้ว รอ publish',
-};
-
 function shortDigest(digest: string): string {
   return digest.slice(0, 12);
-}
-
-function serverTime(iso: string): string {
-  return new Date(iso).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 type ListFilter = 'ALL' | 'PENDING_REVIEW';
@@ -631,9 +611,12 @@ function PendingReviewList({
   api: JourneyAuthoringApi;
   onOpen: (journeyId: string) => void;
 }) {
+  const { t } = useTranslation('journeys');
+  // เวลาของ server แสดงตาม timezone/ภาษาของผู้ใช้ (formatter กลาง D1.11)
+  const { formatters } = useLocale();
   const [items, setItems] = useState<PendingReview[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ code?: string } | null>(null);
   const load = useCallback(
     (after?: string) =>
       api
@@ -642,7 +625,7 @@ function PendingReviewList({
           setItems((current) => (after ? [...(current ?? []), ...page.items] : page.items));
           setCursor(page.nextCursor);
         })
-        .catch((failure: unknown) => setError(errorMessage(codeOf(failure)))),
+        .catch((failure: unknown) => setError({ code: codeOf(failure) })),
     [api],
   );
   useEffect(() => {
@@ -652,23 +635,21 @@ function PendingReviewList({
     <>
       {error ? (
         <p className="j5-status-error" role="alert">
-          {error}
+          {errorMessage(error.code)}
         </p>
       ) : null}
-      {items === null && !error ? <p role="status">กำลังโหลด…</p> : null}
-      {items?.length === 0 ? (
-        <p>ไม่มีงานที่รอให้คุณตรวจ (งานที่คุณส่งตรวจเองต้องให้ reviewer คนอื่นตัดสิน)</p>
-      ) : null}
+      {items === null && !error ? <p role="status">{t('common.loading')}</p> : null}
+      {items?.length === 0 ? <p>{t('pending.empty')}</p> : null}
       {items && items.length > 0 ? (
         <div className="j5-table-scroll">
           <table className="j5-table">
-            <caption className="gov-visually-hidden">งานที่รอให้คุณตรวจ</caption>
+            <caption className="j5-sr">{t('pending.caption')}</caption>
             <thead>
               <tr>
-                <th scope="col">Journey</th>
-                <th scope="col">ฉบับร่างที่ส่งตรวจ</th>
-                <th scope="col">Compile digest</th>
-                <th scope="col">ส่งตรวจเมื่อ</th>
+                <th scope="col">{t('pending.col.journey')}</th>
+                <th scope="col">{t('pending.col.draft')}</th>
+                <th scope="col">{t('pending.col.compileDigest')}</th>
+                <th scope="col">{t('pending.col.submittedAt')}</th>
               </tr>
             </thead>
             <tbody>
@@ -677,28 +658,28 @@ function PendingReviewList({
                   <td>
                     <button
                       type="button"
-                      className="gov-link"
+                      className="j5-link"
                       onClick={() => onOpen(item.journeyId)}
                     >
                       {item.journeyName}
                     </button>
                   </td>
-                  <td>revision {item.draftRevision}</td>
+                  <td>{t('common.revision', { revision: item.draftRevision })}</td>
                   <td>
                     <code>{shortDigest(item.compileDigest)}</code>
                   </td>
-                  <td>{serverTime(item.submittedAt)}</td>
+                  <td>
+                    <time dateTime={item.submittedAt}>
+                      {serverTime(formatters, item.submittedAt)}
+                    </time>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       ) : null}
-      {cursor ? (
-        <button type="button" className="gov-secondary" onClick={() => void load(cursor)}>
-          โหลดเพิ่ม
-        </button>
-      ) : null}
+      {cursor ? <Button onPress={() => void load(cursor)}>{t('common.loadMore')}</Button> : null}
     </>
   );
 }
@@ -712,10 +693,11 @@ function JourneyList({
   readOnly: boolean;
   onOpen: (journeyId: string) => void;
 }) {
+  const { t } = useTranslation('journeys');
   const [filter, setFilter] = useState<ListFilter>('ALL');
   const [items, setItems] = useState<JourneySummary[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ code?: string } | null>(null);
   const load = useCallback(
     (after?: string) =>
       api
@@ -724,7 +706,7 @@ function JourneyList({
           setItems((current) => (after ? [...(current ?? []), ...page.items] : page.items));
           setCursor(page.nextCursor);
         })
-        .catch((failure: unknown) => setError(errorMessage(codeOf(failure)))),
+        .catch((failure: unknown) => setError({ code: codeOf(failure) })),
     [api],
   );
   useEffect(() => {
@@ -732,32 +714,26 @@ function JourneyList({
   }, [load]);
   return (
     <>
-      <h1>Journey authoring</h1>
+      <h1>{t('list.title')}</h1>
       {readOnly ? (
-        <p className="gov-boundary" role="note">
-          หน้าจอกว้างน้อยกว่า 960px จึงดูได้อย่างเดียว การสร้างและแก้ไขต้องใช้หน้าจอที่กว้างขึ้น
+        <p className="j5-boundary" role="note">
+          {t('list.readOnlyNote')}
         </p>
       ) : null}
-      <section className="gov-panel" aria-labelledby="j5-list-heading">
+      <section className="j5-panel" aria-labelledby="j5-list-heading">
         <h2 id="j5-list-heading">
-          {filter === 'ALL' ? 'Journey ที่คุณมองเห็น' : 'งานที่รอให้คุณตรวจ'}
+          {filter === 'ALL' ? t('list.headingAll') : t('list.headingPending')}
         </h2>
-        <div className="j5-button-row" role="group" aria-label="ตัวกรองรายการ">
-          <button
-            type="button"
-            className={filter === 'ALL' ? 'gov-primary' : 'gov-secondary'}
-            aria-pressed={filter === 'ALL'}
-            onClick={() => setFilter('ALL')}
-          >
-            ทั้งหมด
+        <div className="j5-segmented" role="group" aria-label={t('list.filterLabel')}>
+          <button type="button" aria-pressed={filter === 'ALL'} onClick={() => setFilter('ALL')}>
+            {t('list.filterAll')}
           </button>
           <button
             type="button"
-            className={filter === 'PENDING_REVIEW' ? 'gov-primary' : 'gov-secondary'}
             aria-pressed={filter === 'PENDING_REVIEW'}
             onClick={() => setFilter('PENDING_REVIEW')}
           >
-            รอตรวจ
+            {t('list.filterPending')}
           </button>
         </div>
         {filter === 'PENDING_REVIEW' ? (
@@ -766,21 +742,21 @@ function JourneyList({
           <>
             {error ? (
               <p className="j5-status-error" role="alert">
-                {error}
+                {errorMessage(error.code)}
               </p>
             ) : null}
-            {items === null && !error ? <p role="status">กำลังโหลด…</p> : null}
-            {items?.length === 0 ? <p>ยังไม่มี Journey ที่คุณมองเห็น</p> : null}
+            {items === null && !error ? <p role="status">{t('common.loading')}</p> : null}
+            {items?.length === 0 ? <p>{t('list.empty')}</p> : null}
             {items && items.length > 0 ? (
               <div className="j5-table-scroll">
                 <table className="j5-table">
                   <thead>
                     <tr>
-                      <th scope="col">ชื่อ</th>
-                      <th scope="col">สถานะ</th>
-                      <th scope="col">การตรวจ</th>
-                      <th scope="col">Version ที่ใช้งาน</th>
-                      <th scope="col">ฉบับร่าง</th>
+                      <th scope="col">{t('list.col.name')}</th>
+                      <th scope="col">{t('list.col.status')}</th>
+                      <th scope="col">{t('list.col.review')}</th>
+                      <th scope="col">{t('list.col.activeVersion')}</th>
+                      <th scope="col">{t('list.col.draft')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -789,16 +765,20 @@ function JourneyList({
                         <td>
                           <button
                             type="button"
-                            className="gov-link"
+                            className="j5-link"
                             onClick={() => onOpen(item.journeyId)}
                           >
                             {item.name}
                           </button>
                         </td>
                         <td>{item.lifecycle}</td>
-                        <td>{item.reviewState ? REVIEW_STATE_LABELS[item.reviewState] : '—'}</td>
-                        <td>{item.activeVersion ?? '—'}</td>
-                        <td>revision {item.currentDraftRevision}</td>
+                        <td>
+                          {item.reviewState
+                            ? t(`list.reviewState.${item.reviewState}`)
+                            : t('common.none')}
+                        </td>
+                        <td>{item.activeVersion ?? t('common.none')}</td>
+                        <td>{t('common.revision', { revision: item.currentDraftRevision })}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -806,9 +786,7 @@ function JourneyList({
               </div>
             ) : null}
             {cursor ? (
-              <button type="button" className="gov-secondary" onClick={() => void load(cursor)}>
-                โหลดเพิ่ม
-              </button>
+              <Button onPress={() => void load(cursor)}>{t('common.loadMore')}</Button>
             ) : null}
           </>
         )}
@@ -828,40 +806,42 @@ function JourneyList({
  * การอ่าน audit ถูกบันทึกเป็น audit เอง จึงโหลดเมื่อผู้ใช้กดเท่านั้น
  */
 function AuditTimeline({ api, journeyId }: { api: JourneyAuthoringApi; journeyId: string }) {
+  const { t } = useTranslation('journeys');
+  const { formatters } = useLocale();
   const [items, setItems] = useState<JourneyAuditEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ code?: string } | null>(null);
   const load = async () => {
     setBusy(true);
     setError(null);
     try {
       setItems((await api.audit(journeyId)).items);
     } catch (failure) {
-      setError(errorMessage(codeOf(failure)));
+      setError({ code: codeOf(failure) });
     } finally {
       setBusy(false);
     }
   };
   return (
-    <section className="gov-panel" aria-labelledby="j5-audit-heading">
-      <h2 id="j5-audit-heading">ประวัติการเปลี่ยนแปลง (audit)</h2>
-      <button type="button" className="gov-secondary" disabled={busy} onClick={() => void load()}>
-        {items === null ? 'แสดงประวัติ' : 'โหลดประวัติใหม่'}
-      </button>
+    <section className="j5-panel" aria-labelledby="j5-audit-heading">
+      <h2 id="j5-audit-heading">{t('audit.heading')}</h2>
+      <Button isDisabled={busy} onPress={() => void load()}>
+        {items === null ? t('audit.show') : t('audit.reload')}
+      </Button>
       {error ? (
         <p className="j5-status-error" role="alert">
-          {error}
+          {errorMessage(error.code)}
         </p>
       ) : null}
-      {items?.length === 0 ? <p role="status">ยังไม่มีประวัติ</p> : null}
+      {items?.length === 0 ? <p role="status">{t('audit.empty')}</p> : null}
       {items && items.length > 0 ? (
-        <ol className="j5-audit" aria-label="ประวัติการเปลี่ยนแปลง ใหม่สุดก่อน">
+        <ol className="j5-audit" aria-label={t('audit.listLabel')}>
           {items.map((entry) => (
             <li key={entry.id}>
-              <time dateTime={entry.occurredAt}>{serverTime(entry.occurredAt)}</time>{' '}
-              <strong>{entry.action}</strong> · ผู้ใช้{' '}
-              <code>{entry.actorSubjectId.slice(0, 8)}</code> · เหตุผล {entry.reasonCode} ·
-              correlation <code>{entry.correlationId}</code>
+              <time dateTime={entry.occurredAt}>{serverTime(formatters, entry.occurredAt)}</time>{' '}
+              <strong>{entry.action}</strong> · {t('audit.user')}{' '}
+              <code>{entry.actorSubjectId.slice(0, 8)}</code> · {t('audit.reason')}{' '}
+              {entry.reasonCode} · {t('audit.correlation')} <code>{entry.correlationId}</code>
             </li>
           ))}
         </ol>
@@ -884,9 +864,12 @@ export function JourneyAuthoringConsole({
   initialJourneyId?: string;
   storage?: Storage;
 }) {
+  const { t } = useTranslation('journeys');
+  const inShell = useInShell();
+  const tokensReady = useShellTokens();
   const desktop = useDesktop();
   const [journeyId, setJourneyId] = useState<string | null>(initialJourneyId ?? null);
-  const mainRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
   const open = (next: string | null) => {
     setJourneyId(next);
     const url = new URL(window.location.href);
@@ -895,30 +878,43 @@ export function JourneyAuthoringConsole({
     window.history.replaceState(null, '', url);
     mainRef.current?.focus();
   };
+  // token มาก่อนเนื้อหา — ไม่ให้เห็นหน้าที่ยังไม่มีสี (โหลดครั้งเดียวต่อหน้า)
+  if (!tokensReady) return null;
+  const content = journeyId ? (
+    <JourneyEditor
+      key={journeyId}
+      api={api}
+      journeyId={journeyId}
+      scope={scope}
+      storage={storage}
+      readOnly={!desktop}
+      onBack={() => open(null)}
+    />
+  ) : (
+    <JourneyList api={api} readOnly={!desktop} onOpen={(next) => open(next)} />
+  );
+  // ใน AppShell: shell เป็นเจ้าของ skip link/header/main — เนื้อหาไม่วาด landmark ซ้ำ
+  if (inShell) {
+    return (
+      <div ref={mainRef} tabIndex={-1} className="j5-root j5-in-shell">
+        {content}
+      </div>
+    );
+  }
   return (
-    <div className="gov-shell j5-shell">
-      <a className="gov-skip" href="#j5-main">
-        ข้ามไปยังเนื้อหาหลัก
+    <div className="j5-root j5-legacy">
+      <a className="j5-skip" href="#j5-main">
+        {t('root.skip')}
       </a>
-      <header className="gov-header">
-        <strong>D-CONTACT</strong>
-        <span>Journey authoring</span>
-        <span className="gov-viewer">{desktop ? 'โหมดแก้ไข' : 'โหมดอ่านอย่างเดียว'}</span>
+      <header className="j5-legacy-header">
+        <strong>{t('root.brand')}</strong>
+        <span>{t('root.title')}</span>
+        <span className="j5-viewer">{desktop ? t('root.modeEdit') : t('root.modeRead')}</span>
       </header>
-      <main id="j5-main" ref={mainRef} tabIndex={-1} className="gov-main">
-        {journeyId ? (
-          <JourneyEditor
-            key={journeyId}
-            api={api}
-            journeyId={journeyId}
-            scope={scope}
-            storage={storage}
-            readOnly={!desktop}
-            onBack={() => open(null)}
-          />
-        ) : (
-          <JourneyList api={api} readOnly={!desktop} onOpen={(next) => open(next)} />
-        )}
+      <main id="j5-main" className="j5-legacy-main">
+        <div ref={mainRef} tabIndex={-1}>
+          {content}
+        </div>
       </main>
     </div>
   );

@@ -164,6 +164,9 @@ importers:
       '@types/react-dom':
         specifier: 19.2.7
         version: 19.2.7(@types/react@19.2.18)
+      stylelint:
+        specifier: 17.15.0
+        version: 17.15.0(typescript@5.9.3)
       tsx:
         specifier: ^4.23.1
         version: 4.23.1
@@ -714,6 +717,9 @@ importers:
       react-i18next:
         specifier: 17.0.15
         version: 17.0.15(i18next@26.4.2(typescript@5.9.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
     devDependencies:
       '@types/node':
         specifier: ^20.14.0
@@ -727,9 +733,6 @@ importers:
       tsx:
         specifier: ^4.23.1
         version: 4.23.1
-      typescript:
-        specifier: ^5.5.4
-        version: 5.9.3
 
   packages/iam:
     dependencies:

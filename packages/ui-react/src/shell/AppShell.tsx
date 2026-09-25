@@ -1,6 +1,16 @@
-import type { ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import { useUiText } from '../i18n.js';
 import styles from './AppShell.module.css';
+
+const InShellContext = createContext(false);
+
+/**
+ * เนื้อหาหน้าใช้ตัดสินว่าต้องวาด chrome เดิมของตัวเอง (skip link, header, main) หรือไม่ —
+ * อยู่ใน AppShell แล้วต้องไม่วาดซ้ำ (landmark ซ้อนกันทำให้ screen reader สับสน)
+ */
+export function useInShell(): boolean {
+  return useContext(InShellContext);
+}
 
 export interface AppShellProps {
   rail: ReactNode;
@@ -26,7 +36,7 @@ export function AppShell({ rail, subNav, topBar, children }: AppShellProps) {
       <div className={styles.column}>
         {topBar}
         <main id="dc-main" className={styles.main} tabIndex={-1}>
-          {children}
+          <InShellContext.Provider value={true}>{children}</InShellContext.Provider>
         </main>
       </div>
     </div>

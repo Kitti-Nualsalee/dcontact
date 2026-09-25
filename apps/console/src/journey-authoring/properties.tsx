@@ -6,6 +6,7 @@
  */
 import { useEffect, useId, useState } from 'react';
 import type { AuthoringDocumentV1 } from '@d-contact/cxa-contracts';
+import { useTranslation } from '@d-contact/i18n/react';
 import {
   CONFIG_FIELDS,
   NODE_LABELS,
@@ -104,6 +105,7 @@ function ConfigField({
   readOnly: boolean;
   onChange: (value: unknown) => void;
 }) {
+  const { t } = useTranslation('journeys');
   const selectId = useId();
   if (spec.kind === 'select' || spec.kind === 'fixed') {
     return (
@@ -137,11 +139,11 @@ function ConfigField({
           try {
             const parsed = JSON.parse(raw) as unknown;
             if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
-              return 'ต้องเป็น JSON object';
+              return t('properties.mustBeObject');
             onChange(parsed);
             return null;
           } catch {
-            return 'JSON ไม่ถูกต้อง';
+            return t('properties.invalidJson');
           }
         }}
       />
@@ -159,19 +161,21 @@ function ConfigField({
       onCommit={(raw) => {
         const text = raw.trim();
         if (!text) {
-          if (spec.required) return 'ต้องระบุ';
+          if (spec.required) return t('properties.required');
           onChange(undefined);
           return null;
         }
         if (numeric) {
           const number = Number(text);
           if (!Number.isFinite(number) || (spec.kind === 'positive' ? number <= 0 : number < 0))
-            return spec.kind === 'positive' ? 'ต้องเป็นตัวเลขมากกว่า 0' : 'ต้องเป็นตัวเลขไม่ติดลบ';
+            return spec.kind === 'positive'
+              ? t('properties.positive')
+              : t('properties.nonNegative');
           onChange(number);
           return null;
         }
         if (spec.kind === 'opaque' && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(text))
-          return 'ใช้ได้เฉพาะตัวอักษรอังกฤษ ตัวเลข _ และ -';
+          return t('properties.opaque');
         onChange(text);
         return null;
       }}
@@ -190,6 +194,7 @@ export function NodeProperties({
   readOnly: boolean;
   onCommand: (command: AuthoringCommand) => void;
 }) {
+  const { t } = useTranslation('journeys');
   const type = nodeTypeOf(document, nodeId);
   if (!type) return null;
   const node =
@@ -199,19 +204,16 @@ export function NodeProperties({
   if (type === 'UNSUPPORTED') {
     return (
       <div className="j5-readonly-note">
-        <p>
-          ขั้นตอนนี้มาจาก registry รุ่นอื่น Console แสดงแบบอ่านอย่างเดียวและเก็บข้อมูลเดิมไว้ครบ
-          ต้องแก้ด้วยเครื่องมือที่รองรับก่อน publish
-        </p>
+        <p>{t('properties.unsupported')}</p>
       </div>
     );
   }
   const config = (node as { config: Record<string, unknown> }).config;
   return (
     <div className="j5-properties">
-      <p className="gov-eyebrow">{NODE_LABELS[type]}</p>
+      <p className="j5-eyebrow">{NODE_LABELS[type]}</p>
       <CommitField
-        label="ชื่อที่แสดง"
+        label={t('properties.displayName')}
         kind="text"
         required={false}
         readOnly={readOnly}
@@ -230,8 +232,8 @@ export function NodeProperties({
           onChange={(value) => onCommand({ kind: 'SET_CONFIG', nodeId, key: spec.key, value })}
         />
       ))}
-      <p className="j5-help">รหัสขั้นตอน: {nodeId}</p>
-      <p className="j5-sr">กำลังแก้ {nodeTitle(document, nodeId)}</p>
+      <p className="j5-help">{t('properties.nodeId', { id: nodeId })}</p>
+      <p className="j5-sr">{t('properties.editing', { title: nodeTitle(document, nodeId) })}</p>
     </div>
   );
 }
@@ -245,6 +247,7 @@ export function JourneySettings({
   readOnly: boolean;
   onCommand: (command: AuthoringCommand) => void;
 }) {
+  const { t } = useTranslation('journeys');
   const settings = document.settings;
   const text = (key: SettingKey, label: string, value: string, description?: string) => (
     <CommitField
@@ -255,7 +258,7 @@ export function JourneySettings({
       value={value}
       description={description}
       onCommit={(raw) => {
-        if (!raw.trim()) return 'ต้องระบุ';
+        if (!raw.trim()) return t('properties.required');
         onCommand({ kind: 'SET_SETTING', key, value: raw.trim() });
         return null;
       }}
@@ -263,19 +266,19 @@ export function JourneySettings({
   );
   return (
     <div className="j5-properties">
-      {text('name', 'ชื่อ Journey', settings.name)}
-      {text('purpose', 'วัตถุประสงค์', settings.purpose)}
-      {text('senderIdentityId', 'Sender identity', settings.senderIdentityId)}
-      {text('goalEventType', 'Event ที่ถือว่าบรรลุเป้าหมาย', settings.goal.eventType)}
+      {text('name', t('properties.name'), settings.name)}
+      {text('purpose', t('properties.purpose'), settings.purpose)}
+      {text('senderIdentityId', t('properties.sender'), settings.senderIdentityId)}
+      {text('goalEventType', t('properties.goal'), settings.goal.eventType)}
       <CommitField
-        label="ระยะเวลาสูงสุด (วัน)"
+        label={t('properties.maxDuration')}
         kind="number"
         required
         readOnly={readOnly}
         value={String(settings.maxDurationDays)}
         onCommit={(raw) => {
           const days = Number(raw.trim());
-          if (!Number.isInteger(days) || days < 1) return 'ต้องเป็นจำนวนเต็มตั้งแต่ 1';
+          if (!Number.isInteger(days) || days < 1) return t('properties.maxDurationInvalid');
           onCommand({ kind: 'SET_SETTING', key: 'maxDurationDays', value: days });
           return null;
         }}

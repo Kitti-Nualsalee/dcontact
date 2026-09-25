@@ -1,6 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Request } from '@playwright/test';
 
+// D1.14 (#453): ข้อความมาจาก catalog ตามภาษา browser — ชุดนี้ตรวจ flow J5 เดิมบนภาษาไทย
+test.use({ locale: 'th-TH' });
+
 /**
  * J5.6 (#344): Journey authoring Console end-to-end
  *
@@ -760,4 +763,114 @@ test('U1.3 ผู้ส่งตรวจเห็นเหตุผลว่า
   await openEditor(page, mock);
   await expect(page.getByRole('note').filter({ hasText: 'ต้องให้ reviewer คนอื่น' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'อนุมัติ', exact: true })).toHaveCount(0);
+});
+
+// ── D1.14 (#453): หน้า Journeys บน shell/i18n/component ใหม่ ────────────────────────────────
+
+function shellNavigation(shellV2: boolean) {
+  return {
+    groups: [
+      { id: 'live', labelKey: 'navigation.groups.live' },
+      { id: 'automation', labelKey: 'navigation.groups.automation' },
+    ],
+    apps: [
+      {
+        id: 'agent-workspace',
+        groupId: 'live',
+        labelKey: 'navigation.apps.agentWorkspace',
+        hostApp: 'workspace',
+        path: '/',
+      },
+      {
+        id: 'journeys',
+        groupId: 'automation',
+        labelKey: 'navigation.apps.journeys',
+        hostApp: 'console',
+        path: '/?view=journeys',
+      },
+    ],
+    pins: { appIds: ['agent-workspace', 'journeys'], source: 'SYSTEM', revision: 0 },
+    limits: { maxPins: 15 },
+    features: { shellV2 },
+  };
+}
+
+async function withShell(page: Page, shellV2: boolean) {
+  await page.route('**/api/v1/me/navigation', (route) =>
+    route.fulfill({ status: 200, json: shellNavigation(shellV2) }),
+  );
+}
+
+test.describe('D1.14 ภาษาอังกฤษ', () => {
+  test.use({ locale: 'en-US' });
+
+  test('ข้อความทั้งหน้าเป็นภาษาอังกฤษจาก catalog และ axe ไม่มี serious/critical ทั้งรายการและ editor', async ({
+    page,
+  }) => {
+    const mock = new AuthoringMock();
+    await mock.install(page);
+    await page.goto('/?view=journeys');
+    await expect(page.getByRole('heading', { name: 'Journeys you can see' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Create draft' })).toBeVisible();
+    await expectNoSeriousA11yViolations(page);
+
+    await page.goto(`/?view=journeys&journey=${JOURNEY_ID}`);
+    await expect(page.getByRole('button', { name: 'Save draft' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Structure' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Journey step diagram' })).toBeVisible();
+    await expectNoSeriousA11yViolations(page);
+  });
+});
+
+test('flag ui.shell.v2 เปิด: Journeys อยู่ใน AppShell โดยไม่มี chrome เดิมซ้ำ และ axe ผ่านทั้ง TH/EN', async ({
+  page,
+}) => {
+  const mock = new AuthoringMock();
+  await withShell(page, true);
+  await openEditor(page, mock);
+
+  await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toBeVisible();
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(page.getByText('D-CONTACT', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'ข้ามไปที่เนื้อหา' })).toHaveCount(1);
+  await expectNoSeriousA11yViolations(page);
+
+  await page.getByRole('button', { name: 'English' }).click();
+  await expect(page.getByRole('button', { name: 'Save draft' })).toBeVisible();
+  await expectNoSeriousA11yViolations(page);
+});
+
+test('flag ปิด: Journeys ใช้ chrome เดิมของหน้า (skip link + header) บน component/token ใหม่', async ({
+  page,
+}) => {
+  const mock = new AuthoringMock();
+  await withShell(page, false);
+  await openEditor(page, mock);
+  await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toHaveCount(0);
+  await expect(page.getByText('D-CONTACT', { exact: true })).toBeVisible();
+  await expect(page.getByRole('main')).toHaveCount(1);
+  const brand = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--dc-brand-700').trim(),
+  );
+  expect(brand).toBe('#0f766e');
+  await expectNoSeriousA11yViolations(page);
+});
+
+test('สลับภาษาระหว่างแก้ Journey: ข้อความเปลี่ยนทันที ไม่ reload และการแก้ที่ยังไม่บันทึกยังอยู่', async ({
+  page,
+}) => {
+  const mock = new AuthoringMock();
+  await withShell(page, true);
+  await openEditor(page, mock);
+  const origin = await page.evaluate(() => performance.timeOrigin);
+
+  await page.getByRole('button', { name: 'เพิ่ม', exact: true }).last().click();
+  await expect(page.getByText(/มีการแก้ไขที่ยังไม่บันทึก 1 รายการ/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'English' }).click();
+  await expect(page.getByText(/1 unsaved change/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save draft' })).toBeEnabled();
+  await page.getByRole('button', { name: 'ไทย' }).click();
+  await expect(page.getByText(/มีการแก้ไขที่ยังไม่บันทึก 1 รายการ/)).toBeVisible();
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
 });

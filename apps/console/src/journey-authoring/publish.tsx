@@ -12,7 +12,9 @@ import {
   type JourneyAuthoringApi,
   type JourneySnapshot,
 } from './api.js';
-import { errorMessage } from './model.js';
+import { useTranslation } from '@d-contact/i18n/react';
+import { Button } from '@d-contact/ui-react';
+import { errorMessage, journeyText } from './model.js';
 
 export interface DialogField {
   name: string;
@@ -43,6 +45,7 @@ export function Dialog({
   onCancel: () => void;
   onConfirm: (values: Record<string, string>) => void;
 }) {
+  const { t } = useTranslation('journeys');
   const titleId = useId();
   const bodyId = useId();
   const boxRef = useRef<HTMLDivElement>(null);
@@ -63,14 +66,14 @@ export function Dialog({
     return value.length === 0 || (field.pattern ? !field.pattern.test(value) : false);
   });
   return (
-    <div className="gov-modal" role="presentation">
+    <div className="j5-modal" role="presentation">
       <div
         ref={boxRef}
         role={alert ? 'alertdialog' : 'dialog'}
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={bodyId}
-        className="gov-dialog"
+        className="j5-dialog"
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.preventDefault();
@@ -94,7 +97,7 @@ export function Dialog({
         }}
       >
         <h2 id={titleId}>{title}</h2>
-        <div id={bodyId} className="gov-dialog-body">
+        <div id={bodyId} className="j5-dialog-body">
           {body}
         </div>
         <form
@@ -122,17 +125,11 @@ export function Dialog({
               {field.hint ? <small>{field.hint}</small> : null}
             </label>
           ))}
-          <div className="gov-dialog-actions">
-            <button type="button" className="gov-secondary" onClick={onCancel}>
-              ยกเลิก
-            </button>
-            <button
-              type="submit"
-              className={danger ? 'gov-danger' : 'gov-primary'}
-              disabled={invalid}
-            >
+          <div className="j5-dialog-actions">
+            <Button onPress={onCancel}>{t('common.cancel')}</Button>
+            <Button type="submit" variant={danger ? 'danger' : 'primary'} isDisabled={invalid}>
               {confirmLabel}
-            </button>
+            </Button>
           </div>
         </form>
       </div>
@@ -140,12 +137,15 @@ export function Dialog({
   );
 }
 
-export const REASON_FIELD: DialogField = {
-  name: 'reasonCode',
-  label: 'Reason code',
-  hint: 'ตัวพิมพ์ใหญ่และ _ เช่น CAMPAIGN_ENDED',
-  pattern: /^[A-Z][A-Z0-9_]{2,63}$/,
-};
+/** ช่อง reason code ร่วม — label/hint อ่านจาก catalog ตอนเปิด dialog (ภาษาปัจจุบัน) */
+export function reasonField(): DialogField {
+  return {
+    name: 'reasonCode',
+    label: journeyText('dialog.reasonLabel'),
+    hint: journeyText('dialog.reasonHint'),
+    pattern: /^[A-Z][A-Z0-9_]{2,63}$/,
+  };
+}
 
 type PublishState =
   | { phase: 'idle' }
@@ -170,10 +170,11 @@ export function PublishPanel({
   readOnly: boolean;
   onChanged: () => Promise<void>;
 }) {
+  const { t } = useTranslation('journeys');
   const [state, setState] = useState<PublishState>({ phase: 'idle' });
   const [confirming, setConfirming] = useState(false);
   const [lifecycle, setLifecycle] = useState<'pause' | 'resume' | 'deprecate' | null>(null);
-  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+  const [lifecycleError, setLifecycleError] = useState<{ code?: string } | null>(null);
   const intent = useRef<{ binding: string; key: string } | null>(null);
   const { head, review } = snapshot;
   const artifact = compile?.artifact;
@@ -181,13 +182,13 @@ export function PublishPanel({
     review?.state === 'APPROVED' && review.draftRevision === head.currentDraftRevision;
   const ready = !readOnly && !dirty && approved && artifact && !compile?.stale;
   const blocker = readOnly
-    ? 'หน้าจอนี้เป็นโหมดอ่านอย่างเดียว'
+    ? t('publish.blockerReadOnly')
     : dirty
-      ? 'มีการแก้ไขที่ยังไม่บันทึก'
+      ? t('publish.blockerDirty')
       : !approved
-        ? 'ต้องได้รับอนุมัติจากผู้ตรวจอิสระสำหรับฉบับร่างนี้ก่อน'
+        ? t('publish.blockerApproval')
         : !artifact || compile?.stale
-          ? 'ต้อง compile ฉบับร่างล่าสุดก่อน'
+          ? t('publish.blockerCompile')
           : null;
 
   const send = async () => {
@@ -262,40 +263,40 @@ export function PublishPanel({
       );
       await onChanged();
     } catch (error) {
-      setLifecycleError(
-        errorMessage(error instanceof JourneyAuthoringApiError ? error.code : undefined),
-      );
+      setLifecycleError({
+        code: error instanceof JourneyAuthoringApiError ? error.code : undefined,
+      });
     }
   };
 
   const status =
     state.phase === 'sending'
-      ? 'กำลังรอ server ยืนยัน…'
+      ? t('publish.sending')
       : state.phase === 'published'
-        ? `Publish version ${state.version} สำเร็จ`
+        ? t('publish.published', { version: state.version })
         : state.phase === 'unknown'
-          ? 'ยังไม่ทราบผล publish — ตรวจผลด้วยคำสั่งเดิมก่อนทำอย่างอื่น'
+          ? t('publish.unknown')
           : state.phase === 'not-committed'
-            ? 'server ยืนยันว่ายังไม่ได้ publish ส่งซ้ำด้วยคำสั่งเดิมได้อย่างปลอดภัย'
+            ? t('publish.notCommitted')
             : '';
 
   return (
     <div className="j5-publish">
-      <dl className="gov-facts">
+      <dl className="j5-facts">
         <div>
-          <dt>สถานะ</dt>
+          <dt>{t('publish.factStatus')}</dt>
           <dd>{head.lifecycle}</dd>
         </div>
         <div>
-          <dt>Version ที่ใช้งาน</dt>
-          <dd>{head.activeVersion ?? 'ยังไม่เคย publish'}</dd>
+          <dt>{t('publish.factActiveVersion')}</dt>
+          <dd>{head.activeVersion ?? t('publish.neverPublished')}</dd>
         </div>
         <div>
-          <dt>ฉบับร่าง</dt>
-          <dd>revision {head.currentDraftRevision}</dd>
+          <dt>{t('publish.factDraft')}</dt>
+          <dd>{t('common.revision', { revision: head.currentDraftRevision })}</dd>
         </div>
       </dl>
-      <p className="gov-live" role="status" aria-live="polite">
+      <p className="j5-live" role="status" aria-live="polite">
         {status}
       </p>
       {state.phase === 'failed' ? (
@@ -306,67 +307,49 @@ export function PublishPanel({
       {blocker ? <p className="j5-help">{blocker}</p> : null}
       <div className="j5-button-row">
         {state.phase === 'unknown' ? (
-          <button type="button" className="gov-primary" onClick={() => void resolve()}>
-            ตรวจผล publish
-          </button>
+          <Button variant="primary" onPress={() => void resolve()}>
+            {t('publish.resolve')}
+          </Button>
         ) : state.phase === 'not-committed' ? (
-          <button type="button" className="gov-primary" onClick={() => void send()}>
-            ส่ง publish ซ้ำด้วยคำสั่งเดิม
-          </button>
+          <Button variant="primary" onPress={() => void send()}>
+            {t('publish.resend')}
+          </Button>
         ) : (
-          <button
-            type="button"
-            className="gov-primary"
-            disabled={!ready || state.phase === 'sending'}
-            onClick={() => setConfirming(true)}
+          <Button
+            variant="primary"
+            isDisabled={!ready || state.phase === 'sending'}
+            onPress={() => setConfirming(true)}
           >
-            Publish
-          </button>
+            {t('publish.publish')}
+          </Button>
         )}
         {readOnly ? null : (
           <>
             {head.lifecycle === 'ACTIVE' ? (
-              <button type="button" className="gov-secondary" onClick={() => setLifecycle('pause')}>
-                หยุดรับ enrollment ใหม่
-              </button>
+              <Button onPress={() => setLifecycle('pause')}>{t('publish.pause')}</Button>
             ) : null}
             {head.lifecycle === 'PAUSED' ? (
-              <button
-                type="button"
-                className="gov-secondary"
-                onClick={() => setLifecycle('resume')}
-              >
-                กลับมารับ enrollment
-              </button>
+              <Button onPress={() => setLifecycle('resume')}>{t('publish.resume')}</Button>
             ) : null}
             {head.lifecycle === 'ACTIVE' || head.lifecycle === 'PAUSED' ? (
-              <button
-                type="button"
-                className="gov-danger"
-                onClick={() => setLifecycle('deprecate')}
-              >
-                เลิกใช้ Journey
-              </button>
+              <Button variant="danger" onPress={() => setLifecycle('deprecate')}>
+                {t('publish.deprecate')}
+              </Button>
             ) : null}
           </>
         )}
       </div>
       {lifecycleError ? (
         <p className="j5-status-error" role="alert">
-          {lifecycleError}
+          {errorMessage(lifecycleError.code)}
         </p>
       ) : null}
       {confirming && artifact ? (
         <Dialog
           alert
-          title={`ยืนยัน publish version ${(head.activeVersion ?? 0) + 1}`}
-          body={
-            <p>
-              version ที่ publish แล้วแก้ไขไม่ได้ enrollment ใหม่จะใช้ version นี้ ส่วน enrollment
-              เดิมเดินต่อบน version เดิม · runtime hash {artifact.runtimeHash.slice(0, 12)}
-            </p>
-          }
-          confirmLabel="ยืนยัน Publish"
+          title={t('publish.confirmTitle', { version: (head.activeVersion ?? 0) + 1 })}
+          body={<p>{t('publish.confirmBody', { hash: artifact.runtimeHash.slice(0, 12) })}</p>}
+          confirmLabel={t('publish.confirmLabel')}
           onCancel={() => setConfirming(false)}
           onConfirm={() => {
             setConfirming(false);
@@ -378,16 +361,14 @@ export function PublishPanel({
         <Dialog
           title={
             lifecycle === 'pause'
-              ? 'หยุดรับ enrollment ใหม่'
+              ? t('publish.pauseTitle')
               : lifecycle === 'resume'
-                ? 'กลับมารับ enrollment ใหม่'
-                : 'เลิกใช้ Journey'
+                ? t('publish.resumeTitle')
+                : t('publish.deprecateTitle')
           }
-          body={
-            <p>enrollment ที่กำลังทำงานอยู่เดินต่อจนจบ คำสั่งนี้มีผลกับ enrollment ใหม่เท่านั้น</p>
-          }
-          fields={[REASON_FIELD]}
-          confirmLabel="ยืนยัน"
+          body={<p>{t('publish.lifecycleBody')}</p>}
+          fields={[reasonField()]}
+          confirmLabel={t('common.confirm')}
           danger={lifecycle === 'deprecate'}
           onCancel={() => setLifecycle(null)}
           onConfirm={(values) => void changeLifecycle(lifecycle, values.reasonCode!)}
