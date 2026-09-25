@@ -1,28 +1,54 @@
+/**
+ * Agent Workspace — D1.15 (#454): ข้อความผ่าน catalog `workspace`/`dphone`, CSS token ล้วน (`aw-*`),
+ * ใน AppShell (flag `ui.shell.v2`) ไม่วาด chrome เดิมและใช้ dphone widget ลอยแทนแผงควบคุมสาย
+ *
+ * กติกาที่ห้ามละเมิด (ADR-026): dphone instance ถูกสร้างครั้งเดียวต่อการโหลดหน้าใน `AgentWorkspace`
+ * การย่อ/ขยาย/ลาก/แยกหน้าต่าง/สลับภาษาเปลี่ยนแค่ UI — ไม่สร้าง SIP session, WebRTC หรือ WS ใหม่
+ */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocale, useTranslation } from '@d-contact/i18n/react';
+import { Button, useInShell } from '@d-contact/ui-react';
 import type { AgentWorkspaceApi, AgentWorkspaceSnapshot } from './agent-api.js';
 import { createBrowserWorkspaceLeaderElection } from './leader-election.js';
-import { BrowserSoftphone, type BrowserSipTransport, type SoftphoneState } from './softphone.js';
-import type { SipJsTransportCallbacks } from './sip-js-transport.js';
+import { BrowserDphone, type BrowserSipTransport, type DphoneState } from './dphone/dphone.js';
+import type { SipJsTransportCallbacks } from './dphone/sip-js-transport.js';
+import { createDphoneHost, type DphoneCommand, type DphoneView } from './dphone/dphone-bridge.js';
+import {
+  DPHONE_SIZES,
+  DphoneDetachedBar,
+  DphoneWidget,
+  type DphoneSize,
+} from './dphone/dphone-widget.js';
+import { useShellTokens } from './shell/tokens.js';
 import { WorkspaceOutboundGate, type WorkspaceGovernanceAlert } from './workspace-governance.js';
+import './agent-workspace.css';
+import './dphone/dphone.css';
 
 type MediaReadiness = 'UNCHECKED' | 'CHECKING' | 'READY' | 'BLOCKED';
 type Availability = 'OFFLINE' | 'AVAILABLE';
+type WorkspaceMessage =
+  | 'snapshotLoadFailed'
+  | 'offerConfirmFailed'
+  | 'autoplayBlocked'
+  | 'micEnded'
+  | 'micBlocked'
+  | 'registerFailed'
+  | 'wrapupFailed';
 
 export interface WorkspaceAppProps {
   api?: AgentWorkspaceApi;
   tenantLabel?: string;
   onSignOut?: () => void;
-  createSoftphone?: SoftphoneFactory;
+  createDphone?: DphoneFactory;
 }
 
-export type SoftphoneFactory = (
+export type DphoneFactory = (
   remoteAudio: HTMLAudioElement,
   callbacks: SipJsTransportCallbacks,
-) => BrowserSoftphone;
+) => BrowserDphone;
 
-export function createDeterministicSoftphone(
-  callbacks: SipJsTransportCallbacks = {},
-): BrowserSoftphone {
+export function createDeterministicDphone(callbacks: SipJsTransportCallbacks = {}): BrowserDphone {
+  let session: string | undefined;
   const transport: BrowserSipTransport = {
     configure: async () => undefined,
     register: async () => {
@@ -30,24 +56,67 @@ export function createDeterministicSoftphone(
     },
     unregister: async () => undefined,
     accept: async () => {
+      session = crypto.randomUUID();
       window.setTimeout(() => callbacks.onSessionEstablished?.(), 0);
     },
     reject: async () => undefined,
     hold: async () => undefined,
     resume: async () => undefined,
     sendDtmf: async () => undefined,
-    hangup: async () => undefined,
+    hangup: async () => {
+      session = undefined;
+    },
     setMuted: () => undefined,
+    sessionId: () => session,
   };
-  return new BrowserSoftphone(transport);
+  return new BrowserDphone(transport);
 }
 
-export function WorkspaceApp({
+/**
+ * หลักฐานสำหรับ acceptance (dev/e2e เท่านั้น): SIP session และ WS connection ที่ใช้อยู่
+ * Playwright อ่านก่อน/หลังย่อ-ขยาย-แยกหน้าต่าง-สลับภาษา แล้วต้องได้ค่าเดิม
+ */
+interface DphoneDiagnostics {
+  sipSessionId(): string | undefined;
+  wsConnectionId(): string | undefined;
+}
+
+declare global {
+  interface Window {
+    __dcontactDphone?: DphoneDiagnostics;
+  }
+}
+
+const SIZE_KEY = 'dcontact.dphone.size';
+const DTMF_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
+
+function loadSize(): DphoneSize {
+  try {
+    const saved = localStorage.getItem(SIZE_KEY);
+    if (saved && (DPHONE_SIZES as readonly string[]).includes(saved)) return saved as DphoneSize;
+  } catch {
+    // ขนาดเป็นความสะดวก ไม่ใช่ข้อมูลสำคัญ
+  }
+  return 'compact';
+}
+
+/** token มาก่อนเนื้อหา แล้ว mount `AgentWorkspace` ครั้งเดียว (dphone ต้องไม่ถูกสร้างซ้ำ) */
+export function WorkspaceApp(props: WorkspaceAppProps) {
+  const tokensReady = useShellTokens();
+  if (!tokensReady) return null;
+  return <AgentWorkspace {...props} />;
+}
+
+function AgentWorkspace({
   api,
   tenantLabel = 'acme.d-contact.io',
   onSignOut,
-  createSoftphone,
+  createDphone,
 }: WorkspaceAppProps) {
+  const { t } = useTranslation('workspace');
+  const { t: td } = useTranslation('dphone');
+  const { locale } = useLocale();
+  const inShell = useInShell();
   const leaderElection = useMemo(
     () => createBrowserWorkspaceLeaderElection(crypto.randomUUID()),
     [],
@@ -55,20 +124,25 @@ export function WorkspaceApp({
   const [workingTab, setWorkingTab] = useState<boolean>();
   const [mediaReadiness, setMediaReadiness] = useState<MediaReadiness>('UNCHECKED');
   const [availability, setAvailability] = useState<Availability>('OFFLINE');
-  const [mediaError, setMediaError] = useState<string>();
+  // ข้อความเก็บเป็น key แล้วแปลตอน render — สลับภาษาแล้วเปลี่ยนตาม
+  const [mediaError, setMediaError] = useState<WorkspaceMessage>();
   const [snapshot, setSnapshot] = useState<AgentWorkspaceSnapshot>();
-  const [snapshotError, setSnapshotError] = useState<string>();
-  const [softphoneState, setSoftphoneState] = useState<SoftphoneState>({ phase: 'OFFLINE' });
-  const [softphoneError, setSoftphoneError] = useState<string>();
+  const [snapshotError, setSnapshotError] = useState<WorkspaceMessage>();
+  const [dphoneState, setDphoneState] = useState<DphoneState>({ phase: 'OFFLINE' });
+  const [dphoneError, setDphoneError] = useState<WorkspaceMessage>();
   const [muted, setMuted] = useState(false);
   const [wrapupDisposition, setWrapupDisposition] = useState<string>();
   const [wrapupPending, setWrapupPending] = useState(false);
-  const [wrapupError, setWrapupError] = useState<string>();
+  const [wrapupError, setWrapupError] = useState<WorkspaceMessage>();
   const [governanceAlert, setGovernanceAlert] = useState<WorkspaceGovernanceAlert>();
   const [liveRetry, setLiveRetry] = useState(0);
+  const [dphoneSize, setDphoneSize] = useState<DphoneSize>(loadSize);
+  const [detached, setDetached] = useState(false);
   const mediaStream = useRef<MediaStream | undefined>(undefined);
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
-  const softphone = useRef<BrowserSoftphone | undefined>(undefined);
+  const dphone = useRef<BrowserDphone | undefined>(undefined);
+  const liveConnectionId = useRef<string | undefined>(undefined);
+  const popup = useRef<Window | null>(null);
   const governanceGate = useMemo(() => new WorkspaceOutboundGate(), []);
 
   useEffect(() => {
@@ -82,8 +156,7 @@ export function WorkspaceApp({
         setSnapshotError(undefined);
       })
       .catch(() => {
-        if (!active) return;
-        setSnapshotError('โหลดสถานะจาก API ไม่สำเร็จ การควบคุมระยะไกลจะยังไม่พร้อมใช้งาน');
+        if (active) setSnapshotError('snapshotLoadFailed');
       });
     return () => {
       active = false;
@@ -102,15 +175,17 @@ export function WorkspaceApp({
         if (!disposed) setGovernanceAlert(governanceGate.markDisconnected());
       },
     });
+    liveConnectionId.current = connection.id;
     return () => {
       disposed = true;
+      liveConnectionId.current = undefined;
       connection.close();
     };
   }, [api, governanceGate, liveRetry, workingTab]);
 
   useEffect(() => {
-    if (!createSoftphone || !remoteAudio.current) return;
-    const phone = createSoftphone(remoteAudio.current, {
+    if (!createDphone || !remoteAudio.current) return;
+    const phone = createDphone(remoteAudio.current, {
       onInvitation: () => {
         void api
           ?.snapshot()
@@ -118,13 +193,13 @@ export function WorkspaceApp({
             setSnapshot(nextSnapshot);
             const interaction = nextSnapshot.interaction;
             if (interaction?.state !== 'ASSIGNED') return;
-            setSoftphoneState(await phone.receiveInvitation(interaction.id));
+            setDphoneState(await phone.receiveInvitation(interaction.id));
           })
-          .catch(() => setSnapshotError('ยืนยัน incoming offer กับ API ไม่สำเร็จ'));
+          .catch(() => setSnapshotError('offerConfirmFailed'));
       },
-      onSessionEstablished: () => setSoftphoneState(phone.connected()),
+      onSessionEstablished: () => setDphoneState(phone.connected()),
       onSessionTerminated: () => {
-        setSoftphoneState(phone.terminated());
+        setDphoneState(phone.terminated());
         setMuted(false);
         void api
           ?.snapshot()
@@ -132,17 +207,27 @@ export function WorkspaceApp({
           .catch(() => undefined);
       },
       onRegistrationLost: () => {
-        void phone.registrationLost().then(setSoftphoneState);
+        void phone.registrationLost().then(setDphoneState);
       },
-      onAutoplayBlocked: () =>
-        setSoftphoneError('Browser บล็อกเสียงสายเข้า โปรดกดอนุญาตเล่นเสียงแล้วลองอีกครั้ง'),
+      onAutoplayBlocked: () => setDphoneError('autoplayBlocked'),
     });
-    softphone.current = phone;
+    dphone.current = phone;
     return () => {
-      softphone.current = undefined;
+      dphone.current = undefined;
       void phone.stop();
     };
-  }, [api, createSoftphone]);
+  }, [api, createDphone]);
+
+  useEffect(() => {
+    if (import.meta.env.MODE === 'production') return;
+    window.__dcontactDphone = {
+      sipSessionId: () => dphone.current?.sessionId(),
+      wsConnectionId: () => liveConnectionId.current,
+    };
+    return () => {
+      delete window.__dcontactDphone;
+    };
+  }, []);
 
   useEffect(() => {
     setWorkingTab(leaderElection.start());
@@ -159,7 +244,7 @@ export function WorkspaceApp({
     mediaStream.current = undefined;
     setMediaReadiness('UNCHECKED');
     setAvailability('OFFLINE');
-    void softphone.current?.stop().then(setSoftphoneState);
+    void dphone.current?.stop().then(setDphoneState);
   }, [workingTab]);
 
   useEffect(
@@ -183,8 +268,8 @@ export function WorkspaceApp({
           () => {
             setAvailability('OFFLINE');
             setMediaReadiness('BLOCKED');
-            setMediaError('ไมโครโฟนหยุดทำงาน ระบบปิดรับสายใหม่แล้ว โปรดตรวจอุปกรณ์เสียงอีกครั้ง');
-            void softphone.current?.stop().then(setSoftphoneState);
+            setMediaError('micEnded');
+            void dphone.current?.stop().then(setDphoneState);
           },
           { once: true },
         );
@@ -193,69 +278,61 @@ export function WorkspaceApp({
     } catch {
       setAvailability('OFFLINE');
       setMediaReadiness('BLOCKED');
-      setMediaError(
-        'Workspace ใช้ไมโครโฟนไม่ได้ โปรดอนุญาตสิทธิ์หรือเชื่อมต่ออุปกรณ์เสียงแล้วลองใหม่',
-      );
-      setSoftphoneState({ phase: 'OFFLINE' });
+      setMediaError('micBlocked');
+      setDphoneState({ phase: 'OFFLINE' });
       return;
     }
 
-    if (api && softphone.current) {
-      setSoftphoneError(undefined);
+    if (api && dphone.current) {
+      setDphoneError(undefined);
       try {
         const lease = await api.sipCredentials();
-        setSoftphoneState({
-          phase: 'REGISTERING',
-          telephonyNodeId: lease.telephonyNodeId,
-        });
-        setSoftphoneState(
-          await softphone.current.start(lease, { ownsWorkingTab: true, mediaReady: true }),
+        setDphoneState({ phase: 'REGISTERING', telephonyNodeId: lease.telephonyNodeId });
+        setDphoneState(
+          await dphone.current.start(lease, { ownsWorkingTab: true, mediaReady: true }),
         );
       } catch {
         setAvailability('OFFLINE');
-        setSoftphoneState({ phase: 'OFFLINE' });
-        setSoftphoneError('ลงทะเบียน browser softphone ไม่สำเร็จ ระบบจึงยังไม่เปิดรับสายใหม่');
+        setDphoneState({ phase: 'OFFLINE' });
+        setDphoneError('registerFailed');
       }
     }
   }
 
   function becomeAvailable() {
-    if (!workingTab || mediaReadiness !== 'READY' || (api && softphoneState.phase !== 'READY'))
-      return;
+    if (!workingTab || mediaReadiness !== 'READY' || (api && dphoneState.phase !== 'READY')) return;
     setAvailability('AVAILABLE');
   }
 
   async function acceptCall() {
-    if (!softphone.current || softphoneState.phase !== 'RINGING') return;
-    setSoftphoneState(await softphone.current.accept());
+    if (!dphone.current || dphoneState.phase !== 'RINGING') return;
+    setDphoneState(await dphone.current.accept());
   }
 
   function toggleMute() {
-    if (!softphone.current) return;
+    if (!dphone.current) return;
     const next = !muted;
-    softphone.current.setMuted(next);
+    dphone.current.setMuted(next);
     setMuted(next);
   }
 
   async function toggleHold() {
-    if (!softphone.current) return;
-    if (softphoneState.phase === 'ACTIVE') {
-      setSoftphoneState(await softphone.current.hold());
+    if (!dphone.current) return;
+    if (dphoneState.phase === 'ACTIVE') {
+      setDphoneState(await dphone.current.hold());
       return;
     }
-    if (softphoneState.phase === 'HELD') {
-      setSoftphoneState(await softphone.current.resume());
-    }
+    if (dphoneState.phase === 'HELD') setDphoneState(await dphone.current.resume());
   }
 
   async function sendDtmf(value: string) {
-    if (!softphone.current || softphoneState.phase !== 'ACTIVE') return;
-    setSoftphoneState(await softphone.current.sendDtmf(value));
+    if (!dphone.current || dphoneState.phase !== 'ACTIVE') return;
+    setDphoneState(await dphone.current.sendDtmf(value));
   }
 
   async function hangup() {
-    if (!softphone.current) return;
-    setSoftphoneState(await softphone.current.hangup());
+    if (!dphone.current) return;
+    setDphoneState(await dphone.current.hangup());
     setMuted(false);
     void api
       ?.snapshot()
@@ -277,7 +354,7 @@ export function WorkspaceApp({
       setSnapshot(await api.snapshot());
       setWrapupDisposition(undefined);
     } catch {
-      setWrapupError('ส่ง disposition ไม่สำเร็จ โปรดลองใหม่ด้วยข้อมูลเดิม');
+      setWrapupError('wrapupFailed');
     } finally {
       setWrapupPending(false);
     }
@@ -288,382 +365,454 @@ export function WorkspaceApp({
     setWorkingTab(true);
   }
 
-  const readinessLabel = {
-    UNCHECKED: 'ยังไม่ได้ตรวจอุปกรณ์',
-    CHECKING: 'กำลังตรวจอุปกรณ์เสียง',
-    READY: 'อุปกรณ์เสียงพร้อม',
-    BLOCKED: 'อุปกรณ์เสียงไม่พร้อม',
-  }[mediaReadiness];
-  const softphoneLabel = {
-    OFFLINE: 'โทรศัพท์ยังไม่พร้อม',
-    REGISTERING: 'กำลังลงทะเบียนโทรศัพท์',
-    READY: 'โทรศัพท์พร้อม',
-    RINGING: 'มีสายเรียกเข้า',
-    CONNECTING: 'กำลังเชื่อมต่อสาย',
-    ACTIVE: 'กำลังสนทนา',
-    HELD: 'พักสาย',
-    RECONNECTING: 'กำลังกู้คืนโทรศัพท์',
-    RECOVERY_REQUIRED: 'ต้องกู้คืนโทรศัพท์ด้วยตนเอง',
-  }[softphoneState.phase];
+  // ── dphone: คำสั่งจาก widget หรือหน้าต่างแยกเข้าทางเดียวกัน ──────────────────────────────
+  const commandRef = useRef<(command: DphoneCommand) => void>(() => undefined);
+  commandRef.current = (command) => {
+    if (command.type === 'accept') void acceptCall();
+    else if (command.type === 'toggleMute') toggleMute();
+    else if (command.type === 'toggleHold') void toggleHold();
+    else if (command.type === 'hangup') void hangup();
+    else void sendDtmf(command.value);
+  };
+  const dispatch = (command: DphoneCommand) => commandRef.current(command);
 
-  return (
-    <div className="workspace-shell">
-      <aside className="product-rail" aria-label="พื้นที่หลัก">
-        <img className="product-mark" src="/d-contact-icon-64.png" alt="D-Contact" />
-        <button type="button" aria-label="ภาพรวม">
-          01
-        </button>
-        <button type="button" className="active" aria-label="Agent Workspace">
-          02
-        </button>
-        <button type="button" aria-label="Supervisor">
-          03
-        </button>
-      </aside>
+  const view: DphoneView = {
+    phase: dphoneState.phase,
+    caller: snapshot?.interaction?.caller ?? null,
+    queueName: snapshot?.interaction?.queue?.name ?? null,
+    muted,
+    locale,
+  };
 
-      <aside className="navigation">
-        <div className="brand">
-          <img src="/d-contact-icon-64.png" alt="" />
-          D-Contact
+  // host ของหน้าต่างแยก — เฉพาะ working tab ในโหมด shell (อยู่ใต้ leader election เดิม)
+  const host = useRef<ReturnType<typeof createDphoneHost>>(undefined);
+  useEffect(() => {
+    if (!inShell || !workingTab) return;
+    const bridge = createDphoneHost({
+      onCommand: (command) => commandRef.current(command),
+      onRemotePresence: (present) => setDetached(present),
+    });
+    host.current = bridge;
+    return () => {
+      bridge.recall();
+      bridge.close();
+      host.current = undefined;
+      setDetached(false);
+    };
+  }, [inShell, workingTab]);
+
+  const viewKey = JSON.stringify(view);
+  useEffect(() => {
+    host.current?.publish(JSON.parse(viewKey) as DphoneView);
+  }, [viewKey, detached]);
+
+  // หน้าต่างแยกถูกปิดโดยไม่ได้ส่ง bye (เช่น browser ปิดทันที) — widget กลับมาที่หน้าเอง
+  useEffect(() => {
+    if (!detached) return;
+    const timer = window.setInterval(() => {
+      if (popup.current?.closed) {
+        popup.current = null;
+        setDetached(false);
+      }
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [detached]);
+
+  function detach() {
+    const url = new URL('/dphone', window.location.origin);
+    const tenant = new URL(window.location.href).searchParams.get('tenant');
+    if (tenant) url.searchParams.set('tenant', tenant);
+    popup.current = window.open(url, 'dcontact-dphone', 'popup=yes,width=380,height=640');
+    // popup ถูกบล็อก: คง widget ไว้ในหน้าเดิม ไม่มีอะไรเปลี่ยน
+    if (popup.current) setDetached(true);
+  }
+
+  function attach() {
+    host.current?.recall();
+    popup.current?.close();
+    popup.current = null;
+    setDetached(false);
+  }
+
+  function changeSize(next: DphoneSize) {
+    setDphoneSize(next);
+    try {
+      localStorage.setItem(SIZE_KEY, next);
+    } catch {
+      // ดู loadSize
+    }
+  }
+
+  const readinessLabel = t(`readiness.${mediaReadiness}`);
+
+  const statusStrip = (
+    <div className="aw-status-strip" aria-label={t('status.label')}>
+      <span
+        className={'aw-chip ' + (workingTab ? 'aw-chip-success' : 'aw-chip-neutral')}
+        role="status"
+        aria-label={t('status.owner')}
+      >
+        {workingTab === undefined
+          ? t('status.checking')
+          : workingTab
+            ? t('status.working')
+            : t('status.passive')}
+      </span>
+      <span
+        className={
+          'aw-chip ' + (mediaReadiness === 'READY' ? 'aw-chip-success' : 'aw-chip-warning')
+        }
+      >
+        {readinessLabel}
+      </span>
+      <span
+        className={
+          'aw-chip ' + (availability === 'AVAILABLE' ? 'aw-chip-success' : 'aw-chip-neutral')
+        }
+      >
+        {availability === 'AVAILABLE' ? t('status.available') : t('status.offline')}
+      </span>
+      <span
+        className={
+          'aw-chip ' + (dphoneState.phase === 'READY' ? 'aw-chip-success' : 'aw-chip-neutral')
+        }
+        role="status"
+        aria-label={t('status.dphone')}
+      >
+        {td(`phase.${dphoneState.phase}`)}
+      </span>
+      {onSignOut ? (
+        <Button size="sm" variant="ghost" onPress={onSignOut}>
+          {t('status.signOut')}
+        </Button>
+      ) : null}
+    </div>
+  );
+
+  const identity = (
+    <div className="aw-identity">
+      <span className="aw-tenant">{tenantLabel}</span>
+      {snapshot ? <strong>{snapshot.agent.displayName}</strong> : null}
+    </div>
+  );
+
+  const offerPanel =
+    !inShell && snapshot?.interaction?.state === 'ASSIGNED' ? (
+      <article className="aw-panel aw-offer" aria-labelledby="incoming-offer-title">
+        <div>
+          <p className="aw-step">{t('offer.step')}</p>
+          <h2 id="incoming-offer-title">{t('offer.title')}</h2>
+          <strong className="aw-caller">
+            {snapshot.interaction.caller ?? t('offer.noNumber')}
+          </strong>
         </div>
-        <p className="navigation-label">AGENT WORKSPACE</p>
-        <button type="button" className="navigation-item active">
-          กล่องงานของฉัน
-        </button>
-        <button type="button" className="navigation-item">
-          ประวัติการติดต่อ
-        </button>
-        <p className="pilot-note">INBOUND VOICE · PILOT</p>
-      </aside>
-
-      <section className="workspace">
-        <header className="topbar">
-          <div className="identity-strip">
-            <span className="tenant">{tenantLabel}</span>
-            {snapshot ? <strong>{snapshot.agent.displayName}</strong> : null}
+        <dl className="aw-facts">
+          <div>
+            <dt>{t('offer.queue')}</dt>
+            <dd>{snapshot.interaction.queue?.name ?? t('offer.unknownQueue')}</dd>
           </div>
-          <div className="status-strip" aria-label="สถานะ Workspace">
-            <span
-              className={'status-chip ' + (workingTab ? 'success' : 'neutral')}
-              role="status"
-              aria-label="เจ้าของ Workspace"
+          <div>
+            <dt>{t('offer.authority')}</dt>
+            <dd>{t('offer.version', { version: snapshot.interaction.version })}</dd>
+          </div>
+        </dl>
+        <div className="aw-actions">
+          <Button
+            variant="primary"
+            isDisabled={dphoneState.phase !== 'RINGING'}
+            onPress={() => void acceptCall()}
+          >
+            {td('accept')}
+          </Button>
+        </div>
+      </article>
+    ) : null;
+
+  const controlsPanel =
+    !inShell && (dphoneState.phase === 'ACTIVE' || dphoneState.phase === 'HELD') ? (
+      <article className="aw-panel" aria-labelledby="call-controls-title">
+        <div>
+          <p className="aw-step">{t('controls.step')}</p>
+          <h2 id="call-controls-title">{t('controls.title')}</h2>
+        </div>
+        <div className="aw-actions">
+          <Button onPress={toggleMute}>{muted ? td('unmute') : td('mute')}</Button>
+          <Button onPress={() => void toggleHold()}>
+            {dphoneState.phase === 'HELD' ? td('resume') : td('hold')}
+          </Button>
+          <Button variant="danger" onPress={() => void hangup()}>
+            {td('hangup')}
+          </Button>
+        </div>
+        <div className="aw-dtmf" role="group" aria-label={td('dtmfPad')}>
+          {DTMF_KEYS.map((value) => (
+            <button
+              type="button"
+              key={value}
+              aria-label={td('dtmf', { value })}
+              disabled={dphoneState.phase !== 'ACTIVE'}
+              onClick={() => void sendDtmf(value)}
             >
-              {workingTab === undefined
-                ? 'กำลังตรวจแท็บ'
-                : workingTab
-                  ? 'แท็บทำงาน'
-                  : 'แท็บดูอย่างเดียว'}
-            </span>
-            <span className={'status-chip ' + (mediaReadiness === 'READY' ? 'success' : 'warning')}>
+              {value}
+            </button>
+          ))}
+        </div>
+      </article>
+    ) : null;
+
+  const content = (
+    <>
+      <div className="aw-page-heading">
+        <div>
+          <p className="aw-eyebrow">{t('heading.eyebrow')}</p>
+          <h1>{t('heading.title')}</h1>
+          <p>{t('heading.lede')}</p>
+        </div>
+        <span className="aw-phase-badge">{t('heading.phase')}</span>
+      </div>
+
+      {governanceAlert ? (
+        <section
+          className={'aw-governance aw-governance-' + governanceAlert.state.toLowerCase()}
+          role="alert"
+        >
+          <div>
+            <strong>
+              {governanceAlert.state === 'READY' ? t('governance.ready') : t('governance.required')}
+            </strong>
+            <p>{governanceAlert.message}</p>
+          </div>
+          {governanceAlert.state !== 'READY' ? (
+            <Button onPress={() => setLiveRetry((value) => value + 1)}>
+              {t('governance.retry')}
+            </Button>
+          ) : null}
+        </section>
+      ) : null}
+
+      <section className="aw-grid" aria-label={t('grid')}>
+        {offerPanel}
+        {controlsPanel}
+
+        {snapshot?.interaction?.state === 'WRAPUP' ? (
+          <article className="aw-panel" aria-labelledby="wrapup-title">
+            <div>
+              <p className="aw-step">{t('wrapup.step')}</p>
+              <h2 id="wrapup-title">{t('wrapup.title')}</h2>
+              <p className="aw-copy">{t('wrapup.copy')}</p>
+            </div>
+            <div className="aw-segmented" role="group" aria-label={t('wrapup.choose')}>
+              <button
+                type="button"
+                aria-pressed={wrapupDisposition === 'CUSTOMER_ASSISTED'}
+                disabled={wrapupPending}
+                onClick={() => setWrapupDisposition('CUSTOMER_ASSISTED')}
+              >
+                {t('wrapup.assisted')}
+              </button>
+              <button
+                type="button"
+                aria-pressed={wrapupDisposition === 'FOLLOW_UP_REQUIRED'}
+                disabled={wrapupPending}
+                onClick={() => setWrapupDisposition('FOLLOW_UP_REQUIRED')}
+              >
+                {t('wrapup.followUp')}
+              </button>
+            </div>
+            <Button
+              variant="primary"
+              isDisabled={!wrapupDisposition || wrapupPending}
+              onPress={() => void submitWrapup()}
+            >
+              {t('wrapup.submit')}
+            </Button>
+            {wrapupPending ? <p role="status">{t('wrapup.pending')}</p> : null}
+            {wrapupError ? (
+              <p role="alert" className="aw-error">
+                {t(wrapupError)}
+              </p>
+            ) : null}
+          </article>
+        ) : null}
+
+        {snapshotError ? (
+          <p className="aw-warning" role="status">
+            {t(snapshotError)}
+          </p>
+        ) : null}
+
+        {dphoneError ? (
+          <p className="aw-warning" role="alert">
+            {t(dphoneError)}
+          </p>
+        ) : null}
+
+        <article className="aw-panel">
+          <div className="aw-panel-heading">
+            <div>
+              <p className="aw-step">{t('media.step')}</p>
+              <h2>{t('media.title')}</h2>
+            </div>
+            <span
+              className={'aw-readiness aw-readiness-' + mediaReadiness.toLowerCase()}
+              role="status"
+              aria-label={t('media.indicator')}
+            >
               {readinessLabel}
             </span>
-            <span
-              className={'status-chip ' + (availability === 'AVAILABLE' ? 'success' : 'neutral')}
-            >
-              {availability}
-            </span>
-            <span
-              className={
-                'status-chip ' + (softphoneState.phase === 'READY' ? 'success' : 'neutral')
-              }
-              role="status"
-              aria-label="สถานะ browser softphone"
-            >
-              {softphoneLabel}
-            </span>
-            {onSignOut ? (
-              <button type="button" className="signout-action" onClick={onSignOut}>
-                ออกจากระบบ
-              </button>
-            ) : null}
           </div>
-        </header>
-
-        <main>
-          <div className="page-heading">
-            <div>
-              <p className="eyebrow">VOICE OPERATIONS</p>
-              <h1>Agent Workspace</h1>
-              <p>เตรียม browser และอุปกรณ์เสียงให้พร้อมก่อนเปิดรับสาย</p>
+          <p className="aw-copy">{t('media.copy')}</p>
+          <div className="aw-device">
+            <div className="aw-device-icon" aria-hidden="true">
+              {t('media.device')}
             </div>
-            <span className="phase-badge">PHASE 2</span>
+            <div>
+              <strong>{t('media.mic')}</strong>
+              <span>{t('media.micHint')}</span>
+            </div>
           </div>
-
-          {governanceAlert ? (
-            <section
-              className={'governance-workspace-alert ' + governanceAlert.state.toLowerCase()}
-              role="alert"
-            >
-              <div>
-                <strong>
-                  {governanceAlert.state === 'READY'
-                    ? 'ตรวจสอบการติดต่อแล้ว'
-                    : 'ต้องตรวจสอบการติดต่อก่อน outbound'}
-                </strong>
-                <p>{governanceAlert.message}</p>
-              </div>
-              {governanceAlert.state !== 'READY' ? (
-                <button
-                  type="button"
-                  className="secondary-action"
-                  onClick={() => setLiveRetry((value) => value + 1)}
-                >
-                  ลองเชื่อมต่อสถานะใหม่
-                </button>
-              ) : null}
-            </section>
+          {mediaError ? (
+            <p className="aw-error" role="alert">
+              {t(mediaError)}
+            </p>
           ) : null}
+          <Button
+            isDisabled={!workingTab || mediaReadiness === 'CHECKING'}
+            onPress={() => void checkMediaReadiness()}
+          >
+            {mediaReadiness === 'CHECKING' ? t('media.checking') : t('media.check')}
+          </Button>
+        </article>
 
-          <section className="workspace-grid" aria-label="การเตรียมพร้อมรับสาย">
-            {snapshot?.interaction?.state === 'ASSIGNED' ? (
-              <article className="panel incoming-offer" aria-labelledby="incoming-offer-title">
-                <div>
-                  <p className="step">VOICE OFFER</p>
-                  <h2 id="incoming-offer-title">สายเรียกเข้า</h2>
-                  <strong className="caller-number">
-                    {snapshot.interaction.caller ?? 'ไม่แสดงหมายเลข'}
-                  </strong>
-                </div>
-                <dl>
-                  <div>
-                    <dt>Queue</dt>
-                    <dd>{snapshot.interaction.queue?.name ?? 'ไม่ระบุ'}</dd>
-                  </div>
-                  <div>
-                    <dt>Authority</dt>
-                    <dd>Interaction v{snapshot.interaction.version}</dd>
-                  </div>
-                </dl>
-                <div className="offer-actions">
-                  <button
-                    type="button"
-                    className="primary-action"
-                    disabled={softphoneState.phase !== 'RINGING'}
-                    onClick={() => void acceptCall()}
-                  >
-                    รับสาย
-                  </button>
-                </div>
-              </article>
-            ) : null}
+        <article className="aw-panel">
+          <div className="aw-panel-heading">
+            <div>
+              <p className="aw-step">{t('availability.step')}</p>
+              <h2>{t('availability.title')}</h2>
+            </div>
+            <span className={'aw-dot aw-dot-' + availability.toLowerCase()} aria-hidden="true" />
+          </div>
+          <div className="aw-availability" aria-live="polite">
+            <strong>
+              {availability === 'AVAILABLE' ? t('availability.ready') : t('availability.notReady')}
+            </strong>
+            <span>
+              {availability === 'AVAILABLE'
+                ? t('availability.readyHint')
+                : t('availability.notReadyHint')}
+            </span>
+          </div>
+          <Button
+            variant="primary"
+            isDisabled={
+              !workingTab ||
+              mediaReadiness !== 'READY' ||
+              availability === 'AVAILABLE' ||
+              Boolean(api && dphoneState.phase !== 'READY')
+            }
+            onPress={becomeAvailable}
+          >
+            {t('availability.open')}
+          </Button>
+        </article>
 
-            {softphoneState.phase === 'ACTIVE' || softphoneState.phase === 'HELD' ? (
-              <article className="panel call-controls" aria-labelledby="call-controls-title">
-                <div>
-                  <p className="step">BROWSER SOFTPHONE</p>
-                  <h2 id="call-controls-title">ควบคุมสาย</h2>
-                </div>
-                <div className="control-row">
-                  <button type="button" className="secondary-action" onClick={toggleMute}>
-                    {muted ? 'เปิดไมค์' : 'ปิดไมค์'}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-action"
-                    onClick={() => void toggleHold()}
-                  >
-                    {softphoneState.phase === 'HELD' ? 'กลับเข้าสาย' : 'พักสาย'}
-                  </button>
-                  <button type="button" className="danger-action" onClick={() => void hangup()}>
-                    วางสาย
-                  </button>
-                </div>
-                <div className="dtmf-pad" aria-label="แป้น DTMF">
-                  {['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].map((value) => (
-                    <button
-                      type="button"
-                      key={value}
-                      aria-label={`ส่ง DTMF ${value}`}
-                      disabled={softphoneState.phase !== 'ACTIVE'}
-                      onClick={() => void sendDtmf(value)}
-                    >
-                      {value}
-                    </button>
-                  ))}
-                </div>
-              </article>
-            ) : null}
-
-            {snapshot?.interaction?.state === 'WRAPUP' ? (
-              <article className="panel" aria-labelledby="wrapup-title">
-                <div>
-                  <p className="step">WRAP-UP</p>
-                  <h2 id="wrapup-title">สรุปผลหลังสาย</h2>
-                  <p className="panel-copy">ส่ง disposition ก่อนกลับสู่สถานะรับงาน</p>
-                </div>
-                <div className="control-row" aria-label="เลือก disposition">
-                  <button
-                    type="button"
-                    className="secondary-action"
-                    aria-pressed={wrapupDisposition === 'CUSTOMER_ASSISTED'}
-                    disabled={wrapupPending}
-                    onClick={() => setWrapupDisposition('CUSTOMER_ASSISTED')}
-                  >
-                    ลูกค้าได้รับความช่วยเหลือ
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-action"
-                    aria-pressed={wrapupDisposition === 'FOLLOW_UP_REQUIRED'}
-                    disabled={wrapupPending}
-                    onClick={() => setWrapupDisposition('FOLLOW_UP_REQUIRED')}
-                  >
-                    ต้องติดตามต่อ
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  className="primary-action"
-                  disabled={!wrapupDisposition || wrapupPending}
-                  onClick={() => void submitWrapup()}
-                >
-                  ส่ง disposition
-                </button>
-                {wrapupPending ? <p role="status">กำลังรอ server ยืนยัน</p> : null}
-                {wrapupError ? (
-                  <p role="alert" className="error-message">
-                    {wrapupError}
-                  </p>
-                ) : null}
-              </article>
-            ) : null}
-
-            {snapshotError ? (
-              <p className="snapshot-warning" role="status">
-                {snapshotError}
-              </p>
-            ) : null}
-
-            {softphoneError ? (
-              <p className="snapshot-warning" role="alert">
-                {softphoneError}
-              </p>
-            ) : null}
-
-            <article className="panel readiness-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="step">ขั้นตอนที่ 1</p>
-                  <h2>เตรียมอุปกรณ์เสียง</h2>
-                </div>
-                <span
-                  className={'readiness-indicator ' + mediaReadiness.toLowerCase()}
-                  role="status"
-                  aria-label="ความพร้อมของอุปกรณ์เสียง"
-                >
-                  {readinessLabel}
-                </span>
-              </div>
-
-              <p className="panel-copy">
-                ระบบจะขอใช้ไมโครโฟนและตรวจว่า browser เปิด media stream ได้ ก่อนอนุญาตให้รับ voice
-                offer
-              </p>
-
-              <div className="device-row">
-                <div className="device-icon" aria-hidden="true">
-                  MIC
-                </div>
-                <div>
-                  <strong>ไมโครโฟนหลัก</strong>
-                  <span>ตรวจผ่าน Browser MediaDevices</span>
-                </div>
-              </div>
-
-              {mediaError ? (
-                <p className="error-message" role="alert">
-                  {mediaError}
-                </p>
-              ) : null}
-
-              <button
-                type="button"
-                className="secondary-action"
-                disabled={!workingTab || mediaReadiness === 'CHECKING'}
-                onClick={() => void checkMediaReadiness()}
-              >
-                {mediaReadiness === 'CHECKING' ? 'กำลังตรวจ…' : 'ตรวจอุปกรณ์เสียง'}
-              </button>
-            </article>
-
-            <article className="panel availability-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="step">ขั้นตอนที่ 2</p>
-                  <h2>สถานะการรับสาย</h2>
-                </div>
-                <span
-                  className={'availability-dot ' + availability.toLowerCase()}
-                  aria-hidden="true"
-                />
-              </div>
-
-              <div className="availability-state" aria-live="polite">
-                <strong>
-                  {availability === 'AVAILABLE' ? 'พร้อมรับสาย' : 'ยังไม่พร้อมรับสาย'}
-                </strong>
-                <span>
-                  {availability === 'AVAILABLE'
-                    ? 'Router สามารถส่ง voice offer มายัง working tab นี้ได้'
-                    : 'ต้องตรวจอุปกรณ์เสียงให้ผ่านก่อนเปิดรับสาย'}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                className="primary-action"
-                disabled={
-                  !workingTab ||
-                  mediaReadiness !== 'READY' ||
-                  availability === 'AVAILABLE' ||
-                  Boolean(api && softphoneState.phase !== 'READY')
-                }
-                onClick={becomeAvailable}
-              >
-                เปิดรับสาย
-              </button>
-            </article>
-
-            <article className="panel authority-panel">
-              <p className="step">ขอบเขต authority</p>
-              <h2>สถานะที่เชื่อถือได้</h2>
-              <dl>
-                <div>
-                  <dt>Interaction</dt>
-                  <dd>{snapshot?.interaction?.state ?? 'Router / API'}</dd>
-                </div>
-                <div>
-                  <dt>Browser media</dt>
-                  <dd>{readinessLabel}</dd>
-                </div>
-                <div>
-                  <dt>Presence</dt>
-                  <dd>{snapshot?.agent.state ?? availability}</dd>
-                </div>
-              </dl>
-              <p className="authority-note">
-                Browser แสดง projection และส่ง intent เท่านั้น ไม่สร้าง durable Interaction state
-                เอง
-              </p>
-            </article>
-          </section>
-        </main>
+        <article className="aw-panel">
+          <p className="aw-step">{t('authority.step')}</p>
+          <h2>{t('authority.title')}</h2>
+          <dl className="aw-facts">
+            <div>
+              <dt>{t('authority.interaction')}</dt>
+              <dd>{snapshot?.interaction?.state ?? t('authority.routerApi')}</dd>
+            </div>
+            <div>
+              <dt>{t('authority.media')}</dt>
+              <dd>{readinessLabel}</dd>
+            </div>
+            <div>
+              <dt>{t('authority.presence')}</dt>
+              <dd>{snapshot?.agent.state ?? availability}</dd>
+            </div>
+          </dl>
+          <p className="aw-note">{t('authority.note')}</p>
+        </article>
       </section>
+    </>
+  );
 
-      <audio ref={remoteAudio} autoPlay className="remote-audio" />
+  return (
+    <div className={inShell ? 'aw-root aw-in-shell' : 'aw-root aw-legacy'}>
+      {inShell ? (
+        <>
+          <header className="aw-content-header">
+            {identity}
+            {statusStrip}
+          </header>
+          {content}
+        </>
+      ) : (
+        <>
+          <aside className="aw-rail" aria-label={t('legacy.railLabel')}>
+            <img className="aw-rail-mark" src="/d-contact-icon-64.png" alt={t('legacy.logoAlt')} />
+            <button type="button" aria-label={t('legacy.overview')}>
+              01
+            </button>
+            <button type="button" className="aw-active" aria-label={t('legacy.agentWorkspace')}>
+              02
+            </button>
+            <button type="button" aria-label={t('legacy.supervisor')}>
+              03
+            </button>
+          </aside>
+          <aside className="aw-nav">
+            <div className="aw-brand">
+              <img src="/d-contact-icon-64.png" alt="" />
+              {t('legacy.brand')}
+            </div>
+            <p className="aw-nav-label">{t('legacy.navLabel')}</p>
+            <button type="button" className="aw-nav-item aw-active">
+              {t('legacy.inbox')}
+            </button>
+            <button type="button" className="aw-nav-item">
+              {t('legacy.history')}
+            </button>
+            <p className="aw-pilot">{t('legacy.pilot')}</p>
+          </aside>
+          <section className="aw-workspace">
+            <header className="aw-topbar">
+              {identity}
+              {statusStrip}
+            </header>
+            <main className="aw-main">{content}</main>
+          </section>
+        </>
+      )}
+
+      {inShell && workingTab ? (
+        detached ? (
+          <DphoneDetachedBar view={view} onAttach={attach} />
+        ) : (
+          <DphoneWidget
+            floating
+            view={view}
+            size={dphoneSize}
+            onSizeChange={changeSize}
+            onCommand={dispatch}
+            onDetach={detach}
+          />
+        )
+      ) : null}
+
+      <audio ref={remoteAudio} autoPlay className="aw-remote-audio" />
 
       {workingTab === false ? (
-        <div className="passive-overlay">
-          <section className="passive-card" aria-labelledby="passive-title">
-            <p className="eyebrow">SINGLE WORKING TAB</p>
-            <h2 id="passive-title">Workspace ทำงานอยู่ในแท็บอื่น</h2>
-            <p>
-              แท็บนี้ดูข้อมูลได้อย่างเดียวและจะไม่เปิด routing หรือ media session
-              จนกว่าคุณจะย้ายงานมาที่นี่
-            </p>
-            <button type="button" className="primary-action" onClick={moveWorkHere}>
-              ย้ายงานมาที่แท็บนี้
-            </button>
+        <div className="aw-passive-overlay">
+          <section className="aw-passive-card" aria-labelledby="passive-title">
+            <p className="aw-eyebrow">{t('passive.eyebrow')}</p>
+            <h2 id="passive-title">{t('passive.title')}</h2>
+            <p>{t('passive.body')}</p>
+            <Button variant="primary" onPress={moveWorkHere}>
+              {t('passive.move')}
+            </Button>
           </section>
         </div>
       ) : null}

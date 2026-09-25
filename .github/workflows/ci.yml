@@ -223,6 +223,7 @@ jobs:
     # D1.11 (#450): สลับภาษาไม่ reload (performance/marker ของหน้าเดิม) และ formatter บน Chromium จริง
     # D1.13 (#452): flag ui.shell.v2 — shell/legacy, axe ของ shell, ไม่ remount WorkspaceApp
     # D1.14 (#453): หน้า Journeys บน i18n/component/token — J5 flow เดิม + TH/EN + shell เปิด/ปิด
+    # D1.15 (#454): dphone 3 ขนาด/แยกหน้าต่าง/สลับภาษา — SIP session เดิมและไม่ reload (transport จำลอง)
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -248,7 +249,7 @@ jobs:
         run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts e2e/shell.spec.ts e2e/journey-authoring.spec.ts
 
       - name: Workspace shell e2e
-        run: pnpm --filter @d-contact/workspace exec playwright test e2e/shell.spec.ts
+        run: pnpm --filter @d-contact/workspace exec playwright test e2e/shell.spec.ts e2e/dphone.spec.ts
 
       - name: Upload Playwright traces
         if: failure()

@@ -1,0 +1,41 @@
+{
+  "name": "dphone",
+  "region": "dphone",
+  "phase": {
+    "OFFLINE": "Phone not ready",
+    "REGISTERING": "Registering phone",
+    "READY": "Phone ready",
+    "RINGING": "Incoming call",
+    "CONNECTING": "Connecting call",
+    "ACTIVE": "On a call",
+    "HELD": "On hold",
+    "RECONNECTING": "Recovering phone",
+    "RECOVERY_REQUIRED": "Phone needs manual recovery"
+  },
+  "size": {
+    "label": "dphone size",
+    "bar": "Minimize to bar",
+    "compact": "Compact",
+    "expanded": "Expand with keypad"
+  },
+  "detach": "Pop dphone out to a window",
+  "attach": "Back to Workspace",
+  "detached": "dphone is open in a separate window",
+  "dragHint": "Drag to move",
+  "accept": "Answer",
+  "mute": "Mute",
+  "unmute": "Unmute",
+  "hold": "Hold",
+  "resume": "Resume",
+  "hangup": "Hang up",
+  "dtmfPad": "DTMF keypad",
+  "dtmf": "Send DTMF {{value}}",
+  "noNumber": "Number withheld",
+  "noCall": "No call",
+  "page": {
+    "title": "dphone",
+    "waiting": "Connecting to Workspace…",
+    "noHost": "No working Workspace found. Open Agent Workspace in the working tab, then pop dphone out again.",
+    "closed": "Workspace closed this dphone window"
+  }
+}

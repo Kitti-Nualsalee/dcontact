@@ -10,11 +10,15 @@
 import { uiResources } from '@d-contact/ui-react/i18n';
 import commonEn from './locales/en/common.json' with { type: 'json' };
 import commonTh from './locales/th/common.json' with { type: 'json' };
+import dphoneEn from './locales/en/dphone.json' with { type: 'json' };
+import dphoneTh from './locales/th/dphone.json' with { type: 'json' };
+import workspaceEn from './locales/en/workspace.json' with { type: 'json' };
+import workspaceTh from './locales/th/workspace.json' with { type: 'json' };
 
 export const DEFAULT_NAMESPACE = 'common';
 
 // namespace `ui` ของ component layer (ADR-028) โหลดพร้อมกัน จึงสลับภาษาพร้อมกันทั้งจอ
 export const resources = {
-  th: { common: commonTh, ...uiResources.th },
-  en: { common: commonEn, ...uiResources.en },
+  th: { common: commonTh, workspace: workspaceTh, dphone: dphoneTh, ...uiResources.th },
+  en: { common: commonEn, workspace: workspaceEn, dphone: dphoneEn, ...uiResources.en },
 } as const;

@@ -8,6 +8,8 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4173',
     permissions: ['microphone'],
+    // D1.15: ข้อความมาจาก catalog ตามภาษา browser — ชุดเดิมตรวจบนภาษาไทย (spec ที่ต้องการ EN ตั้งเอง)
+    locale: 'th-TH',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  BrowserSoftphone,
-  type BrowserSipTransport,
-  type SipCredentialLease,
-} from './softphone.js';
+import { BrowserDphone, type BrowserSipTransport, type SipCredentialLease } from './dphone.js';
 
 const lease: SipCredentialLease = {
   leaseId: 'lease-1',
@@ -36,7 +32,7 @@ function transport(overrides: Partial<BrowserSipTransport> = {}): BrowserSipTran
 
 test('working tab ที่ media พร้อม register SIP และ accept invitation เพียงครั้งเดียว', async () => {
   const calls: string[] = [];
-  const softphone = new BrowserSoftphone(
+  const softphone = new BrowserDphone(
     transport({
       configure: async (input) => void calls.push(`configure:${input.telephonyNodeId}`),
       register: async () => void calls.push('register'),
@@ -59,7 +55,7 @@ test('working tab ที่ media พร้อม register SIP และ accept 
 
 test('passive tab หรือ media ไม่พร้อมจะไม่ register และปฏิเสธ invitation', async () => {
   const calls: string[] = [];
-  const softphone = new BrowserSoftphone(
+  const softphone = new BrowserDphone(
     transport({
       configure: async () => void calls.push('configure'),
       register: async () => void calls.push('register'),
@@ -77,7 +73,7 @@ test('passive tab หรือ media ไม่พร้อมจะไม่ reg
 test('SIP reconnect ใช้ bounded backoff หกครั้งแล้วเปลี่ยนเป็น manual recovery', async () => {
   const delays: number[] = [];
   let attempts = 0;
-  const softphone = new BrowserSoftphone(
+  const softphone = new BrowserDphone(
     transport({
       register: async () => {
         attempts += 1;
@@ -101,7 +97,7 @@ test('SIP reconnect ใช้ bounded backoff หกครั้งแล้ว�
 
 test('active call รองรับ local mute, hold/resume, DTMF และ hangup ตามลำดับ', async () => {
   const calls: string[] = [];
-  const softphone = new BrowserSoftphone(
+  const softphone = new BrowserDphone(
     transport({
       setMuted: (muted) => void calls.push(muted ? 'mute' : 'unmute'),
       hold: async () => void calls.push('hold'),
@@ -130,7 +126,7 @@ test('active call รองรับ local mute, hold/resume, DTMF และ han
 });
 
 test('remote BYE จบ active Interaction เดิมและคืน softphone เป็น READY', async () => {
-  const softphone = new BrowserSoftphone(transport());
+  const softphone = new BrowserDphone(transport());
   await softphone.start(lease, { ownsWorkingTab: true, mediaReady: true });
   await softphone.receiveInvitation('interaction-remote-bye');
   await softphone.accept();

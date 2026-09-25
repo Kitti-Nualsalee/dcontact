@@ -21,9 +21,11 @@ export interface BrowserSipTransport {
   sendDtmf(value: string): Promise<void>;
   hangup(): Promise<void>;
   setMuted(muted: boolean): void;
+  /** SIP dialog ของสายปัจจุบัน — ใช้เป็นหลักฐานว่าย่อ/ขยาย/แยกหน้าต่าง/สลับภาษาไม่สร้าง session ใหม่ */
+  sessionId?(): string | undefined;
 }
 
-export type SoftphoneState =
+export type DphoneState =
   | { phase: 'OFFLINE' }
   | { phase: 'REGISTERING' | 'READY'; telephonyNodeId: string }
   | {
@@ -38,25 +40,25 @@ export type SoftphoneState =
       interactionId?: string;
     };
 
-export interface BrowserSoftphoneOptions {
+export interface BrowserDphoneOptions {
   sleep?: (milliseconds: number) => Promise<void>;
   maxReconnectAttempts?: number;
 }
 
-interface SoftphoneReadiness {
+interface DphoneReadiness {
   ownsWorkingTab: boolean;
   mediaReady: boolean;
 }
 
-export class BrowserSoftphone {
-  private state: SoftphoneState = { phase: 'OFFLINE' };
+export class BrowserDphone {
+  private state: DphoneState = { phase: 'OFFLINE' };
   private lease?: SipCredentialLease;
   private readonly sleep: (milliseconds: number) => Promise<void>;
   private readonly maxReconnectAttempts: number;
 
   constructor(
     private readonly transport: BrowserSipTransport,
-    options: BrowserSoftphoneOptions = {},
+    options: BrowserDphoneOptions = {},
   ) {
     this.sleep =
       options.sleep ??
@@ -64,11 +66,15 @@ export class BrowserSoftphone {
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 6;
   }
 
-  current(): SoftphoneState {
+  current(): DphoneState {
     return this.state;
   }
 
-  async start(lease: SipCredentialLease, readiness: SoftphoneReadiness): Promise<SoftphoneState> {
+  sessionId(): string | undefined {
+    return this.transport.sessionId?.();
+  }
+
+  async start(lease: SipCredentialLease, readiness: DphoneReadiness): Promise<DphoneState> {
     if (!readiness.ownsWorkingTab || !readiness.mediaReady) {
       this.state = { phase: 'OFFLINE' };
       return this.state;
@@ -81,14 +87,14 @@ export class BrowserSoftphone {
     return this.state;
   }
 
-  async stop(): Promise<SoftphoneState> {
+  async stop(): Promise<DphoneState> {
     if (this.state.phase !== 'OFFLINE') await this.transport.unregister();
     this.lease = undefined;
     this.state = { phase: 'OFFLINE' };
     return this.state;
   }
 
-  async receiveInvitation(interactionId: string): Promise<SoftphoneState> {
+  async receiveInvitation(interactionId: string): Promise<DphoneState> {
     if (this.state.phase !== 'READY') {
       await this.transport.reject();
       return this.state;
@@ -101,21 +107,21 @@ export class BrowserSoftphone {
     return this.state;
   }
 
-  async accept(): Promise<SoftphoneState> {
-    if (this.state.phase !== 'RINGING') throw new Error('accept requires RINGING softphone');
-    const next: SoftphoneState = { ...this.state, phase: 'CONNECTING' };
+  async accept(): Promise<DphoneState> {
+    if (this.state.phase !== 'RINGING') throw new Error('accept requires RINGING dphone');
+    const next: DphoneState = { ...this.state, phase: 'CONNECTING' };
     await this.transport.accept();
     this.state = next;
     return this.state;
   }
 
-  connected(): SoftphoneState {
+  connected(): DphoneState {
     if (this.state.phase !== 'CONNECTING') return this.state;
     this.state = { ...this.state, phase: 'ACTIVE' };
     return this.state;
   }
 
-  terminated(): SoftphoneState {
+  terminated(): DphoneState {
     if (!this.lease || this.state.phase === 'OFFLINE') return this.state;
     this.state = { phase: 'READY', telephonyNodeId: this.lease.telephonyNodeId };
     return this.state;
@@ -123,38 +129,38 @@ export class BrowserSoftphone {
 
   setMuted(muted: boolean): void {
     if (this.state.phase !== 'ACTIVE' && this.state.phase !== 'HELD') {
-      throw new Error('mute requires ACTIVE or HELD softphone');
+      throw new Error('mute requires ACTIVE or HELD dphone');
     }
     this.transport.setMuted(muted);
   }
 
-  async hold(): Promise<SoftphoneState> {
-    if (this.state.phase !== 'ACTIVE') throw new Error('hold requires ACTIVE softphone');
+  async hold(): Promise<DphoneState> {
+    if (this.state.phase !== 'ACTIVE') throw new Error('hold requires ACTIVE dphone');
     await this.transport.hold();
     this.state = { ...this.state, phase: 'HELD' };
     return this.state;
   }
 
-  async resume(): Promise<SoftphoneState> {
+  async resume(): Promise<DphoneState> {
     if (this.state.phase !== 'HELD') throw new Error('resume requires HELD softphone');
     await this.transport.resume();
     this.state = { ...this.state, phase: 'ACTIVE' };
     return this.state;
   }
 
-  async sendDtmf(value: string): Promise<SoftphoneState> {
-    if (this.state.phase !== 'ACTIVE') throw new Error('DTMF requires ACTIVE softphone');
+  async sendDtmf(value: string): Promise<DphoneState> {
+    if (this.state.phase !== 'ACTIVE') throw new Error('DTMF requires ACTIVE dphone');
     await this.transport.sendDtmf(value);
     return this.state;
   }
 
-  async hangup(): Promise<SoftphoneState> {
+  async hangup(): Promise<DphoneState> {
     if (
       this.state.phase !== 'CONNECTING' &&
       this.state.phase !== 'ACTIVE' &&
       this.state.phase !== 'HELD'
     ) {
-      throw new Error('hangup requires a connected softphone');
+      throw new Error('hangup requires a connected dphone');
     }
     const telephonyNodeId = this.state.telephonyNodeId;
     await this.transport.hangup();
@@ -162,7 +168,7 @@ export class BrowserSoftphone {
     return this.state;
   }
 
-  async registrationLost(): Promise<SoftphoneState> {
+  async registrationLost(): Promise<DphoneState> {
     if (!this.lease || this.state.phase === 'OFFLINE') return this.state;
     const interactionId = 'interactionId' in this.state ? this.state.interactionId : undefined;
     for (let attempt = 1; attempt <= this.maxReconnectAttempts; attempt += 1) {

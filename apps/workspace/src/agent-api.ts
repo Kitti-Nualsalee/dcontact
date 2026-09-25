@@ -1,4 +1,4 @@
-import type { SipCredentialLease } from './softphone.js';
+import type { SipCredentialLease } from './dphone/dphone.js';
 
 export interface AgentWorkspaceSnapshot {
   agent: {
@@ -36,6 +36,8 @@ export interface WorkspaceLiveHandlers {
 }
 
 export interface WorkspaceLiveConnection {
+  /** id ของ socket นี้ (สร้างฝั่ง client ต่อหนึ่งการเชื่อมต่อ) — socket ใหม่ = id ใหม่ */
+  id?: string;
   close(): void;
 }
 
@@ -83,6 +85,7 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
       );
     },
     subscribeLive(handlers) {
+      const connectionId = crypto.randomUUID();
       const socket = new WebSocket(workspaceSocketUrl(options.baseUrl));
       socket.addEventListener('open', () => {
         const accessToken = options.accessToken();
@@ -94,7 +97,7 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
           JSON.stringify({
             type: 'auth:connect',
             accessToken,
-            tabId: crypto.randomUUID(),
+            tabId: connectionId,
           }),
         );
       });
@@ -106,7 +109,7 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
         }
       });
       socket.addEventListener('close', handlers.onDisconnect);
-      return { close: () => socket.close() };
+      return { id: connectionId, close: () => socket.close() };
     },
   };
 }
