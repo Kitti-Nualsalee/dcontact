@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "@d-contact/db": "workspace:*",
-    "@d-contact/shared": "workspace:*"
+    "@d-contact/shared": "workspace:*",
+    "prom-client": "^15"
   },
   "devDependencies": {
     "@d-contact/workspace-session": "workspace:*",
