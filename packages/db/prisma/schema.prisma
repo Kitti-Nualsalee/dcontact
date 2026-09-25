@@ -29,6 +29,9 @@ model Tenant {
   pfProvisioningRequests       PfProvisioningRequest[]
   settings                     TenantSettings?
   planBinding                  TenantPlanBinding?
+  navigationDefaultPins        NavigationTenantDefaultPins?
+  navigationUserPins           NavigationUserPins[]
+  navigationAuditEvents        NavigationAuditEvent[]
   businessHours                BusinessHours[]
   users                        User[]
   teams                        Team[]
@@ -5859,6 +5862,50 @@ model TenantPlanBinding {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@map("tenant_plan_bindings")
+}
+
+/// D1.12 (#451): หมุดแอปเริ่มต้นของ tenant (tenant ADMIN กำหนด) — ผู้ใช้ใหม่เห็นชุดนี้
+/// `appIds` คือ id ใน app registry ของ API ตามลำดับบน rail (≤15); `revision` ใช้กับ expectedRevision
+model NavigationTenantDefaultPins {
+  tenantId        String   @id @map("tenant_id") @db.Uuid
+  appIds          String[] @map("app_ids")
+  revision        Int
+  updatedByUserId String   @map("updated_by_user_id") @db.Uuid
+  updatedAt       DateTime @default(now()) @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@map("navigation_tenant_default_pins")
+}
+
+/// D1.12 (#451): หมุดที่ผู้ใช้ปรับทับชุดของ tenant — ไม่มีแถว = ใช้ชุดของ tenant
+model NavigationUserPins {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  appIds    String[] @map("app_ids")
+  revision  Int
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@id([tenantId, userId])
+  @@map("navigation_user_pins")
+}
+
+/// D1.12 (#451): audit ของการเปลี่ยนหมุดเริ่มต้นของ tenant — append-only สำหรับ role ของแอป
+model NavigationAuditEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  actorUserId   String   @map("actor_user_id") @db.Uuid
+  action        String
+  details       Json
+  correlationId String   @map("correlation_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt])
+  @@map("navigation_audit_events")
 }
 
 /// เวลาทำการของ tenant — baseline เป็น DRAFT จนกว่า Tenant Admin จะ review/activate
