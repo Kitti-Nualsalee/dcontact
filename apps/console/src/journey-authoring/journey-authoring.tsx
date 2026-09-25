@@ -45,6 +45,7 @@ import {
   type EditorAction,
   type EditorState,
 } from './state.js';
+import { serverTime } from './server-time.js';
 import { TemplateCatalog, TemplateUpgrade } from './templates.js';
 import './journey-authoring.css';
 
@@ -668,7 +669,9 @@ function PendingReviewList({
                     <code>{shortDigest(item.compileDigest)}</code>
                   </td>
                   <td>
-                    <time dateTime={item.submittedAt}>{formatters.dateTime(item.submittedAt)}</time>
+                    <time dateTime={item.submittedAt}>
+                      {serverTime(formatters, item.submittedAt)}
+                    </time>
                   </td>
                 </tr>
               ))}
@@ -835,7 +838,7 @@ function AuditTimeline({ api, journeyId }: { api: JourneyAuthoringApi; journeyId
         <ol className="j5-audit" aria-label={t('audit.listLabel')}>
           {items.map((entry) => (
             <li key={entry.id}>
-              <time dateTime={entry.occurredAt}>{formatters.dateTime(entry.occurredAt)}</time>{' '}
+              <time dateTime={entry.occurredAt}>{serverTime(formatters, entry.occurredAt)}</time>{' '}
               <strong>{entry.action}</strong> · {t('audit.user')}{' '}
               <code>{entry.actorSubjectId.slice(0, 8)}</code> · {t('audit.reason')}{' '}
               {entry.reasonCode} · {t('audit.correlation')} <code>{entry.correlationId}</code>

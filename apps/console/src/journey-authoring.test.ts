@@ -225,3 +225,12 @@ test('J5.6 session recovery ผูก scope/resource/base revision และล�
   saveRecovery(storage, key, []);
   assert.equal(storage.getItem(key), null);
 });
+
+test('D1.14 เวลาจาก server ที่ parse ไม่ได้แสดงค่าดิบแทนการโยน error ทั้งหน้า', async () => {
+  const { createFormatters } = await import('@d-contact/i18n');
+  const { serverTime } = await import('./journey-authoring/server-time.js');
+  const formatters = createFormatters({ locale: 'th', timeZone: 'Asia/Bangkok' });
+  assert.equal(serverTime(formatters, '2026-09-22T01:00:00.000Z'), '22 ก.ย. 2569 08:00');
+  assert.equal(serverTime(formatters, 'not-a-date'), 'not-a-date');
+  assert.equal(serverTime(formatters, ''), '');
+});
