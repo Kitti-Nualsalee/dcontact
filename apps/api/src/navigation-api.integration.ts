@@ -19,6 +19,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import {
   NAVIGATION_DATABASE,
@@ -104,6 +105,7 @@ async function harness(t: TestContext) {
       NAVIGATION_REGISTRY_PROVIDER,
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],
   })
