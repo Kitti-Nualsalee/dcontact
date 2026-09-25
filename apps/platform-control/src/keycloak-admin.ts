@@ -9,6 +9,8 @@
  * Keycloak 26.0: Organization admin API ต้องใช้ realm-management `manage-realm`
  * (ยังไม่มี fine-grained admin permission) — secret ของ client นี้จึงต้องอยู่เฉพาะ worker
  */
+import { SpanKind } from '@opentelemetry/api';
+import { keycloakOperation, setSpanAttributes, withSpan } from './platform-tracing.js';
 import { ProvisioningStepError } from './provisioning-saga.js';
 
 export interface KeycloakAdminOptions {
@@ -51,6 +53,24 @@ export class KeycloakAdminClient {
     method: Method,
     path: string,
     init: { body?: unknown; rawBody?: string; signal?: AbortSignal; accept?: number[] } = {},
+  ): Promise<KeycloakResponse<T>> {
+    // A1.8b: span ต่อ call — ชื่อเป็น path template (id → {id}, ไม่มี query ที่อาจมี email)
+    const operation = keycloakOperation(method, path);
+    return withSpan(
+      `keycloak ${operation}`,
+      { kind: SpanKind.CLIENT, attributes: { 'keycloak.operation': operation } },
+      async (span) => {
+        const response = await this.call<T>(method, path, init);
+        setSpanAttributes(span, { 'http.response.status_code': response.status });
+        return response;
+      },
+    );
+  }
+
+  private async call<T>(
+    method: Method,
+    path: string,
+    init: { body?: unknown; rawBody?: string; signal?: AbortSignal; accept?: number[] },
   ): Promise<KeycloakResponse<T>> {
     const accept = init.accept ?? [200, 201, 204];
     for (let round = 0; round < 2; round += 1) {

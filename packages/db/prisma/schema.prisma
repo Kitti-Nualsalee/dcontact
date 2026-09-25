@@ -5439,16 +5439,18 @@ model PfProvisioningRequest {
   terminalAt               DateTime?            @map("terminal_at")
   createdAt                DateTime             @default(now()) @map("created_at")
   updatedAt                DateTime             @updatedAt @map("updated_at")
+  /// A1.8b (#473): W3C traceparent ตอนรับคำขอ — worker ต่อ span เป็น trace เดียวกัน
+  traceParent              String?              @map("trace_parent")
 
-  tenant       Tenant                      @relation(fields: [tenantId], references: [id])
-  template     PfBootstrapTemplate         @relation(fields: [bootstrapTemplateVersion, bootstrapTemplateDigest], references: [version, contentDigest], map: "pf_provisioning_requests_template_pin_fkey")
-  plan         PfPlanVersion               @relation(fields: [planCode, planVersion, planSnapshotDigest], references: [planCode, version, snapshotDigest], onDelete: Restrict, onUpdate: Restrict, map: "pf_provisioning_requests_plan_pin_fkey")
-  steps        PfProvisioningStep[]
-  receipts     PfProvisioningStepReceipt[]
-  commands     PfCommandReceipt[]
-  reservations PfIdentityReservation[]
-  actions      PfActionHistory[]
-  invitations  PfInvitation[]
+  tenant           Tenant                      @relation(fields: [tenantId], references: [id])
+  template         PfBootstrapTemplate         @relation(fields: [bootstrapTemplateVersion, bootstrapTemplateDigest], references: [version, contentDigest], map: "pf_provisioning_requests_template_pin_fkey")
+  plan             PfPlanVersion               @relation(fields: [planCode, planVersion, planSnapshotDigest], references: [planCode, version, snapshotDigest], onDelete: Restrict, onUpdate: Restrict, map: "pf_provisioning_requests_plan_pin_fkey")
+  steps            PfProvisioningStep[]
+  receipts         PfProvisioningStepReceipt[]
+  commands         PfCommandReceipt[]
+  reservations     PfIdentityReservation[]
+  actions          PfActionHistory[]
+  invitations      PfInvitation[]
   payloadRevisions PfRequestPayloadRevision[]
   operatorCommands PfOperatorCommand[]
   emailRevisions   PfFirstAdminEmailRevision[]
@@ -5606,6 +5608,8 @@ model PfOperatorCommand {
   startedAt          DateTime?              @map("started_at")
   finishedAt         DateTime?              @map("finished_at")
   updatedAt          DateTime               @updatedAt @map("updated_at")
+  /// A1.8b (#473): W3C traceparent ของ request ที่ส่งคำสั่ง
+  traceParent        String?                @map("trace_parent")
 
   request PfProvisioningRequest @relation(fields: [tenantId, requestId], references: [tenantId, id], map: "pf_operator_commands_request_fkey")
 

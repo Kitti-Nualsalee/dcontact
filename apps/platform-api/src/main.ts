@@ -5,7 +5,11 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { PrismaClient } from '@d-contact/db';
-import { PlatformRollout, startMetricsServer } from '@d-contact/platform-control';
+import {
+  PlatformRollout,
+  startMetricsServer,
+  startPlatformTracing,
+} from '@d-contact/platform-control';
 import { Registry, collectDefaultMetrics } from 'prom-client';
 import { meteredDiagnostics } from './platform-metrics.js';
 import { PlatformApiModule } from './platform-api.module.js';
@@ -19,6 +23,9 @@ function required(name: string): string {
 }
 
 async function bootstrap() {
+  // A1.8b (#473): เปิดเมื่อตั้ง OTEL_EXPORTER_OTLP_ENDPOINT เท่านั้น
+  const tracing = startPlatformTracing({ serviceName: 'dcontact-platform-api' });
+  process.once('SIGTERM', () => void tracing.shutdown());
   const issuer = required('PLATFORM_OIDC_ISSUER');
   const verifier = JosePlatformAccessTokenVerifier.remote({
     issuer,

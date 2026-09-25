@@ -25,6 +25,7 @@ import {
   type PlatformProvisioningErrorCode,
   type ProvisioningRecoveryAction,
 } from '@d-contact/shared';
+import { currentTraceparent, setSpanAttributes, withSpan } from './platform-tracing.js';
 import { appendPlatformAction } from './action-history.js';
 import type { InvitationOutbox } from './invitation-outbox.js';
 import { platformIdentityHash } from './provisioning-input.js';
@@ -126,6 +127,7 @@ export class OperatorCommandIntake {
     const row = await this.database.pfOperatorCommand.create({
       data: {
         id: this.id(),
+        traceParent: currentTraceparent(),
         requestId: request.id,
         tenantId: request.tenantId,
         kind: 'PREVIEW',
@@ -277,6 +279,7 @@ export class OperatorCommandIntake {
         return transaction.pfOperatorCommand.create({
           data: {
             id: this.id(),
+            traceParent: currentTraceparent(),
             requestId: request.id,
             tenantId: request.tenantId,
             kind: 'EXECUTE',
@@ -389,11 +392,33 @@ export class OperatorCommandWorker {
         },
       });
       if (claimed.count !== 1) continue;
-      return this.process({
+      const command = {
         ...candidate,
         revision: candidate.revision + 1,
         attempt: candidate.attempt + 1,
-      });
+      };
+      return withSpan(
+        `operator.command ${command.kind}`,
+        {
+          parent: command.traceParent,
+          attributes: {
+            'dcontact.command_id': command.id,
+            'dcontact.request_id': command.requestId,
+            'dcontact.tenant_id': command.tenantId,
+            'dcontact.command_kind': command.kind,
+            'dcontact.action': command.action,
+            'dcontact.attempt': command.attempt,
+          },
+        },
+        async (span) => {
+          const result = await this.process(command);
+          setSpanAttributes(span, {
+            'dcontact.outcome': result.kind === 'FINISHED' ? result.state : result.kind,
+            'dcontact.code': result.kind === 'IDLE' ? undefined : (result.errorCode ?? undefined),
+          });
+          return result;
+        },
+      );
     }
     return { kind: 'IDLE' };
   }

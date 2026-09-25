@@ -112,6 +112,16 @@ services:
   # เครื่องมือของ dev ล้วน ๆ — ไม่มีเทสหรือสคริปต์ไหนเรียกใช้ จึงอยู่ใน profile แยกเพื่อ
   # ไม่ให้กิน memory ของ CI runner ระหว่าง acceptance (วัดได้ ~266 MiB) เปิดเองด้วย
   # `pnpm infra:console`
+  # A1.8b (#473): ดู trace ของ Platform provisioning ใน dev (`pnpm infra:tracing`) — รับ OTLP HTTP ที่ :4318
+  jaeger:
+    profiles: ['tools']
+    image: jaegertracing/all-in-one:1.60
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+    ports:
+      - '16686:16686'
+      - '4318:4318'
+
   redpanda-console:
     profiles: ['tools']
     image: redpandadata/console:v2.7.2
