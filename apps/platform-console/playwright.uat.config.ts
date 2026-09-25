@@ -7,6 +7,8 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './uat',
   timeout: 180_000,
+  // บัญชี operator เดียวกัน: OTP ใน window เดียวกันใช้ซ้ำไม่ได้ — รันทีละ test
+  workers: 1,
   use: { baseURL: 'http://localhost:5180', trace: 'retain-on-failure' },
   webServer: {
     command: 'pnpm exec vite --host localhost --port 5180 --strictPort',

@@ -26,6 +26,29 @@ async function login(page: Page) {
   expect(page.url()).not.toMatch(/[?&](code|state)=/);
 }
 
+/** user ของคนอื่นใน realm (ผ่าน master admin ของ dev) — ใช้จำลองอีเมลชนกับ identity เดิม */
+async function existingKeycloakIdentity(email: string) {
+  const base = 'http://localhost:8081';
+  const token = (await (
+    await fetch(`${base}/realms/master/protocol/openid-connect/token`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        grant_type: 'password',
+        client_id: 'admin-cli',
+        username: process.env.KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME ?? 'admin',
+        password: process.env.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? 'admin',
+      }),
+    })
+  ).json()) as { access_token: string };
+  const created = await fetch(`${base}/admin/realms/dcontact/users`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token.access_token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ username: email, email, enabled: true, emailVerified: true }),
+  });
+  expect(created.status).toBe(201);
+  return email;
+}
+
 async function createTenant(page: Page, slug: string, email: string) {
   await page.getByRole('button', { name: 'สร้าง tenant' }).first().click();
   await page.getByLabel('ชื่อลูกค้า / องค์กร').fill(`UAT ${slug}`);
@@ -62,9 +85,11 @@ test('UAT: create → track → search → timeline → recovery preview ผ่�
   await expect(timeline.getByText('Platform Operator').first()).toBeVisible();
   await expect(timeline.getByText('System').first()).toBeVisible();
 
-  // อีเมลที่เป็นของ tenant user เดิม → FIRST_ADMIN หยุดที่ ACTION_REQUIRED แล้วลอง preview recovery
+  // อีเมลที่เป็นของ identity อื่นใน Keycloak อยู่แล้ว → FIRST_ADMIN หยุดที่ ACTION_REQUIRED แล้วลอง
+  // preview recovery (สร้างใหม่ทุกรอบ — อีเมลที่คำขอเก่าจองไว้ถูกปฏิเสธตั้งแต่รับคำขอ)
+  const taken = await existingKeycloakIdentity(`uat-${run}-taken@uat.example.test`);
   await page.getByRole('button', { name: 'Tenants' }).click();
-  await createTenant(page, `uat-${run}-stuck`, 'admin@demo.local');
+  await createTenant(page, `uat-${run}-stuck`, taken);
   await expect(page.getByRole('heading', { name: 'ต้องการการตัดสินใจ' })).toBeVisible({
     timeout: 90_000,
   });

@@ -411,6 +411,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   INVITATION_RESEND_LIMITED: 'ส่งคำเชิญซ้ำเกิน 3 ครั้งต่อชั่วโมงแล้ว',
   SERVICE_UNAVAILABLE: 'ระบบไม่พร้อมชั่วคราว ลองใหม่อีกครั้ง',
   PROVISIONING_DISABLED: 'ระบบปิดการสร้างและแก้ไขชั่วคราว ดูสถานะได้ตามปกติ',
+  COMMAND_ATTEMPTS_EXHAUSTED:
+    'ตรวจสถานะของระบบภายนอกไม่สำเร็จ ลอง preview ใหม่เมื่อระบบภายนอกพร้อม',
   NETWORK: 'เชื่อมต่อ Platform API ไม่ได้ ลองใหม่อีกครั้ง',
 };
 
