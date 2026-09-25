@@ -129,6 +129,9 @@ model Tenant {
   obOriginateRolloutScopes     ObOriginateRolloutScope[]
   obOriginateRolloutAudit      ObOriginateRolloutAudit[]
 
+  agentWorkSessionLeases AgentWorkSessionLease[]
+  agentWorkSessionEvents AgentWorkSessionEvent[]
+
   @@map("tenants")
 }
 
@@ -158,6 +161,8 @@ model User {
   skills       AgentSkill[]
   stateLogs    AgentStateLog[]
   interactions Interaction[]
+
+  workSessionLeases AgentWorkSessionLease[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, extension])
@@ -5958,4 +5963,49 @@ model BusinessHours {
   @@unique([tenantId, name])
   @@unique([tenantId, id])
   @@map("business_hours")
+}
+
+/// E1.9 (#483): work-session lease — จุดรับงานเดียวต่อ agent ต่อ tenant ครอบทุก surface
+/// lease ที่ยังไม่ปล่อยมีได้อันเดียว (partial unique index ใน migration); ไม่หมดอายุระหว่างมีงาน
+model AgentWorkSessionLease {
+  id            String    @id @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  /// workspace | dphone | embedded
+  surface       String
+  /// เฉพาะ embedded: https origin ของระบบที่ฝัง dphone
+  hostOrigin    String?   @map("host_origin")
+  acquiredAt    DateTime  @map("acquired_at")
+  heartbeatAt   DateTime  @map("heartbeat_at")
+  expiresAt     DateTime  @map("expires_at")
+  releasedAt    DateTime? @map("released_at")
+  /// released | takeover | expired | auth_revoked
+  releaseReason String?   @map("release_reason")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@map("agent_work_session_leases")
+}
+
+/// E1.9 (#483): audit ของ work-session lease — append-only สำหรับ role ของแอป
+model AgentWorkSessionEvent {
+  id                       String   @id @db.Uuid
+  tenantId                 String   @map("tenant_id") @db.Uuid
+  userId                   String   @map("user_id") @db.Uuid
+  leaseId                  String   @map("lease_id") @db.Uuid
+  /// ACQUIRED | TAKEOVER | RELEASED | EXPIRED | AUTH_REVOKED
+  action                   String
+  surface                  String
+  hostOrigin               String?  @map("host_origin")
+  previousLeaseId          String?  @map("previous_lease_id") @db.Uuid
+  previousSurface          String?  @map("previous_surface")
+  requeuedInteractionCount Int      @default(0) @map("requeued_interaction_count")
+  correlationId            String   @map("correlation_id")
+  occurredAt               DateTime @map("occurred_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, occurredAt], map: "agent_work_session_events_tenant_idx")
+  @@map("agent_work_session_events")
 }
