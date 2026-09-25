@@ -11,6 +11,7 @@ import {
   fieldErrorsToDraft,
   isHandoffReady,
   parseRoute,
+  readOnlyCopy,
   routePath,
   shouldPoll,
   validateDraft,
@@ -160,4 +161,15 @@ test('timeline/error: คำอธิบายมีแค่ code/state แล�
   assert.equal(describeHistory(item), 'สร้าง First admin · attempt 2 · FIRST_ADMIN_EMAIL_CONFLICT');
   assert.equal(errorMessage({ code: 'REVISION_CONFLICT', title: 'x' }).includes('โหลดใหม่'), true);
   assert.equal(errorMessage({ code: 'SOMETHING_NEW', title: 'จาก API' }), 'จาก API');
+});
+
+test('A1.8 readOnlyCopy: แยก auditor, operator ที่ rollout ปิด และ operator นอก canary', () => {
+  const base = { subject: 's', roles: ['platform_operator'], capabilities: [], expiresAt: '' };
+  assert.equal(readOnlyCopy({ ...base, roles: ['platform_auditor'] }).banner, null);
+  assert.match(
+    readOnlyCopy({ ...base, mutations: 'DISABLED' }).banner ?? '',
+    /ปิดการสร้างและแก้ไข/,
+  );
+  assert.match(readOnlyCopy({ ...base, mutations: 'NOT_ALLOWLISTED' }).chip, /canary/);
+  assert.equal(errorMessage({ code: 'PROVISIONING_DISABLED', title: '' }).includes('ปิด'), true);
 });

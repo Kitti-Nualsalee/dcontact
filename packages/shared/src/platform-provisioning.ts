@@ -255,6 +255,8 @@ export const PLATFORM_PROVISIONING_ERROR_CODES = [
   'COMMAND_IN_PROGRESS',
   /** A1.6: control plane commit/read ไม่ได้ (ไม่ใช่ dependency ภายนอกหลังรับคำขอแล้ว) */
   'SERVICE_UNAVAILABLE',
+  /** A1.8: `platformProvisioning.enabled` ปิดอยู่ (rollback) — อ่านสถานะ/ประวัติได้ แต่ mutation ไม่ได้ */
+  'PROVISIONING_DISABLED',
   /** missing หรือ resource ของ tenant/request อื่น — ตอบเหมือนกันเพื่อไม่เผย existence */
   'NOT_FOUND',
 ] as const;
@@ -290,6 +292,11 @@ export const PLATFORM_ACTION_KINDS = [
   'SECURITY_DENIED',
   /** A1.5: operator แก้ field ที่ไม่ใช่ identity ก่อน step เจ้าของ field สำเร็จ */
   'REQUEST_EDITED',
+  /** A1.8: เหตุการณ์ onboarding ของ First admin ที่ reconcile จาก Keycloak (actor `FIRST_ADMIN`) */
+  'FIRST_ADMIN_EMAIL_VERIFIED',
+  'FIRST_ADMIN_PASSWORD_SET',
+  'FIRST_ADMIN_TOTP_ENROLLED',
+  'FIRST_ADMIN_ACTIVATED',
 ] as const;
 export type PlatformActionKind = (typeof PLATFORM_ACTION_KINDS)[number];
 
@@ -302,7 +309,13 @@ export const PROVISIONING_RECOVERY_ACTIONS = [
 ] as const;
 export type ProvisioningRecoveryAction = (typeof PROVISIONING_RECOVERY_ACTIONS)[number];
 
-export const PLATFORM_ACTOR_KINDS = ['PLATFORM_OPERATOR', 'PLATFORM_AUDITOR', 'SYSTEM'] as const;
+export const PLATFORM_ACTOR_KINDS = [
+  'PLATFORM_OPERATOR',
+  'PLATFORM_AUDITOR',
+  'SYSTEM',
+  /** A1.8: subject = Keycloak user id ของ first admin (opaque) */
+  'FIRST_ADMIN',
+] as const;
 export type PlatformActorKind = (typeof PLATFORM_ACTOR_KINDS)[number];
 
 // ── Operational input (canonicalization อยู่ฝั่ง `@d-contact/platform-control`) ───

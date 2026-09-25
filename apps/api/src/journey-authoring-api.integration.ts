@@ -162,6 +162,7 @@ async function harness(
       uatRuns: {},
       verifier,
       diagnostics: { write: () => undefined },
+      lifecycle: { isActive: async () => true },
       status: {
         profile,
         routeGuard,

@@ -4,6 +4,7 @@ import { after, before, describe, test } from 'node:test';
 import { Controller, Get, Post } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
+import { PlatformRollout, type PlatformRolloutState } from '@d-contact/platform-control';
 import { toVerifiedWorkspaceIdentity } from '@d-contact/workspace-session';
 import {
   PlatformIdentityError,
@@ -191,6 +192,7 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
   let signer: TestSigner & { forger: TestSigner['sign'] };
   const diagnostics: PlatformAuthDiagnostic[] = [];
   const tokens: Record<string, string> = {};
+  const rollout: PlatformRolloutState = { enabled: true, allowlist: ['sub-platform_operator'] };
 
   before(async () => {
     signer = await createTestSigner();
@@ -199,6 +201,7 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
         verifier: signer.verifier,
         diagnostics: { write: (diagnostic) => diagnostics.push(diagnostic) },
         clock: () => TEST_NOW,
+        rollout: new PlatformRollout(() => rollout),
         controllers: [ProbeController],
       }),
       { logger: false },
@@ -211,6 +214,9 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
     tokens.mixed = await signer.sign(platformClaims('platform_operator', { tenant_id: 't-1' }));
     tokens.noOtp = await signer.sign(platformClaims('platform_operator', { amr: ['pwd'] }));
     tokens.forged = await signer.forger(platformClaims('platform_operator'));
+    tokens.outsider = await signer.sign(
+      platformClaims('platform_operator', { sub: 'sub-not-in-canary' }),
+    );
   });
   after(async () => {
     await app.close();
@@ -272,10 +278,53 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
         subject: 'sub-platform_auditor',
         roles: ['platform_auditor'],
         capabilities: ['CONTROL_PLANE_READ'],
+        mutations: 'NOT_GRANTED',
         expiresAt: new Date(TEST_NOW.getTime() + 300_000).toISOString(),
       },
     });
     assert.equal((await call('/health/live')).status, 200);
+  });
+
+  test('A1.8 canary: operator นอก allowlist mutate ไม่ได้ (403) แต่อ่านได้ และ session เป็นอ่านอย่างเดียว', async () => {
+    assert.equal((await call('/api/v1/probe', tokens.outsider)).status, 200);
+    const denied = await call('/api/v1/probe', tokens.outsider, 'POST');
+    assert.deepEqual([denied.status, denied.body.code], [403, 'FORBIDDEN']);
+    const session = await call('/api/v1/session', tokens.outsider);
+    assert.deepEqual(
+      [session.body.capabilities, session.body.mutations],
+      [['CONTROL_PLANE_READ'], 'NOT_ALLOWLISTED'],
+    );
+    const allowed = await call('/api/v1/session', tokens.operator);
+    assert.deepEqual(
+      [allowed.body.capabilities, allowed.body.mutations],
+      [['CONTROL_PLANE_READ', 'PROVISIONING_MUTATE'], 'ALLOWED'],
+    );
+  });
+
+  test('A1.8 rollback: flag ปิด = mutate 503 PROVISIONING_DISABLED (ไม่ retryable), อ่านได้ปกติ', async (t) => {
+    rollout.enabled = false;
+    t.after(() => {
+      rollout.enabled = true;
+    });
+    const disabled = await call('/api/v1/probe', tokens.operator, 'POST');
+    assert.deepEqual(disabled, {
+      status: 503,
+      body: {
+        status: 503,
+        code: 'PROVISIONING_DISABLED',
+        title: 'ปิดการสร้างและแก้ไขชั่วคราว ดูสถานะได้ตามปกติ',
+        correlationId: 'corr-probe-1',
+        retryable: false,
+      },
+    });
+    assert.equal((await call('/api/v1/probe', tokens.operator)).status, 200);
+    // auditor ยังได้ 403 เหมือนเดิม — flag ไม่เปลี่ยนสิทธิ์ของ role
+    assert.equal((await call('/api/v1/probe', tokens.auditor, 'POST')).status, 403);
+    const session = await call('/api/v1/session', tokens.operator);
+    assert.deepEqual(
+      [session.body.capabilities, session.body.mutations],
+      [['CONTROL_PLANE_READ'], 'DISABLED'],
+    );
   });
 
   test('diagnostics มีเหตุผลเชิงลึกแต่ไม่มี token หรือ PII', async () => {
@@ -288,6 +337,8 @@ describe('PlatformAuthGuard ผ่าน HTTP จริง', () => {
       'MISSING_BEARER',
       'CAPABILITY_NOT_GRANTED',
       'ROUTE_UNDECLARED',
+      'ROLLOUT_NOT_ALLOWLISTED',
+      'PROVISIONING_DISABLED',
     ]) {
       assert.ok(reasons.has(reason as never), `ขาด diagnostic reason ${reason}`);
     }

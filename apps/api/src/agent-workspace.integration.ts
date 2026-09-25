@@ -17,6 +17,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 
 const owner = new PrismaClient();
@@ -173,6 +174,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
       { provide: AGENT_WORKSPACE_DATABASE, useValue: application },
       { provide: AGENT_SIP_LEASE_PROVIDER, useValue: leaseProvider },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],

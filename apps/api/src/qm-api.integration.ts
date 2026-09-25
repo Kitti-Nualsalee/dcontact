@@ -11,6 +11,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
 
@@ -206,6 +207,7 @@ test('supervisor starts manual transcription, audits transcript access, and huma
         useValue: { publish: async (job: unknown) => publishedJobs.push(job) },
       },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],
