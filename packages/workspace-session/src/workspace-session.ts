@@ -353,6 +353,46 @@ export class WorkspaceSessionRegistry {
 }
 
 /**
+ * A1.8a (#447): tenant ต้อง `ACTIVE` ก่อนเข้า tenant applications ได้ (#393 isolation matrix)
+ * — tenant ที่ยัง PROVISIONING (หรือไม่มีอยู่) ถูกปฏิเสธแบบเดียวกับ token ใช้ไม่ได้
+ */
+export interface TenantLifecycleGate {
+  isActive(tenantId: string): Promise<boolean>;
+}
+
+/**
+ * cache เฉพาะผล ACTIVE (lifecycle ย้อนกลับจาก ACTIVE ไม่ได้ใน A1) — ผลอื่นถามใหม่ทุกครั้ง
+ * จึงเปิดให้ทันทีที่ provisioning ทำ tenant เป็น ACTIVE; loader ล้ม = ปฏิเสธ (fail closed)
+ */
+export class CachedTenantLifecycleGate implements TenantLifecycleGate {
+  private readonly active = new Map<string, number>();
+
+  constructor(
+    private readonly loader: (tenantId: string) => Promise<string | null | undefined>,
+    private readonly options: { ttlMs?: number; now?: () => number; maxEntries?: number } = {},
+  ) {}
+
+  async isActive(tenantId: string): Promise<boolean> {
+    const now = (this.options.now ?? Date.now)();
+    const cachedUntil = this.active.get(tenantId);
+    if (cachedUntil !== undefined && cachedUntil > now) return true;
+    let status: string | null | undefined;
+    try {
+      status = await this.loader(tenantId);
+    } catch {
+      return false;
+    }
+    if (status !== 'ACTIVE') {
+      this.active.delete(tenantId);
+      return false;
+    }
+    if (this.active.size >= (this.options.maxEntries ?? 10_000)) this.active.clear();
+    this.active.set(tenantId, now + (this.options.ttlMs ?? 60_000));
+    return true;
+  }
+}
+
+/**
  * Transport-facing boundary for REST and WebSocket adapters. The adapter must
  * provide a verifier backed by Keycloak JWKS; this class never accepts tenant
  * context from a browser request.
@@ -361,6 +401,7 @@ export class WorkspaceSessionGateway {
   constructor(
     private readonly verifier: OidcAccessTokenVerifier,
     private readonly registry: WorkspaceSessionRegistry,
+    private readonly lifecycle: TenantLifecycleGate,
     private readonly now: Clock = () => new Date(),
   ) {}
 
@@ -401,6 +442,9 @@ export class WorkspaceSessionGateway {
     if (!identity.roles.some((role) => ['agent', 'supervisor', 'admin'].includes(role))) {
       throw new WorkspaceAuthorizationError();
     }
+    // tenant ที่ยังไม่ ACTIVE = เหมือน token ใช้ไม่ได้ (ไม่เผยสถานะ provisioning)
+    if (!(await this.lifecycle.isActive(identity.tenantId)))
+      throw new WorkspaceAuthenticationError();
     return identity;
   }
 }

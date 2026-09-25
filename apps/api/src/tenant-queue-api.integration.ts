@@ -11,6 +11,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import {
   QueueAuditController,
@@ -74,6 +75,7 @@ test('queue management REST API allows tenant Admin and rejects Agent mutation',
     providers: [
       { provide: TENANT_QUEUE_DATABASE, useValue: application },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],

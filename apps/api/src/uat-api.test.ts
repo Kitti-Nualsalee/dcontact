@@ -46,6 +46,7 @@ async function startUatApi(t: test.TestContext) {
       },
     },
     diagnostics: { write: () => undefined },
+    lifecycle: { isActive: async () => true },
     status: {
       profile,
       routeGuard,

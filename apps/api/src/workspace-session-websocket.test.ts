@@ -9,6 +9,9 @@ import {
 } from '@d-contact/workspace-session';
 import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
 
+/** A1.8a (#447): tenant ของ fixture เป็น ACTIVE — การปฏิเสธ PROVISIONING มีเทสต์ของตัวเอง */
+const ACTIVE_TENANTS = { isActive: async () => true };
+
 test('workspace WebSocket runtime forwards the authenticated handshake without client tenant data', async () => {
   let received: unknown;
   let receivedCorrelationId: string | undefined;
@@ -67,6 +70,7 @@ test('workspace WebSocket ignores caller tenant data and uses the verified token
       }),
     },
     new WorkspaceSessionRegistry(),
+    ACTIVE_TENANTS,
   );
   const server = createServer();
   const sockets = attachWorkspaceSessionWebSocket(
@@ -119,6 +123,7 @@ test('workspace live events reach only their tenant-scoped supervisor recipients
       }),
     },
     new WorkspaceSessionRegistry(),
+    ACTIVE_TENANTS,
   );
   const adapter = new WorkspaceSessionWebSocketAdapter(gateway);
   const messagesA: string[] = [];
@@ -165,6 +170,7 @@ test('workspace socket rejects routing acknowledgement messages', async () => {
       }),
     },
     new WorkspaceSessionRegistry(),
+    ACTIVE_TENANTS,
   );
   const adapter = new WorkspaceSessionWebSocketAdapter(gateway);
   const closed: [number, string][] = [];
