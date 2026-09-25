@@ -7,7 +7,7 @@ import {
   Web,
   type Session,
 } from 'sip.js';
-import type { BrowserSipTransport, SipCredentialLease } from './softphone.js';
+import type { BrowserSipTransport, SipCredentialLease } from './dphone.js';
 
 export interface SipJsTransportCallbacks {
   onInvitation?(): void;
@@ -100,6 +100,10 @@ export class SipJsBrowserTransport implements BrowserSipTransport {
     const session = this.requiredSession();
     if (session.state === SessionState.Established) await session.bye();
     else await session.reject();
+  }
+
+  sessionId(): string | undefined {
+    return this.session?.id;
   }
 
   setMuted(muted: boolean): void {

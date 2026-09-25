@@ -1,0 +1,190 @@
+/* D1.15 (#454): dphone widget — token ล้วน (stylelint) */
+.dp-widget {
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+  box-shadow: var(--dc-shadow-floating);
+  color: var(--dc-text-primary);
+  font-size: var(--dc-text-sm);
+  overflow: hidden;
+}
+
+.dp-floating {
+  position: fixed;
+  z-index: 60;
+}
+
+.dp-bar {
+  width: 280px;
+}
+
+.dp-expanded {
+  width: 340px;
+}
+
+.dp-header {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-4);
+  min-height: var(--dc-control-md);
+  padding: var(--dc-space-2) var(--dc-space-3) var(--dc-space-2) var(--dc-space-5);
+  background: var(--dc-surface-brand);
+  color: var(--dc-text-on-brand);
+  touch-action: none;
+}
+
+.dp-floating .dp-header {
+  cursor: grab;
+}
+
+.dp-name {
+  font-weight: var(--dc-weight-bold);
+}
+
+.dp-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--dc-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dp-sizes {
+  display: flex;
+  gap: var(--dc-space-1);
+}
+
+.dp-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dc-control-sm);
+  height: var(--dc-control-sm);
+  border: 0;
+  border-radius: var(--dc-radius-md);
+  background: transparent;
+  color: var(--dc-text-on-brand);
+  cursor: pointer;
+}
+
+.dp-icon-button:hover {
+  background: color-mix(in srgb, var(--dc-text-on-brand) 16%, transparent);
+}
+
+.dp-icon-button[aria-pressed='true'] {
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-brand-strong);
+}
+
+.dp-icon-button:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring-inverse);
+}
+
+.dp-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+  padding: var(--dc-space-5);
+}
+
+.dp-bar .dp-body {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--dc-space-3) var(--dc-space-5);
+}
+
+.dp-call {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-1);
+  min-width: 0;
+}
+
+.dp-caller {
+  overflow: hidden;
+  font-size: var(--dc-text-md);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dp-bar .dp-caller {
+  font-size: var(--dc-text-sm);
+}
+
+.dp-queue {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}
+
+.dp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-3);
+}
+
+.dp-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--dc-space-3);
+}
+
+.dp-keypad button {
+  height: var(--dc-control-md);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-primary);
+  font: inherit;
+  font-size: var(--dc-text-md);
+  font-weight: var(--dc-weight-semibold);
+  cursor: pointer;
+}
+
+.dp-keypad button:hover:not(:disabled) {
+  border-color: var(--dc-border-strong);
+  background: var(--dc-surface-hover);
+}
+
+.dp-keypad button:disabled {
+  color: var(--dc-text-disabled);
+  cursor: not-allowed;
+}
+
+.dp-keypad button:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+.dp-detached-note {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}
+
+/* หน้า /dphone: widget เต็มหน้าต่าง */
+.dp-page {
+  display: flex;
+  min-height: 100vh;
+  background: var(--dc-surface-page);
+}
+
+.dp-page .dp-widget {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.dp-page-message {
+  margin: auto;
+  padding: var(--dc-space-8);
+  color: var(--dc-text-secondary);
+  text-align: center;
+}

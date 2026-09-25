@@ -1,0 +1,41 @@
+{
+  "name": "dphone",
+  "region": "dphone",
+  "phase": {
+    "OFFLINE": "โทรศัพท์ยังไม่พร้อม",
+    "REGISTERING": "กำลังลงทะเบียนโทรศัพท์",
+    "READY": "โทรศัพท์พร้อม",
+    "RINGING": "มีสายเรียกเข้า",
+    "CONNECTING": "กำลังเชื่อมต่อสาย",
+    "ACTIVE": "กำลังสนทนา",
+    "HELD": "พักสาย",
+    "RECONNECTING": "กำลังกู้คืนโทรศัพท์",
+    "RECOVERY_REQUIRED": "ต้องกู้คืนโทรศัพท์ด้วยตนเอง"
+  },
+  "size": {
+    "label": "ขนาดของ dphone",
+    "bar": "ย่อเป็นแถบ",
+    "compact": "กะทัดรัด",
+    "expanded": "ขยายพร้อมแป้นกด"
+  },
+  "detach": "แยก dphone เป็นหน้าต่าง",
+  "attach": "กลับมาที่ Workspace",
+  "detached": "dphone เปิดอยู่ในหน้าต่างแยก",
+  "dragHint": "ลากเพื่อย้ายตำแหน่ง",
+  "accept": "รับสาย",
+  "mute": "ปิดไมค์",
+  "unmute": "เปิดไมค์",
+  "hold": "พักสาย",
+  "resume": "กลับเข้าสาย",
+  "hangup": "วางสาย",
+  "dtmfPad": "แป้น DTMF",
+  "dtmf": "ส่ง DTMF {{value}}",
+  "noNumber": "ไม่แสดงหมายเลข",
+  "noCall": "ไม่มีสาย",
+  "page": {
+    "title": "dphone",
+    "waiting": "กำลังเชื่อมต่อกับ Workspace…",
+    "noHost": "ไม่พบ Workspace ที่ทำงานอยู่ เปิด Agent Workspace ในแท็บทำงานก่อน แล้ววาง dphone ออกมาอีกครั้ง",
+    "closed": "Workspace ปิด dphone หน้าต่างนี้แล้ว"
+  }
+}

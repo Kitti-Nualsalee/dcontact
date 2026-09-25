@@ -5,7 +5,7 @@
  * softphone/WS ของสายที่คุยอยู่ (ADR-026) — ระหว่างรอคำตอบจึงแสดงสถานะเตรียมหน้าจอแทนการ render ก่อน
  * token โหลดแบบ dynamic เฉพาะเมื่อเปิด shell (มีกฎ global ของ html/body) — ปิด flag = หน้าเดิมทุกประการ
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import {
   ShellFrame,
@@ -14,6 +14,7 @@ import {
   useShellNavigation,
   type HostApp,
 } from '@d-contact/ui-react';
+import { useShellTokens } from './tokens.js';
 
 export type WorkspaceShellApp = 'agent-workspace' | 'supervisor-workspace';
 
@@ -24,12 +25,6 @@ function hostOrigins(): Partial<Record<HostApp, string>> {
     console: env.VITE_CONSOLE_URL ?? (import.meta.env.DEV ? 'http://localhost:5174' : undefined),
     workspace: env.VITE_WORKSPACE_URL ?? window.location.origin,
   };
-}
-
-let tokensLoaded: Promise<unknown> | undefined;
-function loadShellTokens() {
-  tokensLoaded ??= import('@d-contact/ui/tokens.css');
-  return tokensLoaded;
 }
 
 export interface WorkspaceShellProps {
@@ -63,11 +58,7 @@ export function WorkspaceShell({
         { timeout: 6000 },
       ),
   });
-  const [tokensReady, setTokensReady] = useState(false);
-  useEffect(() => {
-    if (nav.status !== 'ready') return;
-    void loadShellTokens().then(() => setTokensReady(true));
-  }, [nav.status]);
+  const tokensReady = useShellTokens(nav.status === 'ready');
 
   if (nav.status === 'legacy') return <>{children}</>;
   if (nav.status === 'loading' || !tokensReady) {

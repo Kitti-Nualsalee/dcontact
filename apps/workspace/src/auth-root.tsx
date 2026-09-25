@@ -9,14 +9,14 @@ import {
   resolveAuthorizedWorkspaceView,
   resolveTenantAlias,
 } from './auth-session.js';
-import { SipJsBrowserTransport } from './sip-js-transport.js';
-import { BrowserSoftphone } from './softphone.js';
+import { SipJsBrowserTransport } from './dphone/sip-js-transport.js';
+import { BrowserDphone } from './dphone/dphone.js';
 import { createSupervisorWorkspaceApi } from './supervisor-api.js';
 import { SupervisorWorkspace } from './supervisor-workspace.js';
-import { WorkspaceApp, type SoftphoneFactory } from './workspace-app.js';
+import { WorkspaceApp, type DphoneFactory } from './workspace-app.js';
 
-const createProductionSoftphone: SoftphoneFactory = (remoteAudio, callbacks) =>
-  new BrowserSoftphone(new SipJsBrowserTransport(remoteAudio, callbacks));
+const createProductionDphone: DphoneFactory = (remoteAudio, callbacks) =>
+  new BrowserDphone(new SipJsBrowserTransport(remoteAudio, callbacks));
 
 function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorkspaceProps) {
   const auth = useAuth();
@@ -99,7 +99,7 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
         api={agentApi}
         tenantLabel={tenantAlias}
         onSignOut={() => void auth.signoutRedirect()}
-        createSoftphone={createProductionSoftphone}
+        createDphone={createProductionDphone}
       />
     </WorkspaceShell>
   );

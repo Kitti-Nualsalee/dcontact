@@ -1,0 +1,108 @@
+{
+  "snapshotLoadFailed": "Could not load status from the API; remote control is not available yet",
+  "offerConfirmFailed": "Could not confirm the incoming offer with the API",
+  "autoplayBlocked": "The browser blocked incoming call audio. Allow audio playback and try again.",
+  "micEnded": "The microphone stopped. New calls are closed; check your audio device again.",
+  "micBlocked": "Workspace cannot use the microphone. Allow access or connect an audio device and try again.",
+  "registerFailed": "dphone registration failed, so new calls stay closed",
+  "wrapupFailed": "Could not submit the disposition. Try again with the same data.",
+  "readiness": {
+    "UNCHECKED": "Device not checked",
+    "CHECKING": "Checking audio device",
+    "READY": "Audio device ready",
+    "BLOCKED": "Audio device not ready"
+  },
+  "legacy": {
+    "railLabel": "Main areas",
+    "overview": "Overview",
+    "agentWorkspace": "Agent Workspace",
+    "supervisor": "Supervisor",
+    "brand": "D-Contact",
+    "navLabel": "AGENT WORKSPACE",
+    "inbox": "My inbox",
+    "history": "Contact history",
+    "pilot": "INBOUND VOICE · PILOT",
+    "logoAlt": "D-Contact"
+  },
+  "status": {
+    "label": "Workspace status",
+    "owner": "Workspace owner",
+    "checking": "Checking tab",
+    "working": "Working tab",
+    "passive": "View-only tab",
+    "available": "AVAILABLE",
+    "offline": "OFFLINE",
+    "dphone": "dphone status",
+    "signOut": "Sign out"
+  },
+  "heading": {
+    "eyebrow": "VOICE OPERATIONS",
+    "title": "Agent Workspace",
+    "lede": "Get your browser and audio device ready before taking calls",
+    "phase": "PHASE 2"
+  },
+  "governance": {
+    "ready": "Contact checked",
+    "required": "Contact must be checked before outbound",
+    "retry": "Reconnect status"
+  },
+  "grid": "Call readiness",
+  "offer": {
+    "step": "VOICE OFFER",
+    "title": "Incoming call",
+    "noNumber": "Number withheld",
+    "queue": "Queue",
+    "authority": "Authority",
+    "version": "Interaction v{{version}}",
+    "unknownQueue": "Not specified"
+  },
+  "controls": {
+    "step": "DPHONE",
+    "title": "Call controls"
+  },
+  "wrapup": {
+    "step": "WRAP-UP",
+    "title": "After-call wrap-up",
+    "copy": "Submit a disposition before returning to available",
+    "choose": "Choose a disposition",
+    "assisted": "Customer assisted",
+    "followUp": "Follow-up required",
+    "submit": "Submit disposition",
+    "pending": "Waiting for server confirmation"
+  },
+  "media": {
+    "step": "Step 1",
+    "title": "Prepare audio device",
+    "indicator": "Audio device readiness",
+    "copy": "The system asks for the microphone and checks that the browser can open a media stream before allowing voice offers",
+    "device": "MIC",
+    "mic": "Primary microphone",
+    "micHint": "Checked through browser MediaDevices",
+    "checking": "Checking…",
+    "check": "Check audio device"
+  },
+  "availability": {
+    "step": "Step 2",
+    "title": "Call availability",
+    "ready": "Available for calls",
+    "notReady": "Not available for calls",
+    "readyHint": "The router can send voice offers to this working tab",
+    "notReadyHint": "Pass the audio device check before opening for calls",
+    "open": "Open for calls"
+  },
+  "authority": {
+    "step": "Authority boundary",
+    "title": "Trusted state",
+    "interaction": "Interaction",
+    "routerApi": "Router / API",
+    "media": "Browser media",
+    "presence": "Presence",
+    "note": "The browser shows a projection and sends intents only; it never creates durable interaction state"
+  },
+  "passive": {
+    "eyebrow": "SINGLE WORKING TAB",
+    "title": "Workspace is working in another tab",
+    "body": "This tab is view-only and will not open routing or a media session until you move work here",
+    "move": "Move work to this tab"
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "snapshotLoadFailed": "โหลดสถานะจาก API ไม่สำเร็จ การควบคุมระยะไกลจะยังไม่พร้อมใช้งาน",
+  "offerConfirmFailed": "ยืนยัน incoming offer กับ API ไม่สำเร็จ",
+  "autoplayBlocked": "Browser บล็อกเสียงสายเข้า โปรดกดอนุญาตเล่นเสียงแล้วลองอีกครั้ง",
+  "micEnded": "ไมโครโฟนหยุดทำงาน ระบบปิดรับสายใหม่แล้ว โปรดตรวจอุปกรณ์เสียงอีกครั้ง",
+  "micBlocked": "Workspace ใช้ไมโครโฟนไม่ได้ โปรดอนุญาตสิทธิ์หรือเชื่อมต่ออุปกรณ์เสียงแล้วลองใหม่",
+  "registerFailed": "ลงทะเบียน dphone ไม่สำเร็จ ระบบจึงยังไม่เปิดรับสายใหม่",
+  "wrapupFailed": "ส่ง disposition ไม่สำเร็จ โปรดลองใหม่ด้วยข้อมูลเดิม",
+  "readiness": {
+    "UNCHECKED": "ยังไม่ได้ตรวจอุปกรณ์",
+    "CHECKING": "กำลังตรวจอุปกรณ์เสียง",
+    "READY": "อุปกรณ์เสียงพร้อม",
+    "BLOCKED": "อุปกรณ์เสียงไม่พร้อม"
+  },
+  "legacy": {
+    "railLabel": "พื้นที่หลัก",
+    "overview": "ภาพรวม",
+    "agentWorkspace": "Agent Workspace",
+    "supervisor": "Supervisor",
+    "brand": "D-Contact",
+    "navLabel": "AGENT WORKSPACE",
+    "inbox": "กล่องงานของฉัน",
+    "history": "ประวัติการติดต่อ",
+    "pilot": "INBOUND VOICE · PILOT",
+    "logoAlt": "D-Contact"
+  },
+  "status": {
+    "label": "สถานะ Workspace",
+    "owner": "เจ้าของ Workspace",
+    "checking": "กำลังตรวจแท็บ",
+    "working": "แท็บทำงาน",
+    "passive": "แท็บดูอย่างเดียว",
+    "available": "AVAILABLE",
+    "offline": "OFFLINE",
+    "dphone": "สถานะ dphone",
+    "signOut": "ออกจากระบบ"
+  },
+  "heading": {
+    "eyebrow": "VOICE OPERATIONS",
+    "title": "Agent Workspace",
+    "lede": "เตรียม browser และอุปกรณ์เสียงให้พร้อมก่อนเปิดรับสาย",
+    "phase": "PHASE 2"
+  },
+  "governance": {
+    "ready": "ตรวจสอบการติดต่อแล้ว",
+    "required": "ต้องตรวจสอบการติดต่อก่อน outbound",
+    "retry": "ลองเชื่อมต่อสถานะใหม่"
+  },
+  "grid": "การเตรียมพร้อมรับสาย",
+  "offer": {
+    "step": "VOICE OFFER",
+    "title": "สายเรียกเข้า",
+    "noNumber": "ไม่แสดงหมายเลข",
+    "queue": "Queue",
+    "authority": "Authority",
+    "version": "Interaction v{{version}}",
+    "unknownQueue": "ไม่ระบุ"
+  },
+  "controls": {
+    "step": "DPHONE",
+    "title": "ควบคุมสาย"
+  },
+  "wrapup": {
+    "step": "WRAP-UP",
+    "title": "สรุปผลหลังสาย",
+    "copy": "ส่ง disposition ก่อนกลับสู่สถานะรับงาน",
+    "choose": "เลือก disposition",
+    "assisted": "ลูกค้าได้รับความช่วยเหลือ",
+    "followUp": "ต้องติดตามต่อ",
+    "submit": "ส่ง disposition",
+    "pending": "กำลังรอ server ยืนยัน"
+  },
+  "media": {
+    "step": "ขั้นตอนที่ 1",
+    "title": "เตรียมอุปกรณ์เสียง",
+    "indicator": "ความพร้อมของอุปกรณ์เสียง",
+    "copy": "ระบบจะขอใช้ไมโครโฟนและตรวจว่า browser เปิด media stream ได้ ก่อนอนุญาตให้รับ voice offer",
+    "device": "MIC",
+    "mic": "ไมโครโฟนหลัก",
+    "micHint": "ตรวจผ่าน Browser MediaDevices",
+    "checking": "กำลังตรวจ…",
+    "check": "ตรวจอุปกรณ์เสียง"
+  },
+  "availability": {
+    "step": "ขั้นตอนที่ 2",
+    "title": "สถานะการรับสาย",
+    "ready": "พร้อมรับสาย",
+    "notReady": "ยังไม่พร้อมรับสาย",
+    "readyHint": "Router สามารถส่ง voice offer มายัง working tab นี้ได้",
+    "notReadyHint": "ต้องตรวจอุปกรณ์เสียงให้ผ่านก่อนเปิดรับสาย",
+    "open": "เปิดรับสาย"
+  },
+  "authority": {
+    "step": "ขอบเขต authority",
+    "title": "สถานะที่เชื่อถือได้",
+    "interaction": "Interaction",
+    "routerApi": "Router / API",
+    "media": "Browser media",
+    "presence": "Presence",
+    "note": "Browser แสดง projection และส่ง intent เท่านั้น ไม่สร้าง durable Interaction state เอง"
+  },
+  "passive": {
+    "eyebrow": "SINGLE WORKING TAB",
+    "title": "Workspace ทำงานอยู่ในแท็บอื่น",
+    "body": "แท็บนี้ดูข้อมูลได้อย่างเดียวและจะไม่เปิด routing หรือ media session จนกว่าคุณจะย้ายงานมาที่นี่",
+    "move": "ย้ายงานมาที่แท็บนี้"
+  }
+}

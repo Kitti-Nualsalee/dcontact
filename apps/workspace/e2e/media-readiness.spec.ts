@@ -12,9 +12,7 @@ test('Agent เปิดรับสายได้หลัง browser ยื�
   await expect(page.getByRole('status', { name: 'ความพร้อมของอุปกรณ์เสียง' })).toHaveText(
     'อุปกรณ์เสียงพร้อม',
   );
-  await expect(page.getByRole('status', { name: 'สถานะ browser softphone' })).toHaveText(
-    'โทรศัพท์พร้อม',
-  );
+  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('โทรศัพท์พร้อม');
   await expect(page.getByRole('button', { name: 'เปิดรับสาย' })).toBeEnabled();
 
   await page.getByRole('button', { name: 'เปิดรับสาย' }).click();
