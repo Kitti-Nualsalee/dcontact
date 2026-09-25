@@ -5,6 +5,12 @@
  * ports จึงไม่ต้องมี Keycloak — ครอบ permission matrix, tenant/mixed token, idempotency, stale
  * revision, target swap, concurrent recovery, generic 404, 429 + Retry-After, 503 และ dependency
  * failure หลังรับคำขอ
+ *
+ * A1.8b (#473): trace เดียวต่อคำขอ — HTTP → saga step ทุก attempt (รวมหลัง worker restart) และ
+ * operator command ต่อจาก traceparent ใน DB โดยไม่มี email/slug/domain ใน span
+ *
+ * A1.8 (#413) rollback drill: ปิด `platformProvisioning.enabled` ระหว่างมีงานค้าง → mutation ถูกปิด,
+ * อ่านได้ปกติ, worker ไม่รับงาน, ledger ไม่เปลี่ยน → เปิดอีกครั้ง (deploy fix) แล้ว resume จนจบ
  */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -13,9 +19,14 @@ import { after, before, describe, test } from 'node:test';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
 import { PrismaClient } from '@d-contact/db';
+import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-base';
 import {
   createFakeProvisioningPorts,
+  createPlatformWorkerLoop,
   OperatorCommandWorker,
+  PlatformRollout,
+  startPlatformTracing,
+  type PlatformRolloutState,
   PlatformCatalog,
   ProvisioningRecoveryService,
   ProvisioningSagaWorker,
@@ -54,6 +65,7 @@ const commands = new OperatorCommandWorker(
   { workerId: `api-commands-${run}`, scope: () => ({ tenantId: { in: [...tenants] } }) },
 );
 
+const rollout: PlatformRolloutState = { enabled: true, allowlist: ['sub-platform_operator'] };
 let app: INestApplication;
 let baseUrl: string;
 const diagnostics: PlatformAuthDiagnostic[] = [];
@@ -123,6 +135,10 @@ async function actionRequired() {
   return (await call('GET', `/api/v1/provisioning-requests/${request.requestId}`)).body;
 }
 
+// A1.8b: in-memory exporter ทั้งไฟล์ (process แยกต่อไฟล์) — tracing จริงเปิดด้วย OTLP env
+const spans = new InMemorySpanExporter();
+const tracing = startPlatformTracing({ serviceName: 'platform-api-test', exporter: spans });
+
 before(async () => {
   await catalog.publishBootstrapTemplate({
     version: templateVersion,
@@ -151,6 +167,7 @@ before(async () => {
       verifier: signer.verifier,
       diagnostics: { write: (diagnostic) => diagnostics.push(diagnostic) },
       clock: () => TEST_NOW,
+      rollout: new PlatformRollout(() => rollout),
       services: createPlatformServices(platform, { sipBaseDomain: SIP_BASE }),
     }),
     { logger: false },
@@ -164,6 +181,7 @@ before(async () => {
 });
 
 after(async () => {
+  await tracing.shutdown();
   await app?.close();
   await owner.$transaction(async (transaction) => {
     await transaction.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
@@ -506,6 +524,7 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
         verifier: signer.verifier,
         diagnostics: { write: () => undefined },
         clock: () => TEST_NOW,
+        rollout: PlatformRollout.fixed(rollout),
         services: createPlatformServices(broken, { sipBaseDomain: SIP_BASE }),
       }),
       { logger: false },
@@ -530,5 +549,231 @@ describe('Platform API (A1.6)', { concurrency: false }, () => {
     }
     const serialized = JSON.stringify(diagnostics);
     for (const token of Object.values(tokens)) assert.equal(serialized.includes(token), false);
+  });
+});
+
+describe('A1.8 rollback drill', { concurrency: false }, () => {
+  /** ทุกอย่างที่ rollback ต้องรักษาไว้ — ledger, receipts, reservations, audit และ command */
+  async function ledger(requestIds: string[]) {
+    const where = { requestId: { in: requestIds } };
+    const order = [{ requestId: 'asc' as const }];
+    return JSON.stringify({
+      requests: await owner.pfProvisioningRequest.findMany({
+        where: { id: { in: requestIds } },
+        select: { id: true, status: true, revision: true, failureCode: true },
+        orderBy: { id: 'asc' },
+      }),
+      steps: await owner.pfProvisioningStep.findMany({
+        where,
+        select: { requestId: true, stepKey: true, state: true, attempt: true, revision: true },
+        orderBy: [...order, { stepKey: 'asc' }],
+      }),
+      receipts: await owner.pfProvisioningStepReceipt.count({ where }),
+      reservations: await owner.pfIdentityReservation.findMany({
+        where,
+        select: { kind: true, valueKey: true, state: true },
+        orderBy: [{ kind: 'asc' }, { valueKey: 'asc' }],
+      }),
+      history: await owner.pfActionHistory.count({ where }),
+      commands: await owner.pfOperatorCommand.findMany({
+        where,
+        select: { id: true, state: true },
+        orderBy: { id: 'asc' },
+      }),
+    });
+  }
+
+  test('ปิด flag ระหว่างงานค้าง: mutation 503, อ่านได้, worker หยุดรับงาน, ledger คงเดิม → เปิดแล้ว resume จนจบ', async (t) => {
+    t.after(() => {
+      rollout.enabled = true;
+    });
+    // งานค้างสองแบบ: saga ที่ response หาย (external สร้างแล้ว) และ preview command ที่รอ worker
+    const inflight = await create();
+    const stuck = await actionRequired();
+    const scope = { tenantId: { in: [inflight.tenantId, stuck.tenantId] } };
+    const events: Record<string, unknown>[] = [];
+    const loop = createPlatformWorkerLoop({
+      workerId: `drill-${run}`,
+      saga: new ProvisioningSagaWorker(platform, fakes.ports, {
+        workerId: `drill-saga-${run}`,
+        sipBaseDomain: SIP_BASE,
+        scope: () => ({ tenantId: inflight.tenantId }),
+        backoffBaseMs: 1,
+        backoffMaxMs: 1,
+      }),
+      commands: new OperatorCommandWorker(
+        platform,
+        {
+          recovery: new ProvisioningRecoveryService(platform, fakes.ports, {
+            sipBaseDomain: SIP_BASE,
+          }),
+        },
+        { workerId: `drill-commands-${run}`, scope: () => scope },
+      ),
+      rollout: new PlatformRollout(() => rollout),
+      log: (event) => events.push(event),
+    });
+    fakes.systems.KEYCLOAK_ORGANIZATION.fail('lostResponse');
+    const createdBefore = fakes.systems.KEYCLOAK_ORGANIZATION.created;
+    // step แรกสร้าง external แล้วแต่ response หาย → ค้างรอ retry (ยังไม่มี command ในคิว)
+    assert.equal(await loop.tick(), true);
+    assert.equal(fakes.systems.KEYCLOAK_ORGANIZATION.created, createdBefore + 1);
+    const queued = await call(
+      'POST',
+      `/api/v1/provisioning-requests/${stuck.requestId}/actions/retry/previews`,
+    );
+    assert.equal(queued.status, 202, queued.text);
+
+    // --- rollback ---
+    rollout.enabled = false;
+    const requestIds = [inflight.requestId, stuck.requestId];
+    const before = await ledger(requestIds);
+    assert.match(before, /"state":"PENDING"|"state":"QUEUED"/);
+
+    const mutations: Array<[string, string, unknown]> = [
+      ['POST', '/api/v1/provisioning-requests', input()],
+      ['PATCH', `/api/v1/provisioning-requests/${stuck.requestId}`, { expectedRevision: 1 }],
+      ['POST', `/api/v1/provisioning-requests/${stuck.requestId}/actions/retry/previews`, {}],
+      ['POST', `/api/v1/provisioning-requests/${stuck.requestId}/actions/retry`, {}],
+    ];
+    for (const [method, path, body] of mutations) {
+      const denied = await call(method, path, { body, key: `drill-${randomUUID()}` });
+      assert.deepEqual(
+        [denied.status, denied.body.code, denied.body.retryable],
+        [503, 'PROVISIONING_DISABLED', false],
+        `${method} ${path}`,
+      );
+    }
+    for (const path of [
+      '/api/v1/tenants?limit=5',
+      `/api/v1/provisioning-requests/${inflight.requestId}`,
+      `/api/v1/tenants/${inflight.tenantId}/action-history`,
+      queued.headers.get('location')!,
+    ]) {
+      assert.equal((await call('GET', path, { token: tokens.auditor })).status, 200, path);
+      assert.equal((await call('GET', path)).status, 200, path);
+    }
+    for (let round = 0; round < 3; round += 1) assert.equal(await loop.tick(), false);
+    assert.equal(await ledger(requestIds), before, 'rollback ต้องไม่แตะ ledger/command ที่ค้าง');
+    assert.equal(
+      (await owner.tenant.findUniqueOrThrow({ where: { id: inflight.tenantId } })).lifecycleStatus,
+      'PROVISIONING',
+    );
+
+    // --- deploy fix แล้วเปิดอีกครั้ง: resume ต่อจาก state เดิม ---
+    rollout.enabled = true;
+    for (let round = 0; round < 50 && (await loop.tick()); round += 1);
+    const resumed = await call('GET', `/api/v1/provisioning-requests/${inflight.requestId}`);
+    assert.equal(resumed.body.status, 'SUCCEEDED', resumed.text);
+    assert.equal(
+      (await owner.tenant.findUniqueOrThrow({ where: { id: inflight.tenantId } })).lifecycleStatus,
+      'ACTIVE',
+    );
+    // external ที่สร้างไว้ก่อน rollback ถูก adopt ไม่ใช่สร้างซ้ำ
+    assert.equal(fakes.systems.KEYCLOAK_ORGANIZATION.created, createdBefore + 1);
+    assert.ok(
+      events.some(
+        (event) =>
+          event.event === 'platform.worker.saga' &&
+          event.stepKey === 'KEYCLOAK_ORGANIZATION' &&
+          event.adopted === true,
+      ),
+      JSON.stringify(events),
+    );
+    const preview = await call('GET', queued.headers.get('location')!);
+    assert.equal(preview.body.state, 'SUCCEEDED', preview.text);
+    assert.deepEqual(
+      events
+        .filter((event) => String(event.event).startsWith('platform.worker.claims'))
+        .map((event) => event.event),
+      [
+        'platform.worker.claims_enabled',
+        'platform.worker.claims_paused',
+        'platform.worker.claims_enabled',
+      ],
+    );
+  });
+});
+
+describe('A1.8b distributed trace', { concurrency: false }, () => {
+  const traceIdOf = (traceparent: string | null) => traceparent?.split('-')[1];
+
+  test('trace เดียวต่อคำขอ: HTTP create → ทุก step รวม retry หลัง worker restart; ไม่มี PII ใน span', async () => {
+    spans.reset();
+    const body = input();
+    const accepted = await call('POST', '/api/v1/provisioning-requests', {
+      body,
+      key: `trace-${randomUUID()}`,
+    });
+    assert.equal(accepted.status, 202, accepted.text);
+    const { requestId, tenantId } = accepted.body.request;
+    tenants.push(tenantId);
+    const row = await owner.pfProvisioningRequest.findUniqueOrThrow({ where: { id: requestId } });
+    const traceId = traceIdOf(row.traceParent);
+    assert.ok(traceId, 'ต้องเก็บ traceparent ตอนรับคำขอ');
+    const http = spans.getFinishedSpans().find((span) => span.name.startsWith('HTTP POST'));
+    assert.equal(http?.name, 'HTTP POST /api/v1/provisioning-requests');
+    assert.equal(http?.spanContext().traceId, traceId);
+
+    // worker ตัวแรก: step แรกสร้าง resource แล้ว response หาย → retry; "restart" เป็น worker ใหม่
+    fakes.systems.KEYCLOAK_ORGANIZATION.fail('lostResponse');
+    const workerFor = (id: string) =>
+      new ProvisioningSagaWorker(platform, fakes.ports, {
+        workerId: `trace-${id}-${run}`,
+        sipBaseDomain: SIP_BASE,
+        scope: () => ({ tenantId }),
+        backoffBaseMs: 1,
+        backoffMaxMs: 1,
+      });
+    await workerFor('a').runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await workerFor('b').drain();
+    const status = await call('GET', `/api/v1/provisioning-requests/${requestId}`);
+    assert.equal(status.body.status, 'SUCCEEDED');
+
+    const provisioning = spans
+      .getFinishedSpans()
+      .filter((span) => span.name.startsWith('provisioning.'));
+    assert.ok(
+      provisioning.filter((span) => span.name === 'provisioning.step KEYCLOAK_ORGANIZATION')
+        .length >= 2,
+      'attempt แรกและ attempt หลัง restart ต้องมี span ทั้งคู่',
+    );
+    assert.ok(provisioning.some((span) => span.name === 'provisioning.step READINESS'));
+    assert.ok(provisioning.some((span) => span.name === 'provisioning.finalize'));
+    assert.deepEqual(
+      new Set(provisioning.map((span) => span.spanContext().traceId)),
+      new Set([traceId]),
+    );
+    const workers = new Set(provisioning.map((span) => span.attributes['dcontact.worker_id']));
+    assert.ok(workers.size >= 2, 'span มาจาก worker สองตัวแต่อยู่ trace เดียว');
+
+    const serialized = JSON.stringify(
+      spans.getFinishedSpans().map((span) => [span.name, span.attributes]),
+    );
+    for (const secret of [body.firstAdmin.email, body.slug, body.primaryDomain, '@']) {
+      assert.equal(serialized.includes(secret), false, `span รั่ว ${secret}`);
+    }
+  });
+
+  test('operator command ต่อ trace ของ HTTP request ที่ส่งคำสั่ง', async () => {
+    const stuck = await actionRequired();
+    spans.reset();
+    const queued = await call(
+      'POST',
+      `/api/v1/provisioning-requests/${stuck.requestId}/actions/retry/previews`,
+    );
+    assert.equal(queued.status, 202, queued.text);
+    const command = await owner.pfOperatorCommand.findUniqueOrThrow({
+      where: { id: queued.body.commandId },
+    });
+    const traceId = traceIdOf(command.traceParent);
+    assert.ok(traceId);
+    await commands.drain();
+    const commandSpan = spans
+      .getFinishedSpans()
+      .find((span) => span.name === 'operator.command PREVIEW');
+    assert.equal(commandSpan?.spanContext().traceId, traceId);
+    assert.equal(commandSpan?.attributes['dcontact.outcome'], 'SUCCEEDED');
   });
 });

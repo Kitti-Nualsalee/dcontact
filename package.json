@@ -64,6 +64,11 @@
     "d1:shell-flag": "pnpm --filter @d-contact/platform-control build && pnpm --filter @d-contact/platform-control ui-flag",
     "a1:dev-catalog": "pnpm --filter @d-contact/platform-control dev-catalog",
     "a1:console:uat": "pnpm --filter @d-contact/platform-console test:uat",
+    "a1:acceptance": "node scripts/a1-acceptance.mjs --profile fast",
+    "a1:acceptance:boundary": "node scripts/a1-acceptance.mjs --profile real-boundary",
+    "test:a1-acceptance": "node --test scripts/a1-acceptance.test.mjs scripts/a1-rc-bundle.test.mjs",
+    "a1:uat:gate": "node scripts/a1-rc-bundle.mjs gate",
+    "a1:alerts:test": "docker run --rm -v \"$PWD/infra/observability/prometheus:/rules:ro\" --entrypoint promtool prom/prometheus:v2.54.1 test rules /rules/platform-provisioning.rules.test.yml",
     "cxa:j5:focused": "node scripts/cxa-j5-readiness.mjs --focused",
     "cxa:j5:acceptance": "node scripts/cxa-j5-readiness.mjs",
     "test:cxa-j5-readiness": "node --test scripts/cxa-j5-readiness.test.mjs",
@@ -73,6 +78,7 @@
     "cxa:cg5:acceptance": "node scripts/cxa-cg5-readiness.mjs",
     "test:cxa-cg5-readiness": "node --test scripts/cxa-cg5-readiness.test.mjs",
     "infra:console": "docker compose -f infra/docker/docker-compose.dev.yml --profile tools up -d redpanda-console",
+    "infra:tracing": "docker compose -f infra/docker/docker-compose.dev.yml --profile tools up -d jaeger",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   },
   "devDependencies": {

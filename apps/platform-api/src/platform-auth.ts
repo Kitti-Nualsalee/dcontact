@@ -8,6 +8,11 @@
  * - token ต้องผ่าน verifier (signature/issuer/audience/expiry) และ `toVerifiedPlatformIdentity`
  *   (ไม่มี tenant context, มี MFA, มี platform role) — ไม่ผ่านข้อใด = 401
  * - มี identity แต่ role ไม่ครอบ capability = 403
+ * - A1.8 (#413): `PROVISIONING_MUTATE` ต้องผ่าน rollout ด้วย — flag ปิด = 503 `PROVISIONING_DISABLED`
+ *   (rollback: อ่านได้ตามปกติ), subject ไม่อยู่ใน canary allowlist = 403
+ * - A1.8: tripwire `MIXED_TOKEN_TRIPWIRE` ตรวจ tenant context ซ้ำด้วยรายการของตัวเอง (ไม่ใช้ของ
+ *   `toVerifiedPlatformIdentity`) — ถ้าวันหนึ่ง identity check ถูกแก้จนหลุด token ก็ยังถูกปฏิเสธและเกิด
+ *   critical alert
  * - error body เป็น envelope เดียวกันทุกกรณี ไม่บอกเหตุผลเชิงลึกกับ client; เหตุผลจริงไปที่ diagnostics
  *   ซึ่งห้ามมี token หรือ claim ที่เป็น PII (email/ชื่อ)
  */
@@ -27,6 +32,7 @@ import {
   type ExecutionContext,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import type { PlatformRollout } from '@d-contact/platform-control';
 import { PlatformProvisioningError, type PlatformProvisioningErrorCode } from '@d-contact/shared';
 import {
   PlatformIdentityError,
@@ -40,6 +46,7 @@ import type { PlatformAccessTokenVerifier } from './platform-verifier.js';
 export const PLATFORM_ACCESS_TOKEN_VERIFIER = Symbol('PLATFORM_ACCESS_TOKEN_VERIFIER');
 export const PLATFORM_AUTH_DIAGNOSTICS = Symbol('PLATFORM_AUTH_DIAGNOSTICS');
 export const PLATFORM_CLOCK = Symbol('PLATFORM_CLOCK');
+export const PLATFORM_ROLLOUT = Symbol('PLATFORM_ROLLOUT');
 const PLATFORM_CAPABILITY = Symbol('PLATFORM_CAPABILITY');
 const PLATFORM_PUBLIC = Symbol('PLATFORM_PUBLIC');
 
@@ -55,7 +62,10 @@ export type PlatformAuthDenialReason =
   | 'TOKEN_INVALID'
   | PlatformIdentityRejection
   | 'CAPABILITY_NOT_GRANTED'
-  | 'ROUTE_UNDECLARED';
+  | 'ROUTE_UNDECLARED'
+  | 'PROVISIONING_DISABLED'
+  | 'ROLLOUT_NOT_ALLOWLISTED'
+  | 'MIXED_TOKEN_TRIPWIRE';
 
 export interface PlatformAuthDiagnostic {
   event: 'platform.request.authorized' | 'platform.request.denied';
@@ -75,6 +85,19 @@ export const RequirePlatformCapability = (capability: PlatformCapability) =>
 /** เฉพาะ liveness/readiness ที่ไม่คืนข้อมูล control plane */
 export const PlatformPublic = () => SetMetadata(PLATFORM_PUBLIC, true);
 
+/** claim ของ tenant token ที่ต้องไม่มีใน platform token — แยกจาก platform-identity โดยเจตนา */
+export function carriesTenantContext(claims: Record<string, unknown>): boolean {
+  const roles = (claims.realm_access as { roles?: unknown } | undefined)?.roles;
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  return (
+    ['tenant_id', 'tenant_slug', 'organization', 'dc_user_id'].some(
+      (claim) => claims[claim] !== undefined && claims[claim] !== null,
+    ) ||
+    (Array.isArray(roles) && roles.length > 0) ||
+    audiences.includes('dcontact-api')
+  );
+}
+
 function requestCorrelationId(request: IncomingMessage): string {
   const supplied = request.headers['x-correlation-id'];
   if (typeof supplied === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(supplied)) return supplied;
@@ -90,6 +113,8 @@ export class PlatformAuthGuard implements CanActivate {
     private readonly diagnostics: PlatformAuthDiagnosticSink,
     @Inject(PLATFORM_CLOCK)
     private readonly clock: () => Date,
+    @Inject(PLATFORM_ROLLOUT)
+    private readonly rollout: PlatformRollout,
     @Inject(Reflector)
     private readonly reflector: Reflector,
   ) {}
@@ -108,7 +133,11 @@ export class PlatformAuthGuard implements CanActivate {
       targets,
     );
 
-    const deny = (reason: PlatformAuthDenialReason, status: 401 | 403, subject?: string): never => {
+    const deny = (
+      reason: PlatformAuthDenialReason,
+      status: 401 | 403 | 503,
+      subject?: string,
+    ): never => {
       this.diagnostics.write({
         event: 'platform.request.denied',
         correlationId,
@@ -116,6 +145,7 @@ export class PlatformAuthGuard implements CanActivate {
         ...(capability ? { capability } : {}),
         ...(subject ? { subject } : {}),
       });
+      if (status === 503) throw new PlatformProvisioningError('PROVISIONING_DISABLED');
       throw status === 401 ? new UnauthorizedException() : new ForbiddenException();
     };
 
@@ -137,9 +167,17 @@ export class PlatformAuthGuard implements CanActivate {
     } catch (error) {
       return deny(error instanceof PlatformIdentityError ? error.reason : 'TOKEN_INVALID', 401);
     }
+    if (carriesTenantContext(claims)) return deny('MIXED_TOKEN_TRIPWIRE', 401, identity.subject);
     if (!capability) return deny('ROUTE_UNDECLARED', 403, identity.subject);
     if (!identity.capabilities.includes(capability)) {
       return deny('CAPABILITY_NOT_GRANTED', 403, identity.subject);
+    }
+    if (capability === 'PROVISIONING_MUTATE') {
+      const decision = this.rollout.mutationFor(identity.subject);
+      if (decision === 'DISABLED') return deny('PROVISIONING_DISABLED', 503, identity.subject);
+      if (decision === 'NOT_ALLOWLISTED') {
+        return deny('ROLLOUT_NOT_ALLOWLISTED', 403, identity.subject);
+      }
     }
 
     request.platformIdentity = identity;
@@ -189,6 +227,7 @@ const DOMAIN_ERRORS: Record<PlatformProvisioningErrorCode, { status: number; tit
   COMMAND_IN_PROGRESS: { status: 409, title: 'มีคำสั่งอื่นของคำขอนี้กำลังทำงาน' },
   INVITATION_RESEND_LIMITED: { status: 429, title: 'ส่งคำเชิญซ้ำเกินจำนวนที่กำหนด' },
   SERVICE_UNAVAILABLE: { status: 503, title: 'ระบบไม่พร้อมชั่วคราว กรุณาลองใหม่' },
+  PROVISIONING_DISABLED: { status: 503, title: 'ปิดการสร้างและแก้ไขชั่วคราว ดูสถานะได้ตามปกติ' },
 };
 
 /** Prisma ต่อ/commit ไม่ได้ = control plane ไม่พร้อม (503) — ไม่ใช่ dependency หลังรับคำขอ */
@@ -223,7 +262,10 @@ export class PlatformErrorFilter implements ExceptionFilter {
         ...(request.platformRequestId && mapped.status !== 404
           ? { requestId: request.platformRequestId }
           : {}),
-        retryable: mapped.status === 503 || mapped.status === 429,
+        // PROVISIONING_DISABLED เป็นการปิดโดยเจตนา — client retry เองไม่ช่วย
+        retryable:
+          (mapped.status === 503 || mapped.status === 429) &&
+          exception.code !== 'PROVISIONING_DISABLED',
         ...(exception.fieldErrors ? { fieldErrors: exception.fieldErrors } : {}),
       };
       const retryAfter = (exception as { retryAfterSeconds?: number }).retryAfterSeconds;

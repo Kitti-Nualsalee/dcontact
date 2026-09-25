@@ -11,9 +11,9 @@ on:
     inputs:
       acceptance:
         # สั่งเฉพาะชุดที่ต้องการได้ ไม่ต้องลาก convergence ที่ใช้เวลานานมาทุก main push
-        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2 | j5 | j5-focused | s2 | s2-focused)'
+        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused)'
         type: choice
-        options: [all, s1, cg4, cg5, j2, j5, j5-focused, s2, s2-focused]
+        options: [all, s1, cg4, cg5, j2, j5, j5-focused, s2-pr01, s2, s2-focused]
         default: all
 
 jobs:
@@ -88,10 +88,11 @@ jobs:
 
   a1-platform-control-fast-gate:
     # A1.1 (#406) / #393 Fast PR gate: idempotency, reservation race, tombstone, CAS, completion
-    # invariant, append-only และสิทธิ์ของ role บน Postgres จริง — ไม่ต้องใช้ Keycloak/UI
+    # invariant, append-only, isolation matrix, Platform API, tenant lifecycle gate และ Platform
+    # Console (Playwright/axe กับ API mock) — ไม่ต้องใช้ Keycloak จริง
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16-alpine
@@ -127,60 +128,48 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
-      - name: Build platform-control + platform-api dependencies
-        run: pnpm --filter "@d-contact/platform-api^..." build
+      - name: Install Playwright browser (Platform Console e2e)
+        run: pnpm --filter @d-contact/platform-console exec playwright install --with-deps chromium
+
+      - name: Build dependencies of platform-api, api gateway และ console
+        run: pnpm --filter "@d-contact/platform-api^..." --filter "@d-contact/api^..." --filter "@d-contact/platform-console^..." build
 
       - name: Migrate and bootstrap roles/RLS
         run: pnpm db:migrate && pnpm db:rls
 
-      - name: Platform control unit tests
-        run: pnpm --filter @d-contact/platform-control test
+      - name: Platform Console typecheck
+        run: pnpm --filter @d-contact/platform-console typecheck
 
-      # A1.4b (#436): extension ใช้ internal SPI ของ Keycloak — compile เทียบ image เวอร์ชันเดียวกับ runtime
-      - name: Build Keycloak invitation guard extension
-        run: bash scripts/keycloak-extensions-build.sh
+      # A1.8 (#413): alert rule ของ Platform provisioning ต้องผ่าน promtool unit test
+      - name: Platform provisioning alert rules
+        run: pnpm a1:alerts:test
 
-      - name: Platform control integration tests
-        run: pnpm --filter @d-contact/platform-control test:integration
+      # A1.8 (#413): runner เดียวรันทุก fast check ของ #393 แล้วออก acceptance-manifest.json
+      # (non-waivable gate ที่ FAIL = job fail) — real-boundary รันด้วย `pnpm a1:acceptance:boundary`
+      - name: A1 acceptance runner self-test
+        run: pnpm test:a1-acceptance
 
-      # A1.6 (#411): Platform API ผ่าน HTTP จริง — permission matrix, idempotency, 404/409/429/503
-      - name: Platform API integration
-        run: pnpm --filter @d-contact/platform-api test:integration
+      - name: A1 fast acceptance
+        run: pnpm a1:acceptance
 
-  a1-platform-console:
-    # A1.7 (#412): Platform Console — logic + Playwright/axe กับ Platform API ที่ mock ตาม contract
-    # (UAT กับ Keycloak/API/worker จริงรันด้วย `pnpm a1:console:uat` ในเครื่อง)
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
+      - name: Upload A1 acceptance manifest
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          node-version: 20
-          cache: pnpm
+          name: a1-acceptance-${{ github.sha }}
+          path: artifacts/a1/*/acceptance-manifest.json
+          if-no-files-found: error
+          retention-days: 90
 
-      - run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright browser
-        run: pnpm --filter @d-contact/platform-console exec playwright install --with-deps chromium
-
-      - name: Platform Console unit tests + typecheck
-        run: pnpm --filter @d-contact/platform-console test && pnpm --filter @d-contact/platform-console typecheck
-
-      - name: Platform Console e2e (Playwright + axe)
-        run: pnpm --filter @d-contact/platform-console test:e2e
-
-      - name: Upload Playwright traces
+      - name: Upload A1 failure logs (redacted) + Playwright traces
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: platform-console-playwright
-          path: apps/platform-console/test-results
-          retention-days: 7
+          name: a1-acceptance-logs-${{ github.sha }}
+          path: |
+            artifacts/a1/
+            apps/platform-console/test-results
+          retention-days: 30
 
   d1-ui-react:
     # D1.10 (#449): stylelint (token เท่านั้น) + axe 0 serious/critical TH/EN + keyboard ของทุก component
@@ -334,7 +323,7 @@ jobs:
   cxa-j2-acceptance:
     # J2-REG01 รัน C1 และ S1 acceptance ซ้อนอยู่ข้างใน รวมแล้วราว 3 ชม. ถ้าผูกกับทุก push
     # job จะทับกันเองเพราะ main ขยับถี่กว่านั้น จึงรันรอบดึกวันละครั้ง (และสั่งเองได้)
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused')
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2-pr01' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused')
     runs-on: ubuntu-latest
     timeout-minutes: 330
     concurrency:
@@ -407,7 +396,7 @@ jobs:
     # CG4.11 (#194): รันรอบดึกหรือสั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg4`)
     # CG4-REG01 rerun S1 ครั้งเดียว (E0/C1/Inbound Voice อยู่ใน S1-REG-01) และแต่ละ suite รันครั้งเดียว
     # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
-    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused')) && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2-pr01' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused')) && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     concurrency:
@@ -682,9 +671,13 @@ jobs:
     # token/secret ไม่เข้า GitHub Actions — job นี้รับแค่ reference จาก `vars` และส่งออกเฉพาะ
     # sanitized bundle; environment `line-provider-pilot` ต้องมี required reviewer ก่อนเริ่ม
     # PR01 ไม่มี push — PR02/RB01 (S2.7) ต้องมี one-shot approval ใหม่ทุกครั้ง
-    if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 's2' && github.ref == 'refs/heads/main'
+    # หลัง RB01 revoke token แล้วให้รับ sanitized PR01/PR02/RB01 bundles ที่ protected runner
+    # สร้างไว้ก่อนหน้าใน SHA เดียวกัน; ห้ามรัน PR01 ซ้ำด้วย token ที่ถูก revoke
+    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 's2-pr01' || inputs.acceptance == 's2') && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, macOS, line-pilot]
     environment: line-provider-pilot
+    env:
+      CXA_S2_PROVIDER_BUNDLE_SOURCE_DIR: ${{ vars.CXA_S2_PROVIDER_BUNDLE_SOURCE_DIR }}
     timeout-minutes: 30
     concurrency:
       group: cxa-s2-provider
@@ -706,7 +699,12 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Build workspace prerequisites for provider runner
+        if: inputs.acceptance == 's2-pr01'
+        run: pnpm build
+
       - name: Run S2-LINE-PR01 provider conformance (no push)
+        if: inputs.acceptance == 's2-pr01'
         run: pnpm --filter @d-contact/delivery provider:pr01
         env:
           CXA_S2_EXPECTED_COMMIT_SHA: ${{ github.sha }}
@@ -714,6 +712,19 @@ jobs:
           CXA_S2_CREDENTIAL_REF_ID: ${{ vars.CXA_S2_CREDENTIAL_REF_ID }}
           CXA_S2_APPROVED_WEBHOOK_ENDPOINT_DIGEST: ${{ vars.CXA_S2_APPROVED_WEBHOOK_ENDPOINT_DIGEST }}
           CXA_S2_PROVIDER_BUNDLE_DIR: ${{ github.workspace }}/artifacts/cxa-s2/provider
+
+      - name: Import sanitized pilot bundles from protected runner
+        if: inputs.acceptance == 's2'
+        run: |
+          test -n "$CXA_S2_PROVIDER_BUNDLE_SOURCE_DIR"
+          source_dir="$CXA_S2_PROVIDER_BUNDLE_SOURCE_DIR/$GITHUB_SHA"
+          test -f "$source_dir/pr01.json"
+          test -f "$source_dir/pilot.json"
+          mkdir -p artifacts/cxa-s2/provider
+          cp "$source_dir/pr01.json" artifacts/cxa-s2/provider/pr01.json
+          cp "$source_dir/pilot.json" artifacts/cxa-s2/provider/pilot.json
+          CXA_S2_EXPECTED_COMMIT_SHA="$GITHUB_SHA" node scripts/cxa-s2-provider-bundle.mjs \
+            artifacts/cxa-s2/provider/pr01.json artifacts/cxa-s2/provider/pilot.json
 
       - name: Upload sanitized provider bundle
         if: always()
