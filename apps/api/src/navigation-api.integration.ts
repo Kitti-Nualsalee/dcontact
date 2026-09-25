@@ -19,6 +19,7 @@ import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
   OidcGlobalGuard,
+  TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import {
   NAVIGATION_DATABASE,
@@ -104,6 +105,7 @@ async function harness(t: TestContext) {
       NAVIGATION_REGISTRY_PROVIDER,
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
+      { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: APP_GUARD, useClass: OidcGlobalGuard },
     ],
   })
@@ -116,6 +118,7 @@ async function harness(t: TestContext) {
   t.after(async () => {
     await app.close();
     const ids = Object.values(tenants);
+    await owner.tenantUiFlag.deleteMany({ where: { tenantId: { in: ids } } });
     await owner.navigationAuditEvent.deleteMany({ where: { tenantId: { in: ids } } });
     await owner.navigationUserPins.deleteMany({ where: { tenantId: { in: ids } } });
     await owner.navigationTenantDefaultPins.deleteMany({ where: { tenantId: { in: ids } } });
@@ -195,6 +198,38 @@ test('role และ plan ต่างกันได้รายการต่
     revision: 0,
   });
   assert.deepEqual(legacyAdmin.json.limits, { maxPins: 15 });
+  assert.deepEqual(legacyAdmin.json.features, { shellV2: false }, 'flag ปิดโดย default');
+});
+
+test('ui.shell.v2 เป็นของ tenant: เปิดให้ tenant หนึ่งไม่กระทบอีก tenant และแอปเขียน flag เองไม่ได้', async (t) => {
+  const { owner, application, navigation, tenants } = await harness(t);
+  await owner.tenantUiFlag.create({
+    data: {
+      tenantId: tenants.journeyPlan,
+      flagKey: 'ui.shell.v2',
+      enabled: true,
+      reason: 'D1.13 test',
+      updatedByActor: 'test',
+    },
+  });
+
+  assert.deepEqual((await navigation('journey-agent')).json.features, { shellV2: true });
+  assert.deepEqual((await navigation('legacy-admin')).json.features, { shellV2: false });
+
+  await assert.rejects(
+    withTenantDatabaseTransaction(application, tenants.legacy, (tx) =>
+      tx.tenantUiFlag.create({
+        data: {
+          tenantId: tenants.legacy,
+          flagKey: 'ui.shell.v2',
+          enabled: true,
+          reason: 'self-enable',
+          updatedByActor: 'app',
+        },
+      }),
+    ),
+    /permission denied/,
+  );
 });
 
 test('หมุดผู้ใช้: revision, เพดาน 15, แอปไม่มีสิทธิ์ตอบเหมือนแอปที่ไม่มีอยู่', async (t) => {

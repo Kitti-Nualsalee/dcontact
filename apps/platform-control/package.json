@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:boundary": "tsx --test --test-concurrency=1 src/keycloak-provisioning.boundary.ts src/invitation-stale-generation.boundary.ts",
     "worker": "node dist/platform-worker-main.js",
-    "dev-catalog": "node dist/dev-catalog-main.js"
+    "dev-catalog": "node dist/dev-catalog-main.js",
+    "ui-flag": "node dist/ui-flag-main.js"
   },
   "dependencies": {
     "@d-contact/db": "workspace:*",

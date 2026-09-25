@@ -67,7 +67,9 @@ BEGIN
     -- A1.5 (#410): operational baseline ของ tenant
     'tenant_settings', 'tenant_plan_bindings', 'business_hours',
     -- D1.12 (#451): หมุดแอปของ tenant/ผู้ใช้
-    'navigation_tenant_default_pins', 'navigation_user_pins', 'navigation_audit_events'
+    'navigation_tenant_default_pins', 'navigation_user_pins', 'navigation_audit_events',
+    -- D1.13 (#452): UI flag ระดับ tenant
+    'tenant_ui_flags', 'tenant_ui_flag_audit_events'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -97,6 +99,8 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dcontact_app;
 -- Queue audit is append-only through the application role.
 REVOKE UPDATE, DELETE ON queue_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON navigation_audit_events FROM dcontact_app;
+-- D1.13 (#452): แอปอ่าน UI flag ได้อย่างเดียว — platform operator เป็นผู้เปลี่ยน (ผ่าน dcontact_platform)
+REVOKE INSERT, UPDATE, DELETE ON tenant_ui_flags, tenant_ui_flag_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON recording_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON qm_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_decision_logs FROM dcontact_app;
@@ -326,3 +330,8 @@ GRANT SELECT, INSERT, UPDATE ON pf_operator_commands TO dcontact_platform;
 -- A1.5b (#441): revision ของอีเมล first admin เป็น control plane
 REVOKE ALL ON pf_first_admin_email_revisions FROM dcontact_app;
 GRANT SELECT, INSERT ON pf_first_admin_email_revisions TO dcontact_platform;
+
+-- D1.13 (#452): platform operator เปิด/ปิด `ui.shell.v2` ต่อ tenant — ยังอยู่ใต้ tenant_isolation
+-- (ต้องตั้ง app.tenant_id) และ audit เป็น append-only
+GRANT SELECT, INSERT, UPDATE ON tenant_ui_flags TO dcontact_platform;
+GRANT SELECT, INSERT ON tenant_ui_flag_audit_events TO dcontact_platform;

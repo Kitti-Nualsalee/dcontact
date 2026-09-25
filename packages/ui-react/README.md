@@ -48,6 +48,21 @@ toastQueue.add({ title: t('journeys.saved'), tone: 'success' }, { timeout: 5000 
 
 ข้อความของงาน (label, ปุ่ม) ส่งเข้ามาทาง props จาก catalog ของแอปเสมอ — ห้าม hardcode
 
+## Shell (D1.13)
+
+```tsx
+const nav = useShellNavigation({ apiBaseUrl, accessToken, currentHost: 'console', hostOrigins, tenantAlias, translate: t });
+if (nav.status === 'legacy') return <LegacyPage />; // flag ปิด หรือ API ล้มเหลว
+if (nav.status === 'loading') return <Loading />;   // ตัดสินก่อน mount หน้า — ห้ามสลับกลางคัน
+return <ShellFrame {...nav} onTogglePin={nav.togglePin} currentAppId="journeys" … >{page}</ShellFrame>;
+```
+
+- รายการแอปมาจาก `GET /api/v1/me/navigation` (server คัดตาม role/plan แล้ว) — shell ไม่ซ่อนหรือเดาสิทธิ์เอง
+- flag `ui.shell.v2` (`features.shellV2`) ตัดสินครั้งเดียวต่อการโหลดหน้า เพราะ Workspace ที่ remount จะตัดสาย/WS
+- ลิงก์ข้าม host app เปิดแท็บใหม่ด้วย path จาก registry + tenant alias เท่านั้น (ห้าม PII ใน URL)
+- แอปโหลด `@d-contact/ui/tokens.css` แบบ dynamic เฉพาะตอนเปิด shell — หน้าเดิมตอนปิด flag จึงไม่เปลี่ยน
+- preview: `?view=shell` (Navigation API จำลอง)
+
 ## คำสั่ง
 
 ```bash

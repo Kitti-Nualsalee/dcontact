@@ -209,6 +209,7 @@ jobs:
 
   d1-i18n-browser:
     # D1.11 (#450): สลับภาษาไม่ reload (performance/marker ของหน้าเดิม) และ formatter บน Chromium จริง
+    # D1.13 (#452): flag ui.shell.v2 — shell/legacy, axe ของ shell, ไม่ remount WorkspaceApp
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -224,21 +225,26 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build Console dependencies
-        run: pnpm --filter "@d-contact/console^..." build
+      - name: Build Console/Workspace dependencies
+        run: pnpm --filter "@d-contact/console^..." --filter "@d-contact/workspace^..." build
 
       - name: Install Playwright browser
         run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
 
-      - name: Console i18n e2e
-        run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts
+      - name: Console i18n + shell e2e
+        run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts e2e/shell.spec.ts
+
+      - name: Workspace shell e2e
+        run: pnpm --filter @d-contact/workspace exec playwright test e2e/shell.spec.ts
 
       - name: Upload Playwright traces
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: d1-i18n-playwright
-          path: apps/console/test-results
+          path: |
+            apps/console/test-results
+            apps/workspace/test-results
           retention-days: 7
 
   s1-convergence-acceptance:

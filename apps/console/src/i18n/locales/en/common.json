@@ -1,9 +1,45 @@
 {
-  "app": { "name": "D-Contact Console" },
+  "app": {
+    "name": "D-Contact Console"
+  },
   "language": {
     "label": "Language",
     "th": "ไทย",
     "en": "English",
     "saveFailed": "Language changed, but it could not be saved for next time"
+  },
+  "navigation": {
+    "groups": {
+      "live": "Live work · Workspace",
+      "automation": "Automation",
+      "operations": "Operations",
+      "quality": "Quality & governance",
+      "data": "Data & customers",
+      "settings": "Settings"
+    },
+    "apps": {
+      "agentWorkspace": "Inbox",
+      "supervisorWorkspace": "Team live",
+      "journeys": "Journeys",
+      "contactGovernance": "Governance"
+    }
+  },
+  "shell": {
+    "loading": "Preparing your workspace",
+    "create": {
+      "journey": "Journey"
+    },
+    "journeys": {
+      "sectionWork": "Work",
+      "list": "Journey list"
+    },
+    "governance": {
+      "sectionWork": "Work",
+      "overview": "Exceptions, policies and audit"
+    },
+    "workspace": {
+      "title": "Workspace"
+    },
+    "pinSaveFailed": "Could not save your pins; they were restored"
   }
 }

@@ -1,7 +1,38 @@
 {
-  "dialog": { "close": "Close" },
-  "searchField": { "clear": "Clear search" },
-  "select": { "placeholder": "Select…" },
-  "toast": { "dismiss": "Dismiss notification", "region": "Notifications" },
-  "table": { "empty": "No items" }
+  "dialog": {
+    "close": "Close"
+  },
+  "searchField": {
+    "clear": "Clear search"
+  },
+  "select": {
+    "placeholder": "Select…"
+  },
+  "toast": {
+    "dismiss": "Dismiss notification",
+    "region": "Notifications"
+  },
+  "table": {
+    "empty": "No items"
+  },
+  "shell": {
+    "mainNav": "Main navigation",
+    "apps": "Apps",
+    "allApps": "All apps",
+    "skipToContent": "Skip to content",
+    "opensInNewTab": "(opens in a new tab)",
+    "breadcrumb": "Current location",
+    "language": "Language"
+  },
+  "launcher": {
+    "title": "D-Contact apps",
+    "search": "Find D-Contact apps",
+    "noMatch": "No apps match your search",
+    "create": "Create new",
+    "pin": "Pin {{app}}",
+    "unpin": "Unpin {{app}}",
+    "pinned": "{{count}} of {{max}} pinned",
+    "pinLimit": "You can pin up to {{max}} apps",
+    "hint": "Pin apps to show them on the left rail"
+  }
 }

@@ -226,8 +226,8 @@ class WorkspaceSessionController {
     ContactGovernanceCg5QueryController,
     ContactGovernanceCg5ExportController,
     ...CG4_API_CONTROLLERS,
-    NavigationController,
     TenantLocaleDefaultsController,
+    NavigationController,
   ],
   providers: [
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },

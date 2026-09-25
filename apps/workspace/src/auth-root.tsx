@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { AuthProvider, useAuth } from 'react-oidc-context';
 import { SessionLocaleProvider } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
+import { WorkspaceShell } from './shell/workspace-shell.js';
 import { createAgentWorkspaceApi } from './agent-api.js';
 import {
   createOidcSettings,
@@ -79,23 +80,28 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
       />
     );
   }
+  const shellProps = { apiBaseUrl, accessToken: () => accessToken, tenantAlias } as const;
   if (view === 'supervisor') {
     return (
-      <SupervisorWorkspace
-        api={supervisorApi}
-        tenantLabel={tenantAlias}
-        onSignOut={() => void auth.signoutRedirect()}
-      />
+      <WorkspaceShell {...shellProps} appId="supervisor-workspace">
+        <SupervisorWorkspace
+          api={supervisorApi}
+          tenantLabel={tenantAlias}
+          onSignOut={() => void auth.signoutRedirect()}
+        />
+      </WorkspaceShell>
     );
   }
 
   return (
-    <WorkspaceApp
-      api={agentApi}
-      tenantLabel={tenantAlias}
-      onSignOut={() => void auth.signoutRedirect()}
-      createSoftphone={createProductionSoftphone}
-    />
+    <WorkspaceShell {...shellProps} appId="agent-workspace">
+      <WorkspaceApp
+        api={agentApi}
+        tenantLabel={tenantAlias}
+        onSignOut={() => void auth.signoutRedirect()}
+        createSoftphone={createProductionSoftphone}
+      />
+    </WorkspaceShell>
   );
 }
 

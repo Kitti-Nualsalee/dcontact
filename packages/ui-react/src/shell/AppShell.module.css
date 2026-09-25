@@ -1,0 +1,41 @@
+.shell {
+  display: flex;
+  height: 100vh;
+  min-height: 0;
+  background: var(--dc-surface-page);
+  color: var(--dc-text-primary);
+  overflow: hidden;
+}
+
+.column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+}
+
+.skip {
+  position: absolute;
+  top: var(--dc-space-2);
+  left: var(--dc-space-2);
+  z-index: 300;
+  padding: var(--dc-space-3) var(--dc-space-5);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-brand-strong);
+  font-weight: var(--dc-weight-semibold);
+  transform: translateY(-200%);
+}
+
+.skip:focus-visible {
+  transform: none;
+  box-shadow: var(--dc-focus-ring);
+}

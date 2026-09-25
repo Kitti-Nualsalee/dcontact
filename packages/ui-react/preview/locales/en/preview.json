@@ -86,5 +86,29 @@
     "show": "Show notification",
     "title": "Saved",
     "description": "Journey saved as draft"
+  },
+  "shellDemo": {
+    "groups": {
+      "live": "Live work · Workspace",
+      "automation": "Automation",
+      "operations": "Operations",
+      "quality": "Quality & governance",
+      "data": "Data & customers",
+      "settings": "Settings"
+    },
+    "apps": {
+      "agentWorkspace": "Inbox",
+      "supervisorWorkspace": "Team live",
+      "journeys": "Journeys",
+      "contactGovernance": "Governance"
+    },
+    "createJourney": "Journey",
+    "settings": "Settings",
+    "list": "Journey list",
+    "templates": "Templates",
+    "review": "Awaiting review",
+    "sectionWork": "Work",
+    "heading": "Journeys",
+    "body": "Page content goes here — the shell wraps it without owning the page layout"
   }
 }

@@ -1,9 +1,45 @@
 {
-  "app": { "name": "D-Contact Workspace" },
+  "app": {
+    "name": "D-Contact Workspace"
+  },
   "language": {
     "label": "ภาษา",
     "th": "ไทย",
     "en": "English",
     "saveFailed": "เปลี่ยนภาษาแล้ว แต่บันทึกค่าไว้ใช้ครั้งหน้าไม่สำเร็จ"
+  },
+  "navigation": {
+    "groups": {
+      "live": "งานสด · Workspace",
+      "automation": "ระบบอัตโนมัติ",
+      "operations": "ปฏิบัติการ",
+      "quality": "คุณภาพและกำกับ",
+      "data": "ข้อมูลและลูกค้า",
+      "settings": "ตั้งค่า"
+    },
+    "apps": {
+      "agentWorkspace": "กล่องงาน",
+      "supervisorWorkspace": "ทีมสด",
+      "journeys": "Journeys",
+      "contactGovernance": "Governance"
+    }
+  },
+  "shell": {
+    "loading": "กำลังเตรียมหน้าจอ",
+    "create": {
+      "journey": "Journey"
+    },
+    "journeys": {
+      "sectionWork": "งาน",
+      "list": "รายการ Journey"
+    },
+    "governance": {
+      "sectionWork": "งาน",
+      "overview": "Exceptions, Policies และ Audit"
+    },
+    "workspace": {
+      "title": "Workspace"
+    },
+    "pinSaveFailed": "บันทึกหมุดไม่สำเร็จ กลับไปใช้ค่าเดิมแล้ว"
   }
 }

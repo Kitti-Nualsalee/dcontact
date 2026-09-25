@@ -86,5 +86,29 @@
     "show": "แสดงการแจ้งเตือน",
     "title": "บันทึกแล้ว",
     "description": "Journey ถูกบันทึกเป็นร่าง"
+  },
+  "shellDemo": {
+    "groups": {
+      "live": "งานสด · Workspace",
+      "automation": "ระบบอัตโนมัติ",
+      "operations": "ปฏิบัติการ",
+      "quality": "คุณภาพและกำกับ",
+      "data": "ข้อมูลและลูกค้า",
+      "settings": "ตั้งค่า"
+    },
+    "apps": {
+      "agentWorkspace": "กล่องงาน",
+      "supervisorWorkspace": "ทีมสด",
+      "journeys": "Journeys",
+      "contactGovernance": "Governance"
+    },
+    "createJourney": "Journey",
+    "settings": "ตั้งค่า",
+    "list": "รายการ Journey",
+    "templates": "เทมเพลต",
+    "review": "รอตรวจ",
+    "sectionWork": "งาน",
+    "heading": "Journeys",
+    "body": "เนื้อหาของหน้าอยู่ตรงนี้ — shell ครอบโดยไม่ถือ layout ของหน้า"
   }
 }
