@@ -18,10 +18,11 @@ import { useShellTokens } from './tokens.js';
 
 export type WorkspaceShellApp = 'agent-workspace' | 'supervisor-workspace';
 
-function hostOrigins(): Record<HostApp, string> {
+function hostOrigins(): Partial<Record<HostApp, string>> {
   const env = import.meta.env as Record<string, string | undefined>;
   return {
-    console: env.VITE_CONSOLE_URL ?? 'http://localhost:5174',
+    // production ต้องตั้ง VITE_CONSOLE_URL — ไม่ตั้ง = แอปฝั่งนั้นไม่แสดงใน shell (ไม่เดาเป็น localhost)
+    console: env.VITE_CONSOLE_URL ?? (import.meta.env.DEV ? 'http://localhost:5174' : undefined),
     workspace: env.VITE_WORKSPACE_URL ?? window.location.origin,
   };
 }
