@@ -233,6 +233,24 @@
     </p>
     <table class="type" id="scale"></table>
 
+    <h2>มุมโค้ง</h2>
+    <p>
+      ลดลงครึ่งหนึ่งจากค่าที่สกัดจาก mockup (D1.4) — <code>pill</code> ใช้กับ avatar จุดสถานะ
+      และตัวนับเท่านั้น
+    </p>
+    <div class="row" id="radii"></div>
+
+    <h2>ระยะห่าง</h2>
+    <p>scale เดียวฐาน 4px ใน component ห้ามใช้ระยะห่างนอก 10 ขั้นนี้</p>
+    <table class="type" id="spaces"></table>
+
+    <h2>ความสูงมาตรฐาน (density)</h2>
+    <p>
+      ตั้งชื่อตามบทบาทเพื่อให้ override ใต้ <code>[data-density]</code> ได้ในอนาคต — D1 มีชุดเดียว
+      และต่ำกว่า target จอสัมผัส 44px โดยตั้งใจ
+    </p>
+    <div class="row" id="heights" style="align-items: flex-end"></div>
+
     <h2>ตัวอย่างจริง</h2>
     <p>ประกอบจาก token ล้วน เทียบกับ mockup ได้โดยตรง</p>
     <div
@@ -279,6 +297,42 @@
 
     <script>
       const css = getComputedStyle(document.documentElement);
+      const tokenBox = (label, style) =>
+        `<div style="display:flex;flex-direction:column;align-items:center;gap:var(--dc-space-2)">` +
+        `<div style="background:var(--dc-surface-selected);border:1px solid var(--dc-border-brand);${style}"></div>` +
+        `<span style="font-size:var(--dc-text-2xs);color:var(--dc-text-muted)">${label}</span></div>`;
+
+      document.getElementById('radii').innerHTML = ['xs', 'sm', 'md', 'lg', 'xl', 'pill']
+        .map((n) =>
+          tokenBox(
+            `radius-${n} · ${css.getPropertyValue('--dc-radius-' + n).trim()}`,
+            `width:72px;height:48px;border-radius:var(--dc-radius-${n})`,
+          ),
+        )
+        .join('');
+
+      document.getElementById('spaces').innerHTML = Array.from({ length: 10 }, (_, i) => i + 1)
+        .map(
+          (i) =>
+            `<tr><td>space-${i} · ${css.getPropertyValue('--dc-space-' + i).trim()}</td>` +
+            `<td><div style="width:var(--dc-space-${i});height:var(--dc-space-5);background:var(--dc-brand-600)"></div></td></tr>`,
+        )
+        .join('');
+
+      document.getElementById('heights').innerHTML = [
+        'control-sm',
+        'control-md',
+        'row-subnav',
+        'row-table',
+        'bar-top',
+      ]
+        .map((n) =>
+          tokenBox(
+            `${n} · ${css.getPropertyValue('--dc-' + n).trim()}`,
+            `width:96px;height:var(--dc-${n});border-radius:var(--dc-radius-md)`,
+          ),
+        )
+        .join('');
       const val = (n) => css.getPropertyValue('--dc-' + n).trim();
       const swatch = (name, bg, border) =>
         `<div class="sw"><i style="background:${bg}${border ? ';border-bottom:1px solid var(--dc-border-subtle)' : ''}"></i>` +
