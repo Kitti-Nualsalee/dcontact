@@ -1,0 +1,90 @@
+{
+  "title": "D-Contact UI components",
+  "lede": "component ร่วมของ Console และ Workspace — ใช้ token ล้วน ทดสอบคีย์บอร์ดและ axe บนหน้านี้",
+  "language": "ภาษา",
+  "sections": {
+    "buttons": "ปุ่ม",
+    "fields": "ช่องกรอก",
+    "select": "ตัวเลือก",
+    "toggles": "Checkbox และ Switch",
+    "table": "ตาราง",
+    "badges": "ป้ายและสถานะ",
+    "tabs": "แท็บ",
+    "dialog": "Dialog",
+    "toast": "การแจ้งเตือน"
+  },
+  "button": {
+    "primary": "บันทึก",
+    "secondary": "ยกเลิก",
+    "ghost": "ดูเพิ่ม",
+    "danger": "ลบ",
+    "small": "ปุ่มเล็ก",
+    "disabled": "กดไม่ได้"
+  },
+  "field": {
+    "name": "ชื่อ Journey",
+    "nameHint": "ไม่เกิน 80 ตัวอักษร",
+    "search": "ค้นหาลูกค้า",
+    "searchPlaceholder": "ชื่อ เบอร์ หรืออีเมล",
+    "required": "ต้องกรอกชื่อ"
+  },
+  "select": {
+    "label": "ช่องทาง",
+    "voice": "โทรศัพท์",
+    "line": "LINE",
+    "email": "อีเมล",
+    "fax": "แฟกซ์ (ปิดใช้)"
+  },
+  "toggle": {
+    "consent": "ยอมรับเงื่อนไข",
+    "autoAnswer": "รับสายอัตโนมัติ"
+  },
+  "table": {
+    "label": "คิวงาน",
+    "queue": "คิว",
+    "waiting": "รอ",
+    "sla": "SLA",
+    "status": "สถานะ",
+    "sales": "ขาย",
+    "support": "บริการหลังการขาย",
+    "billing": "การเงิน",
+    "ok": "ปกติ",
+    "warn": "ต้องดู",
+    "breach": "เกิน SLA"
+  },
+  "badge": {
+    "success": "สำเร็จ",
+    "attention": "ต้องดู",
+    "critical": "วิกฤต",
+    "info": "ข้อมูล",
+    "neutral": "ร่าง",
+    "accent": "ใหม่",
+    "available": "พร้อมรับงาน",
+    "busy": "กำลังคุย",
+    "acw": "สรุปงาน",
+    "break": "พัก",
+    "offline": "ออฟไลน์",
+    "cooldown": "พักระบบ"
+  },
+  "tabs": {
+    "label": "รายละเอียด Journey",
+    "overview": "ภาพรวม",
+    "steps": "ขั้นตอน",
+    "history": "ประวัติ",
+    "overviewBody": "สรุปสถานะและเวอร์ชันล่าสุด",
+    "stepsBody": "รายการขั้นตอนตามลำดับ",
+    "historyBody": "การเปลี่ยนแปลงย้อนหลัง"
+  },
+  "dialog": {
+    "open": "เปิด dialog",
+    "title": "เผยแพร่ Journey",
+    "body": "เวอร์ชันใหม่จะมีผลกับลูกค้าที่เข้าหลังจากนี้ ลูกค้าที่อยู่ระหว่างทางใช้เวอร์ชันเดิมต่อ",
+    "confirm": "เผยแพร่",
+    "cancel": "ยกเลิก"
+  },
+  "toast": {
+    "show": "แสดงการแจ้งเตือน",
+    "title": "บันทึกแล้ว",
+    "description": "Journey ถูกบันทึกเป็นร่าง"
+  }
+}

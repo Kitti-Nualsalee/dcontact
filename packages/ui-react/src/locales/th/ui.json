@@ -1,0 +1,7 @@
+{
+  "dialog": { "close": "ปิด" },
+  "searchField": { "clear": "ล้างคำค้นหา" },
+  "select": { "placeholder": "เลือก…" },
+  "toast": { "dismiss": "ปิดการแจ้งเตือน", "region": "การแจ้งเตือน" },
+  "table": { "empty": "ไม่มีรายการ" }
+}

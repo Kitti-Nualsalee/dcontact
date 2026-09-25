@@ -177,6 +177,43 @@ jobs:
           path: apps/platform-console/test-results
           retention-days: 7
 
+  d1-ui-react:
+    # D1.10 (#449): stylelint (token เท่านั้น) + axe 0 serious/critical TH/EN + keyboard ของทุก component
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build ui-react (dist + preview)
+        run: pnpm --filter "@d-contact/ui-react..." build
+
+      - name: stylelint + typecheck
+        run: pnpm --filter @d-contact/ui-react test
+
+      - name: Install Playwright browser
+        run: pnpm --filter @d-contact/ui-react exec playwright install --with-deps chromium
+
+      - name: Preview e2e (axe + keyboard)
+        run: pnpm --filter @d-contact/ui-react test:e2e
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-ui-react-playwright
+          path: packages/ui-react/test-results
+          retention-days: 7
+
   s1-convergence-acceptance:
     # S1 ใช้เวลานานและ J3 final gate เรียกเองอยู่แล้ว: ไม่รันทุก main push
     # เพื่อให้ development ใช้ focused gate ได้ก่อน แล้วเรียก S1 เมื่อเลือก manual เท่านั้น

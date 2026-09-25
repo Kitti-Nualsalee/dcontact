@@ -1,0 +1,54 @@
+.tabs {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.list {
+  display: flex;
+  gap: var(--dc-space-2);
+  border-bottom: 1px solid var(--dc-border-subtle);
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--dc-control-md);
+  padding: 0 var(--dc-space-5);
+  border-radius: var(--dc-radius-sm) var(--dc-radius-sm) 0 0;
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-medium);
+  color: var(--dc-text-secondary);
+  cursor: pointer;
+  outline: none;
+}
+
+.tab[data-hovered] {
+  color: var(--dc-text-primary);
+  background: var(--dc-surface-hover);
+}
+
+.tab[data-selected] {
+  /* เส้นใต้แท็บที่เลือก — ใช้ inset shadow แทน border จึงไม่ต้องดึง margin ติดลบทับเส้นของ list */
+  box-shadow: inset 0 -2px 0 var(--dc-brand-700);
+  color: var(--dc-text-brand-strong);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.tab[data-focus-visible] {
+  box-shadow: var(--dc-focus-ring);
+}
+
+.tab[data-disabled] {
+  color: var(--dc-text-disabled);
+  cursor: not-allowed;
+}
+
+.panel {
+  padding: var(--dc-space-6) 0;
+  outline: none;
+}
+
+.panel[data-focus-visible] {
+  box-shadow: var(--dc-focus-ring);
+}

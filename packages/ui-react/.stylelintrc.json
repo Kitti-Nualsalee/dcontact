@@ -1,0 +1,30 @@
+{
+  "rules": {
+    "color-no-hex": true,
+    "color-named": "never",
+    "function-disallowed-list": [
+      "rgb",
+      "rgba",
+      "hsl",
+      "hsla",
+      "hwb",
+      "lab",
+      "lch",
+      "oklab",
+      "oklch"
+    ],
+    "declaration-property-value-disallowed-list": [
+      {
+        "/^border(-(top|right|bottom|left))?(-(start|end))?(-(start|end))?-radius$/": [
+          "/\\d(px|rem|em|%)/"
+        ],
+        "/^(padding|margin|gap|row-gap|column-gap|inset)(-(top|right|bottom|left|inline|block)(-(start|end))?)?$/": [
+          "/\\d(px|rem|em)/"
+        ]
+      },
+      {
+        "message": "ใช้ token เท่านั้น: var(--dc-radius-*) / var(--dc-space-*) (D1.4)"
+      }
+    ]
+  }
+}

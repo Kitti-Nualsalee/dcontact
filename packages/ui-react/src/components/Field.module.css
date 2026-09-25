@@ -1,0 +1,111 @@
+/* ส่วนร่วมของ TextField / SearchField / Select */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-2);
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-medium);
+  color: var(--dc-text-secondary);
+}
+
+.description {
+  font-size: var(--dc-text-xs);
+  color: var(--dc-text-muted);
+}
+
+.error {
+  font-size: var(--dc-text-xs);
+  color: var(--dc-critical-fg);
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  min-height: var(--dc-control-md);
+  padding: 0 var(--dc-space-4);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-primary);
+  font: inherit;
+  font-size: var(--dc-text-base);
+}
+
+.control[data-hovered] {
+  border-color: var(--dc-border-strong);
+}
+
+.control[data-focused],
+.control[data-focus-visible],
+.control:focus-within {
+  outline: none;
+  border-color: var(--dc-border-brand);
+  box-shadow: var(--dc-focus-ring);
+}
+
+.control[data-invalid] {
+  border-color: var(--dc-critical-border);
+}
+
+.control[data-disabled] {
+  background: var(--dc-surface-sunken);
+  color: var(--dc-text-disabled);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.input:focus,
+.input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.input::placeholder {
+  color: var(--dc-text-muted);
+}
+
+.clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dc-control-sm);
+  height: var(--dc-control-sm);
+  margin-right: calc(var(--dc-space-2) * -1);
+  border: 0;
+  border-radius: var(--dc-radius-sm);
+  background: transparent;
+  color: var(--dc-text-muted);
+  cursor: pointer;
+}
+
+.clear[data-hovered] {
+  background: var(--dc-surface-sunken);
+  color: var(--dc-text-primary);
+}
+
+.clear[data-focus-visible] {
+  box-shadow: var(--dc-focus-ring);
+}
+
+.icon {
+  color: var(--dc-text-muted);
+  margin-right: var(--dc-space-3);
+  flex: none;
+}
+
+/* SearchField ว่าง → ไม่มีอะไรให้ล้าง */
+.field[data-empty] .clear {
+  visibility: hidden;
+}

@@ -1,0 +1,50 @@
+{
+  "name": "@d-contact/ui-react",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs && vite build",
+    "dev": "vite",
+    "lint:css": "stylelint \"src/**/*.css\" \"preview/**/*.css\"",
+    "test": "pnpm lint:css && tsc -p tsconfig.json --noEmit",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "react-aria-components": "1.21.1"
+  },
+  "peerDependencies": {
+    "@d-contact/ui": "workspace:*",
+    "i18next": ">=26",
+    "react": ">=19",
+    "react-dom": ">=19",
+    "react-i18next": ">=17"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
+    "@d-contact/ui": "workspace:*",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^20.14.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "i18next": "26.4.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-i18next": "17.0.15",
+    "stylelint": "17.15.0",
+    "typescript": "^5.5.4",
+    "vite": "6.4.3"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ]
+}

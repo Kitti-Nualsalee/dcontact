@@ -1,0 +1,7 @@
+{
+  "dialog": { "close": "Close" },
+  "searchField": { "clear": "Clear search" },
+  "select": { "placeholder": "Select…" },
+  "toast": { "dismiss": "Dismiss notification", "region": "Notifications" },
+  "table": { "empty": "No items" }
+}
