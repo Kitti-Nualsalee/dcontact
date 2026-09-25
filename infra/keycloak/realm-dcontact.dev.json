@@ -6,6 +6,9 @@
   "organizationsEnabled": true,
   "registrationAllowed": false,
   "resetPasswordAllowed": true,
+  "internationalizationEnabled": true,
+  "supportedLocales": ["th", "en"],
+  "defaultLocale": "th",
   "roles": {
     "realm": [
       { "name": "agent" },
@@ -241,7 +244,7 @@
       "enabled": true,
       "emailVerified": true,
       "credentials": [{ "type": "password", "value": "admin1234", "temporary": false }],
-      "realmRoles": ["admin"]
+      "realmRoles": ["admin", "default-roles-dcontact"]
     },
     {
       "username": "agent1000@demo.local",
@@ -251,7 +254,7 @@
       "enabled": true,
       "emailVerified": true,
       "credentials": [{ "type": "password", "value": "agent1234", "temporary": false }],
-      "realmRoles": ["agent"]
+      "realmRoles": ["agent", "default-roles-dcontact"]
     },
     {
       "username": "agent1001@demo.local",
@@ -261,7 +264,7 @@
       "enabled": true,
       "emailVerified": true,
       "credentials": [{ "type": "password", "value": "agent1234", "temporary": false }],
-      "realmRoles": ["agent"]
+      "realmRoles": ["agent", "default-roles-dcontact"]
     }
   ]
 }
