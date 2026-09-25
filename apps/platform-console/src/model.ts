@@ -370,6 +370,10 @@ const ACTION_LABELS: Record<string, string> = {
   RESERVATION_TOMBSTONED: 'Tombstone identity',
   SECURITY_DENIED: 'ถูกปฏิเสธด้านความปลอดภัย',
   REQUEST_EDITED: 'แก้ข้อมูลคำขอ',
+  FIRST_ADMIN_EMAIL_VERIFIED: 'ยืนยันอีเมล',
+  FIRST_ADMIN_PASSWORD_SET: 'ตั้งรหัสผ่าน',
+  FIRST_ADMIN_TOTP_ENROLLED: 'ลงทะเบียน TOTP',
+  FIRST_ADMIN_ACTIVATED: 'เปิดใช้งานบัญชี',
 };
 
 export function actionLabel(action: string): string {

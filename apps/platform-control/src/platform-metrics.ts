@@ -29,7 +29,7 @@ function metricStep(value: unknown): string {
   return typeof value === 'string' && STEPS.has(value) ? value : 'none';
 }
 
-type WorkerSource = 'saga' | 'command';
+type WorkerSource = 'saga' | 'command' | 'activity';
 
 /** event ของ worker loop — ทุก label มาจาก enum/stable code */
 export class PlatformWorkerMetrics {

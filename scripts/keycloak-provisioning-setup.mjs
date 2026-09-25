@@ -19,7 +19,18 @@ export const PROVISIONER_REALM_MANAGEMENT_ROLES = Object.freeze([
   'view-realm',
   // Organization admin API ของ Keycloak 26.0 (ดู PR ของ #409)
   'manage-realm',
+  // A1.8 (#413): อ่าน user events ของ first admin เพื่อลง Action history
+  'view-events',
 ]);
+/** ต้องตรงกับ `FIRST_ADMIN_KEYCLOAK_EVENT_TYPES` ใน platform-control (boundary test ตรวจ) */
+export const FIRST_ADMIN_EVENT_TYPES = Object.freeze([
+  'VERIFY_EMAIL',
+  'CUSTOM_REQUIRED_ACTION',
+  'UPDATE_PASSWORD',
+  'UPDATE_TOTP',
+  'UPDATE_CREDENTIAL',
+]);
+const EVENTS_EXPIRATION_SECONDS = 30 * 24 * 60 * 60;
 export const PROTECTED_USER_ATTRIBUTES = Object.freeze([
   'tenant_id',
   'tenant_slug',
@@ -176,6 +187,27 @@ async function ensureSmtp(token) {
 }
 
 /**
+ * A1.8: realm ต้องเก็บ user events ที่ worker ใช้สร้าง timeline ของ first admin
+ * รวมกับค่าที่ทีมอื่นตั้งไว้ (ไม่ถอด listener/type เดิม และไม่ลดอายุ event ที่ยาวกว่า)
+ */
+async function ensureUserEvents(token) {
+  const current = await request(`${realmPath}/events/config`, { token });
+  const types = current.enabledEventTypes ?? [];
+  await request(`${realmPath}/events/config`, {
+    method: 'PUT',
+    token,
+    body: {
+      ...current,
+      eventsEnabled: true,
+      // รายการว่าง = Keycloak เก็บทุกชนิดอยู่แล้ว
+      enabledEventTypes:
+        types.length === 0 ? [] : [...new Set([...types, ...FIRST_ADMIN_EVENT_TYPES])],
+      eventsExpiration: Math.max(current.eventsExpiration ?? 0, EVENTS_EXPIRATION_SECONDS),
+    },
+  });
+}
+
+/**
  * fail closed: invitation guard (#436) ต้องถูกโหลดจริง ไม่อย่างนั้นลิงก์รุ่นเก่ายังใช้ได้
  * Keycloak ไม่เปิดชื่อ class ของ provider ใน serverinfo จึงตรวจว่ามี provider `execute-actions`
  * ที่ order สูงกว่าค่าเริ่มต้น (มีเฉพาะเมื่อ jar ของเราถูกโหลด)
@@ -198,6 +230,7 @@ export async function setupKeycloakProvisioning() {
   await ensureProvisionerClient(token);
   await ensureUserProfile(token);
   await ensureSmtp(token);
+  await ensureUserEvents(token);
   return { client: PROVISIONER_CLIENT, roles: [...PROVISIONER_REALM_MANAGEMENT_ROLES] };
 }
 
