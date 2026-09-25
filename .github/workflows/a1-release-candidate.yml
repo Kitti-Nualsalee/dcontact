@@ -1,0 +1,107 @@
+name: a1-release-candidate
+
+# A1.8 (#413): release candidate ของ Platform provisioning ตาม #393 §6–7
+# รัน fast + real-boundary บน SHA ล่าสุดของ main แล้วเก็บ evidence bundle เป็น pre-release asset
+# `a1-rc-<sha>` (repo public เก็บ artifact ได้ไม่เกิน 90 วัน — asset ไม่หมดอายุ ≥ 180 วันตาม #393)
+# และ attest digest ด้วย Sigstore; UAT preview เปิดได้หลัง `pnpm a1:uat:gate` ของ SHA เดียวกันผ่าน
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  a1-release-candidate:
+    # candidate ต้องอ้าง clean final-main SHA เดียว (#413)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: a1-release-candidate
+      cancel-in-progress: false
+    permissions:
+      contents: write # สร้าง pre-release + asset
+      id-token: write # Sigstore keyless
+      attestations: write
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+      PLATFORM_DATABASE_URL: postgresql://dcontact_platform:dcontact_platform@localhost:5433/dcontact?schema=public
+      APPLICATION_DATABASE_URL: postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public
+      PROVISIONER_DATABASE_URL: postgresql://dcontact_provisioner:dcontact_provisioner@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: cp .env.example .env && pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser (Platform Console e2e)
+        run: pnpm --filter @d-contact/platform-console exec playwright install --with-deps chromium
+
+      - name: Build dependencies of platform-api, api gateway และ console
+        run: pnpm db:generate && pnpm --filter "@d-contact/platform-api^..." --filter "@d-contact/api^..." --filter "@d-contact/platform-console^..." build
+
+      # เฉพาะ service ที่ A1 ใช้ — ไม่ต้องใช้ MinIO/Redpanda/FreeSWITCH (#467)
+      - name: Start Postgres + Keycloak (พร้อม invitation guard) + mailpit
+        run: |
+          pnpm infra:keycloak:extensions
+          docker compose -f infra/docker/docker-compose.dev.yml up -d --wait postgres keycloak mailpit || {
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color keycloak
+            exit 1
+          }
+
+      - name: Bootstrap DB roles/RLS และ identity ของ A1
+        run: pnpm infra:bootstrap
+
+      - name: A1 acceptance (fast + real-boundary)
+        run: node scripts/a1-acceptance.mjs --profile all
+
+      - name: Build RC evidence bundle
+        run: |
+          manifest="$(ls artifacts/a1/"${GITHUB_RUN_ID}"-*/acceptance-manifest.json)"
+          node scripts/a1-rc-bundle.mjs build --manifest "$manifest" \
+            --expect-sha "$GITHUB_SHA" --out a1-rc-bundle.json
+
+      - name: Attest RC bundle (Sigstore)
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: a1-rc-bundle.json
+
+      - name: Publish immutable RC bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          digest="$(sha256sum a1-rc-bundle.json | cut -d' ' -f1)"
+          gh release create "a1-rc-${GITHUB_SHA}" a1-rc-bundle.json \
+            --prerelease --target "$GITHUB_SHA" \
+            --title "A1 release candidate ${GITHUB_SHA::12}" \
+            --notes "Evidence bundle ของ #413 (non-waivable gates PASS) · sha256 ${digest} · run ${GITHUB_RUN_ID}"
+          {
+            echo "### A1 release candidate"
+            echo "- commit: \`${GITHUB_SHA}\`"
+            echo "- bundle sha256: \`${digest}\`"
+            echo "- release: a1-rc-${GITHUB_SHA}"
+            echo "- UAT gate: \`pnpm a1:uat:gate --expect-sha ${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: UAT gate ของ SHA นี้ต้องผ่าน
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/a1-rc-bundle.mjs gate --expect-sha "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY"
+
+      - name: Upload failure evidence (redacted)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a1-rc-failure-${{ github.sha }}
+          path: artifacts/a1/
+          retention-days: 30
+
+      - name: Stop infrastructure
+        if: always()
+        run: pnpm infra:down
