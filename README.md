@@ -92,6 +92,19 @@ Router/Workspace/API, recording-to-QM และ SIPp/FreeSWITCH E2E ทั้ง
 > published UDP ports ได้ ถ้าเสียงไม่มา ให้ตรวจว่า port `16384-16420/udp` ถูก publish
 > และไม่มี firewall ขวาง — บน Linux เปลี่ยน `external_rtp_ip` เป็น IP จริงของเครื่อง
 
+### เปิด Platform Console (สร้างและจัดการ tenant)
+
+```bash
+pnpm infra:up && pnpm infra:bootstrap   # ครั้งแรก หรือหลังล้าง volume
+pnpm platform:dev                        # Console http://localhost:5180 · API :3019 · worker
+pnpm platform:otp                        # รหัส OTP ของ platform-operator (`pnpm platform:otp auditor` สำหรับ auditor)
+```
+
+`platform:dev` build dependency, ตั้งค่า Keycloak ของ platform แบบ idempotent แล้วเปิด provisioning
+พร้อมใส่ dev operator ใน `PLATFORM_OPERATOR_ALLOWLIST` ให้เอง อีเมลเชิญ first admin ดูที่ mailpit
+http://localhost:8025 ค่า env ทุกตัว override จาก shell ได้ — production ตั้งตาม
+[docs/platform-provisioning-rollout.md](docs/platform-provisioning-rollout.md)
+
 ### ตรวจและแก้ปัญหา dev infrastructure
 
 `pnpm infra:ready` คือ **entry condition ก่อนเริ่ม ticket ของ Inbound Voice Phase 1** และรันได้จาก
@@ -128,6 +141,14 @@ workflow ยังรัน tenant-isolation evidence ผ่าน role `dcontac
 | agent1001@demo.local     | agent1234 | agent / AGENT (SIP ext 1001) |
 | admin@demo-two.local     | admin1234 | admin / ADMIN                |
 | agent2000@demo-two.local | agent1234 | agent / AGENT (SIP ext 2000) |
+
+Platform Console (`pnpm platform:dev`) ใช้ผู้ใช้ platform-only ที่ไม่อยู่ใน tenant ใด — login ด้วยรหัสผ่านแล้วตามด้วย
+OTP จาก `pnpm platform:otp`
+
+| user                             | password               | role                                    |
+| -------------------------------- | ---------------------- | --------------------------------------- |
+| platform-operator@platform.local | platform-operator-1234 | platform_operator (สร้าง/กู้คืน tenant) |
+| platform-auditor@platform.local  | platform-auditor-1234  | platform_auditor (อ่านอย่างเดียว)       |
 
 ## หมายเหตุ production
 
