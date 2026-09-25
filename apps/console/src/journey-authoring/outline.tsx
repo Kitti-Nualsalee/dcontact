@@ -4,6 +4,8 @@
  */
 import { useId, useState } from 'react';
 import type { AuthoringDocumentV1, JourneyPortId } from '@d-contact/cxa-contracts';
+import { useTranslation } from '@d-contact/i18n/react';
+import { Button } from '@d-contact/ui-react';
 import { nodeDomId } from './canvas.js';
 import {
   NODE_LABELS,
@@ -28,6 +30,7 @@ function AddStep({
   after?: { nodeId: string; portId: JourneyPortId };
   onCommand: (command: AuthoringCommand) => void;
 }) {
+  const { t } = useTranslation('journeys');
   const selectId = useId();
   const [type, setType] = useState<StepNodeType>('SEND');
   return (
@@ -44,10 +47,9 @@ function AddStep({
           </option>
         ))}
       </select>
-      <button
-        type="button"
-        className="gov-secondary"
-        onClick={() =>
+      <Button
+        size="sm"
+        onPress={() =>
           onCommand({
             kind: 'ADD_NODE',
             nodeId: newId('step'),
@@ -57,8 +59,8 @@ function AddStep({
           })
         }
       >
-        เพิ่ม
-      </button>
+        {t('outline.add')}
+      </Button>
     </div>
   );
 }
@@ -78,6 +80,7 @@ export function Outline({
   onSelect: (nodeId: string) => void;
   onCommand: (command: AuthoringCommand) => void;
 }) {
+  const { t } = useTranslation('journeys');
   const order = outlineOrder(document);
   return (
     <div className="j5-outline">
@@ -98,16 +101,18 @@ export function Outline({
                 <button
                   type="button"
                   id={nodeDomId('outline', nodeId)}
-                  className="gov-link"
+                  className="j5-link"
                   aria-current={selectedNodeId === nodeId ? 'true' : undefined}
                   onClick={() => onSelect(nodeId)}
                 >
                   {index + 1}. {nodeTitle(document, nodeId)}
                 </button>
                 <span className="j5-outline-type">
-                  {type === 'UNSUPPORTED' ? 'อ่านอย่างเดียว' : type}
+                  {type === 'UNSUPPORTED' ? t('outline.readOnlyType') : type}
                 </span>
-                {issues > 0 ? <span className="j5-badge-error">{issues} ปัญหา</span> : null}
+                {issues > 0 ? (
+                  <span className="j5-badge-error">{t('outline.issues', { count: issues })}</span>
+                ) : null}
               </div>
               {outputPorts(document, nodeId).map((portId) => {
                 const target = edgeFrom(document, nodeId, portId)?.target.nodeId ?? '';
@@ -115,7 +120,10 @@ export function Outline({
                 return (
                   <div key={portId} className="j5-port-row">
                     <label htmlFor={selectId}>
-                      {PORT_LABELS[portId]} ของ {nodeTitle(document, nodeId)} ไปที่
+                      {t('outline.portTarget', {
+                        port: PORT_LABELS[portId],
+                        node: nodeTitle(document, nodeId),
+                      })}
                     </label>
                     <select
                       id={selectId}
@@ -134,7 +142,7 @@ export function Outline({
                         )
                       }
                     >
-                      <option value="">— ยังไม่ต่อ —</option>
+                      <option value="">{t('outline.notConnected')}</option>
                       {order
                         .filter(
                           (candidate) =>
@@ -150,7 +158,7 @@ export function Outline({
                     </select>
                     {editable ? (
                       <AddStep
-                        label={`แทรกขั้นตอนหลัง ${PORT_LABELS[portId]}`}
+                        label={t('outline.insertAfter', { port: PORT_LABELS[portId] })}
                         after={{ nodeId, portId }}
                         onCommand={onCommand}
                       />
@@ -160,38 +168,37 @@ export function Outline({
               })}
               {editable && !trigger ? (
                 <div className="j5-outline-actions">
-                  <button
-                    type="button"
-                    className="gov-secondary"
-                    disabled={documentIndex <= 0}
-                    onClick={() => onCommand({ kind: 'REORDER', nodeId, direction: 'up' })}
+                  <Button
+                    size="sm"
+                    isDisabled={documentIndex <= 0}
+                    onPress={() => onCommand({ kind: 'REORDER', nodeId, direction: 'up' })}
                   >
-                    เลื่อนขึ้น
+                    {t('outline.moveUp')}
                     <span className="j5-sr"> {nodeTitle(document, nodeId)}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="gov-secondary"
-                    disabled={documentIndex >= document.nodes.length - 1}
-                    onClick={() => onCommand({ kind: 'REORDER', nodeId, direction: 'down' })}
+                  </Button>
+                  <Button
+                    size="sm"
+                    isDisabled={documentIndex >= document.nodes.length - 1}
+                    onPress={() => onCommand({ kind: 'REORDER', nodeId, direction: 'down' })}
                   >
-                    เลื่อนลง
+                    {t('outline.moveDown')}
                     <span className="j5-sr"> {nodeTitle(document, nodeId)}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="gov-danger"
-                    onClick={() => onCommand({ kind: 'DELETE_NODE', nodeId })}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onPress={() => onCommand({ kind: 'DELETE_NODE', nodeId })}
                   >
-                    ลบ<span className="j5-sr"> {nodeTitle(document, nodeId)}</span>
-                  </button>
+                    {t('outline.delete')}
+                    <span className="j5-sr"> {nodeTitle(document, nodeId)}</span>
+                  </Button>
                 </div>
               ) : null}
             </li>
           );
         })}
       </ol>
-      {readOnly ? null : <AddStep label="เพิ่มขั้นตอนใหม่ (ยังไม่ต่อ)" onCommand={onCommand} />}
+      {readOnly ? null : <AddStep label={t('outline.addUnconnected')} onCommand={onCommand} />}
     </div>
   );
 }

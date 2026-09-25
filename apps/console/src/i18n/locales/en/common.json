@@ -40,6 +40,7 @@
     "workspace": {
       "title": "Workspace"
     },
-    "pinSaveFailed": "Could not save your pins; they were restored"
+    "pinSaveFailed": "Could not save your pins; they were restored",
+    "brand": "D-Contact"
   }
 }

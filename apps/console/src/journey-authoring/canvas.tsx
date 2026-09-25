@@ -8,6 +8,7 @@
  */
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import type { AuthoringDocumentV1 } from '@d-contact/cxa-contracts';
+import { useTranslation } from '@d-contact/i18n/react';
 import {
   PORT_LABELS,
   edgeFrom,
@@ -41,6 +42,7 @@ export function Canvas({
   onSelect: (nodeId: string) => void;
   onCommand: (command: AuthoringCommand) => void;
 }) {
+  const { t } = useTranslation('journeys');
   const order = outlineOrder(document);
   const [focusId, setFocusId] = useState<string>(order[0]!);
   const rovingId = order.includes(selectedNodeId ?? '')
@@ -134,13 +136,13 @@ export function Canvas({
   return (
     <div className="j5-canvas-scroll">
       <p id="j5-canvas-help" className="j5-help">
-        ลูกศรขึ้น/ลงเลื่อนระหว่างขั้นตอน · Enter เลือกเพื่อแก้ไข
-        {readOnly ? '' : ' · Shift+ลูกศรขยับตำแหน่ง · Delete ลบขั้นตอน'}
+        {t('canvas.help')}
+        {readOnly ? '' : t('canvas.helpEdit')}
       </p>
       <div
         className="j5-canvas"
         role="group"
-        aria-label="ผังขั้นตอนของ Journey"
+        aria-label={t('canvas.label')}
         aria-describedby="j5-canvas-help"
         style={{ width, height }}
       >
@@ -173,7 +175,7 @@ export function Canvas({
           const connections = outputPorts(document, nodeId)
             .map((portId) => {
               const target = edgeFrom(document, nodeId, portId)?.target.nodeId;
-              return `${PORT_LABELS[portId]}: ${target ? nodeTitle(document, target) : 'ยังไม่ต่อ'}`;
+              return `${PORT_LABELS[portId]}: ${target ? nodeTitle(document, target) : t('canvas.notConnected')}`;
             })
             .join(' · ');
           const issues = diagnosticCounts.get(nodeId) ?? 0;
@@ -186,8 +188,8 @@ export function Canvas({
               style={{ left: point.x, top: point.y, width: NODE_WIDTH, minHeight: NODE_HEIGHT }}
               tabIndex={nodeId === rovingId ? 0 : -1}
               aria-pressed={selectedNodeId === nodeId}
-              aria-label={`${nodeTitle(document, nodeId)}${issues > 0 ? ` มีปัญหา ${issues} รายการ` : ''}`}
-              aria-description={connections || 'ขั้นตอนสุดท้าย'}
+              aria-label={`${nodeTitle(document, nodeId)}${issues > 0 ? t('canvas.withIssues', { count: issues }) : ''}`}
+              aria-description={connections || t('canvas.terminal')}
               onFocus={() => setFocusId(nodeId)}
               onClick={() => onSelect(nodeId)}
               onKeyDown={(event) => onKeyDown(event, nodeId)}
@@ -197,10 +199,12 @@ export function Canvas({
               onPointerCancel={onPointerUp}
             >
               <span className="j5-node-type">
-                {type === 'UNSUPPORTED' ? 'อ่านอย่างเดียว' : type}
+                {type === 'UNSUPPORTED' ? t('canvas.readOnlyType') : type}
               </span>
               <strong>{nodeTitle(document, nodeId)}</strong>
-              {issues > 0 ? <span className="j5-node-issues">{issues} ปัญหา</span> : null}
+              {issues > 0 ? (
+                <span className="j5-node-issues">{t('canvas.issues', { count: issues })}</span>
+              ) : null}
             </button>
           );
         })}

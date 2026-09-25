@@ -6,7 +6,8 @@
  * เพิ่ม namespace ของตัวเอง เช่น `journeys` — key เป็นรูป `<หมวด>.<สิ่งของ>.<การกระทำ>`
  * `pnpm i18n:check` ใน CI ล้มเมื่อ key ขาดภาษาใดภาษาหนึ่ง
  */
-import { uiResources } from '@d-contact/ui-react';
+// subpath ที่ไม่มี CSS — resources ถูก import ใน unit test ของ Node ได้
+import { uiResources } from '@d-contact/ui-react/i18n';
 import commonEn from './locales/en/common.json' with { type: 'json' };
 import commonTh from './locales/th/common.json' with { type: 'json' };
 

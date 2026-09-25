@@ -7,6 +7,7 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "dev": "vite",
     "i18n:check": "dc-i18n-check src/i18n/locales",
+    "i18n:literals": "dc-i18n-literals src/shell",
     "test": "tsx --test src/*.test.ts",
     "test:e2e": "playwright test",
     "typecheck": "tsc -p tsconfig.json --noEmit"

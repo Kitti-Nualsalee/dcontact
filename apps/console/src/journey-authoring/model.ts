@@ -7,6 +7,7 @@
  *   เข้ามา bundle ใน browser ไม่ได้) — unit test ตรึงให้ตรงกับ contracts ทุกตัว
  * - ตรวจแบบ local เป็นแค่คำใบ้ให้ผู้ใช้; validate/compile/publish ตัดสินที่ server เท่านั้น
  */
+import { appI18n } from '../i18n/index.js';
 import type {
   AuthoringDocumentV1,
   AuthoringEdgeV1,
@@ -59,30 +60,58 @@ export const INTERACTION_OUTCOME_TYPES = [
   'FEEDBACK_DETRACTOR_RECORDED',
 ];
 
-export const NODE_LABELS: Readonly<Record<AnyNodeType | 'UNSUPPORTED', string>> = {
-  EVENT_TRIGGER: 'เริ่มเมื่อเกิด event',
-  SCHEDULE_TRIGGER: 'เริ่มตามตารางเวลา',
-  INTERACTION_OUTCOME_TRIGGER: 'เริ่มจากผลการติดต่อ',
-  SEGMENT_ENTRY_TRIGGER: 'เริ่มเมื่อเข้า segment',
-  SEND: 'ส่งข้อความ',
-  WAIT: 'รอ',
-  BRANCH: 'แยกตามเงื่อนไข',
-  EXIT: 'จบ Journey',
-  ENSURE_CASE: 'สร้างหรือผูก Case',
-  ADMIT_CAMPAIGN_TARGET: 'เพิ่มเข้า Campaign',
-  SCHEDULE_CALLBACK: 'นัดโทรกลับ',
-  UNSUPPORTED: 'ขั้นตอนที่ Console รุ่นนี้ไม่รู้จัก',
-};
+/**
+ * D1.14 (#453): ข้อความของ model มาจาก catalog `journeys` — อ่านผ่าน getter ทุกครั้ง จึงได้ภาษาปัจจุบัน
+ * เมื่อ component render ใหม่หลังสลับภาษา โดยผู้เรียกยังใช้ `NODE_LABELS[type]` แบบเดิม
+ */
+export function journeyText(key: string, options?: Record<string, unknown>): string {
+  return (appI18n.t as unknown as (key: string, options?: Record<string, unknown>) => string)(
+    `journeys:${key}`,
+    options,
+  );
+}
 
-export const PORT_LABELS: Readonly<Record<JourneyPortId, string>> = {
-  start: 'เริ่ม',
-  in: 'ขาเข้า',
-  next: 'ถัดไป',
-  true: 'เงื่อนไขเป็นจริง',
-  false_or_error: 'เป็นเท็จหรือประเมินไม่ได้',
-  accepted: 'สำเร็จ',
-  rejected: 'ถูกปฏิเสธ',
-};
+function localizedLabels<K extends string>(
+  prefix: string,
+  keys: readonly K[],
+): Readonly<Record<K, string>> {
+  const labels = {} as Record<K, string>;
+  for (const key of keys) {
+    Object.defineProperty(labels, key, {
+      enumerable: true,
+      get: () => journeyText(`${prefix}.${key}`),
+    });
+  }
+  return Object.freeze(labels);
+}
+
+export const NODE_LABELS: Readonly<Record<AnyNodeType | 'UNSUPPORTED', string>> = localizedLabels(
+  'node',
+  [
+    'EVENT_TRIGGER',
+    'SCHEDULE_TRIGGER',
+    'INTERACTION_OUTCOME_TRIGGER',
+    'SEGMENT_ENTRY_TRIGGER',
+    'SEND',
+    'WAIT',
+    'BRANCH',
+    'EXIT',
+    'ENSURE_CASE',
+    'ADMIT_CAMPAIGN_TARGET',
+    'SCHEDULE_CALLBACK',
+    'UNSUPPORTED',
+  ] as const,
+);
+
+export const PORT_LABELS: Readonly<Record<JourneyPortId, string>> = localizedLabels('port', [
+  'start',
+  'in',
+  'next',
+  'true',
+  'false_or_error',
+  'accepted',
+  'rejected',
+] as const);
 
 export type ConfigFieldKind =
   'text' | 'opaque' | 'positive' | 'nonNegative' | 'select' | 'expression' | 'fixed';
@@ -96,54 +125,59 @@ export interface ConfigFieldSpec {
   readonly description?: string;
 }
 
+/** label/description มาจาก catalog (`field.<key>`, `field.<key>Hint`) ผ่าน getter — ภาษาเปลี่ยนตามผู้ใช้ */
 const field = (
   key: string,
-  label: string,
   kind: ConfigFieldKind,
-  extra: Partial<ConfigFieldSpec> = {},
-): ConfigFieldSpec => ({ key, label, kind, required: true, ...extra });
+  extra: Partial<Pick<ConfigFieldSpec, 'required' | 'options'>> & { hint?: boolean } = {},
+): ConfigFieldSpec => {
+  const spec = {
+    key,
+    kind,
+    required: extra.required ?? true,
+    options: extra.options,
+  } as ConfigFieldSpec;
+  Object.defineProperty(spec, 'label', {
+    enumerable: true,
+    get: () => journeyText(`field.${key}`),
+  });
+  if (extra.hint) {
+    Object.defineProperty(spec, 'description', {
+      enumerable: true,
+      get: () => journeyText(`field.${key}Hint`),
+    });
+  }
+  return Object.freeze(spec);
+};
 
 /** field ของ config ตาม registry (#328) — ชื่อ key ตรงกับ validator ฝั่ง server */
 export const CONFIG_FIELDS: Readonly<Record<AnyNodeType, readonly ConfigFieldSpec[]>> = {
-  EVENT_TRIGGER: [field('eventType', 'ชนิด event', 'text')],
-  SCHEDULE_TRIGGER: [
-    field('cron', 'Cron expression', 'text'),
-    field('timezone', 'Timezone', 'text', { description: 'เช่น Asia/Bangkok' }),
-  ],
+  EVENT_TRIGGER: [field('eventType', 'text')],
+  SCHEDULE_TRIGGER: [field('cron', 'text'), field('timezone', 'text', { hint: true })],
   INTERACTION_OUTCOME_TRIGGER: [
-    field('outcomeType', 'ชนิดผลการติดต่อ', 'select', { options: INTERACTION_OUTCOME_TYPES }),
-    field('outcomeCode', 'รหัสผล (ไม่บังคับ)', 'opaque', { required: false }),
-    field('coalescingPolicy', 'การรวม event', 'fixed', { options: ['PER_LOGICAL_OUTCOME'] }),
+    field('outcomeType', 'select', { options: INTERACTION_OUTCOME_TYPES }),
+    field('outcomeCode', 'opaque', { required: false }),
+    field('coalescingPolicy', 'fixed', { options: ['PER_LOGICAL_OUTCOME'] }),
   ],
   SEGMENT_ENTRY_TRIGGER: [
-    field('segmentId', 'Segment ID', 'opaque'),
-    field('coalescingPolicy', 'การรวม event', 'fixed', { options: ['PER_SEGMENT_ENTRY'] }),
+    field('segmentId', 'opaque'),
+    field('coalescingPolicy', 'fixed', { options: ['PER_SEGMENT_ENTRY'] }),
   ],
-  SEND: [
-    field('channel', 'ช่องทาง', 'select', { options: CONTACT_CHANNELS }),
-    field('contentRef', 'Content reference', 'text'),
-  ],
-  WAIT: [field('waitSeconds', 'ระยะเวลารอ (วินาที)', 'positive')],
-  BRANCH: [
-    field('expression', 'เงื่อนไข (DC_EXPR JSON)', 'expression', {
-      description: 'server ตรวจ expression ตอน validate/compile',
-    }),
-  ],
-  EXIT: [field('reason', 'เหตุผลที่จบ', 'text')],
+  SEND: [field('channel', 'select', { options: CONTACT_CHANNELS }), field('contentRef', 'text')],
+  WAIT: [field('waitSeconds', 'positive')],
+  BRANCH: [field('expression', 'expression', { hint: true })],
+  EXIT: [field('reason', 'text')],
   ENSURE_CASE: [
-    field('caseTypeId', 'Case type', 'opaque'),
-    field('routingIntentRef', 'Routing intent', 'opaque'),
-    field('targetOwnerTeamId', 'ทีมที่รับผิดชอบ', 'opaque'),
+    field('caseTypeId', 'opaque'),
+    field('routingIntentRef', 'opaque'),
+    field('targetOwnerTeamId', 'opaque'),
   ],
-  ADMIT_CAMPAIGN_TARGET: [
-    field('campaignId', 'Campaign ID', 'opaque'),
-    field('targetOwnerTeamId', 'ทีมที่รับผิดชอบ', 'opaque'),
-  ],
+  ADMIT_CAMPAIGN_TARGET: [field('campaignId', 'opaque'), field('targetOwnerTeamId', 'opaque')],
   SCHEDULE_CALLBACK: [
-    field('requestedInSeconds', 'โทรกลับในอีก (วินาที)', 'nonNegative'),
-    field('queueId', 'Queue ID', 'opaque'),
-    field('agentId', 'Agent ID (ไม่บังคับ)', 'opaque', { required: false }),
-    field('targetOwnerTeamId', 'ทีมที่รับผิดชอบ', 'opaque'),
+    field('requestedInSeconds', 'nonNegative'),
+    field('queueId', 'opaque'),
+    field('agentId', 'opaque', { required: false }),
+    field('targetOwnerTeamId', 'opaque'),
   ],
 };
 
@@ -510,35 +544,11 @@ export function changedNodeIds(before: AuthoringDocumentV1, after: AuthoringDocu
 
 // ── Error presentation ──────────────────────────────────────────────────────
 
-const ERROR_MESSAGES: Readonly<Record<string, string>> = {
-  JOURNEY_NOT_FOUND: 'ไม่พบ Journey นี้ หรือคุณไม่มีสิทธิ์เห็น',
-  TEMPLATE_NOT_FOUND: 'ไม่พบ template นี้ หรือคุณไม่มีสิทธิ์เห็น',
-  CAPABILITY_REQUIRED: 'บัญชีนี้ไม่มีสิทธิ์ทำคำสั่งนี้',
-  DRAFT_VERSION_CONFLICT: 'ฉบับร่างถูกแก้โดยผู้อื่นแล้ว',
-  PUBLISHED_HEAD_CONFLICT: 'Journey ถูกเปลี่ยนสถานะหรือแก้ไขไปแล้ว',
-  IDEMPOTENCY_CONFLICT: 'คำสั่งนี้เคยถูกส่งด้วยข้อมูลอื่นแล้ว',
-  REVIEW_CANDIDATE_STALE: 'ชุดที่ส่งตรวจไม่ตรงกับฉบับร่างล่าสุดแล้ว',
-  APPROVAL_REQUIRED: 'ยังไม่มีผู้อนุมัติอิสระ',
-  APPROVAL_SELF_FORBIDDEN: 'ผู้ส่งตรวจอนุมัติงานของตัวเองไม่ได้',
-  APPROVAL_STALE: 'สิทธิ์ของผู้อนุมัติเปลี่ยนไปแล้ว ต้องขออนุมัติใหม่',
-  COMPILE_ARTIFACT_STALE: 'ผล compile เก่าแล้ว ให้ compile ใหม่',
-  DEFINITION_INVALID: 'ฉบับร่างยังมีข้อผิดพลาดที่ต้องแก้ก่อน',
-  AUTHORING_SCHEMA_INVALID: 'โครงสร้างฉบับร่างไม่ถูกต้อง',
-  JOURNEY_LIFECYCLE_CONFLICT: 'สถานะของ Journey ไม่อนุญาตคำสั่งนี้',
-  DEPENDENCY_UNAVAILABLE: 'ฟีเจอร์นี้ยังไม่เปิดสำหรับ tenant หรือระบบปลายทางไม่พร้อม',
-  REQUEST_MALFORMED: 'ข้อมูลที่ส่งไม่ครบหรือรูปแบบไม่ถูกต้อง',
-  TEMPLATE_DIGEST_MISMATCH: 'template ถูกเปลี่ยนไปแล้ว ให้เปิดใหม่',
-  TEMPLATE_PARAMETER_REQUIRED: 'ยังกรอก parameter ที่จำเป็นไม่ครบ',
-  TEMPLATE_PARAMETER_INVALID: 'ค่าของ parameter ไม่ถูกต้อง',
-  TEMPLATE_REFERENCE_UNTRUSTED: 'reference ที่ระบุไม่มีอยู่ใน tenant นี้',
-  TEMPLATE_DEPRECATED: 'template นี้เลิกใช้แล้ว',
-  TEMPLATE_UPGRADE_STALE: 'ฉบับร่างเปลี่ยนไปหลังตรวจ upgrade ให้ตรวจใหม่',
-  TEMPLATE_UPGRADE_CONFLICT: 'ยังมี conflict ที่ต้องเลือกวิธีแก้',
-  PUBLISH_OUTCOME_UNKNOWN: 'ยังไม่ทราบผล publish ให้ตรวจผลด้วยคำสั่งเดิม',
-};
-
+/** ข้อความของ error code ปิดจาก server — code ที่ไม่รู้จักได้ข้อความกลาง (catalog `error.*`) */
 export function errorMessage(code: string | undefined): string {
-  return (code && ERROR_MESSAGES[code]) ?? 'คำสั่งไม่สำเร็จ ลองอีกครั้งหรือติดต่อผู้ดูแล';
+  return code && appI18n.exists(`journeys:error.${code}`)
+    ? journeyText(`error.${code}`)
+    : journeyText('error.fallback');
 }
 
 /** ฉบับร่างเริ่มต้นที่ server บันทึกได้: trigger แบบ event ต่อไปที่ EXIT — รายละเอียดที่เหลือแก้ต่อใน editor */

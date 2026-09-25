@@ -13,6 +13,8 @@ import type {
   JourneyTemplateUpgradeProposalV1,
   JourneyTemplateVersionViewV1,
 } from '@d-contact/cxa-contracts';
+import { useTranslation } from '@d-contact/i18n/react';
+import { Button } from '@d-contact/ui-react';
 import { JourneyAuthoringApiError, type JourneyAuthoringApi, type JourneySnapshot } from './api.js';
 import { errorMessage } from './model.js';
 
@@ -38,20 +40,21 @@ function ParameterInput({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const { t } = useTranslation('journeys');
   const inputId = useId();
   const label = `${parameter.parameterKey}${parameter.required ? ' *' : ''}`;
   const hint =
     parameter.type === 'OPAQUE_RESOURCE_REF'
-      ? `อ้าง ${parameter.resourceKind} ที่มีอยู่ใน tenant นี้`
+      ? t('templates.hintResource', { kind: parameter.resourceKind })
       : parameter.type === 'INTEGER' || parameter.type === 'DURATION_SECONDS'
-        ? `ตัวเลข ${parameter.min}–${parameter.max}`
+        ? t('templates.hintRange', { min: parameter.min, max: parameter.max })
         : parameter.type;
   return (
     <div className="j5-field">
       <label htmlFor={inputId}>{label}</label>
       {parameter.type === 'ENUM' || parameter.type === 'BOOLEAN' ? (
         <select id={inputId} value={value} onChange={(event) => onChange(event.target.value)}>
-          <option value="">— เลือก —</option>
+          <option value="">{t('templates.choose')}</option>
           {(parameter.type === 'ENUM' ? parameter.values : ['true', 'false']).map((option) => (
             <option key={option} value={option}>
               {option}
@@ -89,7 +92,9 @@ export function TemplateCatalog({
   const [values, setValues] = useState<Record<string, string>>({});
   const [team, setTeam] = useState('');
   const [name, setName] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const { t } = useTranslation('journeys');
+  // เก็บ code แล้วแปลตอน render — สลับภาษาแล้วข้อความ error เปลี่ยนตาม
+  const [error, setError] = useState<{ code?: string } | null>(null);
   const [intentKey, setIntentKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -97,9 +102,7 @@ export function TemplateCatalog({
       .templates()
       .then((page) => setTemplates(page.items))
       .catch((failure: unknown) =>
-        setError(
-          errorMessage(failure instanceof JourneyAuthoringApiError ? failure.code : undefined),
-        ),
+        setError({ code: failure instanceof JourneyAuthoringApiError ? failure.code : undefined }),
       );
   }, [api]);
 
@@ -146,33 +149,35 @@ export function TemplateCatalog({
       onInstantiated(result.journeyId);
     } catch (failure) {
       if (failure instanceof JourneyAuthoringApiError) setIntentKey(null);
-      setError(
-        errorMessage(failure instanceof JourneyAuthoringApiError ? failure.code : undefined),
-      );
+      setError({ code: failure instanceof JourneyAuthoringApiError ? failure.code : undefined });
     }
   };
 
   return (
-    <section className="gov-panel" aria-labelledby="j5-template-heading">
-      <h2 id="j5-template-heading">เริ่มจาก template</h2>
-      {templates === null && !error ? <p role="status">กำลังโหลด template…</p> : null}
-      {templates?.length === 0 ? <p>ยังไม่มี template ที่คุณมองเห็น</p> : null}
+    <section className="j5-panel" aria-labelledby="j5-template-heading">
+      <h2 id="j5-template-heading">{t('templates.heading')}</h2>
+      {templates === null && !error ? <p role="status">{t('templates.loading')}</p> : null}
+      {templates?.length === 0 ? <p>{t('templates.empty')}</p> : null}
       <ul className="j5-template-list">
         {templates?.map((template) => (
           <li key={`${template.templateId}-${template.version}`}>
             <button
               type="button"
-              className="gov-link"
+              className="j5-link"
               aria-current={selected?.templateId === template.templateId ? 'true' : undefined}
               onClick={() => choose(template)}
             >
               {template.name}
             </button>
             <span className="j5-help">
-              {' '}
-              · {template.origin === 'PLATFORM_BUILTIN' ? 'built-in' : 'ของ tenant'} · v
-              {template.version}
-              {template.lifecycle === 'DEPRECATED' ? ' · เลิกใช้แล้ว' : ''}
+              {t('templates.meta', {
+                origin:
+                  template.origin === 'PLATFORM_BUILTIN'
+                    ? t('templates.builtin')
+                    : t('templates.tenant'),
+                version: template.version,
+                deprecated: template.lifecycle === 'DEPRECATED' ? t('templates.deprecated') : '',
+              })}
             </span>
           </li>
         ))}
@@ -180,14 +185,14 @@ export function TemplateCatalog({
       {selected && !readOnly ? (
         <form
           className="j5-template-form"
-          aria-label={`สร้าง Journey จาก ${selected.name}`}
+          aria-label={t('templates.formLabel', { name: selected.name })}
           onSubmit={(event) => {
             event.preventDefault();
             void instantiate();
           }}
         >
           <div className="j5-field">
-            <label htmlFor={nameId}>ชื่อ Journey</label>
+            <label htmlFor={nameId}>{t('templates.name')}</label>
             <input
               id={nameId}
               value={name}
@@ -196,7 +201,7 @@ export function TemplateCatalog({
             />
           </div>
           <div className="j5-field">
-            <label htmlFor={teamId}>ทีมเจ้าของ (team ID)</label>
+            <label htmlFor={teamId}>{t('templates.team')}</label>
             <input
               id={teamId}
               value={team}
@@ -214,14 +219,14 @@ export function TemplateCatalog({
               }
             />
           ))}
-          <button type="submit" className="gov-primary" disabled={!name.trim() || !team.trim()}>
-            สร้าง Journey จาก template
-          </button>
+          <Button type="submit" variant="primary" isDisabled={!name.trim() || !team.trim()}>
+            {t('templates.submit')}
+          </Button>
         </form>
       ) : null}
       {error ? (
         <p className="j5-status-error" role="alert">
-          {error}
+          {errorMessage(error.code)}
         </p>
       ) : null}
     </section>
@@ -245,11 +250,12 @@ export function TemplateUpgrade({
   const [resolutions, setResolutions] = useState<Record<string, JourneyTemplateConflictResolution>>(
     {},
   );
-  const [error, setError] = useState<string | null>(null);
-  const [applied, setApplied] = useState<string | null>(null);
+  const { t } = useTranslation('journeys');
+  const [error, setError] = useState<{ code?: string } | null>(null);
+  const [applied, setApplied] = useState<number | null>(null);
   const notices = snapshot.templateNotices;
   // หลัง apply สำเร็จ notice หายไป แต่ยังต้องประกาศผลให้ผู้ใช้เห็น
-  if (notices.length === 0 && !applied) return null;
+  if (notices.length === 0 && applied === null) return null;
   const update = notices.find((notice) => notice.kind === 'UPDATE_AVAILABLE');
   const { head } = snapshot;
 
@@ -267,9 +273,7 @@ export function TemplateUpgrade({
       );
       setResolutions({});
     } catch (failure) {
-      setError(
-        errorMessage(failure instanceof JourneyAuthoringApiError ? failure.code : undefined),
-      );
+      setError({ code: failure instanceof JourneyAuthoringApiError ? failure.code : undefined });
     }
   };
 
@@ -291,12 +295,10 @@ export function TemplateUpgrade({
         `upgrade-${proposal.proposalDigest.slice(0, 16)}-${head.currentDraftRevision}`,
       );
       setProposal(null);
-      setApplied(`ปรับเป็น template version ${proposal.toVersion} ในฉบับร่างแล้ว ยังไม่ publish`);
+      setApplied(proposal.toVersion);
       await onChanged();
     } catch (failure) {
-      setError(
-        errorMessage(failure instanceof JourneyAuthoringApiError ? failure.code : undefined),
-      );
+      setError({ code: failure instanceof JourneyAuthoringApiError ? failure.code : undefined });
     }
   };
 
@@ -307,32 +309,33 @@ export function TemplateUpgrade({
     : true;
 
   return (
-    <section className="gov-panel" aria-labelledby="j5-upgrade-heading">
-      <h2 id="j5-upgrade-heading">Template ต้นทาง</h2>
+    <section className="j5-panel" aria-labelledby="j5-upgrade-heading">
+      <h2 id="j5-upgrade-heading">{t('upgrade.heading')}</h2>
       <ul>
         {notices.map((notice) => (
           <li key={notice.kind}>
             {notice.kind === 'UPDATE_AVAILABLE'
-              ? `มี template version ${notice.latestVersion} (ใช้อยู่ ${notice.source.version}) — ข้อมูลเท่านั้น ไม่เปลี่ยนเอง`
-              : 'template ต้นทางถูกเลิกใช้แล้ว Journey นี้ยังทำงานได้ตามเดิม'}
+              ? t('upgrade.updateAvailable', {
+                  latest: notice.latestVersion,
+                  current: notice.source.version,
+                })
+              : t('upgrade.sourceDeprecated')}
           </li>
         ))}
       </ul>
       {update && !readOnly ? (
-        <button
-          type="button"
-          className="gov-secondary"
-          disabled={dirty}
-          onClick={() => void check()}
-        >
-          ตรวจการ upgrade
-        </button>
+        <Button isDisabled={dirty} onPress={() => void check()}>
+          {t('upgrade.check')}
+        </Button>
       ) : null}
       {proposal ? (
         <div className="j5-upgrade">
           <p>
-            จาก v{proposal.fromVersion} เป็น v{proposal.toVersion} · conflict{' '}
-            {proposal.conflicts.length} รายการ
+            {t('upgrade.summary', {
+              from: proposal.fromVersion,
+              to: proposal.toVersion,
+              conflicts: proposal.conflicts.length,
+            })}
           </p>
           {proposal.conflicts.map((conflict) => (
             <fieldset key={conflict.conflictId}>
@@ -342,9 +345,7 @@ export function TemplateUpgrade({
                 {conflict.field ? ` · ${conflict.field}` : ''}
               </legend>
               {BLOCKING.has(conflict.kind) ? (
-                <p className="j5-status-error">
-                  ต้องแก้ต้นทางหรือผูก parameter ก่อน เลือกแทนไม่ได้
-                </p>
+                <p className="j5-status-error">{t('upgrade.blocking')}</p>
               ) : (
                 (['KEEP_LOCAL', 'TAKE_TEMPLATE'] as const).map((choice) => (
                   <label key={choice} className="j5-radio">
@@ -356,28 +357,23 @@ export function TemplateUpgrade({
                         setResolutions((current) => ({ ...current, [conflict.conflictId]: choice }))
                       }
                     />
-                    {choice === 'KEEP_LOCAL' ? 'ใช้ของ Journey นี้' : 'ใช้ของ template'}
+                    {choice === 'KEEP_LOCAL' ? t('upgrade.keepLocal') : t('upgrade.takeTemplate')}
                   </label>
                 ))
               )}
             </fieldset>
           ))}
-          <button
-            type="button"
-            className="gov-primary"
-            disabled={unresolved}
-            onClick={() => void apply()}
-          >
-            ปรับฉบับร่างตาม proposal
-          </button>
+          <Button variant="primary" isDisabled={unresolved} onPress={() => void apply()}>
+            {t('upgrade.apply')}
+          </Button>
         </div>
       ) : null}
-      <p className="gov-live" role="status" aria-live="polite">
-        {applied ?? ''}
+      <p className="j5-live" role="status" aria-live="polite">
+        {applied === null ? '' : t('upgrade.applied', { version: applied })}
       </p>
       {error ? (
         <p className="j5-status-error" role="alert">
-          {error}
+          {errorMessage(error.code)}
         </p>
       ) : null}
     </section>

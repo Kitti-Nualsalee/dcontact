@@ -7,7 +7,7 @@
  *   html/body — หน้าเดิมตอนปิด flag จึงไม่เปลี่ยนแม้แต่ฟอนต์
  * - เนื้อหาของหน้า (Journeys/Governance) ถูกครอบโดยไม่แตะ layout ภายใน — การย้ายหน้าจริงคือ D1.14
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import {
   ShellFrame,
@@ -17,6 +17,7 @@ import {
   useShellNavigation,
   type HostApp,
 } from '@d-contact/ui-react';
+import { useShellTokens } from './tokens.js';
 
 export type ConsoleShellApp = 'journeys' | 'contact-governance';
 
@@ -26,12 +27,6 @@ export function hostOrigins(): Record<HostApp, string> {
     console: env.VITE_CONSOLE_URL ?? window.location.origin,
     workspace: env.VITE_WORKSPACE_URL ?? 'http://localhost:5173',
   };
-}
-
-let tokensLoaded: Promise<unknown> | undefined;
-function loadShellTokens() {
-  tokensLoaded ??= import('@d-contact/ui/tokens.css');
-  return tokensLoaded;
 }
 
 export interface ConsoleShellProps {
@@ -65,11 +60,7 @@ export function ConsoleShell({
         { timeout: 6000 },
       ),
   });
-  const [tokensReady, setTokensReady] = useState(false);
-  useEffect(() => {
-    if (nav.status !== 'ready') return;
-    void loadShellTokens().then(() => setTokensReady(true));
-  }, [nav.status]);
+  const tokensReady = useShellTokens(nav.status === 'ready');
 
   if (nav.status === 'legacy') return <>{children}</>;
   if (nav.status === 'loading' || !tokensReady) {
@@ -141,7 +132,7 @@ export function ConsoleShell({
         brand={
           <>
             <img src="/d-contact-icon-64.png" alt="" width={24} height={24} />
-            <span>D-Contact</span>
+            <span>{t('shell.brand')}</span>
           </>
         }
         breadcrumb={

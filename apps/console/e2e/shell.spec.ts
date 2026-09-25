@@ -55,12 +55,16 @@ async function mockNavigation(page: Page, response: { status: number; body?: unk
 
 const rail = (page: Page) => page.getByRole('navigation', { name: 'เมนูหลัก' });
 
-test('flag ปิด → หน้าเดิมทุกประการ: ไม่มี rail และไม่โหลด token ของ shell', async ({ page }) => {
+test('flag ปิด → ไม่มี rail และหน้าที่ยังไม่ย้ายไม่โหลด token ของ shell', async ({ page }) => {
   await mockNavigation(page, { status: 200, body: navigation(false) });
   await page.goto('/?view=journeys&tenant=demo');
   await page.waitForLoadState('networkidle');
   await expect(page.locator('#root')).not.toBeEmpty();
   await expect(rail(page)).toHaveCount(0);
+
+  // D1.14: หน้า Journeys ย้ายมาใช้ token แล้วทั้งสองสถานะของ flag — หน้าที่ยังไม่ย้ายต้องไม่ได้ token
+  await page.goto('/?view=i18n');
+  await expect(page.getByTestId('language-label')).toBeVisible();
   const brand = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue('--dc-brand-700'),
   );
