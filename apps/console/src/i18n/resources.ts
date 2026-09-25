@@ -6,12 +6,14 @@
  * เพิ่ม namespace ของตัวเอง เช่น `journeys` — key เป็นรูป `<หมวด>.<สิ่งของ>.<การกระทำ>`
  * `pnpm i18n:check` ใน CI ล้มเมื่อ key ขาดภาษาใดภาษาหนึ่ง
  */
+import { uiResources } from '@d-contact/ui-react';
 import commonEn from './locales/en/common.json' with { type: 'json' };
 import commonTh from './locales/th/common.json' with { type: 'json' };
 
 export const DEFAULT_NAMESPACE = 'common';
 
+// namespace `ui` ของ component layer (ADR-028) โหลดพร้อมกัน จึงสลับภาษาพร้อมกันทั้งจอ
 export const resources = {
-  th: { common: commonTh },
-  en: { common: commonEn },
+  th: { common: commonTh, ...uiResources.th },
+  en: { common: commonEn, ...uiResources.en },
 } as const;

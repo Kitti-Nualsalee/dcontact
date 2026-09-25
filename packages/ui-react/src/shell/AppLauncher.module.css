@@ -1,0 +1,198 @@
+.popover {
+  width: min(496px, calc(100vw - var(--dc-space-10)));
+  max-height: calc(100vh - var(--dc-space-8));
+  display: flex;
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-raised);
+  box-shadow: var(--dc-shadow-floating);
+  overflow: hidden;
+}
+
+.dialog {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  outline: none;
+}
+
+.search {
+  padding: var(--dc-space-5) var(--dc-space-5) var(--dc-space-4);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--dc-space-2);
+  min-height: 0;
+  padding: 0 var(--dc-space-5) var(--dc-space-4);
+  overflow: auto;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-1);
+}
+
+.groupLabel {
+  margin: var(--dc-space-1) 0 0;
+  padding: 0 var(--dc-space-2);
+  font-size: var(--dc-text-2xs);
+  font-weight: var(--dc-weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dc-text-muted);
+}
+
+.grid,
+.createGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--dc-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tile {
+  position: relative;
+}
+
+.tileLink,
+.createLink {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--dc-space-2);
+  padding: var(--dc-space-3) var(--dc-space-1) var(--dc-space-2);
+  border-radius: var(--dc-radius-md);
+  color: var(--dc-text-primary);
+  font-size: var(--dc-text-xs);
+  line-height: var(--dc-leading-tight);
+  text-align: center;
+  text-decoration: none;
+}
+
+.tileLink:hover,
+.createLink:hover {
+  background: var(--dc-surface-sunken);
+}
+
+.tileLink:focus-visible,
+.createLink:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+.tileIcon,
+.createIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--dc-radius-lg);
+}
+
+/* สีประจำกลุ่ม (identity) — ใช้ token ที่มีอยู่ ไม่ใช่ severity */
+.tileIcon[data-group='live'] {
+  background: var(--dc-brand-50);
+  color: var(--dc-brand-700);
+}
+.tileIcon[data-group='automation'] {
+  background: var(--dc-accent-bg);
+  color: var(--dc-accent-fg);
+}
+.tileIcon[data-group='operations'] {
+  background: var(--dc-info-bg);
+  color: var(--dc-info-fg);
+}
+.tileIcon[data-group='quality'] {
+  background: var(--dc-attention-bg);
+  color: var(--dc-attention-fg);
+}
+.tileIcon[data-group='data'] {
+  background: var(--dc-success-bg);
+  color: var(--dc-success-fg);
+}
+.tileIcon[data-group='settings'] {
+  background: var(--dc-neutral-bg);
+  color: var(--dc-neutral-fg);
+}
+
+.createIcon {
+  border: 1px solid var(--dc-border-default);
+  color: var(--dc-brand-700);
+}
+
+.tileLabel {
+  overflow-wrap: anywhere;
+}
+
+.pin {
+  position: absolute;
+  top: 0;
+  right: var(--dc-space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-sm);
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-secondary);
+  cursor: pointer;
+}
+
+.pin[data-selected] {
+  border-color: var(--dc-brand-700);
+  background: var(--dc-brand-700);
+  color: var(--dc-text-on-brand);
+}
+
+.pin[data-focus-visible] {
+  box-shadow: var(--dc-focus-ring);
+}
+
+.pin[data-disabled] {
+  color: var(--dc-text-disabled);
+  cursor: not-allowed;
+}
+
+.empty {
+  margin: var(--dc-space-6) var(--dc-space-2);
+  font-size: var(--dc-text-sm);
+  color: var(--dc-text-secondary);
+}
+
+.create {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-1);
+  padding: var(--dc-space-4) var(--dc-space-5);
+  border-top: 1px solid var(--dc-border-subtle);
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--dc-space-4);
+  padding: var(--dc-space-3) var(--dc-space-5);
+  border-top: 1px solid var(--dc-border-subtle);
+  background: var(--dc-surface-page);
+  font-size: var(--dc-text-xs);
+  color: var(--dc-text-secondary);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

@@ -1,0 +1,98 @@
+.subNav {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 240px;
+  padding: var(--dc-space-6) var(--dc-space-5);
+  border-right: 1px solid var(--dc-border-subtle);
+  background: var(--dc-surface-page);
+  overflow-y: auto;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--dc-space-4) var(--dc-space-2);
+}
+
+.eyebrow {
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-medium);
+  color: var(--dc-text-muted);
+}
+
+.title {
+  font-size: var(--dc-text-lg);
+  font-weight: var(--dc-weight-bold);
+  line-height: var(--dc-leading-snug);
+  color: var(--dc-text-brand-strong);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-1);
+  padding-top: var(--dc-space-5);
+}
+
+.sectionLabel {
+  padding: 0 var(--dc-space-4) var(--dc-space-2);
+  font-size: var(--dc-text-2xs);
+  font-weight: var(--dc-weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dc-text-muted);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-5);
+  height: var(--dc-row-subnav);
+  padding: 0 var(--dc-space-4);
+  border-radius: var(--dc-radius-md);
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-base);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.item:hover {
+  background: var(--dc-surface-sunken);
+  color: var(--dc-text-primary);
+}
+
+.item[aria-current='page'] {
+  background: var(--dc-surface-selected);
+  color: var(--dc-text-brand-strong);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.item:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+.itemLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.count {
+  padding: 0 var(--dc-space-3);
+  border-radius: var(--dc-radius-pill);
+  background: var(--dc-neutral-bg);
+  color: var(--dc-neutral-fg);
+  font-size: var(--dc-text-2xs);
+  font-weight: var(--dc-weight-semibold);
+}

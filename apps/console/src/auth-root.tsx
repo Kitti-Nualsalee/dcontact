@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { AuthProvider, useAuth } from 'react-oidc-context';
 import { SessionLocaleProvider } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
+import { ConsoleShell } from './shell/console-shell.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
 import { GovernanceConsole } from './governance-console.js';
@@ -111,7 +112,7 @@ export function ConsoleAuthRoot() {
         {journeyView ? (
           <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : governanceView ? (
-          <GovernanceSurface apiBaseUrl={apiBaseUrl} />
+          <GovernanceSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : (
           <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
         )}
@@ -176,7 +177,13 @@ function ConsoleSurface({
  * CG4.9 (#192): viewer มาจาก role ใน token เพื่อซ่อนปุ่มที่รู้ว่าจะไม่ผ่านเท่านั้น — สิทธิ์จริงถูก
  * re-authorize ที่ API ทุก command และระดับการเห็น evidence มาจาก capability ฝั่ง server
  */
-function GovernanceSurface({ apiBaseUrl }: { apiBaseUrl: string }) {
+function GovernanceSurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
   const auth = useAuth();
   const accessToken = auth.user?.access_token;
   const api = useMemo(
@@ -207,12 +214,19 @@ function GovernanceSurface({ apiBaseUrl }: { apiBaseUrl: string }) {
         ? 'TENANT_ADMIN'
         : 'SUPERVISOR';
   return (
-    <GovernanceConsole
-      api={api}
-      cg5Api={cg5Api}
-      viewer={viewer}
-      initialLocation={parseGovernanceLocation(new URL(window.location.href))}
-    />
+    <ConsoleShell
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId="contact-governance"
+    >
+      <GovernanceConsole
+        api={api}
+        cg5Api={cg5Api}
+        viewer={viewer}
+        initialLocation={parseGovernanceLocation(new URL(window.location.href))}
+      />
+    </ConsoleShell>
   );
 }
 
@@ -244,10 +258,17 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
   }
   const session = String(auth.user?.profile.sid ?? auth.user?.profile.sub ?? 'session');
   return (
-    <JourneyAuthoringConsole
-      api={api}
-      scope={`${tenantAlias}:${session}`}
-      initialJourneyId={new URL(window.location.href).searchParams.get('journey') ?? undefined}
-    />
+    <ConsoleShell
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId="journeys"
+    >
+      <JourneyAuthoringConsole
+        api={api}
+        scope={`${tenantAlias}:${session}`}
+        initialJourneyId={new URL(window.location.href).searchParams.get('journey') ?? undefined}
+      />
+    </ConsoleShell>
   );
 }

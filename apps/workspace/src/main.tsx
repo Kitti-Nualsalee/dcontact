@@ -5,6 +5,9 @@ import { WorkspaceAuthRoot } from './auth-root.js';
 import { WorkspaceApp, createDeterministicSoftphone } from './workspace-app.js';
 import { createSupervisorWorkspaceApi } from './supervisor-api.js';
 import { SupervisorWorkspace } from './supervisor-workspace.js';
+import { SessionLocaleProvider } from '@d-contact/i18n/react';
+import { appI18n } from './i18n/index.js';
+import { WorkspaceShell } from './shell/workspace-shell.js';
 import './workspace-app.css';
 
 const root = document.getElementById('root');
@@ -36,17 +39,29 @@ const e2eSupervisorApi = createSupervisorWorkspaceApi({
 });
 const e2eView = new URL(window.location.href).searchParams.get('view');
 
+const e2eShellProps = {
+  apiBaseUrl: window.location.origin,
+  accessToken: () => 'e2e-access-token',
+  tenantAlias: new URL(window.location.href).searchParams.get('tenant') ?? undefined,
+} as const;
+
 const application =
   import.meta.env.MODE === 'e2e' ? (
-    e2eView === 'supervisor' ? (
-      <SupervisorWorkspace api={e2eSupervisorApi} tenantLabel="demo" />
-    ) : (
-      <WorkspaceApp
-        api={e2eApi}
-        tenantLabel="demo"
-        createSoftphone={(_remoteAudio, callbacks) => createDeterministicSoftphone(callbacks)}
-      />
-    )
+    <SessionLocaleProvider i18n={appI18n}>
+      {e2eView === 'supervisor' ? (
+        <WorkspaceShell {...e2eShellProps} appId="supervisor-workspace">
+          <SupervisorWorkspace api={e2eSupervisorApi} tenantLabel="demo" />
+        </WorkspaceShell>
+      ) : (
+        <WorkspaceShell {...e2eShellProps} appId="agent-workspace">
+          <WorkspaceApp
+            api={e2eApi}
+            tenantLabel="demo"
+            createSoftphone={(_remoteAudio, callbacks) => createDeterministicSoftphone(callbacks)}
+          />
+        </WorkspaceShell>
+      )}
+    </SessionLocaleProvider>
   ) : (
     <WorkspaceAuthRoot />
   );

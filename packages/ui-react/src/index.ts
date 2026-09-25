@@ -30,3 +30,4 @@ export {
   type ToastQueue,
 } from './components/Toast.js';
 export { UI_NAMESPACE, uiResources, useUiText, type UiKey } from './i18n.js';
+export * from './shell/index.js';

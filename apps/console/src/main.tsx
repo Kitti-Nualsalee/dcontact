@@ -13,6 +13,7 @@ import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.j
 import { SessionLocaleProvider } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
 import { LocaleProbe } from './i18n/locale-probe.js';
+import { ConsoleShell } from './shell/console-shell.js';
 import './style.css';
 
 const root = document.getElementById('root');
@@ -40,15 +41,24 @@ function ConsoleE2eRoot() {
   if (url.searchParams.get('view') === 'i18n') return <LocaleProbe />;
   if (url.searchParams.get('view') === 'journeys') {
     return (
-      <JourneyAuthoringConsole
-        api={createJourneyAuthoringApi({
-          baseUrl:
-            (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
-          accessToken: () => 'e2e-access-token',
-        })}
-        scope="e2e"
-        initialJourneyId={url.searchParams.get('journey') ?? undefined}
-      />
+      <ConsoleShell
+        apiBaseUrl={
+          (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin
+        }
+        accessToken={() => 'e2e-access-token'}
+        tenantAlias={url.searchParams.get('tenant') ?? undefined}
+        appId="journeys"
+      >
+        <JourneyAuthoringConsole
+          api={createJourneyAuthoringApi({
+            baseUrl:
+              (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
+            accessToken: () => 'e2e-access-token',
+          })}
+          scope="e2e"
+          initialJourneyId={url.searchParams.get('journey') ?? undefined}
+        />
+      </ConsoleShell>
     );
   }
   if (url.searchParams.get('view') === 'governance') {

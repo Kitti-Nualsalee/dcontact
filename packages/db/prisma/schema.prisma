@@ -32,6 +32,8 @@ model Tenant {
   navigationDefaultPins        NavigationTenantDefaultPins?
   navigationUserPins           NavigationUserPins[]
   navigationAuditEvents        NavigationAuditEvent[]
+  uiFlags                      TenantUiFlag[]
+  uiFlagAuditEvents            TenantUiFlagAuditEvent[]
   businessHours                BusinessHours[]
   users                        User[]
   teams                        Team[]
@@ -5897,6 +5899,38 @@ model NavigationAuditEvent {
 
   @@index([tenantId, createdAt])
   @@map("navigation_audit_events")
+}
+
+/// D1.13 (#452): UI flag ระดับ tenant (`ui.shell.v2`) — ไม่มีแถว = ปิด
+/// platform operator เท่านั้นที่เปลี่ยนได้ (ผู้ใช้ตัดสิน 2026-09-25) — role ของแอปอ่านได้อย่างเดียว
+model TenantUiFlag {
+  tenantId       String   @map("tenant_id") @db.Uuid
+  flagKey        String   @map("flag_key")
+  enabled        Boolean
+  reason         String
+  updatedByActor String   @map("updated_by_actor")
+  updatedAt      DateTime @default(now()) @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@id([tenantId, flagKey])
+  @@map("tenant_ui_flags")
+}
+
+/// D1.13 (#452): ประวัติการเปิด/ปิด UI flag — append-only
+model TenantUiFlagAuditEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  flagKey   String   @map("flag_key")
+  enabled   Boolean
+  reason    String
+  actor     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt])
+  @@map("tenant_ui_flag_audit_events")
 }
 
 /// เวลาทำการของ tenant — baseline เป็น DRAFT จนกว่า Tenant Admin จะ review/activate

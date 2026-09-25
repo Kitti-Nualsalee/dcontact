@@ -37,7 +37,9 @@ import {
 import previewEn from './locales/en/preview.json' with { type: 'json' };
 import previewTh from './locales/th/preview.json' with { type: 'json' };
 import styles from './preview.module.css';
+import { ShellDemo } from './shell-demo.js';
 
+document.body.style.margin = '0';
 const initial = new URL(window.location.href).searchParams.get('lang') === 'en' ? 'en' : 'th';
 const i18n = i18next.createInstance();
 void i18n.use(initReactI18next).init({
@@ -239,7 +241,11 @@ if (!root) throw new Error('root element is required');
 createRoot(root).render(
   <StrictMode>
     <I18nextProvider i18n={i18n}>
-      <Preview />
+      {new URL(window.location.href).searchParams.get('view') === 'shell' ? (
+        <ShellDemo />
+      ) : (
+        <Preview />
+      )}
     </I18nextProvider>
   </StrictMode>,
 );

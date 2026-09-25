@@ -51,7 +51,11 @@ export interface NavigationV1 {
   /** เฉพาะผู้เรียกที่เป็น ADMIN — ใช้ตั้ง expectedRevision ของชุดเริ่มต้น */
   tenantDefaultPins?: { appIds: string[]; revision: number };
   limits: { maxPins: number };
+  /** D1.13 (#452): UI flag ระดับ tenant — platform operator เป็นผู้เปลี่ยน; อ่านตอนโหลดหน้าเท่านั้น */
+  features: { shellV2: boolean };
 }
+
+export const SHELL_V2_FLAG = 'ui.shell.v2';
 
 type NavigationErrorCode =
   'REQUEST_MALFORMED' | 'PIN_LIMIT_EXCEEDED' | 'APP_NOT_AVAILABLE' | 'REVISION_CONFLICT';
@@ -127,9 +131,13 @@ export class NavigationController {
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
       const entitlements = await loadEntitlements(tx, tenantId);
       const visible = visibleApps({ roles, entitlements }, this.registry);
-      const [userRow, tenantRow] = await Promise.all([
+      const [userRow, tenantRow, shellFlag] = await Promise.all([
         tx.navigationUserPins.findUnique({ where: { tenantId_userId: { tenantId, userId } } }),
         tx.navigationTenantDefaultPins.findUnique({ where: { tenantId } }),
+        tx.tenantUiFlag.findUnique({
+          where: { tenantId_flagKey: { tenantId, flagKey: SHELL_V2_FLAG } },
+          select: { enabled: true },
+        }),
       ]);
       const pins = effectivePins({
         visible,
@@ -161,6 +169,8 @@ export class NavigationController {
             }
           : {}),
         limits: { maxPins: MAX_PINS },
+        // ไม่มีแถว = ปิด (Phase Contract: flag ปิดโดย default)
+        features: { shellV2: shellFlag?.enabled === true },
       };
     });
   }

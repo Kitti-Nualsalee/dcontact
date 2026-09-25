@@ -1,7 +1,38 @@
 {
-  "dialog": { "close": "ปิด" },
-  "searchField": { "clear": "ล้างคำค้นหา" },
-  "select": { "placeholder": "เลือก…" },
-  "toast": { "dismiss": "ปิดการแจ้งเตือน", "region": "การแจ้งเตือน" },
-  "table": { "empty": "ไม่มีรายการ" }
+  "dialog": {
+    "close": "ปิด"
+  },
+  "searchField": {
+    "clear": "ล้างคำค้นหา"
+  },
+  "select": {
+    "placeholder": "เลือก…"
+  },
+  "toast": {
+    "dismiss": "ปิดการแจ้งเตือน",
+    "region": "การแจ้งเตือน"
+  },
+  "table": {
+    "empty": "ไม่มีรายการ"
+  },
+  "shell": {
+    "mainNav": "เมนูหลัก",
+    "apps": "แอป",
+    "allApps": "แอปทั้งหมด",
+    "skipToContent": "ข้ามไปที่เนื้อหา",
+    "opensInNewTab": "(เปิดในแท็บใหม่)",
+    "breadcrumb": "ตำแหน่งปัจจุบัน",
+    "language": "ภาษา"
+  },
+  "launcher": {
+    "title": "แอป D-Contact",
+    "search": "ค้นหาแอป D-Contact",
+    "noMatch": "ไม่พบแอปที่ตรงกับคำค้น",
+    "create": "สร้างใหม่",
+    "pin": "ปักหมุด {{app}}",
+    "unpin": "เลิกปักหมุด {{app}}",
+    "pinned": "ปักหมุดแล้ว {{count}} จาก {{max}}",
+    "pinLimit": "ปักหมุดได้สูงสุด {{max}} แอป",
+    "hint": "ปักหมุดเพื่อแสดงบนแถบซ้าย"
+  }
 }

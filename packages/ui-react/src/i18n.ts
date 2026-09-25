@@ -19,9 +19,14 @@ type Leaves<T, P extends string = ''> = {
 
 export type UiKey = Leaves<typeof uiTh>;
 
-export function useUiText(): (key: UiKey) => string {
+export type UiText = (key: UiKey, values?: Record<string, string | number>) => string;
+
+export function useUiText(): UiText {
   const { i18n } = useTranslation();
   // ผูก namespace ตายตัว — ภาษาเปลี่ยนตาม i18n ของแอปโดยไม่ต้อง remount
-  const t = i18n.getFixedT(null, UI_NAMESPACE) as unknown as (key: string) => string;
-  return (key) => t(key);
+  const t = i18n.getFixedT(null, UI_NAMESPACE) as unknown as (
+    key: string,
+    values?: Record<string, string | number>,
+  ) => string;
+  return (key, values) => t(key, values);
 }
