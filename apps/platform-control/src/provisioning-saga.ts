@@ -21,6 +21,7 @@ import {
   type ProvisioningStepKey,
 } from '@d-contact/shared';
 import { appendPlatformAction } from './action-history.js';
+import { setSpanAttributes, withSpan } from './platform-tracing.js';
 import { platformIdentityHash } from './provisioning-input.js';
 import { ProvisioningControlRepository, type PlatformActor } from './provisioning-repository.js';
 
@@ -227,7 +228,11 @@ export class ProvisioningSagaWorker {
     for (const request of candidates) {
       const step = currentStep(request);
       if (!step) {
-        const completed = await this.finalize(request);
+        const completed = await withSpan(
+          'provisioning.finalize',
+          { parent: request.traceParent, attributes: spanRequest(request) },
+          () => this.finalize(request),
+        );
         if (completed) return completed;
         continue;
       }
@@ -237,7 +242,29 @@ export class ProvisioningSagaWorker {
       if (step.leaseExpiresAt && step.leaseExpiresAt > now) continue;
       const claimed = await this.claim(request, step, now);
       if (!claimed) continue;
-      return this.process(request, step.stepKey as ExternalProvisioningStepKey, claimed);
+      const stepKey = step.stepKey as ExternalProvisioningStepKey;
+      // A1.8b: step ทุก attempt (รวมหลัง worker restart) เป็น child ของ trace ตอนรับคำขอ
+      return withSpan(
+        `provisioning.step ${stepKey}`,
+        {
+          parent: request.traceParent,
+          attributes: {
+            ...spanRequest(request),
+            'dcontact.step_key': stepKey,
+            'dcontact.attempt': claimed.attempt,
+            'dcontact.worker_id': this.options.workerId,
+          },
+        },
+        async (span) => {
+          const result = await this.process(request, stepKey, claimed);
+          setSpanAttributes(span, {
+            'dcontact.outcome': result.kind,
+            'dcontact.code': 'code' in result ? result.code : undefined,
+            'dcontact.adopted': 'adopted' in result ? result.adopted : undefined,
+          });
+          return result;
+        },
+      );
     }
     return { kind: 'IDLE' };
   }
@@ -668,3 +695,11 @@ function classify(error: unknown): { kind: 'ESCALATE' | 'RETRY'; code: string } 
 }
 
 export const provisioningDigest = sha256;
+
+function spanRequest(request: LoadedRequest) {
+  return {
+    'dcontact.request_id': request.id,
+    'dcontact.tenant_id': request.tenantId,
+    'dcontact.correlation_id': request.correlationId,
+  };
+}

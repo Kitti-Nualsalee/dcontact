@@ -1,4 +1,10 @@
-import { Module, type DynamicModule, type Type } from '@nestjs/common';
+import {
+  Module,
+  type DynamicModule,
+  type MiddlewareConsumer,
+  type NestModule,
+  type Type,
+} from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import {
   PLATFORM_ACCESS_TOKEN_VERIFIER,
@@ -10,6 +16,7 @@ import {
   type PlatformAuthDiagnosticSink,
 } from './platform-auth.js';
 import { PlatformSessionController } from './platform-session.controller.js';
+import { PlatformTracingMiddleware } from './platform-tracing.middleware.js';
 import {
   CatalogController,
   PLATFORM_SERVICES,
@@ -33,7 +40,12 @@ export interface PlatformApiModuleOptions {
 }
 
 @Module({})
-export class PlatformApiModule {
+export class PlatformApiModule implements NestModule {
+  /** A1.8b: server span ครอบทั้ง guard/handler — no-op เมื่อ tracing ปิด */
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(PlatformTracingMiddleware).forRoutes('*');
+  }
+
   static register(options: PlatformApiModuleOptions): DynamicModule {
     return {
       module: PlatformApiModule,
