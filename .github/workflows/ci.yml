@@ -83,10 +83,11 @@ jobs:
 
   a1-platform-control-fast-gate:
     # A1.1 (#406) / #393 Fast PR gate: idempotency, reservation race, tombstone, CAS, completion
-    # invariant, append-only และสิทธิ์ของ role บน Postgres จริง — ไม่ต้องใช้ Keycloak/UI
+    # invariant, append-only, isolation matrix, Platform API, tenant lifecycle gate และ Platform
+    # Console (Playwright/axe กับ API mock) — ไม่ต้องใช้ Keycloak จริง
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16-alpine
@@ -122,60 +123,44 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
-      - name: Build platform-control + platform-api dependencies
-        run: pnpm --filter "@d-contact/platform-api^..." build
+      - name: Install Playwright browser (Platform Console e2e)
+        run: pnpm --filter @d-contact/platform-console exec playwright install --with-deps chromium
+
+      - name: Build dependencies of platform-api, api gateway และ console
+        run: pnpm --filter "@d-contact/platform-api^..." --filter "@d-contact/api^..." --filter "@d-contact/platform-console^..." build
 
       - name: Migrate and bootstrap roles/RLS
         run: pnpm db:migrate && pnpm db:rls
 
-      - name: Platform control unit tests
-        run: pnpm --filter @d-contact/platform-control test
+      - name: Platform Console typecheck
+        run: pnpm --filter @d-contact/platform-console typecheck
 
-      # A1.4b (#436): extension ใช้ internal SPI ของ Keycloak — compile เทียบ image เวอร์ชันเดียวกับ runtime
-      - name: Build Keycloak invitation guard extension
-        run: bash scripts/keycloak-extensions-build.sh
+      # A1.8 (#413): runner เดียวรันทุก fast check ของ #393 แล้วออก acceptance-manifest.json
+      # (non-waivable gate ที่ FAIL = job fail) — real-boundary รันด้วย `pnpm a1:acceptance:boundary`
+      - name: A1 acceptance runner self-test
+        run: pnpm test:a1-acceptance
 
-      - name: Platform control integration tests
-        run: pnpm --filter @d-contact/platform-control test:integration
+      - name: A1 fast acceptance
+        run: pnpm a1:acceptance
 
-      # A1.6 (#411): Platform API ผ่าน HTTP จริง — permission matrix, idempotency, 404/409/429/503
-      - name: Platform API integration
-        run: pnpm --filter @d-contact/platform-api test:integration
-
-  a1-platform-console:
-    # A1.7 (#412): Platform Console — logic + Playwright/axe กับ Platform API ที่ mock ตาม contract
-    # (UAT กับ Keycloak/API/worker จริงรันด้วย `pnpm a1:console:uat` ในเครื่อง)
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
+      - name: Upload A1 acceptance manifest
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          node-version: 20
-          cache: pnpm
+          name: a1-acceptance-${{ github.sha }}
+          path: artifacts/a1/${{ github.run_id }}/acceptance-manifest.json
+          if-no-files-found: error
+          retention-days: 90
 
-      - run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright browser
-        run: pnpm --filter @d-contact/platform-console exec playwright install --with-deps chromium
-
-      - name: Platform Console unit tests + typecheck
-        run: pnpm --filter @d-contact/platform-console test && pnpm --filter @d-contact/platform-console typecheck
-
-      - name: Platform Console e2e (Playwright + axe)
-        run: pnpm --filter @d-contact/platform-console test:e2e
-
-      - name: Upload Playwright traces
+      - name: Upload A1 failure logs (redacted) + Playwright traces
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: platform-console-playwright
-          path: apps/platform-console/test-results
-          retention-days: 7
+          name: a1-acceptance-logs-${{ github.sha }}
+          path: |
+            artifacts/a1/${{ github.run_id }}/
+            apps/platform-console/test-results
+          retention-days: 30
 
   s1-convergence-acceptance:
     # S1 ใช้เวลานานและ J3 final gate เรียกเองอยู่แล้ว: ไม่รันทุก main push
