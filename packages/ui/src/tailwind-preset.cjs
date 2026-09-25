@@ -137,6 +137,20 @@ module.exports = {
     },
 
     extend: {
+      /* scale ระยะห่างของ D-Contact ใช้ prefix `dc-` (เช่น `p-dc-5` = 12px) แทนการแทนที่
+         spacing ของ Tailwind ทั้งชุด เพราะเลขขั้นไม่ตรงกัน (`p-2` ของ Tailwind = 8px
+         แต่ `--dc-space-2` = 4px) ถ้าใช้ชื่อเดียวกันจะอ่านโค้ดผิดได้ง่าย
+         ความสูงมาตรฐานตั้งชื่อตามบทบาท เช่น `h-control-md`, `h-row-table` */
+      spacing: {
+        ...Object.fromEntries(
+          Array.from({ length: 10 }, (_, i) => [`dc-${i + 1}`, `var(--dc-space-${i + 1})`]),
+        ),
+        'control-md': 'var(--dc-control-md)',
+        'control-sm': 'var(--dc-control-sm)',
+        'row-subnav': 'var(--dc-row-subnav)',
+        'row-table': 'var(--dc-row-table)',
+        'bar-top': 'var(--dc-bar-top)',
+      },
       boxShadow: {
         card: 'var(--dc-shadow-card)',
         panel: 'var(--dc-shadow-panel)',
