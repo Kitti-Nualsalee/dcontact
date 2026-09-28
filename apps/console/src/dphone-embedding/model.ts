@@ -51,20 +51,20 @@ export function apiErrorKey(error: EmbedOriginApiError): string {
 }
 
 /**
- * snippet ที่ host ต้องใส่ (E1.2/E1.5): iframe ของ `/dphone/embed` + `allow` ไมค์ + sandbox ที่มี
- * `allow-popups` (login popup) และ CSP `frame-src` ฝั่ง host
+ * snippet ที่ host ต้องใส่ (E1.2/E1.5/E1.7): `<dphone-launcher>` จาก alias `v1` ของ dphone origin
+ * (launcher สร้าง iframe `/dphone/embed` พร้อม `allow` ไมค์และ sandbox ที่มี `allow-popups` ให้เอง)
+ * + CSP ฝั่ง host ที่ต้องอนุญาต origin เดียวกันทั้ง `script-src` และ `frame-src`
  */
 export function hostSnippet(input: { embedBaseUrl: string; tenantAlias: string }): string {
-  const base = input.embedBaseUrl.replace(/\/$/, '');
-  const src = `${base}/dphone/embed?tenant=${encodeURIComponent(input.tenantAlias)}`;
+  const origin = new URL(input.embedBaseUrl).origin;
+  const tenant = input.tenantAlias.replace(/[^a-z0-9-]/gi, '');
   return [
-    `<!-- Host page Content-Security-Policy: frame-src ${new URL(base).origin} -->`,
-    `<iframe`,
-    `  src="${src}"`,
-    `  title="dphone"`,
-    `  allow="microphone; autoplay"`,
-    `  sandbox="allow-scripts allow-same-origin allow-popups allow-forms"`,
-    `  style="width: 360px; height: 640px; border: 0"`,
-    `></iframe>`,
+    `<!-- Host page Content-Security-Policy: script-src ${origin}; frame-src ${origin} -->`,
+    `<script type="module" src="${origin}/embed/v1/dphone-launcher.js"></script>`,
+    `<dphone-launcher tenant="${tenant}" style="width: 360px; height: 640px"></dphone-launcher>`,
   ].join('\n');
 }
+
+/** E1.15: คู่มือ host ภาษาไทย (`docs/dphone-embed/`) — ตั้ง URL ที่ลูกค้าเข้าถึงได้ด้วย `VITE_DPHONE_EMBED_DOCS_URL` */
+export const DEFAULT_DPHONE_EMBED_DOCS_URL =
+  'https://github.com/Kitti-Nualsalee/dcontact/blob/main/docs/dphone-embed/README.md';

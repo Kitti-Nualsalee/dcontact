@@ -33,10 +33,20 @@ test('error ของ API → key ของข้อความ', () => {
   assert.equal(apiErrorKey(new EmbedOriginApiError(500, 'X')), 'dphoneEmbedding.errors.UNKNOWN');
 });
 
-test('snippet มี iframe ของ tenant, allow ไมค์, sandbox ที่มี allow-popups และ frame-src ของ host', () => {
+test('snippet ใช้ <dphone-launcher> จาก alias v1 ของ dphone origin พร้อม CSP ของ host', () => {
   const snippet = hostSnippet({ embedBaseUrl: 'https://api.dcontact.test/', tenantAlias: 'demo' });
-  assert.match(snippet, /src="https:\/\/api\.dcontact\.test\/dphone\/embed\?tenant=demo"/);
-  assert.match(snippet, /allow="microphone; autoplay"/);
-  assert.match(snippet, /allow-popups/);
-  assert.match(snippet, /frame-src https:\/\/api\.dcontact\.test/);
+  assert.match(
+    snippet,
+    /<script type="module" src="https:\/\/api\.dcontact\.test\/embed\/v1\/dphone-launcher\.js"><\/script>/,
+  );
+  assert.match(snippet, /<dphone-launcher tenant="demo"/);
+  assert.match(
+    snippet,
+    /script-src https:\/\/api\.dcontact\.test; frame-src https:\/\/api\.dcontact\.test/,
+  );
+  // alias แปลกไม่หลุดเป็น HTML
+  assert.doesNotMatch(
+    hostSnippet({ embedBaseUrl: 'https://api.dcontact.test', tenantAlias: '"><script>' }),
+    /"><script>/,
+  );
 });

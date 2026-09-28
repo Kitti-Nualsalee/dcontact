@@ -19,6 +19,7 @@ import {
 import {
   apiErrorKey,
   checkOriginInput,
+  DEFAULT_DPHONE_EMBED_DOCS_URL,
   hostSnippet,
   SCREEN_POP_OPTIONS,
   SCREEN_POP_REASON_MIN,
@@ -34,12 +35,15 @@ export function DphoneEmbedding({
   tenantAlias,
   embedBaseUrl,
   dev,
+  docsUrl = DEFAULT_DPHONE_EMBED_DOCS_URL,
 }: {
   api: EmbedOriginApi;
   canEdit: boolean;
   tenantAlias: string;
   embedBaseUrl: string;
   dev: boolean;
+  /** E1.15: คู่มือ host (`docs/dphone-embed/`) */
+  docsUrl?: string;
 }) {
   const { t: translate } = useTranslation('integrations');
   const t = translate as unknown as (key: string, options?: Record<string, unknown>) => string;
@@ -356,6 +360,11 @@ export function DphoneEmbedding({
           <section className="dphone-embedding__snippet" aria-labelledby={`${headingId}-snippet`}>
             <h2 id={`${headingId}-snippet`}>{t('dphoneEmbedding.snippet.title')}</h2>
             <p>{t('dphoneEmbedding.snippet.description')}</p>
+            <p>
+              <a href={docsUrl} target="_blank" rel="noreferrer">
+                {t('dphoneEmbedding.snippet.docs')}
+              </a>
+            </p>
             <pre>
               <code>{hostSnippet({ embedBaseUrl, tenantAlias })}</code>
             </pre>
