@@ -1,0 +1,79 @@
+{
+  "dphoneEmbedding": {
+    "eyebrow": "Settings · Integrations",
+    "title": "Embed dphone in other systems",
+    "description": "Choose the websites (origins) allowed to embed this tenant's dphone. Up to {{limit}} entries.",
+    "loading": "Loading origins",
+    "readOnly": "This account is read-only. Only tenant admins can make changes.",
+    "locked": {
+      "title": "Your current plan doesn't include dphone embedding",
+      "body": "Embedding dphone in other systems requires the CTI capability of the Enterprise plan. Contact sales to upgrade."
+    },
+    "flagOff": "dphone embedding isn't enabled for this tenant yet. You can add origins now, but embedding won't work until a platform operator enables it.",
+    "table": {
+      "caption": "Allowed origins",
+      "origin": "Origin",
+      "label": "Name",
+      "status": "Status",
+      "sessions": "In use",
+      "actions": "Actions",
+      "enabled": "On",
+      "disabled": "Off",
+      "empty": "No origins yet — dphone can't be embedded anywhere"
+    },
+    "actions": {
+      "disable": "Turn off",
+      "enable": "Turn on",
+      "rename": "Rename",
+      "delete": "Delete",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "form": {
+      "title": "Add origin",
+      "origin": "Origin",
+      "originHint": "Like https://crm.example.com — no path and no *",
+      "normalized": "Will be saved as {{origin}}",
+      "label": "Display name",
+      "reason": "Reason (optional)",
+      "submit": "Add origin",
+      "limitReached": "You've reached {{limit}} origins. Delete or turn off unused ones first."
+    },
+    "confirm": {
+      "disableTitle": "Turn off {{origin}}?",
+      "deleteTitle": "Delete {{origin}}?",
+      "sessions": "{{count}} embedded dphone session(s) from this origin are in use. Calls in progress can continue until they end, but new work, screen-pop and click-to-call stop.",
+      "noSessions": "No embedded dphone sessions from this origin are in use.",
+      "reason": "Reason (optional)",
+      "confirmDisable": "Turn off",
+      "confirmDelete": "Delete"
+    },
+    "snippet": {
+      "title": "Code for the embedding system",
+      "description": "Paste this into a page of a system listed above and add frame-src to that page's CSP.",
+      "copy": "Copy",
+      "copied": "Copied"
+    },
+    "saved": "Saved",
+    "rejections": {
+      "INVALID_URL": "Not a valid URL. It must start with https://",
+      "SCHEME_NOT_ALLOWED": "Only https:// is allowed",
+      "WILDCARD": "* and wildcards aren't allowed",
+      "USERINFO": "The URL can't contain a username or password",
+      "PATH_QUERY_FRAGMENT": "Use only scheme, host and port — no path, ? or #",
+      "IP_ADDRESS": "IP addresses aren't allowed. Use a domain name",
+      "LOCALHOST_NOT_ALLOWED": "localhost is only allowed in development",
+      "RESERVED_ORIGIN": "This is a D-Contact origin and can't be added"
+    },
+    "errors": {
+      "VALIDATION_FAILED": "Some information isn't valid",
+      "ENTITLEMENT_REQUIRED": "Your current plan doesn't include dphone embedding",
+      "EMBED_ORIGIN_LIMIT_REACHED": "You've reached the maximum number of origins",
+      "EMBED_ORIGIN_DUPLICATE": "This origin already exists",
+      "REVISION_CONFLICT": "Someone else changed this entry. Reload and try again.",
+      "NOT_FOUND": "This entry no longer exists",
+      "FORBIDDEN": "This account can't do that",
+      "UNKNOWN": "Something went wrong. Try again."
+    }
+  }
+}

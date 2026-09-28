@@ -19,7 +19,7 @@ import {
 } from '@d-contact/ui-react';
 import { useShellTokens } from './tokens.js';
 
-export type ConsoleShellApp = 'journeys' | 'contact-governance';
+export type ConsoleShellApp = 'journeys' | 'contact-governance' | 'dphone-embedding';
 
 export function hostOrigins(): Partial<Record<HostApp, string>> {
   const env = import.meta.env as Record<string, string | undefined>;
@@ -80,7 +80,27 @@ export function ConsoleShell({
   };
   const journeysVisible = nav.apps.some((app) => app.id === 'journeys');
   const subNav =
-    appId === 'journeys' ? (
+    appId === 'dphone-embedding' ? (
+      <SubNav
+        eyebrow={t('navigation.groups.settings')}
+        title={t('navigation.apps.dphoneEmbedding')}
+        currentItemId="origins"
+        sections={[
+          {
+            id: 'settings',
+            label: t('shell.integrations.sectionWork'),
+            items: [
+              {
+                id: 'origins',
+                label: t('shell.integrations.dphoneEmbedding'),
+                href: withTenant('/?view=dphone-embedding'),
+                icon: 'settings',
+              },
+            ],
+          },
+        ]}
+      />
+    ) : appId === 'journeys' ? (
       <SubNav
         eyebrow={t('navigation.groups.automation')}
         title={t('navigation.apps.journeys')}
@@ -140,7 +160,9 @@ export function ConsoleShell({
         breadcrumb={
           appId === 'journeys'
             ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
-            : [t('navigation.groups.quality'), t('navigation.apps.contactGovernance')]
+            : appId === 'dphone-embedding'
+              ? [t('navigation.groups.settings'), t('navigation.apps.dphoneEmbedding')]
+              : [t('navigation.groups.quality'), t('navigation.apps.contactGovernance')]
         }
         language={locale}
         onLanguageChange={(next) => {

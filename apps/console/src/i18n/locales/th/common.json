@@ -21,7 +21,8 @@
       "agentWorkspace": "กล่องงาน",
       "supervisorWorkspace": "ทีมสด",
       "journeys": "Journeys",
-      "contactGovernance": "Governance"
+      "contactGovernance": "Governance",
+      "dphoneEmbedding": "ฝัง dphone"
     }
   },
   "shell": {
@@ -41,6 +42,10 @@
       "title": "Workspace"
     },
     "pinSaveFailed": "บันทึกหมุดไม่สำเร็จ กลับไปใช้ค่าเดิมแล้ว",
-    "brand": "D-Contact"
+    "brand": "D-Contact",
+    "integrations": {
+      "sectionWork": "ตั้งค่า",
+      "dphoneEmbedding": "ฝัง dphone ในระบบอื่น"
+    }
   }
 }

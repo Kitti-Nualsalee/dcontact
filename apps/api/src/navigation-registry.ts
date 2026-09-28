@@ -74,6 +74,17 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     roles: ['supervisor', 'admin', 'compliance'],
     entitlement: 'module_contact_governance',
   },
+  {
+    // E1.11 (#485): allowlist ของ origin ที่ฝัง dphone — ADMIN แก้, SUPERVISOR ดู
+    // launcher ซ่อนเมื่อไม่มี `modules.api.cti`; เปิด URL ตรงเห็นหน้าล็อกพร้อมข้อความเรื่อง plan
+    id: 'dphone-embedding',
+    group: 'settings',
+    labelKey: 'navigation.apps.dphoneEmbedding',
+    hostApp: 'console',
+    path: '/?view=dphone-embedding',
+    roles: ['supervisor', 'admin'],
+    entitlement: 'module_api_cti',
+  },
 ]);
 
 /** `null` = tenant ไม่มี plan binding */
