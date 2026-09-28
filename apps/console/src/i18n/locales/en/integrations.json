@@ -19,7 +19,8 @@
       "actions": "Actions",
       "enabled": "On",
       "disabled": "Off",
-      "empty": "No origins yet — dphone can't be embedded anywhere"
+      "empty": "No origins yet — dphone can't be embedded anywhere",
+      "screenPop": "Screen-pop"
     },
     "actions": {
       "disable": "Turn off",
@@ -27,7 +28,8 @@
       "rename": "Rename",
       "delete": "Delete",
       "save": "Save",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "screenPop": "Screen-pop level"
     },
     "form": {
       "title": "Add origin",
@@ -73,7 +75,36 @@
       "REVISION_CONFLICT": "Someone else changed this entry. Reload and try again.",
       "NOT_FOUND": "This entry no longer exists",
       "FORBIDDEN": "This account can't do that",
-      "UNKNOWN": "Something went wrong. Try again."
+      "UNKNOWN": "Something went wrong. Try again.",
+      "SCREEN_POP_LEVEL_UNAVAILABLE": "This data level is not available yet",
+      "REASON_REQUIRED": "Enter a reason for changing the data level"
+    },
+    "screenPop": {
+      "title": "Screen-pop data level for {{origin}}",
+      "description": "Choose which call data dphone sends to this host site. It is off by default.",
+      "level": "Data level",
+      "governance": "The level is always reduced automatically based on team permissions and customer restrictions in Contact Governance",
+      "reason": "Reason",
+      "reasonHint": "At least {{min}} characters, recorded in the audit log",
+      "confirm": "Save data level",
+      "levels": {
+        "off": {
+          "label": "Off",
+          "description": "No call data is sent to the host"
+        },
+        "ids": {
+          "label": "IDs only",
+          "description": "Interaction ID, contact ID, direction, queue and call state, with no direct personal data"
+        },
+        "contact": {
+          "label": "Contact details",
+          "description": "Adds caller number, dialed number and display name"
+        },
+        "custom": {
+          "label": "Custom (not available yet)",
+          "description": "Waiting for the list of allowed fields"
+        }
+      }
     }
   }
 }

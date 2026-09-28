@@ -354,6 +354,21 @@ export class WorkSessionLeases {
   }
 
   /**
+   * E1.14: host origin ของ lease `embedded` ที่ยัง current — ใช้เป็นแหล่งเดียวของ origin ตอนส่งข้อมูลให้ host
+   * (ไม่เชื่อ origin ที่ browser ส่งมาเอง); lease อื่น/หมดแล้ว/origin ถูกเพิกถอน = null
+   */
+  async embeddedHostOrigin(actor: WorkSessionActor, leaseId: string): Promise<string | null> {
+    if (!(await this.isCurrent(actor, leaseId))) return null;
+    return this.transaction(actor, async (tx) => {
+      const lease = await tx.agentWorkSessionLease.findFirst({
+        where: { id: leaseId, tenantId: actor.tenantId, userId: actor.userId, surface: 'embedded' },
+        select: { hostOrigin: true },
+      });
+      return lease?.hostOrigin ?? null;
+    });
+  }
+
+  /**
    * token ถูกเพิกถอนระหว่างถือ lease: ว่าง = ปล่อยทันที (`auth_revoked`), มีงาน = คง lease ไว้จนงานจบ
    * (คุยต่อได้ ห้ามรับงานใหม่ — socket หยุดรับ offer เอง) แล้ว sweeper ปล่อยเมื่อหมดอายุ
    */

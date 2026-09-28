@@ -30,10 +30,20 @@ const API_ERRORS = new Set([
   'NOT_FOUND',
 ]);
 
+/** E1.14: ระดับที่เลือกได้ตามลำดับ — `custom` แสดงแต่ปิดไว้จนกว่ารายการ field จะถูกตัดสิน */
+export const SCREEN_POP_OPTIONS = ['off', 'ids', 'contact', 'custom'] as const;
+export const SCREEN_POP_REASON_MIN = 3;
+
 /** key ของข้อความ error จาก API — rejection ของ origin ใช้ข้อความเดียวกับการตรวจทันที */
 export function apiErrorKey(error: EmbedOriginApiError): string {
   if (error.code === 'VALIDATION_FAILED' && error.field === 'origin' && error.reason) {
     return `dphoneEmbedding.rejections.${error.reason}`;
+  }
+  if (error.code === 'VALIDATION_FAILED' && error.field === 'screenPopLevel') {
+    return 'dphoneEmbedding.errors.SCREEN_POP_LEVEL_UNAVAILABLE';
+  }
+  if (error.code === 'VALIDATION_FAILED' && error.field === 'reason') {
+    return 'dphoneEmbedding.errors.REASON_REQUIRED';
   }
   if (error.code && API_ERRORS.has(error.code)) return `dphoneEmbedding.errors.${error.code}`;
   if (error.status === 403) return 'dphoneEmbedding.errors.FORBIDDEN';
