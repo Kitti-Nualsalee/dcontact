@@ -7,9 +7,10 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "dev": "vite",
     "i18n:check": "dc-i18n-check src/i18n/locales",
-    "i18n:literals": "dc-i18n-literals src/workspace-app.tsx src/work-session-panel.tsx src/dphone src/shell",
+    "i18n:literals": "dc-i18n-literals src/workspace-app.tsx src/work-session-panel.tsx src/dphone src/shell src/embed",
     "lint:css": "stylelint --config ../../packages/ui-react/.stylelintrc.json \"src/agent-workspace.css\" \"src/dphone/*.css\"",
     "test": "tsx --test src/*.test.ts src/dphone/*.test.ts src/embed/*.test.ts",
+    "test:boundary": "tsx --test --test-concurrency=1 src/embed/*.boundary.ts",
     "test:e2e": "playwright test",
     "test:embed": "tsx --test src/embed/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
