@@ -44,7 +44,11 @@ function files(target) {
     return readdirSync(target).flatMap((name) => files(join(target, name)));
   }
   const extension = extname(target);
-  if (!['.ts', '.tsx'].includes(extension) || /\.(test|spec|d)\.tsx?$/.test(target)) return [];
+  if (
+    !['.ts', '.tsx'].includes(extension) ||
+    /\.(test|spec|boundary|integration|d)\.tsx?$/.test(target)
+  )
+    return [];
   return [target];
 }
 

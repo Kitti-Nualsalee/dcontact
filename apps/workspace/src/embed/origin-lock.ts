@@ -12,6 +12,8 @@ export interface EmbedConfig {
   v: 1;
   tenant: string | null;
   allowedHostOrigins: string[];
+  /** E1.13: OIDC ของ dphone ที่ถูกฝัง (client `dphone-embedded`) — ไม่มี = ยัง login ไม่ได้ */
+  auth: { issuer: string; clientId: string } | null;
 }
 
 export function parseEmbedConfig(text: string | null | undefined): EmbedConfig | null {
@@ -24,6 +26,10 @@ export function parseEmbedConfig(text: string | null | undefined): EmbedConfig |
       v: 1,
       tenant: typeof value.tenant === 'string' ? value.tenant : null,
       allowedHostOrigins: value.allowedHostOrigins,
+      auth:
+        typeof value.auth?.issuer === 'string' && typeof value.auth.clientId === 'string'
+          ? { issuer: value.auth.issuer, clientId: value.auth.clientId }
+          : null,
     };
   } catch {
     return null;
