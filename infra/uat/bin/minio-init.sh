@@ -24,11 +24,16 @@ fi
 
 mc mb --ignore-existing "uat/${bucket}" >/dev/null
 
+# image pgsty/minio (ubi9-micro) ไม่มี grep — ตรวจข้อความด้วย `case` ของ shell เท่านั้น
 # ตรวจอย่างเดียว: bucket ต้องไม่มี anonymous access (ไม่ตั้ง policy ให้ bucket)
-if ! mc anonymous get "uat/${bucket}" | grep -q "private"; then
-  echo '{"type":"u1.uat.minio-init","status":"FAIL","reason":"BUCKET_NOT_PRIVATE"}' >&2
-  exit 1
-fi
+anonymous="$(mc anonymous get "uat/${bucket}")"
+case "$anonymous" in
+  *private*) ;;
+  *)
+    echo '{"type":"u1.uat.minio-init","status":"FAIL","reason":"BUCKET_NOT_PRIVATE"}' >&2
+    exit 1
+    ;;
+esac
 
 policy_file="$(mktemp)"
 trap 'rm -f "$policy_file"' EXIT
@@ -60,8 +65,10 @@ POLICY
 # create = สร้างหรือแทนที่ policy เดิม; user add = สร้างหรืออัปเดต secret (rotate ได้ด้วยการ deploy ซ้ำ)
 mc admin policy create uat "$policy" "$policy_file" >/dev/null
 mc admin user add uat "$UAT_MINIO_API_ACCESS_KEY" "$UAT_MINIO_API_SECRET_KEY" >/dev/null
-if ! mc admin user info uat "$UAT_MINIO_API_ACCESS_KEY" | grep -q "$policy"; then
-  mc admin policy attach uat "$policy" --user "$UAT_MINIO_API_ACCESS_KEY" >/dev/null
-fi
+user_info="$(mc admin user info uat "$UAT_MINIO_API_ACCESS_KEY")"
+case "$user_info" in
+  *"$policy"*) ;;
+  *) mc admin policy attach uat "$policy" --user "$UAT_MINIO_API_ACCESS_KEY" >/dev/null ;;
+esac
 
 echo '{"type":"u1.uat.minio-init","status":"PASS","bucket":"uat-evidence","policy":"uat-evidence-api"}'
