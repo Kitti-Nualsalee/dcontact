@@ -1,0 +1,101 @@
+name: UAT defect
+description: บันทึก defect หนึ่งอาการจาก UAT run ของ U1 (ตาม #379)
+title: 'UAT defect: '
+labels: ['uat:defect']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        หนึ่ง issue ต่อหนึ่งอาการ และลิงก์กลับ #416
+        **ห้ามแนบ** credential, TOTP, token (รวม `Authorization` header/cookie), secret, PII จริง,
+        Playwright trace, HAR หรือ network log ดิบ — ใช้ screenshot ที่ผ่าน negative scan และ correlation ID แทน
+        หลังสร้าง issue ให้เพิ่ม label `severity:s1`–`severity:s4` ให้ตรงกับที่เลือกด้านล่าง
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - S1 Blocker — scenario หลักไปต่อไม่ได้ หรือผิด boundary ด้านความปลอดภัย/ความจริง
+        - S2 Major — ทำได้แต่ผลผิด หรือต้องใช้ทางอ้อม
+        - S3 Minor — ประสบการณ์หรือ a11y บกพร่องในจุดที่ไม่ขวาง
+        - S4 Cosmetic — ความสวยงามล้วน ๆ
+    validations:
+      required: true
+  - type: input
+    id: run
+    attributes:
+      label: Run ID
+      description: opaque run ID ที่ Console แสดง
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Build SHA
+    validations:
+      required: true
+  - type: input
+    id: fixture
+    attributes:
+      label: Fixture pack version / digest
+    validations:
+      required: true
+  - type: input
+    id: step
+    attributes:
+      label: Step ID
+    validations:
+      required: true
+  - type: dropdown
+    id: state-label
+    attributes:
+      label: ป้ายของผลที่อ้าง
+      description: ผล SIMULATION_ONLY ห้ามใช้อ้างว่าส่งถึงจริงหรือ runtime ทำงานแล้ว
+      options:
+        - REAL_STATE
+        - SIMULATION_ONLY
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: เริ่มจาก `เริ่มรอบใหม่` ด้วย fixture เดิม ไม่ใช้ CLI หรือเข้าฐานข้อมูล
+      value: |
+        1. กด `เริ่มรอบใหม่` บน Journey Console
+        2.
+    validations:
+      required: true
+  - type: input
+    id: correlation
+    attributes:
+      label: Correlation ID
+      description: จาก error state ของคำสั่งที่ล้ม (ถ้ามี)
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshot / evidence
+      description: screenshot ที่ผ่าน negative scan แล้ว หรือ evidence ID + digest จาก bundle ของ run
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: ตรวจก่อนส่ง
+      options:
+        - label: ไม่มี token, cookie, secret, PII จริง และไม่มี `code`/`state` ของ OIDC ใน URL ของ screenshot
+          required: true
+        - label: ไม่ได้แนบ Playwright trace, HAR หรือ network log ดิบ
+          required: true
+        - label: ไม่ได้แก้ข้อมูลใน UAT ด้วยมือ
+          required: true

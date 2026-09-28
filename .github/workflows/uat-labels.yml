@@ -1,0 +1,32 @@
+name: UAT labels
+
+# U1.5 (#433): label ของ defect จาก UAT ตาม #379 — สร้าง/อัปเดตแบบ idempotent (`--force`)
+# รันเมื่อไฟล์นี้เปลี่ยนบน main หรือสั่งเองจาก Actions
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/uat-labels.yml']
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Create or update UAT defect labels
+        run: |
+          gh label create 'uat:defect' --force --color B60205 \
+            --description 'Defect ที่พบจาก UAT run (#379) — ต้องมี run ID, step ID และ severity'
+          gh label create 'severity:s1' --force --color 7F0000 \
+            --description 'S1 Blocker: scenario หลักไปต่อไม่ได้ หรือผิด boundary ด้านความปลอดภัย/ความจริง'
+          gh label create 'severity:s2' --force --color D93F0B \
+            --description 'S2 Major: ทำได้แต่ผลผิด หรือต้องใช้ทางอ้อม'
+          gh label create 'severity:s3' --force --color FBCA04 \
+            --description 'S3 Minor: ประสบการณ์หรือ a11y บกพร่องในจุดที่ไม่ขวาง'
+          gh label create 'severity:s4' --force --color C5DEF5 \
+            --description 'S4 Cosmetic: ความสวยงามล้วน ๆ'
