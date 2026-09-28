@@ -1,0 +1,79 @@
+{
+  "dphoneEmbedding": {
+    "eyebrow": "ตั้งค่า · Integrations",
+    "title": "ฝัง dphone ในระบบอื่น",
+    "description": "กำหนดเว็บไซต์ (origin) ที่อนุญาตให้ฝัง dphone ของ tenant นี้ได้ สูงสุด {{limit}} รายการ",
+    "loading": "กำลังโหลดรายการ origin",
+    "readOnly": "บัญชีนี้ดูได้อย่างเดียว เฉพาะผู้ดูแล tenant ที่แก้ไขได้",
+    "locked": {
+      "title": "แพ็กเกจปัจจุบันยังไม่รวมการฝัง dphone",
+      "body": "การฝัง dphone ในระบบอื่นต้องใช้ความสามารถ CTI ของแพ็กเกจ Enterprise ติดต่อฝ่ายขายเพื่ออัปเกรด"
+    },
+    "flagOff": "tenant นี้ยังไม่ได้เปิดใช้การฝัง dphone — เพิ่ม origin ไว้ล่วงหน้าได้ แต่ยังฝังไม่ได้จนกว่าผู้ดูแลแพลตฟอร์มจะเปิดใช้",
+    "table": {
+      "caption": "origin ที่อนุญาต",
+      "origin": "Origin",
+      "label": "ชื่อ",
+      "status": "สถานะ",
+      "sessions": "กำลังใช้งาน",
+      "actions": "จัดการ",
+      "enabled": "เปิด",
+      "disabled": "ปิด",
+      "empty": "ยังไม่มี origin — dphone จะฝังในระบบใดไม่ได้"
+    },
+    "actions": {
+      "disable": "ปิด",
+      "enable": "เปิด",
+      "rename": "เปลี่ยนชื่อ",
+      "delete": "ลบ",
+      "save": "บันทึก",
+      "cancel": "ยกเลิก"
+    },
+    "form": {
+      "title": "เพิ่ม origin",
+      "origin": "Origin",
+      "originHint": "รูปแบบ https://crm.example.com ไม่มี path และไม่ใช้ *",
+      "normalized": "จะบันทึกเป็น {{origin}}",
+      "label": "ชื่อที่ใช้เรียก",
+      "reason": "เหตุผล (ไม่บังคับ)",
+      "submit": "เพิ่ม origin",
+      "limitReached": "ครบ {{limit}} origin แล้ว ลบหรือปิดรายการที่ไม่ใช้ก่อน"
+    },
+    "confirm": {
+      "disableTitle": "ปิด {{origin}}?",
+      "deleteTitle": "ลบ {{origin}}?",
+      "sessions": "มี dphone ที่ฝังจาก origin นี้กำลังใช้งาน {{count}} รายการ — สายที่คุยอยู่คุยต่อได้จนจบ แต่จะรับงานใหม่และใช้ screen-pop/click-to-call ไม่ได้",
+      "noSessions": "ไม่มี dphone ที่ฝังจาก origin นี้กำลังใช้งาน",
+      "reason": "เหตุผล (ไม่บังคับ)",
+      "confirmDisable": "ยืนยันปิด",
+      "confirmDelete": "ยืนยันลบ"
+    },
+    "snippet": {
+      "title": "โค้ดสำหรับระบบที่ฝัง",
+      "description": "วางในหน้าเว็บของระบบที่อยู่ในรายการด้านบน และเพิ่ม frame-src ใน CSP ของหน้านั้น",
+      "copy": "คัดลอก",
+      "copied": "คัดลอกแล้ว"
+    },
+    "saved": "บันทึกแล้ว",
+    "rejections": {
+      "INVALID_URL": "ไม่ใช่ URL ที่ถูกต้อง ต้องขึ้นต้นด้วย https://",
+      "SCHEME_NOT_ALLOWED": "ใช้ได้เฉพาะ https://",
+      "WILDCARD": "ห้ามใช้ * หรือ wildcard",
+      "USERINFO": "ห้ามมีชื่อผู้ใช้หรือรหัสผ่านใน URL",
+      "PATH_QUERY_FRAGMENT": "ใส่เฉพาะ scheme, host และ port — ไม่มี path, ? หรือ #",
+      "IP_ADDRESS": "ห้ามใช้ IP address ให้ใช้ชื่อโดเมน",
+      "LOCALHOST_NOT_ALLOWED": "localhost ใช้ได้เฉพาะในสภาพแวดล้อมพัฒนา",
+      "RESERVED_ORIGIN": "เป็น origin ของ D-Contact เอง ใส่ไม่ได้"
+    },
+    "errors": {
+      "VALIDATION_FAILED": "ข้อมูลไม่ถูกต้อง",
+      "ENTITLEMENT_REQUIRED": "แพ็กเกจปัจจุบันยังไม่รวมการฝัง dphone",
+      "EMBED_ORIGIN_LIMIT_REACHED": "ครบจำนวน origin สูงสุดแล้ว",
+      "EMBED_ORIGIN_DUPLICATE": "มี origin นี้อยู่แล้ว",
+      "REVISION_CONFLICT": "รายการถูกแก้ไขโดยคนอื่น โหลดใหม่แล้วลองอีกครั้ง",
+      "NOT_FOUND": "ไม่พบรายการนี้แล้ว",
+      "FORBIDDEN": "บัญชีนี้ไม่มีสิทธิ์ทำรายการนี้",
+      "UNKNOWN": "ทำรายการไม่สำเร็จ ลองอีกครั้ง"
+    }
+  }
+}

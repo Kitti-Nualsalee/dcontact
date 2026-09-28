@@ -21,7 +21,8 @@
       "agentWorkspace": "กล่องงาน",
       "supervisorWorkspace": "ทีมสด",
       "journeys": "Journeys",
-      "contactGovernance": "Governance"
+      "contactGovernance": "Governance",
+      "dphoneEmbedding": "ฝัง dphone"
     }
   },
   "shell": {

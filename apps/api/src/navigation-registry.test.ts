@@ -65,7 +65,25 @@ test('tenant ที่ไม่มี plan binding (null) ใช้ role อย�
     'supervisor-workspace',
     'journeys',
     'contact-governance',
+    'dphone-embedding',
   ]);
+});
+
+test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ของ plan ที่มี module_api_cti', () => {
+  const cti = { module_api_cti: true };
+  assert.deepEqual(ids(visibleApps({ roles: ['admin'], entitlements: cti })), [
+    'agent-workspace',
+    'supervisor-workspace',
+    'dphone-embedding',
+  ]);
+  assert.equal(
+    ids(visibleApps({ roles: ['agent'], entitlements: cti })).includes('dphone-embedding'),
+    false,
+  );
+  assert.equal(
+    ids(visibleApps({ roles: ['admin'], entitlements: FULL })).includes('dphone-embedding'),
+    false,
+  );
 });
 
 test('ชุดเริ่มต้นของ tenant ขึ้นกับ entitlement ไม่ขึ้นกับ role ของ admin', () => {
