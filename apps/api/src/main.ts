@@ -19,6 +19,13 @@ import {
 } from '@d-contact/workspace-session';
 import { createWorkspaceSessionHandler } from './workspace-session-api.js';
 import { WorkSessionLeases } from './work-session.js';
+import { EmbedOriginService } from './embed-origins.js';
+import {
+  DPHONE_EMBED_SHELL_OPTIONS,
+  DphoneEmbedController,
+  EMBED_ORIGIN_SERVICE,
+  EmbedOriginsController,
+} from './embed-origins-api.js';
 import { WORK_SESSION_LEASES, WorkSessionController } from './work-session-api.js';
 import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
 import {
@@ -183,12 +190,25 @@ async function tenantScope<T>(tenantId: string, work: () => Promise<T> | T): Pro
 }
 // E1.9 (#483): work-session lease — บังคับเมื่อ tenant เปิด `workSession.lease.enforced`
 const leaseSignals: { forward?: WorkspaceSessionWebSocketAdapter } = {};
+// E1.11 (#485): allowlist ของ dphone embedding — localhost ได้เฉพาะ dev (ไม่ใช่ production)
+const embedOrigins = new EmbedOriginService(prisma, {
+  allowLocalhost: process.env.NODE_ENV !== 'production',
+  reservedOrigins: (process.env.DCONTACT_RESERVED_ORIGINS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
+  revocations: {
+    revoked: (tenantId, origin) =>
+      void leaseSignals.forward?.notifyEmbedOriginRevoked(tenantId, origin),
+  },
+});
 const workSessionLeases = new WorkSessionLeases(prisma, {
   signals: {
     signal: (tenantId, userId, signal) =>
       void leaseSignals.forward?.signalLease(tenantId, userId, signal),
   },
   diagnostics: { write: (event) => console.log(JSON.stringify(event)) },
+  embedOrigins,
 });
 const socketAdapter = new WorkspaceSessionWebSocketAdapter(
   gateway,
@@ -235,6 +255,8 @@ class WorkspaceSessionController {
     QmController,
     AgentWorkspaceController,
     WorkSessionController,
+    EmbedOriginsController,
+    DphoneEmbedController,
     JourneyEventController,
     JourneyOwnerRecoveryController,
     JourneySegmentRecoveryController,
@@ -280,6 +302,22 @@ class WorkspaceSessionController {
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
     { provide: WORK_SESSION_LEASES, useValue: workSessionLeases },
+    { provide: EMBED_ORIGIN_SERVICE, useValue: embedOrigins },
+    {
+      provide: DPHONE_EMBED_SHELL_OPTIONS,
+      useValue: {
+        // Vite entry แยกของ embed ใน apps/workspace (dev = vite dev server)
+        scriptUrl:
+          process.env.DPHONE_EMBED_SCRIPT_URL ??
+          (process.env.NODE_ENV === 'production'
+            ? undefined
+            : 'http://localhost:5173/src/embed/main.ts'),
+        connectSrc: (process.env.DPHONE_EMBED_CONNECT_SRC ?? '')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
+      },
+    },
     { provide: AGENT_SIP_LEASE_PROVIDER, useValue: configuredAgentSipLeaseProvider() },
     { provide: JOURNEY_EVENT_INBOX, useValue: journeyEventInbox },
     { provide: JOURNEY_RECOVERY_DATABASE, useValue: prisma },

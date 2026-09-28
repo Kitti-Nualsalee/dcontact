@@ -13,6 +13,8 @@ export const TENANT_UI_FLAGS = [
   'ui.shell.v2',
   // E1.9 (#483): บังคับ work-session lease (จุดรับงานเดียวต่อ agent) — เปิดใน dev/UAT ก่อน
   'workSession.lease.enforced',
+  // E1.11 (#485): อนุญาตให้ฝัง dphone ในระบบของลูกค้า (ต้องมี allowlist + entitlement ด้วย)
+  'dphone.embed.enabled',
 ] as const;
 export type TenantUiFlagKey = (typeof TENANT_UI_FLAGS)[number];
 

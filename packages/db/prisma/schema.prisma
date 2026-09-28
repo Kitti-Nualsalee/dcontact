@@ -132,6 +132,9 @@ model Tenant {
   agentWorkSessionLeases AgentWorkSessionLease[]
   agentWorkSessionEvents AgentWorkSessionEvent[]
 
+  embedOrigins           TenantEmbedOrigin[]
+  embedOriginAuditEvents TenantEmbedOriginAuditEvent[]
+
   @@map("tenants")
 }
 
@@ -6052,4 +6055,43 @@ model AgentWorkSessionEvent {
 
   @@index([tenantId, occurredAt], map: "agent_work_session_events_tenant_idx")
   @@map("agent_work_session_events")
+}
+
+/// E1.11 (#485): origin ที่ tenant อนุญาตให้ฝัง dphone — สูงสุด 10 ต่อ tenant (trigger), unique ต่อ tenant
+model TenantEmbedOrigin {
+  id        String   @id @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  /// normalize แล้ว: scheme://host[:port] ตัวพิมพ์เล็ก
+  origin    String
+  label     String
+  enabled   Boolean  @default(true)
+  createdBy String   @map("created_by") @db.Uuid
+  createdAt DateTime @map("created_at")
+  updatedAt DateTime @map("updated_at")
+  revision  Int      @default(1)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, origin], map: "tenant_embed_origins_tenant_origin_key")
+  @@map("tenant_embed_origins")
+}
+
+/// E1.11 (#485): audit ค่าก่อน/หลังของ embed origin — append-only สำหรับ role ของแอป
+model TenantEmbedOriginAuditEvent {
+  id            String   @id @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  originId      String   @map("origin_id") @db.Uuid
+  /// CREATED | UPDATED | DISABLED | ENABLED | DELETED
+  action        String
+  before        Json?
+  after         Json?
+  actorUserId   String   @map("actor_user_id") @db.Uuid
+  reason        String?
+  correlationId String   @map("correlation_id")
+  occurredAt    DateTime @map("occurred_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, occurredAt], map: "tenant_embed_origin_audit_events_tenant_idx")
+  @@map("tenant_embed_origin_audit_events")
 }

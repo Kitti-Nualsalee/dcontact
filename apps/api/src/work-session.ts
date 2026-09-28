@@ -12,20 +12,24 @@
  */
 import { randomUUID } from 'node:crypto';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
+import { normalizeEmbedOrigin } from '@d-contact/shared';
 
 export const WORK_SESSION_TTL_MS = 60_000;
 export const WORK_SESSION_HEARTBEAT_MS = 20_000;
 export const WORK_SESSION_FLAG = 'workSession.lease.enforced';
 export const WORK_SESSION_SURFACES = ['workspace', 'dphone', 'embedded'] as const;
 export type WorkSessionSurface = (typeof WORK_SESSION_SURFACES)[number];
-export type LeaseReleaseReason = 'released' | 'takeover' | 'expired' | 'auth_revoked';
+export type LeaseReleaseReason =
+  'released' | 'takeover' | 'expired' | 'auth_revoked' | 'origin_revoked';
 
 export type WorkSessionErrorCode =
   | 'VALIDATION_FAILED'
   | 'WORK_SESSION_HELD'
   | 'WORK_SESSION_BUSY'
   | 'WORK_SESSION_CHANGED'
-  | 'AGENT_NOT_FOUND';
+  | 'AGENT_NOT_FOUND'
+  /** E1.11: host origin ของ surface embedded ไม่อยู่ใน allowlist ที่ใช้งานได้ของ tenant */
+  | 'EMBED_ORIGIN_NOT_ALLOWED';
 
 export interface WorkSessionHolder {
   leaseId: string;
@@ -56,7 +60,11 @@ export interface WorkSessionLeaseView {
 }
 
 export type LeaseSignal =
-  | { type: 'lease.revoked'; leaseId: string; reason: 'takeover' | 'auth_revoked' }
+  | {
+      type: 'lease.revoked';
+      leaseId: string;
+      reason: 'takeover' | 'auth_revoked' | 'origin_revoked';
+    }
   | { type: 'lease.expired'; leaseId: string };
 
 /** ส่งสัญญาณไปที่ socket ที่ผูก lease นั้นใน instance นี้ (instance อื่นรู้ตอน heartbeat ถัดไป) */
@@ -98,18 +106,15 @@ type LeaseRow = {
   expires_at: Date;
 };
 
-/** https exact origin (ไม่มี path/query/credential) ที่ normalize เป็นตัวเล็ก */
+/**
+ * host origin ของ surface embedded: รูปแบบเดียวกับ allowlist (E1.11) และต้องส่งมาแบบ normalize แล้ว
+ * — localhost รับได้ที่ชั้นนี้ แต่ใช้จริงได้เฉพาะเมื่ออยู่ใน allowlist (ซึ่งรับ localhost เฉพาะ dev)
+ */
 export function normalizeHostOrigin(value: unknown): string | null {
-  if (typeof value !== 'string' || value.length > 255) return null;
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== 'https:' || url.username || url.password) return null;
-  if (url.origin !== value.replace(/\/$/, '').toLowerCase()) return null;
-  return url.origin;
+  if (typeof value !== 'string') return null;
+  const result = normalizeEmbedOrigin(value, { allowLocalhost: true });
+  if (!result.ok || result.origin !== value.replace(/\/$/, '')) return null;
+  return result.origin;
 }
 
 export function parseWorkSessionRequest(body: unknown): WorkSessionRequest {
@@ -144,6 +149,8 @@ export class WorkSessionLeases {
       signals?: LeaseSignalSink;
       diagnostics?: { write(event: WorkSessionDiagnostic): void };
       flagCacheMs?: number;
+      /** E1.11: ตรวจ host origin ของ surface embedded กับ allowlist (ไม่ตั้ง = ไม่อนุญาต embedded) */
+      embedOrigins?: { isEmbeddable(tenantId: string, origin: string): Promise<boolean> };
     } = {},
   ) {
     this.now = options.now ?? (() => new Date());
@@ -198,6 +205,7 @@ export class WorkSessionLeases {
     request: WorkSessionRequest,
     correlationId: string,
   ): Promise<WorkSessionLeaseView> {
+    await this.requireEmbeddable(actor, request);
     try {
       const view = await this.transaction(actor, async (tx) => {
         await this.requireAgent(tx, actor);
@@ -238,6 +246,7 @@ export class WorkSessionLeases {
     request: WorkSessionRequest & { expectedLeaseId: string },
     correlationId: string,
   ): Promise<WorkSessionLeaseView> {
+    await this.requireEmbeddable(actor, request);
     let previous: LeaseRow | null = null;
     let requeued = 0;
     const view = await this.transaction(actor, async (tx) => {
@@ -290,13 +299,19 @@ export class WorkSessionLeases {
     correlationId = 'heartbeat',
   ): Promise<
     | { status: 'ACTIVE'; expiresAt: Date }
-    | { status: 'REVOKED'; reason: 'takeover' | 'auth_revoked' | 'released' }
+    | { status: 'REVOKED'; reason: 'takeover' | 'auth_revoked' | 'released' | 'origin_revoked' }
     | { status: 'EXPIRED' }
   > {
+    const originRevoked = await this.originRevoked(actor, leaseId);
     return this.transaction(actor, async (tx) => {
       const open = await this.lockOpen(tx, actor);
       if (open && open.id === leaseId) {
         const busy = await this.busy(tx, actor);
+        // origin ถูกปิด/ลบ: ว่าง = ปล่อยทันที, มีสาย = คุยต่อจนจบแล้วค่อยปล่อย (E1.5 ข้อ 3)
+        if (originRevoked && !busy) {
+          await this.close(tx, actor, open, 'origin_revoked', correlationId);
+          return { status: 'REVOKED' as const, reason: 'origin_revoked' as const };
+        }
         if (this.lapsed(open, busy)) {
           await this.close(tx, actor, open, 'expired', correlationId);
           return { status: 'EXPIRED' as const };
@@ -313,7 +328,12 @@ export class WorkSessionLeases {
         select: { releaseReason: true },
       });
       const reason = closed?.releaseReason;
-      if (reason === 'takeover' || reason === 'auth_revoked' || reason === 'released') {
+      if (
+        reason === 'takeover' ||
+        reason === 'auth_revoked' ||
+        reason === 'released' ||
+        reason === 'origin_revoked'
+      ) {
         return { status: 'REVOKED' as const, reason };
       }
       return { status: 'EXPIRED' as const };
@@ -322,6 +342,7 @@ export class WorkSessionLeases {
 
   /** lease ยังเป็นของ agent คนนี้และยัง active อยู่ไหม (ใช้ตอนส่ง routing offer ให้ socket) */
   async isCurrent(actor: WorkSessionActor, leaseId: string): Promise<boolean> {
+    if (await this.originRevoked(actor, leaseId)) return false;
     return this.transaction(actor, async (tx) => {
       const open = await tx.agentWorkSessionLease.findFirst({
         where: { id: leaseId, tenantId: actor.tenantId, userId: actor.userId, releasedAt: null },
@@ -397,6 +418,29 @@ export class WorkSessionLeases {
     const pending = this.afterCommit.get(tx);
     if (pending) pending.push(send);
     else send();
+  }
+
+  private async requireEmbeddable(actor: WorkSessionActor, request: WorkSessionRequest) {
+    if (request.surface !== 'embedded') return;
+    const allowed =
+      this.options.embedOrigins !== undefined &&
+      (await this.options.embedOrigins.isEmbeddable(actor.tenantId, request.hostOrigin!));
+    if (!allowed) throw new WorkSessionError('EMBED_ORIGIN_NOT_ALLOWED');
+  }
+
+  /** lease embedded ที่ origin ไม่อยู่ใน allowlist แล้ว (ตรวจนอก transaction ของ lease) */
+  private async originRevoked(actor: WorkSessionActor, leaseId: string): Promise<boolean> {
+    const lease = await this.transaction(actor, (tx) =>
+      tx.agentWorkSessionLease.findFirst({
+        where: { id: leaseId, tenantId: actor.tenantId, userId: actor.userId, releasedAt: null },
+        select: { surface: true, hostOrigin: true },
+      }),
+    );
+    if (!lease || lease.surface !== 'embedded' || !lease.hostOrigin) return false;
+    return !(
+      this.options.embedOrigins !== undefined &&
+      (await this.options.embedOrigins.isEmbeddable(actor.tenantId, lease.hostOrigin))
+    );
   }
 
   private async requireAgent(tx: Tx, actor: WorkSessionActor) {
@@ -505,9 +549,11 @@ export class WorkSessionLeases {
         action:
           reason === 'auth_revoked'
             ? 'AUTH_REVOKED'
-            : reason === 'expired'
-              ? 'EXPIRED'
-              : 'RELEASED',
+            : reason === 'origin_revoked'
+              ? 'ORIGIN_REVOKED'
+              : reason === 'expired'
+                ? 'EXPIRED'
+                : 'RELEASED',
         surface: lease.surface,
         hostOrigin: lease.host_origin,
         correlationId,
@@ -536,12 +582,12 @@ export class WorkSessionLeases {
         });
       });
     }
-    if (reason === 'auth_revoked') {
+    if (reason === 'auth_revoked' || reason === 'origin_revoked') {
       this.emitAfterCommit(tx, () =>
         this.options.signals?.signal(actor.tenantId, actor.userId, {
           type: 'lease.revoked',
           leaseId: lease.id,
-          reason: 'auth_revoked',
+          reason,
         }),
       );
     }

@@ -46,7 +46,11 @@ export interface WorkspaceSessionDiagnosticSink {
 }
 
 export type WorkSessionLeaseSignal =
-  | { type: 'lease.revoked'; leaseId: string; reason: 'takeover' | 'auth_revoked' }
+  | {
+      type: 'lease.revoked';
+      leaseId: string;
+      reason: 'takeover' | 'auth_revoked' | 'origin_revoked';
+    }
   | { type: 'lease.expired'; leaseId: string };
 
 type Actor = { tenantId: string; userId: string };
@@ -63,7 +67,7 @@ export interface WorkSessionLeaseAuthority {
     correlationId?: string,
   ): Promise<
     | { status: 'ACTIVE'; expiresAt: Date }
-    | { status: 'REVOKED'; reason: 'takeover' | 'auth_revoked' | 'released' }
+    | { status: 'REVOKED'; reason: 'takeover' | 'auth_revoked' | 'released' | 'origin_revoked' }
     | { status: 'EXPIRED' }
   >;
   isCurrent(actor: Actor, leaseId: string): Promise<boolean>;
@@ -274,6 +278,22 @@ export class WorkspaceSessionWebSocketAdapter {
         this.unbind(socket, binding);
         socket.send(JSON.stringify(signal));
       });
+      delivered += 1;
+    }
+    return delivered;
+  }
+
+  /**
+   * E1.11: origin ของ host ถูกปิด/ลบ → ทุก socket ของ tenant (iframe ที่ล็อก origin นั้นหยุดรับ postMessage เอง)
+   * ไม่มีข้อมูลอื่นนอกจาก origin ที่ tenant ตั้งเอง
+   */
+  async notifyEmbedOriginRevoked(tenantId: string, origin: string): Promise<number> {
+    let delivered = 0;
+    for (const [socket, { session }] of this.authenticatedSessions) {
+      if (session.tenantId !== tenantId) continue;
+      await this.withTenant(tenantId, () =>
+        socket.send(JSON.stringify({ type: 'embed.origin.revoked', origin })),
+      );
       delivered += 1;
     }
     return delivered;
