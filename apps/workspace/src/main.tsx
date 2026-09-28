@@ -9,6 +9,7 @@ import { SessionLocaleProvider } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
 import { WorkspaceShell } from './shell/workspace-shell.js';
 import { DphonePage } from './dphone/dphone-page.js';
+import { createWorkSessionApi } from './work-session.js';
 import './workspace-app.css';
 
 const root = document.getElementById('root');
@@ -19,7 +20,12 @@ const e2eHttpApi = createAgentWorkspaceApi({
   baseUrl: window.location.origin,
   accessToken: () => 'e2e-access-token',
 });
+const e2eSearch = new URL(window.location.href).searchParams;
 const e2eApi: AgentWorkspaceApi = {
+  // E1.12: WS ของ routing เฉพาะ spec ที่ mock WS เอง (`?live=1`) — spec อื่นไม่มี WS เหมือนเดิม
+  ...(e2eSearch.get('live') === '1'
+    ? { subscribeLive: (handlers, options) => e2eHttpApi.subscribeLive!(handlers, options) }
+    : {}),
   snapshot: () => e2eHttpApi.snapshot(),
   submitWrapup: (input) => e2eHttpApi.submitWrapup(input),
   sipCredentials: async () => ({
@@ -38,7 +44,12 @@ const e2eSupervisorApi = createSupervisorWorkspaceApi({
   baseUrl: window.location.origin,
   accessToken: () => 'e2e-access-token',
 });
-const e2eView = new URL(window.location.href).searchParams.get('view');
+const e2eView = e2eSearch.get('view');
+// E1.12: work-session lease ผ่าน API จริงของ origin — spec ที่ไม่ mock ได้ 404 = flag ปิด (พฤติกรรมเดิม)
+const e2eWorkSession = createWorkSessionApi({
+  baseUrl: window.location.origin,
+  accessToken: () => 'e2e-access-token',
+});
 
 const e2eShellProps = {
   apiBaseUrl: window.location.origin,
@@ -65,6 +76,7 @@ const application =
             api={e2eApi}
             tenantLabel="demo"
             createDphone={(_remoteAudio, callbacks) => createDeterministicDphone(callbacks)}
+            workSession={e2eWorkSession}
           />
         </WorkspaceShell>
       )}

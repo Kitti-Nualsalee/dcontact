@@ -1,3 +1,14 @@
+/**
+ * leader election ของแท็บ Workspace ภายใน origin เดียว (`BroadcastChannel` + heartbeat ใน `localStorage`)
+ *
+ * ADR-026 ข้อ 2 (แก้ใน E1.9 #483, ใช้ใน E1.12 #486): **เป็นแค่ตัวลดภาระภายใน origin — ไม่ใช่ตัวรับประกัน
+ * "จุดรับงานเดียว"** ตัวบังคับคือ work-session lease ฝั่ง server (`/api/v1/me/work-session`) ครอบทุก surface
+ * รวม dphone ที่ถูกฝังคนละ origin ซึ่งเบราว์เซอร์มองไม่เห็นกัน
+ *
+ * - tenant ที่เปิด `workSession.lease.enforced`: leader ของ origin เป็นแท็บเดียวที่ขอ lease อัตโนมัติ
+ *   (แท็บอื่นไม่ยิงคำขอซ้อน) — จะรับงานได้หรือไม่ตัดสินจาก lease เท่านั้น การเสีย leader ไม่ตัดสาย
+ * - tenant ที่ปิด flag: พฤติกรรมเดิมจาก D1 — working tab (leader) เป็นแท็บเดียวที่ต่อ WS และ register SIP
+ */
 export interface WorkspaceLeaderLease {
   tabId: string;
   heartbeatAt: number;

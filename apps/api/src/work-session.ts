@@ -166,6 +166,33 @@ export class WorkSessionLeases {
     return enforced;
   }
 
+  /**
+   * E1.12 (#486): สถานะที่ client อ่านก่อนขอ lease — flag ของ tenant + ผู้ถือปัจจุบัน (อ่านอย่างเดียว ไม่ lock)
+   * lease ที่หมดอายุตอนว่างแล้วแต่ sweeper ยังไม่ปิดถือว่าไม่มีผู้ถือ (acquire จะได้ lease ทันที)
+   */
+  async status(
+    actor: WorkSessionActor,
+  ): Promise<{ enforced: boolean; holder: WorkSessionHolder | null }> {
+    const enforced = await this.enforced(actor.tenantId);
+    const current = await this.transaction(actor, async (tx) => {
+      await this.requireAgent(tx, actor);
+      const open = await tx.agentWorkSessionLease.findFirst({
+        where: { tenantId: actor.tenantId, userId: actor.userId, releasedAt: null },
+      });
+      if (!open) return null;
+      const row: LeaseRow = {
+        id: open.id,
+        surface: open.surface,
+        host_origin: open.hostOrigin,
+        acquired_at: open.acquiredAt,
+        expires_at: open.expiresAt,
+      };
+      const busy = await this.busy(tx, actor);
+      return this.lapsed(row, busy) ? null : holder(row, busy);
+    });
+    return { enforced, holder: current };
+  }
+
   async acquire(
     actor: WorkSessionActor,
     request: WorkSessionRequest,

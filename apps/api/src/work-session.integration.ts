@@ -449,3 +449,43 @@ test('WS ของ tenant ที่บังคับ lease: ไม่มี lea
   // lease เก่าต่อใหม่ไม่ได้ (client ค้าง)
   assert.deepEqual((await connect(first.leaseId)).closed, [4409, 'work session lease required']);
 });
+
+test('E1.12: GET สถานะ — flag ของ tenant + ผู้ถือ (surface, เวลาเริ่ม, มีงาน); หมดอายุตอนว่าง = ไม่มีผู้ถือ', async (t) => {
+  const off = await setup(t);
+  const offToken = `${off.tenantA}|${off.agentA}`;
+  assert.deepEqual((await off.call('GET', PATH, offToken)).body, { enforced: false, holder: null });
+
+  const f = await setup(t, { enforced: true });
+  const token = `${f.tenantA}|${f.agentA}`;
+  const empty = await f.call('GET', PATH, token);
+  assert.deepEqual([empty.status, empty.body], [200, { enforced: true, holder: null }]);
+
+  const lease = (await f.call('POST', PATH, token, { surface: 'dphone' })).body;
+  const held = await f.call('GET', PATH, token);
+  assert.deepEqual(held.body, {
+    enforced: true,
+    holder: {
+      leaseId: lease.leaseId,
+      surface: 'dphone',
+      hostOrigin: null,
+      acquiredAt: lease.acquiredAt,
+      busy: false,
+    },
+  });
+  await f.interaction('ACTIVE');
+  assert.equal((await f.call('GET', PATH, token)).body.holder.busy, true);
+  // tenant B ไม่เห็น lease ของ A
+  assert.deepEqual((await f.call('GET', PATH, `${f.tenantB}|${f.agentB}`)).body, {
+    enforced: false,
+    holder: null,
+  });
+  // role อื่นที่ไม่ใช่ agent ไม่ได้อ่าน
+  assert.equal((await f.call('GET', PATH, `${f.tenantA}|${f.agentA}|supervisor`)).status, 403);
+
+  // ว่างและเงียบเกิน TTL: ไม่แสดงผู้ถือ แม้ sweeper ยังไม่ได้ปิด
+  await owner.$executeRaw(
+    Prisma.sql`UPDATE interactions SET state = 'COMPLETED' WHERE tenant_id = ${f.tenantA}::uuid`,
+  );
+  f.advance(61_000);
+  assert.equal((await f.call('GET', PATH, token)).body.holder, null);
+});

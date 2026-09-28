@@ -104,5 +104,48 @@
     "title": "Workspace is working in another tab",
     "body": "This tab is view-only and will not open routing or a media session until you move work here",
     "move": "Move work to this tab"
+  },
+  "lease": {
+    "eyebrow": "WORK SESSION",
+    "chip": {
+      "held": "Working here",
+      "standby": "View only"
+    },
+    "errorTitle": "Could not check where you work",
+    "errorBody": "This place is not taking new work yet; retrying automatically",
+    "heldTitle": "You are taking work somewhere else",
+    "heldBody": "An account can take work in one place at a time. This place is view-only and does not start routing or dphone until you move work here",
+    "freeTitle": "Not taking work here yet",
+    "freeBody": "No place is taking work for this account right now. You can start here",
+    "holderLabel": "Current work place",
+    "holderSurface": "Taking work in",
+    "holderSince": "Started",
+    "unknownTime": "Unknown time",
+    "surface": {
+      "workspace": "Agent Workspace",
+      "dphone": "dphone (full page)",
+      "embedded": "dphone embedded in {{origin}}"
+    },
+    "busy": "A call or wrap-up is in progress there; you can move once it ends",
+    "loss": {
+      "takeover": "Work moved to another place; this place stopped taking new work",
+      "expired": "The connection was lost for too long; this place stopped taking new work",
+      "auth_revoked": "Your sign-in expired; this place stopped taking new work",
+      "released": "The work place was released; this place stopped taking new work"
+    },
+    "rejected": {
+      "busy": "Could not move: work is in progress at the current place. The call and connection there were not interrupted",
+      "changed": "The work place changed in the meantime. Check the details and confirm again",
+      "failed": "Could not move. Please try again"
+    },
+    "move": "Move here",
+    "moving": "Moving…",
+    "start": "Start taking work here",
+    "refresh": "Check again",
+    "confirmTitle": "Move work here?",
+    "confirmBody": "The current place stops taking work immediately, and offers waiting to be accepted return to the queue",
+    "confirm": "Confirm move",
+    "cancel": "Cancel",
+    "inHand": "This place stopped taking new work — your current call or work can continue until it ends"
   }
 }

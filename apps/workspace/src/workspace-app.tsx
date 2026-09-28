@@ -4,6 +4,11 @@
  *
  * กติกาที่ห้ามละเมิด (ADR-026): dphone instance ถูกสร้างครั้งเดียวต่อการโหลดหน้าใน `AgentWorkspace`
  * การย่อ/ขยาย/ลาก/แยกหน้าต่าง/สลับภาษาเปลี่ยนแค่ UI — ไม่สร้าง SIP session, WebRTC หรือ WS ใหม่
+ *
+ * E1.12 (#486): tenant ที่เปิด `workSession.lease.enforced` — จุดรับงานคือผู้ถือ work-session lease ฝั่ง server
+ * (ADR-026 ข้อ 2): ได้ lease ก่อนจึงต่อ WS (แนบ `leaseId`) และ register SIP; เสีย lease = หยุดรับงานใหม่ทันที
+ * และถอน SIP register เมื่อไม่มีงานในมือ — สายที่คุยอยู่/wrap-up ไม่ถูกตัด (ADR-026 ข้อ 4)
+ * flag ปิด = พฤติกรรมเดิมทุกประการ (leader election ของแท็บเป็นตัวตัดสิน)
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
@@ -21,6 +26,13 @@ import {
 } from './dphone/dphone-widget.js';
 import { useShellTokens } from './shell/tokens.js';
 import { WorkspaceOutboundGate, type WorkspaceGovernanceAlert } from './workspace-governance.js';
+import {
+  WorkSessionClient,
+  type WorkSessionApi,
+  type WorkSessionState,
+  type WorkSessionSurface,
+} from './work-session.js';
+import { WorkSessionPanel } from './work-session-panel.js';
 import './agent-workspace.css';
 import './dphone/dphone.css';
 
@@ -40,6 +52,10 @@ export interface WorkspaceAppProps {
   tenantLabel?: string;
   onSignOut?: () => void;
   createDphone?: DphoneFactory;
+  /** E1.12: REST ของ work-session lease — ไม่มี = พฤติกรรมเดิม (ไม่มี lease) */
+  workSession?: WorkSessionApi;
+  /** surface ที่ขอ lease (E1.9) — Workspace = `workspace` */
+  workSessionSurface?: WorkSessionSurface;
 }
 
 export type DphoneFactory = (
@@ -79,6 +95,8 @@ export function createDeterministicDphone(callbacks: SipJsTransportCallbacks = {
 interface DphoneDiagnostics {
   sipSessionId(): string | undefined;
   wsConnectionId(): string | undefined;
+  /** E1.12: work-session lease ที่ถืออยู่ (ถ้ามี) */
+  workSessionLeaseId(): string | undefined;
 }
 
 declare global {
@@ -112,6 +130,8 @@ function AgentWorkspace({
   tenantLabel = 'acme.d-contact.io',
   onSignOut,
   createDphone,
+  workSession,
+  workSessionSurface = 'workspace',
 }: WorkspaceAppProps) {
   const { t } = useTranslation('workspace');
   const { t: td } = useTranslation('dphone');
@@ -146,6 +166,33 @@ function AgentWorkspace({
   // id ของหน้าต่างแยกที่ tab นี้เปิด — host รับ hello/bye/คำสั่งเฉพาะจาก id นี้
   const remoteId = useRef<string | undefined>(undefined);
   const governanceGate = useMemo(() => new WorkspaceOutboundGate(), []);
+  // E1.12: work-session lease — `disabled` = tenant ไม่บังคับ (หรือไม่มี API) → ใช้กติกาเดิม
+  const leaseClient = useRef<WorkSessionClient | undefined>(undefined);
+  const [lease, setLease] = useState<WorkSessionState>(
+    workSession ? { phase: 'idle' } : { phase: 'disabled' },
+  );
+  const [socketLeaseId, setSocketLeaseId] = useState<string>();
+  const enforced = lease.phase !== 'disabled';
+  const leaseHeld = lease.phase === 'held';
+  const inCall =
+    dphoneState.phase === 'CONNECTING' ||
+    dphoneState.phase === 'ACTIVE' ||
+    dphoneState.phase === 'HELD' ||
+    ((dphoneState.phase === 'RECONNECTING' || dphoneState.phase === 'RECOVERY_REQUIRED') &&
+      Boolean(dphoneState.interactionId));
+  // งานในมือ = สาย หรือ interaction ที่ยังต้องทำต่อ (ACTIVE/WRAPUP) — server ไม่ปล่อย lease ระหว่างนี้
+  const workInHand =
+    inCall ||
+    snapshot?.interaction?.state === 'ACTIVE' ||
+    snapshot?.interaction?.state === 'WRAPUP';
+  // รับงานใหม่ได้: flag เปิด = ถือ lease; flag ปิด = working tab (เดิม)
+  const ownsWork = enforced ? leaseHeld : workingTab;
+  // เก็บ SIP/WS/หน้าต่าง dphone ไว้: flag เปิด = ถือ lease หรือยังมีงานในมือ; flag ปิด = working tab (เดิม)
+  const mediaOwner = enforced ? leaseHeld || workInHand : workingTab;
+  const ownsWorkRef = useRef(ownsWork);
+  ownsWorkRef.current = ownsWork;
+  const workInHandRef = useRef(workInHand);
+  workInHandRef.current = workInHand;
 
   useEffect(() => {
     if (!api) return;
@@ -165,25 +212,39 @@ function AgentWorkspace({
     };
   }, [api]);
 
+  // WS ของ routing: flag เปิดต่อหลังได้ lease เท่านั้น (แนบ leaseId) และ heartbeat ผ่าน socket นี้
+  const liveKey = enforced ? socketLeaseId : workingTab ? 'working-tab' : undefined;
   useEffect(() => {
-    if (!api?.subscribeLive || !workingTab) return;
+    if (!api?.subscribeLive || !liveKey) return;
     let disposed = false;
-    const connection = api.subscribeLive({
-      onEvent: (event) => {
-        const alert = governanceGate.apply(event);
-        if (alert) setGovernanceAlert(alert);
+    const connection = api.subscribeLive(
+      {
+        onEvent: (event) => {
+          if (leaseClient.current?.handleSocketEvent(event)) return;
+          const alert = governanceGate.apply(event);
+          if (alert) setGovernanceAlert(alert);
+        },
+        onDisconnect: (code) => {
+          if (disposed) return;
+          leaseClient.current?.handleSocketClosed(code);
+          setGovernanceAlert(governanceGate.markDisconnected());
+        },
       },
-      onDisconnect: () => {
-        if (!disposed) setGovernanceAlert(governanceGate.markDisconnected());
-      },
-    });
+      enforced ? { leaseId: liveKey } : undefined,
+    );
+    const send = connection.send?.bind(connection);
+    const detach =
+      enforced && send
+        ? leaseClient.current?.attachSocket({ send: (message) => send(message) })
+        : undefined;
     liveConnectionId.current = connection.id;
     return () => {
       disposed = true;
+      detach?.();
       liveConnectionId.current = undefined;
       connection.close();
     };
-  }, [api, governanceGate, liveRetry, workingTab]);
+  }, [api, enforced, governanceGate, liveRetry, liveKey]);
 
   useEffect(() => {
     if (!createDphone || !remoteAudio.current) return;
@@ -225,6 +286,7 @@ function AgentWorkspace({
     window.__dcontactDphone = {
       sipSessionId: () => dphone.current?.sessionId(),
       wsConnectionId: () => liveConnectionId.current,
+      workSessionLeaseId: () => leaseClient.current?.leaseId(),
     };
     return () => {
       delete window.__dcontactDphone;
@@ -240,14 +302,58 @@ function AgentWorkspace({
     };
   }, [leaderElection]);
 
+  // E1.12: สร้าง client ของ lease ต่อ effect (StrictMode mount ซ้ำได้ client ใหม่ ไม่มีคำตอบค้างจากตัวเก่า)
+  // ลำดับ: หลัง leader election เริ่มแล้ว — leader ของ origin เป็นผู้ขอ lease อัตโนมัติ (ลดภาระเท่านั้น)
   useEffect(() => {
-    if (workingTab !== false) return;
+    if (!workSession) return;
+    const client = new WorkSessionClient({
+      surface: workSessionSurface,
+      api: workSession,
+      busy: () => workInHandRef.current,
+    });
+    leaseClient.current = client;
+    const unsubscribe = client.subscribe(setLease);
+    void client.start({ autoAcquire: leaderElection.isWorkingTab() });
+    // ปิดหน้าจริง (ไม่ใช่เข้า bfcache) → ปล่อย lease ให้ที่อื่นรับงานต่อได้ทันที
+    const exit = (event: PageTransitionEvent) => {
+      if (!event.persisted) client.releaseOnExit();
+    };
+    window.addEventListener('pagehide', exit);
+    return () => {
+      window.removeEventListener('pagehide', exit);
+      unsubscribe();
+      client.stop();
+      if (leaseClient.current === client) leaseClient.current = undefined;
+    };
+  }, [leaderElection, workSession, workSessionSurface]);
+
+  useEffect(() => {
+    leaseClient.current?.setAutoAcquire(Boolean(workingTab));
+  }, [workingTab]);
+
+  // ได้ lease = ที่นี่เป็นจุดรับงาน: ประกาศ leader ใน origin ให้แท็บอื่นไม่ขอ lease ซ้อน
+  const heldLeaseId = lease.phase === 'held' ? lease.lease.leaseId : undefined;
+  useEffect(() => {
+    if (!enforced) return;
+    if (heldLeaseId) {
+      leaderElection.claim();
+      setWorkingTab(true);
+      setSocketLeaseId(heldLeaseId);
+      return;
+    }
+    // เสีย lease: หยุดรับงานใหม่ทันที; WS เดิมอยู่ต่อจนงานในมือจบ (server ไม่ส่ง offer ให้แล้ว)
+    setAvailability('OFFLINE');
+    if (!workInHand) setSocketLeaseId(undefined);
+  }, [enforced, heldLeaseId, leaderElection, workInHand]);
+
+  useEffect(() => {
+    if (mediaOwner !== false) return;
     for (const track of mediaStream.current?.getTracks() ?? []) track.stop();
     mediaStream.current = undefined;
     setMediaReadiness('UNCHECKED');
     setAvailability('OFFLINE');
     void dphone.current?.stop().then(setDphoneState);
-  }, [workingTab]);
+  }, [mediaOwner]);
 
   useEffect(
     () => () => {
@@ -257,7 +363,7 @@ function AgentWorkspace({
   );
 
   async function checkMediaReadiness() {
-    if (!workingTab) return;
+    if (!ownsWork) return;
     setMediaReadiness('CHECKING');
     setMediaError(undefined);
     try {
@@ -288,10 +394,15 @@ function AgentWorkspace({
     if (api && dphone.current) {
       setDphoneError(undefined);
       try {
-        const lease = await api.sipCredentials();
-        setDphoneState({ phase: 'REGISTERING', telephonyNodeId: lease.telephonyNodeId });
+        const sipLease = await api.sipCredentials();
+        // register SIP เฉพาะเมื่อยังเป็นจุดรับงาน (flag เปิด = ยังถือ work-session lease) ณ ตอนนี้
+        if (!ownsWorkRef.current) {
+          setDphoneState({ phase: 'OFFLINE' });
+          return;
+        }
+        setDphoneState({ phase: 'REGISTERING', telephonyNodeId: sipLease.telephonyNodeId });
         setDphoneState(
-          await dphone.current.start(lease, { ownsWorkingTab: true, mediaReady: true }),
+          await dphone.current.start(sipLease, { ownsWorkingTab: true, mediaReady: true }),
         );
       } catch {
         setAvailability('OFFLINE');
@@ -302,7 +413,7 @@ function AgentWorkspace({
   }
 
   function becomeAvailable() {
-    if (!workingTab || mediaReadiness !== 'READY' || (api && dphoneState.phase !== 'READY')) return;
+    if (!ownsWork || mediaReadiness !== 'READY' || (api && dphoneState.phase !== 'READY')) return;
     setAvailability('AVAILABLE');
   }
 
@@ -386,10 +497,11 @@ function AgentWorkspace({
     locale,
   };
 
-  // host ของหน้าต่างแยก — เฉพาะ working tab ในโหมด shell (อยู่ใต้ leader election เดิม)
+  // host ของหน้าต่างแยก — เฉพาะจุดรับงานในโหมด shell (flag ปิด = working tab เดิม; เปิด = ผู้ถือ lease
+  // หรือยังมีสายในมือ) เสียจุดรับงานตอนว่าง → ปิดสะพานและหน้าต่างแยก
   const host = useRef<ReturnType<typeof createDphoneHost>>(undefined);
   useEffect(() => {
-    if (!inShell || !workingTab) return;
+    if (!inShell || !mediaOwner) return;
     const bridge = createDphoneHost({
       onCommand: (command) => commandRef.current(command),
       // bye ไม่ล้าง id: หน้าต่างแยกที่ reload จะส่ง hello ด้วย id เดิมและต่อกลับได้
@@ -403,7 +515,7 @@ function AgentWorkspace({
       host.current = undefined;
       setDetached(false);
     };
-  }, [inShell, workingTab]);
+  }, [inShell, mediaOwner]);
 
   const viewKey = JSON.stringify(view);
   useEffect(() => {
@@ -458,15 +570,21 @@ function AgentWorkspace({
   const statusStrip = (
     <div className="aw-status-strip" aria-label={t('status.label')}>
       <span
-        className={'aw-chip ' + (workingTab ? 'aw-chip-success' : 'aw-chip-neutral')}
+        className={'aw-chip ' + (ownsWork ? 'aw-chip-success' : 'aw-chip-neutral')}
         role="status"
         aria-label={t('status.owner')}
       >
-        {workingTab === undefined
-          ? t('status.checking')
-          : workingTab
-            ? t('status.working')
-            : t('status.passive')}
+        {enforced
+          ? leaseHeld
+            ? t('lease.chip.held')
+            : lease.phase === 'idle' || lease.phase === 'checking' || lease.phase === 'acquiring'
+              ? t('status.checking')
+              : t('lease.chip.standby')
+          : workingTab === undefined
+            ? t('status.checking')
+            : workingTab
+              ? t('status.working')
+              : t('status.passive')}
       </span>
       <span
         className={
@@ -581,6 +699,12 @@ function AgentWorkspace({
         <span className="aw-phase-badge">{t('heading.phase')}</span>
       </div>
 
+      {enforced && !leaseHeld && workInHand ? (
+        <p className="aw-warning" role="alert">
+          {t('lease.inHand')}
+        </p>
+      ) : null}
+
       {governanceAlert ? (
         <section
           className={'aw-governance aw-governance-' + governanceAlert.state.toLowerCase()}
@@ -687,7 +811,7 @@ function AgentWorkspace({
             </p>
           ) : null}
           <Button
-            isDisabled={!workingTab || mediaReadiness === 'CHECKING'}
+            isDisabled={!ownsWork || mediaReadiness === 'CHECKING'}
             onPress={() => void checkMediaReadiness()}
           >
             {mediaReadiness === 'CHECKING' ? t('media.checking') : t('media.check')}
@@ -715,7 +839,7 @@ function AgentWorkspace({
           <Button
             variant="primary"
             isDisabled={
-              !workingTab ||
+              !ownsWork ||
               mediaReadiness !== 'READY' ||
               availability === 'AVAILABLE' ||
               Boolean(api && dphoneState.phase !== 'READY')
@@ -797,7 +921,7 @@ function AgentWorkspace({
         </>
       )}
 
-      {inShell && workingTab ? (
+      {inShell && mediaOwner ? (
         detached ? (
           <DphoneDetachedBar view={view} onAttach={attach} />
         ) : (
@@ -814,7 +938,24 @@ function AgentWorkspace({
 
       <audio ref={remoteAudio} autoPlay className="aw-remote-audio" />
 
-      {workingTab === false ? (
+      {enforced && !leaseHeld && !workInHand ? (
+        <WorkSessionPanel
+          state={lease}
+          onAcquire={() => {
+            leaderElection.claim();
+            setWorkingTab(true);
+            void leaseClient.current?.acquire();
+          }}
+          onTakeover={() => {
+            leaderElection.claim();
+            setWorkingTab(true);
+            void leaseClient.current?.takeover();
+          }}
+          onRefresh={() => void leaseClient.current?.refresh()}
+        />
+      ) : null}
+
+      {!enforced && workingTab === false ? (
         <div className="aw-passive-overlay">
           <section className="aw-passive-card" aria-labelledby="passive-title">
             <p className="aw-eyebrow">{t('passive.eyebrow')}</p>
