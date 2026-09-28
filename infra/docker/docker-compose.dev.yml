@@ -46,8 +46,10 @@ services:
       timeout: 3s
       retries: 10
 
+  # #467: image ทางการของ MinIO (quay.io/minio/*, minio/*) pull ไม่ได้แล้ว — ใช้ fork ที่ community ดูแล
+  # (entrypoint/`minio server`/`mc` เหมือนเดิม) และตรึง release tag แทน latest
   minio:
-    image: quay.io/minio/minio:latest
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: dcontact
@@ -64,8 +66,9 @@ services:
       retries: 10
 
   # สร้าง bucket "recordings" อัตโนมัติตอน start
+  # ใช้ image เดียวกับ minio เพราะมีทั้ง `mc` และ /bin/sh สำหรับ entrypoint ด้านล่าง
   minio-init:
-    image: quay.io/minio/mc:latest
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     depends_on:
       minio:
         condition: service_healthy
