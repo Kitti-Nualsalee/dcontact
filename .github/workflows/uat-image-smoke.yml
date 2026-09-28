@@ -291,8 +291,10 @@ jobs:
         timeout-minutes: 10
         run: |
           # TODO(#506): เปลี่ยนไปใช้ template input ของ UAT ที่ U1.9 commit ไว้เมื่อมีแล้ว
-          maker_password="$(openssl rand -hex 16)"
-          reviewer_password="$(openssl rand -hex 16)"
+          # ต้องผ่าน passwordPolicy ของ realm UAT: length(12) + upperCase + lowerCase + digits
+          # (hex ล้วนไม่มีตัวพิมพ์ใหญ่ — Keycloak ตอบ reset-password 400)
+          maker_password="Ci7$(openssl rand -hex 16)"
+          reviewer_password="Ci7$(openssl rand -hex 16)"
           echo "::add-mask::$maker_password"
           echo "::add-mask::$reviewer_password"
           ops_image="$(sed -n 's/^OPS_IMAGE=//p' "$UAT_ROOT/releases/$GITHUB_SHA/release.env")"
