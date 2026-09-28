@@ -40,19 +40,19 @@ identity-aware gateway / allowlist (provisioning gate)
 Redis — API profile `uat` (U1.2 #430) ปิด Kafka/LINE/provider egress เชิงโครงสร้าง และบูตไม่ผ่านถ้ามี
 env `LINE_*`, `KAFKA_BROKERS` หรือ `SIP_*`
 
-| ไฟล์                                     | หน้าที่                                                                           |
-| ---------------------------------------- | --------------------------------------------------------------------------------- |
-| `apps/api/Dockerfile`                    | target `runtime` (API UAT) และ `ops` (Prisma migrate, Keycloak config, readiness) |
-| `apps/console/Dockerfile`                | Console build (`VITE_*` ตอน build) + Caddy (`infra/uat/Caddyfile`)                |
-| `infra/uat/docker-compose.uat.yml`       | stack ของ UAT — image อ้างด้วย digest, secret เป็น `${VAR:?}` ทั้งหมด             |
-| `infra/uat/bin/uat-deploy.sh`            | ขั้นตอนบน VM: prepare/backup/migrate/keycloak/deploy/smoke/record/rollback        |
-| `infra/uat/bin/db-roles.sh`              | role ของ Postgres (Keycloak, `dcontact_app`) จาก secret                           |
-| `infra/uat/bin/ci-ssh-setup.sh`          | SSH ของ runner จาก secrets ของ environment `uat-preview`                          |
-| `infra/uat/uat.env.example`              | รายชื่อค่าใน `uat.env` (ไม่มีค่า)                                                 |
-| `infra/keycloak/realm-dcontact.uat.json` | realm UAT (template `${env.*}`) — ไม่มี user/secret, บังคับ password+TOTP         |
-| `scripts/u1-uat-keycloak-users.mjs`      | render/reconcile realm และสร้างบัญชี maker/reviewer จาก secret input              |
-| `scripts/u1-uat-readiness.mjs`           | readiness: `--static`, `--live`, `--migration-guard`, deployment record           |
-| `.github/workflows/uat-preview.yml`      | deploy/rollback ด้วยมือ ผ่าน environment `uat-preview`                            |
+| ไฟล์                                     | หน้าที่                                                                                            |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `apps/api/Dockerfile`                    | target `runtime` (API UAT) และ `ops` (Prisma migrate, Keycloak config, readiness, `uat-provision`) |
+| `apps/console/Dockerfile`                | Console build (`VITE_*` ตอน build) + Caddy (`infra/uat/Caddyfile`)                                 |
+| `infra/uat/docker-compose.uat.yml`       | stack ของ UAT — image อ้างด้วย digest, secret เป็น `${VAR:?}` ทั้งหมด                              |
+| `infra/uat/bin/uat-deploy.sh`            | ขั้นตอนบน VM: prepare/backup/migrate/keycloak/provision/deploy/smoke/record/rollback               |
+| `infra/uat/bin/db-roles.sh`              | role ของ Postgres (Keycloak, `dcontact_app`) จาก secret                                            |
+| `infra/uat/bin/ci-ssh-setup.sh`          | SSH ของ runner จาก secrets ของ environment `uat-preview`                                           |
+| `infra/uat/uat.env.example`              | รายชื่อค่าใน `uat.env` (ไม่มีค่า)                                                                  |
+| `infra/keycloak/realm-dcontact.uat.json` | realm UAT (template `${env.*}`) — ไม่มี user/secret, บังคับ password+TOTP                          |
+| `scripts/u1-uat-keycloak-users.mjs`      | render/reconcile realm และสร้างบัญชี maker/reviewer จาก secret input                               |
+| `scripts/u1-uat-readiness.mjs`           | readiness: `--static`, `--live`, `--migration-guard`, deployment record                            |
+| `.github/workflows/uat-preview.yml`      | deploy/rollback ด้วยมือ ผ่าน environment `uat-preview`                                             |
 
 ## 2. Provisioning gate (กรอกก่อนเปิด UAT)
 
@@ -130,22 +130,86 @@ secret runtime ของ UAT (รหัสผ่าน DB/Keycloak/MinIO) **ไ�
 
 ## 5. Tenant และ fixture pack ของ UAT (ต้องใช้ operator input)
 
-API profile `uat` ไม่ provision tenant เอง ก่อนเปิดให้ผู้ทดสอบ operator ต้องเตรียมข้อมูลต่อไปนี้ใน
-ฐานข้อมูล UAT (หลัง deploy ครั้งแรก เพราะต้องมี schema ก่อน) ผ่าน `docker compose exec postgres psql`
-ด้วย role owner — ไม่มีขั้นอัตโนมัติใน workflow เพราะทุกค่าเป็น input ของ operator:
+API profile `uat` ไม่ provision tenant เอง ก่อนเปิดให้ผู้ทดสอบ operator รัน CLI `uat-provision`
+(U1.8 #502, `apps/api/src/uat-provision.ts` → `/app/dist/uat-provision-main.js` ใน ops image) หลัง deploy ครั้งแรก
+(ต้องมี schema ก่อน) — **ไม่ต้องใช้ `psql`** และไม่มีขั้นอัตโนมัติใน workflow เพราะทุกค่าเป็น input ของ operator
 
-1. แถว `tenants` ของ tenant UAT (`id` = `UAT_TENANT_ID`, `slug` = `UAT_TENANT_SLUG`, `lifecycle_status` = `ACTIVE`)
-2. team เจ้าของ Journey (`ownerTeamId` ของ fixture pack) และแถว `users` ของ maker/reviewer
-   (`id` = `dcUserId` ในไฟล์บัญชี — เป็น `subjectId` ของ J5)
-3. `iam_authoring_subjects` + capability grants แบบ TEAM ของ owner team:
+CLI ทำข้อ 1–4 ใน transaction เดียวแบบ idempotent แล้วจึงเรียก `UatFixtureProvisioner.provision()` เดิมของ U1.1 (ข้อ 5):
+
+1. แถว `tenants` (`id` = `UAT_TENANT_ID`, `slug` = `UAT_TENANT_SLUG`, `lifecycle_status` = `ACTIVE`;
+   ต้องตรงกับ `uat.env` ไม่เช่นนั้น `TENANT_ENV_MISMATCH`)
+2. owner team (`ownerTeamId` ของ fixture pack) และแถว `users` ของ maker/reviewer (`id` = `dcUserId` ในไฟล์บัญชี
+   ข้อ 6 — เป็น `subjectId` ของ J5; `password_hash` = `!keycloak-managed` เพราะ login ผ่าน Keycloak เท่านั้น)
+3. `iam_authoring_subjects` (`STANDARD`, ไม่มี direct review authority) + capability grants แบบ TEAM ของ owner team:
    maker = `journey.read`, `journey.edit`, `journey.publish`; reviewer = `journey.read`, `journey.review`
-4. rollout ของ Journey authoring สำหรับ tenant: ไม่ `DISABLED`, ไม่ `mutationFrozen`, เปิด canvas write และ publish UI
-5. fixture pack (`UatFixturePackV1`) ผ่าน `UatFixtureProvisioner` (U1.1 #429, `apps/journey/src/uat-run.ts`)
-   ด้วย connection ของ operator (app role เขียน pack ไม่ได้) — preflight ตรวจข้อ 1–4 และ idempotent ต่อ
-   environment + tenant + pack version; digest ต่าง = fail closed
+4. rollout ของ Journey authoring: ไม่ `DISABLED`, ไม่ `mutationFrozen`, เปิด canvas write และ publish UI
+5. fixture pack (`UatFixturePackV1`) ด้วย connection ของ owner (app role เขียน pack ไม่ได้) — preflight ของ U1.1
+   ตรวจข้อ 1–4 และ idempotent ต่อ environment + tenant + pack version; digest ต่าง = `FIXTURE_PACK_DIGEST_MISMATCH`
 
-> ช่องว่างที่ทราบ: ยังไม่มี CLI ของ `UatFixtureProvisioner` ใน repo — ต้องรันผ่าน `node` ใน ops image
-> หรือเพิ่ม CLI ใน ticket ถัดไป; ห้ามใช้ `pnpm db:seed` ของ dev (สร้างบัญชี/รหัสผ่านของ dev)
+ไฟล์ input มาจาก secret store (มีอีเมลจริงของผู้ทดสอบ) และลบทันทีหลังใช้ — **ห้าม commit**
+key ที่ไม่รู้จัก/ขาด = ปฏิเสธ (`INPUT_INVALID`); `fixturePack` ใส่ manifest ตรง ๆ (ผ่าน `uat-deploy.sh` ต้องเป็นแบบนี้
+เพราะไฟล์ส่งทาง stdin) หรือใช้ `fixturePackPath` แทนเมื่อรัน CLI ตรงกับไฟล์ที่ container อ่านได้:
+
+```json
+{
+  "schema": "UatProvisionV1",
+  "tenant": { "id": "<UAT_TENANT_ID>", "slug": "<UAT_TENANT_SLUG>", "name": "<UAT_TENANT_NAME>" },
+  "ownerTeam": { "id": "<uuid ของ owner team>", "name": "<ชื่อ team>" },
+  "maker": {
+    "dcUserId": "<uuid ตัวพิมพ์เล็ก — ตรงกับ dcUserId ในไฟล์บัญชีข้อ 6>",
+    "email": "<อีเมลจริงของผู้ทดสอบ>",
+    "displayName": "<ชื่อที่แสดง>"
+  },
+  "reviewer": { "...": "คนละบัญชีกับ maker (dcUserId และอีเมลต่างกัน)" },
+  "rollout": {
+    "stage": "<INTERNAL_SYNTHETIC | SELECTED_TENANT | CONTROLLED_AUTHORING>",
+    "canvasWriteEnabled": true,
+    "publishUiEnabled": true,
+    "templateCatalogEnabled": false,
+    "templateUpgradeEnabled": false,
+    "evidenceRef": "<ref ของ issue/หลักฐานที่อนุมัติ rollout>"
+  },
+  "fixturePack": {
+    "schema": "UatFixturePackV1",
+    "environment": "<UAT_ENVIRONMENT หรือ uat>",
+    "packVersion": "<UAT_FIXTURE_PACK_VERSION>",
+    "tenantId": "<UAT_TENANT_ID>",
+    "ownerTeamId": "<uuid ของ owner team>",
+    "makerSubjectId": "<dcUserId ของ maker>",
+    "reviewerSubjectId": "<dcUserId ของ reviewer>",
+    "...": "senderRef, contentRef, baselineDocument, simulationFixture, steps ตาม UatFixturePackV1 (สังเคราะห์ล้วน)"
+  }
+}
+```
+
+```bash
+# บน VM — <sha> = release ปัจจุบัน
+install -m 600 /dev/stdin /opt/dcontact-uat/uat-provision.json   # วางเนื้อหาจาก secret store
+bash /opt/dcontact-uat/releases/<sha>/bin/uat-deploy.sh provision <sha> /opt/dcontact-uat/uat-provision.json --check
+bash /opt/dcontact-uat/releases/<sha>/bin/uat-deploy.sh provision <sha> /opt/dcontact-uat/uat-provision.json
+shred -u /opt/dcontact-uat/uat-provision.json
+```
+
+`uat-deploy.sh provision` ต้องการไฟล์ mode 600 (`PROVISION_INPUT_PERMISSIONS`) และส่งไฟล์ทาง stdin ให้ one-shot
+`uat-provision` (compose profile `ops`, `OPS_IMAGE`, `DATABASE_URL` ของ `UAT_POSTGRES_USER` เหมือน `migrate`) —
+ไฟล์ไม่ถูก mount เข้า container และไม่ผ่าน command line
+
+CLI จะ:
+
+- ปฏิเสธก่อนเขียนใด ๆ ถ้า connection เป็น role ของ application (`current_user` = `dcontact_app` ฯลฯ →
+  `APPLICATION_ROLE_REFUSED`), maker = reviewer (`MAKER_REVIEWER_SAME`), บัญชี `.local` หรือ slug/ชื่อ tenant
+  ของ dev seed (`demo`, `demo-two` → `DEV_SEED_REFUSED`) — ห้ามใช้ `pnpm db:seed` ของ dev
+- รัน negative scan ของ U1.5 (`scanUatText`) ทั้ง input + manifest **ยกเว้น `maker.email`/`reviewer.email`**
+  ซึ่งเป็นอีเมลจริงโดยชอบ — อีเมล/token/JWT/secret ใน field อื่น (เช่นชื่อ team, displayName, manifest) =
+  `INPUT_SENSITIVE_CONTENT` พร้อมชนิดที่พบเท่านั้น
+- plan แบบ READ ONLY ก่อนเสมอ: แถวที่มีอยู่แล้วแต่ต่างจาก input (slug/ชื่อ tenant, team, users, subject,
+  ชุด grant, flag ของ rollout) = fail closed ด้วย `TENANT_CONFLICT`, `OWNER_TEAM_CONFLICT`, `USER_CONFLICT`,
+  `SUBJECT_CONFLICT`, `GRANTS_CONFLICT`, `ROLLOUT_CONFLICT` — ไม่เขียนทับและไม่เขียนส่วนอื่น; แก้ข้อมูลเดิมด้วยการตัดสินใจ
+  ของ operator ใน issue ไม่ใช่รันซ้ำด้วย input ใหม่ (`updatedByRef`/`evidenceRef` ของ rollout เป็น audit จึงไม่เทียบ)
+- `--check`: validate + preflight เดียวกันใน transaction แบบ READ ONLY — ไม่เขียนอะไรเลย
+  (`WOULD_CREATE`/`UNCHANGED`; preflight ของ pack = `SKIPPED` ถ้าข้อ 1–4 ยังไม่ถูกสร้าง)
+- พิมพ์ JSON lines ที่มีแค่ part, สถานะ (`CREATED`/`UNCHANGED`), id และ digest ของ pack — ไม่พิมพ์อีเมล ชื่อ
+  หรือ `DATABASE_URL`; รันซ้ำด้วย input เดิม = `UNCHANGED` ทุก part
 
 ## 6. สร้างบัญชี maker/reviewer
 
@@ -312,3 +376,8 @@ production mode (`start`, dev-file DB)
 ยังไม่ได้ verify: การ build image ด้วย Docker, push ไป GHCR, deploy/rollback/backup/restore จริงบน VM,
 TLS กับ cert จริง, gateway/allowlist จริง, Keycloak บน Postgres ใน compose และ Journey flow (UAT-L06)
 กับฐานข้อมูลที่ provision tenant/fixture pack แล้ว — ต้องเก็บหลักฐานใน deploy ครั้งแรก
+
+U1.8 (#502): CLI `uat-provision` ตรวจแล้วบน Postgres จริง (`apps/api/src/uat-provision.integration.ts`: CREATED →
+`เริ่มรอบใหม่` ของ maker ผ่าน app role + J5 จริง → UNCHANGED, conflict ไม่เปลี่ยนแถว, app role/maker = reviewer/
+token ใน free text ถูกปฏิเสธ, `--check` ไม่เขียน) และ `docker compose --profile ops config` ด้วย env จำลอง —
+ยังไม่ได้ verify: build ops image ที่มี `/app/dist/uat-provision-main.js` จริง และการรัน `uat-deploy.sh provision` บน VM

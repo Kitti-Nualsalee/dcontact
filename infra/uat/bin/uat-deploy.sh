@@ -17,7 +17,7 @@ PROJECT=dcontact-uat
 DIGEST_REF='^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
 
 usage() {
-  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|deploy|smoke|record|current|rollback-target|rollback> [sha] [file|--token-stdin]' >&2
+  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|deploy|smoke|record|current|rollback-target|rollback> [sha] [file|--token-stdin] [--check]' >&2
   exit 64
 }
 
@@ -108,6 +108,23 @@ case "$cmd" in
     dir="$(release_dir "${1:?sha}")"
     compose "$dir" up -d --wait keycloak
     compose "$dir" --profile ops run --rm -T keycloak-config
+    ;;
+
+  provision)
+    # U1.8 (#502): tenant/บัญชี maker-reviewer/rollout/fixture pack จากไฟล์ `UatProvisionV1` ของ operator
+    # ไฟล์มีอีเมลจริง → ต้อง chmod 600 และส่งทาง stdin (ไม่ mount เข้า container, ไม่ผ่าน command line)
+    # `--check` = validate + preflight แบบ read-only; ผลเป็น JSON lines ที่มีแค่ id/สถานะ/digest
+    dir="$(release_dir "${1:?sha}")"
+    file="${2:?provision input file}"
+    [[ -f "$file" ]] || fail 'PROVISION_INPUT_MISSING'
+    if [[ "$(stat -c '%a' "$file")" != '600' ]]; then fail 'PROVISION_INPUT_PERMISSIONS'; fi
+    case "${3:-}" in
+      '') mode=() ;;
+      --check) mode=(--check) ;;
+      *) usage ;;
+    esac
+    compose "$dir" up -d --wait postgres
+    compose "$dir" --profile ops run --rm -T uat-provision ${mode[@]+"${mode[@]}"} --input - <"$file"
     ;;
 
   deploy)

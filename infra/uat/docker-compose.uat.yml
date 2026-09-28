@@ -242,6 +242,28 @@ services:
     networks:
       - internal
 
+  # U1.8 (#502): tenant, owner team, users/subject/grant ของ maker-reviewer, rollout ของ Journey authoring และ
+  # fixture pack ของ UAT จากไฟล์ input `UatProvisionV1` ของ operator (ส่งทาง stdin ด้วย `uat-deploy.sh provision`)
+  # connection ของ owner เหมือน migrate — CLI ปฏิเสธเองถ้า current_user เป็น role ของ application (dcontact_app)
+  uat-provision:
+    profiles: ['ops']
+    image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${UAT_POSTGRES_USER:?UAT_POSTGRES_USER is required}:${UAT_POSTGRES_PASSWORD:?UAT_POSTGRES_PASSWORD is required}@postgres:5432/dcontact?schema=public
+      UAT_TENANT_ID: ${UAT_TENANT_ID:?UAT_TENANT_ID is required}
+      UAT_TENANT_SLUG: ${UAT_TENANT_SLUG:?UAT_TENANT_SLUG is required}
+    entrypoint: ['node', '/app/dist/uat-provision-main.js']
+    # ค่าเริ่มต้นปลอดภัย = --check (ไม่เขียน); `uat-deploy.sh provision` ส่ง argument จริงแทน
+    command:
+      - --check
+      - --input
+      - '-'
+    networks:
+      - internal
+
 secrets:
   uat_tls_cert:
     file: ${UAT_TLS_CERT_FILE:?UAT_TLS_CERT_FILE is required}
