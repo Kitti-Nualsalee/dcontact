@@ -207,6 +207,24 @@ test('J5.6 reducer: canvas/outline ใช้ command log เดียว, undo/r
   assert.equal(reloaded.commands.length, 0);
 });
 
+test('U1.7 reducer: validate ที่ไม่พบข้อผิดพลาดนับว่าตรวจแล้ว จนกว่าจะแก้หรือโหลด snapshot ใหม่', () => {
+  let state = initialEditorState(snapshot(base()));
+  assert.equal(state.checked, false);
+  state = editorReducer(state, { type: 'DIAGNOSTICS', diagnostics: [] });
+  assert.equal(state.checked, true);
+  state = editorReducer(state, {
+    type: 'COMMAND',
+    command: addAfter('trigger', 'start', 'send-1'),
+  });
+  assert.equal(state.checked, false);
+  state = editorReducer(state, { type: 'DIAGNOSTICS', diagnostics: [] });
+  state = editorReducer(state, { type: 'UNDO' });
+  assert.equal(state.checked, false);
+  state = editorReducer(state, { type: 'DIAGNOSTICS', diagnostics: [] });
+  state = editorReducer(state, { type: 'SNAPSHOT', snapshot: snapshot(base(), 2) });
+  assert.equal(state.checked, false);
+});
+
 test('J5.6 session recovery ผูก scope/resource/base revision และล้างทั้ง scope ได้', () => {
   const storage = new MemoryStorage();
   const key = recoveryKey('tenant-a:session-1', 'j-1', 3);

@@ -20,6 +20,11 @@ export interface EditorState {
   /** snapshot ล่าสุดของ server เมื่อบันทึกชน — มีค่าเมื่อผู้ใช้ต้องเลือกทางออก */
   readonly conflict: JourneySnapshot | null;
   readonly diagnostics: readonly JourneyDiagnosticV1[];
+  /**
+   * U1.7 (#435): server ตรวจ revision ที่เห็นอยู่แล้ว (validate หรือผลตรวจตอนบันทึก) — ผลที่ไม่มีข้อผิดพลาด
+   * ต้องแสดงว่า "ตรวจแล้วไม่พบ" ไม่ใช่ "ยังไม่ได้ตรวจ"; แก้ document/โหลด snapshot ใหม่ = ต้องตรวจใหม่
+   */
+  readonly checked: boolean;
   readonly compile: CompileSummary | null;
   /** เหตุผลของ command ล่าสุดที่ถูกปฏิเสธ เพื่อประกาศผ่าน live region */
   readonly rejected: string | null;
@@ -51,6 +56,7 @@ export function initialEditorState(snapshot: JourneySnapshot): EditorState {
     selectedNodeId: null,
     conflict: null,
     diagnostics: [],
+    checked: false,
     compile: null,
     rejected: null,
     dropped: 0,
@@ -100,6 +106,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         commands: [...state.commands, action.command],
         undone: [],
         selectedNodeId,
+        checked: false,
         compile: null,
         rejected: null,
       };
@@ -111,6 +118,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         ...state,
         commands: state.commands.slice(0, -1),
         undone: [last, ...state.undone],
+        checked: false,
         compile: null,
         rejected: null,
       };
@@ -122,6 +130,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         ...state,
         commands: [...state.commands, next],
         undone: rest,
+        checked: false,
         compile: null,
         rejected: null,
       };
@@ -140,9 +149,14 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'CONFLICT':
       return { ...state, conflict: action.latest };
     case 'DIAGNOSTICS':
-      return { ...state, diagnostics: action.diagnostics };
+      return { ...state, diagnostics: action.diagnostics, checked: true };
     case 'COMPILED':
-      return { ...state, compile: action.compile, diagnostics: action.compile.diagnostics };
+      return {
+        ...state,
+        compile: action.compile,
+        diagnostics: action.compile.diagnostics,
+        checked: true,
+      };
     case 'RESTORE':
       return { ...state, commands: applicable(state.snapshot, action.commands), undone: [] };
   }

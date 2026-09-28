@@ -31,6 +31,7 @@ artifacts/cxa-e0/
 artifacts/cxa-c1/
 artifacts/cxa-j2/
 artifacts/cxa-j5/
+artifacts/u1-acceptance/
 
 skills-lock.json
 *.agents

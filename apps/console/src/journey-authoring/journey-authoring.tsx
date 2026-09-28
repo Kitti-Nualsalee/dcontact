@@ -474,7 +474,7 @@ function JourneyEditor({
           <Diagnostics
             document={document}
             diagnostics={state.diagnostics}
-            checked={!dirty && (state.diagnostics.length > 0 || state.compile !== null)}
+            checked={!dirty && state.checked}
             onFocusNode={focusNode}
           />
         </section>
