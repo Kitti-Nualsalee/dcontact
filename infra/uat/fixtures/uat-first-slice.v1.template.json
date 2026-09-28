@@ -1,0 +1,301 @@
+{
+  "schema": "UatFixturePackV1",
+  "environment": "__UAT_ENVIRONMENT__",
+  "packVersion": "__UAT_FIXTURE_PACK_VERSION__",
+  "buildSha": "__UAT_BUILD_SHA__",
+  "tenantId": "__UAT_TENANT_ID__",
+  "ownerTeamId": "__UAT_OWNER_TEAM_ID__",
+  "makerSubjectId": "__UAT_MAKER_SUBJECT_ID__",
+  "reviewerSubjectId": "__UAT_REVIEWER_SUBJECT_ID__",
+  "senderRef": "sender-uat-synthetic",
+  "contentRef": "content-uat-welcome",
+  "baselineDocument": {
+    "schemaVersion": "J5_AUTHORING_V1",
+    "registryVersion": "J5_PALETTE_V1",
+    "trigger": {
+      "nodeId": "trigger",
+      "type": "EVENT_TRIGGER",
+      "label": "เมื่อเกิด event สังเคราะห์",
+      "config": {
+        "eventType": "synthetic.uat.signup"
+      }
+    },
+    "nodes": [
+      {
+        "nodeId": "send-1",
+        "type": "SEND",
+        "label": "ส่งข้อความต้อนรับ (สังเคราะห์)",
+        "config": {
+          "channel": "LINE",
+          "contentRef": "content-uat-welcome"
+        }
+      },
+      {
+        "nodeId": "done",
+        "type": "EXIT",
+        "label": "จบ",
+        "config": {
+          "reason": "COMPLETED"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "edgeId": "trigger.start",
+        "source": {
+          "nodeId": "trigger",
+          "portId": "start"
+        },
+        "target": {
+          "nodeId": "send-1"
+        }
+      },
+      {
+        "edgeId": "send-1.next",
+        "source": {
+          "nodeId": "send-1",
+          "portId": "next"
+        },
+        "target": {
+          "nodeId": "done"
+        }
+      }
+    ],
+    "settings": {
+      "name": "UAT first slice - synthetic welcome",
+      "purpose": "SERVICE",
+      "senderIdentityId": "sender-uat-synthetic",
+      "goal": {
+        "kind": "EVENT",
+        "eventType": "synthetic.uat.goal_reached"
+      },
+      "exitRules": [
+        {
+          "kind": "GOAL"
+        }
+      ],
+      "maxDurationDays": 7
+    },
+    "layout": {
+      "nodes": {
+        "trigger": {
+          "x": 80,
+          "y": 40
+        },
+        "send-1": {
+          "x": 80,
+          "y": 180
+        },
+        "done": {
+          "x": 80,
+          "y": 320
+        }
+      }
+    }
+  },
+  "simulationFixture": {
+    "fixtureId": "uat-first-slice-fx-1",
+    "startAt": "2026-09-01T02:00:00.000Z",
+    "seed": "uat-first-slice-seed-1",
+    "context": {
+      "segment": "synthetic-a"
+    },
+    "sendOutcomes": {
+      "send-1": "SENT"
+    }
+  },
+  "steps": [
+    {
+      "stepId": "UAT_PROFILE_VISIBLE",
+      "title": "Console แสดงว่าเป็นสภาพแวดล้อม UAT",
+      "expected": "runtime profile = uat โดย Kafka, LINE webhook และ provider egress ถูกปิด และ Journey runtime = NOT_DEPLOYED — UAT ไม่มีช่องทางส่งข้อความจริงถึงลูกค้า",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "MAKER_LOGIN_TOTP",
+      "title": "Maker เข้าสู่ระบบด้วยรหัสผ่านและ TOTP",
+      "expected": "บัญชี maker ที่ระบุตัวตนต้องกรอกรหัสผ่านแล้วตามด้วยรหัส TOTP 6 หลักจาก authenticator app จึงเข้า Console ได้ (login ครั้งแรกต้องเปลี่ยนรหัสผ่านและผูก TOTP ก่อน); หลังเข้าแล้วเห็น tenant ของ UAT และเมนู Journey",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "LOGIN_WITHOUT_TOTP_REFUSED",
+      "title": "เข้าสู่ระบบโดยไม่มี TOTP ไม่ได้",
+      "expected": "หลังกรอกรหัสผ่านถูกต้อง Keycloak ยังค้างที่หน้าขอรหัส TOTP; รหัส TOTP ผิดหรือว่างถูกปฏิเสธและไม่ได้ session ของ Console",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "RUN_OPENED",
+      "title": "เปิดรอบ UAT",
+      "expected": "รอบนี้ ACTIVE พร้อม run ID, build SHA และ fixture digest จาก server; รอบก่อนหน้า (ถ้ามี) ปิดเป็น COMPLETED/ABANDONED และหลักฐานเดิมยังอ่านได้",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "BASELINE_OPEN",
+      "title": "เปิด Journey ของรอบบน canvas",
+      "expected": "canvas แสดง baseline ของ fixture pack: EVENT_TRIGGER (synthetic.uat.signup) → SEND (send-1, LINE, content-uat-welcome) → EXIT (done, COMPLETED) และ settings แสดง sender-uat-synthetic, purpose SERVICE, maxDurationDays 7; รอบใหม่เริ่มจาก baseline นี้เสมอ ไม่ติดค่าที่แก้ในรอบก่อน",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "MAKER_EDIT",
+      "title": "Maker แก้ Journey ของรอบ",
+      "expected": "แทรก WAIT ได้ EVENT_TRIGGER → SEND → WAIT → EXIT และบันทึกได้ revision ใหม่",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "DIAGNOSTIC_RECOVERY",
+      "title": "แก้ diagnostic",
+      "expected": "graph ที่ไม่สมบูรณ์บันทึกได้แต่ validate พบ diagnostic ที่ชี้ node; แก้แล้ว validate ไม่พบข้อผิดพลาด",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "COMPILE",
+      "title": "Compile ฉบับร่าง",
+      "expected": "compile revision ล่าสุดได้ compile digest จาก server",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "PREVIEW_PLAN",
+      "title": "ดู plan preview",
+      "expected": "preview ของ compile digest ล่าสุดแสดง entry = send-1 และลำดับ SEND → WAIT → EXIT โดยทุก step มี capability AVAILABLE; เป็นแผนจาก compile artifact เท่านั้น ไม่มีการส่งจริง",
+      "stateLabel": "SIMULATION_ONLY"
+    },
+    {
+      "stepId": "SIMULATE",
+      "title": "จำลองการทำงาน",
+      "expected": "จำลองด้วย fixture ที่ server ตรึง ผลติดป้าย SIMULATION_ONLY และแสดงเวลาเสมือน ไม่ใช่การส่งจริง",
+      "stateLabel": "SIMULATION_ONLY"
+    },
+    {
+      "stepId": "SIMULATE_EXIT_PATH",
+      "title": "ผลจำลองเดินถึง EXIT",
+      "expected": "หลังแทรก WAIT 600 วินาทีตาม MAKER_EDIT ผลจำลองด้วย fixture ของรอบ (uat-first-slice-fx-1, startAt 2026-09-01T02:00:00.000Z) มี transitions SEND (send-1) → WAIT → EXIT (done) โดย done อยู่ที่เวลาเสมือน 2026-09-01T02:10:00.000Z, terminal = EXIT และไม่มี diagnostic",
+      "stateLabel": "SIMULATION_ONLY"
+    },
+    {
+      "stepId": "SIMULATE_REPEATABLE",
+      "title": "จำลองซ้ำได้ผลเดิม",
+      "expected": "จำลองซ้ำด้วย compile digest เดิมได้ transitions, เวลาเสมือน และ terminal เหมือนเดิมทุกค่า; reviewer ได้ fixture ของรอบชุดเดียวกับ maker",
+      "stateLabel": "SIMULATION_ONLY"
+    },
+    {
+      "stepId": "SIMULATION_NOT_DELIVERY",
+      "title": "ผลจำลองไม่นับเป็นการส่งจริง",
+      "expected": "ผลจำลองทุกครั้งติดป้าย SIMULATION_ONLY; ไม่มี delivery, enrollment หรือ receipt การส่งใดเกิดจากการจำลอง และผลของ step จำลองถูกบันทึกเป็น SIMULATION_ONLY ไม่ใช่ REAL_STATE",
+      "stateLabel": "SIMULATION_ONLY"
+    },
+    {
+      "stepId": "SUBMIT_REVIEW",
+      "title": "ส่งตรวจ",
+      "expected": "candidate เข้าสถานะ IN_REVIEW และ maker ไม่มีปุ่มตัดสินงานของตัวเอง",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "RUN_RESTART_BLOCKED_IN_REVIEW",
+      "title": "เริ่มรอบใหม่ระหว่างรอตรวจไม่ได้",
+      "expected": "กด เริ่มรอบใหม่ ขณะ candidate ยัง IN_REVIEW ถูกปฏิเสธด้วย UAT_RUN_PENDING_REVIEW (ต้องตัดสิน review ก่อน); รอบเดิมยัง ACTIVE และ sequence ไม่เปลี่ยน",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "SELF_APPROVAL_REJECTED",
+      "title": "Maker อนุมัติงานของตัวเองไม่ได้",
+      "expected": "คำขอตัดสิน review ด้วยบัญชี maker ถูกปฏิเสธด้วย 403 (บัญชี maker ของ UAT ไม่มีสิทธิ์ journey.review จึงได้ CAPABILITY_REQUIRED; ถ้ามีสิทธิ์ก็ได้ APPROVAL_SELF_FORBIDDEN); review ยัง IN_REVIEW และไม่มี decision ถูกบันทึก",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "REVIEWER_LOGIN_TOTP",
+      "title": "Reviewer เข้าสู่ระบบด้วยรหัสผ่านและ TOTP",
+      "expected": "บัญชี reviewer (คนละคนกับ maker) เข้า Console ได้หลังกรอกรหัสผ่านและรหัส TOTP เท่านั้น และเห็นรอบ UAT เดียวกับ maker",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "REVIEW_APPROVE",
+      "title": "Reviewer อนุมัติ",
+      "expected": "reviewer คนละบัญชีหา candidate เองจากตัวกรองรอตรวจ เห็น compile digest เดียวกัน แล้วอนุมัติได้ APPROVED",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "PUBLISH",
+      "title": "Publish",
+      "expected": "maker publish ได้ version และ receipt ที่ server ยืนยัน",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "AUDIT",
+      "title": "ตรวจ audit",
+      "expected": "ประวัติแสดง REVIEW_SUBMITTED, REVIEW_APPROVED และ JOURNEY_PUBLISHED ของ Journey รอบนี้",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "FAILURE_STALE_TAB",
+      "title": "บันทึกจากแท็บที่ค้างฉบับเก่า",
+      "expected": "เปิด Journey เดียวกันสองแท็บ บันทึกในแท็บ A แล้วบันทึกในแท็บ B: แท็บ B ถูกปฏิเสธด้วย revision conflict และ Console ให้โหลดฉบับล่าสุด; งานของแท็บ A ไม่ถูกเขียนทับ",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "FAILURE_RETRY_NO_DUPLICATE",
+      "title": "ลองใหม่หลังเครือข่ายขัดข้อง",
+      "expected": "ตัดเครือข่าย (DevTools offline) ระหว่างบันทึกหรือ publish: Console แจ้งข้อผิดพลาดพร้อมทางไปต่อ; เมื่อเครือข่ายกลับมาแล้วกดซ้ำได้ผลเดิมเพียงครั้งเดียว (idempotency key เดิม) ไม่มี draft revision, review หรือ version ซ้ำ",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "SESSION_EXPIRED",
+      "title": "Session หมดอายุ",
+      "expected": "เมื่อ session หมดอายุ (access token ของ realm UAT อายุ 5 นาที) หรือ logout จากอีกแท็บ คำสั่งถัดไปไม่ถูกบันทึกและแผงแสดงทางเข้าสู่ระบบใหม่ ไม่ตัน; หลัง login กลับมาเห็นสถานะล่าสุดจาก server โดยไม่มีคำสั่งเดิมถูกส่งซ้ำเอง",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "NAV_REFRESH",
+      "title": "Refresh หน้า",
+      "expected": "refresh บนหน้า canvas, หน้าตรวจ และแผงรอบทดสอบ UAT ไม่ตัน (session อยู่ในหน่วยความจำ จึงอาจต้องกดเข้าสู่ระบบอีกครั้งแต่ SSO พากลับโดยไม่ถามรหัส) และแสดงสถานะเดิมจาก server (draft revision, สถานะการตรวจ, ผลของ step)",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "NAV_DEEP_LINK",
+      "title": "เปิดด้วย deep link",
+      "expected": "คัด URL ของ Journey หรือ review ไปเปิดในแท็บใหม่: ถ้ายังไม่ login ต้องผ่านรหัสผ่าน + TOTP ก่อน แล้วไปถึงหน้าเดียวกันพร้อมสถานะล่าสุด; URL ไม่มี code/state ของ OIDC หรือ token",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "NAV_BACK_FORWARD",
+      "title": "Back / Forward ของ browser",
+      "expected": "กด Back และ Forward ระหว่างรายการ Journey, canvas, หน้าตรวจ และแผงรอบทดสอบ UAT: URL กับเนื้อหาตรงกันทุกครั้ง ไม่ตัน ไม่มีคำสั่งถูกส่งซ้ำ และการแก้ที่ยังไม่บันทึกไม่หายไปโดยไม่เตือน",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "A11Y_KEYBOARD",
+      "title": "ใช้งานด้วยแป้นพิมพ์อย่างเดียว",
+      "expected": "เปิด Journey, เลือก node, แทรก WAIT, ตรวจฉบับร่าง, Compile, จำลอง และส่งตรวจได้ครบด้วย Tab/Shift+Tab/Enter/Space/Esc และลูกศรบน canvas โดยไม่ใช้เมาส์ และไม่มีจุดที่ focus ติด",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "A11Y_FOCUS",
+      "title": "Focus, การประกาศสถานะ และ contrast",
+      "expected": "focus มองเห็นได้ทุกจุดและย้ายถูกที่หลัง navigation; ผลของการตรวจ/บันทึก/ข้อผิดพลาดถูกประกาศผ่าน live region; ข้อความมี contrast พออ่าน และจอกว้างต่ำกว่า 960px เป็นโหมดอ่านอย่างเดียว",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "NO_CLI_OR_DB",
+      "title": "ไม่มีขั้นใดใช้ CLI หรือฐานข้อมูล",
+      "expected": "ทุกขั้นของรอบนี้ทำผ่าน Console ใน browser เท่านั้น: ไม่มีการใช้ psql, CLI, curl หรือแก้ฐานข้อมูลระหว่างรอบ (การ provision ของ operator ทำก่อนเปิดรอบและไม่นับเป็นขั้นของผู้ทดสอบ)",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "EVIDENCE_UPLOAD",
+      "title": "แนบภาพหน้าจอเป็นหลักฐาน",
+      "expected": "แนบภาพหน้าจอ PNG หรือ JPEG ที่ไม่มีข้อมูลส่วนบุคคลกับ step ของรอบ: ระบบรับไฟล์และแสดง sha256; ไฟล์ zip/JSON/HAR/trace หรือภาพที่ metadata มีอีเมลหรือ token ถูกปฏิเสธและไม่ถูกเก็บ",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "STEP_RESULTS_RECORDED",
+      "title": "บันทึกผลทุก step ในแผงรอบทดสอบ",
+      "expected": "ทุก step ของ catalog มีผล PASS/FAIL/BLOCKED พร้อมสิ่งที่เห็นจริงและ correlation ID ถ้ามี; ผล FAIL ต้องมี severity; expected ของผลมาจาก catalog ของ fixture pack ไม่ใช่ข้อความที่ผู้ทดสอบพิมพ์",
+      "stateLabel": "REAL_STATE"
+    },
+    {
+      "stepId": "EVIDENCE_EXPORT_BUNDLE",
+      "title": "ส่งออก evidence bundle ของรอบ",
+      "expected": "หลังบันทึกผล step อื่นครบแล้วส่งออก bundle ของรอบ: scan.status = PASSED (ไม่พบ token/อีเมล/secret ในผลและภาพ), bundle มี run ID, sequence, fixture version/digest, build SHA และ audit refs และแยก step เป็น REAL_STATE กับ SIMULATION_ONLY; บันทึกผลขั้นนี้แล้วส่งออกอีกครั้งได้ verdict PASS",
+      "stateLabel": "REAL_STATE"
+    }
+  ]
+}
