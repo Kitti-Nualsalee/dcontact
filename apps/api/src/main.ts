@@ -26,6 +26,7 @@ import {
   EMBED_ORIGIN_SERVICE,
   EmbedOriginsController,
 } from './embed-origins-api.js';
+import { DphoneAuthCallbackController } from './dphone-auth-callback.js';
 import { WORK_SESSION_LEASES, WorkSessionController } from './work-session-api.js';
 import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
 import {
@@ -257,6 +258,7 @@ class WorkspaceSessionController {
     WorkSessionController,
     EmbedOriginsController,
     DphoneEmbedController,
+    DphoneAuthCallbackController,
     JourneyEventController,
     JourneyOwnerRecoveryController,
     JourneySegmentRecoveryController,
