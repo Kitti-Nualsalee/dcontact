@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Request } from '@playwright/test';
 
@@ -122,11 +123,17 @@ class AuthoringMock {
   }
 
   async install(page: Page) {
+    // API ที่ไม่ใช่ UAT ไม่มี route profile — Console ต้องไม่แสดง UI ของ UAT (U1.4 #432)
+    await page.route('**/api/v1/runtime-profile', (route) =>
+      route.fulfill({ status: 404, json: { message: 'Not Found' } }),
+    );
     await page.route('**/api/v1/journey-authoring/**', async (route) => {
       const request = route.request();
       this.requests.push(request);
       const path = new URL(request.url()).pathname.replace('/api/v1/journey-authoring', '');
-      const body = (request.postDataJSON() ?? {}) as Json;
+      // ภาพหน้าจอเป็น raw body — parse JSON เฉพาะ request ที่เป็น JSON
+      const isJson = (request.headers()['content-type'] ?? '').startsWith('application/json');
+      const body = ((isJson ? request.postDataJSON() : null) ?? {}) as Json;
       const reply = (status: number, payload: unknown) =>
         route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
       const method = request.method();
@@ -328,6 +335,26 @@ class AuthoringMock {
           diagnostics: [],
           stale: false,
           headStale: false,
+        });
+      }
+      if (method === 'POST' && tail === '/simulations') {
+        const fixture = body.fixture as { fixtureId: string; startAt: string };
+        const start = Date.parse(fixture.startAt);
+        return reply(200, {
+          compileDigest: body.compileDigest,
+          fixtureId: fixture.fixtureId,
+          profile: 'SIMULATION_ONLY',
+          transitions: [
+            { sequence: 1, nodeId: 'trigger', portId: 'start', virtualAt: fixture.startAt },
+            {
+              sequence: 2,
+              nodeId: 'send-1',
+              portId: 'next',
+              virtualAt: new Date(start + 3_600_000).toISOString(),
+            },
+          ],
+          terminal: 'EXIT',
+          diagnostics: [],
         });
       }
       if (method === 'POST' && tail === '/reviews') {
@@ -902,4 +929,525 @@ test('สลับภาษาระหว่างแก้ Journey: ข้อ�
   await page.getByRole('button', { name: 'ไทย' }).click();
   await expect(page.getByText(/มีการแก้ไขที่ยังไม่บันทึก 1 รายการ/)).toBeVisible();
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
+});
+
+// ── U1.4 (#432): UAT run บน Journey Console ────────────────────────────────────────────────
+
+const RUN_ID = '9c4d5e6f-7a8b-4c93-9dae-2f3a4b5c6d74';
+const NEXT_RUN_ID = 'ad5e6f7a-8b9c-4da4-8ebf-3a4b5c6d7e85';
+const UAT_STEPS = [
+  {
+    stepId: 'MAKER_EDIT',
+    title: 'Maker แก้ฉบับร่าง',
+    expected: 'บันทึกฉบับร่างได้ revision ใหม่',
+    stateLabel: 'REAL_STATE',
+  },
+  {
+    stepId: 'SIMULATE',
+    title: 'จำลองการทำงาน',
+    expected: 'ผลจำลองจบที่ EXIT',
+    stateLabel: 'SIMULATION_ONLY',
+  },
+];
+const UAT_FIXTURE = {
+  fixtureId: 'uat-fixture-1',
+  startAt: '2026-09-01T02:00:00.000Z',
+  seed: 'seed-uat-1',
+  context: { segment: 'synthetic-a', amountDue: 1200 },
+};
+
+/**
+ * mock ของ `/api/v1/runtime-profile` (profile uat) และ `/api/v1/uat-runs/**` แบบมี state — ติดตั้งหลัง
+ * `AuthoringMock` จึงชนะ route 404 ของ profile; ข้อมูล synthetic ทั้งหมด
+ */
+class UatMock {
+  readonly requests: Request[] = [];
+  run: Json | null;
+  /** ครั้งถัดไปที่ `เริ่มรอบใหม่` ถูกปฏิเสธด้วย response นี้ */
+  startFailure: { status: number; body: Json } | null = null;
+  unauthorized = false;
+  /** U1.5 (#433): metadata ของภาพหน้าจอที่ mock รับไว้ */
+  evidence: Json[] = [];
+
+  constructor(private readonly authoring: AuthoringMock) {
+    this.run = this.makeRun(RUN_ID, 1, JOURNEY_ID);
+  }
+
+  makeRun(runId: string, sequence: number, journeyId: string): Json {
+    return {
+      runId,
+      sequence,
+      lifecycle: 'ACTIVE',
+      revision: 1,
+      journeyId,
+      fixturePack: {
+        environment: 'uat',
+        packVersion: 'uat-pack-1',
+        digest: DIGEST('5'),
+        buildSha: 'abc1234def5678',
+      },
+      steps: UAT_STEPS,
+      openedAt: '2026-09-22T00:00:00.000Z',
+      closedAt: null,
+      stepResults: [],
+    };
+  }
+
+  async install(page: Page) {
+    await page.route('**/api/v1/runtime-profile', (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          profile: 'uat',
+          kafka: 'DISABLED',
+          lineWebhook: 'DISABLED',
+          providerEgress: 'DISABLED',
+          journeyRuntime: 'NOT_DEPLOYED',
+          unilateralPublish: 'NOT_EXPOSED',
+          blockedRequests: 0,
+          journeyAuthoring: { canvasWrite: true, publishUi: true },
+        },
+      }),
+    );
+    await page.route('**/api/v1/uat-runs/**', async (route) => {
+      const request = route.request();
+      this.requests.push(request);
+      const path = new URL(request.url()).pathname.replace('/api/v1/uat-runs', '');
+      // ภาพหน้าจอเป็น raw body — parse JSON เฉพาะ request ที่เป็น JSON
+      const isJson = (request.headers()['content-type'] ?? '').startsWith('application/json');
+      const body = ((isJson ? request.postDataJSON() : null) ?? {}) as Json;
+      const reply = (status: number, payload: unknown) =>
+        route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
+      if (this.unauthorized) return reply(401, { message: 'Unauthorized' });
+      if (request.method() === 'GET' && path === '/current') {
+        return this.run ? reply(200, this.run) : reply(404, { code: 'UAT_RUN_NOT_FOUND' });
+      }
+      if (request.method() === 'GET' && path === '/current/simulation-fixture') {
+        return this.run
+          ? reply(200, { runId: this.run.runId, fixture: UAT_FIXTURE })
+          : reply(404, { code: 'UAT_RUN_NOT_FOUND' });
+      }
+      if (request.method() === 'POST' && path === '/start') {
+        if (this.startFailure) {
+          const failure = this.startFailure;
+          this.startFailure = null;
+          return reply(failure.status, failure.body);
+        }
+        if (body.expectedRevision !== ((this.run?.revision as number | undefined) ?? 0)) {
+          return reply(409, { code: 'REVISION_CONFLICT' });
+        }
+        this.authoring.journeys.set(NEW_JOURNEY_ID, {
+          headVersion: 1,
+          revision: 1,
+          document: authoringDocument('Journey รอบที่ 2'),
+          lifecycle: 'DRAFT_ONLY',
+          activeVersion: null,
+          review: null,
+          notices: [],
+        });
+        this.run = this.makeRun(
+          NEXT_RUN_ID,
+          ((this.run?.sequence as number) ?? 0) + 1,
+          NEW_JOURNEY_ID,
+        );
+        return reply(200, this.run);
+      }
+      const record = /^\/([^/]+)\/step-results$/.exec(path);
+      if (request.method() === 'POST' && record && this.run?.runId === record[1]) {
+        const step = UAT_STEPS.find((entry) => entry.stepId === body.stepId);
+        if (!step || (body.outcome === 'FAIL') !== (body.severity !== undefined)) {
+          return reply(400, { code: 'VALIDATION_FAILED', safeParams: { field: 'severity' } });
+        }
+        const result = {
+          stepId: step.stepId,
+          outcome: body.outcome,
+          expected: step.expected,
+          actual: body.actual,
+          severity: body.severity ?? null,
+          correlationId: body.correlationId ?? null,
+          stateLabel: step.stateLabel,
+          recordedByRef: '0a1b2c3d-0000-4000-8000-000000000001',
+          recordedAt: '2026-09-22T03:00:00.000Z',
+        };
+        (this.run.stepResults as Json[]).push(result);
+        return reply(200, result);
+      }
+      const evidence = /^\/([^/]+)\/evidence$/.exec(path);
+      if (evidence && this.run?.runId === evidence[1]) {
+        if (request.method() === 'GET') {
+          return reply(200, { runId: this.run.runId, items: this.evidence });
+        }
+        // server จริงตรวจ content type แล้วตรวจ magic bytes ซ้ำ — mock ทำตามขั้นเดียวกันแบบย่อ
+        const type = request.headers()['content-type'];
+        const bytes = request.postDataBuffer();
+        if (type !== 'image/png' && type !== 'image/jpeg') {
+          return reply(415, {
+            code: 'EVIDENCE_TYPE_REJECTED',
+            safeParams: { reason: 'CONTENT_TYPE' },
+          });
+        }
+        if (!bytes || bytes[0] !== 0x89) {
+          return reply(415, { code: 'EVIDENCE_TYPE_REJECTED', safeParams: { detected: 'ZIP' } });
+        }
+        const item = {
+          evidenceId: `0e1f2a3b-4c5d-4e6f-8a7b-${String(this.evidence.length + 1).padStart(12, '0')}`,
+          stepId: request.headers()['x-uat-step-id'],
+          sha256: DIGEST('7'),
+          sizeBytes: bytes.length,
+          contentType: type,
+          recordedByRef: '0a1b2c3d-0000-4000-8000-000000000001',
+          recordedAt: '2026-09-22T04:00:00.000Z',
+        };
+        this.evidence.push(item);
+        return reply(200, item);
+      }
+      if (request.method() === 'GET' && path === `/${this.run?.runId}/bundle`) {
+        return reply(200, this.bundle());
+      }
+      return reply(400, { code: 'REQUEST_MALFORMED' });
+    });
+  }
+
+  bundle(): Json {
+    return {
+      schema: 'UatEvidenceBundleV1',
+      manifest: { runId: this.run?.runId, sequence: this.run?.sequence },
+      stepResults: this.run?.stepResults ?? [],
+      screenshots: this.evidence,
+      scan: { status: 'PASSED', severity: null, findings: [] },
+      verdict: 'INCOMPLETE',
+      digest: DIGEST('9'),
+    };
+  }
+
+  posts(suffix: string) {
+    return this.requests.filter(
+      (request) => request.method() === 'POST' && new URL(request.url()).pathname.endsWith(suffix),
+    );
+  }
+}
+
+async function openUat(page: Page, query = '') {
+  const authoring = new AuthoringMock();
+  const uat = new UatMock(authoring);
+  await authoring.install(page);
+  await uat.install(page);
+  await page.goto(`/?view=journeys${query}`);
+  const panel = page.getByRole('region', { name: 'รอบทดสอบ UAT' });
+  await expect(panel).toBeVisible();
+  return { authoring, uat, panel };
+}
+
+/** URL มีแค่ view/tenant/journey (opaque id) — ไม่มี token หรือค่าที่ผู้ทดสอบกรอก */
+function expectOpaqueUrl(page: Page) {
+  const url = new URL(page.url());
+  expect(
+    [...url.searchParams.keys()].every((key) => ['view', 'tenant', 'journey'].includes(key)),
+  ).toBe(true);
+  expect(page.url()).not.toMatch(/token|bearer|eyJ|@/i);
+}
+
+test('U1.4 UAT: badge/ขอบเขต + ข้อมูล run จาก server, บันทึก PASS และ FAIL พร้อม severity; axe ผ่าน', async ({
+  page,
+}) => {
+  const { uat, panel } = await openUat(page);
+  await expect(panel.getByText('UAT / จำลอง (simulated)')).toBeVisible();
+  await expect(panel.getByRole('note').filter({ hasText: 'ข้อมูลสังเคราะห์' })).toBeVisible();
+  const facts = panel.getByRole('definition');
+  await expect(facts.filter({ hasText: 'รอบที่ 1' })).toBeVisible();
+  await expect(facts.filter({ hasText: RUN_ID.slice(0, 8) })).toBeVisible();
+  await expect(facts.filter({ hasText: 'uat-pack-1' })).toContainText(DIGEST('5').slice(0, 12));
+  await expect(facts.filter({ hasText: 'abc1234def56' })).toBeVisible();
+  await expect(panel.getByText('ยังไม่มีผลที่บันทึกในรอบนี้')).toBeVisible();
+
+  // PASS: expected มาจาก step catalog ของ server
+  await expect(
+    panel.getByRole('definition').filter({ hasText: 'บันทึกฉบับร่างได้ revision ใหม่' }),
+  ).toBeVisible();
+  const record = panel.getByRole('button', { name: 'บันทึกผล', exact: true });
+  await expect(record).toBeDisabled();
+  await panel.getByLabel('สิ่งที่เกิดขึ้นจริง').fill('บันทึกได้ revision 2');
+  await panel.getByLabel('Correlation ID (ถ้ามี)').fill('corr-uat-1');
+  await record.click();
+  await expect(
+    panel.getByRole('status').filter({ hasText: 'บันทึกผลของ MAKER_EDIT แล้ว' }),
+  ).toBeVisible();
+
+  // FAIL: ต้องเลือก severity ก่อนส่ง
+  await panel.getByLabel('ขั้นตอนที่ทดสอบ').selectOption('SIMULATE');
+  await panel.getByLabel('ไม่ผ่าน (FAIL)').check();
+  await panel.getByLabel('สิ่งที่เกิดขึ้นจริง').fill('จบที่ MAX_DURATION');
+  await expect(record).toBeDisabled();
+  await panel.getByLabel('ความรุนแรง (ต้องระบุเมื่อไม่ผ่าน)').selectOption('S2');
+  await record.click();
+  await expect(
+    panel.getByRole('status').filter({ hasText: 'บันทึกผลของ SIMULATE แล้ว' }),
+  ).toBeVisible();
+
+  const rows = panel.getByRole('table').getByRole('row');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(1)).toContainText('ผ่าน (PASS)');
+  await expect(rows.nth(1)).toContainText('REAL_STATE');
+  await expect(rows.nth(2)).toContainText('ไม่ผ่าน (FAIL)');
+  await expect(rows.nth(2)).toContainText('S2');
+  await expect(rows.nth(2)).toContainText('SIMULATION_ONLY');
+
+  const posts = uat.posts('/step-results');
+  expect(posts.map((request) => request.postDataJSON())).toEqual([
+    {
+      stepId: 'MAKER_EDIT',
+      outcome: 'PASS',
+      actual: 'บันทึกได้ revision 2',
+      correlationId: 'corr-uat-1',
+    },
+    { stepId: 'SIMULATE', outcome: 'FAIL', actual: 'จบที่ MAX_DURATION', severity: 'S2' },
+  ]);
+  const keys = posts.map((request) => request.headers()['idempotency-key']);
+  expect(keys.every((key) => /^uat-step-/.test(key ?? ''))).toBe(true);
+  expect(new Set(keys).size).toBe(2);
+  expect(new URL(posts[0]!.url()).pathname).toBe(`/api/v1/uat-runs/${RUN_ID}/step-results`);
+  expectOpaqueUrl(page);
+  await expectNoSeriousA11yViolations(page);
+});
+
+test('U1.4 เริ่มรอบใหม่: confirm แล้วเห็นรอบใหม่และไปที่ Journey ใหม่; 409 PENDING_REVIEW บอกทางไปต่อ', async ({
+  page,
+}) => {
+  const { uat, panel } = await openUat(page);
+  await panel.getByRole('button', { name: 'เริ่มรอบใหม่' }).click();
+  const confirm = page.getByRole('alertdialog', { name: 'ยืนยันเริ่มรอบใหม่' });
+  await expect(confirm).toContainText('รอบที่ 1 จะถูกปิด');
+  await expect(confirm).toContainText('ABANDONED');
+  await expect(confirm.getByLabel('Environment ของ fixture pack')).toHaveValue('uat');
+  await expect(confirm.getByLabel('Version ของ fixture pack')).toHaveValue('uat-pack-1');
+  await expectNoSeriousA11yViolations(page);
+  await confirm.getByRole('button', { name: 'เริ่มรอบใหม่' }).click();
+
+  await expect(panel.getByRole('definition').filter({ hasText: 'รอบที่ 2' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Journey รอบที่ 2' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Journey รอบที่ 2' })).toBeFocused();
+  expect(new URL(page.url()).searchParams.get('journey')).toBe(NEW_JOURNEY_ID);
+  const [start] = uat.posts('/start');
+  expect(start!.postDataJSON()).toEqual({
+    environment: 'uat',
+    packVersion: 'uat-pack-1',
+    expectedRevision: 1,
+  });
+  expect(start!.headers()['idempotency-key']).toMatch(/^uat-start-/);
+
+  // run เดิมยังมีงานรอตรวจ: server ปฏิเสธและบอก next safe action
+  uat.startFailure = {
+    status: 409,
+    body: { code: 'UAT_RUN_PENDING_REVIEW', safeParams: { nextSafeAction: 'DECIDE_REVIEW' } },
+  };
+  await panel.getByRole('button', { name: 'เริ่มรอบใหม่' }).click();
+  await page
+    .getByRole('alertdialog', { name: 'ยืนยันเริ่มรอบใหม่' })
+    .getByRole('button', { name: 'เริ่มรอบใหม่' })
+    .click();
+  const alert = panel.getByRole('alert').filter({ hasText: 'ยังมีงานรอตรวจ' });
+  await expect(alert).toBeVisible();
+  await expect(alert).toContainText('ให้ reviewer ตัดสินงานที่รอตรวจ');
+  await expect(alert.getByRole('button', { name: 'เปิด Journey ของรอบนี้' })).toBeVisible();
+  // ไม่อนุมานว่ารอบใหม่เริ่มแล้ว — ยังเป็นรอบที่ 2 ตาม server
+  await expect(panel.getByRole('definition').filter({ hasText: 'รอบที่ 2' })).toBeVisible();
+  await expect(panel.getByRole('definition').filter({ hasText: 'รอบที่ 3' })).toHaveCount(0);
+  expectOpaqueUrl(page);
+});
+
+test('U1.4 simulation ใน UAT ใช้ fixture ของ server ตรงตัว และแสดง SIMULATION_ONLY กับเวลาเสมือน', async ({
+  page,
+}) => {
+  const { authoring } = await openUat(page, `&journey=${JOURNEY_ID}`);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  // ไม่มีช่อง JSON context ที่ browser สร้างเองใน UAT
+  await expect(page.getByLabel('Context สังเคราะห์สำหรับ simulation (JSON)')).toHaveCount(0);
+  const fixture = page.getByRole('definition').filter({ hasText: 'uat-fixture-1' });
+  await expect(fixture).toBeVisible();
+  await expect(page.getByRole('definition').filter({ hasText: 'seed-uat-1' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Compile ฉบับร่าง' }).click();
+  await page.getByRole('button', { name: 'จำลองการทำงาน' }).click();
+  const result = page.locator('.j5-simulation');
+  await expect(result).toContainText('SIMULATION_ONLY');
+  await expect(result).toContainText('เวลาเสมือน');
+  await expect(result).toContainText('ไม่ใช่เวลาจริงใน audit');
+  await expect(result.locator('time').first()).toHaveAttribute('datetime', UAT_FIXTURE.startAt);
+
+  const simulation = authoring.requests.find((request) => request.url().endsWith('/simulations'))!;
+  expect((simulation.postDataJSON() as Json).fixture).toEqual(UAT_FIXTURE);
+});
+
+test('U1.4 deep link/refresh/Back/Forward ไม่ตัน, focus ไป heading และการแก้ที่ยังไม่บันทึกไม่หาย', async ({
+  page,
+}) => {
+  const mock = new AuthoringMock();
+  await mock.install(page);
+  await page.goto('/?view=journeys');
+  await expect(page.getByRole('heading', { level: 1, name: 'Journey authoring' })).toBeVisible();
+  // ไม่ใช่ UAT (profile 404): ไม่มี UI ของ UAT เลย
+  await expect(page.getByRole('region', { name: 'รอบทดสอบ UAT' })).toHaveCount(0);
+  await expect(page.getByText('UAT / จำลอง (simulated)')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'ติดตามการชำระ' }).click();
+  const editorHeading = page.getByRole('heading', { level: 1, name: 'ติดตามการชำระ' });
+  await expect(editorHeading).toBeFocused();
+  expect(new URL(page.url()).searchParams.get('journey')).toBe(JOURNEY_ID);
+  const name = page.getByLabel('ชื่อ Journey');
+  await name.fill('ชื่อที่ยังไม่บันทึก');
+  await name.press('Enter');
+
+  await page.goBack();
+  const listHeading = page.getByRole('heading', { level: 1, name: 'Journey authoring' });
+  await expect(listHeading).toBeFocused();
+  expect(new URL(page.url()).searchParams.has('journey')).toBe(false);
+
+  await page.goForward();
+  await expect(editorHeading).toBeFocused();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'พบการแก้ไขที่ยังไม่บันทึก' }),
+  ).toBeVisible();
+
+  // refresh บน deep link เปิด Journey เดิมและยังกู้การแก้ได้
+  await page.reload();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'พบการแก้ไขที่ยังไม่บันทึก' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'กู้คืนการแก้ไข' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'ชื่อที่ยังไม่บันทึก' })).toBeVisible();
+  expect(page.url()).not.toContain(encodeURIComponent('ชื่อที่ยังไม่บันทึก'));
+  expectOpaqueUrl(page);
+
+  await page.getByRole('button', { name: '← รายการ Journey' }).click();
+  await expect(listHeading).toBeFocused();
+  // ออกจาก editor ด้วยปุ่มกลับแล้ว Back: การแก้ยังอยู่ใน session recovery ให้กู้ได้อีก
+  await page.goBack();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'พบการแก้ไขที่ยังไม่บันทึก' }),
+  ).toBeVisible();
+  expect(mock.mutations()).toHaveLength(0);
+});
+
+test('U1.4 session หมด (401) ที่ UAT API แสดงทางเข้าสู่ระบบใหม่ ไม่ตัน', async ({ page }) => {
+  const authoring = new AuthoringMock();
+  const uat = new UatMock(authoring);
+  uat.unauthorized = true;
+  await authoring.install(page);
+  await uat.install(page);
+  await page.goto('/?view=journeys');
+  const panel = page.getByRole('region', { name: 'รอบทดสอบ UAT' });
+  const alert = panel.getByRole('alert').filter({ hasText: 'Session หมดอายุ' });
+  await expect(alert).toBeVisible();
+  await expect(alert).toContainText('เข้าสู่ระบบอีกครั้ง');
+  await expect(alert.getByRole('button', { name: 'เข้าสู่ระบบอีกครั้ง' })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'เริ่มรอบใหม่' })).toHaveCount(0);
+  await expectNoSeriousA11yViolations(page);
+});
+
+test('U1.4 959px: แผง UAT อ่านอย่างเดียว ไม่มีปุ่มบันทึกผล/เริ่มรอบใหม่ และไม่ส่ง mutation', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 959, height: 900 });
+  const { uat, panel } = await openUat(page);
+  await expect(panel.getByText('UAT / จำลอง (simulated)')).toBeVisible();
+  await expect(panel.getByRole('definition').filter({ hasText: 'รอบที่ 1' })).toBeVisible();
+  await expect(
+    panel.getByRole('note').filter({ hasText: 'ดูรอบทดสอบได้อย่างเดียว' }),
+  ).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'บันทึกผล', exact: true })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'เริ่มรอบใหม่' })).toHaveCount(0);
+  await expect(panel.getByLabel('สิ่งที่เกิดขึ้นจริง')).toHaveCount(0);
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+  expect(uat.requests.filter((request) => request.method() !== 'GET')).toHaveLength(0);
+  await expectNoSeriousA11yViolations(page);
+});
+
+test('U1.4 แผง UAT อยู่ในเนื้อหาหน้า: เห็นเหมือนกันทั้ง flag ui.shell.v2 เปิดและปิด', async ({
+  page,
+}) => {
+  for (const shellV2 of [true, false]) {
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+    await withShell(page, shellV2);
+    await openUat(page);
+    await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toHaveCount(shellV2 ? 1 : 0);
+    await expect(page.getByRole('main')).toHaveCount(1);
+    await expect(page.getByRole('main').getByText('UAT / จำลอง (simulated)')).toBeVisible();
+  }
+});
+
+// ── U1.5 (#433): ภาพหน้าจอหลักฐานและ evidence bundle ───────────────────────────────────────
+
+/** PNG signature + IHDR ขั้นต่ำ — mock ตรวจแค่ magic bytes */
+const PNG_BYTES = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+]);
+
+test('U1.5 แนบภาพหน้าจอ, เห็น digest, trace ถูกปฏิเสธพร้อมทางไปต่อ และส่งออก bundle ผ่าน Blob', async ({
+  page,
+}) => {
+  const { uat, panel } = await openUat(page);
+  const evidence = panel.getByRole('region', { name: 'ภาพหน้าจอหลักฐาน' });
+  await expect(evidence.getByText('ยังไม่มีภาพหน้าจอในรอบนี้')).toBeVisible();
+  const file = evidence.getByLabel('ไฟล์ภาพหน้าจอ');
+  await expect(file).toHaveAttribute('accept', 'image/png,image/jpeg');
+  const upload = evidence.getByRole('button', { name: 'อัปโหลดภาพหน้าจอ' });
+  await expect(upload).toBeDisabled();
+
+  await evidence.getByLabel('ขั้นตอนของภาพหน้าจอ').selectOption('SIMULATE');
+  await file.setInputFiles({ name: 'simulate.png', mimeType: 'image/png', buffer: PNG_BYTES });
+  await upload.click();
+  await expect(
+    panel.getByRole('status').filter({ hasText: 'แนบภาพหน้าจอของ SIMULATE แล้ว' }),
+  ).toBeVisible();
+  const row = evidence.getByRole('table').getByRole('row').nth(1);
+  await expect(row).toContainText('SIMULATE');
+  await expect(row).toContainText(DIGEST('7').slice(0, 12));
+  await expect(row).toContainText('image/png');
+
+  // Playwright trace (zip) ถูก server ปฏิเสธ — แสดงเหตุผลและทางไปต่อ ไม่มีอะไรถูกเพิ่ม
+  await file.setInputFiles({
+    name: 'trace.zip',
+    mimeType: 'application/zip',
+    buffer: Buffer.from('PK\u0003\u0004trace', 'latin1'),
+  });
+  await upload.click();
+  const alert = panel.getByRole('alert');
+  await expect(alert).toContainText('รับเฉพาะภาพหน้าจอ PNG/JPEG');
+  await expect(alert).toContainText('เลือกไฟล์ภาพหน้าจอ PNG หรือ JPEG');
+  await expect(evidence.getByRole('table').getByRole('row')).toHaveCount(2);
+
+  const posts = uat.posts('/evidence');
+  expect(posts).toHaveLength(2);
+  const [accepted, rejected] = posts;
+  expect(new URL(accepted!.url()).pathname).toBe(`/api/v1/uat-runs/${RUN_ID}/evidence`);
+  expect(accepted!.headers()['content-type']).toBe('image/png');
+  expect(accepted!.headers()['x-uat-step-id']).toBe('SIMULATE');
+  expect(accepted!.headers()['authorization']).toMatch(/^Bearer /);
+  expect(accepted!.headers()['idempotency-key']).toMatch(/^uat-evidence-/);
+  expect(rejected!.headers()['content-type']).toBe('application/zip');
+  expect(rejected!.headers()['idempotency-key']).not.toBe(accepted!.headers()['idempotency-key']);
+
+  // ส่งออก bundle: fetch พร้อม bearer header แล้วดาวน์โหลดจาก Blob — ไม่มี token ใน URL
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    evidence.getByRole('button', { name: 'ส่งออก evidence bundle' }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('uat-run-1-evidence-bundle.json');
+  expect(download.url()).toMatch(/^blob:/);
+  const exported = JSON.parse(readFileSync((await download.path())!, 'utf8')) as Json;
+  expect(exported).toEqual(uat.bundle());
+  const bundleRequest = uat.requests.find((request) =>
+    new URL(request.url()).pathname.endsWith('/bundle'),
+  );
+  expect(bundleRequest!.headers()['authorization']).toMatch(/^Bearer /);
+  for (const request of uat.requests) expect(request.url()).not.toMatch(/token|bearer|eyJ/i);
+  const summary = evidence.getByRole('definition');
+  await expect(summary.filter({ hasText: 'ยังไม่ครบ (INCOMPLETE)' })).toBeVisible();
+  await expect(summary.filter({ hasText: 'ไม่พบข้อมูลต้องห้าม' })).toBeVisible();
+  await expect(summary.filter({ hasText: DIGEST('9').slice(0, 12) })).toBeVisible();
+  expectOpaqueUrl(page);
+  await expectNoSeriousA11yViolations(page);
 });

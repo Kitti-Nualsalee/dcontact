@@ -65,7 +65,8 @@ services:
       timeout: 3s
       retries: 10
 
-  # สร้าง bucket "recordings" อัตโนมัติตอน start
+  # สร้าง bucket "recordings" และ "uat-evidence" (U1.5 #433: ส่วนตัว ไม่ตั้ง anonymous policy;
+  # lifecycle 90 วันตั้งโดย API ตอนบูต) อัตโนมัติตอน start
   # ใช้ image เดียวกับ minio เพราะมีทั้ง `mc` และ /bin/sh สำหรับ entrypoint ด้านล่าง
   minio-init:
     image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
@@ -76,6 +77,7 @@ services:
       /bin/sh -c "
       until mc alias set local http://minio:9000 dcontact dcontact-secret; do sleep 1; done;
       mc mb -p local/recordings || true;
+      mc mb -p local/uat-evidence || true;
       exit 0"
 
   # Kafka-compatible event backbone (dev) — production ใช้ Kafka/MSK/Redpanda ได้ (API เดียวกัน)

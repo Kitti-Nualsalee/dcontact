@@ -160,6 +160,8 @@ async function harness(
       repository,
       // UAT run API ครอบใน uat-run-api.integration.ts — ที่นี่พิสูจน์เฉพาะ J5 ผ่าน composition root ของ UAT
       uatRuns: {},
+      // หลักฐานของ run (U1.5 #433) ครอบใน uat-evidence-api.integration.ts
+      uatEvidence: {},
       verifier,
       diagnostics: { write: () => undefined },
       lifecycle: { isActive: async () => true },

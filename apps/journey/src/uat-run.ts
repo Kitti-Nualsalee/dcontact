@@ -20,6 +20,7 @@ import type {
   JourneyAuthoringWriteGuard,
   JourneyCommandContext,
 } from './journey-authoring-repository.js';
+import { scanUatText } from './uat-evidence-content.js';
 
 type Tx = Prisma.TransactionClient;
 
@@ -39,6 +40,11 @@ export const UAT_RUN_HTTP_STATUS = Object.freeze({
   FIXTURE_PACK_DIGEST_MISMATCH: 409,
   FIXTURE_MANIFEST_INVALID: 422,
   FIXTURE_PREFLIGHT_FAILED: 422,
+  // U1.5 (#433): หลักฐานภาพหน้าจอ
+  EVIDENCE_NOT_FOUND: 404,
+  EVIDENCE_TOO_LARGE: 413,
+  EVIDENCE_TYPE_REJECTED: 415,
+  EVIDENCE_INTEGRITY_FAILED: 500,
 });
 export type UatRunErrorCode = keyof typeof UAT_RUN_HTTP_STATUS;
 
@@ -89,13 +95,8 @@ export interface UatFixturePackManifestV1 {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OPAQUE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const STEP_ID = /^[A-Z][A-Z0-9_-]{1,63}$/;
-/** ข้อมูลจริง/secret ที่ต้องไม่อยู่ใน fixture — พบ = manifest ใช้ไม่ได้ */
-const FORBIDDEN_CONTENT: ReadonlyArray<[string, RegExp]> = [
-  ['EMAIL', /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/],
-  ['JWT', /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/],
-  ['BEARER', /\bBearer\s+[A-Za-z0-9._~+/-]{8,}/i],
-  ['PHONE', /(?<![0-9A-Za-z-])(?:\+66|0)[1-9][0-9]{7,8}(?![0-9])/],
-];
+/** รูปแบบ stepId ของ step catalog — ใช้ร่วมกับ evidence (U1.5 #433) */
+export const UAT_STEP_ID_PATTERN = STEP_ID;
 
 function invalid(field: string): never {
   throw new UatRunError('FIXTURE_MANIFEST_INVALID', { field });
@@ -148,10 +149,9 @@ function parseSimulationFixture(value: unknown): SimulationFixtureV1 {
 export function parseUatFixturePackManifest(value: unknown): UatFixturePackManifestV1 {
   const manifest = record(value, 'manifest');
   if (manifest.schema !== 'UatFixturePackV1') invalid('schema');
-  const serialized = JSON.stringify(manifest);
-  for (const [kind, pattern] of FORBIDDEN_CONTENT) {
-    if (pattern.test(serialized)) throw new UatRunError('FIXTURE_MANIFEST_INVALID', { kind });
-  }
+  // ข้อมูลจริง/secret ที่ต้องไม่อยู่ใน fixture — พบ = manifest ใช้ไม่ได้ (scanner เดียวกับ negative scan ของ U1.5)
+  const [kind] = scanUatText(JSON.stringify(manifest));
+  if (kind) throw new UatRunError('FIXTURE_MANIFEST_INVALID', { kind });
   if (!Array.isArray(manifest.steps) || manifest.steps.length < 1 || manifest.steps.length > 60) {
     invalid('steps');
   }

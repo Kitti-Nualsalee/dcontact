@@ -64,6 +64,8 @@ BEGIN
     'dl_line_inbound_messages', 'dl_line_event_outbox', 'dl_line_webhook_payloads',
     -- U1.1 (#429)
     'uat_fixture_packs', 'uat_runs', 'uat_run_step_results', 'uat_command_receipts',
+    -- U1.5 (#433)
+    'uat_run_evidence', 'uat_run_scans',
     -- A1.5 (#410): operational baseline ของ tenant
     'tenant_settings', 'tenant_plan_bindings', 'business_hours',
     -- D1.12 (#451): หมุดแอปของ tenant/ผู้ใช้
@@ -124,6 +126,8 @@ REVOKE INSERT, UPDATE, DELETE ON uat_fixture_packs FROM dcontact_app;
 REVOKE DELETE ON uat_runs FROM dcontact_app;
 REVOKE UPDATE, DELETE ON uat_run_step_results FROM dcontact_app;
 REVOKE DELETE ON uat_command_receipts FROM dcontact_app;
+-- U1.5 (#433): metadata หลักฐานภาพหน้าจอและผล negative scan เป็น append-only
+REVOKE UPDATE, DELETE ON uat_run_evidence, uat_run_scans FROM dcontact_app;
 -- Delivery outbox rows advance through states, so UPDATE stays granted; a delivery that was
 -- already claimed must never disappear, because the reservation it settles points back at it.
 REVOKE DELETE ON dl_outbox_entries FROM dcontact_app;

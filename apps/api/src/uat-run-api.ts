@@ -48,7 +48,8 @@ const testerText = ((value, field) => {
   return value;
 }) as FieldParser<string>;
 
-async function handle<T>(work: () => Promise<T>): Promise<T> {
+/** แปลง `UatRunError` เป็น error contract ของ HTTP — ใช้ร่วมกับ evidence API (U1.5 #433) */
+export async function handle<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
   } catch (error) {
