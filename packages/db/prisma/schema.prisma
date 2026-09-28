@@ -134,6 +134,7 @@ model Tenant {
 
   embedOrigins           TenantEmbedOrigin[]
   embedOriginAuditEvents TenantEmbedOriginAuditEvent[]
+  clickToCallAuditEvents DphoneClickToCallAuditEvent[]
 
   @@map("tenants")
 }
@@ -6059,23 +6060,48 @@ model AgentWorkSessionEvent {
 
 /// E1.11 (#485): origin ที่ tenant อนุญาตให้ฝัง dphone — สูงสุด 10 ต่อ tenant (trigger), unique ต่อ tenant
 model TenantEmbedOrigin {
-  id        String   @id @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
+  id             String   @id @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
   /// normalize แล้ว: scheme://host[:port] ตัวพิมพ์เล็ก
-  origin    String
-  label     String
-  enabled   Boolean  @default(true)
-  createdBy String   @map("created_by") @db.Uuid
-  createdAt DateTime @map("created_at")
-  updatedAt DateTime @map("updated_at")
-  revision  Int      @default(1)
+  origin         String
+  label          String
+  enabled        Boolean  @default(true)
+  createdBy      String   @map("created_by") @db.Uuid
+  createdAt      DateTime @map("created_at")
+  updatedAt      DateTime @map("updated_at")
+  revision       Int      @default(1)
   /// E1.14 (#488): ระดับข้อมูล screen-pop ของ origin นี้ — off | ids | contact (ค่าเริ่มต้นปิด)
-  screenPopLevel String @default("off") @map("screen_pop_level")
+  screenPopLevel String   @default("off") @map("screen_pop_level")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@unique([tenantId, origin], map: "tenant_embed_origins_tenant_origin_key")
   @@map("tenant_embed_origins")
+}
+
+/// E1.14 (#488): audit ของ click-to-call จาก host ทุกครั้ง — ไม่มีเบอร์ปลายทาง; append-only สำหรับ role ของแอป
+model DphoneClickToCallAuditEvent {
+  id            String   @id @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  actorUserId   String   @map("actor_user_id") @db.Uuid
+  leaseId       String   @map("lease_id") @db.Uuid
+  hostOrigin    String   @map("host_origin")
+  requestId     String   @map("request_id")
+  actionKey     String   @map("action_key")
+  contactId     String?  @map("contact_id") @db.Uuid
+  decisionId    String?  @map("decision_id")
+  /// ALLOW | BLOCK | DEFER | REVIEW (null = ไม่ถึง Contact Governance เช่น rate limit)
+  decision      String?
+  reasonCode    String   @map("reason_code")
+  /// blocked | unavailable | rate_limited
+  outcome       String
+  correlationId String   @map("correlation_id")
+  occurredAt    DateTime @map("occurred_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, occurredAt], map: "dphone_click_to_call_audit_events_tenant_idx")
+  @@map("dphone_click_to_call_audit_events")
 }
 
 /// E1.11 (#485): audit ค่าก่อน/หลังของ embed origin — append-only สำหรับ role ของแอป
