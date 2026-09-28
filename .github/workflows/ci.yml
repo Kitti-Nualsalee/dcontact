@@ -11,9 +11,9 @@ on:
     inputs:
       acceptance:
         # สั่งเฉพาะชุดที่ต้องการได้ ไม่ต้องลาก convergence ที่ใช้เวลานานมาทุก main push
-        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused)'
+        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused | u1)'
         type: choice
-        options: [all, s1, cg4, cg5, j2, j5, j5-focused, s2-pr01, s2, s2-focused]
+        options: [all, s1, cg4, cg5, j2, j5, j5-focused, s2-pr01, s2, s2-focused, u1]
         default: all
 
 jobs:
@@ -79,6 +79,10 @@ jobs:
       # U1.6 (#434): compose/Dockerfile/realm/workflow ของ UAT + migration guard + live smoke กับ stub
       - name: U1.6 UAT deployment readiness validator tests
         run: pnpm test:u1-uat-readiness
+
+      # U1.7 (#435): marker ของ acceptance gate, negative scan ของ manifest และ realm/env ของ gate
+      - name: U1.7 acceptance gate validator tests
+        run: pnpm test:u1-acceptance
 
       # A1.2 (#407): token matrix + guard ผ่าน HTTP จริง (token ลงนามในเครื่อง ไม่ต้องใช้ Keycloak)
       # real-boundary กับ Keycloak จริงรันด้วย `pnpm a1:auth:boundary` หลัง `pnpm infra:up`
@@ -669,6 +673,80 @@ jobs:
             artifacts/cxa-j5/browser/
           if-no-files-found: error
           retention-days: 30
+
+  cxa-u1-acceptance:
+    # U1.7 (#435): acceptance gate ของ UAT first slice บน backend จริง (ไม่มี API mock) ก่อนเปิด #416
+    # API entry `uat-main` (DCONTACT_API_PROFILE=uat) + Postgres/Keycloak/MinIO ของ dev compose + Console ผ่าน Vite
+    # สั่งเอง: `gh workflow run CI --ref main -f acceptance=u1` — marker `U1_ACCEPTANCE_GATE_PASSED` ออกเฉพาะ
+    # ทุก check PASS บน U1_EXPECTED_COMMIT_SHA และแปลว่า "พร้อมเปิด #416" เท่านั้น ไม่ใช่ UAT ผ่าน
+    # หลักฐาน = manifest + screenshot เท่านั้น (ห้าม trace/HAR/video ตาม #379)
+    if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 'u1' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: cxa-u1-acceptance
+      cancel-in-progress: false
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Configure local acceptance environment
+        run: |
+          cp .env.example .env
+          mkdir -p infra/docker/data/redpanda
+          chmod 777 infra/docker/data/redpanda
+          mkdir -p infra/docker/data/freeswitch-recordings
+          chmod 777 infra/docker/data/freeswitch-recordings
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium for browser acceptance
+        run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build workspace prerequisites
+        run: pnpm build
+
+      - name: Bootstrap acceptance infrastructure
+        run: |
+          pnpm infra:ready || {
+            docker compose -f infra/docker/docker-compose.dev.yml ps
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color keycloak minio
+            exit 1
+          }
+
+      - name: Run U1 acceptance gate on final main SHA
+        run: pnpm cxa:u1:acceptance
+        env:
+          U1_EXPECTED_COMMIT_SHA: ${{ github.sha }}
+          # evidence store ของ API = MinIO ของ dev compose (minio-init สร้าง bucket uat-evidence)
+          MINIO_ENDPOINT: http://localhost:9000
+          MINIO_ACCESS_KEY: dcontact
+          MINIO_SECRET_KEY: dcontact-secret
+          UAT_EVIDENCE_BUCKET: uat-evidence
+
+      - name: Upload U1 evidence manifest + screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cxa-u1-evidence-${{ github.sha }}
+          path: |
+            artifacts/u1-acceptance/manifest-*.json
+            artifacts/u1-acceptance/screenshots/*.png
+          if-no-files-found: error
+          retention-days: 90
 
   cxa-s2-provider-conformance:
     # S2.6 (#366): S2-LINE-PR01 บน protected runner (macOS ที่ถือ Keychain + local ngrok binding)
