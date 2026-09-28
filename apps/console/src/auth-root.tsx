@@ -11,11 +11,13 @@ import { createCg5ConsoleApi } from './cg5-console-api.js';
 import { parseGovernanceLocation, type GovernanceViewer } from './governance-model.js';
 import { PreferenceCenter } from './preference-center.js';
 import { createJourneyAuthoringApi } from './journey-authoring/api.js';
+import { createUatApi } from './journey-authoring/uat-api.js';
 import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.js';
 import { clearRecovery } from './journey-authoring/state.js';
 import {
   createConsoleOidcSettings,
   resolveConsoleContextId,
+  resolveConsoleView,
   resolveTenantAlias,
 } from './auth-session.js';
 
@@ -76,9 +78,14 @@ export function ConsoleAuthRoot() {
   let tenantAlias: string;
   let contextId: string | undefined;
   const url = new URL(window.location.href);
-  const preferenceView = url.searchParams.get('view') === 'preferences';
-  const governanceView = url.searchParams.get('view') === 'governance';
-  const journeyView = url.searchParams.get('view') === 'journeys';
+  // U1.4 (#432): ไม่มี view/context (เช่นกลับจาก login) → ใช้ default view ตอน build; tenant ยังมาจาก host/token
+  const view = resolveConsoleView(
+    url,
+    import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined,
+  );
+  const preferenceView = view === 'preferences';
+  const governanceView = view === 'governance';
+  const journeyView = view === 'journeys';
   const contactId = preferenceView ? (url.searchParams.get('contactId') ?? undefined) : undefined;
   try {
     tenantAlias = resolveTenantAlias(url);
@@ -241,6 +248,10 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
     () => createJourneyAuthoringApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
     [accessToken, apiBaseUrl],
   );
+  const uatApi = useMemo(
+    () => createUatApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
   if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
     return (
       <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
@@ -266,6 +277,12 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
     >
       <JourneyAuthoringConsole
         api={api}
+        uatApi={uatApi}
+        uatDefaults={{
+          environment: import.meta.env.VITE_UAT_ENVIRONMENT as string | undefined,
+          packVersion: import.meta.env.VITE_UAT_PACK_VERSION as string | undefined,
+        }}
+        onSignInAgain={() => void auth.signinRedirect()}
         scope={`${tenantAlias}:${session}`}
         initialJourneyId={new URL(window.location.href).searchParams.get('journey') ?? undefined}
       />

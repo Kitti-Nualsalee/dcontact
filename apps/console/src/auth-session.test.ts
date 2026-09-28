@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   createConsoleOidcSettings,
   resolveConsoleContextId,
+  resolveConsoleView,
   resolveTenantAlias,
 } from './auth-session.js';
 
@@ -50,5 +51,18 @@ test('Console ใช้ PKCE ใน memory และรับเฉพาะ opa
   );
   assert.throws(() =>
     resolveConsoleContextId(new URL('https://acme.console.d-contact.io/?interaction=x')),
+  );
+});
+
+test('U1.4 ไม่มี view และ context ใช้ default view ตอน build ได้เฉพาะ journeys', () => {
+  const at = (query: string) => new URL(`https://acme.console.example${query}`);
+  assert.equal(resolveConsoleView(at('/?tenant=acme'), 'journeys'), 'journeys');
+  assert.equal(resolveConsoleView(at('/'), undefined), null);
+  assert.equal(resolveConsoleView(at('/'), 'governance'), null);
+  // view ใน URL มาก่อน default และ Interaction context ไม่ถูกเปลี่ยนหน้า
+  assert.equal(resolveConsoleView(at('/?view=governance'), 'journeys'), 'governance');
+  assert.equal(
+    resolveConsoleView(at('/?context=0f8fad5b-d9cb-469f-a165-70867728950e'), 'journeys'),
+    null,
   );
 });

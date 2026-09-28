@@ -7,6 +7,9 @@
  * - `409` ตอนบันทึกเปิดทางเลือกให้ผู้ใช้: ดูความต่าง, โหลดฉบับล่าสุด หรือเก็บการแก้ของตัวเองไปต่อ
  * - D1.14 (#453): ข้อความทั้งหมดอยู่ใน catalog `journeys`, ปุ่มจาก `@d-contact/ui-react`, CSS ใช้ token;
  *   อยู่ใน AppShell (flag `ui.shell.v2`) แล้วไม่วาด chrome เดิมของตัวเอง — เนื้อหาไม่ถือ layout/shell เอง
+ * - U1.4 (#432): เปิด/ปิด Journey เป็น history entry (`pushState`) และ `popstate` คืน `journeyId` จาก URL
+ *   จึง deep link, refresh, Back/Forward ใช้ได้โดยไม่ตัน; URL มีแค่ opaque id; หลังเปลี่ยนหน้า focus ไปที่
+ *   heading หลัก; แผง UAT run อยู่ในเนื้อหาของหน้านี้ (ไม่ใช่ shell)
  */
 import { useCallback, useEffect, useId, useReducer, useRef, useState } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
@@ -47,6 +50,8 @@ import {
 } from './state.js';
 import { serverTime } from './server-time.js';
 import { TemplateCatalog, TemplateUpgrade } from './templates.js';
+import type { UatApi } from './uat-api.js';
+import { UatProvider, UatRunPanel } from './uat-run.js';
 import './journey-authoring.css';
 
 export const DESKTOP_QUERY = '(min-width: 960px)';
@@ -60,6 +65,15 @@ function useDesktop(): boolean {
     return () => query.removeEventListener('change', update);
   }, []);
   return desktop;
+}
+
+/** focus heading หลักเมื่อพร้อม — ใช้หลังเปลี่ยนหน้าภายใน (ไม่ใช่ตอนเปิดหน้าครั้งแรก) */
+function useFocusHeading(ready: boolean, enabled: boolean) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (ready && enabled) ref.current?.focus();
+  }, [ready, enabled]);
+  return ref;
 }
 
 function codeOf(error: unknown) {
@@ -82,6 +96,7 @@ function JourneyEditor({
   scope,
   storage,
   readOnly,
+  focusHeading,
   onBack,
 }: {
   api: JourneyAuthoringApi;
@@ -89,6 +104,7 @@ function JourneyEditor({
   scope: string;
   storage: Storage;
   readOnly: boolean;
+  focusHeading: boolean;
   onBack: () => void;
 }) {
   const { t } = useTranslation('journeys');
@@ -102,6 +118,7 @@ function JourneyEditor({
   const [discarding, setDiscarding] = useState(false);
   const saveIntent = useRef<{ body: string; key: string } | null>(null);
   const headingId = useId();
+  const headingRef = useFocusHeading(state !== null || loadError !== null, focusHeading);
 
   const fetchSnapshot = useCallback(async () => {
     try {
@@ -153,7 +170,9 @@ function JourneyEditor({
   if (loadError) {
     return (
       <section className="j5-panel" role="alert">
-        <h1>{t('editor.loadFailed')}</h1>
+        <h1 ref={headingRef} tabIndex={-1}>
+          {t('editor.loadFailed')}
+        </h1>
         <p>{errorMessage(loadError.code)}</p>
         <Button onPress={onBack}>{t('editor.backToList')}</Button>
       </section>
@@ -277,7 +296,9 @@ function JourneyEditor({
           <button type="button" className="j5-link" onClick={onBack}>
             {t('editor.back')}
           </button>
-          <h1 id={headingId}>{document.settings.name}</h1>
+          <h1 ref={headingRef} id={headingId} tabIndex={-1}>
+            {document.settings.name}
+          </h1>
           <p className="j5-help">
             {t('editor.statusLine', {
               lifecycle: head.lifecycle,
@@ -687,13 +708,16 @@ function PendingReviewList({
 function JourneyList({
   api,
   readOnly,
+  focusHeading,
   onOpen,
 }: {
   api: JourneyAuthoringApi;
   readOnly: boolean;
+  focusHeading: boolean;
   onOpen: (journeyId: string) => void;
 }) {
   const { t } = useTranslation('journeys');
+  const headingRef = useFocusHeading(true, focusHeading);
   const [filter, setFilter] = useState<ListFilter>('ALL');
   const [items, setItems] = useState<JourneySummary[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -714,7 +738,9 @@ function JourneyList({
   }, [load]);
   return (
     <>
-      <h1>{t('list.title')}</h1>
+      <h1 ref={headingRef} tabIndex={-1}>
+        {t('list.title')}
+      </h1>
       {readOnly ? (
         <p className="j5-boundary" role="note">
           {t('list.readOnlyNote')}
@@ -854,11 +880,20 @@ function AuditTimeline({ api, journeyId }: { api: JourneyAuthoringApi; journeyId
 
 export function JourneyAuthoringConsole({
   api,
+  uatApi,
+  uatDefaults,
+  onSignInAgain,
   scope,
   initialJourneyId,
   storage = window.sessionStorage,
 }: {
   api: JourneyAuthoringApi;
+  /** U1.4 (#432): client ของ UAT run — แผงแสดงเมื่อ API รายงาน profile `uat` เท่านั้น */
+  uatApi?: UatApi;
+  /** pack เริ่มต้นของ `เริ่มรอบใหม่` ตอนยังไม่มี run (ค่าจาก build) */
+  uatDefaults?: { environment?: string; packVersion?: string };
+  /** session หมด (401) — พาไปเข้าสู่ระบบใหม่ */
+  onSignInAgain?: () => void;
   /** tenant alias/session — ผูก session recovery ไม่ให้ข้าม tenant */
   scope: string;
   initialJourneyId?: string;
@@ -868,30 +903,60 @@ export function JourneyAuthoringConsole({
   const inShell = useInShell();
   const tokensReady = useShellTokens();
   const desktop = useDesktop();
-  const [journeyId, setJourneyId] = useState<string | null>(initialJourneyId ?? null);
+  // focus = เปลี่ยนหน้าภายในแล้ว (ไม่ใช่เปิดหน้าครั้งแรก) จึงย้าย focus ไปที่ heading หลัก
+  const [route, setRoute] = useState<{ journeyId: string | null; focus: boolean }>({
+    journeyId: initialJourneyId ?? null,
+    focus: false,
+  });
   const mainRef = useRef<HTMLDivElement>(null);
-  const open = (next: string | null) => {
-    setJourneyId(next);
+  const open = useCallback((next: string | null) => {
     const url = new URL(window.location.href);
     if (next) url.searchParams.set('journey', next);
     else url.searchParams.delete('journey');
-    window.history.replaceState(null, '', url);
-    mainRef.current?.focus();
-  };
+    // URL มีแค่ opaque id — การแก้ที่ยังไม่บันทึกอยู่ใน session recovery (sessionStorage) ไม่ใช่ URL
+    if (url.href !== window.location.href) window.history.pushState(null, '', url);
+    setRoute({ journeyId: next, focus: true });
+  }, []);
+  useEffect(() => {
+    const restore = () =>
+      setRoute({
+        journeyId: new URL(window.location.href).searchParams.get('journey'),
+        focus: true,
+      });
+    window.addEventListener('popstate', restore);
+    return () => window.removeEventListener('popstate', restore);
+  }, []);
   // token มาก่อนเนื้อหา — ไม่ให้เห็นหน้าที่ยังไม่มีสี (โหลดครั้งเดียวต่อหน้า)
   if (!tokensReady) return null;
-  const content = journeyId ? (
-    <JourneyEditor
-      key={journeyId}
-      api={api}
-      journeyId={journeyId}
-      scope={scope}
-      storage={storage}
-      readOnly={!desktop}
-      onBack={() => open(null)}
-    />
-  ) : (
-    <JourneyList api={api} readOnly={!desktop} onOpen={(next) => open(next)} />
+  const { journeyId } = route;
+  const content = (
+    <UatProvider api={uatApi}>
+      <UatRunPanel
+        readOnly={!desktop}
+        defaults={uatDefaults}
+        onOpenJourney={open}
+        onSignInAgain={onSignInAgain}
+      />
+      {journeyId ? (
+        <JourneyEditor
+          key={journeyId}
+          api={api}
+          journeyId={journeyId}
+          scope={scope}
+          storage={storage}
+          readOnly={!desktop}
+          focusHeading={route.focus}
+          onBack={() => open(null)}
+        />
+      ) : (
+        <JourneyList
+          api={api}
+          readOnly={!desktop}
+          focusHeading={route.focus}
+          onOpen={(next) => open(next)}
+        />
+      )}
+    </UatProvider>
   );
   // ใน AppShell: shell เป็นเจ้าของ skip link/header/main — เนื้อหาไม่วาด landmark ซ้ำ
   if (inShell) {
