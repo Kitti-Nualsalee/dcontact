@@ -1,0 +1,437 @@
+name: uat-image-smoke
+
+# U1.10 (#507): พิสูจน์ว่า artifact ของ UAT deployment (U1.6 #434 + U1.8 #502) ใช้งานได้จริงใน Docker
+#
+# - build image ของ api (`runtime`), ops และ Console/proxy จาก commit นี้ แล้ว push เข้า registry ชั่วคราว
+#   บน runner (`localhost:5000`) เพื่อให้ compose อ้าง image ด้วย digest เหมือนบน VM — ไม่ push GHCR
+# - รัน `infra/uat/bin/uat-deploy.sh` ตัวจริงแบบ local (`UAT_ROOT` = โฟลเดอร์ชั่วคราว) ตามลำดับของ `uat-preview`:
+#   prepare → backup → migrate (db-roles → migrate → db-roles) → keycloak (+ keycloak-config)
+#   → deploy (minio-init → api + proxy) → smoke (`u1-uat-readiness.mjs --live`) → provision (U1.8)
+# - secret/tenant/TLS เป็นค่าสุ่มต่อรอบ (mask แล้ว) — ไม่ใช้ repository secret และไม่ผูก environment
+#   `uat-preview`; ไม่แตะ VM ของ UAT
+# - ล้ม = เก็บ `docker compose logs` ที่กรองค่า secret แล้วเป็น artifact อายุสั้น; ทุกกรณีจบด้วย `down -v`
+#
+# แยกจาก ci.yml เพราะรันเฉพาะเมื่อ artifact ของ UAT เปลี่ยน (paths) และใช้ Docker/เวลาเป็นหลักสิบนาที
+on:
+  pull_request:
+    paths:
+      - 'infra/uat/**'
+      - 'apps/api/Dockerfile'
+      - 'apps/console/Dockerfile'
+      - '.dockerignore'
+      - 'scripts/u1-uat-*'
+      - 'infra/keycloak/realm-dcontact.uat.json'
+      - 'apps/api/src/uat-*'
+      - '.github/workflows/uat-image-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/uat/**'
+      - 'apps/api/Dockerfile'
+      - 'apps/console/Dockerfile'
+      - '.dockerignore'
+      - 'scripts/u1-uat-*'
+      - 'infra/keycloak/realm-dcontact.uat.json'
+      - 'apps/api/src/uat-*'
+      - '.github/workflows/uat-image-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uat-image-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # bash แบบระบุชัด = `-eo pipefail` — `cmd | tee` ต้องล้มตาม cmd
+    shell: bash
+
+env:
+  # registry ชั่วคราวบน runner เท่านั้น (ไม่มี credential, ไม่ออกนอกเครื่อง)
+  REGISTRY: localhost:5000
+  UAT_HOST: uat.ci.invalid
+  UAT_FIXTURE_PACK_VERSION: ci-synthetic-1
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Local layout and uat-deploy/uat-compose commands
+        run: |
+          root="$RUNNER_TEMP/dcontact-uat"
+          install -d -m 700 "$root" "$root/tls" "$root/releases/$GITHUB_SHA/bin"
+          install -d -m 700 "$RUNNER_TEMP/uat-out" "$RUNNER_TEMP/uat-bin"
+          echo "UAT_ROOT=$root" >> "$GITHUB_ENV"
+          echo "UAT_OUT=$RUNNER_TEMP/uat-out" >> "$GITHUB_ENV"
+          # คำสั่งชื่อเดียวกับที่ ci-ssh-setup.sh ติดตั้งให้ uat-preview แต่รัน release บน runner นี้แทน VM
+          cat > "$RUNNER_TEMP/uat-bin/uat-deploy" <<'WRAPPER'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec bash "${UAT_ROOT:?}/releases/${GITHUB_SHA:?}/bin/uat-deploy.sh" "$@"
+          WRAPPER
+          # compose() เดียวกับใน uat-deploy.sh — สำหรับขั้นที่ script ไม่มีคำสั่งให้ (บัญชี, ตรวจ, logs, down)
+          cat > "$RUNNER_TEMP/uat-bin/uat-compose" <<'WRAPPER'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          release="${UAT_ROOT:?}/releases/${GITHUB_SHA:?}"
+          exec docker compose --project-name dcontact-uat \
+            --project-directory "$release" \
+            --env-file "$UAT_ROOT/uat.env" \
+            --env-file "$release/release.env" \
+            -f "$release/docker-compose.uat.yml" "$@"
+          WRAPPER
+          chmod 700 "$RUNNER_TEMP/uat-bin/uat-deploy" "$RUNNER_TEMP/uat-bin/uat-compose"
+          echo "$RUNNER_TEMP/uat-bin" >> "$GITHUB_PATH"
+
+      - name: Start local registry (digest-pinned)
+        run: |
+          docker run -d --name uat-ci-registry -p 127.0.0.1:5000:5000 \
+            docker.io/library/registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+          for _ in $(seq 1 30); do
+            curl -fsS "http://$REGISTRY/v2/" >/dev/null && exit 0
+            sleep 1
+          done
+          echo 'local registry ไม่พร้อม' >&2
+          exit 1
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build API image (runtime)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          target: runtime
+          load: true
+          provenance: false
+          sbom: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ env.REGISTRY }}/dcontact-uat-api:${{ github.sha }}
+          cache-from: type=gha,scope=uat-image-smoke-api
+          cache-to: type=gha,mode=max,scope=uat-image-smoke-api
+
+      - name: Build ops image (migrate/Keycloak config/readiness/provision)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          target: ops
+          load: true
+          provenance: false
+          sbom: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ env.REGISTRY }}/dcontact-uat-ops:${{ github.sha }}
+          cache-from: type=gha,scope=uat-image-smoke-ops
+          cache-to: type=gha,mode=max,scope=uat-image-smoke-ops
+
+      - name: Build Console/proxy image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/console/Dockerfile
+          load: true
+          provenance: false
+          sbom: false
+          build-args: |
+            SOURCE_SHA=${{ github.sha }}
+            VITE_KC_ISSUER=https://${{ env.UAT_HOST }}/auth/realms/dcontact
+            VITE_KC_CLIENT_ID=dcontact-uat-console
+            VITE_CONSOLE_DEFAULT_VIEW=journeys
+            VITE_UAT_ENVIRONMENT=uat
+            VITE_UAT_PACK_VERSION=${{ env.UAT_FIXTURE_PACK_VERSION }}
+          tags: ${{ env.REGISTRY }}/dcontact-uat-console:${{ github.sha }}
+          cache-from: type=gha,scope=uat-image-smoke-console
+          cache-to: type=gha,mode=max,scope=uat-image-smoke-console
+
+      - name: Push to local registry and write digest-pinned release
+        run: |
+          release="$UAT_ROOT/releases/$GITHUB_SHA"
+          accept='application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'
+          echo "SOURCE_SHA=$GITHUB_SHA" > "$release/release.env"
+          for name in api ops console; do
+            ref="$REGISTRY/dcontact-uat-$name:$GITHUB_SHA"
+            revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$ref")"
+            if [ "$revision" != "$GITHUB_SHA" ]; then
+              echo "revision label ของ $name ไม่ตรง SOURCE_SHA" >&2
+              exit 1
+            fi
+            docker push --quiet "$ref" >/dev/null
+            # digest ตามที่ registry เก็บ = สิ่งที่ compose pull ด้วย @sha256 ได้จริง
+            digest="$(curl -fsSI -H "Accept: $accept" "http://$REGISTRY/v2/dcontact-uat-$name/manifests/$GITHUB_SHA" \
+              | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: *//p')"
+            if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "ไม่ได้ digest ของ $name จาก local registry" >&2
+              exit 1
+            fi
+            upper="$(echo "$name" | tr '[:lower:]' '[:upper:]')"
+            echo "${upper}_IMAGE=$REGISTRY/dcontact-uat-$name@$digest" >> "$release/release.env"
+          done
+          cp infra/uat/docker-compose.uat.yml "$release/"
+          cp infra/uat/bin/uat-deploy.sh infra/uat/bin/db-roles.sh infra/uat/bin/minio-init.sh "$release/bin/"
+          cat "$release/release.env"
+
+      - name: UAT environment (random secrets, synthetic tenant, TLS, hosts)
+        run: |
+          secret() { openssl rand -hex "$1"; }
+          tenant_id="$(cat /proc/sys/kernel/random/uuid)"
+          tenant_slug="uat-ci-${tenant_id:0:8}"
+          declare -A values=(
+            [UAT_POSTGRES_USER]="uat_owner_$(secret 4)"
+            [UAT_POSTGRES_PASSWORD]="$(secret 24)"
+            [UAT_APP_DB_PASSWORD]="$(secret 24)"
+            [UAT_KEYCLOAK_DB_PASSWORD]="$(secret 24)"
+            [UAT_KEYCLOAK_ADMIN_USERNAME]="kcadmin-$(secret 4)"
+            [UAT_KEYCLOAK_ADMIN_PASSWORD]="$(secret 24)"
+            [UAT_MINIO_ROOT_USER]="minioroot$(secret 4)"
+            [UAT_MINIO_ROOT_PASSWORD]="$(secret 24)"
+            [UAT_MINIO_API_ACCESS_KEY]="uatapi$(secret 6)"
+            [UAT_MINIO_API_SECRET_KEY]="$(secret 24)"
+          )
+          for name in "${!values[@]}"; do echo "::add-mask::${values[$name]}"; done
+
+          tls="$UAT_ROOT/tls"
+          # CA ชั่วคราวของรอบนี้ + cert ของ UAT_HOST; key ของ CA ถูกลบทันทีหลังเซ็น
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 \
+            -subj '/CN=dcontact UAT CI CA' -keyout "$tls/ca.key" -out "$tls/ca.crt" \
+            -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' 2>/dev/null
+          openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+            -subj "/CN=$UAT_HOST" -keyout "$tls/uat.key" -out "$tls/uat.csr" 2>/dev/null
+          printf 'subjectAltName=DNS:%s\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\n' \
+            "$UAT_HOST" > "$tls/uat.ext"
+          openssl x509 -req -in "$tls/uat.csr" -CA "$tls/ca.crt" -CAkey "$tls/ca.key" -CAcreateserial \
+            -days 2 -extfile "$tls/uat.ext" -out "$tls/uat.crt" 2>/dev/null
+          rm -f "$tls/ca.key" "$tls/ca.srl" "$tls/uat.csr" "$tls/uat.ext"
+          chmod 644 "$tls/ca.crt" "$tls/uat.crt"
+          # compose secret แบบ file = bind mount (uid/gid/mode ไม่มีผล) — Caddy ใน image รันเป็น 10001
+          sudo chown 10001:10001 "$tls/uat.key"
+          sudo chmod 400 "$tls/uat.key"
+          echo "127.0.0.1 $UAT_HOST" | sudo tee -a /etc/hosts >/dev/null
+
+          # smoke มาถึง proxy จาก gateway ของ bridge network (docker-proxy/hairpin NAT) ไม่ใช่ 127.0.0.1 ตรง ๆ
+          # จึงรวมช่วง default address pool ของ Docker ไว้ด้วย
+          (
+            umask 077
+            {
+              echo "UAT_HOST=$UAT_HOST"
+              echo 'UAT_ALLOWED_CIDRS=127.0.0.1/32 172.16.0.0/12 192.168.0.0/16'
+              echo "UAT_TLS_CERT_FILE=$tls/uat.crt"
+              echo "UAT_TLS_KEY_FILE=$tls/uat.key"
+              echo "UAT_TENANT_ID=$tenant_id"
+              echo "UAT_TENANT_SLUG=$tenant_slug"
+              echo 'UAT_TENANT_NAME=UAT CI Tenant'
+              echo "UAT_ORGANIZATION_DOMAIN=$UAT_HOST"
+              for name in "${!values[@]}"; do echo "$name=${values[$name]}"; done
+            } > "$UAT_ROOT/uat.env"
+          )
+          chmod 600 "$UAT_ROOT/uat.env"
+          {
+            echo "UAT_TENANT_ID=$tenant_id"
+            echo "UAT_TENANT_SLUG=$tenant_slug"
+            echo 'UAT_TENANT_NAME=UAT CI Tenant'
+            echo "UAT_ORGANIZATION_DOMAIN=$UAT_HOST"
+          } >> "$GITHUB_ENV"
+
+      - name: Prepare release (compose config + pull by digest)
+        run: uat-deploy prepare "$GITHUB_SHA"
+
+      - name: Guard additive migrations (initial database)
+        run: node scripts/u1-uat-readiness.mjs --migration-guard --initial | tee "$UAT_OUT/migration-guard.json"
+
+      - name: Backup before migrate (no database yet = SKIPPED)
+        run: |
+          uat-deploy backup "$GITHUB_SHA" | tee "$UAT_OUT/backup-initial.json"
+          node scripts/u1-uat-ci-assert.mjs step SKIPPED "$UAT_OUT/backup-initial.json"
+
+      - name: Migrate (db-roles → migrate → db-roles)
+        timeout-minutes: 10
+        run: uat-deploy migrate "$GITHUB_SHA"
+
+      - name: Keycloak (wait healthy + keycloak-config)
+        timeout-minutes: 10
+        run: uat-deploy keycloak "$GITHUB_SHA" | tail -n 1 | tee "$UAT_OUT/keycloak.json"
+
+      - name: Deploy (minio-init → api + proxy --wait)
+        timeout-minutes: 10
+        run: |
+          uat-deploy deploy "$GITHUB_SHA" | tee "$UAT_OUT/deploy.json"
+          node scripts/u1-uat-ci-assert.mjs step PASS "$UAT_OUT/deploy.json"
+
+      - name: Wait for API behind proxy
+        timeout-minutes: 5
+        run: |
+          # api ไม่มี healthcheck — `up --wait` รอแค่ container running; รอให้ route ผ่าน proxy ตอบก่อน smoke
+          for _ in $(seq 1 60); do
+            if curl -fsS --cacert "$UAT_ROOT/tls/ca.crt" -o /dev/null "https://$UAT_HOST/api/v1/runtime-profile"; then
+              exit 0
+            fi
+            sleep 3
+          done
+          echo 'API ไม่ตอบผ่าน proxy ภายในเวลาที่กำหนด' >&2
+          exit 1
+
+      - name: UAT readiness smoke (u1-uat-readiness.mjs --live, L01–L05 + L07 PASS)
+        timeout-minutes: 5
+        run: |
+          NODE_EXTRA_CA_CERTS="$UAT_ROOT/tls/ca.crt" uat-deploy smoke "$GITHUB_SHA" | tee "$UAT_OUT/smoke.json"
+          node scripts/u1-uat-ci-assert.mjs smoke "$UAT_OUT/smoke.json"
+
+      - name: Provision synthetic tenant/accounts/fixture pack (U1.8 CLI)
+        timeout-minutes: 10
+        run: |
+          # TODO(#506): เปลี่ยนไปใช้ template input ของ UAT ที่ U1.9 commit ไว้เมื่อมีแล้ว
+          maker_password="$(openssl rand -hex 16)"
+          reviewer_password="$(openssl rand -hex 16)"
+          echo "::add-mask::$maker_password"
+          echo "::add-mask::$reviewer_password"
+          ops_image="$(sed -n 's/^OPS_IMAGE=//p' "$UAT_ROOT/releases/$GITHUB_SHA/release.env")"
+          # สร้าง input ด้วย importJourneyDefinition ของ ops image ตัวเดียวกับที่ CLI ใช้ (ไม่ต้อง build บน runner)
+          (
+            umask 077
+            docker run --rm --network none \
+              -v "$GITHUB_WORKSPACE:/repo:ro" \
+              -e UAT_TENANT_ID -e UAT_TENANT_SLUG -e UAT_TENANT_NAME -e UAT_ORGANIZATION_DOMAIN \
+              -e UAT_FIXTURE_PACK_VERSION -e SOURCE_SHA="$GITHUB_SHA" \
+              -e UAT_CI_MAKER_PASSWORD="$maker_password" -e UAT_CI_REVIEWER_PASSWORD="$reviewer_password" \
+              "$ops_image" node /repo/scripts/u1-uat-ci-fixture.mjs --journey-from /app \
+              > "$UAT_ROOT/ci-fixture.json"
+            node -e '
+              const fs = require("fs");
+              const bundle = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              fs.writeFileSync(process.argv[2], JSON.stringify(bundle.provision), { mode: 0o600 });
+              fs.writeFileSync(process.argv[3], JSON.stringify(bundle.accounts), { mode: 0o600 });
+            ' "$UAT_ROOT/ci-fixture.json" "$UAT_ROOT/uat-provision.json" "$UAT_ROOT/accounts.json"
+          )
+          rm -f "$UAT_ROOT/ci-fixture.json"
+          input="$UAT_ROOT/uat-provision.json"
+          uat-deploy provision "$GITHUB_SHA" "$input" --check | tee "$UAT_OUT/provision-check.jsonl"
+          node scripts/u1-uat-ci-assert.mjs provision check "$UAT_OUT/provision-check.jsonl"
+          uat-deploy provision "$GITHUB_SHA" "$input" | tee "$UAT_OUT/provision-apply.jsonl"
+          node scripts/u1-uat-ci-assert.mjs provision apply "$UAT_OUT/provision-apply.jsonl"
+          # idempotent: input เดิม = UNCHANGED ทุกส่วน
+          uat-deploy provision "$GITHUB_SHA" "$input" | tee "$UAT_OUT/provision-reapply.jsonl"
+          node scripts/u1-uat-ci-assert.mjs provision reapply "$UAT_OUT/provision-reapply.jsonl"
+
+      - name: Maker/reviewer accounts (u1-uat-keycloak-users.mjs --users)
+        timeout-minutes: 5
+        run: |
+          # ไฟล์บัญชีส่งทาง stdin (ไม่ mount เข้า container; container รันเป็น uid 10001 อ่านไฟล์ mode 600 ไม่ได้)
+          uat-compose --profile ops run --rm -T keycloak-config \
+            node scripts/u1-uat-keycloak-users.mjs --users /dev/stdin \
+            < "$UAT_ROOT/accounts.json" | tee "$UAT_OUT/accounts.jsonl"
+          node scripts/u1-uat-ci-assert.mjs accounts "$UAT_OUT/accounts.jsonl"
+          rm -f "$UAT_ROOT/accounts.json" "$UAT_ROOT/uat-provision.json"
+
+      - name: Hardening assertions (non-root/read-only, closed ports, Keycloak admin, profile)
+        run: |
+          fail=0
+          check() { if "$@"; then echo "PASS: $CHECK"; else echo "FAIL: $CHECK" >&2; fail=1; fi; }
+
+          api="$(uat-compose ps -q api)"
+          CHECK='api container User=10001:10001 และ ReadonlyRootfs=true'
+          check test "$(docker inspect --format '{{.Config.User}}|{{.HostConfig.ReadonlyRootfs}}' "$api")" = '10001:10001|true'
+          CHECK='api process uid = 10001'
+          check test "$(docker exec "$api" id -u)" = 10001
+          # /tmp เป็น 1777 — เขียนไม่ได้ก็เพราะ rootfs read-only เท่านั้น (ไม่ใช่เพราะสิทธิ์ของไฟล์)
+          CHECK='api rootfs เขียนไม่ได้ (/tmp)'
+          check bash -c "! docker exec '$api' sh -c 'echo x > /tmp/.rw-probe' 2>/dev/null"
+          proxy="$(uat-compose ps -q proxy)"
+          CHECK='proxy container User=10001:10001 และ ReadonlyRootfs=true'
+          check test "$(docker inspect --format '{{.Config.User}}|{{.HostConfig.ReadonlyRootfs}}' "$proxy")" = '10001:10001|true'
+
+          for service in minio postgres keycloak api; do
+            cid="$(uat-compose ps -q "$service")"
+            CHECK="$service รันอยู่และไม่ publish พอร์ตสู่ host"
+            check bash -c "[ -n '$cid' ] && [ -z \"\$(docker port '$cid')\" ]"
+          done
+          for port in 9000 9001 5432; do
+            CHECK="host port $port ปิด"
+            check bash -c "! timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/$port' 2>/dev/null"
+          done
+
+          for path in /auth/admin/ /auth/admin/master/console/ /auth/realms/master/.well-known/openid-configuration; do
+            status="$(curl -sS -o /dev/null -w '%{http_code}' --cacert "$UAT_ROOT/tls/ca.crt" "https://$UAT_HOST$path")"
+            CHECK="GET $path ผ่าน proxy = 404 (ได้ $status)"
+            check test "$status" = 404
+          done
+
+          profile="$(curl -fsS --cacert "$UAT_ROOT/tls/ca.crt" "https://$UAT_HOST/api/v1/runtime-profile" \
+            | node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(0, "utf8")).profile))')"
+          CHECK="GET /api/v1/runtime-profile profile = uat (ได้ $profile)"
+          check test "$profile" = uat
+          exit "$fail"
+
+      - name: Backup after deploy (pg_dump ทำงานจริง)
+        run: |
+          uat-deploy backup "$GITHUB_SHA" | tee "$UAT_OUT/backup.json"
+          node scripts/u1-uat-ci-assert.mjs step PASS "$UAT_OUT/backup.json"
+
+      - name: Deployment record (summary only — not stored anywhere)
+        env:
+          UAT_ENVIRONMENT: uat-ci
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          node scripts/u1-uat-readiness.mjs --deployment-record --action deploy \
+            --release "$UAT_ROOT/releases/$GITHUB_SHA/release.env" --keycloak "$UAT_OUT/keycloak.json" \
+            --backup "$UAT_OUT/backup-initial.json" --migration-guard-report "$UAT_OUT/migration-guard.json" \
+            --smoke "$UAT_OUT/smoke.json" > "$UAT_OUT/deployment-record.json"
+          node scripts/u1-uat-readiness.mjs --summary "$UAT_OUT/deployment-record.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect compose logs (secret values masked)
+        if: failure() || cancelled()
+        run: |
+          if ! command -v uat-compose >/dev/null || [ ! -f "${UAT_ROOT:-/nonexistent}/uat.env" ] \
+            || [ ! -f "$UAT_ROOT/releases/$GITHUB_SHA/release.env" ]; then
+            echo 'stack ยังไม่ถูกสร้าง — ไม่มี log'
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/uat-logs"
+          raw="$(mktemp)"
+          program="$(mktemp)"
+          {
+            uat-compose --profile ops ps -a
+            uat-compose --profile ops logs --no-color --timestamps
+          } > "$raw" 2>&1 || true
+          # mask ทุกค่าใน uat.env ยกเว้นรายชื่อที่ไม่ใช่ secret (deny by default)
+          # ค่า secret เป็น [A-Za-z0-9_-] (สุ่มด้วย openssl -hex) จึงใช้เป็น pattern ของ sed ได้ตรง ๆ
+          sed -n -E \
+            -e '/^(UAT_HOST|UAT_ALLOWED_CIDRS|UAT_TLS_CERT_FILE|UAT_TLS_KEY_FILE|UAT_TENANT_ID|UAT_TENANT_SLUG|UAT_TENANT_NAME|UAT_ORGANIZATION_DOMAIN)=/d' \
+            -e 's/^[A-Z0-9_]+=(.+)$/\1/p' "$UAT_ROOT/uat.env" \
+            | while IFS= read -r value; do printf 's/%s/***/g\n' "$value"; done > "$program"
+          sed -f "$program" "$raw" > "$RUNNER_TEMP/uat-logs/compose.log"
+          rm -f "$raw" "$program"
+
+      - name: Upload compose logs
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-image-smoke-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/uat-logs/
+          if-no-files-found: ignore
+          retention-days: 5
+
+      - name: Upload smoke/provision results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-image-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/uat-out/
+          if-no-files-found: ignore
+          retention-days: 5
+
+      - name: Tear down (down -v)
+        if: always()
+        run: |
+          if command -v uat-compose >/dev/null && [ -f "${UAT_ROOT:-/nonexistent}/uat.env" ] \
+            && [ -f "$UAT_ROOT/releases/$GITHUB_SHA/release.env" ]; then
+            uat-compose --profile ops down -v --remove-orphans --timeout 10 || true
+          fi
+          docker rm -f uat-ci-registry >/dev/null 2>&1 || true

@@ -21,6 +21,7 @@ import {
   checkNoStartDev,
   checkProxy,
   checkRealm,
+  checkSmokeWorkflow,
   checkUatProvision,
   checkWorkflow,
   findDropStatements,
@@ -40,6 +41,7 @@ const compose = read(UAT_FILES.compose);
 const caddyfile = read(UAT_FILES.caddyfile);
 const realm = read(UAT_FILES.realm);
 const workflow = read(UAT_FILES.workflow);
+const smokeWorkflow = read(UAT_FILES.smokeWorkflow);
 const apiDockerfile = read(UAT_FILES.apiDockerfile);
 const consoleDockerfile = read(UAT_FILES.consoleDockerfile);
 const minioInit = read(UAT_FILES.minioInitScript);
@@ -498,6 +500,74 @@ test('UAT-S11: workflow ที่ไม่ผูก environment/concurrency, ech
   failed(
     checkWorkflow(`${workflow}\n      - run: npx prisma migrate reset --force\n`),
     'NON_ADDITIVE_MIGRATION_COMMAND',
+  );
+});
+
+test('UAT-S17: workflow uat-image-smoke ที่ใช้ secret/environment/push ภายนอก หรือไม่ teardown ไม่ผ่าน', () => {
+  assert.equal(checkSmokeWorkflow(smokeWorkflow).status, 'PASS');
+  failed(checkSmokeWorkflow(null), 'MISSING');
+  const step = '      - uses: docker/setup-buildx-action@v3';
+  const withStep = (lines) => smokeWorkflow.replace(step, `${lines}\n${step}`);
+  failed(
+    checkSmokeWorkflow(
+      withStep(
+        '      - env:\n          KEY: ${{ secrets.UAT_SSH_PRIVATE_KEY }}\n        run: true',
+      ),
+    ),
+    'USES_SECRETS',
+  );
+  failed(
+    checkSmokeWorkflow(
+      smokeWorkflow.replace(
+        '    timeout-minutes: 45\n',
+        '    timeout-minutes: 45\n    environment: uat-preview\n',
+      ),
+    ),
+    'USES_ENVIRONMENT',
+  );
+  failed(
+    checkSmokeWorkflow(
+      smokeWorkflow.replace('on:\n  pull_request:', 'on:\n  pull_request_target:'),
+    ),
+    'TRIGGER',
+  );
+  failed(
+    checkSmokeWorkflow(
+      smokeWorkflow.replace(
+        'permissions:\n  contents: read',
+        'permissions:\n  contents: read\n  packages: write',
+      ),
+    ),
+    'WRITE_PERMISSION',
+  );
+  failed(
+    checkSmokeWorkflow(smokeWorkflow.replace('          load: true', '          push: true')),
+    'IMAGE_PUSH',
+  );
+  failed(
+    checkSmokeWorkflow(
+      withStep('      - uses: docker/login-action@v3\n        with:\n          registry: ghcr.io'),
+    ),
+    'EXTERNAL_REGISTRY',
+  );
+  failed(
+    checkSmokeWorkflow(smokeWorkflow.replace('REGISTRY: localhost:5000', 'REGISTRY: ghcr.io/acme')),
+    'REGISTRY_NOT_LOCAL',
+  );
+  failed(
+    checkSmokeWorkflow(smokeWorkflow.replace(/(registry:2\.8\.3)@sha256:[0-9a-f]{64}/, '$1')),
+    'REGISTRY_NOT_DIGEST_PINNED',
+  );
+  failed(
+    checkSmokeWorkflow(smokeWorkflow.replace('uat-deploy migrate ', 'docker compose run migrate ')),
+    'STEP_MISSING',
+  );
+  failed(checkSmokeWorkflow(smokeWorkflow.replaceAll('down -v', 'down')), 'NO_TEARDOWN');
+  failed(checkSmokeWorkflow(smokeWorkflow.replaceAll('::add-mask::', '')), 'NO_MASK');
+  // comment ไม่นับ — ข้อความอธิบายใน comment ไม่ทำให้ผ่าน/ล้มแทนโค้ด
+  failed(
+    checkSmokeWorkflow(`${smokeWorkflow.replaceAll('down -v', 'down')}\n# if: always() down -v\n`),
+    'NO_TEARDOWN',
   );
 });
 

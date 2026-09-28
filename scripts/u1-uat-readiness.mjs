@@ -33,6 +33,7 @@ export const UAT_FILES = Object.freeze({
   dockerignore: '.dockerignore',
   realm: 'infra/keycloak/realm-dcontact.uat.json',
   workflow: '.github/workflows/uat-preview.yml',
+  smokeWorkflow: '.github/workflows/uat-image-smoke.yml',
   runbook: 'docs/u1-uat-deployment.md',
   keycloakScript: 'scripts/u1-uat-keycloak-users.mjs',
   readinessScript: 'scripts/u1-uat-readiness.mjs',
@@ -603,6 +604,71 @@ export function checkWorkflow(workflow) {
   return check('UAT-S11 workflow uat-preview', failures);
 }
 
+/** trigger ที่ PR/เหตุการณ์ภายนอกสั่งได้โดยไม่มี secret — ห้าม pull_request_target/workflow_run */
+const SMOKE_WORKFLOW_TRIGGERS = Object.freeze(['pull_request', 'push', 'workflow_dispatch']);
+const SMOKE_DEPLOY_STEPS = Object.freeze([
+  'prepare',
+  'backup',
+  'migrate',
+  'keycloak',
+  'deploy',
+  'smoke',
+  'provision',
+]);
+
+/**
+ * U1.10 (#507): workflow `uat-image-smoke` รัน UAT stack จริงบน runner — ต้องไม่มีทางแตะ UAT จริงหรือ secret:
+ * ไม่มี `secrets.*`, ไม่ผูก environment (โดยเฉพาะ `uat-preview`), permission อ่านอย่างเดียว, ไม่ push/login
+ * registry ภายนอก (push ได้แค่ registry ชั่วคราวบน runner) และต้องรัน `uat-deploy.sh` ตามลำดับจริงแล้ว `down -v`
+ */
+export function checkSmokeWorkflow(workflow) {
+  const id = 'UAT-S17 workflow uat-image-smoke ไม่มี secret/environment/push ภายนอก';
+  if (workflow === null) return check(id, [{ kind: 'MISSING' }]);
+  const failures = [];
+  const code = workflow
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+  const triggers = /^on:\s*\n((?:[ \t]+.*\n|\s*\n)*)/m.exec(code)?.[1] ?? '';
+  const triggerNames = [...triggers.matchAll(/^ {2}([a-z_]+):/gm)].map((match) => match[1]);
+  for (const name of triggerNames) {
+    if (!SMOKE_WORKFLOW_TRIGGERS.includes(name)) failures.push({ kind: 'TRIGGER', name });
+  }
+  if (!triggerNames.includes('pull_request')) failures.push({ kind: 'NOT_ON_PULL_REQUEST' });
+  if (!/^permissions:\s*\n {2}contents:\s*read\s*$/m.test(code)) {
+    failures.push({ kind: 'PERMISSIONS_NOT_READ_ONLY' });
+  }
+  if (/^\s+[a-z-]+:\s*write\s*$/m.test(code) || /permissions:\s*write-all/.test(code)) {
+    failures.push({ kind: 'WRITE_PERMISSION' });
+  }
+  if (/\$\{\{\s*secrets\./.test(code) || /secrets:\s*inherit/.test(code)) {
+    failures.push({ kind: 'USES_SECRETS' });
+  }
+  if (/^\s+environment:/m.test(code)) failures.push({ kind: 'USES_ENVIRONMENT' });
+  if (/group:\s*uat-preview\s*$/m.test(code)) failures.push({ kind: 'UAT_PREVIEW_CONCURRENCY' });
+  if (/^\s+push:\s*true\s*$/m.test(code)) failures.push({ kind: 'IMAGE_PUSH' });
+  if (/docker\/login-action|docker\s+login\b|ghcr\.io/.test(code)) {
+    failures.push({ kind: 'EXTERNAL_REGISTRY' });
+  }
+  if (!/^\s+REGISTRY:\s*(localhost|127\.0\.0\.1):\d+\s*$/m.test(code)) {
+    failures.push({ kind: 'REGISTRY_NOT_LOCAL' });
+  }
+  if (!/registry:[^\s@]*@sha256:[0-9a-f]{64}/.test(code)) {
+    failures.push({ kind: 'REGISTRY_NOT_DIGEST_PINNED' });
+  }
+  if (!/bin\/uat-deploy\.sh/.test(code)) failures.push({ kind: 'NOT_VIA_UAT_DEPLOY_SH' });
+  for (const step of SMOKE_DEPLOY_STEPS) {
+    if (!new RegExp(`uat-deploy ${step} `).test(code))
+      failures.push({ kind: 'STEP_MISSING', step });
+  }
+  if (!/u1-uat-keycloak-users\.mjs --users/.test(code)) failures.push({ kind: 'NO_ACCOUNTS' });
+  if (!/::add-mask::/.test(code)) failures.push({ kind: 'NO_MASK' });
+  if (!/^\s+timeout-minutes:\s*\d+/m.test(code)) failures.push({ kind: 'NO_TIMEOUT' });
+  if (!/if:\s*always\(\)[^]*?down -v/.test(code)) failures.push({ kind: 'NO_TEARDOWN' });
+  if (/\bstart-dev\b/.test(code)) failures.push({ kind: 'START_DEV' });
+  return check(id, failures);
+}
+
 export function checkEnvExample(text) {
   if (text === null) return check('UAT-S12 uat.env.example มีแต่ชื่อ', [{ kind: 'MISSING' }]);
   const failures = text
@@ -694,6 +760,7 @@ export function runStaticChecks(root = repositoryRoot) {
     checkUatProvision(compose, files.apiDockerfile, files.deployScript),
     checkProxy(files.caddyfile),
     checkWorkflow(files.workflow),
+    checkSmokeWorkflow(files.smokeWorkflow),
     checkEnvExample(files.envExample),
     checkDockerignore(files.dockerignore),
     scanSecrets(

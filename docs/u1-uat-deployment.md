@@ -381,3 +381,13 @@ U1.8 (#502): CLI `uat-provision` ตรวจแล้วบน Postgres จร�
 `เริ่มรอบใหม่` ของ maker ผ่าน app role + J5 จริง → UNCHANGED, conflict ไม่เปลี่ยนแถว, app role/maker = reviewer/
 token ใน free text ถูกปฏิเสธ, `--check` ไม่เขียน) และ `docker compose --profile ops config` ด้วย env จำลอง —
 ยังไม่ได้ verify: build ops image ที่มี `/app/dist/uat-provision-main.js` จริง และการรัน `uat-deploy.sh provision` บน VM
+
+U1.10 (#507): workflow `uat-image-smoke` (`.github/workflows/uat-image-smoke.yml`) รันเมื่อ PR/`main` แตะ artifact
+ของ UAT (หรือสั่งด้วยมือ) — build image `api`/`ops`/`console` จาก commit นั้น, push เข้า registry ชั่วคราวบน runner
+(`localhost:5000`, ไม่ใช่ GHCR) เพื่ออ้างด้วย digest, รัน `uat-deploy.sh` ตัวจริงแบบ local (`UAT_ROOT` = โฟลเดอร์ชั่วคราว)
+ครบ `prepare` → `backup` → `migrate` → `keycloak` → `deploy` → `smoke` แล้ว `provision` (`--check`, apply, apply ซ้ำ =
+UNCHANGED) ด้วย input สังเคราะห์จาก `scripts/u1-uat-ci-fixture.mjs`, สร้างบัญชี maker/reviewer ด้วย `--users`,
+ตรวจ hardening (api/proxy non-root + rootfs read-only, MinIO/Postgres/Keycloak/api ไม่ publish พอร์ต, admin ของ
+Keycloak ตอบ 404, `runtime-profile` = `uat`) และ `backup` หลัง deploy (pg_dump จริง) — secret/cert สุ่มต่อรอบ ไม่ใช้
+repository secret และไม่ผูก environment `uat-preview` (static readiness UAT-S17 ตรวจ) จึงไม่ใช่หลักฐานของ VM จริง:
+TLS/gateway/allowlist จริง, GHCR และ UAT-L06 ยังต้องเก็บใน deploy ครั้งแรกตามเดิม
