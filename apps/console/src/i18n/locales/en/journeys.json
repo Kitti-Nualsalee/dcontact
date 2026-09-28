@@ -198,7 +198,11 @@
       "UAT_RUN_PENDING_PUBLISH": "Cannot start a new run: this run's journey is approved but not published",
       "UAT_RUN_MUTATION_IN_FLIGHT": "Cannot start a new run: a command is still pending",
       "VALIDATION_FAILED": "Invalid data: {{field}}",
-      "REQUEST_MALFORMED": "The request is incomplete or malformed: {{field}}"
+      "REQUEST_MALFORMED": "The request is incomplete or malformed: {{field}}",
+      "EVIDENCE_TYPE_REJECTED": "Only PNG/JPEG screenshots are accepted. Traces, HAR files, network logs and other files are rejected.",
+      "EVIDENCE_TOO_LARGE": "The file is larger than 5 MB",
+      "EVIDENCE_NOT_FOUND": "This screenshot was not found or its retention has expired",
+      "EVIDENCE_INTEGRITY_FAILED": "The stored screenshot does not match its recorded digest"
     },
     "nextAction": {
       "DECIDE_REVIEW": "Have a reviewer decide the pending review of this run's journey, then start a new run.",
@@ -211,7 +215,43 @@
       "CHECK_PACK": "Check the fixture pack environment and version with the UAT operator.",
       "ASK_OPERATOR": "Ask the UAT operator to check the fixture pack.",
       "FIX_FIELD": "Fix the named field and send again.",
-      "RETRY_SAME": "Press again. The same command is resent and will not be recorded twice."
+      "RETRY_SAME": "Press again. The same command is resent and will not be recorded twice.",
+      "CHOOSE_SCREENSHOT": "Choose a PNG or JPEG screenshot up to 5 MB and upload again."
+    },
+    "evidence": {
+      "heading": "Screenshot evidence",
+      "hint": "Only PNG/JPEG screenshots up to 5 MB are accepted and kept in UAT private storage for 90 days. Never attach Playwright traces, HAR files or network logs, and never capture tokens, passwords or real customer data.",
+      "uploadHeading": "Attach a screenshot",
+      "stepLabel": "Step for the screenshot",
+      "fileLabel": "Screenshot file",
+      "fileHint": "PNG or JPEG only. The server checks the file type from its content.",
+      "upload": "Upload screenshot",
+      "uploading": "Uploading…",
+      "uploaded": "Attached a screenshot for {{stepId}}",
+      "none": "No screenshots in this run yet",
+      "caption": "Screenshot evidence of this run with digests",
+      "col": {
+        "digest": "SHA-256",
+        "size": "Size",
+        "type": "File type"
+      },
+      "sizeValue": "{{kb}} KB",
+      "export": "Export evidence bundle",
+      "exporting": "Exporting…",
+      "exported": "Exported the evidence bundle. Overall result: {{verdict}}",
+      "bundleLabel": "Latest exported evidence bundle",
+      "verdict": "Overall run result",
+      "verdictValue": {
+        "PASS": "Pass (PASS)",
+        "FAIL": "Fail (FAIL)",
+        "INCOMPLETE": "Incomplete (INCOMPLETE)"
+      },
+      "scan": "Negative scan",
+      "scanValue": {
+        "PASSED": "No forbidden data found",
+        "FAILED": "Found {{findings}} forbidden data items (S1)"
+      },
+      "digest": "Bundle digest"
     }
   },
   "dialog": {

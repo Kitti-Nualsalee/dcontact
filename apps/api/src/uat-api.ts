@@ -5,9 +5,12 @@
  * boundary #378
  *
  * ต่างจาก `main.ts` โดยตั้งใจ: ไฟล์นี้ไม่ import/สร้าง Kafka consumer/publisher, LINE webhook ingress,
- * Redis, MinIO, telephony หรือ workspace session เลย จึงไม่มีทางเกิด side effect ภายนอกแม้ config จะผิด
+ * Redis, recording storage, telephony หรือ workspace session เลย จึงไม่มีทางเกิด side effect ภายนอกแม้ config
+ * จะผิด object storage ที่แตะได้มีทางเดียวคือ bucket หลักฐาน UAT ส่วนตัวผ่าน `uat-evidence-storage.ts`
+ * (U1.5 #433: ภาพหน้าจออยู่ใน UAT stack, retention 90 วัน, ไม่มี public/presigned URL)
  * controller ที่ mount มีเฉพาะ Journey authoring/template (unilateral publish ไม่มี HTTP route), UAT run
- * (U1.1 #429) และรายงาน profile; Journey ของ run ที่ปิดแล้วถูก `UatJourneyWriteGuard` แช่แข็ง
+ * (U1.1 #429), หลักฐานของ run (U1.5 #433) และรายงาน profile; Journey ของ run ที่ปิดแล้วถูก
+ * `UatJourneyWriteGuard` แช่แข็ง
  */
 import 'reflect-metadata';
 import { Controller, Get, Inject, type DynamicModule } from '@nestjs/common';
@@ -17,6 +20,7 @@ import { DcExprEvaluator } from '@d-contact/expression';
 import { IamJourneyAuthoringAuthorizer } from '@d-contact/iam';
 import {
   JourneyTemplateRepository,
+  UatEvidenceRepository,
   UatJourneyWriteGuard,
   UatRunRepository,
   journeyAuthoringFlagsFromEnvironment,
@@ -40,6 +44,8 @@ import {
   JourneyAuthoringController,
 } from './journey-authoring-api.js';
 import { JourneyTemplateController } from './journey-template-api.js';
+import { UAT_EVIDENCE_REPOSITORY, UatEvidenceController } from './uat-evidence-api.js';
+import { UatEvidenceObjectStorage } from './uat-evidence-storage.js';
 import { UAT_RUN_REPOSITORY, UatRunController } from './uat-run-api.js';
 import {
   RuntimeProfileRouteGuard,
@@ -86,6 +92,8 @@ export class RuntimeProfileController {
 export interface UatApiDependencies {
   repository: unknown;
   uatRuns: unknown;
+  /** U1.5 (#433): หลักฐานภาพหน้าจอ/scan/bundle ของ run */
+  uatEvidence: unknown;
   verifier: unknown;
   diagnostics: GatewayDiagnosticSink;
   /** A1.8a (#447): tenant ต้อง ACTIVE ก่อนใช้ UAT API ได้ */
@@ -103,11 +111,13 @@ export function createUatApiModule(dependencies: UatApiDependencies): DynamicMod
       JourneyAuthoringController,
       JourneyTemplateController,
       UatRunController,
+      UatEvidenceController,
       RuntimeProfileController,
     ],
     providers: [
       { provide: JOURNEY_AUTHORING_REPOSITORY, useValue: dependencies.repository },
       { provide: UAT_RUN_REPOSITORY, useValue: dependencies.uatRuns },
+      { provide: UAT_EVIDENCE_REPOSITORY, useValue: dependencies.uatEvidence },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: dependencies.verifier },
       { provide: GATEWAY_DIAGNOSTICS, useValue: dependencies.diagnostics },
       { provide: TENANT_LIFECYCLE, useValue: dependencies.lifecycle },
@@ -135,9 +145,13 @@ export async function bootstrapUatApi(environment: NodeJS.ProcessEnv = process.e
     flags: journeyAuthoring,
     writeGuard: new UatJourneyWriteGuard(),
   });
+  // bucket หลักฐานต้องพร้อม (ส่วนตัว + lifecycle 90 วัน) ก่อนรับคำขอ — ไม่พร้อม = บูตไม่ผ่าน
+  const evidenceStorage = UatEvidenceObjectStorage.fromEnvironment(environment);
+  await evidenceStorage.ensureBucket();
   const module = createUatApiModule({
     repository: authoring,
     uatRuns: new UatRunRepository(prisma, authoring),
+    uatEvidence: new UatEvidenceRepository(prisma, evidenceStorage),
     verifier: new KeycloakAccessTokenVerifier({
       issuer: required('KEYCLOAK_ISSUER'),
       audience: required('KEYCLOAK_AUDIENCE'),

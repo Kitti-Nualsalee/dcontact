@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Request } from '@playwright/test';
 
@@ -130,7 +131,9 @@ class AuthoringMock {
       const request = route.request();
       this.requests.push(request);
       const path = new URL(request.url()).pathname.replace('/api/v1/journey-authoring', '');
-      const body = (request.postDataJSON() ?? {}) as Json;
+      // ภาพหน้าจอเป็น raw body — parse JSON เฉพาะ request ที่เป็น JSON
+      const isJson = (request.headers()['content-type'] ?? '').startsWith('application/json');
+      const body = ((isJson ? request.postDataJSON() : null) ?? {}) as Json;
       const reply = (status: number, payload: unknown) =>
         route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
       const method = request.method();
@@ -963,6 +966,8 @@ class UatMock {
   /** ครั้งถัดไปที่ `เริ่มรอบใหม่` ถูกปฏิเสธด้วย response นี้ */
   startFailure: { status: number; body: Json } | null = null;
   unauthorized = false;
+  /** U1.5 (#433): metadata ของภาพหน้าจอที่ mock รับไว้ */
+  evidence: Json[] = [];
 
   constructor(private readonly authoring: AuthoringMock) {
     this.run = this.makeRun(RUN_ID, 1, JOURNEY_ID);
@@ -1008,7 +1013,9 @@ class UatMock {
       const request = route.request();
       this.requests.push(request);
       const path = new URL(request.url()).pathname.replace('/api/v1/uat-runs', '');
-      const body = (request.postDataJSON() ?? {}) as Json;
+      // ภาพหน้าจอเป็น raw body — parse JSON เฉพาะ request ที่เป็น JSON
+      const isJson = (request.headers()['content-type'] ?? '').startsWith('application/json');
+      const body = ((isJson ? request.postDataJSON() : null) ?? {}) as Json;
       const reply = (status: number, payload: unknown) =>
         route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
       if (this.unauthorized) return reply(401, { message: 'Unauthorized' });
@@ -1065,8 +1072,52 @@ class UatMock {
         (this.run.stepResults as Json[]).push(result);
         return reply(200, result);
       }
+      const evidence = /^\/([^/]+)\/evidence$/.exec(path);
+      if (evidence && this.run?.runId === evidence[1]) {
+        if (request.method() === 'GET') {
+          return reply(200, { runId: this.run.runId, items: this.evidence });
+        }
+        // server จริงตรวจ content type แล้วตรวจ magic bytes ซ้ำ — mock ทำตามขั้นเดียวกันแบบย่อ
+        const type = request.headers()['content-type'];
+        const bytes = request.postDataBuffer();
+        if (type !== 'image/png' && type !== 'image/jpeg') {
+          return reply(415, {
+            code: 'EVIDENCE_TYPE_REJECTED',
+            safeParams: { reason: 'CONTENT_TYPE' },
+          });
+        }
+        if (!bytes || bytes[0] !== 0x89) {
+          return reply(415, { code: 'EVIDENCE_TYPE_REJECTED', safeParams: { detected: 'ZIP' } });
+        }
+        const item = {
+          evidenceId: `0e1f2a3b-4c5d-4e6f-8a7b-${String(this.evidence.length + 1).padStart(12, '0')}`,
+          stepId: request.headers()['x-uat-step-id'],
+          sha256: DIGEST('7'),
+          sizeBytes: bytes.length,
+          contentType: type,
+          recordedByRef: '0a1b2c3d-0000-4000-8000-000000000001',
+          recordedAt: '2026-09-22T04:00:00.000Z',
+        };
+        this.evidence.push(item);
+        return reply(200, item);
+      }
+      if (request.method() === 'GET' && path === `/${this.run?.runId}/bundle`) {
+        return reply(200, this.bundle());
+      }
       return reply(400, { code: 'REQUEST_MALFORMED' });
     });
+  }
+
+  bundle(): Json {
+    return {
+      schema: 'UatEvidenceBundleV1',
+      manifest: { runId: this.run?.runId, sequence: this.run?.sequence },
+      stepResults: this.run?.stepResults ?? [],
+      screenshots: this.evidence,
+      scan: { status: 'PASSED', severity: null, findings: [] },
+      verdict: 'INCOMPLETE',
+      digest: DIGEST('9'),
+    };
   }
 
   posts(suffix: string) {
@@ -1325,4 +1376,78 @@ test('U1.4 แผง UAT อยู่ในเนื้อหาหน้า: �
     await expect(page.getByRole('main')).toHaveCount(1);
     await expect(page.getByRole('main').getByText('UAT / จำลอง (simulated)')).toBeVisible();
   }
+});
+
+// ── U1.5 (#433): ภาพหน้าจอหลักฐานและ evidence bundle ───────────────────────────────────────
+
+/** PNG signature + IHDR ขั้นต่ำ — mock ตรวจแค่ magic bytes */
+const PNG_BYTES = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+]);
+
+test('U1.5 แนบภาพหน้าจอ, เห็น digest, trace ถูกปฏิเสธพร้อมทางไปต่อ และส่งออก bundle ผ่าน Blob', async ({
+  page,
+}) => {
+  const { uat, panel } = await openUat(page);
+  const evidence = panel.getByRole('region', { name: 'ภาพหน้าจอหลักฐาน' });
+  await expect(evidence.getByText('ยังไม่มีภาพหน้าจอในรอบนี้')).toBeVisible();
+  const file = evidence.getByLabel('ไฟล์ภาพหน้าจอ');
+  await expect(file).toHaveAttribute('accept', 'image/png,image/jpeg');
+  const upload = evidence.getByRole('button', { name: 'อัปโหลดภาพหน้าจอ' });
+  await expect(upload).toBeDisabled();
+
+  await evidence.getByLabel('ขั้นตอนของภาพหน้าจอ').selectOption('SIMULATE');
+  await file.setInputFiles({ name: 'simulate.png', mimeType: 'image/png', buffer: PNG_BYTES });
+  await upload.click();
+  await expect(
+    panel.getByRole('status').filter({ hasText: 'แนบภาพหน้าจอของ SIMULATE แล้ว' }),
+  ).toBeVisible();
+  const row = evidence.getByRole('table').getByRole('row').nth(1);
+  await expect(row).toContainText('SIMULATE');
+  await expect(row).toContainText(DIGEST('7').slice(0, 12));
+  await expect(row).toContainText('image/png');
+
+  // Playwright trace (zip) ถูก server ปฏิเสธ — แสดงเหตุผลและทางไปต่อ ไม่มีอะไรถูกเพิ่ม
+  await file.setInputFiles({
+    name: 'trace.zip',
+    mimeType: 'application/zip',
+    buffer: Buffer.from('PK\u0003\u0004trace', 'latin1'),
+  });
+  await upload.click();
+  const alert = panel.getByRole('alert');
+  await expect(alert).toContainText('รับเฉพาะภาพหน้าจอ PNG/JPEG');
+  await expect(alert).toContainText('เลือกไฟล์ภาพหน้าจอ PNG หรือ JPEG');
+  await expect(evidence.getByRole('table').getByRole('row')).toHaveCount(2);
+
+  const posts = uat.posts('/evidence');
+  expect(posts).toHaveLength(2);
+  const [accepted, rejected] = posts;
+  expect(new URL(accepted!.url()).pathname).toBe(`/api/v1/uat-runs/${RUN_ID}/evidence`);
+  expect(accepted!.headers()['content-type']).toBe('image/png');
+  expect(accepted!.headers()['x-uat-step-id']).toBe('SIMULATE');
+  expect(accepted!.headers()['authorization']).toMatch(/^Bearer /);
+  expect(accepted!.headers()['idempotency-key']).toMatch(/^uat-evidence-/);
+  expect(rejected!.headers()['content-type']).toBe('application/zip');
+  expect(rejected!.headers()['idempotency-key']).not.toBe(accepted!.headers()['idempotency-key']);
+
+  // ส่งออก bundle: fetch พร้อม bearer header แล้วดาวน์โหลดจาก Blob — ไม่มี token ใน URL
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    evidence.getByRole('button', { name: 'ส่งออก evidence bundle' }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('uat-run-1-evidence-bundle.json');
+  expect(download.url()).toMatch(/^blob:/);
+  const exported = JSON.parse(readFileSync((await download.path())!, 'utf8')) as Json;
+  expect(exported).toEqual(uat.bundle());
+  const bundleRequest = uat.requests.find((request) =>
+    new URL(request.url()).pathname.endsWith('/bundle'),
+  );
+  expect(bundleRequest!.headers()['authorization']).toMatch(/^Bearer /);
+  for (const request of uat.requests) expect(request.url()).not.toMatch(/token|bearer|eyJ/i);
+  const summary = evidence.getByRole('definition');
+  await expect(summary.filter({ hasText: 'ยังไม่ครบ (INCOMPLETE)' })).toBeVisible();
+  await expect(summary.filter({ hasText: 'ไม่พบข้อมูลต้องห้าม' })).toBeVisible();
+  await expect(summary.filter({ hasText: DIGEST('9').slice(0, 12) })).toBeVisible();
+  expectOpaqueUrl(page);
+  await expectNoSeriousA11yViolations(page);
 });

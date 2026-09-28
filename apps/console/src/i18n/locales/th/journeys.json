@@ -195,7 +195,11 @@
       "UAT_RUN_PENDING_PUBLISH": "เริ่มรอบใหม่ไม่ได้: Journey ของรอบนี้อนุมัติแล้วแต่ยังไม่ publish",
       "UAT_RUN_MUTATION_IN_FLIGHT": "เริ่มรอบใหม่ไม่ได้: ยังมีคำสั่งที่ค้างอยู่",
       "VALIDATION_FAILED": "ข้อมูลไม่ถูกต้อง: {{field}}",
-      "REQUEST_MALFORMED": "ข้อมูลไม่ครบหรือรูปแบบไม่ถูกต้อง: {{field}}"
+      "REQUEST_MALFORMED": "ข้อมูลไม่ครบหรือรูปแบบไม่ถูกต้อง: {{field}}",
+      "EVIDENCE_TYPE_REJECTED": "รับเฉพาะภาพหน้าจอ PNG/JPEG — trace, HAR, network log และไฟล์อื่นถูกปฏิเสธ",
+      "EVIDENCE_TOO_LARGE": "ไฟล์ใหญ่เกิน 5 MB",
+      "EVIDENCE_NOT_FOUND": "ไม่พบภาพหน้าจอนี้ หรือหมดอายุการเก็บแล้ว",
+      "EVIDENCE_INTEGRITY_FAILED": "ภาพหน้าจอใน storage ไม่ตรงกับ digest ที่บันทึกไว้"
     },
     "nextAction": {
       "DECIDE_REVIEW": "ให้ reviewer ตัดสินงานที่รอตรวจของ Journey รอบนี้ก่อน แล้วค่อยเริ่มรอบใหม่",
@@ -208,7 +212,43 @@
       "CHECK_PACK": "ตรวจ environment และ version ของ fixture pack กับ UAT operator",
       "ASK_OPERATOR": "แจ้ง UAT operator ให้ตรวจ fixture pack",
       "FIX_FIELD": "แก้ข้อมูลในช่องที่ระบุแล้วส่งอีกครั้ง",
-      "RETRY_SAME": "กดอีกครั้ง ระบบจะส่งคำสั่งเดิมซ้ำโดยไม่บันทึกซ้ำ"
+      "RETRY_SAME": "กดอีกครั้ง ระบบจะส่งคำสั่งเดิมซ้ำโดยไม่บันทึกซ้ำ",
+      "CHOOSE_SCREENSHOT": "เลือกไฟล์ภาพหน้าจอ PNG หรือ JPEG ขนาดไม่เกิน 5 MB แล้วอัปโหลดใหม่"
+    },
+    "evidence": {
+      "heading": "ภาพหน้าจอหลักฐาน",
+      "hint": "แนบได้เฉพาะภาพหน้าจอ PNG/JPEG ไม่เกิน 5 MB เก็บใน storage ส่วนตัวของ UAT 90 วัน ห้ามแนบ Playwright trace, HAR หรือ network log และห้ามถ่ายจอที่มี token, รหัสผ่าน หรือข้อมูลลูกค้าจริง",
+      "uploadHeading": "แนบภาพหน้าจอ",
+      "stepLabel": "ขั้นตอนของภาพหน้าจอ",
+      "fileLabel": "ไฟล์ภาพหน้าจอ",
+      "fileHint": "PNG หรือ JPEG เท่านั้น — server ตรวจชนิดไฟล์จากเนื้อไฟล์ซ้ำ",
+      "upload": "อัปโหลดภาพหน้าจอ",
+      "uploading": "กำลังอัปโหลด…",
+      "uploaded": "แนบภาพหน้าจอของ {{stepId}} แล้ว",
+      "none": "ยังไม่มีภาพหน้าจอในรอบนี้",
+      "caption": "ภาพหน้าจอหลักฐานของรอบนี้พร้อม digest",
+      "col": {
+        "digest": "SHA-256",
+        "size": "ขนาด",
+        "type": "ชนิดไฟล์"
+      },
+      "sizeValue": "{{kb}} KB",
+      "export": "ส่งออก evidence bundle",
+      "exporting": "กำลังส่งออก…",
+      "exported": "ส่งออก evidence bundle แล้ว ผลรวม {{verdict}}",
+      "bundleLabel": "evidence bundle ที่ส่งออกล่าสุด",
+      "verdict": "ผลรวมของรอบ",
+      "verdictValue": {
+        "PASS": "ผ่าน (PASS)",
+        "FAIL": "ไม่ผ่าน (FAIL)",
+        "INCOMPLETE": "ยังไม่ครบ (INCOMPLETE)"
+      },
+      "scan": "Negative scan",
+      "scanValue": {
+        "PASSED": "ไม่พบข้อมูลต้องห้าม",
+        "FAILED": "พบข้อมูลต้องห้าม {{findings}} รายการ (S1)"
+      },
+      "digest": "Digest ของ bundle"
     }
   },
   "dialog": {
