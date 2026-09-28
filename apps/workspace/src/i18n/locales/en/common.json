@@ -21,7 +21,8 @@
       "agentWorkspace": "Inbox",
       "supervisorWorkspace": "Team live",
       "journeys": "Journeys",
-      "contactGovernance": "Governance"
+      "contactGovernance": "Governance",
+      "dphoneEmbedding": "dphone embedding"
     }
   },
   "shell": {

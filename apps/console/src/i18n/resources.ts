@@ -12,11 +12,23 @@ import commonEn from './locales/en/common.json' with { type: 'json' };
 import commonTh from './locales/th/common.json' with { type: 'json' };
 import journeysEn from './locales/en/journeys.json' with { type: 'json' };
 import journeysTh from './locales/th/journeys.json' with { type: 'json' };
+import integrationsEn from './locales/en/integrations.json' with { type: 'json' };
+import integrationsTh from './locales/th/integrations.json' with { type: 'json' };
 
 export const DEFAULT_NAMESPACE = 'common';
 
 // namespace `ui` ของ component layer (ADR-028) โหลดพร้อมกัน จึงสลับภาษาพร้อมกันทั้งจอ
 export const resources = {
-  th: { common: commonTh, journeys: journeysTh, ...uiResources.th },
-  en: { common: commonEn, journeys: journeysEn, ...uiResources.en },
+  th: {
+    common: commonTh,
+    journeys: journeysTh,
+    integrations: integrationsTh,
+    ...uiResources.th,
+  },
+  en: {
+    common: commonEn,
+    journeys: journeysEn,
+    integrations: integrationsEn,
+    ...uiResources.en,
+  },
 } as const;

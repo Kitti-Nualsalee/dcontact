@@ -2,6 +2,8 @@ import { useMemo, type ReactNode } from 'react';
 import { AuthProvider, useAuth } from 'react-oidc-context';
 import { SessionLocaleProvider } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
+import { createEmbedOriginApi } from './dphone-embedding/api.js';
+import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
 import { ConsoleShell } from './shell/console-shell.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
@@ -87,11 +89,14 @@ export function ConsoleAuthRoot() {
   const preferenceView = view === 'preferences';
   const governanceView = view === 'governance';
   const journeyView = view === 'journeys';
+  const embeddingView = view === 'dphone-embedding';
   const contactId = preferenceView ? (url.searchParams.get('contactId') ?? undefined) : undefined;
   try {
     tenantAlias = resolveTenantAlias(url);
     contextId =
-      preferenceView || governanceView || journeyView ? undefined : resolveConsoleContextId(url);
+      preferenceView || governanceView || journeyView || embeddingView
+        ? undefined
+        : resolveConsoleContextId(url);
   } catch {
     return (
       <Status
@@ -128,6 +133,8 @@ export function ConsoleAuthRoot() {
       <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
         {journeyView ? (
           <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+        ) : embeddingView ? (
+          <DphoneEmbeddingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : governanceView ? (
           <GovernanceSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : (
@@ -242,6 +249,53 @@ function GovernanceSurface({
         cg5Api={cg5Api}
         viewer={viewer}
         initialLocation={parseGovernanceLocation(new URL(window.location.href))}
+      />
+    </ConsoleShell>
+  );
+}
+
+/**
+ * E1.11 (#485): Integrations › dphone embedding — ADMIN แก้ได้ (สิทธิ์จริงตัดสินที่ API ทุก request)
+ */
+function DphoneEmbeddingSurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
+  const auth = useAuth();
+  const accessToken = auth.user?.access_token;
+  const api = useMemo(
+    () => createEmbedOriginApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
+    return (
+      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
+    );
+  if (auth.error || !auth.isAuthenticated || !accessToken)
+    return (
+      <Status
+        title="dphone embedding"
+        detail="เข้าสู่ระบบก่อนจัดการ origin ที่ฝัง dphone"
+        action={() => void auth.signinRedirect()}
+      />
+    );
+  const roles = (auth.user?.profile.realm_access as { roles?: unknown } | undefined)?.roles;
+  return (
+    <ConsoleShell
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId="dphone-embedding"
+    >
+      <DphoneEmbedding
+        api={api}
+        canEdit={Array.isArray(roles) && roles.includes('admin')}
+        tenantAlias={tenantAlias}
+        embedBaseUrl={apiBaseUrl || window.location.origin}
+        dev={import.meta.env.DEV}
       />
     </ConsoleShell>
   );

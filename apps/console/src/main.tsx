@@ -16,6 +16,8 @@ import { SessionLocaleProvider } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
 import { LocaleProbe } from './i18n/locale-probe.js';
 import { ConsoleShell } from './shell/console-shell.js';
+import { createEmbedOriginApi } from './dphone-embedding/api.js';
+import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
 import './style.css';
 
 const root = document.getElementById('root');
@@ -46,6 +48,31 @@ function ConsoleE2eRoot() {
     import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined,
   );
   if (view === 'i18n') return <LocaleProbe />;
+  if (view === 'dphone-embedding') {
+    // viewer จาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token
+    return (
+      <ConsoleShell
+        apiBaseUrl={
+          (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin
+        }
+        accessToken={() => 'e2e-access-token'}
+        tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
+        appId="dphone-embedding"
+      >
+        <DphoneEmbedding
+          api={createEmbedOriginApi({
+            baseUrl:
+              (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
+            accessToken: () => 'e2e-access-token',
+          })}
+          canEdit={url.searchParams.get('viewer') !== 'SUPERVISOR'}
+          tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
+          embedBaseUrl="https://api.dcontact.test"
+          dev={false}
+        />
+      </ConsoleShell>
+    );
+  }
   if (view === 'journeys') {
     return (
       <ConsoleShell
