@@ -36,6 +36,10 @@ export const UAT_FILES = Object.freeze({
   runbook: 'docs/u1-uat-deployment.md',
   keycloakScript: 'scripts/u1-uat-keycloak-users.mjs',
   readinessScript: 'scripts/u1-uat-readiness.mjs',
+  // U1.9 (#506): fixture pack ของ UAT first slice (template + renderer) และ input ตัวอย่างของ provision
+  fixtureTemplate: 'infra/uat/fixtures/uat-first-slice.v1.template.json',
+  fixtureRenderer: 'scripts/u1-uat-fixture-render.mjs',
+  provisionExample: 'infra/uat/uat-provision.example.json',
 });
 
 /** service ที่ UAT first slice ต้องไม่มี (#374): Journey worker/runtime, voice, event backbone, Redis */
@@ -524,6 +528,88 @@ export function checkUatProvision(compose, apiDockerfile, deployScript) {
   return check(id, failures);
 }
 
+/** field ของ template ที่ผูกกับ deployment — ต้องเป็น placeholder เสมอ (ค่าจริงเติมตอน render) */
+export const FIXTURE_TEMPLATE_PLACEHOLDERS = Object.freeze({
+  environment: '__UAT_ENVIRONMENT__',
+  packVersion: '__UAT_FIXTURE_PACK_VERSION__',
+  buildSha: '__UAT_BUILD_SHA__',
+  tenantId: '__UAT_TENANT_ID__',
+  ownerTeamId: '__UAT_OWNER_TEAM_ID__',
+  makerSubjectId: '__UAT_MAKER_SUBJECT_ID__',
+  reviewerSubjectId: '__UAT_REVIEWER_SUBJECT_ID__',
+});
+/** field ของ example ที่มาจาก secret store — ต้องเป็น placeholder `__UAT_*__` ที่ CLI ปฏิเสธ */
+export const PROVISION_EXAMPLE_PLACEHOLDER_FIELDS = Object.freeze([
+  'tenant.id',
+  'tenant.slug',
+  'tenant.name',
+  'ownerTeam.id',
+  'ownerTeam.name',
+  'maker.dcUserId',
+  'maker.email',
+  'maker.displayName',
+  'reviewer.dcUserId',
+  'reviewer.email',
+  'reviewer.displayName',
+  'rollout.evidenceRef',
+  'fixturePack.packVersion',
+]);
+const PLACEHOLDER_VALUE = /^__UAT_[A-Z0-9_]+__$/;
+const UUID_LITERAL = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const EMAIL_LITERAL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+
+function parseJsonOrNull(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * U1.9 (#506): template ของ fixture pack และ input ตัวอย่างของ provision ที่ commit ไว้มีแต่ข้อมูลสังเคราะห์
+ * + placeholder — ไม่มี id/อีเมลจริงของ deployment ใด (ค่าจริงอยู่ใน secret store และเติมตอน render)
+ */
+export function checkFixtureTemplate(templateText, exampleText) {
+  const id = 'UAT-S17 fixture template และ provision example มีแต่ placeholder/ข้อมูลสังเคราะห์';
+  if (templateText === null || exampleText === null) return check(id, [{ kind: 'MISSING' }]);
+  const failures = [];
+  const template = parseJsonOrNull(templateText);
+  const example = parseJsonOrNull(exampleText);
+  if (!template || template.schema !== 'UatFixturePackV1') {
+    failures.push({ path: UAT_FILES.fixtureTemplate, kind: 'NOT_FIXTURE_PACK' });
+  } else {
+    for (const [field, token] of Object.entries(FIXTURE_TEMPLATE_PLACEHOLDERS)) {
+      if (template[field] !== token) {
+        failures.push({ path: UAT_FILES.fixtureTemplate, field, kind: 'DEPLOYMENT_VALUE_PRESENT' });
+      }
+    }
+    const steps = Array.isArray(template.steps) ? template.steps.length : 0;
+    if (steps < 1 || steps > 60) failures.push({ path: UAT_FILES.fixtureTemplate, kind: 'STEPS' });
+  }
+  if (!example || example.schema !== 'UatProvisionV1') {
+    failures.push({ path: UAT_FILES.provisionExample, kind: 'NOT_PROVISION_INPUT' });
+  } else {
+    for (const field of PROVISION_EXAMPLE_PLACEHOLDER_FIELDS) {
+      const value = field.split('.').reduce((node, key) => node?.[key], example);
+      if (typeof value !== 'string' || !PLACEHOLDER_VALUE.test(value)) {
+        failures.push({ path: UAT_FILES.provisionExample, field, kind: 'VALUE_PRESENT' });
+      }
+    }
+    if (typeof example.fixturePack?.template !== 'string') {
+      failures.push({ path: UAT_FILES.provisionExample, kind: 'FIXTURE_PACK_NOT_TEMPLATE' });
+    }
+  }
+  for (const [path, text] of [
+    [UAT_FILES.fixtureTemplate, templateText],
+    [UAT_FILES.provisionExample, exampleText],
+  ]) {
+    if (UUID_LITERAL.test(text)) failures.push({ path, kind: 'REAL_ID_PRESENT' });
+    if (EMAIL_LITERAL.test(text)) failures.push({ path, kind: 'EMAIL_PRESENT' });
+  }
+  return check(id, failures);
+}
+
 export function checkProxy(caddyfile) {
   const failures = [];
   if (caddyfile === null)
@@ -696,6 +782,7 @@ export function runStaticChecks(root = repositoryRoot) {
     checkWorkflow(files.workflow),
     checkEnvExample(files.envExample),
     checkDockerignore(files.dockerignore),
+    checkFixtureTemplate(files.fixtureTemplate, files.provisionExample),
     scanSecrets(
       Object.fromEntries(Object.entries(UAT_FILES).map(([key, path]) => [path, files[key]])),
     ),
