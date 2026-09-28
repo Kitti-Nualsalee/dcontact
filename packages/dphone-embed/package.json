@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./launcher": {
+      "types": "./dist/launcher.d.ts",
+      "default": "./dist/launcher.js"
+    },
     "./schema/v1.json": "./schema/v1.json"
   },
   "files": [
