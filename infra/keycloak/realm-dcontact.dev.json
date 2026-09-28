@@ -4,6 +4,7 @@
   "sslRequired": "NONE",
   "displayName": "D-Contact (development only)",
   "loginTheme": "dcontact",
+  "emailTheme": "dcontact",
   "organizationsEnabled": true,
   "registrationAllowed": false,
   "resetPasswordAllowed": true,

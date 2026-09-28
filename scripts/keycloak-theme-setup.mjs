@@ -3,11 +3,13 @@ import { resolve } from 'node:path';
 
 /**
  * #515: ตั้ง login theme `dcontact` ให้ realm ที่ import ไปแล้ว (`--import-realm` ไม่ import ซ้ำ)
+ * #522: และ email theme `dcontact` (อีเมลเชิญ first admin)
  * idempotent — ค่าเดิมตรงแล้วไม่ PUT
  * theme ของ Platform Console (`dcontact-platform`) ตั้งเป็น client attribute ใน keycloak-platform-setup.mjs
  */
 export const LOGIN_THEME = 'dcontact';
 export const PLATFORM_LOGIN_THEME = 'dcontact-platform';
+export const EMAIL_THEME = 'dcontact';
 
 const keycloakBaseUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
 const realm = process.env.KEYCLOAK_REALM ?? 'dcontact';
@@ -42,12 +44,14 @@ export async function setupKeycloakTheme() {
     }),
   });
   const current = await request(`/admin/realms/${realm}`, { token });
-  if (current.loginTheme === LOGIN_THEME) return { changed: false };
+  if (current.loginTheme === LOGIN_THEME && current.emailTheme === EMAIL_THEME) {
+    return { changed: false };
+  }
   // PUT บางส่วนได้ — field ที่ไม่ส่งไม่ถูกแตะ
   await request(`/admin/realms/${realm}`, {
     method: 'PUT',
     token,
-    body: { loginTheme: LOGIN_THEME },
+    body: { loginTheme: LOGIN_THEME, emailTheme: EMAIL_THEME },
   });
   return { changed: true };
 }
@@ -57,7 +61,7 @@ if (invokedUrl === import.meta.url) {
   try {
     const { changed } = await setupKeycloakTheme();
     process.stdout.write(
-      `${JSON.stringify({ type: 'keycloak.theme.setup', status: 'PASS', loginTheme: LOGIN_THEME, changed })}\n`,
+      `${JSON.stringify({ type: 'keycloak.theme.setup', status: 'PASS', loginTheme: LOGIN_THEME, emailTheme: EMAIL_THEME, changed })}\n`,
     );
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

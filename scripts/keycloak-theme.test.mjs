@@ -3,8 +3,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, copyFileSync } from '
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { THEME_ASSETS, buildKeycloakTheme } from './keycloak-theme-build.mjs';
-import { LOGIN_THEME, PLATFORM_LOGIN_THEME } from './keycloak-theme-setup.mjs';
+import {
+  EMAIL_TOKENS,
+  THEME_ASSETS,
+  buildKeycloakTheme,
+  parseTokens,
+} from './keycloak-theme-build.mjs';
+import { EMAIL_THEME, LOGIN_THEME, PLATFORM_LOGIN_THEME } from './keycloak-theme-setup.mjs';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 // ตัด comment ของ CSS และ FreeMarker ออกก่อนตรวจ (comment อ้างเลข issue เช่น #515 ได้)
@@ -16,6 +21,10 @@ const login = read(`${themeDir}/login.ftl`);
 const otp = read(`${themeDir}/login-otp.ftl`);
 const loginUsername = read(`${themeDir}/login-username.ftl`);
 const loginPassword = read(`${themeDir}/login-password.ftl`);
+const emailDir = 'infra/keycloak/themes/dcontact/email';
+const emailLayout = read(`${emailDir}/html/template.ftl`);
+const emailHtml = read(`${emailDir}/html/executeActions.ftl`);
+const emailText = read(`${emailDir}/text/executeActions.ftl`);
 
 function messageKeys(path) {
   return new Set(
@@ -34,6 +43,9 @@ test('theme ไม่มีค่าสีตรง — ทุกสีมาจ
     otp,
     loginUsername,
     loginPassword,
+    emailLayout,
+    emailHtml,
+    emailText,
   }).map(([key, value]) => [key, code(value)])) {
     assert.doesNotMatch(source, /#[0-9a-f]{3,8}\b(?![-\w])/i, `${name} มี hex`);
     assert.doesNotMatch(source, /\b(rgb|hsl)a?\(/i, `${name} มี rgb()/hsl()`);
@@ -93,7 +105,9 @@ test('child theme ของ Platform ต่อจาก dcontact และสล
 });
 
 test('realm ใหม่ใช้ theme dcontact และ client platform-console ใช้ child theme', () => {
-  assert.equal(JSON.parse(read('infra/keycloak/realm-dcontact.dev.json')).loginTheme, LOGIN_THEME);
+  const realm = JSON.parse(read('infra/keycloak/realm-dcontact.dev.json'));
+  assert.equal(realm.loginTheme, LOGIN_THEME);
+  assert.equal(realm.emailTheme, EMAIL_THEME);
   assert.match(
     read('scripts/keycloak-platform-setup.mjs'),
     new RegExp(`login_theme: '${PLATFORM_LOGIN_THEME}'`),
@@ -111,6 +125,38 @@ test('build คัดลอก token และโลโก้จาก packages/
   assert.equal(
     readFileSync(join(root, `${themeDir}/resources/css/tokens.css`), 'utf8'),
     read('packages/ui/src/tokens.css'),
+  );
+  const emailTokens = readFileSync(join(root, EMAIL_TOKENS), 'utf8');
+  assert.match(emailTokens, /"surface-brand": "#[0-9a-f]{6}"/);
+  assert.match(emailTokens, /"text-md": "16px"/);
+});
+
+test('email theme อ้างเฉพาะ token ที่มีอยู่จริงใน tokens.css (#522)', () => {
+  const defined = parseTokens(read('packages/ui/src/tokens.css'));
+  const used = [...emailLayout.matchAll(/dc\['([\w-]+)'\]/g)].map((m) => m[1]);
+  assert.ok(used.length > 0);
+  assert.deepEqual(
+    [...new Set(used)].filter((name) => !(name in defined)),
+    [],
+  );
+  assert.equal(parseTokens(':root { --dc-a: 1.25rem; --dc-a: #000; }').a, '20px');
+});
+
+test('อีเมล plain text มีลิงก์อยู่บรรทัดของตัวเอง — invitationLinks อ่านลิงก์ action-token จาก Text (#522)', () => {
+  assert.match(code(emailText), /^\$\{link\}$/m);
+  assert.match(emailHtml, /@layout\.button href=link/);
+});
+
+test('ข้อความของ email theme ครบทั้ง th และ en (#522)', () => {
+  const th = messageKeys(`${emailDir}/messages/messages_th.properties`);
+  const en = messageKeys(`${emailDir}/messages/messages_en.properties`);
+  assert.deepEqual([...th].sort(), [...en].sort());
+  const used = [...`${emailLayout}${emailHtml}${emailText}`.matchAll(/msg\("(dc\w+)"/g)].map(
+    (m) => m[1],
+  );
+  assert.deepEqual(
+    [...new Set(used)].filter((key) => !th.has(key)),
+    [],
   );
 });
 
