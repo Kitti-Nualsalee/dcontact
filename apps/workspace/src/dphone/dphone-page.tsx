@@ -4,6 +4,9 @@
  * ใน D1 เป็นหน้าต่างที่แยกออกจาก Agent Workspace: ไม่มี SIP/WebRTC/WS ของตัวเอง ควบคุมสายของ working tab
  * ผ่าน BroadcastChannel (same-origin) จึงไม่ต้องใช้ token และไม่สร้างจุดรับงานที่สอง
  * การใช้เป็น iframe ในระบบภายนอก (auth แบบ popup, allowlist, postMessage API) เป็นงานของ map E1
+ *
+ * E1.12 (#486): หน้าต่างแยกนี้ไม่รับงานเอง จึงไม่ขอ work-session lease — lease อยู่กับ Workspace ที่เป็น host
+ * เมื่อ host เสีย lease (และไม่มีสายในมือ) host ปิดสะพาน หน้าต่างนี้ได้ `closed` และปิดตัวเอง
  */
 import { useEffect, useRef, useState } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';

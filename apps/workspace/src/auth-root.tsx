@@ -14,6 +14,7 @@ import { BrowserDphone } from './dphone/dphone.js';
 import { createSupervisorWorkspaceApi } from './supervisor-api.js';
 import { SupervisorWorkspace } from './supervisor-workspace.js';
 import { WorkspaceApp, type DphoneFactory } from './workspace-app.js';
+import { createWorkSessionApi } from './work-session.js';
 
 const createProductionDphone: DphoneFactory = (remoteAudio, callbacks) =>
   new BrowserDphone(new SipJsBrowserTransport(remoteAudio, callbacks));
@@ -24,6 +25,15 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
   const agentApi = useMemo(
     () =>
       createAgentWorkspaceApi({
+        baseUrl: apiBaseUrl,
+        accessToken: () => accessToken,
+      }),
+    [accessToken, apiBaseUrl],
+  );
+  // E1.12: work-session lease — ถูกใช้จริงเฉพาะ tenant ที่เปิด `workSession.lease.enforced`
+  const workSession = useMemo(
+    () =>
+      createWorkSessionApi({
         baseUrl: apiBaseUrl,
         accessToken: () => accessToken,
       }),
@@ -100,6 +110,7 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
         tenantLabel={tenantAlias}
         onSignOut={() => void auth.signoutRedirect()}
         createDphone={createProductionDphone}
+        workSession={workSession}
       />
     </WorkspaceShell>
   );

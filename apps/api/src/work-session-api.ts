@@ -1,5 +1,6 @@
 /**
  * E1.9 (#483): REST ของ work-session lease — `POST|DELETE /api/v1/me/work-session`, `POST .../takeover`
+ * E1.12 (#486): `GET /api/v1/me/work-session` → `{ enforced, holder }` ให้ Workspace รู้ flag ก่อนขอ lease
  *
  * error envelope คงที่ `{ code, holder? }`: 400 VALIDATION_FAILED, 404 AGENT_NOT_FOUND,
  * 409 WORK_SESSION_HELD (+holder) / WORK_SESSION_BUSY / WORK_SESSION_CHANGED
@@ -11,6 +12,7 @@ import {
   Controller,
   Delete,
   ForbiddenException,
+  Get,
   Headers,
   HttpCode,
   Inject,
@@ -56,6 +58,13 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
 @Controller('api/v1/me/work-session')
 export class WorkSessionController {
   constructor(@Inject(WORK_SESSION_LEASES) private readonly leases: WorkSessionLeases) {}
+
+  /** flag `workSession.lease.enforced` ของ tenant + ผู้ถือ lease ปัจจุบัน (surface, เวลาเริ่ม, มีงานไหม) */
+  @Get()
+  @GatewayRoles('agent')
+  status(@Req() request: AuthenticatedGatewayRequest) {
+    return mapped(() => this.leases.status(actorOf(request)));
+  }
 
   @Post()
   @HttpCode(201)
