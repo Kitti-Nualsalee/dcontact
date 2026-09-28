@@ -276,6 +276,9 @@ jobs:
             sleep 3
           done
           echo 'API ไม่ตอบผ่าน proxy ภายในเวลาที่กำหนด' >&2
+          # ให้เห็นสาเหตุใน log ของ job ทันที (ค่า secret ถูก add-mask ไว้แล้วตอนสร้าง uat.env)
+          uat-compose ps -a || true
+          uat-compose logs --no-color --tail 60 proxy api || true
           exit 1
 
       - name: UAT readiness smoke (u1-uat-readiness.mjs --live, L01–L05 + L07 PASS)
