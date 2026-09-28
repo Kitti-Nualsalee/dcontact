@@ -1,0 +1,40 @@
+# U1.6 (#434): build context ของ image UAT — ห้ามพา secret, dependency ที่ติดตั้งแล้ว หรือหลักฐานเข้า image
+.git
+.github
+**/node_modules
+**/dist
+**/dist-preview
+**/.turbo
+**/*.tsbuildinfo
+
+# env & secrets
+.env
+.env.*
+**/.env
+**/.env.*
+.jira
+**/*.pem
+**/*.key
+**/*.p12
+
+# ผลทดสอบ/หลักฐาน/ข้อมูล runtime
+**/test-results
+**/test-results-real
+**/playwright-report
+**/blob-report
+**/coverage
+artifacts
+docs
+infra/docker/data
+infra/freeswitch
+infra/keycloak/providers
+infra/keycloak/extensions/*/target
+.playwright-mcp
+
+# เอกสาร/ไฟล์ขนาดใหญ่ที่ image ไม่ใช้
+mockups
+/*.png
+/*.xlsx
+/*.ndjson
+**/*.log
+.DS_Store

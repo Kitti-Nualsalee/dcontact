@@ -1,0 +1,259 @@
+# U1.6 (#434): UAT stack ของ UAT first slice บน VM เดียว (production-shaped) — ตาม #373/#374
+#
+# มีเฉพาะ: proxy (Console + TLS), api (profile `uat`), Keycloak (production mode), Postgres, MinIO
+# ไม่มี `apps/journey` worker, FreeSWITCH, Kafka/Redpanda หรือ Redis — การเพิ่ม service เหล่านี้คือ stop condition
+#
+# - ไม่มีค่า default ของ credential: ทุก secret มาจาก env file บน VM (`/opt/dcontact-uat/uat.env`)
+#   ด้วยรูป `${VAR:?...}` — ขาดตัวใด compose ไม่ยอม render
+# - image ของเราอ้างด้วย digest (`${API_IMAGE}` ฯลฯ = `ghcr.io/...@sha256:...`) ที่ workflow เขียนลง
+#   `release.env`; image ภายนอก pin digest ตรงนี้
+# - มีแค่ proxy ที่เปิดพอร์ตสู่ host (443 และ 80 สำหรับ redirect) — DB, MinIO, Keycloak และ api ไม่เปิด
+# - service ใน profile `ops` เป็น one-shot ที่ `infra/uat/bin/uat-deploy.sh` สั่งตามลำดับ;
+#   `minio-init` เป็น one-shot นอก profile เพราะ api ต้องรอให้จบสำเร็จก่อนบูต (U1.5 #433)
+#
+# ใช้งาน: docker compose --env-file uat.env --env-file release.env -f docker-compose.uat.yml ...
+name: dcontact-uat
+
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: 20m
+      max-file: '5'
+
+services:
+  proxy:
+    <<: *hardening
+    image: ${CONSOLE_IMAGE:?CONSOLE_IMAGE (digest) is required}
+    depends_on:
+      api:
+        condition: service_started
+      keycloak:
+        condition: service_started
+    environment:
+      UAT_HOST: ${UAT_HOST:?UAT_HOST is required}
+      UAT_ALLOWED_CIDRS: ${UAT_ALLOWED_CIDRS:?UAT_ALLOWED_CIDRS is required}
+    ports:
+      - '443:8443'
+      - '80:8080'
+    read_only: true
+    tmpfs:
+      - /data
+      - /config
+    secrets:
+      - uat_tls_cert
+      - uat_tls_key
+    networks:
+      - edge
+      - internal
+
+  api:
+    <<: *hardening
+    image: ${API_IMAGE:?API_IMAGE (digest) is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # U1.5 (#433): API บูตไม่ผ่านถ้า bucket หลักฐานไม่พร้อม — รอ minio-init (bucket + user ของ API) ก่อน
+      minio-init:
+        condition: service_completed_successfully
+    # U1.2 (#430): profile uat ปิด Kafka/LINE/egress เชิงโครงสร้าง; ห้ามใส่ LINE_*, KAFKA_BROKERS, SIP_*
+    environment:
+      NODE_ENV: production
+      DCONTACT_API_PROFILE: uat
+      PORT: '3000'
+      DATABASE_URL: postgresql://dcontact_app:${UAT_APP_DB_PASSWORD:?UAT_APP_DB_PASSWORD is required}@postgres:5432/dcontact?schema=public
+      KEYCLOAK_ISSUER: https://${UAT_HOST:?UAT_HOST is required}/auth/realms/dcontact
+      KEYCLOAK_AUDIENCE: dcontact-api
+      KEYCLOAK_JWKS_URI: http://keycloak:8080/auth/realms/dcontact/protocol/openid-connect/certs
+      J5_CANVAS_WRITE_ENABLED: 'true'
+      J5_PUBLISH_UI_ENABLED: 'true'
+      J5_TEMPLATE_CATALOG_ENABLED: 'false'
+      J5_TEMPLATE_UPGRADE_ENABLED: 'false'
+      # U1.5 (#433): evidence storage — user เฉพาะของ API (policy uat-evidence-api) ไม่ใช่ root ของ MinIO
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${UAT_MINIO_API_ACCESS_KEY:?UAT_MINIO_API_ACCESS_KEY is required}
+      MINIO_SECRET_KEY: ${UAT_MINIO_API_SECRET_KEY:?UAT_MINIO_API_SECRET_KEY is required}
+      UAT_EVIDENCE_BUCKET: uat-evidence
+    read_only: true
+    networks:
+      - internal
+
+  keycloak:
+    <<: *hardening
+    image: docker.io/keycloak/keycloak:26.0.0@sha256:db0d0f2c2eee8618a37a50e04affb69823e56687b4d1b676a847a4b85de62178
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # production mode (`start`) หลัง proxy: TLS จบที่ proxy, Keycloak ฟัง http ภายใน network เท่านั้น
+    # realm ไม่ import ตอนบูต — `u1-uat-keycloak-users.mjs --config` สร้าง/reconcile จาก template ที่ render แล้ว
+    command:
+      - start
+      - --features=organization
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${UAT_KEYCLOAK_DB_PASSWORD:?UAT_KEYCLOAK_DB_PASSWORD is required}
+      KC_HOSTNAME: https://${UAT_HOST:?UAT_HOST is required}/auth
+      KC_HOSTNAME_STRICT: 'true'
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HTTP_ENABLED: 'true'
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: 'true'
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${UAT_KEYCLOAK_ADMIN_USERNAME:?UAT_KEYCLOAK_ADMIN_USERNAME is required}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${UAT_KEYCLOAK_ADMIN_PASSWORD:?UAT_KEYCLOAK_ADMIN_PASSWORD is required}
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /auth/health/ready HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks:
+      - internal
+
+  postgres:
+    <<: *hardening
+    image: docker.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    environment:
+      POSTGRES_USER: ${UAT_POSTGRES_USER:?UAT_POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${UAT_POSTGRES_PASSWORD:?UAT_POSTGRES_PASSWORD is required}
+      POSTGRES_DB: dcontact
+    command: postgres -c max_connections=100
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d dcontact']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - internal
+
+  # U1.5 (#433): evidence ของ UAT — bucket `uat-evidence` แบบ private (ไม่มี anonymous/bucket policy)
+  # retention 90 วันเป็น lifecycle ที่ API ตั้งตอนบูต; ไม่เปิดพอร์ตสู่ host
+  minio:
+    <<: *hardening
+    image: docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${UAT_MINIO_ROOT_USER:?UAT_MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${UAT_MINIO_ROOT_PASSWORD:?UAT_MINIO_ROOT_PASSWORD is required}
+      MINIO_BROWSER: 'off'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - internal
+
+  # ── one-shot ของ operator ──────────────────────────────────────────────────────────
+
+  # ทุก deploy (ไม่อยู่ใน profile ops เพราะ api รอให้จบก่อน): bucket private + user/policy ของ API
+  minio-init:
+    # image เดียวกับ minio (มีทั้ง `mc` และ /bin/sh — แนวเดียวกับ dev compose #467)
+    image: docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+    restart: 'no'
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      # credential อยู่ใน env ของ container เท่านั้น ไม่ผ่าน command line ของ compose
+      MC_HOST_uat: http://${UAT_MINIO_ROOT_USER:?UAT_MINIO_ROOT_USER is required}:${UAT_MINIO_ROOT_PASSWORD:?UAT_MINIO_ROOT_PASSWORD is required}@minio:9000
+      UAT_MINIO_ROOT_USER: ${UAT_MINIO_ROOT_USER:?UAT_MINIO_ROOT_USER is required}
+      UAT_MINIO_API_ACCESS_KEY: ${UAT_MINIO_API_ACCESS_KEY:?UAT_MINIO_API_ACCESS_KEY is required}
+      UAT_MINIO_API_SECRET_KEY: ${UAT_MINIO_API_SECRET_KEY:?UAT_MINIO_API_SECRET_KEY is required}
+      MC_CONFIG_DIR: /tmp/mc
+    entrypoint: ['/bin/sh', '/uat/minio-init.sh']
+    volumes:
+      - ./bin/minio-init.sh:/uat/minio-init.sh:ro
+    networks:
+      - internal
+
+  # สร้าง role/database ของ Keycloak และตั้งรหัสผ่าน role ของ application จาก secret (ไม่ใช้ค่าจาก rls.sql)
+  db-roles:
+    profiles: ['ops']
+    image: docker.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGDATABASE: dcontact
+      PGUSER: ${UAT_POSTGRES_USER:?UAT_POSTGRES_USER is required}
+      PGPASSWORD: ${UAT_POSTGRES_PASSWORD:?UAT_POSTGRES_PASSWORD is required}
+      UAT_KEYCLOAK_DB_PASSWORD: ${UAT_KEYCLOAK_DB_PASSWORD:?UAT_KEYCLOAK_DB_PASSWORD is required}
+      UAT_APP_DB_PASSWORD: ${UAT_APP_DB_PASSWORD:?UAT_APP_DB_PASSWORD is required}
+    entrypoint: ['/bin/sh', '/uat/db-roles.sh']
+    volumes:
+      - ./bin/db-roles.sh:/uat/db-roles.sh:ro
+    networks:
+      - internal
+
+  # additive migration เท่านั้น (`prisma migrate deploy`) แล้ว apply rls.sql — ไม่มี down migration
+  migrate:
+    profiles: ['ops']
+    image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${UAT_POSTGRES_USER:?UAT_POSTGRES_USER is required}:${UAT_POSTGRES_PASSWORD:?UAT_POSTGRES_PASSWORD is required}@postgres:5432/dcontact?schema=public
+    command:
+      - /bin/sh
+      - -ec
+      - prisma migrate deploy --schema prisma/schema.prisma && prisma db execute --file prisma/rls.sql --schema prisma/schema.prisma
+    networks:
+      - internal
+
+  # realm/client/Organization/OTP และบัญชี maker/reviewer ผ่าน admin REST ภายใน network
+  keycloak-config:
+    profiles: ['ops']
+    image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    environment:
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080/auth
+      KEYCLOAK_ADMIN_USERNAME: ${UAT_KEYCLOAK_ADMIN_USERNAME:?UAT_KEYCLOAK_ADMIN_USERNAME is required}
+      KEYCLOAK_ADMIN_PASSWORD: ${UAT_KEYCLOAK_ADMIN_PASSWORD:?UAT_KEYCLOAK_ADMIN_PASSWORD is required}
+      UAT_HOST: ${UAT_HOST:?UAT_HOST is required}
+      UAT_TENANT_ID: ${UAT_TENANT_ID:?UAT_TENANT_ID is required}
+      UAT_TENANT_SLUG: ${UAT_TENANT_SLUG:?UAT_TENANT_SLUG is required}
+      UAT_TENANT_NAME: ${UAT_TENANT_NAME:?UAT_TENANT_NAME is required}
+      UAT_ORGANIZATION_DOMAIN: ${UAT_ORGANIZATION_DOMAIN:?UAT_ORGANIZATION_DOMAIN is required}
+    command: ['node', 'scripts/u1-uat-keycloak-users.mjs', '--config']
+    networks:
+      - internal
+
+secrets:
+  uat_tls_cert:
+    file: ${UAT_TLS_CERT_FILE:?UAT_TLS_CERT_FILE is required}
+  uat_tls_key:
+    file: ${UAT_TLS_KEY_FILE:?UAT_TLS_KEY_FILE is required}
+
+volumes:
+  postgres-data:
+  minio-data:
+
+networks:
+  edge: {}
+  # service ภายในไม่มีทางออก internet (providerEgress BLOCKED เชิงเครือข่ายด้วย)
+  internal:
+    internal: true

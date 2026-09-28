@@ -1,0 +1,59 @@
+# U1.6 (#434): reverse proxy ของ UAT first slice — จุดเดียวที่เปิดพอร์ตสู่ host
+#
+# - Console (static) และ API อยู่ origin เดียว: `/api/v1/*` → api (UAT profile)
+# - `/auth/*` → Keycloak (production mode, http ภายใน network ของ compose เท่านั้น)
+# - admin console/REST ของ Keycloak และ realm master ไม่เปิดผ่าน proxy (ตอบ 404)
+# - เข้าได้เฉพาะ CIDR ของ identity-aware gateway/allowlist (`UAT_ALLOWED_CIDRS`, provisioning gate)
+# - TLS จากไฟล์ cert/key ที่ operator วางบน VM (ไม่มี ACME อัตโนมัติ; แหล่ง cert เป็น provisioning gate)
+#
+# ค่า `{$VAR}` มาจาก env ของ container (docker-compose.uat.yml บังคับ `:?` ทุกตัว)
+{
+	admin off
+	persist_config off
+	http_port 8080
+	https_port 8443
+	# cert มาจากไฟล์เท่านั้น — ไม่ขอ ACME; ไม่ตั้ง trusted_proxies จึงไม่เชื่อ X-Forwarded-* จากภายนอก
+	auto_https off
+}
+
+http://{$UAT_HOST} {
+	redir https://{$UAT_HOST}{uri} permanent
+}
+
+https://{$UAT_HOST} {
+	tls /run/secrets/uat_tls_cert /run/secrets/uat_tls_key
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		-Server
+	}
+
+	# `route` คงลำดับตามที่เขียน — ไม่งั้น Caddy เรียง `handle` ก่อน `respond` และ allowlist/การปิด admin
+	# จะถูกข้ามสำหรับ /auth และ /api (readiness UAT-L05 จับได้)
+	route {
+		@outside not remote_ip {$UAT_ALLOWED_CIDRS}
+		respond @outside 403
+
+		# admin console/REST ของ Keycloak และ realm master (บัญชี bootstrap admin) — ภายใน VM เท่านั้น
+		@keycloakAdmin path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* /auth/metrics /auth/health /auth/health/*
+		respond @keycloakAdmin 404
+
+		handle /auth/* {
+			reverse_proxy keycloak:8080
+		}
+
+		# ทั้ง `/api/*` ไปที่ API — route นอก allowlist ของ profile ถูกตอบ 404 ROUTE_NOT_AVAILABLE_IN_PROFILE
+		handle /api/* {
+			reverse_proxy api:3000
+		}
+
+		handle {
+			root * /srv/console
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}
