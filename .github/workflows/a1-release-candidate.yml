@@ -47,9 +47,10 @@ jobs:
         run: pnpm db:generate && pnpm --filter "@d-contact/platform-api^..." --filter "@d-contact/api^..." --filter "@d-contact/platform-console^..." build
 
       # เฉพาะ service ที่ A1 ใช้ — ไม่ต้องใช้ MinIO/Redpanda/FreeSWITCH (#467)
-      - name: Start Postgres + Keycloak (พร้อม invitation guard) + mailpit
+      - name: Start Postgres + Keycloak (พร้อม invitation guard และ login theme) + mailpit
         run: |
           pnpm infra:keycloak:extensions
+          pnpm infra:keycloak:theme
           docker compose -f infra/docker/docker-compose.dev.yml up -d --wait postgres keycloak mailpit || {
             docker compose -f infra/docker/docker-compose.dev.yml logs --no-color keycloak
             exit 1

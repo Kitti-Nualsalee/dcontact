@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "workflow": {
+    "name": "a1-platform-provisioning-acceptance",
+    "version": 1
+  },
+  "run": {
+    "id": "test-run-16340",
+    "profile": "fast",
+    "startedFrom": "local"
+  },
+  "source": {
+    "commitSha": "29047b5825d0a3f09e64c3d2592a480fc6c760dd",
+    "dirty": true,
+    "config": {
+      "sha256": "6d2e0fcedebe19b5cf2ebd29db8d47cafdaf63b88254cbffdb154f8be28c7f3b"
+    }
+  },
+  "environment": {
+    "node": "v22.22.2",
+    "platform": "linux"
+  },
+  "status": "FAIL",
+  "nonWaivable": {
+    "isolation": "UNCOVERED",
+    "idempotency": "UNCOVERED",
+    "no-duplicate-resource": "UNCOVERED",
+    "no-premature-active": "UNCOVERED",
+    "complete-audit": "FAIL",
+    "no-secret-leakage": "PASS"
+  },
+  "checks": [
+    {
+      "checkId": "A1-F-CONTRACT",
+      "dimension": "contract",
+      "status": "PASS",
+      "durationMs": 0,
+      "counters": {
+        "pass": 4,
+        "fail": 0,
+        "skipped": 0,
+        "todo": 0,
+        "cancelled": 0
+      },
+      "proves": [
+        "input canonicalization",
+        "error envelope ของ Keycloak client",
+        "deterministic ids"
+      ],
+      "gates": [
+        "no-secret-leakage"
+      ]
+    },
+    {
+      "checkId": "A1-F-SCHEMA-REGISTRY",
+      "dimension": "migration",
+      "status": "SKIPPED",
+      "durationMs": 0,
+      "counters": {
+        "pass": 4,
+        "fail": 0,
+        "skipped": 1,
+        "todo": 0,
+        "cancelled": 0
+      },
+      "proves": [
+        "expand-only",
+        "append-only ledger ไม่มีสิทธิ์ UPDATE/DELETE",
+        "role/policy registry"
+      ],
+      "gates": [
+        "complete-audit"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "checkId": "A1-F-SCHEMA-REGISTRY",
+      "file": "A1-F-SCHEMA-REGISTRY.log",
+      "sha256": "a58c78385905135c262fb8e540a3d345f0abdfd7bbffc51e612a248e247575e7"
+    }
+  ],
+  "contextPointers": [
+    "#385",
+    "#388",
+    "#393",
+    "#413"
+  ]
+}

@@ -3,6 +3,7 @@
   "enabled": true,
   "sslRequired": "NONE",
   "displayName": "D-Contact (development only)",
+  "loginTheme": "dcontact",
   "organizationsEnabled": true,
   "registrationAllowed": false,
   "resetPasswordAllowed": true,

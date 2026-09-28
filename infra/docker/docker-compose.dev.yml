@@ -157,6 +157,8 @@ services:
       - ../keycloak:/opt/keycloak/data/import:ro
       # A1.4b (#436): invitation guard (build ด้วย `pnpm infra:keycloak:extensions`)
       - ../keycloak/providers:/opt/keycloak/providers:ro
+      # #515: login theme ของ D-Contact (token/โลโก้คัดลอกด้วย `pnpm infra:keycloak:theme`)
+      - ../keycloak/themes:/opt/keycloak/themes:ro
     healthcheck:
       test: ['CMD-SHELL', 'bash -c "exec 3<>/dev/tcp/127.0.0.1/8080"']
       interval: 10s

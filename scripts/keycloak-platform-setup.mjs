@@ -274,7 +274,8 @@ export async function setupKeycloakPlatform({ withDevUsers = true } = {}) {
     fullScopeAllowed: false,
     redirectUris: [`${PLATFORM_CONSOLE_REDIRECT}/*`],
     webOrigins: [PLATFORM_CONSOLE_REDIRECT],
-    attributes: { 'pkce.code.challenge.method': 'S256' },
+    // #515: หน้า login ของ Platform Console ใช้ child theme ที่มีป้าย Internal · Platform Operations
+    attributes: { 'pkce.code.challenge.method': 'S256', login_theme: 'dcontact-platform' },
     authenticationFlowBindingOverrides: { browser: flowId },
     // ไม่มี profile/email/organization/offline_access — token มีแค่ identity + platform roles
     defaultClientScopes: ['roles', 'acr', 'basic'],

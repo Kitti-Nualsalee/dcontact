@@ -14,6 +14,9 @@ packages/db/.env
 
 # infra runtime data
 infra/docker/data/
+# #515: สำเนา token/โลโก้ที่ `pnpm infra:keycloak:theme` คัดลอกเข้า login theme
+infra/keycloak/themes/dcontact/login/resources/css/tokens.css
+infra/keycloak/themes/dcontact/login/resources/img/
 # TLS certs/keys ที่ FreeSWITCH auto-generate ลง mounted conf dir
 infra/freeswitch/conf/tls/
 
