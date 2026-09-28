@@ -98,3 +98,7 @@
   background: var(--dc-surface-sunken);
   font-size: var(--dc-text-xs);
 }
+
+.dphone-embedding__snippet > button {
+  justify-self: start;
+}
