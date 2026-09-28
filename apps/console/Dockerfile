@@ -48,8 +48,12 @@ RUN addgroup -S -g 10001 dcontact \
   && chown -R 10001:10001 /data /config
 ENV XDG_DATA_HOME=/data \
   XDG_CONFIG_HOME=/config
+# caddy ใน image ทางการมี file capability cap_net_bind_service — เมื่อ compose ใช้ cap_drop: ALL +
+# no-new-privileges kernel จะไม่ยอม exec binary นี้ (Caddy ตายทันทีแล้ว restart วน) เราฟังพอร์ตสูงอยู่แล้ว
+# จึงใช้สำเนาที่ไม่มี file capability (`install` ไม่คัดลอก xattr) — พบจาก uat-image-smoke (#507)
+RUN install -m 0755 /usr/bin/caddy /usr/local/bin/caddy-uat
 COPY infra/uat/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /repo/apps/console/dist /srv/console
 USER 10001:10001
 EXPOSE 8080 8443
-CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+CMD ["/usr/local/bin/caddy-uat", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

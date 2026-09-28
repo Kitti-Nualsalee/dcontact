@@ -59,17 +59,17 @@ env `LINE_*`, `KAFKA_BROKERS` หรือ `SIP_*`
 ทุกแถวต้องมีค่า ผู้ verify และวันที่ ก่อน deploy ครั้งแรก — ค่าที่เป็น secret บันทึกเฉพาะ "อยู่ที่ไหน"
 ใน secret store ไม่ใช่ตัวค่า
 
-| รายการ                                                                   | ใช้ที่                                                       | ค่า / ตำแหน่ง | verified by | วันที่ |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------ | ------------- | ----------- | ------ |
-| Host/VM (ขนาด, OS, Docker Engine + compose plugin)                       | ที่รัน stack                                                 |               |             |        |
-| Domain ของ UAT (`UAT_HOST`)                                              | Caddy, `KC_HOSTNAME`, redirect URI, `VITE_KC_ISSUER`         |               |             |        |
-| DNS ของ `UAT_HOST` → gateway/VM                                          | การเข้าถึงของผู้ทดสอบ                                        |               |             |        |
-| แหล่ง TLS cert (CA, วันหมดอายุ, วิธีต่ออายุ)                             | `UAT_TLS_CERT_FILE`/`UAT_TLS_KEY_FILE` บน VM                 |               |             |        |
-| Secret store (ที่เก็บค่าใน `uat.env` และไฟล์บัญชี)                       | operator วางไฟล์บน VM                                        |               |             |        |
-| Identity-aware gateway / allowlist (`UAT_ALLOWED_CIDRS`)                 | Caddy `remote_ip` — ต้องมี `127.0.0.1/32` สำหรับ smoke บน VM |               |             |        |
-| GHCR access (VM pull แบบ read-only)                                      | `docker login ghcr.io` บน VM ด้วย token `read:packages`      |               |             |        |
-| SSH key ของ deploy (public key บน VM, host key ใน `UAT_SSH_KNOWN_HOSTS`) | workflow `uat-preview`                                       |               |             |        |
-| Tenant UAT (`UAT_TENANT_ID`/`UAT_TENANT_SLUG`) และ fixture pack version  | realm Organization, `VITE_UAT_PACK_VERSION`                  |               |             |        |
+| รายการ                                                                   | ใช้ที่                                                           | ค่า / ตำแหน่ง | verified by | วันที่ |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------- | ------------- | ----------- | ------ |
+| Host/VM (ขนาด, OS, Docker Engine + compose plugin)                       | ที่รัน stack                                                     |               |             |        |
+| Domain ของ UAT (`UAT_HOST`)                                              | Caddy, `KC_HOSTNAME`, redirect URI, `VITE_KC_ISSUER`             |               |             |        |
+| DNS ของ `UAT_HOST` → gateway/VM                                          | การเข้าถึงของผู้ทดสอบ                                            |               |             |        |
+| แหล่ง TLS cert (CA, วันหมดอายุ, วิธีต่ออายุ)                             | `UAT_TLS_CERT_FILE`/`UAT_TLS_KEY_FILE` บน VM                     |               |             |        |
+| Secret store (ที่เก็บค่าใน `uat.env` และไฟล์บัญชี)                       | operator วางไฟล์บน VM                                            |               |             |        |
+| Identity-aware gateway / allowlist (`UAT_ALLOWED_CIDRS`)                 | Caddy `remote_ip` — ต้องมี pool ของ Docker bridge ด้วย (ข้อ 4.7) |               |             |        |
+| GHCR access (VM pull แบบ read-only)                                      | `docker login ghcr.io` บน VM ด้วย token `read:packages`          |               |             |        |
+| SSH key ของ deploy (public key บน VM, host key ใน `UAT_SSH_KNOWN_HOSTS`) | workflow `uat-preview`                                           |               |             |        |
+| Tenant UAT (`UAT_TENANT_ID`/`UAT_TENANT_SLUG`) และ fixture pack version  | realm Organization, `VITE_UAT_PACK_VERSION`                      |               |             |        |
 
 ## 3. ตั้งค่า GitHub environment `uat-preview`
 
@@ -122,11 +122,21 @@ secret runtime ของ UAT (รหัสผ่าน DB/Keycloak/MinIO) **ไ�
    เพื่อให้ Caddy เห็น source IP จริง (allowlist ใช้ `remote_ip`)
 2. firewall ของ host/cloud: เปิดเฉพาะ 22 (จากที่ที่ runner/operator ใช้) และ 443/80 (จาก gateway)
 3. สร้างโครง `/opt/dcontact-uat/{releases,deployments,backups,tls}` owner = deploy user, mode 700
-4. วาง cert/key ของ `UAT_HOST` ใน `/opt/dcontact-uat/tls/` (mode 600) — ใช้ path นี้ใน `UAT_TLS_CERT_FILE`/`UAT_TLS_KEY_FILE`
+4. วาง cert/key ของ `UAT_HOST` ใน `/opt/dcontact-uat/tls/` — ใช้ path นี้ใน `UAT_TLS_CERT_FILE`/`UAT_TLS_KEY_FILE`
+   - compose secret แบบ file เป็น bind mount (uid/gid/mode ใน compose ไม่มีผล) และ Caddy ใน image รันเป็น uid 10001
+     จึงต้อง `sudo chown 10001:10001 <key> && sudo chmod 400 <key>` (cert อ่านได้ทุกคน `chmod 444`) — ถ้าเป็นของ
+     deploy user mode 600 proxy จะอ่าน key ไม่ได้และไม่ขึ้น (ยืนยันแล้วใน `uat-image-smoke` #507)
 5. สร้าง `/opt/dcontact-uat/uat.env` ตามรายชื่อใน `infra/uat/uat.env.example`, `chmod 600`
    (`uat-deploy.sh` ปฏิเสธถ้า mode ไม่ใช่ 600) — ทุกค่าสร้างใหม่สำหรับ UAT; รหัสผ่านที่อยู่ใน URL ใช้ `[A-Za-z0-9]` เท่านั้น
 6. `docker login ghcr.io` ด้วย token แบบ `read:packages` ของบัญชี service (ไม่ใช่ token ส่วนตัว)
-7. กด workflow `uat-preview` ด้วย `action=deploy`, `initial_deploy=true` (ครั้งแรกเท่านั้น)
+7. `UAT_ALLOWED_CIDRS` = CIDR ของ gateway/allowlist จริง **และ** pool ของ Docker bridge บน VM
+   - smoke (`uat-deploy.sh smoke`) รันบน VM แล้วเข้า proxy ผ่าน `127.0.0.1:443` แต่ docker-proxy/hairpin NAT
+     (รวมกรณี `userland-proxy: false`) ทำให้ Caddy เห็น source เป็น gateway ของ bridge network ไม่ใช่ `127.0.0.1`
+     — allowlist ที่มีแค่ `127.0.0.1/32` จะได้ 403 ทั้ง smoke
+   - pool ค่าเริ่มต้นของ Docker คือ `172.16.0.0/12` และ `192.168.0.0/16` (แบบที่ `uat-image-smoke` ใช้); ถ้า VPC/LAN ของ VM
+     ทับช่วงนี้ ให้ตั้ง `"default-address-pools"` ใน `/etc/docker/daemon.json` เป็นช่วงเฉพาะที่ไม่ทับ แล้ว allowlist ช่วงนั้นแทน
+     (ไม่อย่างนั้นเครื่องอื่นใน subnet เดียวกันจะผ่าน allowlist ได้)
+8. กด workflow `uat-preview` ด้วย `action=deploy`, `initial_deploy=true` (ครั้งแรกเท่านั้น)
 
 ## 5. Tenant และ fixture pack ของ UAT (ต้องใช้ operator input)
 
@@ -290,10 +300,11 @@ CLI จะ:
 ```bash
 # บน VM ในโฟลเดอร์ release ปัจจุบัน
 install -m 600 /dev/stdin /opt/dcontact-uat/accounts.json   # วางเนื้อหาจาก secret store
+# ส่งทาง stdin — ห้าม mount: container รันเป็น uid 10001 อ่านไฟล์ mode 600 ของ deploy user ไม่ได้
 docker compose --project-name dcontact-uat --project-directory . \
   --env-file /opt/dcontact-uat/uat.env --env-file release.env -f docker-compose.uat.yml \
-  --profile ops run --rm -v /opt/dcontact-uat/accounts.json:/run/accounts.json:ro \
-  keycloak-config node scripts/u1-uat-keycloak-users.mjs --users /run/accounts.json
+  --profile ops run --rm -T keycloak-config \
+  node scripts/u1-uat-keycloak-users.mjs --users /dev/stdin < /opt/dcontact-uat/accounts.json
 shred -u /opt/dcontact-uat/accounts.json
 ```
 
@@ -399,7 +410,7 @@ uatc up -d --wait api proxy
 ## 12. Readiness
 
 - CI (`pnpm test:u1-uat-readiness` ใน job build): ทดสอบ validator และ static checks ของ artifact จริง
-- `node scripts/u1-uat-readiness.mjs --static` — UAT-S00..S17: compose ไม่มี worker/FreeSWITCH/Kafka/Redis,
+- `node scripts/u1-uat-readiness.mjs --static` — UAT-S00..S18: compose ไม่มี worker/FreeSWITCH/Kafka/Redis,
   มีแค่ proxy ที่เปิดพอร์ต, ไม่มี `start-dev`, ไม่มี default credential, image/`FROM` pin digest,
   realm ไม่มี user/secret และบังคับ OTP, env ของ api ผ่าน profile, proxy ปิด admin + allowlist,
   workflow ผูก environment/concurrency/readiness, negative secret scan, evidence storage (api ใช้ MinIO
@@ -444,3 +455,13 @@ render → `--check` WOULD_CREATE → apply CREATED → รันซ้ำ UNCHA
 แทรก WAIT → validate/compile/preview ไม่มี diagnostic → simulate ด้วย fixture ของ run ถึง EXIT แบบ `SIMULATION_ONLY` → ส่งตรวจ,
 maker อนุมัติเองไม่ได้ (403 `CAPABILITY_REQUIRED`), reviewer อนุมัติ, maker publish) — ยังไม่ได้ verify: การ render + provision
 บน VM จริง และการเดิน step catalog ครบใน Console จริงโดยผู้ทดสอบ (เป็นงานของ UAT run)
+
+U1.10 (#507): workflow `uat-image-smoke` (`.github/workflows/uat-image-smoke.yml`) รันเมื่อ PR/`main` แตะ artifact
+ของ UAT (หรือสั่งด้วยมือ) — build image `api`/`ops`/`console` จาก commit นั้น, push เข้า registry ชั่วคราวบน runner
+(`localhost:5000`, ไม่ใช่ GHCR) เพื่ออ้างด้วย digest, รัน `uat-deploy.sh` ตัวจริงแบบ local (`UAT_ROOT` = โฟลเดอร์ชั่วคราว)
+ครบ `prepare` → `backup` → `migrate` → `keycloak` → `deploy` → `smoke` แล้ว `provision` (`--check`, apply, apply ซ้ำ =
+UNCHANGED) ด้วย input สังเคราะห์จาก `scripts/u1-uat-ci-fixture.mjs`, สร้างบัญชี maker/reviewer ด้วย `--users`,
+ตรวจ hardening (api/proxy non-root + rootfs read-only, MinIO/Postgres/Keycloak/api ไม่ publish พอร์ต, admin ของ
+Keycloak ตอบ 404, `runtime-profile` = `uat`) และ `backup` หลัง deploy (pg_dump จริง) — secret/cert สุ่มต่อรอบ ไม่ใช้
+repository secret และไม่ผูก environment `uat-preview` (static readiness UAT-S18 ตรวจ) จึงไม่ใช่หลักฐานของ VM จริง:
+TLS/gateway/allowlist จริง, GHCR และ UAT-L06 ยังต้องเก็บใน deploy ครั้งแรกตามเดิม
