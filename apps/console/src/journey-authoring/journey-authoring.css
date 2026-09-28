@@ -258,6 +258,51 @@
   box-shadow: inset var(--dc-focus-ring);
 }
 
+/* ── U1.4 (#432): แผง UAT run — แยกจากเนื้อหา J5 ด้วยขอบสี attention ── */
+.j5-uat {
+  margin-bottom: var(--dc-space-6);
+  border-color: var(--dc-attention-border);
+  border-left-width: 6px;
+}
+
+.j5-uat .j5-title-row {
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.j5-uat .j5-title-row h2 {
+  margin: 0;
+}
+
+.j5-uat .j5-boundary {
+  margin-top: var(--dc-space-4);
+}
+
+.j5-uat-fixture {
+  margin-top: var(--dc-space-4);
+}
+
+.j5-virtual-time {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.j5-fieldset {
+  display: grid;
+  gap: var(--dc-space-2);
+  margin: var(--dc-space-4) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.j5-fieldset legend {
+  margin-bottom: var(--dc-space-2);
+  padding: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-medium);
+}
+
 /* ── ฟอร์ม ── */
 .j5-root :where(select, input:not([type='radio'], [type='checkbox']), textarea) {
   min-height: var(--dc-control-md);

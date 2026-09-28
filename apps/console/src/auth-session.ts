@@ -27,6 +27,18 @@ export function resolveConsoleContextId(location: URL): string {
   return contextId;
 }
 
+/**
+ * U1.4 (#432): หน้าที่จะเปิด — `view` ใน URL มาก่อนเสมอ; ไม่มีทั้ง `view` และ Interaction `context`
+ * (เช่นกลับจาก login ที่ redirect_uri เป็น `/?tenant=`) ใช้ `VITE_CONSOLE_DEFAULT_VIEW` ตอน build
+ * ตอนนี้รับค่า default เดียวคือ `journeys` (UAT first slice) ค่าอื่นไม่ถูกใช้
+ */
+export function resolveConsoleView(location: URL, defaultView?: string): string | null {
+  const view = location.searchParams.get('view');
+  if (view) return view;
+  if (location.searchParams.get('context')?.trim()) return null;
+  return defaultView === 'journeys' ? 'journeys' : null;
+}
+
 export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): UserManagerSettings {
   const redirectUrl = new URL('/', input.origin);
   redirectUrl.searchParams.set('tenant', input.tenantAlias);

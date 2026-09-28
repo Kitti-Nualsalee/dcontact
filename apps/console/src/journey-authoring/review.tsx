@@ -3,19 +3,28 @@
  *
  * ปุ่มทุกปุ่มส่งคำสั่งไป server ซึ่งตรวจสิทธิ์และความสดของ digest เอง — Console ไม่ซ่อนแล้วถือว่า
  * authorized; ถ้า server ปฏิเสธจะแสดง code ที่ได้กลับมาตรง ๆ
+ *
+ * U1.4 (#432): ใน UAT simulation ใช้ fixture ที่ server ตรึงไว้ของ run ปัจจุบันตรงตัว (อ่านอย่างเดียว)
+ * แทน fixture ที่ browser สร้างเอง; ผลแสดงป้าย `SIMULATION_ONLY` และเวลาจำลอง (virtualAt) แยกจากเวลาจริง
  */
-import { useId, useRef, useState } from 'react';
-import type { PlanPreviewV1, SimulationResultV1 } from '@d-contact/cxa-contracts';
+import { useEffect, useId, useRef, useState } from 'react';
+import type {
+  PlanPreviewV1,
+  SimulationFixtureV1,
+  SimulationResultV1,
+} from '@d-contact/cxa-contracts';
 import {
   JourneyAuthoringApiError,
   type CompileSummary,
   type JourneyAuthoringApi,
   type JourneySnapshot,
 } from './api.js';
-import { useTranslation } from '@d-contact/i18n/react';
-import { Button } from '@d-contact/ui-react';
+import { useLocale, useTranslation } from '@d-contact/i18n/react';
+import { Badge, Button } from '@d-contact/ui-react';
 import { errorMessage } from './model.js';
 import { Dialog, reasonField } from './publish.js';
+import { serverTime } from './server-time.js';
+import { uatErrorMessage, useUat, type UatFailure } from './uat-run.js';
 
 type Decision = 'APPROVE' | 'REQUEST_CHANGES' | 'REJECT';
 const DECISIONS: readonly Decision[] = ['APPROVE', 'REQUEST_CHANGES', 'REJECT'];
@@ -38,6 +47,8 @@ export function ReviewPanel({
   onChanged: () => Promise<void>;
 }) {
   const { t } = useTranslation('journeys');
+  const { formatters } = useLocale();
+  const uat = useUat();
   const decisionLabel = (decision: Decision) => t(`review.decision.${decision}`);
   const contextId = useId();
   const [busy, setBusy] = useState(false);
@@ -48,6 +59,25 @@ export function ReviewPanel({
   const [contextJson, setContextJson] = useState('{}');
   const [deciding, setDeciding] = useState<Decision | null>(null);
   const submitIntent = useRef<{ binding: string; key: string } | null>(null);
+  // UAT: `undefined` = กำลังโหลด, `null` = ยังไม่มี run จึงยังไม่มี fixture ให้ใช้
+  const [uatFixture, setUatFixture] = useState<SimulationFixtureV1 | null | undefined>(undefined);
+  const [uatFixtureError, setUatFixtureError] = useState<UatFailure | null>(null);
+  const uatApi = uat?.api;
+  const uatFailure = uat?.failure;
+  const uatRunId = uat?.run?.runId;
+  useEffect(() => {
+    if (!uatApi || !uatFailure) return;
+    let cancelled = false;
+    setUatFixture(undefined);
+    setUatFixtureError(null);
+    uatApi
+      .simulationFixture()
+      .then((result) => !cancelled && setUatFixture(result?.fixture ?? null))
+      .catch((failure: unknown) => !cancelled && setUatFixtureError(uatFailure(failure)));
+    return () => {
+      cancelled = true;
+    };
+  }, [uatApi, uatFailure, uatRunId]);
   const { head, review } = snapshot;
   const artifact = compile?.artifact ?? null;
   const pendingReview =
@@ -111,6 +141,17 @@ export function ReviewPanel({
   const simulate = () =>
     run(async () => {
       if (!artifact) return;
+      if (uat) {
+        // UAT: ใช้ fixture ของ server ตรงตัว ไม่สร้าง startAt/seed/context เอง (#374 §4)
+        if (!uatFixture) return;
+        setSimulation(
+          await api.simulate(head.journeyId, {
+            compileDigest: artifact.compileDigest,
+            fixture: uatFixture,
+          }),
+        );
+        return;
+      }
       let context: Record<string, string | number | boolean | null>;
       try {
         context = JSON.parse(contextJson) as typeof context;
@@ -165,32 +206,83 @@ export function ReviewPanel({
           ))}
         </ol>
       ) : null}
-      <div className="j5-field">
-        <label htmlFor={contextId}>{t('review.contextLabel')}</label>
-        <textarea
-          id={contextId}
-          rows={3}
-          value={contextJson}
-          onChange={(event) => setContextJson(event.target.value)}
-        />
-        <small className="j5-help">{t('review.contextHint')}</small>
-      </div>
-      <Button isDisabled={!artifact || busy} onPress={() => void simulate()}>
+      {uat ? (
+        <div className="j5-uat-fixture">
+          <p className="j5-help">{t('review.uatFixtureNote')}</p>
+          {uatFixtureError ? (
+            <p className="j5-status-error" role="alert">
+              {uatErrorMessage(uatFixtureError)}
+            </p>
+          ) : uatFixture === undefined ? (
+            <p role="status">{t('common.loading')}</p>
+          ) : uatFixture === null ? (
+            <p role="note">{t('review.uatFixtureMissing')}</p>
+          ) : (
+            <dl className="j5-facts" aria-label={t('review.uatFixtureLabel')}>
+              <div>
+                <dt>{t('review.fixtureId')}</dt>
+                <dd>
+                  <code>{uatFixture.fixtureId}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>{t('review.fixtureStartAt')}</dt>
+                <dd>
+                  <time dateTime={uatFixture.startAt}>
+                    {serverTime(formatters, uatFixture.startAt)}
+                  </time>
+                </dd>
+              </div>
+              <div>
+                <dt>{t('review.fixtureSeed')}</dt>
+                <dd>
+                  <code>{uatFixture.seed}</code>
+                </dd>
+              </div>
+            </dl>
+          )}
+        </div>
+      ) : (
+        <div className="j5-field">
+          <label htmlFor={contextId}>{t('review.contextLabel')}</label>
+          <textarea
+            id={contextId}
+            rows={3}
+            value={contextJson}
+            onChange={(event) => setContextJson(event.target.value)}
+          />
+          <small className="j5-help">{t('review.contextHint')}</small>
+        </div>
+      )}
+      <Button
+        isDisabled={!artifact || busy || (uat !== null && !uatFixture)}
+        onPress={() => void simulate()}
+      >
         {t('review.simulate')}
       </Button>
       {simulation ? (
         <div className="j5-simulation" role="status">
           <p>
+            <Badge tone="info">{simulation.profile}</Badge>{' '}
             {t('review.simulationResult', {
               terminal: simulation.terminal,
               steps: simulation.transitions.length,
             })}
           </p>
+          <p className="j5-help">
+            {t('review.virtualTimeNote', { fixtureId: simulation.fixtureId })}
+          </p>
           <ol>
             {simulation.transitions.map((transition) => (
               <li key={transition.sequence}>
                 {transition.nodeId}
-                {transition.portId ? ` → ${transition.portId}` : ''}
+                {transition.portId ? ` → ${transition.portId}` : ''} ·{' '}
+                <span className="j5-virtual-time">
+                  {t('review.virtualAt')}{' '}
+                  <time dateTime={transition.virtualAt}>
+                    {serverTime(formatters, transition.virtualAt)}
+                  </time>
+                </span>
               </li>
             ))}
           </ol>
