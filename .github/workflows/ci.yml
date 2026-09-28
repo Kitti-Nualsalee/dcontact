@@ -76,6 +76,10 @@ jobs:
       - name: A1 schema readiness validator tests
         run: pnpm test:a1-schema-readiness
 
+      # U1.6 (#434): compose/Dockerfile/realm/workflow ของ UAT + migration guard + live smoke กับ stub
+      - name: U1.6 UAT deployment readiness validator tests
+        run: pnpm test:u1-uat-readiness
+
       # A1.2 (#407): token matrix + guard ผ่าน HTTP จริง (token ลงนามในเครื่อง ไม่ต้องใช้ Keycloak)
       # real-boundary กับ Keycloak จริงรันด้วย `pnpm a1:auth:boundary` หลัง `pnpm infra:up`
       - name: A1.2 platform auth boundary tests

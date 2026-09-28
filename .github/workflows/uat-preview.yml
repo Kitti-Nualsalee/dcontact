@@ -1,0 +1,291 @@
+name: uat-preview
+
+# U1.6 (#434): deploy/rollback ของ UAT first slice (#373/#374) ไปยัง VM เดียวด้วย Docker Compose
+#
+# - สั่งด้วยมือเท่านั้น; job ผูก environment `uat-preview` ซึ่งตั้ง required reviewers ไว้ใน GitHub settings
+#   (ดู docs/u1-uat-deployment.md) — ไม่มีการอนุมัติ = ไม่แตะ VM
+# - deploy: build image → push GHCR (อ้างด้วย digest) → SSH → pg_dump → migrate แบบ additive
+#   (ปฏิเสธ migration ใหม่ที่มี DROP) → Keycloak config → deploy ด้วย digest → readiness smoke
+#   → deployment record (job summary + artifact + บน VM)
+# - rollback: redeploy digest ของ record ก่อนหน้า (Console/proxy + api) โดยไม่แตะฐานข้อมูล
+# - secret ใช้ผ่าน `secrets.*` เท่านั้นและไม่ echo; ค่าที่ derive จาก secret ถูก mask
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'deploy = build + deploy SHA ของ main | rollback = redeploy digest ของ record ก่อนหน้า (ไม่แตะ DB)'
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+      rollback_sha:
+        description: 'rollback เท่านั้น: SHA ที่เคย deploy สำเร็จบน UAT (ว่าง = record ก่อนหน้า)'
+        type: string
+        default: ''
+      initial_deploy:
+        description: 'deploy ครั้งแรกบน VM ที่ยังไม่มี deployment record (ฐานข้อมูลว่าง)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uat-preview
+  cancel-in-progress: false
+
+env:
+  UAT_ROOT: /opt/dcontact-uat
+
+defaults:
+  run:
+    # bash แบบระบุชัด = `-eo pipefail` — `cmd | tee` ต้องล้มตาม cmd
+    shell: bash
+
+jobs:
+  deploy:
+    if: inputs.action == 'deploy' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: uat-preview
+    permissions:
+      contents: read
+      packages: write # push image ไป GHCR
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Provisioning gate inputs
+        env:
+          UAT_HOST: ${{ vars.UAT_HOST }}
+          UAT_FIXTURE_PACK_VERSION: ${{ vars.UAT_FIXTURE_PACK_VERSION }}
+        run: |
+          # ค่าจริงของ host/domain/TLS/gateway อยู่นอก Git (#434) — ไม่ครบ = ห้ามเปิด UAT
+          for name in UAT_HOST UAT_FIXTURE_PACK_VERSION; do
+            if [ -z "${!name}" ]; then
+              echo "environment variable ${name} ของ uat-preview ยังไม่ตั้ง (provisioning gate)" >&2
+              exit 1
+            fi
+          done
+
+      - name: U1.6 static readiness (compose/Dockerfile/realm/workflow/secret scan)
+        run: |
+          node --test scripts/u1-uat-readiness.test.mjs scripts/u1-uat-keycloak-users.test.mjs
+          node scripts/u1-uat-readiness.mjs --static
+
+      - name: Configure SSH to UAT VM
+        env:
+          UAT_SSH_PRIVATE_KEY: ${{ secrets.UAT_SSH_PRIVATE_KEY }}
+          UAT_SSH_KNOWN_HOSTS: ${{ secrets.UAT_SSH_KNOWN_HOSTS }}
+          UAT_SSH_HOST: ${{ secrets.UAT_SSH_HOST }}
+          UAT_SSH_USER: ${{ secrets.UAT_SSH_USER }}
+        run: bash infra/uat/bin/ci-ssh-setup.sh
+
+      - name: Read current deployment record (migration guard base)
+        id: current
+        run: |
+          uat-deploy current > current-record.json
+          base="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('current-record.json','utf8')).sourceSha ?? '')")"
+          echo "base_sha=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Guard additive migrations (no DROP, no edits to applied migrations)
+        env:
+          BASE_SHA: ${{ steps.current.outputs.base_sha }}
+          INITIAL_DEPLOY: ${{ inputs.initial_deploy }}
+        run: |
+          if [ -n "$BASE_SHA" ]; then
+            node scripts/u1-uat-readiness.mjs --migration-guard --base "$BASE_SHA" | tee migration-guard.json
+          elif [ "$INITIAL_DEPLOY" = 'true' ]; then
+            node scripts/u1-uat-readiness.mjs --migration-guard --initial | tee migration-guard.json
+          else
+            echo 'ไม่พบ deployment record บน VM — ถ้าเป็น deploy ครั้งแรกให้ตั้ง initial_deploy=true' >&2
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Image names
+        id: names
+        run: |
+          owner="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "api=ghcr.io/$owner/dcontact-uat-api" >> "$GITHUB_OUTPUT"
+          echo "ops=ghcr.io/$owner/dcontact-uat-ops" >> "$GITHUB_OUTPUT"
+          echo "console=ghcr.io/$owner/dcontact-uat-console" >> "$GITHUB_OUTPUT"
+
+      - name: Build + push API image
+        id: api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          target: runtime
+          push: true
+          provenance: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.api }}:${{ github.sha }}
+
+      - name: Build + push ops image (migrate/Keycloak config/readiness)
+        id: ops
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          target: ops
+          push: true
+          provenance: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.ops }}:${{ github.sha }}
+
+      - name: Build + push Console/proxy image
+        id: console
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/console/Dockerfile
+          push: true
+          provenance: false
+          build-args: |
+            SOURCE_SHA=${{ github.sha }}
+            VITE_KC_ISSUER=https://${{ vars.UAT_HOST }}/auth/realms/dcontact
+            VITE_KC_CLIENT_ID=dcontact-uat-console
+            VITE_CONSOLE_DEFAULT_VIEW=journeys
+            VITE_UAT_ENVIRONMENT=${{ vars.UAT_ENVIRONMENT || 'uat' }}
+            VITE_UAT_PACK_VERSION=${{ vars.UAT_FIXTURE_PACK_VERSION }}
+          tags: ${{ steps.names.outputs.console }}:${{ github.sha }}
+
+      - name: Upload release (digest-pinned) to VM
+        env:
+          API_IMAGE: ${{ steps.names.outputs.api }}@${{ steps.api.outputs.digest }}
+          OPS_IMAGE: ${{ steps.names.outputs.ops }}@${{ steps.ops.outputs.digest }}
+          CONSOLE_IMAGE: ${{ steps.names.outputs.console }}@${{ steps.console.outputs.digest }}
+        run: |
+          {
+            echo "SOURCE_SHA=$GITHUB_SHA"
+            echo "API_IMAGE=$API_IMAGE"
+            echo "OPS_IMAGE=$OPS_IMAGE"
+            echo "CONSOLE_IMAGE=$CONSOLE_IMAGE"
+          } > release.env
+          cat release.env
+          release="$UAT_ROOT/releases/$GITHUB_SHA"
+          uat-ssh "mkdir -p '$release/bin'"
+          uat-scp infra/uat/docker-compose.uat.yml release.env "uat:$release/"
+          uat-scp infra/uat/bin/uat-deploy.sh infra/uat/bin/db-roles.sh infra/uat/bin/minio-init.sh "uat:$release/bin/"
+          uat-deploy prepare "$GITHUB_SHA"
+
+      - name: Backup (pg_dump ก่อน migrate)
+        run: uat-deploy backup "$GITHUB_SHA" | tee backup.json
+
+      - name: Migrate (prisma migrate deploy — additive only)
+        run: uat-deploy migrate "$GITHUB_SHA"
+
+      - name: Keycloak realm config
+        run: uat-deploy keycloak "$GITHUB_SHA" | tail -n 1 | tee keycloak.json
+
+      - name: Deploy Console/api by digest
+        run: uat-deploy deploy "$GITHUB_SHA"
+
+      - name: UAT readiness smoke (u1-uat-readiness.mjs --live)
+        run: |
+          uat-deploy smoke "$GITHUB_SHA" | tee smoke.json
+
+      - name: Deployment record
+        env:
+          UAT_ENVIRONMENT: ${{ vars.UAT_ENVIRONMENT || 'uat' }}
+          UAT_FIXTURE_PACK_VERSION: ${{ vars.UAT_FIXTURE_PACK_VERSION }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          node scripts/u1-uat-readiness.mjs --deployment-record --action deploy \
+            --release release.env --keycloak keycloak.json --backup backup.json \
+            --migration-guard-report migration-guard.json --smoke smoke.json > deployment-record.json
+          uat-scp deployment-record.json "uat:$UAT_ROOT/releases/$GITHUB_SHA/deployment-record.json"
+          uat-deploy record "$GITHUB_SHA" "$UAT_ROOT/releases/$GITHUB_SHA/deployment-record.json"
+          node scripts/u1-uat-readiness.mjs --summary deployment-record.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload deployment record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-preview-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            deployment-record.json
+            migration-guard.json
+            smoke.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  rollback:
+    if: inputs.action == 'rollback' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: uat-preview
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configure SSH to UAT VM
+        env:
+          UAT_SSH_PRIVATE_KEY: ${{ secrets.UAT_SSH_PRIVATE_KEY }}
+          UAT_SSH_KNOWN_HOSTS: ${{ secrets.UAT_SSH_KNOWN_HOSTS }}
+          UAT_SSH_HOST: ${{ secrets.UAT_SSH_HOST }}
+          UAT_SSH_USER: ${{ secrets.UAT_SSH_USER }}
+        run: bash infra/uat/bin/ci-ssh-setup.sh
+
+      - name: Resolve rollback target (recorded digests)
+        id: target
+        env:
+          ROLLBACK_SHA: ${{ inputs.rollback_sha }}
+        run: |
+          if [ -n "$ROLLBACK_SHA" ] && ! echo "$ROLLBACK_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo 'rollback_sha ต้องเป็น commit SHA เต็ม 40 ตัว' >&2
+            exit 1
+          fi
+          uat-deploy rollback-target $ROLLBACK_SHA > rollback-target.json
+          sha="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('rollback-target.json','utf8')).sourceSha)")"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Rollback Console/api (no DB change)
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: uat-deploy rollback "$TARGET_SHA"
+
+      - name: UAT readiness smoke (u1-uat-readiness.mjs --live)
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+        run: uat-deploy smoke "$TARGET_SHA" | tee smoke.json
+
+      - name: Deployment record (rollback)
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          node scripts/u1-uat-readiness.mjs --deployment-record --action rollback \
+            --rollback-of rollback-target.json --smoke smoke.json > deployment-record.json
+          uat-scp deployment-record.json "uat:$UAT_ROOT/releases/$TARGET_SHA/rollback-record.json"
+          uat-deploy record "$TARGET_SHA" "$UAT_ROOT/releases/$TARGET_SHA/rollback-record.json"
+          node scripts/u1-uat-readiness.mjs --summary deployment-record.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload rollback record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-preview-rollback-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            deployment-record.json
+            smoke.json
+          if-no-files-found: warn
+          retention-days: 90

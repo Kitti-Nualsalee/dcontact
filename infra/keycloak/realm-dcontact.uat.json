@@ -1,0 +1,228 @@
+{
+  "realm": "dcontact",
+  "enabled": true,
+  "displayName": "D-Contact (UAT)",
+  "sslRequired": "external",
+  "organizationsEnabled": true,
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "waitIncrementSeconds": 60,
+  "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and notUsername and notEmail and passwordHistory(3)",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "internationalizationEnabled": true,
+  "supportedLocales": ["th", "en"],
+  "defaultLocale": "th",
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "otpPolicyLookAheadWindow": 1,
+  "otpPolicyCodeReusable": false,
+  "browserFlow": "uat browser password otp",
+  "authenticationFlows": [
+    {
+      "alias": "uat browser password otp",
+      "description": "UAT: รหัสผ่าน + TOTP บังคับทุกบัญชี (ไม่มีทางเลือกข้าม OTP)",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "flowAlias": "uat browser password otp forms",
+          "authenticatorFlow": true,
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "uat browser password otp forms",
+      "description": "username/password แล้ว OTP — ทั้งสองขั้น REQUIRED",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-username-password-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    }
+  ],
+  "requiredActions": [
+    {
+      "alias": "CONFIGURE_TOTP",
+      "name": "Configure OTP",
+      "providerId": "CONFIGURE_TOTP",
+      "enabled": true,
+      "defaultAction": true,
+      "priority": 10,
+      "config": {}
+    },
+    {
+      "alias": "UPDATE_PASSWORD",
+      "name": "Update Password",
+      "providerId": "UPDATE_PASSWORD",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 30,
+      "config": {}
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "agent"
+      },
+      {
+        "name": "supervisor",
+        "composite": true,
+        "composites": {
+          "realm": ["agent"]
+        }
+      },
+      {
+        "name": "admin",
+        "composite": true,
+        "composites": {
+          "realm": ["supervisor"]
+        }
+      },
+      {
+        "name": "journey-ingress"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "dcontact-api",
+      "name": "D-Contact API audience",
+      "enabled": true,
+      "bearerOnly": true,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "dcontact-uat-console",
+      "name": "D-Contact Console (UAT)",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "fullScopeAllowed": true,
+      "redirectUris": ["https://${env.UAT_HOST}/?tenant=${env.UAT_TENANT_SLUG}"],
+      "webOrigins": ["https://${env.UAT_HOST}"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://${env.UAT_HOST}/?tenant=${env.UAT_TENANT_SLUG}",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "oidc.ciba.grant.enabled": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "dcontact-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "dcontact-api",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "tenant_id fallback",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "false"
+          }
+        },
+        {
+          "name": "tenant_slug fallback",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_slug",
+            "claim.name": "tenant_slug",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "false"
+          }
+        },
+        {
+          "name": "dc_user_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "dc_user_id",
+            "claim.name": "dc_user_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "false"
+          }
+        }
+      ],
+      "defaultClientScopes": ["web-origins", "acr", "basic", "roles", "profile", "email"],
+      "optionalClientScopes": ["organization"]
+    }
+  ],
+  "organizations": [
+    {
+      "name": "${env.UAT_TENANT_NAME}",
+      "alias": "${env.UAT_TENANT_SLUG}",
+      "enabled": true,
+      "domains": [
+        {
+          "name": "${env.UAT_ORGANIZATION_DOMAIN}",
+          "verified": true
+        }
+      ],
+      "attributes": {
+        "tenant_id": ["${env.UAT_TENANT_ID}"],
+        "tenant_slug": ["${env.UAT_TENANT_SLUG}"]
+      }
+    }
+  ],
+  "users": []
+}

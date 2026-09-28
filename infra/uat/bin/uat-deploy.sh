@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# U1.6 (#434): ขั้นตอน deploy/rollback ของ UAT บน VM — workflow `uat-preview` เรียกทีละขั้นผ่าน SSH
+#
+# โครงบน VM (ดู docs/u1-uat-deployment.md):
+#   $UAT_ROOT/uat.env                 secret + ค่าของ provisioning gate (operator วาง, chmod 600, ไม่อยู่ใน Git)
+#   $UAT_ROOT/releases/<sha>/         compose + bin/ + release.env (digest ของ image) ของแต่ละ release
+#   $UAT_ROOT/deployments/            deployment record (current.json, previous.json, <time>-<sha>.json)
+#   $UAT_ROOT/backups/                pg_dump ก่อน migrate ทุกครั้ง
+#
+# ไม่มีขั้น down migration และ rollback ไม่แตะฐานข้อมูล (redeploy digest เดิมของ Console/api เท่านั้น)
+# ไม่พิมพ์ค่า secret: compose อ่านจาก env file เอง, script พิมพ์เฉพาะสถานะ/ชื่อไฟล์/digest
+set -euo pipefail
+umask 077
+
+UAT_ROOT="${UAT_ROOT:-/opt/dcontact-uat}"
+PROJECT=dcontact-uat
+DIGEST_REF='^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
+
+usage() {
+  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|deploy|smoke|record|current|rollback-target|rollback> [sha] [file|--token-stdin]' >&2
+  exit 64
+}
+
+fail() {
+  echo "{\"type\":\"u1.uat.deploy\",\"status\":\"FAIL\",\"reason\":\"$1\"}" >&2
+  exit 1
+}
+
+release_dir() {
+  local sha="$1"
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
+  local dir="$UAT_ROOT/releases/$sha"
+  [[ -f "$dir/docker-compose.uat.yml" && -f "$dir/release.env" ]] || fail 'RELEASE_NOT_PREPARED'
+  echo "$dir"
+}
+
+compose() {
+  local dir="$1"
+  shift
+  docker compose --project-name "$PROJECT" \
+    --project-directory "$dir" \
+    --env-file "$UAT_ROOT/uat.env" \
+    --env-file "$dir/release.env" \
+    -f "$dir/docker-compose.uat.yml" "$@"
+}
+
+release_value() {
+  local dir="$1" name="$2"
+  sed -n "s/^${name}=//p" "$dir/release.env" | tail -n 1
+}
+
+check_release_env() {
+  local dir="$1" name value
+  for name in API_IMAGE CONSOLE_IMAGE OPS_IMAGE; do
+    value="$(release_value "$dir" "$name")"
+    [[ "$value" =~ $DIGEST_REF ]] || fail "${name}_NOT_DIGEST_PINNED"
+  done
+  [[ "$(release_value "$dir" SOURCE_SHA)" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
+}
+
+cmd="${1:-}"
+[[ -n "$cmd" ]] || usage
+shift
+
+[[ -f "$UAT_ROOT/uat.env" ]] || fail 'UAT_ENV_MISSING'
+if [[ "$(stat -c '%a' "$UAT_ROOT/uat.env")" != '600' ]]; then fail 'UAT_ENV_PERMISSIONS'; fi
+mkdir -p "$UAT_ROOT/deployments" "$UAT_ROOT/backups"
+
+case "$cmd" in
+  prepare)
+    dir="$(release_dir "${1:?sha}")"
+    check_release_env "$dir"
+    chmod 700 "$dir/bin"/*.sh
+    compose "$dir" config --quiet
+    compose "$dir" --profile ops pull --quiet
+    echo '{"type":"u1.uat.deploy","step":"prepare","status":"PASS"}'
+    ;;
+
+  backup)
+    dir="$(release_dir "${1:?sha}")"
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    if [[ -z "$(compose "$dir" ps --status running --quiet postgres)" ]]; then
+      # ครั้งแรกยังไม่มีฐานข้อมูลให้สำรอง — บันทึกไว้ใน record แทนการข้ามเงียบ
+      echo '{"type":"u1.uat.deploy","step":"backup","status":"SKIPPED","reason":"NO_DATABASE_YET"}'
+      exit 0
+    fi
+    for database in dcontact keycloak; do
+      file="$UAT_ROOT/backups/pg-${database}-${stamp}.dump"
+      compose "$dir" exec -T postgres sh -ec \
+        "pg_dump -U \"\$POSTGRES_USER\" -d ${database} --format=custom --no-owner" >"$file.partial"
+      mv "$file.partial" "$file"
+      [[ -s "$file" ]] || fail 'BACKUP_EMPTY'
+    done
+    digest="$(sha256sum "$UAT_ROOT/backups/pg-dcontact-${stamp}.dump" | cut -d' ' -f1)"
+    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"backup\",\"status\":\"PASS\",\"file\":\"backups/pg-dcontact-${stamp}.dump\",\"sha256\":\"${digest}\"}"
+    ;;
+
+  migrate)
+    dir="$(release_dir "${1:?sha}")"
+    compose "$dir" up -d --wait postgres
+    compose "$dir" --profile ops run --rm -T db-roles >/dev/null
+    compose "$dir" --profile ops run --rm -T migrate
+    # rls.sql สร้าง role ที่ยังไม่มีด้วยรหัสผ่านของ dev — ตั้งทับ/ปิด login ทุกครั้งหลัง migrate
+    compose "$dir" --profile ops run --rm -T db-roles
+    ;;
+
+  keycloak)
+    dir="$(release_dir "${1:?sha}")"
+    compose "$dir" up -d --wait keycloak
+    compose "$dir" --profile ops run --rm -T keycloak-config
+    ;;
+
+  deploy)
+    dir="$(release_dir "${1:?sha}")"
+    compose "$dir" up -d --wait minio
+    # bucket private + user/policy ของ API ก่อน api บูต (U1.5 #433: api ไม่บูตถ้า bucket ไม่พร้อม)
+    compose "$dir" run --rm -T minio-init
+    # --no-deps: minio-init จบไปแล้วข้างบน และไม่ให้ `--wait` ไปรอ container one-shot ที่ exit แล้ว
+    compose "$dir" up -d --wait --no-deps --remove-orphans api proxy
+    echo '{"type":"u1.uat.deploy","step":"deploy","status":"PASS"}'
+    ;;
+
+  smoke)
+    dir="$(release_dir "${1:?sha}")"
+    uat_host="$(sed -n 's/^UAT_HOST=//p' "$UAT_ROOT/uat.env" | tail -n 1)"
+    # token ของบัญชีทดสอบ (ถ้ามี) รับทาง stdin เท่านั้น — ไม่ผ่าน command line/env ของ SSH
+    if [[ "${2:-}" == '--token-stdin' ]]; then
+      IFS= read -r UAT_SMOKE_ACCESS_TOKEN || true
+      export UAT_SMOKE_ACCESS_TOKEN
+    fi
+    # รันจากบน VM ผ่าน proxy ตัวจริง (127.0.0.1:443 + SNI ของ UAT_HOST) เพราะ allowlist ปิดทางอื่น
+    docker run --rm --network host \
+      -e "UAT_BASE_URL=https://${uat_host}" \
+      -e UAT_CONNECT_HOST=127.0.0.1 \
+      -e UAT_SMOKE_ACCESS_TOKEN \
+      -e NODE_EXTRA_CA_CERTS \
+      ${NODE_EXTRA_CA_CERTS:+-v "$NODE_EXTRA_CA_CERTS:$NODE_EXTRA_CA_CERTS:ro"} \
+      "$(release_value "$dir" OPS_IMAGE)" node scripts/u1-uat-readiness.mjs --live
+    ;;
+
+  record)
+    # file = deployment record ที่ workflow สร้าง (JSON) — เก็บคู่ current/previous สำหรับ rollback
+    sha="${1:?sha}"
+    file="${2:?record file}"
+    release_dir "$sha" >/dev/null
+    node_check="$(sed -n 's/.*"sourceSha" *: *"\([0-9a-f]\{40\}\)".*/\1/p' "$file" | head -n 1)"
+    [[ "$node_check" == "$sha" ]] || fail 'RECORD_SHA_MISMATCH'
+    target="$UAT_ROOT/deployments/$(date -u +%Y%m%dT%H%M%SZ)-${sha}.json"
+    cp "$file" "$target"
+    if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
+      cp "$UAT_ROOT/deployments/current.json" "$UAT_ROOT/deployments/previous.json"
+    fi
+    cp "$target" "$UAT_ROOT/deployments/current.json"
+    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"record\",\"status\":\"PASS\",\"file\":\"deployments/$(basename "$target")\"}"
+    ;;
+
+  current)
+    # record ปัจจุบัน (ไม่มี secret) — workflow ใช้หา SHA ฐานของ migration guard
+    if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
+      cat "$UAT_ROOT/deployments/current.json"
+    else
+      echo '{}'
+    fi
+    ;;
+
+  rollback-target)
+    # ไม่ระบุ sha = record ก่อนหน้า (previous.json); ระบุ sha = record ล่าสุดของ sha นั้นที่เคย deploy สำเร็จ
+    if [[ -n "${1:-}" ]]; then
+      [[ "$1" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
+      target="$(ls -1 "$UAT_ROOT/deployments/"*"-$1.json" 2>/dev/null | sort | tail -n 1 || true)"
+      [[ -n "$target" ]] || fail 'NO_DEPLOYMENT_FOR_SHA'
+      cat "$target"
+    else
+      [[ -f "$UAT_ROOT/deployments/previous.json" ]] || fail 'NO_PREVIOUS_DEPLOYMENT'
+      cat "$UAT_ROOT/deployments/previous.json"
+    fi
+    ;;
+
+  rollback)
+    # redeploy digest ของ release ก่อนหน้า — Console/proxy + api เท่านั้น ไม่ migrate ไม่ restore DB
+    sha="${1:?previous sha}"
+    dir="$(release_dir "$sha")"
+    check_release_env "$dir"
+    compose "$dir" up -d --wait --no-deps api proxy
+    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"rollback\",\"status\":\"PASS\",\"sourceSha\":\"${sha}\"}"
+    ;;
+
+  *)
+    usage
+    ;;
+esac
