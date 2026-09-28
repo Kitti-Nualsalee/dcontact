@@ -81,3 +81,36 @@ test('platform operator เปิด/ปิด ui.shell.v2 พร้อม audit
     { enabled: false, reason: 'rollback', actor: 'ops@test' },
   ]);
 });
+
+test('E1.9: workSession.lease.enforced เปิดได้เมื่อยืนยัน gate #77 และปิดได้ทันที (rollback)', async (t) => {
+  const owner = new PrismaClient();
+  const platform = new PrismaClient({ datasources: { db: { url: PLATFORM_DATABASE_URL } } });
+  const tenantId = randomUUID();
+  const slug = `e1-9-flag-${tenantId.slice(0, 8)}`;
+  await owner.tenant.create({
+    data: { id: tenantId, name: slug, slug, sipDomain: `${slug}.test` },
+  });
+  t.after(async () => {
+    await owner.tenantUiFlagAuditEvent.deleteMany({ where: { tenantId } });
+    await owner.tenantUiFlag.deleteMany({ where: { tenantId } });
+    await owner.tenant.deleteMany({ where: { id: tenantId } });
+    await Promise.all([owner.$disconnect(), platform.$disconnect()]);
+  });
+  const base = {
+    tenantSlug: slug,
+    flagKey: 'workSession.lease.enforced',
+    reason: 'dev/UAT ของ E1',
+    actor: 'ops@test',
+  };
+  await assert.rejects(
+    setTenantUiFlag(platform, { ...base, enabled: true }),
+    (error) => (error as TenantUiFlagError).code === 'VOICE_PILOT_ACK_REQUIRED',
+  );
+  assert.equal(
+    (await setTenantUiFlag(platform, { ...base, enabled: true, voicePilotAcknowledged: true }))
+      .enabled,
+    true,
+  );
+  assert.equal((await setTenantUiFlag(platform, { ...base, enabled: false })).previous, true);
+  assert.equal(await owner.tenantUiFlagAuditEvent.count({ where: { tenantId } }), 2);
+});

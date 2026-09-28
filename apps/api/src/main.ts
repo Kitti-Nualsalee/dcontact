@@ -18,6 +18,8 @@ import {
   WorkspaceSessionWebSocketAdapter,
 } from '@d-contact/workspace-session';
 import { createWorkspaceSessionHandler } from './workspace-session-api.js';
+import { WorkSessionLeases } from './work-session.js';
+import { WORK_SESSION_LEASES, WorkSessionController } from './work-session-api.js';
 import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
 import {
   GATEWAY_DIAGNOSTICS,
@@ -179,9 +181,30 @@ async function tenantScope<T>(tenantId: string, work: () => Promise<T> | T): Pro
     return work();
   });
 }
-const socketAdapter = new WorkspaceSessionWebSocketAdapter(gateway, tenantScope, {
-  write: (diagnostic) => console.log(JSON.stringify(diagnostic)),
+// E1.9 (#483): work-session lease — บังคับเมื่อ tenant เปิด `workSession.lease.enforced`
+const leaseSignals: { forward?: WorkspaceSessionWebSocketAdapter } = {};
+const workSessionLeases = new WorkSessionLeases(prisma, {
+  signals: {
+    signal: (tenantId, userId, signal) =>
+      void leaseSignals.forward?.signalLease(tenantId, userId, signal),
+  },
+  diagnostics: { write: (event) => console.log(JSON.stringify(event)) },
 });
+const socketAdapter = new WorkspaceSessionWebSocketAdapter(
+  gateway,
+  tenantScope,
+  { write: (diagnostic) => console.log(JSON.stringify(diagnostic)) },
+  workSessionLeases,
+);
+leaseSignals.forward = socketAdapter;
+// ปล่อย lease ที่หลุดตอนว่างเกิน TTL (presence → OFFLINE); ทุก instance รันได้เพราะ lock แถวก่อนปิด
+setInterval(() => {
+  workSessionLeases
+    .sweep()
+    .catch((error) =>
+      console.error(JSON.stringify({ event: 'work_session.sweep_failed', error: String(error) })),
+    );
+}, 15_000).unref();
 supervisorLiveEvents.subscribe(async (event, recipientUserIds) => {
   await socketAdapter.deliverLiveEvent(event, recipientUserIds);
 });
@@ -211,6 +234,7 @@ class WorkspaceSessionController {
     RecordingController,
     QmController,
     AgentWorkspaceController,
+    WorkSessionController,
     JourneyEventController,
     JourneyOwnerRecoveryController,
     JourneySegmentRecoveryController,
@@ -255,6 +279,7 @@ class WorkspaceSessionController {
     { provide: QM_DATABASE, useValue: prisma },
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
+    { provide: WORK_SESSION_LEASES, useValue: workSessionLeases },
     { provide: AGENT_SIP_LEASE_PROVIDER, useValue: configuredAgentSipLeaseProvider() },
     { provide: JOURNEY_EVENT_INBOX, useValue: journeyEventInbox },
     { provide: JOURNEY_RECOVERY_DATABASE, useValue: prisma },

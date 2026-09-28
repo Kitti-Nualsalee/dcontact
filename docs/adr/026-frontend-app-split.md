@@ -3,6 +3,11 @@
 - **สถานะ:** Accepted
 - **วันที่:** 2026-08-14
 
+> **อัปเดต (2026-09-25):** ข้อ 2 เปลี่ยนตัวบังคับ "จุดรับงานเดียว" จาก leader election ในเบราว์เซอร์เป็น
+> work-session lease ฝั่ง server ครอบทุก surface รวม dphone ที่ถูกฝังคนละ origin
+> ตาม [E1.3 #459](https://github.com/Kitti-Nualsalee/dcontact/issues/459) (Phase Contract [#464](https://github.com/Kitti-Nualsalee/dcontact/issues/464))
+> — implementation ใน E1.9 #483
+
 > **อัปเดต (2026-09-05):** ข้อ 8 ถูกจำกัดขอบเขตลงสำหรับ Inbound Voice Phase 2 Pilot —
 > จอแคบ/มือถือเป็น **read-only** และ acknowledgement/approval เลื่อนไปหลัง Pilot
 > ตาม [#48](https://github.com/Kitti-Nualsalee/dcontact/issues/48) และ
@@ -44,10 +49,19 @@ mockup ทั้งหมดวันนี้เป็น shell เดียว
    ถ้ากดหลังเหตุการณ์จบแล้ว → console_ (wallboard สด/queue control อยู่ workspace,
    รายงานย้อนหลังของคิวเดียวกันอยู่ console)
 
-2. **แท็บทำงานมีได้แท็บเดียว และมันคือแท็บเดียวที่ประกาศว่า "รับงานได้"**
-   workspace ต้องทำ leader election (`BroadcastChannel` + heartbeat ใน `localStorage`)
-   แท็บที่ไม่ใช่ leader แสดงหน้าจอ "แท็บนี้ไม่ใช่แท็บทำงาน — กดเพื่อย้ายมาที่นี่" และ**ไม่ต่อ WS ของ routing**
-   ถ้าไม่ทำ: เปิดสองแท็บ = ack countdown เดินสองอัน, งานเดียวถูกกดรับสองที่, presence กระพริบ
+2. **จุดรับงานมีได้ที่เดียวต่อ agent ต่อ tenant บังคับด้วย work-session lease ฝั่ง server**
+   _(แก้ไข 2026-09-25 ตาม [E1.3 #459](https://github.com/Kitti-Nualsalee/dcontact/issues/459) — เดิมบังคับด้วย leader election ในเบราว์เซอร์)_
+   จุดรับงานครอบทุก surface: Workspace, `/dphone` และ dphone ที่ฝังในระบบอื่น (คนละ origin)
+   - server ออก lease ได้ 1 อันต่อ agent ต่อ tenant (`POST /api/v1/me/work-session`, ซ้อนได้ 409 พร้อมผู้ถือ)
+     อายุ 60 วินาที ต่ออายุด้วย heartbeat ทุก 20 วินาทีทาง `/api/v1/workspace-session`
+     และ**ไม่หมดอายุระหว่างมีสายหรือ wrap-up** — หลุดตอนว่างปล่อยเมื่อครบ 60 วินาทีแล้ว presence เป็นไม่พร้อม
+   - เฉพาะผู้ถือ lease ที่ต่อ WS ของ routing รับ offer และ register SIP ได้; ที่อื่นดูได้อย่างเดียว
+   - "ย้ายมาที่นี่" = takeover ที่ต้องยืนยัน (`expectedLeaseId`) **ห้ามระหว่างมีงาน**; ที่เดิมได้ `lease.revoked`
+     และ offer ที่รอกดรับถูกส่งกลับเข้าคิว ทุกการย้ายเขียน audit
+   - leader election ในเบราว์เซอร์ (`BroadcastChannel` + `localStorage`) ยังเก็บไว้ แต่เป็นแค่การลดภาระ
+     ภายใน origin เดียว **ไม่ใช่ตัวบังคับความถูกต้อง** — ข้าม origin (dphone ที่ถูกฝัง) เบราว์เซอร์มองไม่เห็นกัน
+   - เปิดใช้ต่อ tenant ด้วย flag `workSession.lease.enforced` (ค่าเริ่มต้นปิด)
+   ถ้าไม่ทำ: เปิดสองที่ = ack countdown เดินสองอัน, งานเดียวถูกกดรับสองที่, presence กระพริบ
    `apps/console` **ห้ามต่อ WS ของ routing เลย** ต่อได้แค่ช่องอ่านอย่างเดียว (แดชบอร์ด/แจ้งเตือน)
 
 3. **console เปิดเป็นแท็บใหม่เสมอ ห้าม navigate ทับ workspace**

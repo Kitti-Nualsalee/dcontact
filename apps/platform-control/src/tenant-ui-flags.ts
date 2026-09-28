@@ -9,7 +9,11 @@
  */
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 
-export const TENANT_UI_FLAGS = ['ui.shell.v2'] as const;
+export const TENANT_UI_FLAGS = [
+  'ui.shell.v2',
+  // E1.9 (#483): บังคับ work-session lease (จุดรับงานเดียวต่อ agent) — เปิดใน dev/UAT ก่อน
+  'workSession.lease.enforced',
+] as const;
 export type TenantUiFlagKey = (typeof TENANT_UI_FLAGS)[number];
 
 export class TenantUiFlagError extends Error {
@@ -32,7 +36,7 @@ export interface SetTenantUiFlagInput {
   enabled: boolean;
   reason: string;
   actor: string;
-  /** ต้องเป็น true เมื่อเปิด `ui.shell.v2` — ยืนยันว่าผู้ใช้อนุญาตแล้วเทียบกับ gate ของ #77 */
+  /** ต้องเป็น true เมื่อเปิด flag ใดๆ — ยืนยันว่าผู้ใช้อนุญาตแล้วเทียบกับ gate ของ #77 (D1/E1 Phase Contract) */
   voicePilotAcknowledged?: boolean;
 }
 
@@ -44,7 +48,7 @@ export async function setTenantUiFlag(database: PrismaClient, input: SetTenantUi
   if (reason.length < 3 || reason.length > 500) throw new TenantUiFlagError('REASON_REQUIRED');
   const actor = input.actor.trim();
   if (!actor) throw new TenantUiFlagError('ACTOR_REQUIRED');
-  if (input.enabled && input.flagKey === 'ui.shell.v2' && input.voicePilotAcknowledged !== true) {
+  if (input.enabled && input.voicePilotAcknowledged !== true) {
     throw new TenantUiFlagError('VOICE_PILOT_ACK_REQUIRED');
   }
 
