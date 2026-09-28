@@ -21,6 +21,7 @@ import {
   checkNoStartDev,
   checkProxy,
   checkRealm,
+  checkUatProvision,
   checkWorkflow,
   findDropStatements,
   guardMigrations,
@@ -42,6 +43,7 @@ const workflow = read(UAT_FILES.workflow);
 const apiDockerfile = read(UAT_FILES.apiDockerfile);
 const consoleDockerfile = read(UAT_FILES.consoleDockerfile);
 const minioInit = read(UAT_FILES.minioInitScript);
+const deployScript = read(UAT_FILES.deployScript);
 
 /** แทรก block ใต้ `services:` ของ compose จริง */
 function withService(block) {
@@ -79,6 +81,7 @@ test('parser ของ compose อ่าน service/ports/env ของ UAT ไ�
     'minio-init',
     'postgres',
     'proxy',
+    'uat-provision',
   ]);
   assert.deepEqual(services.proxy.ports, ['443:8443', '80:8080']);
   assert.equal(services.api.environment.DCONTACT_API_PROFILE, 'uat');
@@ -379,6 +382,80 @@ test('UAT-S15: api ใช้ MinIO user เฉพาะแบบ :? ต่อ ne
       minioInit,
     ),
     'MINIO_PUBLISHES_PORT',
+  );
+});
+
+test('UAT-S16: provision เป็น one-shot ของ ops, owner connection, CLI อยู่ใน ops image และ input ทาง stdin', () => {
+  assert.equal(checkUatProvision(compose, apiDockerfile, deployScript).status, 'PASS');
+  const service = parseComposeServices(compose)['uat-provision'];
+  assert.deepEqual(service.profiles, ['ops']);
+  assert.deepEqual(service.command, ['--check', '--input', '-']);
+  const ownerUrl =
+    /DATABASE_URL: postgresql:\/\/\$\{UAT_POSTGRES_USER[^\n]*@postgres:5432\/dcontact\?schema=public\n(?=      UAT_TENANT_ID)/;
+  assert.match(compose, ownerUrl);
+  // connection ของ application (dcontact_app) = ห้าม
+  failed(
+    checkUatProvision(
+      compose.replace(
+        ownerUrl,
+        'DATABASE_URL: postgresql://dcontact_app:${UAT_APP_DB_PASSWORD:?required}@postgres:5432/dcontact\n',
+      ),
+      apiDockerfile,
+      deployScript,
+    ),
+    'NOT_OWNER_CONNECTION',
+  );
+  failed(
+    checkUatProvision(
+      compose.replace(
+        ownerUrl,
+        'DATABASE_URL: postgresql://dcontact_app:${UAT_APP_DB_PASSWORD:?required}@postgres:5432/dcontact\n',
+      ),
+      apiDockerfile,
+      deployScript,
+    ),
+    'APPLICATION_ROLE',
+  );
+  failed(
+    checkUatProvision(
+      compose.replace('  uat-provision:\n', '  uat-provisioning:\n'),
+      apiDockerfile,
+      deployScript,
+    ),
+    'MISSING_SERVICE',
+  );
+  failed(
+    checkUatProvision(
+      compose.replace(/( {2}uat-provision:\n) {4}profiles: \['ops'\]\n/, '$1'),
+      apiDockerfile,
+      deployScript,
+    ),
+    'NOT_OPS_PROFILE',
+  );
+  failed(
+    checkUatProvision(
+      compose,
+      // ลบเฉพาะใน ops stage — COPY เดียวกันของ runtime stage ต้องไม่ทำให้ผ่าน
+      apiDockerfile.replace(/(AS ops\b[^]*?)COPY --from=build \/out\/api \/app\n/, '$1'),
+      deployScript,
+    ),
+    'OPS_IMAGE_WITHOUT_CLI',
+  );
+  failed(
+    checkUatProvision(
+      compose,
+      apiDockerfile,
+      deployScript.replace('--input - <"$file"', '--input "$file"'),
+    ),
+    'DEPLOY_NOT_VIA_STDIN',
+  );
+  failed(
+    checkUatProvision(
+      compose,
+      apiDockerfile,
+      deployScript.replace(/PROVISION_INPUT_PERMISSIONS/g, 'X'),
+    ),
+    'INPUT_PERMISSIONS',
   );
 });
 

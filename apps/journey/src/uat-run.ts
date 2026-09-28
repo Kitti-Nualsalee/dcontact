@@ -194,13 +194,24 @@ export function uatFixturePackDigest(manifest: UatFixturePackManifestV1): string
 
 // ── Provisioning (UAT operator) ────────────────────────────────────────────
 
-const MAKER_CAPABILITIES = ['journey.read', 'journey.edit', 'journey.publish'] as const;
-const REVIEWER_CAPABILITIES = ['journey.read', 'journey.review'] as const;
+/** grant แบบ TEAM ของ owner team ที่ preflight ต้องการ — CLI provision (U1.8 #502) ใช้ชุดเดียวกัน */
+export const UAT_MAKER_CAPABILITIES = ['journey.read', 'journey.edit', 'journey.publish'] as const;
+export const UAT_REVIEWER_CAPABILITIES = ['journey.read', 'journey.review'] as const;
+const MAKER_CAPABILITIES = UAT_MAKER_CAPABILITIES;
+const REVIEWER_CAPABILITIES = UAT_REVIEWER_CAPABILITIES;
 
 export interface UatFixtureProvisionResult {
   status: 'CREATED' | 'UNCHANGED';
   fixturePackId: string;
   digest: string;
+}
+
+export interface UatFixtureCheckResult {
+  status: 'WOULD_CREATE' | 'UNCHANGED';
+  fixturePackId: string | null;
+  digest: string;
+  /** `SKIPPED` = ผู้เรียกขอข้าม preflight เพราะข้อ 1–4 ยังไม่ถูกสร้าง (ดู `check`) */
+  preflight: 'PASS' | 'SKIPPED';
 }
 
 /**
@@ -218,19 +229,8 @@ export class UatFixtureProvisioner {
     const manifest = parseUatFixturePackManifest(value);
     const digest = uatFixturePackDigest(manifest);
     return this.database.$transaction(async (tx) => {
-      const existing = await tx.uatFixturePack.findUnique({
-        where: {
-          tenantId_environment_packVersion: {
-            tenantId: manifest.tenantId,
-            environment: manifest.environment,
-            packVersion: manifest.packVersion,
-          },
-        },
-      });
-      if (existing) {
-        if (existing.digest !== digest) throw new UatRunError('FIXTURE_PACK_DIGEST_MISMATCH');
-        return { status: 'UNCHANGED' as const, fixturePackId: existing.id, digest };
-      }
+      const existing = await this.existing(tx, manifest, digest);
+      if (existing) return { status: 'UNCHANGED' as const, fixturePackId: existing.id, digest };
       await this.preflight(tx, manifest);
       const fixturePackId = this.id();
       await tx.uatFixturePack.create({
@@ -246,6 +246,48 @@ export class UatFixtureProvisioner {
       });
       return { status: 'CREATED' as const, fixturePackId, digest };
     });
+  }
+
+  /**
+   * U1.8 (#502): `--check` ของ CLI — parse, digest และ preflight เดียวกับ `provision` ใน transaction
+   * แบบ READ ONLY จึงเขียนอะไรไม่ได้เลย; `preflight: false` ใช้เมื่อข้อ 1–4 (tenant/team/grant/rollout)
+   * ยังไม่มีและจะถูกสร้างในรอบ apply — ยังตรวจ manifest และ digest ของ pack เดิมตามปกติ
+   */
+  async check(
+    value: unknown,
+    options: { readonly preflight?: boolean } = {},
+  ): Promise<UatFixtureCheckResult> {
+    const manifest = parseUatFixturePackManifest(value);
+    const digest = uatFixturePackDigest(manifest);
+    return this.database.$transaction(async (tx) => {
+      await tx.$executeRaw`SET TRANSACTION READ ONLY`;
+      const existing = await this.existing(tx, manifest, digest);
+      if (existing) {
+        return { status: 'UNCHANGED', fixturePackId: existing.id, digest, preflight: 'PASS' };
+      }
+      if (options.preflight === false) {
+        return { status: 'WOULD_CREATE', fixturePackId: null, digest, preflight: 'SKIPPED' };
+      }
+      await this.preflight(tx, manifest);
+      return { status: 'WOULD_CREATE', fixturePackId: null, digest, preflight: 'PASS' };
+    });
+  }
+
+  /** pack เดิมของ environment + tenant + pack version; digest ต่าง = fail closed */
+  private async existing(tx: Tx, manifest: UatFixturePackManifestV1, digest: string) {
+    const existing = await tx.uatFixturePack.findUnique({
+      where: {
+        tenantId_environment_packVersion: {
+          tenantId: manifest.tenantId,
+          environment: manifest.environment,
+          packVersion: manifest.packVersion,
+        },
+      },
+    });
+    if (existing && existing.digest !== digest) {
+      throw new UatRunError('FIXTURE_PACK_DIGEST_MISMATCH');
+    }
+    return existing;
   }
 
   private async preflight(tx: Tx, manifest: UatFixturePackManifestV1) {

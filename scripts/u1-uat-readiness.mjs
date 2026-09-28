@@ -477,6 +477,53 @@ export function checkEvidenceStorage(compose, minioInitScript) {
   return check(id, failures);
 }
 
+/**
+ * U1.8 (#502): provision tenant/บัญชี/fixture pack ทำผ่าน one-shot `uat-provision` ใน profile ops เท่านั้น
+ * ด้วย connection ของ owner (ไม่ใช่ `dcontact_app`), image ops ที่มี CLI จริง และไฟล์ input ส่งทาง stdin
+ */
+export function checkUatProvision(compose, apiDockerfile, deployScript) {
+  const id = 'UAT-S16 provision UAT เป็น one-shot ของ ops ด้วย owner connection';
+  const service = parseComposeServices(compose)['uat-provision'];
+  if (!service) return check(id, [{ kind: 'MISSING_SERVICE' }]);
+  const failures = [];
+  if (!service.profiles.includes('ops')) failures.push({ kind: 'NOT_OPS_PROFILE' });
+  if (!/^\$\{OPS_IMAGE:\?[^}]*\}$/.test(service.image ?? ''))
+    failures.push({ kind: 'NOT_OPS_IMAGE' });
+  // owner = POSTGRES_USER ของ container postgres (เหมือน service `migrate`) ไม่ใช่ role ของ application
+  const owner =
+    /^postgresql:\/\/\$\{([A-Z0-9_]+):\?[^}]*\}:\$\{([A-Z0-9_]+):\?[^}]*\}@postgres:5432\/dcontact\b/.exec(
+      service.environment.DATABASE_URL ?? '',
+    );
+  if (owner?.[1] !== 'UAT_POSTGRES_USER' || owner?.[2] !== 'UAT_POSTGRES_PASSWORD') {
+    failures.push({ kind: 'NOT_OWNER_CONNECTION' });
+  }
+  if (/dcontact_app|UAT_APP_DB_PASSWORD/.test(service.raw.join('\n'))) {
+    failures.push({ kind: 'APPLICATION_ROLE' });
+  }
+  if (
+    !/entrypoint:\s*\[\s*'node',\s*'\/app\/dist\/uat-provision-main\.js'\s*\]/.test(
+      service.raw.join('\n'),
+    )
+  ) {
+    failures.push({ kind: 'ENTRYPOINT' });
+  }
+  if (/^\s+- edge$/m.test(service.raw.join('\n'))) failures.push({ kind: 'ON_EDGE_NETWORK' });
+  const ops =
+    /FROM\s+runtime-base\s+AS\s+ops\b([^]*?)(?=^FROM\s|(?![^]))/m.exec(apiDockerfile ?? '')?.[1] ??
+    '';
+  if (!/^COPY --from=build \/out\/api \/app$/m.test(ops))
+    failures.push({ kind: 'OPS_IMAGE_WITHOUT_CLI' });
+  if (!/test -f \/out\/api\/dist\/uat-provision-main\.js/.test(apiDockerfile ?? '')) {
+    failures.push({ kind: 'CLI_NOT_BUILT' });
+  }
+  const provision = /^ {2}provision\)\n([^]*?)^ {4};;/m.exec(deployScript ?? '')?.[1] ?? '';
+  if (!/run --rm -T uat-provision .*--input - <"\$file"/.test(provision)) {
+    failures.push({ kind: 'DEPLOY_NOT_VIA_STDIN' });
+  }
+  if (!/PROVISION_INPUT_PERMISSIONS/.test(provision)) failures.push({ kind: 'INPUT_PERMISSIONS' });
+  return check(id, failures);
+}
+
 export function checkProxy(caddyfile) {
   const failures = [];
   if (caddyfile === null)
@@ -644,6 +691,7 @@ export function runStaticChecks(root = repositoryRoot) {
     checkRealm(files.realm),
     checkApiEnvironment(compose),
     checkEvidenceStorage(compose, files.minioInitScript),
+    checkUatProvision(compose, files.apiDockerfile, files.deployScript),
     checkProxy(files.caddyfile),
     checkWorkflow(files.workflow),
     checkEnvExample(files.envExample),

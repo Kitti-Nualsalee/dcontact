@@ -6,7 +6,9 @@
 # target:
 #   runtime — API ที่บูตได้เฉพาะ `DCONTACT_API_PROFILE=uat` (U1.2 #430) รันเป็น non-root
 #   ops     — one-shot ของ operator: `prisma migrate deploy` (additive เท่านั้น), rls.sql,
-#             ตั้งค่า Keycloak realm/บัญชี และ readiness smoke — ไม่มี entry ของ API
+#             ตั้งค่า Keycloak realm/บัญชี, readiness smoke และ provision tenant/บัญชี/fixture pack
+#             ของ UAT (U1.8 #502: `/app/dist/uat-provision-main.js` ใช้ build เดียวกับ runtime) —
+#             CMD/entry ไม่ใช่ API server
 #
 # base image pin ด้วย digest เสมอ (readiness U1.6 ล้มเมื่อพบ FROM ที่ไม่ pin)
 ARG NODE_IMAGE=node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
@@ -41,7 +43,8 @@ RUN pnpm --filter @d-contact/api deploy --prod /out/api \
          rmSync(client(target), { recursive: true, force: true }); \
          cpSync(generated, client(target), { recursive: true }); \
        }" \
-  && test -f /out/api/dist/uat-main.js
+  && test -f /out/api/dist/uat-main.js \
+  && test -f /out/api/dist/uat-provision-main.js
 
 FROM runtime-base AS runtime
 ARG SOURCE_SHA=unknown
@@ -68,5 +71,8 @@ WORKDIR /ops
 COPY --from=build /out/ops /ops
 COPY scripts/u1-uat-keycloak-users.mjs scripts/u1-uat-readiness.mjs /ops/scripts/
 COPY infra/keycloak/realm-dcontact.uat.json /ops/infra/keycloak/realm-dcontact.uat.json
+# U1.8 (#502): CLI provision ต้องใช้ @d-contact/journey + Prisma client ที่ generate แล้ว — คัดชุด
+# production dependencies ของ api (build เดียวกับ runtime) มาทั้งก้อนที่ /app; ไม่มีการรัน API server
+COPY --from=build /out/api /app
 USER 10001:10001
 CMD ["prisma", "migrate", "deploy", "--schema", "prisma/schema.prisma"]
