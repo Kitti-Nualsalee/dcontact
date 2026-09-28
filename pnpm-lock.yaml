@@ -719,6 +719,9 @@ importers:
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vite:
+        specifier: 6.4.3
+        version: 6.4.3(@types/node@20.19.43)(tsx@4.23.1)
 
   packages/expression:
     dependencies:

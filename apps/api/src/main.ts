@@ -28,6 +28,11 @@ import {
 } from './embed-origins-api.js';
 import { DphoneAuthCallbackController } from './dphone-auth-callback.js';
 import {
+  DPHONE_LAUNCHER_OPTIONS,
+  DphoneLauncherController,
+  defaultLauncherReleasesDir,
+} from './dphone-launcher-api.js';
+import {
   ContactGovernanceDisclosureCheck,
   ScreenPopService,
   UnavailableTeamSegmentViewScope,
@@ -271,6 +276,7 @@ class WorkspaceSessionController {
     EmbedOriginsController,
     ScreenPopController,
     DphoneEmbedController,
+    DphoneLauncherController,
     DphoneAuthCallbackController,
     JourneyEventController,
     JourneyOwnerRecoveryController,
@@ -318,6 +324,8 @@ class WorkspaceSessionController {
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
     { provide: WORK_SESSION_LEASES, useValue: workSessionLeases },
     { provide: EMBED_ORIGIN_SERVICE, useValue: embedOrigins },
+    // E1.15 (#489): `<dphone-launcher>` แบบ versioned/alias บน dphone origin
+    { provide: DPHONE_LAUNCHER_OPTIONS, useValue: { releasesDir: defaultLauncherReleasesDir() } },
     { provide: SCREEN_POP_SERVICE, useValue: screenPop },
     {
       provide: DPHONE_EMBED_SHELL_OPTIONS,
