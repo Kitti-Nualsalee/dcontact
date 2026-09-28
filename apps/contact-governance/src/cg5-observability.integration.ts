@@ -92,7 +92,9 @@ test('CG5-OB01 snapshot อ่าน telemetry ของ projection และ ex
   const snapshot = await cg5ObservabilitySnapshot(f.application, {
     tenantId: f.tenantId,
     now: observedAt,
-    windowSeconds: 7 * 86_400,
+    // audit ของ export ถูกบันทึกที่ NOW (เวลาตายตัว) — window ต้องย้อนไปถึง NOW เสมอ ไม่งั้นเทสต์จะล้ม
+    // เองเมื่อวันจริงเลย NOW ไปเกินขนาด window (เดิมตั้งตายตัว 7 วันแล้วล้มตั้งแต่ 2026-09-28)
+    windowSeconds: Math.ceil((observedAt.getTime() - NOW.getTime()) / 1_000) + 86_400,
   });
   assert.equal(snapshot.tenantId, f.tenantId);
   assert.ok(
