@@ -318,6 +318,10 @@ class WorkspaceSessionController {
           .split(',')
           .map((value) => value.trim())
           .filter(Boolean),
+        auth: {
+          issuer: required('KEYCLOAK_ISSUER'),
+          clientId: process.env.DPHONE_EMBEDDED_CLIENT_ID ?? 'dphone-embedded',
+        },
       },
     },
     { provide: AGENT_SIP_LEASE_PROVIDER, useValue: configuredAgentSipLeaseProvider() },

@@ -84,7 +84,12 @@ test('E1.11: shell — ไม่มี origin = frame-ancestors none และ�
   assert.doesNotMatch(open['content-security-policy']!, /unsafe-inline|\*/);
   const html = embedShellHtml(policy, options, 'n2');
   const config = JSON.parse(/id="dphone-embed-config"[^>]*>([^<]*)</.exec(html)![1]!);
-  assert.deepEqual(config, { v: 1, tenant: 'demo', allowedHostOrigins: policy.origins });
+  assert.deepEqual(config, {
+    v: 1,
+    tenant: 'demo',
+    allowedHostOrigins: policy.origins,
+    auth: null,
+  });
   assert.match(html, /<script type="module" nonce="n2" src="https:\/\/workspace\.dcontact\.test/);
 
   // ค่าใน JSON ต้องปิด tag ก่อนเวลาไม่ได้
@@ -94,4 +99,16 @@ test('E1.11: shell — ไม่มี origin = frame-ancestors none และ�
     'n3',
   );
   assert.equal(hostile.includes('</script><script>alert'), false);
+});
+
+test('E1.13: shell ส่ง OIDC ของ dphone-embedded เฉพาะเมื่อฝังได้ และเพิ่ม issuer ใน connect-src', () => {
+  const auth = { issuer: 'https://id.dcontact.test/realms/dcontact', clientId: 'dphone-embedded' };
+  const options = { scriptUrl: 'https://workspace.dcontact.test/embed/dphone-embed.js', auth };
+  const policy = { tenantId: 't', tenantAlias: 'demo', origins: ['https://crm.example.test'] };
+  const csp = embedShellHeaders(policy, options, 'n4')['content-security-policy']!;
+  assert.match(csp, /connect-src 'self' https:\/\/id\.dcontact\.test;/);
+  const configOf = (html: string) =>
+    JSON.parse(/id="dphone-embed-config"[^>]*>([^<]*)</.exec(html)![1]!);
+  assert.deepEqual(configOf(embedShellHtml(policy, options, 'n4')).auth, auth);
+  assert.equal(configOf(embedShellHtml(null, options, 'n5')).auth, null);
 });
