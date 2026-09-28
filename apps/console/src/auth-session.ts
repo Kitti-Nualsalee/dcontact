@@ -39,6 +39,16 @@ export function resolveConsoleView(location: URL, defaultView?: string): string 
   return defaultView === 'journeys' ? 'journeys' : null;
 }
 
+/**
+ * U1.7 (#435): หลัง Keycloak redirect กลับ ต้องลบ `code`/`state`/`session_state`/`iss` ออกจาก URL
+ * (ไม่ให้ค้างใน history/screenshot หลักฐาน — #379) โดยคง `tenant`/`view`/`journey` เดิมไว้
+ */
+export function cleanConsoleCallbackUrl(location: URL): string {
+  const next = new URL(location.href);
+  for (const key of ['code', 'state', 'session_state', 'iss']) next.searchParams.delete(key);
+  return `${next.pathname}${next.search}${next.hash}`;
+}
+
 export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): UserManagerSettings {
   const redirectUrl = new URL('/', input.origin);
   redirectUrl.searchParams.set('tenant', input.tenantAlias);

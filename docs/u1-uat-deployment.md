@@ -146,49 +146,103 @@ CLI ทำข้อ 1–4 ใน transaction เดียวแบบ idempotent
 5. fixture pack (`UatFixturePackV1`) ด้วย connection ของ owner (app role เขียน pack ไม่ได้) — preflight ของ U1.1
    ตรวจข้อ 1–4 และ idempotent ต่อ environment + tenant + pack version; digest ต่าง = `FIXTURE_PACK_DIGEST_MISMATCH`
 
-ไฟล์ input มาจาก secret store (มีอีเมลจริงของผู้ทดสอบ) และลบทันทีหลังใช้ — **ห้าม commit**
-key ที่ไม่รู้จัก/ขาด = ปฏิเสธ (`INPUT_INVALID`); `fixturePack` ใส่ manifest ตรง ๆ (ผ่าน `uat-deploy.sh` ต้องเป็นแบบนี้
-เพราะไฟล์ส่งทาง stdin) หรือใช้ `fixturePackPath` แทนเมื่อรัน CLI ตรงกับไฟล์ที่ container อ่านได้:
+### 5.1 ไฟล์ใน repo (U1.9 #506)
 
-```json
-{
-  "schema": "UatProvisionV1",
-  "tenant": { "id": "<UAT_TENANT_ID>", "slug": "<UAT_TENANT_SLUG>", "name": "<UAT_TENANT_NAME>" },
-  "ownerTeam": { "id": "<uuid ของ owner team>", "name": "<ชื่อ team>" },
-  "maker": {
-    "dcUserId": "<uuid ตัวพิมพ์เล็ก — ตรงกับ dcUserId ในไฟล์บัญชีข้อ 6>",
-    "email": "<อีเมลจริงของผู้ทดสอบ>",
-    "displayName": "<ชื่อที่แสดง>"
-  },
-  "reviewer": { "...": "คนละบัญชีกับ maker (dcUserId และอีเมลต่างกัน)" },
-  "rollout": {
-    "stage": "<INTERNAL_SYNTHETIC | SELECTED_TENANT | CONTROLLED_AUTHORING>",
-    "canvasWriteEnabled": true,
-    "publishUiEnabled": true,
-    "templateCatalogEnabled": false,
-    "templateUpgradeEnabled": false,
-    "evidenceRef": "<ref ของ issue/หลักฐานที่อนุมัติ rollout>"
-  },
-  "fixturePack": {
-    "schema": "UatFixturePackV1",
-    "environment": "<UAT_ENVIRONMENT หรือ uat>",
-    "packVersion": "<UAT_FIXTURE_PACK_VERSION>",
-    "tenantId": "<UAT_TENANT_ID>",
-    "ownerTeamId": "<uuid ของ owner team>",
-    "makerSubjectId": "<dcUserId ของ maker>",
-    "reviewerSubjectId": "<dcUserId ของ reviewer>",
-    "...": "senderRef, contentRef, baselineDocument, simulationFixture, steps ตาม UatFixturePackV1 (สังเคราะห์ล้วน)"
-  }
-}
-```
+| ไฟล์                                                  | คืออะไร                                                                                                                                                                 |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `infra/uat/fixtures/uat-first-slice.v1.template.json` | fixture pack `UatFixturePackV1` ของ UAT first slice (สังเคราะห์ล้วน): baseline `EVENT_TRIGGER → SEND → EXIT` (maker แทรก WAIT เอง), simulation fixture และ step catalog |
+| `infra/uat/uat-provision.example.json`                | input `UatProvisionV1` ตัวอย่างที่มีแต่ placeholder `__UAT_*__` — operator คัดลอกแล้วกรอกจาก secret store                                                               |
+| `scripts/u1-uat-fixture-render.mjs`                   | renderer (Node ล้วน ไม่มี dependency): input ที่กรอกแล้ว + `--build-sha` → input `UatProvisionV1` ที่มี manifest เต็ม                                                   |
 
-```bash
-# บน VM — <sha> = release ปัจจุบัน
-install -m 600 /dev/stdin /opt/dcontact-uat/uat-provision.json   # วางเนื้อหาจาก secret store
-bash /opt/dcontact-uat/releases/<sha>/bin/uat-deploy.sh provision <sha> /opt/dcontact-uat/uat-provision.json --check
-bash /opt/dcontact-uat/releases/<sha>/bin/uat-deploy.sh provision <sha> /opt/dcontact-uat/uat-provision.json
-shred -u /opt/dcontact-uat/uat-provision.json
-```
+ทำไมต้อง render: digest ของ pack ครอบทุก field รวม `tenantId`/`ownerTeamId`/`makerSubjectId`/`reviewerSubjectId`/
+`environment`/`packVersion`/`buildSha` ซึ่งเป็นค่าของ deployment — ไฟล์ใน Git จึงเก็บได้แค่ template ที่มี placeholder
+renderer แทน placeholder ทั้ง string เท่านั้น: id ของ tenant/team/บัญชีเอามาจาก input เดียวกัน (กรอกครั้งเดียว),
+`environment`/`packVersion` จาก stub `fixturePack` และ `buildSha` จาก `--build-sha` (SHA เต็ม 40/64 ตัวของ release
+ที่ deploy — ตัวย่อไม่รับ) ส่วนอื่นของ input ไม่ถูกแตะ
+
+กันการ provision placeholder โดยไม่ตั้งใจ:
+
+- renderer ปฏิเสธ input ที่ยังมี `__UAT_*__` ที่ใดก็ตาม (`PLACEHOLDER_UNFILLED` พร้อมชื่อ field) และไม่พิมพ์ค่าจาก input
+- CLI `uat-provision` ปฏิเสธ `__UAT_*__` ที่ใดก็ตาม (`INPUT_PLACEHOLDER` — รวม field อิสระอย่างชื่อ tenant) และ stub
+  `fixturePack.template` ที่ยังไม่ render (`FIXTURE_PACK_NOT_RENDERED`) ก่อน scan และก่อนแตะฐานข้อมูล
+- readiness `UAT-S17` ตรวจว่าไฟล์ที่ commit ยังเป็น placeholder ไม่มี UUID/อีเมลจริง
+
+`buildSha` กับ pack version: pack idempotent ต่อ environment + tenant + `packVersion` และ digest รวม `buildSha` —
+render pack version เดิมด้วย SHA อื่น = `FIXTURE_PACK_DIGEST_MISMATCH` (fail closed) ดังนั้น release ใหม่ที่ใช้ pack เดิม
+**ไม่ต้อง** provision ใหม่; ถ้าต้องการ pack ที่ผูกกับ release ใหม่ให้ตั้ง `UAT_FIXTURE_PACK_VERSION` ใหม่ (ค่าเดียวกับที่ฝังใน
+Console) แล้ว render ด้วย SHA ของ release นั้น ส่วนการรันซ้ำของ pack เดิมต้องใช้ SHA เดิม (ดูได้จาก Build SHA ในหน้า UAT run)
+เนื้อหา template ที่เปลี่ยนต้องออกเป็น template ใหม่ (`….v2`) พร้อม pack version ใหม่เสมอ
+
+ข้อจำกัดที่รู้แล้ว: pattern `PHONE` ของ negative scan (U1.5) จับ SHA ที่ขึ้นต้นด้วย `0` + เลข 1–9 ตามด้วยตัวเลขอีก 7–8 ตัว
+แล้วต่อด้วยตัวอักษร (เช่น `0512345678ab…`) ว่าเป็นเบอร์โทรไทย → `--check` ได้ `INPUT_SENSITIVE_CONTENT` (`kind` = `PHONE`)
+โอกาสราว 0.1% ต่อ SHA — ถ้าเจอให้ provision pack กับ release ถัดไป และรายงานใน issue (ห้ามแก้ SHA เอง)
+
+### 5.2 กรอก, render และ provision
+
+input ที่กรอกแล้วมีอีเมลจริงของผู้ทดสอบ: เก็บใน secret store เท่านั้นและลบทันทีหลังใช้ — **ห้าม commit**
+key ที่ไม่รู้จัก/ขาด = ปฏิเสธ (`INPUT_INVALID`)
+
+1. คัดลอก `infra/uat/uat-provision.example.json` ไปที่ secret store แล้วแทน `__UAT_*__` ทุกตัว:
+
+   | placeholder                                                          | ค่า                                                                    |
+   | -------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+   | `__UAT_TENANT_ID__` / `__UAT_TENANT_SLUG__` / `__UAT_TENANT_NAME__`  | `UAT_TENANT_ID` / `UAT_TENANT_SLUG` / `UAT_TENANT_NAME` ของ `uat.env`  |
+   | `__UAT_OWNER_TEAM_ID__` / `__UAT_OWNER_TEAM_NAME__`                  | UUID ตัวพิมพ์เล็กใหม่ของ owner team / ชื่อ team                        |
+   | `__UAT_MAKER_DC_USER_ID__` / `__UAT_REVIEWER_DC_USER_ID__`           | UUID ตัวพิมพ์เล็กคนละค่า — ตรงกับ `dcUserId` ในไฟล์บัญชีข้อ 6          |
+   | `__UAT_MAKER_EMAIL__` / `__UAT_REVIEWER_EMAIL__`, `…_DISPLAY_NAME__` | อีเมลจริงและชื่อที่แสดงของผู้ทดสอบ (คนละคน)                            |
+   | `__UAT_ROLLOUT_EVIDENCE_REF__`                                       | ref ของ issue/หลักฐานที่อนุมัติ rollout                                |
+   | `__UAT_FIXTURE_PACK_VERSION__`                                       | `UAT_FIXTURE_PACK_VERSION` ของ GitHub environment (ค่าที่ Console ใช้) |
+
+   `rollout.stage` เริ่มที่ `INTERNAL_SYNTHETIC`; `fixturePack.environment` = `UAT_ENVIRONMENT` (ว่าง = `uat`);
+   `fixturePack.template` คงเป็น `uat-first-slice.v1`
+
+2. render บนเครื่อง operator ใน checkout ที่ตรงกับ release (`<sha>` = SHA เต็มของ release ปัจจุบันบน VM)
+   แล้วส่งผลทาง stdin ไปเป็นไฟล์ mode 600 บน VM — ผลไม่ถูกเขียนลงดิสก์ของเครื่อง operator:
+
+   ```bash
+   set -o pipefail   # renderer ล้ม = ไม่ถือว่าสำเร็จ (ไฟล์ว่างบน VM จะถูก CLI ปฏิเสธด้วย INPUT_UNREADABLE)
+   git -C dcontact fetch origin && git -C dcontact checkout --detach <sha>
+   # <filled.json> = input ที่กรอกแล้วจาก secret store; สถานะ (ไม่มีค่าจาก input) ออกทาง stderr
+   node dcontact/scripts/u1-uat-fixture-render.mjs --input - --build-sha "$(git -C dcontact rev-parse HEAD)" <filled.json \
+     | ssh <uat-vm> 'install -m 600 /dev/stdin /opt/dcontact-uat/uat-provision.json'
+   ```
+
+   (`--output <file>` แทน stdout ได้: สร้างไฟล์ใหม่ mode 600 และไม่เขียนทับไฟล์เดิม)
+
+3. บน VM: `--check` → apply → ลบไฟล์
+
+   ```bash
+   # บน VM — <sha> = release ปัจจุบัน
+   bash /opt/dcontact-uat/releases/<sha>/bin/uat-deploy.sh provision <sha> /opt/dcontact-uat/uat-provision.json --check
+   bash /opt/dcontact-uat/releases/<sha>/bin/uat-deploy.sh provision <sha> /opt/dcontact-uat/uat-provision.json
+   shred -u /opt/dcontact-uat/uat-provision.json
+   ```
+
+   `--check` ต้องได้ `WOULD_CREATE`/`UNCHANGED` ทุก part และ `digest` ของ pack; apply ต้องได้ digest เดียวกัน
+   (บันทึก digest ลง issue ของ deploy)
+
+CLI รับ `fixturePack` เป็น manifest ตรง ๆ (ผ่าน `uat-deploy.sh` ต้องเป็นแบบนี้เพราะไฟล์ส่งทาง stdin) หรือ `fixturePackPath`
+แทนเมื่อรัน CLI ตรงกับไฟล์ที่ container อ่านได้ — renderer ผลิตแบบแรกเสมอ
+
+### 5.3 สิ่งที่อยู่ใน fixture pack `uat-first-slice.v1`
+
+- baseline (รูปเดียวกับ acceptance gate U1.7 #435): `EVENT_TRIGGER` (`synthetic.uat.signup`) → `SEND` (`send-1`, LINE,
+  `content-uat-welcome`) → `EXIT` (`done`, `COMPLETED`); sender `sender-uat-synthetic`, purpose `SERVICE`,
+  maxDurationDays 7 — maker แทรก `WAIT` 600 วินาทีเองใน Console (step `MAKER_EDIT`) จนได้
+  `EVENT_TRIGGER → SEND → WAIT → EXIT`; ref ทั้งหมดเป็น opaque id สังเคราะห์ (J5 ไม่ resolve ref ตอน
+  validate/compile/simulate และ UAT ไม่มี provider egress)
+- simulation fixture ที่ server ตรึงไว้: `uat-first-slice-fx-1`, startAt `2026-09-01T02:00:00.000Z`, seed
+  `uat-first-slice-seed-1`, `sendOutcomes.send-1 = SENT` (ไม่มีแล้ว simulation จบพร้อม `PREVIEW_FIXTURE_INVALID`)
+  → จบที่ `EXIT` เสมอ (`SIMULATION_ONLY`); หลังแทรก WAIT 600 วินาที `done` อยู่ที่เวลาเสมือน `2026-09-01T02:10:00.000Z`
+- step catalog 32 step: 9 step ของ `U1_STEP_CATALOG` ใน `scripts/u1-acceptance.mjs` (U1.7) ใช้ id/title/expected
+  เดียวกันและลำดับเดียวกัน (`docs/u1-uat-acceptance-checklist.md` §1) บวก step ที่ checklist ให้คนเดิน (login + TOTP,
+  preview, simulation ถึง EXIT/ซ้ำได้/ไม่ใช่การส่งจริง, ห้ามอนุมัติตัวเอง, `เริ่มรอบใหม่` ระหว่างรอตรวจ,
+  failure/recovery, session หมดอายุ, refresh/deep link/Back/Forward, accessibility, ไม่มีขั้น CLI/DB และหลักฐาน/bundle)
+  — ขั้นจำลองติด `SIMULATION_ONLY` ขั้นอื่นติด `REAL_STATE`; ทุก step ผ่านได้ในรอบเดียว และต้องเดินครบทั้งรอบแรก
+  และ rerun ตาม checklist §2
+- ทดสอบใน CI: `apps/api/src/uat-fixture-pack.test.ts` (render, parser/negative scan, digest คงที่, J5 validate/compile/
+  simulate, catalog ครบ, example ที่ยังไม่กรอกถูกปฏิเสธ) และ `apps/api/src/uat-fixture-pack.integration.ts`
+  (render → CLI CREATED → `เริ่มรอบใหม่` → แทรก WAIT → validate/compile/simulate ถึง EXIT → ส่งตรวจ/อนุมัติ/publish บน Postgres)
 
 `uat-deploy.sh provision` ต้องการไฟล์ mode 600 (`PROVISION_INPUT_PERMISSIONS`) และส่งไฟล์ทาง stdin ให้ one-shot
 `uat-provision` (compose profile `ops`, `OPS_IMAGE`, `DATABASE_URL` ของ `UAT_POSTGRES_USER` เหมือน `migrate`) —
@@ -345,11 +399,13 @@ uatc up -d --wait api proxy
 ## 12. Readiness
 
 - CI (`pnpm test:u1-uat-readiness` ใน job build): ทดสอบ validator และ static checks ของ artifact จริง
-- `node scripts/u1-uat-readiness.mjs --static` — UAT-S00..S15: compose ไม่มี worker/FreeSWITCH/Kafka/Redis,
+- `node scripts/u1-uat-readiness.mjs --static` — UAT-S00..S18: compose ไม่มี worker/FreeSWITCH/Kafka/Redis,
   มีแค่ proxy ที่เปิดพอร์ต, ไม่มี `start-dev`, ไม่มี default credential, image/`FROM` pin digest,
   realm ไม่มี user/secret และบังคับ OTP, env ของ api ผ่าน profile, proxy ปิด admin + allowlist,
   workflow ผูก environment/concurrency/readiness, negative secret scan, evidence storage (api ใช้ MinIO
-  user เฉพาะแบบ `:?` ไม่ใช่ root, รอ `minio-init`, ไม่มี `mc anonymous set`)
+  user เฉพาะแบบ `:?` ไม่ใช่ root, รอ `minio-init`, ไม่มี `mc anonymous set`),
+  UAT-S16 provision เป็น one-shot ของ ops และ UAT-S17 fixture template/provision example มีแต่ placeholder
+  (ไม่มี UUID/อีเมลจริงของ deployment)
 - `--live` (UAT-L01..L07): Console index, `/api/v1/runtime-profile` = `uat` (Kafka/LINE/egress ปิด),
   route นอก allowlist = 404 `ROUTE_NOT_AVAILABLE_IN_PROFILE`, OIDC discovery ตรง issuer, admin ของ Keycloak
   ไม่เปิด, journey flow ด้วยบัญชีทดสอบ (SKIPPED ถ้าไม่มี token), พอร์ตภายในปิดบน host
@@ -382,6 +438,13 @@ U1.8 (#502): CLI `uat-provision` ตรวจแล้วบน Postgres จร�
 token ใน free text ถูกปฏิเสธ, `--check` ไม่เขียน) และ `docker compose --profile ops config` ด้วย env จำลอง —
 ยังไม่ได้ verify: build ops image ที่มี `/app/dist/uat-provision-main.js` จริง และการรัน `uat-deploy.sh provision` บน VM
 
+U1.9 (#506): fixture pack `uat-first-slice.v1` + renderer + input ตัวอย่าง ตรวจแล้วบน Postgres จริง
+(`apps/api/src/uat-fixture-pack.integration.ts`: example ที่ยังไม่กรอก/ยังไม่ render ถูกปฏิเสธโดยไม่แตะฐานข้อมูล,
+render → `--check` WOULD_CREATE → apply CREATED → รันซ้ำ UNCHANGED → `เริ่มรอบใหม่` ผ่าน HTTP + app role + J5 จริง →
+แทรก WAIT → validate/compile/preview ไม่มี diagnostic → simulate ด้วย fixture ของ run ถึง EXIT แบบ `SIMULATION_ONLY` → ส่งตรวจ,
+maker อนุมัติเองไม่ได้ (403 `CAPABILITY_REQUIRED`), reviewer อนุมัติ, maker publish) — ยังไม่ได้ verify: การ render + provision
+บน VM จริง และการเดิน step catalog ครบใน Console จริงโดยผู้ทดสอบ (เป็นงานของ UAT run)
+
 U1.10 (#507): workflow `uat-image-smoke` (`.github/workflows/uat-image-smoke.yml`) รันเมื่อ PR/`main` แตะ artifact
 ของ UAT (หรือสั่งด้วยมือ) — build image `api`/`ops`/`console` จาก commit นั้น, push เข้า registry ชั่วคราวบน runner
 (`localhost:5000`, ไม่ใช่ GHCR) เพื่ออ้างด้วย digest, รัน `uat-deploy.sh` ตัวจริงแบบ local (`UAT_ROOT` = โฟลเดอร์ชั่วคราว)
@@ -389,5 +452,5 @@ U1.10 (#507): workflow `uat-image-smoke` (`.github/workflows/uat-image-smoke.yml
 UNCHANGED) ด้วย input สังเคราะห์จาก `scripts/u1-uat-ci-fixture.mjs`, สร้างบัญชี maker/reviewer ด้วย `--users`,
 ตรวจ hardening (api/proxy non-root + rootfs read-only, MinIO/Postgres/Keycloak/api ไม่ publish พอร์ต, admin ของ
 Keycloak ตอบ 404, `runtime-profile` = `uat`) และ `backup` หลัง deploy (pg_dump จริง) — secret/cert สุ่มต่อรอบ ไม่ใช้
-repository secret และไม่ผูก environment `uat-preview` (static readiness UAT-S17 ตรวจ) จึงไม่ใช่หลักฐานของ VM จริง:
+repository secret และไม่ผูก environment `uat-preview` (static readiness UAT-S18 ตรวจ) จึงไม่ใช่หลักฐานของ VM จริง:
 TLS/gateway/allowlist จริง, GHCR และ UAT-L06 ยังต้องเก็บใน deploy ครั้งแรกตามเดิม

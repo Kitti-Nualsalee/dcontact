@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  cleanConsoleCallbackUrl,
   createConsoleOidcSettings,
   resolveConsoleContextId,
   resolveConsoleView,
@@ -64,5 +65,19 @@ test('U1.4 ไม่มี view และ context ใช้ default view ตอ�
   assert.equal(
     resolveConsoleView(at('/?context=0f8fad5b-d9cb-469f-a165-70867728950e'), 'journeys'),
     null,
+  );
+});
+
+test('U1.7 callback ของ OIDC ไม่ทิ้ง code/state ใน URL แต่คง tenant/view/journey', () => {
+  const callback = new URL(
+    'https://acme.console.example/?tenant=acme&view=journeys&journey=6f1b2c3d-4e5f-4a60-8b7c-9d0e1f2a3b41&state=abc&session_state=s1&iss=https%3A%2F%2Fidp&code=c0de',
+  );
+  assert.equal(
+    cleanConsoleCallbackUrl(callback),
+    '/?tenant=acme&view=journeys&journey=6f1b2c3d-4e5f-4a60-8b7c-9d0e1f2a3b41',
+  );
+  assert.equal(
+    cleanConsoleCallbackUrl(new URL('https://acme.console.example/?tenant=acme')),
+    '/?tenant=acme',
   );
 });

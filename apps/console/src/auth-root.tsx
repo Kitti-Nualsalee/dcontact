@@ -15,6 +15,7 @@ import { createUatApi } from './journey-authoring/uat-api.js';
 import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.js';
 import { clearRecovery } from './journey-authoring/state.js';
 import {
+  cleanConsoleCallbackUrl,
   createConsoleOidcSettings,
   resolveConsoleContextId,
   resolveConsoleView,
@@ -114,7 +115,16 @@ export function ConsoleAuthRoot() {
     stateStorage: window.sessionStorage,
   });
   return (
-    <AuthProvider {...settings}>
+    <AuthProvider
+      {...settings}
+      onSigninCallback={() =>
+        window.history.replaceState(
+          null,
+          '',
+          cleanConsoleCallbackUrl(new URL(window.location.href)),
+        )
+      }
+    >
       <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
         {journeyView ? (
           <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />

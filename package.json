@@ -79,6 +79,8 @@
     "cxa:cg5:acceptance": "node scripts/cxa-cg5-readiness.mjs",
     "test:cxa-cg5-readiness": "node --test scripts/cxa-cg5-readiness.test.mjs",
     "u1:uat:readiness": "node scripts/u1-uat-readiness.mjs --static",
+    "cxa:u1:acceptance": "node scripts/u1-acceptance.mjs",
+    "test:u1-acceptance": "node --test scripts/u1-acceptance.test.mjs",
     "test:u1-uat-readiness": "node --test scripts/u1-uat-readiness.test.mjs scripts/u1-uat-keycloak-users.test.mjs scripts/u1-uat-ci.test.mjs && node scripts/u1-uat-readiness.mjs --static",
     "infra:console": "docker compose -f infra/docker/docker-compose.dev.yml --profile tools up -d redpanda-console",
     "infra:tracing": "docker compose -f infra/docker/docker-compose.dev.yml --profile tools up -d jaeger",

@@ -17,6 +17,7 @@ import {
   checkDockerignore,
   checkEvidenceStorage,
   checkEnvExample,
+  checkFixtureTemplate,
   checkKeycloakProductionMode,
   checkNoStartDev,
   checkProxy,
@@ -503,7 +504,7 @@ test('UAT-S11: workflow ที่ไม่ผูก environment/concurrency, ech
   );
 });
 
-test('UAT-S17: workflow uat-image-smoke ที่ใช้ secret/environment/push ภายนอก หรือไม่ teardown ไม่ผ่าน', () => {
+test('UAT-S18: workflow uat-image-smoke ที่ใช้ secret/environment/push ภายนอก หรือไม่ teardown ไม่ผ่าน', () => {
   assert.equal(checkSmokeWorkflow(smokeWorkflow).status, 'PASS');
   failed(checkSmokeWorkflow(null), 'MISSING');
   const step = '      - uses: docker/setup-buildx-action@v3';
@@ -580,6 +581,53 @@ test('UAT-S12/S13: env example ที่มีค่า หรือ .dockerigno
     checkDockerignore(`${read(UAT_FILES.dockerignore)}\n!.env.production\n`),
     'ENV_REINCLUDED',
   );
+});
+
+test('UAT-S17: fixture template/provision example ที่มีค่าจริงของ deployment, id หรืออีเมลไม่ผ่าน', () => {
+  const templateText = read(UAT_FILES.fixtureTemplate);
+  const exampleText = read(UAT_FILES.provisionExample);
+  assert.equal(checkFixtureTemplate(templateText, exampleText).status, 'PASS');
+  const template = JSON.parse(templateText);
+  const example = JSON.parse(exampleText);
+  const uuid = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  failed(
+    checkFixtureTemplate(JSON.stringify({ ...template, tenantId: uuid }), exampleText),
+    'DEPLOYMENT_VALUE_PRESENT',
+  );
+  failed(
+    checkFixtureTemplate(JSON.stringify({ ...template, buildSha: 'abc1234' }), exampleText),
+    'DEPLOYMENT_VALUE_PRESENT',
+  );
+  failed(
+    checkFixtureTemplate(
+      JSON.stringify({ ...template, steps: [{ ...template.steps[0], expected: `ref ${uuid}` }] }),
+      exampleText,
+    ),
+    'REAL_ID_PRESENT',
+  );
+  failed(
+    checkFixtureTemplate(
+      templateText,
+      JSON.stringify({ ...example, maker: { ...example.maker, email: 'someone@example.com' } }),
+    ),
+    'VALUE_PRESENT',
+  );
+  failed(
+    checkFixtureTemplate(
+      templateText,
+      JSON.stringify({ ...example, tenant: { ...example.tenant, name: 'ACME UAT' } }),
+    ),
+    'VALUE_PRESENT',
+  );
+  failed(
+    checkFixtureTemplate(templateText, `${exampleText}\n// someone@example.com`),
+    'NOT_PROVISION_INPUT',
+  );
+  failed(
+    checkFixtureTemplate(templateText, JSON.stringify({ ...example, fixturePack: template })),
+    'FIXTURE_PACK_NOT_TEMPLATE',
+  );
+  failed(checkFixtureTemplate(null, exampleText), 'MISSING');
 });
 
 test('UAT-S14: secret scan จับ key/JWT/token/credential literal', () => {

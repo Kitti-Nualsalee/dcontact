@@ -13,6 +13,9 @@
  *   (digest ต่าง = `FIXTURE_PACK_DIGEST_MISMATCH`)
  * - ก่อนเขียนอะไร: negative scan (`scanUatText` ของ U1.5) ครอบทั้ง input + manifest **ยกเว้นเฉพาะ**
  *   `maker.email`/`reviewer.email` ซึ่งเป็นอีเมลจริงของผู้ทดสอบโดยชอบ (field อื่นมีอีเมล/token = ปฏิเสธ)
+ * - placeholder `__UAT_*__` ของ example/template ที่ยังไม่กรอก (`INPUT_PLACEHOLDER`) และ stub
+ *   `fixturePack.template` ที่ยังไม่ผ่าน `scripts/u1-uat-fixture-render.mjs` (`FIXTURE_PACK_NOT_RENDERED`)
+ *   ถูกปฏิเสธก่อน scan/ฐานข้อมูล (U1.9 #506)
  * - `--check`: validate + preflight เดียวกันใน transaction แบบ READ ONLY — ไม่เขียนเลย
  * - output เป็น JSON lines ที่มีแค่ id/สถานะ/digest/รหัสข้อผิดพลาด — ไม่พิมพ์อีเมล ชื่อ หรือ `DATABASE_URL`
  * - ไม่สร้าง credential ของ Keycloak (เป็นงานของ `scripts/u1-uat-keycloak-users.mjs`), ไม่ใช้ dev seed
@@ -58,6 +61,8 @@ export type UatProvisionErrorCode =
   | 'INPUT_UNREADABLE'
   | 'INPUT_INVALID'
   | 'INPUT_SENSITIVE_CONTENT'
+  | 'INPUT_PLACEHOLDER'
+  | 'FIXTURE_PACK_NOT_RENDERED'
   | 'MAKER_REVIEWER_SAME'
   | 'DEV_SEED_REFUSED'
   | 'TENANT_ENV_MISMATCH'
@@ -159,6 +164,20 @@ export function scanUatProvisionInput(raw: Record<string, unknown>, manifest: un
   if (kind) throw new UatProvisionError('INPUT_SENSITIVE_CONTENT', { kind });
 }
 
+/** placeholder ของ `infra/uat/uat-provision.example.json` และ fixture template (U1.9 #506) */
+export const UAT_PROVISION_PLACEHOLDER = /__UAT_[A-Z0-9_]+__/;
+
+/** path ของ string แรกที่ยังเป็น placeholder — ชื่อ field เท่านั้น ไม่มีค่า */
+function placeholderField(value: unknown, path: string): string | null {
+  if (typeof value === 'string') return UAT_PROVISION_PLACEHOLDER.test(value) ? path : null;
+  if (!value || typeof value !== 'object') return null;
+  for (const [key, entry] of Object.entries(value)) {
+    const found = placeholderField(entry, path ? `${path}.${key}` : key);
+    if (found) return found;
+  }
+  return null;
+}
+
 function parseAccount(value: unknown, role: 'maker' | 'reviewer'): UatProvisionAccountV1 {
   const account = strict(value, role, ['dcUserId', 'email', 'displayName']);
   const email = text(account.email, `${role}.email`, EMAIL);
@@ -209,6 +228,18 @@ export function parseUatProvisionInput(
     } catch {
       throw new UatProvisionError('INPUT_UNREADABLE', { field: 'fixturePackPath' });
     }
+  }
+  // U1.9 (#506): example/template ที่ยังไม่กรอก หรือ stub ของ fixture pack ที่ยังไม่ render = ปฏิเสธทันที
+  // (field อิสระอย่างชื่อ tenant รับ `__UAT_…__` ได้ตามรูปแบบ จึงต้องดักตรงนี้)
+  const placeholder = placeholderField({ ...raw, fixturePack: manifestValue }, '');
+  if (placeholder) throw new UatProvisionError('INPUT_PLACEHOLDER', { field: placeholder });
+  if (
+    manifestValue &&
+    typeof manifestValue === 'object' &&
+    !Array.isArray(manifestValue) &&
+    'template' in manifestValue
+  ) {
+    throw new UatProvisionError('FIXTURE_PACK_NOT_RENDERED', { field: 'fixturePack.template' });
   }
   // scan ก่อน validate รายละเอียด — ค่าต้องห้ามไม่ถูกสะท้อนใน error ใด ๆ และไม่ไปถึงฐานข้อมูล
   scanUatProvisionInput(raw, manifestValue);

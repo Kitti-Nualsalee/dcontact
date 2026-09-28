@@ -1,0 +1,32 @@
+{
+  "schema": "UatProvisionV1",
+  "tenant": {
+    "id": "__UAT_TENANT_ID__",
+    "slug": "__UAT_TENANT_SLUG__",
+    "name": "__UAT_TENANT_NAME__"
+  },
+  "ownerTeam": { "id": "__UAT_OWNER_TEAM_ID__", "name": "__UAT_OWNER_TEAM_NAME__" },
+  "maker": {
+    "dcUserId": "__UAT_MAKER_DC_USER_ID__",
+    "email": "__UAT_MAKER_EMAIL__",
+    "displayName": "__UAT_MAKER_DISPLAY_NAME__"
+  },
+  "reviewer": {
+    "dcUserId": "__UAT_REVIEWER_DC_USER_ID__",
+    "email": "__UAT_REVIEWER_EMAIL__",
+    "displayName": "__UAT_REVIEWER_DISPLAY_NAME__"
+  },
+  "rollout": {
+    "stage": "INTERNAL_SYNTHETIC",
+    "canvasWriteEnabled": true,
+    "publishUiEnabled": true,
+    "templateCatalogEnabled": false,
+    "templateUpgradeEnabled": false,
+    "evidenceRef": "__UAT_ROLLOUT_EVIDENCE_REF__"
+  },
+  "fixturePack": {
+    "template": "uat-first-slice.v1",
+    "environment": "uat",
+    "packVersion": "__UAT_FIXTURE_PACK_VERSION__"
+  }
+}
