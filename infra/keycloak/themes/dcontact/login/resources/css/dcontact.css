@@ -1,0 +1,543 @@
+/* #515: login theme ของ D-Contact — แบบ B (แผงแบรนด์ซ้าย + ฟอร์มขวา)
+   ค่าสี ระยะ มุมโค้ง และตัวอักษรมาจาก tokens.css (สำเนาของ packages/ui/src/tokens.css) เท่านั้น
+   ห้ามใส่ค่าสีตรง — scripts/keycloak-theme.test.mjs ตรวจ */
+
+html.dc-html {
+  height: 100%;
+}
+
+.dc-body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-primary);
+}
+
+.dc-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ── แผงแบรนด์ด้านซ้าย ─────────────────────────────────────────── */
+.dc-brand {
+  flex: 0 0 520px;
+  box-sizing: border-box;
+  padding: 48px;
+  display: flex;
+  flex-direction: column;
+  background: var(--dc-surface-brand);
+  color: var(--dc-text-on-brand);
+}
+
+.dc-brand__body {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: var(--dc-space-5);
+}
+
+.dc-brand__title {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: var(--dc-weight-semibold);
+  line-height: var(--dc-leading-snug);
+}
+
+.dc-brand__lead {
+  margin: 0;
+  max-width: 28rem;
+  font-size: var(--dc-text-md);
+  line-height: var(--dc-leading-normal);
+  color: var(--dc-brand-100);
+}
+
+.dc-brand__footer {
+  margin: 0;
+  font-size: var(--dc-text-sm);
+  color: var(--dc-brand-200);
+}
+
+.dc-body--platform .dc-brand {
+  background: var(--dc-surface-inverse);
+  color: var(--dc-text-on-inverse);
+}
+
+.dc-body--platform .dc-brand__title {
+  color: var(--dc-text-on-brand);
+}
+
+.dc-body--platform .dc-brand__lead,
+.dc-body--platform .dc-brand__footer {
+  color: var(--dc-text-on-inverse-muted);
+}
+
+.dc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-2) var(--dc-space-5);
+  border: 1px solid var(--dc-brand-200);
+  border-radius: var(--dc-radius-sm);
+  color: var(--dc-brand-200);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-medium);
+  letter-spacing: 0.02em;
+}
+
+/* ── ฝั่งฟอร์ม ────────────────────────────────────────────────── */
+.dc-main {
+  flex-grow: 1;
+  box-sizing: border-box;
+  padding: var(--dc-space-8) 48px;
+  display: flex;
+  flex-direction: column;
+}
+
+.dc-locale {
+  order: -1; /* อยู่ท้าย DOM แต่แสดงบนสุด — ดูเหตุผลใน template.ftl */
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-4);
+  font-size: var(--dc-text-sm);
+}
+
+.dc-locale__sep {
+  color: var(--dc-text-disabled);
+}
+
+.dc-locale__link {
+  color: var(--dc-text-secondary);
+  text-decoration: none;
+}
+
+.dc-locale__link--current {
+  color: var(--dc-text-brand);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.dc-panel {
+  width: 100%;
+  max-width: 380px;
+  margin: auto;
+  padding: var(--dc-space-9) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-7);
+}
+
+.dc-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-5);
+  margin-bottom: var(--dc-space-4);
+}
+
+.dc-logo__mark {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--dc-radius-xl);
+}
+
+.dc-logo__name {
+  font-size: var(--dc-text-xl);
+  font-weight: var(--dc-weight-semibold);
+  color: var(--dc-text-brand-strong);
+}
+
+.dc-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-2);
+}
+
+#kc-page-title {
+  margin: 0;
+  font-size: var(--dc-text-metric);
+  font-weight: var(--dc-weight-semibold);
+  line-height: var(--dc-leading-snug);
+}
+
+.dc-subtitle,
+.dc-required {
+  margin: 0;
+  font-size: var(--dc-text-base);
+  color: var(--dc-text-muted);
+}
+
+.dc-username {
+  margin-top: var(--dc-space-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dc-space-5);
+  padding: var(--dc-space-4) var(--dc-space-5);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-sunken);
+  font-size: var(--dc-text-base);
+}
+
+#kc-attempted-username {
+  font-weight: var(--dc-weight-medium);
+  overflow-wrap: anywhere;
+}
+
+#reset-login {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dc-space-2);
+  font-size: var(--dc-text-sm);
+  white-space: nowrap;
+}
+
+/* ── ฟอร์ม (คลาสจาก theme.properties) ───────────────────────── */
+.dc-panel a {
+  color: var(--dc-text-brand);
+}
+
+.dc-panel a:hover {
+  color: var(--dc-brand-800);
+}
+
+.dc-form,
+#kc-content-wrapper,
+#kc-content form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-7);
+}
+
+.dc-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-3);
+}
+
+.dc-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--dc-space-5);
+}
+
+.dc-label,
+#kc-content label {
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-medium);
+  color: var(--dc-text-secondary);
+}
+
+.dc-link-sm {
+  font-size: var(--dc-text-sm);
+}
+
+.dc-input,
+#kc-content input[type='text'],
+#kc-content input[type='email'],
+#kc-content input[type='password'],
+#kc-content select,
+#kc-content textarea {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  padding: 0 var(--dc-space-5);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-primary);
+  font: inherit;
+  font-size: var(--dc-text-base);
+  transition: border-color var(--dc-duration-fast);
+}
+
+#kc-content textarea {
+  height: auto;
+  padding: var(--dc-space-4) var(--dc-space-5);
+}
+
+.dc-input:hover {
+  border-color: var(--dc-border-strong);
+}
+
+.dc-input:focus,
+#kc-content input:focus,
+#kc-content select:focus,
+#kc-content textarea:focus {
+  outline: none;
+  border-color: var(--dc-border-brand);
+  box-shadow: var(--dc-focus-ring);
+}
+
+.dc-input[aria-invalid='true'] {
+  border-color: var(--dc-critical-solid);
+}
+
+.dc-input--otp {
+  height: 52px;
+  text-align: center;
+  font-size: 1.5rem;
+  letter-spacing: 0.4em;
+  font-variant-numeric: tabular-nums;
+}
+
+.dc-input-group {
+  position: relative;
+  display: flex;
+}
+
+.dc-input-group .dc-input {
+  padding-right: 48px;
+}
+
+.dc-input-group__toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--dc-text-muted);
+  cursor: pointer;
+  border-radius: var(--dc-radius-md);
+}
+
+.dc-input-group__toggle:hover {
+  color: var(--dc-text-primary);
+}
+
+.dc-input-group__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+.dc-field-error {
+  font-size: var(--dc-text-sm);
+  color: var(--dc-critical-fg);
+}
+
+.dc-hint {
+  font-size: var(--dc-text-sm);
+  color: var(--dc-text-muted);
+}
+
+.dc-check label,
+.dc-options {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-4);
+  font-size: var(--dc-text-sm);
+  color: var(--dc-text-secondary);
+}
+
+.dc-button,
+#kc-content input[type='submit'] {
+  box-sizing: border-box;
+  height: 44px;
+  padding: 0 var(--dc-space-7);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-primary);
+  font: inherit;
+  font-size: var(--dc-text-base);
+  font-weight: var(--dc-weight-semibold);
+  cursor: pointer;
+  transition: background-color var(--dc-duration-fast);
+}
+
+.dc-button--primary,
+#kc-content input[type='submit'].dc-button--primary {
+  border-color: var(--dc-brand-700);
+  background: var(--dc-brand-700);
+  color: var(--dc-text-on-brand);
+}
+
+.dc-button--primary:hover {
+  border-color: var(--dc-brand-800);
+  background: var(--dc-brand-800);
+}
+
+.dc-button:focus-visible,
+#kc-content input[type='submit']:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+.dc-button--block {
+  width: 100%;
+}
+
+.dc-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+}
+
+.dc-help {
+  margin: 0;
+  font-size: var(--dc-text-sm);
+  color: var(--dc-text-muted);
+}
+
+.dc-back {
+  align-self: flex-start;
+}
+
+.dc-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--dc-space-4);
+  padding: var(--dc-space-5);
+  border-radius: var(--dc-radius-md);
+  font-size: var(--dc-text-base);
+  border: 1px solid var(--dc-info-bg);
+  background: var(--dc-info-bg-subtle);
+  color: var(--dc-info-fg);
+}
+
+.dc-alert--error {
+  border-color: var(--dc-critical-border);
+  background: var(--dc-critical-bg-subtle);
+  color: var(--dc-critical-fg);
+}
+
+.dc-alert--warning {
+  border-color: var(--dc-attention-border);
+  background: var(--dc-attention-bg-subtle);
+  color: var(--dc-attention-fg-strong);
+}
+
+.dc-alert--success {
+  border-color: var(--dc-success-bg);
+  background: var(--dc-success-bg);
+  color: var(--dc-success-fg);
+}
+
+.dc-info {
+  font-size: var(--dc-text-sm);
+  color: var(--dc-text-secondary);
+}
+
+/* หน้าตั้งค่า TOTP (คำเชิญ first admin) และหน้าอื่นที่มาจาก base */
+#kc-content ol,
+#kc-content ul {
+  margin: 0;
+  padding-left: var(--dc-space-7);
+  font-size: var(--dc-text-base);
+  line-height: var(--dc-leading-normal);
+}
+
+#kc-content li + li {
+  margin-top: var(--dc-space-4);
+}
+
+#kc-totp-secret-qr-code {
+  display: block;
+  max-width: 180px;
+  margin: var(--dc-space-4) 0;
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-md);
+}
+
+#kc-totp-secret-key {
+  font-family: var(--dc-font-numeric);
+  font-size: var(--dc-text-md);
+  overflow-wrap: anywhere;
+}
+
+.dc-tiles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+}
+
+.dc-tile__input {
+  position: absolute;
+  opacity: 0;
+}
+
+.dc-tile {
+  display: block;
+  padding: var(--dc-space-5);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  cursor: pointer;
+}
+
+.dc-tile__input:checked + .dc-tile {
+  border-color: var(--dc-border-brand);
+  background: var(--dc-surface-selected);
+}
+
+.dc-tile__input:focus-visible + .dc-tile {
+  box-shadow: var(--dc-focus-ring);
+}
+
+.dc-tile__header {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-4);
+}
+
+/* ── ไอคอน: เส้น SVG ผ่าน mask ใช้สีของข้อความ (ไม่มีค่าสีในไฟล์) ─ */
+.dc-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  background-color: currentColor;
+  -webkit-mask: var(--dc-icon) center / contain no-repeat;
+  mask: var(--dc-icon) center / contain no-repeat;
+}
+
+.dc-icon--eye {
+  --dc-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+}
+
+.dc-icon--eye-off {
+  --dc-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3l18 18'/%3E%3Cpath d='M10.6 5.1A10.7 10.7 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3 3.9M6.6 6.6A17.4 17.4 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6'/%3E%3Cpath d='M9.9 9.9a3 3 0 0 0 4.2 4.2'/%3E%3C/svg%3E");
+}
+
+.dc-icon--alert {
+  --dc-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E");
+}
+
+.dc-icon--info {
+  --dc-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 16v-4M12 8h.01'/%3E%3C/svg%3E");
+}
+
+.dc-icon--check {
+  --dc-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M8 12l3 3 5-6'/%3E%3C/svg%3E");
+}
+
+.dc-icon--restart {
+  --dc-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 3-6.7L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3C/svg%3E");
+}
+
+.dc-icon--shield {
+  width: 14px;
+  height: 14px;
+  --dc-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'/%3E%3C/svg%3E");
+}
+
+.dc-icon--phone {
+  --dc-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='7' y='2' width='10' height='20' rx='2'/%3E%3Cpath d='M11 18h2'/%3E%3C/svg%3E");
+}
+
+/* จอแคบ: ซ่อนแผงแบรนด์ เหลือฟอร์ม (#515) */
+@media (max-width: 899px) {
+  .dc-brand {
+    display: none;
+  }
+
+  .dc-main {
+    padding: var(--dc-space-6);
+  }
+}
