@@ -102,7 +102,10 @@ function identityOf(request: AuthenticatedGatewayRequest) {
 
 type Transaction = Prisma.TransactionClient;
 
-async function loadEntitlements(tx: Transaction, tenantId: string): Promise<EffectiveEntitlements> {
+export async function loadEntitlements(
+  tx: Transaction,
+  tenantId: string,
+): Promise<EffectiveEntitlements> {
   const binding = await tx.tenantPlanBinding.findUnique({
     where: { tenantId },
     select: { entitlements: true },

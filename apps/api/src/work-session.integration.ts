@@ -118,6 +118,10 @@ async function setup(t: TestContext, options: { enforced?: boolean } = {}): Prom
     now: () => new Date(clock),
     signals: { signal: (tenantId, userId, signal) => signals.push({ tenantId, userId, signal }) },
     flagCacheMs: 0,
+    // E1.11: host ของ embedded ต้องอยู่ใน allowlist — test ของ lease ใช้ policy คงที่
+    embedOrigins: {
+      isEmbeddable: async (_tenantId, origin) => origin === 'https://crm.example.test',
+    },
   });
 
   @Module({
@@ -217,6 +221,7 @@ test('lease ซ้อน 409 + holder; takeover ตอนว่างส่ง o
     { surface: 'embedded' },
     { surface: 'embedded', hostOrigin: 'http://crm.example.test' },
     { surface: 'embedded', hostOrigin: 'https://crm.example.test/app' },
+    { surface: 'embedded', hostOrigin: 'HTTPS://CRM.example.test' },
     { surface: 'workspace', hostOrigin: 'https://crm.example.test' },
     { surface: 'mobile' },
   ]) {
@@ -488,4 +493,13 @@ test('E1.12: GET สถานะ — flag ของ tenant + ผู้ถือ 
   );
   f.advance(61_000);
   assert.equal((await f.call('GET', PATH, token)).body.holder, null);
+});
+
+test('E1.11: embedded ต้องใช้ origin ใน allowlist — ไม่อยู่ = 403 EMBED_ORIGIN_NOT_ALLOWED', async (t) => {
+  const f = await setup(t);
+  const denied = await f.call('POST', PATH, `${f.tenantA}|${f.agentA}`, {
+    surface: 'embedded',
+    hostOrigin: 'https://other.example.test',
+  });
+  assert.deepEqual([denied.status, denied.body.code], [403, 'EMBED_ORIGIN_NOT_ALLOWED']);
 });

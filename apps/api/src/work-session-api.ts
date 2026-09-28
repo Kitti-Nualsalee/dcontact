@@ -51,6 +51,7 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
     const body = { code: error.code, ...(error.holder ? { holder: error.holder } : {}) };
     if (error.code === 'VALIDATION_FAILED') throw new BadRequestException(body);
     if (error.code === 'AGENT_NOT_FOUND') throw new NotFoundException(body);
+    if (error.code === 'EMBED_ORIGIN_NOT_ALLOWED') throw new ForbiddenException(body);
     throw new ConflictException(body);
   }
 }
