@@ -51,7 +51,7 @@ release_value() {
 
 check_release_env() {
   local dir="$1" name value
-  for name in API_IMAGE CONSOLE_IMAGE OPS_IMAGE; do
+  for name in API_IMAGE CONSOLE_IMAGE OPS_IMAGE KEYCLOAK_IMAGE; do
     value="$(release_value "$dir" "$name")"
     [[ "$value" =~ $DIGEST_REF ]] || fail "${name}_NOT_DIGEST_PINNED"
   done

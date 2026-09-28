@@ -85,7 +85,8 @@ services:
 
   keycloak:
     <<: *hardening
-    image: docker.io/keycloak/keycloak:26.0.0@sha256:db0d0f2c2eee8618a37a50e04affb69823e56687b4d1b676a847a4b85de62178
+    # Keycloak 26.0.0 + login/email theme ของ D-Contact (#515/#522) — build จาก infra/keycloak/Dockerfile
+    image: ${KEYCLOAK_IMAGE:?KEYCLOAK_IMAGE (digest) is required}
     depends_on:
       postgres:
         condition: service_healthy

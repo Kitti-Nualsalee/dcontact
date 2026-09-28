@@ -21,6 +21,10 @@ on:
       - '.dockerignore'
       - 'scripts/u1-uat-*'
       - 'infra/keycloak/realm-dcontact.uat.json'
+      - 'infra/keycloak/Dockerfile'
+      - 'infra/keycloak/themes/**'
+      - 'scripts/keycloak-theme-build.mjs'
+      - 'packages/ui/src/tokens.css'
       - 'apps/api/src/uat-*'
       - '.github/workflows/uat-image-smoke.yml'
   push:
@@ -32,6 +36,10 @@ on:
       - '.dockerignore'
       - 'scripts/u1-uat-*'
       - 'infra/keycloak/realm-dcontact.uat.json'
+      - 'infra/keycloak/Dockerfile'
+      - 'infra/keycloak/themes/**'
+      - 'scripts/keycloak-theme-build.mjs'
+      - 'packages/ui/src/tokens.css'
       - 'apps/api/src/uat-*'
       - '.github/workflows/uat-image-smoke.yml'
   workflow_dispatch:
@@ -152,12 +160,25 @@ jobs:
           cache-from: type=gha,scope=uat-image-smoke-console
           cache-to: type=gha,mode=max,scope=uat-image-smoke-console
 
+      - name: Build Keycloak image (login/email theme ของ D-Contact)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/keycloak/Dockerfile
+          load: true
+          provenance: false
+          sbom: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ env.REGISTRY }}/dcontact-uat-keycloak:${{ github.sha }}
+          cache-from: type=gha,scope=uat-image-smoke-keycloak
+          cache-to: type=gha,mode=max,scope=uat-image-smoke-keycloak
+
       - name: Push to local registry and write digest-pinned release
         run: |
           release="$UAT_ROOT/releases/$GITHUB_SHA"
           accept='application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'
           echo "SOURCE_SHA=$GITHUB_SHA" > "$release/release.env"
-          for name in api ops console; do
+          for name in api ops console keycloak; do
             ref="$REGISTRY/dcontact-uat-$name:$GITHUB_SHA"
             revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$ref")"
             if [ "$revision" != "$GITHUB_SHA" ]; then

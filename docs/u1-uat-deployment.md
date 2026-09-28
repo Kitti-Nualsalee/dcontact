@@ -23,7 +23,7 @@ identity-aware gateway / allowlist (provisioning gate)
 │ proxy  (image CONSOLE_IMAGE = Caddy + Console static, non-root, TLS จากไฟล์)                        │
 │   ├─ /             → Console (Vite build; VITE_CONSOLE_DEFAULT_VIEW=journeys)                        │
 │   ├─ /api/*        → api:3000   (image API_IMAGE, DCONTACT_API_PROFILE=uat, entry dist/uat-main.js)  │
-│   ├─ /auth/*       → keycloak:8080 (production mode `start`, KC_HTTP_RELATIVE_PATH=/auth)           │
+│   ├─ /auth/*       → keycloak:8080 (image KEYCLOAK_IMAGE, production mode `start`, relative /auth)  │
 │   └─ /auth/admin*, /auth/realms/master* → 404 (admin เข้าได้จากใน VM เท่านั้น)                      │
 │                                                                                                   │
 │ network `internal` (internal: true — ไม่มีทางออก internet)                                          │
@@ -44,6 +44,7 @@ env `LINE_*`, `KAFKA_BROKERS` หรือ `SIP_*`
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `apps/api/Dockerfile`                    | target `runtime` (API UAT) และ `ops` (Prisma migrate, Keycloak config, readiness, `uat-provision`) |
 | `apps/console/Dockerfile`                | Console build (`VITE_*` ตอน build) + Caddy (`infra/uat/Caddyfile`)                                 |
+| `infra/keycloak/Dockerfile`              | Keycloak 26.0.0 + login/email theme `dcontact` (#515/#522) — token/โลโก้สร้างตอน build             |
 | `infra/uat/docker-compose.uat.yml`       | stack ของ UAT — image อ้างด้วย digest, secret เป็น `${VAR:?}` ทั้งหมด                              |
 | `infra/uat/bin/uat-deploy.sh`            | ขั้นตอนบน VM: prepare/backup/migrate/keycloak/provision/deploy/smoke/record/rollback               |
 | `infra/uat/bin/db-roles.sh`              | role ของ Postgres (Keycloak, `dcontact_app`) จาก secret                                            |
@@ -87,7 +88,7 @@ Settings → Environments → `uat-preview`:
   - `UAT_FIXTURE_PACK_VERSION` — pack version ที่ provision ไว้ (ฝังใน Console และบันทึกใน record)
   - `UAT_ENVIRONMENT` — ชื่อ environment ของ fixture pack (ว่าง = `uat`)
 
-workflow ใช้ `github.token` push image ไป GHCR (`ghcr.io/<owner>/dcontact-uat-{api,ops,console}`)
+workflow ใช้ `github.token` push image ไป GHCR (`ghcr.io/<owner>/dcontact-uat-{api,ops,console,keycloak}`)
 secret runtime ของ UAT (รหัสผ่าน DB/Keycloak/MinIO) **ไม่ผ่าน GitHub** — อยู่ใน `uat.env` บน VM เท่านั้น
 รายชื่อ secret ใน `uat.env` (ดู `infra/uat/uat.env.example`):
 
@@ -463,3 +464,15 @@ UNCHANGED) ด้วย input สังเคราะห์จาก `scripts/u
 Keycloak ตอบ 404, `runtime-profile` = `uat`) และ `backup` หลัง deploy (pg_dump จริง) — secret/cert สุ่มต่อรอบ ไม่ใช้
 repository secret และไม่ผูก environment `uat-preview` (static readiness UAT-S18 ตรวจ) จึงไม่ใช่หลักฐานของ VM จริง:
 TLS/gateway/allowlist จริง, GHCR และ UAT-L06 ยังต้องเก็บใน deploy ครั้งแรกตามเดิม
+
+## Login/email theme ของ Keycloak (#515/#522)
+
+- realm UAT ตั้ง `loginTheme`/`emailTheme` = `dcontact` (`realm-dcontact.uat.json`) ขั้น `keycloak` ของ workflow apply ให้
+  realm ที่มีอยู่แล้วด้วย (`u1-uat-keycloak-users.mjs --config`)
+- theme อยู่ใน image `KEYCLOAK_IMAGE` (`infra/keycloak/Dockerfile`) ไม่ bind mount บน VM — deploy ด้วย digest เหมือน image อื่น
+  และบันทึกใน deployment record (`images.keycloak`)
+- static readiness UAT-S19: compose ใช้ `${KEYCLOAK_IMAGE:?}`, realm ตั้ง theme และ Dockerfile คัดลอก theme จริง —
+  realm ที่ตั้ง theme แต่ Keycloak ไม่มี theme = หน้า login ของ realm ล้มทั้งหมด
+- live readiness UAT-L08: หน้าของ realm (client ที่ไม่มีอยู่ → หน้า error) render ด้วย theme `dcontact`
+  และ `dcontact.css` / `tokens.css` โหลดได้ผ่าน proxy
+- rollback (Console/api) ไม่แตะ Keycloak — theme ของ release ล่าสุดยังอยู่
