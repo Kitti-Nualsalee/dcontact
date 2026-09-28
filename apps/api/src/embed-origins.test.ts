@@ -93,6 +93,11 @@ test('E1.11: shell — ไม่มี origin = frame-ancestors none และ�
     screenPopLevels: { 'https://crm.example.test': 'ids' },
   });
   assert.match(html, /<script type="module" nonce="n2" src="https:\/\/workspace\.dcontact\.test/);
+  assert.match(
+    html,
+    /<link rel="stylesheet" href="https:\/\/workspace\.dcontact\.test\/embed\/dphone-embed\.css">/,
+  );
+  assert.doesNotMatch(embedShellHtml(null, options, 'n1'), /stylesheet/);
 
   // ค่าใน JSON ต้องปิด tag ก่อนเวลาไม่ได้
   const hostile = embedShellHtml(

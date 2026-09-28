@@ -13,8 +13,8 @@
  * - tenant ที่ปิด `workSession.lease.enforced` → `disabled`: ผู้เรียกใช้พฤติกรรมเดิม (leader election) ทุกประการ
  */
 
-export type WorkSessionSurface = 'workspace' | 'dphone';
-export type WorkSessionHolderSurface = WorkSessionSurface | 'embedded';
+export type WorkSessionSurface = 'workspace' | 'dphone' | 'embedded';
+export type WorkSessionHolderSurface = WorkSessionSurface;
 
 export interface WorkSessionHolder {
   leaseId: string;
@@ -69,6 +69,10 @@ export interface WorkSessionApiOptions {
   baseUrl: string;
   accessToken(): string | undefined;
   fetch?: typeof globalThis.fetch;
+  /** E1.14: host origin ที่ iframe ล็อกไว้ — ส่งไปกับ surface `embedded` ให้ server ตรวจกับ allowlist ซ้ำ */
+  hostOrigin?: string;
+  /** E1.14: fetch ที่แนบ token เอง (ดู `AgentWorkspaceApiOptions.authorizedFetch`) */
+  authorizedFetch?: (url: string, init: RequestInit) => Promise<Response>;
 }
 
 const PATH = '/api/v1/me/work-session';
@@ -123,12 +127,13 @@ export function createWorkSessionApi(options: WorkSessionApiOptions): WorkSessio
     body?: unknown,
     extra: { headers?: Record<string, string>; keepalive?: boolean } = {},
   ): Promise<{ status: number; body: unknown }> {
-    const accessToken = options.accessToken();
-    if (!accessToken) throw new WorkSessionRequestError(401);
-    const response = await request(`${url}${path}`, {
+    const accessToken = options.authorizedFetch ? undefined : options.accessToken();
+    if (!options.authorizedFetch && !accessToken) throw new WorkSessionRequestError(401);
+    const send = options.authorizedFetch ?? request;
+    const response = await send(`${url}${path}`, {
       method,
       headers: {
-        authorization: `Bearer ${accessToken}`,
+        ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
         accept: 'application/json',
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
         ...extra.headers,
@@ -144,6 +149,9 @@ export function createWorkSessionApi(options: WorkSessionApiOptions): WorkSessio
     }
     return { status: response.status, body: parsed };
   }
+
+  const requestBody = (surface: WorkSessionSurface) =>
+    surface === 'embedded' ? { surface, hostOrigin: options.hostOrigin ?? null } : { surface };
 
   function failure(result: { status: number; body: unknown }): WorkSessionRequestError {
     const envelope = (result.body ?? {}) as { code?: unknown; holder?: unknown };
@@ -166,12 +174,12 @@ export function createWorkSessionApi(options: WorkSessionApiOptions): WorkSessio
       return { enforced: body.enforced, holder: parseHolder(body.holder) ?? null };
     },
     async acquire(surface) {
-      const result = await call('POST', '', { surface });
+      const result = await call('POST', '', requestBody(surface));
       if (result.status !== 201 && result.status !== 200) throw failure(result);
       return parseLease(result.body);
     },
     async takeover(surface, expectedLeaseId) {
-      const result = await call('POST', '/takeover', { surface, expectedLeaseId });
+      const result = await call('POST', '/takeover', { ...requestBody(surface), expectedLeaseId });
       if (result.status !== 201 && result.status !== 200) throw failure(result);
       return parseLease(result.body);
     },

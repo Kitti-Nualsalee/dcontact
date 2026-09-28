@@ -51,5 +51,21 @@
       "reauth": "Your sign-in expired. Your current call stays connected. Sign in again to continue"
     },
     "signOutBusy": "You can sign out when there is no call or wrap-up in progress"
+  },
+  "embedCall": {
+    "label": "Call from the embedding system",
+    "fromHost": "The embedding system filled in this number. Review it, then place the call yourself.",
+    "dial": "Call",
+    "cancel": "Cancel",
+    "close": "Close",
+    "checking": "Checking call permission with Contact Governance",
+    "result": {
+      "prefilled": "Number filled in",
+      "dialing": "Calling",
+      "blocked": "This call is not allowed by the customer contact rules",
+      "cancelled": "Cancelled",
+      "rate_limited": "Too many call requests. Try again later.",
+      "unavailable": "The call passed the permission check, but outbound calling from embedded dphone is not enabled yet"
+    }
   }
 }

@@ -188,3 +188,23 @@
   color: var(--dc-text-secondary);
   text-align: center;
 }
+
+/* E1.14: dphone ที่ถูกฝังใน host — เต็มกรอบ iframe และ prompt ของ click-to-call */
+.aw-embedded {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-3);
+  min-height: 100vh;
+  background: var(--dc-surface-canvas);
+}
+
+.dphone-embed-call__number {
+  font-size: var(--dc-text-lg);
+  font-weight: var(--dc-font-weight-semibold);
+}
+
+.dphone-embed-call__actions {
+  display: flex;
+  gap: var(--dc-space-2);
+}

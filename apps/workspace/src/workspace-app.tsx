@@ -56,7 +56,21 @@ export interface WorkspaceAppProps {
   workSession?: WorkSessionApi;
   /** surface ที่ขอ lease (E1.9) — Workspace = `workspace` */
   workSessionSurface?: WorkSessionSurface;
+  /**
+   * E1.14: `embedded` = dphone ที่ถูกฝังใน host — แสดงเฉพาะ dphone, อุปกรณ์เสียง, ความพร้อม และ wrap-up
+   * (ไม่มี shell/หน้าต่างแยก) โดยใช้ logic งานสายชุดเดียวกับ Workspace
+   */
+  variant?: 'workspace' | 'embedded';
+  /** E1.14: เหตุการณ์ของงานสาย ให้ embed runtime ส่ง screen-pop/activity ให้ host */
+  onCallEvent?: (event: WorkspaceCallEvent) => void;
+  /** E1.14: lease ที่ถืออยู่ (undefined = ไม่ได้ถือ) — ใช้แนบ `x-work-session-lease-id` */
+  onLeaseChange?: (leaseId: string | undefined) => void;
 }
+
+export type WorkspaceCallInteraction = NonNullable<AgentWorkspaceSnapshot['interaction']>;
+export type WorkspaceCallEvent =
+  | { type: 'offered' | 'answered'; interaction: WorkspaceCallInteraction }
+  | { type: 'wrapup.completed'; interaction: WorkspaceCallInteraction; disposition: string };
 
 export type DphoneFactory = (
   remoteAudio: HTMLAudioElement,
@@ -132,11 +146,16 @@ function AgentWorkspace({
   createDphone,
   workSession,
   workSessionSurface = 'workspace',
+  variant = 'workspace',
+  onCallEvent,
+  onLeaseChange,
 }: WorkspaceAppProps) {
+  const embedded = variant === 'embedded';
   const { t } = useTranslation('workspace');
   const { t: td } = useTranslation('dphone');
   const { locale } = useLocale();
-  const inShell = useInShell();
+  // embedded ไม่มี shell แต่ใช้ widget ของ shell ใหม่ (D1.15) เหมือนกัน
+  const inShell = useInShell() || variant === 'embedded';
   const leaderElection = useMemo(
     () => createBrowserWorkspaceLeaderElection(crypto.randomUUID()),
     [],
@@ -189,6 +208,21 @@ function AgentWorkspace({
   const ownsWork = enforced ? leaseHeld : workingTab;
   // เก็บ SIP/WS/หน้าต่าง dphone ไว้: flag เปิด = ถือ lease หรือยังมีงานในมือ; flag ปิด = working tab (เดิม)
   const mediaOwner = enforced ? leaseHeld || workInHand : workingTab;
+  const onCallEventRef = useRef(onCallEvent);
+  onCallEventRef.current = onCallEvent;
+  // E1.14: offered/answered ครั้งเดียวต่อ interaction+state (snapshot ถูกโหลดซ้ำได้หลายครั้ง)
+  const announced = useRef<string | undefined>(undefined);
+  const interactionKey = snapshot?.interaction
+    ? `${snapshot.interaction.id}:${snapshot.interaction.state}`
+    : undefined;
+  useEffect(() => {
+    const interaction = snapshot?.interaction;
+    if (!interaction || !interactionKey || announced.current === interactionKey) return;
+    announced.current = interactionKey;
+    if (interaction.state === 'ASSIGNED')
+      onCallEventRef.current?.({ type: 'offered', interaction });
+    if (interaction.state === 'ACTIVE') onCallEventRef.current?.({ type: 'answered', interaction });
+  }, [interactionKey, snapshot]);
   const ownsWorkRef = useRef(ownsWork);
   ownsWorkRef.current = ownsWork;
   const workInHandRef = useRef(workInHand);
@@ -333,6 +367,9 @@ function AgentWorkspace({
 
   // ได้ lease = ที่นี่เป็นจุดรับงาน: ประกาศ leader ใน origin ให้แท็บอื่นไม่ขอ lease ซ้อน
   const heldLeaseId = lease.phase === 'held' ? lease.lease.leaseId : undefined;
+  const onLeaseChangeRef = useRef(onLeaseChange);
+  onLeaseChangeRef.current = onLeaseChange;
+  useEffect(() => onLeaseChangeRef.current?.(heldLeaseId), [heldLeaseId]);
   useEffect(() => {
     if (!enforced) return;
     if (heldLeaseId) {
@@ -463,6 +500,11 @@ function AgentWorkspace({
         interactionId: interaction.id,
         disposition: wrapupDisposition,
         commandId: crypto.randomUUID(),
+      });
+      onCallEventRef.current?.({
+        type: 'wrapup.completed',
+        interaction,
+        disposition: wrapupDisposition,
       });
       setSnapshot(await api.snapshot());
       setWrapupDisposition(undefined);
@@ -688,6 +730,121 @@ function AgentWorkspace({
       </article>
     ) : null;
 
+  const wrapupPanel =
+    snapshot?.interaction?.state === 'WRAPUP' ? (
+      <article className="aw-panel" aria-labelledby="wrapup-title">
+        <div>
+          <p className="aw-step">{t('wrapup.step')}</p>
+          <h2 id="wrapup-title">{t('wrapup.title')}</h2>
+          <p className="aw-copy">{t('wrapup.copy')}</p>
+        </div>
+        <div className="aw-segmented" role="group" aria-label={t('wrapup.choose')}>
+          <button
+            type="button"
+            aria-pressed={wrapupDisposition === 'CUSTOMER_ASSISTED'}
+            disabled={wrapupPending}
+            onClick={() => setWrapupDisposition('CUSTOMER_ASSISTED')}
+          >
+            {t('wrapup.assisted')}
+          </button>
+          <button
+            type="button"
+            aria-pressed={wrapupDisposition === 'FOLLOW_UP_REQUIRED'}
+            disabled={wrapupPending}
+            onClick={() => setWrapupDisposition('FOLLOW_UP_REQUIRED')}
+          >
+            {t('wrapup.followUp')}
+          </button>
+        </div>
+        <Button
+          variant="primary"
+          isDisabled={!wrapupDisposition || wrapupPending}
+          onPress={() => void submitWrapup()}
+        >
+          {t('wrapup.submit')}
+        </Button>
+        {wrapupPending ? <p role="status">{t('wrapup.pending')}</p> : null}
+        {wrapupError ? (
+          <p role="alert" className="aw-error">
+            {t(wrapupError)}
+          </p>
+        ) : null}
+      </article>
+    ) : null;
+
+  const mediaPanel = (
+    <article className="aw-panel">
+      <div className="aw-panel-heading">
+        <div>
+          <p className="aw-step">{t('media.step')}</p>
+          <h2>{t('media.title')}</h2>
+        </div>
+        <span
+          className={'aw-readiness aw-readiness-' + mediaReadiness.toLowerCase()}
+          role="status"
+          aria-label={t('media.indicator')}
+        >
+          {readinessLabel}
+        </span>
+      </div>
+      <p className="aw-copy">{t('media.copy')}</p>
+      <div className="aw-device">
+        <div className="aw-device-icon" aria-hidden="true">
+          {t('media.device')}
+        </div>
+        <div>
+          <strong>{t('media.mic')}</strong>
+          <span>{t('media.micHint')}</span>
+        </div>
+      </div>
+      {mediaError ? (
+        <p className="aw-error" role="alert">
+          {t(mediaError)}
+        </p>
+      ) : null}
+      <Button
+        isDisabled={!ownsWork || mediaReadiness === 'CHECKING'}
+        onPress={() => void checkMediaReadiness()}
+      >
+        {mediaReadiness === 'CHECKING' ? t('media.checking') : t('media.check')}
+      </Button>
+    </article>
+  );
+
+  const availabilityPanel = (
+    <article className="aw-panel">
+      <div className="aw-panel-heading">
+        <div>
+          <p className="aw-step">{t('availability.step')}</p>
+          <h2>{t('availability.title')}</h2>
+        </div>
+        <span className={'aw-dot aw-dot-' + availability.toLowerCase()} aria-hidden="true" />
+      </div>
+      <div className="aw-availability" aria-live="polite">
+        <strong>
+          {availability === 'AVAILABLE' ? t('availability.ready') : t('availability.notReady')}
+        </strong>
+        <span>
+          {availability === 'AVAILABLE'
+            ? t('availability.readyHint')
+            : t('availability.notReadyHint')}
+        </span>
+      </div>
+      <Button
+        variant="primary"
+        isDisabled={
+          !ownsWork ||
+          mediaReadiness !== 'READY' ||
+          availability === 'AVAILABLE' ||
+          Boolean(api && dphoneState.phase !== 'READY')
+        }
+        onPress={becomeAvailable}
+      >
+        {t('availability.open')}
+      </Button>
+    </article>
+  );
+
   const content = (
     <>
       <div className="aw-page-heading">
@@ -728,46 +885,7 @@ function AgentWorkspace({
         {offerPanel}
         {controlsPanel}
 
-        {snapshot?.interaction?.state === 'WRAPUP' ? (
-          <article className="aw-panel" aria-labelledby="wrapup-title">
-            <div>
-              <p className="aw-step">{t('wrapup.step')}</p>
-              <h2 id="wrapup-title">{t('wrapup.title')}</h2>
-              <p className="aw-copy">{t('wrapup.copy')}</p>
-            </div>
-            <div className="aw-segmented" role="group" aria-label={t('wrapup.choose')}>
-              <button
-                type="button"
-                aria-pressed={wrapupDisposition === 'CUSTOMER_ASSISTED'}
-                disabled={wrapupPending}
-                onClick={() => setWrapupDisposition('CUSTOMER_ASSISTED')}
-              >
-                {t('wrapup.assisted')}
-              </button>
-              <button
-                type="button"
-                aria-pressed={wrapupDisposition === 'FOLLOW_UP_REQUIRED'}
-                disabled={wrapupPending}
-                onClick={() => setWrapupDisposition('FOLLOW_UP_REQUIRED')}
-              >
-                {t('wrapup.followUp')}
-              </button>
-            </div>
-            <Button
-              variant="primary"
-              isDisabled={!wrapupDisposition || wrapupPending}
-              onPress={() => void submitWrapup()}
-            >
-              {t('wrapup.submit')}
-            </Button>
-            {wrapupPending ? <p role="status">{t('wrapup.pending')}</p> : null}
-            {wrapupError ? (
-              <p role="alert" className="aw-error">
-                {t(wrapupError)}
-              </p>
-            ) : null}
-          </article>
-        ) : null}
+        {wrapupPanel}
 
         {snapshotError ? (
           <p className="aw-warning" role="status">
@@ -781,74 +899,9 @@ function AgentWorkspace({
           </p>
         ) : null}
 
-        <article className="aw-panel">
-          <div className="aw-panel-heading">
-            <div>
-              <p className="aw-step">{t('media.step')}</p>
-              <h2>{t('media.title')}</h2>
-            </div>
-            <span
-              className={'aw-readiness aw-readiness-' + mediaReadiness.toLowerCase()}
-              role="status"
-              aria-label={t('media.indicator')}
-            >
-              {readinessLabel}
-            </span>
-          </div>
-          <p className="aw-copy">{t('media.copy')}</p>
-          <div className="aw-device">
-            <div className="aw-device-icon" aria-hidden="true">
-              {t('media.device')}
-            </div>
-            <div>
-              <strong>{t('media.mic')}</strong>
-              <span>{t('media.micHint')}</span>
-            </div>
-          </div>
-          {mediaError ? (
-            <p className="aw-error" role="alert">
-              {t(mediaError)}
-            </p>
-          ) : null}
-          <Button
-            isDisabled={!ownsWork || mediaReadiness === 'CHECKING'}
-            onPress={() => void checkMediaReadiness()}
-          >
-            {mediaReadiness === 'CHECKING' ? t('media.checking') : t('media.check')}
-          </Button>
-        </article>
+        {mediaPanel}
 
-        <article className="aw-panel">
-          <div className="aw-panel-heading">
-            <div>
-              <p className="aw-step">{t('availability.step')}</p>
-              <h2>{t('availability.title')}</h2>
-            </div>
-            <span className={'aw-dot aw-dot-' + availability.toLowerCase()} aria-hidden="true" />
-          </div>
-          <div className="aw-availability" aria-live="polite">
-            <strong>
-              {availability === 'AVAILABLE' ? t('availability.ready') : t('availability.notReady')}
-            </strong>
-            <span>
-              {availability === 'AVAILABLE'
-                ? t('availability.readyHint')
-                : t('availability.notReadyHint')}
-            </span>
-          </div>
-          <Button
-            variant="primary"
-            isDisabled={
-              !ownsWork ||
-              mediaReadiness !== 'READY' ||
-              availability === 'AVAILABLE' ||
-              Boolean(api && dphoneState.phase !== 'READY')
-            }
-            onPress={becomeAvailable}
-          >
-            {t('availability.open')}
-          </Button>
-        </article>
+        {availabilityPanel}
 
         <article className="aw-panel">
           <p className="aw-step">{t('authority.step')}</p>
@@ -872,6 +925,56 @@ function AgentWorkspace({
       </section>
     </>
   );
+
+  const leasePanel =
+    enforced && !leaseHeld && !workInHand ? (
+      <WorkSessionPanel
+        state={lease}
+        onAcquire={() => {
+          leaderElection.claim();
+          setWorkingTab(true);
+          void leaseClient.current?.acquire();
+        }}
+        onTakeover={() => {
+          leaderElection.claim();
+          setWorkingTab(true);
+          void leaseClient.current?.takeover();
+        }}
+        onRefresh={() => void leaseClient.current?.refresh()}
+      />
+    ) : null;
+
+  // E1.14: dphone ที่ถูกฝัง — component และ logic งานสายชุดเดียวกับ Workspace แต่ไม่มี shell/หน้าต่างแยก
+  if (embedded) {
+    return (
+      <div className="aw-root aw-embedded">
+        {statusStrip}
+        {mediaOwner ? (
+          <DphoneWidget
+            view={view}
+            size={dphoneSize}
+            onSizeChange={changeSize}
+            onCommand={dispatch}
+          />
+        ) : null}
+        {wrapupPanel}
+        {dphoneError ? (
+          <p className="aw-warning" role="alert">
+            {t(dphoneError)}
+          </p>
+        ) : null}
+        {snapshotError ? (
+          <p className="aw-warning" role="status">
+            {t(snapshotError)}
+          </p>
+        ) : null}
+        {mediaReadiness !== 'READY' ? mediaPanel : null}
+        {availability !== 'AVAILABLE' ? availabilityPanel : null}
+        <audio ref={remoteAudio} autoPlay className="aw-remote-audio" />
+        {leasePanel}
+      </div>
+    );
+  }
 
   return (
     <div className={inShell ? 'aw-root aw-in-shell' : 'aw-root aw-legacy'}>
@@ -938,22 +1041,7 @@ function AgentWorkspace({
 
       <audio ref={remoteAudio} autoPlay className="aw-remote-audio" />
 
-      {enforced && !leaseHeld && !workInHand ? (
-        <WorkSessionPanel
-          state={lease}
-          onAcquire={() => {
-            leaderElection.claim();
-            setWorkingTab(true);
-            void leaseClient.current?.acquire();
-          }}
-          onTakeover={() => {
-            leaderElection.claim();
-            setWorkingTab(true);
-            void leaseClient.current?.takeover();
-          }}
-          onRefresh={() => void leaseClient.current?.refresh()}
-        />
-      ) : null}
+      {leasePanel}
 
       {!enforced && workingTab === false ? (
         <div className="aw-passive-overlay">
