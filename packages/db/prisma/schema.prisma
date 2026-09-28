@@ -6069,6 +6069,8 @@ model TenantEmbedOrigin {
   createdAt DateTime @map("created_at")
   updatedAt DateTime @map("updated_at")
   revision  Int      @default(1)
+  /// E1.14 (#488): ระดับข้อมูล screen-pop ของ origin นี้ — off | ids | contact (ค่าเริ่มต้นปิด)
+  screenPopLevel String @default("off") @map("screen_pop_level")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
 

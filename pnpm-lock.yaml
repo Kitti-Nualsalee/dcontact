@@ -38,6 +38,9 @@ importers:
       '@d-contact/delivery':
         specifier: workspace:*
         version: link:../delivery
+      '@d-contact/dphone-embed':
+        specifier: workspace:*
+        version: link:../../packages/dphone-embed
       '@d-contact/expression':
         specifier: workspace:*
         version: link:../../packages/expression

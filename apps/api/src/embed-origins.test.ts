@@ -71,6 +71,7 @@ test('E1.11: shell — ไม่มี origin = frame-ancestors none และ�
     tenantId: 't',
     tenantAlias: 'demo',
     origins: ['https://crm.example.test', 'https://sales.example.test'],
+    screenPopLevels: { 'https://crm.example.test': 'ids' as const },
   };
   const open = embedShellHeaders(policy, options, 'n2');
   assert.match(
@@ -84,7 +85,12 @@ test('E1.11: shell — ไม่มี origin = frame-ancestors none และ�
   assert.doesNotMatch(open['content-security-policy']!, /unsafe-inline|\*/);
   const html = embedShellHtml(policy, options, 'n2');
   const config = JSON.parse(/id="dphone-embed-config"[^>]*>([^<]*)</.exec(html)![1]!);
-  assert.deepEqual(config, { v: 1, tenant: 'demo', allowedHostOrigins: policy.origins });
+  assert.deepEqual(config, {
+    v: 1,
+    tenant: 'demo',
+    allowedHostOrigins: policy.origins,
+    screenPopLevels: { 'https://crm.example.test': 'ids' },
+  });
   assert.match(html, /<script type="module" nonce="n2" src="https:\/\/workspace\.dcontact\.test/);
 
   // ค่าใน JSON ต้องปิด tag ก่อนเวลาไม่ได้

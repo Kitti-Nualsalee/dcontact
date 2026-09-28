@@ -102,3 +102,9 @@
 .dphone-embedding__snippet > button {
   justify-self: start;
 }
+
+/* E1.14: คำอธิบายการลดระดับข้อมูลใน dialog ของ screen-pop */
+.dphone-embedding__hint {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}

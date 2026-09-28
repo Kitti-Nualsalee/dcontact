@@ -11,6 +11,7 @@ type Origin = {
   origin: string;
   label: string;
   enabled: boolean;
+  screenPopLevel: 'off' | 'ids' | 'contact';
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -46,6 +47,7 @@ async function mockApi(
         origin: (body as { origin: string }).origin,
         label: (body as { label: string }).label,
         enabled: true,
+        screenPopLevel: 'off',
         revision: 1,
         createdAt: '2026-09-28T00:00:00.000Z',
         updatedAt: '2026-09-28T00:00:00.000Z',
@@ -72,6 +74,7 @@ const sample = (): Origin => ({
   origin: 'https://crm.example.test',
   label: 'CRM ฝ่ายขาย',
   enabled: true,
+  screenPopLevel: 'off',
   revision: 1,
   createdAt: '2026-09-28T00:00:00.000Z',
   updatedAt: '2026-09-28T00:00:00.000Z',
@@ -134,6 +137,35 @@ test('ADMIN: ปิด/ลบต้องยืนยันพร้อมจำ
   await page.getByRole('alertdialog').getByRole('button', { name: 'ยืนยันลบ' }).click();
   await expect(page.getByText('ยังไม่มี origin')).toBeVisible();
   expect(writes[1]).toEqual({ method: 'DELETE', body: { expectedRevision: 2 } });
+});
+
+test('E1.14: ระดับ screen-pop ค่าเริ่มต้นปิด; เปลี่ยนต้องมีเหตุผล; custom ยังเลือกไม่ได้', async ({
+  page,
+}) => {
+  const writes = await mockApi(page, { entitled: true, flagEnabled: true, origins: [sample()] });
+  await page.goto('/?view=dphone-embedding&tenant=demo');
+  await expect(page.getByRole('cell', { name: 'ไม่ส่งข้อมูล', exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'ระดับ screen-pop https://crm.example.test' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Contact Governance');
+  const save = dialog.getByRole('button', { name: 'บันทึกระดับข้อมูล' });
+  await dialog.getByRole('button', { name: 'ไม่ส่งข้อมูล ระดับข้อมูล' }).click();
+  await expect(page.getByRole('option', { name: /กำหนดเอง/ })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
+  await page.getByRole('option', { name: 'ข้อมูลผู้ติดต่อ' }).click();
+  await expect(dialog).toContainText('เบอร์ผู้โทร');
+  await expect(save).toBeDisabled();
+  await dialog.getByRole('textbox', { name: 'เหตุผล' }).fill('CRM ต้องแสดงชื่อลูกค้า');
+  await axe(page);
+  await save.click();
+  await expect(page.getByRole('cell', { name: 'ข้อมูลผู้ติดต่อ', exact: true })).toBeVisible();
+  expect(writes[0]).toEqual({
+    method: 'PATCH',
+    body: { expectedRevision: 1, screenPopLevel: 'contact', reason: 'CRM ต้องแสดงชื่อลูกค้า' },
+  });
 });
 
 test('SUPERVISOR ดูได้อย่างเดียว; ไม่มี entitlement = หน้าล็อก; flag ปิด = แจ้ง', async ({

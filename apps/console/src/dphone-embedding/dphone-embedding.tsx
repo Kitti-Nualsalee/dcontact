@@ -8,14 +8,21 @@
  */
 import { useCallback, useEffect, useId, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
-import { Button, Dialog, TextField, toastQueue } from '@d-contact/ui-react';
+import { Button, Dialog, Select, TextField, toastQueue } from '@d-contact/ui-react';
 import {
   EmbedOriginApiError,
   type EmbedOrigin,
   type EmbedOriginApi,
   type EmbedOriginList,
+  type ScreenPopLevel,
 } from './api.js';
-import { apiErrorKey, checkOriginInput, hostSnippet } from './model.js';
+import {
+  apiErrorKey,
+  checkOriginInput,
+  hostSnippet,
+  SCREEN_POP_OPTIONS,
+  SCREEN_POP_REASON_MIN,
+} from './model.js';
 import { useShellTokens } from '../shell/tokens.js';
 import './dphone-embedding.css';
 
@@ -48,6 +55,12 @@ export function DphoneEmbedding({
   const [confirmReason, setConfirmReason] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  // E1.14: เปลี่ยนระดับ screen-pop ต้องยืนยันพร้อมเหตุผล (audit ที่ API)
+  const [screenPop, setScreenPop] = useState<{
+    origin: EmbedOrigin;
+    level: ScreenPopLevel;
+    reason: string;
+  } | null>(null);
   // หน้าใหม่ใช้ token ของ D1 ทั้งเมื่อเปิดและปิด shell (แบบเดียวกับ Journeys)
   const tokensReady = useShellTokens();
 
@@ -153,13 +166,14 @@ export function DphoneEmbedding({
                 <th scope="col">{t('dphoneEmbedding.table.label')}</th>
                 <th scope="col">{t('dphoneEmbedding.table.status')}</th>
                 <th scope="col">{t('dphoneEmbedding.table.sessions')}</th>
+                <th scope="col">{t('dphoneEmbedding.table.screenPop')}</th>
                 {editable ? <th scope="col">{t('dphoneEmbedding.table.actions')}</th> : null}
               </tr>
             </thead>
             <tbody>
               {data.origins.length === 0 ? (
                 <tr>
-                  <td colSpan={editable ? 5 : 4}>{t('dphoneEmbedding.table.empty')}</td>
+                  <td colSpan={editable ? 6 : 5}>{t('dphoneEmbedding.table.empty')}</td>
                 </tr>
               ) : (
                 data.origins.map((row) => (
@@ -185,6 +199,7 @@ export function DphoneEmbedding({
                         : t('dphoneEmbedding.table.disabled')}
                     </td>
                     <td>{row.activeSessions}</td>
+                    <td>{t(`dphoneEmbedding.screenPop.levels.${row.screenPopLevel}.label`)}</td>
                     {editable ? (
                       <td className="dphone-embedding__actions">
                         {renaming?.id === row.id ? (
@@ -236,6 +251,16 @@ export function DphoneEmbedding({
                                 {t('dphoneEmbedding.actions.enable')}
                               </Button>
                             )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              aria-label={`${t('dphoneEmbedding.actions.screenPop')} ${row.origin}`}
+                              onPress={() =>
+                                setScreenPop({ origin: row, level: row.screenPopLevel, reason: '' })
+                              }
+                            >
+                              {t('dphoneEmbedding.actions.screenPop')}
+                            </Button>
                             <Button
                               size="sm"
                               variant="danger"
@@ -348,6 +373,69 @@ export function DphoneEmbedding({
           </section>
         </>
       ) : null}
+
+      <Dialog
+        isOpen={screenPop !== null}
+        onOpenChange={(open) => {
+          if (!open) setScreenPop(null);
+        }}
+        title={t('dphoneEmbedding.screenPop.title', { origin: screenPop?.origin.origin })}
+        footer={(close) => (
+          <>
+            <Button variant="ghost" onPress={close}>
+              {t('dphoneEmbedding.actions.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              isDisabled={
+                pending ||
+                !screenPop ||
+                screenPop.level === screenPop.origin.screenPopLevel ||
+                screenPop.reason.trim().length < SCREEN_POP_REASON_MIN
+              }
+              onPress={() => {
+                if (!screenPop) return;
+                void run(
+                  () =>
+                    api.update(screenPop.origin, {
+                      screenPopLevel: screenPop.level,
+                      reason: screenPop.reason.trim(),
+                    }),
+                  failToast,
+                ).then((ok) => ok && close());
+              }}
+            >
+              {t('dphoneEmbedding.screenPop.confirm')}
+            </Button>
+          </>
+        )}
+      >
+        <p>{t('dphoneEmbedding.screenPop.description')}</p>
+        <Select
+          label={t('dphoneEmbedding.screenPop.level')}
+          selectedKey={screenPop?.level ?? 'off'}
+          onSelectionChange={(key) =>
+            screenPop && setScreenPop({ ...screenPop, level: key as ScreenPopLevel })
+          }
+          options={SCREEN_POP_OPTIONS.map((level) => ({
+            id: level,
+            label: t(`dphoneEmbedding.screenPop.levels.${level}.label`),
+            isDisabled: level === 'custom',
+          }))}
+          description={t(
+            `dphoneEmbedding.screenPop.levels.${screenPop?.level ?? 'off'}.description`,
+          )}
+        />
+        <p className="dphone-embedding__hint">{t('dphoneEmbedding.screenPop.governance')}</p>
+        <TextField
+          label={t('dphoneEmbedding.screenPop.reason')}
+          value={screenPop?.reason ?? ''}
+          onChange={(value) => screenPop && setScreenPop({ ...screenPop, reason: value })}
+          isRequired
+          maxLength={500}
+          description={t('dphoneEmbedding.screenPop.reasonHint', { min: SCREEN_POP_REASON_MIN })}
+        />
+      </Dialog>
 
       <Dialog
         isOpen={confirmTarget !== undefined}

@@ -166,6 +166,8 @@ export function embedShellHtml(
     v: 1,
     tenant: policy?.tenantAlias ?? null,
     allowedHostOrigins: policy?.origins ?? [],
+    // E1.14: ระดับ screen-pop ต่อ origin สำหรับ `dphone.ready` (ข้อมูลจริงผ่าน server ทุกครั้ง)
+    screenPopLevels: policy?.screenPopLevels ?? {},
   };
   // JSON ใน <script type="application/json"> — escape `<` กันปิด tag ก่อนเวลา
   const json = JSON.stringify(config).replace(/</g, '\\u003c');
