@@ -19,6 +19,7 @@ import {
   checkEnvExample,
   checkFixtureTemplate,
   checkKeycloakProductionMode,
+  checkKeycloakTheme,
   checkNoStartDev,
   checkProxy,
   checkRealm,
@@ -45,6 +46,7 @@ const workflow = read(UAT_FILES.workflow);
 const smokeWorkflow = read(UAT_FILES.smokeWorkflow);
 const apiDockerfile = read(UAT_FILES.apiDockerfile);
 const consoleDockerfile = read(UAT_FILES.consoleDockerfile);
+const keycloakDockerfile = read(UAT_FILES.keycloakDockerfile);
 const minioInit = read(UAT_FILES.minioInitScript);
 const deployScript = read(UAT_FILES.deployScript);
 
@@ -205,10 +207,45 @@ test('UAT-S06: image ที่ไม่ pin digest หรือ build บน VM 
   failed(checkComposeImages(withService('  extra:\n    build: .')), 'BUILD_ON_VM');
 });
 
+test('UAT-S19: realm ใช้ theme dcontact ต้องรัน Keycloak จาก image ที่มี theme (#515/#522)', () => {
+  assert.equal(checkKeycloakTheme(compose, realm, keycloakDockerfile).status, 'PASS');
+  failed(
+    checkKeycloakTheme(
+      compose.replace(
+        /image: \$\{KEYCLOAK_IMAGE:\?[^}]*\}/,
+        `image: docker.io/keycloak/keycloak:26.0.0@sha256:${'a'.repeat(64)}`,
+      ),
+      realm,
+      keycloakDockerfile,
+    ),
+    'KEYCLOAK_IMAGE_NOT_OURS',
+  );
+  failed(
+    checkKeycloakTheme(
+      compose,
+      realm.replace('"loginTheme": "dcontact"', '"loginTheme": "keycloak"'),
+      keycloakDockerfile,
+    ),
+    'REALM_THEME',
+  );
+  failed(
+    checkKeycloakTheme(compose, realm, keycloakDockerfile.replace(/^COPY --from=theme .*$/m, '')),
+    'THEMES_NOT_COPIED',
+  );
+  failed(checkKeycloakTheme(compose, realm, null), 'NO_KEYCLOAK_DOCKERFILE');
+});
+
 test('UAT-S07: FROM ที่ไม่ pin digest, :latest, root หรือไม่มี revision label ไม่ผ่าน', () => {
   const pins = (text) => checkDockerfilePins({ Dockerfile: text });
   assert.equal(pins(apiDockerfile).status, 'PASS');
   assert.equal(pins(consoleDockerfile).status, 'PASS');
+  assert.equal(pins(keycloakDockerfile).status, 'PASS');
+  failed(
+    pins(
+      keycloakDockerfile.replace(/^ARG KEYCLOAK_IMAGE=.*$/m, 'ARG KEYCLOAK_IMAGE=keycloak:26.0.0'),
+    ),
+    'UNPINNED_FROM',
+  );
   failed(
     pins(apiDockerfile.replace(/^ARG NODE_IMAGE=.*$/m, 'ARG NODE_IMAGE=node:20-bookworm-slim')),
     'UNPINNED_FROM',
@@ -701,7 +738,14 @@ test('UAT-M01: guard อ่าน migration จาก git จริง (base = H
 
 const TOKEN = ['stub', 'access', 'token', 'value'].join('-');
 
-function stubUat({ profile = {}, adminStatus = 404, issuerOverride, requireToken = TOKEN } = {}) {
+function stubUat({
+  profile = {},
+  adminStatus = 404,
+  issuerOverride,
+  requireToken = TOKEN,
+  themed = true,
+  tokensCss = true,
+} = {}) {
   const seen = { hosts: new Set(), authorized: 0 };
   const server = http.createServer((request, response) => {
     seen.hosts.add(request.headers.host);
@@ -731,6 +775,22 @@ function stubUat({ profile = {}, adminStatus = 404, issuerOverride, requireToken
         token_endpoint: `${issuer}/protocol/openid-connect/token`,
         jwks_uri: `${issuer}/protocol/openid-connect/certs`,
       });
+    }
+    if (url.pathname === '/auth/realms/dcontact/protocol/openid-connect/auth') {
+      // Keycloak ตอบ error เป็น JSON เมื่อ Accept ไม่ได้ขอ HTML
+      if (!/^text\/html/.test(request.headers.accept ?? '')) {
+        return send(400, { error: 'invalid_request' });
+      }
+      const shell = themed
+        ? '<link href="/auth/resources/v1/login/dcontact/css/dcontact.css" rel="stylesheet" /><div class="dc-shell">'
+        : '<div class="login-pf-page">';
+      return send(400, `<!doctype html>${shell}</div>`, 'text/html');
+    }
+    if (url.pathname === '/auth/resources/v1/login/dcontact/css/dcontact.css') {
+      return send(200, '.dc-shell { color: var(--dc-text-primary); }', 'text/css');
+    }
+    if (url.pathname === '/auth/resources/v1/login/dcontact/css/tokens.css' && tokensCss) {
+      return send(200, ':root { --dc-text-primary: #1e293b; }', 'text/css');
     }
     if (url.pathname.startsWith('/auth/admin') || url.pathname.startsWith('/auth/realms/master')) {
       return send(adminStatus, 'blocked', 'text/plain');
@@ -804,6 +864,7 @@ test('UAT-L: smoke ผ่านกับ UAT ที่ถูกต้อง; jou
       'UAT-L05': 'PASS',
       'UAT-L06': 'SKIPPED',
       'UAT-L07': 'PASS',
+      'UAT-L08': 'PASS',
     });
     assert.equal(result.status, 'PASS');
     // ต่อ 127.0.0.1 แต่ส่ง Host ของ UAT_HOST
@@ -836,6 +897,8 @@ test('UAT-L: profile ผิด, admin เปิด, issuer ไม่ตรง �
     [{ adminStatus: 200 }, 'UAT-L05'],
     [{ adminStatus: 302 }, 'UAT-L05'],
     [{ issuerOverride: 'http://other.example/auth/realms/dcontact' }, 'UAT-L04'],
+    [{ themed: false }, 'UAT-L08'],
+    [{ tokensCss: false }, 'UAT-L08'],
   ];
   for (const [options, id] of cases) {
     const stub = await stubUat(options);
@@ -882,6 +945,7 @@ test('deployment record: บันทึก SHA/digest/realm/pack; ปฏิเ�
       API_IMAGE: digest('api'),
       CONSOLE_IMAGE: digest('console'),
       OPS_IMAGE: digest('ops'),
+      KEYCLOAK_IMAGE: digest('keycloak'),
     },
     keycloak: { realmConfigDigest: `sha256:${'c'.repeat(64)}` },
     backup: { status: 'PASS', file: 'backups/pg-dcontact-x.dump', sha256: 'd'.repeat(64) },
@@ -897,6 +961,7 @@ test('deployment record: บันทึก SHA/digest/realm/pack; ปฏิเ�
   const record = buildDeploymentRecord(input);
   assert.equal(record.sourceSha, sha);
   assert.equal(record.images.api, digest('api'));
+  assert.equal(record.images.keycloak, digest('keycloak'));
   assert.equal(record.fixturePackVersion, 'u1-pack-1');
   assert.equal(record.realmConfigDigest, `sha256:${'c'.repeat(64)}`);
   assert.match(renderSummary(record), /UAT deployment record \(deploy\)/);

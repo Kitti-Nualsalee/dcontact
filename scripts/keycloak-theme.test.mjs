@@ -97,6 +97,25 @@ test('ข้อความ dc* ครบทั้ง th และ en และ�
   );
 });
 
+test("ข้อความของ theme ไม่มี apostrophe ตัวเดียว — Keycloak ส่งทุกข้อความผ่าน MessageFormat ซึ่งกลืน ' ทิ้ง", () => {
+  for (const path of [
+    `${themeDir}/messages/messages_th.properties`,
+    `${themeDir}/messages/messages_en.properties`,
+    `${emailDir}/messages/messages_th.properties`,
+    `${emailDir}/messages/messages_en.properties`,
+  ]) {
+    const values = read(path)
+      .split('\n')
+      .filter((line) => line.trim() && !line.startsWith('#'))
+      .map((line) => line.slice(line.indexOf('=') + 1));
+    assert.deepEqual(
+      values.filter((value) => /(^|[^'])'([^']|$)/.test(value)),
+      [],
+      path,
+    );
+  }
+});
+
 test('child theme ของ Platform ต่อจาก dcontact และสลับแผงด้วย dcVariant', () => {
   const properties = read('infra/keycloak/themes/dcontact-platform/login/theme.properties');
   assert.match(properties, /^parent=dcontact$/m);
