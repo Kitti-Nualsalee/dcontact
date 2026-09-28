@@ -36,9 +36,17 @@ async function startUatApi(t: test.TestContext) {
   const uatRuns = {
     current: async (currentTenant: string) => ({ runId: 'run-1', tenantId: currentTenant }),
   };
+  const uatEvidence = {
+    list: async (listedTenant: string, _actor: unknown, runId: string) => ({
+      runId,
+      tenantId: listedTenant,
+      items: [],
+    }),
+  };
   const module = createUatApiModule({
     repository,
     uatRuns,
+    uatEvidence,
     verifier: {
       verifyAccessToken: async (token: string) => {
         if (token === 'maker-token') return claims();
@@ -79,6 +87,14 @@ test('UAT API mount เฉพาะ Journey authoring ที่ยังต้�
   });
   assert.deepEqual(await run.json(), { runId: 'run-1', tenantId });
 
+  // หลักฐานของ run (U1.5 #433) อยู่ใต้ prefix เดียวกันและต้อง login เช่นกัน
+  const runId = '9d6b1c1e-8f4c-4c55-9a55-3f1f5f3e7a10';
+  assert.equal((await fetch(`${base}/api/v1/uat-runs/${runId}/evidence`)).status, 401);
+  const evidence = await fetch(`${base}/api/v1/uat-runs/${runId}/evidence`, {
+    headers: { authorization: 'Bearer maker-token' },
+  });
+  assert.deepEqual(await evidence.json(), { runId, tenantId, items: [] });
+
   // route ของ provider/telephony/workspace ไม่มีใน UAT
   for (const path of [
     '/api/v1/line-webhook',
@@ -109,7 +125,11 @@ test('UAT API mount เฉพาะ Journey authoring ที่ยังต้�
   });
 });
 
-test('composition root ของ UAT ไม่พึ่ง Kafka/LINE/Redis/MinIO/telephony และไม่มี route ของ unilateral publish', () => {
+/**
+ * Phase Contract #374 ให้ภาพหน้าจอหลักฐานอยู่ใน MinIO ของ UAT stack (U1.5 #433) — composition root จึงแตะ
+ * object storage ได้ทางเดียวคือ module หลักฐาน UAT โดยเฉพาะ ส่วน recording/Kafka/LINE/Redis ยังห้ามเหมือนเดิม
+ */
+test('composition root ของ UAT ไม่พึ่ง Kafka/LINE/Redis/recording/telephony, object storage มีแค่ module หลักฐาน UAT และไม่มี route ของ unilateral publish', () => {
   const source = (file: string) => readFileSync(join(__dirname, file), 'utf8');
   // ตรวจเฉพาะโค้ด ไม่รวม comment ที่อธิบายว่าไฟล์นี้ตั้งใจไม่ใช้อะไร
   const code = (file: string) =>
@@ -121,13 +141,37 @@ test('composition root ของ UAT ไม่พึ่ง Kafka/LINE/Redis/MinI
     '@d-contact/kafka',
     '@d-contact/delivery',
     'ioredis',
+    // client ของ object storage อยู่ใน uat-evidence-storage.ts เท่านั้น
     'minio',
+    '@aws-sdk',
     'recording',
     'workspace-session-api',
     'line-webhook',
     'createConsumer',
   ]) {
     assert.doesNotMatch(uat, new RegExp(forbidden, 'i'), forbidden);
+  }
+  const storageImports = [...uat.matchAll(/from '([^']*storage[^']*)'/g)].map((match) => match[1]);
+  assert.deepEqual(storageImports, ['./uat-evidence-storage.js']);
+
+  // module หลักฐาน: bucket ส่วนตัว ไม่มี presigned/public URL และไม่พ่วง dependency ต้องห้ามอื่น
+  const evidence = code('uat-evidence-storage.ts') + code('uat-evidence-api.ts');
+  for (const forbidden of [
+    'getSignedUrl',
+    's3-request-presigner',
+    'presign',
+    'PutBucketPolicy',
+    'PutBucketAcl',
+    'PutObjectAcl',
+    'ACL',
+    'public-read',
+    'Redirect',
+    '@d-contact/kafka',
+    'ioredis',
+    'recording',
+    'line-webhook',
+  ]) {
+    assert.doesNotMatch(evidence, new RegExp(forbidden, 'i'), forbidden);
   }
   // maker-checker ต้องบังคับจริงใน UAT (#374 §6): controller ที่ mount ไม่เรียกทางลัดนี้
   for (const controller of ['journey-authoring-api.ts', 'journey-template-api.ts']) {

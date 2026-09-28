@@ -79,3 +79,42 @@ test('U1.4 UAT run: ไม่มี run = null, mutation ส่ง Idempotency-K
   );
   assert.equal(calls.at(-1)!.url, '/api/v1/uat-runs/run-1/step-results');
 });
+
+test('U1.5 หลักฐาน: อัปโหลด raw PNG พร้อม bearer/key/step header, 415 คืน code และ bundle ไม่มี token ใน URL', async () => {
+  const { calls, fetch } = fakeFetch((url, init) => {
+    if (init.method === 'POST' && url.endsWith('/evidence')) {
+      const type = new Headers(init.headers).get('content-type');
+      return type === 'image/png'
+        ? json(200, { evidenceId: 'e-1', stepId: 'LOGIN', sha256: 'a'.repeat(64) })
+        : json(415, { code: 'EVIDENCE_TYPE_REJECTED', safeParams: { reason: 'CONTENT_TYPE' } });
+    }
+    if (url.endsWith('/evidence')) return json(200, { runId: 'run-1', items: [] });
+    return json(200, { schema: 'UatEvidenceBundleV1', digest: 'b'.repeat(64) });
+  });
+  const api = createUatApi({ baseUrl: '', accessToken: () => 'token-1', fetch });
+  const shot = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' });
+  assert.equal(
+    (await api.uploadEvidence('run-1', 'LOGIN', shot, 'uat-evidence-1')).evidenceId,
+    'e-1',
+  );
+  const upload = calls[0]!;
+  const headers = new Headers(upload.init.headers);
+  assert.equal(upload.url, '/api/v1/uat-runs/run-1/evidence');
+  assert.equal(headers.get('authorization'), 'Bearer token-1');
+  assert.equal(headers.get('idempotency-key'), 'uat-evidence-1');
+  assert.equal(headers.get('x-uat-step-id'), 'LOGIN');
+  assert.equal(upload.init.body, shot);
+
+  const trace = new Blob([new Uint8Array([0x50, 0x4b, 3, 4])], { type: 'application/zip' });
+  await assert.rejects(
+    api.uploadEvidence('run-1', 'LOGIN', trace, 'uat-evidence-2'),
+    (error: unknown) =>
+      error instanceof JourneyAuthoringApiError &&
+      error.status === 415 &&
+      error.code === 'EVIDENCE_TYPE_REJECTED',
+  );
+  assert.deepEqual(await api.listEvidence('run-1'), { runId: 'run-1', items: [] });
+  assert.equal((await api.exportBundle('run-1')).digest, 'b'.repeat(64));
+  assert.equal(calls.at(-1)!.url, '/api/v1/uat-runs/run-1/bundle');
+  for (const call of calls) assert.doesNotMatch(call.url, /token|bearer/i);
+});

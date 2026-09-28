@@ -5828,6 +5828,50 @@ model UatCommandReceipt {
   @@map("uat_command_receipts")
 }
 
+enum UatScanStatus {
+  PASSED
+  FAILED
+}
+
+/// U1.5 (#433): metadata ของภาพหน้าจอหลักฐาน — byte อยู่ใน object storage ส่วนตัวของ UAT stack
+/// (key = uat-evidence/<tenant>/<run>/<id>, retention 90 วัน) append-only และเพิ่มได้เฉพาะ run ที่ ACTIVE
+model UatRunEvidence {
+  id            String   @id @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  runId         String   @map("run_id") @db.Uuid
+  stepId        String   @map("step_id")
+  /// image/png หรือ image/jpeg เท่านั้น (ตรวจ magic bytes แล้ว)
+  contentType   String   @map("content_type")
+  sizeBytes     Int      @map("size_bytes")
+  sha256        String   @db.Char(64)
+  storageKey    String   @map("storage_key")
+  recordedByRef String   @map("recorded_by_ref")
+  recordedAt    DateTime @map("recorded_at")
+
+  @@unique([tenantId, id], map: "uat_run_evidence_tenant_id_id_key")
+  @@index([tenantId, runId, recordedAt], map: "uat_run_evidence_run_idx")
+  @@map("uat_run_evidence")
+}
+
+/// U1.5 (#433): ผล negative scan ของ run แบบ append-only — หนึ่งแถวต่อ input digest;
+/// findings มีแค่ชนิด + ตำแหน่ง ไม่มีข้อความที่ match
+model UatRunScan {
+  id             String        @id @db.Uuid
+  tenantId       String        @map("tenant_id") @db.Uuid
+  runId          String        @map("run_id") @db.Uuid
+  scannerVersion String        @map("scanner_version")
+  inputDigest    String        @map("input_digest") @db.Char(64)
+  status         UatScanStatus
+  severity       UatSeverity?
+  findings       Json
+  scannedByRef   String        @map("scanned_by_ref")
+  scannedAt      DateTime      @map("scanned_at")
+
+  @@unique([tenantId, id], map: "uat_run_scans_tenant_id_id_key")
+  @@unique([tenantId, runId, inputDigest], map: "uat_run_scans_input_key")
+  @@map("uat_run_scans")
+}
+
 // ─────────────────────────── A1.5 (#410) tenant operational baseline ───────────────────────────
 
 enum BusinessHoursStatus {

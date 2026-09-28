@@ -7,6 +7,8 @@
  * - mutation ใช้ `Idempotency-Key` เดียวตลอด intent: เน็ตหลุดแล้วกดซ้ำใช้ key เดิม; server ตอบ error = key ใหม่
  * - session หมด (401) แสดงทางเข้าสู่ระบบใหม่ ไม่ปล่อยหน้าตัน
  * - จอต่ำกว่า 960px อ่านอย่างเดียวตามกติกาเดิมของหน้า: ไม่มีปุ่มบันทึกผล/เริ่มรอบใหม่
+ * - U1.5 (#433): แนบภาพหน้าจอ PNG/JPEG ต่อ step, ดูรายการหลักฐานพร้อม digest และส่งออก evidence bundle
+ *   (fetch + Blob พร้อม bearer header; ไม่มี token/URL ของ storage ใน URL) — server ตรวจชนิดไฟล์และ scan เอง
  */
 import {
   createContext,
@@ -27,9 +29,12 @@ import { errorMessage, journeyText } from './model.js';
 import { Dialog } from './publish.js';
 import { serverTime } from './server-time.js';
 import {
+  UAT_EVIDENCE_ACCEPT,
   UAT_OUTCOMES,
   UAT_SEVERITIES,
   type UatApi,
+  type UatEvidenceBundle,
+  type UatEvidenceView,
   type UatOutcome,
   type UatRunView,
   type UatSeverity,
@@ -122,6 +127,9 @@ const DEFAULT_NEXT_ACTION: Readonly<Record<string, string>> = {
   FIXTURE_PREFLIGHT_FAILED: 'ASK_OPERATOR',
   VALIDATION_FAILED: 'FIX_FIELD',
   REQUEST_MALFORMED: 'FIX_FIELD',
+  EVIDENCE_TYPE_REJECTED: 'CHOOSE_SCREENSHOT',
+  EVIDENCE_TOO_LARGE: 'CHOOSE_SCREENSHOT',
+  EVIDENCE_NOT_FOUND: 'RELOAD_RUN',
 };
 
 /** งานค้างของ run เดิมที่ต้องจัดการใน Journey ของรอบนั้นก่อน */
@@ -372,6 +380,220 @@ function RecordStepForm({
   );
 }
 
+/** ภาพหน้าจอหลักฐาน: อัปโหลดต่อ step, รายการพร้อม digest และส่งออก bundle (U1.5 #433) */
+function EvidenceSection({
+  uat,
+  run,
+  readOnly,
+  onFailure,
+  onAnnounce,
+}: {
+  uat: UatContextValue;
+  run: UatRunView;
+  readOnly: boolean;
+  onFailure: (failure: UatFailure | null) => void;
+  onAnnounce: (message: string) => void;
+}) {
+  const { t } = useTranslation('journeys');
+  const { formatters } = useLocale();
+  const ids = { heading: useId(), step: useId(), file: useId() };
+  const [items, setItems] = useState<UatEvidenceView[] | null>(null);
+  const [stepId, setStepId] = useState(run.steps[0]?.stepId ?? '');
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exported, setExported] = useState<UatEvidenceBundle | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const intent = useRef<{ body: string; key: string } | null>(null);
+  const { api, failure } = uat;
+
+  const load = useCallback(async () => {
+    try {
+      setItems((await api.listEvidence(run.runId)).items);
+    } catch (error) {
+      onFailure(failure(error));
+    }
+  }, [api, failure, onFailure, run.runId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const upload = async () => {
+    if (!file || !stepId) return;
+    const serialized = JSON.stringify([run.runId, stepId, file.name, file.size, file.lastModified]);
+    if (intent.current?.body !== serialized)
+      intent.current = { body: serialized, key: `uat-evidence-${crypto.randomUUID()}` };
+    setBusy(true);
+    onFailure(null);
+    try {
+      await api.uploadEvidence(run.runId, stepId, file, intent.current.key);
+      intent.current = null;
+      setFile(null);
+      if (fileInput.current) fileInput.current.value = '';
+      await load();
+      onAnnounce(t('uat.evidence.uploaded', { stepId }));
+    } catch (error) {
+      // server ตอบแล้ว = intent จบ; เน็ตหลุด = กดซ้ำด้วย key เดิม
+      if (error instanceof JourneyAuthoringApiError) intent.current = null;
+      onFailure(failure(error));
+      if (error instanceof JourneyAuthoringApiError && error.code === 'UAT_RUN_CLOSED')
+        await uat.reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportBundle = async () => {
+    setExporting(true);
+    onFailure(null);
+    try {
+      const bundle = await api.exportBundle(run.runId);
+      // ดาวน์โหลดจาก Blob ในหน่วยความจำ — ไม่เปิด URL ของ API/storage ที่ต้องแนบ token
+      const href = URL.createObjectURL(
+        new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }),
+      );
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = `uat-run-${run.sequence}-evidence-bundle.json`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 0);
+      setExported(bundle);
+      onAnnounce(t('uat.evidence.exported', { verdict: bundle.verdict }));
+    } catch (error) {
+      onFailure(failure(error));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <section aria-labelledby={ids.heading}>
+      <h3 id={ids.heading}>{t('uat.evidence.heading')}</h3>
+      <p className="j5-help">{t('uat.evidence.hint')}</p>
+      {!readOnly && run.lifecycle === 'ACTIVE' ? (
+        <form
+          aria-label={t('uat.evidence.uploadHeading')}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void upload();
+          }}
+        >
+          <div className="j5-field">
+            <label htmlFor={ids.step}>{t('uat.evidence.stepLabel')}</label>
+            <select
+              id={ids.step}
+              value={stepId}
+              onChange={(event) => setStepId(event.target.value)}
+            >
+              {run.steps.map((entry) => (
+                <option key={entry.stepId} value={entry.stepId}>
+                  {entry.stepId} · {entry.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="j5-field">
+            <label htmlFor={ids.file}>{t('uat.evidence.fileLabel')}</label>
+            <input
+              ref={fileInput}
+              id={ids.file}
+              type="file"
+              accept={UAT_EVIDENCE_ACCEPT}
+              aria-describedby={`${ids.file}-hint`}
+              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            />
+            <small id={`${ids.file}-hint`} className="j5-help">
+              {t('uat.evidence.fileHint')}
+            </small>
+          </div>
+          <Button type="submit" isDisabled={!file || busy}>
+            {busy ? t('uat.evidence.uploading') : t('uat.evidence.upload')}
+          </Button>
+        </form>
+      ) : null}
+      {items === null ? null : items.length === 0 ? (
+        <p>{t('uat.evidence.none')}</p>
+      ) : (
+        <div className="j5-table-scroll">
+          <table className="j5-table">
+            <caption className="j5-sr">{t('uat.evidence.caption')}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t('uat.col.step')}</th>
+                <th scope="col">{t('uat.evidence.col.digest')}</th>
+                <th scope="col">{t('uat.evidence.col.size')}</th>
+                <th scope="col">{t('uat.evidence.col.type')}</th>
+                <th scope="col">{t('uat.col.recordedAt')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.evidenceId}>
+                  <td>
+                    <code>{item.stepId}</code>
+                  </td>
+                  <td>
+                    <code title={item.sha256}>{short(item.sha256, 12)}</code>
+                  </td>
+                  <td>{t('uat.evidence.sizeValue', { kb: Math.ceil(item.sizeBytes / 1024) })}</td>
+                  <td>{item.contentType}</td>
+                  <td>
+                    <time dateTime={item.recordedAt}>
+                      {serverTime(formatters, item.recordedAt)}
+                    </time>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="j5-button-row">
+        <Button isDisabled={exporting} onPress={() => void exportBundle()}>
+          {exporting ? t('uat.evidence.exporting') : t('uat.evidence.export')}
+        </Button>
+      </div>
+      {exported ? (
+        <dl className="j5-facts" aria-label={t('uat.evidence.bundleLabel')}>
+          <div>
+            <dt>{t('uat.evidence.verdict')}</dt>
+            <dd>
+              <Badge
+                tone={
+                  exported.verdict === 'PASS'
+                    ? 'success'
+                    : exported.verdict === 'FAIL'
+                      ? 'critical'
+                      : 'attention'
+                }
+              >
+                {t(`uat.evidence.verdictValue.${exported.verdict}`)}
+              </Badge>
+            </dd>
+          </div>
+          <div>
+            <dt>{t('uat.evidence.scan')}</dt>
+            <dd>
+              {t(`uat.evidence.scanValue.${exported.scan.status}`, {
+                findings: exported.scan.findings.length,
+              })}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('uat.evidence.digest')}</dt>
+            <dd>
+              <code title={exported.digest}>{short(exported.digest, 12)}</code>
+            </dd>
+          </div>
+        </dl>
+      ) : null}
+    </section>
+  );
+}
+
 // ── แผงหลัก ─────────────────────────────────────────────────────────────────
 
 export function UatRunPanel({
@@ -559,6 +781,17 @@ export function UatRunPanel({
             </div>
           )}
         </>
+      ) : null}
+
+      {run && !uat.sessionExpired ? (
+        <EvidenceSection
+          key={run.runId}
+          uat={uat}
+          run={run}
+          readOnly={readOnly}
+          onFailure={setFailure}
+          onAnnounce={setAnnouncement}
+        />
       ) : null}
 
       {failure && !uat.sessionExpired ? (
