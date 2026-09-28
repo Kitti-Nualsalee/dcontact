@@ -144,6 +144,8 @@ test('U1.5 negative scan ตรวจ token, header, secret, PII และ OIDC 
     ['ติดต่อ somchai@example.co.th', 'EMAIL'],
     ['โทร 0812345678', 'PHONE'],
     ['โทร +14155550123', 'PHONE'],
+    ['โทร 0812345678ครับ', 'PHONE'],
+    ['ติดต่อ 021234567 หรือ 0812345678.', 'PHONE'],
     ['https://sso.test/cb?code=abc123&session_state=x', 'OIDC_CODE'],
     ['https://sso.test/cb?state=xyz', 'OIDC_STATE'],
   ];
@@ -157,6 +159,10 @@ test('U1.5 negative scan ตรวจ token, header, secret, PII และ OIDC 
     'a1b2c3d4e5f6',
     'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     'uat-evidence/4e342ec5-d35b-41ed-bd44-1cf47a41af4b',
+    // git SHA ที่ขึ้นต้นแบบเบอร์ไทยแล้วต่อด้วยตัวอักษร (U1.11 #512)
+    '0812345678ab4c1d2e3f4a5b6c7d8e9f0a1b2c3d',
+    '0512345678abcdef0123456789abcdef01234567',
+    '"buildSha":"061234567fabcdef0123456789abcdef01234567"',
   ]) {
     assert.deepEqual(scanUatText(clean), [], clean);
   }

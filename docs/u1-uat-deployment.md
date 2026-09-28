@@ -183,9 +183,7 @@ render pack version เดิมด้วย SHA อื่น = `FIXTURE_PACK_DI
 Console) แล้ว render ด้วย SHA ของ release นั้น ส่วนการรันซ้ำของ pack เดิมต้องใช้ SHA เดิม (ดูได้จาก Build SHA ในหน้า UAT run)
 เนื้อหา template ที่เปลี่ยนต้องออกเป็น template ใหม่ (`….v2`) พร้อม pack version ใหม่เสมอ
 
-ข้อจำกัดที่รู้แล้ว: pattern `PHONE` ของ negative scan (U1.5) จับ SHA ที่ขึ้นต้นด้วย `0` + เลข 1–9 ตามด้วยตัวเลขอีก 7–8 ตัว
-แล้วต่อด้วยตัวอักษร (เช่น `0512345678ab…`) ว่าเป็นเบอร์โทรไทย → `--check` ได้ `INPUT_SENSITIVE_CONTENT` (`kind` = `PHONE`)
-โอกาสราว 0.1% ต่อ SHA — ถ้าเจอให้ provision pack กับ release ถัดไป และรายงานใน issue (ห้ามแก้ SHA เอง)
+`buildSha` ใดก็ได้ผ่าน negative scan — pattern `PHONE` ไม่จับเลขที่ต่อด้วยตัวอักษร ASCII แล้ว (U1.11 #512)
 
 ### 5.2 กรอก, render และ provision
 
