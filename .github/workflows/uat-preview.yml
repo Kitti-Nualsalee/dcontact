@@ -121,6 +121,7 @@ jobs:
           echo "api=ghcr.io/$owner/dcontact-uat-api" >> "$GITHUB_OUTPUT"
           echo "ops=ghcr.io/$owner/dcontact-uat-ops" >> "$GITHUB_OUTPUT"
           echo "console=ghcr.io/$owner/dcontact-uat-console" >> "$GITHUB_OUTPUT"
+          echo "keycloak=ghcr.io/$owner/dcontact-uat-keycloak" >> "$GITHUB_OUTPUT"
 
       - name: Build + push API image
         id: api
@@ -163,17 +164,30 @@ jobs:
             VITE_UAT_PACK_VERSION=${{ vars.UAT_FIXTURE_PACK_VERSION }}
           tags: ${{ steps.names.outputs.console }}:${{ github.sha }}
 
+      - name: Build + push Keycloak image (login/email theme ของ D-Contact)
+        id: keycloak
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/keycloak/Dockerfile
+          push: true
+          provenance: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.keycloak }}:${{ github.sha }}
+
       - name: Upload release (digest-pinned) to VM
         env:
           API_IMAGE: ${{ steps.names.outputs.api }}@${{ steps.api.outputs.digest }}
           OPS_IMAGE: ${{ steps.names.outputs.ops }}@${{ steps.ops.outputs.digest }}
           CONSOLE_IMAGE: ${{ steps.names.outputs.console }}@${{ steps.console.outputs.digest }}
+          KEYCLOAK_IMAGE: ${{ steps.names.outputs.keycloak }}@${{ steps.keycloak.outputs.digest }}
         run: |
           {
             echo "SOURCE_SHA=$GITHUB_SHA"
             echo "API_IMAGE=$API_IMAGE"
             echo "OPS_IMAGE=$OPS_IMAGE"
             echo "CONSOLE_IMAGE=$CONSOLE_IMAGE"
+            echo "KEYCLOAK_IMAGE=$KEYCLOAK_IMAGE"
           } > release.env
           cat release.env
           release="$UAT_ROOT/releases/$GITHUB_SHA"

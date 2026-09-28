@@ -33,18 +33,26 @@ export type EmbedOriginErrorCode =
 export class EmbedOriginError extends Error {
   constructor(
     readonly code: EmbedOriginErrorCode,
-    readonly field?: { field: string; reason: EmbedOriginRejection | 'REQUIRED' | 'INVALID' },
+    readonly field?: {
+      field: string;
+      reason: EmbedOriginRejection | 'REQUIRED' | 'INVALID' | 'UNAVAILABLE';
+    },
   ) {
     super(code);
     this.name = 'EmbedOriginError';
   }
 }
 
+/** E1.14: ระดับ screen-pop ที่ตั้งได้ตอนนี้ — `custom` รอรายการ field ที่ระบบกำหนด (decision gap #464) */
+export type EmbedScreenPopLevel = 'off' | 'ids' | 'contact';
+const SCREEN_POP_LEVELS: readonly EmbedScreenPopLevel[] = ['off', 'ids', 'contact'];
+
 export interface EmbedOriginView {
   id: string;
   origin: string;
   label: string;
   enabled: boolean;
+  screenPopLevel: EmbedScreenPopLevel;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -70,6 +78,8 @@ export interface EmbedShellPolicy {
   tenantAlias: string;
   /** ว่าง = ห้ามฝัง (`frame-ancestors 'none'`) */
   origins: string[];
+  /** E1.14: ระดับ screen-pop ต่อ origin — iframe ใช้แจ้ง host ใน `dphone.ready` (server ตรวจซ้ำตอนส่งจริง) */
+  screenPopLevels: Record<string, EmbedScreenPopLevel>;
 }
 
 export class EmbedOriginService {
@@ -175,7 +185,13 @@ export class EmbedOriginService {
   async update(
     actor: EmbedOriginActor,
     id: string,
-    input: { expectedRevision: unknown; label?: unknown; enabled?: unknown; reason?: unknown },
+    input: {
+      expectedRevision: unknown;
+      label?: unknown;
+      enabled?: unknown;
+      screenPopLevel?: unknown;
+      reason?: unknown;
+    },
     correlationId: string,
   ): Promise<EmbedOriginView> {
     const expectedRevision = revisionOf(input.expectedRevision);
@@ -184,8 +200,14 @@ export class EmbedOriginService {
       throw new EmbedOriginError('VALIDATION_FAILED', { field: 'enabled', reason: 'INVALID' });
     }
     const enabled = input.enabled as boolean | undefined;
-    if (label === undefined && enabled === undefined) {
+    const screenPopLevel =
+      input.screenPopLevel === undefined ? undefined : screenPopLevelOf(input.screenPopLevel);
+    if (label === undefined && enabled === undefined && screenPopLevel === undefined) {
       throw new EmbedOriginError('VALIDATION_FAILED', { field: 'body', reason: 'REQUIRED' });
+    }
+    // เปลี่ยนระดับข้อมูลเป็น audit แยก (SCREEN_POP_CHANGED) — ไม่รวมกับการปิด/เปิด origin
+    if (screenPopLevel !== undefined && enabled !== undefined) {
+      throw new EmbedOriginError('VALIDATION_FAILED', { field: 'body', reason: 'INVALID' });
     }
     const reason = optionalReason(input.reason);
     let revokedOrigin: string | null = null;
@@ -193,11 +215,17 @@ export class EmbedOriginService {
       const before = await this.locked(tx, actor, id, expectedRevision);
       // เปิดใหม่ต้องมี entitlement; ปิด/เปลี่ยนชื่อทำได้เสมอ (ทาง rollback)
       if (enabled === true && !before.enabled) await this.requireEntitlement(tx, actor.tenantId);
+      const levelChanged = screenPopLevel !== undefined && screenPopLevel !== before.screenPopLevel;
+      // เปิดหรือเปลี่ยนระดับข้อมูลต้องยืนยันพร้อมเหตุผล (E1.6 ข้อ 1)
+      if (levelChanged && (reason === null || reason.length < 3)) {
+        throw new EmbedOriginError('VALIDATION_FAILED', { field: 'reason', reason: 'REQUIRED' });
+      }
       const row = await tx.tenantEmbedOrigin.update({
         where: { id: before.id },
         data: {
           ...(label !== undefined ? { label } : {}),
           ...(enabled !== undefined ? { enabled } : {}),
+          ...(levelChanged ? { screenPopLevel } : {}),
           updatedAt: this.now(),
           revision: { increment: 1 },
         },
@@ -207,7 +235,9 @@ export class EmbedOriginService {
           ? 'DISABLED'
           : enabled === true && !before.enabled
             ? 'ENABLED'
-            : 'UPDATED';
+            : levelChanged
+              ? 'SCREEN_POP_CHANGED'
+              : 'UPDATED';
       await this.audit(
         tx,
         actor,
@@ -273,15 +303,7 @@ export class EmbedOriginService {
         policy = await withTenantDatabaseTransaction(this.database, tenant.id, async (tx) => ({
           tenantId: tenant.id,
           tenantAlias: tenant.slug,
-          origins: (await this.embeddable(tx, tenant.id))
-            ? (
-                await tx.tenantEmbedOrigin.findMany({
-                  where: { tenantId: tenant.id, enabled: true },
-                  select: { origin: true },
-                  orderBy: { origin: 'asc' },
-                })
-              ).map((row) => row.origin)
-            : [],
+          ...(await this.enabledOrigins(tx, tenant.id)),
         }));
       }
     } catch {
@@ -293,6 +315,20 @@ export class EmbedOriginService {
       until: nowMs + Math.min(this.options.cacheMs ?? 30_000, 30_000),
     });
     return policy;
+  }
+
+  /**
+   * E1.14: ระดับ screen-pop ของ origin ตอนส่งจริง (ไม่ใช้ cache) — ฝังไม่ได้แล้ว/ไม่อยู่ใน allowlist = `off`
+   */
+  async screenPopLevel(tenantId: string, origin: string): Promise<EmbedScreenPopLevel> {
+    return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
+      if (!(await this.embeddable(tx, tenantId))) return 'off';
+      const row = await tx.tenantEmbedOrigin.findFirst({
+        where: { tenantId, origin, enabled: true },
+        select: { screenPopLevel: true },
+      });
+      return row ? levelOf(row.screenPopLevel) : 'off';
+    });
   }
 
   /** lease ของ surface `embedded` ใช้ตรวจ host origin ซ้ำฝั่ง server (E1.5 ข้อ 5) — ไม่ใช้ cache */
@@ -336,6 +372,24 @@ export class EmbedOriginService {
     return (await this.entitled(tx, tenantId)) && (await this.flagEnabled(tx, tenantId));
   }
 
+  private async enabledOrigins(
+    tx: Tx,
+    tenantId: string,
+  ): Promise<Pick<EmbedShellPolicy, 'origins' | 'screenPopLevels'>> {
+    if (!(await this.embeddable(tx, tenantId))) return { origins: [], screenPopLevels: {} };
+    const rows = await tx.tenantEmbedOrigin.findMany({
+      where: { tenantId, enabled: true },
+      select: { origin: true, screenPopLevel: true },
+      orderBy: { origin: 'asc' },
+    });
+    return {
+      origins: rows.map((row) => row.origin),
+      screenPopLevels: Object.fromEntries(
+        rows.map((row) => [row.origin, levelOf(row.screenPopLevel)]),
+      ),
+    };
+  }
+
   private async requireEntitlement(tx: Tx, tenantId: string) {
     if (!(await this.entitled(tx, tenantId))) throw new EmbedOriginError('ENTITLEMENT_REQUIRED');
   }
@@ -363,7 +417,7 @@ export class EmbedOriginService {
     tx: Tx,
     actor: EmbedOriginActor,
     originId: string,
-    action: 'CREATED' | 'UPDATED' | 'DISABLED' | 'ENABLED' | 'DELETED',
+    action: 'CREATED' | 'UPDATED' | 'DISABLED' | 'ENABLED' | 'DELETED' | 'SCREEN_POP_CHANGED',
     before: Prisma.InputJsonValue | null,
     after: Prisma.InputJsonValue | null,
     reason: string | null,
@@ -392,6 +446,7 @@ function view(row: Row, activeSessions: number): EmbedOriginView {
     origin: row.origin,
     label: row.label,
     enabled: row.enabled,
+    screenPopLevel: levelOf(row.screenPopLevel),
     revision: row.revision,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -400,7 +455,33 @@ function view(row: Row, activeSessions: number): EmbedOriginView {
 }
 
 function snapshot(row: Row): Prisma.InputJsonValue {
-  return { origin: row.origin, label: row.label, enabled: row.enabled, revision: row.revision };
+  return {
+    origin: row.origin,
+    label: row.label,
+    enabled: row.enabled,
+    screenPopLevel: row.screenPopLevel,
+    revision: row.revision,
+  };
+}
+
+/** ค่าจาก DB ที่ไม่รู้จัก = ปิด (fail closed) */
+function levelOf(value: string): EmbedScreenPopLevel {
+  return (SCREEN_POP_LEVELS as readonly string[]).includes(value)
+    ? (value as EmbedScreenPopLevel)
+    : 'off';
+}
+
+function screenPopLevelOf(value: unknown): EmbedScreenPopLevel {
+  if (value === 'custom') {
+    throw new EmbedOriginError('VALIDATION_FAILED', {
+      field: 'screenPopLevel',
+      reason: 'UNAVAILABLE',
+    });
+  }
+  if (typeof value !== 'string' || !(SCREEN_POP_LEVELS as readonly string[]).includes(value)) {
+    throw new EmbedOriginError('VALIDATION_FAILED', { field: 'screenPopLevel', reason: 'INVALID' });
+  }
+  return value as EmbedScreenPopLevel;
 }
 
 function requiredLabel(value: unknown): string {

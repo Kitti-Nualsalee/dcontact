@@ -27,6 +27,12 @@ import {
   EmbedOriginsController,
 } from './embed-origins-api.js';
 import { DphoneAuthCallbackController } from './dphone-auth-callback.js';
+import {
+  ContactGovernanceDisclosureCheck,
+  ScreenPopService,
+  UnavailableTeamSegmentViewScope,
+} from './screen-pop.js';
+import { SCREEN_POP_SERVICE, ScreenPopController } from './screen-pop-api.js';
 import { WORK_SESSION_LEASES, WorkSessionController } from './work-session-api.js';
 import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
 import {
@@ -211,6 +217,12 @@ const workSessionLeases = new WorkSessionLeases(prisma, {
   diagnostics: { write: (event) => console.log(JSON.stringify(event)) },
   embedOrigins,
 });
+// E1.14 (#488): VIEW scope ยังไม่มีใน IAM → fail closed (screen-pop เหลือ interactionId) จนกว่า IAM จะเพิ่ม
+const screenPop = new ScreenPopService(prisma, {
+  hostOriginOfLease: (actor, leaseId) => workSessionLeases.embeddedHostOrigin(actor, leaseId),
+  screenPopLevel: (tenantId, origin) => embedOrigins.screenPopLevel(tenantId, origin),
+  disclosure: new ContactGovernanceDisclosureCheck(prisma, new UnavailableTeamSegmentViewScope()),
+});
 const socketAdapter = new WorkspaceSessionWebSocketAdapter(
   gateway,
   tenantScope,
@@ -257,6 +269,7 @@ class WorkspaceSessionController {
     AgentWorkspaceController,
     WorkSessionController,
     EmbedOriginsController,
+    ScreenPopController,
     DphoneEmbedController,
     DphoneAuthCallbackController,
     JourneyEventController,
@@ -305,6 +318,7 @@ class WorkspaceSessionController {
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
     { provide: WORK_SESSION_LEASES, useValue: workSessionLeases },
     { provide: EMBED_ORIGIN_SERVICE, useValue: embedOrigins },
+    { provide: SCREEN_POP_SERVICE, useValue: screenPop },
     {
       provide: DPHONE_EMBED_SHELL_OPTIONS,
       useValue: {

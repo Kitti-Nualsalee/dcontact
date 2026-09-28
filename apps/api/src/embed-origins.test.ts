@@ -71,6 +71,7 @@ test('E1.11: shell — ไม่มี origin = frame-ancestors none และ�
     tenantId: 't',
     tenantAlias: 'demo',
     origins: ['https://crm.example.test', 'https://sales.example.test'],
+    screenPopLevels: { 'https://crm.example.test': 'ids' as const },
   };
   const open = embedShellHeaders(policy, options, 'n2');
   assert.match(
@@ -89,6 +90,7 @@ test('E1.11: shell — ไม่มี origin = frame-ancestors none และ�
     tenant: 'demo',
     allowedHostOrigins: policy.origins,
     auth: null,
+    screenPopLevels: { 'https://crm.example.test': 'ids' },
   });
   assert.match(html, /<script type="module" nonce="n2" src="https:\/\/workspace\.dcontact\.test/);
 
@@ -104,7 +106,12 @@ test('E1.11: shell — ไม่มี origin = frame-ancestors none และ�
 test('E1.13: shell ส่ง OIDC ของ dphone-embedded เฉพาะเมื่อฝังได้ และเพิ่ม issuer ใน connect-src', () => {
   const auth = { issuer: 'https://id.dcontact.test/realms/dcontact', clientId: 'dphone-embedded' };
   const options = { scriptUrl: 'https://workspace.dcontact.test/embed/dphone-embed.js', auth };
-  const policy = { tenantId: 't', tenantAlias: 'demo', origins: ['https://crm.example.test'] };
+  const policy = {
+    tenantId: 't',
+    tenantAlias: 'demo',
+    origins: ['https://crm.example.test'],
+    screenPopLevels: {},
+  };
   const csp = embedShellHeaders(policy, options, 'n4')['content-security-policy']!;
   assert.match(csp, /connect-src 'self' https:\/\/id\.dcontact\.test;/);
   const configOf = (html: string) =>

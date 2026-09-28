@@ -4,11 +4,15 @@
  * tenant และผู้ทำมาจาก bearer token ที่ gateway ตรวจแล้ว — body มีแค่ข้อมูลของ origin
  */
 
+/** E1.14: ระดับข้อมูล screen-pop ต่อ origin — `custom` ยังตั้งไม่ได้ (API ตอบ UNAVAILABLE) */
+export type ScreenPopLevel = 'off' | 'ids' | 'contact';
+
 export interface EmbedOrigin {
   id: string;
   origin: string;
   label: string;
   enabled: boolean;
+  screenPopLevel: ScreenPopLevel;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -39,7 +43,7 @@ export interface EmbedOriginApi {
   create(input: { origin: string; label: string; reason?: string }): Promise<EmbedOrigin>;
   update(
     origin: EmbedOrigin,
-    change: { label?: string; enabled?: boolean; reason?: string },
+    change: { label?: string; enabled?: boolean; screenPopLevel?: ScreenPopLevel; reason?: string },
   ): Promise<EmbedOrigin>;
   remove(origin: EmbedOrigin, reason?: string): Promise<void>;
 }

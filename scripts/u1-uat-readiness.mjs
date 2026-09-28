@@ -30,6 +30,7 @@ export const UAT_FILES = Object.freeze({
   sshSetupScript: 'infra/uat/bin/ci-ssh-setup.sh',
   apiDockerfile: 'apps/api/Dockerfile',
   consoleDockerfile: 'apps/console/Dockerfile',
+  keycloakDockerfile: 'infra/keycloak/Dockerfile',
   dockerignore: '.dockerignore',
   realm: 'infra/keycloak/realm-dcontact.uat.json',
   workflow: '.github/workflows/uat-preview.yml',
@@ -51,6 +52,8 @@ export const FORBIDDEN_SERVICE_PATTERNS = Object.freeze([
   ['REDIS', /redis|valkey/i],
 ]);
 export const ALLOWED_PUBLIC_SERVICE = 'proxy';
+/** #515/#522: theme ที่ realm UAT ตั้งไว้ต้องอยู่ใน image ของ Keycloak (infra/keycloak/Dockerfile) */
+export const UAT_LOGIN_THEME = 'dcontact';
 export const ALLOWED_PUBLIC_PORTS = Object.freeze(['443', '80']);
 /** env ของ api ที่ขัดกับ profile `uat` (ตรงกับ UAT_FORBIDDEN_ENV ใน apps/api/src/runtime-profile.ts) */
 export const API_FORBIDDEN_ENV = Object.freeze([/^LINE_/, /^KAFKA_BROKERS$/, /^SIP_/]);
@@ -238,6 +241,39 @@ export function checkKeycloakProductionMode(compose) {
   if (env.KC_HTTP_ENABLED !== 'true') failures.push({ kind: 'KC_HTTP_ENABLED' });
   if (keycloak.ports.length > 0) failures.push({ kind: 'ADMIN_PORT_PUBLISHED' });
   return check('UAT-S04 Keycloak production mode หลัง proxy', failures);
+}
+
+/**
+ * #515/#522: realm UAT ตั้ง login/email theme `dcontact` — Keycloak ต้องรันจาก image ของเรา (มี theme)
+ * ไม่ใช่ image ตรงของ Keycloak ไม่งั้นหน้า login ของ realm ล้มทั้งหมด
+ */
+export function checkKeycloakTheme(compose, realmText, dockerfile) {
+  const id = 'UAT-S19 Keycloak image มี login/email theme ที่ realm UAT ใช้';
+  const failures = [];
+  const keycloak = parseComposeServices(compose).keycloak;
+  if (!/^\$\{KEYCLOAK_IMAGE:\?[^}]*\}$/.test(keycloak?.image ?? '')) {
+    failures.push({ kind: 'KEYCLOAK_IMAGE_NOT_OURS' });
+  }
+  let realm = {};
+  try {
+    realm = JSON.parse(realmText ?? '');
+  } catch {
+    failures.push({ kind: 'REALM_INVALID_JSON' });
+  }
+  for (const key of ['loginTheme', 'emailTheme']) {
+    if (realm[key] !== UAT_LOGIN_THEME) failures.push({ kind: 'REALM_THEME', key });
+  }
+  if (dockerfile === null) failures.push({ kind: 'NO_KEYCLOAK_DOCKERFILE' });
+  else {
+    if (
+      !/^\s*COPY\s+[^\n]*infra\/keycloak\/themes\/?\s+\/opt\/keycloak\/themes\/?\s*$/m.test(
+        dockerfile,
+      )
+    )
+      failures.push({ kind: 'THEMES_NOT_COPIED' });
+    if (!/keycloak-theme-build\.mjs/.test(dockerfile)) failures.push({ kind: 'THEME_NOT_BUILT' });
+  }
+  return check(id, failures);
 }
 
 export function checkComposeCredentials(compose) {
@@ -839,7 +875,9 @@ export function runStaticChecks(root = repositoryRoot) {
     checkDockerfilePins({
       [UAT_FILES.apiDockerfile]: files.apiDockerfile,
       [UAT_FILES.consoleDockerfile]: files.consoleDockerfile,
+      [UAT_FILES.keycloakDockerfile]: files.keycloakDockerfile,
     }),
+    checkKeycloakTheme(compose, files.realm, files.keycloakDockerfile),
     checkRealm(files.realm),
     checkApiEnvironment(compose),
     checkEvidenceStorage(compose, files.minioInitScript),
@@ -1201,6 +1239,31 @@ export async function runLiveSmoke({
     }),
   );
 
+  checks.push(
+    await liveCheck(`UAT-L08 หน้า Keycloak ใช้ login theme ${UAT_LOGIN_THEME} (#515)`, async () => {
+      // client ที่ไม่มีอยู่ = หน้า error ของ realm ซึ่ง render ด้วย login theme ของ realm — GET ไม่มี session/state
+      // Accept ของ get() ขึ้นต้นด้วย application/json ซึ่ง Keycloak ตอบ error เป็น JSON — ขอ HTML ตรง ๆ
+      const page = await request(
+        `${origin}/auth/realms/${realm}/protocol/openid-connect/auth?client_id=uat-readiness-theme-probe&response_type=code&scope=openid`,
+        { connectHost, headers: { accept: 'text/html' } },
+      );
+      if (!/class="dc-shell"/.test(page.body)) return [{ status: page.status, kind: 'NOT_THEMED' }];
+      const stylesheet = new RegExp(
+        `href="(/auth/resources/[^"]+/login/${UAT_LOGIN_THEME}/css/)dcontact\\.css"`,
+      ).exec(page.body)?.[1];
+      if (!stylesheet) return [{ kind: 'NO_THEME_STYLESHEET' }];
+      const failures = [];
+      // tokens.css สร้างตอน build image (ไม่อยู่ใน Git) — ขาด = หน้าไม่มีสี
+      for (const file of ['dcontact.css', 'tokens.css']) {
+        const response = await get(`${stylesheet}${file}`);
+        if (response.status !== 200 || !/--dc-/.test(response.body)) {
+          failures.push({ file, status: response.status });
+        }
+      }
+      return failures;
+    }),
+  );
+
   return { ...report('live', checks), baseUrl: origin };
 }
 
@@ -1246,6 +1309,7 @@ export function buildDeploymentRecord({
           api: release?.API_IMAGE,
           console: release?.CONSOLE_IMAGE,
           ops: release?.OPS_IMAGE,
+          keycloak: release?.KEYCLOAK_IMAGE,
         };
   const sourceSha = action === 'rollback' ? rollbackOf?.sourceSha : release?.SOURCE_SHA;
   if (!/^[0-9a-f]{40}$/.test(sourceSha ?? '')) throw new Error('sourceSha ไม่ครบ');
@@ -1303,6 +1367,7 @@ export function renderSummary(record) {
     ['api image', record.images.api],
     ['console image', record.images.console],
     ['ops image', record.images.ops],
+    ['keycloak image', record.images.keycloak ?? '—'],
     ['realm config digest', record.realmConfigDigest ?? '—'],
     ['fixture pack version', record.fixturePackVersion ?? '—'],
     [

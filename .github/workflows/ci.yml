@@ -94,6 +94,15 @@ jobs:
       - name: D1.11 i18n foundation tests + catalog check
         run: pnpm test:d1-i18n
 
+      # #515: login theme ของ Keycloak — ไม่มีค่าสีตรง, token มีอยู่จริง, selector ที่ UAT ใช้ยังอยู่
+      - name: Keycloak login theme tests
+        run: pnpm test:keycloak-theme
+
+      # E1.14 (#488): contract test ของ postMessage v1 (JSON Schema ↔ TypeScript types ↔ parser)
+      # + origin/source, rate limit, screen-pop ตามระดับ และคิว activity ฝั่ง iframe
+      - name: E1.14 dphone embed contract tests
+        run: pnpm test:e1-embed-contract
+
   a1-platform-control-fast-gate:
     # A1.1 (#406) / #393 Fast PR gate: idempotency, reservation race, tombstone, CAS, completion
     # invariant, append-only, isolation matrix, Platform API, tenant lifecycle gate และ Platform

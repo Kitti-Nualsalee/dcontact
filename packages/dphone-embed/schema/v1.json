@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dcontact.dev/schemas/dphone-embed/v1.json",
+  "title": "dphone embed postMessage v1",
+  "description": "ข้อความระหว่าง dphone ที่ถูกฝังกับ host — v1 เพิ่มได้อย่างเดียว ฝั่งรับต้องไม่สนใจ type/field ที่ไม่รู้จัก (E1.7 #463)",
+  "$defs": {
+    "requestId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+    },
+    "isoDateTime": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "queue": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "direction": {
+      "enum": ["INBOUND", "OUTBOUND"]
+    },
+    "screenPopSetting": {
+      "enum": ["off", "ids", "contact", "custom"]
+    },
+    "screenPopLevel": {
+      "enum": ["interaction", "ids", "contact", "custom"]
+    },
+    "dphone.ready": {
+      "type": "object",
+      "required": ["v", "type", "capabilities", "screenPopLevel"],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "dphone.ready"
+        },
+        "capabilities": {
+          "type": "object",
+          "required": ["screenPop", "clickToCall", "activity"],
+          "properties": {
+            "screenPop": {
+              "type": "boolean"
+            },
+            "clickToCall": {
+              "type": "boolean"
+            },
+            "activity": {
+              "type": "boolean"
+            }
+          }
+        },
+        "screenPopLevel": {
+          "$ref": "#/$defs/screenPopSetting"
+        }
+      }
+    },
+    "dphone.screenpop": {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "requestId",
+        "level",
+        "interactionId",
+        "policyVersion",
+        "decisionId"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "dphone.screenpop"
+        },
+        "requestId": {
+          "$ref": "#/$defs/requestId"
+        },
+        "level": {
+          "$ref": "#/$defs/screenPopLevel"
+        },
+        "interactionId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "reasonCode": {
+          "type": "string"
+        },
+        "policyVersion": {
+          "type": "string"
+        },
+        "decisionId": {
+          "type": "string"
+        },
+        "contactId": {
+          "type": "string"
+        },
+        "externalId": {
+          "type": "string"
+        },
+        "direction": {
+          "$ref": "#/$defs/direction"
+        },
+        "queue": {
+          "$ref": "#/$defs/queue"
+        },
+        "callState": {
+          "enum": ["RINGING", "ACTIVE", "HELD", "ENDED"]
+        },
+        "ani": {
+          "type": "string"
+        },
+        "dnis": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "dphone.call.result": {
+      "type": "object",
+      "required": ["v", "type", "requestId", "status", "blocked"],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "dphone.call.result"
+        },
+        "requestId": {
+          "$ref": "#/$defs/requestId"
+        },
+        "status": {
+          "enum": ["prefilled", "dialing", "blocked", "cancelled", "rate_limited", "unavailable"]
+        },
+        "blocked": {
+          "type": "boolean"
+        },
+        "reasonCode": {
+          "type": "string"
+        },
+        "retryAt": {
+          "$ref": "#/$defs/isoDateTime"
+        },
+        "decisionId": {
+          "type": "string"
+        }
+      }
+    },
+    "dphone.activity": {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "requestId",
+        "interactionId",
+        "direction",
+        "startedAt",
+        "endedAt",
+        "durationSeconds"
+      ],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "dphone.activity"
+        },
+        "requestId": {
+          "$ref": "#/$defs/requestId"
+        },
+        "interactionId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "contactId": {
+          "type": "string"
+        },
+        "direction": {
+          "$ref": "#/$defs/direction"
+        },
+        "startedAt": {
+          "$ref": "#/$defs/isoDateTime"
+        },
+        "endedAt": {
+          "$ref": "#/$defs/isoDateTime"
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "disposition": {
+          "type": "string"
+        },
+        "wrapUpCode": {
+          "type": "string"
+        },
+        "queue": {
+          "$ref": "#/$defs/queue"
+        }
+      }
+    },
+    "dphone.error": {
+      "type": "object",
+      "required": ["v", "type", "code", "supportedVersions"],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "dphone.error"
+        },
+        "requestId": {
+          "$ref": "#/$defs/requestId"
+        },
+        "code": {
+          "enum": ["unsupported_version", "invalid_message"]
+        },
+        "supportedVersions": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "dphone.call": {
+      "type": "object",
+      "required": ["v", "type", "requestId", "number"],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "dphone.call"
+        },
+        "requestId": {
+          "$ref": "#/$defs/requestId"
+        },
+        "number": {
+          "type": "string",
+          "pattern": "^\\+?[0-9][0-9 ()-]{1,30}$"
+        },
+        "contactId": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "dphone.activity.ack": {
+      "type": "object",
+      "required": ["v", "type", "interactionId"],
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "dphone.activity.ack"
+        },
+        "interactionId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "requestId": {
+          "$ref": "#/$defs/requestId"
+        }
+      }
+    },
+    "dphoneToHost": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/dphone.ready"
+        },
+        {
+          "$ref": "#/$defs/dphone.screenpop"
+        },
+        {
+          "$ref": "#/$defs/dphone.call.result"
+        },
+        {
+          "$ref": "#/$defs/dphone.activity"
+        },
+        {
+          "$ref": "#/$defs/dphone.error"
+        }
+      ]
+    },
+    "hostToDphone": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/dphone.call"
+        },
+        {
+          "$ref": "#/$defs/dphone.activity.ack"
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/dphoneToHost"
+    },
+    {
+      "$ref": "#/$defs/hostToDphone"
+    }
+  ]
+}
