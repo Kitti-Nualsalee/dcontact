@@ -1,0 +1,100 @@
+/* E1.11 (#485): Integrations › dphone embedding — token ของ D1 เท่านั้น */
+.dphone-embedding {
+  display: grid;
+  gap: var(--dc-space-5);
+  max-inline-size: 960px;
+  padding: var(--dc-space-6);
+  color: var(--dc-text-primary);
+}
+
+.dphone-embedding__eyebrow {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.dphone-embedding__header h1 {
+  margin: var(--dc-space-2) 0;
+}
+
+.dphone-embedding__callout {
+  margin: 0;
+  padding: var(--dc-space-4);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+}
+
+.dphone-embedding__callout--locked {
+  border-color: var(--dc-border-strong);
+  background: var(--dc-surface-sunken);
+}
+
+.dphone-embedding__callout--critical,
+.dphone-embedding__error {
+  border-color: var(--dc-critical-border);
+  background: var(--dc-critical-bg-subtle);
+  color: var(--dc-critical-fg-strong);
+}
+
+.dphone-embedding__callout h2 {
+  margin: 0 0 var(--dc-space-2);
+  font-size: var(--dc-text-md);
+}
+
+.dphone-embedding__table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--dc-text-sm);
+}
+
+.dphone-embedding__table caption {
+  padding-block-end: var(--dc-space-3);
+  text-align: start;
+  font-weight: var(--dc-weight-semibold);
+}
+
+.dphone-embedding__table th,
+.dphone-embedding__table td {
+  padding: var(--dc-space-3);
+  border-block-end: 1px solid var(--dc-border-subtle);
+  text-align: start;
+  vertical-align: middle;
+}
+
+.dphone-embedding__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-2);
+}
+
+.dphone-embedding__form,
+.dphone-embedding__snippet {
+  display: grid;
+  gap: var(--dc-space-4);
+  padding: var(--dc-space-5);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-raised);
+}
+
+.dphone-embedding__form h2,
+.dphone-embedding__snippet h2 {
+  margin: 0;
+  font-size: var(--dc-text-md);
+}
+
+.dphone-embedding__error {
+  margin: 0;
+  font-weight: var(--dc-weight-semibold);
+}
+
+.dphone-embedding__snippet pre {
+  margin: 0;
+  padding: var(--dc-space-4);
+  overflow-x: auto;
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-sunken);
+  font-size: var(--dc-text-xs);
+}

@@ -191,9 +191,16 @@ test('role และ plan ต่างกันได้รายการต่
     'supervisor-workspace',
     'journeys',
     'contact-governance',
+    'dphone-embedding',
   ]);
   assert.deepEqual(legacyAdmin.json.pins, {
-    appIds: ['agent-workspace', 'supervisor-workspace', 'journeys', 'contact-governance'],
+    appIds: [
+      'agent-workspace',
+      'supervisor-workspace',
+      'journeys',
+      'contact-governance',
+      'dphone-embedding',
+    ],
     source: 'SYSTEM',
     revision: 0,
   });

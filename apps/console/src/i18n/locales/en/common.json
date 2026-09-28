@@ -21,7 +21,8 @@
       "agentWorkspace": "Inbox",
       "supervisorWorkspace": "Team live",
       "journeys": "Journeys",
-      "contactGovernance": "Governance"
+      "contactGovernance": "Governance",
+      "dphoneEmbedding": "dphone embedding"
     }
   },
   "shell": {
@@ -41,6 +42,10 @@
       "title": "Workspace"
     },
     "pinSaveFailed": "Could not save your pins; they were restored",
-    "brand": "D-Contact"
+    "brand": "D-Contact",
+    "integrations": {
+      "sectionWork": "Settings",
+      "dphoneEmbedding": "Embed dphone"
+    }
   }
 }

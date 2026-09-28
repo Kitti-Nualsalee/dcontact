@@ -121,6 +121,9 @@ importers:
       '@d-contact/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@d-contact/shared':
+        specifier: workspace:^
+        version: link:../../packages/shared
       '@d-contact/ui':
         specifier: workspace:*
         version: link:../../packages/ui
