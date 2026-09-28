@@ -56,25 +56,37 @@ export interface AgentWorkspaceApiOptions {
   baseUrl: string;
   accessToken(): string | undefined;
   fetch?: typeof globalThis.fetch;
+  /**
+   * E1.14: fetch ที่แนบ token เอง (dphone ที่ถูกฝัง — `EmbeddedAuth.fetch` เข้าคิวเมื่อต้อง login ใหม่)
+   * มีค่านี้ = REST ไม่ใช้ `accessToken()` (WS ยังใช้)
+   */
+  authorizedFetch?: (url: string, init: RequestInit) => Promise<Response>;
 }
 
 export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): AgentWorkspaceApi {
   const request = options.fetch ?? globalThis.fetch;
-  async function get<T>(path: string): Promise<T> {
+  const send = (path: string, init: RequestInit): Promise<Response> => {
+    const url = `${options.baseUrl.replace(/\/$/, '')}${path}`;
+    if (options.authorizedFetch) return options.authorizedFetch(url, init);
     const accessToken = options.accessToken();
     if (!accessToken) throw new Error('authenticated access token is required');
-    const response = await request(`${options.baseUrl.replace(/\/$/, '')}${path}`, {
-      headers: { authorization: `Bearer ${accessToken}` },
+    return request(url, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        ...(init.headers as Record<string, string> | undefined),
+      },
     });
+  };
+  async function get<T>(path: string): Promise<T> {
+    const response = await send(path, {});
     if (!response.ok) throw new Error(`${path} failed with HTTP ${response.status}`);
     return (await response.json()) as T;
   }
   async function post(path: string, body: unknown): Promise<void> {
-    const accessToken = options.accessToken();
-    if (!accessToken) throw new Error('authenticated access token is required');
-    const response = await request(`${options.baseUrl.replace(/\/$/, '')}${path}`, {
+    const response = await send(path, {
       method: 'POST',
-      headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(`${path} failed with HTTP ${response.status}`);

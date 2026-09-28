@@ -41,6 +41,8 @@ export interface DphoneEmbedShellOptions {
   scriptUrl?: string;
   /** origin เพิ่มเติมของ connect-src (Keycloak, SIP WSS) — runtime ใน E1.13/E1.14 */
   connectSrc?: readonly string[];
+  /** E1.13: OIDC ของ dphone ที่ถูกฝัง — issuer ถูกเพิ่มใน connect-src ให้เอง (token/revoke endpoint) */
+  auth?: { issuer: string; clientId: string };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -128,6 +130,12 @@ export class EmbedOriginsController {
   }
 }
 
+function connectSrcOf(options: DphoneEmbedShellOptions): string[] {
+  const origins = [...(options.connectSrc ?? [])];
+  if (options.auth) origins.push(new URL(options.auth.issuer).origin);
+  return [...new Set(origins)];
+}
+
 /** `frame-ancestors` + CSP ของ shell — ไม่มี origin = `'none'` */
 export function embedShellHeaders(
   policy: EmbedShellPolicy | null,
@@ -140,7 +148,9 @@ export function embedShellHeaders(
     "default-src 'none'",
     `script-src 'nonce-${nonce}'${scriptOrigin ? ` ${scriptOrigin}` : ''}`,
     `style-src 'self'${scriptOrigin ? ` ${scriptOrigin}` : ''}`,
-    `connect-src 'self'${(options.connectSrc ?? []).map((origin) => ` ${origin}`).join('')}`,
+    `connect-src 'self'${connectSrcOf(options)
+      .map((origin) => ` ${origin}`)
+      .join('')}`,
     "img-src 'self' data:",
     "media-src 'self' blob:",
     "object-src 'none'",
@@ -166,6 +176,7 @@ export function embedShellHtml(
     v: 1,
     tenant: policy?.tenantAlias ?? null,
     allowedHostOrigins: policy?.origins ?? [],
+    auth: policy && options.auth ? options.auth : null,
     // E1.14: ระดับ screen-pop ต่อ origin สำหรับ `dphone.ready` (ข้อมูลจริงผ่าน server ทุกครั้ง)
     screenPopLevels: policy?.screenPopLevels ?? {},
   };
@@ -175,6 +186,11 @@ export function embedShellHtml(
     options.scriptUrl && policy?.origins.length
       ? `<script type="module" nonce="${nonce}" src="${options.scriptUrl}"></script>`
       : '';
+  // E1.14: build ของ embed ออก CSS คู่กับ JS (`embed/dphone-embed.css`); dev server ของ Vite inject เอง
+  const stylesheet =
+    options.scriptUrl?.endsWith('.js') && policy?.origins.length
+      ? `<link rel="stylesheet" href="${options.scriptUrl.replace(/\.js$/, '.css')}">`
+      : '';
   return `<!doctype html>
 <html lang="th">
 <head>
@@ -182,6 +198,7 @@ export function embedShellHtml(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dphone</title>
 <script type="application/json" id="dphone-embed-config" nonce="${nonce}">${json}</script>
+${stylesheet}
 ${script}
 </head>
 <body><div id="dphone-embed-root"></div></body>

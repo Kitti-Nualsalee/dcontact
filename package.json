@@ -67,6 +67,7 @@
     "test:a1-schema-readiness": "node --test scripts/a1-schema-readiness.test.mjs",
     "a1:auth:boundary": "pnpm --filter @d-contact/platform-api test:boundary",
     "a1:provisioning:boundary": "pnpm --filter @d-contact/platform-control test:boundary",
+    "e1:auth:boundary": "pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/dphone-embedded-auth.boundary.ts && pnpm --filter @d-contact/workspace test:boundary",
     "d1:shell-flag": "pnpm --filter @d-contact/platform-control build && pnpm --filter @d-contact/platform-control ui-flag",
     "a1:dev-catalog": "pnpm --filter @d-contact/platform-control dev-catalog",
     "a1:console:uat": "pnpm --filter @d-contact/platform-console test:uat",

@@ -255,7 +255,7 @@ jobs:
         run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts e2e/shell.spec.ts e2e/journey-authoring.spec.ts
 
       - name: Workspace shell e2e
-        run: pnpm --filter @d-contact/workspace exec playwright test e2e/shell.spec.ts e2e/dphone.spec.ts
+        run: pnpm --filter @d-contact/workspace exec playwright test e2e/shell.spec.ts e2e/dphone.spec.ts e2e/dphone-embed.spec.ts
 
       - name: Upload Playwright traces
         if: failure()

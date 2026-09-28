@@ -37,5 +37,35 @@
     "waiting": "Connecting to Workspace…",
     "noHost": "No working Workspace found. Open Agent Workspace in the working tab, then pop dphone out again.",
     "closed": "Workspace closed this dphone window"
+  },
+  "embedAuth": {
+    "label": "dphone sign-in",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "status": {
+      "signed-out": "Not signed in",
+      "signing-in": "Signing in in a new window",
+      "popup-blocked": "Your browser blocked the sign-in window. Select Sign in again or allow pop-ups for this site",
+      "signed-in": "Signed in",
+      "refreshing": "Renewing your sign-in",
+      "reauth": "Your sign-in expired. Your current call stays connected. Sign in again to continue"
+    },
+    "signOutBusy": "You can sign out when there is no call or wrap-up in progress"
+  },
+  "embedCall": {
+    "label": "Call from the embedding system",
+    "fromHost": "The embedding system filled in this number. Review it, then place the call yourself.",
+    "dial": "Call",
+    "cancel": "Cancel",
+    "close": "Close",
+    "checking": "Checking call permission with Contact Governance",
+    "result": {
+      "prefilled": "Number filled in",
+      "dialing": "Calling",
+      "blocked": "This call is not allowed by the customer contact rules",
+      "cancelled": "Cancelled",
+      "rate_limited": "Too many call requests. Try again later.",
+      "unavailable": "The call passed the permission check, but outbound calling from embedded dphone is not enabled yet"
+    }
   }
 }

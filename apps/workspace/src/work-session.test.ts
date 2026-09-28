@@ -9,6 +9,7 @@ import {
   type WorkSessionHolder,
   type WorkSessionLease,
   type WorkSessionStatus,
+  type WorkSessionSurface,
   type WorkSessionTimers,
 } from './work-session.js';
 
@@ -56,7 +57,7 @@ function fakeClock(start = Date.parse('2026-09-28T09:00:00.000Z')) {
 
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function leaseOf(id: string, at: number, surface: 'workspace' | 'dphone' = 'workspace') {
+function leaseOf(id: string, at: number, surface: WorkSessionSurface = 'workspace') {
   return {
     leaseId: id,
     surface,

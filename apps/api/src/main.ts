@@ -38,6 +38,8 @@ import {
   UnavailableTeamSegmentViewScope,
 } from './screen-pop.js';
 import { SCREEN_POP_SERVICE, ScreenPopController } from './screen-pop-api.js';
+import { ClickToCallService } from './click-to-call.js';
+import { CLICK_TO_CALL_SERVICE, ClickToCallController } from './click-to-call-api.js';
 import { WORK_SESSION_LEASES, WorkSessionController } from './work-session-api.js';
 import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
 import {
@@ -108,7 +110,7 @@ import {
   ContactGovernancePreferencesController,
 } from './contact-governance-api.js';
 import { Redis } from 'ioredis';
-import { Cg5QueryCache } from '@d-contact/contact-governance';
+import { Cg5QueryCache, ContactGovernanceService } from '@d-contact/contact-governance';
 import { TenantClientRateLimiter } from './tenant-client-rate-limiter.js';
 import { assertEntrypointProfile } from './runtime-profile.js';
 import {
@@ -228,6 +230,11 @@ const screenPop = new ScreenPopService(prisma, {
   screenPopLevel: (tenantId, origin) => embedOrigins.screenPopLevel(tenantId, origin),
   disclosure: new ContactGovernanceDisclosureCheck(prisma, new UnavailableTeamSegmentViewScope()),
 });
+// E1.14 (#488): click-to-call ขออนุญาตจาก Contact Governance เท่านั้น — โทรจริงรอ E1.18 #520
+const clickToCall = new ClickToCallService(prisma, {
+  hostOriginOfLease: (actor, leaseId) => workSessionLeases.embeddedHostOrigin(actor, leaseId),
+  governance: new ContactGovernanceService(prisma),
+});
 const socketAdapter = new WorkspaceSessionWebSocketAdapter(
   gateway,
   tenantScope,
@@ -275,6 +282,7 @@ class WorkspaceSessionController {
     WorkSessionController,
     EmbedOriginsController,
     ScreenPopController,
+    ClickToCallController,
     DphoneEmbedController,
     DphoneLauncherController,
     DphoneAuthCallbackController,
@@ -327,6 +335,7 @@ class WorkspaceSessionController {
     // E1.15 (#489): `<dphone-launcher>` แบบ versioned/alias บน dphone origin
     { provide: DPHONE_LAUNCHER_OPTIONS, useValue: { releasesDir: defaultLauncherReleasesDir() } },
     { provide: SCREEN_POP_SERVICE, useValue: screenPop },
+    { provide: CLICK_TO_CALL_SERVICE, useValue: clickToCall },
     {
       provide: DPHONE_EMBED_SHELL_OPTIONS,
       useValue: {
@@ -340,6 +349,10 @@ class WorkspaceSessionController {
           .split(',')
           .map((value) => value.trim())
           .filter(Boolean),
+        auth: {
+          issuer: required('KEYCLOAK_ISSUER'),
+          clientId: process.env.DPHONE_EMBEDDED_CLIENT_ID ?? 'dphone-embedded',
+        },
       },
     },
     { provide: AGENT_SIP_LEASE_PROVIDER, useValue: configuredAgentSipLeaseProvider() },
