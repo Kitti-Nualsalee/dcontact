@@ -45,7 +45,7 @@
 | [027](adr/027-contact-governance.md) | Contact Governance | ด่านกลางระดับ CIF สำหรับ restriction/consent/preference/attempt/exception; ทุก outbound ต้อง `authorizeAndReserve`; hard restriction ห้ามถูก Allowlist ข้าม; แยก inbound safety ออกจาก outbound DNC |
 | [028](adr/028-frontend-component-layer.md) | Frontend component layer | `packages/ui-react` แยกจาก token (`packages/ui`); **React Aria** รับผิดชอบ keyboard/focus/ARIA; **CSS Modules + `var(--dc-*)` เท่านั้น** บังคับด้วย stylelint; ข้อความของ component อยู่ใน namespace `ui` ของ react-i18next; preview page Vite (ไม่ใช้ Storybook) เป็นหน้าตรวจ axe/keyboard |
 | [029](adr/029-object-storage.md) | Object storage | **S3 API คือ contract** เรียกผ่าน `@aws-sdk/client-s3` เท่านั้น; config ชุดเดียว `S3_*` (`MINIO_*` เป็น fallback ช่วงเปลี่ยนผ่าน); dev/CI ใช้ **RustFS**, UAT/on-prem/cloud ใช้ **SeaweedFS**; bootstrap ไม่ผูกกับ CLI ของผู้ผลิต |
-| [030](adr/030-uat-three-vm-topology.md) | UAT แบบ 3 VM (Proposed) | nginx (VM1) ทำ TLS/edge → stack บน Docker (VM2) → PostgreSQL ภายนอก (VM3) ผ่าน `db-relay` เพื่อคง `internal: true`; ทำเป็น overlay `docker-compose.uat.3vm.yml` ไม่แก้ไฟล์ฐาน; DB/role แยกชื่อบน cluster ร่วม |
+| [030](adr/030-uat-three-vm-topology.md) | UAT แบบ 3 VM | nginx (VM1) ทำ TLS/edge → stack บน Docker (VM2) → PostgreSQL ภายนอก (VM3) ผ่าน `db-relay` เพื่อคง `internal: true`; ทำเป็น overlay `docker-compose.uat.3vm.yml` ไม่แก้ไฟล์ฐาน; DB/role แยกชื่อบน cluster ร่วม |
 
 ## เอกสารสถาปัตยกรรม
 

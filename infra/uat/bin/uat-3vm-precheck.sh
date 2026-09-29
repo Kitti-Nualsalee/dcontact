@@ -155,7 +155,7 @@ check_pg() {
   common_checks "$VM_PG"
   local out get
   out=$(rmt "$VM_PG" <<EOF
-echo "psql=\$(psql --version 2>/dev/null || echo missing)"
+echo "psql=\$(psql --version 2>/dev/null || echo missing) (client)"
 echo "active=\$(systemctl is-active postgresql 2>/dev/null || echo unknown)"
 echo "listen=\$(ss -ltn 2>/dev/null | awk '\$4 ~ /:${PG_PORT}\$/{print \$4}' | tr '\n' ' ')"
 echo "hba=\$(sudo -n grep -hEv '^[[:space:]]*(#|\$)' /etc/postgresql/*/main/pg_hba.conf 2>/dev/null | tr '\n' ';' | head -c 900)"
