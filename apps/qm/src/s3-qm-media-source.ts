@@ -1,30 +1,28 @@
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import type { S3Configuration } from '@d-contact/shared';
 import type { QmRecordingMediaSource } from './qm-transcription-worker.js';
 
-export interface MinioQmMediaSourceConfiguration {
-  endpoint: string;
+export interface S3QmMediaSourceConfiguration {
+  s3: S3Configuration;
   bucket?: string;
-  region?: string;
-  accessKeyId: string;
-  secretAccessKey: string;
 }
 
-export class MinioQmMediaSource implements QmRecordingMediaSource {
+export class S3QmMediaSource implements QmRecordingMediaSource {
   private readonly client: S3Client;
   private readonly bucket: string;
 
-  constructor(configuration: MinioQmMediaSourceConfiguration) {
-    const endpoint = new URL(configuration.endpoint);
+  constructor(configuration: S3QmMediaSourceConfiguration) {
+    const endpoint = new URL(configuration.s3.endpoint);
     if (endpoint.protocol !== 'https:') throw new Error('QM media endpoint must use HTTPS');
     this.bucket = configuration.bucket ?? 'recordings';
     this.client = new S3Client({
       endpoint: endpoint.toString(),
-      forcePathStyle: true,
-      region: configuration.region ?? 'us-east-1',
+      forcePathStyle: configuration.s3.forcePathStyle,
+      region: configuration.s3.region,
       credentials: {
-        accessKeyId: configuration.accessKeyId,
-        secretAccessKey: configuration.secretAccessKey,
+        accessKeyId: configuration.s3.accessKeyId,
+        secretAccessKey: configuration.s3.secretAccessKey,
       },
     });
   }

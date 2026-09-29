@@ -1,6 +1,6 @@
 /**
  * U1.5 (#433) acceptance — หลักฐานภาพหน้าจอ, negative scan และ evidence bundle ผ่าน HTTP จริง
- * (guard + RLS + trigger บน Postgres); mock ได้เฉพาะ token verifier และ object storage (in-memory แทน MinIO
+ * (guard + RLS + trigger บน Postgres); mock ได้เฉพาะ token verifier และ object storage (in-memory แทน object storage จริง
  * ของ UAT stack — adapter จริงครอบใน uat-evidence-storage.test.ts)
  */
 import 'reflect-metadata';

@@ -5,25 +5,27 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { readS3Bucket, readS3Configuration, type S3Configuration } from '@d-contact/shared';
 import type { Cg5ExportObjectStorage } from './cg5-export-worker.js';
 
 /** Dedicated compliance-export bucket; tenant prefix is verified before every storage action. */
-export class MinioGovernanceExportStorage implements Cg5ExportObjectStorage {
+export class S3GovernanceExportStorage implements Cg5ExportObjectStorage {
   private readonly client: S3Client;
   private readonly bucket: string;
 
   constructor(
-    bucket = process.env.GOVERNANCE_EXPORTS_BUCKET ?? 'governance-exports',
-    endpoint = process.env.MINIO_ENDPOINT ?? 'http://localhost:9000',
-    accessKeyId = process.env.MINIO_ACCESS_KEY ?? 'minioadmin',
-    secretAccessKey = process.env.MINIO_SECRET_KEY ?? 'minioadmin',
+    bucket = readS3Bucket('GOVERNANCE_EXPORTS'),
+    configuration: S3Configuration = readS3Configuration(),
   ) {
     this.bucket = bucket;
     this.client = new S3Client({
-      endpoint,
-      forcePathStyle: true,
-      region: process.env.MINIO_REGION ?? 'us-east-1',
-      credentials: { accessKeyId, secretAccessKey },
+      endpoint: configuration.endpoint,
+      forcePathStyle: configuration.forcePathStyle,
+      region: configuration.region,
+      credentials: {
+        accessKeyId: configuration.accessKeyId,
+        secretAccessKey: configuration.secretAccessKey,
+      },
     });
   }
 

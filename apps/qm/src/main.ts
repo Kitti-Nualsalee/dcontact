@@ -4,10 +4,12 @@ import {
   KAFKA_TOPICS,
   type QmInteractionEndedPayload,
   type QmTranscriptionJobMessage,
+  readS3Bucket,
+  readS3Configuration,
 } from '@d-contact/shared';
 import { HttpScoringProvider } from './http-scoring-provider.js';
 import { HttpTranscriptionProvider } from './http-transcription-provider.js';
-import { MinioQmMediaSource } from './minio-qm-media-source.js';
+import { S3QmMediaSource } from './s3-qm-media-source.js';
 import { createQmJobPublisher } from './qm-kafka.js';
 import { QmRetryDispatcher } from './qm-retry-dispatcher.js';
 import { QmTranscriptionWorker } from './qm-transcription-worker.js';
@@ -23,12 +25,11 @@ async function main(): Promise<void> {
   const database = new PrismaClient();
   const { publisher, producer } = await createQmJobPublisher();
   const workflow = new QmTranscriptionWorkflow(database, publisher);
-  const media = new MinioQmMediaSource({
-    endpoint: required('QM_MEDIA_ENDPOINT'),
-    bucket: process.env.RECORDINGS_BUCKET ?? 'recordings',
-    region: process.env.MINIO_REGION ?? 'us-east-1',
-    accessKeyId: required('MINIO_ACCESS_KEY'),
-    secretAccessKey: required('MINIO_SECRET_KEY'),
+  // QM ส่ง media ออกนอกเครือข่ายภายในได้จึงบังคับ HTTPS; QM_MEDIA_ENDPOINT ใช้ override endpoint เฉพาะ QM
+  const s3 = readS3Configuration({ requireExplicit: true, purpose: 'for QM media source' });
+  const media = new S3QmMediaSource({
+    s3: { ...s3, endpoint: process.env.QM_MEDIA_ENDPOINT?.trim() || s3.endpoint },
+    bucket: readS3Bucket('RECORDINGS'),
   });
   const transcription = new HttpTranscriptionProvider({
     id: required('QM_TRANSCRIPTION_PROVIDER_ID'),

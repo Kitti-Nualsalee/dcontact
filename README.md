@@ -96,7 +96,7 @@ Router/Workspace/API, recording-to-QM และ SIPp/FreeSWITCH E2E ทั้ง
 
 `pnpm infra:ready` คือ **entry condition ก่อนเริ่ม ticket ของ Inbound Voice Phase 1** และรันได้จาก
 dev environment ใหม่หลัง `pnpm install` โดยคำสั่งเดียวจะเริ่ม Docker, ทำ migration/RLS/seed,
-เชื่อม Keycloak identity และตรวจ PostgreSQL, Redis, MinIO (รวม bucket `recordings`), Redpanda,
+เชื่อม Keycloak identity และตรวจ PostgreSQL, Redis, object storage (bucket `recordings` และ `uat-evidence` ผ่าน S3 `HeadBucket`), Redpanda,
 FreeSWITCH และ Keycloak จาก interface ที่ service ใช้งานจริง
 
 workflow ยังรัน tenant-isolation evidence ผ่าน role `dcontact_app`, ตรวจว่า OIDC token ที่ถูกแก้ไข
@@ -113,7 +113,8 @@ workflow ยังรัน tenant-isolation evidence ผ่าน role `dcontac
 
 - ถ้า Docker service ใดยังไม่พร้อม ให้ดูสถานะของ Docker Compose แล้วรัน `pnpm infra:up` ซ้ำ
 - ถ้า PostgreSQL ไม่พร้อมหลังเคยหยุด Docker นาน ให้รอ health check ผ่านก่อนรัน migration
-- ถ้า MinIO หรือ bucket ไม่ผ่าน ให้ตรวจว่า port 9000 ไม่ถูกใช้งานโดยโปรแกรมอื่น และ volume ของ dev เขียนได้
+- ถ้า object storage หรือ bucket ไม่ผ่าน ให้ตรวจว่า port 9000 ไม่ถูกใช้งานโดยโปรแกรมอื่น, volume ของ dev เขียนได้
+  และ `S3_*` ใน env ตรงกับ dev compose (ADR-029; `MINIO_*` ยังอ่านได้แต่ deprecated)
 - ถ้า Redpanda topic หาย ให้ตรวจ health ของ Redpanda ก่อน ไม่สร้าง topic ชื่อเก่า `dc.fs.events`
 - ถ้า FreeSWITCH ไม่ผ่าน ให้ตรวจ Docker log ของ service และ port SIP/ESL ที่ประกาศไว้; ปัญหาเสียงบน Docker Desktop ให้ตรวจ UDP RTP ตามหมายเหตุด้านบน
 - ถ้า Keycloak ไม่ผ่าน ให้ตรวจ port 8081 แล้วรัน `pnpm infra:identity:link` ตามด้วย

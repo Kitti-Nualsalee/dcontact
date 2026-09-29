@@ -5,3 +5,4 @@ export * from './telephony';
 export * from './qm';
 export * from './platform-provisioning';
 export * from './embed-origin';
+export * from './object-storage';

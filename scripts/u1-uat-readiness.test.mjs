@@ -346,42 +346,39 @@ test('UAT-S09: env ของ api ที่ขัดกับ profile uat ไม�
 
 test('UAT-S15: api ใช้ MinIO user เฉพาะแบบ :? ต่อ network ภายใน และ bucket ไม่มี anonymous policy', () => {
   assert.equal(checkEvidenceStorage(compose, minioInit).status, 'PASS');
-  const apiKey = /MINIO_ACCESS_KEY: \$\{UAT_MINIO_API_ACCESS_KEY:\?[^}]*\}/;
+  const apiKey = /S3_ACCESS_KEY: \$\{UAT_MINIO_API_ACCESS_KEY:\?[^}]*\}/;
   // root credential ของ MinIO ห้ามใช้ใน api
   failed(
     checkEvidenceStorage(
-      compose.replace(apiKey, 'MINIO_ACCESS_KEY: ${UAT_MINIO_ROOT_USER:?required}'),
+      compose.replace(apiKey, 'S3_ACCESS_KEY: ${UAT_MINIO_ROOT_USER:?required}'),
       minioInit,
     ),
     'API_USES_ROOT_CREDENTIAL',
   );
   failed(
-    checkEvidenceStorage(compose.replace(apiKey, 'MINIO_ACCESS_KEY: evidence-api'), minioInit),
+    checkEvidenceStorage(compose.replace(apiKey, 'S3_ACCESS_KEY: evidence-api'), minioInit),
     'NOT_REQUIRED_FORM',
   );
   failed(
     checkEvidenceStorage(
       compose.replace(
-        /MINIO_SECRET_KEY: \$\{[^}]+\}/,
-        'MINIO_SECRET_KEY: ${UAT_MINIO_API_SECRET_KEY:-x}',
+        /S3_SECRET_KEY: \$\{[^}]+\}/,
+        'S3_SECRET_KEY: ${UAT_MINIO_API_SECRET_KEY:-x}',
       ),
       minioInit,
     ),
     'NOT_REQUIRED_FORM',
   );
   failed(
-    checkEvidenceStorage(compose.replace(/\n {6}MINIO_ENDPOINT: [^\n]+/, ''), minioInit),
-    'MINIO_ENDPOINT_NOT_INTERNAL',
+    checkEvidenceStorage(compose.replace(/\n {6}S3_ENDPOINT: [^\n]+/, ''), minioInit),
+    'S3_ENDPOINT_NOT_INTERNAL',
   );
   failed(
     checkEvidenceStorage(
-      compose.replace(
-        'MINIO_ENDPOINT: http://minio:9000',
-        'MINIO_ENDPOINT: https://s3.amazonaws.com',
-      ),
+      compose.replace('S3_ENDPOINT: http://minio:9000', 'S3_ENDPOINT: https://s3.amazonaws.com'),
       minioInit,
     ),
-    'MINIO_ENDPOINT_NOT_INTERNAL',
+    'S3_ENDPOINT_NOT_INTERNAL',
   );
   failed(
     checkEvidenceStorage(

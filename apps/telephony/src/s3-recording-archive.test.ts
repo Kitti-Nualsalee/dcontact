@@ -3,18 +3,22 @@ import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { MinioRecordingArchive } from './minio-recording-archive.js';
+import { S3RecordingArchive } from './s3-recording-archive.js';
 
 test('recording archive maps the FreeSWITCH path to a tenant-safe shared volume and uploads WAV', async (t) => {
   const hostDirectory = await mkdtemp(join(tmpdir(), 'dcontact-recording-'));
   t.after(() => rm(hostDirectory, { recursive: true, force: true }));
   const writes: unknown[] = [];
-  const archive = new MinioRecordingArchive(
+  const archive = new S3RecordingArchive(
     {
       bucket: 'recordings',
-      endpoint: 'http://localhost:9000',
-      accessKeyId: 'test',
-      secretAccessKey: 'test',
+      s3: {
+        endpoint: 'http://localhost:9000',
+        region: 'us-east-1',
+        accessKeyId: 'test',
+        secretAccessKey: 'test',
+        forcePathStyle: true,
+      },
       telephonyDirectory: '/var/lib/freeswitch/recordings',
       hostDirectory,
     },

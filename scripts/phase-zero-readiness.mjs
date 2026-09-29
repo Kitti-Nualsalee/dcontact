@@ -9,7 +9,7 @@ export const PHASE_ZERO_READINESS_CHECKS = [
   {
     id: 'environment',
     dependency: 'Docker Compose dev environment',
-    boundaries: ['PostgreSQL', 'Redis', 'MinIO', 'Redpanda', 'FreeSWITCH', 'Keycloak'],
+    boundaries: ['PostgreSQL', 'Redis', 'Object storage', 'Redpanda', 'FreeSWITCH', 'Keycloak'],
     command: [pnpm, 'infra:up'],
     remediation: 'ตรวจ Docker daemon/port/volume แล้วรัน pnpm infra:up',
   },
@@ -26,8 +26,7 @@ export const PHASE_ZERO_READINESS_CHECKS = [
     boundaries: [
       'PostgreSQL connection',
       'Redis state store',
-      'MinIO live endpoint',
-      'MinIO recordings bucket',
+      'Object storage buckets (S3 HeadBucket)',
       'Redpanda cluster/topics',
       'FreeSWITCH ESL/SIP/WebSocket/RTP',
     ],

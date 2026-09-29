@@ -9,7 +9,7 @@ import { Cg4ActivationWorker, Cg4ExpirySweeper } from './cg4-workers.js';
 import { Cg5ExportLifecycleService } from './cg5-export-lifecycle.js';
 import { Cg5ExportRunner } from './cg5-export-runner.js';
 import { PrismaCg5CanonicalExportReader } from './cg5-prisma-export-reader.js';
-import { MinioGovernanceExportStorage } from './minio-governance-export-storage.js';
+import { S3GovernanceExportStorage } from './s3-governance-export-storage.js';
 
 const database = new PrismaClient();
 const redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379');
@@ -34,7 +34,7 @@ const relay = new Cg4EventRelay(database, producer, {
 });
 const activation = new Cg4ActivationWorker(database, new Cg4PolicyLifecycleRepository(database));
 const expiry = new Cg4ExpirySweeper(database);
-const exportStorage = new MinioGovernanceExportStorage();
+const exportStorage = new S3GovernanceExportStorage();
 const exportRunner = new Cg5ExportRunner(
   database,
   exportStorage,

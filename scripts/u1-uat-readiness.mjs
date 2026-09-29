@@ -471,15 +471,15 @@ export function checkEvidenceStorage(compose, minioInitScript) {
   if (!api || !init) return check(id, [{ kind: 'MISSING_SERVICE' }]);
   const failures = [];
   const env = api.environment;
-  if (!/^https?:\/\/minio:9000$/.test(env.MINIO_ENDPOINT ?? '')) {
-    failures.push({ kind: 'MINIO_ENDPOINT_NOT_INTERNAL' });
+  if (!/^https?:\/\/minio:9000$/.test(env.S3_ENDPOINT ?? '')) {
+    failures.push({ kind: 'S3_ENDPOINT_NOT_INTERNAL' });
   }
-  for (const name of ['MINIO_ACCESS_KEY', 'MINIO_SECRET_KEY']) {
+  for (const name of ['S3_ACCESS_KEY', 'S3_SECRET_KEY']) {
     const reference = REQUIRED_REFERENCE.exec(env[name] ?? '');
     if (!reference) failures.push({ name, kind: 'NOT_REQUIRED_FORM' });
     else if (/ROOT/.test(reference[1])) failures.push({ name, kind: 'API_USES_ROOT_CREDENTIAL' });
   }
-  if (env.UAT_EVIDENCE_BUCKET !== 'uat-evidence') failures.push({ kind: 'EVIDENCE_BUCKET' });
+  if (env.S3_BUCKET_UAT_EVIDENCE !== 'uat-evidence') failures.push({ kind: 'EVIDENCE_BUCKET' });
   // api ต้องอยู่ network เดียวกับ minio (internal) จึงต่อ http://minio:9000 ได้
   for (const service of [api, services.minio, init]) {
     if (service && !/^\s+- internal$/m.test(service.raw.join('\n'))) {

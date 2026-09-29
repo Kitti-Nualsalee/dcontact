@@ -28,7 +28,7 @@ import {
  *
  * - stack รูปเดียวกับ UAT: API entry `uat-main` (`DCONTACT_API_PROFILE=uat`) ต่อ Postgres ด้วย app role
  *   (RLS), Keycloak จริง (realm จาก template ของ UAT: PKCE + password+TOTP + Organization), evidence store
- *   แบบ S3 (MinIO ของ dev compose ใน CI) และ Console ผ่าน Vite ที่ proxy `/api/v1` แบบ same-origin
+ *   แบบ S3 (object storage ของ dev compose ใน CI) และ Console ผ่าน Vite ที่ proxy `/api/v1` แบบ same-origin
  * - Playwright ไม่ mock API เลย (`apps/console/e2e-uat/`); ข้อมูลตั้งต้นสร้างแบบเดียวกับ operator
  *   (`UatFixtureProvisioner`) และบัญชี Keycloak สุ่มใหม่ทุกรอบ (ไม่มี credential ของ dev)
  * - หลักฐาน = screenshot + manifest เท่านั้น (ห้าม trace/HAR/video ตาม #379) และ manifest ต้องผ่าน
@@ -371,11 +371,12 @@ export function u1Environment(environment = process.env) {
     keycloakAdminPassword: environment.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? 'admin',
     realm,
     issuer: `${keycloakUrl}/realms/${realm}`,
-    minio: {
-      endpoint: environment.MINIO_ENDPOINT ?? 'http://localhost:9000',
-      accessKey: environment.MINIO_ACCESS_KEY ?? 'dcontact',
-      secretKey: environment.MINIO_SECRET_KEY ?? 'dcontact-secret',
-      bucket: environment.UAT_EVIDENCE_BUCKET ?? 'uat-evidence',
+    objectStorage: {
+      endpoint: environment.S3_ENDPOINT ?? environment.MINIO_ENDPOINT ?? 'http://localhost:9000',
+      accessKey: environment.S3_ACCESS_KEY ?? environment.MINIO_ACCESS_KEY ?? 'dcontact',
+      secretKey: environment.S3_SECRET_KEY ?? environment.MINIO_SECRET_KEY ?? 'dcontact-secret',
+      bucket:
+        environment.S3_BUCKET_UAT_EVIDENCE ?? environment.UAT_EVIDENCE_BUCKET ?? 'uat-evidence',
     },
     apiPort,
     apiUrl: `http://localhost:${apiPort}`,
@@ -535,10 +536,10 @@ export function u1ApiEnvironment(config, base = process.env) {
     J5_PUBLISH_UI_ENABLED: 'true',
     J5_TEMPLATE_CATALOG_ENABLED: 'false',
     J5_TEMPLATE_UPGRADE_ENABLED: 'false',
-    MINIO_ENDPOINT: config.minio.endpoint,
-    MINIO_ACCESS_KEY: config.minio.accessKey,
-    MINIO_SECRET_KEY: config.minio.secretKey,
-    UAT_EVIDENCE_BUCKET: config.minio.bucket,
+    S3_ENDPOINT: config.objectStorage.endpoint,
+    S3_ACCESS_KEY: config.objectStorage.accessKey,
+    S3_SECRET_KEY: config.objectStorage.secretKey,
+    S3_BUCKET_UAT_EVIDENCE: config.objectStorage.bucket,
   };
   const conflicting = Object.keys(environment).filter((name) =>
     API_FORBIDDEN_ENV.some((pattern) => pattern.test(name)),
