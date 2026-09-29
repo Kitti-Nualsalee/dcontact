@@ -86,7 +86,7 @@ export function base64Url(bytes: Uint8Array): string {
 }
 
 export class EmbeddedAuth {
-  private accessToken: string | null = null;
+  private accessToken_: string | null = null;
   private accessExpiresAt = 0;
   private refreshTimer: unknown = null;
   private refreshAttempt = 0;
@@ -103,6 +103,15 @@ export class EmbeddedAuth {
 
   get status(): EmbeddedAuthStatus {
     return this.current;
+  }
+
+  /**
+   * access token ที่ยังไม่หมดอายุ — ใช้ภายใน iframe เท่านั้น (WS `auth:connect`); ห้ามส่งออกไป host
+   */
+  accessToken(): string | undefined {
+    return this.accessToken_ && this.deps.now() < this.accessExpiresAt
+      ? this.accessToken_
+      : undefined;
   }
 
   /** จำนวนคำสั่ง API ที่รอ token อยู่ */
@@ -217,7 +226,7 @@ export class EmbeddedAuth {
    * (ไม่ทิ้ง ไม่ส่งซ้ำ) แล้วส่งเมื่อได้ token ใหม่
    */
   fetch(input: string, init: RequestInit = {}): Promise<Response> {
-    if (this.accessToken && this.deps.now() < this.accessExpiresAt && !this.refreshing) {
+    if (this.accessToken_ && this.deps.now() < this.accessExpiresAt && !this.refreshing) {
       return this.send(input, init);
     }
     return new Promise((resolve, reject) => {
@@ -228,7 +237,7 @@ export class EmbeddedAuth {
 
   private send(input: string, init: RequestInit): Promise<Response> {
     const headers = new Headers(init.headers);
-    headers.set('authorization', `Bearer ${this.accessToken}`);
+    headers.set('authorization', `Bearer ${this.accessToken_}`);
     return this.deps.fetch(input, { ...init, headers });
   }
 
@@ -279,7 +288,7 @@ export class EmbeddedAuth {
   }
 
   private accept(tokens: TokenResponse) {
-    this.accessToken = tokens.access_token;
+    this.accessToken_ = tokens.access_token;
     this.accessExpiresAt = this.deps.now() + tokens.expires_in * 1_000;
     // refresh ใช้ครั้งเดียว: เก็บตัวใหม่ทับทุกครั้ง
     if (tokens.refresh_token) this.deps.storage.setItem(this.storageKey, tokens.refresh_token);
@@ -298,7 +307,7 @@ export class EmbeddedAuth {
   }
 
   private clearTokens() {
-    this.accessToken = null;
+    this.accessToken_ = null;
     this.accessExpiresAt = 0;
     this.refreshAttempt = 0;
     if (this.refreshTimer !== null) this.deps.clearTimeout(this.refreshTimer);

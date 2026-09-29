@@ -186,6 +186,11 @@ export function embedShellHtml(
     options.scriptUrl && policy?.origins.length
       ? `<script type="module" nonce="${nonce}" src="${options.scriptUrl}"></script>`
       : '';
+  // E1.14: build ของ embed ออก CSS คู่กับ JS (`embed/dphone-embed.css`); dev server ของ Vite inject เอง
+  const stylesheet =
+    options.scriptUrl?.endsWith('.js') && policy?.origins.length
+      ? `<link rel="stylesheet" href="${options.scriptUrl.replace(/\.js$/, '.css')}">`
+      : '';
   return `<!doctype html>
 <html lang="th">
 <head>
@@ -193,6 +198,7 @@ export function embedShellHtml(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dphone</title>
 <script type="application/json" id="dphone-embed-config" nonce="${nonce}">${json}</script>
+${stylesheet}
 ${script}
 </head>
 <body><div id="dphone-embed-root"></div></body>

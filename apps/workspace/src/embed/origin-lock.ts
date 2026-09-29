@@ -14,6 +14,8 @@ export interface EmbedConfig {
   allowedHostOrigins: string[];
   /** E1.13: OIDC ของ dphone ที่ถูกฝัง (client `dphone-embedded`) — ไม่มี = ยัง login ไม่ได้ */
   auth: { issuer: string; clientId: string } | null;
+  /** E1.14: ระดับ screen-pop ต่อ origin (ค่าที่ไม่รู้จัก/ไม่มี = off) — server ตรวจซ้ำตอนส่งจริง */
+  screenPopLevels?: Record<string, 'off' | 'ids' | 'contact' | 'custom'>;
 }
 
 export function parseEmbedConfig(text: string | null | undefined): EmbedConfig | null {
@@ -30,6 +32,7 @@ export function parseEmbedConfig(text: string | null | undefined): EmbedConfig |
         typeof value.auth?.issuer === 'string' && typeof value.auth.clientId === 'string'
           ? { issuer: value.auth.issuer, clientId: value.auth.clientId }
           : null,
+      screenPopLevels: screenPopLevelsOf(value.screenPopLevels),
     };
   } catch {
     return null;
@@ -78,4 +81,13 @@ export function lockHostOrigin(
       return revoked;
     },
   };
+}
+
+function screenPopLevelsOf(value: unknown): EmbedConfig['screenPopLevels'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const levels: NonNullable<EmbedConfig['screenPopLevels']> = {};
+  for (const [origin, level] of Object.entries(value as Record<string, unknown>)) {
+    if (level === 'ids' || level === 'contact' || level === 'custom') levels[origin] = level;
+  }
+  return levels;
 }

@@ -7,7 +7,12 @@
  */
 import { resolveLocale } from '@d-contact/i18n';
 import { appI18n } from '../i18n/index.js';
+import { ActivityOutbox } from './activity-outbox.js';
 import { mountAuthBar } from './auth-bar.js';
+import { EmbedRuntime } from './embed-runtime.js';
+import { mountEmbeddedApp } from './embedded-app.js';
+import { HostChannel } from './host-channel.js';
+import { createDeterministicDphone } from '../workspace-app.js';
 import { browserAuthDeps, EmbeddedAuth } from './embedded-auth.js';
 import {
   lockHostOrigin,
@@ -22,6 +27,7 @@ declare global {
       lock: HostOriginLock | null;
       tenant: string | null;
       auth: EmbeddedAuth | null;
+      runtime?: EmbedRuntime;
     };
   }
 }
@@ -65,4 +71,57 @@ if (auth) {
   const root = document.getElementById('dphone-embed-root');
   if (root) mountAuthBar(root, auth, appI18n);
   void auth.start();
+
+  // E1.14: postMessage v1 กับ host ที่ล็อกไว้ + screen-pop / activity / click-to-call
+  const hostLock = lock!;
+  const screenPopLevel = config?.screenPopLevels?.[hostLock.origin] ?? 'off';
+  let runtime: EmbedRuntime | undefined;
+  let outbox: ActivityOutbox | undefined;
+  const channel = new HostChannel({
+    lock: hostLock,
+    host: window.parent,
+    now: () => Date.now(),
+    onCall: (request) => runtime?.prefillFromHost(request),
+    onActivityAck: (interactionId) => outbox?.ack(interactionId),
+  });
+  outbox = new ActivityOutbox({
+    storage: window.sessionStorage,
+    storageKey: `dphone.embed.activity.${config!.tenant}`,
+    send: (message) => channel.send(message),
+    setTimeout: (callback, ms) => window.setTimeout(callback, ms),
+    clearTimeout: (handle) => window.clearTimeout(handle as number),
+  });
+  runtime = new EmbedRuntime({
+    apiBaseUrl: window.location.origin,
+    hostOrigin: hostLock.origin,
+    screenPopLevel,
+    authorizedFetch: (url, init) => auth.fetch(url, init),
+    send: (message) => channel.send(message),
+    enqueueActivity: (message) => outbox!.enqueue(message),
+    requestId: () => crypto.randomUUID(),
+    now: () => new Date(),
+  });
+  window.__dphoneEmbed.runtime = runtime;
+  window.addEventListener('message', (event) => channel.handle(event));
+  channel.ready(
+    { screenPop: screenPopLevel !== 'off', clickToCall: true, activity: true },
+    screenPopLevel,
+  );
+  // reload host แล้ว activity ที่ยังไม่ ack ถูกส่งซ้ำ (idempotent ด้วย interactionId)
+  outbox.resendAll();
+
+  const app = document.createElement('div');
+  app.className = 'dphone-embed-app';
+  root?.append(app);
+  mountEmbeddedApp(app, {
+    auth,
+    runtime,
+    lock: hostLock,
+    apiBaseUrl: window.location.origin,
+    tenant: config!.tenant!,
+    // e2e: SIP จำลองแบบเดียวกับ spec ของ Workspace (D1.15)
+    ...(import.meta.env.MODE === 'e2e'
+      ? { createDphone: (_audio, callbacks) => createDeterministicDphone(callbacks) }
+      : {}),
+  });
 }
