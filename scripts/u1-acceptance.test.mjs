@@ -148,8 +148,8 @@ test('U1.7 API ของ gate บูตด้วย profile uat จาก env �
   assert.equal(environment.DCONTACT_API_PROFILE, 'uat');
   assert.equal(environment.PATH, '/bin');
   assert.equal(environment.DATABASE_URL, config.appDatabaseUrl);
-  assert.equal(environment.MINIO_ENDPOINT, 'http://localhost:9000');
-  assert.equal(environment.UAT_EVIDENCE_BUCKET, 'uat-evidence');
+  assert.equal(environment.S3_ENDPOINT, 'http://localhost:9000');
+  assert.equal(environment.S3_BUCKET_UAT_EVIDENCE, 'uat-evidence');
   assert.ok(Object.keys(environment).every((name) => !/^(LINE_|KAFKA_BROKERS$|SIP_)/.test(name)));
 });
 

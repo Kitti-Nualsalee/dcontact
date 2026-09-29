@@ -32,7 +32,7 @@ function fakeClient(respond: (command: object) => unknown = () => ({})) {
   return { client, sent };
 }
 
-/** ไม่มี policy บน bucket = MinIO/S3 ตอบ NoSuchBucketPolicy */
+/** ไม่มี policy บน bucket = S3 ตอบ NoSuchBucketPolicy */
 const privateBucket = (command: object) =>
   command instanceof GetBucketPolicyCommand ? named('NoSuchBucketPolicy') : {};
 
@@ -120,11 +120,11 @@ test('U1.5 put/get/delete ใช้ key ใต้ uat-evidence/ เท่าน�
   await assert.rejects(storage.deleteObject('../x'), /outside the uat-evidence prefix/);
 });
 
-test('UAT ไม่มี default credential: endpoint/access/secret ของ MinIO ต้องระบุเสมอ', () => {
+test('UAT ไม่มี default credential: endpoint/access/secret ของ object storage ต้องระบุเสมอ', () => {
   const complete = {
-    MINIO_ENDPOINT: 'http://minio:9000',
-    MINIO_ACCESS_KEY: 'uat-evidence-writer',
-    MINIO_SECRET_KEY: 'x'.repeat(24),
+    S3_ENDPOINT: 'http://object-storage:9000',
+    S3_ACCESS_KEY: 'uat-evidence-writer',
+    S3_SECRET_KEY: 'x'.repeat(24),
   };
   assert.equal(UatEvidenceObjectStorage.fromEnvironment(complete).bucket, 'uat-evidence');
   for (const name of Object.keys(complete) as (keyof typeof complete)[]) {
@@ -133,4 +133,14 @@ test('UAT ไม่มี default credential: endpoint/access/secret ของ M
       new RegExp(`${name} is required`),
     );
   }
+});
+
+test('UAT ยังอ่าน MINIO_* และ UAT_EVIDENCE_BUCKET เดิมได้ช่วงเปลี่ยนผ่าน (ADR-029)', () => {
+  const storage = UatEvidenceObjectStorage.fromEnvironment({
+    MINIO_ENDPOINT: 'http://minio:9000',
+    MINIO_ACCESS_KEY: 'uat-evidence-writer',
+    MINIO_SECRET_KEY: 'x'.repeat(24),
+    UAT_EVIDENCE_BUCKET: 'legacy-evidence',
+  });
+  assert.equal(storage.bucket, 'legacy-evidence');
 });

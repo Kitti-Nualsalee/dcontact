@@ -89,6 +89,10 @@ jobs:
       - name: A1.2 platform auth boundary tests
         run: pnpm --filter @d-contact/platform-api test
 
+      # ADR-029 (#532): config S3_* ชุดเดียว, fallback MINIO_*, fail closed และ readiness ผ่าน HeadBucket
+      - name: Object storage config tests
+        run: pnpm test:object-storage
+
       # D1.11 (#450): formatter/locale/catalog check — CI ล้มเมื่อ key ขาด th หรือ en
       # D1.14 (#453): ไม่มีข้อความ hardcode ในหน้า Journeys/shell และ CSS ใช้ token เท่านั้น
       - name: D1.11 i18n foundation tests + catalog check
@@ -740,11 +744,11 @@ jobs:
         run: pnpm cxa:u1:acceptance
         env:
           U1_EXPECTED_COMMIT_SHA: ${{ github.sha }}
-          # evidence store ของ API = MinIO ของ dev compose (minio-init สร้าง bucket uat-evidence)
-          MINIO_ENDPOINT: http://localhost:9000
-          MINIO_ACCESS_KEY: dcontact
-          MINIO_SECRET_KEY: dcontact-secret
-          UAT_EVIDENCE_BUCKET: uat-evidence
+          # evidence store ของ API = object storage ของ dev compose (minio-init สร้าง bucket uat-evidence)
+          S3_ENDPOINT: http://localhost:9000
+          S3_ACCESS_KEY: dcontact
+          S3_SECRET_KEY: dcontact-secret
+          S3_BUCKET_UAT_EVIDENCE: uat-evidence
 
       - name: Upload U1 evidence manifest + screenshots
         if: always()

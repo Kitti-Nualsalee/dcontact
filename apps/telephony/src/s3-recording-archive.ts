@@ -1,14 +1,12 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
+import type { S3Configuration } from '@d-contact/shared';
 import type { RecordingArchive } from './recording-lifecycle.js';
 
-export interface MinioRecordingArchiveConfiguration {
+export interface S3RecordingArchiveConfiguration {
   bucket: string;
-  endpoint: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  region?: string;
+  s3: S3Configuration;
   telephonyDirectory: string;
   hostDirectory: string;
 }
@@ -17,23 +15,23 @@ export interface RecordingObjectWriter {
   send(command: PutObjectCommand): Promise<unknown>;
 }
 
-/** ย้าย recording จาก shared FreeSWITCH volume เข้า tenant prefix ของ MinIO/S3. */
-export class MinioRecordingArchive implements RecordingArchive {
+/** ย้าย recording จาก shared FreeSWITCH volume เข้า tenant prefix ของ object storage (S3). */
+export class S3RecordingArchive implements RecordingArchive {
   private readonly writer: RecordingObjectWriter;
 
   constructor(
-    private readonly configuration: MinioRecordingArchiveConfiguration,
+    private readonly configuration: S3RecordingArchiveConfiguration,
     writer?: RecordingObjectWriter,
   ) {
     this.writer =
       writer ??
       new S3Client({
-        endpoint: configuration.endpoint,
-        forcePathStyle: true,
-        region: configuration.region ?? 'us-east-1',
+        endpoint: configuration.s3.endpoint,
+        forcePathStyle: configuration.s3.forcePathStyle,
+        region: configuration.s3.region,
         credentials: {
-          accessKeyId: configuration.accessKeyId,
-          secretAccessKey: configuration.secretAccessKey,
+          accessKeyId: configuration.s3.accessKeyId,
+          secretAccessKey: configuration.s3.secretAccessKey,
         },
       });
   }

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { compose } from './dev-infra-compose.mjs';
+import { DEV_BUCKETS, missingBuckets } from './object-storage-readiness.mjs';
 const runningServices = ['postgres', 'redis', 'minio', 'redpanda', 'freeswitch', 'keycloak'];
 // derive จาก KAFKA_TOPICS ของ packages/shared (source of truth เดียว) แทน list ที่เขียนซ้ำไว้ที่นี่ —
 // list เดิม drift จน topic ใหม่หายจาก env ที่ bootstrap แล้วโดยไม่มีใครรู้ และ consumer test ค้างจน timeout
@@ -60,10 +61,15 @@ check('Redis พร้อมเป็น state store', () => {
   const reply = compose('exec', '-T', 'redis', 'redis-cli', 'ping');
   assert(reply === 'PONG', `expected PONG, got ${reply || '(empty)'}`);
 });
-check('MinIO live endpoint ตอบสนอง', () =>
-  compose('exec', '-T', 'minio', 'sh', '-c', 'curl -fsS http://localhost:9000/minio/health/live'),
-);
-check('bucket recordings พร้อมใช้งาน', () => compose('run', '--rm', '--no-deps', 'minio-init'));
+// ADR-029: ตรวจผ่าน S3 API (HeadBucket) จึงไม่ขึ้นกับผู้ผลิต storage
+try {
+  const missing = await missingBuckets();
+  assert(missing.length === 0, `bucket ที่ใช้ไม่ได้: ${missing.join(', ')}. รัน pnpm infra:up`);
+  console.log(`✓ Object storage มี bucket ${DEV_BUCKETS.join(', ')}`);
+} catch (error) {
+  console.error(`✗ Object storage มี bucket ${DEV_BUCKETS.join(', ')}: ${error.message}`);
+  process.exitCode = 1;
+}
 check('Redpanda cluster มีสุขภาพดี', () =>
   compose('exec', '-T', 'redpanda', 'rpk', 'cluster', 'health'),
 );

@@ -51,9 +51,13 @@ export const PHASE_ONE_READINESS_CHECKS = [
   {
     id: 'recording-contract',
     dependency: 'Telephony recording contract',
-    boundaries: ['announcement/start', 'tenant-safe MinIO archive', 'signed playback source'],
+    boundaries: [
+      'announcement/start',
+      'tenant-safe object storage archive',
+      'signed playback source',
+    ],
     command: [pnpm, '--filter', '@d-contact/telephony', 'test'],
-    remediation: 'ตรวจ FreeSWITCH recording command และ MinIO archive adapter',
+    remediation: 'ตรวจ FreeSWITCH recording command และ S3 archive adapter',
   },
   {
     id: 'recording-finalization',

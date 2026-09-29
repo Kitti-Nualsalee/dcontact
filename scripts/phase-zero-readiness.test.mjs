@@ -13,7 +13,7 @@ test('readiness plan ครอบคลุม Phase 0 dependencies และไ�
   for (const dependency of [
     'PostgreSQL',
     'Redis',
-    'MinIO',
+    'Object storage',
     'Redpanda',
     'FreeSWITCH',
     'Keycloak',
@@ -42,12 +42,12 @@ test('failed check ระบุ dependency, boundary และ remediation แ�
   const diagnostic = executeReadinessCheck(check, () => ({
     status: 1,
     stdout: '',
-    stderr: '✗ MinIO recordings bucket: password=do-not-print',
+    stderr: '✗ Object storage มี bucket recordings: password=do-not-print',
   }));
 
   assert.equal(diagnostic.status, 'FAIL');
   assert.equal(diagnostic.dependency, 'Phase 0 infrastructure');
-  assert.ok(diagnostic.boundaries.includes('MinIO recordings bucket'));
+  assert.ok(diagnostic.boundaries.includes('Object storage buckets (S3 HeadBucket)'));
   assert.match(diagnostic.remediation, /dependency/);
   assert.doesNotMatch(diagnostic.detail, /do-not-print/);
 });

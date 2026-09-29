@@ -126,7 +126,7 @@ test('UAT API mount เฉพาะ Journey authoring ที่ยังต้�
 });
 
 /**
- * Phase Contract #374 ให้ภาพหน้าจอหลักฐานอยู่ใน MinIO ของ UAT stack (U1.5 #433) — composition root จึงแตะ
+ * Phase Contract #374 ให้ภาพหน้าจอหลักฐานอยู่ใน object storage ของ UAT stack (U1.5 #433) — composition root จึงแตะ
  * object storage ได้ทางเดียวคือ module หลักฐาน UAT โดยเฉพาะ ส่วน recording/Kafka/LINE/Redis ยังห้ามเหมือนเดิม
  */
 test('composition root ของ UAT ไม่พึ่ง Kafka/LINE/Redis/recording/telephony, object storage มีแค่ module หลักฐาน UAT และไม่มี route ของ unilateral publish', () => {

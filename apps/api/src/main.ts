@@ -70,8 +70,8 @@ import {
   TELEPHONY_COMMAND_PUBLISHER,
 } from './recording-api.js';
 import { KafkaTelephonyCommandPublisher } from './recording-command-publisher.js';
-import { MinioRecordingStorage } from './minio-recording-storage.js';
-import { MinioGovernanceExportStorage } from './minio-governance-export-storage.js';
+import { S3RecordingStorage } from './s3-recording-storage.js';
+import { S3GovernanceExportStorage } from './s3-governance-export-storage.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
 import { KafkaQmJobPublisher } from './qm-job-publisher.js';
 import {
@@ -163,8 +163,8 @@ const gateway = new WorkspaceSessionGateway(
 );
 const supervisorLiveEvents = new SupervisorLiveEventStream();
 const recordingCommandPublisher = new KafkaTelephonyCommandPublisher();
-const recordingStorage = new MinioRecordingStorage();
-const governanceExportStorage = new MinioGovernanceExportStorage();
+const recordingStorage = new S3RecordingStorage();
+const governanceExportStorage = new S3GovernanceExportStorage();
 const qmJobPublisher = new KafkaQmJobPublisher();
 const journeyEventInbox = new EventInboxService(prisma);
 /**

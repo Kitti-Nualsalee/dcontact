@@ -3,12 +3,17 @@ import net from 'node:net';
 import { resolve } from 'node:path';
 import { PrismaClient } from '@d-contact/db';
 import { createConsumer, createInMemoryIdempotencyStore, createProducer } from '@d-contact/kafka';
-import { KAFKA_TOPICS, type TelephonyCommand } from '@d-contact/shared';
+import {
+  KAFKA_TOPICS,
+  readS3Bucket,
+  readS3Configuration,
+  type TelephonyCommand,
+} from '@d-contact/shared';
 import { parseEslEvent } from './esl-event.js';
 import { FreeSwitchCommandAdapter } from './freeswitch-command-adapter.js';
 import { normalizeFreeSwitchEvent } from './freeswitch-normalizer.js';
 import { TelephonyRecordingLifecycle } from './recording-lifecycle.js';
-import { MinioRecordingArchive } from './minio-recording-archive.js';
+import { S3RecordingArchive } from './s3-recording-archive.js';
 
 const host = process.env.FREESWITCH_ESL_HOST ?? '127.0.0.1';
 // Docker Compose exposes FreeSWITCH ESL on host port 8022; container-internal ESL remains 8021.
@@ -41,13 +46,9 @@ async function main() {
   const recordingLifecycle = new TelephonyRecordingLifecycle(
     database,
     commandAdapter,
-    new MinioRecordingArchive({
-      bucket: process.env.S3_BUCKET_RECORDINGS ?? process.env.RECORDINGS_BUCKET ?? 'recordings',
-      endpoint: process.env.S3_ENDPOINT ?? process.env.MINIO_ENDPOINT ?? 'http://localhost:9000',
-      accessKeyId: process.env.S3_ACCESS_KEY ?? process.env.MINIO_ACCESS_KEY ?? 'dcontact',
-      secretAccessKey:
-        process.env.S3_SECRET_KEY ?? process.env.MINIO_SECRET_KEY ?? 'dcontact-secret',
-      region: process.env.S3_REGION ?? process.env.MINIO_REGION ?? 'us-east-1',
+    new S3RecordingArchive({
+      bucket: readS3Bucket('RECORDINGS'),
+      s3: readS3Configuration(),
       telephonyDirectory: recordingsDirectory,
       hostDirectory:
         process.env.FREESWITCH_RECORDINGS_HOST_DIR ??

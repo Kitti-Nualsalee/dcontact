@@ -1,7 +1,7 @@
 /**
  * Owner: API bootstrap — object storage ของหลักฐาน UAT (U1.5 #433)
  *
- * Authority: Phase Contract #374 (ภาพหน้าจอเก็บใน MinIO ส่วนตัวภายใน UAT stack, retention 90 วัน),
+ * Authority: Phase Contract #374 (ภาพหน้าจอเก็บใน object storage ส่วนตัวภายใน UAT stack, retention 90 วัน),
  * evidence/defect #379
  *
  * - bucket ส่วนตัว: adapter นี้ไม่ตั้ง bucket policy/ACL และไม่มีทางสร้าง presigned/public URL
@@ -19,6 +19,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { readS3Bucket, readS3Configuration } from '@d-contact/shared';
 import {
   UAT_EVIDENCE_KEY_PREFIX,
   type UatEvidenceContentType,
@@ -46,25 +47,25 @@ export class UatEvidenceObjectStorage implements UatEvidenceStorage {
   ) {}
 
   /**
-   * client จาก env ของ object storage ใน UAT stack (`MINIO_*`) + `UAT_EVIDENCE_BUCKET`
+   * client จาก env ของ object storage (`S3_*`, ADR-029) + `S3_BUCKET_UAT_EVIDENCE`
    * endpoint/credential ต้องระบุเสมอ ไม่มีค่า default (UAT ห้ามใช้ default credential — #374)
    */
   static fromEnvironment(environment: NodeJS.ProcessEnv = process.env): UatEvidenceObjectStorage {
-    const required = (name: 'MINIO_ENDPOINT' | 'MINIO_ACCESS_KEY' | 'MINIO_SECRET_KEY') => {
-      const value = environment[name]?.trim();
-      if (!value) throw new Error(`${name} is required for UAT evidence storage`);
-      return value;
-    };
+    const configuration = readS3Configuration({
+      environment,
+      requireExplicit: true,
+      purpose: 'for UAT evidence storage',
+    });
     const client = new S3Client({
-      endpoint: required('MINIO_ENDPOINT'),
-      forcePathStyle: true,
-      region: environment.MINIO_REGION ?? 'us-east-1',
+      endpoint: configuration.endpoint,
+      forcePathStyle: configuration.forcePathStyle,
+      region: configuration.region,
       credentials: {
-        accessKeyId: required('MINIO_ACCESS_KEY'),
-        secretAccessKey: required('MINIO_SECRET_KEY'),
+        accessKeyId: configuration.accessKeyId,
+        secretAccessKey: configuration.secretAccessKey,
       },
     });
-    return new UatEvidenceObjectStorage(client, environment.UAT_EVIDENCE_BUCKET ?? 'uat-evidence');
+    return new UatEvidenceObjectStorage(client, readS3Bucket('UAT_EVIDENCE', environment));
   }
 
   /** เรียกตอนบูต: bucket + lifecycle 90 วัน (idempotent) และยืนยันว่าไม่มี bucket policy */

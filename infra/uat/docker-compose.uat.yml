@@ -74,11 +74,12 @@ services:
       J5_PUBLISH_UI_ENABLED: 'true'
       J5_TEMPLATE_CATALOG_ENABLED: 'false'
       J5_TEMPLATE_UPGRADE_ENABLED: 'false'
-      # U1.5 (#433): evidence storage — user เฉพาะของ API (policy uat-evidence-api) ไม่ใช่ root ของ MinIO
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: ${UAT_MINIO_API_ACCESS_KEY:?UAT_MINIO_API_ACCESS_KEY is required}
-      MINIO_SECRET_KEY: ${UAT_MINIO_API_SECRET_KEY:?UAT_MINIO_API_SECRET_KEY is required}
-      UAT_EVIDENCE_BUCKET: uat-evidence
+      # U1.5 (#433): evidence storage — user เฉพาะของ API (policy uat-evidence-api) ไม่ใช่ root ของ storage
+      # env ของแอปเป็น S3_* ตาม ADR-029; ชื่อ secret บน VM (UAT_MINIO_*) เปลี่ยนตอนย้ายไป SeaweedFS
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${UAT_MINIO_API_ACCESS_KEY:?UAT_MINIO_API_ACCESS_KEY is required}
+      S3_SECRET_KEY: ${UAT_MINIO_API_SECRET_KEY:?UAT_MINIO_API_SECRET_KEY is required}
+      S3_BUCKET_UAT_EVIDENCE: uat-evidence
     read_only: true
     networks:
       - internal
