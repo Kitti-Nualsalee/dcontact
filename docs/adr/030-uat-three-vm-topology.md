@@ -1,10 +1,10 @@
 # ADR 030: UAT แบบ 3 VM — nginx (edge), Docker (stack), PostgreSQL (ภายนอก stack)
 
-- **สถานะ:** Proposed (ร่าง — รอผู้ใช้ยืนยันก่อนเริ่ม implement)
+- **สถานะ:** Accepted (ผู้ใช้ในฐาน owner ของ #374 ยืนยัน 2026-09-29; ยังต้องปิด gate ก่อนเริ่ม implement)
 - **วันที่:** 2026-09-29
 - **ที่มา:** ผู้ใช้เตรียม VM สำหรับ UAT ไว้ 3 เครื่อง ต่างจากสมมติฐาน "VM เดียว" ใน Phase Contract #374 และ
   `docs/u1-uat-deployment.md` §1 (ticket U1.6 #434) — ADR นี้ **ปรับ (amend)** สมมติฐานนั้น ไม่ใช่การยกเลิก
-  ต้องให้ owner ของ #374 ยืนยันว่ายอมรับการปรับ
+  owner ของ #374 ยืนยันการปรับนี้แล้ว (2026-09-29)
 
 ## บริบท
 
@@ -145,7 +145,7 @@ api (profile `uat`), Keycloak, Postgres, MinIO บน network `internal: true` �
 
 | # | รายการ | สถานะ (2026-09-29) |
 | - | ------ | ------------------ |
-| 1 | owner ของ #374 ยืนยันการปรับจาก VM เดียวเป็น 3 VM | รอ |
+| 1 | owner ของ #374 ยืนยันการปรับจาก VM เดียวเป็น 3 VM | ผ่าน (2026-09-29 — ผู้ใช้ยืนยันในบทสนทนา; ยังไม่มี comment บน #374 เป็นหลักฐาน) |
 | 2 | VM2 พร้อมใช้: `osdadmin` ใน `docker` group, `userland-proxy: false`, `/opt/dcontact-uat`, RAM 8 GB | ผ่าน (precheck 16:35) — **ค้าง**: ผู้มี sudo บน VM1/VM3 |
 | 3 | DNS ของ `dcontact-uat.osd.co.th` | ตัดสินแล้ว: ช่วงทดสอบใช้ map host ในเครื่องผู้ทดสอบ ไม่ขอ DNS |
 | 4 | cert ของ host บน VM1 | รอ — ทีมของผู้ใช้จะติดตั้งภายหลัง |
