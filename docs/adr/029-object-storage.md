@@ -1,6 +1,6 @@
 # ADR 029: Object storage — S3 API เป็น contract, dev ใช้ RustFS, on-prem และ cloud ใช้ SeaweedFS
 
-- **สถานะ:** Proposed
+- **สถานะ:** Accepted
 - **วันที่:** 2026-09-29
 - **ที่มา:** ผู้ใช้ตัดสิน 2026-09-29 (ต่อจาก [#467](https://github.com/Kitti-Nualsalee/dcontact/issues/467)
   ที่แก้ชั่วคราวด้วย `pgsty/minio` fork)
