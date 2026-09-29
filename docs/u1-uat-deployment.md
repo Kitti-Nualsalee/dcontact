@@ -7,6 +7,8 @@ Authority: Phase Contract #374, การตัดสินใจเรื่อ
 (`/api/v1`) และ Keycloak ของ UAT, บัญชี maker/checker ที่ระบุตัวตนพร้อม TOTP, gateway/allowlist
 ภายใน และการ promote/rollback ด้วย image digest ที่เปลี่ยนไม่ได้
 
+> ซ้อมขั้นทั้งหมดบนเครื่องตัวเองก่อน (ไม่ต้องมี VM): `bash infra/uat/bin/uat-local.sh up` — ดู `docs/u1-uat-local.md`
+
 > ค่าจริงของ host/domain/DNS/TLS/gateway เป็น **provisioning gate** (input ตอน deploy) — ไม่อยู่ใน Git
 > ห้ามเปิด UAT ให้ผู้ทดสอบจนกว่าตาราง provisioning gate ด้านล่างจะกรอกและ verify ครบ
 

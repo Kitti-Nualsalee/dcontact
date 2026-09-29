@@ -49,6 +49,15 @@ release_value() {
   sed -n "s/^${name}=//p" "$dir/release.env" | tail -n 1
 }
 
+# GNU (VM/runner) กับ BSD (macOS — ซ้อมบนเครื่องด้วย uat-local.sh) ใช้ option ของ stat/sha256 ต่างกัน
+file_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1
+}
+
 check_release_env() {
   local dir="$1" name value
   for name in API_IMAGE CONSOLE_IMAGE OPS_IMAGE KEYCLOAK_IMAGE; do
@@ -63,7 +72,7 @@ cmd="${1:-}"
 shift
 
 [[ -f "$UAT_ROOT/uat.env" ]] || fail 'UAT_ENV_MISSING'
-if [[ "$(stat -c '%a' "$UAT_ROOT/uat.env")" != '600' ]]; then fail 'UAT_ENV_PERMISSIONS'; fi
+if [[ "$(file_mode "$UAT_ROOT/uat.env")" != '600' ]]; then fail 'UAT_ENV_PERMISSIONS'; fi
 mkdir -p "$UAT_ROOT/deployments" "$UAT_ROOT/backups"
 
 case "$cmd" in
@@ -91,7 +100,7 @@ case "$cmd" in
       mv "$file.partial" "$file"
       [[ -s "$file" ]] || fail 'BACKUP_EMPTY'
     done
-    digest="$(sha256sum "$UAT_ROOT/backups/pg-dcontact-${stamp}.dump" | cut -d' ' -f1)"
+    digest="$(sha256_of "$UAT_ROOT/backups/pg-dcontact-${stamp}.dump")"
     echo "{\"type\":\"u1.uat.deploy\",\"step\":\"backup\",\"status\":\"PASS\",\"file\":\"backups/pg-dcontact-${stamp}.dump\",\"sha256\":\"${digest}\"}"
     ;;
 
@@ -117,7 +126,7 @@ case "$cmd" in
     dir="$(release_dir "${1:?sha}")"
     file="${2:?provision input file}"
     [[ -f "$file" ]] || fail 'PROVISION_INPUT_MISSING'
-    if [[ "$(stat -c '%a' "$file")" != '600' ]]; then fail 'PROVISION_INPUT_PERMISSIONS'; fi
+    if [[ "$(file_mode "$file")" != '600' ]]; then fail 'PROVISION_INPUT_PERMISSIONS'; fi
     case "${3:-}" in
       '') mode=() ;;
       --check) mode=(--check) ;;
@@ -146,9 +155,10 @@ case "$cmd" in
       export UAT_SMOKE_ACCESS_TOKEN
     fi
     # รันจากบน VM ผ่าน proxy ตัวจริง (127.0.0.1:443 + SNI ของ UAT_HOST) เพราะ allowlist ปิดทางอื่น
-    docker run --rm --network host \
+    # Docker Desktop (uat-local.sh บน macOS) ไม่มี host network แบบ Linux: ใช้ bridge + host.docker.internal แทน
+    docker run --rm --network "${UAT_SMOKE_DOCKER_NETWORK:-host}" \
       -e "UAT_BASE_URL=https://${uat_host}" \
-      -e UAT_CONNECT_HOST=127.0.0.1 \
+      -e "UAT_CONNECT_HOST=${UAT_SMOKE_CONNECT_HOST:-127.0.0.1}" \
       -e UAT_SMOKE_ACCESS_TOKEN \
       -e NODE_EXTRA_CA_CERTS \
       ${NODE_EXTRA_CA_CERTS:+-v "$NODE_EXTRA_CA_CERTS:$NODE_EXTRA_CA_CERTS:ro"} \
