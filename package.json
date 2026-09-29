@@ -8,6 +8,7 @@
     "dev": "turbo run dev",
     "typecheck": "turbo run typecheck",
     "lint": "git ls-files -z | xargs -0 prettier --check --ignore-unknown",
+    "test:unit": "pnpm --recursive --workspace-concurrency=2 --if-present --filter '!@d-contact/router' --filter '!@d-contact/phase-one-acceptance' --filter '!@d-contact/iam' --filter '!@d-contact/journey-composition' test",
     "format": "prettier --write .",
     "db:generate": "pnpm --filter @d-contact/db generate",
     "db:migrate": "pnpm --filter @d-contact/db migrate:deploy",

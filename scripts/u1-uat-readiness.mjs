@@ -751,8 +751,8 @@ export function checkWorkflow(workflow) {
   return check('UAT-S11 workflow uat-preview', failures);
 }
 
-/** trigger ที่ PR/เหตุการณ์ภายนอกสั่งได้โดยไม่มี secret — ห้าม pull_request_target/workflow_run */
-const SMOKE_WORKFLOW_TRIGGERS = Object.freeze(['pull_request', 'push', 'workflow_dispatch']);
+/** image smoke ใช้ service จริง จึงรับเฉพาะการสั่งด้วยมือ */
+const SMOKE_WORKFLOW_TRIGGERS = Object.freeze(['workflow_dispatch']);
 const SMOKE_DEPLOY_STEPS = Object.freeze([
   'prepare',
   'backup',
@@ -781,7 +781,7 @@ export function checkSmokeWorkflow(workflow) {
   for (const name of triggerNames) {
     if (!SMOKE_WORKFLOW_TRIGGERS.includes(name)) failures.push({ kind: 'TRIGGER', name });
   }
-  if (!triggerNames.includes('pull_request')) failures.push({ kind: 'NOT_ON_PULL_REQUEST' });
+  if (!triggerNames.includes('workflow_dispatch')) failures.push({ kind: 'NOT_MANUAL_ONLY' });
   if (!/^permissions:\s*\n {2}contents:\s*read\s*$/m.test(code)) {
     failures.push({ kind: 'PERMISSIONS_NOT_READ_ONLY' });
   }

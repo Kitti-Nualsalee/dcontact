@@ -47,12 +47,12 @@ maintainer ภายนอกรายเดียว และ license ขอ�
 
    | environment | storage | เหตุผล |
    |---|---|---|
-   | dev และ CI | **RustFS** (Apache 2.0) | เบา, บูตเร็ว, มี console ช่วย debug และรองรับ lifecycle/IAM ครบตามที่ UAT stack ต้องใช้ |
+   | dev และ acceptance ที่สั่งด้วยมือ | **RustFS** (Apache 2.0) | เบา, บูตเร็ว, มี console ช่วย debug และรองรับ lifecycle/IAM ครบตามที่ UAT stack ต้องใช้ |
    | UAT, on-prem และ cloud (self-host) | **SeaweedFS** (Apache 2.0) | โปรเจกต์อยู่มานานและรับไฟล์เล็กจำนวนมากอย่างไฟล์เสียงได้ดี รองรับ presigned URL, lifecycle expiration, bucket policy, IAM API, Object Lock และ SSE |
 
    ตรึง image ด้วย release tag และ digest ห้ามใช้ `latest`
 
-4. **bootstrap ต้องไม่ผูกกับ CLI ของผู้ผลิต** การสร้าง bucket, private policy และ lifecycle ใน dev/CI
+4. **bootstrap ต้องไม่ผูกกับ CLI ของผู้ผลิต** การสร้าง bucket, private policy และ lifecycle ใน dev/acceptance
    ใช้ client ที่เป็น S3 มาตรฐาน (AWS CLI หรือสคริปต์ที่ใช้ `@aws-sdk/client-s3`) ส่วนการสร้างผู้ใช้และ
    policy ของแอป (least privilege) เป็นงานของ environment นั้น ๆ ทำผ่าน IAM API ของ storage
    ที่ environment นั้นใช้

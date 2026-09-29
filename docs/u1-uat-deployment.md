@@ -531,8 +531,8 @@ render → `--check` WOULD_CREATE → apply CREATED → รันซ้ำ UNCHA
 maker อนุมัติเองไม่ได้ (403 `CAPABILITY_REQUIRED`), reviewer อนุมัติ, maker publish) — ยังไม่ได้ verify: การ render + provision
 บน VM จริง และการเดิน step catalog ครบใน Console จริงโดยผู้ทดสอบ (เป็นงานของ UAT run)
 
-U1.10 (#507): workflow `uat-image-smoke` (`.github/workflows/uat-image-smoke.yml`) รันเมื่อ PR/`main` แตะ artifact
-ของ UAT (หรือสั่งด้วยมือ) — build image `api`/`ops`/`console` จาก commit นั้น, push เข้า registry ชั่วคราวบน runner
+U1.10 (#507): workflow `uat-image-smoke` (`.github/workflows/uat-image-smoke.yml`) สั่งด้วยมือเมื่อจะตรวจ artifact
+ของ UAT — build image `api`/`ops`/`console` จาก commit นั้น, push เข้า registry ชั่วคราวบน runner
 (`localhost:5000`, ไม่ใช่ GHCR) เพื่ออ้างด้วย digest, รัน `uat-deploy.sh` ตัวจริงแบบ local (`UAT_ROOT` = โฟลเดอร์ชั่วคราว)
 ครบ `prepare` → `backup` → `migrate` → `keycloak` → `deploy` → `smoke` แล้ว `provision` (`--check`, apply, apply ซ้ำ =
 UNCHANGED) ด้วย input สังเคราะห์จาก `scripts/u1-uat-ci-fixture.mjs`, สร้างบัญชี maker/reviewer ด้วย `--users`,

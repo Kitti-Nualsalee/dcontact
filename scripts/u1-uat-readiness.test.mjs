@@ -607,7 +607,7 @@ test('UAT-S11: workflow ที่ไม่ผูก environment/concurrency, ech
   );
 });
 
-test('UAT-S18: workflow uat-image-smoke ที่ใช้ secret/environment/push ภายนอก หรือไม่ teardown ไม่ผ่าน', () => {
+test('UAT-S18: workflow uat-image-smoke ที่รันอัตโนมัติ ใช้ secret/environment/push ภายนอก หรือไม่ teardown ไม่ผ่าน', () => {
   assert.equal(checkSmokeWorkflow(smokeWorkflow).status, 'PASS');
   failed(checkSmokeWorkflow(null), 'MISSING');
   const step = '      - uses: docker/setup-buildx-action@v3';
@@ -631,10 +631,21 @@ test('UAT-S18: workflow uat-image-smoke ที่ใช้ secret/environment/pu
   );
   failed(
     checkSmokeWorkflow(
-      smokeWorkflow.replace('on:\n  pull_request:', 'on:\n  pull_request_target:'),
+      smokeWorkflow.replace('on:\n  workflow_dispatch:', 'on:\n  pull_request_target:'),
     ),
     'TRIGGER',
   );
+  for (const trigger of ['pull_request', 'push']) {
+    failed(
+      checkSmokeWorkflow(
+        smokeWorkflow.replace(
+          'on:\n  workflow_dispatch:',
+          `on:\n  ${trigger}:\n  workflow_dispatch:`,
+        ),
+      ),
+      'TRIGGER',
+    );
+  }
   failed(
     checkSmokeWorkflow(
       smokeWorkflow.replace(

@@ -11,39 +11,8 @@ name: uat-image-smoke
 #   `uat-preview`; ไม่แตะ VM ของ UAT
 # - ล้ม = เก็บ `docker compose logs` ที่กรองค่า secret แล้วเป็น artifact อายุสั้น; ทุกกรณีจบด้วย `down -v`
 #
-# แยกจาก ci.yml เพราะรันเฉพาะเมื่อ artifact ของ UAT เปลี่ยน (paths) และใช้ Docker/เวลาเป็นหลักสิบนาที
+# แยกจาก ci.yml และสั่งรันด้วยมือเมื่อจะตรวจ artifact ของ UAT เพราะใช้ Docker และ service จริง
 on:
-  pull_request:
-    paths:
-      - 'infra/uat/**'
-      - 'apps/api/Dockerfile'
-      - 'apps/console/Dockerfile'
-      - '.dockerignore'
-      - 'scripts/u1-uat-*'
-      - 'scripts/uat-object-storage.mjs'
-      - 'infra/keycloak/realm-dcontact.uat.json'
-      - 'infra/keycloak/Dockerfile'
-      - 'infra/keycloak/themes/**'
-      - 'scripts/keycloak-theme-build.mjs'
-      - 'packages/ui/src/tokens.css'
-      - 'apps/api/src/uat-*'
-      - '.github/workflows/uat-image-smoke.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'infra/uat/**'
-      - 'apps/api/Dockerfile'
-      - 'apps/console/Dockerfile'
-      - '.dockerignore'
-      - 'scripts/u1-uat-*'
-      - 'scripts/uat-object-storage.mjs'
-      - 'infra/keycloak/realm-dcontact.uat.json'
-      - 'infra/keycloak/Dockerfile'
-      - 'infra/keycloak/themes/**'
-      - 'scripts/keycloak-theme-build.mjs'
-      - 'packages/ui/src/tokens.css'
-      - 'apps/api/src/uat-*'
-      - '.github/workflows/uat-image-smoke.yml'
   workflow_dispatch:
 
 permissions:

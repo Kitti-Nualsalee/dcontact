@@ -4,17 +4,31 @@ on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    # 01:00 ICT — J2 acceptance กินเวลา ~3 ชม. จึงรันรอบดึกแทนทุก push
-    - cron: '0 18 * * *'
   workflow_dispatch:
     inputs:
       acceptance:
-        # สั่งเฉพาะชุดที่ต้องการได้ ไม่ต้องลาก convergence ที่ใช้เวลานานมาทุก main push
-        description: 'acceptance ที่จะรัน (all | s1 | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused | u1)'
+        # push/PR รันชุด unit; ชุดที่ใช้ service จริงสั่งด้วยมือ
+        description: 'ชุดทดสอบ (unit | all | object-storage | a1-fast | browser | s1 | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused | u1)'
         type: choice
-        options: [all, s1, cg4, cg5, j2, j5, j5-focused, s2-pr01, s2, s2-focused, u1]
-        default: all
+        options:
+          [
+            unit,
+            all,
+            object-storage,
+            a1-fast,
+            browser,
+            s1,
+            cg4,
+            cg5,
+            j2,
+            j5,
+            j5-focused,
+            s2-pr01,
+            s2,
+            s2-focused,
+            u1,
+          ]
+        default: unit
 
 jobs:
   build:
@@ -43,6 +57,9 @@ jobs:
 
       - name: Prettier check
         run: pnpm lint
+
+      - name: Unit tests (no external services)
+        run: pnpm test:unit
 
       - name: CG5 external OpenAPI breaking-change guard
         run: node scripts/cg5-openapi-breaking-check.mjs && node --test scripts/cg5-openapi-breaking-check.test.mjs
@@ -111,7 +128,7 @@ jobs:
     # ADR-029: S3 contract ที่แอปใช้ — ชุดเดียวกันบนทุก backend ที่ตรึง digest (บูตจาก image ไม่มี cache)
     #   rustfs    (#533) dev/CI จาก dev compose
     #   seaweedfs (#540) UAT/on-prem ด้วย entrypoint ตัวเดียวกับ UAT (s3.json + policy ของ API) + least privilege
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'object-storage')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -192,10 +209,10 @@ jobs:
         run: docker logs object-storage 2>&1 | tail -n 100
 
   a1-platform-control-fast-gate:
-    # A1.1 (#406) / #393 Fast PR gate: idempotency, reservation race, tombstone, CAS, completion
+    # A1.1 (#406) / #393 gate แบบสั่งเอง: idempotency, reservation race, tombstone, CAS, completion
     # invariant, append-only, isolation matrix, Platform API, tenant lifecycle gate และ Platform
     # Console (Playwright/axe กับ API mock) — ไม่ต้องใช้ Keycloak จริง
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'a1-fast')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -278,7 +295,7 @@ jobs:
 
   d1-ui-react:
     # D1.10 (#449): stylelint (token เท่านั้น) + axe 0 serious/critical TH/EN + keyboard ของทุก component
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'browser')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -318,7 +335,7 @@ jobs:
     # D1.13 (#452): flag ui.shell.v2 — shell/legacy, axe ของ shell, ไม่ remount WorkspaceApp
     # D1.14 (#453): หน้า Journeys บน i18n/component/token — J5 flow เดิม + TH/EN + shell เปิด/ปิด
     # D1.15 (#454): dphone 3 ขนาด/แยกหน้าต่าง/สลับภาษา — SIP session เดิมและไม่ reload (transport จำลอง)
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'browser')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -427,8 +444,8 @@ jobs:
 
   cxa-j2-acceptance:
     # J2-REG01 รัน C1 และ S1 acceptance ซ้อนอยู่ข้างใน รวมแล้วราว 3 ชม. ถ้าผูกกับทุก push
-    # job จะทับกันเองเพราะ main ขยับถี่กว่านั้น จึงรันรอบดึกวันละครั้ง (และสั่งเองได้)
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'cg4' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2-pr01' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused' && inputs.acceptance != 'u1')
+    # จึงสั่งด้วยมือเมื่อจะตรวจ acceptance
+    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'j2')
     runs-on: ubuntu-latest
     timeout-minutes: 330
     concurrency:
@@ -498,10 +515,10 @@ jobs:
         run: pnpm infra:down
 
   cxa-cg4-acceptance:
-    # CG4.11 (#194): รันรอบดึกหรือสั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg4`)
+    # CG4.11 (#194): สั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg4`)
     # CG4-REG01 rerun S1 ครั้งเดียว (E0/C1/Inbound Voice อยู่ใน S1-REG-01) และแต่ละ suite รันครั้งเดียว
     # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
-    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.acceptance != 'j2' && inputs.acceptance != 'cg5' && inputs.acceptance != 'j5' && inputs.acceptance != 'j5-focused' && inputs.acceptance != 's2-pr01' && inputs.acceptance != 's2' && inputs.acceptance != 's2-focused' && inputs.acceptance != 'u1')) && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'cg4') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     concurrency:
@@ -571,10 +588,10 @@ jobs:
         run: pnpm infra:down
 
   cxa-cg5-acceptance:
-    # CG5.11 (#295): รันรอบดึกหรือสั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg5`)
+    # CG5.11 (#295): สั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg5`)
     # ไม่บังคับ marker ของ CG3/CG4/J2/J3 บน SHA เดียวกัน แต่ CG5-REG01/REG02 รัน conformance แบบเจาะจงแทน (#273 §2)
     # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
-    if: (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'cg5'))) && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'cg5') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     concurrency:

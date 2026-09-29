@@ -201,7 +201,7 @@ auth request ใส่ `scope: 'openid organization:acme'` → Keycloak จำ�
 3. งานฝั่ง service plane (router consume Kafka, provisioning) ตั้ง ALS จาก payload เอง;
    call-site ที่ใช้ `$transaction` ตรง ๆ ให้ใช้ helper `forTenant(tenantId)`
 4. Production ต่อ DB ด้วย role **`dcontact_app`** (NOBYPASSRLS — มีใน `rls.sql` แล้ว);
-   dev ยังต่อเป็น owner (RLS bypass) แต่ CI เพิ่ม integration test ต่อเป็น `dcontact_app`
+   dev ยังต่อเป็น owner (RLS bypass) แต่ acceptance ที่สั่งด้วยมือใช้ integration test ต่อเป็น `dcontact_app`
    ยืนยันว่า cross-tenant read ได้ 0 แถว
 5. Service-layer `where: { tenantId }` **คงไว้** — RLS เป็น defense-in-depth ชั้นที่สอง ไม่ใช่ตัวแทน
 
