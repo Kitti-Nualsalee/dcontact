@@ -1,9 +1,17 @@
-# U1.6 — UAT deployment (VM + Docker Compose), Keycloak UAT realm และ workflow `uat-preview`
+# U1.6 — UAT deployment 3 VM, Keycloak UAT realm และ workflow `uat-preview`
 
 Authority: Phase Contract #374, การตัดสินใจเรื่อง environment #373, ticket U1.6 #434
 
-เอกสารนี้เป็น runbook ของ operator สำหรับ UAT first slice: stack UAT แยกถาวรบน VM เดียว
-(Docker Compose แบบ production-shaped), Console/API แบบ tenant-scoped บน HTTPS origin เดียว
+เอกสารนี้เป็น runbook ของ operator สำหรับ UAT first slice: production topology ใช้ 3 VM ตาม ADR-030:
+VM1 จบ TLS ด้วย nginx, VM2 รัน Docker Compose และ VM3 ให้ PostgreSQL 15.4 โดยเฉพาะ database ของ UAT
+รายละเอียดคำสั่งที่ต้องใช้กับ VM จริงอยู่ที่ [operator README](../infra/uat/operator/README.md) และเป็น authority
+เหนือคำสั่งแบบ VM เดียวในเอกสารรุ่นแรกนี้
+
+โหมด VM เดียวด้านล่างคงไว้เพื่อการซ้อม local (`uat-local.sh`) เท่านั้น ส่วน deployment จริงใช้ overlay
+`infra/uat/docker-compose.uat.3vm.yml`: VM2 ไม่มี `postgres` container, `db-relay` เป็น service เดียวที่ต่อ VM3:5432,
+proxy ฟัง `192.168.102.112:8080` และรับ HTTP จาก VM1 เท่านั้น
+
+Console/API แบบ tenant-scoped บน HTTPS origin เดียว
 (`/api/v1`) และ Keycloak ของ UAT, บัญชี maker/checker ที่ระบุตัวตนพร้อม TOTP, gateway/allowlist
 ภายใน และการ promote/rollback ด้วย image digest ที่เปลี่ยนไม่ได้
 

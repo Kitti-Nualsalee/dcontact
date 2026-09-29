@@ -23,9 +23,13 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const UAT_FILES = Object.freeze({
   compose: 'infra/uat/docker-compose.uat.yml',
   caddyfile: 'infra/uat/Caddyfile',
+  compose3vm: 'infra/uat/docker-compose.uat.3vm.yml',
+  caddyfile3vm: 'infra/uat/Caddyfile.3vm',
+  dbRelayConfig: 'infra/uat/haproxy-db-relay.cfg',
   envExample: 'infra/uat/uat.env.example',
   deployScript: 'infra/uat/bin/uat-deploy.sh',
   dbRolesScript: 'infra/uat/bin/db-roles.sh',
+  dbRoles3vmScript: 'infra/uat/bin/db-roles-3vm.sh',
   objectStorageEntrypoint: 'infra/uat/bin/object-storage-entrypoint.sh',
   sshSetupScript: 'infra/uat/bin/ci-ssh-setup.sh',
   apiDockerfile: 'apps/api/Dockerfile',
@@ -704,6 +708,61 @@ export function checkProxy(caddyfile) {
   return check('UAT-S10 proxy ปิด admin ของ Keycloak และบังคับ allowlist', failures);
 }
 
+/** ADR-030: VM1 จบ TLS, VM2 เป็น stack, VM3 เป็น PostgreSQL ผ่าน relay เพียงตัวเดียว */
+export function checkThreeVmTopology({
+  overlay,
+  caddyfile,
+  relayConfig,
+  dbRolesScript,
+  deployScript,
+}) {
+  const id = 'UAT-S20 UAT 3 VM: TLS ที่ VM1, relay เดียวไป PostgreSQL VM3';
+  const failures = [];
+  if (overlay === null || caddyfile === null || relayConfig === null || dbRolesScript === null) {
+    return check(id, [{ kind: 'MISSING_ARTIFACT' }]);
+  }
+  for (const pattern of [
+    /^  postgres: !reset null$/m,
+    /^  postgres-data: !reset null$/m,
+    /^  db-relay:$/m,
+    /postgres:15\.4-alpine@sha256:[0-9a-f]{64}/,
+    /- '192\.168\.102\.112:8080:8080'/,
+    /PGHOST: db-relay/,
+    /KC_DB_URL: jdbc:postgresql:\/\/db-relay:5432\/keycloak_uat/,
+    /DATABASE_URL: postgresql:\/\/dcontact_app:.*@db-relay:5432\/dcontact_uat\?schema=public/,
+  ]) {
+    if (!pattern.test(overlay))
+      failures.push({ kind: 'OVERLAY_INVARIANT', pattern: pattern.source });
+  }
+  for (const pattern of [
+    /auto_https off/,
+    /trusted_proxies static 192\.168\.102\.114\/32/,
+    /@notEdge not remote_ip 192\.168\.102\.114\/32/,
+    /@outside not client_ip \{\$UAT_ALLOWED_CIDRS\}/,
+    /respond @notEdge 403/,
+    /respond @outside 403/,
+    /respond @keycloakAdmin 404/,
+  ]) {
+    if (!pattern.test(caddyfile))
+      failures.push({ kind: 'CADDY_EDGE_INVARIANT', pattern: pattern.source });
+  }
+  if (/^\s*tls\b/m.test(caddyfile)) failures.push({ kind: 'CADDY_TLS_ENABLED' });
+  if (!/server vm3 192\.168\.102\.113:5432 check/.test(relayConfig)) {
+    failures.push({ kind: 'RELAY_TARGET' });
+  }
+  if (
+    !/dcontact_platform/.test(dbRolesScript) ||
+    !/dcontact_provisioner/.test(dbRolesScript) ||
+    !/rolcanlogin/.test(dbRolesScript)
+  ) {
+    failures.push({ kind: 'ROLE_NOLOGIN_NOT_CHECKED' });
+  }
+  if (!/is_3vm/.test(deployScript ?? '') || !/pg-dcontact_uat/.test(deployScript ?? '')) {
+    failures.push({ kind: 'DEPLOY_SCRIPT_NOT_3VM_AWARE' });
+  }
+  return check(id, failures);
+}
+
 export function checkWorkflow(workflow) {
   const failures = [];
   if (workflow === null) return check('UAT-S11 workflow uat-preview', [{ kind: 'MISSING' }]);
@@ -908,6 +967,13 @@ export function runStaticChecks(root = repositoryRoot) {
     checkEvidenceStorage(compose, files.objectStorageEntrypoint),
     checkUatProvision(compose, files.apiDockerfile, files.deployScript),
     checkProxy(files.caddyfile),
+    checkThreeVmTopology({
+      overlay: files.compose3vm,
+      caddyfile: files.caddyfile3vm,
+      relayConfig: files.dbRelayConfig,
+      dbRolesScript: files.dbRoles3vmScript,
+      deployScript: files.deployScript,
+    }),
     checkWorkflow(files.workflow),
     checkSmokeWorkflow(files.smokeWorkflow),
     checkEnvExample(files.envExample),

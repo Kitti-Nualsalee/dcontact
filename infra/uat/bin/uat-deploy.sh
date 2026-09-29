@@ -37,14 +37,32 @@ release_dir() {
   echo "$dir"
 }
 
+is_3vm() {
+  [[ -f "$1/docker-compose.uat.3vm.yml" ]]
+}
+
 compose() {
   local dir="$1"
   shift
-  docker compose --project-name "$PROJECT" \
-    --project-directory "$dir" \
-    --env-file "$UAT_ROOT/uat.env" \
-    --env-file "$dir/release.env" \
-    -f "$dir/docker-compose.uat.yml" "$@"
+  if is_3vm "$dir"; then
+    local binary="$UAT_ROOT/bin/docker-compose"
+    [[ -x "$binary" ]] || fail 'COMPOSE_3VM_BINARY_MISSING'
+    "$binary" --project-name "$PROJECT" \
+      --project-directory "$dir" \
+      --env-file "$UAT_ROOT/uat.env" \
+      --env-file "$dir/release.env" \
+      -f "$dir/docker-compose.uat.yml" -f "$dir/docker-compose.uat.3vm.yml" "$@"
+  else
+    docker compose --project-name "$PROJECT" \
+      --project-directory "$dir" \
+      --env-file "$UAT_ROOT/uat.env" \
+      --env-file "$dir/release.env" \
+      -f "$dir/docker-compose.uat.yml" "$@"
+  fi
+}
+
+database_service() {
+  if is_3vm "$1"; then echo db-relay; else echo postgres; fi
 }
 
 release_value() {
@@ -82,6 +100,12 @@ case "$cmd" in
   prepare)
     dir="$(release_dir "${1:?sha}")"
     check_release_env "$dir"
+    if is_3vm "$dir"; then
+      for file in "$dir/Caddyfile.3vm" "$dir/haproxy-db-relay.cfg" "$dir/bin/db-roles-3vm.sh"; do
+        [[ -f "$file" ]] || fail 'RELEASE_3VM_FILE_MISSING'
+      done
+      [[ -x "$UAT_ROOT/bin/docker-compose" ]] || fail 'COMPOSE_3VM_BINARY_MISSING'
+    fi
     chmod 700 "$dir/bin"/*.sh
     # #540: entrypoint ของ object storage ถูก mount เข้า container ที่รันเป็น uid 1000 (ไม่ใช่ root) — ต้องอ่านได้
     # ไฟล์ไม่มี secret (secret มาจาก env ของ container) และรันผ่าน `sh` จึงไม่ต้อง execute
@@ -94,25 +118,43 @@ case "$cmd" in
   backup)
     dir="$(release_dir "${1:?sha}")"
     stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-    if [[ -z "$(compose "$dir" ps --status running --quiet postgres)" ]]; then
-      # ครั้งแรกยังไม่มีฐานข้อมูลให้สำรอง — บันทึกไว้ใน record แทนการข้ามเงียบ
-      echo '{"type":"u1.uat.deploy","step":"backup","status":"SKIPPED","reason":"NO_DATABASE_YET"}'
-      exit 0
+    if is_3vm "$dir"; then
+      # VM3 ใช้ PostgreSQL 15.4: dump ผ่าน relay ด้วย client v15 เท่านั้น
+      compose "$dir" up -d --wait db-relay
+      for database in dcontact_uat keycloak_uat; do
+        file="$UAT_ROOT/backups/pg-${database}-${stamp}.dump"
+        if [[ "$database" == dcontact_uat ]]; then
+          compose "$dir" --profile ops run --rm -T --entrypoint pg_dump db-roles \
+            -d "$database" --format=custom --no-owner >"$file.partial" || { rm -f "$file.partial"; fail 'BACKUP_FAILED'; }
+        else
+          compose "$dir" --profile ops run --rm -T keycloak-backup \
+            -d "$database" --format=custom --no-owner >"$file.partial" || { rm -f "$file.partial"; fail 'BACKUP_FAILED'; }
+        fi
+        [[ -s "$file.partial" ]] || { rm -f "$file.partial"; fail 'BACKUP_EMPTY'; }
+        mv "$file.partial" "$file"
+      done
+      digest="$(sha256_of "$UAT_ROOT/backups/pg-dcontact_uat-${stamp}.dump")"
+      echo "{\"type\":\"u1.uat.deploy\",\"step\":\"backup\",\"status\":\"PASS\",\"file\":\"backups/pg-dcontact_uat-${stamp}.dump\",\"sha256\":\"${digest}\"}"
+    else
+      if [[ -z "$(compose "$dir" ps --status running --quiet postgres)" ]]; then
+        echo '{"type":"u1.uat.deploy","step":"backup","status":"SKIPPED","reason":"NO_DATABASE_YET"}'
+        exit 0
+      fi
+      for database in dcontact keycloak; do
+        file="$UAT_ROOT/backups/pg-${database}-${stamp}.dump"
+        compose "$dir" exec -T postgres sh -ec \
+          "pg_dump -U \"\$POSTGRES_USER\" -d ${database} --format=custom --no-owner" >"$file.partial"
+        mv "$file.partial" "$file"
+        [[ -s "$file" ]] || fail 'BACKUP_EMPTY'
+      done
+      digest="$(sha256_of "$UAT_ROOT/backups/pg-dcontact-${stamp}.dump")"
+      echo "{\"type\":\"u1.uat.deploy\",\"step\":\"backup\",\"status\":\"PASS\",\"file\":\"backups/pg-dcontact-${stamp}.dump\",\"sha256\":\"${digest}\"}"
     fi
-    for database in dcontact keycloak; do
-      file="$UAT_ROOT/backups/pg-${database}-${stamp}.dump"
-      compose "$dir" exec -T postgres sh -ec \
-        "pg_dump -U \"\$POSTGRES_USER\" -d ${database} --format=custom --no-owner" >"$file.partial"
-      mv "$file.partial" "$file"
-      [[ -s "$file" ]] || fail 'BACKUP_EMPTY'
-    done
-    digest="$(sha256_of "$UAT_ROOT/backups/pg-dcontact-${stamp}.dump")"
-    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"backup\",\"status\":\"PASS\",\"file\":\"backups/pg-dcontact-${stamp}.dump\",\"sha256\":\"${digest}\"}"
     ;;
 
   migrate)
     dir="$(release_dir "${1:?sha}")"
-    compose "$dir" up -d --wait postgres
+    compose "$dir" up -d --wait "$(database_service "$dir")"
     compose "$dir" --profile ops run --rm -T db-roles >/dev/null
     compose "$dir" --profile ops run --rm -T migrate
     # rls.sql สร้าง role ที่ยังไม่มีด้วยรหัสผ่านของ dev — ตั้งทับ/ปิด login ทุกครั้งหลัง migrate
@@ -138,7 +180,7 @@ case "$cmd" in
       --check) mode=(--check) ;;
       *) usage ;;
     esac
-    compose "$dir" up -d --wait postgres
+    compose "$dir" up -d --wait "$(database_service "$dir")"
     compose "$dir" --profile ops run --rm -T uat-provision ${mode[@]+"${mode[@]}"} --input - <"$file"
     ;;
 
@@ -150,7 +192,7 @@ case "$cmd" in
     overlay="$dir/docker-compose.uat.migration.yml"
     [[ -f "$overlay" ]] || fail 'MIGRATION_OVERLAY_MISSING'
     compose "$dir" stop api || true
-    compose "$dir" -f "$overlay" up -d --wait postgres minio object-storage
+    compose "$dir" -f "$overlay" up -d --wait "$(database_service "$dir")" minio object-storage
     compose "$dir" -f "$overlay" run --rm -T object-storage-init
     compose "$dir" -f "$overlay" run --rm -T object-storage-migrate
     compose "$dir" -f "$overlay" stop minio
@@ -183,11 +225,13 @@ case "$cmd" in
       IFS= read -r UAT_SMOKE_ACCESS_TOKEN || true
       export UAT_SMOKE_ACCESS_TOKEN
     fi
-    # รันจากบน VM ผ่าน proxy ตัวจริง (127.0.0.1:443 + SNI ของ UAT_HOST) เพราะ allowlist ปิดทางอื่น
-    # Docker Desktop (uat-local.sh บน macOS) ไม่มี host network แบบ Linux: ใช้ bridge + host.docker.internal แทน
+    # โหมด 3 VM: TLS อยู่ที่ nginx VM1; โหมดเครื่องเดียว: TLS อยู่ใน proxy บน host เดียวกัน
+    local_connect_host=127.0.0.1
+    if is_3vm "$dir"; then local_connect_host=192.168.102.114; fi
+    # Docker Desktop (uat-local.sh บน macOS) ใช้ host.docker.internal ผ่าน env override
     docker run --rm --network "${UAT_SMOKE_DOCKER_NETWORK:-host}" \
       -e "UAT_BASE_URL=https://${uat_host}" \
-      -e "UAT_CONNECT_HOST=${UAT_SMOKE_CONNECT_HOST:-127.0.0.1}" \
+      -e "UAT_CONNECT_HOST=${UAT_SMOKE_CONNECT_HOST:-$local_connect_host}" \
       -e UAT_SMOKE_ACCESS_TOKEN \
       -e NODE_EXTRA_CA_CERTS \
       ${NODE_EXTRA_CA_CERTS:+-v "$NODE_EXTRA_CA_CERTS:$NODE_EXTRA_CA_CERTS:ro"} \
