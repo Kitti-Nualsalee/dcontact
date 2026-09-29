@@ -3,7 +3,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { crc32, deflateSync } from 'node:zlib';
+import { deflateSync } from 'node:zlib';
 import {
   UAT_EVIDENCE_MAX_BYTES,
   extractUatImageText,
@@ -23,6 +23,15 @@ import { UatRunError, parseUatFixturePackManifest, type UatStepResultView } from
 
 /** token ปลอมรูป JWT — ไม่ใช่ credential จริง */
 const FAKE_JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1YXQtZmFrZSJ9.c2lnbmF0dXJlLWZha2U';
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
 
 function chunk(type: string, data: Uint8Array): Buffer {
   const length = Buffer.alloc(4);

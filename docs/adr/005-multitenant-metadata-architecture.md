@@ -50,7 +50,7 @@ D-Contact เป็น SaaS ที่ tenant แต่ละรายต้อ�
 - (+) cross-tenant reporting/billing ทำได้ตรง ๆ (query เดียว group by tenant_id)
 - (−) **blast radius สูง**: bug การ scoping = ข้อมูลรั่วข้าม tenant → ต้องมี 4 ชั้นป้องกันเสมอ
   (token claim → guard → service-layer `where tenantId` → RLS) และ integration test
-  cross-tenant ใน CI (ดู iam-architecture §11)
+  cross-tenant ใน acceptance ที่สั่งด้วยมือก่อน release (ดู iam-architecture §11); รอบ push/PR ตรวจด้วย unit tests
 - (−) **noisy neighbor**: tenant ใหญ่กิน resource กระทบ tenant เล็ก → rate limit ต่อ tenant
   ที่ API, Kafka partition by key ช่วยกระจายอยู่แล้ว, อนาคต: table partitioning by
   `tenant_id` + read replica
