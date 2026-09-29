@@ -192,8 +192,8 @@ jobs:
           cat release.env
           release="$UAT_ROOT/releases/$GITHUB_SHA"
           uat-ssh "mkdir -p '$release/bin'"
-          uat-scp infra/uat/docker-compose.uat.yml release.env "uat:$release/"
-          uat-scp infra/uat/bin/uat-deploy.sh infra/uat/bin/db-roles.sh infra/uat/bin/minio-init.sh "uat:$release/bin/"
+          uat-scp infra/uat/docker-compose.uat.yml infra/uat/docker-compose.uat.migration.yml release.env "uat:$release/"
+          uat-scp infra/uat/bin/uat-deploy.sh infra/uat/bin/db-roles.sh infra/uat/bin/object-storage-entrypoint.sh "uat:$release/bin/"
           uat-deploy prepare "$GITHUB_SHA"
 
       - name: Backup (pg_dump ก่อน migrate)

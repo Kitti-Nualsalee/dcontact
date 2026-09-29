@@ -6,7 +6,7 @@ name: uat-image-smoke
 #   บน runner (`localhost:5000`) เพื่อให้ compose อ้าง image ด้วย digest เหมือนบน VM — ไม่ push GHCR
 # - รัน `infra/uat/bin/uat-deploy.sh` ตัวจริงแบบ local (`UAT_ROOT` = โฟลเดอร์ชั่วคราว) ตามลำดับของ `uat-preview`:
 #   prepare → backup → migrate (db-roles → migrate → db-roles) → keycloak (+ keycloak-config)
-#   → deploy (minio-init → api + proxy) → smoke (`u1-uat-readiness.mjs --live`) → provision (U1.8)
+#   → deploy (object storage → object-storage-init → api + proxy) → smoke (`u1-uat-readiness.mjs --live`) → provision (U1.8)
 # - secret/tenant/TLS เป็นค่าสุ่มต่อรอบ (mask แล้ว) — ไม่ใช้ repository secret และไม่ผูก environment
 #   `uat-preview`; ไม่แตะ VM ของ UAT
 # - ล้ม = เก็บ `docker compose logs` ที่กรองค่า secret แล้วเป็น artifact อายุสั้น; ทุกกรณีจบด้วย `down -v`
@@ -20,6 +20,7 @@ on:
       - 'apps/console/Dockerfile'
       - '.dockerignore'
       - 'scripts/u1-uat-*'
+      - 'scripts/uat-object-storage.mjs'
       - 'infra/keycloak/realm-dcontact.uat.json'
       - 'infra/keycloak/Dockerfile'
       - 'infra/keycloak/themes/**'
@@ -35,6 +36,7 @@ on:
       - 'apps/console/Dockerfile'
       - '.dockerignore'
       - 'scripts/u1-uat-*'
+      - 'scripts/uat-object-storage.mjs'
       - 'infra/keycloak/realm-dcontact.uat.json'
       - 'infra/keycloak/Dockerfile'
       - 'infra/keycloak/themes/**'
@@ -196,8 +198,8 @@ jobs:
             upper="$(echo "$name" | tr '[:lower:]' '[:upper:]')"
             echo "${upper}_IMAGE=$REGISTRY/dcontact-uat-$name@$digest" >> "$release/release.env"
           done
-          cp infra/uat/docker-compose.uat.yml "$release/"
-          cp infra/uat/bin/uat-deploy.sh infra/uat/bin/db-roles.sh infra/uat/bin/minio-init.sh "$release/bin/"
+          cp infra/uat/docker-compose.uat.yml infra/uat/docker-compose.uat.migration.yml "$release/"
+          cp infra/uat/bin/uat-deploy.sh infra/uat/bin/db-roles.sh infra/uat/bin/object-storage-entrypoint.sh "$release/bin/"
           cat "$release/release.env"
 
       - name: UAT environment (random secrets, synthetic tenant, TLS, hosts)
@@ -212,10 +214,10 @@ jobs:
             [UAT_KEYCLOAK_DB_PASSWORD]="$(secret 24)"
             [UAT_KEYCLOAK_ADMIN_USERNAME]="kcadmin-$(secret 4)"
             [UAT_KEYCLOAK_ADMIN_PASSWORD]="$(secret 24)"
-            [UAT_MINIO_ROOT_USER]="minioroot$(secret 4)"
-            [UAT_MINIO_ROOT_PASSWORD]="$(secret 24)"
-            [UAT_MINIO_API_ACCESS_KEY]="uatapi$(secret 6)"
-            [UAT_MINIO_API_SECRET_KEY]="$(secret 24)"
+            [UAT_S3_ROOT_ACCESS_KEY]="s3root$(secret 4)"
+            [UAT_S3_ROOT_SECRET_KEY]="$(secret 24)"
+            [UAT_S3_API_ACCESS_KEY]="uatapi$(secret 6)"
+            [UAT_S3_API_SECRET_KEY]="$(secret 24)"
           )
           for name in "${!values[@]}"; do echo "::add-mask::${values[$name]}"; done
 
@@ -280,10 +282,14 @@ jobs:
         timeout-minutes: 10
         run: uat-deploy keycloak "$GITHUB_SHA" | tail -n 1 | tee "$UAT_OUT/keycloak.json"
 
-      - name: Deploy (minio-init → api + proxy --wait)
+      - name: Deploy (object storage → object-storage-init → api + proxy --wait)
         timeout-minutes: 10
         run: |
-          uat-deploy deploy "$GITHUB_SHA" | tee "$UAT_OUT/deploy.json"
+          uat-deploy deploy "$GITHUB_SHA" | tee "$UAT_OUT/deploy.json" || {
+            # log ของ object storage ไม่มี secret (s3.json อยู่ใน tmpfs ของ container เท่านั้น)
+            uat-compose logs --no-color --tail 80 object-storage object-storage-init object-storage-lifecycle || true
+            exit 1
+          }
           node scripts/u1-uat-ci-assert.mjs step PASS "$UAT_OUT/deploy.json"
 
       - name: Wait for API behind proxy
@@ -373,12 +379,12 @@ jobs:
           CHECK='proxy container User=10001:10001 และ ReadonlyRootfs=true'
           check test "$(docker inspect --format '{{.Config.User}}|{{.HostConfig.ReadonlyRootfs}}' "$proxy")" = '10001:10001|true'
 
-          for service in minio postgres keycloak api; do
+          for service in object-storage object-storage-lifecycle postgres keycloak api; do
             cid="$(uat-compose ps -q "$service")"
             CHECK="$service รันอยู่และไม่ publish พอร์ตสู่ host"
             check bash -c "[ -n '$cid' ] && [ -z \"\$(docker port '$cid')\" ]"
           done
-          for port in 9000 9001 5432; do
+          for port in 8333 9333 8888 18333 9000 9001 5432; do
             CHECK="host port $port ปิด"
             check bash -c "! timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/$port' 2>/dev/null"
           done

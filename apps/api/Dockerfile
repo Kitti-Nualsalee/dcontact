@@ -7,7 +7,8 @@
 #   runtime — API ที่บูตได้เฉพาะ `DCONTACT_API_PROFILE=uat` (U1.2 #430) รันเป็น non-root
 #   ops     — one-shot ของ operator: `prisma migrate deploy` (additive เท่านั้น), rls.sql,
 #             ตั้งค่า Keycloak realm/บัญชี, readiness smoke และ provision tenant/บัญชี/fixture pack
-#             ของ UAT (U1.8 #502: `/app/dist/uat-provision-main.js` ใช้ build เดียวกับ runtime) —
+#             ของ UAT (U1.8 #502: `/app/dist/uat-provision-main.js` ใช้ build เดียวกับ runtime),
+#             object storage init/migrate/expiry (#540: `scripts/uat-object-storage.mjs`) —
 #             CMD/entry ไม่ใช่ API server
 #
 # base image pin ด้วย digest เสมอ (readiness U1.6 ล้มเมื่อพบ FROM ที่ไม่ pin)
@@ -69,7 +70,7 @@ ENV NODE_ENV=production \
   PATH=/ops/node_modules/.bin:$PATH
 WORKDIR /ops
 COPY --from=build /out/ops /ops
-COPY scripts/u1-uat-keycloak-users.mjs scripts/u1-uat-readiness.mjs /ops/scripts/
+COPY scripts/u1-uat-keycloak-users.mjs scripts/u1-uat-readiness.mjs scripts/uat-object-storage.mjs /ops/scripts/
 COPY infra/keycloak/realm-dcontact.uat.json /ops/infra/keycloak/realm-dcontact.uat.json
 # U1.8 (#502): CLI provision ต้องใช้ @d-contact/journey + Prisma client ที่ generate แล้ว — คัดชุด
 # production dependencies ของ api (build เดียวกับ runtime) มาทั้งก้อนที่ /app; ไม่มีการรัน API server

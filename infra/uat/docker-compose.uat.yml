@@ -1,15 +1,17 @@
 # U1.6 (#434): UAT stack ของ UAT first slice บน VM เดียว (production-shaped) — ตาม #373/#374
 #
-# มีเฉพาะ: proxy (Console + TLS), api (profile `uat`), Keycloak (production mode), Postgres, MinIO
+# มีเฉพาะ: proxy (Console + TLS), api (profile `uat`), Keycloak (production mode), Postgres,
+# object storage (SeaweedFS, ADR-029/#540) + lifecycle
 # ไม่มี `apps/journey` worker, FreeSWITCH, Kafka/Redpanda หรือ Redis — การเพิ่ม service เหล่านี้คือ stop condition
 #
 # - ไม่มีค่า default ของ credential: ทุก secret มาจาก env file บน VM (`/opt/dcontact-uat/uat.env`)
 #   ด้วยรูป `${VAR:?...}` — ขาดตัวใด compose ไม่ยอม render
 # - image ของเราอ้างด้วย digest (`${API_IMAGE}` ฯลฯ = `ghcr.io/...@sha256:...`) ที่ workflow เขียนลง
 #   `release.env`; image ภายนอก pin digest ตรงนี้
-# - มีแค่ proxy ที่เปิดพอร์ตสู่ host (443 และ 80 สำหรับ redirect) — DB, MinIO, Keycloak และ api ไม่เปิด
+# - มีแค่ proxy ที่เปิดพอร์ตสู่ host (443 และ 80 สำหรับ redirect) — DB, object storage, Keycloak และ api ไม่เปิด
 # - service ใน profile `ops` เป็น one-shot ที่ `infra/uat/bin/uat-deploy.sh` สั่งตามลำดับ;
-#   `minio-init` เป็น one-shot นอก profile เพราะ api ต้องรอให้จบสำเร็จก่อนบูต (U1.5 #433)
+#   `object-storage-init` เป็น one-shot นอก profile เพราะ api ต้องรอให้จบสำเร็จก่อนบูต (U1.5 #433)
+# - ย้ายข้อมูลจาก MinIO เดิม (#540) ใช้ overlay `docker-compose.uat.migration.yml` เท่านั้น — ถอดใน #541
 #
 # ใช้งาน: docker compose --env-file uat.env --env-file release.env -f docker-compose.uat.yml ...
 name: dcontact-uat
@@ -58,8 +60,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      # U1.5 (#433): API บูตไม่ผ่านถ้า bucket หลักฐานไม่พร้อม — รอ minio-init (bucket + user ของ API) ก่อน
-      minio-init:
+      # U1.5 (#433): API บูตไม่ผ่านถ้า bucket หลักฐานไม่พร้อม — รอ object-storage-init (bucket private) ก่อน
+      object-storage-init:
         condition: service_completed_successfully
     # U1.2 (#430): profile uat ปิด Kafka/LINE/egress เชิงโครงสร้าง; ห้ามใส่ LINE_*, KAFKA_BROKERS, SIP_*
     environment:
@@ -74,11 +76,10 @@ services:
       J5_PUBLISH_UI_ENABLED: 'true'
       J5_TEMPLATE_CATALOG_ENABLED: 'false'
       J5_TEMPLATE_UPGRADE_ENABLED: 'false'
-      # U1.5 (#433): evidence storage — user เฉพาะของ API (policy uat-evidence-api) ไม่ใช่ root ของ storage
-      # env ของแอปเป็น S3_* ตาม ADR-029; ชื่อ secret บน VM (UAT_MINIO_*) เปลี่ยนตอนย้ายไป SeaweedFS
-      S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY: ${UAT_MINIO_API_ACCESS_KEY:?UAT_MINIO_API_ACCESS_KEY is required}
-      S3_SECRET_KEY: ${UAT_MINIO_API_SECRET_KEY:?UAT_MINIO_API_SECRET_KEY is required}
+      # U1.5 (#433) + #540: evidence storage — user เฉพาะของ API (policy uat-evidence-api) ไม่ใช่ root ของ storage
+      S3_ENDPOINT: http://object-storage:8333
+      S3_ACCESS_KEY: ${UAT_S3_API_ACCESS_KEY:?UAT_S3_API_ACCESS_KEY is required}
+      S3_SECRET_KEY: ${UAT_S3_API_SECRET_KEY:?UAT_S3_API_SECRET_KEY is required}
       S3_BUCKET_UAT_EVIDENCE: uat-evidence
     read_only: true
     networks:
@@ -145,46 +146,90 @@ services:
     networks:
       - internal
 
-  # U1.5 (#433): evidence ของ UAT — bucket `uat-evidence` แบบ private (ไม่มี anonymous/bucket policy)
-  # retention 90 วันเป็น lifecycle ที่ API ตั้งตอนบูต; ไม่เปิดพอร์ตสู่ host
-  minio:
+  # U1.5 (#433) + #540 (ADR-029): evidence ของ UAT บน SeaweedFS — bucket `uat-evidence` แบบ private
+  # `weed server -s3` (ไม่ใช้ `weed mini` ที่เปิด admin/worker gRPC แบบไม่มี mTLS — spike #539)
+  # s3.json (identity root + uat-evidence-api และ policy) สร้างใน tmpfs โดย entrypoint — secret ไม่ลง volume
+  # retention 90 วันเป็น lifecycle ที่ API ตั้งตอนบูต และ `object-storage-lifecycle` รัน pass; ไม่เปิดพอร์ตสู่ host
+  object-storage:
     <<: *hardening
-    image: docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
-    command: server /data
+    image: docker.io/chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    # ข้าม entrypoint ของ image (ใช้ su-exec ซึ่งต้องมี capability) — รันเป็น user seaweed ตรง ๆ
+    user: '1000:1000'
+    entrypoint: ['/bin/sh', '/uat/object-storage-entrypoint.sh']
     environment:
-      MINIO_ROOT_USER: ${UAT_MINIO_ROOT_USER:?UAT_MINIO_ROOT_USER is required}
-      MINIO_ROOT_PASSWORD: ${UAT_MINIO_ROOT_PASSWORD:?UAT_MINIO_ROOT_PASSWORD is required}
-      MINIO_BROWSER: 'off'
+      UAT_S3_ROOT_ACCESS_KEY: ${UAT_S3_ROOT_ACCESS_KEY:?UAT_S3_ROOT_ACCESS_KEY is required}
+      UAT_S3_ROOT_SECRET_KEY: ${UAT_S3_ROOT_SECRET_KEY:?UAT_S3_ROOT_SECRET_KEY is required}
+      UAT_S3_API_ACCESS_KEY: ${UAT_S3_API_ACCESS_KEY:?UAT_S3_API_ACCESS_KEY is required}
+      UAT_S3_API_SECRET_KEY: ${UAT_S3_API_SECRET_KEY:?UAT_S3_API_SECRET_KEY is required}
     volumes:
-      - minio-data:/data
+      - object-storage-data:/data
+      - ./bin/object-storage-entrypoint.sh:/uat/object-storage-entrypoint.sh:ro
+    read_only: true
+    tmpfs:
+      - /tmp
     healthcheck:
-      test: ['CMD-SHELL', 'curl -fsS http://localhost:9000/minio/health/live']
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:8333/healthz']
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 30
+    networks:
+      - internal
+
+  # #540: SeaweedFS 4.48 ไม่รัน lifecycle pass เอง (spike #539) — service นี้รันทุก 1 ชม.
+  # ลบ object ที่ถึงวันตาม rule ของ bucket (uat-evidence/ 90 วัน)
+  object-storage-lifecycle:
+    <<: *hardening
+    image: docker.io/chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    user: '1000:1000'
+    depends_on:
+      object-storage:
+        condition: service_healthy
+    environment:
+      HOME: /tmp
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - >-
+        echo "s3.lifecycle.run-shard -shards 0-15 -s3 object-storage:18333 -events 0 -refresh 1h"
+        | exec /usr/bin/weed shell -master=object-storage:9333
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      - internal
+
+  # #540 (การตัดสินใจ (ก) #539): ลบหลักฐานที่ย้ายมาจาก MinIO ตามวันหมดอายุเดิมใน manifest
+  # ถอดออกหลัง cutover + 90 วัน (#541)
+  object-storage-migrated-expiry:
+    <<: *hardening
+    image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
+    depends_on:
+      object-storage-init:
+        condition: service_completed_successfully
+    environment:
+      S3_ENDPOINT: http://object-storage:8333
+      UAT_S3_ROOT_ACCESS_KEY: ${UAT_S3_ROOT_ACCESS_KEY:?UAT_S3_ROOT_ACCESS_KEY is required}
+      UAT_S3_ROOT_SECRET_KEY: ${UAT_S3_ROOT_SECRET_KEY:?UAT_S3_ROOT_SECRET_KEY is required}
+    command: ['node', 'scripts/uat-object-storage.mjs', 'expire-migrated', '--loop', '60']
+    read_only: true
     networks:
       - internal
 
   # ── one-shot ของ operator ──────────────────────────────────────────────────────────
 
-  # ทุก deploy (ไม่อยู่ใน profile ops เพราะ api รอให้จบก่อน): bucket private + user/policy ของ API
-  minio-init:
-    # image เดียวกับ minio (มีทั้ง `mc` และ /bin/sh — แนวเดียวกับ dev compose #467)
-    image: docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+  # ทุก deploy (ไม่อยู่ใน profile ops เพราะ api รอให้จบก่อน): bucket private ผ่าน S3 API ด้วย root
+  # สิทธิ์ของ API มาจาก policy ใน s3.json ของ object-storage — ไม่มีการสร้าง user ผ่าน CLI ของผู้ผลิต
+  object-storage-init:
+    image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
     restart: 'no'
     depends_on:
-      minio:
+      object-storage:
         condition: service_healthy
     environment:
-      # credential อยู่ใน env ของ container เท่านั้น ไม่ผ่าน command line ของ compose
-      MC_HOST_uat: http://${UAT_MINIO_ROOT_USER:?UAT_MINIO_ROOT_USER is required}:${UAT_MINIO_ROOT_PASSWORD:?UAT_MINIO_ROOT_PASSWORD is required}@minio:9000
-      UAT_MINIO_ROOT_USER: ${UAT_MINIO_ROOT_USER:?UAT_MINIO_ROOT_USER is required}
-      UAT_MINIO_API_ACCESS_KEY: ${UAT_MINIO_API_ACCESS_KEY:?UAT_MINIO_API_ACCESS_KEY is required}
-      UAT_MINIO_API_SECRET_KEY: ${UAT_MINIO_API_SECRET_KEY:?UAT_MINIO_API_SECRET_KEY is required}
-      MC_CONFIG_DIR: /tmp/mc
-    entrypoint: ['/bin/sh', '/uat/minio-init.sh']
-    volumes:
-      - ./bin/minio-init.sh:/uat/minio-init.sh:ro
+      S3_ENDPOINT: http://object-storage:8333
+      UAT_S3_ROOT_ACCESS_KEY: ${UAT_S3_ROOT_ACCESS_KEY:?UAT_S3_ROOT_ACCESS_KEY is required}
+      UAT_S3_ROOT_SECRET_KEY: ${UAT_S3_ROOT_SECRET_KEY:?UAT_S3_ROOT_SECRET_KEY is required}
+    command: ['node', 'scripts/uat-object-storage.mjs', 'init']
     networks:
       - internal
 
@@ -274,6 +319,8 @@ secrets:
 
 volumes:
   postgres-data:
+  object-storage-data:
+  # MinIO เดิม — เก็บไว้สำหรับย้ายข้อมูล/rollback จนถึง #541
   minio-data:
 
 networks:

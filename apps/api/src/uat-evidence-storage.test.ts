@@ -8,6 +8,7 @@ import {
   CreateBucketCommand,
   GetBucketPolicyCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   PutBucketLifecycleConfigurationCommand,
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
@@ -17,6 +18,10 @@ function named(name: string): Error {
   const error = new Error(name);
   error.name = name;
   return error;
+}
+
+function notFound(): Error {
+  return Object.assign(named('NotFound'), { $metadata: { httpStatusCode: 404 } });
 }
 
 function fakeClient(respond: (command: object) => unknown = () => ({})) {
@@ -36,15 +41,24 @@ function fakeClient(respond: (command: object) => unknown = () => ({})) {
 const privateBucket = (command: object) =>
   command instanceof GetBucketPolicyCommand ? named('NoSuchBucketPolicy') : {};
 
+/** bucket ยังไม่มี: HeadBucket = 404 */
+const missingBucket = (command: object) =>
+  command instanceof HeadBucketCommand ? notFound() : privateBucket(command);
+
 test('U1.5 ensureBucket สร้าง bucket แบบ idempotent และตั้ง lifecycle หมดอายุ 90 วันบน prefix', async () => {
-  const { client, sent } = fakeClient(privateBucket);
+  const { client, sent } = fakeClient(missingBucket);
   await new UatEvidenceObjectStorage(client, 'uat-evidence').ensureBucket();
   assert.deepEqual(
     sent.map((command) => command.constructor.name),
-    ['CreateBucketCommand', 'PutBucketLifecycleConfigurationCommand', 'GetBucketPolicyCommand'],
+    [
+      'HeadBucketCommand',
+      'CreateBucketCommand',
+      'PutBucketLifecycleConfigurationCommand',
+      'GetBucketPolicyCommand',
+    ],
   );
-  assert.deepEqual((sent[0] as CreateBucketCommand).input, { Bucket: 'uat-evidence' });
-  assert.deepEqual((sent[1] as PutBucketLifecycleConfigurationCommand).input, {
+  assert.deepEqual((sent[1] as CreateBucketCommand).input, { Bucket: 'uat-evidence' });
+  assert.deepEqual((sent[2] as PutBucketLifecycleConfigurationCommand).input, {
     Bucket: 'uat-evidence',
     LifecycleConfiguration: {
       Rules: [
@@ -58,18 +72,45 @@ test('U1.5 ensureBucket สร้าง bucket แบบ idempotent และต
     },
   });
 
-  // bucket มีอยู่แล้ว (บูตซ้ำ) ยังตั้ง lifecycle ต่อ; error อื่นของ CreateBucket = บูตไม่ผ่าน
-  const again = fakeClient((command) =>
+  // แข่งกันสร้างหลัง Head 404: BucketAlreadyOwnedByYou = ของเรา ตั้ง lifecycle ต่อ
+  const race = fakeClient((command) =>
     command instanceof CreateBucketCommand
       ? named('BucketAlreadyOwnedByYou')
-      : privateBucket(command),
+      : missingBucket(command),
   );
-  await new UatEvidenceObjectStorage(again.client, 'uat-evidence').ensureBucket();
-  assert.ok(again.sent[1] instanceof PutBucketLifecycleConfigurationCommand);
+  await new UatEvidenceObjectStorage(race.client, 'uat-evidence').ensureBucket();
+  assert.ok(race.sent[2] instanceof PutBucketLifecycleConfigurationCommand);
+  // แข่งแล้วเจ้าของอื่นได้ไป (Head 404 → BucketAlreadyExists) = บูตไม่ผ่าน
   const foreign = fakeClient((command) =>
-    command instanceof CreateBucketCommand ? named('BucketAlreadyExists') : {},
+    command instanceof CreateBucketCommand ? named('BucketAlreadyExists') : missingBucket(command),
   );
-  await assert.rejects(new UatEvidenceObjectStorage(foreign.client, 'uat-evidence').ensureBucket());
+  await assert.rejects(
+    new UatEvidenceObjectStorage(foreign.client, 'uat-evidence').ensureBucket(),
+    /BucketAlreadyExists/,
+  );
+});
+
+test('#540 bucket ที่ bootstrap สร้างด้วย root: Head 200 = ไม่เรียก CreateBucket (SeaweedFS ตอบ BucketAlreadyExists)', async () => {
+  const { client, sent } = fakeClient((command) =>
+    command instanceof CreateBucketCommand ? named('BucketAlreadyExists') : privateBucket(command),
+  );
+  await new UatEvidenceObjectStorage(client, 'uat-evidence').ensureBucket();
+  assert.deepEqual(
+    sent.map((command) => command.constructor.name),
+    ['HeadBucketCommand', 'PutBucketLifecycleConfigurationCommand', 'GetBucketPolicyCommand'],
+  );
+});
+
+test('#540 HeadBucket ถูกปฏิเสธ (403) = บูตไม่ผ่าน ไม่พยายามสร้าง bucket', async () => {
+  const forbidden = Object.assign(named('Forbidden'), { $metadata: { httpStatusCode: 403 } });
+  const { client, sent } = fakeClient((command) =>
+    command instanceof HeadBucketCommand ? forbidden : privateBucket(command),
+  );
+  await assert.rejects(
+    new UatEvidenceObjectStorage(client, 'uat-evidence').ensureBucket(),
+    /Forbidden/,
+  );
+  assert.equal(sent.length, 1);
 });
 
 test('U1.5 bucket ต้องเป็นส่วนตัว: มี bucket policy = บูตไม่ผ่าน และ adapter ไม่ตั้ง policy/ACL เอง', async () => {

@@ -1,0 +1,55 @@
+# #540 (ADR-029): overlay สำหรับย้ายหลักฐาน UAT จาก MinIO เดิม → SeaweedFS ครั้งเดียว (runbook ใน
+# docs/u1-uat-deployment.md) — ใช้ซ้อนบน docker-compose.uat.yml ผ่าน `uat-deploy.sh migrate-object-storage`
+# เท่านั้น ไม่อยู่ในการ deploy ปกติ; ถอดทั้งไฟล์ใน #541
+#
+# - MinIO เดิมเปิดอ่านจาก volume `minio-data` บน network internal ไม่ publish พอร์ต
+# - `object-storage-migrate` คัดลอกโดยคง key, ตรวจ sha256 กับ uat_run_evidence และเขียน manifest วันหมดอายุเดิม
+
+services:
+  # MinIO เดิมบน volume minio-data เดิม — root เดิมใช้ UAT_MINIO_ROOT_* (มีเฉพาะช่วงย้าย)
+  minio:
+    restart: 'no'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    image: docker.io/pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${UAT_MINIO_ROOT_USER:?UAT_MINIO_ROOT_USER is required for migration}
+      MINIO_ROOT_PASSWORD: ${UAT_MINIO_ROOT_PASSWORD:?UAT_MINIO_ROOT_PASSWORD is required for migration}
+      MINIO_BROWSER: 'off'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - internal
+
+  object-storage-migrate:
+    restart: 'no'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
+    depends_on:
+      minio:
+        condition: service_healthy
+      object-storage:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${UAT_POSTGRES_USER:?UAT_POSTGRES_USER is required}:${UAT_POSTGRES_PASSWORD:?UAT_POSTGRES_PASSWORD is required}@postgres:5432/dcontact?schema=public
+      S3_ENDPOINT: http://object-storage:8333
+      UAT_S3_ROOT_ACCESS_KEY: ${UAT_S3_ROOT_ACCESS_KEY:?UAT_S3_ROOT_ACCESS_KEY is required}
+      UAT_S3_ROOT_SECRET_KEY: ${UAT_S3_ROOT_SECRET_KEY:?UAT_S3_ROOT_SECRET_KEY is required}
+      UAT_MIGRATION_SOURCE_ENDPOINT: http://minio:9000
+      UAT_MIGRATION_SOURCE_ACCESS_KEY: ${UAT_MINIO_ROOT_USER:?UAT_MINIO_ROOT_USER is required for migration}
+      UAT_MIGRATION_SOURCE_SECRET_KEY: ${UAT_MINIO_ROOT_PASSWORD:?UAT_MINIO_ROOT_PASSWORD is required for migration}
+    command: ['node', 'scripts/uat-object-storage.mjs', 'migrate']
+    networks:
+      - internal
