@@ -115,8 +115,12 @@ test('ADMIN: ตรวจ origin ทันทีที่กรอก, เพิ
     method: 'POST',
     body: { origin: 'https://sales.example.test', label: 'CRM ภายใน' },
   });
-  await expect(page.locator('pre')).toContainText('/dphone/embed?tenant=demo');
-  await expect(page.locator('pre')).toContainText('allow-popups');
+  await expect(page.locator('pre')).toContainText('/embed/v1/dphone-launcher.js');
+  await expect(page.locator('pre')).toContainText('<dphone-launcher tenant="demo"');
+  await expect(page.getByRole('link', { name: /คู่มือการฝัง dphone/ })).toHaveAttribute(
+    'href',
+    /docs\/dphone-embed/,
+  );
   await axe(page);
 });
 

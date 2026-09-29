@@ -52,9 +52,10 @@
     },
     "snippet": {
       "title": "Code for the embedding system",
-      "description": "Paste this into a page of a system listed above and add frame-src to that page's CSP.",
+      "description": "Paste into a page of a system listed above, and allow the dphone origin in both script-src and frame-src of that page’s CSP",
       "copy": "Copy",
-      "copied": "Copied"
+      "copied": "Copied",
+      "docs": "dphone embedding guide (API, events, troubleshooting)"
     },
     "saved": "Saved",
     "rejections": {

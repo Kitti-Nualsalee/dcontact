@@ -296,6 +296,7 @@ function DphoneEmbeddingSurface({
         tenantAlias={tenantAlias}
         embedBaseUrl={apiBaseUrl || window.location.origin}
         dev={import.meta.env.DEV}
+        docsUrl={import.meta.env.VITE_DPHONE_EMBED_DOCS_URL as string | undefined}
       />
     </ConsoleShell>
   );
