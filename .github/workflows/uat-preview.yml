@@ -1,6 +1,6 @@
 name: uat-preview
 
-# U1.6 (#434): deploy/rollback ของ UAT first slice (#373/#374) ไปยัง VM เดียวด้วย Docker Compose
+# U1.6 (#434) + #537: deploy/rollback ของ UAT first slice (#373/#374) บน 3 VM
 #
 # - สั่งด้วยมือเท่านั้น; job ผูก environment `uat-preview` ซึ่งตั้ง required reviewers ไว้ใน GitHub settings
 #   (ดู docs/u1-uat-deployment.md) — ไม่มีการอนุมัติ = ไม่แตะ VM
@@ -175,7 +175,7 @@ jobs:
           build-args: SOURCE_SHA=${{ github.sha }}
           tags: ${{ steps.names.outputs.keycloak }}:${{ github.sha }}
 
-      - name: Upload release (digest-pinned) to VM
+      - name: Upload release (digest-pinned) to VM2
         env:
           API_IMAGE: ${{ steps.names.outputs.api }}@${{ steps.api.outputs.digest }}
           OPS_IMAGE: ${{ steps.names.outputs.ops }}@${{ steps.ops.outputs.digest }}
@@ -192,8 +192,8 @@ jobs:
           cat release.env
           release="$UAT_ROOT/releases/$GITHUB_SHA"
           uat-ssh "mkdir -p '$release/bin'"
-          uat-scp infra/uat/docker-compose.uat.yml infra/uat/docker-compose.uat.migration.yml release.env "uat:$release/"
-          uat-scp infra/uat/bin/uat-deploy.sh infra/uat/bin/db-roles.sh infra/uat/bin/object-storage-entrypoint.sh "uat:$release/bin/"
+          uat-scp infra/uat/docker-compose.uat.yml infra/uat/docker-compose.uat.3vm.yml infra/uat/docker-compose.uat.migration.yml infra/uat/Caddyfile.3vm infra/uat/haproxy-db-relay.cfg release.env "uat:$release/"
+          uat-scp infra/uat/bin/uat-deploy.sh infra/uat/bin/db-roles.sh infra/uat/bin/db-roles-3vm.sh infra/uat/bin/object-storage-entrypoint.sh "uat:$release/bin/"
           uat-deploy prepare "$GITHUB_SHA"
 
       - name: Backup (pg_dump ก่อน migrate)

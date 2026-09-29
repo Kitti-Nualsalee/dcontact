@@ -24,6 +24,7 @@ import {
   checkProxy,
   checkRealm,
   checkSmokeWorkflow,
+  checkThreeVmTopology,
   checkUatProvision,
   checkWorkflow,
   findDropStatements,
@@ -49,6 +50,10 @@ const consoleDockerfile = read(UAT_FILES.consoleDockerfile);
 const keycloakDockerfile = read(UAT_FILES.keycloakDockerfile);
 const storageEntrypoint = read(UAT_FILES.objectStorageEntrypoint);
 const deployScript = read(UAT_FILES.deployScript);
+const compose3vm = read(UAT_FILES.compose3vm);
+const caddyfile3vm = read(UAT_FILES.caddyfile3vm);
+const dbRelayConfig = read(UAT_FILES.dbRelayConfig);
+const dbRoles3vmScript = read(UAT_FILES.dbRoles3vmScript);
 
 /** แทรก block ใต้ `services:` ของ compose จริง */
 function withService(block) {
@@ -572,6 +577,28 @@ test('UAT-S10: proxy ที่เปิด admin ของ Keycloak หรือ
   failed(checkProxy(caddyfile.replace('admin off', 'admin :2019')), 'CADDY_ADMIN_ON');
   // respond นอก route = Caddy เรียง handle มาก่อน (พบจริงตอนทดสอบกับ Caddy 2.8.4)
   failed(checkProxy(caddyfile.replace('\troute {', '\t{')), 'ORDER_NOT_ENFORCED');
+});
+
+test('UAT-S20: overlay 3 VM บังคับ relay, edge และ database แยก', () => {
+  const input = {
+    overlay: compose3vm,
+    caddyfile: caddyfile3vm,
+    relayConfig: dbRelayConfig,
+    dbRolesScript: dbRoles3vmScript,
+    deployScript,
+  };
+  assert.equal(checkThreeVmTopology(input).status, 'PASS');
+  failed(
+    checkThreeVmTopology({
+      ...input,
+      relayConfig: dbRelayConfig.replace('192.168.102.113', '192.168.102.114'),
+    }),
+    'RELAY_TARGET',
+  );
+  failed(
+    checkThreeVmTopology({ ...input, caddyfile: caddyfile3vm.replace('respond @notEdge 403', '') }),
+    'CADDY_EDGE_INVARIANT',
+  );
 });
 
 test('UAT-S11: workflow ที่ไม่ผูก environment/concurrency, echo secret หรือไม่รัน readiness ไม่ผ่าน', () => {

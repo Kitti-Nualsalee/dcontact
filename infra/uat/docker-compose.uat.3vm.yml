@@ -1,0 +1,121 @@
+# #537 / ADR-030: overlay ของ UAT จริง (VM1 nginx → VM2 stack → VM3 PostgreSQL)
+# ใช้ Docker Compose v2.39.4 ที่ /opt/dcontact-uat/bin/docker-compose บน VM2
+# ไฟล์ฐานยังรองรับโหมดเครื่องเดียว; ห้ามใช้ overlay นี้กับ uat-local.sh
+services:
+  postgres: !reset null
+
+  db-relay:
+    image: docker.io/library/haproxy:3.0-alpine@sha256:7ee2f21c5baa25ceb5d01990b78d13a71e8468f5041ac2d69304747d4631407a
+    restart: unless-stopped
+    user: '99:99'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 128m
+    volumes:
+      - ./haproxy-db-relay.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 192.168.102.113 5432']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - internal
+      - dbnet
+
+  proxy:
+    ports: !override
+      - '192.168.102.112:8080:8080'
+    secrets: !reset []
+    volumes:
+      - ./Caddyfile.3vm:/etc/caddy/Caddyfile:ro
+    mem_limit: 384m
+
+  api:
+    depends_on: !override
+      db-relay:
+        condition: service_healthy
+      object-storage-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://dcontact_app:${UAT_APP_DB_PASSWORD:?UAT_APP_DB_PASSWORD is required}@db-relay:5432/dcontact_uat?schema=public
+    mem_limit: 1024m
+
+  keycloak:
+    depends_on: !override
+      db-relay:
+        condition: service_healthy
+    environment:
+      KC_DB_URL: jdbc:postgresql://db-relay:5432/keycloak_uat
+      JAVA_OPTS_KC_HEAP: '-Xms256m -Xmx1200m'
+    mem_limit: 2048m
+
+  object-storage:
+    mem_limit: 1536m
+  object-storage-lifecycle:
+    mem_limit: 256m
+  object-storage-migrated-expiry:
+    mem_limit: 256m
+  object-storage-init:
+    mem_limit: 256m
+
+  db-roles:
+    image: docker.io/library/postgres:15.4-alpine@sha256:35ce2187f2f7fb75e8e79493e13743596c21eb3789ff41ece145ae04d06e93a5
+    depends_on: !override
+      db-relay:
+        condition: service_healthy
+    environment:
+      PGHOST: db-relay
+      PGDATABASE: dcontact_uat
+      PGUSER: ${UAT_POSTGRES_USER:?UAT_POSTGRES_USER is required}
+      PGPASSWORD: ${UAT_POSTGRES_PASSWORD:?UAT_POSTGRES_PASSWORD is required}
+    entrypoint: ['/bin/sh', '/uat/db-roles-3vm.sh']
+    volumes: !override
+      - ./bin/db-roles-3vm.sh:/uat/db-roles-3vm.sh:ro
+    mem_limit: 128m
+
+  keycloak-backup:
+    profiles: ['ops']
+    image: docker.io/library/postgres:15.4-alpine@sha256:35ce2187f2f7fb75e8e79493e13743596c21eb3789ff41ece145ae04d06e93a5
+    depends_on:
+      db-relay:
+        condition: service_healthy
+    environment:
+      PGHOST: db-relay
+      PGDATABASE: keycloak_uat
+      PGUSER: keycloak
+      PGPASSWORD: ${UAT_KEYCLOAK_DB_PASSWORD:?UAT_KEYCLOAK_DB_PASSWORD is required}
+    entrypoint: ['pg_dump']
+    read_only: true
+    mem_limit: 128m
+    networks:
+      - internal
+
+  migrate:
+    depends_on: !override
+      db-relay:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${UAT_POSTGRES_USER:?UAT_POSTGRES_USER is required}:${UAT_POSTGRES_PASSWORD:?UAT_POSTGRES_PASSWORD is required}@db-relay:5432/dcontact_uat?schema=public
+    mem_limit: 1536m
+
+  uat-provision:
+    depends_on: !override
+      db-relay:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${UAT_POSTGRES_USER:?UAT_POSTGRES_USER is required}:${UAT_POSTGRES_PASSWORD:?UAT_POSTGRES_PASSWORD is required}@db-relay:5432/dcontact_uat?schema=public
+    mem_limit: 512m
+
+  keycloak-config:
+    mem_limit: 256m
+
+secrets: !reset {}
+volumes:
+  postgres-data: !reset null
+networks:
+  dbnet: {}
