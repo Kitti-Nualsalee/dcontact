@@ -44,6 +44,7 @@
 | [026](adr/026-frontend-app-split.md) | แบ่งแอปหน้าจอ | แบ่งตาม **"มีงานอยู่ในมือหรือไม่"** ไม่ใช่ตามบทบาท → `apps/workspace` (รวมหน้าสดของหัวหน้า) + `apps/console`; **แท็บทำงานได้แท็บเดียว** (leader election) และเป็นแท็บเดียวที่ประกาศว่ารับงานได้; ห้าม redirect login / บังคับรีโหลด ระหว่างถืองาน; เบราว์เซอร์ก่อน desktop shell ทีหลังโดยไม่ fork UI |
 | [027](adr/027-contact-governance.md) | Contact Governance | ด่านกลางระดับ CIF สำหรับ restriction/consent/preference/attempt/exception; ทุก outbound ต้อง `authorizeAndReserve`; hard restriction ห้ามถูก Allowlist ข้าม; แยก inbound safety ออกจาก outbound DNC |
 | [028](adr/028-frontend-component-layer.md) | Frontend component layer | `packages/ui-react` แยกจาก token (`packages/ui`); **React Aria** รับผิดชอบ keyboard/focus/ARIA; **CSS Modules + `var(--dc-*)` เท่านั้น** บังคับด้วย stylelint; ข้อความของ component อยู่ใน namespace `ui` ของ react-i18next; preview page Vite (ไม่ใช้ Storybook) เป็นหน้าตรวจ axe/keyboard |
+| [029](adr/029-object-storage.md) | Object storage | **S3 API คือ contract** เรียกผ่าน `@aws-sdk/client-s3` เท่านั้น; config ชุดเดียว `S3_*` (`MINIO_*` เป็น fallback ช่วงเปลี่ยนผ่าน); dev/CI ใช้ **RustFS**, UAT/on-prem/cloud ใช้ **SeaweedFS**; bootstrap ไม่ผูกกับ CLI ของผู้ผลิต |
 
 ## เอกสารสถาปัตยกรรม
 
