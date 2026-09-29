@@ -285,7 +285,11 @@ jobs:
       - name: Deploy (object storage → object-storage-init → api + proxy --wait)
         timeout-minutes: 10
         run: |
-          uat-deploy deploy "$GITHUB_SHA" | tee "$UAT_OUT/deploy.json"
+          uat-deploy deploy "$GITHUB_SHA" | tee "$UAT_OUT/deploy.json" || {
+            # log ของ object storage ไม่มี secret (s3.json อยู่ใน tmpfs ของ container เท่านั้น)
+            uat-compose logs --no-color --tail 80 object-storage object-storage-init object-storage-lifecycle || true
+            exit 1
+          }
           node scripts/u1-uat-ci-assert.mjs step PASS "$UAT_OUT/deploy.json"
 
       - name: Wait for API behind proxy

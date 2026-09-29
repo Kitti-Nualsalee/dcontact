@@ -83,6 +83,9 @@ case "$cmd" in
     dir="$(release_dir "${1:?sha}")"
     check_release_env "$dir"
     chmod 700 "$dir/bin"/*.sh
+    # #540: entrypoint ของ object storage ถูก mount เข้า container ที่รันเป็น uid 1000 (ไม่ใช่ root) — ต้องอ่านได้
+    # ไฟล์ไม่มี secret (secret มาจาก env ของ container) และรันผ่าน `sh` จึงไม่ต้อง execute
+    chmod 0444 "$dir/bin/object-storage-entrypoint.sh"
     compose "$dir" config --quiet
     compose "$dir" --profile ops pull --quiet
     echo '{"type":"u1.uat.deploy","step":"prepare","status":"PASS"}'
