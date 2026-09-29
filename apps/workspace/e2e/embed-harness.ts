@@ -277,6 +277,6 @@ export async function signIn(page: Page, frame: ReturnType<Page['frameLocator']>
     page.waitForEvent('popup'),
     frame.getByRole('button', { name: 'เข้าสู่ระบบ' }).click(),
   ]);
-  await popup.waitForEvent('close');
   await expect(frame.getByRole('status').first()).toHaveText('เข้าสู่ระบบแล้ว');
+  await expect.poll(() => popup.isClosed()).toBe(true);
 }
