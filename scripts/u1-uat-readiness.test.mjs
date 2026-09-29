@@ -47,7 +47,7 @@ const smokeWorkflow = read(UAT_FILES.smokeWorkflow);
 const apiDockerfile = read(UAT_FILES.apiDockerfile);
 const consoleDockerfile = read(UAT_FILES.consoleDockerfile);
 const keycloakDockerfile = read(UAT_FILES.keycloakDockerfile);
-const minioInit = read(UAT_FILES.minioInitScript);
+const storageEntrypoint = read(UAT_FILES.objectStorageEntrypoint);
 const deployScript = read(UAT_FILES.deployScript);
 
 /** แทรก block ใต้ `services:` ของ compose จริง */
@@ -82,8 +82,10 @@ test('parser ของ compose อ่าน service/ports/env ของ UAT ไ�
     'keycloak',
     'keycloak-config',
     'migrate',
-    'minio',
-    'minio-init',
+    'object-storage',
+    'object-storage-init',
+    'object-storage-lifecycle',
+    'object-storage-migrated-expiry',
     'postgres',
     'proxy',
     'uat-provision',
@@ -344,81 +346,148 @@ test('UAT-S09: env ของ api ที่ขัดกับ profile uat ไม�
   );
 });
 
-test('UAT-S15: api ใช้ MinIO user เฉพาะแบบ :? ต่อ network ภายใน และ bucket ไม่มี anonymous policy', () => {
-  assert.equal(checkEvidenceStorage(compose, minioInit).status, 'PASS');
-  const apiKey = /S3_ACCESS_KEY: \$\{UAT_MINIO_API_ACCESS_KEY:\?[^}]*\}/;
-  // root credential ของ MinIO ห้ามใช้ใน api
+test('UAT-S15: api ใช้ user เฉพาะของ object storage แบบ :? ต่อ network ภายใน และ bucket ไม่มี anonymous policy', () => {
+  const ok = (text = compose, script = storageEntrypoint) => checkEvidenceStorage(text, script);
+  assert.equal(ok().status, 'PASS');
+  const apiKey = /S3_ACCESS_KEY: \$\{UAT_S3_API_ACCESS_KEY:\?[^}]*\}/;
+  // root credential ของ object storage ห้ามใช้ใน api
   failed(
-    checkEvidenceStorage(
-      compose.replace(apiKey, 'S3_ACCESS_KEY: ${UAT_MINIO_ROOT_USER:?required}'),
-      minioInit,
-    ),
+    ok(compose.replace(apiKey, 'S3_ACCESS_KEY: ${UAT_S3_ROOT_ACCESS_KEY:?required}')),
     'API_USES_ROOT_CREDENTIAL',
   );
+  failed(ok(compose.replace(apiKey, 'S3_ACCESS_KEY: evidence-api')), 'NOT_REQUIRED_FORM');
   failed(
-    checkEvidenceStorage(compose.replace(apiKey, 'S3_ACCESS_KEY: evidence-api'), minioInit),
+    ok(compose.replace(/S3_SECRET_KEY: \$\{[^}]+\}/, 'S3_SECRET_KEY: ${UAT_S3_API_SECRET_KEY:-x}')),
     'NOT_REQUIRED_FORM',
   );
+  failed(ok(compose.replace(/\n {6}S3_ENDPOINT: [^\n]+/, '')), 'S3_ENDPOINT_NOT_INTERNAL');
   failed(
-    checkEvidenceStorage(
+    ok(
       compose.replace(
-        /S3_SECRET_KEY: \$\{[^}]+\}/,
-        'S3_SECRET_KEY: ${UAT_MINIO_API_SECRET_KEY:-x}',
+        'S3_ENDPOINT: http://object-storage:8333\n      S3_ACCESS_KEY',
+        'S3_ENDPOINT: https://s3.amazonaws.com\n      S3_ACCESS_KEY',
       ),
-      minioInit,
-    ),
-    'NOT_REQUIRED_FORM',
-  );
-  failed(
-    checkEvidenceStorage(compose.replace(/\n {6}S3_ENDPOINT: [^\n]+/, ''), minioInit),
-    'S3_ENDPOINT_NOT_INTERNAL',
-  );
-  failed(
-    checkEvidenceStorage(
-      compose.replace('S3_ENDPOINT: http://minio:9000', 'S3_ENDPOINT: https://s3.amazonaws.com'),
-      minioInit,
     ),
     'S3_ENDPOINT_NOT_INTERNAL',
   );
   failed(
-    checkEvidenceStorage(
-      compose.replace('      minio-init:\n        condition: service_completed_successfully\n', ''),
-      minioInit,
+    ok(
+      compose.replace(
+        '      object-storage-init:\n        condition: service_completed_successfully\n    # U1.2',
+        '    # U1.2',
+      ),
     ),
-    'API_DOES_NOT_WAIT_FOR_MINIO_INIT',
+    'API_DOES_NOT_WAIT_FOR_OBJECT_STORAGE_INIT',
   );
   failed(
-    checkEvidenceStorage(
+    ok(
       compose.replace(
         '    read_only: true\n    networks:\n      - internal\n\n  keycloak:',
         '    read_only: true\n    networks:\n      - edge\n\n  keycloak:',
       ),
-      minioInit,
     ),
     'NOT_ON_INTERNAL_NETWORK',
   );
   failed(
-    checkEvidenceStorage(compose, `${minioInit}\nmc anonymous set download uat/uat-evidence\n`),
-    'ANONYMOUS_POLICY',
+    ok(
+      compose.replace(
+        "    entrypoint: ['/bin/sh', '/uat/object-storage-entrypoint.sh']\n",
+        "    entrypoint: ['/bin/sh', '/uat/object-storage-entrypoint.sh']\n    ports:\n      - '8333:8333'\n",
+      ),
+    ),
+    'OBJECT_STORAGE_PUBLISHES_PORT',
   );
   failed(
-    checkEvidenceStorage(compose, minioInit.replace(/mc admin policy attach/g, 'true')),
+    ok(compose.replace("'/uat/object-storage-entrypoint.sh']", "'/entrypoint.sh', 'mini']")),
+    'OBJECT_STORAGE_ENTRYPOINT',
+  );
+  failed(
+    ok(compose.replace('s3.lifecycle.run-shard -shards 0-15', 'fs.ls')),
+    'NO_LIFECYCLE_RUNNER',
+  );
+  failed(
+    ok(
+      compose.replace(
+        "    command: ['node', 'scripts/uat-object-storage.mjs', 'init']\n",
+        "    command: ['node', 'scripts/uat-object-storage.mjs', 'init']\n    profiles: ['ops']\n",
+      ),
+    ),
+    'OBJECT_STORAGE_INIT_IN_PROFILE',
+  );
+  failed(ok(compose, null), 'OBJECT_STORAGE_ENTRYPOINT_MISSING');
+  failed(
+    ok(
+      compose,
+      storageEntrypoint.replace(
+        'exec /usr/bin/weed -logtostderr=true server',
+        'exec /usr/bin/weed mini',
+      ),
+    ),
+    'OBJECT_STORAGE_MINI_MODE',
+  );
+  failed(
+    ok(
+      compose,
+      storageEntrypoint.replace(
+        '  "identities": [\n',
+        '  "identities": [\n    { "name": "anonymous", "actions": ["Read"] },\n',
+      ),
+    ),
+    'ANONYMOUS_IDENTITY',
+  );
+  failed(
+    ok(
+      compose,
+      storageEntrypoint.replace(
+        '"policyNames": ["uat-evidence-api"]',
+        '"actions": ["Admin:uat-evidence"]',
+      ),
+    ),
     'POLICY_NOT_ATTACHED',
   );
   failed(
-    checkEvidenceStorage(compose, minioInit.replace('"s3:DeleteObject"', '"s3:*"')),
-    'POLICY_TOO_BROAD',
-  );
-  failed(checkEvidenceStorage(compose, null), 'MINIO_INIT_SCRIPT_MISSING');
-  failed(
-    checkEvidenceStorage(
-      compose.replace(
-        '    command: server /data\n',
-        "    command: server /data\n    ports:\n      - '9000:9000'\n",
+    ok(
+      compose,
+      storageEntrypoint.replace(
+        '"policyNames": ["uat-evidence-api"]',
+        '"policyNames": ["uat-evidence-api"],\n      "actions": ["Read"]',
       ),
-      minioInit,
     ),
-    'MINIO_PUBLISHES_PORT',
+    'API_COARSE_ACTIONS',
+  );
+  failed(
+    ok(
+      compose,
+      storageEntrypoint.replace(
+        'arn:aws:s3:::${bucket}/uat-evidence/*',
+        'arn:aws:s3:::${bucket}/*',
+      ),
+    ),
+    'POLICY_NOT_BUCKET_SCOPED',
+  );
+  failed(ok(compose, storageEntrypoint.replace('s3:DeleteObject', 's3:*')), 'POLICY_TOO_BROAD');
+  failed(ok(compose, storageEntrypoint.replace(/API_USES_ROOT_CREDENTIAL/g, 'X')), 'NO_ROOT_GUARD');
+  failed(
+    ok(compose, storageEntrypoint.replace(/INVALID_CREDENTIAL_CHARSET/g, 'X')),
+    'NO_CREDENTIAL_CHARSET_GUARD',
+  );
+  failed(
+    ok(
+      compose.replace(
+        "    command: ['node', 'scripts/uat-object-storage.mjs', 'init']\n",
+        "    command: ['node', 'scripts/uat-object-storage.mjs', 'init', 'PutBucketPolicy']\n",
+      ),
+    ),
+    'ANONYMOUS_POLICY',
+  );
+  failed(
+    ok(
+      compose.replace(
+        /\n {2}object-storage-lifecycle:\n/,
+        '\n  object-storage-lifecycle-renamed:\n',
+      ),
+    ),
+    'MISSING_SERVICE',
   );
 });
 

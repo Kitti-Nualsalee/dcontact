@@ -108,11 +108,16 @@ jobs:
         run: pnpm test:e1-embed-contract
 
   object-storage-contract:
-    # ADR-029 (#533): S3 contract ที่แอปใช้ บน RustFS ของ dev compose — บูตจาก image ที่ตรึง digest
-    # (ไม่มี cache) แล้ว bootstrap bucket ผ่าน S3 API; ชุด contract เดียวกันใช้ยืนยัน SeaweedFS
+    # ADR-029: S3 contract ที่แอปใช้ — ชุดเดียวกันบนทุก backend ที่ตรึง digest (บูตจาก image ไม่มี cache)
+    #   rustfs    (#533) dev/CI จาก dev compose
+    #   seaweedfs (#540) UAT/on-prem ด้วย entrypoint ตัวเดียวกับ UAT (s3.json + policy ของ API) + least privilege
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [rustfs, seaweedfs]
     steps:
       - uses: actions/checkout@v4
 
@@ -126,11 +131,39 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Start object storage (RustFS)
+        if: matrix.backend == 'rustfs'
         run: |
           docker compose -f infra/docker/docker-compose.dev.yml up -d --wait object-storage || {
             docker compose -f infra/docker/docker-compose.dev.yml logs --no-color object-storage
             exit 1
           }
+
+      - name: Start object storage (SeaweedFS, UAT entrypoint)
+        if: matrix.backend == 'seaweedfs'
+        run: |
+          secret() { openssl rand -hex "$1"; }
+          root_key="s3root$(secret 4)"; root_secret="$(secret 24)"
+          api_key="uatapi$(secret 6)"; api_secret="$(secret 24)"
+          for value in "$root_secret" "$api_secret"; do echo "::add-mask::$value"; done
+          image="$(sed -n 's/^ *image: \(docker.io\/chrislusf\/seaweedfs:[^ ]*\)$/\1/p' infra/uat/docker-compose.uat.yml | head -n 1)"
+          test -n "$image"
+          docker run -d --name object-storage -p 127.0.0.1:9000:8333 \
+            --user 1000:1000 --cap-drop ALL --security-opt no-new-privileges:true --read-only --tmpfs /tmp \
+            -v "$PWD/infra/uat/bin/object-storage-entrypoint.sh:/uat/object-storage-entrypoint.sh:ro" \
+            -e UAT_S3_ROOT_ACCESS_KEY="$root_key" -e UAT_S3_ROOT_SECRET_KEY="$root_secret" \
+            -e UAT_S3_API_ACCESS_KEY="$api_key" -e UAT_S3_API_SECRET_KEY="$api_secret" \
+            --entrypoint /bin/sh "$image" /uat/object-storage-entrypoint.sh
+          for _ in $(seq 1 60); do
+            curl -fsS -o /dev/null http://127.0.0.1:9000/healthz && break
+            sleep 1
+          done
+          curl -fsS -o /dev/null http://127.0.0.1:9000/healthz || { docker logs object-storage; exit 1; }
+          {
+            echo "S3_ENDPOINT=http://127.0.0.1:9000"
+            echo "S3_ACCESS_KEY=$root_key"; echo "S3_SECRET_KEY=$root_secret"
+            echo "UAT_S3_ROOT_ACCESS_KEY=$root_key"; echo "UAT_S3_ROOT_SECRET_KEY=$root_secret"
+            echo "UAT_S3_API_ACCESS_KEY=$api_key"; echo "UAT_S3_API_SECRET_KEY=$api_secret"
+          } >> "$GITHUB_ENV"
 
       - name: Bootstrap buckets twice (idempotent)
         run: node scripts/object-storage-init.mjs && node scripts/object-storage-init.mjs
@@ -146,6 +179,17 @@ jobs:
 
       - name: S3 contract tests
         run: pnpm test:object-storage:contract
+
+      - name: UAT bootstrap + least privilege ของ API (policy ใน entrypoint ของ UAT)
+        if: matrix.backend == 'seaweedfs'
+        run: |
+          node scripts/uat-object-storage.mjs init
+          node scripts/uat-object-storage.mjs init
+          pnpm test:object-storage:least-privilege
+
+      - name: Object storage logs
+        if: failure() && matrix.backend == 'seaweedfs'
+        run: docker logs object-storage 2>&1 | tail -n 100
 
   a1-platform-control-fast-gate:
     # A1.1 (#406) / #393 Fast PR gate: idempotency, reservation race, tombstone, CAS, completion

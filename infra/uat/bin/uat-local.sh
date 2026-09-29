@@ -73,8 +73,8 @@ preflight() {
 
 layout() {
   install -d -m 700 "$UAT_ROOT" "$UAT_ROOT/tls" "$release" "$release/bin"
-  cp "$REPO/infra/uat/docker-compose.uat.yml" "$release/"
-  cp "$REPO/infra/uat/bin/uat-deploy.sh" "$REPO/infra/uat/bin/db-roles.sh" "$REPO/infra/uat/bin/minio-init.sh" "$release/bin/"
+  cp "$REPO/infra/uat/docker-compose.uat.yml" "$REPO/infra/uat/docker-compose.uat.migration.yml" "$release/"
+  cp "$REPO/infra/uat/bin/uat-deploy.sh" "$REPO/infra/uat/bin/db-roles.sh" "$REPO/infra/uat/bin/object-storage-entrypoint.sh" "$release/bin/"
 }
 
 start_registry() {
@@ -174,10 +174,10 @@ write_env() {
     echo "UAT_KEYCLOAK_DB_PASSWORD=$(secret 24)"
     echo "UAT_KEYCLOAK_ADMIN_USERNAME=kcadmin-$(secret 4)"
     echo "UAT_KEYCLOAK_ADMIN_PASSWORD=$(secret 24)"
-    echo "UAT_MINIO_ROOT_USER=minioroot$(secret 4)"
-    echo "UAT_MINIO_ROOT_PASSWORD=$(secret 24)"
-    echo "UAT_MINIO_API_ACCESS_KEY=uatapi$(secret 6)"
-    echo "UAT_MINIO_API_SECRET_KEY=$(secret 24)"
+    echo "UAT_S3_ROOT_ACCESS_KEY=s3root$(secret 4)"
+    echo "UAT_S3_ROOT_SECRET_KEY=$(secret 24)"
+    echo "UAT_S3_API_ACCESS_KEY=uatapi$(secret 6)"
+    echo "UAT_S3_API_SECRET_KEY=$(secret 24)"
   ) >"$UAT_ROOT/uat.env"
   chmod 600 "$UAT_ROOT/uat.env"
 }

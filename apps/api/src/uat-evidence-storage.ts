@@ -15,6 +15,7 @@ import {
   DeleteObjectCommand,
   GetBucketPolicyCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   PutBucketLifecycleConfigurationCommand,
   PutObjectCommand,
   S3Client,
@@ -32,6 +33,10 @@ export const UAT_EVIDENCE_LIFECYCLE_RULE_ID = 'uat-evidence-retention-90d';
 /** ส่วนของ S3 client ที่ adapter ใช้ — เทสต์ส่ง client ปลอมมาตรวจ command ได้ */
 export interface UatEvidenceS3Client {
   send(command: object): Promise<unknown>;
+}
+
+function httpStatus(error: unknown): number | undefined {
+  return (error as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata?.httpStatusCode;
 }
 
 function errorName(error: unknown): string | undefined {
@@ -68,12 +73,27 @@ export class UatEvidenceObjectStorage implements UatEvidenceStorage {
     return new UatEvidenceObjectStorage(client, readS3Bucket('UAT_EVIDENCE', environment));
   }
 
-  /** เรียกตอนบูต: bucket + lifecycle 90 วัน (idempotent) และยืนยันว่าไม่มี bucket policy */
+  /**
+   * เรียกตอนบูต: bucket + lifecycle 90 วัน (idempotent) และยืนยันว่าไม่มี bucket policy
+   * ตรวจด้วย HeadBucket ก่อน (#540): bucket ที่ bootstrap สร้างด้วย root แล้วให้สิทธิ์ API ใช้ได้เลย —
+   * storage ที่มีเจ้าของ bucket (SeaweedFS) ตอบ CreateBucket ซ้ำว่า BucketAlreadyExists
+   * ส่วน CreateBucket ที่แข่งกับเจ้าของอื่นหลัง Head 404 ยังต้องล้ม
+   */
   async ensureBucket(): Promise<void> {
+    let exists = true;
     try {
-      await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }));
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
     } catch (error) {
-      if (errorName(error) !== 'BucketAlreadyOwnedByYou') throw error;
+      const name = errorName(error);
+      if (httpStatus(error) !== 404 && name !== 'NotFound' && name !== 'NoSuchBucket') throw error;
+      exists = false;
+    }
+    if (!exists) {
+      try {
+        await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }));
+      } catch (error) {
+        if (errorName(error) !== 'BucketAlreadyOwnedByYou') throw error;
+      }
     }
     await this.client.send(
       new PutBucketLifecycleConfigurationCommand({

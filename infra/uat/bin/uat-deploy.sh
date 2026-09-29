@@ -6,6 +6,7 @@
 #   $UAT_ROOT/releases/<sha>/         compose + bin/ + release.env (digest ของ image) ของแต่ละ release
 #   $UAT_ROOT/deployments/            deployment record (current.json, previous.json, <time>-<sha>.json)
 #   $UAT_ROOT/backups/                pg_dump ก่อน migrate ทุกครั้ง
+#   $UAT_ROOT/object-storage-migrated เวลาที่ย้ายหลักฐานจาก MinIO → SeaweedFS สำเร็จ (#540)
 #
 # ไม่มีขั้น down migration และ rollback ไม่แตะฐานข้อมูล (redeploy digest เดิมของ Console/api เท่านั้น)
 # ไม่พิมพ์ค่า secret: compose อ่านจาก env file เอง, script พิมพ์เฉพาะสถานะ/ชื่อไฟล์/digest
@@ -14,10 +15,12 @@ umask 077
 
 UAT_ROOT="${UAT_ROOT:-/opt/dcontact-uat}"
 PROJECT=dcontact-uat
+# #540: เขียนหลัง migrate-object-storage สำเร็จ — deploy บน VM ที่มี volume minio-data ต้องมีไฟล์นี้
+MIGRATION_MARKER="$UAT_ROOT/object-storage-migrated"
 DIGEST_REF='^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
 
 usage() {
-  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|deploy|smoke|record|current|rollback-target|rollback> [sha] [file|--token-stdin] [--check]' >&2
+  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|migrate-object-storage|deploy|smoke|record|current|rollback-target|rollback> [sha] [file|--token-stdin] [--check]' >&2
   exit 64
 }
 
@@ -136,13 +139,36 @@ case "$cmd" in
     compose "$dir" --profile ops run --rm -T uat-provision ${mode[@]+"${mode[@]}"} --input - <"$file"
     ;;
 
+  migrate-object-storage)
+    # #540 (ADR-029): ย้ายหลักฐานจาก MinIO เดิม → SeaweedFS ครั้งเดียวก่อน `deploy` ของ release ใหม่
+    # (runbook docs/u1-uat-deployment.md) — หยุด api ก่อนเพื่อไม่ให้มีหลักฐานใหม่เข้า MinIO ระหว่างคัดลอก
+    # รันซ้ำได้: object ที่คัดลอกแล้ว (sha256 ตรง) ถูกข้าม; ต้องมี UAT_MINIO_ROOT_* เดิมใน uat.env
+    dir="$(release_dir "${1:?sha}")"
+    overlay="$dir/docker-compose.uat.migration.yml"
+    [[ -f "$overlay" ]] || fail 'MIGRATION_OVERLAY_MISSING'
+    compose "$dir" stop api || true
+    compose "$dir" -f "$overlay" up -d --wait postgres minio object-storage
+    compose "$dir" -f "$overlay" run --rm -T object-storage-init
+    compose "$dir" -f "$overlay" run --rm -T object-storage-migrate
+    compose "$dir" -f "$overlay" stop minio
+    date -u +%Y-%m-%dT%H:%M:%SZ >"$MIGRATION_MARKER"
+    echo '{"type":"u1.uat.deploy","step":"migrate-object-storage","status":"PASS"}'
+    ;;
+
   deploy)
     dir="$(release_dir "${1:?sha}")"
-    compose "$dir" up -d --wait minio
-    # bucket private + user/policy ของ API ก่อน api บูต (U1.5 #433: api ไม่บูตถ้า bucket ไม่พร้อม)
-    compose "$dir" run --rm -T minio-init
-    # --no-deps: minio-init จบไปแล้วข้างบน และไม่ให้ `--wait` ไปรอ container one-shot ที่ exit แล้ว
-    compose "$dir" up -d --wait --no-deps --remove-orphans api proxy
+    # #540: VM ที่เคยมี MinIO ต้องย้ายหลักฐานก่อน (migrate-object-storage) — ไม่งั้น api บูตบน bucket ว่าง
+    if docker volume inspect "${PROJECT}_minio-data" >/dev/null 2>&1 && [[ ! -f "$MIGRATION_MARKER" ]]; then
+      fail 'OBJECT_STORAGE_MIGRATION_PENDING'
+    fi
+    # #540: object storage (SeaweedFS; s3.json + policy ของ API สร้างใน entrypoint) → bucket private
+    # ก่อน api บูต (U1.5 #433: api ไม่บูตถ้า bucket ไม่พร้อม) แล้ว lifecycle/expiry ที่รันต่อเนื่อง
+    compose "$dir" up -d --wait object-storage
+    compose "$dir" run --rm -T object-storage-init
+    # --no-deps: object-storage-init จบไปแล้วข้างบน และไม่ให้ `--wait` ไปรอ container one-shot ที่ exit แล้ว
+    # --remove-orphans ไม่ลบ volume minio-data (ย้ายข้อมูล/rollback จนถึง #541)
+    compose "$dir" up -d --wait --no-deps --remove-orphans \
+      object-storage-lifecycle object-storage-migrated-expiry api proxy
     echo '{"type":"u1.uat.deploy","step":"deploy","status":"PASS"}'
     ;;
 

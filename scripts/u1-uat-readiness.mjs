@@ -26,7 +26,7 @@ export const UAT_FILES = Object.freeze({
   envExample: 'infra/uat/uat.env.example',
   deployScript: 'infra/uat/bin/uat-deploy.sh',
   dbRolesScript: 'infra/uat/bin/db-roles.sh',
-  minioInitScript: 'infra/uat/bin/minio-init.sh',
+  objectStorageEntrypoint: 'infra/uat/bin/object-storage-entrypoint.sh',
   sshSetupScript: 'infra/uat/bin/ci-ssh-setup.sh',
   apiDockerfile: 'apps/api/Dockerfile',
   consoleDockerfile: 'apps/console/Dockerfile',
@@ -185,7 +185,7 @@ export function checkComposeServices(compose) {
       if (pattern.test(haystack)) failures.push({ service: service.name, kind });
     }
   }
-  for (const required of ['proxy', 'api', 'keycloak', 'postgres', 'minio']) {
+  for (const required of ['proxy', 'api', 'keycloak', 'postgres', 'object-storage']) {
     if (!services[required]) failures.push({ service: required, kind: 'MISSING' });
   }
   const code = compose.split('\n').map(stripYamlComment).join('\n');
@@ -460,18 +460,22 @@ export function checkApiEnvironment(compose) {
 const REQUIRED_REFERENCE = /^\$\{([A-Z0-9_]+):\?[^}]*\}$/;
 
 /**
- * U1.5 (#433): API บูตไม่ผ่านถ้าไม่มี MinIO — ต้องได้ endpoint ภายใน + credential ของ user เฉพาะ
- * (ไม่ใช่ root), รอ minio-init จบก่อน และ minio-init ห้ามเปิด anonymous access ของ bucket
+ * U1.5 (#433) + #540 (ADR-029): object storage ของหลักฐาน UAT บน SeaweedFS
+ * - api ต่อ endpoint ภายใน ด้วย credential ของ user เฉพาะ (ไม่ใช่ root) แบบ `:?` และรอ object-storage-init จบก่อน
+ * - storage ไม่ publish พอร์ต ไม่ใช้ `weed mini` (admin/worker gRPC ไม่มี mTLS) และมี lifecycle runner
+ * - entrypoint สร้าง s3.json: ไม่มี identity anonymous, API ใช้ policy แบบ AWS ที่จำกัด bucket/prefix เท่านั้น
  */
-export function checkEvidenceStorage(compose, minioInitScript) {
-  const id = 'UAT-S15 evidence storage: MinIO user เฉพาะของ API, bucket private';
+export function checkEvidenceStorage(compose, entrypointScript) {
+  const id = 'UAT-S15 evidence storage: object storage user เฉพาะของ API, bucket private';
   const services = parseComposeServices(compose);
   const api = services.api;
-  const init = services['minio-init'];
-  if (!api || !init) return check(id, [{ kind: 'MISSING_SERVICE' }]);
+  const storage = services['object-storage'];
+  const init = services['object-storage-init'];
+  const lifecycle = services['object-storage-lifecycle'];
+  if (!api || !storage || !init || !lifecycle) return check(id, [{ kind: 'MISSING_SERVICE' }]);
   const failures = [];
   const env = api.environment;
-  if (!/^https?:\/\/minio:9000$/.test(env.S3_ENDPOINT ?? '')) {
+  if (env.S3_ENDPOINT !== 'http://object-storage:8333') {
     failures.push({ kind: 'S3_ENDPOINT_NOT_INTERNAL' });
   }
   for (const name of ['S3_ACCESS_KEY', 'S3_SECRET_KEY']) {
@@ -480,41 +484,62 @@ export function checkEvidenceStorage(compose, minioInitScript) {
     else if (/ROOT/.test(reference[1])) failures.push({ name, kind: 'API_USES_ROOT_CREDENTIAL' });
   }
   if (env.S3_BUCKET_UAT_EVIDENCE !== 'uat-evidence') failures.push({ kind: 'EVIDENCE_BUCKET' });
-  // api ต้องอยู่ network เดียวกับ minio (internal) จึงต่อ http://minio:9000 ได้
-  for (const service of [api, services.minio, init]) {
-    if (service && !/^\s+- internal$/m.test(service.raw.join('\n'))) {
+  // api ต่อ http://object-storage:8333 ได้เพราะอยู่ network เดียวกัน (internal ไม่มีทางออก)
+  for (const service of [api, storage, init, lifecycle]) {
+    if (!/^\s+- internal$/m.test(service.raw.join('\n'))) {
       failures.push({ service: service.name, kind: 'NOT_ON_INTERNAL_NETWORK' });
     }
   }
-  if (!/minio-init:\s*\n\s+condition:\s*service_completed_successfully/.test(api.raw.join('\n'))) {
-    failures.push({ kind: 'API_DOES_NOT_WAIT_FOR_MINIO_INIT' });
-  }
-  if (init.profiles.length > 0) failures.push({ kind: 'MINIO_INIT_IN_PROFILE' });
-  const initText = `${init.raw.join('\n')}\n${minioInitScript ?? ''}`;
   if (
-    /mc\s+anonymous\s+set|mc\s+policy\s+set|PutBucketPolicy|anonymous\s+set-json/.test(initText)
+    !/object-storage-init:\s*\n\s+condition:\s*service_completed_successfully/.test(
+      api.raw.join('\n'),
+    )
   ) {
+    failures.push({ kind: 'API_DOES_NOT_WAIT_FOR_OBJECT_STORAGE_INIT' });
+  }
+  if (init.profiles.length > 0) failures.push({ kind: 'OBJECT_STORAGE_INIT_IN_PROFILE' });
+  if (storage.ports.length > 0) failures.push({ kind: 'OBJECT_STORAGE_PUBLISHES_PORT' });
+  const storageText = storage.raw.join('\n');
+  if (
+    !/entrypoint:\s*\[[^\]]*object-storage-entrypoint\.sh'?\s*\]/.test(storageText) ||
+    /\bmini\b/.test(storageText)
+  ) {
+    failures.push({ kind: 'OBJECT_STORAGE_ENTRYPOINT' });
+  }
+  if (!/s3\.lifecycle\.run-shard[^\n]*-refresh/.test(lifecycle.raw.join('\n'))) {
+    failures.push({ kind: 'NO_LIFECYCLE_RUNNER' });
+  }
+  const initText = [init, storage].map((service) => service.raw.join('\n')).join('\n');
+  if (/PutBucketPolicy|PutBucketAcl|anonymous/i.test(initText)) {
     failures.push({ kind: 'ANONYMOUS_POLICY' });
   }
-  if (minioInitScript === null) {
-    failures.push({ kind: 'MINIO_INIT_SCRIPT_MISSING' });
+  if (entrypointScript === null) {
+    failures.push({ kind: 'OBJECT_STORAGE_ENTRYPOINT_MISSING' });
   } else {
-    for (const [pattern, kind] of [
-      [/mc admin user add/, 'NO_API_USER'],
-      [/mc admin policy create/, 'NO_API_POLICY'],
-      [/mc admin policy attach/, 'POLICY_NOT_ATTACHED'],
-      [/arn:aws:s3:::\$\{bucket\}"/, 'POLICY_NOT_BUCKET_SCOPED'],
-      [/API_USES_ROOT_CREDENTIAL/, 'NO_ROOT_GUARD'],
-    ]) {
-      if (!pattern.test(minioInitScript)) failures.push({ kind });
+    const code = entrypointScript
+      .split('\n')
+      .filter((line) => !/^\s*#/.test(line))
+      .join('\n');
+    if (/\bmini\b/.test(code) || !/weed[^\n]*\bserver\b/.test(code) || !/-s3\b/.test(code)) {
+      failures.push({ kind: 'OBJECT_STORAGE_MINI_MODE' });
     }
-    if (
-      /"s3:\*"|"Resource":\s*\["arn:aws:s3:::\*"\]|consoleAdmin|readwrite/.test(minioInitScript)
-    ) {
-      failures.push({ kind: 'POLICY_TOO_BROAD' });
+    if (/"anonymous"/.test(code)) failures.push({ kind: 'ANONYMOUS_IDENTITY' });
+    const apiIdentity = /"name":\s*"uat-evidence-api"[\s\S]*?\n\s{4}\}/.exec(code)?.[0] ?? '';
+    if (!/"policyNames":\s*\["uat-evidence-api"\]/.test(apiIdentity)) {
+      failures.push({ kind: 'POLICY_NOT_ATTACHED' });
     }
+    if (/"actions"/.test(apiIdentity)) failures.push({ kind: 'API_COARSE_ACTIONS' });
+    const resources = [...code.matchAll(/arn:aws:s3:::([^\\"]*)/g)].map((match) => match[1]);
+    const allowed = new Set(['${bucket}', '${bucket}/uat-evidence/*']);
+    if (resources.length === 0 || resources.some((resource) => !allowed.has(resource))) {
+      failures.push({ kind: 'POLICY_NOT_BUCKET_SCOPED' });
+    }
+    if (/s3:\*|"Action":\s*"\*"/.test(code)) failures.push({ kind: 'POLICY_TOO_BROAD' });
+    if (!/API_USES_ROOT_CREDENTIAL/.test(code)) failures.push({ kind: 'NO_ROOT_GUARD' });
+    if (!/INVALID_CREDENTIAL_CHARSET/.test(code))
+      failures.push({ kind: 'NO_CREDENTIAL_CHARSET_GUARD' });
+    if (!/^bucket=uat-evidence$/m.test(code)) failures.push({ kind: 'EVIDENCE_BUCKET' });
   }
-  if (services.minio?.ports.length > 0) failures.push({ kind: 'MINIO_PUBLISHES_PORT' });
   return check(id, failures);
 }
 
@@ -880,7 +905,7 @@ export function runStaticChecks(root = repositoryRoot) {
     checkKeycloakTheme(compose, files.realm, files.keycloakDockerfile),
     checkRealm(files.realm),
     checkApiEnvironment(compose),
-    checkEvidenceStorage(compose, files.minioInitScript),
+    checkEvidenceStorage(compose, files.objectStorageEntrypoint),
     checkUatProvision(compose, files.apiDockerfile, files.deployScript),
     checkProxy(files.caddyfile),
     checkWorkflow(files.workflow),
