@@ -52,11 +52,12 @@
 pnpm install
 
 # 1. เริ่มและยืนยัน Phase 0 readiness ด้วยคำสั่งเดียว
-#    FreeSWITCH + Postgres + Redis + MinIO + Redpanda (Kafka) + Keycloak + database baseline
+#    FreeSWITCH + Postgres + Redis + object storage (RustFS) + Redpanda (Kafka) + Keycloak + database baseline
 #    รวม RLS tenant isolation, OIDC rejection และ Kafka produce/consume evidence
 #    Redpanda Console (ดู topics/messages): `pnpm infra:console` แล้วเปิด http://localhost:8085
 #      (แยกเป็น profile เพราะ CI ไม่ต้องใช้ และกิน memory ~266 MiB)
 #    Keycloak Admin Console: http://localhost:8081 (admin / admin, เฉพาะ dev)
+#    RustFS Console: http://localhost:9001/rustfs/console/ (dcontact / dcontact-secret, เฉพาะ dev)
 pnpm infra:ready
 
 # 2. build ทั้งหมด
@@ -113,8 +114,15 @@ workflow ยังรัน tenant-isolation evidence ผ่าน role `dcontac
 
 - ถ้า Docker service ใดยังไม่พร้อม ให้ดูสถานะของ Docker Compose แล้วรัน `pnpm infra:up` ซ้ำ
 - ถ้า PostgreSQL ไม่พร้อมหลังเคยหยุด Docker นาน ให้รอ health check ผ่านก่อนรัน migration
-- ถ้า object storage หรือ bucket ไม่ผ่าน ให้ตรวจว่า port 9000 ไม่ถูกใช้งานโดยโปรแกรมอื่น, volume ของ dev เขียนได้
-  และ `S3_*` ใน env ตรงกับ dev compose (ADR-029; `MINIO_*` ยังอ่านได้แต่ deprecated)
+- ถ้า object storage หรือ bucket ไม่ผ่าน ให้ตรวจว่า port 9000/9001 ไม่ถูกใช้งานโดยโปรแกรมอื่น
+  และ `S3_*` ใน env ตรงกับ dev compose (ADR-029; `MINIO_*` ยังอ่านได้แต่ deprecated) แล้วรัน
+  `node scripts/object-storage-init.mjs` (สร้าง bucket แบบ idempotent) ส่วน S3 contract ตรวจด้วย
+  `pnpm test:object-storage:contract`
+- **ย้ายจาก MinIO (#533):** dev ใช้ RustFS แล้ว ข้อมูลใน `infra/docker/data/minio` **ไม่ถูกย้ายให้**
+  (ข้อมูล dev ล้างได้) — หยุด container เก่าด้วย `docker compose -f infra/docker/docker-compose.dev.yml up -d --remove-orphans`
+  หรือ `pnpm infra:down` แล้ว `pnpm infra:up` ใหม่ จากนั้นลบ `infra/docker/data/minio` ได้;
+  ข้อมูลของ RustFS อยู่ใน named volume `d-contact-dev_object-storage-data`
+  (ล้างด้วย `docker volume rm d-contact-dev_object-storage-data` หลัง `pnpm infra:down`)
 - ถ้า Redpanda topic หาย ให้ตรวจ health ของ Redpanda ก่อน ไม่สร้าง topic ชื่อเก่า `dc.fs.events`
 - ถ้า FreeSWITCH ไม่ผ่าน ให้ตรวจ Docker log ของ service และ port SIP/ESL ที่ประกาศไว้; ปัญหาเสียงบน Docker Desktop ให้ตรวจ UDP RTP ตามหมายเหตุด้านบน
 - ถ้า Keycloak ไม่ผ่าน ให้ตรวจ port 8081 แล้วรัน `pnpm infra:identity:link` ตามด้วย

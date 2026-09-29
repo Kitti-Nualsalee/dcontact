@@ -46,39 +46,29 @@ services:
       timeout: 3s
       retries: 10
 
-  # #467: image ทางการของ MinIO (quay.io/minio/*, minio/*) pull ไม่ได้แล้ว — ใช้ fork ที่ community ดูแล
-  # (entrypoint/`minio server`/`mc` เหมือนเดิม) และตรึง release tag แทน latest
-  minio:
-    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
-    command: server /data --console-address ":9001"
+  # ADR-029 (#533): object storage ของ dev/CI คือ RustFS (Apache 2.0) — แอปคุยผ่าน S3 API (`S3_*`) เท่านั้น
+  # UAT/on-prem/cloud ใช้ SeaweedFS; ตรึง release + digest ห้ามใช้ latest
+  # bucket สร้างโดย `scripts/object-storage-init.mjs` (S3 API ไม่ผูกกับ CLI ของผู้ผลิต) ซึ่ง `pnpm infra:up` เรียก
+  # console: http://localhost:9001/rustfs/console/ (dcontact / dcontact-secret)
+  object-storage:
+    image: rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
     environment:
-      MINIO_ROOT_USER: dcontact
-      MINIO_ROOT_PASSWORD: dcontact-secret
+      RUSTFS_ACCESS_KEY: dcontact
+      RUSTFS_SECRET_KEY: dcontact-secret
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ENABLE: 'true'
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
     ports:
       - '9000:9000'
       - '9001:9001'
+    # named volume: image รันด้วย user `rustfs` (non-root) — bind mount ที่ docker สร้างเป็น root บน Linux เขียนไม่ได้
     volumes:
-      - ./data/minio:/data
+      - object-storage-data:/data
     healthcheck:
-      test: ['CMD-SHELL', 'curl -fsS http://localhost:9000/minio/health/live']
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:9000/health']
       interval: 5s
       timeout: 3s
-      retries: 10
-
-  # สร้าง bucket "recordings" และ "uat-evidence" (U1.5 #433: ส่วนตัว ไม่ตั้ง anonymous policy;
-  # lifecycle 90 วันตั้งโดย API ตอนบูต) อัตโนมัติตอน start
-  # ใช้ image เดียวกับ minio เพราะมีทั้ง `mc` และ /bin/sh สำหรับ entrypoint ด้านล่าง
-  minio-init:
-    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      until mc alias set local http://minio:9000 dcontact dcontact-secret; do sleep 1; done;
-      mc mb -p local/recordings || true;
-      mc mb -p local/uat-evidence || true;
-      exit 0"
+      retries: 20
 
   # Kafka-compatible event backbone (dev) — production ใช้ Kafka/MSK/Redpanda ได้ (API เดียวกัน)
   redpanda:
@@ -101,7 +91,7 @@ services:
       timeout: 5s
       retries: 20
 
-  # สร้าง topics อัตโนมัติตอน start (pattern เดียวกับ minio-init)
+  # สร้าง topics อัตโนมัติตอน start
   redpanda-init:
     image: redpandadata/redpanda:v24.2.7
     depends_on:
@@ -195,3 +185,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+
+volumes:
+  object-storage-data:

@@ -46,7 +46,7 @@ test('config ใช้ S3_* ก่อน MINIO_* และ default ตรงก�
 });
 
 test('HeadBucket ทุก bucket ที่ต้องมีและรายงานตัวที่ขาดพร้อม status', async () => {
-  const { clients, s3 } = fakeS3(new Set(['recordings']));
+  const { clients, s3 } = fakeS3(new Set(['recordings', 'governance-exports']));
   const missing = await missingBuckets({ environment: {}, s3 });
   assert.deepEqual(missing, ['uat-evidence (404)']);
   assert.equal(clients.length, 1);
@@ -54,6 +54,6 @@ test('HeadBucket ทุก bucket ที่ต้องมีและราย�
 });
 
 test('ทุก bucket พร้อม = ไม่มีรายการขาด', async () => {
-  const { s3 } = fakeS3(new Set(['recordings', 'uat-evidence']));
+  const { s3 } = fakeS3(new Set(['recordings', 'governance-exports', 'uat-evidence']));
   assert.deepEqual(await missingBuckets({ environment: {}, s3 }), []);
 });
