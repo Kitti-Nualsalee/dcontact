@@ -6,7 +6,7 @@ import { HostChannel } from './host-channel.js';
 import { lockHostOrigin } from './origin-lock.js';
 
 const HOST = 'https://crm.example.test';
-const config = { v: 1 as const, tenant: 'demo', allowedHostOrigins: [HOST] };
+const config = { v: 1 as const, tenant: 'demo', allowedHostOrigins: [HOST], auth: null };
 
 function channel() {
   const parent = { name: 'parent' };
