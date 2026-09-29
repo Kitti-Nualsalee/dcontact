@@ -94,7 +94,7 @@ dphone 3 ขนาดระหว่างสายจริง
 | --- | --- | --- |
 | ![แถบ](evidence/d1/dphone-th-bar.png) | ![กะทัดรัด](evidence/d1/dphone-th-compact.png) | ![ขยาย](evidence/d1/dphone-th-expanded.png) |
 
-สร้างภาพ Console ใหม่: `D1_VISUAL_EVIDENCE_DIR=<dir> pnpm --filter @d-contact/console exec playwright test -g "visual evidence"`
+สร้างภาพ Console ใหม่: `D1_VISUAL_EVIDENCE_DIR=<dir> pnpm --filter @d-contact/console exec playwright test --project=d1-visual-evidence`
 
 ## `pnpm d1:real-call` (dev stack)
 
