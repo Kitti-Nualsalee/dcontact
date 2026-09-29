@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 // ADR-029: readiness ของ object storage ตรวจด้วย S3 API (`HeadBucket`) ไม่ใช้ endpoint เฉพาะของผู้ผลิต
 // env ชุดเดียวกับแอป (`S3_*`, fallback `MINIO_*`); ค่า default ตรงกับ dev compose
-export const DEV_BUCKETS = ['recordings', 'uat-evidence'];
+export const DEV_BUCKETS = ['recordings', 'governance-exports', 'uat-evidence'];
 
 export function objectStorageConfiguration(environment = process.env) {
   const value = (name, legacy, fallback) =>
@@ -20,9 +20,15 @@ export function objectStorageConfiguration(environment = process.env) {
 }
 
 /** โหลด client จาก workspace ของแอป เพราะ root ไม่มี `@aws-sdk/client-s3` เป็น dependency */
-async function loadS3() {
+export async function loadS3() {
   const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
   return import(pathToFileURL(require.resolve('@aws-sdk/client-s3')).href);
+}
+
+/** presigner อยู่ใน workspace ของแอปเช่นกัน (ใช้ใน contract test) */
+export async function loadPresigner() {
+  const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
+  return import(pathToFileURL(require.resolve('@aws-sdk/s3-request-presigner')).href);
 }
 
 /** คืนรายชื่อ bucket ที่ใช้ไม่ได้ พร้อมเหตุผล; ว่าง = พร้อม */

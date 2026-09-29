@@ -107,6 +107,46 @@ jobs:
       - name: E1.14 dphone embed contract tests
         run: pnpm test:e1-embed-contract
 
+  object-storage-contract:
+    # ADR-029 (#533): S3 contract ที่แอปใช้ บน RustFS ของ dev compose — บูตจาก image ที่ตรึง digest
+    # (ไม่มี cache) แล้ว bootstrap bucket ผ่าน S3 API; ชุด contract เดียวกันใช้ยืนยัน SeaweedFS
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Start object storage (RustFS)
+        run: |
+          docker compose -f infra/docker/docker-compose.dev.yml up -d --wait object-storage || {
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color object-storage
+            exit 1
+          }
+
+      - name: Bootstrap buckets twice (idempotent)
+        run: node scripts/object-storage-init.mjs && node scripts/object-storage-init.mjs
+
+      - name: Readiness via HeadBucket
+        run: |
+          node --input-type=module -e "
+            import { missingBuckets } from './scripts/object-storage-readiness.mjs';
+            const missing = await missingBuckets();
+            if (missing.length) { console.error('missing:', missing.join(', ')); process.exit(1); }
+            console.log('✓ HeadBucket ผ่านทุก dev bucket');
+          "
+
+      - name: S3 contract tests
+        run: pnpm test:object-storage:contract
+
   a1-platform-control-fast-gate:
     # A1.1 (#406) / #393 Fast PR gate: idempotency, reservation race, tombstone, CAS, completion
     # invariant, append-only, isolation matrix, Platform API, tenant lifecycle gate และ Platform
@@ -689,7 +729,7 @@ jobs:
 
   cxa-u1-acceptance:
     # U1.7 (#435): acceptance gate ของ UAT first slice บน backend จริง (ไม่มี API mock) ก่อนเปิด #416
-    # API entry `uat-main` (DCONTACT_API_PROFILE=uat) + Postgres/Keycloak/MinIO ของ dev compose + Console ผ่าน Vite
+    # API entry `uat-main` (DCONTACT_API_PROFILE=uat) + Postgres/Keycloak/object storage ของ dev compose + Console ผ่าน Vite
     # สั่งเอง: `gh workflow run CI --ref main -f acceptance=u1` — marker `U1_ACCEPTANCE_GATE_PASSED` ออกเฉพาะ
     # ทุก check PASS บน U1_EXPECTED_COMMIT_SHA และแปลว่า "พร้อมเปิด #416" เท่านั้น ไม่ใช่ UAT ผ่าน
     # หลักฐาน = manifest + screenshot เท่านั้น (ห้าม trace/HAR/video ตาม #379)
@@ -736,7 +776,7 @@ jobs:
         run: |
           pnpm infra:ready || {
             docker compose -f infra/docker/docker-compose.dev.yml ps
-            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color keycloak minio
+            docker compose -f infra/docker/docker-compose.dev.yml logs --no-color keycloak object-storage
             exit 1
           }
 
@@ -744,7 +784,7 @@ jobs:
         run: pnpm cxa:u1:acceptance
         env:
           U1_EXPECTED_COMMIT_SHA: ${{ github.sha }}
-          # evidence store ของ API = object storage ของ dev compose (minio-init สร้าง bucket uat-evidence)
+          # evidence store ของ API = object storage ของ dev compose (object-storage-init สร้าง bucket uat-evidence)
           S3_ENDPOINT: http://localhost:9000
           S3_ACCESS_KEY: dcontact
           S3_SECRET_KEY: dcontact-secret

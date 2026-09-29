@@ -1,7 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { compose } from './dev-infra-compose.mjs';
 import { DEV_BUCKETS, missingBuckets } from './object-storage-readiness.mjs';
-const runningServices = ['postgres', 'redis', 'minio', 'redpanda', 'freeswitch', 'keycloak'];
+const runningServices = [
+  'postgres',
+  'redis',
+  'object-storage',
+  'redpanda',
+  'freeswitch',
+  'keycloak',
+];
 // derive จาก KAFKA_TOPICS ของ packages/shared (source of truth เดียว) แทน list ที่เขียนซ้ำไว้ที่นี่ —
 // list เดิม drift จน topic ใหม่หายจาก env ที่ bootstrap แล้วโดยไม่มีใครรู้ และ consumer test ค้างจน timeout
 const kafkaTopicSource = readFileSync(
