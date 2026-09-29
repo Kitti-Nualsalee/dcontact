@@ -1,0 +1,10 @@
+{
+  "versions": {
+    "1.0.0": {
+      "integrity": "sha384-zHE2vfDbjHt4f4lJ+S0QST5NQ83ltJ6tlZWEI5+U2WJWse+GVUafQQVh1iJKNGhe"
+    }
+  },
+  "aliases": {
+    "v1": "1.0.0"
+  }
+}

@@ -3,6 +3,8 @@
 **/test-results/
 infra/docker/data/
 pnpm-lock.yaml
+# E1.15: release ของ launcher เป็น immutable (ตรวจด้วย SRI) — ห้าม format ใหม่
+packages/dphone-embed/releases/*/
 
 # Historical reference documents and static prototypes
 docs/*.md
