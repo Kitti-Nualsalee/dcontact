@@ -101,6 +101,9 @@ test('click-to-call: host กรอกเบอร์ได้อย่างเ
   const { server, frame } = await setup(page);
   await signIn(page, frame);
   await expect.poll(() => server.lease).toBeTruthy();
+  await expect
+    .poll(() => messages(page))
+    .toContainEqual(expect.objectContaining({ type: 'dphone.screenpop' }));
 
   // host ขอโทรพร้อม field ที่พยายามสั่งโทรเอง → ได้แค่ prefilled ไม่มีการเรียก server
   await page.evaluate(() =>
