@@ -17,8 +17,8 @@ api (profile `uat`), Keycloak, Postgres, MinIO บน network `internal: true` �
 | VM  | IP                | บทบาท                          | ข้อเท็จจริงที่ตรวจพบ                                                                                                  |
 | --- | ----------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | VM1 | `192.168.102.114` | nginx 1.18 (edge / หน้าเว็บ)   | **ใช้ร่วมกับเว็บอื่น** (`dphonedemo.osd.co.th`, `id24-dphonedemo`, `m-dphonedemo` ใน `conf.d`)                        |
-| VM2 | `192.168.102.112` | Docker 24.0.7 + Compose v2.21  | RAM 3.9 GB, disk ว่าง 19 GB, ไม่มี container, ไม่อยู่ใน `docker` group, ยังไม่ตั้ง `userland-proxy: false`            |
-| VM3 | `192.168.102.113` | PostgreSQL 16.3                | **ใช้ร่วมกับระบบอื่น**, listen `0.0.0.0:5432`, VM1 เข้า 5432 ได้                                                      |
+| VM2 | `192.168.102.112` | Docker 24.0.7 + Compose v2.21  | RAM 3.9 GB, disk ว่าง 19 GB; ผลตรวจครั้งแรกไม่มี container, ไม่อยู่ใน `docker` group, ยังไม่ตั้ง `userland-proxy: false` (ตรวจซ้ำ 2026-09-29 15:09: แก้ครบสามข้อแล้ว และพบ container รันอยู่ 8 ตัว — ต้องระบุที่มา) |
+| VM3 | `192.168.102.113` | PostgreSQL **15.4** (server; psql client 16.3) | **ใช้ร่วมกับระบบอื่น** (database `dialer`, `dinventory`, `id24`), listen `0.0.0.0:5432`, VM1 เข้า 5432 ได้ |
 
 ทั้งสามเครื่อง Ubuntu 20.04, sudo ต้องใช้ password, host ที่ใช้คือ `dcontact-uat.osd.co.th` (DNS ยังไม่ resolve)
 
@@ -49,8 +49,9 @@ api (profile `uat`), Keycloak, Postgres, MinIO บน network `internal: true` �
    - สร้าง database ใหม่สำหรับ UAT โดยเฉพาะ (`dcontact_uat`, `keycloak_uat`) และ role ที่มี prefix
      (`dcontact_uat_app` แบบ NOBYPASSRLS, `keycloak_uat`) — ต้อง **parametrize ชื่อ** ใน `db-roles.sh`,
      `uat-deploy.sh`, compose (ตอนนี้ hardcode `dcontact`/`keycloak`) และตรวจว่าไม่ชนกับของเดิมก่อนสร้าง
-   - owner ของ migrate/provision ควรเป็น role เฉพาะ UAT (`dcontact_uat_owner`) ที่สร้างขึ้นครั้งเดียว ไม่ใช้บัญชี
-     `id24` ที่ใช้ร่วมกับระบบอื่นเป็น owner ถาวร; `id24` ใช้ bootstrap เท่านั้น
+   - owner ของ migrate/provision ควรเป็น role เฉพาะ UAT (`dcontact_uat_owner`) ที่สร้างขึ้นครั้งเดียว ไม่ใช้บัญชีที่
+     ใช้ร่วมกับระบบอื่น (`id24`, `sa`) เป็น owner ถาวร; บัญชี bootstrap (`sa` เป็น superuser + bypassrls) ใช้สร้าง
+     role/database ครั้งแรกเท่านั้น — extension ที่ต้องใช้เป็นแบบ trusted (PG 13+) owner ที่ไม่ใช่ superuser จึงสร้างเองได้
    - `pg_hba.conf`: **เพิ่ม** บรรทัดให้ `192.168.102.112/32` เข้าเฉพาะ database/role ของ UAT ด้วย `scram-sha-256`
      และจำกัด 5432 ด้วย firewall ให้เหลือ VM ที่จำเป็น — ห้ามลบหรือแก้บรรทัดเดิม (ระบบอื่นใช้อยู่)
    - รหัสผ่านอยู่ใน `/opt/dcontact-uat/uat.env` บน VM2 เท่านั้น ไม่เข้า Git/GitHub/รายงานการตรวจ
@@ -73,7 +74,7 @@ api (profile `uat`), Keycloak, Postgres, MinIO บน network `internal: true` �
    และเฝ้า disk (19 GB — image + `minio-data` ที่ retention 90 วัน) เป็นเงื่อนไขของ readiness
 
 6. **backup/restore ต้องไม่พึ่ง `pg_dump` ใน container `postgres`**: `uat-deploy.sh backup` (`exec postgres pg_dump`)
-   เปลี่ยนเป็น one-shot จาก client image เวอร์ชันเดียวกับ server (16) ต่อผ่าน relay เขียนไฟล์ dump ลง
+   เปลี่ยนเป็น one-shot จาก client image เวอร์ชัน 15 ให้ตรงกับ server บน VM3 (dump จาก client 16 restore กลับเข้า server 15 ไม่ได้) ต่อผ่าน relay เขียนไฟล์ dump ลง
    `/opt/dcontact-uat/backups` บน VM2 เหมือนเดิม; นโยบาย backup ของ cluster ทั้งก้อนบน VM3 อยู่นอกขอบเขตนี้
    แต่ต้องมีเจ้าของระบุใน provisioning gate
 
@@ -113,6 +114,6 @@ api (profile `uat`), Keycloak, Postgres, MinIO บน network `internal: true` �
 | 2 | สิทธิ์ sudo บน 3 VM + เพิ่ม `osdadmin`/deploy user เข้า `docker` group บน VM2 | รอ |
 | 3 | DNS `dcontact-uat.osd.co.th` → `192.168.102.114` | รอ |
 | 4 | cert ของ host บน VM1 (ตรวจว่ามี wildcard เดิมหรือไม่) | รอ |
-| 5 | ตรวจ cluster บน VM3: ชื่อ database/role ที่ชน, สิทธิ์ของ `id24` (createdb/createrole), `pg_hba` เดิม | รอ (รัน precheck พร้อม `PG_PASSWORD`) |
-| 6 | เปลี่ยนรหัสผ่าน `id24` (เคยปรากฏในแชต) และเลือก owner role เฉพาะ UAT | รอ |
+| 5 | ตรวจ cluster บน VM3: ชื่อ database/role ที่ชน, สิทธิ์ (createdb/createrole), `pg_hba` เดิม | ส่วนใหญ่ผ่าน (2026-09-29): ใช้บัญชี `sa` (superuser) ตรวจแล้ว ชื่อ `dcontact_uat`, `keycloak_uat` และ role ที่มี prefix ไม่ชนกับของเดิม; extension ที่ต้องใช้ (`pgcrypto`, `citext`, `uuid-ossp`, `pg_trgm`, `btree_gin`, `btree_gist`) พร้อม; **ยังค้าง**: อ่าน `pg_hba.conf` (ต้อง sudo), ตรวจ Prisma migration + `rls.sql` กับ PostgreSQL 15 |
+| 6 | เปลี่ยนรหัสผ่านของบัญชี bootstrap ที่เคยปรากฏในแชต และสร้าง owner role เฉพาะ UAT (NOSUPERUSER) — `sa` เป็น superuser + bypassrls จึงใช้ bootstrap เท่านั้น | รอ |
 | 7 | เจ้าของ backup ของ Postgres บน VM3 | รอ |
