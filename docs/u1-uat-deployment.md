@@ -68,9 +68,10 @@ env `LINE_*`, `KAFKA_BROKERS` หรือ `SIP_*`
 | แหล่ง TLS cert (CA, วันหมดอายุ, วิธีต่ออายุ)                             | `UAT_TLS_CERT_FILE`/`UAT_TLS_KEY_FILE` บน VM                     |               |             |        |
 | Secret store (ที่เก็บค่าใน `uat.env` และไฟล์บัญชี)                       | operator วางไฟล์บน VM                                            |               |             |        |
 | Identity-aware gateway / allowlist (`UAT_ALLOWED_CIDRS`)                 | Caddy `remote_ip` — ต้องมี pool ของ Docker bridge ด้วย (ข้อ 4.7) |               |             |        |
-| GHCR access (VM pull แบบ read-only)                                      | `docker login ghcr.io` บน VM ด้วย token `read:packages`          |               |             |        |
+| GHCR access (VM pull แบบ read-only)                                      | `docker login ghcr.io` บน VM ด้วย token `read:packages` (ข้อ 4.6) |               |             |        |
 | SSH key ของ deploy (public key บน VM, host key ใน `UAT_SSH_KNOWN_HOSTS`) | workflow `uat-preview`                                           |               |             |        |
-| Tenant UAT (`UAT_TENANT_ID`/`UAT_TENANT_SLUG`) และ fixture pack version  | realm Organization, `VITE_UAT_PACK_VERSION`                      |               |             |        |
+| Tenant UAT (`UAT_TENANT_ID`/`UAT_TENANT_SLUG`/`UAT_TENANT_NAME`) และ fixture pack version | realm Organization, `VITE_UAT_PACK_VERSION`      |               |             |        |
+| Domain ของ Keycloak Organization (`UAT_ORGANIZATION_DOMAIN`)             | realm ตั้งเป็น domain แบบ `verified` ของ Organization ของ tenant   |               |             |        |
 
 ## 3. ตั้งค่า GitHub environment `uat-preview`
 
@@ -129,7 +130,15 @@ secret runtime ของ UAT (รหัสผ่าน DB/Keycloak/MinIO) **ไ�
      deploy user mode 600 proxy จะอ่าน key ไม่ได้และไม่ขึ้น (ยืนยันแล้วใน `uat-image-smoke` #507)
 5. สร้าง `/opt/dcontact-uat/uat.env` ตามรายชื่อใน `infra/uat/uat.env.example`, `chmod 600`
    (`uat-deploy.sh` ปฏิเสธถ้า mode ไม่ใช่ 600) — ทุกค่าสร้างใหม่สำหรับ UAT; รหัสผ่านที่อยู่ใน URL ใช้ `[A-Za-z0-9]` เท่านั้น
+   - `UAT_ORGANIZATION_DOMAIN` = domain ที่องค์กรเป็นเจ้าของจริง (realm ตั้งเป็น `verified: true`) — ห้ามใช้ domain
+     ของอีเมลสาธารณะอย่าง `gmail.com`; อีเมลของผู้ทดสอบไม่จำเป็นต้องอยู่ใน domain นี้
 6. `docker login ghcr.io` ด้วย token แบบ `read:packages` ของบัญชี service (ไม่ใช่ token ส่วนตัว)
+   - image ถูก push ครั้งแรกตอน deploy ครั้งแรก (ยังไม่มี package ให้ทดสอบ pull ล่วงหน้า) และ package ที่ push ด้วย
+     `github.token` เป็น private ที่สืบสิทธิ์จาก repository — บัญชี service ต้องอ่าน repository นี้ได้ ไม่อย่างนั้น
+     ขั้น `prepare` ของ deploy ครั้งแรกจะล้มตอน pull (`denied`) หลัง push เสร็จ
+   - ถ้าล้มแบบนี้: ให้สิทธิ์อ่านกับบัญชี service ใน Package settings ของทั้ง 4 package
+     (`dcontact-uat-{api,ops,console,keycloak}`) แล้ว re-run workflow — ยังไม่มี backup/migrate/deploy เกิดขึ้น เพราะ `prepare` อยู่ก่อน
+     `backup`/`migrate`
 7. `UAT_ALLOWED_CIDRS` = CIDR ของ gateway/allowlist จริง **และ** pool ของ Docker bridge บน VM
    - smoke (`uat-deploy.sh smoke`) รันบน VM แล้วเข้า proxy ผ่าน `127.0.0.1:443` แต่ docker-proxy/hairpin NAT
      (รวมกรณี `userland-proxy: false`) ทำให้ Caddy เห็น source เป็น gateway ของ bridge network ไม่ใช่ `127.0.0.1`
@@ -327,13 +336,23 @@ realm ไม่ถูก import ตอนบูต Keycloak: ขั้น `keycl
 
 ## 7. Deploy
 
+ก่อน deploy: acceptance gate ต้องผ่านบน **SHA เดียวกับที่จะ deploy**
+(`docs/u1-uat-acceptance-checklist.md` — CI job `cxa-u1-acceptance` สามครั้งติดกัน):
+
+1. จด SHA ของ `main` ตอนนี้ แล้วสั่ง `gh workflow run CI --ref main -f acceptance=u1` ทีละรอบจนผ่านสามรอบ
+   (แต่ละรอบราว 5 นาที) — ทุกรอบต้องรันบน SHA ที่จด
+2. workflow `uat-preview` build/deploy `main` HEAD ตอนกด dispatch (`$GITHUB_SHA`) ไม่ใช่ SHA ที่เลือกเอง — ถ้า `main`
+   ขยับระหว่างทาง (มี merge ใหม่) gate ของ SHA เดิมใช้กับ release นี้ไม่ได้ ต้องเริ่มสามรอบใหม่บน HEAD ใหม่
+   ให้ตกลงช่วงงด merge เข้า `main` ตั้งแต่รอบแรกของ gate จนกด dispatch
+3. หลัง deploy เทียบ `sourceSha` ใน deployment record (ข้อ 11) กับ SHA ที่จดไว้
+
 กด Actions → `uat-preview` → Run workflow (branch `main`, `action=deploy`) แล้วรอ reviewer อนุมัติ
 ลำดับใน job `deploy` (หยุดทันทีเมื่อขั้นใดล้ม):
 
 1. ตรวจ provisioning gate variables และ static readiness (`node --test ...` + `u1-uat-readiness.mjs --static`)
 2. SSH ไป VM (host key ต้องตรง) อ่าน deployment record ปัจจุบันเป็นฐานของ migration guard
 3. migration guard: migration ที่เพิ่มหลัง SHA ที่ deploy อยู่ต้องไม่มี `DROP` และห้ามแก้/ลบ migration เดิม
-4. build + push image `api`/`ops`/`console` ไป GHCR และเก็บ digest
+4. build + push image `api`/`ops`/`console`/`keycloak` ไป GHCR และเก็บ digest
 5. อัปโหลด release (`docker-compose.uat.yml`, `bin/`, `release.env` ที่มีแต่ digest) → `prepare` (compose config + pull)
 6. `backup`: `pg_dump --format=custom` ของ `dcontact` และ `keycloak` ไป `/opt/dcontact-uat/backups/`
 7. `migrate`: `db-roles` → `prisma migrate deploy` + `rls.sql` → `db-roles` อีกรอบ
@@ -390,7 +409,8 @@ uatc up -d --wait api proxy
   "images": {
     "api": "ghcr.io/...@sha256:...",
     "console": "...@sha256:...",
-    "ops": "...@sha256:..."
+    "ops": "...@sha256:...",
+    "keycloak": "...@sha256:..."
   },
   "realmConfigDigest": "sha256:<digest ของ realm ที่ render แล้ว (ไม่มี secret)>",
   "fixturePackVersion": "<UAT_FIXTURE_PACK_VERSION>",
