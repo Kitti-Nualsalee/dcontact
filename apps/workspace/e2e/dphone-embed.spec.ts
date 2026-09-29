@@ -244,8 +244,8 @@ async function signIn(page: Page, frame: ReturnType<Page['frameLocator']>) {
     page.waitForEvent('popup'),
     frame.getByRole('button', { name: 'เข้าสู่ระบบ' }).click(),
   ]);
-  await popup.waitForEvent('close');
   await expect(frame.getByRole('status').first()).toHaveText('เข้าสู่ระบบแล้ว');
+  await expect.poll(() => popup.isClosed()).toBe(true);
 }
 
 test('origin ไม่อยู่ใน allowlist → dphone ไม่เริ่มทำงานและไม่ส่งข้อความหา host', async ({
@@ -333,6 +333,9 @@ test('click-to-call: host กรอกเบอร์ได้อย่างเ
   const { server, frame } = await setup(page);
   await signIn(page, frame);
   await expect.poll(() => server.lease).toBeTruthy();
+  await expect
+    .poll(() => messages(page))
+    .toContainEqual(expect.objectContaining({ type: 'dphone.screenpop' }));
 
   // host ขอโทรพร้อม field ที่พยายามสั่งโทรเอง → ได้แค่ prefilled ไม่มีการเรียก server
   await page.evaluate(() =>
