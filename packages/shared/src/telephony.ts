@@ -59,10 +59,22 @@ export interface TelephonySipRegistrationFlushCommand extends Record<string, unk
   workSessionLeaseId: string;
 }
 
+/** E1.18 (#520): command ไม่พาเบอร์ปลายทาง — Telephony resolve `targetIdentityId` ใน tenant เอง */
+export interface TelephonyOriginateCommand extends Record<string, unknown> {
+  type: 'call.originate';
+  vendor: TelephonyVendor;
+  telephonyNodeId: string;
+  deliveryId: string;
+  originationUuid: string;
+  agentExtension: string;
+  targetIdentityId: string;
+}
+
 export type TelephonyCommand =
   | TelephonyBridgeCommand
   | TelephonyCollectCommand
   | TelephonyRecordingControlCommand
   | TelephonyRecordingAnnouncementCommand
   | TelephonyRecordingStartCommand
-  | TelephonySipRegistrationFlushCommand;
+  | TelephonySipRegistrationFlushCommand
+  | TelephonyOriginateCommand;
