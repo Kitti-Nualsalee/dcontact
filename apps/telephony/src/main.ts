@@ -61,7 +61,7 @@ async function main() {
     groupId: `dcontact-telephony-command-${nodeId}-v1`,
     topics: [KAFKA_TOPICS.TELEPHONY_COMMANDS],
     idempotency: createInMemoryIdempotencyStore(),
-    handler: async ({ event }) => commandAdapter.handle(event.payload),
+    handler: async ({ event }) => commandAdapter.handle(event.payload, event.tenantId),
   });
   socket.on('data', async (chunk: Buffer) => {
     buffer += chunk.toString();

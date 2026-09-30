@@ -95,6 +95,55 @@ test('sip.registration.flush removes only the revoked lease registration', async
   ]);
 });
 
+test('call.originate ปิดเป็นค่าเริ่มต้นและไม่ resolve target หรือแตะ ESL', async () => {
+  const commands: string[] = [];
+  const adapter = new FreeSwitchCommandAdapter({
+    command: async (value) => void commands.push(value),
+  });
+  await adapter.handle(
+    {
+      type: 'call.originate',
+      vendor: 'freeswitch',
+      telephonyNodeId: 'fs-local',
+      deliveryId: 'dlv_opaque',
+      originationUuid: '6e9a4adf-1120-4a63-9e5b-89aecbf88b16',
+      agentExtension: '1000',
+      targetIdentityId: 'opaque-target',
+    },
+    'tenant-a',
+  );
+  assert.deepEqual(commands, []);
+});
+
+test('call.originate resolve ได้เฉพาะ internal extension และส่ง opaque correlation ไป ESL', async () => {
+  const commands: string[] = [];
+  const adapter = new FreeSwitchCommandAdapter(
+    { command: async (value) => void commands.push(value) },
+    'dcontact.local',
+    'fs-bkk-02',
+    undefined,
+    {
+      enabled: true,
+      resolver: { resolve: async () => ({ extension: '1001' }) },
+    },
+  );
+  await adapter.handle(
+    {
+      type: 'call.originate',
+      vendor: 'freeswitch',
+      telephonyNodeId: 'fs-bkk-02',
+      deliveryId: 'dlv_opaque',
+      originationUuid: '6e9a4adf-1120-4a63-9e5b-89aecbf88b16',
+      agentExtension: '1000',
+      targetIdentityId: 'opaque-target',
+    },
+    'tenant-a',
+  );
+  assert.deepEqual(commands, [
+    'bgapi originate {origination_uuid=6e9a4adf-1120-4a63-9e5b-89aecbf88b16,dcontact_delivery_id=dlv_opaque}user/1000@dcontact.local &bridge(user/1001@dcontact.local)',
+  ]);
+});
+
 test('recording pause and resume preserve the recording path on the owning FreeSWITCH node', async () => {
   const commands: string[] = [];
   const adapter = new FreeSwitchCommandAdapter(

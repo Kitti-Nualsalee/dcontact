@@ -6154,7 +6154,7 @@ model DphoneClickToCallAuditEvent {
   /// ALLOW | BLOCK | DEFER | REVIEW (null = ไม่ถึง Contact Governance เช่น rate limit)
   decision      String?
   reasonCode    String   @map("reason_code")
-  /// blocked | unavailable | rate_limited
+  /// blocked | unavailable | rate_limited | dialing
   outcome       String
   correlationId String   @map("correlation_id")
   occurredAt    DateTime @map("occurred_at")
