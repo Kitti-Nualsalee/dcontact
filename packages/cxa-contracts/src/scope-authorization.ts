@@ -1,11 +1,11 @@
 import type { ContactId, SegmentId, TeamId, TenantId } from './identifiers.js';
 
 /**
- * `WORK` is additive for J2 (#122): a cross-team owner-command checkpoint distinct
- * from the C1 `CONTACT` outbound-send permission. Adding it does not change what
- * `CONTACT` means or how existing C1 callers evaluate it.
+ * `WORK` is additive for J2 (#122), while `VIEW` is additive for E1.17 (#519).
+ * Neither changes what the C1 `CONTACT` outbound-send permission means or how
+ * existing callers evaluate it.
  */
-export type ContactScopePermission = 'CONTACT' | 'WORK';
+export type ContactScopePermission = 'CONTACT' | 'WORK' | 'VIEW';
 
 export interface AuthorizeTeamContactScopeInput {
   tenantId: TenantId;

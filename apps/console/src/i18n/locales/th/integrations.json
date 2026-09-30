@@ -58,6 +58,32 @@
       "docs": "คู่มือการฝัง dphone (API, event, การแก้ปัญหา)"
     },
     "saved": "บันทึกแล้ว",
+    "teamScopes": {
+      "title": "สิทธิ์ VIEW ของทีม",
+      "description": "กำหนดสิทธิ์แสดง screen-pop ตาม team และ customer segment โดย VIEW ไม่ให้สิทธิ์โทรหรือทำงานแทน",
+      "readOnly": "เฉพาะผู้ดูแล tenant จัดการสิทธิ์ VIEW ได้",
+      "table": {
+        "teamId": "Team ID",
+        "segment": "Segment",
+        "grant": "VIEW grant",
+        "actions": "จัดการ",
+        "empty": "ยังไม่มีสิทธิ์ VIEW"
+      },
+      "form": {
+        "teamId": "Team ID",
+        "segmentId": "Segment ID",
+        "revokeReason": "เหตุผลการเพิกถอน (อย่างน้อย 3 ตัวอักษร)"
+      },
+      "actions": {
+        "grant": "เพิ่มสิทธิ์ VIEW",
+        "revoke": "เพิกถอน"
+      },
+      "errors": {
+        "load": "โหลดสิทธิ์ VIEW ไม่สำเร็จ",
+        "grant": "บันทึกสิทธิ์ VIEW ไม่สำเร็จ",
+        "revoke": "เพิกถอนสิทธิ์ VIEW ไม่สำเร็จ"
+      }
+    },
     "rejections": {
       "INVALID_URL": "ไม่ใช่ URL ที่ถูกต้อง ต้องขึ้นต้นด้วย https://",
       "SCHEME_NOT_ALLOWED": "ใช้ได้เฉพาะ https://",

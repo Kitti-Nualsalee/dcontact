@@ -58,6 +58,32 @@
       "docs": "dphone embedding guide (API, events, troubleshooting)"
     },
     "saved": "Saved",
+    "teamScopes": {
+      "title": "Team VIEW permissions",
+      "description": "Set screen-pop visibility by team and customer segment. VIEW does not allow calls or work actions.",
+      "readOnly": "Only tenant administrators can manage VIEW permissions.",
+      "table": {
+        "teamId": "Team ID",
+        "segment": "Segment",
+        "grant": "VIEW grant",
+        "actions": "Actions",
+        "empty": "No VIEW permissions yet"
+      },
+      "form": {
+        "teamId": "Team ID",
+        "segmentId": "Segment ID",
+        "revokeReason": "Revocation reason (at least 3 characters)"
+      },
+      "actions": {
+        "grant": "Add VIEW permission",
+        "revoke": "Revoke"
+      },
+      "errors": {
+        "load": "Could not load VIEW permissions",
+        "grant": "Could not save VIEW permission",
+        "revoke": "Could not revoke VIEW permission"
+      }
+    },
     "rejections": {
       "INVALID_URL": "Not a valid URL. It must start with https://",
       "SCHEME_NOT_ALLOWED": "Only https:// is allowed",

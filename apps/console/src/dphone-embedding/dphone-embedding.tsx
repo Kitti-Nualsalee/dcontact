@@ -25,6 +25,8 @@ import {
   SCREEN_POP_REASON_MIN,
 } from './model.js';
 import { useShellTokens } from '../shell/tokens.js';
+import { TeamScopes } from '../team-scopes/team-scopes.js';
+import type { TeamScopeApi } from '../team-scopes/api.js';
 import './dphone-embedding.css';
 
 type Confirming = { kind: 'disable' | 'delete'; origin: EmbedOrigin } | null;
@@ -36,6 +38,7 @@ export function DphoneEmbedding({
   embedBaseUrl,
   dev,
   docsUrl = DEFAULT_DPHONE_EMBED_DOCS_URL,
+  teamScopes,
 }: {
   api: EmbedOriginApi;
   canEdit: boolean;
@@ -44,6 +47,7 @@ export function DphoneEmbedding({
   dev: boolean;
   /** E1.15: คู่มือ host (`docs/dphone-embed/`) */
   docsUrl?: string;
+  teamScopes?: TeamScopeApi;
 }) {
   const { t: translate } = useTranslation('integrations');
   const t = translate as unknown as (key: string, options?: Record<string, unknown>) => string;
@@ -356,6 +360,8 @@ export function DphoneEmbedding({
               )}
             </form>
           ) : null}
+
+          {teamScopes ? <TeamScopes api={teamScopes} canEdit={canEdit} /> : null}
 
           <section className="dphone-embedding__snippet" aria-labelledby={`${headingId}-snippet`}>
             <h2 id={`${headingId}-snippet`}>{t('dphoneEmbedding.snippet.title')}</h2>

@@ -12,12 +12,18 @@
 import { randomUUID } from 'node:crypto';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import {
+  contactId as toContactId,
+  teamId as toTeamId,
+  tenantId as toTenantId,
+} from '@d-contact/cxa-contracts';
+import {
   effectiveScreenPopLevel,
   projectScreenPop,
   type DisclosureDecision,
   type ScreenPopMessage,
   type ScreenPopSource,
 } from '@d-contact/dphone-embed';
+import { IamTeamContactScopeAuthorizer } from '@d-contact/iam';
 
 export const SCREEN_POP_POLICY_VERSION = 'e1.screen-pop.disclosure/v1';
 
@@ -33,6 +39,39 @@ export interface TeamSegmentViewScope {
 export class UnavailableTeamSegmentViewScope implements TeamSegmentViewScope {
   async canView(): Promise<boolean> {
     return false;
+  }
+}
+
+export class IamTeamSegmentViewScope implements TeamSegmentViewScope {
+  private readonly authorizer: IamTeamContactScopeAuthorizer;
+
+  constructor(private readonly database: PrismaClient) {
+    this.authorizer = new IamTeamContactScopeAuthorizer(database);
+  }
+
+  async canView(input: {
+    tenantId: string;
+    agentUserId: string;
+    contactId: string;
+  }): Promise<boolean> {
+    return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+      const agent = await transaction.user.findFirst({
+        where: { id: input.agentUserId, tenantId: input.tenantId, isActive: true },
+        select: { teamId: true },
+      });
+      if (!agent?.teamId) return false;
+      const decision = await this.authorizer.authorize(
+        {
+          tenantId: toTenantId(input.tenantId),
+          teamId: toTeamId(agent.teamId),
+          contactId: toContactId(input.contactId),
+          permission: 'VIEW',
+          at: new Date().toISOString(),
+        },
+        transaction,
+      );
+      return decision.decision === 'ALLOW';
+    });
   }
 }
 

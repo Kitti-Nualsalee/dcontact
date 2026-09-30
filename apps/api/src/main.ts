@@ -34,8 +34,8 @@ import {
 } from './dphone-launcher-api.js';
 import {
   ContactGovernanceDisclosureCheck,
+  IamTeamSegmentViewScope,
   ScreenPopService,
-  UnavailableTeamSegmentViewScope,
 } from './screen-pop.js';
 import { SCREEN_POP_SERVICE, ScreenPopController } from './screen-pop-api.js';
 import { ClickToCallService } from './click-to-call.js';
@@ -70,6 +70,10 @@ import {
   TELEPHONY_COMMAND_PUBLISHER,
 } from './recording-api.js';
 import { KafkaTelephonyCommandPublisher } from './recording-command-publisher.js';
+import {
+  TEAM_SEGMENT_SCOPE_DATABASE,
+  TeamSegmentScopeController,
+} from './team-segment-scope-api.js';
 import { S3RecordingStorage } from './s3-recording-storage.js';
 import { S3GovernanceExportStorage } from './s3-governance-export-storage.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
@@ -244,11 +248,11 @@ const workSessionLeases = new WorkSessionLeases(prisma, {
     },
   },
 });
-// E1.14 (#488): VIEW scope ยังไม่มีใน IAM → fail closed (screen-pop เหลือ interactionId) จนกว่า IAM จะเพิ่ม
+// E1.17 (#519): IAM VIEW scope เป็น authority ของ screen-pop; deny/stale/revoked ยังคง fail closed
 const screenPop = new ScreenPopService(prisma, {
   hostOriginOfLease: (actor, leaseId) => workSessionLeases.embeddedHostOrigin(actor, leaseId),
   screenPopLevel: (tenantId, origin) => embedOrigins.screenPopLevel(tenantId, origin),
-  disclosure: new ContactGovernanceDisclosureCheck(prisma, new UnavailableTeamSegmentViewScope()),
+  disclosure: new ContactGovernanceDisclosureCheck(prisma, new IamTeamSegmentViewScope(prisma)),
 });
 // E1.14 (#488): click-to-call ขออนุญาตจาก Contact Governance เท่านั้น — โทรจริงรอ E1.18 #520
 const clickToCall = new ClickToCallService(prisma, {
@@ -299,6 +303,7 @@ class WorkspaceSessionController {
     RecordingController,
     QmController,
     AgentWorkspaceController,
+    TeamSegmentScopeController,
     FreeSwitchDirectoryController,
     WorkSessionController,
     EmbedOriginsController,
@@ -351,6 +356,7 @@ class WorkspaceSessionController {
     { provide: QM_DATABASE, useValue: prisma },
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
+    { provide: TEAM_SEGMENT_SCOPE_DATABASE, useValue: prisma },
     { provide: WORK_SESSION_LEASES, useValue: workSessionLeases },
     { provide: EMBED_ORIGIN_SERVICE, useValue: embedOrigins },
     // E1.15 (#489): `<dphone-launcher>` แบบ versioned/alias บน dphone origin

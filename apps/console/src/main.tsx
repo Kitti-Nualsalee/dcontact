@@ -18,6 +18,7 @@ import { LocaleProbe } from './i18n/locale-probe.js';
 import { ConsoleShell } from './shell/console-shell.js';
 import { createEmbedOriginApi } from './dphone-embedding/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
+import { createTeamScopeApi } from './team-scopes/api.js';
 import './style.css';
 
 const root = document.getElementById('root');
@@ -69,6 +70,11 @@ function ConsoleE2eRoot() {
           tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
           embedBaseUrl="https://api.dcontact.test"
           dev={false}
+          teamScopes={createTeamScopeApi({
+            baseUrl:
+              (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
+            accessToken: () => 'e2e-access-token',
+          })}
         />
       </ConsoleShell>
     );
