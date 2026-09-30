@@ -6,8 +6,8 @@
  * - host แค่กรอกเบอร์ agent ต้องกดโทรเอง — endpoint นี้ถูกเรียกเมื่อ agent กดโทรใน dphone เท่านั้น
  * - origin มาจาก lease `embedded` ที่ยัง current; contact resolve จากเบอร์ฝั่ง server (ไม่เชื่อ `contactId` ของ host)
  * - `authorizeAndReserve()` purpose `SERVICE` channel `VOICE`; BLOCK/DEFER/REVIEW → ไม่โทรออก
- * - ALLOW → ยังไม่โทรจริงจนกว่า Voice Delivery Gate (E1.18 #520, ตาม #57) จะเปิด: ปล่อย reservation ทันที
- *   แล้วตอบ `unavailable` + `OUTBOUND_VOICE_NOT_ENABLED`
+ * - ALLOW → `dialing` ได้เฉพาะเมื่อ Voice Delivery Gate commit durable queue; หากไม่มี gate หรือ
+ *   gate ปฏิเสธก่อน durable barrier ต้องปล่อย reservation แล้วตอบ `unavailable`
  * - ตอบ host โดยไม่มี PII; rate limit ต่อ agent; audit ทุกครั้ง (ไม่เก็บเบอร์)
  */
 import { randomUUID } from 'node:crypto';
@@ -40,6 +40,20 @@ export interface ClickToCallActor {
   userId: string;
 }
 
+/** Delivery owner ตอบ QUEUED หลัง claim และ durable outbox commit แล้วเท่านั้น */
+export interface ClickToCallVoiceDelivery {
+  enqueue(input: {
+    tenantId: string;
+    userId: string;
+    leaseId: string;
+    actionKey: string;
+    reservationId: string;
+    contactId: string;
+    identityId: string;
+    correlationId: string;
+  }): Promise<{ status: 'QUEUED' } | { status: 'UNAVAILABLE'; reasonCode: string }>;
+}
+
 export type ClickToCallOutcome =
   { status: 'result'; message: CallResultMessage; hostOrigin: string } | { status: 'not_found' };
 
@@ -65,6 +79,7 @@ export class ClickToCallService {
       id?: () => string;
       /** ต่อ agent — ค่าเริ่มต้น 10 ครั้ง / 60 วินาที */
       rate?: { limit: number; windowMs: number };
+      voiceDelivery?: ClickToCallVoiceDelivery;
     },
   ) {
     this.now = deps.now ?? (() => new Date());
@@ -95,7 +110,7 @@ export class ClickToCallService {
       return { status: 'result', message, hostOrigin };
     }
 
-    const contactId = await this.resolveContact(actor.tenantId, number);
+    const target = await this.resolveTarget(actor.tenantId, number);
     const outcome = await this.deps.governance.authorizeAndReserve(actor.tenantId, {
       channel: 'VOICE',
       purpose: CLICK_TO_CALL_PURPOSE,
@@ -103,20 +118,37 @@ export class ClickToCallService {
       sourceId: input.leaseId,
       actionKey,
       policyVersion: 1,
-      ...(contactId ? { contactId } : { identityResolution: 'NOT_FOUND' as const }),
+      ...(target ? { contactId: target.contactId } : { identityResolution: 'NOT_FOUND' as const }),
     });
 
     let message: CallResultMessage;
     if (outcome.decision === 'ALLOW') {
-      // ยังไม่มี Voice Delivery Gate — ห้ามแตะ provider; คืนสิทธิ์ทันทีไม่ให้ quota ค้าง
-      if (outcome.reservationId) {
-        await this.deps.governance.changeReservationState(
-          actor.tenantId,
-          outcome.reservationId,
-          'RELEASE',
-        );
+      const delivery =
+        outcome.reservationId && target && this.deps.voiceDelivery
+          ? await this.deps.voiceDelivery.enqueue({
+              tenantId: actor.tenantId,
+              userId: actor.userId,
+              leaseId: input.leaseId,
+              actionKey,
+              reservationId: outcome.reservationId,
+              contactId: target.contactId,
+              identityId: target.identityId,
+              correlationId,
+            })
+          : { status: 'UNAVAILABLE' as const, reasonCode: OUTBOUND_VOICE_NOT_ENABLED };
+      if (delivery.status === 'QUEUED') {
+        message = result(input.requestId, 'dialing', false, 'QUEUED');
+      } else {
+        // ไม่มี queue ที่ durable หรือ queue ปฏิเสธก่อน submission barrier — คืนสิทธิ์ทันที
+        if (outcome.reservationId) {
+          await this.deps.governance.changeReservationState(
+            actor.tenantId,
+            outcome.reservationId,
+            'RELEASE',
+          );
+        }
+        message = result(input.requestId, 'unavailable', false, delivery.reasonCode);
       }
-      message = result(input.requestId, 'unavailable', false, OUTBOUND_VOICE_NOT_ENABLED);
     } else {
       message = result(input.requestId, 'blocked', true, outcome.reasonCode);
       if (outcome.decision === 'DEFER' && outcome.nextEligibleAt) {
@@ -124,7 +156,7 @@ export class ClickToCallService {
       }
     }
     message.decisionId = outcome.decisionId;
-    await this.audit(audit, { message, contactId, outcome });
+    await this.audit(audit, { message, contactId: target?.contactId ?? null, outcome });
     return { status: 'result', message, hostOrigin };
   }
 
@@ -142,15 +174,20 @@ export class ClickToCallService {
     return true;
   }
 
-  /** contact เดียวที่มี identity PHONE ตรงกับเบอร์ — ไม่พบหรือพบหลายราย = ไม่ระบุ (NOT_FOUND) */
-  private resolveContact(tenantId: string, digits: string): Promise<string | null> {
+  /** identity PHONE เดียวที่ตรงกับเบอร์ — ไม่พบหรือพบหลายราย = ไม่ระบุ (NOT_FOUND) */
+  private resolveTarget(
+    tenantId: string,
+    digits: string,
+  ): Promise<{ contactId: string; identityId: string } | null> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
-      const rows = await tx.$queryRaw<{ contact_id: string }[]>(Prisma.sql`
-        SELECT DISTINCT contact_id::text AS contact_id FROM contact_identities
+      const rows = await tx.$queryRaw<{ contact_id: string; identity_id: string }[]>(Prisma.sql`
+        SELECT id::text AS identity_id, contact_id::text AS contact_id FROM contact_identities
         WHERE tenant_id = ${tenantId}::uuid AND type = 'PHONE'
           AND regexp_replace(value, '[^0-9]', '', 'g') = ${digits}
         LIMIT 2`);
-      return rows.length === 1 ? rows[0]!.contact_id : null;
+      return rows.length === 1
+        ? { contactId: rows[0]!.contact_id, identityId: rows[0]!.identity_id }
+        : null;
     });
   }
 
