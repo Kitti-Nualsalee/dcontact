@@ -7,12 +7,8 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { Prisma, PrismaClient } from '@d-contact/db';
 import type { VerifiedOidcClaims } from '@d-contact/workspace-session';
-import {
-  AgentWorkspaceController,
-  AGENT_WORKSPACE_DATABASE,
-  AGENT_SIP_LEASE_PROVIDER,
-  type AgentSipLeaseProvider,
-} from './agent-workspace-api.js';
+import { AgentWorkspaceController, AGENT_WORKSPACE_DATABASE } from './agent-workspace-api.js';
+import { AGENT_SIP_CREDENTIALS, type AgentSipCredentialService } from './agent-sip-credentials.js';
 import {
   GATEWAY_DIAGNOSTICS,
   OIDC_ACCESS_TOKEN_VERIFIER,
@@ -80,7 +76,6 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
         displayName: 'Agent A',
         role: 'AGENT',
         extension: '5200',
-        sipPassword: 'sip-secret-agent-a',
       },
       {
         id: agentBId,
@@ -150,29 +145,32 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
       throw new Error('invalid token');
     },
   };
-  const leaseRequests: Parameters<AgentSipLeaseProvider['issue']>[0][] = [];
-  const leaseProvider: AgentSipLeaseProvider = {
+  const leaseRequests: Parameters<AgentSipCredentialService['issue']>[0][] = [];
+  const sipLeaseId = randomUUID();
+  const leaseProvider: AgentSipCredentialService = {
     issue: async (input) => {
       leaseRequests.push(input);
       return {
-        leaseId: 'lease-agent-a',
-        extension: input.extension,
-        authorizationUsername: input.extension,
-        authorizationPassword: input.authorizationPassword,
-        sipDomain: input.sipDomain,
+        leaseId: input.workSessionLeaseId,
+        extension: '5200',
+        authorizationUsername: '5200',
+        authorizationPassword: 'one-time-sip-secret',
+        sipDomain: `${tenantAId}.agent.test`,
         wssUrl: 'wss://fs-b.voice.test:7443',
         telephonyNodeId: 'fs-b',
         iceServers: [{ urls: ['turn:turn.voice.test:3478'] }],
         expiresAt: '2026-09-06T10:15:00.000Z',
       };
     },
+    authenticateDirectoryRequest: () => 'fs-b',
+    directory: async () => null,
   };
 
   @Module({
     controllers: [AgentWorkspaceController],
     providers: [
       { provide: AGENT_WORKSPACE_DATABASE, useValue: application },
-      { provide: AGENT_SIP_LEASE_PROVIDER, useValue: leaseProvider },
+      { provide: AGENT_SIP_CREDENTIALS, useValue: leaseProvider },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier },
       { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
       { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
@@ -263,14 +261,19 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
 
   const credentialsResponse = await fetch(
     `http://127.0.0.1:${address.port}/api/v1/workspace/agent/sip-credentials?tenantId=${tenantBId}&telephonyNodeId=fs-a`,
-    { headers: { authorization: 'Bearer agent-a-token' } },
+    {
+      headers: {
+        authorization: 'Bearer agent-a-token',
+        'x-work-session-lease-id': sipLeaseId,
+      },
+    },
   );
   assert.equal(credentialsResponse.status, 200, await credentialsResponse.clone().text());
   assert.deepEqual(await credentialsResponse.json(), {
-    leaseId: 'lease-agent-a',
+    leaseId: sipLeaseId,
     extension: '5200',
     authorizationUsername: '5200',
-    authorizationPassword: 'sip-secret-agent-a',
+    authorizationPassword: 'one-time-sip-secret',
     sipDomain: `${tenantAId}.agent.test`,
     wssUrl: 'wss://fs-b.voice.test:7443',
     telephonyNodeId: 'fs-b',
@@ -281,9 +284,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
     {
       tenantId: tenantAId,
       userId: agentAId,
-      extension: '5200',
-      authorizationPassword: 'sip-secret-agent-a',
-      sipDomain: `${tenantAId}.agent.test`,
+      workSessionLeaseId: sipLeaseId,
     },
   ]);
 });

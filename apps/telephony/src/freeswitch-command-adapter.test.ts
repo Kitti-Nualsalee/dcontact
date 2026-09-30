@@ -73,6 +73,28 @@ test('a command for another FreeSWITCH node is ignored', async () => {
   assert.deepEqual(commands, []);
 });
 
+test('sip.registration.flush removes only the revoked lease registration', async () => {
+  const commands: string[] = [];
+  const adapter = new FreeSwitchCommandAdapter(
+    { command: async (value) => void commands.push(value) },
+    'dcontact.local',
+    'fs-bkk-02',
+  );
+
+  await adapter.handle({
+    type: 'sip.registration.flush',
+    vendor: 'freeswitch',
+    telephonyNodeId: 'fs-bkk-02',
+    extension: '1000',
+    sipDomain: 'tenant-a.voice.example',
+    workSessionLeaseId: '5f39f3a4-3454-42a4-b5a0-d50f295912de',
+  });
+
+  assert.deepEqual(commands, [
+    'api sofia profile internal flush_inbound_reg 1000@tenant-a.voice.example',
+  ]);
+});
+
 test('recording pause and resume preserve the recording path on the owning FreeSWITCH node', async () => {
   const commands: string[] = [];
   const adapter = new FreeSwitchCommandAdapter(

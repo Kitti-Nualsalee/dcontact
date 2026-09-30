@@ -431,7 +431,9 @@ function AgentWorkspace({
     if (api && dphone.current) {
       setDphoneError(undefined);
       try {
-        const sipLease = await api.sipCredentials();
+        const workSessionLeaseId = leaseClient.current?.leaseId();
+        if (!workSessionLeaseId) throw new Error('work-session lease is required for SIP');
+        const sipLease = await api.sipCredentials(workSessionLeaseId);
         // register SIP เฉพาะเมื่อยังเป็นจุดรับงาน (flag เปิด = ยังถือ work-session lease) ณ ตอนนี้
         if (!ownsWorkRef.current) {
           setDphoneState({ phase: 'OFFLINE' });

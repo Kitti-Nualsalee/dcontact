@@ -20,7 +20,7 @@ test('Agent API ส่งเฉพาะ bearer token และไม่รั�
   });
 
   const snapshot = await api.snapshot();
-  await api.sipCredentials();
+  await api.sipCredentials('96e31bf3-14f2-4ab3-a286-a82c1cbab4a8');
   await api.submitWrapup({
     interactionId: '9a8a5477-aa53-4254-ae68-a21ab64cc2bb',
     disposition: 'CUSTOMER_ASSISTED',
@@ -31,6 +31,10 @@ test('Agent API ส่งเฉพาะ bearer token และไม่รั�
   assert.equal(requests[0]?.input, 'https://api.example/api/v1/workspace/agent/snapshot');
   assert.deepEqual(requests[0]?.init?.headers, { authorization: 'Bearer access-token-in-memory' });
   assert.equal(requests[1]?.input, 'https://api.example/api/v1/workspace/agent/sip-credentials');
+  assert.deepEqual(requests[1]?.init?.headers, {
+    authorization: 'Bearer access-token-in-memory',
+    'x-work-session-lease-id': '96e31bf3-14f2-4ab3-a286-a82c1cbab4a8',
+  });
   assert.equal(
     requests[2]?.input,
     'https://api.example/api/v1/workspace/agent/interactions/9a8a5477-aa53-4254-ae68-a21ab64cc2bb/wrapup',

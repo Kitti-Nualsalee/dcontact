@@ -14,40 +14,49 @@ export interface TelephonyCallEvent extends Record<string, unknown> {
   inputValue?: string;
 }
 
-interface TelephonyCommandBase extends Record<string, unknown> {
+interface TelephonyCallCommandBase extends Record<string, unknown> {
   callUuid: string;
   vendor: TelephonyVendor;
   /** command ต้องกลับไป node เดียวกับ event ต้นทาง */
   telephonyNodeId: string;
 }
 
-export interface TelephonyBridgeCommand extends TelephonyCommandBase {
+export interface TelephonyBridgeCommand extends TelephonyCallCommandBase {
   type: 'call.bridge';
   agentExtension: string;
 }
 
-export interface TelephonyCollectCommand extends TelephonyCommandBase {
+export interface TelephonyCollectCommand extends TelephonyCallCommandBase {
   type: 'call.collect';
   inputMode: 'VOICE' | 'DTMF';
   prompt: string;
   timeoutSec: number;
 }
 
-export interface TelephonyRecordingControlCommand extends TelephonyCommandBase {
+export interface TelephonyRecordingControlCommand extends TelephonyCallCommandBase {
   type: 'recording.pause' | 'recording.resume';
   recordingPath: string;
 }
 
-export interface TelephonyRecordingAnnouncementCommand extends TelephonyCommandBase {
+export interface TelephonyRecordingAnnouncementCommand extends TelephonyCallCommandBase {
   type: 'recording.announce';
   announcement: string;
   language: string;
 }
 
-export interface TelephonyRecordingStartCommand extends TelephonyCommandBase {
+export interface TelephonyRecordingStartCommand extends TelephonyCallCommandBase {
   type: 'recording.start';
   recordingPath: string;
   channelLayout: 'PER_LEG' | 'STEREO';
+}
+
+export interface TelephonySipRegistrationFlushCommand extends Record<string, unknown> {
+  type: 'sip.registration.flush';
+  vendor: TelephonyVendor;
+  telephonyNodeId: string;
+  extension: string;
+  sipDomain: string;
+  workSessionLeaseId: string;
 }
 
 export type TelephonyCommand =
@@ -55,4 +64,5 @@ export type TelephonyCommand =
   | TelephonyCollectCommand
   | TelephonyRecordingControlCommand
   | TelephonyRecordingAnnouncementCommand
-  | TelephonyRecordingStartCommand;
+  | TelephonyRecordingStartCommand
+  | TelephonySipRegistrationFlushCommand;

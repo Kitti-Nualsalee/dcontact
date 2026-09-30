@@ -72,6 +72,16 @@ export interface LeaseSignalSink {
   signal(tenantId: string, userId: string, signal: LeaseSignal): void;
 }
 
+export interface SipRegistrationRevocationSink {
+  flush(input: {
+    tenantId: string;
+    extension: string;
+    sipDomain: string;
+    telephonyNodeId: string;
+    workSessionLeaseId: string;
+  }): void;
+}
+
 /** structured event สำหรับ metrics (log-based) — ไม่มี token/PII มีแค่ opaque id และ surface */
 export interface WorkSessionDiagnostic {
   event:
@@ -151,6 +161,8 @@ export class WorkSessionLeases {
       flagCacheMs?: number;
       /** E1.11: ตรวจ host origin ของ surface embedded กับ allowlist (ไม่ตั้ง = ไม่อนุญาต embedded) */
       embedOrigins?: { isEmbeddable(tenantId: string, origin: string): Promise<boolean> };
+      /** E1.10: revoke credential ใน transaction เดียวกัน แล้ว flush registration หลัง commit */
+      sipRegistrations?: SipRegistrationRevocationSink;
     } = {},
   ) {
     this.now = options.now ?? (() => new Date());
@@ -550,6 +562,30 @@ export class WorkSessionLeases {
     options: { silent?: boolean } = {},
   ) {
     const now = this.now();
+    const sipCredential = await tx.agentSipCredential.findUnique({
+      where: { workSessionLeaseId: lease.id },
+      select: {
+        extension: true,
+        sipDomain: true,
+        telephonyNodeId: true,
+        revokedAt: true,
+      },
+    });
+    if (sipCredential && !sipCredential.revokedAt) {
+      await tx.agentSipCredential.update({
+        where: { workSessionLeaseId: lease.id },
+        data: { revokedAt: now },
+      });
+      this.emitAfterCommit(tx, () =>
+        this.options.sipRegistrations?.flush({
+          tenantId: actor.tenantId,
+          extension: sipCredential.extension,
+          sipDomain: sipCredential.sipDomain,
+          telephonyNodeId: sipCredential.telephonyNodeId,
+          workSessionLeaseId: lease.id,
+        }),
+      );
+    }
     await tx.agentWorkSessionLease.update({
       where: { id: lease.id },
       data: { releasedAt: now, releaseReason: reason },

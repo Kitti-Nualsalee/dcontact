@@ -1,6 +1,5 @@
 <include>
   <!-- Dev-only defaults. Production: gen config ต่อ tenant จาก DB (mod_xml_curl) -->
-  <X-PRE-PROCESS cmd="set" data="default_password=DContactDev1"/>
   <X-PRE-PROCESS cmd="set" data="domain=dcontact.local"/>
 
   <X-PRE-PROCESS cmd="set" data="global_codec_prefs=OPUS,G722,PCMU,PCMA"/>

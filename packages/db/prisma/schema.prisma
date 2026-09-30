@@ -131,6 +131,7 @@ model Tenant {
 
   agentWorkSessionLeases AgentWorkSessionLease[]
   agentWorkSessionEvents AgentWorkSessionEvent[]
+  agentSipCredentials    AgentSipCredential[]
 
   embedOrigins           TenantEmbedOrigin[]
   embedOriginAuditEvents TenantEmbedOriginAuditEvent[]
@@ -155,7 +156,6 @@ model User {
   role         UserRole @default(AGENT)
   // SIP extension สำหรับ softphone (agent เท่านั้น)
   extension    String?
-  sipPassword  String?  @map("sip_password")
   teamId       String?  @map("team_id") @db.Uuid
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")
@@ -167,6 +167,7 @@ model User {
   interactions Interaction[]
 
   workSessionLeases AgentWorkSessionLease[]
+  sipCredentials    AgentSipCredential[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, extension])
@@ -6030,10 +6031,31 @@ model AgentWorkSessionLease {
   /// released | takeover | expired | auth_revoked
   releaseReason String?   @map("release_reason")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user          User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  sipCredential AgentSipCredential?
 
   @@map("agent_work_session_leases")
+}
+
+/// E1.10 (#484): SIP credential แบบคืน plaintext ครั้งเดียว เก็บเฉพาะ Digest A1 และผูก work-session lease
+model AgentSipCredential {
+  workSessionLeaseId String    @id @map("work_session_lease_id") @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  extension          String
+  sipDomain          String    @map("sip_domain")
+  telephonyNodeId    String    @map("telephony_node_id")
+  a1Hash             String    @map("a1_hash")
+  issuedAt           DateTime  @map("issued_at")
+  revokedAt          DateTime? @map("revoked_at")
+
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user             User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  workSessionLease AgentWorkSessionLease @relation(fields: [workSessionLeaseId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, userId])
+  @@map("agent_sip_credentials")
 }
 
 /// E1.9 (#483): audit ของ work-session lease — append-only สำหรับ role ของแอป

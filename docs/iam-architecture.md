@@ -141,8 +141,8 @@ API resolve `teamId` จาก `dc_user_id`/session หรือ trusted service
 | sessions, lockout, email verification, IdP links | `displayName` (authoritative; push ไป KC เพื่อ greeting) |
 | `enabled` | `isActive` (mirror สองทาง: disable = ปิดทั้งคู่) |
 
-Schema change (Phase A): เพิ่ม `keycloakId String @unique @db.Uuid`, **ลบ `passwordHash`**,
-เปลี่ยน `sipPassword` → `sipPasswordEnc` (ดู §10)
+Schema change (Phase A): เพิ่ม `keycloakId String @unique @db.Uuid` และ **ลบ `passwordHash`**;
+SIP password แบบคงที่ถูกยกเลิกใน E1.10 และแทนด้วย credential ผูก work-session lease (ดู §10)
 
 **Invite flow** (`POST /api/users`, guard `@Roles('ADMIN')`) — dual-write saga:
 
@@ -178,11 +178,14 @@ auth request ใส่ `scope: 'openid organization:acme'` → Keycloak จำ�
 
 ## 10. SIP credentials (นอกขอบเขต IAM แต่เกี่ยวข้อง)
 
-- แทน `sipPassword` plaintext ด้วย `sip_password_enc`: secret สุ่ม 24 ตัวอักษรตอน provisioning,
-  เข้ารหัส **AES-256-GCM** ฝั่งแอปด้วย `SIP_SECRET_KEY` จาก env (Vault/KMS = roadmap)
-- Softphone ดึง `{ extension, sipPassword, sipDomain, wssUrl }` จาก `GET /api/me/sip-credentials`
-  (คืนให้เฉพาะเจ้าของ token) — **ไม่แสดงใน admin UI**
-- FreeSWITCH: ย้ายจาก static XML directory → `mod_xml_curl` lookup ผ่าน API (rotation ได้ทันที) — Phase C/stretch
+- E1.10 ออก password สุ่มใหม่เมื่อผู้ถือ work-session lease เรียก
+  `GET /api/v1/workspace/agent/sip-credentials` พร้อม `x-work-session-lease-id`; plaintext ถูกคืนครั้งเดียว
+  และฐานข้อมูลเก็บเฉพาะ Digest `a1-hash`
+- credential ผูกกับ lease เดียวและหมดสิทธิ์ทันทีเมื่อ release, expiry, auth/origin revoke หรือ takeover;
+  endpoint ตรวจ actor จาก token และตรวจ lease ฝั่ง server ไม่เชื่อ tenant/user จาก browser
+- FreeSWITCH ใช้ `mod_xml_curl` กับ Basic credential ต่อ telephony node เพื่ออ่าน directory จาก API,
+  จำกัดหนึ่ง registration ต่อ extension และ flush registration เดิมเมื่อ lease ถูก revoke
+- SIP.js ส่ง `+sip.instance` จาก work-session lease ID; ไม่มี static SIP password ใน DB, seed หรือ XML fallback
 
 ## 11. RLS wiring (ทำ `rls.sql` ให้ทำงานจริง)
 
@@ -221,7 +224,7 @@ auth request ใส่ `scope: 'openid organization:acme'` → Keycloak จำ�
   เขียน `keycloak_id` ลง Postgres + stamp `dc_user_id`/`tenant_id` attributes กลับไปที่ KC
   (UUID เป็นค่า runtime — ใส่ล่วงหน้าใน realm JSON ไม่ได้)
 - env ใหม่ใน `.env.example`: `KEYCLOAK_ISSUER`, `KEYCLOAK_JWKS_URI`,
-  `KEYCLOAK_ADMIN_CLIENT_ID/SECRET`, `VITE_KC_ISSUER`, `VITE_KC_CLIENT_ID`, `SIP_SECRET_KEY`
+  `KEYCLOAK_ADMIN_CLIENT_ID/SECRET`, `VITE_KC_ISSUER`, `VITE_KC_CLIENT_ID`
 
 ## 13. Phased rollout
 
@@ -230,7 +233,7 @@ Pre-launch → **clean cut** ไม่มีช่วง dual-auth; bcrypt hash 
 ### Phase A — Identity plane
 1. compose: keycloak + initdb script
 2. เขียน `infra/keycloak/realm-dcontact.dev.json`
-3. Prisma migration: `keycloak_id`, ลบ `password_hash`, `sip_password` → `sip_password_enc`
+3. Prisma migration: เพิ่ม `keycloak_id`, ลบ `password_hash`; E1.10 ลบ `sip_password` แยกต่างหาก
 4. seed: ตัด bcrypt, เพิ่มขั้น KC-link
 5. **verify Organizations mapper บนเวอร์ชันที่ pin ตั้งแต่ตอนนี้** (จุดเสี่ยงอันดับหนึ่ง)
 
@@ -247,7 +250,7 @@ Pre-launch → **clean cut** ไม่มีช่วง dual-auth; bcrypt hash 
    softphone เปลี่ยนมาใช้ `GET /api/me` + `GET /api/me/sip-credentials`
 2. WS handshake auth + `auth:refresh` + ตัดตาม `sid`
 3. `apps/api/src/tenants/` + CLI provision-tenant
-4. SIP encryption helper (+ stretch: mod_xml_curl)
+4. E1.10: one-time SIP credential + `mod_xml_curl` + flush registration ตาม work-session lease
 
 ### Phase D — Roadmap (ยังไม่มี task)
 per-org enterprise SSO federation · per-org MFA policy (custom browser flow) ·
@@ -277,7 +280,8 @@ Kafka SASL/mTLS · Vault/KMS
    จำลอง failure → KC user ถูกลบ (compensate)
 7. RLS test ต่อเป็น `dcontact_app`: ไม่ตั้ง `app.tenant_id` → 0 แถว; tenant ผิด → 0 แถว
 8. WS handshake ปฏิเสธ token หาย/หมดอายุ; backchannel logout ตัด socket
-9. `sip_password_enc` เป็น ciphertext ใน DB; `/api/me/sip-credentials` คืนเฉพาะเจ้าของ; softphone register ได้
+9. ไม่มี static SIP password; ตาราง `agent_sip_credentials` เก็บเฉพาะ `a1_hash` และ
+   `pnpm --filter @d-contact/api test:e1-10:dev-stack` พิสูจน์ stale credential/flush/max registration
 10. `provision-tenant acme "Acme"` → org + tenant row + admin คนแรก login ที่ `?tenant=acme` ได้
 
 ## รายงานที่โมดูลนี้เป็นเจ้าของ
