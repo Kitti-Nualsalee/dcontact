@@ -27,7 +27,11 @@
 		respond @keycloakAdmin 404
 
 		handle /auth/* {
-			reverse_proxy keycloak:8080
+			reverse_proxy keycloak:8080 {
+				# TLS terminates on VM1 nginx. Preserve the original scheme so
+				# Keycloak issues Secure session cookies for browser sign-in.
+				header_up X-Forwarded-Proto https
+			}
 		}
 		handle /api/* {
 			reverse_proxy api:3000
