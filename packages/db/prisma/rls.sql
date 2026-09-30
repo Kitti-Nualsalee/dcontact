@@ -25,7 +25,7 @@ BEGIN
     'jr_event_inbox', 'jr_enrollments', 'jr_actions', 'jr_journey_definitions',
     'ob_attempts', 'ob_governance_consumer_inbox', 'ob_governance_acknowledgement_outbox',
     'ob_governance_effect_outbox',
-    'dl_outbox_entries',
+    'dl_outbox_entries', 'dl_voice_originates',
     'jr_schedule_occurrences', 'jr_step_runs', 'jr_owner_continuations',
     -- CG4.2 (#185)
     'cg_policy', 'cg_policy_scope_head', 'cg_policy_test_artifact', 'cg_policy_approval',
@@ -143,6 +143,7 @@ REVOKE UPDATE, DELETE ON uat_run_evidence, uat_run_scans FROM dcontact_app;
 -- Delivery outbox rows advance through states, so UPDATE stays granted; a delivery that was
 -- already claimed must never disappear, because the reservation it settles points back at it.
 REVOKE DELETE ON dl_outbox_entries FROM dcontact_app;
+REVOKE DELETE ON dl_voice_originates FROM dcontact_app;
 -- Occurrence เดินสถานะได้ แต่หลักฐานว่า schedule เคยยิงต้องอยู่ตลอด
 REVOKE DELETE ON jr_schedule_occurrences FROM dcontact_app;
 -- Step run เป็น ledger เขียนครั้งเดียว: เดินซ้ำได้เฉพาะเพราะแถวเดิมยังอยู่
