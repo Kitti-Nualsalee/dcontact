@@ -4,6 +4,7 @@ import {
   PHASE_ZERO_READINESS_CHECKS,
   createMemoizedExecuteCheck,
   executeReadinessCheck,
+  redactRunId,
   sanitizeDiagnostic,
   skippedDiagnostic,
 } from './phase-zero-readiness.mjs';
@@ -35,6 +36,15 @@ test('diagnostic ไม่เผย token, password, secret หรือ connect
 
   assert.doesNotMatch(safe, /eyJ|hello|world|db-pass/);
   assert.match(safe, /REDACTED/);
+});
+
+test('diagnostic แทน GitHub run ID ที่บังเอิญคล้ายเบอร์โทร เพื่อไม่ให้ PII guard ทำ manifest ล้ม', () => {
+  const output = 'evidence: artifacts/cxa-e0/36683968610.json';
+  assert.match(output, /(?:\+?66|0)\d{8,9}\b/);
+  const safe = redactRunId(output, '36683968610');
+  assert.equal(safe, 'evidence: artifacts/cxa-e0/[RUN_ID].json');
+  assert.doesNotMatch(safe, /(?:\+?66|0)\d{8,9}\b/);
+  assert.equal(redactRunId(output, 'local-x'), output);
 });
 
 test('failed check ระบุ dependency, boundary และ remediation แบบ structured', () => {

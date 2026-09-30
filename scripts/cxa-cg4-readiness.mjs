@@ -3,7 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { sanitizeDiagnostic } from './phase-zero-readiness.mjs';
+import { redactRunId, sanitizeDiagnostic } from './phase-zero-readiness.mjs';
 import { nestedReadinessFailures, outputTail } from './readiness-failure-detail.mjs';
 import { assertPiiSafeEvidence, sha256 } from './cxa-c1-readiness.mjs';
 import { CG4_FIXED_FLAGS, CG4_OWNER_PROFILES } from './cxa-cg4-profile-readiness.mjs';
@@ -525,6 +525,7 @@ export function cg4FailureDetail(output, fallback) {
       : tail.length > 0
         ? [fallback, '... ท้าย output ...', ...tail].join('\n')
         : fallback;
+  detail = redactRunId(detail);
   for (const [pattern, replacement] of PII_VALUE_PATTERNS) {
     detail = detail.replaceAll(pattern, replacement);
   }
