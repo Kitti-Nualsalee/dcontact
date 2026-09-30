@@ -19,6 +19,7 @@ import { CLICK_TO_CALL_SERVICE, ClickToCallController } from './click-to-call-ap
 import {
   ClickToCallService,
   OUTBOUND_VOICE_NOT_ENABLED,
+  type ClickToCallVoiceDelivery,
   type ClickToCallGovernance,
 } from './click-to-call.js';
 import { DPHONE_EMBED_FLAG, EmbedOriginService } from './embed-origins.js';
@@ -90,6 +91,7 @@ async function setup(
   t: TestContext,
   governance: ClickToCallGovernance,
   rate?: { limit: number; windowMs: number },
+  voiceDelivery?: ClickToCallVoiceDelivery,
 ) {
   const tenantId = randomUUID();
   const slug = `c2c-${tenantId.slice(0, 8)}`;
@@ -139,6 +141,7 @@ async function setup(
     hostOriginOfLease: (actor, leaseId) => leases.embeddedHostOrigin(actor, leaseId),
     governance,
     ...(rate ? { rate } : {}),
+    ...(voiceDelivery ? { voiceDelivery } : {}),
   });
 
   @Module({
@@ -247,6 +250,41 @@ test('ALLOW: ยังไม่โทรจริง (Voice Delivery Gate ยั
     reasonCode: OUTBOUND_VOICE_NOT_ENABLED,
     decisionId: 'dec-1',
   });
+  assert.deepEqual(stub.reservations, [['res-1', 'RELEASE']]);
+});
+
+test('ALLOW: ตอบ dialing เฉพาะเมื่อ Delivery commit durable queue แล้ว และไม่ release reservation', async (t) => {
+  const stub = stubGovernance('ALLOW');
+  const queued: ClickToCallVoiceDelivery['enqueue'] = async (input) => {
+    assert.equal(input.tenantId.length, 36);
+    assert.equal(input.userId.length, 36);
+    assert.equal(input.contactId.length, 36);
+    assert.equal(input.identityId.length, 36);
+    assert.equal(input.reservationId, 'res-1');
+    return { status: 'QUEUED' };
+  };
+  const f = await setup(t, stub.governance, undefined, { enqueue: queued });
+  const response = await f.call('agent', { requestId: 'req-queued', number: NUMBER });
+  assert.deepEqual(response.body.message, {
+    v: 1,
+    type: 'dphone.call.result',
+    requestId: 'req-queued',
+    status: 'dialing',
+    blocked: false,
+    reasonCode: 'QUEUED',
+    decisionId: 'dec-1',
+  });
+  assert.deepEqual(stub.reservations, []);
+});
+
+test('ALLOW: Delivery ปฏิเสธก่อน durable queue ต้อง release reservation และไม่คืน dialing', async (t) => {
+  const stub = stubGovernance('ALLOW');
+  const f = await setup(t, stub.governance, undefined, {
+    enqueue: async () => ({ status: 'UNAVAILABLE', reasonCode: 'VOICE_DELIVERY_DISABLED' }),
+  });
+  const response = await f.call('agent', { requestId: 'req-disabled', number: NUMBER });
+  assert.equal(response.body.message.status, 'unavailable');
+  assert.equal(response.body.message.reasonCode, 'VOICE_DELIVERY_DISABLED');
   assert.deepEqual(stub.reservations, [['res-1', 'RELEASE']]);
 });
 
