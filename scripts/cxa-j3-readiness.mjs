@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertPiiSafeEvidence, sha256 } from './cxa-c1-readiness.mjs';
 import { J3_FIXED_FLAGS, J3_OWNER_PROFILES } from './cxa-j3-profile-readiness.mjs';
+import { redactRunId } from './phase-zero-readiness.mjs';
 import { nestedReadinessFailures, outputTail } from './readiness-failure-detail.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -333,9 +334,9 @@ export function executeJ3Suite(suite, runner = spawnSync) {
 
 /** #559: FAIL ของ acceptance ที่ซ้อนอยู่ขึ้นก่อน แล้วตามด้วยท้าย output */
 export function j3FailureDetail(output) {
-  const detail = [...nestedReadinessFailures(output), '... ท้าย output ...', ...outputTail(output)]
-    .join('\n')
-    .trim();
+  const detail = redactRunId(
+    [...nestedReadinessFailures(output), '... ท้าย output ...', ...outputTail(output)].join('\n'),
+  ).trim();
   // ตัดจากท้ายเพื่อให้บรรทัด nested FAIL ที่อยู่ต้นข้อความยังอยู่
   return detail.length > 4_000 ? `${detail.slice(0, 4_000)}\n... truncated ...` : detail;
 }

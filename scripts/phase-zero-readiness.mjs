@@ -95,6 +95,15 @@ export function sanitizeDiagnostic(value) {
 }
 
 /**
+ * GitHub Actions run ID อยู่ใน path ของ evidence (`artifacts/<phase>/<runId>.json`) และบางค่าบังเอิญตรง
+ * รูปแบบเบอร์โทรไทยของ PII guard (เช่น 36683968610 มี `66` + 8 หลัก) ทำให้ S1 crash ตอนเขียน manifest
+ * แทนที่จะรายงาน suite ที่ล้ม — ใช้กับข้อความ `detail` เท่านั้น ไม่ใช้กับ JSON evidence ที่ต้อง parse ต่อ
+ */
+export function redactRunId(text, runId = process.env.GITHUB_RUN_ID) {
+  return runId && /^\d+$/.test(runId) ? String(text).replaceAll(runId, '[RUN_ID]') : String(text);
+}
+
+/**
  * หน้าต่างนี้ต้องกว้างพอจะครอบ "บล็อกความล้มเหลว" ของ test runner ไม่ใช่แค่บรรทัดสรุปท้ายสุด
  * ตอนตั้งไว้ 10 บรรทัด/1500 อักษร diagnostic ของ Playwright ที่ล้มเก็บได้เพียงบรรทัด
  * "N failed" กับรายชื่อ test ส่วนข้อความ assertion จริงถูกตัดทิ้งทั้งหมด ทำให้ผลของ gate
@@ -161,7 +170,7 @@ function rescueFailureBlocks(lines) {
 }
 
 function diagnosticDetail(result) {
-  const safe = sanitizeDiagnostic(`${result.stderr ?? ''}\n${result.stdout ?? ''}`);
+  const safe = redactRunId(sanitizeDiagnostic(`${result.stderr ?? ''}\n${result.stdout ?? ''}`));
   if (!safe)
     return result.error?.code ?? `process exited with status ${result.status ?? 'unknown'}`;
   const lines = safe.split('\n').filter(Boolean);
