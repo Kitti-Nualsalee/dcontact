@@ -292,7 +292,9 @@ export const CXA_J5_READINESS_CHECKS = Object.freeze([
     'J5-REG01',
     'regression',
     ['build/typecheck/lint', 'J1/J2/J3/CG3 acceptance on same SHA', 'no disabled tests'],
-    [[pnpm, 'build'], [pnpm, 'typecheck'], [pnpm, 'lint'], [pnpm, 'cxa:j3:acceptance'], dependency],
+    // #559: ไม่รัน J3 acceptance ซ้ำ (ซึ่งรัน S1/J2/CG4 ซ้อนต่อจนเกิน 6 ชม.) — dependency ตรวจ marker
+    // จาก immutable CI artifact บน SHA เดียวกัน และ fail-closed เมื่อ marker ไม่ครบ
+    [[pnpm, 'build'], [pnpm, 'typecheck'], [pnpm, 'lint'], dependency],
   ),
 ]);
 

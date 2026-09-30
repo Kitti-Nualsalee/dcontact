@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertPiiSafeEvidence, sha256 } from './cxa-c1-readiness.mjs';
 import { J3_FIXED_FLAGS, J3_OWNER_PROFILES } from './cxa-j3-profile-readiness.mjs';
+import { nestedReadinessFailures, outputTail } from './readiness-failure-detail.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
@@ -54,6 +55,7 @@ const contracts = tests('@d-contact/cxa-contracts');
 const db = [pnpm, '--filter', '@d-contact/db', 'test:integration'];
 const profile = [process.execPath, 'scripts/cxa-j3-profile-readiness.mjs'];
 const schema = [process.execPath, 'scripts/cxa-j3-schema-readiness.mjs'];
+const dependency = [process.execPath, 'scripts/acceptance-dependency-markers.mjs', 'J3'];
 
 function check(id, dimension, dependency, boundaries, commands, extra = {}) {
   return {
@@ -227,9 +229,10 @@ export const CXA_J3_READINESS_CHECKS = Object.freeze([
     'J3-REG01',
     'regression',
     'E0/C1/J1/Core plus merged J2/S1/CG3/CG4 paths on target SHA',
-    ['no regression disabled', 'acceptance paths run', 'provider traffic stays disabled'],
-    [[pnpm, 's1:acceptance'], [pnpm, 'cxa:j2:acceptance'], [pnpm, 'cxa:cg4:acceptance'], profile],
-    { evidencePrefix: 'CXA_J3_PROFILE_EVIDENCE:' },
+    // #559: ไม่รัน S1/J2/CG4 acceptance ซ้ำ — ตรวจ marker จาก immutable CI artifact บน SHA เดียวกันแทน
+    ['no regression disabled', 'S1/J2/CG4 markers same SHA', 'provider traffic stays disabled'],
+    [dependency, profile],
+    { evidencePrefix: ['CXA_J3_PROFILE_EVIDENCE:', 'ACCEPTANCE_DEPENDENCY_EVIDENCE:'] },
   ),
 ]);
 
@@ -285,17 +288,20 @@ export function parseTapSummary(output) {
 
 function evidence(output, prefix) {
   if (!prefix) return [];
+  const prefixes = Array.isArray(prefix) ? prefix : [prefix];
   return String(output)
     .split('\n')
-    .flatMap((line) => {
-      const at = line.indexOf(prefix);
-      if (at < 0) return [];
-      try {
-        return [JSON.parse(line.slice(at + prefix.length))];
-      } catch {
-        return [];
-      }
-    });
+    .flatMap((line) =>
+      prefixes.flatMap((candidate) => {
+        const at = line.indexOf(candidate);
+        if (at < 0) return [];
+        try {
+          return [JSON.parse(line.slice(at + candidate.length))];
+        } catch {
+          return [];
+        }
+      }),
+    );
 }
 
 export function executeJ3Suite(suite, runner = spawnSync) {
@@ -321,8 +327,17 @@ export function executeJ3Suite(suite, runner = spawnSync) {
             ? { evidence: evidence(output, suite.evidencePrefix) }
             : {}),
         }
-      : { detail: output.slice(-4000) }),
+      : { detail: j3FailureDetail(output) }),
   };
+}
+
+/** #559: FAIL ของ acceptance ที่ซ้อนอยู่ขึ้นก่อน แล้วตามด้วยท้าย output */
+export function j3FailureDetail(output) {
+  const detail = [...nestedReadinessFailures(output), '... ท้าย output ...', ...outputTail(output)]
+    .join('\n')
+    .trim();
+  // ตัดจากท้ายเพื่อให้บรรทัด nested FAIL ที่อยู่ต้นข้อความยังอยู่
+  return detail.length > 4_000 ? `${detail.slice(0, 4_000)}\n... truncated ...` : detail;
 }
 
 function git(arguments_) {

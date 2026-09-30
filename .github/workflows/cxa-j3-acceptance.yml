@@ -5,13 +5,15 @@ on:
 
 permissions:
   contents: read
+  # #559: ดึง evidence manifest ของ S1/J2/CG4 จาก artifact ของ run อื่นบน SHA เดียวกัน
+  actions: read
 
 jobs:
   cxa-j3-acceptance:
     # J3 completion อนุญาตเฉพาะ main; PR ตรวจ validator ใน CI เดิม
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 90
     concurrency:
       group: cxa-j3-acceptance
       cancel-in-progress: false
@@ -58,6 +60,11 @@ jobs:
             exit 1
           }
 
+      - name: Fetch dependency evidence from runs on the same SHA
+        run: node scripts/acceptance-fetch-evidence.mjs J3
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Run J3 acceptance on final main SHA
         run: pnpm cxa:j3:acceptance
         env:
@@ -69,33 +76,6 @@ jobs:
         with:
           name: cxa-j3-evidence-${{ github.sha }}
           path: artifacts/cxa-j3/${{ github.run_id }}.json
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Upload immutable s1 evidence manifest
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: s1-evidence-${{ github.sha }}
-          path: artifacts/s1/${{ github.run_id }}.json
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Upload immutable cxa-j2 evidence manifest
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cxa-j2-evidence-${{ github.sha }}
-          path: artifacts/cxa-j2/${{ github.run_id }}.json
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Upload immutable cxa-cg4 evidence manifest
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cxa-cg4-evidence-${{ github.sha }}
-          path: artifacts/cxa-cg4/${{ github.run_id }}.json
           if-no-files-found: error
           retention-days: 90
 
