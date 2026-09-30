@@ -11,7 +11,8 @@ import type { AddressInfo } from 'node:net';
 import test, { type TestContext } from 'node:test';
 import { Module } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
-import { PrismaClient } from '@d-contact/db';
+import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { IamTeamSegmentScopeRepository } from '@d-contact/iam';
 import type { VerifiedOidcClaims } from '@d-contact/workspace-session';
 import { EMBED_ORIGIN_SERVICE, EmbedOriginsController } from './embed-origins-api.js';
 import { DPHONE_EMBED_FLAG, EmbedOriginService } from './embed-origins.js';
@@ -23,7 +24,12 @@ import {
 } from './gateway-auth.js';
 import { SCREEN_POP_SERVICE, ScreenPopController } from './screen-pop-api.js';
 import {
+  TEAM_SEGMENT_SCOPE_DATABASE,
+  TeamSegmentScopeController,
+} from './team-segment-scope-api.js';
+import {
   ContactGovernanceDisclosureCheck,
+  IamTeamSegmentViewScope,
   SCREEN_POP_POLICY_VERSION,
   ScreenPopService,
   UnavailableTeamSegmentViewScope,
@@ -124,10 +130,11 @@ async function setup(t: TestContext, viewScope: TeamSegmentViewScope) {
   };
 
   @Module({
-    controllers: [EmbedOriginsController, ScreenPopController],
+    controllers: [EmbedOriginsController, ScreenPopController, TeamSegmentScopeController],
     providers: [
       { provide: EMBED_ORIGIN_SERVICE, useValue: origins },
       { provide: SCREEN_POP_SERVICE, useValue: service },
+      { provide: TEAM_SEGMENT_SCOPE_DATABASE, useValue: application },
       {
         provide: OIDC_ACCESS_TOKEN_VERIFIER,
         useValue: { verifyAccessToken: async (token: string) => claims(token) },
@@ -146,6 +153,12 @@ async function setup(t: TestContext, viewScope: TeamSegmentViewScope) {
     await app.close();
     await owner.cgRestriction.deleteMany({ where: { tenantId } });
     await owner.$executeRaw`DELETE FROM interactions WHERE tenant_id = ${tenantId}::uuid`;
+    await owner.iamScopeInvalidationOutbox.deleteMany({ where: { tenantId } });
+    await owner.iamContactSegmentScopeProjection.deleteMany({ where: { tenantId } });
+    await owner.iamTeamSegmentScopeRevocation.deleteMany({ where: { tenantId } });
+    await owner.iamTeamSegmentScopeActiveGrant.deleteMany({ where: { tenantId } });
+    await owner.iamTeamSegmentScopeGrant.deleteMany({ where: { tenantId } });
+    await owner.iamTeamScopeVersion.deleteMany({ where: { tenantId } });
     await owner.contact.deleteMany({ where: { tenantId } });
     await owner.agentWorkSessionEvent.deleteMany({ where: { tenantId } });
     await owner.agentWorkSessionLease.deleteMany({ where: { tenantId } });
@@ -154,6 +167,7 @@ async function setup(t: TestContext, viewScope: TeamSegmentViewScope) {
     await owner.tenantEmbedOrigin.deleteMany({ where: { tenantId } });
     await owner.tenantUiFlag.deleteMany({ where: { tenantId } });
     await owner.user.deleteMany({ where: { tenantId } });
+    await owner.team.deleteMany({ where: { tenantId } });
     await owner.tenant.deleteMany({ where: { id: tenantId } });
   });
 
@@ -329,6 +343,94 @@ test('ไม่มี scope VIEW (IAM ยังไม่มี VIEW → fail clo
   assert.deepEqual(Object.keys(outcome.message).sort(), [...common, 'reasonCode'].sort());
   assert.equal(outcome.message.level, 'interaction');
   assert.equal(outcome.message.reasonCode, 'TEAM_SEGMENT_NOT_ALLOWED');
+});
+
+test('VIEW scope จาก IAM อนุญาตเฉพาะ team ของ agent และ revoke กลับเป็น fail closed', async (t) => {
+  const viewScope = new IamTeamSegmentViewScope(application);
+  const f = await setup(t, viewScope);
+  const teamId = randomUUID();
+  await owner.team.create({ data: { id: teamId, tenantId: f.tenantId, name: 'Screen pop VIEW' } });
+  await owner.user.update({ where: { id: f.users.agent }, data: { teamId } });
+  const scopes = new IamTeamSegmentScopeRepository(application);
+  const grant = await scopes.grant({
+    tenantId: f.tenantId,
+    teamId,
+    segmentId: 'VIP',
+    permission: 'VIEW',
+    correlationId: 'grant-view',
+  });
+  await withTenantDatabaseTransaction(application, f.tenantId, (transaction) =>
+    transaction.iamContactSegmentScopeProjection.create({
+      data: {
+        tenantId: f.tenantId,
+        contactId: f.contactId,
+        segmentId: 'VIP',
+        state: 'IN',
+        membershipRevision: 1,
+        entryId: randomUUID(),
+        sourceEventId: randomUUID(),
+        sourceOccurredAt: new Date(),
+      },
+    }),
+  );
+  const interactionId = await f.interaction({});
+  await f.setLevel('contact');
+  const input = { leaseId: f.lease.leaseId, interactionId, requestId: 'view-allow' };
+  const allowed = await f.service.build(f.agent, input);
+  assert.equal(allowed.status === 'sent' && allowed.message.level, 'contact');
+
+  await scopes.revoke({
+    tenantId: f.tenantId,
+    grantId: grant.grant.id,
+    reasonCode: 'VIEW_REVOKED',
+    correlationId: 'revoke-view',
+  });
+  const revoked = await f.service.build(f.agent, { ...input, requestId: 'view-revoked' });
+  assert.equal(revoked.status, 'sent');
+  if (revoked.status !== 'sent') return;
+  assert.equal(revoked.message.level, 'interaction');
+  assert.equal(revoked.message.reasonCode, 'TEAM_SEGMENT_NOT_ALLOWED');
+});
+
+test('HTTP: ADMIN จัดการ VIEW scope ได้โดยไม่ขยายสิทธิ์ให้ SUPERVISOR และ revoke แล้ว list ไม่คืน active grant', async (t) => {
+  const f = await setup(t, allowView);
+  const teamId = randomUUID();
+  await owner.team.create({ data: { id: teamId, tenantId: f.tenantId, name: 'Scope API team' } });
+  const path = '/api/v1/tenant/team-segment-scopes';
+
+  assert.equal((await f.call('GET', path, 'supervisor')).status, 403);
+  assert.equal(
+    (await f.call('POST', path, 'admin', { teamId: 'not-a-uuid', segmentId: 'VIP' })).status,
+    400,
+  );
+
+  const granted = await f.call('POST', path, 'admin', { teamId, segmentId: 'VIP' });
+  assert.equal(granted.status, 201);
+  assert.equal(granted.body.outcome, 'GRANTED');
+  assert.equal(granted.body.grantId.length, 36);
+
+  const listed = await f.call('GET', path, 'admin');
+  assert.equal(listed.status, 200);
+  assert.deepEqual(
+    listed.body.scopes.map((scope: { teamId: string; segmentId: string; grantId: string }) => ({
+      teamId: scope.teamId,
+      segmentId: scope.segmentId,
+      grantId: scope.grantId,
+    })),
+    [{ teamId, segmentId: 'VIP', grantId: granted.body.grantId }],
+  );
+
+  assert.equal(
+    (await f.call('DELETE', `${path}/${granted.body.grantId}`, 'admin', { reasonCode: 'x' }))
+      .status,
+    400,
+  );
+  assert.equal(
+    (await f.call('DELETE', `${path}/${granted.body.grantId}`, 'admin', { reasonCode: 'removed' }))
+      .status,
+    204,
+  );
+  assert.deepEqual(await f.call('GET', path, 'admin'), { status: 200, body: { scopes: [] } });
 });
 
 test('restriction/objection ที่ยังมีผล → ลดเหลือ ids; หมดอายุแล้วหรือ DNC ไม่ลด', async (t) => {

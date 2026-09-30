@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { SegmentMembershipChangePayloadV1 } from '@d-contact/cxa-contracts';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 
-export type IamScopePermission = 'WORK' | 'CONTACT';
+export type IamScopePermission = 'WORK' | 'CONTACT' | 'VIEW';
 
 export interface GrantTeamSegmentScopeInput {
   tenantId: string;

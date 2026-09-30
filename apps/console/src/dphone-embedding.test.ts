@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EmbedOriginApiError } from './dphone-embedding/api.js';
 import { apiErrorKey, checkOriginInput, hostSnippet } from './dphone-embedding/model.js';
+import { createTeamScopeApi } from './team-scopes/api.js';
 
 test('ตรวจ origin ทันทีด้วยกติกาเดียวกับ API', () => {
   assert.equal(checkOriginInput('  ', { dev: false }), null);
@@ -49,4 +50,46 @@ test('snippet ใช้ <dphone-launcher> จาก alias v1 ของ dphone or
     hostSnippet({ embedBaseUrl: 'https://api.dcontact.test', tenantAlias: '"><script>' }),
     /"><script>/,
   );
+});
+
+test('Console client ของ VIEW scope ส่งเฉพาะ team/segment/reason พร้อม bearer', async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const api = createTeamScopeApi({
+    baseUrl: 'https://api.dcontact.test/',
+    accessToken: () => 'access-token',
+    fetch: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (init?.method === 'GET') return Response.json({ scopes: [] });
+      if (init?.method === 'POST')
+        return Response.json({ outcome: 'GRANTED', grantId: 'grant-id' });
+      return new Response(null, { status: init?.method === 'DELETE' ? 204 : 201 });
+    },
+  });
+
+  await api.list();
+  await api.grant({ teamId: 'team-id', segmentId: 'VIP' });
+  await api.revoke('grant/id', 'removed');
+
+  assert.deepEqual(calls, [
+    {
+      url: 'https://api.dcontact.test/api/v1/tenant/team-segment-scopes',
+      init: { method: 'GET', headers: { authorization: 'Bearer access-token' } },
+    },
+    {
+      url: 'https://api.dcontact.test/api/v1/tenant/team-segment-scopes',
+      init: {
+        method: 'POST',
+        headers: { authorization: 'Bearer access-token', 'content-type': 'application/json' },
+        body: JSON.stringify({ teamId: 'team-id', segmentId: 'VIP' }),
+      },
+    },
+    {
+      url: 'https://api.dcontact.test/api/v1/tenant/team-segment-scopes/grant%2Fid',
+      init: {
+        method: 'DELETE',
+        headers: { authorization: 'Bearer access-token', 'content-type': 'application/json' },
+        body: JSON.stringify({ reasonCode: 'removed' }),
+      },
+    },
+  ]);
 });

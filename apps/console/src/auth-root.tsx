@@ -4,6 +4,7 @@ import { SessionLocaleProvider } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
 import { createEmbedOriginApi } from './dphone-embedding/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
+import { createTeamScopeApi } from './team-scopes/api.js';
 import { ConsoleShell } from './shell/console-shell.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
@@ -270,6 +271,10 @@ function DphoneEmbeddingSurface({
     () => createEmbedOriginApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
     [accessToken, apiBaseUrl],
   );
+  const teamScopes = useMemo(
+    () => createTeamScopeApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
   if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
     return (
       <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
@@ -297,6 +302,7 @@ function DphoneEmbeddingSurface({
         embedBaseUrl={apiBaseUrl || window.location.origin}
         dev={import.meta.env.DEV}
         docsUrl={import.meta.env.VITE_DPHONE_EMBED_DOCS_URL as string | undefined}
+        teamScopes={teamScopes}
       />
     </ConsoleShell>
   );

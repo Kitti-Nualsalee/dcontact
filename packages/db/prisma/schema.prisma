@@ -4587,6 +4587,7 @@ model QmAuditEvent {
 enum IamScopePermission {
   WORK
   CONTACT
+  VIEW
 }
 
 enum IamScopeProjectionState {
