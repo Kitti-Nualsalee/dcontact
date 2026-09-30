@@ -36,6 +36,8 @@ export class SipJsBrowserTransport implements BrowserSipTransport {
       uri,
       authorizationUsername: lease.authorizationUsername,
       authorizationPassword: lease.authorizationPassword,
+      instanceId: lease.leaseId,
+      instanceIdAlwaysAdded: true,
       transportOptions: { server: lease.wssUrl },
       logBuiltinEnabled: false,
       reconnectionAttempts: 0,
@@ -50,7 +52,12 @@ export class SipJsBrowserTransport implements BrowserSipTransport {
       if (state === TransportState.Disconnected) this.callbacks.onRegistrationLost?.();
     });
     this.userAgent = userAgent;
-    this.registerer = new Registerer(userAgent, { expires: 300, refreshFrequency: 80 });
+    this.registerer = new Registerer(userAgent, {
+      expires: 60,
+      refreshFrequency: 80,
+      instanceId: lease.leaseId,
+      regId: 1,
+    });
   }
 
   async register(): Promise<void> {

@@ -16,6 +16,18 @@ export class FreeSwitchCommandAdapter {
 
   async handle(command: TelephonyCommand): Promise<void> {
     if (command.vendor !== 'freeswitch' || command.telephonyNodeId !== this.telephonyNodeId) return;
+    if (command.type === 'sip.registration.flush') {
+      if (!/^[A-Za-z0-9_.-]{1,64}$/.test(command.extension)) {
+        throw new Error('invalid SIP extension');
+      }
+      if (!/^[A-Za-z0-9.-]{1,253}$/.test(command.sipDomain)) {
+        throw new Error('invalid SIP domain');
+      }
+      await this.esl.command(
+        `api sofia profile internal flush_inbound_reg ${command.extension}@${command.sipDomain}`,
+      );
+      return;
+    }
     if (command.type === 'call.bridge') {
       const dialString = this.agentDialTemplate
         .replaceAll('{extension}', command.agentExtension)

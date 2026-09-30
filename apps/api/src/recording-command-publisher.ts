@@ -10,13 +10,17 @@ export class KafkaTelephonyCommandPublisher implements TelephonyCommandPublisher
   async publish(input: Parameters<TelephonyCommandPublisher['publish']>[0]): Promise<void> {
     this.producer ??= createProducer('dcontact-api-recording-control-v1');
     const producer = await this.producer;
+    const orderingKey =
+      input.command.type === 'sip.registration.flush'
+        ? input.command.workSessionLeaseId
+        : input.command.callUuid;
     await producer.send(KAFKA_TOPICS.TELEPHONY_COMMANDS, {
       eventId: randomUUID(),
       type: input.command.type,
       tenantId: input.tenantId,
       occurredAt: new Date().toISOString(),
-      correlationId: input.command.callUuid,
-      orderingKey: input.command.callUuid,
+      correlationId: orderingKey,
+      orderingKey,
       payload: input.command,
     });
   }

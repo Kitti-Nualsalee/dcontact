@@ -28,8 +28,8 @@ const e2eApi: AgentWorkspaceApi = {
     : {}),
   snapshot: () => e2eHttpApi.snapshot(),
   submitWrapup: (input) => e2eHttpApi.submitWrapup(input),
-  sipCredentials: async () => ({
-    leaseId: 'e2e-lease',
+  sipCredentials: async (workSessionLeaseId) => ({
+    leaseId: workSessionLeaseId,
     extension: '1000',
     authorizationUsername: '1000',
     authorizationPassword: 'e2e-only',

@@ -6,6 +6,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test src/*.test.ts",
     "test:integration": "node scripts/run-integration.mjs",
+    "test:e1-10:dev-stack": "tsx scripts/e1-10-dev-stack.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/main.ts",
     "test:boundary": "tsx --test --test-concurrency=1 src/*.boundary.ts"
@@ -35,6 +36,7 @@
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/ws": "^8.5.13",
+    "sip.js": "0.21.2",
     "tsx": "^4.23.1",
     "typescript": "^5.5.4"
   }

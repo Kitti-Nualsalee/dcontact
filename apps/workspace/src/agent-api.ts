@@ -21,7 +21,7 @@ export interface AgentWorkspaceSnapshot {
 
 export interface AgentWorkspaceApi {
   snapshot(): Promise<AgentWorkspaceSnapshot>;
-  sipCredentials(): Promise<SipCredentialLease>;
+  sipCredentials(workSessionLeaseId: string): Promise<SipCredentialLease>;
   submitWrapup(input: {
     interactionId: string;
     disposition: string;
@@ -95,8 +95,16 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
     async snapshot() {
       return get<AgentWorkspaceSnapshot>('/api/v1/workspace/agent/snapshot');
     },
-    async sipCredentials() {
-      return get<SipCredentialLease>('/api/v1/workspace/agent/sip-credentials');
+    async sipCredentials(workSessionLeaseId) {
+      const response = await send('/api/v1/workspace/agent/sip-credentials', {
+        headers: { 'x-work-session-lease-id': workSessionLeaseId },
+      });
+      if (!response.ok) {
+        throw new Error(
+          `/api/v1/workspace/agent/sip-credentials failed with HTTP ${response.status}`,
+        );
+      }
+      return (await response.json()) as SipCredentialLease;
     },
     async submitWrapup(input) {
       await post(

@@ -40,7 +40,6 @@ async function main() {
         displayName: `Agent ${ext}`,
         role: 'AGENT',
         extension: ext,
-        sipPassword: 'DContactDev1', // ตรงกับ default_password ใน FreeSWITCH dev directory
       },
     });
   }
@@ -180,7 +179,6 @@ async function main() {
       displayName: 'Agent 2000',
       role: 'AGENT',
       extension: '2000',
-      sipPassword: 'DContactDev1',
     },
   });
   const secondSkill = await prisma.skill.upsert({

@@ -200,8 +200,8 @@ async function prepareDatabase() {
   // id ต้องตรงกับ claim ที่ Keycloak ออกให้ agent1000 — seed จะ upsert ตาม slug/email และใช้แถวนี้ต่อ
   psql(
     `INSERT INTO tenants (id, name, slug, sip_domain) VALUES ('${claims.tenantId}', 'Demo Company', 'demo', 'dcontact.local');
-     INSERT INTO users (id, keycloak_id, tenant_id, email, password_hash, display_name, role, extension, sip_password)
-     VALUES ('${claims.userId}', '${claims.keycloakId}', '${claims.tenantId}', '${agentUsername}', '-', 'Agent 1000', 'AGENT', '1000', 'DContactDev1');`,
+     INSERT INTO users (id, keycloak_id, tenant_id, email, password_hash, display_name, role, extension)
+     VALUES ('${claims.userId}', '${claims.keycloakId}', '${claims.tenantId}', '${agentUsername}', '-', 'Agent 1000', 'AGENT', '1000');`,
   );
   run('pnpm', ['db:seed']);
   // ให้ Router เลือกได้แค่ agent1000 ที่ browser ลงทะเบียนอยู่

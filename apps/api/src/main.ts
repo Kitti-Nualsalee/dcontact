@@ -74,12 +74,12 @@ import { S3RecordingStorage } from './s3-recording-storage.js';
 import { S3GovernanceExportStorage } from './s3-governance-export-storage.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
 import { KafkaQmJobPublisher } from './qm-job-publisher.js';
+import { AgentWorkspaceController, AGENT_WORKSPACE_DATABASE } from './agent-workspace-api.js';
 import {
-  AgentWorkspaceController,
-  AGENT_SIP_LEASE_PROVIDER,
-  AGENT_WORKSPACE_DATABASE,
-  configuredAgentSipLeaseProvider,
-} from './agent-workspace-api.js';
+  AGENT_SIP_CREDENTIALS,
+  configuredAgentSipCredentialService,
+  FreeSwitchDirectoryController,
+} from './agent-sip-credentials.js';
 import { JOURNEY_EVENT_INBOX, JourneyEventController } from './journey-event-api.js';
 import {
   JOURNEY_RECOVERY_DATABASE,
@@ -163,6 +163,7 @@ const gateway = new WorkspaceSessionGateway(
 );
 const supervisorLiveEvents = new SupervisorLiveEventStream();
 const recordingCommandPublisher = new KafkaTelephonyCommandPublisher();
+const agentSipCredentials = configuredAgentSipCredentialService(prisma);
 const recordingStorage = new S3RecordingStorage();
 const governanceExportStorage = new S3GovernanceExportStorage();
 const qmJobPublisher = new KafkaQmJobPublisher();
@@ -223,6 +224,25 @@ const workSessionLeases = new WorkSessionLeases(prisma, {
   },
   diagnostics: { write: (event) => console.log(JSON.stringify(event)) },
   embedOrigins,
+  sipRegistrations: {
+    flush: (registration) => {
+      void recordingCommandPublisher
+        .publish({
+          tenantId: registration.tenantId,
+          command: {
+            type: 'sip.registration.flush',
+            vendor: 'freeswitch',
+            telephonyNodeId: registration.telephonyNodeId,
+            extension: registration.extension,
+            sipDomain: registration.sipDomain,
+            workSessionLeaseId: registration.workSessionLeaseId,
+          },
+        })
+        .catch((error: unknown) =>
+          console.error('[api] SIP registration flush publish failed', error),
+        );
+    },
+  },
 });
 // E1.14 (#488): VIEW scope ยังไม่มีใน IAM → fail closed (screen-pop เหลือ interactionId) จนกว่า IAM จะเพิ่ม
 const screenPop = new ScreenPopService(prisma, {
@@ -279,6 +299,7 @@ class WorkspaceSessionController {
     RecordingController,
     QmController,
     AgentWorkspaceController,
+    FreeSwitchDirectoryController,
     WorkSessionController,
     EmbedOriginsController,
     ScreenPopController,
@@ -355,7 +376,7 @@ class WorkspaceSessionController {
         },
       },
     },
-    { provide: AGENT_SIP_LEASE_PROVIDER, useValue: configuredAgentSipLeaseProvider() },
+    { provide: AGENT_SIP_CREDENTIALS, useValue: agentSipCredentials },
     { provide: JOURNEY_EVENT_INBOX, useValue: journeyEventInbox },
     { provide: JOURNEY_RECOVERY_DATABASE, useValue: prisma },
     { provide: JOURNEY_SEGMENT_DATABASE, useValue: prisma },
@@ -378,6 +399,7 @@ async function bootstrap(): Promise<void> {
       'authorization',
       'content-type',
       'x-correlation-id',
+      'x-work-session-lease-id',
       'idempotency-key',
       'if-none-match',
     ],

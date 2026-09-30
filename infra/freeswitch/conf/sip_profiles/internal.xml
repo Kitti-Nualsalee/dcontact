@@ -34,12 +34,12 @@
     <param name="auth-calls" value="true"/>
     <param name="nonce-ttl" value="60"/>
     <param name="challenge-realm" value="auto_from"/>
+    <param name="inbound-reg-force-matching-username" value="true"/>
+    <param name="multiple-registrations" value="false"/>
+    <param name="max-registrations-per-extension" value="1"/>
 
-    <!-- ทุก registration ถูก map เข้า domain เดียว (dev single-tenant)
-         multi-tenant จริงจะแยก SIP domain ต่อ tenant -->
-    <param name="force-register-domain" value="$${domain}"/>
-    <param name="force-subscription-domain" value="$${domain}"/>
-    <param name="force-register-db-domain" value="$${domain}"/>
+    <!-- E1.10: เก็บ registration ใต้ SIP domain ของ tenant ที่ directory API ยืนยัน
+         ห้าม force เป็น dev domain เดียว ไม่อย่างนั้น tenant boundary หาย -->
 
     <param name="apply-nat-acl" value="nat.auto"/>
     <param name="local-network-acl" value="dcontact_media_local"/>
