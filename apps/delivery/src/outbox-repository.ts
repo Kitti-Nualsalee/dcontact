@@ -52,7 +52,7 @@ export class OutboxEntryAlreadyExistsError extends Error {
   }
 }
 
-function isUniqueViolation(error: unknown): boolean {
+function isUniqueViolation(error: unknown): error is Prisma.PrismaClientKnownRequestError {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
@@ -83,9 +83,18 @@ export class OutboxRepository {
    * จาก P2002 แทนที่จะเขียนทับ delivery ของผู้ชนะ
    */
   async create(input: CreateOutboxEntryInput): Promise<DlOutboxEntry> {
-    try {
-      return await withTenantDatabaseTransaction(this.database, input.tenantId, (transaction) =>
-        transaction.dlOutboxEntry.create({
+    return this.createWith(input, async (_transaction, entry) => entry).then(({ entry }) => entry);
+  }
+
+  /** เขียน extension ของ adapter ใน transaction เดียวกับ generic outbox เพื่อไม่ทิ้ง delivery กำพร้า */
+  async createWith<T>(
+    input: CreateOutboxEntryInput,
+    afterCreate: (transaction: Prisma.TransactionClient, entry: DlOutboxEntry) => Promise<T>,
+  ): Promise<{ entry: DlOutboxEntry; result: T }> {
+    return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+      let entry: DlOutboxEntry;
+      try {
+        entry = await transaction.dlOutboxEntry.create({
           data: {
             id: input.id,
             tenantId: input.tenantId,
@@ -108,12 +117,13 @@ export class OutboxRepository {
             correlationId: input.correlationId,
             ...(input.causationId ? { causationId: input.causationId } : {}),
           },
-        }),
-      );
-    } catch (error) {
-      if (isUniqueViolation(error)) throw new OutboxEntryAlreadyExistsError(input.actionKey);
-      throw error;
-    }
+        });
+      } catch (error) {
+        if (isUniqueViolation(error)) throw new OutboxEntryAlreadyExistsError(input.actionKey);
+        throw error;
+      }
+      return { entry, result: await afterCreate(transaction, entry) };
+    });
   }
 
   /**

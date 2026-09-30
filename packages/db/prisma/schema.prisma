@@ -81,6 +81,7 @@ model Tenant {
   jrActions                    JrAction[]
   jrJourneyDefinitions         JrJourneyDefinition[]
   dlOutboxEntries              DlOutboxEntry[]
+  dlVoiceOriginates            DlVoiceOriginate[]
   jrScheduleOccurrences        JrScheduleOccurrence[]
   jrStepRuns                   JrStepRun[]
   jrOutcomeReceipts            JrOutcomeReceipt[]
@@ -3593,6 +3594,7 @@ enum DlDeliveryState {
 enum DlDeliveryAdapter {
   TEST_ADAPTER
   LINE_MESSAGING_API
+  FREESWITCH_ORIGINATE
 }
 
 /// C1.3: durable outbox ของ Channels/Dialer — หนึ่งแถวต่อหนึ่ง delivery ที่ claim สำเร็จแล้ว
@@ -3640,6 +3642,42 @@ model DlOutboxEntry {
   @@unique([tenantId, deliveryId, adapter], map: "dl_outbox_entries_tenant_delivery_adapter_key")
   @@index([tenantId, state, leaseExpiresAt], map: "dl_outbox_entries_tenant_state_lease_expiry_idx")
   @@map("dl_outbox_entries")
+}
+
+/// E1.18 (#520): state ที่ Delivery owner ใช้ก่อน/หลังสั่ง server originate;
+/// settlement ของ reservation ยังคงเป็น authority ของ Contact Governance เสมอ.
+enum DlVoiceOriginateState {
+  QUEUED
+  CANCEL_REQUESTED
+  RECONCILING
+  SETTLED
+}
+
+/// ส่วนขยายเฉพาะ voice ของ generic delivery outbox — ไม่มีเบอร์, credential หรือ ESL payload.
+model DlVoiceOriginate {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  tenantId           String                 @map("tenant_id") @db.Uuid
+  deliveryId         String                 @map("delivery_id")
+  adapter            DlDeliveryAdapter      @default(FREESWITCH_ORIGINATE)
+  interactionId      String                 @map("interaction_id") @db.Uuid
+  workSessionLeaseId String                 @map("work_session_lease_id") @db.Uuid
+  agentUserId        String                 @map("agent_user_id") @db.Uuid
+  agentExtension     String                 @map("agent_extension")
+  telephonyNodeId    String                 @map("telephony_node_id")
+  targetIdentityId   String                 @map("target_identity_id") @db.Uuid
+  originationUuid    String                 @map("origination_uuid") @db.Uuid
+  state              DlVoiceOriginateState  @default(QUEUED)
+  outcome            CgFactOutcome?
+  outcomeRef         String?                @map("outcome_ref")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, deliveryId], map: "dl_voice_originates_tenant_delivery_key")
+  @@unique([tenantId, originationUuid], map: "dl_voice_originates_tenant_origination_key")
+  @@index([tenantId, state, updatedAt], map: "dl_voice_originates_tenant_state_updated_idx")
+  @@map("dl_voice_originates")
 }
 
 // ── S2 LINE provider pilot (#365) ────────────────────────────────────────────

@@ -137,6 +137,7 @@ export async function createDeliveryFixture(script: TransportResponse[] = []) {
     },
     async dispose() {
       for (const scope of [rawTenantId, otherRawTenantId]) {
+        await owner.dlVoiceOriginate.deleteMany({ where: { tenantId: scope } });
         await owner.dlOutboxEntry.deleteMany({ where: { tenantId: scope } });
         await owner.cgReservationCommandReceipt.deleteMany({ where: { tenantId: scope } });
         await owner.cgTouch.deleteMany({ where: { tenantId: scope } });
