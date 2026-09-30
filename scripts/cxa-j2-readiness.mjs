@@ -206,16 +206,24 @@ export const CXA_J2_READINESS_CHECKS = [
   {
     id: 'J2-REG01',
     dimension: 'regression',
-    dependency: 'root build/typecheck/lint และ C1/S1 acceptance เดิมยังผ่าน',
-    boundaries: ['root build', 'root typecheck', 'root lint', 'C1 acceptance', 'S1 acceptance'],
+    dependency: 'root build/typecheck/lint และ C1/S1 acceptance marker บน SHA เดียวกัน',
+    // #559: ไม่รัน C1/S1 acceptance ซ้ำ — ตรวจ marker จาก immutable CI artifact บน SHA เดียวกันแทน
+    boundaries: [
+      'root build',
+      'root typecheck',
+      'root lint',
+      'C1 acceptance marker (J1_ACCEPTED) same SHA',
+      'S1 acceptance marker (CONTACT_GOVERNANCE_CG3_ACCEPTED) same SHA',
+    ],
     commands: [
       [pnpm, 'build'],
       [pnpm, 'typecheck'],
       [pnpm, 'lint'],
-      [pnpm, 'cxa:c1:acceptance'],
-      [pnpm, 's1:acceptance'],
+      [process.execPath, 'scripts/acceptance-dependency-markers.mjs', 'J2'],
     ],
-    remediation: 'แก้ build/typecheck/lint หรือ C1/S1 regression ก่อนยอมรับ J2',
+    evidencePrefix: 'ACCEPTANCE_DEPENDENCY_EVIDENCE:',
+    remediation:
+      'แก้ build/typecheck/lint หรือสั่ง S1 acceptance บน SHA เดียวกันให้ผ่านก่อน (ดู detail ของ dependency)',
   },
 ];
 

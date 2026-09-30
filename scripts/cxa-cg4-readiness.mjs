@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { sanitizeDiagnostic } from './phase-zero-readiness.mjs';
+import { nestedReadinessFailures, outputTail } from './readiness-failure-detail.mjs';
 import { assertPiiSafeEvidence, sha256 } from './cxa-c1-readiness.mjs';
 import { CG4_FIXED_FLAGS, CG4_OWNER_PROFILES } from './cxa-cg4-profile-readiness.mjs';
 import { CG3_MARKER, S1_REGRESSION_SCRIPTS } from './cxa-cg4-dependency-readiness.mjs';
@@ -507,13 +508,23 @@ const PII_VALUE_PATTERNS = [
 
 /** detail ของ suite ที่ล้มเก็บเฉพาะบรรทัดล้มเหลวที่ redact แล้ว เพื่อไม่ให้ manifest ทั้งไฟล์ใช้ไม่ได้เพราะ PII */
 export function cg4FailureDetail(output, fallback) {
+  // #559: FAIL ของ acceptance ที่ซ้อนอยู่มาก่อน เพราะบอกได้ว่าล้มที่ suite ไหนของชั้นใน
+  const nested = nestedReadinessFailures(output);
   const lines = sanitizeDiagnostic(output)
     .split('\n')
-    .filter((line) =>
-      /^\s*not ok |error:|Error\b|expected:|actual:|ERR_|failureType|signal:/.test(line),
-    )
-    .slice(0, 60);
-  let detail = lines.length > 0 ? lines.join('\n') : fallback;
+    .filter(
+      (line) =>
+        !line.includes('{"type":"readiness.') &&
+        /^\s*not ok |error:|Error\b|expected:|actual:|ERR_|failureType|signal:/.test(line),
+    );
+  const selected = [...nested, ...lines].slice(0, 60);
+  const tail = selected.length > 0 ? [] : outputTail(output);
+  let detail =
+    selected.length > 0
+      ? selected.join('\n')
+      : tail.length > 0
+        ? [fallback, '... ท้าย output ...', ...tail].join('\n')
+        : fallback;
   for (const [pattern, replacement] of PII_VALUE_PATTERNS) {
     detail = detail.replaceAll(pattern, replacement);
   }

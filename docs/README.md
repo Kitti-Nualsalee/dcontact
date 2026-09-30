@@ -58,6 +58,7 @@
 | [workforce-management.md](workforce-management.md) | WFM: interval stats, forecasting, Erlang C/chat concurrency/shrinkage, CP-SAT scheduling 3 ขั้น, adherence & RTA, intraday, multi-country (DST/กฎแรงงาน), แผนเฟส W1–W5 |
 | [quality-management.md](quality-management.md) | QM: recording lifecycle + PCI pause/resume + retention 3 ชั้น, transcript pipeline (ASR provider + ข้อจำกัดภาษาไทย), category DSL, quality plan/sampling, สคีมาฟอร์ม + สูตรคะแนน, สัญญาหลักฐานของ auto-QM, calibration & appeal, coaching→WFM, แผนเฟส Q1–Q5 |
 | [object-storage-seaweedfs.md](object-storage-seaweedfs.md) | Object storage production (on-prem/cloud self-host) บน SeaweedFS: topology + replication, security (`s3.json` policy ต่อแอป, mTLS, SSE-S3), backup/restore, `S3_*` ต่อแอป (ADR-029) |
+| [acceptance-dependencies.md](acceptance-dependencies.md) | ลำดับการสั่ง acceptance (S1 → J2/CG4 → J3 → J5) และ REG ที่ตรวจ marker จาก CI artifact บน SHA เดียวกันแทนการรันซ้อน (#559) |
 | [licensing.md](licensing.md) | Entitlement vs quota, JSON schema, ตารางสิทธิ์ต่อแพ็กเกจ (starter/growth/enterprise), การรวมค่า 3 ชั้น, จุดบังคับใช้ 5 จุด, on-prem license (Ed25519), state machine หมดอายุ, แผนเฟส L1–L4 |
 | [outbound-campaign.md](outbound-campaign.md) | Outbound: โหมด preview/progressive/predictive + สูตร pacing, ด่านคัดกรอง 6 ชั้น, data model `ob_*`, callback, proactive messaging, แผนเฟส O1–O5 |
 | [feedback-survey.md](feedback-survey.md) | CSAT/NPS/CES: การถามในแต่ละช่องทาง, sampling/suppression, closed loop → เคส + คิว QM, รายงานที่ต้องมี, แผนเฟส F1–F5 |

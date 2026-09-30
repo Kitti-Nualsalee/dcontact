@@ -56,6 +56,7 @@
     "test:cxa-j3-schema-readiness": "node --test scripts/cxa-j3-schema-readiness.test.mjs",
     "cxa:j3:focused": "node scripts/cxa-j3-focused-readiness.mjs",
     "cxa:j3:acceptance": "node scripts/cxa-j3-readiness.mjs",
+    "test:acceptance-dependency": "node --test scripts/acceptance-dependency.test.mjs",
     "test:cxa-j3-readiness": "node --test scripts/cxa-j3-readiness.test.mjs scripts/cxa-j3-focused-readiness.test.mjs",
     "cxa:cg4:acceptance": "node scripts/cxa-cg4-readiness.mjs",
     "test:cxa-cg4-readiness": "node --test scripts/cxa-cg4-readiness.test.mjs",
