@@ -42,7 +42,11 @@ https://{$UAT_HOST} {
 		respond @keycloakAdmin 404
 
 		handle /auth/* {
-			reverse_proxy keycloak:8080
+			reverse_proxy keycloak:8080 {
+				# TLS terminates at Caddy; pass the external scheme to Keycloak so
+				# browser session cookies retain the Secure attribute.
+				header_up X-Forwarded-Proto https
+			}
 		}
 
 		# ทั้ง `/api/*` ไปที่ API — route นอก allowlist ของ profile ถูกตอบ 404 ROUTE_NOT_AVAILABLE_IN_PROFILE
