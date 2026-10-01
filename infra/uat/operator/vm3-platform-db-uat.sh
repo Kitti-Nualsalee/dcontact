@@ -5,7 +5,7 @@ set -euo pipefail
 mode="${1:---check}"
 [[ "$mode" == --check || "$mode" == --apply ]] || { echo 'usage: sudo bash vm3-platform-db-uat.sh [--check|--apply]' >&2; exit 64; }
 [[ "$(id -u)" == 0 && "${SUDO_USER:-}" == osdadmin ]] || { echo 'ต้องรันด้วย sudo จาก osdadmin บน VM3' >&2; exit 1; }
-ip -4 -o addr show | grep -Fq '192.168.102.113/' || { echo 'เครื่องนี้ไม่ใช่ VM3 ที่คาดไว้' >&2; exit 1; }
+ip -4 -o addr show | grep -F '192.168.102.113/' >/dev/null || { echo 'เครื่องนี้ไม่ใช่ VM3 ที่คาดไว้' >&2; exit 1; }
 
 python3 - "$mode" <<'PY'
 import os, secrets, shutil, stat, string, subprocess, sys, tempfile
