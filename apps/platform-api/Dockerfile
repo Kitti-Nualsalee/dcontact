@@ -3,6 +3,9 @@
 ARG NODE_IMAGE=node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
 FROM ${NODE_IMAGE} AS build
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 COPY . .
