@@ -10,7 +10,8 @@
  *   การถอน SIP register เป็นหน้าที่ของผู้เรียก เมื่อ `ownsWork` เป็นเท็จและไม่มีสายในมือ
  * - "ย้ายมาที่นี่" = takeover ที่ผู้ใช้ยืนยันแล้ว พร้อม `expectedLeaseId`; ถูกปฏิเสธ (มีงานค้าง/lease เปลี่ยน)
  *   ไม่แตะอะไรของที่เดิม — ทั้งสายและ WS ของที่เดิมอยู่ครบ
- * - tenant ที่ปิด `workSession.lease.enforced` → `disabled`: ผู้เรียกใช้พฤติกรรมเดิม (leader election) ทุกประการ
+ * - tenant ที่ปิด `workSession.lease.enforced` → `disabled`: ใช้ leader election เลือก working tab เหมือนเดิม
+ *   แต่ตั้งแต่ E1.10 (#551) SIP credential ออกให้เฉพาะผู้ถือ lease จึง **ไม่มี SIP** ในสถานะนี้ (#569)
  */
 
 export type WorkSessionSurface = 'workspace' | 'dphone' | 'embedded';

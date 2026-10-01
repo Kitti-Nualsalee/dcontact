@@ -1,4 +1,4 @@
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect, type Page } from '@playwright/test';
 
 /**
  * Workspace ใช้ media API เพียงสามอย่าง: getUserMedia({ audio: true }), getTracks()
@@ -28,8 +28,53 @@ export const test = base.extend({
         value: async () => ({ getTracks: () => [track] }),
       });
     });
+    await mockWorkSessionLease(page);
     await use(page);
   },
 });
+
+/**
+ * #569: ตั้งแต่ E1.10 (#551) Workspace ขอ SIP credential ได้เฉพาะเมื่อถือ work-session lease
+ * (API ตอบ 403 ถ้าไม่มี lease) — ไม่มี lease = register SIP ไม่ได้ = ปุ่มรับสายใช้ไม่ได้
+ * จึงจำลอง lease ที่ enforced และออกให้ทันทีเป็นค่าเริ่มต้นของทุก spec
+ * spec ที่ทดสอบ lease เอง (embed-harness, work-session-lease) route ทับได้
+ */
+async function mockWorkSessionLease(page: Page) {
+  let current: { leaseId: string; surface: string; acquiredAt: string } | undefined;
+  let sequence = 0;
+  const issue = (surface: string) => {
+    sequence += 1;
+    current = {
+      leaseId: `e2e-work-session-${sequence}`,
+      surface,
+      acquiredAt: new Date().toISOString(),
+    };
+    return {
+      ...current,
+      hostOrigin: null,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      ttlSeconds: 60,
+      heartbeatSeconds: 20,
+    };
+  };
+  // ระดับ context: route ของ page และ context ที่ลงทะเบียนทีหลังใน spec จึงมาก่อน mock นี้
+  await page.context().route('**/api/v1/me/work-session**', async (route) => {
+    const request = route.request();
+    if (request.method() === 'GET') {
+      return route.fulfill({
+        json: {
+          enforced: true,
+          holder: current ? { ...current, hostOrigin: null, busy: false } : null,
+        },
+      });
+    }
+    if (request.method() === 'DELETE') {
+      current = undefined;
+      return route.fulfill({ status: 204 });
+    }
+    const body = (request.postDataJSON() ?? {}) as { surface?: string };
+    return route.fulfill({ status: 201, json: issue(body.surface ?? 'workspace') });
+  });
+}
 
 export { expect };
