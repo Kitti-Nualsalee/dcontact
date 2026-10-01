@@ -1,0 +1,42 @@
+<!-- #562: trunk จำลองสำหรับสายลูกค้าใน dev/CI (SIPp ของ voice:demo และ D1 real-call)
+     สายลูกค้าไม่ใช่ agent จึงไม่ใช้ SIP credential ของ directory (E1.10 ผูก credential กับ work-session lease)
+     รับเฉพาะ IP ใน ACL `dcontact_pstn_sim` ผ่าน apply-inbound-acl — IP อื่นถูก challenge กับ directory
+     ซึ่งไม่มี user ของ trunk จึง fail closed
+     DEV ONLY: พอร์ต 5080 ไม่ publish ออก host (เข้าได้จาก container ใน docker network เท่านั้น)
+     production ใช้ gateway ของ carrier จริงที่กำหนด ACL ต่อ carrier -->
+<profile name="pstn-sim">
+  <aliases/>
+  <gateways/>
+  <domains/>
+  <settings>
+    <param name="debug" value="0"/>
+    <param name="sip-trace" value="no"/>
+    <param name="context" value="pstn"/>
+    <param name="dialplan" value="XML"/>
+    <param name="rfc2833-pt" value="101"/>
+    <param name="dtmf-duration" value="2000"/>
+
+    <param name="sip-port" value="5080"/>
+    <param name="sip-ip" value="$${local_ip_v4}"/>
+    <param name="rtp-ip" value="$${local_ip_v4}"/>
+    <param name="ext-sip-ip" value="$${external_sip_ip}"/>
+    <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+
+    <param name="inbound-codec-prefs" value="$${global_codec_prefs}"/>
+    <param name="outbound-codec-prefs" value="$${global_codec_prefs}"/>
+    <param name="inbound-late-negotiation" value="true"/>
+
+    <param name="rtp-timer-name" value="soft"/>
+    <param name="rtp-timeout-sec" value="300"/>
+    <param name="rtp-hold-timeout-sec" value="1800"/>
+
+    <param name="auth-calls" value="true"/>
+    <param name="apply-inbound-acl" value="dcontact_pstn_sim"/>
+    <param name="accept-blind-reg" value="false"/>
+    <param name="accept-blind-auth" value="false"/>
+    <param name="disable-register" value="true"/>
+
+    <param name="apply-nat-acl" value="nat.auto"/>
+    <param name="local-network-acl" value="dcontact_media_local"/>
+  </settings>
+</profile>

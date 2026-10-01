@@ -63,7 +63,8 @@ function placeCall(): { process: ChildProcess; output: () => string } {
       '-v',
       `${resolve(repoRoot, 'scripts/fixtures/d1-real-call-uac.xml')}:/scenario.xml:ro`,
       sippImage,
-      'freeswitch:5060',
+      // #562: สายลูกค้าเข้าทาง trunk จำลอง `pstn-sim`
+      'freeswitch:5080',
       '-sf',
       '/scenario.xml',
       '-cid_str',

@@ -2,6 +2,10 @@ import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { observeChildExit, stopChild } from './child-process-lifecycle.mjs';
 
+// ใช้ DB เดียวกับ service ที่ demo start (DB แยกต่อ ticket บนเครื่อง dev); CI ใช้ `dcontact`
+const demoDatabase = process.env.DATABASE_URL
+  ? new URL(process.env.DATABASE_URL).pathname.slice(1) || 'dcontact'
+  : 'dcontact';
 const compose = ['compose', '-f', 'infra/docker/docker-compose.dev.yml'];
 const sippImage =
   'ctaloi/sipp@sha256:c459f2340443ddcc159227efc798217dbdaad0dbe88b76b78b1a876aa271986a';
@@ -71,7 +75,7 @@ function resetPreviousDemoInteractions() {
     '-U',
     'dcontact',
     '-d',
-    'dcontact',
+    demoDatabase,
     '-c',
     `UPDATE interactions
      SET state = 'ABANDONED', ended_at = NOW(), offer_expires_at = NULL, requeue_at = NULL
@@ -118,7 +122,7 @@ function latestDemoEvidence() {
     '-U',
     'dcontact',
     '-d',
-    'dcontact',
+    demoDatabase,
     '-Atc',
     `SELECT concat_ws('|', i.tenant_id, i.id, i.agent_id, i.state,
        i.metadata->>'telephonyNodeId', count(DISTINCT e.id),
@@ -276,7 +280,8 @@ try {
     '-v',
     `${fixture}:/scenario.xml:ro`,
     sippImage,
-    'freeswitch:5060',
+    // #562: สายลูกค้าเข้าทาง trunk จำลอง `pstn-sim` ไม่ใช่ profile internal ของ agent
+    'freeswitch:5080',
     '-sf',
     '/scenario.xml',
     '-cid_str',

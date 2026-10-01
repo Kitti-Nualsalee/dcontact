@@ -1,0 +1,12 @@
+<include>
+  <!-- #562: context ของ trunk `pstn-sim` — สายลูกค้าเข้าได้เฉพาะ DID 2000 (direct queue) และ 2001 (IVR)
+       ซึ่ง park ให้ Router ตัดสินใจผ่าน Kafka เหมือน context default ห้าม bridge ไป extension ของ agent -->
+  <context name="pstn">
+    <extension name="dcontact-inbound-voice">
+      <condition field="destination_number" expression="^200[01]$">
+        <action application="set" data="domain_name=$${domain}"/>
+        <action application="park"/>
+      </condition>
+    </extension>
+  </context>
+</include>
