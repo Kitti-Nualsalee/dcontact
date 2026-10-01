@@ -137,7 +137,7 @@
   "lineInbound": {
     "eyebrow": "UAT · LINE pilot",
     "title": "LINE inbound (pilot)",
-    "description": "Messages the team sent to the test LINE OA. Read-only; senders are fingerprints and every view is audited.",
+    "description": "Messages the team sent to the test LINE OA. Senders are shown as fingerprints and every view is audited.",
     "refresh": "Refresh",
     "loadMore": "Load more",
     "empty": "No inbound messages yet",
@@ -157,6 +157,37 @@
       "expired": "Your session expired. Please sign in again.",
       "error": "Could not load messages"
     },
-    "openLink": "View inbound LINE messages (pilot)"
+    "openLink": "View inbound LINE messages (pilot)",
+    "reply": {
+      "label": "Reply (text)",
+      "send": "Send",
+      "count": "{{count}}/{{max}} characters",
+      "sent": "Sent",
+      "pending": "Sent, waiting for LINE",
+      "errors": {
+        "TEXT_INVALID": "Text must be 1–500 characters with no control characters",
+        "IDEMPOTENCY_CONFLICT": "This request was used for different text. Please send again.",
+        "INBOUND_NOT_FOUND": "Original message not found or not a one-to-one chat",
+        "RECIPIENT_NOT_ALLOWLISTED": "This sender is not on the trial allowlist",
+        "TRIAL_NOT_ACTIVE": "The trial is not active or has expired",
+        "KILLED": "Sending has been stopped (kill)",
+        "CAP_EXCEEDED": "Sending quota reached. Try again later.",
+        "CONSENT_DENIED": "Recipient has not consented or is outside contact hours",
+        "PROVIDER_UNAVAILABLE": "LINE is temporarily unavailable",
+        "REJECTED": "LINE rejected this message",
+        "DENIED": "Sending is not allowed",
+        "UNKNOWN": "Could not send. Please try again."
+      }
+    },
+    "trial": {
+      "title": "Team trial",
+      "active": "Active until {{expiresAt}} · last 24h sent {{used}}/{{perDay}} (max {{perRecipient}} per person)",
+      "inactive": "No approved trial yet",
+      "killed": "Sending is stopped — reopening needs approval",
+      "kill": "Stop sending now (kill)",
+      "confirmKill": "Stop sending for the whole team now?",
+      "killNow": "Confirm stop",
+      "cancel": "Cancel"
+    }
   }
 }

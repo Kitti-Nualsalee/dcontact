@@ -1,0 +1,101 @@
+/* #566/#567: LINE inbound (pilot) — token ของ D1 เท่านั้น */
+.line-inbound {
+  display: grid;
+  gap: var(--dc-space-4);
+  max-inline-size: 1100px;
+  padding: var(--dc-space-6);
+  color: var(--dc-text-primary);
+}
+
+.line-inbound h1,
+.line-inbound h2,
+.line-inbound p {
+  margin: 0;
+}
+
+.line-inbound .eyebrow {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.line-inbound-trial {
+  display: grid;
+  gap: var(--dc-space-2);
+  padding: var(--dc-space-4);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+}
+
+.line-inbound-trial > button,
+.line-inbound-trial > span {
+  justify-self: start;
+}
+
+.line-inbound-trial [role='alert'] {
+  color: var(--dc-critical-fg-strong);
+}
+
+.line-inbound-trial h2 {
+  font-size: var(--dc-text-md);
+}
+
+.line-inbound-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-3);
+  align-items: center;
+}
+
+.line-inbound table {
+  display: block;
+  max-inline-size: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.line-inbound th,
+.line-inbound td {
+  padding: var(--dc-space-2) var(--dc-space-3);
+  border-block-end: 1px solid var(--dc-border-subtle);
+  text-align: start;
+  vertical-align: top;
+}
+
+.line-inbound th {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.line-inbound-reply {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--dc-space-2);
+  margin-block-start: var(--dc-space-2);
+}
+
+.line-inbound-reply label {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: var(--dc-space-1);
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}
+
+.line-inbound-reply textarea {
+  inline-size: 100%;
+  font: inherit;
+  color: var(--dc-text-primary);
+}
+
+.line-inbound-count {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}
+
+.line-inbound-reply [role='status'] {
+  grid-column: 1 / -1;
+  font-size: var(--dc-text-sm);
+}
