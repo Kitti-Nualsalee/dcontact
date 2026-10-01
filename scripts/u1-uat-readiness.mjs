@@ -1222,6 +1222,27 @@ export function findDropStatements(sql) {
   return [...statements.matchAll(/\bDROP\b[^;]*/gi)].map((match) => match[0].trim().slice(0, 80));
 }
 
+/**
+ * #567 (T6): CHECK constraint ที่ "แทนที่" ได้ — `DROP CONSTRAINT <ชื่อ>` ผ่าน guard เฉพาะชื่อในรายการนี้ และต้องมี
+ * `ADD CONSTRAINT <ชื่อเดิม> CHECK` ในไฟล์เดียวกัน (ไม่มีข้อมูลหาย; code เดิมยังทำงานกับ schema ใหม่)
+ * เพิ่มชื่อได้ต่อเมื่อมี decision ที่ review แล้วเท่านั้น — `DROP` แบบอื่นยังถูกปฏิเสธ
+ */
+export const REPLACEABLE_CHECK_CONSTRAINTS = Object.freeze([
+  // #567: เพิ่มกิ่ง profile `S2_LINE_TEAM_TRIAL_V1` โดยกิ่ง S2 เดิมเหมือนเดิมทุกข้อ
+  'dl_line_run_authorizations_values_check',
+  'dl_line_run_authorizations_caps_check',
+]);
+
+/** DROP ที่เหลือหลังหักการแทนที่ CHECK constraint ที่อนุญาต */
+export function disallowedDropStatements(sql) {
+  const text = String(sql);
+  return findDropStatements(text).filter((statement) => {
+    const name = /^DROP\s+CONSTRAINT\s+"?([A-Za-z0-9_]+)"?\s*$/i.exec(statement)?.[1];
+    if (!name || !REPLACEABLE_CHECK_CONSTRAINTS.includes(name)) return true;
+    return !new RegExp(`\\bADD\\s+CONSTRAINT\\s+"?${name}"?\\s+CHECK\\b`, 'i').test(text);
+  });
+}
+
 /** changes = [{ status: 'A'|'M'|'D'|'R...', path, sql }] ของ migration ระหว่าง base..HEAD */
 export function guardMigrations(changes) {
   const failures = [];
@@ -1239,11 +1260,17 @@ export function guardMigrations(changes) {
     }
     added.push(change.path);
     if (!change.path.endsWith('.sql')) continue;
-    const drops = findDropStatements(change.sql ?? '');
+    const drops = disallowedDropStatements(change.sql ?? '');
     if (drops.length > 0)
       failures.push({ path: change.path, kind: 'DROP_STATEMENT', statements: drops });
   }
-  return check('UAT-M01 migration ใหม่เป็น additive (ไม่มี DROP)', failures, { added });
+  return check(
+    'UAT-M01 migration ใหม่เป็น additive (ไม่มี DROP นอกจากแทนที่ CHECK ที่ review แล้ว)',
+    failures,
+    {
+      added,
+    },
+  );
 }
 
 function git(args, root) {

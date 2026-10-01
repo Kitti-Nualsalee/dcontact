@@ -980,6 +980,48 @@ test('UAT-M01: migration ใหม่ที่มี DROP หรือการ�
   assert.deepEqual(findDropStatements('SELECT 1; -- DROP TABLE x'), []);
 });
 
+test('UAT-M01 (#567): แทนที่ CHECK ที่ review แล้วผ่าน แต่ชื่ออื่น/ไม่มี ADD ชื่อเดิม/DROP แบบอื่นยังล้ม', () => {
+  const path = (name) => `packages/db/prisma/migrations/${name}/migration.sql`;
+  const name = 'dl_line_run_authorizations_caps_check';
+  const replace = `ALTER TABLE t DROP CONSTRAINT "${name}";\nALTER TABLE t ADD CONSTRAINT "${name}" CHECK (true);`;
+  assert.equal(guardMigrations([{ status: 'A', path: path('4_ok'), sql: replace }]).status, 'PASS');
+  // ชื่อไม่อยู่ใน allowlist
+  failed(
+    guardMigrations([
+      {
+        status: 'A',
+        path: path('5_other'),
+        sql: replace.replaceAll(name, 'dl_line_cap_ledger_values_check'),
+      },
+    ]),
+    'DROP_STATEMENT',
+  );
+  // drop อย่างเดียวไม่ add กลับ (หรือ add เป็นชื่ออื่น)
+  failed(
+    guardMigrations([
+      { status: 'A', path: path('6_drop_only'), sql: `ALTER TABLE t DROP CONSTRAINT "${name}";` },
+    ]),
+    'DROP_STATEMENT',
+  );
+  failed(
+    guardMigrations([
+      {
+        status: 'A',
+        path: path('7_renamed'),
+        sql: `ALTER TABLE t DROP CONSTRAINT "${name}";\nALTER TABLE t ADD CONSTRAINT "${name}_v2" CHECK (true);`,
+      },
+    ]),
+    'DROP_STATEMENT',
+  );
+  // แทนที่ได้ แต่ DROP อื่นในไฟล์เดียวกันยังล้ม
+  failed(
+    guardMigrations([
+      { status: 'A', path: path('8_mixed'), sql: `${replace}\nALTER TABLE t DROP COLUMN y;` },
+    ]),
+    'DROP_STATEMENT',
+  );
+});
+
 test('UAT-M01: guard อ่าน migration จาก git จริง (base = HEAD ไม่มีไฟล์ใหม่)', () => {
   const result = runMigrationGuard({ base: runMigrationGuard({ initial: true }).head });
   assert.equal(result.status, 'PASS');

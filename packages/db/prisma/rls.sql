@@ -62,6 +62,8 @@ BEGIN
     'dl_line_webhook_inbox', 'dl_line_touch_correlations', 'dl_line_audit_events',
     -- S2.5 (#369)
     'dl_line_inbound_messages', 'dl_line_event_outbox', 'dl_line_webhook_payloads',
+    -- #567: การตอบกลับของ LINE team trial
+    'dl_line_trial_sends',
     -- U1.1 (#429)
     'uat_fixture_packs', 'uat_runs', 'uat_run_step_results', 'uat_command_receipts',
     -- U1.5 (#433)
@@ -290,6 +292,8 @@ REVOKE UPDATE, DELETE ON dl_line_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON dl_line_inbound_messages FROM dcontact_app;
 REVOKE DELETE ON dl_line_event_outbox FROM dcontact_app;
 REVOKE UPDATE, DELETE ON dl_line_webhook_payloads FROM dcontact_app;
+-- #567: การตอบกลับของ trial เป็นหลักฐานว่าใครส่งอะไร (digest) ถึงใคร — append-only
+REVOKE UPDATE, DELETE ON dl_line_trial_sends FROM dcontact_app;
 
 -- A1.1 (#406): control plane ของ Platform Admin ไม่ใช่ข้อมูลของ tenant — tenant application
 -- (`dcontact_app`) ต้องไม่เห็น `pf_*` เลย ส่วน `dcontact_platform` เห็นเฉพาะ metadata ที่จำเป็น
