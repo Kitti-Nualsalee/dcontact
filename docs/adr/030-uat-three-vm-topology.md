@@ -1,6 +1,6 @@
 # ADR 030: UAT แบบ 3 VM — nginx (edge), Docker (stack), PostgreSQL (ภายนอก stack)
 
-- **สถานะ:** Accepted (ผู้ใช้ในฐาน owner ของ #374 ยืนยัน 2026-09-29; ยังต้องปิด gate ก่อนเริ่ม implement)
+- **สถานะ:** Accepted (ผู้ใช้ในฐาน owner ของ #374 ยืนยัน 2026-09-29; gate ปิดครบและ implement แล้ว 2026-10-01)
 - **วันที่:** 2026-09-29
 - **ที่มา:** ผู้ใช้เตรียม VM สำหรับ UAT ไว้ 3 เครื่อง ต่างจากสมมติฐาน "VM เดียว" ใน Phase Contract #374 และ
   `docs/u1-uat-deployment.md` §1 (ticket U1.6 #434) — ADR นี้ **ปรับ (amend)** สมมติฐานนั้น ไม่ใช่การยกเลิก
@@ -143,15 +143,21 @@ api (profile `uat`), Keycloak, Postgres, MinIO บน network `internal: true` �
 
 ## เงื่อนไขก่อนเริ่ม implement (gate)
 
-| # | รายการ | สถานะ (2026-09-29) |
-| - | ------ | ------------------ |
-| 1 | owner ของ #374 ยืนยันการปรับจาก VM เดียวเป็น 3 VM | ผ่าน (2026-09-29 — ผู้ใช้ยืนยันในบทสนทนา; ยังไม่มี comment บน #374 เป็นหลักฐาน) |
-| 2 | VM2 พร้อมใช้: `osdadmin` ใน `docker` group, `userland-proxy: false`, `/opt/dcontact-uat`, RAM 8 GB | ผ่าน (precheck 16:35) — **ค้าง**: ผู้มี sudo บน VM1/VM3 |
-| 3 | DNS ของ `dcontact-uat.osd.co.th` | ตัดสินแล้ว: ช่วงทดสอบใช้ map host ในเครื่องผู้ทดสอบ ไม่ขอ DNS |
-| 4 | cert ของ host บน VM1 | รอ — ทีมของผู้ใช้จะติดตั้งภายหลัง |
-| 5 | ตรวจ cluster VM3: ชื่อ database/role, สิทธิ์, extension, `pg_hba` | ผ่านส่วนใหญ่: ชื่อไม่ชน, `sa` สร้าง role/database ได้, extension ครบ, อ่าน `pg_hba` แล้ว (ตัดสินใจกฎแทรกก่อนบรรทัด 98 ข้างบน) — **ค้าง**: เจ้าของ cluster รับทราบกฎ `pg_hba` และให้ผู้มี sudo แทรกกฎ |
+ปิดครบแล้ว (2026-10-01) — implementation อยู่ใน #549/#550 และ deploy จริงด้วย release `b5f5efd` (หลักฐานใน #537, #508)
+
+| # | รายการ | สถานะ |
+| - | ------ | ----- |
+| 1 | owner ของ #374 ยืนยันการปรับจาก VM เดียวเป็น 3 VM | ผ่าน (2026-09-29 — ผู้ใช้ในฐาน owner ยืนยันในบทสนทนา) |
+| 2 | VM2 พร้อมใช้ และขั้นตอน sudo บน VM1/VM3 | ผ่าน: VM2 พร้อม (RAM 8 GB); nginx บน VM1 และ `pg_hba`/bootstrap บน VM3 ทำแล้ว (#537) |
+| 3 | DNS ของ `dcontact-uat.osd.co.th` | ตัดสินแล้ว: ช่วง UAT ใช้ map host ในเครื่องผู้ทดสอบ ไม่ขอ DNS |
+| 4 | cert ของ host บน VM1 | ผ่าน: wildcard certificate อายุถึง 2027-01-13 (#537) |
+| 5 | ตรวจ cluster VM3 และแทรกกฎ `pg_hba` | ผ่าน: ชื่อไม่ชน, extension ครบ, แทรก 4 กฎก่อนกฎ md5 เดิมและ reload แล้ว (#537) |
 | 6 | รหัสผ่านบัญชี bootstrap และ owner role | ตัดสินแล้ว: server ทดสอบชั่วคราว ไม่ต้องเปลี่ยนรหัสผ่าน; API ห้ามใช้ `sa`/`id24`; ใช้ `dcontact_uat_owner` (NOSUPERUSER) |
-| 7 | เจ้าของ backup ของ Postgres บน VM3 | รอ |
-| 8 | Prisma migration + `rls.sql` ทำงานบน PostgreSQL 15.4 | รอ (ยังไม่ได้ทดสอบ) |
-| 9 | container/volume เก่าบน VM2 ไม่ชนชื่อ project `dcontact-uat` | รอ (หยุดแล้ว ยังไม่ได้ตรวจ/ลบ) |
-| 10 | Compose plugin v2.21 บน VM2 ไม่รองรับ `!reset`: ออกแบบ overlay ให้รองรับ หรืออัปเกรด | รอ |
+| 7 | เจ้าของ backup ของ Postgres บน VM3 | ตัดสินแล้ว (2026-10-01): UAT ไม่มีข้อมูลที่ต้อง backup จึงไม่ต้องระบุเจ้าของ — เปิดใหม่ถ้ามีข้อมูลที่ต้องเก็บ; dump ก่อน migrate ของ `uat-deploy.sh` ยังมีไว้สำหรับ rollback ของ deploy |
+| 8 | Prisma migration + `rls.sql` ทำงานบน PostgreSQL 15.4 | ผ่าน: migrate + RLS บน PG 15.4 ผ่าน, deploy จริงผ่าน db-relay และ RLS integration test 21/21 ผ่าน (#537) |
+| 9 | container/volume เก่าบน VM2 ไม่ชนชื่อ project `dcontact-uat` | ผ่าน: ตรวจสดแล้วไม่ชน (#537) |
+| 10 | Compose plugin v2.21 บน VM2 ไม่รองรับ `!reset` | ผ่าน: ใช้ Compose v2.39.4 แบบ scoped ที่ `/opt/dcontact-uat/bin/docker-compose` |
+
+**ตัดออกจากขอบเขต (owner ตัดสิน 2026-10-01):** การ deploy ผ่าน workflow `uat-preview` และ secrets `UAT_SSH_*` — UAT นี้ deploy จากเครื่อง
+operator เพราะ runner `ubuntu-latest` เข้า VM ในวง LAN ไม่ได้ ผลคือ workflow deploy/rollback ยังไม่เคยทดสอบจริง; rollback ใช้
+`uat-deploy.sh rollback` จากเครื่อง operator (#508)
