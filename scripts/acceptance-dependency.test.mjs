@@ -19,6 +19,8 @@ import { CXA_J3_READINESS_CHECKS, j3FailureDetail } from './cxa-j3-readiness.mjs
 import { cxaJ5DependencySummary } from './cxa-j5-dependency-readiness.mjs';
 import { j5Checks } from './cxa-j5-readiness.mjs';
 import { nestedReadinessFailures } from './readiness-failure-detail.mjs';
+import { commitOnMain, contextOnMain } from './acceptance-main-proof.mjs';
+import { j3MarkerBlockers } from './cxa-j3-readiness.mjs';
 
 const SHA = 'a'.repeat(40);
 const OTHER_SHA = 'b'.repeat(40);
@@ -234,4 +236,45 @@ test('#572: CG4-REG01 ใช้ S1 manifest จาก artifact ที่มี p
   const result = summary();
   assert.equal(result.cg3, 'INTEGRATED_SAME_SHA');
   assert.ok(Object.values(result.s1Regression).every((status) => status === 'PASS'));
+});
+
+test('ADR-032: marker ออกได้เมื่อ commit อยู่บน main แล้ว แม้ main ขยับไปแล้ว แต่ไม่ออกถ้าไม่อยู่บน main', () => {
+  const calls = [];
+  const git = (command, args) => {
+    calls.push([command, ...args]);
+    return { status: args[2] === SHA ? 0 : 1 };
+  };
+  assert.equal(commitOnMain(SHA, git), true);
+  assert.deepEqual(calls[0], ['git', 'merge-base', '--is-ancestor', SHA, 'origin/main']);
+  assert.equal(commitOnMain(OTHER_SHA, git), false);
+  assert.equal(commitOnMain('HEAD', git), false);
+  assert.equal(calls.length, 2);
+
+  // main ขยับไปแล้ว (finalMainSha ≠ commit) แต่ commit อยู่บน main → ไม่ติด NOT_FINAL_MAIN_SHA
+  const context = {
+    commitSha: SHA,
+    finalMainSha: OTHER_SHA,
+    expectedCommitSha: SHA,
+    commitOnMain: true,
+    pullRequest: null,
+    ref: 'refs/heads/main',
+    cleanTree: true,
+    runUrl: 'https://github.com/x/y/actions/runs/1',
+    artifact: { immutable: true },
+  };
+  assert.equal(contextOnMain(context), true);
+  assert.ok(!j3MarkerBlockers(context, []).includes('NOT_FINAL_MAIN_SHA'));
+  // commit ที่ยังไม่ merge
+  assert.ok(
+    j3MarkerBlockers({ ...context, commitOnMain: false }, []).includes('NOT_FINAL_MAIN_SHA'),
+  );
+  // expected SHA ของ run ต้องตรงเสมอ
+  assert.ok(
+    j3MarkerBlockers({ ...context, expectedCommitSha: OTHER_SHA }, []).includes(
+      'NOT_FINAL_MAIN_SHA',
+    ),
+  );
+  // context เก่าที่ไม่มีผลตรวจ ใช้กติกาเดิม (HEAD)
+  assert.equal(contextOnMain({ commitSha: SHA, finalMainSha: SHA }), true);
+  assert.equal(contextOnMain({ commitSha: SHA, finalMainSha: OTHER_SHA }), false);
 });

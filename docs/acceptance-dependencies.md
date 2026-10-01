@@ -24,7 +24,17 @@ acceptance ของ J2, J3 และ J5 ต้องพิสูจน์ว่
 | CG4 (`CG4-REG01`, #572) | `CONTACT_GOVERNANCE_CG3_ACCEPTED` และ S1-REG-01 PASS ครบ | `s1-evidence` |
 | J5 (`J5-REG01`) | `J1_ACCEPTED`, `JOURNEY_J2_ACCEPTED`, `JOURNEY_J3_ACCEPTED`, `CONTACT_GOVERNANCE_CG3_ACCEPTED` | `cxa-c1-evidence`, `cxa-j2-evidence`, `cxa-j3-evidence`, `s1-evidence` |
 
-## ลำดับการสั่งบน SHA เดียวกัน
+## สั่งทั้ง chain ใน dispatch เดียว (ADR-032)
+
+```bash
+gh workflow run CI --ref main -f acceptance=chain
+```
+
+dispatch นี้รัน S1 → J2 + CG4 → J3 → J5 ต่อกันด้วย `needs:` ทุก job checkout SHA เดียวกัน (`GITHUB_SHA` ของ run)
+ถ้า job ไหนล้ม job ที่ตามมาจะถูก skip marker ออกได้แม้ main ขยับไปแล้ว ขอแค่ commit นั้นอยู่บน main
+(ADR-032)
+
+## ลำดับการสั่งทีละขั้นบน SHA เดียวกัน
 
 สั่งทีละขั้น และรอให้ขั้นก่อนหน้าผ่านก่อน (ขั้นเดียวกันสั่งพร้อมกันได้):
 
@@ -53,7 +63,7 @@ gh workflow run CI --ref main -f acceptance=j5
 3. **J3**
 4. **J5**
 
-ถ้า main ขยับระหว่างทาง ต้องเริ่มใหม่ตั้งแต่ขั้นแรกบน SHA ใหม่ เพราะ marker นับเฉพาะ SHA ที่ตรงกัน
+ถ้าสั่งทีละขั้นแล้ว main ขยับระหว่างทาง ขั้นถัดไปจะรันบน SHA ใหม่ซึ่งยังไม่มี marker จึงควรใช้ `acceptance=chain` แทน
 
 ## เมื่อ REG ล้ม
 

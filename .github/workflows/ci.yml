@@ -8,16 +8,17 @@ on:
     inputs:
       acceptance:
         # push/PR รันชุด unit; ชุดที่ใช้ service จริงสั่งด้วยมือ
-        description: 'ชุดทดสอบ (unit | all | object-storage | a1-fast | browser | s1 | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused | u1)'
+        description: 'ชุดทดสอบ (unit | all | object-storage | a1-fast | browser | s1 | chain | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused | u1)'
         type: choice
-        options:
-          [
+        options: [
             unit,
             all,
             object-storage,
             a1-fast,
             browser,
             s1,
+            # ADR-032: S1 → J2/CG4 → J3 → J5 ใน dispatch เดียวบน SHA เดียวกัน
+            chain,
             cg4,
             cg5,
             j2,
@@ -382,11 +383,11 @@ jobs:
   s1-convergence-acceptance:
     # S1 ใช้เวลานานและ J3 final gate เรียกเองอยู่แล้ว: ไม่รันทุก main push
     # เพื่อให้ development ใช้ focused gate ได้ก่อน แล้วเรียก S1 เมื่อเลือก manual เท่านั้น
-    if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 's1'
+    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 's1' || inputs.acceptance == 'chain')
     runs-on: ubuntu-latest
     concurrency:
       group: s1-convergence-acceptance-${{ github.ref }}
-      cancel-in-progress: true
+      cancel-in-progress: false # ADR-032: S1 ที่สั่งทีหลังต้องไม่ตัด S1 ของ chain ที่รันอยู่
     env:
       DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
     steps:
@@ -462,7 +463,12 @@ jobs:
   cxa-j2-acceptance:
     # #559: J2-REG01 ไม่รัน C1/S1 acceptance ซ้อนแล้ว แต่ตรวจ marker จาก artifact ของ run S1 บน SHA เดียวกัน
     # จึงต้องสั่ง `acceptance=s1` ให้ผ่านก่อน (ดู docs/acceptance-dependencies.md)
-    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'j2')
+    needs: s1-convergence-acceptance
+    # ADR-032: chain รอ S1 ของ run เดียวกันผ่านก่อน; โหมด j2/all ไม่รอ (S1 ถูก skip)
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' &&
+      (inputs.acceptance == 'all' || inputs.acceptance == 'j2' ||
+      (inputs.acceptance == 'chain' && needs.s1-convergence-acceptance.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 150
     permissions:
@@ -544,7 +550,11 @@ jobs:
     # #572: CG4-REG01 ไม่รัน S1 ซ้อนแล้ว แต่ตรวจ S1 manifest (CG3 marker + S1-REG-01 PASS) จาก artifact
     # ของ run S1 บน SHA เดียวกัน — ต้องสั่ง `acceptance=s1` ให้ผ่านก่อน (docs/acceptance-dependencies.md)
     # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
-    if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'cg4') && github.ref == 'refs/heads/main'
+    needs: s1-convergence-acceptance
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      (inputs.acceptance == 'all' || inputs.acceptance == 'cg4' ||
+      (inputs.acceptance == 'chain' && needs.s1-convergence-acceptance.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -684,11 +694,27 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  cxa-j3-acceptance:
+    # ADR-032: J3 ของ chain เรียก workflow cxa-j3-acceptance แบบ reusable จึงได้ SHA เดียวกับ run นี้
+    # (สั่ง J3 เดี่ยวยังใช้ `gh workflow run cxa-j3-acceptance --ref main` ได้เหมือนเดิม)
+    needs: [cxa-j2-acceptance, cxa-cg4-acceptance]
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' && inputs.acceptance == 'chain' &&
+      needs.cxa-j2-acceptance.result == 'success' && needs.cxa-cg4-acceptance.result == 'success'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/cxa-j3-acceptance.yml
+
   cxa-j5-acceptance:
     # J5.7 (#345): full gate 16 checks — J5-REG01 ต้องเห็น J1/J2/J3/CG3 marker บน SHA เดียวกัน
     # #559: ไม่รัน `cxa:j3:acceptance` ซ้อนแล้ว แต่ดึง manifest จาก artifact ของ run S1/J2/J3 บน SHA นี้
     # สั่งเอง: `gh workflow run CI --ref main -f acceptance=j5` — marker ออกได้เฉพาะ clean final main SHA
-    if: github.event_name == 'workflow_dispatch' && inputs.acceptance == 'j5' && github.ref == 'refs/heads/main'
+    needs: cxa-j3-acceptance
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      (inputs.acceptance == 'j5' ||
+      (inputs.acceptance == 'chain' && needs.cxa-j3-acceptance.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:

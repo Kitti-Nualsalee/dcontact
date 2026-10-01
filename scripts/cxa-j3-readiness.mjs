@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { commitOnMain, contextOnMain } from './acceptance-main-proof.mjs';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -372,6 +373,7 @@ export function createJ3EvidenceContext(environment = process.env) {
     commitSha,
     finalMainSha,
     expectedCommitSha: environment.CXA_J3_EXPECTED_COMMIT_SHA ?? finalMainSha,
+    commitOnMain: commitOnMain(commitSha),
     cleanTree: git(['status', '--porcelain', '--untracked-files=no']) === '',
     runId,
     attempt,
@@ -422,7 +424,8 @@ export function j3MarkerBlockers(context, checks) {
     blockers.push('CHECKS_NOT_ALL_PASS');
   if (context.pullRequest !== null) blockers.push('PULL_REQUEST_RUN');
   if (context.ref !== 'refs/heads/main') blockers.push('NOT_DEFAULT_BRANCH_REF');
-  if (context.commitSha !== context.finalMainSha || context.commitSha !== context.expectedCommitSha)
+  // ADR-032: commit ต้องอยู่บน main แล้ว (ancestor ของ origin/main) ไม่ต้องเป็น HEAD
+  if (!contextOnMain(context) || context.commitSha !== context.expectedCommitSha)
     blockers.push('NOT_FINAL_MAIN_SHA');
   if (!context.cleanTree) blockers.push('DIRTY_TREE');
   if (!context.artifact?.immutable || !context.runUrl) blockers.push('ARTIFACT_NOT_IMMUTABLE');
@@ -490,6 +493,7 @@ export function createCxaJ3EvidenceManifest(context, checks, readiness, suites, 
       ref: context.ref,
       cleanTree: context.cleanTree,
       headEqualsFinalMain: context.commitSha === context.finalMainSha,
+      commitOnMain: contextOnMain(context),
     },
     workflow: { ...J3_WORKFLOW },
     run: { id: context.runId, attempt: context.attempt, url: context.runUrl },
@@ -607,12 +611,12 @@ export function assertValidCxaJ3EvidenceManifest(manifest) {
   if (manifest.pullRequest?.number !== null && manifest.pullRequest?.number !== undefined)
     throw new TypeError('PR run ออก J3 marker ไม่ได้');
   if (
-    manifest.commitSha !== manifest.finalMainSha ||
+    manifest.refProof?.commitOnMain !== true ||
     manifest.commitSha !== manifest.expectedCommitSha ||
     manifest.refProof?.ref !== 'refs/heads/main' ||
     manifest.refProof?.cleanTree !== true
   )
-    throw new TypeError('J3 marker ต้องมาจาก clean final main SHA เดียว');
+    throw new TypeError('J3 marker ต้องมาจาก clean commit ที่อยู่บน main แล้ว (ADR-032)');
   if (
     manifest.artifact?.immutable !== true ||
     manifest.artifact?.name !== `cxa-j3-evidence-${manifest.commitSha}`

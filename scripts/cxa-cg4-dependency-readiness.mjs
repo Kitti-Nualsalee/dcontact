@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { commitOnMain } from './acceptance-main-proof.mjs';
 import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -74,7 +75,8 @@ export function cxaCg4DependencySummary(options = {}) {
     Boolean(environment.GITHUB_RUN_ID) &&
     !environment.GITHUB_PR_NUMBER &&
     commitSha !== undefined &&
-    commitSha === mainSha &&
+    // ADR-032: commit อยู่บน main แล้ว (ancestor ของ origin/main) ไม่ต้องเป็น HEAD
+    (options.commitOnMain ?? (commitSha === mainSha || commitOnMain(commitSha))) &&
     commitSha === expectedCommitSha;
   // #572: S1 ไม่ได้รันซ้อนใน job นี้แล้ว — ใช้ S1 manifest จาก CI artifact บน SHA เดียวกันที่มี provenance
   // (เลือกตัวที่มี CG3 marker ก่อน เพราะ run ที่ล้มก็ upload manifest ไว้เหมือนกัน)
@@ -85,7 +87,11 @@ export function cxaCg4DependencySummary(options = {}) {
     options.j2ManifestPath ?? resolve(repositoryRoot, 'artifacts', 'cxa-j2', `${runId}.json`);
   const j2 = options.j2Manifest ?? readManifest(j2Path);
 
-  const sameSha = s1 !== undefined && s1.commitSha === commitSha && s1.finalMainSha === commitSha;
+  // ADR-032: S1 ต้องออก marker จาก commit ที่อยู่บน main แล้ว (commitOnMain) ไม่ต้องเป็น HEAD
+  const sameSha =
+    s1 !== undefined &&
+    s1.commitSha === commitSha &&
+    (s1.commitOnMain === true || s1.finalMainSha === commitSha);
   const cg3SameSha = sameSha && (s1.markers ?? []).includes(CG3_MARKER);
   const s1Regression = s1RegressionStatus(sameSha ? s1 : undefined);
   const regressionPassed = Object.values(s1Regression).every((status) => status === 'PASS');

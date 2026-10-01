@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { commitOnMain, contextOnMain } from './acceptance-main-proof.mjs';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -622,6 +623,7 @@ export function createCg4EvidenceContext(environment = process.env) {
     commitSha,
     finalMainSha,
     expectedCommitSha,
+    commitOnMain: commitOnMain(commitSha),
     cleanTree: runGit(['status', '--porcelain', '--untracked-files=no']) === '',
     runId,
     attempt,
@@ -684,10 +686,8 @@ export function cg4MarkerBlockers(context, checks) {
   }
   if (context.pullRequest !== null) blockers.push('PULL_REQUEST_RUN');
   if (context.ref !== 'refs/heads/main') blockers.push('NOT_DEFAULT_BRANCH_REF');
-  if (
-    context.commitSha !== context.finalMainSha ||
-    context.commitSha !== context.expectedCommitSha
-  ) {
+  // ADR-032: commit ต้องอยู่บน main แล้ว (ancestor ของ origin/main) ไม่ต้องเป็น HEAD
+  if (!contextOnMain(context) || context.commitSha !== context.expectedCommitSha) {
     blockers.push('NOT_FINAL_MAIN_SHA');
   }
   if (!context.cleanTree) blockers.push('DIRTY_TREE');
@@ -748,6 +748,7 @@ export function createCxaCg4EvidenceManifest(context, checks, summary, suites, d
       ref: context.ref,
       cleanTree: context.cleanTree,
       headEqualsFinalMain: context.commitSha === context.finalMainSha,
+      commitOnMain: contextOnMain(context),
     },
     workflow: { ...CG4_WORKFLOW },
     run: { id: context.runId, attempt: context.attempt, url: context.runUrl },
@@ -903,11 +904,11 @@ export function assertValidCxaCg4EvidenceManifest(manifest) {
     throw new TypeError('PR run ออก CG4 marker ไม่ได้ ได้แค่ candidate manifest');
   }
   if (
-    manifest.commitSha !== manifest.finalMainSha ||
+    manifest.refProof?.commitOnMain !== true ||
     manifest.commitSha !== manifest.expectedCommitSha
   ) {
     throw new TypeError(
-      'CG4 marker ต้องมาจาก HEAD == origin/main == expectedCommitSha == finalMainSha',
+      'CG4 marker ต้องมาจาก commit ที่อยู่บน main แล้วและตรง expectedCommitSha (ADR-032)',
     );
   }
   if (manifest.refProof?.ref !== 'refs/heads/main' || manifest.refProof?.cleanTree !== true) {
