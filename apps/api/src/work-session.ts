@@ -16,7 +16,6 @@ import { normalizeEmbedOrigin } from '@d-contact/shared';
 
 export const WORK_SESSION_TTL_MS = 60_000;
 export const WORK_SESSION_HEARTBEAT_MS = 20_000;
-export const WORK_SESSION_FLAG = 'workSession.lease.enforced';
 export const WORK_SESSION_SURFACES = ['workspace', 'dphone', 'embedded'] as const;
 export type WorkSessionSurface = (typeof WORK_SESSION_SURFACES)[number];
 export type LeaseReleaseReason =
@@ -147,7 +146,6 @@ export function parseWorkSessionRequest(body: unknown): WorkSessionRequest {
 export class WorkSessionLeases {
   private readonly now: () => Date;
   private readonly id: () => string;
-  private readonly flagCache = new Map<string, { enforced: boolean; until: number }>();
   /** สัญญาณที่รอส่งหลัง commit ของแต่ละ transaction — rollback = ไม่ส่ง */
   private readonly afterCommit = new WeakMap<Tx, Array<() => void>>();
 
@@ -158,7 +156,6 @@ export class WorkSessionLeases {
       id?: () => string;
       signals?: LeaseSignalSink;
       diagnostics?: { write(event: WorkSessionDiagnostic): void };
-      flagCacheMs?: number;
       /** E1.11: ตรวจ host origin ของ surface embedded กับ allowlist (ไม่ตั้ง = ไม่อนุญาต embedded) */
       embedOrigins?: { isEmbeddable(tenantId: string, origin: string): Promise<boolean> };
       /** E1.10: revoke credential ใน transaction เดียวกัน แล้ว flush registration หลัง commit */
@@ -169,20 +166,12 @@ export class WorkSessionLeases {
     this.id = options.id ?? randomUUID;
   }
 
-  /** flag `workSession.lease.enforced` ของ tenant (ไม่มีแถว = ปิด) — cache สั้น */
-  async enforced(tenantId: string): Promise<boolean> {
-    const now = Date.now();
-    const cached = this.flagCache.get(tenantId);
-    if (cached && cached.until > now) return cached.enforced;
-    const flag = await withTenantDatabaseTransaction(this.database, tenantId, (tx) =>
-      tx.tenantUiFlag.findUnique({
-        where: { tenantId_flagKey: { tenantId, flagKey: WORK_SESSION_FLAG } },
-        select: { enabled: true },
-      }),
-    );
-    const enforced = flag?.enabled === true;
-    this.flagCache.set(tenantId, { enforced, until: now + (this.options.flagCacheMs ?? 15_000) });
-    return enforced;
+  /**
+   * #583 (#582): ทุก tenant บังคับ work-session lease — ไม่มี flag `workSession.lease.enforced` แล้ว
+   * (SIP credential ออกให้เฉพาะผู้ถือ lease ตั้งแต่ E1.10 #551; tenant ที่ปิด flag เคยรับสายไม่ได้)
+   */
+  async enforced(_tenantId: string): Promise<boolean> {
+    return true;
   }
 
   /**

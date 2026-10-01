@@ -3,8 +3,8 @@
  *
  * - SIP/WebRTC session อยู่ใน working tab เสมอ — หน้าต่างแยกเป็นแค่ UI ที่ส่ง intent กลับมาผ่าน
  *   BroadcastChannel (same-origin เท่านั้น) จึงแยก/รวมหน้าต่างได้โดยไม่ตัดสายและไม่สร้าง session ใหม่
- * - เฉพาะจุดรับงานเป็น host และรับคำสั่ง: flag `workSession.lease.enforced` ปิด = working tab ของ leader election;
- *   เปิด = แท็บที่ถือ work-session lease (หรือยังมีสายในมือหลังเสีย lease) — E1.12 #486
+ * - เฉพาะจุดรับงานเป็น host และรับคำสั่ง: แท็บที่ถือ work-session lease (หรือยังมีสายในมือหลังเสีย lease)
+ *   — E1.12 #486; #583 บังคับ lease ทุก tenant
  * - ข้อความทุกชนิดมี `v: 1` และถูกตรวจรูปก่อนใช้ — ข้อความแปลกปลอมถูกทิ้งเงียบ ๆ
  * - หน้าต่างแยกมี `remote` id ที่ working tab สร้างตอนกดแยก: host ฟังเฉพาะ id นั้น หน้า `/dphone` ที่เปิดเอง
  *   (bookmark) หรือหน้าต่างอื่นจึงไม่สลับสถานะ detached และสั่งสายไม่ได้

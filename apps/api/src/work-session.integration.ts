@@ -25,7 +25,7 @@ import {
   TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import { WORK_SESSION_LEASES, WorkSessionController } from './work-session-api.js';
-import { WORK_SESSION_FLAG, WorkSessionLeases, type LeaseSignal } from './work-session.js';
+import { WorkSessionLeases, type LeaseSignal } from './work-session.js';
 
 const owner = new PrismaClient();
 const application = new PrismaClient({
@@ -71,7 +71,7 @@ interface Fixture {
   interaction(state: 'ASSIGNED' | 'ACTIVE' | 'WRAPUP'): Promise<string>;
 }
 
-async function setup(t: TestContext, options: { enforced?: boolean } = {}): Promise<Fixture> {
+async function setup(t: TestContext): Promise<Fixture> {
   const tenantA = randomUUID();
   const tenantB = randomUUID();
   const agentA = randomUUID();
@@ -101,23 +101,11 @@ async function setup(t: TestContext, options: { enforced?: boolean } = {}): Prom
   await owner.queue.create({
     data: { id: queueA, tenantId: tenantA, name: 'คิวทดสอบ', channels: ['VOICE'] },
   });
-  if (options.enforced) {
-    await owner.tenantUiFlag.create({
-      data: {
-        tenantId: tenantA,
-        flagKey: WORK_SESSION_FLAG,
-        enabled: true,
-        reason: 'E1.9 integration',
-        updatedByActor: 'test',
-      },
-    });
-  }
   let clock = Date.parse('2026-09-25T10:00:00.000Z');
   const signals: Fixture['signals'] = [];
   const leases = new WorkSessionLeases(application, {
     now: () => new Date(clock),
     signals: { signal: (tenantId, userId, signal) => signals.push({ tenantId, userId, signal }) },
-    flagCacheMs: 0,
     // E1.11: host ของ embedded ต้องอยู่ใน allowlist — test ของ lease ใช้ policy คงที่
     embedOrigins: {
       isEmbeddable: async (_tenantId, origin) => origin === 'https://crm.example.test',
@@ -385,8 +373,9 @@ class FakeSocket implements WorkspaceSessionSocket {
   }
 }
 
-test('WS ของ tenant ที่บังคับ lease: ไม่มี lease/lease เก่า = 4409; งานส่งเฉพาะ socket ที่ถือ lease ปัจจุบัน', async (t) => {
-  const f = await setup(t, { enforced: true });
+// #583: ทุก tenant บังคับ lease — tenant ไม่มีแถว flag ใด ๆ ก็ได้ 4409 เมื่อไม่มี lease
+test('WS บังคับ lease ทุก tenant: ไม่มี lease/lease เก่า = 4409; งานส่งเฉพาะ socket ที่ถือ lease ปัจจุบัน', async (t) => {
+  const f = await setup(t);
   const gateway = new WorkspaceSessionGateway(
     { verifyAccessToken: async (token) => claims(token) },
     new WorkspaceSessionRegistry(),
@@ -455,12 +444,8 @@ test('WS ของ tenant ที่บังคับ lease: ไม่มี lea
   assert.deepEqual((await connect(first.leaseId)).closed, [4409, 'work session lease required']);
 });
 
-test('E1.12: GET สถานะ — flag ของ tenant + ผู้ถือ (surface, เวลาเริ่ม, มีงาน); หมดอายุตอนว่าง = ไม่มีผู้ถือ', async (t) => {
-  const off = await setup(t);
-  const offToken = `${off.tenantA}|${off.agentA}`;
-  assert.deepEqual((await off.call('GET', PATH, offToken)).body, { enforced: false, holder: null });
-
-  const f = await setup(t, { enforced: true });
+test('E1.12/#583: GET สถานะ — enforced เสมอ + ผู้ถือ (surface, เวลาเริ่ม, มีงาน); หมดอายุตอนว่าง = ไม่มีผู้ถือ', async (t) => {
+  const f = await setup(t);
   const token = `${f.tenantA}|${f.agentA}`;
   const empty = await f.call('GET', PATH, token);
   assert.deepEqual([empty.status, empty.body], [200, { enforced: true, holder: null }]);
@@ -481,7 +466,7 @@ test('E1.12: GET สถานะ — flag ของ tenant + ผู้ถือ 
   assert.equal((await f.call('GET', PATH, token)).body.holder.busy, true);
   // tenant B ไม่เห็น lease ของ A
   assert.deepEqual((await f.call('GET', PATH, `${f.tenantB}|${f.agentB}`)).body, {
-    enforced: false,
+    enforced: true,
     holder: null,
   });
   // role อื่นที่ไม่ใช่ agent ไม่ได้อ่าน

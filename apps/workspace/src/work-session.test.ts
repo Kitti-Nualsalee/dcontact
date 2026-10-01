@@ -89,7 +89,7 @@ interface FakeApi {
 function fakeApi(clock: ReturnType<typeof fakeClock>): FakeApi {
   const calls: string[] = [];
   const api: FakeApi = {
-    status: { enforced: true, holder: null },
+    status: { holder: null },
     calls,
     impl: {
       status: async () => {
@@ -131,14 +131,17 @@ function setup(options: { busy?: () => boolean; surface?: 'workspace' | 'dphone'
   return { clock, api, client, phases };
 }
 
-test('flag ปิด → disabled: ไม่ขอ lease, ไม่มี timer — ผู้เรียกใช้พฤติกรรมเดิม', async () => {
-  const { api, client, clock } = setup();
-  api.status = { enforced: false, holder: null };
+test('#583: lease บังคับทุก tenant — อ่านสถานะไม่ได้ (เช่น 403/404) = error แล้วลองใหม่ ไม่ข้ามไปทำงานแบบไม่มี lease', async () => {
+  const { api, client } = setup();
+  api.impl.status = async () => {
+    api.calls.push('status');
+    throw new WorkSessionRequestError(404);
+  };
   await client.start({ autoAcquire: true });
-  assert.equal(client.current().phase, 'disabled');
+  assert.equal(client.current().phase, 'error');
   assert.equal(client.ownsWork(), false);
+  assert.equal(client.leaseId(), undefined);
   assert.deepEqual(api.calls, ['status']);
-  assert.equal(clock.pending(), 0);
 });
 
 test('acquire → heartbeat ทุก 20 วินาทีผ่าน WS → lease.revoked (takeover) หยุดรับงานทันทีและแสดงผู้ถือใหม่', async () => {
@@ -171,7 +174,7 @@ test('acquire → heartbeat ทุก 20 วินาทีผ่าน WS → l
   );
   assert.equal(client.current().phase, 'held');
 
-  api.status = { enforced: true, holder: { ...holderA, leaseId: 'lease-b', surface: 'dphone' } };
+  api.status = { holder: { ...holderA, leaseId: 'lease-b', surface: 'dphone' } };
   client.handleSocketEvent({ type: 'lease.revoked', leaseId: 'lease-new', reason: 'takeover' });
   assert.equal(client.ownsWork(), false, 'หยุดรับงานทันทีก่อนคำตอบของ server');
   await flush();
@@ -239,7 +242,7 @@ test('มีผู้ถืออยู่ → standby พร้อมผู้�
 
 test('takeover: ยืนยันแล้วย้ายด้วย expectedLeaseId → ถือ lease ใหม่; ผู้ถือมีงาน = ไม่ส่งคำขอ', async () => {
   const { api, client } = setup({ surface: 'dphone' });
-  api.status = { enforced: true, holder: { ...holderA, busy: true } };
+  api.status = { holder: { ...holderA, busy: true } };
   await client.start({ autoAcquire: true });
   assert.deepEqual(api.calls, ['status'], 'มีผู้ถือ → ไม่ยิง acquire');
   await client.takeover();
@@ -250,7 +253,7 @@ test('takeover: ยืนยันแล้วย้ายด้วย expectedL
     rejection: 'busy',
   });
 
-  api.status = { enforced: true, holder: holderA };
+  api.status = { holder: holderA };
   await client.refresh();
   assert.deepEqual(client.current(), { phase: 'standby', holder: holderA });
   await client.takeover();
@@ -261,7 +264,7 @@ test('takeover: ยืนยันแล้วย้ายด้วย expectedL
 
 test('takeover ถูกปฏิเสธ (BUSY/CHANGED/เครือข่าย) → กลับ standby พร้อมเหตุผล ไม่ถือ lease และลองใหม่ได้', async () => {
   const { api, client, clock } = setup();
-  api.status = { enforced: true, holder: holderA };
+  api.status = { holder: holderA };
   await client.start({ autoAcquire: true });
 
   api.takeoverResult = new WorkSessionRequestError(409, 'WORK_SESSION_BUSY', {
@@ -282,7 +285,7 @@ test('takeover ถูกปฏิเสธ (BUSY/CHANGED/เครือข่�
 
   const holderB = { ...holderA, leaseId: 'lease-b' };
   api.takeoverResult = new WorkSessionRequestError(409, 'WORK_SESSION_CHANGED');
-  api.status = { enforced: true, holder: holderB };
+  api.status = { holder: holderB };
   await client.takeover();
   assert.deepEqual(client.current(), { phase: 'standby', holder: holderB, rejection: 'changed' });
 
@@ -323,7 +326,7 @@ test('คุยกับ server ไม่สำเร็จ → error แล้�
   late.api.impl.status = () => new Promise((done) => (resolve = done));
   const started = late.client.start({ autoAcquire: true });
   late.client.stop();
-  resolve({ enforced: true, holder: null });
+  resolve({ holder: null });
   await started;
   assert.equal(late.client.current().phase, 'checking');
   assert.deepEqual(late.api.calls, []);
@@ -346,18 +349,19 @@ test('HTTP: ส่ง bearer + surface, อ่าน envelope 409 พร้อ�
       headers: { 'content-type': 'application/json' },
     });
 
-  replies.push(json(200, { enforced: true, holder: holderA }));
-  assert.deepEqual(await api.status(), { enforced: true, holder: holderA });
+  replies.push(json(200, { holder: holderA }));
+  assert.deepEqual(await api.status(), { holder: holderA });
   assert.equal(requests[0]?.url, 'https://api.example/api/v1/me/work-session');
   assert.equal(
     (requests[0]?.init?.headers as Record<string, string>).authorization,
     'Bearer token-in-memory',
   );
 
+  // #583: ไม่มีโหมด "ไม่บังคับ" — 404/403 เป็นความล้มเหลว ส่วน body ที่ไม่มี holder = ไม่มีผู้ถือ
   replies.push(new Response('not found', { status: 404 }));
-  assert.deepEqual(await api.status(), { enforced: false, holder: null });
+  await assert.rejects(api.status(), WorkSessionRequestError);
   replies.push(new Response('<html></html>', { status: 200 }));
-  assert.deepEqual(await api.status(), { enforced: false, holder: null });
+  assert.deepEqual(await api.status(), { holder: null });
   replies.push(new Response('down', { status: 503 }));
   await assert.rejects(api.status(), WorkSessionRequestError);
 

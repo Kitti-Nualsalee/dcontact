@@ -5,9 +5,9 @@
  * "จุดรับงานเดียว"** ตัวบังคับคือ work-session lease ฝั่ง server (`/api/v1/me/work-session`) ครอบทุก surface
  * รวม dphone ที่ถูกฝังคนละ origin ซึ่งเบราว์เซอร์มองไม่เห็นกัน
  *
- * - tenant ที่เปิด `workSession.lease.enforced`: leader ของ origin เป็นแท็บเดียวที่ขอ lease อัตโนมัติ
+ * - work-session lease (บังคับทุก tenant ตั้งแต่ #583): leader ของ origin เป็นแท็บเดียวที่ขอ lease อัตโนมัติ
  *   (แท็บอื่นไม่ยิงคำขอซ้อน) — จะรับงานได้หรือไม่ตัดสินจาก lease เท่านั้น การเสีย leader ไม่ตัดสาย
- * - tenant ที่ปิด flag: พฤติกรรมเดิมจาก D1 — working tab (leader) เป็นแท็บเดียวที่ต่อ WS และ register SIP
+ * - ไม่มี `workSession` (test/harness เท่านั้น): working tab (leader) ต่อ WS แบบเดิมของ D1 แต่ไม่มี SIP
  */
 export interface WorkspaceLeaderLease {
   tabId: string;
