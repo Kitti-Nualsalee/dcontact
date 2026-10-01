@@ -18,7 +18,17 @@ export const PLATFORM_API_CLIENT = 'dcontact-platform-api';
 export const PLATFORM_CONSOLE_CLIENT = 'platform-console';
 export const PLATFORM_ROLES = Object.freeze(['platform_operator', 'platform_auditor']);
 export const PLATFORM_BROWSER_FLOW = 'platform-browser';
-export const PLATFORM_CONSOLE_REDIRECT = 'http://localhost:5180';
+const platformConsoleRedirect = process.env.PLATFORM_CONSOLE_REDIRECT ?? 'http://localhost:5180';
+const platformConsoleUrl = new URL(platformConsoleRedirect);
+if (
+  platformConsoleUrl.origin !== platformConsoleRedirect ||
+  (platformConsoleUrl.protocol !== 'https:' && platformConsoleRedirect !== 'http://localhost:5180')
+) {
+  throw new Error(
+    'PLATFORM_CONSOLE_REDIRECT ต้องเป็น HTTPS origin เท่านั้น (ยกเว้น localhost สำหรับ dev)',
+  );
+}
+export const PLATFORM_CONSOLE_REDIRECT = platformConsoleRedirect;
 
 export const PLATFORM_DEV_USERS = Object.freeze([
   {

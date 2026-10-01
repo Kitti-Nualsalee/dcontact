@@ -1,0 +1,146 @@
+# A1.9 (#574): project แยก; ใช้ internal network ของ U1 เพื่อเข้าถึง Keycloak/DB relay เท่านั้น
+name: dcontact-platform-uat
+
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  read_only: true
+  logging:
+    driver: json-file
+    options:
+      max-size: 20m
+      max-file: '5'
+
+services:
+  platform-console:
+    <<: *hardening
+    image: ${PLATFORM_CONSOLE_IMAGE:?digest-pinned PLATFORM_CONSOLE_IMAGE required}
+    user: '10001:10001'
+    environment:
+      PLATFORM_ALLOWED_CIDRS: ${PLATFORM_ALLOWED_CIDRS:?PLATFORM_ALLOWED_CIDRS required}
+    ports:
+      - '192.168.102.112:8081:8081'
+    tmpfs:
+      - /data
+      - /config
+    mem_limit: 256m
+    networks: [uat-internal]
+    depends_on:
+      - platform-api
+
+  platform-api:
+    <<: *hardening
+    image: ${PLATFORM_API_IMAGE:?digest-pinned PLATFORM_API_IMAGE required}
+    user: '10001:10001'
+    command: ['node', 'dist/main.js']
+    environment:
+      PLATFORM_DATABASE_URL: postgresql://dcontact_platform_login:${PLATFORM_DB_PASSWORD:?required}@db-relay:5432/dcontact_uat?schema=public
+      PLATFORM_OIDC_ISSUER: https://dcontact-uat.osd.co.th/auth/realms/dcontact
+      PLATFORM_OIDC_JWKS_URI: http://keycloak:8080/auth/realms/dcontact/protocol/openid-connect/certs
+      PLATFORM_CONSOLE_ORIGIN: https://platform-uat.osd.co.th
+      PLATFORM_SIP_BASE_DOMAIN: ${PLATFORM_SIP_BASE_DOMAIN:?required}
+      PLATFORM_PROVISIONING_ENABLED: ${PLATFORM_PROVISIONING_ENABLED:-false}
+      PLATFORM_OPERATOR_ALLOWLIST: ${PLATFORM_OPERATOR_ALLOWLIST:-}
+      PLATFORM_METRICS_HOST: 127.0.0.1
+    mem_limit: 512m
+    networks: [uat-internal]
+
+  platform-worker:
+    <<: *hardening
+    image: ${PLATFORM_API_IMAGE:?digest-pinned PLATFORM_API_IMAGE required}
+    user: '10001:10001'
+    command: ['node', 'node_modules/@d-contact/platform-control/dist/platform-worker-main.js']
+    environment:
+      PLATFORM_DATABASE_URL: postgresql://dcontact_platform_login:${PLATFORM_DB_PASSWORD:?required}@db-relay:5432/dcontact_uat?schema=public
+      PROVISIONER_DATABASE_URL: postgresql://dcontact_provisioner_login:${PROVISIONER_DB_PASSWORD:?required}@db-relay:5432/dcontact_uat?schema=public
+      PLATFORM_SIP_BASE_DOMAIN: ${PLATFORM_SIP_BASE_DOMAIN:?required}
+      KEYCLOAK_URL: http://keycloak:8080/auth
+      KEYCLOAK_PROVISIONER_SECRET: ${KEYCLOAK_PROVISIONER_SECRET:?required}
+      PLATFORM_PROVISIONING_ENABLED: ${PLATFORM_PROVISIONING_ENABLED:-false}
+      PLATFORM_OPERATOR_ALLOWLIST: ${PLATFORM_OPERATOR_ALLOWLIST:-}
+      PLATFORM_METRICS_HOST: 127.0.0.1
+      MAILPIT_URL: http://mailpit:8025/mail
+    mem_limit: 512m
+    networks: [uat-internal]
+
+  platform-keycloak-config:
+    image: ${PLATFORM_API_IMAGE:?digest-pinned PLATFORM_API_IMAGE required}
+    profiles: [ops]
+    restart: 'no'
+    user: '10001:10001'
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    command:
+      - /bin/sh
+      - -ec
+      - node scripts/keycloak-platform-setup.mjs --no-dev-users && node scripts/keycloak-provisioning-setup.mjs
+    environment:
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080/auth
+      KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME: ${UAT_KEYCLOAK_ADMIN_USERNAME:?required}
+      KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD: ${UAT_KEYCLOAK_ADMIN_PASSWORD:?required}
+      KEYCLOAK_PROVISIONER_SECRET: ${KEYCLOAK_PROVISIONER_SECRET:?required}
+      KEYCLOAK_SMTP_HOST: mailpit
+      KEYCLOAK_SMTP_PORT: '1025'
+      KEYCLOAK_SMTP_FROM: no-reply@dcontact-uat.osd.co.th
+      PLATFORM_CONSOLE_REDIRECT: https://platform-uat.osd.co.th
+    networks: [uat-internal]
+    depends_on: [mailpit]
+
+  platform-operator-setup:
+    image: ${PLATFORM_API_IMAGE:?digest-pinned PLATFORM_API_IMAGE required}
+    profiles: [ops]
+    restart: 'no'
+    user: '10001:10001'
+    read_only: true
+    stdin_open: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    command: ['node', 'scripts/platform-uat-create-operator.mjs']
+    environment:
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080/auth
+      KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME: ${UAT_KEYCLOAK_ADMIN_USERNAME:?required}
+      KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD: ${UAT_KEYCLOAK_ADMIN_PASSWORD:?required}
+      PLATFORM_UAT_OPERATOR_USERNAME: ${PLATFORM_UAT_OPERATOR_USERNAME:?required}
+      PLATFORM_UAT_OPERATOR_EMAIL: ${PLATFORM_UAT_OPERATOR_EMAIL:?required}
+    networks: [uat-internal]
+
+  platform-catalog-seed:
+    image: ${PLATFORM_API_IMAGE:?digest-pinned PLATFORM_API_IMAGE required}
+    profiles: [ops]
+    restart: 'no'
+    user: '10001:10001'
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    command: ['node', 'scripts/platform-uat-seed-catalog.mjs']
+    environment:
+      PLATFORM_DATABASE_URL: postgresql://dcontact_platform_login:${PLATFORM_DB_PASSWORD:?required}@db-relay:5432/dcontact_uat?schema=public
+    networks: [uat-internal]
+
+  mailpit:
+    image: docker.io/axllent/mailpit:v1.31.1@sha256:98b916bd3c8d61f7633a52d3ea2f58d00620cb01ca57ab59edde68c347a95365
+    environment:
+      MP_WEBROOT: /mail/
+      MP_MAX_MESSAGES: '1000'
+      MP_MAX_AGE: 30d
+      MP_DATABASE: /data/mailpit.db
+      MP_ALLOWED_HOSTS: platform-uat.osd.co.th,mailpit:8025
+    volumes:
+      - mailpit-data:/data
+    networks: [uat-internal]
+    mem_limit: 256m
+
+volumes:
+  mailpit-data: {}
+
+networks:
+  uat-internal:
+    external: true
+    name: dcontact-uat_internal

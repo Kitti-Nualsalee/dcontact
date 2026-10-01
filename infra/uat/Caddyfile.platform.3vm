@@ -1,0 +1,41 @@
+# A1.9 (#574): Platform origin แยกจาก tenant origin; รับจาก nginx VM1 เท่านั้น
+{
+    admin off
+    persist_config off
+    auto_https off
+    servers {
+        trusted_proxies static 192.168.102.114/32
+        client_ip_headers X-Forwarded-For
+    }
+}
+
+:8081 {
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        X-Frame-Options DENY
+        -Server
+    }
+    route {
+        @notEdge not remote_ip 192.168.102.114/32
+        respond @notEdge 403
+        @outside not client_ip {$PLATFORM_ALLOWED_CIDRS}
+        respond @outside 403
+
+        @private path /auth/* /metrics /health/*
+        respond @private 404
+
+        redir /mail /mail/ 308
+        handle /mail/* {
+            reverse_proxy mailpit:8025
+        }
+        handle /api/* {
+            reverse_proxy platform-api:3010
+        }
+        handle {
+            root * /srv/platform-console
+            try_files {path} /index.html
+            file_server
+        }
+    }
+}
