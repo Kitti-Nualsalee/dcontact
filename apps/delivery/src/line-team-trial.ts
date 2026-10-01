@@ -203,7 +203,8 @@ export interface LineTeamTrialDependencies {
       typeof LineDeliveryEnqueue
     >[1]['claimReservationForDelivery'];
   };
-  adapter: Pick<LineOutboundAdapter, 'submit'>;
+  /** adapter ต่อ config digest ของ gate ณ ตอนส่ง (operator ตั้ง gate ใหม่ได้โดยไม่ต้อง restart) */
+  adapter: (configDigest: string) => Pick<LineOutboundAdapter, 'submit'>;
   vault: Pick<EncryptedLineWebhookPayloadVault, 'read'>;
   payloadKey: LinePayloadKey;
   credentials: LineAccessTokenResolver;
@@ -366,9 +367,11 @@ export class LineTeamTrialReplies {
         )
       : null;
     if (!run || !allowlist) return { status: 'FAILED', code: 'TRIAL_NOT_ACTIVE', deliveryId };
+    const gate = await this.deps.control.findGate(this.deps.scope);
+    if (!gate?.configDigest) return { status: 'FAILED', code: 'TRIAL_NOT_ACTIVE', deliveryId };
     const quota = await this.quota(run);
     if (!quota) return { status: 'FAILED', code: 'PROVIDER_UNAVAILABLE', deliveryId };
-    const outcome = await this.deps.adapter.submit({
+    const outcome = await this.deps.adapter(gate.configDigest).submit({
       tenantId: this.tenantId,
       deliveryId,
       scope: this.deps.scope,
