@@ -25,14 +25,18 @@
    - ทางเลือกที่ไม่เลือก: เปิด LINE ใน profile `uat` หลักถาวร (ขัด #430 และทำให้ปัญหา LINE กระทบ UAT ส่วนอื่น);
      ใช้ protected environment แยก (ทีมไม่ได้ทดสอบร่วมกันบน UAT)
 
-2. **ขาส่งออกผ่าน egress relay เท่านั้น**: api คงอยู่บน `internal: true`; เพิ่ม relay ที่ออกได้เฉพาะ `api.line.me:443`
-   แบบเดียวกับ `db-relay` — ไม่มี container อื่นออก internet ได้ และ readiness ของ overlay ต้องตรวจ allowlist ปลายทาง
+2. **ขาส่งรันเป็น runner `line-pilot` บน VM2 และออกผ่าน egress relay เท่านั้น** (#565 S1): CLI pilot ของ S2 เดิมรันบน Mac
+   ของ operator ด้วย Keychain — บน UAT ย้ายเป็น ops container แบบ `docker compose run`; api คงอยู่บน `internal: true`
+   และไม่มี `LINE_*`; relay `line-egress` (TCP, กรอง SNI `api.line.me`) เป็นทางออกเดียว และมีแค่ runner ที่ใช้ได้
 
-3. **ขารับเป็นงานแยก (#566) บน overlay เดียวกัน**: webhook เข้าทาง nginx edge (VM1) → Caddy → api เฉพาะ path ของ LINE,
-   ตรวจ `x-line-signature` ด้วย channel secret; kill ของขารับคือปิด route ที่ edge แยกจาก kill ของขาส่ง
+3. **ขารับ: service แยก `line-webhook`** (#565 S2) entrypoint `line-webhook-main.ts` + runtime profile `uat-line`
+   mount แค่ `POST /webhook/line` — `uat-main` และ profile `uat` ไม่แก้; Caddy route webhook หลัง edge check แต่ข้าม
+   `UAT_ALLOWED_CIDRS` เพราะ authority คือ HMAC; งานต่อของขารับ (edge VM1, hostname สาธารณะ, worker ต่อเนื่อง,
+   การแสดงผล) อยู่ใน #566; kill ขารับ = หยุด service หรือปิด route ที่ edge
 
 4. **credential เฉพาะ UAT**: revoke v3 (ที่เคยอยู่ใน Keychain ของเครื่อง dev) พร้อมออก v4 ใน LINE Console
-   เก็บเป็น secret แบบ file mount บน VM2 — ห้ามอยู่ใน env ของ profile `uat`, ใน repo หรือใน log;
+   เก็บเป็น Compose `secrets` จาก `/opt/dcontact-uat/secrets/line/` (`0400`, แยกตาม service — webhook ไม่ได้ access token)
+   ผ่าน `FileLineSecretSource` ใหม่ (#565 S4) — ห้ามอยู่ใน env ของ profile `uat`, ใน repo หรือใน log;
    RB01 ของ #548 revoke v4 แล้วออก v5 สำหรับช่วงทีมทดสอบ (#567)
 
 5. **ลำดับ**: #565 → REG01 บน final-main SHA → PR01 → PR02 (exact one-shot) → RB01 (revoke v4) → marker (#548)
@@ -58,4 +62,4 @@
 | 1 | VM2 ออก `api.line.me:443` ได้ในระดับเครือข่ายองค์กร (firewall/proxy) | ยังไม่ตรวจ |
 | 2 | **LINE เรียก webhook เข้ามาได้**: ADR-030 ช่วง UAT ไม่ขอ DNS และ VM1 เป็น IP ใน LAN (`192.168.102.114`) — ขารับต้องมี hostname สาธารณะ + HTTPS cert ที่ LINE เข้าถึงได้ (เช่น DNS record + NAT/reverse proxy ขาเข้า) | ยังไม่ตัดสิน (blocker ของ #566 เท่านั้น ไม่ขวาง #548) |
 | 3 | ผู้ใช้ revoke v3 และออก v4 ใน LINE Console | รอ (ทำเมื่อ #565 พร้อม deploy) |
-| 4 | ที่เก็บ secret บน VM2 (path/สิทธิ์ไฟล์) | ตัดสินใน spec ของ #565 |
+| 4 | ที่เก็บ secret บน VM2 (path/สิทธิ์ไฟล์) | ตัดสินแล้ว (#565 S4) |
