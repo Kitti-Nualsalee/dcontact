@@ -12,7 +12,8 @@ import {
   missingDependencyMessage,
 } from './acceptance-dependency-markers.mjs';
 import { fetchDependencyEvidence, selectArtifacts } from './acceptance-fetch-evidence.mjs';
-import { cg4FailureDetail } from './cxa-cg4-readiness.mjs';
+import { CXA_CG4_READINESS_CHECKS, cg4FailureDetail } from './cxa-cg4-readiness.mjs';
+import { S1_REGRESSION_SCRIPTS, cxaCg4DependencySummary } from './cxa-cg4-dependency-readiness.mjs';
 import { CXA_J2_READINESS_CHECKS } from './cxa-j2-readiness.mjs';
 import { CXA_J3_READINESS_CHECKS, j3FailureDetail } from './cxa-j3-readiness.mjs';
 import { cxaJ5DependencySummary } from './cxa-j5-dependency-readiness.mjs';
@@ -92,6 +93,7 @@ test('J2/J3/J5 registry ไม่ spawn acceptance ของ phase อื่น�
     J2: CXA_J2_READINESS_CHECKS,
     J3: CXA_J3_READINESS_CHECKS,
     J5: j5Checks('full'),
+    CG4: CXA_CG4_READINESS_CHECKS,
   };
   for (const [acceptance, checks] of Object.entries(registries)) {
     const commands = checks.flatMap(({ commands }) => commands);
@@ -100,7 +102,10 @@ test('J2/J3/J5 registry ไม่ spawn acceptance ของ phase อื่น�
       `${acceptance} ยังเรียก *:acceptance`,
     );
     const script =
-      acceptance === 'J5' ? 'cxa-j5-dependency-readiness.mjs' : 'acceptance-dependency-markers.mjs';
+      {
+        J5: 'cxa-j5-dependency-readiness.mjs',
+        CG4: 'cxa-cg4-dependency-readiness.mjs',
+      }[acceptance] ?? 'acceptance-dependency-markers.mjs';
     const reg = checks.find(({ id }) => id === `${acceptance}-REG01`);
     assert.ok(
       reg.commands.some((command) => command.some((part) => String(part).endsWith(script))),
@@ -195,4 +200,38 @@ test('fetch: เลือกเฉพาะ artifact บน main + SHA เดี
     fetchDependencyEvidence({ acceptance: 'J9', commitSha: SHA, listArtifacts: async () => [] }),
     /ไม่รู้จัก/,
   );
+});
+
+test('#572: CG4-REG01 ใช้ S1 manifest จาก artifact ที่มี provenance และเลือกตัวที่มี CG3 marker', (t) => {
+  const root = temporaryRoot(t);
+  const finalEnv = { GITHUB_RUN_ID: '99', CXA_CG4_EXPECTED_COMMIT_SHA: SHA };
+  const summary = () =>
+    cxaCg4DependencySummary({
+      environment: finalEnv,
+      commitSha: SHA,
+      mainSha: SHA,
+      artifactsRoot: root,
+    });
+
+  // ยังไม่มี S1 บน SHA นี้ → final main ล้มพร้อมบอกให้สั่ง S1 ก่อน
+  assert.throws(summary, /acceptance=s1/);
+
+  const s1 = (markers, status) => ({
+    commitSha: SHA,
+    finalMainSha: SHA,
+    markers,
+    checks: [
+      {
+        id: 'S1-REG-01',
+        subchecks: S1_REGRESSION_SCRIPTS.map((script) => ({ command: ['pnpm', script], status })),
+      },
+    ],
+  });
+  // run S1 ที่ล้มก็มี manifest — ต้องไม่ถูกเลือกแทน run ที่ผ่าน
+  writeFetched(root, 's1', '1.json', s1([], 'FAIL'));
+  assert.throws(summary, /CONTACT_GOVERNANCE_CG3_ACCEPTED/);
+  writeFetched(root, 's1', '2.json', s1(['CONTACT_GOVERNANCE_CG3_ACCEPTED'], 'PASS'));
+  const result = summary();
+  assert.equal(result.cg3, 'INTEGRATED_SAME_SHA');
+  assert.ok(Object.values(result.s1Regression).every((status) => status === 'PASS'));
 });

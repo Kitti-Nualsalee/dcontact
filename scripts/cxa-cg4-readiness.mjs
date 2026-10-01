@@ -417,12 +417,10 @@ export const CXA_CG4_READINESS_CHECKS = Object.freeze([
       'E0/C1/Inbound Voice acceptance via S1-REG-01',
       `${CG3_MARKER} same SHA`,
     ],
-    // S1-REG-01 รัน build/typecheck/lint/E0/C1/Inbound Voice อยู่แล้ว: รัน S1 ครั้งเดียวแล้วพิสูจน์จาก
-    // S1 manifest บน SHA เดียวกันแทนการรันซ้ำสองรอบ (#194 A)
-    [
-      [pnpm, 's1:acceptance'],
-      [process.execPath, 'scripts/cxa-cg4-dependency-readiness.mjs'],
-    ],
+    // S1-REG-01 รัน build/typecheck/lint/E0/C1/Inbound Voice อยู่แล้ว (#194 A)
+    // #572: ไม่รัน S1 ซ้อนอีก — พิสูจน์จาก S1 manifest ใน immutable CI artifact บน SHA เดียวกัน
+    // (`acceptance-fetch-evidence.mjs CG4` ดาวน์โหลดก่อนรัน) แบบเดียวกับ REG ของ J2/J3/J5 (#559)
+    [[process.execPath, 'scripts/cxa-cg4-dependency-readiness.mjs']],
     { evidencePrefix: 'CXA_CG4_DEPENDENCY_EVIDENCE:' },
   ),
   check(

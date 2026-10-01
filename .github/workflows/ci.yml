@@ -541,11 +541,15 @@ jobs:
 
   cxa-cg4-acceptance:
     # CG4.11 (#194): สั่งเองบน main (`gh workflow run CI --ref main -f acceptance=cg4`)
-    # CG4-REG01 rerun S1 ครั้งเดียว (E0/C1/Inbound Voice อยู่ใน S1-REG-01) และแต่ละ suite รันครั้งเดียว
+    # #572: CG4-REG01 ไม่รัน S1 ซ้อนแล้ว แต่ตรวจ S1 manifest (CG3 marker + S1-REG-01 PASS) จาก artifact
+    # ของ run S1 บน SHA เดียวกัน — ต้องสั่ง `acceptance=s1` ให้ผ่านก่อน (docs/acceptance-dependencies.md)
     # marker ออกได้เฉพาะ HEAD == origin/main == expectedCommitSha บน clean checkout
     if: github.event_name == 'workflow_dispatch' && (inputs.acceptance == 'all' || inputs.acceptance == 'cg4') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
     concurrency:
       group: cxa-cg4-acceptance
       cancel-in-progress: false
@@ -592,6 +596,11 @@ jobs:
             exit 1
           }
 
+      - name: Fetch dependency evidence from runs on the same SHA
+        run: node scripts/acceptance-fetch-evidence.mjs CG4
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Run CG4 acceptance on final main SHA
         run: pnpm cxa:cg4:acceptance
         env:
@@ -602,9 +611,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cxa-cg4-evidence-${{ github.sha }}
-          path: |
-            artifacts/cxa-cg4/${{ github.run_id }}.json
-            artifacts/s1/${{ github.run_id }}.json
+          path: artifacts/cxa-cg4/${{ github.run_id }}.json
           if-no-files-found: error
           retention-days: 90
 

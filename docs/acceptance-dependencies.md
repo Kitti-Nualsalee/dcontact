@@ -21,6 +21,7 @@ acceptance ของ J2, J3 และ J5 ต้องพิสูจน์ว่
 |---|---|---|
 | J2 (`J2-REG01`) | `J1_ACCEPTED`, `CONTACT_GOVERNANCE_CG3_ACCEPTED` | `cxa-c1-evidence`, `s1-evidence` (ทั้งคู่จาก run S1) |
 | J3 (`J3-REG01`) | `CONTACT_GOVERNANCE_CG3_ACCEPTED`, `JOURNEY_J2_ACCEPTED`, `CONTACT_GOVERNANCE_CG4_ACCEPTED` | `s1-evidence`, `cxa-j2-evidence`, `cxa-cg4-evidence` |
+| CG4 (`CG4-REG01`, #572) | `CONTACT_GOVERNANCE_CG3_ACCEPTED` และ S1-REG-01 PASS ครบ | `s1-evidence` |
 | J5 (`J5-REG01`) | `J1_ACCEPTED`, `JOURNEY_J2_ACCEPTED`, `JOURNEY_J3_ACCEPTED`, `CONTACT_GOVERNANCE_CG3_ACCEPTED` | `cxa-c1-evidence`, `cxa-j2-evidence`, `cxa-j3-evidence`, `s1-evidence` |
 
 ## ลำดับการสั่งบน SHA เดียวกัน
@@ -48,7 +49,7 @@ gh workflow run CI --ref main -f acceptance=j5
 ```
 
 1. **S1:** ได้ `s1-evidence` และ `cxa-c1-evidence`
-2. **J2 และ CG4:** สั่งพร้อมกันได้ ส่วน CG4 ยังรัน S1 ซ้อนอยู่ข้างในตาม `CG4-REG01` เดิม
+2. **J2 และ CG4:** สั่งพร้อมกันได้ ทั้งคู่ตรวจ S1 จาก artifact ไม่รัน S1 ซ้อนแล้ว (#572)
 3. **J3**
 4. **J5**
 
@@ -57,6 +58,6 @@ gh workflow run CI --ref main -f acceptance=j5
 ## เมื่อ REG ล้ม
 
 - `detail` ของ suite dependency บอกว่า marker ตัวไหนขาดและต้องสั่งอะไร
-- suite ที่ยังรัน acceptance ซ้อนอยู่ (เช่น CG4 → S1) จะเก็บบรรทัด `readiness.suite`/`readiness.check` ที่ `FAIL`
+- suite ที่ยังรัน acceptance ซ้อนอยู่ (เช่น S1 → E0/C1/Inbound Voice) จะเก็บบรรทัด `readiness.suite`/`readiness.check` ที่ `FAIL`
   ของชั้นในไว้ใน `detail` (`scripts/readiness-failure-detail.mjs`) ถ้าไม่มีบรรทัดแบบนี้ ก็จะเก็บท้าย output ไว้
   ไม่ใช่เหลือแค่ `process exited with status 1`
