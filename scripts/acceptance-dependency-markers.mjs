@@ -50,6 +50,8 @@ export const ACCEPTANCE_PHASES = Object.freeze({
 /** phase ที่ REG ของแต่ละ acceptance ต้องเห็น marker บน SHA เดียวกัน */
 export const ACCEPTANCE_DEPENDENCIES = Object.freeze({
   J2: Object.freeze(['c1', 's1']),
+  // #572: CG4-REG01 ตรวจ S1 ผ่าน `cxa-cg4-dependency-readiness.mjs` (J2 ไม่ใช่ prerequisite ของ CG4)
+  CG4: Object.freeze(['s1']),
   J3: Object.freeze(['s1', 'j2', 'cg4']),
   J5: Object.freeze(['c1', 'j2', 'j3', 's1']),
 });

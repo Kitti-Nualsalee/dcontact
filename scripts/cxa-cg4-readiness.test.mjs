@@ -145,11 +145,16 @@ test('CG4 registry มี 25 mandatory checks ครบ 9 dimensions ตาม #
   }
 });
 
-test('A: CG4-REG01 รัน S1 ครั้งเดียวและไม่รัน build/typecheck/lint/E0/C1/Inbound Voice ซ้ำ', () => {
+test('A: CG4-REG01 ไม่รัน S1 ซ้อน (#572) และไม่รัน build/typecheck/lint/E0/C1/Inbound Voice ซ้ำ', () => {
   const regression = CXA_CG4_READINESS_CHECKS.find(({ id }) => id === 'CG4-REG01');
   const scripts = regression.commands.map((command) => command.at(-1));
-  assert.ok(scripts.includes('s1:acceptance'));
-  assert.ok(scripts.some((script) => script.endsWith('cxa-cg4-dependency-readiness.mjs')));
+  assert.deepEqual(scripts.length, 1);
+  assert.ok(scripts[0].endsWith('cxa-cg4-dependency-readiness.mjs'));
+  assert.ok(
+    !CXA_CG4_READINESS_CHECKS.some((item) =>
+      item.commands.some((command) => command.some((part) => /:acceptance$/.test(String(part)))),
+    ),
+  );
   // เทียบเฉพาะคำสั่ง root `pnpm <script>` แบบเดียวกับ S1-REG-01 — `pnpm --filter console build` เป็นคนละคำสั่ง
   for (const duplicated of S1_REGRESSION_SCRIPTS) {
     assert.equal(
@@ -174,8 +179,6 @@ test('B: suite plan รันแต่ละไฟล์ครั้งเดี
     isScript(suite, 'contact-governance-cg4-api.integration.ts'),
   );
   assert.ok(cg4Api.checkIds.length >= 7, cg4Api.checkIds.join());
-  const s1Runs = suites.filter((suite) => suite.command.at(-1) === 's1:acceptance');
-  assert.equal(s1Runs.length, 1);
 
   const executed = new Map();
   const result = run({

@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { sha256 } from './cxa-c1-readiness.mjs';
+import { loadVerifiedManifests } from './acceptance-dependency-markers.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -23,8 +24,8 @@ export const S1_REGRESSION_SCRIPTS = Object.freeze([
 ]);
 
 /**
- * CG4-REG01 (#178): dependency marker บน SHA เดียวกัน — S1 ต้องถูก rerun ใน workflow เดียวกันจนออก
- * `CONTACT_GOVERNANCE_CG3_ACCEPTED`; J2 marker ไม่เป็น prerequisite แต่ถ้ามีบน SHA เดียวกันให้บันทึก
+ * CG4-REG01 (#178): dependency marker บน SHA เดียวกัน — S1 manifest ต้องมี
+ * `CONTACT_GOVERNANCE_CG3_ACCEPTED` (#572: มาจาก CI artifact ของ run S1 บน SHA เดียวกัน ไม่ได้รันซ้อนใน job นี้); J2 marker ไม่เป็น prerequisite แต่ถ้ามีบน SHA เดียวกันให้บันทึก
  * `ACCEPTED_SAME_SHA` ไม่งั้นเป็น `CONTRACT_COMPATIBLE` ซึ่ง targeted conformance ของ CG4-REG02 พิสูจน์
  *
  * run ที่ไม่ใช่ final main (PR/local) บันทึก `CANDIDATE_NOT_FINAL_MAIN` เพื่อให้ได้ candidate manifest
@@ -40,6 +41,16 @@ function git(arguments_) {
 function readManifest(path) {
   if (!existsSync(path)) return undefined;
   return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+function verifiedS1Manifest(artifactsRoot, commitSha) {
+  if (!commitSha) return undefined;
+  const manifests = loadVerifiedManifests(artifactsRoot, 's1', commitSha).map(
+    ({ manifest }) => manifest,
+  );
+  return (
+    manifests.find((manifest) => (manifest?.markers ?? []).includes(CG3_MARKER)) ?? manifests[0]
+  );
 }
 
 export function s1RegressionStatus(s1) {
@@ -65,11 +76,13 @@ export function cxaCg4DependencySummary(options = {}) {
     commitSha !== undefined &&
     commitSha === mainSha &&
     commitSha === expectedCommitSha;
-  const s1Path =
-    options.s1ManifestPath ?? resolve(repositoryRoot, 'artifacts', 's1', `${runId}.json`);
+  // #572: S1 ไม่ได้รันซ้อนใน job นี้แล้ว — ใช้ S1 manifest จาก CI artifact บน SHA เดียวกันที่มี provenance
+  // (เลือกตัวที่มี CG3 marker ก่อน เพราะ run ที่ล้มก็ upload manifest ไว้เหมือนกัน)
+  const artifactsRoot = options.artifactsRoot ?? resolve(repositoryRoot, 'artifacts');
+  const s1 =
+    's1Manifest' in options ? options.s1Manifest : verifiedS1Manifest(artifactsRoot, commitSha);
   const j2Path =
     options.j2ManifestPath ?? resolve(repositoryRoot, 'artifacts', 'cxa-j2', `${runId}.json`);
-  const s1 = options.s1Manifest ?? readManifest(s1Path);
   const j2 = options.j2Manifest ?? readManifest(j2Path);
 
   const sameSha = s1 !== undefined && s1.commitSha === commitSha && s1.finalMainSha === commitSha;
@@ -79,7 +92,7 @@ export function cxaCg4DependencySummary(options = {}) {
 
   if (finalMain && !cg3SameSha) {
     throw new Error(
-      `CG4 acceptance ต้องมี ${CG3_MARKER} จาก S1 manifest บน SHA เดียวกัน (${s1 ? 'marker/SHA ไม่ตรง' : 'ไม่พบ manifest'})`,
+      `CG4 acceptance ต้องมี ${CG3_MARKER} จาก S1 manifest บน SHA เดียวกัน (${s1 ? 'marker/SHA ไม่ตรง' : 'ไม่พบ manifest'}) — สั่ง \`gh workflow run CI --ref main -f acceptance=s1\` ให้ผ่านก่อน`,
     );
   }
   if (finalMain && !regressionPassed) {
