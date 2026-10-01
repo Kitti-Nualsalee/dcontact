@@ -10,8 +10,8 @@
  *   การถอน SIP register เป็นหน้าที่ของผู้เรียก เมื่อ `ownsWork` เป็นเท็จและไม่มีสายในมือ
  * - "ย้ายมาที่นี่" = takeover ที่ผู้ใช้ยืนยันแล้ว พร้อม `expectedLeaseId`; ถูกปฏิเสธ (มีงานค้าง/lease เปลี่ยน)
  *   ไม่แตะอะไรของที่เดิม — ทั้งสายและ WS ของที่เดิมอยู่ครบ
- * - tenant ที่ปิด `workSession.lease.enforced` → `disabled`: ใช้ leader election เลือก working tab เหมือนเดิม
- *   แต่ตั้งแต่ E1.10 (#551) SIP credential ออกให้เฉพาะผู้ถือ lease จึง **ไม่มี SIP** ในสถานะนี้ (#569)
+ * - #583 (#582): ทุก tenant บังคับ lease — ไม่มี flag และไม่มีสถานะ "ไม่บังคับ" อีกแล้ว
+ *   SIP credential ออกให้เฉพาะผู้ถือ lease (E1.10 #551) อ่านสถานะ lease ไม่ได้ = error แล้วลองใหม่ (fail closed)
  */
 
 export type WorkSessionSurface = 'workspace' | 'dphone' | 'embedded';
@@ -37,7 +37,6 @@ export interface WorkSessionLease {
 }
 
 export interface WorkSessionStatus {
-  enforced: boolean;
   holder: WorkSessionHolder | null;
 }
 
@@ -166,13 +165,10 @@ export function createWorkSessionApi(options: WorkSessionApiOptions): WorkSessio
   return {
     async status() {
       const result = await call('GET', '');
-      // API ที่ยังไม่มี endpoint นี้ / ไม่ใช่ agent ใน DB / role อื่น → ไม่มี lease ให้บังคับจากฝั่งนี้
-      // (server ยังบังคับเองที่ WS ด้วย 4409 เมื่อ tenant เปิด flag) — 5xx/เครือข่ายล่มโยนให้ลองใหม่
-      if (result.status === 403 || result.status === 404) return { enforced: false, holder: null };
+      // #583: lease บังคับทุก tenant — 403/404/5xx ไม่ใช่ "ไม่บังคับ" แต่เป็นความล้มเหลวที่ต้องลองใหม่
       if (result.status !== 200) throw failure(result);
-      const body = (result.body ?? {}) as { enforced?: unknown; holder?: unknown };
-      if (typeof body.enforced !== 'boolean') return { enforced: false, holder: null };
-      return { enforced: body.enforced, holder: parseHolder(body.holder) ?? null };
+      const body = (result.body ?? {}) as { holder?: unknown };
+      return { holder: parseHolder(body.holder) ?? null };
     },
     async acquire(surface) {
       const result = await call('POST', '', requestBody(surface));
@@ -204,8 +200,6 @@ export type WorkSessionRejection = 'busy' | 'changed' | 'failed';
 export type WorkSessionState =
   | { phase: 'idle' }
   | { phase: 'checking' }
-  /** tenant ไม่บังคับ lease — ใช้พฤติกรรมเดิม */
-  | { phase: 'disabled' }
   | { phase: 'acquiring' }
   | { phase: 'held'; lease: WorkSessionLease }
   /** ไม่ได้ถือ lease: ดูได้อย่างเดียว — มีผู้ถือที่อื่นหรือยังไม่ได้เริ่ม */
@@ -336,7 +330,7 @@ export class WorkSessionClient {
 
   /** เริ่มรับงานที่นี่เมื่อไม่มีผู้ถือ (ปุ่มของผู้ใช้หรือ leader) — มีผู้ถือ → standby พร้อมข้อมูลผู้ถือ */
   async acquire(): Promise<void> {
-    if (this.stopped || this.state.phase === 'disabled' || this.state.phase === 'held') return;
+    if (this.stopped || this.state.phase === 'held') return;
     const generation = this.transition({ phase: 'acquiring' });
     try {
       const lease = await this.options.api.acquire(this.options.surface);
@@ -414,10 +408,6 @@ export class WorkSessionClient {
     try {
       const status = await this.options.api.status();
       if (generation !== this.generation || this.stopped) return;
-      if (!status.enforced) {
-        this.transition({ phase: 'disabled' });
-        return;
-      }
       this.enterStandby({ holder: status.holder, loss, rejection: extra.rejection });
     } catch {
       if (generation !== this.generation) return;
@@ -475,10 +465,6 @@ export class WorkSessionClient {
     try {
       const status = await this.options.api.status();
       if (generation !== this.generation) return;
-      if (!status.enforced) {
-        this.transition({ phase: 'disabled' });
-        return;
-      }
       if (this.autoAcquire && !status.holder) {
         await this.acquire();
         return;

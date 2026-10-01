@@ -30,7 +30,7 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
       }),
     [accessToken, apiBaseUrl],
   );
-  // E1.12: work-session lease — ถูกใช้จริงเฉพาะ tenant ที่เปิด `workSession.lease.enforced`
+  // E1.12: work-session lease — #583: บังคับทุก tenant (SIP ต้องมี lease)
   const workSession = useMemo(
     () =>
       createWorkSessionApi({

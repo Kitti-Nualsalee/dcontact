@@ -11,8 +11,7 @@ import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db'
 
 export const TENANT_UI_FLAGS = [
   'ui.shell.v2',
-  // E1.9 (#483): บังคับ work-session lease (จุดรับงานเดียวต่อ agent) — เปิดใน dev/UAT ก่อน
-  'workSession.lease.enforced',
+  // #583: `workSession.lease.enforced` ถูกลบ — work-session lease บังคับทุก tenant แล้ว (แถวเดิมใน DB ไม่มีผล)
   // E1.11 (#485): อนุญาตให้ฝัง dphone ในระบบของลูกค้า (ต้องมี allowlist + entitlement ด้วย)
   'dphone.embed.enabled',
 ] as const;

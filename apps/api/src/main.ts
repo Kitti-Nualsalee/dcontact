@@ -207,7 +207,7 @@ async function tenantScope<T>(tenantId: string, work: () => Promise<T> | T): Pro
     return work();
   });
 }
-// E1.9 (#483): work-session lease — บังคับเมื่อ tenant เปิด `workSession.lease.enforced`
+// E1.9 (#483): work-session lease — #583: บังคับทุก tenant (ไม่มี flag แล้ว)
 const leaseSignals: { forward?: WorkspaceSessionWebSocketAdapter } = {};
 // E1.11 (#485): allowlist ของ dphone embedding — localhost ได้เฉพาะ dev (ไม่ใช่ production)
 const embedOrigins = new EmbedOriginService(prisma, {

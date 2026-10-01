@@ -60,7 +60,8 @@ mockup ทั้งหมดวันนี้เป็น shell เดียว
      และ offer ที่รอกดรับถูกส่งกลับเข้าคิว ทุกการย้ายเขียน audit
    - leader election ในเบราว์เซอร์ (`BroadcastChannel` + `localStorage`) ยังเก็บไว้ แต่เป็นแค่การลดภาระ
      ภายใน origin เดียว **ไม่ใช่ตัวบังคับความถูกต้อง** — ข้าม origin (dphone ที่ถูกฝัง) เบราว์เซอร์มองไม่เห็นกัน
-   - เปิดใช้ต่อ tenant ด้วย flag `workSession.lease.enforced` (ค่าเริ่มต้นปิด)
+   - ~~เปิดใช้ต่อ tenant ด้วย flag `workSession.lease.enforced` (ค่าเริ่มต้นปิด)~~ — **แก้ไข 2026-10-01 (#582/#583):**
+     บังคับทุก tenant ไม่มี flag แล้ว เพราะตั้งแต่ E1.10 SIP credential ออกให้เฉพาะผู้ถือ lease
    ถ้าไม่ทำ: เปิดสองที่ = ack countdown เดินสองอัน, งานเดียวถูกกดรับสองที่, presence กระพริบ
    `apps/console` **ห้ามต่อ WS ของ routing เลย** ต่อได้แค่ช่องอ่านอย่างเดียว (แดชบอร์ด/แจ้งเตือน)
 

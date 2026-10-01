@@ -5,7 +5,7 @@
  * กติกาที่ห้ามละเมิด (ADR-026): dphone instance ถูกสร้างครั้งเดียวต่อการโหลดหน้าใน `AgentWorkspace`
  * การย่อ/ขยาย/ลาก/แยกหน้าต่าง/สลับภาษาเปลี่ยนแค่ UI — ไม่สร้าง SIP session, WebRTC หรือ WS ใหม่
  *
- * E1.12 (#486): tenant ที่เปิด `workSession.lease.enforced` — จุดรับงานคือผู้ถือ work-session lease ฝั่ง server
+ * E1.12 (#486), #583: ทุก tenant — จุดรับงานคือผู้ถือ work-session lease ฝั่ง server
  * (ADR-026 ข้อ 2): ได้ lease ก่อนจึงต่อ WS (แนบ `leaseId`) และ register SIP; เสีย lease = หยุดรับงานใหม่ทันที
  * และถอน SIP register เมื่อไม่มีงานในมือ — สายที่คุยอยู่/wrap-up ไม่ถูกตัด (ADR-026 ข้อ 4)
  * flag ปิด = พฤติกรรมเดิมทุกประการ (leader election ของแท็บเป็นตัวตัดสิน)
@@ -185,9 +185,10 @@ function AgentWorkspace({
   // id ของหน้าต่างแยกที่ tab นี้เปิด — host รับ hello/bye/คำสั่งเฉพาะจาก id นี้
   const remoteId = useRef<string | undefined>(undefined);
   const governanceGate = useMemo(() => new WorkspaceOutboundGate(), []);
-  // E1.12: work-session lease — `disabled` = tenant ไม่บังคับ (หรือไม่มี API) → ใช้กติกาเดิม
+  // E1.12: work-session lease — `disabled` = ไม่ได้ส่ง `workSession` มา (test/harness เท่านั้น)
+  // #583: ทุก tenant บังคับ lease แล้ว จึงไม่มีสถานะ "tenant ไม่บังคับ" จาก server
   const leaseClient = useRef<WorkSessionClient | undefined>(undefined);
-  const [lease, setLease] = useState<WorkSessionState>(
+  const [lease, setLease] = useState<WorkSessionState | { phase: 'disabled' }>(
     workSession ? { phase: 'idle' } : { phase: 'disabled' },
   );
   const [socketLeaseId, setSocketLeaseId] = useState<string>();

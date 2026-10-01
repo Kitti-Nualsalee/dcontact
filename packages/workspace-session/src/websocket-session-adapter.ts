@@ -57,7 +57,7 @@ type Actor = { tenantId: string; userId: string };
 
 /**
  * E1.9 (#483): authority ของ work-session lease ฝั่ง server (ADR-026 ข้อ 2) — adapter ไม่ตัดสินเอง
- * เมื่อ tenant เปิด `workSession.lease.enforced` identity ที่เป็น agent ต้องแนบ lease ที่ยัง active
+ * identity ที่เป็น agent ต้องแนบ lease ที่ยัง active — #583: ทุก tenant บังคับ (ไม่มี flag แล้ว)
  */
 export interface WorkSessionLeaseAuthority {
   enforced(tenantId: string): Promise<boolean>;
@@ -189,6 +189,7 @@ export class WorkspaceSessionWebSocketAdapter {
     leaseId: string | undefined,
     correlationId: string,
   ): Promise<SocketBinding | null> {
+    // #583: เมื่อ API ตั้งค่า lease ไว้ ทุก tenant บังคับ lease (ไม่มี flag แล้ว)
     const enforced = Boolean(this.leases) && (await this.leases!.enforced(session.tenantId));
     if (!enforced) return { session, enforced: false };
     if (!session.agent) {
