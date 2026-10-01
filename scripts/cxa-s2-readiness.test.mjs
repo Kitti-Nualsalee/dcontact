@@ -549,7 +549,7 @@ test('S2-LINE-OB02: source/test/workflow ของ repo ผ่าน negative sc
   const summary = cxaS2NegativeScan();
   assert.equal(summary.status, 'PASS', JSON.stringify(summary.violations));
   assert.ok(summary.layers.source > 0 && summary.layers.tests > 0 && summary.layers.workflows > 0);
-  assert.equal(summary.layers.compositionRoots, 2);
+  assert.equal(summary.layers.compositionRoots, 3);
 });
 
 test('S2-LINE-OB02: scan จับ SDK, env, marker, skip, secret ใน workflow/composition root และ artifact ที่รั่ว', () => {
