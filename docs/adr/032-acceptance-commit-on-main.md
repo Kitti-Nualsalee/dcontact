@@ -1,6 +1,6 @@
 # ADR 032: Acceptance marker ออกจาก commit ที่อยู่บน main แล้ว และรัน chain ใน dispatch เดียว
 
-- **สถานะ:** Proposed
+- **สถานะ:** Accepted
 - **วันที่:** 2026-10-01
 - **ที่มา:** ผู้ใช้ตัดสิน 2026-10-01 ([#580](https://github.com/Kitti-Nualsalee/dcontact/issues/580)) ต่อจาก
   [#559](https://github.com/Kitti-Nualsalee/dcontact/issues/559) และ [#572](https://github.com/Kitti-Nualsalee/dcontact/issues/572)
