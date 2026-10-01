@@ -1,0 +1,33 @@
+# #567 / ADR-031: overlay ช่วงทีมทดสอบ (team trial) — ซ้อนบน docker-compose.uat.line.yml เท่านั้น
+#
+# `uat-deploy.sh` ใส่ไฟล์นี้เมื่อมีทั้ง `$UAT_ROOT/line-pilot.enabled` และ `$UAT_ROOT/line-team-trial.enabled`
+# ไม่มี flag ของ trial = line-webhook รับ webhook/อ่านอย่างเดียวเหมือน #566 (ไม่มี token ไม่ออก internet)
+#
+# เปิด trial = line-webhook ได้เพิ่ม:
+# - access token (ไฟล์ secret เดียวกับ runner) และ recipient จาก state ของ runner แบบ read-only
+# - ทางออกไป api.line.me ผ่าน relay `line-egress` เท่านั้น (network `linepilot` + IP คงที่ของ relay)
+# - worker ต่อเนื่องของ inbox (lease เดียวกับ `pilot await-touch`)
+services:
+  line-webhook:
+    environment:
+      LINE_TEAM_TRIAL: 'on'
+      LINE_WEBHOOK_WORKER: 'on'
+      LINE_PILOT_STATE_DIR: /var/lib/line-pilot
+      LINE_PILOT_SENDER_IDENTITY_ID: ${UAT_LINE_SENDER_IDENTITY_ID:?UAT_LINE_SENDER_IDENTITY_ID is required}
+    secrets:
+      - line-channel-access-token
+    volumes:
+      - line-pilot-state:/var/lib/line-pilot:ro
+    extra_hosts:
+      - 'api.line.me:172.30.65.2'
+    depends_on:
+      line-egress:
+        condition: service_started
+    networks:
+      - internal
+      - linepilot
+
+  # ระหว่าง trial relay ต้องรันตลอด (ไม่ใช่แค่ตอน runner ถูกเรียก)
+  line-egress:
+    profiles: !reset []
+    restart: unless-stopped

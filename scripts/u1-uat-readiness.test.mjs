@@ -21,6 +21,7 @@ import {
   checkKeycloakProductionMode,
   checkKeycloakTheme,
   checkLineOverlay,
+  checkLineTrialOverlay,
   checkNoStartDev,
   checkProxy,
   checkRealm,
@@ -59,6 +60,7 @@ const composeLine = read(UAT_FILES.composeLine);
 const caddyfileLine = read(UAT_FILES.caddyfileLine);
 const lineEgressConfig = read(UAT_FILES.lineEgressConfig);
 const lineSecretsScript = read(UAT_FILES.lineSecretsScript);
+const composeLineTrial = read(UAT_FILES.composeLineTrial);
 
 /** แทรก block ใต้ `services:` ของ compose จริง */
 function withService(block) {
@@ -747,6 +749,60 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
   failed(
     checkLineOverlay({ ...input, secretsScript: lineSecretsScript.replace('read -rs', 'read -r') }),
     'SECRETS_SCRIPT',
+  );
+});
+
+test('UAT-S22: overlay team trial ที่เปิดกว้างเกินหรือ deploy ไม่ผูกกับ uat-line ไม่ผ่าน', () => {
+  const input = { overlay: composeLineTrial, lineOverlay: composeLine, deployScript };
+  assert.equal(checkLineTrialOverlay(input).status, 'PASS');
+  failed(checkLineTrialOverlay({ ...input, overlay: null }), 'MISSING_ARTIFACT');
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      overlay: composeLineTrial.replace(
+        '      - linepilot\n',
+        '      - linepilot\n      - lineegress\n',
+      ),
+    }),
+    'WEBHOOK_NETWORKS',
+  );
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      overlay: composeLineTrial.replace("'api.line.me:172.30.65.2'", "'api.line.me:1.2.3.4'"),
+    }),
+    'WEBHOOK_NOT_PINNED_TO_RELAY',
+  );
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      overlay: composeLineTrial.replace('/var/lib/line-pilot:ro', '/var/lib/line-pilot'),
+    }),
+    'STATE_NOT_READ_ONLY',
+  );
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      overlay: composeLineTrial.replace(
+        "LINE_TEAM_TRIAL: 'on'",
+        "LINE_TEAM_TRIAL: 'on'\n      LINE_CHANNEL_ACCESS_TOKEN: abcdefghijkl",
+      ),
+    }),
+    'SECRET_IN_ENV',
+  );
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      overlay: `${composeLineTrial}\n  api:\n    ports:\n      - '3000:3000'\n`,
+    }),
+    'UNEXPECTED_SERVICE',
+  );
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      deployScript: deployScript.replace('is_line "$1" || fail \'TRIAL_REQUIRES_LINE\'', 'true'),
+    }),
+    'DEPLOY_NOT_TRIAL_AWARE',
   );
 });
 

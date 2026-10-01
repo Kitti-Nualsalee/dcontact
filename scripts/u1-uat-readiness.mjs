@@ -31,6 +31,8 @@ export const UAT_FILES = Object.freeze({
   caddyfileLine: 'infra/uat/Caddyfile.3vm.line',
   lineEgressConfig: 'infra/uat/haproxy-line-egress.cfg',
   lineSecretsScript: 'infra/uat/operator/vm2-line-secrets.sh',
+  // #567: overlay ของ team trial (flag แยก)
+  composeLineTrial: 'infra/uat/docker-compose.uat.line-trial.yml',
   envExample: 'infra/uat/uat.env.example',
   deployScript: 'infra/uat/bin/uat-deploy.sh',
   dbRolesScript: 'infra/uat/bin/db-roles.sh',
@@ -967,6 +969,56 @@ export function checkLineOverlay({
   return check(id, failures);
 }
 
+/**
+ * #567: overlay ของ team trial ให้สิทธิ์ส่งแก่ `line-webhook` แบบแคบที่สุด — token + ทางออกผ่าน relay เท่านั้น
+ * - แตะได้แค่ `line-webhook` กับ `line-egress`; ไม่เปิดพอร์ต
+ * - `line-webhook` อยู่บน `internal` + `linepilot` เท่านั้น (ไม่เคยอยู่บน `lineegress`) และชี้ `api.line.me` ไปที่ IP ของ relay
+ * - state ของ runner (recipient) mount แบบ read-only
+ * - deploy ใส่ overlay เมื่อมี flag ของ trial และต้องมี flag ของ `uat-line` ด้วย
+ */
+export function checkLineTrialOverlay({ overlay, lineOverlay, deployScript }) {
+  const id = 'UAT-S22 overlay team trial ให้ line-webhook ส่งได้ผ่าน relay เท่านั้น';
+  if (overlay === null || lineOverlay === null) return check(id, [{ kind: 'MISSING_ARTIFACT' }]);
+  const failures = [];
+  const services = parseComposeServices(overlay);
+  for (const service of Object.values(services)) {
+    if (!['line-webhook', 'line-egress'].includes(service.name)) {
+      failures.push({ kind: 'UNEXPECTED_SERVICE', name: service.name });
+    }
+    if (service.ports.length > 0) failures.push({ kind: 'PORT_PUBLISHED', name: service.name });
+  }
+  const webhook = services['line-webhook'];
+  if (!webhook) return check(id, [...failures, { kind: 'MISSING_SERVICE', name: 'line-webhook' }]);
+  if (webhook.environment.LINE_TEAM_TRIAL !== 'on') failures.push({ kind: 'TRIAL_FLAG' });
+  const networks = composeServiceNetworks(webhook).join(',');
+  if (networks !== 'internal,linepilot') failures.push({ kind: 'WEBHOOK_NETWORKS', networks });
+  const relayAddress = /ipv4_address:\s*([0-9.]+)/.exec(lineOverlay)?.[1];
+  if (
+    !relayAddress ||
+    !webhook.raw.some((line) => line.includes(`'api.line.me:${relayAddress}'`))
+  ) {
+    failures.push({ kind: 'WEBHOOK_NOT_PINNED_TO_RELAY' });
+  }
+  const raw = webhook.raw.join('\n');
+  if (!/- line-pilot-state:\/var\/lib\/line-pilot:ro\b/.test(raw)) {
+    failures.push({ kind: 'STATE_NOT_READ_ONLY' });
+  }
+  for (const [name, value] of Object.entries(webhook.environment)) {
+    if (/SECRET$|TOKEN$|_KEY$/.test(name) && !/^(file|\/run\/secrets)$/.test(value)) {
+      failures.push({ kind: 'SECRET_IN_ENV', variable: name });
+    }
+  }
+  for (const pattern of [
+    /line-team-trial\.enabled/,
+    /is_trial\(\)[^]*?is_line "\$1" \|\| fail 'TRIAL_REQUIRES_LINE'/,
+  ]) {
+    if (!pattern.test(deployScript ?? '')) {
+      failures.push({ kind: 'DEPLOY_NOT_TRIAL_AWARE', pattern: pattern.source });
+    }
+  }
+  return check(id, failures);
+}
+
 export function checkWorkflow(workflow) {
   const failures = [];
   if (workflow === null) return check('UAT-S11 workflow uat-preview', [{ kind: 'MISSING' }]);
@@ -1187,6 +1239,11 @@ export function runStaticChecks(root = repositoryRoot) {
       egressConfig: files.lineEgressConfig,
       deployScript: files.deployScript,
       secretsScript: files.lineSecretsScript,
+    }),
+    checkLineTrialOverlay({
+      overlay: files.composeLineTrial,
+      lineOverlay: files.composeLine,
+      deployScript: files.deployScript,
     }),
     checkWorkflow(files.workflow),
     checkSmokeWorkflow(files.smokeWorkflow),
