@@ -27,7 +27,7 @@ services:
       - /data
       - /config
     mem_limit: 256m
-    networks: [uat-internal]
+    networks: [uat-edge, uat-internal]
     depends_on:
       - platform-api
 
@@ -141,6 +141,9 @@ volumes:
   mailpit-data: {}
 
 networks:
+  uat-edge:
+    external: true
+    name: dcontact-uat_edge
   uat-internal:
     external: true
     name: dcontact-uat_internal
