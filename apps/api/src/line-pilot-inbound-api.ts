@@ -5,12 +5,15 @@
  * - ต้อง login (OIDC) + role `admin` และ tenant ใน token ต้องเป็น tenant ของ binding — อื่น ๆ 403 เหมือนกันหมด
  *   ไม่บอกว่ามีข้อมูลหรือไม่
  * - response มาจาก `LinePilotInboundReader` ที่ไม่มี LINE ID ดิบ/replyToken และ audit ทุกการอ่าน
+ * - `GET /api/v1/line-pilot/access` ตรวจสิทธิ์อย่างเดียว (204) — ไม่อ่านข้อความและไม่ audit ให้ Console ใช้ตัดสิน
+ *   ว่าจะแสดงลิงก์หรือไม่ โดยไม่ทำให้การเปิดหน้าอื่นกลายเป็นการอ่านข้อความ
  */
 import {
   BadRequestException,
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
   Inject,
   Query,
   Req,
@@ -25,7 +28,7 @@ import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.j
 export const LINE_PILOT_INBOUND_READER = Symbol('LINE_PILOT_INBOUND_READER');
 export const LINE_PILOT_TENANT_ID = Symbol('LINE_PILOT_TENANT_ID');
 
-@Controller('api/v1/line-pilot/inbound')
+@Controller('api/v1/line-pilot')
 export class LinePilotInboundController {
   constructor(
     @Inject(LINE_PILOT_INBOUND_READER)
@@ -33,15 +36,21 @@ export class LinePilotInboundController {
     @Inject(LINE_PILOT_TENANT_ID) private readonly tenantId: string,
   ) {}
 
-  @Get()
+  @Get('access')
+  @GatewayRoles('admin')
+  @HttpCode(204)
+  access(@Req() request: AuthenticatedGatewayRequest): void {
+    this.viewer(request);
+  }
+
+  @Get('inbound')
   @GatewayRoles('admin')
   async list(
     @Req() request: AuthenticatedGatewayRequest,
     @Query('limit') limit?: string,
     @Query('before') before?: string,
   ): Promise<LinePilotInboundPage> {
-    const identity = request.gatewayIdentity;
-    if (!identity || identity.tenantId !== this.tenantId) throw new ForbiddenException();
+    const identity = this.viewer(request);
     const parsed = limit === undefined ? 50 : Number(limit);
     if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
       throw new BadRequestException({ code: 'INVALID_LIMIT' });
@@ -58,5 +67,11 @@ export class LinePilotInboundController {
       }
       throw error;
     }
+  }
+
+  private viewer(request: AuthenticatedGatewayRequest) {
+    const identity = request.gatewayIdentity;
+    if (!identity || identity.tenantId !== this.tenantId) throw new ForbiddenException();
+    return identity;
   }
 }

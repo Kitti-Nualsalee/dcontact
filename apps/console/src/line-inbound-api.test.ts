@@ -14,21 +14,23 @@ function fakeFetch(respond: (url: string) => Response) {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-test('#566 availability: 404 = ไม่มี overlay, 403 = ไม่มีสิทธิ์, 200 = ใช้ได้; ส่ง bearer และ limit=1', async () => {
+test('#566 availability: 404 = ไม่มี overlay, 403 = ไม่มีสิทธิ์, 204 = ใช้ได้; ใช้ /access ที่ไม่อ่านข้อความ', async () => {
   const cases: Array<[number, string]> = [
     [404, 'UNAVAILABLE'],
     [403, 'FORBIDDEN'],
-    [200, 'AVAILABLE'],
+    [204, 'AVAILABLE'],
   ];
   for (const [status, expected] of cases) {
-    const fake = fakeFetch(() => json(status, { items: [], quarantined: 0, nextCursor: null }));
+    const fake = fakeFetch(() =>
+      status === 204 ? new Response(null, { status }) : json(status, {}),
+    );
     const api = createLineInboundApi({
       baseUrl: 'https://uat.example/',
       accessToken: () => 'token-1',
       fetch: fake.fetch,
     });
     assert.equal(await api.availability(), expected);
-    assert.equal(fake.calls[0]?.url, 'https://uat.example/api/v1/line-pilot/inbound?limit=1');
+    assert.equal(fake.calls[0]?.url, 'https://uat.example/api/v1/line-pilot/access');
     assert.deepEqual(fake.calls[0]?.init.headers, { authorization: 'Bearer token-1' });
   }
   const broken = fakeFetch(() => json(500, {}));

@@ -6,6 +6,8 @@
  * tenant/actor มาจาก bearer token; response ไม่มี LINE ID ดิบ (server ตัดออกแล้ว)
  */
 const INBOUND = '/api/v1/line-pilot/inbound';
+/** ตรวจสิทธิ์อย่างเดียว (204) — ไม่อ่านข้อความและไม่ถูก audit เป็นการเปิดดู */
+const ACCESS = '/api/v1/line-pilot/access';
 
 export interface LineInboundItem {
   id: string;
@@ -45,10 +47,10 @@ export function createLineInboundApi(options: {
 }): LineInboundApi {
   const http = options.fetch ?? globalThis.fetch.bind(globalThis);
   const base = options.baseUrl.replace(/\/+$/, '');
-  async function get(query: URLSearchParams): Promise<Response> {
+  async function get(path: string, query?: URLSearchParams): Promise<Response> {
     const token = options.accessToken();
-    const suffix = query.size > 0 ? `?${query.toString()}` : '';
-    return http(`${base}${INBOUND}${suffix}`, {
+    const suffix = query && query.size > 0 ? `?${query.toString()}` : '';
+    return http(`${base}${path}${suffix}`, {
       headers: token ? { authorization: `Bearer ${token}` } : {},
     });
   }
@@ -56,12 +58,12 @@ export function createLineInboundApi(options: {
     async list(input = {}) {
       const query = new URLSearchParams({ limit: String(input.limit ?? 50) });
       if (input.before) query.set('before', input.before);
-      const response = await get(query);
+      const response = await get(INBOUND, query);
       if (!response.ok) throw new LineInboundApiError(response.status);
       return (await response.json()) as LineInboundPage;
     },
     async availability() {
-      const response = await get(new URLSearchParams({ limit: '1' }));
+      const response = await get(ACCESS);
       if (response.status === 404) return 'UNAVAILABLE';
       if (response.status === 403) return 'FORBIDDEN';
       if (!response.ok) throw new LineInboundApiError(response.status);
