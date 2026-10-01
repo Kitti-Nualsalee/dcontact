@@ -30,7 +30,9 @@ import {
   LINE_TEAM_TRIAL_PROFILE,
 } from '@d-contact/cxa-contracts';
 import { LineProviderAttemptRepository } from './line-attempt-repository.js';
+import type { ContactGovernanceService } from '@d-contact/contact-governance';
 import type { LineControlActor, LineControlPlane } from './line-control-plane.js';
+import type { LineProviderTransport } from './line-provider-transport.js';
 import type { LineGateScope } from './line-control-repository.js';
 import type { LineQuotaSnapshot } from './line-control-policy.js';
 import { LineDeliveryEnqueue } from './line-delivery-enqueue.js';
@@ -189,29 +191,13 @@ export interface LineTeamTrialStatus {
 export interface LineTeamTrialDependencies {
   database: PrismaClient;
   control: LineControlPlane;
-  governance: {
-    authorizeAndReserve(
-      tenantId: ReturnType<typeof toTenantId>,
-      input: Record<string, unknown>,
-    ): Promise<{
-      decision: string;
-      reasonCode?: string | null;
-      reservationId?: string | null;
-      reservationExpiresAt?: string | null;
-    }>;
-    claimReservationForDelivery: ConstructorParameters<
-      typeof LineDeliveryEnqueue
-    >[1]['claimReservationForDelivery'];
-  };
+  governance: Pick<ContactGovernanceService, 'authorizeAndReserve' | 'claimReservationForDelivery'>;
   /** adapter ต่อ config digest ของ gate ณ ตอนส่ง (operator ตั้ง gate ใหม่ได้โดยไม่ต้อง restart) */
   adapter: (configDigest: string) => Pick<LineOutboundAdapter, 'submit'>;
   vault: Pick<EncryptedLineWebhookPayloadVault, 'read'>;
   payloadKey: LinePayloadKey;
   credentials: LineAccessTokenResolver;
-  transport: {
-    getQuota(accessToken: string): Promise<{ type: string; value?: number }>;
-    getConsumption(accessToken: string): Promise<{ totalUsage: number }>;
-  };
+  transport: Pick<LineProviderTransport, 'getQuota' | 'getConsumption'>;
   scope: LineGateScope;
   /** actor ระบบที่ execute run (EXECUTE_RUN เป็นของ Platform Operator ตาม #358 §E) */
   executor: LineControlActor;
@@ -464,7 +450,7 @@ export class LineTeamTrialReplies {
       if (quota.type !== 'limited' && quota.type !== 'none') return undefined;
       const snapshot: LineQuotaSnapshot = {
         type: quota.type,
-        ...(quota.type === 'limited' && quota.value !== undefined
+        ...(quota.type === 'limited' && typeof quota.value === 'number'
           ? { targetLimit: quota.value }
           : {}),
         totalUsage: consumption.totalUsage,

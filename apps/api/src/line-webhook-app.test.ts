@@ -35,7 +35,7 @@ const TOKENS: Record<string, VerifiedOidcClaims> = {
   'other-admin': claims(OTHER_TENANT, ['admin']),
 };
 
-async function start(t: test.TestContext) {
+async function start(t: test.TestContext, trial?: unknown) {
   const profile = resolveApiRuntimeProfile(UAT_LINE);
   const routeGuard = new RuntimeProfileRouteGuard(profile, { write: () => undefined });
   const received: Array<{ rawBody: Buffer; signature: string | undefined }> = [];
@@ -67,6 +67,7 @@ async function start(t: test.TestContext) {
       },
       diagnostics: { write: () => undefined },
       lifecycle: { isActive: async () => true },
+      ...(trial ? { trial } : {}),
     }),
     { logger: false, rawBody: true },
   );
@@ -164,15 +165,94 @@ test('#565/#566 composition root ของ line-webhook ไม่พึ่ง Ka
     '@aws-sdk',
     'recording',
     'telephony',
-    'HttpLineProviderTransport',
     'createConsumer',
   ]) {
     assert.doesNotMatch(source, new RegExp(forbidden, 'i'), forbidden);
   }
   const imports = [...source.matchAll(/from '(@d-contact\/[^']+)'/g)].map((match) => match[1]);
   assert.deepEqual([...new Set(imports)].sort(), [
+    '@d-contact/contact-governance',
     '@d-contact/db',
     '@d-contact/delivery',
     '@d-contact/workspace-session',
   ]);
+  // #567: ทางออกไป LINE สร้างได้เฉพาะใน trial ที่เปิดด้วย LINE_TEAM_TRIAL=on
+  const app = code('line-webhook-app.ts');
+  const transport = app.indexOf('new HttpLineProviderTransport');
+  assert.ok(transport > app.indexOf('function createTeamTrial'));
+  assert.equal(app.split('new HttpLineProviderTransport').length, 2);
+  assert.match(app, /trialEnabled \? createTeamTrial\(\) : undefined/);
+});
+
+test('#567 route ของ trial ไม่มีเมื่อไม่ได้เปิด และเปิดแล้วต้องเป็น admin ของ tenant pilot', async (t) => {
+  const off = await start(t);
+  const post = (base: string, path: string, token: string, body: unknown = {}) =>
+    fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  const inbox = '6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f';
+  assert.equal(
+    (await post(off.base, `/api/v1/line-pilot/inbound/${inbox}/reply`, 'admin')).status,
+    404,
+  );
+  assert.equal((await post(off.base, '/api/v1/line-pilot/kill', 'admin')).status, 404);
+
+  const calls: unknown[] = [];
+  let next: unknown = { status: 'SENT', deliveryId: 'dlv_line_1', replay: false };
+  const trial = {
+    reply: async (input: unknown) => {
+      calls.push(input);
+      return next;
+    },
+    status: async () => ({ active: true, killed: false }),
+    kill: async (actorRef: string) => {
+      calls.push({ kill: actorRef });
+      return { killed: true };
+    },
+  };
+  const on = await start(t, trial);
+  const reply = (token: string, body: unknown = { text: 'hi', idempotencyKey: 'reply-key-1' }) =>
+    post(on.base, `/api/v1/line-pilot/inbound/${inbox}/reply`, token, body);
+  assert.equal((await reply('maker')).status, 403);
+  assert.equal((await reply('other-admin')).status, 403);
+  assert.equal(calls.length, 0);
+
+  const sent = await reply('admin');
+  assert.equal(sent.status, 200);
+  assert.deepEqual(await sent.json(), { status: 'SENT', deliveryId: 'dlv_line_1' });
+  assert.deepEqual(calls[0], {
+    inboxEntryId: inbox,
+    text: 'hi',
+    idempotencyKey: 'reply-key-1',
+    actorRef: '619b9c43-8495-420d-b3d3-34d9fd0b5b89',
+  });
+  next = { status: 'PENDING', deliveryId: 'dlv_line_2', replay: false };
+  assert.equal((await reply('admin')).status, 202);
+  for (const [code, status] of [
+    ['TEXT_INVALID', 400],
+    ['CAP_EXCEEDED', 429],
+    ['KILLED', 409],
+    ['RECIPIENT_NOT_ALLOWLISTED', 403],
+    ['PROVIDER_UNAVAILABLE', 503],
+  ] as const) {
+    next = { status: 'FAILED', code };
+    const failed = await reply('admin');
+    assert.equal(failed.status, status, code);
+    const body = (await failed.json()) as { code?: string; message?: { code?: string } };
+    assert.equal(body.code ?? body.message?.code, code);
+  }
+  assert.equal(
+    (await post(on.base, '/api/v1/line-pilot/inbound/not-a-uuid/reply', 'admin')).status,
+    404,
+  );
+  const kill = await post(on.base, '/api/v1/line-pilot/kill', 'admin');
+  assert.equal(kill.status, 200);
+  assert.deepEqual(calls.at(-1), { kill: '619b9c43-8495-420d-b3d3-34d9fd0b5b89' });
+  assert.equal((await post(on.base, '/api/v1/line-pilot/kill', 'maker')).status, 403);
+  const status = await fetch(`${on.base}/api/v1/line-pilot/trial`, {
+    headers: { authorization: 'Bearer admin' },
+  });
+  assert.deepEqual(await status.json(), { active: true, killed: false });
 });

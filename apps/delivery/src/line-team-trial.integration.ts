@@ -234,7 +234,8 @@ async function setup(t: TestContext, caps = { perRecipientPer24h: 3, per24h: 10,
     governance: {
       // policy ของ Governance ทดสอบที่ CG แล้ว — ที่นี่จำลองการอนุญาต/ปฏิเสธและจอง reservation จริงใน DB
       authorizeAndReserve: async (_tenant, input) => {
-        if (!consent) return { decision: 'DENY', reasonCode: 'CONSENT_REQUIRED' };
+        // ผลแบบย่อของ AuthorizationOutcome — trial อ่านแค่ decision/reservationId/expiresAt
+        if (!consent) return { decision: 'DENY', reasonCode: 'CONSENT_REQUIRED' } as never;
         const reservation = await fixture.seedReservation(
           tenantId,
           new Date(),
@@ -244,7 +245,7 @@ async function setup(t: TestContext, caps = { perRecipientPer24h: 3, per24h: 10,
           decision: 'ALLOW',
           reservationId: reservation.reservationId,
           reservationExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-        };
+        } as never;
       },
       claimReservationForDelivery: (...args) => governance.claimReservationForDelivery(...args),
     },
