@@ -1,0 +1,95 @@
+name: platform-uat-images
+
+# A1.9 (#574): สร้าง image ของ Platform UAT หลัง RC gate บน SHA เดียวกัน; deploy จาก operator ใน LAN
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      attestations: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: A1 RC gate ของ source SHA ที่จะ build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm a1:uat:gate --expect-sha "$GITHUB_SHA"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Image names
+        id: names
+        run: |
+          owner="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "api=ghcr.io/$owner/dcontact-platform-uat-api" >> "$GITHUB_OUTPUT"
+          echo "console=ghcr.io/$owner/dcontact-platform-uat-console" >> "$GITHUB_OUTPUT"
+          echo "keycloak=ghcr.io/$owner/dcontact-platform-uat-keycloak" >> "$GITHUB_OUTPUT"
+      - name: Platform API + worker
+        id: api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/platform-api/Dockerfile
+          push: true
+          provenance: false
+          platforms: linux/amd64
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.api }}:${{ github.sha }}
+      - name: Platform Console
+        id: console
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/platform-console/Dockerfile
+          push: true
+          provenance: false
+          platforms: linux/amd64
+          build-args: |
+            SOURCE_SHA=${{ github.sha }}
+            VITE_KC_ISSUER=https://dcontact-uat.osd.co.th/auth/realms/dcontact
+          tags: ${{ steps.names.outputs.console }}:${{ github.sha }}
+      - name: Keycloak + invitation guard
+        id: keycloak
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/keycloak/Dockerfile
+          push: true
+          provenance: false
+          platforms: linux/amd64
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.keycloak }}:${{ github.sha }}
+      - name: Digest-pinned release metadata
+        env:
+          API_IMAGE: ${{ steps.names.outputs.api }}@${{ steps.api.outputs.digest }}
+          CONSOLE_IMAGE: ${{ steps.names.outputs.console }}@${{ steps.console.outputs.digest }}
+          KEYCLOAK_IMAGE: ${{ steps.names.outputs.keycloak }}@${{ steps.keycloak.outputs.digest }}
+        run: |
+          {
+            echo "SOURCE_SHA=$GITHUB_SHA"
+            echo "PLATFORM_API_IMAGE=$API_IMAGE"
+            echo "PLATFORM_CONSOLE_IMAGE=$CONSOLE_IMAGE"
+            echo "PLATFORM_KEYCLOAK_IMAGE=$KEYCLOAK_IMAGE"
+          } > platform-release.env
+      - uses: actions/upload-artifact@v4
+        with:
+          name: platform-uat-release-${{ github.sha }}
+          path: platform-release.env
+          retention-days: 30

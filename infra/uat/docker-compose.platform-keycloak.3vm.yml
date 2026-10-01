@@ -1,0 +1,4 @@
+# A1.9 (#574): overlay เฉพาะ Keycloak ของ U1; release b5 เดิมและ release.env คง immutable
+services:
+  keycloak:
+    image: ${PLATFORM_KEYCLOAK_IMAGE:?digest-pinned PLATFORM_KEYCLOAK_IMAGE required}

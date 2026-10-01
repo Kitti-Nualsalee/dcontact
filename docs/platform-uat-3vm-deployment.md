@@ -1,0 +1,63 @@
+# Platform Admin UAT 3 VM (#574)
+
+ขอบเขตนี้ใช้ `platform-uat.osd.co.th` แยกจาก Tenant Console, แยก Compose project บน VM2 และใช้ PostgreSQL VM3 ผ่าน `db-relay` ของ U1. ข้อมูลทดสอบเป็นข้อมูลสังเคราะห์เท่านั้น; `PLATFORM_PROVISIONING_ENABLED=false` จนกว่า gate และ rollback drill ผ่าน.
+
+## Gate ก่อน deploy
+
+1. Merge PR ของ #574 เข้า `main` แล้วใช้ SHA เต็มของ `main` เป็น `SOURCE_SHA`.
+2. Dispatch `a1-release-candidate` บน `main`; ต้องผ่าน fast + real-boundary, ได้ `a1-rc-<SOURCE_SHA>` และ `pnpm a1:uat:gate --expect-sha <SOURCE_SHA>` เป็น `PASS`.
+3. Dispatch `platform-uat-images` บน SHA เดียวกัน; ดาวน์โหลด artifact `platform-uat-release-<SOURCE_SHA>` ซึ่งมี image แบบ digest-pinned 3 ตัว. ห้ามใช้ artifact จาก SHA อื่น.
+4. บน VM2 `/opt/dcontact-uat/deployments/current.json` ต้องชี้ release U1 ที่รันอยู่และมี `docker-compose.uat.3vm.yml`; schema VM3 ต้องมี migration A1 ครบ. ห้ามรัน Compose ของ U1 ด้วยไฟล์ `docker-compose.uat.yml` เพียงไฟล์เดียว.
+
+## VM3 และ VM1
+
+สคริปต์อยู่ที่ `infra/uat/operator/vm3-platform-db-uat.sh` และ `vm1-platform-nginx-uat.sh`. ส่งไปที่ `/home/osdadmin/` บน VM ที่ตรงชื่อ แล้วให้ `osdadmin` รัน:
+
+```bash
+# VM3 — ตรวจและเพิ่ม login member สอง role, HBA เฉพาะ VM2; parent ยัง NOLOGIN
+sudo bash /home/osdadmin/vm3-platform-db-uat.sh --check
+sudo bash /home/osdadmin/vm3-platform-db-uat.sh --apply
+
+# VM1 — ตรวจ wildcard cert และเพิ่ม vhost ที่ชี้ VM2:8081
+sudo bash /home/osdadmin/vm1-platform-nginx-uat.sh --check
+sudo bash /home/osdadmin/vm1-platform-nginx-uat.sh --apply
+```
+
+VM1 อาจตอบ 502 ชั่วคราวก่อน Platform Console บน VM2 เริ่ม. อย่าโพสต์ credential bundle ของ VM3 ลง GitHub/chat/log.
+
+## VM2 เตรียม env และ release
+
+หลัง VM3 `--apply` ผ่าน รัน `bash infra/uat/operator/vm2-platform-install-env.sh` จากเครื่อง operator ที่ SSH เข้า VM2/VM3 ได้. สคริปต์ส่ง bundle ด้วย `scp -3`, สร้าง `/opt/dcontact-uat/platform/platform.env` mode 600 และตั้ง rollout เป็น `false`. หลังตรวจว่าไฟล์มีและเชื่อม DB ได้ ให้ลบ bundle ต้นทางบน VM3 ด้วย `shred -u /home/osdadmin/dcontact-platform-uat-db-credentials.env`.
+
+วางไฟล์ต่อไปนี้บน VM2 ที่ `/opt/dcontact-uat/platform/releases/<SOURCE_SHA>/` โดย owner `osdadmin`:
+
+- `platform-release.env` จาก artifact ที่ผ่าน gate
+- `infra/uat/docker-compose.platform.3vm.yml` เป็น `docker-compose.platform.3vm.yml`
+- `infra/uat/docker-compose.platform-keycloak.3vm.yml` เป็น `docker-compose.platform-keycloak.3vm.yml`
+- `infra/uat/operator/vm2-platform-deploy.sh` วางที่ `/opt/dcontact-uat/platform/vm2-platform-deploy.sh`, mode 700
+
+จาก VM2 ใช้คำสั่งตามลำดับ โดยแทน `<SOURCE_SHA>` เป็น SHA เต็มเดียวกันทุกคำสั่ง:
+
+```bash
+bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh check <SOURCE_SHA>
+bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh pull <SOURCE_SHA>
+bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh keycloak <SOURCE_SHA>
+bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh configure <SOURCE_SHA>
+bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh start <SOURCE_SHA>
+bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh status <SOURCE_SHA>
+```
+
+`keycloak` เปลี่ยนเฉพาะ image ของ service U1 ด้วย overlay; release directory และ `release.env` ของ U1 ไม่ถูกแก้. `configure` ตั้ง `platform-console`/provisioner/SMTP และ seed operational baseline UAT (`uat-operational-v1`, plan starter/growth/enterprise) แบบทำซ้ำได้. `start` ต้องตรวจว่า rollout ยังปิด.
+
+## ตรวจ UAT และเปิด canary
+
+1. ตรวจ Keycloak invitation guard ใน server info, OIDC discovery, API `/health/live`, HTTPS `platform-uat.osd.co.th`, Caddy allowlist และปฏิเสธ `/auth/admin`, `/metrics` จาก browser. ตรวจ U1 Journey smoke เดิมหลัง Keycloak เปลี่ยน.
+2. สร้าง **platform-only** operator (`kittin.platform`, email ทดสอบ `kittin.platform@uat.invalid`) ผ่าน `vm2-platform-deploy.sh operator <SOURCE_SHA>` โดยส่ง temporary password ใหม่ผ่าน stdin; Keycloak ต้องบังคับเปลี่ยน password และตั้ง TOTP. ห้ามใช้ tenant admin `kittin` เป็น platform operator. เก็บ subject UUID จากผลลัพธ์ที่ไม่มี secret.
+3. ตรวจ API ด้วย platform token: operator อ่านได้, tenant token ต้องถูกปฏิเสธ, request นอก CIDR ต้อง 403. ตรวจ DB login role ทั้งสองเป็น `INHERIT NOBYPASSRLS`, parent `NOLOGIN`.
+4. ทำ rollback drill โดย rollout ยังปิด: `vm2-platform-deploy.sh rollback <SOURCE_SHA>`, ตรวจ U1 กลับมาปกติ แล้วรัน `keycloak`, `configure`, `start` ใหม่. ไม่ลบ ledger/tenant.
+5. หลัง `a1:uat:gate` ของ SHA ที่ deploy ผ่าน และ rollback drill ผ่านแล้ว รัน `vm2-platform-deploy.sh canary <SOURCE_SHA> <platform-subject-uuid>`; สคริปต์ตั้ง allowlist/rollout และ recreate **ทั้ง** `platform-api` และ `platform-worker`.
+6. Internal Platform Operator รัน create → review → progress → failure/reconcile → handoff/search/Action history บนข้อมูลสังเคราะห์ พร้อม invitation ผ่าน Mailpit `/mail/`; ทดสอบสอง tenant แยกข้อมูลกัน และบันทึกหลักฐานใน #574.
+
+## Rollback
+
+บน VM2 รัน `bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh rollback <SOURCE_SHA>`. สคริปต์ตั้ง rollout false, หยุด Platform stack และคืน Keycloak image ของ U1. ห้ามลบ A1 ledger, tenant หรือ migration. ถ้า rollback ไม่ผ่าน ให้หยุดเปิด canary และตรวจ U1 ก่อน.
