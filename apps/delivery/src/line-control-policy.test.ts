@@ -17,6 +17,7 @@ import {
   LINE_CONTROL_ACTOR_ROLES,
   LINE_CONTROL_AUTHORITY,
   LINE_CONTROL_SIGNALS,
+  LINE_PILOT_DELIVERY_CAPS,
   LINE_PROVIDER_OPERATIONS,
   LINE_QUOTA_SNAPSHOT_MAX_AGE_MS,
   LineControlAuthorizationError,
@@ -28,6 +29,7 @@ import {
   isSingleStepAdvance,
   killSignalForOutcome,
   lineCapLimits,
+  lineDeliveryCapsFor,
   lineRunExpiry,
   lineRunProposalDigest,
   mayPerform,
@@ -305,4 +307,84 @@ test('kill: reason ของคนแยกตาม role และ outcome ท�
     'LINE_RESPONSE_INVALID',
   ];
   for (const code of notKilling) assert.equal(killSignalForOutcome(code), undefined, code);
+});
+
+test('#567 cap ของ trial มาจากแถว authorization แต่ไม่เกินเพดาน และ S2 ใช้ค่าคงที่เสมอ', () => {
+  assert.deepEqual(
+    lineDeliveryCapsFor({
+      profile: 'S2_LINE_LOCAL_PILOT_V1',
+      capLogicalDeliveries: 99,
+      capRecipientPer24h: 99,
+      capPer24h: 99,
+      capLifetime: 99,
+    }),
+    LINE_PILOT_DELIVERY_CAPS,
+  );
+  assert.deepEqual(
+    lineDeliveryCapsFor({
+      profile: 'S2_LINE_TEAM_TRIAL_V1',
+      capLogicalDeliveries: 10_000,
+      capRecipientPer24h: 25,
+      capPer24h: 7,
+      capLifetime: null,
+    }),
+    { perRun: 600, perRecipientPer24h: 20, per24h: 7, lifetime: 0 },
+  );
+  const limits = lineCapLimits({
+    capKind: 'LOGICAL_DELIVERY',
+    at: new Date('2026-10-01T00:00:00.000Z'),
+    deliveryCaps: { perRun: 600, perRecipientPer24h: 20, per24h: 100, lifetime: 3000 },
+  });
+  assert.deepEqual(
+    limits.map((limit) => limit.max),
+    [600, 20, 100, 3000],
+  );
+});
+
+test('#567 digest ของ S2 ไม่เปลี่ยนเมื่อไม่มี trial และ trial ได้ digest ต่างกันตาม cap', () => {
+  const input = {
+    tenantId: 't',
+    gateId: 'g',
+    channelAccountId: 'c',
+    senderIdentityId: 's',
+    purpose: 'p',
+    contactKind: 'k',
+    allowlistEntryId: 'a',
+    recipientFingerprint: 'r',
+    contentDigest: 'd',
+    configDigest: 'f',
+    credentialRefId: 'cr',
+    credentialVersion: 1,
+    capLogicalDeliveries: 1,
+    capProviderAttempts: 4,
+    proposedBy: 'op',
+    proposalRef: 'ref',
+    proposedAt: new Date('2026-10-01T00:00:00.000Z'),
+    expiresAt: new Date('2026-10-01T00:30:00.000Z'),
+  };
+  // ค่าคงที่จาก main ก่อน #567 — digest ของ proposal ที่อนุมัติแล้วต้องตรงเดิมทุก byte
+  assert.equal(
+    lineRunProposalDigest(input),
+    'c349bf4547c33616d571fe3210d50dbc57b4117968ff275f80d5d3cf45c4b724',
+  );
+  const trial = {
+    trialRef: 'trial-x',
+    capRecipientPer24h: 20,
+    capPer24h: 100,
+    capLifetime: 3000,
+    contactId: 'contact',
+    identityId: null,
+  };
+  const withTrial = lineRunProposalDigest({ ...input, trial });
+  assert.notEqual(withTrial, lineRunProposalDigest(input));
+  assert.notEqual(
+    withTrial,
+    lineRunProposalDigest({ ...input, trial: { ...trial, capPer24h: 99 } }),
+  );
+});
+
+test('#567 Tenant Admin kill ได้แต่ยก kill ไม่ได้', () => {
+  assert.equal(mayPerform('TENANT_ADMIN', 'KILL'), true);
+  assert.equal(mayPerform('TENANT_ADMIN', 'CLEAR_KILL'), false);
+  assert.equal(operatorKillReasonFor('TENANT_ADMIN'), 'OPERATOR_KILL');
 });

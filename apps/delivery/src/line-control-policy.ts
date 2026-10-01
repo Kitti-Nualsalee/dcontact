@@ -8,13 +8,16 @@
  * provider operation ใดได้, cap หนึ่งหน่วยต้องผ่าน limit อะไรบ้าง, proposal digest คิดจากอะไร,
  * quota snapshot แบบไหนใช้ไม่ได้ และสัญญาณไหนต้อง kill อัตโนมัติ
  *
- * ทุกค่าที่เป็นตัวเลข cap มาจาก `LINE_PILOT_CAPS` ของ `@d-contact/cxa-contracts` เสมอ —
- * ที่นี่ห้ามมี literal ของ cap ซ้ำ เพราะการปรับ cap สูงขึ้นต้องเป็น decision ใหม่ (#358 §C)
+ * ทุกค่าที่เป็นตัวเลข cap มาจาก `LINE_PILOT_CAPS` (S2) หรือ authorization ของ trial ที่ถูกจำกัดด้วย
+ * `LINE_TEAM_TRIAL_MAX_CAPS` (#567) ของ `@d-contact/cxa-contracts` เสมอ — ที่นี่ห้ามมี literal ของ cap ซ้ำ
+ * เพราะการปรับ cap สูงขึ้นต้องเป็น decision ใหม่ (#358 §C)
  */
 import { createHash } from 'node:crypto';
 import {
   LINE_PILOT_CAPS,
   LINE_PILOT_PROFILE,
+  LINE_TEAM_TRIAL_MAX_CAPS,
+  LINE_TEAM_TRIAL_PROFILE,
   type LineCapKind,
   type LineGateErrorCode,
   type LineKillReason,
@@ -62,7 +65,9 @@ export const LINE_CONTROL_AUTHORITY: Readonly<
   ADVANCE_STATE: ['COMPLIANCE'],
   LOWER_STATE: ['COMPLIANCE', 'PLATFORM_OPERATOR'],
   SET_TECHNICAL_SWITCH: ['PLATFORM_OPERATOR'],
-  KILL: ['COMPLIANCE', 'PLATFORM_OPERATOR', 'SYSTEM'],
+  // #567 (T5): Tenant Admin ของ tenant pilot กด kill จากหน้า inbound ได้ — kill เป็นทาง fail-closed เสมอ
+  // ส่วนการยก kill ยังเป็นของ Compliance เท่านั้น
+  KILL: ['TENANT_ADMIN', 'COMPLIANCE', 'PLATFORM_OPERATOR', 'SYSTEM'],
   CLEAR_KILL: ['COMPLIANCE'],
   REGISTER_ALLOWLIST: ['TENANT_ADMIN'],
   REVOKE_ALLOWLIST: ['TENANT_ADMIN', 'COMPLIANCE'],
@@ -172,11 +177,60 @@ export function isLowering(from: LineRolloutState, to: LineRolloutState): boolea
 
 const DAY_MS = 24 * 60 * 60_000;
 
+/** cap ของ logical delivery ที่ใช้ตัดสินหนึ่งครั้ง — S2 = `LINE_PILOT_CAPS`, trial = ค่าใน authorization */
+export interface LineDeliveryCaps {
+  perRun: number;
+  perRecipientPer24h: number;
+  per24h: number;
+  lifetime: number;
+}
+
+export const LINE_PILOT_DELIVERY_CAPS: LineDeliveryCaps = Object.freeze({
+  perRun: LINE_PILOT_CAPS.logicalDeliveriesPerRun,
+  perRecipientPer24h: LINE_PILOT_CAPS.logicalDeliveriesPerRecipientPer24h,
+  per24h: LINE_PILOT_CAPS.logicalDeliveriesPer24h,
+  lifetime: LINE_PILOT_CAPS.logicalDeliveriesLifetime,
+});
+
+/** แถว authorization ที่พอจะ derive cap ได้ (ไม่ผูก Prisma) */
+export interface LineRunCapSource {
+  profile: string;
+  capLogicalDeliveries: number;
+  capRecipientPer24h?: number | null;
+  capPer24h?: number | null;
+  capLifetime?: number | null;
+}
+
+/**
+ * cap ของ run: S2 ใช้ค่าคงที่เสมอแม้แถวจะเขียนอะไรมา; trial ใช้ค่าในแถวแต่ไม่เกินเพดาน และค่าที่หายไป = 0
+ * (fail closed — DB CHECK บังคับว่ามีครบอยู่แล้ว ที่นี่เป็นด่านที่สอง)
+ */
+export function lineDeliveryCapsFor(run: LineRunCapSource): LineDeliveryCaps {
+  if (run.profile !== LINE_TEAM_TRIAL_PROFILE) return LINE_PILOT_DELIVERY_CAPS;
+  const bounded = (value: number | null | undefined, max: number) =>
+    Math.min(Math.max(value ?? 0, 0), max);
+  return {
+    perRun: bounded(run.capLogicalDeliveries, LINE_TEAM_TRIAL_MAX_CAPS.logicalDeliveriesPerRun),
+    perRecipientPer24h: bounded(
+      run.capRecipientPer24h,
+      LINE_TEAM_TRIAL_MAX_CAPS.logicalDeliveriesPerRecipientPer24h,
+    ),
+    per24h: bounded(run.capPer24h, LINE_TEAM_TRIAL_MAX_CAPS.logicalDeliveriesPer24h),
+    lifetime: bounded(run.capLifetime, LINE_TEAM_TRIAL_MAX_CAPS.logicalDeliveriesLifetime),
+  };
+}
+
+export function isTeamTrialRun(run: { profile: string }): boolean {
+  return run.profile === LINE_TEAM_TRIAL_PROFILE;
+}
+
 export interface LineCapLimitInput {
   capKind: LineCapKind;
   at: Date;
   /** cap ของ run ใบนี้ ลดจาก profile ได้แต่เกินไม่ได้ (DB CHECK บังคับ 1..4) */
   runCapProviderAttempts?: number;
+  /** #567: cap ของ logical delivery ตาม profile ของ run — ไม่ระบุ = S2 */
+  deliveryCaps?: LineDeliveryCaps;
 }
 
 /**
@@ -188,32 +242,33 @@ export interface LineCapLimitInput {
  */
 export function lineCapLimits(input: LineCapLimitInput): LineCapLimit[] {
   const since = new Date(input.at.getTime() - DAY_MS);
+  const caps = input.deliveryCaps ?? LINE_PILOT_DELIVERY_CAPS;
   switch (input.capKind) {
     case 'LOGICAL_DELIVERY':
       return [
         {
           code: 'RUN_DELIVERY_CAP_EXCEEDED',
           capKind: 'LOGICAL_DELIVERY',
-          max: LINE_PILOT_CAPS.logicalDeliveriesPerRun,
+          max: caps.perRun,
           sameRun: true,
         },
         {
           code: 'CONTACT_WINDOW_CAP_EXCEEDED',
           capKind: 'LOGICAL_DELIVERY',
-          max: LINE_PILOT_CAPS.logicalDeliveriesPerRecipientPer24h,
+          max: caps.perRecipientPer24h,
           sameRecipient: true,
           since,
         },
         {
           code: 'SUBMISSION_WINDOW_CAP_EXCEEDED',
           capKind: 'LOGICAL_DELIVERY',
-          max: LINE_PILOT_CAPS.logicalDeliveriesPer24h,
+          max: caps.per24h,
           since,
         },
         {
           code: 'LIFETIME_CAP_EXCEEDED',
           capKind: 'LOGICAL_DELIVERY',
-          max: LINE_PILOT_CAPS.logicalDeliveriesLifetime,
+          max: caps.lifetime,
         },
       ];
     case 'CONCURRENT_SUBMISSION':
@@ -278,11 +333,31 @@ export interface LineRunProposalDigestInput {
   proposalRef: string;
   proposedAt: Date;
   expiresAt: Date;
+  /** #567: มีเฉพาะ trial — S2 ไม่ใส่ เพื่อให้ digest ของ S2 เหมือนเดิมทุก byte */
+  trial?: {
+    trialRef: string;
+    capRecipientPer24h: number;
+    capPer24h: number;
+    capLifetime: number;
+    contactId: string;
+    identityId: string | null;
+  };
 }
 
 export function lineRunProposalDigest(input: LineRunProposalDigestInput): string {
+  const trial = input.trial
+    ? [
+        ['trialRef', input.trial.trialRef],
+        ['capRecipientPer24h', String(input.trial.capRecipientPer24h)],
+        ['capPer24h', String(input.trial.capPer24h)],
+        ['capLifetime', String(input.trial.capLifetime)],
+        ['contactId', input.trial.contactId],
+        ['identityId', input.trial.identityId ?? ''],
+      ]
+    : [];
   const canonical = [
-    ['profile', LINE_PILOT_PROFILE],
+    ['profile', input.trial ? LINE_TEAM_TRIAL_PROFILE : LINE_PILOT_PROFILE],
+    ...trial,
     ['tenantId', input.tenantId],
     ['gateId', input.gateId],
     ['channelAccountId', input.channelAccountId],
@@ -303,6 +378,15 @@ export function lineRunProposalDigest(input: LineRunProposalDigestInput): string
     ['expiresAt', input.expiresAt.toISOString()],
   ].sort(([left], [right]) => left.localeCompare(right));
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+/** #567: TTL ของ trial (≤30 วัน) — DB CHECK บังคับซ้ำ */
+export function lineTeamTrialExpiry(proposedAt: Date, days: number): Date {
+  const bounded = Math.min(
+    Math.max(Math.trunc(days), 1),
+    LINE_TEAM_TRIAL_MAX_CAPS.runAuthorizationTtlDays,
+  );
+  return new Date(proposedAt.getTime() + bounded * DAY_MS);
 }
 
 /** TTL ของ one-shot authorization — DB CHECK บังคับซ้ำว่าต้องไม่เกินค่านี้ */

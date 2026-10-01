@@ -33,6 +33,9 @@ import type {
 } from '@d-contact/db';
 import {
   LINE_PILOT_CAPS,
+  LINE_TEAM_TRIAL_CONTENT_CLASS,
+  LINE_TEAM_TRIAL_MAX_CAPS,
+  LINE_TEAM_TRIAL_PROFILE,
   type LineCapKind,
   type LineCredentialKind,
   type LineGateErrorCode,
@@ -52,8 +55,11 @@ import {
   evaluateQuotaAdvisory,
   isLowering,
   isSingleStepAdvance,
+  isTeamTrialRun,
   lineCapLimits,
+  lineDeliveryCapsFor,
   lineRunExpiry,
+  lineTeamTrialExpiry,
   lineRunProposalDigest,
   needsProviderCredential,
   operatorKillReasonFor,
@@ -168,6 +174,30 @@ export interface ProposeLineRunCommand {
   /** ref ที่ operator ตั้งให้ run ใบนี้ — ทำให้ binding เดิมเสนอใหม่ได้โดยไม่ชนใบที่ใช้ไปแล้ว */
   proposalRef: string;
   proposedAt: Date;
+  capProviderAttempts?: number;
+}
+
+/**
+ * #567 (T3): เสนอ trial หนึ่งชุด — หนึ่ง authorization ต่อผู้รับใน allowlist ภายใต้ `trialRef` เดียว
+ * ผู้รับแต่ละคนต้องมี contact ใน Contact Governance (consent ตรวจตอนส่งทุกครั้ง)
+ */
+export interface ProposeLineTeamTrialCommand {
+  tenantId: string;
+  gate: DlLineScopeGate;
+  credential: DlLineCredentialRef;
+  recipients: ReadonlyArray<{
+    allowlistEntry: DlLineAllowlistEntry;
+    contactId: string;
+    identityId?: string;
+  }>;
+  trialRef: string;
+  proposedAt: Date;
+  ttlDays: number;
+  caps: {
+    perRecipientPer24h: number;
+    per24h: number;
+    lifetime: number;
+  };
   capProviderAttempts?: number;
 }
 
@@ -674,6 +704,131 @@ export class LineControlPlane {
   }
 
   /**
+   * #567 (T3): เสนอ trial ทั้งชุด — หนึ่ง authorization ต่อผู้รับ ใช้ได้หลาย delivery จนหมดอายุ (≤30 วัน)
+   * cap อยู่ในแถว (ไม่เกิน `LINE_TEAM_TRIAL_MAX_CAPS`) และ allowlist ต้องเป็น content class ของ trial
+   * ชุดเดียวกันอนุมัติด้วย `approveRun` ทีละแถวโดยคนเดียวกัน (CLI `trial-approve` ทำให้ในคำสั่งเดียว)
+   * ผล: ทั้งชุดหรือไม่มีเลยไม่ได้รับประกันข้ามแถว — แถวที่สร้างแล้วเสนอซ้ำด้วย input เดิมได้แถวเดิม
+   */
+  async proposeTeamTrial(
+    actor: LineControlActor,
+    command: ProposeLineTeamTrialCommand,
+    at: Date,
+  ): Promise<LineControlOutcome<DlLineRunAuthorization[]>> {
+    assertControlAuthority(actor.role, 'PROPOSE_RUN');
+    const { gate, credential } = command;
+    if (gate.killed) return { status: 'DENIED', code: 'LINE_GATE_KILLED' };
+    if (!/^trial-[0-9a-f-]{36}$/.test(command.trialRef)) {
+      return { status: 'DENIED', code: 'LINE_GATE_SCOPE_NOT_ALLOWED' };
+    }
+    const max = LINE_TEAM_TRIAL_MAX_CAPS;
+    const { perRecipientPer24h, per24h, lifetime } = command.caps;
+    if (
+      command.recipients.length === 0 ||
+      !(perRecipientPer24h >= 1 && perRecipientPer24h <= max.logicalDeliveriesPerRecipientPer24h) ||
+      !(per24h >= 1 && per24h <= max.logicalDeliveriesPer24h) ||
+      !(lifetime >= 1 && lifetime <= max.logicalDeliveriesLifetime)
+    ) {
+      return { status: 'DENIED', code: 'LINE_GATE_SCOPE_NOT_ALLOWED' };
+    }
+    if (credential.status !== 'ACTIVE' || !ACCESS_TOKEN_KINDS.includes(credential.credentialKind)) {
+      return { status: 'DENIED', code: 'CREDENTIAL_UNAVAILABLE' };
+    }
+    const expiresAt = lineTeamTrialExpiry(command.proposedAt, command.ttlDays);
+    if (credential.expiresAt !== null && credential.expiresAt.getTime() <= expiresAt.getTime()) {
+      return { status: 'DENIED', code: 'CREDENTIAL_UNAVAILABLE' };
+    }
+    for (const { allowlistEntry } of command.recipients) {
+      if (
+        allowlistEntry.gateId !== gate.id ||
+        allowlistEntry.revokedAt ||
+        allowlistEntry.contentRef !== LINE_TEAM_TRIAL_CONTENT_CLASS ||
+        allowlistEntry.validFrom.getTime() > command.proposedAt.getTime() ||
+        // allowlist ต้องครอบคลุมทั้งช่วงของ trial ไม่งั้นผู้รับหลุดกลางทางแบบเงียบ ๆ
+        allowlistEntry.validUntil.getTime() < expiresAt.getTime()
+      ) {
+        return { status: 'DENIED', code: 'LINE_GATE_SCOPE_NOT_ALLOWED' };
+      }
+      if (gate.configDigest !== allowlistEntry.configDigest) {
+        return { status: 'DENIED', code: 'CONFIG_DIGEST_MISMATCH' };
+      }
+    }
+
+    const capProviderAttempts = Math.min(
+      command.capProviderAttempts ?? max.providerAttemptsPerLogicalDelivery,
+      max.providerAttemptsPerLogicalDelivery,
+    );
+    // หนึ่งผู้รับใช้ได้ไม่เกิน 20/วัน × จำนวนวันของ trial (และไม่เกินเพดานต่อ run)
+    const days = Math.ceil((expiresAt.getTime() - command.proposedAt.getTime()) / 86_400_000);
+    const capLogicalDeliveries = Math.min(perRecipientPer24h * days, max.logicalDeliveriesPerRun);
+    const runs: DlLineRunAuthorization[] = [];
+    for (const recipient of command.recipients) {
+      const { allowlistEntry } = recipient;
+      const trial = {
+        trialRef: command.trialRef,
+        capRecipientPer24h: perRecipientPer24h,
+        capPer24h: per24h,
+        capLifetime: lifetime,
+        contactId: recipient.contactId,
+        identityId: recipient.identityId ?? null,
+      };
+      const proposalDigest = lineRunProposalDigest({
+        tenantId: command.tenantId,
+        gateId: gate.id,
+        channelAccountId: gate.channelAccountId,
+        senderIdentityId: gate.senderIdentityId,
+        purpose: gate.purpose,
+        contactKind: gate.contactKind,
+        allowlistEntryId: allowlistEntry.id,
+        recipientFingerprint: allowlistEntry.recipientFingerprint,
+        contentDigest: allowlistEntry.contentDigest,
+        configDigest: allowlistEntry.configDigest,
+        credentialRefId: credential.id,
+        credentialVersion: credential.version,
+        capLogicalDeliveries,
+        capProviderAttempts,
+        proposedBy: actor.ref,
+        proposalRef: `${command.trialRef}:${allowlistEntry.id}`,
+        proposedAt: command.proposedAt,
+        expiresAt,
+        trial,
+      });
+      const run = await this.control.proposeRun({
+        id: this.newId(),
+        tenantId: command.tenantId,
+        gateId: gate.id,
+        allowlistEntryId: allowlistEntry.id,
+        credentialRefId: credential.id,
+        credentialVersion: credential.version,
+        proposalDigest,
+        configDigest: allowlistEntry.configDigest,
+        capLogicalDeliveries,
+        capProviderAttempts,
+        proposedBy: actor.ref,
+        proposedAt: command.proposedAt,
+        expiresAt,
+        profile: LINE_TEAM_TRIAL_PROFILE,
+        capRecipientPer24h: perRecipientPer24h,
+        capPer24h: per24h,
+        capLifetime: lifetime,
+        trialRef: command.trialRef,
+        contactId: recipient.contactId,
+        identityId: recipient.identityId ?? null,
+      });
+      await this.record({
+        tenantId: command.tenantId,
+        category: 'RUN_AUTHORIZATION',
+        code: 'RUN_PROPOSED',
+        actor,
+        at,
+        subjectId: run.id,
+        salt: [proposalDigest],
+      });
+      runs.push(run);
+    }
+    return { status: 'APPLIED', value: runs };
+  }
+
+  /**
    * ผู้เสนอ approve ตัวเองไม่ได้ (#358 §E) — คนเดียวถือได้ทั้ง Tenant Admin และ Compliance
    * แต่ต้องยืนยันสองครั้งแยกกัน และห้ามเป็นคนเดียวกับผู้เสนอ/ผู้ execute
    */
@@ -920,7 +1075,8 @@ export class LineControlPlane {
       });
     }
 
-    if (!decision.alreadyConsumed) {
+    // #567: trial ไม่ใช่ one-shot — ไม่ consume; การส่งแต่ละครั้งนับผ่าน cap ledger ตาม cap ในแถว
+    if (!decision.alreadyConsumed && !isTeamTrialRun(run)) {
       const consumed = await this.control.consumeRun(
         command.tenantId,
         run.id,
@@ -944,6 +1100,7 @@ export class LineControlPlane {
 
     const logical = await this.reserve(command, gate.id, run.id, 'LOGICAL_DELIVERY', {
       runCapProviderAttempts: run.capProviderAttempts,
+      deliveryCaps: lineDeliveryCapsFor(run),
     });
     if (logical.status === 'DENIED') {
       return this.denyRun(actor, command, { status: 'DENIED', code: logical.code });
@@ -1022,7 +1179,11 @@ export class LineControlPlane {
     gateId: string,
     runAuthorizationId: string,
     capKind: LineCapKind,
-    options: { runCapProviderAttempts?: number; attemptNo?: number },
+    options: {
+      runCapProviderAttempts?: number;
+      attemptNo?: number;
+      deliveryCaps?: ReturnType<typeof lineDeliveryCapsFor>;
+    },
   ): Promise<ReserveLineCapResult> {
     return this.control.reserveCap({
       id: this.newId(),
@@ -1040,6 +1201,7 @@ export class LineControlPlane {
         ...(options.runCapProviderAttempts === undefined
           ? {}
           : { runCapProviderAttempts: options.runCapProviderAttempts }),
+        ...(options.deliveryCaps ? { deliveryCaps: options.deliveryCaps } : {}),
       }),
     });
   }

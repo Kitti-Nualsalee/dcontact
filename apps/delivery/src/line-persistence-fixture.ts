@@ -115,10 +115,15 @@ export async function createLinePersistenceFixture() {
    * S2.6b (#403): reservation ที่ Governance อนุมัติแล้วแต่ยังไม่มี delivery ผูก — ปลายทางของ
    * `LineDeliveryEnqueue` ซึ่งต้อง claim ผ่าน Governance เอง
    */
-  async function seedReservation(tenantId: string, at = new Date()) {
+  async function seedReservation(
+    tenantId: string,
+    at = new Date(),
+    /** #567: actionKey ที่ผู้เรียกกำหนด (trial ใช้ `s2-trial-<sendId>`) */
+    fixedActionKey?: string,
+  ) {
     sequence += 1;
     const reservationId = randomUUID();
-    const actionKey = `s2-enqueue-${suffix}-${sequence}`;
+    const actionKey = fixedActionKey ?? `s2-enqueue-${suffix}-${sequence}`;
     await owner.cgReservation.create({
       data: {
         id: reservationId,
@@ -253,6 +258,7 @@ export async function createLinePersistenceFixture() {
   return {
     owner,
     application,
+    contactIdOf: (tenantId: string) => contactIds.get(tenantId)!,
     tenantA: tenantIds[0],
     tenantB: tenantIds[1],
     control,
@@ -270,6 +276,8 @@ export async function createLinePersistenceFixture() {
     async dispose() {
       for (const tenantId of tenantIds) {
         const where = { where: { tenantId } };
+        // #567: trial send อ้าง inbox/run จึงต้องลบก่อน
+        await owner.dlLineTrialSend.deleteMany(where);
         await owner.dlLineTouchCorrelation.deleteMany(where);
         await owner.dlLineInboundMessage.deleteMany(where);
         await owner.dlLineWebhookPayload.deleteMany(where);

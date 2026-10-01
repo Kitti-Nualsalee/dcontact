@@ -87,6 +87,68 @@ export function buildLineCanonicalRequest(input: {
   };
 }
 
+// ── เนื้อหาที่ไม่ใช่ fixture (#567 team trial) ───────────────────────────────
+
+/**
+ * เนื้อหาที่ resolve แล้วของ delivery หนึ่งใบ: fixture ของ S2 หรือ text ของ trial ที่ persist ก่อน barrier
+ * `gateDigest` คือค่าที่ gate เทียบกับ allowlist — fixture = digest ของ fixture, trial = digest ของ content class
+ * (ทุก text ของ trial อยู่ใน class เดียว; digest ของ text จริงอยู่ใน `dl_line_trial_sends`)
+ */
+export interface LineResolvedContent {
+  contentRef: string;
+  version: number;
+  messages: ReadonlyArray<Record<string, unknown>>;
+  gateDigest: string;
+}
+
+export interface LineContentSource {
+  resolve(tenantId: string, contentRef: string): Promise<LineResolvedContent>;
+}
+
+/** แหล่งเนื้อหาเดิมของ S2: fixture ชุดปิดเท่านั้น */
+export const LINE_FIXTURE_CONTENT_SOURCE: LineContentSource = Object.freeze({
+  async resolve(_tenantId: string, contentRef: string): Promise<LineResolvedContent> {
+    const fixture = resolveLineFixture(contentRef);
+    return {
+      contentRef,
+      version: fixture.version,
+      messages: fixture.messages as ReadonlyArray<Record<string, unknown>>,
+      gateDigest: lineContentDigest(contentRef),
+    };
+  },
+});
+
+/** digest ของ content class ที่ allowlist ของ trial ผูกไว้ (text ≤ maxLength) */
+export function lineContentClassDigest(contentClass: string, maxLength: number): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ contentClass, version: 1, type: 'text', maxLength }))
+    .digest('hex');
+}
+
+/** canonical request จากเนื้อหาที่ resolve แล้ว — fixture ให้ผลเท่ากับ `buildLineCanonicalRequest` ทุก byte */
+export function buildLineCanonicalRequestFrom(
+  content: LineResolvedContent,
+  recipientFingerprint: string,
+): LineCanonicalRequest {
+  const providerPayloadDigest = createHash('sha256')
+    .update(
+      JSON.stringify({
+        contentRef: content.contentRef,
+        version: content.version,
+        messages: content.messages,
+        recipientFingerprint,
+      }),
+    )
+    .digest('hex');
+  return {
+    contentRef: content.contentRef,
+    fixtureVersion: content.version,
+    messages: content.messages,
+    providerPayloadDigest,
+    recipientFingerprint,
+  };
+}
+
 const HEX_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** `X-Line-Retry-Key` ต้องเป็น hexadecimal UUID (#357 §2) — ค่าอื่น LINE ปฏิเสธ */
