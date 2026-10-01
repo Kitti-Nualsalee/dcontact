@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeFreeSwitchEvent } from './freeswitch-normalizer.js';
+import { normalizeFreeSwitchEvent, parkedCallAsCreated } from './freeswitch-normalizer.js';
 
 test('CHANNEL_CREATE becomes a tenant-bound vendor-neutral call.created envelope', () => {
   const normalized = normalizeFreeSwitchEvent(
@@ -86,4 +86,39 @@ test('DTMF without channel variables resolves the tenant from its original call 
     inputMode: 'DTMF',
     inputValue: '2',
   });
+});
+
+test('#562: สายจาก trunk ที่ยังไม่รู้ tenant ตอน create ใช้ CHANNEL_PARK เป็น call.created ครั้งเดียว', () => {
+  const parked = {
+    'Event-Name': 'CHANNEL_PARK',
+    'Unique-ID': 'trunk-call-1',
+    'Caller-Caller-ID-Number': 'pstn-caller',
+    'Caller-Destination-Number': '2000',
+    variable_domain_name: 'dcontact.local',
+  };
+  const created = parkedCallAsCreated(parked, () => false);
+  assert.equal(created?.['Event-Name'], 'CHANNEL_CREATE');
+  const event = normalizeFreeSwitchEvent(created!, {
+    telephonyNodeId: 'node-a',
+    resolveTenantId: (domain) => (domain === 'dcontact.local' ? 'tenant-a' : undefined),
+    eventId: () => 'event-1',
+    now: () => '2026-10-01T00:00:00.000Z',
+  });
+  assert.equal(event.type, 'call.created');
+  assert.equal(event.tenantId, 'tenant-a');
+  assert.equal(event.payload.callUuid, 'trunk-call-1');
+
+  // สายที่ออก call.created ไปแล้วตอน create (เช่น ผ่าน directory) ไม่ซ้ำ
+  assert.equal(
+    parkedCallAsCreated(parked, (uuid) => uuid === 'trunk-call-1'),
+    undefined,
+  );
+  assert.equal(
+    parkedCallAsCreated({ ...parked, 'Event-Name': 'CHANNEL_CREATE' }, () => false),
+    undefined,
+  );
+  assert.equal(
+    parkedCallAsCreated({ ...parked, 'Unique-ID': ' ' }, () => false),
+    undefined,
+  );
 });

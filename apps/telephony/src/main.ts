@@ -11,7 +11,7 @@ import {
 } from '@d-contact/shared';
 import { parseEslEvent } from './esl-event.js';
 import { FreeSwitchCommandAdapter } from './freeswitch-command-adapter.js';
-import { normalizeFreeSwitchEvent } from './freeswitch-normalizer.js';
+import { normalizeFreeSwitchEvent, parkedCallAsCreated } from './freeswitch-normalizer.js';
 import { TelephonyRecordingLifecycle } from './recording-lifecycle.js';
 import { S3RecordingArchive } from './s3-recording-archive.js';
 
@@ -81,11 +81,17 @@ async function main() {
       if (!authenticated && /\+OK accepted/i.test(frame)) {
         authenticated = true;
         socket.write(
-          'events plain CHANNEL_CREATE CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE DTMF DETECTED_SPEECH\n\n',
+          'events plain CHANNEL_CREATE CHANNEL_PARK CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE DTMF DETECTED_SPEECH\n\n',
         );
         continue;
       }
-      const source = parseEslEvent(frame);
+      const parsed = parseEslEvent(frame);
+      if (!parsed) continue;
+      // #562: สายจาก trunk ได้ tenant ตอน park ไม่ใช่ตอน create — PARK อื่นไม่ใช่ call event
+      const source =
+        parsed['Event-Name'] === 'CHANNEL_PARK'
+          ? parkedCallAsCreated(parsed, (callUuid) => tenantIdByCallUuid.has(callUuid))
+          : parsed;
       if (!source) continue;
       try {
         const sipDomain = source.variable_domain_name;

@@ -122,6 +122,10 @@ jobs:
       - name: Keycloak login theme tests
         run: pnpm test:keycloak-theme
 
+      # #562: สายลูกค้าเข้าทาง trunk จำลอง pstn-sim และไม่มี static SIP credential (E1.10)
+      - name: FreeSWITCH config tests
+        run: pnpm test:freeswitch-config
+
       # E1.14 (#488): contract test ของ postMessage v1 (JSON Schema ↔ TypeScript types ↔ parser)
       # + origin/source, rate limit, screen-pop ตามระดับ และคิว activity ฝั่ง iframe
       - name: E1.14 dphone embed contract tests

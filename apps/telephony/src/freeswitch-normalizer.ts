@@ -36,6 +36,22 @@ const eventTypes: Record<string, TelephonyCallEventType> = {
   DETECTED_SPEECH: 'call.input',
 };
 
+/**
+ * #562: สายจาก trunk (profile `pstn-sim` หรือ carrier) ไม่ได้ยืนยันตัวกับ directory จึงยังไม่มี
+ * `variable_domain_name` ตอน CHANNEL_CREATE — dialplan เป็นคน set ก่อน park ให้ Router
+ * ใช้ CHANNEL_PARK แทน CHANNEL_CREATE เฉพาะสายที่ยังไม่เคยออก call.created เพื่อไม่ให้ซ้ำ
+ */
+export function parkedCallAsCreated(
+  event: FreeSwitchEvent,
+  isKnownCall: (callUuid: string) => boolean,
+): FreeSwitchEvent | undefined {
+  if (event['Event-Name'] !== 'CHANNEL_PARK') return undefined;
+  const callUuid = event['Unique-ID'];
+  if (typeof callUuid !== 'string' || callUuid.trim().length === 0) return undefined;
+  if (isKnownCall(callUuid.trim())) return undefined;
+  return { ...event, 'Event-Name': 'CHANNEL_CREATE' };
+}
+
 function requiredString(event: FreeSwitchEvent, key: keyof FreeSwitchEvent): string {
   const value = event[key];
   if (typeof value !== 'string' || value.trim().length === 0) {
