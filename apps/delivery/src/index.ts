@@ -30,6 +30,7 @@ export * from './line-outbound-adapter.js';
 export * from './line-keychain-secret-source.js';
 export * from './line-file-secret-source.js';
 export * from './line-pilot-runtime.js';
+export * from './line-pilot-inbound-reader.js';
 export * from './line-provider-conformance.js';
 export * from './line-provider-evidence-bundle.js';
 export * from './line-run-proposal-view.js';

@@ -179,13 +179,13 @@ const UAT_LINE = {
   LINE_WEBHOOK_PAYLOAD_KEY_REF: 'payload-key-ref',
 };
 
-test('#565 uat-line เปิดแค่ webhook: ไม่มี Kafka, ไม่ออก internet และ /api/ เหลือแค่ runtime profile', () => {
+test('#565/#566 uat-line เปิดแค่ webhook: ไม่มี Kafka, ไม่ออก internet และ /api/ เหลือแค่ runtime profile + read-only ของ pilot', () => {
   const profile = resolveApiRuntimeProfile(UAT_LINE);
   assert.equal(profile.name, 'uat-line');
   assert.equal(profile.kafka, 'DISABLED');
   assert.equal(profile.lineWebhook, 'ENABLED');
   assert.equal(profile.providerEgress, 'BLOCKED');
-  assert.deepEqual(profile.allowedRoutePrefixes, ['/api/v1/runtime-profile']);
+  assert.deepEqual(profile.allowedRoutePrefixes, ['/api/v1/runtime-profile', '/api/v1/line-pilot']);
 });
 
 test('#565 uat-line + env นอก allowlist หรือ secret ที่ไม่ใช่ไฟล์ = fail closed โดยไม่รายงานค่า', () => {

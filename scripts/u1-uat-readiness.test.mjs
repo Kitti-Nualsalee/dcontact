@@ -722,6 +722,14 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
       '\t\trespond @outside 403\n\n\t\t@lineWebhook {\n\t\t\tmethod POST\n\t\t\tpath /webhook/line\n\t\t}\n\t\thandle @lineWebhook {\n\t\t\treverse_proxy line-webhook:3000\n\t\t}\n',
     );
   failed(checkLineOverlay({ ...input, caddyfile: moved }), 'WEBHOOK_ROUTE_ORDER');
+  // #566: read API ของ pilot ก่อน allowlist = เปิดสู่ internet
+  const exposed = caddyfileLine
+    .replace(/\t\t# #566:[^\n]*\n\t\thandle \/api\/v1\/line-pilot\/\* \{[^}]*\}\n/, '')
+    .replace(
+      '\t\t@outside not client_ip',
+      '\t\thandle /api/v1/line-pilot/* {\n\t\t\treverse_proxy line-webhook:3000\n\t\t}\n\t\t@outside not client_ip',
+    );
+  failed(checkLineOverlay({ ...input, caddyfile: exposed }), 'PILOT_API_ROUTE_ORDER');
   failed(
     checkLineOverlay({
       ...input,

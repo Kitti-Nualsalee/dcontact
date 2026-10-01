@@ -133,5 +133,29 @@
         }
       }
     }
+  },
+  "lineInbound": {
+    "eyebrow": "UAT · LINE pilot",
+    "title": "LINE inbound (pilot)",
+    "description": "Messages the team sent to the test LINE OA. Read-only; senders are fingerprints and every view is audited.",
+    "refresh": "Refresh",
+    "loadMore": "Load more",
+    "empty": "No inbound messages yet",
+    "noText": "(not a text message)",
+    "quarantined": "{{count}} quarantined item(s) are not shown",
+    "columns": {
+      "receivedAt": "Received at",
+      "type": "Type",
+      "text": "Message",
+      "sender": "Sender (fingerprint)",
+      "state": "State"
+    },
+    "status": {
+      "loading": "Loading inbound messages",
+      "unavailable": "LINE pilot is not enabled in this environment",
+      "forbidden": "This account cannot view LINE pilot messages",
+      "expired": "Your session expired. Please sign in again.",
+      "error": "Could not load messages"
+    }
   }
 }

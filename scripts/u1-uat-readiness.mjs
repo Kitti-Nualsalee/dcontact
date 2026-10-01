@@ -804,6 +804,7 @@ function composeServiceSecrets(service) {
 function caddyWithoutLineWebhook(text) {
   return text
     .replace(/\n\t\t@lineWebhook \{[^]*?respond @webhookOther 404\n/, '')
+    .replace(/\t\t# #566:[^\n]*\n\t\thandle \/api\/v1\/line-pilot\/\* \{[^}]*\}\n/, '')
     .split('\n')
     .filter((line) => !/^\s*#/.test(line) && line.trim() !== '')
     .join('\n');
@@ -938,6 +939,14 @@ export function checkLineOverlay({
     )
   ) {
     failures.push({ kind: 'WEBHOOK_ROUTE_ORDER' });
+  }
+  // #566: read-only ของ pilot ต้องผ่าน allowlist ก่อน และอยู่ก่อน /api/* ของ api
+  if (
+    !/respond @outside 403[^]*?handle \/api\/v1\/line-pilot\/\* \{\s*reverse_proxy line-webhook:3000\s*\}[^]*?handle \/api\/\* \{/.test(
+      caddyfile,
+    )
+  ) {
+    failures.push({ kind: 'PILOT_API_ROUTE_ORDER' });
   }
   if (caddyWithoutLineWebhook(caddyfile) !== caddyWithoutLineWebhook(caddyfile3vm)) {
     failures.push({ kind: 'CADDYFILE_DRIFT' });

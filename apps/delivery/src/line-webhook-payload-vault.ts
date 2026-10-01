@@ -4,6 +4,9 @@
  * worker และ manual replay ใช้ทางนี้ทางเดียว: decrypt ใน memory แล้วสกัดเฉพาะ field ที่ใช้ตัดสิน
  * (provider message ID, quoted message ID, one-to-one, fingerprint ของผู้ส่ง) — userId, body,
  * replyToken และ quoteToken ไม่ออกจากฟังก์ชันนี้ และไม่ถูกส่งต่อให้ layer ใด
+ *
+ * #566: `readPilotView` เป็นทางเดียวที่ข้อความ text ออกจาก vault — สำหรับหน้า read-only ของ pilot
+ * ที่ role admin ของ tenant pilot อ่านได้และถูก audit; userId/replyToken/quoteToken ยังไม่ออก
  */
 import { createDecipheriv } from 'node:crypto';
 import {
@@ -23,6 +26,14 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+export const LINE_PILOT_TEXT_MAX_LENGTH = 5000;
+
+export interface LinePilotPayloadView {
+  messageType: string | null;
+  text: string | null;
+  senderFingerprint: string | null;
 }
 
 export class EncryptedLineWebhookPayloadVault implements LineWebhookPayloadReader {
@@ -53,6 +64,28 @@ export class EncryptedLineWebhookPayloadVault implements LineWebhookPayloadReade
       sourceFingerprint: lineSourceFingerprint(entry.channelAccountId, userId),
       isOneToOne: source?.type === 'user',
       ...(token ? { postbackToken: token } : {}),
+    };
+  }
+
+  /** #566: มุมมองของหน้า pilot — text เฉพาะ `message/text` (ตัดที่ 5,000 ตัวอักษร), ผู้ส่งเป็น fingerprint */
+  async readPilotView(
+    tenantId: string,
+    entry: DlLineWebhookInboxEntry,
+  ): Promise<LinePilotPayloadView | null> {
+    const event = await this.decrypt(tenantId, entry);
+    if (!event) return null;
+    const source = asObject(event.source);
+    const message = asObject(event.message);
+    const userId = typeof source?.userId === 'string' ? source.userId : undefined;
+    const messageType = typeof message?.type === 'string' ? message.type : null;
+    const text =
+      messageType === 'text' && typeof message?.text === 'string'
+        ? message.text.slice(0, LINE_PILOT_TEXT_MAX_LENGTH)
+        : null;
+    return {
+      messageType,
+      text,
+      senderFingerprint: userId ? lineSourceFingerprint(entry.channelAccountId, userId) : null,
     };
   }
 

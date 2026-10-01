@@ -43,7 +43,11 @@ export const UAT_ALLOWED_ROUTE_PREFIXES = Object.freeze([
 const UAT_FORBIDDEN_ENV: readonly RegExp[] = [/^LINE_/, /^KAFKA_BROKERS$/, /^SIP_/];
 
 /** prefix ใต้ `/api/` ของ `uat-line` — webhook อยู่ที่ `/webhook/line` นอก `/api/` */
-export const UAT_LINE_ALLOWED_ROUTE_PREFIXES = Object.freeze(['/api/v1/runtime-profile']);
+export const UAT_LINE_ALLOWED_ROUTE_PREFIXES = Object.freeze([
+  '/api/v1/runtime-profile',
+  // #566: read-only ของ pilot (OIDC + role admin)
+  '/api/v1/line-pilot',
+]);
 
 /** `LINE_*` ที่ `line-webhook` รับได้ — เป็น reference/โหมดเท่านั้น ไม่มี secret (#362 §9) */
 export const UAT_LINE_ALLOWED_ENV = Object.freeze([

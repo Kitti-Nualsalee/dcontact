@@ -133,5 +133,29 @@
         }
       }
     }
+  },
+  "lineInbound": {
+    "eyebrow": "UAT · LINE pilot",
+    "title": "LINE inbound (pilot)",
+    "description": "ข้อความที่ทีมส่งเข้า LINE OA ทดสอบ แสดงแบบอ่านอย่างเดียว ผู้ส่งแสดงเป็น fingerprint และทุกการเปิดดูถูกบันทึก audit",
+    "refresh": "รีเฟรช",
+    "loadMore": "โหลดเพิ่ม",
+    "empty": "ยังไม่มีข้อความขาเข้า",
+    "noText": "(ไม่ใช่ข้อความตัวอักษร)",
+    "quarantined": "มี {{count}} รายการที่ถูกกักไว้ (quarantine) ไม่แสดงในตาราง",
+    "columns": {
+      "receivedAt": "เวลาที่รับ",
+      "type": "ชนิด",
+      "text": "ข้อความ",
+      "sender": "ผู้ส่ง (fingerprint)",
+      "state": "สถานะ"
+    },
+    "status": {
+      "loading": "กำลังโหลดข้อความขาเข้า",
+      "unavailable": "environment นี้ไม่ได้เปิด LINE pilot",
+      "forbidden": "บัญชีนี้ไม่มีสิทธิ์ดูข้อความของ LINE pilot",
+      "expired": "session หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง",
+      "error": "โหลดข้อความไม่สำเร็จ"
+    }
   }
 }

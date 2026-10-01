@@ -2,6 +2,7 @@
 # #565 / ADR-031: Caddyfile.3vm + route LINE webhook — ใช้เฉพาะเมื่อใส่ overlay `uat-line`
 # webhook อยู่หลัง @notEdge (ต้องมาทาง VM1) แต่ก่อน @outside เพราะ LINE ไม่อยู่ใน UAT_ALLOWED_CIDRS;
 # authority ของ webhook คือ HMAC ที่ line-webhook ตรวจ
+# #566: /api/v1/line-pilot/* ไป line-webhook หลัง allowlist (OIDC + role admin ที่ service)
 {
 	admin off
 	persist_config off
@@ -49,6 +50,10 @@
 				# Keycloak issues Secure session cookies for browser sign-in.
 				header_up X-Forwarded-Proto https
 			}
+		}
+		# #566: read-only ของ pilot อยู่หลัง allowlist (LAN เท่านั้น) และก่อน /api/* ของ api
+		handle /api/v1/line-pilot/* {
+			reverse_proxy line-webhook:3000
 		}
 		handle /api/* {
 			reverse_proxy api:3000

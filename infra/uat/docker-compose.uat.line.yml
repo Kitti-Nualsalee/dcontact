@@ -3,7 +3,7 @@
 # ซ้อนบน docker-compose.uat.yml + docker-compose.uat.3vm.yml เท่านั้น; `uat-deploy.sh` ใส่ไฟล์นี้เมื่อมีไฟล์ flag
 # `$UAT_ROOT/line-pilot.enabled` — ไม่มี flag = UAT fail-closed เดิมทุกประการ (profile `uat`, UAT-S09)
 #
-# - line-webhook: รับ `POST /webhook/line` อย่างเดียว (profile `uat-line`) ไม่ออก internet ไม่ได้ access token
+# - line-webhook: รับ `POST /webhook/line` + read-only `/api/v1/line-pilot/*` (#566, OIDC) ไม่ออก internet ไม่ได้ access token
 # - line-pilot:   runner ของ CLI pilot (`docker compose run --rm line-pilot <cli> <command>`) — profile `line-pilot`
 # - line-egress:  ทางออก internet เดียวของ stack สำหรับ LINE: TCP passthrough กรอง SNI `api.line.me`
 #                 อยู่บน network `linepilot` (มีแค่ runner) + `lineegress`; api และ service อื่นไม่เห็น
@@ -38,6 +38,10 @@ services:
       # ว่างได้ตอนเปิดครั้งแรก (ยังไม่รู้ bot ID จนรัน `line-run ... bot-info`) — line-webhook บูตไม่ผ่านถ้าว่าง
       LINE_WEBHOOK_DESTINATION: ${UAT_LINE_DESTINATION:-}
       LINE_WEBHOOK_PAYLOAD_KEY_REF: ${UAT_LINE_PAYLOAD_KEY_REF:?UAT_LINE_PAYLOAD_KEY_REF is required}
+      # #566: OIDC ของ read API (/api/v1/line-pilot/*) — ค่าเดียวกับ api
+      KEYCLOAK_ISSUER: https://${UAT_HOST:?UAT_HOST is required}/auth/realms/dcontact
+      KEYCLOAK_AUDIENCE: dcontact-api
+      KEYCLOAK_JWKS_URI: http://keycloak:8080/auth/realms/dcontact/protocol/openid-connect/certs
     secrets:
       - line-channel-secret
       - line-webhook-payload-key
