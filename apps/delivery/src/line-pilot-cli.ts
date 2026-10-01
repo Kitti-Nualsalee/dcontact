@@ -16,10 +16,10 @@
  *   bundle                                               sanitized bundle ของ PR02 + RB01
  *
  * env มีแค่ reference: `CXA_S2_PILOT_TENANT_ID`, `CXA_S2_CREDENTIAL_REF_ID`, `CXA_S2_PILOT_SENDER`
- * secret/recipient อ่านจาก Keychain เท่านั้น; state ระหว่างขั้นเก็บ ID/digest (ไม่มี PII) ใน
- * `artifacts/cxa-s2/pilot/state.json` และ `send` ยิงได้เฉพาะเมื่อ digest ที่พิมพ์ตรง proposal ทุกตัวอักษร
+ * secret/recipient อ่านจาก Keychain (macOS) หรือไฟล์ Compose `secrets` บน UAT (`LINE_SECRET_SOURCE=file`,
+ * #565) — ดู `line-pilot-runtime.ts`; state ระหว่างขั้นเก็บ ID/digest (ไม่มี PII) ใน `state.json` ของ
+ * state directory และ `send` ยิงได้เฉพาะเมื่อ digest ที่พิมพ์ตรง proposal ทุกตัวอักษร
  */
-import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
@@ -43,11 +43,7 @@ import {
   KeychainLineAccessTokenResolver,
   KeychainLineRecipientResolver,
 } from './line-keychain-resolvers.js';
-import {
-  KeychainLineSecretSource,
-  KeychainLineSecretWriter,
-  lineKeychainServiceName,
-} from './line-keychain-secret-source.js';
+import { lineKeychainServiceName } from './line-keychain-secret-source.js';
 import { LineOutboundAdapter, type LineSubmitCommand } from './line-outbound-adapter.js';
 import {
   buildLineCappedPilotEvidence,
@@ -55,6 +51,7 @@ import {
   runLineRollbackDrill,
   type LineReplayProbeEvidence,
 } from './line-pilot-drills.js';
+import { resolveLinePilotRuntime, type LinePilotRuntime } from './line-pilot-runtime.js';
 import { LINE_PILOT_CHANNEL_ACCOUNT_ID } from './line-provider-conformance.js';
 import {
   buildLineProviderEvidenceBundle,
@@ -78,8 +75,11 @@ import { LineWebhookWorker } from './line-webhook-worker.js';
 const FIXTURE_REF = 'fixture:service-notification/v1';
 const PURPOSE = 'SERVICE_NOTIFICATION';
 const CONTACT_KIND = 'SERVICE';
-const REPOSITORY_ROOT = resolve(process.cwd(), '../..');
-const STATE_PATH = resolve(REPOSITORY_ROOT, 'artifacts/cxa-s2/pilot/state.json');
+let runtime: LinePilotRuntime;
+
+function statePath(): string {
+  return resolve(runtime.stateDir, 'state.json');
+}
 
 interface PilotState {
   runAuthorizationId?: string;
@@ -120,16 +120,14 @@ function requiredEnv(name: string): string {
 }
 
 function readState(): PilotState {
-  return existsSync(STATE_PATH) ? (JSON.parse(readFileSync(STATE_PATH, 'utf8')) as PilotState) : {};
+  const path = statePath();
+  return existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as PilotState) : {};
 }
 
 function writeState(state: PilotState): void {
-  mkdirSync(dirname(STATE_PATH), { recursive: true });
-  writeFileSync(STATE_PATH, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-}
-
-function git(arguments_: string[]): string {
-  return execFileSync('git', arguments_, { cwd: REPOSITORY_ROOT, encoding: 'utf8' }).trim();
+  const path = statePath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
 }
 
 function sha256(value: string): string {
@@ -137,7 +135,7 @@ function sha256(value: string): string {
 }
 
 function migrationsDigest(): string {
-  const directory = resolve(REPOSITORY_ROOT, 'packages/db/prisma/migrations');
+  const directory = runtime.provenance().migrationsDir;
   const entries = readdirSync(directory, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
@@ -163,7 +161,7 @@ function pilot() {
     purpose: PURPOSE,
     contactKind: CONTACT_KIND,
   };
-  const source = new KeychainLineSecretSource();
+  const source = runtime.source;
   const repository = new LineControlRepository(database);
   const control = new LineControlPlane({
     control: repository,
@@ -196,7 +194,7 @@ async function gateOf(p: Pilot) {
 
 async function payloadVault(p: Pilot) {
   const secrets = await resolveLineWebhookSecrets({
-    mode: 'keychain',
+    mode: runtime.kind,
     channelAccountId: LINE_PILOT_CHANNEL_ACCOUNT_ID,
     source: p.source,
   });
@@ -228,9 +226,7 @@ async function proposalView(p: Pilot, state: PilotState): Promise<LineRunProposa
     digests: {
       config: gate.configDigest!,
       migrations: migrationsDigest(),
-      registry: sha256(
-        readFileSync(resolve(REPOSITORY_ROOT, 'scripts/cxa-s2-readiness.mjs'), 'utf8'),
-      ),
+      registry: sha256(readFileSync(runtime.provenance().registryPath, 'utf8')),
     },
     run,
     gate,
@@ -287,7 +283,7 @@ async function quotaSnapshot(p: Pilot) {
       )
     ).version,
   });
-  if (!token) throw new Error('อ่าน access token จาก Keychain ไม่ได้');
+  if (!token) throw new Error('อ่าน access token ไม่ได้');
   const quota = await p.transport.getQuota(token.accessToken);
   const consumption = await p.transport.getConsumption(token.accessToken);
   if (quota.type !== 'limited' && quota.type !== 'none') throw new Error('อ่าน quota ไม่ได้');
@@ -304,7 +300,7 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
     const captured = await captureLineRecipientFromWebhook({
       database: p.database,
       vault: await payloadVault(p),
-      writer: new KeychainLineSecretWriter(),
+      writer: runtime.writer,
       tenantId: p.tenantId,
       channelAccountId: LINE_PILOT_CHANNEL_ACCOUNT_ID,
       since: new Date(requiredFlag('since')),
@@ -342,11 +338,9 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
     if (!state.recipientProtectedRef || !state.recipientFingerprint) {
       throw new Error('ยังไม่มี recipient — รัน capture-recipient และ allowlist ก่อน');
     }
-    if (git(['status', '--porcelain', '--untracked-files=no']) !== '')
-      throw new Error('working tree ไม่ clean');
-    const finalMainSha = git(['rev-parse', 'HEAD']);
-    if (finalMainSha !== git(['rev-parse', 'origin/main']))
-      throw new Error('HEAD ไม่ใช่ final main');
+    const provenance = runtime.provenance();
+    provenance.assertFinalMain();
+    const finalMainSha = provenance.commitSha;
 
     const gate = await gateOf(p);
     const operator = actor('PLATFORM_OPERATOR');
@@ -614,7 +608,7 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
   async bundle(p) {
     const state = readState();
     if (!state.pr02 || !state.rb01) throw new Error('ต้องมีผล await-touch และ rollback ก่อน');
-    // exact-value scan ด้วย secret จริงที่ยังอยู่ใน Keychain (token ถูก revoke แล้วแต่ค่ายังอ่านได้)
+    // exact-value scan ด้วย secret จริงที่ยังอ่านได้ (token ถูก revoke แล้วแต่ค่ายังอยู่ใน Keychain/ไฟล์)
     const secrets: string[] = [];
     for (const account of ['channel-access-token', 'channel-secret']) {
       try {
@@ -634,7 +628,7 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
       generatedAt: new Date(),
       runner: {
         platform: process.platform,
-        keychain: true,
+        keychain: runtime.kind === 'keychain',
         hostFingerprint: lineHostFingerprint(hostname()),
         workflowRunId: process.env.GITHUB_RUN_ID ?? null,
       },
@@ -643,8 +637,7 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
     });
     secrets.length = 0;
     const path = resolve(
-      process.env.CXA_S2_PROVIDER_BUNDLE_DIR ??
-        resolve(REPOSITORY_ROOT, 'artifacts/cxa-s2/provider'),
+      runtime.bundleDir,
       `pilot-${process.env.GITHUB_RUN_ID ?? `local-${randomUUID()}`}.json`,
     );
     mkdirSync(dirname(path), { recursive: true });
@@ -656,7 +649,8 @@ const commands: Record<string, (p: Pilot) => Promise<void>> = {
 };
 
 async function main(): Promise<void> {
-  if (process.platform !== 'darwin') throw new Error('pilot รันได้เฉพาะ protected runner บน macOS');
+  // keychain = protected runner บน macOS เท่านั้น; file = runner `line-pilot` บน UAT (#565)
+  runtime = resolveLinePilotRuntime();
   const command = commands[process.argv[2] ?? ''];
   if (!command) throw new Error(`คำสั่งที่รองรับ: ${Object.keys(commands).join(', ')}`);
   const p = pilot();

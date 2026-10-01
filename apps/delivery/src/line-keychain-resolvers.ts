@@ -20,10 +20,8 @@ import {
   type LineKeychainReference,
   type LineSecretSource,
 } from './line-credential-boundary.js';
-import {
-  lineKeychainServiceName,
-  type KeychainLineSecretWriter,
-} from './line-keychain-secret-source.js';
+import type { LineSecretWriter } from './line-file-secret-source.js';
+import { lineKeychainServiceName } from './line-keychain-secret-source.js';
 import type { LineAccessTokenResolver, LineRecipientResolver } from './line-outbound-adapter.js';
 import type { EncryptedLineWebhookPayloadVault } from './line-webhook-payload-vault.js';
 import { lineSourceFingerprint } from './line-webhook-worker.js';
@@ -131,7 +129,7 @@ export interface CapturedLineRecipient {
 export async function captureLineRecipientFromWebhook(input: {
   database: PrismaClient;
   vault: EncryptedLineWebhookPayloadVault;
-  writer: KeychainLineSecretWriter;
+  writer: LineSecretWriter;
   tenantId: string;
   channelAccountId: string;
   since: Date;

@@ -9,10 +9,13 @@
  * mount controller อื่น ไม่ใช่การซ่อนปุ่มหรือเปิด flag ทีละตัว
  *
  * config ที่ขัดกับ profile ทำให้บูตไม่ผ่าน (fail closed) แทนการเปิดบางส่วน
+ *
+ * `uat-line` (#565, ADR-031) คือ service `line-webhook` ของ overlay `uat-line` เท่านั้น: รับ LINE webhook
+ * อย่างเดียว ไม่มี Kafka และไม่ออก internet — profile `uat` ไม่เปลี่ยน
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-export const API_RUNTIME_PROFILES = ['default', 'uat'] as const;
+export const API_RUNTIME_PROFILES = ['default', 'uat', 'uat-line'] as const;
 export type ApiRuntimeProfileName = (typeof API_RUNTIME_PROFILES)[number];
 
 export interface ApiRuntimeProfile {
@@ -38,6 +41,19 @@ export const UAT_ALLOWED_ROUTE_PREFIXES = Object.freeze([
  * (LINE provider/webhook, Kafka broker ที่จะพา event ไป runtime/delivery, voice/SIP)
  */
 const UAT_FORBIDDEN_ENV: readonly RegExp[] = [/^LINE_/, /^KAFKA_BROKERS$/, /^SIP_/];
+
+/** prefix ใต้ `/api/` ของ `uat-line` — webhook อยู่ที่ `/webhook/line` นอก `/api/` */
+export const UAT_LINE_ALLOWED_ROUTE_PREFIXES = Object.freeze(['/api/v1/runtime-profile']);
+
+/** `LINE_*` ที่ `line-webhook` รับได้ — เป็น reference/โหมดเท่านั้น ไม่มี secret (#362 §9) */
+export const UAT_LINE_ALLOWED_ENV = Object.freeze([
+  'LINE_CREDENTIAL_DIR',
+  'LINE_WEBHOOK_CHANNEL_ACCOUNT_ID',
+  'LINE_WEBHOOK_DESTINATION',
+  'LINE_WEBHOOK_PAYLOAD_KEY_REF',
+  'LINE_WEBHOOK_SECRET_SOURCE',
+  'LINE_WEBHOOK_TENANT_ID',
+]);
 
 export class ApiRuntimeProfileError extends Error {
   constructor(
@@ -70,8 +86,29 @@ export function resolveApiRuntimeProfile(
       allowedRoutePrefixes: null,
     };
   }
-  const conflicting = Object.keys(environment)
-    .filter((name) => environment[name] !== undefined && environment[name] !== '')
+  const present = Object.keys(environment).filter(
+    (name) => environment[name] !== undefined && environment[name] !== '',
+  );
+  if (requested === 'uat-line') {
+    const conflicting = present
+      .filter((name) => UAT_FORBIDDEN_ENV.some((pattern) => pattern.test(name)))
+      .filter((name) => !UAT_LINE_ALLOWED_ENV.includes(name));
+    // secret บน UAT มาจากไฟล์ Compose `secrets` เท่านั้น — keychain/disabled แปลว่า deploy ผิด
+    if (environment.LINE_WEBHOOK_SECRET_SOURCE !== 'file') {
+      conflicting.push('LINE_WEBHOOK_SECRET_SOURCE');
+    }
+    if (conflicting.length > 0) {
+      throw new ApiRuntimeProfileError('CONFLICTING_CONFIGURATION', conflicting.sort());
+    }
+    return {
+      name: 'uat-line',
+      kafka: 'DISABLED',
+      lineWebhook: 'ENABLED',
+      providerEgress: 'BLOCKED',
+      allowedRoutePrefixes: UAT_LINE_ALLOWED_ROUTE_PREFIXES,
+    };
+  }
+  const conflicting = present
     .filter((name) => UAT_FORBIDDEN_ENV.some((pattern) => pattern.test(name)))
     .sort();
   if (conflicting.length > 0) {

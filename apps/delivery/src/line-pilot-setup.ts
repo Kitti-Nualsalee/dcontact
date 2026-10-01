@@ -4,13 +4,14 @@
  *   pnpm --filter @d-contact/delivery pilot:setup <command>
  *
  * - `tenant`                 สร้าง/หา dedicated test tenant ของ pilot แล้วพิมพ์ tenant ID
- * - `bot-info`               พิมพ์ bot user ID (= webhook destination) โดยใช้ token จาก Keychain
+ * - `bot-info`               พิมพ์ bot user ID (= webhook destination) โดยใช้ token จาก secret source
  * - `endpoint-digest <url>`  พิมพ์ digest ของ webhook endpoint ที่อนุมัติ
  * - `gate <endpoint-url>`    ensure scope แล้วเลื่อน DISABLED → DRY_RUN → PROVIDER_CONFORMANCE
  * - `credential`             verify token (client_id ต้องเป็น Channel ID ของ pilot) → register → activate
  *                            (`CXA_S2_CREDENTIAL_KIND=V2_1|LONG_LIVED`, long-lived ต้องมี exception ref)
  *
- * token/secret อ่านจาก Keychain ในหน่วยความจำเท่านั้นและไม่ถูกพิมพ์; stdout มีแค่ ID/digest
+ * token/secret อ่านจาก Keychain หรือไฟล์ (`LINE_SECRET_SOURCE=file` บน UAT #565) ในหน่วยความจำเท่านั้น
+ * และไม่ถูกพิมพ์; stdout มีแค่ ID/digest — บน UAT tenant ของ pilot มาจาก `uat-provision` ไม่ใช่ `tenant`
  * actor ของแต่ละคำสั่งมาจาก env `CXA_S2_OPERATOR_REF` และ `CXA_S2_COMPLIANCE_REF` (ห้ามเป็นค่าเดียวกัน)
  */
 import { createHash } from 'node:crypto';
@@ -19,10 +20,8 @@ import { LineAuditRepository } from './line-audit-repository.js';
 import { LineControlPlane, type LineControlActor } from './line-control-plane.js';
 import { LineControlRepository, type LineGateScope } from './line-control-repository.js';
 import { lineSecretFingerprint } from './line-credential-boundary.js';
-import {
-  KeychainLineSecretSource,
-  lineKeychainServiceName,
-} from './line-keychain-secret-source.js';
+import { lineKeychainServiceName } from './line-keychain-secret-source.js';
+import { resolveLinePilotRuntime } from './line-pilot-runtime.js';
 import {
   LINE_PILOT_CHANNEL_ACCOUNT_ID,
   lineWebhookEndpointDigest,
@@ -79,7 +78,7 @@ export function linePilotConfigDigest(input: {
 }
 
 async function readToken(): Promise<string> {
-  return new KeychainLineSecretSource().read({
+  return resolveLinePilotRuntime().source.read({
     keychainService: lineKeychainServiceName(LINE_PILOT_CHANNEL_ACCOUNT_ID),
     keychainAccount: TOKEN_ACCOUNT,
   });

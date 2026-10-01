@@ -26,6 +26,11 @@ export const UAT_FILES = Object.freeze({
   compose3vm: 'infra/uat/docker-compose.uat.3vm.yml',
   caddyfile3vm: 'infra/uat/Caddyfile.3vm',
   dbRelayConfig: 'infra/uat/haproxy-db-relay.cfg',
+  // #565 (ADR-031): overlay `uat-line` ที่เปิดด้วย flag บน VM2
+  composeLine: 'infra/uat/docker-compose.uat.line.yml',
+  caddyfileLine: 'infra/uat/Caddyfile.3vm.line',
+  lineEgressConfig: 'infra/uat/haproxy-line-egress.cfg',
+  lineSecretsScript: 'infra/uat/operator/vm2-line-secrets.sh',
   envExample: 'infra/uat/uat.env.example',
   deployScript: 'infra/uat/bin/uat-deploy.sh',
   dbRolesScript: 'infra/uat/bin/db-roles.sh',
@@ -763,6 +768,196 @@ export function checkThreeVmTopology({
   return check(id, failures);
 }
 
+/** network ที่ service ต่อ (ทั้งแบบ list และแบบ map) จาก raw lines ของ `parseComposeServices` */
+export function composeServiceNetworks(service) {
+  const networks = [];
+  let inside = false;
+  for (const line of service?.raw ?? []) {
+    const indent = line.length - line.trimStart().length;
+    if (indent === 4) {
+      inside = /^ {4}networks:\s*$/.test(line);
+      continue;
+    }
+    if (!inside || indent !== 6) continue;
+    const match = /^\s*(?:-\s*)?([A-Za-z0-9_.-]+)(?::.*)?$/.exec(line);
+    if (match) networks.push(match[1]);
+  }
+  return networks.sort();
+}
+
+function composeServiceSecrets(service) {
+  const secrets = [];
+  let inside = false;
+  for (const line of service?.raw ?? []) {
+    const indent = line.length - line.trimStart().length;
+    if (indent === 4) {
+      inside = /^ {4}secrets:\s*$/.test(line);
+      continue;
+    }
+    const match = inside && indent === 6 ? /^\s*-\s*([A-Za-z0-9_.-]+)\s*$/.exec(line) : null;
+    if (match) secrets.push(match[1]);
+  }
+  return secrets.sort();
+}
+
+/** Caddyfile.3vm.line ต้องเท่ากับ Caddyfile.3vm ทุกบรรทัด ยกเว้น comment และ block ของ LINE webhook */
+function caddyWithoutLineWebhook(text) {
+  return text
+    .replace(/\n\t\t@lineWebhook \{[^]*?respond @webhookOther 404\n/, '')
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line) && line.trim() !== '')
+    .join('\n');
+}
+
+/**
+ * #565 / ADR-031: overlay `uat-line` — ไม่มี overlay = ไม่มี LINE เลย; มี overlay = เปิดแคบที่สุด
+ * - ไฟล์ฐานและ overlay 3vm ไม่มี service `line-*` และ overlay ไม่แตะ `api`
+ * - `line-egress` เป็นทางออกเดียว: network `lineegress` มีแค่ relay, `linepilot` มีแค่ relay + runner,
+ *   relay รับเฉพาะ SNI `api.line.me` และมี backend เดียว
+ * - `line-webhook` = profile `uat-line` + secret แบบไฟล์ ไม่ได้ access token ไม่เปิดพอร์ต อยู่บน `internal` เท่านั้น
+ * - route webhook อยู่หลัง edge check ก่อน allowlist และ Caddyfile ส่วนอื่นเหมือน Caddyfile.3vm
+ * - deploy ใส่ overlay ตาม flag และถอด container ด้วย `--remove-orphans`; script secret ไม่ echo และตั้ง 0400
+ */
+export function checkLineOverlay({
+  compose,
+  compose3vm,
+  overlay,
+  caddyfile3vm,
+  caddyfile,
+  egressConfig,
+  deployScript,
+  secretsScript,
+}) {
+  const id = 'UAT-S21 overlay uat-line เปิด LINE แคบที่สุดและถอดได้';
+  if ([overlay, caddyfile, egressConfig, secretsScript, caddyfile3vm].includes(null)) {
+    return check(id, [{ kind: 'MISSING_ARTIFACT' }]);
+  }
+  const failures = [];
+  for (const [file, text] of [
+    ['base', compose ?? ''],
+    ['3vm', compose3vm ?? ''],
+  ]) {
+    for (const name of Object.keys(parseComposeServices(text))) {
+      if (name.startsWith('line-'))
+        failures.push({ kind: 'LINE_SERVICE_OUTSIDE_OVERLAY', file, name });
+    }
+    if (/lineegress|linepilot/.test(text.split('\n').map(stripYamlComment).join('\n'))) {
+      failures.push({ kind: 'LINE_NETWORK_OUTSIDE_OVERLAY', file });
+    }
+  }
+
+  const services = parseComposeServices(overlay);
+  for (const name of ['line-webhook', 'line-pilot', 'line-egress']) {
+    if (!services[name]) failures.push({ kind: 'MISSING_SERVICE', name });
+  }
+  const allowed = new Set(['proxy', 'line-webhook', 'line-pilot', 'line-egress']);
+  for (const service of Object.values(services)) {
+    if (!allowed.has(service.name))
+      failures.push({ kind: 'UNEXPECTED_SERVICE', name: service.name });
+    if (service.ports.length > 0) failures.push({ kind: 'PORT_PUBLISHED', name: service.name });
+    for (const network of composeServiceNetworks(service)) {
+      const permitted =
+        network === 'lineegress'
+          ? service.name === 'line-egress'
+          : network === 'linepilot'
+            ? ['line-egress', 'line-pilot'].includes(service.name)
+            : true;
+      if (!permitted) failures.push({ kind: 'EGRESS_NETWORK_SHARED', name: service.name, network });
+    }
+  }
+  if (!/^ {2}linepilot:\s*\n {4}internal: true$/m.test(overlay)) {
+    failures.push({ kind: 'LINEPILOT_NOT_INTERNAL' });
+  }
+
+  const egress = services['line-egress'];
+  if (egress) {
+    if (!/@sha256:[0-9a-f]{64}$/.test(egress.image ?? ''))
+      failures.push({ kind: 'EGRESS_IMAGE_NOT_PINNED' });
+    if (composeServiceNetworks(egress).join(',') !== 'lineegress,linepilot') {
+      failures.push({ kind: 'EGRESS_NETWORKS' });
+    }
+    if (!egress.profiles.includes('line-pilot')) failures.push({ kind: 'EGRESS_ALWAYS_ON' });
+    // alias `api.line.me` บน network ของ relay ทำให้ relay resolve เป็นตัวเอง (ส่งวน) — ต้องใช้ IP คงที่
+    if (/aliases:/.test(egress.raw.join('\n'))) failures.push({ kind: 'EGRESS_ALIAS_LOOP' });
+  }
+  const pilot = services['line-pilot'];
+  if (pilot) {
+    if (!pilot.profiles.includes('line-pilot')) failures.push({ kind: 'RUNNER_ALWAYS_ON' });
+    const relayAddress = /ipv4_address:\s*([0-9.]+)/.exec(egress?.raw.join('\n') ?? '')?.[1];
+    if (
+      !relayAddress ||
+      !pilot.raw.some((line) => line.includes(`'api.line.me:${relayAddress}'`))
+    ) {
+      failures.push({ kind: 'RUNNER_NOT_PINNED_TO_RELAY' });
+    }
+    if (pilot.environment.LINE_SECRET_SOURCE !== 'file')
+      failures.push({ kind: 'RUNNER_SECRET_NOT_FILE' });
+    if (!/^postgresql:\/\/dcontact_app:/.test(pilot.environment.DATABASE_URL ?? '')) {
+      failures.push({ kind: 'RUNNER_NOT_APPLICATION_ROLE' });
+    }
+  }
+  const webhook = services['line-webhook'];
+  if (webhook) {
+    if (webhook.environment.DCONTACT_API_PROFILE !== 'uat-line')
+      failures.push({ kind: 'WEBHOOK_PROFILE' });
+    if (webhook.environment.LINE_WEBHOOK_SECRET_SOURCE !== 'file') {
+      failures.push({ kind: 'WEBHOOK_SECRET_NOT_FILE' });
+    }
+    if (composeServiceSecrets(webhook).includes('line-channel-access-token')) {
+      failures.push({ kind: 'WEBHOOK_HAS_ACCESS_TOKEN' });
+    }
+    if (composeServiceNetworks(webhook).join(',') !== 'internal')
+      failures.push({ kind: 'WEBHOOK_NETWORKS' });
+    if (!/^postgresql:\/\/dcontact_app:/.test(webhook.environment.DATABASE_URL ?? '')) {
+      failures.push({ kind: 'WEBHOOK_NOT_APPLICATION_ROLE' });
+    }
+  }
+  // secret ไม่อยู่ใน env: LINE_* ของ overlay เป็น reference `${...}` หรือโหมด/path เท่านั้น
+  for (const service of Object.values(services)) {
+    for (const [name, value] of Object.entries(service.environment)) {
+      if (/SECRET$|TOKEN$|_KEY$/.test(name) && !/^(file|\/run\/secrets)$/.test(value)) {
+        failures.push({ kind: 'SECRET_IN_ENV', name: service.name, variable: name });
+      }
+    }
+  }
+
+  const code = egressConfig
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+  if (!/^\s*mode tcp$/m.test(code)) failures.push({ kind: 'EGRESS_NOT_PASSTHROUGH' });
+  if (!/tcp-request content reject unless \{ req\.ssl_sni -m str -i api\.line\.me \}/.test(code)) {
+    failures.push({ kind: 'EGRESS_SNI_NOT_ENFORCED' });
+  }
+  const backends = [...code.matchAll(/^\s*server\s+\S+\s+(\S+)/gm)].map((match) => match[1]);
+  if (backends.join(',') !== 'api.line.me:443') failures.push({ kind: 'EGRESS_BACKEND', backends });
+
+  if (
+    !/respond @notEdge 403[^]*?@lineWebhook \{\s*method POST\s*path \/webhook\/line\s*\}[^]*?handle @lineWebhook[^]*?max_size[^]*?reverse_proxy line-webhook:3000[^]*?respond @outside 403/.test(
+      caddyfile,
+    )
+  ) {
+    failures.push({ kind: 'WEBHOOK_ROUTE_ORDER' });
+  }
+  if (caddyWithoutLineWebhook(caddyfile) !== caddyWithoutLineWebhook(caddyfile3vm)) {
+    failures.push({ kind: 'CADDYFILE_DRIFT' });
+  }
+
+  for (const pattern of [
+    /line-pilot\.enabled/,
+    /is_line "\$dir"/,
+    /--remove-orphans "\$\{services\[@\]\}"/,
+  ]) {
+    if (!pattern.test(deployScript ?? ''))
+      failures.push({ kind: 'DEPLOY_NOT_LINE_AWARE', pattern: pattern.source });
+  }
+  for (const pattern of [/read -rs/, /chmod 0400/, /10001:10001/, /--rotate/]) {
+    if (!pattern.test(secretsScript))
+      failures.push({ kind: 'SECRETS_SCRIPT', pattern: pattern.source });
+  }
+  return check(id, failures);
+}
+
 export function checkWorkflow(workflow) {
   const failures = [];
   if (workflow === null) return check('UAT-S11 workflow uat-preview', [{ kind: 'MISSING' }]);
@@ -973,6 +1168,16 @@ export function runStaticChecks(root = repositoryRoot) {
       relayConfig: files.dbRelayConfig,
       dbRolesScript: files.dbRoles3vmScript,
       deployScript: files.deployScript,
+    }),
+    checkLineOverlay({
+      compose: files.compose,
+      compose3vm: files.compose3vm,
+      overlay: files.composeLine,
+      caddyfile3vm: files.caddyfile3vm,
+      caddyfile: files.caddyfileLine,
+      egressConfig: files.lineEgressConfig,
+      deployScript: files.deployScript,
+      secretsScript: files.lineSecretsScript,
     }),
     checkWorkflow(files.workflow),
     checkSmokeWorkflow(files.smokeWorkflow),

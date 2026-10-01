@@ -20,6 +20,7 @@ import {
   checkFixtureTemplate,
   checkKeycloakProductionMode,
   checkKeycloakTheme,
+  checkLineOverlay,
   checkNoStartDev,
   checkProxy,
   checkRealm,
@@ -54,6 +55,10 @@ const compose3vm = read(UAT_FILES.compose3vm);
 const caddyfile3vm = read(UAT_FILES.caddyfile3vm);
 const dbRelayConfig = read(UAT_FILES.dbRelayConfig);
 const dbRoles3vmScript = read(UAT_FILES.dbRoles3vmScript);
+const composeLine = read(UAT_FILES.composeLine);
+const caddyfileLine = read(UAT_FILES.caddyfileLine);
+const lineEgressConfig = read(UAT_FILES.lineEgressConfig);
+const lineSecretsScript = read(UAT_FILES.lineSecretsScript);
 
 /** แทรก block ใต้ `services:` ของ compose จริง */
 function withService(block) {
@@ -598,6 +603,142 @@ test('UAT-S20: overlay 3 VM บังคับ relay, edge และ database �
   failed(
     checkThreeVmTopology({ ...input, caddyfile: caddyfile3vm.replace('respond @notEdge 403', '') }),
     'CADDY_EDGE_INVARIANT',
+  );
+});
+
+test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน รั่วออกนอก overlay หรือถอดไม่ได้ ไม่ผ่าน', () => {
+  const input = {
+    compose,
+    compose3vm,
+    overlay: composeLine,
+    caddyfile3vm,
+    caddyfile: caddyfileLine,
+    egressConfig: lineEgressConfig,
+    deployScript,
+    secretsScript: lineSecretsScript,
+  };
+  assert.equal(checkLineOverlay(input).status, 'PASS');
+  failed(checkLineOverlay({ ...input, overlay: null }), 'MISSING_ARTIFACT');
+  // service line-* ในไฟล์ฐาน = LINE เปิดแม้ไม่มี flag
+  failed(
+    checkLineOverlay({
+      ...input,
+      compose: compose.replace('\n  api:\n', '\n  line-webhook:\n    image: x\n  api:\n'),
+    }),
+    'LINE_SERVICE_OUTSIDE_OVERLAY',
+  );
+  // overlay แตะ api
+  failed(
+    checkLineOverlay({
+      ...input,
+      overlay: composeLine.replace(
+        '\n  line-webhook:\n',
+        '\n  api:\n    mem_limit: 1g\n\n  line-webhook:\n',
+      ),
+    }),
+    'UNEXPECTED_SERVICE',
+  );
+  // service อื่นต่อ network ขาออก
+  failed(
+    checkLineOverlay({
+      ...input,
+      overlay: composeLine.replace(
+        '    networks:\n      - internal\n\n  line-pilot:',
+        '    networks:\n      - internal\n      - lineegress\n\n  line-pilot:',
+      ),
+    }),
+    'EGRESS_NETWORK_SHARED',
+  );
+  // relay ที่ไม่กรอง SNI หรือมีปลายทางอื่น
+  failed(
+    checkLineOverlay({
+      ...input,
+      egressConfig: lineEgressConfig.replace(/.*req\.ssl_sni.*\n/, ''),
+    }),
+    'EGRESS_SNI_NOT_ENFORCED',
+  );
+  failed(
+    checkLineOverlay({
+      ...input,
+      egressConfig: `${lineEgressConfig}    server other example.com:443\n`,
+    }),
+    'EGRESS_BACKEND',
+  );
+  // webhook ได้ access token หรือใช้ secret ใน env
+  failed(
+    checkLineOverlay({
+      ...input,
+      overlay: composeLine.replace(
+        '      - line-channel-secret\n      - line-webhook-payload-key\n    healthcheck',
+        '      - line-channel-access-token\n      - line-channel-secret\n      - line-webhook-payload-key\n    healthcheck',
+      ),
+    }),
+    'WEBHOOK_HAS_ACCESS_TOKEN',
+  );
+  failed(
+    checkLineOverlay({
+      ...input,
+      overlay: composeLine.replace(
+        'LINE_WEBHOOK_SECRET_SOURCE: file',
+        'LINE_WEBHOOK_SECRET_SOURCE: keychain',
+      ),
+    }),
+    'WEBHOOK_SECRET_NOT_FILE',
+  );
+  // runner/relay ต้องไม่รันค้าง
+  failed(
+    checkLineOverlay({
+      ...input,
+      overlay: composeLine.replace(
+        "  line-egress:\n    profiles: ['line-pilot']\n",
+        '  line-egress:\n',
+      ),
+    }),
+    'EGRESS_ALWAYS_ON',
+  );
+  // alias api.line.me บน network ของ relay ทำให้ relay ส่งวนกลับหาตัวเอง; runner ต้องชี้ IP ของ relay
+  failed(
+    checkLineOverlay({
+      ...input,
+      overlay: composeLine.replace(
+        '        ipv4_address: 172.30.65.2\n',
+        '        ipv4_address: 172.30.65.2\n        aliases:\n          - api.line.me\n',
+      ),
+    }),
+    'EGRESS_ALIAS_LOOP',
+  );
+  failed(
+    checkLineOverlay({
+      ...input,
+      overlay: composeLine.replace("'api.line.me:172.30.65.2'", "'api.line.me:172.30.65.3'"),
+    }),
+    'RUNNER_NOT_PINNED_TO_RELAY',
+  );
+  // webhook หลัง allowlist (LINE ถูก 403) หรือก่อน edge check
+  const moved = caddyfileLine
+    .replace(/\n\t\t@lineWebhook \{[^]*?respond @webhookOther 404\n/, '\n')
+    .replace(
+      '\t\trespond @outside 403\n',
+      '\t\trespond @outside 403\n\n\t\t@lineWebhook {\n\t\t\tmethod POST\n\t\t\tpath /webhook/line\n\t\t}\n\t\thandle @lineWebhook {\n\t\t\treverse_proxy line-webhook:3000\n\t\t}\n',
+    );
+  failed(checkLineOverlay({ ...input, caddyfile: moved }), 'WEBHOOK_ROUTE_ORDER');
+  failed(
+    checkLineOverlay({
+      ...input,
+      caddyfile: caddyfileLine.replace('respond @keycloakAdmin 404', 'respond @keycloakAdmin 200'),
+    }),
+    'CADDYFILE_DRIFT',
+  );
+  failed(
+    checkLineOverlay({
+      ...input,
+      deployScript: deployScript.replaceAll('line-pilot.enabled', 'line.on'),
+    }),
+    'DEPLOY_NOT_LINE_AWARE',
+  );
+  failed(
+    checkLineOverlay({ ...input, secretsScript: lineSecretsScript.replace('read -rs', 'read -r') }),
+    'SECRETS_SCRIPT',
   );
 });
 
