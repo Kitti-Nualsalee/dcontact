@@ -9,7 +9,7 @@ sha="${2:-}"
 }
 [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || { echo 'source SHA ไม่ถูกต้อง' >&2; exit 64; }
 [[ "$(id -un)" == osdadmin ]] || { echo 'รันเป็น osdadmin บน VM2' >&2; exit 1; }
-ip -4 -o addr show | grep -Fq '192.168.102.112/' || { echo 'เครื่องนี้ไม่ใช่ VM2' >&2; exit 1; }
+ip -4 -o addr show | grep -F '192.168.102.112/' >/dev/null || { echo 'เครื่องนี้ไม่ใช่ VM2' >&2; exit 1; }
 
 root=/opt/dcontact-uat
 platform="$root/platform"

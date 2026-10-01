@@ -5,7 +5,7 @@ set -euo pipefail
 mode="${1:---check}"
 [[ "$mode" == --check || "$mode" == --apply ]] || { echo 'usage: sudo bash vm1-platform-nginx-uat.sh [--check|--apply]' >&2; exit 64; }
 [[ "$(id -u)" == 0 && "${SUDO_USER:-}" == osdadmin ]] || { echo 'ต้องรันด้วย sudo จาก osdadmin บน VM1' >&2; exit 1; }
-ip -4 -o addr show | grep -Fq '192.168.102.114/' || { echo 'เครื่องนี้ไม่ใช่ VM1 ที่คาดไว้' >&2; exit 1; }
+ip -4 -o addr show | grep -F '192.168.102.114/' >/dev/null || { echo 'เครื่องนี้ไม่ใช่ VM1 ที่คาดไว้' >&2; exit 1; }
 
 host=platform-uat.osd.co.th
 cert=/etc/nginx/ssl/star.osd.co.th_bundle.crt
