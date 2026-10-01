@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { commitOnMain, contextOnMain } from './acceptance-main-proof.mjs';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -481,6 +482,7 @@ export function createJ5EvidenceContext(environment = process.env) {
     commitSha,
     finalMainSha,
     expectedCommitSha,
+    commitOnMain: commitOnMain(commitSha),
     cleanTree: runGit(['status', '--porcelain', '--untracked-files=no']) === '',
     runId,
     attempt,
@@ -583,7 +585,8 @@ export function j5MarkerBlockers(context, checks, scope = 'full') {
     blockers.push('CHECKS_NOT_ALL_PASS');
   if (context.pullRequest !== null) blockers.push('PULL_REQUEST_RUN');
   if (context.ref !== 'refs/heads/main') blockers.push('NOT_DEFAULT_BRANCH_REF');
-  if (context.commitSha !== context.finalMainSha || context.commitSha !== context.expectedCommitSha)
+  // ADR-032: commit ต้องอยู่บน main แล้ว (ancestor ของ origin/main) ไม่ต้องเป็น HEAD
+  if (!contextOnMain(context) || context.commitSha !== context.expectedCommitSha)
     blockers.push('NOT_FINAL_MAIN_SHA');
   if (!context.cleanTree) blockers.push('DIRTY_TREE');
   if (!context.artifact?.immutable || !context.runUrl) blockers.push('ARTIFACT_NOT_IMMUTABLE');
@@ -662,6 +665,7 @@ export function createCxaJ5EvidenceManifest(context, checks, summary, suites, di
       ref: context.ref,
       cleanTree: context.cleanTree,
       headEqualsFinalMain: context.commitSha === context.finalMainSha,
+      commitOnMain: contextOnMain(context),
     },
     workflow: { ...J5_WORKFLOW },
     run: { id: context.runId, attempt: context.attempt, url: context.runUrl },
@@ -843,14 +847,12 @@ export function assertValidCxaJ5EvidenceManifest(manifest) {
   if (manifest.pullRequest?.number !== null && manifest.pullRequest?.number !== undefined)
     throw new TypeError('PR run ออก J5 marker ไม่ได้');
   if (
-    manifest.commitSha !== manifest.finalMainSha ||
+    manifest.refProof?.commitOnMain !== true ||
     manifest.commitSha !== manifest.expectedCommitSha ||
     manifest.refProof?.ref !== 'refs/heads/main' ||
     manifest.refProof?.cleanTree !== true
   )
-    throw new TypeError(
-      'J5 marker ต้องมาจาก clean final main SHA (HEAD == origin/main == expected)',
-    );
+    throw new TypeError('J5 marker ต้องมาจาก clean commit ที่อยู่บน main แล้ว (ADR-032)');
   if (
     manifest.artifact?.immutable !== true ||
     manifest.artifact?.name !== `cxa-j5-evidence-${manifest.commitSha}` ||

@@ -376,9 +376,13 @@ test('validator ปฏิเสธ check/suite ที่ไม่สอดคล
   reject((copy) => {
     copy.flags.releaseEnabled = true;
   }, /fixed flags/);
+  // ADR-032: main ขยับไปแล้ว (finalMainSha ต่างจาก commit) ยังออก marker ได้ถ้า commit อยู่บน main
+  const movedMain = structuredClone(manifest);
+  movedMain.finalMainSha = 'a'.repeat(40);
+  assert.doesNotThrow(() => assertValidCxaCg4EvidenceManifest(movedMain));
   reject((copy) => {
-    copy.finalMainSha = 'a'.repeat(40);
-  }, /HEAD == origin\/main/);
+    copy.refProof.commitOnMain = false;
+  }, /อยู่บน main แล้ว/);
   reject((copy) => {
     copy.refProof.cleanTree = false;
   }, /clean checkout/);

@@ -2,6 +2,8 @@ name: cxa-j3-acceptance
 
 on:
   workflow_dispatch:
+  # ADR-032: CI `acceptance=chain` เรียกต่อจาก J2/CG4 ใน run เดียวกัน (SHA เดียวกัน)
+  workflow_call:
 
 permissions:
   contents: read

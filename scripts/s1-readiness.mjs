@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { commitOnMain } from './acceptance-main-proof.mjs';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -111,12 +112,15 @@ export function createS1Context(environment = process.env) {
   const commitSha = git(['rev-parse', 'HEAD']);
   const mainSha = git(['rev-parse', 'origin/main']);
   const expectedCommitSha = environment.S1_EXPECTED_COMMIT_SHA ?? mainSha;
+  // ADR-032: commit ต้องอยู่บน main แล้ว ไม่จำเป็นต้องเป็น HEAD ของ main ตอน run
+  const onMain = commitOnMain(commitSha);
   return {
     repository: repository(),
     commitSha,
     mainSha,
     expectedCommitSha,
-    finalMain: commitSha === mainSha && commitSha === expectedCommitSha,
+    commitOnMain: onMain,
+    finalMain: onMain && commitSha === expectedCommitSha,
     runId: environment.GITHUB_RUN_ID ?? 'local',
     attempt: Number(environment.GITHUB_RUN_ATTEMPT ?? 1),
   };
@@ -170,6 +174,7 @@ export function createS1Manifest(context, diagnostics, summary) {
     commitSha: context.commitSha,
     finalMainSha: context.mainSha,
     expectedCommitSha: context.expectedCommitSha,
+    commitOnMain: context.commitOnMain === true || context.commitSha === context.mainSha,
     run: { id: context.runId, attempt: context.attempt },
     flags: S1_FLAGS,
     markers: summary.markers,
@@ -232,11 +237,8 @@ export function assertValidS1Manifest(manifest) {
   )
     throw new TypeError('S1 manifest มี marker ไม่ถูกต้อง');
   if (markers.length > 0) {
-    if (
-      manifest.commitSha !== manifest.finalMainSha ||
-      manifest.commitSha !== manifest.expectedCommitSha
-    )
-      throw new TypeError('S1 marker ต้องออกจาก final main SHA เดียว');
+    if (manifest.commitOnMain !== true || manifest.commitSha !== manifest.expectedCommitSha)
+      throw new TypeError('S1 marker ต้องออกจาก commit ที่อยู่บน main แล้ว (ADR-032)');
     if (!checks.every((item) => item.status === 'PASS'))
       throw new TypeError('S1 marker ต้องมี 20 checks PASS');
   }
