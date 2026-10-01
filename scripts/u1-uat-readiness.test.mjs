@@ -21,6 +21,7 @@ import {
   checkKeycloakProductionMode,
   checkKeycloakTheme,
   checkLineOverlay,
+  checkLineTrialOverlay,
   checkNoStartDev,
   checkProxy,
   checkRealm,
@@ -59,6 +60,7 @@ const composeLine = read(UAT_FILES.composeLine);
 const caddyfileLine = read(UAT_FILES.caddyfileLine);
 const lineEgressConfig = read(UAT_FILES.lineEgressConfig);
 const lineSecretsScript = read(UAT_FILES.lineSecretsScript);
+const composeLineTrial = read(UAT_FILES.composeLineTrial);
 
 /** แทรก block ใต้ `services:` ของ compose จริง */
 function withService(block) {
@@ -750,6 +752,60 @@ test('UAT-S21: overlay uat-line ที่เปิดกว้างเกิน
   );
 });
 
+test('UAT-S22: overlay team trial ที่เปิดกว้างเกินหรือ deploy ไม่ผูกกับ uat-line ไม่ผ่าน', () => {
+  const input = { overlay: composeLineTrial, lineOverlay: composeLine, deployScript };
+  assert.equal(checkLineTrialOverlay(input).status, 'PASS');
+  failed(checkLineTrialOverlay({ ...input, overlay: null }), 'MISSING_ARTIFACT');
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      overlay: composeLineTrial.replace(
+        '      - linepilot\n',
+        '      - linepilot\n      - lineegress\n',
+      ),
+    }),
+    'WEBHOOK_NETWORKS',
+  );
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      overlay: composeLineTrial.replace("'api.line.me:172.30.65.2'", "'api.line.me:1.2.3.4'"),
+    }),
+    'WEBHOOK_NOT_PINNED_TO_RELAY',
+  );
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      overlay: composeLineTrial.replace('/var/lib/line-pilot:ro', '/var/lib/line-pilot'),
+    }),
+    'STATE_NOT_READ_ONLY',
+  );
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      overlay: composeLineTrial.replace(
+        "LINE_TEAM_TRIAL: 'on'",
+        "LINE_TEAM_TRIAL: 'on'\n      LINE_CHANNEL_ACCESS_TOKEN: abcdefghijkl",
+      ),
+    }),
+    'SECRET_IN_ENV',
+  );
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      overlay: `${composeLineTrial}\n  api:\n    ports:\n      - '3000:3000'\n`,
+    }),
+    'UNEXPECTED_SERVICE',
+  );
+  failed(
+    checkLineTrialOverlay({
+      ...input,
+      deployScript: deployScript.replace('is_line "$1" || fail \'TRIAL_REQUIRES_LINE\'', 'true'),
+    }),
+    'DEPLOY_NOT_TRIAL_AWARE',
+  );
+});
+
 test('UAT-S11: workflow ที่ไม่ผูก environment/concurrency, echo secret หรือไม่รัน readiness ไม่ผ่าน', () => {
   assert.equal(checkWorkflow(workflow).status, 'PASS');
   failed(
@@ -978,6 +1034,48 @@ test('UAT-M01: migration ใหม่ที่มี DROP หรือการ�
     'APPLIED_MIGRATION_CHANGED',
   );
   assert.deepEqual(findDropStatements('SELECT 1; -- DROP TABLE x'), []);
+});
+
+test('UAT-M01 (#567): แทนที่ CHECK ที่ review แล้วผ่าน แต่ชื่ออื่น/ไม่มี ADD ชื่อเดิม/DROP แบบอื่นยังล้ม', () => {
+  const path = (name) => `packages/db/prisma/migrations/${name}/migration.sql`;
+  const name = 'dl_line_run_authorizations_caps_check';
+  const replace = `ALTER TABLE t DROP CONSTRAINT "${name}";\nALTER TABLE t ADD CONSTRAINT "${name}" CHECK (true);`;
+  assert.equal(guardMigrations([{ status: 'A', path: path('4_ok'), sql: replace }]).status, 'PASS');
+  // ชื่อไม่อยู่ใน allowlist
+  failed(
+    guardMigrations([
+      {
+        status: 'A',
+        path: path('5_other'),
+        sql: replace.replaceAll(name, 'dl_line_cap_ledger_values_check'),
+      },
+    ]),
+    'DROP_STATEMENT',
+  );
+  // drop อย่างเดียวไม่ add กลับ (หรือ add เป็นชื่ออื่น)
+  failed(
+    guardMigrations([
+      { status: 'A', path: path('6_drop_only'), sql: `ALTER TABLE t DROP CONSTRAINT "${name}";` },
+    ]),
+    'DROP_STATEMENT',
+  );
+  failed(
+    guardMigrations([
+      {
+        status: 'A',
+        path: path('7_renamed'),
+        sql: `ALTER TABLE t DROP CONSTRAINT "${name}";\nALTER TABLE t ADD CONSTRAINT "${name}_v2" CHECK (true);`,
+      },
+    ]),
+    'DROP_STATEMENT',
+  );
+  // แทนที่ได้ แต่ DROP อื่นในไฟล์เดียวกันยังล้ม
+  failed(
+    guardMigrations([
+      { status: 'A', path: path('8_mixed'), sql: `${replace}\nALTER TABLE t DROP COLUMN y;` },
+    ]),
+    'DROP_STATEMENT',
+  );
 });
 
 test('UAT-M01: guard อ่าน migration จาก git จริง (base = HEAD ไม่มีไฟล์ใหม่)', () => {

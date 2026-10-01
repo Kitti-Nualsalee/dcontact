@@ -3945,6 +3945,15 @@ model DlLineRunAuthorization {
   consumedDeliveryId    String?                     @map("consumed_delivery_id")
   adapter               DlDeliveryAdapter           @default(LINE_MESSAGING_API)
   closedAt              DateTime?                   @map("closed_at")
+  /// #567: cap ของ profile `S2_LINE_TEAM_TRIAL_V1` (S2 = NULL)
+  capRecipientPer24h    Int?                        @map("cap_recipient_per_24h")
+  capPer24h             Int?                        @map("cap_per_24h")
+  capLifetime           Int?                        @map("cap_lifetime")
+  /// ชุดของ trial ที่เสนอ/อนุมัติพร้อมกัน (หนึ่งแถวต่อผู้รับ)
+  trialRef              String?                     @map("trial_ref")
+  /// contact/identity ของผู้รับใน Contact Governance — trial ต้องมี
+  contactId             String?                     @map("contact_id") @db.Uuid
+  identityId            String?                     @map("identity_id") @db.Uuid
   createdAt             DateTime                    @default(now()) @map("created_at")
   updatedAt             DateTime                    @updatedAt @map("updated_at")
 
@@ -3953,6 +3962,30 @@ model DlLineRunAuthorization {
   @@index([tenantId, gateId, state, expiresAt], map: "dl_line_run_authorizations_gate_state_idx")
   @@map("dl_line_run_authorizations")
 }
+/// #567: การตอบกลับหนึ่งครั้งของ LINE team trial — text เข้ารหัสด้วย payload key ของ webhook
+/// เพื่อให้ retry หลัง barrier เป็น request เดิม; append-only
+model DlLineTrialSend {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  runAuthorizationId String   @map("run_authorization_id") @db.Uuid
+  inboxEntryId       String   @map("inbox_entry_id") @db.Uuid
+  deliveryId         String   @map("delivery_id")
+  idempotencyKey     String   @map("idempotency_key")
+  contentDigest      String   @map("content_digest") @db.Char(64)
+  keyRef             String   @map("key_ref")
+  iv                 Bytes
+  authTag            Bytes    @map("auth_tag")
+  ciphertext         Bytes
+  actorRef           String   @map("actor_ref")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, id], map: "dl_line_trial_sends_tenant_id_key")
+  @@unique([tenantId, idempotencyKey], map: "dl_line_trial_sends_idempotency_key")
+  @@unique([tenantId, deliveryId], map: "dl_line_trial_sends_delivery_key")
+  @@index([tenantId, runAuthorizationId, createdAt], map: "dl_line_trial_sends_run_idx")
+  @@map("dl_line_trial_sends")
+}
+
 
 /// หนึ่งแถวต่อหนึ่งหน่วย cap ที่จอง — นับภายใต้ row lock ของ gate (#358 §C)
 model DlLineCapLedgerEntry {

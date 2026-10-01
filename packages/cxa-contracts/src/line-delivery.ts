@@ -36,6 +36,29 @@ export const LINE_PILOT_CAPS = Object.freeze({
   providerAttemptsPerLogicalDelivery: 4,
 });
 
+/**
+ * #567: ช่วงทีมทดสอบส่ง-รับบน UAT (amendment #358 2026-10-01) — authorization ใบเดียวต่อผู้รับ ใช้ได้หลาย delivery
+ * ค่าเหล่านี้คือ "เพดาน" ที่ DB บังคับซ้ำ (`dl_line_run_authorizations_caps_check`); cap จริงอยู่ใน authorization
+ */
+export const LINE_TEAM_TRIAL_PROFILE = 'S2_LINE_TEAM_TRIAL_V1';
+
+export const LINE_TEAM_TRIAL_MAX_CAPS = Object.freeze({
+  logicalDeliveriesPerRun: 600,
+  logicalDeliveriesPerRecipientPer24h: 20,
+  logicalDeliveriesPer24h: 100,
+  logicalDeliveriesLifetime: 3000,
+  runAuthorizationTtlDays: 30,
+  providerAttemptsPerLogicalDelivery: 4,
+  /** text ของการตอบกลับ (T2) */
+  textMaxLength: 500,
+});
+
+/** content class ของ allowlist ใน trial: text อิสระ ≤500 ตัวอักษร (digest ของ text จริงอยู่ใน trial send) */
+export const LINE_TEAM_TRIAL_CONTENT_CLASS = 'content-class:text-500/v1';
+
+export const LINE_RUN_PROFILES = [LINE_PILOT_PROFILE, LINE_TEAM_TRIAL_PROFILE] as const;
+export type LineRunProfile = (typeof LINE_RUN_PROFILES)[number];
+
 /** retry ด้วย X-Line-Retry-Key เดิมต้องจบก่อน 24 ชม. นับจาก request แรก (#357 §3) */
 export const LINE_RETRY_WINDOW_HOURS = 24;
 

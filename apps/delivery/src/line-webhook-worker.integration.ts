@@ -311,3 +311,36 @@ test('S2-LINE-ID01 worker ที่รันซ้ำบน inbox เดิม�
     1,
   );
 });
+
+test('#567 T4: สอง worker (loop + await-touch) พร้อมกันบน inbox เดียว project แต่ละข้อความครั้งเดียว', async (t) => {
+  const f = await setup(t);
+  const tenantId = f.fixture.tenantA;
+  const events = Array.from({ length: 12 }, (_, index) =>
+    event({ message: { id: `${700_000_000_000 + index}`, type: 'text', text: 'พร้อมกัน' } }),
+  );
+  assert.equal((await f.send(tenantId, events)).status, 200);
+  const make = (owner: string) =>
+    new LineWebhookWorker({
+      database: f.fixture.application,
+      payloads: new EncryptedLineWebhookPayloadVault(f.fixture.application, {
+        key: (ref) => (ref === KEY_REF ? PAYLOAD_KEY : undefined),
+      }),
+      governance: {
+        findAcceptedAttemptByMessage: async () => null,
+        recordCorrelatedTouch: async () => undefined,
+      },
+      leaseOwner: owner,
+      batchSize: 3,
+      now: () => new Date('2026-09-22T10:06:00.000Z'),
+    });
+  const loop = make('line-webhook-loop');
+  const awaitTouch = make('s2-pilot-await-touch');
+  const results = await Promise.all(
+    Array.from({ length: 6 }, (_, index) => (index % 2 ? loop : awaitTouch).runOnce(tenantId)),
+  );
+  assert.equal(
+    results.reduce((sum, result) => sum + result.processed, 0),
+    12,
+  );
+  assert.equal(await f.fixture.owner.dlLineInboundMessage.count({ where: { tenantId } }), 12);
+});

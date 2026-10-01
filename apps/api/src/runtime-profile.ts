@@ -52,6 +52,11 @@ export const UAT_LINE_ALLOWED_ROUTE_PREFIXES = Object.freeze([
 /** `LINE_*` ที่ `line-webhook` รับได้ — เป็น reference/โหมดเท่านั้น ไม่มี secret (#362 §9) */
 export const UAT_LINE_ALLOWED_ENV = Object.freeze([
   'LINE_CREDENTIAL_DIR',
+  // #567: team trial (ส่งตอบกลับ) และ worker ต่อเนื่อง — ค่าเป็นโหมด/ref/path ไม่ใช่ secret
+  'LINE_PILOT_SENDER_IDENTITY_ID',
+  'LINE_PILOT_STATE_DIR',
+  'LINE_TEAM_TRIAL',
+  'LINE_WEBHOOK_WORKER',
   'LINE_WEBHOOK_CHANNEL_ACCOUNT_ID',
   'LINE_WEBHOOK_DESTINATION',
   'LINE_WEBHOOK_PAYLOAD_KEY_REF',

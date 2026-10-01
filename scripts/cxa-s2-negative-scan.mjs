@@ -129,6 +129,12 @@ export const S2_SCAN_ALLOWLIST = Object.freeze([
       'token สังเคราะห์ของ credential resolver double ใน wiring test — ไม่ใช่ credential จริง',
   },
   {
+    path: 'apps/delivery/src/line-team-trial.integration.ts',
+    rule: 'secret-assignment',
+    reason:
+      '#567: token สังเคราะห์ของ credential resolver double ใน trial integration — ไม่ใช่ credential จริง',
+  },
+  {
     path: 'apps/delivery/src/line-pilot-cli.ts',
     rule: 'env-read',
     reason:

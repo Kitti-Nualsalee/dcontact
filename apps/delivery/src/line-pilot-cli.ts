@@ -15,6 +15,16 @@
  *   rollback --actor <ref>                               Platform Operator — RB01
  *   bundle                                               sanitized bundle ของ PR02 + RB01
  *
+ * #567 team trial (หลัง marker ของ #548; ใช้ credential ใหม่):
+ *   trial-allowlist --actor <ref> --recipient-ref <ref> --recipient-fingerprint <hex> --approval-audit-ref <ref>
+ *                   [--valid-days 31]                    Tenant Admin — allowlist แบบ content class (text ≤500)
+ *   trial-propose --actor <ref> --recipients <allowlistEntryId=contactId[:identityId],...>
+ *                 [--days 30] [--per-recipient 20] [--per-day 100] [--lifetime 3000]
+ *                                                        Platform Operator — พิมพ์ trialRef + trial digest
+ *   trial-approve --role TENANT_ADMIN|COMPLIANCE --actor <ref> --trial-ref <ref> --digest <trial digest>
+ *   trial-status [--trial-ref <ref>]                     สถานะ authorization ของ trial
+ *   trial-close --actor <ref> --trial-ref <ref>          Platform Operator — revoke ทั้งชุด + kill
+ *
  * env มีแค่ reference: `CXA_S2_PILOT_TENANT_ID`, `CXA_S2_CREDENTIAL_REF_ID`, `CXA_S2_PILOT_SENDER`
  * secret/recipient อ่านจาก Keychain (macOS) หรือไฟล์ Compose `secrets` บน UAT (`LINE_SECRET_SOURCE=file`,
  * #565) — ดู `line-pilot-runtime.ts`; state ระหว่างขั้นเก็บ ID/digest (ไม่มี PII) ใน `state.json` ของ
@@ -53,6 +63,7 @@ import {
 } from './line-pilot-drills.js';
 import { resolveLinePilotRuntime, type LinePilotRuntime } from './line-pilot-runtime.js';
 import { LINE_PILOT_CHANNEL_ACCOUNT_ID } from './line-provider-conformance.js';
+import { LINE_TEAM_TRIAL_CONTENT_CLASS, LINE_TEAM_TRIAL_PROFILE } from '@d-contact/cxa-contracts';
 import {
   buildLineProviderEvidenceBundle,
   lineHostFingerprint,
@@ -67,6 +78,7 @@ import {
   renderLineRunProposal,
   type LineRunProposalView,
 } from './line-run-proposal-view.js';
+import { lineTeamTrialContentDigest } from './line-team-trial.js';
 import { LineTouchGovernanceAdapter } from './line-touch-governance.js';
 import { EncryptedLineWebhookPayloadVault } from './line-webhook-payload-vault.js';
 import { resolveLineWebhookSecrets } from './line-webhook-secrets.js';
@@ -295,7 +307,170 @@ async function quotaSnapshot(p: Pilot) {
   } as const;
 }
 
+/** digest ของทั้งชุด trial — approver ยืนยันค่านี้ (เหมือน proposal digest ของ S2) */
+function trialDigest(runs: Array<{ proposalDigest: string }>): string {
+  return sha256(
+    JSON.stringify(
+      runs.map((run) => run.proposalDigest).sort((left, right) => left.localeCompare(right)),
+    ),
+  );
+}
+
+async function trialRuns(p: Pilot, trialRef: string) {
+  return withTenantDatabaseTransaction(p.database, p.tenantId, (transaction) =>
+    transaction.dlLineRunAuthorization.findMany({
+      where: { tenantId: p.tenantId, trialRef, profile: LINE_TEAM_TRIAL_PROFILE },
+      orderBy: { id: 'asc' },
+    }),
+  );
+}
+
+function intFlag(name: string, fallback: number): number {
+  const value = Number(flag(name) ?? fallback);
+  if (!Number.isInteger(value)) throw new Error(`--${name} ต้องเป็นจำนวนเต็ม`);
+  return value;
+}
+
 const commands: Record<string, (p: Pilot) => Promise<void>> = {
+  async 'trial-allowlist'(p) {
+    const gate = await gateOf(p);
+    const now = new Date();
+    const entry = await p.control.registerAllowlistEntry(
+      actor('TENANT_ADMIN'),
+      {
+        tenantId: p.tenantId,
+        gateId: gate.id,
+        scope: p.scope,
+        recipientFingerprint: requiredFlag('recipient-fingerprint'),
+        recipientProtectedRef: requiredFlag('recipient-ref'),
+        contentRef: LINE_TEAM_TRIAL_CONTENT_CLASS,
+        contentDigest: lineTeamTrialContentDigest(),
+        configDigest: gate.configDigest!,
+        validFrom: now,
+        validUntil: new Date(now.getTime() + intFlag('valid-days', 31) * 86_400_000),
+        approvalAuditRef: requiredFlag('approval-audit-ref'),
+      },
+      now,
+    );
+    process.stdout.write(`${JSON.stringify({ allowlistEntryId: entry.id })}\n`);
+  },
+
+  async 'trial-propose'(p) {
+    const gate = await gateOf(p);
+    const now = new Date();
+    const credential = await withTenantDatabaseTransaction(p.database, p.tenantId, (transaction) =>
+      transaction.dlLineCredentialRef.findFirstOrThrow({ where: { id: p.credentialRefId } }),
+    );
+    const recipients = [];
+    for (const item of requiredFlag('recipients').split(',')) {
+      const [entryId, contact] = item.split('=');
+      const [contactId, identityId] = (contact ?? '').split(':');
+      if (!entryId || !contactId)
+        throw new Error('--recipients ต้องเป็น allowlistEntryId=contactId[:identityId]');
+      const allowlistEntry = await withTenantDatabaseTransaction(
+        p.database,
+        p.tenantId,
+        (transaction) =>
+          transaction.dlLineAllowlistEntry.findFirstOrThrow({ where: { id: entryId } }),
+      );
+      recipients.push({ allowlistEntry, contactId, ...(identityId ? { identityId } : {}) });
+    }
+    const trialRef = `trial-${randomUUID()}`;
+    const proposed = await p.control.proposeTeamTrial(
+      actor('PLATFORM_OPERATOR'),
+      {
+        tenantId: p.tenantId,
+        gate,
+        credential,
+        recipients,
+        trialRef,
+        proposedAt: now,
+        ttlDays: intFlag('days', 30),
+        caps: {
+          perRecipientPer24h: intFlag('per-recipient', 20),
+          per24h: intFlag('per-day', 100),
+          lifetime: intFlag('lifetime', 3000),
+        },
+      },
+      now,
+    );
+    if (proposed.status !== 'APPLIED')
+      throw new Error(`เสนอ trial ไม่ได้: ${JSON.stringify(proposed)}`);
+    const runs = proposed.value;
+    process.stdout.write(
+      `${JSON.stringify({
+        trialRef,
+        trialDigest: trialDigest(runs),
+        recipients: runs.length,
+        expiresAt: runs[0]?.expiresAt.toISOString(),
+        caps: {
+          perRecipientPer24h: runs[0]?.capRecipientPer24h,
+          per24h: runs[0]?.capPer24h,
+          lifetime: runs[0]?.capLifetime,
+        },
+      })}\n`,
+    );
+  },
+
+  async 'trial-approve'(p) {
+    const trialRef = requiredFlag('trial-ref');
+    const runs = await trialRuns(p, trialRef);
+    if (runs.length === 0) throw new Error('ไม่พบ trial');
+    if (trialDigest(runs) !== requiredFlag('digest')) {
+      throw new Error('digest ไม่ตรง trial ปัจจุบัน — ค่าใดค่าหนึ่งเปลี่ยน ต้องเสนอใหม่');
+    }
+    const role = requiredFlag('role');
+    if (role !== 'TENANT_ADMIN' && role !== 'COMPLIANCE')
+      throw new Error('role ต้องเป็น TENANT_ADMIN หรือ COMPLIANCE');
+    const results = [];
+    for (const run of runs) {
+      const approved = await p.control.approveRun(actor(role), p.tenantId, run.id, new Date());
+      results.push(approved.status === 'APPLIED' ? approved.value.state : approved.status);
+    }
+    process.stdout.write(`${JSON.stringify({ trialRef, results })}\n`);
+  },
+
+  async 'trial-status'(p) {
+    const trialRef = flag('trial-ref');
+    const runs = await withTenantDatabaseTransaction(p.database, p.tenantId, (transaction) =>
+      transaction.dlLineRunAuthorization.findMany({
+        where: {
+          tenantId: p.tenantId,
+          profile: LINE_TEAM_TRIAL_PROFILE,
+          ...(trialRef ? { trialRef } : {}),
+        },
+        orderBy: { proposedAt: 'desc' },
+      }),
+    );
+    const gate = await p.control.findGate(p.scope);
+    process.stdout.write(
+      `${JSON.stringify({
+        killed: Boolean(gate?.killed),
+        runs: runs.map((run) => ({
+          trialRef: run.trialRef,
+          id: run.id,
+          state: run.state,
+          expiresAt: run.expiresAt.toISOString(),
+        })),
+      })}\n`,
+    );
+  },
+
+  async 'trial-close'(p) {
+    const trialRef = requiredFlag('trial-ref');
+    const operator = actor('PLATFORM_OPERATOR');
+    const now = new Date();
+    let revoked = 0;
+    for (const run of await trialRuns(p, trialRef)) {
+      if (run.state === 'PROPOSED' || run.state === 'APPROVED') {
+        if (await p.control.closeRun(operator, p.tenantId, run.id, 'REVOKED', now)) revoked += 1;
+      }
+    }
+    const gate = await gateOf(p);
+    if (!gate.killed) await p.control.kill(operator, gate, 'OPERATOR_KILL', now);
+    process.stdout.write(`${JSON.stringify({ trialRef, revoked, killed: true })}\n`);
+  },
+
   async 'capture-recipient'(p) {
     const captured = await captureLineRecipientFromWebhook({
       database: p.database,

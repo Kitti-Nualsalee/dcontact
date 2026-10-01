@@ -19,6 +19,8 @@ import { ConsoleShell } from './shell/console-shell.js';
 import { createEmbedOriginApi } from './dphone-embedding/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
 import { createTeamScopeApi } from './team-scopes/api.js';
+import { createLineInboundApi } from './line-inbound/api.js';
+import { LineInbound } from './line-inbound/line-inbound.js';
 import './style.css';
 
 const root = document.getElementById('root');
@@ -71,6 +73,27 @@ function ConsoleE2eRoot() {
           embedBaseUrl="https://api.dcontact.test"
           dev={false}
           teamScopes={createTeamScopeApi({
+            baseUrl:
+              (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
+            accessToken: () => 'e2e-access-token',
+          })}
+        />
+      </ConsoleShell>
+    );
+  }
+  if (view === 'line-inbound') {
+    // #566/#567: หน้า LINE inbound ของ pilot — e2e harness ใช้ API จำลองที่ VITE_API_BASE_URL
+    return (
+      <ConsoleShell
+        apiBaseUrl={
+          (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin
+        }
+        accessToken={() => 'e2e-access-token'}
+        tenantAlias={url.searchParams.get('tenant') ?? undefined}
+        appId="journeys"
+      >
+        <LineInbound
+          api={createLineInboundApi({
             baseUrl:
               (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
             accessToken: () => 'e2e-access-token',

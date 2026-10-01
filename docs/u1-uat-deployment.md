@@ -601,6 +601,28 @@ reference ต่อคำสั่ง (actor/digest ไม่ใช่ secret) �
    หน้าแจ้งว่าไม่ได้เปิด
 5. kill ขารับที่ edge: `sudo UAT_LINE_PUBLIC_HOST=<host> bash vm1-nginx-line-webhook.sh --remove`
 
+### 15.1.2 ช่วงทีมทดสอบ (team trial, #567)
+
+เริ่มได้หลัง #548 ออก marker `OUTBOUND_DELIVERY_LINE_PILOT_READY` (RB01 revoke credential ของ pilot แล้ว)
+
+1. ออก **long-lived channel access token** ใน LINE Console (ข้อตัดสินใจ #567: v2.1 มีอายุ ≤30 วันจึงครอบ trial 30 วันไม่ได้)
+   แล้ว `sudo vm2-line-secrets.sh --rotate` → `uat-deploy.sh line-reload <sha>` →
+   `CXA_S2_CREDENTIAL_KIND=LONG_LIVED CXA_S2_LONG_LIVED_EXCEPTION_REF=exception:gh-567-long-lived-token CXA_S2_OPERATOR_REF=... CXA_S2_COMPLIANCE_REF=... uat-deploy.sh line-run <sha> line-pilot-setup credential`
+   (ตั้ง `UAT_LINE_CREDENTIAL_REF_ID` ตามผล) — exception นี้ใช้กับ credential ของ trial นี้เท่านั้น
+2. ปลด kill ของ gate (Compliance) และเปิด technical switch ตามขั้นตอนเดิมของ pilot
+3. ทีมแต่ละคนทักเข้า OA → `line-run <sha> line-pilot-cli capture-recipient --since <iso>` → `trial-allowlist`
+   (Tenant Admin, ใช้ได้ 31 วัน) — ทุกคนต้องมี contact ใน Contact Governance
+4. `trial-propose --recipients <allowlistEntryId=contactId,...>` (Platform Operator) → ได้ `trialRef` + `trialDigest`
+5. `trial-approve --role TENANT_ADMIN ...` และ `--role COMPLIANCE ...` คนละ ref โดยยืนยัน `--digest` เดียวกัน
+6. `touch /opt/dcontact-uat/line-team-trial.enabled` แล้ว `uat-deploy.sh deploy <sha>` — `line-webhook` ได้ token,
+   ทางออกผ่าน relay และ worker ต่อเนื่อง; `line-status` แสดง `teamTrial: true`
+7. ทีมตอบกลับจากหน้า LINE inbound (text ≤500 ตัวอักษร, ≤20/คน/24 ชม. ตาม authorization) และกด kill ได้ทุกคน
+
+ปิดงาน (ครบ 30 วันหรือเลิกก่อน): `line-run <sha> line-pilot-cli trial-close --trial-ref <ref>` (revoke ทั้งชุด + kill) →
+`rm /opt/dcontact-uat/line-team-trial.enabled` → `uat-deploy.sh deploy <sha>` → **revoke token ใน LINE Console ทันที**
+(long-lived ไม่หมดอายุเอง)
+ยก kill ระหว่าง trial ทำได้ทาง CLI + approval เท่านั้น (ไม่มีปุ่มใน Console)
+
 ### 15.2 หมุน secret และปิด
 
 - หมุน token/channel secret (เช่น v4 → v5): `sudo vm2-line-secrets.sh --rotate` → `uat-deploy.sh line-reload <sha>` →

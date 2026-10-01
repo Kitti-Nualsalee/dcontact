@@ -39,13 +39,15 @@ import type { LineControlActor, LineControlPlane, LineRunGrant } from './line-co
 import type { LineGateScope } from './line-control-repository.js';
 import type { LineQuotaSnapshot } from './line-control-policy.js';
 import {
-  buildLineCanonicalRequest,
+  buildLineCanonicalRequestFrom,
   deriveLineRetryKey,
   isLineRetryKey,
+  LINE_FIXTURE_CONTENT_SOURCE,
   lineBackoffMs,
-  lineContentDigest,
   lineRetryWindowExpired,
   type LineCanonicalRequest,
+  type LineContentSource,
+  type LineResolvedContent,
 } from './line-push-request.js';
 import {
   classifyLineResponse,
@@ -80,6 +82,8 @@ export interface LineOutboundAdapterOptions {
   credentials: LineAccessTokenResolver;
   actor: LineControlActor;
   configDigest: string;
+  /** #567: แหล่งเนื้อหาของ `contentRef` — ไม่ระบุ = fixture ชุดปิดของ S2 เท่านั้น */
+  content?: LineContentSource;
   now?: () => Date;
   id?: () => string;
 }
@@ -142,17 +146,15 @@ export class LineOutboundAdapter {
     if (entry.state === 'SUBMITTED') return { status: 'NOOP', reason: 'ALREADY_ACCEPTED' };
     if (entry.state !== 'QUEUED') return this.reconcile(command);
 
-    const canonical = buildLineCanonicalRequest({
-      contentRef: entry.contentRef,
-      recipientFingerprint: command.recipientFingerprint,
-    });
+    const content = await this.content(entry);
+    const canonical = buildLineCanonicalRequestFrom(content, command.recipientFingerprint);
     const grant = await this.options.control.beginRun(this.options.actor, {
       tenantId: command.tenantId,
       scope: command.scope,
       runAuthorizationId: command.runAuthorizationId,
       deliveryId: command.deliveryId,
       recipientFingerprint: command.recipientFingerprint,
-      contentDigest: lineContentDigest(entry.contentRef),
+      contentDigest: content.gateDigest,
       configDigest: this.options.configDigest,
       ...(command.quota ? { quota: command.quota } : {}),
       at: this.now(),
@@ -162,7 +164,15 @@ export class LineOutboundAdapter {
     if (grant.barrier === 'POST') return this.reconcile(command, grant);
 
     await this.emit(entry, 'PRE_BARRIER', command.correlationId);
-    return this.attempt(entry, command, canonical, grant, 1);
+    return this.attempt(entry, command, canonical, grant, 1, content);
+  }
+
+  /** เนื้อหาของแถวนี้ — resolve ครั้งเดียวต่อการเรียกและใช้ทั้ง gate และ request (ห้ามต่างกัน) */
+  private content(entry: DlOutboxEntry): Promise<LineResolvedContent> {
+    return (this.options.content ?? LINE_FIXTURE_CONTENT_SOURCE).resolve(
+      entry.tenantId,
+      entry.contentRef,
+    );
   }
 
   /**
@@ -174,10 +184,8 @@ export class LineOutboundAdapter {
     if (entry.state === 'SETTLED') return { status: 'NOOP', reason: 'ALREADY_SETTLED' };
     if (entry.state === 'SUBMITTED') return { status: 'NOOP', reason: 'ALREADY_ACCEPTED' };
 
-    const canonical = buildLineCanonicalRequest({
-      contentRef: entry.contentRef,
-      recipientFingerprint: command.recipientFingerprint,
-    });
+    const content = await this.content(entry);
+    const canonical = buildLineCanonicalRequestFrom(content, command.recipientFingerprint);
     const history = await this.attempts.listForDelivery(command.tenantId, command.deliveryId);
     const first = history[0];
     const attemptNo = history.length + 1;
@@ -194,7 +202,7 @@ export class LineOutboundAdapter {
           runAuthorizationId: command.runAuthorizationId,
           deliveryId: command.deliveryId,
           recipientFingerprint: command.recipientFingerprint,
-          contentDigest: lineContentDigest(entry.contentRef),
+          contentDigest: content.gateDigest,
           configDigest: this.options.configDigest,
           ...(command.quota ? { quota: command.quota } : {}),
           at: this.now(),
@@ -203,7 +211,7 @@ export class LineOutboundAdapter {
       })());
     if (!grant) return { status: 'DENIED', code: 'LINE_GATE_AUTHORIZATION_DENIED' };
 
-    return this.attempt(entry, command, canonical, grant, attemptNo);
+    return this.attempt(entry, command, canonical, grant, attemptNo, content);
   }
 
   /** หนึ่ง attempt = หนึ่ง HTTP request + หนึ่ง receipt เสมอ ไม่ว่าผลจะเป็นอะไร */
@@ -213,6 +221,7 @@ export class LineOutboundAdapter {
     canonical: LineCanonicalRequest,
     grant: LineRunGrant,
     attemptNo: number,
+    content: LineResolvedContent,
   ): Promise<LineSubmitOutcome> {
     const reserved = await this.options.control.reserveProviderAttempt(
       this.options.actor,
@@ -222,7 +231,7 @@ export class LineOutboundAdapter {
         runAuthorizationId: command.runAuthorizationId,
         deliveryId: command.deliveryId,
         recipientFingerprint: command.recipientFingerprint,
-        contentDigest: lineContentDigest(entry.contentRef),
+        contentDigest: content.gateDigest,
         configDigest: this.options.configDigest,
         ...(command.quota ? { quota: command.quota } : {}),
         at: this.now(),
@@ -311,7 +320,7 @@ export class LineOutboundAdapter {
         attemptNo,
       );
     }
-    return this.markReconciling(entry, command, classification.outcomeCode, attemptNo);
+    return this.markReconciling(entry, command, classification.outcomeCode, attemptNo, content);
   }
 
   /** provider รับ request แล้ว: Attempt 1 / Touch 0 / refund 0 (#361 §B) */
@@ -391,6 +400,7 @@ export class LineOutboundAdapter {
     command: LineSubmitCommand,
     outcomeCode: LineProviderOutcomeCode,
     attemptNo: number,
+    content: LineResolvedContent,
   ): Promise<LineSubmitOutcome> {
     await this.outbox.advance(command.tenantId, command.deliveryId, ['SUBMITTING', 'RECONCILING'], {
       state: 'RECONCILING',
@@ -404,7 +414,7 @@ export class LineOutboundAdapter {
           runAuthorizationId: command.runAuthorizationId,
           deliveryId: command.deliveryId,
           recipientFingerprint: command.recipientFingerprint,
-          contentDigest: lineContentDigest(entry.contentRef),
+          contentDigest: content.gateDigest,
           configDigest: this.options.configDigest,
           at: this.now(),
         },

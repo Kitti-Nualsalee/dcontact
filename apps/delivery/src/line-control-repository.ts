@@ -89,6 +89,14 @@ export interface ProposeLineRunInput {
   proposedBy: string;
   proposedAt: Date;
   expiresAt: Date;
+  /** #567: มีเฉพาะ profile `S2_LINE_TEAM_TRIAL_V1` */
+  profile?: string;
+  capRecipientPer24h?: number;
+  capPer24h?: number;
+  capLifetime?: number;
+  trialRef?: string;
+  contactId?: string;
+  identityId?: string | null;
 }
 
 export type LineRunApprovalRole = 'TENANT_ADMIN' | 'COMPLIANCE';

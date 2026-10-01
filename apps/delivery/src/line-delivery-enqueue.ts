@@ -51,6 +51,8 @@ export interface LineDeliveryEnqueueOptions {
   id?: () => string;
   /** inject ได้เพื่อให้เทสต์ deterministic; production ใช้ `randomUUID` (hex UUID ตัวพิมพ์เล็ก) */
   requestKey?: () => string;
+  /** #567: contentRef ที่รับได้ — ไม่ระบุ = fixture ชุดปิดของ S2 เท่านั้น */
+  approvedContent?: (contentRef: string) => boolean;
 }
 
 /** business identity ของคำสั่ง — correlation/causation เป็น trace จึงไม่อยู่ใน hash */
@@ -80,6 +82,7 @@ export class LineDeliveryEnqueue {
   private readonly outbox: OutboxRepository;
   private readonly id: () => string;
   private readonly requestKey: () => string;
+  private readonly approvedContent: ((contentRef: string) => boolean) | undefined;
 
   constructor(
     database: PrismaClient,
@@ -89,10 +92,11 @@ export class LineDeliveryEnqueue {
     this.outbox = new OutboxRepository(database, 'LINE_MESSAGING_API');
     this.id = options.id ?? randomUUID;
     this.requestKey = options.requestKey ?? randomUUID;
+    this.approvedContent = options.approvedContent;
   }
 
   async enqueue(command: EnqueueLineDeliveryCommand): Promise<EnqueueLineDeliveryResult> {
-    if (!isLineFixtureRef(command.contentRef)) {
+    if (!(this.approvedContent ?? isLineFixtureRef)(command.contentRef)) {
       return { status: 'ERROR', code: 'CONTENT_NOT_APPROVED' };
     }
     const inputHash = lineInputHash(command);

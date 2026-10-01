@@ -23,6 +23,8 @@ DIGEST_REF='^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
 
 # #565: overlay `uat-line` เปิดด้วยไฟล์ flag นอก release — release มีไฟล์ overlay เสมอแต่ไม่ถูกใช้ถ้าไม่มี flag
 LINE_FLAG="$UAT_ROOT/line-pilot.enabled"
+# #567: team trial ซ้อนบน overlay `uat-line` — ต้องมีทั้งสอง flag
+TRIAL_FLAG="$UAT_ROOT/line-team-trial.enabled"
 
 usage() {
   echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|migrate-object-storage|deploy|smoke|record|current|line-status|line-run|line-reload|rollback-target|rollback> [sha] [file|--token-stdin] [--check]' >&2
@@ -54,6 +56,12 @@ is_line() {
     fail 'RELEASE_LINE_FILE_MISSING'
 }
 
+is_trial() {
+  [[ -f "$TRIAL_FLAG" ]] || return 1
+  is_line "$1" || fail 'TRIAL_REQUIRES_LINE'
+  [[ -f "$1/docker-compose.uat.line-trial.yml" ]] || fail 'RELEASE_TRIAL_FILE_MISSING'
+}
+
 compose() {
   local dir="$1"
   shift
@@ -62,6 +70,7 @@ compose() {
     [[ -x "$binary" ]] || fail 'COMPOSE_3VM_BINARY_MISSING'
     local files=(-f "$dir/docker-compose.uat.yml" -f "$dir/docker-compose.uat.3vm.yml")
     if is_line "$dir"; then files+=(-f "$dir/docker-compose.uat.line.yml"); fi
+    if is_trial "$dir"; then files+=(-f "$dir/docker-compose.uat.line-trial.yml"); fi
     "$binary" --project-name "$PROJECT" \
       --project-directory "$dir" \
       --env-file "$UAT_ROOT/uat.env" \
@@ -230,6 +239,12 @@ case "$cmd" in
     # #565: ไม่มี flag = container line-* เป็น orphan และถูกถอดที่นี่; runner/relay ไม่รันค้าง (profile line-pilot)
     services=(object-storage-lifecycle object-storage-migrated-expiry api proxy)
     if is_line "$dir"; then services+=(line-webhook); fi
+    # #567: trial = relay รันตลอด; ไม่มี trial = ถอด relay ที่อาจค้างจาก trial ก่อนหน้า (runner เรียกขึ้นใหม่เองได้)
+    if is_trial "$dir"; then
+      services+=(line-egress)
+    elif is_line "$dir"; then
+      compose "$dir" --profile line-pilot rm -sf line-egress >/dev/null
+    fi
     compose "$dir" up -d --wait --no-deps --remove-orphans "${services[@]}"
     echo '{"type":"u1.uat.deploy","step":"deploy","status":"PASS"}'
     ;;
@@ -284,9 +299,10 @@ case "$cmd" in
     # #565: สถานะ overlay ของ release ที่ระบุ (ไม่มีค่า secret) — enabled ต้องตรงกับ container ที่รันอยู่
     dir="$(release_dir "${1:?sha}")"
     if is_line "$dir"; then enabled=true; else enabled=false; fi
+    if is_trial "$dir"; then trial=true; else trial=false; fi
     running="$(docker ps --filter "label=com.docker.compose.project=$PROJECT" \
       --filter 'label=com.docker.compose.service=line-webhook' --format '{{.Names}}' | wc -l | tr -d ' ')"
-    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"line-status\",\"enabled\":$enabled,\"lineWebhookContainers\":$running}"
+    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"line-status\",\"enabled\":$enabled,\"teamTrial\":$trial,\"lineWebhookContainers\":$running}"
     ;;
 
   line-run)

@@ -57,3 +57,83 @@ test('#566 list: ส่ง cursor ต่อหน้า และ error คง s
     (error: unknown) => error instanceof LineInboundApiError && error.status === 403,
   );
 });
+
+test('#567 trialStatus: 404 = ไม่ได้เปิด trial (null), 200 = สถานะ', async () => {
+  const off = fakeFetch(() => json(404, {}));
+  assert.equal(
+    await createLineInboundApi({
+      baseUrl: '',
+      accessToken: () => 't',
+      fetch: off.fetch,
+    }).trialStatus(),
+    null,
+  );
+  assert.equal(off.calls[0]?.url, '/api/v1/line-pilot/trial');
+  const status = {
+    active: true,
+    killed: false,
+    expiresAt: null,
+    recipients: 5,
+    last24h: 2,
+    per24h: 100,
+    perRecipientPer24h: 20,
+  };
+  const on = fakeFetch(() => json(200, status));
+  assert.deepEqual(
+    await createLineInboundApi({
+      baseUrl: '',
+      accessToken: () => 't',
+      fetch: on.fetch,
+    }).trialStatus(),
+    status,
+  );
+});
+
+test('#567 reply: ส่ง text + idempotencyKey แบบ POST และแปลง code ทั้งรูปตรงและรูปที่ Nest ห่อ', async () => {
+  const sent = fakeFetch(() => json(200, { status: 'SENT', deliveryId: 'dlv_1' }));
+  const api = createLineInboundApi({ baseUrl: '', accessToken: () => 't', fetch: sent.fetch });
+  assert.deepEqual(await api.reply('id-1', 'hi', 'reply-key-1'), {
+    status: 'SENT',
+    deliveryId: 'dlv_1',
+  });
+  assert.equal(sent.calls[0]?.url, '/api/v1/line-pilot/inbound/id-1/reply');
+  assert.equal(sent.calls[0]?.init.method, 'POST');
+  assert.deepEqual(JSON.parse(String(sent.calls[0]?.init.body)), {
+    text: 'hi',
+    idempotencyKey: 'reply-key-1',
+  });
+  for (const body of [
+    { status: 'FAILED', code: 'CAP_EXCEEDED' },
+    { message: { code: 'CAP_EXCEEDED' } },
+  ]) {
+    const failed = fakeFetch(() => json(429, body));
+    assert.deepEqual(
+      await createLineInboundApi({
+        baseUrl: '',
+        accessToken: () => 't',
+        fetch: failed.fetch,
+      }).reply('id-1', 'hi', 'reply-key-2'),
+      { status: 'FAILED', code: 'CAP_EXCEEDED' },
+    );
+  }
+  const expired = fakeFetch(() => json(401, {}));
+  await assert.rejects(
+    createLineInboundApi({ baseUrl: '', accessToken: () => 't', fetch: expired.fetch }).reply(
+      'id-1',
+      'hi',
+      'k-12345678',
+    ),
+    LineInboundApiError,
+  );
+});
+
+test('#567 kill: POST และ error คง status', async () => {
+  const ok = fakeFetch(() => json(200, { killed: true }));
+  await createLineInboundApi({ baseUrl: '', accessToken: () => 't', fetch: ok.fetch }).kill();
+  assert.equal(ok.calls[0]?.url, '/api/v1/line-pilot/kill');
+  const forbidden = fakeFetch(() => json(403, {}));
+  await assert.rejects(
+    createLineInboundApi({ baseUrl: '', accessToken: () => 't', fetch: forbidden.fetch }).kill(),
+    (error: unknown) => error instanceof LineInboundApiError && error.status === 403,
+  );
+});
