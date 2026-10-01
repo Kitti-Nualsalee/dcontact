@@ -118,6 +118,16 @@ test('#566 read API ต้อง login + role admin + tenant ของ pilot แ
     fetch(`${base}/api/v1/line-pilot/inbound${query}`, {
       headers: token ? { authorization: `Bearer ${token}` } : {},
     });
+  const access = (token?: string) =>
+    fetch(`${base}/api/v1/line-pilot/access`, {
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+    });
+  assert.equal((await access()).status, 401);
+  assert.equal((await access('maker')).status, 403);
+  assert.equal((await access('other-admin')).status, 403);
+  assert.equal((await access('admin')).status, 204);
+  // ตรวจสิทธิ์อย่างเดียว: ไม่เรียก reader (ไม่อ่านข้อความ ไม่ audit)
+  assert.equal(listed.length, 0);
   assert.equal((await get()).status, 401);
   assert.equal((await get('forged')).status, 401);
   assert.equal((await get('maker')).status, 403);
