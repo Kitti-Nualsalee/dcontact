@@ -114,3 +114,30 @@ export function LineInbound({ api }: { api: LineInboundApi }) {
     </main>
   );
 }
+
+/**
+ * ลิงก์ไปหน้า inbound — แสดงเฉพาะเมื่อ route ตอบได้และบัญชีนี้มีสิทธิ์ (ไม่มี overlay = 404 = ไม่แสดงอะไร)
+ * probe ล้มด้วยเหตุอื่นก็ไม่แสดง: ไม่อ้างว่ามี LINE pilot ถ้ายืนยันไม่ได้
+ */
+export function LineInboundLink({ api, href }: { api: LineInboundApi; href: string }) {
+  const { t } = useTranslation('integrations');
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .availability()
+      .then((availability) => {
+        if (!cancelled) setVisible(availability === 'AVAILABLE');
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+  if (!visible) return null;
+  return (
+    <p className="line-inbound-link">
+      <a href={href}>{t('lineInbound.openLink')}</a>
+    </p>
+  );
+}

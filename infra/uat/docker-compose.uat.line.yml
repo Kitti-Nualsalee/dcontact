@@ -33,7 +33,8 @@ services:
       DATABASE_URL: postgresql://dcontact_app:${UAT_APP_DB_PASSWORD:?UAT_APP_DB_PASSWORD is required}@db-relay:5432/dcontact_uat?schema=public
       LINE_WEBHOOK_SECRET_SOURCE: file
       LINE_CREDENTIAL_DIR: /run/secrets
-      LINE_WEBHOOK_TENANT_ID: ${UAT_LINE_TENANT_ID:?UAT_LINE_TENANT_ID is required}
+      # pilot ใช้ tenant ของ UAT เอง (UUID ไม่ใช่ slug) — บัญชี admin ของ UAT ใช้หน้า inbound ได้ (#566)
+      LINE_WEBHOOK_TENANT_ID: ${UAT_TENANT_ID:?UAT_TENANT_ID is required}
       LINE_WEBHOOK_CHANNEL_ACCOUNT_ID: ${UAT_LINE_CHANNEL_ACCOUNT_ID:?UAT_LINE_CHANNEL_ACCOUNT_ID is required}
       # ว่างได้ตอนเปิดครั้งแรก (ยังไม่รู้ bot ID จนรัน `line-run ... bot-info`) — line-webhook บูตไม่ผ่านถ้าว่าง
       LINE_WEBHOOK_DESTINATION: ${UAT_LINE_DESTINATION:-}
@@ -91,7 +92,7 @@ services:
       LINE_PILOT_MIGRATIONS_DIR: /ops/prisma/migrations
       LINE_PILOT_REGISTRY_PATH: /ops/scripts/cxa-s2-readiness.mjs
       LINE_WEBHOOK_PAYLOAD_KEY_REF: ${UAT_LINE_PAYLOAD_KEY_REF:?UAT_LINE_PAYLOAD_KEY_REF is required}
-      CXA_S2_PILOT_TENANT_ID: ${UAT_LINE_TENANT_ID:?UAT_LINE_TENANT_ID is required}
+      CXA_S2_PILOT_TENANT_ID: ${UAT_TENANT_ID:?UAT_TENANT_ID is required}
       CXA_S2_PILOT_SENDER: ${UAT_LINE_SENDER_IDENTITY_ID:-}
       CXA_S2_CREDENTIAL_REF_ID: ${UAT_LINE_CREDENTIAL_REF_ID:-}
       # reference ต่อคำสั่งจาก shell ของ operator (`NAME=... uat-deploy.sh line-run ...`) — actor/digest ไม่ใช่ secret

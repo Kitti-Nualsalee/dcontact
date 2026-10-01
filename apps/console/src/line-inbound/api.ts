@@ -44,10 +44,11 @@ export function createLineInboundApi(options: {
   fetch?: typeof globalThis.fetch;
 }): LineInboundApi {
   const http = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const base = options.baseUrl.replace(/\/+$/, '');
   async function get(query: URLSearchParams): Promise<Response> {
     const token = options.accessToken();
     const suffix = query.size > 0 ? `?${query.toString()}` : '';
-    return http(`${options.baseUrl}${INBOUND}${suffix}`, {
+    return http(`${base}${INBOUND}${suffix}`, {
       headers: token ? { authorization: `Bearer ${token}` } : {},
     });
   }

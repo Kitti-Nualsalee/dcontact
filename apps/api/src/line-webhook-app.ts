@@ -45,6 +45,8 @@ import {
   type ApiRuntimeProfile,
 } from './runtime-profile.js';
 
+const TENANT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 export const LINE_WEBHOOK_PROFILE_STATUS = Symbol('LINE_WEBHOOK_PROFILE_STATUS');
 
 export interface LineWebhookProfileStatus {
@@ -123,6 +125,9 @@ export async function bootstrapLineWebhook(
   });
   const prisma = new PrismaClient();
   const tenantId = required(environment, 'LINE_WEBHOOK_TENANT_ID');
+  // tenant ID ไม่ใช่ slug: RLS และ `tenant_id` ใน token เป็น UUID — slug ทำให้ ingress ล้มและ read API 403 ทุกครั้ง
+  if (!TENANT_ID.test(tenantId))
+    throw new Error('LINE_WEBHOOK_TENANT_ID must be a tenant UUID, not a slug');
   const payloadKeyRef = required(environment, 'LINE_WEBHOOK_PAYLOAD_KEY_REF');
   const ingress = new LineWebhookIngress(prisma, {
     tenantId,

@@ -565,7 +565,8 @@ Caddy (`Caddyfile.3vm.line`) ส่ง `POST /webhook/line` ไป `line-webhook
 
 ### 15.1 เปิดครั้งแรก
 
-1. tenant ของ pilot สร้างด้วย `uat-deploy.sh provision` (ไม่ใช้ `line-pilot-setup tenant` เพราะ runner ใช้ `dcontact_app`)
+1. tenant ของ pilot คือ tenant ของ UAT เอง (`UAT_TENANT_ID` — UUID ไม่ใช่ slug เช่น `dcontact-uat`) ที่ provision แล้ว;
+   ไม่ใช้ `line-pilot-setup tenant` (runner ใช้ `dcontact_app`) และ `line-webhook` บูตไม่ผ่านถ้าค่าไม่ใช่ UUID
 2. ผู้ใช้ revoke credential เดิมและออก token ใหม่ใน LINE Console แล้ว copy `infra/uat/operator/vm2-line-secrets.sh`
    ขึ้น VM2 (เหมือน script อื่นใน `operator/`) และรัน `sudo ./vm2-line-secrets.sh` — ใส่ token และ channel secret
    ทาง stdin; script สุ่ม payload key และตั้งไฟล์เป็น `0400` ของ uid 10001
@@ -589,6 +590,17 @@ reference ต่อคำสั่ง (actor/digest ไม่ใช่ secret) �
 ชื่อ CLI ที่รับได้: `line-pilot-setup`, `line-provider-runner`, `line-pilot-cli` — state/recipient อยู่ใน volume
 `line-pilot-state` (`0600`) และ evidence bundle อยู่ใต้ `provider/` ของ volume นั้น
 
+### 15.1.1 ขารับจาก internet และหน้า LINE inbound (#566)
+
+1. ทีม network ทำ DNS สาธารณะ + NAT 443 → VM1 ให้ hostname ใต้ `*.osd.co.th` (ต้องไม่ใช่ `dcontact-uat.osd.co.th`)
+2. บน VM1: `sudo UAT_LINE_PUBLIC_HOST=<host> bash vm1-nginx-line-webhook.sh --check` แล้ว `--apply` — host สาธารณะรับแค่
+   `POST /webhook/line` (path อื่น 404, method อื่น 403); server ของ LAN ไม่ถูกแตะ
+3. ตั้ง webhook URL ใน LINE Console เป็น `https://<host>/webhook/line` แล้วกด Verify (`{events: []}` ตอบ 200)
+4. ผู้ใช้ role `admin` ของ tenant UAT เปิด `/?tenant=<alias>&view=line-inbound` (หรือลิงก์ในหน้า Journey ที่ขึ้นเมื่อมีสิทธิ์)
+   — read-only, ผู้ส่งเป็น fingerprint, ทุกการเปิดบันทึก audit `LINE_PILOT_INBOUND_VIEWED`; ไม่มี overlay = ลิงก์ไม่ขึ้นและ
+   หน้าแจ้งว่าไม่ได้เปิด
+5. kill ขารับที่ edge: `sudo UAT_LINE_PUBLIC_HOST=<host> bash vm1-nginx-line-webhook.sh --remove`
+
 ### 15.2 หมุน secret และปิด
 
 - หมุน token/channel secret (เช่น v4 → v5): `sudo vm2-line-secrets.sh --rotate` → `uat-deploy.sh line-reload <sha>` →
@@ -603,6 +615,10 @@ reference ต่อคำสั่ง (actor/digest ไม่ใช่ secret) �
 ตรวจแล้วนอก VM: `docker compose config` ของ base + 3vm + line ด้วย env จำลอง, `haproxy -c`, `caddy validate`,
 และ relay บน Docker จริง — runner ผ่าน relay ได้ HTTP 401 จาก `api.line.me` (TLS ตรวจ cert ของ LINE ผ่าน),
 SNI อื่นถูกตัด, ต่อ internet ตรงไม่ได้ และ container บน `internal` resolve `api.line.me` ไม่ได้
+
+#566 ตรวจแล้วนอก VM: `nginx -t` ของ server block สาธารณะ (nginx 1.27) และพฤติกรรมกับ upstream จำลอง — `POST /webhook/line`
+ส่งต่อ, `GET` 403, path อื่น 404; reader บน Postgres/RLS จริง (ingress → เห็นทันทีไม่มี worker, redelivery ไม่ซ้ำ, ไม่มี
+ID ดิบ, audit ต่อการอ่าน, tenant อื่นไม่เห็น) และ read API (401/403/200, webhook ยัง public)
 
 ยังไม่ได้ verify: VM2 ออก `api.line.me:443` ได้ในเครือข่ายองค์กร (ADR-031 gate 1), build image ที่มี
 `dist/line-webhook-main.js` และ CLI ของ delivery, secret mount กับ uid 10001 บน VM2 จริง และ webhook จาก LINE จริง

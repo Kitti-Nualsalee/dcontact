@@ -156,6 +156,7 @@
       "forbidden": "This account cannot view LINE pilot messages",
       "expired": "Your session expired. Please sign in again.",
       "error": "Could not load messages"
-    }
+    },
+    "openLink": "View inbound LINE messages (pilot)"
   }
 }

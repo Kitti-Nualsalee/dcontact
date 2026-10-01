@@ -15,6 +15,8 @@ import { parseGovernanceLocation, type GovernanceViewer } from './governance-mod
 import { PreferenceCenter } from './preference-center.js';
 import { createJourneyAuthoringApi } from './journey-authoring/api.js';
 import { createUatApi } from './journey-authoring/uat-api.js';
+import { createLineInboundApi } from './line-inbound/api.js';
+import { LineInbound, LineInboundLink } from './line-inbound/line-inbound.js';
 import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.js';
 import { clearRecovery } from './journey-authoring/state.js';
 import {
@@ -91,11 +93,13 @@ export function ConsoleAuthRoot() {
   const governanceView = view === 'governance';
   const journeyView = view === 'journeys';
   const embeddingView = view === 'dphone-embedding';
+  // #566: read-only ของ LINE pilot — มีเฉพาะ UAT ที่ใส่ overlay `uat-line` (ไม่มี = หน้าแจ้งว่าไม่ได้เปิด)
+  const lineInboundView = view === 'line-inbound';
   const contactId = preferenceView ? (url.searchParams.get('contactId') ?? undefined) : undefined;
   try {
     tenantAlias = resolveTenantAlias(url);
     contextId =
-      preferenceView || governanceView || journeyView || embeddingView
+      preferenceView || governanceView || journeyView || embeddingView || lineInboundView
         ? undefined
         : resolveConsoleContextId(url);
   } catch {
@@ -134,6 +138,8 @@ export function ConsoleAuthRoot() {
       <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
         {journeyView ? (
           <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+        ) : lineInboundView ? (
+          <LineInboundSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : embeddingView ? (
           <DphoneEmbeddingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : governanceView ? (
@@ -308,6 +314,44 @@ function DphoneEmbeddingSurface({
   );
 }
 
+/** #566: สิทธิ์ (role admin ของ tenant pilot) ตัดสินที่ `line-webhook` — Console แสดงผลตาม status เท่านั้น */
+function LineInboundSurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
+  const auth = useAuth();
+  const accessToken = auth.user?.access_token;
+  const api = useMemo(
+    () => createLineInboundApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
+    return (
+      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
+    );
+  if (auth.error || !auth.isAuthenticated || !accessToken)
+    return (
+      <Status
+        title="LINE inbound (pilot)"
+        detail="เข้าสู่ระบบก่อนดูข้อความขาเข้า"
+        action={() => void auth.signinRedirect()}
+      />
+    );
+  return (
+    <ConsoleShell
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId="journeys"
+    >
+      <LineInbound api={api} />
+    </ConsoleShell>
+  );
+}
+
 /**
  * J5.6 (#344): Journey authoring — สิทธิ์ทั้งหมดตัดสินที่ API ด้วย capability ของ IAM ไม่อ่าน role ใน
  * token; session recovery ผูก tenant alias + session และถูกล้างเมื่อ logout
@@ -321,6 +365,10 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
   );
   const uatApi = useMemo(
     () => createUatApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
+  const lineInboundApi = useMemo(
+    () => createLineInboundApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
     [accessToken, apiBaseUrl],
   );
   if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
@@ -346,6 +394,10 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
       tenantAlias={tenantAlias}
       appId="journeys"
     >
+      <LineInboundLink
+        api={lineInboundApi}
+        href={`/?tenant=${encodeURIComponent(tenantAlias)}&view=line-inbound`}
+      />
       <JourneyAuthoringConsole
         api={api}
         uatApi={uatApi}
