@@ -29,7 +29,9 @@ export interface LineWebhookSecrets {
 export class LineWebhookSecretError extends Error {
   readonly code = 'CREDENTIAL_UNAVAILABLE';
 
-  constructor(detail: 'MODE_UNKNOWN' | 'KEYCHAIN_UNAVAILABLE' | 'PAYLOAD_KEY_INVALID') {
+  constructor(
+    detail: 'MODE_UNKNOWN' | 'KEYCHAIN_UNAVAILABLE' | 'FILE_UNAVAILABLE' | 'PAYLOAD_KEY_INVALID',
+  ) {
     super(`webhook secret ใช้ไม่ได้: ${detail}`);
     this.name = 'LineWebhookSecretError';
   }
@@ -63,7 +65,7 @@ export async function resolveLineWebhookSecrets(input: {
     channelSecret = await source.read({ keychainService, keychainAccount: 'channel-secret' });
     encodedKey = await source.read({ keychainService, keychainAccount: 'webhook-payload-key' });
   } catch {
-    throw new LineWebhookSecretError('KEYCHAIN_UNAVAILABLE');
+    throw new LineWebhookSecretError(mode === 'file' ? 'FILE_UNAVAILABLE' : 'KEYCHAIN_UNAVAILABLE');
   }
   const payloadKey = Buffer.from(encodedKey, 'base64');
   if (payloadKey.byteLength !== 32) throw new LineWebhookSecretError('PAYLOAD_KEY_INVALID');

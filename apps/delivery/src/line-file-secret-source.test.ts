@@ -3,8 +3,11 @@ import { chmod, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/prom
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { FileLineSecretSource, FileLineSecretWriter } from './line-file-secret-source.js';
-import { LineKeychainReadError } from './line-keychain-secret-source.js';
+import {
+  FileLineSecretSource,
+  FileLineSecretWriter,
+  LineFileSecretReadError,
+} from './line-file-secret-source.js';
 import { resolveLinePilotRuntime, LinePilotRuntimeError } from './line-pilot-runtime.js';
 import { resolveLineWebhookSecrets } from './line-webhook-secrets.js';
 
@@ -39,18 +42,18 @@ test('#565 file secret: สิทธิ์กว้าง, ไฟล์หาย
     source.read({ keychainService: service, keychainAccount: account });
 
   await put('line-channel-secret', 'synthetic-secret', 0o444);
-  await assert.rejects(read('channel-secret'), LineKeychainReadError);
-  await assert.rejects(read('channel-access-token'), LineKeychainReadError);
+  await assert.rejects(read('channel-secret'), LineFileSecretReadError);
+  await assert.rejects(read('channel-access-token'), LineFileSecretReadError);
   await put('line-webhook-payload-key', '\n');
-  await assert.rejects(read('webhook-payload-key'), LineKeychainReadError);
+  await assert.rejects(read('webhook-payload-key'), LineFileSecretReadError);
   await writeFile(join(secretDir, 'real'), 'synthetic');
   await chmod(join(secretDir, 'real'), 0o400);
   await symlink(join(secretDir, 'real'), join(secretDir, 'line-channel-access-token'));
-  await assert.rejects(read('channel-access-token'), LineKeychainReadError);
-  await assert.rejects(read('../etc/passwd'), LineKeychainReadError);
-  await assert.rejects(read('channel-secret', 'd-contact.line.other'), LineKeychainReadError);
+  await assert.rejects(read('channel-access-token'), LineFileSecretReadError);
+  await assert.rejects(read('../etc/passwd'), LineFileSecretReadError);
+  await assert.rejects(read('channel-secret', 'd-contact.line.other'), LineFileSecretReadError);
   // recipient ต้องมี state directory
-  await assert.rejects(read(`recipient.${RECIPIENT}`), LineKeychainReadError);
+  await assert.rejects(read(`recipient.${RECIPIENT}`), LineFileSecretReadError);
 });
 
 test('#565 file secret: error ไม่มี path หรือค่า', async () => {
@@ -59,7 +62,7 @@ test('#565 file secret: error ไม่มี path หรือค่า', async
   const error = await source
     .read({ keychainService: SERVICE, keychainAccount: 'channel-secret' })
     .catch((caught: unknown) => caught as Error);
-  assert.ok(error instanceof LineKeychainReadError);
+  assert.ok(error instanceof LineFileSecretReadError);
   assert.ok(!error.message.includes(secretDir));
 });
 
@@ -81,11 +84,11 @@ test('#565 file secret: writer เขียน secret ของ operator ไม�
   const writer = new FileLineSecretWriter({ channelAccountId: CHANNEL, secretDir, stateDir });
   await assert.rejects(
     writer.write({ keychainService: SERVICE, keychainAccount: 'channel-access-token' }, 'x'),
-    LineKeychainReadError,
+    LineFileSecretReadError,
   );
   await assert.rejects(
     writer.write({ keychainService: SERVICE, keychainAccount: `recipient.${RECIPIENT}` }, 'a b'),
-    LineKeychainReadError,
+    LineFileSecretReadError,
   );
 });
 
@@ -148,5 +151,13 @@ test('#565 pilot runtime: โหมด file ต้องมี state dir แล�
   assert.throws(
     () => release.assertFinalMain('b'.repeat(40)),
     (error: unknown) => error instanceof LinePilotRuntimeError && error.code === 'NOT_FINAL_MAIN',
+  );
+});
+
+test('#565 webhook secrets: โหมด file ที่ไม่มีไฟล์รายงาน FILE_UNAVAILABLE ไม่ใช่ Keychain', async () => {
+  const { secretDir } = await fixture();
+  await assert.rejects(
+    resolveLineWebhookSecrets({ mode: 'file', channelAccountId: CHANNEL, secretDir }),
+    /FILE_UNAVAILABLE/,
   );
 });

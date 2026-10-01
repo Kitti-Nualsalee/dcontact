@@ -13,7 +13,7 @@ import { constants } from 'node:fs';
 import { chmod, mkdir, open, rename, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { LineKeychainReference, LineSecretSource } from './line-credential-boundary.js';
-import { LineKeychainReadError, lineKeychainServiceName } from './line-keychain-secret-source.js';
+import { lineKeychainServiceName } from './line-keychain-secret-source.js';
 
 export const LINE_SECRET_SOURCES = ['keychain', 'file'] as const;
 export type LineSecretSourceKind = (typeof LINE_SECRET_SOURCES)[number];
@@ -30,6 +30,15 @@ export const LINE_SECRET_FILES: Readonly<Record<string, string>> = Object.freeze
 const RECIPIENT_ACCOUNT = /^recipient\.(kc-recipient-[0-9a-f-]{36})$/;
 const WRITABLE_VALUE = /^[A-Za-z0-9._~+/=-]{1,4096}$/;
 const MAX_SECRET_BYTES = 8192;
+
+export class LineFileSecretReadError extends Error {
+  readonly code = 'CREDENTIAL_UNAVAILABLE';
+
+  constructor() {
+    super('อ่าน credential จากไฟล์ไม่ได้');
+    this.name = 'LineFileSecretReadError';
+  }
+}
 
 export interface LineSecretWriter {
   write(reference: LineKeychainReference, value: string): Promise<void>;
@@ -67,26 +76,26 @@ export class FileLineSecretSource implements LineSecretSource {
 
   async read(reference: LineKeychainReference): Promise<string> {
     const path = this.pathOf(reference);
-    if (!path) throw new LineKeychainReadError();
+    if (!path) throw new LineFileSecretReadError();
     let raw: Buffer;
     try {
       const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
         const info = await handle.stat();
         if (!info.isFile() || (info.mode & 0o077) !== 0 || info.size > MAX_SECRET_BYTES) {
-          throw new LineKeychainReadError();
+          throw new LineFileSecretReadError();
         }
         raw = await handle.readFile();
       } finally {
         await handle.close();
       }
     } catch {
-      throw new LineKeychainReadError();
+      throw new LineFileSecretReadError();
     }
     // operator อาจใส่ newline ท้ายไฟล์ — ตัดเฉพาะตัวนั้น ค่า secret จริงไม่มี whitespace ปลาย
     const secret = raw.toString('utf8').replace(/\r?\n$/, '');
     raw.fill(0);
-    if (!secret || /\s/.test(secret)) throw new LineKeychainReadError();
+    if (!secret || /\s/.test(secret)) throw new LineFileSecretReadError();
     return secret;
   }
 }
@@ -107,7 +116,7 @@ export class FileLineSecretWriter implements LineSecretWriter {
       reference.keychainService === this.service
         ? recipientPath(this.options.stateDir, reference.keychainAccount)
         : null;
-    if (!path || !WRITABLE_VALUE.test(value)) throw new LineKeychainReadError();
+    if (!path || !WRITABLE_VALUE.test(value)) throw new LineFileSecretReadError();
     const directory = join(this.options.stateDir!, 'recipients');
     const temporary = `${path}.tmp`;
     try {
@@ -127,7 +136,7 @@ export class FileLineSecretWriter implements LineSecretWriter {
       }
       await rename(temporary, path);
     } catch {
-      throw new LineKeychainReadError();
+      throw new LineFileSecretReadError();
     }
   }
 }
