@@ -7,6 +7,8 @@
 #   $UAT_ROOT/deployments/            deployment record (current.json, previous.json, <time>-<sha>.json)
 #   $UAT_ROOT/backups/                pg_dump ก่อน migrate ทุกครั้ง
 #   $UAT_ROOT/object-storage-migrated เวลาที่ย้ายหลักฐานจาก MinIO → SeaweedFS สำเร็จ (#540)
+#   $UAT_ROOT/line-pilot.enabled      มีไฟล์ = ใส่ overlay `uat-line` (#565, ADR-031); ลบแล้ว deploy = ถอด LINE ออก
+#   $UAT_ROOT/secrets/line/           secret ของ LINE (operator/vm2-line-secrets.sh) — ใช้เมื่อเปิด overlay เท่านั้น
 #
 # ไม่มีขั้น down migration และ rollback ไม่แตะฐานข้อมูล (redeploy digest เดิมของ Console/api เท่านั้น)
 # ไม่พิมพ์ค่า secret: compose อ่านจาก env file เอง, script พิมพ์เฉพาะสถานะ/ชื่อไฟล์/digest
@@ -19,8 +21,11 @@ PROJECT=dcontact-uat
 MIGRATION_MARKER="$UAT_ROOT/object-storage-migrated"
 DIGEST_REF='^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
 
+# #565: overlay `uat-line` เปิดด้วยไฟล์ flag นอก release — release มีไฟล์ overlay เสมอแต่ไม่ถูกใช้ถ้าไม่มี flag
+LINE_FLAG="$UAT_ROOT/line-pilot.enabled"
+
 usage() {
-  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|migrate-object-storage|deploy|smoke|record|current|rollback-target|rollback> [sha] [file|--token-stdin] [--check]' >&2
+  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|migrate-object-storage|deploy|smoke|record|current|line-status|line-run|line-reload|rollback-target|rollback> [sha] [file|--token-stdin] [--check]' >&2
   exit 64
 }
 
@@ -41,17 +46,27 @@ is_3vm() {
   [[ -f "$1/docker-compose.uat.3vm.yml" ]]
 }
 
+# LINE ต้องการ 3 VM (db-relay) และ overlay ใน release; flag มีแต่ release ไม่มี overlay = ล้ม ไม่ deploy แบบเงียบ
+is_line() {
+  [[ -f "$LINE_FLAG" ]] || return 1
+  is_3vm "$1" || fail 'LINE_REQUIRES_3VM'
+  [[ -f "$1/docker-compose.uat.line.yml" && -f "$1/Caddyfile.3vm.line" && -f "$1/haproxy-line-egress.cfg" ]] ||
+    fail 'RELEASE_LINE_FILE_MISSING'
+}
+
 compose() {
   local dir="$1"
   shift
   if is_3vm "$dir"; then
     local binary="$UAT_ROOT/bin/docker-compose"
     [[ -x "$binary" ]] || fail 'COMPOSE_3VM_BINARY_MISSING'
+    local files=(-f "$dir/docker-compose.uat.yml" -f "$dir/docker-compose.uat.3vm.yml")
+    if is_line "$dir"; then files+=(-f "$dir/docker-compose.uat.line.yml"); fi
     "$binary" --project-name "$PROJECT" \
       --project-directory "$dir" \
       --env-file "$UAT_ROOT/uat.env" \
       --env-file "$dir/release.env" \
-      -f "$dir/docker-compose.uat.yml" -f "$dir/docker-compose.uat.3vm.yml" "$@"
+      "${files[@]}" "$@"
   else
     docker compose --project-name "$PROJECT" \
       --project-directory "$dir" \
@@ -212,8 +227,10 @@ case "$cmd" in
     compose "$dir" run --rm -T object-storage-init
     # --no-deps: object-storage-init จบไปแล้วข้างบน และไม่ให้ `--wait` ไปรอ container one-shot ที่ exit แล้ว
     # --remove-orphans ไม่ลบ volume minio-data (ย้ายข้อมูล/rollback จนถึง #541)
-    compose "$dir" up -d --wait --no-deps --remove-orphans \
-      object-storage-lifecycle object-storage-migrated-expiry api proxy
+    # #565: ไม่มี flag = container line-* เป็น orphan และถูกถอดที่นี่; runner/relay ไม่รันค้าง (profile line-pilot)
+    services=(object-storage-lifecycle object-storage-migrated-expiry api proxy)
+    if is_line "$dir"; then services+=(line-webhook); fi
+    compose "$dir" up -d --wait --no-deps --remove-orphans "${services[@]}"
     echo '{"type":"u1.uat.deploy","step":"deploy","status":"PASS"}'
     ;;
 
@@ -261,6 +278,32 @@ case "$cmd" in
     else
       echo '{}'
     fi
+    ;;
+
+  line-status)
+    # #565: สถานะ overlay ของ release ที่ระบุ (ไม่มีค่า secret) — enabled ต้องตรงกับ container ที่รันอยู่
+    dir="$(release_dir "${1:?sha}")"
+    if is_line "$dir"; then enabled=true; else enabled=false; fi
+    running="$(docker ps --filter "label=com.docker.compose.project=$PROJECT" \
+      --filter 'label=com.docker.compose.service=line-webhook' --format '{{.Names}}' | wc -l | tr -d ' ')"
+    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"line-status\",\"enabled\":$enabled,\"lineWebhookContainers\":$running}"
+    ;;
+
+  line-run)
+    # #565: runner ของ LINE pilot — uat-deploy.sh line-run <sha> <line-pilot-setup|line-provider-runner|line-pilot-cli> <command> [...]
+    # relay line-egress ขึ้นตาม depends_on และไม่รันค้าง (profile line-pilot); stdout มีแค่ ID/digest ตาม CLI
+    dir="$(release_dir "${1:?sha}")"
+    shift
+    is_line "$dir" || fail 'LINE_NOT_ENABLED'
+    compose "$dir" --profile line-pilot run --rm -T line-pilot "$@"
+    ;;
+
+  line-reload)
+    # #565: หลัง vm2-line-secrets.sh --rotate — ไฟล์ secret เปลี่ยนแต่ compose config ไม่เปลี่ยน จึงต้อง recreate เอง
+    dir="$(release_dir "${1:?sha}")"
+    is_line "$dir" || fail 'LINE_NOT_ENABLED'
+    compose "$dir" up -d --wait --no-deps --force-recreate line-webhook
+    echo '{"type":"u1.uat.deploy","step":"line-reload","status":"PASS"}'
     ;;
 
   rollback-target)

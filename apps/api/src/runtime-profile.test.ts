@@ -167,3 +167,65 @@ test('route guard ของ default ปล่อยทุก route', () => {
   assert.ok(passed);
   assert.equal(guard.blockedRequests(), 0);
 });
+
+const UAT_LINE = {
+  DCONTACT_API_PROFILE: 'uat-line',
+  DATABASE_URL: 'postgresql://uat',
+  LINE_WEBHOOK_SECRET_SOURCE: 'file',
+  LINE_CREDENTIAL_DIR: '/run/secrets',
+  LINE_WEBHOOK_TENANT_ID: 'tenant-ref',
+  LINE_WEBHOOK_CHANNEL_ACCOUNT_ID: '2007056595',
+  LINE_WEBHOOK_DESTINATION: 'destination-ref',
+  LINE_WEBHOOK_PAYLOAD_KEY_REF: 'payload-key-ref',
+};
+
+test('#565 uat-line เปิดแค่ webhook: ไม่มี Kafka, ไม่ออก internet และ /api/ เหลือแค่ runtime profile', () => {
+  const profile = resolveApiRuntimeProfile(UAT_LINE);
+  assert.equal(profile.name, 'uat-line');
+  assert.equal(profile.kafka, 'DISABLED');
+  assert.equal(profile.lineWebhook, 'ENABLED');
+  assert.equal(profile.providerEgress, 'BLOCKED');
+  assert.deepEqual(profile.allowedRoutePrefixes, ['/api/v1/runtime-profile']);
+});
+
+test('#565 uat-line + env นอก allowlist หรือ secret ที่ไม่ใช่ไฟล์ = fail closed โดยไม่รายงานค่า', () => {
+  for (const [name, value] of [
+    ['LINE_CHANNEL_ACCESS_TOKEN', 'token-value-must-not-leak'],
+    ['LINE_CHANNEL_SECRET', 'secret-value-must-not-leak'],
+    ['KAFKA_BROKERS', 'kafka:9092'],
+    ['SIP_BROWSER_NODES_JSON', '[]'],
+  ] as const) {
+    assert.throws(
+      () => resolveApiRuntimeProfile({ ...UAT_LINE, [name]: value }),
+      (error: unknown) => {
+        assert.ok(error instanceof ApiRuntimeProfileError);
+        assert.equal(error.code, 'CONFLICTING_CONFIGURATION');
+        assert.deepEqual(error.variables, [name]);
+        assert.doesNotMatch(error.message, /must-not-leak/);
+        return true;
+      },
+    );
+  }
+  for (const mode of ['keychain', 'disabled', undefined]) {
+    rejectsWith(
+      () => resolveApiRuntimeProfile({ ...UAT_LINE, LINE_WEBHOOK_SECRET_SOURCE: mode }),
+      'CONFLICTING_CONFIGURATION',
+    );
+  }
+});
+
+test('#565 profile uat ยังปฏิเสธ LINE_* ทุกตัวรวมชุดที่ uat-line อนุญาต', () => {
+  rejectsWith(
+    () => resolveApiRuntimeProfile({ ...UAT_LINE, DCONTACT_API_PROFILE: 'uat' }),
+    'CONFLICTING_CONFIGURATION',
+  );
+});
+
+test('#565 entrypoint ของ line-webhook รับแค่ uat-line และ uat-main ไม่รับ uat-line', () => {
+  assert.equal(assertEntrypointProfile('uat-line', UAT_LINE).name, 'uat-line');
+  rejectsWith(
+    () => assertEntrypointProfile('uat-line', { DCONTACT_API_PROFILE: 'uat' }),
+    'WRONG_ENTRYPOINT',
+  );
+  rejectsWith(() => assertEntrypointProfile('uat', UAT_LINE), 'WRONG_ENTRYPOINT');
+});

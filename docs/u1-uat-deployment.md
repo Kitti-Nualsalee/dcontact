@@ -549,6 +549,65 @@ Keycloak ตอบ 404, `runtime-profile` = `uat`) และ `backup` หลั�
 repository secret และไม่ผูก environment `uat-preview` (static readiness UAT-S18 ตรวจ) จึงไม่ใช่หลักฐานของ VM จริง:
 TLS/gateway/allowlist จริง, GHCR และ UAT-L06 ยังต้องเก็บใน deploy ครั้งแรกตามเดิม
 
+## 15. LINE pilot overlay `uat-line` (#565, ADR-031)
+
+overlay ที่เปิดปิดได้สำหรับ LINE pilot บน UAT 3 VM — **ไม่มี flag = UAT fail-closed เดิม** (profile `uat`, UAT-S09)
+static readiness UAT-S21 ตรวจว่าเปิดแคบที่สุดและถอดได้
+
+| service        | หน้าที่                                                                 | ทางเครือข่าย                                      |
+| -------------- | ----------------------------------------------------------------------- | ------------------------------------------------- |
+| `line-webhook` | `POST /webhook/line` อย่างเดียว (profile `uat-line`, image เดียวกับ api) | `internal` เท่านั้น ไม่ออก internet               |
+| `line-pilot`   | runner ของ CLI pilot (`docker compose run`, profile `line-pilot`)         | `internal` (db-relay) + `linepilot`               |
+| `line-egress`  | TCP passthrough ไป `api.line.me:443` กรอง SNI (profile `line-pilot`)      | `linepilot` (IP `172.30.65.2`) + `lineegress`     |
+
+Caddy (`Caddyfile.3vm.line`) ส่ง `POST /webhook/line` ไป `line-webhook` หลังตรวจว่ามาจาก VM1 แต่ **ก่อน**
+`UAT_ALLOWED_CIDRS` เพราะ LINE ไม่อยู่ใน allowlist — authority คือ HMAC; path อื่นใต้ `/webhook/` ตอบ 404
+
+### 15.1 เปิดครั้งแรก
+
+1. tenant ของ pilot สร้างด้วย `uat-deploy.sh provision` (ไม่ใช้ `line-pilot-setup tenant` เพราะ runner ใช้ `dcontact_app`)
+2. ผู้ใช้ revoke credential เดิมและออก token ใหม่ใน LINE Console แล้ว copy `infra/uat/operator/vm2-line-secrets.sh`
+   ขึ้น VM2 (เหมือน script อื่นใน `operator/`) และรัน `sudo ./vm2-line-secrets.sh` — ใส่ token และ channel secret
+   ทาง stdin; script สุ่ม payload key และตั้งไฟล์เป็น `0400` ของ uid 10001
+3. เติม `UAT_LINE_*` ใน `uat.env` ยกเว้น `UAT_LINE_DESTINATION` (ดู `uat.env.example`)
+4. `touch /opt/dcontact-uat/line-pilot.enabled` แล้ว `uat-deploy.sh prepare <sha>`
+5. `uat-deploy.sh line-run <sha> line-pilot-setup bot-info` → ใส่ผลเป็น `UAT_LINE_DESTINATION` ใน `uat.env`
+   (`line-webhook` บูตไม่ผ่านถ้าค่านี้ว่าง)
+6. `uat-deploy.sh deploy <sha>` แล้วตรวจ `uat-deploy.sh line-status <sha>` = `enabled: true` และมี container
+   `line-webhook`; runtime profile ของ api ยังเป็น `uat`
+
+คำสั่งของ runner ผ่าน `uat-deploy.sh` (compose ชุดเดียวกับ deploy):
+
+```bash
+/opt/dcontact-uat/releases/<sha>/bin/uat-deploy.sh line-run <sha> line-pilot-setup bot-info
+```
+
+reference ต่อคำสั่ง (actor/digest ไม่ใช่ secret) ส่งทาง environment ของ shell เช่น
+`CXA_S2_OPERATOR_REF=... CXA_S2_COMPLIANCE_REF=... uat-deploy.sh line-run <sha> line-pilot-setup gate <endpoint-url>`
+— ชื่อที่ส่งต่อได้อยู่ใน `docker-compose.uat.line.yml` (service `line-pilot`)
+
+ชื่อ CLI ที่รับได้: `line-pilot-setup`, `line-provider-runner`, `line-pilot-cli` — state/recipient อยู่ใน volume
+`line-pilot-state` (`0600`) และ evidence bundle อยู่ใต้ `provider/` ของ volume นั้น
+
+### 15.2 หมุน secret และปิด
+
+- หมุน token/channel secret (เช่น v4 → v5): `sudo vm2-line-secrets.sh --rotate` → `uat-deploy.sh line-reload <sha>` →
+  ลงทะเบียน credential ใหม่ด้วย `line-pilot-setup credential`; payload key ไม่หมุน
+- ปิด LINE ทั้งหมด: `rm /opt/dcontact-uat/line-pilot.enabled` แล้ว `uat-deploy.sh deploy <sha>` — `--remove-orphans`
+  ถอด `line-webhook`; secret ยังอยู่บนดิสก์จนกว่าจะลบเองและ revoke ใน LINE Console
+- kill ขารับอย่างเดียวโดยไม่ redeploy: `docker stop` container `line-webhook` (Caddy ตอบ 502 ให้ LINE)
+- rollback ไป release ก่อน #565 ต้องลบ flag ก่อน ไม่เช่นนั้น `uat-deploy.sh` ล้มด้วย `RELEASE_LINE_FILE_MISSING`
+
+### 15.3 หลักฐานและสิ่งที่ยังไม่ได้ verify
+
+ตรวจแล้วนอก VM: `docker compose config` ของ base + 3vm + line ด้วย env จำลอง, `haproxy -c`, `caddy validate`,
+และ relay บน Docker จริง — runner ผ่าน relay ได้ HTTP 401 จาก `api.line.me` (TLS ตรวจ cert ของ LINE ผ่าน),
+SNI อื่นถูกตัด, ต่อ internet ตรงไม่ได้ และ container บน `internal` resolve `api.line.me` ไม่ได้
+
+ยังไม่ได้ verify: VM2 ออก `api.line.me:443` ได้ในเครือข่ายองค์กร (ADR-031 gate 1), build image ที่มี
+`dist/line-webhook-main.js` และ CLI ของ delivery, secret mount กับ uid 10001 บน VM2 จริง และ webhook จาก LINE จริง
+(ต้องมี hostname สาธารณะ — #566)
+
 ## Login/email theme ของ Keycloak (#515/#522)
 
 - realm UAT ตั้ง `loginTheme`/`emailTheme` = `dcontact` (`realm-dcontact.uat.json`) ขั้น `keycloak` ของ workflow apply ให้

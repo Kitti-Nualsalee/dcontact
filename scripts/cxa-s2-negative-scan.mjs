@@ -146,6 +146,18 @@ export const S2_SCAN_ALLOWLIST = Object.freeze([
     reason:
       'CLI ของ protected runner อ่านเฉพาะ reference (tenant/credential ref/endpoint digest) จาก env ไม่มี secret',
   },
+  {
+    path: 'apps/delivery/src/line-pilot-runtime.ts',
+    rule: 'env-read',
+    reason:
+      '#565: เลือกโหมด secret source และ path/release SHA ของ runner จาก env — secret อ่านจาก Keychain หรือไฟล์เท่านั้น',
+  },
+  {
+    path: 'apps/api/src/line-webhook-app.ts',
+    rule: 'env-read',
+    reason:
+      '#565: composition root ของ line-webhook (profile uat-line) อ่านโหมด/reference จาก env — secret จากไฟล์ และถูกสแกนเป็น composition root',
+  },
 ]);
 
 function list(directory, pattern, keep = () => true) {
@@ -175,7 +187,8 @@ export function s2ScanTargets() {
     readiness: list('scripts', /^cxa-s2-.*\.mjs$/, (name) => !name.endsWith('.test.mjs')),
     workflows: list('.github/workflows', /^ci\.yml$/),
     // S2.6b (#403): ที่ประกอบ binding จริงต้องไม่รับ LINE secret จาก env (#362 §9)
-    compositionRoots: ['apps/api/src/main.ts', '.env.example'],
+    // #565: line-webhook บน UAT เป็น composition root ที่สองของ binding จริง
+    compositionRoots: ['apps/api/src/main.ts', 'apps/api/src/line-webhook-app.ts', '.env.example'],
   };
 }
 

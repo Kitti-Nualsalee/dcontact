@@ -1,0 +1,62 @@
+# #537 / ADR-030: TLS จบที่ nginx VM1; Caddy รับ HTTP จาก VM1 เท่านั้น
+# #565 / ADR-031: Caddyfile.3vm + route LINE webhook — ใช้เฉพาะเมื่อใส่ overlay `uat-line`
+# webhook อยู่หลัง @notEdge (ต้องมาทาง VM1) แต่ก่อน @outside เพราะ LINE ไม่อยู่ใน UAT_ALLOWED_CIDRS;
+# authority ของ webhook คือ HMAC ที่ line-webhook ตรวจ
+{
+	admin off
+	persist_config off
+	auto_https off
+	servers {
+		trusted_proxies static 192.168.102.114/32
+		client_ip_headers X-Forwarded-For
+	}
+}
+
+:8080 {
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		-Server
+	}
+
+	route {
+		@notEdge not remote_ip 192.168.102.114/32
+		respond @notEdge 403
+
+		@lineWebhook {
+			method POST
+			path /webhook/line
+		}
+		handle @lineWebhook {
+			request_body {
+				max_size 1MiB
+			}
+			reverse_proxy line-webhook:3000
+		}
+		@webhookOther path /webhook /webhook/*
+		respond @webhookOther 404
+
+		@outside not client_ip {$UAT_ALLOWED_CIDRS}
+		respond @outside 403
+
+		@keycloakAdmin path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* /auth/metrics /auth/health /auth/health/*
+		respond @keycloakAdmin 404
+
+		handle /auth/* {
+			reverse_proxy keycloak:8080 {
+				# TLS terminates on VM1 nginx. Preserve the original scheme so
+				# Keycloak issues Secure session cookies for browser sign-in.
+				header_up X-Forwarded-Proto https
+			}
+		}
+		handle /api/* {
+			reverse_proxy api:3000
+		}
+		handle {
+			root * /srv/console
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}

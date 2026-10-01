@@ -1,0 +1,160 @@
+# #565 / ADR-031: overlay `uat-line` — เปิด LINE pilot บน UAT 3 VM แบบเลือกใส่ได้
+#
+# ซ้อนบน docker-compose.uat.yml + docker-compose.uat.3vm.yml เท่านั้น; `uat-deploy.sh` ใส่ไฟล์นี้เมื่อมีไฟล์ flag
+# `$UAT_ROOT/line-pilot.enabled` — ไม่มี flag = UAT fail-closed เดิมทุกประการ (profile `uat`, UAT-S09)
+#
+# - line-webhook: รับ `POST /webhook/line` อย่างเดียว (profile `uat-line`) ไม่ออก internet ไม่ได้ access token
+# - line-pilot:   runner ของ CLI pilot (`docker compose run --rm line-pilot <cli> <command>`) — profile `line-pilot`
+# - line-egress:  ทางออก internet เดียวของ stack สำหรับ LINE: TCP passthrough กรอง SNI `api.line.me`
+#                 อยู่บน network `linepilot` (มีแค่ runner) + `lineegress`; api และ service อื่นไม่เห็น
+# - secret เป็นไฟล์ `0400` ของ uid 10001 ใน `/opt/dcontact-uat/secrets/line/` (ใส่ด้วย operator/vm2-line-secrets.sh)
+#   ไม่มี secret ใน env
+services:
+  proxy:
+    volumes: !override
+      - ./Caddyfile.3vm.line:/etc/caddy/Caddyfile:ro
+
+  line-webhook:
+    image: ${API_IMAGE:?API_IMAGE (digest) is required}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    depends_on:
+      db-relay:
+        condition: service_healthy
+    entrypoint: ['node', 'dist/line-webhook-main.js']
+    environment:
+      NODE_ENV: production
+      DCONTACT_API_PROFILE: uat-line
+      PORT: '3000'
+      DATABASE_URL: postgresql://dcontact_app:${UAT_APP_DB_PASSWORD:?UAT_APP_DB_PASSWORD is required}@db-relay:5432/dcontact_uat?schema=public
+      LINE_WEBHOOK_SECRET_SOURCE: file
+      LINE_CREDENTIAL_DIR: /run/secrets
+      LINE_WEBHOOK_TENANT_ID: ${UAT_LINE_TENANT_ID:?UAT_LINE_TENANT_ID is required}
+      LINE_WEBHOOK_CHANNEL_ACCOUNT_ID: ${UAT_LINE_CHANNEL_ACCOUNT_ID:?UAT_LINE_CHANNEL_ACCOUNT_ID is required}
+      # ว่างได้ตอนเปิดครั้งแรก (ยังไม่รู้ bot ID จนรัน `line-run ... bot-info`) — line-webhook บูตไม่ผ่านถ้าว่าง
+      LINE_WEBHOOK_DESTINATION: ${UAT_LINE_DESTINATION:-}
+      LINE_WEBHOOK_PAYLOAD_KEY_REF: ${UAT_LINE_PAYLOAD_KEY_REF:?UAT_LINE_PAYLOAD_KEY_REF is required}
+    secrets:
+      - line-channel-secret
+      - line-webhook-payload-key
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/v1/runtime-profile').then((r)=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    mem_limit: 384m
+    networks:
+      - internal
+
+  line-pilot:
+    profiles: ['line-pilot']
+    image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    depends_on:
+      db-relay:
+        condition: service_healthy
+      line-egress:
+        condition: service_started
+    working_dir: /app/node_modules/@d-contact/delivery
+    # คำสั่งแรกคือชื่อ CLI: line-pilot-setup | line-provider-runner | line-pilot-cli
+    entrypoint:
+      [
+        '/bin/sh',
+        '-c',
+        'cli="$$1"; shift; case "$$cli" in line-pilot-setup|line-provider-runner|line-pilot-cli) exec node "dist/$$cli.js" "$$@";; *) echo "unknown cli" >&2; exit 64;; esac',
+        'line-pilot',
+      ]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://dcontact_app:${UAT_APP_DB_PASSWORD:?UAT_APP_DB_PASSWORD is required}@db-relay:5432/dcontact_uat?schema=public
+      LINE_SECRET_SOURCE: file
+      LINE_CREDENTIAL_DIR: /run/secrets
+      LINE_PILOT_STATE_DIR: /var/lib/line-pilot
+      LINE_PILOT_MIGRATIONS_DIR: /ops/prisma/migrations
+      LINE_PILOT_REGISTRY_PATH: /ops/scripts/cxa-s2-readiness.mjs
+      LINE_WEBHOOK_PAYLOAD_KEY_REF: ${UAT_LINE_PAYLOAD_KEY_REF:?UAT_LINE_PAYLOAD_KEY_REF is required}
+      CXA_S2_PILOT_TENANT_ID: ${UAT_LINE_TENANT_ID:?UAT_LINE_TENANT_ID is required}
+      CXA_S2_PILOT_SENDER: ${UAT_LINE_SENDER_IDENTITY_ID:-}
+      CXA_S2_CREDENTIAL_REF_ID: ${UAT_LINE_CREDENTIAL_REF_ID:-}
+      # reference ต่อคำสั่งจาก shell ของ operator (`NAME=... uat-deploy.sh line-run ...`) — actor/digest ไม่ใช่ secret
+      CXA_S2_OPERATOR_REF: ${CXA_S2_OPERATOR_REF:-}
+      CXA_S2_COMPLIANCE_REF: ${CXA_S2_COMPLIANCE_REF:-}
+      CXA_S2_CREDENTIAL_KIND: ${CXA_S2_CREDENTIAL_KIND:-}
+      CXA_S2_LONG_LIVED_EXCEPTION_REF: ${CXA_S2_LONG_LIVED_EXCEPTION_REF:-}
+      CXA_S2_APPROVED_WEBHOOK_ENDPOINT_DIGEST: ${CXA_S2_APPROVED_WEBHOOK_ENDPOINT_DIGEST:-}
+      CXA_S2_EXPECTED_COMMIT_SHA: ${CXA_S2_EXPECTED_COMMIT_SHA:-}
+      CXA_S2_MESSAGE_WAIT_SECONDS: ${CXA_S2_MESSAGE_WAIT_SECONDS:-300}
+    secrets:
+      - line-channel-access-token
+      - line-channel-secret
+      - line-webhook-payload-key
+    volumes:
+      - line-pilot-state:/var/lib/line-pilot
+    tmpfs:
+      - /tmp
+    mem_limit: 512m
+    # api.line.me ของ runner = relay; certificate ยังตรวจกับ hostname จริงของ LINE
+    extra_hosts:
+      - 'api.line.me:172.30.65.2'
+    networks:
+      - internal
+      - linepilot
+
+  line-egress:
+    profiles: ['line-pilot']
+    image: docker.io/library/haproxy:3.0-alpine@sha256:7ee2f21c5baa25ceb5d01990b78d13a71e8468f5041ac2d69304747d4631407a
+    restart: 'no'
+    user: '99:99'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # ฟัง :443 โดยไม่ต้องมี capability — runner ต่อ https://api.line.me ด้วย extra_hosts ที่ชี้ IP คงที่นี้
+    # ห้ามใช้ network alias `api.line.me`: DNS ของ Docker จะตอบ alias ให้ relay เองด้วย ทำให้ส่งวนกลับหาตัวเอง
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: '0'
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 64m
+    volumes:
+      - ./haproxy-line-egress.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      linepilot:
+        ipv4_address: 172.30.65.2
+      lineegress: {}
+
+secrets:
+  line-channel-access-token:
+    file: ${UAT_LINE_CREDENTIAL_DIR:-/opt/dcontact-uat/secrets/line}/line-channel-access-token
+  line-channel-secret:
+    file: ${UAT_LINE_CREDENTIAL_DIR:-/opt/dcontact-uat/secrets/line}/line-channel-secret
+  line-webhook-payload-key:
+    file: ${UAT_LINE_CREDENTIAL_DIR:-/opt/dcontact-uat/secrets/line}/line-webhook-payload-key
+
+volumes:
+  line-pilot-state: {}
+
+networks:
+  # runner กับ relay เท่านั้น — ไม่มีทางออก internet โดยตรง
+  linepilot:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.65.0/29
+  # ขาออกของ relay ตัวเดียว
+  lineegress: {}

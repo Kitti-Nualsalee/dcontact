@@ -4,17 +4,20 @@
  * channel secret และ payload key ห้ามอยู่ใน env/Git/log — composition root รับจาก env ได้แค่ "โหมด":
  * - `keychain`: อ่านจาก macOS Keychain (service `d-contact.line.<channel>`, account `channel-secret`
  *   และ `webhook-payload-key` แบบ base64 32 bytes) ใช้บนเครื่อง protected runner ของ pilot
+ * - `file`: อ่านจากไฟล์ Compose `secrets` บน Linux (#565 S4) — `line-channel-secret` และ
+ *   `line-webhook-payload-key` ใน `LINE_CREDENTIAL_DIR` (ค่าเริ่ม `/run/secrets`)
  * - `disabled` (ค่าเริ่มต้น): สุ่ม secret/key ในหน่วยความจำ — signature จริงจาก LINE ตรวจไม่ผ่านเสมอ
  *   route จึงตอบ 401 ทุก request (fail closed) แต่ API ยังบูตบน CI/Linux ได้
  */
 import { randomBytes } from 'node:crypto';
 import type { LineSecretSource } from './line-credential-boundary.js';
+import { FileLineSecretSource } from './line-file-secret-source.js';
 import {
   KeychainLineSecretSource,
   lineKeychainServiceName,
 } from './line-keychain-secret-source.js';
 
-export const LINE_WEBHOOK_SECRET_MODES = ['keychain', 'disabled'] as const;
+export const LINE_WEBHOOK_SECRET_MODES = ['keychain', 'file', 'disabled'] as const;
 export type LineWebhookSecretMode = (typeof LINE_WEBHOOK_SECRET_MODES)[number];
 
 export interface LineWebhookSecrets {
@@ -26,7 +29,9 @@ export interface LineWebhookSecrets {
 export class LineWebhookSecretError extends Error {
   readonly code = 'CREDENTIAL_UNAVAILABLE';
 
-  constructor(detail: 'MODE_UNKNOWN' | 'KEYCHAIN_UNAVAILABLE' | 'PAYLOAD_KEY_INVALID') {
+  constructor(
+    detail: 'MODE_UNKNOWN' | 'KEYCHAIN_UNAVAILABLE' | 'FILE_UNAVAILABLE' | 'PAYLOAD_KEY_INVALID',
+  ) {
     super(`webhook secret ใช้ไม่ได้: ${detail}`);
     this.name = 'LineWebhookSecretError';
   }
@@ -36,14 +41,23 @@ export async function resolveLineWebhookSecrets(input: {
   mode: string | undefined;
   channelAccountId: string;
   source?: LineSecretSource;
+  /** directory ของไฟล์ secret ในโหมด `file` */
+  secretDir?: string;
 }): Promise<LineWebhookSecrets> {
   const mode = input.mode ?? 'disabled';
   if (mode === 'disabled') {
     return { mode, channelSecret: randomBytes(32).toString('hex'), payloadKey: randomBytes(32) };
   }
-  if (mode !== 'keychain') throw new LineWebhookSecretError('MODE_UNKNOWN');
+  if (mode !== 'keychain' && mode !== 'file') throw new LineWebhookSecretError('MODE_UNKNOWN');
 
-  const source = input.source ?? new KeychainLineSecretSource();
+  const source =
+    input.source ??
+    (mode === 'file'
+      ? new FileLineSecretSource({
+          channelAccountId: input.channelAccountId,
+          ...(input.secretDir ? { secretDir: input.secretDir } : {}),
+        })
+      : new KeychainLineSecretSource());
   const keychainService = lineKeychainServiceName(input.channelAccountId);
   let channelSecret: string;
   let encodedKey: string;
@@ -51,7 +65,7 @@ export async function resolveLineWebhookSecrets(input: {
     channelSecret = await source.read({ keychainService, keychainAccount: 'channel-secret' });
     encodedKey = await source.read({ keychainService, keychainAccount: 'webhook-payload-key' });
   } catch {
-    throw new LineWebhookSecretError('KEYCHAIN_UNAVAILABLE');
+    throw new LineWebhookSecretError(mode === 'file' ? 'FILE_UNAVAILABLE' : 'KEYCHAIN_UNAVAILABLE');
   }
   const payloadKey = Buffer.from(encodedKey, 'base64');
   if (payloadKey.byteLength !== 32) throw new LineWebhookSecretError('PAYLOAD_KEY_INVALID');
