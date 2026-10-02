@@ -9,7 +9,7 @@ import { resolve } from 'node:path';
  *   แยกจาก realm roles ของ tenant (`admin/agent/supervisor`) จึงไม่มีทางปนใน tenant token
  * - `platform-console`: public client + PKCE, ไม่มี direct grant/offline scope, ไม่มี tenant/organization
  *   mapper, `fullScopeAllowed=false` เห็นเฉพาะ platform roles, audience `dcontact-platform-api` และ AMR claim
- * - browser flow `platform-browser`: รหัสผ่าน + OTP เป็น REQUIRED ทั้งคู่ ไม่มี cookie SSO ข้ามจาก tenant login
+ * - browser flow ของ Platform: Cookie ใช้คืน session เดิม; การ login ใหม่ต้องผ่านรหัสผ่าน + OTP
  * - ผู้ใช้ dev แบบ platform-only (ไม่เป็นสมาชิก Organization ไม่มี tenant attributes) พร้อม TOTP ที่รู้ secret
  *   สำหรับ real-boundary test เท่านั้น — ค่า dev เหมือนรหัสผ่านใน realm-dcontact.dev.json
  */
@@ -17,7 +17,8 @@ export const PLATFORM_REALM = 'dcontact';
 export const PLATFORM_API_CLIENT = 'dcontact-platform-api';
 export const PLATFORM_CONSOLE_CLIENT = 'platform-console';
 export const PLATFORM_ROLES = Object.freeze(['platform_operator', 'platform_auditor']);
-export const PLATFORM_BROWSER_FLOW = 'platform-browser';
+export const PLATFORM_BROWSER_FLOW = 'platform-browser-sso';
+export const PLATFORM_BROWSER_FORMS_FLOW = 'platform-browser-sso-forms';
 const platformConsoleRedirect = process.env.PLATFORM_CONSOLE_REDIRECT ?? 'http://localhost:5180';
 const platformConsoleUrl = new URL(platformConsoleRedirect);
 if (
@@ -122,7 +123,7 @@ const AMR_REFERENCES = Object.freeze({
 /** เท่ากับ ssoSessionMaxLifespan ของ realm dev (10 ชม.) */
 const AMR_MAX_AGE_SECONDS = '36000';
 
-/** flow ใหม่ทั้งหมด: username/password แล้ว OTP — ทั้งสองเป็น REQUIRED */
+/** Cookie คืน session เดิม; เมื่อไม่มี session ต้องผ่าน username/password และ OTP ทั้งคู่ */
 async function ensureBrowserFlow(token) {
   const flows = await request(`${realmPath}/authentication/flows`, { token });
   let flow = flows.find((candidate) => candidate.alias === PLATFORM_BROWSER_FLOW);
@@ -132,7 +133,7 @@ async function ensureBrowserFlow(token) {
       token,
       body: {
         alias: PLATFORM_BROWSER_FLOW,
-        description: 'Platform Console: password + TOTP (A1.2 #407)',
+        description: 'Platform Console: SSO cookie หรือ password + TOTP (A1.2 #407)',
         providerId: 'basic-flow',
         topLevel: true,
         builtIn: false,
@@ -144,15 +145,56 @@ async function ensureBrowserFlow(token) {
   }
   const executionsPath = `${realmPath}/authentication/flows/${PLATFORM_BROWSER_FLOW}/executions`;
   let executions = await request(executionsPath, { token });
-  for (const provider of ['auth-username-password-form', 'auth-otp-form']) {
-    if (!executions.some((execution) => execution.providerId === provider)) {
-      await request(`${executionsPath}/execution`, { method: 'POST', token, body: { provider } });
-    }
+  if (!executions.some((execution) => execution.providerId === 'auth-cookie')) {
+    await request(`${executionsPath}/execution`, {
+      method: 'POST',
+      token,
+      body: { provider: 'auth-cookie' },
+    });
+  }
+  if (!executions.some((execution) => execution.displayName === PLATFORM_BROWSER_FORMS_FLOW)) {
+    await request(`${executionsPath}/flow`, {
+      method: 'POST',
+      token,
+      body: {
+        alias: PLATFORM_BROWSER_FORMS_FLOW,
+        description: 'Platform Console: password แล้ว TOTP บังคับทั้งคู่',
+        provider: 'registration-page-form',
+        type: 'basic-flow',
+      },
+    });
   }
   executions = await request(executionsPath, { token });
   for (const execution of executions) {
-    if (execution.requirement !== 'REQUIRED') {
+    if (
+      execution.providerId !== 'auth-cookie' &&
+      execution.displayName !== PLATFORM_BROWSER_FORMS_FLOW
+    )
+      continue;
+    if (execution.requirement !== 'ALTERNATIVE') {
       await request(executionsPath, {
+        method: 'PUT',
+        token,
+        body: { ...execution, requirement: 'ALTERNATIVE' },
+      });
+    }
+  }
+
+  const formsExecutionsPath = `${realmPath}/authentication/flows/${PLATFORM_BROWSER_FORMS_FLOW}/executions`;
+  executions = await request(formsExecutionsPath, { token });
+  for (const provider of ['auth-username-password-form', 'auth-otp-form']) {
+    if (!executions.some((execution) => execution.providerId === provider)) {
+      await request(`${formsExecutionsPath}/execution`, {
+        method: 'POST',
+        token,
+        body: { provider },
+      });
+    }
+  }
+  executions = await request(formsExecutionsPath, { token });
+  for (const execution of executions) {
+    if (execution.requirement !== 'REQUIRED') {
+      await request(formsExecutionsPath, {
         method: 'PUT',
         token,
         body: { ...execution, requirement: 'REQUIRED' },

@@ -51,6 +51,7 @@ export async function platformConsoleLogin({
   redirectUri = 'http://localhost:5180/callback',
   skipOtp = false,
   otpDelayMs = 0,
+  verifySsoRestoration = false,
 }) {
   const cookies = new Map();
   const remember = (response) => {
@@ -121,5 +122,49 @@ export async function platformConsoleLogin({
   });
   if (!token.ok) return { status: 'STOPPED', stage: 'TOKEN_EXCHANGE' };
   const { access_token: accessToken } = await token.json();
-  return { status: 'TOKEN', accessToken };
+  if (!verifySsoRestoration) return { status: 'TOKEN', accessToken };
+
+  // รีเฟรช Console จะเริ่ม authorization code + PKCE ใหม่ โดยใช้ SSO cookie เดิมและ prompt=none
+  const restoreVerifier = randomBytes(32).toString('base64url');
+  const restoreAuthorize = new URL(authorize);
+  restoreAuthorize.searchParams.set('state', randomBytes(8).toString('hex'));
+  restoreAuthorize.searchParams.set(
+    'code_challenge',
+    createHash('sha256').update(restoreVerifier).digest('base64url'),
+  );
+  restoreAuthorize.searchParams.set('prompt', 'none');
+  response = await fetch(restoreAuthorize, {
+    redirect: 'manual',
+    headers: { cookie: cookieHeader() },
+  });
+  remember(response);
+  location = response.headers.get('location');
+  for (let hop = 0; hop < 5 && location && !new URL(location).searchParams.has('code'); hop++) {
+    if (new URL(location).searchParams.has('error')) {
+      return { status: 'STOPPED', stage: 'SSO_RESTORE_DENIED' };
+    }
+    if (!location.startsWith(keycloakBaseUrl)) break;
+    response = await fetch(location, {
+      redirect: 'manual',
+      headers: { cookie: cookieHeader() },
+    });
+    remember(response);
+    location = response.headers.get('location');
+  }
+  const restoreCode = location ? new URL(location).searchParams.get('code') : null;
+  if (!restoreCode) return { status: 'STOPPED', stage: 'SSO_RESTORE_NO_CODE' };
+  const restored = await fetch(`${keycloakBaseUrl}/realms/${realm}/protocol/openid-connect/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: clientId,
+      code: restoreCode,
+      redirect_uri: redirectUri,
+      code_verifier: restoreVerifier,
+    }),
+  });
+  if (!restored.ok) return { status: 'STOPPED', stage: 'SSO_RESTORE_TOKEN_EXCHANGE' };
+  const { access_token: restoredAccessToken } = await restored.json();
+  return { status: 'TOKEN', accessToken, restoredAccessToken };
 }

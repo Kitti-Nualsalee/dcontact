@@ -1,5 +1,6 @@
 export type PlatformConsoleLoginResult =
-  { status: 'TOKEN'; accessToken: string } | { status: 'STOPPED'; stage: string };
+  | { status: 'TOKEN'; accessToken: string; restoredAccessToken?: string }
+  | { status: 'STOPPED'; stage: string };
 export function totp(secret: string, at?: number, period?: number, digits?: number): string;
 export function platformConsoleLogin(options: {
   username: string;
@@ -10,4 +11,5 @@ export function platformConsoleLogin(options: {
   redirectUri?: string;
   skipOtp?: boolean;
   otpDelayMs?: number;
+  verifySsoRestoration?: boolean;
 }): Promise<PlatformConsoleLoginResult>;

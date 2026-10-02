@@ -54,7 +54,10 @@ function AuthenticatedConsole() {
       <main className="centered">
         <h1>D-Contact Platform Console</h1>
         <p>สำหรับทีม D-Contact ภายในเท่านั้น — เข้าสู่ระบบด้วยบัญชี platform (รหัสผ่าน + OTP)</p>
-        <button className="button primary" onClick={() => void auth.signinRedirect()}>
+        <button
+          className="button primary"
+          onClick={() => void auth.signinRedirect({ prompt: 'login' })}
+        >
           เข้าสู่ระบบ
         </button>
       </main>
@@ -67,7 +70,7 @@ function AuthenticatedConsole() {
         pausePlatformSessionRestore(window.sessionStorage);
         void auth.signoutRedirect();
       }}
-      onSessionExpired={() => void auth.signinRedirect()}
+      onSessionExpired={() => void auth.signinRedirect({ prompt: 'login' })}
     />
   );
 }

@@ -9,6 +9,7 @@ export const PLATFORM_API_CLIENT: string;
 export const PLATFORM_CONSOLE_CLIENT: string;
 export const PLATFORM_ROLES: readonly string[];
 export const PLATFORM_BROWSER_FLOW: string;
+export const PLATFORM_BROWSER_FORMS_FLOW: string;
 export const PLATFORM_CONSOLE_REDIRECT: string;
 export const PLATFORM_DEV_USERS: readonly PlatformDevUser[];
 export function setupKeycloakPlatform(options?: { withDevUsers?: boolean }): Promise<{
