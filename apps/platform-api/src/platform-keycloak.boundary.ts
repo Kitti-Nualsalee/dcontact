@@ -98,15 +98,50 @@ describe('Keycloak platform identity plane (real boundary)', { concurrency: fals
     assert.equal(apiClient.bearerOnly, true);
   });
 
+  test('browser flow ใช้ cookie คืน session; login ใหม่ยังบังคับ password และ OTP', async () => {
+    const token = await adminToken();
+    const setup = await setupModule;
+    const executions = async (alias: string) => {
+      const response = await fetch(
+        `${keycloakBaseUrl}/admin/realms/dcontact/authentication/flows/${alias}/executions`,
+        { headers: { authorization: `Bearer ${token}` } },
+      );
+      assert.equal(response.ok, true);
+      return (await response.json()) as {
+        providerId?: string;
+        displayName?: string;
+        requirement: string;
+      }[];
+    };
+    const root = await executions(setup.PLATFORM_BROWSER_FLOW);
+    assert.equal(
+      root.find((step) => step.providerId === 'auth-cookie')?.requirement,
+      'ALTERNATIVE',
+    );
+    assert.equal(
+      root.find((step) => step.displayName === setup.PLATFORM_BROWSER_FORMS_FLOW)?.requirement,
+      'ALTERNATIVE',
+    );
+    const forms = await executions(setup.PLATFORM_BROWSER_FORMS_FLOW);
+    for (const provider of ['auth-username-password-form', 'auth-otp-form']) {
+      assert.equal(forms.find((step) => step.providerId === provider)?.requirement, 'REQUIRED');
+    }
+  });
+
   test('operator: password + OTP → token ผ่าน boundary และได้ read + mutate', async () => {
     const operator = users.find((user) => user.role === 'platform_operator')!;
     // หน่วง OTP ข้ามวินาที: amr ต้องยังมี pwd (regression ของ reference maxAge=0)
-    const result = await login({ ...operator, otpDelayMs: 2_100 });
+    const result = await login({ ...operator, otpDelayMs: 2_100, verifySsoRestoration: true });
     assert.equal(result.status, 'TOKEN');
     tokens.operator = (result as { accessToken: string }).accessToken;
     const identity = toVerifiedPlatformIdentity(await verifier.verifyAccessToken(tokens.operator));
     assert.deepEqual(identity.roles, ['platform_operator']);
     assert.deepEqual(identity.capabilities, ['CONTROL_PLANE_READ', 'PROVISIONING_MUTATE']);
+    const restoredToken = (result as { restoredAccessToken?: string }).restoredAccessToken;
+    assert.ok(restoredToken);
+    const restored = toVerifiedPlatformIdentity(await verifier.verifyAccessToken(restoredToken));
+    assert.equal(restored.subject, identity.subject);
+    assert.deepEqual(restored.capabilities, identity.capabilities);
   });
 
   test('auditor: password + OTP → token ผ่าน boundary แต่ read-only', async () => {
