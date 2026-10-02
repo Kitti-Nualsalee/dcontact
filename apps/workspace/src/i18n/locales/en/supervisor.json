@@ -1,0 +1,82 @@
+{
+  "legacy": {
+    "railLabel": "Main areas",
+    "logoAlt": "D-Contact",
+    "agentWorkspace": "Agent Workspace",
+    "supervisorWorkspace": "Supervisor Workspace",
+    "title": "Supervisor live control"
+  },
+  "heading": {
+    "eyebrow": "LIVE OPERATIONS",
+    "title": "Supervisor Workspace",
+    "lede": "Team pulse lists risks first, within the scope the server confirms",
+    "phase": "PILOT · DESKTOP CONTROL"
+  },
+  "status": {
+    "label": "Data status",
+    "sequence": "Sequence {{sequence}}",
+    "narrowReadonly": "Narrow screen: view only",
+    "signOut": "Sign out"
+  },
+  "snapshot": {
+    "loadFailed": "Could not load Team pulse, so this page is read-only"
+  },
+  "mutation": {
+    "pending": "Waiting for the server to confirm",
+    "confirmed": "The server confirmed the latest state",
+    "rejected": "The command failed. Check the latest state before trying again"
+  },
+  "pulse": {
+    "label": "Team pulse",
+    "risks": "Needs attention",
+    "interactions": "Live interactions",
+    "agents": "Agents in scope"
+  },
+  "risk": {
+    "step": "RISK FIRST",
+    "title": "Handle these first",
+    "listLabel": "Risks to handle",
+    "queueInactive": "Queue disabled",
+    "wrapup": "Interaction in WRAPUP",
+    "empty": "No risks found in the latest snapshot"
+  },
+  "agents": {
+    "step": "TEAM PRESENCE",
+    "title": "Agents",
+    "extension": "Ext. {{extension}}",
+    "change": "Change state",
+    "changeFor": "Change state of {{name}}",
+    "empty": "No agents in scope"
+  },
+  "agentState": {
+    "OFFLINE": "Offline",
+    "AVAILABLE": "Available",
+    "RESERVED": "Offer pending",
+    "BUSY": "Busy",
+    "ACW": "After-call work",
+    "BREAK": "Break"
+  },
+  "queues": {
+    "step": "QUEUE CONTROL",
+    "title": "Queues",
+    "active": "Accepting work",
+    "inactive": "Not accepting work",
+    "open": "Open queue",
+    "close": "Close queue",
+    "openFor": "Open queue {{name}}",
+    "closeFor": "Close queue {{name}}",
+    "empty": "No queues in scope"
+  },
+  "confirm": {
+    "agentTitle": "Change state of {{name}}",
+    "openQueueTitle": "Open queue {{name}}",
+    "closeQueueTitle": "Close queue {{name}}",
+    "newState": "New state",
+    "reason": "Reason",
+    "impact": "This command affects routing and is recorded in the audit log",
+    "cancel": "Cancel",
+    "agentSubmit": "Confirm state change",
+    "openQueueSubmit": "Confirm open queue",
+    "closeQueueSubmit": "Confirm close queue"
+  }
+}

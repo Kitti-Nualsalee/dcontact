@@ -1,0 +1,82 @@
+{
+  "legacy": {
+    "railLabel": "พื้นที่หลัก",
+    "logoAlt": "D-Contact",
+    "agentWorkspace": "Agent Workspace",
+    "supervisorWorkspace": "Supervisor Workspace",
+    "title": "Supervisor live control"
+  },
+  "heading": {
+    "eyebrow": "LIVE OPERATIONS",
+    "title": "Supervisor Workspace",
+    "lede": "Team pulse เรียงเหตุการณ์เสี่ยงก่อน ภายใน scope ที่ server ยืนยัน",
+    "phase": "PILOT · DESKTOP CONTROL"
+  },
+  "status": {
+    "label": "สถานะของข้อมูล",
+    "sequence": "ลำดับข้อมูล {{sequence}}",
+    "narrowReadonly": "โหมดจอแคบ: ดูข้อมูลอย่างเดียว",
+    "signOut": "ออกจากระบบ"
+  },
+  "snapshot": {
+    "loadFailed": "โหลด Team pulse ไม่สำเร็จ หน้านี้จึงเป็น read-only"
+  },
+  "mutation": {
+    "pending": "กำลังรอ server ยืนยัน",
+    "confirmed": "server ยืนยันสถานะล่าสุดแล้ว",
+    "rejected": "คำสั่งไม่สำเร็จ กรุณาตรวจสถานะล่าสุดก่อนลองใหม่"
+  },
+  "pulse": {
+    "label": "Team pulse",
+    "risks": "ต้องตรวจสอบ",
+    "interactions": "Live interactions",
+    "agents": "Agents ใน scope"
+  },
+  "risk": {
+    "step": "RISK FIRST",
+    "title": "สิ่งที่ต้องจัดการก่อน",
+    "listLabel": "ความเสี่ยงที่ต้องจัดการ",
+    "queueInactive": "Queue ปิดใช้งาน",
+    "wrapup": "Interaction อยู่ใน WRAPUP",
+    "empty": "ยังไม่พบความเสี่ยงจาก snapshot ล่าสุด"
+  },
+  "agents": {
+    "step": "TEAM PRESENCE",
+    "title": "Agents",
+    "extension": "Ext. {{extension}}",
+    "change": "เปลี่ยนสถานะ",
+    "changeFor": "เปลี่ยนสถานะ {{name}}",
+    "empty": "ไม่มี agent ใน scope"
+  },
+  "agentState": {
+    "OFFLINE": "ออฟไลน์",
+    "AVAILABLE": "พร้อมรับงาน",
+    "RESERVED": "กำลังเสนองาน",
+    "BUSY": "ติดงาน",
+    "ACW": "สรุปหลังสาย",
+    "BREAK": "พัก"
+  },
+  "queues": {
+    "step": "QUEUE CONTROL",
+    "title": "Queues",
+    "active": "เปิดรับงาน",
+    "inactive": "ปิดรับงาน",
+    "open": "เปิด Queue",
+    "close": "ปิด Queue",
+    "openFor": "เปิด Queue {{name}}",
+    "closeFor": "ปิด Queue {{name}}",
+    "empty": "ไม่มี Queue ใน scope"
+  },
+  "confirm": {
+    "agentTitle": "เปลี่ยนสถานะ {{name}}",
+    "openQueueTitle": "เปิด Queue {{name}}",
+    "closeQueueTitle": "ปิด Queue {{name}}",
+    "newState": "สถานะใหม่",
+    "reason": "เหตุผล",
+    "impact": "คำสั่งนี้มีผลกับ routing และจะถูกบันทึกใน audit log",
+    "cancel": "ยกเลิก",
+    "agentSubmit": "ยืนยันเปลี่ยนสถานะ",
+    "openQueueSubmit": "ยืนยันเปิด Queue",
+    "closeQueueSubmit": "ยืนยันปิด Queue"
+  }
+}

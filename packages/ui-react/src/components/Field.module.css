@@ -66,6 +66,17 @@
   font: inherit;
 }
 
+.multiline {
+  align-items: stretch;
+  padding: var(--dc-space-3) var(--dc-space-4);
+}
+
+.textarea {
+  min-height: calc(var(--dc-control-md) * 2);
+  resize: vertical;
+  line-height: var(--dc-leading-normal);
+}
+
 .input:focus,
 .input:focus-visible {
   outline: none;
