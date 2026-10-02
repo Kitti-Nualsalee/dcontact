@@ -5,7 +5,8 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 extension="$root/infra/keycloak/extensions/invitation-guard"
-keycloak_image="quay.io/keycloak/keycloak:26.0.0"
+# #592: ต้องตรงกับ image ของ runtime (infra/docker/docker-compose.dev.yml, infra/keycloak/Dockerfile)
+keycloak_image="docker.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"; docker rm -f dcontact-kc-libs >/dev/null 2>&1 || true' EXIT
 

@@ -11,7 +11,7 @@ import { buildBundle, verifyBundle } from './a1-rc-bundle.mjs';
 const SHA = 'a'.repeat(40);
 const CONFIG = 'b'.repeat(64);
 const IMAGES = {
-  'quay.io/keycloak/keycloak:26.0.0': `quay.io/keycloak/keycloak@sha256:${'c'.repeat(64)}`,
+  'docker.io/keycloak/keycloak:26.7.5': `docker.io/keycloak/keycloak@sha256:${'c'.repeat(64)}`,
 };
 
 function manifest(profile, overrides = {}) {

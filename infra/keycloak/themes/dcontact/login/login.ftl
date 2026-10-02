@@ -1,5 +1,5 @@
 <#--
-  #515: login.ftl ของ base (Keycloak 26.0.0) ปรับตามแบบ B — id/name ของ field และปุ่มเหมือนเดิมทุกตัว
+  #515: login.ftl ของ base (Keycloak 26.0.0 ปรับตาม 26.7.5 ใน #592) ปรับตามแบบ B — id/name ของ field และปุ่มเหมือนเดิมทุกตัว
   (#username, #password, #kc-login, credentialId) เพื่อให้ UAT และ boundary test ของ A1 ใช้ได้ต่อ
 -->
 <#import "template.ftl" as layout>
@@ -100,7 +100,8 @@
                 <ul class="${properties.kcFormSocialAccountListClass!} <#if social.providers?size gt 3>${properties.kcFormSocialAccountListGridClass!}</#if>">
                     <#list social.providers as p>
                         <li>
-                            <a id="social-${p.alias}" class="${properties.kcFormSocialAccountListButtonClass!} <#if social.providers?size gt 3>${properties.kcFormSocialAccountGridItem!}</#if>"
+                            <a data-once-link data-disabled-class="${properties.kcFormSocialAccountListButtonDisabledClass!}" id="social-${p.alias}"
+                                    class="${properties.kcFormSocialAccountListButtonClass!} <#if social.providers?size gt 3>${properties.kcFormSocialAccountGridItem!}</#if>"
                                     type="button" href="${p.loginUrl}">
                                 <#if p.iconClasses?has_content>
                                     <i class="${properties.kcCommonLogoIdP!} ${p.iconClasses!}" aria-hidden="true"></i>

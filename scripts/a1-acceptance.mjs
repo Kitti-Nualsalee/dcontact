@@ -287,7 +287,7 @@ function git(...args) {
 function imageDigests() {
   const digests = {};
   for (const image of [
-    'quay.io/keycloak/keycloak:26.0.0',
+    'docker.io/keycloak/keycloak:26.7.5',
     'postgres:16-alpine',
     'axllent/mailpit:v1.20',
   ]) {

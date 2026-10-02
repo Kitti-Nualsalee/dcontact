@@ -212,7 +212,7 @@ auth request ใส่ `scope: 'openid organization:acme'` → Keycloak จำ�
 
 เพิ่มใน `infra/docker/docker-compose.dev.yml`:
 
-- `keycloak`: `quay.io/keycloak/keycloak:26.x` (pin ตอน implement), `start-dev --import-realm`,
+- `keycloak`: `docker.io/keycloak/keycloak:26.7.5` pin ด้วย digest (#592 — quay.io ถูกแทนเพื่อให้ dev/UAT ใช้ registry เดียวกัน), `start-dev --import-realm`,
   port **`8081:8080`** (8085 = Redpanda Console, 5433 = Postgres, 9092 = Kafka — ไม่ชน),
   `KC_DB=postgres` ใช้ database `keycloak` ใน Postgres container เดิม
   (init ผ่าน `infra/docker/initdb/01-keycloak-db.sql` — รันเฉพาะ volume ใหม่;

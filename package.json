@@ -25,7 +25,7 @@
     "infra:identity:theme": "node scripts/keycloak-theme-setup.mjs",
     "infra:identity:platform": "node scripts/keycloak-platform-setup.mjs && node scripts/keycloak-provisioning-setup.mjs",
     "infra:identity:dphone-embedded": "node scripts/keycloak-dphone-embedded-setup.mjs",
-    "infra:bootstrap": "pnpm db:migrate && pnpm db:rls && pnpm db:seed && pnpm infra:identity:link && pnpm infra:identity:platform && pnpm infra:identity:dphone-embedded && pnpm infra:identity:theme",
+    "infra:bootstrap": "pnpm db:migrate && pnpm db:rls && pnpm db:seed && pnpm infra:identity:link && pnpm infra:identity:platform && pnpm infra:identity:account && pnpm infra:identity:dphone-embedded && pnpm infra:identity:theme",
     "infra:check": "node scripts/dev-infra-readiness.mjs && pnpm infra:identity:check",
     "infra:ready": "node scripts/phase-zero-readiness.mjs",
     "test:e1-embed-contract": "pnpm --filter @d-contact/dphone-embed typecheck && pnpm --filter @d-contact/dphone-embed test && pnpm --filter @d-contact/workspace test:embed",
@@ -96,7 +96,10 @@
     "test:u1-uat-readiness": "node --test scripts/u1-uat-readiness.test.mjs scripts/u1-uat-keycloak-users.test.mjs scripts/u1-uat-ci.test.mjs && node scripts/u1-uat-readiness.mjs --static",
     "infra:console": "docker compose -f infra/docker/docker-compose.dev.yml --profile tools up -d redpanda-console",
     "infra:tracing": "docker compose -f infra/docker/docker-compose.dev.yml --profile tools up -d jaeger",
-    "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
+    "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down",
+    "infra:identity:account": "node scripts/keycloak-account-service-setup.mjs",
+    "infra:identity:account:verify": "node scripts/keycloak-account-service-setup.mjs --verify",
+    "test:keycloak-account-service": "node --test scripts/keycloak-account-service-setup.test.mjs"
   },
   "devDependencies": {
     "prettier": "^3.3.3",
