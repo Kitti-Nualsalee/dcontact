@@ -43,10 +43,13 @@ if not allowed:
     raise SystemExit('UAT_ALLOWED_CIDRS ว่าง')
 alphabet = string.ascii_letters + string.digits
 secret = ''.join(secrets.choice(alphabet) for _ in range(48))
+# #592: service account ของ self-service บัญชี (#589) — secret แยกจาก provisioner
+account_secret = ''.join(secrets.choice(alphabet) for _ in range(48))
 content = '\n'.join([
     f'PLATFORM_DB_PASSWORD={db["PLATFORM_DB_PASSWORD"]}',
     f'PROVISIONER_DB_PASSWORD={db["PROVISIONER_DB_PASSWORD"]}',
     f'KEYCLOAK_PROVISIONER_SECRET={secret}',
+    f'KEYCLOAK_ACCOUNT_SERVICE_SECRET={account_secret}',
     f'PLATFORM_ALLOWED_CIDRS="{allowed}"',
     'PLATFORM_SIP_BASE_DOMAIN=sip.uat.osd.co.th',
     'PLATFORM_PROVISIONING_ENABLED=false',

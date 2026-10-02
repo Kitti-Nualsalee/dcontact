@@ -12,7 +12,7 @@
 <#assign dcHeader><#nested "header"></#assign>
 <#assign dcSubtitle><#nested "subtitle"></#assign>
 <!DOCTYPE html>
-<html class="${properties.kcHtmlClass!}"<#if realm.internationalizationEnabled> lang="${locale.currentLanguageTag}" dir="${(locale.rtl)?then('rtl','ltr')}"</#if>>
+<html class="${properties.kcHtmlClass!}" lang="${lang}"<#if realm.internationalizationEnabled> dir="${(locale.rtl)?then('rtl','ltr')}"</#if>>
 <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
@@ -51,16 +51,53 @@
             <script src="${script}" type="text/javascript"></script>
         </#list>
     </#if>
+    <#-- #592: authChecker.js ของ Keycloak 26.7 (startSessionPolling + checkAuthSession แทน checkCookiesAndSetTimer) -->
     <script type="module">
-        import { checkCookiesAndSetTimer } from "${url.resourcesPath}/js/authChecker.js";
+        <#outputformat "JavaScript">
+        import { startSessionPolling } from ${(url.resourcesPath + "/js/authChecker.js")?c};
 
-        checkCookiesAndSetTimer(
-          "${url.ssoLoginInOtherTabsUrl?no_esc}"
+        startSessionPolling(
+            ${url.ssoLoginInOtherTabsUrl?c}
         );
+        </#outputformat>
     </script>
+    <script type="module">
+        document.addEventListener("click", (event) => {
+            const link = event.target.closest("a[data-once-link]");
+
+            if (!link) {
+                return;
+            }
+
+            if (link.getAttribute("aria-disabled") === "true") {
+                event.preventDefault();
+                return;
+            }
+
+            const { disabledClass } = link.dataset;
+
+            if (disabledClass) {
+                link.classList.add(...disabledClass.trim().split(/\s+/));
+            }
+
+            link.setAttribute("role", "link");
+            link.setAttribute("aria-disabled", "true");
+        });
+    </script>
+    <#if authenticationSession??>
+        <script type="module">
+            <#outputformat "JavaScript">
+            import { checkAuthSession } from ${(url.resourcesPath + "/js/authChecker.js")?c};
+
+            checkAuthSession(
+                ${authenticationSession.authSessionIdHash?c}
+            );
+            </#outputformat>
+        </script>
+    </#if>
 </head>
 
-<body class="${properties.kcBodyClass!}<#if dcPlatform> dc-body--platform</#if>">
+<body class="${properties.kcBodyClass!}<#if dcPlatform> dc-body--platform</#if>" data-page-id="login-${pageId}">
 <div class="dc-shell">
     <aside class="dc-brand" aria-label="D-Contact">
         <div class="dc-brand__body">
@@ -127,7 +164,7 @@
                             <div class="${properties.kcFormGroupClass!}">
                                 <input type="hidden" name="tryAnotherWay" value="on"/>
                                 <a href="#" id="try-another-way"
-                                   onclick="document.forms['kc-select-try-another-way-form'].submit();return false;">${msg("doTryAnotherWay")}</a>
+                                   onclick="document.forms['kc-select-try-another-way-form'].requestSubmit();return false;">${msg("doTryAnotherWay")}</a>
                             </div>
                         </form>
                     </#if>

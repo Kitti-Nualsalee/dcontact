@@ -1,5 +1,5 @@
 <#--
-  #515: login-otp.ftl ของ base (Keycloak 26.0.0) ปรับตามแบบ B — #otp, name="otp", #kc-login และ selectedCredentialId เหมือนเดิม
+  #515: login-otp.ftl ของ base (Keycloak 26.0.0 ปรับตาม 26.7.5 ใน #592) ปรับตามแบบ B — #otp, name="otp", #kc-login และ selectedCredentialId เหมือนเดิม
 -->
 <#import "template.ftl" as layout>
 <@layout.registrationLayout displayMessage=!messagesPerField.existsError('totp'); section>
@@ -8,7 +8,7 @@
     <#elseif section="subtitle">
         ${msg("dcOtpSubtitle")}
     <#elseif section="form">
-        <form id="kc-otp-login-form" class="${properties.kcFormClass!}" action="${url.loginAction}"
+        <form id="kc-otp-login-form" class="${properties.kcFormClass!}" onsubmit="login.disabled = true; return true;" action="${url.loginAction}"
             method="post">
             <#if otpLogin.userOtpCredentials?size gt 1>
                 <div class="${properties.kcFormGroupClass!}">

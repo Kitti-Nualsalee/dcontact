@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.7
-# UAT: Keycloak image ของ D-Contact = Keycloak 26.0.0 (digest เดียวกับที่ compose ของ UAT pin ไว้) + login/email theme
+# UAT: Keycloak image ของ D-Contact = Keycloak 26.7.5 (#592; digest เดียวกับที่ compose ของ UAT pin ไว้) + login/email theme
 # (#515/#522) — theme อยู่ใน image จึง deploy/rollback ด้วย digest ได้เหมือน image อื่นของ UAT ไม่ต้อง bind mount บน VM
 #
 # build context = root ของ repo:
 #   docker build -f infra/keycloak/Dockerfile --build-arg SOURCE_SHA=<sha> .
 ARG NODE_IMAGE=node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
-ARG KEYCLOAK_IMAGE=docker.io/keycloak/keycloak:26.0.0@sha256:db0d0f2c2eee8618a37a50e04affb69823e56687b4d1b676a847a4b85de62178
+ARG KEYCLOAK_IMAGE=docker.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85
 # UBI 9 ของ Keycloak 26 ต้องมี CPU x86-64-v2 แต่ VM2 UAT เป็น KVM รุ่นเก่าที่มีเพียง SSE2.
 # ใช้ Temurin Java 21 แบบ baseline x86-64 เพื่อรัน invitation guard ของ A1 (`--release 21`)
 # โดยยังคัดลอก Keycloak distribution ที่ pin digest เดิมทั้งหมด.
