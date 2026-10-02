@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Button as AriaButton, Menu, MenuItem, MenuTrigger, Popover } from 'react-aria-components';
 import { Badge } from '../components/Badge.js';
 import { Button } from '../components/Button.js';
@@ -15,7 +15,8 @@ export interface SignOutConfirm {
 
 export interface UserMenuProps {
   user: ShellUser;
-  onSignOut: () => void;
+  /** คืน Promise ได้ — แอปแจ้ง error เอง (เช่น redirect ไปออกจากระบบไม่สำเร็จ) */
+  onSignOut: () => void | Promise<void>;
   /** มีค่า = เลือก "ออกจากระบบ" แล้วถามยืนยันด้วย Dialog ก่อน (Workspace ระหว่างมีสาย); ไม่มี = ออกทันที */
   signOutConfirm?: SignOutConfirm;
 }
@@ -28,6 +29,10 @@ export function UserMenu({ user, onSignOut, signOutConfirm }: UserMenuProps) {
   const t = useUiText();
   const headerId = useId();
   const [confirming, setConfirming] = useState(false);
+  // งานในมือหมดระหว่างที่ dialog เปิด = ไม่ต้องถามแล้ว — ล้าง state ไม่ให้ dialog เด้งกลับเองตอนมีงานครั้งถัดไป
+  useEffect(() => {
+    if (!signOutConfirm) setConfirming(false);
+  }, [signOutConfirm]);
   const initials = userInitials(user.displayName);
   const name = user.displayName || user.email || t('userMenu.unnamed');
 
@@ -69,7 +74,7 @@ export function UserMenu({ user, onSignOut, signOutConfirm }: UserMenuProps) {
             onAction={(key) => {
               if (key !== 'sign-out') return;
               if (signOutConfirm) setConfirming(true);
-              else onSignOut();
+              else void onSignOut();
             }}
           >
             <MenuItem id="sign-out" className={styles.item}>
@@ -91,7 +96,7 @@ export function UserMenu({ user, onSignOut, signOutConfirm }: UserMenuProps) {
                 variant="danger"
                 onPress={() => {
                   close();
-                  onSignOut();
+                  void onSignOut();
                 }}
               >
                 {signOutConfirm.confirmLabel}

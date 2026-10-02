@@ -52,22 +52,26 @@ const e2eWorkSession = createWorkSessionApi({
   accessToken: () => 'e2e-access-token',
 });
 
+const e2eTenantAlias = e2eSearch.get('tenant') ?? undefined;
+// #588: ผู้ใช้จำลองของเมนูผู้ใช้ — การออกจากระบบนับใน `window.__signOuts` ให้ spec ตรวจ
+const e2eSignOut = async () => {
+  const w = window as unknown as { __signOuts?: number };
+  w.__signOuts = (w.__signOuts ?? 0) + 1;
+};
 const e2eShellProps = {
   apiBaseUrl: window.location.origin,
   accessToken: () => 'e2e-access-token',
-  tenantAlias: new URL(window.location.href).searchParams.get('tenant') ?? undefined,
-  // #588: ผู้ใช้จำลองของเมนูผู้ใช้ — การออกจากระบบนับใน `window.__signOuts` ให้ spec ตรวจ
-  user: shellUserFromClaims(
-    {
-      name: 'ผู้ทดสอบ เวิร์กสเปซ',
-      email: 'workspace-e2e@demo.example',
-      realm_access: { roles: ['agent'] },
-    },
-    new URL(window.location.href).searchParams.get('tenant') ?? undefined,
-  ),
-  onSignOut: () => {
-    const w = window as unknown as { __signOuts?: number };
-    w.__signOuts = (w.__signOuts ?? 0) + 1;
+  tenantAlias: e2eTenantAlias,
+  account: {
+    user: shellUserFromClaims(
+      {
+        name: 'ผู้ทดสอบ เวิร์กสเปซ',
+        email: 'workspace-e2e@demo.example',
+        realm_access: { roles: ['agent'] },
+      },
+      e2eTenantAlias,
+    ),
+    onSignOut: e2eSignOut,
   },
 } as const;
 
@@ -85,7 +89,7 @@ function E2eAgentWorkspace() {
         tenantLabel="demo"
         createDphone={e2eCreateDphone}
         workSession={e2eWorkSession}
-        onSignOut={e2eShellProps.onSignOut}
+        onSignOut={() => void e2eSignOut()}
         onWorkInHandChange={setWorkInHand}
       />
     </WorkspaceShell>

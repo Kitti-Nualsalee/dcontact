@@ -50,15 +50,17 @@ const LETTER = /\p{L}/u;
 function firstLetter(word: string): string | undefined {
   for (const char of word) {
     if (THAI_LEADING_VOWEL.test(char)) continue;
-    if (LETTER.test(char)) return char.toLocaleUpperCase();
+    if (LETTER.test(char)) return char.toUpperCase();
   }
   return undefined;
 }
 
 /** อักษรตัวแรกของคำแรกและคำสุดท้าย เช่น "Somchai Jaidee" → "SJ", "สมชาย ใจดี" → "สจ"; ไม่มีตัวอักษร = "" */
 export function userInitials(displayName: string): string {
-  const words = displayName.split(/\s+/u).filter((word) => firstLetter(word));
-  if (words.length === 0) return '';
-  const first = firstLetter(words[0]!)!;
-  return words.length === 1 ? first : first + firstLetter(words[words.length - 1]!)!;
+  const letters = displayName
+    .split(/\s+/u)
+    .map(firstLetter)
+    .filter((letter): letter is string => letter !== undefined);
+  if (letters.length === 0) return '';
+  return letters.length === 1 ? letters[0]! : letters[0]! + letters[letters.length - 1]!;
 }

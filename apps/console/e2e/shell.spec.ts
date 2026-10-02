@@ -153,3 +153,11 @@ test('flag เปิด → เมนูผู้ใช้แสดงชื่�
   await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
   expect(await page.evaluate(() => (window as { __signOuts?: number }).__signOuts ?? 0)).toBe(1);
 });
+
+test('#588: ออกจากระบบไม่สำเร็จ → แจ้งเตือนผู้ใช้ ไม่เงียบหาย', async ({ page }) => {
+  await mockNavigation(page, { status: 200, body: navigation(true) });
+  await page.goto('/?view=journeys&tenant=demo&signout=fail');
+  await userMenu(page).click();
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  await expect(page.getByText('ออกจากระบบไม่สำเร็จ กรุณาลองอีกครั้ง')).toBeVisible();
+});

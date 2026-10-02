@@ -66,3 +66,7 @@ test('อักษรย่อ: ไทยข้ามสระหน้า, อ�
   assert.equal(userInitials('123 456'), '');
   assert.equal(userInitials(''), '');
 });
+
+test('อักษรย่อไม่ขึ้นกับ locale ของเครื่อง (เช่น ตุรกี i → I ไม่ใช่ İ)', () => {
+  assert.equal(userInitials('ilker ince'), 'II');
+});

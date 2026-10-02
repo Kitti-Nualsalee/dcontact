@@ -181,8 +181,10 @@ function ConsoleLocale({
 /** #588: เมนูผู้ใช้บนแถบบนของ shell — ข้อมูลจาก claims ของ token ใช้แสดงผลอย่างเดียว */
 function shellUserProps(auth: AuthContextProps, tenantAlias: string) {
   return {
-    user: shellUserFromClaims(auth.user?.profile ?? {}, tenantAlias),
-    onSignOut: () => void auth.signoutRedirect(),
+    account: {
+      user: shellUserFromClaims(auth.user?.profile ?? {}, tenantAlias),
+      onSignOut: () => auth.signoutRedirect(),
+    },
   };
 }
 

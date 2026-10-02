@@ -213,13 +213,17 @@ function AgentWorkspace({
   const ownsWork = enforced ? leaseHeld : workingTab;
   // เก็บ SIP/WS/หน้าต่าง dphone ไว้: flag เปิด = ถือ lease หรือยังมีงานในมือ; flag ปิด = working tab (เดิม)
   const mediaOwner = enforced ? leaseHeld || workInHand : workingTab;
-  // #588: ออกจากระบบตอนนี้จะตัดสาย, พลาดสายที่กำลังเรียกเข้า หรือทิ้ง wrap-up ที่ยังไม่บันทึก
-  const signOutLosesWork = workInHand || dphoneState.phase === 'RINGING';
+  // #588: ออกจากระบบตอนนี้จะตัดสาย, พลาดสายที่ offer มาหรือกำลังเรียกเข้า หรือทิ้ง wrap-up ที่ยังไม่บันทึก
+  // (offer นับจาก snapshot ด้วย — tab ที่ไม่ได้ถือ media หรือ INVITE ยังมาไม่ถึงจะไม่มี RINGING)
+  const signOutLosesWork =
+    workInHand || dphoneState.phase === 'RINGING' || snapshot?.interaction?.state === 'ASSIGNED';
   const onWorkInHandChangeRef = useRef(onWorkInHandChange);
   onWorkInHandChangeRef.current = onWorkInHandChange;
   useEffect(() => {
     onWorkInHandChangeRef.current?.(signOutLosesWork);
   }, [signOutLosesWork]);
+  // unmount แล้วไม่มีงานในมือของหน้านี้ — ไม่ให้ shell ค้างสถานะ "มีงาน"
+  useEffect(() => () => onWorkInHandChangeRef.current?.(false), []);
   const onCallEventRef = useRef(onCallEvent);
   onCallEventRef.current = onCallEvent;
   // E1.14: offered/answered ครั้งเดียวต่อ interaction+state (snapshot ถูกโหลดซ้ำได้หลายครั้ง)

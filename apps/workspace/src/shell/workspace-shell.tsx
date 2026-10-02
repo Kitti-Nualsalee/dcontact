@@ -33,9 +33,8 @@ export interface WorkspaceShellProps {
   accessToken: () => string | undefined;
   tenantAlias?: string;
   appId: WorkspaceShellApp;
-  /** #588: เมนูผู้ใช้บนแถบบน (ชื่อ, organization, บทบาท) — ต้องส่งคู่กับ `onSignOut` */
-  user?: ShellUser;
-  onSignOut?: () => void;
+  /** #588: เมนูผู้ใช้บนแถบบน (ชื่อ, organization, บทบาท และออกจากระบบ) */
+  account?: { user: ShellUser; onSignOut: () => Promise<void> };
   /** #588: มีสายหรือ wrap-up ค้าง → ถามยืนยันก่อนออกจากระบบ */
   workInHand?: boolean;
   children: ReactNode;
@@ -46,8 +45,7 @@ export function WorkspaceShell({
   accessToken,
   tenantAlias,
   appId,
-  user,
-  onSignOut,
+  account,
   workInHand = false,
   children,
 }: WorkspaceShellProps) {
@@ -108,10 +106,17 @@ export function WorkspaceShell({
           );
         }}
         user={
-          user && onSignOut
+          account
             ? {
-                user,
-                onSignOut,
+                user: account.user,
+                // #588: redirect ไปออกจากระบบไม่สำเร็จต้องแจ้งผู้ใช้ ไม่เงียบหาย
+                onSignOut: () =>
+                  account.onSignOut().catch(() => {
+                    toastQueue.add(
+                      { title: t('shell.signOutFailed'), tone: 'attention' },
+                      { timeout: 6000 },
+                    );
+                  }),
                 signOutConfirm: workInHand
                   ? {
                       title: t('shell.signOutConfirm.title'),

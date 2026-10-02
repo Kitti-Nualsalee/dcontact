@@ -41,17 +41,23 @@ createRoot(root).render(
 // #588: ผู้ใช้จำลองของเมนูผู้ใช้ — การออกจากระบบนับใน `window.__signOuts` ให้ spec ตรวจ
 function e2eShellUser(tenantAlias: string | undefined) {
   return {
-    user: shellUserFromClaims(
-      {
-        name: 'ผู้ทดสอบ คอนโซล',
-        email: 'console-e2e@demo.example',
-        realm_access: { roles: ['admin', 'offline_access'] },
+    account: {
+      user: shellUserFromClaims(
+        {
+          name: 'ผู้ทดสอบ คอนโซล',
+          email: 'console-e2e@demo.example',
+          realm_access: { roles: ['admin', 'offline_access'] },
+        },
+        tenantAlias,
+      ),
+      // `?signout=fail` จำลอง redirect ไปออกจากระบบไม่สำเร็จ
+      onSignOut: async () => {
+        const w = window as unknown as { __signOuts?: number };
+        w.__signOuts = (w.__signOuts ?? 0) + 1;
+        if (new URL(window.location.href).searchParams.get('signout') === 'fail') {
+          throw new Error('signout failed');
+        }
       },
-      tenantAlias,
-    ),
-    onSignOut: () => {
-      const w = window as unknown as { __signOuts?: number };
-      w.__signOuts = (w.__signOuts ?? 0) + 1;
     },
   };
 }

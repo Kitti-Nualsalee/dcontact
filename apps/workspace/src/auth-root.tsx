@@ -98,8 +98,10 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
     apiBaseUrl,
     accessToken: () => accessToken,
     tenantAlias,
-    user: shellUserFromClaims(auth.user?.profile ?? {}, tenantAlias),
-    onSignOut: signOut,
+    account: {
+      user: shellUserFromClaims(auth.user?.profile ?? {}, tenantAlias),
+      onSignOut: () => auth.signoutRedirect(),
+    },
   } as const;
   if (view === 'supervisor') {
     return (

@@ -47,6 +47,7 @@
       "title": "Sign out with work in progress?",
       "description": "Any current or incoming call will be disconnected, and unsaved wrap-up will be lost.",
       "confirm": "Sign out"
-    }
+    },
+    "signOutFailed": "Could not sign out. Please try again."
   }
 }

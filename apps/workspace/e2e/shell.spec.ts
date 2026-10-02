@@ -184,3 +184,42 @@ test('flag เปิด → มี wrap-up ที่ยังไม่บัน�
   await expect(wrapup).toBeVisible();
   expect(await signOuts(page)).toBe(0);
 });
+
+test('#588: มีสายถูก offer มา (ASSIGNED) แม้ dphone ยังไม่ดัง ต้องยืนยันก่อนออก', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/me/navigation', (route) =>
+    route.fulfill({ status: 200, json: navigation(true) }),
+  );
+  await page.route('**/api/v1/workspace/agent/snapshot', (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        agent: {
+          id: 'agent-1000',
+          displayName: 'สมชาย ใจดี',
+          extension: '1000',
+          state: 'RESERVED',
+        },
+        interaction: {
+          id: 'interaction-offer-2',
+          state: 'ASSIGNED',
+          version: '3',
+          caller: '081-234-5678',
+          queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+          offerExpiresAt: '2099-01-01T00:00:20.000Z',
+          answeredAt: null,
+          endedAt: null,
+        },
+      },
+    }),
+  );
+  await page.goto('/?tenant=demo');
+  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await userMenu(page).click();
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  await expect(
+    page.getByRole('alertdialog', { name: 'ออกจากระบบทั้งที่ยังมีงานค้าง?' }),
+  ).toBeVisible();
+  expect(await signOuts(page)).toBe(0);
+});
