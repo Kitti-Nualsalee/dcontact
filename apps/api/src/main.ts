@@ -20,6 +20,8 @@ import {
 import { createWorkspaceSessionHandler } from './workspace-session-api.js';
 import { WorkSessionLeases } from './work-session.js';
 import { EmbedOriginService } from './embed-origins.js';
+import { AccountPolicyService } from './account-policy.js';
+import { ACCOUNT_POLICY_SERVICE, AccountPolicyController } from './account-policy-api.js';
 import {
   DPHONE_EMBED_SHELL_OPTIONS,
   DphoneEmbedController,
@@ -307,6 +309,7 @@ class WorkspaceSessionController {
     FreeSwitchDirectoryController,
     WorkSessionController,
     EmbedOriginsController,
+    AccountPolicyController,
     ScreenPopController,
     ClickToCallController,
     DphoneEmbedController,
@@ -359,6 +362,8 @@ class WorkspaceSessionController {
     { provide: TEAM_SEGMENT_SCOPE_DATABASE, useValue: prisma },
     { provide: WORK_SESSION_LEASES, useValue: workSessionLeases },
     { provide: EMBED_ORIGIN_SERVICE, useValue: embedOrigins },
+    // AC1 (#594): นโยบายบัญชีของ tenant — port บังคับ 2FA มาใน AC2 (#595); ก่อนนั้นเปิด 2FA ได้ 409
+    { provide: ACCOUNT_POLICY_SERVICE, useValue: new AccountPolicyService(prisma) },
     // E1.15 (#489): `<dphone-launcher>` แบบ versioned/alias บน dphone origin
     { provide: DPHONE_LAUNCHER_OPTIONS, useValue: { releasesDir: defaultLauncherReleasesDir() } },
     { provide: SCREEN_POP_SERVICE, useValue: screenPop },
