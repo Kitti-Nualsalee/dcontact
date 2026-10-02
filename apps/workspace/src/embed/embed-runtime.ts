@@ -99,10 +99,46 @@ export class EmbedRuntime {
     this.deps.send(this.result(request, 'prefilled'));
   }
 
-  cancel() {
+  async cancel(): Promise<void> {
     if (this.prefill.phase !== 'prefilled' && this.prefill.phase !== 'result') return;
     if (this.prefill.phase === 'prefilled') {
       this.deps.send(this.result(this.prefill.request, 'cancelled', 'AGENT_CANCELLED'));
+    }
+    if (
+      this.prefill.phase === 'result' &&
+      this.prefill.result.status === 'dialing' &&
+      this.leaseId
+    ) {
+      const { request } = this.prefill;
+      let cancelled = false;
+      try {
+        const response = await this.deps.authorizedFetch(
+          `${this.deps.apiBaseUrl.replace(/\/$/, '')}/api/v1/workspace/agent/click-to-call/cancel`,
+          {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-work-session-lease-id': this.leaseId,
+            },
+            body: JSON.stringify({ requestId: request.requestId }),
+          },
+        );
+        const body = (await response.json().catch(() => undefined)) as
+          { hostOrigin?: string; result?: { status?: string } } | undefined;
+        cancelled =
+          response.ok &&
+          body?.hostOrigin === this.deps.hostOrigin &&
+          body.result?.status === 'cancelled';
+      } catch {
+        // ผลจริงยังต้องมาจาก server/ESL; host ได้สถานะ reconciling แบบไม่มี PII.
+      }
+      this.deps.send(
+        this.result(
+          request,
+          cancelled ? 'cancelled' : 'unavailable',
+          cancelled ? 'AGENT_CANCELLED' : 'VOICE_CANCEL_RECONCILING',
+        ),
+      );
     }
     this.setPrefill({ phase: 'idle' });
   }
@@ -191,7 +227,7 @@ export class EmbedRuntime {
       type: 'dphone.activity',
       requestId: this.deps.requestId(),
       interactionId: interaction.id,
-      direction: 'INBOUND',
+      direction: interaction.direction,
       startedAt,
       endedAt,
       durationSeconds,

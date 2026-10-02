@@ -59,4 +59,32 @@ export class ClickToCallController {
     if (outcome.status === 'not_found') throw new NotFoundException({ code: 'NOT_FOUND' });
     return outcome;
   }
+
+  @Post('cancel')
+  @HttpCode(200)
+  @GatewayRoles('agent')
+  async cancel(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Headers('x-work-session-lease-id') leaseId: string | undefined,
+    @Body() body: { requestId?: unknown } | undefined,
+  ) {
+    if (!request.gatewayIdentity) throw new ForbiddenException();
+    const requestId = body?.requestId;
+    if (typeof leaseId !== 'string' || !UUID.test(leaseId)) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        field: 'x-work-session-lease-id',
+      });
+    }
+    if (typeof requestId !== 'string' || !REQUEST_ID.test(requestId)) {
+      throw new BadRequestException({ code: 'VALIDATION_FAILED', field: 'requestId' });
+    }
+    const outcome = await this.clickToCall.cancel(
+      { tenantId: request.gatewayIdentity.tenantId, userId: request.gatewayIdentity.userId },
+      { leaseId, requestId },
+      request.correlationId ?? 'unavailable',
+    );
+    if (outcome.status === 'not_found') throw new NotFoundException({ code: 'NOT_FOUND' });
+    return outcome;
+  }
 }

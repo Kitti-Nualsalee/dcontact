@@ -49,7 +49,7 @@ function ClickToCallPrompt({ runtime }: { runtime: EmbedRuntime }) {
           </Button>
         ) : null}
         {state.phase !== 'dialing' ? (
-          <Button variant="ghost" onPress={() => runtime.cancel()}>
+          <Button variant="ghost" onPress={() => void runtime.cancel()}>
             {state.phase === 'result' ? t('embedCall.close') : t('embedCall.cancel')}
           </Button>
         ) : null}

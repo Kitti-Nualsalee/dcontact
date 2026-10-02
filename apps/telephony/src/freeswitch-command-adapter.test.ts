@@ -106,11 +106,12 @@ test('call.originate ปิดเป็นค่าเริ่มต้นแ�
       vendor: 'freeswitch',
       telephonyNodeId: 'fs-local',
       deliveryId: 'dlv_opaque',
+      providerRequestKey: 'prv_opaque',
       originationUuid: '6e9a4adf-1120-4a63-9e5b-89aecbf88b16',
       agentExtension: '1000',
       targetIdentityId: 'opaque-target',
     },
-    'tenant-a',
+    '4a9f93f5-d25c-4c58-9ec7-b8ee811c7160',
   );
   assert.deepEqual(commands, []);
 });
@@ -133,14 +134,37 @@ test('call.originate resolve ได้เฉพาะ internal extension แล�
       vendor: 'freeswitch',
       telephonyNodeId: 'fs-bkk-02',
       deliveryId: 'dlv_opaque',
+      providerRequestKey: 'prv_opaque',
       originationUuid: '6e9a4adf-1120-4a63-9e5b-89aecbf88b16',
       agentExtension: '1000',
       targetIdentityId: 'opaque-target',
     },
-    'tenant-a',
+    '4a9f93f5-d25c-4c58-9ec7-b8ee811c7160',
   );
   assert.deepEqual(commands, [
-    'bgapi originate {origination_uuid=6e9a4adf-1120-4a63-9e5b-89aecbf88b16,dcontact_delivery_id=dlv_opaque}user/1000@dcontact.local &bridge(user/1001@dcontact.local)',
+    'bgapi originate {origination_uuid=6e9a4adf-1120-4a63-9e5b-89aecbf88b16,dcontact_tenant_id=4a9f93f5-d25c-4c58-9ec7-b8ee811c7160,dcontact_delivery_id=dlv_opaque,dcontact_provider_request_key=prv_opaque}user/1000@dcontact.local &bridge(user/1001@dcontact.local)',
+  ]);
+});
+
+test('call.cancel ฆ่าเฉพาะ deterministic origination UUID เมื่อ voice gate เปิด', async () => {
+  const commands: string[] = [];
+  const adapter = new FreeSwitchCommandAdapter(
+    { command: async (value) => void commands.push(value) },
+    'dcontact.local',
+    'fs-bkk-02',
+    undefined,
+    { enabled: true },
+  );
+  await adapter.handle({
+    type: 'call.cancel',
+    vendor: 'freeswitch',
+    telephonyNodeId: 'fs-bkk-02',
+    callUuid: '6e9a4adf-1120-4a63-9e5b-89aecbf88b16',
+    deliveryId: 'dlv_opaque',
+    providerRequestKey: 'prv_opaque',
+  });
+  assert.deepEqual(commands, [
+    'api uuid_kill 6e9a4adf-1120-4a63-9e5b-89aecbf88b16 ORIGINATOR_CANCEL',
   ]);
 });
 

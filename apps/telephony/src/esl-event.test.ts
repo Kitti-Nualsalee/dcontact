@@ -14,3 +14,17 @@ test('parses FreeSWITCH plain event payload after ESL framing headers', () => {
     },
   );
 });
+
+test('preserves the nested BACKGROUND_JOB reply body', () => {
+  assert.deepEqual(
+    parseEslEvent(
+      'Content-Type: text/event-plain\nContent-Length: 72\n\nEvent-Name: BACKGROUND_JOB\nJob-UUID: job-1\nContent-Length: 15\n\n+OK call-1\n',
+    ),
+    {
+      'Event-Name': 'BACKGROUND_JOB',
+      'Job-UUID': 'job-1',
+      'Content-Length': '15',
+      Body: '+OK call-1\n',
+    },
+  );
+});

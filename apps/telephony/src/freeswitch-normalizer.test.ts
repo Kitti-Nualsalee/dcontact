@@ -1,6 +1,35 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeFreeSwitchEvent, parkedCallAsCreated } from './freeswitch-normalizer.js';
+import {
+  isDeniedAgentDirectOutbound,
+  normalizeFreeSwitchEvent,
+  parkedCallAsCreated,
+} from './freeswitch-normalizer.js';
+
+test('filters agent direct outbound denied by the FreeSWITCH dialplan', () => {
+  assert.equal(
+    isDeniedAgentDirectOutbound({
+      'Caller-Caller-ID-Number': '1000',
+      'Caller-Destination-Number': '0812345678',
+    }),
+    true,
+  );
+  assert.equal(
+    isDeniedAgentDirectOutbound({
+      'Caller-Caller-ID-Number': '1000',
+      'Caller-Destination-Number': '0812345678',
+      variable_dcontact_delivery_id: 'delivery_opaque_1',
+    }),
+    false,
+  );
+  assert.equal(
+    isDeniedAgentDirectOutbound({
+      'Caller-Caller-ID-Number': '1000',
+      'Caller-Destination-Number': '1001',
+    }),
+    false,
+  );
+});
 
 test('CHANNEL_CREATE becomes a tenant-bound vendor-neutral call.created envelope', () => {
   const normalized = normalizeFreeSwitchEvent(
@@ -56,6 +85,30 @@ test('CHANNEL_BRIDGE reports media active against the original parked call UUID'
   assert.equal(normalized.type, 'call.answered');
   assert.equal(normalized.payload.callUuid, 'call-100');
   assert.equal(normalized.orderingKey, 'call-100');
+});
+
+test('outbound events preserve only opaque delivery correlation metadata', () => {
+  const normalized = normalizeFreeSwitchEvent(
+    {
+      'Event-Name': 'CHANNEL_HANGUP_COMPLETE',
+      'Unique-ID': 'call-voice-1',
+      'Caller-Caller-ID-Number': '1001',
+      'Caller-Destination-Number': 'external',
+      variable_domain_name: 'dcontact.local',
+      variable_dcontact_delivery_id: 'delivery_opaque_1',
+      variable_dcontact_provider_request_key: 'provider_opaque_1',
+      'Hangup-Cause': 'NO_ANSWER',
+    },
+    {
+      resolveTenantId: () => 'tenant-demo',
+      telephonyNodeId: 'fs-bkk-02',
+      eventId: () => 'event-hangup',
+      now: () => '2026-09-04T05:00:02.000Z',
+    },
+  );
+  assert.equal(normalized.payload.deliveryId, 'delivery_opaque_1');
+  assert.equal(normalized.payload.providerRequestKey, 'provider_opaque_1');
+  assert.equal(normalized.payload.hangupCause, 'NO_ANSWER');
 });
 
 test('DTMF without channel variables resolves the tenant from its original call UUID', () => {

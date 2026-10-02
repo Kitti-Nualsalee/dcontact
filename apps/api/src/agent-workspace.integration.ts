@@ -212,6 +212,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
     interaction: {
       id: interactionAId,
       state: 'ASSIGNED',
+      direction: 'INBOUND',
       version: interactionVersion.id.toString(),
       caller: '0812345678',
       queue: { id: queueAId, name: 'บริการลูกค้า A' },

@@ -22,6 +22,8 @@ export class FreeSwitchCommandAdapter {
     private readonly voiceOriginate: {
       enabled: boolean;
       resolver?: FreeSwitchVoiceTargetResolver;
+      targetDialTemplate?: string;
+      codecString?: string;
     } = { enabled: false },
   ) {}
 
@@ -48,6 +50,11 @@ export class FreeSwitchCommandAdapter {
     }
     if (command.type === 'call.originate') {
       if (!this.voiceOriginate.enabled || !tenantId || !this.voiceOriginate.resolver) return;
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(tenantId)
+      ) {
+        throw new Error('invalid tenant ID');
+      }
       if (!/^[A-Za-z0-9_.-]{1,64}$/.test(command.agentExtension)) {
         throw new Error('invalid SIP extension');
       }
@@ -61,6 +68,9 @@ export class FreeSwitchCommandAdapter {
       if (!/^[A-Za-z0-9_-]{1,128}$/.test(command.deliveryId)) {
         throw new Error('invalid delivery ID');
       }
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(command.providerRequestKey)) {
+        throw new Error('invalid provider request key');
+      }
       const target = await this.voiceOriginate.resolver.resolve({
         tenantId,
         targetIdentityId: command.targetIdentityId,
@@ -71,12 +81,39 @@ export class FreeSwitchCommandAdapter {
       const agentDialString = this.agentDialTemplate
         .replaceAll('{extension}', command.agentExtension)
         .replaceAll('{domain}', this.sipDomain);
-      const targetDialString = this.agentDialTemplate
+      const targetDialString = (this.voiceOriginate.targetDialTemplate ?? this.agentDialTemplate)
         .replaceAll('{extension}', target.extension)
         .replaceAll('{domain}', this.sipDomain);
+      const codecVariable = this.voiceOriginate.codecString
+        ? `,absolute_codec_string=${this.voiceOriginate.codecString}`
+        : '';
+      if (
+        this.voiceOriginate.codecString &&
+        !/^[A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)*$/.test(this.voiceOriginate.codecString)
+      ) {
+        throw new Error('invalid voice codec string');
+      }
       await this.esl.command(
-        `bgapi originate {origination_uuid=${command.originationUuid},dcontact_delivery_id=${command.deliveryId}}${agentDialString} &bridge(${targetDialString})`,
+        `bgapi originate {origination_uuid=${command.originationUuid},dcontact_tenant_id=${tenantId},dcontact_delivery_id=${command.deliveryId},dcontact_provider_request_key=${command.providerRequestKey}${codecVariable}}${agentDialString} &bridge(${targetDialString})`,
       );
+      return;
+    }
+    if (command.type === 'call.cancel') {
+      if (!this.voiceOriginate.enabled) return;
+      if (
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          command.callUuid,
+        )
+      ) {
+        throw new Error('invalid cancellation UUID');
+      }
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(command.deliveryId)) {
+        throw new Error('invalid delivery ID');
+      }
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(command.providerRequestKey)) {
+        throw new Error('invalid provider request key');
+      }
+      await this.esl.command(`api uuid_kill ${command.callUuid} ORIGINATOR_CANCEL`);
       return;
     }
     if (command.type === 'call.collect') {
