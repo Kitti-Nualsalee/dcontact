@@ -11,6 +11,8 @@ import {
   RailLink,
   SubNav,
   TopBar,
+  UserMenu,
+  shellUserFromClaims,
   useShellNavigation,
   type NavigationResponseV1,
 } from '../src/index.js';
@@ -83,6 +85,21 @@ const mockFetch: typeof fetch = async (input, init) => {
   });
 };
 
+// #588: claims จำลอง — role ที่เมนูไม่รู้จัก (offline_access) ต้องไม่แสดง
+const demoUser = shellUserFromClaims(
+  {
+    name: 'สมชาย ใจดี',
+    email: 'somchai@demo.example',
+    realm_access: { roles: ['supervisor', 'agent', 'offline_access'] },
+  },
+  'demo',
+);
+
+function recordSignOut() {
+  const w = window as unknown as { __signOuts?: number };
+  w.__signOuts = (w.__signOuts ?? 0) + 1;
+}
+
 export function ShellDemo() {
   const { t, i18n } = useTranslation('preview');
   const nav = useShellNavigation({
@@ -99,6 +116,8 @@ export function ShellDemo() {
     .map((id) => nav.apps.find((app) => app.id === id))
     .filter((app) => app !== undefined);
   const language = i18n.language === 'en' ? 'en' : 'th';
+  // `?signout=confirm` = จำลอง Workspace ระหว่างมีสาย (ถามยืนยันก่อนออก)
+  const confirmSignOut = new URL(window.location.href).searchParams.get('signout') === 'confirm';
 
   return (
     <AppShell
@@ -166,6 +185,19 @@ export function ShellDemo() {
               void i18n.changeLanguage(next);
               document.documentElement.lang = next;
             }}
+          />
+          <UserMenu
+            user={demoUser}
+            onSignOut={recordSignOut}
+            signOutConfirm={
+              confirmSignOut
+                ? {
+                    title: t('shellDemo.signOutConfirm.title'),
+                    description: t('shellDemo.signOutConfirm.description'),
+                    confirmLabel: t('shellDemo.signOutConfirm.confirm'),
+                  }
+                : undefined
+            }
           />
         </TopBar>
       }

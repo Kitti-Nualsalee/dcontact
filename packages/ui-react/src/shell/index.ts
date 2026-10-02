@@ -5,6 +5,17 @@ export { SubNav, type SubNavItem, type SubNavProps, type SubNavSection } from '.
 export { LanguageSwitch, TopBar, type LanguageSwitchProps, type TopBarProps } from './TopBar.js';
 export { ShellFrame, type ShellFrameProps } from './ShellFrame.js';
 export { ShellIcon } from './icons.js';
+export { UserMenu, type SignOutConfirm, type UserMenuProps } from './UserMenu.js';
+export {
+  SHELL_ROLES,
+  displayNameFromClaims,
+  shellRolesFromClaims,
+  shellUserFromClaims,
+  userInitials,
+  type ShellRole,
+  type ShellUser,
+  type ShellUserClaims,
+} from './user.js';
 export {
   buildAppHref,
   toShellModel,

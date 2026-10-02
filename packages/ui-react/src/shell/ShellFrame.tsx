@@ -4,6 +4,7 @@ import { AppShell } from './AppShell.js';
 import { Rail } from './Rail.js';
 import { LanguageSwitch, TopBar } from './TopBar.js';
 import type { ShellApp, ShellCreateAction, ShellGroup } from './types.js';
+import { UserMenu, type UserMenuProps } from './UserMenu.js';
 
 export interface ShellFrameProps {
   apps: readonly ShellApp[];
@@ -22,6 +23,8 @@ export interface ShellFrameProps {
   railFooter?: ReactNode;
   /** ส่วนขวาของแถบบนก่อนปุ่มภาษา เช่น สถานะพร้อมรับงานของ Workspace */
   topBarActions?: ReactNode;
+  /** #588: เมนูผู้ใช้ขวาสุดของแถบบน — ไม่ส่ง = แถบบนเหมือนเดิม */
+  user?: UserMenuProps;
   children: ReactNode;
 }
 
@@ -54,6 +57,7 @@ export function ShellFrame(props: ShellFrameProps) {
         <TopBar brand={props.brand} breadcrumb={props.breadcrumb}>
           {props.topBarActions}
           <LanguageSwitch value={props.language} onChange={props.onLanguageChange} />
+          {props.user ? <UserMenu {...props.user} /> : null}
         </TopBar>
       }
     >

@@ -113,3 +113,113 @@ test('flag เปิด → สลับภาษาไม่ reload และ�
     'same-node',
   );
 });
+
+/**
+ * #588: เมนูผู้ใช้ — ผู้ใช้จำลองของ harness คือ "ผู้ทดสอบ เวิร์กสเปซ" (agent) และนับการออกใน `__signOuts`
+ */
+const userMenu = (page: Page) =>
+  page.getByRole('button', { name: 'เมนูผู้ใช้ ผู้ทดสอบ เวิร์กสเปซ' });
+const signOuts = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __signOuts?: number }).__signOuts ?? 0);
+
+test('flag ปิด → ไม่มีเมนูผู้ใช้ และปุ่มออกจากระบบเดิมอยู่ที่แถบสถานะ', async ({ page }) => {
+  await mockApis(page, false);
+  await page.goto('/?tenant=demo');
+  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await expect(userMenu(page)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ออกจากระบบ' })).toBeVisible();
+});
+
+test('flag เปิด → เมนูผู้ใช้แสดงชื่อ/องค์กร/บทบาท, ไม่มีปุ่มออกซ้ำ และไม่มีสายก็ออกได้ทันที', async ({
+  page,
+}) => {
+  await mockApis(page, true);
+  await page.goto('/?tenant=demo');
+  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  // ปุ่มเดิมในแถบสถานะถูกซ่อน — ออกจากระบบที่เมนูผู้ใช้ที่เดียว
+  await expect(page.getByRole('button', { name: 'ออกจากระบบ' })).toHaveCount(0);
+  await userMenu(page).click();
+  await expect(page.getByRole('menu')).toHaveAccessibleName(
+    /ผู้ทดสอบ เวิร์กสเปซ.*workspace-e2e@demo\.example.*องค์กร demo.*เอเจนต์/,
+  );
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  expect(await signOuts(page)).toBe(1);
+});
+
+test('flag เปิด → มี wrap-up ที่ยังไม่บันทึก ต้องยืนยันก่อนออก และยกเลิกแล้ว wrap-up ยังอยู่', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/me/navigation', (route) =>
+    route.fulfill({ status: 200, json: navigation(true) }),
+  );
+  await page.route('**/api/v1/workspace/agent/snapshot', (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        agent: { id: 'agent-1000', displayName: 'สมชาย ใจดี', extension: '1000', state: 'ACW' },
+        interaction: {
+          id: '9a8a5477-aa53-4254-ae68-a21ab64cc2bb',
+          state: 'WRAPUP',
+          version: '19',
+          caller: '081-234-5678',
+          queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+          offerExpiresAt: null,
+          answeredAt: '2026-09-06T10:00:00.000Z',
+          endedAt: '2026-09-06T10:03:00.000Z',
+        },
+      },
+    }),
+  );
+  await page.goto('/?tenant=demo');
+  const wrapup = page.getByRole('heading', { name: 'สรุปผลหลังสาย' });
+  await expect(wrapup).toBeVisible();
+
+  await userMenu(page).click();
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  const dialog = page.getByRole('alertdialog', { name: 'ออกจากระบบทั้งที่ยังมีงานค้าง?' });
+  await expect(dialog).toContainText('wrap-up ที่ยังไม่บันทึกจะหายไป');
+  await dialog.getByRole('button', { name: 'ยกเลิก' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(wrapup).toBeVisible();
+  expect(await signOuts(page)).toBe(0);
+});
+
+test('#588: มีสายถูก offer มา (ASSIGNED) แม้ dphone ยังไม่ดัง ต้องยืนยันก่อนออก', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/me/navigation', (route) =>
+    route.fulfill({ status: 200, json: navigation(true) }),
+  );
+  await page.route('**/api/v1/workspace/agent/snapshot', (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        agent: {
+          id: 'agent-1000',
+          displayName: 'สมชาย ใจดี',
+          extension: '1000',
+          state: 'RESERVED',
+        },
+        interaction: {
+          id: 'interaction-offer-2',
+          state: 'ASSIGNED',
+          version: '3',
+          caller: '081-234-5678',
+          queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+          offerExpiresAt: '2099-01-01T00:00:20.000Z',
+          answeredAt: null,
+          endedAt: null,
+        },
+      },
+    }),
+  );
+  await page.goto('/?tenant=demo');
+  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await userMenu(page).click();
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  await expect(
+    page.getByRole('alertdialog', { name: 'ออกจากระบบทั้งที่ยังมีงานค้าง?' }),
+  ).toBeVisible();
+  expect(await signOuts(page)).toBe(0);
+});

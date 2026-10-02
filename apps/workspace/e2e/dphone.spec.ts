@@ -219,3 +219,28 @@ test('หน้าต่าง /dphone ที่เปิดเอง (bookmark)
   await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('กำลังสนทนา');
   expect(await evidence(page)).toEqual(before);
 });
+
+test('#588: ออกจากระบบระหว่างมีสายต้องยืนยัน — ยกเลิกแล้วสายเดิมอยู่ต่อโดยไม่ remount, ยืนยันแล้วออก', async ({
+  page,
+}) => {
+  const dphone = await openWithCall(page);
+  const before = await evidence(page);
+  const trigger = page.getByRole('button', { name: /^เมนูผู้ใช้/ });
+
+  await trigger.click();
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  const dialog = page.getByRole('alertdialog', { name: 'ออกจากระบบทั้งที่ยังมีงานค้าง?' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'ยกเลิก' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  expect(await evidence(page)).toEqual(before);
+  expect(await page.evaluate(() => (window as { __signOuts?: number }).__signOuts ?? 0)).toBe(0);
+
+  await trigger.click();
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  await dialog.getByRole('button', { name: 'ออกจากระบบ' }).click();
+  await expect(dialog).toBeHidden();
+  expect(await page.evaluate(() => (window as { __signOuts?: number }).__signOuts ?? 0)).toBe(1);
+});

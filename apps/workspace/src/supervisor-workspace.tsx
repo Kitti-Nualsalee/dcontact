@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useInShell } from '@d-contact/ui-react';
 import type { SupervisorSnapshot, SupervisorWorkspaceApi } from './supervisor-api.js';
 
 type MutationDraft =
@@ -22,6 +23,7 @@ export function SupervisorWorkspace({
   tenantLabel = 'D-Contact',
   onSignOut,
 }: SupervisorWorkspaceProps) {
+  const inShellFrame = useInShell();
   const [snapshot, setSnapshot] = useState<SupervisorSnapshot>();
   const [error, setError] = useState<string>();
   const [desktopControls, setDesktopControls] = useState(() => window.innerWidth >= 760);
@@ -125,7 +127,8 @@ export function SupervisorWorkspace({
           <div className="status-strip">
             <span className="status-chip neutral">ลำดับข้อมูล {snapshot?.sequence ?? '—'}</span>
             <span className="narrow-readonly">โหมดจอแคบ: ดูข้อมูลอย่างเดียว</span>
-            {onSignOut ? (
+            {/* #588: ใน shell ใหม่ออกจากระบบที่เมนูผู้ใช้บนแถบบนที่เดียว */}
+            {onSignOut && !inShellFrame ? (
               <button type="button" className="signout-action" onClick={onSignOut}>
                 ออกจากระบบ
               </button>

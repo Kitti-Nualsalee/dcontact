@@ -13,6 +13,7 @@ import {
   toastQueue,
   useShellNavigation,
   type HostApp,
+  type ShellUser,
 } from '@d-contact/ui-react';
 import { useShellTokens } from './tokens.js';
 
@@ -32,6 +33,10 @@ export interface WorkspaceShellProps {
   accessToken: () => string | undefined;
   tenantAlias?: string;
   appId: WorkspaceShellApp;
+  /** #588: เมนูผู้ใช้บนแถบบน (ชื่อ, organization, บทบาท และออกจากระบบ) */
+  account?: { user: ShellUser; onSignOut: () => Promise<void> };
+  /** #588: มีสายหรือ wrap-up ค้าง → ถามยืนยันก่อนออกจากระบบ */
+  workInHand?: boolean;
   children: ReactNode;
 }
 
@@ -40,6 +45,8 @@ export function WorkspaceShell({
   accessToken,
   tenantAlias,
   appId,
+  account,
+  workInHand = false,
   children,
 }: WorkspaceShellProps) {
   const { t } = useTranslation();
@@ -98,6 +105,28 @@ export function WorkspaceShell({
             ),
           );
         }}
+        user={
+          account
+            ? {
+                user: account.user,
+                // #588: redirect ไปออกจากระบบไม่สำเร็จต้องแจ้งผู้ใช้ ไม่เงียบหาย
+                onSignOut: () =>
+                  account.onSignOut().catch(() => {
+                    toastQueue.add(
+                      { title: t('shell.signOutFailed'), tone: 'attention' },
+                      { timeout: 6000 },
+                    );
+                  }),
+                signOutConfirm: workInHand
+                  ? {
+                      title: t('shell.signOutConfirm.title'),
+                      description: t('shell.signOutConfirm.description'),
+                      confirmLabel: t('shell.signOutConfirm.confirm'),
+                    }
+                  : undefined,
+              }
+            : undefined
+        }
       >
         {children}
       </ShellFrame>

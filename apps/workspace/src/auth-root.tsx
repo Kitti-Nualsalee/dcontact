@@ -1,6 +1,7 @@
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { AuthProvider, useAuth } from 'react-oidc-context';
 import { SessionLocaleProvider } from '@d-contact/i18n/react';
+import { shellUserFromClaims } from '@d-contact/ui-react';
 import { appI18n } from './i18n/index.js';
 import { WorkspaceShell } from './shell/workspace-shell.js';
 import { createAgentWorkspaceApi } from './agent-api.js';
@@ -21,6 +22,8 @@ const createProductionDphone: DphoneFactory = (remoteAudio, callbacks) =>
 
 function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorkspaceProps) {
   const auth = useAuth();
+  // #588: เปลี่ยนแล้ว re-render เท่านั้น — WorkspaceShell/WorkspaceApp อยู่ตำแหน่งเดิมจึงไม่ remount (ADR-026)
+  const [workInHand, setWorkInHand] = useState(false);
   const accessToken = auth.user?.access_token;
   const agentApi = useMemo(
     () =>
@@ -90,27 +93,33 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
       />
     );
   }
-  const shellProps = { apiBaseUrl, accessToken: () => accessToken, tenantAlias } as const;
+  const signOut = () => void auth.signoutRedirect();
+  const shellProps = {
+    apiBaseUrl,
+    accessToken: () => accessToken,
+    tenantAlias,
+    account: {
+      user: shellUserFromClaims(auth.user?.profile ?? {}, tenantAlias),
+      onSignOut: () => auth.signoutRedirect(),
+    },
+  } as const;
   if (view === 'supervisor') {
     return (
       <WorkspaceShell {...shellProps} appId="supervisor-workspace">
-        <SupervisorWorkspace
-          api={supervisorApi}
-          tenantLabel={tenantAlias}
-          onSignOut={() => void auth.signoutRedirect()}
-        />
+        <SupervisorWorkspace api={supervisorApi} tenantLabel={tenantAlias} onSignOut={signOut} />
       </WorkspaceShell>
     );
   }
 
   return (
-    <WorkspaceShell {...shellProps} appId="agent-workspace">
+    <WorkspaceShell {...shellProps} appId="agent-workspace" workInHand={workInHand}>
       <WorkspaceApp
         api={agentApi}
         tenantLabel={tenantAlias}
-        onSignOut={() => void auth.signoutRedirect()}
+        onSignOut={signOut}
         createDphone={createProductionDphone}
         workSession={workSession}
+        onWorkInHandChange={setWorkInHand}
       />
     </WorkspaceShell>
   );

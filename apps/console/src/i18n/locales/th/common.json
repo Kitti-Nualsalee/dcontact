@@ -46,6 +46,7 @@
     "integrations": {
       "sectionWork": "ตั้งค่า",
       "dphoneEmbedding": "ฝัง dphone ในระบบอื่น"
-    }
+    },
+    "signOutFailed": "ออกจากระบบไม่สำเร็จ กรุณาลองอีกครั้ง"
   }
 }

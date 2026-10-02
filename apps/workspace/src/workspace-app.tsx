@@ -65,6 +65,8 @@ export interface WorkspaceAppProps {
   onCallEvent?: (event: WorkspaceCallEvent) => void;
   /** E1.14: lease ที่ถืออยู่ (undefined = ไม่ได้ถือ) — ใช้แนบ `x-work-session-lease-id` */
   onLeaseChange?: (leaseId: string | undefined) => void;
+  /** #588: มีสายเรียกเข้า, สายในมือ หรือ wrap-up ที่ยังไม่บันทึก — shell ใช้ถามยืนยันก่อนออกจากระบบ */
+  onWorkInHandChange?: (active: boolean) => void;
 }
 
 export type WorkspaceCallInteraction = NonNullable<AgentWorkspaceSnapshot['interaction']>;
@@ -149,13 +151,15 @@ function AgentWorkspace({
   variant = 'workspace',
   onCallEvent,
   onLeaseChange,
+  onWorkInHandChange,
 }: WorkspaceAppProps) {
   const embedded = variant === 'embedded';
   const { t } = useTranslation('workspace');
   const { t: td } = useTranslation('dphone');
   const { locale } = useLocale();
   // embedded ไม่มี shell แต่ใช้ widget ของ shell ใหม่ (D1.15) เหมือนกัน
-  const inShell = useInShell() || variant === 'embedded';
+  const inShellFrame = useInShell();
+  const inShell = inShellFrame || variant === 'embedded';
   const leaderElection = useMemo(
     () => createBrowserWorkspaceLeaderElection(crypto.randomUUID()),
     [],
@@ -209,6 +213,17 @@ function AgentWorkspace({
   const ownsWork = enforced ? leaseHeld : workingTab;
   // เก็บ SIP/WS/หน้าต่าง dphone ไว้: flag เปิด = ถือ lease หรือยังมีงานในมือ; flag ปิด = working tab (เดิม)
   const mediaOwner = enforced ? leaseHeld || workInHand : workingTab;
+  // #588: ออกจากระบบตอนนี้จะตัดสาย, พลาดสายที่ offer มาหรือกำลังเรียกเข้า หรือทิ้ง wrap-up ที่ยังไม่บันทึก
+  // (offer นับจาก snapshot ด้วย — tab ที่ไม่ได้ถือ media หรือ INVITE ยังมาไม่ถึงจะไม่มี RINGING)
+  const signOutLosesWork =
+    workInHand || dphoneState.phase === 'RINGING' || snapshot?.interaction?.state === 'ASSIGNED';
+  const onWorkInHandChangeRef = useRef(onWorkInHandChange);
+  onWorkInHandChangeRef.current = onWorkInHandChange;
+  useEffect(() => {
+    onWorkInHandChangeRef.current?.(signOutLosesWork);
+  }, [signOutLosesWork]);
+  // unmount แล้วไม่มีงานในมือของหน้านี้ — ไม่ให้ shell ค้างสถานะ "มีงาน"
+  useEffect(() => () => onWorkInHandChangeRef.current?.(false), []);
   const onCallEventRef = useRef(onCallEvent);
   onCallEventRef.current = onCallEvent;
   // E1.14: offered/answered ครั้งเดียวต่อ interaction+state (snapshot ถูกโหลดซ้ำได้หลายครั้ง)
@@ -654,7 +669,8 @@ function AgentWorkspace({
       >
         {td(`phase.${dphoneState.phase}`)}
       </span>
-      {onSignOut ? (
+      {/* #588: ใน shell ใหม่ออกจากระบบที่เมนูผู้ใช้บนแถบบนที่เดียว */}
+      {onSignOut && !inShellFrame ? (
         <Button size="sm" variant="ghost" onPress={onSignOut}>
           {t('status.signOut')}
         </Button>

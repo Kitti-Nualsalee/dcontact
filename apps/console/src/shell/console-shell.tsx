@@ -16,6 +16,8 @@ import {
   toastQueue,
   useShellNavigation,
   type HostApp,
+  type ShellUser,
+  type UserMenuProps,
 } from '@d-contact/ui-react';
 import { useShellTokens } from './tokens.js';
 
@@ -36,6 +38,8 @@ export interface ConsoleShellProps {
   accessToken: () => string | undefined;
   tenantAlias?: string;
   appId: ConsoleShellApp;
+  /** #588: เมนูผู้ใช้บนแถบบน (ชื่อ, organization, บทบาท และออกจากระบบ) */
+  account?: { user: ShellUser; onSignOut: () => Promise<void> };
   children: ReactNode;
 }
 
@@ -44,6 +48,7 @@ export function ConsoleShell({
   accessToken,
   tenantAlias,
   appId,
+  account,
   children,
 }: ConsoleShellProps) {
   const { t } = useTranslation();
@@ -78,6 +83,17 @@ export function ConsoleShell({
     if (tenantAlias) url.searchParams.set('tenant', tenantAlias);
     return `${url.pathname}${url.search}`;
   };
+  // #588: redirect ไปออกจากระบบไม่สำเร็จ (เช่น โหลด metadata ไม่ได้) ต้องแจ้งผู้ใช้ ไม่เงียบหาย
+  const userMenu = ({
+    user,
+    onSignOut,
+  }: NonNullable<ConsoleShellProps['account']>): UserMenuProps => ({
+    user,
+    onSignOut: () =>
+      onSignOut().catch(() => {
+        toastQueue.add({ title: t('shell.signOutFailed'), tone: 'attention' }, { timeout: 6000 });
+      }),
+  });
   const journeysVisible = nav.apps.some((app) => app.id === 'journeys');
   const subNav =
     appId === 'dphone-embedding' ? (
@@ -174,6 +190,7 @@ export function ConsoleShell({
           );
         }}
         subNav={subNav}
+        user={account ? userMenu(account) : undefined}
         createActions={
           journeysVisible
             ? [

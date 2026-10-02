@@ -1,0 +1,126 @@
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-3);
+  max-width: 220px;
+  height: var(--dc-control-md);
+  padding: 0 var(--dc-space-3) 0 var(--dc-space-2);
+  border: 0;
+  border-radius: var(--dc-radius-pill);
+  background: transparent;
+  color: var(--dc-text-primary);
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+}
+
+.trigger[data-hovered],
+.trigger[data-pressed] {
+  background: var(--dc-surface-hover);
+}
+
+.trigger[data-focus-visible] {
+  box-shadow: var(--dc-focus-ring);
+}
+
+.avatar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--dc-control-sm);
+  height: var(--dc-control-sm);
+  border-radius: var(--dc-radius-pill);
+  background: var(--dc-brand-700);
+  color: var(--dc-text-on-brand);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-semibold);
+  line-height: 1;
+}
+
+.name {
+  overflow: hidden;
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* จอแคบ: เหลือวงกลมอักษรย่อ — ชื่อยังอยู่ใน aria-label ของปุ่ม */
+@media (max-width: 720px) {
+  .name {
+    display: none;
+  }
+
+  .trigger {
+    padding: 0 var(--dc-space-2);
+  }
+}
+
+.popover {
+  min-width: 240px;
+  max-width: min(320px, calc(100vw - var(--dc-space-8)));
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-raised);
+  box-shadow: var(--dc-shadow-floating);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-1);
+  padding: var(--dc-space-5);
+  border-bottom: 1px solid var(--dc-border-subtle);
+}
+
+.headerName {
+  font-size: var(--dc-text-base);
+  font-weight: var(--dc-weight-semibold);
+  color: var(--dc-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.detail {
+  font-size: var(--dc-text-sm);
+  color: var(--dc-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-2);
+  margin-top: var(--dc-space-2);
+}
+
+.menu {
+  padding: var(--dc-space-2);
+  outline: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  min-height: var(--dc-control-md);
+  padding: 0 var(--dc-space-4);
+  border-radius: var(--dc-radius-sm);
+  font-size: var(--dc-text-base);
+  color: var(--dc-text-primary);
+  cursor: pointer;
+  outline: none;
+}
+
+.item[data-focused] {
+  background: var(--dc-surface-hover);
+}
+
+.item[data-focus-visible] {
+  box-shadow: var(--dc-focus-ring);
+}
+
+.confirmText {
+  margin: 0;
+  color: var(--dc-text-secondary);
+}
