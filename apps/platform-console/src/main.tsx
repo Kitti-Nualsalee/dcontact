@@ -1,9 +1,16 @@
-import { StrictMode, useMemo } from 'react';
+import { StrictMode, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AuthProvider, useAuth } from 'react-oidc-context';
 import { createPlatformApi } from './api.js';
 import { PlatformConsoleApp } from './app.js';
-import { cleanCallbackUrl, createPlatformOidcSettings } from './auth.js';
+import {
+  allowPlatformSessionRestore,
+  beginPlatformSessionRestore,
+  cleanCallbackUrl,
+  createPlatformOidcSettings,
+  hasAttemptedPlatformSessionRestore,
+  pausePlatformSessionRestore,
+} from './auth.js';
 import './style.css';
 
 const apiBaseUrl = (import.meta.env.VITE_PLATFORM_API_URL as string | undefined) ?? '';
@@ -15,7 +22,27 @@ function AuthenticatedConsole() {
     () => createPlatformApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
     [accessToken],
   );
-  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading) {
+  useEffect(() => {
+    if (auth.isLoading || auth.isAuthenticated || auth.error || auth.activeNavigator) return;
+    if (beginPlatformSessionRestore(window.sessionStorage)) {
+      // Full-page OIDC redirect ใช้ Keycloak SSO cookie ได้โดยไม่เก็บ token ใน browser storage
+      void auth.signinRedirect({ prompt: 'none', redirectMethod: 'replace' });
+    }
+  }, [auth.isLoading, auth.isAuthenticated, auth.error, auth.activeNavigator, auth.signinRedirect]);
+
+  useEffect(() => {
+    if (auth.error && new URL(window.location.href).searchParams.has('error')) {
+      window.history.replaceState(null, '', cleanCallbackUrl(new URL(window.location.href)));
+    }
+  }, [auth.error]);
+
+  if (
+    auth.activeNavigator === 'signinRedirect' ||
+    auth.isLoading ||
+    (!auth.error &&
+      !auth.isAuthenticated &&
+      !hasAttemptedPlatformSessionRestore(window.sessionStorage))
+  ) {
     return (
       <main className="centered" aria-busy="true">
         <h1>กำลังเข้าสู่ระบบ</h1>
@@ -36,7 +63,10 @@ function AuthenticatedConsole() {
   return (
     <PlatformConsoleApp
       api={api}
-      onSignOut={() => void auth.signoutRedirect()}
+      onSignOut={() => {
+        pausePlatformSessionRestore(window.sessionStorage);
+        void auth.signoutRedirect();
+      }}
       onSessionExpired={() => void auth.signinRedirect()}
     />
   );
@@ -61,7 +91,8 @@ function ProductionRoot() {
         origin: window.location.origin,
         stateStorage: window.sessionStorage,
       })}
-      onSigninCallback={() => {
+      onSigninCallback={(user) => {
+        if (user?.access_token) allowPlatformSessionRestore(window.sessionStorage);
         window.history.replaceState(null, '', cleanCallbackUrl(new URL(window.location.href)));
       }}
     >

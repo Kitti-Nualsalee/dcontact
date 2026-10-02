@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cleanCallbackUrl } from './auth.js';
+import { InMemoryWebStorage } from 'oidc-client-ts';
+import {
+  allowPlatformSessionRestore,
+  beginPlatformSessionRestore,
+  cleanCallbackUrl,
+  hasAttemptedPlatformSessionRestore,
+  pausePlatformSessionRestore,
+} from './auth.js';
 import {
   EMPTY_DRAFT,
   RECOVERY_OPTIONS,
@@ -138,6 +145,30 @@ test('OIDC callback: ลบ code/state ออกจาก URL', () => {
       new URL('http://localhost:5180/requests/x?code=secret&state=s&session_state=y&keep=1'),
     ),
     '/requests/x?keep=1',
+  );
+});
+
+test('OIDC refresh: marker ไม่มี token และไม่ redirect วนเมื่อ session หมดอายุ', () => {
+  const storage = new InMemoryWebStorage();
+  assert.equal(beginPlatformSessionRestore(storage), true);
+  assert.equal(hasAttemptedPlatformSessionRestore(storage), true);
+  assert.equal(storage.length, 1);
+  assert.equal(storage.getItem(storage.key(0)!), '1');
+  assert.equal(beginPlatformSessionRestore(storage), false);
+  allowPlatformSessionRestore(storage);
+  assert.equal(beginPlatformSessionRestore(storage), true);
+  pausePlatformSessionRestore(storage);
+  assert.equal(beginPlatformSessionRestore(storage), false);
+});
+
+test('OIDC callback error: ลบ error/state เพื่อไม่ประมวลผลซ้ำหลัง refresh', () => {
+  assert.equal(
+    cleanCallbackUrl(
+      new URL(
+        'https://platform-uat.osd.co.th/?error=login_required&error_description=x&state=s&keep=1',
+      ),
+    ),
+    '/?keep=1',
   );
 });
 
