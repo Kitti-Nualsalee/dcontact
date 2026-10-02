@@ -1,0 +1,228 @@
+/* ============================================================
+   Supervisor Workspace — #604: token ล้วน (`var(--dc-*)`), class ขึ้นต้นด้วย `sv-`
+   chrome เดิมตอนปิด flag ui.shell.v2 (rail/แถบบน) ยังอยู่ใน workspace-app.css
+   stylelint: pnpm --filter @d-contact/workspace lint:css
+   ============================================================ */
+
+.sv-root {
+  color: var(--dc-text-primary);
+  font-size: var(--dc-text-base);
+  line-height: var(--dc-leading-normal);
+}
+
+.sv-root :where(h1) {
+  margin: var(--dc-space-2) 0;
+  font-size: var(--dc-text-xl);
+  font-weight: var(--dc-weight-bold);
+}
+
+.sv-root :where(h2) {
+  margin: 0;
+  font-size: var(--dc-text-lg);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.sv-root :where(p) {
+  margin: 0;
+}
+
+.sv-in-shell {
+  padding: var(--dc-space-7) var(--dc-space-9) var(--dc-space-10);
+}
+
+.sv-legacy-main {
+  padding: var(--dc-space-7) var(--dc-space-9) var(--dc-space-10);
+}
+
+/* ── heading ── */
+.sv-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--dc-space-5);
+  margin-bottom: var(--dc-space-7);
+}
+
+.sv-heading-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--dc-space-4);
+}
+
+.sv-eyebrow,
+.sv-step {
+  color: var(--dc-text-brand-strong);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-bold);
+  letter-spacing: 0.04em;
+}
+
+.sv-lede {
+  color: var(--dc-text-secondary);
+}
+
+.sv-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+}
+
+/* ป้ายจอแคบแสดงเฉพาะเมื่อ control ถูกซ่อน (ต่ำกว่า 760px เท่ากับ desktopControls) */
+.sv-narrow-readonly {
+  display: none;
+}
+
+@media (max-width: 759.98px) {
+  .sv-narrow-readonly {
+    display: inline-flex;
+  }
+
+  .sv-in-shell,
+  .sv-legacy-main {
+    padding: var(--dc-space-6) var(--dc-space-5) var(--dc-space-8);
+  }
+}
+
+/* ── ข้อความสถานะ ── */
+.sv-warning {
+  margin-bottom: var(--dc-space-6);
+  padding: var(--dc-space-5) var(--dc-space-6);
+  border: 1px solid var(--dc-attention-border);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-attention-bg-subtle);
+  color: var(--dc-attention-fg-strong);
+}
+
+.sv-mutation-status {
+  min-height: var(--dc-space-7);
+  margin-bottom: var(--dc-space-4);
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+/* ── team pulse ── */
+.sv-pulse {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--dc-space-6);
+  margin-bottom: var(--dc-space-7);
+}
+
+.sv-metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-2);
+  padding: var(--dc-space-6) var(--dc-space-7);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+  box-shadow: var(--dc-shadow-card);
+}
+
+.sv-metric span {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.sv-metric strong {
+  font-size: var(--dc-text-metric);
+  font-variant-numeric: tabular-nums;
+}
+
+.sv-metric-risk {
+  border-color: var(--dc-attention-border);
+  background: var(--dc-attention-bg-subtle);
+}
+
+/* ── panels ── */
+.sv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--dc-space-6);
+  align-items: start;
+}
+
+.sv-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+  padding: var(--dc-space-7);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+  box-shadow: var(--dc-shadow-card);
+}
+
+.sv-panel-risk {
+  border-color: var(--dc-attention-border);
+}
+
+.sv-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sv-list > li {
+  padding: var(--dc-space-4) 0;
+  border-top: 1px solid var(--dc-border-subtle);
+}
+
+.sv-list > li:first-child {
+  border-top: 0;
+}
+
+.sv-risk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-1);
+}
+
+.sv-risk span,
+.sv-row-main small {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.sv-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dc-space-4);
+}
+
+.sv-row-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sv-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+}
+
+.sv-empty {
+  color: var(--dc-text-muted);
+}
+
+/* ── dialog ยืนยัน ── */
+.sv-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-5);
+}
+
+.sv-impact {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}

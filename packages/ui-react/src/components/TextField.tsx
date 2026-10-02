@@ -7,6 +7,7 @@ import {
   Label,
   SearchField as AriaSearchField,
   Text,
+  TextArea,
   TextField as AriaTextField,
   type SearchFieldProps as AriaSearchFieldProps,
   type TextFieldProps as AriaTextFieldProps,
@@ -24,7 +25,10 @@ interface FieldTextProps {
   className?: string;
 }
 
-export interface TextFieldProps extends Omit<AriaTextFieldProps, 'className'>, FieldTextProps {}
+export interface TextFieldProps extends Omit<AriaTextFieldProps, 'className'>, FieldTextProps {
+  /** ช่องหลายบรรทัด (`<textarea>`) เช่น เหตุผลของคำสั่ง */
+  multiline?: boolean;
+}
 
 export function TextField({
   label,
@@ -32,13 +36,18 @@ export function TextField({
   errorMessage,
   placeholder,
   className,
+  multiline = false,
   ...props
 }: TextFieldProps) {
   return (
     <AriaTextField {...props} className={cx(styles.field, className)}>
       {label ? <Label className={styles.label}>{label}</Label> : null}
-      <Group className={styles.control}>
-        <Input className={styles.input} placeholder={placeholder} />
+      <Group className={cx(styles.control, multiline && styles.multiline)}>
+        {multiline ? (
+          <TextArea className={cx(styles.input, styles.textarea)} placeholder={placeholder} />
+        ) : (
+          <Input className={styles.input} placeholder={placeholder} />
+        )}
       </Group>
       {description ? (
         <Text slot="description" className={styles.description}>

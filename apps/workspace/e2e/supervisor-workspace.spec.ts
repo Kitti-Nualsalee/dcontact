@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test, type Page } from '@playwright/test';
 
 test('Supervisor เห็น Team pulse และ mutation สำเร็จหลัง authoritative snapshot เท่านั้น', async ({
   page,
@@ -74,13 +75,15 @@ test('Supervisor เห็น Team pulse และ mutation สำเร็จ�
   ).toHaveText('2');
 
   await page.getByRole('button', { name: 'เปลี่ยนสถานะ สุดา รวดเร็ว' }).click();
-  await page.getByLabel('สถานะใหม่').selectOption('BREAK');
+  // #604: Select ของ React Aria — เปิดด้วยปุ่มแล้วเลือกจาก listbox
+  await page.getByRole('button', { name: /สถานะใหม่/ }).click();
+  await page.getByRole('option', { name: 'พัก' }).click();
   await page.getByLabel('เหตุผล').fill('พักตามตาราง');
   await page.getByRole('button', { name: 'ยืนยันเปลี่ยนสถานะ' }).click();
   await expect(page.getByText('กำลังรอ server ยืนยัน')).toBeVisible();
   await expect(page.getByText('server ยืนยันสถานะล่าสุดแล้ว')).toBeVisible();
   await expect(
-    page.getByRole('listitem').filter({ hasText: 'สุดา รวดเร็ว' }).getByText('BREAK'),
+    page.getByRole('listitem').filter({ hasText: 'สุดา รวดเร็ว' }).getByText('พัก'),
   ).toBeVisible();
   expect(agentCommand).toMatchObject({ state: 'BREAK', reason: 'พักตามตาราง' });
   expect(agentCommand?.commandId).toEqual(expect.any(String));
@@ -110,4 +113,134 @@ test('Supervisor จอแคบเป็น read-only และไม่มี 
   await expect(page.getByRole('button', { name: /เปลี่ยนสถานะ|เปิด Queue|ปิด Queue/ })).toHaveCount(
     0,
   );
+});
+
+/**
+ * #604: Supervisor ใน shell ใหม่ — rail ชุดเดียว, axe, keyboard ของ dialog ยืนยัน และสลับภาษาไม่ reload
+ */
+const snapshot = {
+  sequence: 7,
+  agents: [
+    {
+      id: 'agent-2',
+      displayName: 'สุดา รวดเร็ว',
+      extension: '1001',
+      teamId: 'team-a',
+      state: 'AVAILABLE',
+    },
+  ],
+  queues: [{ id: 'queue-1', name: 'บริการลูกค้า', teamId: 'team-a', isActive: true }],
+  interactions: [],
+  audit: [],
+};
+
+async function openInShell(page: Page, shellV2 = true) {
+  await page.route('**/api/v1/me/navigation', (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        groups: [{ id: 'live', labelKey: 'navigation.groups.live' }],
+        apps: [
+          {
+            id: 'agent-workspace',
+            groupId: 'live',
+            labelKey: 'navigation.apps.agentWorkspace',
+            hostApp: 'workspace',
+            path: '/',
+          },
+          {
+            id: 'supervisor-workspace',
+            groupId: 'live',
+            labelKey: 'navigation.apps.supervisorWorkspace',
+            hostApp: 'workspace',
+            path: '/?view=supervisor',
+          },
+        ],
+        pins: {
+          appIds: ['agent-workspace', 'supervisor-workspace'],
+          source: 'SYSTEM',
+          revision: 0,
+        },
+        limits: { maxPins: 15 },
+        features: { shellV2 },
+      },
+    }),
+  );
+  await page.route('**/api/v1/workspace/supervisor/snapshot', (route) =>
+    route.fulfill({ status: 200, json: snapshot }),
+  );
+  await page.goto('/?view=supervisor&tenant=demo');
+  await expect(page.getByRole('heading', { name: 'Supervisor Workspace' })).toBeVisible();
+}
+
+async function seriousViolations(page: Page) {
+  const result = await new AxeBuilder({ page }).analyze();
+  return result.violations
+    .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+    .map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(', ')}`);
+}
+
+test('#604 flag เปิด: rail ของ shell ชุดเดียว ไม่มี rail/แถบบน/ปุ่มออกจากระบบเดิม', async ({
+  page,
+}) => {
+  await openInShell(page);
+  await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'พื้นที่หลัก' })).toHaveCount(0);
+  await expect(page.getByText('Supervisor live control')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ออกจากระบบ' })).toHaveCount(0);
+  await expect(page.getByText('ลำดับข้อมูล 7')).toBeVisible();
+});
+
+test('#604 flag ปิด: คง rail และแถบบนเดิม', async ({ page }) => {
+  await openInShell(page, false);
+  await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toHaveCount(0);
+  await expect(page.getByRole('complementary', { name: 'พื้นที่หลัก' })).toBeVisible();
+  await expect(page.getByText('Supervisor live control')).toBeVisible();
+});
+
+for (const locale of ['th-TH', 'en-GB'] as const) {
+  test.describe(`axe (${locale})`, () => {
+    test.use({ locale });
+    test(`#604 axe 0 serious/critical ทั้งหน้าและตอนเปิด dialog ยืนยัน (${locale})`, async ({
+      page,
+    }) => {
+      await openInShell(page);
+      expect(await seriousViolations(page)).toEqual([]);
+      await page.getByRole('button', { name: /สุดา รวดเร็ว/ }).click();
+      await expect(page.getByRole('alertdialog')).toBeVisible();
+      expect(await seriousViolations(page)).toEqual([]);
+    });
+  });
+}
+
+test('#604 keyboard: Esc ปิด dialog แล้ว focus กลับปุ่มที่เปิด และไม่ส่งคำสั่ง', async ({
+  page,
+}) => {
+  let commands = 0;
+  await page.route('**/api/v1/workspace/supervisor/queues/**', (route) => {
+    commands += 1;
+    return route.fulfill({ status: 200, json: {} });
+  });
+  await openInShell(page);
+  const trigger = page.getByRole('button', { name: 'ปิด Queue บริการลูกค้า' });
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('alertdialog', { name: 'ปิด Queue บริการลูกค้า' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'ยืนยันปิด Queue' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  expect(commands).toBe(0);
+});
+
+test('#604 สลับ TH/EN ใน shell ไม่ reload และข้อความ Supervisor เปลี่ยนตาม', async ({ page }) => {
+  await openInShell(page);
+  const before = await page.evaluate(() => performance.timeOrigin);
+  await page.getByRole('button', { name: 'English' }).click();
+  await expect(page.getByText('Agents in scope')).toBeVisible();
+  await expect(page.getByText('Available', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'ไทย' }).click();
+  await expect(page.getByText('Agents ใน scope')).toBeVisible();
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(before);
 });

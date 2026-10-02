@@ -1,16 +1,43 @@
+/**
+ * #604: Supervisor Workspace บน component layer (ADR-028) และ i18n — parity กับ Agent Workspace (D1.15)
+ *
+ * - ใน shell ใหม่ (`ui.shell.v2`) ไม่วาด rail/แถบบนของตัวเอง — shell มี breadcrumb, ภาษา และเมนูผู้ใช้แล้ว
+ * - flag ปิด: คง rail/แถบบน/ปุ่มออกจากระบบเดิม แต่เนื้อหาใช้ component และ token ชุดเดียวกัน
+ * - จอแคบเป็น read-only (ADR-026 ข้อ 8, #48) และทุกคำสั่งต้องมีเหตุผลก่อนส่ง
+ */
 import { useEffect, useMemo, useState } from 'react';
-import { useInShell } from '@d-contact/ui-react';
+import { useTranslation } from '@d-contact/i18n/react';
+import {
+  Badge,
+  Button,
+  Dialog,
+  Select,
+  StatusChip,
+  TextField,
+  useInShell,
+  type AgentStatus,
+} from '@d-contact/ui-react';
 import type { SupervisorSnapshot, SupervisorWorkspaceApi } from './supervisor-api.js';
+import { useShellTokens } from './shell/tokens.js';
+import './supervisor-workspace.css';
+
+type AgentState = SupervisorSnapshot['agents'][number]['state'];
+type ForcedState = 'OFFLINE' | 'AVAILABLE' | 'BREAK';
+const FORCED_STATES: readonly ForcedState[] = ['OFFLINE', 'AVAILABLE', 'BREAK'];
 
 type MutationDraft =
-  | {
-      kind: 'agent';
-      id: string;
-      label: string;
-      state: 'OFFLINE' | 'AVAILABLE' | 'BREAK';
-      reason: string;
-    }
+  | { kind: 'agent'; id: string; label: string; state: ForcedState; reason: string }
   | { kind: 'queue'; id: string; label: string; isActive: boolean; reason: string };
+
+// สีของสถานะมาจาก token ของ agent status — ข้อความแปลแล้วอยู่ในชิปเสมอ (สีไม่ใช่ตัวบอกความหมายตัวเดียว)
+const STATE_CHIP: Record<AgentState, AgentStatus> = {
+  OFFLINE: 'offline',
+  AVAILABLE: 'available',
+  RESERVED: 'busy',
+  BUSY: 'busy',
+  ACW: 'acw',
+  BREAK: 'break',
+};
 
 export interface SupervisorWorkspaceProps {
   api: SupervisorWorkspaceApi;
@@ -18,14 +45,18 @@ export interface SupervisorWorkspaceProps {
   onSignOut?: () => void;
 }
 
-export function SupervisorWorkspace({
-  api,
-  tenantLabel = 'D-Contact',
-  onSignOut,
-}: SupervisorWorkspaceProps) {
-  const inShellFrame = useInShell();
+/** token มาก่อนเนื้อหา (แบบเดียวกับ WorkspaceApp) — ทั้งสองสถานะของ flag ใช้ component ชุดใหม่ */
+export function SupervisorWorkspace(props: SupervisorWorkspaceProps) {
+  const tokensReady = useShellTokens();
+  if (!tokensReady) return null;
+  return <SupervisorLive {...props} />;
+}
+
+function SupervisorLive({ api, tenantLabel = 'D-Contact', onSignOut }: SupervisorWorkspaceProps) {
+  const { t } = useTranslation('supervisor');
+  const inShell = useInShell();
   const [snapshot, setSnapshot] = useState<SupervisorSnapshot>();
-  const [error, setError] = useState<string>();
+  const [loadFailed, setLoadFailed] = useState(false);
   const [desktopControls, setDesktopControls] = useState(() => window.innerWidth >= 760);
   const [mutation, setMutation] = useState<MutationDraft>();
   const [mutationState, setMutationState] = useState<'idle' | 'pending' | 'confirmed' | 'rejected'>(
@@ -39,10 +70,10 @@ export function SupervisorWorkspace({
       .then((next) => {
         if (!active) return;
         setSnapshot(next);
-        setError(undefined);
+        setLoadFailed(false);
       })
       .catch(() => {
-        if (active) setError('โหลด Team pulse ไม่สำเร็จ หน้านี้จึงเป็น read-only');
+        if (active) setLoadFailed(true);
       });
     return () => {
       active = false;
@@ -57,6 +88,7 @@ export function SupervisorWorkspace({
     return () => media.removeEventListener('change', update);
   }, []);
 
+  // เก็บเป็น key แล้วแปลตอน render — สลับภาษาแล้วรายการเปลี่ยนตามโดยไม่คำนวณใหม่
   const risks = useMemo(() => {
     if (!snapshot) return [];
     return [
@@ -64,14 +96,14 @@ export function SupervisorWorkspace({
         .filter((queue) => !queue.isActive)
         .map((queue) => ({
           key: `queue:${queue.id}`,
-          title: 'Queue ปิดใช้งาน',
+          title: 'risk.queueInactive' as const,
           detail: queue.name,
         })),
       ...snapshot.interactions
         .filter((interaction) => interaction.state === 'WRAPUP')
         .map((interaction) => ({
           key: `wrapup:${interaction.id}`,
-          title: 'Interaction อยู่ใน WRAPUP',
+          title: 'risk.wrapup' as const,
           detail: interaction.id,
         })),
     ];
@@ -106,239 +138,275 @@ export function SupervisorWorkspace({
     }
   };
 
+  const statusChips = (
+    <div className="sv-status" aria-label={t('status.label')}>
+      <StatusChip status="neutral">
+        {t('status.sequence', { sequence: snapshot?.sequence ?? '—' })}
+      </StatusChip>
+      <span className="sv-narrow-readonly">
+        <StatusChip status="info">{t('status.narrowReadonly')}</StatusChip>
+      </span>
+      {onSignOut && !inShell ? (
+        <Button size="sm" variant="ghost" onPress={onSignOut}>
+          {t('status.signOut')}
+        </Button>
+      ) : null}
+    </div>
+  );
+
+  const content = (
+    <>
+      <header className="sv-heading">
+        <div>
+          <p className="sv-eyebrow">{t('heading.eyebrow')}</p>
+          <h1>{t('heading.title')}</h1>
+          <p className="sv-lede">{t('heading.lede')}</p>
+        </div>
+        <div className="sv-heading-side">
+          <Badge tone="accent">{t('heading.phase')}</Badge>
+          {inShell ? statusChips : null}
+        </div>
+      </header>
+
+      {loadFailed ? (
+        <p className="sv-warning" role="status">
+          {t('snapshot.loadFailed')}
+        </p>
+      ) : null}
+
+      <div className="sv-mutation-status" aria-live="polite">
+        {mutationState === 'pending' ? t('mutation.pending') : null}
+        {mutationState === 'confirmed' ? t('mutation.confirmed') : null}
+        {mutationState === 'rejected' ? t('mutation.rejected') : null}
+      </div>
+
+      <section className="sv-pulse" aria-label={t('pulse.label')}>
+        <article className="sv-metric sv-metric-risk">
+          <span>{t('pulse.risks')}</span>
+          <strong>{risks.length}</strong>
+        </article>
+        <article className="sv-metric">
+          <span>{t('pulse.interactions')}</span>
+          <strong>{snapshot?.interactions.length ?? 0}</strong>
+        </article>
+        <article className="sv-metric">
+          <span>{t('pulse.agents')}</span>
+          <strong>{snapshot?.agents.length ?? 0}</strong>
+        </article>
+      </section>
+
+      <section className="sv-grid">
+        <article className="sv-panel sv-panel-risk">
+          <p className="sv-step">{t('risk.step')}</p>
+          <h2>{t('risk.title')}</h2>
+          <ul aria-label={t('risk.listLabel')} className="sv-list">
+            {risks.length > 0 ? (
+              risks.map((risk) => (
+                <li key={risk.key} className="sv-risk">
+                  <strong>{t(risk.title)}</strong>
+                  <span>{risk.detail}</span>
+                </li>
+              ))
+            ) : (
+              <li className="sv-empty">{t('risk.empty')}</li>
+            )}
+          </ul>
+        </article>
+
+        <article className="sv-panel">
+          <p className="sv-step">{t('agents.step')}</p>
+          <h2>{t('agents.title')}</h2>
+          <ul className="sv-list">
+            {(snapshot?.agents ?? []).map((agent) => (
+              <li key={agent.id} className="sv-row">
+                <span className="sv-row-main">
+                  <strong>{agent.displayName}</strong>
+                  <small>{t('agents.extension', { extension: agent.extension ?? '—' })}</small>
+                </span>
+                <span className="sv-row-actions">
+                  <StatusChip status={STATE_CHIP[agent.state]}>
+                    {t(`agentState.${agent.state}`)}
+                  </StatusChip>
+                  {desktopControls && (FORCED_STATES as readonly string[]).includes(agent.state) ? (
+                    <Button
+                      size="sm"
+                      isDisabled={mutationState === 'pending'}
+                      aria-label={t('agents.changeFor', { name: agent.displayName })}
+                      onPress={() => {
+                        setMutationState('idle');
+                        setMutation({
+                          kind: 'agent',
+                          id: agent.id,
+                          label: agent.displayName,
+                          state: agent.state === 'BREAK' ? 'AVAILABLE' : 'BREAK',
+                          reason: '',
+                        });
+                      }}
+                    >
+                      {t('agents.change')}
+                    </Button>
+                  ) : null}
+                </span>
+              </li>
+            ))}
+            {snapshot && snapshot.agents.length === 0 ? (
+              <li className="sv-empty">{t('agents.empty')}</li>
+            ) : null}
+          </ul>
+        </article>
+
+        <article className="sv-panel">
+          <p className="sv-step">{t('queues.step')}</p>
+          <h2>{t('queues.title')}</h2>
+          <ul className="sv-list">
+            {(snapshot?.queues ?? []).map((queue) => (
+              <li key={queue.id} className="sv-row">
+                <span className="sv-row-main">
+                  <strong>{queue.name}</strong>
+                  <small>{queue.isActive ? t('queues.active') : t('queues.inactive')}</small>
+                </span>
+                {desktopControls ? (
+                  <Button
+                    size="sm"
+                    isDisabled={mutationState === 'pending'}
+                    aria-label={
+                      queue.isActive
+                        ? t('queues.closeFor', { name: queue.name })
+                        : t('queues.openFor', { name: queue.name })
+                    }
+                    onPress={() => {
+                      setMutationState('idle');
+                      setMutation({
+                        kind: 'queue',
+                        id: queue.id,
+                        label: queue.name,
+                        isActive: !queue.isActive,
+                        reason: '',
+                      });
+                    }}
+                  >
+                    {queue.isActive ? t('queues.close') : t('queues.open')}
+                  </Button>
+                ) : null}
+              </li>
+            ))}
+            {snapshot && snapshot.queues.length === 0 ? (
+              <li className="sv-empty">{t('queues.empty')}</li>
+            ) : null}
+          </ul>
+        </article>
+      </section>
+
+      <ConfirmMutation
+        mutation={mutation}
+        onChange={setMutation}
+        onCancel={() => setMutation(undefined)}
+        onSubmit={() => void submitMutation()}
+      />
+    </>
+  );
+
+  if (inShell) return <div className="sv-root sv-in-shell">{content}</div>;
+
   return (
-    <div className="supervisor-shell">
-      <aside className="product-rail" aria-label="พื้นที่หลัก">
-        <img className="product-mark" src="/d-contact-icon-64.png" alt="D-Contact" />
-        <button type="button" aria-label="Agent Workspace" onClick={() => navigate('agent')}>
+    <div className="sv-root supervisor-shell">
+      <aside className="product-rail" aria-label={t('legacy.railLabel')}>
+        <img className="product-mark" src="/d-contact-icon-64.png" alt={t('legacy.logoAlt')} />
+        <button
+          type="button"
+          aria-label={t('legacy.agentWorkspace')}
+          onClick={() => navigate('agent')}
+        >
           02
         </button>
-        <button type="button" className="active" aria-label="Supervisor Workspace">
+        <button type="button" className="active" aria-label={t('legacy.supervisorWorkspace')}>
           03
         </button>
       </aside>
-
       <section className="supervisor-main">
         <header className="topbar">
           <div className="identity-strip">
             <span className="tenant">{tenantLabel}</span>
-            <strong>Supervisor live control</strong>
+            <strong>{t('legacy.title')}</strong>
           </div>
-          <div className="status-strip">
-            <span className="status-chip neutral">ลำดับข้อมูล {snapshot?.sequence ?? '—'}</span>
-            <span className="narrow-readonly">โหมดจอแคบ: ดูข้อมูลอย่างเดียว</span>
-            {/* #588: ใน shell ใหม่ออกจากระบบที่เมนูผู้ใช้บนแถบบนที่เดียว */}
-            {onSignOut && !inShellFrame ? (
-              <button type="button" className="signout-action" onClick={onSignOut}>
-                ออกจากระบบ
-              </button>
-            ) : null}
-          </div>
+          {statusChips}
         </header>
-
-        <main>
-          <div className="page-heading">
-            <div>
-              <p className="eyebrow">LIVE OPERATIONS</p>
-              <h1>Supervisor Workspace</h1>
-              <p>Team pulse เรียงเหตุการณ์เสี่ยงก่อน ภายใน scope ที่ server ยืนยัน</p>
-            </div>
-            <span className="phase-badge">PILOT · DESKTOP CONTROL</span>
-          </div>
-
-          {error ? (
-            <p className="snapshot-warning" role="status">
-              {error}
-            </p>
-          ) : null}
-
-          <div className="mutation-status" aria-live="polite">
-            {mutationState === 'pending' ? 'กำลังรอ server ยืนยัน' : null}
-            {mutationState === 'confirmed' ? 'server ยืนยันสถานะล่าสุดแล้ว' : null}
-            {mutationState === 'rejected'
-              ? 'คำสั่งไม่สำเร็จ กรุณาตรวจสถานะล่าสุดก่อนลองใหม่'
-              : null}
-          </div>
-
-          <section className="pulse-grid" aria-label="Team pulse">
-            <article className="metric-card risk">
-              <span>ต้องตรวจสอบ</span>
-              <strong>{risks.length}</strong>
-            </article>
-            <article className="metric-card">
-              <span>Live interactions</span>
-              <strong>{snapshot?.interactions.length ?? 0}</strong>
-            </article>
-            <article className="metric-card">
-              <span>Agents ใน scope</span>
-              <strong>{snapshot?.agents.length ?? 0}</strong>
-            </article>
-          </section>
-
-          <section className="supervisor-grid">
-            <article className="panel risk-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="step">RISK FIRST</p>
-                  <h2>สิ่งที่ต้องจัดการก่อน</h2>
-                </div>
-              </div>
-              <ul aria-label="ความเสี่ยงที่ต้องจัดการ" className="risk-list">
-                {risks.length > 0 ? (
-                  risks.map((risk) => (
-                    <li key={risk.key}>
-                      <strong>{risk.title}</strong>
-                      <span>{risk.detail}</span>
-                    </li>
-                  ))
-                ) : (
-                  <li className="empty-row">ยังไม่พบความเสี่ยงจาก snapshot ล่าสุด</li>
-                )}
-              </ul>
-            </article>
-
-            <article className="panel">
-              <p className="step">TEAM PRESENCE</p>
-              <h2>Agents</h2>
-              <ul className="agent-list">
-                {(snapshot?.agents ?? []).map((agent) => (
-                  <li key={agent.id}>
-                    <span>
-                      <strong>{agent.displayName}</strong>
-                      <small>Ext. {agent.extension ?? '—'}</small>
-                    </span>
-                    <span className="row-actions">
-                      <span className={`agent-state ${agent.state.toLowerCase()}`}>
-                        {agent.state}
-                      </span>
-                      {desktopControls &&
-                      ['OFFLINE', 'AVAILABLE', 'BREAK'].includes(agent.state) ? (
-                        <button
-                          type="button"
-                          className="secondary-action compact-action"
-                          disabled={mutationState === 'pending'}
-                          aria-label={`เปลี่ยนสถานะ ${agent.displayName}`}
-                          onClick={() => {
-                            setMutationState('idle');
-                            setMutation({
-                              kind: 'agent',
-                              id: agent.id,
-                              label: agent.displayName,
-                              state: agent.state === 'BREAK' ? 'AVAILABLE' : 'BREAK',
-                              reason: '',
-                            });
-                          }}
-                        >
-                          เปลี่ยนสถานะ
-                        </button>
-                      ) : null}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </article>
-
-            <article className="panel queue-control-panel">
-              <p className="step">QUEUE CONTROL</p>
-              <h2>Queues</h2>
-              <ul className="agent-list">
-                {(snapshot?.queues ?? []).map((queue) => (
-                  <li key={queue.id}>
-                    <span>
-                      <strong>{queue.name}</strong>
-                      <small>{queue.isActive ? 'เปิดรับงาน' : 'ปิดรับงาน'}</small>
-                    </span>
-                    {desktopControls ? (
-                      <button
-                        type="button"
-                        className="secondary-action compact-action"
-                        disabled={mutationState === 'pending'}
-                        aria-label={`${queue.isActive ? 'ปิด' : 'เปิด'} Queue ${queue.name}`}
-                        onClick={() => {
-                          setMutationState('idle');
-                          setMutation({
-                            kind: 'queue',
-                            id: queue.id,
-                            label: queue.name,
-                            isActive: !queue.isActive,
-                            reason: '',
-                          });
-                        }}
-                      >
-                        {queue.isActive ? 'ปิด Queue' : 'เปิด Queue'}
-                      </button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </article>
-          </section>
-        </main>
+        <main className="sv-legacy-main">{content}</main>
       </section>
-
-      {mutation ? (
-        <section className="confirmation-backdrop" role="dialog" aria-modal="true">
-          <form
-            className="confirmation-card"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submitMutation();
-            }}
-          >
-            <p className="step">CONFIRM REMOTE CONTROL</p>
-            <h2>
-              {mutation.kind === 'agent'
-                ? `เปลี่ยนสถานะ ${mutation.label}`
-                : `${mutation.isActive ? 'เปิด' : 'ปิด'} Queue ${mutation.label}`}
-            </h2>
-            {mutation.kind === 'agent' ? (
-              <label>
-                สถานะใหม่
-                <select
-                  value={mutation.state}
-                  onChange={(event) =>
-                    setMutation({
-                      ...mutation,
-                      state: event.target.value as 'OFFLINE' | 'AVAILABLE' | 'BREAK',
-                    })
-                  }
-                >
-                  <option value="OFFLINE">OFFLINE</option>
-                  <option value="AVAILABLE">AVAILABLE</option>
-                  <option value="BREAK">BREAK</option>
-                </select>
-              </label>
-            ) : null}
-            <label>
-              เหตุผล
-              <textarea
-                required
-                maxLength={240}
-                value={mutation.reason}
-                onChange={(event) => setMutation({ ...mutation, reason: event.target.value })}
-              />
-            </label>
-            <p className="confirmation-impact">
-              คำสั่งนี้มีผลกับ routing และจะถูกบันทึกใน audit log
-            </p>
-            <div className="confirmation-actions">
-              <button
-                type="button"
-                className="secondary-action"
-                onClick={() => setMutation(undefined)}
-              >
-                ยกเลิก
-              </button>
-              <button type="submit" className="primary-action" disabled={!mutation.reason.trim()}>
-                {mutation.kind === 'agent'
-                  ? 'ยืนยันเปลี่ยนสถานะ'
-                  : `ยืนยัน${mutation.isActive ? 'เปิด' : 'ปิด'} Queue`}
-              </button>
-            </div>
-          </form>
-        </section>
-      ) : null}
     </div>
+  );
+}
+
+function ConfirmMutation({
+  mutation,
+  onChange,
+  onCancel,
+  onSubmit,
+}: {
+  mutation: MutationDraft | undefined;
+  onChange: (next: MutationDraft) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const { t } = useTranslation('supervisor');
+  // คงค่าล่าสุดไว้ระหว่าง animation ปิด — dialog ไม่กระพริบเป็นช่องว่าง
+  const [shown, setShown] = useState(mutation);
+  useEffect(() => {
+    if (mutation) setShown(mutation);
+  }, [mutation]);
+  const draft = mutation ?? shown;
+  if (!draft) return null;
+
+  const title =
+    draft.kind === 'agent'
+      ? t('confirm.agentTitle', { name: draft.label })
+      : draft.isActive
+        ? t('confirm.openQueueTitle', { name: draft.label })
+        : t('confirm.closeQueueTitle', { name: draft.label });
+  const submitLabel =
+    draft.kind === 'agent'
+      ? t('confirm.agentSubmit')
+      : draft.isActive
+        ? t('confirm.openQueueSubmit')
+        : t('confirm.closeQueueSubmit');
+
+  return (
+    <Dialog
+      role="alertdialog"
+      title={title}
+      isOpen={mutation !== undefined}
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
+      footer={() => (
+        <>
+          <Button onPress={onCancel}>{t('confirm.cancel')}</Button>
+          <Button variant="primary" isDisabled={!draft.reason.trim()} onPress={onSubmit}>
+            {submitLabel}
+          </Button>
+        </>
+      )}
+    >
+      <div className="sv-confirm">
+        {draft.kind === 'agent' ? (
+          <Select
+            label={t('confirm.newState')}
+            selectedKey={draft.state}
+            onSelectionChange={(key) => onChange({ ...draft, state: key as ForcedState })}
+            options={FORCED_STATES.map((state) => ({ id: state, label: t(`agentState.${state}`) }))}
+          />
+        ) : null}
+        <TextField
+          multiline
+          isRequired
+          label={t('confirm.reason')}
+          maxLength={240}
+          value={draft.reason}
+          onChange={(reason) => onChange({ ...draft, reason })}
+        />
+        <p className="sv-impact">{t('confirm.impact')}</p>
+      </div>
+    </Dialog>
   );
 }
 
