@@ -34,5 +34,18 @@
     "pinned": "ปักหมุดแล้ว {{count}} จาก {{max}}",
     "pinLimit": "ปักหมุดได้สูงสุด {{max}} แอป",
     "hint": "ปักหมุดเพื่อแสดงบนแถบซ้าย"
+  },
+  "userMenu": {
+    "open": "เมนูผู้ใช้ {{name}}",
+    "unnamed": "ผู้ใช้",
+    "organization": "องค์กร {{organization}}",
+    "signOut": "ออกจากระบบ",
+    "cancel": "ยกเลิก",
+    "roles": {
+      "admin": "ผู้ดูแลระบบ",
+      "supervisor": "หัวหน้างาน",
+      "compliance": "กำกับดูแล",
+      "agent": "เอเจนต์"
+    }
   }
 }

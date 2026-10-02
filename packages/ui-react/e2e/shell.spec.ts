@@ -181,3 +181,90 @@ test('กดปัก/เลิกปักหมุดติดกันเร�
   );
   expect(methods.slice(methods.indexOf('PUT'))).not.toContain('GET');
 });
+
+/**
+ * #588 acceptance: เมนูผู้ใช้บนแถบบน — keyboard, axe, จอแคบ, ยืนยันก่อนออกระหว่างมีสาย และไม่มีลิงก์ไป Keycloak
+ * หน้า demo ใช้ claims จำลอง (สมชาย ใจดี, supervisor + agent + offline_access) และนับการออกใน `__signOuts`
+ */
+const userTrigger = (page: Page) => page.getByRole('button', { name: /เมนูผู้ใช้|User menu/ });
+const signOuts = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __signOuts?: number }).__signOuts ?? 0);
+
+for (const lang of ['th', 'en'] as const) {
+  test(`axe: เมนูผู้ใช้ 0 serious/critical (${lang}) ทั้งเมนูและ dialog ยืนยัน`, async ({
+    page,
+  }) => {
+    await page.goto(`/?view=shell&lang=${lang}&signout=confirm`);
+    await userTrigger(page).click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    expect(await seriousViolations(page)).toEqual([]);
+    await page.getByRole('menuitem').click();
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+    expect(await seriousViolations(page)).toEqual([]);
+  });
+}
+
+test('เมนูผู้ใช้: keyboard เปิดด้วย Enter, เมนูอ่านชื่อ/email/องค์กร/บทบาท, Esc ปิดแล้ว focus กลับปุ่ม', async ({
+  page,
+}) => {
+  await page.goto('/?view=shell');
+  const trigger = page.getByRole('button', { name: 'เมนูผู้ใช้ สมชาย ใจดี' });
+  await expect(trigger).toContainText('สจ');
+  await expect(trigger).toContainText('สมชาย ใจดี');
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  await expect(menu).toHaveAccessibleName(
+    /สมชาย ใจดี.*somchai@demo\.example.*องค์กร demo.*หัวหน้างาน.*เอเจนต์/,
+  );
+  await expect(page.getByText('offline_access')).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'ออกจากระบบ' })).toBeFocused();
+  // #588 D3: ไม่มีลิงก์หรือข้อความที่อ้างถึง Keycloak
+  await expect(page.locator('[data-trigger=MenuTrigger]').getByRole('link')).toHaveCount(0);
+  expect((await page.locator('body').innerText()).toLowerCase()).not.toContain('keycloak');
+
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+  expect(await signOuts(page)).toBe(0);
+});
+
+test('เมนูผู้ใช้: ออกจากระบบทันทีเมื่อไม่ต้องยืนยัน', async ({ page }) => {
+  await page.goto('/?view=shell');
+  await userTrigger(page).click();
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  expect(await signOuts(page)).toBe(1);
+});
+
+test('เมนูผู้ใช้: ระหว่างมีสายถามยืนยันก่อน — ยกเลิกไม่ออกและ focus กลับปุ่ม, ยืนยันแล้วออก', async ({
+  page,
+}) => {
+  await page.goto('/?view=shell&signout=confirm');
+  const trigger = userTrigger(page);
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter'); // เลือก "ออกจากระบบ"
+  const dialog = page.getByRole('alertdialog', { name: 'ออกจากระบบระหว่างมีสาย?' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'ยกเลิก' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  expect(await signOuts(page)).toBe(0);
+
+  await trigger.click();
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  await dialog.getByRole('button', { name: 'ออกจากระบบ' }).click();
+  await expect(dialog).toBeHidden();
+  expect(await signOuts(page)).toBe(1);
+});
+
+test('เมนูผู้ใช้: จอแคบเหลือวงกลมอักษรย่อ แต่ชื่อยังอยู่ใน aria-label', async ({ page }) => {
+  await page.setViewportSize({ width: 640, height: 800 });
+  await page.goto('/?view=shell');
+  const trigger = page.getByRole('button', { name: 'เมนูผู้ใช้ สมชาย ใจดี' });
+  await expect(trigger).toBeVisible();
+  await expect(trigger.getByText('สมชาย ใจดี')).toBeHidden();
+  await expect(trigger.getByText('สจ')).toBeVisible();
+});

@@ -109,6 +109,11 @@
     "review": "Awaiting review",
     "sectionWork": "Work",
     "heading": "Journeys",
-    "body": "Page content goes here — the shell wraps it without owning the page layout"
+    "body": "Page content goes here — the shell wraps it without owning the page layout",
+    "signOutConfirm": {
+      "title": "Sign out during a call?",
+      "description": "The current call will be disconnected and unsaved work will be lost.",
+      "confirm": "Sign out"
+    }
   }
 }

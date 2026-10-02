@@ -65,6 +65,8 @@ export interface WorkspaceAppProps {
   onCallEvent?: (event: WorkspaceCallEvent) => void;
   /** E1.14: lease ที่ถืออยู่ (undefined = ไม่ได้ถือ) — ใช้แนบ `x-work-session-lease-id` */
   onLeaseChange?: (leaseId: string | undefined) => void;
+  /** #588: มีสายเรียกเข้าหรือสายในมือ — shell ใช้ถามยืนยันก่อนออกจากระบบ */
+  onActiveCallChange?: (active: boolean) => void;
 }
 
 export type WorkspaceCallInteraction = NonNullable<AgentWorkspaceSnapshot['interaction']>;
@@ -149,13 +151,15 @@ function AgentWorkspace({
   variant = 'workspace',
   onCallEvent,
   onLeaseChange,
+  onActiveCallChange,
 }: WorkspaceAppProps) {
   const embedded = variant === 'embedded';
   const { t } = useTranslation('workspace');
   const { t: td } = useTranslation('dphone');
   const { locale } = useLocale();
   // embedded ไม่มี shell แต่ใช้ widget ของ shell ใหม่ (D1.15) เหมือนกัน
-  const inShell = useInShell() || variant === 'embedded';
+  const inShellFrame = useInShell();
+  const inShell = inShellFrame || variant === 'embedded';
   const leaderElection = useMemo(
     () => createBrowserWorkspaceLeaderElection(crypto.randomUUID()),
     [],
@@ -209,6 +213,13 @@ function AgentWorkspace({
   const ownsWork = enforced ? leaseHeld : workingTab;
   // เก็บ SIP/WS/หน้าต่าง dphone ไว้: flag เปิด = ถือ lease หรือยังมีงานในมือ; flag ปิด = working tab (เดิม)
   const mediaOwner = enforced ? leaseHeld || workInHand : workingTab;
+  // #588: ออกจากระบบตอนนี้จะตัดสายหรือพลาดสายที่กำลังเรียกเข้า
+  const callActive = inCall || dphoneState.phase === 'RINGING';
+  const onActiveCallChangeRef = useRef(onActiveCallChange);
+  onActiveCallChangeRef.current = onActiveCallChange;
+  useEffect(() => {
+    onActiveCallChangeRef.current?.(callActive);
+  }, [callActive]);
   const onCallEventRef = useRef(onCallEvent);
   onCallEventRef.current = onCallEvent;
   // E1.14: offered/answered ครั้งเดียวต่อ interaction+state (snapshot ถูกโหลดซ้ำได้หลายครั้ง)
@@ -654,7 +665,8 @@ function AgentWorkspace({
       >
         {td(`phase.${dphoneState.phase}`)}
       </span>
-      {onSignOut ? (
+      {/* #588: ใน shell ใหม่ออกจากระบบที่เมนูผู้ใช้บนแถบบนที่เดียว */}
+      {onSignOut && !inShellFrame ? (
         <Button size="sm" variant="ghost" onPress={onSignOut}>
           {t('status.signOut')}
         </Button>

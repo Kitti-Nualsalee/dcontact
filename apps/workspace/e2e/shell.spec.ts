@@ -113,3 +113,36 @@ test('flag เปิด → สลับภาษาไม่ reload และ�
     'same-node',
   );
 });
+
+/**
+ * #588: เมนูผู้ใช้ — ผู้ใช้จำลองของ harness คือ "ผู้ทดสอบ เวิร์กสเปซ" (agent) และนับการออกใน `__signOuts`
+ */
+const userMenu = (page: Page) =>
+  page.getByRole('button', { name: 'เมนูผู้ใช้ ผู้ทดสอบ เวิร์กสเปซ' });
+const signOuts = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __signOuts?: number }).__signOuts ?? 0);
+
+test('flag ปิด → ไม่มีเมนูผู้ใช้ และปุ่มออกจากระบบเดิมอยู่ที่แถบสถานะ', async ({ page }) => {
+  await mockApis(page, false);
+  await page.goto('/?tenant=demo');
+  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  await expect(userMenu(page)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ออกจากระบบ' })).toBeVisible();
+});
+
+test('flag เปิด → เมนูผู้ใช้แสดงชื่อ/องค์กร/บทบาท, ไม่มีปุ่มออกซ้ำ และไม่มีสายก็ออกได้ทันที', async ({
+  page,
+}) => {
+  await mockApis(page, true);
+  await page.goto('/?tenant=demo');
+  await expect(page.getByText('สมชาย ใจดี')).toBeVisible();
+  // ปุ่มเดิมในแถบสถานะถูกซ่อน — ออกจากระบบที่เมนูผู้ใช้ที่เดียว
+  await expect(page.getByRole('button', { name: 'ออกจากระบบ' })).toHaveCount(0);
+  await userMenu(page).click();
+  await expect(page.getByRole('menu')).toHaveAccessibleName(
+    /ผู้ทดสอบ เวิร์กสเปซ.*workspace-e2e@demo\.example.*องค์กร demo.*เอเจนต์/,
+  );
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  expect(await signOuts(page)).toBe(1);
+});

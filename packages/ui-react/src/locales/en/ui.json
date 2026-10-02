@@ -34,5 +34,18 @@
     "pinned": "{{count}} of {{max}} pinned",
     "pinLimit": "You can pin up to {{max}} apps",
     "hint": "Pin apps to show them on the left rail"
+  },
+  "userMenu": {
+    "open": "User menu {{name}}",
+    "unnamed": "User",
+    "organization": "Organization {{organization}}",
+    "signOut": "Sign out",
+    "cancel": "Cancel",
+    "roles": {
+      "admin": "Administrator",
+      "supervisor": "Supervisor",
+      "compliance": "Compliance",
+      "agent": "Agent"
+    }
   }
 }

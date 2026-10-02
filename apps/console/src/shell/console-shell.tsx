@@ -16,6 +16,7 @@ import {
   toastQueue,
   useShellNavigation,
   type HostApp,
+  type ShellUser,
 } from '@d-contact/ui-react';
 import { useShellTokens } from './tokens.js';
 
@@ -36,6 +37,9 @@ export interface ConsoleShellProps {
   accessToken: () => string | undefined;
   tenantAlias?: string;
   appId: ConsoleShellApp;
+  /** #588: เมนูผู้ใช้บนแถบบน (ชื่อ, organization, บทบาท) — ต้องส่งคู่กับ `onSignOut` */
+  user?: ShellUser;
+  onSignOut?: () => void;
   children: ReactNode;
 }
 
@@ -44,6 +48,8 @@ export function ConsoleShell({
   accessToken,
   tenantAlias,
   appId,
+  user,
+  onSignOut,
   children,
 }: ConsoleShellProps) {
   const { t } = useTranslation();
@@ -174,6 +180,7 @@ export function ConsoleShell({
           );
         }}
         subNav={subNav}
+        user={user && onSignOut ? { user, onSignOut } : undefined}
         createActions={
           journeysVisible
             ? [

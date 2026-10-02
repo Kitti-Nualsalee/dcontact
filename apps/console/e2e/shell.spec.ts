@@ -114,3 +114,42 @@ test('flag เปิด → สลับภาษาในแถบบนเป�
   await expect(page.getByRole('link', { name: /Inbox/ })).toBeVisible();
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
 });
+
+/**
+ * #588: เมนูผู้ใช้ — ผู้ใช้จำลองของ harness คือ "ผู้ทดสอบ คอนโซล" (admin + offline_access)
+ * และนับการออกใน `__signOuts`
+ */
+const userMenu = (page: Page) => page.getByRole('button', { name: 'เมนูผู้ใช้ ผู้ทดสอบ คอนโซล' });
+
+test('flag ปิด → ไม่มีเมนูผู้ใช้', async ({ page }) => {
+  await mockNavigation(page, { status: 200, body: navigation(false) });
+  await page.goto('/?view=journeys&tenant=demo');
+  await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+  await expect(userMenu(page)).toHaveCount(0);
+});
+
+test('flag เปิด → เมนูผู้ใช้แสดงชื่อ/องค์กร/บทบาท ไม่มีลิงก์ไปที่อื่น และออกจากระบบได้', async ({
+  page,
+}) => {
+  await mockNavigation(page, { status: 200, body: navigation(true) });
+  await page.goto('/?view=journeys&tenant=demo');
+  await expect(rail(page)).toBeVisible();
+  await userMenu(page).click();
+  const menu = page.getByRole('menu');
+  await expect(menu).toHaveAccessibleName(
+    /ผู้ทดสอบ คอนโซล.*console-e2e@demo\.example.*องค์กร demo.*ผู้ดูแลระบบ/,
+  );
+  await expect(page.getByText('offline_access')).toHaveCount(0);
+  await expect(menu.getByRole('menuitem')).toHaveCount(1);
+  await expect(page.locator('[data-trigger=MenuTrigger]').getByRole('link')).toHaveCount(0);
+
+  const axe = await new AxeBuilder({ page }).include('header').analyze();
+  expect(
+    axe.violations
+      .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+      .map((v) => v.id),
+  ).toEqual([]);
+
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  expect(await page.evaluate(() => (window as { __signOuts?: number }).__signOuts ?? 0)).toBe(1);
+});

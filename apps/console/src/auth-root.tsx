@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
-import { AuthProvider, useAuth } from 'react-oidc-context';
+import { AuthProvider, useAuth, type AuthContextProps } from 'react-oidc-context';
+import { shellUserFromClaims } from '@d-contact/ui-react';
 import { SessionLocaleProvider } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
 import { createEmbedOriginApi } from './dphone-embedding/api.js';
@@ -177,6 +178,14 @@ function ConsoleLocale({
   );
 }
 
+/** #588: เมนูผู้ใช้บนแถบบนของ shell — ข้อมูลจาก claims ของ token ใช้แสดงผลอย่างเดียว */
+function shellUserProps(auth: AuthContextProps, tenantAlias: string) {
+  return {
+    user: shellUserFromClaims(auth.user?.profile ?? {}, tenantAlias),
+    onSignOut: () => void auth.signoutRedirect(),
+  };
+}
+
 function ConsoleSurface({
   apiBaseUrl,
   contextId,
@@ -246,6 +255,7 @@ function GovernanceSurface({
         : 'SUPERVISOR';
   return (
     <ConsoleShell
+      {...shellUserProps(auth, tenantAlias)}
       apiBaseUrl={apiBaseUrl}
       accessToken={() => accessToken}
       tenantAlias={tenantAlias}
@@ -296,6 +306,7 @@ function DphoneEmbeddingSurface({
   const roles = (auth.user?.profile.realm_access as { roles?: unknown } | undefined)?.roles;
   return (
     <ConsoleShell
+      {...shellUserProps(auth, tenantAlias)}
       apiBaseUrl={apiBaseUrl}
       accessToken={() => accessToken}
       tenantAlias={tenantAlias}
@@ -342,6 +353,7 @@ function LineInboundSurface({
     );
   return (
     <ConsoleShell
+      {...shellUserProps(auth, tenantAlias)}
       apiBaseUrl={apiBaseUrl}
       accessToken={() => accessToken}
       tenantAlias={tenantAlias}
@@ -389,6 +401,7 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
   const session = String(auth.user?.profile.sid ?? auth.user?.profile.sub ?? 'session');
   return (
     <ConsoleShell
+      {...shellUserProps(auth, tenantAlias)}
       apiBaseUrl={apiBaseUrl}
       accessToken={() => accessToken}
       tenantAlias={tenantAlias}
