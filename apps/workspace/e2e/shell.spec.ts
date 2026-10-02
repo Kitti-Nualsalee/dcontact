@@ -146,3 +146,41 @@ test('flag เปิด → เมนูผู้ใช้แสดงชื่�
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
   expect(await signOuts(page)).toBe(1);
 });
+
+test('flag เปิด → มี wrap-up ที่ยังไม่บันทึก ต้องยืนยันก่อนออก และยกเลิกแล้ว wrap-up ยังอยู่', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/me/navigation', (route) =>
+    route.fulfill({ status: 200, json: navigation(true) }),
+  );
+  await page.route('**/api/v1/workspace/agent/snapshot', (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        agent: { id: 'agent-1000', displayName: 'สมชาย ใจดี', extension: '1000', state: 'ACW' },
+        interaction: {
+          id: '9a8a5477-aa53-4254-ae68-a21ab64cc2bb',
+          state: 'WRAPUP',
+          version: '19',
+          caller: '081-234-5678',
+          queue: { id: 'queue-service', name: 'บริการลูกค้า' },
+          offerExpiresAt: null,
+          answeredAt: '2026-09-06T10:00:00.000Z',
+          endedAt: '2026-09-06T10:03:00.000Z',
+        },
+      },
+    }),
+  );
+  await page.goto('/?tenant=demo');
+  const wrapup = page.getByRole('heading', { name: 'สรุปผลหลังสาย' });
+  await expect(wrapup).toBeVisible();
+
+  await userMenu(page).click();
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
+  const dialog = page.getByRole('alertdialog', { name: 'ออกจากระบบทั้งที่ยังมีงานค้าง?' });
+  await expect(dialog).toContainText('wrap-up ที่ยังไม่บันทึกจะหายไป');
+  await dialog.getByRole('button', { name: 'ยกเลิก' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(wrapup).toBeVisible();
+  expect(await signOuts(page)).toBe(0);
+});

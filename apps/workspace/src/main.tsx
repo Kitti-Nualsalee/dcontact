@@ -75,18 +75,18 @@ const e2eShellProps = {
 const e2eCreateDphone: DphoneFactory = (_remoteAudio, callbacks) =>
   createDeterministicDphone(callbacks);
 
-/** #588: สถานะมีสายส่งจาก WorkspaceApp ขึ้นไปที่ shell แบบเดียวกับ auth-root */
+/** #588: สถานะงานในมือส่งจาก WorkspaceApp ขึ้นไปที่ shell แบบเดียวกับ auth-root */
 function E2eAgentWorkspace() {
-  const [callActive, setCallActive] = useState(false);
+  const [workInHand, setWorkInHand] = useState(false);
   return (
-    <WorkspaceShell {...e2eShellProps} appId="agent-workspace" callActive={callActive}>
+    <WorkspaceShell {...e2eShellProps} appId="agent-workspace" workInHand={workInHand}>
       <WorkspaceApp
         api={e2eApi}
         tenantLabel="demo"
         createDphone={e2eCreateDphone}
         workSession={e2eWorkSession}
         onSignOut={e2eShellProps.onSignOut}
-        onActiveCallChange={setCallActive}
+        onWorkInHandChange={setWorkInHand}
       />
     </WorkspaceShell>
   );

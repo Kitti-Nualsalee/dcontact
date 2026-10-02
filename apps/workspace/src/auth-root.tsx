@@ -23,7 +23,7 @@ const createProductionDphone: DphoneFactory = (remoteAudio, callbacks) =>
 function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorkspaceProps) {
   const auth = useAuth();
   // #588: เปลี่ยนแล้ว re-render เท่านั้น — WorkspaceShell/WorkspaceApp อยู่ตำแหน่งเดิมจึงไม่ remount (ADR-026)
-  const [callActive, setCallActive] = useState(false);
+  const [workInHand, setWorkInHand] = useState(false);
   const accessToken = auth.user?.access_token;
   const agentApi = useMemo(
     () =>
@@ -110,14 +110,14 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
   }
 
   return (
-    <WorkspaceShell {...shellProps} appId="agent-workspace" callActive={callActive}>
+    <WorkspaceShell {...shellProps} appId="agent-workspace" workInHand={workInHand}>
       <WorkspaceApp
         api={agentApi}
         tenantLabel={tenantAlias}
         onSignOut={signOut}
         createDphone={createProductionDphone}
         workSession={workSession}
-        onActiveCallChange={setCallActive}
+        onWorkInHandChange={setWorkInHand}
       />
     </WorkspaceShell>
   );

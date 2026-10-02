@@ -44,8 +44,8 @@
     "pinSaveFailed": "Could not save your pins; they were restored",
     "brand": "D-Contact",
     "signOutConfirm": {
-      "title": "Sign out during a call?",
-      "description": "The current or incoming call will be disconnected, and unsaved work for this call will be lost.",
+      "title": "Sign out with work in progress?",
+      "description": "Any current or incoming call will be disconnected, and unsaved wrap-up will be lost.",
       "confirm": "Sign out"
     }
   }

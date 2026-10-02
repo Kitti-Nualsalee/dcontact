@@ -229,7 +229,7 @@ test('#588: ออกจากระบบระหว่างมีสาย�
 
   await trigger.click();
   await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
-  const dialog = page.getByRole('alertdialog', { name: 'ออกจากระบบระหว่างมีสาย?' });
+  const dialog = page.getByRole('alertdialog', { name: 'ออกจากระบบทั้งที่ยังมีงานค้าง?' });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'ยกเลิก' }).click();
   await expect(dialog).toBeHidden();

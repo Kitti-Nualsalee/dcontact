@@ -65,8 +65,8 @@ export interface WorkspaceAppProps {
   onCallEvent?: (event: WorkspaceCallEvent) => void;
   /** E1.14: lease ที่ถืออยู่ (undefined = ไม่ได้ถือ) — ใช้แนบ `x-work-session-lease-id` */
   onLeaseChange?: (leaseId: string | undefined) => void;
-  /** #588: มีสายเรียกเข้าหรือสายในมือ — shell ใช้ถามยืนยันก่อนออกจากระบบ */
-  onActiveCallChange?: (active: boolean) => void;
+  /** #588: มีสายเรียกเข้า, สายในมือ หรือ wrap-up ที่ยังไม่บันทึก — shell ใช้ถามยืนยันก่อนออกจากระบบ */
+  onWorkInHandChange?: (active: boolean) => void;
 }
 
 export type WorkspaceCallInteraction = NonNullable<AgentWorkspaceSnapshot['interaction']>;
@@ -151,7 +151,7 @@ function AgentWorkspace({
   variant = 'workspace',
   onCallEvent,
   onLeaseChange,
-  onActiveCallChange,
+  onWorkInHandChange,
 }: WorkspaceAppProps) {
   const embedded = variant === 'embedded';
   const { t } = useTranslation('workspace');
@@ -213,13 +213,13 @@ function AgentWorkspace({
   const ownsWork = enforced ? leaseHeld : workingTab;
   // เก็บ SIP/WS/หน้าต่าง dphone ไว้: flag เปิด = ถือ lease หรือยังมีงานในมือ; flag ปิด = working tab (เดิม)
   const mediaOwner = enforced ? leaseHeld || workInHand : workingTab;
-  // #588: ออกจากระบบตอนนี้จะตัดสายหรือพลาดสายที่กำลังเรียกเข้า
-  const callActive = inCall || dphoneState.phase === 'RINGING';
-  const onActiveCallChangeRef = useRef(onActiveCallChange);
-  onActiveCallChangeRef.current = onActiveCallChange;
+  // #588: ออกจากระบบตอนนี้จะตัดสาย, พลาดสายที่กำลังเรียกเข้า หรือทิ้ง wrap-up ที่ยังไม่บันทึก
+  const signOutLosesWork = workInHand || dphoneState.phase === 'RINGING';
+  const onWorkInHandChangeRef = useRef(onWorkInHandChange);
+  onWorkInHandChangeRef.current = onWorkInHandChange;
   useEffect(() => {
-    onActiveCallChangeRef.current?.(callActive);
-  }, [callActive]);
+    onWorkInHandChangeRef.current?.(signOutLosesWork);
+  }, [signOutLosesWork]);
   const onCallEventRef = useRef(onCallEvent);
   onCallEventRef.current = onCallEvent;
   // E1.14: offered/answered ครั้งเดียวต่อ interaction+state (snapshot ถูกโหลดซ้ำได้หลายครั้ง)

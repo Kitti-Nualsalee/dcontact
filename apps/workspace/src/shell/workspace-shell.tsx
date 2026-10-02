@@ -36,8 +36,8 @@ export interface WorkspaceShellProps {
   /** #588: เมนูผู้ใช้บนแถบบน (ชื่อ, organization, บทบาท) — ต้องส่งคู่กับ `onSignOut` */
   user?: ShellUser;
   onSignOut?: () => void;
-  /** #588: มีสายอยู่ → ถามยืนยันก่อนออกจากระบบ */
-  callActive?: boolean;
+  /** #588: มีสายหรือ wrap-up ค้าง → ถามยืนยันก่อนออกจากระบบ */
+  workInHand?: boolean;
   children: ReactNode;
 }
 
@@ -48,7 +48,7 @@ export function WorkspaceShell({
   appId,
   user,
   onSignOut,
-  callActive = false,
+  workInHand = false,
   children,
 }: WorkspaceShellProps) {
   const { t } = useTranslation();
@@ -112,7 +112,7 @@ export function WorkspaceShell({
             ? {
                 user,
                 onSignOut,
-                signOutConfirm: callActive
+                signOutConfirm: workInHand
                   ? {
                       title: t('shell.signOutConfirm.title'),
                       description: t('shell.signOutConfirm.description'),
