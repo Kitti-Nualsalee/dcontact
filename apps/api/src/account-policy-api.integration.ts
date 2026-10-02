@@ -225,7 +225,10 @@ test('ADMIN แก้นโยบายได้พร้อม audit ก่อ�
   assert.ok(events.every((event) => event.correlationId === 'corr-account-policy'));
 
   const invalid: Array<[unknown, Record<string, string>]> = [
-    [{ emailChange: 'VERIFY', expectedRevision: 2 }, { field: 'reason', reason: 'REQUIRED' }],
+    [
+      { emailChange: 'VERIFY', expectedRevision: 2 },
+      { field: 'reason', reason: 'REQUIRED' },
+    ],
     [
       { emailChange: 'VERIFY', reason: 'ab', expectedRevision: 2 },
       { field: 'reason', reason: 'INVALID' },
@@ -242,7 +245,10 @@ test('ADMIN แก้นโยบายได้พร้อม audit ก่อ�
       { mfaRequired: 'yes', reason: 'ชนิดผิด', expectedRevision: 2 },
       { field: 'mfaRequired', reason: 'INVALID' },
     ],
-    [{ reason: 'ไม่มีอะไรให้แก้', expectedRevision: 2 }, { field: 'body', reason: 'REQUIRED' }],
+    [
+      { reason: 'ไม่มีอะไรให้แก้', expectedRevision: 2 },
+      { field: 'body', reason: 'REQUIRED' },
+    ],
     [
       { emailChange: 'VERIFY', reason: 'ไม่มี revision' },
       { field: 'expectedRevision', reason: 'REQUIRED' },

@@ -49,11 +49,7 @@ export class AccountPolicyController {
   @GatewayRoles('admin')
   update(@Req() request: AuthenticatedGatewayRequest, @Body() body: Record<string, unknown>) {
     return mapped(() =>
-      this.policies.update(
-        actorOf(request),
-        body ?? {},
-        request.correlationId ?? 'unavailable',
-      ),
+      this.policies.update(actorOf(request), body ?? {}, request.correlationId ?? 'unavailable'),
     );
   }
 }
