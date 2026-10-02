@@ -230,6 +230,9 @@ export function configuredAgentSipCredentialService(
   database: PrismaClient,
   environment: NodeJS.ProcessEnv = process.env,
 ): DatabaseAgentSipCredentialService {
+  if (environment.NODE_ENV === 'production' && environment.SIP_BROWSER_FIXED_PASSWORD) {
+    throw new Error('SIP_BROWSER_FIXED_PASSWORD is forbidden in production');
+  }
   const directoryPassword =
     environment.FREESWITCH_DIRECTORY_PASSWORD ??
     (environment.NODE_ENV === 'production' ? undefined : 'dcontact-xml-curl-dev-only');
@@ -258,7 +261,14 @@ export function configuredAgentSipCredentialService(
       'SIP_BROWSER_NODES_JSON requires telephonyNodeId, browser WebSocket URL and directoryPassword (at least 16 characters)',
     );
   }
-  return new DatabaseAgentSipCredentialService(database, nodes, iceServers);
+  const fixedPassword = environment.SIP_BROWSER_FIXED_PASSWORD;
+  return new DatabaseAgentSipCredentialService(
+    database,
+    nodes,
+    iceServers,
+    () => new Date(),
+    fixedPassword ? () => fixedPassword : undefined,
+  );
 }
 
 @Controller('internal/v1/freeswitch')

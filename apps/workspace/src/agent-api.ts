@@ -10,6 +10,7 @@ export interface AgentWorkspaceSnapshot {
   interaction: {
     id: string;
     state: 'ASSIGNED' | 'ACTIVE' | 'WRAPUP';
+    direction: 'INBOUND' | 'OUTBOUND';
     version: string;
     caller: string | null;
     queue: { id: string; name: string } | null;

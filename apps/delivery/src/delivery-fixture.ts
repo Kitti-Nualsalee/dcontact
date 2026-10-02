@@ -26,16 +26,22 @@ export const LEASE_EXPIRY = '2026-09-10T09:10:00.000Z';
 const APPLICATION_DATABASE_URL =
   process.env.APPLICATION_DATABASE_URL ??
   'postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public';
+const OWNER_DATABASE_URL = process.env.OWNER_DATABASE_URL;
 
 export type DeliveryFixture = Awaited<ReturnType<typeof createDeliveryFixture>>;
 
 export async function createDeliveryFixture(script: TransportResponse[] = []) {
-  const owner = new PrismaClient();
+  const owner = OWNER_DATABASE_URL
+    ? new PrismaClient({ datasources: { db: { url: OWNER_DATABASE_URL } } })
+    : new PrismaClient();
   const application = new PrismaClient({ datasources: { db: { url: APPLICATION_DATABASE_URL } } });
   const rawTenantId = randomUUID();
   const otherRawTenantId = randomUUID();
   const rawContactId = randomUUID();
   const rawIdentityId = randomUUID();
+  const rawPhoneIdentityId = randomUUID();
+  const rawAgentUserId = randomUUID();
+  const rawLeaseId = randomUUID();
   const suffix = rawTenantId.slice(0, 8);
   let currentTime = new Date(RESERVED_AT);
 
@@ -52,6 +58,17 @@ export async function createDeliveryFixture(script: TransportResponse[] = []) {
   await owner.contact.create({
     data: { id: rawContactId, tenantId: rawTenantId, displayName: 'Delivery contact' },
   });
+  await owner.user.create({
+    data: {
+      id: rawAgentUserId,
+      tenantId: rawTenantId,
+      email: `agent-${suffix}@delivery.test`,
+      passwordHash: 'test',
+      displayName: 'Delivery agent',
+      role: 'AGENT',
+      extension: '1001',
+    },
+  });
   await owner.contactIdentity.create({
     data: {
       id: rawIdentityId,
@@ -59,6 +76,39 @@ export async function createDeliveryFixture(script: TransportResponse[] = []) {
       contactId: rawContactId,
       type: 'EMAIL',
       value: `delivery-${suffix}@example.test`,
+    },
+  });
+  await owner.contactIdentity.create({
+    data: {
+      id: rawPhoneIdentityId,
+      tenantId: rawTenantId,
+      contactId: rawContactId,
+      type: 'PHONE',
+      value: '0812345678',
+    },
+  });
+  await owner.agentWorkSessionLease.create({
+    data: {
+      id: rawLeaseId,
+      tenantId: rawTenantId,
+      userId: rawAgentUserId,
+      surface: 'embedded',
+      hostOrigin: 'https://delivery.example.test',
+      acquiredAt: new Date(RESERVED_AT),
+      heartbeatAt: new Date(RESERVED_AT),
+      expiresAt: new Date(RESERVATION_EXPIRY),
+    },
+  });
+  await owner.agentSipCredential.create({
+    data: {
+      workSessionLeaseId: rawLeaseId,
+      tenantId: rawTenantId,
+      userId: rawAgentUserId,
+      extension: '1001',
+      sipDomain: `${suffix}.delivery.test`,
+      telephonyNodeId: 'fs-local',
+      a1Hash: '0123456789abcdef0123456789abcdef',
+      issuedAt: new Date(RESERVED_AT),
     },
   });
 
@@ -77,6 +127,28 @@ export async function createDeliveryFixture(script: TransportResponse[] = []) {
         sourceId: `journey-${label}`,
         actionKey: rawActionKey,
         inputHash: `hash-${suffix}-${label}`,
+        expiresAt: new Date(RESERVATION_EXPIRY),
+        settlementStatus: 'UNCLAIMED',
+      },
+    });
+    return { rawId, rawActionKey };
+  }
+
+  async function createVoiceReservation(label: string) {
+    const rawId = randomUUID();
+    const rawActionKey = `voice-action-${suffix}-${label}`;
+    await owner.cgReservation.create({
+      data: {
+        id: rawId,
+        tenantId: rawTenantId,
+        contactId: rawContactId,
+        identityId: rawPhoneIdentityId,
+        channel: 'VOICE',
+        purpose: 'SERVICE',
+        source: 'DPHONE_CLICK_TO_CALL',
+        sourceId: rawLeaseId,
+        actionKey: rawActionKey,
+        inputHash: `voice-hash-${suffix}-${label}`,
         expiresAt: new Date(RESERVATION_EXPIRY),
         settlementStatus: 'UNCLAIMED',
       },
@@ -117,6 +189,9 @@ export async function createDeliveryFixture(script: TransportResponse[] = []) {
     rawTenantId,
     otherTenantId: tenantId(otherRawTenantId),
     createReservation,
+    createVoiceReservation,
+    agent: { userId: rawAgentUserId, leaseId: rawLeaseId },
+    rawPhoneIdentityId,
     advance(ms: number) {
       currentTime = new Date(currentTime.getTime() + ms);
     },
@@ -137,14 +212,23 @@ export async function createDeliveryFixture(script: TransportResponse[] = []) {
     },
     async dispose() {
       for (const scope of [rawTenantId, otherRawTenantId]) {
+        await owner.dlVoiceAuditEvent.deleteMany({ where: { tenantId: scope } });
+        await owner.dlVoiceCapLedgerEntry.deleteMany({ where: { tenantId: scope } });
+        await owner.dlVoiceAllowlistEntry.deleteMany({ where: { tenantId: scope } });
+        await owner.dlVoiceScopeGate.deleteMany({ where: { tenantId: scope } });
+        await owner.interactionEvent.deleteMany({ where: { tenantId: scope } });
         await owner.dlVoiceOriginate.deleteMany({ where: { tenantId: scope } });
         await owner.dlOutboxEntry.deleteMany({ where: { tenantId: scope } });
+        await owner.interaction.deleteMany({ where: { tenantId: scope } });
         await owner.cgReservationCommandReceipt.deleteMany({ where: { tenantId: scope } });
         await owner.cgTouch.deleteMany({ where: { tenantId: scope } });
         await owner.cgAttempt.deleteMany({ where: { tenantId: scope } });
         await owner.cgReservation.deleteMany({ where: { tenantId: scope } });
+        await owner.agentSipCredential.deleteMany({ where: { tenantId: scope } });
+        await owner.agentWorkSessionLease.deleteMany({ where: { tenantId: scope } });
         await owner.contactIdentity.deleteMany({ where: { tenantId: scope } });
         await owner.contact.deleteMany({ where: { tenantId: scope } });
+        await owner.user.deleteMany({ where: { tenantId: scope } });
         await owner.tenant.deleteMany({ where: { id: scope } });
       }
       await Promise.all([owner.$disconnect(), application.$disconnect()]);

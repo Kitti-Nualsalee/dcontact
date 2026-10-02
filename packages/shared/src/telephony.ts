@@ -10,6 +10,10 @@ export interface TelephonyCallEvent extends Record<string, unknown> {
   telephonyNodeId: string;
   caller: string;
   destination: string;
+  /** มีเฉพาะสาย outbound ที่ Delivery สั่ง originate; เป็น opaque identifiers */
+  deliveryId?: string;
+  providerRequestKey?: string;
+  hangupCause?: string;
   inputMode?: 'VOICE' | 'DTMF' | 'TIMEOUT';
   inputValue?: string;
 }
@@ -65,9 +69,21 @@ export interface TelephonyOriginateCommand extends Record<string, unknown> {
   vendor: TelephonyVendor;
   telephonyNodeId: string;
   deliveryId: string;
+  /** opaque correlation สำหรับ provider-submission barrier และ terminal outcome */
+  providerRequestKey: string;
   originationUuid: string;
   agentExtension: string;
   targetIdentityId: string;
+}
+
+/** E1.18: ขอหยุด originate หลัง submission barrier; outcome จริงยังมาจาก ESL เท่านั้น */
+export interface TelephonyCancelCommand extends Record<string, unknown> {
+  type: 'call.cancel';
+  vendor: TelephonyVendor;
+  telephonyNodeId: string;
+  callUuid: string;
+  deliveryId: string;
+  providerRequestKey: string;
 }
 
 export type TelephonyCommand =
@@ -77,4 +93,5 @@ export type TelephonyCommand =
   | TelephonyRecordingAnnouncementCommand
   | TelephonyRecordingStartCommand
   | TelephonySipRegistrationFlushCommand
-  | TelephonyOriginateCommand;
+  | TelephonyOriginateCommand
+  | TelephonyCancelCommand;

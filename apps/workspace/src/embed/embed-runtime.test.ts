@@ -11,6 +11,7 @@ const HOST = 'https://crm.example.test';
 const interaction = {
   id: 'int-1',
   state: 'WRAPUP' as const,
+  direction: 'INBOUND' as const,
   version: '3',
   caller: '0812345678',
   queue: { id: 'q-1', name: 'บริการลูกค้า' },
@@ -106,6 +107,48 @@ test('agent กดโทร → เรียก click-to-call พร้อม le
   });
   assert.deepEqual(r.sent.at(-1), blocked);
   assert.equal(r.rt.state.phase, 'result');
+});
+
+test('หลัง server ตอบ dialing ปุ่มยกเลิกเรียก durable cancel ด้วย requestId + lease', async () => {
+  let requestCount = 0;
+  const r = runtime({
+    respond: () => {
+      requestCount += 1;
+      return requestCount === 1
+        ? Response.json({
+            status: 'result',
+            hostOrigin: HOST,
+            message: {
+              v: 1,
+              type: 'dphone.call.result',
+              requestId: 'h1',
+              status: 'dialing',
+              blocked: false,
+            },
+          })
+        : Response.json({
+            status: 'result',
+            hostOrigin: HOST,
+            result: { requestId: 'h1', status: 'reconciling' },
+          });
+    },
+  });
+  r.rt.setLease('lease-1');
+  r.rt.prefillFromHost(call('h1'));
+  await r.rt.dial();
+  await r.rt.cancel();
+  assert.equal(
+    r.requests[1]!.url,
+    'https://api.dcontact.test/api/v1/workspace/agent/click-to-call/cancel',
+  );
+  assert.equal(new Headers(r.requests[1]!.init.headers).get('x-work-session-lease-id'), 'lease-1');
+  assert.deepEqual(JSON.parse(String(r.requests[1]!.init.body)), { requestId: 'h1' });
+  assert.equal(r.rt.state.phase, 'idle');
+  const result = r.sent.at(-1);
+  assert.equal(
+    result?.type === 'dphone.call.result' && result.reasonCode,
+    'VOICE_CANCEL_RECONCILING',
+  );
 });
 
 test('server ตอบ hostOrigin ไม่ตรงกับ origin ที่ล็อก → ไม่ส่งผลของ server ให้ host', async () => {

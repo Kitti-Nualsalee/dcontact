@@ -3,6 +3,8 @@ import type { TelephonyCallEvent, TelephonyCallEventType } from '@d-contact/shar
 
 export interface FreeSwitchEvent {
   'Event-Name'?: unknown;
+  'Job-UUID'?: unknown;
+  Body?: unknown;
   'Unique-ID'?: unknown;
   'Caller-Caller-ID-Number'?: unknown;
   'Caller-Destination-Number'?: unknown;
@@ -10,6 +12,10 @@ export interface FreeSwitchEvent {
   'Speech-Result'?: unknown;
   'Bridge-A-Unique-ID'?: unknown;
   variable_domain_name?: unknown;
+  variable_dcontact_tenant_id?: unknown;
+  variable_dcontact_delivery_id?: unknown;
+  variable_dcontact_provider_request_key?: unknown;
+  'Hangup-Cause'?: unknown;
 }
 
 export interface FreeSwitchNormalizationDependencies {
@@ -26,6 +32,18 @@ export class FreeSwitchNormalizationError extends Error {
     super(message);
     this.name = 'FreeSwitchNormalizationError';
   }
+}
+
+export function isDeniedAgentDirectOutbound(event: FreeSwitchEvent): boolean {
+  const caller = event['Caller-Caller-ID-Number'];
+  const destination = event['Caller-Destination-Number'];
+  return (
+    typeof caller === 'string' &&
+    /^1[0-9]{3}$/.test(caller) &&
+    typeof destination === 'string' &&
+    !/^(?:1[0-9]{3}|200[01]|9196)$/.test(destination) &&
+    event.variable_dcontact_delivery_id === undefined
+  );
 }
 
 const eventTypes: Record<string, TelephonyCallEventType> = {
@@ -93,6 +111,9 @@ export function normalizeFreeSwitchEvent(
       : sourceType === 'DETECTED_SPEECH'
         ? { inputMode: 'VOICE' as const, inputValue: requiredString(event, 'Speech-Result') }
         : {};
+  const deliveryId = optionalOpaque(event.variable_dcontact_delivery_id);
+  const providerRequestKey = optionalOpaque(event.variable_dcontact_provider_request_key);
+  const hangupCause = optionalOpaque(event['Hangup-Cause']);
 
   return {
     eventId: dependencies.eventId(),
@@ -107,7 +128,16 @@ export function normalizeFreeSwitchEvent(
       telephonyNodeId: dependencies.telephonyNodeId,
       caller,
       destination,
+      ...(deliveryId ? { deliveryId } : {}),
+      ...(providerRequestKey ? { providerRequestKey } : {}),
+      ...(hangupCause ? { hangupCause } : {}),
       ...input,
     },
   };
+}
+
+function optionalOpaque(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(normalized) ? normalized : undefined;
 }

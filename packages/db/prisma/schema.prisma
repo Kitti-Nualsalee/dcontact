@@ -3655,22 +3655,22 @@ enum DlVoiceOriginateState {
 
 /// ส่วนขยายเฉพาะ voice ของ generic delivery outbox — ไม่มีเบอร์, credential หรือ ESL payload.
 model DlVoiceOriginate {
-  id                 String                 @id @default(uuid()) @db.Uuid
-  tenantId           String                 @map("tenant_id") @db.Uuid
-  deliveryId         String                 @map("delivery_id")
-  adapter            DlDeliveryAdapter      @default(FREESWITCH_ORIGINATE)
-  interactionId      String                 @map("interaction_id") @db.Uuid
-  workSessionLeaseId String                 @map("work_session_lease_id") @db.Uuid
-  agentUserId        String                 @map("agent_user_id") @db.Uuid
-  agentExtension     String                 @map("agent_extension")
-  telephonyNodeId    String                 @map("telephony_node_id")
-  targetIdentityId   String                 @map("target_identity_id") @db.Uuid
-  originationUuid    String                 @map("origination_uuid") @db.Uuid
-  state              DlVoiceOriginateState  @default(QUEUED)
+  id                 String                @id @default(uuid()) @db.Uuid
+  tenantId           String                @map("tenant_id") @db.Uuid
+  deliveryId         String                @map("delivery_id")
+  adapter            DlDeliveryAdapter     @default(FREESWITCH_ORIGINATE)
+  interactionId      String                @map("interaction_id") @db.Uuid
+  workSessionLeaseId String                @map("work_session_lease_id") @db.Uuid
+  agentUserId        String                @map("agent_user_id") @db.Uuid
+  agentExtension     String                @map("agent_extension")
+  telephonyNodeId    String                @map("telephony_node_id")
+  targetIdentityId   String                @map("target_identity_id") @db.Uuid
+  originationUuid    String                @map("origination_uuid") @db.Uuid
+  state              DlVoiceOriginateState @default(QUEUED)
   outcome            CgFactOutcome?
-  outcomeRef         String?                @map("outcome_ref")
-  createdAt          DateTime               @default(now()) @map("created_at")
-  updatedAt          DateTime               @updatedAt @map("updated_at")
+  outcomeRef         String?               @map("outcome_ref")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 
@@ -3678,6 +3678,80 @@ model DlVoiceOriginate {
   @@unique([tenantId, originationUuid], map: "dl_voice_originates_tenant_origination_key")
   @@index([tenantId, state, updatedAt], map: "dl_voice_originates_tenant_state_updated_idx")
   @@map("dl_voice_originates")
+}
+
+enum DlVoiceRolloutState {
+  DISABLED
+  DRY_RUN
+  SANDBOX
+  CAPPED_PILOT
+}
+
+model DlVoiceScopeGate {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  telephonyNodeId   String              @map("telephony_node_id")
+  businessState     DlVoiceRolloutState @default(DISABLED) @map("business_state")
+  technicalSwitchOn Boolean             @default(false) @map("technical_switch_on")
+  killed            Boolean             @default(false)
+  capPerMinute      Int                 @default(1) @map("cap_per_minute")
+  capPerDay         Int                 @default(10) @map("cap_per_day")
+  agentCapPerMinute Int                 @default(1) @map("agent_cap_per_minute")
+  agentCapPerDay    Int                 @default(10) @map("agent_cap_per_day")
+  version           Int                 @default(0)
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  @@unique([tenantId, telephonyNodeId], map: "dl_voice_scope_gates_tenant_node_key")
+  @@unique([tenantId, id], map: "dl_voice_scope_gates_tenant_id_key")
+  @@map("dl_voice_scope_gates")
+}
+
+model DlVoiceAllowlistEntry {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  gateId           String    @map("gate_id") @db.Uuid
+  agentUserId      String    @map("agent_user_id") @db.Uuid
+  targetIdentityId String    @map("target_identity_id") @db.Uuid
+  validFrom        DateTime  @map("valid_from")
+  validUntil       DateTime  @map("valid_until")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@unique([tenantId, gateId, agentUserId, targetIdentityId], map: "dl_voice_allowlist_tuple_key")
+  @@index([tenantId, gateId, validUntil], map: "dl_voice_allowlist_active_idx")
+  @@map("dl_voice_allowlist_entries")
+}
+
+model DlVoiceCapLedgerEntry {
+  id         String            @id @default(uuid()) @db.Uuid
+  tenantId   String            @map("tenant_id") @db.Uuid
+  gateId     String            @map("gate_id") @db.Uuid
+  deliveryId String            @map("delivery_id")
+  agentUserId String           @map("agent_user_id") @db.Uuid
+  adapter    DlDeliveryAdapter @default(FREESWITCH_ORIGINATE)
+  reservedAt DateTime          @map("reserved_at")
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  @@unique([tenantId, deliveryId], map: "dl_voice_cap_ledger_delivery_key")
+  @@index([tenantId, gateId, reservedAt], map: "dl_voice_cap_ledger_window_idx")
+  @@index([tenantId, gateId, agentUserId, reservedAt], map: "dl_voice_cap_ledger_agent_window_idx")
+  @@map("dl_voice_cap_ledger")
+}
+
+model DlVoiceAuditEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  eventId    String   @map("event_id")
+  code       String
+  actorRef   String   @map("actor_ref")
+  subjectId  String?  @map("subject_id")
+  occurredAt DateTime @map("occurred_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, eventId], map: "dl_voice_audit_events_event_key")
+  @@index([tenantId, occurredAt], map: "dl_voice_audit_events_timeline_idx")
+  @@map("dl_voice_audit_events")
 }
 
 // ── S2 LINE provider pilot (#365) ────────────────────────────────────────────

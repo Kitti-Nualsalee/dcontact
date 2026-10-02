@@ -51,11 +51,39 @@ export interface ClickToCallVoiceDelivery {
     contactId: string;
     identityId: string;
     correlationId: string;
-  }): Promise<{ status: 'QUEUED' } | { status: 'UNAVAILABLE'; reasonCode: string }>;
+  }): Promise<
+    | { status: 'QUEUED' }
+    | {
+        status: 'UNAVAILABLE';
+        reasonCode: string;
+        reservationReleased?: true;
+        reservationFinalized?: true;
+      }
+  >;
+  cancel?(input: {
+    tenantId: string;
+    userId: string;
+    leaseId: string;
+    actionKey: string;
+    correlationId: string;
+  }): Promise<
+    | { status: 'CANCELLED' }
+    | { status: 'RECONCILING' }
+    | { status: 'FINAL' }
+    | { status: 'NOT_FOUND' }
+  >;
 }
 
 export type ClickToCallOutcome =
   { status: 'result'; message: CallResultMessage; hostOrigin: string } | { status: 'not_found' };
+
+export type ClickToCallCancelOutcome =
+  | {
+      status: 'result';
+      hostOrigin: string;
+      result: { requestId: string; status: 'cancelled' | 'reconciling' | 'final' };
+    }
+  | { status: 'not_found' };
 
 /** เบอร์สำหรับเทียบ identity: ตัดตัวคั่นทิ้ง คงตัวเลขและ `+` นำหน้า */
 export function normalizeDialNumber(value: string): string | null {
@@ -118,7 +146,9 @@ export class ClickToCallService {
       sourceId: input.leaseId,
       actionKey,
       policyVersion: 1,
-      ...(target ? { contactId: target.contactId } : { identityResolution: 'NOT_FOUND' as const }),
+      ...(target
+        ? { contactId: target.contactId, identityId: target.identityId }
+        : { identityResolution: 'NOT_FOUND' as const }),
     });
 
     let message: CallResultMessage;
@@ -140,7 +170,11 @@ export class ClickToCallService {
         message = result(input.requestId, 'dialing', false, 'QUEUED');
       } else {
         // ไม่มี queue ที่ durable หรือ queue ปฏิเสธก่อน submission barrier — คืนสิทธิ์ทันที
-        if (outcome.reservationId) {
+        if (
+          outcome.reservationId &&
+          !delivery.reservationReleased &&
+          !delivery.reservationFinalized
+        ) {
           await this.deps.governance.changeReservationState(
             actor.tenantId,
             outcome.reservationId,
@@ -158,6 +192,36 @@ export class ClickToCallService {
     message.decisionId = outcome.decisionId;
     await this.audit(audit, { message, contactId: target?.contactId ?? null, outcome });
     return { status: 'result', message, hostOrigin };
+  }
+
+  async cancel(
+    actor: ClickToCallActor,
+    input: { leaseId: string; requestId: string },
+    correlationId: string,
+  ): Promise<ClickToCallCancelOutcome> {
+    const hostOrigin = await this.deps.hostOriginOfLease(actor, input.leaseId);
+    if (!hostOrigin || !this.deps.voiceDelivery?.cancel) return { status: 'not_found' };
+    const cancelled = await this.deps.voiceDelivery.cancel({
+      tenantId: actor.tenantId,
+      userId: actor.userId,
+      leaseId: input.leaseId,
+      actionKey: `dphone-click-to-call:${input.leaseId}:${input.requestId}`,
+      correlationId,
+    });
+    if (cancelled.status === 'NOT_FOUND') return { status: 'not_found' };
+    return {
+      status: 'result',
+      hostOrigin,
+      result: {
+        requestId: input.requestId,
+        status:
+          cancelled.status === 'CANCELLED'
+            ? 'cancelled'
+            : cancelled.status === 'FINAL'
+              ? 'final'
+              : 'reconciling',
+      },
+    };
   }
 
   private allow(actor: ClickToCallActor): boolean {

@@ -133,7 +133,7 @@ async function setup(
   );
   const contactId = randomUUID();
   await owner.contact.create({ data: { id: contactId, tenantId, displayName: 'ลูกค้า' } });
-  await owner.contactIdentity.create({
+  const identity = await owner.contactIdentity.create({
     data: { tenantId, contactId, type: 'PHONE', value: '0812345678' },
   });
 
@@ -197,7 +197,34 @@ async function setup(
     const text = await response.text();
     return { status: response.status, body: text ? JSON.parse(text) : undefined };
   };
-  return { tenantId, users, lease, workspaceLease, contactId, call };
+  const cancel = async (
+    role: keyof typeof users,
+    requestId: string,
+    leaseId: string | null = lease.leaseId,
+  ) => {
+    const response = await fetch(`${base}/api/v1/workspace/agent/click-to-call/cancel`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${tenantId}|${users[role]}|${role === 'other' ? 'agent' : role}`,
+        'x-correlation-id': 'corr-c2c-cancel',
+        'content-type': 'application/json',
+        ...(leaseId ? { 'x-work-session-lease-id': leaseId } : {}),
+      },
+      body: JSON.stringify({ requestId }),
+    });
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : undefined };
+  };
+  return {
+    tenantId,
+    users,
+    lease,
+    workspaceLease,
+    contactId,
+    identityId: identity.id,
+    call,
+    cancel,
+  };
 }
 
 test('BLOCK / DEFER / REVIEW: ไม่โทรออก ตอบ blocked + reasonCode โดยไม่มี PII และ audit ทุกครั้ง', async (t) => {
@@ -226,6 +253,7 @@ test('BLOCK / DEFER / REVIEW: ไม่โทรออก ตอบ blocked + re
     assert.equal(input!.channel, 'VOICE');
     assert.equal(input!.purpose, 'SERVICE');
     assert.equal(input!.contactId, f.contactId);
+    assert.equal(input!.identityId, f.identityId);
     const audit = await owner.dphoneClickToCallAuditEvent.findFirstOrThrow({
       where: { tenantId: f.tenantId },
     });
@@ -286,6 +314,27 @@ test('ALLOW: Delivery ปฏิเสธก่อน durable queue ต้อง 
   assert.equal(response.body.message.status, 'unavailable');
   assert.equal(response.body.message.reasonCode, 'VOICE_DELIVERY_DISABLED');
   assert.deepEqual(stub.reservations, [['res-1', 'RELEASE']]);
+});
+
+test('cancel ใช้ requestId + active embedded lease และไม่รายงานสำเร็จเมื่อหลัง barrier ยัง reconcile', async (t) => {
+  const stub = stubGovernance('ALLOW');
+  const cancellations: string[] = [];
+  const f = await setup(t, stub.governance, undefined, {
+    enqueue: async () => ({ status: 'QUEUED' }),
+    cancel: async (input) => {
+      cancellations.push(input.actionKey);
+      return { status: 'RECONCILING' };
+    },
+  });
+  assert.equal((await f.call('agent', { requestId: 'cancel-1', number: NUMBER })).status, 200);
+  const response = await f.cancel('agent', 'cancel-1');
+  assert.deepEqual(response.body, {
+    status: 'result',
+    hostOrigin: HOST,
+    result: { requestId: 'cancel-1', status: 'reconciling' },
+  });
+  assert.deepEqual(cancellations, [`dphone-click-to-call:${f.lease.leaseId}:cancel-1`]);
+  assert.equal((await f.cancel('other', 'cancel-1')).status, 404);
 });
 
 test('contact มาจากเบอร์ฝั่ง server — contactId ที่ host ส่งมาไม่ถูกใช้; เบอร์ไม่รู้จัก = NOT_FOUND', async (t) => {

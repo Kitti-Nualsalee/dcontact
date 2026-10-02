@@ -86,6 +86,7 @@ export class AgentWorkspaceController {
         select: {
           id: true,
           state: true,
+          direction: true,
           metadata: true,
           offerExpiresAt: true,
           answeredAt: true,
@@ -107,6 +108,7 @@ export class AgentWorkspaceController {
           ? {
               id: interaction.id,
               state: interaction.state,
+              direction: interaction.direction,
               version: (interaction.events[0]?.id ?? 0n).toString(),
               caller: callerFrom(interaction.metadata),
               queue: interaction.queue,

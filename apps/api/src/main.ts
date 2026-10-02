@@ -4,11 +4,18 @@ import { Controller, Module, Post, Req, Res, UnauthorizedException } from '@nest
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { EventInboxService, JourneyTemplateRepository } from '@d-contact/journey';
-import { LineWebhookIngress, resolveLineWebhookSecrets } from '@d-contact/delivery';
+import {
+  LineWebhookIngress,
+  resolveLineWebhookSecrets,
+  VoiceOriginateDeliveryService,
+  VoiceOriginateOutcomeProcessor,
+  VoiceRolloutControlPlane,
+  VoiceTelephonyOutcomeHandler,
+} from '@d-contact/delivery';
 import { DcExprEvaluator } from '@d-contact/expression';
 import { IamJourneyAuthoringAuthorizer } from '@d-contact/iam';
 import { createConsumer, createInMemoryIdempotencyStore } from '@d-contact/kafka';
-import { KAFKA_TOPICS } from '@d-contact/shared';
+import { KAFKA_TOPICS, type TelephonyCallEvent } from '@d-contact/shared';
 import {
   KeycloakAccessTokenVerifier,
   WorkspaceSessionGateway,
@@ -254,10 +261,24 @@ const screenPop = new ScreenPopService(prisma, {
   screenPopLevel: (tenantId, origin) => embedOrigins.screenPopLevel(tenantId, origin),
   disclosure: new ContactGovernanceDisclosureCheck(prisma, new IamTeamSegmentViewScope(prisma)),
 });
-// E1.14 (#488): click-to-call ขออนุญาตจาก Contact Governance เท่านั้น — โทรจริงรอ E1.18 #520
+const contactGovernance = new ContactGovernanceService(prisma);
+const voiceRollout = new VoiceRolloutControlPlane(prisma);
+const voiceOutcomeHandler = new VoiceTelephonyOutcomeHandler(
+  new VoiceOriginateOutcomeProcessor(prisma, contactGovernance),
+);
+// E1.18 (#520): ตอบ dialing หลัง claim + durable transaction และผ่าน rollout authority เท่านั้น
 const clickToCall = new ClickToCallService(prisma, {
   hostOriginOfLease: (actor, leaseId) => workSessionLeases.embeddedHostOrigin(actor, leaseId),
-  governance: new ContactGovernanceService(prisma),
+  governance: contactGovernance,
+  voiceDelivery: new VoiceOriginateDeliveryService(
+    prisma,
+    contactGovernance,
+    recordingCommandPublisher,
+    {
+      enabled: process.env.OUTBOUND_VOICE_DELIVERY_ENABLED === 'true',
+      rollout: voiceRollout,
+    },
+  ),
 });
 const socketAdapter = new WorkspaceSessionWebSocketAdapter(
   gateway,
@@ -419,6 +440,15 @@ async function bootstrap(): Promise<void> {
     idempotency: createInMemoryIdempotencyStore(),
     handler: async ({ event }) => {
       if (event.type === 'routing.offered') await fanoutAgentOffer(socketAdapter, event);
+    },
+  });
+  await createConsumer<TelephonyCallEvent>({
+    clientId: 'dcontact-api-voice-delivery',
+    groupId: 'dcontact-api-voice-delivery-v1',
+    topics: [KAFKA_TOPICS.TELEPHONY_EVENTS],
+    idempotency: createInMemoryIdempotencyStore(),
+    handler: async ({ event }) => {
+      await voiceOutcomeHandler.handle(event);
     },
   });
   await app.listen(Number(process.env.PORT ?? 3000));

@@ -1,6 +1,7 @@
 import {
   Invitation,
   Registerer,
+  RegistererState,
   SessionState,
   TransportState,
   UserAgent,
@@ -63,7 +64,29 @@ export class SipJsBrowserTransport implements BrowserSipTransport {
   async register(): Promise<void> {
     if (!this.userAgent || !this.registerer) throw new Error('SIP transport is not configured');
     if (!this.userAgent.isConnected()) await this.userAgent.start();
-    await this.registerer.register();
+    const registerer = this.registerer;
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        window.clearTimeout(timeout);
+        registerer.stateChange.removeListener(onStateChange);
+        if (error) reject(error);
+        else resolve();
+      };
+      const timeout = window.setTimeout(() => {
+        finish(new Error('SIP registration timed out'));
+      }, 10_000);
+      const onStateChange = (state: RegistererState) => {
+        if (state === RegistererState.Registered) finish();
+        else if (state === RegistererState.Terminated)
+          finish(new Error('SIP registration terminated'));
+      };
+      registerer.stateChange.addListener(onStateChange);
+      void registerer
+        .register()
+        .catch((error: unknown) =>
+          finish(error instanceof Error ? error : new Error('SIP registration failed')),
+        );
+    });
   }
 
   async unregister(): Promise<void> {

@@ -11,7 +11,12 @@ import {
 } from '@d-contact/shared';
 import { parseEslEvent } from './esl-event.js';
 import { FreeSwitchCommandAdapter } from './freeswitch-command-adapter.js';
-import { normalizeFreeSwitchEvent, parkedCallAsCreated } from './freeswitch-normalizer.js';
+import { DatabaseFreeSwitchVoiceTargetResolver } from './freeswitch-voice-target-resolver.js';
+import {
+  isDeniedAgentDirectOutbound,
+  normalizeFreeSwitchEvent,
+  parkedCallAsCreated,
+} from './freeswitch-normalizer.js';
 import { TelephonyRecordingLifecycle } from './recording-lifecycle.js';
 import { S3RecordingArchive } from './s3-recording-archive.js';
 
@@ -20,6 +25,8 @@ const host = process.env.FREESWITCH_ESL_HOST ?? '127.0.0.1';
 const port = Number(process.env.FREESWITCH_ESL_PORT ?? 8022);
 const password = process.env.FREESWITCH_ESL_PASSWORD ?? 'ClueCon';
 const nodeId = process.env.TELEPHONY_NODE_ID ?? 'fs-local';
+const commandGroupId =
+  process.env.TELEPHONY_COMMAND_GROUP_ID ?? `dcontact-telephony-command-${nodeId}-v1`;
 const repositoryRoot = resolve(__dirname, '../../..');
 
 async function main() {
@@ -29,7 +36,10 @@ async function main() {
   socket.on('error', (error) => console.error('[telephony] ESL connection error', error));
   let buffer = '';
   let authenticated = false;
-  const tenantIdByCallUuid = new Map<string, string>();
+  const outboundBindingByCallUuid = new Map<
+    string,
+    { tenantId: string; deliveryId?: string; providerRequestKey?: string }
+  >();
   const commandAdapter = new FreeSwitchCommandAdapter(
     {
       command: async (command) => {
@@ -40,6 +50,13 @@ async function main() {
     },
     process.env.FREESWITCH_SIP_DOMAIN ?? 'dcontact.local',
     nodeId,
+    undefined,
+    {
+      enabled: process.env.OUTBOUND_VOICE_DELIVERY_ENABLED === 'true',
+      resolver: new DatabaseFreeSwitchVoiceTargetResolver(database),
+      targetDialTemplate: process.env.FREESWITCH_VOICE_TARGET_DIAL_TEMPLATE,
+      codecString: process.env.FREESWITCH_VOICE_CODEC_STRING,
+    },
   );
   const recordingsDirectory =
     process.env.FREESWITCH_RECORDINGS_DIR ?? '/var/lib/freeswitch/recordings';
@@ -58,7 +75,7 @@ async function main() {
   );
   const consumer = await createConsumer<TelephonyCommand>({
     clientId: `dcontact-telephony-${nodeId}`,
-    groupId: `dcontact-telephony-command-${nodeId}-v1`,
+    groupId: commandGroupId,
     topics: [KAFKA_TOPICS.TELEPHONY_COMMANDS],
     idempotency: createInMemoryIdempotencyStore(),
     handler: async ({ event }) => commandAdapter.handle(event.payload, event.tenantId),
@@ -81,7 +98,7 @@ async function main() {
       if (!authenticated && /\+OK accepted/i.test(frame)) {
         authenticated = true;
         socket.write(
-          'events plain CHANNEL_CREATE CHANNEL_PARK CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE DTMF DETECTED_SPEECH\n\n',
+          'events plain CHANNEL_CREATE CHANNEL_PARK CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE DTMF DETECTED_SPEECH BACKGROUND_JOB\n\n',
         );
         continue;
       }
@@ -90,15 +107,62 @@ async function main() {
       // #562: สายจาก trunk ได้ tenant ตอน park ไม่ใช่ตอน create — PARK อื่นไม่ใช่ call event
       const source =
         parsed['Event-Name'] === 'CHANNEL_PARK'
-          ? parkedCallAsCreated(parsed, (callUuid) => tenantIdByCallUuid.has(callUuid))
+          ? parkedCallAsCreated(parsed, (callUuid) => outboundBindingByCallUuid.has(callUuid))
           : parsed;
       if (!source) continue;
+      if (source['Event-Name'] === 'BACKGROUND_JOB') {
+        const succeeded = typeof source.Body === 'string' && source.Body.startsWith('+OK');
+        console.error('[telephony] FreeSWITCH background job', {
+          jobUuid: source['Job-UUID'],
+          ok: succeeded,
+          reason: succeeded ? 'accepted' : 'rejected',
+        });
+        continue;
+      }
+      if (isDeniedAgentDirectOutbound(source)) continue;
+      if (
+        process.env.E1_18_VERBOSE &&
+        (source.variable_dcontact_delivery_id || source.variable_dcontact_tenant_id)
+      ) {
+        console.error('[telephony] outbound event binding', {
+          eventName: source['Event-Name'],
+          callUuid: source['Unique-ID'],
+          bridgeUuid: source['Bridge-A-Unique-ID'],
+          tenantId: source.variable_dcontact_tenant_id,
+          deliveryId: source.variable_dcontact_delivery_id,
+          providerRequestKey: source.variable_dcontact_provider_request_key,
+        });
+      }
       try {
         const sipDomain = source.variable_domain_name;
         const sourceCallUuid =
-          typeof source['Unique-ID'] === 'string' ? source['Unique-ID'] : undefined;
+          source['Event-Name'] === 'CHANNEL_BRIDGE' &&
+          typeof source['Bridge-A-Unique-ID'] === 'string'
+            ? source['Bridge-A-Unique-ID']
+            : typeof source['Unique-ID'] === 'string'
+              ? source['Unique-ID']
+              : undefined;
+        const knownBinding = sourceCallUuid
+          ? outboundBindingByCallUuid.get(sourceCallUuid)
+          : undefined;
+        if (knownBinding) {
+          source.variable_dcontact_tenant_id ??= knownBinding.tenantId;
+          source.variable_dcontact_delivery_id ??= knownBinding.deliveryId;
+          source.variable_dcontact_provider_request_key ??= knownBinding.providerRequestKey;
+        }
+        const outboundTenantId =
+          typeof source.variable_dcontact_tenant_id === 'string' &&
+          /^[0-9a-f-]{36}$/i.test(source.variable_dcontact_tenant_id)
+            ? (
+                await database.tenant.findUnique({
+                  where: { id: source.variable_dcontact_tenant_id },
+                  select: { id: true },
+                })
+              )?.id
+            : undefined;
         const tenantId =
-          typeof sipDomain === 'string'
+          outboundTenantId ??
+          (typeof sipDomain === 'string'
             ? (
                 await database.tenant.findUnique({
                   where: { sipDomain },
@@ -106,13 +170,14 @@ async function main() {
                 })
               )?.id
             : sourceCallUuid
-              ? tenantIdByCallUuid.get(sourceCallUuid)
-              : undefined;
+              ? outboundBindingByCallUuid.get(sourceCallUuid)?.tenantId
+              : undefined);
         if (!tenantId) continue;
         const event = normalizeFreeSwitchEvent(source, {
           telephonyNodeId: nodeId,
           resolveTenantId: (domain) => (domain === sipDomain ? tenantId : undefined),
-          resolveTenantIdForCall: (callUuid) => tenantIdByCallUuid.get(callUuid),
+          resolveTenantIdForCall: (callUuid) =>
+            outboundBindingByCallUuid.get(callUuid)?.tenantId ?? tenantId,
           eventId: randomUUID,
           now: () => new Date().toISOString(),
         });
@@ -126,9 +191,14 @@ async function main() {
           await recordingLifecycle.startForAnsweredCall(event);
         }
         await producer.send(KAFKA_TOPICS.TELEPHONY_EVENTS, event);
-        if (event.type === 'call.created')
-          tenantIdByCallUuid.set(event.payload.callUuid, event.tenantId);
-        if (event.type === 'call.hangup') tenantIdByCallUuid.delete(event.payload.callUuid);
+        if (event.type === 'call.created') {
+          outboundBindingByCallUuid.set(event.payload.callUuid, {
+            tenantId: event.tenantId,
+            deliveryId: event.payload.deliveryId,
+            providerRequestKey: event.payload.providerRequestKey,
+          });
+        }
+        if (event.type === 'call.hangup') outboundBindingByCallUuid.delete(event.payload.callUuid);
       } catch (error) {
         console.error('[telephony] ignored ESL event', error);
       }
