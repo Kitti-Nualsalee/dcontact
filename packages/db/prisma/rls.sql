@@ -78,7 +78,10 @@ BEGIN
     'agent_work_session_leases', 'agent_work_session_events', 'agent_sip_credentials',
     -- E1.11 (#485): allowlist ของ dphone embedding
     'tenant_embed_origins', 'tenant_embed_origin_audit_events',
-    'dphone_click_to_call_audit_events'
+    'dphone_click_to_call_audit_events',
+    -- AC1 (#594): นโยบายบัญชีและ self-service บัญชี (#589)
+    'tenant_account_policies', 'tenant_account_policy_audit_events',
+    'account_email_changes', 'account_totp_enrolments', 'account_audit_events'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -115,6 +118,10 @@ REVOKE UPDATE, DELETE ON agent_work_session_events FROM dcontact_app;
 -- E1.11 (#485): audit ของ embed origin append-only
 REVOKE UPDATE, DELETE ON tenant_embed_origin_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON dphone_click_to_call_audit_events FROM dcontact_app;
+-- AC1 (#594): audit ของนโยบายบัญชีและของบัญชีผู้ใช้ append-only; นโยบายไม่ถูกลบ (กลับค่าเริ่มต้นด้วย UPDATE)
+REVOKE UPDATE, DELETE ON tenant_account_policy_audit_events FROM dcontact_app;
+REVOKE UPDATE, DELETE ON account_audit_events FROM dcontact_app;
+REVOKE DELETE ON tenant_account_policies FROM dcontact_app;
 -- D1.13 (#452): แอปอ่าน UI flag ได้อย่างเดียว — platform operator เป็นผู้เปลี่ยน (ผ่าน dcontact_platform)
 REVOKE INSERT, UPDATE, DELETE ON tenant_ui_flags, tenant_ui_flag_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON recording_audit_events FROM dcontact_app;

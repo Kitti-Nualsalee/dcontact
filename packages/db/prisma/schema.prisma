@@ -136,6 +136,12 @@ model Tenant {
 
   embedOrigins           TenantEmbedOrigin[]
   embedOriginAuditEvents TenantEmbedOriginAuditEvent[]
+  // AC1 (#594): นโยบายบัญชีและ self-service บัญชี (#589)
+  accountPolicy            TenantAccountPolicy?
+  accountPolicyAuditEvents TenantAccountPolicyAuditEvent[]
+  accountEmailChanges      AccountEmailChange[]
+  accountTotpEnrolments    AccountTotpEnrolment[]
+  accountAuditEvents       AccountAuditEvent[]
   clickToCallAuditEvents DphoneClickToCallAuditEvent[]
 
   @@map("tenants")
@@ -169,6 +175,9 @@ model User {
 
   workSessionLeases AgentWorkSessionLease[]
   sipCredentials    AgentSipCredential[]
+  // AC1 (#594)
+  accountEmailChanges   AccountEmailChange[]
+  accountTotpEnrolments AccountTotpEnrolment[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, extension])
@@ -6216,4 +6225,91 @@ model TenantEmbedOriginAuditEvent {
 
   @@index([tenantId, occurredAt], map: "tenant_embed_origin_audit_events_tenant_idx")
   @@map("tenant_embed_origin_audit_events")
+}
+
+/// AC1 (#594): นโยบายบัญชีของ tenant — ไม่มีแถว = VERIFY + ไม่บังคับ 2FA (API ตอบค่าเริ่มต้นเอง)
+model TenantAccountPolicy {
+  tenantId          String   @id @map("tenant_id") @db.Uuid
+  /// VERIFY | IMMEDIATE | ADMIN_ONLY
+  emailChangePolicy String   @map("email_change_policy")
+  mfaRequired       Boolean  @map("mfa_required")
+  revision          Int      @default(1)
+  updatedBy         String   @map("updated_by") @db.Uuid
+  updatedAt         DateTime @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@map("tenant_account_policies")
+}
+
+/// AC1 (#594): audit ค่าก่อน/หลังของนโยบายบัญชี — append-only สำหรับ role ของแอป
+model TenantAccountPolicyAuditEvent {
+  id            String   @id @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  before        Json
+  after         Json
+  actorUserId   String   @map("actor_user_id") @db.Uuid
+  reason        String
+  correlationId String   @map("correlation_id")
+  occurredAt    DateTime @map("occurred_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, occurredAt], map: "tenant_account_policy_audit_events_tenant_idx")
+  @@map("tenant_account_policy_audit_events")
+}
+
+/// AC1 (#594): คำขอเปลี่ยน email — เก็บเฉพาะ SHA-256 ของ token; รอยืนยันได้ครั้งละหนึ่งคำขอต่อผู้ใช้
+model AccountEmailChange {
+  id          String    @id @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  newEmail    String    @map("new_email")
+  tokenHash   String    @unique(map: "account_email_changes_token_hash_key") @map("token_hash") @db.Char(64)
+  /// PENDING | CONFIRMED | CANCELLED | EXPIRED
+  status      String
+  requestedAt DateTime  @map("requested_at")
+  expiresAt   DateTime  @map("expires_at")
+  completedAt DateTime? @map("completed_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("account_email_changes")
+}
+
+/// AC1 (#594): การลงทะเบียน TOTP ที่ยังไม่ยืนยัน — secret เข้ารหัสที่ API อายุสั้น นับครั้งที่ลอง (≤ 5)
+model AccountTotpEnrolment {
+  id               String   @id @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  secretCiphertext String   @map("secret_ciphertext")
+  attempts         Int      @default(0)
+  createdAt        DateTime @map("created_at")
+  expiresAt        DateTime @map("expires_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId], map: "account_totp_enrolments_user_idx")
+  @@map("account_totp_enrolments")
+}
+
+/// AC1 (#594): audit ของการกระทำกับบัญชีตัวเอง — ห้ามมีรหัสผ่าน/secret/token/email; append-only
+model AccountAuditEvent {
+  id            String   @id @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  /// เก็บไว้แม้ผู้ใช้ถูกลบ จึงไม่มี foreign key ไปที่ users
+  userId        String   @map("user_id") @db.Uuid
+  /// password.changed | email.change.requested | email.change.confirmed | email.change.cancelled |
+  /// profile.updated | mfa.enrolled | mfa.removed
+  action        String
+  metadata      Json?
+  correlationId String   @map("correlation_id")
+  occurredAt    DateTime @map("occurred_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, userId, occurredAt], map: "account_audit_events_user_idx")
+  @@map("account_audit_events")
 }
