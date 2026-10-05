@@ -100,6 +100,7 @@ test('parser ของ compose อ่าน service/ports/env ของ UAT ไ�
     'object-storage-migrated-expiry',
     'postgres',
     'proxy',
+    'tenant-ui-flag',
     'uat-provision',
   ]);
   assert.deepEqual(services.proxy.ports, ['443:8443', '80:8080']);
@@ -574,6 +575,44 @@ test('UAT-S16: provision เป็น one-shot ของ ops, owner connection, 
       deployScript.replace(/PROVISION_INPUT_PERMISSIONS/g, 'X'),
     ),
     'INPUT_PERMISSIONS',
+  );
+});
+
+test('E1.16: UAT เปิด/ปิด dphone embed ผ่าน audited platform-control CLI', () => {
+  const service = parseComposeServices(compose)['tenant-ui-flag'];
+  assert.deepEqual(service.profiles, ['ops']);
+  assert.match(compose, /entrypoint: \['node', '\/platform-control\/dist\/ui-flag-main\.js'\]/);
+  assert.match(service.environment.PLATFORM_DATABASE_URL, /\$\{UAT_POSTGRES_USER/);
+  assert.match(apiDockerfile, /COPY --from=build \/out\/platform-control \/platform-control/);
+  assert.match(deployScript, /ui-flag\)/);
+  assert.match(deployScript, /--flag dphone\.embed\.enabled/);
+  assert.match(deployScript, /on\)[\s\S]*--on --ack-voice-pilot/);
+  assert.match(deployScript, /off\)[\s\S]*mode=\(--off\)/);
+  assert.match(
+    compose3vm,
+    /tenant-ui-flag:[\s\S]*PLATFORM_DATABASE_URL:.*@db-relay:5432\/dcontact_uat/,
+  );
+});
+
+test('E1.16: UAT image มี embed assets, host อ้างอิง และ route ของ dphone ครบ', () => {
+  assert.match(consoleDockerfile, /pnpm --filter @d-contact\/workspace build/);
+  assert.match(
+    consoleDockerfile,
+    /COPY --from=build \/repo\/apps\/workspace\/dist\/embed \/srv\/workspace\/embed/,
+  );
+  assert.match(
+    consoleDockerfile,
+    /COPY examples\/dphone-host\/index\.html \/srv\/examples\/dphone-host\/index\.html/,
+  );
+  for (const config of [caddyfile, caddyfile3vm]) {
+    assert.match(config, /handle \/dphone\/\* \{\s+header -X-Frame-Options/);
+    assert.match(config, /handle \/embed\/\*/);
+    assert.match(config, /handle_path \/workspace\/\*/);
+    assert.match(config, /handle_path \/examples\/\*/);
+  }
+  assert.match(
+    compose,
+    /DPHONE_EMBED_SCRIPT_URL: https:\/\/\$\{UAT_HOST:[^}]+\}\/workspace\/embed\/dphone-embed\.js/,
   );
 });
 

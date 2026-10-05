@@ -2,6 +2,11 @@
 
 Authority: Phase Contract #374, การตัดสินใจเรื่อง environment #373, ticket U1.6 #434
 
+สำหรับ acceptance ของ Embedded dphone (E1.16 #490) หลัง merge final `main` ให้รัน
+`bash scripts/e1-16-uat-acceptance-wizard.sh` ซึ่งตั้ง environment secrets, deploy, เปิด/ปิด
+`dphone.embed.enabled`, พาเก็บหลักฐาน Edge + microphone prompt และซ้อม rollback ตามลำดับ โดยห้ามใช้
+tenant ของ pilot #77
+
 เอกสารนี้เป็น runbook ของ operator สำหรับ UAT first slice: production topology ใช้ 3 VM ตาม ADR-030:
 VM1 จบ TLS ด้วย nginx, VM2 รัน Docker Compose และ VM3 ให้ PostgreSQL 15.4 โดยเฉพาะ database ของ UAT
 รายละเอียดคำสั่งที่ต้องใช้กับ VM จริงอยู่ที่ [operator README](../infra/uat/operator/README.md) และเป็น authority

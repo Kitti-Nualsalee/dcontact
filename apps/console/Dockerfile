@@ -18,7 +18,7 @@ ENV PNPM_HOME=/pnpm \
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 COPY . .
-RUN pnpm install --frozen-lockfile --filter "@d-contact/console..."
+RUN pnpm install --frozen-lockfile --filter "@d-contact/console..." --filter "@d-contact/workspace..."
 # ไม่ตั้ง VITE_API_BASE_URL = เรียก API แบบ same-origin (`/api/v1`) ผ่าน proxy ตัวเดียวกัน
 ARG VITE_KC_ISSUER
 ARG VITE_KC_CLIENT_ID=dcontact-uat-console
@@ -33,7 +33,10 @@ RUN VITE_KC_ISSUER="$VITE_KC_ISSUER" \
   VITE_UAT_ENVIRONMENT="$VITE_UAT_ENVIRONMENT" \
   VITE_UAT_PACK_VERSION="$VITE_UAT_PACK_VERSION" \
   pnpm --filter "@d-contact/console..." build \
-  && test -f apps/console/dist/index.html
+  && pnpm --filter @d-contact/workspace build \
+  && test -f apps/console/dist/index.html \
+  && test -f apps/workspace/dist/embed/dphone-embed.js \
+  && test -f apps/workspace/dist/embed/dphone-embed.css
 
 FROM ${CADDY_IMAGE} AS runtime
 ARG SOURCE_SHA=unknown
@@ -54,6 +57,8 @@ ENV XDG_DATA_HOME=/data \
 RUN install -m 0755 /usr/bin/caddy /usr/local/bin/caddy-uat
 COPY infra/uat/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /repo/apps/console/dist /srv/console
+COPY --from=build /repo/apps/workspace/dist/embed /srv/workspace/embed
+COPY examples/dphone-host/index.html /srv/examples/dphone-host/index.html
 USER 10001:10001
 EXPOSE 8080 8443
 CMD ["/usr/local/bin/caddy-uat", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

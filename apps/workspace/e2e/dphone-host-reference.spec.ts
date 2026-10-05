@@ -14,7 +14,8 @@ const reference = readFileSync(
 );
 const hostHtml = (launcherVersion: string) => () =>
   reference
-    .replaceAll('DPHONE_ORIGIN/embed/v1/', `${DPHONE}/embed/${launcherVersion}/`)
+    .replaceAll("'DPHONE_ORIGIN'", `'${DPHONE}'`)
+    .replaceAll('/embed/v1/dphone-launcher.js', `/embed/${launcherVersion}/dphone-launcher.js`)
     .replaceAll('TENANT', 'demo');
 
 for (const version of ['v1', 'v1.0.1']) {

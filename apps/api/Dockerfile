@@ -32,18 +32,20 @@ ENV PNPM_HOME=/pnpm \
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 COPY . .
-RUN pnpm install --frozen-lockfile --filter "@d-contact/api..."
+RUN pnpm install --frozen-lockfile --filter "@d-contact/api..." --filter "@d-contact/platform-control..."
 # prisma generate ไม่ต่อฐานข้อมูล — URL นี้มีไว้ให้ schema parse ผ่านเท่านั้น
 RUN DATABASE_URL=postgresql://build@localhost:5432/build pnpm --filter @d-contact/db generate \
-  && pnpm --filter "@d-contact/api..." build
+  && pnpm --filter "@d-contact/api..." build \
+  && pnpm --filter @d-contact/platform-control build
 # runtime: production dependencies เท่านั้น แล้วคัด Prisma client ที่ generate แล้วตามไป
 RUN pnpm --filter @d-contact/api deploy --prod /out/api \
   && pnpm --filter @d-contact/db deploy /out/ops \
+  && pnpm --filter @d-contact/platform-control deploy --prod /out/platform-control \
   && node -e "const { cpSync, realpathSync, rmSync } = require('node:fs'); \
        const { resolve } = require('node:path'); \
        const client = (from) => resolve(require.resolve('@prisma/client/package.json', { paths: [realpathSync(from)] }), '../../../.prisma'); \
        const generated = client('/repo/packages/db'); \
-       for (const target of ['/out/api/node_modules/@d-contact/db', '/out/ops']) { \
+       for (const target of ['/out/api/node_modules/@d-contact/db', '/out/ops', '/out/platform-control/node_modules/@d-contact/db']) { \
          rmSync(client(target), { recursive: true, force: true }); \
          cpSync(generated, client(target), { recursive: true }); \
        }" \
@@ -77,6 +79,7 @@ ENV NODE_ENV=production \
   PATH=/ops/node_modules/.bin:$PATH
 WORKDIR /ops
 COPY --from=build /out/ops /ops
+COPY --from=build /out/platform-control /platform-control
 COPY scripts/u1-uat-keycloak-users.mjs scripts/u1-uat-readiness.mjs scripts/uat-object-storage.mjs /ops/scripts/
 # #565: registry digest ของ proposal ของ LINE pilot อ่านไฟล์นี้ (`LINE_PILOT_REGISTRY_PATH`)
 COPY scripts/cxa-s2-readiness.mjs /ops/scripts/

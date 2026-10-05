@@ -27,7 +27,7 @@ LINE_FLAG="$UAT_ROOT/line-pilot.enabled"
 TRIAL_FLAG="$UAT_ROOT/line-team-trial.enabled"
 
 usage() {
-  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|migrate-object-storage|deploy|smoke|record|current|line-status|line-run|line-reload|rollback-target|rollback> [sha] [file|--token-stdin] [--check]' >&2
+  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|ui-flag|migrate-object-storage|deploy|smoke|record|current|line-status|line-run|line-reload|rollback-target|rollback> [sha] [...]' >&2
   exit 64
 }
 
@@ -206,6 +206,28 @@ case "$cmd" in
     esac
     compose "$dir" up -d --wait "$(database_service "$dir")"
     compose "$dir" --profile ops run --rm -T uat-provision ${mode[@]+"${mode[@]}"} --input - <"$file"
+    ;;
+
+  ui-flag)
+    # E1.16 (#490): ใช้ domain CLI เดิมเพื่อให้ flag และ audit เปลี่ยนใน transaction เดียว
+    dir="$(release_dir "${1:?sha}")"
+    tenant="${2:?tenant slug}"
+    action="${3:?on or off}"
+    actor="${4:?operator actor}"
+    case "$action" in
+      on)
+        mode=(--on --ack-voice-pilot)
+        reason='E1.16 UAT acceptance'
+        ;;
+      off)
+        mode=(--off)
+        reason='E1.16 UAT rollback'
+        ;;
+      *) usage ;;
+    esac
+    compose "$dir" up -d --wait "$(database_service "$dir")"
+    compose "$dir" --profile ops run --rm -T tenant-ui-flag \
+      --tenant "$tenant" "${mode[@]}" --flag dphone.embed.enabled --reason "$reason" --actor "$actor"
     ;;
 
   migrate-object-storage)

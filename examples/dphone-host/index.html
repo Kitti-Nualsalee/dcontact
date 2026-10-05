@@ -11,7 +11,6 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CRM ตัวอย่าง — dphone</title>
-    <script type="module" src="DPHONE_ORIGIN/embed/v1/dphone-launcher.js"></script>
     <style>
       body {
         font-family: system-ui, sans-serif;
@@ -62,10 +61,23 @@
       </section>
     </main>
 
-    <dphone-launcher tenant="TENANT"></dphone-launcher>
+    <dphone-launcher></dphone-launcher>
 
     <script type="module">
       const dphone = document.querySelector('dphone-launcher');
+      const configuredOrigin = 'DPHONE_ORIGIN';
+      const configuredTenant = 'TENANT';
+      const origin =
+        configuredOrigin === ['DPHONE', '_ORIGIN'].join('')
+          ? window.location.origin
+          : configuredOrigin;
+      const tenant =
+        configuredTenant === ['TEN', 'ANT'].join('')
+          ? new URL(window.location.href).searchParams.get('tenant')
+          : configuredTenant;
+      if (!tenant) throw new Error('ต้องระบุ tenant ใน query string');
+      dphone.setAttribute('tenant', tenant);
+      await import(new URL('/embed/v1/dphone-launcher.js', origin).href);
       const saved = new Set();
 
       dphone.addEventListener('ready', (event) => {
