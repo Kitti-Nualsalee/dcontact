@@ -111,6 +111,14 @@ services:
       DATABASE_URL: postgresql://${UAT_POSTGRES_USER:?UAT_POSTGRES_USER is required}:${UAT_POSTGRES_PASSWORD:?UAT_POSTGRES_PASSWORD is required}@db-relay:5432/dcontact_uat?schema=public
     mem_limit: 512m
 
+  tenant-ui-flag:
+    depends_on: !override
+      db-relay:
+        condition: service_healthy
+    environment:
+      PLATFORM_DATABASE_URL: postgresql://${UAT_POSTGRES_USER:?UAT_POSTGRES_USER is required}:${UAT_POSTGRES_PASSWORD:?UAT_POSTGRES_PASSWORD is required}@db-relay:5432/dcontact_uat?schema=public
+    mem_limit: 256m
+
   keycloak-config:
     mem_limit: 256m
 

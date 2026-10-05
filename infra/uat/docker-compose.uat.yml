@@ -72,6 +72,7 @@ services:
       KEYCLOAK_ISSUER: https://${UAT_HOST:?UAT_HOST is required}/auth/realms/dcontact
       KEYCLOAK_AUDIENCE: dcontact-api
       KEYCLOAK_JWKS_URI: http://keycloak:8080/auth/realms/dcontact/protocol/openid-connect/certs
+      DPHONE_EMBED_SCRIPT_URL: https://${UAT_HOST:?UAT_HOST is required}/workspace/embed/dphone-embed.js
       J5_CANVAS_WRITE_ENABLED: 'true'
       J5_PUBLISH_UI_ENABLED: 'true'
       J5_TEMPLATE_CATALOG_ENABLED: 'false'
@@ -308,6 +309,19 @@ services:
       - --check
       - --input
       - '-'
+    networks:
+      - internal
+
+  # E1.16 (#490): operator เปิด/ปิด dphone embed ผ่าน domain CLI เดิม เพื่อเขียน flag + audit ใน transaction เดียว
+  tenant-ui-flag:
+    profiles: ['ops']
+    image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PLATFORM_DATABASE_URL: postgresql://${UAT_POSTGRES_USER:?UAT_POSTGRES_USER is required}:${UAT_POSTGRES_PASSWORD:?UAT_POSTGRES_PASSWORD is required}@postgres:5432/dcontact?schema=public
+    entrypoint: ['node', '/platform-control/dist/ui-flag-main.js']
     networks:
       - internal
 
