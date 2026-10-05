@@ -17,7 +17,7 @@ const hostHtml = (launcherVersion: string) => () =>
     .replaceAll('DPHONE_ORIGIN/embed/v1/', `${DPHONE}/embed/${launcherVersion}/`)
     .replaceAll('TENANT', 'demo');
 
-for (const version of ['v1', 'v1.0.0']) {
+for (const version of ['v1', 'v1.0.1']) {
   test(`host อ้างอิง + launcher ${version}: ready → login → screen-pop → รับสาย → activity (ack อัตโนมัติ) → click-to-call`, async ({
     page,
   }) => {
@@ -36,6 +36,40 @@ for (const version of ['v1', 'v1.0.0']) {
 
     await dphone.getByRole('button', { name: 'รับสาย' }).click();
     await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+    const sipBeforeReload = await dphoneFrame(page).evaluate(() =>
+      window.__dcontactDphone?.sipSessionId(),
+    );
+    await page.evaluate(
+      ({ origin }) => {
+        const iframe = document.querySelector('dphone-launcher iframe') as HTMLIFrameElement;
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            origin,
+            source: iframe.contentWindow,
+            data: {
+              v: 1,
+              type: 'dphone.screenpop',
+              requestId: 'active-call-reload-guard',
+              level: 'ids',
+              interactionId: 'interaction-embed-1',
+              policyVersion: 'e1.screen-pop.disclosure/v1',
+              decisionId: 'dec-reload-guard',
+              callState: 'ACTIVE',
+            },
+          }),
+        );
+      },
+      { origin: DPHONE },
+    );
+    const reloadGuard = await page.evaluate(() => {
+      const event = new Event('beforeunload', { cancelable: true });
+      return { dispatched: window.dispatchEvent(event), prevented: event.defaultPrevented };
+    });
+    expect(reloadGuard).toEqual({ dispatched: false, prevented: true });
+    await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+    expect(await dphoneFrame(page).evaluate(() => window.__dcontactDphone?.sipSessionId())).toBe(
+      sipBeforeReload,
+    );
     server.state = 'WRAPUP';
     await dphone.getByRole('button', { name: 'วางสาย' }).click();
     await frame.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();

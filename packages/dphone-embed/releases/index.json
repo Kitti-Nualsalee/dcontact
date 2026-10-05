@@ -2,9 +2,12 @@
   "versions": {
     "1.0.0": {
       "integrity": "sha384-zHE2vfDbjHt4f4lJ+S0QST5NQ83ltJ6tlZWEI5+U2WJWse+GVUafQQVh1iJKNGhe"
+    },
+    "1.0.1": {
+      "integrity": "sha384-8ZwG/hoFOJ3ATnma+OAijHYIrxCID8xAk6hXB0x+E+8XiMRz2TS9263EsxR/zl1H"
     }
   },
   "aliases": {
-    "v1": "1.0.0"
+    "v1": "1.0.1"
   }
 }

@@ -71,6 +71,7 @@ export interface CallOptions {
 
 export class LauncherCore {
   private ready: DphoneReadyMessage | null = null;
+  private activeCall = false;
   private readonly queue: HostToDphoneMessage[] = [];
   private readonly calls = new Map<
     string,
@@ -81,6 +82,10 @@ export class LauncherCore {
 
   get capabilities(): DphoneReadyMessage['capabilities'] | null {
     return this.ready?.capabilities ?? null;
+  }
+
+  get hasActiveCall(): boolean {
+    return this.activeCall;
   }
 
   /** handler ของ `message` บน window ของ host — คืน true เมื่อเป็นข้อความของ dphone นี้ */
@@ -98,9 +103,12 @@ export class LauncherCore {
         for (const queued of this.queue.splice(0)) this.post(queued);
         break;
       case 'dphone.screenpop':
+        if (message.callState === 'ACTIVE' || message.callState === 'HELD') this.activeCall = true;
+        if (message.callState === 'ENDED') this.activeCall = false;
         this.options.emit('screenpop', message);
         break;
       case 'dphone.activity':
+        this.activeCall = false;
         void this.activity(message);
         break;
       case 'dphone.call.result': {
