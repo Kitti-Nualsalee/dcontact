@@ -237,11 +237,9 @@ async function prepareDatabase() {
     ), origin AS (
       INSERT INTO tenant_embed_origins (id,tenant_id,origin,label,enabled,created_by,created_at,updated_at,revision,screen_pop_level)
       SELECT gen_random_uuid(),'${claims.tenantId}','http://localhost:4173','E1.18 host',true,actor_id,NOW(),NOW(),1,'ids' FROM actor
-    ), workspace_flags AS (
+    ), embed_flag AS (
       INSERT INTO tenant_ui_flags (tenant_id,flag_key,enabled,reason,updated_by_actor,updated_at)
-      VALUES
-        ('${claims.tenantId}','dphone.embed.enabled',true,'E1.18 acceptance','e1-18-harness',NOW()),
-        ('${claims.tenantId}','workSession.lease.enforced',true,'E1.18 acceptance','e1-18-harness',NOW())
+      VALUES ('${claims.tenantId}','dphone.embed.enabled',true,'E1.18 acceptance','e1-18-harness',NOW())
     ), gate AS (
       INSERT INTO dl_voice_scope_gates (id,tenant_id,telephony_node_id,business_state,technical_switch_on,killed,cap_per_minute,cap_per_day,agent_cap_per_minute,agent_cap_per_day,version,created_at,updated_at)
       VALUES (gen_random_uuid(),'${claims.tenantId}','${nodeId}','SANDBOX',true,false,2,10,2,10,2,NOW(),NOW()) RETURNING id
