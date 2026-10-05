@@ -193,3 +193,34 @@ test('refresh token ใช้ไม่ได้ระหว่างสาย (r
     axe.violations.filter((v) => ['serious', 'critical'].includes(v.impact ?? '')).map((v) => v.id),
   ).toEqual([]);
 });
+
+test('ลบ origin ระหว่างสาย → หยุดช่องทาง host ทันที แต่สายและ SIP session เดิมไม่หลุด', async ({
+  page,
+}) => {
+  const { server, frame } = await setup(page);
+  await signIn(page, frame);
+  await frame.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+  const dphone = frame.getByRole('region', { name: 'dphone' });
+  await dphone.getByRole('button', { name: 'รับสาย' }).click();
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  const embed = dphoneFrame(page);
+  const sipBefore = await embed.evaluate(() => window.__dcontactDphone?.sipSessionId());
+  const messageCountBefore = (await messages(page)).length;
+
+  server.sendWorkspaceEvent?.({ type: 'embed.origin.revoked', origin: HOST });
+  await expect.poll(() => embed.evaluate(() => window.__dphoneEmbed?.lock.revoked)).toBe(true);
+  await expect(dphone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  expect(await embed.evaluate(() => window.__dcontactDphone?.sipSessionId())).toBe(sipBefore);
+
+  await page.evaluate(() =>
+    (window as unknown as { __send(message: unknown): void }).__send({
+      v: 1,
+      type: 'dphone.call',
+      requestId: 'revoked-origin-call',
+      number: '0812345678',
+    }),
+  );
+  await page.waitForTimeout(100);
+  expect(await messages(page)).toHaveLength(messageCountBefore);
+  expect(server.clickToCalls).toHaveLength(0);
+});
