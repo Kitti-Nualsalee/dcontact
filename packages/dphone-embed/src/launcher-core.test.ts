@@ -139,6 +139,25 @@ test('activity: ack อัตโนมัติเมื่อ handler สำเ
   assert.equal(failing.posted.length, 0);
 });
 
+test('screen-pop ACTIVE/HELD เปิด reload guard และ ENDED ปิด guard', () => {
+  const h = launcher();
+  const screenPop = {
+    v: 1 as const,
+    type: 'dphone.screenpop' as const,
+    requestId: 'pop-1',
+    level: 'ids' as const,
+    interactionId: 'int-1',
+    policyVersion: 'v1',
+    decisionId: 'dec-1',
+  };
+  h.from({ ...screenPop, callState: 'ACTIVE' });
+  assert.equal(h.core.hasActiveCall, true);
+  h.from({ ...screenPop, callState: 'HELD' });
+  assert.equal(h.core.hasActiveCall, true);
+  h.from({ ...screenPop, callState: 'ENDED' });
+  assert.equal(h.core.hasActiveCall, false);
+});
+
 test('parseDphoneMessage: รูปแบบไม่ครบ = null', () => {
   assert.equal(parseDphoneMessage({ v: 1, type: 'dphone.activity' }), null);
   assert.equal(parseDphoneMessage({ v: 1, type: 'dphone.call.result', requestId: 'x' }), null);

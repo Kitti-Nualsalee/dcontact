@@ -60,6 +60,11 @@ export class DphoneLauncherElement extends HTMLElement {
   private iframe: HTMLIFrameElement | null = null;
   private core: LauncherCore | null = null;
   private readonly onMessage = (event: MessageEvent) => this.core?.handle(event);
+  private readonly onBeforeUnload = (event: BeforeUnloadEvent) => {
+    if (!this.core?.hasActiveCall) return;
+    event.preventDefault();
+    event.returnValue = '';
+  };
 
   get dphoneOrigin(): string {
     return this.getAttribute('origin') ?? defaultOrigin();
@@ -72,10 +77,12 @@ export class DphoneLauncherElement extends HTMLElement {
   connectedCallback() {
     this.render();
     window.addEventListener('message', this.onMessage);
+    window.addEventListener('beforeunload', this.onBeforeUnload);
   }
 
   disconnectedCallback() {
     window.removeEventListener('message', this.onMessage);
+    window.removeEventListener('beforeunload', this.onBeforeUnload);
     this.iframe?.remove();
     this.iframe = null;
     this.core = null;
