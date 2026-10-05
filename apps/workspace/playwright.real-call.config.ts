@@ -6,6 +6,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e-real',
+  testMatch: 'dphone-real-call.spec.ts',
   outputDir: 'test-results-real',
   fullyParallel: false,
   workers: 1,

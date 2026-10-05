@@ -104,6 +104,7 @@ export async function setup(
     wrapups: 0,
     state: 'ASSIGNED' as 'ASSIGNED' | 'ACTIVE' | 'WRAPUP' | 'NONE',
     authorization: new Set<string>(),
+    sendWorkspaceEvent: undefined as ((event: unknown) => void) | undefined,
   };
 
   await page
@@ -241,6 +242,7 @@ export async function setup(
     return route.fulfill({ status: 404, json: {} });
   });
   await page.routeWebSocket('**/api/v1/workspace-session', (ws) => {
+    server.sendWorkspaceEvent = (event) => ws.send(JSON.stringify(event));
     ws.onMessage((raw) => {
       const message = JSON.parse(String(raw)) as { type: string; leaseId?: string };
       if (message.type === 'auth:connect') {

@@ -23,7 +23,7 @@ if (!/^dcontact_[a-z0-9_]+$/.test(database) || database === 'dcontact') {
 }
 const keycloakBaseUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
 const agentUsername = 'agent1000@demo.local';
-const nodeId = `fs-d1-16-${process.pid}`;
+const nodeId = 'fs-local';
 const routerGroupId = `dcontact-router-d1-16-${process.pid}`;
 const workspaceOrigin = 'http://localhost:5173';
 const apiOrigin = 'http://localhost:3000';
@@ -53,10 +53,15 @@ const environment = {
   SIP_BROWSER_NODES_JSON: JSON.stringify([
     { telephonyNodeId: nodeId, wssUrl: 'ws://localhost:5066' },
   ]),
+  SIP_BROWSER_FIXED_PASSWORD: 'D1-16-acceptance-only-password',
   WORKSPACE_ORIGIN: workspaceOrigin,
   VITE_KC_ISSUER: `${keycloakBaseUrl}/realms/dcontact`,
   VITE_KC_CLIENT_ID: 'agent-desktop',
   VITE_API_BASE_URL: apiOrigin,
+  LINE_WEBHOOK_SECRET_SOURCE: 'disabled',
+  LINE_WEBHOOK_CHANNEL_ACCOUNT_ID: 'd1-16-disabled',
+  LINE_WEBHOOK_DESTINATION: 'd1-16-disabled',
+  LINE_WEBHOOK_PAYLOAD_KEY_REF: 'd1-16-disabled',
   PORT: '3000',
 };
 delete environment.FREESWITCH_AGENT_DIAL_TEMPLATE;
@@ -247,6 +252,7 @@ try {
   run('docker', [...compose, 'ps', '--status', 'running']);
   assertPortsFree();
   const claims = await prepareDatabase();
+  environment.LINE_WEBHOOK_TENANT_ID = claims.tenantId;
   process.stdout.write(`# DB ${database} พร้อม (tenant ${claims.tenantId})\n`);
 
   const api = start('api', 'node', ['node_modules/tsx/dist/cli.mjs', 'src/main.ts'], {
