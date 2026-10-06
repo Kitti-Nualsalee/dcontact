@@ -7,6 +7,11 @@ Authority: Phase Contract #374, การตัดสินใจเรื่อ
 `dphone.embed.enabled`, พาเก็บหลักฐาน Edge + microphone prompt และซ้อม rollback ตามลำดับ โดยห้ามใช้
 tenant ของ pilot #77
 
+สำหรับ topology 3 VM ตาม ADR-030 ที่ GitHub-hosted runner เข้า LAN ไม่ได้ ให้ dispatch workflow
+`uat-operator-package` บน `main` โดยส่ง SHA จาก deployment record ปัจจุบันเป็น `deployed_base_sha` จากนั้นดาวน์โหลด
+artifact ที่มี `release.env` และ migration guard ไปอัปโหลด/deploy จากเครื่อง operator ใน LAN; workflow นี้ไม่ถือ SSH secret
+และไม่แตะ VM
+
 เอกสารนี้เป็น runbook ของ operator สำหรับ UAT first slice: production topology ใช้ 3 VM ตาม ADR-030:
 VM1 จบ TLS ด้วย nginx, VM2 รัน Docker Compose และ VM3 ให้ PostgreSQL 15.4 โดยเฉพาะ database ของ UAT
 รายละเอียดคำสั่งที่ต้องใช้กับ VM จริงอยู่ที่ [operator README](../infra/uat/operator/README.md) และเป็น authority
