@@ -41,6 +41,23 @@ export function resolveConsoleView(location: URL, defaultView?: string): string 
   return defaultView === 'journeys' ? 'journeys' : null;
 }
 
+export function accessTokenRealmRoles(accessToken: string | undefined): string[] {
+  if (!accessToken) return [];
+  try {
+    const payload = accessToken.split('.')[1];
+    if (!payload) return [];
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const claims = JSON.parse(atob(padded)) as { realm_access?: { roles?: unknown } };
+    return Array.isArray(claims.realm_access?.roles) &&
+      claims.realm_access.roles.every((role): role is string => typeof role === 'string')
+      ? claims.realm_access.roles
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * U1.7 (#435): หลัง Keycloak redirect กลับ ต้องลบ `code`/`state`/`session_state`/`iss` ออกจาก URL
  * (ไม่ให้ค้างใน history/screenshot หลักฐาน — #379) โดยคง `tenant`/`view`/`journey` เดิมไว้

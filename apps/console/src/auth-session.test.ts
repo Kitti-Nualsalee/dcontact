@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  accessTokenRealmRoles,
   cleanConsoleCallbackUrl,
   consumeConsoleReturnLocation,
   consumeConsoleReturnUrl,
@@ -10,6 +11,10 @@ import {
   resolveConsoleView,
   resolveTenantAlias,
 } from './auth-session.js';
+
+function tokenWithClaims(claims: unknown): string {
+  return `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
+}
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -110,4 +115,17 @@ test('E1.16 callback คืน active view โดยไม่ reload token ท�
     url: '/?tenant=acme&view=dphone-embedding',
     view: 'dphone-embedding',
   });
+});
+
+test('E1.16 UI อ่าน realm roles จาก access token และ fail closed เมื่อ claim ผิดรูป', () => {
+  assert.deepEqual(
+    accessTokenRealmRoles(tokenWithClaims({ realm_access: { roles: ['admin', 'agent'] } })),
+    ['admin', 'agent'],
+  );
+  assert.deepEqual(
+    accessTokenRealmRoles(tokenWithClaims({ realm_access: { roles: 'admin' } })),
+    [],
+  );
+  assert.deepEqual(accessTokenRealmRoles('not-a-jwt'), []);
+  assert.deepEqual(accessTokenRealmRoles(undefined), []);
 });

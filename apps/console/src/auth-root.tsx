@@ -21,6 +21,7 @@ import { LineInbound, LineInboundLink } from './line-inbound/line-inbound.js';
 import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.js';
 import { clearRecovery } from './journey-authoring/state.js';
 import {
+  accessTokenRealmRoles,
   consumeConsoleReturnLocation,
   createConsoleOidcSettings,
   rememberConsoleReturnUrl,
@@ -204,13 +205,12 @@ function ConsoleSurface({
   contactId?: string;
 }) {
   const auth = useAuth();
-  const roles = (auth.user?.profile.realm_access as { roles?: unknown } | undefined)?.roles;
-  const viewer =
-    Array.isArray(roles) && roles.includes('compliance')
-      ? 'COMPLIANCE'
-      : Array.isArray(roles) && roles.includes('admin')
-        ? 'ADMIN'
-        : 'AGENT';
+  const roles = accessTokenRealmRoles(auth.user?.access_token);
+  const viewer = roles.includes('compliance')
+    ? 'COMPLIANCE'
+    : roles.includes('admin')
+      ? 'ADMIN'
+      : 'AGENT';
   return (
     <AuthenticatedConsole
       apiBaseUrl={apiBaseUrl}
@@ -254,13 +254,12 @@ function GovernanceSurface({
         action={() => void signInFromCurrentPage(auth)}
       />
     );
-  const roles = (auth.user?.profile.realm_access as { roles?: unknown } | undefined)?.roles;
-  const viewer: GovernanceViewer =
-    Array.isArray(roles) && roles.includes('compliance')
-      ? 'COMPLIANCE'
-      : Array.isArray(roles) && roles.includes('admin')
-        ? 'TENANT_ADMIN'
-        : 'SUPERVISOR';
+  const roles = accessTokenRealmRoles(accessToken);
+  const viewer: GovernanceViewer = roles.includes('compliance')
+    ? 'COMPLIANCE'
+    : roles.includes('admin')
+      ? 'TENANT_ADMIN'
+      : 'SUPERVISOR';
   return (
     <ConsoleShell
       {...shellUserProps(auth, tenantAlias)}
@@ -311,7 +310,7 @@ function DphoneEmbeddingSurface({
         action={() => void signInFromCurrentPage(auth)}
       />
     );
-  const roles = (auth.user?.profile.realm_access as { roles?: unknown } | undefined)?.roles;
+  const roles = accessTokenRealmRoles(accessToken);
   return (
     <ConsoleShell
       {...shellUserProps(auth, tenantAlias)}
@@ -322,7 +321,7 @@ function DphoneEmbeddingSurface({
     >
       <DphoneEmbedding
         api={api}
-        canEdit={Array.isArray(roles) && roles.includes('admin')}
+        canEdit={roles.includes('admin')}
         tenantAlias={tenantAlias}
         embedBaseUrl={apiBaseUrl || window.location.origin}
         dev={import.meta.env.DEV}
