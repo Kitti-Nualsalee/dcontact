@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   cleanConsoleCallbackUrl,
+  consumeConsoleReturnLocation,
   consumeConsoleReturnUrl,
   createConsoleOidcSettings,
   rememberConsoleReturnUrl,
@@ -97,4 +98,16 @@ test('E1.16 login จากหน้า dphone embedding กลับหน้�
 
   storage.setItem('dcontact.console.return-url', 'https://attacker.example/steal');
   assert.equal(consumeConsoleReturnUrl(callback, storage), '/?tenant=acme');
+});
+
+test('E1.16 callback คืน active view โดยไม่ reload token ที่เก็บใน memory', () => {
+  const storage = new MemoryStorage();
+  const embedding = new URL('https://acme.console.example/?tenant=acme&view=dphone-embedding');
+  rememberConsoleReturnUrl(embedding, storage);
+  const callback = new URL('https://acme.console.example/?tenant=acme&state=abc&code=c0de');
+
+  assert.deepEqual(consumeConsoleReturnLocation(callback, storage, 'journeys'), {
+    url: '/?tenant=acme&view=dphone-embedding',
+    view: 'dphone-embedding',
+  });
 });

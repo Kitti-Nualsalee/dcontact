@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { AuthProvider, useAuth, type AuthContextProps } from 'react-oidc-context';
 import { shellUserFromClaims } from '@d-contact/ui-react';
 import { SessionLocaleProvider } from '@d-contact/i18n/react';
@@ -21,7 +21,7 @@ import { LineInbound, LineInboundLink } from './line-inbound/line-inbound.js';
 import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.js';
 import { clearRecovery } from './journey-authoring/state.js';
 import {
-  consumeConsoleReturnUrl,
+  consumeConsoleReturnLocation,
   createConsoleOidcSettings,
   rememberConsoleReturnUrl,
   resolveConsoleContextId,
@@ -92,10 +92,8 @@ export function ConsoleAuthRoot() {
   let contextId: string | undefined;
   const url = new URL(window.location.href);
   // U1.4 (#432): ไม่มี view/context (เช่นกลับจาก login) → ใช้ default view ตอน build; tenant ยังมาจาก host/token
-  const view = resolveConsoleView(
-    url,
-    import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined,
-  );
+  const defaultView = import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined;
+  const [view, setView] = useState(() => resolveConsoleView(url, defaultView));
   const preferenceView = view === 'preferences';
   const governanceView = view === 'governance';
   const journeyView = view === 'journeys';
@@ -134,13 +132,15 @@ export function ConsoleAuthRoot() {
   return (
     <AuthProvider
       {...settings}
-      onSigninCallback={() =>
-        window.history.replaceState(
-          null,
-          '',
-          consumeConsoleReturnUrl(new URL(window.location.href), window.sessionStorage),
-        )
-      }
+      onSigninCallback={() => {
+        const restored = consumeConsoleReturnLocation(
+          new URL(window.location.href),
+          window.sessionStorage,
+          defaultView,
+        );
+        window.history.replaceState(null, '', restored.url);
+        setView(restored.view);
+      }}
     >
       <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
         {journeyView ? (
