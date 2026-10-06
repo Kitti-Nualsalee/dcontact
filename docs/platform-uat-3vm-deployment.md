@@ -52,6 +52,12 @@ bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh status <SOURCE_SHA>
 - env เดิมที่ติดตั้งก่อน #592 ต้องเพิ่มเองด้วยค่าสุ่ม 48 ตัวอักษร (`[A-Za-z0-9]`) แล้วจึงรัน `configure`
 - `configure` เปิด fine-grained admin permissions v2, ตั้ง `dcontact-account-service` และให้ provisioner ได้ `manage-organizations` (ADR-033)
 - `operator` รัน account setup ซ้ำ เพื่อให้ operator ใหม่อยู่ในรายชื่อที่ service account แตะไม่ได้
+- **AC3 (#596): SMTP** — email บัญชีของ D-Contact และ email เชิญของ Keycloak ใช้ `SMTP_*` ชุดเดียวกันจาก `uat.env`
+  - ไม่ตั้ง `SMTP_HOST` = Keycloak ส่งเข้า mailpit ภายใน stack เหมือนเดิม
+  - ชื่อผู้ส่งเป็น "D-Contact" เสมอ (ชื่อใน `SMTP_FROM` ถูกแทน); Keycloak ตั้ง HELO เองไม่ได้ — `SMTP_HELO` ใช้กับ API เท่านั้น
+  - ใส่ค่าจริงใน `uat.env` เท่านั้น ห้าม commit
+  - **gate ก่อน production:** UAT ใช้ Microsoft 365 direct send ซึ่งส่งได้เฉพาะผู้รับในองค์กร (#589 Q1)
+    ต้องตั้ง M365 SMTP relay connector + SPF หรือใช้ SMTP ที่ส่งออกนอกองค์กรได้ก่อนเปิดให้ลูกค้าภายนอก
 - **AC2 (#595):** `configure` ยังตั้ง browser flow ของ tenant `dcontact-browser` และผูกเป็น browser flow ของ realm
   (บังคับ 2FA ตาม Organization ผ่าน extension `dc-account` ใน image ของ Keycloak)
   - image ของ Keycloak ต้องมี `dcontact-account.jar` ก่อนรัน `configure` — ถ้าไม่มี setup จะล้มที่การเพิ่ม `dc-org-mfa-required`

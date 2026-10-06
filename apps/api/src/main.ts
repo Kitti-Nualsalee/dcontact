@@ -29,6 +29,12 @@ import { WorkSessionLeases } from './work-session.js';
 import { EmbedOriginService } from './embed-origins.js';
 import { AccountPolicyService } from './account-policy.js';
 import {
+  AccountEmailDispatcher,
+  SmtpEmailSender,
+  smtpConfigFromEnvironment,
+} from './account-email.js';
+import { consoleAccountUrl } from './account-email-templates.js';
+import {
   KeycloakAccountServiceClient,
   KeycloakOrganizationMfa,
 } from './keycloak-account-service.js';
@@ -182,6 +188,13 @@ const accountPolicies = new AccountPolicyService(prisma, {
       }
     : {}),
 });
+// AC3 (#596): email บัญชีของ D-Contact ผ่าน outbox — ไม่ตั้ง SMTP_HOST = ไม่เปิดตัวส่ง (งานค้างใน outbox)
+const smtpConfig = smtpConfigFromEnvironment(process.env);
+if (smtpConfig) {
+  const consoleUrl = required('CONSOLE_PUBLIC_URL');
+  consoleAccountUrl(consoleUrl); // https เท่านั้น (ยกเว้น localhost) — ผิดแล้วหยุดตั้งแต่บูต
+  new AccountEmailDispatcher(prisma, new SmtpEmailSender(smtpConfig), { consoleUrl }).start();
+}
 // A1.8a (#447): tenant ที่ยังไม่ ACTIVE (เช่นยัง provisioning) เข้า tenant API/workspace ไม่ได้
 const tenantLifecycle = new CachedTenantLifecycleGate((tenantId) =>
   prisma.tenant

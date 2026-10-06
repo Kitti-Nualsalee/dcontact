@@ -81,7 +81,9 @@ BEGIN
     'dphone_click_to_call_audit_events',
     -- AC1 (#594): นโยบายบัญชีและ self-service บัญชี (#589)
     'tenant_account_policies', 'tenant_account_policy_audit_events',
-    'account_email_changes', 'account_totp_enrolments', 'account_audit_events'
+    'account_email_changes', 'account_totp_enrolments', 'account_audit_events',
+    -- AC3 (#596): outbox ของ email บัญชี
+    'account_email_outbox'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -122,6 +124,8 @@ REVOKE UPDATE, DELETE ON dphone_click_to_call_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON tenant_account_policy_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON account_audit_events FROM dcontact_app;
 REVOKE DELETE ON tenant_account_policies FROM dcontact_app;
+-- AC3 (#596): outbox ไม่ถูกลบ — แถวที่จบแล้วถูกล้างผู้รับ/ตัวแปรแทน
+REVOKE DELETE ON account_email_outbox FROM dcontact_app;
 -- D1.13 (#452): แอปอ่าน UI flag ได้อย่างเดียว — platform operator เป็นผู้เปลี่ยน (ผ่าน dcontact_platform)
 REVOKE INSERT, UPDATE, DELETE ON tenant_ui_flags, tenant_ui_flag_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON recording_audit_events FROM dcontact_app;

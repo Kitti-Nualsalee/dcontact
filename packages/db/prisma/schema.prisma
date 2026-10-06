@@ -142,6 +142,7 @@ model Tenant {
   accountEmailChanges      AccountEmailChange[]
   accountTotpEnrolments    AccountTotpEnrolment[]
   accountAuditEvents       AccountAuditEvent[]
+  accountEmailOutbox       AccountEmailOutbox[]
   clickToCallAuditEvents DphoneClickToCallAuditEvent[]
 
   @@map("tenants")
@@ -6386,4 +6387,33 @@ model AccountAuditEvent {
 
   @@index([tenantId, userId, occurredAt], map: "account_audit_events_user_idx")
   @@map("account_audit_events")
+}
+
+/// AC3 (#596): outbox ของ email บัญชีที่ D-Contact ส่งเอง — ผู้รับและตัวแปรถูกล้างเมื่อจบ (SENT/DEAD)
+model AccountEmailOutbox {
+  id             String    @id @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  /// ไม่มี foreign key — notice ถึง email เดิมยังส่งได้แม้ผู้ใช้ถูกลบ
+  userId         String?   @map("user_id") @db.Uuid
+  /// verify-new-email | email-changed-notice | password-changed-notice
+  template       String
+  /// th | en
+  locale         String
+  recipient      String?
+  variables      Json?
+  dedupeKey      String    @map("dedupe_key")
+  /// PENDING | SENDING | SENT | DEAD
+  status         String    @default("PENDING")
+  attempts       Int       @default(0)
+  availableAt    DateTime  @default(now()) @map("available_at")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  lastErrorCode  String?   @map("last_error_code")
+  sentAt         DateTime? @map("sent_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, dedupeKey], map: "account_email_outbox_dedupe_key")
+  @@index([tenantId, status, availableAt], map: "account_email_outbox_due_idx")
+  @@map("account_email_outbox")
 }
