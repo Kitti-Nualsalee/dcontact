@@ -6,6 +6,9 @@
 
 ดัชนีเอกสารทั้งหมด — อ่านตามลำดับนี้ถ้าเพิ่งเข้าโปรเจค
 
+แผนเตรียมคลัสเตอร์ UAT ใหม่: [K8s UAT deployment](k8s-uat-deployment.md) และ
+[PostgreSQL handoff](k8s-uat-db-handoff.md) — เป็นงานเตรียมไฟล์ ยังไม่ deploy.
+
 > **ธรรมเนียมของ schema:** `packages/db/prisma/schema.prisma` เก็บเฉพาะ **ตาราง kernel**
 > (tenant · user · queue · interaction · conversation · message · recording) ที่ทุกโมดูลต้องใช้ร่วมกัน
 > ส่วน **ตารางของโมดูล** (`wfm_*` `qm_*` `ob_*` `fb_*` `cs_*` `ic_*` `jr_*` `cg_*` …) อยู่ใน
@@ -44,7 +47,7 @@
 | [026](adr/026-frontend-app-split.md) | แบ่งแอปหน้าจอ | แบ่งตาม **"มีงานอยู่ในมือหรือไม่"** ไม่ใช่ตามบทบาท → `apps/workspace` (รวมหน้าสดของหัวหน้า) + `apps/console`; **แท็บทำงานได้แท็บเดียว** (leader election) และเป็นแท็บเดียวที่ประกาศว่ารับงานได้; ห้าม redirect login / บังคับรีโหลด ระหว่างถืองาน; เบราว์เซอร์ก่อน desktop shell ทีหลังโดยไม่ fork UI |
 | [027](adr/027-contact-governance.md) | Contact Governance | ด่านกลางระดับ CIF สำหรับ restriction/consent/preference/attempt/exception; ทุก outbound ต้อง `authorizeAndReserve`; hard restriction ห้ามถูก Allowlist ข้าม; แยก inbound safety ออกจาก outbound DNC |
 | [028](adr/028-frontend-component-layer.md) | Frontend component layer | `packages/ui-react` แยกจาก token (`packages/ui`); **React Aria** รับผิดชอบ keyboard/focus/ARIA; **CSS Modules + `var(--dc-*)` เท่านั้น** บังคับด้วย stylelint; ข้อความของ component อยู่ใน namespace `ui` ของ react-i18next; preview page Vite (ไม่ใช้ Storybook) เป็นหน้าตรวจ axe/keyboard |
-| [029](adr/029-object-storage.md) | Object storage | **S3 API คือ contract** เรียกผ่าน `@aws-sdk/client-s3` เท่านั้น; config ชุดเดียว `S3_*` (`MINIO_*` เป็น fallback ช่วงเปลี่ยนผ่าน); dev/CI ใช้ **RustFS**, UAT/on-prem/cloud ใช้ **SeaweedFS**; bootstrap ไม่ผูกกับ CLI ของผู้ผลิต |
+| [029](adr/029-object-storage.md) | Object storage | **S3 API คือ contract**; dev/CI ใช้ **RustFS**, UAT 3 VM/on-prem/cloud ใช้ **SeaweedFS**; K8s UAT ใหม่มีข้อยกเว้น RustFS บน PVC พร้อม gate IAM/lifecycle; bootstrap ไม่ผูกกับ CLI ของผู้ผลิต |
 | [030](adr/030-uat-three-vm-topology.md) | UAT แบบ 3 VM | nginx (VM1) ทำ TLS/edge → stack บน Docker (VM2) → PostgreSQL ภายนอก (VM3) ผ่าน `db-relay` เพื่อคง `internal: true`; ทำเป็น overlay `docker-compose.uat.3vm.yml` ไม่แก้ไฟล์ฐาน; DB/role แยกชื่อบน cluster ร่วม |
 | [032](adr/032-acceptance-commit-on-main.md) | Acceptance marker บน main | marker ออกได้เมื่อ commit **อยู่บน main แล้ว** (ancestor ของ `origin/main`) ไม่ต้องเป็น HEAD; `acceptance=chain` รัน S1 → J2/CG4 → J3 → J5 ใน dispatch เดียวบน SHA เดียวกัน |
 

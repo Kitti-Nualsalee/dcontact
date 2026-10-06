@@ -1,0 +1,343 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenant-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tenant-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tenant-api
+        app.kubernetes.io/part-of: dcontact-uat
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      containers:
+        - name: api
+          image: __API_IMAGE__
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DCONTACT_API_PROFILE
+              value: uat
+            - name: PORT
+              value: "3000"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-db
+                  key: DATABASE_URL_APP
+            - name: KEYCLOAK_ISSUER
+              value: https://dcontact-uat.osd.co.th/auth/realms/dcontact
+            - name: KEYCLOAK_AUDIENCE
+              value: dcontact-api
+            - name: KEYCLOAK_JWKS_URI
+              value: http://keycloak:8080/auth/realms/dcontact/protocol/openid-connect/certs
+            - name: DPHONE_EMBED_SCRIPT_URL
+              value: https://dcontact-uat.osd.co.th/workspace/embed/dphone-embed.js
+            - name: DPHONE_EMBED_CONNECT_SRC
+              value: https://dcontact-uat.osd.co.th
+            - name: J5_CANVAS_WRITE_ENABLED
+              value: "true"
+            - name: J5_PUBLISH_UI_ENABLED
+              value: "true"
+            - name: J5_TEMPLATE_CATALOG_ENABLED
+              value: "false"
+            - name: J5_TEMPLATE_UPGRADE_ENABLED
+              value: "false"
+            - name: S3_ENDPOINT
+              value: http://rustfs:9000
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-s3
+                  key: S3_ACCESS_KEY
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-s3
+                  key: S3_SECRET_KEY
+            - name: S3_BUCKET_UAT_EVIDENCE
+              value: uat-evidence
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/v1/runtime-profile
+              port: http
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1024Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenant-console
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tenant-console
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tenant-console
+        app.kubernetes.io/part-of: dcontact-uat
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      containers:
+        - name: console
+          image: __CONSOLE_IMAGE__
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 384Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: caddy-config
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-state
+              mountPath: /config
+      volumes:
+        - name: caddy-config
+          configMap:
+            name: dcontact-uat-proxy-config
+            items:
+              - key: tenant.Caddyfile
+                path: Caddyfile
+        - name: caddy-data
+          emptyDir: {}
+        - name: caddy-state
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-api
+        app.kubernetes.io/part-of: dcontact-uat
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      containers:
+        - name: api
+          image: __PLATFORM_API_IMAGE__
+          command: [node, dist/main.js]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PLATFORM_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-db
+                  key: PLATFORM_DATABASE_URL
+            - name: PLATFORM_OIDC_ISSUER
+              value: https://dcontact-uat.osd.co.th/auth/realms/dcontact
+            - name: PLATFORM_OIDC_JWKS_URI
+              value: http://keycloak:8080/auth/realms/dcontact/protocol/openid-connect/certs
+            - name: PLATFORM_CONSOLE_ORIGIN
+              value: https://dcontact-platform-uat.osd.co.th
+            - name: PLATFORM_SIP_BASE_DOMAIN
+              value: sip.k8s-uat.osd.co.th
+            - name: PLATFORM_PROVISIONING_ENABLED
+              value: "false"
+            - name: PLATFORM_OPERATOR_ALLOWLIST
+              value: ""
+            - name: PLATFORM_METRICS_HOST
+              value: 127.0.0.1
+          ports:
+            - name: http
+              containerPort: 3010
+          readinessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-worker
+        app.kubernetes.io/part-of: dcontact-uat
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      containers:
+        - name: worker
+          image: __PLATFORM_API_IMAGE__
+          command: [node, node_modules/@d-contact/platform-control/dist/platform-worker-main.js]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PLATFORM_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-db
+                  key: PLATFORM_DATABASE_URL
+            - name: PROVISIONER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-db
+                  key: PROVISIONER_DATABASE_URL
+            - name: PLATFORM_SIP_BASE_DOMAIN
+              value: sip.k8s-uat.osd.co.th
+            - name: KEYCLOAK_URL
+              value: http://keycloak:8080/auth
+            - name: KEYCLOAK_PROVISIONER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KEYCLOAK_PROVISIONER_SECRET
+            - name: PLATFORM_PROVISIONING_ENABLED
+              value: "false"
+            - name: PLATFORM_OPERATOR_ALLOWLIST
+              value: ""
+            - name: PLATFORM_METRICS_HOST
+              value: 127.0.0.1
+            - name: MAILPIT_URL
+              value: http://mailpit:8025/mail
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-console
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-console
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-console
+        app.kubernetes.io/part-of: dcontact-uat
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      containers:
+        - name: console
+          image: __PLATFORM_CONSOLE_IMAGE__
+          ports:
+            - name: http
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: caddy-config
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-state
+              mountPath: /config
+      volumes:
+        - name: caddy-config
+          configMap:
+            name: dcontact-uat-proxy-config
+            items:
+              - key: platform.Caddyfile
+                path: Caddyfile
+        - name: caddy-data
+          emptyDir: {}
+        - name: caddy-state
+          emptyDir: {}

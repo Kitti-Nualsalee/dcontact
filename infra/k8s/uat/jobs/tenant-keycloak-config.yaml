@@ -1,0 +1,64 @@
+# สร้าง realm/client/Organization หลัง Keycloak พร้อม; ไม่สร้างบัญชีผู้ทดสอบใน Job นี้
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: dcontact-uat-kc-tenant-
+  namespace: dcontact-uat
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      restartPolicy: Never
+      containers:
+        - name: configure
+          image: __OPS_IMAGE__
+          command: [node, scripts/u1-uat-keycloak-users.mjs, --config]
+          env:
+            - name: KEYCLOAK_ADMIN_URL
+              value: http://keycloak:8080/auth
+            - name: KEYCLOAK_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            - name: UAT_HOST
+              value: dcontact-uat.osd.co.th
+            - name: UAT_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-tenant
+                  key: UAT_TENANT_ID
+            - name: UAT_TENANT_SLUG
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-tenant
+                  key: UAT_TENANT_SLUG
+            - name: UAT_TENANT_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-tenant
+                  key: UAT_TENANT_NAME
+            - name: UAT_ORGANIZATION_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-tenant
+                  key: UAT_ORGANIZATION_DOMAIN
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

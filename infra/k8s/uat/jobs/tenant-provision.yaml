@@ -1,0 +1,56 @@
+# ใช้ input ที่ render แล้วจาก template ของ U1.9; Job ไม่อยู่ใน Kustomize base
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: dcontact-uat-tenant-provision-
+  namespace: dcontact-uat
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      restartPolicy: Never
+      containers:
+        - name: provision
+          image: __OPS_IMAGE__
+          command: [node, /app/dist/uat-provision-main.js, --input, /run/uat/provision.json]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-db
+                  key: DATABASE_URL_OWNER
+            - name: UAT_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-tenant
+                  key: UAT_TENANT_ID
+            - name: UAT_TENANT_SLUG
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-tenant
+                  key: UAT_TENANT_SLUG
+          volumeMounts:
+            - name: input
+              mountPath: /run/uat
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: input
+          secret:
+            secretName: dcontact-uat-provision-input
+            items:
+              - key: provision.json
+                path: provision.json
