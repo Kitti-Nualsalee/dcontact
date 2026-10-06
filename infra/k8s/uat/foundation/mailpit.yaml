@@ -38,7 +38,7 @@ spec:
             - name: MP_WEBROOT
               value: /mail/
             - name: MP_MAX_MESSAGES
-              value: "1000"
+              value: '1000'
             - name: MP_MAX_AGE
               value: 30d
             - name: MP_DATABASE

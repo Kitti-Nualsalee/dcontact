@@ -45,7 +45,7 @@ spec:
             - name: KEYCLOAK_SMTP_HOST
               value: mailpit
             - name: KEYCLOAK_SMTP_PORT
-              value: "1025"
+              value: '1025'
             - name: KEYCLOAK_SMTP_FROM
               value: no-reply@dcontact-uat.osd.co.th
             - name: PLATFORM_CONSOLE_REDIRECT

@@ -47,7 +47,8 @@ function argumentsOf(argv) {
   ) {
     throw new Error('--phase ต้องเป็น foundation, applications, exposure หรือ job:<ชื่อที่รองรับ>');
   }
-  if (options.template && options.check) throw new Error('--template และ --check ใช้พร้อมกันไม่ได้');
+  if (options.template && options.check)
+    throw new Error('--template และ --check ใช้พร้อมกันไม่ได้');
   return options;
 }
 
@@ -57,7 +58,8 @@ function releaseFile(path) {
     const line = raw.trim();
     if (!line || line.startsWith('#')) continue;
     const match = /^([A-Z][A-Z0-9_]*)=(\S+)$/.exec(line);
-    if (!match || values.has(match[1])) throw new Error(`release file ผิดรูปแบบหรือมี key ซ้ำ: ${path}`);
+    if (!match || values.has(match[1]))
+      throw new Error(`release file ผิดรูปแบบหรือมี key ซ้ำ: ${path}`);
     values.set(match[1], match[2]);
   }
   return values;
@@ -119,7 +121,9 @@ try {
     }
   }
   if (options.check) {
-    process.stdout.write(`PASS ${options.phase}: render แบบ offline, release SHA และ placeholder ผ่าน\n`);
+    process.stdout.write(
+      `PASS ${options.phase}: render แบบ offline, release SHA และ placeholder ผ่าน\n`,
+    );
   } else {
     process.stdout.write(manifest);
   }

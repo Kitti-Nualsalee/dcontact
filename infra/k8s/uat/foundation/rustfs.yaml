@@ -59,7 +59,7 @@ spec:
             - name: RUSTFS_ADDRESS
               value: 0.0.0.0:9000
             - name: RUSTFS_CONSOLE_ENABLE
-              value: "false"
+              value: 'false'
           ports:
             - name: s3
               containerPort: 9000

@@ -58,15 +58,15 @@ spec:
             - name: KC_HOSTNAME
               value: https://dcontact-uat.osd.co.th/auth
             - name: KC_HOSTNAME_STRICT
-              value: "true"
+              value: 'true'
             - name: KC_HTTP_RELATIVE_PATH
               value: /auth
             - name: KC_HTTP_ENABLED
-              value: "true"
+              value: 'true'
             - name: KC_PROXY_HEADERS
               value: xforwarded
             - name: KC_HEALTH_ENABLED
-              value: "true"
+              value: 'true'
             - name: JAVA_OPTS_KC_HEAP
               value: -Xms256m -Xmx1200m
             - name: KC_BOOTSTRAP_ADMIN_USERNAME

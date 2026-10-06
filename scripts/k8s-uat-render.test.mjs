@@ -32,10 +32,14 @@ function render(...args) {
 
 function releaseArgs(phase) {
   return [
-    '--phase', phase,
-    '--tenant-release', tenant,
-    '--platform-release', platform,
-    '--storage-class', 'uat-rwo',
+    '--phase',
+    phase,
+    '--tenant-release',
+    tenant,
+    '--platform-release',
+    platform,
+    '--storage-class',
+    'uat-rwo',
   ];
 }
 
@@ -54,7 +58,10 @@ test('สาม phase แยก one-shot Jobs และ public exposure ออ�
       assert.match(result.stdout, /dcontact-uat\.osd\.co\.th/);
       assert.match(result.stdout, /dcontact-platform-uat\.osd\.co\.th/);
       assert.match(result.stdout, /secretName: dcontact-uat-wildcard-tls/);
-      assert.doesNotMatch(result.stdout, /\b(?:rustfs|mailpit|keycloak|tenant-api|platform-api)\b\s*\n\s*port:/);
+      assert.doesNotMatch(
+        result.stdout,
+        /\b(?:rustfs|mailpit|keycloak|tenant-api|platform-api)\b\s*\n\s*port:/,
+      );
     }
   }
 });
@@ -62,8 +69,14 @@ test('สาม phase แยก one-shot Jobs และ public exposure ออ�
 test('ทุก one-shot Job render ได้แต่ไม่รวมใน phase ปกติ', () => {
   releaseFiles();
   for (const job of [
-    'migrate', 'object-storage-init', 'tenant-keycloak-config', 'platform-keycloak-config',
-    'platform-catalog-seed', 'tenant-keycloak-users', 'tenant-provision', 'platform-operator',
+    'migrate',
+    'object-storage-init',
+    'tenant-keycloak-config',
+    'platform-keycloak-config',
+    'platform-catalog-seed',
+    'tenant-keycloak-users',
+    'tenant-provision',
+    'platform-operator',
   ]) {
     const result = render(...releaseArgs(`job:${job}`));
     assert.equal(result.status, 0, `${job}: ${result.stderr}`);
@@ -84,7 +97,15 @@ test('หยุดเมื่อ release ไม่ใช่ SHA เดียว
   assert.match(result.stderr, /GHCR image digest/);
 
   releaseFiles();
-  result = render('--phase', 'foundation', '--tenant-release', tenant, '--platform-release', platform, '--check');
+  result = render(
+    '--phase',
+    'foundation',
+    '--tenant-release',
+    tenant,
+    '--platform-release',
+    platform,
+    '--check',
+  );
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /storage-class/);
 });
