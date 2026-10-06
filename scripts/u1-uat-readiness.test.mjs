@@ -1117,6 +1117,17 @@ test('UAT-M01 (#567): แทนที่ CHECK ที่ review แล้วผ�
   );
 });
 
+test('UAT-M01 (#520): CHECK constraint ของ click-to-call และ voice rollout ที่ review แล้วแทนที่ได้', () => {
+  const path = (name) => `packages/db/prisma/migrations/${name}/migration.sql`;
+  for (const name of [
+    'dphone_click_to_call_audit_events_values_check',
+    'dl_voice_scope_gates_shape',
+  ]) {
+    const sql = `ALTER TABLE t DROP CONSTRAINT "${name}";\nALTER TABLE t ADD CONSTRAINT "${name}" CHECK (true);`;
+    assert.equal(guardMigrations([{ status: 'A', path: path(name), sql }]).status, 'PASS');
+  }
+});
+
 test('UAT-M01: guard อ่าน migration จาก git จริง (base = HEAD ไม่มีไฟล์ใหม่)', () => {
   const result = runMigrationGuard({ base: runMigrationGuard({ initial: true }).head });
   assert.equal(result.status, 'PASS');
