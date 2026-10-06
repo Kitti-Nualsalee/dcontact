@@ -228,7 +228,7 @@ test('UAT-S19: realm ใช้ theme dcontact ต้องรัน Keycloak จ
     checkKeycloakTheme(
       compose.replace(
         /image: \$\{KEYCLOAK_IMAGE:\?[^}]*\}/,
-        `image: docker.io/keycloak/keycloak:26.0.0@sha256:${'a'.repeat(64)}`,
+        `image: docker.io/keycloak/keycloak:26.7.5@sha256:${'a'.repeat(64)}`,
       ),
       realm,
       keycloakDockerfile,
@@ -257,7 +257,7 @@ test('UAT-S07: FROM ที่ไม่ pin digest, :latest, root หรือไ
   assert.equal(pins(keycloakDockerfile).status, 'PASS');
   failed(
     pins(
-      keycloakDockerfile.replace(/^ARG KEYCLOAK_IMAGE=.*$/m, 'ARG KEYCLOAK_IMAGE=keycloak:26.0.0'),
+      keycloakDockerfile.replace(/^ARG KEYCLOAK_IMAGE=.*$/m, 'ARG KEYCLOAK_IMAGE=keycloak:26.7.5'),
     ),
     'UNPINNED_FROM',
   );

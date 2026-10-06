@@ -1,5 +1,5 @@
 <#--
-  #515: login-password.ftl ของ base (Keycloak 26.0.0) — ขั้นที่สองของ tenant login หลังกรอกอีเมล
+  #515: login-password.ftl ของ base (Keycloak 26.0.0 ปรับตาม 26.7.5 ใน #592) — ขั้นที่สองของ tenant login หลังกรอกอีเมล
   ปรับตามแบบ B; #password, name="password" และ #kc-login เหมือนเดิม
 -->
 <#import "template.ftl" as layout>

@@ -67,7 +67,7 @@ env `LINE_*`, `KAFKA_BROKERS` หรือ `SIP_*`
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `apps/api/Dockerfile`                    | target `runtime` (API UAT) และ `ops` (Prisma migrate, Keycloak config, readiness, `uat-provision`) |
 | `apps/console/Dockerfile`                | Console build (`VITE_*` ตอน build) + Caddy (`infra/uat/Caddyfile`)                                 |
-| `infra/keycloak/Dockerfile`              | Keycloak 26.0.0 + login/email theme `dcontact` (#515/#522) — token/โลโก้สร้างตอน build             |
+| `infra/keycloak/Dockerfile`              | Keycloak 26.7.5 (#592) + login/email theme `dcontact` (#515/#522) — token/โลโก้สร้างตอน build             |
 | `infra/uat/docker-compose.uat.yml`       | stack ของ UAT — image อ้างด้วย digest, secret เป็น `${VAR:?}` ทั้งหมด                              |
 | `infra/uat/bin/uat-deploy.sh`            | ขั้นตอนบน VM: prepare/backup/migrate/keycloak/provision/deploy/smoke/record/rollback               |
 | `infra/uat/bin/db-roles.sh`              | role ของ Postgres (Keycloak, `dcontact_app`) จาก secret                                            |
@@ -464,6 +464,17 @@ uatc up -d --wait api proxy
 ```
 
 แล้วรัน `bin/uat-deploy.sh smoke <sha>` และบันทึกการ restore ใน issue ของ UAT
+
+**Keycloak downgrade ไม่ได้ (#592, ADR-033):** ตั้งแต่ release ที่ใช้ Keycloak 26.7.5 ฐานข้อมูล `keycloak` ถูก migrate schema ไปข้างหน้าตอน start ครั้งแรก
+rollback ไป release ที่ยังเป็น 26.0.0 ต้อง restore `backups/pg-keycloak-<UTC>.dump` ที่ทำก่อน migrate ของ release นั้นด้วย
+ต้องหยุด `keycloak` ก่อน restore เพราะการคืนแค่ image ทำให้ Keycloak 26.0.0 เปิดกับ schema ใหม่ไม่ได้
+
+```bash
+uatc stop keycloak
+uatc exec -T postgres sh -ec 'pg_restore -U "$POSTGRES_USER" -d keycloak --clean --if-exists --no-owner' \
+  < /opt/dcontact-uat/backups/pg-keycloak-<UTC>.dump
+uatc up -d --wait keycloak
+```
 
 ## 10. Rollback
 

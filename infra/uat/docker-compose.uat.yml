@@ -88,7 +88,7 @@ services:
 
   keycloak:
     <<: *hardening
-    # Keycloak 26.0.0 + login/email theme ของ D-Contact (#515/#522) — build จาก infra/keycloak/Dockerfile
+    # Keycloak 26.7.5 (#592) + login/email theme ของ D-Contact (#515/#522) — build จาก infra/keycloak/Dockerfile
     image: ${KEYCLOAK_IMAGE:?KEYCLOAK_IMAGE (digest) is required}
     depends_on:
       postgres:

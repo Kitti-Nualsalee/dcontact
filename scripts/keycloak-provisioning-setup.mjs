@@ -19,6 +19,9 @@ export const PROVISIONER_REALM_MANAGEMENT_ROLES = Object.freeze([
   'view-realm',
   // Organization admin API ของ Keycloak 26.0 (ดู PR ของ #409)
   'manage-realm',
+  // #592 (Keycloak 26.7): เมื่อเปิด fine-grained admin permissions v2 การ list/ค้น Organization ข้ามการกรอง
+  // เฉพาะผู้ที่มี `view-organizations`/`manage-organizations` — `manage-realm` อย่างเดียวได้รายการว่าง
+  'manage-organizations',
   // A1.8 (#413): อ่าน user events ของ first admin เพื่อลง Action history
   'view-events',
 ]);

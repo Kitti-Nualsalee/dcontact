@@ -33,7 +33,7 @@ RUN apt-get update \
 ENV NODE_ENV=production DCONTACT_BUILD_SHA=$SOURCE_SHA
 WORKDIR /app
 COPY --from=build /out/platform /app
-COPY scripts/keycloak-platform-setup.mjs scripts/keycloak-provisioning-setup.mjs scripts/platform-uat-create-operator.mjs scripts/platform-uat-seed-catalog.mjs /app/scripts/
+COPY scripts/keycloak-platform-setup.mjs scripts/keycloak-provisioning-setup.mjs scripts/keycloak-account-service-setup.mjs scripts/platform-uat-create-operator.mjs scripts/platform-uat-seed-catalog.mjs /app/scripts/
 USER 10001:10001
 EXPOSE 3010
 CMD ["node", "dist/main.js"]
