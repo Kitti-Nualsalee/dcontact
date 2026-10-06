@@ -28,6 +28,9 @@ import { createWorkspaceSessionHandler } from './workspace-session-api.js';
 import { WorkSessionLeases } from './work-session.js';
 import { EmbedOriginService } from './embed-origins.js';
 import { AccountPolicyService } from './account-policy.js';
+import { ACCOUNT_SELF_SERVICE, AccountController } from './account-api.js';
+import { AccountSecretBox, KeycloakAccountIdentity } from './account-identity.js';
+import { AccountSelfService } from './account-self-service.js';
 import {
   AccountEmailDispatcher,
   SmtpEmailSender,
@@ -176,18 +179,26 @@ const verifier = new KeycloakAccessTokenVerifier({
 // AC1/AC2 (#594/#595): บังคับ 2FA sync ไป Organization ผ่าน extension `dc-account` — ไม่มี secret ของ
 // account service = ไม่มี port และการเปิดบังคับ 2FA ตอบ 409 MFA_ENFORCEMENT_UNAVAILABLE (ไม่บันทึกค่าที่บังคับไม่ได้)
 const accountServiceSecret = process.env.KEYCLOAK_ACCOUNT_SERVICE_SECRET;
+const accountServiceClient = accountServiceSecret
+  ? new KeycloakAccountServiceClient({
+      issuer: required('KEYCLOAK_ISSUER'),
+      clientSecret: accountServiceSecret,
+    })
+  : undefined;
 const accountPolicies = new AccountPolicyService(prisma, {
-  ...(accountServiceSecret
-    ? {
-        mfa: new KeycloakOrganizationMfa(
-          new KeycloakAccountServiceClient({
-            issuer: required('KEYCLOAK_ISSUER'),
-            clientSecret: accountServiceSecret,
-          }),
-        ),
-      }
-    : {}),
+  ...(accountServiceClient ? { mfa: new KeycloakOrganizationMfa(accountServiceClient) } : {}),
 });
+// AC4 (#597): self-service บัญชี — ต้องมีทั้ง account service และ key เข้ารหัส TOTP secret
+// (`ACCOUNT_SECRET_KEY` = base64 ของ 32 bytes); ไม่ครบ = ทุก endpoint ตอบ 503 IDENTITY_UNAVAILABLE
+const accountSecretKey = process.env.ACCOUNT_SECRET_KEY;
+const accountSelfService =
+  accountServiceClient && accountSecretKey
+    ? new AccountSelfService(
+        prisma,
+        new KeycloakAccountIdentity(accountServiceClient),
+        new AccountSecretBox(accountSecretKey),
+      )
+    : null;
 // AC3 (#596): email บัญชีของ D-Contact ผ่าน outbox — ไม่ตั้ง SMTP_HOST = ไม่เปิดตัวส่ง (งานค้างใน outbox)
 const smtpConfig = smtpConfigFromEnvironment(process.env);
 if (smtpConfig) {
@@ -363,6 +374,7 @@ class WorkspaceSessionController {
     WorkSessionController,
     EmbedOriginsController,
     AccountPolicyController,
+    AccountController,
     ScreenPopController,
     ClickToCallController,
     DphoneEmbedController,
@@ -417,6 +429,7 @@ class WorkspaceSessionController {
     { provide: EMBED_ORIGIN_SERVICE, useValue: embedOrigins },
     // AC1 (#594): นโยบายบัญชีของ tenant — port บังคับ 2FA มาใน AC2 (#595); ก่อนนั้นเปิด 2FA ได้ 409
     { provide: ACCOUNT_POLICY_SERVICE, useValue: accountPolicies },
+    { provide: ACCOUNT_SELF_SERVICE, useValue: accountSelfService },
     // E1.15 (#489): `<dphone-launcher>` แบบ versioned/alias บน dphone origin
     { provide: DPHONE_LAUNCHER_OPTIONS, useValue: { releasesDir: defaultLauncherReleasesDir() } },
     { provide: SCREEN_POP_SERVICE, useValue: screenPop },
