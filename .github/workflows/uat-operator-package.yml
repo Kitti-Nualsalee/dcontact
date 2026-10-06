@@ -1,0 +1,127 @@
+name: uat-operator-package
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployed_base_sha:
+        description: 'SHA ของ deployment record ปัจจุบันบน UAT สำหรับ migration guard'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Migration guard
+        env:
+          DEPLOYED_BASE_SHA: ${{ inputs.deployed_base_sha }}
+        run: node scripts/u1-uat-readiness.mjs --migration-guard --base "$DEPLOYED_BASE_SHA" | tee migration-guard.json
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Image names
+        id: names
+        run: |
+          owner="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "api=ghcr.io/$owner/dcontact-uat-api" >> "$GITHUB_OUTPUT"
+          echo "ops=ghcr.io/$owner/dcontact-uat-ops" >> "$GITHUB_OUTPUT"
+          echo "console=ghcr.io/$owner/dcontact-uat-console" >> "$GITHUB_OUTPUT"
+          echo "keycloak=ghcr.io/$owner/dcontact-uat-keycloak" >> "$GITHUB_OUTPUT"
+
+      - name: Build + push API image
+        id: api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          target: runtime
+          push: true
+          provenance: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.api }}:${{ github.sha }}
+
+      - name: Build + push ops image
+        id: ops
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          target: ops
+          push: true
+          provenance: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.ops }}:${{ github.sha }}
+
+      - name: Build + push Console image
+        id: console
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/console/Dockerfile
+          push: true
+          provenance: false
+          build-args: |
+            SOURCE_SHA=${{ github.sha }}
+            VITE_KC_ISSUER=https://${{ vars.UAT_HOST }}/auth/realms/dcontact
+            VITE_KC_CLIENT_ID=dcontact-uat-console
+            VITE_CONSOLE_DEFAULT_VIEW=journeys
+            VITE_UAT_ENVIRONMENT=${{ vars.UAT_ENVIRONMENT || 'uat' }}
+            VITE_UAT_PACK_VERSION=${{ vars.UAT_FIXTURE_PACK_VERSION }}
+          tags: ${{ steps.names.outputs.console }}:${{ github.sha }}
+
+      - name: Build + push Keycloak image
+        id: keycloak
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/keycloak/Dockerfile
+          push: true
+          provenance: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.keycloak }}:${{ github.sha }}
+
+      - name: Create digest-pinned release manifest
+        env:
+          API_IMAGE: ${{ steps.names.outputs.api }}@${{ steps.api.outputs.digest }}
+          OPS_IMAGE: ${{ steps.names.outputs.ops }}@${{ steps.ops.outputs.digest }}
+          CONSOLE_IMAGE: ${{ steps.names.outputs.console }}@${{ steps.console.outputs.digest }}
+          KEYCLOAK_IMAGE: ${{ steps.names.outputs.keycloak }}@${{ steps.keycloak.outputs.digest }}
+        run: |
+          {
+            echo "SOURCE_SHA=$GITHUB_SHA"
+            echo "API_IMAGE=$API_IMAGE"
+            echo "OPS_IMAGE=$OPS_IMAGE"
+            echo "CONSOLE_IMAGE=$CONSOLE_IMAGE"
+            echo "KEYCLOAK_IMAGE=$KEYCLOAK_IMAGE"
+          } > release.env
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uat-operator-package-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            release.env
+            migration-guard.json
