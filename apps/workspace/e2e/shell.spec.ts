@@ -142,6 +142,10 @@ test('flag เปิด → เมนูผู้ใช้แสดงชื่�
   await expect(page.getByRole('menu')).toHaveAccessibleName(
     /ผู้ทดสอบ เวิร์กสเปซ.*workspace-e2e@demo\.example.*องค์กร demo.*เอเจนต์/,
   );
+  // AC5 (#598): "บัญชีของฉัน" เปิด Console ในแท็บใหม่ — Workspace ไม่ remount ระหว่างมีสาย (ADR-026)
+  const account = page.getByRole('menuitem', { name: 'บัญชีของฉัน' });
+  await expect(account).toHaveAttribute('href', 'http://localhost:5174/?tenant=demo&view=account');
+  await expect(account).toHaveAttribute('target', '_blank');
   await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
   expect(await signOuts(page)).toBe(1);

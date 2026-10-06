@@ -5,6 +5,8 @@ import { SessionLocaleProvider } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
 import { createEmbedOriginApi } from './dphone-embedding/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
+import { createAccountApi, createAccountPolicyApi } from './account/api.js';
+import { AccountPage, AccountPolicyPage } from './account/account.js';
 import { createTeamScopeApi } from './team-scopes/api.js';
 import { ConsoleShell } from './shell/console-shell.js';
 import { ConsoleApp } from './console-app.js';
@@ -101,11 +103,18 @@ export function ConsoleAuthRoot() {
   const embeddingView = view === 'dphone-embedding';
   // #566: read-only ของ LINE pilot — มีเฉพาะ UAT ที่ใส่ overlay `uat-line` (ไม่มี = หน้าแจ้งว่าไม่ได้เปิด)
   const lineInboundView = view === 'line-inbound';
+  // AC5 (#598): บัญชีของฉัน (ทุก role) และนโยบายบัญชี (admin)
+  const accountView = view === 'account' || view === 'account-policy';
   const contactId = preferenceView ? (url.searchParams.get('contactId') ?? undefined) : undefined;
   try {
     tenantAlias = resolveTenantAlias(url);
     contextId =
-      preferenceView || governanceView || journeyView || embeddingView || lineInboundView
+      preferenceView ||
+      governanceView ||
+      journeyView ||
+      embeddingView ||
+      lineInboundView ||
+      accountView
         ? undefined
         : resolveConsoleContextId(url);
   } catch {
@@ -144,7 +153,13 @@ export function ConsoleAuthRoot() {
       }}
     >
       <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
-        {journeyView ? (
+        {accountView ? (
+          <AccountSurface
+            apiBaseUrl={apiBaseUrl}
+            tenantAlias={tenantAlias}
+            policy={view === 'account-policy'}
+          />
+        ) : journeyView ? (
           <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : lineInboundView ? (
           <LineInboundSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
@@ -429,6 +444,61 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
         scope={`${tenantAlias}:${session}`}
         initialJourneyId={new URL(window.location.href).searchParams.get('journey') ?? undefined}
       />
+    </ConsoleShell>
+  );
+}
+
+/**
+ * AC5 (#598): บัญชีของฉัน / นโยบายบัญชี — token ยืนยัน email ถูกย้ายออกจาก URL ใน main.tsx ก่อน render
+ * (จึงไม่ติดไปกับ return URL ของ login) และหน้าอ่านจาก sessionStorage ครั้งเดียว
+ */
+function AccountSurface({
+  apiBaseUrl,
+  tenantAlias,
+  policy,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+  policy: boolean;
+}) {
+  const auth = useAuth();
+  const accessToken = auth.user?.access_token;
+  const accountApi = useMemo(
+    () => createAccountApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
+  const policyApi = useMemo(
+    () => createAccountPolicyApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
+    return (
+      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
+    );
+  if (auth.error || !auth.isAuthenticated || !accessToken)
+    return (
+      <Status
+        title="D-Contact"
+        detail="เข้าสู่ระบบก่อนจัดการบัญชีของคุณ"
+        action={() => void signInFromCurrentPage(auth)}
+      />
+    );
+  return (
+    <ConsoleShell
+      {...shellUserProps(auth, tenantAlias)}
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId={policy ? 'account-policy' : 'account'}
+    >
+      {policy ? (
+        <AccountPolicyPage
+          api={policyApi}
+          canEdit={accessTokenRealmRoles(accessToken).includes('admin')}
+        />
+      ) : (
+        <AccountPage api={accountApi} verifyStorage={window.sessionStorage} />
+      )}
     </ConsoleShell>
   );
 }

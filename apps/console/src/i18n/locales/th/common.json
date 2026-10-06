@@ -47,6 +47,13 @@
       "sectionWork": "ตั้งค่า",
       "dphoneEmbedding": "ฝัง dphone ในระบบอื่น"
     },
-    "signOutFailed": "ออกจากระบบไม่สำเร็จ กรุณาลองอีกครั้ง"
+    "signOutFailed": "ออกจากระบบไม่สำเร็จ กรุณาลองอีกครั้ง",
+    "account": {
+      "eyebrow": "ส่วนตัว",
+      "title": "บัญชี",
+      "section": "บัญชี",
+      "mine": "บัญชีของฉัน",
+      "policy": "นโยบายบัญชี"
+    }
   }
 }

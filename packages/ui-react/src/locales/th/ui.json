@@ -39,6 +39,7 @@
     "open": "เมนูผู้ใช้ {{name}}",
     "unnamed": "ผู้ใช้",
     "organization": "องค์กร {{organization}}",
+    "account": "บัญชีของฉัน",
     "signOut": "ออกจากระบบ",
     "cancel": "ยกเลิก",
     "roles": {

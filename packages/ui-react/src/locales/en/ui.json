@@ -39,6 +39,7 @@
     "open": "User menu {{name}}",
     "unnamed": "User",
     "organization": "Organization {{organization}}",
+    "account": "My account",
     "signOut": "Sign out",
     "cancel": "Cancel",
     "roles": {

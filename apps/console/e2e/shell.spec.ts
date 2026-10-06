@@ -140,7 +140,12 @@ test('flag เปิด → เมนูผู้ใช้แสดงชื่�
     /ผู้ทดสอบ คอนโซล.*console-e2e@demo\.example.*องค์กร demo.*ผู้ดูแลระบบ/,
   );
   await expect(page.getByText('offline_access')).toHaveCount(0);
-  await expect(menu.getByRole('menuitem')).toHaveCount(1);
+  // AC5 (#598): "บัญชีของฉัน" ชี้หน้า Console ของ D-Contact เท่านั้น (แท็บเดิม) + ออกจากระบบ
+  await expect(menu.getByRole('menuitem')).toHaveCount(2);
+  await expect(menu.getByRole('menuitem', { name: 'บัญชีของฉัน' })).toHaveAttribute(
+    'href',
+    '/?view=account&tenant=demo',
+  );
   await expect(page.locator('[data-trigger=MenuTrigger]').getByRole('link')).toHaveCount(0);
 
   const axe = await new AxeBuilder({ page }).include('header').analyze();
