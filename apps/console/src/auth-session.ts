@@ -1,5 +1,7 @@
 import { InMemoryWebStorage, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
 
+const CONSOLE_RETURN_URL_KEY = 'dcontact.console.return-url';
+
 export interface ConsoleOidcSettingsInput {
   issuer: string;
   clientId: string;
@@ -47,6 +49,29 @@ export function cleanConsoleCallbackUrl(location: URL): string {
   const next = new URL(location.href);
   for (const key of ['code', 'state', 'session_state', 'iss']) next.searchParams.delete(key);
   return `${next.pathname}${next.search}${next.hash}`;
+}
+
+export function rememberConsoleReturnUrl(location: URL, storage: Storage): void {
+  storage.setItem(CONSOLE_RETURN_URL_KEY, cleanConsoleCallbackUrl(new URL(location.href)));
+}
+
+export function consumeConsoleReturnUrl(callback: URL, storage: Storage): string {
+  const fallback = cleanConsoleCallbackUrl(callback);
+  const saved = storage.getItem(CONSOLE_RETURN_URL_KEY);
+  storage.removeItem(CONSOLE_RETURN_URL_KEY);
+  if (!saved || !saved.startsWith('/') || saved.startsWith('//')) return fallback;
+  try {
+    const destination = new URL(saved, callback.origin);
+    if (
+      destination.origin !== callback.origin ||
+      destination.searchParams.get('tenant') !== callback.searchParams.get('tenant')
+    ) {
+      return fallback;
+    }
+    return cleanConsoleCallbackUrl(destination);
+  } catch {
+    return fallback;
+  }
 }
 
 export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): UserManagerSettings {
