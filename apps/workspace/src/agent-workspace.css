@@ -1,6 +1,6 @@
 /* ============================================================
    Agent Workspace — D1.15 (#454): token ล้วน (`var(--dc-*)`), class ขึ้นต้นด้วย `aw-`
-   Supervisor Workspace และหน้า auth ยังใช้ workspace-app.css เดิม (นอกขอบเขต D1)
+   Supervisor Workspace อยู่ supervisor-workspace.css (#604); หน้า auth และ chrome เดิมตอนปิด flag ยังใช้ workspace-app.css
    stylelint: pnpm --filter @d-contact/workspace lint:css
    ============================================================ */
 
