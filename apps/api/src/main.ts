@@ -28,6 +28,10 @@ import { createWorkspaceSessionHandler } from './workspace-session-api.js';
 import { WorkSessionLeases } from './work-session.js';
 import { EmbedOriginService } from './embed-origins.js';
 import { AccountPolicyService } from './account-policy.js';
+import {
+  KeycloakAccountServiceClient,
+  KeycloakOrganizationMfa,
+} from './keycloak-account-service.js';
 import { ACCOUNT_POLICY_SERVICE, AccountPolicyController } from './account-policy-api.js';
 import {
   DPHONE_EMBED_SHELL_OPTIONS,
@@ -162,6 +166,21 @@ const verifier = new KeycloakAccessTokenVerifier({
   issuer: required('KEYCLOAK_ISSUER'),
   audience: required('KEYCLOAK_AUDIENCE'),
   jwksUri: required('KEYCLOAK_JWKS_URI'),
+});
+// AC1/AC2 (#594/#595): บังคับ 2FA sync ไป Organization ผ่าน extension `dc-account` — ไม่มี secret ของ
+// account service = ไม่มี port และการเปิดบังคับ 2FA ตอบ 409 MFA_ENFORCEMENT_UNAVAILABLE (ไม่บันทึกค่าที่บังคับไม่ได้)
+const accountServiceSecret = process.env.KEYCLOAK_ACCOUNT_SERVICE_SECRET;
+const accountPolicies = new AccountPolicyService(prisma, {
+  ...(accountServiceSecret
+    ? {
+        mfa: new KeycloakOrganizationMfa(
+          new KeycloakAccountServiceClient({
+            issuer: required('KEYCLOAK_ISSUER'),
+            clientSecret: accountServiceSecret,
+          }),
+        ),
+      }
+    : {}),
 });
 // A1.8a (#447): tenant ที่ยังไม่ ACTIVE (เช่นยัง provisioning) เข้า tenant API/workspace ไม่ได้
 const tenantLifecycle = new CachedTenantLifecycleGate((tenantId) =>
@@ -384,7 +403,7 @@ class WorkspaceSessionController {
     { provide: WORK_SESSION_LEASES, useValue: workSessionLeases },
     { provide: EMBED_ORIGIN_SERVICE, useValue: embedOrigins },
     // AC1 (#594): นโยบายบัญชีของ tenant — port บังคับ 2FA มาใน AC2 (#595); ก่อนนั้นเปิด 2FA ได้ 409
-    { provide: ACCOUNT_POLICY_SERVICE, useValue: new AccountPolicyService(prisma) },
+    { provide: ACCOUNT_POLICY_SERVICE, useValue: accountPolicies },
     // E1.15 (#489): `<dphone-launcher>` แบบ versioned/alias บน dphone origin
     { provide: DPHONE_LAUNCHER_OPTIONS, useValue: { releasesDir: defaultLauncherReleasesDir() } },
     { provide: SCREEN_POP_SERVICE, useValue: screenPop },

@@ -24,13 +24,18 @@ RUN node scripts/keycloak-theme-build.mjs
 FROM ${KEYCLOAK_IMAGE} AS keycloak-distribution
 
 # A1.9 (#574): invitation guard ต้อง compile กับ Keycloak 26 และรันด้วย Java 21
+# AC2 (#595): extension `dc-account` (ตั้ง TOTP แทนผู้ใช้ + บังคับ 2FA ตาม Organization) build คู่กัน
 FROM ${KEYCLOAK_EXTENSION_BUILDER_IMAGE} AS platform-extension
 COPY --from=keycloak-distribution /opt/keycloak/lib/lib/main /kc-libs
-COPY infra/keycloak/extensions/invitation-guard/src/main /src
-RUN mkdir -p /classes \
-  && javac --release 21 -proc:none -nowarn -cp '/kc-libs/*' -d /classes $(find /src/java -name '*.java') \
-  && cp -r /src/resources/. /classes/ \
-  && cd /classes && jar cf /dcontact-invitation-guard.jar .
+COPY infra/keycloak/extensions/invitation-guard/src/main /src/invitation-guard
+COPY infra/keycloak/extensions/dc-account/src/main /src/dc-account
+RUN set -e; for entry in invitation-guard:dcontact-invitation-guard.jar dc-account:dcontact-account.jar; do \
+    name="${entry%%:*}"; jar="${entry#*:}"; \
+    mkdir -p "/classes/$name"; \
+    javac --release 21 -proc:none -nowarn -cp '/kc-libs/*' -d "/classes/$name" $(find "/src/$name/java" -name '*.java'); \
+    cp -r "/src/$name/resources/." "/classes/$name/"; \
+    (cd "/classes/$name" && jar cf "/$jar" .); \
+  done
 
 FROM ${KEYCLOAK_PLATFORM_RUNTIME_IMAGE} AS runtime
 ARG SOURCE_SHA=unknown
@@ -40,5 +45,6 @@ ENV KC_RUN_IN_CONTAINER=true
 COPY --from=keycloak-distribution --chown=1000:0 /opt/keycloak /opt/keycloak
 COPY --from=theme --chown=1000:0 /src/infra/keycloak/themes/ /opt/keycloak/themes/
 COPY --from=platform-extension --chown=1000:0 /dcontact-invitation-guard.jar /opt/keycloak/providers/
+COPY --from=platform-extension --chown=1000:0 /dcontact-account.jar /opt/keycloak/providers/
 USER 1000
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]

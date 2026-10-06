@@ -17,14 +17,26 @@ import { resolve } from 'node:path';
  * `view-organizations`/`manage-organizations` — provisioner จึงได้ `manage-organizations` ใน
  * keycloak-provisioning-setup.mjs (สคริปต์นั้นรันก่อนสคริปต์นี้ใน `infra:bootstrap`)
  *
+ * AC2 (#595): browser flow ของ tenant `dcontact-browser` (copy จาก `browser` ของ Keycloak) บังคับ 2FA ตาม
+ * Organization ด้วย extension `dc-account` (infra/keycloak/extensions/dc-account):
+ * - subflow ใหม่ "Org 2FA" (CONDITIONAL): `dc-org-mfa-required` + `auth-otp-form` แบบ REQUIRED —
+ *   ยังไม่มี OTP = required action `CONFIGURE_TOTP`; มีแล้ว = ถาม OTP
+ * - subflow 2FA เดิม: เพิ่ม `dc-org-mfa-required` แบบ negate เพื่อไม่ถาม OTP สองรอบเมื่อ org บังคับ
+ * - ผูกเป็น browser flow ของ realm — `platform-console` มี flow ของตัวเอง (keycloak-platform-setup.mjs) จึงไม่กระทบ
+ * - ประเมินตอน login เท่านั้น: เปิดบังคับแล้วมีผล login ครั้งถัดไป ไม่ตัด session ที่ใช้อยู่ (#589 D10)
+ *
  * `--verify` ตรวจด้วย token ของ service account จริง: แก้ผู้ใช้ tenant ได้, แตะผู้ใช้ที่ถูกป้องกันไม่ได้,
- * และอ่าน client ของ realm ไม่ได้
+ * อ่าน client ของ realm ไม่ได้, เรียก extension `dc-account` ได้ (token อื่น = 403) และ flow ถูกตั้งครบ
  */
 export const ACCOUNT_SERVICE_CLIENT = 'dcontact-account-service';
 export const ALLOW_POLICY = 'dc-account-service';
 export const DENY_POLICY = 'dc-account-service-deny';
 export const USERS_PERMISSION = 'dc-account-service-users';
 export const PROTECTED_PERMISSION = 'dc-account-service-protected-users';
+export const TENANT_BROWSER_FLOW = 'dcontact-browser';
+export const ORG_MFA_FLOW = `${TENANT_BROWSER_FLOW} Org 2FA`;
+export const ORG_MFA_CONDITION = 'dc-org-mfa-required';
+export const ORG_MFA_NEGATE_CONFIG = `${TENANT_BROWSER_FLOW}-org-mfa-negate`;
 export const ALLOWED_USER_SCOPES = Object.freeze(['view', 'manage', 'reset-password']);
 export const ALL_USER_SCOPES = Object.freeze([
   'view',
@@ -238,6 +250,185 @@ async function realmUsers(accessToken) {
   return { userIds: [...users.map((user) => user.id), ...serviceAccounts], memberIds };
 }
 
+/**
+ * execution ของ flow (เรียงแบบ depth-first พร้อม `level`) → execution ลูกโดยตรงของ subflow ที่ index นั้น
+ * (`-1` = ระดับบนสุด)
+ */
+export function childrenOf(executions, parentIndex) {
+  const level = parentIndex < 0 ? 0 : executions[parentIndex].level + 1;
+  const children = [];
+  for (let index = parentIndex + 1; index < executions.length; index += 1) {
+    const execution = executions[index];
+    if (execution.level < level) break;
+    if (execution.level === level) children.push({ ...execution, position: index });
+  }
+  return children;
+}
+
+/** subflow `forms` (มี username/password) และ subflow 2FA เดิมของ Keycloak (มี OTP form + user configured) */
+export function locateBrowserSubflows(executions) {
+  const subflows = executions
+    .map((execution, index) => ({ ...execution, position: index }))
+    .filter((execution) => execution.authenticationFlow);
+  const providers = (subflow) =>
+    childrenOf(executions, subflow.position).map((child) => child.providerId);
+  const forms = subflows.find(
+    (subflow) => subflow.level === 0 && providers(subflow).includes('auth-username-password-form'),
+  );
+  const twoFactor = subflows.find(
+    (subflow) =>
+      subflow.displayName !== ORG_MFA_FLOW &&
+      providers(subflow).includes('auth-otp-form') &&
+      providers(subflow).includes('conditional-user-configured'),
+  );
+  const orgMfa = subflows.find((subflow) => subflow.displayName === ORG_MFA_FLOW);
+  return { forms, twoFactor, orgMfa };
+}
+
+async function setRequirement(accessToken, { position: _position, ...execution }, requirement) {
+  // `position` เป็นของ childrenOf/locateBrowserSubflows — Keycloak ปฏิเสธ field ที่ไม่รู้จัก (400)
+  if (execution.requirement === requirement) return;
+  await request(`${realmPath}/authentication/flows/${TENANT_BROWSER_FLOW}/executions`, {
+    method: 'PUT',
+    token: accessToken,
+    body: { ...execution, requirement },
+  });
+}
+
+/** ตั้ง browser flow ของ tenant — idempotent (เพิ่มเฉพาะส่วนที่ยังไม่มี แล้วแก้ requirement/config ให้ตรง) */
+async function ensureTenantBrowserFlow(accessToken) {
+  const flowsPath = `${realmPath}/authentication/flows`;
+  const executionsPath = `${flowsPath}/${encodeURIComponent(TENANT_BROWSER_FLOW)}/executions`;
+  const { body: flows } = await request(flowsPath, { token: accessToken });
+  if (!flows.some((flow) => flow.alias === TENANT_BROWSER_FLOW)) {
+    await request(`${flowsPath}/browser/copy`, {
+      method: 'POST',
+      token: accessToken,
+      body: { newName: TENANT_BROWSER_FLOW },
+    });
+  }
+  const executions = async () => (await request(executionsPath, { token: accessToken })).body;
+  let located = locateBrowserSubflows(await executions());
+  if (!located.forms || !located.twoFactor) {
+    throw new Error(`${TENANT_BROWSER_FLOW}: ไม่พบ subflow forms/2FA ที่ copy มาจาก browser`);
+  }
+  const subflowPath = (subflow) =>
+    `${flowsPath}/${encodeURIComponent(subflow.displayName)}/executions`;
+
+  // subflow 2FA เดิม: + condition แบบ negate
+  if (
+    !childrenOf(await executions(), located.twoFactor.position).some(
+      (child) => child.providerId === ORG_MFA_CONDITION,
+    )
+  ) {
+    await request(`${subflowPath(located.twoFactor)}/execution`, {
+      method: 'POST',
+      token: accessToken,
+      body: { provider: ORG_MFA_CONDITION },
+    });
+  }
+  // subflow Org 2FA ใน forms
+  if (!located.orgMfa) {
+    await request(`${subflowPath(located.forms)}/flow`, {
+      method: 'POST',
+      token: accessToken,
+      body: {
+        alias: ORG_MFA_FLOW,
+        description:
+          'AC2 #595: Organization บังคับ 2FA — ยังไม่มี OTP = ตั้งก่อน, มีแล้ว = ถาม OTP',
+        provider: 'registration-page-form',
+        type: 'basic-flow',
+      },
+    });
+  }
+  located = locateBrowserSubflows(await executions());
+  const orgChildren = childrenOf(await executions(), located.orgMfa.position);
+  for (const provider of [ORG_MFA_CONDITION, 'auth-otp-form']) {
+    if (!orgChildren.some((child) => child.providerId === provider)) {
+      await request(`${subflowPath(located.orgMfa)}/execution`, {
+        method: 'POST',
+        token: accessToken,
+        body: { provider },
+      });
+    }
+  }
+
+  const all = await executions();
+  located = locateBrowserSubflows(all);
+  await setRequirement(accessToken, located.orgMfa, 'CONDITIONAL');
+  for (const child of childrenOf(all, located.orgMfa.position)) {
+    await setRequirement(accessToken, child, 'REQUIRED');
+  }
+  const negated = childrenOf(all, located.twoFactor.position).find(
+    (child) => child.providerId === ORG_MFA_CONDITION,
+  );
+  await setRequirement(accessToken, negated, 'REQUIRED');
+  const negateConfig = { alias: ORG_MFA_NEGATE_CONFIG, config: { 'dc.negate': 'true' } };
+  if (!negated.authenticationConfig) {
+    await request(`${realmPath}/authentication/executions/${negated.id}/config`, {
+      method: 'POST',
+      token: accessToken,
+      body: negateConfig,
+    });
+  } else {
+    await request(`${realmPath}/authentication/config/${negated.authenticationConfig}`, {
+      method: 'PUT',
+      token: accessToken,
+      body: { ...negateConfig, id: negated.authenticationConfig },
+    });
+  }
+
+  // OTP form แบบ REQUIRED ตั้ง CONFIGURE_TOTP ให้ผู้ใช้ที่ยังไม่มี OTP — required action ต้องเปิดอยู่
+  const { body: configureTotp } = await request(
+    `${realmPath}/authentication/required-actions/CONFIGURE_TOTP`,
+    { token: accessToken },
+  );
+  if (!configureTotp.enabled) {
+    await request(`${realmPath}/authentication/required-actions/CONFIGURE_TOTP`, {
+      method: 'PUT',
+      token: accessToken,
+      body: { ...configureTotp, enabled: true },
+    });
+  }
+  const { body: current } = await request(realmPath, { token: accessToken });
+  if (current.browserFlow !== TENANT_BROWSER_FLOW) {
+    await request(realmPath, {
+      method: 'PUT',
+      token: accessToken,
+      body: { ...current, browserFlow: TENANT_BROWSER_FLOW },
+    });
+  }
+}
+
+/** flow ที่ตั้งแล้วตรงกับที่ต้องการ — คืนรายการที่ผิด (ว่าง = ผ่าน) */
+export function browserFlowFailures(realmRepresentation, executions) {
+  const failures = [];
+  if (realmRepresentation.browserFlow !== TENANT_BROWSER_FLOW) {
+    failures.push(`browser flow ของ realm ต้องเป็น ${TENANT_BROWSER_FLOW}`);
+  }
+  const { twoFactor, orgMfa } = locateBrowserSubflows(executions);
+  if (!orgMfa || orgMfa.requirement !== 'CONDITIONAL') {
+    failures.push(`${ORG_MFA_FLOW} ต้องเป็น CONDITIONAL`);
+  } else {
+    const children = childrenOf(executions, orgMfa.position);
+    for (const provider of [ORG_MFA_CONDITION, 'auth-otp-form']) {
+      if (
+        !children.some((child) => child.providerId === provider && child.requirement === 'REQUIRED')
+      )
+        failures.push(`${ORG_MFA_FLOW} ต้องมี ${provider} แบบ REQUIRED`);
+    }
+  }
+  const negated =
+    twoFactor &&
+    childrenOf(executions, twoFactor.position).find(
+      (child) => child.providerId === ORG_MFA_CONDITION,
+    );
+  if (!negated || negated.requirement !== 'REQUIRED' || !negated.authenticationConfig) {
+    failures.push('subflow 2FA เดิมต้องมี dc-org-mfa-required แบบ negate');
+  }
+  return failures;
+}
+
 export async function setupAccountService() {
   const accessToken = await adminToken();
   const { body: current } = await request(realmPath, { token: accessToken });
@@ -304,6 +495,8 @@ export async function setupAccountService() {
     );
   }
 
+  await ensureTenantBrowserFlow(accessToken);
+
   return { protectedUsers: protectedIds.length, tenantUsers: new Set(memberIds).size };
 }
 
@@ -356,6 +549,31 @@ export async function verifyAccountService() {
     accept: [403],
   });
   expect('map realm role ให้ผู้ใช้ tenant', mapRoles.status, 403);
+
+  // extension dc-account: body ไม่ถูกต้อง = 400 ก่อนแตะข้อมูลใด (จึงไม่แก้บัญชีจริง); token อื่น = 403
+  const extension = `/realms/${realm}/dc-account/users/${tenantUserId}/totp/verify-and-create`;
+  const call = async (bearer) =>
+    (
+      await request(extension, {
+        method: 'POST',
+        token: bearer,
+        body: { tenantId: 'invalid' },
+        accept: [400, 401, 403, 404],
+      })
+    ).status;
+  expect('extension dc-account ด้วย account service', await call(serviceToken), 400);
+  // token ของ admin (realm master) = token ของ realm อื่น → 401; token อื่นใน realm เดียวกัน → 403 (boundary test)
+  const foreign = await call(accessToken);
+  if (foreign !== 401 && foreign !== 403) {
+    failures.push(`extension dc-account ด้วย token ของ admin: ได้ ${foreign} ต้องถูกปฏิเสธ`);
+  }
+
+  const { body: realmRepresentation } = await request(realmPath, { token: accessToken });
+  const { body: executions } = await request(
+    `${realmPath}/authentication/flows/${encodeURIComponent(TENANT_BROWSER_FLOW)}/executions`,
+    { token: accessToken, accept: [404] },
+  );
+  failures.push(...browserFlowFailures(realmRepresentation, executions ?? []));
   return failures;
 }
 

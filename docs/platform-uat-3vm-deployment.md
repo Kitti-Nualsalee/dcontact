@@ -52,6 +52,11 @@ bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh status <SOURCE_SHA>
 - env เดิมที่ติดตั้งก่อน #592 ต้องเพิ่มเองด้วยค่าสุ่ม 48 ตัวอักษร (`[A-Za-z0-9]`) แล้วจึงรัน `configure`
 - `configure` เปิด fine-grained admin permissions v2, ตั้ง `dcontact-account-service` และให้ provisioner ได้ `manage-organizations` (ADR-033)
 - `operator` รัน account setup ซ้ำ เพื่อให้ operator ใหม่อยู่ในรายชื่อที่ service account แตะไม่ได้
+- **AC2 (#595):** `configure` ยังตั้ง browser flow ของ tenant `dcontact-browser` และผูกเป็น browser flow ของ realm
+  (บังคับ 2FA ตาม Organization ผ่าน extension `dc-account` ใน image ของ Keycloak)
+  - image ของ Keycloak ต้องมี `dcontact-account.jar` ก่อนรัน `configure` — ถ้าไม่มี setup จะล้มที่การเพิ่ม `dc-org-mfa-required`
+  - ถอยกลับ: ตั้ง browser flow ของ realm กลับเป็น `browser` ใน admin console ของ Keycloak
+    (`platform-console` ใช้ flow ของตัวเอง จึงไม่กระทบ)
 
 `keycloak` เปลี่ยนเฉพาะ image ของ service U1 ด้วย overlay; release directory และ `release.env` ของ U1 ไม่ถูกแก้. `configure` ตั้ง `platform-console`/provisioner/SMTP และ seed operational baseline UAT (`uat-operational-v1`, plan starter/growth/enterprise) แบบทำซ้ำได้. `start` ต้องตรวจว่า rollout ยังปิด.
 
