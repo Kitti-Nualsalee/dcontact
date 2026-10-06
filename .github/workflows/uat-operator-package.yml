@@ -7,6 +7,16 @@ on:
         description: 'SHA ของ deployment record ปัจจุบันบน UAT สำหรับ migration guard'
         required: true
         type: string
+      uat_host:
+        description: 'Hostname สาธารณะของ UAT (ไม่ใช่ secret)'
+        required: true
+        default: 'dcontact-uat.osd.co.th'
+        type: string
+      fixture_pack_version:
+        description: 'Fixture pack version ที่ฝังใน Console (ไม่ใช่ secret)'
+        required: true
+        default: 'uat-first-slice.v1'
+        type: string
 
 permissions:
   contents: read
@@ -84,11 +94,11 @@ jobs:
           provenance: false
           build-args: |
             SOURCE_SHA=${{ github.sha }}
-            VITE_KC_ISSUER=https://${{ vars.UAT_HOST }}/auth/realms/dcontact
+            VITE_KC_ISSUER=https://${{ inputs.uat_host }}/auth/realms/dcontact
             VITE_KC_CLIENT_ID=dcontact-uat-console
             VITE_CONSOLE_DEFAULT_VIEW=journeys
             VITE_UAT_ENVIRONMENT=${{ vars.UAT_ENVIRONMENT || 'uat' }}
-            VITE_UAT_PACK_VERSION=${{ vars.UAT_FIXTURE_PACK_VERSION }}
+            VITE_UAT_PACK_VERSION=${{ inputs.fixture_pack_version }}
           tags: ${{ steps.names.outputs.console }}:${{ github.sha }}
 
       - name: Build + push Keycloak image
