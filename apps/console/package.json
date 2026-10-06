@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@d-contact/dphone-embed": "workspace:*",
     "@d-contact/i18n": "workspace:*",
     "@d-contact/shared": "workspace:^",
     "@d-contact/ui": "workspace:*",
