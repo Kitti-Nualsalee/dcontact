@@ -192,7 +192,7 @@ jobs:
           cat release.env
           release="$UAT_ROOT/releases/$GITHUB_SHA"
           uat-ssh "mkdir -p '$release/bin'"
-          uat-scp infra/uat/docker-compose.uat.yml infra/uat/docker-compose.uat.3vm.yml infra/uat/docker-compose.uat.migration.yml infra/uat/Caddyfile.3vm infra/uat/haproxy-db-relay.cfg infra/uat/docker-compose.uat.line.yml infra/uat/Caddyfile.3vm.line infra/uat/haproxy-line-egress.cfg infra/uat/docker-compose.uat.line-trial.yml release.env "uat:$release/"
+          uat-scp infra/uat/docker-compose.uat.yml infra/uat/docker-compose.uat.3vm.yml infra/uat/docker-compose.uat.migration.yml infra/uat/docker-compose.uat.e1.yml infra/uat/Caddyfile.3vm infra/uat/haproxy-db-relay.cfg infra/uat/docker-compose.uat.line.yml infra/uat/Caddyfile.3vm.line infra/uat/haproxy-line-egress.cfg infra/uat/docker-compose.uat.line-trial.yml release.env "uat:$release/"
           uat-scp infra/uat/bin/uat-deploy.sh infra/uat/bin/db-roles.sh infra/uat/bin/db-roles-3vm.sh infra/uat/bin/object-storage-entrypoint.sh "uat:$release/bin/"
           uat-deploy prepare "$GITHUB_SHA"
 

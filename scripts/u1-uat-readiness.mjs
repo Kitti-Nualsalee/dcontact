@@ -33,6 +33,7 @@ export const UAT_FILES = Object.freeze({
   lineSecretsScript: 'infra/uat/operator/vm2-line-secrets.sh',
   // #567: overlay ของ team trial (flag แยก)
   composeLineTrial: 'infra/uat/docker-compose.uat.line-trial.yml',
+  composeE1: 'infra/uat/docker-compose.uat.e1.yml',
   envExample: 'infra/uat/uat.env.example',
   deployScript: 'infra/uat/bin/uat-deploy.sh',
   dbRolesScript: 'infra/uat/bin/db-roles.sh',
@@ -1504,6 +1505,7 @@ export async function runLiveSmoke({
   connectHost,
   portCheckHost,
   token,
+  expectedProfile = 'uat',
   realm = 'dcontact',
   ports = FORBIDDEN_PORTS,
   allowHttp = false,
@@ -1530,22 +1532,25 @@ export async function runLiveSmoke({
   );
 
   checks.push(
-    await liveCheck('UAT-L02 runtime-profile = uat (Kafka/LINE/egress ปิด)', async () => {
-      const response = await get('/api/v1/runtime-profile');
-      const body = json(response);
-      const expected = {
-        profile: 'uat',
-        kafka: 'DISABLED',
-        lineWebhook: 'DISABLED',
-        providerEgress: 'BLOCKED',
-        journeyRuntime: 'NOT_DEPLOYED',
-        unilateralPublish: 'NOT_EXPOSED',
-      };
-      if (response.status !== 200 || !body) return [{ status: response.status }];
-      return Object.entries(expected)
-        .filter(([key, value]) => body[key] !== value)
-        .map(([key]) => ({ field: key, actual: String(body[key]) }));
-    }),
+    await liveCheck(
+      `UAT-L02 runtime-profile = ${expectedProfile} (Kafka/LINE/egress ปิด)`,
+      async () => {
+        const response = await get('/api/v1/runtime-profile');
+        const body = json(response);
+        const expected = {
+          profile: expectedProfile,
+          kafka: 'DISABLED',
+          lineWebhook: 'DISABLED',
+          providerEgress: 'BLOCKED',
+          journeyRuntime: 'NOT_DEPLOYED',
+          unilateralPublish: 'NOT_EXPOSED',
+        };
+        if (response.status !== 200 || !body) return [{ status: response.status }];
+        return Object.entries(expected)
+          .filter(([key, value]) => body[key] !== value)
+          .map(([key]) => ({ field: key, actual: String(body[key]) }));
+      },
+    ),
   );
 
   checks.push(
@@ -1799,6 +1804,7 @@ export async function main(argv = process.argv.slice(2), environment = process.e
       connectHost: environment.UAT_CONNECT_HOST || undefined,
       portCheckHost: environment.UAT_PORT_CHECK_HOST || undefined,
       token: environment.UAT_SMOKE_ACCESS_TOKEN || undefined,
+      expectedProfile: environment.UAT_EXPECTED_API_PROFILE || 'uat',
     });
   }
   if (argv.includes('--migration-guard') && !argv.includes('--migration-guard-report')) {

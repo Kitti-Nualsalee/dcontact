@@ -44,6 +44,34 @@ test('uat ปิด Kafka/LINE/egress และจำกัด route เฉพ�
   ]);
 });
 
+test('uat-e1 แยกจาก uat และเปิดเฉพาะ Embedded dphone โดยยังปิด provider egress', () => {
+  const profile = resolveApiRuntimeProfile({
+    DCONTACT_API_PROFILE: 'uat-e1',
+    DATABASE_URL: 'postgresql://uat',
+    SIP_BROWSER_NODES_JSON: '[]',
+  });
+  assert.deepEqual(profile, {
+    name: 'uat-e1',
+    kafka: 'DISABLED',
+    lineWebhook: 'DISABLED',
+    providerEgress: 'BLOCKED',
+    allowedRoutePrefixes: [
+      '/api/v1/runtime-profile',
+      '/api/v1/tenant/embed-origins',
+      '/api/v1/me/work-session',
+      '/api/v1/workspace/agent',
+    ],
+  });
+  rejectsWith(
+    () =>
+      resolveApiRuntimeProfile({
+        DCONTACT_API_PROFILE: 'uat-e1',
+        KAFKA_BROKERS: 'redpanda:9092',
+      }),
+    'CONFLICTING_CONFIGURATION',
+  );
+});
+
 test('profile ที่ไม่รู้จักทำให้บูตไม่ผ่าน', () => {
   rejectsWith(
     () => resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'staging' }),
@@ -86,6 +114,10 @@ test('entrypoint รับ profile เดียว: main.ts ปฏิเสธ u
     'WRONG_ENTRYPOINT',
   );
   rejectsWith(() => assertEntrypointProfile('uat', {}), 'WRONG_ENTRYPOINT');
+  assert.equal(
+    assertEntrypointProfile('uat-e1', { DCONTACT_API_PROFILE: 'uat-e1' }).name,
+    'uat-e1',
+  );
   assert.equal(assertEntrypointProfile('default', {}).name, 'default');
 });
 

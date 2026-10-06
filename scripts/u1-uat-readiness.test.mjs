@@ -614,6 +614,18 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
     compose,
     /DPHONE_EMBED_SCRIPT_URL: https:\/\/\$\{UAT_HOST:[^}]+\}\/workspace\/embed\/dphone-embed\.js/,
   );
+  const e1Overlay = readFileSync('infra/uat/docker-compose.uat.e1.yml', 'utf8');
+  assert.match(e1Overlay, /command: \['node', 'dist\/e1-uat-main\.js'\]/);
+  assert.match(e1Overlay, /DCONTACT_API_PROFILE: uat-e1/);
+  assert.match(apiDockerfile, /test -f \/out\/api\/dist\/e1-uat-main\.js/);
+  assert.match(deployScript, /e1-enable\)/);
+  assert.match(deployScript, /e1-disable\)/);
+  assert.match(deployScript, /E1_ACCEPTANCE_OVERLAY_MISSING/);
+  const wizard = readFileSync('scripts/e1-16-uat-acceptance-wizard.sh', 'utf8');
+  assert.match(wizard, /e1-enable '\$MAIN_SHA'/);
+  assert.match(wizard, /e1-disable '\$MAIN_SHA'/);
+  assert.ok(wizard.indexOf('e1-enable') < wizard.indexOf('ui-flag'));
+  assert.ok(wizard.indexOf('ui-flag') < wizard.indexOf('e1-disable'));
 });
 
 test('UAT-S10: proxy ที่เปิด admin ของ Keycloak หรือไม่มี allowlist ไม่ผ่าน', () => {
@@ -1270,6 +1282,16 @@ test('UAT-L: smoke ผ่านกับ UAT ที่ถูกต้อง; jou
     assert.equal(result.status, 'PASS');
     // ต่อ 127.0.0.1 แต่ส่ง Host ของ UAT_HOST
     assert.deepEqual([...stub.seen.hosts], [`uat.example.test:${stub.port}`]);
+  } finally {
+    stub.server.close();
+  }
+});
+
+test('UAT-L02: smoke ยอมรับ profile uat-e1 เฉพาะเมื่อ operator ระบุ', async () => {
+  const stub = await stubUat({ profile: { profile: 'uat-e1' } });
+  try {
+    assert.equal((await smoke(stub)).status, 'FAIL');
+    assert.equal((await smoke(stub, { expectedProfile: 'uat-e1' })).status, 'PASS');
   } finally {
     stub.server.close();
   }

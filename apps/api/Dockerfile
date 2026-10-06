@@ -50,6 +50,7 @@ RUN pnpm --filter @d-contact/api deploy --prod /out/api \
          cpSync(generated, client(target), { recursive: true }); \
        }" \
   && test -f /out/api/dist/uat-main.js \
+  && test -f /out/api/dist/e1-uat-main.js \
   && test -f /out/api/dist/uat-provision-main.js \
   && test -f /out/api/dist/line-webhook-main.js \
   && for cli in line-pilot-cli line-pilot-setup line-provider-runner; do \

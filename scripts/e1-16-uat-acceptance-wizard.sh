@@ -272,6 +272,8 @@ gh run watch "$DEPLOY_RUN" --repo "$REPOSITORY" --exit-status
 stage "Allowlist origin และเปิด embed flag"
 UAT_HOST="$(gh variable get UAT_HOST --env "$ENVIRONMENT" --repo "$REPOSITORY")"
 HOST_ORIGIN="https://$UAT_HOST"
+uat_ssh "UAT_ROOT='$UAT_ROOT' '$UAT_ROOT/releases/$MAIN_SHA/bin/uat-deploy.sh' e1-enable '$MAIN_SHA'"
+uat_ssh "UAT_ROOT='$UAT_ROOT' '$UAT_ROOT/releases/$MAIN_SHA/bin/uat-deploy.sh' smoke '$MAIN_SHA'"
 open_url "$HOST_ORIGIN/?view=dphone-embedding"
 step "เข้าสู่ระบบด้วยบัญชี UAT ADMIN แล้วเพิ่ม origin $HOST_ORIGIN"
 step "ตั้ง screen-pop level เป็น ids และยืนยันว่า Console แสดง audit สำเร็จ"
@@ -297,6 +299,8 @@ uat_ssh "UAT_ROOT='$UAT_ROOT' '$UAT_ROOT/releases/$MAIN_SHA/bin/uat-deploy.sh' u
 open_url "$HOST_URL"
 step "reload reference host และยืนยัน iframe ถูก fail-closed; สายที่ active ก่อนปิดต้องไม่หลุดจนจบ"
 pause "กด Enter เมื่อยืนยัน flag rollback แล้ว"
+uat_ssh "UAT_ROOT='$UAT_ROOT' '$UAT_ROOT/releases/$MAIN_SHA/bin/uat-deploy.sh' e1-disable '$MAIN_SHA'"
+uat_ssh "UAT_ROOT='$UAT_ROOT' '$UAT_ROOT/releases/$MAIN_SHA/bin/uat-deploy.sh' smoke '$MAIN_SHA'"
 
 stage "Deployment rollback และบันทึกหลักฐาน"
 warn "ขั้นนี้ต้องมี previous successful deployment record; ถ้าไม่มีให้ตอบ No และเก็บ gate นี้ไว้รอบถัดไป"
