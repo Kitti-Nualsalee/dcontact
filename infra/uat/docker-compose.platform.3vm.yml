@@ -86,9 +86,13 @@ services:
       KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD: ${UAT_KEYCLOAK_ADMIN_PASSWORD:?required}
       KEYCLOAK_PROVISIONER_SECRET: ${KEYCLOAK_PROVISIONER_SECRET:?required}
       KEYCLOAK_ACCOUNT_SERVICE_SECRET: ${KEYCLOAK_ACCOUNT_SERVICE_SECRET:?required}
-      KEYCLOAK_SMTP_HOST: mailpit
-      KEYCLOAK_SMTP_PORT: '1025'
-      KEYCLOAK_SMTP_FROM: no-reply@dcontact-uat.osd.co.th
+      # AC3 (#596): SMTP ชุดเดียวกับ email บัญชีของ D-Contact (uat.env) — ไม่ตั้ง = mailpit ภายใน stack
+      KEYCLOAK_SMTP_HOST: ${SMTP_HOST:-mailpit}
+      KEYCLOAK_SMTP_PORT: ${SMTP_PORT:-1025}
+      KEYCLOAK_SMTP_SECURE: ${SMTP_SECURE:-false}
+      KEYCLOAK_SMTP_USER: ${SMTP_USER:-}
+      KEYCLOAK_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      KEYCLOAK_SMTP_FROM: ${SMTP_FROM:-no-reply@dcontact-uat.osd.co.th}
       PLATFORM_CONSOLE_REDIRECT: https://platform-uat.osd.co.th
     networks: [uat-internal]
     depends_on: [mailpit]

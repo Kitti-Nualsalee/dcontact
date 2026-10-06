@@ -101,7 +101,8 @@
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down",
     "infra:identity:account": "node scripts/keycloak-account-service-setup.mjs",
     "infra:identity:account:verify": "node scripts/keycloak-account-service-setup.mjs --verify",
-    "test:keycloak-account-service": "node --test scripts/keycloak-account-service-setup.test.mjs"
+    "test:keycloak-account-service": "node --test scripts/keycloak-account-service-setup.test.mjs",
+    "test:keycloak-provisioning": "node --test scripts/keycloak-provisioning-setup.test.mjs"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

@@ -9,7 +9,8 @@ import { resolve } from 'node:path';
  *   Keycloak 26.0 ต้องใช้ `manage-realm` สำหรับ Organization API (ยังไม่มี fine-grained admin
  *   permission) จึงต้องเก็บ secret ไว้เฉพาะ worker
  * - user profile: correlation attributes แก้ได้เฉพาะ admin (ผู้ใช้แก้ผ่าน account console ไม่ได้)
- * - SMTP ของ dev ชี้ mailpit (ไม่มีการส่งออกภายนอก) — production ตั้ง SMTP ผ่าน secret ของ env
+ * - SMTP ของ dev ชี้ mailpit (ไม่มีการส่งออกภายนอก) — UAT ส่ง `SMTP_*` ชุดเดียวกับ API ของ D-Contact มาเป็น
+ *   `KEYCLOAK_SMTP_*` (AC3 #596); ชื่อผู้ส่ง "D-Contact" เสมอ และ Keycloak ตั้ง HELO เองไม่ได้
  */
 export const PROVISIONER_CLIENT = 'dcontact-provisioner';
 export const PROVISIONER_REALM_MANAGEMENT_ROLES = Object.freeze([
@@ -50,11 +51,27 @@ const adminUsername = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME ?? 'admin';
 const adminPassword = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? 'admin';
 export const provisionerSecret =
   process.env.KEYCLOAK_PROVISIONER_SECRET ?? 'dcontact-provisioner-dev-secret';
-const smtp = {
-  host: process.env.KEYCLOAK_SMTP_HOST ?? 'mailpit',
-  port: process.env.KEYCLOAK_SMTP_PORT ?? '1025',
-  from: process.env.KEYCLOAK_SMTP_FROM ?? 'no-reply@dcontact.local',
-};
+/**
+ * `KEYCLOAK_SMTP_*` (มุมมองจาก network ของ container Keycloak — dev ชี้ `mailpit` ไม่ใช่ localhost)
+ * FROM รับได้ทั้ง `"ชื่อ" <ที่อยู่>` และที่อยู่อย่างเดียว — ชื่อที่แสดงเป็น "D-Contact" เสมอ (#589 Q2)
+ */
+export function smtpServerRepresentation(environment = process.env) {
+  const from = environment.KEYCLOAK_SMTP_FROM ?? 'no-reply@dcontact.local';
+  const address = (/<([^<>]+)>\s*$/.exec(from)?.[1] ?? from).trim();
+  const secure = (environment.KEYCLOAK_SMTP_SECURE ?? 'false').trim().toLowerCase() === 'true';
+  const user = environment.KEYCLOAK_SMTP_USER?.trim();
+  return {
+    host: environment.KEYCLOAK_SMTP_HOST ?? 'mailpit',
+    port: environment.KEYCLOAK_SMTP_PORT ?? '1025',
+    from: address,
+    fromDisplayName: 'D-Contact',
+    ssl: String(secure),
+    // ไม่ใช่ TLS ตั้งแต่ต้น = STARTTLS เมื่อ server รองรับ (JavaMail starttls.enable ไม่บังคับ) แบบเดียวกับ API
+    starttls: String(!secure),
+    auth: String(Boolean(user)),
+    ...(user ? { user, password: environment.KEYCLOAK_SMTP_PASSWORD ?? '' } : {}),
+  };
+}
 
 async function request(path, { method = 'GET', token, body, form } = {}) {
   const headers = {};
@@ -176,15 +193,7 @@ async function ensureSmtp(token) {
     token,
     body: {
       ...current,
-      smtpServer: {
-        host: smtp.host,
-        port: smtp.port,
-        from: smtp.from,
-        fromDisplayName: 'D-Contact',
-        auth: 'false',
-        ssl: 'false',
-        starttls: 'false',
-      },
+      smtpServer: smtpServerRepresentation(),
     },
   });
 }
