@@ -45,10 +45,10 @@ jobs:
         id: names
         run: |
           owner="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-          echo "api=ghcr.io/$owner/dcontact-uat-api" >> "$GITHUB_OUTPUT"
-          echo "ops=ghcr.io/$owner/dcontact-uat-ops" >> "$GITHUB_OUTPUT"
-          echo "console=ghcr.io/$owner/dcontact-uat-console" >> "$GITHUB_OUTPUT"
-          echo "keycloak=ghcr.io/$owner/dcontact-uat-keycloak" >> "$GITHUB_OUTPUT"
+          echo "api=ghcr.io/$owner/dcontact-uat-operator-api" >> "$GITHUB_OUTPUT"
+          echo "ops=ghcr.io/$owner/dcontact-uat-operator-ops" >> "$GITHUB_OUTPUT"
+          echo "console=ghcr.io/$owner/dcontact-uat-operator-console" >> "$GITHUB_OUTPUT"
+          echo "keycloak=ghcr.io/$owner/dcontact-uat-operator-keycloak" >> "$GITHUB_OUTPUT"
 
       - name: Build + push API image
         id: api
