@@ -47,6 +47,13 @@
       "sectionWork": "Settings",
       "dphoneEmbedding": "Embed dphone"
     },
-    "signOutFailed": "Could not sign out. Please try again."
+    "signOutFailed": "Could not sign out. Please try again.",
+    "account": {
+      "eyebrow": "Personal",
+      "title": "Account",
+      "section": "Account",
+      "mine": "My account",
+      "policy": "Account policy"
+    }
   }
 }

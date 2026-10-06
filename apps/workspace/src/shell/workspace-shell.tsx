@@ -67,6 +67,15 @@ export function WorkspaceShell({
   });
   const tokensReady = useShellTokens(nav.status === 'ready');
 
+  const consoleOrigin = hostOrigins().console;
+  const consoleAccountHref = consoleOrigin
+    ? (() => {
+        const url = new URL('/', consoleOrigin);
+        if (tenantAlias) url.searchParams.set('tenant', tenantAlias);
+        url.searchParams.set('view', 'account');
+        return url.href;
+      })()
+    : undefined;
   if (nav.status === 'legacy') return <>{children}</>;
   if (nav.status === 'loading' || !tokensReady) {
     return (
@@ -109,6 +118,10 @@ export function WorkspaceShell({
           account
             ? {
                 user: account.user,
+                // AC5 (#598): บัญชีของฉันอยู่ใน Console — เปิดแท็บใหม่เพื่อไม่ remount Workspace (ADR-026)
+                ...(consoleAccountHref
+                  ? { accountLink: { href: consoleAccountHref, newTab: true } }
+                  : {}),
                 // #588: redirect ไปออกจากระบบไม่สำเร็จต้องแจ้งผู้ใช้ ไม่เงียบหาย
                 onSignOut: () =>
                   account.onSignOut().catch(() => {

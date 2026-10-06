@@ -21,7 +21,13 @@ import {
 } from '@d-contact/ui-react';
 import { useShellTokens } from './tokens.js';
 
-export type ConsoleShellApp = 'journeys' | 'contact-governance' | 'dphone-embedding';
+export type ConsoleShellApp =
+  | 'journeys'
+  | 'contact-governance'
+  | 'dphone-embedding'
+  // AC5 (#598): หน้าบัญชี — ไม่อยู่ใน app registry จึงไม่มี app ใดถูกเลือกใน rail
+  | 'account'
+  | 'account-policy';
 
 export function hostOrigins(): Partial<Record<HostApp, string>> {
   const env = import.meta.env as Record<string, string | undefined>;
@@ -89,14 +95,48 @@ export function ConsoleShell({
     onSignOut,
   }: NonNullable<ConsoleShellProps['account']>): UserMenuProps => ({
     user,
+    // AC5 (#598): หน้าบัญชีของ Console เปิดในแท็บเดิม
+    accountLink: { href: withTenant('/?view=account') },
     onSignOut: () =>
       onSignOut().catch(() => {
         toastQueue.add({ title: t('shell.signOutFailed'), tone: 'attention' }, { timeout: 6000 });
       }),
   });
   const journeysVisible = nav.apps.some((app) => app.id === 'journeys');
+  const isAdmin = account?.user.roles.includes('admin') ?? false;
   const subNav =
-    appId === 'dphone-embedding' ? (
+    appId === 'account' || appId === 'account-policy' ? (
+      <SubNav
+        eyebrow={t('shell.account.eyebrow')}
+        title={t('shell.account.title')}
+        currentItemId={appId}
+        sections={[
+          {
+            id: 'account',
+            label: t('shell.account.section'),
+            items: [
+              {
+                id: 'account',
+                label: t('shell.account.mine'),
+                href: withTenant('/?view=account'),
+                icon: 'settings',
+              },
+              // role ใช้แค่ซ่อนลิงก์ — API ตรวจ admin ทุก request
+              ...(isAdmin
+                ? [
+                    {
+                      id: 'account-policy',
+                      label: t('shell.account.policy'),
+                      href: withTenant('/?view=account-policy'),
+                      icon: 'settings' as const,
+                    },
+                  ]
+                : []),
+            ],
+          },
+        ]}
+      />
+    ) : appId === 'dphone-embedding' ? (
       <SubNav
         eyebrow={t('navigation.groups.settings')}
         title={t('navigation.apps.dphoneEmbedding')}
@@ -174,11 +214,16 @@ export function ConsoleShell({
           </>
         }
         breadcrumb={
-          appId === 'journeys'
-            ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
-            : appId === 'dphone-embedding'
-              ? [t('navigation.groups.settings'), t('navigation.apps.dphoneEmbedding')]
-              : [t('navigation.groups.quality'), t('navigation.apps.contactGovernance')]
+          appId === 'account' || appId === 'account-policy'
+            ? [
+                t('shell.account.title'),
+                t(appId === 'account' ? 'shell.account.mine' : 'shell.account.policy'),
+              ]
+            : appId === 'journeys'
+              ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
+              : appId === 'dphone-embedding'
+                ? [t('navigation.groups.settings'), t('navigation.apps.dphoneEmbedding')]
+                : [t('navigation.groups.quality'), t('navigation.apps.contactGovernance')]
         }
         language={locale}
         onLanguageChange={(next) => {
