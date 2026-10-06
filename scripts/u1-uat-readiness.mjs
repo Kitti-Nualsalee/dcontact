@@ -1288,6 +1288,10 @@ export const REPLACEABLE_CHECK_CONSTRAINTS = Object.freeze([
   // #567: เพิ่มกิ่ง profile `S2_LINE_TEAM_TRIAL_V1` โดยกิ่ง S2 เดิมเหมือนเดิมทุกข้อ
   'dl_line_run_authorizations_values_check',
   'dl_line_run_authorizations_caps_check',
+  // #520: ขยายค่า click-to-call outcome โดยคงชื่อ constraint และค่าที่รองรับเดิมทั้งหมด
+  'dphone_click_to_call_audit_events_values_check',
+  // #520: เพิ่ม agent caps โดยคง shape เดิมและเพิ่มเฉพาะเงื่อนไขของ column ใหม่
+  'dl_voice_scope_gates_shape',
 ]);
 
 /** DROP ที่เหลือหลังหักการแทนที่ CHECK constraint ที่อนุญาต */

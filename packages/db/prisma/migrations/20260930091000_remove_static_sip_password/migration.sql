@@ -1,2 +1,3 @@
--- E1.10 (#484): static SIP password ถูกแทนด้วย one-time credential ที่ผูก work-session lease แล้ว
-ALTER TABLE "users" DROP COLUMN "sip_password";
+-- E1.10 (#484): runtime ใหม่ไม่อ่าน static SIP password แล้ว แต่คง column ไว้ตลอดช่วง rollback
+-- เพราะ release ก่อนหน้ายังอ่านค่านี้ การลบจริงต้องทำหลังหมด rollback window
+SELECT 1;

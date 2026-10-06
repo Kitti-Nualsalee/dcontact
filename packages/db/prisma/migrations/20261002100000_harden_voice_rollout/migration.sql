@@ -1,8 +1,12 @@
 -- E1.18 (#520): แยก cap ระดับ tenant/agent และทำ kill latch เป็น one-way authority.
 ALTER TABLE "dl_voice_scope_gates"
   ADD COLUMN "agent_cap_per_minute" INTEGER NOT NULL DEFAULT 1,
-  ADD COLUMN "agent_cap_per_day" INTEGER NOT NULL DEFAULT 10,
-  DROP CONSTRAINT "dl_voice_scope_gates_shape",
+  ADD COLUMN "agent_cap_per_day" INTEGER NOT NULL DEFAULT 10;
+
+ALTER TABLE "dl_voice_scope_gates"
+  DROP CONSTRAINT "dl_voice_scope_gates_shape";
+
+ALTER TABLE "dl_voice_scope_gates"
   ADD CONSTRAINT "dl_voice_scope_gates_shape" CHECK (
     "telephony_node_id" ~ '^[A-Za-z0-9_.-]{1,128}$'
     AND "cap_per_minute" > 0
