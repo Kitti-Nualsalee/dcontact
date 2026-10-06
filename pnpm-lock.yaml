@@ -124,6 +124,9 @@ importers:
 
   apps/console:
     dependencies:
+      '@d-contact/dphone-embed':
+        specifier: workspace:*
+        version: link:../../packages/dphone-embed
       '@d-contact/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
