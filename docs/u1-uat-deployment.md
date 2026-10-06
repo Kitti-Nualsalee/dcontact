@@ -11,7 +11,8 @@ tenant ของ pilot #77
 `uat-operator-package` บน `main` โดยส่ง SHA จาก deployment record ปัจจุบันเป็น `deployed_base_sha` จากนั้นดาวน์โหลด
 artifact ที่มี `release.env` และ migration guard ไปอัปโหลด/deploy จากเครื่อง operator ใน LAN; workflow นี้ไม่ถือ SSH secret
 และไม่แตะ VM โดย publish ไป package namespace `dcontact-uat-operator-*` ที่ workflow เป็นผู้สร้างและ inherit สิทธิ์จาก repo
-เพื่อไม่พึ่ง ACL ของ package `dcontact-uat-*` รุ่นเดิม
+เพื่อไม่พึ่ง ACL ของ package `dcontact-uat-*` รุ่นเดิม ค่า `uat_host` และ `fixture_pack_version` เป็น non-secret inputs
+ที่ต้องตรงกับ UAT deployment ปัจจุบัน
 
 เอกสารนี้เป็น runbook ของ operator สำหรับ UAT first slice: production topology ใช้ 3 VM ตาม ADR-030:
 VM1 จบ TLS ด้วย nginx, VM2 รัน Docker Compose และ VM3 ให้ PostgreSQL 15.4 โดยเฉพาะ database ของ UAT
