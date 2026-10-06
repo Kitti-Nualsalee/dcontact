@@ -7,6 +7,12 @@ Authority: Phase Contract #374, การตัดสินใจเรื่อ
 `dphone.embed.enabled`, พาเก็บหลักฐาน Edge + microphone prompt และซ้อม rollback ตามลำดับ โดยห้ามใช้
 tenant ของ pilot #77
 
+wizard เปิด marker `/opt/dcontact-uat/e1-acceptance.enabled` ผ่าน `uat-deploy.sh e1-enable` เพื่อเลือก
+overlay `docker-compose.uat.e1.yml` และ entrypoint `e1-uat-main.js` เฉพาะช่วง acceptance จากนั้น `e1-disable`
+จะคืน API เป็น profile `uat` เดิมก่อน deployment rollback ทั้งสอง profile ปิด Kafka/LINE/provider egress;
+profile `uat-e1` mount เฉพาะ Embedded dphone, work-session และ agent API ที่ E1 ต้องใช้ และไม่มี voice
+delivery adapter จนกว่าจะตั้ง sandbox voice ภายในที่ผ่าน gate แยก
+
 สำหรับ topology 3 VM ตาม ADR-030 ที่ GitHub-hosted runner เข้า LAN ไม่ได้ ให้ dispatch workflow
 `uat-operator-package` บน `main` โดยส่ง SHA จาก deployment record ปัจจุบันเป็น `deployed_base_sha` จากนั้นดาวน์โหลด
 artifact ที่มี `release.env` และ migration guard ไปอัปโหลด/deploy จากเครื่อง operator ใน LAN; workflow นี้ไม่ถือ SSH secret

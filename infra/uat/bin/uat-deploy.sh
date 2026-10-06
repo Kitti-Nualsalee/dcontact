@@ -25,9 +25,10 @@ DIGEST_REF='^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
 LINE_FLAG="$UAT_ROOT/line-pilot.enabled"
 # #567: team trial ซ้อนบน overlay `uat-line` — ต้องมีทั้งสอง flag
 TRIAL_FLAG="$UAT_ROOT/line-team-trial.enabled"
+E1_FLAG="$UAT_ROOT/e1-acceptance.enabled"
 
 usage() {
-  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|ui-flag|migrate-object-storage|deploy|smoke|record|current|line-status|line-run|line-reload|rollback-target|rollback> [sha] [...]' >&2
+  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|ui-flag|migrate-object-storage|deploy|smoke|record|current|e1-status|e1-enable|e1-disable|line-status|line-run|line-reload|rollback-target|rollback> [sha] [...]' >&2
   exit 64
 }
 
@@ -62,6 +63,11 @@ is_trial() {
   [[ -f "$1/docker-compose.uat.line-trial.yml" ]] || fail 'RELEASE_TRIAL_FILE_MISSING'
 }
 
+is_e1() {
+  [[ -f "$E1_FLAG" ]] || return 1
+  [[ -f "$1/docker-compose.uat.e1.yml" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
+}
+
 compose() {
   local dir="$1"
   shift
@@ -69,6 +75,7 @@ compose() {
     local binary="$UAT_ROOT/bin/docker-compose"
     [[ -x "$binary" ]] || fail 'COMPOSE_3VM_BINARY_MISSING'
     local files=(-f "$dir/docker-compose.uat.yml" -f "$dir/docker-compose.uat.3vm.yml")
+    if is_e1 "$dir"; then files+=(-f "$dir/docker-compose.uat.e1.yml"); fi
     if is_line "$dir"; then files+=(-f "$dir/docker-compose.uat.line.yml"); fi
     if is_trial "$dir"; then files+=(-f "$dir/docker-compose.uat.line-trial.yml"); fi
     "$binary" --project-name "$PROJECT" \
@@ -77,11 +84,13 @@ compose() {
       --env-file "$dir/release.env" \
       "${files[@]}" "$@"
   else
+    local files=(-f "$dir/docker-compose.uat.yml")
+    if is_e1 "$dir"; then files+=(-f "$dir/docker-compose.uat.e1.yml"); fi
     docker compose --project-name "$PROJECT" \
       --project-directory "$dir" \
       --env-file "$UAT_ROOT/uat.env" \
       --env-file "$dir/release.env" \
-      -f "$dir/docker-compose.uat.yml" "$@"
+      "${files[@]}" "$@"
   fi
 }
 
@@ -282,11 +291,14 @@ case "$cmd" in
     # โหมด 3 VM: TLS อยู่ที่ nginx VM1; โหมดเครื่องเดียว: TLS อยู่ใน proxy บน host เดียวกัน
     local_connect_host=127.0.0.1
     if is_3vm "$dir"; then local_connect_host=192.168.102.114; fi
+    expected_profile=uat
+    if is_e1 "$dir"; then expected_profile=uat-e1; fi
     # Docker Desktop (uat-local.sh บน macOS) ใช้ host.docker.internal ผ่าน env override
     docker run --rm --network "${UAT_SMOKE_DOCKER_NETWORK:-host}" \
       -e "UAT_BASE_URL=https://${uat_host}" \
       -e "UAT_CONNECT_HOST=${UAT_SMOKE_CONNECT_HOST:-$local_connect_host}" \
       -e UAT_SMOKE_ACCESS_TOKEN \
+      -e "UAT_EXPECTED_API_PROFILE=$expected_profile" \
       -e NODE_EXTRA_CA_CERTS \
       ${NODE_EXTRA_CA_CERTS:+-v "$NODE_EXTRA_CA_CERTS:$NODE_EXTRA_CA_CERTS:ro"} \
       "$(release_value "$dir" OPS_IMAGE)" node scripts/u1-uat-readiness.mjs --live
@@ -315,6 +327,28 @@ case "$cmd" in
     else
       echo '{}'
     fi
+    ;;
+
+  e1-status)
+    dir="$(release_dir "${1:?sha}")"
+    if is_e1 "$dir"; then enabled=true; else enabled=false; fi
+    profile="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${PROJECT}-api-1" 2>/dev/null | sed -n 's/^DCONTACT_API_PROFILE=//p' | tail -n 1 || true)"
+    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"e1-status\",\"enabled\":$enabled,\"runtimeProfile\":\"${profile:-unknown}\"}"
+    ;;
+
+  e1-enable)
+    dir="$(release_dir "${1:?sha}")"
+    [[ -f "$dir/docker-compose.uat.e1.yml" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
+    : >"$E1_FLAG"
+    compose "$dir" up -d --wait --no-deps --force-recreate api proxy
+    echo '{"type":"u1.uat.deploy","step":"e1-enable","status":"PASS"}'
+    ;;
+
+  e1-disable)
+    dir="$(release_dir "${1:?sha}")"
+    rm -f "$E1_FLAG"
+    compose "$dir" up -d --wait --no-deps --force-recreate api proxy
+    echo '{"type":"u1.uat.deploy","step":"e1-disable","status":"PASS"}'
     ;;
 
   line-status)

@@ -15,7 +15,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-export const API_RUNTIME_PROFILES = ['default', 'uat', 'uat-line'] as const;
+export const API_RUNTIME_PROFILES = ['default', 'uat', 'uat-e1', 'uat-line'] as const;
 export type ApiRuntimeProfileName = (typeof API_RUNTIME_PROFILES)[number];
 
 export interface ApiRuntimeProfile {
@@ -34,6 +34,14 @@ export const UAT_ALLOWED_ROUTE_PREFIXES = Object.freeze([
   '/api/v1/journey-authoring',
   '/api/v1/uat-runs',
   '/api/v1/runtime-profile',
+]);
+
+/** E1.16: acceptance surface แยกจาก UAT first slice; ไม่มี Journey/provider ingress */
+export const UAT_E1_ALLOWED_ROUTE_PREFIXES = Object.freeze([
+  '/api/v1/runtime-profile',
+  '/api/v1/tenant/embed-origins',
+  '/api/v1/me/work-session',
+  '/api/v1/workspace/agent',
 ]);
 
 /**
@@ -115,6 +123,21 @@ export function resolveApiRuntimeProfile(
       lineWebhook: 'ENABLED',
       providerEgress: 'BLOCKED',
       allowedRoutePrefixes: UAT_LINE_ALLOWED_ROUTE_PREFIXES,
+    };
+  }
+  if (requested === 'uat-e1') {
+    const conflicting = present
+      .filter((name) => [/^LINE_/, /^KAFKA_BROKERS$/].some((pattern) => pattern.test(name)))
+      .sort();
+    if (conflicting.length > 0) {
+      throw new ApiRuntimeProfileError('CONFLICTING_CONFIGURATION', conflicting);
+    }
+    return {
+      name: 'uat-e1',
+      kafka: 'DISABLED',
+      lineWebhook: 'DISABLED',
+      providerEgress: 'BLOCKED',
+      allowedRoutePrefixes: UAT_E1_ALLOWED_ROUTE_PREFIXES,
     };
   }
   const conflicting = present
