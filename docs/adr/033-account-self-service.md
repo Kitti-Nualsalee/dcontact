@@ -1,6 +1,6 @@
 # ADR 033: Self-service บัญชีผ่าน API ของ D-Contact บน Keycloak fine-grained admin permissions v2
 
-- **สถานะ:** Accepted (ส่วน identity plane — AC0, extension `dc-account` — AC2); ส่วน API/UI ตามมาใน AC4–AC6
+- **สถานะ:** Accepted (ส่วน identity plane — AC0, extension `dc-account` — AC2, API self-service — AC4); ส่วน UI ตามมาใน AC5–AC6
 - **วันที่:** 2026-10-02
 - **ที่มา:** Phase Contract [#589](https://github.com/Kitti-Nualsalee/dcontact/issues/589) (เจ้าของงานยืนยัน 2026-10-02),
   [AC0 #592](https://github.com/Kitti-Nualsalee/dcontact/issues/592)
@@ -53,6 +53,19 @@ API ของ D-Contact ต้องแก้ข้อมูลผู้ใช�
    - port ของ AC1 คือ `KeycloakOrganizationMfa` (`apps/api/src/keycloak-account-service.ts`)
      - ล้ม = `IDENTITY_UNAVAILABLE` (503) และนโยบายไม่ถูกบันทึก
      - ไม่ตั้ง `KEYCLOAK_ACCOUNT_SERVICE_SECRET` = ไม่มี port → เปิดบังคับ 2FA ได้ 409
+
+7. **API self-service `/api/v1/me/account/*` (AC4 [#597](https://github.com/Kitti-Nualsalee/dcontact/issues/597))**
+   - **เป้าหมายมาจาก token เท่านั้น:** `dc_user_id` + tenant → แถว `users` ภายใต้ RLS → `keycloak_id`
+     ไม่มี user id ใน path/body; ผู้ใช้ทุก role ของ tenant ใช้ได้ (`agent`/`supervisor`/`admin`/`compliance`)
+   - **ทุกการเปลี่ยนทำใน transaction ของ tenant พร้อม lock ต่อผู้ใช้ และเรียก Keycloak เป็นขั้นสุดท้าย**
+     ก่อน commit — Keycloak ล้มแล้ว audit, email และแถวใน DB ถูกยกเลิกทั้งหมด
+     นี่คือ compensation ของ saga ใน `docs/iam-architecture.md` §7 และ `users.display_name` ยังเป็นแหล่งจริงของชื่อ
+   - **TOTP secret ที่ยังไม่ยืนยัน:** เข้ารหัสด้วย AES-256-GCM จาก `ACCOUNT_SECRET_KEY` (base64 32 bytes, env ของ API)
+     - ผูกกับ tenant/ผู้ใช้/enrolment ผ่าน AAD; อายุ 10 นาที และลองได้ 5 ครั้ง
+     - otpauth URI ใช้ค่าเริ่มต้นของ OTP policy (SHA1, 6 หลัก, 30 วินาที) — ถ้า realm เปลี่ยน policy ต้องแก้คู่กัน
+   - **token ยืนยัน email:** สุ่ม 256 bit และ DB เก็บแค่ SHA-256; ไม่บอกว่า token ผิด, ใช้แล้ว หรือหมดอายุ
+   - **error ของ password policy:** Keycloak บอกทีละกฎ API จึงคืน `rules[]` เฉพาะกฎแรกที่ไม่ผ่าน
+     ผู้ใช้อาจต้องแก้หลายรอบ
 
 ## สิ่งที่ probe บน 26.7.5 แล้วพบ (กำหนดรูปแบบการตัดสินใจข้างบน)
 
