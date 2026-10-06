@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   cleanConsoleCallbackUrl,
+  consumeConsoleReturnUrl,
   createConsoleOidcSettings,
+  rememberConsoleReturnUrl,
   resolveConsoleContextId,
   resolveConsoleView,
   resolveTenantAlias,
@@ -80,4 +82,19 @@ test('U1.7 callback ของ OIDC ไม่ทิ้ง code/state ใน URL �
     cleanConsoleCallbackUrl(new URL('https://acme.console.example/?tenant=acme')),
     '/?tenant=acme',
   );
+});
+
+test('E1.16 login จากหน้า dphone embedding กลับหน้าเดิมโดยไม่เปิดทางให้ external URL', () => {
+  const storage = new MemoryStorage();
+  const embedding = new URL('https://acme.console.example/?tenant=acme&view=dphone-embedding');
+  rememberConsoleReturnUrl(embedding, storage);
+
+  const callback = new URL(
+    'https://acme.console.example/?tenant=acme&state=abc&session_state=s1&code=c0de',
+  );
+  assert.equal(consumeConsoleReturnUrl(callback, storage), '/?tenant=acme&view=dphone-embedding');
+  assert.equal(consumeConsoleReturnUrl(callback, storage), '/?tenant=acme');
+
+  storage.setItem('dcontact.console.return-url', 'https://attacker.example/steal');
+  assert.equal(consumeConsoleReturnUrl(callback, storage), '/?tenant=acme');
 });

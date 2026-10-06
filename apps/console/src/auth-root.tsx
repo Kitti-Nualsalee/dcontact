@@ -21,12 +21,18 @@ import { LineInbound, LineInboundLink } from './line-inbound/line-inbound.js';
 import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.js';
 import { clearRecovery } from './journey-authoring/state.js';
 import {
-  cleanConsoleCallbackUrl,
+  consumeConsoleReturnUrl,
   createConsoleOidcSettings,
+  rememberConsoleReturnUrl,
   resolveConsoleContextId,
   resolveConsoleView,
   resolveTenantAlias,
 } from './auth-session.js';
+
+function signInFromCurrentPage(auth: AuthContextProps) {
+  rememberConsoleReturnUrl(new URL(window.location.href), window.sessionStorage);
+  return auth.signinRedirect();
+}
 
 function Status({ title, detail, action }: { title: string; detail: string; action?: () => void }) {
   return (
@@ -68,7 +74,7 @@ function AuthenticatedConsole({
       <Status
         title="D-Contact Console"
         detail="เข้าสู่ระบบก่อนเปิดหลักฐาน QM"
-        action={() => void auth.signinRedirect()}
+        action={() => void signInFromCurrentPage(auth)}
       />
     );
   if (contactId) return <PreferenceCenter api={api} contactId={contactId} viewer={viewer} />;
@@ -132,7 +138,7 @@ export function ConsoleAuthRoot() {
         window.history.replaceState(
           null,
           '',
-          cleanConsoleCallbackUrl(new URL(window.location.href)),
+          consumeConsoleReturnUrl(new URL(window.location.href), window.sessionStorage),
         )
       }
     >
@@ -245,7 +251,7 @@ function GovernanceSurface({
       <Status
         title="Contact Governance"
         detail="เข้าสู่ระบบก่อนเปิด Exceptions, Policies และ Audit"
-        action={() => void auth.signinRedirect()}
+        action={() => void signInFromCurrentPage(auth)}
       />
     );
   const roles = (auth.user?.profile.realm_access as { roles?: unknown } | undefined)?.roles;
@@ -302,7 +308,7 @@ function DphoneEmbeddingSurface({
       <Status
         title="dphone embedding"
         detail="เข้าสู่ระบบก่อนจัดการ origin ที่ฝัง dphone"
-        action={() => void auth.signinRedirect()}
+        action={() => void signInFromCurrentPage(auth)}
       />
     );
   const roles = (auth.user?.profile.realm_access as { roles?: unknown } | undefined)?.roles;
@@ -350,7 +356,7 @@ function LineInboundSurface({
       <Status
         title="LINE inbound (pilot)"
         detail="เข้าสู่ระบบก่อนดูข้อความขาเข้า"
-        action={() => void auth.signinRedirect()}
+        action={() => void signInFromCurrentPage(auth)}
       />
     );
   return (
@@ -396,7 +402,7 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
       <Status
         title="Journey authoring"
         detail="เข้าสู่ระบบก่อนแก้ไข Journey"
-        action={() => void auth.signinRedirect()}
+        action={() => void signInFromCurrentPage(auth)}
       />
     );
   }
@@ -420,7 +426,7 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
           environment: import.meta.env.VITE_UAT_ENVIRONMENT as string | undefined,
           packVersion: import.meta.env.VITE_UAT_PACK_VERSION as string | undefined,
         }}
-        onSignInAgain={() => void auth.signinRedirect()}
+        onSignInAgain={() => void signInFromCurrentPage(auth)}
         scope={`${tenantAlias}:${session}`}
         initialJourneyId={new URL(window.location.href).searchParams.get('journey') ?? undefined}
       />
