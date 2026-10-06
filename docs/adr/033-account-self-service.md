@@ -1,6 +1,6 @@
 # ADR 033: Self-service บัญชีผ่าน API ของ D-Contact บน Keycloak fine-grained admin permissions v2
 
-- **สถานะ:** Accepted (ส่วน identity plane — AC0); ส่วน API/UI ตามมาใน AC1–AC6
+- **สถานะ:** Accepted (ส่วน identity plane — AC0, extension `dc-account` — AC2); ส่วน API/UI ตามมาใน AC4–AC6
 - **วันที่:** 2026-10-02
 - **ที่มา:** Phase Contract [#589](https://github.com/Kitti-Nualsalee/dcontact/issues/589) (เจ้าของงานยืนยัน 2026-10-02),
   [AC0 #592](https://github.com/Kitti-Nualsalee/dcontact/issues/592)
@@ -31,6 +31,29 @@ API ของ D-Contact ต้องแก้ข้อมูลผู้ใช�
 4. **ชั้นที่สอง:** API ของ D-Contact (AC4) ส่งคำสั่งได้เฉพาะกับผู้ใช้เจ้าของ token ใน tenant เดียวกันเท่านั้น
    ไม่รับ user id จาก browser — สิทธิ์ใน Keycloak เป็นตัวจำกัดความเสียหายถ้า secret รั่ว ไม่ใช่ตัวตัดสินหลัก
 
+5. **Extension `dc-account` (AC2 [#595](https://github.com/Kitti-Nualsalee/dcontact/issues/595))** —
+   `infra/keycloak/extensions/dc-account` build คู่กับ `invitation-guard` (`scripts/keycloak-extensions-build.sh`, image ของ UAT)
+   - realm resource `/realms/dcontact/dc-account` รับเฉพาะ access token ของ service account `dcontact-account-service`
+     (token อื่น = 403) และไม่ log secret/code
+   - `POST /users/{id}/totp/verify-and-create` `{ tenantId, secret, code, label }`:
+     ตรวจ code ด้วย OTP policy ของ realm ก่อนเขียน — code ผิด = ไม่สร้าง credential
+     - ผู้ใช้ต้องเป็นสมาชิก Organization ที่มี `tenant_id` ตรงกัน จึงแตะ platform user หรือผู้ใช้ tenant อื่นไม่ได้
+     - `secret` เก็บตามตัวอักษร (QR ใช้ Base32 ของ UTF-8 bytes) และ label ซ้ำ = 409
+   - `PUT /organizations/by-tenant/{tenantId}/mfa-required` `{ required }` แก้เฉพาะ attribute `dc_mfa_required`
+     โดยคัดลอก attribute เดิมทั้งหมด (`setAttributes` ของ Keycloak แทนทั้งชุด)
+   - condition `dc-org-mfa-required` ใน browser flow ของ tenant `dcontact-browser` (copy จาก `browser`):
+     - subflow "Org 2FA" = condition + `auth-otp-form` แบบ REQUIRED: ยังไม่มี OTP → `CONFIGURE_TOTP`; มีแล้ว → ถาม OTP
+     - subflow 2FA เดิมได้ condition เดียวกันแบบ negate จึงไม่ถาม OTP สองรอบ
+     - ประเมินตอน login เท่านั้น จึงมีผล login ครั้งถัดไปและไม่ตัด session เดิม
+     - `platform-console` มี flow ของตัวเอง จึงไม่กระทบ
+6. **sync `dc_mfa_required` ผ่าน extension ไม่ใช่ Admin REST** (เจ้าของงานเลือก 2026-10-06)
+   - Admin REST ต้องให้ account service มี `manage` บน Organizations ซึ่งแก้ชื่อ/domain, ปิด org
+     และเพิ่ม/ลบสมาชิกได้ทุก tenant
+   - extension แก้ได้แค่ attribute เดียว account service จึงยังไม่มีสิทธิ์จัดการ Organization ตามข้อ 2–3
+   - port ของ AC1 คือ `KeycloakOrganizationMfa` (`apps/api/src/keycloak-account-service.ts`)
+     - ล้ม = `IDENTITY_UNAVAILABLE` (503) และนโยบายไม่ถูกบันทึก
+     - ไม่ตั้ง `KEYCLOAK_ACCOUNT_SERVICE_SECRET` = ไม่มี port → เปิดบังคับ 2FA ได้ 409
+
 ## สิ่งที่ probe บน 26.7.5 แล้วพบ (กำหนดรูปแบบการตัดสินใจข้างบน)
 
 | เรื่อง | ผล |
@@ -51,6 +74,11 @@ API ของ D-Contact ต้องแก้ข้อมูลผู้ใช�
 - (+) role `manage-organizations` เปิดทางให้ถอด `manage-realm` ออกจาก provisioner ภายหลัง (ยังไม่ทำในงานนี้)
 - (−) `manage` บน Users ยังสร้างและลบ tenant user ได้ — ยอมรับ และ API ไม่เปิดคำสั่งเหล่านี้
 - (−) platform user ที่สร้างนอกสคริปต์ จะไม่ถูกป้องกันจนกว่าจะรัน `pnpm infra:identity:account` ซ้ำ (มีใน runbook)
+- (−) extension ใช้ SPI ที่ Keycloak ระบุว่า internal (`realm-restapi-extension`, `authenticator`) แบบเดียวกับ
+  `invitation-guard` (`actionTokenHandler`) — compile เทียบ image ที่ pin digest ทุกครั้ง (`A1-F-KEYCLOAK-EXTENSION`)
+  และต้องรัน `account-mfa.boundary.ts` ใหม่ทุกครั้งที่ upgrade Keycloak
+- (−) sync `dc_mfa_required` เกิดใน transaction ของ API ก่อน commit — ถ้า commit ล้มหลัง sync สำเร็จ ค่าใน Keycloak
+  จะนำหน้าฐานข้อมูลจนกว่า admin จะบันทึกครั้งถัดไป (sync idempotent)
 - (−) **Keycloak downgrade ไม่ได้** — rollback ข้ามการ upgrade นี้ต้อง restore ฐานข้อมูล Keycloak จาก backup ที่ทำก่อน migrate
   (`docs/u1-uat-deployment.md` §9)
 

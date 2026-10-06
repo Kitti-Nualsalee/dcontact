@@ -13,6 +13,7 @@ import {
   Inject,
   Put,
   Req,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import { AccountPolicyError, type AccountPolicyService } from './account-policy.js';
@@ -31,6 +32,7 @@ async function mapped<T>(work: () => Promise<T>): Promise<T> {
     if (!(error instanceof AccountPolicyError)) throw error;
     const body = { code: error.code, ...(error.field ?? {}) };
     if (error.code === 'VALIDATION_FAILED') throw new BadRequestException(body);
+    if (error.code === 'IDENTITY_UNAVAILABLE') throw new ServiceUnavailableException(body);
     throw new ConflictException(body);
   }
 }

@@ -4,8 +4,13 @@ import {
   ALL_USER_SCOPES,
   ALLOWED_USER_SCOPES,
   PROTECTED_PERMISSION,
+  ORG_MFA_FLOW,
+  TENANT_BROWSER_FLOW,
   USERS_PERMISSION,
+  browserFlowFailures,
+  childrenOf,
   clientRepresentation,
+  locateBrowserSubflows,
   permissionRepresentations,
   protectedUserIds,
 } from './keycloak-account-service-setup.mjs';
@@ -60,4 +65,122 @@ test('ไม่มีผู้ใช้ที่ต้องป้องกั�
     permissions.map((permission) => permission.name),
     [USERS_PERMISSION],
   );
+});
+
+/** execution ของ `dcontact-browser` หลัง setup บน Keycloak 26.7.5 (ตัด field ที่ไม่ใช้) */
+const configuredFlow = [
+  { displayName: 'Cookie', level: 0, requirement: 'ALTERNATIVE', providerId: 'auth-cookie' },
+  {
+    displayName: 'dcontact-browser Organization',
+    level: 0,
+    requirement: 'ALTERNATIVE',
+    authenticationFlow: true,
+  },
+  {
+    displayName: 'dcontact-browser Browser - Conditional Organization',
+    level: 1,
+    requirement: 'CONDITIONAL',
+    authenticationFlow: true,
+  },
+  {
+    displayName: 'Condition - user configured',
+    level: 2,
+    requirement: 'REQUIRED',
+    providerId: 'conditional-user-configured',
+  },
+  {
+    displayName: 'Organization Identity-First Login',
+    level: 2,
+    requirement: 'ALTERNATIVE',
+    providerId: 'organization',
+  },
+  {
+    displayName: 'dcontact-browser forms',
+    level: 0,
+    requirement: 'ALTERNATIVE',
+    authenticationFlow: true,
+  },
+  {
+    displayName: 'Username Password Form',
+    level: 1,
+    requirement: 'REQUIRED',
+    providerId: 'auth-username-password-form',
+  },
+  {
+    displayName: 'dcontact-browser Browser - Conditional 2FA',
+    level: 1,
+    requirement: 'CONDITIONAL',
+    authenticationFlow: true,
+  },
+  {
+    displayName: 'Condition - user configured',
+    level: 2,
+    requirement: 'REQUIRED',
+    providerId: 'conditional-user-configured',
+  },
+  {
+    displayName: 'Condition - credential',
+    level: 2,
+    requirement: 'REQUIRED',
+    providerId: 'conditional-credential',
+    authenticationConfig: 'credential',
+  },
+  { displayName: 'OTP Form', level: 2, requirement: 'ALTERNATIVE', providerId: 'auth-otp-form' },
+  {
+    displayName: 'Condition - organization requires 2FA',
+    level: 2,
+    requirement: 'REQUIRED',
+    providerId: 'dc-org-mfa-required',
+    authenticationConfig: 'negate',
+  },
+  { displayName: ORG_MFA_FLOW, level: 1, requirement: 'CONDITIONAL', authenticationFlow: true },
+  {
+    displayName: 'Condition - organization requires 2FA',
+    level: 2,
+    requirement: 'REQUIRED',
+    providerId: 'dc-org-mfa-required',
+  },
+  { displayName: 'OTP Form', level: 2, requirement: 'REQUIRED', providerId: 'auth-otp-form' },
+];
+
+test('childrenOf คืนเฉพาะลูกโดยตรงของ subflow ตามลำดับ depth-first', () => {
+  assert.deepEqual(
+    childrenOf(configuredFlow, -1).map((execution) => execution.displayName),
+    ['Cookie', 'dcontact-browser Organization', 'dcontact-browser forms'],
+  );
+  assert.deepEqual(
+    childrenOf(configuredFlow, 5).map((execution) => execution.displayName),
+    ['Username Password Form', 'dcontact-browser Browser - Conditional 2FA', ORG_MFA_FLOW],
+  );
+});
+
+test('หา subflow forms, 2FA เดิม และ Org 2FA ได้จากโครงของ flow ที่ copy มา', () => {
+  const { forms, twoFactor, orgMfa } = locateBrowserSubflows(configuredFlow);
+  assert.equal(forms.displayName, 'dcontact-browser forms');
+  assert.equal(twoFactor.displayName, 'dcontact-browser Browser - Conditional 2FA');
+  assert.equal(orgMfa.displayName, ORG_MFA_FLOW);
+  // ก่อน setup เพิ่ม Org 2FA: ยังหา forms/2FA ได้
+  const copied = configuredFlow.filter((_, index) => index < 11);
+  assert.equal(locateBrowserSubflows(copied).orgMfa, undefined);
+  assert.equal(locateBrowserSubflows(copied).twoFactor.displayName, twoFactor.displayName);
+});
+
+test('ตรวจ flow: ต้องผูกกับ realm, Org 2FA ครบ และ 2FA เดิมมี condition แบบ negate', () => {
+  const realm = { browserFlow: TENANT_BROWSER_FLOW };
+  assert.deepEqual(browserFlowFailures(realm, configuredFlow), []);
+  assert.equal(browserFlowFailures({ browserFlow: 'browser' }, configuredFlow).length, 1);
+
+  const optionalOtp = configuredFlow.map((execution, index) =>
+    index === 14 ? { ...execution, requirement: 'ALTERNATIVE' } : execution,
+  );
+  assert.deepEqual(browserFlowFailures(realm, optionalOtp), [
+    `${ORG_MFA_FLOW} ต้องมี auth-otp-form แบบ REQUIRED`,
+  ]);
+  const withoutNegate = configuredFlow.map((execution, index) =>
+    index === 11 ? { ...execution, authenticationConfig: undefined } : execution,
+  );
+  assert.deepEqual(browserFlowFailures(realm, withoutNegate), [
+    'subflow 2FA เดิมต้องมี dc-org-mfa-required แบบ negate',
+  ]);
+  assert.equal(browserFlowFailures(realm, configuredFlow.slice(0, 12)).length, 1);
 });

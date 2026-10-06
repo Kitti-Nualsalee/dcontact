@@ -32,7 +32,11 @@ export interface AccountPolicyView extends AccountPolicy {
 }
 
 export type AccountPolicyErrorCode =
-  'VALIDATION_FAILED' | 'REVISION_CONFLICT' | 'MFA_ENFORCEMENT_UNAVAILABLE';
+  | 'VALIDATION_FAILED'
+  | 'REVISION_CONFLICT'
+  | 'MFA_ENFORCEMENT_UNAVAILABLE'
+  /** ระบบ identity ไม่ตอบหรือปฏิเสธการ sync — ไม่บอกชื่อระบบกับผู้ใช้ (#589) */
+  | 'IDENTITY_UNAVAILABLE';
 
 export class AccountPolicyError extends Error {
   constructor(
@@ -45,8 +49,9 @@ export class AccountPolicyError extends Error {
 }
 
 /**
- * sync การบังคับ 2FA ไป Organization ของ tenant ใน Keycloak — implement ใน AC2 (#595)
- * ต้อง idempotent: เรียกซ้ำด้วยค่าเดิมได้ผลเดิม
+ * sync การบังคับ 2FA ไป Organization ของ tenant ใน Keycloak — implement ใน AC2 (#595):
+ * `KeycloakOrganizationMfa` (keycloak-account-service.ts) ผ่าน extension `dc-account`
+ * ต้อง idempotent: เรียกซ้ำด้วยค่าเดิมได้ผลเดิม; ล้ม = throw `AccountPolicyError('IDENTITY_UNAVAILABLE')`
  */
 export interface OrganizationMfaPort {
   setMfaRequired(tenantId: string, required: boolean): Promise<void>;

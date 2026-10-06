@@ -73,7 +73,7 @@ env `LINE_*`, `KAFKA_BROKERS` หรือ `SIP_*`
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `apps/api/Dockerfile`                    | target `runtime` (API UAT) และ `ops` (Prisma migrate, Keycloak config, readiness, `uat-provision`) |
 | `apps/console/Dockerfile`                | Console build (`VITE_*` ตอน build) + Caddy (`infra/uat/Caddyfile`)                                 |
-| `infra/keycloak/Dockerfile`              | Keycloak 26.7.5 (#592) + login/email theme `dcontact` (#515/#522) — token/โลโก้สร้างตอน build             |
+| `infra/keycloak/Dockerfile`              | Keycloak 26.7.5 (#592) + login/email theme `dcontact` (#515/#522) + extension `invitation-guard`/`dc-account` (#595) |
 | `infra/uat/docker-compose.uat.yml`       | stack ของ UAT — image อ้างด้วย digest, secret เป็น `${VAR:?}` ทั้งหมด                              |
 | `infra/uat/bin/uat-deploy.sh`            | ขั้นตอนบน VM: prepare/backup/migrate/keycloak/provision/deploy/smoke/record/rollback               |
 | `infra/uat/bin/db-roles.sh`              | role ของ Postgres (Keycloak, `dcontact_app`) จาก secret                                            |
