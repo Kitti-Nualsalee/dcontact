@@ -74,6 +74,15 @@ export function consumeConsoleReturnUrl(callback: URL, storage: Storage): string
   }
 }
 
+export function consumeConsoleReturnLocation(
+  callback: URL,
+  storage: Storage,
+  defaultView?: string,
+): { url: string; view: string | null } {
+  const url = consumeConsoleReturnUrl(callback, storage);
+  return { url, view: resolveConsoleView(new URL(url, callback.origin), defaultView) };
+}
+
 export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): UserManagerSettings {
   const redirectUrl = new URL('/', input.origin);
   redirectUrl.searchParams.set('tenant', input.tenantAlias);
