@@ -81,7 +81,7 @@ ENV NODE_ENV=production \
 WORKDIR /ops
 COPY --from=build /out/ops /ops
 COPY --from=build /out/platform-control /platform-control
-COPY scripts/u1-uat-keycloak-users.mjs scripts/keycloak-branding-setup.mjs scripts/u1-uat-readiness.mjs scripts/uat-object-storage.mjs /ops/scripts/
+COPY scripts/u1-uat-keycloak-users.mjs scripts/keycloak-dphone-embedded-setup.mjs scripts/keycloak-branding-setup.mjs scripts/u1-uat-readiness.mjs scripts/uat-object-storage.mjs /ops/scripts/
 # #565: registry digest ของ proposal ของ LINE pilot อ่านไฟล์นี้ (`LINE_PILOT_REGISTRY_PATH`)
 COPY scripts/cxa-s2-readiness.mjs /ops/scripts/
 COPY infra/keycloak/realm-dcontact.uat.json /ops/infra/keycloak/realm-dcontact.uat.json

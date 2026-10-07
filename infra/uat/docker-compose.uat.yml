@@ -281,16 +281,18 @@ services:
       KEYCLOAK_ADMIN_URL: http://keycloak:8080/auth
       KEYCLOAK_ADMIN_USERNAME: ${UAT_KEYCLOAK_ADMIN_USERNAME:?UAT_KEYCLOAK_ADMIN_USERNAME is required}
       KEYCLOAK_ADMIN_PASSWORD: ${UAT_KEYCLOAK_ADMIN_PASSWORD:?UAT_KEYCLOAK_ADMIN_PASSWORD is required}
+      DPHONE_EMBED_ORIGIN: https://${UAT_HOST:?UAT_HOST is required}
+      DPHONE_EMBED_TEMPLATE_CLIENT: dcontact-uat-console
       UAT_HOST: ${UAT_HOST:?UAT_HOST is required}
       UAT_TENANT_ID: ${UAT_TENANT_ID:?UAT_TENANT_ID is required}
       UAT_TENANT_SLUG: ${UAT_TENANT_SLUG:?UAT_TENANT_SLUG is required}
       UAT_TENANT_NAME: ${UAT_TENANT_NAME:?UAT_TENANT_NAME is required}
       UAT_ORGANIZATION_DOMAIN: ${UAT_ORGANIZATION_DOMAIN:?UAT_ORGANIZATION_DOMAIN is required}
-    # AC6 (#599): branding (displayName, account theme, baseUrl ของ account clients, attribute ภายในที่ผู้ใช้ไม่เห็น) ต่อท้าย --config
+    # AC6 (#599): branding (displayName, account theme, baseUrl ของ account clients, attribute ภายในที่ผู้ใช้ไม่เห็น) ต่อท้ายสคริปต์ realm เดิม
     command:
       - /bin/sh
       - -ec
-      - node scripts/u1-uat-keycloak-users.mjs --config && node scripts/keycloak-branding-setup.mjs
+      - node scripts/u1-uat-keycloak-users.mjs --config && node scripts/keycloak-dphone-embedded-setup.mjs && node scripts/keycloak-branding-setup.mjs
     networks:
       - internal
 
