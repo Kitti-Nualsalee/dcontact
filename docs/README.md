@@ -7,7 +7,8 @@
 ดัชนีเอกสารทั้งหมด — อ่านตามลำดับนี้ถ้าเพิ่งเข้าโปรเจค
 
 แผนเตรียมคลัสเตอร์ UAT ใหม่: [K8s UAT deployment](k8s-uat-deployment.md) และ
-[PostgreSQL handoff](k8s-uat-db-handoff.md) — เป็นงานเตรียมไฟล์ ยังไม่ deploy.
+[PostgreSQL handoff](k8s-uat-db-handoff.md); [แบบ CI/CD ที่ทีม CD ถือสิทธิ์ deploy](k8s-uat-cicd.md)
+— เป็นงานเตรียมไฟล์ ยังไม่ deploy.
 
 > **ธรรมเนียมของ schema:** `packages/db/prisma/schema.prisma` เก็บเฉพาะ **ตาราง kernel**
 > (tenant · user · queue · interaction · conversation · message · recording) ที่ทุกโมดูลต้องใช้ร่วมกัน

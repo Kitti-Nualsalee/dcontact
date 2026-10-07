@@ -59,6 +59,9 @@ jobs:
       - name: Prettier check
         run: pnpm lint
 
+      - name: K8s UAT offline manifest checks
+        run: node --test scripts/k8s-uat-render.test.mjs
+
       - name: Unit tests (no external services)
         run: pnpm test:unit
 

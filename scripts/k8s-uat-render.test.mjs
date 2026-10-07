@@ -45,6 +45,17 @@ function releaseArgs(phase) {
 
 test.after(() => rmSync(root, { recursive: true, force: true }));
 
+test('bootstrap สร้างเฉพาะ namespace แยกจาก Applications ของ Argo CD', () => {
+  const result = spawnSync('kubectl', ['kustomize', 'infra/k8s/uat/bootstrap'], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /kind: Namespace/);
+  assert.match(result.stdout, /name: dcontact-uat/);
+  assert.doesNotMatch(result.stdout, /kind: (?:Deployment|Service|Secret|Ingress)/);
+});
+
 test('สาม phase แยก one-shot Jobs และ public exposure ออกจาก foundation/application', () => {
   releaseFiles();
   for (const phase of ['foundation', 'applications', 'exposure']) {
@@ -53,6 +64,7 @@ test('สาม phase แยก one-shot Jobs และ public exposure ออ�
     assert.doesNotMatch(result.stdout, /REPLACE_WITH_|__[A-Z_]+__/);
     assert.doesNotMatch(result.stdout, /kind: Job/);
     assert.match(result.stdout, /namespace: dcontact-uat/);
+    assert.doesNotMatch(result.stdout, /kind: Namespace/);
     if (phase !== 'exposure') assert.doesNotMatch(result.stdout, /kind: Ingress/);
     else {
       assert.match(result.stdout, /dcontact-uat\.osd\.co\.th/);
