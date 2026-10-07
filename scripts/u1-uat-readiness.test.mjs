@@ -618,6 +618,17 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(e1Overlay, /command: \['node', 'dist\/e1-uat-main\.js'\]/);
   assert.match(e1Overlay, /DCONTACT_API_PROFILE: uat-e1/);
   assert.match(apiDockerfile, /test -f \/out\/api\/dist\/e1-uat-main\.js/);
+  assert.match(
+    apiDockerfile,
+    /COPY scripts\/u1-uat-keycloak-users\.mjs scripts\/keycloak-dphone-embedded-setup\.mjs/,
+  );
+  const keycloakConfig = parseComposeServices(compose)['keycloak-config'];
+  assert.equal(keycloakConfig.environment.DPHONE_EMBED_TEMPLATE_CLIENT, 'dcontact-uat-console');
+  assert.match(keycloakConfig.environment.DPHONE_EMBED_ORIGIN, /https:\/\/\$\{UAT_HOST:/);
+  assert.match(
+    keycloakConfig.raw.join('\n'),
+    /u1-uat-keycloak-users\.mjs --config && node scripts\/keycloak-dphone-embedded-setup\.mjs/,
+  );
   assert.match(deployScript, /e1-enable\)/);
   assert.match(deployScript, /e1-disable\)/);
   assert.match(deployScript, /E1_ACCEPTANCE_OVERLAY_MISSING/);
