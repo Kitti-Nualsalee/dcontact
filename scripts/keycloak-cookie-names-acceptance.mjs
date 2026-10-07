@@ -1,11 +1,12 @@
 /**
- * R1 (#593) prototype: เปลี่ยนชื่อ cookie ของ realm `dcontact` เป็น `DC_*` แล้ว login/SSO/monitorSession/logout
- * ด้วยเบราว์เซอร์จริง (Chromium) กับ dev stack — `node scripts/keycloak-cookie-names.prototype.mjs`
+ * R1 (#593) / AC6 (#599): ตรวจว่า cookie ของ realm `dcontact` ใช้ชื่อ `DC_*` และ login/SSO/monitorSession/logout ยังทำงาน
+ * ด้วยเบราว์เซอร์จริง (Chromium) กับ dev stack — `pnpm test:keycloak-cookie-names`
  *
  * ต้องมี: dev stack, `pnpm infra:keycloak:extensions` (provider `dc` ใน dcontact-account.jar), theme dcontact ที่มี
  * `login/resources/js/authChecker.js` ที่แก้ชื่อ cookie และ client `agent-desktop` (redirect `http://localhost:5173/*`)
  *
- * หน้า `http://localhost:5173/` ถูกจำลองด้วย `page.route` (ไม่ต้องรัน Workspace) เพื่อให้เป็น origin ที่ client อนุญาต
+ * `http://localhost:5173/` เป็น HTTP listener จำลองในสคริปต์ (ไม่ต้องรัน Workspace) เพื่อให้เป็น origin ที่ client อนุญาต
+ * — redirect ของ OIDC ไม่ผ่าน `page.route` จึงต้องมี listener จริง
  */
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';

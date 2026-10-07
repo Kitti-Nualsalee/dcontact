@@ -332,6 +332,36 @@ async function run(browser, locale) {
     await scanPage(tag('หลังยืนยันออกจากระบบ'), page);
   }
 
+  // 6b) เปลี่ยนรหัสผ่านแล้ว login ด้วยรหัสใหม่ในเบราว์เซอร์จริง (รหัสเดิมต้องไม่ผ่าน)
+  // — การเปลี่ยนจริงผ่าน API ของ D-Contact ตรวจใน apps/api account-api.boundary.ts (ใช้ reset-password ตัวเดียวกัน)
+  const NEW_PASSWORD = `${PASSWORD}-new`;
+  await admin('PUT', `/users/${loggedIn.id}/reset-password`, {
+    type: 'password',
+    value: NEW_PASSWORD,
+    temporary: false,
+  });
+  const freshContext = await browser.newContext({ locale: locale === 'th' ? 'th-TH' : 'en-US' });
+  const afterChange = await freshContext.newPage();
+  await afterChange.goto(pkceUrl());
+  await submitUsername(afterChange, loggedIn.username);
+  await afterChange.locator('#password').fill(PASSWORD);
+  await afterChange.locator('#kc-login').click();
+  await afterChange.locator('#password').waitFor();
+  await scanPage(tag('login: รหัสเดิมหลังเปลี่ยน (ต้องไม่ผ่าน)'), afterChange);
+  await afterChange.locator('#password').fill(NEW_PASSWORD);
+  await afterChange.locator('#kc-login').click();
+  try {
+    await afterChange.waitForURL(`${ORIGIN}/**`, { timeout: 15_000 });
+    infos.push(`[${locale}] login ด้วยรหัสผ่านใหม่สำเร็จ และรหัสเดิมไม่ผ่าน`);
+  } catch {
+    findings.push({
+      where: tag('login หลังเปลี่ยนรหัสผ่าน'),
+      kind: 'acceptance',
+      excerpt: 'login ด้วยรหัสผ่านใหม่ไม่สำเร็จ',
+    });
+  }
+  await freshContext.close();
+
   // 7) required actions (หนึ่งผู้ใช้ต่อหนึ่ง action เพื่อเห็นทุกหน้า)
   for (const [label, action] of [
     ['update-password', 'UPDATE_PASSWORD'],

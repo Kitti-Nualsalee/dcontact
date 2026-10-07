@@ -1,9 +1,10 @@
 # ADR 033: Self-service บัญชีผ่าน API ของ D-Contact บน Keycloak fine-grained admin permissions v2
 
-- **สถานะ:** Accepted (ส่วน identity plane — AC0, extension `dc-account` — AC2, API self-service — AC4); ส่วน UI ตามมาใน AC5–AC6
+- **สถานะ:** Accepted (ส่วน identity plane — AC0, extension `dc-account` — AC2, API self-service — AC4, UI — AC5, ซ่อนร่องรอย Keycloak — AC6)
 - **วันที่:** 2026-10-02
 - **ที่มา:** Phase Contract [#589](https://github.com/Kitti-Nualsalee/dcontact/issues/589) (เจ้าของงานยืนยัน 2026-10-02),
-  [AC0 #592](https://github.com/Kitti-Nualsalee/dcontact/issues/592)
+  [AC0 #592](https://github.com/Kitti-Nualsalee/dcontact/issues/592),
+  [R1 #593](https://github.com/Kitti-Nualsalee/dcontact/issues/593) (ชื่อ cookie), [AC6 #599](https://github.com/Kitti-Nualsalee/dcontact/issues/599)
 
 ## บริบท
 
@@ -67,6 +68,35 @@ API ของ D-Contact ต้องแก้ข้อมูลผู้ใช�
    - **error ของ password policy:** Keycloak บอกทีละกฎ API จึงคืน `rules[]` เฉพาะกฎแรกที่ไม่ผ่าน
      ผู้ใช้อาจต้องแก้หลายรอบ
 
+8. **ซ่อนร่องรอย Keycloak จากลูกค้า (AC6 [#599](https://github.com/Kitti-Nualsalee/dcontact/issues/599), R1 [#593](https://github.com/Kitti-Nualsalee/dcontact/issues/593))**
+   เกณฑ์: ไม่มีคำว่า "Keycloak" ในข้อความที่มองเห็น, `<title>`, อีเมล และชื่อ cookie ของ realm `dcontact`;
+   path `/auth/realms/...` ยอมรับได้ (#589 D9)
+   - **ชื่อ cookie → `DC_*`** (`DcCookieProvider`, provider id `dc` ของ SPI `cookie` ใน extension `dc-account`)
+     - เจ้าของงานยอมรับความเสี่ยงของ SPI `cookie` ที่ Keycloak ระบุว่า internal (R1 #593, 2026-10-07)
+     - implement `CookieProvider` ตรง ๆ ไม่ใช้ reflection และไม่ extend `DefaultCookieProvider`; ชื่อใหม่คำนวณจาก `CookieType.getName()`
+       (`KEYCLOAK_*`/`KC_*` → `DC_*`) จึงรวมชนิด cookie ที่ Keycloak เพิ่มภายหลังโดยอัตโนมัติ
+     - path/SameSite/Secure/HttpOnly/อายุคงตาม `CookieType` ทุกประการ; เฉพาะ realm ใน `--spi-cookie--dc--realms` (ค่าเริ่มต้น `dcontact`) — realm `master` ใช้ชื่อเดิม
+     - **rollout:** ผู้ใช้ที่ถือ cookie ชื่อเดิมอ่านได้ต่อ (SSO ไม่หลุด) แล้วชื่อเดิมถูกหมดอายุเมื่อเขียนชื่อใหม่ — Keycloak ไม่ส่งชื่อเดิมให้ผู้ใช้ใหม่เลย
+     - **iframe ของ session management:** iframe ต้นฉบับอ่าน `KEYCLOAK_SESSION` ตรง ๆ และ override ด้วย theme ไม่ได้ —
+       extension เสิร์ฟ `/realms/dcontact/dc-account/login-status-iframe.html` จาก template ต้นฉบับของ image ที่รันอยู่ แทนเฉพาะชื่อ cookie
+       (ไม่เจอชื่อเดิม = 500 ไม่ส่ง iframe ที่ทำงานผิดเงียบ ๆ); Console/Workspace อ่านจาก `metadataSeed.check_session_iframe`
+     - theme มีสำเนา `authChecker.js` และ `passkeysConditionalAuth.js` (อ่าน `KEYCLOAK_AUTH_SESSION_HASH`/`KEYCLOAK_SESSION`) ที่แก้ชื่อ cookie
+     - **ทุกครั้งที่ upgrade Keycloak:** (1) gate `A1-F-KEYCLOAK-EXTENSION` ต้อง compile ผ่าน (2) เทียบ `login-status-iframe.ftl`,
+       `authChecker.js`, `passkeysConditionalAuth.js` กับ upstream (3) รัน `pnpm test:keycloak-cookie-names` และ `pnpm test:identity-traces`
+   - **Account Console ใช้ไม่ได้:** account theme `dcontact` ตั้ง `accountResourceProvider=dc-account-landing` —
+     `/realms/dcontact/account/` (HTML) redirect ไป `baseUrl` ของ client `account-console` ซึ่ง `pnpm infra:identity:branding` ตั้งเป็น `CONSOLE_PUBLIC_URL`
+     (ไม่ตั้ง = 404, ไม่ redirect วน); Account REST API (`Accept: application/json`) ไม่ผ่านจุดนี้ — การเปลี่ยนภาษาของ `@d-contact/i18n` ยังใช้ได้
+     - client `account` ปิดไม่ได้: อีเมลเชิญ (`execute-actions-email` ไม่ส่ง `client_id`) ใช้เป็นค่าเริ่มต้น — ตั้ง `baseUrl` เป็น Console เพื่อให้ลิงก์ "กลับแอป" หลังตั้งรหัสผ่านพาไป D-Contact
+   - **`displayName` ของ realm = "D-Contact"** ทุก environment (realm JSON + `infra:identity:branding` สำหรับ realm ที่มีอยู่แล้ว)
+   - **attribute ภายใน** (`tenant_id`, `tenant_slug`, `dc_user_id`, `zoneinfo`) ผู้ใช้ไม่เห็น/แก้ไม่ได้ (`view: [admin]`):
+     หน้า required action "ปรับปรุงข้อมูลบัญชี" เคยแสดงเป็นช่องฟอร์ม; claim ใน token มาจาก mapper ที่อ่าน attribute ตรง จึงไม่กระทบ
+   - **ข้อความ/อีเมล:** theme `dcontact` ใส่ข้อความไทยที่ Keycloak 26.7.5 ยังไม่มี, อีเมล `email-verification` และ `password-reset` (html + text, th/en)
+     ใช้ layout เดียวกับอีเมลเชิญ ไม่แสดงชื่อ realm/ผู้ใช้; `emailTestSubject` ถูก override (เดิมขึ้นต้นด้วย `[KEYCLOAK]`)
+   - **หลักฐาน:** `pnpm test:identity-traces` (Chromium + dev stack) สแกนหน้า login/required action/error/logout และอีเมลทุกฉบับทั้งไทยและอังกฤษหา `/keycloak/i`
+     ใน title/ข้อความ/ชื่อ cookie พร้อม negative control (หน้าของ realm `master` ต้องถูกจับได้) และ gate ว่า Account Console เข้าไม่ถึง
+     — ผลบน 26.7.5: ผ่านทั้ง `th` และ `en`; `pnpm test:keycloak-cookie-names` 16/16
+   - **ขอบเขตที่ไม่ได้ซ่อน:** ชื่อ path `/auth/realms/...` และ URL ของ resource ใต้ `/resources/.../keycloak/...` (ชื่อไฟล์ static ที่ browser ไม่แสดงให้ผู้ใช้อ่าน) — D9
+
 ## สิ่งที่ probe บน 26.7.5 แล้วพบ (กำหนดรูปแบบการตัดสินใจข้างบน)
 
 | เรื่อง | ผล |
@@ -92,6 +122,9 @@ API ของ D-Contact ต้องแก้ข้อมูลผู้ใช�
   และต้องรัน `account-mfa.boundary.ts` ใหม่ทุกครั้งที่ upgrade Keycloak
 - (−) sync `dc_mfa_required` เกิดใน transaction ของ API ก่อน commit — ถ้า commit ล้มหลัง sync สำเร็จ ค่าใน Keycloak
   จะนำหน้าฐานข้อมูลจนกว่า admin จะบันทึกครั้งถัดไป (sync idempotent)
+- (−) SPI `cookie` เป็น internal API: Keycloak รุ่นใหม่อาจเปลี่ยน `CookieType`/`CookiePath`/`RealmsResource.realmBaseUrl` — extension จะ compile ไม่ผ่าน (จับได้ที่ gate ไม่ใช่ตอน deploy)
+  และ iframe/`authChecker.js` ที่คัดลอกจาก upstream ต้องเทียบทุกครั้งที่ upgrade (ข้อ 8)
+- (−) SPI `account-resource` (landing ของ Account Console) ก็ถูกระบุว่า internal เช่นกัน (log `KC-SERVICES0047`) — เปลี่ยนแล้ว extension compile ไม่ผ่านเช่นเดียวกัน
 - (−) **Keycloak downgrade ไม่ได้** — rollback ข้ามการ upgrade นี้ต้อง restore ฐานข้อมูล Keycloak จาก backup ที่ทำก่อน migrate
   (`docs/u1-uat-deployment.md` §9)
 

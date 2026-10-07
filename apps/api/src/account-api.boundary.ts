@@ -18,6 +18,7 @@ import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient } from '@d-contact/db';
 import type { VerifiedOidcClaims } from '@d-contact/workspace-session';
 import { ACCOUNT_SELF_SERVICE, AccountController } from './account-api.js';
+import { AccountEmailDispatcher, SmtpEmailSender } from './account-email.js';
 import { AccountSecretBox, KeycloakAccountIdentity } from './account-identity.js';
 import { AccountSelfService, tokenHash } from './account-self-service.js';
 import {
@@ -372,6 +373,54 @@ test('POST password: policy → rules[], สำเร็จ = audit + email แ�
     );
     assert.ok(!JSON.stringify(audit).includes(strong));
     assert.ok(!JSON.stringify(outbox).includes(strong));
+
+    // AC6 (#599): รหัสใหม่ login ได้จริง รหัสเดิมใช้ไม่ได้
+    const login = (password: string) =>
+      fetch(`${ISSUER}/protocol/openid-connect/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'password',
+          client_id: 'dcontact-dev-readiness',
+          username: me.email,
+          password,
+        }),
+      });
+    assert.equal((await login(strong)).status, 200, 'login ด้วยรหัสผ่านใหม่');
+    const old = await login(PASSWORD);
+    assert.equal(old.status, 400, 'รหัสผ่านเดิมใช้ไม่ได้แล้ว');
+    assert.equal(((await old.json()) as { error: string }).error, 'invalid_grant');
+
+    // AC6 (#599): อีเมลแจ้งเปลี่ยนรหัสผ่านถึง mailpit จริง (ผ่าน dispatcher + SMTP) และไม่มีรหัสผ่าน/ร่องรอยของ IdP
+    const dispatcher = new AccountEmailDispatcher(
+      application,
+      new SmtpEmailSender({
+        host: process.env.MAILPIT_SMTP_HOST ?? 'localhost',
+        port: Number(process.env.MAILPIT_SMTP_PORT ?? '1025'),
+        secure: false,
+        fromAddress: 'no-reply@dcontact.local',
+        helo: 'dcontact.local',
+      }),
+      { consoleUrl: 'http://localhost:5173', now: () => new Date(Date.now() + 10_000) },
+    );
+    assert.deepEqual(await dispatcher.drainTenant(me.tenant.id), ['SENT']);
+    const mailpitApi = process.env.MAILPIT_API_URL ?? 'http://localhost:8025';
+    const found = (await (
+      await fetch(
+        `${mailpitApi}/api/v1/search?${new URLSearchParams({ query: `to:"${me.email}"` })}`,
+      )
+    ).json()) as { messages: Array<{ ID: string }> };
+    assert.equal(found.messages.length, 1, 'อีเมลแจ้งเตือนถึง mailpit');
+    const message = (await (
+      await fetch(`${mailpitApi}/api/v1/message/${found.messages[0]!.ID}`)
+    ).json()) as {
+      Text: string;
+      HTML: string;
+      Subject: string;
+    };
+    const everything = `${message.Subject}\n${message.Text}\n${message.HTML}`;
+    assert.doesNotMatch(everything, /keycloak/i);
+    assert.ok(!everything.includes(strong));
   } finally {
     await admin('PUT', '', { passwordPolicy: state.originalPasswordPolicy });
   }

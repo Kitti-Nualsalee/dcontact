@@ -102,6 +102,9 @@
     "infra:identity:account": "node scripts/keycloak-account-service-setup.mjs",
     "infra:identity:branding": "node scripts/keycloak-branding-setup.mjs",
     "infra:identity:account:verify": "node scripts/keycloak-account-service-setup.mjs --verify",
+    "test:keycloak-cookie-names": "node scripts/keycloak-cookie-names-acceptance.mjs",
+    "test:identity-traces": "node scripts/identity-traces-acceptance.mjs",
+    "test:keycloak-branding": "node --test scripts/keycloak-branding-setup.test.mjs",
     "test:keycloak-account-service": "node --test scripts/keycloak-account-service-setup.test.mjs",
     "test:keycloak-provisioning": "node --test scripts/keycloak-provisioning-setup.test.mjs"
   },
