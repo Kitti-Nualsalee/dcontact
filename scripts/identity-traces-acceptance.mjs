@@ -13,7 +13,7 @@
  * required action (update-password, update-profile, verify-email + email, configure-totp) และ flow อีเมลเชิญ (execute-actions)
  * ไปจนถึงหน้าที่ผู้ใช้ลงท้าย; Account Console ต้องเข้าไม่ถึง
  */
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 
@@ -105,7 +105,43 @@ async function createUser(label, { requiredActions = [], otp = false, emailVerif
   const id = headers.get('location').split('/').pop();
   await admin('POST', `/organizations/${org.id}/members`, id);
   createdUsers.push(id);
-  return { id, username };
+  return { id, username, tenant };
+}
+
+const ACCOUNT_SERVICE_SECRET =
+  process.env.KEYCLOAK_ACCOUNT_SERVICE_SECRET ?? 'dcontact-account-service-dev-secret';
+
+/** TOTP (RFC 6238, SHA1, 6 หลัก, 30 วินาที) — key = bytes ของ secret ตามที่ Keycloak ใช้กับ credential ที่เก็บเป็นตัวอักษร */
+function totp(secret, at = Date.now()) {
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)));
+  const mac = createHmac('sha1', Buffer.from(secret, 'utf8')).update(counter).digest();
+  const offset = mac[mac.length - 1] & 0xf;
+  const value = mac.readUInt32BE(offset) & 0x7fffffff;
+  return String(value % 1_000_000).padStart(6, '0');
+}
+
+async function enrolTotpViaExtension(user, secret) {
+  const tokenResponse = await fetch(`${ISSUER}/protocol/openid-connect/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: 'dcontact-account-service',
+      client_secret: ACCOUNT_SERVICE_SECRET,
+    }),
+  });
+  const { access_token: serviceToken } = await tokenResponse.json();
+  return fetch(`${ISSUER}/dc-account/users/${user.id}/totp/verify-and-create`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${serviceToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      tenantId: user.tenant,
+      secret,
+      code: totp(secret),
+      label: 'ac6-enrol',
+    }),
+  });
 }
 
 async function mailTo(address, { wait = true } = {}) {
@@ -312,6 +348,40 @@ async function run(browser, locale) {
   await submitPassword(page);
   await page.locator('#otp').waitFor();
   await scanPage(tag('login: OTP'), page);
+
+  // 5b) ลงทะเบียน TOTP ผ่าน extension เดียวกับที่ API ใช้ (ผู้ใช้สแกน secret) แล้ว login ต้องถาม OTP และโค้ดที่ถูกผ่าน
+  const enrolled = await createUser('enrol');
+  const enrolSecret = randomBytes(10).toString('hex');
+  const enrol = await enrolTotpViaExtension(enrolled, enrolSecret);
+  if (enrol.status !== 201) {
+    findings.push({
+      where: tag('ลงทะเบียน TOTP'),
+      kind: 'acceptance',
+      excerpt: `extension ตอบ ${enrol.status}`,
+    });
+  } else {
+    const enrolContext = await browser.newContext({
+      locale: locale === 'th' ? 'th-TH' : 'en-US',
+    });
+    const enrolPage = await enrolContext.newPage();
+    await enrolPage.goto(pkceUrl());
+    await submitUsername(enrolPage, enrolled.username);
+    await submitPassword(enrolPage);
+    await enrolPage.locator('#otp').waitFor();
+    await enrolPage.locator('#otp').fill(totp(enrolSecret));
+    await enrolPage.locator('#kc-login').click();
+    try {
+      await enrolPage.waitForURL(`${ORIGIN}/**`, { timeout: 15_000 });
+      infos.push(`[${locale}] ลงทะเบียน TOTP แล้ว login ถาม OTP และโค้ดที่ถูกผ่าน`);
+    } catch {
+      findings.push({
+        where: tag('login ด้วย OTP ที่ลงทะเบียน'),
+        kind: 'acceptance',
+        excerpt: 'ใส่โค้ด TOTP ที่ถูกต้องแล้วไม่ผ่าน',
+      });
+    }
+    await enrolContext.close();
+  }
 
   // 6) logout-confirm (ล็อกอินก่อน แล้วออกโดยไม่มี id_token_hint)
   const loggedIn = await createUser('logout');
