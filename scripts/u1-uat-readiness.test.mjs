@@ -663,6 +663,17 @@ test('UAT-S22: owner สำหรับ migrate/backup อ่าน FORCE RLS �
   assert.doesNotMatch(repair, /(?:PASSWORD\s*=|UAT_[A-Z_]*PASSWORD)/);
 });
 
+test('UAT-S23: VM1 ส่ง SIP WebSocket ผ่าน Caddy ใน release ไม่พึ่ง override ชั่วคราว', () => {
+  const vm1Bootstrap = read('infra/uat/operator/vm1-nginx-uat.sh');
+  const vm1Migration = read('infra/uat/operator/vm1-nginx-websocket-uat.sh');
+  assert.match(vm1Bootstrap, /proxy_set_header Upgrade \$http_upgrade;/);
+  assert.match(vm1Bootstrap, /proxy_set_header Connection "upgrade";/);
+  assert.match(vm1Migration, /proxy_pass https:\/\/192\\\.168\\\.102\\\.112:5067/);
+  assert.match(vm1Migration, /Caddy ใน release/);
+  assert.match(vm1Migration, /nginx -t/);
+  assert.match(vm1Migration, /cp --preserve=mode,ownership/);
+});
+
 test('UAT-S10: proxy ที่เปิด admin ของ Keycloak หรือไม่มี allowlist ไม่ผ่าน', () => {
   assert.equal(checkProxy(caddyfile).status, 'PASS');
   failed(checkProxy(caddyfile.replace(' /auth/admin/*', '')), 'ADMIN_PATH_OPEN');
