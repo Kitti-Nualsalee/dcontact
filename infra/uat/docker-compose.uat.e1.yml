@@ -1,7 +1,40 @@
 services:
+  proxy:
+    volumes: !override
+      - ./Caddyfile.3vm.e1:/etc/caddy/Caddyfile:ro
+
   api:
     command: ['node', 'dist/e1-uat-main.js']
     environment:
       DCONTACT_API_PROFILE: uat-e1
       DPHONE_EMBED_SCRIPT_URL: https://${UAT_HOST:?UAT_HOST is required}/workspace/embed/dphone-embed.js
       DPHONE_EMBED_CONNECT_SRC: https://${UAT_HOST:?UAT_HOST is required}
+      FREESWITCH_DIRECTORY_PASSWORD: ${UAT_E1_FREESWITCH_DIRECTORY_PASSWORD:?UAT_E1_FREESWITCH_DIRECTORY_PASSWORD is required}
+      SIP_BROWSER_NODES_JSON: >-
+        [{"telephonyNodeId":"e1-uat-sandbox","wssUrl":"wss://${UAT_HOST:?UAT_HOST is required}/sip-ws"}]
+
+  e1-sandbox:
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: '5'
+    image: ${API_IMAGE:?API_IMAGE (digest) is required}
+    command: ['node', '/e1-sandbox/dist/e1-sandbox-main.js']
+    environment:
+      NODE_ENV: production
+      E1_SANDBOX_ENABLED: 'true'
+      DATABASE_URL: postgresql://dcontact_app:${UAT_APP_DB_PASSWORD:?UAT_APP_DB_PASSWORD is required}@db-relay:5432/dcontact_uat?schema=public
+      FREESWITCH_ESL_HOST: freeswitch
+      FREESWITCH_ESL_PORT: '8021'
+      FREESWITCH_ESL_PASSWORD: ${UAT_E1_FREESWITCH_ESL_PASSWORD:?UAT_E1_FREESWITCH_ESL_PASSWORD is required}
+      FREESWITCH_SIP_DOMAIN: dcontact-uat.sip.internal
+      TELEPHONY_NODE_ID: e1-uat-sandbox
+    networks:
+      - internal

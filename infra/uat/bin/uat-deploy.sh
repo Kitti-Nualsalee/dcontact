@@ -65,7 +65,7 @@ is_trial() {
 
 is_e1() {
   [[ -f "$E1_FLAG" ]] || return 1
-  [[ -f "$1/docker-compose.uat.e1.yml" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
+  [[ -f "$1/docker-compose.uat.e1.yml" && -f "$1/Caddyfile.3vm.e1" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
 }
 
 compose() {
@@ -269,6 +269,7 @@ case "$cmd" in
     # --remove-orphans ไม่ลบ volume minio-data (ย้ายข้อมูล/rollback จนถึง #541)
     # #565: ไม่มี flag = container line-* เป็น orphan และถูกถอดที่นี่; runner/relay ไม่รันค้าง (profile line-pilot)
     services=(object-storage-lifecycle object-storage-migrated-expiry api proxy)
+    if is_e1 "$dir"; then services+=(e1-sandbox); fi
     if is_line "$dir"; then services+=(line-webhook); fi
     # #567: trial = relay รันตลอด; ไม่มี trial = ถอด relay ที่อาจค้างจาก trial ก่อนหน้า (runner เรียกขึ้นใหม่เองได้)
     if is_trial "$dir"; then
@@ -333,19 +334,26 @@ case "$cmd" in
     dir="$(release_dir "${1:?sha}")"
     if is_e1 "$dir"; then enabled=true; else enabled=false; fi
     profile="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${PROJECT}-api-1" 2>/dev/null | sed -n 's/^DCONTACT_API_PROFILE=//p' | tail -n 1 || true)"
-    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"e1-status\",\"enabled\":$enabled,\"runtimeProfile\":\"${profile:-unknown}\"}"
+    sandbox="$(docker inspect --format '{{.State.Status}}' "${PROJECT}-e1-sandbox-1" 2>/dev/null || true)"
+    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"e1-status\",\"enabled\":$enabled,\"runtimeProfile\":\"${profile:-unknown}\",\"sandbox\":\"${sandbox:-absent}\"}"
     ;;
 
   e1-enable)
     dir="$(release_dir "${1:?sha}")"
     [[ -f "$dir/docker-compose.uat.e1.yml" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
     : >"$E1_FLAG"
-    compose "$dir" up -d --wait --no-deps --force-recreate api proxy
+    if ! compose "$dir" up -d --wait --no-deps --force-recreate api proxy e1-sandbox; then
+      rm -f "$E1_FLAG"
+      compose "$dir" up -d --wait --no-deps --force-recreate api proxy || true
+      fail 'E1_ENABLE_FAILED'
+    fi
     echo '{"type":"u1.uat.deploy","step":"e1-enable","status":"PASS"}'
     ;;
 
   e1-disable)
     dir="$(release_dir "${1:?sha}")"
+    # ต้องถอด daemon ขณะ overlay ยัง active; หลังลบ flag compose จะไม่รู้จัก service นี้แล้ว
+    if is_e1 "$dir"; then compose "$dir" rm -sf e1-sandbox >/dev/null || true; fi
     rm -f "$E1_FLAG"
     compose "$dir" up -d --wait --no-deps --force-recreate api proxy
     echo '{"type":"u1.uat.deploy","step":"e1-disable","status":"PASS"}'

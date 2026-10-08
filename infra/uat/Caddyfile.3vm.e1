@@ -1,0 +1,64 @@
+# #490: ใช้เฉพาะ E1 acceptance overlay; TLS ยังจบที่ nginx VM1
+{
+	admin off
+	persist_config off
+	auto_https off
+	servers {
+		trusted_proxies static 192.168.102.114/32
+		client_ip_headers X-Forwarded-For
+	}
+}
+
+:8080 {
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		-Server
+	}
+
+	route {
+		@notEdge not remote_ip 192.168.102.114/32
+		respond @notEdge 403
+		@outside not client_ip {$UAT_ALLOWED_CIDRS}
+		respond @outside 403
+
+		@keycloakAdmin path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* /auth/metrics /auth/health /auth/health/*
+		respond @keycloakAdmin 404
+
+		# browser ต่อ WSS ที่ VM1; Caddy forward upgrade เข้า FreeSWITCH เฉพาะ network internal
+		handle /sip-ws {
+			reverse_proxy freeswitch:5066
+		}
+		handle /auth/* {
+			reverse_proxy keycloak:8080 {
+				# TLS terminates on VM1 nginx. Preserve the original scheme so
+				# Keycloak issues Secure session cookies for browser sign-in.
+				header_up X-Forwarded-Proto https
+			}
+		}
+		handle /api/* {
+			reverse_proxy api:3000
+		}
+		handle /dphone/* {
+			header -X-Frame-Options
+			reverse_proxy api:3000
+		}
+		handle /embed/* {
+			reverse_proxy api:3000
+		}
+		handle_path /workspace/* {
+			root * /srv/workspace
+			file_server
+		}
+		handle_path /examples/* {
+			root * /srv/examples
+			file_server
+		}
+		handle {
+			root * /srv/console
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}

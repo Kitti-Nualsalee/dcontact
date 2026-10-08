@@ -615,8 +615,19 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
     /DPHONE_EMBED_SCRIPT_URL: https:\/\/\$\{UAT_HOST:[^}]+\}\/workspace\/embed\/dphone-embed\.js/,
   );
   const e1Overlay = readFileSync('infra/uat/docker-compose.uat.e1.yml', 'utf8');
+  const caddyE1 = readFileSync('infra/uat/Caddyfile.3vm.e1', 'utf8');
   assert.match(e1Overlay, /command: \['node', 'dist\/e1-uat-main\.js'\]/);
   assert.match(e1Overlay, /DCONTACT_API_PROFILE: uat-e1/);
+  assert.match(
+    e1Overlay,
+    /FREESWITCH_DIRECTORY_PASSWORD: \$\{UAT_E1_FREESWITCH_DIRECTORY_PASSWORD:/,
+  );
+  assert.match(e1Overlay, /SIP_BROWSER_NODES_JSON:/);
+  assert.match(e1Overlay, /wss:\/\/\$\{UAT_HOST:[^}]+\}\/sip-ws/);
+  assert.match(e1Overlay, /FREESWITCH_ESL_PASSWORD: \$\{UAT_E1_FREESWITCH_ESL_PASSWORD:/);
+  assert.match(e1Overlay, /\.\/Caddyfile\.3vm\.e1:\/etc\/caddy\/Caddyfile:ro/);
+  assert.match(caddyE1, /handle \/sip-ws \{\s+reverse_proxy freeswitch:5066/);
+  assert.doesNotMatch(caddyfile3vm, /\/sip-ws/);
   assert.match(apiDockerfile, /test -f \/out\/api\/dist\/e1-uat-main\.js/);
   assert.match(
     apiDockerfile,
@@ -632,6 +643,9 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(deployScript, /e1-enable\)/);
   assert.match(deployScript, /e1-disable\)/);
   assert.match(deployScript, /E1_ACCEPTANCE_OVERLAY_MISSING/);
+  assert.match(deployScript, /E1_ENABLE_FAILED/);
+  assert.match(deployScript, /sandbox.*absent/);
+  assert.match(workflow, /infra\/uat\/Caddyfile\.3vm\.e1/);
   const wizard = readFileSync('scripts/e1-16-uat-acceptance-wizard.sh', 'utf8');
   assert.match(wizard, /e1-enable '\$MAIN_SHA'/);
   assert.match(wizard, /e1-disable '\$MAIN_SHA'/);
