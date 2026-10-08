@@ -670,6 +670,7 @@ test('UAT-S23: VM1 ส่ง SIP WebSocket ผ่าน Caddy ใน release ไ
   assert.match(vm1Bootstrap, /proxy_set_header Connection "upgrade";/);
   assert.match(vm1Migration, /proxy_pass https:\/\/192\\\.168\\\.102\\\.112:5067/);
   assert.match(vm1Migration, /proxy_connect_timeout 5s/);
+  assert.match(vm1Migration, /manual_sip_ws\.subn\('', source\)/);
   assert.match(vm1Migration, /Caddy ใน release/);
   assert.match(vm1Migration, /nginx -t/);
   assert.match(vm1Migration, /cp --preserve=mode,ownership/);

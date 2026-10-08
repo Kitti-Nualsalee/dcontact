@@ -81,7 +81,7 @@ manual_sip_ws = re.compile(
     r'    \}\n',
 )
 
-source, removed = manual_sip_ws.subn('\n', source)
+source, removed = manual_sip_ws.subn('', source)
 if removed > 1:
     raise SystemExit('พบ /sip-ws override มากกว่าหนึ่ง block; หยุดเพื่อตรวจด้วยมือ')
 source = source.replace(
