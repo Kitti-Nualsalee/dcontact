@@ -89,6 +89,13 @@ source = source.replace(
     '        proxy_set_header Upgrade $http_upgrade;\n'
     '        proxy_set_header Connection "upgrade";\n',
 )
+source = source.replace(
+    '        proxy_set_header Connection "upgrade";\n'
+    '        proxy_read_timeout 60s;\n',
+    '        proxy_set_header Connection "upgrade";\n'
+    '        proxy_connect_timeout 5s;\n'
+    '        proxy_read_timeout 60s;\n',
+)
 Path(sys.argv[2]).write_text(source)
 PY
 
