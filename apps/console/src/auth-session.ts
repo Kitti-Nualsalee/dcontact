@@ -114,6 +114,11 @@ export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): User
     disablePKCE: false,
     automaticSilentRenew: true,
     monitorSession: true,
+    // R1 (#593): cookie ของ realm เปลี่ยนชื่อเป็น DC_* — iframe ของ session management ต้องเป็นตัวที่อ่านชื่อใหม่
+    // (iframe เดิมของ IdP อ่านชื่อเดิมตายตัวและ override ด้วย theme ไม่ได้)
+    metadataSeed: {
+      check_session_iframe: `${input.issuer.replace(/\/+$/, '')}/dc-account/login-status-iframe.html`,
+    },
     stateStore: new WebStorageStateStore({
       store: input.stateStorage,
       prefix: 'dcontact.console.oidc.state.',

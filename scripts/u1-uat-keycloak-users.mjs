@@ -288,7 +288,8 @@ export async function applyRealmConfig(admin, rendered) {
         ...IDENTITY_ATTRIBUTES.map((name) => ({
           name,
           displayName: name,
-          permissions: { view: ['admin', 'user'], edit: ['admin'] },
+          // AC6 (#599): ผู้ใช้ไม่เห็น attribute ภายในในหน้าของ identity provider (claim ใน token มาจาก mapper)
+          permissions: { view: ['admin'], edit: ['admin'] },
           multivalued: false,
         })),
       ],

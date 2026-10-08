@@ -58,6 +58,11 @@ bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh status <SOURCE_SHA>
   - ใส่ค่าจริงใน `uat.env` เท่านั้น ห้าม commit
   - **gate ก่อน production:** UAT ใช้ Microsoft 365 direct send ซึ่งส่งได้เฉพาะผู้รับในองค์กร (#589 Q1)
     ต้องตั้ง M365 SMTP relay connector + SPF หรือใช้ SMTP ที่ส่งออกนอกองค์กรได้ก่อนเปิดให้ลูกค้าภายนอก
+- **AC6 (#599): ซ่อนร่องรอย Keycloak** — `keycloak-config` (`u1-uat-keycloak-users.mjs --config`) รัน `keycloak-branding-setup.mjs` ต่อท้าย (idempotent)
+  - ตั้ง `displayName` = "D-Contact", account theme `dcontact`, `baseUrl` ของ client `account`/`account-console` = `https://${UAT_HOST}/` (หรือ `CONSOLE_PUBLIC_URL` ถ้าตั้ง) และซ่อน attribute ภายในจากผู้ใช้
+  - **ชื่อ cookie ของ realm `dcontact` เปลี่ยนเป็น `DC_*`** เมื่อ image Keycloak ใหม่ขึ้น: ผู้ใช้ที่ login อยู่ยัง SSO ต่อได้ (ชื่อเดิมถูกอ่านแล้วหมดอายุ) ไม่ต้อง login ใหม่
+  - rollback ของ image Keycloak กลับรุ่นก่อน AC6: cookie `DC_*` ที่ค้างอยู่ในเบราว์เซอร์ไม่ถูกอ่าน — ผู้ใช้ต้อง login ใหม่หนึ่งครั้ง
+  - ก่อนเปิดให้ลูกค้า: รัน `pnpm test:identity-traces` กับ stack ที่มี Keycloak ตัวเดียวกัน (ต้องผ่านทั้ง th/en)
 - **AC2 (#595):** `configure` ยังตั้ง browser flow ของ tenant `dcontact-browser` และผูกเป็น browser flow ของ realm
   (บังคับ 2FA ตาม Organization ผ่าน extension `dc-account` ใน image ของ Keycloak)
   - image ของ Keycloak ต้องมี `dcontact-account.jar` ก่อนรัน `configure` — ถ้าไม่มี setup จะล้มที่การเพิ่ม `dc-org-mfa-required`

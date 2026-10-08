@@ -686,3 +686,5 @@ ID ดิบ, audit ต่อการอ่าน, tenant อื่นไม่
 - live readiness UAT-L08: หน้าของ realm (client ที่ไม่มีอยู่ → หน้า error) render ด้วย theme `dcontact`
   และ `dcontact.css` / `tokens.css` โหลดได้ผ่าน proxy
 - rollback (Console/api) ไม่แตะ Keycloak — theme ของ release ล่าสุดยังอยู่
+- **AC6 (#599):** `--config` ตามด้วย `keycloak-branding-setup.mjs` (displayName "D-Contact", account theme, `baseUrl` ของ `account`/`account-console` = `https://${UAT_HOST}/`,
+  ซ่อน attribute ภายในจากผู้ใช้) และ cookie ของ realm `dcontact` ใช้ชื่อ `DC_*` — รายละเอียดและรายการตรวจตอน upgrade Keycloak ใน ADR-033 ข้อ 8

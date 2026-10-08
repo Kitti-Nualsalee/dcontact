@@ -67,7 +67,9 @@ const realmPath = `/admin/realms/${LOCALE_REALM}`;
 export const ZONEINFO_ATTRIBUTE = Object.freeze({
   name: 'zoneinfo',
   displayName: 'Time zone',
-  permissions: { view: ['admin', 'user'], edit: ['admin'] },
+  // AC6 (#599): ผู้ใช้ไม่เห็น attribute นี้ (หน้า required action ของ identity provider จะแสดงเป็นช่องฟอร์ม)
+  // — claim `zoneinfo` ใน token มาจาก mapper ซึ่งอ่าน attribute ตรง ไม่ผ่านสิทธิ์ view ของผู้ใช้
+  permissions: { view: ['admin'], edit: ['admin'] },
   multivalued: false,
 });
 

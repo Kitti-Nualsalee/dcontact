@@ -1,8 +1,9 @@
 {
   "realm": "dcontact",
   "enabled": true,
-  "displayName": "D-Contact (UAT)",
+  "displayName": "D-Contact",
   "loginTheme": "dcontact",
+  "accountTheme": "dcontact",
   "emailTheme": "dcontact",
   "sslRequired": "external",
   "organizationsEnabled": true,

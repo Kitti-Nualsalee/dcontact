@@ -176,7 +176,8 @@ async function ensureUserProfile(token) {
           name,
           displayName: name,
           permissions: {
-            view: name.startsWith('dc_') && name !== 'dc_user_id' ? ['admin'] : ['admin', 'user'],
+            // AC6 (#599): attribute ภายในไม่แสดงให้ผู้ใช้เห็นในหน้าของ identity provider
+            view: ['admin'],
             edit: ['admin'],
           },
           multivalued: false,

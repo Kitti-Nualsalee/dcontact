@@ -13,3 +13,8 @@ mockups/
 
 # Existing source formatting debt; keep new files under Prettier enforcement
 apps/api/src/agent-offer-fanout.test.ts
+
+# R1 (#593): สำเนาของ JS ใน theme base ของ Keycloak ที่แก้เฉพาะชื่อ cookie — ไม่ format ใหม่ เพื่อให้ diff กับต้นฉบับ
+# ตอน upgrade เห็นเฉพาะส่วนที่ต่างจริง
+infra/keycloak/themes/dcontact/login/resources/js/authChecker.js
+infra/keycloak/themes/dcontact/login/resources/js/passkeysConditionalAuth.js

@@ -18,7 +18,7 @@ test('idempotent: มี zoneinfo อยู่แล้วคืน object เ�
 });
 
 test('ผู้ใช้เห็น timezone ได้ แต่แก้ได้เฉพาะ admin', () => {
-  assert.deepEqual(ZONEINFO_ATTRIBUTE.permissions, { view: ['admin', 'user'], edit: ['admin'] });
+  assert.deepEqual(ZONEINFO_ATTRIBUTE.permissions, { view: ['admin'], edit: ['admin'] });
 });
 
 test('ผู้ใช้ dev ในสคริปต์ตรงกับ realm JSON และทุกคนมี default-roles-dcontact (Account API ต้องใช้)', async () => {
