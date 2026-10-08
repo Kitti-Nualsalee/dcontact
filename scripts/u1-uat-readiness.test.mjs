@@ -653,6 +653,16 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.ok(wizard.indexOf('ui-flag') < wizard.indexOf('e1-disable'));
 });
 
+test('UAT-S22: owner สำหรับ migrate/backup อ่าน FORCE RLS ได้โดยไม่ยกสิทธิ์ให้ API', () => {
+  const bootstrap = read('infra/uat/operator/vm3-bootstrap-uat.sh');
+  const repair = read('infra/uat/operator/vm3-uat-backup-role.sh');
+  assert.match(bootstrap, /CREATE ROLE dcontact_uat_owner LOGIN INHERIT BYPASSRLS NOSUPERUSER/);
+  assert.match(bootstrap, /CREATE ROLE dcontact_app LOGIN INHERIT NOBYPASSRLS NOSUPERUSER/);
+  assert.match(repair, /ALTER ROLE dcontact_uat_owner BYPASSRLS;/);
+  assert.match(repair, /role dcontact_app ต้องเป็น LOGIN INHERIT NOBYPASSRLS/);
+  assert.doesNotMatch(repair, /(?:PASSWORD\s*=|UAT_[A-Z_]*PASSWORD)/);
+});
+
 test('UAT-S10: proxy ที่เปิด admin ของ Keycloak หรือไม่มี allowlist ไม่ผ่าน', () => {
   assert.equal(checkProxy(caddyfile).status, 'PASS');
   failed(checkProxy(caddyfile.replace(' /auth/admin/*', '')), 'ADMIN_PATH_OPEN');
