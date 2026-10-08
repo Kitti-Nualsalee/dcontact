@@ -32,20 +32,23 @@ ENV PNPM_HOME=/pnpm \
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 COPY . .
-RUN pnpm install --frozen-lockfile --filter "@d-contact/api..." --filter "@d-contact/platform-control..."
+RUN pnpm install --frozen-lockfile --filter "@d-contact/api..." --filter "@d-contact/platform-control..." --filter "@d-contact/router..." --filter "@d-contact/telephony..."
 # prisma generate ไม่ต่อฐานข้อมูล — URL นี้มีไว้ให้ schema parse ผ่านเท่านั้น
 RUN DATABASE_URL=postgresql://build@localhost:5432/build pnpm --filter @d-contact/db generate \
   && pnpm --filter "@d-contact/api..." build \
-  && pnpm --filter @d-contact/platform-control build
+  && pnpm --filter @d-contact/platform-control build \
+  && pnpm --filter @d-contact/router build \
+  && pnpm --filter @d-contact/telephony build
 # runtime: production dependencies เท่านั้น แล้วคัด Prisma client ที่ generate แล้วตามไป
 RUN pnpm --filter @d-contact/api deploy --prod /out/api \
   && pnpm --filter @d-contact/db deploy /out/ops \
   && pnpm --filter @d-contact/platform-control deploy --prod /out/platform-control \
+  && pnpm --filter @d-contact/telephony deploy --prod /out/e1-sandbox \
   && node -e "const { cpSync, realpathSync, rmSync } = require('node:fs'); \
        const { resolve } = require('node:path'); \
        const client = (from) => resolve(require.resolve('@prisma/client/package.json', { paths: [realpathSync(from)] }), '../../../.prisma'); \
        const generated = client('/repo/packages/db'); \
-       for (const target of ['/out/api/node_modules/@d-contact/db', '/out/ops', '/out/platform-control/node_modules/@d-contact/db']) { \
+       for (const target of ['/out/api/node_modules/@d-contact/db', '/out/ops', '/out/platform-control/node_modules/@d-contact/db', '/out/e1-sandbox/node_modules/@d-contact/db']) { \
          rmSync(client(target), { recursive: true, force: true }); \
          cpSync(generated, client(target), { recursive: true }); \
        }" \
@@ -53,6 +56,7 @@ RUN pnpm --filter @d-contact/api deploy --prod /out/api \
   && test -f /out/api/dist/e1-uat-main.js \
   && test -f /out/api/dist/uat-provision-main.js \
   && test -f /out/api/dist/line-webhook-main.js \
+  && test -f /out/e1-sandbox/dist/e1-sandbox-main.js \
   && for cli in line-pilot-cli line-pilot-setup line-provider-runner; do \
        test -f "/out/api/node_modules/@d-contact/delivery/dist/$cli.js" || exit 1; \
      done
@@ -67,6 +71,7 @@ ENV NODE_ENV=production \
   DCONTACT_BUILD_SHA=$SOURCE_SHA
 WORKDIR /app
 COPY --from=build /out/api /app
+COPY --from=build /out/e1-sandbox /e1-sandbox
 USER 10001:10001
 EXPOSE 3000
 CMD ["node", "dist/uat-main.js"]

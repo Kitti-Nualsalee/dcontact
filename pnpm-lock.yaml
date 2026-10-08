@@ -589,6 +589,9 @@ importers:
       '@d-contact/kafka':
         specifier: workspace:*
         version: link:../../packages/kafka
+      '@d-contact/router':
+        specifier: workspace:*
+        version: link:../router
       '@d-contact/shared':
         specifier: workspace:*
         version: link:../../packages/shared
