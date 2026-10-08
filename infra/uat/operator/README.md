@@ -13,7 +13,19 @@ sudo bash /home/osdadmin/vm3-bootstrap-uat.sh --apply
 sudo bash /home/osdadmin/vm3-pg-hba-uat.sh --apply
 ```
 
-bootstrap จะสร้าง role UAT 5 ตัวและ database 2 ตัว โดยไม่แตะ role/database เดิม รหัสผ่านสุ่มใหม่อยู่ใน `/home/osdadmin/dcontact-uat-db-credentials.env` (mode 600) เท่านั้น ต้องส่งต่อไฟล์นี้ไป VM2 ผ่าน SSH เพื่อประกอบ `uat.env` แล้วลบจาก VM3 หลังตรวจว่าค่าบน VM2 ใช้งานได้ ห้ามแสดงเนื้อหาไฟล์ใน log หรือ terminal transcript ที่แชร์ต่อ
+bootstrap จะสร้าง role UAT 5 ตัวและ database 2 ตัว โดยไม่แตะ role/database เดิม รหัสผ่านสุ่มใหม่อยู่ใน `/home/osdadmin/dcontact-uat-db-credentials.env` (mode 600) เท่านั้น ต้องส่งต่อไฟล์นี้ไป VM2 ผ่าน SSH เพื่อประกอบ `uat.env` แล้วลบจาก VM3 หลังตรวจว่าค่าบน VM2 ใช้งานได้ ห้ามแสดงเนื้อหาไฟล์ใน log หรือ terminal transcript ที่แชร์ต่อ `dcontact_uat_owner` เป็นบัญชีเฉพาะงาน migrate/backup จึงเป็น `BYPASSRLS` แต่ยังเป็น `NOSUPERUSER`; API ใช้ `dcontact_app` ซึ่งต้องเป็น `NOBYPASSRLS` เสมอ
+
+### ซ่อม VM3 ที่ bootstrap ไปแล้ว
+
+ถ้า `uat-deploy.sh backup` รายงานว่า `pg_dump` ถูก FORCE RLS ปฏิเสธ ให้คัดลอก `vm3-uat-backup-role.sh` ไปที่ `/home/osdadmin/` แล้วรันบน VM3 ก่อน retry backup:
+
+```bash
+sudo bash /home/osdadmin/vm3-uat-backup-role.sh --check
+sudo bash /home/osdadmin/vm3-uat-backup-role.sh --apply
+sudo bash /home/osdadmin/vm3-uat-backup-role.sh --check
+```
+
+สคริปต์ยอมแก้เฉพาะ `dcontact_uat_owner` จาก `NOBYPASSRLS` เป็น `BYPASSRLS` หลังยืนยันว่าเป็น owner ของ `dcontact_uat`, ไม่ใช่ superuser และ `dcontact_app` ยังเป็น `NOBYPASSRLS`; ไม่แตะ role/database อื่นหรือ password ใด ๆ
 
 สคริปต์ `pg_hba` สำรองไฟล์ก่อนแก้ แทรก 4 กฎก่อน broad `md5` เดิม ตรวจ `pg_hba_file_rules.error` และ `pg_reload_conf()` โดยไม่ restart PostgreSQL ถ้าตรวจหลังแก้ไม่ผ่าน จะคืนไฟล์สำรองและ reload กลับ
 

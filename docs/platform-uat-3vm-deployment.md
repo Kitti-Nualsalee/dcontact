@@ -75,7 +75,7 @@ bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh status <SOURCE_SHA>
 
 1. ตรวจ Keycloak invitation guard ใน server info, OIDC discovery, API `/health/live`, HTTPS `platform-uat.osd.co.th`, Caddy allowlist และปฏิเสธ `/auth/admin`, `/metrics` จาก browser. ตรวจ U1 Journey smoke เดิมหลัง Keycloak เปลี่ยน.
 2. สร้าง **platform-only** operator (`kittin.platform`, email ทดสอบ `kittin.platform@uat.invalid`) ผ่าน `vm2-platform-deploy.sh operator <SOURCE_SHA>` โดยส่ง temporary password ใหม่ผ่าน stdin; Keycloak ต้องบังคับเปลี่ยน password และตั้ง TOTP. ห้ามใช้ tenant admin `kittin` เป็น platform operator. เก็บ subject UUID จากผลลัพธ์ที่ไม่มี secret.
-3. ตรวจ API ด้วย platform token: operator อ่านได้, tenant token ต้องถูกปฏิเสธ, request นอก CIDR ต้อง 403. ตรวจ DB login role ทั้งสองเป็น `INHERIT NOBYPASSRLS`, parent `NOLOGIN`.
+3. ตรวจ API ด้วย platform token: operator อ่านได้, tenant token ต้องถูกปฏิเสธ, request นอก CIDR ต้อง 403. ตรวจ role ของ API/platform เป็น `INHERIT NOBYPASSRLS`, parent เป็น `NOLOGIN`; เฉพาะ `dcontact_uat_owner` สำหรับ migrate/backup อาจเป็น `INHERIT BYPASSRLS` แต่ต้องเป็น `NOSUPERUSER`.
 4. ทำ rollback drill โดย rollout ยังปิด: `vm2-platform-deploy.sh rollback <SOURCE_SHA>`, ตรวจ U1 กลับมาปกติ แล้วรัน `keycloak`, `configure`, `start` ใหม่. ไม่ลบ ledger/tenant.
 5. หลัง `a1:uat:gate` ของ SHA ที่ deploy ผ่าน และ rollback drill ผ่านแล้ว รัน `vm2-platform-deploy.sh canary <SOURCE_SHA> <platform-subject-uuid>`; สคริปต์ตั้ง allowlist/rollout และ recreate **ทั้ง** `platform-api` และ `platform-worker`.
 6. Internal Platform Operator รัน create → review → progress → failure/reconcile → handoff/search/Action history บนข้อมูลสังเคราะห์ พร้อม invitation ผ่าน Mailpit `/mail/`; ทดสอบสอง tenant แยกข้อมูลกัน และบันทึกหลักฐานใน #574.
