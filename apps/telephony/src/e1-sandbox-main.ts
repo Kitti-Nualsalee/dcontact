@@ -91,9 +91,9 @@ async function main() {
   );
 
   const dueTimer = setInterval(() => {
-    void router.processDue().catch((error: unknown) =>
-      console.error('[e1-sandbox] due-work failed', error),
-    );
+    void router
+      .processDue()
+      .catch((error: unknown) => console.error('[e1-sandbox] due-work failed', error));
   }, 1_000);
   dueTimer.unref();
 
@@ -104,7 +104,9 @@ async function main() {
     }
     if (!authenticated && /\+OK accepted/i.test(frame)) {
       authenticated = true;
-      socket.write('events plain CHANNEL_CREATE CHANNEL_PARK CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE\n\n');
+      socket.write(
+        'events plain CHANNEL_CREATE CHANNEL_PARK CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE\n\n',
+      );
       return;
     }
     const parsed = parseEslEvent(frame);
