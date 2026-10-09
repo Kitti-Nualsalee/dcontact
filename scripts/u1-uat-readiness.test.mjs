@@ -626,6 +626,21 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(e1Overlay, /wss:\/\/\$\{UAT_HOST:[^}]+\}\/sip-ws/);
   assert.match(e1Overlay, /FREESWITCH_ESL_PASSWORD: \$\{UAT_E1_FREESWITCH_ESL_PASSWORD:/);
   const e1Services = parseComposeServices(e1Overlay);
+  assert.deepEqual(e1Services['e1-sandbox'].ports, []);
+  assert.match(
+    e1Services['e1-sandbox'].environment.E1_VOICE_COMMAND_SECRET,
+    /^\$\{UAT_E1_VOICE_COMMAND_SECRET:/,
+  );
+  assert.equal(
+    e1Services['e1-sandbox'].environment.OUTBOUND_VOICE_DELIVERY_ENABLED,
+    '${UAT_E1_OUTBOUND_VOICE_ENABLED:-false}',
+  );
+  assert.equal(
+    e1Services.api.environment.OUTBOUND_VOICE_DELIVERY_ENABLED,
+    '${UAT_E1_OUTBOUND_VOICE_ENABLED:-false}',
+  );
+  assert.equal(e1Services.api.environment.FREESWITCH_ESL_PASSWORD, undefined);
+  assert.doesNotMatch(caddyE1, /3001|\/commands/);
   assert.equal(
     e1Services.freeswitch.image,
     'docker.io/safarov/freeswitch@sha256:b31c743f4c911a19687c61e3214968f2a24f93f9d3d667cc26284192e158ffc6',

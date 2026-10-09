@@ -11,7 +11,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { Prisma, PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { GatewayPublic } from './gateway-auth.js';
 
 export const AGENT_SIP_CREDENTIALS = Symbol('AGENT_SIP_CREDENTIALS');
@@ -75,6 +75,14 @@ export class DatabaseAgentSipCredentialService implements AgentSipCredentialServ
       this.database,
       input.tenantId,
       async (tx) => {
+        await tx.$queryRaw(Prisma.sql`
+          SELECT id FROM users WHERE tenant_id = ${input.tenantId}::uuid
+            AND id = ${input.userId}::uuid FOR UPDATE
+        `);
+        await tx.$queryRaw(Prisma.sql`
+          SELECT id FROM agent_work_session_leases WHERE tenant_id = ${input.tenantId}::uuid
+            AND id = ${input.workSessionLeaseId}::uuid AND user_id = ${input.userId}::uuid FOR UPDATE
+        `);
         const lease = await tx.agentWorkSessionLease.findFirst({
           where: {
             id: input.workSessionLeaseId,

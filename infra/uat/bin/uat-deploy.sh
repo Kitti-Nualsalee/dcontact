@@ -28,7 +28,7 @@ TRIAL_FLAG="$UAT_ROOT/line-team-trial.enabled"
 E1_FLAG="$UAT_ROOT/e1-acceptance.enabled"
 
 usage() {
-  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|ui-flag|migrate-object-storage|deploy|smoke|record|current|e1-status|e1-enable|e1-disable|line-status|line-run|line-reload|rollback-target|rollback> [sha] [...]' >&2
+  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|ui-flag|migrate-object-storage|deploy|smoke|record|current|e1-status|e1-enable|e1-disable|e1-voice-control|e1-voice-on|e1-voice-off|line-status|line-run|line-reload|rollback-target|rollback> [sha] [...]' >&2
   exit 64
 }
 
@@ -360,6 +360,36 @@ case "$cmd" in
     rm -f "$E1_FLAG"
     compose "$dir" up -d --wait --no-deps --force-recreate api proxy
     echo '{"type":"u1.uat.deploy","step":"e1-disable","status":"PASS"}'
+    ;;
+
+  e1-voice-control|e1-voice-on|e1-voice-off)
+    sha="${1:?sha}"
+    shift
+    dir="$(release_dir "$sha")"
+    is_e1 "$dir" || fail 'E1_ACCEPTANCE_DISABLED'
+    for service in api e1-sandbox; do
+      running_sha="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${PROJECT}-${service}-1")"
+      [[ "$running_sha" == "$sha" ]] || fail 'E1_VOICE_RUNTIME_SHA_MISMATCH'
+    done
+    if [[ "$cmd" == 'e1-voice-control' ]]; then
+      compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js "$@"
+    else
+      [[ $# == 1 && "$1" =~ ^operator:[A-Za-z0-9_-]{1,64}$ ]] || fail 'E1_VOICE_ACTOR_REQUIRED'
+      actor="$1"
+      compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js off "$actor"
+      compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js idle
+      if [[ "$cmd" == 'e1-voice-on' ]]; then
+        compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js on "$actor"
+        if ! UAT_E1_OUTBOUND_VOICE_ENABLED=true compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox; then
+          UAT_E1_OUTBOUND_VOICE_ENABLED=false compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox || true
+          compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js off "$actor" || true
+          fail 'E1_VOICE_ENABLE_FAILED'
+        fi
+      else
+        UAT_E1_OUTBOUND_VOICE_ENABLED=false compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox
+      fi
+      echo "{\"type\":\"u1.uat.deploy\",\"step\":\"$cmd\",\"status\":\"PASS\"}"
+    fi
     ;;
 
   line-status)
