@@ -2,6 +2,11 @@ import 'reflect-metadata';
 import { UnauthorizedException, type DynamicModule } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ContactGovernanceService } from '@d-contact/contact-governance';
+import {
+  E1SandboxVoiceRollout,
+  VoiceOriginateDeliveryService,
+  VoiceRolloutControlPlane,
+} from '@d-contact/delivery';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import {
   CachedTenantLifecycleGate,
@@ -18,6 +23,7 @@ import {
 import { AGENT_WORKSPACE_DATABASE, AgentWorkspaceController } from './agent-workspace-api.js';
 import { CLICK_TO_CALL_SERVICE, ClickToCallController } from './click-to-call-api.js';
 import { ClickToCallService } from './click-to-call.js';
+import { E1VoiceCommandPublisher } from './e1-voice-command-publisher.js';
 import { DphoneAuthCallbackController } from './dphone-auth-callback.js';
 import {
   DPHONE_LAUNCHER_OPTIONS,
@@ -165,9 +171,22 @@ export async function bootstrapE1UatApi(environment: NodeJS.ProcessEnv = process
       new IamTeamSegmentViewScope(database),
     ),
   });
+  const governance = new ContactGovernanceService(database);
   const clickToCall = new ClickToCallService(database, {
     hostOriginOfLease: (actor, leaseId) => leases.embeddedHostOrigin(actor, leaseId),
-    governance: new ContactGovernanceService(database),
+    governance,
+    voiceDelivery: new VoiceOriginateDeliveryService(
+      database,
+      governance,
+      new E1VoiceCommandPublisher(required(environment, 'E1_VOICE_COMMAND_SECRET')),
+      {
+        enabled: environment.OUTBOUND_VOICE_DELIVERY_ENABLED === 'true',
+        rollout: new E1SandboxVoiceRollout(new VoiceRolloutControlPlane(database), {
+          tenantId: required(environment, 'E1_VOICE_TENANT_ID'),
+          telephonyNodeId: 'e1-uat-sandbox',
+        }),
+      },
+    ),
   });
   const module = createE1UatApiModule({
     database,
