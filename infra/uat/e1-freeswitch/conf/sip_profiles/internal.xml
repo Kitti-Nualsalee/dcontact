@@ -16,6 +16,10 @@
     <param name="rtp-ip" value="$${local_ip_v4}"/>
     <param name="ext-sip-ip" value="$${external_sip_ip}"/>
     <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+    <!-- ยึด SIP registration/subscription กับ tenant domain สำหรับ XML directory -->
+    <param name="force-register-domain" value="$${domain}"/>
+    <param name="force-subscription-domain" value="$${domain}"/>
+    <param name="force-register-db-domain" value="$${domain}"/>
     <param name="ws-binding" value=":5066"/>
     <param name="inbound-codec-prefs" value="$${global_codec_prefs}"/>
     <param name="outbound-codec-prefs" value="$${global_codec_prefs}"/>
