@@ -83,6 +83,25 @@ python3 /home/osdadmin/vm2-e1-voice-secret.py --check
 
 `UAT_E1_OUTBOUND_VOICE_ENABLED` ปิดเป็นค่าเริ่มต้น ต้องเปิดเฉพาะ acceptance ของ tenant `UAT_TENANT_ID` หลังตั้ง scope ของ `e1-uat-sandbox` ผ่าน Voice rollout control plane เป็น `SANDBOX`, technical switch, caps และ allowlist ของ agent/target สังเคราะห์แล้ว ห้ามใช้ `CAPPED_PILOT` กับ gateway นี้ ห้ามเปลี่ยน provider egress และห้ามแตะ tenant #77
 
+หลัง deploy release ใหม่ ใช้คำสั่งจาก release เดียวกับ container ที่รันอยู่เท่านั้น (แทนค่า SHA และ UUID ด้วย fixture ของ tenant ทดสอบ):
+
+```bash
+RUNNER="/opt/dcontact-uat/releases/$SHA/bin/uat-deploy.sh"
+bash "$RUNNER" e1-voice-control "$SHA" status
+bash "$RUNNER" e1-voice-control "$SHA" prepare operator:patiphan-phakam "$AGENT_USER_ID" "$TARGET_IDENTITY_ID"
+bash "$RUNNER" e1-voice-on "$SHA" operator:patiphan-phakam
+bash "$RUNNER" e1-voice-control "$SHA" status
+```
+
+`prepare` ยอมเฉพาะ tenant `dcontact-uat` ที่ ACTIVE, agent และ target ภายใน `1xxx` คนละ extension; ใช้ control plane เดิมเลื่อน DISABLED → DRY_RUN → SANDBOX, ปิด technical switch, ตั้ง caps 2 ครั้ง/นาทีและ 10 ครั้ง/วันของ tenant, 1 ครั้ง/นาทีและ 10 ครั้ง/วันของ agent แล้ว allowlist 30 นาทีแบบมี audit ไม่มีการ reset cap ledger `e1-voice-on` ปิด switch ก่อนตรวจว่าง แล้วเปิด SANDBOX switch และ recreate เฉพาะ API/sandbox ด้วย runtime flag ไม่ restart FreeSWITCH/proxy; เมื่อมี ASSIGNED/ACTIVE/WRAPUP จะหยุดโดยคง switch ปิด ไม่แตะสายที่คุยอยู่ routine deploy ไม่สืบทอด runtime override นี้และกลับ default-off
+
+ปิดรับ originate ใหม่ผ่าน audited switch ได้ทันทีโดยไม่ restart container; หลังงาน VOICE จบทั้งหมดจึงคืน runtime default-off:
+
+```bash
+bash "$RUNNER" e1-voice-control "$SHA" off operator:patiphan-phakam
+bash "$RUNNER" e1-voice-off "$SHA" operator:patiphan-phakam
+```
+
 gateway ตรวจ binding ภายใต้ tenant RLS: node, outbox `SUBMITTING`, reservation ที่ผ่าน `beginProviderSubmission`, cap ledger, lease, allowlist และ target identity ที่ resolve เป็น internal extension `1xxx` เท่านั้น จากนั้น insert `E1_SANDBOX_COMMAND_CLAIMED` ใน audit แบบ unique ก่อน ESL I/O การส่งซ้ำแม้ restart จะถูกปฏิเสธ; publisher ไม่ retry และผลไม่แน่นอนเข้า reconciliation ตาม gate เดิม ไม่อ้างว่า `socket.write` หรือ HTTP 202 คือการโทรสำเร็จ
 
 ESL events ของ origination UUID ที่มี durable claim เท่านั้นเข้า `VoiceOriginateOutcomeProcessor`/Contact Governance; event ของขาอื่นไม่ settle delivery นี้ `BACKGROUND_JOB` failure ที่ผูกกับคำสั่งได้ใช้ outcome จริง ส่วนผลที่หายระหว่าง restart ยังต้อง reconciliation ไม่ resend และไม่ถือเป็นหลักฐาน DELIVERED การ cancel ที่ request ไว้แล้วทำได้แม้ technical switch ปิด; การปิด embed/auth ต้องไม่สั่งตัดสายที่คุยอยู่

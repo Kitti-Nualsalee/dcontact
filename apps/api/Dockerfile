@@ -57,6 +57,7 @@ RUN pnpm --filter @d-contact/api deploy --prod /out/api \
   && test -f /out/api/dist/uat-provision-main.js \
   && test -f /out/api/dist/line-webhook-main.js \
   && test -f /out/e1-sandbox/dist/e1-sandbox-main.js \
+  && test -f /out/e1-sandbox/dist/e1-voice-control-main.js \
   && for cli in line-pilot-cli line-pilot-setup line-provider-runner; do \
        test -f "/out/api/node_modules/@d-contact/delivery/dist/$cli.js" || exit 1; \
      done
