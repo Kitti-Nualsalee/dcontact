@@ -644,10 +644,14 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(e1Services.freeswitch.raw.join('\n'), /\/var\/lib\/freeswitch:mode=0777/);
   assert.match(e1Services.freeswitch.raw.join('\n'), /fs_cli -p "\$\$E1_ESL_PASSWORD" -x status/);
   const e1Entrypoint = read('infra/uat/e1-freeswitch/entrypoint.sh');
+  const e1SofiaProfile = read('infra/uat/e1-freeswitch/conf/sip_profiles/internal.xml');
   assert.match(e1Entrypoint, /E1_DIRECTORY_PASSWORD/);
   assert.match(e1Entrypoint, /E1_ESL_PASSWORD/);
   assert.match(e1Entrypoint, /exec \/docker-entrypoint\.sh/);
   assert.doesNotMatch(e1Entrypoint, /ClueCon|dcontact-xml-curl-dev-only/);
+  assert.match(e1SofiaProfile, /force-register-domain" value="\$\$\{domain\}"/);
+  assert.match(e1SofiaProfile, /force-subscription-domain" value="\$\$\{domain\}"/);
+  assert.match(e1SofiaProfile, /force-register-db-domain" value="\$\$\{domain\}"/);
   assert.match(e1Overlay, /\.\/Caddyfile\.3vm\.e1:\/etc\/caddy\/Caddyfile:ro/);
   assert.match(
     caddyE1,
