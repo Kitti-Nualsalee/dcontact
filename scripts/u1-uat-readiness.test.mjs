@@ -652,10 +652,12 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(e1SofiaProfile, /force-register-domain" value="\$\$\{domain\}"/);
   assert.match(e1SofiaProfile, /force-subscription-domain" value="\$\$\{domain\}"/);
   assert.match(e1SofiaProfile, /force-register-db-domain" value="\$\$\{domain\}"/);
+  assert.match(e1SofiaProfile, /wss-binding" value=":7443"/);
+  assert.match(e1SofiaProfile, /tls-cert-dir" value="\/etc\/freeswitch\/tls"/);
   assert.match(e1Overlay, /\.\/Caddyfile\.3vm\.e1:\/etc\/caddy\/Caddyfile:ro/);
   assert.match(
     caddyE1,
-    /handle \/sip-ws \{\s+reverse_proxy freeswitch:5066 \{\s+# SIP response ต้องส่งทันที ไม่รวม buffer ระหว่าง WebSocket tunnel\s+flush_interval -1/,
+    /handle \/sip-ws \{\s+reverse_proxy https:\/\/freeswitch:7443 \{\s+# SIP response ต้องส่งทันที ไม่รวม buffer ระหว่าง WebSocket tunnel\s+flush_interval -1\s+transport http \{\s+tls_insecure_skip_verify/,
   );
   assert.doesNotMatch(caddyfile3vm, /\/sip-ws/);
   assert.match(apiDockerfile, /test -f \/out\/api\/dist\/e1-uat-main\.js/);
