@@ -39,6 +39,23 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
+    # SIP WebSocket ต้อง stream frame เล็ก ๆ ทันที; generic proxy buffering ทำให้ REGISTER timeout
+    location = /sip-ws {
+        proxy_pass http://192.168.102.112:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
     location / {
         proxy_pass http://192.168.102.112:8080;
         proxy_http_version 1.1;
@@ -84,6 +101,8 @@ manual_sip_ws = re.compile(
 source, removed = manual_sip_ws.subn('', source)
 if removed > 1:
     raise SystemExit('พบ /sip-ws override มากกว่าหนึ่ง block; หยุดเพื่อตรวจด้วยมือ')
+if 'location = /sip-ws {' in source:
+    raise SystemExit('พบ /sip-ws block ที่ไม่ใช่ override รุ่นเดิม; หยุดเพื่อตรวจด้วยมือ')
 source = source.replace(
     '        proxy_set_header Connection "";\n',
     '        proxy_set_header Upgrade $http_upgrade;\n'
@@ -96,11 +115,33 @@ source = source.replace(
     '        proxy_connect_timeout 5s;\n'
     '        proxy_read_timeout 60s;\n',
 )
+relay_sip_ws = '''    # SIP WebSocket ต้อง stream frame เล็ก ๆ ทันที; generic proxy buffering ทำให้ REGISTER timeout
+    location = /sip-ws {
+        proxy_pass http://192.168.102.112:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+'''
+needle = '    location / {\n'
+if needle not in source:
+    raise SystemExit('ไม่พบ generic location; หยุดเพื่อตรวจด้วยมือ')
+source = source.replace(needle, relay_sip_ws + needle, 1)
 Path(sys.argv[2]).write_text(source)
 PY
 
 if cmp -s "$expected" "$config"; then
-  echo 'CHECK ผ่าน: VM1 ส่ง WebSocket ผ่าน Caddy ใน release แล้ว; ไม่มี /sip-ws override ชั่วคราว'
+  echo 'CHECK ผ่าน: VM1 ส่ง /sip-ws ผ่าน Caddy แบบไม่ buffer แล้ว'
   exit 0
 fi
 if ! cmp -s "$expected" "$candidate"; then
@@ -108,7 +149,7 @@ if ! cmp -s "$expected" "$candidate"; then
   exit 1
 fi
 if [[ "$mode" == --check ]]; then
-  echo 'พบ WebSocket override/headers รุ่นเดิม; --apply จะ backup config, ส่ง /sip-ws ผ่าน Caddy และ reload nginx'
+  echo 'พบ config WebSocket รุ่นเดิม; --apply จะ backup config, ส่ง /sip-ws ผ่าน Caddy แบบไม่ buffer และ reload nginx'
   exit 1
 fi
 
@@ -122,4 +163,4 @@ if ! nginx -t; then
   exit 1
 fi
 systemctl reload nginx
-echo "APPLY ผ่าน: backup=$(basename "$backup"); /sip-ws ส่งผ่าน Caddy ใน release"
+echo "APPLY ผ่าน: backup=$(basename "$backup"); /sip-ws ส่งผ่าน Caddy แบบไม่ buffer"

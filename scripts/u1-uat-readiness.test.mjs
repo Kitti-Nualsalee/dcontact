@@ -688,13 +688,19 @@ test('UAT-S22: owner สำหรับ migrate/backup อ่าน FORCE RLS �
   assert.doesNotMatch(repair, /(?:PASSWORD\s*=|UAT_[A-Z_]*PASSWORD)/);
 });
 
-test('UAT-S23: VM1 ส่ง SIP WebSocket ผ่าน Caddy ใน release ไม่พึ่ง override ชั่วคราว', () => {
+test('UAT-S23: VM1 ส่ง SIP WebSocket ผ่าน Caddy แบบไม่ buffer และไม่พึ่ง FreeSWITCH override ชั่วคราว', () => {
   const vm1Bootstrap = read('infra/uat/operator/vm1-nginx-uat.sh');
   const vm1Migration = read('infra/uat/operator/vm1-nginx-websocket-uat.sh');
   assert.match(vm1Bootstrap, /proxy_set_header Upgrade \$http_upgrade;/);
   assert.match(vm1Bootstrap, /proxy_set_header Connection "upgrade";/);
   assert.match(vm1Migration, /proxy_pass https:\/\/192\\\.168\\\.102\\\.112:5067/);
   assert.match(vm1Migration, /proxy_connect_timeout 5s/);
+  assert.match(vm1Migration, /location = \/sip-ws \{/);
+  assert.match(vm1Migration, /proxy_pass http:\/\/192\.168\.102\.112:8080/);
+  assert.match(vm1Migration, /proxy_buffering off/);
+  assert.match(vm1Migration, /proxy_request_buffering off/);
+  assert.match(vm1Migration, /proxy_read_timeout 3600s/);
+  assert.match(vm1Migration, /proxy_send_timeout 3600s/);
   assert.match(vm1Migration, /manual_sip_ws\.subn\('', source\)/);
   assert.match(vm1Migration, /Caddy ใน release/);
   assert.match(vm1Migration, /nginx -t/);
