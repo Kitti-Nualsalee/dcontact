@@ -705,6 +705,11 @@ test('UAT-S23: VM1 ส่ง SIP WebSocket ผ่าน Caddy แบบไม่
   assert.match(vm1Migration, /Caddy ใน release/);
   assert.match(vm1Migration, /nginx -t/);
   assert.match(vm1Migration, /cp --preserve=mode,ownership/);
+  assert.ok(
+    vm1Migration.indexOf('if cmp -s "$expected" "$config"; then') <
+      vm1Migration.indexOf('python3 - "$config" "$candidate"'),
+    'state ใหม่ต้องผ่าน idempotency check ก่อนสร้าง candidate ของ migration',
+  );
 });
 
 test('UAT-S10: proxy ที่เปิด admin ของ Keycloak หรือไม่มี allowlist ไม่ผ่าน', () => {

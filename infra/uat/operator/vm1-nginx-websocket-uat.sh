@@ -71,6 +71,11 @@ server {
 }
 NGINX
 
+if cmp -s "$expected" "$config"; then
+  echo 'CHECK ผ่าน: VM1 ส่ง /sip-ws ผ่าน Caddy แบบไม่ buffer แล้ว'
+  exit 0
+fi
+
 python3 - "$config" "$candidate" <<'PY'
 from pathlib import Path
 import re
@@ -140,10 +145,6 @@ source = source.replace(needle, relay_sip_ws + needle, 1)
 Path(sys.argv[2]).write_text(source)
 PY
 
-if cmp -s "$expected" "$config"; then
-  echo 'CHECK ผ่าน: VM1 ส่ง /sip-ws ผ่าน Caddy แบบไม่ buffer แล้ว'
-  exit 0
-fi
 if ! cmp -s "$expected" "$candidate"; then
   echo 'config UAT ไม่ตรงกับ state ที่ migration รู้จัก; หยุดเพื่อตรวจด้วยมือ' >&2
   exit 1
