@@ -1,5 +1,8 @@
 services:
   proxy:
+    depends_on:
+      freeswitch:
+        condition: service_healthy
     volumes: !override
       - ./Caddyfile.3vm.e1:/etc/caddy/Caddyfile:ro
 
@@ -13,7 +16,40 @@ services:
       SIP_BROWSER_NODES_JSON: >-
         [{"telephonyNodeId":"e1-uat-sandbox","wssUrl":"wss://${UAT_HOST:?UAT_HOST is required}/sip-ws"}]
 
+  # #490: มีเฉพาะเมื่อ e1-acceptance.enabled อยู่บน VM2 เท่านั้น
+  # ไม่มี SIP/ESL TCP port ออก host; browser เข้า WS ผ่าน VM1 → Caddy เท่านั้น
+  freeswitch:
+    image: docker.io/safarov/freeswitch@sha256:b31c743f4c911a19687c61e3214968f2a24f93f9d3d667cc26284192e158ffc6
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_NICE
+    entrypoint: ['/bin/sh', '/e1-freeswitch/entrypoint.sh']
+    environment:
+      E1_DIRECTORY_PASSWORD: ${UAT_E1_FREESWITCH_DIRECTORY_PASSWORD:?UAT_E1_FREESWITCH_DIRECTORY_PASSWORD is required}
+      E1_ESL_PASSWORD: ${UAT_E1_FREESWITCH_ESL_PASSWORD:?UAT_E1_FREESWITCH_ESL_PASSWORD is required}
+    volumes:
+      - ./e1-freeswitch:/e1-freeswitch:ro
+    tmpfs:
+      - /etc/freeswitch:mode=0755
+      - /var/lib/freeswitch:mode=0777
+    ports:
+      - '192.168.102.112:16384-16420:16384-16420/udp'
+    healthcheck:
+      test: ['CMD-SHELL', 'fs_cli -p "$$E1_ESL_PASSWORD" -x status']
+      interval: 10s
+      timeout: 5s
+      retries: 18
+    networks:
+      - internal
+
   e1-sandbox:
+    depends_on:
+      freeswitch:
+        condition: service_healthy
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

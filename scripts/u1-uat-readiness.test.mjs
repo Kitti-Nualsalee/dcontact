@@ -625,6 +625,29 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(e1Overlay, /SIP_BROWSER_NODES_JSON:/);
   assert.match(e1Overlay, /wss:\/\/\$\{UAT_HOST:[^}]+\}\/sip-ws/);
   assert.match(e1Overlay, /FREESWITCH_ESL_PASSWORD: \$\{UAT_E1_FREESWITCH_ESL_PASSWORD:/);
+  const e1Services = parseComposeServices(e1Overlay);
+  assert.equal(
+    e1Services.freeswitch.image,
+    'docker.io/safarov/freeswitch@sha256:b31c743f4c911a19687c61e3214968f2a24f93f9d3d667cc26284192e158ffc6',
+  );
+  assert.deepEqual(e1Services.freeswitch.ports, ['192.168.102.112:16384-16420:16384-16420/udp']);
+  assert.match(e1Services.freeswitch.raw.join('\n'), /\.\/e1-freeswitch:\/e1-freeswitch:ro/);
+  assert.match(e1Services.freeswitch.raw.join('\n'), /cap_add:\s+- SYS_NICE/);
+  assert.match(
+    e1Services.freeswitch.raw.join('\n'),
+    /E1_DIRECTORY_PASSWORD: \$\{UAT_E1_FREESWITCH_DIRECTORY_PASSWORD:/,
+  );
+  assert.match(
+    e1Services.freeswitch.raw.join('\n'),
+    /E1_ESL_PASSWORD: \$\{UAT_E1_FREESWITCH_ESL_PASSWORD:/,
+  );
+  assert.match(e1Services.freeswitch.raw.join('\n'), /\/var\/lib\/freeswitch:mode=0777/);
+  assert.match(e1Services.freeswitch.raw.join('\n'), /fs_cli -p "\$\$E1_ESL_PASSWORD" -x status/);
+  const e1Entrypoint = read('infra/uat/e1-freeswitch/entrypoint.sh');
+  assert.match(e1Entrypoint, /E1_DIRECTORY_PASSWORD/);
+  assert.match(e1Entrypoint, /E1_ESL_PASSWORD/);
+  assert.match(e1Entrypoint, /exec \/docker-entrypoint\.sh/);
+  assert.doesNotMatch(e1Entrypoint, /ClueCon|dcontact-xml-curl-dev-only/);
   assert.match(e1Overlay, /\.\/Caddyfile\.3vm\.e1:\/etc\/caddy\/Caddyfile:ro/);
   assert.match(caddyE1, /handle \/sip-ws \{\s+reverse_proxy freeswitch:5066/);
   assert.doesNotMatch(caddyfile3vm, /\/sip-ws/);
@@ -644,6 +667,8 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(deployScript, /e1-disable\)/);
   assert.match(deployScript, /E1_ACCEPTANCE_OVERLAY_MISSING/);
   assert.match(deployScript, /E1_ENABLE_FAILED/);
+  assert.match(deployScript, /freeswitch e1-sandbox/);
+  assert.match(deployScript, /rm -sf e1-sandbox freeswitch/);
   assert.match(deployScript, /sandbox.*absent/);
   assert.match(workflow, /infra\/uat\/Caddyfile\.3vm\.e1/);
   const wizard = readFileSync('scripts/e1-16-uat-acceptance-wizard.sh', 'utf8');

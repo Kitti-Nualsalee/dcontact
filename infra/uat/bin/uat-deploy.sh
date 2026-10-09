@@ -65,7 +65,8 @@ is_trial() {
 
 is_e1() {
   [[ -f "$E1_FLAG" ]] || return 1
-  [[ -f "$1/docker-compose.uat.e1.yml" && -f "$1/Caddyfile.3vm.e1" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
+  [[ -f "$1/docker-compose.uat.e1.yml" && -f "$1/Caddyfile.3vm.e1" && -x "$1/e1-freeswitch/entrypoint.sh" ]] ||
+    fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
 }
 
 compose() {
@@ -140,6 +141,7 @@ case "$cmd" in
       [[ -x "$UAT_ROOT/bin/docker-compose" ]] || fail 'COMPOSE_3VM_BINARY_MISSING'
     fi
     chmod 700 "$dir/bin"/*.sh
+    if [[ -d "$dir/e1-freeswitch" ]]; then chmod 0555 "$dir/e1-freeswitch/entrypoint.sh"; fi
     # #540: entrypoint ของ object storage ถูก mount เข้า container ที่รันเป็น uid 1000 (ไม่ใช่ root) — ต้องอ่านได้
     # ไฟล์ไม่มี secret (secret มาจาก env ของ container) และรันผ่าน `sh` จึงไม่ต้อง execute
     chmod 0444 "$dir/bin/object-storage-entrypoint.sh"
@@ -269,7 +271,7 @@ case "$cmd" in
     # --remove-orphans ไม่ลบ volume minio-data (ย้ายข้อมูล/rollback จนถึง #541)
     # #565: ไม่มี flag = container line-* เป็น orphan และถูกถอดที่นี่; runner/relay ไม่รันค้าง (profile line-pilot)
     services=(object-storage-lifecycle object-storage-migrated-expiry api proxy)
-    if is_e1 "$dir"; then services+=(e1-sandbox); fi
+    if is_e1 "$dir"; then services+=(freeswitch e1-sandbox); fi
     if is_line "$dir"; then services+=(line-webhook); fi
     # #567: trial = relay รันตลอด; ไม่มี trial = ถอด relay ที่อาจค้างจาก trial ก่อนหน้า (runner เรียกขึ้นใหม่เองได้)
     if is_trial "$dir"; then
@@ -335,14 +337,15 @@ case "$cmd" in
     if is_e1 "$dir"; then enabled=true; else enabled=false; fi
     profile="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${PROJECT}-api-1" 2>/dev/null | sed -n 's/^DCONTACT_API_PROFILE=//p' | tail -n 1 || true)"
     sandbox="$(docker inspect --format '{{.State.Status}}' "${PROJECT}-e1-sandbox-1" 2>/dev/null || true)"
-    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"e1-status\",\"enabled\":$enabled,\"runtimeProfile\":\"${profile:-unknown}\",\"sandbox\":\"${sandbox:-absent}\"}"
+    freeswitch="$(docker inspect --format '{{.State.Status}}' "${PROJECT}-freeswitch-1" 2>/dev/null || true)"
+    echo "{\"type\":\"u1.uat.deploy\",\"step\":\"e1-status\",\"enabled\":$enabled,\"runtimeProfile\":\"${profile:-unknown}\",\"freeswitch\":\"${freeswitch:-absent}\",\"sandbox\":\"${sandbox:-absent}\"}"
     ;;
 
   e1-enable)
     dir="$(release_dir "${1:?sha}")"
-    [[ -f "$dir/docker-compose.uat.e1.yml" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
+    [[ -f "$dir/docker-compose.uat.e1.yml" && -x "$dir/e1-freeswitch/entrypoint.sh" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
     : >"$E1_FLAG"
-    if ! compose "$dir" up -d --wait --no-deps --force-recreate api proxy e1-sandbox; then
+    if ! compose "$dir" up -d --wait --no-deps --force-recreate freeswitch api proxy e1-sandbox; then
       rm -f "$E1_FLAG"
       compose "$dir" up -d --wait --no-deps --force-recreate api proxy || true
       fail 'E1_ENABLE_FAILED'
@@ -353,7 +356,7 @@ case "$cmd" in
   e1-disable)
     dir="$(release_dir "${1:?sha}")"
     # ต้องถอด daemon ขณะ overlay ยัง active; หลังลบ flag compose จะไม่รู้จัก service นี้แล้ว
-    if is_e1 "$dir"; then compose "$dir" rm -sf e1-sandbox >/dev/null || true; fi
+    if is_e1 "$dir"; then compose "$dir" rm -sf e1-sandbox freeswitch >/dev/null || true; fi
     rm -f "$E1_FLAG"
     compose "$dir" up -d --wait --no-deps --force-recreate api proxy
     echo '{"type":"u1.uat.deploy","step":"e1-disable","status":"PASS"}'

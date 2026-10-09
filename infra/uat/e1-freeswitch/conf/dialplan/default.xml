@@ -1,0 +1,17 @@
+<include>
+  <context name="default">
+    <extension name="e1-local-extensions">
+      <condition field="destination_number" expression="^(1[0-9]{3})$">
+        <action application="export" data="dialed_extension=$1"/>
+        <action application="set" data="ringback=$${us-ring}"/>
+        <action application="set" data="hangup_after_bridge=true"/>
+        <action application="bridge" data="user/${dialed_extension}@$${domain}"/>
+      </condition>
+    </extension>
+    <extension name="e1-deny-external-outbound">
+      <condition field="destination_number" expression=".+">
+        <action application="hangup" data="CALL_REJECTED"/>
+      </condition>
+    </extension>
+  </context>
+</include>
