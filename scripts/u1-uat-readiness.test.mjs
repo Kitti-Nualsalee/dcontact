@@ -649,7 +649,10 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(e1Entrypoint, /exec \/docker-entrypoint\.sh/);
   assert.doesNotMatch(e1Entrypoint, /ClueCon|dcontact-xml-curl-dev-only/);
   assert.match(e1Overlay, /\.\/Caddyfile\.3vm\.e1:\/etc\/caddy\/Caddyfile:ro/);
-  assert.match(caddyE1, /handle \/sip-ws \{\s+reverse_proxy freeswitch:5066/);
+  assert.match(
+    caddyE1,
+    /handle \/sip-ws \{\s+reverse_proxy freeswitch:5066 \{\s+# SIP response ต้องส่งทันที ไม่รวม buffer ระหว่าง WebSocket tunnel\s+flush_interval -1/,
+  );
   assert.doesNotMatch(caddyfile3vm, /\/sip-ws/);
   assert.match(apiDockerfile, /test -f \/out\/api\/dist\/e1-uat-main\.js/);
   assert.match(
@@ -705,6 +708,11 @@ test('UAT-S23: VM1 ส่ง SIP WebSocket ผ่าน Caddy แบบไม่
   assert.match(vm1Migration, /Caddy ใน release/);
   assert.match(vm1Migration, /nginx -t/);
   assert.match(vm1Migration, /cp --preserve=mode,ownership/);
+  assert.ok(
+    vm1Migration.indexOf('if cmp -s "$expected" "$config"; then') <
+      vm1Migration.indexOf('python3 - "$config" "$candidate"'),
+    'state ใหม่ต้องผ่าน idempotency check ก่อนสร้าง candidate ของ migration',
+  );
 });
 
 test('UAT-S10: proxy ที่เปิด admin ของ Keycloak หรือไม่มี allowlist ไม่ผ่าน', () => {

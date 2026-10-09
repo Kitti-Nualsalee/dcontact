@@ -28,7 +28,10 @@
 
 		# browser ต่อ WSS ที่ VM1; Caddy forward upgrade เข้า FreeSWITCH เฉพาะ network internal
 		handle /sip-ws {
-			reverse_proxy freeswitch:5066
+			reverse_proxy freeswitch:5066 {
+				# SIP response ต้องส่งทันที ไม่รวม buffer ระหว่าง WebSocket tunnel
+				flush_interval -1
+			}
 		}
 		handle /auth/* {
 			reverse_proxy keycloak:8080 {
