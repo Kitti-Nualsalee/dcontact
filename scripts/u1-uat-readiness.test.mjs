@@ -649,7 +649,10 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(e1Entrypoint, /exec \/docker-entrypoint\.sh/);
   assert.doesNotMatch(e1Entrypoint, /ClueCon|dcontact-xml-curl-dev-only/);
   assert.match(e1Overlay, /\.\/Caddyfile\.3vm\.e1:\/etc\/caddy\/Caddyfile:ro/);
-  assert.match(caddyE1, /handle \/sip-ws \{\s+reverse_proxy freeswitch:5066/);
+  assert.match(
+    caddyE1,
+    /handle \/sip-ws \{\s+reverse_proxy freeswitch:5066 \{\s+# SIP response ต้องส่งทันที ไม่รวม buffer ระหว่าง WebSocket tunnel\s+flush_interval -1/,
+  );
   assert.doesNotMatch(caddyfile3vm, /\/sip-ws/);
   assert.match(apiDockerfile, /test -f \/out\/api\/dist\/e1-uat-main\.js/);
   assert.match(
