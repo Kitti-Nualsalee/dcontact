@@ -12,6 +12,7 @@ import { DatabaseE1VoiceCommandAuthority } from '@d-contact/delivery';
 import { createE1VoiceCommandServer } from './e1-voice-command-server.js';
 import { E1VoiceOutcomes } from './e1-voice-outcomes.js';
 import { E1BackgroundJobs } from './e1-background-jobs.js';
+import { E1RegistrationFlusher } from './e1-registration-flush.js';
 import {
   isDeniedAgentDirectOutbound,
   normalizeFreeSwitchEvent,
@@ -104,6 +105,7 @@ async function main() {
           : Promise.resolve(false),
     },
     adapter: commandAdapter,
+    registrations: new E1RegistrationFlusher(database, commandAdapter),
   });
   voiceServer.listen(3001, '0.0.0.0');
   const router = new InboundVoiceRouter(database, {

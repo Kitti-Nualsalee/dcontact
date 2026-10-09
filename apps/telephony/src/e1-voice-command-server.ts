@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { VoiceOriginateCommandPublisher } from '@d-contact/delivery';
 import type { FreeSwitchCommandAdapter } from './freeswitch-command-adapter.js';
+import type { E1RegistrationFlushInput } from './e1-registration-flush.js';
 
 export type E1VoiceCommandInput = Parameters<VoiceOriginateCommandPublisher['publish']>[0];
 
@@ -75,6 +76,7 @@ export function createE1VoiceCommandServer(options: {
   nodeId: string;
   authority: E1VoiceCommandAuthority;
   adapter: Pick<FreeSwitchCommandAdapter, 'handle'>;
+  registrations?: { flush(input: E1RegistrationFlushInput): Promise<boolean> };
 }) {
   if (!/^[a-f0-9]{64}$/.test(options.secret)) throw new Error('E1_VOICE_COMMAND_SECRET_REQUIRED');
   if (!uuid.test(options.tenantId)) throw new Error('E1_VOICE_TENANT_REQUIRED');
@@ -86,7 +88,11 @@ export function createE1VoiceCommandServer(options: {
       response.writeHead(401, { connection: 'close' }).end();
       return;
     }
-    if (request.method !== 'POST' || request.url !== '/commands') {
+    if (
+      request.method !== 'POST' ||
+      (request.url !== '/commands' &&
+        !(request.url === '/registrations/flush' && options.registrations))
+    ) {
       response.writeHead(404, { connection: 'close' }).end();
       return;
     }
@@ -112,6 +118,15 @@ export function createE1VoiceCommandServer(options: {
         response.writeHead(400).end();
         return;
       }
+      if (request.url === '/registrations/flush') {
+        const input = parseRegistration(value, options.tenantId, options.nodeId);
+        if (!input) {
+          response.writeHead(400).end();
+          return;
+        }
+        response.writeHead((await options.registrations!.flush(input)) ? 202 : 409).end();
+        return;
+      }
       const input = parseInput(value, options.tenantId, options.nodeId);
       if (!input) {
         response.writeHead(400).end();
@@ -130,4 +145,36 @@ export function createE1VoiceCommandServer(options: {
   server.requestTimeout = 5000;
   server.headersTimeout = 5000;
   return server;
+}
+
+function parseRegistration(
+  value: unknown,
+  tenantId: string,
+  nodeId: string,
+): E1RegistrationFlushInput | null {
+  if (!record(value) || Object.keys(value).sort().join(',') !== 'command,tenantId') return null;
+  if (value.tenantId !== tenantId || !record(value.command)) return null;
+  const command = value.command;
+  if (
+    Object.keys(command).sort().join(',') !==
+      'extension,sipDomain,telephonyNodeId,type,vendor,workSessionLeaseId' ||
+    command.type !== 'sip.registration.flush' ||
+    command.vendor !== 'freeswitch' ||
+    command.telephonyNodeId !== nodeId ||
+    command.sipDomain !== 'dcontact-uat.sip.internal' ||
+    !matches(command.extension, /^1[0-9]{3}$/) ||
+    !matches(command.workSessionLeaseId, uuid)
+  )
+    return null;
+  return {
+    tenantId,
+    command: {
+      type: 'sip.registration.flush',
+      vendor: 'freeswitch',
+      telephonyNodeId: nodeId,
+      sipDomain: command.sipDomain,
+      extension: command.extension,
+      workSessionLeaseId: command.workSessionLeaseId,
+    },
+  };
 }

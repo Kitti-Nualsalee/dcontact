@@ -108,3 +108,64 @@ test('gateway ไม่ตอบ success เมื่อ ESL ล้มและ�
   assert.equal((await send()).status, 409);
   assert.equal(commands, 1);
 });
+
+test('registration endpoint รับเฉพาะ tenant/node/domain/lease ที่กำหนด และไม่ผ่าน originate authority', async (context) => {
+  let flushes = 0;
+  const server = createE1VoiceCommandServer({
+    secret,
+    tenantId: input.tenantId,
+    nodeId: 'e1-uat-sandbox',
+    authority: {
+      claim: async () => {
+        throw new Error('must not claim voice delivery');
+      },
+    },
+    adapter: {
+      handle: async () => {
+        throw new Error('must not originate/cancel');
+      },
+    },
+    registrations: {
+      flush: async () => {
+        flushes += 1;
+        return true;
+      },
+    },
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  context.after(() => {
+    server.closeAllConnections();
+    return new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+  const registration = {
+    tenantId: input.tenantId,
+    command: {
+      type: 'sip.registration.flush',
+      vendor: 'freeswitch',
+      telephonyNodeId: 'e1-uat-sandbox',
+      sipDomain: 'dcontact-uat.sip.internal',
+      extension: '1101',
+      workSessionLeaseId: input.command.originationUuid,
+    },
+  };
+  const send = (value: unknown, token = secret) =>
+    fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/registrations/flush`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(value),
+    });
+  assert.equal((await send(registration, 'wrong')).status, 401);
+  for (const invalid of [
+    input,
+    { ...registration, tenantId: 'other-tenant' },
+    { ...registration, command: { ...registration.command, telephonyNodeId: 'other-node' } },
+    { ...registration, command: { ...registration.command, sipDomain: 'other.internal' } },
+    { ...registration, command: { ...registration.command, extension: '1101\napi shutdown' } },
+    { ...registration, command: { ...registration.command, workSessionLeaseId: 'invalid' } },
+    { ...registration, command: { ...registration.command, phoneNumber: '0812345678' } },
+  ])
+    assert.equal((await send(invalid)).status, 400);
+  assert.equal(flushes, 0);
+  assert.equal((await send(registration)).status, 202);
+  assert.equal(flushes, 1);
+});

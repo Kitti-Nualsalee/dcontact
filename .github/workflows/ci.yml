@@ -61,7 +61,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
-      - run: pnpm --filter "@d-contact/delivery^..." build
+      - run: pnpm --filter "@d-contact/api^..." --filter "@d-contact/telephony^..." build
       - run: pnpm db:migrate && pnpm db:rls
       - name: ตรวจ gateway กับ submission/rollout/settlement ภายใต้ RLS จริง
         run: >-
@@ -70,6 +70,10 @@ jobs:
           src/voice-originate-dispatcher.integration.ts
           src/voice-originate-outcome.integration.ts
           src/voice-rollout-control.integration.ts
+      - name: ตรวจ SIP flush และ credential serialization ภายใต้ RLS จริง
+        run: |
+          pnpm --filter @d-contact/telephony exec tsx --test src/e1-registration-flush.integration.ts
+          pnpm --filter @d-contact/api exec tsx --test src/agent-sip-credentials.integration.ts
 
   build:
     runs-on: ubuntu-latest

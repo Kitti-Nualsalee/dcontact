@@ -136,6 +136,9 @@ export async function bootstrapE1UatApi(environment: NodeJS.ProcessEnv = process
   );
   const gateway = new WorkspaceSessionGateway(verifier, new WorkspaceSessionRegistry(), lifecycle);
   const socketRef: { current?: WorkspaceSessionWebSocketAdapter } = {};
+  const voiceCommands = new E1VoiceCommandPublisher(
+    required(environment, 'E1_VOICE_COMMAND_SECRET'),
+  );
   const embedOrigins = new EmbedOriginService(database, {
     allowLocalhost: false,
     reservedOrigins: (environment.DCONTACT_RESERVED_ORIGINS ?? '')
@@ -155,12 +158,15 @@ export async function bootstrapE1UatApi(environment: NodeJS.ProcessEnv = process
         void socketRef.current?.signalLease(tenantId, userId, signal),
     },
     sipRegistrations: {
-      flush: (registration) =>
-        diagnostics.write({
-          event: 'e1_uat.sip_registration_flush_required',
-          tenantId: registration.tenantId,
-          workSessionLeaseId: registration.workSessionLeaseId,
-        }),
+      flush: (registration) => {
+        void voiceCommands.flush(registration).catch(() =>
+          diagnostics.write({
+            event: 'e1_uat.sip_registration_flush_unconfirmed',
+            tenantId: registration.tenantId,
+            workSessionLeaseId: registration.workSessionLeaseId,
+          }),
+        );
+      },
     },
   });
   const screenPop = new ScreenPopService(database, {
@@ -175,18 +181,13 @@ export async function bootstrapE1UatApi(environment: NodeJS.ProcessEnv = process
   const clickToCall = new ClickToCallService(database, {
     hostOriginOfLease: (actor, leaseId) => leases.embeddedHostOrigin(actor, leaseId),
     governance,
-    voiceDelivery: new VoiceOriginateDeliveryService(
-      database,
-      governance,
-      new E1VoiceCommandPublisher(required(environment, 'E1_VOICE_COMMAND_SECRET')),
-      {
-        enabled: environment.OUTBOUND_VOICE_DELIVERY_ENABLED === 'true',
-        rollout: new E1SandboxVoiceRollout(new VoiceRolloutControlPlane(database), {
-          tenantId: required(environment, 'E1_VOICE_TENANT_ID'),
-          telephonyNodeId: 'e1-uat-sandbox',
-        }),
-      },
-    ),
+    voiceDelivery: new VoiceOriginateDeliveryService(database, governance, voiceCommands, {
+      enabled: environment.OUTBOUND_VOICE_DELIVERY_ENABLED === 'true',
+      rollout: new E1SandboxVoiceRollout(new VoiceRolloutControlPlane(database), {
+        tenantId: required(environment, 'E1_VOICE_TENANT_ID'),
+        telephonyNodeId: 'e1-uat-sandbox',
+      }),
+    }),
   });
   const module = createE1UatApiModule({
     database,

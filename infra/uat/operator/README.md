@@ -79,7 +79,7 @@ python3 /home/osdadmin/vm2-e1-voice-secret.py --apply
 python3 /home/osdadmin/vm2-e1-voice-secret.py --check
 ```
 
-สคริปต์สร้าง secret แยกจาก ESL/directory password และ backup permission 600 โดยไม่พิมพ์ secret ไม่เปิด flag และไม่เปลี่ยน rollout API ส่งเฉพาะ `call.originate`/`call.cancel` ไป `http://e1-sandbox:3001/commands` ใน internal network ไม่มี host port และไม่ส่งผ่าน Caddy/nginx API ไม่ได้รับ ESL password
+สคริปต์สร้าง secret แยกจาก ESL/directory password และ backup permission 600 โดยไม่พิมพ์ secret ไม่เปิด flag และไม่เปลี่ยน rollout API ส่งเฉพาะ `call.originate`/`call.cancel` ไป `http://e1-sandbox:3001/commands` และ `sip.registration.flush` ไป `/registrations/flush` ใน internal network ไม่มี host port และไม่ส่งผ่าน Caddy/nginx API ไม่ได้รับ ESL password
 
 `UAT_E1_OUTBOUND_VOICE_ENABLED` ปิดเป็นค่าเริ่มต้น ต้องเปิดเฉพาะ acceptance ของ tenant `UAT_TENANT_ID` หลังตั้ง scope ของ `e1-uat-sandbox` ผ่าน Voice rollout control plane เป็น `SANDBOX`, technical switch, caps และ allowlist ของ agent/target สังเคราะห์แล้ว ห้ามใช้ `CAPPED_PILOT` กับ gateway นี้ ห้ามเปลี่ยน provider egress และห้ามแตะ tenant #77
 
@@ -105,3 +105,5 @@ bash "$RUNNER" e1-voice-off "$SHA" operator:patiphan-phakam
 gateway ตรวจ binding ภายใต้ tenant RLS: node, outbox `SUBMITTING`, reservation ที่ผ่าน `beginProviderSubmission`, cap ledger, lease, allowlist และ target identity ที่ resolve เป็น internal extension `1xxx` เท่านั้น จากนั้น insert `E1_SANDBOX_COMMAND_CLAIMED` ใน audit แบบ unique ก่อน ESL I/O การส่งซ้ำแม้ restart จะถูกปฏิเสธ; publisher ไม่ retry และผลไม่แน่นอนเข้า reconciliation ตาม gate เดิม ไม่อ้างว่า `socket.write` หรือ HTTP 202 คือการโทรสำเร็จ
 
 ESL events ของ origination UUID ที่มี durable claim เท่านั้นเข้า `VoiceOriginateOutcomeProcessor`/Contact Governance; event ของขาอื่นไม่ settle delivery นี้ `BACKGROUND_JOB` failure ที่ผูกกับคำสั่งได้ใช้ outcome จริง ส่วนผลที่หายระหว่าง restart ยังต้อง reconciliation ไม่ resend และไม่ถือเป็นหลักฐาน DELIVERED การ cancel ที่ request ไว้แล้วทำได้แม้ technical switch ปิด; การปิด embed/auth ต้องไม่สั่งตัดสายที่คุยอยู่
+
+SIP flush ทำงานได้แม้ outbound flag ปิด แต่ต้องผูก credential ที่ revoked และ lease ที่ released แล้วภายใต้ RLS ตรง tenant/node/domain/extension เท่านั้น ใช้ user row lock ร่วมกับ credential issuance; ถ้ามี credential ของ lease ใหม่จะปฏิเสธ ไม่ลบ registration ใหม่ การ issue ยัง lock lease แล้วตรวจ released/expiry อีกครั้ง จึงไม่หมุน credential แข่งกับ close ใช้เฉพาะ `sofia ... flush_inbound_reg` ไม่มี `uuid_kill`, audit หลัง ESL reply จริงและ flush ซ้ำที่สำเร็จแล้วไม่ส่ง ESL ซ้ำ timeout ไม่ retry อัตโนมัติและมี diagnostic แบบ opaque ให้ operator ตรวจต่อ ไม่ถือว่า flush transport นี้แทนหลักฐาน auth continuity หรือ single receiving point บน browser จริง

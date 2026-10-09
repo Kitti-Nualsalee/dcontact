@@ -41,6 +41,30 @@ test('E1 publisher ส่ง command opaque ด้วย secret แยกแล�
   assert.equal(requests, 1);
 });
 
+test('E1 publisher ส่ง flush แบบ opaque ผ่าน endpoint แยกโดยไม่ retry', async () => {
+  const registration = {
+    tenantId: input.tenantId,
+    telephonyNodeId: 'e1-uat-sandbox',
+    extension: '1101',
+    sipDomain: 'dcontact-uat.sip.internal',
+    workSessionLeaseId: input.command.originationUuid,
+  };
+  let attempts = 0;
+  const publisher = new E1VoiceCommandPublisher(secret, async (url, options) => {
+    attempts += 1;
+    assert.equal(url, 'http://e1-sandbox:3001/registrations/flush');
+    assert.equal(options?.redirect, 'error');
+    const { tenantId, ...command } = registration;
+    assert.deepEqual(JSON.parse(String(options?.body)), {
+      tenantId,
+      command: { ...command, type: 'sip.registration.flush', vendor: 'freeswitch' },
+    });
+    return new Response(null, { status: 409 });
+  });
+  await assert.rejects(publisher.flush(registration), /UNCONFIRMED/);
+  assert.equal(attempts, 1);
+});
+
 test('E1 publisher ยืนยันเฉพาะ 202 และไม่ retry เมื่อ timeout/ผลไม่แน่นอน', async () => {
   let attempts = 0;
   const publisher = new E1VoiceCommandPublisher(secret, async (url, options) => {
