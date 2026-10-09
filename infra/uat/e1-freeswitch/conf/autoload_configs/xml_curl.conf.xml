@@ -1,0 +1,11 @@
+<configuration name="xml_curl.conf" description="E1 UAT SIP directory">
+  <bindings>
+    <binding name="dcontact-agent-directory">
+      <param name="gateway-url" value="http://api:3000/internal/v1/freeswitch/directory" bindings="directory"/>
+      <param name="gateway-credentials" value="e1-uat-sandbox:__E1_DIRECTORY_PASSWORD__"/>
+      <param name="auth-scheme" value="basic"/>
+      <param name="timeout" value="3"/>
+      <param name="response-max-bytes" value="16384"/>
+    </binding>
+  </bindings>
+</configuration>

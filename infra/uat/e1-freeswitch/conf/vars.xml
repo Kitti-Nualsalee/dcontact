@@ -1,0 +1,8 @@
+<include>
+  <X-PRE-PROCESS cmd="set" data="domain=dcontact-uat.sip.internal"/>
+  <X-PRE-PROCESS cmd="set" data="global_codec_prefs=OPUS,G722,PCMU,PCMA"/>
+  <X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=OPUS,G722,PCMU,PCMA"/>
+  <X-PRE-PROCESS cmd="set" data="external_rtp_ip=192.168.102.112"/>
+  <X-PRE-PROCESS cmd="set" data="external_sip_ip=192.168.102.112"/>
+  <X-PRE-PROCESS cmd="set" data="us-ring=%(2000,4000,440,480)"/>
+</include>

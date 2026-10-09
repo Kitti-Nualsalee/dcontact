@@ -1,0 +1,16 @@
+<configuration name="acl.conf" description="E1 UAT network lists">
+  <network-lists>
+    <list name="localnet.auto" default="allow"/>
+    <list name="esl_allow" default="allow"/>
+    <list name="dcontact_media_local" default="deny">
+      <node type="allow" cidr="10.0.0.0/8"/>
+      <node type="allow" cidr="172.16.0.0/12"/>
+      <node type="allow" cidr="192.168.0.0/16"/>
+    </list>
+    <list name="dcontact_webrtc_candidates" default="deny">
+      <node type="allow" cidr="10.0.0.0/8"/>
+      <node type="allow" cidr="172.16.0.0/12"/>
+      <node type="allow" cidr="192.168.0.0/16"/>
+    </list>
+  </network-lists>
+</configuration>
