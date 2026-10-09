@@ -58,7 +58,7 @@ sudo bash /home/osdadmin/dcontact-vm1-nginx-uat.sh --apply
 
 สคริปต์ตรวจ wildcard cert/key ที่มีอยู่, เพิ่มเฉพาะ `dcontact-uat.osd.co.th.conf`, ตรวจ `nginx -t` ก่อน reload และไม่เขียนไฟล์ของ vhost อื่น รวมถึงเปลี่ยน permission ของ `/etc/nginx`, `conf.d`, `sites-enabled`, `ssl` จาก `777` เป็น `755` และ key เป็น `600` เพราะ directory/file ที่เปิดให้ทุก user เขียนได้ทำให้ key และ nginx config ถูกเปลี่ยนโดยผู้ใช้ทั่วไปบน VM1 ได้
 
-เมื่อ E1.16 เปิด SIP WebSocket ให้ใช้ `vm1-nginx-websocket-uat.sh` เพื่อให้ nginx ส่ง `Upgrade`/`Connection` ผ่าน generic proxy ไป Caddy ใน release และลบ `/sip-ws` override ชั่วคราวที่ชี้ไป FreeSWITCH โดยตรง สคริปต์ยอมแก้เฉพาะ config UAT ที่ตรงกับ state เก่าที่รู้จัก, สำรองไฟล์ก่อนแก้, `nginx -t` ก่อน reload และคืน config เมื่อ test ไม่ผ่าน:
+เมื่อ E1.16 เปิด SIP WebSocket ให้ใช้ `vm1-nginx-websocket-uat.sh` เพื่อให้ nginx ส่ง `/sip-ws` ผ่าน Caddy ใน release ด้วย WebSocket tunnel ที่ปิด request/response buffering และลบ override ชั่วคราวที่ชี้ไป FreeSWITCH โดยตรง สคริปต์ยอมแก้เฉพาะ config UAT ที่ตรงกับ state เก่าที่รู้จัก, สำรองไฟล์ก่อนแก้, `nginx -t` ก่อน reload และคืน config เมื่อ test ไม่ผ่าน:
 
 ```bash
 sudo bash /home/osdadmin/vm1-nginx-websocket-uat.sh --check
