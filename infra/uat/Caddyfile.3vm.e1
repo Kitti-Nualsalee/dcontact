@@ -26,11 +26,14 @@
 		@keycloakAdmin path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* /auth/metrics /auth/health /auth/health/*
 		respond @keycloakAdmin 404
 
-		# browser ต่อ WSS ที่ VM1; Caddy forward upgrade เข้า FreeSWITCH เฉพาะ network internal
+		# browser และ FreeSWITCH ใช้ WSS ตรงกัน เพื่อให้ Sofia ตอบ Via: SIP/2.0/WSS
 		handle /sip-ws {
-			reverse_proxy freeswitch:5066 {
+			reverse_proxy https://freeswitch:7443 {
 				# SIP response ต้องส่งทันที ไม่รวม buffer ระหว่าง WebSocket tunnel
 				flush_interval -1
+				transport http {
+					tls_insecure_skip_verify
+				}
 			}
 		}
 		handle /auth/* {

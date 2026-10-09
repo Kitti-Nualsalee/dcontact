@@ -21,6 +21,8 @@
     <param name="force-subscription-domain" value="$${domain}"/>
     <param name="force-register-db-domain" value="$${domain}"/>
     <param name="ws-binding" value=":5066"/>
+    <param name="wss-binding" value=":7443"/>
+    <param name="tls-cert-dir" value="/etc/freeswitch/tls"/>
     <param name="inbound-codec-prefs" value="$${global_codec_prefs}"/>
     <param name="outbound-codec-prefs" value="$${global_codec_prefs}"/>
     <param name="inbound-late-negotiation" value="true"/>

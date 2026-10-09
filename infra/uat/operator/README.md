@@ -60,6 +60,8 @@ sudo bash /home/osdadmin/dcontact-vm1-nginx-uat.sh --apply
 
 เมื่อ E1.16 เปิด SIP WebSocket ให้ใช้ `vm1-nginx-websocket-uat.sh` เพื่อให้ nginx ส่ง `/sip-ws` ผ่าน Caddy ใน release ด้วย WebSocket tunnel ที่ปิด request/response buffering และลบ override ชั่วคราวที่ชี้ไป FreeSWITCH โดยตรง สคริปต์ยอมแก้เฉพาะ config UAT ที่ตรงกับ state เก่าที่รู้จัก, สำรองไฟล์ก่อนแก้, `nginx -t` ก่อน reload และคืน config เมื่อ test ไม่ผ่าน:
 
+E1 overlay ส่งต่อจาก Caddy ไป `https://freeswitch:7443` เพื่อให้ transport ตรงกับ `Via: SIP/2.0/WSS` ที่ SIP.js ส่งมา การส่งต่อเป็น WS ไปพอร์ต 5066 อาจผ่าน HTTP upgrade แต่ไม่มี SIP response สำหรับ WSS Via จึงต้องตรวจ SIP `401` challenge และ `200` หลัง authentication เพิ่มจาก handshake `101` เสมอ FreeSWITCH สร้าง self-signed certificate ใน tmpfs `/etc/freeswitch/tls`; Caddy ยกเว้น certificate verification เฉพาะ upstream นี้ใน network internal ของ UAT ที่ไม่เปิดพอร์ต WSS บน host การตั้งค่านี้ใช้เฉพาะ acceptance sandbox; production ต้องใช้ upstream certificate ที่ตรวจสอบได้
+
 ```bash
 sudo bash /home/osdadmin/vm1-nginx-websocket-uat.sh --check
 sudo bash /home/osdadmin/vm1-nginx-websocket-uat.sh --apply
