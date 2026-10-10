@@ -1,0 +1,42 @@
+# root credential ใช้เฉพาะ Job นี้และ RustFS; Tenant API ใช้ IAM user แยก
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: dcontact-uat-s3-init-
+  namespace: dcontact-uat
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      restartPolicy: Never
+      containers:
+        - name: init
+          image: __OPS_IMAGE__
+          command: [node, scripts/uat-object-storage.mjs, init]
+          env:
+            - name: S3_ENDPOINT
+              value: http://rustfs:9000
+            - name: UAT_S3_ROOT_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-s3
+                  key: RUSTFS_ACCESS_KEY
+            - name: UAT_S3_ROOT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-s3
+                  key: RUSTFS_SECRET_KEY
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

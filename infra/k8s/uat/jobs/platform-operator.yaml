@@ -1,0 +1,71 @@
+# สร้าง platform-only operator ครั้งแรกหลัง platform-keycloak-config; password อยู่ใน Secret นอก Git
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: dcontact-uat-platform-operator-
+  namespace: dcontact-uat
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      restartPolicy: Never
+      containers:
+        - name: operator
+          image: __PLATFORM_API_IMAGE__
+          command:
+            - /bin/sh
+            - -ec
+            - node scripts/platform-uat-create-operator.mjs < /run/operator/temporary-password && node scripts/keycloak-account-service-setup.mjs
+          env:
+            - name: KEYCLOAK_ADMIN_URL
+              value: http://keycloak:8080/auth
+            - name: KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            - name: KEYCLOAK_ACCOUNT_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KEYCLOAK_ACCOUNT_SERVICE_SECRET
+            - name: PLATFORM_UAT_OPERATOR_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-platform-operator
+                  key: username
+            - name: PLATFORM_UAT_OPERATOR_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-platform-operator
+                  key: email
+          volumeMounts:
+            - name: password
+              mountPath: /run/operator
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: password
+          secret:
+            secretName: dcontact-uat-platform-operator
+            items:
+              - key: temporary-password
+                path: temporary-password

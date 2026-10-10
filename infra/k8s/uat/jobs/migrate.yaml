@@ -1,0 +1,38 @@
+# สั่งแยกหลัง DB team ส่งมอบ role/database และก่อนเปิด API/worker
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: dcontact-uat-migrate-
+  namespace: dcontact-uat
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: __OPS_IMAGE__
+          command:
+            - /bin/sh
+            - -ec
+            - prisma migrate deploy --schema prisma/schema.prisma && prisma db execute --file prisma/rls.sql --schema prisma/schema.prisma
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-db
+                  key: DATABASE_URL_OWNER
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

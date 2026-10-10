@@ -1,0 +1,63 @@
+# accounts.json เป็นข้อมูลผู้ทดสอบ/รหัสผ่านชั่วคราวใน Secret นอก Git
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: dcontact-uat-kc-users-
+  namespace: dcontact-uat
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      restartPolicy: Never
+      containers:
+        - name: users
+          image: __OPS_IMAGE__
+          command: [node, scripts/u1-uat-keycloak-users.mjs, --users, /run/uat/accounts.json]
+          env:
+            - name: KEYCLOAK_ADMIN_URL
+              value: http://keycloak:8080/auth
+            - name: KEYCLOAK_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            - name: UAT_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-tenant
+                  key: UAT_TENANT_ID
+            - name: UAT_TENANT_SLUG
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-tenant
+                  key: UAT_TENANT_SLUG
+          volumeMounts:
+            - name: accounts
+              mountPath: /run/uat
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: accounts
+          secret:
+            secretName: dcontact-uat-accounts
+            items:
+              - key: accounts.json
+                path: accounts.json

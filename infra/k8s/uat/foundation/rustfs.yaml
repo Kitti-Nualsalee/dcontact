@@ -1,0 +1,100 @@
+# RustFS แบบ standalone สำหรับข้อมูลสังเคราะห์ปริมาณน้อย; bucket/API IAM ตั้งผ่าน Job/operator
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rustfs-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: REPLACE_WITH_STORAGE_CLASS
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: rustfs
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rustfs
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rustfs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rustfs
+        app.kubernetes.io/part-of: dcontact-uat
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: rustfs
+          image: rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUSTFS_ACCESS_KEY_FILE
+              value: /run/rustfs/root-access-key
+            - name: RUSTFS_SECRET_KEY_FILE
+              value: /run/rustfs/root-secret-key
+            - name: RUSTFS_ADDRESS
+              value: 0.0.0.0:9000
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: 'false'
+          ports:
+            - name: s3
+              containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: s3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: s3
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1536Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: root-credential
+              mountPath: /run/rustfs
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: rustfs-data
+        - name: root-credential
+          secret:
+            secretName: dcontact-uat-s3
+            items:
+              - key: RUSTFS_ACCESS_KEY
+                path: root-access-key
+              - key: RUSTFS_SECRET_KEY
+                path: root-secret-key

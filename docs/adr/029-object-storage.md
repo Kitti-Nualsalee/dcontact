@@ -50,6 +50,12 @@ maintainer ภายนอกรายเดียว และ license ขอ�
    | dev และ acceptance ที่สั่งด้วยมือ | **RustFS** (Apache 2.0) | เบา, บูตเร็ว, มี console ช่วย debug และรองรับ lifecycle/IAM ครบตามที่ UAT stack ต้องใช้ |
    | UAT, on-prem และ cloud (self-host) | **SeaweedFS** (Apache 2.0) | โปรเจกต์อยู่มานานและรับไฟล์เล็กจำนวนมากอย่างไฟล์เสียงได้ดี รองรับ presigned URL, lifecycle expiration, bucket policy, IAM API, Object Lock และ SSE |
 
+   **ข้อยกเว้นสำหรับ K8s UAT ใหม่ (#625/#628, 2026-10-06):** environment `dcontact-uat` บน cluster
+   `dcontact` แยกจาก UAT 3 VM โดยเริ่มฐานข้อมูลและ object storage ใหม่ ใช้ RustFS แบบ standalone
+   บน PVC เพื่อทดสอบข้อมูลสังเคราะห์ปริมาณน้อยตามคำตัดสินของ owner. UAT 3 VM เดิมยังใช้ SeaweedFS.
+   ก่อนเปิดให้ผู้ทดสอบ ต้องพิสูจน์ S3 contract, IAM ที่แยก API จาก root, bucket private และการลบตาม
+   lifecycle 90 วันบน image digest ที่ deploy จริง; หากข้อใดไม่ผ่านให้หยุด rollout และทบทวน storage choice.
+
    ตรึง image ด้วย release tag และ digest ห้ามใช้ `latest`
 
 4. **bootstrap ต้องไม่ผูกกับ CLI ของผู้ผลิต** การสร้าง bucket, private policy และ lifecycle ใน dev/acceptance

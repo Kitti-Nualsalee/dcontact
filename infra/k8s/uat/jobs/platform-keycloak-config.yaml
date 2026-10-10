@@ -1,0 +1,63 @@
+# ต้องตามหลัง tenant-keycloak-config; ตั้ง platform-console redirect เป็น origin ใหม่
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: dcontact-uat-kc-platform-
+  namespace: dcontact-uat
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: dcontact-uat-ghcr
+      restartPolicy: Never
+      containers:
+        - name: configure
+          image: __PLATFORM_API_IMAGE__
+          command:
+            - /bin/sh
+            - -ec
+            - node scripts/keycloak-platform-setup.mjs --no-dev-users && node scripts/keycloak-provisioning-setup.mjs && node scripts/keycloak-account-service-setup.mjs
+          env:
+            - name: KEYCLOAK_ADMIN_URL
+              value: http://keycloak:8080/auth
+            - name: KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KC_BOOTSTRAP_ADMIN_USERNAME
+            - name: KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            - name: KEYCLOAK_PROVISIONER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KEYCLOAK_PROVISIONER_SECRET
+            - name: KEYCLOAK_ACCOUNT_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dcontact-uat-identity
+                  key: KEYCLOAK_ACCOUNT_SERVICE_SECRET
+            - name: KEYCLOAK_SMTP_HOST
+              value: mailpit
+            - name: KEYCLOAK_SMTP_PORT
+              value: '1025'
+            - name: KEYCLOAK_SMTP_FROM
+              value: no-reply@dcontact-uat.osd.co.th
+            - name: PLATFORM_CONSOLE_REDIRECT
+              value: https://dcontact-platform-uat.osd.co.th
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
