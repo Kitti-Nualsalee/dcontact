@@ -4,6 +4,7 @@ export { AppLauncher, type AppLauncherProps } from './AppLauncher.js';
 export { SubNav, type SubNavItem, type SubNavProps, type SubNavSection } from './SubNav.js';
 export { LanguageSwitch, TopBar, type LanguageSwitchProps, type TopBarProps } from './TopBar.js';
 export { ShellFrame, type ShellFrameProps } from './ShellFrame.js';
+export { areaOf } from './areas.js';
 export { ShellIcon } from './icons.js';
 export { UserMenu, type SignOutConfirm, type UserMenuProps } from './UserMenu.js';
 export {
@@ -25,4 +26,11 @@ export {
   type ShellNavigationOptions,
   type ShellNavigationState,
 } from './navigation.js';
-export type { ShellApp, ShellCreateAction, ShellGroup } from './types.js';
+export type {
+  ShellApp,
+  ShellArea,
+  ShellAreaItem,
+  ShellAreaSection,
+  ShellCreateAction,
+  ShellGroup,
+} from './types.js';

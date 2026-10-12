@@ -87,6 +87,25 @@
   white-space: nowrap;
 }
 
+.rail[data-areas] {
+  width: 76px;
+}
+
+.rail[data-areas] .area {
+  width: 68px;
+}
+
+.area .label {
+  /* #651: ชื่อพื้นที่ยาวกว่าชื่อแอป — ตัดบรรทัดตามคำได้สองบรรทัด (ไทยตัดตามคำ); line-height พอไม่ให้วรรณยุกต์ถูกตัด */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  max-width: 68px;
+  line-height: var(--dc-leading-snug);
+  white-space: normal;
+}
+
 .srOnly {
   position: absolute;
   width: 1px;

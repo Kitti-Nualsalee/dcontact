@@ -37,6 +37,38 @@ function navigation(shellV2: boolean) {
         path: '/?view=governance',
       },
     ],
+    // #651: พื้นที่งานบน rail + เมนูย่อย (server คัดตาม role/plan แล้ว)
+    areas: [
+      {
+        id: 'workspace',
+        labelKey: 'navigation.areas.workspace',
+        sections: [
+          {
+            id: 'work',
+            labelKey: 'navigation.sections.work',
+            items: [{ appId: 'agent-workspace' }],
+          },
+        ],
+      },
+      {
+        id: 'journeys',
+        labelKey: 'navigation.areas.journeys',
+        sections: [
+          { id: 'work', labelKey: 'navigation.sections.work', items: [{ appId: 'journeys' }] },
+        ],
+      },
+      {
+        id: 'governance',
+        labelKey: 'navigation.areas.governance',
+        sections: [
+          {
+            id: 'work',
+            labelKey: 'navigation.sections.work',
+            items: [{ appId: 'contact-governance' }],
+          },
+        ],
+      },
+    ],
     pins: { appIds: ['agent-workspace', 'journeys'], source: 'SYSTEM', revision: 0 },
     limits: { maxPins: 15 },
     features: { shellV2 },
@@ -89,9 +121,10 @@ test('flag เปิด → shell ครอบ Journeys: rail, SubNav, แถบ
     'aria-current',
     'page',
   );
-  const inbox = rail(page).getByRole('link', { name: /กล่องงาน/ });
-  await expect(inbox).toHaveAttribute('href', 'http://localhost:5173/?tenant=demo');
-  await expect(inbox).toHaveAttribute('target', '_blank');
+  // #651: rail แสดงพื้นที่งาน — พื้นที่ของอีกแอปเปิดแท็บใหม่และลิงก์มีแค่ path + tenant
+  const workspace = rail(page).getByRole('link', { name: /พื้นที่ทำงาน/ });
+  await expect(workspace).toHaveAttribute('href', 'http://localhost:5173/?tenant=demo');
+  await expect(workspace).toHaveAttribute('target', '_blank');
   await expect(page.getByRole('navigation', { name: 'Journeys' })).toBeVisible(); // SubNav
   await expect(page.getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' })).toContainText(
     'ระบบอัตโนมัติ',
@@ -111,7 +144,7 @@ test('flag เปิด → สลับภาษาในแถบบนเป�
   const origin = await page.evaluate(() => performance.timeOrigin);
   await page.getByRole('button', { name: 'English' }).click();
   await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Inbox/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Workspace/ })).toBeVisible();
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(origin);
 });
 
@@ -165,4 +198,78 @@ test('#588: ออกจากระบบไม่สำเร็จ → แจ
   await userMenu(page).click();
   await page.getByRole('menuitem', { name: 'ออกจากระบบ' }).click();
   await expect(page.getByText('ออกจากระบบไม่สำเร็จ กรุณาลองอีกครั้ง')).toBeVisible();
+});
+
+/**
+ * #651: ระบบเมนู Rail (พื้นที่งาน) + เมนูย่อยที่ขับด้วยข้อมูลจาก Navigation API
+ */
+test('#651: rail แสดงพื้นที่งานที่มีสิทธิ์ตามลำดับของ server และเลือกพื้นที่ปัจจุบัน', async ({
+  page,
+}) => {
+  await mockNavigation(page, { status: 200, body: navigation(true) });
+  await page.goto('/?view=journeys&tenant=demo');
+  const links = rail(page).locator('a[data-area]');
+  await expect(links).toHaveCount(3);
+  expect(await links.evaluateAll((els) => els.map((el) => el.getAttribute('data-area')))).toEqual([
+    'workspace',
+    'journeys',
+    'governance',
+  ]);
+  await expect(rail(page).locator('a[aria-current=page]')).toHaveAttribute('data-area', 'journeys');
+  // ปุ่มพื้นที่ในแอปเดียวกัน = ลิงก์ relative ไปรายการแรกของพื้นที่
+  await expect(rail(page).locator('a[data-area=governance]')).toHaveAttribute(
+    'href',
+    '/?view=governance&tenant=demo',
+  );
+  // พื้นที่ที่ผู้ใช้ไม่มีสิทธิ์ (ไม่อยู่ใน response) ต้องไม่มีบน rail
+  await expect(rail(page).locator('a[data-area=integrations]')).toHaveCount(0);
+});
+
+test('#651: เมนูย่อยตรงกับพื้นที่ปัจจุบัน — ชื่อพื้นที่, ส่วนปักหมุด, กลุ่มย่อย และรายการที่เลือก', async ({
+  page,
+}) => {
+  await mockNavigation(page, { status: 200, body: navigation(true) });
+  await page.goto('/?view=journeys&tenant=demo');
+  const sub = page.getByRole('navigation', { name: 'Journeys' });
+  await expect(sub).toBeVisible();
+  // หมุดของผู้ใช้ (agent-workspace, journeys) อยู่บนสุด ตามด้วยกลุ่มย่อยของพื้นที่
+  await expect(sub.getByText('ปักหมุด')).toBeVisible();
+  await expect(sub.getByText('งาน', { exact: true })).toBeVisible();
+  await expect(sub.getByRole('link', { name: 'Journeys' }).first()).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  // รายการของอีก host app (ปักหมุดไว้) เปิดแท็บใหม่ ลิงก์มีแค่ path + tenant
+  const pinnedInbox = sub.getByRole('link', { name: /กล่องงาน/ });
+  await expect(pinnedInbox).toHaveAttribute('target', '_blank');
+  await expect(pinnedInbox).toHaveAttribute('href', 'http://localhost:5173/?tenant=demo');
+});
+
+test('#651: rail พื้นที่และเมนูย่อยผ่าน axe ทั้งไทยและอังกฤษ', async ({ page }) => {
+  await mockNavigation(page, { status: 200, body: navigation(true) });
+  await page.goto('/?view=journeys&tenant=demo');
+  for (const language of ['TH', 'EN']) {
+    await page.getByRole('button', { name: language === 'TH' ? 'ไทย' : 'English' }).click();
+    const axe = await new AxeBuilder({ page }).include('nav').analyze();
+    expect(
+      axe.violations
+        .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+        .map((v) => v.id),
+    ).toEqual([]);
+  }
+});
+
+test('#651: API รุ่นเก่าที่ไม่ส่ง areas → rail ใช้หมุดแอปเดิม และมีเมนูย่อยรายการเดียวของแอปนี้', async ({
+  page,
+}) => {
+  const { areas: _areas, ...legacy } = navigation(true);
+  void _areas;
+  await mockNavigation(page, { status: 200, body: legacy });
+  await page.goto('/?view=journeys&tenant=demo');
+  await expect(rail(page).locator('a[data-area]')).toHaveCount(0);
+  await expect(rail(page).getByRole('link', { name: 'Journeys' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(page.getByRole('navigation', { name: 'Journeys' })).toBeVisible();
 });

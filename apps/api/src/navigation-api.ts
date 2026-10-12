@@ -29,6 +29,7 @@ import {
   pinValidationError,
   tenantAvailableApps,
   visibleApps,
+  visibleAreas,
   type EffectiveEntitlements,
   type NavigationAppDefinition,
   type NavigationHostApp,
@@ -46,6 +47,12 @@ export interface NavigationV1 {
     labelKey: string;
     hostApp: NavigationHostApp;
     path: string;
+  }[];
+  /** #651: พื้นที่งานบน rail + เมนูย่อย (อ้างรายการด้วย `appId` ใน `apps`) — คัดตาม role/plan แล้ว พื้นที่ว่างไม่ส่ง */
+  areas: {
+    id: string;
+    labelKey: string;
+    sections: { id: string; labelKey: string; items: { appId: string }[] }[];
   }[];
   pins: { appIds: string[]; source: PinSource; revision: number };
   /** เฉพาะผู้เรียกที่เป็น ADMIN — ใช้ตั้ง expectedRevision ของชุดเริ่มต้น */
@@ -159,6 +166,15 @@ export class NavigationController {
           labelKey: app.labelKey,
           hostApp: app.hostApp,
           path: app.path,
+        })),
+        areas: visibleAreas(visible).map((area) => ({
+          id: area.id,
+          labelKey: `navigation.areas.${area.id}`,
+          sections: area.sections.map((section) => ({
+            id: section.id,
+            labelKey: `navigation.sections.${section.id}`,
+            items: section.items,
+          })),
         })),
         pins: { ...pins, revision: userRow?.revision ?? 0 },
         ...(roles.includes('admin')

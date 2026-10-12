@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { areaOf } from './areas.js';
 import { buildAppHref, toShellModel, type NavigationResponseV1 } from './navigation.js';
 
 const hostOrigins = {
@@ -107,4 +108,115 @@ test('ไม่รู้ origin ของอีกแอป → ไม่สร�
     model.apps.map((app) => app.id),
     ['journeys'],
   );
+});
+
+const areaResponse: NavigationResponseV1 = {
+  groups: [],
+  apps: [
+    {
+      id: 'agent-workspace',
+      groupId: 'live',
+      labelKey: 'a.agent',
+      hostApp: 'workspace',
+      path: '/',
+    },
+    {
+      id: 'journeys',
+      groupId: 'automation',
+      labelKey: 'a.journeys',
+      hostApp: 'console',
+      path: '/?view=journeys',
+    },
+    {
+      id: 'dphone-embedding',
+      groupId: 'settings',
+      labelKey: 'a.dphone',
+      hostApp: 'console',
+      path: '/?view=dphone-embedding',
+    },
+  ],
+  areas: [
+    {
+      id: 'workspace',
+      labelKey: 'area.workspace',
+      sections: [{ id: 'work', labelKey: 'section.work', items: [{ appId: 'agent-workspace' }] }],
+    },
+    {
+      id: 'integrations',
+      labelKey: 'area.integrations',
+      sections: [
+        { id: 'embedding', labelKey: 'section.embedding', items: [{ appId: 'dphone-embedding' }] },
+      ],
+    },
+    {
+      id: 'journeys',
+      labelKey: 'area.journeys',
+      sections: [{ id: 'work', labelKey: 'section.work', items: [{ appId: 'journeys' }] }],
+    },
+  ],
+  pins: { appIds: [], source: 'SYSTEM', revision: 0 },
+  limits: { maxPins: 15 },
+  features: { shellV2: true },
+};
+
+test('#651: toShellModel สร้างพื้นที่ตามลำดับที่ server ส่ง; href ของพื้นที่คือรายการแรก; อีกแอป = แท็บใหม่', () => {
+  const model = toShellModel(areaResponse, {
+    currentHost: 'console',
+    hostOrigins,
+    tenantAlias: 'demo',
+    translate: (key) => `t:${key}`,
+  });
+  assert.deepEqual(
+    model.areas.map((area) => [area.id, area.label, area.href, area.external]),
+    [
+      ['workspace', 't:area.workspace', 'https://workspace.demo.example/?tenant=demo', true],
+      ['integrations', 't:area.integrations', '/?view=dphone-embedding&tenant=demo', false],
+      ['journeys', 't:area.journeys', '/?view=journeys&tenant=demo', false],
+    ],
+  );
+  assert.deepEqual(model.areas[1]!.sections, [
+    {
+      id: 'embedding',
+      label: 't:section.embedding',
+      items: [
+        {
+          id: 'dphone-embedding',
+          label: 't:a.dphone',
+          href: '/?view=dphone-embedding&tenant=demo',
+          external: false,
+        },
+      ],
+    },
+  ]);
+});
+
+test('#651: รายการที่ไม่รู้ origin ถูกตัด และพื้นที่ที่ว่างตามไปด้วย (ไม่มีปุ่มบน rail ที่กดไปไหนไม่ได้)', () => {
+  const model = toShellModel(areaResponse, {
+    currentHost: 'console',
+    hostOrigins: { console: hostOrigins.console },
+    translate: (key) => key,
+  });
+  assert.deepEqual(
+    model.areas.map((area) => area.id),
+    ['integrations', 'journeys'],
+  );
+});
+
+test('#651: API รุ่นเก่าที่ไม่ส่ง areas ได้พื้นที่ว่าง (rail กลับไปแสดงหมุดแอป)', () => {
+  const { areas: _omitted, ...legacy } = areaResponse;
+  void _omitted;
+  const model = toShellModel(legacy, { currentHost: 'console', hostOrigins, translate: (k) => k });
+  assert.deepEqual(model.areas, []);
+});
+
+test('#651: areaOf หาพื้นที่จากแอปที่กำลังใช้ — แอปนอก registry (เช่นหน้าบัญชี) ไม่อยู่พื้นที่ใด', () => {
+  const { areas } = toShellModel(areaResponse, {
+    currentHost: 'console',
+    hostOrigins,
+    translate: (k) => k,
+  });
+  assert.equal(areaOf(areas, 'journeys'), 'journeys');
+  assert.equal(areaOf(areas, 'dphone-embedding'), 'integrations');
+  assert.equal(areaOf(areas, 'account'), undefined);
+  assert.equal(areaOf(undefined, 'journeys'), undefined);
 });

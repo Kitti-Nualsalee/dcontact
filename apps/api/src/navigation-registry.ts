@@ -24,6 +24,31 @@ export const NAVIGATION_GROUPS = [
 ] as const;
 export type NavigationGroupId = (typeof NAVIGATION_GROUPS)[number];
 
+/**
+ * #651: พื้นที่งานบน rail (ลำดับ = ลำดับบน rail, ตาม `mockups/assets/app.js` RAIL)
+ * พื้นที่ที่ไม่มีรายการที่ผู้ใช้เห็นจะไม่ถูกส่งไป browser — เพิ่มหน้าใหม่ = เพิ่มแถวใน `NAVIGATION_APPS` ที่ระบุ area/section
+ * พร้อมข้อความ `navigation.areas.<id>` / `navigation.sections.<id>` ของ Console และ Workspace
+ */
+export const NAVIGATION_AREAS = [
+  'home',
+  'workspace',
+  'supervisor',
+  'outbound',
+  'journeys',
+  'governance',
+  'cases',
+  'routing',
+  'ai',
+  'people',
+  'wfm',
+  'qm',
+  'analytics',
+  'integrations',
+  'history',
+  'reports',
+] as const;
+export type NavigationAreaId = (typeof NAVIGATION_AREAS)[number];
+
 export type NavigationHostApp = 'console' | 'workspace';
 
 export interface NavigationAppDefinition {
@@ -31,6 +56,10 @@ export interface NavigationAppDefinition {
   group: NavigationGroupId;
   /** key ใน catalog ของ shell (D1.13) */
   labelKey: string;
+  /** #651: พื้นที่งานบน rail ที่รายการนี้อยู่ */
+  area: NavigationAreaId;
+  /** #651: กลุ่มย่อยในเมนูย่อยของ area — id เป็น key ของ `navigation.sections.<id>` (a-z, ขีดกลาง) */
+  section: string;
   hostApp: NavigationHostApp;
   /** path ภายใน host app — ห้ามมี PII; ลิงก์ข้าม host app เปิดแท็บใหม่ (ADR-026 ข้อ 3) */
   path: string;
@@ -42,6 +71,8 @@ export interface NavigationAppDefinition {
 export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
   {
     id: 'agent-workspace',
+    area: 'workspace',
+    section: 'work',
     group: 'live',
     labelKey: 'navigation.apps.agentWorkspace',
     hostApp: 'workspace',
@@ -50,6 +81,8 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
   },
   {
     id: 'supervisor-workspace',
+    area: 'supervisor',
+    section: 'live',
     group: 'live',
     labelKey: 'navigation.apps.supervisorWorkspace',
     hostApp: 'workspace',
@@ -58,6 +91,8 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
   },
   {
     id: 'journeys',
+    area: 'journeys',
+    section: 'work',
     group: 'automation',
     labelKey: 'navigation.apps.journeys',
     hostApp: 'console',
@@ -67,6 +102,8 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
   },
   {
     id: 'contact-governance',
+    area: 'governance',
+    section: 'work',
     group: 'quality',
     labelKey: 'navigation.apps.contactGovernance',
     hostApp: 'console',
@@ -78,6 +115,8 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     // E1.11 (#485): allowlist ของ origin ที่ฝัง dphone — ADMIN แก้, SUPERVISOR ดู
     // launcher ซ่อนเมื่อไม่มี `modules.api.cti`; เปิด URL ตรงเห็นหน้าล็อกพร้อมข้อความเรื่อง plan
     id: 'dphone-embedding',
+    area: 'integrations',
+    section: 'embedding',
     group: 'settings',
     labelKey: 'navigation.apps.dphoneEmbedding',
     hostApp: 'console',
@@ -86,6 +125,31 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     entitlement: 'module_api_cti',
   },
 ]);
+
+export interface NavigationAreaView {
+  id: NavigationAreaId;
+  sections: { id: string; items: { appId: string }[] }[];
+}
+
+/**
+ * #651: พื้นที่/กลุ่มย่อย/รายการเมนูจากแอปที่ผู้ใช้มองเห็นแล้วเท่านั้น
+ * ลำดับพื้นที่ตาม `NAVIGATION_AREAS`; กลุ่มย่อยและรายการตามลำดับของ registry; พื้นที่ว่างไม่ถูกส่ง
+ */
+export function visibleAreas(visible: readonly NavigationAppDefinition[]): NavigationAreaView[] {
+  return NAVIGATION_AREAS.flatMap((areaId) => {
+    const sections: NavigationAreaView['sections'] = [];
+    for (const app of visible) {
+      if (app.area !== areaId) continue;
+      let section = sections.find((candidate) => candidate.id === app.section);
+      if (!section) {
+        section = { id: app.section, items: [] };
+        sections.push(section);
+      }
+      section.items.push({ appId: app.id });
+    }
+    return sections.length > 0 ? [{ id: areaId, sections }] : [];
+  });
+}
 
 /** `null` = tenant ไม่มี plan binding */
 export type EffectiveEntitlements = Readonly<Record<string, unknown>> | null;

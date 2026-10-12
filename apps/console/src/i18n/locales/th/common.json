@@ -23,6 +23,29 @@
       "journeys": "Journeys",
       "contactGovernance": "Governance",
       "dphoneEmbedding": "ฝัง dphone"
+    },
+    "areas": {
+      "home": "หน้าหลัก",
+      "workspace": "พื้นที่ทำงาน",
+      "supervisor": "คุมหน้างาน",
+      "outbound": "งานขาออก",
+      "journeys": "Journeys",
+      "governance": "Governance",
+      "cases": "เคส",
+      "routing": "การกระจายงาน",
+      "ai": "AI",
+      "people": "บุคลากร",
+      "wfm": "กำลังคน",
+      "qm": "คุณภาพ",
+      "analytics": "วิเคราะห์",
+      "integrations": "การเชื่อมต่อ",
+      "history": "ประวัติ",
+      "reports": "รายงาน"
+    },
+    "sections": {
+      "work": "งาน",
+      "live": "งานสด",
+      "embedding": "ฝังระบบ"
     }
   },
   "shell": {
@@ -54,6 +77,7 @@
       "section": "บัญชี",
       "mine": "บัญชีของฉัน",
       "policy": "นโยบายบัญชี"
-    }
+    },
+    "pinned": "ปักหมุด"
   }
 }

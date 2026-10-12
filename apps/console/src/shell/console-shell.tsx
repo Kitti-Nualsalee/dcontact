@@ -12,10 +12,13 @@ import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import {
   ShellFrame,
   SubNav,
+  areaOf,
   ToastRegion,
   toastQueue,
   useShellNavigation,
   type HostApp,
+  type ShellArea,
+  type ShellApp,
   type ShellUser,
   type UserMenuProps,
 } from '@d-contact/ui-react';
@@ -37,6 +40,56 @@ export function hostOrigins(): Partial<Record<HostApp, string>> {
     workspace:
       env.VITE_WORKSPACE_URL ?? (import.meta.env.DEV ? 'http://localhost:5173' : undefined),
   };
+}
+
+/**
+ * #651: เมนูย่อยของพื้นที่ — ส่วน "ปักหมุด" (ถ้ามี) อยู่บนสุด ตามด้วยกลุ่มย่อยของพื้นที่ตามลำดับที่ server ส่ง
+ * ไอคอนของรายการ = id ของแอป (ShellIcon ใช้ไอคอน fallback เมื่อไม่รู้จัก)
+ */
+export function areaSections(
+  area: ShellArea,
+  apps: readonly ShellApp[],
+  pinnedIds: readonly string[],
+  pinnedLabel: string,
+) {
+  const item = (app: { id: string; label: string; href: string; external: boolean }) => ({
+    id: app.id,
+    label: app.label,
+    href: app.href,
+    icon: app.id,
+    external: app.external,
+  });
+  // หมุดที่อยู่ในพื้นที่นี้อยู่แล้วไม่ซ้ำในส่วนปักหมุด
+  const inArea = new Set(area.sections.flatMap((section) => section.items.map((i) => i.id)));
+  const pinned = pinnedIds.flatMap((id) => {
+    if (inArea.has(id)) return [];
+    const app = apps.find((candidate) => candidate.id === id);
+    return app ? [item(app)] : [];
+  });
+  return [
+    ...(pinned.length > 0 ? [{ id: 'pinned', label: pinnedLabel, items: pinned }] : []),
+    ...area.sections.map((section) => ({
+      id: section.id,
+      label: section.label,
+      items: section.items.map(item),
+    })),
+  ];
+}
+
+function legacySubNav(app: ShellApp | undefined) {
+  if (!app) return undefined;
+  return (
+    <SubNav
+      title={app.label}
+      currentItemId={app.id}
+      sections={[
+        {
+          id: 'work',
+          items: [{ id: app.id, label: app.label, href: app.href, icon: app.id }],
+        },
+      ]}
+    />
+  );
 }
 
 export interface ConsoleShellProps {
@@ -104,99 +157,50 @@ export function ConsoleShell({
   });
   const journeysVisible = nav.apps.some((app) => app.id === 'journeys');
   const isAdmin = account?.user.roles.includes('admin') ?? false;
-  const subNav =
-    appId === 'account' || appId === 'account-policy' ? (
-      <SubNav
-        eyebrow={t('shell.account.eyebrow')}
-        title={t('shell.account.title')}
-        currentItemId={appId}
-        sections={[
-          {
-            id: 'account',
-            label: t('shell.account.section'),
-            items: [
-              {
-                id: 'account',
-                label: t('shell.account.mine'),
-                href: withTenant('/?view=account'),
-                icon: 'settings',
-              },
-              // role ใช้แค่ซ่อนลิงก์ — API ตรวจ admin ทุก request
-              ...(isAdmin
-                ? [
-                    {
-                      id: 'account-policy',
-                      label: t('shell.account.policy'),
-                      href: withTenant('/?view=account-policy'),
-                      icon: 'settings' as const,
-                    },
-                  ]
-                : []),
-            ],
-          },
-        ]}
-      />
-    ) : appId === 'dphone-embedding' ? (
-      <SubNav
-        eyebrow={t('navigation.groups.settings')}
-        title={t('navigation.apps.dphoneEmbedding')}
-        currentItemId="origins"
-        sections={[
-          {
-            id: 'settings',
-            label: t('shell.integrations.sectionWork'),
-            items: [
-              {
-                id: 'origins',
-                label: t('shell.integrations.dphoneEmbedding'),
-                href: withTenant('/?view=dphone-embedding'),
-                icon: 'settings',
-              },
-            ],
-          },
-        ]}
-      />
-    ) : appId === 'journeys' ? (
-      <SubNav
-        eyebrow={t('navigation.groups.automation')}
-        title={t('navigation.apps.journeys')}
-        currentItemId="list"
-        sections={[
-          {
-            id: 'work',
-            label: t('shell.journeys.sectionWork'),
-            items: [
-              {
-                id: 'list',
-                label: t('shell.journeys.list'),
-                href: withTenant('/?view=journeys'),
-                icon: 'journeys',
-              },
-            ],
-          },
-        ]}
-      />
-    ) : (
-      <SubNav
-        eyebrow={t('navigation.groups.quality')}
-        title={t('navigation.apps.contactGovernance')}
-        currentItemId="overview"
-        sections={[
-          {
-            id: 'work',
-            label: t('shell.governance.sectionWork'),
-            items: [
-              {
-                id: 'overview',
-                label: t('shell.governance.overview'),
-                href: withTenant('/?view=governance'),
-                icon: 'contact-governance',
-              },
-            ],
-          },
-        ]}
-      />
-    );
+  const accountPage = appId === 'account' || appId === 'account-policy';
+  const area = accountPage ? undefined : nav.areas.find((a) => a.id === areaOf(nav.areas, appId));
+  const subNav = accountPage ? (
+    <SubNav
+      eyebrow={t('shell.account.eyebrow')}
+      title={t('shell.account.title')}
+      currentItemId={appId}
+      sections={[
+        {
+          id: 'account',
+          label: t('shell.account.section'),
+          items: [
+            {
+              id: 'account',
+              label: t('shell.account.mine'),
+              href: withTenant('/?view=account'),
+              icon: 'settings',
+            },
+            // role ใช้แค่ซ่อนลิงก์ — API ตรวจ admin ทุก request
+            ...(isAdmin
+              ? [
+                  {
+                    id: 'account-policy',
+                    label: t('shell.account.policy'),
+                    href: withTenant('/?view=account-policy'),
+                    icon: 'settings' as const,
+                  },
+                ]
+              : []),
+          ],
+        },
+      ]}
+    />
+  ) : area ? (
+    // #651: เมนูย่อยคำนวณจากพื้นที่ที่ server ส่งมา — เพิ่มหน้าใหม่ไม่ต้องแก้ไฟล์นี้
+    <SubNav
+      title={area.label}
+      currentItemId={appId}
+      sections={areaSections(area, nav.apps, nav.pinnedIds, t('shell.pinned'))}
+    />
+  ) : (
+    // API รุ่นเก่าที่ยังไม่ส่ง `areas` (rollback ของ API ภายใต้ Console ใหม่): เมนูย่อยรายการเดียวของแอปนี้
+    legacySubNav(nav.apps.find((app) => app.id === appId))
+  );
 
   return (
     <>
@@ -207,6 +211,7 @@ export function ConsoleShell({
         maxPins={nav.maxPins}
         onTogglePin={nav.togglePin}
         currentAppId={appId}
+        areas={nav.areas}
         brand={
           <>
             <img src="/d-contact-icon-64.png" alt="" width={24} height={24} />

@@ -19,3 +19,26 @@ export interface ShellCreateAction {
   href: string;
   external: boolean;
 }
+
+/** #651: รายการในเมนูย่อยของพื้นที่ — id = id ของแอปใน registry */
+export interface ShellAreaItem {
+  id: string;
+  label: string;
+  href: string;
+  external: boolean;
+}
+
+export interface ShellAreaSection {
+  id: string;
+  label: string;
+  items: readonly ShellAreaItem[];
+}
+
+/** #651: พื้นที่งานบน rail — `href` คือรายการแรกของพื้นที่ (ลิงก์ของปุ่มบน rail) */
+export interface ShellArea {
+  id: string;
+  label: string;
+  href: string;
+  external: boolean;
+  sections: readonly ShellAreaSection[];
+}
