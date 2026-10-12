@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — U2 UI preview (สามบทบาท)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<!--
+  #601 (U2, map #600): UI preview สามบทบาทก่อนเชื่อม runtime — ไฟล์เดียว ไม่เรียก API/provider/telephony ใด ๆ
+  - หน้าที่เป็นภาพ = mockup เดิมของ D-Contact (routing, flow-editor, people, integrations, supervisor, workspace) ใน iframe
+    เลือกหน้าด้วย `?view=` ที่ mockup framework รองรับอยู่แล้ว
+  - หน้า "ภาพรวม", "Wrap-up", "Trace" และ "งานของ Agent" เป็นหน้าของ preview เอง อ่าน/เขียน state ในหน่วยความจำของเบราว์เซอร์เท่านั้น
+  - ตัวเดิน scenario เปลี่ยน state ของหน้าของ preview เอง; mockup ใน iframe มีข้อมูลตัวอย่างของมันเอง ไม่เชื่อมกับ state นี้
+  - ป้ายสถานะ: ตัวอย่างหน้าจอ = มีแต่ภาพ · เชื่อมระบบจริง = มี API/หน้าจริงในโค้ดแล้ว · ยังไม่พร้อม = ยังไม่มี backend (ปุ่ม disabled)
+    ตารางต่อหน้าอ้างหลักฐานจากโค้ดบน main และ #600 — เป็นข้อเสนอที่รอเจ้าของงานยืนยัน ไม่ใช่ acceptance
+-->
+<style>
+  :root {
+    --bg: #f8fafc; --panel: #ffffff; --line: #e2e8f0; --line-strong: #cbd5e1;
+    --text: #1e293b; --muted: #64748b; --faint: #94a3b8;
+    --brand: #0f766e; --brand-dark: #115e59; --brand-soft: #ccfbf1;
+    --preview-bg: #fef3c7; --preview-fg: #92400e; --preview-bd: #fcd34d;
+    --real-bg: #dcfce7; --real-fg: #166534; --real-bd: #86efac;
+    --nr-bg: #f1f5f9; --nr-fg: #475569; --nr-bd: #cbd5e1;
+    --danger: #b91c1c; --danger-soft: #fee2e2;
+    --font: 'Inter', 'Noto Sans Thai', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; font: 14px/1.5 var(--font); color: var(--text); background: var(--bg); }
+  button { font: inherit; cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: .55; }
+  :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+  #shell { display: grid; grid-template-rows: auto auto 1fr; height: 100vh; }
+
+  /* ---- top bar ---- */
+  .top { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; min-height: 52px; }
+  .brand { font-weight: 600; color: var(--brand-dark); white-space: nowrap; }
+  .brand small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+  .roles { display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+  .roles button { border: 0; background: transparent; padding: 5px 12px; border-radius: 8px; color: var(--muted); }
+  .roles button[aria-pressed="true"] { background: var(--brand); color: #fff; }
+  .spacer { flex: 1; }
+  .btn { border: 1px solid var(--line-strong); background: var(--panel); border-radius: 8px; padding: 5px 12px; color: var(--text); }
+  .btn:hover:not(:disabled) { background: var(--bg); }
+  .btn.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .btn.primary:hover:not(:disabled) { background: var(--brand-dark); }
+  .btn.danger { color: var(--danger); border-color: #fca5a5; }
+  .btn.small { padding: 2px 9px; font-size: 12px; }
+  .lang button[aria-pressed="true"] { background: var(--brand-soft); border-color: var(--brand); }
+
+  .banner { display: flex; align-items: center; gap: 8px; padding: 6px 16px; background: var(--preview-bg); color: var(--preview-fg); border-bottom: 1px solid var(--preview-bd); font-size: 13px; }
+
+  /* ---- body grid ---- */
+  .body { display: grid; grid-template-columns: 210px minmax(0, 1fr) 380px; min-height: 0; }
+  .body.no-drawer { grid-template-columns: 210px minmax(0, 1fr); }
+  .body.no-drawer .drawer { display: none; }
+  nav.pages { background: var(--panel); border-right: 1px solid var(--line); padding: 10px 8px; overflow-y: auto; }
+  nav.pages .grp { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); padding: 8px 8px 4px; }
+  nav.pages button { display: flex; width: 100%; align-items: center; gap: 8px; text-align: left; border: 0; background: transparent; padding: 7px 8px; border-radius: 8px; color: var(--text); }
+  nav.pages button:hover { background: var(--bg); }
+  nav.pages button[aria-current="page"] { background: var(--brand-soft); color: var(--brand-dark); font-weight: 500; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.PREVIEW { background: #f59e0b; } .dot.REAL { background: #22c55e; } .dot.NOT_READY { background: #94a3b8; }
+
+  main.stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .stage-head { padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .stage-head h1 { font-size: 15px; margin: 0; }
+  .stage-body { flex: 1; min-height: 0; position: relative; overflow: auto; }
+  iframe.mock { border: 0; width: 100%; height: 100%; display: block; background: #fff; }
+  .native { padding: 20px; max-width: 980px; }
+
+  /* ---- badges ---- */
+  .badge { display: inline-flex; align-items: center; gap: 4px; border: 1px solid; border-radius: 999px; padding: 0 8px; font-size: 12px; line-height: 20px; white-space: nowrap; }
+  .badge.PREVIEW { background: var(--preview-bg); color: var(--preview-fg); border-color: var(--preview-bd); }
+  .badge.REAL { background: var(--real-bg); color: var(--real-fg); border-color: var(--real-bd); }
+  .badge.NOT_READY { background: var(--nr-bg); color: var(--nr-fg); border-color: var(--nr-bd); }
+
+  /* ---- drawer ---- */
+  .drawer { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); }
+  .tabs button { flex: 1; border: 0; background: transparent; padding: 9px 6px; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tabs button[aria-selected="true"] { color: var(--brand-dark); border-bottom-color: var(--brand); font-weight: 500; }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 12px 14px; }
+
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; vertical-align: top; padding: 7px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 14px; margin: 0 0 8px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .kv { display: grid; grid-template-columns: 150px 1fr; gap: 4px 10px; font-size: 13px; }
+  .state { display: inline-block; border-radius: 6px; padding: 0 8px; background: var(--bg); border: 1px solid var(--line-strong); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .state.CLOSED { background: var(--real-bg); border-color: var(--real-bd); }
+  .state.QUEUED, .state.OFFERED { background: var(--preview-bg); border-color: var(--preview-bd); }
+  .state.REJECTED { background: var(--danger-soft); border-color: #fca5a5; }
+  .note { border-left: 3px solid var(--brand); background: var(--brand-soft); padding: 6px 10px; border-radius: 0 8px 8px 0; font-size: 13px; margin: 8px 0; }
+  .warn { border-left-color: var(--danger); background: var(--danger-soft); }
+  .check { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .check .mark { width: 18px; text-align: center; }
+  .trace-row { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .steps { counter-reset: s; padding: 0; margin: 8px 0; list-style: none; }
+  .steps li { counter-increment: s; position: relative; padding: 6px 8px 6px 34px; border-radius: 8px; margin-bottom: 4px; border: 1px solid transparent; }
+  .steps li::before { content: counter(s); position: absolute; left: 8px; top: 6px; width: 20px; height: 20px; border-radius: 50%; background: var(--line); color: var(--muted); font-size: 12px; text-align: center; line-height: 20px; }
+  .steps li.done::before { background: var(--brand); color: #fff; }
+  .steps li.cur { border-color: var(--brand); background: var(--brand-soft); }
+  select, input[type=text] { font: inherit; border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px 8px; background: #fff; }
+  .toast { position: fixed; right: 16px; bottom: 16px; background: #0f172a; color: #fff; padding: 8px 14px; border-radius: 10px; font-size: 13px; z-index: 50; max-width: 420px; }
+
+  @media (max-width: 1100px) { .body, .body.no-drawer { grid-template-columns: 180px minmax(0, 1fr); } .drawer { display: none; } .body.drawer-open .drawer { display: flex; position: fixed; right: 0; top: 0; bottom: 0; width: min(380px, 100vw); z-index: 40; box-shadow: -8px 0 24px rgba(15, 23, 42, .18); } }
+  @media (max-width: 720px) { .body, .body.no-drawer { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } nav.pages { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px; } nav.pages .grp { display: none; } nav.pages button { width: auto; white-space: nowrap; } }
+</style>
+</head>
+<body>
+<div id="shell">
+  <header class="top">
+    <span class="brand">D-Contact <small data-i18n="brandSub">U2 UI preview</small></span>
+    <div class="roles" id="roles" role="group" aria-label="บทบาท"></div>
+    <span class="spacer"></span>
+    <button class="btn" id="drawer-toggle" aria-pressed="true" data-i18n="drawerBtn">แผงอธิบาย action / ตัวเดิน scenario</button>
+    <span class="lang row" role="group" aria-label="ภาษา">
+      <button class="btn small" id="lang-th" aria-pressed="true">ไทย</button>
+      <button class="btn small" id="lang-en" aria-pressed="false">English</button>
+    </span>
+  </header>
+  <div class="banner" role="note"><strong data-i18n="bannerStrong">ตัวอย่างหน้าจอ</strong><span data-i18n="bannerText">ข้อมูลสังเคราะห์ในเบราว์เซอร์นี้เท่านั้น — ไม่มีการเรียก API, LINE, โทรศัพท์ หรือระบบยืนยันตัวตนจริง และไม่ใช่หลักฐานว่า LINE/Voice routing ใช้งานได้ (acceptance ของ provider/telephony ต้องวัดบน UAT จริง)</span></div>
+  <div class="body" id="body">
+    <nav class="pages" id="pages" aria-label="หน้า"></nav>
+    <main class="stage">
+      <div class="stage-head" id="stage-head"></div>
+      <div class="stage-body" id="stage-body"></div>
+    </main>
+    <aside class="drawer" id="drawer">
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tab-contract" aria-selected="true" data-i18n="tabContract">Action-state</button>
+        <button role="tab" id="tab-walk" aria-selected="false" data-i18n="tabWalk">ตัวเดิน scenario</button>
+      </div>
+      <div class="drawer-body" id="drawer-body"></div>
+    </aside>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/* ============================================================
+   ข้อความสองภาษา — [th, en]
+   ============================================================ */
+var LANG = 'th';
+var UI = {
+  brandSub: ['U2 UI preview', 'U2 UI preview'],
+  drawerBtn: ['แผงอธิบาย action / ตัวเดิน scenario', 'Action notes / scenario walkthrough'],
+  bannerStrong: ['ตัวอย่างหน้าจอ', 'Screen preview'],
+  bannerText: [
+    'ข้อมูลสังเคราะห์ในเบราว์เซอร์นี้เท่านั้น — ไม่มีการเรียก API, LINE, โทรศัพท์ หรือระบบยืนยันตัวตนจริง และไม่ใช่หลักฐานว่า LINE/Voice routing ใช้งานได้ (acceptance ของ provider/telephony ต้องวัดบน UAT จริง)',
+    'Synthetic data in this browser only — no API, LINE, telephony or sign-in calls, and not evidence that LINE/Voice routing works (provider/telephony acceptance must be measured on real UAT).'
+  ],
+  tabContract: ['Action-state', 'Action-state'],
+  tabWalk: ['ตัวเดิน scenario', 'Scenario walkthrough']
+};
+var STATUS = {
+  PREVIEW: ['ตัวอย่างหน้าจอ', 'Screen preview'],
+  REAL: ['เชื่อมระบบจริง', 'Wired to real system'],
+  NOT_READY: ['ยังไม่พร้อม', 'Not ready']
+};
+var STATUS_HELP = {
+  PREVIEW: ['มีแต่ภาพ/ข้อมูลตัวอย่าง ปุ่มไม่เรียกระบบจริง', 'Visuals and sample data only; buttons call nothing real'],
+  REAL: ['มี API หรือหน้าจริงในโค้ดบน main แล้ว (preview ไม่ได้เรียกมัน)', 'API or page exists in the code on main (this preview does not call it)'],
+  NOT_READY: ['ยังไม่มี backend — ปุ่มต้อง disabled หรือพาไปคำอธิบาย', 'No backend yet — the control must be disabled or link to an explanation']
+};
+var ROLES = [
+  ['admin', 'Tenant Admin', 'Tenant Admin'],
+  ['supervisor', 'Supervisor', 'Supervisor'],
+  ['agent', 'Agent', 'Agent']
+];
+
+/* ============================================================
+   หน้าและ action-state contract ต่อหน้า
+   rows: [action [th,en], status, evidence/gate [th,en]]
+   หลักฐาน "main" = apps/api และ apps/console, apps/workspace ณ ตอนทำ preview; "#600" = ข้อความใน map U2
+   ============================================================ */
+var PAGES = {
+  admin: [
+    { id: 'a-overview', native: 'overview', t: ['ภาพรวมความพร้อม UAT', 'UAT readiness overview'], status: 'PREVIEW',
+      rows: [
+        [['รายการความพร้อมคำนวณจากการตั้งค่าตัวอย่างในหน้านี้', 'Readiness list is computed from the sample setup on this page'], 'PREVIEW', ['ของจริงต้องอ่านจาก config API + health ของ provider/telephony (เฟส 1 ของ #600)', 'Real list must read config APIs + provider/telephony health (phase 1 of #600)']],
+        [['ปุ่ม "ตั้งค่าตัวอย่าง" / "ล้างการตั้งค่า"', '"Apply sample setup" / "Clear setup" buttons'], 'PREVIEW', ['เปลี่ยน state ในหน่วยความจำ ไม่มี audit', 'Changes in-memory state only; no audit']]
+      ] },
+    { id: 'a-line', src: 'integrations.html?view=social', t: ['ช่องทาง LINE', 'LINE channel'], status: 'NOT_READY',
+      rows: [
+        [['หน้า Social & messaging ของ mockup (ผูก LINE OA)', 'Social & messaging mockup (bind LINE OA)'], 'PREVIEW', ['ภาพจาก integrations.html; ข้อมูลในกรอบเป็นของ mockup', 'Image of integrations.html; data in the frame belongs to the mockup']],
+        [['ผูกช่องทาง LINE กับ Flow ที่ publish แล้ว', 'Bind LINE channel to a published Flow'], 'NOT_READY', ['ไม่มี API ผูก channel→Flow ใน apps/api; เส้นทาง LINE pilot ยังไม่ route เข้า Flow/queue/Agent (#600)', 'No channel→Flow binding API in apps/api; the LINE pilot path is not routed into Flow/queue/Agent (#600)']],
+        [['หน้า "LINE inbound (pilot)" และ team reply', '"LINE inbound (pilot)" page and team reply'], 'REAL', ['apps/console/src/line-inbound + /api/v1/line-pilot (#566/#567) — เปิดโดย admin เท่านั้น', 'apps/console/src/line-inbound + /api/v1/line-pilot (#566/#567) — admin only']],
+        [['Kill LINE pilot', 'Kill the LINE pilot'], 'REAL', ['POST /api/v1/line-pilot/kill; ไม่มี endpoint ยก kill (ต้อง CLI + approval) — ปุ่มใน preview จึงมีแต่ "kill" ไม่มี "ยก kill"', 'POST /api/v1/line-pilot/kill; no un-kill endpoint (CLI + approval) — so this preview has kill but no un-kill']]
+      ] },
+    { id: 'a-voice', src: 'integrations.html?view=numbers', t: ['เบอร์ Voice', 'Voice numbers'], status: 'NOT_READY',
+      rows: [
+        [['หน้า Voice numbers ของ mockup', 'Voice numbers mockup'], 'PREVIEW', ['ภาพจาก integrations.html', 'Image of integrations.html']],
+        [['ผูกเบอร์/DID กับ Flow', 'Bind number/DID to a Flow'], 'NOT_READY', ['ต้องรอตัดสิน topology SIP/DID/WSS/TURN ใน #602', 'Waits for the SIP/DID/WSS/TURN topology decision in #602']],
+        [['/api/v1/voice-destinations', '/api/v1/voice-destinations'], 'REAL', ['มี controller ใน apps/api/src/tenant-queue-api.ts (ปลายทางเสียงของคิว) — ยังไม่มีหน้าใน Console', 'Controller exists in apps/api/src/tenant-queue-api.ts (queue voice destinations) — no Console page yet']]
+      ] },
+    { id: 'a-flows', src: 'routing.html?view=flows', t: ['Flow (ร่าง / ตรวจ / เผยแพร่)', 'Flows (draft / validate / publish)'], status: 'NOT_READY',
+      rows: [
+        [['Flow list + editor ของ mockup', 'Flow list + editor mockup'], 'PREVIEW', ['ภาพจาก routing.html และ flow-editor.html (ADR-007: Flow เลือกคิวก่อน Router จับคู่ Agent)', 'Image of routing.html and flow-editor.html (ADR-007: Flow picks the queue before Router picks an agent)']],
+        [['Validate / Publish Flow', 'Validate / Publish a Flow'], 'NOT_READY', ['ไม่มี flow API ใน apps/api (journey-authoring ไม่ใช่ Flow ของ routing); เฟส 1 ของ #600', 'No flow API in apps/api (journey-authoring is not the routing Flow); phase 1 of #600']]
+      ] },
+    { id: 'a-skills', src: 'routing.html?view=skills', t: ['ทักษะ (Skill)', 'Skills'], status: 'NOT_READY',
+      rows: [
+        [['หน้า Skills ของ mockup', 'Skills mockup'], 'PREVIEW', ['ภาพจาก routing.html', 'Image of routing.html']],
+        [['กำหนด skill ที่คิวต้องการ', 'Set the skills a queue requires'], 'REAL', ['PUT/GET /api/v1/queues/:queueId/required-skills มีแล้ว — ยังไม่มีหน้าใน Console', 'PUT/GET /api/v1/queues/:queueId/required-skills exists — no Console page yet']],
+        [['สร้าง/แก้ไข catalog ของ skill', 'Create/edit the skill catalog'], 'NOT_READY', ['ไม่พบ endpoint จัดการ catalog ใน apps/api', 'No catalog-management endpoint found in apps/api']]
+      ] },
+    { id: 'a-queues', src: 'routing.html?view=queues', t: ['คิวและ overflow', 'Queues + overflow'], status: 'PREVIEW',
+      rows: [
+        [['รายการคิวและฟอร์มคิวของ mockup', 'Queue list and form mockup'], 'PREVIEW', ['ภาพจาก routing.html', 'Image of routing.html']],
+        [['อ่าน/สร้างคิว, นโยบายคิว, recording policy', 'List/create queues, queue policy, recording policy'], 'REAL', ['GET/POST /api/v1/queues, /api/v1/tenant/queue-policy, PUT :queueId/recording-policy — ยังไม่มีหน้าใน Console', 'GET/POST /api/v1/queues, /api/v1/tenant/queue-policy, PUT :queueId/recording-policy — no Console page yet']],
+        [['Overflow / SLA ตามช่องทาง', 'Overflow / per-channel SLA'], 'NOT_READY', ['ต้องยืนยัน contract ใน #603', 'Contract to be confirmed in #603']]
+      ] },
+    { id: 'a-agents', src: 'people.html?view=agents', t: ['Agent กับคิว/ทักษะ', 'Agent ↔ queue / skill'], status: 'NOT_READY',
+      rows: [
+        [['หน้า Agents ของ mockup', 'Agents mockup'], 'PREVIEW', ['ภาพจาก people.html', 'Image of people.html']],
+        [['กำหนด queue membership และ skill ของ agent', 'Assign agent queue membership and skills'], 'NOT_READY', ['ไม่พบ endpoint กำหนด membership/skill ใน apps/api — เฟส 1 ของ #600', 'No membership/skill assignment endpoint found in apps/api — phase 1 of #600']]
+      ] },
+    { id: 'a-wrapup', native: 'wrapup', t: ['รหัสสรุปงาน (wrap-up)', 'Wrap-up codes'], status: 'PREVIEW',
+      rows: [
+        [['เพิ่ม/ปิดใช้ code ในหน้านี้', 'Add/disable codes on this page'], 'PREVIEW', ['อยู่ในหน่วยความจำ — ของจริงต้องมี catalog API + audit', 'In-memory — real needs a catalog API + audit']],
+        [['Agent ส่ง disposition ตอนปิดงาน', 'Agent submits a disposition when closing'], 'REAL', ['POST /api/v1/workspace/agent/interactions/:id/wrapup รับ code ตัวพิมพ์ใหญ่ — ยังไม่ตรวจกับ catalog ของ tenant', 'POST /api/v1/workspace/agent/interactions/:id/wrapup accepts an uppercase code — not validated against a tenant catalog']]
+      ] },
+    { id: 'a-trace', native: 'trace', t: ['Trace และบันทึกการตั้งค่า', 'Trace + config audit'], status: 'PREVIEW',
+      rows: [
+        [['ลำดับเหตุการณ์ของงานทดสอบ + บันทึกการตั้งค่า', 'Test-interaction timeline + config log'], 'PREVIEW', ['สร้างจาก state ของ preview; ของจริงต้องมี correlation id เดียวจาก provider event ถึง disposition (#600 เฟส 2–3)', 'Built from preview state; real needs a single correlation id from provider event to disposition (#600 phases 2–3)']]
+      ] }
+  ],
+  supervisor: [
+    { id: 's-pulse', src: 'supervisor.html?view=pulse', t: ['ภาพรวมทีม (Team pulse)', 'Team pulse'], status: 'PREVIEW',
+      rows: [
+        [['ภาพรวมทีม/availability ของ mockup', 'Team/availability overview mockup'], 'PREVIEW', ['ภาพจาก supervisor.html', 'Image of supervisor.html']],
+        [['หน้าสดของหัวหน้า', 'Supervisor live surface'], 'REAL', ['apps/workspace/src/supervisor-workspace.tsx + /api/v1/workspace/supervisor (ADR-026: live อยู่ Workspace)', 'apps/workspace/src/supervisor-workspace.tsx + /api/v1/workspace/supervisor (ADR-026: live lives in Workspace)']]
+      ] },
+    { id: 's-live', src: 'supervisor.html?view=live', t: ['งานที่กำลังเกิดขึ้น', 'Live interactions'], status: 'PREVIEW',
+      rows: [
+        [['รายการ/รายละเอียด Interaction ที่กำลังเกิดขึ้น', 'In-flight interaction list/detail'], 'PREVIEW', ['ภาพจาก supervisor.html; ข้อมูลของ mockup ไม่ผูกกับ state ของตัวเดิน scenario', 'Image of supervisor.html; mockup data is not tied to the scenario state']],
+        [['อ่านงานสดภายใน team scope', 'Read live work inside the team scope'], 'REAL', ['supervisor-live-api.ts + team-segment-scope-api.ts', 'supervisor-live-api.ts + team-segment-scope-api.ts']]
+      ] },
+    { id: 's-queue', src: 'supervisor.html?view=queue-control', t: ['คุมคิว', 'Queue control'], status: 'PREVIEW',
+      rows: [
+        [['เปิด/ปิดรับงานของคิว (ต้องยืนยันพร้อมเหตุผล)', 'Open/close a queue (confirm with reason)'], 'REAL', ['PUT /api/v1/workspace/supervisor/queues/:queueId/availability', 'PUT /api/v1/workspace/supervisor/queues/:queueId/availability']],
+        [['เปลี่ยนสถานะ Agent', 'Change agent state'], 'REAL', ['PUT /api/v1/workspace/supervisor/agents/:agentId/state', 'PUT /api/v1/workspace/supervisor/agents/:agentId/state']],
+        [['Kill LINE', 'Kill LINE'], 'NOT_READY', ['Supervisor ไม่มีสิทธิ์ kill — เป็นของ Tenant Admin เท่านั้น ปุ่มนี้จึงไม่มีในบทบาทนี้', 'Supervisors cannot kill — Tenant Admin only, so the control is absent for this role']]
+      ] }
+  ],
+  agent: [
+    { id: 'g-inbox', src: 'workspace.html?view=inbox', t: ['กล่องงาน + dphone', 'Inbox + dphone'], status: 'PREVIEW',
+      rows: [
+        [['กล่องงาน/แผงบริบทของ mockup', 'Inbox / context panel mockup'], 'PREVIEW', ['ภาพจาก workspace.html', 'Image of workspace.html']],
+        [['รับสายด้วย dphone, work-session lease', 'Take calls with dphone, work-session lease'], 'REAL', ['apps/workspace/src/dphone + work-session-api (ADR-026 ข้อ 2); ห้าม mount dphone ซ้ำจนตัดสาย', 'apps/workspace/src/dphone + work-session-api (ADR-026 item 2); never remount dphone mid-call']]
+      ] },
+    { id: 'g-work', native: 'agentwork', t: ['งานที่กำลังทำ (offer → ACW)', 'Current work (offer → ACW)'], status: 'PREVIEW',
+      rows: [
+        [['Accept / Reject offer', 'Accept / Reject an offer'], 'PREVIEW', ['ของจริงมาจาก Router + Workspace (agent-offer-fanout); preview แค่เปลี่ยน state ในหน้านี้', 'Real offers come from Router + Workspace (agent-offer-fanout); preview only changes state on this page']],
+        [['ส่งข้อความตอบ LINE', 'Send a LINE reply'], 'NOT_READY', ['reply/send gate ของ LINE ยังไม่เปิด (consent/allowlist/cap/kill ตาม ADR-031) — ปุ่ม disabled', 'LINE reply/send gate is not open (consent/allowlist/cap/kill, ADR-031) — control disabled']],
+        [['บันทึก disposition ตอน ACW', 'Record the disposition during ACW'], 'REAL', ['POST …/interactions/:id/wrapup มีแล้ว', 'POST …/interactions/:id/wrapup exists']]
+      ] },
+    { id: 'g-history', src: 'workspace.html?view=my-history', t: ['ประวัติงานของฉัน', 'My interactions'], status: 'PREVIEW',
+      rows: [
+        [['ประวัติงานที่ปิดแล้วของ agent', 'Agent’s closed-work history'], 'PREVIEW', ['ภาพจาก workspace.html; ของจริงต้องมี history endpoint ตาม scope ของ agent', 'Image of workspace.html; real needs a history endpoint scoped to the agent']]
+      ] }
+  ]
+};
+
+/* ============================================================
+   state ของ preview (ในหน่วยความจำ) + ตัวเดิน scenario
+   ============================================================ */
+var S;
+function freshState(configured) {
+  return {
+    cfg: {
+      lineBound: configured, voiceBound: configured, flowPublished: configured,
+      skillsSet: configured, queueExists: configured, agentsAssigned: configured, wrapupSet: configured
+    },
+    wrapup: configured ? [['CUSTOMER_ASSISTED', true], ['FOLLOW_UP_REQUIRED', true], ['NO_ANSWER', true]] : [],
+    queueOpen: true, agentAvailable: true, skillMatch: true, lineKilled: false,
+    seq: 0, interaction: null, trace: [], configLog: []
+  };
+}
+function nowStamp() { var d = new Date(); return d.toTimeString().slice(0, 8); }
+function log(step, detail, from, to) {
+  S.trace.push({ t: nowStamp(), step: step, detail: detail || '', from: from || '', to: to || '', corr: S.interaction ? S.interaction.corr : '-' });
+}
+function cfgLog(text) { S.configLog.push({ t: nowStamp(), text: text }); }
+function pick(pair) { return LANG === 'th' ? pair[0] : pair[1]; }
+function t(key) { return pick(UI[key]); }
+
+var ACT = {
+  inbound: function (channel) {
+    if (channel === 'LINE' && S.lineKilled) { S.interaction = null; log('inbound.LINE', pick(['ปฏิเสธ: LINE ถูก kill — ไม่สร้าง Interaction', 'Rejected: LINE is killed — no Interaction created']), '', 'REJECTED'); return false; }
+    var bound = channel === 'LINE' ? S.cfg.lineBound : S.cfg.voiceBound;
+    if (!bound || !S.cfg.flowPublished) { log('inbound.' + channel, pick(['ปฏิเสธ: ยังไม่ผูกช่องทาง/ยังไม่ publish Flow', 'Rejected: channel not bound / no published Flow']), '', 'REJECTED'); return false; }
+    if (!S.cfg.queueExists) { log('inbound.' + channel, pick(['ปฏิเสธ: ไม่มีคิวปลายทาง', 'Rejected: no destination queue']), '', 'REJECTED'); return false; }
+    S.seq += 1;
+    S.interaction = { id: 'int-' + String(S.seq).padStart(3, '0'), corr: 'corr-' + String(S.seq).padStart(3, '0'), channel: channel, state: 'QUEUED', reason: '', disposition: '' };
+    log('inbound.' + channel, pick(['Flow ที่ publish แล้ว → routeToQueue', 'Published Flow → routeToQueue']), '', 'QUEUED');
+    return true;
+  },
+  offer: function () {
+    var i = S.interaction; if (!i || i.state !== 'QUEUED') return false;
+    var why = !S.queueOpen ? pick(['คิวปิดรับงาน', 'Queue is closed']) : !S.agentAvailable ? pick(['ไม่มี Agent ที่ AVAILABLE', 'No AVAILABLE agent']) : !S.skillMatch ? pick(['skill ไม่พอ', 'Skills do not match']) : !S.cfg.agentsAssigned ? pick(['ยังไม่ได้กำหนด Agent ให้คิว', 'No agent assigned to the queue']) : '';
+    if (why) { i.reason = why; log('offer', pick(['ไม่ส่ง offer: ', 'No offer: ']) + why, 'QUEUED', 'QUEUED'); return false; }
+    i.reason = ''; i.state = 'OFFERED'; log('offer', pick(['reserve Agent แบบ atomic แล้วส่ง offer', 'Atomically reserve an agent, then offer']), 'QUEUED', 'OFFERED'); return true;
+  },
+  accept: function () { var i = S.interaction; if (!i || i.state !== 'OFFERED') return false; i.state = 'ACTIVE'; log('accept', pick(['Agent รับงาน', 'Agent accepts']), 'OFFERED', 'ACTIVE'); return true; },
+  decline: function () { var i = S.interaction; if (!i || i.state !== 'OFFERED') return false; i.state = 'QUEUED'; i.reason = pick(['Agent ปฏิเสธ/หมดเวลา → กลับเข้าคิว', 'Declined/timed out → requeued']); log('decline', i.reason, 'OFFERED', 'QUEUED'); return true; },
+  end: function () { var i = S.interaction; if (!i || i.state !== 'ACTIVE') return false; i.state = 'WRAPUP'; log('end', pick(['จบการคุย เข้า ACW', 'Conversation ends, enter ACW']), 'ACTIVE', 'WRAPUP'); return true; },
+  wrapup: function (code) {
+    var i = S.interaction; if (!i || i.state !== 'WRAPUP') return false;
+    var enabled = S.wrapup.filter(function (w) { return w[1]; }).map(function (w) { return w[0]; });
+    if (enabled.indexOf(code) === -1) { log('wrapup', pick(['ปฏิเสธ: code ไม่อยู่ใน catalog ที่เปิดใช้', 'Rejected: code not in the enabled catalog']), 'WRAPUP', 'WRAPUP'); return false; }
+    i.state = 'CLOSED'; i.disposition = code; log('wrapup', code, 'WRAPUP', 'CLOSED'); return true;
+  }
+};
+
+/* scenario: ลำดับขั้นพร้อมคำอธิบายว่าของจริงต้องมีอะไร */
+var SCENARIOS = [
+  { id: 'voice', title: ['Voice ถึงผล', 'Voice to outcome'], steps: [
+    { l: ['สายเข้า → Flow → คิว', 'Call in → Flow → queue'], g: ['ต้องมี telephony event + Flow version ที่ publish (#602/#603)', 'Needs a telephony event + published Flow version (#602/#603)'], run: function () { return ACT.inbound('VOICE'); } },
+    { l: ['ส่ง offer ให้ Agent', 'Offer to agent'], g: ['atomic reserve / timeout / requeue ของ Router', 'Router atomic reserve / timeout / requeue'], run: ACT.offer },
+    { l: ['Agent รับสาย', 'Agent accepts'], g: ['work-session lease + dphone ของ Workspace', 'Workspace work-session lease + dphone'], run: ACT.accept },
+    { l: ['วางสาย → ACW', 'Hang up → ACW'], g: ['ACW แบบ durable', 'Durable ACW'], run: ACT.end },
+    { l: ['บันทึก disposition → CLOSED', 'Record disposition → CLOSED'], g: ['audit + history ของ Interaction', 'Interaction audit + history'], run: function () { return ACT.wrapup('CUSTOMER_ASSISTED'); } }
+  ] },
+  { id: 'line', title: ['LINE ถึงผล', 'LINE to outcome'], steps: [
+    { l: ['ข้อความ LINE เข้า → Flow → คิว', 'LINE message in → Flow → queue'], g: ['webhook ที่ผ่าน signature + dedupe ต่อเข้า Flow (ปัจจุบัน pilot ยังไม่ route เข้า Flow)', 'Signed, de-duplicated webhook wired into Flow (the pilot is not routed into Flow today)'], run: function () { return ACT.inbound('LINE'); } },
+    { l: ['ส่ง offer', 'Offer to agent'], g: ['เหมือน Voice', 'Same as Voice'], run: ACT.offer },
+    { l: ['Agent รับงาน', 'Agent accepts'], g: ['work-session', 'work-session'], run: ACT.accept },
+    { l: ['จบบทสนทนา → ACW', 'End conversation → ACW'], g: ['การตอบกลับต้องผ่าน reply/send gate (ยังไม่เปิด)', 'Replies must pass the reply/send gate (not open yet)'], run: ACT.end },
+    { l: ['บันทึก disposition → CLOSED', 'Record disposition → CLOSED'], g: ['audit + history', 'audit + history'], run: function () { return ACT.wrapup('FOLLOW_UP_REQUIRED'); } }
+  ] },
+  { id: 'closed', title: ['คิวปิด — offer ถูกบล็อก', 'Queue closed — offer blocked'], steps: [
+    { l: ['Supervisor ปิดรับงานของคิว', 'Supervisor closes the queue'], g: ['PUT …/queues/:id/availability พร้อมเหตุผล + audit', 'PUT …/queues/:id/availability with reason + audit'], run: function () { S.queueOpen = false; log('queue.close', pick(['Supervisor ปิดคิว', 'Supervisor closed the queue'])); return true; } },
+    { l: ['สายเข้า → คิว', 'Call in → queue'], g: ['งานเข้าคิวได้แม้คิวปิดรับ offer (ต้องยืนยันนโยบายใน #603)', 'Work may enter the queue while offers are blocked (policy to confirm in #603)'], run: function () { return ACT.inbound('VOICE'); } },
+    { l: ['พยายามส่ง offer → ถูกบล็อก (ค้าง QUEUED)', 'Try to offer → blocked (stays QUEUED)'], g: ['ต้องไม่มี offer หลุดไปหา Agent', 'No offer may reach an agent'], run: function () { ACT.offer(); return true; } },
+    { l: ['เปิดคิวอีกครั้ง → offer ผ่าน', 'Reopen the queue → offer goes through'], g: ['Router ต้องหยิบงานที่ค้างไปเสนอ', 'Router must pick up the waiting work'], run: function () { S.queueOpen = true; log('queue.open', pick(['Supervisor เปิดคิว', 'Supervisor reopened the queue'])); return ACT.offer(); } }
+  ] },
+  { id: 'kill', title: ['LINE kill — ไม่สร้าง Interaction', 'LINE kill — no Interaction'], steps: [
+    { l: ['Tenant Admin กด kill LINE', 'Tenant Admin kills LINE'], g: ['POST /api/v1/line-pilot/kill (ไม่มี endpoint ยก kill)', 'POST /api/v1/line-pilot/kill (no un-kill endpoint)'], run: function () { S.lineKilled = true; S.interaction = null; log('line.kill', pick(['LINE ถูก kill', 'LINE killed'])); return true; } },
+    { l: ['ข้อความ LINE เข้า → ถูกปฏิเสธ', 'LINE message in → rejected'], g: ['ต้องไม่เกิด Interaction/Touch ใด ๆ', 'No Interaction/Touch may be created'], run: function () { ACT.inbound('LINE'); return true; } }
+  ] }
+];
+var W = { sc: 0, step: 0 };
+
+/* ============================================================
+   render
+   ============================================================ */
+var role = 'admin', pageId = 'a-overview', drawerTab = 'contract', drawerOpen = true;
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function badge(s) { return '<span class="badge ' + s + '" title="' + esc(pick(STATUS_HELP[s])) + '">' + esc(pick(STATUS[s])) + '</span>'; }
+var INTERACTION_STATES = ['QUEUED', 'OFFERED', 'ACTIVE', 'WRAPUP', 'CLOSED', 'REJECTED'];
+function stateChip(s) { return '<span class="state' + (INTERACTION_STATES.indexOf(s) >= 0 ? ' ' + s : '') + '">' + esc(s) + '</span>'; }
+function toast(msg) { var el = $('toast'); el.textContent = msg; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(function () { el.hidden = true; }, 2600); }
+function currentPage() { return PAGES[role].filter(function (p) { return p.id === pageId; })[0] || PAGES[role][0]; }
+
+function renderTop() {
+  $('roles').innerHTML = ROLES.map(function (r) { return '<button data-role="' + r[0] + '" aria-pressed="' + (r[0] === role) + '">' + esc(pick([r[1], r[2]])) + '</button>'; }).join('');
+  $('roles').querySelectorAll('button').forEach(function (b) { b.onclick = function () { role = b.dataset.role; pageId = PAGES[role][0].id; renderAll(); }; });
+  document.querySelectorAll('[data-i18n]').forEach(function (el) { el.textContent = t(el.dataset.i18n); });
+  $('lang-th').setAttribute('aria-pressed', LANG === 'th'); $('lang-en').setAttribute('aria-pressed', LANG === 'en');
+  document.documentElement.lang = LANG;
+  $('drawer-toggle').setAttribute('aria-pressed', drawerOpen);
+  $('body').classList.toggle('no-drawer', !drawerOpen); $('body').classList.toggle('drawer-open', drawerOpen);
+  $('tab-contract').setAttribute('aria-selected', drawerTab === 'contract'); $('tab-walk').setAttribute('aria-selected', drawerTab === 'walk');
+}
+function renderNav() {
+  var groups = { admin: [['ตั้งค่า tenant', 'Tenant setup']], supervisor: [['หน้าสด', 'Live surface']], agent: [['หน้าทำงาน', 'Work surface']] };
+  $('pages').innerHTML = '<div class="grp">' + esc(pick(groups[role][0])) + '</div>' + PAGES[role].map(function (p) {
+    return '<button data-page="' + p.id + '"' + (p.id === pageId ? ' aria-current="page"' : '') + '><span class="dot ' + p.status + '"></span><span>' + esc(pick(p.t)) + '</span></button>';
+  }).join('');
+  $('pages').querySelectorAll('button').forEach(function (b) { b.onclick = function () { pageId = b.dataset.page; renderAll(); }; });
+}
+function renderStage() {
+  var p = currentPage();
+  var counts = { PREVIEW: 0, REAL: 0, NOT_READY: 0 };
+  p.rows.forEach(function (r) { counts[r[1]] += 1; });
+  $('stage-head').innerHTML = '<h1>' + esc(pick(p.t)) + '</h1>' + badge(p.status) + '<span class="muted small">' +
+    Object.keys(counts).filter(function (k) { return counts[k]; }).map(function (k) { return esc(pick(STATUS[k])) + ' ' + counts[k]; }).join(' · ') + '</span>';
+  var body = $('stage-body');
+  if (p.src) {
+    var frame = document.createElement('iframe');
+    frame.className = 'mock'; frame.src = p.src; frame.title = pick(p.t);
+    frame.addEventListener('load', function () { try { if (frame.contentWindow.setLanguage) frame.contentWindow.setLanguage(LANG); } catch (e) { /* file:// — ข้ามได้ */ } });
+    body.innerHTML = ''; body.appendChild(frame);
+  } else {
+    body.innerHTML = '<div class="native" id="native"></div>';
+    NATIVE[p.native]();
+  }
+}
+
+/* ---------- หน้าของ preview เอง ---------- */
+var NATIVE = {
+  overview: function () {
+    var items = [
+      ['lineBound', ['ผูกช่องทาง LINE', 'LINE channel bound']], ['voiceBound', ['ผูกเบอร์ Voice', 'Voice number bound']],
+      ['flowPublished', ['Flow ถูก publish', 'Flow published']], ['skillsSet', ['กำหนด skill ให้คิว', 'Skills set on the queue']],
+      ['queueExists', ['มีคิวปลายทาง', 'Destination queue exists']], ['agentsAssigned', ['กำหนด Agent ให้คิว/skill', 'Agents assigned to queue/skills']],
+      ['wrapupSet', ['มี wrap-up codes', 'Wrap-up codes defined']]
+    ];
+    var ready = items.every(function (i) { return S.cfg[i[0]]; });
+    $('native').innerHTML =
+      '<div class="card"><h2>' + esc(pick(['สถานะการตั้งค่าขั้นต่ำ', 'Minimum setup status'])) + ' ' + badge('PREVIEW') + '</h2>' +
+      items.map(function (i) { return '<div class="check"><span class="mark">' + (S.cfg[i[0]] ? '✓' : '○') + '</span><span style="flex:1">' + esc(pick(i[1])) + '</span><button class="btn small" data-toggle="' + i[0] + '">' + esc(S.cfg[i[0]] ? pick(['ล้าง', 'Clear']) : pick(['ตั้งค่าตัวอย่าง', 'Apply sample'])) + '</button></div>'; }).join('') +
+      '<div class="note ' + (ready ? '' : 'warn') + '">' + esc(ready ? pick(['พร้อมสำหรับ scenario ในแผงขวา (เฉพาะใน preview นี้)', 'Ready for the scenarios in the side panel (this preview only)']) : pick(['ยังไม่ครบ — สายเข้าจะถูกปฏิเสธ ลองกดเดิน scenario เพื่อดูเหตุผล', 'Incomplete — inbound will be rejected; run a scenario to see the reason'])) + '</div>' +
+      '<div class="row"><button class="btn primary" id="cfg-all">' + esc(pick(['ตั้งค่าตัวอย่างทั้งหมด', 'Apply all sample setup'])) + '</button><button class="btn" id="cfg-none">' + esc(pick(['ล้างการตั้งค่าทั้งหมด', 'Clear all setup'])) + '</button></div></div>' +
+      '<div class="card"><h2>' + esc(pick(['ช่องทางและสภาพแวดล้อม', 'Channels and environment'])) + '</h2><div class="kv">' +
+      '<span class="muted">LINE</span><span>' + (S.lineKilled ? stateChip('KILLED') : stateChip('ON')) + '</span>' +
+      '<span class="muted">' + esc(pick(['คิว', 'Queue'])) + '</span><span>' + stateChip(S.queueOpen ? 'OPEN' : 'CLOSED') + '</span>' +
+      '<span class="muted">Agent</span><span>' + stateChip(S.agentAvailable ? 'AVAILABLE' : 'UNAVAILABLE') + '</span></div>' +
+      '<p class="muted small">' + esc(pick(['ค่าเหล่านี้ตั้งได้จากแผง "ตัวเดิน scenario"; หน้าจริงต้องอ่านจาก health ของ provider/telephony', 'Set these from the "Scenario walkthrough" panel; the real page must read provider/telephony health'])) + '</p></div>';
+    $('native').querySelectorAll('[data-toggle]').forEach(function (b) { b.onclick = function () { var k = b.dataset.toggle; S.cfg[k] = !S.cfg[k]; if (k === 'wrapupSet') S.wrapup = S.cfg[k] ? freshState(true).wrapup : []; cfgLog(k + '=' + S.cfg[k]); renderAll(); }; });
+    $('cfg-all').onclick = function () { var keep = S.interaction, tr = S.trace, cl = S.configLog; S = freshState(true); S.interaction = keep; S.trace = tr; S.configLog = cl; cfgLog('sample setup applied'); renderAll(); };
+    $('cfg-none').onclick = function () { var tr = S.trace, cl = S.configLog; S = freshState(false); S.trace = tr; S.configLog = cl; cfgLog('setup cleared'); renderAll(); };
+  },
+  wrapup: function () {
+    $('native').innerHTML = '<div class="card"><h2>' + esc(pick(['Wrap-up codes ของ tenant', 'Tenant wrap-up codes'])) + ' ' + badge('PREVIEW') + '</h2>' +
+      (S.wrapup.length ? '<table><thead><tr><th>Code</th><th>' + esc(pick(['ใช้งาน', 'Enabled'])) + '</th></tr></thead><tbody>' + S.wrapup.map(function (w, i) {
+        return '<tr><td><code>' + esc(w[0]) + '</code></td><td><label><input type="checkbox" data-w="' + i + '"' + (w[1] ? ' checked' : '') + '> ' + esc(w[1] ? pick(['เปิด', 'On']) : pick(['ปิด', 'Off'])) + '</label></td></tr>';
+      }).join('') + '</tbody></table>' : '<p class="muted">' + esc(pick(['ยังไม่มี code — Agent จะปิดงานไม่ได้ในตัวอย่างนี้', 'No codes yet — agents cannot close work in this preview'])) + '</p>') +
+      '<div class="row" style="margin-top:10px"><input type="text" id="w-new" placeholder="NEW_CODE" aria-label="code"><button class="btn" id="w-add">' + esc(pick(['เพิ่ม', 'Add'])) + '</button></div>' +
+      '<p class="muted small">' + esc(pick(['รูปแบบ code ตาม API จริง: ตัวพิมพ์ใหญ่/ตัวเลข/ขีดล่าง 2–80 ตัว', 'Code format follows the real API: uppercase letters/digits/underscore, 2–80 chars'])) + '</p></div>';
+    $('native').querySelectorAll('[data-w]').forEach(function (c) { c.onchange = function () { S.wrapup[+c.dataset.w][1] = c.checked; S.cfg.wrapupSet = S.wrapup.some(function (w) { return w[1]; }); cfgLog('wrapup ' + S.wrapup[+c.dataset.w][0] + '=' + c.checked); renderAll(); }; });
+    $('w-add').onclick = function () {
+      var v = $('w-new').value.trim();
+      if (!/^[A-Z][A-Z0-9_]{1,79}$/.test(v)) { toast(pick(['code ไม่ถูกรูปแบบ (ตัวพิมพ์ใหญ่/ตัวเลข/_ , เริ่มด้วยตัวอักษร)', 'Invalid code (uppercase/digits/_, starting with a letter)'])); return; }
+      if (S.wrapup.some(function (w) { return w[0] === v; })) { toast(pick(['มี code นี้แล้ว', 'Code already exists'])); return; }
+      S.wrapup.push([v, true]); S.cfg.wrapupSet = true; cfgLog('wrapup add ' + v); renderAll();
+    };
+  },
+  trace: function () {
+    var i = S.interaction;
+    $('native').innerHTML = '<div class="card"><h2>' + esc(pick(['งานทดสอบล่าสุด', 'Latest test interaction'])) + ' ' + badge('PREVIEW') + '</h2>' +
+      (i ? '<div class="kv"><span class="muted">Interaction</span><span><code>' + esc(i.id) + '</code></span><span class="muted">correlation</span><span><code>' + esc(i.corr) + '</code></span><span class="muted">' + esc(pick(['ช่องทาง', 'Channel'])) + '</span><span>' + esc(i.channel) + '</span><span class="muted">' + esc(pick(['สถานะ', 'State'])) + '</span><span>' + stateChip(i.state) + '</span><span class="muted">Disposition</span><span>' + esc(i.disposition || '—') + '</span></div>' : '<p class="muted">' + esc(pick(['ยังไม่มีงาน — เดิน scenario จากแผงขวา', 'No interaction yet — run a scenario from the side panel'])) + '</p>') + '</div>' +
+      '<div class="card"><h2>' + esc(pick(['ลำดับเหตุการณ์', 'Timeline'])) + '</h2>' + (S.trace.length ? S.trace.map(function (r) { return '<div class="trace-row">' + esc(r.t) + ' · ' + esc(r.corr) + ' · <strong>' + esc(r.step) + '</strong>' + (r.from || r.to ? ' · ' + esc(r.from || '·') + ' → ' + esc(r.to || '·') : '') + (r.detail ? ' — ' + esc(r.detail) : '') + '</div>'; }).join('') : '<p class="muted">—</p>') + '</div>' +
+      '<div class="card"><h2>' + esc(pick(['บันทึกการตั้งค่า (audit ตัวอย่าง)', 'Config log (sample audit)'])) + '</h2>' + (S.configLog.length ? S.configLog.map(function (r) { return '<div class="trace-row">' + esc(r.t) + ' · ' + esc(r.text) + '</div>'; }).join('') : '<p class="muted">—</p>') + '</div>';
+  },
+  agentwork: function () {
+    var i = S.interaction;
+    var enabled = S.wrapup.filter(function (w) { return w[1]; });
+    var body;
+    if (!i) body = '<p class="muted">' + esc(pick(['ไม่มีงาน — สถานะว่าง รอ offer', 'No work — idle, waiting for an offer'])) + '</p>';
+    else if (i.state === 'QUEUED') body = '<p>' + stateChip('QUEUED') + ' ' + esc(i.reason || pick(['รอ Router จับคู่', 'Waiting for the router'])) + '</p>';
+    else if (i.state === 'OFFERED') body = '<p>' + stateChip('OFFERED') + ' ' + esc(i.channel) + '</p><div class="row"><button class="btn primary" id="g-accept">' + esc(pick(['รับงาน', 'Accept'])) + '</button><button class="btn" id="g-decline">' + esc(pick(['ปฏิเสธ / หมดเวลา', 'Decline / time out'])) + '</button></div>';
+    else if (i.state === 'ACTIVE') body = '<p>' + stateChip('ACTIVE') + ' ' + esc(i.channel) + '</p><div class="row"><button class="btn danger" id="g-end">' + esc(pick(['จบการคุย → ACW', 'End → ACW'])) + '</button><button class="btn" disabled title="' + esc(pick(['reply/send gate ของ LINE ยังไม่เปิด', 'LINE reply/send gate is not open'])) + '">' + esc(pick(['ตอบ LINE', 'Reply on LINE'])) + '</button> ' + badge('NOT_READY') + '</div>';
+    else if (i.state === 'WRAPUP') body = '<p>' + stateChip('WRAPUP') + '</p><div class="row"><select id="g-code" aria-label="disposition">' + enabled.map(function (w) { return '<option>' + esc(w[0]) + '</option>'; }).join('') + '</select><button class="btn primary" id="g-wrap"' + (enabled.length ? '' : ' disabled') + '>' + esc(pick(['บันทึกและปิดงาน', 'Save and close'])) + '</button></div>' + (enabled.length ? '' : '<div class="note warn">' + esc(pick(['ไม่มี wrap-up code ที่เปิดใช้ — ปิดงานไม่ได้', 'No enabled wrap-up code — cannot close'])) + '</div>');
+    else body = '<p>' + stateChip('CLOSED') + ' ' + esc(i.disposition) + '</p>';
+    $('native').innerHTML = '<div class="card"><h2>' + esc(pick(['งานปัจจุบันของ Agent', 'Agent’s current work'])) + ' ' + badge('PREVIEW') + '</h2>' + body +
+      '<p class="muted small">' + esc(pick(['ในระบบจริง offer มาจาก Router และ dphone ต้องไม่ถูก mount ซ้ำระหว่างมีสาย (ADR-026)', 'In the real system offers come from the Router and dphone must never be remounted mid-call (ADR-026)'])) + '</p></div>';
+    var bind = function (id, fn) { var el = $(id); if (el) el.onclick = function () { fn(); renderAll(); }; };
+    bind('g-accept', ACT.accept); bind('g-decline', ACT.decline); bind('g-end', ACT.end);
+    bind('g-wrap', function () { ACT.wrapup($('g-code').value); });
+  }
+};
+
+/* ---------- แผงขวา ---------- */
+function renderDrawer() {
+  var el = $('drawer-body');
+  if (drawerTab === 'contract') {
+    var p = currentPage();
+    el.innerHTML = '<p class="small muted">' + esc(pick(['ทุก action ของหน้านี้ พร้อมสถานะจริงและสิ่งที่ระบบจริงต้องมี', 'Every action on this page with its real status and what the real system needs'])) + '</p>' +
+      '<table><thead><tr><th>Action</th><th>' + esc(pick(['สถานะ', 'Status'])) + '</th></tr></thead><tbody>' + p.rows.map(function (r) {
+        return '<tr><td>' + esc(pick(r[0])) + '<div class="muted small" style="margin-top:3px">' + esc(pick(r[2])) + '</div></td><td>' + badge(r[1]) + '</td></tr>';
+      }).join('') + '</tbody></table>' +
+      '<div class="note" style="margin-top:14px"><strong>' + esc(pick(['ความหมายของป้าย', 'Badge meaning'])) + '</strong><br>' + Object.keys(STATUS).map(function (k) { return badge(k) + ' ' + esc(pick(STATUS_HELP[k])); }).join('<br>') + '</div>' +
+      '<p class="small muted">' + esc(pick(['ข้อสังเกต: ป้ายคือข้อเสนอจากโค้ดบน main และ map #600 รอเจ้าของงานยืนยัน; หน้า mockup ใน iframe มีข้อมูลและปุ่มของมันเอง ซึ่งไม่เรียกระบบจริงและไม่เชื่อมกับ state ของตัวเดิน scenario', 'Note: badges are proposals from the code on main and map #600, pending owner confirmation; mockups in the iframe have their own data and buttons that call nothing real and are not tied to the scenario state']) ) + '</p>';
+    return;
+  }
+  var sc = SCENARIOS[W.sc], i = S.interaction;
+  el.innerHTML = '<div class="row" style="margin-bottom:8px"><select id="w-sel" aria-label="scenario">' + SCENARIOS.map(function (s, k) { return '<option value="' + k + '"' + (k === W.sc ? ' selected' : '') + '>' + esc(pick(s.title)) + '</option>'; }).join('') + '</select><button class="btn" id="w-reset">' + esc(pick(['เริ่มใหม่', 'Reset'])) + '</button></div>' +
+    '<ol class="steps">' + sc.steps.map(function (s, k) { return '<li class="' + (k < W.step ? 'done' : k === W.step ? 'cur' : '') + '">' + esc(pick(s.l)) + '<div class="muted small">' + esc(pick(['ของจริงต้องมี: ', 'Real system needs: '])) + esc(pick(s.g)) + '</div></li>'; }).join('') + '</ol>' +
+    '<div class="row"><button class="btn primary" id="w-next"' + (W.step >= sc.steps.length ? ' disabled' : '') + '>' + esc(W.step >= sc.steps.length ? pick(['จบ scenario', 'Scenario finished']) : pick(['ขั้นถัดไป', 'Next step'])) + '</button></div>' +
+    '<div class="card" style="margin-top:12px"><h2>' + esc(pick(['สถานะตอนนี้', 'Current state'])) + '</h2><div class="kv"><span class="muted">Interaction</span><span>' + (i ? stateChip(i.state) + ' <code>' + esc(i.id) + '</code>' : '—') + '</span>' +
+    '<span class="muted">' + esc(pick(['เหตุผลที่ค้าง', 'Why waiting'])) + '</span><span>' + esc(i && i.reason ? i.reason : '—') + '</span>' +
+    '<span class="muted">Disposition</span><span>' + esc(i && i.disposition ? i.disposition : '—') + '</span></div></div>' +
+    '<div class="card"><h2>' + esc(pick(['เงื่อนไขของสภาพแวดล้อม', 'Environment switches'])) + '</h2>' +
+    ['queueOpen:' + pick(['คิวเปิดรับงาน', 'Queue open']), 'agentAvailable:' + pick(['Agent AVAILABLE', 'Agent AVAILABLE']), 'skillMatch:' + pick(['skill ตรงกับคิว', 'Skills match'])].map(function (x) { var k = x.split(':')[0]; return '<label class="check"><input type="checkbox" data-env="' + k + '"' + (S[k] ? ' checked' : '') + '><span>' + esc(x.slice(x.indexOf(':') + 1)) + '</span></label>'; }).join('') +
+    '<div class="check"><span style="flex:1">LINE ' + (S.lineKilled ? stateChip('KILLED') : stateChip('ON')) + '</span>' + (role === 'admin' ? '<button class="btn small danger" id="w-kill"' + (S.lineKilled ? ' disabled' : '') + '>' + esc(pick(['Kill LINE', 'Kill LINE'])) + '</button>' : '<span class="muted small">' + esc(pick(['เฉพาะ Tenant Admin', 'Tenant Admin only'])) + '</span>') + '</div>' +
+    (S.lineKilled ? '<div class="note warn">' + esc(pick(['ไม่มีปุ่มยก kill — ของจริงต้องใช้ CLI + approval; ใน preview ใช้ "เริ่มใหม่"', 'No un-kill control — the real system needs CLI + approval; in this preview use "Reset"'])) + '</div>' : '') + '</div>';
+  $('w-sel').onchange = function () { W.sc = +this.value; W.step = 0; renderAll(); };
+  $('w-reset').onclick = function () { var keepCfg = S.cfg, keepWrap = S.wrapup; S = freshState(false); S.cfg = keepCfg; S.wrapup = keepWrap; W.step = 0; renderAll(); toast(pick(['เริ่มใหม่ (คงการตั้งค่า)', 'Reset (setup kept)'])); };
+  $('w-next').onclick = function () {
+    var step = sc.steps[W.step]; if (!step) return;
+    var ok = step.run(); W.step += 1;
+    if (ok === false) toast(pick(['ขั้นนี้ไม่ผ่านตามเงื่อนไขที่ตั้งไว้ — ดูเหตุผลใน Trace', 'This step did not pass under the current switches — see the reason in Trace']));
+    renderAll();
+  };
+  el.querySelectorAll('[data-env]').forEach(function (c) { c.onchange = function () { S[c.dataset.env] = c.checked; log('env', c.dataset.env + '=' + c.checked); renderAll(); }; });
+  var kill = $('w-kill'); if (kill) kill.onclick = function () { S.lineKilled = true; S.interaction = null; log('line.kill', pick(['LINE ถูก kill', 'LINE killed'])); renderAll(); };
+}
+
+function renderAll() { renderTop(); renderNav(); renderStage(); renderDrawer(); }
+
+/* ---------- init ---------- */
+S = freshState(true);
+cfgLog('sample setup applied');
+$('lang-th').onclick = function () { LANG = 'th'; try { localStorage.setItem('dcontact.lang', 'th'); } catch (e) {} renderAll(); };
+$('lang-en').onclick = function () { LANG = 'en'; try { localStorage.setItem('dcontact.lang', 'en'); } catch (e) {} renderAll(); };
+$('drawer-toggle').onclick = function () { drawerOpen = !drawerOpen; renderTop(); };
+$('tab-contract').onclick = function () { drawerTab = 'contract'; renderTop(); renderDrawer(); };
+$('tab-walk').onclick = function () { drawerTab = 'walk'; renderTop(); renderDrawer(); };
+(function () {
+  var q = new URLSearchParams(location.search), r = q.get('role'), pg = q.get('page'), lg = q.get('lang');
+  if (lg === 'en' || lg === 'th') LANG = lg; else { try { LANG = localStorage.getItem('dcontact.lang') === 'en' ? 'en' : 'th'; } catch (e) {} }
+  if (r && PAGES[r]) { role = r; pageId = PAGES[r][0].id; }
+  if (pg && PAGES[role].some(function (p) { return p.id === pg; })) pageId = pg;
+  if (q.get('panel') === 'walk') drawerTab = 'walk';
+  if (window.innerWidth <= 1100) drawerOpen = false;
+  renderAll();
+})();
+</script>
+</body>
+</html>
