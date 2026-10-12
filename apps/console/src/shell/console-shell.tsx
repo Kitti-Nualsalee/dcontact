@@ -11,6 +11,7 @@ import type { ReactNode } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import {
   ShellFrame,
+  ShellPageNavProvider,
   SubNav,
   areaOf,
   ToastRegion,
@@ -51,13 +52,25 @@ export function areaSections(
   apps: readonly ShellApp[],
   pinnedIds: readonly string[],
   pinnedLabel: string,
+  /** #658: เลือกหน้าย่อยของแอปที่กำลังเปิดโดยไม่โหลดหน้าใหม่ */
+  page?: { appId: string; onSelect: (pageId: string) => void },
 ) {
-  const item = (app: { id: string; label: string; href: string; external: boolean }) => ({
-    id: app.id,
+  const item = (app: {
+    id: string;
+    pageId?: string;
+    label: string;
+    href: string;
+    external: boolean;
+  }) => ({
+    // หน้าย่อยใช้ id เฉพาะ (`<appId>:<pageId>`) ให้ไฮไลต์ทีละหน้า; ไอคอนยังเป็นของแอป
+    id: app.pageId ? subNavItemId(app.id, app.pageId) : app.id,
     label: app.label,
     href: app.href,
     icon: app.id,
     external: app.external,
+    ...(page && app.pageId && app.id === page.appId
+      ? { onSelect: () => page.onSelect(app.pageId!) }
+      : {}),
   });
   // หมุดที่อยู่ในพื้นที่นี้อยู่แล้วไม่ซ้ำในส่วนปักหมุด
   const inArea = new Set(area.sections.flatMap((section) => section.items.map((i) => i.id)));
@@ -74,6 +87,11 @@ export function areaSections(
       items: section.items.map(item),
     })),
   ];
+}
+
+/** id ของรายการหน้าย่อยในเมนูย่อย — ใช้เป็น `currentItemId` */
+export function subNavItemId(appId: string, pageId: string) {
+  return `${appId}:${pageId}`;
 }
 
 function legacySubNav(app: ShellApp | undefined) {
@@ -99,6 +117,12 @@ export interface ConsoleShellProps {
   appId: ConsoleShellApp;
   /** #588: เมนูผู้ใช้บนแถบบน (ชื่อ, organization, บทบาท และออกจากระบบ) */
   account?: { user: ShellUser; onSignOut: () => Promise<void> };
+  /**
+   * #658: หน้าย่อยที่เปิดอยู่ของแอป (เมื่อ server ส่ง `pages`) และตัวเปลี่ยนหน้าแบบไม่โหลดใหม่ —
+   * เนื้อหาหน้าเป็นเจ้าของสถานะหน้า shell แค่วาดเมนู
+   */
+  pageId?: string;
+  onPageSelect?: (pageId: string) => void;
   children: ReactNode;
 }
 
@@ -108,6 +132,8 @@ export function ConsoleShell({
   tenantAlias,
   appId,
   account,
+  pageId,
+  onPageSelect,
   children,
 }: ConsoleShellProps) {
   const { t } = useTranslation();
@@ -159,6 +185,16 @@ export function ConsoleShell({
   const isAdmin = account?.user.roles.includes('admin') ?? false;
   const accountPage = appId === 'account' || appId === 'account-policy';
   const area = accountPage ? undefined : nav.areas.find((a) => a.id === areaOf(nav.areas, appId));
+  // #658: เมนูย่อยมีหน้าย่อยของแอปนี้ → เนื้อหาไม่ต้องวาดแท็บเอง
+  const hasPages =
+    area?.sections.some((section) =>
+      section.items.some((entry) => entry.id === appId && entry.pageId !== undefined),
+    ) ?? false;
+  const pageLabel = hasPages
+    ? area?.sections
+        .flatMap((section) => section.items)
+        .find((entry) => entry.id === appId && entry.pageId === pageId)?.label
+    : undefined;
   const subNav = accountPage ? (
     <SubNav
       eyebrow={t('shell.account.eyebrow')}
@@ -194,8 +230,14 @@ export function ConsoleShell({
     // #651: เมนูย่อยคำนวณจากพื้นที่ที่ server ส่งมา — เพิ่มหน้าใหม่ไม่ต้องแก้ไฟล์นี้
     <SubNav
       title={area.label}
-      currentItemId={appId}
-      sections={areaSections(area, nav.apps, nav.pinnedIds, t('shell.pinned'))}
+      currentItemId={hasPages && pageId ? subNavItemId(appId, pageId) : appId}
+      sections={areaSections(
+        area,
+        nav.apps,
+        nav.pinnedIds,
+        t('shell.pinned'),
+        hasPages && onPageSelect ? { appId, onSelect: onPageSelect } : undefined,
+      )}
     />
   ) : (
     // API รุ่นเก่าที่ยังไม่ส่ง `areas` (rollback ของ API ภายใต้ Console ใหม่): เมนูย่อยรายการเดียวของแอปนี้
@@ -228,7 +270,11 @@ export function ConsoleShell({
               ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
               : appId === 'dphone-embedding'
                 ? [t('navigation.groups.settings'), t('navigation.apps.dphoneEmbedding')]
-                : [t('navigation.groups.quality'), t('navigation.apps.contactGovernance')]
+                : [
+                    t('navigation.groups.quality'),
+                    t('navigation.apps.contactGovernance'),
+                    ...(pageLabel ? [pageLabel] : []),
+                  ]
         }
         language={locale}
         onLanguageChange={(next) => {
@@ -254,7 +300,7 @@ export function ConsoleShell({
             : []
         }
       >
-        {children}
+        <ShellPageNavProvider value={hasPages}>{children}</ShellPageNavProvider>
       </ShellFrame>
       <ToastRegion />
     </>

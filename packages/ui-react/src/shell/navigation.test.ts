@@ -220,3 +220,69 @@ test('#651: areaOf หาพื้นที่จากแอปที่กำ�
   assert.equal(areaOf(areas, 'account'), undefined);
   assert.equal(areaOf(undefined, 'journeys'), undefined);
 });
+
+test('#658: แอปที่มี pages กระจายเป็นหลายรายการ id เดียวกัน แยกด้วย pageId; href ใช้ path ของหน้า + tenant', () => {
+  const response: NavigationResponseV1 = {
+    ...areaResponse,
+    apps: [
+      ...areaResponse.apps,
+      {
+        id: 'contact-governance',
+        groupId: 'quality',
+        labelKey: 'a.governance',
+        hostApp: 'console',
+        path: '/?view=governance',
+      },
+    ],
+    areas: [
+      {
+        id: 'governance',
+        labelKey: 'area.governance',
+        sections: [
+          {
+            id: 'work',
+            labelKey: 'section.work',
+            items: [
+              {
+                appId: 'contact-governance',
+                pages: [
+                  {
+                    id: 'overview',
+                    labelKey: 'p.overview',
+                    path: '/?view=governance&section=overview',
+                  },
+                  { id: 'audit', labelKey: 'p.audit', path: '/?view=governance&section=audit' },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = toShellModel(response, {
+    currentHost: 'console',
+    hostOrigins,
+    tenantAlias: 'demo',
+    translate: (key) => `t:${key}`,
+  });
+  assert.deepEqual(model.areas[0]!.sections[0]!.items, [
+    {
+      id: 'contact-governance',
+      pageId: 'overview',
+      label: 't:p.overview',
+      href: '/?view=governance&section=overview&tenant=demo',
+      external: false,
+    },
+    {
+      id: 'contact-governance',
+      pageId: 'audit',
+      label: 't:p.audit',
+      href: '/?view=governance&section=audit&tenant=demo',
+      external: false,
+    },
+  ]);
+  // href ของพื้นที่ = หน้าแรก และ areaOf ยังหาพื้นที่จาก id ของแอป
+  assert.equal(model.areas[0]!.href, '/?view=governance&section=overview&tenant=demo');
+  assert.equal(areaOf(model.areas, 'contact-governance'), 'governance');
+});

@@ -183,3 +183,27 @@ test('#651: แอปหลายตัวในพื้นที่/กลุ�
     },
   ]);
 });
+
+test('#658: Governance ส่งหน้าย่อยตามลำดับใน item เดียว (แอปเดียว ปักหมุดได้ชิ้นเดียว) และแอปอื่นไม่มี pages', () => {
+  const visible = visibleApps({ roles: ['compliance'], entitlements: FULL });
+  const [area] = visibleAreas(visible);
+  assert.equal(area!.id, 'governance');
+  const [item] = area!.sections[0]!.items;
+  assert.equal(item!.appId, 'contact-governance');
+  assert.deepEqual(
+    item!.pages!.map((page) => page.id),
+    ['overview', 'exceptions', 'policies', 'audit'],
+  );
+  for (const page of item!.pages!) {
+    assert.match(page.id, /^[a-z][a-z-]*$/);
+    assert.ok(page.path.startsWith('/?view=governance&section='), page.path);
+    assert.ok(!/(contact|series|policy|version)Id/i.test(page.path), 'ห้ามมี id ใน path');
+  }
+  // หน้าย่อยไม่ใช่แอป: ไม่อยู่ใน launcher/หมุด
+  assert.ok(!visible.some((app) => app.id === 'overview' || app.id === 'audit'));
+  const everyone = visibleAreas(visibleApps({ roles: ['admin'], entitlements: null }));
+  const withoutPages = everyone
+    .flatMap((a) => a.sections.flatMap((s) => s.items))
+    .filter((i) => i.appId !== 'contact-governance');
+  assert.ok(withoutPages.every((i) => i.pages === undefined));
+});
