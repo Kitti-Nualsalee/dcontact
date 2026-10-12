@@ -9,6 +9,7 @@
  * หรือ error จะโหลด canonical state ใหม่ และปุ่ม command ถูกปิดเมื่อ state ไม่แน่ชัด (fail closed)
  */
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useInShell } from '@d-contact/ui-react';
 import type {
   ApprovalRecord,
   EffectiveScope,
@@ -64,7 +65,9 @@ export function GovernanceConsole({
   initialLocation: GovernanceLocation;
 }) {
   const [location, setLocation] = useState(initialLocation);
-  const mainRef = useRef<HTMLElement>(null);
+  // #654: อยู่ใน ConsoleShell แล้ว shell วาด skip link, แถบบนและ <main> ให้ — หน้านี้ไม่วาดซ้ำ (landmark ซ้อน)
+  const inShell = useInShell();
+  const mainRef = useRef<HTMLDivElement>(null);
 
   const go = useCallback((next: GovernanceLocation) => {
     window.history.pushState({}, '', governanceHref(next));
@@ -90,16 +93,23 @@ export function GovernanceConsole({
     { key: 'audit', label: 'Audit', current: section === 'audit' },
   ];
 
+  const Main = inShell ? 'div' : 'main';
   return (
-    <div className="gov-shell">
-      <a className="gov-skip" href="#gov-main">
-        ข้ามไปเนื้อหาหลัก
-      </a>
-      <header className="gov-header">
-        <strong>D-CONTACT</strong>
-        <span>Contact Governance</span>
-        <span className="gov-viewer">มุมมอง: {VIEWER_LABEL[viewer]}</span>
-      </header>
+    <div className={inShell ? 'gov-shell gov-shell--embedded' : 'gov-shell'}>
+      {inShell ? (
+        <p className="gov-viewer gov-viewer--embedded">มุมมอง: {VIEWER_LABEL[viewer]}</p>
+      ) : (
+        <>
+          <a className="gov-skip" href="#gov-main">
+            ข้ามไปเนื้อหาหลัก
+          </a>
+          <header className="gov-header">
+            <strong>D-CONTACT</strong>
+            <span>Contact Governance</span>
+            <span className="gov-viewer">มุมมอง: {VIEWER_LABEL[viewer]}</span>
+          </header>
+        </>
+      )}
       <nav aria-label="Contact Governance" className="gov-nav">
         {nav.map((item) => (
           <button
@@ -112,7 +122,7 @@ export function GovernanceConsole({
           </button>
         ))}
       </nav>
-      <main id="gov-main" ref={mainRef} tabIndex={-1} className="gov-main">
+      <Main id="gov-main" ref={mainRef} tabIndex={-1} className="gov-main">
         <p className="gov-boundary" role="note">
           {DECISION_VOCABULARY.developmentComplete}
         </p>
@@ -144,7 +154,7 @@ export function GovernanceConsole({
           <PolicyStudio api={api} viewer={viewer} location={location} go={go} />
         ) : null}
         {section === 'audit' ? <AuditView api={api} location={location} go={go} /> : null}
-      </main>
+      </Main>
     </div>
   );
 }

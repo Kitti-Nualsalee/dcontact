@@ -199,21 +199,32 @@ function ConsoleE2eRoot() {
     const requested = url.searchParams.get('viewer');
     const viewer: GovernanceViewer =
       requested === 'SUPERVISOR' || requested === 'TENANT_ADMIN' ? requested : 'COMPLIANCE';
+    // #654: ครอบด้วย ConsoleShell เหมือนหน้าอื่น — flag ปิด/API ล้ม = หน้าเดิมทุกประการ (fail-safe)
     return (
-      <GovernanceConsole
-        api={createGovernanceApi({
-          baseUrl:
-            (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
-          accessToken: () => 'e2e-access-token',
-        })}
-        cg5Api={createCg5ConsoleApi({
-          baseUrl:
-            (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
-          accessToken: () => 'e2e-access-token',
-        })}
-        viewer={viewer}
-        initialLocation={parseGovernanceLocation(url)}
-      />
+      <ConsoleShell
+        {...e2eShellUser(url.searchParams.get('tenant') ?? undefined)}
+        apiBaseUrl={
+          (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin
+        }
+        accessToken={() => 'e2e-access-token'}
+        tenantAlias={url.searchParams.get('tenant') ?? undefined}
+        appId="contact-governance"
+      >
+        <GovernanceConsole
+          api={createGovernanceApi({
+            baseUrl:
+              (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
+            accessToken: () => 'e2e-access-token',
+          })}
+          cg5Api={createCg5ConsoleApi({
+            baseUrl:
+              (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
+            accessToken: () => 'e2e-access-token',
+          })}
+          viewer={viewer}
+          initialLocation={parseGovernanceLocation(url)}
+        />
+      </ConsoleShell>
     );
   }
   return view === 'preferences' && contactId ? (

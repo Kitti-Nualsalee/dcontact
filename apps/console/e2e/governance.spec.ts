@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Request } from '@playwright/test';
 
 /**
@@ -112,7 +113,69 @@ interface Mock {
   on(method: string, path: RegExp, handler: Handler): void;
 }
 
-async function mockGovernance(page: Page): Promise<Mock> {
+/**
+ * #654: Navigation API ที่ ConsoleShell เรียก — ค่าเริ่มต้น flag `ui.shell.v2` ปิด (หน้าเดิมทุกประการ);
+ * `shellV2: true` = หน้า Governance อยู่ใน shell (rail พื้นที่ + เมนูย่อย)
+ */
+async function mockNavigation(page: Page, shellV2: boolean) {
+  await page.route('**/api/v1/me/navigation', (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        groups: [
+          { id: 'live', labelKey: 'navigation.groups.live' },
+          { id: 'quality', labelKey: 'navigation.groups.quality' },
+        ],
+        apps: [
+          {
+            id: 'agent-workspace',
+            groupId: 'live',
+            labelKey: 'navigation.apps.agentWorkspace',
+            hostApp: 'workspace',
+            path: '/',
+          },
+          {
+            id: 'contact-governance',
+            groupId: 'quality',
+            labelKey: 'navigation.apps.contactGovernance',
+            hostApp: 'console',
+            path: '/?view=governance',
+          },
+        ],
+        areas: [
+          {
+            id: 'workspace',
+            labelKey: 'navigation.areas.workspace',
+            sections: [
+              {
+                id: 'work',
+                labelKey: 'navigation.sections.work',
+                items: [{ appId: 'agent-workspace' }],
+              },
+            ],
+          },
+          {
+            id: 'governance',
+            labelKey: 'navigation.areas.governance',
+            sections: [
+              {
+                id: 'work',
+                labelKey: 'navigation.sections.work',
+                items: [{ appId: 'contact-governance' }],
+              },
+            ],
+          },
+        ],
+        pins: { appIds: [], source: 'SYSTEM', revision: 0 },
+        limits: { maxPins: 15 },
+        features: { shellV2 },
+      },
+    }),
+  );
+}
+
+async function mockGovernance(page: Page, options: { shellV2?: boolean } = {}): Promise<Mock> {
+  await mockNavigation(page, options.shellV2 === true);
   const handlers: Array<[string, RegExp, Handler]> = [];
   const requests: Request[] = [];
   await page.route('**/api/v1/contact-governance/**', async (route) => {
@@ -741,4 +804,54 @@ test('CG5-UX01: ตัวกรอง alert ส่งไปที่ API จร�
   expect(alertQueries.some((search) => search.includes('severity=CRITICAL'))).toBe(true);
   expect(alertQueries.some((search) => search.includes('state=SUPPRESSED'))).toBe(true);
   expect(problems).toEqual([]);
+});
+
+/**
+ * #654: หน้า Governance ใน ConsoleShell (flag `ui.shell.v2` เปิด) — rail พื้นที่ Governance เป็นปัจจุบัน,
+ * ไม่วาด chrome ซ้ำ (header/skip link/`<main>` ซ้อน) และการใช้งานภายในหน้าเหมือนเดิม
+ */
+test('#654: flag เปิด → Governance อยู่ใน shell: rail พื้นที่ปัจจุบัน, มี main เดียว, ไม่มี header ซ้ำ', async ({
+  page,
+}) => {
+  const problems = watchPage(page);
+  const mock = await mockGovernance(page, { shellV2: true });
+  exceptionRoutes(mock);
+  await page.goto(workspaceUrl());
+
+  const rail = page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ });
+  await expect(rail).toBeVisible();
+  await expect(rail.locator('a[aria-current=page]')).toHaveAttribute('data-area', 'governance');
+  // เมนูย่อยของ shell + แท็บภายในหน้า Governance อยู่ร่วมกันได้
+  await expect(page.getByRole('navigation', { name: 'Governance', exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Contact Governance' })).toBeVisible();
+  // landmark: main เดียว (ของ shell), หน้าไม่วาด header/skip link ของตัวเอง
+  await expect(page.locator('main')).toHaveCount(1);
+  await expect(page.locator('.gov-header')).toHaveCount(0);
+  await expect(page.locator('.gov-skip')).toHaveCount(0);
+  await expect(page.getByText('มุมมอง: Compliance · evidence')).toBeVisible();
+  await expect(page.locator('#gov-main')).toBeAttached();
+
+  // ใช้งานภายในหน้าเหมือนเดิม: สลับแท็บแล้ว URL/เนื้อหาเปลี่ยน และ focus ไปเนื้อหาใหม่
+  await page.getByRole('button', { name: 'Audit' }).click();
+  await expect(page).toHaveURL(/section=audit/);
+  await expect(page.locator('#gov-main')).toBeFocused();
+
+  const axe = await new AxeBuilder({ page }).include('nav').include('header').analyze();
+  expect(
+    axe.violations
+      .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+      .map((v) => v.id),
+  ).toEqual([]);
+  expect(problems).toEqual([]);
+});
+
+test('#654: flag ปิด → Governance เป็นหน้าเดิม (header, skip link และ main ของตัวเอง ไม่มี rail)', async ({
+  page,
+}) => {
+  const mock = await mockGovernance(page, { shellV2: false });
+  exceptionRoutes(mock);
+  await page.goto(workspaceUrl());
+  await expect(page.locator('.gov-header')).toBeVisible();
+  await expect(page.locator('main#gov-main')).toHaveCount(1);
+  await expect(page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ })).toHaveCount(0);
 });
