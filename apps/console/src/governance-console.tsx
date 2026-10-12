@@ -40,6 +40,7 @@ import {
   type GovernanceViewer,
   type RecoveryState,
 } from './governance-model.js';
+import { useShellTokens } from './shell/tokens.js';
 import './governance.css';
 import { Cg5Dashboard } from './cg5-dashboard.js';
 import type { Cg5ConsoleApi } from './cg5-console-api.js';
@@ -67,6 +68,8 @@ export function GovernanceConsole({
   const [location, setLocation] = useState(initialLocation);
   // #654: อยู่ใน ConsoleShell แล้ว shell วาด skip link, แถบบนและ <main> ให้ — หน้านี้ไม่วาดซ้ำ (landmark ซ้อน)
   const inShell = useInShell();
+  // governance.css อ้าง token ทั้งสองสถานะของ flag (เหมือน Journeys) — token มาก่อนเนื้อหา ไม่ให้เห็นหน้าที่ยังไม่มีสี
+  const tokensReady = useShellTokens();
   const mainRef = useRef<HTMLDivElement>(null);
 
   const go = useCallback((next: GovernanceLocation) => {
@@ -81,6 +84,8 @@ export function GovernanceConsole({
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  if (!tokensReady) return null;
 
   const section = location.section;
   const nav: Array<{ key: GovernanceSection; label: string; current: boolean }> = [
