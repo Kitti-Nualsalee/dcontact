@@ -112,6 +112,8 @@ SIP flush ทำงานได้แม้ outbound flag ปิด แต่ต
 
 ### Launcher alias บน runtime ของ E1
 
+HTML shell ของ E1 อ้าง bootstrap JS/CSS ด้วย query `release` จาก `SOURCE_SHA` ใน manifest เพื่อไม่ให้ browser ใช้ entry ของ release เก่าหลัง deploy และ Caddy ตอบ `Cache-Control: no-cache` ให้ชื่อ entry คงที่ทั้งสองไฟล์เพื่อ revalidate ด้วย ETag การมี query ไม่ได้ทำให้ bootstrap เป็น immutable/pinned asset; contract ของ launcher alias และไฟล์ตรึงเวอร์ชันพร้อม SRI ด้านล่างยังเหมือนเดิม ถ้า UI กับ server state ไม่ตรง ให้ตรวจ URL ของ script ใน iframe ว่าตรงกับ release ปัจจุบันก่อน ห้าม patch agent state เพื่อให้ acceptance ผ่าน
+
 หลัง deploy release ที่มี overlay นี้ ขณะ outbound default-off และไม่มีสาย ใช้ `bash "$RUNNER" e1-launcher-enable "$SHA"` เพื่อ import release/SRI จาก image ที่ตรึง digest ไป named volume และ recreate เฉพาะ API ให้ mount แบบ read-only ไฟล์ source ของ helper ต้องผ่านขั้น `prepare` แล้ว ไม่มีการเปิดพอร์ตใหม่หรือส่งข้อมูล tenant ออกนอก stack
 
 `bash "$RUNNER" e1-launcher-status "$SHA"` ตรวจ integrity; `bash "$RUNNER" e1-launcher-alias "$SHA" v1 1.0.0` ชี้ alias กลับ และ `... v1 1.0.1` คืนเวอร์ชันปัจจุบัน โดยไม่ restart API/FreeSWITCH หรือแก้ pinned asset การเปลี่ยน index เป็น atomic และ import ซ้ำเก็บ alias เดิม ไม่ยอมรับข้าม major, asset ที่ถูกแก้ หรือ symlink ก่อนเลื่อน alias ต้องมี contract/e2e บน host อ้างอิงตาม E1.7 ส่วน rollback ให้ใช้เวอร์ชันที่เคยผ่านแล้ว และตรวจ header/เนื้อหาจริงหลัง cache 5 นาที
