@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import type {
   Cg5Alert,
   Cg5ConsoleApi,
@@ -6,38 +7,42 @@ import type {
   Cg5ExportJob,
   Cg5PolicyImpactBucket,
 } from './cg5-console-api.js';
-import type { GovernanceViewer } from './governance-model.js';
+import { intlLocale, type GovernanceViewer, type Translate } from './governance-model.js';
 
 type Load<T> = { data?: T; error?: string; loading: boolean };
 const empty = <T,>(): Load<T> => ({ loading: true });
-const metricLabels: Record<string, string> = {
-  'cg.decision': 'การตัดสิน',
-  'cg.restriction': 'ข้อจำกัด',
-  'cg.exception': 'Exception',
-  'cg.audit': 'Audit',
+const metricKeys: Record<string, string> = {
+  'cg.decision': 'cg5.metric.decision',
+  'cg.restriction': 'cg5.metric.restriction',
+  'cg.exception': 'cg5.metric.exception',
+  'cg.audit': 'cg5.metric.audit',
 };
-function message(error: unknown) {
-  return error instanceof Error ? error.message : 'โหลดข้อมูลไม่สำเร็จ';
+function message(error: unknown, t: Translate) {
+  return error instanceof Error ? error.message : t('cg5.loadFailed');
 }
 function lagged(asOf: string | null | undefined) {
   return !asOf || Date.now() - new Date(asOf).getTime() > 15 * 60 * 1000;
 }
-function exportState(state: string) {
-  if (state === 'REVOKED') return 'ถูกเพิกถอนแล้ว';
-  if (state === 'EXPIRED') return 'หมดอายุแล้ว';
+function exportState(state: string, t: Translate) {
+  if (state === 'REVOKED') return t('cg5.exportState.revoked');
+  if (state === 'EXPIRED') return t('cg5.exportState.expired');
   return state;
 }
-function statusSymbol(state: string) {
+function statusSymbol(state: string, t: Translate) {
   return state === 'OPEN'
-    ? '● เปิดอยู่'
+    ? t('cg5.alertStatus.open')
     : state === 'ACKED'
-      ? '✓ รับทราบแล้ว'
+      ? t('cg5.alertStatus.acked')
       : state === 'SUPPRESSED'
-        ? '⊘ ระงับชั่วคราว'
-        : '✓ ปิดแล้ว';
+        ? t('cg5.alertStatus.suppressed')
+        : t('cg5.alertStatus.closed');
 }
 
 export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: GovernanceViewer }) {
+  const { t: translate } = useTranslation('governance');
+  const t = translate as unknown as Translate;
+  const { locale } = useLocale();
+  const formatLocale = intlLocale(locale);
   const [metrics, setMetrics] =
     useState<Load<Awaited<ReturnType<Cg5ConsoleApi['metrics']>>>>(empty());
   const [impact, setImpact] =
@@ -60,7 +65,7 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
     try {
       setMetrics({ loading: false, data: await api.metrics({ limit: 50 }) });
     } catch (error) {
-      setMetrics({ loading: false, error: message(error) });
+      setMetrics({ loading: false, error: message(error, t) });
     }
   };
   const reloadImpact = async () => {
@@ -72,7 +77,7 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
     try {
       setImpact({ loading: false, data: await api.policyImpact() });
     } catch (error) {
-      setImpact({ loading: false, error: message(error) });
+      setImpact({ loading: false, error: message(error, t) });
     }
   };
   const reloadAlerts = async () => {
@@ -86,7 +91,7 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
         }),
       });
     } catch (error) {
-      setAlerts({ loading: false, error: message(error) });
+      setAlerts({ loading: false, error: message(error, t) });
     }
   };
   const reloadExports = async () => {
@@ -98,7 +103,7 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
     try {
       setExports({ loading: false, data: await api.exports() });
     } catch (error) {
-      setExports({ loading: false, error: message(error) });
+      setExports({ loading: false, error: message(error, t) });
     }
   };
   useEffect(() => {
@@ -111,15 +116,15 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
   }, [api, state, severity]);
   const cards = useMemo(
     () =>
-      Object.entries(metricLabels).map(([key, label]) => ({
-        label,
+      Object.entries(metricKeys).map(([key, labelKey]) => ({
+        label: t(labelKey),
         // ไม่มี projection (เช่น backfill ยังไม่จบ) ต้องบอกว่าไม่พร้อม ไม่ใช่แสดง 0 ที่ดูเหมือนตัวเลขจริง
         value:
           metrics.data?.items
             .filter((item) => item.metricKey === key)
             .reduce((sum, item) => sum + Number(item.value), 0) ?? null,
       })),
-    [metrics.data],
+    [metrics.data, t],
   );
   const reasons = useMemo(() => {
     const grouped = new Map<string, number>();
@@ -135,7 +140,7 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
       await api.acknowledgeAlert({ alertId: alert.id, version: alert.version });
       await reloadAlerts();
     } catch (error) {
-      setAckError(`${message(error)} — มีการเปลี่ยนข้อมูลแล้ว ให้โหลดรายการใหม่`);
+      setAckError(t('cg5.ackConflict', { message: message(error, t) }));
     }
   };
   const submit = async (event: React.FormEvent) => {
@@ -152,11 +157,11 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
         reason: reason.trim(),
         idempotencyKey: crypto.randomUUID(),
       });
-      setExportMessage('ส่งคำขอ export แล้ว ระบบบันทึกเหตุผลลง audit');
+      setExportMessage(t('cg5.exportSent'));
       setReason('');
       await reloadExports();
     } catch (error) {
-      setExportMessage(message(error));
+      setExportMessage(message(error, t));
     } finally {
       setSubmitting(false);
     }
@@ -165,34 +170,37 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
     <section className="cg5-dashboard" aria-labelledby="cg5-title">
       <div className="cg5-title">
         <div>
-          <p className="gov-eyebrow">CG5 OVERVIEW</p>
-          <h1 id="cg5-title">Governance overview</h1>
+          <p className="gov-eyebrow">{t('cg5.eyebrow')}</p>
+          <h1 id="cg5-title">{t('cg5.title')}</h1>
         </div>
         <a className="gov-link" href="?view=governance&section=audit">
-          เปิด Governance Health
+          {t('cg5.healthLink')}
         </a>
       </div>
-      <section className="cg5-freshness" aria-label="ความสดของข้อมูล">
-        <strong>ความสดของข้อมูล</strong>
+      <section className="cg5-freshness" aria-label={t('cg5.freshness.title')}>
+        <strong>{t('cg5.freshness.title')}</strong>
         <span>
-          Decision projection:{' '}
-          {metrics.data?.asOf
-            ? new Date(metrics.data.asOf).toLocaleString('th-TH')
-            : 'ข้อมูลยังไม่พร้อม'}
+          {t('cg5.freshness.decision', {
+            value: metrics.data?.asOf
+              ? new Date(metrics.data.asOf).toLocaleString(formatLocale)
+              : t('cg5.freshness.notReady'),
+          })}
         </span>
         <span>
-          Alert state:{' '}
-          {alerts.data?.asOf
-            ? new Date(alerts.data.asOf).toLocaleString('th-TH')
-            : 'ข้อมูลยังไม่พร้อม'}
+          {t('cg5.freshness.alert', {
+            value: alerts.data?.asOf
+              ? new Date(alerts.data.asOf).toLocaleString(formatLocale)
+              : t('cg5.freshness.notReady'),
+          })}
         </span>
         {metrics.error ||
         alerts.error ||
         lagged(metrics.data?.asOf) ||
         lagged(alerts.data?.asOf) ? (
           <p role="alert">
-            ⚠ ข้อมูลอาจล่าช้ากว่า SLO:{' '}
-            {metrics.error ?? alerts.error ?? 'ตรวจสอบเวลาประมวลผลล่าสุด'}
+            {t('cg5.freshness.lag', {
+              detail: metrics.error ?? alerts.error ?? t('cg5.freshness.lagDetail'),
+            })}
           </p>
         ) : null}
       </section>
@@ -204,23 +212,24 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
               {metrics.loading
                 ? '…'
                 : card.value === null
-                  ? 'ยังไม่พร้อม'
-                  : card.value.toLocaleString('th-TH')}
+                  ? t('cg5.cardNotReady')
+                  : card.value.toLocaleString(formatLocale)}
             </strong>
           </article>
         ))}
       </div>
       <section className="gov-panel">
-        <h2>เหตุผลที่ติดต่อไม่ได้</h2>
+        <h2>{t('cg5.reasons.title')}</h2>
         {metrics.loading ? (
-          <p>กำลังโหลดเหตุผล…</p>
+          <p>{t('cg5.reasons.loading')}</p>
         ) : reasons.length === 0 ? (
-          <p>ข้อมูลยังไม่พร้อม หรือยังไม่มีเหตุผลที่ติดต่อไม่ได้ในช่วงเวลานี้</p>
+          <p>{t('cg5.reasons.empty')}</p>
         ) : (
           <ul className="cg5-reasons">
             {reasons.map(([reasonCode, value]) => (
               <li key={reasonCode}>
-                <strong>{reasonCode}</strong> <span>{value.toLocaleString('th-TH')} รายการ</span>
+                <strong>{reasonCode}</strong>{' '}
+                <span>{t('cg5.reasons.count', { n: value.toLocaleString(formatLocale) })}</span>
               </li>
             ))}
           </ul>
@@ -228,18 +237,19 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
       </section>
       {viewer === 'SUPERVISOR' ? null : (
         <section className="gov-panel">
-          <h2>ผลหลังเปลี่ยนนโยบาย</h2>
+          <h2>{t('cg5.impact.title')}</h2>
           {impact.loading ? (
-            <p>กำลังโหลดผลกระทบ…</p>
+            <p>{t('cg5.impact.loading')}</p>
           ) : impact.error ? (
             <p role="alert">{impact.error}</p>
           ) : impact.data?.items.length === 0 ? (
-            <p>ข้อมูลยังไม่พร้อม หรือยังไม่มีผลกระทบจากนโยบายในช่วงเวลานี้</p>
+            <p>{t('cg5.impact.empty')}</p>
           ) : (
             <ul className="cg5-impact">
               {impact.data?.items.map((item) => (
                 <li key={`${item.bucketStart}:${item.policyVersion}:${item.decision}`}>
-                  <strong>Policy v{item.policyVersion}</strong> · {item.decision} · {item.value}
+                  <strong>{t('cg5.impact.policy', { version: item.policyVersion })}</strong> ·{' '}
+                  {item.decision} · {item.value}
                 </li>
               ))}
             </ul>
@@ -248,29 +258,29 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
       )}
       <section className="gov-panel">
         <div className="cg5-title">
-          <h2>Alert</h2>
+          <h2>{t('cg5.alerts.title')}</h2>
           <div className="cg5-filters">
             <label>
-              สถานะ
+              {t('cg5.alerts.status')}
               <select
                 value={state}
                 onChange={(event) => setState(event.target.value as typeof state)}
               >
-                <option value="ALL">ทั้งหมด</option>
-                <option value="OPEN">เปิดอยู่</option>
-                <option value="ACKED">รับทราบแล้ว</option>
-                <option value="SUPPRESSED">ระงับชั่วคราว</option>
+                <option value="ALL">{t('cg5.alerts.statusAll')}</option>
+                <option value="OPEN">{t('cg5.alerts.statusOpen')}</option>
+                <option value="ACKED">{t('cg5.alerts.statusAcked')}</option>
+                <option value="SUPPRESSED">{t('cg5.alerts.statusSuppressed')}</option>
               </select>
             </label>
             <label>
-              ความรุนแรง
+              {t('cg5.alerts.severity')}
               <select
                 value={severity}
                 onChange={(event) => setSeverity(event.target.value as typeof severity)}
               >
-                <option value="ALL">ทุกระดับ</option>
-                <option value="CRITICAL">CRITICAL</option>
-                <option value="WARNING">WARNING</option>
+                <option value="ALL">{t('cg5.alerts.severityAll')}</option>
+                <option value="CRITICAL">{t('cg5.alerts.severityCritical')}</option>
+                <option value="WARNING">{t('cg5.alerts.severityWarning')}</option>
               </select>
             </label>
           </div>
@@ -279,27 +289,35 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
           <p role="alert">
             {ackError}{' '}
             <button className="gov-secondary" type="button" onClick={() => void reloadAlerts()}>
-              โหลดรายการใหม่
+              {t('cg5.alerts.reload')}
             </button>
           </p>
         ) : null}
         {alerts.loading ? (
-          <p>กำลังโหลด alert…</p>
+          <p>{t('cg5.alerts.loading')}</p>
         ) : alerts.error ? (
           <p role="alert">{alerts.error}</p>
         ) : alerts.data?.items.length === 0 ? (
-          <p>ไม่มีรายการที่ตรงกับตัวกรอง</p>
+          <p>{t('cg5.alerts.empty')}</p>
         ) : (
           <ul className="cg5-alerts">
             {alerts.data?.items.map((alert) => (
               <li key={alert.id} className={alert.state === 'SUPPRESSED' ? 'cg5-suppressed' : ''}>
                 <strong>
-                  {alert.severity === 'CRITICAL' ? '▲▲ CRITICAL' : '▲ WARNING'} · {alert.ruleCode}
+                  {alert.severity === 'CRITICAL'
+                    ? t('cg5.alerts.critical')
+                    : t('cg5.alerts.warning')}{' '}
+                  · {alert.ruleCode}
                 </strong>
                 <span>
-                  {statusSymbol(alert.state)} · ค่าปัจจุบัน {alert.value} / ฐาน {alert.threshold} ·
-                  เข้าเงื่อนไข {alert.consecutiveHits} รอบ · {alert.channel ?? 'ทุก channel'} /{' '}
-                  {alert.purpose ?? 'ทุก purpose'}
+                  {t('cg5.alerts.line', {
+                    status: statusSymbol(alert.state, t),
+                    value: alert.value,
+                    threshold: alert.threshold,
+                    hits: alert.consecutiveHits,
+                    channel: alert.channel ?? t('cg5.alerts.allChannels'),
+                    purpose: alert.purpose ?? t('cg5.alerts.allPurposes'),
+                  })}
                 </span>
                 {alert.state === 'OPEN' ? (
                   <button
@@ -307,7 +325,7 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
                     type="button"
                     onClick={() => void acknowledge(alert)}
                   >
-                    รับทราบ
+                    {t('cg5.alerts.acknowledge')}
                   </button>
                 ) : null}
               </li>
@@ -317,24 +335,24 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
       </section>
       {viewer === 'SUPERVISOR' ? (
         <section className="gov-panel">
-          <h2>Compliance export</h2>
-          <p>มุมมอง Supervisor เห็นเฉพาะสรุปของทีม และไม่มีสิทธิ์สั่ง export</p>
+          <h2>{t('cg5.export.title')}</h2>
+          <p>{t('cg5.export.supervisorNote')}</p>
         </section>
       ) : (
         <section className="gov-panel">
-          <h2>Compliance export</h2>
+          <h2>{t('cg5.export.title')}</h2>
           <form className="cg5-export" onSubmit={submit}>
             <label>
-              ชุดข้อมูล
+              {t('cg5.export.dataset')}
               <select value={dataset} onChange={(event) => setDataset(event.target.value)}>
-                <option value="DECISION_TRACE">Decision trace</option>
-                <option value="AUDIT_LOG">Audit log</option>
-                <option value="RESTRICTION_EVIDENCE">Restriction evidence</option>
-                <option value="EXCEPTION_APPROVAL">Exception approval</option>
+                <option value="DECISION_TRACE">{t('cg5.export.decisionTrace')}</option>
+                <option value="AUDIT_LOG">{t('cg5.export.auditLog')}</option>
+                <option value="RESTRICTION_EVIDENCE">{t('cg5.export.restrictionEvidence')}</option>
+                <option value="EXCEPTION_APPROVAL">{t('cg5.export.exceptionApproval')}</option>
               </select>
             </label>
             <label>
-              ตั้งแต่
+              {t('cg5.export.from')}
               <input
                 type="datetime-local"
                 value={from}
@@ -343,7 +361,7 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
               />
             </label>
             <label>
-              ถึง
+              {t('cg5.export.to')}
               <input
                 type="datetime-local"
                 value={to}
@@ -352,32 +370,30 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
               />
             </label>
             <label>
-              ระดับข้อมูล
+              {t('cg5.export.level')}
               <select
                 value={level}
                 onChange={(event) => setLevel(event.target.value as Cg5EvidenceLevel)}
               >
-                <option value="SUMMARY">SUMMARY</option>
-                <option value="EVIDENCE">EVIDENCE</option>
+                <option value="SUMMARY">{t('cg5.export.levelSummary')}</option>
+                <option value="EVIDENCE">{t('cg5.export.levelEvidence')}</option>
               </select>
             </label>
             <label>
-              เหตุผล
+              {t('cg5.export.reason')}
               <textarea
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
                 required
               />
             </label>
-            {!reason.trim() ? <p role="status">ต้องระบุเหตุผลก่อนสั่ง export</p> : null}
+            {!reason.trim() ? <p role="status">{t('cg5.export.reasonRequired')}</p> : null}
             <p>
-              เหตุผลนี้ถูกบันทึกลง audit
-              {level === 'EVIDENCE'
-                ? ' · EVIDENCE ต้องมีสิทธิ์เฉพาะและถูกนับในกฎเฝ้าระวังปริมาณ export'
-                : ''}
+              {t('cg5.export.reasonAudited')}
+              {level === 'EVIDENCE' ? t('cg5.export.evidenceNote') : ''}
             </p>
             <button className="gov-primary" disabled={submitting || !reason.trim()}>
-              {submitting ? 'กำลังส่ง…' : 'สั่ง export'}
+              {submitting ? t('cg5.export.submitting') : t('cg5.export.submit')}
             </button>
           </form>
           {exportMessage ? <p role="status">{exportMessage}</p> : null}
@@ -385,18 +401,23 @@ export function Cg5Dashboard({ api, viewer }: { api: Cg5ConsoleApi; viewer: Gove
             {exports.data?.map((job) => (
               <li key={job.exportId}>
                 <strong>
-                  {exportState(job.state)} · {job.evidenceLevel}
+                  {t('cg5.export.jobTitle', {
+                    state: exportState(job.state, t),
+                    level: job.evidenceLevel,
+                  })}
                 </strong>
                 <span>
-                  {job.datasets.join(', ')} ·{' '}
-                  {job.manifestDigest
-                    ? `digest …${job.manifestDigest.slice(-8)}`
-                    : 'ยังไม่มี digest'}{' '}
-                  ·{' '}
-                  {job.state === 'REVOKED'
-                    ? 'ไฟล์ถูกเพิกถอนแล้ว'
-                    : `หมดอายุ ${job.expiresAt ?? '—'}`}{' '}
-                  · ผู้สั่ง {job.requestedByRef}
+                  {t('cg5.export.jobDetail', {
+                    datasets: job.datasets.join(', '),
+                    digest: job.manifestDigest
+                      ? t('cg5.export.digest', { tail: job.manifestDigest.slice(-8) })
+                      : t('cg5.export.noDigest'),
+                    file:
+                      job.state === 'REVOKED'
+                        ? t('cg5.export.fileRevoked')
+                        : t('cg5.export.expires', { at: job.expiresAt ?? '—' }),
+                    by: job.requestedByRef,
+                  })}
                 </span>
               </li>
             ))}

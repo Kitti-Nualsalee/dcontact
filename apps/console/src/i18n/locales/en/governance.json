@@ -1,0 +1,399 @@
+{
+  "viewer": {
+    "label": "View: {{viewer}}",
+    "supervisor": "Supervisor · summary",
+    "tenantAdmin": "Tenant Admin · summary",
+    "compliance": "Compliance · evidence"
+  },
+  "chrome": {
+    "skip": "Skip to main content",
+    "brand": "D-CONTACT",
+    "title": "Contact Governance"
+  },
+  "nav": {
+    "label": "Contact Governance",
+    "overview": "Overview",
+    "policiesExceptions": "Policies & Exceptions",
+    "audit": "Audit",
+    "subLabel": "Policies & Exceptions",
+    "exceptions": "Exceptions",
+    "policies": "Policies"
+  },
+  "vocabulary": {
+    "approve": "Approve = one checker's recorded decision; it is not ALLOW and it is not Activate",
+    "activate": "Activate = the scope's policy head changes at the time it was published for",
+    "developmentComplete": "Development Complete ≠ Release Enabled: approving or publishing in the Console does not enable provider traffic"
+  },
+  "common": {
+    "loading": "Loading…",
+    "loadingState": "Loading canonical state…",
+    "loadingTimeline": "Loading canonical timeline…",
+    "waitingServer": "Waiting for the server to confirm…",
+    "reloadState": "Reload canonical state",
+    "openEvidence": "Open evidence timeline",
+    "close": "Close",
+    "cancel": "Cancel",
+    "open": "Open",
+    "scope": "Scope"
+  },
+  "reference": {
+    "redacted": "Redacted · digest …{{tail}}"
+  },
+  "window": {
+    "range": "{{from}} – {{to}} UTC (end exclusive)"
+  },
+  "recovery": {
+    "title": {
+      "STALE_APPROVAL": "Approval authority is stale",
+      "VERSION_CONFLICT": "Version conflict",
+      "HEAD_CONFLICT": "Policy head conflict",
+      "OUTCOME_UNKNOWN": "Command outcome unknown · on hold",
+      "FORBIDDEN": "Not permitted",
+      "LIFECYCLE_BLOCKED": "This step is not available",
+      "NOT_FOUND": "Not found",
+      "INVALID": "Invalid request"
+    },
+    "reload": "Load the latest canonical state",
+    "retry": "Resend the same command",
+    "message": {
+      "outcomeUnknown": "We can't tell whether the command was saved, so it is on hold: load the canonical state, then resend only the same command.",
+      "approvalStale": "Approval authority or scope has changed (authorization epoch mismatch). Load the current scope and approve again.",
+      "versionConflict": "The data was changed elsewhere{{versions}}. The system does not merge edits automatically: load the canonical version before deciding again.",
+      "versions": " (expected v{{expected}}, now v{{actual}})",
+      "headConflict": "The scope's policy head is not what was expected, and the system does not pick a winner: load the current head, then test and approve again.",
+      "idempotencyConflict": "This command was already sent with different content, so it will not be resent: load the state and start a new command.",
+      "selfApproval": "The requester cannot approve their own request.",
+      "duplicateChecker": "This checker has already decided on this revision.",
+      "delegation": "Delegated authority cannot be used for an item at this level.",
+      "forbidden": "Your current permissions do not cover this command.",
+      "notFound": "This item was not found, or it is outside the permissions you can access.",
+      "lifecycle": "This step is not available: {{code}}{{quorum}}",
+      "unavailable": "Governance is not responding right now and the system fails closed: the command's outcome is unknown. Load the canonical state, then resend only the same command.",
+      "invalid": "Invalid request: {{code}}"
+    }
+  },
+  "guardrails": {
+    "title": "🔒 Guardrails that cannot be overridden",
+    "body": "DNC · purpose objection · consent/lawful basis · explicit preference BLOCK/DEFER · kill switch · rules with overridable=false — no command on this page can bypass them"
+  },
+  "fields": {
+    "evidence": {
+      "label": "Evidence reference",
+      "hint": "Enter an opaque reference only, such as an internal ticket number — never a customer's name, phone number or email."
+    },
+    "reason": {
+      "label": "Reason code",
+      "hint": "A controlled reason code, for example COMPLIANCE_WITHDRAWN"
+    }
+  },
+  "openById": {
+    "legend": "Open an item by opaque ID",
+    "typeLabel": "ID type",
+    "kindContact": "Contact (exception queue)",
+    "kindSeries": "Exception series",
+    "kindPolicy": "Policy series",
+    "idLabel": "ID",
+    "error": "Only opaque IDs (UUID) are accepted — do not search by name, phone number or email"
+  },
+  "overview": {
+    "eyebrow": "OVERVIEW",
+    "title": "Contact Governance",
+    "kills": {
+      "title": "Active kill switches",
+      "empty": "No active kill switches"
+    },
+    "backToQueue": "Back to the exception queue for contact {{id}}",
+    "kill": {
+      "detail": "{{reason}} · opened {{at}} · by {{by}}"
+    }
+  },
+  "exceptions": {
+    "eyebrow": "APPROVAL WORKSPACE",
+    "title": "Exceptions",
+    "empty": "Open the queue from a Contact or an Exception series with an opaque ID",
+    "queueTitle": "Exception queue · contact {{id}}",
+    "single": "Exception",
+    "queue": {
+      "label": "Exception queue",
+      "heading": "Queue ({{n}})",
+      "empty": "No exceptions for this contact",
+      "expires": "Expires {{at}}"
+    },
+    "case": {
+      "select": "Select an item from the queue",
+      "eyebrow": "EXCEPTION {{id}} · REVISION {{revision}}",
+      "workflow": "Workflow: {{state}}",
+      "effective": "Effective: {{state}}"
+    },
+    "facts": {
+      "scope": "Scope",
+      "contactWide": "Contact-wide",
+      "identity": "Identity {{id}}",
+      "scopeValue": "{{scope}} · {{channel}} · {{purpose}} · {{sourceType}} {{sourceId}}",
+      "rules": "Rules that may be lifted",
+      "policyBinding": "Policy binding",
+      "policyBindingValue": "{{policy}} v{{version}} · digest {{digest}} · {{registry}}",
+      "window": "Effective window",
+      "content": "Content digest / version",
+      "contentValue": "{{digest}} · contact version {{version}}"
+    },
+    "evidence": {
+      "title": "Evidence",
+      "evidence": "Evidence: {{ref}}",
+      "ticket": "Ticket: {{ref}}",
+      "maker": "Maker: {{ref}}",
+      "redacted": "Evidence details can be opened only by users with Compliance permission, and every access is audited"
+    },
+    "checker": {
+      "title": "Maker–Checker",
+      "recorded": "Approvals recorded",
+      "latestQuorum": "· latest quorum from the server",
+      "serverChecks": "· the server checks quorum by risk tier on every save",
+      "approve": "Approve as checker",
+      "reject": "Reject with evidence",
+      "revoke": "Revoke exception",
+      "cancelRequest": "Cancel request (maker)",
+      "readOnly": "This view shows the summary only; you cannot approve or revoke"
+    },
+    "dialog": {
+      "approveTitle": "Confirm Approve",
+      "rejectTitle": "Confirm Reject",
+      "decisionBody": "Bound to revision {{revision}} · digest {{digest}} · contact version {{version}} — the server rejects the command if anything changes in the meantime",
+      "revokeTitle": "Confirm Revoke",
+      "cancelTitle": "Confirm request cancellation",
+      "revokeBody": "Revoke takes effect as soon as it commits, and pending work is re-authorized — a new approval must be a new series",
+      "cancelBody": "Only requests still awaiting a decision can be cancelled, and the full history is kept",
+      "revokeConfirm": "Confirm Revoke",
+      "cancelConfirm": "Confirm cancellation"
+    },
+    "message": {
+      "quorumMet": "Quorum met ({{current}}/{{required}}) — the exception is APPROVED, which is not yet ALLOW: the runtime decides on every actual send",
+      "recorded": "Approval recorded (quorum {{current}}/{{required}}) — not yet ALLOW and not yet Activate",
+      "rejected": "This revision was rejected. The history remains append-only",
+      "revoked": "Revoked ({{state}}) — pending work will be re-authorized and nothing resumes automatically",
+      "cancelled": "Request cancelled ({{state}})"
+    }
+  },
+  "approvals": {
+    "empty": "No decisions yet",
+    "approve": "✓ APPROVE",
+    "reject": "✕ REJECT",
+    "directCompliance": " · direct Compliance",
+    "epoch": "epoch {{epoch}} · {{at}}"
+  },
+  "drawer": {
+    "title": "Evidence timeline"
+  },
+  "policies": {
+    "eyebrow": "POLICY CHANGE STUDIO",
+    "title": "Policies",
+    "empty": "Open a policy series with an opaque ID",
+    "heading": "Policy {{id}}",
+    "headingVersion": "Policy {{id}} · v{{version}}",
+    "steps": {
+      "label": "Policy steps",
+      "draft": "Draft",
+      "tests": "Tests",
+      "approvals": "Approvals",
+      "activation": "Activation"
+    },
+    "message": {
+      "approved": "Approval recorded (quorum {{current}}/{{required}}, {{state}}) — Approve is not the same as Activate",
+      "rejected": "This version was rejected",
+      "published": "Publish committed ({{state}}{{activate}}) — downstream will re-authorize pending work from the event; the Console has no acknowledgement query yet, so it does not claim the change has fully propagated",
+      "activate": " · activate {{at}}",
+      "rollback": "Rollback candidate v{{version}} created — a rollback is a new version that must be tested and approved again; the original row is not switched back"
+    },
+    "headMismatch": {
+      "title": "⚠ Policy head changed after testing",
+      "body": "The test result is bound to head v{{base}} ({{baseDigest}}) but the current head is v{{current}} ({{currentDigest}}) — test and approve again; the system does not pick a winner"
+    },
+    "diff": {
+      "title": "Changes compared with the active head",
+      "noTests": "No test results yet"
+    },
+    "facts": {
+      "contentDigest": "Content digest",
+      "contentValue": "{{digest}} · draft revision {{revision}}",
+      "activeHead": "Current active head",
+      "headValue": "v{{head}} · policy v{{policy}} · {{digest}}",
+      "noHead": "No active head yet",
+      "nextActivation": " · next activation {{at}}",
+      "evaluator": "Evaluator / registry",
+      "evaluatorValue": "{{evaluator}} · {{registry}} · schema {{schema}}",
+      "effective": "Effective",
+      "effectiveActivate": "activate {{at}}",
+      "effectiveFrom": "from {{at}}"
+    },
+    "kill": {
+      "title": "⛔ A kill switch is active in this scope",
+      "body": "A relaxing publish is blocked until it is cleared with another person's approval, and clearing does not resume earlier work"
+    },
+    "history": {
+      "title": "Version history",
+      "item": "v{{version}} · {{state}}",
+      "rollback": " · rollback candidate"
+    },
+    "release": {
+      "title": "Release packet",
+      "testsLabel": "Synthetic test results",
+      "passedFailed": "Passed {{passed}} · Failed {{failed}}",
+      "artifact": "artifact {{digest}} · {{suite}}",
+      "noArtifact": "No test artifact yet — test before approving",
+      "approvalDigest": "Approval digest {{digest}}",
+      "recordApproval": "Record approval",
+      "rejectVersion": "Reject version",
+      "publish": "Publish / schedule Activate",
+      "rollback": "Create rollback candidate"
+    },
+    "dialog": {
+      "approveTitle": "Confirm policy approval",
+      "rejectTitle": "Confirm policy rejection",
+      "decisionBody": "Bound to content {{content}} · test artifact {{artifact}} · head v{{head}} — {{vocabulary}}",
+      "activateAtLabel": "Time to Activate (UTC)",
+      "activateAtHint": "Used once quorum is met — you still need to publish before it takes effect",
+      "approveConfirm": "Confirm approval",
+      "rejectConfirm": "Confirm rejection",
+      "publishTitle": "Confirm Publish",
+      "publishBody": "Change the scope's policy head from v{{head}} according to approval {{digest}}",
+      "publishConfirm": "Confirm Publish",
+      "rollbackTitle": "Create rollback candidate",
+      "rollbackBody": "Create a new version from the content of v{{version}}. It must be tested, approved and published again from scratch",
+      "rollbackConfirm": "Create rollback candidate"
+    }
+  },
+  "audit": {
+    "eyebrow": "EVIDENCE-FIRST TIMELINE",
+    "title": "Audit",
+    "traceException": "Trace · exception {{id}}",
+    "tracePolicy": "Trace · policy {{id}}",
+    "toWorkspace": "Go to this item's approval workspace",
+    "toStudio": "Go to this item's policy studio",
+    "empty": "Open the trace of an exception or policy with an opaque ID",
+    "timeline": "Canonical timeline",
+    "safety": {
+      "title": "Safety case",
+      "restrictions": "Hard restrictions / consent / preference",
+      "restrictionsValue": "Never overridden by any exception",
+      "riskTier": "Risk tier",
+      "workflowEffective": "Workflow / effective",
+      "expiry": "Expiry",
+      "evidence": "Evidence",
+      "activeHead": "Active head",
+      "noneYet": "None yet",
+      "killSwitch": "Kill switch",
+      "killActive": "⛔ ACTIVE",
+      "killNone": "None active",
+      "latestTests": "Latest tests",
+      "rollback": "Rollback",
+      "rollbackValue": "Always creates a new version; never edits a published row"
+    },
+    "entry": {
+      "revision": "Revision {{n}}",
+      "revisionRenewal": "Revision {{n}} (renewal)",
+      "revisionDetail": "{{risk}} · digest {{digest}} · maker {{maker}}",
+      "checkerApprove": "✓ Checker approve",
+      "checkerReject": "✕ Checker reject",
+      "approvalDetail": "{{ref}} · {{capability}} · epoch {{epoch}}",
+      "approvalDetailShort": "{{ref}} · {{capability}}",
+      "version": "Version {{n}} · {{state}}",
+      "versionDetail": "digest {{digest}} · maker {{maker}}{{rollback}}",
+      "testArtifact": "Test artifact {{outcome}}",
+      "testDetail": "{{passed}} passed / {{failed}} failed · base head v{{base}} · {{digest}}",
+      "kill": "⛔ Kill switch {{state}}",
+      "killDetail": "{{reason}} · {{ref}}"
+    }
+  },
+  "cg5": {
+    "metric": {
+      "decision": "Decisions",
+      "restriction": "Restrictions",
+      "exception": "Exception",
+      "audit": "Audit"
+    },
+    "loadFailed": "Could not load data",
+    "exportState": {
+      "revoked": "Revoked",
+      "expired": "Expired"
+    },
+    "alertStatus": {
+      "open": "● Open",
+      "acked": "✓ Acknowledged",
+      "suppressed": "⊘ Suppressed",
+      "closed": "✓ Closed"
+    },
+    "ackConflict": "{{message}} — the data has changed; reload the list",
+    "exportSent": "Export requested. The reason has been recorded in the audit log",
+    "eyebrow": "CG5 OVERVIEW",
+    "title": "Governance overview",
+    "healthLink": "Open Governance Health",
+    "freshness": {
+      "title": "Data freshness",
+      "decision": "Decision projection: {{value}}",
+      "alert": "Alert state: {{value}}",
+      "notReady": "Data not ready",
+      "lag": "⚠ Data may be behind the SLO: {{detail}}",
+      "lagDetail": "Check the latest processing time"
+    },
+    "cardNotReady": "Not ready",
+    "reasons": {
+      "title": "Reasons contact was not possible",
+      "loading": "Loading reasons…",
+      "empty": "Data is not ready, or there are no contact-blocked reasons in this period",
+      "count": "{{n}} items"
+    },
+    "impact": {
+      "title": "Results after policy changes",
+      "loading": "Loading impact…",
+      "empty": "Data is not ready, or there is no policy impact in this period",
+      "policy": "Policy v{{version}}"
+    },
+    "alerts": {
+      "title": "Alert",
+      "status": "Status",
+      "statusAll": "All",
+      "statusOpen": "Open",
+      "statusAcked": "Acknowledged",
+      "statusSuppressed": "Suppressed",
+      "severity": "Severity",
+      "severityAll": "All levels",
+      "severityCritical": "CRITICAL",
+      "severityWarning": "WARNING",
+      "reload": "Reload list",
+      "loading": "Loading alerts…",
+      "empty": "No items match the filters",
+      "critical": "▲▲ CRITICAL",
+      "warning": "▲ WARNING",
+      "line": "{{status}} · current {{value}} / threshold {{threshold}} · matched {{hits}} rounds · {{channel}} / {{purpose}}",
+      "allChannels": "All channels",
+      "allPurposes": "All purposes",
+      "acknowledge": "Acknowledge"
+    },
+    "export": {
+      "title": "Compliance export",
+      "supervisorNote": "The Supervisor view shows only the team summary and cannot order exports",
+      "dataset": "Dataset",
+      "decisionTrace": "Decision trace",
+      "auditLog": "Audit log",
+      "restrictionEvidence": "Restriction evidence",
+      "exceptionApproval": "Exception approval",
+      "from": "From",
+      "to": "To",
+      "level": "Evidence level",
+      "levelSummary": "SUMMARY",
+      "levelEvidence": "EVIDENCE",
+      "reason": "Reason",
+      "reasonRequired": "A reason is required before ordering an export",
+      "reasonAudited": "This reason is recorded in the audit log",
+      "evidenceNote": " · EVIDENCE requires a specific permission and counts toward the export-volume watch rules",
+      "submitting": "Sending…",
+      "submit": "Order export",
+      "jobTitle": "{{state}} · {{level}}",
+      "jobDetail": "{{datasets}} · {{digest}} · {{file}} · requested by {{by}}",
+      "noDigest": "No digest yet",
+      "digest": "digest …{{tail}}",
+      "fileRevoked": "File revoked",
+      "expires": "Expires {{at}}"
+    }
+  }
+}

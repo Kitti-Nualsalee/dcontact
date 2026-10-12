@@ -1,0 +1,399 @@
+{
+  "viewer": {
+    "label": "มุมมอง: {{viewer}}",
+    "supervisor": "Supervisor · summary",
+    "tenantAdmin": "Tenant Admin · summary",
+    "compliance": "Compliance · evidence"
+  },
+  "chrome": {
+    "skip": "ข้ามไปเนื้อหาหลัก",
+    "brand": "D-CONTACT",
+    "title": "Contact Governance"
+  },
+  "nav": {
+    "label": "Contact Governance",
+    "overview": "ภาพรวม",
+    "policiesExceptions": "Policies & Exceptions",
+    "audit": "Audit",
+    "subLabel": "Policies & Exceptions",
+    "exceptions": "Exceptions",
+    "policies": "Policies"
+  },
+  "vocabulary": {
+    "approve": "Approve = บันทึกการตัดสินของ checker หนึ่งคน ยังไม่ใช่ ALLOW และยังไม่ Activate",
+    "activate": "Activate = policy head ของ scope เปลี่ยนตามเวลาที่ publish ไว้",
+    "developmentComplete": "Development Complete ≠ Release Enabled: approve หรือ publish ใน Console ไม่เปิด provider traffic"
+  },
+  "common": {
+    "loading": "กำลังโหลด…",
+    "loadingState": "กำลังโหลด canonical state…",
+    "loadingTimeline": "กำลังโหลด canonical timeline…",
+    "waitingServer": "กำลังรอ server ยืนยัน…",
+    "reloadState": "โหลด canonical state ใหม่",
+    "openEvidence": "เปิด evidence timeline",
+    "close": "ปิด",
+    "cancel": "ยกเลิก",
+    "open": "เปิด",
+    "scope": "Scope"
+  },
+  "reference": {
+    "redacted": "ปกปิด · digest …{{tail}}"
+  },
+  "window": {
+    "range": "{{from}} – {{to}} UTC (สิ้นสุดแบบ exclusive)"
+  },
+  "recovery": {
+    "title": {
+      "STALE_APPROVAL": "สิทธิ์อนุมัติ stale",
+      "VERSION_CONFLICT": "Version conflict",
+      "HEAD_CONFLICT": "Policy head conflict",
+      "OUTCOME_UNKNOWN": "ผลของคำสั่งยังไม่แน่ชัด · hold ไว้ก่อน",
+      "FORBIDDEN": "ไม่มีสิทธิ์",
+      "LIFECYCLE_BLOCKED": "ขั้นตอนนี้ยังทำไม่ได้",
+      "NOT_FOUND": "ไม่พบรายการ",
+      "INVALID": "คำขอไม่ถูกต้อง"
+    },
+    "reload": "โหลด canonical state ล่าสุด",
+    "retry": "ส่งซ้ำด้วยคำสั่งเดิม",
+    "message": {
+      "outcomeUnknown": "ยังไม่ทราบว่าคำสั่งถูกบันทึกแล้วหรือไม่ ระบบ hold ไว้ก่อน: โหลด canonical state แล้วลองส่งซ้ำด้วยคำสั่งเดิมเท่านั้น",
+      "approvalStale": "สิทธิ์หรือขอบเขตอนุมัติเปลี่ยนไปแล้ว (authorization epoch ไม่ตรง) ต้องโหลด scope ปัจจุบันและอนุมัติใหม่",
+      "versionConflict": "ข้อมูลถูกเปลี่ยนจากที่อื่นแล้ว{{versions}} ระบบไม่รวมการแก้ไขให้อัตโนมัติ: โหลด canonical version ก่อนตัดสินใหม่",
+      "versions": " (คาด v{{expected}} แต่ปัจจุบันเป็น v{{actual}})",
+      "headConflict": "Policy head ของ scope ไม่ตรงกับที่คาดไว้ ระบบไม่เลือกผู้ชนะให้: โหลด head ปัจจุบันแล้วทดสอบและอนุมัติใหม่",
+      "idempotencyConflict": "คำสั่งนี้เคยถูกส่งด้วยเนื้อหาอื่นแล้ว ระบบไม่ส่งซ้ำ: โหลดสถานะแล้วเริ่มคำสั่งใหม่",
+      "selfApproval": "ผู้สร้างคำขออนุมัติคำขอของตัวเองไม่ได้",
+      "duplicateChecker": "checker คนนี้ลงความเห็นใน revision นี้ไปแล้ว",
+      "delegation": "สิทธิ์ที่ได้รับมอบหมายใช้กับรายการระดับนี้ไม่ได้",
+      "forbidden": "สิทธิ์ปัจจุบันไม่ครอบคลุมคำสั่งนี้",
+      "notFound": "ไม่พบรายการนี้ หรือไม่อยู่ในสิทธิ์ที่เข้าถึงได้",
+      "lifecycle": "ขั้นตอนนี้ยังทำไม่ได้: {{code}}{{quorum}}",
+      "unavailable": "Governance ตอบไม่ได้ในขณะนี้ ระบบ fail closed: ยังไม่ทราบผลของคำสั่ง โหลด canonical state แล้วส่งซ้ำด้วยคำสั่งเดิมเท่านั้น",
+      "invalid": "คำขอไม่ถูกต้อง: {{code}}"
+    }
+  },
+  "guardrails": {
+    "title": "🔒 Guardrails ที่ override ไม่ได้",
+    "body": "DNC · purpose objection · consent/lawful basis · explicit preference BLOCK/DEFER · kill switch · rule ที่ overridable=false — ไม่มีคำสั่งใดในหน้านี้ข้ามได้"
+  },
+  "fields": {
+    "evidence": {
+      "label": "Evidence reference",
+      "hint": "ใส่เฉพาะ opaque reference เช่น เลข ticket ภายใน — ห้ามใส่ชื่อ เบอร์ หรืออีเมลลูกค้า"
+    },
+    "reason": {
+      "label": "Reason code",
+      "hint": "รหัสเหตุผลแบบควบคุม เช่น COMPLIANCE_WITHDRAWN"
+    }
+  },
+  "openById": {
+    "legend": "เปิดรายการด้วย opaque ID",
+    "typeLabel": "ประเภท ID",
+    "kindContact": "Contact (คิว exception)",
+    "kindSeries": "Exception series",
+    "kindPolicy": "Policy series",
+    "idLabel": "ID",
+    "error": "รับเฉพาะ opaque ID (UUID) — ห้ามค้นด้วยชื่อ เบอร์ หรืออีเมล"
+  },
+  "overview": {
+    "eyebrow": "OVERVIEW",
+    "title": "Contact Governance",
+    "kills": {
+      "title": "Kill switch ที่ใช้งานอยู่",
+      "empty": "ไม่มี kill switch ที่ใช้งานอยู่"
+    },
+    "backToQueue": "กลับไปคิว exception ของ contact {{id}}",
+    "kill": {
+      "detail": "{{reason}} · เปิดเมื่อ {{at}} · โดย {{by}}"
+    }
+  },
+  "exceptions": {
+    "eyebrow": "APPROVAL WORKSPACE",
+    "title": "Exceptions",
+    "empty": "เปิดคิวจาก Contact หรือ Exception series ด้วย opaque ID",
+    "queueTitle": "คิว exception · contact {{id}}",
+    "single": "Exception",
+    "queue": {
+      "label": "คิว exception",
+      "heading": "คิว ({{n}})",
+      "empty": "ไม่มี exception สำหรับ contact นี้",
+      "expires": "หมดอายุ {{at}}"
+    },
+    "case": {
+      "select": "เลือกรายการจากคิว",
+      "eyebrow": "EXCEPTION {{id}} · REVISION {{revision}}",
+      "workflow": "Workflow: {{state}}",
+      "effective": "Effective: {{state}}"
+    },
+    "facts": {
+      "scope": "Scope",
+      "contactWide": "Contact-wide",
+      "identity": "Identity {{id}}",
+      "scopeValue": "{{scope}} · {{channel}} · {{purpose}} · {{sourceType}} {{sourceId}}",
+      "rules": "Rule ที่ยกได้",
+      "policyBinding": "Policy binding",
+      "policyBindingValue": "{{policy}} v{{version}} · digest {{digest}} · {{registry}}",
+      "window": "Effective window",
+      "content": "Content digest / version",
+      "contentValue": "{{digest}} · contact version {{version}}"
+    },
+    "evidence": {
+      "title": "หลักฐาน",
+      "evidence": "Evidence: {{ref}}",
+      "ticket": "Ticket: {{ref}}",
+      "maker": "Maker: {{ref}}",
+      "redacted": "รายละเอียดหลักฐานเปิดได้เฉพาะผู้มีสิทธิ์ Compliance และทุกการเปิดถูก audit"
+    },
+    "checker": {
+      "title": "Maker–Checker",
+      "recorded": "Approvals ที่บันทึกแล้ว",
+      "latestQuorum": "· quorum ล่าสุดจาก server",
+      "serverChecks": "· server ตรวจ quorum ตาม risk tier ทุกครั้งที่บันทึก",
+      "approve": "Approve เป็น checker",
+      "reject": "Reject พร้อมหลักฐาน",
+      "revoke": "Revoke exception",
+      "cancelRequest": "ยกเลิกคำขอ (maker)",
+      "readOnly": "มุมมองนี้ดู summary ได้ แต่ approve/revoke ไม่ได้"
+    },
+    "dialog": {
+      "approveTitle": "ยืนยัน Approve",
+      "rejectTitle": "ยืนยัน Reject",
+      "decisionBody": "ผูกกับ revision {{revision}} · digest {{digest}} · contact version {{version}} — ถ้ามีการเปลี่ยนระหว่างนี้ server จะปฏิเสธ",
+      "revokeTitle": "ยืนยัน Revoke",
+      "cancelTitle": "ยืนยันยกเลิกคำขอ",
+      "revokeBody": "Revoke มีผลทันทีที่ commit และงานที่ค้างจะถูก re-authorize — การอนุมัติใหม่ต้องเป็น series ใหม่",
+      "cancelBody": "ยกเลิกได้เฉพาะคำขอที่ยังรอตัดสิน และประวัติยังเก็บไว้ครบ",
+      "revokeConfirm": "ยืนยัน Revoke",
+      "cancelConfirm": "ยืนยันยกเลิก"
+    },
+    "message": {
+      "quorumMet": "Quorum ครบ ({{current}}/{{required}}) — exception อยู่ในสถานะ APPROVED ซึ่งยังไม่ใช่ ALLOW: runtime จะตัดสินทุกครั้งที่ส่งจริง",
+      "recorded": "บันทึก approval แล้ว (quorum {{current}}/{{required}}) — ยังไม่ใช่ ALLOW และยังไม่ Activate",
+      "rejected": "ปฏิเสธ revision นี้แล้ว ประวัติยังเป็น append-only",
+      "revoked": "Revoke แล้ว ({{state}}) — งานที่ค้างจะถูก re-authorize และไม่มีการ resume อัตโนมัติ",
+      "cancelled": "ยกเลิกคำขอแล้ว ({{state}})"
+    }
+  },
+  "approvals": {
+    "empty": "ยังไม่มีการลงความเห็น",
+    "approve": "✓ APPROVE",
+    "reject": "✕ REJECT",
+    "directCompliance": " · direct Compliance",
+    "epoch": "epoch {{epoch}} · {{at}}"
+  },
+  "drawer": {
+    "title": "Evidence timeline"
+  },
+  "policies": {
+    "eyebrow": "POLICY CHANGE STUDIO",
+    "title": "Policies",
+    "empty": "เปิด policy series ด้วย opaque ID",
+    "heading": "Policy {{id}}",
+    "headingVersion": "Policy {{id}} · v{{version}}",
+    "steps": {
+      "label": "ขั้นตอน policy",
+      "draft": "Draft",
+      "tests": "Tests",
+      "approvals": "Approvals",
+      "activation": "Activation"
+    },
+    "message": {
+      "approved": "บันทึก approval แล้ว (quorum {{current}}/{{required}}, {{state}}) — Approve ไม่เท่ากับ Activate",
+      "rejected": "ปฏิเสธ version นี้แล้ว",
+      "published": "Commit การ publish แล้ว ({{state}}{{activate}}) — downstream จะ re-authorize งานที่ค้างจาก event; Console ยังไม่มี query acknowledgement จึงไม่อ้างว่ากระจายผลครบแล้ว",
+      "activate": " · activate {{at}}",
+      "rollback": "สร้าง rollback candidate v{{version}} แล้ว — rollback เป็น version ใหม่ที่ต้องทดสอบและอนุมัติใหม่ ไม่สลับกลับ row เดิม"
+    },
+    "headMismatch": {
+      "title": "⚠ Policy head เปลี่ยนหลังทดสอบ",
+      "body": "ผลทดสอบผูกกับ head v{{base}} ({{baseDigest}}) แต่ head ปัจจุบันเป็น v{{current}} ({{currentDigest}}) — ต้องทดสอบและอนุมัติใหม่ ระบบไม่เลือกผู้ชนะให้"
+    },
+    "diff": {
+      "title": "การเปลี่ยนแปลงเทียบ active head",
+      "noTests": "ยังไม่มีผลทดสอบ"
+    },
+    "facts": {
+      "contentDigest": "Content digest",
+      "contentValue": "{{digest}} · draft revision {{revision}}",
+      "activeHead": "Active head ปัจจุบัน",
+      "headValue": "v{{head}} · policy v{{policy}} · {{digest}}",
+      "noHead": "ยังไม่มี active head",
+      "nextActivation": " · activation ถัดไป {{at}}",
+      "evaluator": "Evaluator / registry",
+      "evaluatorValue": "{{evaluator}} · {{registry}} · schema {{schema}}",
+      "effective": "Effective",
+      "effectiveActivate": "activate {{at}}",
+      "effectiveFrom": "from {{at}}"
+    },
+    "kill": {
+      "title": "⛔ Kill switch ใช้งานอยู่ใน scope นี้",
+      "body": "publish ที่ผ่อนลงถูกบล็อกจนกว่าจะเคลียร์ด้วย approval ของอีกคน และการเคลียร์ไม่ resume งานเดิม"
+    },
+    "history": {
+      "title": "ประวัติ version",
+      "item": "v{{version}} · {{state}}",
+      "rollback": " · rollback candidate"
+    },
+    "release": {
+      "title": "Release packet",
+      "testsLabel": "ผลทดสอบ synthetic",
+      "passedFailed": "ผ่าน {{passed}} · ล้มเหลว {{failed}}",
+      "artifact": "artifact {{digest}} · {{suite}}",
+      "noArtifact": "ยังไม่มี test artifact — ต้องทดสอบก่อนอนุมัติ",
+      "approvalDigest": "Approval digest {{digest}}",
+      "recordApproval": "บันทึก approval",
+      "rejectVersion": "ปฏิเสธ version",
+      "publish": "Publish / ตั้งเวลา Activate",
+      "rollback": "สร้าง rollback candidate"
+    },
+    "dialog": {
+      "approveTitle": "ยืนยัน approval ของ policy",
+      "rejectTitle": "ยืนยันปฏิเสธ policy",
+      "decisionBody": "ผูกกับ content {{content}} · test artifact {{artifact}} · head v{{head}} — {{vocabulary}}",
+      "activateAtLabel": "เวลาที่ต้องการให้ Activate (UTC)",
+      "activateAtHint": "ใช้เมื่อ quorum ครบ — ยังต้อง publish ก่อนมีผล",
+      "approveConfirm": "ยืนยัน approval",
+      "rejectConfirm": "ยืนยันปฏิเสธ",
+      "publishTitle": "ยืนยัน Publish",
+      "publishBody": "เปลี่ยน policy head ของ scope จาก v{{head}} ตาม approval {{digest}}",
+      "publishConfirm": "ยืนยัน Publish",
+      "rollbackTitle": "สร้าง rollback candidate",
+      "rollbackBody": "สร้าง version ใหม่จากเนื้อหาของ v{{version}} ต้องทดสอบ อนุมัติ และ publish ใหม่ทั้งหมด",
+      "rollbackConfirm": "สร้าง rollback candidate"
+    }
+  },
+  "audit": {
+    "eyebrow": "EVIDENCE-FIRST TIMELINE",
+    "title": "Audit",
+    "traceException": "Trace · exception {{id}}",
+    "tracePolicy": "Trace · policy {{id}}",
+    "toWorkspace": "ไปยัง approval workspace ของรายการนี้",
+    "toStudio": "ไปยัง policy studio ของรายการนี้",
+    "empty": "เปิด trace ของ exception หรือ policy ด้วย opaque ID",
+    "timeline": "Canonical timeline",
+    "safety": {
+      "title": "Safety case",
+      "restrictions": "Hard restrictions / consent / preference",
+      "restrictionsValue": "ไม่ถูก override โดย exception ใด ๆ",
+      "riskTier": "Risk tier",
+      "workflowEffective": "Workflow / effective",
+      "expiry": "Expiry",
+      "evidence": "Evidence",
+      "activeHead": "Active head",
+      "noneYet": "ยังไม่มี",
+      "killSwitch": "Kill switch",
+      "killActive": "⛔ ACTIVE",
+      "killNone": "ไม่มีที่ใช้งานอยู่",
+      "latestTests": "Tests ล่าสุด",
+      "rollback": "Rollback",
+      "rollbackValue": "สร้าง version ใหม่เสมอ ไม่แก้ published row"
+    },
+    "entry": {
+      "revision": "Revision {{n}}",
+      "revisionRenewal": "Revision {{n}} (renewal)",
+      "revisionDetail": "{{risk}} · digest {{digest}} · maker {{maker}}",
+      "checkerApprove": "✓ Checker approve",
+      "checkerReject": "✕ Checker reject",
+      "approvalDetail": "{{ref}} · {{capability}} · epoch {{epoch}}",
+      "approvalDetailShort": "{{ref}} · {{capability}}",
+      "version": "Version {{n}} · {{state}}",
+      "versionDetail": "digest {{digest}} · maker {{maker}}{{rollback}}",
+      "testArtifact": "Test artifact {{outcome}}",
+      "testDetail": "{{passed}} ผ่าน / {{failed}} ล้มเหลว · base head v{{base}} · {{digest}}",
+      "kill": "⛔ Kill switch {{state}}",
+      "killDetail": "{{reason}} · {{ref}}"
+    }
+  },
+  "cg5": {
+    "metric": {
+      "decision": "การตัดสิน",
+      "restriction": "ข้อจำกัด",
+      "exception": "Exception",
+      "audit": "Audit"
+    },
+    "loadFailed": "โหลดข้อมูลไม่สำเร็จ",
+    "exportState": {
+      "revoked": "ถูกเพิกถอนแล้ว",
+      "expired": "หมดอายุแล้ว"
+    },
+    "alertStatus": {
+      "open": "● เปิดอยู่",
+      "acked": "✓ รับทราบแล้ว",
+      "suppressed": "⊘ ระงับชั่วคราว",
+      "closed": "✓ ปิดแล้ว"
+    },
+    "ackConflict": "{{message}} — มีการเปลี่ยนข้อมูลแล้ว ให้โหลดรายการใหม่",
+    "exportSent": "ส่งคำขอ export แล้ว ระบบบันทึกเหตุผลลง audit",
+    "eyebrow": "CG5 OVERVIEW",
+    "title": "Governance overview",
+    "healthLink": "เปิด Governance Health",
+    "freshness": {
+      "title": "ความสดของข้อมูล",
+      "decision": "Decision projection: {{value}}",
+      "alert": "Alert state: {{value}}",
+      "notReady": "ข้อมูลยังไม่พร้อม",
+      "lag": "⚠ ข้อมูลอาจล่าช้ากว่า SLO: {{detail}}",
+      "lagDetail": "ตรวจสอบเวลาประมวลผลล่าสุด"
+    },
+    "cardNotReady": "ยังไม่พร้อม",
+    "reasons": {
+      "title": "เหตุผลที่ติดต่อไม่ได้",
+      "loading": "กำลังโหลดเหตุผล…",
+      "empty": "ข้อมูลยังไม่พร้อม หรือยังไม่มีเหตุผลที่ติดต่อไม่ได้ในช่วงเวลานี้",
+      "count": "{{n}} รายการ"
+    },
+    "impact": {
+      "title": "ผลหลังเปลี่ยนนโยบาย",
+      "loading": "กำลังโหลดผลกระทบ…",
+      "empty": "ข้อมูลยังไม่พร้อม หรือยังไม่มีผลกระทบจากนโยบายในช่วงเวลานี้",
+      "policy": "Policy v{{version}}"
+    },
+    "alerts": {
+      "title": "Alert",
+      "status": "สถานะ",
+      "statusAll": "ทั้งหมด",
+      "statusOpen": "เปิดอยู่",
+      "statusAcked": "รับทราบแล้ว",
+      "statusSuppressed": "ระงับชั่วคราว",
+      "severity": "ความรุนแรง",
+      "severityAll": "ทุกระดับ",
+      "severityCritical": "CRITICAL",
+      "severityWarning": "WARNING",
+      "reload": "โหลดรายการใหม่",
+      "loading": "กำลังโหลด alert…",
+      "empty": "ไม่มีรายการที่ตรงกับตัวกรอง",
+      "critical": "▲▲ CRITICAL",
+      "warning": "▲ WARNING",
+      "line": "{{status}} · ค่าปัจจุบัน {{value}} / ฐาน {{threshold}} · เข้าเงื่อนไข {{hits}} รอบ · {{channel}} / {{purpose}}",
+      "allChannels": "ทุก channel",
+      "allPurposes": "ทุก purpose",
+      "acknowledge": "รับทราบ"
+    },
+    "export": {
+      "title": "Compliance export",
+      "supervisorNote": "มุมมอง Supervisor เห็นเฉพาะสรุปของทีม และไม่มีสิทธิ์สั่ง export",
+      "dataset": "ชุดข้อมูล",
+      "decisionTrace": "Decision trace",
+      "auditLog": "Audit log",
+      "restrictionEvidence": "Restriction evidence",
+      "exceptionApproval": "Exception approval",
+      "from": "ตั้งแต่",
+      "to": "ถึง",
+      "level": "ระดับข้อมูล",
+      "levelSummary": "SUMMARY",
+      "levelEvidence": "EVIDENCE",
+      "reason": "เหตุผล",
+      "reasonRequired": "ต้องระบุเหตุผลก่อนสั่ง export",
+      "reasonAudited": "เหตุผลนี้ถูกบันทึกลง audit",
+      "evidenceNote": " · EVIDENCE ต้องมีสิทธิ์เฉพาะและถูกนับในกฎเฝ้าระวังปริมาณ export",
+      "submitting": "กำลังส่ง…",
+      "submit": "สั่ง export",
+      "jobTitle": "{{state}} · {{level}}",
+      "jobDetail": "{{datasets}} · {{digest}} · {{file}} · ผู้สั่ง {{by}}",
+      "noDigest": "ยังไม่มี digest",
+      "digest": "digest …{{tail}}",
+      "fileRevoked": "ไฟล์ถูกเพิกถอนแล้ว",
+      "expires": "หมดอายุ {{at}}"
+    }
+  }
+}

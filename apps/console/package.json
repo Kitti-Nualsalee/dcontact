@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "dev": "vite",
     "i18n:check": "dc-i18n-check src/i18n/locales",
-    "i18n:literals": "dc-i18n-literals src/journey-authoring src/shell src/dphone-embedding src/team-scopes src/line-inbound src/account",
+    "i18n:literals": "dc-i18n-literals src/governance-console.tsx src/cg5-dashboard.tsx src/governance-model.ts src/journey-authoring src/shell src/dphone-embedding src/team-scopes src/line-inbound src/account",
     "lint:css": "stylelint --config ../../packages/ui-react/.stylelintrc.json \"src/governance.css\" \"src/journey-authoring/*.css\" \"src/dphone-embedding/*.css\" \"src/line-inbound/*.css\" \"src/account/*.css\"",
     "test": "tsx --test src/*.test.ts",
     "test:e2e": "playwright test",
