@@ -1,0 +1,11 @@
+services:
+  api:
+    environment:
+      DPHONE_LAUNCHER_RELEASES_DIR: /launcher-releases
+    volumes:
+      - e1-launcher-releases:/launcher-releases:ro
+
+volumes:
+  e1-launcher-releases:
+    external: true
+    name: dcontact-uat_e1-launcher-releases

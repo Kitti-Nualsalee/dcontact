@@ -72,6 +72,8 @@ sudo bash /home/osdadmin/vm1-nginx-websocket-uat.sh --check
 
 ### Voice Delivery Gate ภายใน E1 sandbox
 
+เมื่อ staging release ด้วย `umask 077` ให้รัน `uat-deploy.sh prepare "$SHA"` ก่อนขั้นอื่นเสมอ `prepare` คืน permission เฉพาะ template Caddy/HAProxy และไฟล์ config/โฟลเดอร์ของ FreeSWITCH ที่อยู่ใน source เพื่อให้ container non-root อ่านได้ ไม่ทำ recursive chmod ทั้ง release และไม่เปลี่ยน `uat.env`/`release.env` จาก 600 หาก config FreeSWITCH ถูกแทน placeholder ด้วย secret ใน source หรือ template เป็น symlink จะหยุด ให้ใช้ source จาก release ที่ตรวจสอบแล้วและ render secret ลง tmpfs ตาม entrypoint เท่านั้น ห้ามแก้ด้วยการเปิด permission ของ secret
+
 ก่อน deploy release ที่มี command gateway ให้คัดลอก `vm2-e1-voice-secret.py` ไป VM2 แล้วรันด้วยเจ้าของ `/opt/dcontact-uat/uat.env`:
 
 ```bash
@@ -107,3 +109,13 @@ gateway ตรวจ binding ภายใต้ tenant RLS: node, outbox `SUBMIT
 ESL events ของ origination UUID ที่มี durable claim เท่านั้นเข้า `VoiceOriginateOutcomeProcessor`/Contact Governance; event ของขาอื่นไม่ settle delivery นี้ `BACKGROUND_JOB` failure ที่ผูกกับคำสั่งได้ใช้ outcome จริง ส่วนผลที่หายระหว่าง restart ยังต้อง reconciliation ไม่ resend และไม่ถือเป็นหลักฐาน DELIVERED การ cancel ที่ request ไว้แล้วทำได้แม้ technical switch ปิด; การปิด embed/auth ต้องไม่สั่งตัดสายที่คุยอยู่
 
 SIP flush ทำงานได้แม้ outbound flag ปิด แต่ต้องผูก credential ที่ revoked และ lease ที่ released แล้วภายใต้ RLS ตรง tenant/node/domain/extension เท่านั้น ใช้ user row lock ร่วมกับ credential issuance; ถ้ามี credential ของ lease ใหม่จะปฏิเสธ ไม่ลบ registration ใหม่ การ issue ยัง lock lease แล้วตรวจ released/expiry อีกครั้ง จึงไม่หมุน credential แข่งกับ close ใช้เฉพาะ `sofia ... flush_inbound_reg` ไม่มี `uuid_kill`, audit หลัง ESL reply จริงและ flush ซ้ำที่สำเร็จแล้วไม่ส่ง ESL ซ้ำ timeout ไม่ retry อัตโนมัติและมี diagnostic แบบ opaque ให้ operator ตรวจต่อ ไม่ถือว่า flush transport นี้แทนหลักฐาน auth continuity หรือ single receiving point บน browser จริง
+
+### Launcher alias บน runtime ของ E1
+
+หลัง deploy release ที่มี overlay นี้ ขณะ outbound default-off และไม่มีสาย ใช้ `bash "$RUNNER" e1-launcher-enable "$SHA"` เพื่อ import release/SRI จาก image ที่ตรึง digest ไป named volume และ recreate เฉพาะ API ให้ mount แบบ read-only ไฟล์ source ของ helper ต้องผ่านขั้น `prepare` แล้ว ไม่มีการเปิดพอร์ตใหม่หรือส่งข้อมูล tenant ออกนอก stack
+
+`bash "$RUNNER" e1-launcher-status "$SHA"` ตรวจ integrity; `bash "$RUNNER" e1-launcher-alias "$SHA" v1 1.0.0` ชี้ alias กลับ และ `... v1 1.0.1` คืนเวอร์ชันปัจจุบัน โดยไม่ restart API/FreeSWITCH หรือแก้ pinned asset การเปลี่ยน index เป็น atomic และ import ซ้ำเก็บ alias เดิม ไม่ยอมรับข้าม major, asset ที่ถูกแก้ หรือ symlink ก่อนเลื่อน alias ต้องมี contract/e2e บน host อ้างอิงตาม E1.7 ส่วน rollback ให้ใช้เวอร์ชันที่เคยผ่านแล้ว และตรวจ header/เนื้อหาจริงหลัง cache 5 นาที
+
+คำสั่ง launcher ใช้ lock เดียวกันและปฏิเสธเมื่อมี operator อีกคำสั่งกำลังทำงาน จึงไม่ให้ import ทับ alias ที่กำลัง rollback
+
+ไฟล์ `e1-launcher-hosting.enabled` อยู่นอก release; operator ของ release นี้สืบทอด mount เมื่อ E1 เปิดอยู่ ถ้าจะ rollback ไป release รุ่นเก่าที่ไม่มี overlay ต้องถอด E1 profile ก่อนตามขั้น rollback แล้วคืน profile/flag และทดสอบ smoke named volume ไม่ถูกลบ การมี helper หรือ unit tests ผ่านยังไม่ใช่หลักฐานว่าซ้อม alias บน UAT จริงแล้ว

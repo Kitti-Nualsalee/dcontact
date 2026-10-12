@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +74,104 @@ const caddyfileLine = read(UAT_FILES.caddyfileLine);
 const lineEgressConfig = read(UAT_FILES.lineEgressConfig);
 const lineSecretsScript = read(UAT_FILES.lineSecretsScript);
 const composeLineTrial = read(UAT_FILES.composeLineTrial);
+
+function restrictedReleaseFixture(context) {
+  const root = mkdtempSync(resolve(tmpdir(), 'uat-mount-permissions-'));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const sourceSha = 'a'.repeat(40);
+  const releaseDir = resolve(root, 'releases', sourceSha);
+  cpSync(resolve(repositoryRoot, 'infra/uat'), releaseDir, { recursive: true });
+  const secret = resolve(root, 'uat.env');
+  writeFileSync(secret, 'UAT_HOST=uat.example.invalid\n', { mode: 0o600 });
+  const image = `ghcr.io/example/fixture@sha256:${'b'.repeat(64)}`;
+  writeFileSync(
+    resolve(releaseDir, 'release.env'),
+    `SOURCE_SHA=${sourceSha}\nAPI_IMAGE=${image}\nCONSOLE_IMAGE=${image}\nOPS_IMAGE=${image}\nKEYCLOAK_IMAGE=${image}\n`,
+    { mode: 0o600 },
+  );
+  mkdirSync(resolve(root, 'bin'), { recursive: true });
+  writeFileSync(resolve(root, 'bin/docker-compose'), '#!/usr/bin/env bash\nexit 0\n', {
+    mode: 0o700,
+  });
+  writeFileSync(resolve(root, 'e1-acceptance.enabled'), '', { mode: 0o600 });
+  const templates = [
+    'Caddyfile.3vm',
+    'Caddyfile.3vm.e1',
+    'haproxy-db-relay.cfg',
+    'e1-freeswitch/conf/autoload_configs/event_socket.conf.xml',
+    'e1-freeswitch/conf/autoload_configs/xml_curl.conf.xml',
+    'e1-freeswitch/conf/sip_profiles/internal.xml',
+  ];
+  for (const name of templates) chmodSync(resolve(releaseDir, name), 0o600);
+  for (const name of [
+    'e1-freeswitch',
+    'e1-freeswitch/conf',
+    'e1-freeswitch/conf/autoload_configs',
+    'e1-freeswitch/conf/sip_profiles',
+  ])
+    chmodSync(resolve(releaseDir, name), 0o700);
+  return {
+    secret,
+    releaseDir,
+    templates,
+    prepare: () =>
+      spawnSync('bash', [resolve(repositoryRoot, UAT_FILES.deployScript), 'prepare', sourceSha], {
+        env: { ...process.env, UAT_ROOT: root },
+        encoding: 'utf8',
+      }),
+  };
+}
+
+test('prepare คืน permission ของ mount templates หลัง staging umask 077 โดยไม่เปิด secret', (context) => {
+  const fixture = restrictedReleaseFixture(context);
+  const result = fixture.prepare();
+  assert.equal(result.status, 0, result.stderr);
+  for (const name of fixture.templates)
+    assert.ok(
+      statSync(resolve(fixture.releaseDir, name)).mode & 0o004,
+      `${name} ต้องอ่านได้โดย container non-root`,
+    );
+  for (const name of [
+    'e1-freeswitch',
+    'e1-freeswitch/conf',
+    'e1-freeswitch/conf/autoload_configs',
+    'e1-freeswitch/conf/sip_profiles',
+  ])
+    assert.ok(
+      statSync(resolve(fixture.releaseDir, name)).mode & 0o001,
+      `${name} ต้อง traverse ได้โดย container non-root`,
+    );
+  assert.equal(statSync(fixture.secret).mode & 0o777, 0o600);
+  assert.equal(statSync(resolve(fixture.releaseDir, 'release.env')).mode & 0o777, 0o600);
+});
+
+test('prepare ไม่เปิด permission ของ FreeSWITCH config ที่ render secret ลง source แล้ว', (context) => {
+  const fixture = restrictedReleaseFixture(context);
+  const source = resolve(
+    fixture.releaseDir,
+    'e1-freeswitch/conf/autoload_configs/event_socket.conf.xml',
+  );
+  writeFileSync(
+    source,
+    readFileSync(source, 'utf8').replace('__E1_ESL_PASSWORD__', 'fixture-rendered-value'),
+  );
+  const result = fixture.prepare();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /E1_SOURCE_TEMPLATE_RENDERED/);
+  assert.equal(statSync(source).mode & 0o777, 0o600);
+  assert.equal(statSync(fixture.secret).mode & 0o777, 0o600);
+});
+
+test('prepare ปฏิเสธ mount template ที่เป็น symlink โดยไม่เปลี่ยน permission ของ secret ปลายทาง', (context) => {
+  const fixture = restrictedReleaseFixture(context);
+  const source = resolve(fixture.releaseDir, 'Caddyfile.3vm');
+  unlinkSync(source);
+  symlinkSync(fixture.secret, source);
+  const result = fixture.prepare();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /MOUNT_SOURCE_TEMPLATE_INVALID/);
+  assert.equal(statSync(fixture.secret).mode & 0o777, 0o600);
+});
 
 /** แทรก block ใต้ `services:` ของ compose จริง */
 function withService(block) {
