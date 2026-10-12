@@ -60,6 +60,26 @@ test('E1.11: localhost / 127.0.0.1 ได้เฉพาะ dev', () => {
   });
 });
 
+test('E1 acceptance: script URL ที่ตรึง release query ยังโหลด CSS ของ release เดียวกัน', () => {
+  const options = {
+    scriptUrl: 'https://workspace.dcontact.test/embed/dphone-embed.js?release=c02024b',
+  };
+  const policy = {
+    tenantId: 't',
+    tenantAlias: 'demo',
+    origins: ['https://crm.example.test'],
+    screenPopLevels: {},
+  };
+  const html = embedShellHtml(policy, options, 'n1');
+  assert.ok(
+    html.includes('src="https://workspace.dcontact.test/embed/dphone-embed.js?release=c02024b"'),
+  );
+  assert.ok(
+    html.includes('href="https://workspace.dcontact.test/embed/dphone-embed.css?release=c02024b"'),
+  );
+  assert.doesNotMatch(embedShellHtml(null, options, 'n1'), /type="module"|stylesheet/);
+});
+
 test('E1.11: shell — ไม่มี origin = frame-ancestors none และไม่โหลด script; มี = allowlist ชุดเดียวกับ JSON', () => {
   const options = { scriptUrl: 'https://workspace.dcontact.test/embed/dphone-embed.js' };
   const closed = embedShellHeaders(null, options, 'n1');

@@ -26,6 +26,9 @@
 		@keycloakAdmin path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* /auth/metrics /auth/health /auth/health/*
 		respond @keycloakAdmin 404
 
+		@embedBootstrapAssets path /workspace/embed/dphone-embed.js /workspace/embed/dphone-embed.css
+		header @embedBootstrapAssets Cache-Control "no-cache"
+
 		# browser และ FreeSWITCH ใช้ WSS ตรงกัน เพื่อให้ Sofia ตอบ Via: SIP/2.0/WSS
 		handle /sip-ws {
 			reverse_proxy https://freeswitch:7443 {

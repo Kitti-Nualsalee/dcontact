@@ -739,6 +739,20 @@ test('E1.16: UAT เปิด/ปิด dphone embed ผ่าน audited platfo
   );
 });
 
+test('E1 acceptance: bootstrap asset ใช้ release SHA และ revalidate แทน heuristic cache', () => {
+  const overlay = readFileSync('infra/uat/docker-compose.uat.e1.yml', 'utf8');
+  const caddy = readFileSync('infra/uat/Caddyfile.3vm.e1', 'utf8');
+  assert.equal(
+    parseComposeServices(overlay).api.environment.DPHONE_EMBED_SCRIPT_URL,
+    'https://${UAT_HOST:?UAT_HOST is required}/workspace/embed/dphone-embed.js?release=${SOURCE_SHA:?SOURCE_SHA is required}',
+  );
+  assert.match(
+    caddy,
+    /@embedBootstrapAssets path \/workspace\/embed\/dphone-embed\.js \/workspace\/embed\/dphone-embed\.css/,
+  );
+  assert.match(caddy, /header @embedBootstrapAssets Cache-Control "no-cache"/);
+});
+
 test('E1.16: UAT image มี embed assets, host อ้างอิง และ route ของ dphone ครบ', () => {
   assert.match(consoleDockerfile, /pnpm --filter @d-contact\/workspace build/);
   assert.match(
