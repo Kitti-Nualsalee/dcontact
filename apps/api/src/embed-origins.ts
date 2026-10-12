@@ -333,14 +333,18 @@ export class EmbedOriginService {
 
   /** lease ของ surface `embedded` ใช้ตรวจ host origin ซ้ำฝั่ง server (E1.5 ข้อ 5) — ไม่ใช้ cache */
   async isEmbeddable(tenantId: string, origin: string): Promise<boolean> {
-    return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
-      if (!(await this.embeddable(tx, tenantId))) return false;
-      const row = await tx.tenantEmbedOrigin.findFirst({
-        where: { tenantId, origin, enabled: true },
-        select: { id: true },
-      });
-      return Boolean(row);
+    return withTenantDatabaseTransaction(this.database, tenantId, (tx) =>
+      this.isEmbeddableInTransaction(tx, tenantId, origin),
+    );
+  }
+
+  async isEmbeddableInTransaction(tx: Tx, tenantId: string, origin: string): Promise<boolean> {
+    if (!(await this.embeddable(tx, tenantId))) return false;
+    const row = await tx.tenantEmbedOrigin.findFirst({
+      where: { tenantId, origin, enabled: true },
+      select: { id: true },
     });
+    return Boolean(row);
   }
 
   // ── internals ─────────────────────────────────────────────────────────────

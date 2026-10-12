@@ -45,6 +45,7 @@ type WorkspaceMessage =
   | 'micEnded'
   | 'micBlocked'
   | 'registerFailed'
+  | 'availabilityFailed'
   | 'wrapupFailed';
 
 export interface WorkspaceAppProps {
@@ -167,6 +168,10 @@ function AgentWorkspace({
   const [workingTab, setWorkingTab] = useState<boolean>();
   const [mediaReadiness, setMediaReadiness] = useState<MediaReadiness>('UNCHECKED');
   const [availability, setAvailability] = useState<Availability>('OFFLINE');
+  const [availabilityPending, setAvailabilityPending] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<WorkspaceMessage>();
+  const mediaReadinessRef = useRef(mediaReadiness);
+  mediaReadinessRef.current = mediaReadiness;
   // ข้อความเก็บเป็น key แล้วแปลตอน render — สลับภาษาแล้วเปลี่ยนตาม
   const [mediaError, setMediaError] = useState<WorkspaceMessage>();
   const [snapshot, setSnapshot] = useState<AgentWorkspaceSnapshot>();
@@ -427,6 +432,7 @@ function AgentWorkspace({
         track.addEventListener(
           'ended',
           () => {
+            mediaReadinessRef.current = 'BLOCKED';
             setAvailability('OFFLINE');
             setMediaReadiness('BLOCKED');
             setMediaError('micEnded');
@@ -467,9 +473,38 @@ function AgentWorkspace({
     }
   }
 
-  function becomeAvailable() {
-    if (!ownsWork || mediaReadiness !== 'READY' || (api && dphoneState.phase !== 'READY')) return;
-    setAvailability('AVAILABLE');
+  async function becomeAvailable() {
+    if (
+      availabilityPending ||
+      !ownsWork ||
+      mediaReadiness !== 'READY' ||
+      (api && dphoneState.phase !== 'READY')
+    )
+      return;
+    setAvailabilityPending(true);
+    setAvailabilityError(undefined);
+    try {
+      if (api) {
+        const leaseId = leaseClient.current?.leaseId();
+        if (!leaseId) throw new Error('work-session lease is required');
+        await api.becomeAvailable(leaseId);
+        const phonePhase = dphone.current?.current().phase;
+        if (
+          !ownsWorkRef.current ||
+          leaseClient.current?.leaseId() !== leaseId ||
+          mediaReadinessRef.current !== 'READY' ||
+          !phonePhase ||
+          !['READY', 'RINGING', 'CONNECTING', 'ACTIVE', 'HELD'].includes(phonePhase)
+        )
+          return;
+      }
+      setAvailability('AVAILABLE');
+    } catch {
+      setAvailability('OFFLINE');
+      setAvailabilityError('availabilityFailed');
+    } finally {
+      setAvailabilityPending(false);
+    }
   }
 
   async function acceptCall() {
@@ -852,6 +887,7 @@ function AgentWorkspace({
       <Button
         variant="primary"
         isDisabled={
+          availabilityPending ||
           !ownsWork ||
           mediaReadiness !== 'READY' ||
           availability === 'AVAILABLE' ||
@@ -859,8 +895,13 @@ function AgentWorkspace({
         }
         onPress={becomeAvailable}
       >
-        {t('availability.open')}
+        {t(availabilityPending ? 'availability.pending' : 'availability.open')}
       </Button>
+      {availabilityError ? (
+        <p className="aw-warning" role="status">
+          {t(availabilityError)}
+        </p>
+      ) : null}
     </article>
   );
 

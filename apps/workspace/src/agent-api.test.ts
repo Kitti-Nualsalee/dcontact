@@ -56,6 +56,45 @@ test('Agent API ปฏิเสธการเรียกเมื่อไม�
   await assert.rejects(api.snapshot(), /authenticated access token/);
 });
 
+test('เปิดรับสายส่ง lease และรอ acknowledgement AVAILABLE จาก server', async () => {
+  let sent: RequestInit | undefined;
+  const api = createAgentWorkspaceApi({
+    baseUrl: 'https://api.example',
+    accessToken: () => 'access-token-in-memory',
+    fetch: async (input, init) => {
+      assert.equal(String(input), 'https://api.example/api/v1/workspace/agent/availability');
+      sent = init;
+      return new Response(JSON.stringify({ state: 'AVAILABLE' }));
+    },
+  });
+  await api.becomeAvailable('current-lease');
+  assert.equal(sent?.method, 'POST');
+  assert.deepEqual(sent?.headers, {
+    authorization: 'Bearer access-token-in-memory',
+    'content-type': 'application/json',
+    'x-work-session-lease-id': 'current-lease',
+  });
+  assert.deepEqual(JSON.parse(String(sent?.body)), { state: 'AVAILABLE' });
+});
+
+test('เปิดรับสายผ่าน embedded authorizedFetch และไม่ยอมรับ error/ack ที่ผิด', async () => {
+  for (const [status, body] of [
+    [403, { code: 'WORK_SESSION_CHANGED' }],
+    [200, { state: 'OFFLINE' }],
+    [200, null],
+  ] as const) {
+    const api = createAgentWorkspaceApi({
+      baseUrl: 'https://api.example',
+      accessToken: () => undefined,
+      authorizedFetch: async (_url, init) => {
+        assert.equal(new Headers(init.headers).get('x-work-session-lease-id'), 'embedded-lease');
+        return new Response(JSON.stringify(body), { status });
+      },
+    });
+    await assert.rejects(api.becomeAvailable('embedded-lease'));
+  }
+});
+
 test('live event ของ Workspace ใช้ D-Contact WebSocket โดยไม่ใส่ token ใน URL', () => {
   assert.equal(
     workspaceSocketUrl('https://api.example/anything?access_token=must-not-survive'),
