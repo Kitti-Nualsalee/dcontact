@@ -4,6 +4,16 @@
   color: #0f172a;
   background: #f7faf9;
 }
+.gov-shell--embedded {
+  /* #654: อยู่ใน ConsoleShell — ความสูงและพื้นหลังเป็นของ shell */
+  min-height: 0;
+  background: transparent;
+}
+.gov-viewer--embedded {
+  margin: 0;
+  padding: 10px 24px 0;
+  color: #475569;
+}
 .gov-skip {
   position: absolute;
   left: -9999px;
