@@ -57,6 +57,17 @@ async function mockWorkSessionLease(page: Page) {
       heartbeatSeconds: 20,
     };
   };
+  await page.context().route('**/api/v1/workspace/agent/availability', (route) => {
+    const request = route.request();
+    const accepted =
+      request.method() === 'POST' &&
+      request.headers()['x-work-session-lease-id'] === current?.leaseId &&
+      request.postDataJSON()?.state === 'AVAILABLE';
+    return route.fulfill({
+      status: accepted ? 200 : 403,
+      json: accepted ? { state: 'AVAILABLE' } : { code: 'WORK_SESSION_CHANGED' },
+    });
+  });
   // ระดับ context: route ของ page และ context ที่ลงทะเบียนทีหลังใน spec จึงมาก่อน mock นี้
   await page.context().route('**/api/v1/me/work-session**', async (route) => {
     const request = route.request();

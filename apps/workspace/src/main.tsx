@@ -28,6 +28,7 @@ const e2eApi: AgentWorkspaceApi = {
     ? { subscribeLive: (handlers, options) => e2eHttpApi.subscribeLive!(handlers, options) }
     : {}),
   snapshot: () => e2eHttpApi.snapshot(),
+  becomeAvailable: (workSessionLeaseId) => e2eHttpApi.becomeAvailable(workSessionLeaseId),
   submitWrapup: (input) => e2eHttpApi.submitWrapup(input),
   sipCredentials: async (workSessionLeaseId) => ({
     leaseId: workSessionLeaseId,

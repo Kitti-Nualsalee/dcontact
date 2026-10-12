@@ -22,6 +22,7 @@ export interface AgentWorkspaceSnapshot {
 
 export interface AgentWorkspaceApi {
   snapshot(): Promise<AgentWorkspaceSnapshot>;
+  becomeAvailable(workSessionLeaseId: string): Promise<void>;
   sipCredentials(workSessionLeaseId: string): Promise<SipCredentialLease>;
   submitWrapup(input: {
     interactionId: string;
@@ -95,6 +96,25 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
   return {
     async snapshot() {
       return get<AgentWorkspaceSnapshot>('/api/v1/workspace/agent/snapshot');
+    },
+    async becomeAvailable(workSessionLeaseId) {
+      const response = await send('/api/v1/workspace/agent/availability', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-work-session-lease-id': workSessionLeaseId,
+        },
+        body: JSON.stringify({ state: 'AVAILABLE' }),
+      });
+      if (!response.ok) throw new Error(`availability failed with HTTP ${response.status}`);
+      const outcome: unknown = await response.json();
+      if (
+        !outcome ||
+        typeof outcome !== 'object' ||
+        !('state' in outcome) ||
+        outcome.state !== 'AVAILABLE'
+      )
+        throw new Error('availability acknowledgement is invalid');
     },
     async sipCredentials(workSessionLeaseId) {
       const response = await send('/api/v1/workspace/agent/sip-credentials', {
