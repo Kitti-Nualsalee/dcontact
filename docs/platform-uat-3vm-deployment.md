@@ -63,11 +63,14 @@ bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh status <SOURCE_SHA>
   - **ชื่อ cookie ของ realm `dcontact` เปลี่ยนเป็น `DC_*`** เมื่อ image Keycloak ใหม่ขึ้น: ผู้ใช้ที่ login อยู่ยัง SSO ต่อได้ (ชื่อเดิมถูกอ่านแล้วหมดอายุ) ไม่ต้อง login ใหม่
   - rollback ของ image Keycloak กลับรุ่นก่อน AC6: cookie `DC_*` ที่ค้างอยู่ในเบราว์เซอร์ไม่ถูกอ่าน — ผู้ใช้ต้อง login ใหม่หนึ่งครั้ง
   - ก่อนเปิดให้ลูกค้า: รัน `pnpm test:identity-traces` กับ stack ที่มี Keycloak ตัวเดียวกัน (ต้องผ่านทั้ง th/en)
-- **AC2 (#595):** `configure` ยังตั้ง browser flow ของ tenant `dcontact-browser` และผูกเป็น browser flow ของ realm
-  (บังคับ 2FA ตาม Organization ผ่าน extension `dc-account` ใน image ของ Keycloak)
+- **AC2 (#595):** `configure` ยังตั้ง browser flow ของ tenant `dcontact-browser` (บังคับ 2FA ตาม Organization
+  ผ่าน extension `dc-account` ใน image ของ Keycloak) แต่**ไม่ผูกเป็น browser flow ของ realm** (#645)
+  - realm UAT ใช้ `uat browser password otp` ของ U1 `keycloak-config` ซึ่งบังคับ OTP ทุกบัญชี — account setup ทั้งใน
+    `configure` และ `operator` จึงรันด้วย `--keep-realm-browser-flow` (`UAT-S24`) ไม่งั้นสองงานเขียนทับกันตามลำดับ deploy
+  - ผลคือสวิตช์ "บังคับ 2FA" ใน Console ไม่มีผลบน UAT เพราะ OTP บังคับอยู่แล้ว
   - image ของ Keycloak ต้องมี `dcontact-account.jar` ก่อนรัน `configure` — ถ้าไม่มี setup จะล้มที่การเพิ่ม `dc-org-mfa-required`
-  - ถอยกลับ: ตั้ง browser flow ของ realm กลับเป็น `browser` ใน admin console ของ Keycloak
-    (`platform-console` ใช้ flow ของตัวเอง จึงไม่กระทบ)
+  - ถ้า realm ถูกผูกกับ `dcontact-browser` ค้างจาก release ก่อน #645: รัน U1 `keycloak-config` ซ้ำ ระบบจะตั้งกลับเป็น
+    `uat browser password otp` เอง (`platform-console` ใช้ flow ของตัวเอง จึงไม่กระทบ)
 
 `keycloak` เปลี่ยนเฉพาะ image ของ service U1 ด้วย overlay; release directory และ `release.env` ของ U1 ไม่ถูกแก้. `configure` ตั้ง `platform-console`/provisioner/SMTP และ seed operational baseline UAT (`uat-operational-v1`, plan starter/growth/enterprise) แบบทำซ้ำได้. `start` ต้องตรวจว่า rollout ยังปิด.
 

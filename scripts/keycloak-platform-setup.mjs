@@ -120,7 +120,10 @@ const AMR_REFERENCES = Object.freeze({
   'auth-username-password-form': 'pwd',
   'auth-otp-form': 'otp',
 });
-/** เท่ากับ ssoSessionMaxLifespan ของ realm dev (10 ชม.) */
+/**
+ * เท่ากับ ssoSessionMaxLifespan ของ realm dev (10 ชม.) — realm UAT ต้องไม่ยาวกว่านี้
+ * (`PLATFORM_AMR_MAX_AGE_SECONDS` ใน u1-uat-readiness.mjs, UAT-S08 #645) แก้ต้องแก้คู่กัน
+ */
 const AMR_MAX_AGE_SECONDS = '36000';
 
 /** Cookie คืน session เดิม; เมื่อไม่มี session ต้องผ่าน username/password และ OTP ทั้งคู่ */

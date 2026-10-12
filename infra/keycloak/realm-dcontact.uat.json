@@ -21,7 +21,7 @@
   "waitIncrementSeconds": 60,
   "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and notUsername and notEmail and passwordHistory(3)",
   "accessTokenLifespan": 300,
-  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionIdleTimeout": 28800,
   "ssoSessionMaxLifespan": 36000,
   "internationalizationEnabled": true,
   "supportedLocales": ["th", "en"],
