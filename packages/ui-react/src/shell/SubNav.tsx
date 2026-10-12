@@ -1,3 +1,4 @@
+import { useUiText } from '../i18n.js';
 import { ShellIcon } from './icons.js';
 import styles from './SubNav.module.css';
 
@@ -7,6 +8,8 @@ export interface SubNavItem {
   href: string;
   icon?: string;
   count?: number;
+  /** อยู่อีก host app → เปิดแท็บใหม่ (ADR-026 ข้อ 3) */
+  external?: boolean;
 }
 
 export interface SubNavSection {
@@ -25,6 +28,7 @@ export interface SubNavProps {
 
 /** แผงเมนูย่อยของแอปใน Console (หน้าตาแบบ B: ชื่อกลุ่ม, ไอคอนนำ, แถว 36px) */
 export function SubNav({ title, eyebrow, sections, currentItemId }: SubNavProps) {
+  const t = useUiText();
   return (
     <nav className={styles.subNav} aria-label={title}>
       <div className={styles.header}>
@@ -41,9 +45,13 @@ export function SubNav({ title, eyebrow, sections, currentItemId }: SubNavProps)
                   className={styles.item}
                   href={item.href}
                   aria-current={item.id === currentItemId ? 'page' : undefined}
+                  {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 >
                   <ShellIcon name={item.icon ?? 'fallback'} />
                   <span className={styles.itemLabel}>{item.label}</span>
+                  {item.external ? (
+                    <span className={styles.srOnly}>{t('shell.opensInNewTab')}</span>
+                  ) : null}
                   {item.count !== undefined ? (
                     <span className={styles.count}>{item.count}</span>
                   ) : null}

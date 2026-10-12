@@ -1,5 +1,6 @@
 /**
  * D1.13 (#452): shell ใหม่ของ Workspace หลัง flag `ui.shell.v2` ระดับ tenant — ไม่มี SubNav (D1.2)
+ * #651: rail แสดงพื้นที่งานจาก Navigation API (`areas`) — Workspace ยังไม่มีเมนูย่อย
  *
  * ต้องตัดสิน shell **ก่อน** mount WorkspaceApp และไม่เปลี่ยนอีกตลอดการโหลดหน้า เพราะการ remount จะตัด
  * softphone/WS ของสายที่คุยอยู่ (ADR-026) — ระหว่างรอคำตอบจึงแสดงสถานะเตรียมหน้าจอแทนการ render ก่อน
@@ -93,6 +94,7 @@ export function WorkspaceShell({
         maxPins={nav.maxPins}
         onTogglePin={nav.togglePin}
         currentAppId={appId}
+        areas={nav.areas}
         brand={
           <>
             <img src="/d-contact-icon-64.png" alt="" width={24} height={24} />

@@ -23,6 +23,29 @@
       "journeys": "Journeys",
       "contactGovernance": "Governance",
       "dphoneEmbedding": "dphone embedding"
+    },
+    "areas": {
+      "home": "Home",
+      "workspace": "Workspace",
+      "supervisor": "Supervise",
+      "outbound": "Outbound",
+      "journeys": "Journeys",
+      "governance": "Governance",
+      "cases": "Cases",
+      "routing": "Routing",
+      "ai": "AI",
+      "people": "People",
+      "wfm": "Workforce",
+      "qm": "Quality",
+      "analytics": "Analytics",
+      "integrations": "Integrations",
+      "history": "History",
+      "reports": "Reports"
+    },
+    "sections": {
+      "work": "Work",
+      "live": "Live",
+      "embedding": "Embedding"
     }
   },
   "shell": {
@@ -54,6 +77,7 @@
       "section": "Account",
       "mine": "My account",
       "policy": "Account policy"
-    }
+    },
+    "pinned": "Pinned"
   }
 }

@@ -30,6 +30,27 @@ function navigation(shellV2: boolean) {
         path: '/?view=journeys',
       },
     ],
+    // #651: พื้นที่งานบน rail (Workspace ไม่มีเมนูย่อย — D1.2)
+    areas: [
+      {
+        id: 'workspace',
+        labelKey: 'navigation.areas.workspace',
+        sections: [
+          {
+            id: 'work',
+            labelKey: 'navigation.sections.work',
+            items: [{ appId: 'agent-workspace' }],
+          },
+        ],
+      },
+      {
+        id: 'journeys',
+        labelKey: 'navigation.areas.journeys',
+        sections: [
+          { id: 'work', labelKey: 'navigation.sections.work', items: [{ appId: 'journeys' }] },
+        ],
+      },
+    ],
     pins: { appIds: ['agent-workspace', 'journeys'], source: 'TENANT', revision: 0 },
     limits: { maxPins: 15 },
     features: { shellV2 },
@@ -79,7 +100,7 @@ test('flag เปิด → rail ไม่มี SubNav, Journeys เปิด�
     'http://localhost:5174/?view=journeys&tenant=demo',
   );
   await expect(journeys).toHaveAttribute('target', '_blank');
-  await expect(rail(page).getByRole('link', { name: 'กล่องงาน' })).toHaveAttribute(
+  await expect(rail(page).getByRole('link', { name: 'พื้นที่ทำงาน' })).toHaveAttribute(
     'aria-current',
     'page',
   );
@@ -90,6 +111,32 @@ test('flag เปิด → rail ไม่มี SubNav, Journeys เปิด�
       .filter((v) => v.impact === 'serious' || v.impact === 'critical')
       .map((v) => v.id),
   ).toEqual([]);
+});
+
+test('#651: rail แสดงพื้นที่งานจาก Navigation API และ Workspace ยังไม่มีเมนูย่อย', async ({
+  page,
+}) => {
+  await mockApis(page, true);
+  await page.goto('/?tenant=demo');
+  const areas = rail(page).locator('a[data-area]');
+  await expect(areas).toHaveCount(2);
+  expect(await areas.evaluateAll((els) => els.map((el) => el.getAttribute('data-area')))).toEqual([
+    'workspace',
+    'journeys',
+  ]);
+  await expect(rail(page).locator('a[aria-current=page]')).toHaveAttribute(
+    'data-area',
+    'workspace',
+  );
+  // พื้นที่ของ Console เปิดแท็บใหม่ (ADR-026 ข้อ 3) — ลิงก์มีแค่ path + tenant ไม่มี PII
+  const consoleArea = rail(page).locator('a[data-area=journeys]');
+  await expect(consoleArea).toHaveAttribute('target', '_blank');
+  await expect(consoleArea).toHaveAttribute(
+    'href',
+    'http://localhost:5174/?view=journeys&tenant=demo',
+  );
+  // D1.2: Workspace ไม่มี SubNav — มีแค่ rail + breadcrumb
+  await expect(page.getByRole('navigation')).toHaveCount(2);
 });
 
 test('flag เปิด → สลับภาษาไม่ reload และไม่ remount WorkspaceApp', async ({ page }) => {
@@ -104,9 +151,9 @@ test('flag เปิด → สลับภาษาไม่ reload และ�
   );
 
   await page.getByRole('button', { name: 'English' }).click();
-  await expect(rail(page).getByRole('link', { name: 'Inbox' })).toBeVisible();
+  await expect(rail(page).getByRole('link', { name: 'Workspace' })).toBeVisible();
   await page.getByRole('button', { name: 'ไทย' }).click();
-  await expect(rail(page).getByRole('link', { name: 'กล่องงาน' })).toBeVisible();
+  await expect(rail(page).getByRole('link', { name: 'พื้นที่ทำงาน' })).toBeVisible();
 
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(before);
   expect(await agentName.evaluate((el) => (el as HTMLElement & { __d113?: string }).__d113)).toBe(

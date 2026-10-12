@@ -34,7 +34,8 @@ pnpm d1:shell-flag -- --tenant <slug> --off --reason "<เหตุผล>" --ac
    (`20260925100000_add_d1_12_navigation_pins`, `20260925110000_add_d1_13_tenant_ui_flags`)
 2. Keycloak: `pnpm infra:identity:locale` — เปิด internationalization `th`/`en`, attribute `zoneinfo` และ
    `account/manage-account` ที่ผู้ใช้ต้องมีเพื่อบันทึกภาษาของตัวเอง (idempotent)
-3. deploy API (Navigation API + tenant locale) แล้ว Console และ Workspace — flag ยังปิด ผู้ใช้เห็นหน้าเดิม
+3. deploy API (Navigation API + tenant locale) แล้ว Console และ Workspace
+   — #651 ([ADR-034](adr/034-shell-area-rail.md)): rail แสดงพื้นที่งานจาก `areas` ของ Navigation API; ต้อง deploy API ก่อนเสมอ — flag ยังปิด ผู้ใช้เห็นหน้าเดิม
 4. เปิด flag ให้ tenant dev/UAT ก่อน แล้วตรวจตามหัวข้อ "ตรวจหลังเปิด"
 5. ขยายทีละ tenant; tenant ของ #77 ต้องรอผู้ใช้ยืนยัน
 
