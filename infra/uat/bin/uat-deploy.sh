@@ -26,9 +26,10 @@ LINE_FLAG="$UAT_ROOT/line-pilot.enabled"
 # #567: team trial ซ้อนบน overlay `uat-line` — ต้องมีทั้งสอง flag
 TRIAL_FLAG="$UAT_ROOT/line-team-trial.enabled"
 E1_FLAG="$UAT_ROOT/e1-acceptance.enabled"
+E1_LAUNCHER_FLAG="$UAT_ROOT/e1-launcher-hosting.enabled"
 
 usage() {
-  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|ui-flag|migrate-object-storage|deploy|smoke|record|current|e1-status|e1-enable|e1-disable|e1-voice-control|e1-voice-on|e1-voice-off|line-status|line-run|line-reload|rollback-target|rollback> [sha] [...]' >&2
+  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|ui-flag|migrate-object-storage|deploy|smoke|record|current|e1-status|e1-enable|e1-disable|e1-voice-control|e1-voice-on|e1-voice-off|e1-launcher-enable|e1-launcher-status|e1-launcher-alias|line-status|line-run|line-reload|rollback-target|rollback> [sha] [...]' >&2
   exit 64
 }
 
@@ -69,6 +70,12 @@ is_e1() {
     fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
 }
 
+is_e1_launcher() {
+  is_e1 "$1" || return 1
+  [[ -f "$E1_LAUNCHER_FLAG" ]] || return 1
+  [[ -f "$1/docker-compose.uat.e1-launcher.yml" ]] || fail 'E1_LAUNCHER_OVERLAY_MISSING'
+}
+
 compose() {
   local dir="$1"
   shift
@@ -77,6 +84,7 @@ compose() {
     [[ -x "$binary" ]] || fail 'COMPOSE_3VM_BINARY_MISSING'
     local files=(-f "$dir/docker-compose.uat.yml" -f "$dir/docker-compose.uat.3vm.yml")
     if is_e1 "$dir"; then files+=(-f "$dir/docker-compose.uat.e1.yml"); fi
+    if is_e1_launcher "$dir"; then files+=(-f "$dir/docker-compose.uat.e1-launcher.yml"); fi
     if is_line "$dir"; then files+=(-f "$dir/docker-compose.uat.line.yml"); fi
     if is_trial "$dir"; then files+=(-f "$dir/docker-compose.uat.line-trial.yml"); fi
     "$binary" --project-name "$PROJECT" \
@@ -87,6 +95,7 @@ compose() {
   else
     local files=(-f "$dir/docker-compose.uat.yml")
     if is_e1 "$dir"; then files+=(-f "$dir/docker-compose.uat.e1.yml"); fi
+    if is_e1_launcher "$dir"; then files+=(-f "$dir/docker-compose.uat.e1-launcher.yml"); fi
     docker compose --project-name "$PROJECT" \
       --project-directory "$dir" \
       --env-file "$UAT_ROOT/uat.env" \
@@ -122,6 +131,35 @@ check_release_env() {
   [[ "$(release_value "$dir" SOURCE_SHA)" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
 }
 
+prepare_mount_templates() {
+  local dir="$1" file directory
+  local configs=(Caddyfile Caddyfile.3vm Caddyfile.3vm.e1 haproxy-db-relay.cfg operator/e1-launcher-releases.mjs)
+  local directories=(e1-freeswitch e1-freeswitch/conf e1-freeswitch/conf/autoload_configs
+    e1-freeswitch/conf/dialplan e1-freeswitch/conf/directory e1-freeswitch/conf/sip_profiles)
+  local e1_configs=(autoload_configs/acl.conf.xml autoload_configs/event_socket.conf.xml
+    autoload_configs/modules.conf.xml autoload_configs/sofia.conf.xml
+    autoload_configs/switch.conf.xml autoload_configs/xml_curl.conf.xml
+    dialplan/default.xml directory/default.xml freeswitch.xml sip_profiles/internal.xml vars.xml)
+  if [[ -d "$dir/e1-freeswitch" ]]; then
+    for directory in "${directories[@]}"; do
+      [[ -d "$dir/$directory" && ! -L "$dir/$directory" ]] || fail 'E1_SOURCE_TEMPLATE_INVALID'
+    done
+    for file in "${e1_configs[@]}"; do
+      [[ -f "$dir/e1-freeswitch/conf/$file" && ! -L "$dir/e1-freeswitch/conf/$file" ]] || fail 'E1_SOURCE_TEMPLATE_INVALID'
+    done
+    grep -Fq '<param name="password" value="__E1_ESL_PASSWORD__"/>' "$dir/e1-freeswitch/conf/autoload_configs/event_socket.conf.xml" || fail 'E1_SOURCE_TEMPLATE_RENDERED'
+    grep -Fq '<param name="gateway-credentials" value="e1-uat-sandbox:__E1_DIRECTORY_PASSWORD__"/>' "$dir/e1-freeswitch/conf/autoload_configs/xml_curl.conf.xml" || fail 'E1_SOURCE_TEMPLATE_RENDERED'
+    for directory in "${directories[@]}"; do chmod 0755 "$dir/$directory"; done
+    for file in "${e1_configs[@]}"; do chmod 0444 "$dir/e1-freeswitch/conf/$file"; done
+  fi
+  for file in "${configs[@]}"; do
+    if [[ -e "$dir/$file" || -L "$dir/$file" ]]; then
+      [[ -f "$dir/$file" && ! -L "$dir/$file" ]] || fail 'MOUNT_SOURCE_TEMPLATE_INVALID'
+      chmod 0444 "$dir/$file"
+    fi
+  done
+}
+
 cmd="${1:-}"
 [[ -n "$cmd" ]] || usage
 shift
@@ -134,6 +172,7 @@ case "$cmd" in
   prepare)
     dir="$(release_dir "${1:?sha}")"
     check_release_env "$dir"
+    prepare_mount_templates "$dir"
     if is_3vm "$dir"; then
       for file in "$dir/Caddyfile.3vm" "$dir/haproxy-db-relay.cfg" "$dir/bin/db-roles-3vm.sh"; do
         [[ -f "$file" ]] || fail 'RELEASE_3VM_FILE_MISSING'
@@ -389,6 +428,57 @@ case "$cmd" in
         UAT_E1_OUTBOUND_VOICE_ENABLED=false compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox
       fi
       echo "{\"type\":\"u1.uat.deploy\",\"step\":\"$cmd\",\"status\":\"PASS\"}"
+    fi
+    ;;
+
+  e1-launcher-enable|e1-launcher-status|e1-launcher-alias)
+    sha="${1:?sha}"
+    shift
+    dir="$(release_dir "$sha")"
+    exec 8>"$UAT_ROOT/e1-launcher.lock"
+    flock -n 8 || fail 'E1_LAUNCHER_COMMAND_BUSY'
+    is_e1 "$dir" || fail 'E1_ACCEPTANCE_DISABLED'
+    docker exec "${PROJECT}-api-1" node -e 'if (process.env.DCONTACT_API_PROFILE !== "uat-e1") process.exit(1)' || fail 'E1_LAUNCHER_PROFILE_REQUIRED'
+    for service in api e1-sandbox; do
+      running_sha="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${PROJECT}-${service}-1")"
+      [[ "$running_sha" == "$sha" ]] || fail 'E1_VOICE_RUNTIME_SHA_MISMATCH'
+    done
+    helper="$dir/operator/e1-launcher-releases.mjs"
+    [[ -f "$helper" && ! -L "$helper" && -f "$dir/docker-compose.uat.e1-launcher.yml" ]] || fail 'E1_LAUNCHER_OVERLAY_MISSING'
+    volume="${PROJECT}_e1-launcher-releases"
+    mode=ro
+    if [[ "$cmd" == 'e1-launcher-enable' ]]; then
+      [[ $# == 0 ]] || usage
+      status="$(compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js status)"
+      printf '%s' "$status" | python3 -c 'import json,sys; state=json.load(sys.stdin); sys.exit(1 if state["runtimeEnabled"] or state["technicalSwitchOn"] else 0)' || fail 'E1_LAUNCHER_REQUIRES_DEFAULT_OFF'
+      compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js idle
+      docker volume create "$volume" >/dev/null
+      args=(import)
+      mode=rw
+    else
+      is_e1_launcher "$dir" || fail 'E1_LAUNCHER_HOSTING_DISABLED'
+      if [[ "$cmd" == 'e1-launcher-alias' ]]; then
+        [[ $# == 2 && "$1" == v1 && "$2" =~ ^1\.[0-9]+\.[0-9]+$ ]] || usage
+        args=(alias "$1" "$2")
+        mode=rw
+      else
+        [[ $# == 0 ]] || usage
+        args=(check)
+      fi
+    fi
+    docker volume inspect "$volume" >/dev/null
+    docker run --rm --network none --read-only --user 0:0 --cap-drop ALL \
+      --security-opt no-new-privileges:true \
+      -e DPHONE_LAUNCHER_RELEASES_DIR=/launcher-releases \
+      -v "$volume:/launcher-releases:$mode" -v "$helper:/operator-launcher.mjs:ro" \
+      "$(release_value "$dir" API_IMAGE)" node /operator-launcher.mjs "${args[@]}"
+    if [[ "$cmd" == 'e1-launcher-enable' ]]; then
+      : >"$E1_LAUNCHER_FLAG"
+      if ! compose "$dir" up -d --wait --no-deps --force-recreate api; then
+        rm -f "$E1_LAUNCHER_FLAG"
+        compose "$dir" up -d --wait --no-deps --force-recreate api || true
+        fail 'E1_LAUNCHER_ENABLE_FAILED'
+      fi
     fi
     ;;
 
