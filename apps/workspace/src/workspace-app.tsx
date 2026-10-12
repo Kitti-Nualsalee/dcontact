@@ -170,6 +170,7 @@ function AgentWorkspace({
   const [availability, setAvailability] = useState<Availability>('OFFLINE');
   const [availabilityPending, setAvailabilityPending] = useState(false);
   const [availabilityError, setAvailabilityError] = useState<WorkspaceMessage>();
+  const availabilityGeneration = useRef(0);
   const mediaReadinessRef = useRef(mediaReadiness);
   mediaReadinessRef.current = mediaReadiness;
   // ข้อความเก็บเป็น key แล้วแปลตอน render — สลับภาษาแล้วเปลี่ยนตาม
@@ -325,6 +326,7 @@ function AgentWorkspace({
           .catch(() => undefined);
       },
       onRegistrationLost: () => {
+        availabilityGeneration.current += 1;
         void phone.registrationLost().then(setDphoneState);
       },
       onAutoplayBlocked: () => setDphoneError('autoplayBlocked'),
@@ -402,6 +404,7 @@ function AgentWorkspace({
     // เสีย lease: หยุดรับงานใหม่ทันที; WS เดิมอยู่ต่อจนงานในมือจบ (server ไม่ส่ง offer ให้แล้ว)
     setAvailability('OFFLINE');
     if (!workInHand) setSocketLeaseId(undefined);
+    availabilityGeneration.current += 1;
   }, [enforced, heldLeaseId, leaderElection, workInHand]);
 
   useEffect(() => {
@@ -422,6 +425,7 @@ function AgentWorkspace({
 
   async function checkMediaReadiness() {
     if (!ownsWork) return;
+    availabilityGeneration.current += 1;
     setMediaReadiness('CHECKING');
     setMediaError(undefined);
     try {
@@ -432,6 +436,7 @@ function AgentWorkspace({
         track.addEventListener(
           'ended',
           () => {
+            availabilityGeneration.current += 1;
             mediaReadinessRef.current = 'BLOCKED';
             setAvailability('OFFLINE');
             setMediaReadiness('BLOCKED');
@@ -483,6 +488,7 @@ function AgentWorkspace({
       return;
     setAvailabilityPending(true);
     setAvailabilityError(undefined);
+    const generation = availabilityGeneration.current;
     try {
       if (api) {
         const leaseId = leaseClient.current?.leaseId();
@@ -490,6 +496,7 @@ function AgentWorkspace({
         await api.becomeAvailable(leaseId);
         const phonePhase = dphone.current?.current().phase;
         if (
+          generation !== availabilityGeneration.current ||
           !ownsWorkRef.current ||
           leaseClient.current?.leaseId() !== leaseId ||
           mediaReadinessRef.current !== 'READY' ||

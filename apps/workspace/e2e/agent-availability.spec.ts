@@ -66,3 +66,36 @@ test('ไมค์หยุดระหว่างรอ acknowledgement ห้
   await expect(page.getByText('พร้อมรับสาย', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'เปิดรับสาย' })).toBeDisabled();
 });
+
+test('ack เก่าหลังไมค์เสียและตรวจใหม่พร้อมแล้ว ห้ามเปิด AVAILABLE โดยไม่กดเปิดใหม่', async ({
+  page,
+}) => {
+  let requested = false;
+  let confirm!: () => void;
+  const confirmation = new Promise<void>((resolve) => {
+    confirm = resolve;
+  });
+  await page.route('**/api/v1/workspace/agent/availability', async (route) => {
+    requested = true;
+    await confirmation;
+    await route.fulfill({ json: { state: 'AVAILABLE' } });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('โทรศัพท์พร้อม');
+  await page.getByRole('button', { name: 'เปิดรับสาย' }).click();
+  await expect.poll(() => requested).toBe(true);
+  await page.evaluate(() => {
+    const testWindow = window as Window & { __dContactTestMediaTrack: EventTarget };
+    testWindow.__dContactTestMediaTrack.dispatchEvent(new Event('ended'));
+  });
+  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText(
+    'โทรศัพท์ยังไม่พร้อม',
+  );
+  await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('โทรศัพท์พร้อม');
+  confirm();
+  await expect(page.getByText('กำลังยืนยันกับ server…')).toHaveCount(0);
+  await expect(page.getByText('พร้อมรับสาย', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'เปิดรับสาย' })).toBeEnabled();
+});

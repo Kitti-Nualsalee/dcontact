@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { Prisma, PrismaClient } from '@d-contact/db';
+import { Prisma, PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { AgentWorkspaceController, AGENT_WORKSPACE_DATABASE } from './agent-workspace-api.js';
 import {
   AGENT_SIP_CREDENTIALS,
@@ -66,14 +66,14 @@ async function fixture(context: TestContext) {
   );
   const lease = await leases.acquire(actor, { surface: 'workspace', hostOrigin: null }, 'test');
   await sip.issue({ ...actor, workSessionLeaseId: lease.leaseId });
-  const claims = ({ tenantId, userId }: typeof actor) => ({
+  const claims = ({ tenantId, userId }: typeof actor, role = 'agent') => ({
     tenant_id: tenantId,
     tenant_slug: `availability-${tenantId}`,
     organization: { [`availability-${tenantId}`]: { tenant_id: [tenantId] } },
     dc_user_id: userId,
     sid: `session-${userId}`,
     exp: 2_000_000_000,
-    realm_access: { roles: ['agent'] },
+    realm_access: { roles: [role] },
   });
   @Module({
     controllers: [AgentWorkspaceController],
@@ -85,6 +85,7 @@ async function fixture(context: TestContext) {
         useValue: {
           verifyAccessToken: async (token: string) => {
             if (token === 'actor') return claims(actor);
+            if (token === 'admin') return claims(actor, 'admin');
             if (token === 'foreign') return claims(foreign);
             throw new Error('invalid token');
           },
@@ -112,6 +113,7 @@ async function fixture(context: TestContext) {
     await owner.tenantEmbedOriginAuditEvent.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await owner.tenantEmbedOrigin.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await owner.tenantUiFlag.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await owner.tenantPlanBinding.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await owner.user.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await owner.tenant.deleteMany({ where: { id: { in: tenantIds } } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
@@ -167,6 +169,13 @@ test('ไม่มี/ผิด lease หรือ request state อื่น �
     (await state.available(state.lease.leaseId, 'actor', { state: 'OFFLINE' })).status,
     400,
   );
+  assert.equal((await state.snapshot()).agent.state, 'OFFLINE');
+});
+
+test('role ที่ไม่ใช่ agent และ token ไม่ถูกต้อง ห้ามเปิดรับสาย', async (context) => {
+  const state = await fixture(context);
+  assert.equal((await state.available(state.lease.leaseId, 'admin')).status, 403);
+  assert.equal((await state.available(state.lease.leaseId, 'invalid-token')).status, 401);
   assert.equal((await state.snapshot()).agent.state, 'OFFLINE');
 });
 
@@ -242,6 +251,16 @@ test('คำสั่งซ้ำและ race กับ release ไม่ป�
   const state = await fixture(context);
   assert.equal((await state.available()).status, 200);
   assert.equal((await state.available()).status, 200);
+  const audit = await withTenantDatabaseTransaction(
+    state.application,
+    state.actor.tenantId,
+    (transaction) =>
+      transaction.agentStateLog.findMany({
+        where: { tenantId: state.actor.tenantId, userId: state.actor.userId, state: 'AVAILABLE' },
+        select: { actorUserId: true },
+      }),
+  );
+  assert.deepEqual(audit, [{ actorUserId: state.actor.userId }]);
   let leaseId = state.lease.leaseId;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const [response] = await Promise.all([
@@ -322,6 +341,21 @@ test('embedded origin/flag ถูกปิด ห้ามเปิดรับ�
   );
   await state.sip.issue({ ...state.actor, workSessionLeaseId: lease.leaseId });
   assert.equal((await state.available(lease.leaseId)).status, 200);
+  await state.owner.tenantPlanBinding.create({
+    data: {
+      tenantId: state.actor.tenantId,
+      planCode: 'growth',
+      planVersion: 1,
+      snapshotDigest: '0'.repeat(64),
+      entitlements: { module_api_cti: false },
+      provisioningRequestId: randomUUID(),
+    },
+  });
+  assert.equal((await state.available(lease.leaseId)).status, 403);
+  await state.owner.tenantPlanBinding.update({
+    where: { tenantId: state.actor.tenantId },
+    data: { entitlements: { module_api_cti: true } },
+  });
   await state.owner.tenantUiFlag.update({
     where: {
       tenantId_flagKey: { tenantId: state.actor.tenantId, flagKey: 'dphone.embed.enabled' },
