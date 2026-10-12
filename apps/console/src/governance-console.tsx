@@ -40,6 +40,7 @@ import {
   type GovernanceViewer,
   type RecoveryState,
 } from './governance-model.js';
+import { useShellTokens } from './shell/tokens.js';
 import './governance.css';
 import { Cg5Dashboard } from './cg5-dashboard.js';
 import type { Cg5ConsoleApi } from './cg5-console-api.js';
@@ -93,6 +94,9 @@ export function GovernanceConsole({
   const inShell = useInShell();
   // #658: เมนูย่อยของ shell มีหน้าย่อยครบแล้ว → ไม่วาดแท็บซ้ำ; ไม่มี (flag ปิด/API รุ่นเก่า) → แท็บเดิม
   const pagesInShell = useShellPageNav();
+  // governance.css อ้าง token ทั้งสองสถานะของ flag (เหมือน Journeys) — token มาก่อนเนื้อหา ไม่ให้เห็นหน้าที่ยังไม่มีสี
+  const tokensReady = useShellTokens();
+  if (!tokensReady) return null;
 
   const section = location.section;
   const nav: Array<{ key: GovernanceSection; label: string; current: boolean }> = [
