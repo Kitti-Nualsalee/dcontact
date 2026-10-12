@@ -79,7 +79,8 @@ services:
       - /bin/sh
       - -ec
       # #592: account service (fine-grained admin permissions v2) ต้องรันหลัง provisioning setup
-      - node scripts/keycloak-platform-setup.mjs --no-dev-users && node scripts/keycloak-provisioning-setup.mjs && node scripts/keycloak-account-service-setup.mjs
+      # #645: browser flow ของ realm UAT เป็นของ U1 `keycloak-config` (บังคับ OTP ทุกบัญชี) — ห้ามผูก dcontact-browser ทับ
+      - node scripts/keycloak-platform-setup.mjs --no-dev-users && node scripts/keycloak-provisioning-setup.mjs && node scripts/keycloak-account-service-setup.mjs --keep-realm-browser-flow
     environment:
       KEYCLOAK_ADMIN_URL: http://keycloak:8080/auth
       KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME: ${UAT_KEYCLOAK_ADMIN_USERNAME:?required}
@@ -111,7 +112,7 @@ services:
     command:
       - /bin/sh
       - -ec
-      - node scripts/platform-uat-create-operator.mjs && node scripts/keycloak-account-service-setup.mjs
+      - node scripts/platform-uat-create-operator.mjs && node scripts/keycloak-account-service-setup.mjs --keep-realm-browser-flow
     environment:
       KEYCLOAK_ADMIN_URL: http://keycloak:8080/auth
       KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME: ${UAT_KEYCLOAK_ADMIN_USERNAME:?required}

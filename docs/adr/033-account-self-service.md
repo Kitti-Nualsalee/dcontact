@@ -47,6 +47,9 @@ API ของ D-Contact ต้องแก้ข้อมูลผู้ใช�
      - subflow 2FA เดิมได้ condition เดียวกันแบบ negate จึงไม่ถาม OTP สองรอบ
      - ประเมินตอน login เท่านั้น จึงมีผล login ครั้งถัดไปและไม่ตัด session เดิม
      - `platform-console` มี flow ของตัวเอง จึงไม่กระทบ
+     - **UAT ไม่ผูก flow นี้กับ realm** (เจ้าของงานเลือก 2026-10-12, [#645](https://github.com/Kitti-Nualsalee/dcontact/issues/645)):
+       realm UAT ใช้ `uat browser password otp` ที่บังคับ OTP ทุกบัญชีตาม U1.6 — Platform overlay ส่ง `--keep-realm-browser-flow`
+       สวิตช์บังคับ 2FA ตาม Organization จึงไม่มีผลบน UAT
 6. **sync `dc_mfa_required` ผ่าน extension ไม่ใช่ Admin REST** (เจ้าของงานเลือก 2026-10-06)
    - Admin REST ต้องให้ account service มี `manage` บน Organizations ซึ่งแก้ชื่อ/domain, ปิด org
      และเพิ่ม/ลบสมาชิกได้ทุก tenant

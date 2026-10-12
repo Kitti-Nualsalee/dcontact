@@ -184,3 +184,12 @@ test('ตรวจ flow: ต้องผูกกับ realm, Org 2FA ครบ
   ]);
   assert.equal(browserFlowFailures(realm, configuredFlow.slice(0, 12)).length, 1);
 });
+
+test('--keep-realm-browser-flow (#645): ไม่ตรวจการผูกกับ realm แต่ยังตรวจโครง flow ครบ', () => {
+  const uatRealm = { browserFlow: 'uat browser password otp' };
+  assert.deepEqual(browserFlowFailures(uatRealm, configuredFlow, { bindRealm: false }), []);
+  assert.equal(
+    browserFlowFailures(uatRealm, configuredFlow.slice(0, 12), { bindRealm: false }).length,
+    1,
+  );
+});

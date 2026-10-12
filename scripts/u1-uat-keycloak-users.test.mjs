@@ -238,6 +238,31 @@ test('config: realm ใหม่ถูกสร้างจาก template ท�
   );
 });
 
+test('config (#645): realm เดิมกลับไปใช้ browser flow/session ของ template และ Organization ไม่เสีย attribute เดิม', async () => {
+  const fake = fakeKeycloak({ realmExists: true });
+  fake.state.realm.browserFlow = 'dcontact-browser';
+  fake.state.organizations[0].attributes.dc_mfa_required = ['true'];
+  const rendered = renderRealm(template, environment);
+  const result = await applyRealmConfig(await admin(fake), rendered);
+  assert.equal(result.created, false);
+
+  const realmUpdate = fake.calls.find(
+    (call) => call.pathname === '/auth/admin/realms/dcontact' && call.method === 'PUT',
+  );
+  assert.equal(realmUpdate.body.browserFlow, template.browserFlow);
+  assert.equal(realmUpdate.body.ssoSessionIdleTimeout, template.ssoSessionIdleTimeout);
+  assert.equal(realmUpdate.body.ssoSessionMaxLifespan, template.ssoSessionMaxLifespan);
+
+  const organizationUpdate = fake.calls.find(
+    (call) => call.pathname.endsWith('/organizations/org-1') && call.method === 'PUT',
+  );
+  assert.deepEqual(organizationUpdate.body.attributes, {
+    tenant_id: [tenantId],
+    tenant_slug: ['uat-tenant'],
+    dc_mfa_required: ['true'],
+  });
+});
+
 test('users: บัญชีใหม่ได้รหัสผ่าน temporary + ต้องตั้ง TOTP และเป็นสมาชิก Organization', async () => {
   const fake = fakeKeycloak({ realmExists: true });
   const results = await applyAccounts(await admin(fake), {

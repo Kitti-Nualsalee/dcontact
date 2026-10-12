@@ -19,6 +19,7 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  PLATFORM_AMR_MAX_AGE_SECONDS,
   UAT_FILES,
   buildDeploymentRecord,
   checkApiEnvironment,
@@ -36,6 +37,7 @@ import {
   checkLineOverlay,
   checkLineTrialOverlay,
   checkNoStartDev,
+  checkPlatformOverlayBrowserFlow,
   checkProxy,
   checkRealm,
   checkSmokeWorkflow,
@@ -446,7 +448,39 @@ test('UAT-S08: realm ที่มี user, secret, OTP ไม่บังคั�
     mutate((r) => (r.sslRequired = 'none')),
     'SSL_NOT_REQUIRED',
   );
+  // #645: session ยาวเกิน max age ของ AMR ใน platform-console หรือ idle > max ไม่ผ่าน
+  failed(
+    mutate((r) => (r.ssoSessionMaxLifespan = PLATFORM_AMR_MAX_AGE_SECONDS + 1)),
+    'SSO_SESSION_OUT_OF_BOUNDS',
+  );
+  failed(
+    mutate((r) => (r.ssoSessionIdleTimeout = r.ssoSessionMaxLifespan + 1)),
+    'SSO_SESSION_OUT_OF_BOUNDS',
+  );
+  failed(
+    mutate((r) => delete r.ssoSessionIdleTimeout),
+    'SSO_SESSION_OUT_OF_BOUNDS',
+  );
   failed(checkRealm('{not json'), 'INVALID_JSON');
+});
+
+test('UAT-S24 (#645): account setup ของ Platform overlay ที่ผูก browser flow ของ realm ทับไม่ผ่าน', () => {
+  const overlay = read(UAT_FILES.composePlatform3vm);
+  assert.equal(checkPlatformOverlayBrowserFlow(overlay).status, 'PASS');
+  failed(
+    checkPlatformOverlayBrowserFlow(
+      overlay.replace(
+        'platform-uat-create-operator.mjs && node scripts/keycloak-account-service-setup.mjs --keep-realm-browser-flow',
+        'platform-uat-create-operator.mjs && node scripts/keycloak-account-service-setup.mjs',
+      ),
+    ),
+    'REALM_BROWSER_FLOW_REBOUND',
+  );
+  failed(
+    checkPlatformOverlayBrowserFlow(overlay.replaceAll('keycloak-account-service-setup', 'x')),
+    'NO_ACCOUNT_SETUP',
+  );
+  failed(checkPlatformOverlayBrowserFlow(null), 'MISSING_ARTIFACT');
 });
 
 test('UAT-S09: env ของ api ที่ขัดกับ profile uat ไม่ผ่าน', () => {

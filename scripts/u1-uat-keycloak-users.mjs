@@ -336,9 +336,15 @@ export async function applyRealmConfig(admin, rendered) {
         // ห้ามผูก Organization เดิมกับ tenant อื่นเงียบ ๆ
         throw new UatKeycloakError('ORGANIZATION_TENANT_MISMATCH', desired.alias);
       }
+      // #645: Keycloak แทน attribute ทั้งชุด — รวมของเดิมไว้ ไม่ลบ `dc_mfa_required` ที่ API sync (ADR-033 ข้อ 6)
       await admin.call(`${base}/organizations/${organization.id}`, {
         method: 'PUT',
-        body: { ...organization, ...desired, id: organization.id },
+        body: {
+          ...organization,
+          ...desired,
+          attributes: { ...organization.attributes, ...desired.attributes },
+          id: organization.id,
+        },
       });
     }
   }
