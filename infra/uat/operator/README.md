@@ -122,7 +122,7 @@ sudo python3 "$MEDIA" --apply --actor operator:patiphan-phakam
 sudo python3 "$MEDIA" --check
 ```
 
-`--inspect`/`--check` ไม่มี mutation; check ที่ยังไม่มี snapshot จะ FAIL ให้ใช้ apply หลังตรวจ scope แล้ว มีเพียง DNAT/FORWARD ของ Mac `192.168.50.12/32` ↔ IP ปัจจุบันของ FreeSWITCH UAT, UDP `16384–16420` เดิม และ reply ไป ephemeral ports ของ Mac ที่ `ESTABLISHED` แล้วเท่านั้น ไม่อนุญาต NEW provider egress หาก IP ของเครื่องทดสอบเปลี่ยนต้องยืนยัน scope ใหม่ก่อน ห้ามขยายเป็น subnet/wildcardเอง
+`--inspect`/`--check` ไม่มี mutation; check ที่ยังไม่มี snapshot จะ FAIL ให้ใช้ apply หลังตรวจ scope แล้ว มีเพียง DNAT/FORWARD ของ Mac ผ่าน VPN `192.168.253.8/32` ↔ IP ปัจจุบันของ FreeSWITCH UAT, UDP `16384–16420` เดิม และ reply ไป ephemeral ports ของ Mac ที่ `ESTABLISHED` แล้วเท่านั้น ไม่อนุญาต NEW provider egress หาก IP ของเครื่องทดสอบเปลี่ยนต้องตรวจ scope และปรับ canonical operator ก่อนใช้ ห้ามขยายเป็น subnet/wildcardเอง สำหรับ HTTPS ให้เพิ่ม IP ทดสอบเดียวกันใน `UAT_ALLOWED_CIDRS` โดยคงรายการเดิม
 
 Operator ใช้ chain/jump ที่มี ownership marker เฉพาะงานนี้, lock และ audit/state ที่ root-owned ใน `/var/lib/dcontact-uat-e1-media/`; state เป็น non-secret อ่านได้แต่แก้ได้เฉพาะ root Apply ซ้ำไม่เพิ่ม rule และไม่ reset counter/ledger หากมี chain/rule/reference รวม `goto` ไม่ตรง ownership จะหยุดโดยไม่แตะ firewall; failure คืน owned state ที่ยังปลอดภัยหรือปิด snapshot แบบ fail-closed หากแจ้ง rollback failed ต้องตรวจด้วย root ก่อน ห้ามนับว่า apply/restore ผ่าน หาก reboot ล้าง owned rules ทั้งหมด แต่ snapshot เดิมยังอยู่ จะ apply/restore ได้โดยไม่แตะ unrelated rules; owned rules ที่เหลือบางส่วนแบบไม่ตรงแผนยังต้องตรวจด้วยมือ
 
