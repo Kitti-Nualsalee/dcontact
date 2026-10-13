@@ -122,16 +122,39 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(len(self.fake.mutations), before)
         self.assertEqual(self.written, [])
 
+    def test_comment_cannot_hide_jump_or_goto_reference(self):
+        for option in ('-j', '-g'):
+            with self.subTest(option=option):
+                fake = FakeIptables()
+                firewall = media.MediaFirewall(fake.execute)
+                firewall.install(media.ruleset(CURRENT['ip']))
+                fake.tables['nat'].append(('-A', 'UNRELATED', '-m', 'comment', '--comment', option, option, media.CHAINS['nat']))
+                before = len(fake.mutations)
+                with self.assertRaisesRegex(media.MediaGuardError, 'UNKNOWN_FIREWALL_OWNERSHIP'):
+                    media.reconcile(firewall, snapshot(), CURRENT, ACTOR, restore=True)
+                self.assertEqual(len(fake.mutations), before)
+                self.assertEqual(self.written, [])
+
     def test_observed_vm2_default_route_is_to_internal_gateway(self):
-        routes = 'Iface Destination Gateway Flags\neth0 00000000 010015AC 0003\neth0 000015AC 00000000 0001\n'
+        routes = 'Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT\neth0 00000000 010015AC 0003 0 0 0 00000000 0 0 0\neth0 000015AC 00000000 0001 0 0 0 0000FFFF 0 0 0\n'
         media.require_return_route(routes, '172.21.0.1')
         with self.assertRaisesRegex(media.MediaGuardError, 'RETURN_ROUTE_REQUIRED'):
             media.require_return_route(routes, '172.22.0.1')
 
     def test_missing_or_down_default_route_is_not_assumed_from_internal_network(self):
-        for routes in ('Iface Destination Gateway Flags\neth0 000015AC 00000000 0001\n', 'Iface Destination Gateway Flags\neth0 00000000 010015AC 0002\n'):
+        for routes in ('Iface Destination Gateway Flags RefCnt Use Metric Mask\neth0 000015AC 00000000 0001 0 0 0 0000FFFF\n', 'Iface Destination Gateway Flags RefCnt Use Metric Mask\neth0 00000000 010015AC 0002 0 0 0 00000000\n'):
             with self.assertRaisesRegex(media.MediaGuardError, 'RETURN_ROUTE_REQUIRED'):
                 media.require_return_route(routes, '172.21.0.1')
+
+    def test_half_internet_route_is_not_a_default_route_covering_client(self):
+        routes = 'Iface Destination Gateway Flags RefCnt Use Metric Mask\neth0 00000000 010015AC 0003 0 0 0 00000080\n'
+        with self.assertRaisesRegex(media.MediaGuardError, 'RETURN_ROUTE_REQUIRED'):
+            media.require_return_route(routes, '172.21.0.1')
+
+    def test_reject_route_is_not_an_active_default_route(self):
+        routes = 'Iface Destination Gateway Flags RefCnt Use Metric Mask\neth0 00000000 010015AC 0203 0 0 0 00000000\n'
+        with self.assertRaisesRegex(media.MediaGuardError, 'RETURN_ROUTE_REQUIRED'):
+            media.require_return_route(routes, '172.21.0.1')
 
     def test_apply_recovers_fully_missing_owned_rules_after_reboot(self):
         previous = snapshot({**CURRENT, 'bootId': 'previous-boot'})
@@ -312,6 +335,39 @@ class MediaTests(unittest.TestCase):
         for state in (None, snapshot(enabled=False), snapshot({**CURRENT, 'containerId': 'c' * 64}), snapshot({**CURRENT, 'bootId': 'changed'}), snapshot({**CURRENT, 'iptablesVersion': 'changed'})):
             with patch.object(media, 'runtime', return_value=CURRENT), patch.object(media, 'require_canonical'), patch.object(media, 'root_owned'), patch.object(media, 'read_state', return_value=state), self.assertRaisesRegex(media.MediaGuardError, 'SNAPSHOT_MISSING_OR_STALE'):
                 media.run('verify', None, None)
+
+
+class SnapshotPublishTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.state_dir = Path(self.directory.name)
+        self.state_file = self.state_dir / 'state.json'
+        self.state_file.write_text(json.dumps(snapshot(enabled=False)))
+        self.state_path = patch.object(media, 'STATE_DIR', self.state_dir)
+        self.state_path.start()
+        self.addCleanup(self.state_path.stop)
+        self.snapshot_path = patch.object(media, 'STATE_FILE', self.state_file)
+        self.snapshot_path.start()
+        self.addCleanup(self.snapshot_path.stop)
+
+    def test_audit_failure_cannot_publish_enabled_snapshot(self):
+        original_open = media.os.open
+        def fail_audit(path, flags, mode=0o777):
+            if Path(path) == self.state_dir / 'audit.jsonl':
+                raise OSError('audit unavailable')
+            return original_open(path, flags, mode)
+        with patch.object(media.os, 'open', side_effect=fail_audit), self.assertRaises(OSError):
+            media.write_state(CURRENT, ACTOR, True)
+        self.assertFalse(json.loads(self.state_file.read_text())['enabled'])
+
+    def test_failed_snapshot_publish_keeps_disabled_state_and_intent_audit(self):
+        with patch.object(media.os, 'replace', side_effect=OSError('publish unavailable')), self.assertRaises(OSError):
+            media.write_state(CURRENT, ACTOR, True)
+        self.assertFalse(json.loads(self.state_file.read_text())['enabled'])
+        audit = json.loads((self.state_dir / 'audit.jsonl').read_text())
+        self.assertEqual(audit['event'], 'snapshot.publish.intent')
+        self.assertEqual({path.name for path in self.state_dir.iterdir()}, {'state.json', 'audit.jsonl'})
 
 
 if __name__ == '__main__':

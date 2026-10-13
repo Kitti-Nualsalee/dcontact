@@ -45,7 +45,7 @@ def require_return_route(routes, gateway):
     expected_gateway = int.from_bytes(ipaddress.IPv4Address(gateway).packed, 'little')
     for line in routes.splitlines()[1:]:
         fields = line.split()
-        if len(fields) >= 4 and fields[1] == '00000000' and int(fields[2], 16) == expected_gateway and int(fields[3], 16) & 3 == 3:
+        if len(fields) >= 8 and fields[1] == '00000000' and fields[7] == '00000000' and int(fields[2], 16) == expected_gateway and int(fields[3], 16) & 0x203 == 3:
             return
     raise MediaGuardError('E1_MEDIA_RETURN_ROUTE_REQUIRED')
 
@@ -106,9 +106,11 @@ def ruleset(address):
     if ipaddress.IPv4Address(address) not in ipaddress.IPv4Network('172.16.0.0/12'):
         raise MediaGuardError('E1_MEDIA_DOCKER_IP_REQUIRED')
     marker = ('-m', 'comment', '--comment', OWNER)
-    inbound = ('-p', 'udp', '-s', CLIENT, '-d', address + '/32', '-m', 'udp', '--sport', '1024:65535', '--dport', PORTS)
+    request_source = ('-p', 'udp', '-s', CLIENT)
+    request_ports = ('-m', 'udp', '--sport', '1024:65535', '--dport', PORTS)
+    inbound = request_source + ('-d', address + '/32') + request_ports
     reply = ('-p', 'udp', '-s', address + '/32', '-d', CLIENT, '-m', 'udp', '--sport', PORTS, '--dport', '1024:65535', '-m', 'conntrack', '--ctstate', 'ESTABLISHED')
-    entrance = ('-p', 'udp', '-s', CLIENT, '-d', HOST + '/32', '-m', 'udp', '--sport', '1024:65535', '--dport', PORTS)
+    entrance = request_source + ('-d', HOST + '/32') + request_ports
     return {
         'nat': {'parent': 'PREROUTING', 'jump': entrance + marker + ('-j', CHAINS['nat']), 'rules': [entrance + marker + ('-j', 'DNAT', '--to-destination', address)]},
         'filter': {'parent': 'FORWARD', 'jump': ('-p', 'udp') + marker + ('-j', CHAINS['filter']), 'rules': [inbound + marker + ('-j', 'ACCEPT'), reply + marker + ('-j', 'ACCEPT')]},
@@ -122,10 +124,14 @@ def rule_key(rule):
     return tuple(sorted(zip(rule[::2], rule[1::2])))
 
 
+def references_chain(row, chain):
+    return any(option in ('-j', '-g') and target == chain for option, target in zip(row, row[1:]))
+
+
 def chain_contents(rows, chain):
     declared = ('-N', chain) in rows
     leaves = [row[2:] for row in rows if row[:2] == ('-A', chain)]
-    references = [row for row in rows if any(option in row and row[row.index(option) + 1] == chain for option in ('-j', '-g'))]
+    references = [row for row in rows if references_chain(row, chain)]
     return declared, leaves, references
 
 
@@ -161,7 +167,7 @@ class MediaFirewall:
         tables = self.validate(plan)
         for table, expected in plan.items():
             parent = [row for row in tables[table] if row[:2] == ('-A', expected['parent'])]
-            if not parent or '-j' not in parent[0] or parent[0][parent[0].index('-j') + 1] != CHAINS[table]:
+            if not parent or not references_chain(parent[0], CHAINS[table]):
                 raise MediaGuardError('E1_MEDIA_RULE_ORDER_INVALID')
 
     def remove(self, plan, partial=False):
@@ -173,7 +179,7 @@ class MediaFirewall:
             if ('-N', chain) not in tables[table]:
                 continue
             wanted = ('-A', expected['parent']) + expected['jump']
-            if any(row[:2] == wanted[:2] and '-j' in row and row[row.index('-j') + 1] == chain for row in tables[table]):
+            if any(row[:2] == wanted[:2] and references_chain(row, chain) for row in tables[table]):
                 self.execute(['iptables', '-w', '5', '-t', table, '-D', expected['parent'], *expected['jump']])
             self.execute(['iptables', '-w', '5', '-t', table, '-F', chain])
             self.execute(['iptables', '-w', '5', '-t', table, '-X', chain])
@@ -231,18 +237,22 @@ def matches_current(state, current):
 
 def write_state(current, actor, enabled):
     record = {**current, 'owner': OWNER, 'client': CLIENT, 'host': HOST, 'ports': PORTS, 'enabled': enabled, 'actorRef': actor, 'at': datetime.now(timezone.utc).isoformat()}
-    with tempfile.NamedTemporaryFile(mode='w', dir=STATE_DIR, delete=False) as handle:
-        temporary = Path(handle.name)
-        json.dump(record, handle)
-        handle.flush()
-        os.fsync(handle.fileno())
-        os.fchmod(handle.fileno(), 0o644)
-    os.replace(temporary, STATE_FILE)
     descriptor = os.open(STATE_DIR / 'audit.jsonl', os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     with os.fdopen(descriptor, 'a') as audit:
-        audit.write(json.dumps(record) + '\n')
+        audit.write(json.dumps({**record, 'event': 'snapshot.publish.intent'}) + '\n')
         audit.flush()
         os.fsync(audit.fileno())
+    with tempfile.NamedTemporaryFile(mode='w', dir=STATE_DIR, delete=False) as handle:
+        temporary = Path(handle.name)
+        try:
+            json.dump(record, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+            os.fchmod(handle.fileno(), 0o644)
+            os.replace(temporary, STATE_FILE)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
 
 
 def reconcile(firewall, previous, current, actor, restore=False):
