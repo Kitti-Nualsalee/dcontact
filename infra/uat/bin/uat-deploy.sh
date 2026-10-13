@@ -418,6 +418,7 @@ case "$cmd" in
       compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js off "$actor"
       compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js idle
       if [[ "$cmd" == 'e1-voice-on' ]]; then
+        python3 "$dir/operator/vm2-e1-media-uat.py" --verify-snapshot --source-sha "$sha"
         compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js on "$actor"
         if ! UAT_E1_OUTBOUND_VOICE_ENABLED=true compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox; then
           UAT_E1_OUTBOUND_VOICE_ENABLED=false compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox || true
