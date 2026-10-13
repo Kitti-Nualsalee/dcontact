@@ -41,6 +41,15 @@ def docker_value(expression, name):
     return json.loads(command(['docker', 'inspect', '--format', '{{json ' + expression + '}}', name]))
 
 
+def require_return_route(routes, gateway):
+    expected_gateway = int.from_bytes(ipaddress.IPv4Address(gateway).packed, 'little')
+    for line in routes.splitlines()[1:]:
+        fields = line.split()
+        if len(fields) >= 4 and fields[1] == '00000000' and int(fields[2], 16) == expected_gateway and int(fields[3], 16) & 3 == 3:
+            return
+    raise MediaGuardError('E1_MEDIA_RETURN_ROUTE_REQUIRED')
+
+
 def runtime():
     addresses = json.loads(command(['ip', '-j', '-4', 'addr', 'show']))
     if not any(address.get('local') == HOST for interface in addresses for address in interface.get('addr_info', [])):
@@ -48,6 +57,9 @@ def runtime():
     source_sha = json.loads((ROOT / 'deployments/current.json').read_text())['sourceSha']
     if not re.fullmatch('[0-9a-f]{40}', source_sha) or not (ROOT / 'e1-acceptance.enabled').is_file():
         raise MediaGuardError('E1_MEDIA_RELEASE_REQUIRED')
+    profile = command(['docker', 'inspect', '--format', '{{range .Config.Env}}{{if eq . "DCONTACT_API_PROFILE=uat-e1"}}uat-e1{{end}}{{end}}', 'dcontact-uat-api-1'])
+    if profile != 'uat-e1':
+        raise MediaGuardError('E1_MEDIA_PROFILE_UAT_E1_REQUIRED')
     for service in ('api', 'e1-sandbox'):
         labels = docker_value('.Config.Labels', 'dcontact-uat-' + service + '-1')
         if labels.get('org.opencontainers.image.revision') != source_sha:
@@ -55,6 +67,7 @@ def runtime():
     networks = docker_value('.NetworkSettings.Networks', FS)
     if set(networks) != {NETWORK} or command(['docker', 'network', 'inspect', '--format', '{{.Internal}}', NETWORK]) != 'true':
         raise MediaGuardError('E1_MEDIA_INTERNAL_NETWORK_REQUIRED')
+    require_return_route(command(['docker', 'exec', FS, 'cat', '/proc/net/route']), networks[NETWORK]['Gateway'])
     if docker_value('.Config.Image', FS) != FS_IMAGE or docker_value('.State.Health.Status', FS) != 'healthy':
         raise MediaGuardError('E1_MEDIA_FREESWITCH_REQUIRED')
     mounts = docker_value('.Mounts', FS)
@@ -109,6 +122,13 @@ def rule_key(rule):
     return tuple(sorted(zip(rule[::2], rule[1::2])))
 
 
+def chain_contents(rows, chain):
+    declared = ('-N', chain) in rows
+    leaves = [row[2:] for row in rows if row[:2] == ('-A', chain)]
+    references = [row for row in rows if any(option in row and row[row.index(option) + 1] == chain for option in ('-j', '-g'))]
+    return declared, leaves, references
+
+
 class MediaFirewall:
     def __init__(self, execute=command):
         self.execute = execute
@@ -119,9 +139,7 @@ class MediaFirewall:
     def validate(self, plan, partial=False):
         tables = self.tables()
         for table, chain in CHAINS.items():
-            declared = ('-N', chain) in tables[table]
-            leaves = [row[2:] for row in tables[table] if row[:2] == ('-A', chain)]
-            references = [row for row in tables[table] if '-j' in row and row[row.index('-j') + 1] == chain]
+            declared, leaves, references = chain_contents(tables[table], chain)
             if plan is None:
                 valid = not declared and not leaves and not references
             else:
@@ -173,7 +191,7 @@ class MediaFirewall:
         tables = self.tables()
         mixed = {}
         for table, chain in CHAINS.items():
-            leaves = [row[2:] for row in tables[table] if row[:2] == ('-A', chain)]
+            _, leaves, _ = chain_contents(tables[table], chain)
             options = [candidate[table]] + ([previous[table]] if previous else [])
             expected = next((option for option in options if all(rule_key(rule) in [rule_key(wanted) for wanted in option['rules']] for rule in leaves)), None)
             if expected is None:
@@ -229,8 +247,14 @@ def write_state(current, actor, enabled):
 
 def reconcile(firewall, previous, current, actor, restore=False):
     previous_plan = ruleset(previous['ip']) if previous and previous['enabled'] else None
-    firewall.validate(previous_plan)
-    if not restore and matches_current(previous, current):
+    try:
+        firewall.validate(previous_plan)
+    except MediaGuardError:
+        if previous_plan is None:
+            raise
+        firewall.validate(None)
+        previous_plan = None
+    if not restore and previous_plan is not None and matches_current(previous, current):
         try:
             firewall.check_first(previous_plan)
             return 'UNCHANGED'
@@ -250,7 +274,7 @@ def reconcile(firewall, previous, current, actor, restore=False):
     except Exception:
         try:
             firewall.remove_known_partial(candidate, previous_plan)
-            if matches_current(previous, current):
+            if previous_plan is not None and matches_current(previous, current):
                 firewall.install(previous_plan)
                 firewall.check_first(previous_plan)
                 write_state(current, actor, True)

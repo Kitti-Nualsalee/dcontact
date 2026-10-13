@@ -113,6 +113,62 @@ class MediaTests(unittest.TestCase):
             with self.subTest(address=address), self.assertRaises((media.MediaGuardError, ValueError)):
                 media.ruleset(address)
 
+    def test_goto_reference_blocks_restore_before_any_mutation(self):
+        self.firewall.install(media.ruleset(CURRENT['ip']))
+        self.fake.tables['nat'].append(('-A', 'UNRELATED', '-g', media.CHAINS['nat']))
+        before = len(self.fake.mutations)
+        with self.assertRaisesRegex(media.MediaGuardError, 'UNKNOWN_FIREWALL_OWNERSHIP'):
+            media.reconcile(self.firewall, snapshot(), CURRENT, ACTOR, restore=True)
+        self.assertEqual(len(self.fake.mutations), before)
+        self.assertEqual(self.written, [])
+
+    def test_observed_vm2_default_route_is_to_internal_gateway(self):
+        routes = 'Iface Destination Gateway Flags\neth0 00000000 010015AC 0003\neth0 000015AC 00000000 0001\n'
+        media.require_return_route(routes, '172.21.0.1')
+        with self.assertRaisesRegex(media.MediaGuardError, 'RETURN_ROUTE_REQUIRED'):
+            media.require_return_route(routes, '172.22.0.1')
+
+    def test_missing_or_down_default_route_is_not_assumed_from_internal_network(self):
+        for routes in ('Iface Destination Gateway Flags\neth0 000015AC 00000000 0001\n', 'Iface Destination Gateway Flags\neth0 00000000 010015AC 0002\n'):
+            with self.assertRaisesRegex(media.MediaGuardError, 'RETURN_ROUTE_REQUIRED'):
+                media.require_return_route(routes, '172.21.0.1')
+
+    def test_apply_recovers_fully_missing_owned_rules_after_reboot(self):
+        previous = snapshot({**CURRENT, 'bootId': 'previous-boot'})
+        self.assertEqual(media.reconcile(self.firewall, previous, CURRENT, ACTOR), 'APPLIED')
+        self.firewall.check_first(media.ruleset(CURRENT['ip']))
+        self.assertTrue(self.written[-1]['enabled'])
+
+    def test_restore_accepts_fully_missing_owned_rules_after_reboot(self):
+        previous = snapshot({**CURRENT, 'bootId': 'previous-boot'})
+        unrelated = list(self.fake.tables['nat'])
+        self.assertEqual(media.reconcile(self.firewall, previous, CURRENT, ACTOR, restore=True), 'RESTORED')
+        self.assertEqual(self.fake.mutations, [])
+        self.assertEqual(self.fake.tables['nat'], unrelated)
+        self.assertFalse(self.written[-1]['enabled'])
+
+    def test_profile_guard_rejects_sha_matching_api_without_uat_e1(self):
+        root = self.state_dir / 'root'
+        (root / 'deployments').mkdir(parents=True)
+        (root / 'deployments/current.json').write_text(json.dumps({'sourceSha': CURRENT['sourceSha']}))
+        (root / 'e1-acceptance.enabled').touch()
+        def inspect(arguments):
+            if arguments[0] == 'ip':
+                return json.dumps([{'addr_info': [{'local': media.HOST}]}])
+            return ''
+        with patch.object(media, 'ROOT', root), patch.object(media, 'command', side_effect=inspect), patch.object(media, 'docker_value', return_value={'org.opencontainers.image.revision': CURRENT['sourceSha']}), self.assertRaisesRegex(media.MediaGuardError, 'PROFILE_UAT_E1_REQUIRED'):
+            media.runtime()
+
+    def test_voice_on_outer_shared_lock_blocks_restore_after_verify_returns(self):
+        self.state_dir.chmod(0o755)
+        with (self.state_dir / 'lock').open('r') as lock:
+            fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            with patch.object(media.os, 'geteuid', return_value=0), patch.object(media, 'runtime', return_value=CURRENT), patch.object(media, 'require_canonical'), patch.object(media, 'require_idle_off'), patch.object(media, 'root_owned'), patch.object(media, 'read_state', return_value=snapshot()), patch.object(media, 'MediaFirewall', return_value=self.firewall):
+                self.assertEqual(media.run('verify', None, None)['status'], 'PASS')
+                with self.assertRaisesRegex(media.MediaGuardError, 'OPERATOR_BUSY'):
+                    media.run('restore', ACTOR, None)
+        self.assertEqual(self.fake.mutations, [])
+
     def test_realistic_iptables_print_order_is_semantically_matched(self):
         plan = media.ruleset(CURRENT['ip'])
         self.firewall.install(plan)
