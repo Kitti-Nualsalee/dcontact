@@ -7,6 +7,16 @@ const root = resolve(import.meta.dirname, '..');
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
 const param = (xml, name) => xml.match(new RegExp(`<param name="${name}" value="([^"]*)"`))?.[1];
 
+test('#657: UAT WSS proxy ไม่ทำให้ FreeSWITCH advertise media เป็น Docker IP', () => {
+  const profile = read('infra/uat/e1-freeswitch/conf/sip_profiles/internal.xml');
+  assert.equal(param(profile, 'local-network-acl'), 'none');
+  assert.equal(param(profile, 'ext-rtp-ip'), '$${external_rtp_ip}');
+  assert.equal(param(profile, 'auth-calls'), 'true');
+  assert.equal(param(profile, 'apply-candidate-acl'), 'dcontact_webrtc_candidates');
+  assert.match(read('infra/uat/e1-freeswitch/conf/vars.xml'), /external_rtp_ip=192\.168\.102\.112/);
+  assert.match(read('infra/uat/docker-compose.uat.yml'), /internal:\s*\n\s*internal: true/);
+});
+
 test('#562: trunk จำลอง pstn-sim รับสายเฉพาะ ACL บน 5080 และไม่รับ register', () => {
   const profile = read('infra/freeswitch/conf/sip_profiles/pstn-sim.xml');
   assert.equal(param(profile, 'sip-port'), '5080');

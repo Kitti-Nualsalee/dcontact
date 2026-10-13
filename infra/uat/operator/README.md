@@ -110,6 +110,36 @@ ESL events ของ origination UUID ที่มี durable claim เท่า
 
 SIP flush ทำงานได้แม้ outbound flag ปิด แต่ต้องผูก credential ที่ revoked และ lease ที่ released แล้วภายใต้ RLS ตรง tenant/node/domain/extension เท่านั้น ใช้ user row lock ร่วมกับ credential issuance; ถ้ามี credential ของ lease ใหม่จะปฏิเสธ ไม่ลบ registration ใหม่ การ issue ยัง lock lease แล้วตรวจ released/expiry อีกครั้ง จึงไม่หมุน credential แข่งกับ close ใช้เฉพาะ `sofia ... flush_inbound_reg` ไม่มี `uuid_kill`, audit หลัง ESL reply จริงและ flush ซ้ำที่สำเร็จแล้วไม่ส่ง ESL ซ้ำ timeout ไม่ retry อัตโนมัติและมี diagnostic แบบ opaque ให้ operator ตรวจต่อ ไม่ถือว่า flush transport นี้แทนหลักฐาน auth continuity หรือ single receiving point บน browser จริง
 
+### LAN RTP ของ E1 UAT
+
+FreeSWITCH ยังคงอยู่บน `internal:true` เพื่อปิด provider egress แต่ Docker ไม่ publish RTP จาก network นี้จริง แม้ Compose ระบุ port ไว้ ต้องให้ operator ใช้ root-only `operator/vm2-e1-media-uat.py` บน VM2 หลัง canonical deploy และขณะ runtime/technical switch ปิด, VOICE idle และไม่มีสาย คำสั่งนี้ไม่เพิ่ม edge network/SIP/ESL port ไม่เปลี่ยน PostgreSQL/Keycloak หรือ rule ของ service อื่น
+
+```bash
+MEDIA="/opt/dcontact-uat/releases/$SHA/operator/vm2-e1-media-uat.py"
+sudo python3 "$MEDIA" --inspect
+sudo python3 "$MEDIA" --check
+sudo python3 "$MEDIA" --apply --actor operator:patiphan-phakam
+sudo python3 "$MEDIA" --check
+```
+
+`--inspect`/`--check` ไม่มี mutation; check ที่ยังไม่มี snapshot จะ FAIL ให้ใช้ apply หลังตรวจ scope แล้ว มีเพียง DNAT/FORWARD ของ Mac `192.168.50.12/32` ↔ IP ปัจจุบันของ FreeSWITCH UAT, UDP `16384–16420` เดิม และ reply ไป ephemeral ports ของ Mac ที่ `ESTABLISHED` แล้วเท่านั้น ไม่อนุญาต NEW provider egress หาก IP ของเครื่องทดสอบเปลี่ยนต้องยืนยัน scope ใหม่ก่อน ห้ามขยายเป็น subnet/wildcardเอง
+
+Operator ใช้ chain/jump ที่มี ownership marker เฉพาะงานนี้, lock และ audit/state ที่ root-owned ใน `/var/lib/dcontact-uat-e1-media/`; state เป็น non-secret อ่านได้แต่แก้ได้เฉพาะ root Apply ซ้ำไม่เพิ่ม rule และไม่ reset counter/ledger หากมี chain/rule/reference รวม `goto` ไม่ตรง ownership จะหยุดโดยไม่แตะ firewall; failure คืน owned state ที่ยังปลอดภัยหรือปิด snapshot แบบ fail-closed หากแจ้ง rollback failed ต้องตรวจด้วย root ก่อน ห้ามนับว่า apply/restore ผ่าน หาก reboot ล้าง owned rules ทั้งหมด แต่ snapshot เดิมยังอยู่ จะ apply/restore ได้โดยไม่แตะ unrelated rules; owned rules ที่เหลือบางส่วนแบบไม่ตรงแผนยังต้องตรวจด้วยมือ
+
+เขียน audit `snapshot.publish.intent` ให้สำเร็จก่อนเผยแพร่ enabled snapshot แบบ atomic หาก audit/filesystem ล้มจะไม่เปิด snapshot ใหม่จากผลล้มเหลว Event นี้เป็น intent ไม่ใช่หลักฐานว่า apply สำเร็จ; ต้องใช้ผลคำสั่งและ root check ของ firewall ที่รันจริงร่วมกัน
+
+ก่อน `e1-voice-on` runner ถือ shared media lock ตลอดการตรวจและเปิด runtime จึงไม่แข่งกับ root apply/restore; ตรวจ snapshot ให้ตรง source SHA/FS container/IP/host boot/iptables backend และ canonical profile `uat-e1`; ไม่เรียก sudo และไม่อ้างว่า metadata check แทน live firewall check เมื่อ deploy/FS recreate/reboot/เปลี่ยน iptables backend ให้รัน root check/apply ใหม่ก่อน acceptance โดยไม่เพิ่ม sudo NOPASSWD หรือ privileged container ตรวจ UDP marker จากเครื่องทดสอบให้ PASS และตรวจ RTP/เสียงจริงก่อนปิด #657; SIP200 หรือ UI กำลังสนทนายังไม่ใช่หลักฐานว่าเสียงผ่าน
+
+Topology ที่ตรวจจริงบน VM2 วันที่ 2026-10-13 (Docker24) มี default route ของ FreeSWITCH ไป internal bridge gateway `172.21.0.1` แม้ network เป็น internal Operator ตรวจ route นี้ทุกครั้ง ไม่สมมติจากคำว่า internal และไม่เพิ่ม SNAT/default route หรือเปิด network ใหม่ หาก route หาย/ผิดให้หยุดด้วย `E1_MEDIA_RETURN_ROUTE_REQUIRED` และตรวจ topology ก่อน ยังต้องมี live UDP roundtrip เพื่อพิสูจน์ DNAT/FORWARD/reply จริง
+
+คืน exception หลังทดสอบ ขณะ default-off/idle/0calls:
+
+```bash
+sudo python3 "$MEDIA" --restore --actor operator:patiphan-phakam
+```
+
+restore ลบเฉพาะ owned chain/jump ไม่ flush built-in และ snapshot กลับ disabled จึงเปิด voice-on ใหม่ไม่ได้จน operator apply อีกครั้ง หาก rollback ไป release ที่ไม่มี media helper ให้ restore ก่อน redeployขณะว่าง ไม่ปล่อย rule ของ IP เก่าค้าง ใช้ helper ที่เก็บไว้เพื่อ restore ได้เมื่อ current release ยังเป็น E1 UAT ที่รู้จักและ default-off/idle แม้ไม่มี media config รุ่นใหม่; ไม่อนุญาต apply ด้วย source เก่า ส่วน Sofia `local-network-acl=none` ทำให้ WSS ที่ผ่าน proxy ใช้ advertised LAN RTP address ไม่ใช่ Docker IP โดยคง auth/directory/lease/candidate ACL เดิม
+
 ### Launcher alias บน runtime ของ E1
 
 HTML shell ของ E1 อ้าง bootstrap JS/CSS ด้วย query `release` จาก `SOURCE_SHA` ใน manifest เพื่อไม่ให้ browser ใช้ entry ของ release เก่าหลัง deploy และ Caddy ตอบ `Cache-Control: no-cache` ให้ชื่อ entry คงที่ทั้งสองไฟล์เพื่อ revalidate ด้วย ETag การมี query ไม่ได้ทำให้ bootstrap เป็น immutable/pinned asset; contract ของ launcher alias และไฟล์ตรึงเวอร์ชันพร้อม SRI ด้านล่างยังเหมือนเดิม ถ้า UI กับ server state ไม่ตรง ให้ตรวจ URL ของ script ใน iframe ว่าตรงกับ release ปัจจุบันก่อน ห้าม patch agent state เพื่อให้ acceptance ผ่าน

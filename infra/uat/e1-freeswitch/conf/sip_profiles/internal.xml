@@ -36,7 +36,7 @@
     <param name="multiple-registrations" value="false"/>
     <param name="max-registrations-per-extension" value="1"/>
     <param name="apply-nat-acl" value="nat.auto"/>
-    <param name="local-network-acl" value="dcontact_media_local"/>
+    <param name="local-network-acl" value="none"/>
     <param name="apply-candidate-acl" value="dcontact_webrtc_candidates"/>
   </settings>
 </profile>
