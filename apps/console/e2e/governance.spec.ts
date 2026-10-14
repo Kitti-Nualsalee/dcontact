@@ -117,7 +117,13 @@ interface Mock {
  * #654: Navigation API ที่ ConsoleShell เรียก — ค่าเริ่มต้น flag `ui.shell.v2` ปิด (หน้าเดิมทุกประการ);
  * `shellV2: true` = หน้า Governance อยู่ใน shell (rail พื้นที่ + เมนูย่อย)
  */
-async function mockNavigation(page: Page, shellV2: boolean) {
+const GOVERNANCE_PAGES = ['overview', 'exceptions', 'policies', 'audit'].map((id) => ({
+  id,
+  labelKey: `navigation.pages.contactGovernance.${id}`,
+  path: `/?view=governance&section=${id}`,
+}));
+
+async function mockNavigation(page: Page, shellV2: boolean, pages = false) {
   await page.route('**/api/v1/me/navigation', (route) =>
     route.fulfill({
       status: 200,
@@ -161,7 +167,9 @@ async function mockNavigation(page: Page, shellV2: boolean) {
               {
                 id: 'work',
                 labelKey: 'navigation.sections.work',
-                items: [{ appId: 'contact-governance' }],
+                items: [
+                  { appId: 'contact-governance', ...(pages ? { pages: GOVERNANCE_PAGES } : {}) },
+                ],
               },
             ],
           },
@@ -174,8 +182,11 @@ async function mockNavigation(page: Page, shellV2: boolean) {
   );
 }
 
-async function mockGovernance(page: Page, options: { shellV2?: boolean } = {}): Promise<Mock> {
-  await mockNavigation(page, options.shellV2 === true);
+async function mockGovernance(
+  page: Page,
+  options: { shellV2?: boolean; pages?: boolean } = {},
+): Promise<Mock> {
+  await mockNavigation(page, options.shellV2 === true, options.pages === true);
   const handlers: Array<[string, RegExp, Handler]> = [];
   const requests: Request[] = [];
   await page.route('**/api/v1/contact-governance/**', async (route) => {
@@ -821,7 +832,7 @@ test('#654: flag เปิด → Governance อยู่ใน shell: rail พ�
   const rail = page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ });
   await expect(rail).toBeVisible();
   await expect(rail.locator('a[aria-current=page]')).toHaveAttribute('data-area', 'governance');
-  // เมนูย่อยของ shell + แท็บภายในหน้า Governance อยู่ร่วมกันได้
+  // API ที่ยังไม่ส่ง `pages` (#658): เมนูย่อยของ shell มีรายการเดียว และแท็บภายในหน้ายังอยู่ครบ
   await expect(page.getByRole('navigation', { name: 'Governance', exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Contact Governance' })).toBeVisible();
   // landmark: main เดียว (ของ shell), หน้าไม่วาด header/skip link ของตัวเอง
@@ -853,5 +864,80 @@ test('#654: flag ปิด → Governance เป็นหน้าเดิม (
   await page.goto(workspaceUrl());
   await expect(page.locator('.gov-header')).toBeVisible();
   await expect(page.locator('main#gov-main')).toHaveCount(1);
+  await expect(page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ })).toHaveCount(0);
+});
+
+/**
+ * #658: แท็บของ Governance เป็นรายการในเมนูย่อยของ shell (server ส่ง `pages`) —
+ * ไฮไลต์ตามหน้า เปลี่ยนหน้าแบบไม่โหลดใหม่ และ back/forward ถูกต้อง
+ */
+test('#658: flag เปิด + pages → เมนูย่อย 4 รายการแทนแท็บในหน้า ไฮไลต์ถูกหน้า เปลี่ยนหน้าไม่โหลดใหม่', async ({
+  page,
+}) => {
+  const problems = watchPage(page);
+  const mock = await mockGovernance(page, { shellV2: true, pages: true });
+  exceptionRoutes(mock);
+  await page.goto('/?view=governance&section=overview&viewer=COMPLIANCE');
+
+  const subNav = page.getByRole('navigation', { name: 'Governance', exact: true });
+  await expect(subNav.getByRole('link')).toHaveText([
+    'Overview',
+    'Exceptions',
+    'Policies',
+    'Audit',
+  ]);
+  await expect(subNav.locator('a[aria-current=page]')).toHaveText('Overview');
+  // แท็บเดิมในหน้าไม่ถูกวาดซ้ำ
+  await expect(page.getByRole('navigation', { name: 'Contact Governance' })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: 'Policies & Exceptions' })).toHaveCount(0);
+  // breadcrumb บอกหน้าปัจจุบัน
+  await expect(
+    page.getByRole('navigation', { name: /ตำแหน่งปัจจุบัน|Current location/ }),
+  ).toContainText('Overview');
+
+  // กดเมนูย่อย = เปลี่ยนหน้าในที่เดิม (document เดิม ไม่ reload), URL และ focus ตาม
+  await page.evaluate(() => {
+    (window as unknown as { __doc: number }).__doc = 1;
+  });
+  await subNav.getByRole('link', { name: 'Audit' }).click();
+  await expect(page).toHaveURL(/section=audit/);
+  await expect(subNav.locator('a[aria-current=page]')).toHaveText('Audit');
+  await expect(page.locator('#gov-main')).toBeFocused();
+  expect(await page.evaluate(() => (window as unknown as { __doc?: number }).__doc)).toBe(1);
+
+  await subNav.getByRole('link', { name: 'Exceptions' }).click();
+  await expect(subNav.locator('a[aria-current=page]')).toHaveText('Exceptions');
+
+  // ปุ่มย้อนกลับ: เมนูตามเนื้อหา
+  await page.goBack();
+  await expect(subNav.locator('a[aria-current=page]')).toHaveText('Audit');
+  await page.goBack();
+  await expect(subNav.locator('a[aria-current=page]')).toHaveText('Overview');
+
+  // ลิงก์ยังเป็น href จริง (เปิดแท็บใหม่/คัดลอกลิงก์ได้)
+  await expect(subNav.getByRole('link', { name: 'Policies' })).toHaveAttribute(
+    'href',
+    '/?view=governance&section=policies',
+  );
+  expect(problems).toEqual([]);
+});
+
+test('#658: เปิดตรงที่ section=policies → เมนูไฮไลต์ Policies และ rail ยังเป็นพื้นที่ Governance', async ({
+  page,
+}) => {
+  const mock = await mockGovernance(page, { shellV2: true, pages: true });
+  exceptionRoutes(mock);
+  await page.goto('/?view=governance&section=policies&viewer=COMPLIANCE');
+  const subNav = page.getByRole('navigation', { name: 'Governance', exact: true });
+  await expect(subNav.locator('a[aria-current=page]')).toHaveText('Policies');
+  const rail = page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ });
+  await expect(rail.locator('a[aria-current=page]')).toHaveAttribute('data-area', 'governance');
+});
+
+test('#658: flag ปิด → ยังเป็นแท็บเดิมในหน้า แม้ server ส่ง pages', async ({ page }) => {
+  const mock = await mockGovernance(page, { shellV2: false, pages: true });
+  exceptionRoutes(mock);
+  await page.goto(workspaceUrl());
+  await expect(page.getByRole('navigation', { name: 'Contact Governance' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ })).toHaveCount(0);
 });

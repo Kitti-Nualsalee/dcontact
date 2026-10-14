@@ -46,6 +46,14 @@
       "work": "Work",
       "live": "Live",
       "embedding": "Embedding"
+    },
+    "pages": {
+      "contactGovernance": {
+        "overview": "Overview",
+        "exceptions": "Exceptions",
+        "policies": "Policies",
+        "audit": "Audit"
+      }
     }
   },
   "shell": {

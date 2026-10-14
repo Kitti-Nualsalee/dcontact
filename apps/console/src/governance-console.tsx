@@ -9,7 +9,7 @@
  * หรือ error จะโหลด canonical state ใหม่ และปุ่ม command ถูกปิดเมื่อ state ไม่แน่ชัด (fail closed)
  */
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { useInShell } from '@d-contact/ui-react';
+import { useInShell, useShellPageNav } from '@d-contact/ui-react';
 import type {
   ApprovalRecord,
   EffectiveScope,
@@ -53,27 +53,18 @@ const VIEWER_LABEL: Readonly<Record<GovernanceViewer, string>> = {
 /** prefix ของ opaque id ตามด้วย … (ส่วนที่ตัด) — digest ใช้ …suffix แยกกันใน digestLabel */
 const shortId = (value: string) => `${value.slice(0, 8)}…`;
 
-export function GovernanceConsole({
-  api,
-  viewer,
-  initialLocation,
-  cg5Api,
-}: {
-  api: GovernanceApi;
-  cg5Api: Cg5ConsoleApi;
-  viewer: GovernanceViewer;
-  initialLocation: GovernanceLocation;
-}) {
+/**
+ * สถานะตำแหน่งของ Governance (URL เป็นความจริง) — ถือไว้เหนือ shell เพื่อให้เมนูย่อยของ shell
+ * ไฮไลต์หน้าตรงกับเนื้อหาและเปลี่ยนหน้าได้โดยไม่โหลดใหม่ (#658)
+ */
+export function useGovernanceLocation(initialLocation: GovernanceLocation) {
   const [location, setLocation] = useState(initialLocation);
-  // #654: อยู่ใน ConsoleShell แล้ว shell วาด skip link, แถบบนและ <main> ให้ — หน้านี้ไม่วาดซ้ำ (landmark ซ้อน)
-  const inShell = useInShell();
-  const mainRef = useRef<HTMLDivElement>(null);
 
   const go = useCallback((next: GovernanceLocation) => {
     window.history.pushState({}, '', governanceHref(next));
     setLocation(next);
     // ย้าย focus ไปเนื้อหาใหม่ให้ screen reader รู้ว่าหน้าเปลี่ยน
-    requestAnimationFrame(() => mainRef.current?.focus());
+    requestAnimationFrame(() => document.getElementById('gov-main')?.focus());
   }, []);
 
   useEffect(() => {
@@ -81,6 +72,27 @@ export function GovernanceConsole({
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  return [location, go] as const;
+}
+
+export function GovernanceConsole({
+  api,
+  viewer,
+  location,
+  go,
+  cg5Api,
+}: {
+  api: GovernanceApi;
+  cg5Api: Cg5ConsoleApi;
+  viewer: GovernanceViewer;
+  location: GovernanceLocation;
+  go: (location: GovernanceLocation) => void;
+}) {
+  // #654: อยู่ใน ConsoleShell แล้ว shell วาด skip link, แถบบนและ <main> ให้ — หน้านี้ไม่วาดซ้ำ (landmark ซ้อน)
+  const inShell = useInShell();
+  // #658: เมนูย่อยของ shell มีหน้าย่อยครบแล้ว → ไม่วาดแท็บซ้ำ; ไม่มี (flag ปิด/API รุ่นเก่า) → แท็บเดิม
+  const pagesInShell = useShellPageNav();
 
   const section = location.section;
   const nav: Array<{ key: GovernanceSection; label: string; current: boolean }> = [
@@ -110,23 +122,25 @@ export function GovernanceConsole({
           </header>
         </>
       )}
-      <nav aria-label="Contact Governance" className="gov-nav">
-        {nav.map((item) => (
-          <button
-            key={item.label}
-            type="button"
-            aria-current={item.current ? 'page' : undefined}
-            onClick={() => go({ ...location, section: item.key })}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-      <Main id="gov-main" ref={mainRef} tabIndex={-1} className="gov-main">
+      {pagesInShell ? null : (
+        <nav aria-label="Contact Governance" className="gov-nav">
+          {nav.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              aria-current={item.current ? 'page' : undefined}
+              onClick={() => go({ ...location, section: item.key })}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      )}
+      <Main id="gov-main" tabIndex={-1} className="gov-main">
         <p className="gov-boundary" role="note">
           {DECISION_VOCABULARY.developmentComplete}
         </p>
-        {section === 'exceptions' || section === 'policies' ? (
+        {!pagesInShell && (section === 'exceptions' || section === 'policies') ? (
           <nav aria-label="Policies & Exceptions" className="gov-subnav">
             <button
               type="button"

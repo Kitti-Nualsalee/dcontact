@@ -46,6 +46,14 @@
       "work": "งาน",
       "live": "งานสด",
       "embedding": "ฝังระบบ"
+    },
+    "pages": {
+      "contactGovernance": {
+        "overview": "ภาพรวม",
+        "exceptions": "Exceptions",
+        "policies": "Policies",
+        "audit": "Audit"
+      }
     }
   },
   "shell": {

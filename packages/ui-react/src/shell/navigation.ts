@@ -18,7 +18,12 @@ export interface NavigationResponseV1 {
   areas?: {
     id: string;
     labelKey: string;
-    sections: { id: string; labelKey: string; items: { appId: string }[] }[];
+    sections: {
+      id: string;
+      labelKey: string;
+      /** #658: `pages` = หน้าย่อยของแอป (แท็บเดิมในหน้า) — ไม่ส่ง = รายการเดียวของแอป */
+      items: { appId: string; pages?: { id: string; labelKey: string; path: string }[] }[];
+    }[];
   }[];
   pins: { appIds: string[]; source: 'USER' | 'TENANT' | 'SYSTEM'; revision: number };
   limits: { maxPins: number };
@@ -88,7 +93,7 @@ export function toShellModel(
       id: group.id,
       label: options.translate(group.labelKey),
     })),
-    areas: toShellAreas(response, apps, options.translate),
+    areas: toShellAreas(response, apps, options),
   };
 }
 
@@ -99,16 +104,46 @@ export function toShellModel(
 function toShellAreas(
   response: NavigationResponseV1,
   apps: readonly ShellApp[],
-  translate: (key: string) => string,
+  options: {
+    currentHost: HostApp;
+    hostOrigins: Partial<Record<HostApp, string>>;
+    tenantAlias?: string;
+    translate: (key: string) => string;
+  },
 ): ShellArea[] {
+  const { translate } = options;
   const byId = new Map(apps.map((app) => [app.id, app]));
+  const hostOf = new Map(response.apps.map((app) => [app.id, app.hostApp]));
   return (response.areas ?? []).flatMap((area) => {
     const sections = area.sections.flatMap((section) => {
       const items = section.items.flatMap((item) => {
         const app = byId.get(item.appId);
-        return app
-          ? [{ id: app.id, label: app.label, href: app.href, external: app.external }]
-          : [];
+        const hostApp = hostOf.get(item.appId);
+        if (!app || !hostApp) return [];
+        // #658: หน้าย่อยแต่ละหน้าเป็นรายการของตัวเอง; หน้าที่ประกอบ href ไม่ได้ถูกตัด (เหมือนแอปที่ไม่รู้ origin)
+        if (item.pages && item.pages.length > 0) {
+          return item.pages.flatMap((page) => {
+            const href = buildAppHref({
+              hostApp,
+              path: page.path,
+              currentHost: options.currentHost,
+              hostOrigins: options.hostOrigins,
+              tenantAlias: options.tenantAlias,
+            });
+            return href === null
+              ? []
+              : [
+                  {
+                    id: app.id,
+                    pageId: page.id,
+                    label: translate(page.labelKey),
+                    href,
+                    external: app.external,
+                  },
+                ];
+          });
+        }
+        return [{ id: app.id, label: app.label, href: app.href, external: app.external }];
       });
       return items.length > 0
         ? [{ id: section.id, label: translate(section.labelKey), items }]

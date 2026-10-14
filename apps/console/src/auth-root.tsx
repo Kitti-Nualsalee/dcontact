@@ -11,7 +11,7 @@ import { createTeamScopeApi } from './team-scopes/api.js';
 import { ConsoleShell } from './shell/console-shell.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
-import { GovernanceConsole } from './governance-console.js';
+import { GovernancePage } from './governance-page.js';
 import { createGovernanceApi } from './governance-api.js';
 import { createCg5ConsoleApi } from './cg5-console-api.js';
 import { parseGovernanceLocation, type GovernanceViewer } from './governance-model.js';
@@ -276,20 +276,18 @@ function GovernanceSurface({
       ? 'TENANT_ADMIN'
       : 'SUPERVISOR';
   return (
-    <ConsoleShell
-      {...shellUserProps(auth, tenantAlias)}
-      apiBaseUrl={apiBaseUrl}
-      accessToken={() => accessToken}
-      tenantAlias={tenantAlias}
-      appId="contact-governance"
-    >
-      <GovernanceConsole
-        api={api}
-        cg5Api={cg5Api}
-        viewer={viewer}
-        initialLocation={parseGovernanceLocation(new URL(window.location.href))}
-      />
-    </ConsoleShell>
+    <GovernancePage
+      shell={{
+        ...shellUserProps(auth, tenantAlias),
+        apiBaseUrl,
+        accessToken: () => accessToken,
+        tenantAlias,
+      }}
+      api={api}
+      cg5Api={cg5Api}
+      viewer={viewer}
+      initialLocation={parseGovernanceLocation(new URL(window.location.href))}
+    />
   );
 }
 
