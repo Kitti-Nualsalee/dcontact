@@ -49,6 +49,43 @@ function series(overrides: Partial<ExceptionSeries> = {}): ExceptionSeries {
   };
 }
 
+test('อ่านทุก request แบบ no-store: canonical state ต้องไม่มาจาก HTTP cache (#672)', async () => {
+  const inits: Array<RequestInit | undefined> = [];
+  const api = createGovernanceApi({
+    baseUrl: 'https://api.example/',
+    accessToken: () => 'token-in-memory',
+    fetch: async (_url, init) => {
+      inits.push(init);
+      return new Response(JSON.stringify({ seriesId: SERIES_ID, approvals: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  await api.exceptionApprovals(SERIES_ID);
+  assert.equal(inits[0]?.cache, 'no-store');
+});
+
+test('response ของ approvals ใช้ enum ของ server (APPROVED/REJECTED) คนละคำกับ request (#672)', async () => {
+  const api = createGovernanceApi({
+    baseUrl: 'https://api.example/',
+    accessToken: () => 'token-in-memory',
+    fetch: async () =>
+      new Response(
+        JSON.stringify({
+          seriesId: SERIES_ID,
+          approvals: [{ decision: 'APPROVED' }, { decision: 'REJECTED' }],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+  });
+  const approvals = await api.exceptionApprovals(SERIES_ID);
+  assert.deepEqual(
+    approvals.map((approval) => approval.decision),
+    ['APPROVED', 'REJECTED'],
+  );
+});
+
 test('command ผูก revision/digest/version ที่เห็นจริง ส่ง Idempotency-Key และไม่ส่ง tenant/actor', async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const api = createGovernanceApi({

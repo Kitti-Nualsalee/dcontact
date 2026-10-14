@@ -570,7 +570,8 @@ test('C: audit timeline และ safety case มาจาก canonical history'
       approvals: [
         {
           approverRef: { redacted: true, digest: '1111222233334444' },
-          decision: 'APPROVE',
+          // response ใช้ enum ของ server (`APPROVED`/`REJECTED`) — request ใช้ `APPROVE`/`REJECT` (#672)
+          decision: 'APPROVED',
           capability: 'cg.exception.approve.high',
           capabilitySource: 'DIRECT',
           directCompliance: true,
@@ -590,6 +591,43 @@ test('C: audit timeline และ safety case มาจาก canonical history'
   await expect(timeline).toContainText('✓ Checker approve');
   await expect(timeline).toContainText('ปกปิด · digest …334444');
   await expect(page.getByRole('region', { name: 'Safety case' })).toContainText('▲ HIGH');
+  expect(problems).toEqual([]);
+});
+
+test('#672: approval ที่ server บันทึกเป็น APPROVED/REJECTED แสดงถูกฝั่งและนับ approvals ถูกต้อง', async ({
+  page,
+}) => {
+  const problems = watchPage(page);
+  const mock = await mockGovernance(page);
+  exceptionRoutes(mock);
+  const approval = (decision: string, digest: string) => ({
+    approverRef: { redacted: true, digest },
+    decision,
+    capability: 'cg.exception.approve.high',
+    capabilitySource: 'DIRECT',
+    directCompliance: true,
+    emergencyAuthority: false,
+    authorizationEpoch: 7,
+    scopeVersion: 1,
+    decidedAt: '2026-09-15T19:10:00.000Z',
+  });
+  mock.on('GET', new RegExp(`^/exceptions/${HIGH_ID}/approvals$`), () => ({
+    body: {
+      seriesId: HIGH_ID,
+      revision: 1,
+      approvals: [
+        approval('APPROVED', '1111222233334444'),
+        approval('REJECTED', '5555666677778888'),
+      ],
+    },
+  }));
+
+  await page.goto(workspaceUrl());
+  const checker = page.getByRole('complementary', { name: 'Maker–Checker' });
+  await expect(checker).toContainText('Approvals ที่บันทึกแล้ว 1');
+  const list = checker.getByRole('list');
+  await expect(list.getByRole('listitem').nth(0)).toContainText('✓ APPROVE');
+  await expect(list.getByRole('listitem').nth(1)).toContainText('✕ REJECT');
   expect(problems).toEqual([]);
 });
 

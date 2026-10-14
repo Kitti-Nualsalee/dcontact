@@ -8,7 +8,10 @@
  */
 
 export type RiskTier = 'STANDARD' | 'HIGH' | 'EMERGENCY';
+/** ค่าที่ส่งใน request body (`POST …/approvals`) */
 export type ApprovalDecision = 'APPROVE' | 'REJECT';
+/** ค่าที่ server บันทึกและส่งกลับใน `…/approvals` (enum `Cg4ApprovalDecision`) — คนละคำกับ request */
+export type ApprovalOutcome = 'APPROVED' | 'REJECTED';
 
 /** reference ที่ server ปกปิดแล้ว: เทียบกันได้ด้วย digest แต่อ่านเนื้อหาไม่ได้ */
 export interface RedactedRef {
@@ -54,7 +57,7 @@ export interface ExceptionSeries extends ExceptionRevision {
 
 export interface ApprovalRecord {
   approverRef: MaybeRedacted;
-  decision: string;
+  decision: ApprovalOutcome;
   capability: string;
   capabilitySource: string;
   directCompliance: boolean;
@@ -262,6 +265,8 @@ export function createGovernanceApi(input: {
     if (init.idempotencyKey) headers['idempotency-key'] = init.idempotencyKey;
     const response = await request(`${input.baseUrl.replace(/\/$/, '')}${BASE}${path}`, {
       method: init.method ?? 'GET',
+      // canonical state ต้องสดเสมอ: ETag ของ read endpoint ไม่เปลี่ยนเมื่อสถานะเปลี่ยน (#673) ห้ามให้ HTTP cache ตอบ 304 ด้วย body เก่า
+      cache: 'no-store',
       headers,
       ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
     });
