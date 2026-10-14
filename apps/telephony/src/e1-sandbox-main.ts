@@ -17,6 +17,7 @@ import {
   isDeniedAgentDirectOutbound,
   normalizeFreeSwitchEvent,
   parkedCallAsCreated,
+  type FreeSwitchEvent,
 } from './freeswitch-normalizer.js';
 
 const enabled = process.env.E1_SANDBOX_ENABLED === 'true';
@@ -35,6 +36,20 @@ export function createE1SandboxPublisher(adapter: FreeSwitchCommandAdapter): Pub
     if (topic !== KAFKA_TOPICS.TELEPHONY_COMMANDS) return;
     await adapter.handle(event.payload as TelephonyCommand, event.tenantId);
   };
+}
+
+export function e1CallSource(parsed: FreeSwitchEvent, isKnownCall: (callUuid: string) => boolean) {
+  if (
+    parsed['Event-Name'] === 'CHANNEL_CREATE' &&
+    parsed['Call-Direction'] === 'inbound' &&
+    parsed['Caller-Caller-ID-Number'] === '1102' &&
+    parsed['Caller-Destination-Number'] === '1101' &&
+    parsed.variable_dcontact_delivery_id === undefined
+  )
+    return undefined;
+  return parsed['Event-Name'] === 'CHANNEL_PARK'
+    ? parkedCallAsCreated(parsed, isKnownCall)
+    : parsed;
 }
 
 function frames(onFrame: (frame: string) => void) {
@@ -161,10 +176,7 @@ async function main() {
         await outboundJobs.completed(jobUuid, parsed.Body.startsWith('+OK'));
       return;
     }
-    const source =
-      parsed['Event-Name'] === 'CHANNEL_PARK'
-        ? parkedCallAsCreated(parsed, (callUuid) => knownCalls.has(callUuid))
-        : parsed;
+    const source = e1CallSource(parsed, (callUuid) => knownCalls.has(callUuid));
     if (!source || isDeniedAgentDirectOutbound(source)) return;
     const callUuid =
       source['Event-Name'] === 'CHANNEL_BRIDGE'
