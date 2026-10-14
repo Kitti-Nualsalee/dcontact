@@ -681,7 +681,7 @@ function ExceptionWorkspace({
     }
   };
 
-  const approvedCount = approvals.filter((approval) => approval.decision === 'APPROVE').length;
+  const approvedCount = approvals.filter((approval) => approval.decision === 'APPROVED').length;
 
   return (
     <section aria-labelledby="gov-exc-title">
@@ -995,7 +995,7 @@ function ApprovalList({ approvals }: { approvals: ApprovalRecord[] }) {
     <ol className="gov-approvals">
       {approvals.map((approval, index) => (
         <li key={`${approval.decidedAt}-${index}`}>
-          <b>{approval.decision === 'APPROVE' ? t('approvals.approve') : t('approvals.reject')}</b>
+          <b>{approval.decision === 'APPROVED' ? t('approvals.approve') : t('approvals.reject')}</b>
           <span>
             {referenceLabel(approval.approverRef, t)} · {approval.capability}
             {approval.directCompliance ? t('approvals.directCompliance') : ''}
@@ -1596,7 +1596,7 @@ function exceptionEntries(
     ...approvals.map((approval) => ({
       at: approval.decidedAt,
       title:
-        approval.decision === 'APPROVE'
+        approval.decision === 'APPROVED'
           ? t('audit.entry.checkerApprove')
           : t('audit.entry.checkerReject'),
       detail: t('audit.entry.approvalDetail', {
@@ -1696,7 +1696,7 @@ function policyEntries(
     ...approvals.map((approval) => ({
       at: approval.decidedAt,
       title:
-        approval.decision === 'APPROVE'
+        approval.decision === 'APPROVED'
           ? t('audit.entry.checkerApprove')
           : t('audit.entry.checkerReject'),
       detail: t('audit.entry.approvalDetailShort', {
