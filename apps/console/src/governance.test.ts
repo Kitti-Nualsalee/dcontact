@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createGovernanceApi, GovernanceApiError, type ExceptionSeries } from './governance-api.js';
+import { appI18n } from './i18n/index.js';
+import enCatalog from './i18n/locales/en/governance.json' with { type: 'json' };
 import {
   governanceHref,
   parseGovernanceLocation,
   recoveryFor,
   referenceLabel,
   sortExceptionQueue,
+  type Translate,
 } from './governance-model.js';
 
+const tTh = appI18n.getFixedT('th', 'governance') as unknown as Translate;
+const tEn = appI18n.getFixedT('en', 'governance') as unknown as Translate;
 const DIGEST = 'a'.repeat(64);
 const SERIES_ID = '3d6f7a52-3f0b-4f25-9a8b-6c2b3f7a0a11';
 
@@ -171,16 +176,20 @@ test('คิวเรียงรายการที่รอตัดสิ�
 
 test('reference ที่ปกปิดแสดงเป็น digest เท่านั้น', () => {
   assert.equal(
-    referenceLabel({ redacted: true, digest: '0123456789abcdef' }),
+    referenceLabel({ redacted: true, digest: '0123456789abcdef' }, tTh),
     'ปกปิด · digest …abcdef',
   );
-  assert.equal(referenceLabel('TICKET-9'), 'TICKET-9');
-  assert.equal(referenceLabel(undefined), '—');
+  assert.equal(
+    referenceLabel({ redacted: true, digest: '0123456789abcdef' }, tEn),
+    'Redacted · digest …abcdef',
+  );
+  assert.equal(referenceLabel('TICKET-9', tTh), 'TICKET-9');
+  assert.equal(referenceLabel(undefined, tTh), '—');
 });
 
 test('recovery ของ stale/conflict ต้องโหลดใหม่ ส่วนผลไม่แน่ชัดส่งซ้ำได้ด้วย key เดิมเท่านั้น', () => {
   assert.deepEqual(
-    [recoveryFor(new GovernanceApiError(422, 'APPROVAL_STALE'))].map((state) => [
+    [recoveryFor(new GovernanceApiError(422, 'APPROVAL_STALE'), tTh)].map((state) => [
       state.kind,
       state.recovery,
     ]),
@@ -188,25 +197,63 @@ test('recovery ของ stale/conflict ต้องโหลดใหม่ ส
   );
   const conflict = recoveryFor(
     new GovernanceApiError(409, 'VERSION_CONFLICT', { expectedVersion: 4, actualVersion: 6 }),
+    tTh,
   );
   assert.equal(conflict.kind, 'VERSION_CONFLICT');
   assert.match(conflict.message, /v4.*v6/);
   assert.equal(
-    recoveryFor(new GovernanceApiError(409, 'POLICY_HEAD_CONFLICT')).kind,
+    recoveryFor(new GovernanceApiError(409, 'POLICY_HEAD_CONFLICT'), tTh).kind,
     'HEAD_CONFLICT',
   );
   assert.equal(
-    recoveryFor(new GovernanceApiError(403, 'SELF_APPROVAL_FORBIDDEN')).recovery,
+    recoveryFor(new GovernanceApiError(403, 'SELF_APPROVAL_FORBIDDEN'), tTh).recovery,
     'NONE',
   );
   assert.deepEqual(
-    [recoveryFor(new GovernanceApiError(503, 'GOVERNANCE_STATE_UNAVAILABLE'))].map((state) => [
+    [recoveryFor(new GovernanceApiError(503, 'GOVERNANCE_STATE_UNAVAILABLE'), tTh)].map((state) => [
       state.kind,
       state.recovery,
     ]),
     [['OUTCOME_UNKNOWN', 'SAME_KEY']],
   );
-  assert.equal(recoveryFor(new TypeError('Failed to fetch')).recovery, 'SAME_KEY');
+  assert.equal(recoveryFor(new TypeError('Failed to fetch'), tTh).recovery, 'SAME_KEY');
+});
+
+test('ข้อความ recovery มาจาก catalog ตามภาษา และ logic (kind/recovery) ไม่ขึ้นกับภาษา', () => {
+  const conflict = new GovernanceApiError(409, 'VERSION_CONFLICT', {
+    expectedVersion: 4,
+    actualVersion: 6,
+  });
+  const th = recoveryFor(conflict, tTh);
+  const en = recoveryFor(conflict, tEn);
+  assert.deepEqual([th.kind, th.recovery], [en.kind, en.recovery]);
+  assert.equal(
+    th.message,
+    'ข้อมูลถูกเปลี่ยนจากที่อื่นแล้ว (คาด v4 แต่ปัจจุบันเป็น v6) ระบบไม่รวมการแก้ไขให้อัตโนมัติ: โหลด canonical version ก่อนตัดสินใหม่',
+  );
+  assert.equal(
+    en.message,
+    'The data was changed elsewhere (expected v4, now v6). The system does not merge edits automatically: load the canonical version before deciding again.',
+  );
+  const lifecycle = recoveryFor(
+    new GovernanceApiError(422, 'QUORUM_NOT_MET', { required: 2, current: 1 }),
+    tEn,
+  );
+  assert.equal(lifecycle.message, 'This step is not available: QUORUM_NOT_MET (1/2)');
+});
+
+test('catalog อังกฤษของ Governance ไม่มีอักษรไทยเหลืออยู่', () => {
+  const thai = /[฀-๿]/;
+  const bad: string[] = [];
+  const walk = (node: unknown, path: string) => {
+    if (typeof node === 'string') {
+      if (thai.test(node)) bad.push(path);
+    } else if (node && typeof node === 'object') {
+      for (const [key, value] of Object.entries(node)) walk(value, `${path}.${key}`);
+    }
+  };
+  walk(enCatalog, 'en');
+  assert.deepEqual(bad, []);
 });
 
 test('URL รับเฉพาะ opaque UUID และทิ้งค่าอื่น เช่น อีเมลหรือเบอร์โทร', () => {

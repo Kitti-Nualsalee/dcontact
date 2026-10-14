@@ -9,6 +9,7 @@
  * หรือ error จะโหลด canonical state ใหม่ และปุ่ม command ถูกปิดเมื่อ state ไม่แน่ชัด (fail closed)
  */
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import { useInShell, useShellPageNav } from '@d-contact/ui-react';
 import type {
   ApprovalRecord,
@@ -22,7 +23,6 @@ import type {
   Quorum,
 } from './governance-api.js';
 import {
-  DECISION_VOCABULARY,
   canDecide,
   canRequestChanges,
   digestLabel,
@@ -37,19 +37,28 @@ import {
   stateLabel,
   type GovernanceLocation,
   type GovernanceSection,
+  intlLocale,
   type GovernanceViewer,
   type RecoveryState,
+  type Translate,
 } from './governance-model.js';
 import { useShellTokens } from './shell/tokens.js';
 import './governance.css';
 import { Cg5Dashboard } from './cg5-dashboard.js';
 import type { Cg5ConsoleApi } from './cg5-console-api.js';
 
-const VIEWER_LABEL: Readonly<Record<GovernanceViewer, string>> = {
-  SUPERVISOR: 'Supervisor · summary',
-  TENANT_ADMIN: 'Tenant Admin · summary',
-  COMPLIANCE: 'Compliance · evidence',
+const VIEWER_KEY: Readonly<Record<GovernanceViewer, string>> = {
+  SUPERVISOR: 'viewer.supervisor',
+  TENANT_ADMIN: 'viewer.tenantAdmin',
+  COMPLIANCE: 'viewer.compliance',
 };
+
+/** ตัวแปลของ namespace `governance` และภาษาปัจจุบัน (ใช้จัดรูปแบบวันที่) */
+function useGovernanceText(): { t: Translate; locale: string } {
+  const { t } = useTranslation('governance');
+  const { locale } = useLocale();
+  return { t: t as unknown as Translate, locale };
+}
 
 /** prefix ของ opaque id ตามด้วย … (ส่วนที่ตัด) — digest ใช้ …suffix แยกกันใน digestLabel */
 const shortId = (value: string) => `${value.slice(0, 8)}…`;
@@ -94,40 +103,45 @@ export function GovernanceConsole({
   const inShell = useInShell();
   // #658: เมนูย่อยของ shell มีหน้าย่อยครบแล้ว → ไม่วาดแท็บซ้ำ; ไม่มี (flag ปิด/API รุ่นเก่า) → แท็บเดิม
   const pagesInShell = useShellPageNav();
+  const { t } = useGovernanceText();
   // governance.css อ้าง token ทั้งสองสถานะของ flag (เหมือน Journeys) — token มาก่อนเนื้อหา ไม่ให้เห็นหน้าที่ยังไม่มีสี
   const tokensReady = useShellTokens();
   if (!tokensReady) return null;
 
   const section = location.section;
   const nav: Array<{ key: GovernanceSection; label: string; current: boolean }> = [
-    { key: 'overview', label: 'ภาพรวม', current: section === 'overview' },
+    { key: 'overview', label: t('nav.overview'), current: section === 'overview' },
     {
       key: location.policyId ? 'policies' : 'exceptions',
-      label: 'Policies & Exceptions',
+      label: t('nav.policiesExceptions'),
       current: section === 'exceptions' || section === 'policies',
     },
-    { key: 'audit', label: 'Audit', current: section === 'audit' },
+    { key: 'audit', label: t('nav.audit'), current: section === 'audit' },
   ];
 
   const Main = inShell ? 'div' : 'main';
   return (
     <div className={inShell ? 'gov-shell gov-shell--embedded' : 'gov-shell'}>
       {inShell ? (
-        <p className="gov-viewer gov-viewer--embedded">มุมมอง: {VIEWER_LABEL[viewer]}</p>
+        <p className="gov-viewer gov-viewer--embedded">
+          {t('viewer.label', { viewer: t(VIEWER_KEY[viewer]) })}
+        </p>
       ) : (
         <>
           <a className="gov-skip" href="#gov-main">
-            ข้ามไปเนื้อหาหลัก
+            {t('chrome.skip')}
           </a>
           <header className="gov-header">
-            <strong>D-CONTACT</strong>
-            <span>Contact Governance</span>
-            <span className="gov-viewer">มุมมอง: {VIEWER_LABEL[viewer]}</span>
+            <strong>{t('chrome.brand')}</strong>
+            <span>{t('chrome.title')}</span>
+            <span className="gov-viewer">
+              {t('viewer.label', { viewer: t(VIEWER_KEY[viewer]) })}
+            </span>
           </header>
         </>
       )}
       {pagesInShell ? null : (
-        <nav aria-label="Contact Governance" className="gov-nav">
+        <nav aria-label={t('nav.label')} className="gov-nav">
           {nav.map((item) => (
             <button
               key={item.label}
@@ -142,23 +156,23 @@ export function GovernanceConsole({
       )}
       <Main id="gov-main" tabIndex={-1} className="gov-main">
         <p className="gov-boundary" role="note">
-          {DECISION_VOCABULARY.developmentComplete}
+          {t('vocabulary.developmentComplete')}
         </p>
         {!pagesInShell && (section === 'exceptions' || section === 'policies') ? (
-          <nav aria-label="Policies & Exceptions" className="gov-subnav">
+          <nav aria-label={t('nav.subLabel')} className="gov-subnav">
             <button
               type="button"
               aria-current={section === 'exceptions' ? 'page' : undefined}
               onClick={() => go({ ...location, section: 'exceptions' })}
             >
-              Exceptions
+              {t('nav.exceptions')}
             </button>
             <button
               type="button"
               aria-current={section === 'policies' ? 'page' : undefined}
               onClick={() => go({ ...location, section: 'policies' })}
             >
-              Policies
+              {t('nav.policies')}
             </button>
           </nav>
         ) : null}
@@ -185,6 +199,9 @@ function useCanonical<T>(load: () => Promise<T>, deps: readonly unknown[]) {
   const [loading, setLoading] = useState(true);
   const loadRef = useRef(load);
   loadRef.current = load;
+  const { t } = useGovernanceText();
+  const tRef = useRef(t);
+  tRef.current = t;
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -194,7 +211,7 @@ function useCanonical<T>(load: () => Promise<T>, deps: readonly unknown[]) {
     } catch (error) {
       // state ที่อ่านไม่ได้ต้องไม่ถูกแทนด้วย snapshot เก่า: ล้างข้อมูลแล้วแสดง recovery
       setData(undefined);
-      setFailure(recoveryFor(error));
+      setFailure(recoveryFor(error, tRef.current));
     } finally {
       setLoading(false);
     }
@@ -214,6 +231,9 @@ function useCanonical<T>(load: () => Promise<T>, deps: readonly unknown[]) {
  */
 function useCommand(onSettled: () => Promise<void>) {
   const keys = useRef(new Map<string, string>());
+  const { t } = useGovernanceText();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [pending, setPending] = useState(false);
   const [recovery, setRecovery] = useState<RecoveryState & { intent: string }>();
 
@@ -228,7 +248,7 @@ function useCommand(onSettled: () => Promise<void>) {
         setRecovery(undefined);
         return result;
       } catch (error) {
-        const state = recoveryFor(error);
+        const state = recoveryFor(error, tRef.current);
         if (state.recovery !== 'SAME_KEY') keys.current.delete(intent);
         setRecovery({ ...state, intent });
         return undefined;
@@ -252,16 +272,8 @@ function RecoveryBanner({
   onReload: () => void;
   onRetry?: () => void;
 }) {
-  const title = {
-    STALE_APPROVAL: 'สิทธิ์อนุมัติ stale',
-    VERSION_CONFLICT: 'Version conflict',
-    HEAD_CONFLICT: 'Policy head conflict',
-    OUTCOME_UNKNOWN: 'ผลของคำสั่งยังไม่แน่ชัด · hold ไว้ก่อน',
-    FORBIDDEN: 'ไม่มีสิทธิ์',
-    LIFECYCLE_BLOCKED: 'ขั้นตอนนี้ยังทำไม่ได้',
-    NOT_FOUND: 'ไม่พบรายการ',
-    INVALID: 'คำขอไม่ถูกต้อง',
-  }[state.kind];
+  const { t } = useGovernanceText();
+  const title = t(`recovery.title.${state.kind}`);
   return (
     <div className={`gov-recovery gov-recovery-${state.kind.toLowerCase()}`} role="alert">
       <strong>⚠ {title}</strong>
@@ -270,12 +282,12 @@ function RecoveryBanner({
       <div className="gov-recovery-actions">
         {state.recovery !== 'NONE' ? (
           <button type="button" className="gov-secondary" onClick={onReload}>
-            โหลด canonical state ล่าสุด
+            {t('recovery.reload')}
           </button>
         ) : null}
         {state.recovery === 'SAME_KEY' && onRetry ? (
           <button type="button" className="gov-secondary" onClick={onRetry}>
-            ส่งซ้ำด้วยคำสั่งเดิม
+            {t('recovery.retry')}
           </button>
         ) : null}
       </div>
@@ -292,13 +304,11 @@ function LiveStatus({ message }: { message?: string }) {
 }
 
 function Guardrails() {
+  const { t } = useGovernanceText();
   return (
     <div className="gov-guardrail" role="note">
-      <strong>🔒 Guardrails ที่ override ไม่ได้</strong>
-      <span>
-        DNC · purpose objection · consent/lawful basis · explicit preference BLOCK/DEFER · kill
-        switch · rule ที่ overridable=false — ไม่มีคำสั่งใดในหน้านี้ข้ามได้
-      </span>
+      <strong>{t('guardrails.title')}</strong>
+      <span>{t('guardrails.body')}</span>
     </div>
   );
 }
@@ -329,6 +339,7 @@ function ConfirmDialog({
   onCancel: () => void;
   onConfirm: (values: Record<string, string>) => void;
 }) {
+  const { t } = useGovernanceText();
   const titleId = useId();
   const boxRef = useRef<HTMLDivElement>(null);
   const [values, setValues] = useState<Record<string, string>>(() =>
@@ -412,7 +423,7 @@ function ConfirmDialog({
           ))}
           <div className="gov-dialog-actions">
             <button type="button" className="gov-secondary" onClick={onCancel}>
-              ยกเลิก
+              {t('common.cancel')}
             </button>
             <button
               type="submit"
@@ -428,23 +439,24 @@ function ConfirmDialog({
   );
 }
 
-const EVIDENCE_FIELD: DialogField = {
+const evidenceField = (t: Translate): DialogField => ({
   name: 'evidenceRef',
-  label: 'Evidence reference',
-  hint: 'ใส่เฉพาะ opaque reference เช่น เลข ticket ภายใน — ห้ามใส่ชื่อ เบอร์ หรืออีเมลลูกค้า',
-};
+  label: t('fields.evidence.label'),
+  hint: t('fields.evidence.hint'),
+});
 
-const REASON_FIELD: DialogField = {
+const reasonField = (t: Translate): DialogField => ({
   name: 'reasonCode',
-  label: 'Reason code',
-  hint: 'รหัสเหตุผลแบบควบคุม เช่น COMPLIANCE_WITHDRAWN',
-};
+  label: t('fields.reason.label'),
+  hint: t('fields.reason.hint'),
+});
 
 function OpenById({ go }: { go: (location: GovernanceLocation) => void }) {
   const [kind, setKind] = useState<'contactId' | 'seriesId' | 'policyId'>('contactId');
   const [value, setValue] = useState('');
   const [error, setError] = useState<string>();
   const inputId = useId();
+  const { t } = useGovernanceText();
   return (
     <form
       className="gov-open"
@@ -459,7 +471,7 @@ function OpenById({ go }: { go: (location: GovernanceLocation) => void }) {
           new URL(`https://console.local/${governanceHref(next)}`),
         );
         if (!parsed[kind]) {
-          setError('รับเฉพาะ opaque ID (UUID) — ห้ามค้นด้วยชื่อ เบอร์ หรืออีเมล');
+          setError(t('openById.error'));
           return;
         }
         setError(undefined);
@@ -467,18 +479,18 @@ function OpenById({ go }: { go: (location: GovernanceLocation) => void }) {
       }}
     >
       <fieldset>
-        <legend>เปิดรายการด้วย opaque ID</legend>
+        <legend>{t('openById.legend')}</legend>
         <select
-          aria-label="ประเภท ID"
+          aria-label={t('openById.typeLabel')}
           value={kind}
           onChange={(event) => setKind(event.target.value as typeof kind)}
         >
-          <option value="contactId">Contact (คิว exception)</option>
-          <option value="seriesId">Exception series</option>
-          <option value="policyId">Policy series</option>
+          <option value="contactId">{t('openById.kindContact')}</option>
+          <option value="seriesId">{t('openById.kindSeries')}</option>
+          <option value="policyId">{t('openById.kindPolicy')}</option>
         </select>
         <label htmlFor={inputId} className="gov-visually-hidden">
-          ID
+          {t('openById.idLabel')}
         </label>
         <input
           id={inputId}
@@ -488,7 +500,7 @@ function OpenById({ go }: { go: (location: GovernanceLocation) => void }) {
           onChange={(event) => setValue(event.target.value)}
         />
         <button type="submit" className="gov-primary">
-          เปิด
+          {t('common.open')}
         </button>
       </fieldset>
       {error ? (
@@ -515,21 +527,22 @@ function Overview({
   go: (location: GovernanceLocation) => void;
   location: GovernanceLocation;
 }) {
+  const { t } = useGovernanceText();
   const kills = useCanonical(() => api.killSwitches({ state: 'ACTIVE' }), [api]);
   return (
     <section aria-labelledby="gov-overview-title">
-      <p className="gov-eyebrow">OVERVIEW</p>
-      <h1 id="gov-overview-title">Contact Governance</h1>
+      <p className="gov-eyebrow">{t('overview.eyebrow')}</p>
+      <h1 id="gov-overview-title">{t('overview.title')}</h1>
       <Cg5Dashboard api={cg5Api} viewer={viewer} />
       <OpenById go={go} />
       <section className="gov-panel" aria-labelledby="gov-kills-title">
-        <h2 id="gov-kills-title">Kill switch ที่ใช้งานอยู่</h2>
+        <h2 id="gov-kills-title">{t('overview.kills.title')}</h2>
         {kills.failure ? (
           <RecoveryBanner state={kills.failure} onReload={() => void kills.reload()} />
         ) : kills.loading ? (
-          <p>กำลังโหลด canonical state…</p>
+          <p>{t('common.loadingState')}</p>
         ) : (kills.data ?? []).length === 0 ? (
-          <p>ไม่มี kill switch ที่ใช้งานอยู่</p>
+          <p>{t('overview.kills.empty')}</p>
         ) : (
           <ul className="gov-list">
             {(kills.data ?? []).map((kill) => (
@@ -544,7 +557,7 @@ function Overview({
           className="gov-link"
           onClick={() => go({ section: 'exceptions', contactId: location.contactId! })}
         >
-          กลับไปคิว exception ของ contact {shortId(location.contactId)}
+          {t('overview.backToQueue', { id: shortId(location.contactId) })}
         </button>
       ) : null}
     </section>
@@ -552,13 +565,17 @@ function Overview({
 }
 
 function KillSwitchRow({ kill }: { kill: KillSwitch }) {
+  const { t } = useGovernanceText();
   return (
     <li>
       <strong>⛔ {stateLabel(kill.state)}</strong>
       <code>{kill.scopeKey}</code>
       <span>
-        {kill.reasonCode} · เปิดเมื่อ {new Date(kill.activatedAt).toISOString()} · โดย{' '}
-        {referenceLabel(kill.activatedByRef)}
+        {t('overview.kill.detail', {
+          reason: kill.reasonCode,
+          at: new Date(kill.activatedAt).toISOString(),
+          by: referenceLabel(kill.activatedByRef, t),
+        })}
       </span>
     </li>
   );
@@ -577,6 +594,7 @@ function ExceptionWorkspace({
   location: GovernanceLocation;
   go: (location: GovernanceLocation) => void;
 }) {
+  const { t, locale } = useGovernanceText();
   const queue = useCanonical(
     async () =>
       location.contactId ? sortExceptionQueue(await api.contactExceptions(location.contactId)) : [],
@@ -604,9 +622,9 @@ function ExceptionWorkspace({
   if (!location.contactId && !location.seriesId) {
     return (
       <section aria-labelledby="gov-exc-empty">
-        <p className="gov-eyebrow">APPROVAL WORKSPACE</p>
-        <h1 id="gov-exc-empty">Exceptions</h1>
-        <p>เปิดคิวจาก Contact หรือ Exception series ด้วย opaque ID</p>
+        <p className="gov-eyebrow">{t('exceptions.eyebrow')}</p>
+        <h1 id="gov-exc-empty">{t('exceptions.title')}</h1>
+        <p>{t('exceptions.empty')}</p>
         <OpenById go={go} />
       </section>
     );
@@ -632,12 +650,13 @@ function ExceptionWorkspace({
     );
     if (!result) return;
     setQuorum(result.quorum);
+    const counts = { current: result.quorum.current, required: result.quorum.required };
     setMessage(
       decision === 'APPROVE'
         ? result.workflowState === 'APPROVED'
-          ? `Quorum ครบ (${result.quorum.current}/${result.quorum.required}) — exception อยู่ในสถานะ APPROVED ซึ่งยังไม่ใช่ ALLOW: runtime จะตัดสินทุกครั้งที่ส่งจริง`
-          : `บันทึก approval แล้ว (quorum ${result.quorum.current}/${result.quorum.required}) — ยังไม่ใช่ ALLOW และยังไม่ Activate`
-        : 'ปฏิเสธ revision นี้แล้ว ประวัติยังเป็น append-only',
+          ? t('exceptions.message.quorumMet', counts)
+          : t('exceptions.message.recorded', counts)
+        : t('exceptions.message.rejected'),
     );
   };
 
@@ -656,8 +675,8 @@ function ExceptionWorkspace({
     if (result) {
       setMessage(
         action === 'revoke'
-          ? `Revoke แล้ว (${result.workflowState}) — งานที่ค้างจะถูก re-authorize และไม่มีการ resume อัตโนมัติ`
-          : `ยกเลิกคำขอแล้ว (${result.workflowState})`,
+          ? t('exceptions.message.revoked', { state: result.workflowState })
+          : t('exceptions.message.cancelled', { state: result.workflowState }),
       );
     }
   };
@@ -668,11 +687,11 @@ function ExceptionWorkspace({
     <section aria-labelledby="gov-exc-title">
       <div className="gov-title-row">
         <div>
-          <p className="gov-eyebrow">APPROVAL WORKSPACE</p>
+          <p className="gov-eyebrow">{t('exceptions.eyebrow')}</p>
           <h1 id="gov-exc-title">
             {location.contactId
-              ? `คิว exception · contact ${shortId(location.contactId)}`
-              : 'Exception'}
+              ? t('exceptions.queueTitle', { id: shortId(location.contactId) })
+              : t('exceptions.single')}
           </h1>
         </div>
       </div>
@@ -691,14 +710,14 @@ function ExceptionWorkspace({
       ) : null}
       <div className="gov-three-pane">
         {location.contactId ? (
-          <aside className="gov-queue" aria-label="คิว exception">
-            <h2>คิว ({queue.data?.length ?? 0})</h2>
+          <aside className="gov-queue" aria-label={t('exceptions.queue.label')}>
+            <h2>{t('exceptions.queue.heading', { n: queue.data?.length ?? 0 })}</h2>
             {queue.failure ? (
               <RecoveryBanner state={queue.failure} onReload={() => void queue.reload()} />
             ) : queue.loading ? (
-              <p>กำลังโหลด…</p>
+              <p>{t('common.loading')}</p>
             ) : (queue.data ?? []).length === 0 ? (
-              <p>ไม่มี exception สำหรับ contact นี้</p>
+              <p>{t('exceptions.queue.empty')}</p>
             ) : (
               <ul>
                 {(queue.data ?? []).map((item) => (
@@ -721,7 +740,11 @@ function ExceptionWorkspace({
                       <small>
                         {stateLabel(item.workflowState)} · {item.allowedRuleCodes.join(', ')}
                       </small>
-                      <small>หมดอายุ {new Date(item.expiresAt).toISOString()}</small>
+                      <small>
+                        {t('exceptions.queue.expires', {
+                          at: new Date(item.expiresAt).toISOString(),
+                        })}
+                      </small>
                     </button>
                   </li>
                 ))}
@@ -734,13 +757,16 @@ function ExceptionWorkspace({
           {detail.failure ? (
             <RecoveryBanner state={detail.failure} onReload={() => void detail.reload()} />
           ) : !series ? (
-            <p>{detail.loading ? 'กำลังโหลด canonical state…' : 'เลือกรายการจากคิว'}</p>
+            <p>{detail.loading ? t('common.loadingState') : t('exceptions.case.select')}</p>
           ) : (
             <>
               <div className="gov-section-head">
                 <div>
                   <p className="gov-eyebrow">
-                    EXCEPTION {shortId(series.seriesId)} · REVISION {series.revision}
+                    {t('exceptions.case.eyebrow', {
+                      id: shortId(series.seriesId),
+                      revision: series.revision,
+                    })}
                   </p>
                   <h2 id="gov-case-title">{series.reasonCode}</h2>
                 </div>
@@ -749,54 +775,81 @@ function ExceptionWorkspace({
                 </span>
               </div>
               <p className="gov-states">
-                <span>Workflow: {stateLabel(series.workflowState)}</span>
-                <span>Effective: {stateLabel(series.effectiveState)}</span>
+                <span>
+                  {t('exceptions.case.workflow', { state: stateLabel(series.workflowState) })}
+                </span>
+                <span>
+                  {t('exceptions.case.effective', { state: stateLabel(series.effectiveState) })}
+                </span>
               </p>
               <Guardrails />
               <dl className="gov-facts">
                 <div>
-                  <dt>Scope</dt>
+                  <dt>{t('exceptions.facts.scope')}</dt>
                   <dd>
-                    {series.scopeKind === 'CONTACT_WIDE'
-                      ? 'Contact-wide'
-                      : `Identity ${shortId(series.identityId ?? '')}`}{' '}
-                    · {series.channel} · {series.purpose} · {series.sourceType} {series.sourceId}
+                    {t('exceptions.facts.scopeValue', {
+                      scope:
+                        series.scopeKind === 'CONTACT_WIDE'
+                          ? t('exceptions.facts.contactWide')
+                          : t('exceptions.facts.identity', {
+                              id: shortId(series.identityId ?? ''),
+                            }),
+                      channel: series.channel,
+                      purpose: series.purpose,
+                      sourceType: series.sourceType,
+                      sourceId: series.sourceId,
+                    })}
                   </dd>
                 </div>
                 <div>
-                  <dt>Rule ที่ยกได้</dt>
+                  <dt>{t('exceptions.facts.rules')}</dt>
                   <dd>{series.allowedRuleCodes.join(', ')}</dd>
                 </div>
                 <div>
-                  <dt>Policy binding</dt>
+                  <dt>{t('exceptions.facts.policyBinding')}</dt>
                   <dd>
-                    {shortId(series.policyId)} v{series.policyVersion} · digest{' '}
-                    {digestLabel(series.policyContentDigest)} · {series.registryVersion}
+                    {t('exceptions.facts.policyBindingValue', {
+                      policy: shortId(series.policyId),
+                      version: series.policyVersion,
+                      digest: digestLabel(series.policyContentDigest),
+                      registry: series.registryVersion,
+                    })}
                   </dd>
                 </div>
                 <div>
-                  <dt>Effective window</dt>
-                  <dd>{effectiveWindowLabel(series.startsAt, series.expiresAt)}</dd>
+                  <dt>{t('exceptions.facts.window')}</dt>
+                  <dd>{effectiveWindowLabel(series.startsAt, series.expiresAt, t, locale)}</dd>
                 </div>
                 <div>
-                  <dt>Content digest / version</dt>
+                  <dt>{t('exceptions.facts.content')}</dt>
                   <dd>
-                    {digestLabel(series.contentDigest)} · contact version {series.aggregateVersion}
+                    {t('exceptions.facts.contentValue', {
+                      digest: digestLabel(series.contentDigest),
+                      version: series.aggregateVersion,
+                    })}
                   </dd>
                 </div>
               </dl>
-              <h3>หลักฐาน</h3>
+              <h3>{t('exceptions.evidence.title')}</h3>
               <div className="gov-evidence">
-                <span>Evidence: {referenceLabel(series.evidenceRef)}</span>
-                {series.ticketRef ? <span>Ticket: {referenceLabel(series.ticketRef)}</span> : null}
-                <span>Maker: {referenceLabel(series.actorRef)}</span>
+                <span>
+                  {t('exceptions.evidence.evidence', {
+                    ref: referenceLabel(series.evidenceRef, t),
+                  })}
+                </span>
+                {series.ticketRef ? (
+                  <span>
+                    {t('exceptions.evidence.ticket', { ref: referenceLabel(series.ticketRef, t) })}
+                  </span>
+                ) : null}
+                <span>
+                  {t('exceptions.evidence.maker', { ref: referenceLabel(series.actorRef, t) })}
+                </span>
                 {isRedacted(series.evidenceRef) ? (
-                  <small>
-                    รายละเอียดหลักฐานเปิดได้เฉพาะผู้มีสิทธิ์ Compliance และทุกการเปิดถูก audit
-                  </small>
+                  <small>{t('exceptions.evidence.redacted')}</small>
                 ) : null}
                 <button type="button" className="gov-secondary" onClick={() => setDrawer(true)}>
-                  เปิด evidence timeline
+                  {t('common.openEvidence')}
                 </button>
               </div>
             </>
@@ -804,25 +857,25 @@ function ExceptionWorkspace({
         </article>
 
         {series ? (
-          <aside className="gov-panel gov-rail" aria-label="Maker–Checker">
-            <h2>Maker–Checker</h2>
+          <aside className="gov-panel gov-rail" aria-label={t('exceptions.checker.title')}>
+            <h2>{t('exceptions.checker.title')}</h2>
             <p className="gov-quorum">
-              Approvals ที่บันทึกแล้ว <b>{approvedCount}</b>
+              {t('exceptions.checker.recorded')} <b>{approvedCount}</b>
               {quorum ? (
                 <>
                   {' '}
-                  · quorum ล่าสุดจาก server{' '}
+                  {t('exceptions.checker.latestQuorum')}{' '}
                   <b>
                     {quorum.current}/{quorum.required}
                   </b>{' '}
                   ({quorum.status})
                 </>
               ) : (
-                <small> · server ตรวจ quorum ตาม risk tier ทุกครั้งที่บันทึก</small>
+                <small> {t('exceptions.checker.serverChecks')}</small>
               )}
             </p>
             <ApprovalList approvals={approvals} />
-            <p className="gov-help">{DECISION_VOCABULARY.approve}</p>
+            <p className="gov-help">{t('vocabulary.approve')}</p>
             {canDecide(viewer) && series.workflowState === 'PENDING' ? (
               <>
                 <button
@@ -831,7 +884,7 @@ function ExceptionWorkspace({
                   disabled={blocked}
                   onClick={() => setDialog('APPROVE')}
                 >
-                  Approve เป็น checker
+                  {t('exceptions.checker.approve')}
                 </button>
                 <button
                   type="button"
@@ -839,7 +892,7 @@ function ExceptionWorkspace({
                   disabled={blocked}
                   onClick={() => setDialog('REJECT')}
                 >
-                  Reject พร้อมหลักฐาน
+                  {t('exceptions.checker.reject')}
                 </button>
               </>
             ) : null}
@@ -850,7 +903,7 @@ function ExceptionWorkspace({
                 disabled={blocked}
                 onClick={() => setDialog('REVOKE')}
               >
-                Revoke exception
+                {t('exceptions.checker.revoke')}
               </button>
             ) : null}
             {canRequestChanges(viewer) && series.workflowState === 'PENDING' ? (
@@ -860,32 +913,42 @@ function ExceptionWorkspace({
                 disabled={blocked}
                 onClick={() => setDialog('CANCEL')}
               >
-                ยกเลิกคำขอ (maker)
+                {t('exceptions.checker.cancelRequest')}
               </button>
             ) : null}
             {!canDecide(viewer) ? (
-              <p className="gov-help">มุมมองนี้ดู summary ได้ แต่ approve/revoke ไม่ได้</p>
+              <p className="gov-help">{t('exceptions.checker.readOnly')}</p>
             ) : null}
-            {command.pending ? <p aria-live="polite">กำลังรอ server ยืนยัน…</p> : null}
+            {command.pending ? <p aria-live="polite">{t('common.waitingServer')}</p> : null}
           </aside>
         ) : null}
       </div>
 
       {series && (dialog === 'APPROVE' || dialog === 'REJECT') ? (
         <ConfirmDialog
-          title={dialog === 'APPROVE' ? 'ยืนยัน Approve' : 'ยืนยัน Reject'}
+          title={
+            dialog === 'APPROVE'
+              ? t('exceptions.dialog.approveTitle')
+              : t('exceptions.dialog.rejectTitle')
+          }
           body={
             <>
               <p>
-                ผูกกับ revision {series.revision} · digest {digestLabel(series.contentDigest)} ·
-                contact version {series.aggregateVersion} — ถ้ามีการเปลี่ยนระหว่างนี้ server
-                จะปฏิเสธ
+                {t('exceptions.dialog.decisionBody', {
+                  revision: series.revision,
+                  digest: digestLabel(series.contentDigest),
+                  version: series.aggregateVersion,
+                })}
               </p>
-              <p>{DECISION_VOCABULARY.approve}</p>
+              <p>{t('vocabulary.approve')}</p>
             </>
           }
-          fields={[EVIDENCE_FIELD]}
-          confirmLabel={dialog === 'APPROVE' ? 'ยืนยัน Approve' : 'ยืนยัน Reject'}
+          fields={[evidenceField(t)]}
+          confirmLabel={
+            dialog === 'APPROVE'
+              ? t('exceptions.dialog.approveTitle')
+              : t('exceptions.dialog.rejectTitle')
+          }
           danger={dialog === 'REJECT'}
           onCancel={() => setDialog(undefined)}
           onConfirm={(values) => void decide(dialog, values)}
@@ -893,16 +956,24 @@ function ExceptionWorkspace({
       ) : null}
       {series && (dialog === 'REVOKE' || dialog === 'CANCEL') ? (
         <ConfirmDialog
-          title={dialog === 'REVOKE' ? 'ยืนยัน Revoke' : 'ยืนยันยกเลิกคำขอ'}
+          title={
+            dialog === 'REVOKE'
+              ? t('exceptions.dialog.revokeTitle')
+              : t('exceptions.dialog.cancelTitle')
+          }
           body={
             <p>
               {dialog === 'REVOKE'
-                ? 'Revoke มีผลทันทีที่ commit และงานที่ค้างจะถูก re-authorize — การอนุมัติใหม่ต้องเป็น series ใหม่'
-                : 'ยกเลิกได้เฉพาะคำขอที่ยังรอตัดสิน และประวัติยังเก็บไว้ครบ'}
+                ? t('exceptions.dialog.revokeBody')
+                : t('exceptions.dialog.cancelBody')}
             </p>
           }
-          fields={[REASON_FIELD, EVIDENCE_FIELD]}
-          confirmLabel={dialog === 'REVOKE' ? 'ยืนยัน Revoke' : 'ยืนยันยกเลิก'}
+          fields={[reasonField(t), evidenceField(t)]}
+          confirmLabel={
+            dialog === 'REVOKE'
+              ? t('exceptions.dialog.revokeConfirm')
+              : t('exceptions.dialog.cancelConfirm')
+          }
           danger
           onCancel={() => setDialog(undefined)}
           onConfirm={(values) => void transition(dialog === 'REVOKE' ? 'revoke' : 'cancel', values)}
@@ -918,18 +989,22 @@ function ExceptionWorkspace({
 }
 
 function ApprovalList({ approvals }: { approvals: ApprovalRecord[] }) {
-  if (approvals.length === 0) return <p>ยังไม่มีการลงความเห็น</p>;
+  const { t } = useGovernanceText();
+  if (approvals.length === 0) return <p>{t('approvals.empty')}</p>;
   return (
     <ol className="gov-approvals">
       {approvals.map((approval, index) => (
         <li key={`${approval.decidedAt}-${index}`}>
-          <b>{approval.decision === 'APPROVE' ? '✓ APPROVE' : '✕ REJECT'}</b>
+          <b>{approval.decision === 'APPROVE' ? t('approvals.approve') : t('approvals.reject')}</b>
           <span>
-            {referenceLabel(approval.approverRef)} · {approval.capability}
-            {approval.directCompliance ? ' · direct Compliance' : ''}
+            {referenceLabel(approval.approverRef, t)} · {approval.capability}
+            {approval.directCompliance ? t('approvals.directCompliance') : ''}
           </span>
           <small>
-            epoch {approval.authorizationEpoch} · {new Date(approval.decidedAt).toISOString()}
+            {t('approvals.epoch', {
+              epoch: approval.authorizationEpoch,
+              at: new Date(approval.decidedAt).toISOString(),
+            })}
           </small>
         </li>
       ))}
@@ -938,6 +1013,7 @@ function ApprovalList({ approvals }: { approvals: ApprovalRecord[] }) {
 }
 
 function EvidenceDrawer({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const { t } = useGovernanceText();
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -957,9 +1033,9 @@ function EvidenceDrawer({ onClose, children }: { onClose: () => void; children: 
         }}
       >
         <div className="gov-section-head">
-          <h2 id={titleId}>Evidence timeline</h2>
+          <h2 id={titleId}>{t('drawer.title')}</h2>
           <button ref={closeRef} type="button" className="gov-secondary" onClick={onClose}>
-            ปิด
+            {t('common.close')}
           </button>
         </div>
         {children}
@@ -971,10 +1047,10 @@ function EvidenceDrawer({ onClose, children }: { onClose: () => void; children: 
 // ── B · Policy change studio ─────────────────────────────────────────────────
 
 const STEPS = [
-  { key: 'draft', label: 'Draft', states: ['DRAFT'] },
-  { key: 'tests', label: 'Tests', states: [] as string[] },
-  { key: 'approvals', label: 'Approvals', states: ['IN_REVIEW', 'APPROVED'] },
-  { key: 'activation', label: 'Activation', states: ['SCHEDULED', 'ACTIVE', 'SUPERSEDED'] },
+  { key: 'draft', states: ['DRAFT'] },
+  { key: 'tests', states: [] as string[] },
+  { key: 'approvals', states: ['IN_REVIEW', 'APPROVED'] },
+  { key: 'activation', states: ['SCHEDULED', 'ACTIVE', 'SUPERSEDED'] },
 ];
 
 function PolicyStudio({
@@ -988,6 +1064,7 @@ function PolicyStudio({
   location: GovernanceLocation;
   go: (location: GovernanceLocation) => void;
 }) {
+  const { t } = useGovernanceText();
   const versions = useCanonical(
     async () => (location.policyId ? api.policyVersions(location.policyId) : []),
     [api, location.policyId],
@@ -1015,9 +1092,9 @@ function PolicyStudio({
   if (!location.policyId) {
     return (
       <section aria-labelledby="gov-pol-empty">
-        <p className="gov-eyebrow">POLICY CHANGE STUDIO</p>
-        <h1 id="gov-pol-empty">Policies</h1>
-        <p>เปิด policy series ด้วย opaque ID</p>
+        <p className="gov-eyebrow">{t('policies.eyebrow')}</p>
+        <h1 id="gov-pol-empty">{t('policies.title')}</h1>
+        <p>{t('policies.empty')}</p>
         <OpenById go={go} />
       </section>
     );
@@ -1065,8 +1142,12 @@ function PolicyStudio({
     if (result) {
       setMessage(
         decision === 'APPROVE'
-          ? `บันทึก approval แล้ว (quorum ${result.quorum.current}/${result.quorum.required}, ${result.lifecycleState}) — Approve ไม่เท่ากับ Activate`
-          : 'ปฏิเสธ version นี้แล้ว',
+          ? t('policies.message.approved', {
+              current: result.quorum.current,
+              required: result.quorum.required,
+              state: result.lifecycleState,
+            })
+          : t('policies.message.rejected'),
       );
     }
   };
@@ -1085,8 +1166,12 @@ function PolicyStudio({
     );
     if (result) {
       setMessage(
-        `Commit การ publish แล้ว (${result.lifecycleState}${result.activateAt ? ` · activate ${result.activateAt}` : ''}) — ` +
-          'downstream จะ re-authorize งานที่ค้างจาก event; Console ยังไม่มี query acknowledgement จึงไม่อ้างว่ากระจายผลครบแล้ว',
+        t('policies.message.published', {
+          state: result.lifecycleState,
+          activate: result.activateAt
+            ? t('policies.message.activate', { at: result.activateAt })
+            : '',
+        }),
       );
     }
   };
@@ -1103,9 +1188,7 @@ function PolicyStudio({
       }),
     );
     if (result) {
-      setMessage(
-        `สร้าง rollback candidate v${result.version} แล้ว — rollback เป็น version ใหม่ที่ต้องทดสอบและอนุมัติใหม่ ไม่สลับกลับ row เดิม`,
-      );
+      setMessage(t('policies.message.rollback', { version: result.version }));
       go({ section: 'policies', policyId: result.policyId, versionId: result.policyVersionId });
     }
   };
@@ -1114,22 +1197,26 @@ function PolicyStudio({
     <section aria-labelledby="gov-pol-title">
       <div className="gov-title-row">
         <div>
-          <p className="gov-eyebrow">POLICY CHANGE STUDIO</p>
+          <p className="gov-eyebrow">{t('policies.eyebrow')}</p>
           <h1 id="gov-pol-title">
-            Policy {shortId(location.policyId)}
-            {version ? ` · v${version.version}` : ''}
+            {version
+              ? t('policies.headingVersion', {
+                  id: shortId(location.policyId),
+                  version: version.version,
+                })
+              : t('policies.heading', { id: shortId(location.policyId) })}
           </h1>
         </div>
         {version ? <span className="gov-state">{stateLabel(version.lifecycleState)}</span> : null}
       </div>
-      <ol className="gov-stepper" aria-label="ขั้นตอน policy">
+      <ol className="gov-stepper" aria-label={t('policies.steps.label')}>
         {STEPS.map((step, index) => (
           <li
             key={step.key}
             aria-current={index === currentStep ? 'step' : undefined}
             className={index < currentStep ? 'is-done' : index === currentStep ? 'is-current' : ''}
           >
-            {index < currentStep ? '✓' : index + 1} {step.label}
+            {index < currentStep ? '✓' : index + 1} {t(`policies.steps.${step.key}`)}
           </li>
         ))}
       </ol>
@@ -1148,11 +1235,14 @@ function PolicyStudio({
       ) : null}
       {headMismatch && artifact ? (
         <div className="gov-recovery gov-recovery-head_conflict" role="alert">
-          <strong>⚠ Policy head เปลี่ยนหลังทดสอบ</strong>
+          <strong>{t('policies.headMismatch.title')}</strong>
           <p>
-            ผลทดสอบผูกกับ head v{artifact.baseHeadVersion} ({digestLabel(artifact.baseHeadDigest)})
-            แต่ head ปัจจุบันเป็น v{head?.headVersion ?? 0} ({digestLabel(head?.headDigest)}) —
-            ต้องทดสอบและอนุมัติใหม่ ระบบไม่เลือกผู้ชนะให้
+            {t('policies.headMismatch.body', {
+              base: artifact.baseHeadVersion,
+              baseDigest: digestLabel(artifact.baseHeadDigest),
+              current: head?.headVersion ?? 0,
+              currentDigest: digestLabel(head?.headDigest),
+            })}
           </p>
         </div>
       ) : null}
@@ -1160,7 +1250,7 @@ function PolicyStudio({
         <div className="gov-studio-grid">
           <article className="gov-panel" aria-labelledby="gov-diff-title">
             <div className="gov-section-head">
-              <h2 id="gov-diff-title">การเปลี่ยนแปลงเทียบ active head</h2>
+              <h2 id="gov-diff-title">{t('policies.diff.title')}</h2>
               {version.diffClass ? (
                 <span className={`gov-diff gov-diff-${version.diffClass.toLowerCase()}`}>
                   {version.diffClass === 'RELAXATION'
@@ -1171,58 +1261,67 @@ function PolicyStudio({
                   {version.diffClass}
                 </span>
               ) : (
-                <span className="gov-diff">ยังไม่มีผลทดสอบ</span>
+                <span className="gov-diff">{t('policies.diff.noTests')}</span>
               )}
             </div>
             <dl className="gov-facts">
               <div>
-                <dt>Scope</dt>
+                <dt>{t('common.scope')}</dt>
                 <dd>
                   <code>{version.scopeKey}</code>
                 </dd>
               </div>
               <div>
-                <dt>Content digest</dt>
+                <dt>{t('policies.facts.contentDigest')}</dt>
                 <dd>
-                  {digestLabel(version.contentDigest)} · draft revision {version.draftRevision}
+                  {t('policies.facts.contentValue', {
+                    digest: digestLabel(version.contentDigest),
+                    revision: version.draftRevision,
+                  })}
                 </dd>
               </div>
               <div>
-                <dt>Active head ปัจจุบัน</dt>
+                <dt>{t('policies.facts.activeHead')}</dt>
                 <dd>
                   {head
-                    ? `v${head.headVersion} · policy v${head.activePolicyVersion} · ${digestLabel(head.headDigest)}`
-                    : 'ยังไม่มี active head'}
-                  {head?.nextActivationAt ? ` · activation ถัดไป ${head.nextActivationAt}` : ''}
+                    ? t('policies.facts.headValue', {
+                        head: head.headVersion,
+                        policy: head.activePolicyVersion,
+                        digest: digestLabel(head.headDigest),
+                      })
+                    : t('policies.facts.noHead')}
+                  {head?.nextActivationAt
+                    ? t('policies.facts.nextActivation', { at: head.nextActivationAt })
+                    : ''}
                 </dd>
               </div>
               <div>
-                <dt>Evaluator / registry</dt>
+                <dt>{t('policies.facts.evaluator')}</dt>
                 <dd>
-                  {version.evaluatorVersion} · {version.registryVersion} · schema{' '}
-                  {version.schemaVersion}
+                  {t('policies.facts.evaluatorValue', {
+                    evaluator: version.evaluatorVersion,
+                    registry: version.registryVersion,
+                    schema: version.schemaVersion,
+                  })}
                 </dd>
               </div>
               <div>
-                <dt>Effective</dt>
+                <dt>{t('policies.facts.effective')}</dt>
                 <dd>
                   {version.activateAt
-                    ? `activate ${version.activateAt}`
-                    : `from ${version.effectiveFrom}`}
+                    ? t('policies.facts.effectiveActivate', { at: version.activateAt })
+                    : t('policies.facts.effectiveFrom', { at: version.effectiveFrom })}
                 </dd>
               </div>
             </dl>
             <Guardrails />
             {killActive ? (
               <div className="gov-recovery gov-recovery-lifecycle_blocked" role="note">
-                <strong>⛔ Kill switch ใช้งานอยู่ใน scope นี้</strong>
-                <p>
-                  publish ที่ผ่อนลงถูกบล็อกจนกว่าจะเคลียร์ด้วย approval ของอีกคน และการเคลียร์ไม่
-                  resume งานเดิม
-                </p>
+                <strong>{t('policies.kill.title')}</strong>
+                <p>{t('policies.kill.body')}</p>
               </div>
             ) : null}
-            <h3>ประวัติ version</h3>
+            <h3>{t('policies.history.title')}</h3>
             <ul className="gov-list">
               {(versions.data ?? []).map((item) => (
                 <li key={item.policyVersionId}>
@@ -1240,8 +1339,11 @@ function PolicyStudio({
                       })
                     }
                   >
-                    v{item.version} · {stateLabel(item.lifecycleState)}
-                    {item.rollbackOfVersionId ? ' · rollback candidate' : ''}
+                    {t('policies.history.item', {
+                      version: item.version,
+                      state: stateLabel(item.lifecycleState),
+                    })}
+                    {item.rollbackOfVersionId ? t('policies.history.rollback') : ''}
                   </button>
                 </li>
               ))}
@@ -1249,26 +1351,36 @@ function PolicyStudio({
           </article>
 
           <aside className="gov-panel gov-rail" aria-labelledby="gov-release-title">
-            <h2 id="gov-release-title">Release packet</h2>
+            <h2 id="gov-release-title">{t('policies.release.title')}</h2>
             {artifact ? (
-              <div className="gov-tests" aria-label="ผลทดสอบ synthetic">
+              <div className="gov-tests" aria-label={t('policies.release.testsLabel')}>
                 <b>
                   {artifact.outcome === 'PASSED' || artifact.failed === 0 ? '✓' : '✕'}{' '}
                   {artifact.outcome}
                 </b>
                 <span>
-                  ผ่าน {artifact.passed} · ล้มเหลว {artifact.failed}
+                  {t('policies.release.passedFailed', {
+                    passed: artifact.passed,
+                    failed: artifact.failed,
+                  })}
                 </span>
                 <span>
-                  artifact {digestLabel(artifact.artifactDigest)} · {artifact.suiteVersion}
+                  {t('policies.release.artifact', {
+                    digest: digestLabel(artifact.artifactDigest),
+                    suite: artifact.suiteVersion,
+                  })}
                 </span>
               </div>
             ) : (
-              <p>ยังไม่มี test artifact — ต้องทดสอบก่อนอนุมัติ</p>
+              <p>{t('policies.release.noArtifact')}</p>
             )}
-            <p className="gov-quorum">Approval digest {digestLabel(version.approvalDigest)}</p>
+            <p className="gov-quorum">
+              {t('policies.release.approvalDigest', {
+                digest: digestLabel(version.approvalDigest),
+              })}
+            </p>
             <ApprovalList approvals={data?.approvals ?? []} />
-            <p className="gov-help">{DECISION_VOCABULARY.activate}</p>
+            <p className="gov-help">{t('vocabulary.activate')}</p>
             {canDecide(viewer) && version.lifecycleState === 'IN_REVIEW' && artifact ? (
               <>
                 <button
@@ -1277,7 +1389,7 @@ function PolicyStudio({
                   disabled={blocked || !head}
                   onClick={() => setDialog('APPROVE')}
                 >
-                  บันทึก approval
+                  {t('policies.release.recordApproval')}
                 </button>
                 <button
                   type="button"
@@ -1285,7 +1397,7 @@ function PolicyStudio({
                   disabled={blocked || !head}
                   onClick={() => setDialog('REJECT')}
                 >
-                  ปฏิเสธ version
+                  {t('policies.release.rejectVersion')}
                 </button>
               </>
             ) : null}
@@ -1296,7 +1408,7 @@ function PolicyStudio({
                 disabled={blocked}
                 onClick={() => setDialog('PUBLISH')}
               >
-                Publish / ตั้งเวลา Activate
+                {t('policies.release.publish')}
               </button>
             ) : null}
             {canDecide(viewer) &&
@@ -1307,42 +1419,53 @@ function PolicyStudio({
                 disabled={command.pending || !!command.recovery}
                 onClick={() => setDialog('ROLLBACK')}
               >
-                สร้าง rollback candidate
+                {t('policies.release.rollback')}
               </button>
             ) : null}
             <button type="button" className="gov-link" onClick={() => setDrawer(true)}>
-              เปิด evidence timeline
+              {t('common.openEvidence')}
             </button>
-            {command.pending ? <p aria-live="polite">กำลังรอ server ยืนยัน…</p> : null}
+            {command.pending ? <p aria-live="polite">{t('common.waitingServer')}</p> : null}
           </aside>
         </div>
       ) : detail.loading || versions.loading ? (
-        <p>กำลังโหลด canonical state…</p>
+        <p>{t('common.loadingState')}</p>
       ) : versions.failure ? (
         <RecoveryBanner state={versions.failure} onReload={() => void versions.reload()} />
       ) : null}
 
       {version && artifact && head && (dialog === 'APPROVE' || dialog === 'REJECT') ? (
         <ConfirmDialog
-          title={dialog === 'APPROVE' ? 'ยืนยัน approval ของ policy' : 'ยืนยันปฏิเสธ policy'}
+          title={
+            dialog === 'APPROVE'
+              ? t('policies.dialog.approveTitle')
+              : t('policies.dialog.rejectTitle')
+          }
           body={
             <p>
-              ผูกกับ content {digestLabel(version.contentDigest)} · test artifact{' '}
-              {digestLabel(artifact.artifactDigest)} · head v{head.headVersion} —{' '}
-              {DECISION_VOCABULARY.approve}
+              {t('policies.dialog.decisionBody', {
+                content: digestLabel(version.contentDigest),
+                artifact: digestLabel(artifact.artifactDigest),
+                head: head.headVersion,
+                vocabulary: t('vocabulary.approve'),
+              })}
             </p>
           }
           fields={[
             {
               name: 'activateAt',
-              label: 'เวลาที่ต้องการให้ Activate (UTC)',
-              hint: 'ใช้เมื่อ quorum ครบ — ยังต้อง publish ก่อนมีผล',
+              label: t('policies.dialog.activateAtLabel'),
+              hint: t('policies.dialog.activateAtHint'),
               type: 'datetime-local',
               initial: new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16),
             },
-            EVIDENCE_FIELD,
+            evidenceField(t),
           ]}
-          confirmLabel={dialog === 'APPROVE' ? 'ยืนยัน approval' : 'ยืนยันปฏิเสธ'}
+          confirmLabel={
+            dialog === 'APPROVE'
+              ? t('policies.dialog.approveConfirm')
+              : t('policies.dialog.rejectConfirm')
+          }
           danger={dialog === 'REJECT'}
           onCancel={() => setDialog(undefined)}
           onConfirm={(values) => void decide(dialog, values)}
@@ -1350,33 +1473,30 @@ function PolicyStudio({
       ) : null}
       {version && artifact && head && dialog === 'PUBLISH' ? (
         <ConfirmDialog
-          title="ยืนยัน Publish"
+          title={t('policies.dialog.publishTitle')}
           body={
             <>
               <p>
-                เปลี่ยน policy head ของ scope จาก v{head.headVersion} ตาม approval{' '}
-                {digestLabel(version.approvalDigest)}
+                {t('policies.dialog.publishBody', {
+                  head: head.headVersion,
+                  digest: digestLabel(version.approvalDigest),
+                })}
               </p>
-              <p>{DECISION_VOCABULARY.developmentComplete}</p>
+              <p>{t('vocabulary.developmentComplete')}</p>
             </>
           }
-          fields={[EVIDENCE_FIELD]}
-          confirmLabel="ยืนยัน Publish"
+          fields={[evidenceField(t)]}
+          confirmLabel={t('policies.dialog.publishConfirm')}
           onCancel={() => setDialog(undefined)}
           onConfirm={(values) => void publish(values)}
         />
       ) : null}
       {version && dialog === 'ROLLBACK' ? (
         <ConfirmDialog
-          title="สร้าง rollback candidate"
-          body={
-            <p>
-              สร้าง version ใหม่จากเนื้อหาของ v{version.version} ต้องทดสอบ อนุมัติ และ publish
-              ใหม่ทั้งหมด
-            </p>
-          }
-          fields={[REASON_FIELD, EVIDENCE_FIELD]}
-          confirmLabel="สร้าง rollback candidate"
+          title={t('policies.dialog.rollbackTitle')}
+          body={<p>{t('policies.dialog.rollbackBody', { version: version.version })}</p>}
+          fields={[reasonField(t), evidenceField(t)]}
+          confirmLabel={t('policies.dialog.rollbackConfirm')}
           onCancel={() => setDialog(undefined)}
           onConfirm={(values) => void rollback(values)}
         />
@@ -1415,6 +1535,7 @@ function Timeline({ entries }: { entries: TimelineEntry[] }) {
 }
 
 function ExceptionTimeline({ api, seriesId }: { api: GovernanceApi; seriesId: string }) {
+  const { t, locale } = useGovernanceText();
   const state = useCanonical(async () => {
     const [series, revisions, approvals] = await Promise.all([
       api.exception(seriesId),
@@ -1425,28 +1546,31 @@ function ExceptionTimeline({ api, seriesId }: { api: GovernanceApi; seriesId: st
   }, [api, seriesId]);
   if (state.failure)
     return <RecoveryBanner state={state.failure} onReload={() => void state.reload()} />;
-  if (!state.data) return <p>กำลังโหลด canonical timeline…</p>;
+  if (!state.data) return <p>{t('common.loadingTimeline')}</p>;
   const { series, revisions, approvals } = state.data;
   return (
     <div className="gov-evidence-grid">
       <section aria-labelledby="gov-tl-exc">
-        <h3 id="gov-tl-exc">Canonical timeline</h3>
-        <Timeline entries={exceptionEntries(revisions, approvals)} />
+        <h3 id="gov-tl-exc">{t('audit.timeline')}</h3>
+        <Timeline entries={exceptionEntries(revisions, approvals, t)} />
       </section>
       <SafetyCase
         rows={[
-          ['Hard restrictions / consent / preference', 'ไม่ถูก override โดย exception ใด ๆ'],
-          ['Risk tier', riskLabel(series.riskTier)],
+          [t('audit.safety.restrictions'), t('audit.safety.restrictionsValue')],
+          [t('audit.safety.riskTier'), riskLabel(series.riskTier)],
           [
-            'Workflow / effective',
+            t('audit.safety.workflowEffective'),
             `${stateLabel(series.workflowState)} · ${stateLabel(series.effectiveState)}`,
           ],
-          ['Expiry', effectiveWindowLabel(series.startsAt, series.expiresAt)],
-          ['Evidence', referenceLabel(series.evidenceRef)],
+          [
+            t('audit.safety.expiry'),
+            effectiveWindowLabel(series.startsAt, series.expiresAt, t, locale),
+          ],
+          [t('audit.safety.evidence'), referenceLabel(series.evidenceRef, t)],
         ]}
       />
       <button type="button" className="gov-secondary" onClick={() => void state.reload()}>
-        โหลด canonical state ใหม่
+        {t('common.reloadState')}
       </button>
     </div>
   );
@@ -1455,22 +1579,37 @@ function ExceptionTimeline({ api, seriesId }: { api: GovernanceApi; seriesId: st
 function exceptionEntries(
   revisions: ExceptionRevision[],
   approvals: ApprovalRecord[],
+  t: Translate,
 ): TimelineEntry[] {
   return [
     ...revisions.map((revision) => ({
       at: revision.createdAt,
-      title: `Revision ${revision.revision} ${revision.renewsSeriesId ? '(renewal)' : ''}`.trim(),
-      detail: `${riskLabel(revision.riskTier)} · digest ${digestLabel(revision.contentDigest)} · maker ${referenceLabel(revision.actorRef)}`,
+      title: t(revision.renewsSeriesId ? 'audit.entry.revisionRenewal' : 'audit.entry.revision', {
+        n: revision.revision,
+      }),
+      detail: t('audit.entry.revisionDetail', {
+        risk: riskLabel(revision.riskTier),
+        digest: digestLabel(revision.contentDigest),
+        maker: referenceLabel(revision.actorRef, t),
+      }),
     })),
     ...approvals.map((approval) => ({
       at: approval.decidedAt,
-      title: approval.decision === 'APPROVE' ? '✓ Checker approve' : '✕ Checker reject',
-      detail: `${referenceLabel(approval.approverRef)} · ${approval.capability} · epoch ${approval.authorizationEpoch}`,
+      title:
+        approval.decision === 'APPROVE'
+          ? t('audit.entry.checkerApprove')
+          : t('audit.entry.checkerReject'),
+      detail: t('audit.entry.approvalDetail', {
+        ref: referenceLabel(approval.approverRef, t),
+        capability: approval.capability,
+        epoch: approval.authorizationEpoch,
+      }),
     })),
   ];
 }
 
 function PolicyTimeline({ api, policyId }: { api: GovernanceApi; policyId: string }) {
+  const { t } = useGovernanceText();
   const state = useCanonical(async () => {
     const versions = await api.policyVersions(policyId);
     const latest = versions.at(-1);
@@ -1486,35 +1625,39 @@ function PolicyTimeline({ api, policyId }: { api: GovernanceApi; policyId: strin
   }, [api, policyId]);
   if (state.failure)
     return <RecoveryBanner state={state.failure} onReload={() => void state.reload()} />;
-  if (!state.data) return <p>กำลังโหลด canonical timeline…</p>;
+  if (!state.data) return <p>{t('common.loadingTimeline')}</p>;
   const { versions, approvals, tests, head, kills } = state.data;
   return (
     <div className="gov-evidence-grid">
       <section aria-labelledby="gov-tl-pol">
-        <h3 id="gov-tl-pol">Canonical timeline</h3>
-        <Timeline entries={policyEntries(versions, approvals, tests, kills)} />
+        <h3 id="gov-tl-pol">{t('audit.timeline')}</h3>
+        <Timeline entries={policyEntries(versions, approvals, tests, kills, t)} />
       </section>
       <SafetyCase
         rows={[
           [
-            'Active head',
-            head ? `v${head.headVersion} · ${digestLabel(head.headDigest)}` : 'ยังไม่มี',
+            t('audit.safety.activeHead'),
+            head
+              ? `v${head.headVersion} · ${digestLabel(head.headDigest)}`
+              : t('audit.safety.noneYet'),
           ],
           [
-            'Kill switch',
-            kills.some((kill) => kill.state === 'ACTIVE') ? '⛔ ACTIVE' : 'ไม่มีที่ใช้งานอยู่',
+            t('audit.safety.killSwitch'),
+            kills.some((kill) => kill.state === 'ACTIVE')
+              ? t('audit.safety.killActive')
+              : t('audit.safety.killNone'),
           ],
           [
-            'Tests ล่าสุด',
+            t('audit.safety.latestTests'),
             tests.at(-1)
               ? `${tests.at(-1)!.outcome} · ${digestLabel(tests.at(-1)!.artifactDigest)}`
-              : 'ยังไม่มี',
+              : t('audit.safety.noneYet'),
           ],
-          ['Rollback', 'สร้าง version ใหม่เสมอ ไม่แก้ published row'],
+          [t('audit.safety.rollback'), t('audit.safety.rollbackValue')],
         ]}
       />
       <button type="button" className="gov-secondary" onClick={() => void state.reload()}>
-        โหลด canonical state ใหม่
+        {t('common.reloadState')}
       </button>
     </div>
   );
@@ -1525,35 +1668,58 @@ function policyEntries(
   approvals: ApprovalRecord[],
   tests: PolicyTestArtifact[],
   kills: KillSwitch[],
+  t: Translate,
 ): TimelineEntry[] {
   return [
     ...versions.map((version) => ({
       at: version.createdAt,
-      title: `Version ${version.version} · ${stateLabel(version.lifecycleState)}`,
-      detail: `digest ${digestLabel(version.contentDigest)} · maker ${referenceLabel(version.makerActorRef)}${version.rollbackOfVersionId ? ' · rollback candidate' : ''}`,
+      title: t('audit.entry.version', {
+        n: version.version,
+        state: stateLabel(version.lifecycleState),
+      }),
+      detail: t('audit.entry.versionDetail', {
+        digest: digestLabel(version.contentDigest),
+        maker: referenceLabel(version.makerActorRef, t),
+        rollback: version.rollbackOfVersionId ? t('policies.history.rollback') : '',
+      }),
     })),
     ...tests.map((artifact) => ({
       at: artifact.createdAt,
-      title: `Test artifact ${artifact.outcome}`,
-      detail: `${artifact.passed} ผ่าน / ${artifact.failed} ล้มเหลว · base head v${artifact.baseHeadVersion} · ${digestLabel(artifact.artifactDigest)}`,
+      title: t('audit.entry.testArtifact', { outcome: artifact.outcome }),
+      detail: t('audit.entry.testDetail', {
+        passed: artifact.passed,
+        failed: artifact.failed,
+        base: artifact.baseHeadVersion,
+        digest: digestLabel(artifact.artifactDigest),
+      }),
     })),
     ...approvals.map((approval) => ({
       at: approval.decidedAt,
-      title: approval.decision === 'APPROVE' ? '✓ Checker approve' : '✕ Checker reject',
-      detail: `${referenceLabel(approval.approverRef)} · ${approval.capability}`,
+      title:
+        approval.decision === 'APPROVE'
+          ? t('audit.entry.checkerApprove')
+          : t('audit.entry.checkerReject'),
+      detail: t('audit.entry.approvalDetailShort', {
+        ref: referenceLabel(approval.approverRef, t),
+        capability: approval.capability,
+      }),
     })),
     ...kills.map((kill) => ({
       at: kill.activatedAt,
-      title: `⛔ Kill switch ${kill.state}`,
-      detail: `${kill.reasonCode} · ${referenceLabel(kill.activatedByRef)}`,
+      title: t('audit.entry.kill', { state: kill.state }),
+      detail: t('audit.entry.killDetail', {
+        reason: kill.reasonCode,
+        ref: referenceLabel(kill.activatedByRef, t),
+      }),
     })),
   ];
 }
 
 function SafetyCase({ rows }: { rows: Array<[string, string]> }) {
+  const { t } = useGovernanceText();
   return (
-    <section className="gov-panel gov-safety" aria-label="Safety case">
-      <h3>Safety case</h3>
+    <section className="gov-panel gov-safety" aria-label={t('audit.safety.title')}>
+      <h3>{t('audit.safety.title')}</h3>
       <dl>
         {rows.map(([term, value]) => (
           <div key={term}>
@@ -1575,15 +1741,16 @@ function AuditView({
   location: GovernanceLocation;
   go: (location: GovernanceLocation) => void;
 }) {
+  const { t } = useGovernanceText();
   return (
     <section aria-labelledby="gov-audit-title">
-      <p className="gov-eyebrow">EVIDENCE-FIRST TIMELINE</p>
+      <p className="gov-eyebrow">{t('audit.eyebrow')}</p>
       <h1 id="gov-audit-title">
         {location.seriesId
-          ? `Trace · exception ${shortId(location.seriesId)}`
+          ? t('audit.traceException', { id: shortId(location.seriesId) })
           : location.policyId
-            ? `Trace · policy ${shortId(location.policyId)}`
-            : 'Audit'}
+            ? t('audit.tracePolicy', { id: shortId(location.policyId) })
+            : t('audit.title')}
       </h1>
       {location.seriesId ? (
         <>
@@ -1593,7 +1760,7 @@ function AuditView({
             className="gov-link"
             onClick={() => go({ ...location, section: 'exceptions' })}
           >
-            ไปยัง approval workspace ของรายการนี้
+            {t('audit.toWorkspace')}
           </button>
         </>
       ) : location.policyId ? (
@@ -1604,12 +1771,12 @@ function AuditView({
             className="gov-link"
             onClick={() => go({ ...location, section: 'policies' })}
           >
-            ไปยัง policy studio ของรายการนี้
+            {t('audit.toStudio')}
           </button>
         </>
       ) : (
         <>
-          <p>เปิด trace ของ exception หรือ policy ด้วย opaque ID</p>
+          <p>{t('audit.empty')}</p>
           <OpenById go={(next) => go({ ...next, section: 'audit' })} />
         </>
       )}
