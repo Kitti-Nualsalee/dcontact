@@ -7,6 +7,48 @@ const root = resolve(import.meta.dirname, '..');
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
 const param = (xml, name) => xml.match(new RegExp(`<param name="${name}" value="([^"]*)"`))?.[1];
 
+test('#667: synthetic inbound รอ Router โดยไม่ bridge แข่งกับ local dialplan', () => {
+  const dialplan = read('infra/uat/e1-freeswitch/conf/dialplan/default.xml');
+  const extensions = [...dialplan.matchAll(/<extension name="([^"]+)">([\s\S]*?)<\/extension>/g)];
+  const inbound = extensions[0];
+  assert.equal(extensions.length, 3);
+  assert.equal(inbound?.[1], 'e1-synthetic-router-inbound');
+  assert.match(
+    inbound[2],
+    /^\s*<condition field="caller_id_number" expression="\^1102\$"\/>\s*<condition field="destination_number" expression="\^1101\$">\s*(?:<action\b[^>]*\/>\s*){3}<\/condition>\s*$/,
+  );
+  assert.deepEqual(
+    [...inbound[2].matchAll(/<condition field="([^"]+)" expression="([^"]+)"/g)].map((match) => [
+      match[1],
+      match[2],
+    ]),
+    [
+      ['caller_id_number', '^1102$'],
+      ['destination_number', '^1101$'],
+    ],
+  );
+  assert.deepEqual(
+    [...inbound[2].matchAll(/application="([^"]+)"/g)].map((match) => match[1]),
+    ['set', 'set', 'park'],
+  );
+  assert.match(inbound[2], /data="domain_name=\$\$\{domain\}"/);
+  assert.match(inbound[2], /data="park_timeout=30:NORMAL_TEMPORARY_FAILURE"/);
+  assert.doesNotMatch(inbound[0], /continue="true"|break="never"|anti-action/);
+  assert.equal(extensions[1]?.[1], 'e1-local-extensions');
+  assert.match(
+    extensions[1][2],
+    /<condition field="destination_number" expression="\^\(1\[0-9\]\{3\}\)\$">/,
+  );
+  assert.match(extensions[1][2], /application="export" data="dialed_extension=\$1"/);
+  assert.match(
+    extensions[1][2],
+    /application="bridge" data="user\/\$\{dialed_extension\}@\$\$\{domain\}"/,
+  );
+  assert.equal(extensions[2]?.[1], 'e1-deny-external-outbound');
+  assert.match(extensions[2][2], /<condition field="destination_number" expression="\.\+">/);
+  assert.match(extensions[2][2], /application="hangup" data="CALL_REJECTED"/);
+});
+
 test('#657: UAT WSS proxy ไม่ทำให้ FreeSWITCH advertise media เป็น Docker IP', () => {
   const profile = read('infra/uat/e1-freeswitch/conf/sip_profiles/internal.xml');
   assert.equal(param(profile, 'local-network-acl'), 'none');
