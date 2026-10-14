@@ -1134,3 +1134,174 @@ test('CG4.11+: GET /exceptions ปฏิเสธ filter ที่ผิดช�
     assert.equal(((await response.json()) as { code: string }).code, 'VALIDATION_FAILED');
   }
 });
+
+/**
+ * GET พร้อม If-None-Match: ใช้ตรวจว่า validator ที่ client ถืออยู่ยังตรงกับ body ปัจจุบันหรือไม่
+ * ต้องส่ง `cache-control` เอง — ถ้าไม่ส่ง สเปก Fetch (undici) จะเติม `Cache-Control: no-cache` ให้เมื่อมี
+ * If-None-Match ซึ่ง Express ถือว่า request ไม่ fresh และตอบ 200 เสมอ จึงทดสอบ 304 ไม่ได้
+ */
+function conditionalGet(url: string, token: string, etag: string) {
+  return fetch(url, {
+    headers: {
+      authorization: `Bearer ${token}`,
+      'if-none-match': etag,
+      'cache-control': 'max-age=0',
+    },
+  });
+}
+
+test('#673: ETag ของ exception เปลี่ยนเมื่อสถานะเปลี่ยน — client ที่ถือ ETag เก่าต้องไม่ได้ 304', async (t) => {
+  const f = await fixture(t);
+  const created = await post(`${f.base}/exceptions`, 'maker-token', exceptionRequest(f));
+  const { seriesId } = (await created.json()) as { seriesId: string };
+  const url = `${f.base}/exceptions/${seriesId}`;
+
+  const before = await get(url, 'checker-token');
+  const pendingEtag = before.headers.get('etag');
+  assert.ok(pendingEtag);
+  assert.equal(((await before.json()) as { workflowState: string }).workflowState, 'PENDING');
+  // validator ยังใช้งานได้: ไม่มีอะไรเปลี่ยนก็ 304
+  assert.equal((await conditionalGet(url, 'checker-token', pendingEtag)).status, 304);
+
+  const row = await owner.cg4Exception.findFirstOrThrow({
+    where: { tenantId: f.primary.tenantId, exceptionId: seriesId },
+  });
+  const approved = await post(`${f.base}/exceptions/${seriesId}/approvals`, 'checker-token', {
+    decision: 'APPROVE',
+    expectedRevision: 1,
+    expectedContentDigest: row.requestHash,
+    expectedVersion: 1,
+    evidenceRef: 'evidence://approval',
+  });
+  assert.equal(approved.status, 200);
+
+  const after = await conditionalGet(url, 'checker-token', pendingEtag);
+  assert.equal(after.status, 200, 'ETag เก่าห้ามตรงกับ body ที่สถานะเปลี่ยนไปแล้ว');
+  const approvedEtag = after.headers.get('etag');
+  assert.ok(approvedEtag);
+  assert.notEqual(approvedEtag, pendingEtag);
+  assert.match(approvedEtag, new RegExp(`^"cg4-exception:${seriesId}:1:`));
+  assert.equal(((await after.json()) as { workflowState: string }).workflowState, 'APPROVED');
+  assert.equal((await conditionalGet(url, 'checker-token', approvedEtag)).status, 304);
+
+  // body เดียวกัน = ETag เดียวกัน ไม่ว่าอ่านผ่าน detail หรือ listing ของ contact
+  const listing = (await (
+    await get(`${f.base}/contacts/${f.primary.contactId}/exceptions`, 'checker-token')
+  ).json()) as { exceptions: Array<{ seriesId: string; etag: string }> };
+  assert.equal(listing.exceptions.find((item) => item.seriesId === seriesId)?.etag, approvedEtag);
+
+  // ผู้อ่านที่เห็น evidence ต่างระดับได้ body ต่างกัน จึงต้องได้ ETag ต่างกัน
+  const reader = await get(url, 'reader-token');
+  assert.notEqual(reader.headers.get('etag'), approvedEtag);
+});
+
+test('#673: ETag ของ policy version และ scope head เปลี่ยนตาม lifecycle และ kill switch', async (t) => {
+  const f = await fixture(t);
+  await owner.cg4Policy.deleteMany({ where: { tenantId: f.primary.tenantId } });
+
+  const draft = await expectJson<{
+    policyVersionId: string;
+    contentDigest: string;
+    draftRevision: number;
+  }>(
+    await post(`${f.base}/policies`, 'maker-token', {
+      scope: { channel: 'VOICE', purpose: 'SERVICE_NOTIFICATION' },
+      content: POLICY_CONTENT,
+      effectiveFrom: '2026-01-01T00:00:00.000Z',
+      evidenceRef: 'evidence://policy',
+    }),
+    201,
+  );
+  const versionUrl = `${f.base}/policy-versions/${draft.policyVersionId}`;
+  const etags: string[] = [];
+  const readVersionEtag = async (staleEtag?: string) => {
+    const response = staleEtag
+      ? await conditionalGet(versionUrl, 'checker-token', staleEtag)
+      : await get(versionUrl, 'checker-token');
+    assert.equal(response.status, 200, 'ETag เก่าห้ามตรงกับ lifecycle ที่เปลี่ยนไปแล้ว');
+    const etag = response.headers.get('etag');
+    assert.ok(etag);
+    etags.push(etag);
+    return etag;
+  };
+  const draftEtag = await readVersionEtag();
+  assert.equal((await conditionalGet(versionUrl, 'checker-token', draftEtag)).status, 304);
+
+  const artifact = await expectJson<{
+    artifactDigest: string;
+    baseHeadVersion: number;
+    baseHeadDigest: string;
+  }>(
+    await post(`${versionUrl}/tests`, 'maker-token', {
+      expectedContentDigest: draft.contentDigest,
+      tenantPack: TENANT_PACK,
+      pinnedEvaluationTime: '2026-01-05T00:00:00.000Z',
+      pinnedTimezone: 'Asia/Bangkok',
+      evidenceRef: 'evidence://tests',
+    }),
+    201,
+  );
+  await expectJson(
+    await post(`${versionUrl}/submit`, 'maker-token', {
+      expectedDraftRevision: draft.draftRevision,
+      expectedContentDigest: draft.contentDigest,
+      expectedTestArtifactDigest: artifact.artifactDigest,
+      evidenceRef: 'evidence://submit',
+    }),
+    200,
+  );
+  const submittedEtag = await readVersionEtag(draftEtag);
+
+  await expectJson(
+    await post(`${versionUrl}/approvals`, 'checker-token', {
+      decision: 'APPROVE',
+      expectedContentDigest: draft.contentDigest,
+      expectedTestArtifactDigest: artifact.artifactDigest,
+      expectedScopeHeadVersion: artifact.baseHeadVersion,
+      expectedScopeHeadDigest: artifact.baseHeadDigest,
+      activateAt: '2026-01-05T00:00:00.000Z',
+      evidenceRef: 'evidence://approval',
+    }),
+    200,
+  );
+  await readVersionEtag(submittedEtag);
+
+  const row = await owner.cg4Policy.findFirstOrThrow({
+    where: { tenantId: f.primary.tenantId, id: draft.policyVersionId },
+  });
+  const published = await expectJson<{ scopeKey: string }>(
+    await post(`${versionUrl}/publish`, 'checker-token', {
+      expectedContentDigest: draft.contentDigest,
+      expectedTestArtifactDigest: artifact.artifactDigest,
+      expectedApprovalDigest: row.approvalDigest,
+      expectedScopeHeadVersion: artifact.baseHeadVersion,
+      expectedScopeHeadDigest: artifact.baseHeadDigest,
+      evidenceRef: 'evidence://publish',
+    }),
+    200,
+  );
+  await readVersionEtag(etags[etags.length - 1]);
+  assert.equal(new Set(etags).size, etags.length, 'ทุกสถานะของ policy version ต้องมี ETag ต่างกัน');
+
+  // scope head: kill switch มาจากตารางอื่น headVersion จึงไม่เปลี่ยน แต่ body เปลี่ยน
+  const scopeUrl = `${f.base}/policy-scopes/${encodeURIComponent(published.scopeKey)}/effective`;
+  const scopeBefore = await get(scopeUrl, 'checker-token');
+  const scopeEtag = scopeBefore.headers.get('etag');
+  assert.ok(scopeEtag);
+  assert.equal(
+    ((await scopeBefore.json()) as { killSwitchActive: boolean }).killSwitchActive,
+    false,
+  );
+  assert.equal((await conditionalGet(scopeUrl, 'checker-token', scopeEtag)).status, 304);
+
+  const activated = await post(`${f.base}/kill-switches`, 'checker-token', {
+    scopeKey: published.scopeKey,
+    reasonCode: 'INCIDENT',
+    evidenceRef: 'evidence://kill',
+  });
+  assert.equal(activated.status, 201);
+  const scopeAfter = await conditionalGet(scopeUrl, 'checker-token', scopeEtag);
+  assert.equal(scopeAfter.status, 200, 'kill switch ที่เปิดแล้วห้ามถูกซ่อนด้วย 304');
+  assert.notEqual(scopeAfter.headers.get('etag'), scopeEtag);
+  assert.equal(((await scopeAfter.json()) as { killSwitchActive: boolean }).killSwitchActive, true);
+});

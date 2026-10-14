@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   withTenantDatabaseTransaction,
   type Cg4PolicyStatus,
@@ -72,16 +73,43 @@ export interface Cg4ExceptionSeriesView extends Cg4ExceptionRevisionView {
    * it a Console could only guess the number and fail as VERSION_CONFLICT.
    */
   aggregateVersion: number;
-  /** Concurrency token the caller echoes back as `expectedRevision`. */
+  /**
+   * Validator of this exact representation (#673): changes whenever any field of the view
+   * changes — workflow/effective state, aggregate version, redaction level — so a conditional
+   * GET never answers 304 for a body that has since changed.
+   */
   etag: string;
 }
 
-function exceptionEtag(seriesId: string, revision: number, contentDigest: string): string {
-  return `"cg4-exception:${seriesId}:${revision}:${contentDigest.slice(0, 16)}"`;
+/** JSON with object keys sorted recursively, so the same view always hashes the same. */
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, field]) => field !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, field]) => `${JSON.stringify(key)}:${canonicalJson(field)}`);
+  return `{${entries.join(',')}}`;
 }
 
-function policyEtag(policyId: string, version: number, draftRevision: number): string {
-  return `"cg4-policy:${policyId}:${version}:${draftRevision}"`;
+/**
+ * ETag = readable identity prefix + hash of the whole view (without its own `etag`).
+ * The prefix keeps the resource and revision visible in logs; the hash is what makes it a
+ * faithful validator, because the mutable parts of a view (state, lifecycle, kill switch,
+ * time-derived effective state) live outside the immutable identity fields (#673).
+ */
+function representationEtag(prefix: string, view: object): string {
+  const digest = createHash('sha256').update(canonicalJson(view)).digest('hex').slice(0, 16);
+  return `"${prefix}${digest}"`;
+}
+
+function withExceptionEtag<T extends { seriesId: string; revision: number }>(
+  view: T,
+): T & { etag: string } {
+  return {
+    ...view,
+    etag: representationEtag(`cg4-exception:${view.seriesId}:${view.revision}:`, view),
+  };
 }
 
 type ExceptionRow = {
@@ -164,7 +192,7 @@ export async function cg4ExceptionBySeriesId(
       where: { tenantId_contactId: { tenantId: context.tenantId, contactId: row.contactId } },
       select: { aggregateVersion: true },
     });
-    return {
+    return withExceptionEtag({
       ...exceptionRevisionView(row, context.level),
       workflowState: head.status,
       aggregateVersion: contactHead?.aggregateVersion ?? 0,
@@ -174,8 +202,7 @@ export async function cg4ExceptionBySeriesId(
         expiresAt: row.expiresAt,
         now,
       }),
-      etag: exceptionEtag(row.exceptionId, row.revision, row.requestHash),
-    };
+    });
   });
 }
 
@@ -220,7 +247,7 @@ export async function cg4ContactExceptions(
       .filter((row) => currentRevisionIds.has(row.id))
       .map((row) => {
         const head = currentRevisionIds.get(row.id) as (typeof heads)[number];
-        return {
+        return withExceptionEtag({
           ...exceptionRevisionView(row, context.level),
           workflowState: head.status,
           aggregateVersion: contactHead?.aggregateVersion ?? 0,
@@ -231,8 +258,7 @@ export async function cg4ContactExceptions(
             expiresAt: row.expiresAt,
             now,
           }),
-          etag: exceptionEtag(row.exceptionId, row.revision, row.requestHash),
-        };
+        });
       });
   });
 }
@@ -383,7 +409,7 @@ export async function cg4PendingExceptionQueue(
       .filter((row) => headByRevisionId.has(row.id))
       .map((row) => {
         const head = headByRevisionId.get(row.id)!;
-        return {
+        return withExceptionEtag({
           ...exceptionRevisionView(row, context.level),
           workflowState: head.status,
           aggregateVersion: aggregateVersionByContact.get(row.contactId) ?? 0,
@@ -393,8 +419,7 @@ export async function cg4PendingExceptionQueue(
             expiresAt: row.expiresAt,
             now,
           }),
-          etag: exceptionEtag(row.exceptionId, row.revision, row.requestHash),
-        } satisfies Cg4ExceptionSeriesView;
+        }) satisfies Cg4ExceptionSeriesView;
       });
 
     const cursor = decodeQueueCursor(filter.cursor);
@@ -501,7 +526,7 @@ type PolicyRow = {
 };
 
 function policyVersionView(row: PolicyRow, level: Cg4EvidenceAccessLevel): Cg4PolicyVersionView {
-  return {
+  const view: Omit<Cg4PolicyVersionView, 'etag'> = {
     policyId: row.policyId,
     policyVersionId: row.id,
     version: row.version,
@@ -525,7 +550,13 @@ function policyVersionView(row: PolicyRow, level: Cg4EvidenceAccessLevel): Cg4Po
     ...(row.supersedesId ? { supersedesVersionId: row.supersedesId } : {}),
     makerActorRef: redactCg4Actor(row.makerActorRef, level),
     createdAt: row.createdAt.toISOString(),
-    etag: policyEtag(row.policyId, row.version, row.draftRevision),
+  };
+  return {
+    ...view,
+    etag: representationEtag(
+      `cg4-policy:${row.policyId}:${row.version}:${row.draftRevision}:`,
+      view,
+    ),
   };
 }
 
@@ -660,7 +691,7 @@ export async function cg4EffectiveScope(
       where: { tenantId: context.tenantId, scopeKey, state: 'ACTIVE' },
       select: { id: true },
     });
-    return {
+    const view: Omit<Cg4EffectiveScopeView, 'etag'> = {
       scopeKey: head.scopeKey,
       headVersion: head.headVersion,
       headDigest: head.headDigest,
@@ -670,7 +701,11 @@ export async function cg4EffectiveScope(
       ...(head.nextActivationAt ? { nextActivationAt: head.nextActivationAt.toISOString() } : {}),
       killSwitchActive: kill !== null,
       updatedAt: head.updatedAt.toISOString(),
-      etag: `"cg4-scope:${head.scopeKey}:${head.headVersion}"`,
+    };
+    // killSwitchActive comes from another table, so headVersion alone cannot validate this body (#673)
+    return {
+      ...view,
+      etag: representationEtag(`cg4-scope:${head.scopeKey}:${head.headVersion}:`, view),
     };
   });
 }
