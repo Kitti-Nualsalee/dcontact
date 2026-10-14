@@ -8,6 +8,7 @@ export interface FreeSwitchEvent {
   'Unique-ID'?: unknown;
   'Caller-Caller-ID-Number'?: unknown;
   'Caller-Destination-Number'?: unknown;
+  'Call-Direction'?: unknown;
   'DTMF-Digit'?: unknown;
   'Speech-Result'?: unknown;
   'Bridge-A-Unique-ID'?: unknown;

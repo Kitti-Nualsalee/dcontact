@@ -20,9 +20,13 @@ export interface ShellCreateAction {
   external: boolean;
 }
 
-/** #651: รายการในเมนูย่อยของพื้นที่ — id = id ของแอปใน registry */
+/**
+ * #651: รายการในเมนูย่อยของพื้นที่ — id = id ของแอปใน registry
+ * #658: แอปที่มีหน้าย่อยกระจายเป็นหลายรายการ id เดียวกัน (ของแอป) แยกด้วย `pageId`
+ */
 export interface ShellAreaItem {
   id: string;
+  pageId?: string;
   label: string;
   href: string;
   external: boolean;

@@ -51,6 +51,19 @@ export type NavigationAreaId = (typeof NAVIGATION_AREAS)[number];
 
 export type NavigationHostApp = 'console' | 'workspace';
 
+/**
+ * #658: หน้าย่อยของแอป (เช่น แท็บของ Governance) — แสดงเป็นรายการในเมนูย่อยแทนแท็บในหน้า
+ * ไม่ใช่แอปแยก: ปักหมุด/launcher ยังเป็นระดับแอป และสิทธิ์การมองเห็นเท่ากับแอป (API ปลายทาง authorize เองทุก request)
+ */
+export interface NavigationPageDefinition {
+  /** id ภายในแอป (a-z, ขีดกลาง) */
+  id: string;
+  /** key ใน catalog ของ shell */
+  labelKey: string;
+  /** path ภายใน host app ของแอป — ห้ามมี PII */
+  path: string;
+}
+
 export interface NavigationAppDefinition {
   id: string;
   group: NavigationGroupId;
@@ -66,6 +79,8 @@ export interface NavigationAppDefinition {
   /** realm role อย่างน้อยหนึ่งตัว — เป็นแค่การมองเห็น API ปลายทางยัง authorize เองทุก request */
   roles: readonly string[];
   entitlement?: string;
+  /** #658: หน้าย่อยในเมนูย่อย (ตามลำดับ); ไม่ระบุ = รายการเดียวของแอป */
+  pages?: readonly NavigationPageDefinition[];
 }
 
 export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
@@ -110,6 +125,29 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     path: '/?view=governance',
     roles: ['supervisor', 'admin', 'compliance'],
     entitlement: 'module_contact_governance',
+    // #658: แท็บของหน้า Governance → รายการในเมนูย่อย (path ตรงกับ `parseGovernanceLocation`)
+    pages: [
+      {
+        id: 'overview',
+        labelKey: 'navigation.pages.contactGovernance.overview',
+        path: '/?view=governance&section=overview',
+      },
+      {
+        id: 'exceptions',
+        labelKey: 'navigation.pages.contactGovernance.exceptions',
+        path: '/?view=governance&section=exceptions',
+      },
+      {
+        id: 'policies',
+        labelKey: 'navigation.pages.contactGovernance.policies',
+        path: '/?view=governance&section=policies',
+      },
+      {
+        id: 'audit',
+        labelKey: 'navigation.pages.contactGovernance.audit',
+        path: '/?view=governance&section=audit',
+      },
+    ],
   },
   {
     // E1.11 (#485): allowlist ของ origin ที่ฝัง dphone — ADMIN แก้, SUPERVISOR ดู
@@ -126,9 +164,15 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
   },
 ]);
 
+export interface NavigationAreaItemView {
+  appId: string;
+  /** #658: ส่งเฉพาะแอปที่มีหน้าย่อย — client รุ่นเก่าเห็นรายการเดียวตาม `appId` */
+  pages?: NavigationPageDefinition[];
+}
+
 export interface NavigationAreaView {
   id: NavigationAreaId;
-  sections: { id: string; items: { appId: string }[] }[];
+  sections: { id: string; items: NavigationAreaItemView[] }[];
 }
 
 /**
@@ -145,7 +189,12 @@ export function visibleAreas(visible: readonly NavigationAppDefinition[]): Navig
         section = { id: app.section, items: [] };
         sections.push(section);
       }
-      section.items.push({ appId: app.id });
+      section.items.push({
+        appId: app.id,
+        ...(app.pages && app.pages.length > 0
+          ? { pages: app.pages.map((page) => ({ ...page })) }
+          : {}),
+      });
     }
     return sections.length > 0 ? [{ id: areaId, sections }] : [];
   });

@@ -52,7 +52,11 @@ export interface NavigationV1 {
   areas: {
     id: string;
     labelKey: string;
-    sections: { id: string; labelKey: string; items: { appId: string }[] }[];
+    sections: {
+      id: string;
+      labelKey: string;
+      items: { appId: string; pages?: { id: string; labelKey: string; path: string }[] }[];
+    }[];
   }[];
   pins: { appIds: string[]; source: PinSource; revision: number };
   /** เฉพาะผู้เรียกที่เป็น ADMIN — ใช้ตั้ง expectedRevision ของชุดเริ่มต้น */

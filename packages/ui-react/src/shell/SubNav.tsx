@@ -10,6 +10,11 @@ export interface SubNavItem {
   count?: number;
   /** อยู่อีก host app → เปิดแท็บใหม่ (ADR-026 ข้อ 3) */
   external?: boolean;
+  /**
+   * #658: เปลี่ยนหน้าภายในแอปเดียวกันโดยไม่โหลดหน้าใหม่ — คลิกซ้ายธรรมดาเท่านั้น;
+   * คลิกพร้อม ctrl/⌘/shift, คลิกกลาง หรือแท็บใหม่ใช้ `href` ตามปกติ
+   */
+  onSelect?: () => void;
 }
 
 export interface SubNavSection {
@@ -45,6 +50,20 @@ export function SubNav({ title, eyebrow, sections, currentItemId }: SubNavProps)
                   className={styles.item}
                   href={item.href}
                   aria-current={item.id === currentItemId ? 'page' : undefined}
+                  onClick={(event) => {
+                    if (
+                      !item.onSelect ||
+                      event.button !== 0 ||
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey
+                    ) {
+                      return;
+                    }
+                    event.preventDefault();
+                    item.onSelect();
+                  }}
                   {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 >
                   <ShellIcon name={item.icon ?? 'fallback'} />
