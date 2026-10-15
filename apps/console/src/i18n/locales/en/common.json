@@ -87,5 +87,12 @@
       "policy": "Account policy"
     },
     "pinned": "Pinned"
+  },
+  "auth": {
+    "signedOut": {
+      "title": "You have signed out",
+      "detail": "You have signed out of D-Contact. Sign in again to return to the page you were using.",
+      "action": "Sign in again"
+    }
   }
 }
