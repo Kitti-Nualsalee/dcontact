@@ -288,11 +288,14 @@ export class EmbedOriginService {
    * นโยบายของ `/dphone/embed?tenant=<alias>` — cache ≤ 30 วินาที; tenant ไม่มีอยู่/ไม่ ACTIVE,
    * ไม่มี entitlement, flag ปิด หรือ DB ใช้ไม่ได้ = ไม่มี origin (ห้ามฝัง)
    */
-  async shellPolicy(alias: string): Promise<EmbedShellPolicy | null> {
+  async shellPolicy(
+    alias: string,
+    options: { fresh?: boolean } = {},
+  ): Promise<EmbedShellPolicy | null> {
     const key = alias.toLowerCase();
     const cached = this.shellCache.get(key);
     const nowMs = this.now().getTime();
-    if (cached && cached.until > nowMs) return cached.policy;
+    if (!options.fresh && cached && cached.until > nowMs) return cached.policy;
     let policy: EmbedShellPolicy | null = null;
     try {
       const tenant = await this.database.tenant.findUnique({
