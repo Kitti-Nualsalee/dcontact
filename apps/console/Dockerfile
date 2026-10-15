@@ -22,6 +22,7 @@ RUN pnpm install --frozen-lockfile --filter "@d-contact/console..." --filter "@d
 # ไม่ตั้ง VITE_API_BASE_URL = เรียก API แบบ same-origin (`/api/v1`) ผ่าน proxy ตัวเดียวกัน
 ARG VITE_KC_ISSUER
 ARG VITE_KC_CLIENT_ID=dcontact-uat-console
+# #684: compatibility argument ของ deployment เก่า; แอปใช้ Home เมื่อไม่มี explicit view/context
 ARG VITE_CONSOLE_DEFAULT_VIEW=journeys
 ARG VITE_UAT_ENVIRONMENT=uat
 ARG VITE_UAT_PACK_VERSION

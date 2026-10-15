@@ -16,6 +16,7 @@ import { SessionLocaleProvider } from '@d-contact/i18n/react';
 import { shellUserFromClaims } from '@d-contact/ui-react';
 import { appI18n } from './i18n/index.js';
 import { LocaleProbe } from './i18n/locale-probe.js';
+import { ConsoleHome } from './home/home.js';
 import { ConsoleShell } from './shell/console-shell.js';
 import { createEmbedOriginApi } from './dphone-embedding/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
@@ -78,11 +79,25 @@ function ConsoleE2eRoot() {
     baseUrl: (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
     accessToken: () => 'e2e-access-token',
   });
-  // กติกาเดียวกับ ConsoleAuthRoot: ไม่มี view/context ใช้ default view ตอน build
+  // กติกาเดียวกับ ConsoleAuthRoot: ไม่มี view/context เปิด Home
   const view = resolveConsoleView(
     url,
     import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined,
   );
+  if (view === 'home')
+    return (
+      <ConsoleShell
+        {...e2eShellUser(url.searchParams.get('tenant') ?? undefined)}
+        apiBaseUrl={
+          (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin
+        }
+        accessToken={() => 'e2e-access-token'}
+        tenantAlias={url.searchParams.get('tenant') ?? undefined}
+        appId="home"
+      >
+        {(navigation) => <ConsoleHome navigation={navigation} />}
+      </ConsoleShell>
+    );
   if (view === 'i18n') return <LocaleProbe />;
   if (view === 'dphone-embedding') {
     // viewer จาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token

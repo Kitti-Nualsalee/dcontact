@@ -1,0 +1,35 @@
+{
+  "title": "วันนี้ต้องการทำอะไร?",
+  "subtitle": "เข้าถึงเครื่องมือที่ใช้ทำงานได้จากที่เดียว",
+  "choose": "เลือกพื้นที่ทำงาน",
+  "nav": "พื้นที่ทำงาน",
+  "live": "งานสด",
+  "manage": "จัดการและตั้งค่า",
+  "open": "เปิด",
+  "external": "เปิดในแท็บใหม่",
+  "permission": "แสดงเฉพาะเมนูที่คุณมีสิทธิ์ใช้งาน",
+  "empty": "ยังไม่มีพื้นที่ทำงานที่เปิดได้",
+  "emptyDetail": "หากต้องการสิทธิ์เพิ่มเติม กรุณาติดต่อผู้ดูแลระบบขององค์กร",
+  "error": "โหลดเมนูไม่สำเร็จ",
+  "errorDetail": "กรุณาลองอีกครั้ง หากยังเข้าใช้งานไม่ได้ ให้ติดต่อผู้ดูแลระบบ",
+  "retry": "ลองอีกครั้ง",
+  "loading": "กำลังเตรียมพื้นที่ทำงาน",
+  "signIn": "เข้าสู่ระบบ",
+  "signInDetail": "เข้าสู่ระบบเพื่อเลือกพื้นที่ทำงานของคุณ",
+  "account": "บัญชีของฉัน",
+  "descriptions": {
+    "agent-workspace": "รับสายและจัดการงานลูกค้า",
+    "supervisor-workspace": "ดูทีมและงานที่กำลังดำเนินการ",
+    "journeys": "ออกแบบเส้นทางและระบบอัตโนมัติ",
+    "contact-governance": "จัดการนโยบาย ข้อยกเว้น และ Audit",
+    "dphone-embedding": "ตั้งค่าเว็บไซต์ที่อนุญาตให้ฝัง dphone"
+  },
+  "descriptionFallback": "เปิดพื้นที่ทำงานนี้",
+  "names": {
+    "agent-workspace": "กล่องงาน (Agent Workspace)",
+    "supervisor-workspace": "Supervisor Workspace",
+    "journeys": "Journeys",
+    "contact-governance": "Contact Governance",
+    "dphone-embedding": "การฝัง dphone"
+  }
+}

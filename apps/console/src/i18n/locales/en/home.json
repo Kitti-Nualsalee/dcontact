@@ -1,0 +1,35 @@
+{
+  "title": "What would you like to do today?",
+  "subtitle": "Access your tools and workspaces in one place.",
+  "choose": "Choose a workspace",
+  "nav": "Workspaces",
+  "live": "Live work",
+  "manage": "Manage and configure",
+  "open": "Open",
+  "external": "Opens in a new tab",
+  "permission": "Only menus you have permission to use are shown.",
+  "empty": "No workspaces available",
+  "emptyDetail": "Contact your organization administrator if you need access.",
+  "error": "Unable to load menus",
+  "errorDetail": "Please try again. If the problem continues, contact your administrator.",
+  "retry": "Try again",
+  "loading": "Preparing your workspaces",
+  "signIn": "Sign in",
+  "signInDetail": "Sign in to choose your workspace.",
+  "account": "My account",
+  "descriptions": {
+    "agent-workspace": "Handle calls and customer interactions",
+    "supervisor-workspace": "View your team and work in progress",
+    "journeys": "Design customer journeys and automation",
+    "contact-governance": "Manage policies, exceptions and audit evidence",
+    "dphone-embedding": "Manage sites allowed to embed dphone"
+  },
+  "descriptionFallback": "Open this workspace",
+  "names": {
+    "agent-workspace": "Agent Workspace",
+    "supervisor-workspace": "Supervisor Workspace",
+    "journeys": "Journeys",
+    "contact-governance": "Contact Governance",
+    "dphone-embedding": "dphone embedding"
+  }
+}

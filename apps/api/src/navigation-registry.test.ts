@@ -28,14 +28,19 @@ test('registry: id ไม่ซ้ำ, กลุ่มอยู่ในชุ�
 });
 
 test('role ต่างกันเห็นรายการต่างกัน', () => {
-  assert.deepEqual(ids(visibleApps({ roles: ['agent'], entitlements: FULL })), ['agent-workspace']);
+  assert.deepEqual(ids(visibleApps({ roles: ['agent'], entitlements: FULL })), [
+    'home',
+    'agent-workspace',
+  ]);
   assert.deepEqual(ids(visibleApps({ roles: ['supervisor', 'agent'], entitlements: FULL })), [
+    'home',
     'agent-workspace',
     'supervisor-workspace',
     'journeys',
     'contact-governance',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: ['compliance'], entitlements: FULL })), [
+    'home',
     'contact-governance',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: ['journey-ingress'], entitlements: FULL })), []);
@@ -44,11 +49,13 @@ test('role ต่างกันเห็นรายการต่างกั
 test('plan ต่างกันเห็นรายการต่างกัน — key ต้องเป็น true เท่านั้น (fail-closed)', () => {
   const admin = ['admin'];
   assert.deepEqual(ids(visibleApps({ roles: admin, entitlements: { module_journey: true } })), [
+    'home',
     'agent-workspace',
     'supervisor-workspace',
     'journeys',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: admin, entitlements: {} })), [
+    'home',
     'agent-workspace',
     'supervisor-workspace',
   ]);
@@ -59,12 +66,13 @@ test('plan ต่างกันเห็นรายการต่างกั
         entitlements: { module_journey: 1, module_contact_governance: 'yes' },
       }),
     ),
-    ['agent-workspace', 'supervisor-workspace'],
+    ['home', 'agent-workspace', 'supervisor-workspace'],
   );
 });
 
 test('tenant ที่ไม่มี plan binding (null) ใช้ role อย่างเดียว', () => {
   assert.deepEqual(ids(visibleApps({ roles: ['admin'], entitlements: null })), [
+    'home',
     'agent-workspace',
     'supervisor-workspace',
     'journeys',
@@ -76,6 +84,7 @@ test('tenant ที่ไม่มี plan binding (null) ใช้ role อย�
 test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ของ plan ที่มี module_api_cti', () => {
   const cti = { module_api_cti: true };
   assert.deepEqual(ids(visibleApps({ roles: ['admin'], entitlements: cti })), [
+    'home',
     'agent-workspace',
     'supervisor-workspace',
     'dphone-embedding',
@@ -92,6 +101,7 @@ test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ข�
 
 test('ชุดเริ่มต้นของ tenant ขึ้นกับ entitlement ไม่ขึ้นกับ role ของ admin', () => {
   assert.deepEqual(ids(tenantAvailableApps({ module_contact_governance: true })), [
+    'home',
     'agent-workspace',
     'supervisor-workspace',
     'contact-governance',
@@ -121,7 +131,7 @@ test('หมุดที่มีผล: ผู้ใช้ทับ tenant ท�
     { appIds: ['agent-workspace'], source: 'TENANT' },
   );
   assert.deepEqual(effectivePins({ visible, userPins: null, tenantPins: null }), {
-    appIds: ['agent-workspace'],
+    appIds: ['home', 'agent-workspace'],
     source: 'SYSTEM',
   });
 });
@@ -132,22 +142,23 @@ test('ตรวจหมุด: เกิน 15 ก่อน แล้วแอ�
   assert.equal(pinValidationError(tooMany, allowed), 'PIN_LIMIT_EXCEEDED');
   assert.equal(pinValidationError(['journeys'], allowed), 'APP_NOT_AVAILABLE');
   assert.equal(pinValidationError(['no-such-app'], allowed), 'APP_NOT_AVAILABLE');
-  assert.equal(pinValidationError(['agent-workspace'], allowed), null);
+  assert.equal(pinValidationError(['home', 'agent-workspace'], allowed), null);
   assert.equal(pinValidationError([], allowed), null);
 });
 
 test('#651: พื้นที่เมนูคัดตาม role/plan; ลำดับตาม rail; พื้นที่ว่างไม่ถูกส่ง', () => {
   const areaIds = (input: Parameters<typeof visibleApps>[0]) =>
     visibleAreas(visibleApps(input)).map((area) => area.id);
-  assert.deepEqual(areaIds({ roles: ['agent'], entitlements: FULL }), ['workspace']);
+  assert.deepEqual(areaIds({ roles: ['agent'], entitlements: FULL }), ['home', 'workspace']);
   assert.deepEqual(areaIds({ roles: ['admin'], entitlements: null }), [
+    'home',
     'workspace',
     'supervisor',
     'journeys',
     'governance',
     'integrations',
   ]);
-  assert.deepEqual(areaIds({ roles: ['compliance'], entitlements: FULL }), ['governance']);
+  assert.deepEqual(areaIds({ roles: ['compliance'], entitlements: FULL }), ['home', 'governance']);
   assert.deepEqual(areaIds({ roles: ['journey-ingress'], entitlements: FULL }), []);
   // ลำดับพื้นที่ตาม NAVIGATION_AREAS ไม่ใช่ตามลำดับแถวใน registry
   const reversed = [...NAVIGATION_APPS].reverse();
@@ -186,7 +197,7 @@ test('#651: แอปหลายตัวในพื้นที่/กลุ�
 
 test('#658: Governance ส่งหน้าย่อยตามลำดับใน item เดียว (แอปเดียว ปักหมุดได้ชิ้นเดียว) และแอปอื่นไม่มี pages', () => {
   const visible = visibleApps({ roles: ['compliance'], entitlements: FULL });
-  const [area] = visibleAreas(visible);
+  const area = visibleAreas(visible).find((a) => a.id === 'governance');
   assert.equal(area!.id, 'governance');
   const [item] = area!.sections[0]!.items;
   assert.equal(item!.appId, 'contact-governance');
