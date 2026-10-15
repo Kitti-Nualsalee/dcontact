@@ -249,7 +249,8 @@ jobs:
 
       - name: Keycloak (wait healthy + keycloak-config)
         timeout-minutes: 10
-        run: uat-deploy keycloak "$GITHUB_SHA" | tail -n 1 | tee "$UAT_OUT/keycloak.json"
+        # #682: keycloak-config พิมพ์หลายบรรทัด (realm → dphone → branding) — เก็บเฉพาะผลของ realm config
+        run: uat-deploy keycloak "$GITHUB_SHA" | grep '"type":"u1.uat.keycloak"' | tail -n 1 | tee "$UAT_OUT/keycloak.json"
 
       - name: Deploy (object storage → object-storage-init → api + proxy --wait)
         timeout-minutes: 10
