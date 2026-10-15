@@ -1060,6 +1060,12 @@ export function checkLineTrialOverlay({ overlay, lineOverlay, deployScript }) {
   return check(id, failures);
 }
 
+/** #682: ขั้น keycloak ต้องเก็บบรรทัดผลของ realm config — `tail -n 1` ได้บรรทัดของ branding */
+export function keycloakRecordFailures(workflow) {
+  const step = workflow.split('\n').find((line) => /uat-deploy keycloak\b/.test(line)) ?? '';
+  return step.includes(`grep '"type":"u1.uat.keycloak"'`) ? [] : [{ kind: 'KEYCLOAK_RECORD_LINE' }];
+}
+
 export function checkWorkflow(workflow) {
   const failures = [];
   if (workflow === null) return check('UAT-S11 workflow uat-preview', [{ kind: 'MISSING' }]);
@@ -1084,6 +1090,7 @@ export function checkWorkflow(workflow) {
   if (!/--migration-guard/.test(workflow)) failures.push({ kind: 'NO_MIGRATION_GUARD' });
   if (!/uat-deploy backup/.test(workflow)) failures.push({ kind: 'NO_BACKUP' });
   if (!/uat-deploy rollback /.test(workflow)) failures.push({ kind: 'NO_ROLLBACK' });
+  failures.push(...keycloakRecordFailures(workflow));
   if (/\bstart-dev\b/.test(workflow)) failures.push({ kind: 'START_DEV' });
   if (/migrate\s+(dev|reset)|db\s+push|--accept-data-loss|--force-reset/.test(workflow)) {
     failures.push({ kind: 'NON_ADDITIVE_MIGRATION_COMMAND' });
@@ -1169,6 +1176,7 @@ export function checkSmokeWorkflow(workflow) {
   if (!/^\s+timeout-minutes:\s*\d+/m.test(code)) failures.push({ kind: 'NO_TIMEOUT' });
   if (!/if:\s*always\(\)[^]*?down -v/.test(code)) failures.push({ kind: 'NO_TEARDOWN' });
   if (/\bstart-dev\b/.test(code)) failures.push({ kind: 'START_DEV' });
+  failures.push(...keycloakRecordFailures(code));
   return check(id, failures);
 }
 
@@ -1757,6 +1765,16 @@ export function buildDeploymentRecord({
       throw new Error(`image ${name} ไม่ได้อ้างด้วย digest`);
   }
   if (smoke?.status !== 'PASS') throw new Error('readiness smoke ไม่ผ่าน — ไม่บันทึก record');
+  // #682: ต้องเป็นผลของ realm config (ไม่ใช่บรรทัด branding/dphone) — null เงียบ ๆ ทำให้ record บอกไม่ได้ว่า realm เปลี่ยน
+  if (
+    action === 'deploy' &&
+    (keycloak?.type !== 'u1.uat.keycloak' ||
+      !/^sha256:[0-9a-f]{64}$/.test(keycloak?.realmConfigDigest ?? ''))
+  ) {
+    throw new Error(
+      'realmConfigDigest ไม่ครบ — keycloak ต้องเป็นผลของ u1-uat-keycloak-users --config',
+    );
+  }
   return {
     schema: 'UatDeploymentRecordV1',
     action,

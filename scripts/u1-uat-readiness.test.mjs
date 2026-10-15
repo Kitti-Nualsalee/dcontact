@@ -1133,6 +1133,11 @@ test('UAT-S22: overlay team trial ที่เปิดกว้างเกิ�
 
 test('UAT-S11: workflow ที่ไม่ผูก environment/concurrency, echo secret หรือไม่รัน readiness ไม่ผ่าน', () => {
   assert.equal(checkWorkflow(workflow).status, 'PASS');
+  // #682: tail -n 1 ของขั้น keycloak = บรรทัด branding → realmConfigDigest เป็น null
+  failed(
+    checkWorkflow(workflow.replace(`| grep '"type":"u1.uat.keycloak"' | tail -n 1`, '| tail -n 1')),
+    'KEYCLOAK_RECORD_LINE',
+  );
   failed(
     checkWorkflow(workflow.replaceAll('environment: uat-preview', 'environment: production')),
     'ENVIRONMENT_NOT_UAT_PREVIEW',
@@ -1166,6 +1171,13 @@ test('UAT-S11: workflow ที่ไม่ผูก environment/concurrency, ech
 
 test('UAT-S18: workflow uat-image-smoke ที่รันอัตโนมัติ ใช้ secret/environment/push ภายนอก หรือไม่ teardown ไม่ผ่าน', () => {
   assert.equal(checkSmokeWorkflow(smokeWorkflow).status, 'PASS');
+  // #682: tail -n 1 ของขั้น keycloak = บรรทัด branding → realmConfigDigest เป็น null
+  failed(
+    checkSmokeWorkflow(
+      smokeWorkflow.replace(`| grep '"type":"u1.uat.keycloak"' | tail -n 1`, '| tail -n 1'),
+    ),
+    'KEYCLOAK_RECORD_LINE',
+  );
   failed(checkSmokeWorkflow(null), 'MISSING');
   const step = '      - uses: docker/setup-buildx-action@v3';
   const withStep = (lines) => smokeWorkflow.replace(step, `${lines}\n${step}`);
@@ -1644,7 +1656,7 @@ test('deployment record: บันทึก SHA/digest/realm/pack; ปฏิเ�
       OPS_IMAGE: digest('ops'),
       KEYCLOAK_IMAGE: digest('keycloak'),
     },
-    keycloak: { realmConfigDigest: `sha256:${'c'.repeat(64)}` },
+    keycloak: { type: 'u1.uat.keycloak', realmConfigDigest: `sha256:${'c'.repeat(64)}` },
     backup: { status: 'PASS', file: 'backups/pg-dcontact-x.dump', sha256: 'd'.repeat(64) },
     migrationGuard: { status: 'PASS', base: 'e'.repeat(40), checks: [{ added: [] }] },
     smoke: smokeReport,
@@ -1683,5 +1695,14 @@ test('deployment record: บันทึก SHA/digest/realm/pack; ปฏิเ�
   assert.throws(
     () => buildDeploymentRecord({ ...input, smoke: { status: 'FAIL', checks: [] } }),
     /smoke/,
+  );
+  // #682: บรรทัดสุดท้ายของขั้น keycloak เป็นของ branding — record ต้องไม่บันทึก null เงียบ ๆ
+  assert.throws(
+    () =>
+      buildDeploymentRecord({
+        ...input,
+        keycloak: { type: 'keycloak.branding', status: 'PASS' },
+      }),
+    /realmConfigDigest/,
   );
 });

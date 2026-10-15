@@ -204,7 +204,8 @@ jobs:
         run: uat-deploy migrate "$GITHUB_SHA"
 
       - name: Keycloak realm config
-        run: uat-deploy keycloak "$GITHUB_SHA" | tail -n 1 | tee keycloak.json
+        # #682: keycloak-config พิมพ์หลายบรรทัด (realm → dphone → branding) — เก็บเฉพาะผลของ realm config
+        run: uat-deploy keycloak "$GITHUB_SHA" | grep '"type":"u1.uat.keycloak"' | tail -n 1 | tee keycloak.json
 
       - name: Deploy Console/api by digest
         run: uat-deploy deploy "$GITHUB_SHA"
