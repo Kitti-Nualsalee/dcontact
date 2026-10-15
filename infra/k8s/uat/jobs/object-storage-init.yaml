@@ -1,4 +1,4 @@
-# root credential ใช้เฉพาะ Job นี้และ RustFS; Tenant API ใช้ IAM user แยก
+# root credential (`dcontact-uat-s3-root`) ใช้เฉพาะ Job นี้และ RustFS; Tenant API ใช้ IAM user แยกใน `dcontact-uat-s3`
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -22,12 +22,12 @@ spec:
             - name: UAT_S3_ROOT_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-s3
+                  name: dcontact-uat-s3-root
                   key: RUSTFS_ACCESS_KEY
             - name: UAT_S3_ROOT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-s3
+                  name: dcontact-uat-s3-root
                   key: RUSTFS_SECRET_KEY
           resources:
             requests:

@@ -1,4 +1,5 @@
 # ต้องตามหลัง tenant-keycloak-config; ตั้ง platform-console redirect เป็น origin ใหม่
+# #645: browser flow ของ realm เป็นของ tenant-keycloak-config (บังคับ OTP) — ห้ามผูก dcontact-browser ทับ
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -18,19 +19,19 @@ spec:
           command:
             - /bin/sh
             - -ec
-            - node scripts/keycloak-platform-setup.mjs --no-dev-users && node scripts/keycloak-provisioning-setup.mjs && node scripts/keycloak-account-service-setup.mjs
+            - node scripts/keycloak-platform-setup.mjs --no-dev-users && node scripts/keycloak-provisioning-setup.mjs && node scripts/keycloak-account-service-setup.mjs --keep-realm-browser-flow
           env:
             - name: KEYCLOAK_ADMIN_URL
               value: http://keycloak:8080/auth
             - name: KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-identity
+                  name: dcontact-uat-keycloak-admin
                   key: KC_BOOTSTRAP_ADMIN_USERNAME
             - name: KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-identity
+                  name: dcontact-uat-keycloak-admin
                   key: KC_BOOTSTRAP_ADMIN_PASSWORD
             - name: KEYCLOAK_PROVISIONER_SECRET
               valueFrom:

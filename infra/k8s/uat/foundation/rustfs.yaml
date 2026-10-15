@@ -80,6 +80,10 @@ spec:
               memory: 256Mi
             limits:
               memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             - name: data
               mountPath: /data
@@ -92,7 +96,7 @@ spec:
             claimName: rustfs-data
         - name: root-credential
           secret:
-            secretName: dcontact-uat-s3
+            secretName: dcontact-uat-s3-root
             items:
               - key: RUSTFS_ACCESS_KEY
                 path: root-access-key

@@ -72,12 +72,12 @@ spec:
             - name: KC_BOOTSTRAP_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-identity
+                  name: dcontact-uat-keycloak-admin
                   key: KC_BOOTSTRAP_ADMIN_USERNAME
             - name: KC_BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-identity
+                  name: dcontact-uat-keycloak-admin
                   key: KC_BOOTSTRAP_ADMIN_PASSWORD
           ports:
             - name: http
@@ -102,3 +102,7 @@ spec:
               memory: 768Mi
             limits:
               memory: 2048Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]

@@ -22,12 +22,12 @@ spec:
             - name: KEYCLOAK_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-identity
+                  name: dcontact-uat-keycloak-admin
                   key: KC_BOOTSTRAP_ADMIN_USERNAME
             - name: KEYCLOAK_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-identity
+                  name: dcontact-uat-keycloak-admin
                   key: KC_BOOTSTRAP_ADMIN_PASSWORD
             - name: UAT_TENANT_ID
               valueFrom:

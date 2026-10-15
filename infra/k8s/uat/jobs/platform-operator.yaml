@@ -18,19 +18,19 @@ spec:
           command:
             - /bin/sh
             - -ec
-            - node scripts/platform-uat-create-operator.mjs < /run/operator/temporary-password && node scripts/keycloak-account-service-setup.mjs
+            - node scripts/platform-uat-create-operator.mjs < /run/operator/temporary-password && node scripts/keycloak-account-service-setup.mjs --keep-realm-browser-flow
           env:
             - name: KEYCLOAK_ADMIN_URL
               value: http://keycloak:8080/auth
             - name: KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-identity
+                  name: dcontact-uat-keycloak-admin
                   key: KC_BOOTSTRAP_ADMIN_USERNAME
             - name: KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-identity
+                  name: dcontact-uat-keycloak-admin
                   key: KC_BOOTSTRAP_ADMIN_PASSWORD
             - name: KEYCLOAK_ACCOUNT_SERVICE_SECRET
               valueFrom:

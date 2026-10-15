@@ -1,4 +1,5 @@
 # สร้าง realm/client/Organization หลัง Keycloak พร้อม; ไม่สร้างบัญชีผู้ทดสอบใน Job นี้
+# AC6 (#599): ต่อด้วย dphone embedded client และ branding ตามลำดับเดียวกับ Compose `keycloak-config`
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -15,20 +16,27 @@ spec:
       containers:
         - name: configure
           image: __OPS_IMAGE__
-          command: [node, scripts/u1-uat-keycloak-users.mjs, --config]
+          command:
+            - /bin/sh
+            - -ec
+            - node scripts/u1-uat-keycloak-users.mjs --config && node scripts/keycloak-dphone-embedded-setup.mjs && node scripts/keycloak-branding-setup.mjs
           env:
             - name: KEYCLOAK_ADMIN_URL
               value: http://keycloak:8080/auth
             - name: KEYCLOAK_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-identity
+                  name: dcontact-uat-keycloak-admin
                   key: KC_BOOTSTRAP_ADMIN_USERNAME
             - name: KEYCLOAK_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-identity
+                  name: dcontact-uat-keycloak-admin
                   key: KC_BOOTSTRAP_ADMIN_PASSWORD
+            - name: DPHONE_EMBED_ORIGIN
+              value: https://dcontact-uat.osd.co.th
+            - name: DPHONE_EMBED_TEMPLATE_CLIENT
+              value: dcontact-uat-console
             - name: UAT_HOST
               value: dcontact-uat.osd.co.th
             - name: UAT_TENANT_ID

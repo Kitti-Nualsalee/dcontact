@@ -61,6 +61,10 @@ spec:
               memory: 64Mi
             limits:
               memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             - name: data
               mountPath: /data

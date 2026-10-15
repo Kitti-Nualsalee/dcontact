@@ -36,16 +36,19 @@
 | Secret | Keys | ผู้ใช้ |
 | --- | --- | --- |
 | `dcontact-uat-ghcr` | Docker registry auth (`kubernetes.io/dockerconfigjson`) | imagePullSecret ของแอปและ jobs |
-| `dcontact-uat-db` | `DATABASE_URL_OWNER`, `DATABASE_URL_APP`, `PLATFORM_DATABASE_URL`, `PROVISIONER_DATABASE_URL`, `KC_DB_URL`, `KC_DB_USERNAME`, `KC_DB_PASSWORD` | owner เฉพาะ Job migration/provision; runtime แต่ละตัวอ่าน URL ของตน |
-| `dcontact-uat-identity` | `KC_BOOTSTRAP_ADMIN_USERNAME`, `KC_BOOTSTRAP_ADMIN_PASSWORD`, `KEYCLOAK_PROVISIONER_SECRET`, `KEYCLOAK_ACCOUNT_SERVICE_SECRET` | Keycloak/Job/worker ตาม key ที่ต้องใช้ |
-| `dcontact-uat-s3` | `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | RustFS/init ใช้ root; Tenant API ใช้ IAM key แยก |
+| `dcontact-uat-db` | `DATABASE_URL_APP`, `PLATFORM_DATABASE_URL`, `PROVISIONER_DATABASE_URL`, `KC_DB_URL`, `KC_DB_USERNAME`, `KC_DB_PASSWORD` | runtime แต่ละตัวอ่าน URL ของตน |
+| `dcontact-uat-db-owner` | `DATABASE_URL_OWNER` | Job `migrate` และ `tenant-provision` เท่านั้น |
+| `dcontact-uat-keycloak-admin` | `KC_BOOTSTRAP_ADMIN_USERNAME`, `KC_BOOTSTRAP_ADMIN_PASSWORD` | Keycloak และ Job ตั้งค่า Keycloak เท่านั้น |
+| `dcontact-uat-identity` | `KEYCLOAK_PROVISIONER_SECRET`, `KEYCLOAK_ACCOUNT_SERVICE_SECRET` | Platform worker และ Job ตั้งค่า Platform |
+| `dcontact-uat-s3-root` | `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY` | RustFS และ Job `object-storage-init` เท่านั้น |
+| `dcontact-uat-s3` | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Tenant API (IAM user แยกจาก root) |
 | `dcontact-uat-tenant` | `UAT_TENANT_ID`, `UAT_TENANT_SLUG`, `UAT_TENANT_NAME`, `UAT_ORGANIZATION_DOMAIN` | setup/provision Jobs |
 | `dcontact-uat-provision-input` | `provision.json` | one-shot tenant provision; format จาก `scripts/u1-uat-fixture-render.mjs` |
 | `dcontact-uat-accounts` | `accounts.json` | one-shot test users; format จาก U1 fixture renderer |
 | `dcontact-uat-platform-operator` | `username`, `email`, `temporary-password` | one-shot Platform operator Job |
 | `dcontact-uat-wildcard-tls` | `tls.crt`, `tls.key` (`kubernetes.io/tls`) | สอง Ingress; wildcard ต้องครอบคลุมสองชื่อ |
 
-DB team ยังไม่ส่งมอบ user/password. URL ฐานต้องใช้ principal แยกตาม [DB handoff](k8s-uat-db-handoff.md), host/port `postgres-external:4567` หรือ hostname ที่ตรวจ TLS ได้. ห้ามใช้ `sslmode=disable` เมื่อเปิด public UAT หาก DB ต้องใช้ TLS. หาก URL ใส่ password ที่มีอักขระพิเศษ ให้ URL-encode อย่างถูกต้อง. Secret สำหรับ `dcontact-uat-s3` รวม root และ API keys ใน object เดียวแต่ container เห็นเฉพาะ key ที่อ้าง; จำกัด RBAC การอ่าน Secret object.
+DB team ยังไม่ส่งมอบ user/password. URL ฐานต้องใช้ principal แยกตาม [DB handoff](k8s-uat-db-handoff.md), host/port `postgres-external:4567` หรือ hostname ที่ตรวจ TLS ได้. ห้ามใช้ `sslmode=disable` เมื่อเปิด public UAT หาก DB ต้องใช้ TLS. หาก URL ใส่ password ที่มีอักขระพิเศษ ให้ URL-encode อย่างถูกต้อง. Credential ระดับ owner/root/admin (`dcontact-uat-db-owner`, `dcontact-uat-s3-root`, `dcontact-uat-keycloak-admin`) แยก object จาก Secret ของ runtime เพื่อให้ RBAC และ rotation แยกกันได้; Deployment ของ API/Console/worker ห้ามอ้าง Secret สามชื่อนี้ (`k8s-uat-render.test.mjs` ตรวจ). ทีม CD อาจสร้าง `dcontact-uat-db-owner` เฉพาะช่วงรัน Job แล้วลบออก.
 
 ## ตรวจแบบ offline ในรอบเตรียมไฟล์
 

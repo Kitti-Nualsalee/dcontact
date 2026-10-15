@@ -23,7 +23,7 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: dcontact-uat-db
+                  name: dcontact-uat-db-owner
                   key: DATABASE_URL_OWNER
           resources:
             requests:
