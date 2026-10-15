@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import { Button, useInShell } from '@d-contact/ui-react';
 import type { AgentWorkspaceApi, AgentWorkspaceSnapshot } from './agent-api.js';
+import { EndedCallSnapshotReconciler } from './ended-call-snapshot.js';
 import { createBrowserWorkspaceLeaderElection } from './leader-election.js';
 import { BrowserDphone, type BrowserSipTransport, type DphoneState } from './dphone/dphone.js';
 import type { SipJsTransportCallbacks } from './dphone/sip-js-transport.js';
@@ -190,6 +191,7 @@ function AgentWorkspace({
   const mediaStream = useRef<MediaStream | undefined>(undefined);
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
   const dphone = useRef<BrowserDphone | undefined>(undefined);
+  const endedCallSnapshot = useRef<EndedCallSnapshotReconciler | undefined>(undefined);
   const liveConnectionId = useRef<string | undefined>(undefined);
   const popup = useRef<Window | null>(null);
   // id ของหน้าต่างแยกที่ tab นี้เปิด — host รับ hello/bye/คำสั่งเฉพาะจาก id นี้
@@ -303,9 +305,19 @@ function AgentWorkspace({
   }, [api, enforced, governanceGate, liveRetry, liveKey]);
 
   useEffect(() => {
-    if (!createDphone || !remoteAudio.current) return;
+    if (!api || !createDphone || !remoteAudio.current) return;
+    const reconciler = new EndedCallSnapshotReconciler({
+      snapshot: () => api.snapshot(),
+      apply: (nextSnapshot) => {
+        setSnapshot(nextSnapshot);
+        setSnapshotError(undefined);
+      },
+      onExhausted: () => setSnapshotError('snapshotLoadFailed'),
+    });
+    endedCallSnapshot.current = reconciler;
     const phone = createDphone(remoteAudio.current, {
       onInvitation: () => {
+        reconciler.cancel();
         void api
           ?.snapshot()
           .then(async (nextSnapshot) => {
@@ -318,12 +330,11 @@ function AgentWorkspace({
       },
       onSessionEstablished: () => setDphoneState(phone.connected()),
       onSessionTerminated: () => {
+        const current = phone.current();
+        const interactionId = 'interactionId' in current ? current.interactionId : undefined;
         setDphoneState(phone.terminated());
         setMuted(false);
-        void api
-          ?.snapshot()
-          .then(setSnapshot)
-          .catch(() => undefined);
+        if (interactionId) void reconciler.start(interactionId);
       },
       onRegistrationLost: () => {
         availabilityGeneration.current += 1;
@@ -333,6 +344,8 @@ function AgentWorkspace({
     });
     dphone.current = phone;
     return () => {
+      reconciler.cancel();
+      endedCallSnapshot.current = undefined;
       dphone.current = undefined;
       void phone.stop();
     };
@@ -542,12 +555,11 @@ function AgentWorkspace({
 
   async function hangup() {
     if (!dphone.current) return;
+    const current = dphone.current.current();
+    const interactionId = 'interactionId' in current ? current.interactionId : undefined;
     setDphoneState(await dphone.current.hangup());
     setMuted(false);
-    void api
-      ?.snapshot()
-      .then(setSnapshot)
-      .catch(() => undefined);
+    if (interactionId) void endedCallSnapshot.current?.start(interactionId);
   }
 
   async function submitWrapup() {
