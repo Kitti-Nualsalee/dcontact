@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenant-console
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: tenant-console
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenant-api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: tenant-api
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-console
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: platform-console
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: platform-api
+  ports:
+    - name: http
+      port: 3010
+      targetPort: http

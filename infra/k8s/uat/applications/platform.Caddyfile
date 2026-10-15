@@ -1,0 +1,28 @@
+# Platform Console แยก origin; ไม่เปิด Mailpit, Keycloak admin หรือ metrics
+{
+	admin off
+	persist_config off
+	auto_https off
+}
+
+:8081 {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		-Server
+	}
+	route {
+		@private path /auth /auth/* /mail /mail/* /metrics /metrics/* /health /health/*
+		respond @private 404
+		handle /api/* {
+			reverse_proxy platform-api:3010
+		}
+		handle {
+			root * /srv/platform-console
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}

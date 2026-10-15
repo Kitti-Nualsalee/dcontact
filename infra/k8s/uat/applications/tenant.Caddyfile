@@ -1,0 +1,49 @@
+# TLS จบที่ Traefik; service นี้รับ traffic ภายใน cluster เท่านั้น
+{
+	admin off
+	persist_config off
+	auto_https off
+}
+
+:8080 {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		-Server
+	}
+	route {
+		@private path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* /auth/metrics /auth/health /auth/health/* /metrics /metrics/*
+		respond @private 404
+		handle /auth/* {
+			reverse_proxy keycloak:8080 {
+				header_up X-Forwarded-Proto https
+				header_up X-Forwarded-Host dcontact-uat.osd.co.th
+			}
+		}
+		handle /api/* {
+			reverse_proxy tenant-api:3000
+		}
+		handle /dphone/* {
+			header -X-Frame-Options
+			reverse_proxy tenant-api:3000
+		}
+		handle /embed/* {
+			reverse_proxy tenant-api:3000
+		}
+		handle_path /workspace/* {
+			root * /srv/workspace
+			file_server
+		}
+		handle_path /examples/* {
+			root * /srv/examples
+			file_server
+		}
+		handle {
+			root * /srv/console
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}

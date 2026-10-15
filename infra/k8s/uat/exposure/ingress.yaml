@@ -1,0 +1,48 @@
+# มี public route เฉพาะสอง Console; TLS Secret เตรียมชื่อไว้และต้องสร้างจริงภายหลัง
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tenant-console
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - dcontact-uat.osd.co.th
+      secretName: dcontact-uat-wildcard-tls
+  rules:
+    - host: dcontact-uat.osd.co.th
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tenant-console
+                port:
+                  name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: platform-console
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - dcontact-platform-uat.osd.co.th
+      secretName: dcontact-uat-wildcard-tls
+  rules:
+    - host: dcontact-platform-uat.osd.co.th
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: platform-console
+                port:
+                  name: http

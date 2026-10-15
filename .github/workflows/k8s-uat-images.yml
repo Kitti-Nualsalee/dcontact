@@ -1,0 +1,143 @@
+name: k8s-uat-images
+
+# K8s UAT ใหม่ใช้ฐานว่าง; image/release artifact ชุดนี้ไม่พึ่ง deployment record ของ UAT 3 VM
+on:
+  workflow_dispatch:
+    inputs:
+      fixture_pack_version:
+        description: 'Fixture pack version ที่ฝังใน Tenant Console'
+        required: true
+        default: 'uat-first-slice.v1'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Initial empty DB migration guard
+        run: node scripts/u1-uat-readiness.mjs --migration-guard --initial > migration-guard.json
+      - name: Image names
+        id: names
+        run: |
+          owner="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "tenant_api=ghcr.io/$owner/dcontact-k8s-uat-api" >> "$GITHUB_OUTPUT"
+          echo "ops=ghcr.io/$owner/dcontact-k8s-uat-ops" >> "$GITHUB_OUTPUT"
+          echo "tenant_console=ghcr.io/$owner/dcontact-k8s-uat-console" >> "$GITHUB_OUTPUT"
+          echo "platform_api=ghcr.io/$owner/dcontact-k8s-uat-platform-api" >> "$GITHUB_OUTPUT"
+          echo "platform_console=ghcr.io/$owner/dcontact-k8s-uat-platform-console" >> "$GITHUB_OUTPUT"
+          echo "keycloak=ghcr.io/$owner/dcontact-k8s-uat-keycloak" >> "$GITHUB_OUTPUT"
+      - name: Tenant API
+        id: tenant_api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          target: runtime
+          push: true
+          provenance: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.tenant_api }}:${{ github.sha }}
+      - name: Tenant ops
+        id: ops
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          target: ops
+          push: true
+          provenance: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.ops }}:${{ github.sha }}
+      - name: Tenant Console
+        id: tenant_console
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/console/Dockerfile
+          push: true
+          provenance: false
+          build-args: |
+            SOURCE_SHA=${{ github.sha }}
+            VITE_KC_ISSUER=https://dcontact-uat.osd.co.th/auth/realms/dcontact
+            VITE_KC_CLIENT_ID=dcontact-uat-console
+            VITE_CONSOLE_DEFAULT_VIEW=journeys
+            VITE_UAT_ENVIRONMENT=uat
+            VITE_UAT_PACK_VERSION=${{ inputs.fixture_pack_version }}
+          tags: ${{ steps.names.outputs.tenant_console }}:${{ github.sha }}
+      - name: Platform API and worker
+        id: platform_api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/platform-api/Dockerfile
+          push: true
+          provenance: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.platform_api }}:${{ github.sha }}
+      - name: Platform Console
+        id: platform_console
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/platform-console/Dockerfile
+          push: true
+          provenance: false
+          build-args: |
+            SOURCE_SHA=${{ github.sha }}
+            VITE_KC_ISSUER=https://dcontact-uat.osd.co.th/auth/realms/dcontact
+          tags: ${{ steps.names.outputs.platform_console }}:${{ github.sha }}
+      - name: Keycloak with Platform extensions
+        id: keycloak
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/keycloak/Dockerfile
+          push: true
+          provenance: false
+          build-args: SOURCE_SHA=${{ github.sha }}
+          tags: ${{ steps.names.outputs.keycloak }}:${{ github.sha }}
+      - name: Digest-pinned release metadata
+        env:
+          TENANT_API_IMAGE: ${{ steps.names.outputs.tenant_api }}@${{ steps.tenant_api.outputs.digest }}
+          OPS_IMAGE: ${{ steps.names.outputs.ops }}@${{ steps.ops.outputs.digest }}
+          TENANT_CONSOLE_IMAGE: ${{ steps.names.outputs.tenant_console }}@${{ steps.tenant_console.outputs.digest }}
+          PLATFORM_API_IMAGE: ${{ steps.names.outputs.platform_api }}@${{ steps.platform_api.outputs.digest }}
+          PLATFORM_CONSOLE_IMAGE: ${{ steps.names.outputs.platform_console }}@${{ steps.platform_console.outputs.digest }}
+          PLATFORM_KEYCLOAK_IMAGE: ${{ steps.names.outputs.keycloak }}@${{ steps.keycloak.outputs.digest }}
+        run: |
+          {
+            echo "SOURCE_SHA=$GITHUB_SHA"
+            echo "API_IMAGE=$TENANT_API_IMAGE"
+            echo "OPS_IMAGE=$OPS_IMAGE"
+            echo "CONSOLE_IMAGE=$TENANT_CONSOLE_IMAGE"
+          } > release.env
+          {
+            echo "SOURCE_SHA=$GITHUB_SHA"
+            echo "PLATFORM_API_IMAGE=$PLATFORM_API_IMAGE"
+            echo "PLATFORM_CONSOLE_IMAGE=$PLATFORM_CONSOLE_IMAGE"
+            echo "PLATFORM_KEYCLOAK_IMAGE=$PLATFORM_KEYCLOAK_IMAGE"
+          } > platform-release.env
+      - uses: actions/upload-artifact@v4
+        with:
+          name: k8s-uat-release-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            release.env
+            platform-release.env
+            migration-guard.json
