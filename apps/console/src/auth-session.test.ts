@@ -3,15 +3,18 @@ import test from 'node:test';
 import {
   accessTokenRealmRoles,
   cleanConsoleCallbackUrl,
+  clearConsoleSignOut,
   consumeConsoleReturnLocation,
   consumeConsoleReturnUrl,
   createConsoleOidcSettings,
+  isConsoleSignedOutLanding,
+  isOidcCallback,
   rememberConsoleReturnUrl,
+  rememberConsoleSignOut,
   resolveConsoleContextId,
+  resolveConsoleLocation,
   resolveConsoleView,
   resolveTenantAlias,
-  isOidcCallback,
-  resolveConsoleLocation,
 } from './auth-session.js';
 
 function tokenWithClaims(claims: unknown): string {
@@ -199,6 +202,44 @@ test('#676 URL ที่ไม่ใช่ callback ไม่ถูกแย่�
     ),
     true,
   );
+});
+
+test('#677 หลัง sign-out แสดงหน้า "ออกจากระบบแล้ว" เฉพาะหน้าที่ Keycloak พากลับมา', () => {
+  const storage = new MemoryStorage();
+  const landing = new URL('https://acme.console.example/?tenant=acme');
+  // ยังไม่ได้ sign-out = หน้าเดิม (ไม่มีเครื่องหมาย)
+  assert.equal(isConsoleSignedOutLanding(landing, storage), false);
+
+  rememberConsoleSignOut(
+    new URL('https://acme.console.example/?tenant=acme&view=governance&section=audit'),
+    storage,
+  );
+  assert.equal(isConsoleSignedOutLanding(landing, storage), true);
+  // ลิงก์ที่ระบุหน้าเองหรือ callback ของ OIDC ไม่ใช่หน้าหลัง sign-out
+  for (const href of [
+    'https://acme.console.example/?tenant=acme&view=account',
+    'https://acme.console.example/?tenant=acme&context=0f8fad5b-d9cb-469f-a165-70867728950e',
+    'https://acme.console.example/?tenant=acme&state=abc&code=c0de',
+  ]) {
+    assert.equal(isConsoleSignedOutLanding(new URL(href), storage), false, href);
+  }
+
+  clearConsoleSignOut(storage);
+  assert.equal(isConsoleSignedOutLanding(landing, storage), false);
+});
+
+test('#677 เข้าสู่ระบบอีกครั้งหลัง sign-out กลับไปหน้าที่เพิ่งออกมา', () => {
+  const storage = new MemoryStorage();
+  rememberConsoleSignOut(
+    new URL('https://acme.console.example/?tenant=acme&view=governance&section=audit'),
+    storage,
+  );
+  clearConsoleSignOut(storage); // กดปุ่มเข้าสู่ระบบอีกครั้ง — ไม่จำ URL ของหน้า sign-out ทับ
+  const callback = new URL('https://acme.console.example/?tenant=acme&state=abc&code=c0de');
+  const resolved = resolveConsoleLocation(callback, storage);
+  assert.equal(resolveConsoleView(resolved, undefined), 'governance');
+  assert.equal(resolved.searchParams.get('section'), 'audit');
+  assert.equal(isConsoleSignedOutLanding(resolved, storage), false);
 });
 
 test('E1.16 UI อ่าน realm roles จาก access token และ fail closed เมื่อ claim ผิดรูป', () => {

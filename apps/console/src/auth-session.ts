@@ -1,6 +1,7 @@
 import { InMemoryWebStorage, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
 
 const CONSOLE_RETURN_URL_KEY = 'dcontact.console.return-url';
+const CONSOLE_SIGNED_OUT_KEY = 'dcontact.console.signed-out';
 
 export interface ConsoleOidcSettingsInput {
   issuer: string;
@@ -125,6 +126,30 @@ export function consumeConsoleReturnLocation(
 ): { url: string; view: string | null } {
   const url = consumeConsoleReturnUrl(callback, storage);
   return { url, view: resolveConsoleView(new URL(url, callback.origin), defaultView) };
+}
+
+/**
+ * #677: ก่อน sign-out จำหน้าปัจจุบันและทำเครื่องหมายว่าออกจากระบบเอง — `post_logout_redirect_uri`
+ * คือ `/?tenant=<alias>` (ไม่มี view/context) จึงต้องรู้จากเครื่องหมายนี้ว่าควรแสดงหน้า "ออกจากระบบแล้ว"
+ * แทนหน้า error และเมื่อเข้าสู่ระบบอีกครั้ง callback จะพากลับหน้าเดิมด้วย URL ที่จำไว้ (#676)
+ */
+export function rememberConsoleSignOut(location: URL, storage: Storage): void {
+  rememberConsoleReturnUrl(location, storage);
+  storage.setItem(CONSOLE_SIGNED_OUT_KEY, '1');
+}
+
+export function clearConsoleSignOut(storage: Storage): void {
+  storage.removeItem(CONSOLE_SIGNED_OUT_KEY);
+}
+
+/** หน้าที่ Keycloak พากลับมาหลัง sign-out: มีเครื่องหมาย, ไม่ใช่ callback และไม่ได้ระบุหน้า (view/context) */
+export function isConsoleSignedOutLanding(location: URL, storage: Storage): boolean {
+  return (
+    storage.getItem(CONSOLE_SIGNED_OUT_KEY) === '1' &&
+    !isOidcCallback(location) &&
+    !location.searchParams.get('view') &&
+    !location.searchParams.get('context')?.trim()
+  );
 }
 
 export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): UserManagerSettings {

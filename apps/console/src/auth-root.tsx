@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { AuthProvider, useAuth, type AuthContextProps } from 'react-oidc-context';
 import { shellUserFromClaims } from '@d-contact/ui-react';
-import { SessionLocaleProvider } from '@d-contact/i18n/react';
+import { SessionLocaleProvider, useTranslation } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
 import { createEmbedOriginApi } from './dphone-embedding/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
@@ -24,9 +24,12 @@ import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.j
 import { clearRecovery } from './journey-authoring/state.js';
 import {
   accessTokenRealmRoles,
+  clearConsoleSignOut,
   consumeConsoleReturnLocation,
   createConsoleOidcSettings,
+  isConsoleSignedOutLanding,
   rememberConsoleReturnUrl,
+  rememberConsoleSignOut,
   resolveConsoleContextId,
   resolveConsoleLocation,
   resolveConsoleView,
@@ -34,8 +37,39 @@ import {
 } from './auth-session.js';
 
 function signInFromCurrentPage(auth: AuthContextProps) {
+  clearConsoleSignOut(window.sessionStorage);
   rememberConsoleReturnUrl(new URL(window.location.href), window.sessionStorage);
   return auth.signinRedirect();
+}
+
+/**
+ * #677: หน้าที่ Keycloak พากลับมาหลัง sign-out — บอกสถานะและให้เข้าสู่ระบบอีกครั้ง
+ * ไม่จำ URL ใหม่ (หน้านี้ไม่มี view) ให้ callback พากลับหน้าที่จำไว้ก่อน sign-out
+ */
+function SignedOutSurface() {
+  const auth = useAuth();
+  const { t } = useTranslation('common');
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
+    return (
+      <main className="empty">
+        <h1>{t('auth.signedOut.title')}</h1>
+      </main>
+    );
+  return (
+    <main className="empty">
+      <h1>{t('auth.signedOut.title')}</h1>
+      <p>{t('auth.signedOut.detail')}</p>
+      <button
+        className="primary"
+        onClick={() => {
+          clearConsoleSignOut(window.sessionStorage);
+          void auth.signinRedirect();
+        }}
+      >
+        {t('auth.signedOut.action')}
+      </button>
+    </main>
+  );
 }
 
 function Status({ title, detail, action }: { title: string; detail: string; action?: () => void }) {
@@ -96,6 +130,8 @@ export function ConsoleAuthRoot() {
   let contextId: string | undefined;
   // #676: บน callback ของ OIDC ใช้ URL ปลายทางที่จำไว้ เพราะ `redirect_uri` ไม่มี view/context
   const url = resolveConsoleLocation(new URL(window.location.href), window.sessionStorage);
+  // #677: กลับมาหลัง sign-out (ไม่มี view/context) — มาก่อน default view เพื่อไม่ให้ไปหน้าที่ไม่ได้เลือก
+  const signedOut = isConsoleSignedOutLanding(url, window.sessionStorage);
   // U1.4 (#432): ไม่มี view/context (เช่นกลับจาก login) → ใช้ default view ตอน build; tenant ยังมาจาก host/token
   const defaultView = import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined;
   const [view, setView] = useState(() => resolveConsoleView(url, defaultView));
@@ -111,6 +147,7 @@ export function ConsoleAuthRoot() {
   try {
     tenantAlias = resolveTenantAlias(url);
     contextId =
+      signedOut ||
       preferenceView ||
       governanceView ||
       journeyView ||
@@ -145,6 +182,7 @@ export function ConsoleAuthRoot() {
     <AuthProvider
       {...settings}
       onSigninCallback={() => {
+        clearConsoleSignOut(window.sessionStorage);
         const restored = consumeConsoleReturnLocation(
           new URL(window.location.href),
           window.sessionStorage,
@@ -155,7 +193,9 @@ export function ConsoleAuthRoot() {
       }}
     >
       <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
-        {accountView ? (
+        {signedOut ? (
+          <SignedOutSurface />
+        ) : accountView ? (
           <AccountSurface
             apiBaseUrl={apiBaseUrl}
             tenantAlias={tenantAlias}
@@ -207,7 +247,10 @@ function shellUserProps(auth: AuthContextProps, tenantAlias: string) {
   return {
     account: {
       user: shellUserFromClaims(auth.user?.profile ?? {}, tenantAlias),
-      onSignOut: () => auth.signoutRedirect(),
+      onSignOut: () => {
+        rememberConsoleSignOut(new URL(window.location.href), window.sessionStorage);
+        return auth.signoutRedirect();
+      },
     },
   };
 }
