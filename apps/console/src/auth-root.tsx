@@ -28,6 +28,7 @@ import {
   createConsoleOidcSettings,
   rememberConsoleReturnUrl,
   resolveConsoleContextId,
+  resolveConsoleLocation,
   resolveConsoleView,
   resolveTenantAlias,
 } from './auth-session.js';
@@ -93,7 +94,8 @@ export function ConsoleAuthRoot() {
   const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
   let tenantAlias: string;
   let contextId: string | undefined;
-  const url = new URL(window.location.href);
+  // #676: บน callback ของ OIDC ใช้ URL ปลายทางที่จำไว้ เพราะ `redirect_uri` ไม่มี view/context
+  const url = resolveConsoleLocation(new URL(window.location.href), window.sessionStorage);
   // U1.4 (#432): ไม่มี view/context (เช่นกลับจาก login) → ใช้ default view ตอน build; tenant ยังมาจาก host/token
   const defaultView = import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined;
   const [view, setView] = useState(() => resolveConsoleView(url, defaultView));
