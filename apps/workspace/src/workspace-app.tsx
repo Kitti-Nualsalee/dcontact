@@ -99,6 +99,7 @@ export function createDeterministicDphone(callbacks: SipJsTransportCallbacks = {
     sendDtmf: async () => undefined,
     hangup: async () => {
       session = undefined;
+      callbacks.onSessionTerminated?.();
     },
     setMuted: () => undefined,
     sessionId: () => session,
@@ -315,8 +316,10 @@ function AgentWorkspace({
       onExhausted: () => setSnapshotError('snapshotLoadFailed'),
     });
     endedCallSnapshot.current = reconciler;
+    let disposed = false;
     const phone = createDphone(remoteAudio.current, {
       onInvitation: () => {
+        if (disposed) return;
         reconciler.cancel();
         void api
           ?.snapshot()
@@ -330,6 +333,7 @@ function AgentWorkspace({
       },
       onSessionEstablished: () => setDphoneState(phone.connected()),
       onSessionTerminated: () => {
+        if (disposed) return;
         const current = phone.current();
         const interactionId = 'interactionId' in current ? current.interactionId : undefined;
         setDphoneState(phone.terminated());
@@ -344,6 +348,7 @@ function AgentWorkspace({
     });
     dphone.current = phone;
     return () => {
+      disposed = true;
       reconciler.cancel();
       endedCallSnapshot.current = undefined;
       dphone.current = undefined;
@@ -555,11 +560,16 @@ function AgentWorkspace({
 
   async function hangup() {
     if (!dphone.current) return;
-    const current = dphone.current.current();
+    const phone = dphone.current;
+    const reconciler = endedCallSnapshot.current;
+    const stillCurrent = reconciler?.checkpoint();
+    const current = phone.current();
     const interactionId = 'interactionId' in current ? current.interactionId : undefined;
-    setDphoneState(await dphone.current.hangup());
+    const nextState = await phone.hangup();
+    if (dphone.current !== phone || !stillCurrent?.()) return;
+    setDphoneState(nextState);
     setMuted(false);
-    if (interactionId) void endedCallSnapshot.current?.start(interactionId);
+    if (interactionId) void reconciler?.start(interactionId);
   }
 
   async function submitWrapup() {

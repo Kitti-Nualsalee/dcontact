@@ -20,6 +20,18 @@ function snapshot(state: 'ACTIVE' | 'WRAPUP', id = 'call-1'): AgentWorkspaceSnap
   };
 }
 
+test('checkpoint ก่อนรอ hangup ใช้ไม่ได้หลังมีสายใหม่หรือ cleanup', () => {
+  const reconciler = new EndedCallSnapshotReconciler({
+    snapshot: async () => snapshot('WRAPUP'),
+    apply: () => undefined,
+    onExhausted: () => assert.fail('ไม่ควรเริ่ม request'),
+  });
+  const stillCurrent = reconciler.checkpoint();
+  assert.equal(stillCurrent(), true);
+  reconciler.cancel();
+  assert.equal(stillCurrent(), false);
+});
+
 test('snapshot ACTIVE สองครั้งก่อน WRAPUP: ไม่แสดงผลเก่าและไม่สร้าง loop ซ้ำ', async () => {
   let requests = 0;
   const applied: AgentWorkspaceSnapshot[] = [];

@@ -79,30 +79,40 @@ const evidence = (page: Page) =>
     navigations: performance.getEntriesByType('navigation').length,
   }));
 
-test('#687: SIP จบก่อน server เปลี่ยน WRAPUP ต้องแสดงสรุปผลโดยไม่ reload', async ({ page }) => {
-  const dphone = await openWithCall(page);
-  const before = await evidence(page);
-  let snapshotsAfterHangup = 0;
-  await page.route('**/api/v1/workspace/agent/snapshot', (route) => {
-    snapshotsAfterHangup += 1;
-    return route.fulfill({
-      status: 200,
-      json: {
-        ...snapshot,
-        interaction: {
-          ...snapshot.interaction,
-          state: snapshotsAfterHangup < 3 ? 'ACTIVE' : 'WRAPUP',
-          answeredAt: '2026-09-06T10:00:10.000Z',
-          endedAt: snapshotsAfterHangup < 3 ? null : '2026-09-06T10:01:10.000Z',
+for (const ending of ['local', 'remote'] as const) {
+  test(`#687: ${ending} SIP จบก่อน server เปลี่ยน WRAPUP ต้องแสดงสรุปผลโดยไม่ reload`, async ({
+    page,
+  }) => {
+    const dphone = await openWithCall(page);
+    const before = await evidence(page);
+    let snapshotsAfterHangup = 0;
+    await page.route('**/api/v1/workspace/agent/snapshot', (route) => {
+      snapshotsAfterHangup += 1;
+      return route.fulfill({
+        status: 200,
+        json: {
+          ...snapshot,
+          interaction: {
+            ...snapshot.interaction,
+            state: snapshotsAfterHangup < 3 ? 'ACTIVE' : 'WRAPUP',
+            answeredAt: '2026-09-06T10:00:10.000Z',
+            endedAt: snapshotsAfterHangup < 3 ? null : '2026-09-06T10:01:10.000Z',
+          },
         },
-      },
+      });
     });
+    if (ending === 'local') {
+      await dphone.getByRole('button', { name: 'วางสาย' }).click();
+    } else {
+      await page
+        .locator('audio')
+        .evaluate((audio) => audio.dispatchEvent(new Event('e2e:sip-terminated')));
+    }
+    await expect(page.getByRole('heading', { name: 'สรุปผลหลังสาย' })).toBeVisible();
+    expect(snapshotsAfterHangup).toBe(3);
+    expect((await evidence(page)).timeOrigin).toBe(before.timeOrigin);
   });
-  await dphone.getByRole('button', { name: 'วางสาย' }).click();
-  await expect(page.getByRole('heading', { name: 'สรุปผลหลังสาย' })).toBeVisible();
-  expect(snapshotsAfterHangup).toBeGreaterThanOrEqual(3);
-  expect((await evidence(page)).timeOrigin).toBe(before.timeOrigin);
-});
+}
 
 test('flag เปิด: dphone ลอยแทนแผงควบคุมสาย และแผงสายเรียกเข้าเดิมไม่ซ้ำ', async ({ page }) => {
   const dphone = await openWithCall(page);

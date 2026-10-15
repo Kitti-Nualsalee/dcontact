@@ -155,6 +155,30 @@ test('active call รองรับ local mute, hold/resume, DTMF และ han
   });
 });
 
+test('#687: hangup เก่ากลับมาช้าห้ามทับ invitation ของสายใหม่', async () => {
+  let finishHangup!: () => void;
+  const softphone = new BrowserDphone(
+    transport({
+      hangup: () =>
+        new Promise((resolve) => {
+          finishHangup = resolve;
+        }),
+    }),
+  );
+  await softphone.start(lease, { ownsWorkingTab: true, mediaReady: true });
+  await softphone.receiveInvitation('call-old');
+  await softphone.accept();
+  softphone.connected();
+  const ending = softphone.hangup();
+  softphone.terminated();
+  await softphone.receiveInvitation('call-new');
+  finishHangup();
+  await ending;
+  const current = softphone.current();
+  assert.equal(current.phase, 'RINGING');
+  assert.equal('interactionId' in current && current.interactionId, 'call-new');
+});
+
 test('remote BYE จบ active Interaction เดิมและคืน softphone เป็น READY', async () => {
   const softphone = new BrowserDphone(transport());
   await softphone.start(lease, { ownsWorkingTab: true, mediaReady: true });

@@ -27,6 +27,11 @@ export class EndedCallSnapshotReconciler {
     this.active = undefined;
   }
 
+  checkpoint(): () => boolean {
+    const generation = this.generation;
+    return () => generation === this.generation;
+  }
+
   private async reconcile(interactionId: string, generation: number): Promise<void> {
     const attempts = this.options.attempts ?? 12;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
