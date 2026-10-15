@@ -23,6 +23,37 @@
       "journeys": "Journeys",
       "contactGovernance": "Governance",
       "dphoneEmbedding": "ฝัง dphone"
+    },
+    "areas": {
+      "home": "หน้าหลัก",
+      "workspace": "พื้นที่ทำงาน",
+      "supervisor": "คุมหน้างาน",
+      "outbound": "งานขาออก",
+      "journeys": "Journeys",
+      "governance": "Governance",
+      "cases": "เคส",
+      "routing": "การกระจายงาน",
+      "ai": "AI",
+      "people": "บุคลากร",
+      "wfm": "กำลังคน",
+      "qm": "คุณภาพ",
+      "analytics": "วิเคราะห์",
+      "integrations": "การเชื่อมต่อ",
+      "history": "ประวัติ",
+      "reports": "รายงาน"
+    },
+    "sections": {
+      "work": "งาน",
+      "live": "งานสด",
+      "embedding": "ฝังระบบ"
+    },
+    "pages": {
+      "contactGovernance": {
+        "overview": "ภาพรวม",
+        "exceptions": "Exceptions",
+        "policies": "Policies",
+        "audit": "Audit"
+      }
     }
   },
   "shell": {
@@ -47,6 +78,21 @@
       "sectionWork": "ตั้งค่า",
       "dphoneEmbedding": "ฝัง dphone ในระบบอื่น"
     },
-    "signOutFailed": "ออกจากระบบไม่สำเร็จ กรุณาลองอีกครั้ง"
+    "signOutFailed": "ออกจากระบบไม่สำเร็จ กรุณาลองอีกครั้ง",
+    "account": {
+      "eyebrow": "ส่วนตัว",
+      "title": "บัญชี",
+      "section": "บัญชี",
+      "mine": "บัญชีของฉัน",
+      "policy": "นโยบายบัญชี"
+    },
+    "pinned": "ปักหมุด"
+  },
+  "auth": {
+    "signedOut": {
+      "title": "ออกจากระบบแล้ว",
+      "detail": "คุณออกจากระบบ D-Contact เรียบร้อยแล้ว เข้าสู่ระบบอีกครั้งเพื่อกลับไปยังหน้าที่ใช้งานล่าสุด",
+      "action": "เข้าสู่ระบบอีกครั้ง"
+    }
   }
 }

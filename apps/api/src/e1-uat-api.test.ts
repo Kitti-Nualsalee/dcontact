@@ -47,16 +47,17 @@ test('uat-e1 mount launcher กับ E1 API เท่านั้น และ�
   assert.equal(((await blocked.json()) as { code: string }).code, 'ROUTE_NOT_AVAILABLE_IN_PROFILE');
 });
 
-test('composition root ของ uat-e1 ไม่มี Kafka, LINE หรือ delivery provider', () => {
+test('composition root ของ uat-e1 ใช้ Voice Delivery Gate แต่ไม่มี Kafka หรือ external provider', () => {
   const source = readFileSync(join(__dirname, 'e1-uat-api.ts'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
-  for (const forbidden of [
-    '@d-contact/kafka',
-    '@d-contact/delivery',
-    'line-webhook',
-    'createConsumer',
-  ]) {
+  for (const forbidden of ['@d-contact/kafka', 'line-webhook', 'createConsumer']) {
     assert.doesNotMatch(source, new RegExp(forbidden, 'i'), forbidden);
   }
+  assert.match(source, /voiceDelivery: new VoiceOriginateDeliveryService/);
+  assert.match(source, /rollout: new E1SandboxVoiceRollout\(\s*new VoiceRolloutControlPlane/);
+  assert.match(source, /enabled: environment.OUTBOUND_VOICE_DELIVERY_ENABLED === 'true'/);
+  assert.match(source, /new E1VoiceCommandPublisher/);
+  assert.match(source, /voiceCommands.flush\(registration\)/);
+  assert.doesNotMatch(source, /sip_registration_flush_required/);
 });

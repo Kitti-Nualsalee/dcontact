@@ -11,17 +11,27 @@ import type { ReactNode } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import {
   ShellFrame,
+  ShellPageNavProvider,
   SubNav,
+  areaOf,
   ToastRegion,
   toastQueue,
   useShellNavigation,
   type HostApp,
+  type ShellArea,
+  type ShellApp,
   type ShellUser,
   type UserMenuProps,
 } from '@d-contact/ui-react';
 import { useShellTokens } from './tokens.js';
 
-export type ConsoleShellApp = 'journeys' | 'contact-governance' | 'dphone-embedding';
+export type ConsoleShellApp =
+  | 'journeys'
+  | 'contact-governance'
+  | 'dphone-embedding'
+  // AC5 (#598): หน้าบัญชี — ไม่อยู่ใน app registry จึงไม่มี app ใดถูกเลือกใน rail
+  | 'account'
+  | 'account-policy';
 
 export function hostOrigins(): Partial<Record<HostApp, string>> {
   const env = import.meta.env as Record<string, string | undefined>;
@@ -33,6 +43,73 @@ export function hostOrigins(): Partial<Record<HostApp, string>> {
   };
 }
 
+/**
+ * #651: เมนูย่อยของพื้นที่ — ส่วน "ปักหมุด" (ถ้ามี) อยู่บนสุด ตามด้วยกลุ่มย่อยของพื้นที่ตามลำดับที่ server ส่ง
+ * ไอคอนของรายการ = id ของแอป (ShellIcon ใช้ไอคอน fallback เมื่อไม่รู้จัก)
+ */
+export function areaSections(
+  area: ShellArea,
+  apps: readonly ShellApp[],
+  pinnedIds: readonly string[],
+  pinnedLabel: string,
+  /** #658: เลือกหน้าย่อยของแอปที่กำลังเปิดโดยไม่โหลดหน้าใหม่ */
+  page?: { appId: string; onSelect: (pageId: string) => void },
+) {
+  const item = (app: {
+    id: string;
+    pageId?: string;
+    label: string;
+    href: string;
+    external: boolean;
+  }) => ({
+    // หน้าย่อยใช้ id เฉพาะ (`<appId>:<pageId>`) ให้ไฮไลต์ทีละหน้า; ไอคอนยังเป็นของแอป
+    id: app.pageId ? subNavItemId(app.id, app.pageId) : app.id,
+    label: app.label,
+    href: app.href,
+    icon: app.id,
+    external: app.external,
+    ...(page && app.pageId && app.id === page.appId
+      ? { onSelect: () => page.onSelect(app.pageId!) }
+      : {}),
+  });
+  // หมุดที่อยู่ในพื้นที่นี้อยู่แล้วไม่ซ้ำในส่วนปักหมุด
+  const inArea = new Set(area.sections.flatMap((section) => section.items.map((i) => i.id)));
+  const pinned = pinnedIds.flatMap((id) => {
+    if (inArea.has(id)) return [];
+    const app = apps.find((candidate) => candidate.id === id);
+    return app ? [item(app)] : [];
+  });
+  return [
+    ...(pinned.length > 0 ? [{ id: 'pinned', label: pinnedLabel, items: pinned }] : []),
+    ...area.sections.map((section) => ({
+      id: section.id,
+      label: section.label,
+      items: section.items.map(item),
+    })),
+  ];
+}
+
+/** id ของรายการหน้าย่อยในเมนูย่อย — ใช้เป็น `currentItemId` */
+export function subNavItemId(appId: string, pageId: string) {
+  return `${appId}:${pageId}`;
+}
+
+function legacySubNav(app: ShellApp | undefined) {
+  if (!app) return undefined;
+  return (
+    <SubNav
+      title={app.label}
+      currentItemId={app.id}
+      sections={[
+        {
+          id: 'work',
+          items: [{ id: app.id, label: app.label, href: app.href, icon: app.id }],
+        },
+      ]}
+    />
+  );
+}
+
 export interface ConsoleShellProps {
   apiBaseUrl: string;
   accessToken: () => string | undefined;
@@ -40,6 +117,12 @@ export interface ConsoleShellProps {
   appId: ConsoleShellApp;
   /** #588: เมนูผู้ใช้บนแถบบน (ชื่อ, organization, บทบาท และออกจากระบบ) */
   account?: { user: ShellUser; onSignOut: () => Promise<void> };
+  /**
+   * #658: หน้าย่อยที่เปิดอยู่ของแอป (เมื่อ server ส่ง `pages`) และตัวเปลี่ยนหน้าแบบไม่โหลดใหม่ —
+   * เนื้อหาหน้าเป็นเจ้าของสถานะหน้า shell แค่วาดเมนู
+   */
+  pageId?: string;
+  onPageSelect?: (pageId: string) => void;
   children: ReactNode;
 }
 
@@ -49,6 +132,8 @@ export function ConsoleShell({
   tenantAlias,
   appId,
   account,
+  pageId,
+  onPageSelect,
   children,
 }: ConsoleShellProps) {
   const { t } = useTranslation();
@@ -89,74 +174,75 @@ export function ConsoleShell({
     onSignOut,
   }: NonNullable<ConsoleShellProps['account']>): UserMenuProps => ({
     user,
+    // AC5 (#598): หน้าบัญชีของ Console เปิดในแท็บเดิม
+    accountLink: { href: withTenant('/?view=account') },
     onSignOut: () =>
       onSignOut().catch(() => {
         toastQueue.add({ title: t('shell.signOutFailed'), tone: 'attention' }, { timeout: 6000 });
       }),
   });
   const journeysVisible = nav.apps.some((app) => app.id === 'journeys');
-  const subNav =
-    appId === 'dphone-embedding' ? (
-      <SubNav
-        eyebrow={t('navigation.groups.settings')}
-        title={t('navigation.apps.dphoneEmbedding')}
-        currentItemId="origins"
-        sections={[
-          {
-            id: 'settings',
-            label: t('shell.integrations.sectionWork'),
-            items: [
-              {
-                id: 'origins',
-                label: t('shell.integrations.dphoneEmbedding'),
-                href: withTenant('/?view=dphone-embedding'),
-                icon: 'settings',
-              },
-            ],
-          },
-        ]}
-      />
-    ) : appId === 'journeys' ? (
-      <SubNav
-        eyebrow={t('navigation.groups.automation')}
-        title={t('navigation.apps.journeys')}
-        currentItemId="list"
-        sections={[
-          {
-            id: 'work',
-            label: t('shell.journeys.sectionWork'),
-            items: [
-              {
-                id: 'list',
-                label: t('shell.journeys.list'),
-                href: withTenant('/?view=journeys'),
-                icon: 'journeys',
-              },
-            ],
-          },
-        ]}
-      />
-    ) : (
-      <SubNav
-        eyebrow={t('navigation.groups.quality')}
-        title={t('navigation.apps.contactGovernance')}
-        currentItemId="overview"
-        sections={[
-          {
-            id: 'work',
-            label: t('shell.governance.sectionWork'),
-            items: [
-              {
-                id: 'overview',
-                label: t('shell.governance.overview'),
-                href: withTenant('/?view=governance'),
-                icon: 'contact-governance',
-              },
-            ],
-          },
-        ]}
-      />
-    );
+  const isAdmin = account?.user.roles.includes('admin') ?? false;
+  const accountPage = appId === 'account' || appId === 'account-policy';
+  const area = accountPage ? undefined : nav.areas.find((a) => a.id === areaOf(nav.areas, appId));
+  // #658: เมนูย่อยมีหน้าย่อยของแอปนี้ → เนื้อหาไม่ต้องวาดแท็บเอง
+  const hasPages =
+    area?.sections.some((section) =>
+      section.items.some((entry) => entry.id === appId && entry.pageId !== undefined),
+    ) ?? false;
+  const pageLabel = hasPages
+    ? area?.sections
+        .flatMap((section) => section.items)
+        .find((entry) => entry.id === appId && entry.pageId === pageId)?.label
+    : undefined;
+  const subNav = accountPage ? (
+    <SubNav
+      eyebrow={t('shell.account.eyebrow')}
+      title={t('shell.account.title')}
+      currentItemId={appId}
+      sections={[
+        {
+          id: 'account',
+          label: t('shell.account.section'),
+          items: [
+            {
+              id: 'account',
+              label: t('shell.account.mine'),
+              href: withTenant('/?view=account'),
+              icon: 'settings',
+            },
+            // role ใช้แค่ซ่อนลิงก์ — API ตรวจ admin ทุก request
+            ...(isAdmin
+              ? [
+                  {
+                    id: 'account-policy',
+                    label: t('shell.account.policy'),
+                    href: withTenant('/?view=account-policy'),
+                    icon: 'settings' as const,
+                  },
+                ]
+              : []),
+          ],
+        },
+      ]}
+    />
+  ) : area ? (
+    // #651: เมนูย่อยคำนวณจากพื้นที่ที่ server ส่งมา — เพิ่มหน้าใหม่ไม่ต้องแก้ไฟล์นี้
+    <SubNav
+      title={area.label}
+      currentItemId={hasPages && pageId ? subNavItemId(appId, pageId) : appId}
+      sections={areaSections(
+        area,
+        nav.apps,
+        nav.pinnedIds,
+        t('shell.pinned'),
+        hasPages && onPageSelect ? { appId, onSelect: onPageSelect } : undefined,
+      )}
+    />
+  ) : (
+    // API รุ่นเก่าที่ยังไม่ส่ง `areas` (rollback ของ API ภายใต้ Console ใหม่): เมนูย่อยรายการเดียวของแอปนี้
+    legacySubNav(nav.apps.find((app) => app.id === appId))
+  );
 
   return (
     <>
@@ -167,6 +253,7 @@ export function ConsoleShell({
         maxPins={nav.maxPins}
         onTogglePin={nav.togglePin}
         currentAppId={appId}
+        areas={nav.areas}
         brand={
           <>
             <img src="/d-contact-icon-64.png" alt="" width={24} height={24} />
@@ -174,11 +261,20 @@ export function ConsoleShell({
           </>
         }
         breadcrumb={
-          appId === 'journeys'
-            ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
-            : appId === 'dphone-embedding'
-              ? [t('navigation.groups.settings'), t('navigation.apps.dphoneEmbedding')]
-              : [t('navigation.groups.quality'), t('navigation.apps.contactGovernance')]
+          appId === 'account' || appId === 'account-policy'
+            ? [
+                t('shell.account.title'),
+                t(appId === 'account' ? 'shell.account.mine' : 'shell.account.policy'),
+              ]
+            : appId === 'journeys'
+              ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
+              : appId === 'dphone-embedding'
+                ? [t('navigation.groups.settings'), t('navigation.apps.dphoneEmbedding')]
+                : [
+                    t('navigation.groups.quality'),
+                    t('navigation.apps.contactGovernance'),
+                    ...(pageLabel ? [pageLabel] : []),
+                  ]
         }
         language={locale}
         onLanguageChange={(next) => {
@@ -204,7 +300,7 @@ export function ConsoleShell({
             : []
         }
       >
-        {children}
+        <ShellPageNavProvider value={hasPages}>{children}</ShellPageNavProvider>
       </ShellFrame>
       <ToastRegion />
     </>

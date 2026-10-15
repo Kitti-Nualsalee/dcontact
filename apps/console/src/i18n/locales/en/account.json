@@ -1,0 +1,131 @@
+{
+  "page": {
+    "title": "My account",
+    "policyTitle": "Account policy",
+    "loading": "Loading your account",
+    "loadFailed": "Couldn't load your account",
+    "retry": "Try again"
+  },
+  "actions": {
+    "cancel": "Cancel"
+  },
+  "nav": {
+    "section": "Account",
+    "account": "My account",
+    "policy": "Account policy"
+  },
+  "profile": {
+    "heading": "Personal details",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "save": "Save name",
+    "saved": "Name saved"
+  },
+  "email": {
+    "heading": "Email",
+    "current": "Current email",
+    "newEmail": "New email",
+    "change": "Change email",
+    "verifyHint": "We'll send a confirmation link to the new address. Your email changes after you confirm it.",
+    "immediateHint": "Your email changes as soon as you save.",
+    "adminOnly": "Your organization lets only administrators change email addresses.",
+    "pending": "Waiting for confirmation of {{email}} — open the link sent to that address to confirm.",
+    "cancelPending": "Cancel request",
+    "cancelled": "Email change request cancelled",
+    "sent": "Confirmation link sent to {{email}}",
+    "changed": "Email changed to {{email}}",
+    "confirming": "Confirming your new email",
+    "confirmed": "New email confirmed: {{email}}"
+  },
+  "password": {
+    "heading": "Password",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password",
+    "hint": "You don't need your current password. We'll email you every time your password changes.",
+    "change": "Change password",
+    "changed": "Password changed",
+    "mismatch": "The passwords don't match",
+    "rulesTitle": "The password doesn't meet your organization's rules:",
+    "rules": {
+      "minLength": "At least {{value}} characters",
+      "maxLength": "At most {{value}} characters",
+      "digits": "At least {{value}} digits",
+      "lowerCase": "At least {{value}} lowercase letters",
+      "upperCase": "At least {{value}} uppercase letters",
+      "specialChars": "At least {{value}} special characters",
+      "notUsername": "Must not match your username",
+      "notEmail": "Must not match your email",
+      "pattern": "Must match your organization's required format",
+      "history": "Must not reuse a recent password",
+      "blacklisted": "This password is too easy to guess",
+      "other": "Doesn't meet your organization's password rules"
+    }
+  },
+  "mfa": {
+    "heading": "Two-factor authentication (2FA)",
+    "required": "Your organization requires 2FA",
+    "notEnrolled": "2FA isn't set up yet",
+    "devices": "Registered devices",
+    "device": "{{label}}",
+    "addedAt": "Added {{date}}",
+    "add": "Add device",
+    "remove": "Remove device {{label}}",
+    "removed": "Device removed",
+    "lastDeviceHint": "You can't remove your last device while your organization requires 2FA — add a new device first, then remove the old one.",
+    "removeTitle": "Remove {{label}}?",
+    "removeDescription": "Codes from this device will no longer work for signing in.",
+    "removeConfirm": "Remove device",
+    "enrolTitle": "Add a 2FA device",
+    "enrolStep1": "Scan the QR code with an authenticator app (such as Google Authenticator or Microsoft Authenticator)",
+    "qrLabel": "QR code for adding your D-Contact account to an authenticator app",
+    "manualKey": "Or type this key in the app",
+    "copy": "Copy key",
+    "copied": "Copied",
+    "enrolStep2": "Enter the 6-digit code from the app and name the device",
+    "code": "6-digit code",
+    "label": "Device name",
+    "labelPlaceholder": "e.g. My phone",
+    "confirm": "Verify and add device",
+    "enrolled": "2FA device added",
+    "expiresAt": "This code is valid until {{time}}"
+  },
+  "policy": {
+    "intro": "This policy applies to everyone in your organization. Requiring 2FA takes effect at the next sign-in; people already signed in stay signed in.",
+    "emailChange": "Email changes by users",
+    "emailOptions": {
+      "VERIFY": "Require confirming the new email (recommended)",
+      "IMMEDIATE": "Change immediately",
+      "ADMIN_ONLY": "Administrators only"
+    },
+    "mfaRequired": "Require 2FA for everyone",
+    "mfaHint": "People without 2FA must set it up before their next sign-in.",
+    "reason": "Reason for the change",
+    "reasonHint": "3–500 characters, kept in the change history",
+    "save": "Save policy",
+    "saved": "Policy saved",
+    "unchanged": "Nothing changed",
+    "lastUpdated": "Last updated {{date}}",
+    "neverUpdated": "Using defaults (never changed)",
+    "adminOnly": "Only your organization's administrators can view and change the account policy."
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "unavailable": "The account service is temporarily unavailable. Please try again later.",
+    "forbidden": "You don't have permission to do this.",
+    "invalid": "Some details aren't valid. Please check and try again.",
+    "passwordPolicy": "The password doesn't meet your organization's rules",
+    "emailInUse": "This email is already used by another account",
+    "emailChangeNotAllowed": "Your organization doesn't let users change their own email",
+    "emailChangeExpired": "This confirmation link has expired or was already used. Please request the change again.",
+    "sameEmail": "The new email must be different from your current email",
+    "invalidOtp": "That code isn't right. Check the time on your phone and try again.",
+    "enrolmentExpired": "This QR code has expired. Please start adding the device again.",
+    "lastDevice": "You can't remove your last device while your organization requires 2FA",
+    "deviceNotFound": "That device wasn't found. It may already have been removed.",
+    "rateLimited": "Too many attempts. Please wait a moment and try again.",
+    "labelInUse": "A device with this name already exists. Please choose another name.",
+    "revisionConflict": "Another administrator changed the policy first — the latest values are loaded. Please review them again.",
+    "required": "This field is required",
+    "reasonLength": "The reason must be 3–500 characters"
+  }
+}

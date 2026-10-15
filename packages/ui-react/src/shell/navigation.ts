@@ -7,13 +7,24 @@
  *   เพราะ Workspace ที่ถูก remount จะตัดสายและ WS (ADR-026); เรียกไม่สำเร็จ = shell เดิม (fail-safe)
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ShellApp, ShellGroup } from './types.js';
+import type { ShellApp, ShellArea, ShellGroup } from './types.js';
 
 export type HostApp = 'console' | 'workspace';
 
 export interface NavigationResponseV1 {
   groups: { id: string; labelKey: string }[];
   apps: { id: string; groupId: string; labelKey: string; hostApp: HostApp; path: string }[];
+  /** #651: พื้นที่งานบน rail + เมนูย่อย — API รุ่นเก่าไม่ส่ง (rail กลับไปแสดงหมุดแอปแบบเดิม) */
+  areas?: {
+    id: string;
+    labelKey: string;
+    sections: {
+      id: string;
+      labelKey: string;
+      /** #658: `pages` = หน้าย่อยของแอป (แท็บเดิมในหน้า) — ไม่ส่ง = รายการเดียวของแอป */
+      items: { appId: string; pages?: { id: string; labelKey: string; path: string }[] }[];
+    }[];
+  }[];
   pins: { appIds: string[]; source: 'USER' | 'TENANT' | 'SYSTEM'; revision: number };
   limits: { maxPins: number };
   features: { shellV2: boolean };
@@ -54,34 +65,103 @@ export function toShellModel(
     tenantAlias?: string;
     translate: (key: string) => string;
   },
-): { apps: ShellApp[]; groups: ShellGroup[] } {
+): { apps: ShellApp[]; groups: ShellGroup[]; areas: ShellArea[] } {
+  // แอปที่ไม่รู้ origin (ไม่ได้ตั้งค่า deployment) ถูกตัดออกจาก shell แทนการเดา URL
+  const apps = response.apps.flatMap((app) => {
+    const href = buildAppHref({
+      hostApp: app.hostApp,
+      path: app.path,
+      currentHost: options.currentHost,
+      hostOrigins: options.hostOrigins,
+      tenantAlias: options.tenantAlias,
+    });
+    return href === null
+      ? []
+      : [
+          {
+            id: app.id,
+            groupId: app.groupId,
+            label: options.translate(app.labelKey),
+            external: app.hostApp !== options.currentHost,
+            href,
+          },
+        ];
+  });
   return {
+    apps,
     groups: response.groups.map((group) => ({
       id: group.id,
       label: options.translate(group.labelKey),
     })),
-    // แอปที่ไม่รู้ origin (ไม่ได้ตั้งค่า deployment) ถูกตัดออกจาก shell แทนการสร้างลิงก์ที่ผิด
-    apps: response.apps.flatMap((app) => {
-      const href = buildAppHref({
-        hostApp: app.hostApp,
-        path: app.path,
-        currentHost: options.currentHost,
-        hostOrigins: options.hostOrigins,
-        tenantAlias: options.tenantAlias,
-      });
-      return href === null
-        ? []
-        : [
-            {
-              id: app.id,
-              groupId: app.groupId,
-              label: options.translate(app.labelKey),
-              external: app.hostApp !== options.currentHost,
-              href,
-            },
-          ];
-    }),
+    areas: toShellAreas(response, apps, options),
   };
+}
+
+/**
+ * #651: พื้นที่/เมนูย่อยจาก server — รายการที่ไม่รู้ origin (ไม่อยู่ใน `apps`) ถูกตัดออก แล้วกลุ่มย่อยหรือพื้นที่ที่ว่างตามไปด้วย
+ * (rail ไม่มีปุ่มที่กดแล้วไปไหนไม่ได้); `href` ของพื้นที่ = รายการแรกที่เหลือ
+ */
+function toShellAreas(
+  response: NavigationResponseV1,
+  apps: readonly ShellApp[],
+  options: {
+    currentHost: HostApp;
+    hostOrigins: Partial<Record<HostApp, string>>;
+    tenantAlias?: string;
+    translate: (key: string) => string;
+  },
+): ShellArea[] {
+  const { translate } = options;
+  const byId = new Map(apps.map((app) => [app.id, app]));
+  const hostOf = new Map(response.apps.map((app) => [app.id, app.hostApp]));
+  return (response.areas ?? []).flatMap((area) => {
+    const sections = area.sections.flatMap((section) => {
+      const items = section.items.flatMap((item) => {
+        const app = byId.get(item.appId);
+        const hostApp = hostOf.get(item.appId);
+        if (!app || !hostApp) return [];
+        // #658: หน้าย่อยแต่ละหน้าเป็นรายการของตัวเอง; หน้าที่ประกอบ href ไม่ได้ถูกตัด (เหมือนแอปที่ไม่รู้ origin)
+        if (item.pages && item.pages.length > 0) {
+          return item.pages.flatMap((page) => {
+            const href = buildAppHref({
+              hostApp,
+              path: page.path,
+              currentHost: options.currentHost,
+              hostOrigins: options.hostOrigins,
+              tenantAlias: options.tenantAlias,
+            });
+            return href === null
+              ? []
+              : [
+                  {
+                    id: app.id,
+                    pageId: page.id,
+                    label: translate(page.labelKey),
+                    href,
+                    external: app.external,
+                  },
+                ];
+          });
+        }
+        return [{ id: app.id, label: app.label, href: app.href, external: app.external }];
+      });
+      return items.length > 0
+        ? [{ id: section.id, label: translate(section.labelKey), items }]
+        : [];
+    });
+    const first = sections[0]?.items[0];
+    return first
+      ? [
+          {
+            id: area.id,
+            label: translate(area.labelKey),
+            href: first.href,
+            external: first.external,
+            sections,
+          },
+        ]
+      : [];
+  });
 }
 
 export interface ShellNavigationOptions {
@@ -104,6 +184,8 @@ export type ShellNavigationState =
       status: 'ready';
       apps: ShellApp[];
       groups: ShellGroup[];
+      /** #651: พื้นที่งานบน rail; ว่าง = API รุ่นเก่า → rail ใช้หมุดแอปเดิม */
+      areas: ShellArea[];
       pinnedIds: string[];
       maxPins: number;
       togglePin: (appId: string) => void;
@@ -232,12 +314,13 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
 
   if (decision === 'pending') return { status: 'loading' };
   if (decision === 'legacy' || !response) return { status: 'legacy' };
-  const { apps, groups } = toShellModel(response, options);
+  const { apps, groups, areas } = toShellModel(response, options);
   const visible = new Set(apps.map((app) => app.id));
   return {
     status: 'ready',
     apps,
     groups,
+    areas,
     pinnedIds: response.pins.appIds.filter((id) => visible.has(id)),
     maxPins: response.limits.maxPins,
     togglePin,

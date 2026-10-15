@@ -1,11 +1,25 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  PLATFORM_AMR_MAX_AGE_SECONDS,
   UAT_FILES,
   buildDeploymentRecord,
   checkApiEnvironment,
@@ -23,6 +37,7 @@ import {
   checkLineOverlay,
   checkLineTrialOverlay,
   checkNoStartDev,
+  checkPlatformOverlayBrowserFlow,
   checkProxy,
   checkRealm,
   checkSmokeWorkflow,
@@ -61,6 +76,104 @@ const caddyfileLine = read(UAT_FILES.caddyfileLine);
 const lineEgressConfig = read(UAT_FILES.lineEgressConfig);
 const lineSecretsScript = read(UAT_FILES.lineSecretsScript);
 const composeLineTrial = read(UAT_FILES.composeLineTrial);
+
+function restrictedReleaseFixture(context) {
+  const root = mkdtempSync(resolve(tmpdir(), 'uat-mount-permissions-'));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const sourceSha = 'a'.repeat(40);
+  const releaseDir = resolve(root, 'releases', sourceSha);
+  cpSync(resolve(repositoryRoot, 'infra/uat'), releaseDir, { recursive: true });
+  const secret = resolve(root, 'uat.env');
+  writeFileSync(secret, 'UAT_HOST=uat.example.invalid\n', { mode: 0o600 });
+  const image = `ghcr.io/example/fixture@sha256:${'b'.repeat(64)}`;
+  writeFileSync(
+    resolve(releaseDir, 'release.env'),
+    `SOURCE_SHA=${sourceSha}\nAPI_IMAGE=${image}\nCONSOLE_IMAGE=${image}\nOPS_IMAGE=${image}\nKEYCLOAK_IMAGE=${image}\n`,
+    { mode: 0o600 },
+  );
+  mkdirSync(resolve(root, 'bin'), { recursive: true });
+  writeFileSync(resolve(root, 'bin/docker-compose'), '#!/usr/bin/env bash\nexit 0\n', {
+    mode: 0o700,
+  });
+  writeFileSync(resolve(root, 'e1-acceptance.enabled'), '', { mode: 0o600 });
+  const templates = [
+    'Caddyfile.3vm',
+    'Caddyfile.3vm.e1',
+    'haproxy-db-relay.cfg',
+    'e1-freeswitch/conf/autoload_configs/event_socket.conf.xml',
+    'e1-freeswitch/conf/autoload_configs/xml_curl.conf.xml',
+    'e1-freeswitch/conf/sip_profiles/internal.xml',
+  ];
+  for (const name of templates) chmodSync(resolve(releaseDir, name), 0o600);
+  for (const name of [
+    'e1-freeswitch',
+    'e1-freeswitch/conf',
+    'e1-freeswitch/conf/autoload_configs',
+    'e1-freeswitch/conf/sip_profiles',
+  ])
+    chmodSync(resolve(releaseDir, name), 0o700);
+  return {
+    secret,
+    releaseDir,
+    templates,
+    prepare: () =>
+      spawnSync('bash', [resolve(repositoryRoot, UAT_FILES.deployScript), 'prepare', sourceSha], {
+        env: { ...process.env, UAT_ROOT: root },
+        encoding: 'utf8',
+      }),
+  };
+}
+
+test('prepare คืน permission ของ mount templates หลัง staging umask 077 โดยไม่เปิด secret', (context) => {
+  const fixture = restrictedReleaseFixture(context);
+  const result = fixture.prepare();
+  assert.equal(result.status, 0, result.stderr);
+  for (const name of fixture.templates)
+    assert.ok(
+      statSync(resolve(fixture.releaseDir, name)).mode & 0o004,
+      `${name} ต้องอ่านได้โดย container non-root`,
+    );
+  for (const name of [
+    'e1-freeswitch',
+    'e1-freeswitch/conf',
+    'e1-freeswitch/conf/autoload_configs',
+    'e1-freeswitch/conf/sip_profiles',
+  ])
+    assert.ok(
+      statSync(resolve(fixture.releaseDir, name)).mode & 0o001,
+      `${name} ต้อง traverse ได้โดย container non-root`,
+    );
+  assert.equal(statSync(fixture.secret).mode & 0o777, 0o600);
+  assert.equal(statSync(resolve(fixture.releaseDir, 'release.env')).mode & 0o777, 0o600);
+});
+
+test('prepare ไม่เปิด permission ของ FreeSWITCH config ที่ render secret ลง source แล้ว', (context) => {
+  const fixture = restrictedReleaseFixture(context);
+  const source = resolve(
+    fixture.releaseDir,
+    'e1-freeswitch/conf/autoload_configs/event_socket.conf.xml',
+  );
+  writeFileSync(
+    source,
+    readFileSync(source, 'utf8').replace('__E1_ESL_PASSWORD__', 'fixture-rendered-value'),
+  );
+  const result = fixture.prepare();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /E1_SOURCE_TEMPLATE_RENDERED/);
+  assert.equal(statSync(source).mode & 0o777, 0o600);
+  assert.equal(statSync(fixture.secret).mode & 0o777, 0o600);
+});
+
+test('prepare ปฏิเสธ mount template ที่เป็น symlink โดยไม่เปลี่ยน permission ของ secret ปลายทาง', (context) => {
+  const fixture = restrictedReleaseFixture(context);
+  const source = resolve(fixture.releaseDir, 'Caddyfile.3vm');
+  unlinkSync(source);
+  symlinkSync(fixture.secret, source);
+  const result = fixture.prepare();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /MOUNT_SOURCE_TEMPLATE_INVALID/);
+  assert.equal(statSync(fixture.secret).mode & 0o777, 0o600);
+});
 
 /** แทรก block ใต้ `services:` ของ compose จริง */
 function withService(block) {
@@ -335,7 +448,39 @@ test('UAT-S08: realm ที่มี user, secret, OTP ไม่บังคั�
     mutate((r) => (r.sslRequired = 'none')),
     'SSL_NOT_REQUIRED',
   );
+  // #645: session ยาวเกิน max age ของ AMR ใน platform-console หรือ idle > max ไม่ผ่าน
+  failed(
+    mutate((r) => (r.ssoSessionMaxLifespan = PLATFORM_AMR_MAX_AGE_SECONDS + 1)),
+    'SSO_SESSION_OUT_OF_BOUNDS',
+  );
+  failed(
+    mutate((r) => (r.ssoSessionIdleTimeout = r.ssoSessionMaxLifespan + 1)),
+    'SSO_SESSION_OUT_OF_BOUNDS',
+  );
+  failed(
+    mutate((r) => delete r.ssoSessionIdleTimeout),
+    'SSO_SESSION_OUT_OF_BOUNDS',
+  );
   failed(checkRealm('{not json'), 'INVALID_JSON');
+});
+
+test('UAT-S24 (#645): account setup ของ Platform overlay ที่ผูก browser flow ของ realm ทับไม่ผ่าน', () => {
+  const overlay = read(UAT_FILES.composePlatform3vm);
+  assert.equal(checkPlatformOverlayBrowserFlow(overlay).status, 'PASS');
+  failed(
+    checkPlatformOverlayBrowserFlow(
+      overlay.replace(
+        'platform-uat-create-operator.mjs && node scripts/keycloak-account-service-setup.mjs --keep-realm-browser-flow',
+        'platform-uat-create-operator.mjs && node scripts/keycloak-account-service-setup.mjs',
+      ),
+    ),
+    'REALM_BROWSER_FLOW_REBOUND',
+  );
+  failed(
+    checkPlatformOverlayBrowserFlow(overlay.replaceAll('keycloak-account-service-setup', 'x')),
+    'NO_ACCOUNT_SETUP',
+  );
+  failed(checkPlatformOverlayBrowserFlow(null), 'MISSING_ARTIFACT');
 });
 
 test('UAT-S09: env ของ api ที่ขัดกับ profile uat ไม่ผ่าน', () => {
@@ -594,6 +739,20 @@ test('E1.16: UAT เปิด/ปิด dphone embed ผ่าน audited platfo
   );
 });
 
+test('E1 acceptance: bootstrap asset ใช้ release SHA และ revalidate แทน heuristic cache', () => {
+  const overlay = readFileSync('infra/uat/docker-compose.uat.e1.yml', 'utf8');
+  const caddy = readFileSync('infra/uat/Caddyfile.3vm.e1', 'utf8');
+  assert.equal(
+    parseComposeServices(overlay).api.environment.DPHONE_EMBED_SCRIPT_URL,
+    'https://${UAT_HOST:?UAT_HOST is required}/workspace/embed/dphone-embed.js?release=${SOURCE_SHA:?SOURCE_SHA is required}',
+  );
+  assert.match(
+    caddy,
+    /@embedBootstrapAssets path \/workspace\/embed\/dphone-embed\.js \/workspace\/embed\/dphone-embed\.css/,
+  );
+  assert.match(caddy, /header @embedBootstrapAssets Cache-Control "no-cache"/);
+});
+
 test('E1.16: UAT image มี embed assets, host อ้างอิง และ route ของ dphone ครบ', () => {
   assert.match(consoleDockerfile, /pnpm --filter @d-contact\/workspace build/);
   assert.match(
@@ -615,17 +774,125 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
     /DPHONE_EMBED_SCRIPT_URL: https:\/\/\$\{UAT_HOST:[^}]+\}\/workspace\/embed\/dphone-embed\.js/,
   );
   const e1Overlay = readFileSync('infra/uat/docker-compose.uat.e1.yml', 'utf8');
+  const caddyE1 = readFileSync('infra/uat/Caddyfile.3vm.e1', 'utf8');
   assert.match(e1Overlay, /command: \['node', 'dist\/e1-uat-main\.js'\]/);
   assert.match(e1Overlay, /DCONTACT_API_PROFILE: uat-e1/);
+  assert.match(
+    e1Overlay,
+    /FREESWITCH_DIRECTORY_PASSWORD: \$\{UAT_E1_FREESWITCH_DIRECTORY_PASSWORD:/,
+  );
+  assert.match(e1Overlay, /SIP_BROWSER_NODES_JSON:/);
+  assert.match(e1Overlay, /wss:\/\/\$\{UAT_HOST:[^}]+\}\/sip-ws/);
+  assert.match(e1Overlay, /FREESWITCH_ESL_PASSWORD: \$\{UAT_E1_FREESWITCH_ESL_PASSWORD:/);
+  const e1Services = parseComposeServices(e1Overlay);
+  assert.deepEqual(e1Services['e1-sandbox'].ports, []);
+  assert.match(
+    e1Services['e1-sandbox'].environment.E1_VOICE_COMMAND_SECRET,
+    /^\$\{UAT_E1_VOICE_COMMAND_SECRET:/,
+  );
+  assert.equal(
+    e1Services['e1-sandbox'].environment.OUTBOUND_VOICE_DELIVERY_ENABLED,
+    '${UAT_E1_OUTBOUND_VOICE_ENABLED:-false}',
+  );
+  assert.equal(
+    e1Services.api.environment.OUTBOUND_VOICE_DELIVERY_ENABLED,
+    '${UAT_E1_OUTBOUND_VOICE_ENABLED:-false}',
+  );
+  assert.equal(e1Services.api.environment.FREESWITCH_ESL_PASSWORD, undefined);
+  assert.doesNotMatch(caddyE1, /3001|\/commands/);
+  assert.equal(
+    e1Services.freeswitch.image,
+    'docker.io/safarov/freeswitch@sha256:b31c743f4c911a19687c61e3214968f2a24f93f9d3d667cc26284192e158ffc6',
+  );
+  assert.deepEqual(e1Services.freeswitch.ports, ['192.168.102.112:16384-16420:16384-16420/udp']);
+  assert.match(e1Services.freeswitch.raw.join('\n'), /\.\/e1-freeswitch:\/e1-freeswitch:ro/);
+  assert.match(e1Services.freeswitch.raw.join('\n'), /cap_add:\s+- SYS_NICE/);
+  assert.match(
+    e1Services.freeswitch.raw.join('\n'),
+    /E1_DIRECTORY_PASSWORD: \$\{UAT_E1_FREESWITCH_DIRECTORY_PASSWORD:/,
+  );
+  assert.match(
+    e1Services.freeswitch.raw.join('\n'),
+    /E1_ESL_PASSWORD: \$\{UAT_E1_FREESWITCH_ESL_PASSWORD:/,
+  );
+  assert.match(e1Services.freeswitch.raw.join('\n'), /\/var\/lib\/freeswitch:mode=0777/);
+  assert.match(e1Services.freeswitch.raw.join('\n'), /fs_cli -p "\$\$E1_ESL_PASSWORD" -x status/);
+  const e1Entrypoint = read('infra/uat/e1-freeswitch/entrypoint.sh');
+  const e1SofiaProfile = read('infra/uat/e1-freeswitch/conf/sip_profiles/internal.xml');
+  assert.match(e1Entrypoint, /E1_DIRECTORY_PASSWORD/);
+  assert.match(e1Entrypoint, /E1_ESL_PASSWORD/);
+  assert.match(e1Entrypoint, /exec \/docker-entrypoint\.sh/);
+  assert.doesNotMatch(e1Entrypoint, /ClueCon|dcontact-xml-curl-dev-only/);
+  assert.match(e1SofiaProfile, /force-register-domain" value="\$\$\{domain\}"/);
+  assert.match(e1SofiaProfile, /force-subscription-domain" value="\$\$\{domain\}"/);
+  assert.match(e1SofiaProfile, /force-register-db-domain" value="\$\$\{domain\}"/);
+  assert.match(e1SofiaProfile, /wss-binding" value=":7443"/);
+  assert.match(e1SofiaProfile, /tls-cert-dir" value="\/etc\/freeswitch\/tls"/);
+  assert.match(e1Overlay, /\.\/Caddyfile\.3vm\.e1:\/etc\/caddy\/Caddyfile:ro/);
+  assert.match(
+    caddyE1,
+    /handle \/sip-ws \{\s+reverse_proxy https:\/\/freeswitch:7443 \{\s+# SIP response ต้องส่งทันที ไม่รวม buffer ระหว่าง WebSocket tunnel\s+flush_interval -1\s+transport http \{\s+tls_insecure_skip_verify/,
+  );
+  assert.doesNotMatch(caddyfile3vm, /\/sip-ws/);
   assert.match(apiDockerfile, /test -f \/out\/api\/dist\/e1-uat-main\.js/);
+  assert.match(
+    apiDockerfile,
+    /COPY scripts\/u1-uat-keycloak-users\.mjs scripts\/keycloak-dphone-embedded-setup\.mjs/,
+  );
+  const keycloakConfig = parseComposeServices(compose)['keycloak-config'];
+  assert.equal(keycloakConfig.environment.DPHONE_EMBED_TEMPLATE_CLIENT, 'dcontact-uat-console');
+  assert.match(keycloakConfig.environment.DPHONE_EMBED_ORIGIN, /https:\/\/\$\{UAT_HOST:/);
+  assert.match(
+    keycloakConfig.raw.join('\n'),
+    /u1-uat-keycloak-users\.mjs --config && node scripts\/keycloak-dphone-embedded-setup\.mjs/,
+  );
   assert.match(deployScript, /e1-enable\)/);
   assert.match(deployScript, /e1-disable\)/);
   assert.match(deployScript, /E1_ACCEPTANCE_OVERLAY_MISSING/);
+  assert.match(deployScript, /E1_ENABLE_FAILED/);
+  assert.match(deployScript, /freeswitch e1-sandbox/);
+  assert.match(deployScript, /rm -sf e1-sandbox freeswitch/);
+  assert.match(deployScript, /sandbox.*absent/);
+  assert.match(workflow, /infra\/uat\/Caddyfile\.3vm\.e1/);
   const wizard = readFileSync('scripts/e1-16-uat-acceptance-wizard.sh', 'utf8');
   assert.match(wizard, /e1-enable '\$MAIN_SHA'/);
   assert.match(wizard, /e1-disable '\$MAIN_SHA'/);
   assert.ok(wizard.indexOf('e1-enable') < wizard.indexOf('ui-flag'));
   assert.ok(wizard.indexOf('ui-flag') < wizard.indexOf('e1-disable'));
+});
+
+test('UAT-S22: owner สำหรับ migrate/backup อ่าน FORCE RLS ได้โดยไม่ยกสิทธิ์ให้ API', () => {
+  const bootstrap = read('infra/uat/operator/vm3-bootstrap-uat.sh');
+  const repair = read('infra/uat/operator/vm3-uat-backup-role.sh');
+  assert.match(bootstrap, /CREATE ROLE dcontact_uat_owner LOGIN INHERIT BYPASSRLS NOSUPERUSER/);
+  assert.match(bootstrap, /CREATE ROLE dcontact_app LOGIN INHERIT NOBYPASSRLS NOSUPERUSER/);
+  assert.match(repair, /ALTER ROLE dcontact_uat_owner BYPASSRLS;/);
+  assert.match(repair, /role dcontact_app ต้องเป็น LOGIN INHERIT NOBYPASSRLS/);
+  assert.doesNotMatch(repair, /(?:PASSWORD\s*=|UAT_[A-Z_]*PASSWORD)/);
+});
+
+test('UAT-S23: VM1 ส่ง SIP WebSocket ผ่าน Caddy แบบไม่ buffer และไม่พึ่ง FreeSWITCH override ชั่วคราว', () => {
+  const vm1Bootstrap = read('infra/uat/operator/vm1-nginx-uat.sh');
+  const vm1Migration = read('infra/uat/operator/vm1-nginx-websocket-uat.sh');
+  assert.match(vm1Bootstrap, /proxy_set_header Upgrade \$http_upgrade;/);
+  assert.match(vm1Bootstrap, /proxy_set_header Connection "upgrade";/);
+  assert.match(vm1Migration, /proxy_pass https:\/\/192\\\.168\\\.102\\\.112:5067/);
+  assert.match(vm1Migration, /proxy_connect_timeout 5s/);
+  assert.match(vm1Migration, /location = \/sip-ws \{/);
+  assert.match(vm1Migration, /proxy_pass http:\/\/192\.168\.102\.112:8080/);
+  assert.match(vm1Migration, /proxy_buffering off/);
+  assert.match(vm1Migration, /proxy_request_buffering off/);
+  assert.match(vm1Migration, /proxy_read_timeout 3600s/);
+  assert.match(vm1Migration, /proxy_send_timeout 3600s/);
+  assert.match(vm1Migration, /manual_sip_ws\.subn\('', source\)/);
+  assert.match(vm1Migration, /Caddy ใน release/);
+  assert.match(vm1Migration, /nginx -t/);
+  assert.match(vm1Migration, /cp --preserve=mode,ownership/);
+  assert.ok(
+    vm1Migration.indexOf('if cmp -s "$expected" "$config"; then') <
+      vm1Migration.indexOf('python3 - "$config" "$candidate"'),
+    'state ใหม่ต้องผ่าน idempotency check ก่อนสร้าง candidate ของ migration',
+  );
 });
 
 test('UAT-S10: proxy ที่เปิด admin ของ Keycloak หรือไม่มี allowlist ไม่ผ่าน', () => {

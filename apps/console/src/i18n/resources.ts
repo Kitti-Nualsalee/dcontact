@@ -14,6 +14,10 @@ import journeysEn from './locales/en/journeys.json' with { type: 'json' };
 import journeysTh from './locales/th/journeys.json' with { type: 'json' };
 import integrationsEn from './locales/en/integrations.json' with { type: 'json' };
 import integrationsTh from './locales/th/integrations.json' with { type: 'json' };
+import governanceEn from './locales/en/governance.json' with { type: 'json' };
+import governanceTh from './locales/th/governance.json' with { type: 'json' };
+import accountEn from './locales/en/account.json' with { type: 'json' };
+import accountTh from './locales/th/account.json' with { type: 'json' };
 
 export const DEFAULT_NAMESPACE = 'common';
 
@@ -23,12 +27,16 @@ export const resources = {
     common: commonTh,
     journeys: journeysTh,
     integrations: integrationsTh,
+    account: accountTh,
+    governance: governanceTh,
     ...uiResources.th,
   },
   en: {
     common: commonEn,
     journeys: journeysEn,
     integrations: integrationsEn,
+    account: accountEn,
+    governance: governanceEn,
     ...uiResources.en,
   },
 } as const;

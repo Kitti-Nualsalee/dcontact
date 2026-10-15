@@ -69,11 +69,11 @@ except BaseException:
 apply(f"""
 BEGIN;
 SET LOCAL password_encryption = 'scram-sha-256';
-CREATE ROLE dcontact_uat_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '{passwords['OWNER']}';
-CREATE ROLE dcontact_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '{passwords['APP']}';
-CREATE ROLE keycloak LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '{passwords['KEYCLOAK']}';
-CREATE ROLE dcontact_platform NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
-CREATE ROLE dcontact_provisioner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+CREATE ROLE dcontact_uat_owner LOGIN INHERIT BYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '{passwords['OWNER']}';
+CREATE ROLE dcontact_app LOGIN INHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '{passwords['APP']}';
+CREATE ROLE keycloak LOGIN INHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '{passwords['KEYCLOAK']}';
+CREATE ROLE dcontact_platform NOLOGIN INHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+CREATE ROLE dcontact_provisioner NOLOGIN INHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
 COMMIT;
 """, 'สร้าง role')
 apply('CREATE DATABASE dcontact_uat OWNER dcontact_uat_owner;\n', 'สร้าง dcontact_uat')
@@ -82,8 +82,12 @@ apply('REVOKE ALL ON DATABASE dcontact_uat FROM PUBLIC;\nREVOKE ALL ON DATABASE 
 
 if query("select count(*) from pg_roles where rolname in ('dcontact_platform','dcontact_provisioner') and rolcanlogin") != '0':
     raise SystemExit('role platform/provisioner ไม่ใช่ NOLOGIN; หยุดเพื่อตรวจด้วยมือ')
+if query("select rolcanlogin || ':' || rolinherit || ':' || rolsuper || ':' || rolbypassrls from pg_roles where rolname = 'dcontact_uat_owner'") != 'true:true:false:true':
+    raise SystemExit('role dcontact_uat_owner ต้องเป็น LOGIN INHERIT BYPASSRLS NOSUPERUSER สำหรับ migrate/backup')
+if query("select rolcanlogin || ':' || rolinherit || ':' || rolsuper || ':' || rolbypassrls from pg_roles where rolname = 'dcontact_app'") != 'true:true:false:false':
+    raise SystemExit('role dcontact_app ต้องเป็น LOGIN INHERIT NOBYPASSRLS สำหรับ API')
 if query("select count(*) from pg_database where datname in ('dcontact_uat','keycloak_uat')") != '2':
     raise SystemExit('database UAT ไม่ครบ; หยุดเพื่อตรวจด้วยมือ')
-print('APPLY ผ่าน: สร้าง 5 roles / 2 databases; platform/provisioner เป็น NOLOGIN')
+print('APPLY ผ่าน: สร้าง 5 roles / 2 databases; owner ใช้ BYPASSRLS เฉพาะ migrate/backup และ API ใช้ NOBYPASSRLS')
 print(f'credential bundle: {bundle} (mode 600; ส่งต่อ VM2 ทาง SSH แล้วลบจาก VM3)')
 PY

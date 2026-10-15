@@ -19,13 +19,19 @@ export interface UserMenuProps {
   onSignOut: () => void | Promise<void>;
   /** มีค่า = เลือก "ออกจากระบบ" แล้วถามยืนยันด้วย Dialog ก่อน (Workspace ระหว่างมีสาย); ไม่มี = ออกทันที */
   signOutConfirm?: SignOutConfirm;
+  /**
+   * AC5 (#598): item "บัญชีของฉัน" — หน้าของ D-Contact (Console) เสมอ
+   * `newTab` = เปิดแท็บใหม่ (Workspace: ไม่ remount ระหว่างมีสาย — ADR-026)
+   */
+  accountLink?: { href: string; newTab?: boolean };
 }
 
 /**
  * #588: ปุ่มอักษรย่อ + ชื่อ ขวาสุดของแถบบน เปิดเมนูที่มีชื่อ, email, organization, บทบาท และออกจากระบบ
  * ไม่มีลิงก์ไปหน้าของ Keycloak (ผู้ใช้อยู่ในหน้าของ D-Contact ตลอด) และไม่โหลดรูปโปรไฟล์
+ * AC5 (#598): "บัญชีของฉัน" ชี้หน้า Console ของ D-Contact
  */
-export function UserMenu({ user, onSignOut, signOutConfirm }: UserMenuProps) {
+export function UserMenu({ user, onSignOut, signOutConfirm, accountLink }: UserMenuProps) {
   const t = useUiText();
   const headerId = useId();
   const [confirming, setConfirming] = useState(false);
@@ -77,6 +83,16 @@ export function UserMenu({ user, onSignOut, signOutConfirm }: UserMenuProps) {
               else void onSignOut();
             }}
           >
+            {accountLink ? (
+              <MenuItem
+                id="account"
+                className={styles.item}
+                href={accountLink.href}
+                {...(accountLink.newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+              >
+                {t('userMenu.account')}
+              </MenuItem>
+            ) : null}
             <MenuItem id="sign-out" className={styles.item}>
               {t('userMenu.signOut')}
             </MenuItem>

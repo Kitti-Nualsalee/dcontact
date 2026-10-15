@@ -55,7 +55,7 @@ api (profile `uat`), Keycloak, Postgres, MinIO บน network `internal: true` �
      เพราะ `rls.sql` และ migration อ้างชื่อ `dcontact_*` ตรง ๆ (`rls.sql` 143 จุด; 209 ไฟล์ในรีโปอ้างถึง) การเปลี่ยนชื่อ
      เป็นงานใหญ่และเสี่ยงกว่าประโยชน์ที่ได้ ชื่อเหล่านี้ว่างอยู่ใน cluster (ตรวจ 2026-09-29) — **ยอมรับว่าชื่อ `dcontact_*`
      และ `keycloak` ถูกจองไว้ใน cluster นี้สำหรับระบบนี้**
-   - owner ของ migrate/provision เป็น role เฉพาะ UAT `dcontact_uat_owner` (NOSUPERUSER) ที่สร้างครั้งเดียว ไม่ใช้บัญชีที่
+   - owner ของ migrate/provision/backup เป็น role เฉพาะ UAT `dcontact_uat_owner` (`BYPASSRLS` แต่ `NOSUPERUSER`) ที่สร้างครั้งเดียว ไม่ใช้บัญชีที่
      ใช้ร่วมกับระบบอื่น (`id24`, `sa`) เป็น owner ถาวร; บัญชี bootstrap (`sa` เป็น superuser + bypassrls) ใช้สร้าง
      role/database ครั้งแรกเท่านั้น และ API ห้ามใช้บัญชีเหล่านี้ — extension ที่ต้องใช้เป็นแบบ trusted (PG 13+)
      owner ที่ไม่ใช่ superuser จึงสร้างเองได้
@@ -152,7 +152,7 @@ api (profile `uat`), Keycloak, Postgres, MinIO บน network `internal: true` �
 | 3 | DNS ของ `dcontact-uat.osd.co.th` | ตัดสินแล้ว: ช่วง UAT ใช้ map host ในเครื่องผู้ทดสอบ ไม่ขอ DNS |
 | 4 | cert ของ host บน VM1 | ผ่าน: wildcard certificate อายุถึง 2027-01-13 (#537) |
 | 5 | ตรวจ cluster VM3 และแทรกกฎ `pg_hba` | ผ่าน: ชื่อไม่ชน, extension ครบ, แทรก 4 กฎก่อนกฎ md5 เดิมและ reload แล้ว (#537) |
-| 6 | รหัสผ่านบัญชี bootstrap และ owner role | ตัดสินแล้ว: server ทดสอบชั่วคราว ไม่ต้องเปลี่ยนรหัสผ่าน; API ห้ามใช้ `sa`/`id24`; ใช้ `dcontact_uat_owner` (NOSUPERUSER) |
+| 6 | รหัสผ่านบัญชี bootstrap และ owner role | ตัดสินแล้ว: server ทดสอบชั่วคราว ไม่ต้องเปลี่ยนรหัสผ่าน; API ห้ามใช้ `sa`/`id24`; ใช้ `dcontact_uat_owner` (`BYPASSRLS` แต่ `NOSUPERUSER`) สำหรับ migrate/backup เท่านั้น |
 | 7 | เจ้าของ backup ของ Postgres บน VM3 | ตัดสินแล้ว (2026-10-01): UAT ไม่มีข้อมูลที่ต้อง backup จึงไม่ต้องระบุเจ้าของ — เปิดใหม่ถ้ามีข้อมูลที่ต้องเก็บ; dump ก่อน migrate ของ `uat-deploy.sh` ยังมีไว้สำหรับ rollback ของ deploy |
 | 8 | Prisma migration + `rls.sql` ทำงานบน PostgreSQL 15.4 | ผ่าน: migrate + RLS บน PG 15.4 ผ่าน, deploy จริงผ่าน db-relay และ RLS integration test 21/21 ผ่าน (#537) |
 | 9 | container/volume เก่าบน VM2 ไม่ชนชื่อ project `dcontact-uat` | ผ่าน: ตรวจสดแล้วไม่ชน (#537) |

@@ -3,11 +3,13 @@ import test from 'node:test';
 import {
   MAX_PINS,
   NAVIGATION_APPS,
+  NAVIGATION_AREAS,
   NAVIGATION_GROUPS,
   effectivePins,
   pinValidationError,
   tenantAvailableApps,
   visibleApps,
+  visibleAreas,
 } from './navigation-registry.js';
 
 const ids = (apps: { id: string }[]) => apps.map((app) => app.id);
@@ -17,6 +19,8 @@ test('registry: id ไม่ซ้ำ, กลุ่มอยู่ในชุ�
   assert.equal(new Set(ids([...NAVIGATION_APPS])).size, NAVIGATION_APPS.length);
   for (const app of NAVIGATION_APPS) {
     assert.ok(NAVIGATION_GROUPS.includes(app.group), app.id);
+    assert.ok(NAVIGATION_AREAS.includes(app.area), app.id);
+    assert.match(app.section, /^[a-z][a-z0-9-]{1,31}$/, app.id);
     assert.match(app.id, /^[a-z][a-z0-9-]{1,47}$/);
     assert.match(app.path, /^\/(?!\/)/);
     assert.ok(app.roles.length > 0, app.id);
@@ -130,4 +134,76 @@ test('ตรวจหมุด: เกิน 15 ก่อน แล้วแอ�
   assert.equal(pinValidationError(['no-such-app'], allowed), 'APP_NOT_AVAILABLE');
   assert.equal(pinValidationError(['agent-workspace'], allowed), null);
   assert.equal(pinValidationError([], allowed), null);
+});
+
+test('#651: พื้นที่เมนูคัดตาม role/plan; ลำดับตาม rail; พื้นที่ว่างไม่ถูกส่ง', () => {
+  const areaIds = (input: Parameters<typeof visibleApps>[0]) =>
+    visibleAreas(visibleApps(input)).map((area) => area.id);
+  assert.deepEqual(areaIds({ roles: ['agent'], entitlements: FULL }), ['workspace']);
+  assert.deepEqual(areaIds({ roles: ['admin'], entitlements: null }), [
+    'workspace',
+    'supervisor',
+    'journeys',
+    'governance',
+    'integrations',
+  ]);
+  assert.deepEqual(areaIds({ roles: ['compliance'], entitlements: FULL }), ['governance']);
+  assert.deepEqual(areaIds({ roles: ['journey-ingress'], entitlements: FULL }), []);
+  // ลำดับพื้นที่ตาม NAVIGATION_AREAS ไม่ใช่ตามลำดับแถวใน registry
+  const reversed = [...NAVIGATION_APPS].reverse();
+  assert.deepEqual(
+    visibleAreas(reversed).map((area) => area.id),
+    NAVIGATION_AREAS.filter((id) => NAVIGATION_APPS.some((app) => app.area === id)),
+  );
+});
+
+test('#651: ทุกแอปที่มองเห็นอยู่ในพื้นที่หนึ่งเดียว และ item อ้าง appId จริง', () => {
+  const visible = visibleApps({ roles: ['admin'], entitlements: null });
+  const items = visibleAreas(visible).flatMap((area) =>
+    area.sections.flatMap((section) => section.items.map((item) => item.appId)),
+  );
+  assert.deepEqual([...items].sort(), ids(visible).sort());
+  assert.equal(new Set(items).size, items.length);
+});
+
+test('#651: แอปหลายตัวในพื้นที่/กลุ่มย่อยเดียวกันเรียงตาม registry และแยกกลุ่มย่อยตาม section', () => {
+  const base = NAVIGATION_APPS[0]!;
+  const fake = [
+    { ...base, id: 'a-one', area: 'routing', section: 'setup' },
+    { ...base, id: 'a-two', area: 'routing', section: 'rules' },
+    { ...base, id: 'a-three', area: 'routing', section: 'setup' },
+  ] as const;
+  assert.deepEqual(visibleAreas(fake), [
+    {
+      id: 'routing',
+      sections: [
+        { id: 'setup', items: [{ appId: 'a-one' }, { appId: 'a-three' }] },
+        { id: 'rules', items: [{ appId: 'a-two' }] },
+      ],
+    },
+  ]);
+});
+
+test('#658: Governance ส่งหน้าย่อยตามลำดับใน item เดียว (แอปเดียว ปักหมุดได้ชิ้นเดียว) และแอปอื่นไม่มี pages', () => {
+  const visible = visibleApps({ roles: ['compliance'], entitlements: FULL });
+  const [area] = visibleAreas(visible);
+  assert.equal(area!.id, 'governance');
+  const [item] = area!.sections[0]!.items;
+  assert.equal(item!.appId, 'contact-governance');
+  assert.deepEqual(
+    item!.pages!.map((page) => page.id),
+    ['overview', 'exceptions', 'policies', 'audit'],
+  );
+  for (const page of item!.pages!) {
+    assert.match(page.id, /^[a-z][a-z-]*$/);
+    assert.ok(page.path.startsWith('/?view=governance&section='), page.path);
+    assert.ok(!/(contact|series|policy|version)Id/i.test(page.path), 'ห้ามมี id ใน path');
+  }
+  // หน้าย่อยไม่ใช่แอป: ไม่อยู่ใน launcher/หมุด
+  assert.ok(!visible.some((app) => app.id === 'overview' || app.id === 'audit'));
+  const everyone = visibleAreas(visibleApps({ roles: ['admin'], entitlements: null }));
+  const withoutPages = everyone
+    .flatMap((a) => a.sections.flatMap((s) => s.items))
+    .filter((i) => i.appId !== 'contact-governance');
+  assert.ok(withoutPages.every((i) => i.pages === undefined));
 });

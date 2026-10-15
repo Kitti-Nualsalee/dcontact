@@ -34,6 +34,8 @@ export const UAT_FILES = Object.freeze({
   // #567: overlay ของ team trial (flag แยก)
   composeLineTrial: 'infra/uat/docker-compose.uat.line-trial.yml',
   composeE1: 'infra/uat/docker-compose.uat.e1.yml',
+  // #645: Platform overlay บน VM2 (A1.9) แตะ realm เดียวกัน — ห้ามผูก browser flow ทับ realm template
+  composePlatform3vm: 'infra/uat/docker-compose.platform.3vm.yml',
   envExample: 'infra/uat/uat.env.example',
   deployScript: 'infra/uat/bin/uat-deploy.sh',
   dbRolesScript: 'infra/uat/bin/db-roles.sh',
@@ -375,6 +377,9 @@ export function checkDockerfilePins(dockerfiles) {
   return check('UAT-S07 Dockerfile pin digest, non-root, revision label', failures);
 }
 
+/** `AMR_MAX_AGE_SECONDS` ใน scripts/keycloak-platform-setup.mjs — แก้ต้องแก้คู่กัน */
+export const PLATFORM_AMR_MAX_AGE_SECONDS = 36000;
+
 export function checkRealm(realmText) {
   const failures = [];
   let realm;
@@ -446,6 +451,14 @@ export function checkRealm(realmText) {
   }
   const totp = (realm.requiredActions ?? []).find((action) => action.alias === 'CONFIGURE_TOTP');
   if (!totp?.enabled || !totp.defaultAction) failures.push({ kind: 'CONFIGURE_TOTP_NOT_DEFAULT' });
+  // #645: session ยาวกว่า max age ของ AMR ใน platform-console (36000) = token ไม่มี pwd/otp → MFA_REQUIRED
+  if (
+    !(realm.ssoSessionIdleTimeout > 0) ||
+    !(realm.ssoSessionIdleTimeout <= realm.ssoSessionMaxLifespan) ||
+    !(realm.ssoSessionMaxLifespan <= PLATFORM_AMR_MAX_AGE_SECONDS)
+  ) {
+    failures.push({ kind: 'SSO_SESSION_OUT_OF_BOUNDS' });
+  }
   if (realm.registrationAllowed) failures.push({ kind: 'REGISTRATION_ALLOWED' });
   if (realm.sslRequired === 'none' || realm.sslRequired === 'NONE')
     failures.push({ kind: 'SSL_NOT_REQUIRED' });
@@ -767,6 +780,28 @@ export function checkThreeVmTopology({
   }
   if (!/is_3vm/.test(deployScript ?? '') || !/pg-dcontact_uat/.test(deployScript ?? '')) {
     failures.push({ kind: 'DEPLOY_SCRIPT_NOT_3VM_AWARE' });
+  }
+  return check(id, failures);
+}
+
+/**
+ * #645: browser flow ของ realm UAT มีเจ้าของเดียวคือ `keycloak-config` ของ U1 (บังคับ OTP ทุกบัญชี) —
+ * account setup ของ Platform overlay ต้องไม่ผูก `dcontact-browser` ทับ ไม่งั้นสองงานเขียนทับกันตามลำดับ deploy
+ */
+export function checkPlatformOverlayBrowserFlow(overlay) {
+  const id = 'UAT-S24 Platform overlay ไม่เปลี่ยน browser flow ของ realm UAT';
+  if (overlay === null) return check(id, [{ kind: 'MISSING_ARTIFACT' }]);
+  const failures = [];
+  const calls = overlay
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .flatMap((line) => line.split('&&'))
+    .filter((command) => /keycloak-account-service-setup\.mjs/.test(command));
+  if (calls.length === 0) failures.push({ kind: 'NO_ACCOUNT_SETUP' });
+  for (const command of calls) {
+    if (!/--keep-realm-browser-flow\b/.test(command)) {
+      failures.push({ kind: 'REALM_BROWSER_FLOW_REBOUND', command: command.trim() });
+    }
   }
   return check(id, failures);
 }
@@ -1231,6 +1266,7 @@ export function runStaticChecks(root = repositoryRoot) {
       dbRolesScript: files.dbRoles3vmScript,
       deployScript: files.deployScript,
     }),
+    checkPlatformOverlayBrowserFlow(files.composePlatform3vm),
     checkLineOverlay({
       compose: files.compose,
       compose3vm: files.compose3vm,

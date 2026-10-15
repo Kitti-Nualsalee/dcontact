@@ -1,13 +1,21 @@
 package io.dcontact.keycloak.account;
 
+import freemarker.template.Configuration;
+import freemarker.template.Template;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.io.InputStream;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +30,10 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.credential.OTPCredentialModel;
 import org.keycloak.models.utils.CredentialValidation;
+import org.keycloak.protocol.oidc.endpoints.IframeUtil;
+import org.keycloak.protocol.oidc.endpoints.LoginStatusIframeEndpoint;
+import org.keycloak.services.Urls;
+import org.keycloak.utils.SecureContextResolver;
 import org.keycloak.services.managers.AppAuthManager;
 import org.keycloak.services.managers.AuthenticationManager.AuthResult;
 
@@ -133,6 +145,61 @@ public class DcAccountResource {
         TenantOrganizations.MFA_REQUIRED_ATTRIBUTE, List.of(String.valueOf((Boolean) required)));
     organization.setAttributes(attributes);
     return Response.noContent().build();
+  }
+
+  /**
+   * R1 (#593) prototype: iframe ของ OIDC session management (`check_session_iframe`) ที่อ่าน cookie ชื่อใหม่
+   *
+   * <p>iframe เดิมของ Keycloak render จาก classpath (override ด้วย theme ไม่ได้) และอ่าน {@code KEYCLOAK_SESSION}
+   * ตรง ๆ — ที่นี่ใช้ template ต้นฉบับของ Keycloak รุ่นที่รันอยู่ แทนเฉพาะชื่อ cookie (พฤติกรรมอื่นตาม upstream)
+   * ถ้าหาชื่อเดิมใน template ไม่เจอ (upstream เปลี่ยน) ตอบ 500 แทนการส่ง iframe ที่ทำงานผิดเงียบ ๆ
+   */
+  @GET
+  @Path("login-status-iframe.html")
+  @Produces(MediaType.TEXT_HTML)
+  public Response loginStatusIframe(@QueryParam("version") String version) {
+    return IframeUtil.returnIframe(version, session, this::renderLoginStatusIframe);
+  }
+
+  /** origin ของ client ถูกตรวจด้วยโค้ดเดิมของ Keycloak (web origins ของ client) */
+  @GET
+  @Path("login-status-iframe.html/init")
+  public Response loginStatusIframeInit(
+      @QueryParam("client_id") String clientId, @QueryParam("origin") String origin) {
+    return new LoginStatusIframeEndpoint(session).preCheck(clientId, origin);
+  }
+
+  static final String SESSION_COOKIE = "\"KEYCLOAK_SESSION\"";
+
+  private Object renderLoginStatusIframe() {
+    try (InputStream stream =
+        LoginStatusIframeEndpoint.class.getResourceAsStream("login-status-iframe.ftl")) {
+      if (stream == null) throw new IllegalStateException("login-status-iframe.ftl not found");
+      String upstream = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+      if (!upstream.contains(SESSION_COOKIE)) {
+        throw new IllegalStateException("login-status-iframe.ftl no longer reads KEYCLOAK_SESSION");
+      }
+      String patched =
+          upstream.replace(
+              SESSION_COOKIE, "\"" + DcCookieProvider.renamedName("KEYCLOAK_SESSION") + "\"");
+      Map<String, Object> attributes = new HashMap<>();
+      attributes.put("isSecureContext", SecureContextResolver.isSecureContext(session));
+      attributes.put(
+          "resourceCommonUrl",
+          Urls.themeRoot(session.getContext().getUri(org.keycloak.urls.UrlType.FRONTEND).getBaseUri())
+                  .getPath()
+              + "/common/keycloak");
+      Template template =
+          new Template(
+              "dc-login-status-iframe",
+              new StringReader(patched),
+              new Configuration(Configuration.VERSION_2_3_32));
+      StringWriter html = new StringWriter();
+      template.process(attributes, html);
+      return html.toString();
+    } catch (Exception failure) {
+      throw new IllegalStateException("cannot render login status iframe", failure);
+    }
   }
 
   /** {@code null} = ผ่าน; ไม่มี/ไม่ถูกต้อง → 401, token ของ client อื่นหรือผู้ใช้ทั่วไป → 403 */

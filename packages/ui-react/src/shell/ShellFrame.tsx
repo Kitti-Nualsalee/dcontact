@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 import { AppLauncher } from './AppLauncher.js';
 import { AppShell } from './AppShell.js';
+import { areaOf } from './areas.js';
 import { Rail } from './Rail.js';
 import { LanguageSwitch, TopBar } from './TopBar.js';
-import type { ShellApp, ShellCreateAction, ShellGroup } from './types.js';
+import type { ShellApp, ShellArea, ShellCreateAction, ShellGroup } from './types.js';
 import { UserMenu, type UserMenuProps } from './UserMenu.js';
 
 export interface ShellFrameProps {
@@ -13,6 +14,8 @@ export interface ShellFrameProps {
   maxPins: number;
   onTogglePin: (appId: string) => void;
   currentAppId: string;
+  /** #651: พื้นที่งานบน rail (ว่าง/ไม่ส่ง = rail แสดงหมุดแอปแบบเดิม) */
+  areas?: readonly ShellArea[];
   brand: ReactNode;
   breadcrumb: readonly string[];
   language: 'th' | 'en';
@@ -39,6 +42,8 @@ export function ShellFrame(props: ShellFrameProps) {
         <Rail
           pinnedApps={pinnedApps}
           currentAppId={props.currentAppId}
+          areas={props.areas}
+          currentAreaId={areaOf(props.areas, props.currentAppId)}
           footer={props.railFooter}
           launcher={
             <AppLauncher

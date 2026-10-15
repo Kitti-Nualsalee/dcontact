@@ -1,0 +1,8 @@
+<configuration name="switch.conf" description="E1 UAT core">
+  <settings>
+    <param name="colorize-console" value="false"/>
+    <param name="loglevel" value="info"/>
+    <param name="rtp-start-port" value="16384"/>
+    <param name="rtp-end-port" value="16420"/>
+  </settings>
+</configuration>

@@ -1,5 +1,6 @@
 /**
  * D1.13 (#452): shell ใหม่ของ Workspace หลัง flag `ui.shell.v2` ระดับ tenant — ไม่มี SubNav (D1.2)
+ * #651: rail แสดงพื้นที่งานจาก Navigation API (`areas`) — Workspace ยังไม่มีเมนูย่อย
  *
  * ต้องตัดสิน shell **ก่อน** mount WorkspaceApp และไม่เปลี่ยนอีกตลอดการโหลดหน้า เพราะการ remount จะตัด
  * softphone/WS ของสายที่คุยอยู่ (ADR-026) — ระหว่างรอคำตอบจึงแสดงสถานะเตรียมหน้าจอแทนการ render ก่อน
@@ -67,6 +68,15 @@ export function WorkspaceShell({
   });
   const tokensReady = useShellTokens(nav.status === 'ready');
 
+  const consoleOrigin = hostOrigins().console;
+  const consoleAccountHref = consoleOrigin
+    ? (() => {
+        const url = new URL('/', consoleOrigin);
+        if (tenantAlias) url.searchParams.set('tenant', tenantAlias);
+        url.searchParams.set('view', 'account');
+        return url.href;
+      })()
+    : undefined;
   if (nav.status === 'legacy') return <>{children}</>;
   if (nav.status === 'loading' || !tokensReady) {
     return (
@@ -84,6 +94,7 @@ export function WorkspaceShell({
         maxPins={nav.maxPins}
         onTogglePin={nav.togglePin}
         currentAppId={appId}
+        areas={nav.areas}
         brand={
           <>
             <img src="/d-contact-icon-64.png" alt="" width={24} height={24} />
@@ -109,6 +120,10 @@ export function WorkspaceShell({
           account
             ? {
                 user: account.user,
+                // AC5 (#598): บัญชีของฉันอยู่ใน Console — เปิดแท็บใหม่เพื่อไม่ remount Workspace (ADR-026)
+                ...(consoleAccountHref
+                  ? { accountLink: { href: consoleAccountHref, newTab: true } }
+                  : {}),
                 // #588: redirect ไปออกจากระบบไม่สำเร็จต้องแจ้งผู้ใช้ ไม่เงียบหาย
                 onSignOut: () =>
                   account.onSignOut().catch(() => {

@@ -1,15 +1,17 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { AuthProvider, useAuth, type AuthContextProps } from 'react-oidc-context';
 import { shellUserFromClaims } from '@d-contact/ui-react';
-import { SessionLocaleProvider } from '@d-contact/i18n/react';
+import { SessionLocaleProvider, useTranslation } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
 import { createEmbedOriginApi } from './dphone-embedding/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
+import { createAccountApi, createAccountPolicyApi } from './account/api.js';
+import { AccountPage, AccountPolicyPage } from './account/account.js';
 import { createTeamScopeApi } from './team-scopes/api.js';
 import { ConsoleShell } from './shell/console-shell.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
-import { GovernanceConsole } from './governance-console.js';
+import { GovernancePage } from './governance-page.js';
 import { createGovernanceApi } from './governance-api.js';
 import { createCg5ConsoleApi } from './cg5-console-api.js';
 import { parseGovernanceLocation, type GovernanceViewer } from './governance-model.js';
@@ -22,17 +24,52 @@ import { JourneyAuthoringConsole } from './journey-authoring/journey-authoring.j
 import { clearRecovery } from './journey-authoring/state.js';
 import {
   accessTokenRealmRoles,
+  clearConsoleSignOut,
   consumeConsoleReturnLocation,
   createConsoleOidcSettings,
+  isConsoleSignedOutLanding,
   rememberConsoleReturnUrl,
+  rememberConsoleSignOut,
   resolveConsoleContextId,
+  resolveConsoleLocation,
   resolveConsoleView,
   resolveTenantAlias,
 } from './auth-session.js';
 
 function signInFromCurrentPage(auth: AuthContextProps) {
+  clearConsoleSignOut(window.sessionStorage);
   rememberConsoleReturnUrl(new URL(window.location.href), window.sessionStorage);
   return auth.signinRedirect();
+}
+
+/**
+ * #677: หน้าที่ Keycloak พากลับมาหลัง sign-out — บอกสถานะและให้เข้าสู่ระบบอีกครั้ง
+ * ไม่จำ URL ใหม่ (หน้านี้ไม่มี view) ให้ callback พากลับหน้าที่จำไว้ก่อน sign-out
+ */
+function SignedOutSurface() {
+  const auth = useAuth();
+  const { t } = useTranslation('common');
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
+    return (
+      <main className="empty">
+        <h1>{t('auth.signedOut.title')}</h1>
+      </main>
+    );
+  return (
+    <main className="empty">
+      <h1>{t('auth.signedOut.title')}</h1>
+      <p>{t('auth.signedOut.detail')}</p>
+      <button
+        className="primary"
+        onClick={() => {
+          clearConsoleSignOut(window.sessionStorage);
+          void auth.signinRedirect();
+        }}
+      >
+        {t('auth.signedOut.action')}
+      </button>
+    </main>
+  );
 }
 
 function Status({ title, detail, action }: { title: string; detail: string; action?: () => void }) {
@@ -91,7 +128,10 @@ export function ConsoleAuthRoot() {
   const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
   let tenantAlias: string;
   let contextId: string | undefined;
-  const url = new URL(window.location.href);
+  // #676: บน callback ของ OIDC ใช้ URL ปลายทางที่จำไว้ เพราะ `redirect_uri` ไม่มี view/context
+  const url = resolveConsoleLocation(new URL(window.location.href), window.sessionStorage);
+  // #677: กลับมาหลัง sign-out (ไม่มี view/context) — มาก่อน default view เพื่อไม่ให้ไปหน้าที่ไม่ได้เลือก
+  const signedOut = isConsoleSignedOutLanding(url, window.sessionStorage);
   // U1.4 (#432): ไม่มี view/context (เช่นกลับจาก login) → ใช้ default view ตอน build; tenant ยังมาจาก host/token
   const defaultView = import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined;
   const [view, setView] = useState(() => resolveConsoleView(url, defaultView));
@@ -101,11 +141,19 @@ export function ConsoleAuthRoot() {
   const embeddingView = view === 'dphone-embedding';
   // #566: read-only ของ LINE pilot — มีเฉพาะ UAT ที่ใส่ overlay `uat-line` (ไม่มี = หน้าแจ้งว่าไม่ได้เปิด)
   const lineInboundView = view === 'line-inbound';
+  // AC5 (#598): บัญชีของฉัน (ทุก role) และนโยบายบัญชี (admin)
+  const accountView = view === 'account' || view === 'account-policy';
   const contactId = preferenceView ? (url.searchParams.get('contactId') ?? undefined) : undefined;
   try {
     tenantAlias = resolveTenantAlias(url);
     contextId =
-      preferenceView || governanceView || journeyView || embeddingView || lineInboundView
+      signedOut ||
+      preferenceView ||
+      governanceView ||
+      journeyView ||
+      embeddingView ||
+      lineInboundView ||
+      accountView
         ? undefined
         : resolveConsoleContextId(url);
   } catch {
@@ -134,6 +182,7 @@ export function ConsoleAuthRoot() {
     <AuthProvider
       {...settings}
       onSigninCallback={() => {
+        clearConsoleSignOut(window.sessionStorage);
         const restored = consumeConsoleReturnLocation(
           new URL(window.location.href),
           window.sessionStorage,
@@ -144,7 +193,15 @@ export function ConsoleAuthRoot() {
       }}
     >
       <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
-        {journeyView ? (
+        {signedOut ? (
+          <SignedOutSurface />
+        ) : accountView ? (
+          <AccountSurface
+            apiBaseUrl={apiBaseUrl}
+            tenantAlias={tenantAlias}
+            policy={view === 'account-policy'}
+          />
+        ) : journeyView ? (
           <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : lineInboundView ? (
           <LineInboundSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
@@ -190,7 +247,10 @@ function shellUserProps(auth: AuthContextProps, tenantAlias: string) {
   return {
     account: {
       user: shellUserFromClaims(auth.user?.profile ?? {}, tenantAlias),
-      onSignOut: () => auth.signoutRedirect(),
+      onSignOut: () => {
+        rememberConsoleSignOut(new URL(window.location.href), window.sessionStorage);
+        return auth.signoutRedirect();
+      },
     },
   };
 }
@@ -261,20 +321,18 @@ function GovernanceSurface({
       ? 'TENANT_ADMIN'
       : 'SUPERVISOR';
   return (
-    <ConsoleShell
-      {...shellUserProps(auth, tenantAlias)}
-      apiBaseUrl={apiBaseUrl}
-      accessToken={() => accessToken}
-      tenantAlias={tenantAlias}
-      appId="contact-governance"
-    >
-      <GovernanceConsole
-        api={api}
-        cg5Api={cg5Api}
-        viewer={viewer}
-        initialLocation={parseGovernanceLocation(new URL(window.location.href))}
-      />
-    </ConsoleShell>
+    <GovernancePage
+      shell={{
+        ...shellUserProps(auth, tenantAlias),
+        apiBaseUrl,
+        accessToken: () => accessToken,
+        tenantAlias,
+      }}
+      api={api}
+      cg5Api={cg5Api}
+      viewer={viewer}
+      initialLocation={parseGovernanceLocation(new URL(window.location.href))}
+    />
   );
 }
 
@@ -429,6 +487,61 @@ function JourneySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
         scope={`${tenantAlias}:${session}`}
         initialJourneyId={new URL(window.location.href).searchParams.get('journey') ?? undefined}
       />
+    </ConsoleShell>
+  );
+}
+
+/**
+ * AC5 (#598): บัญชีของฉัน / นโยบายบัญชี — token ยืนยัน email ถูกย้ายออกจาก URL ใน main.tsx ก่อน render
+ * (จึงไม่ติดไปกับ return URL ของ login) และหน้าอ่านจาก sessionStorage ครั้งเดียว
+ */
+function AccountSurface({
+  apiBaseUrl,
+  tenantAlias,
+  policy,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+  policy: boolean;
+}) {
+  const auth = useAuth();
+  const accessToken = auth.user?.access_token;
+  const accountApi = useMemo(
+    () => createAccountApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
+  const policyApi = useMemo(
+    () => createAccountPolicyApi({ baseUrl: apiBaseUrl, accessToken: () => accessToken }),
+    [accessToken, apiBaseUrl],
+  );
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
+    return (
+      <Status title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ Console session" />
+    );
+  if (auth.error || !auth.isAuthenticated || !accessToken)
+    return (
+      <Status
+        title="D-Contact"
+        detail="เข้าสู่ระบบก่อนจัดการบัญชีของคุณ"
+        action={() => void signInFromCurrentPage(auth)}
+      />
+    );
+  return (
+    <ConsoleShell
+      {...shellUserProps(auth, tenantAlias)}
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId={policy ? 'account-policy' : 'account'}
+    >
+      {policy ? (
+        <AccountPolicyPage
+          api={policyApi}
+          canEdit={accessTokenRealmRoles(accessToken).includes('admin')}
+        />
+      ) : (
+        <AccountPage api={accountApi} verifyStorage={window.sessionStorage} />
+      )}
     </ConsoleShell>
   );
 }

@@ -23,6 +23,37 @@
       "journeys": "Journeys",
       "contactGovernance": "Governance",
       "dphoneEmbedding": "dphone embedding"
+    },
+    "areas": {
+      "home": "Home",
+      "workspace": "Workspace",
+      "supervisor": "Supervise",
+      "outbound": "Outbound",
+      "journeys": "Journeys",
+      "governance": "Governance",
+      "cases": "Cases",
+      "routing": "Routing",
+      "ai": "AI",
+      "people": "People",
+      "wfm": "Workforce",
+      "qm": "Quality",
+      "analytics": "Analytics",
+      "integrations": "Integrations",
+      "history": "History",
+      "reports": "Reports"
+    },
+    "sections": {
+      "work": "Work",
+      "live": "Live",
+      "embedding": "Embedding"
+    },
+    "pages": {
+      "contactGovernance": {
+        "overview": "Overview",
+        "exceptions": "Exceptions",
+        "policies": "Policies",
+        "audit": "Audit"
+      }
     }
   },
   "shell": {
@@ -48,6 +79,7 @@
       "description": "Any current or incoming call will be disconnected, and unsaved wrap-up will be lost.",
       "confirm": "Sign out"
     },
-    "signOutFailed": "Could not sign out. Please try again."
+    "signOutFailed": "Could not sign out. Please try again.",
+    "pinned": "Pinned"
   }
 }

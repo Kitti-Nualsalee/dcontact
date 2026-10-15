@@ -166,6 +166,15 @@ export async function setup(
       }
       return route.fulfill({ status: 204 });
     }
+    if (path === '/api/v1/workspace/agent/availability') {
+      const accepted =
+        headers['x-work-session-lease-id'] === server.lease &&
+        request.postDataJSON()?.state === 'AVAILABLE';
+      return route.fulfill({
+        status: accepted ? 200 : 403,
+        json: accepted ? { state: 'AVAILABLE' } : { code: 'WORK_SESSION_CHANGED' },
+      });
+    }
     if (path === '/api/v1/workspace/agent/snapshot') {
       return route.fulfill({
         json: {

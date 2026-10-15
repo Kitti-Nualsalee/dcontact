@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { ConsoleAuthRoot } from './auth-root.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
-import { GovernanceConsole } from './governance-console.js';
+import { GovernancePage } from './governance-page.js';
 import { createGovernanceApi } from './governance-api.js';
 import { createCg5ConsoleApi } from './cg5-console-api.js';
 import { parseGovernanceLocation, type GovernanceViewer } from './governance-model.js';
@@ -22,7 +22,15 @@ import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
 import { createTeamScopeApi } from './team-scopes/api.js';
 import { createLineInboundApi } from './line-inbound/api.js';
 import { LineInbound } from './line-inbound/line-inbound.js';
+import { createAccountApi, createAccountPolicyApi } from './account/api.js';
+import { AccountPage, AccountPolicyPage } from './account/account.js';
+import { stashVerifyToken } from './account/model.js';
 import './style.css';
+
+// AC5 (#598): ลิงก์ยืนยัน email — ย้าย token ออกจาก URL/history ก่อน render และก่อน login redirect
+if (new URL(window.location.href).searchParams.get('view') === 'account') {
+  stashVerifyToken(new URL(window.location.href), window.sessionStorage, window.history);
+}
 
 const root = document.getElementById('root');
 if (!root) throw new Error('root element is required');
@@ -107,6 +115,35 @@ function ConsoleE2eRoot() {
       </ConsoleShell>
     );
   }
+  if (view === 'account' || view === 'account-policy') {
+    const baseUrl =
+      (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin;
+    // บทบาทจาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token
+    const admin = url.searchParams.get('viewer') !== 'AGENT';
+    const shell = e2eShellUser(url.searchParams.get('tenant') ?? undefined);
+    if (!admin) shell.account.user = { ...shell.account.user, roles: ['agent'] };
+    return (
+      <ConsoleShell
+        {...shell}
+        apiBaseUrl={baseUrl}
+        accessToken={() => 'e2e-access-token'}
+        tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
+        appId={view}
+      >
+        {view === 'account' ? (
+          <AccountPage
+            api={createAccountApi({ baseUrl, accessToken: () => 'e2e-access-token' })}
+            verifyStorage={window.sessionStorage}
+          />
+        ) : (
+          <AccountPolicyPage
+            api={createAccountPolicyApi({ baseUrl, accessToken: () => 'e2e-access-token' })}
+            canEdit={admin}
+          />
+        )}
+      </ConsoleShell>
+    );
+  }
   if (view === 'line-inbound') {
     // #566/#567: หน้า LINE inbound ของ pilot — e2e harness ใช้ API จำลองที่ VITE_API_BASE_URL
     return (
@@ -162,8 +199,16 @@ function ConsoleE2eRoot() {
     const requested = url.searchParams.get('viewer');
     const viewer: GovernanceViewer =
       requested === 'SUPERVISOR' || requested === 'TENANT_ADMIN' ? requested : 'COMPLIANCE';
+    // #654/#658: ครอบด้วย ConsoleShell เหมือนหน้าอื่น — flag ปิด/API ล้ม = หน้าเดิมทุกประการ (fail-safe)
     return (
-      <GovernanceConsole
+      <GovernancePage
+        shell={{
+          ...e2eShellUser(url.searchParams.get('tenant') ?? undefined),
+          apiBaseUrl:
+            (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,
+          accessToken: () => 'e2e-access-token',
+          tenantAlias: url.searchParams.get('tenant') ?? undefined,
+        }}
         api={createGovernanceApi({
           baseUrl:
             (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? window.location.origin,

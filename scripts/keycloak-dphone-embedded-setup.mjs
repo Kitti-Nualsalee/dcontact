@@ -6,8 +6,8 @@ import { resolve } from 'node:path';
  *
  * - redirect เป็น exact `<dphone-origin>/dphone/auth/callback` (dphone origin = origin ของ API ที่ส่ง
  *   `/dphone/embed`), PKCE S256, ปิด implicit/direct grant/service account
- * - token contract เดียวกับ `agent-desktop` (audience `dcontact-api` + claim ของ tenant) — copy mapper และ
- *   client scope จาก client นั้นทุกครั้งที่รัน จึงไม่ drift
+ * - token contract เดียวกับ client ต้นแบบ (ค่าเริ่มต้น `agent-desktop`) — copy mapper และ client scope
+ *   จาก client นั้นทุกครั้งที่รัน จึงไม่ drift; UAT ระบุ `dcontact-uat-console` อย่างชัดเจน
  * - access token 5 นาที, client session idle 30 นาที / สูงสุด 10 ชั่วโมง
  * - refresh token ใช้ได้ครั้งเดียว + ตรวจ reuse: Keycloak 26 ตั้งได้เฉพาะระดับ realm — เจ้าของงานเลือก
  *   เปิดทั้ง realm (#487, 2026-09-28) ใช้ `revokeRefreshToken=true`, `refreshTokenMaxReuse=0`
@@ -23,8 +23,11 @@ export const DPHONE_EMBEDDED_LIFESPANS = Object.freeze({
 
 const realm = process.env.KEYCLOAK_REALM ?? 'dcontact';
 const keycloakBaseUrl = process.env.KEYCLOAK_ADMIN_URL ?? 'http://localhost:8081';
-const adminUsername = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME ?? 'admin';
-const adminPassword = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? 'admin';
+const adminUsername =
+  process.env.KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME ?? process.env.KEYCLOAK_ADMIN_USERNAME ?? 'admin';
+const adminPassword =
+  process.env.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? process.env.KEYCLOAK_ADMIN_PASSWORD ?? 'admin';
+export const dphoneTemplateClientId = process.env.DPHONE_EMBED_TEMPLATE_CLIENT ?? 'agent-desktop';
 export const dphoneOrigin = (process.env.DPHONE_EMBED_ORIGIN ?? 'http://localhost:3000').replace(
   /\/$/,
   '',
@@ -90,8 +93,10 @@ export function dphoneEmbeddedClient(template, origin = dphoneOrigin) {
 export async function setupDphoneEmbedded() {
   const token = await adminToken();
   const clients = await request(`${realmPath}/clients`, { token });
-  const template = clients.find((client) => client.clientId === 'agent-desktop');
-  if (!template) throw new Error('ไม่พบ client agent-desktop ที่ใช้เป็นต้นแบบ token contract');
+  const template = clients.find((client) => client.clientId === dphoneTemplateClientId);
+  if (!template) {
+    throw new Error(`ไม่พบ client ${dphoneTemplateClientId} ที่ใช้เป็นต้นแบบ token contract`);
+  }
   const representation = dphoneEmbeddedClient(template);
 
   let client = clients.find((candidate) => candidate.clientId === DPHONE_EMBEDDED_CLIENT);
@@ -101,7 +106,7 @@ export async function setupDphoneEmbedded() {
       token,
       body: { ...client, ...representation, protocolMappers: undefined },
     });
-    // mapper: ลบของเดิมแล้วสร้างใหม่จากต้นแบบ — กัน drift จาก agent-desktop
+    // mapper: ลบของเดิมแล้วสร้างใหม่จากต้นแบบ — กัน drift จาก template client
     for (const mapper of client.protocolMappers ?? []) {
       await request(`${realmPath}/clients/${client.id}/protocol-mappers/models/${mapper.id}`, {
         method: 'DELETE',
@@ -120,7 +125,7 @@ export async function setupDphoneEmbedded() {
     [client] = await request(`${realmPath}/clients?clientId=${DPHONE_EMBEDDED_CLIENT}`, { token });
   }
 
-  // client scope ชุดเดียวกับ agent-desktop (default + optional)
+  // client scope ชุดเดียวกับ template client (default + optional)
   for (const kind of ['default-client-scopes', 'optional-client-scopes']) {
     const wanted = await request(`${realmPath}/clients/${template.id}/${kind}`, { token });
     const current = await request(`${realmPath}/clients/${client.id}/${kind}`, { token });

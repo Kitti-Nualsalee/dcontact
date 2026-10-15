@@ -174,8 +174,48 @@ test('role และ plan ต่างกันได้รายการต่
     path: '/?view=journeys',
   });
 
+  // #651: พื้นที่งานบน rail + เมนูย่อย — คัดตาม role/plan ที่ server และพื้นที่ว่างไม่ถูกส่ง
+  assert.deepEqual(journeyAdmin.json.areas, [
+    {
+      id: 'workspace',
+      labelKey: 'navigation.areas.workspace',
+      sections: [
+        {
+          id: 'work',
+          labelKey: 'navigation.sections.work',
+          items: [{ appId: 'agent-workspace' }],
+        },
+      ],
+    },
+    {
+      id: 'supervisor',
+      labelKey: 'navigation.areas.supervisor',
+      sections: [
+        {
+          id: 'live',
+          labelKey: 'navigation.sections.live',
+          items: [{ appId: 'supervisor-workspace' }],
+        },
+      ],
+    },
+    {
+      id: 'journeys',
+      labelKey: 'navigation.areas.journeys',
+      sections: [
+        { id: 'work', labelKey: 'navigation.sections.work', items: [{ appId: 'journeys' }] },
+      ],
+    },
+  ]);
+  assert.ok(!journeyAdmin.text.includes('navigation.areas.governance'));
+  assert.ok(!journeyAdmin.text.includes('navigation.areas.integrations'));
+
   const journeyAgent = await navigation('journey-agent');
   assert.deepEqual(appIds(journeyAgent.json), ['agent-workspace']);
+  assert.deepEqual(
+    journeyAgent.json.areas.map((area: { id: string }) => area.id),
+    ['workspace'],
+    'agent เห็นพื้นที่เดียว ไม่มีพื้นที่ว่าง',
+  );
   for (const hidden of ['supervisor-workspace', 'journeys', 'contact-governance']) {
     assert.ok(!journeyAgent.text.includes(hidden), `agent ต้องไม่เห็น ${hidden}`);
   }

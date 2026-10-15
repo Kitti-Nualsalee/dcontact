@@ -1,0 +1,162 @@
+/* AC5 (#598): บัญชีของฉัน / นโยบายบัญชี — token ของ D1 เท่านั้น */
+.account {
+  display: grid;
+  gap: var(--dc-space-6);
+  max-inline-size: 760px;
+  padding: var(--dc-space-6);
+  color: var(--dc-text-primary);
+}
+
+.account__header h1 {
+  margin: 0 0 var(--dc-space-2);
+}
+
+.account__section {
+  display: grid;
+  gap: var(--dc-space-4);
+  padding: var(--dc-space-6);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-raised);
+}
+
+.account__section h2 {
+  margin: 0;
+  font-size: var(--dc-text-lg);
+}
+
+.account__subheading {
+  margin: 0;
+  font-size: var(--dc-text-base);
+}
+
+.account__form {
+  display: grid;
+  gap: var(--dc-space-4);
+}
+
+.account__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--dc-space-4);
+}
+
+.account__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--dc-space-2) var(--dc-space-4);
+  margin: 0;
+}
+
+.account__facts dt {
+  color: var(--dc-text-secondary);
+}
+
+.account__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.account__hint,
+.account__muted {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.account__callout {
+  display: grid;
+  gap: var(--dc-space-3);
+  justify-items: start;
+  margin: 0;
+  padding: var(--dc-space-4);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-sunken);
+}
+
+.account__callout p {
+  margin: 0;
+}
+
+.account__callout--critical,
+.account__error {
+  border-color: var(--dc-critical-border);
+  background: var(--dc-critical-bg-subtle);
+  color: var(--dc-critical-fg-strong);
+}
+
+.account__error {
+  margin: 0;
+  padding: var(--dc-space-3) var(--dc-space-4);
+  border: 1px solid var(--dc-critical-border);
+  border-radius: var(--dc-radius-md);
+}
+
+.account__error p,
+.account__error ul {
+  margin: 0;
+}
+
+.account__error ul {
+  padding-inline-start: var(--dc-space-6);
+}
+
+.account__devices {
+  display: grid;
+  gap: var(--dc-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.account__device {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--dc-space-3) var(--dc-space-4);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-md);
+}
+
+.account__enrol {
+  display: grid;
+  gap: var(--dc-space-3);
+}
+
+.account__enrol p {
+  margin: 0;
+}
+
+/* QR ต้องเข้มบนพื้นสว่างเสมอ (กล้องอ่านไม่ได้ถ้ากลับสี) — ถ้าเพิ่มธีมมืดต้องคงพื้นสว่างไว้ */
+.account__qr {
+  inline-size: 200px;
+  block-size: 200px;
+  justify-self: center;
+}
+
+.account__qr-light {
+  fill: var(--dc-surface-raised);
+}
+
+.account__qr-dark {
+  fill: var(--dc-text-primary);
+}
+
+.account__secret {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-2);
+  align-items: center;
+}
+
+.account__secret code {
+  padding: var(--dc-space-2) var(--dc-space-3);
+  border-radius: var(--dc-radius-sm);
+  background: var(--dc-surface-sunken);
+  font-family: var(--dc-font-numeric);
+  letter-spacing: 0.05em;
+  overflow-wrap: anywhere;
+}

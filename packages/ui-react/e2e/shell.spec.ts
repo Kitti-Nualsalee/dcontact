@@ -198,7 +198,7 @@ for (const lang of ['th', 'en'] as const) {
     await userTrigger(page).click();
     await expect(page.getByRole('menu')).toBeVisible();
     expect(await seriousViolations(page)).toEqual([]);
-    await page.getByRole('menuitem').click();
+    await page.getByRole('menuitem', { name: /ออกจากระบบ|Sign out/ }).click();
     await expect(page.getByRole('alertdialog')).toBeVisible();
     expect(await seriousViolations(page)).toEqual([]);
   });
@@ -219,6 +219,13 @@ test('เมนูผู้ใช้: keyboard เปิดด้วย Enter, �
     /สมชาย ใจดี.*somchai@demo\.example.*องค์กร demo.*หัวหน้างาน.*เอเจนต์/,
   );
   await expect(page.getByText('offline_access')).toHaveCount(0);
+  // AC5 (#598): "บัญชีของฉัน" มาก่อน "ออกจากระบบ" และชี้หน้าของ D-Contact (แท็บใหม่แบบ Workspace)
+  const account = page.getByRole('menuitem', { name: 'บัญชีของฉัน' });
+  await expect(account).toBeFocused();
+  await expect(account).toHaveAttribute('href', 'https://console.demo.example/?view=account');
+  await expect(account).toHaveAttribute('target', '_blank');
+  await expect(account).toHaveAttribute('rel', 'noopener noreferrer');
+  await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('menuitem', { name: 'ออกจากระบบ' })).toBeFocused();
   // #588 D3: ไม่มีลิงก์หรือข้อความที่อ้างถึง Keycloak
   await expect(page.locator('[data-trigger=MenuTrigger]').getByRole('link')).toHaveCount(0);
@@ -245,6 +252,7 @@ test('เมนูผู้ใช้: ระหว่างมีสายถา
   const trigger = userTrigger(page);
   await trigger.focus();
   await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowDown'); // AC5 (#598): ข้าม "บัญชีของฉัน"
   await page.keyboard.press('Enter'); // เลือก "ออกจากระบบ"
   const dialog = page.getByRole('alertdialog', { name: 'ออกจากระบบระหว่างมีสาย?' });
   await expect(dialog).toBeVisible();

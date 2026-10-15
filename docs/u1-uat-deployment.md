@@ -372,9 +372,17 @@ login ครั้งแรก ผู้ทดสอบต้องเปลี�
 Console client (`dcontact-uat-console`) เป็น public client + PKCE S256 และรับ redirect URI เดียว
 `https://<UAT_HOST>/?tenant=<UAT_TENANT_SLUG>`
 
+session ของ realm UAT (#645): ไม่ใช้งานได้นาน 8 ชั่วโมง (`ssoSessionIdleTimeout`) และอยู่ได้สูงสุด 10 ชั่วโมง
+(`ssoSessionMaxLifespan`) — ผู้ทดสอบกรอก OTP ราววันละครั้ง ส่วน access token ยังมีอายุ 5 นาที
+- ห้ามตั้ง max เกิน 36000: `platform-console` ใช้ max age ของ AMR เท่ากันนี้ ถ้าเกิน token จะไม่มี `pwd`/`otp`
+  แล้ว platform-api ตอบ `MFA_REQUIRED` (`UAT-S08` ตรวจให้)
+
 realm ไม่ถูก import ตอนบูต Keycloak: ขั้น `keycloak` ของ workflow รัน
 `u1-uat-keycloak-users.mjs --config` ซึ่ง render `${env.*}` ของ template (ขาดค่า = หยุด) แล้วสร้าง realm
 หรือ reconcile client/OTP/Organization/user profile ทุกครั้ง และคืน `realmConfigDigest`
+- browser flow และค่า session ของ realm มีเจ้าของเดียวคือขั้นนี้ (#645): Platform overlay บน VM2 รัน account setup
+  ด้วย `--keep-realm-browser-flow` จึงไม่ผูก `dcontact-browser` ทับ (`UAT-S24`)
+- reconcile Organization รวม attribute เดิมไว้ จึงไม่ลบ `dc_mfa_required` ที่ API sync (ADR-033 ข้อ 6)
 
 ## 7. Deploy
 
@@ -686,3 +694,5 @@ ID ดิบ, audit ต่อการอ่าน, tenant อื่นไม่
 - live readiness UAT-L08: หน้าของ realm (client ที่ไม่มีอยู่ → หน้า error) render ด้วย theme `dcontact`
   และ `dcontact.css` / `tokens.css` โหลดได้ผ่าน proxy
 - rollback (Console/api) ไม่แตะ Keycloak — theme ของ release ล่าสุดยังอยู่
+- **AC6 (#599):** `--config` ตามด้วย `keycloak-branding-setup.mjs` (displayName "D-Contact", account theme, `baseUrl` ของ `account`/`account-console` = `https://${UAT_HOST}/`,
+  ซ่อน attribute ภายในจากผู้ใช้) และ cookie ของ realm `dcontact` ใช้ชื่อ `DC_*` — รายละเอียดและรายการตรวจตอน upgrade Keycloak ใน ADR-033 ข้อ 8

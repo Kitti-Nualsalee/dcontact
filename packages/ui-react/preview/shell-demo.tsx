@@ -189,6 +189,8 @@ export function ShellDemo() {
           <UserMenu
             user={demoUser}
             onSignOut={recordSignOut}
+            // AC5 (#598): แบบเดียวกับ Workspace — เปิดหน้าบัญชีของ Console ในแท็บใหม่
+            accountLink={{ href: 'https://console.demo.example/?view=account', newTab: true }}
             signOutConfirm={
               confirmSignOut
                 ? {

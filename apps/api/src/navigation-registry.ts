@@ -24,24 +24,70 @@ export const NAVIGATION_GROUPS = [
 ] as const;
 export type NavigationGroupId = (typeof NAVIGATION_GROUPS)[number];
 
+/**
+ * #651: พื้นที่งานบน rail (ลำดับ = ลำดับบน rail, ตาม `mockups/assets/app.js` RAIL)
+ * พื้นที่ที่ไม่มีรายการที่ผู้ใช้เห็นจะไม่ถูกส่งไป browser — เพิ่มหน้าใหม่ = เพิ่มแถวใน `NAVIGATION_APPS` ที่ระบุ area/section
+ * พร้อมข้อความ `navigation.areas.<id>` / `navigation.sections.<id>` ของ Console และ Workspace
+ */
+export const NAVIGATION_AREAS = [
+  'home',
+  'workspace',
+  'supervisor',
+  'outbound',
+  'journeys',
+  'governance',
+  'cases',
+  'routing',
+  'ai',
+  'people',
+  'wfm',
+  'qm',
+  'analytics',
+  'integrations',
+  'history',
+  'reports',
+] as const;
+export type NavigationAreaId = (typeof NAVIGATION_AREAS)[number];
+
 export type NavigationHostApp = 'console' | 'workspace';
+
+/**
+ * #658: หน้าย่อยของแอป (เช่น แท็บของ Governance) — แสดงเป็นรายการในเมนูย่อยแทนแท็บในหน้า
+ * ไม่ใช่แอปแยก: ปักหมุด/launcher ยังเป็นระดับแอป และสิทธิ์การมองเห็นเท่ากับแอป (API ปลายทาง authorize เองทุก request)
+ */
+export interface NavigationPageDefinition {
+  /** id ภายในแอป (a-z, ขีดกลาง) */
+  id: string;
+  /** key ใน catalog ของ shell */
+  labelKey: string;
+  /** path ภายใน host app ของแอป — ห้ามมี PII */
+  path: string;
+}
 
 export interface NavigationAppDefinition {
   id: string;
   group: NavigationGroupId;
   /** key ใน catalog ของ shell (D1.13) */
   labelKey: string;
+  /** #651: พื้นที่งานบน rail ที่รายการนี้อยู่ */
+  area: NavigationAreaId;
+  /** #651: กลุ่มย่อยในเมนูย่อยของ area — id เป็น key ของ `navigation.sections.<id>` (a-z, ขีดกลาง) */
+  section: string;
   hostApp: NavigationHostApp;
   /** path ภายใน host app — ห้ามมี PII; ลิงก์ข้าม host app เปิดแท็บใหม่ (ADR-026 ข้อ 3) */
   path: string;
   /** realm role อย่างน้อยหนึ่งตัว — เป็นแค่การมองเห็น API ปลายทางยัง authorize เองทุก request */
   roles: readonly string[];
   entitlement?: string;
+  /** #658: หน้าย่อยในเมนูย่อย (ตามลำดับ); ไม่ระบุ = รายการเดียวของแอป */
+  pages?: readonly NavigationPageDefinition[];
 }
 
 export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
   {
     id: 'agent-workspace',
+    area: 'workspace',
+    section: 'work',
     group: 'live',
     labelKey: 'navigation.apps.agentWorkspace',
     hostApp: 'workspace',
@@ -50,6 +96,8 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
   },
   {
     id: 'supervisor-workspace',
+    area: 'supervisor',
+    section: 'live',
     group: 'live',
     labelKey: 'navigation.apps.supervisorWorkspace',
     hostApp: 'workspace',
@@ -58,6 +106,8 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
   },
   {
     id: 'journeys',
+    area: 'journeys',
+    section: 'work',
     group: 'automation',
     labelKey: 'navigation.apps.journeys',
     hostApp: 'console',
@@ -67,17 +117,44 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
   },
   {
     id: 'contact-governance',
+    area: 'governance',
+    section: 'work',
     group: 'quality',
     labelKey: 'navigation.apps.contactGovernance',
     hostApp: 'console',
     path: '/?view=governance',
     roles: ['supervisor', 'admin', 'compliance'],
     entitlement: 'module_contact_governance',
+    // #658: แท็บของหน้า Governance → รายการในเมนูย่อย (path ตรงกับ `parseGovernanceLocation`)
+    pages: [
+      {
+        id: 'overview',
+        labelKey: 'navigation.pages.contactGovernance.overview',
+        path: '/?view=governance&section=overview',
+      },
+      {
+        id: 'exceptions',
+        labelKey: 'navigation.pages.contactGovernance.exceptions',
+        path: '/?view=governance&section=exceptions',
+      },
+      {
+        id: 'policies',
+        labelKey: 'navigation.pages.contactGovernance.policies',
+        path: '/?view=governance&section=policies',
+      },
+      {
+        id: 'audit',
+        labelKey: 'navigation.pages.contactGovernance.audit',
+        path: '/?view=governance&section=audit',
+      },
+    ],
   },
   {
     // E1.11 (#485): allowlist ของ origin ที่ฝัง dphone — ADMIN แก้, SUPERVISOR ดู
     // launcher ซ่อนเมื่อไม่มี `modules.api.cti`; เปิด URL ตรงเห็นหน้าล็อกพร้อมข้อความเรื่อง plan
     id: 'dphone-embedding',
+    area: 'integrations',
+    section: 'embedding',
     group: 'settings',
     labelKey: 'navigation.apps.dphoneEmbedding',
     hostApp: 'console',
@@ -86,6 +163,42 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     entitlement: 'module_api_cti',
   },
 ]);
+
+export interface NavigationAreaItemView {
+  appId: string;
+  /** #658: ส่งเฉพาะแอปที่มีหน้าย่อย — client รุ่นเก่าเห็นรายการเดียวตาม `appId` */
+  pages?: NavigationPageDefinition[];
+}
+
+export interface NavigationAreaView {
+  id: NavigationAreaId;
+  sections: { id: string; items: NavigationAreaItemView[] }[];
+}
+
+/**
+ * #651: พื้นที่/กลุ่มย่อย/รายการเมนูจากแอปที่ผู้ใช้มองเห็นแล้วเท่านั้น
+ * ลำดับพื้นที่ตาม `NAVIGATION_AREAS`; กลุ่มย่อยและรายการตามลำดับของ registry; พื้นที่ว่างไม่ถูกส่ง
+ */
+export function visibleAreas(visible: readonly NavigationAppDefinition[]): NavigationAreaView[] {
+  return NAVIGATION_AREAS.flatMap((areaId) => {
+    const sections: NavigationAreaView['sections'] = [];
+    for (const app of visible) {
+      if (app.area !== areaId) continue;
+      let section = sections.find((candidate) => candidate.id === app.section);
+      if (!section) {
+        section = { id: app.section, items: [] };
+        sections.push(section);
+      }
+      section.items.push({
+        appId: app.id,
+        ...(app.pages && app.pages.length > 0
+          ? { pages: app.pages.map((page) => ({ ...page })) }
+          : {}),
+      });
+    }
+    return sections.length > 0 ? [{ id: areaId, sections }] : [];
+  });
+}
 
 /** `null` = tenant ไม่มี plan binding */
 export type EffectiveEntitlements = Readonly<Record<string, unknown>> | null;

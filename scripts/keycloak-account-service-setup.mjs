@@ -25,6 +25,9 @@ import { resolve } from 'node:path';
  * - ผูกเป็น browser flow ของ realm — `platform-console` มี flow ของตัวเอง (keycloak-platform-setup.mjs) จึงไม่กระทบ
  * - ประเมินตอน login เท่านั้น: เปิดบังคับแล้วมีผล login ครั้งถัดไป ไม่ตัด session ที่ใช้อยู่ (#589 D10)
  *
+ * `--keep-realm-browser-flow` (#645): ตั้ง flow ครบแต่ไม่ผูกกับ realm — UAT ใช้ flow ของ realm template
+ * (`uat browser password otp` ที่ `u1-uat-keycloak-users.mjs --config` ตั้ง) เป็นเจ้าของเดียว
+ *
  * `--verify` ตรวจด้วย token ของ service account จริง: แก้ผู้ใช้ tenant ได้, แตะผู้ใช้ที่ถูกป้องกันไม่ได้,
  * อ่าน client ของ realm ไม่ได้, เรียก extension `dc-account` ได้ (token อื่น = 403) และ flow ถูกตั้งครบ
  */
@@ -296,7 +299,7 @@ async function setRequirement(accessToken, { position: _position, ...execution }
 }
 
 /** ตั้ง browser flow ของ tenant — idempotent (เพิ่มเฉพาะส่วนที่ยังไม่มี แล้วแก้ requirement/config ให้ตรง) */
-async function ensureTenantBrowserFlow(accessToken) {
+async function ensureTenantBrowserFlow(accessToken, { bindRealm }) {
   const flowsPath = `${realmPath}/authentication/flows`;
   const executionsPath = `${flowsPath}/${encodeURIComponent(TENANT_BROWSER_FLOW)}/executions`;
   const { body: flows } = await request(flowsPath, { token: accessToken });
@@ -390,6 +393,7 @@ async function ensureTenantBrowserFlow(accessToken) {
       body: { ...configureTotp, enabled: true },
     });
   }
+  if (!bindRealm) return;
   const { body: current } = await request(realmPath, { token: accessToken });
   if (current.browserFlow !== TENANT_BROWSER_FLOW) {
     await request(realmPath, {
@@ -401,9 +405,9 @@ async function ensureTenantBrowserFlow(accessToken) {
 }
 
 /** flow ที่ตั้งแล้วตรงกับที่ต้องการ — คืนรายการที่ผิด (ว่าง = ผ่าน) */
-export function browserFlowFailures(realmRepresentation, executions) {
+export function browserFlowFailures(realmRepresentation, executions, { bindRealm = true } = {}) {
   const failures = [];
-  if (realmRepresentation.browserFlow !== TENANT_BROWSER_FLOW) {
+  if (bindRealm && realmRepresentation.browserFlow !== TENANT_BROWSER_FLOW) {
     failures.push(`browser flow ของ realm ต้องเป็น ${TENANT_BROWSER_FLOW}`);
   }
   const { twoFactor, orgMfa } = locateBrowserSubflows(executions);
@@ -429,7 +433,7 @@ export function browserFlowFailures(realmRepresentation, executions) {
   return failures;
 }
 
-export async function setupAccountService() {
+export async function setupAccountService({ bindRealm = true } = {}) {
   const accessToken = await adminToken();
   const { body: current } = await request(realmPath, { token: accessToken });
   if (!current.adminPermissionsEnabled) {
@@ -495,13 +499,13 @@ export async function setupAccountService() {
     );
   }
 
-  await ensureTenantBrowserFlow(accessToken);
+  await ensureTenantBrowserFlow(accessToken, { bindRealm });
 
   return { protectedUsers: protectedIds.length, tenantUsers: new Set(memberIds).size };
 }
 
 /** ตรวจด้วย token ของ service account จริง — คืนรายการ check ที่ล้ม (ว่าง = ผ่าน) */
-export async function verifyAccountService() {
+export async function verifyAccountService({ bindRealm = true } = {}) {
   const accessToken = await adminToken();
   const { userIds, memberIds } = await realmUsers(accessToken);
   const protectedIds = protectedUserIds(userIds, memberIds);
@@ -573,19 +577,20 @@ export async function verifyAccountService() {
     `${realmPath}/authentication/flows/${encodeURIComponent(TENANT_BROWSER_FLOW)}/executions`,
     { token: accessToken, accept: [404] },
   );
-  failures.push(...browserFlowFailures(realmRepresentation, executions ?? []));
+  failures.push(...browserFlowFailures(realmRepresentation, executions ?? [], { bindRealm }));
   return failures;
 }
 
 if (import.meta.url === pathToFileURL(resolve(process.argv[1] ?? '')).href) {
   const verify = process.argv.includes('--verify');
+  const bindRealm = !process.argv.includes('--keep-realm-browser-flow');
   try {
     if (verify) {
-      const failures = await verifyAccountService();
+      const failures = await verifyAccountService({ bindRealm });
       if (failures.length > 0) throw new Error(failures.join('; '));
       console.log(JSON.stringify({ type: 'keycloak.account-service.verify', status: 'PASS' }));
     } else {
-      const result = await setupAccountService();
+      const result = await setupAccountService({ bindRealm });
       console.log(
         JSON.stringify({ type: 'keycloak.account-service.setup', status: 'PASS', ...result }),
       );

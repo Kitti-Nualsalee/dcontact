@@ -12,6 +12,20 @@ export function useInShell(): boolean {
   return useContext(InShellContext);
 }
 
+const PageNavContext = createContext(false);
+
+/**
+ * #658: shell วาดหน้าย่อยของแอปในเมนูย่อยแล้ว — เนื้อหาหน้าต้องไม่วาดแท็บเดียวกันซ้ำ
+ * (เมื่อเมนูย่อยไม่มีหน้าย่อย เช่น API รุ่นเก่า เนื้อหาต้องใช้แท็บของตัวเอง)
+ */
+export function useShellPageNav(): boolean {
+  return useContext(PageNavContext);
+}
+
+export function ShellPageNavProvider({ value, children }: { value: boolean; children: ReactNode }) {
+  return <PageNavContext.Provider value={value}>{children}</PageNavContext.Provider>;
+}
+
 export interface AppShellProps {
   rail: ReactNode;
   /** Console มีแผงเมนูย่อย; Workspace ไม่มี (D1.2) */

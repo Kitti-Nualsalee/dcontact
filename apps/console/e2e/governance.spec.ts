@@ -1,4 +1,8 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page, type Request } from '@playwright/test';
+
+// ข้อความของหน้า Governance มาจาก catalog ตามภาษาของผู้ใช้ (#662): ชุดหลักตรวจภาษาไทย ส่วนภาษาอังกฤษอยู่ใน describe ท้ายไฟล์
+test.use({ locale: 'th-TH' });
 
 /**
  * CG4.9 (#192): Hybrid Governance Console end-to-end
@@ -112,7 +116,80 @@ interface Mock {
   on(method: string, path: RegExp, handler: Handler): void;
 }
 
-async function mockGovernance(page: Page): Promise<Mock> {
+/**
+ * #654: Navigation API ที่ ConsoleShell เรียก — ค่าเริ่มต้น flag `ui.shell.v2` ปิด (หน้าเดิมทุกประการ);
+ * `shellV2: true` = หน้า Governance อยู่ใน shell (rail พื้นที่ + เมนูย่อย)
+ */
+const GOVERNANCE_PAGES = ['overview', 'exceptions', 'policies', 'audit'].map((id) => ({
+  id,
+  labelKey: `navigation.pages.contactGovernance.${id}`,
+  path: `/?view=governance&section=${id}`,
+}));
+
+async function mockNavigation(page: Page, shellV2: boolean, pages = false) {
+  await page.route('**/api/v1/me/navigation', (route) =>
+    route.fulfill({
+      status: 200,
+      json: {
+        groups: [
+          { id: 'live', labelKey: 'navigation.groups.live' },
+          { id: 'quality', labelKey: 'navigation.groups.quality' },
+        ],
+        apps: [
+          {
+            id: 'agent-workspace',
+            groupId: 'live',
+            labelKey: 'navigation.apps.agentWorkspace',
+            hostApp: 'workspace',
+            path: '/',
+          },
+          {
+            id: 'contact-governance',
+            groupId: 'quality',
+            labelKey: 'navigation.apps.contactGovernance',
+            hostApp: 'console',
+            path: '/?view=governance',
+          },
+        ],
+        areas: [
+          {
+            id: 'workspace',
+            labelKey: 'navigation.areas.workspace',
+            sections: [
+              {
+                id: 'work',
+                labelKey: 'navigation.sections.work',
+                items: [{ appId: 'agent-workspace' }],
+              },
+            ],
+          },
+          {
+            id: 'governance',
+            labelKey: 'navigation.areas.governance',
+            sections: [
+              {
+                id: 'work',
+                labelKey: 'navigation.sections.work',
+                items: [
+                  { appId: 'contact-governance', ...(pages ? { pages: GOVERNANCE_PAGES } : {}) },
+                ],
+              },
+            ],
+          },
+        ],
+        pins: { appIds: [], source: 'SYSTEM', revision: 0 },
+        limits: { maxPins: 15 },
+        features: { shellV2 },
+      },
+    }),
+  );
+}
+
+async function mockGovernance(
+  page: Page,
+  options: { shellV2?: boolean; pages?: boolean } = {},
+): Promise<Mock> {
+  await mockNavigation(page, options.shellV2 === true, options.pages === true);
   const handlers: Array<[string, RegExp, Handler]> = [];
   const requests: Request[] = [];
   await page.route('**/api/v1/contact-governance/**', async (route) => {
@@ -493,7 +570,8 @@ test('C: audit timeline และ safety case มาจาก canonical history'
       approvals: [
         {
           approverRef: { redacted: true, digest: '1111222233334444' },
-          decision: 'APPROVE',
+          // response ใช้ enum ของ server (`APPROVED`/`REJECTED`) — request ใช้ `APPROVE`/`REJECT` (#672)
+          decision: 'APPROVED',
           capability: 'cg.exception.approve.high',
           capabilitySource: 'DIRECT',
           directCompliance: true,
@@ -513,6 +591,43 @@ test('C: audit timeline และ safety case มาจาก canonical history'
   await expect(timeline).toContainText('✓ Checker approve');
   await expect(timeline).toContainText('ปกปิด · digest …334444');
   await expect(page.getByRole('region', { name: 'Safety case' })).toContainText('▲ HIGH');
+  expect(problems).toEqual([]);
+});
+
+test('#672: approval ที่ server บันทึกเป็น APPROVED/REJECTED แสดงถูกฝั่งและนับ approvals ถูกต้อง', async ({
+  page,
+}) => {
+  const problems = watchPage(page);
+  const mock = await mockGovernance(page);
+  exceptionRoutes(mock);
+  const approval = (decision: string, digest: string) => ({
+    approverRef: { redacted: true, digest },
+    decision,
+    capability: 'cg.exception.approve.high',
+    capabilitySource: 'DIRECT',
+    directCompliance: true,
+    emergencyAuthority: false,
+    authorizationEpoch: 7,
+    scopeVersion: 1,
+    decidedAt: '2026-09-15T19:10:00.000Z',
+  });
+  mock.on('GET', new RegExp(`^/exceptions/${HIGH_ID}/approvals$`), () => ({
+    body: {
+      seriesId: HIGH_ID,
+      revision: 1,
+      approvals: [
+        approval('APPROVED', '1111222233334444'),
+        approval('REJECTED', '5555666677778888'),
+      ],
+    },
+  }));
+
+  await page.goto(workspaceUrl());
+  const checker = page.getByRole('complementary', { name: 'Maker–Checker' });
+  await expect(checker).toContainText('Approvals ที่บันทึกแล้ว 1');
+  const list = checker.getByRole('list');
+  await expect(list.getByRole('listitem').nth(0)).toContainText('✓ APPROVE');
+  await expect(list.getByRole('listitem').nth(1)).toContainText('✕ REJECT');
   expect(problems).toEqual([]);
 });
 
@@ -741,4 +856,246 @@ test('CG5-UX01: ตัวกรอง alert ส่งไปที่ API จร�
   expect(alertQueries.some((search) => search.includes('severity=CRITICAL'))).toBe(true);
   expect(alertQueries.some((search) => search.includes('state=SUPPRESSED'))).toBe(true);
   expect(problems).toEqual([]);
+});
+
+/**
+ * #654: หน้า Governance ใน ConsoleShell (flag `ui.shell.v2` เปิด) — rail พื้นที่ Governance เป็นปัจจุบัน,
+ * ไม่วาด chrome ซ้ำ (header/skip link/`<main>` ซ้อน) และการใช้งานภายในหน้าเหมือนเดิม
+ */
+test('#654: flag เปิด → Governance อยู่ใน shell: rail พื้นที่ปัจจุบัน, มี main เดียว, ไม่มี header ซ้ำ', async ({
+  page,
+}) => {
+  const problems = watchPage(page);
+  const mock = await mockGovernance(page, { shellV2: true });
+  exceptionRoutes(mock);
+  await page.goto(workspaceUrl());
+
+  const rail = page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ });
+  await expect(rail).toBeVisible();
+  await expect(rail.locator('a[aria-current=page]')).toHaveAttribute('data-area', 'governance');
+  // API ที่ยังไม่ส่ง `pages` (#658): เมนูย่อยของ shell มีรายการเดียว และแท็บภายในหน้ายังอยู่ครบ
+  await expect(page.getByRole('navigation', { name: 'Governance', exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Contact Governance' })).toBeVisible();
+  // landmark: main เดียว (ของ shell), หน้าไม่วาด header/skip link ของตัวเอง
+  await expect(page.locator('main')).toHaveCount(1);
+  await expect(page.locator('.gov-header')).toHaveCount(0);
+  await expect(page.locator('.gov-skip')).toHaveCount(0);
+  await expect(page.getByText('มุมมอง: Compliance · evidence')).toBeVisible();
+  await expect(page.locator('#gov-main')).toBeAttached();
+
+  // ใช้งานภายในหน้าเหมือนเดิม: สลับแท็บแล้ว URL/เนื้อหาเปลี่ยน และ focus ไปเนื้อหาใหม่
+  await page.getByRole('button', { name: 'Audit' }).click();
+  await expect(page).toHaveURL(/section=audit/);
+  await expect(page.locator('#gov-main')).toBeFocused();
+
+  const axe = await new AxeBuilder({ page }).include('nav').include('header').analyze();
+  expect(
+    axe.violations
+      .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+      .map((v) => v.id),
+  ).toEqual([]);
+  expect(problems).toEqual([]);
+});
+
+test('#654: flag ปิด → Governance เป็นหน้าเดิม (header, skip link และ main ของตัวเอง ไม่มี rail)', async ({
+  page,
+}) => {
+  const mock = await mockGovernance(page, { shellV2: false });
+  exceptionRoutes(mock);
+  await page.goto(workspaceUrl());
+  await expect(page.locator('.gov-header')).toBeVisible();
+  await expect(page.locator('main#gov-main')).toHaveCount(1);
+  await expect(page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ })).toHaveCount(0);
+});
+
+test.describe('เมนูย่อยของ shell และเนื้อหาภาษาอังกฤษ (#658, #662)', () => {
+  test.use({ locale: 'en-US' });
+
+  /**
+   * #658: แท็บของ Governance เป็นรายการในเมนูย่อยของ shell (server ส่ง `pages`) —
+   * ไฮไลต์ตามหน้า เปลี่ยนหน้าแบบไม่โหลดใหม่ และ back/forward ถูกต้อง
+   */
+  test('#658: flag เปิด + pages → เมนูย่อย 4 รายการแทนแท็บในหน้า ไฮไลต์ถูกหน้า เปลี่ยนหน้าไม่โหลดใหม่', async ({
+    page,
+  }) => {
+    const problems = watchPage(page);
+    const mock = await mockGovernance(page, { shellV2: true, pages: true });
+    exceptionRoutes(mock);
+    await page.goto('/?view=governance&section=overview&viewer=COMPLIANCE');
+
+    const subNav = page.getByRole('navigation', { name: 'Governance', exact: true });
+    await expect(subNav.getByRole('link')).toHaveText([
+      'Overview',
+      'Exceptions',
+      'Policies',
+      'Audit',
+    ]);
+    await expect(subNav.locator('a[aria-current=page]')).toHaveText('Overview');
+    // แท็บเดิมในหน้าไม่ถูกวาดซ้ำ
+    await expect(page.getByRole('navigation', { name: 'Contact Governance' })).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Policies & Exceptions' })).toHaveCount(0);
+    // breadcrumb บอกหน้าปัจจุบัน
+    await expect(
+      page.getByRole('navigation', { name: /ตำแหน่งปัจจุบัน|Current location/ }),
+    ).toContainText('Overview');
+
+    // กดเมนูย่อย = เปลี่ยนหน้าในที่เดิม (document เดิม ไม่ reload), URL และ focus ตาม
+    await page.evaluate(() => {
+      (window as unknown as { __doc: number }).__doc = 1;
+    });
+    await subNav.getByRole('link', { name: 'Audit' }).click();
+    await expect(page).toHaveURL(/section=audit/);
+    await expect(subNav.locator('a[aria-current=page]')).toHaveText('Audit');
+    await expect(page.locator('#gov-main')).toBeFocused();
+    expect(await page.evaluate(() => (window as unknown as { __doc?: number }).__doc)).toBe(1);
+
+    await subNav.getByRole('link', { name: 'Exceptions' }).click();
+    await expect(subNav.locator('a[aria-current=page]')).toHaveText('Exceptions');
+
+    // ปุ่มย้อนกลับ: เมนูตามเนื้อหา
+    await page.goBack();
+    await expect(subNav.locator('a[aria-current=page]')).toHaveText('Audit');
+    await page.goBack();
+    await expect(subNav.locator('a[aria-current=page]')).toHaveText('Overview');
+
+    // ลิงก์ยังเป็น href จริง (เปิดแท็บใหม่/คัดลอกลิงก์ได้)
+    await expect(subNav.getByRole('link', { name: 'Policies' })).toHaveAttribute(
+      'href',
+      '/?view=governance&section=policies',
+    );
+    expect(problems).toEqual([]);
+  });
+
+  test('#658: เปิดตรงที่ section=policies → เมนูไฮไลต์ Policies และ rail ยังเป็นพื้นที่ Governance', async ({
+    page,
+  }) => {
+    const mock = await mockGovernance(page, { shellV2: true, pages: true });
+    exceptionRoutes(mock);
+    await page.goto('/?view=governance&section=policies&viewer=COMPLIANCE');
+    const subNav = page.getByRole('navigation', { name: 'Governance', exact: true });
+    await expect(subNav.locator('a[aria-current=page]')).toHaveText('Policies');
+    const rail = page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ });
+    await expect(rail.locator('a[aria-current=page]')).toHaveAttribute('data-area', 'governance');
+  });
+
+  test('#658: flag ปิด → ยังเป็นแท็บเดิมในหน้า แม้ server ส่ง pages', async ({ page }) => {
+    const mock = await mockGovernance(page, { shellV2: false, pages: true });
+    exceptionRoutes(mock);
+    await page.goto(workspaceUrl());
+    await expect(page.getByRole('navigation', { name: 'Contact Governance' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ })).toHaveCount(0);
+  });
+
+  /**
+   * #662: ข้อความทั้งหน้ามาจาก catalog — ภาษาอังกฤษต้องไม่เหลืออักษรไทย (ยกเว้นข้อมูลจริงจาก API ซึ่งชุดนี้ไม่มี)
+   */
+  const THAI = /[\u0E00-\u0E7F]/;
+  async function expectNoThai(page: Page) {
+    // เนื้อหาของหน้า Governance เท่านั้น — ชื่อผู้ใช้ใน e2e harness เป็นไทย (ไม่ใช่ข้อความของหน้านี้)
+    expect(await page.locator('#gov-main').innerText()).not.toMatch(THAI);
+  }
+
+  test('#662: ภาษาอังกฤษ — overview และ CG5 dashboard', async ({ page }) => {
+    const problems = watchPage(page);
+    const mock = await mockGovernance(page, { shellV2: true, pages: true });
+    exceptionRoutes(mock);
+    await page.goto('/?view=governance&section=overview&viewer=COMPLIANCE');
+    await expect(page.getByRole('heading', { name: 'Active kill switches' })).toBeVisible();
+    await expect(page.getByText('No active kill switches')).toBeVisible();
+    await expect(page.getByText('Data freshness').first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Compliance export' })).toBeVisible();
+    await expect(page.getByText('Development Complete ≠ Release Enabled')).toContainText(
+      'approving or publishing in the Console does not enable provider traffic',
+    );
+    await expect(page.getByLabel('ID type')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Order export' })).toBeDisabled();
+    await expectNoThai(page);
+    expect(problems).toEqual([]);
+  });
+
+  test('#662: ภาษาอังกฤษ — Exceptions: คิว, dialog, ข้อความผลคำสั่ง และ recovery', async ({
+    page,
+  }) => {
+    const problems = watchPage(page);
+    const mock = await mockGovernance(page);
+    exceptionRoutes(mock);
+    mock.on('POST', new RegExp(`^/exceptions/${HIGH_ID}/approvals$`), () => ({
+      body: {
+        seriesId: HIGH_ID,
+        revision: 1,
+        quorum: { status: 'PENDING', required: 2, current: 1 },
+      },
+    }));
+    await page.goto(workspaceUrl());
+    await expect(page.getByRole('complementary', { name: 'Exception queue' })).toBeVisible();
+    await expect(page.getByText('🔒 Guardrails that cannot be overridden')).toBeVisible();
+    await expectNoThai(page);
+
+    await page.getByRole('button', { name: 'Approve as checker' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Confirm Approve' });
+    await expect(dialog).toContainText('the server rejects the command if anything changes');
+    await dialog.getByLabel('Evidence reference').fill('TICKET-SYN-77');
+    await dialog.getByRole('button', { name: 'Confirm Approve' }).click();
+    await expect(page.getByRole('status')).toContainText(
+      'Approval recorded (quorum 1/2) — not yet ALLOW and not yet Activate',
+    );
+    await expectNoThai(page);
+    expect(problems).toEqual([]);
+  });
+
+  test('#662: ภาษาอังกฤษ — recovery ของ version conflict', async ({ page }) => {
+    const problems = watchPage(page, { allowHttpErrors: true });
+    const mock = await mockGovernance(page);
+    exceptionRoutes(mock);
+    mock.on('POST', new RegExp(`^/exceptions/${HIGH_ID}/approvals$`), () => ({
+      status: 409,
+      body: { code: 'VERSION_CONFLICT', expectedVersion: 4, actualVersion: 6 },
+    }));
+    await page.goto(workspaceUrl());
+    await page.getByRole('button', { name: 'Approve as checker' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Confirm Approve' });
+    await dialog.getByLabel('Evidence reference').fill('TICKET-SYN-77');
+    await dialog.getByRole('button', { name: 'Confirm Approve' }).click();
+    const alert = page.getByRole('alert');
+    await expect(alert).toContainText('Version conflict');
+    await expect(alert).toContainText('expected v4, now v6');
+    await expect(
+      alert.getByRole('button', { name: 'Load the latest canonical state' }),
+    ).toBeVisible();
+    await expectNoThai(page);
+    expect(problems).toEqual([]);
+  });
+
+  test('#662: ภาษาอังกฤษ — Policies studio และ Audit/safety case', async ({ page }) => {
+    const problems = watchPage(page);
+    const mock = await mockGovernance(page);
+    exceptionRoutes(mock, { revision: 2, workflowState: 'APPROVED', effectiveState: 'ACTIVE' });
+    policyRoutes(mock, { version: { lifecycleState: 'APPROVED' }, baseHead: 4, currentHead: 4 });
+    mock.on('GET', new RegExp(`^/exceptions/${HIGH_ID}/history$`), () => ({
+      body: { seriesId: HIGH_ID, revisions: [exception(HIGH_ID, { riskTier: 'HIGH' })] },
+    }));
+
+    await page.goto(studioUrl);
+    await expect(page.getByRole('list', { name: 'Policy steps' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Release packet' })).toBeVisible();
+    await expect(page.getByText('Changes compared with the active head')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Publish / schedule Activate' })).toBeVisible();
+    await expectNoThai(page);
+
+    await page.getByRole('button', { name: 'Publish / schedule Activate' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Confirm Publish' });
+    await expect(dialog).toContainText("Change the scope's policy head from v4");
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+    await page.goto(`/?view=governance&section=audit&seriesId=${HIGH_ID}&viewer=TENANT_ADMIN`);
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Trace · exception');
+    await expect(page.getByRole('region', { name: 'Safety case' })).toContainText(
+      'Never overridden by any exception',
+    );
+    await expect(
+      page.getByRole('button', { name: "Go to this item's approval workspace" }),
+    ).toBeVisible();
+    await expectNoThai(page);
+    expect(problems).toEqual([]);
+  });
 });

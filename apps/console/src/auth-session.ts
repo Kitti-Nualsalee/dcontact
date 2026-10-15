@@ -1,6 +1,7 @@
 import { InMemoryWebStorage, WebStorageStateStore, type UserManagerSettings } from 'oidc-client-ts';
 
 const CONSOLE_RETURN_URL_KEY = 'dcontact.console.return-url';
+const CONSOLE_SIGNED_OUT_KEY = 'dcontact.console.signed-out';
 
 export interface ConsoleOidcSettingsInput {
   issuer: string;
@@ -72,23 +73,50 @@ export function rememberConsoleReturnUrl(location: URL, storage: Storage): void 
   storage.setItem(CONSOLE_RETURN_URL_KEY, cleanConsoleCallbackUrl(new URL(location.href)));
 }
 
-export function consumeConsoleReturnUrl(callback: URL, storage: Storage): string {
-  const fallback = cleanConsoleCallbackUrl(callback);
+/**
+ * URL ปลายทางที่จำไว้ก่อนส่งไป login — ใช้ได้เฉพาะเมื่อ origin เดียวกับ callback, เป็น path ภายใน
+ * และ `tenant` ตรงกับ callback (กันค่าที่ถูกแก้ใน storage พาออกนอกระบบ/ข้าม tenant)
+ */
+function savedReturnDestination(callback: URL, storage: Storage): URL | undefined {
   const saved = storage.getItem(CONSOLE_RETURN_URL_KEY);
-  storage.removeItem(CONSOLE_RETURN_URL_KEY);
-  if (!saved || !saved.startsWith('/') || saved.startsWith('//')) return fallback;
+  if (!saved || !saved.startsWith('/') || saved.startsWith('//')) return undefined;
   try {
     const destination = new URL(saved, callback.origin);
     if (
       destination.origin !== callback.origin ||
       destination.searchParams.get('tenant') !== callback.searchParams.get('tenant')
     ) {
-      return fallback;
+      return undefined;
     }
-    return cleanConsoleCallbackUrl(destination);
+    return destination;
   } catch {
-    return fallback;
+    return undefined;
   }
+}
+
+export function consumeConsoleReturnUrl(callback: URL, storage: Storage): string {
+  const destination = savedReturnDestination(callback, storage);
+  storage.removeItem(CONSOLE_RETURN_URL_KEY);
+  return cleanConsoleCallbackUrl(destination ?? callback);
+}
+
+/** URL ที่ Keycloak redirect กลับมา: มี `state` และ `code` (สำเร็จ) หรือ `error` (ถูกปฏิเสธ) */
+export function isOidcCallback(location: URL): boolean {
+  return (
+    location.searchParams.has('state') &&
+    (location.searchParams.has('code') || location.searchParams.has('error'))
+  );
+}
+
+/**
+ * #676: `redirect_uri` คือ `/?tenant=<alias>` จึงไม่บอกว่าจะเปิดหน้าไหน — ตอน render แรกบน callback
+ * ต้องเลือก view/context จาก URL ปลายทางที่จำไว้ (อ่านโดยไม่ลบ ให้ `onSigninCallback` เป็นผู้ใช้/ลบ)
+ * ไม่งั้นหน้าถูกเลือกไม่ได้ → ไม่ mount `AuthProvider` → ไม่มีใครแลก `code` เป็น token
+ * URL ที่ไม่ใช่ callback ไม่ถูกแย่งด้วยค่าที่ค้างใน storage
+ */
+export function resolveConsoleLocation(location: URL, storage: Storage): URL {
+  if (!isOidcCallback(location)) return location;
+  return savedReturnDestination(location, storage) ?? location;
 }
 
 export function consumeConsoleReturnLocation(
@@ -98,6 +126,30 @@ export function consumeConsoleReturnLocation(
 ): { url: string; view: string | null } {
   const url = consumeConsoleReturnUrl(callback, storage);
   return { url, view: resolveConsoleView(new URL(url, callback.origin), defaultView) };
+}
+
+/**
+ * #677: ก่อน sign-out จำหน้าปัจจุบันและทำเครื่องหมายว่าออกจากระบบเอง — `post_logout_redirect_uri`
+ * คือ `/?tenant=<alias>` (ไม่มี view/context) จึงต้องรู้จากเครื่องหมายนี้ว่าควรแสดงหน้า "ออกจากระบบแล้ว"
+ * แทนหน้า error และเมื่อเข้าสู่ระบบอีกครั้ง callback จะพากลับหน้าเดิมด้วย URL ที่จำไว้ (#676)
+ */
+export function rememberConsoleSignOut(location: URL, storage: Storage): void {
+  rememberConsoleReturnUrl(location, storage);
+  storage.setItem(CONSOLE_SIGNED_OUT_KEY, '1');
+}
+
+export function clearConsoleSignOut(storage: Storage): void {
+  storage.removeItem(CONSOLE_SIGNED_OUT_KEY);
+}
+
+/** หน้าที่ Keycloak พากลับมาหลัง sign-out: มีเครื่องหมาย, ไม่ใช่ callback และไม่ได้ระบุหน้า (view/context) */
+export function isConsoleSignedOutLanding(location: URL, storage: Storage): boolean {
+  return (
+    storage.getItem(CONSOLE_SIGNED_OUT_KEY) === '1' &&
+    !isOidcCallback(location) &&
+    !location.searchParams.get('view') &&
+    !location.searchParams.get('context')?.trim()
+  );
 }
 
 export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): UserManagerSettings {
@@ -114,6 +166,11 @@ export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): User
     disablePKCE: false,
     automaticSilentRenew: true,
     monitorSession: true,
+    // R1 (#593): cookie ของ realm เปลี่ยนชื่อเป็น DC_* — iframe ของ session management ต้องเป็นตัวที่อ่านชื่อใหม่
+    // (iframe เดิมของ IdP อ่านชื่อเดิมตายตัวและ override ด้วย theme ไม่ได้)
+    metadataSeed: {
+      check_session_iframe: `${input.issuer.replace(/\/+$/, '')}/dc-account/login-status-iframe.html`,
+    },
     stateStore: new WebStorageStateStore({
       store: input.stateStorage,
       prefix: 'dcontact.console.oidc.state.',

@@ -2,8 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ConflictException,
   ForbiddenException,
   Get,
+  HttpCode,
   Headers,
   Inject,
   NotFoundException,
@@ -11,9 +13,10 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
-import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { Prisma, PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { AGENT_SIP_CREDENTIALS, type AgentSipCredentialService } from './agent-sip-credentials.js';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
+import { EmbedOriginService } from './embed-origins.js';
 
 export const AGENT_WORKSPACE_DATABASE = Symbol('AGENT_WORKSPACE_DATABASE');
 
@@ -118,6 +121,96 @@ export class AgentWorkspaceController {
             }
           : null,
       };
+    });
+  }
+
+  @Post('availability')
+  @HttpCode(200)
+  @GatewayRoles('agent')
+  async becomeAvailable(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Headers('x-work-session-lease-id') workSessionLeaseId: string | undefined,
+    @Body() body: { state?: unknown } | undefined,
+  ) {
+    const actor = identity(request);
+    const leaseId = requiredUuid(workSessionLeaseId ?? '', 'x-work-session-lease-id');
+    if (body?.state !== 'AVAILABLE')
+      throw new BadRequestException({ code: 'VALIDATION_FAILED', field: 'state' });
+    return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
+      await transaction.$queryRaw(Prisma.sql`
+        SELECT id FROM users WHERE tenant_id = ${actor.tenantId}::uuid
+          AND id = ${actor.userId}::uuid FOR NO KEY UPDATE
+      `);
+      const agent = await transaction.user.findFirst({
+        where: { id: actor.userId, tenantId: actor.tenantId, role: 'AGENT', isActive: true },
+        select: { id: true },
+      });
+      if (!agent) throw new NotFoundException();
+      await transaction.$queryRaw(Prisma.sql`
+        SELECT id FROM agent_work_session_leases WHERE tenant_id = ${actor.tenantId}::uuid
+          AND user_id = ${actor.userId}::uuid AND id = ${leaseId}::uuid FOR UPDATE
+      `);
+      const lease = await transaction.agentWorkSessionLease.findFirst({
+        where: {
+          id: leaseId,
+          tenantId: actor.tenantId,
+          userId: actor.userId,
+          releasedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+        select: { surface: true, hostOrigin: true },
+      });
+      if (!lease) throw new ForbiddenException({ code: 'WORK_SESSION_CHANGED' });
+      if (lease.surface === 'embedded') {
+        await transaction.$queryRaw(Prisma.sql`
+          SELECT id FROM tenant_embed_origins WHERE tenant_id = ${actor.tenantId}::uuid
+            AND origin = ${lease.hostOrigin} FOR SHARE
+        `);
+        if (
+          !lease.hostOrigin ||
+          !(await new EmbedOriginService(this.database).isEmbeddableInTransaction(
+            transaction,
+            actor.tenantId,
+            lease.hostOrigin,
+          ))
+        )
+          throw new ForbiddenException({ code: 'EMBED_ORIGIN_NOT_ALLOWED' });
+      }
+      const credential = await transaction.agentSipCredential.findFirst({
+        where: {
+          workSessionLeaseId: leaseId,
+          tenantId: actor.tenantId,
+          userId: actor.userId,
+          revokedAt: null,
+        },
+        select: { workSessionLeaseId: true },
+      });
+      if (!credential) throw new ConflictException({ code: 'AGENT_SIP_NOT_READY' });
+      const busy = await transaction.interaction.count({
+        where: {
+          tenantId: actor.tenantId,
+          agentId: actor.userId,
+          channel: 'VOICE',
+          state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
+        },
+      });
+      if (busy) throw new ConflictException({ code: 'WORK_SESSION_BUSY' });
+      const latest = await transaction.agentStateLog.findFirst({
+        where: { tenantId: actor.tenantId, userId: actor.userId },
+        orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+        select: { state: true },
+      });
+      if (latest?.state !== 'AVAILABLE')
+        await transaction.agentStateLog.create({
+          data: {
+            tenantId: actor.tenantId,
+            userId: actor.userId,
+            state: 'AVAILABLE',
+            actorUserId: actor.userId,
+            reason: 'agent_self_available',
+          },
+        });
+      return { state: 'AVAILABLE' as const };
     });
   }
 

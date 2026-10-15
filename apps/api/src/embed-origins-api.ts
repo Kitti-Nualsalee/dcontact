@@ -187,9 +187,17 @@ export function embedShellHtml(
       ? `<script type="module" nonce="${nonce}" src="${options.scriptUrl}"></script>`
       : '';
   // E1.14: build ของ embed ออก CSS คู่กับ JS (`embed/dphone-embed.css`); dev server ของ Vite inject เอง
+  let stylesheetUrl: string | undefined;
+  if (options.scriptUrl) {
+    const assetUrl = new URL(options.scriptUrl);
+    if (assetUrl.pathname.endsWith('.js')) {
+      assetUrl.pathname = assetUrl.pathname.replace(/\.js$/, '.css');
+      stylesheetUrl = assetUrl.href;
+    }
+  }
   const stylesheet =
-    options.scriptUrl?.endsWith('.js') && policy?.origins.length
-      ? `<link rel="stylesheet" href="${options.scriptUrl.replace(/\.js$/, '.css')}">`
+    stylesheetUrl && policy?.origins.length
+      ? `<link rel="stylesheet" href="${stylesheetUrl}">`
       : '';
   return `<!doctype html>
 <html lang="th">

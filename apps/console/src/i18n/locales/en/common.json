@@ -23,6 +23,37 @@
       "journeys": "Journeys",
       "contactGovernance": "Governance",
       "dphoneEmbedding": "dphone embedding"
+    },
+    "areas": {
+      "home": "Home",
+      "workspace": "Workspace",
+      "supervisor": "Supervise",
+      "outbound": "Outbound",
+      "journeys": "Journeys",
+      "governance": "Governance",
+      "cases": "Cases",
+      "routing": "Routing",
+      "ai": "AI",
+      "people": "People",
+      "wfm": "Workforce",
+      "qm": "Quality",
+      "analytics": "Analytics",
+      "integrations": "Integrations",
+      "history": "History",
+      "reports": "Reports"
+    },
+    "sections": {
+      "work": "Work",
+      "live": "Live",
+      "embedding": "Embedding"
+    },
+    "pages": {
+      "contactGovernance": {
+        "overview": "Overview",
+        "exceptions": "Exceptions",
+        "policies": "Policies",
+        "audit": "Audit"
+      }
     }
   },
   "shell": {
@@ -47,6 +78,21 @@
       "sectionWork": "Settings",
       "dphoneEmbedding": "Embed dphone"
     },
-    "signOutFailed": "Could not sign out. Please try again."
+    "signOutFailed": "Could not sign out. Please try again.",
+    "account": {
+      "eyebrow": "Personal",
+      "title": "Account",
+      "section": "Account",
+      "mine": "My account",
+      "policy": "Account policy"
+    },
+    "pinned": "Pinned"
+  },
+  "auth": {
+    "signedOut": {
+      "title": "You have signed out",
+      "detail": "You have signed out of D-Contact. Sign in again to return to the page you were using.",
+      "action": "Sign in again"
+    }
   }
 }

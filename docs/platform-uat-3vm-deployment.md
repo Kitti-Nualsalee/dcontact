@@ -52,11 +52,25 @@ bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh status <SOURCE_SHA>
 - env เดิมที่ติดตั้งก่อน #592 ต้องเพิ่มเองด้วยค่าสุ่ม 48 ตัวอักษร (`[A-Za-z0-9]`) แล้วจึงรัน `configure`
 - `configure` เปิด fine-grained admin permissions v2, ตั้ง `dcontact-account-service` และให้ provisioner ได้ `manage-organizations` (ADR-033)
 - `operator` รัน account setup ซ้ำ เพื่อให้ operator ใหม่อยู่ในรายชื่อที่ service account แตะไม่ได้
-- **AC2 (#595):** `configure` ยังตั้ง browser flow ของ tenant `dcontact-browser` และผูกเป็น browser flow ของ realm
-  (บังคับ 2FA ตาม Organization ผ่าน extension `dc-account` ใน image ของ Keycloak)
+- **AC3 (#596): SMTP** — email บัญชีของ D-Contact และ email เชิญของ Keycloak ใช้ `SMTP_*` ชุดเดียวกันจาก `uat.env`
+  - ไม่ตั้ง `SMTP_HOST` = Keycloak ส่งเข้า mailpit ภายใน stack เหมือนเดิม
+  - ชื่อผู้ส่งเป็น "D-Contact" เสมอ (ชื่อใน `SMTP_FROM` ถูกแทน); Keycloak ตั้ง HELO เองไม่ได้ — `SMTP_HELO` ใช้กับ API เท่านั้น
+  - ใส่ค่าจริงใน `uat.env` เท่านั้น ห้าม commit
+  - **gate ก่อน production:** UAT ใช้ Microsoft 365 direct send ซึ่งส่งได้เฉพาะผู้รับในองค์กร (#589 Q1)
+    ต้องตั้ง M365 SMTP relay connector + SPF หรือใช้ SMTP ที่ส่งออกนอกองค์กรได้ก่อนเปิดให้ลูกค้าภายนอก
+- **AC6 (#599): ซ่อนร่องรอย Keycloak** — `keycloak-config` (`u1-uat-keycloak-users.mjs --config`) รัน `keycloak-branding-setup.mjs` ต่อท้าย (idempotent)
+  - ตั้ง `displayName` = "D-Contact", account theme `dcontact`, `baseUrl` ของ client `account`/`account-console` = `https://${UAT_HOST}/` (หรือ `CONSOLE_PUBLIC_URL` ถ้าตั้ง) และซ่อน attribute ภายในจากผู้ใช้
+  - **ชื่อ cookie ของ realm `dcontact` เปลี่ยนเป็น `DC_*`** เมื่อ image Keycloak ใหม่ขึ้น: ผู้ใช้ที่ login อยู่ยัง SSO ต่อได้ (ชื่อเดิมถูกอ่านแล้วหมดอายุ) ไม่ต้อง login ใหม่
+  - rollback ของ image Keycloak กลับรุ่นก่อน AC6: cookie `DC_*` ที่ค้างอยู่ในเบราว์เซอร์ไม่ถูกอ่าน — ผู้ใช้ต้อง login ใหม่หนึ่งครั้ง
+  - ก่อนเปิดให้ลูกค้า: รัน `pnpm test:identity-traces` กับ stack ที่มี Keycloak ตัวเดียวกัน (ต้องผ่านทั้ง th/en)
+- **AC2 (#595):** `configure` ยังตั้ง browser flow ของ tenant `dcontact-browser` (บังคับ 2FA ตาม Organization
+  ผ่าน extension `dc-account` ใน image ของ Keycloak) แต่**ไม่ผูกเป็น browser flow ของ realm** (#645)
+  - realm UAT ใช้ `uat browser password otp` ของ U1 `keycloak-config` ซึ่งบังคับ OTP ทุกบัญชี — account setup ทั้งใน
+    `configure` และ `operator` จึงรันด้วย `--keep-realm-browser-flow` (`UAT-S24`) ไม่งั้นสองงานเขียนทับกันตามลำดับ deploy
+  - ผลคือสวิตช์ "บังคับ 2FA" ใน Console ไม่มีผลบน UAT เพราะ OTP บังคับอยู่แล้ว
   - image ของ Keycloak ต้องมี `dcontact-account.jar` ก่อนรัน `configure` — ถ้าไม่มี setup จะล้มที่การเพิ่ม `dc-org-mfa-required`
-  - ถอยกลับ: ตั้ง browser flow ของ realm กลับเป็น `browser` ใน admin console ของ Keycloak
-    (`platform-console` ใช้ flow ของตัวเอง จึงไม่กระทบ)
+  - ถ้า realm ถูกผูกกับ `dcontact-browser` ค้างจาก release ก่อน #645: รัน U1 `keycloak-config` ซ้ำ ระบบจะตั้งกลับเป็น
+    `uat browser password otp` เอง (`platform-console` ใช้ flow ของตัวเอง จึงไม่กระทบ)
 
 `keycloak` เปลี่ยนเฉพาะ image ของ service U1 ด้วย overlay; release directory และ `release.env` ของ U1 ไม่ถูกแก้. `configure` ตั้ง `platform-console`/provisioner/SMTP และ seed operational baseline UAT (`uat-operational-v1`, plan starter/growth/enterprise) แบบทำซ้ำได้. `start` ต้องตรวจว่า rollout ยังปิด.
 
@@ -64,7 +78,7 @@ bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh status <SOURCE_SHA>
 
 1. ตรวจ Keycloak invitation guard ใน server info, OIDC discovery, API `/health/live`, HTTPS `platform-uat.osd.co.th`, Caddy allowlist และปฏิเสธ `/auth/admin`, `/metrics` จาก browser. ตรวจ U1 Journey smoke เดิมหลัง Keycloak เปลี่ยน.
 2. สร้าง **platform-only** operator (`kittin.platform`, email ทดสอบ `kittin.platform@uat.invalid`) ผ่าน `vm2-platform-deploy.sh operator <SOURCE_SHA>` โดยส่ง temporary password ใหม่ผ่าน stdin; Keycloak ต้องบังคับเปลี่ยน password และตั้ง TOTP. ห้ามใช้ tenant admin `kittin` เป็น platform operator. เก็บ subject UUID จากผลลัพธ์ที่ไม่มี secret.
-3. ตรวจ API ด้วย platform token: operator อ่านได้, tenant token ต้องถูกปฏิเสธ, request นอก CIDR ต้อง 403. ตรวจ DB login role ทั้งสองเป็น `INHERIT NOBYPASSRLS`, parent `NOLOGIN`.
+3. ตรวจ API ด้วย platform token: operator อ่านได้, tenant token ต้องถูกปฏิเสธ, request นอก CIDR ต้อง 403. ตรวจ role ของ API/platform เป็น `INHERIT NOBYPASSRLS`, parent เป็น `NOLOGIN`; เฉพาะ `dcontact_uat_owner` สำหรับ migrate/backup อาจเป็น `INHERIT BYPASSRLS` แต่ต้องเป็น `NOSUPERUSER`.
 4. ทำ rollback drill โดย rollout ยังปิด: `vm2-platform-deploy.sh rollback <SOURCE_SHA>`, ตรวจ U1 กลับมาปกติ แล้วรัน `keycloak`, `configure`, `start` ใหม่. ไม่ลบ ledger/tenant.
 5. หลัง `a1:uat:gate` ของ SHA ที่ deploy ผ่าน และ rollback drill ผ่านแล้ว รัน `vm2-platform-deploy.sh canary <SOURCE_SHA> <platform-subject-uuid>`; สคริปต์ตั้ง allowlist/rollout และ recreate **ทั้ง** `platform-api` และ `platform-worker`.
 6. Internal Platform Operator รัน create → review → progress → failure/reconcile → handoff/search/Action history บนข้อมูลสังเคราะห์ พร้อม invitation ผ่าน Mailpit `/mail/`; ทดสอบสอง tenant แยกข้อมูลกัน และบันทึกหลักฐานใน #574.

@@ -1,4 +1,5 @@
 {
+  "availabilityFailed": "Server could not confirm call availability. New calls remain closed.",
   "snapshotLoadFailed": "Could not load status from the API; remote control is not available yet",
   "offerConfirmFailed": "Could not confirm the incoming offer with the API",
   "autoplayBlocked": "The browser blocked incoming call audio. Allow audio playback and try again.",
@@ -82,6 +83,7 @@
     "check": "Check audio device"
   },
   "availability": {
+    "pending": "Waiting for server confirmation…",
     "step": "Step 2",
     "title": "Call availability",
     "ready": "Available for calls",

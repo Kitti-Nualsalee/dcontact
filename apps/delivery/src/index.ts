@@ -49,3 +49,5 @@ export * from './voice-rollout-control.js';
 export * from './voice-telephony-outcome.js';
 export * from './voice-observability.js';
 export * from './voice-originate-delivery.js';
+export * from './e1-voice-command-authority.js';
+export * from './e1-sandbox-voice-rollout.js';

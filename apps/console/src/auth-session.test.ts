@@ -3,11 +3,16 @@ import test from 'node:test';
 import {
   accessTokenRealmRoles,
   cleanConsoleCallbackUrl,
+  clearConsoleSignOut,
   consumeConsoleReturnLocation,
   consumeConsoleReturnUrl,
   createConsoleOidcSettings,
+  isConsoleSignedOutLanding,
+  isOidcCallback,
   rememberConsoleReturnUrl,
+  rememberConsoleSignOut,
   resolveConsoleContextId,
+  resolveConsoleLocation,
   resolveConsoleView,
   resolveTenantAlias,
 } from './auth-session.js';
@@ -115,6 +120,126 @@ test('E1.16 callback คืน active view โดยไม่ reload token ท�
     url: '/?tenant=acme&view=dphone-embedding',
     view: 'dphone-embedding',
   });
+});
+
+test('#676 callback ของ OIDC เลือกหน้าจาก URL ปลายทางที่จำไว้ ไม่ใช่จาก redirect_uri ที่ไม่มี view', () => {
+  const storage = new MemoryStorage();
+  const callback = new URL(
+    'https://acme.console.example/?tenant=acme&state=abc&session_state=s1&iss=https%3A%2F%2Fidp&code=c0de',
+  );
+  const links = [
+    ['/?tenant=acme&view=governance&section=audit', 'governance'],
+    ['/?tenant=acme&view=account', 'account'],
+    ['/?tenant=acme&view=journeys', 'journeys'],
+    ['/?tenant=acme&context=0f8fad5b-d9cb-469f-a165-70867728950e', null],
+  ] as const;
+  for (const [link, view] of links) {
+    storage.setItem('dcontact.console.return-url', link);
+    const resolved = resolveConsoleLocation(callback, storage);
+    // ไม่มี default view (ค่า UAT) — ต้องเลือกหน้าได้จากลิงก์ที่จำไว้เท่านั้น
+    assert.equal(resolveConsoleView(resolved, undefined), view, link);
+    assert.equal(resolved.searchParams.get('code'), null, 'URL ปลายทางไม่มี code/state');
+    assert.equal(resolveTenantAlias(resolved), 'acme');
+  }
+  storage.setItem(
+    'dcontact.console.return-url',
+    '/?tenant=acme&context=0f8fad5b-d9cb-469f-a165-70867728950e',
+  );
+  assert.equal(
+    resolveConsoleContextId(resolveConsoleLocation(callback, storage)),
+    '0f8fad5b-d9cb-469f-a165-70867728950e',
+  );
+});
+
+test('#676 อ่านค่าที่จำไว้โดยไม่ลบ เพื่อให้ onSigninCallback ใช้ต่อและลบเอง', () => {
+  const storage = new MemoryStorage();
+  storage.setItem('dcontact.console.return-url', '/?tenant=acme&view=governance');
+  const callback = new URL('https://acme.console.example/?tenant=acme&state=abc&code=c0de');
+  resolveConsoleLocation(callback, storage);
+  assert.equal(storage.getItem('dcontact.console.return-url'), '/?tenant=acme&view=governance');
+  assert.equal(consumeConsoleReturnUrl(callback, storage), '/?tenant=acme&view=governance');
+  assert.equal(storage.getItem('dcontact.console.return-url'), null);
+});
+
+test('#676 ไม่เชื่อ URL ปลายทางที่ต่าง origin/tenant หรือไม่ใช่ path ภายใน', () => {
+  const storage = new MemoryStorage();
+  const callback = new URL('https://acme.console.example/?tenant=acme&state=abc&code=c0de');
+  for (const saved of [
+    'https://attacker.example/?tenant=acme&view=governance',
+    '//attacker.example/?tenant=acme',
+    '/?tenant=other&view=governance',
+    '/?view=governance',
+    'javascript:alert(1)',
+  ]) {
+    storage.setItem('dcontact.console.return-url', saved);
+    assert.equal(resolveConsoleLocation(callback, storage).href, callback.href, saved);
+  }
+  // ไม่มีค่าที่จำไว้ = ใช้ URL callback เดิม (พฤติกรรมเดิม)
+  const empty = new MemoryStorage();
+  assert.equal(resolveConsoleLocation(callback, empty).href, callback.href);
+});
+
+test('#676 URL ที่ไม่ใช่ callback ไม่ถูกแย่งด้วยค่าที่ค้างใน storage', () => {
+  const storage = new MemoryStorage();
+  storage.setItem('dcontact.console.return-url', '/?tenant=acme&view=governance');
+  for (const href of [
+    'https://acme.console.example/?tenant=acme',
+    'https://acme.console.example/?tenant=acme&view=account',
+    'https://acme.console.example/?tenant=acme&code=c0de', // ไม่มี state
+    'https://acme.console.example/?tenant=acme&state=abc', // ไม่มี code/error
+  ]) {
+    assert.equal(resolveConsoleLocation(new URL(href), storage).href, href);
+    assert.equal(isOidcCallback(new URL(href)), false, href);
+  }
+  assert.equal(
+    isOidcCallback(new URL('https://acme.console.example/?tenant=acme&state=abc&code=c0de')),
+    true,
+  );
+  // Keycloak ปฏิเสธ (เช่น access_denied) ก็เป็น callback — ต้องกลับไปหน้าเดิมเพื่อแสดงผล ไม่ใช่ error ของ context
+  assert.equal(
+    isOidcCallback(
+      new URL('https://acme.console.example/?tenant=acme&state=abc&error=access_denied'),
+    ),
+    true,
+  );
+});
+
+test('#677 หลัง sign-out แสดงหน้า "ออกจากระบบแล้ว" เฉพาะหน้าที่ Keycloak พากลับมา', () => {
+  const storage = new MemoryStorage();
+  const landing = new URL('https://acme.console.example/?tenant=acme');
+  // ยังไม่ได้ sign-out = หน้าเดิม (ไม่มีเครื่องหมาย)
+  assert.equal(isConsoleSignedOutLanding(landing, storage), false);
+
+  rememberConsoleSignOut(
+    new URL('https://acme.console.example/?tenant=acme&view=governance&section=audit'),
+    storage,
+  );
+  assert.equal(isConsoleSignedOutLanding(landing, storage), true);
+  // ลิงก์ที่ระบุหน้าเองหรือ callback ของ OIDC ไม่ใช่หน้าหลัง sign-out
+  for (const href of [
+    'https://acme.console.example/?tenant=acme&view=account',
+    'https://acme.console.example/?tenant=acme&context=0f8fad5b-d9cb-469f-a165-70867728950e',
+    'https://acme.console.example/?tenant=acme&state=abc&code=c0de',
+  ]) {
+    assert.equal(isConsoleSignedOutLanding(new URL(href), storage), false, href);
+  }
+
+  clearConsoleSignOut(storage);
+  assert.equal(isConsoleSignedOutLanding(landing, storage), false);
+});
+
+test('#677 เข้าสู่ระบบอีกครั้งหลัง sign-out กลับไปหน้าที่เพิ่งออกมา', () => {
+  const storage = new MemoryStorage();
+  rememberConsoleSignOut(
+    new URL('https://acme.console.example/?tenant=acme&view=governance&section=audit'),
+    storage,
+  );
+  clearConsoleSignOut(storage); // กดปุ่มเข้าสู่ระบบอีกครั้ง — ไม่จำ URL ของหน้า sign-out ทับ
+  const callback = new URL('https://acme.console.example/?tenant=acme&state=abc&code=c0de');
+  const resolved = resolveConsoleLocation(callback, storage);
+  assert.equal(resolveConsoleView(resolved, undefined), 'governance');
+  assert.equal(resolved.searchParams.get('section'), 'audit');
+  assert.equal(isConsoleSignedOutLanding(resolved, storage), false);
 });
 
 test('E1.16 UI อ่าน realm roles จาก access token และ fail closed เมื่อ claim ผิดรูป', () => {

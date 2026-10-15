@@ -91,6 +91,46 @@ test('credential หมุนได้ระหว่างสายโดยไ
     a1('7100', sipDomain, firstCredential.authorizationPassword),
   );
 
+  let releaseLock!: () => void;
+  let lockReady!: () => void;
+  const released = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  const ready = new Promise<void>((resolve) => {
+    lockReady = resolve;
+  });
+  const holding = owner.$transaction(
+    async (transaction) => {
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT id FROM users WHERE id = ${agentId}::uuid FOR UPDATE`,
+      );
+      lockReady();
+      await released;
+    },
+    { timeout: 10_000 },
+  );
+  await ready;
+  const pendingIssue = credentials.issue({ ...actor, workSessionLeaseId: firstLease.leaseId });
+  let waiting = false;
+  try {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const blocked = await owner.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+        SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()
+          AND wait_event_type = 'Lock' AND query LIKE '%FROM users%FOR UPDATE%'
+      `);
+      if (Number(blocked[0].count) > 0) {
+        waiting = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(waiting, true, 'credential issue ต้องรอ user lock เดียวกับ registration flush');
+  } finally {
+    releaseLock();
+    await holding;
+    await pendingIssue;
+  }
+
   const interactionId = randomUUID();
   await owner.$executeRaw(Prisma.sql`INSERT INTO interactions
     (id, tenant_id, channel, direction, state, queue_id, agent_id, external_id)

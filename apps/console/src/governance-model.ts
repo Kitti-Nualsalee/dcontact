@@ -12,18 +12,24 @@ import {
   type RiskTier,
 } from './governance-api.js';
 
+/**
+ * ตัวแปลข้อความของ namespace `governance` — ฟังก์ชันใน model รับเข้ามาแทนการ import i18n ตรง ๆ
+ * เพื่อให้ test ของ Node ส่ง catalog ภาษาใดก็ได้ (แบบเดียวกับ `account`)
+ */
+export type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+/** locale ของ `Intl` ต่อภาษาของ UI (ไทย = ปฏิทินพุทธตามค่าเริ่มต้นของ th-TH) */
+export function intlLocale(locale: string): string {
+  return locale === 'en' ? 'en-GB' : 'th-TH';
+}
+
 export type GovernanceViewer = 'SUPERVISOR' | 'TENANT_ADMIN' | 'COMPLIANCE';
 export type GovernanceSection = 'overview' | 'exceptions' | 'policies' | 'audit';
 
-/** คำศัพท์เดียวทั้ง Console: approval ไม่ใช่ runtime decision และไม่ใช่การเปิด traffic */
-export const DECISION_VOCABULARY = Object.freeze({
-  approve: 'Approve = บันทึกการตัดสินของ checker หนึ่งคน ยังไม่ใช่ ALLOW และยังไม่ Activate',
-  allow:
-    'ALLOW = ผลของ runtime ต่อการติดต่อหนึ่งครั้ง ตัดสินโดย Contact Governance ตอนส่งจริงเท่านั้น',
-  activate: 'Activate = policy head ของ scope เปลี่ยนตามเวลาที่ publish ไว้',
-  developmentComplete:
-    'Development Complete ≠ Release Enabled: approve หรือ publish ใน Console ไม่เปิด provider traffic',
-});
+/**
+ * คำศัพท์เดียวทั้ง Console: approval ไม่ใช่ runtime decision และไม่ใช่การเปิด traffic
+ * ข้อความอยู่ใน catalog `governance` หมวด `vocabulary` (approve / activate / developmentComplete)
+ */
 
 const RISK_RANK: Readonly<Record<RiskTier, number>> = { EMERGENCY: 0, HIGH: 1, STANDARD: 2 };
 
@@ -46,9 +52,9 @@ export function isRedacted(
 }
 
 /** reference ที่ปกปิดแสดงเป็น digest สั้นเสมอ ไม่มีทางเผยเนื้อหาจากฝั่ง Console */
-export function referenceLabel(ref: MaybeRedacted | undefined): string {
+export function referenceLabel(ref: MaybeRedacted | undefined, t: Translate): string {
   if (ref === undefined) return '—';
-  if (isRedacted(ref)) return `ปกปิด · digest …${ref.digest.slice(-6)}`;
+  if (isRedacted(ref)) return t('reference.redacted', { tail: ref.digest.slice(-6) });
   return ref;
 }
 
@@ -96,12 +102,11 @@ export interface RecoveryState {
 }
 
 /** แปลง error ของ #179 §3 เป็น recovery state ของ #180 — ไม่มีกรณีใดเลือก winner หรือ merge เอง */
-export function recoveryFor(error: unknown): RecoveryState {
+export function recoveryFor(error: unknown, t: Translate): RecoveryState {
   if (!(error instanceof GovernanceApiError)) {
     return {
       kind: 'OUTCOME_UNKNOWN',
-      message:
-        'ยังไม่ทราบว่าคำสั่งถูกบันทึกแล้วหรือไม่ ระบบ hold ไว้ก่อน: โหลด canonical state แล้วลองส่งซ้ำด้วยคำสั่งเดิมเท่านั้น',
+      message: t('recovery.message.outcomeUnknown'),
       recovery: 'SAME_KEY',
     };
   }
@@ -110,20 +115,22 @@ export function recoveryFor(error: unknown): RecoveryState {
     return {
       kind: 'STALE_APPROVAL',
       code,
-      message:
-        'สิทธิ์หรือขอบเขตอนุมัติเปลี่ยนไปแล้ว (authorization epoch ไม่ตรง) ต้องโหลด scope ปัจจุบันและอนุมัติใหม่',
+      message: t('recovery.message.approvalStale'),
       recovery: 'RELOAD',
     };
   }
   if (code === 'VERSION_CONFLICT') {
     const versions =
       details.expectedVersion !== undefined && details.actualVersion !== undefined
-        ? ` (คาด v${details.expectedVersion} แต่ปัจจุบันเป็น v${details.actualVersion})`
+        ? t('recovery.message.versions', {
+            expected: details.expectedVersion,
+            actual: details.actualVersion,
+          })
         : '';
     return {
       kind: 'VERSION_CONFLICT',
       code,
-      message: `ข้อมูลถูกเปลี่ยนจากที่อื่นแล้ว${versions} ระบบไม่รวมการแก้ไขให้อัตโนมัติ: โหลด canonical version ก่อนตัดสินใหม่`,
+      message: t('recovery.message.versionConflict', { versions }),
       recovery: 'RELOAD',
     };
   }
@@ -135,8 +142,7 @@ export function recoveryFor(error: unknown): RecoveryState {
     return {
       kind: 'HEAD_CONFLICT',
       code,
-      message:
-        'Policy head ของ scope ไม่ตรงกับที่คาดไว้ ระบบไม่เลือกผู้ชนะให้: โหลด head ปัจจุบันแล้วทดสอบและอนุมัติใหม่',
+      message: t('recovery.message.headConflict'),
       recovery: 'RELOAD',
     };
   }
@@ -144,26 +150,26 @@ export function recoveryFor(error: unknown): RecoveryState {
     return {
       kind: 'INVALID',
       code,
-      message: 'คำสั่งนี้เคยถูกส่งด้วยเนื้อหาอื่นแล้ว ระบบไม่ส่งซ้ำ: โหลดสถานะแล้วเริ่มคำสั่งใหม่',
+      message: t('recovery.message.idempotencyConflict'),
       recovery: 'RELOAD',
     };
   }
   if (status === 403) {
     const reason =
       code === 'SELF_APPROVAL_FORBIDDEN'
-        ? 'ผู้สร้างคำขออนุมัติคำขอของตัวเองไม่ได้'
+        ? t('recovery.message.selfApproval')
         : code === 'DUPLICATE_CHECKER'
-          ? 'checker คนนี้ลงความเห็นใน revision นี้ไปแล้ว'
+          ? t('recovery.message.duplicateChecker')
           : code === 'DELEGATION_NOT_ALLOWED'
-            ? 'สิทธิ์ที่ได้รับมอบหมายใช้กับรายการระดับนี้ไม่ได้'
-            : 'สิทธิ์ปัจจุบันไม่ครอบคลุมคำสั่งนี้';
+            ? t('recovery.message.delegation')
+            : t('recovery.message.forbidden');
     return { kind: 'FORBIDDEN', code, message: reason, recovery: 'NONE' };
   }
   if (status === 404) {
     return {
       kind: 'NOT_FOUND',
       code,
-      message: 'ไม่พบรายการนี้ หรือไม่อยู่ในสิทธิ์ที่เข้าถึงได้',
+      message: t('recovery.message.notFound'),
       recovery: 'NONE',
     };
   }
@@ -175,7 +181,10 @@ export function recoveryFor(error: unknown): RecoveryState {
     return {
       kind: 'LIFECYCLE_BLOCKED',
       code,
-      message: `ขั้นตอนนี้ยังทำไม่ได้: ${code ?? 'INVALID_LIFECYCLE_TRANSITION'}${quorum}`,
+      message: t('recovery.message.lifecycle', {
+        code: code ?? 'INVALID_LIFECYCLE_TRANSITION',
+        quorum,
+      }),
       recovery: 'RELOAD',
     };
   }
@@ -183,12 +192,16 @@ export function recoveryFor(error: unknown): RecoveryState {
     return {
       kind: 'OUTCOME_UNKNOWN',
       code,
-      message:
-        'Governance ตอบไม่ได้ในขณะนี้ ระบบ fail closed: ยังไม่ทราบผลของคำสั่ง โหลด canonical state แล้วส่งซ้ำด้วยคำสั่งเดิมเท่านั้น',
+      message: t('recovery.message.unavailable'),
       recovery: 'SAME_KEY',
     };
   }
-  return { kind: 'INVALID', code, message: `คำขอไม่ถูกต้อง: ${code ?? status}`, recovery: 'NONE' };
+  return {
+    kind: 'INVALID',
+    code,
+    message: t('recovery.message.invalid', { code: code ?? status }),
+    recovery: 'NONE',
+  };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -245,12 +258,17 @@ export function canRequestChanges(viewer: GovernanceViewer): boolean {
   return viewer === 'COMPLIANCE' || viewer === 'TENANT_ADMIN';
 }
 
-export function effectiveWindowLabel(startsAt: string, expiresAt: string): string {
+export function effectiveWindowLabel(
+  startsAt: string,
+  expiresAt: string,
+  t: Translate,
+  locale: string,
+): string {
   const format = (value: string) =>
-    new Date(value).toLocaleString('th-TH', {
+    new Date(value).toLocaleString(intlLocale(locale), {
       timeZone: 'UTC',
       dateStyle: 'medium',
       timeStyle: 'short',
     });
-  return `${format(startsAt)} – ${format(expiresAt)} UTC (สิ้นสุดแบบ exclusive)`;
+  return t('window.range', { from: format(startsAt), to: format(expiresAt) });
 }

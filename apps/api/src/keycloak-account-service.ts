@@ -2,8 +2,10 @@
  * Owner: IAM — client ฝั่ง server ของ service account `dcontact-account-service` (AC2 #595, ADR-033)
  *
  * - token แบบ client_credentials ของ realm เดียวกับ issuer, cache ไว้จนใกล้หมดอายุ; 401 = ขอ token ใหม่แล้วลองซ้ำครั้งเดียว
- * - เรียก extension `dc-account` (`{issuer}/dc-account/...`) เท่านั้น — account service ไม่มีสิทธิ์จัดการ
+ * - เรียก extension `dc-account` (`{issuer}/dc-account/...`) — account service ไม่มีสิทธิ์จัดการ
  *   Organization ผ่าน Admin REST (เจ้าของงานเลือก 2026-10-06 แทนการให้สิทธิ์ manage Organizations)
+ * - AC4 (#597): Admin REST ของผู้ใช้ (`{admin}/users/...`) ภายใต้ fine-grained permission ของ ADR-033
+ *   (view/manage/reset-password บนผู้ใช้ของ tenant เท่านั้น)
  * - ทุกความล้มเหลว (เครือข่าย, timeout, status ที่ไม่คาด) = `AccountPolicyError('IDENTITY_UNAVAILABLE')`
  *   โดยไม่แนบ body/secret ของ Keycloak ไปกับ error
  */
@@ -41,15 +43,33 @@ export class KeycloakAccountServiceClient {
   }
 
   /** เรียก `{issuer}/dc-account/{path}` — คืน status และ body (JSON หรือ undefined) */
-  async extension(
-    method: 'POST' | 'PUT',
-    path: string,
+  extension(method: 'POST' | 'PUT', path: string, body: unknown) {
+    return this.call(method, `${this.issuer}/dc-account/${path}`, body);
+  }
+
+  /**
+   * เรียก Admin REST ของ realm (`{origin}[/auth]/admin/realms/{realm}/{path}`) ด้วย token ของ account service
+   * — สิทธิ์จำกัดด้วย fine-grained permission (ADR-033) ไม่ใช่ realm-management role
+   */
+  admin(method: 'GET' | 'PUT' | 'DELETE', path: string, body?: unknown) {
+    return this.call(method, `${this.adminBase()}/${path}`, body);
+  }
+
+  private adminBase() {
+    const index = this.issuer.lastIndexOf('/realms/');
+    if (index < 0) throw new AccountPolicyError('IDENTITY_UNAVAILABLE');
+    return `${this.issuer.slice(0, index)}/admin${this.issuer.slice(index)}`;
+  }
+
+  private async call(
+    method: string,
+    url: string,
     body: unknown,
   ): Promise<{ status: number; body: unknown }> {
-    let response = await this.send(method, path, body, await this.token());
+    let response = await this.send(method, url, body, await this.token());
     if (response.status === 401) {
       this.cached = undefined;
-      response = await this.send(method, path, body, await this.token());
+      response = await this.send(method, url, body, await this.token());
     }
     const text = await response.text().catch(() => '');
     let parsed: unknown;
@@ -61,11 +81,14 @@ export class KeycloakAccountServiceClient {
     return { status: response.status, body: parsed };
   }
 
-  private async send(method: string, path: string, body: unknown, token: string) {
-    return this.request(`${this.issuer}/dc-account/${path}`, {
+  private async send(method: string, url: string, body: unknown, token: string) {
+    return this.request(url, {
       method,
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   }
 
