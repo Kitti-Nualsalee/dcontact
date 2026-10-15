@@ -169,8 +169,10 @@ export class BrowserDphone {
     ) {
       throw new Error('hangup requires a connected dphone');
     }
+    const endingState = this.state;
     const telephonyNodeId = this.state.telephonyNodeId;
     await this.transport.hangup();
+    if (this.state !== endingState) return this.state;
     this.state = { phase: 'READY', telephonyNodeId };
     return this.state;
   }
