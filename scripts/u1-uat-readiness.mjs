@@ -254,6 +254,11 @@ export function checkKeycloakProductionMode(compose) {
   }
   if (env.KC_HTTP_ENABLED !== 'true') failures.push({ kind: 'KC_HTTP_ENABLED' });
   if (keycloak.ports.length > 0) failures.push({ kind: 'ADMIN_PORT_PUBLISHED' });
+  // #680: readiness ต้องตัดสินจาก HTTP status — body มี check ย่อยที่เป็น UP ได้แม้ภาพรวมยัง DOWN (bootstrap)
+  const health = keycloak.raw.find((line) => line.includes('/health/ready'));
+  if (!health || !health.includes("grep -q ' 200 '") || /grep -q UP\b/.test(health)) {
+    failures.push({ kind: 'HEALTHCHECK_NOT_STATUS_BASED' });
+  }
   return check('UAT-S04 Keycloak production mode หลัง proxy', failures);
 }
 

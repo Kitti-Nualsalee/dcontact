@@ -111,12 +111,14 @@ services:
       KC_HEALTH_ENABLED: 'true'
       KC_BOOTSTRAP_ADMIN_USERNAME: ${UAT_KEYCLOAK_ADMIN_USERNAME:?UAT_KEYCLOAK_ADMIN_USERNAME is required}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${UAT_KEYCLOAK_ADMIN_PASSWORD:?UAT_KEYCLOAK_ADMIN_PASSWORD is required}
+    # #680: ตรวจ status line = 200 (ready ตอบ 503 เมื่อ DOWN) — ห้าม grep คำว่า UP ทั้ง body เพราะระหว่าง bootstrap
+    # check ย่อยอย่าง "Graceful Shutdown" เป็น UP ทั้งที่ภาพรวมยัง DOWN
     healthcheck:
       test:
         - CMD
         - bash
         - -c
-        - exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /auth/health/ready HTTP/1.0\r\n\r\n' >&3 && grep -q UP <&3
+        - exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /auth/health/ready HTTP/1.0\r\n\r\n' >&3 && grep -m 1 '^HTTP/' <&3 | grep -q ' 200 '
       interval: 10s
       timeout: 5s
       retries: 30
