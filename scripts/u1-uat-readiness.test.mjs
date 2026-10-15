@@ -278,6 +278,13 @@ test('UAT-S03/S04: start-dev หรือ Keycloak ที่ไม่ได้�
     checkKeycloakProductionMode(compose.replace('KC_HOSTNAME: https://', 'KC_HOSTNAME: http://')),
     'KC_HOSTNAME_NOT_HTTPS',
   );
+  // #680: grep คำว่า UP ทั้ง body = healthy ระหว่าง bootstrap (check ย่อย UP แต่ภาพรวม 503)
+  failed(
+    checkKeycloakProductionMode(
+      compose.replace("grep -m 1 '^HTTP/' <&3 | grep -q ' 200 '", 'grep -q UP <&3'),
+    ),
+    'HEALTHCHECK_NOT_STATUS_BASED',
+  );
 });
 
 test('UAT-S05: credential literal, default value หรือ secret ที่ไม่ใช่ :? ไม่ผ่าน', () => {
