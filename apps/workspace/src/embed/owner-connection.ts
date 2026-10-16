@@ -44,15 +44,24 @@ export class OwnerConnection {
   private generation = 0;
   private connection?: Connection;
   private pendingSource?: ControllerWindow;
+  private pendingId?: string;
   private revoked = false;
 
   constructor(
     private readonly options: {
       identity: OwnerIdentity;
       dphoneOrigin: string;
-      authorize(source: ControllerWindow, identity: OwnerIdentity): Promise<boolean>;
+      authorize(
+        source: ControllerWindow,
+        identity: OwnerIdentity,
+        connectionId: string,
+      ): Promise<boolean>;
     },
   ) {}
+
+  get pending(): boolean {
+    return this.pendingSource !== undefined;
+  }
 
   async attach(event: {
     origin: string;
@@ -70,9 +79,14 @@ export class OwnerConnection {
     const generation = ++this.generation;
     this.connection = undefined;
     this.pendingSource = event.source;
+    this.pendingId = request.connectionId;
     let allowed = false;
     try {
-      allowed = await this.options.authorize(event.source, { ...this.options.identity });
+      allowed = await this.options.authorize(
+        event.source,
+        { ...this.options.identity },
+        request.connectionId,
+      );
     } catch {
       if (generation === this.generation) this.pendingSource = undefined;
       return false;
@@ -93,11 +107,19 @@ export class OwnerConnection {
     );
   }
 
-  detach(source: unknown): void {
-    if (this.connection?.source !== source && this.pendingSource !== source) return;
+  detach(source: unknown, connectionId?: string): void {
+    const active =
+      this.connection &&
+      this.connection.source === source &&
+      (connectionId === undefined || this.connection.connectionId === connectionId);
+    const pending =
+      this.pendingSource === source &&
+      (connectionId === undefined || this.pendingId === connectionId);
+    if (!active && !pending) return;
     this.generation += 1;
     this.connection = undefined;
     this.pendingSource = undefined;
+    this.pendingId = undefined;
   }
 
   revoke(): void {
@@ -105,5 +127,6 @@ export class OwnerConnection {
     this.generation += 1;
     this.connection = undefined;
     this.pendingSource = undefined;
+    this.pendingId = undefined;
   }
 }

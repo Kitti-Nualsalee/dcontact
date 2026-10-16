@@ -174,6 +174,7 @@ export function embedShellHtml(
 ): string {
   const config = {
     v: 1,
+    ownerWindow: true,
     tenant: policy?.tenantAlias ?? null,
     allowedHostOrigins: policy?.origins ?? [],
     auth: policy && options.auth ? options.auth : null,

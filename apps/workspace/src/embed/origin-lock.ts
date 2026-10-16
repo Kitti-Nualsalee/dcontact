@@ -10,6 +10,7 @@
 
 export interface EmbedConfig {
   v: 1;
+  ownerWindow?: boolean;
   tenant: string | null;
   allowedHostOrigins: string[];
   /** E1.13: OIDC ของ dphone ที่ถูกฝัง (client `dphone-embedded`) — ไม่มี = ยัง login ไม่ได้ */
@@ -26,6 +27,7 @@ export function parseEmbedConfig(text: string | null | undefined): EmbedConfig |
     if (!value.allowedHostOrigins.every((origin) => typeof origin === 'string')) return null;
     return {
       v: 1,
+      ownerWindow: value.ownerWindow === true,
       tenant: typeof value.tenant === 'string' ? value.tenant : null,
       allowedHostOrigins: value.allowedHostOrigins,
       auth:

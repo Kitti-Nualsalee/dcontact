@@ -138,3 +138,14 @@ test('detach ระหว่างรอ authorization ต้องไม่ร�
   assert.equal(await pending, false);
   assert.equal(owner.accepts(command), false);
 });
+
+test('detach nonce เก่าของ WindowProxy เดิมไม่ยกเลิก connection ใหม่', async () => {
+  const owner = connection();
+  await owner.attach(event);
+  owner.detach(source, 'stale-document');
+  assert.equal(owner.accepts(command), true);
+  owner.detach(source, '');
+  assert.equal(owner.accepts(command), true);
+  owner.detach(source, connectionId);
+  assert.equal(owner.accepts(command), false);
+});
