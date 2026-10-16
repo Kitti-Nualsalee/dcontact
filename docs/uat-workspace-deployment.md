@@ -35,8 +35,6 @@ E1 acceptance overlay อยู่แล้ว. API ใช้ entry `workspace-u
 Supervisor ใช้ฐานข้อมูลจริงและ team scope เดิม รวม audit/reason/idempotency และ force-safe boundary.
 หน้าหัวหน้า refresh snapshot ทุก 5 วินาทีเฉพาะแท็บที่มองเห็น โดยไม่ถือ lease/SIP หรือแย่ง agent socket;
 ไม่ซ้อนคำขอและไม่ให้คำตอบก่อน mutation ทับ snapshot หลังยืนยันคำสั่ง.
-หน้าหัวหน้า refresh snapshot ทุก 5 วินาทีเฉพาะแท็บที่มองเห็น โดยไม่ถือ lease/SIP หรือแย่ง agent socket;
-ไม่ซ้อนคำขอและไม่ให้คำตอบก่อน mutation ทับ snapshot หลังยืนยันคำสั่ง.
 Navigation registry ส่งเฉพาะ Home, Agent, Supervisor และ dphone embedding ที่ profile นี้ให้บริการจริง.
 Console Account/Journey/Governance APIs ยังไม่อยู่ใน profile นี้.
 
