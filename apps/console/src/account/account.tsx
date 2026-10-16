@@ -88,6 +88,7 @@ export function AccountPage({
   const tokensReady = useShellTokens();
   const [account, setAccount] = useState<AccountView>();
   const [loadError, setLoadError] = useState<string>();
+  const [unavailable, setUnavailable] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const verifyStarted = useRef(false);
 
@@ -95,8 +96,14 @@ export function AccountPage({
     try {
       setAccount(await api.get());
       setLoadError(undefined);
+      setUnavailable(false);
     } catch (error) {
-      setLoadError(t(accountErrorKey(error)));
+      const profileUnavailable =
+        error instanceof AccountApiError &&
+        error.status === 404 &&
+        error.code === 'ROUTE_NOT_AVAILABLE_IN_PROFILE';
+      setUnavailable(profileUnavailable);
+      setLoadError(profileUnavailable ? undefined : t(accountErrorKey(error)));
     }
   }, [api, t]);
 
@@ -122,12 +129,17 @@ export function AccountPage({
 
   if (!tokensReady) return null;
   return (
-    <main className="account" aria-busy={!account && !loadError}>
+    <main className="account" aria-busy={!account && !loadError && !unavailable}>
       <header className="account__header">
         <h1>{t('page.title')}</h1>
       </header>
       {confirming ? <p role="status">{t('email.confirming')}</p> : null}
-      {loadError ? (
+      {unavailable ? (
+        <div className="account__callout" role="status">
+          <p>{t('page.unavailable')}</p>
+          <p>{t('page.unavailableDetail')}</p>
+        </div>
+      ) : loadError ? (
         <div className="account__callout account__callout--critical" role="alert">
           <p>{t('page.loadFailed')}</p>
           <p>{loadError}</p>
