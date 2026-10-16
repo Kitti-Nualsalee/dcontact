@@ -310,3 +310,37 @@ test('users: บัญชีเดิมที่ผูก dc_user_id อื่�
     /ACCOUNT_SUBJECT_MISMATCH/,
   );
 });
+
+test('Workspace client opt-in แยก origin ใช้ exact redirect/PKCE และคง Console เดิม', () => {
+  assert.equal(
+    renderRealm(template, environment).clients.some((c) => c.clientId === 'dcontact-uat-workspace'),
+    false,
+  );
+  const rendered = renderRealm(template, {
+    ...environment,
+    UAT_WORKSPACE_HOST: 'workspace-uat.example.test',
+  });
+  const client = rendered.clients.find((c) => c.clientId === 'dcontact-uat-workspace');
+  assert.deepEqual(client.redirectUris, ['https://workspace-uat.example.test/?tenant=uat-tenant']);
+  assert.deepEqual(client.webOrigins, ['https://workspace-uat.example.test']);
+  assert.equal(client.attributes['post.logout.redirect.uris'], client.redirectUris[0]);
+  assert.equal(client.attributes['pkce.code.challenge.method'], 'S256');
+  assert.equal(client.directAccessGrantsEnabled, false);
+  assert.equal(client.publicClient, true);
+  assert.deepEqual(
+    rendered.clients.find((c) => c.clientId === 'dcontact-uat-console'),
+    renderRealm(template, environment).clients.find((c) => c.clientId === 'dcontact-uat-console'),
+  );
+  for (const host of [
+    environment.UAT_HOST,
+    'https://workspace.example',
+    '*.example.test',
+    'localhost',
+    'host/path',
+  ]) {
+    assert.throws(
+      () => renderRealm(template, { ...environment, UAT_WORKSPACE_HOST: host }),
+      /REALM_ENV_INVALID/,
+    );
+  }
+});

@@ -77,6 +77,27 @@ export function renderRealm(template, environment) {
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(environment.UAT_TENANT_SLUG)) {
     throw new UatKeycloakError('REALM_ENV_INVALID', 'UAT_TENANT_SLUG');
   }
+  if (environment.UAT_WORKSPACE_HOST) {
+    const host = environment.UAT_WORKSPACE_HOST;
+    if (
+      !/^[a-z0-9]+(?:[.-][a-z0-9]+)*\.[a-z]{2,}$/i.test(host) ||
+      /localhost/i.test(host) ||
+      host.toLowerCase() === environment.UAT_HOST.toLowerCase()
+    ) {
+      throw new UatKeycloakError('REALM_ENV_INVALID', 'UAT_WORKSPACE_HOST');
+    }
+    const source = rendered.clients.find((client) => client.clientId === UAT_CONSOLE_CLIENT_ID);
+    if (!source) throw new UatKeycloakError('KEYCLOAK_CLIENT_MISSING', UAT_CONSOLE_CLIENT_ID);
+    const workspace = structuredClone(source);
+    workspace.clientId = 'dcontact-uat-workspace';
+    workspace.name = 'D-Contact UAT Workspace';
+    workspace.redirectUris = [`https://${host}/?tenant=${environment.UAT_TENANT_SLUG}`];
+    workspace.webOrigins = [`https://${host}`];
+    if (workspace.attributes?.['post.logout.redirect.uris']) {
+      workspace.attributes['post.logout.redirect.uris'] = workspace.redirectUris[0];
+    }
+    rendered.clients.push(workspace);
+  }
   return rendered;
 }
 

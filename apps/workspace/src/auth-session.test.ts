@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createOidcSettings,
+  workspaceReturnUrl,
+  workspaceCallbackUrl,
   resolveAuthorizedWorkspaceView,
   resolveTenantAlias,
 } from './auth-session.js';
@@ -85,4 +87,35 @@ test('Agent Workspace เป็น view เริ่มต้นแม้ profil
     }),
     'agent',
   );
+});
+
+test('Supervisor callback คืน view เดิม ล้าง OAuth parameters และไม่รับ external/cross-tenant destination', () => {
+  const before = new URL('https://workspace.example/?tenant=uat&view=supervisor');
+  const callback = new URL(
+    'https://workspace.example/?tenant=uat&code=secret&state=opaque&session_state=x&iss=idp',
+  );
+  const state = workspaceReturnUrl(before);
+  assert.equal(workspaceCallbackUrl(callback, state), '/?tenant=uat&view=supervisor');
+  for (const invalid of [
+    '//evil.example/?tenant=uat',
+    '/\\evil.example/?tenant=uat',
+    '/?tenant=other&view=supervisor',
+    'https://evil.example/',
+    {},
+  ]) {
+    assert.equal(workspaceCallbackUrl(callback, invalid), '/?tenant=uat');
+  }
+});
+
+test('Workspace ใช้ role จาก access token เพราะ roles scope ของ Keycloak ไม่ใส่ role ใน ID token', () => {
+  const token = (roles: unknown) =>
+    `header.${btoa(JSON.stringify({ realm_access: { roles } }))}.signature`;
+  const url = new URL('https://workspace.example/?tenant=uat&view=supervisor');
+  assert.equal(resolveAuthorizedWorkspaceView(url, {}, token(['supervisor'])), 'supervisor');
+  assert.equal(resolveAuthorizedWorkspaceView(url, {}, token(['admin'])), 'supervisor');
+  assert.equal(
+    resolveAuthorizedWorkspaceView(url, { realm_access: { roles: ['admin'] } }, token(['agent'])),
+    'forbidden',
+  );
+  assert.equal(resolveAuthorizedWorkspaceView(url, {}, 'invalid'), 'forbidden');
 });

@@ -22,6 +22,9 @@ RUN pnpm install --frozen-lockfile --filter "@d-contact/console..." --filter "@d
 # ไม่ตั้ง VITE_API_BASE_URL = เรียก API แบบ same-origin (`/api/v1`) ผ่าน proxy ตัวเดียวกัน
 ARG VITE_KC_ISSUER
 ARG VITE_KC_CLIENT_ID=dcontact-uat-console
+ARG VITE_WORKSPACE_KC_CLIENT_ID=dcontact-uat-workspace
+ARG VITE_CONSOLE_URL
+ARG VITE_WORKSPACE_URL
 # #684: compatibility argument ของ deployment เก่า; แอปใช้ Home เมื่อไม่มี explicit view/context
 ARG VITE_CONSOLE_DEFAULT_VIEW=journeys
 ARG VITE_UAT_ENVIRONMENT=uat
@@ -31,10 +34,15 @@ RUN test -n "$VITE_KC_ISSUER" && test -n "$VITE_UAT_PACK_VERSION" \
 RUN VITE_KC_ISSUER="$VITE_KC_ISSUER" \
   VITE_KC_CLIENT_ID="$VITE_KC_CLIENT_ID" \
   VITE_CONSOLE_DEFAULT_VIEW="$VITE_CONSOLE_DEFAULT_VIEW" \
+  VITE_WORKSPACE_URL="$VITE_WORKSPACE_URL" \
   VITE_UAT_ENVIRONMENT="$VITE_UAT_ENVIRONMENT" \
   VITE_UAT_PACK_VERSION="$VITE_UAT_PACK_VERSION" \
   pnpm --filter "@d-contact/console..." build \
-  && pnpm --filter @d-contact/workspace build \
+  && VITE_KC_ISSUER="$VITE_KC_ISSUER" \
+  VITE_KC_CLIENT_ID="$VITE_WORKSPACE_KC_CLIENT_ID" \
+  VITE_CONSOLE_URL="$VITE_CONSOLE_URL" \
+  VITE_WORKSPACE_URL="$VITE_WORKSPACE_URL" \
+  pnpm --filter @d-contact/workspace build \
   && test -f apps/console/dist/index.html \
   && test -f apps/workspace/dist/embed/dphone-embed.js \
   && test -f apps/workspace/dist/embed/dphone-embed.css
@@ -58,7 +66,7 @@ ENV XDG_DATA_HOME=/data \
 RUN install -m 0755 /usr/bin/caddy /usr/local/bin/caddy-uat
 COPY infra/uat/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /repo/apps/console/dist /srv/console
-COPY --from=build /repo/apps/workspace/dist/embed /srv/workspace/embed
+COPY --from=build /repo/apps/workspace/dist /srv/workspace
 COPY examples/dphone-host/index.html /srv/examples/dphone-host/index.html
 USER 10001:10001
 EXPOSE 8080 8443

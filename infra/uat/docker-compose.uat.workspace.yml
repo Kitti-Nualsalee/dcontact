@@ -1,0 +1,13 @@
+# #684: opt-in บน E1; API และ static SPA จริงสำหรับสอง Workspace
+services:
+  proxy:
+    environment:
+      UAT_WORKSPACE_HOST: ${UAT_WORKSPACE_HOST:?UAT_WORKSPACE_HOST is required}
+  api:
+    command: ['node', 'dist/workspace-uat-main.js']
+    environment:
+      DCONTACT_API_PROFILE: uat-workspace
+      DCONTACT_RESERVED_ORIGINS: https://${UAT_HOST:?UAT_HOST is required},https://${UAT_WORKSPACE_HOST:?UAT_WORKSPACE_HOST is required}
+  keycloak-config:
+    environment:
+      UAT_WORKSPACE_HOST: ${UAT_WORKSPACE_HOST:?UAT_WORKSPACE_HOST is required}

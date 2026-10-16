@@ -76,6 +76,13 @@ is_e1_launcher() {
   [[ -f "$1/docker-compose.uat.e1-launcher.yml" ]] || fail 'E1_LAUNCHER_OVERLAY_MISSING'
 }
 
+is_workspace() {
+  [[ "$(release_value "$1" UAT_WORKSPACE_ENABLED)" == true ]] || return 1
+  is_e1 "$1" || fail 'WORKSPACE_REQUIRES_E1'
+  [[ -f "$1/docker-compose.uat.workspace.yml" ]] || fail 'WORKSPACE_OVERLAY_MISSING'
+  [[ -n "$(release_value "$1" UAT_WORKSPACE_HOST)" ]] || fail 'WORKSPACE_HOST_MISSING'
+}
+
 compose() {
   local dir="$1"
   shift
@@ -85,6 +92,7 @@ compose() {
     local files=(-f "$dir/docker-compose.uat.yml" -f "$dir/docker-compose.uat.3vm.yml")
     if is_e1 "$dir"; then files+=(-f "$dir/docker-compose.uat.e1.yml"); fi
     if is_e1_launcher "$dir"; then files+=(-f "$dir/docker-compose.uat.e1-launcher.yml"); fi
+    if is_workspace "$dir"; then files+=(-f "$dir/docker-compose.uat.workspace.yml"); fi
     if is_line "$dir"; then files+=(-f "$dir/docker-compose.uat.line.yml"); fi
     if is_trial "$dir"; then files+=(-f "$dir/docker-compose.uat.line-trial.yml"); fi
     "$binary" --project-name "$PROJECT" \
@@ -96,6 +104,7 @@ compose() {
     local files=(-f "$dir/docker-compose.uat.yml")
     if is_e1 "$dir"; then files+=(-f "$dir/docker-compose.uat.e1.yml"); fi
     if is_e1_launcher "$dir"; then files+=(-f "$dir/docker-compose.uat.e1-launcher.yml"); fi
+    if is_workspace "$dir"; then files+=(-f "$dir/docker-compose.uat.workspace.yml"); fi
     docker compose --project-name "$PROJECT" \
       --project-directory "$dir" \
       --env-file "$UAT_ROOT/uat.env" \
@@ -335,6 +344,7 @@ case "$cmd" in
     if is_3vm "$dir"; then local_connect_host=192.168.102.114; fi
     expected_profile=uat
     if is_e1 "$dir"; then expected_profile=uat-e1; fi
+    if is_workspace "$dir"; then expected_profile=uat-workspace; fi
     # Docker Desktop (uat-local.sh บน macOS) ใช้ host.docker.internal ผ่าน env override
     docker run --rm --network "${UAT_SMOKE_DOCKER_NETWORK:-host}" \
       -e "UAT_BASE_URL=https://${uat_host}" \
@@ -441,7 +451,7 @@ case "$cmd" in
     exec 8>"$UAT_ROOT/e1-launcher.lock"
     flock -n 8 || fail 'E1_LAUNCHER_COMMAND_BUSY'
     is_e1 "$dir" || fail 'E1_ACCEPTANCE_DISABLED'
-    docker exec "${PROJECT}-api-1" node -e 'if (process.env.DCONTACT_API_PROFILE !== "uat-e1") process.exit(1)' || fail 'E1_LAUNCHER_PROFILE_REQUIRED'
+    docker exec "${PROJECT}-api-1" node -e 'if (!["uat-e1", "uat-workspace"].includes(process.env.DCONTACT_API_PROFILE)) process.exit(1)' || fail 'E1_LAUNCHER_PROFILE_REQUIRED'
     for service in api e1-sandbox; do
       running_sha="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${PROJECT}-${service}-1")"
       [[ "$running_sha" == "$sha" ]] || fail 'E1_VOICE_RUNTIME_SHA_MISMATCH'

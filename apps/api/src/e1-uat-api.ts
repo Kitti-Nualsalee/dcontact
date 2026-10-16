@@ -119,8 +119,11 @@ export function createE1UatApiModule(dependencies: E1UatApiDependencies): Dynami
   };
 }
 
-export async function bootstrapE1UatApi(environment: NodeJS.ProcessEnv = process.env) {
-  const profile: ApiRuntimeProfile = assertEntrypointProfile('uat-e1', environment);
+export async function bootstrapE1UatApi(
+  environment: NodeJS.ProcessEnv = process.env,
+  expectedProfile: 'uat-e1' | 'uat-workspace' = 'uat-e1',
+) {
+  const profile: ApiRuntimeProfile = assertEntrypointProfile(expectedProfile, environment);
   const diagnostics = { write: (event: object) => console.log(JSON.stringify(event)) };
   const routeGuard = new RuntimeProfileRouteGuard(profile, diagnostics);
   const database = new PrismaClient();
@@ -189,7 +192,7 @@ export async function bootstrapE1UatApi(environment: NodeJS.ProcessEnv = process
       }),
     }),
   });
-  const module = createE1UatApiModule({
+  const dependencies: E1UatApiDependencies = {
     database,
     verifier,
     diagnostics,
@@ -215,7 +218,11 @@ export async function bootstrapE1UatApi(environment: NodeJS.ProcessEnv = process
         clientId: environment.DPHONE_EMBEDDED_CLIENT_ID ?? 'dphone-embedded',
       },
     },
-  });
+  };
+  const workspace =
+    profile.name === 'uat-workspace' ? await import('./workspace-uat-api.js') : undefined;
+  const fullWorkspace = workspace?.createWorkspaceUatApiModule(dependencies);
+  const module = fullWorkspace?.module ?? createE1UatApiModule(dependencies);
   const app = await NestFactory.create(module);
   app.use(routeGuard.middleware);
   const tenantScope = <T>(tenantId: string, work: () => Promise<T> | T): Promise<T> =>
@@ -233,6 +240,9 @@ export async function bootstrapE1UatApi(environment: NodeJS.ProcessEnv = process
     diagnostics,
     leases,
   );
+  fullWorkspace?.events.subscribe(async (event, recipients) => {
+    await socketAdapter.deliverLiveEvent(event, recipients);
+  });
   socketRef.current = socketAdapter;
   attachWorkspaceSessionWebSocket(app.getHttpServer(), socketAdapter);
   setInterval(() => void leases.sweep(), 15_000).unref();

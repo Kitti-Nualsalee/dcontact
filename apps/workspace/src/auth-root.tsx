@@ -7,8 +7,11 @@ import { WorkspaceShell } from './shell/workspace-shell.js';
 import { createAgentWorkspaceApi } from './agent-api.js';
 import {
   createOidcSettings,
+  accessTokenRealmRoles,
   resolveAuthorizedWorkspaceView,
   resolveTenantAlias,
+  workspaceReturnUrl,
+  workspaceCallbackUrl,
 } from './auth-session.js';
 import { SipJsBrowserTransport } from './dphone/sip-js-transport.js';
 import { BrowserDphone } from './dphone/dphone.js';
@@ -63,7 +66,9 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
         title="เข้าสู่ระบบไม่สำเร็จ"
         detail="ระบบไม่เปิดรับสายใหม่ โปรดลองเข้าสู่ระบบอีกครั้ง"
         actionLabel="ลองอีกครั้ง"
-        onAction={() => void auth.signinRedirect()}
+        onAction={() =>
+          void auth.signinRedirect({ state: workspaceReturnUrl(new URL(window.location.href)) })
+        }
       />
     );
   }
@@ -73,12 +78,18 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
         title="D-Contact Workspace"
         detail={`เข้าสู่ระบบสำหรับ organization ${tenantAlias}`}
         actionLabel="เข้าสู่ระบบ"
-        onAction={() => void auth.signinRedirect()}
+        onAction={() =>
+          void auth.signinRedirect({ state: workspaceReturnUrl(new URL(window.location.href)) })
+        }
       />
     );
   }
 
-  const view = resolveAuthorizedWorkspaceView(new URL(window.location.href), auth.user?.profile);
+  const view = resolveAuthorizedWorkspaceView(
+    new URL(window.location.href),
+    auth.user?.profile,
+    accessToken,
+  );
   if (view === 'forbidden') {
     return (
       <AuthStatus
@@ -99,7 +110,10 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
     accessToken: () => accessToken,
     tenantAlias,
     account: {
-      user: shellUserFromClaims(auth.user?.profile ?? {}, tenantAlias),
+      user: shellUserFromClaims(
+        { ...auth.user?.profile, realm_access: { roles: accessTokenRealmRoles(accessToken) } },
+        tenantAlias,
+      ),
       onSignOut: () => auth.signoutRedirect(),
     },
   } as const;
@@ -190,9 +204,8 @@ export function WorkspaceAuthRoot() {
   return (
     <AuthProvider
       {...settings}
-      onSigninCallback={() => {
-        const cleanUrl = new URL('/', window.location.origin);
-        cleanUrl.searchParams.set('tenant', tenantAlias);
+      onSigninCallback={(user) => {
+        const cleanUrl = workspaceCallbackUrl(new URL(window.location.href), user?.state);
         window.history.replaceState({}, document.title, cleanUrl);
       }}
     >

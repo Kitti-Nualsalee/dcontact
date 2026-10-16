@@ -764,7 +764,7 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(consoleDockerfile, /pnpm --filter @d-contact\/workspace build/);
   assert.match(
     consoleDockerfile,
-    /COPY --from=build \/repo\/apps\/workspace\/dist\/embed \/srv\/workspace\/embed/,
+    /COPY --from=build \/repo\/apps\/workspace\/dist \/srv\/workspace/,
   );
   assert.match(
     consoleDockerfile,
