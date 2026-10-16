@@ -104,6 +104,23 @@ mockup ทั้งหมดวันนี้เป็น shell เดียว
 
 ## ผลที่ตามมา
 
+### Embedded owner ที่อยู่รอดเมื่อ CRM reload
+
+แก้ไขตามคำยืนยัน [#464](https://github.com/Kitti-Nualsalee/dcontact/issues/464#issuecomment-6197415407)
+และสเปก [#689](https://github.com/Kitti-Nualsalee/dcontact/issues/689): embedded dphone ใช้หน้าต่าง
+top-level บน dphone origin ที่ agent เปิดด้วย user gesture เป็นเจ้าของ auth, SIP/WebRTC, audio,
+routing WS, lease และ activity outbox ส่วน iframe เป็น controller ของ CRM โดยคง public postMessage v1
+การ reload CRM ทำลาย controller แต่ไม่ทำลายเจ้าของสาย; reattach ตรวจ exact origin/source,
+tenant/hostOrigin, nonce ของ document และ policy สดจาก server ก่อนรับคำสั่งหรือส่งข้อมูลกลับ
+
+refresh token เก็บใน sessionStorage ของหน้าต่าง owner แยก namespace ตาม tenant/hostOrigin;
+access token อยู่ใน memory ไม่มี token ผ่าน controller หรือ CRM และไม่ย้าย token จาก iframe รุ่นเดิม
+ผู้ใช้ต้องจบงานเดิมก่อนเปลี่ยนรุ่นแล้ว login ใหม่ ต้นทุนคือผู้ใช้ต้องเปิดหน้าต่าง dphone ค้างไว้
+การปิด/reload หน้าต่าง owner หรือ browser crash อยู่นอกการรับประกันของการ reload CRM
+
+ข้อนี้ไม่เปลี่ยน `/dphone?remote=…` ของ D1 ซึ่งยังเป็น controller ของ Workspace ที่ถือสายอยู่
+server-side work-session lease ยังคงเป็นผู้บังคับจุดรับงานเดียวทุก surface
+
 - `README.md` เปลี่ยนจาก `apps/agent-desktop` เป็น **`apps/workspace` + `apps/console`** และเพิ่ม `packages/ui`
 - งานแรกของเฟส 1 ฝั่ง frontend ไม่ใช่หน้าจอ แต่คือ **leader election + สัญญา WS เส้นเดียว** —
   ทำทีหลังแปลว่าต้องรื้อทุกหน้าที่ subscribe ไปแล้ว

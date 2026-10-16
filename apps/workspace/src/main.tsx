@@ -77,8 +77,10 @@ const e2eShellProps = {
 } as const;
 
 // ต้องเป็นค่าคงที่ — WorkspaceApp สร้าง dphone ใหม่เมื่อ factory เปลี่ยน (re-render ต้องไม่ตัดสาย)
-const e2eCreateDphone: DphoneFactory = (_remoteAudio, callbacks) =>
-  createDeterministicDphone(callbacks);
+const e2eCreateDphone: DphoneFactory = (remoteAudio, callbacks) => {
+  remoteAudio.addEventListener('e2e:sip-terminated', () => callbacks.onSessionTerminated?.());
+  return createDeterministicDphone(callbacks);
+};
 
 /** #588: สถานะงานในมือส่งจาก WorkspaceApp ขึ้นไปที่ shell แบบเดียวกับ auth-root */
 function E2eAgentWorkspace() {

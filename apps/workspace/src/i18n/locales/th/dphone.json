@@ -38,6 +38,15 @@
     "noHost": "ไม่พบ Workspace ที่ทำงานอยู่ เปิด Agent Workspace ในแท็บทำงานก่อน แล้ววาง dphone ออกมาอีกครั้ง",
     "closed": "Workspace ปิด dphone หน้าต่างนี้แล้ว"
   },
+  "embedOwner": {
+    "open": "เปิดหน้าต่าง dphone",
+    "waiting": "เปิด dphone เพื่อเข้าสู่ระบบและรับสาย กรุณาเปิดหน้าต่างไว้ขณะใช้งาน CRM",
+    "connecting": "กำลังเชื่อมต่อ dphone…",
+    "connected": "dphone เปิดอยู่ สายยังคงอยู่เมื่อรีโหลดหน้า CRM นี้",
+    "blocked": "กรุณาอนุญาตป๊อปอัป แล้วกดเปิดหน้าต่าง dphone อีกครั้ง",
+    "disconnected": "การเชื่อมต่อ dphone ขาดหาย เปิดหน้าต่างเพื่อตรวจสอบสถานะสาย",
+    "revoked": "สิทธิ์ฝัง dphone ของ CRM นี้ถูกนำออก สายที่มีอยู่ยังคุยต่อในหน้าต่าง dphone ได้"
+  },
   "embedAuth": {
     "label": "การเข้าสู่ระบบของ dphone",
     "signIn": "เข้าสู่ระบบ",

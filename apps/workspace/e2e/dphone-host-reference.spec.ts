@@ -18,6 +18,45 @@ const hostHtml = (launcherVersion: string) => () =>
     .replaceAll('/embed/v1/dphone-launcher.js', `/embed/${launcherVersion}/dphone-launcher.js`)
     .replaceAll('TENANT', 'demo');
 
+test('launcher release เปิด owner ผ่าน sandbox และรักษาสายหลัง CRM reload', async ({ page }) => {
+  const { server, frame } = await setup(page, {
+    hostHtml: hostHtml('v1'),
+    path: '/',
+    ownerWindow: true,
+  });
+  const [owner] = await Promise.all([
+    page.waitForEvent('popup'),
+    frame.getByRole('button', { name: 'เปิดหน้าต่าง dphone' }).click(),
+  ]);
+  const [login] = await Promise.all([
+    owner.waitForEvent('popup'),
+    owner.getByRole('button', { name: 'เข้าสู่ระบบ' }).click(),
+  ]);
+  await expect.poll(() => login.isClosed()).toBe(true);
+  await owner.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+  const phone = owner.getByRole('region', { name: 'dphone' });
+  await phone.getByRole('button', { name: 'รับสาย' }).click();
+  await expect(phone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  const session = await owner.evaluate(() => window.__dcontactDphone?.sipSessionId());
+  const leases = server.leaseBodies.length;
+  server.state = 'ACTIVE';
+  page.on('dialog', (dialog) => dialog.accept());
+  await page.reload();
+  await expect(page.locator('body')).toHaveAttribute('data-dphone-ready', 'true');
+  expect(await owner.evaluate(() => window.__dcontactDphone?.sipSessionId())).toBe(session);
+  expect(server.leaseBodies).toHaveLength(leases);
+  await expect(phone.getByRole('status', { name: 'dphone' })).toHaveText('กำลังสนทนา');
+  server.state = 'WRAPUP';
+  await phone.getByRole('button', { name: 'วางสาย' }).click();
+  await owner.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
+  await owner.getByRole('button', { name: 'ส่ง disposition' }).click();
+  await expect(page.locator('#activities li')).toHaveText([
+    'interaction-embed-1 · CUSTOMER_ASSISTED · 120 วินาที',
+  ]);
+  expect(server.wrapups).toBe(1);
+  await owner.close();
+});
+
 for (const version of ['v1', 'v1.0.1']) {
   test(`host อ้างอิง + launcher ${version}: ready → login → screen-pop → รับสาย → activity (ack อัตโนมัติ) → click-to-call`, async ({
     page,

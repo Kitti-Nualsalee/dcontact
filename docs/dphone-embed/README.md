@@ -29,7 +29,7 @@ dphone คือโทรศัพท์ของ agent ใน D-Contact ฝั�
 <dphone-launcher tenant="acme" style="width: 360px; height: 640px"></dphone-launcher>
 ```
 
-5. เปิดหน้าเว็บ agent กด **เข้าสู่ระบบ** ใน dphone ระบบจะเปิดหน้าต่าง login ของ D-Contact แล้วกด **ตรวจอุปกรณ์เสียง** เพื่อเริ่มรับสาย
+5. เปิดหน้าเว็บ agent กด **เปิดหน้าต่าง dphone** แล้วกด **เข้าสู่ระบบ** ในหน้าต่างนั้น ระบบจะเปิดหน้าต่าง login ของ D-Contact จากนั้นกด **ตรวจอุปกรณ์เสียง** เพื่อเริ่มรับสาย เปิดหน้าต่าง dphone ค้างไว้ขณะใช้งาน CRM
 
 ตัวอย่างหน้า host ที่ใช้ได้จริงอยู่ที่ [`examples/dphone-host/index.html`](../../examples/dphone-host/index.html) เป็น HTML ธรรมดาที่ไม่ใช้ framework
 
@@ -137,9 +137,11 @@ server ลดระดับให้เองทุกครั้งตาม 
 
 - **Login:**
   - dphone ใช้หน้าต่าง popup ที่เปิดเมื่อ agent กดปุ่ม ไม่มีการ login เงียบผ่าน iframe
-  - token อยู่ใน dphone เท่านั้น ไม่มีการส่ง token ให้หน้า host
+  - token และ media อยู่ในหน้าต่าง dphone บน origin ของ D-Contact เท่านั้น iframe เป็นตัวเชื่อมกับ CRM และไม่มี token
+  - หลังอัปเกรดจากรุ่นที่ถือสายใน iframe ต้องจบสายและ wrap-up เดิมก่อนเริ่มรุ่นใหม่ จากนั้น login ใหม่ในหน้าต่าง dphone ระบบไม่ย้าย refresh token เดิมข้ามบริบท
   - ออกจากระบบได้เฉพาะตอนที่ไม่มีสายหรือ wrap-up ค้างอยู่
-- **Reload หน้า host:** agent ยังอยู่ในระบบ และกิจกรรมที่ยังไม่ได้ ack จะถูกส่งซ้ำ
+- **Reload หน้า host:** หน้าต่าง dphone ต้องเปิดอยู่ สายและ session อยู่ที่หน้าต่างนี้ เมื่อ CRM โหลดกลับ iframe จะตรวจสิทธิ์ฝังใหม่และเชื่อมกลับ โดยไม่ขอ lease หรือ register SIP ใหม่ กิจกรรมที่ยังไม่ได้ ack จะถูกส่งซ้ำ
+- **ปิดหน้าต่าง dphone:** เป็นการปิดเจ้าของสาย browser อาจเตือนก่อนปิด แต่ไม่รับประกันว่าจะกันการปิดหรือ crash ได้ CRM จะแสดง disconnected; อย่าปิดหรือ reload หน้าต่าง dphone ระหว่างสาย ให้ reload เฉพาะหน้า CRM
 - **Session หมดหรือถูกเพิกถอน:**
   - สายที่คุยอยู่ไม่หลุด dphone แสดงแถบให้ login ใหม่ และคำสั่งที่ค้างรอจน login เสร็จ
   - ถ้าสายจบก่อน login ใหม่ agent จะถูกตั้งเป็นไม่พร้อมรับสาย
@@ -161,7 +163,7 @@ server ลดระดับให้เองทุกครั้งตาม 
 | กรอบ dphone ว่าง / browser แจ้ง `frame-ancestors` | origin ของหน้า host ไม่อยู่ใน allowlist (ตรวจ scheme, host และ port), flag `dphone.embed.enabled` ปิดอยู่ หรือ plan ไม่มี `modules.api.cti` |
 | `Refused to load the script` / `frame-src`        | CSP ของหน้า host ยังไม่อนุญาต origin ของ dphone ใน `script-src` หรือ `frame-src`                                                            |
 | กดเข้าสู่ระบบแล้วขึ้นว่าหน้าต่างถูกบล็อก          | browser บล็อก popup ให้อนุญาต popup ของเว็บนั้นแล้วกดอีกครั้ง หรือ sandbox ของ iframe ขาด `allow-popups`                                    |
-| ตรวจอุปกรณ์เสียงไม่ผ่าน                           | iframe ไม่มี `allow="microphone"` ผู้ใช้ปฏิเสธสิทธิ์ไมค์ หรือหน้า host ไม่ใช่ HTTPS                                                         |
+| ตรวจอุปกรณ์เสียงไม่ผ่าน                           | ตรวจสิทธิ์ไมค์ของ origin D-Contact ในหน้าต่าง dphone และอุปกรณ์ที่เลือก; หน้า host และ dphone ต้องใช้ HTTPS                                 |
 | ไม่ได้ `screenpop`                                | ระดับของ origin เป็น `off` (ค่าเริ่มต้น) หรือได้แค่ `interactionId` เพราะถูกลดระดับ (ดู `reasonCode`)                                       |
 | ได้ `activity` ซ้ำ                                | หน้า host ไม่ได้ ack (handler ของ `waitUntil` ล้ม) ให้บันทึกแบบ idempotent ด้วย `interactionId`                                             |
 | `dphoneerror` ที่มี `unsupported_version`         | ส่งข้อความที่ไม่ใช่ `v: 1`                                                                                                                  |

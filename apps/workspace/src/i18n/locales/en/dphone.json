@@ -38,6 +38,15 @@
     "noHost": "No working Workspace found. Open Agent Workspace in the working tab, then pop dphone out again.",
     "closed": "Workspace closed this dphone window"
   },
+  "embedOwner": {
+    "open": "Open dphone window",
+    "waiting": "Open dphone to sign in and receive calls. Keep its window open while using CRM.",
+    "connecting": "Connecting to dphone…",
+    "connected": "dphone is open. Calls continue when this CRM page reloads.",
+    "blocked": "Allow pop-ups, then select Open dphone window again.",
+    "disconnected": "dphone is disconnected. Open its window to check the call status.",
+    "revoked": "Embedding access for this CRM has been removed. An existing call continues in dphone."
+  },
   "embedAuth": {
     "label": "dphone sign-in",
     "signIn": "Sign in",

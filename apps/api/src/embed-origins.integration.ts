@@ -336,6 +336,43 @@ test('/dphone/embed: ฝังได้เมื่อ flag + entitlement + orig
   );
 });
 
+test('owner-policy อ่าน policy สดแม้ instance cache ไว้ และไม่เปิดเผยข้อมูล tenant ที่ไม่อนุญาต', async (t) => {
+  const fixture = await setup(t);
+  const hostOrigin = 'https://crm.example.test';
+  const path = `/dphone/embed/owner-policy?tenant=${fixture.slugs[0]}&hostOrigin=${encodeURIComponent(hostOrigin)}`;
+  await fixture.service.shellPolicy(fixture.slugs[0]!);
+  assert.deepEqual((await fixture.call('GET', path)).body, { allowed: false });
+  await fixture.flag(fixture.tenantA, true);
+  const origin = await fixture.service.create(
+    { tenantId: fixture.tenantA, userId: fixture.users.admin },
+    { origin: hostOrigin, label: 'CRM' },
+    'owner-policy-test',
+  );
+  const allowed = await fixture.call('GET', path);
+  assert.deepEqual(allowed.body, { allowed: true });
+  assert.equal(allowed.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(
+    (await fixture.call('GET', path.replace(fixture.slugs[0]!, fixture.slugs[1]!))).body,
+    { allowed: false },
+  );
+  await fixture.service.update(
+    { tenantId: fixture.tenantA, userId: fixture.users.admin },
+    origin.id,
+    { expectedRevision: origin.revision, enabled: false, reason: 'ทดสอบเพิกถอน' },
+    'owner-policy-test',
+  );
+  assert.deepEqual((await fixture.call('GET', path)).body, { allowed: false });
+  assert.deepEqual(
+    (
+      await fixture.call(
+        'GET',
+        '/dphone/embed/owner-policy?tenant=missing&hostOrigin=https://crm.example.test',
+      )
+    ).body,
+    { allowed: false },
+  );
+});
+
 test('origin ใหม่ใช้ได้ภายใน 30 วินาทีแม้ instance อื่น cache ไว้; ปิด origin แล้ว lease embedded ตอนว่างถูกปล่อย', async (t) => {
   const f = await setup(t);
   await f.flag(f.tenantA, true);
