@@ -19,12 +19,16 @@ import governanceTh from './locales/th/governance.json' with { type: 'json' };
 import accountEn from './locales/en/account.json' with { type: 'json' };
 import accountTh from './locales/th/account.json' with { type: 'json' };
 
+import homeEn from './locales/en/home.json' with { type: 'json' };
+import homeTh from './locales/th/home.json' with { type: 'json' };
+
 export const DEFAULT_NAMESPACE = 'common';
 
 // namespace `ui` ของ component layer (ADR-028) โหลดพร้อมกัน จึงสลับภาษาพร้อมกันทั้งจอ
 export const resources = {
   th: {
     common: commonTh,
+    home: homeTh,
     journeys: journeysTh,
     integrations: integrationsTh,
     account: accountTh,
@@ -33,6 +37,7 @@ export const resources = {
   },
   en: {
     common: commonEn,
+    home: homeEn,
     journeys: journeysEn,
     integrations: integrationsEn,
     account: accountEn,

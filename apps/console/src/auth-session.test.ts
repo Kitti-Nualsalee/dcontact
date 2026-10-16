@@ -68,11 +68,11 @@ test('Console ใช้ PKCE ใน memory และรับเฉพาะ opa
   );
 });
 
-test('U1.4 ไม่มี view และ context ใช้ default view ตอน build ได้เฉพาะ journeys', () => {
+test('#684 ไม่มี view/context เปิด Home แม้ deployment เดิมตั้ง default เป็น Journeys', () => {
   const at = (query: string) => new URL(`https://acme.console.example${query}`);
-  assert.equal(resolveConsoleView(at('/?tenant=acme'), 'journeys'), 'journeys');
-  assert.equal(resolveConsoleView(at('/'), undefined), null);
-  assert.equal(resolveConsoleView(at('/'), 'governance'), null);
+  assert.equal(resolveConsoleView(at('/?tenant=acme'), 'journeys'), 'home');
+  assert.equal(resolveConsoleView(at('/'), undefined), 'home');
+  assert.equal(resolveConsoleView(at('/'), 'governance'), 'home');
   // view ใน URL มาก่อน default และ Interaction context ไม่ถูกเปลี่ยนหน้า
   assert.equal(resolveConsoleView(at('/?view=governance'), 'journeys'), 'governance');
   assert.equal(
@@ -131,6 +131,8 @@ test('#676 callback ของ OIDC เลือกหน้าจาก URL ป�
     ['/?tenant=acme&view=governance&section=audit', 'governance'],
     ['/?tenant=acme&view=account', 'account'],
     ['/?tenant=acme&view=journeys', 'journeys'],
+    ['/?tenant=acme&view=home', 'home'],
+    ['/?tenant=acme', 'home'],
     ['/?tenant=acme&context=0f8fad5b-d9cb-469f-a165-70867728950e', null],
   ] as const;
   for (const [link, view] of links) {
@@ -253,4 +255,23 @@ test('E1.16 UI อ่าน realm roles จาก access token และ fail cl
   );
   assert.deepEqual(accessTokenRealmRoles('not-a-jwt'), []);
   assert.deepEqual(accessTokenRealmRoles(undefined), []);
+});
+
+test('#684 callback ที่ไม่มี return URL เปิด Home และ sign-out จาก Home กลับมาได้', () => {
+  const storage = new MemoryStorage();
+  const home = new URL('https://acme.console.example/?tenant=acme');
+  const callback = new URL('https://acme.console.example/?tenant=acme&state=abc&code=c0de');
+  assert.deepEqual(consumeConsoleReturnLocation(callback, storage, 'journeys'), {
+    url: '/?tenant=acme',
+    view: 'home',
+  });
+  rememberConsoleSignOut(home, storage);
+  assert.equal(isConsoleSignedOutLanding(home, storage), true);
+  clearConsoleSignOut(storage);
+  assert.equal(isConsoleSignedOutLanding(home, storage), false);
+  assert.equal(resolveConsoleView(resolveConsoleLocation(callback, storage), 'journeys'), 'home');
+  assert.deepEqual(consumeConsoleReturnLocation(callback, storage), {
+    url: '/?tenant=acme',
+    view: 'home',
+  });
 });

@@ -22,10 +22,11 @@
       "supervisorWorkspace": "ทีมสด",
       "journeys": "Journeys",
       "contactGovernance": "Governance",
-      "dphoneEmbedding": "ฝัง dphone"
+      "dphoneEmbedding": "ฝัง dphone",
+      "home": "หน้าแรก"
     },
     "areas": {
-      "home": "หน้าหลัก",
+      "home": "หน้าแรก",
       "workspace": "พื้นที่ทำงาน",
       "supervisor": "คุมหน้างาน",
       "outbound": "งานขาออก",

@@ -31,15 +31,14 @@ export function resolveConsoleContextId(location: URL): string {
 }
 
 /**
- * U1.4 (#432): หน้าที่จะเปิด — `view` ใน URL มาก่อนเสมอ; ไม่มีทั้ง `view` และ Interaction `context`
- * (เช่นกลับจาก login ที่ redirect_uri เป็น `/?tenant=`) ใช้ `VITE_CONSOLE_DEFAULT_VIEW` ตอน build
- * ตอนนี้รับค่า default เดียวคือ `journeys` (UAT first slice) ค่าอื่นไม่ถูกใช้
+ * #684: ไม่มี explicit view หรือ Interaction context → Home เสมอ รวม deployment เก่าที่ตั้ง
+ * VITE_CONSOLE_DEFAULT_VIEW=journeys; เก็บ argument เดิมเพื่อให้ callers ของ callback ใช้ต่อได้
  */
-export function resolveConsoleView(location: URL, defaultView?: string): string | null {
+export function resolveConsoleView(location: URL, _legacyDefaultView?: string): string | null {
   const view = location.searchParams.get('view');
   if (view) return view;
   if (location.searchParams.get('context')?.trim()) return null;
-  return defaultView === 'journeys' ? 'journeys' : null;
+  return 'home';
 }
 
 export function accessTokenRealmRoles(accessToken: string | undefined): string[] {

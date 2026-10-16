@@ -156,6 +156,7 @@ test('role และ plan ต่างกันได้รายการต่
   const journeyAdmin = await navigation('journey-admin');
   assert.equal(journeyAdmin.status, 200);
   assert.deepEqual(appIds(journeyAdmin.json), [
+    'home',
     'agent-workspace',
     'supervisor-workspace',
     'journeys',
@@ -164,9 +165,9 @@ test('role และ plan ต่างกันได้รายการต่
   assert.ok(!journeyAdmin.text.includes('navigation.apps.contactGovernance'));
   assert.deepEqual(
     journeyAdmin.json.groups.map((group: { id: string }) => group.id),
-    ['live', 'automation'],
+    ['live', 'automation', 'operations'],
   );
-  assert.deepEqual(journeyAdmin.json.apps[2], {
+  assert.deepEqual(journeyAdmin.json.apps[3], {
     id: 'journeys',
     groupId: 'automation',
     labelKey: 'navigation.apps.journeys',
@@ -176,6 +177,11 @@ test('role และ plan ต่างกันได้รายการต่
 
   // #651: พื้นที่งานบน rail + เมนูย่อย — คัดตาม role/plan ที่ server และพื้นที่ว่างไม่ถูกส่ง
   assert.deepEqual(journeyAdmin.json.areas, [
+    {
+      id: 'home',
+      labelKey: 'navigation.areas.home',
+      sections: [{ id: 'work', labelKey: 'navigation.sections.work', items: [{ appId: 'home' }] }],
+    },
     {
       id: 'workspace',
       labelKey: 'navigation.areas.workspace',
@@ -210,10 +216,10 @@ test('role และ plan ต่างกันได้รายการต่
   assert.ok(!journeyAdmin.text.includes('navigation.areas.integrations'));
 
   const journeyAgent = await navigation('journey-agent');
-  assert.deepEqual(appIds(journeyAgent.json), ['agent-workspace']);
+  assert.deepEqual(appIds(journeyAgent.json), ['home', 'agent-workspace']);
   assert.deepEqual(
     journeyAgent.json.areas.map((area: { id: string }) => area.id),
-    ['workspace'],
+    ['home', 'workspace'],
     'agent เห็นพื้นที่เดียว ไม่มีพื้นที่ว่าง',
   );
   for (const hidden of ['supervisor-workspace', 'journeys', 'contact-governance']) {
@@ -222,11 +228,12 @@ test('role และ plan ต่างกันได้รายการต่
   assert.equal(journeyAgent.json.tenantDefaultPins, undefined, 'เฉพาะ ADMIN');
 
   const emptyAdmin = await navigation('empty-admin');
-  assert.deepEqual(appIds(emptyAdmin.json), ['agent-workspace', 'supervisor-workspace']);
+  assert.deepEqual(appIds(emptyAdmin.json), ['home', 'agent-workspace', 'supervisor-workspace']);
 
   // tenant ที่ไม่มี plan binding (ก่อน A1) — role อย่างเดียว (ตัดสินใน #451)
   const legacyAdmin = await navigation('legacy-admin');
   assert.deepEqual(appIds(legacyAdmin.json), [
+    'home',
     'agent-workspace',
     'supervisor-workspace',
     'journeys',
@@ -235,6 +242,7 @@ test('role และ plan ต่างกันได้รายการต่
   ]);
   assert.deepEqual(legacyAdmin.json.pins, {
     appIds: [
+      'home',
       'agent-workspace',
       'supervisor-workspace',
       'journeys',

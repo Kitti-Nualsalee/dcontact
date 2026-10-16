@@ -64,6 +64,12 @@
 			root * /srv/examples
 			file_server
 		}
+		@fullWorkspace host {$UAT_WORKSPACE_HOST:workspace-disabled.invalid}
+		handle @fullWorkspace {
+			root * /srv/workspace
+			try_files {path} /index.html
+			file_server
+		}
 		handle {
 			root * /srv/console
 			try_files {path} /index.html

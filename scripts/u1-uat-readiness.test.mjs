@@ -113,6 +113,7 @@ function restrictedReleaseFixture(context) {
   ])
     chmodSync(resolve(releaseDir, name), 0o700);
   return {
+    root,
     secret,
     releaseDir,
     templates,
@@ -764,7 +765,7 @@ test('E1.16: UAT image มี embed assets, host อ้างอิง และ
   assert.match(consoleDockerfile, /pnpm --filter @d-contact\/workspace build/);
   assert.match(
     consoleDockerfile,
-    /COPY --from=build \/repo\/apps\/workspace\/dist\/embed \/srv\/workspace\/embed/,
+    /COPY --from=build \/repo\/apps\/workspace\/dist \/srv\/workspace/,
   );
   assert.match(
     consoleDockerfile,
@@ -1705,4 +1706,46 @@ test('deployment record: บันทึก SHA/digest/realm/pack; ปฏิเ�
       }),
     /realmConfigDigest/,
   );
+});
+
+test('Workspace overlay เป็น opt-in ต่อ release; rollback เดิมไม่ต้องมี overlay และ LINE conflict หยุดก่อน deploy', (t) => {
+  const fixture = restrictedReleaseFixture(t);
+  const manifest = resolve(fixture.releaseDir, 'release.env');
+  const original = readFileSync(manifest, 'utf8');
+  const argsFile = resolve(fixture.root, 'compose-args');
+  writeFileSync(
+    resolve(fixture.root, 'bin/docker-compose'),
+    `#!/usr/bin/env bash
+printf '%s\n' "$@" >>"$UAT_ROOT/compose-args"
+`,
+    { mode: 0o700 },
+  );
+  writeFileSync(
+    manifest,
+    `${original}UAT_WORKSPACE_ENABLED=true\nUAT_WORKSPACE_HOST=workspace.example.test\n`,
+  );
+  assert.equal(fixture.prepare().status, 0);
+  const disabled = spawnSync(
+    'bash',
+    [resolve(repositoryRoot, UAT_FILES.deployScript), 'e1-disable', 'a'.repeat(40)],
+    {
+      env: { ...process.env, UAT_ROOT: fixture.root },
+      encoding: 'utf8',
+    },
+  );
+  assert.notEqual(disabled.status, 0);
+  assert.match(disabled.stderr, /WORKSPACE_REQUIRES_E1_ROLLBACK_FIRST/);
+  assert.ok(statSync(resolve(fixture.root, 'e1-acceptance.enabled')).isFile());
+  assert.doesNotMatch(readFileSync(argsFile, 'utf8'), /^(rm|--force-recreate)$/m);
+  assert.match(readFileSync(argsFile, 'utf8'), /docker-compose\.uat\.workspace\.yml/);
+  writeFileSync(resolve(fixture.root, 'line-pilot.enabled'), '');
+  const conflict = fixture.prepare();
+  assert.notEqual(conflict.status, 0);
+  assert.match(conflict.stderr, /WORKSPACE_LINE_COMBINATION_NOT_SUPPORTED/);
+  unlinkSync(resolve(fixture.root, 'line-pilot.enabled'));
+  writeFileSync(manifest, original);
+  unlinkSync(resolve(fixture.releaseDir, 'docker-compose.uat.workspace.yml'));
+  writeFileSync(argsFile, '');
+  assert.equal(fixture.prepare().status, 0);
+  assert.doesNotMatch(readFileSync(argsFile, 'utf8'), /docker-compose\.uat\.workspace\.yml/);
 });

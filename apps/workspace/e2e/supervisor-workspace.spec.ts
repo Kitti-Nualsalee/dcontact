@@ -244,3 +244,40 @@ test('#604 สลับ TH/EN ใน shell ไม่ reload และข้อ�
   await expect(page.getByText('Agents ใน scope')).toBeVisible();
   expect(await page.evaluate(() => performance.timeOrigin)).toBe(before);
 });
+
+test('#684 Supervisor อัปเดตสถานะจาก session อื่นโดยไม่ reload หรือเปิด agent lease', async ({
+  page,
+}) => {
+  await page.clock.install();
+  let state = 'AVAILABLE';
+  const leaseRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/me/work-session')) leaseRequests.push(request.url());
+  });
+  await page.route('**/api/v1/workspace/supervisor/snapshot', (route) =>
+    route.fulfill({
+      json: {
+        sequence: 1,
+        agents: [
+          {
+            id: 'agent-1',
+            displayName: 'Agent from other session',
+            extension: '1000',
+            teamId: 'team-a',
+            state,
+          },
+        ],
+        queues: [],
+        interactions: [],
+        audit: [],
+      },
+    }),
+  );
+  await page.goto('/?view=supervisor');
+  const row = page.getByRole('listitem').filter({ hasText: 'Agent from other session' });
+  await expect(row).toContainText('พร้อมรับงาน');
+  state = 'BREAK';
+  await page.clock.fastForward(5_100);
+  await expect(row).toContainText('พัก');
+  expect(leaseRequests).toEqual([]);
+});

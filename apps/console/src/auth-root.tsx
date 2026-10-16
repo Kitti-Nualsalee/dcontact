@@ -8,6 +8,7 @@ import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
 import { createAccountApi, createAccountPolicyApi } from './account/api.js';
 import { AccountPage, AccountPolicyPage } from './account/account.js';
 import { createTeamScopeApi } from './team-scopes/api.js';
+import { ConsoleHome } from './home/home.js';
 import { ConsoleShell } from './shell/console-shell.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
@@ -132,9 +133,10 @@ export function ConsoleAuthRoot() {
   const url = resolveConsoleLocation(new URL(window.location.href), window.sessionStorage);
   // #677: กลับมาหลัง sign-out (ไม่มี view/context) — มาก่อน default view เพื่อไม่ให้ไปหน้าที่ไม่ได้เลือก
   const signedOut = isConsoleSignedOutLanding(url, window.sessionStorage);
-  // U1.4 (#432): ไม่มี view/context (เช่นกลับจาก login) → ใช้ default view ตอน build; tenant ยังมาจาก host/token
+  // #684: ไม่มี view/context → Home; argument ของ deployment เก่าไม่เปลี่ยน default ใหม่
   const defaultView = import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined;
   const [view, setView] = useState(() => resolveConsoleView(url, defaultView));
+  const homeView = view === 'home';
   const preferenceView = view === 'preferences';
   const governanceView = view === 'governance';
   const journeyView = view === 'journeys';
@@ -148,6 +150,7 @@ export function ConsoleAuthRoot() {
     tenantAlias = resolveTenantAlias(url);
     contextId =
       signedOut ||
+      homeView ||
       preferenceView ||
       governanceView ||
       journeyView ||
@@ -195,6 +198,8 @@ export function ConsoleAuthRoot() {
       <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
         {signedOut ? (
           <SignedOutSurface />
+        ) : homeView ? (
+          <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : accountView ? (
           <AccountSurface
             apiBaseUrl={apiBaseUrl}
@@ -253,6 +258,40 @@ function shellUserProps(auth: AuthContextProps, tenantAlias: string) {
       },
     },
   };
+}
+
+function HomeSurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenantAlias: string }) {
+  const auth = useAuth();
+  const { t } = useTranslation('home');
+  const { t: commonText } = useTranslation();
+  const accessToken = auth.user?.access_token;
+  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
+    return (
+      <main className="empty" aria-busy="true">
+        <p>{t('loading')}</p>
+      </main>
+    );
+  if (auth.error || !auth.isAuthenticated || !accessToken)
+    return (
+      <main className="empty">
+        <h1>{commonText('app.name')}</h1>
+        <p>{t('signInDetail')}</p>
+        <button className="primary" onClick={() => void signInFromCurrentPage(auth)}>
+          {t('signIn')}
+        </button>
+      </main>
+    );
+  return (
+    <ConsoleShell
+      {...shellUserProps(auth, tenantAlias)}
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId="home"
+    >
+      {(navigation) => <ConsoleHome navigation={navigation} />}
+    </ConsoleShell>
+  );
 }
 
 function ConsoleSurface({

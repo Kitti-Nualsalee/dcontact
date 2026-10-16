@@ -85,6 +85,16 @@ export interface NavigationAppDefinition {
 
 export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
   {
+    id: 'home',
+    area: 'home',
+    section: 'work',
+    group: 'operations',
+    labelKey: 'navigation.apps.home',
+    hostApp: 'console',
+    path: '/?view=home',
+    roles: ['agent', 'supervisor', 'admin', 'compliance'],
+  },
+  {
     id: 'agent-workspace',
     area: 'workspace',
     section: 'work',

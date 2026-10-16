@@ -22,10 +22,12 @@ export type AuthorizedWorkspaceView = 'agent' | 'supervisor' | 'forbidden';
 export function resolveAuthorizedWorkspaceView(
   location: URL,
   profile: unknown,
+  accessToken?: string,
 ): AuthorizedWorkspaceView {
   if (location.searchParams.get('view') !== 'supervisor') return 'agent';
 
-  const roles = readRealmRoles(profile);
+  const roles =
+    accessToken === undefined ? readRealmRoles(profile) : accessTokenRealmRoles(accessToken);
   return roles.includes('supervisor') || roles.includes('admin') ? 'supervisor' : 'forbidden';
 }
 
@@ -65,4 +67,43 @@ export function createOidcSettings(input: OidcSettingsInput): UserManagerSetting
       prefix: 'dcontact.oidc.user.',
     }),
   };
+}
+
+/** #684: OIDC state คืนปลายทางเฉพาะ origin/tenant เดิม; ไม่รับ OAuth parameters กลับเข้าประวัติ */
+export function workspaceReturnUrl(location: URL): string {
+  const clean = new URL(location.href);
+  for (const key of ['code', 'state', 'session_state', 'iss', 'error', 'error_description']) {
+    clean.searchParams.delete(key);
+  }
+  return `${clean.pathname}${clean.search}${clean.hash}`;
+}
+
+export function workspaceCallbackUrl(callback: URL, state: unknown): string {
+  if (typeof state === 'string' && state.startsWith('/') && !state.startsWith('//')) {
+    try {
+      const destination = new URL(state, callback.origin);
+      if (
+        destination.origin === callback.origin &&
+        destination.searchParams.get('tenant') === callback.searchParams.get('tenant')
+      ) {
+        return workspaceReturnUrl(destination);
+      }
+    } catch {
+      /* ใช้ callback ที่ตรวจแล้วด้านล่าง */
+    }
+  }
+  return workspaceReturnUrl(callback);
+}
+
+/** role สำหรับแสดง UI มาจาก access token เช่นเดียวกับ Gateway; API ตรวจลายเซ็น/สิทธิ์เองเสมอ */
+export function accessTokenRealmRoles(accessToken: string): string[] {
+  try {
+    const payload = accessToken.split('.')[1];
+    if (!payload) return [];
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')));
+    return readRealmRoles(claims);
+  } catch {
+    return [];
+  }
 }

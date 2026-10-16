@@ -5,7 +5,7 @@
  * - flag ปิด: คง rail/แถบบน/ปุ่มออกจากระบบเดิม แต่เนื้อหาใช้ component และ token ชุดเดียวกัน
  * - จอแคบเป็น read-only (ADR-026 ข้อ 8, #48) และทุกคำสั่งต้องมีเหตุผลก่อนส่ง
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
 import {
   Badge,
@@ -63,20 +63,40 @@ function SupervisorLive({ api, tenantLabel = 'D-Contact', onSignOut }: Superviso
     'idle',
   );
 
+  const snapshotRequest = useRef(0);
+  const mutationPending = useRef(false);
+
+  // #684: Supervisor อ่านสถานะสดทุก 5 วินาทีโดยไม่ถือ lease/SIP หรือแย่ง agent socket (ADR-026).
+  // ไม่ซ้อนคำขอ และคำตอบก่อน mutation ไม่มีสิทธิ์ทับ snapshot ที่ยืนยันหลังคำสั่ง.
   useEffect(() => {
     let active = true;
-    void api
-      .snapshot()
-      .then((next) => {
-        if (!active) return;
-        setSnapshot(next);
-        setLoadFailed(false);
-      })
-      .catch(() => {
-        if (active) setLoadFailed(true);
-      });
+    let inFlight = false;
+    const refresh = async () => {
+      if (inFlight || mutationPending.current) return;
+      inFlight = true;
+      const requestId = ++snapshotRequest.current;
+      try {
+        const next = await api.snapshot();
+        if (active && requestId === snapshotRequest.current) {
+          setSnapshot(next);
+          setLoadFailed(false);
+        }
+      } catch {
+        if (active && requestId === snapshotRequest.current) setLoadFailed(true);
+      } finally {
+        inFlight = false;
+      }
+    };
+    void refresh();
+    const refreshVisible = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    const timer = window.setInterval(refreshVisible, 5_000);
+    document.addEventListener('visibilitychange', refreshVisible);
     return () => {
       active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshVisible);
     };
   }, [api]);
 
@@ -111,6 +131,8 @@ function SupervisorLive({ api, tenantLabel = 'D-Contact', onSignOut }: Superviso
 
   const submitMutation = async () => {
     if (!mutation || !mutation.reason.trim()) return;
+    mutationPending.current = true;
+    ++snapshotRequest.current;
     setMutationState('pending');
     setMutation(undefined);
     const commandId = crypto.randomUUID();
@@ -132,9 +154,12 @@ function SupervisorLive({ api, tenantLabel = 'D-Contact', onSignOut }: Superviso
       }
       const authoritative = await api.snapshot();
       setSnapshot(authoritative);
+      setLoadFailed(false);
       setMutationState('confirmed');
     } catch {
       setMutationState('rejected');
+    } finally {
+      mutationPending.current = false;
     }
   };
 
@@ -230,7 +255,7 @@ function SupervisorLive({ api, tenantLabel = 'D-Contact', onSignOut }: Superviso
                   {desktopControls && (FORCED_STATES as readonly string[]).includes(agent.state) ? (
                     <Button
                       size="sm"
-                      isDisabled={mutationState === 'pending'}
+                      isDisabled={loadFailed || mutationState === 'pending'}
                       aria-label={t('agents.changeFor', { name: agent.displayName })}
                       onPress={() => {
                         setMutationState('idle');
@@ -268,7 +293,7 @@ function SupervisorLive({ api, tenantLabel = 'D-Contact', onSignOut }: Superviso
                 {desktopControls ? (
                   <Button
                     size="sm"
-                    isDisabled={mutationState === 'pending'}
+                    isDisabled={loadFailed || mutationState === 'pending'}
                     aria-label={
                       queue.isActive
                         ? t('queues.closeFor', { name: queue.name })

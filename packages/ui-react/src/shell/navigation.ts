@@ -179,7 +179,7 @@ export interface ShellNavigationOptions {
 
 export type ShellNavigationState =
   | { status: 'loading' }
-  | { status: 'legacy' }
+  | { status: 'legacy'; apps?: ShellApp[] }
   | {
       status: 'ready';
       apps: ShellApp[];
@@ -313,7 +313,13 @@ export function useShellNavigation(options: ShellNavigationOptions): ShellNaviga
   );
 
   if (decision === 'pending') return { status: 'loading' };
-  if (decision === 'legacy' || !response) return { status: 'legacy' };
+  // #684: ปิด shell ก็ยังใช้รายการที่ server คัดสิทธิ์แล้วใน Home ได้; โหลดล้มเหลวไม่เดารายการ
+  if (decision === 'legacy' || !response) {
+    return {
+      status: 'legacy',
+      ...(response ? { apps: toShellModel(response, options).apps } : {}),
+    };
+  }
   const { apps, groups, areas } = toShellModel(response, options);
   const visible = new Set(apps.map((app) => app.id));
   return {

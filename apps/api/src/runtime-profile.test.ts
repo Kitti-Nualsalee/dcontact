@@ -261,3 +261,39 @@ test('#565 entrypoint ของ line-webhook รับแค่ uat-line แล�
   );
   rejectsWith(() => assertEntrypointProfile('uat', UAT_LINE), 'WRONG_ENTRYPOINT');
 });
+
+test('uat-workspace เปิด UI APIs เพิ่มแบบ opt-in และคง E1/provider boundary', () => {
+  const profile = resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'uat-workspace' });
+  assert.equal(profile.kafka, 'DISABLED');
+  assert.equal(profile.lineWebhook, 'DISABLED');
+  assert.equal(profile.providerEgress, 'BLOCKED');
+  const guard = new RuntimeProfileRouteGuard(profile, { write() {} });
+  for (const path of [
+    '/api/v1/me/navigation',
+    '/api/v1/me/navigation/pins',
+    '/api/v1/tenant/navigation/default-pins',
+    '/api/v1/tenant/locale-defaults',
+    '/api/v1/workspace/supervisor/snapshot',
+    '/api/v1/workspace/agent/snapshot',
+  ]) {
+    assert.equal(guard.isAllowed(path), true, path);
+  }
+  for (const path of [
+    '/api/v1/line/webhook',
+    '/api/v1/journey-authoring/journeys',
+    '/api/v1/interactions',
+    '/api/v1/me/navigation-evil',
+  ]) {
+    assert.equal(guard.isAllowed(path), false, path);
+  }
+  for (const name of ['LINE_CHANNEL_ACCESS_TOKEN', 'KAFKA_BROKERS']) {
+    rejectsWith(
+      () => resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'uat-workspace', [name]: 'conflict' }),
+      'CONFLICTING_CONFIGURATION',
+    );
+  }
+  rejectsWith(
+    () => assertEntrypointProfile('uat-e1', { DCONTACT_API_PROFILE: 'uat-workspace' }),
+    'WRONG_ENTRYPOINT',
+  );
+});

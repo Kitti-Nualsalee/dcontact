@@ -116,6 +116,14 @@
   --dc-channel-email-bg: #fef3c7;
   --dc-channel-email-fg: #b45309;
 
+  /* ตัวตนของแอปใน navigation — ไม่สื่อระดับความรุนแรง (#684) */
+  --dc-app-supervisor-bg: #eef2ff;
+  --dc-app-supervisor-fg: #4338ca;
+  --dc-app-integrations-bg: #eef2ff;
+  --dc-app-integrations-fg: #4338ca;
+  --dc-app-governance-bg: #fffbeb;
+  --dc-app-governance-fg: #92400e;
+
   /* คู่สนทนา — ใช้ใน transcript, waveform, bubble */
   --dc-party-agent: #0f766e;
   --dc-party-contact: #4f46e5;

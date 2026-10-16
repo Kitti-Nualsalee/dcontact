@@ -1,0 +1,187 @@
+/* #684: Home แบบที่ 2 ใช้ token และส่วนประกอบของ Console เดิม */
+.home {
+  max-inline-size: 1280px;
+  margin-inline: auto;
+  padding: var(--dc-space-10);
+  color: var(--dc-text-primary);
+}
+.home__heading {
+  margin-block-end: var(--dc-space-9);
+}
+.home__heading h1 {
+  margin: 0 0 var(--dc-space-4);
+  font-size: calc(var(--dc-text-lg) * 2);
+  font-weight: var(--dc-weight-bold);
+  line-height: var(--dc-leading-snug);
+}
+.home__heading p {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-md);
+}
+.home__panel {
+  padding: var(--dc-space-8);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+}
+.home__panel h2 {
+  margin: 0 0 var(--dc-space-8);
+  font-size: var(--dc-text-lg);
+}
+.home__group + .home__group {
+  margin-block-start: var(--dc-space-6);
+}
+.home__group h3 {
+  margin: 0;
+  padding: var(--dc-space-5) var(--dc-space-6);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-sunken);
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-base);
+  font-weight: var(--dc-weight-semibold);
+}
+.home__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.home__list li + li {
+  border-block-start: 1px solid var(--dc-border-subtle);
+}
+.home__entry {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-8);
+  min-block-size: 104px;
+  padding: var(--dc-space-7) var(--dc-space-6);
+  border-radius: var(--dc-radius-md);
+  color: var(--dc-text-primary);
+  text-decoration: none;
+}
+.home__entry:hover {
+  background: var(--dc-surface-hover);
+}
+.home__entry:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+.home__icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 56px;
+  block-size: 56px;
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-brand-50);
+  color: var(--dc-text-brand);
+}
+.home__icon[data-app='supervisor-workspace'] {
+  background: var(--dc-app-supervisor-bg);
+  color: var(--dc-app-supervisor-fg);
+}
+.home__icon[data-app='dphone-embedding'] {
+  background: var(--dc-app-integrations-bg);
+  color: var(--dc-app-integrations-fg);
+}
+.home__icon[data-app='journeys'] {
+  background: var(--dc-accent-bg);
+  color: var(--dc-accent-fg);
+}
+.home__icon[data-app='contact-governance'] {
+  background: var(--dc-app-governance-bg);
+  color: var(--dc-app-governance-fg);
+}
+.home__copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--dc-space-3);
+  min-inline-size: 0;
+}
+.home__name {
+  font-size: var(--dc-text-lg);
+  font-weight: var(--dc-weight-semibold);
+  overflow-wrap: anywhere;
+}
+.home__description {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-base);
+}
+.home__open {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-4);
+  color: var(--dc-text-brand);
+  font-weight: var(--dc-weight-semibold);
+}
+.home__permission {
+  margin: var(--dc-space-8) 0 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+.home__sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+@media (max-width: 900px) {
+  .home {
+    padding: var(--dc-space-6);
+  }
+  .home__panel {
+    padding: var(--dc-space-6);
+  }
+  .home__entry {
+    gap: var(--dc-space-5);
+    padding-inline: var(--dc-space-4);
+  }
+}
+@media (max-width: 600px) {
+  .home__icon {
+    inline-size: 40px;
+    block-size: 40px;
+  }
+  .home__open {
+    display: none;
+  }
+}
+
+.home-sidebar {
+  display: flex;
+  flex: none;
+  min-block-size: 0;
+}
+@media (max-width: 760px) {
+  .home-sidebar {
+    display: none;
+  }
+}
+
+.home-sidebar nav > div:first-child {
+  display: none;
+}
+.home-sidebar nav > div:last-child {
+  margin-block-start: var(--dc-space-8);
+  border-block-start: 1px solid var(--dc-border-subtle);
+}
+
+@media (max-width: 600px) {
+  .home-shell header {
+    padding-inline: var(--dc-space-5);
+    gap: var(--dc-space-4);
+  }
+  .home-shell header nav {
+    display: none;
+  }
+  .home-shell header > div:first-child span {
+    display: none;
+  }
+  .home__heading h1 {
+    font-size: var(--dc-text-metric);
+  }
+}

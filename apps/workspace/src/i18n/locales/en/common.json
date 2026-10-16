@@ -22,7 +22,8 @@
       "supervisorWorkspace": "Team live",
       "journeys": "Journeys",
       "contactGovernance": "Governance",
-      "dphoneEmbedding": "dphone embedding"
+      "dphoneEmbedding": "dphone embedding",
+      "home": "Home"
     },
     "areas": {
       "home": "Home",
