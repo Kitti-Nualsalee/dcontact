@@ -77,18 +77,21 @@
   background: var(--dc-brand-50);
   color: var(--dc-text-brand);
 }
-.home__icon[data-app='supervisor-workspace'],
+.home__icon[data-app='supervisor-workspace'] {
+  background: var(--dc-app-supervisor-bg);
+  color: var(--dc-app-supervisor-fg);
+}
 .home__icon[data-app='dphone-embedding'] {
-  background: var(--dc-info-bg-subtle);
-  color: var(--dc-info-fg);
+  background: var(--dc-app-integrations-bg);
+  color: var(--dc-app-integrations-fg);
 }
 .home__icon[data-app='journeys'] {
   background: var(--dc-accent-bg);
   color: var(--dc-accent-fg);
 }
 .home__icon[data-app='contact-governance'] {
-  background: var(--dc-attention-bg-subtle);
-  color: var(--dc-attention-fg-strong);
+  background: var(--dc-app-governance-bg);
+  color: var(--dc-app-governance-fg);
 }
 .home__copy {
   display: flex;
