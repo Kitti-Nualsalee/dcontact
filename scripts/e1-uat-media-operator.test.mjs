@@ -13,7 +13,7 @@ test('#657: VM2 media operator — rule ownership/guards/idempotency/stale IP/ro
     { encoding: 'utf8' },
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stderr, /Ran 31 tests/);
+  assert.match(result.stderr, /Ran 33 tests/);
 });
 
 test('#657: voice-on ปิด switch/ตรวจ idle และ snapshot ก่อนเปิด runtime', () => {
