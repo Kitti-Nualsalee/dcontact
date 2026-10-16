@@ -50,6 +50,12 @@ def require_return_route(routes, gateway):
     raise MediaGuardError('E1_MEDIA_RETURN_ROUTE_REQUIRED')
 
 
+def require_media_profile(environment):
+    profiles = [value.split('=', 1)[1] for value in environment if value.startswith('DCONTACT_API_PROFILE=')]
+    if len(profiles) != 1 or profiles[0] not in ('uat-e1', 'uat-workspace'):
+        raise MediaGuardError('E1_MEDIA_PROFILE_UAT_E1_REQUIRED')
+
+
 def runtime():
     addresses = json.loads(command(['ip', '-j', '-4', 'addr', 'show']))
     if not any(address.get('local') == HOST for interface in addresses for address in interface.get('addr_info', [])):
@@ -57,9 +63,7 @@ def runtime():
     source_sha = json.loads((ROOT / 'deployments/current.json').read_text())['sourceSha']
     if not re.fullmatch('[0-9a-f]{40}', source_sha) or not (ROOT / 'e1-acceptance.enabled').is_file():
         raise MediaGuardError('E1_MEDIA_RELEASE_REQUIRED')
-    profile = command(['docker', 'inspect', '--format', '{{range .Config.Env}}{{if eq . "DCONTACT_API_PROFILE=uat-e1"}}uat-e1{{end}}{{end}}', 'dcontact-uat-api-1'])
-    if profile != 'uat-e1':
-        raise MediaGuardError('E1_MEDIA_PROFILE_UAT_E1_REQUIRED')
+    require_media_profile(docker_value('.Config.Env', 'dcontact-uat-api-1'))
     for service in ('api', 'e1-sandbox'):
         labels = docker_value('.Config.Labels', 'dcontact-uat-' + service + '-1')
         if labels.get('org.opencontainers.image.revision') != source_sha:
