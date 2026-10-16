@@ -174,6 +174,7 @@ export function embedShellHtml(
 ): string {
   const config = {
     v: 1,
+    ownerWindow: true,
     tenant: policy?.tenantAlias ?? null,
     allowedHostOrigins: policy?.origins ?? [],
     auth: policy && options.auth ? options.auth : null,
@@ -220,6 +221,26 @@ export class DphoneEmbedController {
     @Inject(EMBED_ORIGIN_SERVICE) private readonly origins: EmbedOriginService,
     @Inject(DPHONE_EMBED_SHELL_OPTIONS) private readonly options: DphoneEmbedShellOptions,
   ) {}
+
+  @Get('owner-policy')
+  @GatewayPublic()
+  async ownerPolicy(
+    @Query('tenant') tenant: string | undefined,
+    @Query('hostOrigin') hostOrigin: string | undefined,
+    @Res() response: ServerResponse,
+  ) {
+    const policy =
+      typeof tenant === 'string' && ALIAS.test(tenant) && typeof hostOrigin === 'string'
+        ? await this.origins.shellPolicy(tenant, { fresh: true })
+        : null;
+    const allowed = Boolean(hostOrigin && policy?.origins.includes(hostOrigin));
+    response.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    });
+    response.end(JSON.stringify({ allowed }));
+  }
 
   @Get()
   @GatewayPublic()

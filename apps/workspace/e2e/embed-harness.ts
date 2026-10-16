@@ -54,10 +54,11 @@ const hostPage = (origin: string) => `<!doctype html>
 <p data-origin="${origin}"></p>
 </body></html>`;
 
-const shell = (screenPopLevel: string) => `<!doctype html>
+const shell = (screenPopLevel: string, ownerWindow = false) => `<!doctype html>
 <html lang="th"><head><meta charset="utf-8"><title>dphone</title>
 <script type="application/json" id="dphone-embed-config">${JSON.stringify({
   v: 1,
+  ownerWindow,
   tenant: 'demo',
   allowedHostOrigins: [HOST],
   auth: { issuer: ISSUER, clientId: 'dphone-embedded' },
@@ -88,6 +89,7 @@ const interaction = (state: 'ASSIGNED' | 'ACTIVE' | 'WRAPUP') => ({
 export async function setup(
   page: Page,
   options: {
+    ownerWindow?: boolean;
     screenPopLevel?: string;
     hostOrigin?: string;
     /** หน้า host อื่น (เช่น host อ้างอิงของ E1.15) — ต้องมี iframe ของ dphone */
@@ -97,6 +99,8 @@ export async function setup(
 ) {
   const origin = options.hostOrigin ?? HOST;
   const server = {
+    ownerAllowed: true,
+    ownerPolicyChecks: 0,
     lease: undefined as string | undefined,
     leaseBodies: [] as Record<string, unknown>[],
     screenPops: [] as { headers: Record<string, string>; body: unknown }[],
@@ -112,11 +116,16 @@ export async function setup(
     .route(`${origin}/**`, (route) =>
       route.fulfill({ contentType: 'text/html', body: (options.hostHtml ?? hostPage)(origin) }),
     );
-  await page
-    .context()
-    .route(`${DPHONE}/dphone/embed**`, (route) =>
-      route.fulfill({ contentType: 'text/html', body: shell(options.screenPopLevel ?? 'ids') }),
-    );
+  await page.context().route(`${DPHONE}/dphone/embed**`, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: shell(options.screenPopLevel ?? 'ids', options.ownerWindow),
+    }),
+  );
+  await page.context().route(`${DPHONE}/dphone/embed/owner-policy**`, (route) => {
+    server.ownerPolicyChecks += 1;
+    return route.fulfill({ json: { allowed: server.ownerAllowed } });
+  });
   await page
     .context()
     .route(`${DPHONE}/dphone/auth/callback**`, (route) =>
@@ -250,7 +259,7 @@ export async function setup(
     }
     return route.fulfill({ status: 404, json: {} });
   });
-  await page.routeWebSocket('**/api/v1/workspace-session', (ws) => {
+  await page.context().routeWebSocket('**/api/v1/workspace-session', (ws) => {
     server.sendWorkspaceEvent = (event) => ws.send(JSON.stringify(event));
     ws.onMessage((raw) => {
       const message = JSON.parse(String(raw)) as { type: string; leaseId?: string };

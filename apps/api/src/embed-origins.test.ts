@@ -107,6 +107,7 @@ test('E1.11: shell — ไม่มี origin = frame-ancestors none และ�
   const config = JSON.parse(/id="dphone-embed-config"[^>]*>([^<]*)</.exec(html)![1]!);
   assert.deepEqual(config, {
     v: 1,
+    ownerWindow: true,
     tenant: 'demo',
     allowedHostOrigins: policy.origins,
     auth: null,
