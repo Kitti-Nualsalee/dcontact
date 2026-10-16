@@ -7,6 +7,55 @@ import { expect, test, type Page } from '@playwright/test';
  */
 test.use({ locale: 'th-TH' });
 
+test('profile ที่ไม่เปิด Account แสดงสถานะไม่พร้อมโดยไม่มีฟอร์มหรือ retry ทั้ง TH/EN', async ({
+  page,
+}) => {
+  const state = initialState();
+  await mockApi(page, state);
+  await page.route('**/api/v1/me/account', (route) => {
+    expect(route.request().method()).toBe('GET');
+    return route.fulfill({ status: 404, json: { code: 'ROUTE_NOT_AVAILABLE_IN_PROFILE' } });
+  });
+  await page.goto('/?tenant=demo&view=account');
+  await expect(page.getByRole('status')).toContainText(
+    'การจัดการบัญชียังไม่พร้อมใช้งานในสภาพแวดล้อมนี้',
+  );
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ลองอีกครั้ง' })).toHaveCount(0);
+  await expect(page.getByRole('textbox')).toHaveCount(0);
+  await expect(page.locator('main.account')).toHaveAttribute('aria-busy', 'false');
+  await page.getByRole('button', { name: 'English', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText(
+    'Account management is not available in this environment',
+  );
+  expect(state.writes).toEqual([]);
+});
+
+for (const failure of [
+  { status: 404, code: 'NOT_FOUND' },
+  { status: 401, code: 'AUTHORIZATION_CONTEXT_UNAVAILABLE' },
+  { status: 500, code: 'ROUTE_NOT_AVAILABLE_IN_PROFILE' },
+]) {
+  test(`Account error ${failure.status}/${failure.code} ยังแสดง error และ retry ไม่ถูกกลบเป็น unavailable`, async ({
+    page,
+  }) => {
+    const state = initialState();
+    await mockApi(page, state);
+    let requests = 0;
+    await page.route('**/api/v1/me/account', (route) => {
+      expect(route.request().method()).toBe('GET');
+      requests++;
+      return route.fulfill({ status: failure.status, json: { code: failure.code } });
+    });
+    await page.goto('/?tenant=demo&view=account');
+    await expect(page.getByRole('alert')).toContainText('โหลดข้อมูลบัญชีไม่สำเร็จ');
+    await expect(page.getByText('การจัดการบัญชียังไม่พร้อมใช้งานในสภาพแวดล้อมนี้')).toHaveCount(0);
+    await page.getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+    await expect.poll(() => requests).toBe(2);
+    expect(state.writes).toEqual([]);
+  });
+}
+
 type Device = { id: string; label: string; createdAt: string | null };
 type State = {
   account: {

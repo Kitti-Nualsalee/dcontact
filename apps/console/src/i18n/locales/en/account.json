@@ -4,7 +4,9 @@
     "policyTitle": "Account policy",
     "loading": "Loading your account",
     "loadFailed": "Couldn't load your account",
-    "retry": "Try again"
+    "retry": "Try again",
+    "unavailable": "Account management is not available in this environment",
+    "unavailableDetail": "Changes to your account details, password and two-factor authentication are not enabled here. Contact your administrator if you need help."
   },
   "actions": {
     "cancel": "Cancel"
