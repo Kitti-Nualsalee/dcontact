@@ -170,6 +170,17 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(self.fake.tables['nat'], unrelated)
         self.assertFalse(self.written[-1]['enabled'])
 
+    def test_profile_guard_accepts_only_e1_sandbox_profiles(self):
+        for profile in ('uat-e1', 'uat-workspace'):
+            with self.subTest(profile=profile):
+                media.require_media_profile(['UNRELATED=value', 'DCONTACT_API_PROFILE=' + profile])
+
+    def test_profile_guard_rejects_missing_unknown_and_ambiguous_profiles(self):
+        environments = [[], *[['DCONTACT_API_PROFILE=' + profile] for profile in ('', 'default', 'uat', 'uat-line', 'unknown')], ['DCONTACT_API_PROFILE=uat-e1', 'DCONTACT_API_PROFILE=uat-workspace'], ['DCONTACT_API_PROFILE=uat-e1', 'DCONTACT_API_PROFILE=uat-e1']]
+        for environment in environments:
+            with self.subTest(environment=environment), self.assertRaisesRegex(media.MediaGuardError, 'PROFILE_UAT_E1_REQUIRED'):
+                media.require_media_profile(environment)
+
     def test_profile_guard_rejects_sha_matching_api_without_uat_e1(self):
         root = self.state_dir / 'root'
         (root / 'deployments').mkdir(parents=True)
