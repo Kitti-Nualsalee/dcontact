@@ -118,7 +118,7 @@ jobs:
             VITE_KC_CLIENT_ID=dcontact-uat-console
             VITE_WORKSPACE_KC_CLIENT_ID=dcontact-uat-workspace
             VITE_CONSOLE_URL=https://${{ inputs.uat_host }}
-            VITE_WORKSPACE_URL=https://${{ inputs.workspace_host }}
+            VITE_WORKSPACE_URL=${{ inputs.full_workspace && format('https://{0}', inputs.workspace_host) || '' }}
             VITE_CONSOLE_DEFAULT_VIEW=journeys
             VITE_UAT_ENVIRONMENT=${{ vars.UAT_ENVIRONMENT || 'uat' }}
             VITE_UAT_PACK_VERSION=${{ inputs.fixture_pack_version }}

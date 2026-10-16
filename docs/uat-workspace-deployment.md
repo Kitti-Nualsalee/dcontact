@@ -33,8 +33,15 @@ E1 acceptance overlay อยู่แล้ว. API ใช้ entry `workspace-u
 เพิ่ม Navigation, tenant locale และ Supervisor controllers บน E1 lease/SIP/WS composition;
 ไม่ import default API composition, ไม่สร้าง Kafka/LINE/Journey runtime หรือเปิด provider egress.
 Supervisor ใช้ฐานข้อมูลจริงและ team scope เดิม รวม audit/reason/idempotency และ force-safe boundary.
+หน้าหัวหน้า refresh snapshot ทุก 5 วินาทีเฉพาะแท็บที่มองเห็น โดยไม่ถือ lease/SIP หรือแย่ง agent socket;
+ไม่ซ้อนคำขอและไม่ให้คำตอบก่อน mutation ทับ snapshot หลังยืนยันคำสั่ง.
+หน้าหัวหน้า refresh snapshot ทุก 5 วินาทีเฉพาะแท็บที่มองเห็น โดยไม่ถือ lease/SIP หรือแย่ง agent socket;
+ไม่ซ้อนคำขอและไม่ให้คำตอบก่อน mutation ทับ snapshot หลังยืนยันคำสั่ง.
 Navigation registry ส่งเฉพาะ Home, Agent, Supervisor และ dphone embedding ที่ profile นี้ให้บริการจริง.
 Console Account/Journey/Governance APIs ยังไม่อยู่ใน profile นี้.
+
+หยุดทันทีหากมี LINE/trial marker ร่วมกับ full Workspace; ยังไม่รองรับ overlay ชุดนั้นร่วมกัน.
+คำสั่ง `e1-disable` บน release Workspace ถูกปฏิเสธก่อน mutation ให้ rollback เป็น release เดิมก่อน.
 
 Stage source จาก SHA เดียวกับ image, แล้วรัน prepare → backup → migrate → keycloak → deploy → smoke → record
 ตาม runbook เดิม. Reconcile เพิ่ม client `dcontact-uat-workspace` โดยไม่เปลี่ยน credential/role ผู้ใช้.

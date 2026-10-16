@@ -79,6 +79,7 @@ is_e1_launcher() {
 is_workspace() {
   [[ "$(release_value "$1" UAT_WORKSPACE_ENABLED)" == true ]] || return 1
   is_e1 "$1" || fail 'WORKSPACE_REQUIRES_E1'
+  [[ ! -f "$LINE_FLAG" && ! -f "$TRIAL_FLAG" ]] || fail 'WORKSPACE_LINE_COMBINATION_NOT_SUPPORTED'
   [[ -f "$1/docker-compose.uat.workspace.yml" ]] || fail 'WORKSPACE_OVERLAY_MISSING'
   [[ -n "$(release_value "$1" UAT_WORKSPACE_HOST)" ]] || fail 'WORKSPACE_HOST_MISSING'
 }
@@ -404,6 +405,7 @@ case "$cmd" in
 
   e1-disable)
     dir="$(release_dir "${1:?sha}")"
+    [[ "$(release_value "$dir" UAT_WORKSPACE_ENABLED)" != true ]] || fail 'WORKSPACE_REQUIRES_E1_ROLLBACK_FIRST'
     # ต้องถอด daemon ขณะ overlay ยัง active; หลังลบ flag compose จะไม่รู้จัก service นี้แล้ว
     if is_e1 "$dir"; then compose "$dir" rm -sf e1-sandbox freeswitch >/dev/null || true; fi
     rm -f "$E1_FLAG"
