@@ -20,7 +20,7 @@ CREATE TABLE interaction_wrapup_results (
     FOREIGN KEY (tenant_id, interaction_id, owner_agent_id)
     REFERENCES interactions(tenant_id, id, agent_id) ON DELETE NO ACTION ON UPDATE NO ACTION
 );
-CREATE INDEX interaction_wrapup_results_tenant_id_owner_agent_id_recorded_idx
+CREATE INDEX interaction_wrapup_results_owner_recorded_idx
   ON interaction_wrapup_results(tenant_id, owner_agent_id, recorded_at DESC, interaction_id DESC);
 ALTER TABLE interaction_wrapup_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE interaction_wrapup_results FORCE ROW LEVEL SECURITY;

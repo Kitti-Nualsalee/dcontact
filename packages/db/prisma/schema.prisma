@@ -4331,7 +4331,7 @@ model InteractionWrapupResult {
   commandId     String      @map("command_id") @db.Uuid
   interaction   Interaction @relation(fields: [tenantId, interactionId, ownerAgentId], references: [tenantId, id, agentId], onDelete: NoAction, onUpdate: NoAction, map: "interaction_wrapup_results_owner_fkey")
 
-  @@index([tenantId, ownerAgentId, recordedAt(sort: Desc), interactionId(sort: Desc)], map: "interaction_wrapup_results_tenant_id_owner_agent_id_recorded_idx")
+  @@index([tenantId, ownerAgentId, recordedAt(sort: Desc), interactionId(sort: Desc)], map: "interaction_wrapup_results_owner_recorded_idx")
   @@map("interaction_wrapup_results")
 }
 

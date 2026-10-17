@@ -29,6 +29,8 @@
 - Workspace browser regression หลัง remediation 62/62 ผ่าน; focused wrap-up 3/3 ครอบ response loss → read ยังไม่พบ → retry ได้ 401 → retry intent เดิมสำเร็จ รวม snapshot หลัง save ล้ม
 - Independent review รอบแรกพบ recovery ไม่ส่ง Embedded activity และ race ระหว่าง receipt/detail; เพิ่ม browser regression ให้ RED ก่อนแก้ แล้วผ่าน 2/2 โดยส่ง activity ครั้งเดียว ไม่มี note ออกไป CRM และไม่ระบุว่าคำสั่งตนเป็นคำสั่งอื่น
 - Previous-release source ของ Agent API และ Router จาก base เดิมผ่านกับ schema หลัง additive migration ชุดละ 1/1 โดยไม่ downmigrate; ใช้ dependency/runtime dev ปัจจุบัน ไม่ใช่การรับรอง image rollback บน VM
+- CI รอบแรกพบ index map ยาว 64 bytes เกินขีดจำกัด provider ขณะ fresh Prisma generate (local build ก่อนหน้านั้นใช้ client ที่ generate ไว้แล้ว); ทำ RED ซ้ำด้วย generate ก่อนย่อชื่อ index ทั้ง schema/migration และต้องตรวจ generate/migrate บน dev DB ใหม่ ไม่แก้ checksum ของ DB เดิมให้ดูเหมือนผ่าน
+- หลังย่อชื่อ index แล้ว fresh Prisma generate, migration ทั้งชุด, apply-RLS, DB build และ HTTP/RLS V1 ผ่านบน dev database ใหม่ รอบ CI ถัดไปต้องใช้ candidate ที่รวมการแก้นี้
 - API/Workspace typecheck, Workspace production/embedded build, catalog/literals/CSS ผ่านในรอบพัฒนา
 
 ผลข้างต้นเป็นผลแต่ละรอบใน worktree ไม่ใช่การรับรอง required CI บน final candidate ทุกคำสั่งต้องตรวจซ้ำตาม affected diff ก่อนส่ง review/release
