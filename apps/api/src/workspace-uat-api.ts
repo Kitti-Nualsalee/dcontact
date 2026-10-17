@@ -15,7 +15,9 @@ import {
 
 /** ส่งเฉพาะแอปที่ profile นี้ mount backend จริง; role/entitlement ยังตรวจใน controller */
 export const WORKSPACE_UAT_APPS = NAVIGATION_APPS.filter((app) =>
-  ['home', 'agent-workspace', 'supervisor-workspace', 'dphone-embedding'].includes(app.id),
+  ['home', 'agent-workspace', 'supervisor-workspace', 'dphone-embedding', 'agent-history'].includes(
+    app.id,
+  ),
 );
 
 export function createWorkspaceUatApiModule(dependencies: E1UatApiDependencies) {

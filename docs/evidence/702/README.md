@@ -2,7 +2,7 @@
 
 วันที่ตรวจ: 17 ตุลาคม 2026 · authority: #699 / #702 · base: `7399e6b8124658f7927599e1df76ac14010b4fe2`
 
-โค้ดหลังแก้ review: `15c8b74b7518864d7989f90bc2c663bff042b68b`; final candidate, required CI, review และ merge/main CI ให้ตรวจจาก PR #707 และ tracker เอกสารนี้ไม่ใช่หลักฐาน VM UAT PASS
+โค้ดหลังแก้ review: `15c8b74b7518864d7989f90bc2c663bff042b68b` และแพตช์ narrow UAT registry ใน PR #707; final candidate, required CI, review และ merge/main CI ให้ตรวจจาก PR และ tracker เอกสารนี้ไม่ใช่หลักฐาน VM UAT PASS
 
 ## ขอบเขต
 
@@ -26,6 +26,7 @@
 - Real Keycloak sandbox: `e1:auth:boundary` **6/6 PASS**, API boundary **15/15 PASS**, ไม่มี skip; ใช้ PostgreSQL/Mailpit และ Keycloak 26.7.5 ตาม digest ที่ pin ไว้
 - หลัง remediation Console browser รวม **96/96 PASS**, build ทั้ง repository **28/28 tasks**, typecheck, `test:d1-i18n` และ lint ผ่าน
 - Independent re-review ที่ `15c8b74`: Standards **0 actionable findings** (ข้อเดิมแก้ครบ) และ Spec **CLEAR / 0 actionable findings**; ผู้ review อ่าน source อย่างเดียว ผล runtime รันโดย agent หลัก
+- ตรวจ release wiring เพิ่มพบ WORKSPACE_UAT_APPS ยังไม่รวม history; เพิ่ม expected registry และ protected history route ให้ RED ก่อนแก้ allowlist เฉพาะ agent-history โดยไม่เปิด People/Queue/Account/Journey เพิ่ม ผล GREEN และ final review/CI ให้ตรวจใน completion comment ของ PR
 
 ## ข้อจำกัด
 

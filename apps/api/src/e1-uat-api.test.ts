@@ -99,10 +99,11 @@ test('uat-workspace mount UI APIs จริง แต่ยังบังคั
   assert.equal((await fetch(`${base}/api/v1/workspace/agent/snapshot`)).status, 401);
   assert.deepEqual(
     WORKSPACE_UAT_APPS.map((app) => app.id),
-    ['home', 'agent-workspace', 'supervisor-workspace', 'dphone-embedding'],
+    ['home', 'agent-workspace', 'supervisor-workspace', 'dphone-embedding', 'agent-history'],
   );
   for (const route of [
     '/api/v1/me/navigation',
+    '/api/v1/workspace/agent/history',
     '/api/v1/tenant/locale-defaults',
     '/api/v1/workspace/supervisor/snapshot',
   ]) {
