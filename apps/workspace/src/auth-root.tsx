@@ -1,4 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useTranslation } from '@d-contact/i18n/react';
 import { AuthProvider, useAuth } from 'react-oidc-context';
 import { SessionLocaleProvider } from '@d-contact/i18n/react';
 import { shellUserFromClaims } from '@d-contact/ui-react';
@@ -12,6 +13,7 @@ import {
   resolveTenantAlias,
   workspaceReturnUrl,
   workspaceCallbackUrl,
+  workspaceIdentityKey,
 } from './auth-session.js';
 import { SipJsBrowserTransport } from './dphone/sip-js-transport.js';
 import { BrowserDphone } from './dphone/dphone.js';
@@ -19,48 +21,140 @@ import { createSupervisorWorkspaceApi } from './supervisor-api.js';
 import { SupervisorWorkspace } from './supervisor-workspace.js';
 import { WorkspaceApp, type DphoneFactory } from './workspace-app.js';
 import { createWorkSessionApi } from './work-session.js';
+import { WrapupRuntime } from './wrapup-runtime.js';
+import { UserManager, type UserManagerSettings } from 'oidc-client-ts';
 
 const createProductionDphone: DphoneFactory = (remoteAudio, callbacks) =>
   new BrowserDphone(new SipJsBrowserTransport(remoteAudio, callbacks));
 
-function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorkspaceProps) {
+export function AuthenticatedWorkspace({
+  apiBaseUrl,
+  tenantAlias,
+  createDphone = createProductionDphone,
+}: AuthenticatedWorkspaceProps) {
   const auth = useAuth();
+  const { t } = useTranslation('workspace');
   // #588: เปลี่ยนแล้ว re-render เท่านั้น — WorkspaceShell/WorkspaceApp อยู่ตำแหน่งเดิมจึงไม่ remount (ADR-026)
   const [workInHand, setWorkInHand] = useState(false);
+  const [popupPending, setPopupPending] = useState(false);
+  const [popupFailed, setPopupFailed] = useState(false);
+  const runtime = useMemo(() => new WrapupRuntime(), []);
+  useSyncExternalStore(runtime.subscribe, runtime.version);
+  const identity = auth.isAuthenticated
+    ? workspaceIdentityKey(auth.user?.profile, auth.settings.authority, tenantAlias)
+    : undefined;
+  const owner = useRef<string | undefined>(undefined);
+  const identityBlocked = useRef(false);
+  if (!owner.current && identity) {
+    owner.current = identity;
+    runtime.setOwner(identity);
+  }
+  if (identity && identity !== owner.current && !identityBlocked.current) {
+    identityBlocked.current = true;
+    runtime.clear();
+  }
+  if (identity && identity === owner.current && identityBlocked.current) {
+    identityBlocked.current = false;
+    runtime.setOwner(identity);
+  }
   const accessToken = auth.user?.access_token;
+  const authRevision = useRef({ token: accessToken, revision: 0 });
+  if (authRevision.current.token !== accessToken) {
+    authRevision.current = { token: accessToken, revision: authRevision.current.revision + 1 };
+  }
+  const latestToken = useRef(accessToken);
+  latestToken.current =
+    auth.isAuthenticated && !auth.error && !identityBlocked.current && identity
+      ? accessToken
+      : undefined;
+  const readToken = useMemo(() => () => latestToken.current, []);
+  const retainedUser = useRef<typeof auth.user>(undefined);
+  if (identity && !identityBlocked.current && auth.user) retainedUser.current = auth.user;
+  const user = retainedUser.current;
+  const phone = useRef<BrowserDphone | undefined>(undefined);
+  const createPhone = useMemo<DphoneFactory>(
+    () => (audio, callbacks) => {
+      const instance = createDphone(audio, callbacks);
+      phone.current = instance;
+      return instance;
+    },
+    [createDphone],
+  );
+  const warning = t('recovery.discard');
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!runtime.hasUnsavedWork()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    const navigate = (event: MouseEvent) => {
+      if (
+        !runtime.hasUnsavedWork() ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      const target = event.target;
+      const anchor = target instanceof Element ? target.closest('a[href]') : null;
+      if (
+        !(anchor instanceof HTMLAnchorElement) ||
+        anchor.target === '_blank' ||
+        anchor.hasAttribute('download')
+      )
+        return;
+      const destination = new URL(anchor.href);
+      if (
+        destination.pathname === window.location.pathname &&
+        destination.search === window.location.search
+      )
+        return;
+      if (!window.confirm(warning)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    document.addEventListener('click', navigate, true);
+    return () => {
+      window.removeEventListener('beforeunload', beforeUnload);
+      document.removeEventListener('click', navigate, true);
+    };
+  }, [runtime, warning]);
   const agentApi = useMemo(
     () =>
       createAgentWorkspaceApi({
         baseUrl: apiBaseUrl,
-        accessToken: () => accessToken,
+        accessToken: readToken,
       }),
-    [accessToken, apiBaseUrl],
+    [readToken, apiBaseUrl],
   );
   // E1.12: work-session lease — #583: บังคับทุก tenant (SIP ต้องมี lease)
   const workSession = useMemo(
     () =>
       createWorkSessionApi({
         baseUrl: apiBaseUrl,
-        accessToken: () => accessToken,
+        accessToken: readToken,
       }),
-    [accessToken, apiBaseUrl],
+    [readToken, apiBaseUrl],
   );
   const supervisorApi = useMemo(
     () =>
       createSupervisorWorkspaceApi({
         baseUrl: apiBaseUrl,
-        accessToken: () => accessToken,
+        accessToken: readToken,
       }),
-    [accessToken, apiBaseUrl],
+    [readToken, apiBaseUrl],
   );
 
-  if (auth.activeNavigator === 'signinRedirect' || auth.isLoading) {
+  if (!user && (auth.activeNavigator === 'signinRedirect' || auth.isLoading)) {
     return <AuthStatus title="กำลังเข้าสู่ระบบ" detail="กำลังตรวจสอบ organization และ session" />;
   }
   if (auth.activeNavigator === 'signoutRedirect') {
     return <AuthStatus title="กำลังออกจากระบบ" detail="กำลังปิด Workspace session" />;
   }
-  if (auth.error) {
+  if (!user && auth.error) {
     return (
       <AuthStatus
         title="เข้าสู่ระบบไม่สำเร็จ"
@@ -72,7 +166,7 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
       />
     );
   }
-  if (!auth.isAuthenticated || !accessToken) {
+  if (!user) {
     return (
       <AuthStatus
         title="D-Contact Workspace"
@@ -87,8 +181,8 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
 
   const view = resolveAuthorizedWorkspaceView(
     new URL(window.location.href),
-    auth.user?.profile,
-    accessToken,
+    user.profile,
+    user.access_token,
   );
   if (view === 'forbidden') {
     return (
@@ -104,14 +198,33 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
       />
     );
   }
-  const signOut = () => void auth.signoutRedirect();
+  const signOut = () => {
+    if ((runtime.hasUnsavedWork() || workInHand) && !window.confirm(warning)) return;
+    void auth.signoutRedirect();
+  };
+  const signInAgain = async () => {
+    setPopupPending(true);
+    setPopupFailed(false);
+    try {
+      const restored = await auth.signinPopup({
+        popupAbortOnClose: true,
+        nonce: crypto.randomUUID(),
+        state: workspaceReturnUrl(new URL(window.location.href)),
+      });
+      if (!restored) setPopupFailed(true);
+    } catch {
+      setPopupFailed(true);
+    } finally {
+      setPopupPending(false);
+    }
+  };
   const shellProps = {
     apiBaseUrl,
-    accessToken: () => accessToken,
+    accessToken: readToken,
     tenantAlias,
     account: {
       user: shellUserFromClaims(
-        { ...auth.user?.profile, realm_access: { roles: accessTokenRealmRoles(accessToken) } },
+        { ...user.profile, realm_access: { roles: accessTokenRealmRoles(user.access_token) } },
         tenantAlias,
       ),
       onSignOut: () => auth.signoutRedirect(),
@@ -126,22 +239,64 @@ function AuthenticatedWorkspace({ apiBaseUrl, tenantAlias }: AuthenticatedWorksp
   }
 
   return (
-    <WorkspaceShell {...shellProps} appId="agent-workspace" workInHand={workInHand}>
-      <WorkspaceApp
-        api={agentApi}
-        tenantLabel={tenantAlias}
-        onSignOut={signOut}
-        createDphone={createProductionDphone}
-        workSession={workSession}
-        onWorkInHandChange={setWorkInHand}
-      />
-    </WorkspaceShell>
+    <>
+      {!auth.isAuthenticated || auth.error || identityBlocked.current ? (
+        <section role="status" className="aw-panel">
+          <p>{t(identityBlocked.current ? 'recovery.identityChanged' : 'recovery.authRequired')}</p>
+          {popupFailed ? <p role="alert">{t('recovery.popupFailed')}</p> : null}
+          <button disabled={popupPending} onClick={() => void signInAgain()}>
+            {t('recovery.signIn')}
+          </button>
+          {identityBlocked.current ? (
+            <button onClick={() => void phone.current?.hangup()}>{t('recovery.endCall')}</button>
+          ) : null}
+        </section>
+      ) : null}
+      <div hidden={identityBlocked.current}>
+        <WorkspaceShell
+          {...shellProps}
+          appId="agent-workspace"
+          workInHand={workInHand || runtime.hasUnsavedWork()}
+        >
+          <WorkspaceApp
+            api={agentApi}
+            tenantLabel={tenantAlias}
+            onSignOut={signOut}
+            createDphone={createPhone}
+            workSession={workSession}
+            onWorkInHandChange={setWorkInHand}
+            sessionReady={
+              auth.isAuthenticated && !auth.error && !auth.isLoading && !identityBlocked.current
+            }
+            wrapupRuntime={runtime}
+            identityKey={owner.current}
+            recoveryRevision={authRevision.current.revision}
+          />
+        </WorkspaceShell>
+      </div>
+    </>
   );
 }
 
 interface AuthenticatedWorkspaceProps {
   apiBaseUrl: string;
   tenantAlias: string;
+  createDphone?: DphoneFactory;
+}
+
+export function WorkspacePopupCallback({ settings }: { settings: UserManagerSettings }) {
+  const { t } = useTranslation('workspace');
+  const [manager] = useState(() => new UserManager(settings));
+  const [failed, setFailed] = useState(false);
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    void manager.signinPopupCallback().catch(() => setFailed(true));
+  }, [manager]);
+  return failed ? (
+    <AuthStatus title={t('recovery.callbackFailed')} detail={t('recovery.callbackClose')} />
+  ) : null;
 }
 
 interface AuthStatusProps {
@@ -201,6 +356,9 @@ export function WorkspaceAuthRoot() {
     tenantAlias,
     stateStorage: window.sessionStorage,
   });
+  if (window.opener && new URL(window.location.href).searchParams.has('state')) {
+    return <WorkspacePopupCallback settings={settings} />;
+  }
   return (
     <AuthProvider
       {...settings}

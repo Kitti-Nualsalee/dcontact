@@ -2,6 +2,7 @@ import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createAgentWorkspaceApi, type AgentWorkspaceApi } from './agent-api.js';
 import { WorkspaceAuthRoot } from './auth-root.js';
+import { E2eAuthHarness } from './e2e-auth-harness.js';
 import { WorkspaceApp, createDeterministicDphone, type DphoneFactory } from './workspace-app.js';
 import { createSupervisorWorkspaceApi } from './supervisor-api.js';
 import { SupervisorWorkspace } from './supervisor-workspace.js';
@@ -111,7 +112,9 @@ const application =
     </SessionLocaleProvider>
   ) : import.meta.env.MODE === 'e2e' ? (
     <SessionLocaleProvider i18n={appI18n}>
-      {e2eView === 'supervisor' ? (
+      {e2eSearch.get('authHarness') === '1' ? (
+        <E2eAuthHarness />
+      ) : e2eView === 'supervisor' ? (
         <WorkspaceShell {...e2eShellProps} appId="supervisor-workspace">
           <SupervisorWorkspace api={e2eSupervisorApi} tenantLabel="demo" />
         </WorkspaceShell>

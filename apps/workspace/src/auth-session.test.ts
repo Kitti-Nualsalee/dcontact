@@ -55,6 +55,7 @@ test('OIDC ใช้ Authorization Code + PKCE และไม่เก็บ ac
   assert.equal(settings.response_type, 'code');
   assert.equal(settings.scope, 'openid profile email roles organization:acme');
   assert.equal(settings.redirect_uri, 'https://acme.d-contact.io/?tenant=acme');
+  assert.equal(settings.popup_redirect_uri, settings.redirect_uri);
   assert.equal(settings.automaticSilentRenew, true);
 
   await settings.userStore?.set('oidc.user:test', '{"access_token":"secret"}');
