@@ -75,6 +75,10 @@ jobs:
           pnpm --filter @d-contact/telephony exec tsx --test src/e1-registration-flush.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/agent-sip-credentials.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/agent-availability.integration.ts
+      - name: ตรวจ Voice wrap-up V1 และ legacy guards ภายใต้ RLS จริง
+        run: |
+          pnpm --filter @d-contact/api exec tsx --test src/agent-workspace.integration.ts
+          pnpm --filter @d-contact/router exec tsx --test src/inbound-voice-router.integration.ts
 
   build:
     runs-on: ubuntu-latest

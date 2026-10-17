@@ -2,6 +2,8 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
+import type { ServerResponse } from 'node:http';
+import { tap } from 'rxjs';
 import test from 'node:test';
 import { Module } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
@@ -197,7 +199,23 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   })
   class TestModule {}
 
+  let loseNextWrapupResponse = false;
   const app = await NestFactory.create(TestModule, { logger: ['error'] });
+  app.useGlobalInterceptors({
+    intercept(context, next) {
+      return next.handle().pipe(
+        tap(() => {
+          if (
+            loseNextWrapupResponse &&
+            context.switchToHttp().getRequest<{ url: string }>().url.endsWith('/wrapup-v1')
+          ) {
+            loseNextWrapupResponse = false;
+            context.switchToHttp().getResponse<ServerResponse>().destroy();
+          }
+        }),
+      );
+    },
+  });
   await app.listen(0, '127.0.0.1');
   t.after(async () => {
     await app.close();
@@ -454,12 +472,36 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   });
   assert.equal(JSON.stringify(receiptWithoutNote.result).includes('สรุป'), false);
   assert.ok(receiptWithoutNote.payloadDigest);
+  await assert.rejects(
+    application.$transaction(async (transaction) => {
+      await transaction.$executeRaw`SELECT set_config('app.tenant_id', ${tenantAId}, true)`;
+      await transaction.interaction.update({
+        where: { id: noteInteractionId },
+        data: { wrapUpCode: 'FOLLOW_UP_REQUIRED' },
+      });
+      await transaction.$executeRaw`SET CONSTRAINTS interactions_wrapup_result_guard IMMEDIATE`;
+    }),
+    /WRAPUP_RESULT_MISMATCH/,
+  );
+  assert.equal(
+    (await owner.interaction.findUniqueOrThrow({ where: { id: noteInteractionId } })).wrapUpCode,
+    'CUSTOMER_ASSISTED',
+  );
   const resultWithoutTenant = await application.interactionWrapupResult.findMany();
   assert.equal(resultWithoutTenant.length, 0);
   await assert.rejects(
     application.$transaction(async (transaction) => {
       await transaction.$executeRaw`SELECT set_config('app.tenant_id', ${tenantAId}, true)`;
       await transaction.$executeRaw`UPDATE interaction_wrapup_results SET note = 'overwrite' WHERE interaction_id = ${noteInteractionId}::uuid`;
+    }),
+    /permission denied/,
+  );
+  await assert.rejects(
+    application.$transaction(async (transaction) => {
+      await transaction.$executeRaw`SELECT set_config('app.tenant_id', ${tenantAId}, true)`;
+      await transaction.interactionWrapupResult.delete({
+        where: { interactionId: noteInteractionId },
+      });
     }),
     /permission denied/,
   );
@@ -474,6 +516,46 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
         state: 'WRAPUP',
       },
     });
+  const responseLossInteraction = await createNoteInteraction();
+  const responseLossUrl = `http://127.0.0.1:${address.port}/api/v1/workspace/agent/interactions/${responseLossInteraction.id}`;
+  const responseLossInput = {
+    commandId: randomUUID(),
+    disposition: 'FOLLOW_UP_REQUIRED',
+    note: 'committed response loss',
+  };
+  loseNextWrapupResponse = true;
+  await assert.rejects(
+    fetch(`${responseLossUrl}/wrapup-v1`, {
+      method: 'POST',
+      headers: noteHeaders,
+      body: JSON.stringify(responseLossInput),
+    }),
+  );
+  assert.equal(
+    (await owner.interaction.findUniqueOrThrow({ where: { id: responseLossInteraction.id } }))
+      .state,
+    'COMPLETED',
+  );
+  const recoveredCommand = await fetch(
+    `${responseLossUrl}/wrapup-commands/${responseLossInput.commandId}`,
+    { headers: noteHeaders },
+  );
+  assert.equal(recoveredCommand.status, 200);
+  assert.equal(((await recoveredCommand.json()) as { status: string }).status, 'COMMITTED');
+  const recoveredDetail = await fetch(`${responseLossUrl}/wrapup-result`, { headers: noteHeaders });
+  assert.equal(recoveredDetail.status, 200);
+  const recoveredResult = await recoveredDetail.json();
+  const responseLossReplay = await fetch(`${responseLossUrl}/wrapup-v1`, {
+    method: 'POST',
+    headers: noteHeaders,
+    body: JSON.stringify(responseLossInput),
+  });
+  assert.equal(responseLossReplay.status, 200);
+  assert.deepEqual(await responseLossReplay.json(), recoveredResult);
+  assert.equal(
+    await owner.interactionEvent.count({ where: { interactionId: responseLossInteraction.id } }),
+    1,
+  );
   for (const note of ['😀', '😀'.repeat(2000)]) {
     const boundaryInteraction = await createNoteInteraction();
     const response = await fetch(

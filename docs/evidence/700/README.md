@@ -2,7 +2,7 @@
 
 วันที่ตรวจ: 17 ตุลาคม 2026 · authority: #699 / #700 · base: `e71a10f922bb1323b08360348b8ba372c122300c`
 
-สถานะ: **IMPLEMENTATION** ยังไม่ใช่ completion evidence หรือ VM UAT PASS และยังไม่มี candidate SHA/PR/CI ของแพตช์นี้
+หลักฐานสำหรับ PR review ของ #700 ไม่ใช่ completion evidence หรือ VM UAT PASS; candidate SHA, review และ CI ให้ยึด PR/Current work state ใน tracker
 
 ## สิ่งที่ลงมือทำ
 
@@ -18,20 +18,23 @@
 ใช้ PostgreSQL dev ใหม่ที่แยกจาก VM/โครงการอื่น ทดสอบ HTTP ด้วย `dcontact_app` ที่ไม่เป็น superuser และเป็น NOBYPASSRLS; owner ใช้เฉพาะ setup/cleanup/fault injection ของ fixture สังเคราะห์
 
 - ทดสอบ RED พบ legacy HTTP รับแล้วทิ้ง note; หลังแก้ test ผ่านและ disposition เดิมยังใช้ได้
-- HTTP/RLS พิสูจน์ save/readback, CRLF/trim/Unicode boundaries, concurrent same-command, payload mismatch, competing intents, cross-tenant isolation และ atomic rollback เมื่อ result/event/state-log/receipt เขียนไม่สำเร็จ
+- HTTP/RLS พิสูจน์ save/readback, CRLF/trim/Unicode boundaries, concurrent same-command, payload mismatch, competing intents, same-tenant owner/cross-tenant/role/inactive isolation และ atomic rollback เมื่อ result/event/state-log/receipt เขียนไม่สำเร็จ
 - Readback/receipt summary ไม่ส่ง note ผ่าน receipt; no-store และ correlation ID ตรวจจาก HTTP response
+- Real HTTP response-loss ใช้ test-only interceptor ตัด socket หลัง service commit แล้วตรวจ command/result และ retry ผ่าน HTTP จริง ผล/event เกิดครั้งเดียว ไม่ใช่เพียง browser route mock
 - Old-writer test ตรวจ **persisted state หลัง transaction** ว่ายังคง WRAPUP และไม่มี result ไม่ใช้ promise rejection เพียงอย่างเดียวเป็นหลักฐาน เพราะ interactive transaction อาจไม่ส่ง deferred commit error กลับในรูปแบบที่ test คาด
 - Save ใหม่บังคับตรวจ deferred constraints ภายใน transaction ก่อนคืนค่า เพื่อไม่สร้าง saved summary จาก transaction ที่ guard ปฏิเสธ
 - Affected Agent/availability/SIP credential/work-session HTTP regression: 21 tests ผ่าน; Router integration ผ่าน
 - API unit 92/92 และ Workspace unit 92/92 ผ่าน
-- Workspace browser regression 60/60 ผ่าน; focused wrap-up 3/3 ครอบ response loss → read ยังไม่พบ → retry ได้ 401 → retry intent เดิมสำเร็จ รวม snapshot หลัง save ล้ม
+- Workspace browser regression หลัง remediation 62/62 ผ่าน; focused wrap-up 3/3 ครอบ response loss → read ยังไม่พบ → retry ได้ 401 → retry intent เดิมสำเร็จ รวม snapshot หลัง save ล้ม
+- Independent review รอบแรกพบ recovery ไม่ส่ง Embedded activity และ race ระหว่าง receipt/detail; เพิ่ม browser regression ให้ RED ก่อนแก้ แล้วผ่าน 2/2 โดยส่ง activity ครั้งเดียว ไม่มี note ออกไป CRM และไม่ระบุว่าคำสั่งตนเป็นคำสั่งอื่น
+- Previous-release source ของ Agent API และ Router จาก base เดิมผ่านกับ schema หลัง additive migration ชุดละ 1/1 โดยไม่ downmigrate; ใช้ dependency/runtime dev ปัจจุบัน ไม่ใช่การรับรอง image rollback บน VM
 - API/Workspace typecheck, Workspace production/embedded build, catalog/literals/CSS ผ่านในรอบพัฒนา
 
 ผลข้างต้นเป็นผลแต่ละรอบใน worktree ไม่ใช่การรับรอง required CI บน final candidate ทุกคำสั่งต้องตรวจซ้ำตาม affected diff ก่อนส่ง review/release
 
 ## เกตที่ยังไม่ผ่าน
 
-- Final affected integration/boundary และ compatibility coverage ทั้งหมดของ #700 พร้อม independent review และ required CI บน candidate เดียวกัน
+- Independent re-review และ required CI บน candidate เดียวกัน; full API integration ต้องมี synthetic seed และ Mailpit dev ส่วน real Keycloak boundary ต้องมี Keycloak/extension ตรงรุ่น ห้ามนับชุดที่ไม่ได้รันว่าผ่าน
 - ยังไม่ผ่าน #701 recovery ที่อยู่ข้าม auth render/identity change, #702 Console history หรือ #703 release/media/headset trial
 - ไม่มี VM mutation, account creation, email invitation, provider egress, เสียงจริง หรือ final V1 acceptance ในหลักฐานนี้
 

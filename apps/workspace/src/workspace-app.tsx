@@ -197,6 +197,8 @@ function AgentWorkspace({
   const [wrapupAlreadyCompleted, setWrapupAlreadyCompleted] = useState(false);
   const wrapupIntent = useRef<WrapupIntentV1 | undefined>(undefined);
   const wrapupInFlight = useRef(false);
+  const reportedWrapups = useRef(new Set<string>());
+  const wrapupInteraction = useRef<WorkspaceCallInteraction | undefined>(undefined);
   const [governanceAlert, setGovernanceAlert] = useState<WorkspaceGovernanceAlert>();
   const [liveRetry, setLiveRetry] = useState(0);
   const [dphoneSize, setDphoneSize] = useState<DphoneSize>(loadSize);
@@ -584,6 +586,36 @@ function AgentWorkspace({
     if (interactionId) void reconciler?.start(interactionId);
   }
 
+  async function acceptWrapupResult(result: WrapupResultV1, ownCommand: boolean) {
+    setSavedWrapup(result);
+    setWrapupAlreadyCompleted(!ownCommand);
+    setWrapupUnknown(false);
+    wrapupIntent.current = undefined;
+    setWrapupDisposition(undefined);
+    setWrapupNote('');
+    const interaction = wrapupInteraction.current;
+    if (
+      ownCommand &&
+      interaction?.id === result.interactionId &&
+      !reportedWrapups.current.has(result.interactionId)
+    ) {
+      reportedWrapups.current.add(result.interactionId);
+      const event: WorkspaceCallEvent = {
+        type: 'wrapup.completed',
+        interaction,
+        disposition: result.disposition,
+      };
+      void Promise.resolve()
+        .then(() => onCallEventRef.current?.(event))
+        .catch(() => undefined);
+    }
+    try {
+      setSnapshot(await api!.snapshot());
+    } catch {
+      setSnapshotError('snapshotLoadFailed');
+    }
+  }
+
   async function submitWrapup() {
     const interaction = snapshot?.interaction;
     if (!api || !interaction || interaction.state !== 'WRAPUP' || !wrapupDisposition) return;
@@ -607,6 +639,7 @@ function AgentWorkspace({
         note,
         commandId: crypto.randomUUID(),
       };
+      if (!wrapupIntent.current) wrapupInteraction.current = interaction;
       wrapupIntent.current = intent;
       wrapupInFlight.current = true;
       setWrapupPending(true);
@@ -619,22 +652,7 @@ function AgentWorkspace({
           result.disposition !== intent.disposition
         )
           throw new Error('Unexpected wrapup result');
-        setSavedWrapup(result);
-        setWrapupAlreadyCompleted(false);
-        setWrapupUnknown(false);
-        wrapupIntent.current = undefined;
-        onCallEventRef.current?.({
-          type: 'wrapup.completed',
-          interaction,
-          disposition: result.disposition,
-        });
-        setWrapupDisposition(undefined);
-        setWrapupNote('');
-        try {
-          setSnapshot(await api.snapshot());
-        } catch {
-          setSnapshotError('snapshotLoadFailed');
-        }
+        await acceptWrapupResult(result, true);
       } catch (error) {
         if (
           error instanceof AgentApiError &&
@@ -698,22 +716,25 @@ function AgentWorkspace({
       const result = await api.wrapupResult(intent.interactionId);
       if (result.interactionId !== intent.interactionId)
         throw new Error('Unexpected wrapup result');
+      if (!commandCommitted) {
+        try {
+          await api.wrapupCommand(intent.interactionId, intent.commandId);
+          commandCommitted = true;
+        } catch (error) {
+          if (
+            !(error instanceof AgentApiError) ||
+            error.status !== 404 ||
+            error.code !== 'COMMAND_NOT_FOUND'
+          )
+            throw error;
+        }
+      }
       if (
         commandCommitted &&
         (result.note !== intent.note || result.disposition !== intent.disposition)
       )
         throw new Error('Unexpected wrapup result');
-      setWrapupAlreadyCompleted(!commandCommitted);
-      setSavedWrapup(result);
-      setWrapupUnknown(false);
-      wrapupIntent.current = undefined;
-      setWrapupDisposition(undefined);
-      setWrapupNote('');
-      try {
-        setSnapshot(await api.snapshot());
-      } catch {
-        setSnapshotError('snapshotLoadFailed');
-      }
+      await acceptWrapupResult(result, commandCommitted);
     } catch {
       setWrapupUnknown(true);
     } finally {
