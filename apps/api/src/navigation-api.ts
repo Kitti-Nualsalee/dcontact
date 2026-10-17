@@ -1,3 +1,4 @@
+import { voiceCatalogCallerAllowed } from './tenant-voice-identity.js';
 /**
  * D1.12 (#451): Navigation API ของ app shell (Phase Contract D1.8 #428, D1.2 #422)
  *
@@ -119,8 +120,26 @@ async function domainVisibleApps(
   actor: { tenantId: string; userId: string; roles: readonly string[] },
   entitlements: EffectiveEntitlements,
   registry: readonly NavigationAppDefinition[],
+  voiceCallerAllowed = false,
 ) {
-  const apps = visibleApps({ roles: actor.roles, entitlements }, registry);
+  let apps = visibleApps({ roles: actor.roles, entitlements }, registry);
+  if (apps.some((app) => app.id === 'voice-routing')) {
+    const user = await tx.user.findFirst({
+      where: { id: actor.userId, tenantId: actor.tenantId, isActive: true },
+      select: { role: true, teamId: true },
+    });
+    const allowed =
+      voiceCallerAllowed &&
+      user &&
+      actor.roles.includes(user.role.toLowerCase()) &&
+      (user.role === 'ADMIN' ||
+        (user.role === 'SUPERVISOR' &&
+          user.teamId &&
+          (await tx.team.findFirst({
+            where: { id: user.teamId, tenantId: actor.tenantId, isActive: true },
+          }))));
+    if (!allowed) apps = apps.filter((app) => app.id !== 'voice-routing');
+  }
   if (!apps.some((app) => app.id === 'agent-history')) return apps;
   const agent = await findActiveAgent(tx, actor);
   return agent ? apps : apps.filter((app) => app.id !== 'agent-history');
@@ -162,6 +181,7 @@ export class NavigationController {
         { tenantId, userId, roles },
         entitlements,
         this.registry,
+        voiceCatalogCallerAllowed(request),
       );
       const [userRow, tenantRow, shellFlag] = await Promise.all([
         tx.navigationUserPins.findUnique({ where: { tenantId_userId: { tenantId, userId } } }),
@@ -228,6 +248,7 @@ export class NavigationController {
           { tenantId, userId, roles },
           await loadEntitlements(tx, tenantId),
           this.registry,
+          voiceCatalogCallerAllowed(request),
         );
         const invalid = pinValidationError(appIds, visible);
         if (invalid === 'PIN_LIMIT_EXCEEDED') throw fail(invalid, 422, { limit: MAX_PINS });

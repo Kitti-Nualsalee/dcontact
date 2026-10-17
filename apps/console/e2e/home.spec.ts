@@ -4,7 +4,7 @@ import { homeNavigation } from './support/home-navigation.js';
 
 test.use({ locale: 'th-TH', viewport: { width: 1440, height: 1024 } });
 
-test('Home เป็น default, rail active, sidebar และ 5 เมนูเปิดปลายทางตาม host พร้อม tenant', async ({
+test('Home เป็น default, rail active, sidebar และ 6 เมนูเปิดปลายทางตาม host พร้อม tenant', async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -12,7 +12,7 @@ test('Home เป็น default, rail active, sidebar และ 5 เมนู�
   await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: homeNavigation() }));
   await page.goto('/?tenant=demo');
   await expect(page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?' })).toBeVisible();
-  await expect(page.locator('.home__entry')).toHaveCount(5);
+  await expect(page.locator('.home__entry')).toHaveCount(6);
   await expect(page.locator('a[data-area=home]')).toHaveAttribute('aria-current', 'page');
   const sidebar = page.locator('.home-sidebar');
   await expect(sidebar.getByRole('link', { name: 'หน้าแรก', exact: true })).toHaveAttribute(
@@ -23,7 +23,7 @@ test('Home เป็น default, rail active, sidebar และ 5 เมนู�
     'href',
     '/?view=account&tenant=demo',
   );
-  const inbox = page.locator('.home__entry').filter({ hasText: 'รับสาย' });
+  const inbox = page.getByRole('link', { name: /กล่องงาน \(Agent Workspace/ });
   await expect(inbox).toHaveAttribute('target', '_blank');
   await expect(inbox).toHaveAttribute('rel', 'noopener noreferrer');
   await expect(inbox).toHaveAttribute('href', 'http://localhost:5173/?tenant=demo');
@@ -72,14 +72,20 @@ test('สิทธิ์ compliance เห็นเฉพาะ Governance ท�
   await expect(page.getByRole('heading', { name: 'งานสด', exact: true })).toHaveCount(0);
 });
 
-test('plan ปิด modules เห็นเฉพาะงานสด และ Home ไม่ขึ้นกับหมุดของผู้ใช้', async ({ page }) => {
+test('plan ปิด modules ยังคง catalog Voice ตาม registry และ Home ไม่ขึ้นกับหมุด', async ({
+  page,
+}) => {
   const nav = homeNavigation(['admin'], true, {});
   nav.pins.appIds = [];
   await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: nav }));
   await page.goto('/?tenant=demo');
-  await expect(page.locator('.home__entry')).toHaveCount(2);
+  await expect(page.locator('.home__entry')).toHaveCount(3);
+  await expect(page.locator('.home__entry').filter({ hasText: 'ตั้งค่า Voice' })).toHaveAttribute(
+    'href',
+    '/?view=voice-routing&tenant=demo',
+  );
   await expect(page.locator('a[data-area=home]')).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByRole('heading', { name: 'จัดการและตั้งค่า', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'จัดการและตั้งค่า', exact: true })).toHaveCount(1);
 });
 
 test('ปิด shell flag ยังแสดงเมนูที่ server อนุญาต พร้อมสลับภาษาและบัญชี', async ({ page }) => {
@@ -127,7 +133,7 @@ test('API รุ่นเก่าไม่มี areas ยังใช้ Home 
   legacy.pins.appIds = legacy.pins.appIds.filter((id) => id !== 'home');
   await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: legacy }));
   await page.goto('/?tenant=demo');
-  await expect(page.locator('.home__entry')).toHaveCount(5);
+  await expect(page.locator('.home__entry')).toHaveCount(6);
   await expect(
     page.locator('.home-sidebar').getByRole('link', { name: 'หน้าแรก', exact: true }),
   ).toHaveAttribute('aria-current', 'page');
@@ -140,7 +146,7 @@ for (const shellV2 of [true, false]) {
     );
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/?tenant=demo');
-    await expect(page.locator('.home__entry')).toHaveCount(5);
+    await expect(page.locator('.home__entry')).toHaveCount(6);
     await expect(page.getByRole('button', { name: 'English' })).toBeInViewport();
     await expect(page.getByRole('button', { name: 'เมนูผู้ใช้ ผู้ทดสอบ คอนโซล' })).toBeInViewport();
     expect(

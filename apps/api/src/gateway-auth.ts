@@ -31,6 +31,8 @@ const GATEWAY_SERVICE_SCOPES = Symbol('GATEWAY_SERVICE_SCOPES');
 
 export interface AuthenticatedGatewayRequest extends IncomingMessage {
   gatewayIdentity?: VerifiedWorkspaceIdentity;
+  /** Claims หลัง verifier ผ่านเท่านั้น สำหรับ policy เฉพาะของ API ใหม่; ไม่ส่งกลับ client */
+  gatewayVerifiedClaims?: VerifiedOidcClaims;
   gatewayServiceIdentity?: VerifiedServiceIdentity;
   correlationId?: string;
 }
@@ -110,6 +112,8 @@ export class OidcGlobalGuard implements CanActivate {
       });
       throw new UnauthorizedException();
     }
+
+    request.gatewayVerifiedClaims = claims;
 
     const requiredServiceRoles = this.reflector.getAllAndOverride<readonly string[]>(
       GATEWAY_SERVICE_ROLES,

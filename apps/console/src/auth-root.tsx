@@ -1,3 +1,5 @@
+import { VoiceRouting } from './voice-routing/voice-routing.js';
+import { createCatalogApi } from './voice-routing/api.js';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { AuthProvider, useAuth, type AuthContextProps } from 'react-oidc-context';
 import { Button, shellUserFromClaims } from '@d-contact/ui-react';
@@ -143,6 +145,7 @@ export function ConsoleAuthRoot() {
   const governanceView = view === 'governance';
   const journeyView = view === 'journeys';
   const embeddingView = view === 'dphone-embedding';
+  const routingView = view === 'voice-routing';
   // #566: read-only ของ LINE pilot — มีเฉพาะ UAT ที่ใส่ overlay `uat-line` (ไม่มี = หน้าแจ้งว่าไม่ได้เปิด)
   const lineInboundView = view === 'line-inbound';
   // AC5 (#598): บัญชีของฉัน (ทุก role) และนโยบายบัญชี (admin)
@@ -157,6 +160,7 @@ export function ConsoleAuthRoot() {
       governanceView ||
       journeyView ||
       embeddingView ||
+      routingView ||
       lineInboundView ||
       accountView
         ? undefined
@@ -202,6 +206,8 @@ export function ConsoleAuthRoot() {
           <SignedOutSurface />
         ) : homeView ? (
           <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+        ) : routingView ? (
+          <VoiceRoutingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : view === 'agent-history' ? (
           <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : accountView ? (
@@ -646,6 +652,57 @@ function AccountSurface({
       ) : (
         <AccountPage api={accountApi} verifyStorage={window.sessionStorage} />
       )}
+    </ConsoleShell>
+  );
+}
+
+export function VoiceRoutingSurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
+  const auth = useAuth();
+  const { t } = useTranslation('voiceRouting');
+  const token = auth.user?.access_token;
+  const tokenRef = useRef(token);
+  tokenRef.current = auth.isAuthenticated ? token : undefined;
+  const api = useMemo(
+    () => createCatalogApi({ baseUrl: apiBaseUrl, accessToken: () => tokenRef.current }),
+    [apiBaseUrl],
+  );
+  if (auth.isLoading) return <main aria-busy="true">{t('loading')}</main>;
+  if (auth.error || !auth.isAuthenticated || !token)
+    return (
+      <main>
+        <p>{t('errors.UNAUTHORIZED')}</p>
+        <Button onPress={() => void signInFromCurrentPage(auth)}>{t('signIn')}</Button>
+      </main>
+    );
+  const profile = auth.user?.profile;
+  const identity = [profile?.iss, profile?.tenant_id, profile?.dc_user_id, profile?.sub];
+  if (
+    profile?.iss !== auth.settings.authority ||
+    profile?.tenant_slug !== tenantAlias ||
+    !identity.every((x) => typeof x === 'string' && x.length > 0)
+  )
+    return <main role="alert">{t('errors.FORBIDDEN')}</main>;
+  const identityKey = JSON.stringify(identity);
+  return (
+    <ConsoleShell
+      key={identityKey}
+      {...shellUserProps(auth, tenantAlias)}
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => tokenRef.current}
+      tenantAlias={tenantAlias}
+      appId="voice-routing"
+    >
+      <VoiceRouting
+        api={api}
+        identityKey={identityKey}
+        onSignIn={() => void signInFromCurrentPage(auth)}
+      />
     </ConsoleShell>
   );
 }

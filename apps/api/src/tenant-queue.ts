@@ -1,3 +1,4 @@
+import { HttpException } from '@nestjs/common';
 import {
   withTenantDatabaseTransaction,
   Prisma,
@@ -204,7 +205,7 @@ function appendQueueAuditEvent(
 export function listTenantQueues(database: PrismaClient, tenantId: string) {
   return withTenantDatabaseTransaction(database, tenantId, (transaction) =>
     transaction.queue.findMany({
-      where: { tenantId },
+      where: { tenantId, voiceConfigVersion: null },
       select: queueMetadataSelection,
       orderBy: { name: 'asc' },
     }),
@@ -245,8 +246,25 @@ export function updateTenantQueuePolicy(
   });
 }
 
+async function assertLegacyVoiceQueue(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  queueId: string,
+) {
+  const queue = await tx.queue.findFirst({
+    where: { id: queueId, tenantId },
+    select: { voiceConfigVersion: true },
+  });
+  if (queue?.voiceConfigVersion === 1)
+    throw new HttpException({ code: 'VOICE_CONFIG_V1_REQUIRED' }, 409);
+}
+
 export function createVoiceQueue(database: PrismaClient, command: CreateVoiceQueueCommand) {
   return withTenantDatabaseTransaction(database, command.tenantId, async (transaction) => {
+    const policy =
+      await transaction.$queryRaw`SELECT tenant_id FROM tenant_voice_provisioning_policies WHERE tenant_id=${command.tenantId}::uuid`;
+    if ((policy as unknown[]).length)
+      throw new HttpException({ code: 'VOICE_CONFIG_V1_REQUIRED' }, 409);
     const queue = await transaction.queue.create({
       data: {
         tenantId: command.tenantId,
@@ -276,6 +294,7 @@ export function createVoiceQueue(database: PrismaClient, command: CreateVoiceQue
 
 export function updateVoiceQueue(database: PrismaClient, command: UpdateVoiceQueueCommand) {
   return withTenantDatabaseTransaction(database, command.tenantId, async (transaction) => {
+    await assertLegacyVoiceQueue(transaction, command.tenantId, command.queueId);
     const before = await transaction.queue.findFirst({
       where: { id: command.queueId, tenantId: command.tenantId, channels: { has: 'VOICE' } },
       select: queueMetadataSelection,
@@ -325,6 +344,7 @@ export function updateQueueRecordingPolicy(
   command: UpdateQueueRecordingPolicyCommand,
 ) {
   return withTenantDatabaseTransaction(database, command.tenantId, async (transaction) => {
+    await assertLegacyVoiceQueue(transaction, command.tenantId, command.queueId);
     const before = await transaction.queue.findFirst({
       where: { id: command.queueId, tenantId: command.tenantId, channels: { has: 'VOICE' } },
       select: queueRecordingPolicySelection,
@@ -368,7 +388,7 @@ export function updateQueueRecordingPolicy(
 export function listQueueRequiredSkills(database: PrismaClient, tenantId: string, queueId: string) {
   return withTenantDatabaseTransaction(database, tenantId, async (transaction) => {
     const queue = await transaction.queue.findFirst({
-      where: { id: queueId, tenantId, channels: { has: 'VOICE' } },
+      where: { id: queueId, voiceConfigVersion: null, tenantId, channels: { has: 'VOICE' } },
       select: { id: true },
     });
     if (!queue) throw new TenantQueueNotFoundError();
@@ -400,13 +420,15 @@ export function setQueueRequiredSkills(
         tenantId: command.tenantId,
         channels: { has: 'VOICE' },
       },
-      select: { id: true },
+      select: { id: true, voiceConfigVersion: true },
     });
     if (!queue) throw new TenantQueueNotFoundError();
+    if (queue.voiceConfigVersion === 1)
+      throw new HttpException({ code: 'VOICE_CONFIG_V1_REQUIRED' }, 409);
 
     const skillIds = command.requiredSkills.map((skill) => skill.skillId);
     const skills = await transaction.skill.findMany({
-      where: { tenantId: command.tenantId, id: { in: skillIds } },
+      where: { tenantId: command.tenantId, id: { in: skillIds }, voiceConfigVersion: null },
       select: { id: true },
     });
     if (skills.length !== skillIds.length) throw new TenantSkillNotFoundError();
@@ -490,6 +512,7 @@ export function setDirectVoiceDestination(
   command: SetDirectVoiceDestinationCommand,
 ) {
   return withTenantDatabaseTransaction(database, command.tenantId, async (transaction) => {
+    await assertLegacyVoiceQueue(transaction, command.tenantId, command.queueId);
     const queue = await transaction.queue.findFirst({
       where: {
         id: command.queueId,
@@ -545,6 +568,8 @@ export function setIvrVoiceDestination(
       ...Object.values(command.configuration.voiceRoutes),
       ...Object.values(command.configuration.dtmfRoutes),
     ];
+    for (const id of [...new Set(routedQueueIds)])
+      await assertLegacyVoiceQueue(transaction, command.tenantId, id);
     const queues = await transaction.queue.findMany({
       where: {
         tenantId: command.tenantId,

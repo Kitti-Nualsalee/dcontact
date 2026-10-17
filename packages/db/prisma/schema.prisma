@@ -11,6 +11,10 @@ datasource db {
 // ─────────────────────────── Tenancy & Users ───────────────────────────
 
 model Tenant {
+  voiceConfigCommands       VoiceConfigCommand[]
+  voiceConfigAudit          VoiceConfigAudit[]
+  voiceProvisioningPolicy   TenantVoiceProvisioningPolicy?
+  voicePolicyAudit          TenantVoicePolicyAudit[]
   id                        String                  @id @default(uuid()) @db.Uuid
   name                      String
   slug                      String                  @unique
@@ -187,6 +191,7 @@ model User {
 }
 
 model Team {
+  managedSkills Skill[]
   id       String  @id @default(uuid()) @db.Uuid
   tenantId String  @map("tenant_id") @db.Uuid
   name     String
@@ -237,9 +242,12 @@ enum QueueTranscriptionMode {
 }
 
 model Queue {
+  managedPolicy                 VoiceManagedQueuePolicy?
   id                            String                   @id @default(uuid()) @db.Uuid
   tenantId                      String                   @map("tenant_id") @db.Uuid
   name                          String
+  configRevision                Int                      @default(1) @map("config_revision")
+  voiceConfigVersion            Int?                     @map("voice_config_version")
   voiceWrapupPolicy             String                   @default("LEGACY") @map("voice_wrapup_policy")
   // universal queue: รองรับหลาย channel ใน queue เดียว
   channels                      ChannelType[]
@@ -278,6 +286,7 @@ model Queue {
   @@unique([tenantId, id])
   @@index([tenantId])
   @@index([tenantId, teamId])
+  @@index([tenantId, createdAt, id], map: "queues_tenant_created_id")
   @@map("queues")
 }
 
@@ -331,6 +340,12 @@ model QueueAuditEvent {
 }
 
 model Skill {
+  team               Team?    @relation(fields: [tenantId, teamId], references: [tenantId, id], map: "skills_team_tenant_fk", onDelete: NoAction, onUpdate: NoAction)
+  code               String?
+  teamId             String?  @map("team_id") @db.Uuid
+  revision           Int      @default(1)
+  voiceConfigVersion Int?     @map("voice_config_version")
+  createdAt          DateTime @default(now()) @map("created_at")
   id       String @id @default(uuid()) @db.Uuid
   tenantId String @map("tenant_id") @db.Uuid
   name     String
@@ -340,6 +355,9 @@ model Skill {
   queues QueueSkill[]
 
   @@unique([tenantId, name])
+  @@unique([tenantId, code])
+  @@unique([tenantId, id])
+  @@index([tenantId, createdAt, id], map: "skills_tenant_created_id")
   @@map("skills")
 }
 
@@ -4047,6 +4065,7 @@ model DlLineRunAuthorization {
   @@index([tenantId, gateId, state, expiresAt], map: "dl_line_run_authorizations_gate_state_idx")
   @@map("dl_line_run_authorizations")
 }
+
 /// #567: การตอบกลับหนึ่งครั้งของ LINE team trial — text เข้ารหัสด้วย payload key ของ webhook
 /// เพื่อให้ retry หลัง barrier เป็น request เดิม; append-only
 model DlLineTrialSend {
@@ -4070,7 +4089,6 @@ model DlLineTrialSend {
   @@index([tenantId, runAuthorizationId, createdAt], map: "dl_line_trial_sends_run_idx")
   @@map("dl_line_trial_sends")
 }
-
 
 /// หนึ่งแถวต่อหนึ่งหน่วย cap ที่จอง — นับภายใต้ row lock ของ gate (#358 §C)
 model DlLineCapLedgerEntry {
@@ -6436,4 +6454,104 @@ model AccountEmailOutbox {
   @@unique([tenantId, dedupeKey], map: "account_email_outbox_dedupe_key")
   @@index([tenantId, status, availableAt], map: "account_email_outbox_due_idx")
   @@map("account_email_outbox")
+}
+
+/// B1: descriptor และผลเป็น append-only; DB บังคับ receipt ก่อน commit
+model VoiceConfigCommand {
+  tenantId         String                     @map("tenant_id") @db.Uuid
+  commandId        String                     @map("command_id") @db.Uuid
+  actorUserId      String                     @map("actor_user_id") @db.Uuid
+  action           String
+  resourceId       String                     @map("resource_id") @db.Uuid
+  payloadDigest    String                     @map("payload_digest")
+  expectedRevision Int?                       @map("expected_revision")
+  commandKind      String                     @map("command_kind")
+  createdAt        DateTime                   @default(now()) @map("created_at") @db.Timestamptz
+  tenant           Tenant                     @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  receipt          VoiceConfigCommandReceipt?
+
+  @@id([tenantId, commandId])
+  @@map("voice_config_commands")
+}
+
+model VoiceConfigCommandReceipt {
+  tenantId      String             @map("tenant_id") @db.Uuid
+  commandId     String             @map("command_id") @db.Uuid
+  resultSummary Json               @map("result_summary")
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  command       VoiceConfigCommand @relation(fields: [tenantId, commandId], references: [tenantId, commandId], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([tenantId, commandId])
+  @@map("voice_config_command_receipts")
+}
+
+model VoiceConfigAudit {
+  id             String   @id @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  actorUserId    String   @map("actor_user_id") @db.Uuid
+  resourceId     String?  @map("resource_id") @db.Uuid
+  commandId      String?  @map("command_id") @db.Uuid
+  action         String
+  outcome        String
+  beforeRevision Int?     @map("before_revision")
+  afterRevision  Int?     @map("after_revision")
+  changedKeys    String[] @default([]) @map("changed_keys")
+  reasonCode     String   @map("reason_code")
+  correlationId  String   @map("correlation_id")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, resourceId, createdAt, id], map: "voice_config_audit_resource")
+  @@map("voice_config_audit")
+}
+
+model VoiceManagedQueuePolicy {
+  tenantId             String  @map("tenant_id") @db.Uuid
+  queueId              String  @map("queue_id") @db.Uuid
+  version              Int     @default(1)
+  offerTimeoutSec      Int     @default(20) @map("offer_timeout_sec")
+  maxTotalPreanswerSec Int     @default(60) @map("max_total_preanswer_sec")
+  terminalAction       String  @default("HANGUP") @map("terminal_action")
+  skipTimedOutAgent    Boolean @default(true) @map("skip_timed_out_agent")
+  queue                Queue   @relation(fields: [tenantId, queueId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([tenantId, queueId])
+  @@map("voice_managed_queue_policies")
+}
+
+model TenantVoiceProvisioningPolicy {
+  tenantId                  String   @id @map("tenant_id") @db.Uuid
+  revision                  Int
+  sourceKind                String   @map("source_kind")
+  sourcePlanDigest          String?  @map("source_plan_digest")
+  accountsLimit             Int      @map("accounts_limit")
+  agentsLimit               Int      @map("agents_limit")
+  voiceQueuesLimit          Int      @map("voice_queues_limit")
+  skillsLimit               Int      @map("skills_limit")
+  approvedByOperatorSubject String   @map("approved_by_operator_subject")
+  approvedAt                DateTime @map("approved_at") @db.Timestamptz
+  approvalRef               String   @map("approval_ref")
+  reason                    String
+  extensionPool             Json     @default("[]") @map("extension_pool")
+  destinationPool           Json     @default("[]") @map("destination_pool")
+  tenant                    Tenant   @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("tenant_voice_provisioning_policies")
+}
+
+model TenantVoicePolicyAudit {
+  tenantId                  String   @map("tenant_id") @db.Uuid
+  revision                  Int
+  sourceKind                String   @map("source_kind")
+  sourcePlanDigest          String?  @map("source_plan_digest")
+  approvedByOperatorSubject String   @map("approved_by_operator_subject")
+  approvedAt                DateTime @map("approved_at") @db.Timestamptz
+  approvalRef               String   @map("approval_ref")
+  reason                    String
+  caps                      Json
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz
+  tenant                    Tenant   @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([tenantId, revision])
+  @@map("tenant_voice_policy_audit")
 }
