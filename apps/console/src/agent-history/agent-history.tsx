@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
-import { Button } from '@d-contact/ui-react';
+import { Button, Table, TableHeader, Column, TableBody, Row, Cell } from '@d-contact/ui-react';
 import { useShellTokens } from '../shell/tokens.js';
 import {
   HistoryApiError,
@@ -116,40 +116,37 @@ function HistorySession({ api, onSignIn }: Props) {
       {!selected && !error && !loading && items.length === 0 ? <p>{t('empty')}</p> : null}
       {!selected && items.length > 0 ? (
         <div className="ah-scroll">
-          <table>
-            <caption>{t('list')}</caption>
-            <thead>
-              <tr>
-                <th>{t('interaction')}</th>
-                <th>{t('started')}</th>
-                <th>{t('ended')}</th>
-                <th>{t('disposition')}</th>
-                <th>{t('recorded')}</th>
-                <th>{t('source')}</th>
-                <th>{t('open')}</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table aria-label={t('list')}>
+            <TableHeader>
+              <Column isRowHeader>{t('interaction')}</Column>
+              <Column>{t('started')}</Column>
+              <Column>{t('ended')}</Column>
+              <Column>{t('disposition')}</Column>
+              <Column>{t('recorded')}</Column>
+              <Column>{t('source')}</Column>
+              <Column>{t('open')}</Column>
+            </TableHeader>
+            <TableBody>
               {items.map((item) => (
-                <tr key={item.interactionId}>
-                  <td>{item.interactionId}</td>
-                  <td>{format(item.startedAt)}</td>
-                  <td>{format(item.endedAt)}</td>
-                  <td>{disposition(item.disposition)}</td>
-                  <td>{format(item.recordedAt)}</td>
-                  <td>{t(item.recordedAtSource)}</td>
-                  <td>
+                <Row key={item.interactionId} id={item.interactionId}>
+                  <Cell>{item.interactionId}</Cell>
+                  <Cell>{format(item.startedAt)}</Cell>
+                  <Cell>{format(item.endedAt)}</Cell>
+                  <Cell>{disposition(item.disposition)}</Cell>
+                  <Cell>{format(item.recordedAt)}</Cell>
+                  <Cell>{t(item.recordedAtSource)}</Cell>
+                  <Cell>
                     <Button
                       aria-label={t('openItem', { interactionId: item.interactionId })}
                       onPress={() => open(item.interactionId)}
                     >
                       {t('open')}
                     </Button>
-                  </td>
-                </tr>
+                  </Cell>
+                </Row>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       ) : null}
       {!selected && cursor ? (

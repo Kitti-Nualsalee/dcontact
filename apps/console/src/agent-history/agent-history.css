@@ -3,17 +3,11 @@
   color: var(--dc-text-primary);
 }
 .ah-root article,
-.ah-root table {
+.ah-scroll {
   margin-block: var(--dc-space-6);
 }
 .ah-scroll {
   overflow-x: auto;
-}
-.ah-root th,
-.ah-root td {
-  padding: var(--dc-space-4);
-  border-block-end: 1px solid var(--dc-border-subtle);
-  text-align: start;
 }
 .ah-note {
   white-space: pre-wrap;

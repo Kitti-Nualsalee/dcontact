@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { findActiveAgent } from './active-agent.js';
 
 type Actor = { tenantId: string; userId: string };
 type Cursor = {
@@ -52,10 +53,7 @@ export async function readAgentHistory(
   if (limit === undefined) throw new BadRequestException({ code: 'INVALID_LIMIT' });
   const cursor = cursorFrom(cursorValue, actor);
   return withTenantDatabaseTransaction(database, actor.tenantId, async (transaction) => {
-    const agent = await transaction.user.findFirst({
-      where: { id: actor.userId, tenantId: actor.tenantId, role: 'AGENT', isActive: true },
-      select: { id: true },
-    });
+    const agent = await findActiveAgent(transaction, actor);
     if (!agent) throw new ForbiddenException({ code: 'AGENT_REQUIRED' });
     const predicate = cursor
       ? Prisma.sql`WHERE (recorded_at, interaction_id) < (${new Date(cursor.recordedAt)}::timestamptz, ${cursor.interactionId}::uuid)`

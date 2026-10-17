@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { homeNavigation } from './support/home-navigation.js';
 test.use({ locale: 'th-TH' });
 
 const interactionId = '7a33ac96-d87d-4ca4-ab75-f27e40e943be';
@@ -12,6 +13,26 @@ const item = {
   recordedAtSource: 'SERVER_COMMIT',
   legacy: false,
 };
+
+test('auth surface เปลี่ยน identity โหลด navigation ใหม่และทิ้งเมนูบัญชีเดิม', async ({ page }) => {
+  const identities: string[] = [];
+  await page.route('**/api/v1/me/navigation', (route) => {
+    const identity = route.request().headers().authorization;
+    identities.push(identity);
+    return route.fulfill({
+      json: homeNavigation(identity === 'Bearer e2e-first' ? ['agent'] : ['compliance']),
+    });
+  });
+  await page.route('**/api/v1/workspace/agent/history**', (route) =>
+    route.fulfill({ json: { items: [], nextCursor: null } }),
+  );
+  await page.goto('/?view=agent-history&tenant=demo&identityHarness=1');
+  await expect(page.locator('a[data-area="history"]')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Switch identity fixture', exact: true }).click();
+  await expect.poll(() => identities.includes('Bearer e2e-second')).toBe(true);
+  await expect(page.locator('a[data-area="history"]')).toHaveCount(0);
+  await expect(page.locator('a[data-area="governance"]')).toHaveCount(1);
+});
 
 test('Agent เปิดรายการ/โหลดเพิ่ม/detail plain text/deep link โดยไม่ขอ lease หรือ SIP', async ({
   page,

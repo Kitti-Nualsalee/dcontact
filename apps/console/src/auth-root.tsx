@@ -264,7 +264,13 @@ function shellUserProps(auth: AuthContextProps, tenantAlias: string) {
   };
 }
 
-function HistorySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenantAlias: string }) {
+export function HistorySurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
   const auth = useAuth();
   const { t } = useTranslation('history');
   const accessToken = auth.user?.access_token;
@@ -303,6 +309,7 @@ function HistorySurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenan
   const identityKey = JSON.stringify(identity);
   return (
     <ConsoleShell
+      key={identityKey}
       {...shellUserProps(auth, tenantAlias)}
       apiBaseUrl={apiBaseUrl}
       accessToken={() => accessToken}

@@ -21,6 +21,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
+import { findActiveAgent } from './active-agent.js';
 import {
   MAX_PINS,
   NAVIGATION_APPS,
@@ -121,10 +122,7 @@ async function domainVisibleApps(
 ) {
   const apps = visibleApps({ roles: actor.roles, entitlements }, registry);
   if (!apps.some((app) => app.id === 'agent-history')) return apps;
-  const agent = await tx.user.findFirst({
-    where: { tenantId: actor.tenantId, id: actor.userId, role: 'AGENT', isActive: true },
-    select: { id: true },
-  });
+  const agent = await findActiveAgent(tx, actor);
   return agent ? apps : apps.filter((app) => app.id !== 'agent-history');
 }
 
