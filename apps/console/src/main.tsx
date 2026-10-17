@@ -1,6 +1,8 @@
-import { StrictMode } from 'react';
+import { StrictMode, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConsoleAuthRoot } from './auth-root.js';
+import { AgentHistory } from './agent-history/agent-history.js';
+import { createAgentHistoryApi } from './agent-history/api.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
 import { GovernancePage } from './governance-page.js';
@@ -71,6 +73,35 @@ function e2eShellUser(tenantAlias: string | undefined) {
   };
 }
 
+function HistoryE2eRoot() {
+  const url = new URL(window.location.href);
+  const [identity, setIdentity] = useState('first');
+  const api = useMemo(
+    () =>
+      createAgentHistoryApi({
+        baseUrl: window.location.origin,
+        accessToken: () => `e2e-${identity}`,
+      }),
+    [identity],
+  );
+  return (
+    <>
+      {url.searchParams.has('identityHarness') ? (
+        <button onClick={() => setIdentity('second')}>Switch identity fixture</button>
+      ) : null}
+      <ConsoleShell
+        {...e2eShellUser(url.searchParams.get('tenant') ?? 'demo')}
+        apiBaseUrl={window.location.origin}
+        accessToken={() => `e2e-${identity}`}
+        tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
+        appId="agent-history"
+      >
+        <AgentHistory api={api} identityKey={identity} />
+      </ConsoleShell>
+    </>
+  );
+}
+
 function ConsoleE2eRoot() {
   const url = new URL(window.location.href);
   const contextId = url.searchParams.get('context');
@@ -99,6 +130,7 @@ function ConsoleE2eRoot() {
       </ConsoleShell>
     );
   if (view === 'i18n') return <LocaleProbe />;
+  if (view === 'agent-history') return <HistoryE2eRoot />;
   if (view === 'dphone-embedding') {
     // viewer จาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token
     return (

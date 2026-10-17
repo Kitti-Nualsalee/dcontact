@@ -19,6 +19,16 @@ import {
 } from './gateway-auth.js';
 
 const owner = new PrismaClient();
+type HistoryPage = {
+  items: {
+    interactionId: string;
+    startedAt: string;
+    recordedAt: string;
+    recordedAtSource: string;
+    legacy: boolean;
+  }[];
+  nextCursor: string | null;
+};
 const application = new PrismaClient({
   datasources: {
     db: {
@@ -402,6 +412,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
     disposition: 'CUSTOMER_ASSISTED',
     note: 'สรุป 😀\nบรรทัดที่สอง',
     recordedAt: savedResult.recordedAt,
+    recordedAtSource: 'SERVER_COMMIT',
     legacy: false,
   });
   assert.ok(Number.isFinite(Date.parse(savedResult.recordedAt)));
@@ -647,6 +658,161 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
       await owner.$executeRawUnsafe('DROP FUNCTION v700_fail_write()');
     }
   }
+
+  const historyIds = Array.from({ length: 4 }, () => randomUUID())
+    .sort()
+    .reverse();
+  const historyTime = new Date('2027-01-01T12:00:00.000Z');
+  await owner.interaction.createMany({
+    data: historyIds.map((id) => ({
+      id,
+      tenantId: tenantAId,
+      agentId: agentAId,
+      channel: 'VOICE' as const,
+      direction: 'INBOUND' as const,
+      state: 'COMPLETED' as const,
+      wrapUpCode: 'CUSTOMER_ASSISTED',
+      queuedAt: new Date('2026-12-31T12:00:00.000Z'),
+      endedAt: historyTime,
+      metadata: { caller: 'must-not-appear-in-history' },
+    })),
+  });
+  await owner.interactionEvent.createMany({
+    data: [
+      {
+        tenantId: tenantAId,
+        interactionId: historyIds[0]!,
+        type: 'interaction.wrapup_completed',
+        createdAt: historyTime,
+      },
+      {
+        tenantId: tenantAId,
+        interactionId: historyIds[0]!,
+        type: 'interaction.wrapup_completed',
+        createdAt: new Date('2028-01-01T12:00:00.000Z'),
+      },
+    ],
+  });
+  const historyUrl = `http://127.0.0.1:${address.port}/api/v1/workspace/agent/history`;
+  const emailHistoryId = randomUUID();
+  const queuedFallbackId = randomUUID();
+  await owner.interaction.createMany({
+    data: [
+      {
+        id: emailHistoryId,
+        tenantId: tenantAId,
+        agentId: agentAId,
+        channel: 'EMAIL',
+        direction: 'INBOUND',
+        state: 'COMPLETED',
+        queuedAt: new Date('2029-01-01T00:00:00.000Z'),
+      },
+      {
+        id: queuedFallbackId,
+        tenantId: tenantAId,
+        agentId: agentAId,
+        channel: 'VOICE',
+        direction: 'INBOUND',
+        state: 'COMPLETED',
+        queuedAt: new Date('2026-12-30T00:00:00.000Z'),
+      },
+    ],
+  });
+  const logsBeforeHistory = await owner.agentStateLog.count({ where: { tenantId: tenantAId } });
+  const resultsBeforeHistory = await owner.interactionWrapupResult.count({
+    where: { tenantId: tenantAId },
+  });
+  const firstHistory = await fetch(`${historyUrl}?limit=2`, { headers: noteHeaders });
+  assert.equal(firstHistory.status, 200);
+  assert.equal(firstHistory.headers.get('cache-control'), 'no-store');
+  const firstPage = (await firstHistory.json()) as HistoryPage;
+  assert.deepEqual(
+    firstPage.items.map((item: { interactionId: string }) => item.interactionId),
+    historyIds.slice(0, 2),
+  );
+  assert.equal(firstPage.items[0].recordedAt, historyTime.toISOString());
+  assert.equal(firstPage.items[0].recordedAtSource, 'LEGACY_EVENT');
+  assert.equal(firstPage.items[0].legacy, true);
+  assert.equal(firstPage.items[1].recordedAtSource, 'LEGACY_FALLBACK');
+  assert.equal(firstPage.items[1].startedAt, '2026-12-31T12:00:00.000Z');
+  assert.equal(JSON.stringify(firstPage).includes('must-not-appear-in-history'), false);
+  for (const item of firstPage.items) {
+    assert.equal(Object.hasOwn(item, 'note'), false);
+    assert.equal(Object.hasOwn(item, 'caller'), false);
+    assert.equal(Object.hasOwn(item, 'contact'), false);
+  }
+  const secondPage = (await (
+    await fetch(`${historyUrl}?limit=2&cursor=${firstPage.nextCursor}`, { headers: noteHeaders })
+  ).json()) as HistoryPage;
+  assert.deepEqual(
+    secondPage.items.map((item: { interactionId: string }) => item.interactionId),
+    historyIds.slice(2),
+  );
+  for (const limit of ['0', '101', '-1', '1.5', 'no', '']) {
+    const rejected = await fetch(`${historyUrl}?limit=${limit}`, { headers: noteHeaders });
+    assert.equal(rejected.status, 400);
+    assert.equal(((await rejected.json()) as { code: string }).code, 'INVALID_LIMIT');
+  }
+  for (const cursor of ['', 'not-json', 'a'.repeat(2049)]) {
+    const rejected = await fetch(`${historyUrl}?cursor=${cursor}`, { headers: noteHeaders });
+    assert.equal(rejected.status, 400);
+    assert.equal(((await rejected.json()) as { code: string }).code, 'INVALID_CURSOR');
+  }
+  const crossed = await fetch(`${historyUrl}?cursor=${firstPage.nextCursor}`, {
+    headers: { authorization: 'Bearer agent-b-token' },
+  });
+  assert.equal(crossed.status, 400);
+  assert.equal(((await crossed.json()) as { code: string }).code, 'INVALID_CURSOR');
+  const otherAgentCursor = await fetch(`${historyUrl}?cursor=${firstPage.nextCursor}`, {
+    headers: { authorization: 'Bearer other-agent-a-token' },
+  });
+  assert.equal(otherAgentCursor.status, 400);
+  const forged = JSON.parse(Buffer.from(firstPage.nextCursor!, 'base64url').toString('utf8'));
+  forged.userId = otherAgentAId;
+  const forgedResponse = await fetch(
+    `${historyUrl}?cursor=${Buffer.from(JSON.stringify(forged)).toString('base64url')}`,
+    { headers: { authorization: 'Bearer other-agent-a-token' } },
+  );
+  assert.equal(forgedResponse.status, 200);
+  assert.deepEqual(((await forgedResponse.json()) as HistoryPage).items, []);
+  for (const change of [{ role: 'SUPERVISOR' as const }, { isActive: false }]) {
+    await owner.user.update({ where: { id: agentAId }, data: change });
+    assert.equal((await fetch(historyUrl, { headers: noteHeaders })).status, 403);
+    await owner.user.update({ where: { id: agentAId }, data: { role: 'AGENT', isActive: true } });
+  }
+  const allHistory = (await (
+    await fetch(historyUrl, { headers: noteHeaders })
+  ).json()) as HistoryPage;
+  assert.ok(
+    allHistory.items.some(
+      (item: { interactionId: string; recordedAtSource: string }) =>
+        item.interactionId === noteInteractionId && item.recordedAtSource === 'SERVER_COMMIT',
+    ),
+  );
+  assert.equal(
+    allHistory.items.some(
+      (item: { interactionId: string }) => item.interactionId === interactionBId,
+    ),
+    false,
+  );
+  assert.equal(
+    allHistory.items.some((item) => item.interactionId === emailHistoryId),
+    false,
+  );
+  assert.deepEqual(
+    allHistory.items.find((item) => item.interactionId === queuedFallbackId)?.recordedAt,
+    '2026-12-30T00:00:00.000Z',
+  );
+  assert.equal((await fetch(`${historyUrl}?limit=100`, { headers: noteHeaders })).status, 200);
+  assert.equal(
+    await owner.agentStateLog.count({ where: { tenantId: tenantAId } }),
+    logsBeforeHistory,
+  );
+  assert.equal(
+    await owner.interactionWrapupResult.count({ where: { tenantId: tenantAId } }),
+    resultsBeforeHistory,
+  );
+  assert.equal(leaseRequests.length, 0);
 
   const credentialsResponse = await fetch(
     `http://127.0.0.1:${address.port}/api/v1/workspace/agent/sip-credentials?tenantId=${tenantBId}&telephonyNodeId=fs-a`,

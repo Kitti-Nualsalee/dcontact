@@ -172,6 +172,16 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     roles: ['supervisor', 'admin'],
     entitlement: 'module_api_cti',
   },
+  {
+    id: 'agent-history',
+    area: 'history',
+    section: 'work',
+    group: 'operations',
+    labelKey: 'navigation.apps.agentHistory',
+    hostApp: 'console',
+    path: '/?view=agent-history',
+    roles: ['agent'],
+  },
 ]);
 
 export interface NavigationAreaItemView {

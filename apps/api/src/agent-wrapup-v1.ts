@@ -89,6 +89,7 @@ async function committedResult(
     disposition: result.disposition,
     note: result.note,
     recordedAt: result.recordedAt.toISOString(),
+    recordedAtSource: 'SERVER_COMMIT' as const,
     legacy: false as const,
   };
 }
@@ -178,7 +179,12 @@ export async function saveAgentWrapup(
       },
     });
     const result = await committedResult(transaction, actor, interactionId);
-    const { note: omittedNote, legacy: omittedLegacy, ...summary } = result;
+    const {
+      note: omittedNote,
+      legacy: omittedLegacy,
+      recordedAtSource: omittedSource,
+      ...summary
+    } = result;
     await transaction.commandReceipt.create({
       data: {
         tenantId: actor.tenantId,

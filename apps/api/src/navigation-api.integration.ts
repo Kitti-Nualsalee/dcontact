@@ -123,6 +123,7 @@ async function harness(t: TestContext) {
     await owner.navigationUserPins.deleteMany({ where: { tenantId: { in: ids } } });
     await owner.navigationTenantDefaultPins.deleteMany({ where: { tenantId: { in: ids } } });
     await owner.tenantPlanBinding.deleteMany({ where: { tenantId: { in: ids } } });
+    await owner.user.deleteMany({ where: { tenantId: { in: ids } } });
     await owner.tenant.deleteMany({ where: { id: { in: ids } } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -145,10 +146,35 @@ async function harness(t: TestContext) {
   const putDefault = (token: string, body: unknown) =>
     call('PUT', 'tenant/navigation/default-pins', token, body);
 
-  return { owner, application, tenants, navigation, putPins, putDefault };
+  return { owner, application, tenants, navigation, putPins, putDefault, otherUserId };
 }
 
 const appIds = (body: { apps: { id: string }[] }) => body.apps.map((app) => app.id);
+
+test('Agent history ใช้ active domain AGENT ทั้งการแสดงเมนูและการปักหมุด ไม่ใช้ composite role แทน', async (t) => {
+  const { owner, tenants, navigation, putPins, otherUserId } = await harness(t);
+  await owner.user.create({
+    data: {
+      id: otherUserId,
+      tenantId: tenants.journeyPlan,
+      email: `history-${otherUserId}@test.local`,
+      passwordHash: 'synthetic',
+      displayName: 'Synthetic Agent',
+      role: 'AGENT',
+    },
+  });
+  assert.ok(appIds((await navigation('journey-agent')).json).includes('agent-history'));
+  for (const role of ['SUPERVISOR', 'ADMIN'] as const) {
+    await owner.user.update({ where: { id: otherUserId }, data: { role } });
+    assert.equal(appIds((await navigation('journey-agent')).json).includes('agent-history'), false);
+    assert.equal(
+      (await putPins('journey-agent', { appIds: ['agent-history'], expectedRevision: 0 })).status,
+      422,
+    );
+  }
+  await owner.user.update({ where: { id: otherUserId }, data: { role: 'AGENT', isActive: false } });
+  assert.equal(appIds((await navigation('journey-agent')).json).includes('agent-history'), false);
+});
 
 test('role และ plan ต่างกันได้รายการต่างกัน และแอปที่มองไม่เห็นไม่อยู่ใน response เลย', async (t) => {
   const { navigation } = await harness(t);

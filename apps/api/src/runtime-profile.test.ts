@@ -275,6 +275,7 @@ test('uat-workspace เปิด UI APIs เพิ่มแบบ opt-in แล�
     '/api/v1/tenant/locale-defaults',
     '/api/v1/workspace/supervisor/snapshot',
     '/api/v1/workspace/agent/snapshot',
+    '/api/v1/workspace/agent/history',
     '/api/v1/workspace/agent/interactions/fixture/wrapup-v1',
     '/api/v1/workspace/agent/interactions/fixture/wrapup-result',
     '/api/v1/workspace/agent/interactions/fixture/wrapup-commands/command',

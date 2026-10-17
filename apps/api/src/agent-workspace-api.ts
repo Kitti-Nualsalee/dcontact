@@ -14,6 +14,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import { Prisma, PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
@@ -21,6 +22,7 @@ import { AGENT_SIP_CREDENTIALS, type AgentSipCredentialService } from './agent-s
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import { EmbedOriginService } from './embed-origins.js';
 import { saveAgentWrapup, readAgentWrapup, readAgentWrapupCommand } from './agent-wrapup-v1.js';
+import { readAgentHistory } from './agent-history.js';
 
 export const AGENT_WORKSPACE_DATABASE = Symbol('AGENT_WORKSPACE_DATABASE');
 
@@ -85,6 +87,19 @@ export class AgentWorkspaceController {
     @Inject(AGENT_SIP_CREDENTIALS)
     private readonly sipCredentialsService: AgentSipCredentialService,
   ) {}
+
+  @Get('history')
+  @GatewayRoles('agent')
+  @Header('Cache-Control', 'no-store')
+  async history(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Query('limit') limit: unknown,
+    @Query('cursor') cursor: unknown,
+  ) {
+    return wrapupOperation(request, () =>
+      readAgentHistory(this.database, identity(request), limit, cursor),
+    );
+  }
 
   @Get('snapshot')
   @GatewayRoles('agent')

@@ -92,6 +92,26 @@ for (const outcome of ['success', 'unknown'] as const) {
       await page.getByRole('button', { name: 'ส่ง disposition' }).click();
     }
     await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
+    const history = page.getByRole('link', { name: 'เปิดผลในประวัติงาน (แท็บใหม่)' });
+    await expect(history).toHaveAttribute('target', '_blank');
+    const historyUrl = new URL((await history.getAttribute('href'))!);
+    expect(historyUrl.searchParams.get('interaction')).toBe(interactionId);
+    expect(historyUrl.searchParams.get('view')).toBe('agent-history');
+    expect([...historyUrl.searchParams.keys()].sort()).toEqual(['interaction', 'tenant', 'view']);
+    if (outcome === 'success') {
+      const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+      await page
+        .context()
+        .route(`${historyUrl.origin}/**`, (route) =>
+          route.fulfill({ contentType: 'text/html', body: '<p>History destination fixture</p>' }),
+        );
+      const opened = page.waitForEvent('popup');
+      await history.click();
+      const resultPage = await opened;
+      await expect(resultPage.getByText('History destination fixture')).toBeVisible();
+      expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
+      await resultPage.close();
+    }
     await expect(page.getByText('ทดสอบ 😀\nplain text', { exact: true })).toBeVisible();
     expect(submitted).toMatchObject({
       disposition: 'CUSTOMER_ASSISTED',

@@ -19,6 +19,7 @@
     },
     "apps": {
       "agentWorkspace": "กล่องงาน",
+      "agentHistory": "ประวัติงานของฉัน",
       "supervisorWorkspace": "ทีมสด",
       "journeys": "Journeys",
       "contactGovernance": "Governance",

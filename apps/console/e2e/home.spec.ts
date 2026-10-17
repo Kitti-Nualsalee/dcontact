@@ -87,7 +87,7 @@ test('ปิด shell flag ยังแสดงเมนูที่ server อ
     route.fulfill({ json: homeNavigation(['agent'], false) }),
   );
   await page.goto('/?tenant=demo');
-  await expect(page.locator('.home__entry')).toHaveCount(1);
+  await expect(page.locator('.home__entry')).toHaveCount(2);
   await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toHaveCount(0);
   await page.getByRole('button', { name: 'English' }).click();
   await expect(
@@ -107,7 +107,7 @@ test('API ล้มเหลวไม่เดาเมนู กดลองอ
   await expect(page.locator('.home__entry')).toHaveCount(0);
   fail = false;
   await page.getByRole('button', { name: 'ลองอีกครั้ง' }).click();
-  await expect(page.locator('.home__entry')).toHaveCount(1);
+  await expect(page.locator('.home__entry')).toHaveCount(2);
 });
 
 test('รายการว่างแสดงวิธีขอสิทธิ์ ไม่มีหมวดว่างหรือเมนูที่เดาเอง', async ({ page }) => {
