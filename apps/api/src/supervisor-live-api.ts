@@ -1,6 +1,8 @@
+import { catalogActor } from './tenant-voice-catalog.js';
 import {
   BadRequestException,
   Body,
+  HttpException,
   ConflictException,
   Controller,
   ForbiddenException,
@@ -252,9 +254,15 @@ export class SupervisorLiveController {
         );
         const queue = await transaction.queue.findFirst({
           where: { id: requiredIdentifier(queueId, 'queueId'), tenantId: actor.tenantId },
-          select: { id: true, teamId: true, isActive: true },
+          select: { id: true, teamId: true, isActive: true, voiceConfigVersion: true },
         });
         if (!queue) throw new NotFoundException();
+        if (queue.voiceConfigVersion === 1) {
+          const configActor = await catalogActor(transaction, actor);
+          if (configActor.role === 'SUPERVISOR' && configActor.teamId !== queue.teamId)
+            throw new NotFoundException();
+          throw new HttpException({ code: 'VOICE_CONFIG_V1_REQUIRED' }, 409);
+        }
         this.assertInScope(scope, queue.teamId);
         const receiptCommandId = requiredCommandId(body.commandId);
         const existingReceipt = await transaction.commandReceipt.findUnique({
@@ -326,7 +334,11 @@ export class SupervisorLiveController {
       role: 'AGENT' as const,
       ...(scope.kind === 'TEAM' ? { teamId: scope.teamId } : {}),
     };
-    const queueWhere = { tenantId, ...(scope.kind === 'TEAM' ? { teamId: scope.teamId } : {}) };
+    const queueWhere = {
+      tenantId,
+      voiceConfigVersion: null,
+      ...(scope.kind === 'TEAM' ? { teamId: scope.teamId } : {}),
+    };
     const [agents, queues] = await Promise.all([
       transaction.user.findMany({
         where: agentWhere,

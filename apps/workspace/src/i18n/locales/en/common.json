@@ -24,7 +24,8 @@
       "journeys": "Journeys",
       "contactGovernance": "Governance",
       "dphoneEmbedding": "dphone embedding",
-      "home": "Home"
+      "home": "Home",
+      "voiceRouting": "Voice configuration"
     },
     "areas": {
       "home": "Home",
@@ -47,7 +48,8 @@
     "sections": {
       "work": "Work",
       "live": "Live",
-      "embedding": "Embedding"
+      "embedding": "Embedding",
+      "configuration": "Configuration"
     },
     "pages": {
       "contactGovernance": {
@@ -55,6 +57,10 @@
         "exceptions": "Exceptions",
         "policies": "Policies",
         "audit": "Audit"
+      },
+      "voiceRouting": {
+        "queues": "Voice queues",
+        "skills": "Skills"
       }
     }
   },

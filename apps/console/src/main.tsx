@@ -1,3 +1,5 @@
+import { VoiceRouting } from './voice-routing/voice-routing.js';
+import { createCatalogApi } from './voice-routing/api.js';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { AuthProvider } from 'react-oidc-context';
 import { User, UserManager, WebStorageStateStore } from 'oidc-client-ts';
@@ -148,6 +150,24 @@ function ConsoleE2eRoot() {
       </ConsoleShell>
     );
   if (view === 'i18n') return <LocaleProbe />;
+  if (view === 'voice-routing')
+    return (
+      <ConsoleShell
+        {...e2eShellUser(url.searchParams.get('tenant') ?? undefined)}
+        apiBaseUrl={window.location.origin}
+        accessToken={() => 'e2e-access-token'}
+        tenantAlias={url.searchParams.get('tenant') ?? undefined}
+        appId="voice-routing"
+      >
+        <VoiceRouting
+          api={createCatalogApi({
+            baseUrl: window.location.origin,
+            accessToken: () => 'e2e-access-token',
+          })}
+          identityKey="e2e-voice"
+        />
+      </ConsoleShell>
+    );
   if (view === 'agent-history') return <HistoryE2eRoot />;
   if (view === 'dphone-embedding') {
     // viewer จาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token

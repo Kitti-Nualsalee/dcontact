@@ -40,6 +40,7 @@ test('role ต่างกันเห็นรายการต่างกั
     'journeys',
     'contact-governance',
     'agent-history',
+    'voice-routing',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: ['compliance'], entitlements: FULL })), [
     'home',
@@ -55,11 +56,13 @@ test('plan ต่างกันเห็นรายการต่างกั
     'agent-workspace',
     'supervisor-workspace',
     'journeys',
+    'voice-routing',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: admin, entitlements: {} })), [
     'home',
     'agent-workspace',
     'supervisor-workspace',
+    'voice-routing',
   ]);
   assert.deepEqual(
     ids(
@@ -68,7 +71,7 @@ test('plan ต่างกันเห็นรายการต่างกั
         entitlements: { module_journey: 1, module_contact_governance: 'yes' },
       }),
     ),
-    ['home', 'agent-workspace', 'supervisor-workspace'],
+    ['home', 'agent-workspace', 'supervisor-workspace', 'voice-routing'],
   );
 });
 
@@ -80,6 +83,7 @@ test('tenant ที่ไม่มี plan binding (null) ใช้ role อย�
     'journeys',
     'contact-governance',
     'dphone-embedding',
+    'voice-routing',
   ]);
 });
 
@@ -90,6 +94,7 @@ test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ข�
     'agent-workspace',
     'supervisor-workspace',
     'dphone-embedding',
+    'voice-routing',
   ]);
   assert.equal(
     ids(visibleApps({ roles: ['agent'], entitlements: cti })).includes('dphone-embedding'),
@@ -108,6 +113,7 @@ test('ชุดเริ่มต้นของ tenant ขึ้นกับ en
     'supervisor-workspace',
     'contact-governance',
     'agent-history',
+    'voice-routing',
   ]);
 });
 
@@ -163,6 +169,7 @@ test('#651: พื้นที่เมนูคัดตาม role/plan; ล�
     'supervisor',
     'journeys',
     'governance',
+    'routing',
     'integrations',
   ]);
   assert.deepEqual(areaIds({ roles: ['compliance'], entitlements: FULL }), ['home', 'governance']);
@@ -202,7 +209,7 @@ test('#651: แอปหลายตัวในพื้นที่/กลุ�
   ]);
 });
 
-test('#658: Governance ส่งหน้าย่อยตามลำดับใน item เดียว (แอปเดียว ปักหมุดได้ชิ้นเดียว) และแอปอื่นไม่มี pages', () => {
+test('#658: Governance และ Voice ส่งหน้าย่อยจาก registry โดยแอปอื่นไม่มี pages', () => {
   const visible = visibleApps({ roles: ['compliance'], entitlements: FULL });
   const area = visibleAreas(visible).find((a) => a.id === 'governance');
   assert.equal(area!.id, 'governance');
@@ -222,6 +229,14 @@ test('#658: Governance ส่งหน้าย่อยตามลำดับ
   const everyone = visibleAreas(visibleApps({ roles: ['admin'], entitlements: null }));
   const withoutPages = everyone
     .flatMap((a) => a.sections.flatMap((s) => s.items))
-    .filter((i) => i.appId !== 'contact-governance');
+    .filter((i) => !['contact-governance', 'voice-routing'].includes(i.appId));
   assert.ok(withoutPages.every((i) => i.pages === undefined));
+  const voice = everyone
+    .find((a) => a.id === 'routing')!
+    .sections.flatMap((s) => s.items)
+    .find((i) => i.appId === 'voice-routing')!;
+  assert.deepEqual(
+    voice.pages!.map((p) => p.id),
+    ['queues', 'skills'],
+  );
 });

@@ -22,7 +22,8 @@
     "supervisor-workspace": "View your team and work in progress",
     "journeys": "Design customer journeys and automation",
     "contact-governance": "Manage policies, exceptions and audit evidence",
-    "dphone-embedding": "Manage sites allowed to embed dphone"
+    "dphone-embedding": "Manage sites allowed to embed dphone",
+    "voice-routing": "Create queues and skills for inbound calls"
   },
   "descriptionFallback": "Open this workspace",
   "names": {
@@ -30,6 +31,7 @@
     "supervisor-workspace": "Supervisor Workspace",
     "journeys": "Journeys",
     "contact-governance": "Contact Governance",
-    "dphone-embedding": "dphone embedding"
+    "dphone-embedding": "dphone embedding",
+    "voice-routing": "Voice configuration"
   }
 }

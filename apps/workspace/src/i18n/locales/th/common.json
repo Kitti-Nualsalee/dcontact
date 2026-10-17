@@ -24,7 +24,8 @@
       "journeys": "Journeys",
       "contactGovernance": "Governance",
       "dphoneEmbedding": "ฝัง dphone",
-      "home": "หน้าแรก"
+      "home": "หน้าแรก",
+      "voiceRouting": "ตั้งค่า Voice"
     },
     "areas": {
       "home": "หน้าแรก",
@@ -47,7 +48,8 @@
     "sections": {
       "work": "งาน",
       "live": "งานสด",
-      "embedding": "ฝังระบบ"
+      "embedding": "ฝังระบบ",
+      "configuration": "การตั้งค่า"
     },
     "pages": {
       "contactGovernance": {
@@ -55,6 +57,10 @@
         "exceptions": "Exceptions",
         "policies": "Policies",
         "audit": "Audit"
+      },
+      "voiceRouting": {
+        "queues": "คิว Voice",
+        "skills": "ทักษะ"
       }
     }
   },

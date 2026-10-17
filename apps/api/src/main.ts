@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Controller, Module, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
@@ -360,6 +361,7 @@ class WorkspaceSessionController {
 
 @Module({
   controllers: [
+    TenantVoiceCatalogController,
     WorkspaceSessionController,
     QueueController,
     TenantQueuePolicyController,
@@ -399,6 +401,7 @@ class WorkspaceSessionController {
     NavigationController,
   ],
   providers: [
+    { provide: TENANT_VOICE_DATABASE, useValue: prisma },
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
     { provide: TENANT_LOCALE_DATABASE, useValue: prisma },
     { provide: NAVIGATION_DATABASE, useValue: prisma },
