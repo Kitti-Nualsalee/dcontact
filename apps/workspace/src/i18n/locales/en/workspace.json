@@ -1,4 +1,15 @@
 {
+  "recovery": {
+    "callbackFailed": "Sign-in failed",
+    "callbackClose": "Close this popup and try again from the original Workspace",
+    "retry": "Check session and work again",
+    "identityChanged": "Account changed. Previous drafts were cleared and hidden. The existing call and receiving point are not transferred to the new account.",
+    "popupFailed": "Sign-in popup was blocked, cancelled or failed. Your draft remains here; try again.",
+    "discard": "A draft or save command is unfinished. Leave this page and discard the draft?",
+    "endCall": "End previous call",
+    "authRequired": "Session unavailable. Your draft and current call remain here; new calls stay closed.",
+    "signIn": "Sign in again"
+  },
   "availabilityFailed": "Server could not confirm call availability. New calls remain closed.",
   "snapshotLoadFailed": "Could not load status from the API; remote control is not available yet",
   "offerConfirmFailed": "Could not confirm the incoming offer with the API",
@@ -70,6 +81,8 @@
     "followUp": "Follow-up required",
     "submit": "Submit disposition",
     "pending": "Waiting for server confirmation",
+    "reconciling": "Checking the command and recorded result before accepting new work",
+    "recoveringInteraction": "The unfinished command belongs to interaction {{interactionId}}, not new work",
     "note": "Summary note",
     "noteCount": "{{count}} / 2,000 characters",
     "noteRequired": "Enter a note of 1–2,000 characters",

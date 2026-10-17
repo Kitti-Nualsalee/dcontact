@@ -8,6 +8,20 @@ export interface OidcSettingsInput {
   stateStorage: Storage;
 }
 
+export function workspaceIdentityKey(
+  profile: unknown,
+  issuer: string,
+  tenantAlias: string,
+): string | undefined {
+  if (!profile || typeof profile !== 'object') return;
+  const claims = profile as Record<string, unknown>;
+  if (claims.iss !== issuer) return;
+  if (claims.tenant_slug !== tenantAlias) return;
+  const fields = [claims.iss, claims.tenant_id, claims.dc_user_id, claims.sub];
+  if (!fields.every((field) => typeof field === 'string' && field.length > 0)) return;
+  return JSON.stringify(fields);
+}
+
 export function resolveTenantAlias(location: URL): string {
   const queryAlias = location.searchParams.get('tenant')?.trim();
   if (queryAlias) return queryAlias;
@@ -47,6 +61,7 @@ export function createOidcSettings(input: OidcSettingsInput): UserManagerSetting
     authority: input.issuer,
     client_id: input.clientId,
     redirect_uri: redirectUri,
+    popup_redirect_uri: redirectUri,
     post_logout_redirect_uri: redirectUri,
     response_type: 'code',
     scope: `openid profile email roles organization:${input.tenantAlias}`,

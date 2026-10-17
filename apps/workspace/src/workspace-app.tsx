@@ -10,7 +10,8 @@
  * และถอน SIP register เมื่อไม่มีงานในมือ — สายที่คุยอยู่/wrap-up ไม่ถูกตัด (ADR-026 ข้อ 4)
  * flag ปิด = พฤติกรรมเดิมทุกประการ (leader election ของแท็บเป็นตัวตัดสิน)
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { WrapupRuntime } from './wrapup-runtime.js';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import { Button, useInShell } from '@d-contact/ui-react';
 import {
@@ -56,6 +57,10 @@ type WorkspaceMessage =
   | 'wrapupFailed';
 
 export interface WorkspaceAppProps {
+  sessionReady?: boolean;
+  wrapupRuntime?: WrapupRuntime;
+  identityKey?: string;
+  recoveryRevision?: number;
   api?: AgentWorkspaceApi;
   tenantLabel?: string;
   onSignOut?: () => void;
@@ -151,6 +156,10 @@ export function WorkspaceApp(props: WorkspaceAppProps) {
 }
 
 function AgentWorkspace({
+  sessionReady = true,
+  wrapupRuntime,
+  identityKey = 'standalone-document',
+  recoveryRevision,
   api,
   tenantLabel = 'acme.d-contact.io',
   onSignOut,
@@ -188,17 +197,36 @@ function AgentWorkspace({
   const [dphoneState, setDphoneState] = useState<DphoneState>({ phase: 'OFFLINE' });
   const [dphoneError, setDphoneError] = useState<WorkspaceMessage>();
   const [muted, setMuted] = useState(false);
-  const [wrapupDisposition, setWrapupDisposition] = useState<string>();
-  const [wrapupPending, setWrapupPending] = useState(false);
-  const [wrapupError, setWrapupError] = useState<WorkspaceMessage>();
-  const [wrapupNote, setWrapupNote] = useState('');
-  const [wrapupUnknown, setWrapupUnknown] = useState(false);
-  const [savedWrapup, setSavedWrapup] = useState<WrapupResultV1>();
-  const [wrapupAlreadyCompleted, setWrapupAlreadyCompleted] = useState(false);
-  const wrapupIntent = useRef<WrapupIntentV1 | undefined>(undefined);
-  const wrapupInFlight = useRef(false);
-  const reportedWrapups = useRef(new Set<string>());
-  const wrapupInteraction = useRef<WorkspaceCallInteraction | undefined>(undefined);
+  const fallbackRuntime = useMemo(() => {
+    const runtime = new WrapupRuntime();
+    runtime.setOwner(identityKey);
+    return runtime;
+  }, [identityKey]);
+  const runtime = wrapupRuntime ?? fallbackRuntime;
+  useSyncExternalStore(runtime.subscribe, runtime.version);
+  const draft = runtime.select(identityKey, snapshot?.interaction);
+  const wrapupState = draft.read();
+  const wrapupDisposition = wrapupState.disposition;
+  const wrapupPending = wrapupState.pending;
+  const wrapupError = wrapupState.error;
+  const wrapupNote = wrapupState.note;
+  const wrapupUnknown = wrapupState.unknown;
+  const completed = wrapupState.result ? wrapupState : runtime.latestCompleted(identityKey);
+  const savedWrapup = completed?.result;
+  const wrapupAlreadyCompleted = completed?.alreadyCompleted;
+  const setWrapupDisposition = (disposition?: string) => draft.update({ disposition });
+  const setWrapupPending = (pending: boolean) => draft.update({ pending });
+  const setWrapupError = (error?: 'wrapupFailed') => draft.update({ error });
+  const setWrapupNote = (note: string) => draft.update({ note });
+  const setWrapupUnknown = (unknown: boolean) => draft.update({ unknown });
+  const setSavedWrapup = (result: WrapupResultV1) => draft.update({ result });
+  const setWrapupAlreadyCompleted = (alreadyCompleted: boolean) =>
+    draft.update({ alreadyCompleted });
+  const wrapupTarget = wrapupState.interaction ?? snapshot?.interaction;
+  const [reconciledRevision, setReconciledRevision] = useState<number>();
+  const [networkRevision, setNetworkRevision] = useState(0);
+  const acceptingSession =
+    sessionReady && (recoveryRevision === undefined || reconciledRevision === recoveryRevision);
   const [governanceAlert, setGovernanceAlert] = useState<WorkspaceGovernanceAlert>();
   const [liveRetry, setLiveRetry] = useState(0);
   const [dphoneSize, setDphoneSize] = useState<DphoneSize>(loadSize);
@@ -230,10 +258,13 @@ function AgentWorkspace({
   // งานในมือ = สาย หรือ interaction ที่ยังต้องทำต่อ (ACTIVE/WRAPUP) — server ไม่ปล่อย lease ระหว่างนี้
   const workInHand =
     inCall ||
+    wrapupPending ||
+    wrapupUnknown ||
     snapshot?.interaction?.state === 'ACTIVE' ||
     snapshot?.interaction?.state === 'WRAPUP';
   // รับงานใหม่ได้: flag เปิด = ถือ lease; flag ปิด = working tab (เดิม)
-  const ownsWork = enforced ? leaseHeld : workingTab;
+  const ownsWork =
+    acceptingSession && !wrapupPending && !wrapupUnknown && (enforced ? leaseHeld : workingTab);
   // เก็บ SIP/WS/หน้าต่าง dphone ไว้: flag เปิด = ถือ lease หรือยังมีงานในมือ; flag ปิด = working tab (เดิม)
   const mediaOwner = enforced ? leaseHeld || workInHand : workingTab;
   // #588: ออกจากระบบตอนนี้จะตัดสาย, พลาดสายที่ offer มาหรือกำลังเรียกเข้า หรือทิ้ง wrap-up ที่ยังไม่บันทึก
@@ -273,7 +304,7 @@ function AgentWorkspace({
     void api
       .snapshot()
       .then((nextSnapshot) => {
-        if (!active) return;
+        if (!active || !draft.valid()) return;
         setSnapshot(nextSnapshot);
         setSnapshotError(undefined);
       })
@@ -284,6 +315,33 @@ function AgentWorkspace({
       active = false;
     };
   }, [api]);
+
+  useEffect(() => {
+    const reconnect = () => {
+      setReconciledRevision(undefined);
+      setNetworkRevision((revision) => revision + 1);
+    };
+    window.addEventListener('online', reconnect);
+    return () => window.removeEventListener('online', reconnect);
+  }, []);
+
+  useEffect(() => {
+    if (!api || !sessionReady || recoveryRevision === undefined) return;
+    let active = true;
+    void (async () => {
+      if (draft.read().intent) await checkWrapupResult();
+      const next = await api.snapshot();
+      if (!active || !draft.valid()) return;
+      setSnapshot(next);
+      setSnapshotError(undefined);
+      setReconciledRevision(recoveryRevision);
+    })().catch(() => {
+      if (active && draft.valid()) setSnapshotError('snapshotLoadFailed');
+    });
+    return () => {
+      active = false;
+    };
+  }, [api, sessionReady, recoveryRevision, networkRevision]);
 
   // WS ของ routing: flag เปิดต่อหลังได้ lease เท่านั้น (แนบ leaseId) และ heartbeat ผ่าน socket นี้
   const liveKey = enforced ? socketLeaseId : workingTab ? 'working-tab' : undefined;
@@ -402,7 +460,7 @@ function AgentWorkspace({
     });
     leaseClient.current = client;
     const unsubscribe = client.subscribe(setLease);
-    void client.start({ autoAcquire: leaderElection.isWorkingTab() });
+    void client.start({ autoAcquire: sessionReady && leaderElection.isWorkingTab() });
     // ปิดหน้าจริง (ไม่ใช่เข้า bfcache) → ปล่อย lease ให้ที่อื่นรับงานต่อได้ทันที
     const exit = (event: PageTransitionEvent) => {
       if (!event.persisted) client.releaseOnExit();
@@ -417,8 +475,8 @@ function AgentWorkspace({
   }, [leaderElection, workSession, workSessionSurface]);
 
   useEffect(() => {
-    leaseClient.current?.setAutoAcquire(Boolean(workingTab));
-  }, [workingTab]);
+    leaseClient.current?.setAutoAcquire(sessionReady && Boolean(workingTab));
+  }, [workingTab, sessionReady]);
 
   // ได้ lease = ที่นี่เป็นจุดรับงาน: ประกาศ leader ใน origin ให้แท็บอื่นไม่ขอ lease ซ้อน
   const heldLeaseId = lease.phase === 'held' ? lease.lease.leaseId : undefined;
@@ -547,7 +605,14 @@ function AgentWorkspace({
   }
 
   async function acceptCall() {
-    if (!dphone.current || dphoneState.phase !== 'RINGING') return;
+    if (
+      !acceptingSession ||
+      wrapupPending ||
+      wrapupUnknown ||
+      !dphone.current ||
+      dphoneState.phase !== 'RINGING'
+    )
+      return;
     setDphoneState(await dphone.current.accept());
   }
 
@@ -587,19 +652,16 @@ function AgentWorkspace({
   }
 
   async function acceptWrapupResult(result: WrapupResultV1, ownCommand: boolean) {
+    if (!draft.valid()) return;
     setSavedWrapup(result);
     setWrapupAlreadyCompleted(!ownCommand);
     setWrapupUnknown(false);
-    wrapupIntent.current = undefined;
+    draft.update({ intent: undefined });
     setWrapupDisposition(undefined);
     setWrapupNote('');
-    const interaction = wrapupInteraction.current;
-    if (
-      ownCommand &&
-      interaction?.id === result.interactionId &&
-      !reportedWrapups.current.has(result.interactionId)
-    ) {
-      reportedWrapups.current.add(result.interactionId);
+    const interaction = draft.read().interaction;
+    if (ownCommand && interaction?.id === result.interactionId && !draft.read().reported) {
+      draft.update({ reported: true });
       const event: WorkspaceCallEvent = {
         type: 'wrapup.completed',
         interaction,
@@ -610,19 +672,27 @@ function AgentWorkspace({
         .catch(() => undefined);
     }
     try {
-      setSnapshot(await api!.snapshot());
+      const next = await api!.snapshot();
+      if (draft.valid()) setSnapshot(next);
     } catch {
-      setSnapshotError('snapshotLoadFailed');
+      if (draft.valid()) setSnapshotError('snapshotLoadFailed');
     }
   }
 
   async function submitWrapup() {
-    const interaction = snapshot?.interaction;
-    if (!api || !interaction || interaction.state !== 'WRAPUP' || !wrapupDisposition) return;
+    const interaction = wrapupTarget;
+    if (
+      !sessionReady ||
+      !api ||
+      !interaction ||
+      interaction.state !== 'WRAPUP' ||
+      !wrapupDisposition
+    )
+      return;
     if (interaction.voiceWrapupPolicy === 'VOICE_NOTE_V1') {
       if (
-        wrapupInFlight.current ||
-        snapshot.capabilities?.voiceWrapupV1 !== 1 ||
+        draft.read().inFlight ||
+        snapshot?.capabilities?.voiceWrapupV1 !== 1 ||
         !api.submitWrapupV1
       )
         return;
@@ -633,15 +703,13 @@ function AgentWorkspace({
         /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(note)
       )
         return;
-      const intent = wrapupIntent.current ?? {
+      const intent: WrapupIntentV1 = draft.read().intent ?? {
         interactionId: interaction.id,
         disposition: wrapupDisposition,
         note,
         commandId: crypto.randomUUID(),
       };
-      if (!wrapupIntent.current) wrapupInteraction.current = interaction;
-      wrapupIntent.current = intent;
-      wrapupInFlight.current = true;
+      draft.update({ intent, interaction, inFlight: true });
       setWrapupPending(true);
       setWrapupError(undefined);
       try {
@@ -661,14 +729,14 @@ function AgentWorkspace({
           error.status < 500 &&
           error.code !== 'INTERACTION_ALREADY_COMPLETED'
         ) {
-          wrapupIntent.current = undefined;
+          draft.update({ intent: undefined });
           setWrapupUnknown(false);
           setWrapupError('wrapupFailed');
         } else {
           setWrapupUnknown(true);
         }
       } finally {
-        wrapupInFlight.current = false;
+        draft.update({ inFlight: false });
         setWrapupPending(false);
       }
       return;
@@ -696,10 +764,11 @@ function AgentWorkspace({
   }
 
   async function checkWrapupResult() {
-    const intent = wrapupIntent.current;
-    if (!intent || !api?.wrapupResult || !api.wrapupCommand || wrapupInFlight.current) return;
-    wrapupInFlight.current = true;
+    const intent = draft.read().intent;
+    if (!intent || !api?.wrapupResult || !api.wrapupCommand || draft.read().inFlight) return;
+    draft.update({ inFlight: true });
     setWrapupPending(true);
+    draft.update({ reconciling: true });
     try {
       let commandCommitted = false;
       try {
@@ -738,7 +807,8 @@ function AgentWorkspace({
     } catch {
       setWrapupUnknown(true);
     } finally {
-      wrapupInFlight.current = false;
+      draft.update({ reconciling: false });
+      draft.update({ inFlight: false });
       setWrapupPending(false);
     }
   }
@@ -959,7 +1029,7 @@ function AgentWorkspace({
       </article>
     ) : null;
 
-  const requiresWrapupV1 = snapshot?.interaction?.voiceWrapupPolicy === 'VOICE_NOTE_V1';
+  const requiresWrapupV1 = wrapupTarget?.voiceWrapupPolicy === 'VOICE_NOTE_V1';
   const normalizedNote = wrapupNote.replace(/\r\n/g, '\n').trim();
   const noteLength = [...normalizedNote].length;
   const validNote =
@@ -986,13 +1056,15 @@ function AgentWorkspace({
           </time>
         </article>
       ) : null}
-      {snapshot?.interaction?.state === 'WRAPUP' &&
-      savedWrapup?.interactionId !== snapshot.interaction.id ? (
+      {wrapupTarget?.state === 'WRAPUP' && savedWrapup?.interactionId !== wrapupTarget.id ? (
         <article className="aw-panel" aria-labelledby="wrapup-title">
           <div>
             <p className="aw-step">{t('wrapup.step')}</p>
             <h2 id="wrapup-title">{t('wrapup.title')}</h2>
             <p className="aw-copy">{t('wrapup.copy')}</p>
+            {wrapupUnknown || wrapupPending ? (
+              <p>{t('wrapup.recoveringInteraction', { interactionId: wrapupTarget.id })}</p>
+            ) : null}
           </div>
           <div className="aw-segmented" role="group" aria-label={t('wrapup.choose')}>
             <button
@@ -1031,6 +1103,7 @@ function AgentWorkspace({
             variant="primary"
             isDisabled={
               !wrapupDisposition ||
+              !sessionReady ||
               wrapupPending ||
               (requiresWrapupV1 && (!wrapupV1Supported || !validNote))
             }
@@ -1038,7 +1111,10 @@ function AgentWorkspace({
           >
             {t('wrapup.submit')}
           </Button>
-          {wrapupPending ? <p role="status">{t('wrapup.pending')}</p> : null}
+          {wrapupPending && !wrapupState.reconciling ? (
+            <p role="status">{t('wrapup.pending')}</p>
+          ) : null}
+          {wrapupState.reconciling ? <p role="status">{t('wrapup.reconciling')}</p> : null}
           {wrapupUnknown ? <p role="status">{t('wrapup.unknown')}</p> : null}
           {wrapupUnknown && api?.wrapupResult && api.wrapupCommand ? (
             <Button isDisabled={wrapupPending} onPress={() => void checkWrapupResult()}>
@@ -1171,6 +1247,14 @@ function AgentWorkspace({
       ) : null}
 
       <section className="aw-grid" aria-label={t('grid')}>
+        {sessionReady && recoveryRevision !== undefined && !acceptingSession ? (
+          <article className="aw-panel" role="status">
+            <p>{t('wrapup.reconciling')}</p>
+            <Button onPress={() => setNetworkRevision((revision) => revision + 1)}>
+              {t('recovery.retry')}
+            </Button>
+          </article>
+        ) : null}
         {offerPanel}
         {controlsPanel}
 
@@ -1216,7 +1300,7 @@ function AgentWorkspace({
   );
 
   const leasePanel =
-    enforced && !leaseHeld && !workInHand ? (
+    sessionReady && enforced && !leaseHeld && !workInHand ? (
       <WorkSessionPanel
         state={lease}
         onAcquire={() => {
