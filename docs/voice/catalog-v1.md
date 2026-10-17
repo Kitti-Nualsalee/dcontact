@@ -21,7 +21,7 @@ namespace `/api/v1/tenant-voice`: GET capabilities, teams, queues, skills, queue
 
 create ส่ง name/teamId และ skill เพิ่ม code uppercase ตามสเปก server normalize ชื่อและบันทึก descriptor → resource/policy → audit → receipt ใน transaction เดียว ผล POST เป็น 201 ของ committed resource UI อ่าน GET detail ซ้ำก่อนแจ้งสำเร็จ
 
-เมื่อ POST ตอบไม่ชัดเจน หน้าเดิมคง intent และปิด create ใหม่ ให้กด “ตรวจผลคำสั่งเดิม” ซึ่ง lookup command แล้ว GET detail ไม่สร้าง POST ใหม่โดยอัตโนมัติ command ที่ยังไม่พบยังไม่ยืนยันว่าไม่เคยรับคำสั่ง ห้ามใช้การเปลี่ยน commandId เพื่อหลบ unknown state
+เมื่อ POST ตอบไม่ชัดเจน หน้าเดิมคง intent และปิด create ใหม่ โดยเก็บเฉพาะ commandId ใน sessionStorage แยกตาม identity/ชนิดทรัพยากร จึง reload แล้วตรวจผลเดิมได้ ไม่มีชื่อหรือ payload ใน storage ให้กด “ตรวจผลคำสั่งเดิม” ซึ่ง lookup command แล้ว GET detail ไม่สร้าง POST ใหม่โดยอัตโนมัติ command ที่ยังไม่พบยังไม่ยืนยันว่าไม่เคยรับคำสั่ง ห้ามใช้การเปลี่ยน commandId เพื่อหลบ unknown state
 
 รายการใช้ keyset createdAt/id default 20/max 100 cursor ผูก actor/tenant/live role+team/filter การเปลี่ยนสิทธิ์ทำให้ cursor เดิมใช้ไม่ได้ legacy skill code/team=null แสดงอ่านอย่างเดียว
 

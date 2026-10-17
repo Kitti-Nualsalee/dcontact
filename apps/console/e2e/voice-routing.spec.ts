@@ -28,7 +28,13 @@ const item = (name: string, kind: string) => ({
 test.use({ locale: 'th-TH' });
 async function harness(
   page: Page,
-  options: { readOnly?: boolean; notReady?: boolean; lostResponse?: boolean; status?: number } = {},
+  options: {
+    readOnly?: boolean;
+    notReady?: boolean;
+    lostResponse?: boolean;
+    timeoutResponse?: boolean;
+    status?: number;
+  } = {},
 ) {
   let stored: ReturnType<typeof item> | undefined;
   const commands: string[] = [];
@@ -66,6 +72,7 @@ async function harness(
       commands.push(body.commandId);
       stored = item(body.name, kind);
       if (options.lostResponse) return route.abort('failed');
+      if (options.timeoutResponse) return route.fulfill({ status: 408, json: { code: 'FAILED' } });
       return route.fulfill({ status: 201, json: stored });
     }
     if (path.includes('/')) {
@@ -112,22 +119,37 @@ for (const kind of ['queues', 'skills'])
     expect(forbidden).toEqual([]);
     await page.screenshot({ path: `/tmp/dcontact-b1-${kind}-th.png`, fullPage: true });
   });
-test('POST lost response → command lookup เดิม → authoritative readback โดยไม่ส่ง create ใหม่', async ({
-  page,
-}) => {
-  const data = await harness(page, { lostResponse: true });
-  await page.goto('/?view=voice-routing&tenant=demo');
-  await fill(page, 'คิวกู้ผล');
-  await page.getByRole('button', { name: 'สร้างรายการ', exact: true }).click();
-  await expect(
-    page.getByText('ยังยืนยันผลไม่ได้ ตรวจคำสั่งเดิมก่อนสร้างรายการใหม่', { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'สร้างรายการ', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม', exact: true }).click();
-  await expect(page.getByText('บันทึกและอ่านผลจาก server แล้ว', { exact: true })).toBeVisible();
-  expect(data.commands).toHaveLength(1);
-  expect(data.reads()).toBeGreaterThan(0);
-});
+for (const outcome of ['lost response', 'HTTP 408'])
+  test(`${outcome} + reload → command lookup เดิม → readback โดยไม่ส่ง create ใหม่`, async ({
+    page,
+  }) => {
+    const data = await harness(
+      page,
+      outcome === 'lost response' ? { lostResponse: true } : { timeoutResponse: true },
+    );
+    await page.goto('/?view=voice-routing&tenant=demo');
+    await fill(page, 'คิวกู้ผล');
+    await page.getByRole('button', { name: 'สร้างรายการ', exact: true }).click();
+    await expect(
+      page.getByText('ยังยืนยันผลไม่ได้ ตรวจคำสั่งเดิมก่อนสร้างรายการใหม่', { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'สร้างรายการ', exact: true })).toBeDisabled();
+    const remembered = await page.evaluate(() =>
+      Object.entries(sessionStorage)
+        .filter(([key]) => key.startsWith('dc:voice-catalog:pending:'))
+        .map(([, value]) => value),
+    );
+    expect(remembered).toEqual(data.commands);
+    await page.reload();
+    await expect(
+      page.getByText('ยังยืนยันผลไม่ได้ ตรวจคำสั่งเดิมก่อนสร้างรายการใหม่', { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'สร้างรายการ', exact: true })).toBeDisabled();
+    await page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม', exact: true }).click();
+    await expect(page.getByText('บันทึกและอ่านผลจาก server แล้ว', { exact: true })).toBeVisible();
+    expect(data.commands).toHaveLength(1);
+    expect(data.reads()).toBeGreaterThan(0);
+  });
 test('Supervisor อ่านอย่างเดียว และ missing policy กัน create พร้อมบอกเหตุผล', async ({ page }) => {
   await harness(page, { readOnly: true });
   await page.goto('/?view=voice-routing&tenant=demo');

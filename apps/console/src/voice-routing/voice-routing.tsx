@@ -28,12 +28,13 @@ interface Props {
 export function VoiceRouting(props: Props) {
   return <CatalogSession key={props.identityKey} {...props} />;
 }
-function CatalogSession({ api, onSignIn }: Props) {
+function CatalogSession({ api, onSignIn, identityKey }: Props) {
   const { t: translate } = useTranslation('voiceRouting');
   const t = translate as (key: string, options?: Record<string, unknown>) => string;
   const tokens = useShellTokens();
   const initial = new URL(window.location.href);
   const kind: CatalogKind = initial.searchParams.get('section') === 'skills' ? 'skills' : 'queues';
+  const pendingKey = `dc:voice-catalog:pending:${identityKey}:${kind}`;
   const [detailId, setDetailId] = useState(initial.searchParams.get('resource'));
   const [items, setItems] = useState<CatalogItem[]>([]),
     [detail, setDetail] = useState<CatalogItem>();
@@ -47,12 +48,32 @@ function CatalogSession({ api, onSignIn }: Props) {
   const [name, setName] = useState(''),
     [teamId, setTeamId] = useState(''),
     [code, setCode] = useState('');
-  const [pending, setPending] = useState<{
-    commandId: string;
-    name: string;
-    teamId: string;
-    code?: string;
-  }>();
+  const [pending, setPending] = useState<
+    | {
+        commandId: string;
+        name: string;
+        teamId: string;
+        code?: string;
+      }
+    | undefined
+  >(() => {
+    try {
+      const commandId = window.sessionStorage.getItem(pendingKey);
+      if (commandId && /^[0-9a-f-]{36}$/.test(commandId))
+        return { commandId, name: '', teamId: '' };
+    } catch {
+      /* storage ปิดอยู่: คง intent ใน memory ของหน้า */
+    }
+    return undefined;
+  });
+  function remember(commandId: string | undefined) {
+    try {
+      if (commandId) window.sessionStorage.setItem(pendingKey, commandId);
+      else window.sessionStorage.removeItem(pendingKey);
+    } catch {
+      /* ไม่เก็บชื่อหรือ payload ลง storage */
+    }
+  }
   const active = useRef(true),
     generation = useRef(0);
   const message = (failure: unknown) =>
@@ -115,6 +136,7 @@ function CatalogSession({ api, onSignIn }: Props) {
     setDetail(undefined);
   }
   async function readback(item: CatalogItem) {
+    if (!active.current) return;
     const result = await api.detail(kind, item.id);
     if (!active.current) return;
     setDetail(result);
@@ -122,6 +144,7 @@ function CatalogSession({ api, onSignIn }: Props) {
     const url = new URL(window.location.href);
     url.searchParams.set('resource', item.id);
     window.history.replaceState(null, '', url);
+    remember(undefined);
     setPending(undefined);
     setSaved(true);
     setName('');
@@ -146,6 +169,7 @@ function CatalogSession({ api, onSignIn }: Props) {
       teamId,
       ...(kind === 'skills' ? { code } : {}),
     };
+    remember(intent.commandId);
     setSaving(true);
     setPending(intent);
     setError(undefined);
@@ -160,11 +184,14 @@ function CatalogSession({ api, onSignIn }: Props) {
         const definite =
           !accepted &&
           e instanceof CatalogApiError &&
-          ((e.status < 500 && e.status !== 401) ||
+          ((e.status < 500 && e.status !== 401 && e.status !== 408) ||
             (e.status === 503 &&
               ['RESOURCE_POLICY_NOT_READY', 'CAPABILITY_NOT_READY'].includes(e.code)));
         setError(message(e));
-        if (definite) setPending(undefined);
+        if (definite) {
+          remember(undefined);
+          setPending(undefined);
+        }
       }
     } finally {
       if (active.current) setSaving(false);
