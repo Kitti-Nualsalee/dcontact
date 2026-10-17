@@ -8,6 +8,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { findActiveAgent } from './active-agent.js';
 
 type Actor = { tenantId: string; userId: string };
 const action = 'AGENT_WRAPUP_V1_SUBMIT';
@@ -53,10 +54,7 @@ async function authorize(
   actor: Actor,
   interactionId: string,
 ) {
-  const agent = await transaction.user.findFirst({
-    where: { tenantId: actor.tenantId, id: actor.userId, role: 'AGENT', isActive: true },
-    select: { id: true },
-  });
+  const agent = await findActiveAgent(transaction, actor);
   if (!agent) throw new ForbiddenException({ code: 'AGENT_REQUIRED' });
   const interaction = await transaction.interaction.findFirst({
     where: { id: interactionId, tenantId: actor.tenantId, agentId: actor.userId, channel: 'VOICE' },
@@ -89,6 +87,7 @@ async function committedResult(
     disposition: result.disposition,
     note: result.note,
     recordedAt: result.recordedAt.toISOString(),
+    recordedAtSource: 'SERVER_COMMIT' as const,
     legacy: false as const,
   };
 }
@@ -178,7 +177,12 @@ export async function saveAgentWrapup(
       },
     });
     const result = await committedResult(transaction, actor, interactionId);
-    const { note: omittedNote, legacy: omittedLegacy, ...summary } = result;
+    const {
+      note: omittedNote,
+      legacy: omittedLegacy,
+      recordedAtSource: omittedSource,
+      ...summary
+    } = result;
     await transaction.commandReceipt.create({
       data: {
         tenantId: actor.tenantId,

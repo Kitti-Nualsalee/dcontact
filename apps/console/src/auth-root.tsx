@@ -1,9 +1,11 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { AuthProvider, useAuth, type AuthContextProps } from 'react-oidc-context';
-import { shellUserFromClaims } from '@d-contact/ui-react';
+import { Button, shellUserFromClaims } from '@d-contact/ui-react';
 import { SessionLocaleProvider, useTranslation } from '@d-contact/i18n/react';
 import { appI18n } from './i18n/index.js';
 import { createEmbedOriginApi } from './dphone-embedding/api.js';
+import { AgentHistory } from './agent-history/agent-history.js';
+import { createAgentHistoryApi } from './agent-history/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
 import { createAccountApi, createAccountPolicyApi } from './account/api.js';
 import { AccountPage, AccountPolicyPage } from './account/account.js';
@@ -200,6 +202,8 @@ export function ConsoleAuthRoot() {
           <SignedOutSurface />
         ) : homeView ? (
           <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+        ) : view === 'agent-history' ? (
+          <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : accountView ? (
           <AccountSurface
             apiBaseUrl={apiBaseUrl}
@@ -258,6 +262,67 @@ function shellUserProps(auth: AuthContextProps, tenantAlias: string) {
       },
     },
   };
+}
+
+export function HistorySurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
+  const auth = useAuth();
+  const { t } = useTranslation('history');
+  const accessToken = auth.user?.access_token;
+  const latestToken = useRef(accessToken);
+  latestToken.current = auth.isAuthenticated ? accessToken : undefined;
+  const api = useMemo(
+    () => createAgentHistoryApi({ baseUrl: apiBaseUrl, accessToken: () => latestToken.current }),
+    [apiBaseUrl],
+  );
+  if (auth.isLoading)
+    return (
+      <main className="empty" aria-busy="true">
+        {t('loading')}
+      </main>
+    );
+  if (auth.error || !auth.isAuthenticated || !accessToken)
+    return (
+      <main className="empty">
+        <p>{t('unauthorized')}</p>
+        <Button onPress={() => void signInFromCurrentPage(auth)}>{t('signIn')}</Button>
+      </main>
+    );
+  const profile = auth.user?.profile;
+  const identity = [profile?.iss, profile?.tenant_id, profile?.dc_user_id, profile?.sub];
+  if (
+    profile?.iss !== auth.settings.authority ||
+    profile?.tenant_slug !== tenantAlias ||
+    !identity.every((field) => typeof field === 'string' && field.length > 0)
+  ) {
+    return (
+      <main className="empty" role="alert">
+        {t('forbidden')}
+      </main>
+    );
+  }
+  const identityKey = JSON.stringify(identity);
+  return (
+    <ConsoleShell
+      key={identityKey}
+      {...shellUserProps(auth, tenantAlias)}
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId="agent-history"
+    >
+      <AgentHistory
+        api={api}
+        identityKey={identityKey}
+        onSignIn={() => void signInFromCurrentPage(auth)}
+      />
+    </ConsoleShell>
+  );
 }
 
 function HomeSurface({ apiBaseUrl, tenantAlias }: { apiBaseUrl: string; tenantAlias: string }) {

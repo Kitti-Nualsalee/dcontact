@@ -87,6 +87,7 @@
     "noteCount": "{{count}} / 2,000 characters",
     "noteRequired": "Enter a note of 1–2,000 characters",
     "saved": "Result saved",
+    "history": "Open result in history (new tab)",
     "checkResult": "Check saved result",
     "alreadyCompleted": "Another command completed this task. The server result is shown without overwriting it.",
     "unknown": "The save outcome is unknown. Retry the same command; editing stays locked to prevent duplicate results.",

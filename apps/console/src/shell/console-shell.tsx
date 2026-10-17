@@ -31,6 +31,7 @@ import { useShellTokens } from './tokens.js';
 
 export type ConsoleShellApp =
   | 'home'
+  | 'agent-history'
   | 'journeys'
   | 'contact-governance'
   | 'dphone-embedding'

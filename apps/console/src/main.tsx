@@ -1,6 +1,8 @@
-import { StrictMode } from 'react';
+import { StrictMode, useEffect, useMemo, useState } from 'react';
+import { AuthProvider } from 'react-oidc-context';
+import { User, UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import { createRoot } from 'react-dom/client';
-import { ConsoleAuthRoot } from './auth-root.js';
+import { ConsoleAuthRoot, HistorySurface } from './auth-root.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
 import { GovernancePage } from './governance-page.js';
@@ -71,6 +73,53 @@ function e2eShellUser(tenantAlias: string | undefined) {
   };
 }
 
+function HistoryE2eRoot() {
+  const url = new URL(window.location.href);
+  const [identity, setIdentity] = useState('first');
+  const manager = useMemo(
+    () =>
+      new UserManager({
+        authority: 'https://synthetic-idp.example',
+        client_id: 'history-e2e',
+        redirect_uri: window.location.origin,
+        automaticSilentRenew: false,
+        monitorSession: false,
+        userStore: new WebStorageStateStore({ store: window.sessionStorage }),
+      }),
+    [],
+  );
+  useEffect(() => {
+    const user = new User({
+      access_token: `e2e-${identity}`,
+      token_type: 'Bearer',
+      profile: {
+        iss: 'https://synthetic-idp.example',
+        aud: 'history-e2e',
+        sub: identity,
+        exp: 2000000000,
+        iat: 1700000000,
+        tenant_slug: url.searchParams.get('tenant') ?? 'demo',
+        tenant_id: 'synthetic-tenant',
+        dc_user_id: identity,
+      },
+    });
+    void manager.storeUser(user).then(() => manager.events.load(user));
+  }, [manager, identity]);
+  return (
+    <>
+      {url.searchParams.has('identityHarness') ? (
+        <button onClick={() => setIdentity('second')}>Switch identity fixture</button>
+      ) : null}
+      <AuthProvider userManager={manager} skipSigninCallback>
+        <HistorySurface
+          apiBaseUrl={window.location.origin}
+          tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
+        />
+      </AuthProvider>
+    </>
+  );
+}
+
 function ConsoleE2eRoot() {
   const url = new URL(window.location.href);
   const contextId = url.searchParams.get('context');
@@ -99,6 +148,7 @@ function ConsoleE2eRoot() {
       </ConsoleShell>
     );
   if (view === 'i18n') return <LocaleProbe />;
+  if (view === 'agent-history') return <HistoryE2eRoot />;
   if (view === 'dphone-embedding') {
     // viewer จาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token
     return (

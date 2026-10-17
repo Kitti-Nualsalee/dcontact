@@ -31,6 +31,7 @@ test('role ต่างกันเห็นรายการต่างกั
   assert.deepEqual(ids(visibleApps({ roles: ['agent'], entitlements: FULL })), [
     'home',
     'agent-workspace',
+    'agent-history',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: ['supervisor', 'agent'], entitlements: FULL })), [
     'home',
@@ -38,6 +39,7 @@ test('role ต่างกันเห็นรายการต่างกั
     'supervisor-workspace',
     'journeys',
     'contact-governance',
+    'agent-history',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: ['compliance'], entitlements: FULL })), [
     'home',
@@ -105,6 +107,7 @@ test('ชุดเริ่มต้นของ tenant ขึ้นกับ en
     'agent-workspace',
     'supervisor-workspace',
     'contact-governance',
+    'agent-history',
   ]);
 });
 
@@ -131,7 +134,7 @@ test('หมุดที่มีผล: ผู้ใช้ทับ tenant ท�
     { appIds: ['agent-workspace'], source: 'TENANT' },
   );
   assert.deepEqual(effectivePins({ visible, userPins: null, tenantPins: null }), {
-    appIds: ['home', 'agent-workspace'],
+    appIds: ['home', 'agent-workspace', 'agent-history'],
     source: 'SYSTEM',
   });
 });
@@ -149,7 +152,11 @@ test('ตรวจหมุด: เกิน 15 ก่อน แล้วแอ�
 test('#651: พื้นที่เมนูคัดตาม role/plan; ลำดับตาม rail; พื้นที่ว่างไม่ถูกส่ง', () => {
   const areaIds = (input: Parameters<typeof visibleApps>[0]) =>
     visibleAreas(visibleApps(input)).map((area) => area.id);
-  assert.deepEqual(areaIds({ roles: ['agent'], entitlements: FULL }), ['home', 'workspace']);
+  assert.deepEqual(areaIds({ roles: ['agent'], entitlements: FULL }), [
+    'home',
+    'workspace',
+    'history',
+  ]);
   assert.deepEqual(areaIds({ roles: ['admin'], entitlements: null }), [
     'home',
     'workspace',

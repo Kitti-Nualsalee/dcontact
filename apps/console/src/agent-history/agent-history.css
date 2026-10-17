@@ -1,0 +1,15 @@
+.ah-root {
+  padding: var(--dc-space-8);
+  color: var(--dc-text-primary);
+}
+.ah-root article,
+.ah-scroll {
+  margin-block: var(--dc-space-6);
+}
+.ah-scroll {
+  overflow-x: auto;
+}
+.ah-note {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

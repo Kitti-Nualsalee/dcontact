@@ -1039,6 +1039,26 @@ function AgentWorkspace({
       normalizedNote,
     );
   const wrapupV1Supported = snapshot?.capabilities?.voiceWrapupV1 === 1 && !!api?.submitWrapupV1;
+  const historyHref = (() => {
+    if (!savedWrapup) return;
+    const base =
+      (import.meta.env.VITE_CONSOLE_URL as string | undefined) ??
+      (import.meta.env.DEV ? 'http://localhost:5174' : undefined);
+    if (!base) return;
+    try {
+      const url = new URL('/', base);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return;
+      url.searchParams.set('view', 'agent-history');
+      url.searchParams.set('interaction', savedWrapup.interactionId);
+      url.searchParams.set(
+        'tenant',
+        new URL(window.location.href).searchParams.get('tenant') ?? tenantLabel,
+      );
+      return url.href;
+    } catch {
+      return;
+    }
+  })();
   const wrapupPanel = (
     <>
       {savedWrapup ? (
@@ -1054,6 +1074,11 @@ function AgentWorkspace({
           <time dateTime={savedWrapup.recordedAt}>
             {new Date(savedWrapup.recordedAt).toLocaleString(locale)}
           </time>
+          {historyHref ? (
+            <a href={historyHref} target="_blank" rel="noopener noreferrer">
+              {t('wrapup.history')}
+            </a>
+          ) : null}
         </article>
       ) : null}
       {wrapupTarget?.state === 'WRAPUP' && savedWrapup?.interactionId !== wrapupTarget.id ? (

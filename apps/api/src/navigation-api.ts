@@ -21,6 +21,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
+import { findActiveAgent } from './active-agent.js';
 import {
   MAX_PINS,
   NAVIGATION_APPS,
@@ -113,6 +114,18 @@ function identityOf(request: AuthenticatedGatewayRequest) {
 
 type Transaction = Prisma.TransactionClient;
 
+async function domainVisibleApps(
+  tx: Transaction,
+  actor: { tenantId: string; userId: string; roles: readonly string[] },
+  entitlements: EffectiveEntitlements,
+  registry: readonly NavigationAppDefinition[],
+) {
+  const apps = visibleApps({ roles: actor.roles, entitlements }, registry);
+  if (!apps.some((app) => app.id === 'agent-history')) return apps;
+  const agent = await findActiveAgent(tx, actor);
+  return agent ? apps : apps.filter((app) => app.id !== 'agent-history');
+}
+
 export async function loadEntitlements(
   tx: Transaction,
   tenantId: string,
@@ -144,7 +157,12 @@ export class NavigationController {
     const { tenantId, userId, roles } = identityOf(request);
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
       const entitlements = await loadEntitlements(tx, tenantId);
-      const visible = visibleApps({ roles, entitlements }, this.registry);
+      const visible = await domainVisibleApps(
+        tx,
+        { tenantId, userId, roles },
+        entitlements,
+        this.registry,
+      );
       const [userRow, tenantRow, shellFlag] = await Promise.all([
         tx.navigationUserPins.findUnique({ where: { tenantId_userId: { tenantId, userId } } }),
         tx.navigationTenantDefaultPins.findUnique({ where: { tenantId } }),
@@ -205,8 +223,10 @@ export class NavigationController {
     const { appIds, expectedRevision } = parsePinsBody(body);
     try {
       return await withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
-        const visible = visibleApps(
-          { roles, entitlements: await loadEntitlements(tx, tenantId) },
+        const visible = await domainVisibleApps(
+          tx,
+          { tenantId, userId, roles },
+          await loadEntitlements(tx, tenantId),
           this.registry,
         );
         const invalid = pinValidationError(appIds, visible);

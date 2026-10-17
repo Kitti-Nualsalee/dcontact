@@ -19,6 +19,7 @@
     },
     "apps": {
       "agentWorkspace": "Inbox",
+      "agentHistory": "My work history",
       "supervisorWorkspace": "Team live",
       "journeys": "Journeys",
       "contactGovernance": "Governance",
