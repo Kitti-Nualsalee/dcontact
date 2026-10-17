@@ -24,6 +24,7 @@
 - Old-writer test ตรวจ **persisted state หลัง transaction** ว่ายังคง WRAPUP และไม่มี result ไม่ใช้ promise rejection เพียงอย่างเดียวเป็นหลักฐาน เพราะ interactive transaction อาจไม่ส่ง deferred commit error กลับในรูปแบบที่ test คาด
 - Save ใหม่บังคับตรวจ deferred constraints ภายใน transaction ก่อนคืนค่า เพื่อไม่สร้าง saved summary จาก transaction ที่ guard ปฏิเสธ
 - Affected Agent/availability/SIP credential/work-session HTTP regression: 21 tests ผ่าน; Router integration ผ่าน
+- Full API integration หลังตั้ง Mailpit dev แยกและ synthetic seed: 167 tests ผ่านครบ 29/29 ไฟล์ ไม่มี skip; รอบก่อนหน้าที่ dependency/seed ไม่พร้อมไม่ได้นับเป็น PASS
 - API unit 92/92 และ Workspace unit 92/92 ผ่าน
 - Workspace browser regression หลัง remediation 62/62 ผ่าน; focused wrap-up 3/3 ครอบ response loss → read ยังไม่พบ → retry ได้ 401 → retry intent เดิมสำเร็จ รวม snapshot หลัง save ล้ม
 - Independent review รอบแรกพบ recovery ไม่ส่ง Embedded activity และ race ระหว่าง receipt/detail; เพิ่ม browser regression ให้ RED ก่อนแก้ แล้วผ่าน 2/2 โดยส่ง activity ครั้งเดียว ไม่มี note ออกไป CRM และไม่ระบุว่าคำสั่งตนเป็นคำสั่งอื่น
@@ -34,7 +35,7 @@
 
 ## เกตที่ยังไม่ผ่าน
 
-- Independent re-review และ required CI บน candidate เดียวกัน; full API integration ต้องมี synthetic seed และ Mailpit dev ส่วน real Keycloak boundary ต้องมี Keycloak/extension ตรงรุ่น ห้ามนับชุดที่ไม่ได้รันว่าผ่าน
+- Independent re-review และ required CI บน candidate เดียวกัน; real Keycloak boundary และ full DB shell suite ไม่ได้รันใน environment นี้ ห้ามนับว่าผ่าน (HTTP+RLS persistence/guard ใช้ DB จริงแล้วตามรายการข้างต้น)
 - ยังไม่ผ่าน #701 recovery ที่อยู่ข้าม auth render/identity change, #702 Console history หรือ #703 release/media/headset trial
 - ไม่มี VM mutation, account creation, email invitation, provider egress, เสียงจริง หรือ final V1 acceptance ในหลักฐานนี้
 
