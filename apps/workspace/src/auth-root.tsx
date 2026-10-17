@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import { useTranslation } from '@d-contact/i18n/react';
 import { AuthProvider, useAuth } from 'react-oidc-context';
 import { SessionLocaleProvider } from '@d-contact/i18n/react';
-import { shellUserFromClaims } from '@d-contact/ui-react';
+import { Button, shellUserFromClaims } from '@d-contact/ui-react';
 import { appI18n } from './i18n/index.js';
 import { WorkspaceShell } from './shell/workspace-shell.js';
 import { createAgentWorkspaceApi } from './agent-api.js';
@@ -49,7 +49,12 @@ export function AuthenticatedWorkspace({
     owner.current = identity;
     runtime.setOwner(identity);
   }
-  if (identity && identity !== owner.current && !identityBlocked.current) {
+  if (
+    auth.isAuthenticated &&
+    auth.user &&
+    (!identity || identity !== owner.current) &&
+    !identityBlocked.current
+  ) {
     identityBlocked.current = true;
     runtime.clear();
   }
@@ -244,11 +249,11 @@ export function AuthenticatedWorkspace({
         <section role="status" className="aw-panel">
           <p>{t(identityBlocked.current ? 'recovery.identityChanged' : 'recovery.authRequired')}</p>
           {popupFailed ? <p role="alert">{t('recovery.popupFailed')}</p> : null}
-          <button disabled={popupPending} onClick={() => void signInAgain()}>
+          <Button isDisabled={popupPending} onPress={() => void signInAgain()}>
             {t('recovery.signIn')}
-          </button>
+          </Button>
           {identityBlocked.current ? (
-            <button onClick={() => void phone.current?.hangup()}>{t('recovery.endCall')}</button>
+            <Button onPress={() => void phone.current?.hangup()}>{t('recovery.endCall')}</Button>
           ) : null}
         </section>
       ) : null}
@@ -266,7 +271,11 @@ export function AuthenticatedWorkspace({
             workSession={workSession}
             onWorkInHandChange={setWorkInHand}
             sessionReady={
-              auth.isAuthenticated && !auth.error && !auth.isLoading && !identityBlocked.current
+              auth.isAuthenticated &&
+              Boolean(identity) &&
+              !auth.error &&
+              !auth.isLoading &&
+              !identityBlocked.current
             }
             wrapupRuntime={runtime}
             identityKey={owner.current}

@@ -30,7 +30,11 @@ export function E2eAuthHarness() {
   if (window.opener && new URL(window.location.href).searchParams.has('state')) {
     return <WorkspacePopupCallback settings={manager.settings} />;
   }
-  async function authenticate(subject: string, token: string) {
+  async function authenticate(
+    subject: string,
+    token: string,
+    profilePatch: Record<string, unknown> = {},
+  ) {
     const user = new User({
       access_token: token,
       token_type: 'Bearer',
@@ -45,6 +49,7 @@ export function E2eAuthHarness() {
         tenant_id: '00000000-0000-4000-8000-000000000001',
         tenant_slug: 'demo',
         dc_user_id: subject,
+        ...profilePatch,
       },
     });
     await manager.storeUser(user);
@@ -57,6 +62,23 @@ export function E2eAuthHarness() {
         <button onClick={() => void authenticate('agent-one', 'token-two')}>Refresh fixture</button>
         <button onClick={() => void manager.removeUser()}>Expire fixture</button>
         <button onClick={() => void authenticate('agent-two', 'token-other')}>Other fixture</button>
+        <button
+          onClick={() => void authenticate('agent-two', 'token-other', { tenant_slug: 'other' })}
+        >
+          Wrong tenant fixture
+        </button>
+        <button
+          onClick={() => void authenticate('agent-two', 'token-other', { dc_user_id: undefined })}
+        >
+          Missing claim fixture
+        </button>
+        <button
+          onClick={() =>
+            void authenticate('agent-two', 'token-other', { iss: 'https://other.invalid' })
+          }
+        >
+          Wrong issuer fixture
+        </button>
         <button onClick={() => void setLocale(locale === 'th' ? 'en' : 'th')}>
           Locale fixture
         </button>

@@ -4,6 +4,39 @@ import type { Page } from '@playwright/test';
 const originalId = '7a33ac96-d87d-4ca4-ab75-f27e40e943be';
 const nextId = '7a33ac96-d87d-4ca4-ab75-f27e40e943bf';
 
+function voiceSnapshot(interactionId = originalId, state = 'WRAPUP') {
+  return {
+    capabilities: { voiceWrapupV1: 1 },
+    agent: { id: 'agent-one', displayName: 'Agent', extension: '1000', state: 'ACW' },
+    interaction: {
+      id: interactionId,
+      state,
+      direction: 'INBOUND',
+      voiceWrapupPolicy: 'VOICE_NOTE_V1',
+      version: '1',
+      caller: null,
+      queue: null,
+      offerExpiresAt: null,
+      answeredAt: null,
+      endedAt: null,
+    },
+  };
+}
+
+for (const fixture of ['Wrong tenant fixture', 'Missing claim fixture', 'Wrong issuer fixture']) {
+  test(`${fixture}: authenticated identity ที่ตรวจไม่ผ่านต้องซ่อนและล้างร่างคนเดิม`, async ({
+    page,
+  }) => {
+    await recoveryPage(page);
+    await page.getByRole('button', { name: fixture, exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).not.toBeVisible();
+    await expect(page.locator('textarea')).toHaveValue('');
+    await expect(page.getByRole('status').filter({ hasText: 'บัญชีเปลี่ยน' })).toBeVisible();
+    await page.getByRole('button', { name: 'Sign in fixture', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveValue('');
+  });
+}
+
 async function recoveryPage(page: Page, current: () => string = () => originalId) {
   await page.route('**/api/v1/navigation**', (route) => route.fulfill({ status: 404 }));
   await page.route('**/api/v1/me/work-session', (route) =>
@@ -14,22 +47,7 @@ async function recoveryPage(page: Page, current: () => string = () => originalId
   );
   await page.route('**/api/v1/workspace/agent/snapshot', (route) =>
     route.fulfill({
-      json: {
-        capabilities: { voiceWrapupV1: 1 },
-        agent: { id: 'agent-one', displayName: 'Agent', extension: '1000', state: 'ACW' },
-        interaction: {
-          id: current(),
-          state: 'WRAPUP',
-          direction: 'INBOUND',
-          voiceWrapupPolicy: 'VOICE_NOTE_V1',
-          version: '1',
-          caller: null,
-          queue: null,
-          offerExpiresAt: null,
-          answeredAt: null,
-          endedAt: null,
-        },
-      },
+      json: voiceSnapshot(current()),
     }),
   );
   await page.goto('/?authHarness=1&tenant=demo');
@@ -354,22 +372,7 @@ test('token refresh ไม่สร้าง lease ใหม่ และ auth �
   await page.route('**/api/v1/workspace/agent/snapshot', (route) => {
     tokens.push(route.request().headers().authorization ?? '');
     return route.fulfill({
-      json: {
-        capabilities: { voiceWrapupV1: 1 },
-        agent: { id: 'agent-one', displayName: 'Agent', extension: '1000', state: 'ACW' },
-        interaction: {
-          id: '7a33ac96-d87d-4ca4-ab75-f27e40e943be',
-          state: 'WRAPUP',
-          direction: 'INBOUND',
-          voiceWrapupPolicy: 'VOICE_NOTE_V1',
-          version: '1',
-          caller: null,
-          queue: null,
-          offerExpiresAt: null,
-          answeredAt: null,
-          endedAt: null,
-        },
-      },
+      json: voiceSnapshot(),
     });
   });
   await page.goto('/?authHarness=1&tenant=demo');

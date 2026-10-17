@@ -222,30 +222,6 @@ function AgentWorkspace({
   const setSavedWrapup = (result: WrapupResultV1) => draft.update({ result });
   const setWrapupAlreadyCompleted = (alreadyCompleted: boolean) =>
     draft.update({ alreadyCompleted });
-  const wrapupIntent = {
-    get current() {
-      return draft.read().intent;
-    },
-    set current(intent: WrapupIntentV1 | undefined) {
-      draft.update({ intent });
-    },
-  };
-  const wrapupInFlight = {
-    get current() {
-      return draft.read().inFlight;
-    },
-    set current(inFlight: boolean) {
-      draft.update({ inFlight });
-    },
-  };
-  const wrapupInteraction = {
-    get current() {
-      return draft.read().interaction;
-    },
-    set current(interaction: WorkspaceCallInteraction | undefined) {
-      draft.update({ interaction });
-    },
-  };
   const wrapupTarget = wrapupState.interaction ?? snapshot?.interaction;
   const [reconciledRevision, setReconciledRevision] = useState<number>();
   const [networkRevision, setNetworkRevision] = useState(0);
@@ -353,7 +329,7 @@ function AgentWorkspace({
     if (!api || !sessionReady || recoveryRevision === undefined) return;
     let active = true;
     void (async () => {
-      if (wrapupIntent.current) await checkWrapupResult();
+      if (draft.read().intent) await checkWrapupResult();
       const next = await api.snapshot();
       if (!active || !draft.valid()) return;
       setSnapshot(next);
@@ -680,10 +656,10 @@ function AgentWorkspace({
     setSavedWrapup(result);
     setWrapupAlreadyCompleted(!ownCommand);
     setWrapupUnknown(false);
-    wrapupIntent.current = undefined;
+    draft.update({ intent: undefined });
     setWrapupDisposition(undefined);
     setWrapupNote('');
-    const interaction = wrapupInteraction.current;
+    const interaction = draft.read().interaction;
     if (ownCommand && interaction?.id === result.interactionId && !draft.read().reported) {
       draft.update({ reported: true });
       const event: WorkspaceCallEvent = {
@@ -715,7 +691,7 @@ function AgentWorkspace({
       return;
     if (interaction.voiceWrapupPolicy === 'VOICE_NOTE_V1') {
       if (
-        wrapupInFlight.current ||
+        draft.read().inFlight ||
         snapshot?.capabilities?.voiceWrapupV1 !== 1 ||
         !api.submitWrapupV1
       )
@@ -727,15 +703,13 @@ function AgentWorkspace({
         /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(note)
       )
         return;
-      const intent = wrapupIntent.current ?? {
+      const intent: WrapupIntentV1 = draft.read().intent ?? {
         interactionId: interaction.id,
         disposition: wrapupDisposition,
         note,
         commandId: crypto.randomUUID(),
       };
-      if (!wrapupIntent.current) wrapupInteraction.current = interaction;
-      wrapupIntent.current = intent;
-      wrapupInFlight.current = true;
+      draft.update({ intent, interaction, inFlight: true });
       setWrapupPending(true);
       setWrapupError(undefined);
       try {
@@ -755,14 +729,14 @@ function AgentWorkspace({
           error.status < 500 &&
           error.code !== 'INTERACTION_ALREADY_COMPLETED'
         ) {
-          wrapupIntent.current = undefined;
+          draft.update({ intent: undefined });
           setWrapupUnknown(false);
           setWrapupError('wrapupFailed');
         } else {
           setWrapupUnknown(true);
         }
       } finally {
-        wrapupInFlight.current = false;
+        draft.update({ inFlight: false });
         setWrapupPending(false);
       }
       return;
@@ -790,9 +764,9 @@ function AgentWorkspace({
   }
 
   async function checkWrapupResult() {
-    const intent = wrapupIntent.current;
-    if (!intent || !api?.wrapupResult || !api.wrapupCommand || wrapupInFlight.current) return;
-    wrapupInFlight.current = true;
+    const intent = draft.read().intent;
+    if (!intent || !api?.wrapupResult || !api.wrapupCommand || draft.read().inFlight) return;
+    draft.update({ inFlight: true });
     setWrapupPending(true);
     draft.update({ reconciling: true });
     try {
@@ -834,7 +808,7 @@ function AgentWorkspace({
       setWrapupUnknown(true);
     } finally {
       draft.update({ reconciling: false });
-      wrapupInFlight.current = false;
+      draft.update({ inFlight: false });
       setWrapupPending(false);
     }
   }
