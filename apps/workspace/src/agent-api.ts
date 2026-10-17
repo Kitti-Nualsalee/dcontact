@@ -1,6 +1,7 @@
 import type { SipCredentialLease } from './dphone/dphone.js';
 
 export interface AgentWorkspaceSnapshot {
+  capabilities?: { voiceWrapupV1?: number };
   agent: {
     id: string;
     displayName: string;
@@ -8,6 +9,7 @@ export interface AgentWorkspaceSnapshot {
     state: 'OFFLINE' | 'AVAILABLE' | 'RESERVED' | 'BUSY' | 'ACW' | 'BREAK';
   };
   interaction: {
+    voiceWrapupPolicy?: 'LEGACY' | 'VOICE_NOTE_V1';
     id: string;
     state: 'ASSIGNED' | 'ACTIVE' | 'WRAPUP';
     direction: 'INBOUND' | 'OUTBOUND';
@@ -20,6 +22,32 @@ export interface AgentWorkspaceSnapshot {
   } | null;
 }
 
+export interface WrapupResultV1 {
+  interactionId: string;
+  policyVersion: 1;
+  state: 'COMPLETED';
+  disposition: string;
+  note: string;
+  recordedAt: string;
+  legacy: false;
+}
+
+export interface WrapupIntentV1 {
+  interactionId: string;
+  disposition: string;
+  note: string;
+  commandId: string;
+}
+
+export class AgentApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+  ) {
+    super(`Agent API failed with HTTP ${status}`);
+  }
+}
+
 export interface AgentWorkspaceApi {
   snapshot(): Promise<AgentWorkspaceSnapshot>;
   becomeAvailable(workSessionLeaseId: string): Promise<void>;
@@ -29,6 +57,12 @@ export interface AgentWorkspaceApi {
     disposition: string;
     commandId: string;
   }): Promise<void>;
+  submitWrapupV1?(input: WrapupIntentV1): Promise<WrapupResultV1>;
+  wrapupResult?(interactionId: string): Promise<WrapupResultV1>;
+  wrapupCommand?(
+    interactionId: string,
+    commandId: string,
+  ): Promise<{ status: 'COMMITTED'; result: Omit<WrapupResultV1, 'note' | 'legacy'> }>;
   subscribeLive?(
     handlers: WorkspaceLiveHandlers,
     options?: WorkspaceLiveOptions,
@@ -93,7 +127,88 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
     });
     if (!response.ok) throw new Error(`${path} failed with HTTP ${response.status}`);
   }
+  async function resultRequest(path: string, init: RequestInit): Promise<WrapupResultV1> {
+    const response = await send(path, { ...init, cache: 'no-store' });
+    if (!response.ok) {
+      const body: unknown = await response.json().catch(() => undefined);
+      const code =
+        body && typeof body === 'object' && 'code' in body && typeof body.code === 'string'
+          ? body.code
+          : 'REQUEST_FAILED';
+      throw new AgentApiError(response.status, code);
+    }
+    const result: unknown = await response.json();
+    if (
+      !result ||
+      typeof result !== 'object' ||
+      !('interactionId' in result) ||
+      typeof result.interactionId !== 'string' ||
+      !('note' in result) ||
+      typeof result.note !== 'string' ||
+      !('policyVersion' in result) ||
+      result.policyVersion !== 1 ||
+      !('state' in result) ||
+      result.state !== 'COMPLETED' ||
+      !('disposition' in result) ||
+      !['CUSTOMER_ASSISTED', 'FOLLOW_UP_REQUIRED'].includes(String(result.disposition)) ||
+      !('recordedAt' in result) ||
+      typeof result.recordedAt !== 'string' ||
+      !Number.isFinite(Date.parse(result.recordedAt)) ||
+      !('legacy' in result) ||
+      result.legacy !== false
+    ) {
+      throw new Error('Invalid wrapup result');
+    }
+    return result as WrapupResultV1;
+  }
   return {
+    async wrapupCommand(interactionId, commandId) {
+      const response = await send(
+        `/api/v1/workspace/agent/interactions/${encodeURIComponent(interactionId)}/wrapup-commands/${encodeURIComponent(commandId)}`,
+        { cache: 'no-store' },
+      );
+      const body: unknown = await response.json();
+      if (!response.ok) {
+        const code =
+          body && typeof body === 'object' && 'code' in body && typeof body.code === 'string'
+            ? body.code
+            : 'REQUEST_FAILED';
+        throw new AgentApiError(response.status, code);
+      }
+      if (
+        !body ||
+        typeof body !== 'object' ||
+        !('status' in body) ||
+        body.status !== 'COMMITTED' ||
+        !('result' in body) ||
+        !body.result ||
+        typeof body.result !== 'object' ||
+        !('interactionId' in body.result) ||
+        body.result.interactionId !== interactionId
+      )
+        throw new Error('Invalid wrapup command status');
+      return body as { status: 'COMMITTED'; result: Omit<WrapupResultV1, 'note' | 'legacy'> };
+    },
+    submitWrapupV1(input) {
+      return resultRequest(
+        `/api/v1/workspace/agent/interactions/${encodeURIComponent(input.interactionId)}/wrapup-v1`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            disposition: input.disposition,
+            note: input.note,
+            commandId: input.commandId,
+          }),
+        },
+      );
+    },
+    wrapupResult(interactionId) {
+      return resultRequest(
+        `/api/v1/workspace/agent/interactions/${encodeURIComponent(interactionId)}/wrapup-result`,
+        {},
+      );
+    },
     async snapshot() {
       return get<AgentWorkspaceSnapshot>('/api/v1/workspace/agent/snapshot');
     },

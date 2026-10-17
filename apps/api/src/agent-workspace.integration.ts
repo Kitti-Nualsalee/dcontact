@@ -41,9 +41,16 @@ function claims(tenantId: string, userId: string): VerifiedOidcClaims {
 }
 
 test('Agent snapshot ใช้ tenant/user จาก token และคืน authoritative Interaction version', async (t) => {
+  const applicationRole = await application.$queryRaw<
+    { rolname: string; rolsuper: boolean; rolbypassrls: boolean }[]
+  >`SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+  assert.deepEqual(applicationRole, [
+    { rolname: 'dcontact_app', rolsuper: false, rolbypassrls: false },
+  ]);
   const tenantAId = randomUUID();
   const tenantBId = randomUUID();
   const agentAId = randomUUID();
+  const otherAgentAId = randomUUID();
   const agentBId = randomUUID();
   const queueAId = randomUUID();
   const queueBId = randomUUID();
@@ -94,6 +101,16 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
       { id: queueBId, tenantId: tenantBId, name: 'บริการลูกค้า B', channels: ['VOICE'] },
     ],
   });
+  await owner.user.create({
+    data: {
+      id: otherAgentAId,
+      tenantId: tenantAId,
+      email: `other-${otherAgentAId}@test.local`,
+      passwordHash: 'test',
+      displayName: 'Other Agent',
+      role: 'AGENT',
+    },
+  });
   await owner.agentStateLog.createMany({
     data: [
       { tenantId: tenantAId, userId: agentAId, state: 'RESERVED' },
@@ -142,6 +159,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
     verifyAccessToken: async (token: string) => {
       if (token === 'agent-a-token') return claims(tenantAId, agentAId);
       if (token === 'agent-b-token') return claims(tenantBId, agentBId);
+      if (token === 'other-agent-a-token') return claims(tenantAId, otherAgentAId);
       throw new Error('invalid token');
     },
   };
@@ -179,12 +197,13 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   })
   class TestModule {}
 
-  const app = await NestFactory.create(TestModule, { logger: false });
+  const app = await NestFactory.create(TestModule, { logger: ['error'] });
   await app.listen(0, '127.0.0.1');
   t.after(async () => {
     await app.close();
     for (const tenantId of [tenantAId, tenantBId]) {
       await owner.commandReceipt.deleteMany({ where: { tenantId } });
+      await owner.$executeRaw`DELETE FROM interaction_wrapup_results WHERE tenant_id = ${tenantId}::uuid`;
       await owner.interactionEvent.deleteMany({ where: { tenantId } });
       await owner.interaction.deleteMany({ where: { tenantId } });
       await owner.agentStateLog.deleteMany({ where: { tenantId } });
@@ -203,6 +222,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
 
   assert.equal(response.status, 200, await response.clone().text());
   assert.deepEqual(await response.json(), {
+    capabilities: { voiceWrapupV1: 1 },
     agent: {
       id: agentAId,
       displayName: 'Agent A',
@@ -213,6 +233,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
       id: interactionAId,
       state: 'ASSIGNED',
       direction: 'INBOUND',
+      voiceWrapupPolicy: 'LEGACY',
       version: interactionVersion.id.toString(),
       caller: '0812345678',
       queue: { id: queueAId, name: 'บริการลูกค้า A' },
@@ -225,6 +246,21 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   await owner.$executeRaw(
     Prisma.sql`UPDATE interactions SET state = 'WRAPUP', ended_at = ${new Date('2026-09-06T10:01:00.000Z')} WHERE id = ${interactionAId}::uuid`,
   );
+  const unsupportedNote = await fetch(
+    `http://127.0.0.1:${address.port}/api/v1/workspace/agent/interactions/${interactionAId}/wrapup`,
+    {
+      method: 'POST',
+      headers: { authorization: 'Bearer agent-a-token', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        disposition: 'CUSTOMER_ASSISTED',
+        commandId: randomUUID(),
+        note: 'must not be silently discarded',
+      }),
+    },
+  );
+  assert.equal(unsupportedNote.status, 400);
+  assert.equal(((await unsupportedNote.json()) as { code: string }).code, 'VALIDATION_FAILED');
+
   const wrapup = await fetch(
     `http://127.0.0.1:${address.port}/api/v1/workspace/agent/interactions/${interactionAId}/wrapup`,
     {
@@ -259,6 +295,276 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
     state: 'COMPLETED',
     disposition: 'CUSTOMER_ASSISTED',
   });
+
+  await owner.$executeRaw`UPDATE queues SET voice_wrapup_policy = 'VOICE_NOTE_V1' WHERE id = ${queueAId}::uuid`;
+  const noteInteractionId = randomUUID();
+  await owner.interaction.create({
+    data: {
+      id: noteInteractionId,
+      tenantId: tenantAId,
+      agentId: agentAId,
+      queueId: queueAId,
+      channel: 'VOICE',
+      direction: 'INBOUND',
+      state: 'WRAPUP',
+    },
+  });
+  const noteCommandId = randomUUID();
+  const noteUrl = `http://127.0.0.1:${address.port}/api/v1/workspace/agent/interactions/${noteInteractionId}`;
+  const noteHeaders = { authorization: 'Bearer agent-a-token', 'content-type': 'application/json' };
+  const noteInput = {
+    commandId: noteCommandId,
+    disposition: 'CUSTOMER_ASSISTED',
+    note: '  สรุป 😀\r\nบรรทัดที่สอง  ',
+  };
+  const submitNote = (input = noteInput) =>
+    fetch(`${noteUrl}/wrapup-v1`, {
+      method: 'POST',
+      headers: noteHeaders,
+      body: JSON.stringify(input),
+    });
+  for (const note of ['', '  \r\n ', 'x'.repeat(2001), '\u0000', '\ud800']) {
+    const invalidNote = await submitNote({ ...noteInput, note });
+    assert.equal(invalidNote.status, 400);
+    assert.equal(invalidNote.headers.get('cache-control'), 'no-store');
+    const invalidBody = (await invalidNote.json()) as { field: string; correlationId: string };
+    assert.equal(invalidBody.field, 'note');
+    assert.equal(invalidBody.correlationId, invalidNote.headers.get('x-correlation-id'));
+  }
+  const legacyBypass = await fetch(`${noteUrl}/wrapup`, {
+    method: 'POST',
+    headers: noteHeaders,
+    body: JSON.stringify({ commandId: randomUUID(), disposition: 'CUSTOMER_ASSISTED' }),
+  });
+  assert.equal(legacyBypass.status, 409);
+  assert.equal(((await legacyBypass.json()) as { code: string }).code, 'WRAPUP_V1_REQUIRED');
+  await assert.rejects(
+    owner.interaction.update({
+      where: { id: noteInteractionId },
+      data: { state: 'COMPLETED', wrapUpCode: 'CUSTOMER_ASSISTED' },
+    }),
+    /WRAPUP_V1_REQUIRED/,
+  );
+  await application
+    .$transaction(async (transaction) => {
+      await transaction.$executeRaw`SELECT set_config('app.tenant_id', ${tenantAId}, true)`;
+      const affected =
+        await transaction.$executeRaw`UPDATE interactions SET state = 'COMPLETED', wrap_up_code = 'CUSTOMER_ASSISTED' WHERE id = ${noteInteractionId}::uuid`;
+      assert.equal(affected, 1);
+      assert.equal(
+        (await transaction.interaction.findUniqueOrThrow({ where: { id: noteInteractionId } }))
+          .voiceWrapupPolicy,
+        'VOICE_NOTE_V1',
+      );
+    })
+    .catch((error: unknown) => assert.match(String(error), /WRAPUP_V1_REQUIRED/));
+  assert.equal(
+    (await owner.interaction.findUniqueOrThrow({ where: { id: noteInteractionId } })).state,
+    'WRAPUP',
+  );
+  assert.equal(
+    await owner.interactionWrapupResult.count({ where: { interactionId: noteInteractionId } }),
+    0,
+  );
+  await assert.rejects(
+    owner.interaction.update({
+      where: { id: noteInteractionId },
+      data: { voiceWrapupPolicy: 'LEGACY' },
+    }),
+    /WRAPUP_POLICY_IMMUTABLE/,
+  );
+  const [savedNote, initialReplay] = await Promise.all([submitNote(), submitNote()]);
+  assert.equal(savedNote.status, 200, await savedNote.clone().text());
+  assert.equal(savedNote.headers.get('cache-control'), 'no-store');
+  const savedResult = (await savedNote.json()) as { recordedAt: string };
+  assert.deepEqual(savedResult, {
+    interactionId: noteInteractionId,
+    policyVersion: 1,
+    state: 'COMPLETED',
+    disposition: 'CUSTOMER_ASSISTED',
+    note: 'สรุป 😀\nบรรทัดที่สอง',
+    recordedAt: savedResult.recordedAt,
+    legacy: false,
+  });
+  assert.ok(Number.isFinite(Date.parse(savedResult.recordedAt)));
+  assert.equal(initialReplay.status, 200);
+  assert.deepEqual(await initialReplay.json(), savedResult);
+  const replayNote = await submitNote();
+  assert.equal(replayNote.status, 200);
+  assert.deepEqual(await replayNote.json(), savedResult);
+  const concurrentReplays = await Promise.all([submitNote(), submitNote(), submitNote()]);
+  for (const response of concurrentReplays) {
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), savedResult);
+  }
+  const changedNote = await submitNote({ ...noteInput, note: 'different intent' });
+  assert.equal(changedNote.status, 409);
+  assert.equal(((await changedNote.json()) as { code: string }).code, 'COMMAND_PAYLOAD_MISMATCH');
+  const readNote = await fetch(`${noteUrl}/wrapup-result`, { headers: noteHeaders });
+  assert.equal(readNote.status, 200);
+  assert.deepEqual(await readNote.json(), savedResult);
+  const commandStatus = await fetch(`${noteUrl}/wrapup-commands/${noteCommandId}`, {
+    headers: noteHeaders,
+  });
+  assert.equal(commandStatus.status, 200);
+  const statusResult = (await commandStatus.json()) as { status: string };
+  assert.equal(statusResult.status, 'COMMITTED');
+  assert.equal(JSON.stringify(statusResult).includes('สรุป'), false);
+  const otherTenantRead = await fetch(`${noteUrl}/wrapup-result`, {
+    headers: { authorization: 'Bearer agent-b-token' },
+  });
+  assert.equal(otherTenantRead.status, 404);
+  const otherOwnerRead = await fetch(`${noteUrl}/wrapup-result`, {
+    headers: { authorization: 'Bearer other-agent-a-token' },
+  });
+  assert.equal(otherOwnerRead.status, 404);
+  const otherOwnerCommand = await fetch(`${noteUrl}/wrapup-commands/${noteCommandId}`, {
+    headers: { authorization: 'Bearer other-agent-a-token' },
+  });
+  assert.equal(otherOwnerCommand.status, 404);
+  const legacyDetail = await fetch(
+    `http://127.0.0.1:${address.port}/api/v1/workspace/agent/interactions/${interactionAId}/wrapup-result`,
+    { headers: noteHeaders },
+  );
+  assert.equal(legacyDetail.status, 200);
+  const legacyResult = (await legacyDetail.json()) as {
+    note: unknown;
+    legacy: boolean;
+    recordedAtSource: string;
+  };
+  assert.equal(legacyResult.note, null);
+  assert.equal(legacyResult.legacy, true);
+  assert.equal(legacyResult.recordedAtSource, 'LEGACY_EVENT');
+  assert.equal(
+    await owner.interactionEvent.count({
+      where: { interactionId: noteInteractionId, type: 'interaction.wrapup_completed' },
+    }),
+    1,
+  );
+  for (const role of ['SUPERVISOR', 'ADMIN'] as const) {
+    await owner.user.update({ where: { id: agentAId }, data: { role } });
+    assert.equal((await fetch(`${noteUrl}/wrapup-result`, { headers: noteHeaders })).status, 403);
+  }
+  await owner.user.update({ where: { id: agentAId }, data: { role: 'AGENT' } });
+  await owner.user.update({ where: { id: agentAId }, data: { isActive: false } });
+  assert.equal((await fetch(`${noteUrl}/wrapup-result`, { headers: noteHeaders })).status, 403);
+  await owner.user.update({ where: { id: agentAId }, data: { isActive: true } });
+  const receiptWithoutNote = await owner.commandReceipt.findFirstOrThrow({
+    where: { commandId: noteCommandId },
+  });
+  assert.equal(JSON.stringify(receiptWithoutNote.result).includes('สรุป'), false);
+  assert.ok(receiptWithoutNote.payloadDigest);
+  const resultWithoutTenant = await application.interactionWrapupResult.findMany();
+  assert.equal(resultWithoutTenant.length, 0);
+  await assert.rejects(
+    application.$transaction(async (transaction) => {
+      await transaction.$executeRaw`SELECT set_config('app.tenant_id', ${tenantAId}, true)`;
+      await transaction.$executeRaw`UPDATE interaction_wrapup_results SET note = 'overwrite' WHERE interaction_id = ${noteInteractionId}::uuid`;
+    }),
+    /permission denied/,
+  );
+  const createNoteInteraction = () =>
+    owner.interaction.create({
+      data: {
+        tenantId: tenantAId,
+        agentId: agentAId,
+        queueId: queueAId,
+        channel: 'VOICE',
+        direction: 'INBOUND',
+        state: 'WRAPUP',
+      },
+    });
+  for (const note of ['😀', '😀'.repeat(2000)]) {
+    const boundaryInteraction = await createNoteInteraction();
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/api/v1/workspace/agent/interactions/${boundaryInteraction.id}/wrapup-v1`,
+      {
+        method: 'POST',
+        headers: noteHeaders,
+        body: JSON.stringify({ disposition: 'CUSTOMER_ASSISTED', commandId: randomUUID(), note }),
+      },
+    );
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal(((await response.json()) as { note: string }).note, note);
+  }
+  const freshNoteInteraction = await createNoteInteraction();
+  const competingUrl = `http://127.0.0.1:${address.port}/api/v1/workspace/agent/interactions/${freshNoteInteraction.id}/wrapup-v1`;
+  const competingResponses = await Promise.all(
+    ['first', 'second'].map((note) =>
+      fetch(competingUrl, {
+        method: 'POST',
+        headers: noteHeaders,
+        body: JSON.stringify({ disposition: 'FOLLOW_UP_REQUIRED', commandId: randomUUID(), note }),
+      }),
+    ),
+  );
+  assert.deepEqual(competingResponses.map((response) => response.status).sort(), [200, 409]);
+  assert.equal(
+    await owner.commandReceipt.count({ where: { resourceId: freshNoteInteraction.id } }),
+    1,
+  );
+  assert.equal(
+    await owner.interactionEvent.count({ where: { interactionId: freshNoteInteraction.id } }),
+    1,
+  );
+
+  for (const table of [
+    'interaction_wrapup_results',
+    'interaction_events',
+    'agent_state_logs',
+    'command_receipts',
+  ]) {
+    const rollbackInteraction = await createNoteInteraction();
+    const stateLogCount = await owner.agentStateLog.count({ where: { tenantId: tenantAId } });
+    await owner.$executeRawUnsafe(
+      `CREATE FUNCTION v700_fail_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.tenant_id = '${tenantAId}'::uuid THEN RAISE EXCEPTION 'WRAPUP_TEST_FAILURE'; END IF; RETURN NEW; END $$`,
+    );
+    await owner.$executeRawUnsafe(
+      `CREATE TRIGGER v700_fail_write BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION v700_fail_write()`,
+    );
+    try {
+      const failedSave = await fetch(
+        `http://127.0.0.1:${address.port}/api/v1/workspace/agent/interactions/${rollbackInteraction.id}/wrapup-v1`,
+        {
+          method: 'POST',
+          headers: noteHeaders,
+          body: JSON.stringify({
+            disposition: 'CUSTOMER_ASSISTED',
+            commandId: randomUUID(),
+            note: 'private rollback note',
+          }),
+        },
+      );
+      assert.equal(failedSave.status, 500);
+      assert.equal((await failedSave.text()).includes('private rollback note'), false);
+      assert.equal(
+        (await owner.interaction.findUniqueOrThrow({ where: { id: rollbackInteraction.id } }))
+          .state,
+        'WRAPUP',
+      );
+      assert.equal(
+        await owner.interactionWrapupResult.count({
+          where: { interactionId: rollbackInteraction.id },
+        }),
+        0,
+      );
+      assert.equal(
+        await owner.interactionEvent.count({ where: { interactionId: rollbackInteraction.id } }),
+        0,
+      );
+      assert.equal(
+        await owner.commandReceipt.count({ where: { resourceId: rollbackInteraction.id } }),
+        0,
+      );
+      assert.equal(
+        await owner.agentStateLog.count({ where: { tenantId: tenantAId } }),
+        stateLogCount,
+      );
+    } finally {
+      await owner.$executeRawUnsafe(`DROP TRIGGER v700_fail_write ON ${table}`);
+      await owner.$executeRawUnsafe('DROP FUNCTION v700_fail_write()');
+    }
+  }
 
   const credentialsResponse = await fetch(
     `http://127.0.0.1:${address.port}/api/v1/workspace/agent/sip-credentials?tenantId=${tenantBId}&telephonyNodeId=fs-a`,

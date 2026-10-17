@@ -172,6 +172,38 @@ test('call.created assigns one available tenant agent and duplicate input has no
     1,
   );
 
+  const noteQueue = await owner.queue.create({
+    data: {
+      tenantId,
+      name: 'Voice note queue',
+      channels: ['VOICE'],
+      voiceWrapupPolicy: 'VOICE_NOTE_V1',
+    },
+  });
+  const noteInteraction = await owner.interaction.create({
+    data: {
+      tenantId,
+      queueId: noteQueue.id,
+      agentId: userId,
+      channel: 'VOICE',
+      direction: 'INBOUND',
+      state: 'WRAPUP',
+    },
+  });
+  await assert.rejects(
+    router.completeWrapUp({
+      tenantId,
+      interactionId: noteInteraction.id,
+      agentId: userId,
+      code: 'RESOLVED',
+    }),
+    /WRAPUP_V1_REQUIRED/,
+  );
+  assert.equal(
+    (await owner.interaction.findUniqueOrThrow({ where: { id: noteInteraction.id } })).state,
+    'WRAPUP',
+  );
+
   await owner.queue.update({
     where: { id: queueId },
     data: {

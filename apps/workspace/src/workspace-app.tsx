@@ -13,7 +13,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import { Button, useInShell } from '@d-contact/ui-react';
-import type { AgentWorkspaceApi, AgentWorkspaceSnapshot } from './agent-api.js';
+import {
+  AgentApiError,
+  type AgentWorkspaceApi,
+  type AgentWorkspaceSnapshot,
+  type WrapupResultV1,
+  type WrapupIntentV1,
+} from './agent-api.js';
 import { EndedCallSnapshotReconciler } from './ended-call-snapshot.js';
 import { createBrowserWorkspaceLeaderElection } from './leader-election.js';
 import { BrowserDphone, type BrowserSipTransport, type DphoneState } from './dphone/dphone.js';
@@ -185,6 +191,12 @@ function AgentWorkspace({
   const [wrapupDisposition, setWrapupDisposition] = useState<string>();
   const [wrapupPending, setWrapupPending] = useState(false);
   const [wrapupError, setWrapupError] = useState<WorkspaceMessage>();
+  const [wrapupNote, setWrapupNote] = useState('');
+  const [wrapupUnknown, setWrapupUnknown] = useState(false);
+  const [savedWrapup, setSavedWrapup] = useState<WrapupResultV1>();
+  const [wrapupAlreadyCompleted, setWrapupAlreadyCompleted] = useState(false);
+  const wrapupIntent = useRef<WrapupIntentV1 | undefined>(undefined);
+  const wrapupInFlight = useRef(false);
   const [governanceAlert, setGovernanceAlert] = useState<WorkspaceGovernanceAlert>();
   const [liveRetry, setLiveRetry] = useState(0);
   const [dphoneSize, setDphoneSize] = useState<DphoneSize>(loadSize);
@@ -575,6 +587,74 @@ function AgentWorkspace({
   async function submitWrapup() {
     const interaction = snapshot?.interaction;
     if (!api || !interaction || interaction.state !== 'WRAPUP' || !wrapupDisposition) return;
+    if (interaction.voiceWrapupPolicy === 'VOICE_NOTE_V1') {
+      if (
+        wrapupInFlight.current ||
+        snapshot.capabilities?.voiceWrapupV1 !== 1 ||
+        !api.submitWrapupV1
+      )
+        return;
+      const note = wrapupNote.replace(/\r\n/g, '\n').trim();
+      if (
+        !note ||
+        [...note].length > 2000 ||
+        /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(note)
+      )
+        return;
+      const intent = wrapupIntent.current ?? {
+        interactionId: interaction.id,
+        disposition: wrapupDisposition,
+        note,
+        commandId: crypto.randomUUID(),
+      };
+      wrapupIntent.current = intent;
+      wrapupInFlight.current = true;
+      setWrapupPending(true);
+      setWrapupError(undefined);
+      try {
+        const result = await api.submitWrapupV1(intent);
+        if (
+          result.interactionId !== intent.interactionId ||
+          result.note !== intent.note ||
+          result.disposition !== intent.disposition
+        )
+          throw new Error('Unexpected wrapup result');
+        setSavedWrapup(result);
+        setWrapupAlreadyCompleted(false);
+        setWrapupUnknown(false);
+        wrapupIntent.current = undefined;
+        onCallEventRef.current?.({
+          type: 'wrapup.completed',
+          interaction,
+          disposition: result.disposition,
+        });
+        setWrapupDisposition(undefined);
+        setWrapupNote('');
+        try {
+          setSnapshot(await api.snapshot());
+        } catch {
+          setSnapshotError('snapshotLoadFailed');
+        }
+      } catch (error) {
+        if (
+          error instanceof AgentApiError &&
+          !wrapupUnknown &&
+          error.status >= 400 &&
+          error.status < 500 &&
+          error.code !== 'INTERACTION_ALREADY_COMPLETED'
+        ) {
+          wrapupIntent.current = undefined;
+          setWrapupUnknown(false);
+          setWrapupError('wrapupFailed');
+        } else {
+          setWrapupUnknown(true);
+        }
+      } finally {
+        wrapupInFlight.current = false;
+        setWrapupPending(false);
+      }
+      return;
+    }
     setWrapupPending(true);
     setWrapupError(undefined);
     try {
@@ -593,6 +673,51 @@ function AgentWorkspace({
     } catch {
       setWrapupError('wrapupFailed');
     } finally {
+      setWrapupPending(false);
+    }
+  }
+
+  async function checkWrapupResult() {
+    const intent = wrapupIntent.current;
+    if (!intent || !api?.wrapupResult || !api.wrapupCommand || wrapupInFlight.current) return;
+    wrapupInFlight.current = true;
+    setWrapupPending(true);
+    try {
+      let commandCommitted = false;
+      try {
+        await api.wrapupCommand(intent.interactionId, intent.commandId);
+        commandCommitted = true;
+      } catch (error) {
+        if (
+          !(error instanceof AgentApiError) ||
+          error.status !== 404 ||
+          error.code !== 'COMMAND_NOT_FOUND'
+        )
+          throw error;
+      }
+      const result = await api.wrapupResult(intent.interactionId);
+      if (result.interactionId !== intent.interactionId)
+        throw new Error('Unexpected wrapup result');
+      if (
+        commandCommitted &&
+        (result.note !== intent.note || result.disposition !== intent.disposition)
+      )
+        throw new Error('Unexpected wrapup result');
+      setWrapupAlreadyCompleted(!commandCommitted);
+      setSavedWrapup(result);
+      setWrapupUnknown(false);
+      wrapupIntent.current = undefined;
+      setWrapupDisposition(undefined);
+      setWrapupNote('');
+      try {
+        setSnapshot(await api.snapshot());
+      } catch {
+        setSnapshotError('snapshotLoadFailed');
+      }
+    } catch {
+      setWrapupUnknown(true);
+    } finally {
+      wrapupInFlight.current = false;
       setWrapupPending(false);
     }
   }
@@ -813,47 +938,101 @@ function AgentWorkspace({
       </article>
     ) : null;
 
-  const wrapupPanel =
-    snapshot?.interaction?.state === 'WRAPUP' ? (
-      <article className="aw-panel" aria-labelledby="wrapup-title">
-        <div>
-          <p className="aw-step">{t('wrapup.step')}</p>
-          <h2 id="wrapup-title">{t('wrapup.title')}</h2>
-          <p className="aw-copy">{t('wrapup.copy')}</p>
-        </div>
-        <div className="aw-segmented" role="group" aria-label={t('wrapup.choose')}>
-          <button
-            type="button"
-            aria-pressed={wrapupDisposition === 'CUSTOMER_ASSISTED'}
-            disabled={wrapupPending}
-            onClick={() => setWrapupDisposition('CUSTOMER_ASSISTED')}
-          >
-            {t('wrapup.assisted')}
-          </button>
-          <button
-            type="button"
-            aria-pressed={wrapupDisposition === 'FOLLOW_UP_REQUIRED'}
-            disabled={wrapupPending}
-            onClick={() => setWrapupDisposition('FOLLOW_UP_REQUIRED')}
-          >
-            {t('wrapup.followUp')}
-          </button>
-        </div>
-        <Button
-          variant="primary"
-          isDisabled={!wrapupDisposition || wrapupPending}
-          onPress={() => void submitWrapup()}
-        >
-          {t('wrapup.submit')}
-        </Button>
-        {wrapupPending ? <p role="status">{t('wrapup.pending')}</p> : null}
-        {wrapupError ? (
-          <p role="alert" className="aw-error">
-            {t(wrapupError)}
+  const requiresWrapupV1 = snapshot?.interaction?.voiceWrapupPolicy === 'VOICE_NOTE_V1';
+  const normalizedNote = wrapupNote.replace(/\r\n/g, '\n').trim();
+  const noteLength = [...normalizedNote].length;
+  const validNote =
+    noteLength >= 1 &&
+    noteLength <= 2000 &&
+    !/\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(
+      normalizedNote,
+    );
+  const wrapupV1Supported = snapshot?.capabilities?.voiceWrapupV1 === 1 && !!api?.submitWrapupV1;
+  const wrapupPanel = (
+    <>
+      {savedWrapup ? (
+        <article className="aw-panel" aria-live="polite">
+          <h2>{t('wrapup.saved')}</h2>
+          {wrapupAlreadyCompleted ? <p>{t('wrapup.alreadyCompleted')}</p> : null}
+          <p>
+            {savedWrapup.disposition === 'CUSTOMER_ASSISTED'
+              ? t('wrapup.assisted')
+              : t('wrapup.followUp')}
           </p>
-        ) : null}
-      </article>
-    ) : null;
+          <p className="aw-wrapup-note">{savedWrapup.note}</p>
+          <time dateTime={savedWrapup.recordedAt}>
+            {new Date(savedWrapup.recordedAt).toLocaleString(locale)}
+          </time>
+        </article>
+      ) : null}
+      {snapshot?.interaction?.state === 'WRAPUP' &&
+      savedWrapup?.interactionId !== snapshot.interaction.id ? (
+        <article className="aw-panel" aria-labelledby="wrapup-title">
+          <div>
+            <p className="aw-step">{t('wrapup.step')}</p>
+            <h2 id="wrapup-title">{t('wrapup.title')}</h2>
+            <p className="aw-copy">{t('wrapup.copy')}</p>
+          </div>
+          <div className="aw-segmented" role="group" aria-label={t('wrapup.choose')}>
+            <button
+              type="button"
+              aria-pressed={wrapupDisposition === 'CUSTOMER_ASSISTED'}
+              disabled={wrapupPending || wrapupUnknown}
+              onClick={() => setWrapupDisposition('CUSTOMER_ASSISTED')}
+            >
+              {t('wrapup.assisted')}
+            </button>
+            <button
+              type="button"
+              aria-pressed={wrapupDisposition === 'FOLLOW_UP_REQUIRED'}
+              disabled={wrapupPending || wrapupUnknown}
+              onClick={() => setWrapupDisposition('FOLLOW_UP_REQUIRED')}
+            >
+              {t('wrapup.followUp')}
+            </button>
+          </div>
+          {requiresWrapupV1 ? (
+            <>
+              <label htmlFor="wrapup-note">{t('wrapup.note')}</label>
+              <textarea
+                id="wrapup-note"
+                value={wrapupNote}
+                disabled={wrapupPending || wrapupUnknown || !wrapupV1Supported}
+                aria-describedby="wrapup-note-help"
+                onChange={(event) => setWrapupNote(event.target.value)}
+              />
+              <p id="wrapup-note-help">{t('wrapup.noteCount', { count: noteLength })}</p>
+              {!validNote ? <p>{t('wrapup.noteRequired')}</p> : null}
+              {!wrapupV1Supported ? <p role="alert">{t('wrapup.upgradeRequired')}</p> : null}
+            </>
+          ) : null}
+          <Button
+            variant="primary"
+            isDisabled={
+              !wrapupDisposition ||
+              wrapupPending ||
+              (requiresWrapupV1 && (!wrapupV1Supported || !validNote))
+            }
+            onPress={() => void submitWrapup()}
+          >
+            {t('wrapup.submit')}
+          </Button>
+          {wrapupPending ? <p role="status">{t('wrapup.pending')}</p> : null}
+          {wrapupUnknown ? <p role="status">{t('wrapup.unknown')}</p> : null}
+          {wrapupUnknown && api?.wrapupResult && api.wrapupCommand ? (
+            <Button isDisabled={wrapupPending} onPress={() => void checkWrapupResult()}>
+              {t('wrapup.checkResult')}
+            </Button>
+          ) : null}
+          {wrapupError ? (
+            <p role="alert" className="aw-error">
+              {t(wrapupError)}
+            </p>
+          ) : null}
+        </article>
+      ) : null}
+    </>
+  );
 
   const mediaPanel = (
     <article className="aw-panel">
