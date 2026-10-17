@@ -281,6 +281,11 @@
   align-items: start;
 }
 
+.aw-wrapup-note {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .aw-panel {
   display: flex;
   flex-direction: column;

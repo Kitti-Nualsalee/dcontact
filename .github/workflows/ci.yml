@@ -75,6 +75,10 @@ jobs:
           pnpm --filter @d-contact/telephony exec tsx --test src/e1-registration-flush.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/agent-sip-credentials.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/agent-availability.integration.ts
+      - name: ตรวจ Voice wrap-up V1 และ legacy guards ภายใต้ RLS จริง
+        run: |
+          pnpm --filter @d-contact/api exec tsx --test src/agent-workspace.integration.ts
+          pnpm --filter @d-contact/router exec tsx --test src/inbound-voice-router.integration.ts
 
   build:
     runs-on: ubuntu-latest
@@ -415,7 +419,7 @@ jobs:
         run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts e2e/shell.spec.ts e2e/journey-authoring.spec.ts
 
       - name: Workspace shell e2e
-        run: pnpm --filter @d-contact/workspace exec playwright test e2e/shell.spec.ts e2e/dphone.spec.ts e2e/dphone-embed.spec.ts e2e/dphone-host-reference.spec.ts e2e/agent-availability.spec.ts e2e/dphone-owner.spec.ts
+        run: pnpm --filter @d-contact/workspace exec playwright test e2e/shell.spec.ts e2e/dphone.spec.ts e2e/dphone-embed.spec.ts e2e/dphone-host-reference.spec.ts e2e/agent-availability.spec.ts e2e/dphone-owner.spec.ts e2e/wrapup.spec.ts
 
       - name: Upload Playwright traces
         if: failure()

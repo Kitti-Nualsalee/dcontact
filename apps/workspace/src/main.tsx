@@ -30,6 +30,9 @@ const e2eApi: AgentWorkspaceApi = {
   snapshot: () => e2eHttpApi.snapshot(),
   becomeAvailable: (workSessionLeaseId) => e2eHttpApi.becomeAvailable(workSessionLeaseId),
   submitWrapup: (input) => e2eHttpApi.submitWrapup(input),
+  submitWrapupV1: (input) => e2eHttpApi.submitWrapupV1!(input),
+  wrapupResult: (interactionId) => e2eHttpApi.wrapupResult!(interactionId),
+  wrapupCommand: (interactionId, commandId) => e2eHttpApi.wrapupCommand!(interactionId, commandId),
   sipCredentials: async (workSessionLeaseId) => ({
     leaseId: workSessionLeaseId,
     extension: '1000',

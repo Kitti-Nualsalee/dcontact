@@ -7,6 +7,9 @@ import {
   Get,
   HttpCode,
   Headers,
+  Header,
+  HttpException,
+  InternalServerErrorException,
   Inject,
   NotFoundException,
   Param,
@@ -17,8 +20,33 @@ import { Prisma, PrismaClient, withTenantDatabaseTransaction } from '@d-contact/
 import { AGENT_SIP_CREDENTIALS, type AgentSipCredentialService } from './agent-sip-credentials.js';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import { EmbedOriginService } from './embed-origins.js';
+import { saveAgentWrapup, readAgentWrapup, readAgentWrapupCommand } from './agent-wrapup-v1.js';
 
 export const AGENT_WORKSPACE_DATABASE = Symbol('AGENT_WORKSPACE_DATABASE');
+
+async function wrapupOperation<Result>(
+  request: AuthenticatedGatewayRequest,
+  operation: () => Promise<Result>,
+) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof HttpException) {
+      const body = error.getResponse();
+      throw new HttpException(
+        {
+          ...(typeof body === 'object' ? body : { code: 'WRAPUP_REQUEST_FAILED' }),
+          correlationId: request.correlationId,
+        },
+        error.getStatus(),
+      );
+    }
+    throw new InternalServerErrorException({
+      code: 'WRAPUP_REQUEST_FAILED',
+      correlationId: request.correlationId,
+    });
+  }
+}
 
 function identity(request: AuthenticatedGatewayRequest) {
   if (!request.gatewayIdentity) throw new ForbiddenException();
@@ -38,7 +66,10 @@ function requiredUuid(value: string, field: string): string {
   return value;
 }
 
-function wrapupBody(value: { disposition?: unknown; commandId?: unknown }) {
+function wrapupBody(value: { disposition?: unknown; commandId?: unknown; note?: unknown }) {
+  if (Object.hasOwn(value, 'note')) {
+    throw new BadRequestException({ code: 'VALIDATION_FAILED', field: 'note' });
+  }
   if (typeof value.disposition !== 'string' || !/^[A-Z][A-Z0-9_]{1,79}$/.test(value.disposition)) {
     throw new BadRequestException('disposition must be an uppercase code');
   }
@@ -90,6 +121,7 @@ export class AgentWorkspaceController {
           id: true,
           state: true,
           direction: true,
+          voiceWrapupPolicy: true,
           metadata: true,
           offerExpiresAt: true,
           answeredAt: true,
@@ -101,6 +133,7 @@ export class AgentWorkspaceController {
       });
 
       return {
+        capabilities: { voiceWrapupV1: 1 },
         agent: {
           id: agent.id,
           displayName: agent.displayName,
@@ -112,6 +145,7 @@ export class AgentWorkspaceController {
               id: interaction.id,
               state: interaction.state,
               direction: interaction.direction,
+              voiceWrapupPolicy: interaction.voiceWrapupPolicy,
               version: (interaction.events[0]?.id ?? 0n).toString(),
               caller: callerFrom(interaction.metadata),
               queue: interaction.queue,
@@ -241,9 +275,12 @@ export class AgentWorkspaceController {
       }
       const interaction = await transaction.interaction.findFirst({
         where: { id: resourceId, tenantId: actor.tenantId, agentId: actor.userId, state: 'WRAPUP' },
-        select: { id: true },
+        select: { id: true, voiceWrapupPolicy: true },
       });
       if (!interaction) throw new NotFoundException();
+      if (interaction.voiceWrapupPolicy === 'VOICE_NOTE_V1') {
+        throw new ConflictException({ code: 'WRAPUP_V1_REQUIRED' });
+      }
       await transaction.interaction.updateMany({
         where: {
           id: interaction.id,
@@ -286,6 +323,45 @@ export class AgentWorkspaceController {
       });
       return result;
     });
+  }
+
+  @Post('interactions/:interactionId/wrapup-v1')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @GatewayRoles('agent')
+  async submitWrapupV1(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('interactionId') interactionId: string,
+    @Body() body: unknown,
+  ) {
+    return wrapupOperation(request, () =>
+      saveAgentWrapup(this.database, identity(request), interactionId, body),
+    );
+  }
+
+  @Get('interactions/:interactionId/wrapup-result')
+  @Header('Cache-Control', 'no-store')
+  @GatewayRoles('agent')
+  async wrapupResult(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('interactionId') interactionId: string,
+  ) {
+    return wrapupOperation(request, () =>
+      readAgentWrapup(this.database, identity(request), interactionId),
+    );
+  }
+
+  @Get('interactions/:interactionId/wrapup-commands/:commandId')
+  @Header('Cache-Control', 'no-store')
+  @GatewayRoles('agent')
+  async wrapupCommand(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('interactionId') interactionId: string,
+    @Param('commandId') commandId: string,
+  ) {
+    return wrapupOperation(request, () =>
+      readAgentWrapupCommand(this.database, identity(request), interactionId, commandId),
+    );
   }
 
   @Get('sip-credentials')

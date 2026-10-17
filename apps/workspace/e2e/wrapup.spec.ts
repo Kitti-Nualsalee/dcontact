@@ -1,5 +1,111 @@
 import { expect, test } from '@playwright/test';
 
+for (const outcome of ['success', 'unknown'] as const) {
+  test(`V1 ${outcome}: แสดงผลที่ commit แล้วแม้ snapshot หลังบันทึกอ่านไม่ได้`, async ({
+    page,
+  }) => {
+    let saved = false;
+    let submitted: Record<string, unknown> | undefined;
+    const attempts: Record<string, unknown>[] = [];
+    const interactionId = '7a33ac96-d87d-4ca4-ab75-f27e40e943be';
+    await page.route('**/api/v1/workspace/agent/snapshot', (route) =>
+      route.fulfill({
+        status: saved ? 503 : 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          capabilities: { voiceWrapupV1: 1 },
+          agent: { id: 'agent', displayName: 'Agent', extension: '1000', state: 'ACW' },
+          interaction: {
+            id: interactionId,
+            state: 'WRAPUP',
+            direction: 'INBOUND',
+            voiceWrapupPolicy: 'VOICE_NOTE_V1',
+            version: '20',
+            caller: null,
+            queue: null,
+            offerExpiresAt: null,
+            answeredAt: null,
+            endedAt: null,
+          },
+        }),
+      }),
+    );
+    await page.route('**/wrapup-v1', async (route) => {
+      submitted = route.request().postDataJSON() as Record<string, unknown>;
+      attempts.push(submitted);
+      saved = true;
+      if (outcome === 'unknown' && attempts.length === 1) {
+        await route.abort('connectionreset');
+        return;
+      }
+      if (outcome === 'unknown' && attempts.length === 2) {
+        await route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ code: 'UNAUTHORIZED' }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          interactionId,
+          policyVersion: 1,
+          state: 'COMPLETED',
+          disposition: 'CUSTOMER_ASSISTED',
+          note: 'ทดสอบ 😀\nplain text',
+          recordedAt: '2026-10-17T07:00:00.000Z',
+          legacy: false,
+        }),
+      });
+    });
+    await page.route('**/wrapup-result', (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'RESULT_NOT_COMMITTED' }),
+      }),
+    );
+    await page.route('**/wrapup-commands/*', (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'COMMAND_NOT_FOUND' }),
+      }),
+    );
+    await page.goto('/');
+    await page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
+    await expect(page.getByRole('button', { name: 'ส่ง disposition' })).toBeDisabled();
+    await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('😀'.repeat(2001));
+    await expect(page.getByRole('button', { name: 'ส่ง disposition' })).toBeDisabled();
+    await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('  ทดสอบ 😀\r\nplain text  ');
+    await page.getByRole('button', { name: 'ส่ง disposition' }).click();
+    if (outcome === 'unknown') {
+      await expect(page.getByText(/ยังไม่ทราบผลบันทึก/)).toBeVisible();
+      await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toBeDisabled();
+      await page.getByRole('button', { name: 'ตรวจผลที่บันทึก' }).click();
+      await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toBeDisabled();
+      await page.getByRole('button', { name: 'ส่ง disposition' }).click();
+      await expect(page.getByText(/ยังไม่ทราบผลบันทึก/)).toBeVisible();
+      await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toBeDisabled();
+      await page.getByRole('button', { name: 'ส่ง disposition' }).click();
+    }
+    await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
+    await expect(page.getByText('ทดสอบ 😀\nplain text', { exact: true })).toBeVisible();
+    expect(submitted).toMatchObject({
+      disposition: 'CUSTOMER_ASSISTED',
+      note: 'ทดสอบ 😀\nplain text',
+    });
+    expect(submitted?.commandId).toEqual(expect.any(String));
+    if (outcome === 'unknown') {
+      expect(attempts[1]).toEqual(attempts[0]);
+      expect(attempts[2]).toEqual(attempts[0]);
+    }
+    await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveCount(0);
+  });
+}
+
 test('Agent ส่ง disposition จาก WRAPUP และรอ authoritative snapshot', async ({ page }) => {
   let completed = false;
   let requestBody: Record<string, unknown> | undefined;

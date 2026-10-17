@@ -240,6 +240,7 @@ model Queue {
   id                            String                   @id @default(uuid()) @db.Uuid
   tenantId                      String                   @map("tenant_id") @db.Uuid
   name                          String
+  voiceWrapupPolicy             String                   @default("LEGACY") @map("voice_wrapup_policy")
   // universal queue: รองรับหลาย channel ใน queue เดียว
   channels                      ChannelType[]
   slaThresholdSec               Int                      @default(20) @map("sla_threshold_sec")
@@ -3734,10 +3735,10 @@ model DlVoiceAllowlistEntry {
 }
 
 model DlVoiceCapLedgerEntry {
-  id         String            @id @default(uuid()) @db.Uuid
-  tenantId   String            @map("tenant_id") @db.Uuid
-  gateId     String            @map("gate_id") @db.Uuid
-  deliveryId String            @map("delivery_id")
+  id         String           @id @default(uuid()) @db.Uuid
+  tenantId   String           @map("tenant_id") @db.Uuid
+  gateId     String           @map("gate_id") @db.Uuid
+  deliveryId String           @map("delivery_id")
   agentUserId String           @map("agent_user_id") @db.Uuid
   adapter    DlDeliveryAdapter @default(FREESWITCH_ORIGINATE)
   reservedAt DateTime          @map("reserved_at")
@@ -4279,6 +4280,7 @@ model Interaction {
   // id ฝั่งระบบภายนอก เช่น FreeSWITCH call UUID
   externalId                String?              @map("external_id")
   wrapUpCode                String?              @map("wrap_up_code")
+  voiceWrapupPolicy         String               @default("LEGACY") @map("voice_wrapup_policy")
   metadata                  Json?
 
   queuedAt          DateTime       @default(now()) @map("queued_at")
@@ -4292,13 +4294,13 @@ model Interaction {
   ivrAttempts       Int            @default(0) @map("ivr_attempts")
   ivrInputExpiresAt DateTime?      @map("ivr_input_expires_at")
 
-  tenant              Tenant               @relation(fields: [tenantId], references: [id])
-  queue               Queue?               @relation(fields: [queueId], references: [id])
-  agent               User?                @relation(fields: [agentId], references: [id])
-  contact             Contact?             @relation(fields: [contactId], references: [id])
-  conversation        Conversation?        @relation(fields: [conversationId], references: [id])
-  reopenedFrom        Interaction?         @relation("InteractionReopenChain", fields: [reopenedFromInteractionId], references: [id])
-  reopenedBy          Interaction[]        @relation("InteractionReopenChain")
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id])
+  queue               Queue?                    @relation(fields: [queueId], references: [id])
+  agent               User?                     @relation(fields: [agentId], references: [id])
+  contact             Contact?                  @relation(fields: [contactId], references: [id])
+  conversation        Conversation?             @relation(fields: [conversationId], references: [id])
+  reopenedFrom        Interaction?              @relation("InteractionReopenChain", fields: [reopenedFromInteractionId], references: [id])
+  reopenedBy          Interaction[]             @relation("InteractionReopenChain")
   events              InteractionEvent[]
   messages            Message[]
   recordings          Recording[]
@@ -4306,7 +4308,9 @@ model Interaction {
   qmTranscripts       QmTranscript[]
   qmEvaluations       QmEvaluation[]
   qmConsoleContexts   QmConsoleContext[]
+  wrapupResults       InteractionWrapupResult[]
 
+  @@unique([tenantId, id, agentId])
   @@unique([tenantId, externalId])
   @@index([tenantId, queuedAt])
   @@index([tenantId, conversationId, queuedAt])
@@ -4316,6 +4320,21 @@ model Interaction {
 }
 
 // append-only event log — source of truth สำหรับ historical reporting
+model InteractionWrapupResult {
+  interactionId String      @id @map("interaction_id") @db.Uuid
+  tenantId      String      @map("tenant_id") @db.Uuid
+  ownerAgentId  String      @map("owner_agent_id") @db.Uuid
+  policyVersion Int         @default(1) @map("policy_version")
+  disposition   String
+  note          String
+  recordedAt    DateTime    @default(now()) @map("recorded_at") @db.Timestamptz(3)
+  commandId     String      @map("command_id") @db.Uuid
+  interaction   Interaction @relation(fields: [tenantId, interactionId, ownerAgentId], references: [tenantId, id, agentId], onDelete: NoAction, onUpdate: NoAction, map: "interaction_wrapup_results_owner_fkey")
+
+  @@index([tenantId, ownerAgentId, recordedAt(sort: Desc), interactionId(sort: Desc)], map: "interaction_wrapup_results_owner_recorded_idx")
+  @@map("interaction_wrapup_results")
+}
+
 model InteractionEvent {
   id            BigInt   @id @default(autoincrement())
   tenantId      String   @map("tenant_id") @db.Uuid
@@ -4705,14 +4724,15 @@ model QmConsoleContext {
 
 /// receipt durable สำหรับ retry ของ remote mutation: commandId เดิมห้ามทำ side effect ซ้ำ
 model CommandReceipt {
-  id          String   @id @default(uuid()) @db.Uuid
-  tenantId    String   @map("tenant_id") @db.Uuid
-  commandId   String   @map("command_id") @db.Uuid
-  actorUserId String   @map("actor_user_id") @db.Uuid
-  action      String
-  resourceId  String   @map("resource_id") @db.Uuid
-  result      Json
-  createdAt   DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  commandId     String   @map("command_id") @db.Uuid
+  actorUserId   String   @map("actor_user_id") @db.Uuid
+  action        String
+  resourceId    String   @map("resource_id") @db.Uuid
+  result        Json
+  payloadDigest String?  @map("payload_digest")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 

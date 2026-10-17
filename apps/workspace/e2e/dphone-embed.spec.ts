@@ -12,6 +12,91 @@ import {
   signIn,
 } from './embed-harness';
 
+for (const receiptMode of ['committed', 'racing'] as const) {
+  test(`V1 recovery ${receiptMode}: ส่ง activity ครั้งเดียวและไม่ส่ง note ออกไป CRM`, async ({
+    page,
+  }) => {
+    const { server, frame } = await setup(page);
+    const interactionId = '688c850d-5056-426f-9cb8-14af85521382';
+    const note = 'โน้ตส่วนตัว <b>ไม่ส่งไป CRM</b>';
+    let commandReads = 0;
+    const result = {
+      interactionId,
+      state: 'COMPLETED',
+      policyVersion: 1,
+      disposition: 'CUSTOMER_ASSISTED',
+      note,
+      recordedAt: '2026-10-17T07:00:00.000Z',
+      legacy: false,
+    };
+    await page.context().route(`${DPHONE}/api/v1/workspace/agent/snapshot`, (route) =>
+      route.fulfill({
+        json: {
+          capabilities: { voiceWrapupV1: 1 },
+          agent: { id: 'agent-embed', displayName: 'Agent', extension: '1000', state: 'ACW' },
+          interaction:
+            server.state === 'NONE'
+              ? null
+              : {
+                  id: interactionId,
+                  state: server.state,
+                  voiceWrapupPolicy: 'VOICE_NOTE_V1',
+                  direction: 'INBOUND',
+                  version: '3',
+                  caller: null,
+                  queue: null,
+                  offerExpiresAt: '2099-01-01T00:00:20.000Z',
+                  answeredAt: null,
+                  endedAt: null,
+                },
+        },
+      }),
+    );
+    await page.context().route('**/wrapup-v1', async (route) => {
+      server.state = 'NONE';
+      await route.abort('connectionreset');
+    });
+    await page.context().route('**/wrapup-result', (route) => route.fulfill({ json: result }));
+    await page.context().route('**/wrapup-commands/*', (route) => {
+      commandReads += 1;
+      if (receiptMode === 'racing' && commandReads === 1)
+        return route.fulfill({ status: 404, json: { code: 'COMMAND_NOT_FOUND' } });
+      return route.fulfill({
+        json: {
+          status: 'COMMITTED',
+          result: {
+            interactionId,
+            state: 'COMPLETED',
+            policyVersion: 1,
+            disposition: result.disposition,
+            recordedAt: result.recordedAt,
+          },
+        },
+      });
+    });
+    await signIn(page, frame);
+    await frame.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
+    const dphone = frame.getByRole('region', { name: 'dphone' });
+    await dphone.getByRole('button', { name: 'รับสาย' }).click();
+    server.state = 'WRAPUP';
+    await dphone.getByRole('button', { name: 'วางสาย' }).click();
+    await frame.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
+    await frame.getByRole('textbox', { name: 'โน้ตสรุป' }).fill(note);
+    await frame.getByRole('button', { name: 'ส่ง disposition' }).click();
+    await frame.getByRole('button', { name: 'ตรวจผลที่บันทึก' }).click();
+    await expect(frame.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
+    await expect(frame.getByText(note, { exact: true })).toBeVisible();
+    await expect(frame.getByText('งานนี้ปิดด้วยคำสั่งอื่นแล้ว', { exact: false })).toHaveCount(0);
+    await expect
+      .poll(async () =>
+        (await messages(page)).filter((message) => message.type === 'dphone.activity'),
+      )
+      .toHaveLength(1);
+    expect(JSON.stringify(await messages(page))).not.toContain(note);
+    expect(commandReads).toBe(receiptMode === 'racing' ? 2 : 1);
+  });
+}
+
 /**
  * E1.14 (#488): dphone ที่ถูกฝังในหน้า host ต่าง origin — harness อยู่ใน `embed-harness.ts`
  */

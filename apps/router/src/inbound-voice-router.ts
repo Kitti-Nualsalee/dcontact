@@ -833,8 +833,11 @@ export class InboundVoiceRouter {
       async (transaction) => {
         const existing = await transaction.interaction.findFirstOrThrow({
           where: { id: command.interactionId, tenantId: command.tenantId },
-          select: { id: true, state: true, agentId: true },
+          select: { id: true, state: true, agentId: true, voiceWrapupPolicy: true },
         });
+        if (existing.voiceWrapupPolicy === 'VOICE_NOTE_V1') {
+          throw new Error('WRAPUP_V1_REQUIRED');
+        }
         if (existing.state === 'COMPLETED') return { ...existing, transitioned: false as const };
         if (existing.state !== 'WRAPUP' || existing.agentId !== command.agentId) {
           throw new Error('wrap-up requires the assigned agent');

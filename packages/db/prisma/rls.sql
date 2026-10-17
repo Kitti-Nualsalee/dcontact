@@ -112,6 +112,7 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dcontact_app;
 
 -- Queue audit is append-only through the application role.
 REVOKE UPDATE, DELETE ON queue_audit_events FROM dcontact_app;
+REVOKE UPDATE, DELETE ON interaction_wrapup_results FROM dcontact_app;
 REVOKE UPDATE, DELETE ON navigation_audit_events FROM dcontact_app;
 -- E1.9 (#483): lease ถูกปล่อยด้วยการ UPDATE เท่านั้น ไม่ลบ; audit append-only
 REVOKE DELETE ON agent_work_session_leases FROM dcontact_app;
