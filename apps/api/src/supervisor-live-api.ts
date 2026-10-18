@@ -1,3 +1,4 @@
+import { voiceCatalogCaller } from './tenant-voice-identity.js';
 import { catalogActor } from './tenant-voice-catalog.js';
 import {
   BadRequestException,
@@ -258,7 +259,10 @@ export class SupervisorLiveController {
         });
         if (!queue) throw new NotFoundException();
         if (queue.voiceConfigVersion === 1) {
-          const configActor = await catalogActor(transaction, actor);
+          const configActor = await catalogActor(transaction, {
+            ...actor,
+            caller: voiceCatalogCaller(request),
+          });
           if (configActor.role === 'SUPERVISOR' && configActor.teamId !== queue.teamId)
             throw new NotFoundException();
           throw new HttpException({ code: 'VOICE_CONFIG_V1_REQUIRED' }, 409);

@@ -16,6 +16,11 @@ import {
 } from './navigation-api.js';
 import { NAVIGATION_APPS } from './navigation-registry.js';
 import {
+  SupervisorLiveController,
+  SupervisorLiveEventStream,
+  SUPERVISOR_LIVE_DATABASE,
+} from './supervisor-live-api.js';
+import {
   OidcGlobalGuard,
   OIDC_ACCESS_TOKEN_VERIFIER,
   GATEWAY_DIAGNOSTICS,
@@ -145,9 +150,16 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
     ...variants[token],
   });
   @Module({
-    controllers: [TenantVoiceCatalogController, QueueController, NavigationController],
+    controllers: [
+      TenantVoiceCatalogController,
+      QueueController,
+      NavigationController,
+      SupervisorLiveController,
+    ],
     providers: [
       { provide: TENANT_VOICE_DATABASE, useValue: db },
+      { provide: SUPERVISOR_LIVE_DATABASE, useValue: db },
+      SupervisorLiveEventStream,
       { provide: TENANT_QUEUE_DATABASE, useValue: db },
       { provide: NAVIGATION_DATABASE, useValue: db },
       { provide: NAVIGATION_REGISTRY, useValue: NAVIGATION_APPS },
@@ -362,6 +374,21 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
         'PUT',
       );
       assert.equal(required.status, 409);
+      const availability = (queue: string, token: string) =>
+        request(
+          `workspace/supervisor/queues/${queue}/availability`,
+          token,
+          { commandId: randomUUID(), isActive: true, reason: 'sandbox' },
+          'PUT',
+        );
+      for (const token of ['admin', 'supervisor']) {
+        const blocked = await availability(createdId, token);
+        assert.equal(blocked.status, 409);
+        assert.equal((await blocked.json()).code, 'VOICE_CONFIG_V1_REQUIRED');
+      }
+      assert.equal((await availability(outside.id, 'supervisor')).status, 404);
+      assert.equal((await availability(createdId, 'unbound')).status, 403);
+
       assert.equal(
         (await owner.queue.findUniqueOrThrow({ where: { id: createdId } })).isActive,
         false,
