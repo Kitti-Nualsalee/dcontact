@@ -1,5 +1,11 @@
 # V1-A3 — ประวัติงาน Voice ของ Agent ใน Console
 
+## ข้อแก้ไขจาก live trial วันที่ 18 ตุลาคม 2026
+
+Edge บน release `57c08d14bd4011692bf0296c48acf1da3403e5b4` พบว่า direct link ของ history ถูก `ConsoleAuthRoot` บังคับ Interaction context ก่อนถึง HistorySurface จึงเปิด #702 กลับมาทำต่อ หลักฐานวันที่ 17 ด้านล่างเป็นผลของ harness ที่ยังไม่ครอบ parent root ไม่ใช่หลักฐานว่า production deep link ใช้งานได้ครบ
+
+เพิ่ม browser regression ผ่าน ConsoleAuthRoot จริง: RED เพราะพบ heading “ไม่พบ Interaction context” ก่อนแก้ แล้วเพิ่ม historyView ใน context guard พร้อมใช้เงื่อนไขเดียวกันตอน render ผล focused history/Home **18/18 PASS** และ typecheck PASS. Harness เพิ่มเฉพาะ Vite mode e2e; ไม่ข้าม auth ของ production. Independent review, full regression, CI, package และ live retest ให้ตรวจจาก hotfix PR/tracker ก่อนปิด #702 อีกครั้ง
+
 วันที่ตรวจ: 17 ตุลาคม 2026 · authority: #699 / #702 · base: `7399e6b8124658f7927599e1df76ac14010b4fe2`
 
 โค้ดหลังแก้ review: `15c8b74b7518864d7989f90bc2c663bff042b68b` และแพตช์ narrow UAT registry ใน PR #707; final candidate, required CI, review และ merge/main CI ให้ตรวจจาก PR และ tracker เอกสารนี้ไม่ใช่หลักฐาน VM UAT PASS

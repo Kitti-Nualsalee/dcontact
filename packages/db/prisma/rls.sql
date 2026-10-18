@@ -376,3 +376,6 @@ REVOKE INSERT, UPDATE, DELETE ON voice_managed_queue_policies FROM dcontact_app;
 GRANT INSERT ON voice_managed_queue_policies TO dcontact_app;
 GRANT EXECUTE ON FUNCTION dc_voice_lock_policy_refs(uuid) TO dcontact_app;
 REVOKE INSERT, UPDATE, DELETE ON tenant_voice_policy_audit FROM dcontact_app;
+
+-- Positive identity เป็น operator authority; app อ่านอย่างเดียวและยังอยู่ใต้ RLS
+REVOKE INSERT, UPDATE, DELETE ON tenant_voice_identity_bindings, tenant_voice_identity_binding_audit FROM dcontact_app;

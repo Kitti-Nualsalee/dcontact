@@ -79,11 +79,13 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
     ['agent', 'AGENT', tenantId, teamId, ['agent', 'admin']],
     ['foreign', 'ADMIN', otherTenant, foreignTeam, ['admin']],
     ['disabled', 'ADMIN', tenantId, teamId, ['admin']],
+    ['unbound', 'ADMIN', tenantId, teamId, ['admin']],
   ] as const) {
     const id = randomUUID();
     await owner.user.create({
       data: {
         id,
+        keycloakId: id,
         tenantId: tenant,
         teamId: team,
         email: `${id}@b1.test`,
@@ -94,11 +96,18 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
       },
     });
     actors.set(token, { id, role, tenantId: tenant, teamId: team, roles: [...roles] });
+    if (token !== 'unbound')
+      await owner.$executeRaw`INSERT INTO tenant_voice_identity_bindings(tenant_id,user_id,issuer,subject_id,client_id,tenant_slug,organization_id,identity_class,source_kind,evidence_ref,evidence_digest,verified_by_operator_subject,verified_at,revision,is_active) VALUES(${tenant}::uuid,${id}::uuid,'https://b1-idp.test/realms/dcontact',${id},'dcontact-console',${`b1-${tenant}`},${tenant}::uuid,'TENANT_USER','BOOTSTRAP_MANIFEST','sandbox-bootstrap-manifest',${'a'.repeat(64)},'sandbox-operator',now(),1,true)`;
   }
-  const verifyAccessToken = async (token: string): Promise<VerifiedOidcClaims> => {
+  const verifyAccessToken = async (
+    token: string,
+  ): Promise<VerifiedOidcClaims & { iss: string }> => {
     const a = actors.get(token);
     if (!a) throw Error('invalid');
     return {
+      iss: 'https://b1-idp.test/realms/dcontact',
+      sub: a.id,
+      azp: 'dcontact-console',
       tenant_id: a.tenantId,
       tenant_slug: `b1-${a.tenantId}`,
       organization: { [`b1-${a.tenantId}`]: { tenant_id: [a.tenantId] } },
@@ -109,15 +118,32 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
     };
   };
   const verifyHuman = verifyAccessToken;
-  const verify = async (token: string) => {
-    const claims = await verifyHuman(
-      ['platform', 'service', 'orgless'].includes(token) ? 'admin' : token,
-    );
-    if (token === 'platform') return { ...claims, azp: 'platform-console' };
-    if (token === 'service') return { ...claims, preferred_username: 'service-account-catalog' };
-    if (token === 'orgless') return { ...claims, organization: undefined };
-    return claims;
+  const variants: Record<string, Record<string, unknown>> = {
+    platform: { azp: 'platform-console' },
+    service: { preferred_username: 'service-account-catalog' },
+    orgless: { organization: undefined },
+    'missing-client': { azp: undefined },
+    'missing-subject': { sub: undefined },
+    'missing-issuer': { iss: undefined },
+    'foreign-subject': { sub: randomUUID() },
+    'foreign-client': { azp: 'unregistered-service-client' },
+    'protected-class': { dc_identity_class: 'PLATFORM_USER' },
+    'service-link': { serviceAccountClientId: 'service-client' },
+    'privileged-mapping': { resource_access: { 'realm-management': { roles: ['realm-admin'] } } },
+    'platform-mapping': {
+      resource_access: { 'dcontact-platform-api': { roles: ['platform_operator'] } },
+    },
+    'multiple-orgs': {
+      organization: {
+        [`b1-${tenantId}`]: { tenant_id: [tenantId] },
+        foreign: { tenant_id: [otherTenant] },
+      },
+    },
   };
+  const verify = async (token: string) => ({
+    ...(await verifyHuman(Object.hasOwn(variants, token) ? 'admin' : token)),
+    ...variants[token],
+  });
   @Module({
     controllers: [TenantVoiceCatalogController, QueueController, NavigationController],
     providers: [
@@ -164,7 +190,7 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
     assert.equal((await create('queues', {}, 'supervisor')).status, 403);
     assert.equal((await create('queues', {}, 'agent')).status, 403);
     assert.equal((await request('tenant-voice/queues', 'bad')).status, 401);
-    for (const principal of ['platform', 'service', 'orgless']) {
+    for (const principal of [...Object.keys(variants), 'unbound']) {
       assert.equal((await create('queues', {}, principal)).status, 403);
       const hidden = await (await request('me/navigation', principal)).json();
       assert.equal(
@@ -180,6 +206,79 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
       false,
     );
   });
+  await t.test(
+    'positive bootstrap binding: revoked/identity drift fail closed พร้อม audit/revision',
+    async () => {
+      const admin = actors.get('admin')!;
+      await owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=2,is_active=false WHERE tenant_id=${tenantId}::uuid AND user_id=${admin.id}::uuid`;
+      assert.equal((await request('tenant-voice/queues')).status, 403);
+      assert.equal((await create()).status, 403);
+      assert.equal(
+        (await (await request('me/navigation')).json()).apps.some((a) => a.id === 'voice-routing'),
+        false,
+      );
+      await assert.rejects(
+        () =>
+          owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET is_active=true WHERE tenant_id=${tenantId}::uuid AND user_id=${admin.id}::uuid`,
+      );
+      await owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=3,is_active=true WHERE tenant_id=${tenantId}::uuid AND user_id=${admin.id}::uuid`;
+      await owner.user.update({ where: { id: admin.id }, data: { keycloakId: randomUUID() } });
+      assert.equal((await request('tenant-voice/queues')).status, 403);
+      await owner.user.update({ where: { id: admin.id }, data: { keycloakId: admin.id } });
+      assert.equal((await request('tenant-voice/queues')).status, 200);
+      const audit = await owner.$queryRaw<
+        { revision: number }[]
+      >`SELECT revision FROM tenant_voice_identity_binding_audit WHERE tenant_id=${tenantId}::uuid AND user_id=${admin.id}::uuid ORDER BY revision`;
+      assert.deepEqual(
+        audit.map((r) => r.revision),
+        [1, 2, 3],
+      );
+      const work = await owner.interaction.create({
+        data: { tenantId, channel: 'VOICE', direction: 'INBOUND' },
+      });
+      await assert.rejects(
+        () =>
+          owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=4,is_active=false WHERE tenant_id=${tenantId}::uuid AND user_id=${admin.id}::uuid`,
+      );
+      await owner.interaction.update({ where: { id: work.id }, data: { state: 'ABANDONED' } });
+      const stillActive = await owner.$queryRaw<
+        { revision: number; is_active: boolean }[]
+      >`SELECT revision,is_active FROM tenant_voice_identity_bindings WHERE tenant_id=${tenantId}::uuid AND user_id=${admin.id}::uuid`;
+      assert.deepEqual(stillActive, [{ revision: 3, is_active: true }]);
+
+      await assert.rejects(() =>
+        withTenantDatabaseTransaction(
+          db,
+          tenantId,
+          (tx) =>
+            tx.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=4,is_active=false WHERE tenant_id=${tenantId}::uuid AND user_id=${admin.id}::uuid`,
+        ),
+      );
+      await assert.rejects(() =>
+        withTenantDatabaseTransaction(
+          db,
+          tenantId,
+          (tx) =>
+            tx.$executeRaw`DELETE FROM tenant_voice_identity_binding_audit WHERE tenant_id=${tenantId}::uuid`,
+        ),
+      );
+      await assert.rejects(() =>
+        withTenantDatabaseTransaction(
+          db,
+          tenantId,
+          (tx) =>
+            tx.$executeRaw`INSERT INTO tenant_voice_identity_bindings SELECT * FROM tenant_voice_identity_bindings WHERE tenant_id=${tenantId}::uuid`,
+        ),
+      );
+      const hidden = await withTenantDatabaseTransaction(
+        db,
+        otherTenant,
+        (tx) =>
+          tx.$queryRaw`SELECT user_id FROM tenant_voice_identity_bindings WHERE tenant_id=${tenantId}::uuid`,
+      );
+      assert.deepEqual(hidden, []);
+    },
+  );
   await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason) VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',20,10,10,10,'test-operator',now(),'B1-TEST','isolated sandbox')`;
   let createdId = '';
   await t.test(
@@ -322,6 +421,10 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
       assert.equal(r.status, 409, JSON.stringify(b));
       assert.equal(b.code, 'CONFIG_BUSY');
       assert.ok(Date.now() - start < 1800);
+      await assert.rejects(
+        () =>
+          owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=revision+1 WHERE tenant_id=${tenantId}::uuid AND user_id=${actors.get('admin')!.id}::uuid`,
+      );
     } finally {
       release();
       await blocker;
@@ -350,6 +453,10 @@ test('B1 authenticated HTTP → PostgreSQL/RLS: create/readback, command, quota,
         const r = await create();
         assert.equal(r.status, 409);
         assert.equal((await r.json()).code, 'CONFIG_BUSY');
+        await assert.rejects(
+          () =>
+            owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=revision+1 WHERE tenant_id=${tenantId}::uuid AND user_id=${actors.get('admin')!.id}::uuid`,
+        );
       } finally {
         release();
         await blocker;

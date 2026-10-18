@@ -1,4 +1,4 @@
-import { VoiceRouting } from './voice-routing/voice-routing.js';
+import { VoiceRoutingPage } from './voice-routing/voice-routing-page.js';
 import { createCatalogApi } from './voice-routing/api.js';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { AuthProvider, useAuth, type AuthContextProps } from 'react-oidc-context';
@@ -141,6 +141,7 @@ export function ConsoleAuthRoot() {
   const defaultView = import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined;
   const [view, setView] = useState(() => resolveConsoleView(url, defaultView));
   const homeView = view === 'home';
+  const historyView = view === 'agent-history';
   const preferenceView = view === 'preferences';
   const governanceView = view === 'governance';
   const journeyView = view === 'journeys';
@@ -156,6 +157,7 @@ export function ConsoleAuthRoot() {
     contextId =
       signedOut ||
       homeView ||
+      historyView ||
       preferenceView ||
       governanceView ||
       journeyView ||
@@ -208,7 +210,7 @@ export function ConsoleAuthRoot() {
           <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : routingView ? (
           <VoiceRoutingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : view === 'agent-history' ? (
+        ) : historyView ? (
           <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : accountView ? (
           <AccountSurface
@@ -690,19 +692,17 @@ export function VoiceRoutingSurface({
     return <main role="alert">{t('errors.FORBIDDEN')}</main>;
   const identityKey = JSON.stringify(identity);
   return (
-    <ConsoleShell
+    <VoiceRoutingPage
       key={identityKey}
-      {...shellUserProps(auth, tenantAlias)}
-      apiBaseUrl={apiBaseUrl}
-      accessToken={() => tokenRef.current}
-      tenantAlias={tenantAlias}
-      appId="voice-routing"
-    >
-      <VoiceRouting
-        api={api}
-        identityKey={identityKey}
-        onSignIn={() => void signInFromCurrentPage(auth)}
-      />
-    </ConsoleShell>
+      shell={{
+        ...shellUserProps(auth, tenantAlias),
+        apiBaseUrl,
+        accessToken: () => tokenRef.current,
+        tenantAlias,
+      }}
+      api={api}
+      identityKey={identityKey}
+      onSignIn={() => void signInFromCurrentPage(auth)}
+    />
   );
 }

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 
+import type { VoiceCaller } from './tenant-voice-identity.js';
 type Tx = Prisma.TransactionClient;
 export type CatalogKind = 'queues' | 'skills';
 export interface VoiceActor {
@@ -9,6 +10,7 @@ export interface VoiceActor {
   userId: string;
   roles: readonly string[];
   correlationId?: string;
+  caller?: VoiceCaller;
 }
 interface Actor {
   id: string;
@@ -79,18 +81,24 @@ export function parseCatalogCreate(body: unknown, kind: CatalogKind) {
     ...(code ? { code } : {}),
   };
 }
-export async function catalogActor(tx: Tx, identity: VoiceActor, write = false): Promise<Actor> {
+export async function findCatalogActor(tx: Tx, identity: VoiceActor): Promise<Actor | undefined> {
+  if (!identity.caller) return undefined;
   const user = await tx.user.findFirst({
     where: { id: identity.userId, tenantId: identity.tenantId, isActive: true },
-    select: { id: true, role: true, teamId: true },
+    select: { id: true, role: true, teamId: true, keycloakId: true },
   });
   if (
     !user ||
     !identity.roles.includes(user.role.toLowerCase()) ||
-    (user.role !== 'ADMIN' && user.role !== 'SUPERVISOR') ||
-    (write && user.role !== 'ADMIN')
+    (user.role !== 'ADMIN' && user.role !== 'SUPERVISOR')
   )
-    voiceFail('FORBIDDEN', 403);
+    return undefined;
+  const caller = identity.caller;
+  if (user.keycloakId !== caller.subject) return undefined;
+  const binding = await tx.$queryRaw<
+    { revision: number }[]
+  >`SELECT revision FROM tenant_voice_identity_bindings WHERE tenant_id=${identity.tenantId}::uuid AND user_id=${user.id}::uuid AND subject_id=${caller.subject} AND issuer=${caller.issuer} AND client_id=${caller.clientId} AND tenant_slug=${caller.tenantSlug} AND identity_class='TENANT_USER' AND is_active`;
+  if (!binding[0]) return undefined;
   if (user.role === 'SUPERVISOR') {
     if (
       !user.teamId ||
@@ -98,13 +106,25 @@ export async function catalogActor(tx: Tx, identity: VoiceActor, write = false):
         where: { tenantId: identity.tenantId, id: user.teamId, isActive: true },
       }))
     )
-      voiceFail('FORBIDDEN', 403);
+      return undefined;
   }
   return {
     ...user,
     role: user.role as Actor['role'],
-    scopeStamp: digest([identity.tenantId, user.id, user.role, true, user.teamId]),
+    scopeStamp: digest([
+      identity.tenantId,
+      user.id,
+      user.role,
+      true,
+      user.teamId,
+      binding[0].revision,
+    ]),
   };
+}
+export async function catalogActor(tx: Tx, identity: VoiceActor, write = false): Promise<Actor> {
+  const actor = await findCatalogActor(tx, identity);
+  if (!actor || (write && actor.role !== 'ADMIN')) voiceFail('FORBIDDEN', 403);
+  return actor;
 }
 async function policy(tx: Tx, tenantId: string) {
   const rows = await tx.$queryRaw<
@@ -389,11 +409,16 @@ export async function createCatalog(
         { table: 'teams', id: command.teamId },
         { table: 'tenants', id: identity.tenantId },
       ].sort((a, b) => a.id.localeCompare(b.id) || a.table.localeCompare(b.table));
-      for (const r of refs)
-        await tx.$queryRawUnsafe(
-          `SELECT id FROM ${r.table} WHERE id=$1::uuid FOR UPDATE NOWAIT`,
-          r.id,
-        );
+      for (const r of refs) {
+        if (r.table === 'tenants')
+          await tx.$queryRaw`SELECT id FROM tenants WHERE id=${identity.tenantId}::uuid FOR UPDATE NOWAIT`;
+        else
+          await tx.$queryRawUnsafe(
+            `SELECT id FROM ${r.table} WHERE id=$1::uuid AND tenant_id=$2::uuid FOR UPDATE NOWAIT`,
+            r.id,
+            identity.tenantId,
+          );
+      }
       await tx.$executeRaw`SELECT dc_voice_lock_policy_refs(${identity.tenantId}::uuid)`;
       await catalogActor(tx, identity, true);
       const team = await tx.team.findFirst({

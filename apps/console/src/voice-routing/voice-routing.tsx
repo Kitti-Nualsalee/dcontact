@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
 import {
+  useShellPageNav,
   Button,
   TextField,
   Select,
@@ -24,16 +25,18 @@ interface Props {
   api: CatalogApi;
   identityKey: string;
   onSignIn?: () => void;
+  kind: CatalogKind;
+  onKindSelect: (kind: CatalogKind) => void;
 }
 export function VoiceRouting(props: Props) {
-  return <CatalogSession key={props.identityKey} {...props} />;
+  return <CatalogSession key={`${props.identityKey}:${props.kind}`} {...props} />;
 }
-function CatalogSession({ api, onSignIn, identityKey }: Props) {
+function CatalogSession({ api, onSignIn, identityKey, kind, onKindSelect }: Props) {
+  const pagesInShell = useShellPageNav();
   const { t: translate } = useTranslation('voiceRouting');
   const t = translate as (key: string, options?: Record<string, unknown>) => string;
   const tokens = useShellTokens();
   const initial = new URL(window.location.href);
-  const kind: CatalogKind = initial.searchParams.get('section') === 'skills' ? 'skills' : 'queues';
   const pendingKey = `dc:voice-catalog:pending:${identityKey}:${kind}`;
   const [detailId, setDetailId] = useState(initial.searchParams.get('resource'));
   const [items, setItems] = useState<CatalogItem[]>([]),
@@ -215,7 +218,23 @@ function CatalogSession({ api, onSignIn, identityKey }: Props) {
   const quota = caps?.limits?.[capKey];
   return (
     <section className="vr-root" aria-busy={loading || saving}>
-      <h1>{t('title')}</h1>
+      <h1 id="voice-catalog-title" tabIndex={-1}>
+        {t('title')}
+      </h1>
+      {!pagesInShell ? (
+        <nav aria-label={t('catalog')}>
+          {(['queues', 'skills'] as const).map((page) => (
+            <button
+              key={page}
+              type="button"
+              aria-current={kind === page ? 'page' : undefined}
+              onClick={() => onKindSelect(page)}
+            >
+              {t(page)}
+            </button>
+          ))}
+        </nav>
+      ) : null}
       <h2>{t(kind)}</h2>
       <p>{t('inactiveNotice')}</p>
       {loading ? <p role="status">{t('loading')}</p> : null}

@@ -11,6 +11,8 @@ datasource db {
 // ─────────────────────────── Tenancy & Users ───────────────────────────
 
 model Tenant {
+  voiceIdentityBindings TenantVoiceIdentityBinding[]
+  voiceIdentityBindingAudit TenantVoiceIdentityBindingAudit[]
   voiceConfigCommands       VoiceConfigCommand[]
   voiceConfigAudit          VoiceConfigAudit[]
   voiceProvisioningPolicy   TenantVoiceProvisioningPolicy?
@@ -159,6 +161,7 @@ enum UserRole {
 }
 
 model User {
+  voiceIdentityBindings TenantVoiceIdentityBinding[]
   id           String   @id @default(uuid()) @db.Uuid
   keycloakId   String?  @unique @map("keycloak_id") @db.Uuid
   tenantId     String   @map("tenant_id") @db.Uuid
@@ -6554,4 +6557,44 @@ model TenantVoicePolicyAudit {
 
   @@id([tenantId, revision])
   @@map("tenant_voice_policy_audit")
+}
+
+/// B1: operator-verified bootstrap/enrollment authority; application อ่านอย่างเดียว
+model TenantVoiceIdentityBinding {
+  tenantId                  String   @map("tenant_id") @db.Uuid
+  userId                    String   @map("user_id") @db.Uuid
+  issuer                    String
+  subjectId                 String   @map("subject_id")
+  clientId                  String   @map("client_id")
+  tenantSlug                String   @map("tenant_slug")
+  organizationId            String   @map("organization_id") @db.Uuid
+  identityClass             String   @map("identity_class")
+  sourceKind                String   @map("source_kind")
+  evidenceRef               String   @map("evidence_ref")
+  evidenceDigest            String   @map("evidence_digest")
+  verifiedByOperatorSubject String   @map("verified_by_operator_subject")
+  verifiedAt                DateTime @map("verified_at") @db.Timestamptz
+  revision                  Int
+  isActive                  Boolean  @map("is_active")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([tenantId, userId])
+  @@unique([issuer, subjectId])
+  @@map("tenant_voice_identity_bindings")
+}
+
+/// binding snapshot ทุก revision เป็น append-only และไม่มี secret
+model TenantVoiceIdentityBindingAudit {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  revision  Int
+  binding   Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([tenantId, userId, revision])
+  @@map("tenant_voice_identity_binding_audit")
 }

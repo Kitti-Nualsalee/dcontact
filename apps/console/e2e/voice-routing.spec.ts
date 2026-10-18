@@ -26,6 +26,18 @@ const item = (name: string, kind: string) => ({
     : { code: 'LANG_TH', revision: 1 }),
 });
 test.use({ locale: 'th-TH' });
+for (const section of ['queues', 'skills'])
+  test(`production auth root เปิด Voice ${section} โดยไม่บังคับ Interaction context`, async ({
+    page,
+  }) => {
+    await page.goto(`/?view=voice-routing&section=${section}&tenant=demo&authRootHarness=1`);
+    await expect(page.getByRole('main')).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'ไม่พบ Interaction context', exact: true }),
+    ).toHaveCount(0);
+    await expect(page.getByRole('main')).toContainText(/Identity Provider|เข้าสู่ระบบ|Voice/);
+  });
+
 async function harness(
   page: Page,
   options: {
@@ -34,14 +46,20 @@ async function harness(
     lostResponse?: boolean;
     timeoutResponse?: boolean;
     status?: number;
+    shellV2?: boolean;
+    legacyPages?: boolean;
   } = {},
 ) {
   let stored: ReturnType<typeof item> | undefined;
   const commands: string[] = [];
   let detailReads = 0;
-  await page.route('**/api/v1/me/navigation**', (route) =>
-    route.fulfill({ json: homeNavigation(['admin']) }),
-  );
+  await page.route('**/api/v1/me/navigation**', (route) => {
+    const nav = homeNavigation(['admin'], options.shellV2 ?? true);
+    if (options.legacyPages)
+      for (const area of nav.areas)
+        for (const section of area.sections) for (const item of section.items) delete item.pages;
+    return route.fulfill({ json: nav });
+  });
   await page.route('**/api/v1/tenant-voice/**', async (route) => {
     const url = new URL(route.request().url()),
       path = url.pathname.split('/tenant-voice/')[1];
@@ -184,3 +202,37 @@ test.describe('English', () => {
     await page.screenshot({ path: '/tmp/dcontact-b1-queues-en.png', fullPage: true });
   });
 });
+
+for (const mode of ['shell', 'shell-off', 'legacy-pages'] as const)
+  test(`${mode}: สลับคิว/skill ไฮไลต์ตรงหน้าและย้อนกลับโดยไม่ reload`, async ({ page }) => {
+    await harness(page, { shellV2: mode !== 'shell-off', legacyPages: mode === 'legacy-pages' });
+    await page.goto('/?view=voice-routing&section=queues&tenant=demo');
+    await expect(page.getByRole('heading', { name: 'คิว Voice', exact: true })).toBeVisible();
+    await page.evaluate(() => {
+      (window as unknown as { catalogNavigationProbe: string }).catalogNavigationProbe =
+        'same-document';
+    });
+    if (mode === 'shell') {
+      await expect(page.locator('a[aria-current="page"]', { hasText: 'คิว Voice' })).toBeVisible();
+      await page.getByRole('link', { name: 'ทักษะ', exact: true }).click();
+      await expect(page.locator('a[aria-current="page"]', { hasText: 'ทักษะ' })).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'คิวและทักษะ' })).toHaveCount(0);
+    } else {
+      const nav = page.getByRole('navigation', { name: 'คิวและทักษะ' });
+      await nav.getByRole('button', { name: 'ทักษะ', exact: true }).click();
+      await expect(nav.getByRole('button', { name: 'ทักษะ', exact: true })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+    }
+    await expect(page.getByRole('heading', { name: 'ทักษะ', exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'รหัสทักษะ', exact: true })).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { catalogNavigationProbe: string }).catalogNavigationProbe,
+      ),
+    ).toBe('same-document');
+    await page.goBack();
+    await expect(page.getByRole('heading', { name: 'คิว Voice', exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'รหัสทักษะ', exact: true })).toHaveCount(0);
+  });

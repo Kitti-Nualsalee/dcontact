@@ -1,4 +1,4 @@
-import { voiceCatalogCallerAllowed } from './tenant-voice-identity.js';
+import { voiceCatalogCaller } from './tenant-voice-identity.js';
 import { VoiceCatalogErrors } from './tenant-voice-catalog-errors.js';
 import {
   UseFilters,
@@ -29,9 +29,11 @@ export const TENANT_VOICE_DATABASE = Symbol('TENANT_VOICE_DATABASE');
 function actor(req: AuthenticatedGatewayRequest): VoiceActor {
   if (!req.gatewayIdentity) throw new UnauthorizedException();
   const identity = req.gatewayIdentity;
-  if (!voiceCatalogCallerAllowed(req)) voiceFail('FORBIDDEN', 403);
+  const caller = voiceCatalogCaller(req);
+  if (!caller) voiceFail('FORBIDDEN', 403);
   return {
     ...identity,
+    caller,
     tenantId: voiceUuid(identity.tenantId, 'tenantId'),
     userId: voiceUuid(identity.userId, 'userId'),
     correlationId: req.correlationId,

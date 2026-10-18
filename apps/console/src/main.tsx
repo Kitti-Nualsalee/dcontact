@@ -1,4 +1,4 @@
-import { VoiceRouting } from './voice-routing/voice-routing.js';
+import { VoiceRoutingPage } from './voice-routing/voice-routing-page.js';
 import { createCatalogApi } from './voice-routing/api.js';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { AuthProvider } from 'react-oidc-context';
@@ -124,6 +124,7 @@ function HistoryE2eRoot() {
 
 function ConsoleE2eRoot() {
   const url = new URL(window.location.href);
+  if (url.searchParams.has('authRootHarness')) return <ConsoleAuthRoot />;
   const contextId = url.searchParams.get('context');
   const contactId = url.searchParams.get('contactId');
   const api = createConsoleApi({
@@ -152,21 +153,19 @@ function ConsoleE2eRoot() {
   if (view === 'i18n') return <LocaleProbe />;
   if (view === 'voice-routing')
     return (
-      <ConsoleShell
-        {...e2eShellUser(url.searchParams.get('tenant') ?? undefined)}
-        apiBaseUrl={window.location.origin}
-        accessToken={() => 'e2e-access-token'}
-        tenantAlias={url.searchParams.get('tenant') ?? undefined}
-        appId="voice-routing"
-      >
-        <VoiceRouting
-          api={createCatalogApi({
-            baseUrl: window.location.origin,
-            accessToken: () => 'e2e-access-token',
-          })}
-          identityKey="e2e-voice"
-        />
-      </ConsoleShell>
+      <VoiceRoutingPage
+        shell={{
+          ...e2eShellUser(url.searchParams.get('tenant') ?? undefined),
+          apiBaseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+          tenantAlias: url.searchParams.get('tenant') ?? undefined,
+        }}
+        api={createCatalogApi({
+          baseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+        })}
+        identityKey="e2e-voice"
+      />
     );
   if (view === 'agent-history') return <HistoryE2eRoot />;
   if (view === 'dphone-embedding') {
