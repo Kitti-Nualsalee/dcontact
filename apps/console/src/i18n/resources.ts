@@ -1,3 +1,5 @@
+import voiceRoutingTh from './locales/th/voice-routing.json' with { type: 'json' };
+import voiceRoutingEn from './locales/en/voice-routing.json' with { type: 'json' };
 /**
  * D1.11 (#450): message catalog ของแอป — bundle ทั้งสองภาษาโหลดตั้งแต่เริ่ม (ไม่ lazy)
  * เพื่อให้สลับภาษาได้ทันทีโดยไม่มี request และไม่ reload
@@ -30,6 +32,7 @@ export const DEFAULT_NAMESPACE = 'common';
 export const resources = {
   th: {
     common: commonTh,
+    voiceRouting: voiceRoutingTh,
     home: homeTh,
     history: historyTh,
     journeys: journeysTh,
@@ -40,6 +43,7 @@ export const resources = {
   },
   en: {
     common: commonEn,
+    voiceRouting: voiceRoutingEn,
     home: homeEn,
     history: historyEn,
     journeys: journeysEn,

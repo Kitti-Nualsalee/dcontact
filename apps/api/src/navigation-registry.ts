@@ -182,6 +182,28 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     path: '/?view=agent-history',
     roles: ['agent'],
   },
+  {
+    id: 'voice-routing',
+    area: 'routing',
+    section: 'configuration',
+    group: 'settings',
+    labelKey: 'navigation.apps.voiceRouting',
+    hostApp: 'console',
+    path: '/?view=voice-routing',
+    roles: ['admin', 'supervisor'],
+    pages: [
+      {
+        id: 'queues',
+        labelKey: 'navigation.pages.voiceRouting.queues',
+        path: '/?view=voice-routing&section=queues',
+      },
+      {
+        id: 'skills',
+        labelKey: 'navigation.pages.voiceRouting.skills',
+        path: '/?view=voice-routing&section=skills',
+      },
+    ],
+  },
 ]);
 
 export interface NavigationAreaItemView {

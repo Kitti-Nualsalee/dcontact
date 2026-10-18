@@ -22,7 +22,8 @@
     "supervisor-workspace": "ดูทีมและงานที่กำลังดำเนินการ",
     "journeys": "ออกแบบเส้นทางและระบบอัตโนมัติ",
     "contact-governance": "จัดการนโยบาย ข้อยกเว้น และ Audit",
-    "dphone-embedding": "ตั้งค่าเว็บไซต์ที่อนุญาตให้ฝัง dphone"
+    "dphone-embedding": "ตั้งค่าเว็บไซต์ที่อนุญาตให้ฝัง dphone",
+    "voice-routing": "สร้างคิวและทักษะสำหรับรับสาย"
   },
   "descriptionFallback": "เปิดพื้นที่ทำงานนี้",
   "names": {
@@ -30,6 +31,7 @@
     "supervisor-workspace": "Supervisor Workspace",
     "journeys": "Journeys",
     "contact-governance": "Contact Governance",
-    "dphone-embedding": "การฝัง dphone"
+    "dphone-embedding": "การฝัง dphone",
+    "voice-routing": "ตั้งค่า Voice"
   }
 }

@@ -1,0 +1,16 @@
+.vr-root {
+  padding: var(--dc-space-8);
+  color: var(--dc-text-primary);
+}
+.vr-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--dc-space-4);
+  margin-block: var(--dc-space-6);
+}
+.vr-root article {
+  padding: var(--dc-space-4);
+  background: var(--dc-bg-surface);
+  overflow-wrap: anywhere;
+}
