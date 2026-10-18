@@ -139,6 +139,7 @@ export function ConsoleAuthRoot() {
   const defaultView = import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined;
   const [view, setView] = useState(() => resolveConsoleView(url, defaultView));
   const homeView = view === 'home';
+  const historyView = view === 'agent-history';
   const preferenceView = view === 'preferences';
   const governanceView = view === 'governance';
   const journeyView = view === 'journeys';
@@ -153,6 +154,7 @@ export function ConsoleAuthRoot() {
     contextId =
       signedOut ||
       homeView ||
+      historyView ||
       preferenceView ||
       governanceView ||
       journeyView ||
@@ -202,7 +204,7 @@ export function ConsoleAuthRoot() {
           <SignedOutSurface />
         ) : homeView ? (
           <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : view === 'agent-history' ? (
+        ) : historyView ? (
           <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : accountView ? (
           <AccountSurface

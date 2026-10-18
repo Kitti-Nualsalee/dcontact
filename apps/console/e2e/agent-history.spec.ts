@@ -14,6 +14,17 @@ const item = {
   legacy: false,
 };
 
+test('production auth root เปิด history deep link โดยไม่บังคับ Interaction context', async ({
+  page,
+}) => {
+  await page.goto('/?view=agent-history&tenant=demo&authRootHarness=1');
+  await expect(page.getByRole('main')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'ไม่พบ Interaction context', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('main')).toContainText(/Identity Provider|เข้าสู่ระบบ|ประวัติงาน/);
+});
+
 test('auth surface เปลี่ยน identity โหลด navigation ใหม่และทิ้งเมนูบัญชีเดิม', async ({ page }) => {
   const identities: string[] = [];
   await page.route('**/api/v1/me/navigation', (route) => {

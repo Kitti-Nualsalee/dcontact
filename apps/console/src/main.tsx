@@ -122,6 +122,7 @@ function HistoryE2eRoot() {
 
 function ConsoleE2eRoot() {
   const url = new URL(window.location.href);
+  if (url.searchParams.has('authRootHarness')) return <ConsoleAuthRoot />;
   const contextId = url.searchParams.get('context');
   const contactId = url.searchParams.get('contactId');
   const api = createConsoleApi({
