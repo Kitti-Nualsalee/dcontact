@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { randomUUID } from 'node:crypto';
 import { coreFixture } from './tenant-core-test-fixtures.js';
 
 test('Core HTTP → PostgreSQL/RLS: verified Admin ใช้ Core ได้โดยไม่ต้องมี Voice policy', async (t) => {
@@ -407,4 +408,108 @@ test('Core HTTP: Admin ใน tenant เดียวกันใช้ UUID เ�
   );
   assert.equal((await f.request(path, 'admin')).body.command.outcome, 'NOT_APPLIED');
   assert.equal((await f.request(path, 'admin-two')).body.command.outcome, 'APPLIED');
+});
+
+for (const drift of ['disable', 'role', 'team'] as const) {
+  test(`Core HTTP race: User ${drift} writer แทรก execution ไม่ได้ และ replay/reconcile ตรวจสถานะล่าสุด`, async (t) => {
+    const { CoreCommandProbeController, probeHooks } =
+      await import('./tenant-core-command-probe.js');
+    const f = await coreFixture([CoreCommandProbeController]);
+    const actor = f.actors.get('admin')!;
+    const data =
+      drift === 'disable'
+        ? { isActive: false }
+        : drift === 'role'
+          ? { role: 'AGENT' as const }
+          : { teamId: null };
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const body = { commandId: randomUUID(), expectedRevision: '0', displayName: `Race ${drift}` };
+    probeHooks.set(body.commandId, {
+      afterCommandLock: async () => {
+        enter();
+        await gate;
+      },
+    });
+    const active = f.request('tenant/core-settings/_test/organization', 'admin', body);
+    t.after(async () => {
+      release();
+      try {
+        await active;
+      } finally {
+        probeHooks.delete(body.commandId);
+        await f.close();
+      }
+    });
+    assert.equal(await Promise.race([entered.then(() => true), active.then(() => false)]), true);
+    await assert.rejects(
+      f.owner.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL lock_timeout='100ms'");
+        await tx.user.update({ where: { id: actor.id }, data });
+      }),
+      'writer ต้องไม่ได้เปลี่ยน authority ระหว่าง execution',
+    );
+    release();
+    assert.equal((await active).body.command.outcome, 'APPLIED');
+    await f.owner.user.update({ where: { id: actor.id }, data });
+    const path = `tenant/core-settings/commands/${body.commandId}`;
+    const expected = drift === 'team' ? 200 : 403;
+    // Admin มี tenant scope: ย้ายทีมแล้วคงสิทธิ์ Admin; disable/role drift ต้องห้าม stale token
+    assert.equal((await f.request(path)).status, expected);
+    assert.equal((await f.request(`${path}/reconcile`, 'admin', {})).status, expected);
+    assert.equal(
+      (await f.request('tenant/core-settings/_test/organization', 'admin', body)).status,
+      expected,
+    );
+    await f.owner.user.update({
+      where: { id: actor.id },
+      data: { isActive: true, role: 'ADMIN', teamId: f.teamId },
+    });
+    assert.equal((await f.request('tenant/core-settings/_test/organization')).body.revision, '1');
+  });
+}
+
+test('Core HTTP race: Supervisor team drift ต้องได้ current own active Team และไม่อ่าน authority ระหว่าง writer ค้าง', async (t) => {
+  const f = await coreFixture();
+  t.after(() => f.close());
+  const actor = f.actors.get('supervisor')!;
+  for (const change of ['assignment', 'active'] as const) {
+    let enter!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const writer = f.owner.$transaction(async (tx) => {
+      if (change === 'assignment')
+        await tx.user.update({ where: { id: actor.id }, data: { teamId: null } });
+      else await tx.team.update({ where: { id: f.teamId }, data: { isActive: false } });
+      enter();
+      await gate;
+    });
+    try {
+      assert.equal(await Promise.race([entered.then(() => true), writer.then(() => false)]), true);
+      const busy = await f.request('tenant/core-settings/capabilities', 'supervisor');
+      assert.equal(busy.status, 409);
+      assert.equal(busy.body.error.code, 'CONFIG_BUSY');
+    } finally {
+      release();
+      await writer;
+    }
+    assert.equal((await f.request('tenant/core-settings/capabilities', 'supervisor')).status, 403);
+    await f.owner.user.update({ where: { id: actor.id }, data: { teamId: f.teamId } });
+    await f.owner.team.update({ where: { id: f.teamId }, data: { isActive: true } });
+    assert.equal(
+      (await f.request('tenant/core-settings/capabilities', 'supervisor')).body.teamScope,
+      'OWN',
+    );
+  }
 });

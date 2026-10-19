@@ -19,7 +19,7 @@ Authority: [Phase Contract Core Settings แบบ A](https://github.com/Kitti-N
 
 SQL constraints ผูก command/audit/receipt ตาม tenant/actor identity/command ID, actor/resource/action/revision/snapshot และกัน NO_OP revision เปลี่ยน Ledger append-only และ FORCE RLS พร้อม composite FK ของ actor ใน tenant เดียวกัน `apply-rls` ซ้ำต้องคง revokes รวม proof SELECT-only
 
-Profile revision table เป็นฐานให้ API องค์กร งานองค์กรต้องต่อ hooks ของ Tenant.name/TenantSettings และ provenance จริง ส่วน Team API ต้องเพิ่ม Team revision/current-writer guards ตาม packet ของตน งานฐานไม่เปิด API mutation องค์กร/ทีมด้วย callback ทดลอง และไม่อ้างว่า resource consumers ของงานถัดไปผ่านแล้ว
+Profile revision table ตรวจ deferred effect→receipt โดยต้องมี APPLIED audit/receipt ที่ resource/revision ตรงกันและสร้างใน transaction เดียวกัน ไม่รับ receipt เก่ามารองรับ effect ใหม่ เป็นฐานให้ API องค์กร งานองค์กรต้องต่อ hooks ของ Tenant.name/TenantSettings และ provenance จริง ส่วน Team API ต้องเพิ่ม Team revision/current-writer guards ตาม packet ของตน งานฐานไม่เปิด API mutation องค์กร/ทีมด้วย callback ทดลอง และไม่อ้างว่า resource consumers ของงานถัดไปผ่านแล้ว
 
 ## การตรวจ
 

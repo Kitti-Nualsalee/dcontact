@@ -35,7 +35,7 @@ jobs:
           POSTGRES_DB: dcontact
         ports: ['5433:5432']
         options: >-
-          --health-cmd 'pg_isready -U dcontact'
+          --health-cmd "pg_isready -U dcontact"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: postgresql://dcontact:dcontact@127.0.0.1:5433/dcontact?schema=public
@@ -88,7 +88,7 @@ jobs:
           POSTGRES_DB: dcontact
         ports: ['5433:5432']
         options: >-
-          --health-cmd 'pg_isready -U dcontact'
+          --health-cmd "pg_isready -U dcontact"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: postgresql://dcontact:dcontact@127.0.0.1:5433/dcontact?schema=public

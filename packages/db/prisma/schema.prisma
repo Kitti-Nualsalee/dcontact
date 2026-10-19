@@ -6647,6 +6647,7 @@ model TenantCoreCommandReceipt {
 }
 
 model TenantCoreConfigAudit {
+  transactionId    BigInt            @default(dbgenerated("txid_current()")) @map("transaction_id")
   id               String            @id @default(uuid()) @db.Uuid
   tenantId         String            @map("tenant_id") @db.Uuid
   actorIdentityKey String            @map("actor_identity_key") @db.Char(64)

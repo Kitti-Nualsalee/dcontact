@@ -310,3 +310,46 @@ test('Core DB: receipt ห้ามอ้าง snapshot ของ resource อ�
     }),
   );
 });
+
+test('Core DB: profile revision ต้องมี APPLIED audit/receipt จาก transaction เดียวกัน', async () => {
+  const c = await ledgerFixture();
+  const writeRevision = () =>
+    withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
+      await tx.tenantCoreProfileRevision.create({ data: { tenantId: c.tenantId, revision: 1n } });
+      await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+    });
+  await assert.rejects(writeRevision(), 'orphan revision ต้อง rollback');
+  await withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
+    await tx.tenantCoreCommand.create({ data: c });
+    await tx.tenantCoreConfigAudit.create({
+      data: {
+        ...keyOf(c),
+        actorUserId: c.actorUserId,
+        action: c.action,
+        resourceType: c.resourceType,
+        resourceId: c.resourceId,
+        beforeRevision: 0n,
+        afterRevision: 1n,
+        beforeValues: { id: c.resourceId, revision: '0' },
+        afterValues: { id: c.resourceId, revision: '1' },
+      },
+    });
+    await tx.tenantCoreCommandReceipt.create({
+      data: {
+        ...keyOf(c),
+        outcome: 'APPLIED',
+        committedRevision: 1n,
+        resourceSnapshot: { id: c.resourceId, revision: '1' },
+        httpStatus: 200,
+      },
+    });
+    await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+  });
+  await assert.rejects(writeRevision(), 'ห้ามนำ receipt เก่ามารองรับ effect ใน transaction ใหม่');
+  assert.equal(
+    await withTenantDatabaseTransaction(app, c.tenantId, (tx) =>
+      tx.tenantCoreProfileRevision.count(),
+    ),
+    0,
+  );
+});
