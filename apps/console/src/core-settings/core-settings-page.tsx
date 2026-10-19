@@ -6,6 +6,7 @@ import { useShellTokens } from '../shell/tokens.js';
 import type { CoreApi } from './api.js';
 import { CoreOrganizationModel } from './model.js';
 import './core-settings.css';
+import { clearCoreCommandReferences } from './storage.js';
 type ShellProps = Omit<ConsoleShellProps, 'appId' | 'pageId' | 'children'>;
 export function CoreSettingsPage({
   api,
@@ -37,11 +38,7 @@ export function CoreSettingsPage({
   useEffect(() => model.subscribe(render), [model]);
   useEffect(() => {
     // คนละ identity ต้องไม่เห็นร่างหรือ command reference ของบัญชีก่อน
-    try {
-      for (const key of Object.keys(window.sessionStorage))
-        if (key.startsWith('dc:core-settings:command:') && key !== model.storageKey)
-          window.sessionStorage.removeItem(key);
-    } catch {}
+    clearCoreCommandReferences(model.storageKey);
     model.narrow = window.matchMedia('(max-width:760px)').matches;
     void model.load();
   }, [model, signedIn]);

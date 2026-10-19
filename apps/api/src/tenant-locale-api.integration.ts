@@ -94,8 +94,12 @@ async function harness(t: TestContext) {
 
   t.after(async () => {
     await app.close();
-    await owner.tenantSettings.deleteMany({ where: { tenantId: withSettings } });
-    await owner.tenant.deleteMany({ where: { id: { in: [withSettings, withoutSettings] } } });
+    // ล้างเฉพาะ fixture ของ test ด้วย owner ใน sandbox; runtime ยังคง immutable provenance
+    await owner.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+      await tx.tenantSettings.deleteMany({ where: { tenantId: withSettings } });
+      await tx.tenant.deleteMany({ where: { id: { in: [withSettings, withoutSettings] } } });
+    });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
 

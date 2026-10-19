@@ -38,6 +38,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 jobs:
   contract-db:
     runs-on: ubuntu-latest
@@ -74,7 +77,7 @@ jobs:
           node --test scripts/core-settings-evidence.test.mjs scripts/core-settings-release.test.mjs
           pnpm --filter @d-contact/api exec tsx --test src/tenant-core-contract.test.ts src/runtime-profile.test.ts src/e1-uat-api.test.ts | tee artifacts/core-settings/contract.tap
       - name: ตรวจ HTTP → DB/RLS และ B1 shared-proof regression
-        run: pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/tenant-core-command.integration.ts src/tenant-core-organization.integration.ts src/tenant-voice-catalog.integration.ts | tee artifacts/core-settings/http.tap
+        run: pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/tenant-core-command.integration.ts src/tenant-core-organization.integration.ts src/tenant-voice-catalog.integration.ts src/tenant-locale-api.integration.ts | tee artifacts/core-settings/http.tap
       - name: ตรวจ deferred invariants และ grants หลัง apply-rls ซ้ำ
         run: |
           pnpm db:rls

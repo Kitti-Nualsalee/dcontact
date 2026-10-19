@@ -313,3 +313,54 @@ test('องค์กร: initialization metadata ตรง actor/command จร
   >`SELECT has_function_privilege('dcontact_app','dc_core_capture_organization_effect()','EXECUTE') AS allowed`;
   assert.equal(privilege[0]?.allowed, false);
 });
+
+test('องค์กร: GET ระหว่างบันทึก defaults ต้องได้ aggregate ของ revision เดียวกัน', async (t) => {
+  const f = await coreFixture();
+  t.after(() => f.close());
+  const write = async (revision: number) => {
+    const result = await f.request(
+      'tenant/core-settings/organization',
+      'admin',
+      {
+        commandId: randomUUID(),
+        expectedRevision: String(revision - 1),
+        patch: {
+          ...(revision === 1 ? { displayName: 'องค์กรทดสอบ snapshot' } : {}),
+          defaults: {
+            locale: revision % 2 ? 'th' : 'en',
+            timeZone: revision % 2 ? 'UTC' : 'Asia/Bangkok',
+          },
+        },
+      },
+      'PATCH',
+    );
+    assert.equal(result.status, 200);
+  };
+  await write(1);
+  await Promise.all([
+    (async () => {
+      for (let i = 2; i <= 21; i++) await write(i);
+    })(),
+    ...Array.from({ length: 3 }, () =>
+      (async () => {
+        for (let i = 0; i < 25; i++) {
+          const read = await f.request('tenant/core-settings/organization');
+          assert.equal(read.status, 200);
+          const org = (
+            read.body as unknown as {
+              organization: {
+                displayName: string;
+                revision: string;
+                defaults: { locale: string; timeZone: string };
+              };
+            }
+          ).organization;
+          const revision = Number(org.revision);
+          assert.equal(org.displayName, 'องค์กรทดสอบ snapshot');
+          assert.equal(org.defaults.locale, revision % 2 ? 'th' : 'en');
+          assert.equal(org.defaults.timeZone, revision % 2 ? 'UTC' : 'Asia/Bangkok');
+        }
+      })(),
+    ),
+  ]);
+});

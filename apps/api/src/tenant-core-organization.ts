@@ -8,26 +8,20 @@ import {
   type CoreIdentity,
 } from './tenant-core-command.js';
 
-export async function coreOrganizationSnapshot(tx: Prisma.TransactionClient, tenantId: string) {
-  const tenant = await tx.tenant.findUniqueOrThrow({
-    where: { id: tenantId },
-    select: { id: true, name: true },
-  });
-  const settings = await tx.tenantSettings.findUnique({ where: { tenantId } });
-  const counter = await tx.tenantCoreProfileRevision.findUnique({ where: { tenantId } });
-  return {
-    id: tenant.id,
-    displayName: tenant.name,
-    defaults: settings
-      ? {
-          locale: settings.locale,
-          timeZone: settings.timezone,
-          initializationSource: settings.initializationSource,
-        }
-      : null,
-    revision: counter?.revision.toString() ?? '0',
-  };
+interface OrganizationSnapshot {
+  id: string;
+  displayName: string;
+  defaults: null | { locale: string; timeZone: string; initializationSource: string };
+  revision: string;
 }
+export async function coreOrganizationSnapshot(tx: Prisma.TransactionClient, tenantId: string) {
+  // GET ใน READ COMMITTED ต้องอ่าน aggregate จาก statement snapshot เดียวกันด้วย
+  const [row] = await tx.$queryRaw<{ value: OrganizationSnapshot | null }[]>`
+    SELECT public.dc_core_organization_snapshot(${tenantId}::uuid) AS value`;
+  if (!row?.value) coreFail('CORE_ACCESS_DENIED', 403);
+  return row.value;
+}
+
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) coreFail('INVALID_REQUEST', 400);
   return value as Record<string, unknown>;

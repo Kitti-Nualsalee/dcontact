@@ -148,6 +148,8 @@ test(
       await new Promise((r) => setTimeout(r, 500));
     }
     assert.ok(ready, 'old image ต้อง boot workspace entrypoint จริง');
+    // Docker attach network อาจปิด host connections เดิม; เปิด owner connection ใหม่ก่อน conservation reads
+    await f.owner.$disconnect();
     const response = await fetch(`${base}/api/v1/tenant/locale-defaults`, {
       headers: { authorization: `Bearer ${token}` },
     });
@@ -161,8 +163,27 @@ test(
       `${base}/api/v1/tenant/core-settings/commands/${saved.body.command.id}`,
       { headers: { authorization: `Bearer ${token}` } },
     );
-    assert.equal(receipt.status, 200);
-    assert.deepEqual(((await receipt.json()) as { command: unknown }).command, saved.body.command);
+    const oldWorkspaceSource = execFileSync(
+      'git',
+      ['show', `${source}:apps/api/src/workspace-uat-api.ts`],
+      { encoding: 'utf8' },
+    );
+    const oldHasCoreRoutes = oldWorkspaceSource.includes('TenantCoreSettingsController');
+    if (oldHasCoreRoutes) {
+      assert.equal(receipt.status, 200);
+      assert.deepEqual(
+        ((await receipt.json()) as { command: unknown }).command,
+        saved.body.command,
+      );
+    } else {
+      assert.equal(receipt.status, 404);
+      // rollback ไปก่อนมี Core ปิด route นี้ แต่ต้องไม่ทำลาย ledger ของ schema ใหม่
+      assert.equal(
+        (await f.request(`tenant/core-settings/commands/${saved.body.command.id}`, token)).body
+          .command.outcome,
+        'APPLIED',
+      );
+    }
     assert.deepEqual(
       await f.owner.tenantSettings.findUniqueOrThrow({ where: { tenantId: f.tenantId } }),
       before,
@@ -179,6 +200,8 @@ test(
           profile: 'uat-workspace',
           databaseRole: 'dcontact_app',
           newProvisionerRejectsCoreOrigin: true,
+          oldCoreRoutes: oldHasCoreRoutes ? 'AVAILABLE' : 'NOT_YET_IMPLEMENTED',
+          ledgerPreserved: true,
           keycloakVersion: '26.7.5',
           vmUat: 'NOT_RUN',
         },

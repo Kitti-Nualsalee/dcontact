@@ -1,3 +1,4 @@
+import { clearCoreCommandReferences } from './core-settings/storage.js';
 import { CoreSettingsPage } from './core-settings/core-settings-page.js';
 import { createCoreApi } from './core-settings/api.js';
 import { VoiceRoutingPage } from './voice-routing/voice-routing-page.js';
@@ -55,10 +56,7 @@ function signInFromCurrentPage(auth: AuthContextProps) {
  */
 function SignedOutSurface() {
   useEffect(() => {
-    try {
-      for (const key of Object.keys(window.sessionStorage))
-        if (key.startsWith('dc:core-settings:command:')) window.sessionStorage.removeItem(key);
-    } catch {}
+    clearCoreCommandReferences();
   }, []);
   const auth = useAuth();
   const { t } = useTranslation('common');
@@ -750,11 +748,7 @@ export function CoreSettingsSurface({
     profile.tenant_slug === tenantAlias &&
     identity.every((x) => typeof x === 'string' && x.length > 0);
   useEffect(() => {
-    if (profile && !validProfile)
-      try {
-        for (const key of Object.keys(window.sessionStorage))
-          if (key.startsWith('dc:core-settings:command:')) window.sessionStorage.removeItem(key);
-      } catch {}
+    if (profile && !validProfile) clearCoreCommandReferences();
   }, [profile, validProfile]);
   if (profile) {
     if (!validProfile) return <main role="alert">{t('status.FORBIDDEN')}</main>;
