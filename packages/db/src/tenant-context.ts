@@ -27,7 +27,11 @@ export async function withTenantDatabaseTransaction<T>(
   tenantId: string,
   work: (transaction: Prisma.TransactionClient) => Promise<T>,
   /** AC4 (#597): transaction ที่เรียกระบบภายนอกก่อน commit ต้องการ timeout ยาวกว่าค่าเริ่มต้น 5 วินาที */
-  options?: { timeout?: number; maxWait?: number },
+  options?: {
+    timeout?: number;
+    maxWait?: number;
+    isolationLevel?: Prisma.TransactionIsolationLevel;
+  },
 ): Promise<T> {
   if (!tenantId) throw new Error('tenant context requires a tenant id');
 
