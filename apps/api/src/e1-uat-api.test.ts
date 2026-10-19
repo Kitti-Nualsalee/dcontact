@@ -113,6 +113,8 @@ test('uat-workspace mount UI APIs จริง แต่ยังบังคั
     '/api/v1/tenant-voice/queues',
     '/api/v1/tenant-voice/skills',
     '/api/v1/tenant-voice/capabilities',
+    '/api/v1/tenant/core-settings/capabilities',
+    '/api/v1/tenant/core-settings/commands/command-id',
     '/api/v1/workspace/agent/history',
     '/api/v1/tenant/locale-defaults',
     '/api/v1/workspace/supervisor/snapshot',

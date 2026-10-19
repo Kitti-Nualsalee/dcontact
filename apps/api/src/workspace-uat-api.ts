@@ -1,3 +1,4 @@
+import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
 import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
 /** #684: เพิ่ม UI APIs บน E1 sandbox โดยไม่ import default composition root */
 import { createE1UatApiModule, type E1UatApiDependencies } from './e1-uat-api.js';
@@ -34,6 +35,7 @@ export function createWorkspaceUatApiModule(dependencies: E1UatApiDependencies) 
     module: {
       ...base,
       controllers: [
+        TenantCoreSettingsController,
         TenantVoiceCatalogController,
         ...(base.controllers ?? []),
         NavigationController,
@@ -41,6 +43,7 @@ export function createWorkspaceUatApiModule(dependencies: E1UatApiDependencies) 
         SupervisorLiveController,
       ],
       providers: [
+        { provide: TENANT_CORE_DATABASE, useValue: dependencies.database },
         { provide: TENANT_VOICE_DATABASE, useValue: dependencies.database },
         ...(base.providers ?? []),
         { provide: NAVIGATION_DATABASE, useValue: dependencies.database },

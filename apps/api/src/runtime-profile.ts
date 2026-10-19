@@ -57,6 +57,8 @@ export const UAT_WORKSPACE_ALLOWED_ROUTE_PREFIXES = Object.freeze([
   '/api/v1/tenant/navigation',
   '/api/v1/tenant/locale-defaults',
   '/api/v1/workspace/supervisor',
+  '/api/v1/tenant/core-settings/capabilities',
+  '/api/v1/tenant/core-settings/commands',
   '/api/v1/tenant-voice/capabilities',
   '/api/v1/tenant-voice/teams',
   '/api/v1/tenant-voice/queues',

@@ -52,3 +52,6 @@ infra/keycloak/extensions/*/target/
 # D1.10 (#449): build ของ preview page ใน packages/ui-react
 dist-preview/
 dist-launcher/
+
+# หลักฐาน CI ของ Core Settings foundation (แนบ immutable artifact แทน commit)
+artifacts/core-settings/

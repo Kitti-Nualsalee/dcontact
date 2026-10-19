@@ -379,3 +379,7 @@ REVOKE INSERT, UPDATE, DELETE ON tenant_voice_policy_audit FROM dcontact_app;
 
 -- Positive identity เป็น operator authority; app อ่านอย่างเดียวและยังอยู่ใต้ RLS
 REVOKE INSERT, UPDATE, DELETE ON tenant_voice_identity_bindings, tenant_voice_identity_binding_audit FROM dcontact_app;
+
+-- Core Settings งานฐาน: apply-rls ซ้ำต้องไม่เปิดแก้ command/receipt/audit/proof
+REVOKE UPDATE, DELETE, TRUNCATE ON tenant_core_commands, tenant_core_command_receipts, tenant_core_config_audits FROM dcontact_app;
+REVOKE DELETE, TRUNCATE ON tenant_core_profile_revisions FROM dcontact_app;

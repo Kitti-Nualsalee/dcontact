@@ -1,0 +1,142 @@
+name: Core Settings
+on:
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - 'packages/db/**'
+      - 'packages/workspace-session/**'
+      - '.github/workflows/core-settings.yml'
+      - 'pnpm-lock.yaml'
+      - 'scripts/core-settings-evidence*'
+      - 'scripts/acceptance-main-proof.mjs'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'packages/db/**'
+      - 'packages/workspace-session/**'
+      - '.github/workflows/core-settings.yml'
+      - 'pnpm-lock.yaml'
+      - 'scripts/core-settings-evidence*'
+      - 'scripts/acceptance-main-proof.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: dcontact
+          POSTGRES_PASSWORD: dcontact
+          POSTGRES_DB: dcontact
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U dcontact"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@127.0.0.1:5433/dcontact?schema=public
+      APPLICATION_DATABASE_URL: postgresql://dcontact_app:dcontact_app@127.0.0.1:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate && pnpm --filter '@d-contact/api^...' build
+      - run: pnpm db:migrate && pnpm db:rls
+      - name: ตรวจ wire contracts และ runtime profile
+        run: |
+          mkdir -p artifacts/core-settings
+          node --test scripts/core-settings-evidence.test.mjs
+          pnpm --filter @d-contact/api exec tsx --test src/tenant-core-contract.test.ts src/runtime-profile.test.ts src/e1-uat-api.test.ts | tee artifacts/core-settings/contract.tap
+      - name: ตรวจ HTTP → DB/RLS และ B1 shared-proof regression
+        run: pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/tenant-core-command.integration.ts src/tenant-voice-catalog.integration.ts | tee artifacts/core-settings/http.tap
+      - name: ตรวจ deferred invariants และ grants หลัง apply-rls ซ้ำ
+        run: |
+          pnpm db:rls
+          pnpm --filter @d-contact/db exec tsx --test src/tenant-core-command.integration.ts | tee artifacts/core-settings/db.tap
+      - run: pnpm --filter @d-contact/db typecheck && pnpm --filter @d-contact/api typecheck
+      - name: เก็บ SHA/config/run และ checksum ของผลทดสอบที่รันจริง
+        if: always()
+        env:
+          CORE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: node scripts/core-settings-evidence.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: core-settings-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: artifacts/core-settings/
+          if-no-files-found: error
+          retention-days: 30
+  identity-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: dcontact
+          POSTGRES_PASSWORD: dcontact
+          POSTGRES_DB: dcontact
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U dcontact"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@127.0.0.1:5433/dcontact?schema=public
+      APPLICATION_DATABASE_URL: postgresql://dcontact_app:dcontact_app@127.0.0.1:5433/dcontact?schema=public
+      CORE_IDENTITY_SANDBOX_URL: http://127.0.0.1:15440
+      # Credential เฉพาะ disposable loopback sandbox ของ job นี้ ไม่ใช่ secret ของ UAT
+      CORE_IDENTITY_SANDBOX_ADMIN_PASSWORD: core-identity-ci-only
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate && pnpm --filter '@d-contact/api^...' build
+      - run: pnpm db:migrate && pnpm db:rls
+      - name: เริ่ม Keycloak ตาม digest ที่ pin ใน repo โดยแยกจากระบบจริง
+        run: |
+          docker run --detach --name core-settings-identity -p 127.0.0.1:15440:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+            -e KC_BOOTSTRAP_ADMIN_PASSWORD="$CORE_IDENTITY_SANDBOX_ADMIN_PASSWORD" \
+            docker.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85 \
+            start-dev --features=organization --hostname=http://127.0.0.1:15440
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$CORE_IDENTITY_SANDBOX_URL/realms/master/.well-known/openid-configuration" >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          echo 'Keycloak sandbox ไม่พร้อม: identity boundary NOT_RUN' >&2
+          exit 1
+      - name: ตรวจ OIDC/JWKS/native Organizations/proof จริง ไม่ใช้ verifier stub
+        run: |
+          mkdir -p artifacts/core-settings
+          pnpm --filter @d-contact/api exec tsx --test src/tenant-core-identity.boundary.ts | tee artifacts/core-settings/identity.tap
+      - name: เก็บ SHA/config/run และ checksum ของผลทดสอบที่รันจริง
+        if: always()
+        env:
+          CORE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: node scripts/core-settings-evidence.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: core-settings-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: artifacts/core-settings/
+          if-no-files-found: error
+          retention-days: 30
+      - name: ล้างเฉพาะ container sandbox ของ job นี้
+        if: always()
+        run: docker rm --force --volumes core-settings-identity || true
