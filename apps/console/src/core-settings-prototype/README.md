@@ -22,7 +22,7 @@ ArrowLeft/ArrowRight สลับแบบเมื่อไม่ได้แ�
 | B — รายการและรายละเอียด | SubNav ทางเข้าเดียว; เลือกองค์กรหรือทีมใน master list และแก้ใน pane คู่กัน            | การสลับทีมบ่อยคุ้มกับพื้นที่ที่ใช้เพิ่มหรือไม่                 |
 | C — หน้ารวมและ editor   | Hub สรุปสองหมวด; ดูค่าที่อ่านกลับก่อนเปิดแก้; editor มีขั้นตรวจเทียบก่อน direct save  | การแยกดู/แก้และทบทวนเพิ่มความเข้าใจ หรือเพิ่มขั้นตอนเกินจำเป็น |
 
-**ข้อเสนอของ agent: A** เพราะเมนูองค์กร/ทีมตรงกับ page navigation เดิม เห็น form และ save/readback ในหน้าเดียว ข้อเสนอนี้ยังไม่ใช่ verdict ของ owner สามารถเลือก B/C หรือผสมส่วนที่ชอบได้
+**Owner เลือก A แล้วเมื่อ 2026-10-19** ด้วยคำตอบ “A: หน้าแยกหมวด (แนะนำ)” โดยรับข้อเสนอหน้าองค์กร/ทีมผ่าน SubNav และ form เต็มหน้าไว้เป็นแนวทาง first slice เก็บ B/C และ switcher ไว้บน throwaway branch เป็นหลักฐานตัวเลือกเดิม ไม่ promote ต้นแบบเข้า production
 
 ## ลองอย่างไร
 
@@ -45,7 +45,7 @@ ArrowLeft/ArrowRight สลับแบบเมื่อไม่ได้แ�
 - Timezone dropdown ใช้ตัวอย่าง 3 ค่า ไม่ใช่ production allowlist ของ IANA; string validation/normalizer/revision scopes ต้องกำหนด exact contract ต่อ ไม่คัดลอกต้นแบบไป production โดยตรง
 - หน้าบัญชี/Voice ที่ลิงก์ออกไปใช้ auth/readiness ของหน้าเหล่านั้นตามปกติ ไม่มี synthetic success แทน API จริง; fixture นี้ไม่ใช้เตรียม identity/account หรือรับรองการเข้าใช้หน้าจริง
 - แถบควบคุมและ loader เปิดเฉพาะ DEV + mode `prototype`; production build ไม่รวม code/catalog ของต้นแบบที่ไม่ได้ถูกอ้างจาก entry อื่น ไม่มีการ merge/deploy จาก decision นี้
-- ยังไม่ใช่ Phase Contract หรือผล VM UAT PASS; คงงานนี้ OPEN จน owner เลือก/ให้ feedback และยืนยันข้อยุติ
+- Owner ยืนยัน UX แล้ว ส่งผลการเลือกไปบันทึก resolution ของงาน UX; ยังไม่ใช่ implementation-ready Phase Contract หรือผล VM UAT PASS และไม่อนุมัติ merge/deploy จากการเลือกต้นแบบ
 
 ## หลักฐานตรวจเบื้องต้น
 
@@ -55,4 +55,14 @@ ArrowLeft/ArrowRight สลับแบบเมื่อไม่ได้แ�
 
 ภาพ: [A](evidence/variant-A.jpg), [B](evidence/variant-B.jpg), [C](evidence/variant-C.jpg), [C review](evidence/variant-C-review.jpg), [จอแคบอ่านอย่างเดียว](evidence/narrow-readonly.jpg)
 
-UI-state inventory อยู่ใน [UI-STATES.md](UI-STATES.md) Verdict ของ owner: **ยังรอคำตอบ**
+## Verdict ของ owner — 2026-10-19
+
+Owner ตอบคำถามที่แนบต้นแบบและรูปแบบสถานะครบ 3 ข้อ:
+
+1. **“A: หน้าแยกหมวด (แนะนำ)”** — หน้าองค์กร/ทีมแยกผ่าน SubNav; form เต็มหน้า; ทีมใช้รายการและ dialog ตามแบบ A
+2. **“เห็นด้วย: ทางเข้า Core เดียวและเชื่อมหน้าจริง”** — Core เป็น app เดียวสำหรับองค์กร+ทีมในพื้นที่ตั้งค่าองค์กร เพิ่ม production registry เมื่อหน้าจริงและ server-authoritative navigation พร้อม Account/Account policy/Voice เป็นลิงก์ตาม authority เดิม Calendar/People ที่ยังไม่มีหน้าจริงไม่มี placeholder
+3. **“เห็นด้วย: ใช้รูปแบบสถานะตาม prototype”** — validation ใกล้ field; สถานะบันทึก/readback/no-op/conflict/unknown ในบริบท form; เก็บร่าง/ตรวจคำสั่งเดิม/เตือนก่อนทิ้งร่าง/ยืนยันปิดทีม; Supervisor และ narrow อ่านอย่างเดียว
+
+ใช้ [UI-state inventory](UI-STATES.md) เป็นแนวทางส่งต่อ Phase Contract ภายใต้ scope/permission/config contracts ที่ยืนยันแล้ว และต้องออกแบบ production ใหม่พร้อม exact API/error/accessibility/recovery/concurrency tests ไม่ยกการคลิก fixture เป็น acceptance ของ backend
+
+รายละเอียด resolution และ handoff อยู่ที่ [Core Settings 4: ทดลองโครงเมนูและ UX หน้าตั้งค่ารอบแรกด้วย UI เดิม](https://github.com/Kitti-Nualsalee/dcontact/issues/721) แผนที่อ้าง ticket เป็น authority ของคำตอบ ส่วน branch นี้เก็บ prototype และ verdict เป็น primary-source asset

@@ -1,6 +1,6 @@
 # UI-state inventory สำหรับส่งต่อ Phase Contract
 
-นี่เป็น **ข้อเสนอ UX ให้ owner ตรวจ** ตาม contract ที่ตัดสินแล้ว ไม่ใช่ acceptance evidence ของ backend แต่ละแบบใช้ controls/fixtures ร่วมกันเพื่อเปรียบเทียบโครงได้
+Owner ยืนยันเมื่อ 2026-10-19 ให้ใช้ **แบบ A และรูปแบบสถานะตาม prototype** เป็นแนวทาง UX ภายใต้ contract ที่ตัดสินแล้ว ตารางนี้ไม่ใช่ acceptance evidence ของ backend แต่ละแบบใช้ controls/fixtures ร่วมกันเพื่อเปรียบเทียบโครง และ B/C ยังอยู่ใน branch เป็นหลักฐานทางเลือก
 
 | สถานะ                         | สิ่งที่ผู้ใช้เห็น/ทำต่อ                                                                         | ตำแหน่งทดลอง                                    |
 | ----------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------- |
@@ -33,4 +33,4 @@
 - Atomic audit/receipt/no-op semantics และ guards ครบทุก current-reference writer จริง
 - Draft/reauth identity scoping, command-only reload recovery และ privacy ต้องทดสอบ browser จริงหลังต่อ API; full OIDC redirect ไม่อยู่ในการรับประกัน in-page draft
 - Focus restoration/keyboard/back+dirty/race ระหว่าง navigation, narrow mutation policy และ a11y ต้องมี acceptance ของ implementation ไม่ถือว่า React Aria หรือ smoke นี้พิสูจน์ครบแล้ว
-- แบบที่เลือกและข้อความ/ตำแหน่งสถานะต้องบันทึกจาก owner feedback ก่อนใช้เป็น UI acceptance ของ first slice
+- Verdict ที่ยืนยัน: แบบ A, ทางเข้า Core app เดียวเชื่อมหน้าจริง, validation ใกล้ field และ save/recovery states ใน form ตาม prototype ดูคำตอบครบใน README และ resolution ของงาน UX ก่อนกำหนด exact UI acceptance ใน Phase Contract
