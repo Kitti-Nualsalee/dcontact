@@ -8,12 +8,12 @@ import {
   type CoreIdentity,
 } from './tenant-core-command.js';
 
-interface OrganizationSnapshot {
+type OrganizationSnapshot = {
   id: string;
   displayName: string;
   defaults: null | { locale: string; timeZone: string; initializationSource: string };
   revision: string;
-}
+};
 export async function coreOrganizationSnapshot(tx: Prisma.TransactionClient, tenantId: string) {
   // GET ใน READ COMMITTED ต้องอ่าน aggregate จาก statement snapshot เดียวกันด้วย
   const [row] = await tx.$queryRaw<{ value: OrganizationSnapshot | null }[]>`

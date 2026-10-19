@@ -21,6 +21,16 @@ Console `?view=core-settings&page=organization&tenant=<tenant-slug>` ใช้ A
 5. ประสานช่วง deploy กับทีม Voice ให้ไม่มีงานรอ/ring/active/WRAPUP และไม่มีสายจริง ตรวจผ่าน E1 status และ runtime/DB ที่เป็น authority แล้วจึง deploy อย่าสรุปว่า queue ว่างจากหน้า Console อย่างเดียว
 6. มีบัญชีทดสอบขององค์กรที่ผ่าน operator verified proof เดิมจริง Admin สองคน, Supervisor มี own active Team และ negatives; tenant เดิม missing defaults กับ provisioned defaultsใช้ข้อมูลที่เตรียมตามหลักฐาน ไม่มี Core enrollment endpoint หรือการรับรองตนเองจาก token/email
 
+## Handoff ให้ operator สำหรับบัญชี Admin UAT
+
+Owner เลือกให้ operator เตรียม proof ของบัญชี Admin UAT ตามกระบวนการเดิม ขั้นตอนนี้เป็น readiness ของ limited trial ไม่เพิ่ม endpoint enrollment ใน Core
+
+1. เตรียม evidence packet ตาม [Bootstrap identity authority](../voice/catalog-v1.md#bootstrap-identity-authority-ก่อนเปิด-b): reference/digest ของ bootstrap manifest หรือ enrollment ที่อนุมัติ, tenant UUID/slug, issuer/client, domain User UUID, Keycloak subject และ native Organization UUID ที่ตรวจจริง พร้อมผู้ตรวจ/เวลา ตรวจ active role/team, exclusive enabled Org membership, service-account link, effective realm/client/composite roles และ reserved platform subjects ด้วย operator authority
+2. ตรวจ Console session จริงตาม verified issuer/sub/azp และ tenant/Org context เก็บผลตรวจหรือ digest อย่างปลอดภัย ไม่มี raw JWT/password/secret ใน ticket หรือ evidence สาธารณะ ไม่ใช้ token/email/username อย่างเดียวเป็นหลักฐานรับรอง
+3. สำหรับ deployed base ที่ยังไม่มี `tenant_voice_identity_bindings` ให้เตรียม packet ก่อน ประสาน Voice idle + backup/migration gates แล้ว apply candidate schema ด้วย runner จึงบันทึก binding ด้วย DB operator ตามกระบวนการเดิม ไม่ copy test fixture เป็น proof และไม่เปลี่ยน identity/role/Org เพื่อให้ตรวจผ่าน
+4. ส่งกลับใน issue งานหน้าองค์กร: actor alias ที่ได้รับอนุญาต, reference/digest ของหลักฐาน, เวลา/ผู้ตรวจ, binding revision และผล Core capabilities/read-only smoke โดยไม่ส่ง secret ใช้ Admin สองคนสำหรับ conflict trial และ Supervisor own active Team สำหรับ read-only trialตาม Phase Contract
+5. หลัง review/CI/immutable main evidence/package/proof พร้อมจึง deploy ช่วงที่ Voice ว่าง แล้วทีมทดสอบ ORG-TR01–09 ด้านล่าง เก็บผลจริงตาม SHA/config การเตรียม proof อย่างเดียวไม่แทน Voice smoke หรือผล trial
+
 ## Package และ deploy ด้วยเครื่องมือเดิม
 
 ทำตาม [ขั้นตอน UAT](../u1-uat-deployment.md) และ [operator 3 VM](../../infra/uat/operator/README.md) ของ SHA ที่ deploy ใช้ workflow `uat-operator-package` โดยกรอก `deployed_base_sha` จาก record จริง และ `full_workspace=true` พร้อม hosts เดิมที่ verify แล้ว ตรวจ `release.env` ว่า SOURCE_SHA ตรง candidate และทุก image เป็น digest ก่อนคัดลอก หาก main เคลื่อนไประหว่าง dispatch ให้ตรวจ SHA ของ artifact ใหม่ ห้าม deploy artifact ที่ไม่ตรงโดยอ้างผลเดิม
