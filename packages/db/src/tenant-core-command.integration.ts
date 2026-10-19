@@ -353,3 +353,64 @@ test('Core DB: profile revision ต้องมี APPLIED audit/receipt จา�
     0,
   );
 });
+
+test('Core DB: revision UPDATE ต้องมีผลใหม่และ DB ไม่เชื่อ transactionId จาก caller', async () => {
+  const c = await ledgerFixture();
+  async function commitEffect(before: bigint) {
+    const command = { ...c, commandId: randomUUID(), expectedRevision: before };
+    await withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
+      await tx.tenantCoreCommand.create({ data: command });
+      if (before === 0n)
+        await tx.tenantCoreProfileRevision.create({ data: { tenantId: c.tenantId, revision: 1n } });
+      else
+        await tx.tenantCoreProfileRevision.update({
+          where: { tenantId: c.tenantId },
+          data: { revision: { increment: 1n } },
+        });
+      const audit = await tx.tenantCoreConfigAudit.create({
+        data: {
+          ...keyOf(command),
+          actorUserId: c.actorUserId,
+          action: c.action,
+          resourceType: c.resourceType,
+          resourceId: c.resourceId,
+          beforeRevision: before,
+          afterRevision: before + 1n,
+          beforeValues: { id: c.resourceId, revision: before.toString() },
+          afterValues: { id: c.resourceId, revision: (before + 1n).toString() },
+          transactionId: 0n,
+        },
+      });
+      assert.notEqual(audit.transactionId, 0n);
+      await tx.tenantCoreCommandReceipt.create({
+        data: {
+          ...keyOf(command),
+          outcome: 'APPLIED',
+          committedRevision: before + 1n,
+          resourceSnapshot: { id: c.resourceId, revision: (before + 1n).toString() },
+          httpStatus: 200,
+        },
+      });
+      await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+    });
+  }
+  await commitEffect(0n);
+  await assert.rejects(
+    withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
+      await tx.tenantCoreProfileRevision.update({
+        where: { tenantId: c.tenantId },
+        data: { revision: { increment: 1n } },
+      });
+      await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+    }),
+  );
+  await commitEffect(1n);
+  assert.equal(
+    (
+      await withTenantDatabaseTransaction(app, c.tenantId, (tx) =>
+        tx.tenantCoreProfileRevision.findUniqueOrThrow({ where: { tenantId: c.tenantId } }),
+      )
+    ).revision,
+    2n,
+  );
+});
