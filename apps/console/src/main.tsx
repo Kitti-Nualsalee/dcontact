@@ -39,17 +39,27 @@ if (new URL(window.location.href).searchParams.get('view') === 'account') {
 
 const root = document.getElementById('root');
 if (!root) throw new Error('root element is required');
-createRoot(root).render(
-  <StrictMode>
-    {import.meta.env.MODE === 'e2e' ? (
-      <SessionLocaleProvider i18n={appI18n}>
-        <ConsoleE2eRoot />
-      </SessionLocaleProvider>
-    ) : (
-      <ConsoleAuthRoot />
-    )}
-  </StrictMode>,
-);
+if (
+  import.meta.env.DEV &&
+  import.meta.env.MODE === 'prototype' &&
+  (!new URL(window.location.href).searchParams.get('view') ||
+    new URL(window.location.href).searchParams.get('view') === 'core-settings-prototype')
+) {
+  void import('./core-settings-prototype/core-settings-prototype.js').then(({ mountPrototype }) =>
+    mountPrototype(root),
+  );
+} else
+  createRoot(root).render(
+    <StrictMode>
+      {import.meta.env.MODE === 'e2e' ? (
+        <SessionLocaleProvider i18n={appI18n}>
+          <ConsoleE2eRoot />
+        </SessionLocaleProvider>
+      ) : (
+        <ConsoleAuthRoot />
+      )}
+    </StrictMode>,
+  );
 
 // #588: ผู้ใช้จำลองของเมนูผู้ใช้ — การออกจากระบบนับใน `window.__signOuts` ให้ spec ตรวจ
 function e2eShellUser(tenantAlias: string | undefined) {

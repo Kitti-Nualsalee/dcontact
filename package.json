@@ -106,7 +106,8 @@
     "test:identity-traces": "node scripts/identity-traces-acceptance.mjs",
     "test:keycloak-branding": "node --test scripts/keycloak-branding-setup.test.mjs",
     "test:keycloak-account-service": "node --test scripts/keycloak-account-service-setup.test.mjs",
-    "test:keycloak-provisioning": "node --test scripts/keycloak-provisioning-setup.test.mjs"
+    "test:keycloak-provisioning": "node --test scripts/keycloak-provisioning-setup.test.mjs",
+    "prototype:core-settings": "pnpm --filter @d-contact/console exec vite --mode prototype --host 127.0.0.1 --port 5187 --strictPort"
   },
   "devDependencies": {
     "prettier": "^3.3.3",
