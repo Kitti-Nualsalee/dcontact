@@ -165,6 +165,7 @@ enum UserRole {
 }
 
 model User {
+  coreInitializedSettings TenantSettings[] @relation("CoreSettingsInitializer")
   coreCommands TenantCoreCommand[]
 
   voiceIdentityBindings TenantVoiceIdentityBinding[]
@@ -6095,12 +6096,18 @@ enum BusinessHoursStatus {
 
 /// ค่าตั้งต้นของ tenant จาก provisioning — locale/timezone และ bootstrap manifest ที่ใช้ seed
 model TenantSettings {
+  initializationSource String @default("PROVISIONING") @map("initialization_source")
+  initializedByUserId String? @map("initialized_by_user_id") @db.Uuid
+  initializedByIdentityKey String? @map("initialized_by_identity_key") @db.Char(64)
+  initializedByCommandId String? @map("initialized_by_command_id") @db.Uuid
+  initializedByUser User? @relation("CoreSettingsInitializer", fields: [tenantId, initializedByUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction, map: "core_settings_initializer_user")
+  initializedByCommand TenantCoreCommand? @relation(fields: [tenantId, initializedByIdentityKey, initializedByCommandId], references: [tenantId, actorIdentityKey, commandId], onDelete: NoAction, onUpdate: NoAction, map: "core_settings_initializer_command")
   tenantId                 String   @id @map("tenant_id") @db.Uuid
   locale                   String
   timezone                 String
-  bootstrapTemplateVersion String   @map("bootstrap_template_version")
-  bootstrapTemplateDigest  String   @map("bootstrap_template_digest") @db.Char(64)
-  provisioningRequestId    String   @map("provisioning_request_id") @db.Uuid
+  bootstrapTemplateVersion String?  @map("bootstrap_template_version")
+  bootstrapTemplateDigest  String?  @map("bootstrap_template_digest") @db.Char(64)
+  provisioningRequestId    String?  @map("provisioning_request_id") @db.Uuid
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @updatedAt @map("updated_at")
 
@@ -6608,6 +6615,7 @@ model TenantVoiceIdentityBindingAudit {
 
 /// Core Settings: admission ไม่มี payload; terminal effects/audit/receipt commit พร้อมกัน
 model TenantCoreCommand {
+  initializedSettings TenantSettings[]
   tenantId         String                    @map("tenant_id") @db.Uuid
   actorIdentityKey String                    @map("actor_identity_key") @db.Char(64)
   commandId        String                    @map("command_id") @db.Uuid
@@ -6670,6 +6678,8 @@ model TenantCoreConfigAudit {
 }
 
 model TenantCoreProfileRevision {
+  transactionId BigInt? @map("transaction_id")
+  capturedBefore Json? @map("captured_before")
   tenantId String @id @map("tenant_id") @db.Uuid
   revision BigInt
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)

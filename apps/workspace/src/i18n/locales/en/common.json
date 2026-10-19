@@ -25,7 +25,8 @@
       "contactGovernance": "Governance",
       "dphoneEmbedding": "dphone embedding",
       "home": "Home",
-      "voiceRouting": "Voice configuration"
+      "voiceRouting": "Voice configuration",
+      "coreSettings": "Organization settings"
     },
     "areas": {
       "home": "Home",
@@ -43,7 +44,8 @@
       "analytics": "Analytics",
       "integrations": "Integrations",
       "history": "History",
-      "reports": "Reports"
+      "reports": "Reports",
+      "settings": "Organization settings"
     },
     "sections": {
       "work": "Work",
@@ -61,6 +63,9 @@
       "voiceRouting": {
         "queues": "Voice queues",
         "skills": "Skills"
+      },
+      "coreSettings": {
+        "organization": "Organization profile"
       }
     }
   },

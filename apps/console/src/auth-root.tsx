@@ -1,6 +1,8 @@
+import { CoreSettingsPage } from './core-settings/core-settings-page.js';
+import { createCoreApi } from './core-settings/api.js';
 import { VoiceRoutingPage } from './voice-routing/voice-routing-page.js';
 import { createCatalogApi } from './voice-routing/api.js';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, useEffect, type ReactNode } from 'react';
 import { AuthProvider, useAuth, type AuthContextProps } from 'react-oidc-context';
 import { Button, shellUserFromClaims } from '@d-contact/ui-react';
 import { SessionLocaleProvider, useTranslation } from '@d-contact/i18n/react';
@@ -52,6 +54,12 @@ function signInFromCurrentPage(auth: AuthContextProps) {
  * ไม่จำ URL ใหม่ (หน้านี้ไม่มี view) ให้ callback พากลับหน้าที่จำไว้ก่อน sign-out
  */
 function SignedOutSurface() {
+  useEffect(() => {
+    try {
+      for (const key of Object.keys(window.sessionStorage))
+        if (key.startsWith('dc:core-settings:command:')) window.sessionStorage.removeItem(key);
+    } catch {}
+  }, []);
   const auth = useAuth();
   const { t } = useTranslation('common');
   if (auth.activeNavigator === 'signinRedirect' || auth.isLoading)
@@ -147,6 +155,7 @@ export function ConsoleAuthRoot() {
   const journeyView = view === 'journeys';
   const embeddingView = view === 'dphone-embedding';
   const routingView = view === 'voice-routing';
+  const coreSettingsView = view === 'core-settings';
   // #566: read-only ของ LINE pilot — มีเฉพาะ UAT ที่ใส่ overlay `uat-line` (ไม่มี = หน้าแจ้งว่าไม่ได้เปิด)
   const lineInboundView = view === 'line-inbound';
   // AC5 (#598): บัญชีของฉัน (ทุก role) และนโยบายบัญชี (admin)
@@ -163,6 +172,7 @@ export function ConsoleAuthRoot() {
       journeyView ||
       embeddingView ||
       routingView ||
+      coreSettingsView ||
       lineInboundView ||
       accountView
         ? undefined
@@ -208,6 +218,8 @@ export function ConsoleAuthRoot() {
           <SignedOutSurface />
         ) : homeView ? (
           <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+        ) : coreSettingsView ? (
+          <CoreSettingsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : routingView ? (
           <VoiceRoutingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
         ) : historyView ? (
@@ -703,6 +715,78 @@ export function VoiceRoutingSurface({
       api={api}
       identityKey={identityKey}
       onSignIn={() => void signInFromCurrentPage(auth)}
+    />
+  );
+}
+
+export function CoreSettingsSurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
+  const auth = useAuth();
+  const { t } = useTranslation('coreSettings');
+  const token = auth.user?.access_token;
+  const tokenRef = useRef(token);
+  tokenRef.current = auth.isAuthenticated ? token : undefined;
+  const api = useMemo(
+    () => createCoreApi({ baseUrl: apiBaseUrl, accessToken: () => tokenRef.current }),
+    [apiBaseUrl],
+  );
+  const retained = useRef('');
+  const profile = auth.user?.profile;
+  const identity = [
+    profile?.iss,
+    auth.settings.client_id,
+    profile?.tenant_id,
+    profile?.dc_user_id,
+    profile?.sub,
+  ];
+  const validProfile =
+    !!profile &&
+    profile.iss === auth.settings.authority &&
+    profile.tenant_slug === tenantAlias &&
+    identity.every((x) => typeof x === 'string' && x.length > 0);
+  useEffect(() => {
+    if (profile && !validProfile)
+      try {
+        for (const key of Object.keys(window.sessionStorage))
+          if (key.startsWith('dc:core-settings:command:')) window.sessionStorage.removeItem(key);
+      } catch {}
+  }, [profile, validProfile]);
+  if (profile) {
+    if (!validProfile) return <main role="alert">{t('status.FORBIDDEN')}</main>;
+    retained.current = JSON.stringify(identity);
+  }
+  if (!retained.current)
+    return (
+      <main className="empty">
+        <h1>{t('title')}</h1>
+        <Button onPress={() => void signInFromCurrentPage(auth)}>{t('signIn')}</Button>
+      </main>
+    );
+  return (
+    <CoreSettingsPage
+      key={retained.current}
+      identityKey={retained.current}
+      api={api}
+      signedIn={auth.isAuthenticated}
+      shell={{
+        ...shellUserProps(auth, tenantAlias),
+        apiBaseUrl,
+        accessToken: () => tokenRef.current,
+        tenantAlias,
+      }}
+      onSignIn={async () => {
+        try {
+          await auth.signinSilent();
+        } catch {
+          await auth.signinPopup();
+        }
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }}
     />
   );
 }

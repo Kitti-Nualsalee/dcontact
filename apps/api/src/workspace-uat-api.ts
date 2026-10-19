@@ -24,6 +24,7 @@ export const WORKSPACE_UAT_APPS = NAVIGATION_APPS.filter((app) =>
     'dphone-embedding',
     'agent-history',
     'voice-routing',
+    'core-settings',
   ].includes(app.id),
 );
 

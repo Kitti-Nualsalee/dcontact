@@ -4,7 +4,7 @@ Authority: [Phase Contract Core Settings แบบ A](https://github.com/Kitti-N
 
 ## ขอบเขตของงานฐาน
 
-เปิดเฉพาะ capabilities, command lookup และ reconcile ใน default กับ `uat-workspace` ผ่าน OIDC/verified proof จริง ไม่เพิ่ม Core app ใน registry จนหน้าองค์กร/ทีมพร้อม `uat` และ `uat-e1` คง route boundary เดิม Test-only `CoreCommandProbeController` ใช้พิสูจน์ engine ผ่าน HTTP กับข้อมูลจริงและไม่ถูก import/mount จาก entrypoint
+เปิดเฉพาะ capabilities, command lookup และ reconcile ใน default กับ `uat-workspace` ผ่าน OIDC/verified proof จริง งานฐานยังไม่เพิ่ม Core app ใน registry; [งานหน้าองค์กร](https://github.com/Kitti-Nualsalee/dcontact/issues/726) เพิ่มทางเข้าของหน้าองค์กรจริงแยกต่างหาก `uat` และ `uat-e1` คง route boundary เดิม Test-only `CoreCommandProbeController` ใช้พิสูจน์ engine ผ่าน HTTP กับข้อมูลจริงและไม่ถูก import/mount จาก entrypoint
 
 `tenant-config-identity.ts` เป็น evaluator กลาง ส่วน Voice adapter คง public imports เดิมและ policy/quota/lifecycle ของ Voice แอปยังอ่านตาราง proof ได้อย่างเดียว Core ถือ User `FOR SHARE NOWAIT` ซึ่งขัดกับ `FOR UPDATE NOWAIT` ที่ trigger เปลี่ยน proof ของ B1 บังคับอยู่ จึงไม่ต้องเพิ่ม UPDATE grant ให้ proof การเปลี่ยน role/active/team ของ User ถูก serialize ด้วยแถวเดียวกัน ตรวจ Tenant ACTIVE และ Supervisor own active Team จาก DB ด้วย
 
@@ -19,7 +19,9 @@ Authority: [Phase Contract Core Settings แบบ A](https://github.com/Kitti-N
 
 SQL constraints ผูก command/audit/receipt ตาม tenant/actor identity/command ID, actor/resource/action/revision/snapshot และกัน NO_OP revision เปลี่ยน Ledger append-only และ FORCE RLS พร้อม composite FK ของ actor ใน tenant เดียวกัน `apply-rls` ซ้ำต้องคง revokes รวม proof SELECT-only
 
-Profile revision table ตรวจ deferred effect→receipt โดยต้องมี APPLIED audit/receipt ที่ resource/revision ตรงกันและสร้างใน transaction เดียวกัน ไม่รับ receipt เก่ามารองรับ effect ใหม่ เป็นฐานให้ API องค์กร งานองค์กรต้องต่อ hooks ของ Tenant.name/TenantSettings และ provenance จริง ส่วน Team API ต้องเพิ่ม Team revision/current-writer guards ตาม packet ของตน งานฐานไม่เปิด API mutation องค์กร/ทีมด้วย callback ทดลอง และไม่อ้างว่า resource consumers ของงานถัดไปผ่านแล้ว
+Profile revision table ตรวจ deferred effect→receipt โดยต้องมี APPLIED audit/receipt ที่ resource/revision ตรงกันและสร้างใน transaction เดียวกัน ไม่รับ receipt เก่ามารองรับ effect ใหม่ งานหน้าองค์กรต่อ BEFORE hooks ของ `Tenant.name`/`TenantSettings` แล้ว: writer จริงจับ aggregate lock, capture full before snapshot และเพิ่ม revision อัตโนมัติครั้งเดียวต่อ transaction; deferred hooks ตรวจ full after snapshot กับ audit/receipt ทั้งสองทิศทาง แอปเขียน counter เองไม่ได้ และ no-op ไม่เรียก hook รายละเอียด provenance และการทดลองอยู่ใน [runbook หน้าองค์กร](./organization-limited-trial.md)
+
+Team API ยังต้องเพิ่ม Team revision/current-writer guards ตาม packet ของตน Test probe ของ foundation ใช้ full organization snapshot เช่นเดียวกับ consumer จริงและไม่ถูก mount ใน runtime ไม่อ้างว่า Team consumer ผ่านแล้ว
 
 ## การตรวจ
 

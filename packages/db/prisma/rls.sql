@@ -383,3 +383,11 @@ REVOKE INSERT, UPDATE, DELETE ON tenant_voice_identity_bindings, tenant_voice_id
 -- Core Settings งานฐาน: apply-rls ซ้ำต้องไม่เปิดแก้ command/receipt/audit/proof
 REVOKE UPDATE, DELETE, TRUNCATE ON tenant_core_commands, tenant_core_command_receipts, tenant_core_config_audits FROM dcontact_app;
 REVOKE DELETE, TRUNCATE ON tenant_core_profile_revisions FROM dcontact_app;
+
+-- Core: ที่มาของ defaults คงไว้หลัง apply-rls ซ้ำ
+REVOKE DELETE,TRUNCATE ON tenant_settings FROM dcontact_app;
+
+-- revision องค์กรเขียนผ่าน covered-field trigger เท่านั้น
+REVOKE INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER ON tenant_core_profile_revisions FROM dcontact_app;
+REVOKE TRIGGER ON tenants,tenant_settings,tenant_core_config_audits FROM dcontact_app;
+REVOKE ALL ON FUNCTION dc_core_capture_organization_effect() FROM PUBLIC;

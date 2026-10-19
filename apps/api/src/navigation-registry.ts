@@ -46,6 +46,7 @@ export const NAVIGATION_AREAS = [
   'integrations',
   'history',
   'reports',
+  'settings',
 ] as const;
 export type NavigationAreaId = (typeof NAVIGATION_AREAS)[number];
 
@@ -201,6 +202,23 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
         id: 'skills',
         labelKey: 'navigation.pages.voiceRouting.skills',
         path: '/?view=voice-routing&section=skills',
+      },
+    ],
+  },
+  {
+    id: 'core-settings',
+    area: 'settings',
+    section: 'configuration',
+    group: 'settings',
+    labelKey: 'navigation.apps.coreSettings',
+    hostApp: 'console',
+    path: '/?view=core-settings&page=organization',
+    roles: ['admin', 'supervisor'],
+    pages: [
+      {
+        id: 'organization',
+        labelKey: 'navigation.pages.coreSettings.organization',
+        path: '/?view=core-settings&page=organization',
       },
     ],
   },

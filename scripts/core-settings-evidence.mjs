@@ -41,8 +41,10 @@ function captureEvidence() {
   const directory = resolve(root, 'artifacts/core-settings');
   const env = process.env;
   const expected = {
-    'contract-db': ['contract.tap', 'http.tap', 'db.tap'],
+    'contract-db': ['contract.tap', 'http.tap', 'db.tap', 'provisioner.tap'],
     'identity-boundary': ['identity.tap'],
+    'organization-browser': ['model.tap', 'browser.tap'],
+    'organization-compatibility': ['compatibility.tap'],
   }[env.GITHUB_JOB];
   if (
     !expected ||
@@ -72,17 +74,35 @@ function captureEvidence() {
       encoding: 'utf8',
     }).trim() === '';
   const postgres = imageId(env.CORE_POSTGRES_CONTAINER_ID);
-  const keycloak =
-    env.GITHUB_JOB === 'identity-boundary' ? imageId('core-settings-identity') : null;
+  const needsKeycloak = [
+    'identity-boundary',
+    'organization-browser',
+    'organization-compatibility',
+  ].includes(env.GITHUB_JOB);
+  const keycloak = needsKeycloak ? imageId('core-settings-identity') : null;
+  const metadataFiles =
+    {
+      'organization-browser': ['browser-config.json'],
+      'organization-compatibility': ['compatibility-config.json', 'migration-config.json'],
+    }[env.GITHUB_JOB] ?? [];
+  const metadata = metadataFiles.map((file) => {
+    try {
+      const content = readFileSync(resolve(directory, file));
+      return { file, sha256: createHash('sha256').update(content).digest('hex'), result: 'PASS' };
+    } catch {
+      return { file, result: 'NOT_RUN' };
+    }
+  });
   const passed =
     sourceSha === env.GITHUB_SHA &&
     clean &&
     postgres &&
-    (env.GITHUB_JOB !== 'identity-boundary' || keycloak) &&
-    checks.every((check) => check.result === 'PASS');
+    (!needsKeycloak || keycloak) &&
+    checks.every((check) => check.result === 'PASS') &&
+    metadata.every((check) => check.result === 'PASS');
   const evidence = {
     schemaVersion: 1,
-    kind: 'CORE_FOUNDATION_TEST_EVIDENCE',
+    kind: 'CORE_SETTINGS_TEST_EVIDENCE',
     result: passed ? 'PASS' : 'NOT_PASSED',
     sourceSha,
     expectedSha: env.GITHUB_SHA,
@@ -96,6 +116,8 @@ function captureEvidence() {
     nodeVersion: process.version,
     images: { postgres, ...(keycloak ? { keycloak } : {}) },
     checks,
+    metadata,
+    runtime: { icu: process.versions.icu, tzdb: process.versions.tz },
     // หลักฐาน CI ของ foundation ไม่ใช่ VM UAT หรือ marker ของ first slice
     vmUat: 'NOT_RUN',
     recordedAt: new Date().toISOString(),

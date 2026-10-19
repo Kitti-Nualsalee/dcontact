@@ -1,3 +1,10 @@
+import {
+  NavigationController,
+  NAVIGATION_DATABASE,
+  NAVIGATION_REGISTRY,
+} from './navigation-api.js';
+import { NAVIGATION_APPS } from './navigation-registry.js';
+import { TenantLocaleDefaultsController, TENANT_LOCALE_DATABASE } from './tenant-locale-api.js';
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
@@ -14,7 +21,7 @@ import {
 import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
 import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
 
-interface CoreTestBody {
+export interface CoreTestBody {
   id: string;
   displayName: string;
   revision: string;
@@ -35,6 +42,7 @@ interface CoreTestBody {
 export async function coreFixture(
   extraControllers: Type[] = [],
   verifier?: OidcAccessTokenVerifier,
+  provisionedDefaults?: { locale: string; timeZone: string },
 ) {
   const owner = new PrismaClient();
   const db = new PrismaClient({
@@ -47,6 +55,18 @@ export async function coreFixture(
       data: { id, name: `Core ${id}`, slug: `core-${id}`, sipDomain: `${id}.core.test` },
     });
   }
+  if (provisionedDefaults) {
+    await owner.tenantSettings.create({
+      data: {
+        tenantId,
+        locale: provisionedDefaults.locale,
+        timezone: provisionedDefaults.timeZone,
+        bootstrapTemplateVersion: 'fixture-v1',
+        bootstrapTemplateDigest: 'a'.repeat(64),
+        provisioningRequestId: randomUUID(),
+      },
+    });
+  }
   const teamId = randomUUID();
   await owner.team.create({ data: { id: teamId, tenantId, name: 'Core care' } });
   const actors = new Map<string, { id: string; role: string; tenantId: string }>();
@@ -55,6 +75,7 @@ export async function coreFixture(
     ['admin-two', 'ADMIN', tenantId],
     ['supervisor', 'SUPERVISOR', tenantId],
     ['agent', 'AGENT', tenantId],
+    ['compliance', 'COMPLIANCE', tenantId],
     ['unbound', 'ADMIN', tenantId],
     ['disabled', 'ADMIN', tenantId],
     ['foreign', 'ADMIN', otherTenantId],
@@ -65,7 +86,7 @@ export async function coreFixture(
         id,
         tenantId: scope,
         keycloakId: id,
-        role,
+        role: role === 'COMPLIANCE' ? 'AGENT' : role,
         email: `${id}@core.test`,
         displayName: token,
         passwordHash: '!keycloak-managed',
@@ -102,8 +123,17 @@ export async function coreFixture(
     };
   };
   @Module({
-    controllers: [TenantCoreSettingsController, TenantVoiceCatalogController, ...extraControllers],
+    controllers: [
+      NavigationController,
+      TenantLocaleDefaultsController,
+      TenantCoreSettingsController,
+      TenantVoiceCatalogController,
+      ...extraControllers,
+    ],
     providers: [
+      { provide: NAVIGATION_DATABASE, useValue: db },
+      { provide: NAVIGATION_REGISTRY, useValue: NAVIGATION_APPS },
+      { provide: TENANT_LOCALE_DATABASE, useValue: db },
       { provide: TENANT_CORE_DATABASE, useValue: db },
       { provide: TENANT_VOICE_DATABASE, useValue: db },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier ?? { verifyAccessToken: claims } },
@@ -128,6 +158,7 @@ export async function coreFixture(
   return {
     owner,
     db,
+    base,
     tenantId,
     otherTenantId,
     teamId,

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import http from 'node:http';
@@ -1355,6 +1356,12 @@ export function disallowedDropStatements(sql) {
 }
 
 /** changes = [{ status: 'A'|'M'|'D'|'R...', path, sql }] ของ migration ระหว่าง base..HEAD */
+// Phase Contract Core Settings §5 (#723/#726) ยอม nullable bootstrap เฉพาะ CORE_ADMIN
+// Pin ทั้งไฟล์เพื่อไม่เปิดช่อง DROP NOT NULL ทั่วไป; ทุก field เดิมของ PROVISIONING ยังบังคับครบด้วย CHECK
+const CORE_PROVENANCE_RELAXATION = Object.freeze({
+  path: 'packages/db/prisma/migrations/20261019140000_core_organization_provenance/migration.sql',
+  sha256: '6bd0e2a58f1b16e82a56a5d07194f7a5f8a98918e792bd385d5236bc694ea48c',
+});
 export function guardMigrations(changes) {
   const failures = [];
   const added = [];
@@ -1371,7 +1378,12 @@ export function guardMigrations(changes) {
     }
     added.push(change.path);
     if (!change.path.endsWith('.sql')) continue;
-    const drops = disallowedDropStatements(change.sql ?? '');
+    const approvedCoreOrigin =
+      change.path === CORE_PROVENANCE_RELAXATION.path &&
+      createHash('sha256')
+        .update(change.sql ?? '')
+        .digest('hex') === CORE_PROVENANCE_RELAXATION.sha256;
+    const drops = approvedCoreOrigin ? [] : disallowedDropStatements(change.sql ?? '');
     if (drops.length > 0)
       failures.push({ path: change.path, kind: 'DROP_STATEMENT', statements: drops });
   }

@@ -86,7 +86,6 @@ test('Core DB: APPLIED ที่ขาด audit rollback resource/revision/recei
   await assert.rejects(
     withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
       await tx.tenant.update({ where: { id: c.tenantId }, data: { name: 'must rollback' } });
-      await tx.tenantCoreProfileRevision.create({ data: { tenantId: c.tenantId, revision: 1n } });
       await tx.tenantCoreCommandReceipt.create({
         data: {
           ...keyOf(c),
@@ -129,8 +128,13 @@ test('Core DB: audit ต้องตรง command/resource/revision/snapshot �
     resourceId: c.resourceId,
     beforeRevision: 0n,
     afterRevision: 1n,
-    beforeValues: { id: c.resourceId, revision: '0' },
-    afterValues: { id: c.resourceId, revision: '1' },
+    beforeValues: {
+      id: c.resourceId,
+      displayName: 'Core ledger fixture',
+      defaults: null,
+      revision: '0',
+    },
+    afterValues: { id: c.resourceId, displayName: 'changed', defaults: null, revision: '1' },
   };
   await assert.rejects(
     withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
@@ -154,6 +158,7 @@ test('Core DB: audit ต้องตรง command/resource/revision/snapshot �
     }),
   );
   await withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
+    await tx.tenant.update({ where: { id: c.tenantId }, data: { name: 'changed' } });
     await tx.tenantCoreConfigAudit.create({ data: audit });
     await tx.tenantCoreCommandReceipt.create({
       data: {
@@ -311,16 +316,12 @@ test('Core DB: receipt ห้ามอ้าง snapshot ของ resource อ�
   );
 });
 
-test('Core DB: profile revision ต้องมี APPLIED audit/receipt จาก transaction เดียวกัน', async () => {
+test('Core DB: receipt เก่าไม่รับรอง covered-field effect รอบใหม่', async () => {
   const c = await ledgerFixture();
-  const writeRevision = () =>
-    withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
-      await tx.tenantCoreProfileRevision.create({ data: { tenantId: c.tenantId, revision: 1n } });
-      await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
-    });
-  await assert.rejects(writeRevision(), 'orphan revision ต้อง rollback');
   await withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
     await tx.tenantCoreCommand.create({ data: c });
+    await tx.tenant.update({ where: { id: c.tenantId }, data: { name: 'committed' } });
+    const after = { id: c.tenantId, displayName: 'committed', defaults: null, revision: '1' };
     await tx.tenantCoreConfigAudit.create({
       data: {
         ...keyOf(c),
@@ -330,8 +331,13 @@ test('Core DB: profile revision ต้องมี APPLIED audit/receipt จา�
         resourceId: c.resourceId,
         beforeRevision: 0n,
         afterRevision: 1n,
-        beforeValues: { id: c.resourceId, revision: '0' },
-        afterValues: { id: c.resourceId, revision: '1' },
+        beforeValues: {
+          id: c.tenantId,
+          displayName: 'Core ledger fixture',
+          defaults: null,
+          revision: '0',
+        },
+        afterValues: after,
       },
     });
     await tx.tenantCoreCommandReceipt.create({
@@ -339,18 +345,21 @@ test('Core DB: profile revision ต้องมี APPLIED audit/receipt จา�
         ...keyOf(c),
         outcome: 'APPLIED',
         committedRevision: 1n,
-        resourceSnapshot: { id: c.resourceId, revision: '1' },
+        resourceSnapshot: after,
         httpStatus: 200,
       },
     });
     await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
   });
-  await assert.rejects(writeRevision(), 'ห้ามนำ receipt เก่ามารองรับ effect ใน transaction ใหม่');
+  await assert.rejects(
+    withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
+      await tx.tenant.update({ where: { id: c.tenantId }, data: { name: 'orphan effect' } });
+      await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+    }),
+  );
   assert.equal(
-    await withTenantDatabaseTransaction(app, c.tenantId, (tx) =>
-      tx.tenantCoreProfileRevision.count(),
-    ),
-    0,
+    (await owner.tenant.findUniqueOrThrow({ where: { id: c.tenantId } })).name,
+    'committed',
   );
 });
 
@@ -360,13 +369,7 @@ test('Core DB: revision UPDATE ต้องมีผลใหม่และ DB 
     const command = { ...c, commandId: randomUUID(), expectedRevision: before };
     await withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
       await tx.tenantCoreCommand.create({ data: command });
-      if (before === 0n)
-        await tx.tenantCoreProfileRevision.create({ data: { tenantId: c.tenantId, revision: 1n } });
-      else
-        await tx.tenantCoreProfileRevision.update({
-          where: { tenantId: c.tenantId },
-          data: { revision: { increment: 1n } },
-        });
+      await tx.tenant.update({ where: { id: c.tenantId }, data: { name: `effect${before + 1n}` } });
       const audit = await tx.tenantCoreConfigAudit.create({
         data: {
           ...keyOf(command),
@@ -376,8 +379,18 @@ test('Core DB: revision UPDATE ต้องมีผลใหม่และ DB 
           resourceId: c.resourceId,
           beforeRevision: before,
           afterRevision: before + 1n,
-          beforeValues: { id: c.resourceId, revision: before.toString() },
-          afterValues: { id: c.resourceId, revision: (before + 1n).toString() },
+          beforeValues: {
+            id: c.resourceId,
+            displayName: before === 0n ? 'Core ledger fixture' : `effect${before}`,
+            defaults: null,
+            revision: before.toString(),
+          },
+          afterValues: {
+            id: c.resourceId,
+            displayName: `effect${before + 1n}`,
+            defaults: null,
+            revision: (before + 1n).toString(),
+          },
           transactionId: 0n,
         },
       });
@@ -387,7 +400,12 @@ test('Core DB: revision UPDATE ต้องมีผลใหม่และ DB 
           ...keyOf(command),
           outcome: 'APPLIED',
           committedRevision: before + 1n,
-          resourceSnapshot: { id: c.resourceId, revision: (before + 1n).toString() },
+          resourceSnapshot: {
+            id: c.resourceId,
+            displayName: `effect${before + 1n}`,
+            defaults: null,
+            revision: (before + 1n).toString(),
+          },
           httpStatus: 200,
         },
       });
@@ -397,10 +415,7 @@ test('Core DB: revision UPDATE ต้องมีผลใหม่และ DB 
   await commitEffect(0n);
   await assert.rejects(
     withTenantDatabaseTransaction(app, c.tenantId, async (tx) => {
-      await tx.tenantCoreProfileRevision.update({
-        where: { tenantId: c.tenantId },
-        data: { revision: { increment: 1n } },
-      });
+      await tx.tenant.update({ where: { id: c.tenantId }, data: { name: 'missing receipt' } });
       await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
     }),
   );

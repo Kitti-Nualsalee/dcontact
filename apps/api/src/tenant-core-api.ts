@@ -7,12 +7,14 @@ import {
   Param,
   Res,
   Post,
+  Patch,
   Body,
   UseFilters,
   UnauthorizedException,
 } from '@nestjs/common';
 import { type PrismaClient } from '@d-contact/db';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
+import { coreOrganizationSnapshot, updateCoreOrganization } from './tenant-core-organization.js';
 import { tenantConfigurationCaller } from './tenant-config-identity.js';
 
 import type { ServerResponse } from 'node:http';
@@ -44,6 +46,31 @@ export function coreRequestIdentity(req: AuthenticatedGatewayRequest) {
 @GatewayRoles('admin', 'supervisor')
 export class TenantCoreSettingsController {
   constructor(@Inject(TENANT_CORE_DATABASE) private readonly db: PrismaClient) {}
+
+  @Get('organization')
+  @Header('Cache-Control', 'no-store')
+  organization(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Res({ passthrough: true }) response: ServerResponse,
+  ) {
+    const identity = coreRequestIdentity(req);
+    if (identity.correlationId) response.setHeader('X-Request-Id', identity.correlationId);
+    return coreTransaction(this.db, identity.tenantId, async (tx) => {
+      await coreActor(tx, identity, false);
+      return { organization: await coreOrganizationSnapshot(tx, identity.tenantId) };
+    });
+  }
+
+  @Patch('organization')
+  @GatewayRoles('admin')
+  async updateOrganization(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Body() body: unknown,
+    @Res() response: ServerResponse,
+  ) {
+    const result = await updateCoreOrganization(this.db, coreRequestIdentity(req), body);
+    sendCoreResponse(response, result, coreRequestId(req));
+  }
 
   @Post('commands/:id/reconcile')
   @GatewayRoles('admin')
