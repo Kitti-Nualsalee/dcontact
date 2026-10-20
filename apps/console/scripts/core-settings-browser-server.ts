@@ -128,6 +128,8 @@ try {
       host: '127.0.0.1',
       port: 5188,
       strictPort: true,
+      // UAT ป้องกัน framing ทุกหน้า Console; session restore ต้องใช้ได้ภายใต้นโยบายนี้
+      headers: { 'X-Frame-Options': 'DENY' },
       proxy: { '/api': 'http://127.0.0.1:5189', '/__core_test': 'http://127.0.0.1:5189' },
     },
   });
