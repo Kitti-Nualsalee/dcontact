@@ -11,6 +11,10 @@ datasource db {
 // ─────────────────────────── Tenancy & Users ───────────────────────────
 
 model Tenant {
+  coreCommands TenantCoreCommand[]
+  coreAudits TenantCoreConfigAudit[]
+  coreProfileRevision TenantCoreProfileRevision?
+
   voiceIdentityBindings TenantVoiceIdentityBinding[]
   voiceIdentityBindingAudit TenantVoiceIdentityBindingAudit[]
   voiceConfigCommands       VoiceConfigCommand[]
@@ -161,6 +165,9 @@ enum UserRole {
 }
 
 model User {
+  coreInitializedSettings TenantSettings[] @relation("CoreSettingsInitializer")
+  coreCommands TenantCoreCommand[]
+
   voiceIdentityBindings TenantVoiceIdentityBinding[]
   id           String   @id @default(uuid()) @db.Uuid
   keycloakId   String?  @unique @map("keycloak_id") @db.Uuid
@@ -187,6 +194,7 @@ model User {
   accountEmailChanges   AccountEmailChange[]
   accountTotpEnrolments AccountTotpEnrolment[]
 
+  @@unique([tenantId, id], map: "users_tenant_id_id_key")
   @@unique([tenantId, email])
   @@unique([tenantId, extension])
   @@index([tenantId])
@@ -6088,12 +6096,18 @@ enum BusinessHoursStatus {
 
 /// ค่าตั้งต้นของ tenant จาก provisioning — locale/timezone และ bootstrap manifest ที่ใช้ seed
 model TenantSettings {
+  initializationSource String @default("PROVISIONING") @map("initialization_source")
+  initializedByUserId String? @map("initialized_by_user_id") @db.Uuid
+  initializedByIdentityKey String? @map("initialized_by_identity_key") @db.Char(64)
+  initializedByCommandId String? @map("initialized_by_command_id") @db.Uuid
+  initializedByUser User? @relation("CoreSettingsInitializer", fields: [tenantId, initializedByUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction, map: "core_settings_initializer_user")
+  initializedByCommand TenantCoreCommand? @relation(fields: [tenantId, initializedByIdentityKey, initializedByCommandId], references: [tenantId, actorIdentityKey, commandId], onDelete: NoAction, onUpdate: NoAction, map: "core_settings_initializer_command")
   tenantId                 String   @id @map("tenant_id") @db.Uuid
   locale                   String
   timezone                 String
-  bootstrapTemplateVersion String   @map("bootstrap_template_version")
-  bootstrapTemplateDigest  String   @map("bootstrap_template_digest") @db.Char(64)
-  provisioningRequestId    String   @map("provisioning_request_id") @db.Uuid
+  bootstrapTemplateVersion String?  @map("bootstrap_template_version")
+  bootstrapTemplateDigest  String?  @map("bootstrap_template_digest") @db.Char(64)
+  provisioningRequestId    String?  @map("provisioning_request_id") @db.Uuid
   createdAt                DateTime @default(now()) @map("created_at")
   updatedAt                DateTime @updatedAt @map("updated_at")
 
@@ -6597,4 +6611,78 @@ model TenantVoiceIdentityBindingAudit {
 
   @@id([tenantId, userId, revision])
   @@map("tenant_voice_identity_binding_audit")
+}
+
+/// Core Settings: admission ไม่มี payload; terminal effects/audit/receipt commit พร้อมกัน
+model TenantCoreCommand {
+  initializedSettings TenantSettings[]
+  tenantId         String                    @map("tenant_id") @db.Uuid
+  actorIdentityKey String                    @map("actor_identity_key") @db.Char(64)
+  commandId        String                    @map("command_id") @db.Uuid
+  actorUserId      String                    @map("actor_user_id") @db.Uuid
+  schemaVersion    Int                       @default(1) @map("schema_version")
+  action           String?
+  resourceType     String?                   @map("resource_type")
+  resourceId       String?                   @map("resource_id") @db.Uuid
+  payloadDigest    String?                   @map("payload_digest") @db.Char(64)
+  expectedRevision BigInt?                   @map("expected_revision")
+  isTombstone      Boolean                   @default(false) @map("is_tombstone")
+  createdAt        DateTime                  @default(now()) @map("created_at") @db.Timestamptz
+  tenant           Tenant                    @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actor            User                      @relation(fields: [tenantId, actorUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  receipt          TenantCoreCommandReceipt?
+  audit            TenantCoreConfigAudit?
+
+  @@id([tenantId, actorIdentityKey, commandId])
+  @@index([tenantId, resourceType, resourceId, createdAt], map: "tenant_core_commands_resource")
+  @@map("tenant_core_commands")
+}
+
+model TenantCoreCommandReceipt {
+  tenantId          String            @map("tenant_id") @db.Uuid
+  actorIdentityKey  String            @map("actor_identity_key") @db.Char(64)
+  commandId         String            @map("command_id") @db.Uuid
+  outcome           String
+  committedRevision BigInt?           @map("committed_revision")
+  resourceSnapshot  Json?             @map("resource_snapshot")
+  httpStatus        Int               @map("http_status")
+  error             Json?
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  command           TenantCoreCommand @relation(fields: [tenantId, actorIdentityKey, commandId], references: [tenantId, actorIdentityKey, commandId], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([tenantId, actorIdentityKey, commandId])
+  @@map("tenant_core_command_receipts")
+}
+
+model TenantCoreConfigAudit {
+  transactionId    BigInt            @default(dbgenerated("txid_current()")) @map("transaction_id")
+  id               String            @id @default(uuid()) @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
+  actorIdentityKey String            @map("actor_identity_key") @db.Char(64)
+  commandId        String            @map("command_id") @db.Uuid
+  actorUserId      String            @map("actor_user_id") @db.Uuid
+  action           String
+  resourceType     String            @map("resource_type")
+  resourceId       String            @map("resource_id") @db.Uuid
+  beforeRevision   BigInt?           @map("before_revision")
+  afterRevision    BigInt            @map("after_revision")
+  beforeValues     Json?             @map("before_values")
+  afterValues      Json              @map("after_values")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  command          TenantCoreCommand @relation(fields: [tenantId, actorIdentityKey, commandId], references: [tenantId, actorIdentityKey, commandId], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, actorIdentityKey, commandId])
+  @@index([tenantId, resourceType, resourceId, createdAt, id], map: "tenant_core_audit_resource")
+  @@map("tenant_core_config_audits")
+}
+
+model TenantCoreProfileRevision {
+  transactionId BigInt? @map("transaction_id")
+  capturedBefore Json? @map("captured_before")
+  tenantId String @id @map("tenant_id") @db.Uuid
+  revision BigInt
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("tenant_core_profile_revisions")
 }

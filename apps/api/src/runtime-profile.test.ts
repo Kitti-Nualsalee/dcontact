@@ -273,6 +273,10 @@ test('uat-workspace เปิด UI APIs เพิ่มแบบ opt-in แล�
     '/api/v1/me/navigation/pins',
     '/api/v1/tenant/navigation/default-pins',
     '/api/v1/tenant/locale-defaults',
+    '/api/v1/tenant/core-settings/capabilities',
+    '/api/v1/tenant/core-settings/organization',
+    '/api/v1/tenant/core-settings/commands/command-id',
+    '/api/v1/tenant/core-settings/commands/command-id/reconcile',
     '/api/v1/workspace/supervisor/snapshot',
     '/api/v1/workspace/agent/snapshot',
     '/api/v1/workspace/agent/history',
@@ -289,6 +293,8 @@ test('uat-workspace เปิด UI APIs เพิ่มแบบ opt-in แล�
     '/api/v1/me/navigation-evil',
     '/api/v1/queues',
     '/api/v1/people/users',
+    '/api/v1/tenant/core-settings/teams',
+    '/api/v1/tenant/core-settings/_test/organization',
   ]) {
     assert.equal(guard.isAllowed(path), false, path);
   }

@@ -26,7 +26,8 @@
       "dphoneEmbedding": "dphone embedding",
       "home": "Home",
       "voiceRouting": "Voice configuration",
-      "tenantPeople": "User accounts"
+      "tenantPeople": "User accounts",
+      "coreSettings": "Organization settings"
     },
     "areas": {
       "home": "Home",
@@ -44,7 +45,8 @@
       "analytics": "Analytics",
       "integrations": "Integrations",
       "history": "History",
-      "reports": "Reports"
+      "reports": "Reports",
+      "settings": "Organization settings"
     },
     "sections": {
       "accounts": "Accounts",
@@ -63,6 +65,9 @@
       "voiceRouting": {
         "queues": "Voice queues",
         "skills": "Skills"
+      },
+      "coreSettings": {
+        "organization": "Organization profile"
       }
     }
   },

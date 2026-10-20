@@ -3,6 +3,7 @@ import { HttpException } from '@nestjs/common';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 
 import type { VoiceCaller } from './tenant-voice-identity.js';
+import { findTenantConfigurationActor } from './tenant-config-identity.js';
 type Tx = Prisma.TransactionClient;
 export type CatalogKind = 'queues' | 'skills';
 export interface VoiceActor {
@@ -82,44 +83,7 @@ export function parseCatalogCreate(body: unknown, kind: CatalogKind) {
   };
 }
 export async function findCatalogActor(tx: Tx, identity: VoiceActor): Promise<Actor | undefined> {
-  if (!identity.caller) return undefined;
-  const user = await tx.user.findFirst({
-    where: { id: identity.userId, tenantId: identity.tenantId, isActive: true },
-    select: { id: true, role: true, teamId: true, keycloakId: true },
-  });
-  if (
-    !user ||
-    !identity.roles.includes(user.role.toLowerCase()) ||
-    (user.role !== 'ADMIN' && user.role !== 'SUPERVISOR')
-  )
-    return undefined;
-  const caller = identity.caller;
-  if (user.keycloakId !== caller.subject) return undefined;
-  const binding = await tx.$queryRaw<
-    { revision: number }[]
-  >`SELECT revision FROM tenant_voice_identity_bindings WHERE tenant_id=${identity.tenantId}::uuid AND user_id=${user.id}::uuid AND subject_id=${caller.subject} AND issuer=${caller.issuer} AND client_id=${caller.clientId} AND tenant_slug=${caller.tenantSlug} AND identity_class='TENANT_USER' AND is_active`;
-  if (!binding[0]) return undefined;
-  if (user.role === 'SUPERVISOR') {
-    if (
-      !user.teamId ||
-      !(await tx.team.findFirst({
-        where: { tenantId: identity.tenantId, id: user.teamId, isActive: true },
-      }))
-    )
-      return undefined;
-  }
-  return {
-    ...user,
-    role: user.role as Actor['role'],
-    scopeStamp: digest([
-      identity.tenantId,
-      user.id,
-      user.role,
-      true,
-      user.teamId,
-      binding[0].revision,
-    ]),
-  };
+  return findTenantConfigurationActor(tx, identity);
 }
 export async function catalogActor(tx: Tx, identity: VoiceActor, write = false): Promise<Actor> {
   const actor = await findCatalogActor(tx, identity);

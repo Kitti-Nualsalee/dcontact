@@ -107,6 +107,7 @@ test('uat-workspace mount UI APIs จริง แต่ยังบังคั
       'agent-history',
       'voice-routing',
       'tenant-people',
+      'core-settings',
     ],
   );
   for (const route of [
@@ -116,6 +117,9 @@ test('uat-workspace mount UI APIs จริง แต่ยังบังคั
     '/api/v1/tenant-voice/capabilities',
     '/api/v1/tenant-voice/extension-pool',
     '/api/v1/tenant-voice/operations/00000000-0000-4000-8000-000000000709',
+    '/api/v1/tenant/core-settings/capabilities',
+    '/api/v1/tenant/core-settings/organization',
+    '/api/v1/tenant/core-settings/commands/command-id',
     '/api/v1/workspace/agent/history',
     '/api/v1/tenant/locale-defaults',
     '/api/v1/workspace/supervisor/snapshot',

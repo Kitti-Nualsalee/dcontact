@@ -41,6 +41,7 @@ test('role ต่างกันเห็นรายการต่างกั
     'contact-governance',
     'agent-history',
     'voice-routing',
+    'core-settings',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: ['compliance'], entitlements: FULL })), [
     'home',
@@ -58,6 +59,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'journeys',
     'voice-routing',
     'tenant-people',
+    'core-settings',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: admin, entitlements: {} })), [
     'home',
@@ -65,6 +67,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'supervisor-workspace',
     'voice-routing',
     'tenant-people',
+    'core-settings',
   ]);
   assert.deepEqual(
     ids(
@@ -73,7 +76,14 @@ test('plan ต่างกันเห็นรายการต่างกั
         entitlements: { module_journey: 1, module_contact_governance: 'yes' },
       }),
     ),
-    ['home', 'agent-workspace', 'supervisor-workspace', 'voice-routing', 'tenant-people'],
+    [
+      'home',
+      'agent-workspace',
+      'supervisor-workspace',
+      'voice-routing',
+      'tenant-people',
+      'core-settings',
+    ],
   );
 });
 
@@ -87,6 +97,7 @@ test('tenant ที่ไม่มี plan binding (null) ใช้ role อย�
     'dphone-embedding',
     'voice-routing',
     'tenant-people',
+    'core-settings',
   ]);
 });
 
@@ -99,6 +110,7 @@ test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ข�
     'dphone-embedding',
     'voice-routing',
     'tenant-people',
+    'core-settings',
   ]);
   assert.equal(
     ids(visibleApps({ roles: ['agent'], entitlements: cti })).includes('dphone-embedding'),
@@ -119,6 +131,7 @@ test('ชุดเริ่มต้นของ tenant ขึ้นกับ en
     'agent-history',
     'voice-routing',
     'tenant-people',
+    'core-settings',
   ]);
 });
 
@@ -177,6 +190,7 @@ test('#651: พื้นที่เมนูคัดตาม role/plan; ล�
     'routing',
     'people',
     'integrations',
+    'settings',
   ]);
   assert.deepEqual(areaIds({ roles: ['compliance'], entitlements: FULL }), ['home', 'governance']);
   assert.deepEqual(areaIds({ roles: ['journey-ingress'], entitlements: FULL }), []);
@@ -235,7 +249,7 @@ test('#658: Governance และ Voice ส่งหน้าย่อยจา�
   const everyone = visibleAreas(visibleApps({ roles: ['admin'], entitlements: null }));
   const withoutPages = everyone
     .flatMap((a) => a.sections.flatMap((s) => s.items))
-    .filter((i) => !['contact-governance', 'voice-routing'].includes(i.appId));
+    .filter((i) => !['contact-governance', 'voice-routing', 'core-settings'].includes(i.appId));
   assert.ok(withoutPages.every((i) => i.pages === undefined));
   const voice = everyone
     .find((a) => a.id === 'routing')!

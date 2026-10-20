@@ -7,11 +7,12 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "dev": "vite",
     "i18n:check": "dc-i18n-check src/i18n/locales",
-    "i18n:literals": "dc-i18n-literals src/governance-console.tsx src/cg5-dashboard.tsx src/governance-model.ts src/journey-authoring src/shell src/dphone-embedding src/team-scopes src/line-inbound src/account src/home src/agent-history src/voice-routing src/tenant-people",
-    "lint:css": "stylelint --config ../../packages/ui-react/.stylelintrc.json \"src/governance.css\" \"src/journey-authoring/*.css\" \"src/dphone-embedding/*.css\" \"src/line-inbound/*.css\" \"src/account/*.css\" \"src/home/*.css\" \"src/agent-history/*.css\" \"src/voice-routing/*.css\" \"src/tenant-people/*.css\"",
+    "i18n:literals": "dc-i18n-literals src/governance-console.tsx src/cg5-dashboard.tsx src/governance-model.ts src/journey-authoring src/shell src/dphone-embedding src/team-scopes src/line-inbound src/account src/home src/agent-history src/voice-routing src/tenant-people src/core-settings",
+    "lint:css": "stylelint --config ../../packages/ui-react/.stylelintrc.json \"src/governance.css\" \"src/journey-authoring/*.css\" \"src/dphone-embedding/*.css\" \"src/line-inbound/*.css\" \"src/account/*.css\" \"src/home/*.css\" \"src/agent-history/*.css\" \"src/voice-routing/*.css\" \"src/tenant-people/*.css\" \"src/core-settings/*.css\"",
     "test": "tsx --test src/*.test.ts",
     "test:e2e": "playwright test",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:core-settings:browser": "playwright test --config playwright.core-settings.config.ts"
   },
   "dependencies": {
     "@d-contact/dphone-embed": "workspace:*",

@@ -26,7 +26,8 @@
       "dphoneEmbedding": "ฝัง dphone",
       "home": "หน้าแรก",
       "voiceRouting": "ตั้งค่า Voice",
-      "tenantPeople": "บัญชีผู้ใช้"
+      "tenantPeople": "บัญชีผู้ใช้",
+      "coreSettings": "ตั้งค่าองค์กร"
     },
     "areas": {
       "home": "หน้าแรก",
@@ -44,7 +45,8 @@
       "analytics": "วิเคราะห์",
       "integrations": "การเชื่อมต่อ",
       "history": "ประวัติ",
-      "reports": "รายงาน"
+      "reports": "รายงาน",
+      "settings": "ตั้งค่าองค์กร"
     },
     "sections": {
       "accounts": "บัญชีผู้ใช้",
@@ -63,6 +65,9 @@
       "voiceRouting": {
         "queues": "คิว Voice",
         "skills": "ทักษะ"
+      },
+      "coreSettings": {
+        "organization": "ข้อมูลองค์กร"
       }
     }
   },

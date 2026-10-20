@@ -1,3 +1,4 @@
+import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
 import 'reflect-metadata';
 import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
 import { TenantPeopleController } from './tenant-people-api.js';
@@ -364,6 +365,7 @@ class WorkspaceSessionController {
 
 @Module({
   controllers: [
+    TenantCoreSettingsController,
     TenantVoiceCatalogController,
     TenantPeopleController,
     WorkspaceSessionController,
@@ -405,6 +407,7 @@ class WorkspaceSessionController {
     NavigationController,
   ],
   providers: [
+    { provide: TENANT_CORE_DATABASE, useValue: prisma },
     { provide: TENANT_VOICE_DATABASE, useValue: prisma },
     { provide: TENANT_PEOPLE_READINESS, useFactory: () => configuredPeopleRuntime() },
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },

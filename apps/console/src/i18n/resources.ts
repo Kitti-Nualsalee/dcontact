@@ -1,3 +1,5 @@
+import coreSettingsTh from './locales/th/core-settings.json' with { type: 'json' };
+import coreSettingsEn from './locales/en/core-settings.json' with { type: 'json' };
 import voiceRoutingTh from './locales/th/voice-routing.json' with { type: 'json' };
 import tenantPeopleTh from './locales/th/tenant-people.json' with { type: 'json' };
 import tenantPeopleEn from './locales/en/tenant-people.json' with { type: 'json' };
@@ -34,6 +36,7 @@ export const DEFAULT_NAMESPACE = 'common';
 export const resources = {
   th: {
     common: commonTh,
+    coreSettings: coreSettingsTh,
     voiceRouting: voiceRoutingTh,
     tenantPeople: tenantPeopleTh,
     home: homeTh,
@@ -46,6 +49,7 @@ export const resources = {
   },
   en: {
     common: commonEn,
+    coreSettings: coreSettingsEn,
     voiceRouting: voiceRoutingEn,
     tenantPeople: tenantPeopleEn,
     home: homeEn,

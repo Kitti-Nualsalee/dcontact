@@ -1,3 +1,4 @@
+import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
 import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
 import { TenantPeopleController } from './tenant-people-api.js';
 import { TENANT_PEOPLE_READINESS } from './tenant-people-readiness.js';
@@ -27,6 +28,7 @@ export const WORKSPACE_UAT_APPS = NAVIGATION_APPS.filter((app) =>
     'agent-history',
     'voice-routing',
     'tenant-people',
+    'core-settings',
   ].includes(app.id),
 );
 
@@ -38,6 +40,7 @@ export function createWorkspaceUatApiModule(dependencies: E1UatApiDependencies) 
     module: {
       ...base,
       controllers: [
+        TenantCoreSettingsController,
         TenantVoiceCatalogController,
         TenantPeopleController,
         ...(base.controllers ?? []),
@@ -46,6 +49,7 @@ export function createWorkspaceUatApiModule(dependencies: E1UatApiDependencies) 
         SupervisorLiveController,
       ],
       providers: [
+        { provide: TENANT_CORE_DATABASE, useValue: dependencies.database },
         { provide: TENANT_VOICE_DATABASE, useValue: dependencies.database },
         { provide: TENANT_PEOPLE_READINESS, useFactory: () => configuredPeopleRuntime() },
         ...(base.providers ?? []),
