@@ -117,8 +117,8 @@ function ConsoleSessionBootstrap({ children }: { children: ReactNode }) {
   const attempted = useRef(false);
   const [settled, setSettled] = useState(false);
   useEffect(() => {
-    if (!eligible || auth.isLoading || auth.activeNavigator) return;
-    if (auth.isAuthenticated || auth.error) {
+    if (auth.isLoading || auth.activeNavigator) return;
+    if (!eligible || auth.isAuthenticated || auth.error) {
       attempted.current = true;
       setSettled(true);
       return;
@@ -128,8 +128,7 @@ function ConsoleSessionBootstrap({ children }: { children: ReactNode }) {
     rememberConsoleReturnUrl(new URL(window.location.href), window.sessionStorage);
     void auth
       .signinRedirect({ prompt: 'none', redirectMethod: 'replace' })
-      .catch(() => undefined)
-      .finally(() => setSettled(true));
+      .catch(() => setSettled(true));
   }, [
     eligible,
     auth.isLoading,
@@ -138,7 +137,7 @@ function ConsoleSessionBootstrap({ children }: { children: ReactNode }) {
     auth.error,
     auth.signinRedirect,
   ]);
-  if (eligible && !settled && !auth.isAuthenticated)
+  if (!settled && !auth.isAuthenticated)
     return <Status title={t('auth.restoring.title')} detail={t('auth.restoring.detail')} />;
   return <>{children}</>;
 }
