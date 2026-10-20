@@ -5,7 +5,7 @@ import test from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { HttpException, Module, type INestApplication } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
-import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { Prisma, PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { TenantPeopleController, TENANT_PEOPLE_READINESS } from './tenant-people-api.js';
 import { TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
 import {
@@ -21,6 +21,10 @@ import {
   runPeopleWorkerStep,
   type PeopleStepOutcome,
 } from './tenant-people-worker.js';
+import {
+  runPeopleInvitationAttempt,
+  type PeopleInvitationAttempt,
+} from './tenant-people-invitation-worker.js';
 
 async function readObject(response: Response): Promise<Record<string, unknown>> {
   const body = await response.json();
@@ -93,7 +97,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
       },
     });
     await owner.$executeRaw`INSERT INTO tenant_voice_identity_bindings(tenant_id,user_id,issuer,subject_id,client_id,tenant_slug,organization_id,identity_class,source_kind,evidence_ref,evidence_digest,verified_by_operator_subject,verified_at,revision,is_active) VALUES(${tenantId}::uuid,${adminId}::uuid,'https://b2-idp.test/realms/dcontact',${adminId},'dcontact-console',${slug},${tenantId}::uuid,'TENANT_USER','BOOTSTRAP_MANIFEST','isolated-bootstrap-manifest',${'a'.repeat(64)},'sandbox-operator',now(),1,true)`;
-    await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool) VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',4,1,1,1,'sandbox-operator',now(),'isolated-test','ทดสอบ reservation เท่านั้น',${JSON.stringify(pool)}::jsonb)`;
+    await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool) VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',5,1,1,1,'sandbox-operator',now(),'isolated-test','ทดสอบ reservation เท่านั้น',${JSON.stringify(pool)}::jsonb)`;
     const actor: VoiceActor = {
       tenantId,
       userId: adminId,
@@ -266,6 +270,13 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
       { role: 'SUPERVISOR', isActive: false, keycloakId: null, extension: null },
       { role: 'ADMIN', isActive: false, keycloakId: null, extension: null },
     ]);
+    const expiredLeaseUser = await readAccepted(
+      await request('/people/users', {
+        ...supervisorCommand,
+        commandId: randomUUID(),
+        email: `${randomUUID()}@b2.test`,
+      }),
+    );
     const exhausted = await request('/people/users', {
       ...supervisorCommand,
       commandId: randomUUID(),
@@ -277,7 +288,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
       tenantId,
       (transaction) => transaction.user.count({ where: { tenantId } }),
     );
-    assert.equal(afterConcurrent, 4);
+    assert.equal(afterConcurrent, 5);
     await owner.$executeRaw`INSERT INTO tenant_people_worker_bindings(tenant_id,database_principal,approval_ref) VALUES(${tenantId}::uuid,session_user,'isolated-worker-boundary')`;
     const workerRole = await worker.$queryRaw<{ role: string }[]>`SELECT current_user AS role`;
     assert.equal(workerRole[0].role, 'dcontact_tenant_people_worker');
@@ -609,6 +620,238 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
             transaction.$executeRaw`DELETE FROM tenant_people_invitation_intents WHERE user_id=${supervisor.userId}::uuid`,
         ),
       );
+    }
+    let invitationSends = 0;
+    let invitationLookups = 0;
+    let dispatchObservedState: unknown;
+    const invitationProvider = {
+      async dispatch() {
+        invitationSends++;
+        dispatchObservedState = (
+          await readObject(await request(`/people/users/${supervisor.userId}`))
+        ).deliveryState;
+        throw new Error('response lost after provider admission');
+      },
+      async readOutcome() {
+        invitationLookups++;
+        return { outcome: 'UNKNOWN' as const };
+      },
+    };
+    await Promise.all(
+      ['invitation-worker-a', 'invitation-worker-b', 'invitation-worker-c'].map((ownerId) =>
+        runPeopleInvitationAttempt(
+          worker,
+          invitationProvider,
+          tenantId,
+          supervisor.operationId,
+          ownerId,
+        ),
+      ),
+    );
+    assert.equal(invitationSends, 1);
+    assert.equal(invitationLookups, 2);
+    assert.ok(['DISPATCHING', 'AMBIGUOUS'].includes(String(dispatchObservedState)));
+    const ambiguousInvitation = await readObject(
+      await request(`/people/users/${supervisor.userId}`),
+    );
+    assert.equal(ambiguousInvitation.deliveryState, 'AMBIGUOUS');
+    assert.equal(ambiguousInvitation.invitationGeneration, 1);
+    assert.equal(ambiguousInvitation.activationState, 'PENDING');
+    await runPeopleInvitationAttempt(
+      worker,
+      invitationProvider,
+      tenantId,
+      supervisor.operationId,
+      'invitation-worker-restarted',
+    );
+    assert.equal(invitationSends, 1);
+    assert.equal(invitationLookups, 3);
+    const completionProof = (attempt: PeopleInvitationAttempt) => ({
+      ...attempt,
+      outcome: 'SENT' as const,
+      receiptRef: 'd'.repeat(64),
+      quiescent: true as const,
+      notBeforeEpoch: 4102444800,
+      issuedAtEpoch: 4102444800,
+    });
+    let rejectedProofDispatches = 0;
+    for (const mismatch of [
+      { tenantId: randomUUID() },
+      { operationId: randomUUID() },
+      { userId: randomUUID() },
+      { generation: 2 },
+      { providerAttemptRef: randomUUID() },
+      { payloadDigest: 'e'.repeat(64) },
+      { fencingToken: '2' },
+      { leaseOwner: 'different-send-lease' },
+      { quiescent: false },
+      { notBeforeEpoch: 4102444801 },
+      { issuedAtEpoch: 1.5 },
+      { receiptRef: 'not-an-exact-provider-receipt' },
+    ]) {
+      assert.equal(
+        await runPeopleInvitationAttempt(
+          worker,
+          {
+            async dispatch() {
+              rejectedProofDispatches++;
+              assert.fail('ambiguous attempt must not send again');
+            },
+            async readOutcome(attempt) {
+              return { ...completionProof(attempt), ...mismatch };
+            },
+          },
+          tenantId,
+          supervisor.operationId,
+          'wrong-attempt-proof',
+        ),
+        'AMBIGUOUS',
+      );
+      assert.equal(
+        (await readObject(await request(`/people/users/${supervisor.userId}`))).deliveryState,
+        'AMBIGUOUS',
+      );
+    }
+    assert.equal(rejectedProofDispatches, 0);
+    assert.equal(
+      await runPeopleInvitationAttempt(
+        worker,
+        {
+          async dispatch() {
+            assert.fail('late receipt must reconcile without another send');
+          },
+          async readOutcome(attempt) {
+            return completionProof(attempt);
+          },
+        },
+        tenantId,
+        supervisor.operationId,
+        'exact-attempt-proof',
+      ),
+      'RECORDED',
+    );
+    const sentInvitation = await readObject(await request(`/people/users/${supervisor.userId}`));
+    assert.equal(sentInvitation.deliveryState, 'SENT');
+    assert.equal(sentInvitation.invitationExpiresAt, '2100-01-04T00:00:00.000Z');
+    assert.equal(sentInvitation.activationState, 'PENDING');
+    assert.equal(sentInvitation.isActive, false);
+    assert.equal('receiptRef' in sentInvitation, false);
+    assert.equal(
+      await runPeopleInvitationAttempt(
+        worker,
+        {
+          async dispatch() {
+            assert.fail('finished receipt must not dispatch');
+          },
+          async readOutcome() {
+            assert.fail('finished receipt must not call the provider again');
+          },
+        },
+        tenantId,
+        supervisor.operationId,
+        'finished-attempt-reader',
+      ),
+      'RECORDED',
+    );
+    for (const step of [
+      'CREATE_IDENTITY',
+      'TENANT_ROLE',
+      'ORG_MEMBERSHIP',
+      'VERIFY_MAPPING',
+      'INVITATION_INTENT',
+      'VERIFY_PROVISIONED',
+    ]) {
+      if (step === 'INVITATION_INTENT') {
+        await owner.$executeRaw`INSERT INTO tenant_people_invitation_intents(tenant_id,operation_id,user_id,created_at)
+          VALUES(${tenantId}::uuid,${expiredLeaseUser.operationId}::uuid,${expiredLeaseUser.userId}::uuid,clock_timestamp()-interval '1 day')`;
+      }
+      const provision = await claimPeopleOperation(
+        worker,
+        tenantId,
+        expiredLeaseUser.operationId,
+        'expired-lease-provisioner',
+      );
+      assert.ok(provision);
+      assert.equal(provision.step, step);
+      await recordPeopleStep(worker, provision, {
+        outcome: 'SUCCEEDED',
+        receiptRef: `expired-lease-${step}`,
+        ...(step.startsWith('VERIFY_') ? { identityId: expiredLeaseUser.userId } : {}),
+      });
+    }
+    await owner.$executeRaw`INSERT INTO tenant_people_invitation_dispatches
+      (tenant_id,operation_id,user_id,generation,provider_attempt_ref,lease_owner,started_at,lease_expires_at)
+      SELECT tenant_id,operation_id,user_id,generation,provider_attempt_ref,'crashed-old-send',clock_timestamp()-interval '3 minutes',clock_timestamp()-interval '2 minutes'
+      FROM tenant_people_invitation_intents WHERE tenant_id=${tenantId}::uuid AND operation_id=${expiredLeaseUser.operationId}::uuid`;
+    assert.equal(
+      (await readObject(await request(`/people/users/${expiredLeaseUser.userId}`))).deliveryState,
+      'DISPATCHING',
+    );
+    assert.equal(
+      await runPeopleInvitationAttempt(
+        worker,
+        {
+          async dispatch() {
+            assert.fail('old intent and expired send lease are not retry authority');
+          },
+          async readOutcome(attempt) {
+            assert.equal(attempt.leaseOwner, 'crashed-old-send');
+            return {
+              ...completionProof(attempt),
+              notBeforeEpoch: 946684800,
+              issuedAtEpoch: 946684800,
+            };
+          },
+        },
+        tenantId,
+        expiredLeaseUser.operationId,
+        'expired-lease-reconciler',
+      ),
+      'RECORDED',
+    );
+    const expiredInvitation = await readObject(
+      await request(`/people/users/${expiredLeaseUser.userId}`),
+    );
+    assert.equal(expiredInvitation.deliveryState, 'EXPIRED');
+    assert.equal(expiredInvitation.invitationGeneration, 1);
+    assert.equal(expiredInvitation.invitationExpiresAt, '2000-01-04T00:00:00.000Z');
+    assert.equal(expiredInvitation.isActive, false);
+    await assert.rejects(() =>
+      runPeopleInvitationAttempt(
+        application,
+        invitationProvider,
+        tenantId,
+        supervisor.operationId,
+        'application-cannot-dispatch',
+      ),
+    );
+    for (const table of [
+      'tenant_people_invitation_dispatches',
+      'tenant_people_invitation_ambiguities',
+      'tenant_people_invitation_receipts',
+    ]) {
+      assert.deepEqual(
+        await withTenantDatabaseTransaction(application, randomUUID(), (transaction) =>
+          transaction.$queryRaw(Prisma.sql`SELECT tenant_id FROM ${Prisma.raw(table)}`),
+        ),
+        [],
+      );
+      for (const principal of [application, worker]) {
+        await assert.rejects(() =>
+          withTenantDatabaseTransaction(principal, tenantId, (transaction) =>
+            transaction.$executeRaw(
+              Prisma.sql`UPDATE ${Prisma.raw(table)} SET tenant_id=tenant_id WHERE tenant_id=${tenantId}::uuid`,
+            ),
+          ),
+        );
+        await assert.rejects(() =>
+          withTenantDatabaseTransaction(principal, tenantId, (transaction) =>
+            transaction.$executeRaw(
+              Prisma.sql`DELETE FROM ${Prisma.raw(table)} WHERE tenant_id=${tenantId}::uuid`,
+            ),
+          ),
+        );
+      }
     }
     const provisionedUser = await owner.user.findUniqueOrThrow({
       where: { id: supervisor.userId },

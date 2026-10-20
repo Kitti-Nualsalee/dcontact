@@ -394,6 +394,12 @@ GRANT INSERT ON tenant_people_step_receipts TO dcontact_tenant_people_worker;
 REVOKE ALL ON tenant_people_invitation_intents FROM dcontact_app, dcontact_tenant_people_worker;
 GRANT SELECT ON tenant_people_invitation_intents TO dcontact_app;
 GRANT SELECT, INSERT ON tenant_people_invitation_intents TO dcontact_tenant_people_worker;
+REVOKE ALL ON tenant_people_invitation_dispatches, tenant_people_invitation_ambiguities FROM dcontact_app, dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_invitation_dispatches, tenant_people_invitation_ambiguities TO dcontact_app;
+GRANT SELECT, INSERT ON tenant_people_invitation_dispatches, tenant_people_invitation_ambiguities TO dcontact_tenant_people_worker;
+REVOKE ALL ON tenant_people_invitation_receipts FROM dcontact_app, dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_invitation_receipts TO dcontact_app;
+GRANT SELECT, INSERT ON tenant_people_invitation_receipts TO dcontact_tenant_people_worker;
 REVOKE ALL ON FUNCTION dc_tenant_people_apply_identity_proof(uuid,uuid,bigint,uuid) FROM PUBLIC, dcontact_app;
 GRANT EXECUTE ON FUNCTION dc_tenant_people_apply_identity_proof(uuid,uuid,bigint,uuid) TO dcontact_tenant_people_worker;
 -- Core Settings งานฐาน: apply-rls ซ้ำต้องไม่เปิดแก้ command/receipt/audit/proof
