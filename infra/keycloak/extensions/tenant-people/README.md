@@ -33,9 +33,13 @@ Runner ตรวจ concurrent intent/dispatch/replay, profile guard, atomic rol
 
 ฝั่ง application มี `TenantPeopleKeycloak.invitationPort()` สำหรับ dispatch/readback โดยใช้ tenant service credentials เดิม Worker โหลด accepted payload และตรวจ digest ก่อนเรียก provider รับเฉพาะ `SENT` ที่มี field ตรง private contract ทั้งหมดและ quiescence proof ของ operation/user/generation/attempt/fence/send owner เดิม ไม่รับ field เกินหรืออนุมานผลจาก HTTP status อย่างเดียว หาก response หาย รอบถัดไปอ่านด้วย GET เท่านั้น
 
-Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ตรวจครบสาม roles ว่าคืนสถานะ `SENT` ผ่าน API หลัง lost response และปฏิเสธ proof ที่มี field เกิน บัญชียัง inactive/PENDING ไม่สร้าง SIP credential หรือ work-session lease การต่อ adapter นี้ยังไม่เปิด invitation capability หรือผูกเข้ากับ scheduler ของ runtime ปกติ
+Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ตรวจครบสาม roles ว่าคืนสถานะ `SENT` ผ่าน API หลัง lost response และปฏิเสธ proof ที่มี field เกิน บัญชียัง inactive/PENDING ไม่สร้าง SIP credential หรือ work-session lease
 
-ส่วนนี้ยังรองรับ generation แรกเท่านั้น รุ่นถัดไปถูกปฏิเสธ ไม่มี application runtime dispatch/Console resend/activation เปิดใช้งาน การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ resend cap, monotonic supersession, old/expired/activated-link guard และ fresh activation proof ยังต้องผ่านเกตของตนเอง
+`TenantPeopleRuntime` รับ `invitations` เป็น tenant-bound port แบบ opt-in เท่านั้น ค่าเริ่มต้นว่าง และ composition ปกติยังไม่ส่ง port นี้ ก่อน claim ต้องผ่าน DB principal/binding, provisioning readiness และ invitation readiness ที่ตอบ `invitationReady: true` อย่างชัดเจน รุ่น provider ที่ไม่มี field นี้ถือว่ายังไม่พร้อม งาน invitation ใช้ batch budget ร่วมกับ provisioning สลับคิวต่อ tenant และเลื่อน cursor เพื่อไม่ให้ attempt ที่ยังไม่ทราบผลขวางรายการอื่น ภายใน batch เดียวไม่ทำ attempt เดิมซ้ำ ไม่มี transaction ครอบ provider call; shutdown รอ in-flight drain จบ
+
+Boundary ตรวจ gate ปิดแล้วสถานะยัง `INTENT`/ไม่มี dispatch, gate เปิดแล้ว response หายเป็น `AMBIGUOUS`, proof ผิดรูปไม่ผ่าน และ runtime ใหม่อ่าน finished receipt เดิมผ่าน GET จนเป็น `SENT` โดย POST รวมเพียงครั้งเดียวต่อ role ยังไม่เปิด public invitation capability หรือส่งเมลจาก runtime ปกติ
+
+ส่วนนี้ยังรองรับ generation แรกเท่านั้น รุ่นถัดไปถูกปฏิเสธ ไม่มี Console resend/activation เปิดใช้งาน การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ resend cap, monotonic supersession, old/expired/activated-link guard และ fresh activation proof ยังต้องผ่านเกตของตนเอง
 
 ไฟล์ `tenant-people-operations.integration.ts` แยกทดสอบ HTTP/RLS/quotas/claims ด้วย identity port ที่ควบคุมได้ ไม่ใช้ผลชุดนั้นแทน real Keycloak boundary ส่วน `tenant-people-keycloak.boundary.ts` และ `tenant-people-provisioning.boundary.ts` รับ environment ของ runner และ fail หากไม่มี configuration ไม่ skip แล้วนับผ่าน
 

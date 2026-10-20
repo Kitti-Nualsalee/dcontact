@@ -13,7 +13,6 @@ import { TenantPeopleKeycloak } from './tenant-people-keycloak.js';
 import { DatabaseTenantPeopleReadiness } from './tenant-people-readiness.js';
 import { TenantPeopleRuntime } from './tenant-people-runtime.js';
 import type { TenantPeopleIdentityPort } from './tenant-people-worker.js';
-import { runPeopleInvitationAttempt } from './tenant-people-invitation-worker.js';
 import {
   OidcGlobalGuard,
   OIDC_ACCESS_TOKEN_VERIFIER,
@@ -72,6 +71,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
   ];
   const readiness = new DatabaseTenantPeopleReadiness(worker, new Map([[tenantId, adapter]]));
   let app: Awaited<ReturnType<typeof NestFactory.create>> | undefined;
+  let invitationRuntime: TenantPeopleRuntime | undefined;
   try {
     await owner.$executeRawUnsafe(
       `CREATE ROLE "${workerPrincipal}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS PASSWORD '${workerPassword}'`,
@@ -245,6 +245,9 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
       let invitationPosts = 0;
       let invitationReads = 0;
       let malformedProofs = 0;
+      let allowCleanProof = false;
+      let invitationGateOpen = false;
+      let allowInvitationReadiness = false;
       const deliveryAdapter = new TenantPeopleKeycloak(
         {
           issuer,
@@ -254,6 +257,9 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
         },
         async (input, options) => {
           const response = await fetch(input, options);
+          if (String(input).includes('/readiness?') && !allowInvitationReadiness && response.ok) {
+            return Response.json({ version: 1, ready: true, tenantId });
+          }
           if (String(input).includes('/dispatch')) {
             if (options?.method === 'POST') {
               invitationPosts++;
@@ -261,7 +267,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
               throw new Error('synthetic SMTP response loss');
             }
             invitationReads++;
-            if (malformedProofs === 0 && response.ok) {
+            if (!allowCleanProof && response.ok) {
               const proof: unknown = await response.json();
               if (
                 proof &&
@@ -279,35 +285,49 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
         },
       );
       const delivery = deliveryAdapter.invitationPort();
-      assert.equal(typeof pendingInvitation.operationId, 'string');
-      const invitationOperationId = String(pendingInvitation.operationId);
-      assert.equal(
-        await runPeopleInvitationAttempt(
-          worker,
-          delivery,
-          tenantId,
-          invitationOperationId,
-          'smtp-original-worker',
-        ),
-        'AMBIGUOUS',
-      );
-      let invitationResult = 'AMBIGUOUS';
-      for (let attempt = 0; attempt < 50 && invitationResult !== 'RECORDED'; attempt++) {
-        const previousMalformedProofs = malformedProofs;
-        invitationResult = await runPeopleInvitationAttempt(
-          worker,
-          delivery,
-          tenantId,
-          invitationOperationId,
-          'smtp-restarted-reader',
-        );
-        if (malformedProofs > previousMalformedProofs) assert.equal(invitationResult, 'AMBIGUOUS');
-        if (invitationResult !== 'RECORDED')
-          await new Promise((resolve) => setTimeout(resolve, 100));
+      assert.equal(await delivery.isReady(randomUUID()), false);
+      assert.equal(await delivery.isReady(tenantId), false);
+      allowInvitationReadiness = true;
+      assert.equal(await delivery.isReady(tenantId), true);
+      const createInvitationRuntime = () =>
+        new TenantPeopleRuntime(worker, new Map([[tenantId, adapter]]), {
+          intervalMs: 100,
+          batchSize: 2,
+          invitations: new Map([
+            [
+              tenantId,
+              {
+                ...delivery,
+                isReady: async (scope: string) => invitationGateOpen && delivery.isReady(scope),
+              },
+            ],
+          ]),
+        });
+      invitationRuntime = createInvitationRuntime();
+      invitationRuntime.onModuleInit();
+      await invitationRuntime.runOnce();
+      assert.equal(invitationPosts, 0);
+      assert.equal(invitationReads, 0);
+      assert.equal((await read(`people/users/${userId}`)).deliveryState, 'INTENT');
+      invitationGateOpen = true;
+      for (let attempt = 0; attempt < 80 && malformedProofs === 0; attempt++) {
+        await invitationRuntime.runOnce();
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      assert.equal(invitationResult, 'RECORDED');
+      assert.ok(malformedProofs > 0);
+      assert.equal((await read(`people/users/${userId}`)).deliveryState, 'AMBIGUOUS');
+      await invitationRuntime.onModuleDestroy();
+      invitationRuntime = createInvitationRuntime();
+      allowCleanProof = true;
+      invitationRuntime.onModuleInit();
+      for (let attempt = 0; attempt < 80; attempt++) {
+        await invitationRuntime.runOnce();
+        if ((await read(`people/users/${userId}`)).deliveryState === 'SENT') break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      await invitationRuntime.onModuleDestroy();
+      invitationRuntime = undefined;
       assert.equal(invitationPosts, 1);
-      assert.equal(malformedProofs, 1);
       assert.ok(invitationReads > 0);
       const sentInvitation = await read(`people/users/${userId}`);
       assert.equal(sentInvitation.deliveryState, 'SENT');
@@ -353,6 +373,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
     app = undefined;
     assert.equal(await runtime.isReady(tenantId), false);
   } finally {
+    await invitationRuntime?.onModuleDestroy();
     await app?.close();
     await Promise.all([
       owner.$disconnect(),

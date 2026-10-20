@@ -7,6 +7,10 @@ import {
 import { runPeopleWorkerStep, type TenantPeopleIdentityPort } from './tenant-people-worker.js';
 import { voiceUuid } from './tenant-voice-catalog.js';
 import {
+  runPeopleInvitationAttempt,
+  type TenantPeopleInvitationRuntimePort,
+} from './tenant-people-invitation-worker.js';
+import {
   acceptedExtensionMatches,
   type PeopleTelephonyNode,
 } from './tenant-people-infrastructure.js';
@@ -25,6 +29,9 @@ export class TenantPeopleRuntime {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private inFlight: Promise<number> | undefined;
   private readonly nodes: ReadonlyMap<string, readonly PeopleTelephonyNode[]>;
+  private readonly invitations: ReadonlyMap<string, TenantPeopleInvitationRuntimePort>;
+  private readonly invitationCursors = new Map<string, string>();
+  private readonly invitationTurns = new Map<string, boolean>();
 
   constructor(
     private readonly database: PrismaClient,
@@ -33,11 +40,13 @@ export class TenantPeopleRuntime {
       intervalMs?: number;
       batchSize?: number;
       nodes?: ReadonlyMap<string, readonly PeopleTelephonyNode[]>;
+      invitations?: ReadonlyMap<string, TenantPeopleInvitationRuntimePort>;
     } = {},
   ) {
     this.intervalMs = options.intervalMs ?? 1_000;
     this.batchSize = options.batchSize ?? 20;
     this.nodes = options.nodes ?? new Map();
+    this.invitations = new Map(options.invitations);
     if (
       !Number.isInteger(this.intervalMs) ||
       this.intervalMs < 100 ||
@@ -49,6 +58,16 @@ export class TenantPeopleRuntime {
     )
       throw new Error('INVALID_PEOPLE_RUNTIME_CONFIGURATION');
     for (const tenantId of identities.keys()) voiceUuid(tenantId, 'tenantId');
+    for (const [tenantId, port] of this.invitations) {
+      if (
+        !identities.has(tenantId) ||
+        !port ||
+        typeof port.isReady !== 'function' ||
+        typeof port.dispatch !== 'function' ||
+        typeof port.readOutcome !== 'function'
+      )
+        throw new Error('INVALID_PEOPLE_INVITATION_RUNTIME_CONFIGURATION');
+    }
     this.readiness = new DatabaseTenantPeopleReadiness(database, identities);
   }
 
@@ -112,6 +131,7 @@ export class TenantPeopleRuntime {
   private async drain(): Promise<number> {
     const tenants = [...this.identities.keys()];
     const checked = new Map<string, boolean>();
+    const invitationChecked = new Map<string, boolean>();
     const deferred = new Set<string>();
     let attempts = 0,
       idle = 0;
@@ -124,6 +144,14 @@ export class TenantPeopleRuntime {
         continue;
       }
       if (!this.running) break;
+      const invitationFirst =
+        this.invitations.has(tenantId) && (this.invitationTurns.get(tenantId) ?? true);
+      if (this.invitations.has(tenantId)) this.invitationTurns.set(tenantId, !invitationFirst);
+      if (invitationFirst && (await this.tryInvitation(tenantId, deferred, invitationChecked))) {
+        attempts++;
+        idle = 0;
+        continue;
+      }
       const candidate = await withTenantDatabaseTransaction(
         this.database,
         tenantId,
@@ -139,6 +167,11 @@ export class TenantPeopleRuntime {
         },
       );
       if (!candidate) {
+        if (!invitationFirst && (await this.tryInvitation(tenantId, deferred, invitationChecked))) {
+          attempts++;
+          idle = 0;
+          continue;
+        }
         idle++;
         continue;
       }
@@ -174,5 +207,44 @@ export class TenantPeopleRuntime {
       if (result !== 'RECORDED' || state !== 'QUEUED') deferred.add(candidate.id);
     }
     return attempts;
+  }
+
+  private async tryInvitation(
+    tenantId: string,
+    deferred: Set<string>,
+    checked: Map<string, boolean>,
+  ): Promise<boolean> {
+    const port = this.invitations.get(tenantId);
+    if (!this.running || !port) return false;
+    if (!checked.has(tenantId)) checked.set(tenantId, await port.isReady(tenantId));
+    if (!this.running || !checked.get(tenantId)) return false;
+    const cursor = this.invitationCursors.get(tenantId) ?? '00000000-0000-0000-0000-000000000000';
+    const candidate = await withTenantDatabaseTransaction(
+      this.database,
+      tenantId,
+      async (transaction) => {
+        const rows = await transaction.$queryRaw<{ operationId: string }[]>`
+        SELECT i.operation_id AS "operationId" FROM tenant_people_invitation_intents i
+        JOIN tenant_people_operations o ON o.tenant_id=i.tenant_id AND o.id=i.operation_id AND o.target_user_id=i.user_id
+        JOIN tenant_user_lifecycles l ON l.tenant_id=i.tenant_id AND l.user_id=i.user_id AND l.operation_id=i.operation_id
+        WHERE i.tenant_id=${tenantId}::uuid AND o.state='SUCCEEDED'
+          AND l.account_state='PENDING_ACTIVATION' AND l.provisioning_state='PROVISIONED' AND l.activation_state='PENDING'
+          AND NOT EXISTS(SELECT 1 FROM tenant_people_invitation_receipts r WHERE r.tenant_id=i.tenant_id AND r.provider_attempt_ref=i.provider_attempt_ref)
+          AND i.operation_id::text NOT IN (SELECT value FROM jsonb_array_elements_text(${JSON.stringify([...deferred])}::jsonb) AS skipped(value))
+        ORDER BY (i.operation_id>${cursor}::uuid) DESC,i.operation_id LIMIT 1`;
+        return rows[0];
+      },
+    );
+    if (!this.running || !candidate) return false;
+    this.invitationCursors.set(tenantId, candidate.operationId);
+    deferred.add(candidate.operationId);
+    await runPeopleInvitationAttempt(
+      this.database,
+      port,
+      tenantId,
+      candidate.operationId,
+      this.owner,
+    );
+    return true;
   }
 }

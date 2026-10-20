@@ -6,7 +6,7 @@ import type {
 import type {
   PeopleInvitationAttempt,
   PeopleInvitationOutcome,
-  TenantPeopleInvitationPort,
+  TenantPeopleInvitationRuntimePort,
 } from './tenant-people-invitation-worker.js';
 
 export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
@@ -46,8 +46,9 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
     return this.execute(claim, false);
   }
 
-  invitationPort(): TenantPeopleInvitationPort {
+  invitationPort(): TenantPeopleInvitationRuntimePort {
     return {
+      isReady: (tenantId) => this.readReadiness(tenantId, true),
       dispatch: (attempt) => this.executeInvitation(attempt, true),
       readOutcome: (attempt) => this.executeInvitation(attempt, false),
     };
@@ -172,6 +173,10 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
   }
 
   async isReady(tenantId = this.configuration.tenantId): Promise<boolean> {
+    return this.readReadiness(tenantId, false);
+  }
+
+  private async readReadiness(tenantId: string, invitation: boolean): Promise<boolean> {
     if (tenantId !== this.configuration.tenantId) return false;
     try {
       const options = { redirect: 'error' as const, cache: 'no-store' as const };
@@ -213,7 +218,8 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
         'version' in result &&
         result.version === 1 &&
         'tenantId' in result &&
-        result.tenantId === this.configuration.tenantId
+        result.tenantId === this.configuration.tenantId &&
+        (!invitation || ('invitationReady' in result && result.invitationReady === true))
       );
     } catch {
       return false;
