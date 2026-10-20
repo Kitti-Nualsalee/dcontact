@@ -64,7 +64,16 @@ export function accessTokenRealmRoles(accessToken: string | undefined): string[]
  */
 export function cleanConsoleCallbackUrl(location: URL): string {
   const next = new URL(location.href);
-  for (const key of ['code', 'state', 'session_state', 'iss']) next.searchParams.delete(key);
+  for (const key of [
+    'code',
+    'state',
+    'session_state',
+    'iss',
+    'error',
+    'error_description',
+    'error_uri',
+  ])
+    next.searchParams.delete(key);
   return `${next.pathname}${next.search}${next.hash}`;
 }
 

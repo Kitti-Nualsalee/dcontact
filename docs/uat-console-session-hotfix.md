@@ -4,7 +4,7 @@ Authority: [bug #733](https://github.com/Kitti-Nualsalee/dcontact/issues/733), A
 
 ## ขอบเขต
 
-Console boot กู้ SSO จาก Keycloak ครั้งเดียว จำกัด network request 5 วินาทีและ iframe 10 วินาที Callback และ explicit sign-out ใช้ flow เดิม เมื่อ SSO ใช้ไม่ได้แสดงปุ่ม login การกู้ครั้งแรกจบแล้วไม่ครอบ lifecycle reauth ของหน้าที่เปิดอยู่ จึงคง Core draft ในหน้าเดิม Token อยู่ใน memory ตามเดิม
+Console boot กู้ SSO จาก Keycloak ครั้งเดียวด้วย top-level `prompt=none` และ `redirectMethod=replace` ผ่าน redirect URI เดิม พร้อมจำหน้าปลายทาง ไม่ใช้ root callback ใน iframe เพราะ UAT ส่ง `X-Frame-Options: DENY` Callback และ explicit sign-out ไม่เริ่มรอบใหม่ จำกัด discovery/token request 5 วินาที; การโหลดหน้า authorization เป็น document navigation ตาม browser ปกติ หาก IdP ใช้ไม่ได้ผู้ใช้ยังกลับหรือเปิด Console ใหม่ได้ ไม่มีการ retry อัตโนมัติใน callback เมื่อ SSO ใช้ไม่ได้แสดงปุ่ม login การกู้ครั้งแรกจบแล้วไม่ครอบ lifecycle reauth ของหน้าที่เปิดอยู่ จึงคง Core draft ในหน้าเดิม Token อยู่ใน memory ตามเดิม Browser harness ส่ง header DENY เหมือน UAT เพื่อพิสูจน์ navigation/reload/back/forward ภายใต้นโยบายจริง
 
 การเปิด hotfix นี้แยกจาก Core Settings #726 ซึ่งรอ verified proof/migration/limited trial อยู่ โดยอัปเดต image ของ `proxy` ที่เสิร์ฟ Console เท่านั้น ใช้ API/ops/Keycloak digests, database schema, full Workspace/E1 overlays และ configuration ของ deployment ปัจจุบัน ไม่ใช้ขั้น migrate/keycloak/provision หรือ full-stack deploy สำหรับ hotfix นี้
 

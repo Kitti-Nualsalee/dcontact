@@ -49,7 +49,10 @@ import {
 
 function signInFromCurrentPage(auth: AuthContextProps) {
   clearConsoleSignOut(window.sessionStorage);
-  rememberConsoleReturnUrl(new URL(window.location.href), window.sessionStorage);
+  rememberConsoleReturnUrl(
+    resolveConsoleLocation(new URL(window.location.href), window.sessionStorage),
+    window.sessionStorage,
+  );
   return auth.signinRedirect();
 }
 
@@ -100,7 +103,11 @@ function Status({ title, detail, action }: { title: string; detail: string; acti
   );
 }
 
-/** userStore อยู่ใน memory: document navigation ต้องกู้ SSO ก่อนตัดสินว่าไม่มี session */
+/**
+ * userStore อยู่ใน memory: กู้ SSO ตอน boot ผ่าน top-level prompt=none
+ * Console มี X-Frame-Options: DENY จึงใช้ root callback ภายใน iframe ไม่ได้
+ * callback (รวม login_required) ไม่เริ่มรอบใหม่; same-page reauth ไม่อยู่ใน bootstrap นี้
+ */
 function ConsoleSessionBootstrap({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const { t } = useTranslation('common');
@@ -118,8 +125,9 @@ function ConsoleSessionBootstrap({ children }: { children: ReactNode }) {
     }
     if (attempted.current) return;
     attempted.current = true;
+    rememberConsoleReturnUrl(new URL(window.location.href), window.sessionStorage);
     void auth
-      .signinSilent()
+      .signinRedirect({ prompt: 'none', redirectMethod: 'replace' })
       .catch(() => undefined)
       .finally(() => setSettled(true));
   }, [
@@ -128,7 +136,7 @@ function ConsoleSessionBootstrap({ children }: { children: ReactNode }) {
     auth.activeNavigator,
     auth.isAuthenticated,
     auth.error,
-    auth.signinSilent,
+    auth.signinRedirect,
   ]);
   if (eligible && !settled && !auth.isAuthenticated)
     return <Status title={t('auth.restoring.title')} detail={t('auth.restoring.detail')} />;

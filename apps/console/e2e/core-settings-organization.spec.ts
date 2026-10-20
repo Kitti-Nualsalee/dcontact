@@ -299,6 +299,12 @@ test('Console session: เปลี่ยนเมนูและ reload ต้�
   await expect(
     page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?', exact: true }),
   ).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: 'บัญชีของฉัน', exact: true })).toBeVisible();
+  await page.goForward();
+  await expect(
+    page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?', exact: true }),
+  ).toBeVisible();
   await page.reload();
   await expect(
     page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?', exact: true }),
