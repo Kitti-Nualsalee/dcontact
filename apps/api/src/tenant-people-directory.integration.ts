@@ -334,6 +334,45 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
         false,
       );
     });
+    await suite.test(
+      'known legacy Agent ไม่มี B2 lifecycle แสดง UNKNOWN/read-only โดยไม่ adopt identity',
+      async () => {
+        const legacyId = randomUUID();
+        await owner.user.create({
+          data: {
+            id: legacyId,
+            keycloakId: legacyId,
+            tenantId,
+            teamId,
+            email: `${legacyId}@example.test`,
+            displayName: 'Legacy Agent fixture',
+            role: 'AGENT',
+            passwordHash: '!keycloak-managed',
+          },
+        });
+        assert.equal((await request(`/${legacyId}`)).status, 404);
+        await owner.$executeRaw`INSERT INTO tenant_voice_identity_bindings(tenant_id,user_id,issuer,subject_id,client_id,tenant_slug,organization_id,identity_class,source_kind,evidence_ref,evidence_digest,verified_by_operator_subject,verified_at,revision,is_active)
+        VALUES(${tenantId}::uuid,${legacyId}::uuid,${issuer},${legacyId},'dcontact-console',${slug},${tenantId}::uuid,'TENANT_USER','BOOTSTRAP_MANIFEST','known-legacy-inventory',${'b'.repeat(64)},'fixture-operator',now(),1,true)`;
+        const legacy = await readObject(await request(`/${legacyId}`));
+        assert.equal(legacy.role, 'AGENT');
+        assert.equal(legacy.accountState, 'UNKNOWN');
+        assert.equal(legacy.activationState, 'UNKNOWN');
+        assert.equal(legacy.provisioningState, 'UNKNOWN');
+        assert.equal(legacy.operationId, null);
+        assert.equal(legacy.commandId, null);
+        assert.equal(legacy.statusRevision, null);
+        assert.equal(
+          (await readPage(await request('?limit=100'))).items.some((item) => item.id === legacyId),
+          true,
+        );
+        const lifecycles = await owner.$queryRaw<
+          { count: bigint }[]
+        >`SELECT count(*) FROM tenant_user_lifecycles WHERE tenant_id=${tenantId}::uuid AND user_id=${legacyId}::uuid`;
+        assert.equal(lifecycles[0]?.count, 0n);
+        await owner.$executeRaw`UPDATE tenant_voice_identity_bindings SET revision=revision+1,is_active=false WHERE tenant_id=${tenantId}::uuid AND user_id=${legacyId}::uuid`;
+        assert.equal((await request(`/${legacyId}`)).status, 404);
+      },
+    );
   } finally {
     await app?.close();
     await application.$disconnect();

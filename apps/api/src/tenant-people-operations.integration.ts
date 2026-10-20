@@ -577,6 +577,35 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
           transaction.$executeRaw`DELETE FROM tenant_identity_reservations WHERE operation_id=${accepted.operationId}::uuid`,
       ),
     );
+    assert.equal(
+      await runPeopleWorkerStep(
+        worker,
+        {
+          async mutateStep() {
+            assert.fail('mapping conflict must not retry a mutation');
+          },
+          async readOutcome() {
+            return { outcome: 'UNKNOWN', reasonCode: 'IDENTITY_MAPPING_CONFLICT' };
+          },
+        },
+        tenantId,
+        accepted.operationId,
+        'mapping-conflict-reader',
+      ),
+      'RECORDED',
+    );
+    const mappingConflict = await readObject(await request(`/operations/${accepted.operationId}`));
+    assert.equal(mappingConflict.state, 'ACTION_REQUIRED');
+    assert.equal(mappingConflict.errorCode, 'IDENTITY_MAPPING_CONFLICT');
+    assert.equal(
+      await claimPeopleOperation(
+        worker,
+        tenantId,
+        accepted.operationId,
+        'mapping-conflict-must-stop',
+      ),
+      null,
+    );
   } finally {
     await app?.close();
     await Promise.all([owner.$disconnect(), application.$disconnect(), worker.$disconnect()]);

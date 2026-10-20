@@ -75,20 +75,21 @@ test('receipt must identify the intended user and mutation runs only once', asyn
   assert.equal(calls, 2);
 });
 
-test('correlation conflict is explicit and never retried as a mutation', async () => {
-  const methods: string[] = [];
-  const adapter = new TenantPeopleKeycloak(configuration, async (_input, options) => {
-    methods.push(options?.method ?? 'GET');
-    if (String(_input).endsWith('/token'))
-      return Response.json({ access_token: 'synthetic-token' });
-    return Response.json({ code: 'CORRELATION_CONFLICT' }, { status: 409 });
+for (const code of ['CORRELATION_CONFLICT', 'IDENTITY_MAPPING_CONFLICT'] as const)
+  test(`${code} is explicit and never retried as a mutation`, async () => {
+    const methods: string[] = [];
+    const adapter = new TenantPeopleKeycloak(configuration, async (_input, options) => {
+      methods.push(options?.method ?? 'GET');
+      if (String(_input).endsWith('/token'))
+        return Response.json({ access_token: 'synthetic-token' });
+      return Response.json({ code }, { status: 409 });
+    });
+    assert.deepEqual(await adapter.readOutcome({ ...claim, reconcileOnly: true }), {
+      outcome: 'UNKNOWN',
+      reasonCode: code,
+    });
+    assert.deepEqual(methods, ['POST', 'GET']);
   });
-  assert.deepEqual(await adapter.readOutcome({ ...claim, reconcileOnly: true }), {
-    outcome: 'UNKNOWN',
-    reasonCode: 'CORRELATION_CONFLICT',
-  });
-  assert.deepEqual(methods, ['POST', 'GET']);
-});
 
 test('plaintext non-loopback issuer is rejected', () => {
   assert.throws(

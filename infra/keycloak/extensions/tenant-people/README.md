@@ -43,6 +43,8 @@ Console เปิดหน้า `view=tenant-people` สำหรับ Admin �
 
 List/detail อ่านเฉพาะบัญชีที่มี operator bootstrap proof ตรง scope หรือเป็น target ของ B2 operation/lifecycle ไม่ถือ membership เป็น authority บัญชีเดิมที่ไม่มี lifecycle แสดงสถานะยังไม่ยืนยัน ไม่อนุมานว่า activated จาก `isActive` เพียงอย่างเดียว Cursor ผูก tenant/actor/scope/filter และใช้ keyset `createdAt/id` (default20, limit20–100); `user.configRevision` แยกจาก `statusRevision` ของ lifecycle บัญชีที่เลือกเปิด operation เดิมได้โดยไม่ส่ง create ใหม่
 
+Known legacy Agent/Supervisor/Admin ที่มี operator-positive binding แต่ยังไม่มี B2 lifecycle อ่านได้แบบ read-only/UNKNOWN โดยไม่สร้าง lifecycle, invitation หรือ adopt identity ส่วน unclassified legacy และ proof ที่ถูกถอนยัง fail-closed ไม่ใช้ role/tenant membership ล้วนเป็นเหตุให้นำ platform/service identity มาแสดง หากต้องการแสดงกลุ่มที่ยังแยก classification ไม่ได้ ต้อง resolve authority decision ก่อน ไม่เพิ่ม read authority หรือ provider probe โดยเดา
+
 เมื่อ create ถูกปฏิเสธก่อน accept อย่างแน่นอน UI ปลด pending เพื่อแก้ข้อมูล/ส่งคำสั่งใหม่ แต่ timeout หรือผลไม่ชัดยังอ่าน command เดิมเท่านั้น สถานะ operation ที่เปิดอยู่ poll ทุก 5 วินาทีเฉพาะแท็บ visible ไม่ซ้อน manual refresh และหยุดเมื่อ terminal/หมดสิทธิ์/unmount
 
 ก่อนเปิดใช้จริงต้องมี acceptance/review ครบ รวม extension pool/infra readiness ตามสัญญา B2 การ build extension หรือ boundary ผ่านอย่างเดียวไม่ใช่ production readiness และห้าม bootstrap/แก้ identity บน VM เป็นส่วนหนึ่งของ implementation sandbox

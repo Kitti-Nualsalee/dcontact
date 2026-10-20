@@ -162,9 +162,10 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
           conflict &&
           typeof conflict === 'object' &&
           'code' in conflict &&
-          conflict.code === 'CORRELATION_CONFLICT'
+          (conflict.code === 'CORRELATION_CONFLICT' ||
+            conflict.code === 'IDENTITY_MAPPING_CONFLICT')
         )
-          return { outcome: 'UNKNOWN', reasonCode: 'CORRELATION_CONFLICT' };
+          return { outcome: 'UNKNOWN', reasonCode: conflict.code };
       }
       return { outcome: 'UNKNOWN' };
     }
