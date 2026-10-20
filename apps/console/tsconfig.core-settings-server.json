@@ -1,0 +1,5 @@
+{
+  "extends": "../api/tsconfig.json",
+  "compilerOptions": { "rootDir": "../..", "noEmit": true },
+  "include": ["scripts/core-settings-browser-server.ts", "scripts/core-settings-reporter.ts"]
+}

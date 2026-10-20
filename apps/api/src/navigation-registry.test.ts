@@ -41,6 +41,7 @@ test('role ต่างกันเห็นรายการต่างกั
     'contact-governance',
     'agent-history',
     'voice-routing',
+    'core-settings',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: ['compliance'], entitlements: FULL })), [
     'home',
@@ -57,12 +58,14 @@ test('plan ต่างกันเห็นรายการต่างกั
     'supervisor-workspace',
     'journeys',
     'voice-routing',
+    'core-settings',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: admin, entitlements: {} })), [
     'home',
     'agent-workspace',
     'supervisor-workspace',
     'voice-routing',
+    'core-settings',
   ]);
   assert.deepEqual(
     ids(
@@ -71,7 +74,7 @@ test('plan ต่างกันเห็นรายการต่างกั
         entitlements: { module_journey: 1, module_contact_governance: 'yes' },
       }),
     ),
-    ['home', 'agent-workspace', 'supervisor-workspace', 'voice-routing'],
+    ['home', 'agent-workspace', 'supervisor-workspace', 'voice-routing', 'core-settings'],
   );
 });
 
@@ -84,6 +87,7 @@ test('tenant ที่ไม่มี plan binding (null) ใช้ role อย�
     'contact-governance',
     'dphone-embedding',
     'voice-routing',
+    'core-settings',
   ]);
 });
 
@@ -95,6 +99,7 @@ test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ข�
     'supervisor-workspace',
     'dphone-embedding',
     'voice-routing',
+    'core-settings',
   ]);
   assert.equal(
     ids(visibleApps({ roles: ['agent'], entitlements: cti })).includes('dphone-embedding'),
@@ -114,6 +119,7 @@ test('ชุดเริ่มต้นของ tenant ขึ้นกับ en
     'contact-governance',
     'agent-history',
     'voice-routing',
+    'core-settings',
   ]);
 });
 
@@ -171,6 +177,7 @@ test('#651: พื้นที่เมนูคัดตาม role/plan; ล�
     'governance',
     'routing',
     'integrations',
+    'settings',
   ]);
   assert.deepEqual(areaIds({ roles: ['compliance'], entitlements: FULL }), ['home', 'governance']);
   assert.deepEqual(areaIds({ roles: ['journey-ingress'], entitlements: FULL }), []);
@@ -229,7 +236,7 @@ test('#658: Governance และ Voice ส่งหน้าย่อยจา�
   const everyone = visibleAreas(visibleApps({ roles: ['admin'], entitlements: null }));
   const withoutPages = everyone
     .flatMap((a) => a.sections.flatMap((s) => s.items))
-    .filter((i) => !['contact-governance', 'voice-routing'].includes(i.appId));
+    .filter((i) => !['contact-governance', 'voice-routing', 'core-settings'].includes(i.appId));
   assert.ok(withoutPages.every((i) => i.pages === undefined));
   const voice = everyone
     .find((a) => a.id === 'routing')!

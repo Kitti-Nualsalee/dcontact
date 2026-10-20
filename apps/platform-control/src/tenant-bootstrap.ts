@@ -80,7 +80,11 @@ export class TenantBootstrapPort implements ProvisioningStepPort {
     const settings = await this.provisioner.tenantSettings.findUnique({
       where: { tenantId: context.tenantId },
     });
-    if (settings && settings.provisioningRequestId !== context.requestId) {
+    if (
+      settings &&
+      (settings.initializationSource !== 'PROVISIONING' ||
+        settings.provisioningRequestId !== context.requestId)
+    ) {
       return { status: 'MISMATCH', code: 'BOOTSTRAP_CORRELATION_MISMATCH' };
     }
     const [teams, queues, hours, binding] = await Promise.all([
@@ -310,6 +314,7 @@ export class TenantReadinessPort implements ProvisioningStepPort {
     check(
       'SETTINGS',
       settings !== null &&
+        settings.initializationSource === 'PROVISIONING' &&
         settings.provisioningRequestId === requestId &&
         settings.locale === request.locale &&
         settings.timezone === request.timezone &&

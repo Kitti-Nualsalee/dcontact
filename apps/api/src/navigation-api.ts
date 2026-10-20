@@ -1,3 +1,4 @@
+import { findTenantConfigurationActor } from './tenant-config-identity.js';
 import { findCatalogActor } from './tenant-voice-catalog.js';
 import { voiceCatalogCaller, type VoiceCaller } from './tenant-voice-identity.js';
 /**
@@ -128,6 +129,11 @@ async function domainVisibleApps(
     const allowed = await findCatalogActor(tx, { ...actor, caller });
     if (!allowed) apps = apps.filter((app) => app.id !== 'voice-routing');
   }
+  if (
+    apps.some((app) => app.id === 'core-settings') &&
+    !(await findTenantConfigurationActor(tx, { ...actor, caller }))
+  )
+    apps = apps.filter((app) => app.id !== 'core-settings');
   if (!apps.some((app) => app.id === 'agent-history')) return apps;
   const agent = await findActiveAgent(tx, actor);
   return agent ? apps : apps.filter((app) => app.id !== 'agent-history');

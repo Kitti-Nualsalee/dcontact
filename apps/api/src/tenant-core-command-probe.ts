@@ -11,6 +11,7 @@ import {
   prepareCoreCommand,
   type CoreCommandOptions,
 } from './tenant-core-command.js';
+import { coreOrganizationSnapshot } from './tenant-core-organization.js';
 import { coreFail, TenantCoreErrors } from './tenant-core-errors.js';
 
 export const probeHooks = new Map<string, CoreCommandOptions>();
@@ -24,15 +25,7 @@ export class CoreCommandProbeController {
     const identity = coreRequestIdentity(req);
     return coreTransaction(this.db, identity.tenantId, async (tx) => {
       await coreActor(tx, identity);
-      const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: identity.tenantId } });
-      const revision = await tx.tenantCoreProfileRevision.findUnique({
-        where: { tenantId: identity.tenantId },
-      });
-      return {
-        id: tenant.id,
-        displayName: tenant.name,
-        revision: revision?.revision.toString() ?? '0',
-      };
+      return coreOrganizationSnapshot(tx, identity.tenantId);
     });
   }
   @Post('organization')
@@ -61,7 +54,8 @@ export class CoreCommandProbeController {
           { locked: boolean }[]
         >`SELECT pg_try_advisory_xact_lock(hashtextextended(${`core-profile:${identity.tenantId}`},0)) AS locked`;
         if (!locks[0]?.locked) coreFail('CONFIG_BUSY', 409, { retryable: true });
-        const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: identity.tenantId } });
+        const before = await coreOrganizationSnapshot(tx, identity.tenantId);
+        const tenant = { id: before.id, name: before.displayName };
         const revision =
           (
             await tx.tenantCoreProfileRevision.findUnique({
@@ -81,17 +75,12 @@ export class CoreCommandProbeController {
             snapshot: { id: tenant.id, displayName: name, revision: revision.toString() },
           };
         await tx.tenant.update({ where: { id: identity.tenantId }, data: { name } });
-        await tx.tenantCoreProfileRevision.upsert({
-          where: { tenantId: identity.tenantId },
-          create: { tenantId: identity.tenantId, revision: 1n },
-          update: { revision: { increment: 1n } },
-        });
         return {
           outcome: 'APPLIED' as const,
           revision: revision + 1n,
           beforeRevision: revision,
-          before: { id: tenant.id, displayName: tenant.name, revision: revision.toString() },
-          snapshot: { id: tenant.id, displayName: name, revision: (revision + 1n).toString() },
+          before,
+          snapshot: await coreOrganizationSnapshot(tx, identity.tenantId),
         };
       },
       probeHooks.get(command.commandId),

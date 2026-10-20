@@ -25,7 +25,8 @@
       "contactGovernance": "Governance",
       "dphoneEmbedding": "ฝัง dphone",
       "home": "หน้าแรก",
-      "voiceRouting": "ตั้งค่า Voice"
+      "voiceRouting": "ตั้งค่า Voice",
+      "coreSettings": "ตั้งค่าองค์กร"
     },
     "areas": {
       "home": "หน้าแรก",
@@ -43,7 +44,8 @@
       "analytics": "วิเคราะห์",
       "integrations": "การเชื่อมต่อ",
       "history": "ประวัติ",
-      "reports": "รายงาน"
+      "reports": "รายงาน",
+      "settings": "ตั้งค่าองค์กร"
     },
     "sections": {
       "work": "งาน",
@@ -61,6 +63,9 @@
       "voiceRouting": {
         "queues": "คิว Voice",
         "skills": "ทักษะ"
+      },
+      "coreSettings": {
+        "organization": "ข้อมูลองค์กร"
       }
     }
   },

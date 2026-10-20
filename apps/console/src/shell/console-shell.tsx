@@ -31,6 +31,7 @@ import { useShellTokens } from './tokens.js';
 
 export type ConsoleShellApp =
   | 'home'
+  | 'core-settings'
   | 'voice-routing'
   | 'agent-history'
   | 'journeys'
@@ -342,17 +343,19 @@ export function ConsoleShell({
                   t('shell.account.title'),
                   t(appId === 'account' ? 'shell.account.mine' : 'shell.account.policy'),
                 ]
-              : appId === 'voice-routing'
-                ? [t('navigation.apps.voiceRouting'), ...(pageLabel ? [pageLabel] : [])]
-                : appId === 'journeys'
-                  ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
-                  : appId === 'dphone-embedding'
-                    ? [t('navigation.groups.settings'), t('navigation.apps.dphoneEmbedding')]
-                    : [
-                        t('navigation.groups.quality'),
-                        t('navigation.apps.contactGovernance'),
-                        ...(pageLabel ? [pageLabel] : []),
-                      ]
+              : appId === 'core-settings'
+                ? [t('navigation.apps.coreSettings'), ...(pageLabel ? [pageLabel] : [])]
+                : appId === 'voice-routing'
+                  ? [t('navigation.apps.voiceRouting'), ...(pageLabel ? [pageLabel] : [])]
+                  : appId === 'journeys'
+                    ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
+                    : appId === 'dphone-embedding'
+                      ? [t('navigation.groups.settings'), t('navigation.apps.dphoneEmbedding')]
+                      : [
+                          t('navigation.groups.quality'),
+                          t('navigation.apps.contactGovernance'),
+                          ...(pageLabel ? [pageLabel] : []),
+                        ]
         }
         language={locale}
         onLanguageChange={onLanguageChange}
