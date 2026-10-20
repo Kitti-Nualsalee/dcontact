@@ -29,7 +29,8 @@ FROM ${KEYCLOAK_EXTENSION_BUILDER_IMAGE} AS platform-extension
 COPY --from=keycloak-distribution /opt/keycloak/lib/lib/main /kc-libs
 COPY infra/keycloak/extensions/invitation-guard/src/main /src/invitation-guard
 COPY infra/keycloak/extensions/dc-account/src/main /src/dc-account
-RUN set -e; for entry in invitation-guard:dcontact-invitation-guard.jar dc-account:dcontact-account.jar; do \
+COPY infra/keycloak/extensions/tenant-people/src/main /src/tenant-people
+RUN set -e; for entry in invitation-guard:dcontact-invitation-guard.jar dc-account:dcontact-account.jar tenant-people:dcontact-tenant-people.jar; do \
     name="${entry%%:*}"; jar="${entry#*:}"; \
     mkdir -p "/classes/$name"; \
     javac --release 21 -proc:none -nowarn -cp '/kc-libs/*' -d "/classes/$name" $(find "/src/$name/java" -name '*.java'); \
@@ -46,5 +47,6 @@ COPY --from=keycloak-distribution --chown=1000:0 /opt/keycloak /opt/keycloak
 COPY --from=theme --chown=1000:0 /src/infra/keycloak/themes/ /opt/keycloak/themes/
 COPY --from=platform-extension --chown=1000:0 /dcontact-invitation-guard.jar /opt/keycloak/providers/
 COPY --from=platform-extension --chown=1000:0 /dcontact-account.jar /opt/keycloak/providers/
+COPY --from=platform-extension --chown=1000:0 /dcontact-tenant-people.jar /opt/keycloak/providers/
 USER 1000
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]

@@ -25,7 +25,8 @@
       "contactGovernance": "Governance",
       "dphoneEmbedding": "dphone embedding",
       "home": "Home",
-      "voiceRouting": "Voice configuration"
+      "voiceRouting": "Voice configuration",
+      "tenantPeople": "User accounts"
     },
     "areas": {
       "home": "Home",
@@ -46,6 +47,7 @@
       "reports": "Reports"
     },
     "sections": {
+      "accounts": "Accounts",
       "work": "Work",
       "live": "Live",
       "embedding": "Embedding",

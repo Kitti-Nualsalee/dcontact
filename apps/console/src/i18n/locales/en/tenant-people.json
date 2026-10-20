@@ -1,0 +1,27 @@
+{
+  "title": "User accounts",
+  "notice": "Provisioning only. Users must activate their own accounts. No invitation is sent and calls remain closed.",
+  "notReady": "Account provisioning is unavailable or you do not have permission to create accounts.",
+  "operation": "Account provisioning status",
+  "provisioned": "Account provisioned — awaiting user activation",
+  "pending": "The outcome is not yet confirmed. Check the original command before creating another account.",
+  "rejected": "The command was rejected. The account is not activated.",
+  "refresh": "Check original command",
+  "name": "Display name",
+  "email": "Email",
+  "role": "Role",
+  "chooseRole": "Choose role",
+  "team": "Team",
+  "chooseTeam": "Choose team",
+  "extension": "Extension",
+  "chooseExtension": "Choose extension",
+  "create": "Create account",
+  "signIn": "Sign in",
+  "roles": { "AGENT": "Agent", "SUPERVISOR": "Supervisor", "ADMIN": "Admin" },
+  "errors": {
+    "VALIDATION_FAILED": "Check the name, email, role, team and extension before submitting again.",
+    "UNAUTHORIZED": "Sign in again, then check the original command.",
+    "FORBIDDEN": "You do not have permission to manage accounts in this scope.",
+    "FAILED": "The outcome is not confirmed. Check the original command instead of creating a duplicate account."
+  }
+}

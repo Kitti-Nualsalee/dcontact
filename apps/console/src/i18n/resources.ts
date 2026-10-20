@@ -1,4 +1,6 @@
 import voiceRoutingTh from './locales/th/voice-routing.json' with { type: 'json' };
+import tenantPeopleTh from './locales/th/tenant-people.json' with { type: 'json' };
+import tenantPeopleEn from './locales/en/tenant-people.json' with { type: 'json' };
 import voiceRoutingEn from './locales/en/voice-routing.json' with { type: 'json' };
 /**
  * D1.11 (#450): message catalog ของแอป — bundle ทั้งสองภาษาโหลดตั้งแต่เริ่ม (ไม่ lazy)
@@ -33,6 +35,7 @@ export const resources = {
   th: {
     common: commonTh,
     voiceRouting: voiceRoutingTh,
+    tenantPeople: tenantPeopleTh,
     home: homeTh,
     history: historyTh,
     journeys: journeysTh,
@@ -44,6 +47,7 @@ export const resources = {
   en: {
     common: commonEn,
     voiceRouting: voiceRoutingEn,
+    tenantPeople: tenantPeopleEn,
     home: homeEn,
     history: historyEn,
     journeys: journeysEn,

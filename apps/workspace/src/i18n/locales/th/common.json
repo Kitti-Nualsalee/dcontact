@@ -25,7 +25,8 @@
       "contactGovernance": "Governance",
       "dphoneEmbedding": "ฝัง dphone",
       "home": "หน้าแรก",
-      "voiceRouting": "ตั้งค่า Voice"
+      "voiceRouting": "ตั้งค่า Voice",
+      "tenantPeople": "บัญชีผู้ใช้"
     },
     "areas": {
       "home": "หน้าแรก",
@@ -46,6 +47,7 @@
       "reports": "รายงาน"
     },
     "sections": {
+      "accounts": "บัญชีผู้ใช้",
       "work": "งาน",
       "live": "งานสด",
       "embedding": "ฝังระบบ",

@@ -379,3 +379,20 @@ REVOKE INSERT, UPDATE, DELETE ON tenant_voice_policy_audit FROM dcontact_app;
 
 -- Positive identity เป็น operator authority; app อ่านอย่างเดียวและยังอยู่ใต้ RLS
 REVOKE INSERT, UPDATE, DELETE ON tenant_voice_identity_bindings, tenant_voice_identity_binding_audit FROM dcontact_app;
+
+REVOKE ALL ON tenant_people_operations, tenant_identity_reservations, tenant_user_lifecycles, tenant_people_step_receipts FROM dcontact_app;
+GRANT SELECT, INSERT ON tenant_people_operations, tenant_identity_reservations, tenant_user_lifecycles TO dcontact_app;
+GRANT SELECT ON tenant_people_step_receipts TO dcontact_app;
+
+REVOKE ALL ON tenant_people_worker_bindings FROM dcontact_app;
+GRANT USAGE ON SCHEMA public TO dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_worker_bindings, tenant_people_operations, tenant_identity_reservations, tenant_user_lifecycles, tenant_people_step_receipts TO dcontact_tenant_people_worker;
+GRANT SELECT (id,tenant_id,keycloak_id,is_active) ON users TO dcontact_tenant_people_worker;
+GRANT UPDATE (revision,state,step,attempt,fencing_token,lease_owner,lease_expires_at,error_code,updated_at) ON tenant_people_operations TO dcontact_tenant_people_worker;
+GRANT UPDATE (revision,account_state,provisioning_state) ON tenant_user_lifecycles TO dcontact_tenant_people_worker;
+GRANT INSERT ON tenant_people_step_receipts TO dcontact_tenant_people_worker;
+REVOKE ALL ON tenant_people_invitation_intents FROM dcontact_app, dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_invitation_intents TO dcontact_app;
+GRANT SELECT, INSERT ON tenant_people_invitation_intents TO dcontact_tenant_people_worker;
+REVOKE ALL ON FUNCTION dc_tenant_people_apply_identity_proof(uuid,uuid,bigint,uuid) FROM PUBLIC, dcontact_app;
+GRANT EXECUTE ON FUNCTION dc_tenant_people_apply_identity_proof(uuid,uuid,bigint,uuid) TO dcontact_tenant_people_worker;

@@ -1,5 +1,8 @@
 import 'reflect-metadata';
 import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
+import { TenantPeopleController } from './tenant-people-api.js';
+import { TENANT_PEOPLE_READINESS } from './tenant-people-readiness.js';
+import { configuredPeopleRuntime } from './tenant-people-composition.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Controller, Module, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
@@ -362,6 +365,7 @@ class WorkspaceSessionController {
 @Module({
   controllers: [
     TenantVoiceCatalogController,
+    TenantPeopleController,
     WorkspaceSessionController,
     QueueController,
     TenantQueuePolicyController,
@@ -402,6 +406,7 @@ class WorkspaceSessionController {
   ],
   providers: [
     { provide: TENANT_VOICE_DATABASE, useValue: prisma },
+    { provide: TENANT_PEOPLE_READINESS, useFactory: () => configuredPeopleRuntime() },
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
     { provide: TENANT_LOCALE_DATABASE, useValue: prisma },
     { provide: NAVIGATION_DATABASE, useValue: prisma },

@@ -62,6 +62,9 @@ export const UAT_WORKSPACE_ALLOWED_ROUTE_PREFIXES = Object.freeze([
   '/api/v1/tenant-voice/queues',
   '/api/v1/tenant-voice/skills',
   '/api/v1/tenant-voice/commands',
+  '/api/v1/tenant-voice/people',
+  '/api/v1/tenant-voice/operations',
+  '/api/v1/tenant-voice/extension-pool',
 ]);
 
 /**

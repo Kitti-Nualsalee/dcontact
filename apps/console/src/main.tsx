@@ -1,4 +1,6 @@
 import { VoiceRoutingPage } from './voice-routing/voice-routing-page.js';
+import { TenantPeoplePage } from './tenant-people/tenant-people.js';
+import { createPeopleApi } from './tenant-people/api.js';
 import { createCatalogApi } from './voice-routing/api.js';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { AuthProvider } from 'react-oidc-context';
@@ -168,6 +170,22 @@ function ConsoleE2eRoot() {
       />
     );
   if (view === 'agent-history') return <HistoryE2eRoot />;
+  if (view === 'tenant-people')
+    return (
+      <TenantPeoplePage
+        shell={{
+          ...e2eShellUser(url.searchParams.get('tenant') ?? undefined),
+          apiBaseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+          tenantAlias: url.searchParams.get('tenant') ?? undefined,
+        }}
+        api={createPeopleApi({
+          baseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+        })}
+        identityKey="e2e-people"
+      />
+    );
   if (view === 'dphone-embedding') {
     // viewer จาก query ใช้ได้เฉพาะ e2e harness; production อ่าน role จาก token
     return (

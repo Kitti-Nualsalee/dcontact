@@ -126,7 +126,7 @@ export async function catalogActor(tx: Tx, identity: VoiceActor, write = false):
   if (!actor || (write && actor.role !== 'ADMIN')) voiceFail('FORBIDDEN', 403);
   return actor;
 }
-async function policy(tx: Tx, tenantId: string) {
+export async function policy(tx: Tx, tenantId: string) {
   const rows = await tx.$queryRaw<
     Policy[]
   >`SELECT revision,source_kind AS "sourceKind",source_plan_digest AS "sourcePlanDigest",accounts_limit AS "accountsLimit",agents_limit AS "agentsLimit",voice_queues_limit AS "voiceQueuesLimit",skills_limit AS "skillsLimit" FROM tenant_voice_provisioning_policies WHERE tenant_id=${tenantId}::uuid`;
@@ -341,7 +341,7 @@ export function readCatalog(
     };
   });
 }
-function mapDatabaseError(error: unknown): never {
+export function mapDatabaseError(error: unknown): never {
   if (error instanceof HttpException) throw error;
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     const code = String(error.meta?.code ?? '');
