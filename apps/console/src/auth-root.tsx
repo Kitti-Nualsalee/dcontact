@@ -38,6 +38,7 @@ import {
   consumeConsoleReturnLocation,
   createConsoleOidcSettings,
   isConsoleSignedOutLanding,
+  shouldRestoreConsoleSession,
   rememberConsoleReturnUrl,
   rememberConsoleSignOut,
   resolveConsoleContextId,
@@ -97,6 +98,41 @@ function Status({ title, detail, action }: { title: string; detail: string; acti
       ) : null}
     </main>
   );
+}
+
+/** userStore อยู่ใน memory: document navigation ต้องกู้ SSO ก่อนตัดสินว่าไม่มี session */
+function ConsoleSessionBootstrap({ children }: { children: ReactNode }) {
+  const auth = useAuth();
+  const { t } = useTranslation('common');
+  const [eligible] = useState(() =>
+    shouldRestoreConsoleSession(new URL(window.location.href), window.sessionStorage),
+  );
+  const attempted = useRef(false);
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (!eligible || auth.isLoading || auth.activeNavigator) return;
+    if (auth.isAuthenticated || auth.error) {
+      attempted.current = true;
+      setSettled(true);
+      return;
+    }
+    if (attempted.current) return;
+    attempted.current = true;
+    void auth
+      .signinSilent()
+      .catch(() => undefined)
+      .finally(() => setSettled(true));
+  }, [
+    eligible,
+    auth.isLoading,
+    auth.activeNavigator,
+    auth.isAuthenticated,
+    auth.error,
+    auth.signinSilent,
+  ]);
+  if (eligible && !settled && !auth.isAuthenticated)
+    return <Status title={t('auth.restoring.title')} detail={t('auth.restoring.detail')} />;
+  return <>{children}</>;
 }
 
 function AuthenticatedConsole({
@@ -215,37 +251,39 @@ export function ConsoleAuthRoot() {
         setView(restored.view);
       }}
     >
-      <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
-        {signedOut ? (
-          <SignedOutSurface />
-        ) : homeView ? (
-          <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : coreSettingsView ? (
-          <CoreSettingsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : routingView ? (
-          <VoiceRoutingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : peopleView ? (
-          <TenantPeopleSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : historyView ? (
-          <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : accountView ? (
-          <AccountSurface
-            apiBaseUrl={apiBaseUrl}
-            tenantAlias={tenantAlias}
-            policy={view === 'account-policy'}
-          />
-        ) : journeyView ? (
-          <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : lineInboundView ? (
-          <LineInboundSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : embeddingView ? (
-          <DphoneEmbeddingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : governanceView ? (
-          <GovernanceSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : (
-          <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
-        )}
-      </ConsoleLocale>
+      <ConsoleSessionBootstrap>
+        <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
+          {signedOut ? (
+            <SignedOutSurface />
+          ) : homeView ? (
+            <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : coreSettingsView ? (
+            <CoreSettingsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : routingView ? (
+            <VoiceRoutingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : peopleView ? (
+            <TenantPeopleSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : historyView ? (
+            <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : accountView ? (
+            <AccountSurface
+              apiBaseUrl={apiBaseUrl}
+              tenantAlias={tenantAlias}
+              policy={view === 'account-policy'}
+            />
+          ) : journeyView ? (
+            <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : lineInboundView ? (
+            <LineInboundSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : embeddingView ? (
+            <DphoneEmbeddingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : governanceView ? (
+            <GovernanceSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : (
+            <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
+          )}
+        </ConsoleLocale>
+      </ConsoleSessionBootstrap>
     </AuthProvider>
   );
 }
