@@ -49,6 +49,13 @@
           "userSetupAllowed": false
         },
         {
+          "authenticator": "organization",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 15,
+          "userSetupAllowed": false
+        },
+        {
           "flowAlias": "uat browser password otp forms",
           "authenticatorFlow": true,
           "requirement": "ALTERNATIVE",
