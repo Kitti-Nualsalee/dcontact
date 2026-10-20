@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+  <changeSet id="dc-tenant-people-v1" author="dcontact">
+    <preConditions onFail="HALT"><dbms type="postgresql"/></preConditions>
+    <createTable tableName="DC_TENANT_PEOPLE_GATE">
+      <column name="ID" type="VARCHAR(64)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="REALM_ID" type="VARCHAR(255)"><constraints nullable="false"/></column>
+      <column name="TENANT_ID" type="VARCHAR(36)"><constraints nullable="false"/></column>
+    </createTable>
+    <createTable tableName="DC_TENANT_PEOPLE_OPERATION">
+      <column name="ID" type="VARCHAR(64)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="REALM_ID" type="VARCHAR(255)"><constraints nullable="false"/></column>
+      <column name="CLIENT_ID" type="VARCHAR(255)"><constraints nullable="false"/></column>
+      <column name="OPERATION_ID" type="VARCHAR(36)"><constraints nullable="false"/></column>
+      <column name="TENANT_ID" type="VARCHAR(36)"><constraints nullable="false"/></column>
+      <column name="TARGET_USER_ID" type="VARCHAR(36)"><constraints nullable="false"/></column>
+      <column name="PAYLOAD_DIGEST" type="VARCHAR(64)"><constraints nullable="false"/></column>
+      <column name="REQUEST_DIGEST" type="VARCHAR(64)"><constraints nullable="false"/></column>
+      <column name="MAX_FENCE" type="BIGINT"><constraints nullable="false"/></column>
+    </createTable>
+    <addUniqueConstraint tableName="DC_TENANT_PEOPLE_OPERATION" columnNames="REALM_ID,CLIENT_ID,OPERATION_ID" constraintName="DC_TP_OPERATION_KEY"/>
+    <createTable tableName="DC_TENANT_PEOPLE_RECEIPT">
+      <column name="ID" type="VARCHAR(64)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="OPERATION_KEY" type="VARCHAR(64)"><constraints nullable="false"/></column>
+      <column name="STEP" type="VARCHAR(40)"><constraints nullable="false"/></column>
+      <column name="GENERATION" type="BIGINT"><constraints nullable="false"/></column>
+      <column name="OUTCOME" type="VARCHAR(32)"><constraints nullable="false"/></column>
+      <column name="REASON_CODE" type="VARCHAR(64)"><constraints nullable="false"/></column>
+      <column name="IDENTITY_ID" type="VARCHAR(36)"/>
+    </createTable>
+    <addUniqueConstraint tableName="DC_TENANT_PEOPLE_RECEIPT" columnNames="OPERATION_KEY,STEP,GENERATION" constraintName="DC_TP_RECEIPT_KEY"/>
+    <addForeignKeyConstraint baseTableName="DC_TENANT_PEOPLE_RECEIPT" baseColumnNames="OPERATION_KEY" referencedTableName="DC_TENANT_PEOPLE_OPERATION" referencedColumnNames="ID" constraintName="DC_TP_RECEIPT_OPERATION"/>
+    <sql splitStatements="false"><![CDATA[
+      CREATE FUNCTION dc_tp_receipt_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'TENANT_PEOPLE_RECEIPT_IMMUTABLE' USING ERRCODE='23514'; END $$;
+    ]]></sql>
+    <sql>CREATE TRIGGER dc_tp_receipt_immutable BEFORE UPDATE OR DELETE ON DC_TENANT_PEOPLE_RECEIPT FOR EACH ROW EXECUTE FUNCTION dc_tp_receipt_immutable()</sql>
+  </changeSet>
+</databaseChangeLog>

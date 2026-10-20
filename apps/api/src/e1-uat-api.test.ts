@@ -106,6 +106,7 @@ test('uat-workspace mount UI APIs จริง แต่ยังบังคั
       'dphone-embedding',
       'agent-history',
       'voice-routing',
+      'tenant-people',
       'core-settings',
     ],
   );
@@ -114,6 +115,8 @@ test('uat-workspace mount UI APIs จริง แต่ยังบังคั
     '/api/v1/tenant-voice/queues',
     '/api/v1/tenant-voice/skills',
     '/api/v1/tenant-voice/capabilities',
+    '/api/v1/tenant-voice/extension-pool',
+    '/api/v1/tenant-voice/operations/00000000-0000-4000-8000-000000000709',
     '/api/v1/tenant/core-settings/capabilities',
     '/api/v1/tenant/core-settings/organization',
     '/api/v1/tenant/core-settings/commands/command-id',

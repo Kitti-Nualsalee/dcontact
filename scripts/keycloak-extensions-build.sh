@@ -5,7 +5,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 # extension → ชื่อ jar ใน providers/ (AC2 #595: dc-account คู่กับ invitation-guard)
-extensions=("invitation-guard:dcontact-invitation-guard.jar" "dc-account:dcontact-account.jar")
+extensions=("invitation-guard:dcontact-invitation-guard.jar" "dc-account:dcontact-account.jar" "tenant-people:dcontact-tenant-people.jar")
 # #592: ต้องตรงกับ image ของ runtime (infra/docker/docker-compose.dev.yml, infra/keycloak/Dockerfile)
 keycloak_image="docker.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85"
 work="$(mktemp -d)"

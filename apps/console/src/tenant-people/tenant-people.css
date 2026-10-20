@@ -1,0 +1,11 @@
+.tp-root {
+  padding: var(--dc-space-8);
+  color: var(--dc-text-primary);
+}
+.tp-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+  max-width: 36rem;
+  margin-block: var(--dc-space-6);
+}

@@ -1,5 +1,8 @@
 import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
 import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
+import { TenantPeopleController } from './tenant-people-api.js';
+import { TENANT_PEOPLE_READINESS } from './tenant-people-readiness.js';
+import { configuredPeopleRuntime } from './tenant-people-composition.js';
 /** #684: เพิ่ม UI APIs บน E1 sandbox โดยไม่ import default composition root */
 import { createE1UatApiModule, type E1UatApiDependencies } from './e1-uat-api.js';
 import {
@@ -24,6 +27,7 @@ export const WORKSPACE_UAT_APPS = NAVIGATION_APPS.filter((app) =>
     'dphone-embedding',
     'agent-history',
     'voice-routing',
+    'tenant-people',
     'core-settings',
   ].includes(app.id),
 );
@@ -38,6 +42,7 @@ export function createWorkspaceUatApiModule(dependencies: E1UatApiDependencies) 
       controllers: [
         TenantCoreSettingsController,
         TenantVoiceCatalogController,
+        TenantPeopleController,
         ...(base.controllers ?? []),
         NavigationController,
         TenantLocaleDefaultsController,
@@ -46,6 +51,7 @@ export function createWorkspaceUatApiModule(dependencies: E1UatApiDependencies) 
       providers: [
         { provide: TENANT_CORE_DATABASE, useValue: dependencies.database },
         { provide: TENANT_VOICE_DATABASE, useValue: dependencies.database },
+        { provide: TENANT_PEOPLE_READINESS, useFactory: () => configuredPeopleRuntime() },
         ...(base.providers ?? []),
         { provide: NAVIGATION_DATABASE, useValue: dependencies.database },
         { provide: NAVIGATION_REGISTRY, useValue: WORKSPACE_UAT_APPS },

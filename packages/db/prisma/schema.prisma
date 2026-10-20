@@ -175,6 +175,7 @@ model User {
   email        String
   passwordHash String   @map("password_hash")
   displayName  String   @map("display_name")
+  configRevision Int @default(1) @map("config_revision")
   role         UserRole @default(AGENT)
   // SIP extension สำหรับ softphone (agent เท่านั้น)
   extension    String?

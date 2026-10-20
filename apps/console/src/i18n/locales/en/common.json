@@ -26,6 +26,7 @@
       "dphoneEmbedding": "dphone embedding",
       "home": "Home",
       "voiceRouting": "Voice configuration",
+      "tenantPeople": "User accounts",
       "coreSettings": "Organization settings"
     },
     "areas": {
@@ -48,6 +49,7 @@
       "settings": "Organization settings"
     },
     "sections": {
+      "accounts": "Accounts",
       "work": "Work",
       "live": "Live",
       "embedding": "Embedding",

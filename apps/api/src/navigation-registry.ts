@@ -206,6 +206,16 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     ],
   },
   {
+    id: 'tenant-people',
+    area: 'people',
+    section: 'accounts',
+    group: 'settings',
+    labelKey: 'navigation.apps.tenantPeople',
+    hostApp: 'console',
+    path: '/?view=tenant-people',
+    roles: ['admin'],
+  },
+  {
     id: 'core-settings',
     area: 'settings',
     section: 'configuration',

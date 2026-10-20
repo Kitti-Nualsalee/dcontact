@@ -26,6 +26,7 @@
       "dphoneEmbedding": "ฝัง dphone",
       "home": "หน้าแรก",
       "voiceRouting": "ตั้งค่า Voice",
+      "tenantPeople": "บัญชีผู้ใช้",
       "coreSettings": "ตั้งค่าองค์กร"
     },
     "areas": {
@@ -48,6 +49,7 @@
       "settings": "ตั้งค่าองค์กร"
     },
     "sections": {
+      "accounts": "บัญชีผู้ใช้",
       "work": "งาน",
       "live": "งานสด",
       "embedding": "ฝังระบบ",

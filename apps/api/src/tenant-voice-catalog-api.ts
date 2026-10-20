@@ -12,8 +12,10 @@ import {
   Req,
   UnauthorizedException,
   Header,
+  Optional,
 } from '@nestjs/common';
 import type { PrismaClient } from '@d-contact/db';
+import { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import {
   catalogCapabilities,
@@ -43,11 +45,22 @@ function actor(req: AuthenticatedGatewayRequest): VoiceActor {
 @Controller('api/v1/tenant-voice')
 @GatewayRoles('admin', 'supervisor')
 export class TenantVoiceCatalogController {
-  constructor(@Inject(TENANT_VOICE_DATABASE) private readonly db: PrismaClient) {}
-  @Get('capabilities') @Header('Cache-Control', 'no-store') capabilities(
+  constructor(
+    @Inject(TENANT_VOICE_DATABASE) private readonly db: PrismaClient,
+    @Optional() @Inject(TENANT_PEOPLE_READINESS) private readonly people?: TenantPeopleReadiness,
+  ) {}
+  @Get('capabilities') @Header('Cache-Control', 'no-store') async capabilities(
     @Req() r: AuthenticatedGatewayRequest,
   ) {
-    return catalogCapabilities(this.db, actor(r));
+    const identity = actor(r);
+    const result = await catalogCapabilities(this.db, identity);
+    if (
+      result.canWrite &&
+      result.configuration.ready &&
+      (await this.people?.isReady(identity.tenantId))
+    )
+      result.peopleProvisioning = { ready: true, reasons: [] };
+    return result;
   }
   @Get('teams') @Header('Cache-Control', 'no-store') teams(@Req() r: AuthenticatedGatewayRequest) {
     return catalogTeams(this.db, actor(r));
