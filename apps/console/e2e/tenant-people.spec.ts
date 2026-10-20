@@ -16,12 +16,15 @@ for (const scenario of [
   'conflict',
   'agent',
   'attention',
+  'preauth-401',
+  'preauth-403',
 ])
   test(`create/status ${scenario}: บัญชี provision แล้วต้องยังรอ activation และ reload อ่าน operation เดิม`, async ({
     page,
   }) => {
     let creates = 0,
-      reads = 0;
+      reads = 0,
+      commandReads = 0;
     const lostResponse = scenario === 'lost-response' || scenario === 'lost-reload';
     const forbidden: string[] = [];
     page.on('request', (request) => {
@@ -44,14 +47,23 @@ for (const scenario of [
         return route.fulfill({ json: { items: [{ id: teamId, name: 'ทีมทดสอบ' }] } });
       if (path === 'extension-pool')
         return route.fulfill({ json: { items: [{ ref: '1104' }], poolRevision: 1 } });
-      if (path.startsWith('commands/'))
+      if (path.startsWith('commands/')) {
+        commandReads++;
+        if (scenario.startsWith('preauth-'))
+          return route.fulfill({ status: 404, json: { code: 'RESOURCE_NOT_FOUND' } });
         return route.fulfill({
           json: { state: 'SUCCEEDED', result: { operationId, userId, status: 'ACCEPTED' } },
         });
+      }
       if (path === 'people/users' && route.request().method() === 'POST') {
         creates++;
         const body = route.request().postDataJSON();
         commands.push(body.commandId);
+        if (scenario.startsWith('preauth-'))
+          return route.fulfill({
+            status: scenario === 'preauth-401' ? 401 : 403,
+            json: { code: scenario === 'preauth-401' ? 'UNAUTHORIZED' : 'FORBIDDEN' },
+          });
         if (['quota', 'conflict'].includes(scenario) && creates === 1)
           return route.fulfill({
             status: scenario === 'quota' ? 429 : 409,
@@ -117,6 +129,17 @@ for (const scenario of [
     await page.getByRole('button', { name: 'เลือกทีม ทีม', exact: true }).click();
     await page.getByRole('option', { name: 'ทีมทดสอบ', exact: true }).click();
     await page.getByRole('button', { name: 'สร้างบัญชี', exact: true }).click();
+    if (scenario.startsWith('preauth-')) {
+      await expect(page.getByRole('alert')).toContainText(
+        scenario === 'preauth-401' ? 'กรุณาเข้าสู่ระบบใหม่' : 'คุณไม่มีสิทธิ์',
+      );
+      await page.reload();
+      await expect(page.getByRole('textbox', { name: 'อีเมล', exact: true })).toBeEnabled();
+      expect(commandReads).toBe(0);
+      expect(reads).toBe(0);
+      expect(creates).toBe(1);
+      return;
+    }
     if (['validation', 'quota', 'conflict'].includes(scenario)) {
       await expect(page.getByRole('textbox', { name: 'อีเมล', exact: true })).toBeEnabled();
       if (scenario === 'validation')
@@ -254,9 +277,12 @@ for (const ending of ['success', 'auth', 'unmount'])
     await page.clock.runFor(15_000);
     expect(reads).toBe(3);
     release!();
-    if (ending === 'auth')
+    if (ending === 'auth') {
       await expect(page.getByRole('alert')).toContainText('กรุณาเข้าสู่ระบบใหม่');
-    else
+      expect(
+        await page.evaluate(() => sessionStorage.getItem('dc:tenant-people:pending:e2e-people')),
+      ).toContain(operationId);
+    } else
       await expect(
         page.getByText('จัดเตรียมบัญชีแล้ว — ยังรอผู้ใช้เปิดใช้งาน', { exact: true }),
       ).toBeVisible();

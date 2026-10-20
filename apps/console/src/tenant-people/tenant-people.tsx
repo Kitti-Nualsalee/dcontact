@@ -155,7 +155,8 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
       if (
         !admitted &&
         error instanceof CatalogApiError &&
-        ((error.status === 400 && error.code === 'VALIDATION_FAILED') ||
+        ([401, 403].includes(error.status) ||
+          (error.status === 400 && error.code === 'VALIDATION_FAILED') ||
           (error.status === 409 &&
             [
               'IDENTITY_CONFLICT',
@@ -170,7 +171,9 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
       ) {
         if (active.current) {
           remember(undefined);
-          setError(error.code === 'VALIDATION_FAILED' ? 'VALIDATION_FAILED' : 'CREATE_REJECTED');
+          if ([401, 403].includes(error.status)) failure(error);
+          else
+            setError(error.code === 'VALIDATION_FAILED' ? 'VALIDATION_FAILED' : 'CREATE_REJECTED');
         }
       } else failure(error);
     } finally {
