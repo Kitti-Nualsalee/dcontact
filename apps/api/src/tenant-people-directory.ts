@@ -21,6 +21,8 @@ interface DirectoryRow {
   accountState: string;
   provisioningState: string;
   activationState: string;
+  deliveryState: string;
+  invitationGeneration: number | null;
   statusRevision: number | null;
   operationId: string | null;
   commandId: string | null;
@@ -42,6 +44,9 @@ function projection(row: DirectoryRow) {
     accountState: row.accountState,
     provisioningState: row.provisioningState,
     activationState: row.activationState,
+    deliveryState: row.deliveryState,
+    invitationGeneration: row.invitationGeneration,
+    invitationExpiresAt: null,
     statusRevision: row.statusRevision,
     operationId: row.operationId,
     commandId: row.commandId,
@@ -121,11 +126,17 @@ export function readPeopleDirectory(
           u.team_id AS "teamId",t.name AS "teamName",u.is_active AS "isActive",u.created_at AS "createdAt",u.config_revision AS "configRevision",
           COALESCE(l.account_state,'UNKNOWN') AS "accountState",
           COALESCE(l.provisioning_state,'UNKNOWN') AS "provisioningState",
-          COALESCE(l.activation_state,'UNKNOWN') AS "activationState",l.revision AS "statusRevision",o.id AS "operationId",o.command_id AS "commandId"
+          COALESCE(l.activation_state,'UNKNOWN') AS "activationState",l.revision AS "statusRevision",o.id AS "operationId",o.command_id AS "commandId",
+          COALESCE(i.delivery_state,CASE WHEN o.id IS NULL THEN 'UNKNOWN' ELSE 'NOT_STARTED' END) AS "deliveryState",
+          i.generation AS "invitationGeneration"
         FROM users u
         LEFT JOIN teams t ON t.tenant_id=u.tenant_id AND t.id=u.team_id
         LEFT JOIN tenant_user_lifecycles l ON l.tenant_id=u.tenant_id AND l.user_id=u.id
         LEFT JOIN tenant_people_operations o ON o.tenant_id=l.tenant_id AND o.id=l.operation_id AND o.target_user_id=u.id
+        LEFT JOIN LATERAL (
+          SELECT delivery_state,generation FROM tenant_people_invitation_intents
+          WHERE tenant_id=u.tenant_id AND user_id=u.id ORDER BY generation DESC LIMIT 1
+        ) i ON true
         WHERE u.tenant_id=${identity.tenantId}::uuid AND u.role::text IN ('AGENT','SUPERVISOR','ADMIN')
           AND (o.id IS NOT NULL OR EXISTS (
             SELECT 1 FROM tenant_voice_identity_bindings b WHERE b.tenant_id=u.tenant_id AND b.user_id=u.id

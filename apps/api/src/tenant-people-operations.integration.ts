@@ -506,6 +506,9 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
     assert.equal(recoveredStatus.state, 'QUEUED');
     assert.equal(recoveredStatus.step, 'TENANT_ROLE');
     assert.equal(recoveredStatus.provisioningState, 'PENDING');
+    const beforeInvitation = await readObject(await request(`/people/users/${supervisor.userId}`));
+    assert.equal(beforeInvitation.deliveryState, 'NOT_STARTED');
+    assert.equal(beforeInvitation.invitationGeneration, null);
     for (const step of [
       'TENANT_ROLE',
       'ORG_MEMBERSHIP',
@@ -547,6 +550,66 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
     assert.equal(provisionedStatus.provisioningState, 'PROVISIONED');
     assert.equal(provisionedStatus.accountState, 'PENDING_ACTIVATION');
     assert.equal(provisionedStatus.activationState, 'PENDING');
+    const pendingInvitation = await readObject(await request(`/people/users/${supervisor.userId}`));
+    assert.equal(pendingInvitation.deliveryState, 'INTENT');
+    assert.equal(pendingInvitation.invitationGeneration, 1);
+    assert.equal(pendingInvitation.invitationExpiresAt, null);
+    assert.equal(pendingInvitation.activationState, 'PENDING');
+    assert.equal(pendingInvitation.isActive, false);
+    assert.equal('providerAttemptRef' in pendingInvitation, false);
+    assert.equal('actionLink' in pendingInvitation, false);
+    assert.deepEqual(
+      await readAccepted(await request('/people/users', supervisorCommand)),
+      supervisor,
+    );
+    assert.equal(
+      await runPeopleWorkerStep(
+        worker,
+        {
+          async mutateStep() {
+            assert.fail('completed provisioning must not dispatch an invitation');
+          },
+          async readOutcome() {
+            assert.fail('completed provisioning has no provider step to reconcile');
+          },
+        },
+        tenantId,
+        supervisor.operationId,
+        'worker-after-provisioned',
+      ),
+      'BUSY',
+    );
+    assert.deepEqual(
+      await readObject(await request(`/people/users/${supervisor.userId}`)),
+      pendingInvitation,
+    );
+    assert.deepEqual(
+      await withTenantDatabaseTransaction(
+        application,
+        randomUUID(),
+        (transaction) =>
+          transaction.$queryRaw`SELECT generation FROM tenant_people_invitation_intents WHERE user_id=${supervisor.userId}::uuid`,
+      ),
+      [],
+    );
+    for (const principal of [application, worker]) {
+      await assert.rejects(() =>
+        withTenantDatabaseTransaction(
+          principal,
+          tenantId,
+          (transaction) =>
+            transaction.$executeRaw`UPDATE tenant_people_invitation_intents SET generation=generation+1 WHERE user_id=${supervisor.userId}::uuid`,
+        ),
+      );
+      await assert.rejects(() =>
+        withTenantDatabaseTransaction(
+          principal,
+          tenantId,
+          (transaction) =>
+            transaction.$executeRaw`DELETE FROM tenant_people_invitation_intents WHERE user_id=${supervisor.userId}::uuid`,
+        ),
+      );
+    }
     const provisionedUser = await owner.user.findUniqueOrThrow({
       where: { id: supervisor.userId },
     });

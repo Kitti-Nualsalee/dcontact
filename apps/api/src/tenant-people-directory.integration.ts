@@ -358,6 +358,9 @@ test('People directory HTTP/RLS: pagination/detail และ positive tenant aut
         assert.equal(legacy.accountState, 'UNKNOWN');
         assert.equal(legacy.activationState, 'UNKNOWN');
         assert.equal(legacy.provisioningState, 'UNKNOWN');
+        assert.equal(legacy.deliveryState, 'UNKNOWN');
+        assert.equal(legacy.invitationGeneration, null);
+        assert.equal(legacy.invitationExpiresAt, null);
         assert.equal(legacy.operationId, null);
         assert.equal(legacy.commandId, null);
         assert.equal(legacy.statusRevision, null);
