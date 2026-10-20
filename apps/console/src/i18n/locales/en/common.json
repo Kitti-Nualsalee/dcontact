@@ -108,6 +108,10 @@
       "title": "You have signed out",
       "detail": "You have signed out of D-Contact. Sign in again to return to the page you were using.",
       "action": "Sign in again"
+    },
+    "restoring": {
+      "title": "Checking your sign-in session",
+      "detail": "Restoring your session to open the selected page"
     }
   }
 }

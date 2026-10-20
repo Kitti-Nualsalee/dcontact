@@ -51,6 +51,9 @@ async function login(page: Page, request: APIRequestContext, alias = 'admin') {
   await expect(
     page.getByRole('heading', { name: /^(ตั้งค่าองค์กร|Organization settings)$/, exact: true }),
   ).toBeVisible();
+  await expect(page).toHaveURL(
+    (url) => !url.searchParams.has('code') && !url.searchParams.has('state'),
+  );
   return config;
 }
 test('องค์กร: login จริง → แก้ชื่อ → readback และตั้ง defaults ครั้งแรกโดยหน้าเดิมไม่เปลี่ยนภาษา', async ({
@@ -145,8 +148,7 @@ test('องค์กร: response หายใช้ command-only recovery ห�
   expect(refs[0][1]).toMatch(/^[a-f0-9-]{36}$/);
   page.once('dialog', (d) => d.accept());
   await page.reload();
-  // userStore เป็น memory: SSO เข้าใหม่ตามระบบจริง แล้ว command เดิมต้องตรวจผลก่อนแก้
-  await page.getByRole('button', { name: 'เข้าสู่ระบบอีกครั้ง', exact: true }).click();
+  // userStore เป็น memory: boot กู้ SSO แล้วตรวจ command เดิมก่อนแก้ โดยไม่ถาม login ซ้ำ
   await expect(page.getByRole('status')).toContainText('บันทึกและตรวจข้อมูลเรียบร้อยแล้ว');
   await expect(page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })).toHaveValue(
     'ยืนยันผลหลัง reload',
@@ -226,6 +228,8 @@ test('องค์กร: same identity reauth อยู่หน้าเดิ
   request,
 }) => {
   await login(page, request);
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })).toBeVisible();
   await request.post('/__core_test/fault/reauth');
   const name = page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true });
   await name.fill('ร่างก่อน session หมด');
@@ -281,4 +285,106 @@ test('องค์กร: English UI ผ่าน real OIDC/API ใน tenant �
   } finally {
     await context.close();
   }
+});
+
+test('Console session: เปลี่ยนเมนูและ reload ต้องกู้ SSO โดยไม่ถาม login ซ้ำ', async ({
+  page,
+  request,
+}) => {
+  await login(page, request);
+  await page.getByRole('button', { name: /^เมนูผู้ใช้ / }).click();
+  await page.getByRole('menuitem', { name: 'บัญชีของฉัน', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'บัญชีของฉัน', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'หน้าแรก', exact: true }).first().click();
+  await expect(
+    page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?', exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: /^เมนูผู้ใช้ / })).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      [localStorage, sessionStorage].some((storage) =>
+        Object.values(storage).some((value) =>
+          /"(?:access_token|refresh_token|id_token)"\s*:/.test(String(value)),
+        ),
+      ),
+    ),
+  ).toBe(false);
+});
+
+test('Console session: SSO ใช้ไม่ได้จบที่ login UI และไม่วน auth request', async ({
+  page,
+  request,
+  context,
+}) => {
+  await login(page, request);
+  await context.clearCookies();
+  let attempts = 0;
+  page.on('request', (req) => {
+    const url = new URL(req.url());
+    if (
+      url.pathname.endsWith('/protocol/openid-connect/auth') &&
+      url.searchParams.get('prompt') === 'none'
+    )
+      attempts++;
+  });
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true }),
+  ).toBeVisible({ timeout: 15000 });
+  expect(attempts).toBe(1);
+  expect(new URL(page.url()).pathname).toBe('/');
+});
+
+test('Console session: explicit sign-out และ reload ต้องไม่กู้ SSO กลับเข้าเอง', async ({
+  page,
+  request,
+}) => {
+  const config = await login(page, request);
+  let attempts = 0;
+  page.on('request', (req) => {
+    const url = new URL(req.url());
+    if (
+      url.pathname.endsWith('/protocol/openid-connect/auth') &&
+      url.searchParams.get('prompt') === 'none'
+    )
+      attempts++;
+  });
+  await page.getByRole('button', { name: /^เมนูผู้ใช้ / }).click();
+  await page.getByRole('menuitem', { name: 'ออกจากระบบ', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'ออกจากระบบแล้ว', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'ออกจากระบบแล้ว', exact: true })).toBeVisible();
+  await page.goto(`/?tenant=${config.tenant}&view=core-settings&page=organization`);
+  await expect(
+    page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true }),
+  ).toBeVisible();
+  expect(attempts).toBe(0);
+});
+
+test('Console session: discovery ค้างต้องจบที่ login UI ตาม network timeout', async ({
+  page,
+  request,
+}) => {
+  await login(page, request);
+  await page.route('**/.well-known/openid-configuration', () => {});
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true }),
+  ).toBeVisible({ timeout: 12000 });
+});
+
+test('Console session: token request ค้างต้องจบที่ login UI ตาม network timeout', async ({
+  page,
+  request,
+}) => {
+  await login(page, request);
+  await page.route('**/protocol/openid-connect/token', () => {});
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true }),
+  ).toBeVisible({ timeout: 12000 });
 });
