@@ -13,6 +13,7 @@ import { TenantPeopleKeycloak } from './tenant-people-keycloak.js';
 import { DatabaseTenantPeopleReadiness } from './tenant-people-readiness.js';
 import { TenantPeopleRuntime } from './tenant-people-runtime.js';
 import type { TenantPeopleIdentityPort } from './tenant-people-worker.js';
+import { runPeopleInvitationAttempt } from './tenant-people-invitation-worker.js';
 import {
   OidcGlobalGuard,
   OIDC_ACCESS_TOKEN_VERIFIER,
@@ -26,7 +27,7 @@ function required(name: string): string {
   return value;
 }
 
-test('real JWT HTTP → RLS worker → Keycloak: three roles remain pending activation after response loss', async () => {
+test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง PENDING หลัง response loss และ read-only reconcile', async () => {
   const issuer = required('B2_KEYCLOAK_ISSUER');
   const tenantId = required('B2_KEYCLOAK_TENANT_ID');
   const adminId = required('B2_KEYCLOAK_ADMIN_SUBJECT');
@@ -175,6 +176,10 @@ test('real JWT HTTP → RLS worker → Keycloak: three roles remain pending acti
       return Object.fromEntries(Object.entries(raw));
     };
     assert.deepEqual((await read('capabilities')).peopleProvisioning, { ready: true, reasons: [] });
+    assert.deepEqual((await read('capabilities')).invitation, {
+      ready: false,
+      reasons: ['CAPABILITY_NOT_READY'],
+    });
     assert.deepEqual((await read('extension-pool')).items, [{ ref: '1104' }]);
     for (const role of ['AGENT', 'SUPERVISOR', 'ADMIN']) {
       const command = {
@@ -235,6 +240,85 @@ test('real JWT HTTP → RLS worker → Keycloak: three roles remain pending acti
       assert.equal(user.extension, role === 'AGENT' ? '1104' : null);
       assert.equal(await owner.agentSipCredential.count({ where: { tenantId, userId } }), 0);
       assert.equal(await owner.agentWorkSessionLease.count({ where: { tenantId, userId } }), 0);
+      const pendingInvitation = await read(`people/users/${userId}`);
+      assert.equal(pendingInvitation.deliveryState, 'INTENT');
+      let invitationPosts = 0;
+      let invitationReads = 0;
+      let malformedProofs = 0;
+      const deliveryAdapter = new TenantPeopleKeycloak(
+        {
+          issuer,
+          tenantId,
+          clientId: required('B2_KEYCLOAK_CLIENT_ID'),
+          clientSecret: required('B2_KEYCLOAK_CLIENT_SECRET'),
+        },
+        async (input, options) => {
+          const response = await fetch(input, options);
+          if (String(input).includes('/dispatch')) {
+            if (options?.method === 'POST') {
+              invitationPosts++;
+              await response.arrayBuffer();
+              throw new Error('synthetic SMTP response loss');
+            }
+            invitationReads++;
+            if (malformedProofs === 0 && response.ok) {
+              const proof: unknown = await response.json();
+              if (
+                proof &&
+                typeof proof === 'object' &&
+                'outcome' in proof &&
+                proof.outcome === 'SENT'
+              ) {
+                malformedProofs++;
+                return Response.json({ ...proof, unexpectedField: 'reject-this-proof' });
+              }
+              return Response.json(proof);
+            }
+          }
+          return response;
+        },
+      );
+      const delivery = deliveryAdapter.invitationPort();
+      assert.equal(typeof pendingInvitation.operationId, 'string');
+      const invitationOperationId = String(pendingInvitation.operationId);
+      assert.equal(
+        await runPeopleInvitationAttempt(
+          worker,
+          delivery,
+          tenantId,
+          invitationOperationId,
+          'smtp-original-worker',
+        ),
+        'AMBIGUOUS',
+      );
+      let invitationResult = 'AMBIGUOUS';
+      for (let attempt = 0; attempt < 50 && invitationResult !== 'RECORDED'; attempt++) {
+        const previousMalformedProofs = malformedProofs;
+        invitationResult = await runPeopleInvitationAttempt(
+          worker,
+          delivery,
+          tenantId,
+          invitationOperationId,
+          'smtp-restarted-reader',
+        );
+        if (malformedProofs > previousMalformedProofs) assert.equal(invitationResult, 'AMBIGUOUS');
+        if (invitationResult !== 'RECORDED')
+          await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      assert.equal(invitationResult, 'RECORDED');
+      assert.equal(invitationPosts, 1);
+      assert.equal(malformedProofs, 1);
+      assert.ok(invitationReads > 0);
+      const sentInvitation = await read(`people/users/${userId}`);
+      assert.equal(sentInvitation.deliveryState, 'SENT');
+      assert.equal(sentInvitation.invitationGeneration, 1);
+      assert.equal(sentInvitation.activationState, 'PENDING');
+      assert.equal(sentInvitation.isActive, false);
+      assert.equal(typeof sentInvitation.invitationExpiresAt, 'string');
+      assert.equal(await owner.agentSipCredential.count({ where: { tenantId, userId } }), 0);
+      assert.equal(await owner.agentWorkSessionLease.count({ where: { tenantId, userId } }), 0);
+      for (const field of ['actionLink', 'providerAttemptRef', 'receiptRef', 'leaseOwner'])
+        assert.equal(field in sentInvitation, false);
     }
     assert.equal(mutations, 15);
     assert.equal(reconciliations, 3);

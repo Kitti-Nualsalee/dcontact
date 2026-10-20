@@ -1,5 +1,10 @@
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
-import { voiceFail, voiceUuid } from './tenant-voice-catalog.js';
+import { digest, voiceFail, voiceUuid } from './tenant-voice-catalog.js';
+import {
+  normalizePeopleCreate,
+  peopleCreateDigest,
+  type PeopleCreateCommand,
+} from './tenant-people-input.js';
 
 export interface PeopleInvitationAttempt {
   tenantId: string;
@@ -11,6 +16,7 @@ export interface PeopleInvitationAttempt {
   fencingToken: string;
   leaseOwner: string;
   leaseExpiresAt: Date;
+  command: PeopleCreateCommand;
 }
 
 export type PeopleInvitationOutcome =
@@ -57,17 +63,31 @@ async function admitAttempt(
         AND NOT u.is_active AND u.keycloak_id=l.verified_identity_id
       ON CONFLICT(tenant_id,provider_attempt_ref) DO NOTHING
       RETURNING provider_attempt_ref AS "providerAttemptRef"`;
-    const claims = await transaction.$queryRaw<(PeopleInvitationAttempt & { finished: boolean })[]>`
+    const claims = await transaction.$queryRaw<
+      (Omit<PeopleInvitationAttempt, 'command'> & {
+        finished: boolean;
+        payload: unknown;
+        actorId: string;
+        commandId: string;
+      })[]
+    >`
       SELECT d.tenant_id AS "tenantId",d.operation_id AS "operationId",d.user_id AS "userId",
         d.generation,d.provider_attempt_ref AS "providerAttemptRef",o.payload_digest AS "payloadDigest",
         d.fencing_token::text AS "fencingToken",d.lease_owner AS "leaseOwner",d.lease_expires_at AS "leaseExpiresAt",
+        o.request_payload AS payload,o.actor_user_id AS "actorId",o.command_id AS "commandId",
         EXISTS(SELECT 1 FROM tenant_people_invitation_receipts r WHERE r.tenant_id=d.tenant_id AND r.provider_attempt_ref=d.provider_attempt_ref) AS finished
       FROM tenant_people_invitation_dispatches d
       JOIN tenant_people_operations o ON o.tenant_id=d.tenant_id AND o.id=d.operation_id AND o.target_user_id=d.user_id
       WHERE d.tenant_id=${tenantId}::uuid AND d.operation_id=${operationId}::uuid`;
     if (!claims[0]) return null;
-    const { finished, ...attempt } = claims[0];
-    return { attempt, dispatch: admitted.length === 1, finished };
+    const { finished, payload, actorId, commandId, ...attempt } = claims[0];
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+      voiceFail('PEOPLE_PAYLOAD_CORRUPTED', 409);
+    const { infrastructure, ...request } = Object.fromEntries(Object.entries(payload));
+    const command = normalizePeopleCreate({ ...request, commandId });
+    if (digest([tenantId, actorId, peopleCreateDigest(command)]) !== attempt.payloadDigest)
+      voiceFail('PEOPLE_PAYLOAD_CORRUPTED', 409);
+    return { attempt: { ...attempt, command }, dispatch: admitted.length === 1, finished };
   });
 }
 

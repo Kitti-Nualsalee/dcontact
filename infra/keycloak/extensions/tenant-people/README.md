@@ -29,6 +29,10 @@ SMTP accepted ให้ `SENT` และ quiescence proof ของ attempt เ�
 
 Runner ตรวจ concurrent intent/dispatch/replay, profile guard, atomic rollback ของ fence/intent, durable readback หลัง Keycloak restart, exact-attempt SMTP subject, required actions และอายุ token 72 ชั่วโมงจาก Keycloak clock รวม fault หลังส่งจริงแต่ก่อน finished receipt ลิงก์อ่านเฉพาะใน memory ของ mailbox test ไม่เก็บใน evidence/log/operation result
 
+ฝั่ง application มี `TenantPeopleKeycloak.invitationPort()` สำหรับ dispatch/readback โดยใช้ tenant service credentials เดิม Worker โหลด accepted payload และตรวจ digest ก่อนเรียก provider รับเฉพาะ `SENT` ที่มี field ตรง private contract ทั้งหมดและ quiescence proof ของ operation/user/generation/attempt/fence/send owner เดิม ไม่รับ field เกินหรืออนุมานผลจาก HTTP status อย่างเดียว หาก response หาย รอบถัดไปอ่านด้วย GET เท่านั้น
+
+Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ตรวจครบสาม roles ว่าคืนสถานะ `SENT` ผ่าน API หลัง lost response และปฏิเสธ proof ที่มี field เกิน บัญชียัง inactive/PENDING ไม่สร้าง SIP credential หรือ work-session lease การต่อ adapter นี้ยังไม่เปิด invitation capability หรือผูกเข้ากับ scheduler ของ runtime ปกติ
+
 ส่วนนี้ยังรองรับ generation แรกเท่านั้น รุ่นถัดไปถูกปฏิเสธ ไม่มี application runtime dispatch/Console resend/activation เปิดใช้งาน การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ resend cap, monotonic supersession, old/expired/activated-link guard และ fresh activation proof ยังต้องผ่านเกตของตนเอง
 
 ไฟล์ `tenant-people-operations.integration.ts` แยกทดสอบ HTTP/RLS/quotas/claims ด้วย identity port ที่ควบคุมได้ ไม่ใช้ผลชุดนั้นแทน real Keycloak boundary ส่วน `tenant-people-keycloak.boundary.ts` และ `tenant-people-provisioning.boundary.ts` รับ environment ของ runner และ fail หากไม่มี configuration ไม่ skip แล้วนับผ่าน
