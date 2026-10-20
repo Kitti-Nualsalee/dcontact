@@ -1,6 +1,6 @@
 # Tenant People identity boundary
 
-Implementation ของ [B2 #709](https://github.com/Kitti-Nualsalee/dcontact/issues/709) ตาม [สัญญา #704](https://github.com/Kitti-Nualsalee/dcontact/issues/704) และ [ADR-035](../../../../docs/adr/035-tenant-people-identity-authority.md) ยังไม่ใช่การเปิดใช้ provisioning บน UAT หรือ production
+Implementation ของ [B2 #709](https://github.com/Kitti-Nualsalee/dcontact/issues/709) และส่วน provider intent/SMTP ของ [B3 #710](https://github.com/Kitti-Nualsalee/dcontact/issues/710) ตาม [สัญญา #704](https://github.com/Kitti-Nualsalee/dcontact/issues/704) และ [ADR-035](../../../../docs/adr/035-tenant-people-identity-authority.md) ยังไม่ใช่การเปิดใช้ provisioning บน UAT หรือ production
 
 ## ทดสอบ boundary
 
@@ -13,11 +13,23 @@ pnpm --filter "@d-contact/api^..." build
 pnpm voice:tenant-people:boundary
 ```
 
-Runner สร้าง network/container ชื่อสุ่มของตัวเอง ใช้ PostgreSQL บน tmpfs และ Keycloak 26.7.5 ตาม distribution digest ของ repo เปิด port เฉพาะ loopback แบบสุ่ม compile extension กับ jars จาก image นั้นโดยตรง แล้วสร้าง realm/Organization/bootstrap user/service clients สังเคราะห์ ไม่อ่าน credentials หรือฐานข้อมูล UAT และไม่ใช้ container ของงานอื่น จะดึง image ที่จำเป็นหากยังไม่มีในเครื่อง และล้างเฉพาะทรัพยากรที่สร้างในรอบนี้เมื่อจบหรือเกิด exception
+Runner สร้าง network/container ชื่อสุ่มของตัวเอง ใช้ PostgreSQL บน tmpfs, Keycloak 26.7.5 และ Mailpit v1.31.1 ตาม distribution digest ของ repo เปิด port เฉพาะ loopback แบบสุ่ม compile extension กับ jars จาก image นั้นโดยตรง แล้วสร้าง realm/Organization/bootstrap user/service clients สังเคราะห์ Mailpit เก็บ mailbox ใน tmpfs ของตัวเอง โดย runner ส่งเฉพาะเมลทดสอบ `example.test` เข้า Mailpit ไม่อ่าน credentials หรือฐานข้อมูล UAT และไม่ใช้ container ของงานอื่น จะดึง image ที่จำเป็นหากยังไม่มีในเครื่อง และล้างเฉพาะทรัพยากรที่สร้างในรอบนี้เมื่อจบหรือเกิด exception
 
 ทดสอบ service JWT/tenant binding, concurrent create/replay, stale fence/correlation conflict, foreign target no effect และ fault injection ให้ identity/role/membership rollback พร้อม receipt จากนั้นทดสอบ JWT ของ bootstrap user จริงผ่าน HTTP → application RLS → fenced worker → narrow service client → Keycloak ครบ AGENT/SUPERVISOR/ADMIN รวม response loss ที่ reconcile ด้วย readback ไม่ blind-create
 
 บัญชีใหม่ยัง inactive, mapping/role/team ตรง, required actions ครบ และ `PENDING_ACTIVATION` ไม่มี temporary password/SIP credential/work-session lease การมี invitation intent ใน application DB ไม่ได้แปลว่าส่ง email แล้ว การส่งและ activation เป็น B3 ไม่ส่งอีเมลไปภายนอกใน boundary นี้
+
+## B3 provider intent/SMTP ที่ยังอยู่ระหว่าง implementation
+
+Private endpoints ใต้ `operations/{operationId}/invitations/1/intent` และ `/dispatch` รับเฉพาะ tenant service client เดิม พร้อม accepted descriptor, `providerAttemptRef`, `fencingToken` และ `leaseOwner` ไม่รับ SMTP configuration, action link หรือ redirect URI จาก caller ต้องมี provisioning proof และตรวจ identity/role/Organization/required actions/credential state ใหม่ก่อนส่ง User Profile ของ `dc_invitation_not_before` ต้องเป็น admin-only แบบเดียวกับ classification attributes
+
+Intent กับ not-before fence จาก Keycloak server clock commit ใน transaction เดียวกัน ส่วน dispatch claim commit ก่อน callback ส่ง SMTP ด้วย transaction ใหม่ Callback ตรวจสิทธิ์และ pending identity ซ้ำ ถือ tenant gate ระหว่างส่ง และบันทึก immutable finished receipt หลัง synchronous sender คืนผล รองรับเฉพาะ `DefaultEmailSenderProvider` ของ pinned distribution; provider อื่นไม่ถูกถือว่าให้ quiescence proof โดยอัตโนมัติ
+
+SMTP accepted ให้ `SENT` และ quiescence proof ของ attempt เดิมเท่านั้น ส่วน SMTP exception ให้ `UNKNOWN` หาก claim commit แล้วแต่ callback/finished receipt ล้ม จะคง `DISPATCHING` และไม่มี blind retry หรือ re-arm จากเวลา/lease เมลที่ถึง Mailpit แต่ไม่มี finished receipt ไม่ใช่เหตุให้ปลด quiescence gate
+
+Runner ตรวจ concurrent intent/dispatch/replay, profile guard, atomic rollback ของ fence/intent, durable readback หลัง Keycloak restart, exact-attempt SMTP subject, required actions และอายุ token 72 ชั่วโมงจาก Keycloak clock รวม fault หลังส่งจริงแต่ก่อน finished receipt ลิงก์อ่านเฉพาะใน memory ของ mailbox test ไม่เก็บใน evidence/log/operation result
+
+ส่วนนี้ยังรองรับ generation แรกเท่านั้น รุ่นถัดไปถูกปฏิเสธ ไม่มี application runtime dispatch/Console resend/activation เปิดใช้งาน การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ resend cap, monotonic supersession, old/expired/activated-link guard และ fresh activation proof ยังต้องผ่านเกตของตนเอง
 
 ไฟล์ `tenant-people-operations.integration.ts` แยกทดสอบ HTTP/RLS/quotas/claims ด้วย identity port ที่ควบคุมได้ ไม่ใช้ผลชุดนั้นแทน real Keycloak boundary ส่วน `tenant-people-keycloak.boundary.ts` และ `tenant-people-provisioning.boundary.ts` รับ environment ของ runner และ fail หากไม่มี configuration ไม่ skip แล้วนับผ่าน
 

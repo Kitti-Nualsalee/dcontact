@@ -1,8 +1,10 @@
 import concurrent.futures
+import base64
 import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import time
 import urllib.error
@@ -13,6 +15,7 @@ import uuid
 import tempfile
 
 KEYCLOAK_IMAGE='docker.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85'
+MAILPIT_IMAGE='docker.io/axllent/mailpit:v1.31.1@sha256:98b916bd3c8d61f7633a52d3ea2f58d00620cb01ca57ab59edde68c347a95365'
 
 def run_boundary(root,work,postgres,network,container,postgres_port):
     image=KEYCLOAK_IMAGE
@@ -31,6 +34,8 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
     environment.update(KC_DB_PASSWORD=settings['POSTGRES_PASSWORD'],KC_BOOTSTRAP_ADMIN_PASSWORD=uuid.uuid4().hex)
     base=None
     started=False
+    smtp=container+'-smtp'
+    smtp_started=False
     def call(path,token=None,body=None,method=None,form=None):
         headers={}
         if token:headers['Authorization']='Bearer '+token
@@ -53,6 +58,14 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         if actual!=status:raise RuntimeError('HTTP_BOUNDARY_STATUS_'+str(actual)+'_EXPECTED_'+str(status)+'_'+str(result.get('code','UNKNOWN') if isinstance(result,dict) else 'UNKNOWN'))
         return result,headers
     try:
+        subprocess.run(['docker','run','-d','--pull=never','--name',smtp,'--network',network,'--memory','128m','--read-only','--tmpfs','/tmp:rw,size=32m','--security-opt','no-new-privileges','--cap-drop','ALL','-p','127.0.0.1::8025','-e','MP_DATABASE=/tmp/mailpit.db',MAILPIT_IMAGE],check=True,stdout=subprocess.DEVNULL)
+        smtp_started=True
+        smtp_port=json.loads(subprocess.check_output(['docker','inspect',smtp],text=True))[0]['NetworkSettings']['Ports']['8025/tcp'][0]['HostPort']
+        def mailbox(path):
+            with urllib.request.urlopen('http://127.0.0.1:'+smtp_port+path,timeout=10) as response:return json.loads(response.read())
+        def messages_for_attempt(attempt):
+            subject='คำเชิญเข้าใช้งาน D-Contact [dc-attempt:'+attempt+']'
+            return [message for message in mailbox('/api/v1/messages').get('messages',[]) if message.get('Subject')==subject]
         args=['docker','run','-d','--pull=never','--name',container,'--network',network,'--memory','1g','--cpus','2','--security-opt','no-new-privileges','--cap-drop','ALL','-p','127.0.0.1::8080',
             '-v',str(work/'dcontact-tenant-people.jar')+':/opt/keycloak/providers/dcontact-tenant-people.jar:ro',
             '-e','KC_DB=postgres','-e','KC_DB_URL=jdbc:postgresql://'+postgres+':5432/'+database,'-e','KC_DB_USERNAME='+owner,'-e','KC_DB_PASSWORD','-e','KC_BOOTSTRAP_ADMIN_USERNAME=b2-boundary-admin','-e','KC_BOOTSTRAP_ADMIN_PASSWORD',image,'start-dev','--http-port=8080']
@@ -70,9 +83,10 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         if status!=200:raise RuntimeError('SANDBOX_ADMIN_LOGIN_FAILED')
         admin=login['access_token'];realm='b2-'+uuid.uuid4().hex[:12];adminbase='/admin/realms/'+realm
         expect('/admin/realms',admin,{'realm':realm,'enabled':True,'organizationsEnabled':True,'sslRequired':'none'})
+        expect(adminbase,admin,{'smtpServer':{'host':smtp,'port':'1025','from':'onboarding@example.test','ssl':'false','starttls':'false','auth':'false'}},method='PUT',status=204)
         for role in ('agent','supervisor','admin'):expect(adminbase+'/roles',admin,{'name':role})
         profile,_=expect(adminbase+'/users/profile',admin,status=200)
-        for name in ('dc_identity_class','tenant_id','tenant_slug','dc_user_id','dc_tenant_people_operation_id'):
+        for name in ('dc_identity_class','tenant_id','tenant_slug','dc_user_id','dc_tenant_people_operation_id','dc_invitation_not_before'):
             profile['attributes'].append({'name':name,'multivalued':False,'permissions':{'view':['admin'],'edit':['admin']}})
         expect(adminbase+'/users/profile',admin,profile,method='PUT',status=200)
         tenants=[]
@@ -158,8 +172,119 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         if organization_replay!=organization_result:raise RuntimeError('ORGANIZATION_RECEIPT_CHANGED')
         members,_=expect(adminbase+'/organizations/'+tenants[0]['organization']+'/members',admin,status=200)
         if rolebody['targetUserId'] not in [member['id'] for member in members]:raise RuntimeError('ORGANIZATION_MEMBER_MISSING')
+        for step in ('VERIFY_MAPPING','VERIFY_PROVISIONED'):
+            expect(rolebase+step,tenants[0]['token'],rolebody,status=200)
+        invitation_body={**rolebody,'providerAttemptRef':str(uuid.uuid4()),'leaseOwner':'sandbox-invitation-worker'}
+        invitation_path='/realms/'+realm+'/dc-tenant-people/operations/'+roleoperation+'/invitations/1/intent'
+        invitation_query=urllib.parse.urlencode({key:invitation_body[key] for key in ('tenantId','targetUserId','payloadDigest','providerAttemptRef','fencingToken','leaseOwner')})
+        expect(invitation_path,None,invitation_body,status=401)
+        expect(invitation_path,tenants[1]['token'],invitation_body,status=403)
+        expect(invitation_path,tenants[0]['token'],{**invitation_body,'actionLink':'forbidden'},status=400)
+        missing_intent,_=expect(invitation_path+'?'+invitation_query,tenants[0]['token'],status=200)
+        if missing_intent!={'outcome':'UNKNOWN'}:raise RuntimeError('MISSING_INVITATION_INTENT_NOT_UNKNOWN')
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            invitation_results=list(pool.map(lambda _:call(invitation_path,tenants[0]['token'],invitation_body),range(2)))
+        if [result[0] for result in invitation_results]!=[200,200]:raise RuntimeError('CONCURRENT_INVITATION_INTENT_FAILED')
+        first_intent=invitation_results[0][1]
+        expected_intent_fields={'outcome','intentRef','tenantId','operationId','userId','generation','providerAttemptRef','payloadDigest','fencingToken','leaseOwner','notBeforeEpoch','serverEpoch','quiescent'}
+        if set(first_intent)!=expected_intent_fields or first_intent['outcome']!='INTENT' or first_intent['quiescent'] is not False:raise RuntimeError('INVITATION_INTENT_PROJECTION_INVALID')
+        if first_intent['notBeforeEpoch']<=0 or first_intent['serverEpoch']<first_intent['notBeforeEpoch']:raise RuntimeError('KEYCLOAK_INVITATION_CLOCK_INVALID')
+        for result in invitation_results:
+            if {key:value for key,value in result[1].items() if key!='serverEpoch'}!={key:value for key,value in first_intent.items() if key!='serverEpoch'}:raise RuntimeError('INVITATION_INTENT_REPLAY_CHANGED')
+        intent_readback,_=expect(invitation_path+'?'+invitation_query,tenants[0]['token'],status=200)
+        if intent_readback['intentRef']!=first_intent['intentRef'] or intent_readback['notBeforeEpoch']!=first_intent['notBeforeEpoch']:raise RuntimeError('INVITATION_INTENT_READBACK_CHANGED')
+        fenced_user,_=expect(adminbase+'/users/'+rolebody['targetUserId'],admin,status=200)
+        if fenced_user['attributes'].get('dc_invitation_not_before')!=[str(first_intent['notBeforeEpoch'])]:raise RuntimeError('INVITATION_FENCE_NOT_DURABLE')
+        if sql("SELECT count(*) FROM dc_tenant_people_invitation_intent;").strip()!='1':raise RuntimeError('DUPLICATE_INVITATION_INTENT')
+        expect(invitation_path,tenants[0]['token'],{**invitation_body,'providerAttemptRef':str(uuid.uuid4())},status=409)
+        expect(invitation_path,tenants[0]['token'],{**invitation_body,'leaseOwner':'different-owner'},status=409)
+        expect(invitation_path,tenants[0]['token'],{**invitation_body,'fencingToken':'2'},status=409)
+        expect(invitation_path.replace('/invitations/1/','/invitations/2/'),tenants[0]['token'],invitation_body,status=409)
+        try:sql('UPDATE dc_tenant_people_invitation_intent SET lease_owner=lease_owner;')
+        except subprocess.CalledProcessError:pass
+        else:raise RuntimeError('INVITATION_INTENT_NOT_IMMUTABLE')
+        missing_invitation_profile={**profile,'attributes':[attribute for attribute in profile['attributes'] if attribute['name']!='dc_invitation_not_before']}
+        expect(adminbase+'/users/profile',admin,missing_invitation_profile,method='PUT',status=200)
+        expect(invitation_path,tenants[0]['token'],invitation_body,status=503)
+        expect(adminbase+'/users/profile',admin,profile,method='PUT',status=200)
+        rollback_body=envelope();rollback_operation=str(uuid.uuid4());rollback_base='/realms/'+realm+'/dc-tenant-people/operations/'+rollback_operation+'/steps/'
+        for step in ('CREATE_IDENTITY','TENANT_ROLE','ORG_MEMBERSHIP','VERIFY_MAPPING','VERIFY_PROVISIONED'):
+            expect(rollback_base+step,tenants[0]['token'],rollback_body,status=200)
+        rollback_intent={**rollback_body,'providerAttemptRef':str(uuid.uuid4()),'leaseOwner':'sandbox-rollback-worker'}
+        rollback_path='/realms/'+realm+'/dc-tenant-people/operations/'+rollback_operation+'/invitations/1/intent'
+        sql("CREATE FUNCTION dc_b3_intent_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'B3_TEST_INTENT_FAULT'; END $$; CREATE TRIGGER dc_b3_intent_fault BEFORE INSERT ON dc_tenant_people_invitation_intent FOR EACH ROW EXECUTE FUNCTION dc_b3_intent_fault();")
+        expect(rollback_path,tenants[0]['token'],rollback_intent,status=503)
+        rollback_user,_=expect(adminbase+'/users/'+rollback_body['targetUserId'],admin,status=200)
+        if 'dc_invitation_not_before' in rollback_user.get('attributes',{}):raise RuntimeError('PARTIAL_INVITATION_FENCE_COMMITTED')
+        if sql('SELECT count(*) FROM dc_tenant_people_invitation_intent;').strip()!='1':raise RuntimeError('PARTIAL_INVITATION_INTENT_COMMITTED')
+        sql('DROP TRIGGER dc_b3_intent_fault ON dc_tenant_people_invitation_intent;')
+        expect(rollback_path,tenants[0]['token'],rollback_intent,status=200)
+        subprocess.run(['docker','restart',container],check=True,stdout=subprocess.DEVNULL)
+        restarted_port=json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]['NetworkSettings']['Ports']['8080/tcp'][0]
+        base='http://127.0.0.1:'+restarted_port['HostPort']
+        restart_deadline=time.monotonic()+120
+        while time.monotonic()<restart_deadline:
+            try:
+                if call('/realms/'+realm+'/.well-known/openid-configuration')[0]==200:break
+            except Exception:pass
+            time.sleep(1)
+        else:raise RuntimeError('KEYCLOAK_RESTART_TIMEOUT')
+        status,login,_=call('/realms/master/protocol/openid-connect/token',form={'grant_type':'password','client_id':'admin-cli','username':'b2-boundary-admin','password':environment['KC_BOOTSTRAP_ADMIN_PASSWORD']})
+        if status!=200:raise RuntimeError('SANDBOX_ADMIN_RELOGIN_FAILED')
+        admin=login['access_token']
+        for tenant in tenants:
+            status,login,_=call('/realms/'+realm+'/protocol/openid-connect/token',form={'grant_type':'client_credentials','client_id':tenant['clientId'],'client_secret':tenant['secret']})
+            if status!=200:raise RuntimeError('SANDBOX_SERVICE_RELOGIN_FAILED')
+            tenant['token']=login['access_token']
+        restarted_intent,_=expect(invitation_path+'?'+invitation_query,tenants[0]['token'],status=200)
+        if restarted_intent['intentRef']!=first_intent['intentRef'] or restarted_intent['notBeforeEpoch']!=first_intent['notBeforeEpoch'] or restarted_intent['quiescent'] is not False:raise RuntimeError('INVITATION_INTENT_RESTART_MISMATCH')
+        print('B3_INVITATION_INTENT_BOUNDARY_PASS')
+        dispatch_path=invitation_path.replace('/intent','/dispatch')
+        expect(dispatch_path,None,invitation_body,status=401)
+        expect(dispatch_path,tenants[1]['token'],invitation_body,status=403)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            dispatch_results=list(pool.map(lambda _:call(dispatch_path,tenants[0]['token'],invitation_body),range(2)))
+        if [result[0] for result in dispatch_results]!=[200,200]:raise RuntimeError('CONCURRENT_SMTP_DISPATCH_FAILED')
+        delivery,_=expect(dispatch_path+'?'+invitation_query,tenants[0]['token'],status=200)
+        if delivery['outcome']!='SENT' or delivery.get('quiescent') is not True:raise RuntimeError('SMTP_FINISHED_RECEIPT_MISSING')
+        if delivery['providerAttemptRef']!=invitation_body['providerAttemptRef'] or delivery['leaseOwner']!=invitation_body['leaseOwner'] or delivery['fencingToken']!=invitation_body['fencingToken']:raise RuntimeError('SMTP_RECEIPT_ATTEMPT_MISMATCH')
+        message_deadline=time.monotonic()+10
+        while time.monotonic()<message_deadline:
+            messages=messages_for_attempt(invitation_body['providerAttemptRef'])
+            if messages:break
+            time.sleep(0.1)
+        if len(messages)!=1:raise RuntimeError('SMTP_DUPLICATE_OR_MISSING_MESSAGE')
+        message=mailbox('/api/v1/message/'+messages[0]['ID'])
+        link_match=re.search(r'https?://\S+action-token\S+',message.get('Text',''))
+        if not link_match:raise RuntimeError('SMTP_ACTION_LINK_MISSING')
+        action_key=urllib.parse.parse_qs(urllib.parse.urlparse(link_match[0]).query).get('key',[''])[0]
+        token_payload=action_key.split('.')[1]
+        claims=json.loads(base64.urlsafe_b64decode(token_payload+'='*((-len(token_payload))%4)))
+        if claims.get('sub')!=rolebody['targetUserId'] or set(claims.get('rqac',[]))!={'VERIFY_EMAIL','UPDATE_PASSWORD','CONFIGURE_TOTP'}:raise RuntimeError('SMTP_REQUIRED_ACTIONS_INVALID')
+        if claims['exp']-claims['iat']!=259200 or claims['iat']<delivery['notBeforeEpoch'] or claims['iat']!=delivery['issuedAtEpoch']:raise RuntimeError('SMTP_ACTION_TOKEN_CLOCK_INVALID')
+        if set(delivery)!={'outcome','receiptRef','quiescent','tenantId','operationId','userId','generation','providerAttemptRef','payloadDigest','fencingToken','leaseOwner','notBeforeEpoch','issuedAtEpoch'}:raise RuntimeError('SMTP_RECEIPT_PROJECTION_INVALID')
+        different_attempt_query=urllib.parse.urlencode({**{key:invitation_body[key] for key in ('tenantId','targetUserId','payloadDigest','providerAttemptRef','fencingToken','leaseOwner')},'providerAttemptRef':str(uuid.uuid4())})
+        expect(dispatch_path+'?'+different_attempt_query,tenants[0]['token'],status=409)
+        expect(dispatch_path,tenants[0]['token'],invitation_body,status=200)
+        if len(messages_for_attempt(invitation_body['providerAttemptRef']))!=1:raise RuntimeError('SMTP_REPLAY_SENT_AGAIN')
+        sql("CREATE FUNCTION dc_b3_finish_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'B3_TEST_FINISHED_FAULT'; END $$; CREATE TRIGGER dc_b3_finish_fault BEFORE INSERT ON dc_tenant_people_invitation_finished FOR EACH ROW EXECUTE FUNCTION dc_b3_finish_fault();")
+        failed_dispatch=rollback_path.replace('/intent','/dispatch')
+        expect(failed_dispatch,tenants[0]['token'],rollback_intent,status=200)
+        expect(failed_dispatch,tenants[0]['token'],rollback_intent,status=200)
+        sql('DROP TRIGGER dc_b3_finish_fault ON dc_tenant_people_invitation_finished;')
+        failed_query=urllib.parse.urlencode({key:rollback_intent[key] for key in ('tenantId','targetUserId','payloadDigest','providerAttemptRef','fencingToken','leaseOwner')})
+        unresolved,_=expect(failed_dispatch+'?'+failed_query,tenants[0]['token'],status=200)
+        if unresolved.get('outcome')!='DISPATCHING' or unresolved.get('quiescent') is not False:raise RuntimeError('SMTP_RECEIPT_LOSS_NOT_UNKNOWN')
+        expect(failed_dispatch,tenants[0]['token'],rollback_intent,status=200)
+        if len(messages_for_attempt(rollback_intent['providerAttemptRef']))!=1:raise RuntimeError('SMTP_RECEIPT_LOSS_SENT_AGAIN')
+        for table in ('dc_tenant_people_invitation_dispatch','dc_tenant_people_invitation_finished'):
+            try:sql('UPDATE '+table+' SET id=id;')
+            except subprocess.CalledProcessError:pass
+            else:raise RuntimeError('SMTP_PROVIDER_LEDGER_NOT_IMMUTABLE')
+        print('B3_INVITATION_SMTP_BOUNDARY_PASS')
         atomicbody=envelope();atomicoperation=str(uuid.uuid4());atomicbase='/realms/'+realm+'/dc-tenant-people/operations/'+atomicoperation+'/steps/'
         expect(atomicbase+'CREATE_IDENTITY',tenants[0]['token'],atomicbody,status=200)
+        expect('/realms/'+realm+'/dc-tenant-people/operations/'+atomicoperation+'/invitations/1/intent',tenants[0]['token'],{**atomicbody,'providerAttemptRef':str(uuid.uuid4()),'leaseOwner':'not-provisioned-worker'},status=409)
         sql("CREATE FUNCTION dc_b2_setup_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.step IN ('TENANT_ROLE','ORG_MEMBERSHIP') THEN RAISE EXCEPTION 'B2_TEST_SETUP_FAULT'; END IF; RETURN NEW; END $$; CREATE TRIGGER dc_b2_setup_fault BEFORE INSERT ON dc_tenant_people_receipt FOR EACH ROW EXECUTE FUNCTION dc_b2_setup_fault();")
         expect(atomicbase+'TENANT_ROLE',tenants[0]['token'],atomicbody,status=503)
         atomicroles,_=expect(adminbase+'/users/'+atomicbody['targetUserId']+'/role-mappings/realm',admin,status=200)
@@ -201,6 +326,7 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         print('B2_TENANT_PEOPLE_BOUNDARY_PASS')
     finally:
         if started:subprocess.run(['docker','rm','-f',container],check=True,stdout=subprocess.DEVNULL)
+        if smtp_started:subprocess.run(['docker','rm','-f',smtp],check=True,stdout=subprocess.DEVNULL)
 
 def main():
     root=pathlib.Path(__file__).resolve().parent.parent
@@ -217,7 +343,7 @@ def main():
         work.chmod(0o755)
         (work/'classes').mkdir()
         try:
-            for required_image in (KEYCLOAK_IMAGE,'postgres:16-alpine','eclipse-temurin:21-jdk'):
+            for required_image in (KEYCLOAK_IMAGE,MAILPIT_IMAGE,'postgres:16-alpine','eclipse-temurin:21-jdk'):
                 if subprocess.run(['docker','image','inspect',required_image],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode:
                     subprocess.run(['docker','pull',required_image],check=True)
             subprocess.run(['docker','network','create',network],check=True,stdout=subprocess.DEVNULL)
@@ -231,7 +357,7 @@ def main():
             subprocess.run(['docker','cp',libraries+':/opt/keycloak/lib/lib/main',str(work/'lib')],check=True)
             run_boundary(root,work,postgres,network,container,published['HostPort'])
         finally:
-            for owned in (container,libraries,postgres):
+            for owned in (container,container+'-smtp',libraries,postgres):
                 subprocess.run(['docker','rm','-f',owned],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             subprocess.run(['docker','network','rm',network],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 

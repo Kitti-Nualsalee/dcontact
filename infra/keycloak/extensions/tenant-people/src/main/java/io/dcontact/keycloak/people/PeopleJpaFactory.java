@@ -8,7 +8,7 @@ import org.keycloak.connections.jpa.entityprovider.JpaEntityProviderFactory;
 public class PeopleJpaFactory implements JpaEntityProviderFactory {
   public JpaEntityProvider create(KeycloakSession session) {
     return new JpaEntityProvider() {
-      public List<Class<?>> getEntities() { return List.of(TenantGate.class,PeopleOperation.class,PeopleReceipt.class); }
+      public List<Class<?>> getEntities() { return List.of(TenantGate.class,PeopleOperation.class,PeopleReceipt.class,PeopleInvitationIntent.class,PeopleInvitationDispatch.class,PeopleInvitationFinished.class); }
       public String getChangelogLocation() { return "META-INF/dc-tenant-people-changelog.xml"; }
       public String getFactoryId() { return getId(); }
       public void close() {}

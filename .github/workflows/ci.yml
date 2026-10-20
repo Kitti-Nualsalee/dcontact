@@ -45,7 +45,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm --filter "@d-contact/api^..." build
-      - name: ตรวจ B2 HTTP, RLS และ Keycloak distribution จริงใน sandbox แยก
+      - name: ตรวจ B2 HTTP/RLS และ B3 intent/SMTP บน Keycloak จริงใน sandbox แยก
         run: pnpm voice:tenant-people:boundary
 
   e1-voice-gateway:
