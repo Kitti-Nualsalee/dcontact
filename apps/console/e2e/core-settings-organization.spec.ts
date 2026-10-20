@@ -228,6 +228,8 @@ test('องค์กร: same identity reauth อยู่หน้าเดิ
   request,
 }) => {
   await login(page, request);
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true })).toBeVisible();
   await request.post('/__core_test/fault/reauth');
   const name = page.getByRole('textbox', { name: 'ชื่อแสดงขององค์กร', exact: true });
   await name.fill('ร่างก่อน session หมด');
@@ -361,4 +363,28 @@ test('Console session: explicit sign-out และ reload ต้องไม่�
     page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true }),
   ).toBeVisible();
   expect(attempts).toBe(0);
+});
+
+test('Console session: discovery ค้างต้องจบที่ login UI ตาม network timeout', async ({
+  page,
+  request,
+}) => {
+  await login(page, request);
+  await page.route('**/.well-known/openid-configuration', () => {});
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true }),
+  ).toBeVisible({ timeout: 12000 });
+});
+
+test('Console session: token request ค้างต้องจบที่ login UI ตาม network timeout', async ({
+  page,
+  request,
+}) => {
+  await login(page, request);
+  await page.route('**/protocol/openid-connect/token', () => {});
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: /^(เข้าสู่ระบบอีกครั้ง|Sign in again)$/, exact: true }),
+  ).toBeVisible({ timeout: 12000 });
 });

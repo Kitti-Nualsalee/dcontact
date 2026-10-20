@@ -170,6 +170,7 @@ export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): User
     disablePKCE: false,
     automaticSilentRenew: true,
     silentRequestTimeoutInSeconds: 10,
+    requestTimeoutInSeconds: 5,
     monitorSession: true,
     // R1 (#593): cookie ของ realm เปลี่ยนชื่อเป็น DC_* — iframe ของ session management ต้องเป็นตัวที่อ่านชื่อใหม่
     // (iframe เดิมของ IdP อ่านชื่อเดิมตายตัวและ override ด้วย theme ไม่ได้)
