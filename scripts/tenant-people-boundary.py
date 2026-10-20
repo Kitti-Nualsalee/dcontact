@@ -104,7 +104,20 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
             if status!=200:raise RuntimeError('SANDBOX_SERVICE_LOGIN_FAILED')
             tenants.append({'id':tenant,'slug':slug,'token':token['access_token'],'client':clients[0]['id'],'organization':organization,'clientId':clientid,'secret':secret['value']})
         ready_path='/realms/'+realm+'/dc-tenant-people/readiness?tenantId='+tenants[0]['id']
-        expect(ready_path,tenants[0]['token'],status=200)
+        invitation_ready,_=expect(ready_path,tenants[0]['token'],status=200)
+        if invitation_ready.get('invitationReady') is not True:raise RuntimeError('INVITATION_READINESS_NOT_READY')
+        configured_realm,_=expect(adminbase,admin,status=200)
+        smtp_configuration=configured_realm['smtpServer']
+        for unavailable_smtp in ({}, {**smtp_configuration,'host':''}, {**smtp_configuration,'from':''}, {**smtp_configuration,'port':'0'}, {**smtp_configuration,'port':'65536'}, {**smtp_configuration,'port':'invalid'}):
+            smtp_status,_,_=call(adminbase,admin,{'smtpServer':unavailable_smtp},method='PUT')
+            if smtp_status not in (204,400):raise RuntimeError('SMTP_CONFIGURATION_UNEXPECTED_STATUS')
+            unavailable_readiness,_=expect(ready_path,tenants[0]['token'],status=200)
+            if unavailable_readiness.get('ready') is not True:raise RuntimeError('INVITATION_READINESS_BROKE_PROVISIONING')
+            if smtp_status==204 and unavailable_readiness.get('invitationReady') is not False:raise RuntimeError('INVITATION_SMTP_READINESS_NOT_CLOSED')
+            expect(adminbase,admin,{'smtpServer':smtp_configuration},method='PUT',status=204)
+        expect(adminbase,admin,{'smtpServer':smtp_configuration},method='PUT',status=204)
+        restored_readiness,_=expect(ready_path,tenants[0]['token'],status=200)
+        if restored_readiness.get('invitationReady') is not True:raise RuntimeError('INVITATION_READINESS_NOT_RESTORED')
         expect(ready_path,tenants[1]['token'],status=403)
         client_configuration,_=expect(adminbase+'/clients/'+tenants[0]['client'],admin,status=200)
         partial_roles={**client_configuration,'attributes':{**client_configuration['attributes'],'dc_allowed_roles':'AGENT'}}
@@ -205,6 +218,8 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         else:raise RuntimeError('INVITATION_INTENT_NOT_IMMUTABLE')
         missing_invitation_profile={**profile,'attributes':[attribute for attribute in profile['attributes'] if attribute['name']!='dc_invitation_not_before']}
         expect(adminbase+'/users/profile',admin,missing_invitation_profile,method='PUT',status=200)
+        invitation_unready,_=expect(ready_path,tenants[0]['token'],status=200)
+        if invitation_unready.get('ready') is not True or invitation_unready.get('invitationReady') is not False:raise RuntimeError('INVITATION_PROFILE_READINESS_NOT_CLOSED')
         expect(invitation_path,tenants[0]['token'],invitation_body,status=503)
         expect(adminbase+'/users/profile',admin,profile,method='PUT',status=200)
         rollback_body=envelope();rollback_operation=str(uuid.uuid4());rollback_base='/realms/'+realm+'/dc-tenant-people/operations/'+rollback_operation+'/steps/'

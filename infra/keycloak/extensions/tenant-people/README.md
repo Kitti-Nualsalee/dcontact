@@ -21,6 +21,8 @@ Runner สร้าง network/container ชื่อสุ่มของตั
 
 ## B3 provider intent/SMTP ที่ยังอยู่ระหว่าง implementation
 
+Private `readiness` แยก `invitationReady` จาก `ready` ของ provisioning: ตรวจ admin-only invitation profile, SMTP host/from/port, system client และ synchronous sender ของ pinned distribution โดยไม่ส่งอีเมล หาก invitation configuration ยังไม่พร้อมจะคืน `invitationReady: false` โดยไม่ปิด provisioning ที่ผ่านเกตเดิม นี่เป็น configuration readiness ไม่ใช่หลักฐานว่า SMTP ส่งถึงผู้รับได้ และยังไม่เปิด application scheduler หรือ public invitation capability
+
 Private endpoints ใต้ `operations/{operationId}/invitations/1/intent` และ `/dispatch` รับเฉพาะ tenant service client เดิม พร้อม accepted descriptor, `providerAttemptRef`, `fencingToken` และ `leaseOwner` ไม่รับ SMTP configuration, action link หรือ redirect URI จาก caller ต้องมี provisioning proof และตรวจ identity/role/Organization/required actions/credential state ใหม่ก่อนส่ง User Profile ของ `dc_invitation_not_before` ต้องเป็น admin-only แบบเดียวกับ classification attributes
 
 Intent กับ not-before fence จาก Keycloak server clock commit ใน transaction เดียวกัน ส่วน dispatch claim commit ก่อน callback ส่ง SMTP ด้วย transaction ใหม่ Callback ตรวจสิทธิ์และ pending identity ซ้ำ ถือ tenant gate ระหว่างส่ง และบันทึก immutable finished receipt หลัง synchronous sender คืนผล รองรับเฉพาะ `DefaultEmailSenderProvider` ของ pinned distribution; provider อื่นไม่ถูกถือว่าให้ quiescence proof โดยอัตโนมัติ

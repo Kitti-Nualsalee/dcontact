@@ -116,7 +116,7 @@ public class PeopleResource {
       var configured=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
       if(configured==null||configured.isComposite())throw denied(503,"TENANT_ROLE_NOT_READY");
     }
-    return json(200,Map.of("version",1,"ready",true,"tenantId",tenantId));
+    return json(200,Map.of("version",1,"ready",true,"tenantId",tenantId,"invitationReady",invitationReady(binding.realm())));
   }
 
   @POST @Path("operations/{operationId}/steps/CREATE_IDENTITY") @Consumes(MediaType.APPLICATION_JSON)
@@ -256,6 +256,25 @@ public class PeopleResource {
     var field=session.getProvider(UserProfileProvider.class).getConfiguration().getAttribute("dc_invitation_not_before");
     if(field==null||field.isMultivalued()||field.getPermissions()==null
       ||!Set.of("admin").equals(field.getPermissions().getEdit())||!Set.of("admin").equals(field.getPermissions().getView()))throw denied(503,"INVITATION_PROFILE_NOT_READY");
+  }
+
+  private boolean invitationReady(RealmModel realm) {
+    try { invitationProfileReady(); }
+    catch(WebApplicationException unavailable) {
+      if(unavailable.getResponse().getStatus()==503)return false;
+      throw unavailable;
+    }
+    var smtp=realm.getSmtpConfig();
+    if(smtp==null||smtp.get("host")==null||smtp.get("host").isBlank()
+      ||smtp.get("from")==null||smtp.get("from").isBlank())return false;
+    String port=smtp.get("port");
+    if(port==null||!port.matches("[0-9]{1,5}"))return false;
+    int number=Integer.parseInt(port);
+    if(number<1||number>65535)return false;
+    var systemClient=SystemClientUtil.getSystemClient(realm);
+    if(systemClient==null||!systemClient.isEnabled())return false;
+    var sender=session.getProvider(EmailSenderProvider.class);
+    return sender!=null&&"org.keycloak.email.DefaultEmailSenderProvider".equals(sender.getClass().getName());
   }
 
   private Response invitationIntent(PeopleOperation operation,PeopleInvitationIntent intent) {
