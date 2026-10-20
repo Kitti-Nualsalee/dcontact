@@ -26,7 +26,7 @@ export interface PeopleWorkerClaim {
   command: PeopleCreateCommand;
 }
 export type PeopleStepOutcome =
-  | { outcome: 'UNKNOWN' }
+  | { outcome: 'UNKNOWN'; reasonCode?: 'CORRELATION_CONFLICT' | 'IDENTITY_MAPPING_CONFLICT' }
   | { outcome: 'SUCCEEDED'; receiptRef: string; identityId?: string }
   | { outcome: 'REJECTED_NO_EFFECT'; receiptRef: string };
 
@@ -155,6 +155,12 @@ export function recordPeopleStep(
   if (!['SUCCEEDED', 'REJECTED_NO_EFFECT', 'UNKNOWN'].includes(result.outcome))
     voiceFail('INVALID_WORKER_OUTCOME', 400);
   const receiptRef = result.outcome === 'UNKNOWN' ? null : result.receiptRef;
+  const reasonCode = result.outcome === 'UNKNOWN' ? (result.reasonCode ?? null) : null;
+  if (
+    reasonCode !== null &&
+    !['CORRELATION_CONFLICT', 'IDENTITY_MAPPING_CONFLICT'].includes(reasonCode)
+  )
+    voiceFail('INVALID_WORKER_OUTCOME', 400);
   const identityId = result.outcome === 'SUCCEEDED' ? (result.identityId ?? null) : null;
   if (identityId !== null) voiceUuid(identityId, 'identityId');
   if (
@@ -189,16 +195,18 @@ export function recordPeopleStep(
         providerRef: string | null;
         payloadDigest: string;
         identityId: string | null;
+        reasonCode: string | null;
       }[]
     >`
-      SELECT outcome,provider_receipt_ref AS "providerRef",payload_digest AS "payloadDigest",verified_identity_id AS "identityId" FROM tenant_people_step_receipts
+      SELECT outcome,provider_receipt_ref AS "providerRef",payload_digest AS "payloadDigest",verified_identity_id AS "identityId",reason_code AS "reasonCode" FROM tenant_people_step_receipts
       WHERE tenant_id=${claim.tenantId}::uuid AND operation_id=${claim.operationId}::uuid AND step=${claim.step} AND fencing_token=${claim.fencingToken}::bigint`;
     if (receipts[0]) {
       if (
         receipts[0].outcome !== result.outcome ||
         receipts[0].providerRef !== receiptRef ||
         receipts[0].payloadDigest !== claim.payloadDigest ||
-        receipts[0].identityId !== identityId
+        receipts[0].identityId !== identityId ||
+        receipts[0].reasonCode !== reasonCode
       )
         voiceFail('PEOPLE_RECEIPT_MISMATCH', 409);
       return 'RECORDED';
@@ -212,8 +220,8 @@ export function recordPeopleStep(
       row.userId !== claim.userId
     )
       return 'STALE';
-    await transaction.$executeRaw`INSERT INTO tenant_people_step_receipts(tenant_id,operation_id,step,fencing_token,payload_digest,outcome,provider_receipt_ref,verified_identity_id)
-      VALUES(${claim.tenantId}::uuid,${claim.operationId}::uuid,${claim.step},${claim.fencingToken}::bigint,${claim.payloadDigest},${result.outcome},${receiptRef},${identityId}::uuid)`;
+    await transaction.$executeRaw`INSERT INTO tenant_people_step_receipts(tenant_id,operation_id,step,fencing_token,payload_digest,outcome,provider_receipt_ref,verified_identity_id,reason_code)
+      VALUES(${claim.tenantId}::uuid,${claim.operationId}::uuid,${claim.step},${claim.fencingToken}::bigint,${claim.payloadDigest},${result.outcome},${receiptRef},${identityId}::uuid,${reasonCode})`;
     if (
       result.outcome === 'SUCCEEDED' &&
       ['VERIFY_MAPPING', 'VERIFY_PROVISIONED'].includes(claim.step)
@@ -225,7 +233,9 @@ export function recordPeopleStep(
     }
     const state =
       result.outcome === 'UNKNOWN'
-        ? 'WAITING_EXTERNAL'
+        ? reasonCode
+          ? 'ACTION_REQUIRED'
+          : 'WAITING_EXTERNAL'
         : result.outcome === 'REJECTED_NO_EFFECT'
           ? 'REJECTED'
           : claim.step === 'VERIFY_PROVISIONED'
@@ -233,7 +243,7 @@ export function recordPeopleStep(
             : 'QUEUED';
     const step = result.outcome === 'SUCCEEDED' ? (nextStep[claim.step] ?? claim.step) : claim.step;
     await transaction.$executeRaw`UPDATE tenant_people_operations SET revision=revision+1,state=${state},step=${step},lease_owner=NULL,lease_expires_at=NULL,
-      error_code=CASE WHEN ${state}='WAITING_EXTERNAL' THEN 'IDENTITY_OUTCOME_UNKNOWN' WHEN ${state}='REJECTED' THEN 'IDENTITY_REJECTED_NO_EFFECT' ELSE NULL END,updated_at=clock_timestamp()
+      error_code=CASE WHEN ${state}='ACTION_REQUIRED' THEN ${reasonCode} WHEN ${state}='WAITING_EXTERNAL' THEN 'IDENTITY_OUTCOME_UNKNOWN' WHEN ${state}='REJECTED' THEN 'IDENTITY_REJECTED_NO_EFFECT' ELSE NULL END,updated_at=clock_timestamp()
       WHERE tenant_id=${claim.tenantId}::uuid AND id=${claim.operationId}::uuid`;
     if (result.outcome === 'SUCCEEDED' && claim.step !== 'VERIFY_PROVISIONED') {
       await transaction.$executeRaw`UPDATE tenant_user_lifecycles SET revision=revision+1,provisioning_state='PENDING'
@@ -241,7 +251,7 @@ export function recordPeopleStep(
     }
     if (result.outcome !== 'SUCCEEDED') {
       await transaction.$executeRaw`UPDATE tenant_user_lifecycles SET revision=revision+1,
-        account_state=CASE WHEN ${state}='REJECTED' THEN 'ATTENTION_REQUIRED' ELSE account_state END,
+        account_state=CASE WHEN ${state} IN ('REJECTED','ACTION_REQUIRED') THEN 'ATTENTION_REQUIRED' ELSE account_state END,
         provisioning_state=CASE WHEN ${state}='REJECTED' THEN 'REJECTED' ELSE 'UNKNOWN' END
         WHERE tenant_id=${claim.tenantId}::uuid AND user_id=${claim.userId}::uuid`;
     }

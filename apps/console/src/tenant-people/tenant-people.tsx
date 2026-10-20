@@ -5,6 +5,7 @@ import { ConsoleShell, type ConsoleShellProps } from '../shell/console-shell.js'
 import { CatalogApiError } from '../voice-routing/api.js';
 import { peopleUuid, type PeopleApi, type PeopleRole, type PeopleStatus } from './api.js';
 import './tenant-people.css';
+import { PeopleDirectory } from './directory.js';
 
 interface Pending {
   commandId: string;
@@ -51,6 +52,7 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
     [extension, setExtension] = useState('');
   const [role, setRole] = useState<PeopleRole>('AGENT');
   const active = useRef(true);
+  const requestActive = useRef(false);
   function remember(value: Pending | undefined) {
     setPending(value);
     try {
@@ -104,21 +106,26 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
       active.current = false;
     };
   }, [api, storageKey]);
-  async function recover() {
-    if (!pending || busy) return;
+  async function recover(reference = pending) {
+    if (!active.current || !reference || busy || requestActive.current) return;
+    if (reference.operationId !== pending?.operationId && pending && !terminal) return;
+    requestActive.current = true;
     setBusy(true);
     setError(undefined);
+    if (reference.operationId !== pending?.operationId) setStatus(undefined);
     try {
-      await read(pending);
+      await read(reference);
     } catch (error) {
       failure(error);
     } finally {
+      requestActive.current = false;
       if (active.current) setBusy(false);
     }
   }
   async function create() {
     if (
       busy ||
+      requestActive.current ||
       !options?.ready ||
       !teamId ||
       !name.trim() ||
@@ -127,6 +134,7 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
     )
       return;
     const intent = { commandId: crypto.randomUUID() };
+    requestActive.current = true;
     remember(intent);
     setBusy(true);
     setStatus(undefined);
@@ -147,19 +155,44 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
       if (
         !admitted &&
         error instanceof CatalogApiError &&
-        error.status === 400 &&
-        error.code === 'VALIDATION_FAILED'
+        ((error.status === 400 && error.code === 'VALIDATION_FAILED') ||
+          (error.status === 409 &&
+            [
+              'IDENTITY_CONFLICT',
+              'EXTENSION_CONFLICT',
+              'CONFIG_BUSY',
+              'REFERENCE_SCOPE_MISMATCH',
+              'RESOURCE_POLICY_STALE',
+            ].includes(error.code)) ||
+          (error.status === 429 && error.code === 'RESOURCE_LIMIT_REACHED') ||
+          (error.status === 503 &&
+            ['CAPABILITY_NOT_READY', 'RESOURCE_POLICY_NOT_READY'].includes(error.code)))
       ) {
         if (active.current) {
           remember(undefined);
-          setError('VALIDATION_FAILED');
+          setError(error.code === 'VALIDATION_FAILED' ? 'VALIDATION_FAILED' : 'CREATE_REJECTED');
         }
       } else failure(error);
     } finally {
+      requestActive.current = false;
       if (active.current) setBusy(false);
     }
   }
-  const terminal = status && ['SUCCEEDED', 'REJECTED'].includes(status.state);
+  const terminal = status && ['SUCCEEDED', 'REJECTED', 'ACTION_REQUIRED'].includes(status.state);
+  useEffect(() => {
+    if (!pending || busy || terminal || error === 'UNAUTHORIZED' || error === 'FORBIDDEN') return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    function schedule() {
+      if (timer) clearTimeout(timer);
+      if (document.visibilityState === 'visible') timer = setTimeout(() => void recover(), 5_000);
+    }
+    schedule();
+    document.addEventListener('visibilitychange', schedule);
+    return () => {
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', schedule);
+    };
+  }, [pending, busy, terminal, error, api]);
   const disabled = busy || !options?.ready || (!!pending && !terminal);
   const provisioned =
     status?.state === 'SUCCEEDED' &&
@@ -184,9 +217,11 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
           <p role="status">
             {provisioned
               ? label('provisioned')
-              : status?.state === 'REJECTED'
-                ? label('rejected')
-                : label('pending')}
+              : status?.state === 'ACTION_REQUIRED' || status?.accountState === 'ATTENTION_REQUIRED'
+                ? label('attention')
+                : status?.state === 'REJECTED'
+                  ? label('rejected')
+                  : label('pending')}
           </p>
           <Button isDisabled={busy} onPress={() => void recover()}>
             {label('refresh')}
@@ -245,6 +280,14 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
           {label('create')}
         </Button>
       </section>
+      {options && api.directory ? (
+        <PeopleDirectory
+          api={api.directory}
+          canOpenOperation={!busy && (!pending || !!terminal)}
+          onFailure={failure}
+          onOperation={(reference) => void recover(reference)}
+        />
+      ) : null}
     </section>
   );
 }

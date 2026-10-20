@@ -68,7 +68,7 @@ test('real Keycloak service client creates once and reads the immutable outcome'
   );
   assert.deepEqual(
     await adapter.readOutcome({ ...claim, payloadDigest: '0'.repeat(64), reconcileOnly: true }),
-    { outcome: 'UNKNOWN' },
+    { outcome: 'UNKNOWN', reasonCode: 'CORRELATION_CONFLICT' },
   );
   const mappingClaim: PeopleWorkerClaim = { ...claim, step: 'VERIFY_MAPPING', fencingToken: '4' };
   const verified = await adapter.mutateStep(mappingClaim);

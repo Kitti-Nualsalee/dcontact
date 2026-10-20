@@ -68,8 +68,26 @@ test('receipt must identify the intended user and mutation runs only once', asyn
       identityId: 'foreign',
     });
   });
-  assert.deepEqual(await adapter.mutateStep(claim), { outcome: 'UNKNOWN' });
+  assert.deepEqual(await adapter.mutateStep(claim), {
+    outcome: 'UNKNOWN',
+    reasonCode: 'IDENTITY_MAPPING_CONFLICT',
+  });
   assert.equal(calls, 2);
+});
+
+test('correlation conflict is explicit and never retried as a mutation', async () => {
+  const methods: string[] = [];
+  const adapter = new TenantPeopleKeycloak(configuration, async (_input, options) => {
+    methods.push(options?.method ?? 'GET');
+    if (String(_input).endsWith('/token'))
+      return Response.json({ access_token: 'synthetic-token' });
+    return Response.json({ code: 'CORRELATION_CONFLICT' }, { status: 409 });
+  });
+  assert.deepEqual(await adapter.readOutcome({ ...claim, reconcileOnly: true }), {
+    outcome: 'UNKNOWN',
+    reasonCode: 'CORRELATION_CONFLICT',
+  });
+  assert.deepEqual(methods, ['POST', 'GET']);
 });
 
 test('plaintext non-loopback issuer is rejected', () => {

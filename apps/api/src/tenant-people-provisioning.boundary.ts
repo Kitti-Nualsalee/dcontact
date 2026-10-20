@@ -238,6 +238,23 @@ test('real JWT HTTP → RLS worker → Keycloak: three roles remain pending acti
     }
     assert.equal(mutations, 15);
     assert.equal(reconciliations, 3);
+    const directory = await read('people/users');
+    assert.ok(Array.isArray(directory.items));
+    assert.equal(directory.items.length, 4);
+    for (const raw of directory.items) {
+      assert.ok(raw && typeof raw === 'object');
+      if ('id' in raw && raw.id !== adminId) {
+        assert.ok(typeof raw.id === 'string');
+        const detail = await read(`people/users/${raw.id}`);
+        assert.equal(detail.accountState, 'PENDING_ACTIVATION');
+        assert.equal(detail.configRevision, 1);
+        assert.equal(detail.provisioningState, 'PROVISIONED');
+        assert.equal(typeof detail.operationId, 'string');
+        assert.equal(typeof detail.commandId, 'string');
+        for (const field of ['passwordHash', 'payload', 'clientSecret', 'leaseOwner'])
+          assert.equal(field in detail, false);
+      }
+    }
     assert.deepEqual((await read('extension-pool')).items, []);
     await owner.$executeRaw`UPDATE tenant_people_worker_bindings SET enabled=false WHERE tenant_id=${tenantId}::uuid AND database_principal=${workerPrincipal}`;
     assert.deepEqual((await read('capabilities')).peopleProvisioning, {

@@ -31,6 +31,8 @@ Identity/DB preflight ใช้ service JWT ตรวจ tenant/Organization/aud
 
 Runtime เริ่ม scheduler แบบ bounded และไม่ทำงานซ้อนกันเมื่อ Nest เริ่ม module; หยุดรับงานและรอ step ที่กำลังทำก่อนปิด connection เมื่อ shutdown การเลือกงาน/lease/receipt อยู่ใน DB ไม่อาศัยคิวใน memory และ unknown outcome อ่านคืนเท่านั้น ไม่ blind-create
 
+หาก provider ยืนยัน `CORRELATION_CONFLICT` หรือ receipt สำเร็จอ้าง identity คนละคน จะเก็บ reason แบบ immutable พร้อม receipt ที่ outcome ยังไม่ยืนยันและเปลี่ยน operation เป็น `ACTION_REQUIRED`/บัญชี `ATTENTION_REQUIRED` worker ไม่ claim งานนั้นซ้ำ ไม่ adopt identity และไม่ทำ destructive compensation ส่วน timeout/unknown ที่ไม่มีหลักฐาน conflict คง `WAITING_EXTERNAL` เพื่ออ่านคืนเท่านั้น
+
 Composition ของ API ปกติและ workspace profile ปิด People provisioning เป็นค่าเริ่มต้น เปิดเมื่อ operator ตั้ง `TENANT_PEOPLE_WORKER_DATABASE_URL` สำหรับ login แยก (`options=-c role=dcontact_tenant_people_worker`) พร้อม `TENANT_PEOPLE_BINDINGS_JSON` เท่านั้น ไม่ fallback ไป application/owner connection แต่ละ binding มี `tenantId`, `issuer`, `clientSecretEnv` (ชื่อ `TENANT_PEOPLE_SECRET_*`) และ `nodes` โดย secret อยู่ใน environment ฝั่ง server ไม่อยู่ใน JSON หรือ browser
 
 แต่ละ node ระบุ `telephonyNodeId`, `releaseDigest`, `dialplanDigest` (SHA-256 hex) และ `extensions` (เลข 4–6 หลักไม่ซ้ำ) ต้องตรงกับ node ที่ตั้งใน `SIP_BROWSER_NODES_JSON` Pool ที่ operator อนุมัติใน policy ต้องเป็น object `{ref, telephonyNodeId, releaseDigest, dialplanDigest}` และตรงกับ manifest นี้ จึงแสดงให้เลือกและรับ AGENT ได้ pool แบบ string เดิมไม่ถือว่าผ่าน infrastructure gate Snapshot ถูกตรึงกับ operation; worker หยุดรอเมื่อ manifest เปลี่ยนไม่ตรงกับ snapshot
@@ -38,5 +40,9 @@ Composition ของ API ปกติและ workspace profile ปิด Peop
 Manifest นี้เป็นการรับรอง configuration ของ operator ไม่ใช่ live SIP/media probe หรือหลักฐาน rollout จริง เกต B7 ยังต้องตรวจ node/release/dialplan และ media บน environment เป้าหมาย การมี service secret หรือผ่าน token endpoint อย่างเดียวไม่เพียงพอ
 
 Console เปิดหน้า `view=tenant-people` สำหรับ Admin ผ่าน registry และใช้ capability จาก server ก่อนเปิด create/status บัญชีที่ provision แล้วแสดงรอ activation ไม่ใช่ READY และ recovery หลัง reload เก็บเฉพาะ command/operation reference ไม่เก็บข้อมูลบัญชีหรือ token
+
+List/detail อ่านเฉพาะบัญชีที่มี operator bootstrap proof ตรง scope หรือเป็น target ของ B2 operation/lifecycle ไม่ถือ membership เป็น authority บัญชีเดิมที่ไม่มี lifecycle แสดงสถานะยังไม่ยืนยัน ไม่อนุมานว่า activated จาก `isActive` เพียงอย่างเดียว Cursor ผูก tenant/actor/scope/filter และใช้ keyset `createdAt/id` (default20, limit20–100); `user.configRevision` แยกจาก `statusRevision` ของ lifecycle บัญชีที่เลือกเปิด operation เดิมได้โดยไม่ส่ง create ใหม่
+
+เมื่อ create ถูกปฏิเสธก่อน accept อย่างแน่นอน UI ปลด pending เพื่อแก้ข้อมูล/ส่งคำสั่งใหม่ แต่ timeout หรือผลไม่ชัดยังอ่าน command เดิมเท่านั้น สถานะ operation ที่เปิดอยู่ poll ทุก 5 วินาทีเฉพาะแท็บ visible ไม่ซ้อน manual refresh และหยุดเมื่อ terminal/หมดสิทธิ์/unmount
 
 ก่อนเปิดใช้จริงต้องมี acceptance/review ครบ รวม extension pool/infra readiness ตามสัญญา B2 การ build extension หรือ boundary ผ่านอย่างเดียวไม่ใช่ production readiness และห้าม bootstrap/แก้ identity บน VM เป็นส่วนหนึ่งของ implementation sandbox

@@ -155,7 +155,19 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
           }
         : {}),
     });
-    if (!response.ok) return { outcome: 'UNKNOWN' };
+    if (!response.ok) {
+      if (response.status === 409) {
+        const conflict: unknown = await response.json();
+        if (
+          conflict &&
+          typeof conflict === 'object' &&
+          'code' in conflict &&
+          conflict.code === 'CORRELATION_CONFLICT'
+        )
+          return { outcome: 'UNKNOWN', reasonCode: 'CORRELATION_CONFLICT' };
+      }
+      return { outcome: 'UNKNOWN' };
+    }
     const result: unknown = await response.json();
     if (
       !result ||
@@ -180,6 +192,12 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
       };
     if (result.outcome === 'REJECTED_NO_EFFECT')
       return { outcome: 'REJECTED_NO_EFFECT', receiptRef: result.receiptRef };
+    if (
+      result.outcome === 'SUCCEEDED' &&
+      'identityId' in result &&
+      result.identityId !== claim.userId
+    )
+      return { outcome: 'UNKNOWN', reasonCode: 'IDENTITY_MAPPING_CONFLICT' };
     return { outcome: 'UNKNOWN' };
   }
 }

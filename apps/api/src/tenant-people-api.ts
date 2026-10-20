@@ -7,6 +7,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
@@ -24,6 +25,7 @@ import {
   readPeopleExtensionPool,
 } from './tenant-people-operations.js';
 import { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
+import { readPeopleDirectory } from './tenant-people-directory.js';
 export { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
 
 function actor(request: AuthenticatedGatewayRequest): VoiceActor {
@@ -58,6 +60,22 @@ export class TenantPeopleController {
     @Inject(TENANT_VOICE_DATABASE) private readonly database: PrismaClient,
     @Inject(TENANT_PEOPLE_READINESS) private readonly readiness: TenantPeopleReadiness,
   ) {}
+
+  @Get('people/users')
+  @Header('Cache-Control', 'no-store')
+  users(@Req() request: AuthenticatedGatewayRequest, @Query() query: Record<string, unknown>) {
+    return readPeopleDirectory(this.database, actor(request), query);
+  }
+
+  @Get('people/users/:id')
+  @Header('Cache-Control', 'no-store')
+  user(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return readPeopleDirectory(this.database, actor(request), query, id);
+  }
 
   @Post('people/users')
   @HttpCode(202)

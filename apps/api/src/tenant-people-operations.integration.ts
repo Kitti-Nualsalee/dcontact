@@ -400,6 +400,28 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
         return true;
       },
     );
+    assert.equal(
+      await recordPeopleStep(worker, terminal, {
+        outcome: 'UNKNOWN',
+        reasonCode: 'CORRELATION_CONFLICT',
+      }),
+      'RECORDED',
+    );
+    assert.equal(
+      await recordPeopleStep(worker, terminal, {
+        outcome: 'UNKNOWN',
+        reasonCode: 'CORRELATION_CONFLICT',
+      }),
+      'RECORDED',
+    );
+    const attention = await readObject(await request(`/operations/${pendingAdmin.operationId}`));
+    assert.equal(attention.state, 'ACTION_REQUIRED');
+    assert.equal(attention.errorCode, 'CORRELATION_CONFLICT');
+    assert.equal(attention.accountState, 'ATTENTION_REQUIRED');
+    assert.equal(
+      await claimPeopleOperation(worker, tenantId, pendingAdmin.operationId, 'worker-must-stop'),
+      null,
+    );
     const anotherTenant = randomUUID(),
       foreignUser = randomUUID();
     await owner.tenant.create({
