@@ -32,6 +32,40 @@ on:
         default: unit
 
 jobs:
+  core-settings-writer-races:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:15.4
+        env:
+          POSTGRES_USER: dcontact
+          POSTGRES_PASSWORD: dcontact
+          POSTGRES_DB: dcontact
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U dcontact"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://dcontact:dcontact@localhost:5433/dcontact?schema=public
+      APPLICATION_DATABASE_URL: postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm --filter "@d-contact/api^..." --filter "@d-contact/journey^..." --filter "@d-contact/dialer^..." build
+      - run: pnpm db:migrate && pnpm db:rls && pnpm db:rls
+      - name: ตรวจ Team HTTP, final constraints และ actual writer races ทั้งสองลำดับ
+        run: pnpm test:core-settings:writers
+
   tenant-people-boundary:
     runs-on: ubuntu-latest
     timeout-minutes: 20

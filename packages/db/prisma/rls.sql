@@ -407,3 +407,10 @@ REVOKE DELETE,TRUNCATE ON tenant_settings FROM dcontact_app;
 REVOKE INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER ON tenant_core_profile_revisions FROM dcontact_app;
 REVOKE TRIGGER ON tenants,tenant_settings,tenant_core_config_audits FROM dcontact_app;
 REVOKE ALL ON FUNCTION dc_core_capture_organization_effect() FROM PUBLIC;
+
+-- Core Team revision/captured effect เขียนได้เฉพาะ trigger ไม่คืน broad UPDATE หลัง rerun
+REVOKE UPDATE,DELETE,TRUNCATE,TRIGGER ON teams FROM dcontact_app;
+GRANT UPDATE(name,is_active) ON teams TO dcontact_app;
+
+-- transaction-local guard evidence เป็นของ DB triggers เท่านั้น ไม่ให้ app ปลอม/ลบ baseline
+REVOKE ALL ON TABLE dc_team_reference_checks FROM PUBLIC,dcontact_app;

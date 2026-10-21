@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
-import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
+import {
+  Prisma,
+  withTenantDatabaseTransaction,
+  lockTeamReferences,
+  type PrismaClient,
+} from '@d-contact/db';
 
 import type { VoiceCaller } from './tenant-voice-identity.js';
 import { findTenantConfigurationActor } from './tenant-config-identity.js';
@@ -358,6 +363,7 @@ export async function createCatalog(
         if (previous[0].payloadDigest !== hash) voiceFail('COMMAND_PAYLOAD_MISMATCH', 409);
         return previous[0].result;
       }
+      await lockTeamReferences(tx, identity.tenantId, [command.teamId]);
       const initialPolicy = await policy(tx, identity.tenantId);
       if (initialPolicy.reason)
         voiceFail(

@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -544,3 +545,20 @@ test('apply ซ้ำไม่สร้าง enrollment ใบที่สอ�
   );
   assert.equal(await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }), 1);
 });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual segment trigger intent ${order}`, async (t) => {
+    const f = await fixture(t);
+    const entryId = `entry-${f.suffix}`;
+    await publishJourney(f, randomUUID());
+    await ingest(f, 1, 'ENTERED', entryId);
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId: f.teamId,
+      table: 'jr_segment_enrollment_intents',
+      order,
+      write: () =>
+        processor(f, eligible(f, f.contactId, entryId)).executeNext(f.tenantId, 'core-writer'),
+    });
+  });

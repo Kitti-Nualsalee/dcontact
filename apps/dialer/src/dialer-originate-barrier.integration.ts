@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -596,3 +597,42 @@ test('CG4 scoped kill switch ของ Governance มีผลเหนือ Di
     0,
   );
 });
+
+for (const kind of ['campaign', 'callback'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual ${kind} originate barrier ${order}`, async (t) => {
+      const f = await fixture(t);
+      const governance = new ContactGovernanceService(f.application);
+      const transport = new CountingTransport();
+      const barrier = new DialerOriginateBarrier(
+        f.application,
+        governance,
+        allowAllScope,
+        await openScopedGate(f),
+        { transport },
+      );
+      const target = kind === 'campaign' ? await admittedTarget(f) : await scheduledCallback(f);
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.tenantId,
+        teamId: f.teamId,
+        table: kind === 'campaign' ? 'ob_campaign_targets' : 'ob_callbacks',
+        order,
+        existingReferences: true,
+        blockedResult: async (result) => {
+          assert.equal(result, 'GOVERNANCE_UNAVAILABLE');
+          assert.equal(transport.calls, 0);
+          assert.equal(await f.owner.cgReservation.count({ where: { tenantId: f.tenantId } }), 0);
+          const stored =
+            kind === 'campaign'
+              ? await f.owner.obCampaignTarget.findUniqueOrThrow({ where: { id: target.id } })
+              : await f.owner.obCallback.findUniqueOrThrow({ where: { id: target.id } });
+          assert.equal(stored.state, kind === 'campaign' ? 'ADMITTED' : 'SCHEDULED');
+          return true;
+        },
+        write: () =>
+          kind === 'campaign'
+            ? barrier.originateCampaignTarget(f.tenantId, target.id, randomUUID())
+            : barrier.originateCallback(f.tenantId, target.id, randomUUID()),
+      });
+    });

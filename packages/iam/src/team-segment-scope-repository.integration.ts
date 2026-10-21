@@ -12,6 +12,7 @@ import {
   tenantId as toTenantId,
 } from '@d-contact/cxa-contracts';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import { createProducer } from '@d-contact/kafka';
 import type { DcProducer, KafkaEventEnvelope } from '@d-contact/kafka';
 import { KAFKA_TOPICS } from '@d-contact/shared';
@@ -314,7 +315,25 @@ test('runtime และ configuration adapter แยก authority และ fail
     reasonCode: 'SCOPE_CONTEXT_STALE',
     evaluatedAt: runtimeInput.at,
   });
-  await f.owner.team.update({ where: { id: f.teamId }, data: { isActive: false } });
+  await assert.rejects(
+    withTenantDatabaseTransaction(f.owner, f.tenantId, (transaction) =>
+      transaction.team.update({ where: { id: f.teamId }, data: { isActive: false } }),
+    ),
+    /TEAM_REFERENCED/,
+  );
+  for (const grant of await f.owner.iamTeamSegmentScopeActiveGrant.findMany({
+    where: { tenantId: f.tenantId, teamId: f.teamId },
+  })) {
+    await f.repository.revoke({
+      tenantId: f.tenantId,
+      grantId: grant.grantId,
+      reasonCode: 'TEAM_RETIREMENT',
+      correlationId: randomUUID(),
+    });
+  }
+  await withTenantDatabaseTransaction(f.owner, f.tenantId, (transaction) =>
+    transaction.team.update({ where: { id: f.teamId }, data: { isActive: false } }),
+  );
   assert.deepEqual(await configuration.authorizeConfiguration(configurationInput), {
     decision: 'DENY',
     reasonCode: 'TEAM_NOT_FOUND',
@@ -433,3 +452,107 @@ test(
     );
   },
 );
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual IAM grant ${order}`, async (t) => {
+    const f = await fixture(t);
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId: f.teamId,
+      table: 'iam_team_segment_scope_active_grants',
+      order,
+      write: () =>
+        f.repository.grant({
+          tenantId: f.tenantId,
+          teamId: f.teamId,
+          segmentId: 'CORE_UAT',
+          permission: 'WORK',
+          correlationId: randomUUID(),
+        }),
+    });
+  });
+
+function coreGate() {
+  let open!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { promise, open };
+}
+test('Core Team fence: known IAM writer ต้องตรวจ Team fence ก่อนรอ scope-version row เดิม', async (t) => {
+  const f = await fixture(t);
+  await f.owner.iamTeamScopeVersion.create({
+    data: { tenantId: f.tenantId, teamId: f.teamId, scopeVersion: 0 },
+  });
+  const domainReady = coreGate(),
+    coreReady = coreGate(),
+    release = coreGate();
+  const domain = f.owner.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`SELECT team_id FROM iam_team_scope_versions WHERE tenant_id=${f.tenantId}::uuid AND team_id=${f.teamId}::uuid FOR UPDATE`;
+      domainReady.open();
+      await release.promise;
+    },
+    { timeout: 10000 },
+  );
+  const deactivation = withTenantDatabaseTransaction(
+    f.owner,
+    f.tenantId,
+    async (tx) => {
+      await tx.team.update({ where: { id: f.teamId }, data: { isActive: false } });
+      coreReady.open();
+      await release.promise;
+    },
+    { timeout: 10000 },
+  );
+  let writer: Promise<unknown> | undefined;
+  try {
+    await Promise.all([domainReady.promise, coreReady.promise]);
+    writer = f.repository.grant({
+      tenantId: f.tenantId,
+      teamId: f.teamId,
+      segmentId: 'PRELOCK',
+      permission: 'WORK',
+      correlationId: randomUUID(),
+    });
+    const bounded = Promise.race([
+      writer,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('รอ domain row ก่อนตรวจ Team fence')), 1000),
+      ),
+    ]);
+    await assert.rejects(bounded, /TEAM_REFERENCE_BUSY/);
+  } finally {
+    release.open();
+    await Promise.all([domain, deactivation]);
+    await writer?.catch(() => undefined);
+  }
+});
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual IAM current grant revoke ${order}`, async (t) => {
+    const f = await fixture(t);
+    const grant = await f.repository.grant({
+      tenantId: f.tenantId,
+      teamId: f.teamId,
+      segmentId: 'CORE_REVOKE',
+      permission: 'WORK',
+      correlationId: randomUUID(),
+    });
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId: f.teamId,
+      table: 'iam_team_scope_versions',
+      order,
+      existingReferences: true,
+      write: () =>
+        f.repository.revoke({
+          tenantId: f.tenantId,
+          grantId: grant.grant.id,
+          reasonCode: 'REVOKED',
+          correlationId: randomUUID(),
+        }),
+    });
+  });

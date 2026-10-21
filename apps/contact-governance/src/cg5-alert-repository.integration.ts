@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -28,6 +29,7 @@ async function fixture(t: TestContext) {
     await owner.cgEventOutbox.deleteMany({ where: { tenantId } });
     await owner.cg5AlertTransition.deleteMany({ where: { tenantId } });
     await owner.cg5AlertState.deleteMany({ where: { tenantId } });
+    await owner.team.deleteMany({ where: { tenantId } });
     await owner.tenant.deleteMany({ where: { id: tenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -116,3 +118,68 @@ test('CG5.6 ACK ใช้ optimistic concurrency และไม่สร้า�
   assert.match(transition.evidenceRef, /^cg5-alert-ack:CG5_PROJECTION_LAG:[a-f0-9]{64}$/);
   assert.equal(outbox.orderingKey, `${f.tenantId}:${alert.id}`);
 });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual CG alert opening ${order}`, async (t) => {
+    const f = await fixture(t);
+    const teamId = randomUUID();
+    await f.owner.team.create({ data: { id: teamId, tenantId: f.tenantId, name: 'Alert writer' } });
+    const repository = new Cg5AlertRepository(f.application);
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId,
+      table: 'cg5_alert_state',
+      order,
+      write: () =>
+        repository.record({
+          tenantId: f.tenantId,
+          ruleCode: 'CG5_PROJECTION_LAG',
+          scope: { channel: 'VOICE', purpose: 'SUPPORT', teamId },
+          state: 'OPEN',
+          severity: 'CRITICAL',
+          value: 301,
+          threshold: 300,
+        }),
+    });
+  });
+
+for (const operation of ['ack', 'resolve', 'reopen'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual alert ${operation} ${order}`, async (t) => {
+      const f = await fixture(t);
+      const teamId = randomUUID();
+      await f.owner.team.create({
+        data: { id: teamId, tenantId: f.tenantId, name: 'Alert transitions' },
+      });
+      const repository = new Cg5AlertRepository(f.application);
+      const input = {
+        tenantId: f.tenantId,
+        ruleCode: 'CG5_PROJECTION_LAG' as const,
+        scope: { channel: 'VOICE' as const, purpose: 'SUPPORT', teamId },
+        severity: 'CRITICAL' as const,
+        value: 301,
+        threshold: 300,
+      };
+      const alert = await repository.record({
+        ...input,
+        state: operation === 'reopen' ? 'RESOLVED' : 'OPEN',
+      });
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.tenantId,
+        teamId,
+        table: 'cg5_alert_state',
+        order,
+        existingReferences: operation !== 'reopen',
+        write: () =>
+          operation === 'ack'
+            ? repository.acknowledge({
+                tenantId: f.tenantId,
+                alertId: alert.id,
+                expectedVersion: alert.version,
+                actorRef: 'isolated-operator',
+              })
+            : repository.record({ ...input, state: operation === 'resolve' ? 'RESOLVED' : 'OPEN' }),
+      });
+    });

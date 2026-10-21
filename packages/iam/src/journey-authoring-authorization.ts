@@ -8,7 +8,12 @@ import {
   type JourneyAuthoringCapability,
   type JourneyAuthoringErrorCode,
 } from '@d-contact/cxa-contracts';
-import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
+import {
+  Prisma,
+  withTenantDatabaseTransaction,
+  lockTeamReferences,
+  type PrismaClient,
+} from '@d-contact/db';
 
 type Tx = Prisma.TransactionClient;
 
@@ -184,6 +189,7 @@ export class IamJourneyAuthoringDelegations {
       throw new JourneyAuthoringDelegationError('DELEGATION_INVALID');
     }
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+      await lockTeamReferences(transaction, input.tenantId, [input.scope.teamId]);
       const direct = await new IamJourneyAuthoringAuthorizer(this.now).authorize(transaction, {
         tenantId: input.tenantId,
         subjectId: input.delegatorSubjectId,

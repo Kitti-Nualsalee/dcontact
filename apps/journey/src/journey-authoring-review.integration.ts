@@ -535,7 +535,16 @@ test('J5-CC02 ownership transfer ขึ้น revision ใหม่และ sup
     document: f.document(),
   });
   const review = await f.submit('author', created.journeyId);
-  await f.owner.team.update({ where: { id: f.teamId }, data: { isActive: false } });
+  await assert.rejects(
+    f.owner.team.update({ where: { id: f.teamId }, data: { isActive: false } }),
+    /TEAM_REFERENCED/,
+  );
+  // owner-only legacy fixture: ข้อมูลเดิมอาจมี inactive Team พร้อม ownership/grants
+  // การโอนออกต้องยังทำได้ แต่ guard ไม่ให้สร้างสถานะนี้จาก normal writer ใหม่
+  await f.owner.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
+    await tx.team.update({ where: { id: f.teamId }, data: { isActive: false } });
+  });
   await rejects(
     f.repo.updateJourneyDraft(f.as('author'), {
       journeyId: created.journeyId,

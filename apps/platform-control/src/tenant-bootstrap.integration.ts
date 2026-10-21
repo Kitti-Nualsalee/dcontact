@@ -443,9 +443,20 @@ test('readiness fail: missing receipt, plan/manifest digest mismatch และ c
       where: { tenantId: { not: tenantId } },
       select: { id: true },
     });
-    await s.f.owner.queue.update({
-      where: { id: bootstrapRowIds(requestId).generalQueueId },
-      data: { teamId: other.id },
+    await assert.rejects(
+      s.f.owner.queue.update({
+        where: { id: bootstrapRowIds(requestId).generalQueueId },
+        data: { teamId: other.id },
+      }),
+      /TEAM_INACTIVE/,
+    );
+    // จำลอง corruption จาก owner หลัง normal DML ถูก guard ปฏิเสธ เพื่อคง READINESS negative gate
+    await s.f.owner.$transaction(async (transaction) => {
+      await transaction.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
+      await transaction.queue.update({
+        where: { id: bootstrapRowIds(requestId).generalQueueId },
+        data: { teamId: other.id },
+      });
     });
   });
   assert.equal(crossTenant.status, 'ACTION_REQUIRED');

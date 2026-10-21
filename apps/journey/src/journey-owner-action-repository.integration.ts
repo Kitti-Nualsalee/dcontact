@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -45,6 +46,7 @@ async function fixture(t: TestContext) {
     await owner.jrOwnerResultInbox.deleteMany({ where: { tenantId } });
     await owner.jrOwnerCommandOutbox.deleteMany({ where: { tenantId } });
     await owner.jrOwnerAction.deleteMany({ where: { tenantId } });
+    await owner.team.deleteMany({ where: { tenantId } });
     await owner.tenant.deleteMany({ where: { id: tenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -459,3 +461,81 @@ test('tenant คนละใบไม่เห็น owner action ของก�
   const otherView = await otherRepository.getAction(b.tenantId, input.actionKey);
   assert.equal(otherView, null);
 });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual owner ensure/stage ${order}`, async (t) => {
+    const f = await fixture(t);
+    const teamId = randomUUID();
+    await f.owner.team.create({ data: { id: teamId, tenantId: f.tenantId, name: 'Owner writer' } });
+    const repository = new JourneyOwnerActionRepository(f.application);
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId,
+      table: 'jr_owner_actions',
+      order,
+      write: () => repository.ensureAction(ensureInput(f.tenantId)),
+    });
+  });
+
+for (const operation of ['dispatch', 'retry', 'cancel', 'replay', 'result'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual owner ${operation} ${order}`, async (t) => {
+      const f = await fixture(t);
+      const repository = new JourneyOwnerActionRepository(f.application);
+      const teamId = randomUUID();
+      await f.owner.team.create({
+        data: { id: teamId, tenantId: f.tenantId, name: 'Owner legacy fence' },
+      });
+      const input = ensureInput(f.tenantId);
+      await repository.ensureAction(input);
+      if (operation === 'replay')
+        await repository.markCommandDispatched(f.tenantId, input.commandId);
+      const action = await f.owner.jrOwnerAction.findFirstOrThrow({
+        where: { tenantId: f.tenantId },
+      });
+      const write = () => {
+        switch (operation) {
+          case 'dispatch':
+            return repository.markCommandDispatched(f.tenantId, input.commandId);
+          case 'retry':
+            return repository.markCommandFailed(
+              f.tenantId,
+              input.commandId,
+              1000,
+              'isolated retry',
+            );
+          case 'cancel':
+            return repository.requestCancellation({
+              tenantId: f.tenantId,
+              actionKey: input.actionKey,
+              cancelRequestKey: randomUUID(),
+              correlationId: randomUUID(),
+            });
+          case 'replay':
+            return repository.replayCommands({
+              tenantId: f.tenantId,
+              actionKey: input.actionKey,
+              expectedVersion: action.version,
+            });
+          case 'result':
+            return repository.applyResult({
+              tenantId: f.tenantId,
+              commandId: input.commandId,
+              actionKey: input.actionKey,
+              resultKind: 'ACKNOWLEDGED',
+              resultHash: 'c'.repeat(64),
+              correlationId: randomUUID(),
+            });
+        }
+      };
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.tenantId,
+        teamId,
+        table: operation === 'result' ? 'jr_owner_actions' : 'jr_owner_command_outbox',
+        order,
+        existingReferences: true,
+        write,
+      });
+    });

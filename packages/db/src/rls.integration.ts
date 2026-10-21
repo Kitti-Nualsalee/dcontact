@@ -1164,7 +1164,7 @@ test('J5.1 authoring/template/IAM บังคับ RLS, composite binding, CAS
         tenantB,
         `${insertHead(tenantB, teamA, foreignJourneyId, randomUUID()).replace(`'${draftId}'`, `'${foreignDraftId}'`)}; ${insertDraft(tenantB, foreignDraftId, 1, foreignJourneyId)}`,
       ),
-    /jr_journey_heads_owner_team_fkey/,
+    /jr_journey_heads_owner_team_fkey|TEAM_INACTIVE/,
   );
   assert.throws(
     () => as(tenantB, insertDraft(tenantB, randomUUID(), 2)),

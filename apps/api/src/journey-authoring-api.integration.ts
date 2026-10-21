@@ -83,6 +83,10 @@ async function harness(
       { id: otherTeamId, tenantId, name: `j5-5-b-${otherTeamId}` },
     ],
   });
+  const foreignTeamId = randomUUID();
+  await owner.team.create({
+    data: { id: foreignTeamId, tenantId: otherTenantId, name: 'Foreign own team' },
+  });
   const grants: Array<[Persona, JourneyAuthoringCapability, string, string]> = [
     ...(['journey.read', 'journey.edit', 'journey.publish', 'template.read'] as const).map(
       (capability) =>
@@ -97,8 +101,8 @@ async function harness(
     ['reviewer', 'journey.review', teamId, tenantId],
     ['outsider', 'journey.read', otherTeamId, tenantId],
     ['outsider', 'journey.edit', otherTeamId, tenantId],
-    ['foreign', 'journey.read', teamId, otherTenantId],
-    ['foreign', 'journey.edit', teamId, otherTenantId],
+    ['foreign', 'journey.read', foreignTeamId, otherTenantId],
+    ['foreign', 'journey.edit', foreignTeamId, otherTenantId],
   ];
   for (const persona of Object.keys(users) as Persona[]) {
     await owner.iamAuthoringSubject.create({

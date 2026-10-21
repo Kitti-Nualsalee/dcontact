@@ -129,26 +129,29 @@ async function harness(t: TestContext) {
   const snapshot = async () => {
     const tenantId = ids.tenantId;
     const subjects = [ids.maker, ids.reviewer];
-    return JSON.stringify({
-      tenant: await owner.tenant.findMany({
-        where: { OR: [{ id: tenantId }, { slug: `u1-8-${short}` }] },
-      }),
-      team: await owner.team.findMany({ where: { OR: [{ id: ids.teamId }, { tenantId }] } }),
-      users: await owner.user.findMany({
-        where: { OR: [{ id: { in: subjects } }, { tenantId }] },
-        orderBy: { id: 'asc' },
-      }),
-      subjects: await owner.iamAuthoringSubject.findMany({
-        where: { OR: [{ subjectId: { in: subjects } }, { tenantId }] },
-        orderBy: { subjectId: 'asc' },
-      }),
-      grants: await owner.iamAuthoringCapabilityGrant.findMany({
-        where: { OR: [{ subjectId: { in: subjects } }, { tenantId }] },
-        orderBy: [{ subjectId: 'asc' }, { capability: 'asc' }],
-      }),
-      rollout: await owner.jrAuthoringRolloutState.findMany({ where: { tenantId } }),
-      packs: await owner.uatFixturePack.findMany({ where: { tenantId } }),
-    });
+    return JSON.stringify(
+      {
+        tenant: await owner.tenant.findMany({
+          where: { OR: [{ id: tenantId }, { slug: `u1-8-${short}` }] },
+        }),
+        team: await owner.team.findMany({ where: { OR: [{ id: ids.teamId }, { tenantId }] } }),
+        users: await owner.user.findMany({
+          where: { OR: [{ id: { in: subjects } }, { tenantId }] },
+          orderBy: { id: 'asc' },
+        }),
+        subjects: await owner.iamAuthoringSubject.findMany({
+          where: { OR: [{ subjectId: { in: subjects } }, { tenantId }] },
+          orderBy: { subjectId: 'asc' },
+        }),
+        grants: await owner.iamAuthoringCapabilityGrant.findMany({
+          where: { OR: [{ subjectId: { in: subjects } }, { tenantId }] },
+          orderBy: [{ subjectId: 'asc' }, { capability: 'asc' }],
+        }),
+        rollout: await owner.jrAuthoringRolloutState.findMany({ where: { tenantId } }),
+        packs: await owner.uatFixturePack.findMany({ where: { tenantId } }),
+      },
+      (_key, value) => (typeof value === 'bigint' ? value.toString() : value),
+    );
   };
 
   /** output ทุกบรรทัดของ test นี้ไม่มีอีเมล ชื่อ หรือ credential */

@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -606,3 +607,78 @@ test('J5-RC02 lifecycle: PAUSED หยุด enrollment ใหม่แต่ข
   );
   await assert.rejects(enroll('2026-09-22T09:00:00.000Z'), JourneyNotAcceptingEnrollmentsError);
 });
+
+for (const operation of ['publish', 'resume', 'transfer', 'rollForward', 'clone'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual Journey authoring ${operation} ${order}`, async (t) => {
+      const f = await setup(t);
+      const repo = f.repository();
+      const created = await repo.createJourneyDraft(f.context(), {
+        ownerTeamId: f.teamId,
+        document: f.document(),
+      });
+      const approval = await f.approve(created.journeyId);
+      if (operation !== 'publish' && operation !== 'transfer')
+        await repo.publishJourneyDraft(f.context(), approval);
+      if (operation === 'resume') {
+        const current = await f.owner.jrJourneyHead.findFirstOrThrow({
+          where: { tenantId: f.tenantId, journeyId: created.journeyId },
+        });
+        await repo.changeJourneyLifecycle(f.context(), {
+          journeyId: created.journeyId,
+          target: 'PAUSED',
+          expectedHeadVersion: current.version,
+          reasonCode: 'ISOLATED_PAUSE',
+        });
+      }
+      const current = await f.owner.jrJourneyHead.findFirstOrThrow({
+        where: { tenantId: f.tenantId, journeyId: created.journeyId },
+      });
+      const target = operation === 'transfer' || operation === 'clone' ? randomUUID() : f.teamId;
+      if (target !== f.teamId)
+        await f.owner.team.create({
+          data: { id: target, tenantId: f.tenantId, name: 'Target ' + target },
+        });
+      const write = () => {
+        switch (operation) {
+          case 'publish':
+            return repo.publishJourneyDraft(f.context(), approval);
+          case 'resume':
+            return repo.changeJourneyLifecycle(f.context(), {
+              journeyId: created.journeyId,
+              target: 'ACTIVE',
+              expectedHeadVersion: current.version,
+              reasonCode: 'ISOLATED_RESUME',
+            });
+          case 'transfer':
+            return repo.transferJourneyOwnership(f.context(), {
+              journeyId: created.journeyId,
+              targetTeamId: target,
+              expectedHeadVersion: current.version,
+              reasonCode: 'ISOLATED_TRANSFER',
+            });
+          case 'rollForward':
+            return repo.createRollForwardFromVersion(f.context(), {
+              journeyId: created.journeyId,
+              sourceVersion: 1,
+              expectedHeadVersion: current.version,
+            });
+          case 'clone':
+            return repo.cloneJourneyFromVersion(f.context(), {
+              journeyId: created.journeyId,
+              version: 1,
+              targetOwnerTeamId: target,
+              name: 'Clone',
+            });
+        }
+      };
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.tenantId,
+        teamId: target,
+        table: 'jr_journey_heads',
+        order,
+        existingReferences: target === f.teamId,
+        write,
+      });
+    });

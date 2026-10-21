@@ -6,6 +6,7 @@ import {
   type CgReservationState,
   type PrismaClient,
   withTenantDatabaseTransaction,
+  lockTeamReferences,
 } from '@d-contact/db';
 import { evaluateContactPolicy, type ContactPolicyTraceEntry } from './contact-policy.js';
 import {
@@ -615,6 +616,7 @@ export class ContactGovernanceService
 
     const authorize = async (transactionClient: Prisma.TransactionClient) => {
       const transaction = transactionClient;
+      await lockTeamReferences(transaction, tenantId, [input.teamId]);
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`action:${tenantId}:${input.actionKey}`}))`,
       );
