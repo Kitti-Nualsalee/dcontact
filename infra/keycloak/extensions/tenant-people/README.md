@@ -23,11 +23,17 @@ Runner สร้าง network/container ชื่อสุ่มของตั
 
 Private `readiness` แยก `invitationReady` จาก `ready` ของ provisioning: ตรวจ admin-only invitation profile, SMTP host/from/port, system client และ synchronous sender ของ pinned distribution โดยไม่ส่งอีเมล หาก invitation configuration ยังไม่พร้อมจะคืน `invitationReady: false` โดยไม่ปิด provisioning ที่ผ่านเกตเดิม นี่เป็น configuration readiness ไม่ใช่หลักฐานว่า SMTP ส่งถึงผู้รับได้ และยังไม่เปิด application scheduler หรือ public invitation capability
 
-Private endpoints ใต้ `operations/{operationId}/invitations/1/intent` และ `/dispatch` รับเฉพาะ tenant service client เดิม พร้อม accepted descriptor, `providerAttemptRef`, `fencingToken` และ `leaseOwner` ไม่รับ SMTP configuration, action link หรือ redirect URI จาก caller ต้องมี provisioning proof และตรวจ identity/role/Organization/required actions/credential state ใหม่ก่อนส่ง User Profile ของ `dc_invitation_not_before` ต้องเป็น admin-only แบบเดียวกับ classification attributes
+Private endpoints ใต้ `operations/{operationId}/invitations/{generation}/intent` และ `/dispatch` รับเฉพาะ tenant service client เดิม พร้อม accepted descriptor, `providerAttemptRef`, `fencingToken` และ `leaseOwner` ไม่รับ SMTP configuration, action link หรือ redirect URI จาก caller ต้องมี provisioning proof และตรวจ identity/role/Organization/required actions/credential state ใหม่ก่อนส่ง User Profile ของ `dc_invitation_not_before` ต้องเป็น admin-only แบบเดียวกับ classification attributes
 
 Intent กับ not-before fence จาก Keycloak server clock commit ใน transaction เดียวกัน ส่วน dispatch claim commit ก่อน callback ส่ง SMTP ด้วย transaction ใหม่ Callback ตรวจสิทธิ์และ pending identity ซ้ำ ถือ tenant gate ระหว่างส่ง และบันทึก immutable finished receipt หลัง synchronous sender คืนผล รองรับเฉพาะ `DefaultEmailSenderProvider` ของ pinned distribution; provider อื่นไม่ถูกถือว่าให้ quiescence proof โดยอัตโนมัติ
 
 SMTP accepted ให้ `SENT` และ quiescence proof ของ attempt เดิมเท่านั้น ส่วน SMTP exception ให้ `UNKNOWN` หาก claim commit แล้วแต่ callback/finished receipt ล้ม จะคง `DISPATCHING` และไม่มี blind retry หรือ re-arm จากเวลา/lease เมลที่ถึง Mailpit แต่ไม่มี finished receipt ไม่ใช่เหตุให้ปลด quiescence gate
+
+Provider รับ generation ถัดไปแบบไม่ข้ามเลขเมื่อรุ่นล่าสุดมี immutable finished receipt เป็น `SENT` เท่านั้น โดยถือ tenant gate เดียวกับ callback ส่งเมล ต้องใช้ attempt ใหม่และ fencing token สูงขึ้น และ current user fence ต้องตรงกับ ledger ก่อนเปลี่ยน fence ใหม่เป็นค่าสูงสุดระหว่าง Keycloak clock, fence เดิมบวกหนึ่ง และเวลาออก token เดิมบวกหนึ่ง การเตรียม intent ไม่ส่งเมล; ต้อง readback fence และรอ Keycloak clock ถึงก่อน dispatch claim ส่วน POST รุ่นเก่าถูกปฏิเสธ แต่ finished receipt รุ่นเก่ายังอ่านได้ด้วย descriptor เดิม
+
+Cap ฝั่ง provider จำกัดสาม resend intents ต่อ rolling 60 นาที ไม่นับ generation แรก ใช้ `createdAtEpoch` จาก Keycloak clock และนับภายใต้ tenant gate/transaction เดียวกับ insert intent จึงไม่เพิ่ม slot จาก replay หรือคำขอแข่งกัน Additive Liquibase change เพิ่ม admission epoch โดยให้ intent generation แรกเดิมมีค่า sentinel 0 ได้ ไม่แก้ immutable rows หรือ rewrite changeset เดิม Cap/ledger ฝั่ง application และ Admin command/revision/reason/audit ยังเป็นงานถัดไป
+
+Scenario generation จริงเตรียม/ส่งรุ่น 1–4 ผ่าน provider ตรวจ concurrent replay และการแข่งกันขอ slot สุดท้าย, รุ่นที่ 5 ถูกจำกัด, INTENT/finished-receipt loss ห้ามสร้างรุ่นถัดไป, readback fence กับ Keycloak clock ก่อนส่ง, POST รุ่นเก่าไม่ส่งซ้ำ และ GET receipt เดิมยังอ่านได้ ลิงก์รุ่นแรกที่ยังไม่เคยเปิดถูก guard ปฏิเสธหลัง supersession ส่วนลิงก์รุ่นล่าสุดเปิดได้ การทดสอบนี้ยังไม่ได้รอครบ 60 นาทีเพื่อพิสูจน์การคืน slot ด้วยเวลาจริง
 
 Runner ตรวจ concurrent intent/dispatch/replay, profile guard, atomic rollback ของ fence/intent, durable readback หลัง Keycloak restart, exact-attempt SMTP subject, required actions และอายุ token 72 ชั่วโมงจาก Keycloak clock รวม fault หลังส่งจริงแต่ก่อน finished receipt ลิงก์อ่านเฉพาะใน memory ของ mailbox test ไม่เก็บใน evidence/log/operation result
 
@@ -41,7 +47,7 @@ Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ต
 
 Boundary ตรวจ gate ปิดแล้วสถานะยัง `INTENT`/ไม่มี dispatch, gate เปิดแล้ว response หายเป็น `AMBIGUOUS`, proof ผิดรูปไม่ผ่าน และ runtime ใหม่อ่าน finished receipt เดิมผ่าน GET จนเป็น `SENT` โดย POST รวมเพียงครั้งเดียวต่อ role ยังไม่เปิด public invitation capability หรือส่งเมลจาก runtime ปกติ
 
-ส่วนนี้ยังรองรับ generation แรกเท่านั้น รุ่นถัดไปถูกปฏิเสธ ไม่มี Console resend/activation เปิดใช้งาน การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ resend cap, monotonic supersession, old/expired/activated-link guard และ fresh activation proof ยังต้องผ่านเกตของตนเอง
+Application adapter/runtime ยังรับเฉพาะ generation แรก ไม่มี public resend/reconcile command หรือ Console resend/activation เปิดใช้งาน การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ application resend cap/command audit, expiry ด้วยเวลาจริง และ fresh activation proof ผ่าน password/TOTP/login ยังต้องผ่านเกตของตนเอง
 
 ไฟล์ `tenant-people-operations.integration.ts` แยกทดสอบ HTTP/RLS/quotas/claims ด้วย identity port ที่ควบคุมได้ ไม่ใช้ผลชุดนั้นแทน real Keycloak boundary ส่วน `tenant-people-keycloak.boundary.ts` และ `tenant-people-provisioning.boundary.ts` รับ environment ของ runner และ fail หากไม่มี configuration ไม่ skip แล้วนับผ่าน
 

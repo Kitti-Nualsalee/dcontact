@@ -14,4 +14,5 @@ public class PeopleInvitationIntent {
   @Column(name="FENCING_TOKEN",nullable=false) public long fencingToken;
   @Column(name="LEASE_OWNER",nullable=false,length=128) public String leaseOwner;
   @Column(name="NOT_BEFORE_EPOCH",nullable=false) public long notBeforeEpoch;
+  @Column(name="CREATED_AT_EPOCH",nullable=false) public long createdAtEpoch;
 }

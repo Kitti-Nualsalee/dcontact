@@ -210,6 +210,8 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
             if {key:value for key,value in result[1].items() if key!='serverEpoch'}!={key:value for key,value in first_intent.items() if key!='serverEpoch'}:raise RuntimeError('INVITATION_INTENT_REPLAY_CHANGED')
         intent_readback,_=expect(invitation_path+'?'+invitation_query,tenants[0]['token'],status=200)
         if intent_readback['intentRef']!=first_intent['intentRef'] or intent_readback['notBeforeEpoch']!=first_intent['notBeforeEpoch']:raise RuntimeError('INVITATION_INTENT_READBACK_CHANGED')
+        blocked_pending,_=expect(invitation_path.replace('/invitations/1/','/invitations/2/'),tenants[0]['token'],{**invitation_body,'providerAttemptRef':str(uuid.uuid4()),'fencingToken':str(int(invitation_body['fencingToken'])+1)},status=409)
+        if blocked_pending.get('code')!='INVITATION_PREVIOUS_OUTCOME_UNKNOWN':raise RuntimeError('GENERATION_PENDING_NOT_BLOCKED_BY_OUTCOME')
         fenced_user,_=expect(adminbase+'/users/'+rolebody['targetUserId'],admin,status=200)
         if fenced_user['attributes'].get('dc_invitation_not_before')!=[str(first_intent['notBeforeEpoch'])]:raise RuntimeError('INVITATION_FENCE_NOT_DURABLE')
         if sql("SELECT count(*) FROM dc_tenant_people_invitation_intent;").strip()!='1':raise RuntimeError('DUPLICATE_INVITATION_INTENT')
@@ -334,6 +336,80 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
             except subprocess.CalledProcessError:pass
             else:raise RuntimeError('SMTP_PROVIDER_LEDGER_NOT_IMMUTABLE')
         print('B3_INVITATION_SMTP_BOUNDARY_PASS')
+        generation_body=envelope();generation_operation=str(uuid.uuid4())
+        generation_base='/realms/'+realm+'/dc-tenant-people/operations/'+generation_operation
+        for step in ('CREATE_IDENTITY','TENANT_ROLE','ORG_MEMBERSHIP','VERIFY_MAPPING','VERIFY_PROVISIONED'):
+            expect(generation_base+'/steps/'+step,tenants[0]['token'],generation_body,status=200)
+        def generation_query(body):
+            return urllib.parse.urlencode({key:body[key] for key in ('tenantId','targetUserId','payloadDigest','providerAttemptRef','fencingToken','leaseOwner')})
+        def generation_delivery(number,body):
+            path=generation_base+'/invitations/'+str(number)+'/dispatch'
+            expect(path,tenants[0]['token'],body,status=200)
+            for attempt in range(50):
+                proof,_=expect(path+'?'+generation_query(body),tenants[0]['token'],status=200)
+                if proof.get('outcome')=='SENT' and proof.get('quiescent') is True:return proof
+                time.sleep(0.1)
+            raise RuntimeError('GENERATION_DELIVERY_NOT_FINISHED')
+        def generation_link(body):
+            messages=messages_for_attempt(body['providerAttemptRef'])
+            if len(messages)!=1:raise RuntimeError('GENERATION_MAIL_NOT_EXACT_ATTEMPT')
+            message=mailbox('/api/v1/message/'+messages[0]['ID'])
+            link=re.search(r'https?://\S+action-token\S+',message.get('Text',''))
+            if not link:raise RuntimeError('GENERATION_ACTION_LINK_MISSING')
+            parsed=urllib.parse.urlparse(link[0])
+            return parsed.path+'?'+parsed.query
+        current_body={**generation_body,'providerAttemptRef':str(uuid.uuid4()),'leaseOwner':'generation-worker'}
+        previous_delivery=generation_delivery(1,current_body)
+        old_generation_link=generation_link(current_body)
+        first_generation_body=current_body
+        for number in (2,3,4):
+            next_body={**generation_body,'providerAttemptRef':str(uuid.uuid4()),'leaseOwner':'generation-worker','fencingToken':str(int(current_body['fencingToken'])+1)}
+            next_path=generation_base+'/invitations/'+str(number)+'/intent'
+            if number==2:
+                expect(next_path.replace('/invitations/2/','/invitations/3/'),tenants[0]['token'],next_body,status=409)
+            if number==4:
+                competitors=[next_body,{**next_body,'providerAttemptRef':str(uuid.uuid4())}]
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                    competing=list(pool.map(lambda body:call(next_path,tenants[0]['token'],body),competitors))
+                if sorted(result[0] for result in competing)!=[200,409]:raise RuntimeError('GENERATION_LAST_RESEND_SLOT_RACE_FAILED')
+                next_body=competitors[next(index for index,result in enumerate(competing) if result[0]==200)]
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                prepared=list(pool.map(lambda _:call(next_path,tenants[0]['token'],next_body),range(2)))
+            if [result[0] for result in prepared]!=[200,200]:raise RuntimeError('GENERATION_CONCURRENT_PREPARE_FAILED')
+            intent=prepared[0][1]
+            if intent.get('generation')!=number or intent['notBeforeEpoch']<=max(previous_delivery['notBeforeEpoch'],previous_delivery['issuedAtEpoch']):raise RuntimeError('GENERATION_FENCE_NOT_MONOTONIC')
+            if any({key:value for key,value in result[1].items() if key!='serverEpoch'}!={key:value for key,value in intent.items() if key!='serverEpoch'} for result in prepared):raise RuntimeError('GENERATION_INTENT_REPLAY_CHANGED')
+            if messages_for_attempt(next_body['providerAttemptRef']):raise RuntimeError('GENERATION_PREPARE_SENT_EMAIL')
+            expect(next_path,tenants[0]['token'],{**next_body,'providerAttemptRef':str(uuid.uuid4())},status=409)
+            expect(generation_base+'/invitations/1/dispatch',tenants[0]['token'],first_generation_body,status=409)
+            historical,_=expect(generation_base+'/invitations/1/dispatch?'+generation_query(first_generation_body),tenants[0]['token'],status=200)
+            if historical.get('outcome')!='SENT' or historical.get('quiescent') is not True or historical.get('providerAttemptRef')!=first_generation_body['providerAttemptRef']:raise RuntimeError('GENERATION_HISTORICAL_RECEIPT_UNREADABLE')
+            for attempt in range(50):
+                readback,_=expect(next_path+'?'+generation_query(next_body),tenants[0]['token'],status=200)
+                if readback['notBeforeEpoch']!=intent['notBeforeEpoch']:raise RuntimeError('GENERATION_FENCE_READBACK_DRIFT')
+                if readback['serverEpoch']>=intent['notBeforeEpoch']:break
+                time.sleep(0.1)
+            else:raise RuntimeError('GENERATION_SERVER_CLOCK_NOT_REACHED')
+            previous_delivery=generation_delivery(number,next_body)
+            if previous_delivery['issuedAtEpoch']<intent['notBeforeEpoch']:raise RuntimeError('GENERATION_ISSUED_BEFORE_FENCE')
+            generation_delivery(number,next_body)
+            generation_link(next_body)
+            current_body=next_body
+        over_limit={**generation_body,'providerAttemptRef':str(uuid.uuid4()),'leaseOwner':'generation-worker','fencingToken':str(int(current_body['fencingToken'])+1)}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            rejected=list(pool.map(lambda body:call(generation_base+'/invitations/5/intent',tenants[0]['token'],body),[over_limit,{**over_limit,'providerAttemptRef':str(uuid.uuid4())}]))
+        if any(result[0]!=429 or result[1].get('code')!='INVITATION_RESEND_RATE_LIMIT' for result in rejected):raise RuntimeError('GENERATION_RESEND_CAP_NOT_ENFORCED')
+        blocked_unknown,_=expect(failed_dispatch.replace('/invitations/1/dispatch','/invitations/2/intent'),tenants[0]['token'],{**rollback_intent,'providerAttemptRef':str(uuid.uuid4()),'fencingToken':str(int(rollback_intent['fencingToken'])+1)},status=409)
+        if blocked_unknown.get('code')!='INVITATION_PREVIOUS_OUTCOME_UNKNOWN':raise RuntimeError('GENERATION_AMBIGUITY_NOT_BLOCKED_BY_OUTCOME')
+        action_path=old_generation_link
+        action_browser=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        old_status,old_page=action_page()
+        if old_status!=400 or 'Action expired' not in old_page:raise RuntimeError('PROVIDER_SUPERSEDED_LINK_NOT_REJECTED')
+        action_path=generation_link(current_body)
+        action_browser=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        newest_status,newest_page=action_page()
+        if newest_status!=200 or 'kc-error-message' in newest_page:raise RuntimeError('PROVIDER_NEWEST_LINK_NOT_USABLE')
+        print('B3_INVITATION_GENERATION_BOUNDARY_PASS')
         atomicbody=envelope();atomicoperation=str(uuid.uuid4());atomicbase='/realms/'+realm+'/dc-tenant-people/operations/'+atomicoperation+'/steps/'
         expect(atomicbase+'CREATE_IDENTITY',tenants[0]['token'],atomicbody,status=200)
         expect('/realms/'+realm+'/dc-tenant-people/operations/'+atomicoperation+'/invitations/1/intent',tenants[0]['token'],{**atomicbody,'providerAttemptRef':str(uuid.uuid4()),'leaseOwner':'not-provisioned-worker'},status=409)

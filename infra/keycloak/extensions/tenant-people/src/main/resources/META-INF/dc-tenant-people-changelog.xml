@@ -70,4 +70,10 @@
     <sql>CREATE TRIGGER dc_tp_invitation_dispatch_immutable BEFORE UPDATE OR DELETE ON DC_TENANT_PEOPLE_INVITATION_DISPATCH FOR EACH ROW EXECUTE FUNCTION dc_tp_receipt_immutable()</sql>
     <sql>CREATE TRIGGER dc_tp_invitation_finished_immutable BEFORE UPDATE OR DELETE ON DC_TENANT_PEOPLE_INVITATION_FINISHED FOR EACH ROW EXECUTE FUNCTION dc_tp_receipt_immutable()</sql>
   </changeSet>
+  <changeSet id="dc-tenant-people-invitation-generation-v1" author="dcontact">
+    <addColumn tableName="DC_TENANT_PEOPLE_INVITATION_INTENT">
+      <column name="CREATED_AT_EPOCH" type="BIGINT" defaultValueNumeric="0"><constraints nullable="false"/></column>
+    </addColumn>
+    <sql>ALTER TABLE DC_TENANT_PEOPLE_INVITATION_INTENT ADD CONSTRAINT DC_TP_INVITATION_CREATED CHECK (CREATED_AT_EPOCH&gt;=0 AND (GENERATION=1 OR CREATED_AT_EPOCH&gt;0))</sql>
+  </changeSet>
 </databaseChangeLog>

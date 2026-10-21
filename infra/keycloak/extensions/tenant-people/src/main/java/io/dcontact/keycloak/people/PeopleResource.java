@@ -291,11 +291,18 @@ public class PeopleResource {
     if(!intent.providerAttemptRef.equals(attempt)||!Long.toString(intent.fencingToken).equals(fence)||!intent.leaseOwner.equals(owner))throw denied(409,"CORRELATION_CONFLICT");
   }
 
+  private long invitationGeneration(String generation) {
+    if(generation==null||!generation.matches("[1-9][0-9]{0,9}"))throw denied(400,"INVALID_REQUEST");
+    long number=Long.parseLong(generation);
+    if(number>Integer.MAX_VALUE)throw denied(400,"INVALID_REQUEST");
+    return number;
+  }
+
   @POST @Path("operations/{operationId}/invitations/{generation}/intent") @Consumes(MediaType.APPLICATION_JSON)
   public Response prepareInvitation(@PathParam("operationId") String operationId,@PathParam("generation") String generation,Map<String,Object> body) {
     String tenantId=text(body,"tenantId");uuid(tenantId);Binding binding=authorize(tenantId);uuid(operationId);
     if(!body.keySet().equals(Set.of("tenantId","targetUserId","payloadDigest","fencingToken","email","displayName","role","providerAttemptRef","leaseOwner")))throw denied(400,"INVALID_REQUEST");
-    if(!"1".equals(generation))throw denied(409,"INVITATION_GENERATION_NOT_READY");
+    long generationNumber=invitationGeneration(generation);
     invitationProfileReady();
     String target=text(body,"targetUserId"),payloadDigest=text(body,"payloadDigest"),email=text(body,"email"),name=text(body,"displayName"),role=text(body,"role");
     String attempt=text(body,"providerAttemptRef"),owner=text(body,"leaseOwner"),suppliedFence=text(body,"fencingToken");
@@ -327,15 +334,30 @@ public class PeopleResource {
     if(memberships.size()!=1||!memberships.get(0).getId().equals(binding.organization().getId()))throw denied(409,"IDENTITY_ORGANIZATION_CONFLICT");
     if(user.isEmailVerified()||user.credentialManager().getStoredCredentialsStream().findAny().isPresent()
       ||!Set.of("VERIFY_EMAIL","UPDATE_PASSWORD","CONFIGURE_TOTP").equals(user.getRequiredActionsStream().collect(java.util.stream.Collectors.toSet())))throw denied(409,"IDENTITY_ACTIVATION_CONFLICT");
-    String intentId=hash(key+":SEND_INTENT:1");PeopleInvitationIntent previous=manager.find(PeopleInvitationIntent.class,intentId);
+    String intentId=hash(key+":SEND_INTENT:"+generation);PeopleInvitationIntent previous=manager.find(PeopleInvitationIntent.class,intentId);
+    var history=manager.createQuery("SELECT intent FROM PeopleInvitationIntent intent WHERE intent.operationKey=:operation ORDER BY intent.generation DESC",PeopleInvitationIntent.class)
+      .setParameter("operation",key).setMaxResults(1).getResultList();
+    PeopleInvitationIntent latest=history.isEmpty()?null:history.get(0);
     if(previous!=null) {
       invitationDescriptor(previous,attempt,suppliedFence,owner);
-      if(!Long.toString(previous.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before")))throw denied(409,"GENERATION_FENCE_CONFLICT");
+      if(latest==null||!latest.id.equals(previous.id)||!Long.toString(previous.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before")))throw denied(409,"GENERATION_FENCE_CONFLICT");
       return invitationIntent(operation,previous);
     }
-    if(user.getFirstAttribute("dc_invitation_not_before")!=null)throw denied(409,"GENERATION_FENCE_CONFLICT");
-    PeopleInvitationIntent intent=new PeopleInvitationIntent();intent.id=intentId;intent.operationKey=key;intent.generation=1;
-    intent.providerAttemptRef=attempt;intent.requestDigest=fingerprint;intent.fencingToken=fence;intent.leaseOwner=owner;intent.notBeforeEpoch=Time.currentTimeSeconds();
+    long serverEpoch=Time.currentTimeSeconds(),notBefore=serverEpoch;
+    if(generationNumber==1) {
+      if(latest!=null||user.getFirstAttribute("dc_invitation_not_before")!=null)throw denied(409,"GENERATION_FENCE_CONFLICT");
+    } else {
+      if(latest==null||generationNumber!=latest.generation+1||fence<=latest.fencingToken)throw denied(409,"INVITATION_GENERATION_CONFLICT");
+      if(!Long.toString(latest.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before")))throw denied(409,"GENERATION_FENCE_CONFLICT");
+      PeopleInvitationFinished finished=manager.find(PeopleInvitationFinished.class,latest.id);
+      if(finished==null||!"SENT".equals(finished.outcome))throw denied(409,"INVITATION_PREVIOUS_OUTCOME_UNKNOWN");
+      long recent=manager.createQuery("SELECT COUNT(intent) FROM PeopleInvitationIntent intent WHERE intent.operationKey=:operation AND intent.generation>1 AND intent.createdAtEpoch>:cutoff",Long.class)
+        .setParameter("operation",key).setParameter("cutoff",serverEpoch-3600).getSingleResult();
+      if(recent>=3)throw denied(429,"INVITATION_RESEND_RATE_LIMIT");
+      notBefore=Math.max(serverEpoch,Math.max(latest.notBeforeEpoch,finished.issuedAtEpoch)+1);
+    }
+    PeopleInvitationIntent intent=new PeopleInvitationIntent();intent.id=intentId;intent.operationKey=key;intent.generation=generationNumber;
+    intent.providerAttemptRef=attempt;intent.requestDigest=fingerprint;intent.fencingToken=fence;intent.leaseOwner=owner;intent.notBeforeEpoch=notBefore;intent.createdAtEpoch=serverEpoch;
     try {
       user.setSingleAttribute("dc_invitation_not_before",Long.toString(intent.notBeforeEpoch));
       manager.persist(intent);manager.flush();return invitationIntent(operation,intent);
@@ -348,8 +370,13 @@ public class PeopleResource {
   public Response readInvitationIntent(@PathParam("operationId") String operationId,@PathParam("generation") String generation,
     @QueryParam("tenantId") String tenantId,@QueryParam("targetUserId") String target,@QueryParam("payloadDigest") String payloadDigest,
     @QueryParam("providerAttemptRef") String attempt,@QueryParam("fencingToken") String fence,@QueryParam("leaseOwner") String owner) {
+    return readInvitationIntent(operationId,generation,tenantId,target,payloadDigest,attempt,fence,owner,true);
+  }
+
+  private Response readInvitationIntent(String operationId,String generation,String tenantId,String target,String payloadDigest,
+    String attempt,String fence,String owner,boolean requireCurrentFence) {
     uuid(tenantId);Binding binding=authorize(tenantId);uuid(operationId);uuid(target);uuid(attempt);
-    if(!"1".equals(generation))throw denied(409,"INVITATION_GENERATION_NOT_READY");
+    invitationGeneration(generation);
     invitationProfileReady();
     if(payloadDigest==null||!payloadDigest.matches("[a-f0-9]{64}")||fence==null||!fence.matches("[1-9][0-9]{0,18}")
       ||owner==null||!owner.matches("[A-Za-z0-9_.:-]{1,128}"))throw denied(400,"INVALID_REQUEST");
@@ -357,11 +384,11 @@ public class PeopleResource {
     PeopleOperation operation=manager.find(PeopleOperation.class,key);
     if(operation==null)return json(200,Map.of("outcome","UNKNOWN"));
     if(!operation.tenantId.equals(tenantId)||!operation.targetUserId.equals(target)||!operation.payloadDigest.equals(payloadDigest))throw denied(409,"CORRELATION_CONFLICT");
-    PeopleInvitationIntent intent=manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:1"));
+    PeopleInvitationIntent intent=manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:"+generation));
     if(intent==null)return json(200,Map.of("outcome","UNKNOWN"));
     invitationDescriptor(intent,attempt,fence,owner);
     UserModel user=session.users().getUserById(binding.realm(),target);
-    if(user==null||!Long.toString(intent.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before")))throw denied(409,"GENERATION_FENCE_CONFLICT");
+    if(user==null||(requireCurrentFence&&!Long.toString(intent.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before"))))throw denied(409,"GENERATION_FENCE_CONFLICT");
     return invitationIntent(operation,intent);
   }
 
@@ -385,7 +412,8 @@ public class PeopleResource {
     Binding binding=authorize(text(body,"tenantId"));
     EntityManager manager=entityManager();String key=operationKey(binding,operationId);
     PeopleOperation operation=manager.find(PeopleOperation.class,key);
-    PeopleInvitationIntent intent=manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:1"));
+    PeopleInvitationIntent intent=manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:"+generation));
+    if(Time.currentTimeSeconds()<intent.notBeforeEpoch)throw denied(409,"GENERATION_FENCE_NOT_REACHED");
     if(manager.find(PeopleInvitationDispatch.class,intent.id)!=null)return invitationDelivery(operation,intent);
     PeopleInvitationDispatch dispatch=new PeopleInvitationDispatch();dispatch.id=intent.id;dispatch.startedAtEpoch=Time.currentTimeSeconds();
     try { manager.persist(dispatch);manager.flush(); }
@@ -412,7 +440,7 @@ public class PeopleResource {
     prepareInvitation(operationId,generation,body);
     Binding binding=authorize(text(body,"tenantId"));
     EntityManager manager=entityManager();String key=operationKey(binding,operationId);
-    PeopleInvitationIntent intent=manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:1"));
+    PeopleInvitationIntent intent=manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:"+generation));
     if(manager.find(PeopleInvitationDispatch.class,intent.id)==null)throw denied(409,"DISPATCH_REQUIRED");
     if(manager.find(PeopleInvitationFinished.class,intent.id)!=null)return;
     UserModel user=session.users().getUserById(binding.realm(),text(body,"targetUserId"));
@@ -445,9 +473,9 @@ public class PeopleResource {
   public Response readInvitationDelivery(@PathParam("operationId") String operationId,@PathParam("generation") String generation,
     @QueryParam("tenantId") String tenantId,@QueryParam("targetUserId") String target,@QueryParam("payloadDigest") String payloadDigest,
     @QueryParam("providerAttemptRef") String attempt,@QueryParam("fencingToken") String fence,@QueryParam("leaseOwner") String owner) {
-    Response validated=readInvitationIntent(operationId,generation,tenantId,target,payloadDigest,attempt,fence,owner);
+    Response validated=readInvitationIntent(operationId,generation,tenantId,target,payloadDigest,attempt,fence,owner,false);
     if(validated.getEntity() instanceof Map<?,?> result&&"UNKNOWN".equals(result.get("outcome")))return validated;
     Binding binding=authorize(tenantId);EntityManager manager=entityManager();String key=operationKey(binding,operationId);
-    return invitationDelivery(manager.find(PeopleOperation.class,key),manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:1")));
+    return invitationDelivery(manager.find(PeopleOperation.class,key),manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:"+generation)));
   }
 }
