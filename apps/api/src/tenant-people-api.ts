@@ -27,6 +27,7 @@ import {
 import { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
 import { readPeopleDirectory } from './tenant-people-directory.js';
 import { acceptPeopleInvitationReconcile } from './tenant-people-invitation-reconcile.js';
+import { acceptPeopleInvitationResend } from './tenant-people-invitation-resend.js';
 export { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
 
 function actor(request: AuthenticatedGatewayRequest): VoiceActor {
@@ -117,6 +118,23 @@ export class TenantPeopleController {
     if (!(await this.readiness.canReconcileInvitation?.(identity.tenantId)))
       voiceFail('CAPABILITY_NOT_READY', 503);
     const accepted = await acceptPeopleInvitationReconcile(this.database, identity, id, body);
+    response.setHeader('Location', accepted.location);
+    return accepted;
+  }
+
+  @Post('people/users/:id/invitation/resend')
+  @HttpCode(202)
+  @Header('Cache-Control', 'no-store')
+  async resend(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: { setHeader(name: string, value: string): void },
+  ) {
+    const identity = actor(request);
+    if (!(await this.readiness.canResendInvitation?.(identity.tenantId)))
+      voiceFail('CAPABILITY_NOT_READY', 503);
+    const accepted = await acceptPeopleInvitationResend(this.database, identity, id, body);
     response.setHeader('Location', accepted.location);
     return accepted;
   }

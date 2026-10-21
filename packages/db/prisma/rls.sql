@@ -419,3 +419,7 @@ GRANT SELECT ON tenant_people_invitation_reconciles TO dcontact_app;
 GRANT INSERT(tenant_id,id,command_id,actor_user_id,user_id,source_operation_id,generation,provider_attempt_ref,expected_revision,status_revision,reason_code,reason) ON tenant_people_invitation_reconciles TO dcontact_app;
 GRANT SELECT ON tenant_people_invitation_reconciles TO dcontact_tenant_people_worker;
 GRANT UPDATE(state,revision,lease_token,lease_expires_at,error_code,updated_at) ON tenant_people_invitation_reconciles TO dcontact_tenant_people_worker;
+
+REVOKE ALL ON tenant_people_invitation_resends FROM dcontact_app,dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_invitation_resends TO dcontact_app,dcontact_tenant_people_worker;
+GRANT INSERT(tenant_id,id,command_id,actor_user_id,user_id,source_operation_id,previous_generation,previous_attempt_ref,generation,provider_attempt_ref,expected_revision,status_revision,reason_code,reason) ON tenant_people_invitation_resends TO dcontact_app;

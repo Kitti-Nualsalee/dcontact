@@ -208,6 +208,12 @@ export function readPeopleOperation(db: PrismaClient, identity: VoiceActor, oper
         lifecycle.account_state AS "accountState",lifecycle.activation_state AS "activationState",lifecycle.provisioning_state AS "provisioningState",
         operation.error_code AS "errorCode",operation.created_at AS "createdAt",operation.updated_at AS "updatedAt"
       FROM tenant_people_invitation_reconciles operation JOIN tenant_user_lifecycles lifecycle ON lifecycle.tenant_id=operation.tenant_id AND lifecycle.user_id=operation.user_id
+      WHERE operation.tenant_id=${identity.tenantId}::uuid AND operation.id=${id}::uuid
+      UNION ALL
+      SELECT operation.id AS "operationId",operation.user_id AS "userId",'QUEUED' AS state,'PREPARE_INVITATION' AS step,1 AS revision,
+        lifecycle.account_state AS "accountState",lifecycle.activation_state AS "activationState",lifecycle.provisioning_state AS "provisioningState",
+        NULL AS "errorCode",operation.created_at AS "createdAt",operation.created_at AS "updatedAt"
+      FROM tenant_people_invitation_resends operation JOIN tenant_user_lifecycles lifecycle ON lifecycle.tenant_id=operation.tenant_id AND lifecycle.user_id=operation.user_id
       WHERE operation.tenant_id=${identity.tenantId}::uuid AND operation.id=${id}::uuid`;
     if (!reconciles[0]) voiceFail('RESOURCE_NOT_FOUND', 404);
     return reconciles[0];

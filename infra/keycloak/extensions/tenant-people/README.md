@@ -61,7 +61,15 @@ Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ต
 
 Boundary ตรวจ gate ปิดแล้วสถานะยัง `INTENT`/ไม่มี dispatch, gate เปิดแล้ว response หายเป็น `AMBIGUOUS`, proof ผิดรูปไม่ผ่าน และ runtime ใหม่อ่าน finished receipt เดิมผ่าน GET จนเป็น `SENT` โดย POST รวมเพียงครั้งเดียวต่อ role ยังไม่เปิด public invitation capability หรือส่งเมลจาก runtime ปกติ
 
-Application sender ยังส่งเฉพาะ generation แรก ไม่มี public resend command หรือ Console resend/activation เปิดใช้งาน การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ application resend cap/command audit/preparation barrier, expiry ด้วยเวลาจริง และ fresh activation proof ผ่าน password/TOTP/login ยังต้องผ่านเกตของตนเอง
+### Resend admission ที่ยังไม่เปิด runtime
+
+Admin-only `POST /api/v1/tenant-voice/people/users/:id/invitation/resend` มี readiness gate แยก `canResendInvitation` ซึ่ง normal composition ยังไม่เปิด รับ common command envelope แล้วบันทึก immutable reservation ใน `tenant_people_invitation_resends`, command receipt และ audit ใน transaction เดียว มี generation candidate/Location และ operation read เป็น `QUEUED/PREPARE_INVITATION` แต่ยังไม่สร้าง generation intent, invalidate link หรือส่ง email
+
+ตรวจ user config/status revision, positive verified mapping และ latest local `SENT/quiescent` receipt ภายใต้ user/lifecycle lock ก่อนรับงาน ไม่รับ `INTENT`, ambiguity หรือ activated user; replay command เดิมคืนผลเดิมโดยไม่กิน slot เพิ่ม อีก command ของ generation ที่จองแล้วถูกปฏิเสธ DB trigger ตรวจ eligibility/snapshot/receipt ซ้ำและจำกัด 3 admissions ต่อ rolling 60 นาทีด้วย DB clock และ row lock แยกจาก cap ของ Keycloak ไม่นับ initial send; reservation ที่รับแล้วไม่ถูกปลดจาก timeout/lease expiry application แก้ timestamp ไม่ได้ ledger ห้าม UPDATE/DELETE และ worker อ่านได้เฉพาะ tenant ที่ผูกไว้
+
+การทดสอบ cap ฝั่ง HTTP/RLS ใช้ approved-worker fixtures ของ generation/finished proof เพื่อเดินถึงแต่ละ slot ไม่ใช่หลักฐานว่าส่ง resend จริงจาก application แล้ว ยังไม่มี worker รับ reservation หรือ terminal processing state จนกว่าจะทำ durable preparation/readback barrier และ generation-aware sender เสร็จ จึงต้องคง readiness ปิด การ release slot หลังครบ 60 นาทีและ failure/restart ของ sender ยังต้องทดสอบเพิ่มเติม
+
+Application sender ยังส่งเฉพาะ generation แรก Console resend/activation ยังไม่เปิด การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ application preparation barrier/sender, expiry ด้วยเวลาจริง และ fresh activation proof ผ่าน password/TOTP/login ยังต้องผ่านเกตของตนเอง
 
 ไฟล์ `tenant-people-operations.integration.ts` แยกทดสอบ HTTP/RLS/quotas/claims ด้วย identity port ที่ควบคุมได้ ไม่ใช้ผลชุดนั้นแทน real Keycloak boundary ส่วน `tenant-people-keycloak.boundary.ts` และ `tenant-people-provisioning.boundary.ts` รับ environment ของ runner และ fail หากไม่มี configuration ไม่ skip แล้วนับผ่าน
 

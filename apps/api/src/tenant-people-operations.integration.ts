@@ -120,6 +120,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
     };
     let ready = false;
     let reconcileReady = false;
+    let resendReady = false;
     const verifyAccessToken = async (token: string) => {
       if (!['admin', 'protected', 'agent'].includes(token)) throw Error('invalid test token');
       return {
@@ -146,6 +147,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
             isReady: async () => ready,
             nodesForTenant: () => [node],
             canReconcileInvitation: async () => reconcileReady,
+            canResendInvitation: async () => resendReady,
           },
         },
         { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: { verifyAccessToken } },
@@ -1109,6 +1111,153 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
     assert.equal(secondSent.invitationGeneration, 2);
     assert.equal(secondSent.deliveryState, 'SENT');
     assert.equal(secondSent.configRevision, 1);
+    const resendPath = `/people/users/${supervisor.userId}/invitation/resend`;
+    const resendCommand = {
+      commandId: randomUUID(),
+      expectedRevision: 1,
+      reasonCode: 'REQUEST_RESEND',
+      reason: 'ส่งคำเชิญใหม่สำหรับผู้ทดสอบ',
+    };
+    assert.equal((await request(resendPath, resendCommand)).status, 503);
+    resendReady = true;
+    assert.equal((await request(resendPath, resendCommand, 'agent')).status, 403);
+    assert.equal((await request(resendPath, resendCommand, 'protected')).status, 403);
+    assert.equal(
+      (await request(resendPath, { ...resendCommand, expectedRevision: 2 })).status,
+      409,
+    );
+    assert.equal(
+      (await request(resendPath, { ...resendCommand, actionLink: 'forbidden' })).status,
+      400,
+    );
+    const resendResponse = await request(resendPath, resendCommand);
+    assert.equal(resendResponse.status, 202);
+    assert.equal(resendResponse.headers.get('cache-control'), 'no-store');
+    const resend = await readObject(resendResponse);
+    assert.equal(resend.generation, 3);
+    assert.equal(resendResponse.headers.get('location'), resend.location);
+    assert.deepEqual(await readObject(await request(resendPath, resendCommand)), resend);
+    assert.equal(
+      (await request(resendPath, { ...resendCommand, reason: 'เปลี่ยนเหตุผล' })).status,
+      409,
+    );
+    const pendingResend = await readObject(await request(`/operations/${resend.operationId}`));
+    assert.equal(pendingResend.state, 'QUEUED');
+    assert.equal(pendingResend.step, 'PREPARE_INVITATION');
+    assert.deepEqual(
+      (await readObject(await request(`/commands/${resendCommand.commandId}`))).result,
+      resend,
+    );
+    const afterResend = await readObject(await request(`/people/users/${supervisor.userId}`));
+    assert.equal(afterResend.invitationGeneration, 2);
+    assert.equal(afterResend.configRevision, 1);
+    for (const field of ['providerAttemptRef', 'payloadDigest', 'reason', 'actionLink']) {
+      assert.equal(field in resend, false);
+      assert.equal(field in pendingResend, false);
+    }
+    const duplicateResends = await Promise.all([
+      request(resendPath, { ...resendCommand, commandId: randomUUID() }),
+      request(resendPath, { ...resendCommand, commandId: randomUUID() }),
+    ]);
+    for (const duplicate of duplicateResends) assert.equal(duplicate.status, 409);
+    async function finishResendFixture(operationId: unknown, generation: number) {
+      assert.equal(typeof operationId, 'string');
+      const preparedAttempts = await withTenantDatabaseTransaction(
+        worker,
+        tenantId,
+        async (transaction) => {
+          await transaction.$executeRaw`INSERT INTO tenant_people_invitation_intents(tenant_id,operation_id,user_id,generation,provider_attempt_ref)
+          SELECT tenant_id,source_operation_id,user_id,generation,provider_attempt_ref FROM tenant_people_invitation_resends WHERE tenant_id=${tenantId}::uuid AND id=${operationId}::uuid`;
+          return transaction.$queryRaw<
+            { attempt: string }[]
+          >`SELECT provider_attempt_ref AS attempt FROM tenant_people_invitation_resends WHERE tenant_id=${tenantId}::uuid AND id=${operationId}::uuid`;
+        },
+      );
+      assert.equal(
+        (await request(resendPath, { ...resendCommand, commandId: randomUUID() })).status,
+        409,
+      );
+      await withTenantDatabaseTransaction(
+        worker,
+        tenantId,
+        (transaction) =>
+          transaction.$executeRaw`INSERT INTO tenant_people_invitation_dispatches(tenant_id,operation_id,user_id,generation,provider_attempt_ref,fencing_token,lease_owner)
+          VALUES(${tenantId}::uuid,${supervisor.operationId}::uuid,${supervisor.userId}::uuid,${generation},${preparedAttempts[0].attempt}::uuid,${generation},'resend-boundary-fixture')`,
+      );
+      assert.equal(
+        await reconcilePeopleInvitationAttempt(
+          worker,
+          {
+            async readOutcome(attempt) {
+              assert.equal(attempt.generation, generation);
+              assert.equal(attempt.providerAttemptRef, preparedAttempts[0].attempt);
+              return completionProof(attempt);
+            },
+          },
+          tenantId,
+          supervisor.operationId,
+          { generation, providerAttemptRef: preparedAttempts[0].attempt },
+        ),
+        'RECORDED',
+      );
+    }
+    await finishResendFixture(resend.operationId, 3);
+    const secondResend = await readObject(
+      await request(resendPath, { ...resendCommand, commandId: randomUUID() }),
+    );
+    assert.equal(secondResend.generation, 4);
+    await finishResendFixture(secondResend.operationId, 4);
+    const lastSlot = await Promise.all([
+      request(resendPath, { ...resendCommand, commandId: randomUUID() }),
+      request(resendPath, { ...resendCommand, commandId: randomUUID() }),
+    ]);
+    assert.equal(lastSlot.filter((response) => response.status === 202).length, 1);
+    assert.ok(lastSlot.every((response) => [202, 409, 429].includes(response.status)));
+    const winner = lastSlot.find((response) => response.status === 202);
+    assert.ok(winner);
+    const thirdResend = await readObject(winner);
+    assert.equal(thirdResend.generation, 5);
+    await finishResendFixture(thirdResend.operationId, 5);
+    const capped = await request(resendPath, { ...resendCommand, commandId: randomUUID() });
+    assert.equal(capped.status, 429);
+    assert.equal((await readObject(capped)).code, 'INVITATION_RESEND_LIMIT');
+    assert.deepEqual(await readObject(await request(resendPath, resendCommand)), resend);
+    const acceptedResends = await owner.$queryRaw<
+      { count: bigint }[]
+    >`SELECT count(*) FROM voice_config_audit WHERE tenant_id=${tenantId}::uuid AND resource_id=${supervisor.userId}::uuid AND action='RESEND_TENANT_INVITATION' AND outcome='ACCEPTED'`;
+    assert.equal(acceptedResends[0].count, 3n);
+    for (const principal of [application, worker]) {
+      for (const statement of [
+        Prisma.sql`UPDATE tenant_people_invitation_resends SET reason=reason WHERE tenant_id=${tenantId}::uuid`,
+        Prisma.sql`DELETE FROM tenant_people_invitation_resends WHERE tenant_id=${tenantId}::uuid`,
+      ])
+        await assert.rejects(() =>
+          withTenantDatabaseTransaction(principal, tenantId, (transaction) =>
+            transaction.$executeRaw(statement),
+          ),
+        );
+    }
+    assert.deepEqual(
+      await withTenantDatabaseTransaction(
+        application,
+        randomUUID(),
+        (transaction) => transaction.$queryRaw`SELECT id FROM tenant_people_invitation_resends`,
+      ),
+      [],
+    );
+    await assert.rejects(
+      () =>
+        withTenantDatabaseTransaction(
+          application,
+          tenantId,
+          (transaction) =>
+            transaction.$executeRaw`INSERT INTO tenant_people_invitation_resends(tenant_id,id,command_id,actor_user_id,user_id,source_operation_id,previous_generation,previous_attempt_ref,generation,provider_attempt_ref,expected_revision,status_revision,reason_code,reason)
+              SELECT tenant_id,${randomUUID()}::uuid,${randomUUID()}::uuid,${adminId}::uuid,user_id,operation_id,generation,provider_attempt_ref,generation+1,${randomUUID()}::uuid,1,
+                (SELECT revision FROM tenant_user_lifecycles WHERE tenant_id=${tenantId}::uuid AND user_id=${supervisor.userId}::uuid),
+                'REQUEST_RESEND','ตรวจ cap ที่ DB' FROM tenant_people_invitation_intents WHERE tenant_id=${tenantId}::uuid AND user_id=${supervisor.userId}::uuid AND generation=5`,
+        ),
+      /INVITATION_RESEND_LIMIT/,
+    );
     const foreignRows = await withTenantDatabaseTransaction(
       application,
       randomUUID(),

@@ -66,7 +66,8 @@ test('preparation readback binds the complete attempt and uses only the provider
     const endpoint = new URL(String(input));
     methods.push(options?.method ?? 'GET');
     assert.equal(options?.redirect, 'error');
-    assert.equal(options?.cache, 'no-store');
+    assert.ok(options && 'cache' in options);
+    assert.equal(options.cache, 'no-store');
     if (endpoint.pathname.endsWith('/token'))
       return Response.json({ access_token: 'synthetic-token' });
     assert.equal(options?.method, 'GET');

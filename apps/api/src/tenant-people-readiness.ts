@@ -5,6 +5,7 @@ export const TENANT_PEOPLE_READINESS = Symbol('TENANT_PEOPLE_READINESS');
 export interface TenantPeopleReadiness {
   isReady(tenantId: string): Promise<boolean>;
   canReconcileInvitation?(tenantId: string): Promise<boolean>;
+  canResendInvitation?(tenantId: string): Promise<boolean>;
   nodesForTenant?(tenantId: string): readonly PeopleTelephonyNode[];
 }
 

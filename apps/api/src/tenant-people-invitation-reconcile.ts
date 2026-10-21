@@ -16,7 +16,7 @@ import {
 
 const action = 'RECONCILE_TENANT_INVITATION';
 
-function normalize(raw: unknown) {
+export function normalizePeopleInvitationCommand(raw: unknown) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) voiceFail('VALIDATION_FAILED', 400);
   const fields: Record<string, unknown> = Object.fromEntries(Object.entries(raw));
   if (
@@ -55,7 +55,7 @@ export async function acceptPeopleInvitationReconcile(
   raw: unknown,
 ) {
   const userId = voiceUuid(target, 'userId');
-  const command = normalize(raw);
+  const command = normalizePeopleInvitationCommand(raw);
   const payloadDigest = digest([
     identity.tenantId,
     identity.userId,
