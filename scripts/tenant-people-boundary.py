@@ -1,6 +1,7 @@
 import concurrent.futures
 import base64
 import hashlib
+import http.cookiejar
 import json
 import os
 import pathlib
@@ -30,6 +31,8 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
     subprocess.run(['docker','exec','-i',postgres,'psql','-X','-v','ON_ERROR_STOP=1','-U',owner,'-d','postgres'],input='CREATE DATABASE '+database+';',text=True,check=True,stdout=subprocess.DEVNULL)
     subprocess.run(['docker','run','--rm','--network','none','--user',str(os.getuid())+':'+str(os.getgid()),'-v',str(root/'infra/keycloak/extensions/tenant-people/src/main')+':/src:ro','-v',str(work)+':/work','eclipse-temurin:21-jdk','sh','-ec','javac --release 21 -proc:none -cp "/work/lib/*" -d /work/classes $(find /src/java -name "*.java"); cp -r /src/resources/. /work/classes/; cd /work/classes; jar cf /work/dcontact-tenant-people.jar .'],check=True)
     os.chmod(work/'dcontact-tenant-people.jar',0o644)
+    subprocess.run(['docker','run','--rm','--network','none','--user',str(os.getuid())+':'+str(os.getgid()),'-v',str(root/'infra/keycloak/extensions/invitation-guard/src/main')+':/src:ro','-v',str(work)+':/work','eclipse-temurin:21-jdk','sh','-ec','mkdir -p /work/guard-classes; javac --release 21 -proc:none -cp "/work/lib/*" -d /work/guard-classes $(find /src/java -name "*.java"); cp -r /src/resources/. /work/guard-classes/; cd /work/guard-classes; jar cf /work/dcontact-invitation-guard.jar .'],check=True)
+    os.chmod(work/'dcontact-invitation-guard.jar',0o644)
     environment=os.environ.copy()
     environment.update(KC_DB_PASSWORD=settings['POSTGRES_PASSWORD'],KC_BOOTSTRAP_ADMIN_PASSWORD=uuid.uuid4().hex)
     base=None
@@ -68,6 +71,7 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
             return [message for message in mailbox('/api/v1/messages').get('messages',[]) if message.get('Subject')==subject]
         args=['docker','run','-d','--pull=never','--name',container,'--network',network,'--memory','1g','--cpus','2','--security-opt','no-new-privileges','--cap-drop','ALL','-p','127.0.0.1::8080',
             '-v',str(work/'dcontact-tenant-people.jar')+':/opt/keycloak/providers/dcontact-tenant-people.jar:ro',
+            '-v',str(work/'dcontact-invitation-guard.jar')+':/opt/keycloak/providers/dcontact-invitation-guard.jar:ro',
             '-e','KC_DB=postgres','-e','KC_DB_URL=jdbc:postgresql://'+postgres+':5432/'+database,'-e','KC_DB_USERNAME='+owner,'-e','KC_DB_PASSWORD','-e','KC_BOOTSTRAP_ADMIN_USERNAME=b2-boundary-admin','-e','KC_BOOTSTRAP_ADMIN_PASSWORD',image,'start-dev','--http-port=8080']
         subprocess.run(args,env=environment,check=True,stdout=subprocess.DEVNULL);started=True
         published=json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]['NetworkSettings']['Ports']['8080/tcp'][0]
@@ -277,6 +281,27 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         claims=json.loads(base64.urlsafe_b64decode(token_payload+'='*((-len(token_payload))%4)))
         if claims.get('sub')!=rolebody['targetUserId'] or set(claims.get('rqac',[]))!={'VERIFY_EMAIL','UPDATE_PASSWORD','CONFIGURE_TOTP'}:raise RuntimeError('SMTP_REQUIRED_ACTIONS_INVALID')
         if claims['exp']-claims['iat']!=259200 or claims['iat']<delivery['notBeforeEpoch'] or claims['iat']!=delivery['issuedAtEpoch']:raise RuntimeError('SMTP_ACTION_TOKEN_CLOCK_INVALID')
+        action_path=urllib.parse.urlparse(link_match[0]).path+'?'+urllib.parse.urlparse(link_match[0]).query
+        action_browser=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        def action_page():
+            try:
+                with action_browser.open(urllib.request.Request(base+action_path,headers={'Accept-Language':'en'}),timeout=20) as response:
+                    return response.status,response.read().decode()
+            except urllib.error.HTTPError as failure:
+                return failure.code,failure.read().decode()
+            except Exception:
+                raise RuntimeError('INVITATION_ACTION_PAGE_UNAVAILABLE') from None
+        guarded_user,_=expect(adminbase+'/users/'+rolebody['targetUserId'],admin,status=200)
+        original_attributes=guarded_user['attributes']
+        expect(adminbase+'/users/'+rolebody['targetUserId'],admin,{**guarded_user,'attributes':{**original_attributes,'dc_invitation_not_before':[str(claims['iat']+1)]}},method='PUT',status=204)
+        fenced_readback,_=expect(adminbase+'/users/'+rolebody['targetUserId'],admin,status=200)
+        if fenced_readback.get('email')!=guarded_user['email'] or set(fenced_readback.get('requiredActions',[]))!=set(guarded_user['requiredActions']) or fenced_readback['attributes'].get('dc_invitation_not_before')!=[str(claims['iat']+1)]:raise RuntimeError('INVITATION_GUARD_FIXTURE_IDENTITY_DRIFT')
+        superseded_status,superseded_page=action_page()
+        if superseded_status!=400 or 'kc-error-message' not in superseded_page or 'Action expired' not in superseded_page:raise RuntimeError('INVITATION_SUPERSEDED_LINK_NOT_REJECTED')
+        expect(adminbase+'/users/'+rolebody['targetUserId'],admin,guarded_user,method='PUT',status=204)
+        restored_status,restored_page=action_page()
+        if restored_status!=200 or 'kc-error-message' in restored_page:raise RuntimeError('INVITATION_PENDING_LINK_NOT_RESTORED')
+        print('B3_INVITATION_ACTION_GUARD_BOUNDARY_PASS')
         if set(delivery)!={'outcome','receiptRef','quiescent','tenantId','operationId','userId','generation','providerAttemptRef','payloadDigest','fencingToken','leaseOwner','notBeforeEpoch','issuedAtEpoch'}:raise RuntimeError('SMTP_RECEIPT_PROJECTION_INVALID')
         different_attempt_query=urllib.parse.urlencode({**{key:invitation_body[key] for key in ('tenantId','targetUserId','payloadDigest','providerAttemptRef','fencingToken','leaseOwner')},'providerAttemptRef':str(uuid.uuid4())})
         expect(dispatch_path+'?'+different_attempt_query,tenants[0]['token'],status=409)
@@ -292,6 +317,18 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         if unresolved.get('outcome')!='DISPATCHING' or unresolved.get('quiescent') is not False:raise RuntimeError('SMTP_RECEIPT_LOSS_NOT_UNKNOWN')
         expect(failed_dispatch,tenants[0]['token'],rollback_intent,status=200)
         if len(messages_for_attempt(rollback_intent['providerAttemptRef']))!=1:raise RuntimeError('SMTP_RECEIPT_LOSS_SENT_AGAIN')
+        pending_actions_user,_=expect(adminbase+'/users/'+rollback_body['targetUserId'],admin,status=200)
+        completed_message=mailbox('/api/v1/message/'+messages_for_attempt(rollback_intent['providerAttemptRef'])[0]['ID'])
+        completed_link=re.search(r'https?://\S+action-token\S+',completed_message.get('Text',''))
+        if not completed_link:raise RuntimeError('INVITATION_COMPLETED_ACTIONS_FIXTURE_LINK_MISSING')
+        parsed_completed_link=urllib.parse.urlparse(completed_link[0])
+        action_path=parsed_completed_link.path+'?'+parsed_completed_link.query
+        action_browser=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        expect(adminbase+'/users/'+rollback_body['targetUserId'],admin,{**pending_actions_user,'requiredActions':[]},method='PUT',status=204)
+        completed_status,completed_page=action_page()
+        if completed_status!=400 or 'kc-error-message' not in completed_page or 'Action expired' not in completed_page:raise RuntimeError('INVITATION_COMPLETED_ACTIONS_LINK_NOT_REJECTED')
+        expect(adminbase+'/users/'+rollback_body['targetUserId'],admin,pending_actions_user,method='PUT',status=204)
+        print('B3_INVITATION_COMPLETED_ACTIONS_GUARD_BOUNDARY_PASS')
         for table in ('dc_tenant_people_invitation_dispatch','dc_tenant_people_invitation_finished'):
             try:sql('UPDATE '+table+' SET id=id;')
             except subprocess.CalledProcessError:pass

@@ -31,6 +31,8 @@ SMTP accepted ให้ `SENT` และ quiescence proof ของ attempt เ�
 
 Runner ตรวจ concurrent intent/dispatch/replay, profile guard, atomic rollback ของ fence/intent, durable readback หลัง Keycloak restart, exact-attempt SMTP subject, required actions และอายุ token 72 ชั่วโมงจาก Keycloak clock รวม fault หลังส่งจริงแต่ก่อน finished receipt ลิงก์อ่านเฉพาะใน memory ของ mailbox test ไม่เก็บใน evidence/log/operation result
 
+Runner compile และ mount `invitation-guard` จาก source ตัวเดียวกับ production บน pinned distribution ด้วย ตรวจลิงก์ที่ยังไม่เคยเปิด: fence สูงกว่า `iat` ต้องถูกปฏิเสธด้วยหน้า expired action และหลังคืน fence ลิงก์ pending ต้องเปิดได้ อีกลิงก์ที่ยังไม่เคยเปิดต้องถูกปฏิเสธเมื่อ fixture ไม่มี required actions ค้าง การแก้ fixture ใช้ user representation ครบเพื่อไม่ให้ admin update ล้าง email แล้วเกิดผลบวกลวงจาก invalid-email error ขั้นนี้ยังไม่ใช่หลักฐาน generation supersession แบบ monotonic/no-in-flight, การหมดอายุจริง หรือ fresh activation ผ่าน password/TOTP/login ซึ่งมีเกตแยก
+
 ฝั่ง application มี `TenantPeopleKeycloak.invitationPort()` สำหรับ dispatch/readback โดยใช้ tenant service credentials เดิม Worker โหลด accepted payload และตรวจ digest ก่อนเรียก provider รับเฉพาะ `SENT` ที่มี field ตรง private contract ทั้งหมดและ quiescence proof ของ operation/user/generation/attempt/fence/send owner เดิม ไม่รับ field เกินหรืออนุมานผลจาก HTTP status อย่างเดียว หาก response หาย รอบถัดไปอ่านด้วย GET เท่านั้น
 
 Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ตรวจครบสาม roles ว่าคืนสถานะ `SENT` ผ่าน API หลัง lost response และปฏิเสธ proof ที่มี field เกิน บัญชียัง inactive/PENDING ไม่สร้าง SIP credential หรือ work-session lease
