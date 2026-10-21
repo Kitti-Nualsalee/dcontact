@@ -7,7 +7,7 @@ import { HttpException, Module, type INestApplication } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { Prisma, PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { TenantPeopleController, TENANT_PEOPLE_READINESS } from './tenant-people-api.js';
-import { TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
+import { TENANT_VOICE_DATABASE, TenantVoiceCatalogController } from './tenant-voice-catalog-api.js';
 import {
   OidcGlobalGuard,
   OIDC_ACCESS_TOKEN_VERIFIER,
@@ -119,6 +119,7 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
       extensionRef: '1104',
     };
     let ready = false;
+    let reconcileReady = false;
     const verifyAccessToken = async (token: string) => {
       if (!['admin', 'protected', 'agent'].includes(token)) throw Error('invalid test token');
       return {
@@ -136,12 +137,16 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
       };
     };
     @Module({
-      controllers: [TenantPeopleController],
+      controllers: [TenantPeopleController, TenantVoiceCatalogController],
       providers: [
         { provide: TENANT_VOICE_DATABASE, useValue: application },
         {
           provide: TENANT_PEOPLE_READINESS,
-          useValue: { isReady: async () => ready, nodesForTenant: () => [node] },
+          useValue: {
+            isReady: async () => ready,
+            nodesForTenant: () => [node],
+            canReconcileInvitation: async () => reconcileReady,
+          },
         },
         { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: { verifyAccessToken } },
         { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
@@ -623,6 +628,34 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
       );
     }
     let invitationSends = 0;
+    reconcileReady = true;
+    const notStarted = await readAccepted(
+      await request(`/people/users/${supervisor.userId}/reconcile`, {
+        commandId: randomUUID(),
+        expectedRevision: 1,
+        reasonCode: 'DELIVERY_CHECK',
+        reason: 'ตรวจโดยไม่เริ่มส่งคำเชิญ',
+      }),
+    );
+    const reconcileWorker = await import('./tenant-people-invitation-reconcile.js');
+    assert.equal(
+      await reconcileWorker.runNextPeopleInvitationReconcile(
+        worker,
+        {
+          async readOutcome() {
+            assert.fail('reconcile INTENT ต้องไม่เรียก provider');
+          },
+        },
+        tenantId,
+      ),
+      true,
+    );
+    const notStartedResult = await readObject(
+      await request(`/operations/${notStarted.operationId}`),
+    );
+    assert.equal(notStartedResult.state, 'ACTION_REQUIRED');
+    assert.equal(notStartedResult.errorCode, 'INVITATION_DISPATCH_NOT_STARTED');
+    reconcileReady = false;
     assert.equal(
       await reconcilePeopleInvitationAttempt(
         worker,
@@ -683,6 +716,108 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
     );
     assert.equal(invitationSends, 1);
     assert.equal(invitationLookups, 3);
+    const reconcileCommand = {
+      commandId: randomUUID(),
+      expectedRevision: 1,
+      reasonCode: 'DELIVERY_CHECK',
+      reason: 'ตรวจผลการส่งเดิมโดยไม่ส่งใหม่',
+    };
+    const reconcilePath = `/people/users/${supervisor.userId}/reconcile`;
+    assert.equal((await request(reconcilePath, reconcileCommand)).status, 503);
+    reconcileReady = true;
+    assert.equal((await request(reconcilePath, reconcileCommand, 'agent')).status, 403);
+    assert.equal((await request(reconcilePath, reconcileCommand, 'protected')).status, 403);
+    assert.equal((await request(reconcilePath, { ...reconcileCommand, tenantId })).status, 400);
+    assert.equal((await request(reconcilePath, { ...reconcileCommand, reason: '' })).status, 400);
+    assert.equal(
+      (await request(`/people/users/${randomUUID()}/reconcile`, reconcileCommand)).status,
+      404,
+    );
+    assert.equal(
+      (await request(reconcilePath, { ...reconcileCommand, expectedRevision: 2 })).status,
+      409,
+    );
+    const reconcileResponse = await request(reconcilePath, reconcileCommand);
+    assert.equal(reconcileResponse.status, 202);
+    assert.equal(reconcileResponse.headers.get('cache-control'), 'no-store');
+    const reconcileAccepted = await readAccepted(reconcileResponse);
+    assert.equal(reconcileResponse.headers.get('location'), reconcileAccepted.location);
+    assert.deepEqual(
+      await readAccepted(await request(reconcilePath, reconcileCommand)),
+      reconcileAccepted,
+    );
+    const concurrentReplays = await Promise.all([
+      request(reconcilePath, reconcileCommand),
+      request(reconcilePath, reconcileCommand),
+    ]);
+    for (const replayResponse of concurrentReplays)
+      assert.deepEqual(await readAccepted(replayResponse), reconcileAccepted);
+    assert.deepEqual(
+      (await readObject(await request(`/commands/${reconcileCommand.commandId}`))).result,
+      { ...reconcileAccepted, generation: 1 },
+    );
+    assert.equal(
+      (await request(reconcilePath, { ...reconcileCommand, reason: 'เหตุผลคนละค่า' })).status,
+      409,
+    );
+    assert.equal(
+      (await readObject(await request(`/operations/${reconcileAccepted.operationId}`))).state,
+      'QUEUED',
+    );
+    const { runNextPeopleInvitationReconcile } =
+      await import('./tenant-people-invitation-reconcile.js');
+    assert.equal(
+      await runNextPeopleInvitationReconcile(
+        worker,
+        { readOutcome: invitationProvider.readOutcome },
+        tenantId,
+      ),
+      true,
+    );
+    const reconcileResult = await readObject(
+      await request(`/operations/${reconcileAccepted.operationId}`),
+    );
+    assert.equal(reconcileResult.state, 'ACTION_REQUIRED');
+    assert.equal(reconcileResult.errorCode, 'INVITATION_DELIVERY_AMBIGUOUS');
+    assert.equal(invitationSends, 1);
+    assert.equal(invitationLookups, 4);
+    const audit = await owner.$queryRaw<
+      { count: bigint }[]
+    >`SELECT count(*) FROM voice_config_audit WHERE tenant_id=${tenantId}::uuid AND command_id=${reconcileCommand.commandId}::uuid AND action='RECONCILE_TENANT_INVITATION' AND outcome='ACCEPTED' AND reason_code='DELIVERY_CHECK'`;
+    assert.equal(audit[0]?.count, 1n);
+    for (const principal of [application, worker]) {
+      await assert.rejects(() =>
+        withTenantDatabaseTransaction(
+          principal,
+          tenantId,
+          (transaction) =>
+            transaction.$executeRaw`UPDATE tenant_people_invitation_reconciles SET reason='เปลี่ยนเหตุผล' WHERE id=${reconcileAccepted.operationId}::uuid`,
+        ),
+      );
+      await assert.rejects(() =>
+        withTenantDatabaseTransaction(
+          principal,
+          tenantId,
+          (transaction) =>
+            transaction.$executeRaw`DELETE FROM tenant_people_invitation_reconciles WHERE id=${reconcileAccepted.operationId}::uuid`,
+        ),
+      );
+      assert.deepEqual(
+        await withTenantDatabaseTransaction(
+          principal,
+          randomUUID(),
+          (transaction) =>
+            transaction.$queryRaw`SELECT id FROM tenant_people_invitation_reconciles WHERE id=${reconcileAccepted.operationId}::uuid`,
+        ),
+        [],
+      );
+    }
+    assert.equal(
+      (await readObject(await request(`/people/users/${supervisor.userId}`))).configRevision,
+      1,
+    );
+    for (const field of ['providerAttemptRef', 'leaseOwner', 'payload', 'reason', 'actionLink'])
+      assert.equal(field in reconcileResult, false);
     const completionProof = (attempt: PeopleInvitationAttempt) => ({
       ...attempt,
       outcome: 'SENT' as const,

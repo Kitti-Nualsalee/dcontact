@@ -148,6 +148,7 @@ export function reconcilePeopleInvitationAttempt(
   provider: Pick<TenantPeopleInvitationPort, 'readOutcome'>,
   tenant: string,
   operation: string,
+  expected?: { generation: number; providerAttemptRef: string },
 ): Promise<InvitationAttemptResult> {
   return processInvitationAttempt(
     database,
@@ -156,6 +157,7 @@ export function reconcilePeopleInvitationAttempt(
     operation,
     'invitation-reconcile',
     false,
+    expected,
   );
 }
 
@@ -167,6 +169,7 @@ async function processInvitationAttempt(
   operation: string,
   owner: string,
   allowDispatch: boolean,
+  expected?: { generation: number; providerAttemptRef: string },
 ): Promise<InvitationAttemptResult> {
   const tenantId = voiceUuid(tenant, 'tenantId');
   const operationId = voiceUuid(operation, 'operationId');
@@ -174,6 +177,12 @@ async function processInvitationAttempt(
     voiceFail('INVALID_WORKER_OWNER', 400);
   const claim = await admitAttempt(database, tenantId, operationId, owner, allowDispatch);
   if (!claim) return 'NOT_ELIGIBLE';
+  if (
+    expected &&
+    (claim.attempt.generation !== expected.generation ||
+      claim.attempt.providerAttemptRef !== expected.providerAttemptRef)
+  )
+    return 'NOT_ELIGIBLE';
   if (claim.finished) return 'RECORDED';
   let result: PeopleInvitationOutcome = { outcome: 'UNKNOWN' };
   try {

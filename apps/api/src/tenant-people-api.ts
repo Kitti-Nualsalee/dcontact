@@ -26,6 +26,7 @@ import {
 } from './tenant-people-operations.js';
 import { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
 import { readPeopleDirectory } from './tenant-people-directory.js';
+import { acceptPeopleInvitationReconcile } from './tenant-people-invitation-reconcile.js';
 export { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
 
 function actor(request: AuthenticatedGatewayRequest): VoiceActor {
@@ -101,6 +102,23 @@ export class TenantPeopleController {
   @Header('Cache-Control', 'no-store')
   read(@Req() request: AuthenticatedGatewayRequest, @Param('id') id: string) {
     return readPeopleOperation(this.database, actor(request), id);
+  }
+
+  @Post('people/users/:id/reconcile')
+  @HttpCode(202)
+  @Header('Cache-Control', 'no-store')
+  async reconcile(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: { setHeader(name: string, value: string): void },
+  ) {
+    const identity = actor(request);
+    if (!(await this.readiness.canReconcileInvitation?.(identity.tenantId)))
+      voiceFail('CAPABILITY_NOT_READY', 503);
+    const accepted = await acceptPeopleInvitationReconcile(this.database, identity, id, body);
+    response.setHeader('Location', accepted.location);
+    return accepted;
   }
 
   @Get('extension-pool')

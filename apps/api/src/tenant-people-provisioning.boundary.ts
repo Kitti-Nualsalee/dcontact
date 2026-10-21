@@ -146,7 +146,17 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
       controllers: [TenantPeopleController, TenantVoiceCatalogController],
       providers: [
         { provide: TENANT_VOICE_DATABASE, useValue: application },
-        { provide: TENANT_PEOPLE_READINESS, useValue: runtime },
+        {
+          provide: TENANT_PEOPLE_READINESS,
+          useValue: {
+            isReady: (scope: string) => runtime.isReady(scope),
+            nodesForTenant: (scope: string) => runtime.nodesForTenant(scope),
+            canReconcileInvitation: (scope: string) =>
+              invitationRuntime?.canReconcileInvitation(scope) ?? Promise.resolve(false),
+            onModuleInit: () => runtime.onModuleInit(),
+            onModuleDestroy: () => runtime.onModuleDestroy(),
+          },
+        },
         {
           provide: OIDC_ACCESS_TOKEN_VERIFIER,
           useValue: new KeycloakAccessTokenVerifier({
@@ -362,6 +372,40 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
         await invitationRuntime.runOnce();
         if ((await read(`people/users/${userId}`)).deliveryState === 'SENT') break;
         await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (role === 'SUPERVISOR') {
+        const reconcileResponse = await fetch(
+          `${base}/api/v1/tenant-voice/people/users/${userId}/reconcile`,
+          {
+            method: 'POST',
+            headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              commandId: randomUUID(),
+              expectedRevision: 1,
+              reasonCode: 'DELIVERY_CHECK',
+              reason: 'ตรวจ receipt จริงโดยไม่ส่งเมลใหม่',
+            }),
+          },
+        );
+        assert.equal(reconcileResponse.status, 202);
+        const acceptedReconcile: unknown = await reconcileResponse.json();
+        assert.ok(
+          acceptedReconcile &&
+            typeof acceptedReconcile === 'object' &&
+            'operationId' in acceptedReconcile &&
+            typeof acceptedReconcile.operationId === 'string',
+        );
+        for (let attempt = 0; attempt < 30; attempt++) {
+          await invitationRuntime.runOnce();
+          if ((await read(`operations/${acceptedReconcile.operationId}`)).state === 'SUCCEEDED')
+            break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        assert.equal(
+          (await read(`operations/${acceptedReconcile.operationId}`)).state,
+          'SUCCEEDED',
+        );
+        assert.equal(invitationPosts, 1);
       }
       await invitationRuntime.onModuleDestroy();
       invitationRuntime = undefined;

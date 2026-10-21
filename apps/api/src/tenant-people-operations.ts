@@ -202,7 +202,14 @@ export function readPeopleOperation(db: PrismaClient, identity: VoiceActor, oper
         updatedAt: Date;
       }[]
     >`SELECT o.id AS "operationId",o.target_user_id AS "userId",o.state,o.step,o.revision,l.account_state AS "accountState",l.activation_state AS "activationState",l.provisioning_state AS "provisioningState",o.error_code AS "errorCode",o.created_at AS "createdAt",o.updated_at AS "updatedAt" FROM tenant_people_operations o JOIN tenant_user_lifecycles l ON l.tenant_id=o.tenant_id AND l.user_id=o.target_user_id WHERE o.tenant_id=${identity.tenantId}::uuid AND o.id=${id}::uuid`;
-    if (!rows[0]) voiceFail('RESOURCE_NOT_FOUND', 404);
-    return rows[0];
+    if (rows[0]) return rows[0];
+    const reconciles = await transaction.$queryRaw<typeof rows>`
+      SELECT operation.id AS "operationId",operation.user_id AS "userId",operation.state,'RECONCILE_INVITATION' AS step,operation.revision,
+        lifecycle.account_state AS "accountState",lifecycle.activation_state AS "activationState",lifecycle.provisioning_state AS "provisioningState",
+        operation.error_code AS "errorCode",operation.created_at AS "createdAt",operation.updated_at AS "updatedAt"
+      FROM tenant_people_invitation_reconciles operation JOIN tenant_user_lifecycles lifecycle ON lifecycle.tenant_id=operation.tenant_id AND lifecycle.user_id=operation.user_id
+      WHERE operation.tenant_id=${identity.tenantId}::uuid AND operation.id=${id}::uuid`;
+    if (!reconciles[0]) voiceFail('RESOURCE_NOT_FOUND', 404);
+    return reconciles[0];
   });
 }

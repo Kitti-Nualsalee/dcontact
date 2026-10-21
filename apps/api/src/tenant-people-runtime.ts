@@ -6,6 +6,7 @@ import {
 } from './tenant-people-readiness.js';
 import { runPeopleWorkerStep, type TenantPeopleIdentityPort } from './tenant-people-worker.js';
 import { voiceUuid } from './tenant-voice-catalog.js';
+import { runNextPeopleInvitationReconcile } from './tenant-people-invitation-reconcile.js';
 import {
   runPeopleInvitationAttempt,
   type TenantPeopleInvitationRuntimePort,
@@ -32,6 +33,7 @@ export class TenantPeopleRuntime {
   private readonly invitations: ReadonlyMap<string, TenantPeopleInvitationRuntimePort>;
   private readonly invitationCursors = new Map<string, string>();
   private readonly invitationTurns = new Map<string, boolean>();
+  private readonly reconcileTurns = new Map<string, boolean>();
 
   constructor(
     private readonly database: PrismaClient,
@@ -79,6 +81,13 @@ export class TenantPeopleRuntime {
 
   nodesForTenant(tenantId: string): readonly PeopleTelephonyNode[] {
     return this.nodes.get(tenantId) ?? [];
+  }
+
+  async canReconcileInvitation(tenantId: string): Promise<boolean> {
+    const port = this.invitations.get(tenantId);
+    return (
+      !!port && (await this.isReady(tenantId)) && (await port.isReady(tenantId)) && this.running
+    );
   }
 
   onModuleInit(): void {
@@ -218,6 +227,10 @@ export class TenantPeopleRuntime {
     if (!this.running || !port) return false;
     if (!checked.has(tenantId)) checked.set(tenantId, await port.isReady(tenantId));
     if (!this.running || !checked.get(tenantId)) return false;
+    const reconcileFirst = this.reconcileTurns.get(tenantId) ?? true;
+    this.reconcileTurns.set(tenantId, !reconcileFirst);
+    if (reconcileFirst && (await runNextPeopleInvitationReconcile(this.database, port, tenantId)))
+      return true;
     const cursor = this.invitationCursors.get(tenantId) ?? '00000000-0000-0000-0000-000000000000';
     const candidate = await withTenantDatabaseTransaction(
       this.database,
@@ -235,7 +248,11 @@ export class TenantPeopleRuntime {
         return rows[0];
       },
     );
-    if (!this.running || !candidate) return false;
+    if (!this.running) return false;
+    if (!candidate)
+      return (
+        !reconcileFirst && (await runNextPeopleInvitationReconcile(this.database, port, tenantId))
+      );
     this.invitationCursors.set(tenantId, candidate.operationId);
     deferred.add(candidate.operationId);
     await runPeopleInvitationAttempt(

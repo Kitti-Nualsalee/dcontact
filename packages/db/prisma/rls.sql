@@ -413,3 +413,9 @@ REVOKE DELETE,TRUNCATE ON tenant_settings FROM dcontact_app;
 REVOKE INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER ON tenant_core_profile_revisions FROM dcontact_app;
 REVOKE TRIGGER ON tenants,tenant_settings,tenant_core_config_audits FROM dcontact_app;
 REVOKE ALL ON FUNCTION dc_core_capture_organization_effect() FROM PUBLIC;
+
+REVOKE ALL ON tenant_people_invitation_reconciles FROM dcontact_app,dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_invitation_reconciles TO dcontact_app;
+GRANT INSERT(tenant_id,id,command_id,actor_user_id,user_id,source_operation_id,generation,provider_attempt_ref,expected_revision,status_revision,reason_code,reason) ON tenant_people_invitation_reconciles TO dcontact_app;
+GRANT SELECT ON tenant_people_invitation_reconciles TO dcontact_tenant_people_worker;
+GRANT UPDATE(state,revision,lease_token,lease_expires_at,error_code,updated_at) ON tenant_people_invitation_reconciles TO dcontact_tenant_people_worker;

@@ -41,7 +41,13 @@ Runner compile และ mount `invitation-guard` จาก source ตัวเ�
 
 ฝั่ง application มี `TenantPeopleKeycloak.invitationPort()` สำหรับ dispatch/readback โดยใช้ tenant service credentials เดิม Worker โหลด accepted payload และตรวจ digest ก่อนเรียก provider รับเฉพาะ `SENT` ที่มี field ตรง private contract ทั้งหมดและ quiescence proof ของ operation/user/generation/attempt/fence/send owner เดิม ไม่รับ field เกินหรืออนุมานผลจาก HTTP status อย่างเดียว หาก response หาย รอบถัดไปอ่านด้วย GET เท่านั้น
 
-`reconcilePeopleInvitationAttempt` เป็น read-only path แยกจาก worker ที่ส่งคำเชิญ รับ port ที่มีเพียง `readOutcome` ไม่สร้าง dispatch claim ใหม่ หากมีแต่ `INTENT` คืน `NOT_ELIGIBLE` โดยไม่เรียก provider; หากมี frozen dispatch จะใช้ descriptor/owner เดิมอ่าน proof และบันทึกเฉพาะ receipt หรือ ambiguity ตามผลจริง ไม่เปลี่ยน identity หรือส่งเมล ส่วนนี้เป็น prerequisite ของ public reconcile command ยังไม่มี HTTP route/command admission/revision/reason/audit เปิดใช้งาน
+`reconcilePeopleInvitationAttempt` เป็น read-only path แยกจาก worker ที่ส่งคำเชิญ รับ port ที่มีเพียง `readOutcome` ไม่สร้าง dispatch claim ใหม่ หากมีแต่ `INTENT` คืน `NOT_ELIGIBLE` โดยไม่เรียก provider; หากมี frozen dispatch จะใช้ descriptor/owner เดิมอ่าน proof และบันทึกเฉพาะ receipt หรือ ambiguity ตามผลจริง ไม่เปลี่ยน identity หรือส่งเมล
+
+Admin-only `POST /api/v1/tenant-voice/people/users/:id/reconcile` รับ `commandId/expectedRevision/reasonCode/reason` และตอบ 202/Location พร้อม operation/user/generation ไม่มี link บันทึก command digest ที่ผูก tenant/actor/action/resource/revision/reason, immutable admission receipt, accepted/rejected audit และ snapshot generation/attempt/status revision ภายใต้ scoped row locks รองรับ replay/command lookup และปฏิเสธ stale revision, foreign/protected scope และบัญชีที่ activate แล้ว การล็อก lifecycle ใช้ scoped lock-only function ไม่เพิ่มสิทธิ์แก้ lifecycle ให้ application
+
+คิว `tenant_people_invitation_reconciles` แยกจาก create/send operations มี tenant RLS + worker binding; app insert ได้เฉพาะ admission columns ส่วน worker update ได้เฉพาะ processing columns descriptor เปลี่ยนไม่ได้และ terminal state แก้ซ้ำไม่ได้ Worker claim ด้วย bounded lease/UUID token แล้วออกจาก transaction ก่อนอ่าน provider และ finish แบบ token CAS; restart/lease expiry ทำซ้ำได้เฉพาะ read ไม่ส่งเมล `SUCCEEDED` หมายถึงมี delivery receipt เดิม ไม่ใช่ activation สำเร็จ หากไม่มี dispatch/ผลยังไม่ชัด/อ่านไม่ได้จะเป็น `ACTION_REQUIRED` โดยไม่เพิ่ม generation หรือแก้ user.configRevision
+
+Endpoint ต้องผ่าน `canReconcileInvitation` ของ opt-in runtime และมี invitation port ที่พร้อม; composition ปกติไม่ส่ง port นี้จึงยังตอบ `CAPABILITY_NOT_READY` คิวใช้ batch budget ร่วมและสลับกับงานส่งปกติ ไม่เปิด full invitation capability จากการเพิ่ม reconcile endpoint นี้
 
 Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ตรวจครบสาม roles ว่าคืนสถานะ `SENT` ผ่าน API หลัง lost response และปฏิเสธ proof ที่มี field เกิน บัญชียัง inactive/PENDING ไม่สร้าง SIP credential หรือ work-session lease
 
@@ -49,7 +55,7 @@ Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ต
 
 Boundary ตรวจ gate ปิดแล้วสถานะยัง `INTENT`/ไม่มี dispatch, gate เปิดแล้ว response หายเป็น `AMBIGUOUS`, proof ผิดรูปไม่ผ่าน และ runtime ใหม่อ่าน finished receipt เดิมผ่าน GET จนเป็น `SENT` โดย POST รวมเพียงครั้งเดียวต่อ role ยังไม่เปิด public invitation capability หรือส่งเมลจาก runtime ปกติ
 
-Application adapter/runtime ยังรับเฉพาะ generation แรก ไม่มี public resend/reconcile command หรือ Console resend/activation เปิดใช้งาน การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ application resend cap/command audit, expiry ด้วยเวลาจริง และ fresh activation proof ผ่าน password/TOTP/login ยังต้องผ่านเกตของตนเอง
+Application adapter/runtime ยังรับเฉพาะ generation แรก ไม่มี public resend command หรือ Console resend/activation เปิดใช้งาน การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ application resend cap/command audit, expiry ด้วยเวลาจริง และ fresh activation proof ผ่าน password/TOTP/login ยังต้องผ่านเกตของตนเอง
 
 ไฟล์ `tenant-people-operations.integration.ts` แยกทดสอบ HTTP/RLS/quotas/claims ด้วย identity port ที่ควบคุมได้ ไม่ใช้ผลชุดนั้นแทน real Keycloak boundary ส่วน `tenant-people-keycloak.boundary.ts` และ `tenant-people-provisioning.boundary.ts` รับ environment ของ runner และ fail หากไม่มี configuration ไม่ skip แล้วนับผ่าน
 
