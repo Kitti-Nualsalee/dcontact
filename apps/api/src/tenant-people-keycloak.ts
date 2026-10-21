@@ -7,6 +7,8 @@ import type {
   PeopleInvitationAttempt,
   PeopleInvitationOutcome,
   PeopleInvitationPreparation,
+  PeopleInvitationPreparedProof,
+  TenantPeopleInvitationResendPort,
   TenantPeopleInvitationPreparePort,
   TenantPeopleInvitationRuntimePort,
 } from './tenant-people-invitation-worker.js';
@@ -48,14 +50,36 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
     return this.execute(claim, false);
   }
 
-  invitationPort(): TenantPeopleInvitationRuntimePort & TenantPeopleInvitationPreparePort {
+  invitationPort(): TenantPeopleInvitationRuntimePort &
+    TenantPeopleInvitationPreparePort &
+    TenantPeopleInvitationResendPort {
     return {
       isReady: (tenantId) => this.readReadiness(tenantId, true),
       dispatch: (attempt) => this.executeInvitation(attempt, true),
       readOutcome: (attempt) => this.executeInvitation(attempt, false),
       readPreparation: (attempt) => this.readInvitationPreparation(attempt),
       prepare: (attempt) => this.prepareInvitation(attempt),
+      dispatchPrepared: (attempt, proof) => this.dispatchPreparedInvitation(attempt, proof),
     };
+  }
+
+  private async dispatchPreparedInvitation(
+    attempt: PeopleInvitationAttempt,
+    proof: PeopleInvitationPreparedProof,
+  ): Promise<PeopleInvitationOutcome> {
+    if (attempt.generation < 2) throw new Error('PEOPLE_INVITATION_GENERATION_NOT_READY');
+    const current = await this.readInvitationPreparation(attempt);
+    if (
+      current.outcome !== 'INTENT' ||
+      !current.clockReached ||
+      current.intentRef !== proof.intentRef ||
+      current.notBeforeEpoch !== proof.notBeforeEpoch
+    )
+      return { outcome: 'UNKNOWN' };
+    const result = await this.executeInvitation(attempt, true, true);
+    if (result.outcome === 'SENT' && result.notBeforeEpoch !== proof.notBeforeEpoch)
+      return { outcome: 'UNKNOWN' };
+    return result;
   }
 
   private async prepareInvitation(attempt: PeopleInvitationAttempt): Promise<void> {
@@ -217,6 +241,7 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
   private async executeInvitation(
     attempt: PeopleInvitationAttempt,
     mutation: boolean,
+    prepared = false,
   ): Promise<PeopleInvitationOutcome> {
     if (
       attempt.tenantId !== this.configuration.tenantId ||
@@ -225,7 +250,7 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
       attempt.generation > 2147483647
     )
       throw new Error('PEOPLE_INVITATION_SCOPE_MISMATCH');
-    if (mutation && attempt.generation !== 1)
+    if (mutation && attempt.generation !== 1 && !prepared)
       throw new Error('PEOPLE_INVITATION_GENERATION_NOT_READY');
     const options = { redirect: 'error' as const, cache: 'no-store' as const };
     const tokenResponse = await this.request(`${this.issuer}/protocol/openid-connect/token`, {

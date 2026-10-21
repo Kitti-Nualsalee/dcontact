@@ -1227,6 +1227,46 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
         };
       },
     };
+    const { runPeopleInvitationResend } = await import('./tenant-people-invitation-sender.js');
+    let resendDispatches = 0;
+    let resendOutcomeReads = 0;
+    let allowResendProof = false;
+    let resendLeaseExpiresAt = 0;
+    let markDispatchStarted: () => void = () => {};
+    let releaseDispatch: () => void = () => {};
+    const dispatchStarted = new Promise<void>((resolve) => {
+      markDispatchStarted = resolve;
+    });
+    const dispatchReleased = new Promise<void>((resolve) => {
+      releaseDispatch = resolve;
+    });
+    const resendPort = {
+      async dispatchPrepared(
+        attempt: PeopleInvitationAttempt,
+        proof: { intentRef: string; notBeforeEpoch: number },
+      ) {
+        resendDispatches++;
+        assert.ok(frozenPreparation);
+        assert.equal(attempt.providerAttemptRef, frozenPreparation.providerAttemptRef);
+        assert.equal(attempt.leaseOwner, frozenPreparation.leaseOwner);
+        assert.equal(attempt.fencingToken, frozenPreparation.fencingToken);
+        assert.equal(proof.intentRef, 'f'.repeat(64));
+        assert.equal(proof.notBeforeEpoch, 4102444801);
+        resendLeaseExpiresAt = attempt.leaseExpiresAt.getTime();
+        markDispatchStarted();
+        await dispatchReleased;
+        throw new Error('SMTP response lost after provider send');
+      },
+      async readOutcome(attempt: PeopleInvitationAttempt) {
+        resendOutcomeReads++;
+        if (!allowResendProof) return { outcome: 'UNKNOWN' as const };
+        return {
+          ...completionProof(attempt),
+          notBeforeEpoch: 4102444801,
+          issuedAtEpoch: 4102444801,
+        };
+      },
+    };
     assert.equal(
       await runPeopleInvitationPreparation(
         worker,
@@ -1241,6 +1281,12 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
       'READ_INVITATION_FENCE',
     );
     assert.equal(preparations, 1);
+    assert.equal(
+      await runPeopleInvitationResend(worker, resendPort, tenantId, String(resend.operationId)),
+      'NOT_ELIGIBLE',
+    );
+    assert.equal(resendDispatches, 0);
+    assert.equal(resendOutcomeReads, 0);
     const repeatedPreparation = await Promise.all([
       runPeopleInvitationPreparation(worker, preparingPort, tenantId, String(resend.operationId)),
       runPeopleInvitationPreparation(worker, preparingPort, tenantId, String(resend.operationId)),
@@ -1298,7 +1344,51 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
       (await readObject(await request(`/people/users/${supervisor.userId}`))).deliveryState,
       'INTENT',
     );
-    await finishResendFixture(resend.operationId, 3);
+    const sending = runPeopleInvitationResend(
+      worker,
+      resendPort,
+      tenantId,
+      String(resend.operationId),
+    );
+    await dispatchStarted;
+    assert.ok(resendLeaseExpiresAt > 0 && resendLeaseExpiresAt < Date.now() + 35_000);
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.max(0, resendLeaseExpiresAt - Date.now() + 25)),
+    );
+    assert.ok(resendLeaseExpiresAt < Date.now());
+    assert.equal(
+      (await request(resendPath, { ...resendCommand, commandId: randomUUID() })).status,
+      409,
+    );
+    assert.equal(
+      await runPeopleInvitationResend(worker, resendPort, tenantId, String(resend.operationId)),
+      'AMBIGUOUS',
+    );
+    assert.equal(resendDispatches, 1);
+    releaseDispatch();
+    assert.equal(await sending, 'AMBIGUOUS');
+    assert.equal(
+      (await readObject(await request(`/operations/${resend.operationId}`))).state,
+      'ACTION_REQUIRED',
+    );
+    allowResendProof = true;
+    assert.equal(
+      await runPeopleInvitationResend(worker, resendPort, tenantId, String(resend.operationId)),
+      'RECORDED',
+    );
+    assert.equal(
+      await runPeopleInvitationResend(worker, resendPort, tenantId, String(resend.operationId)),
+      'RECORDED',
+    );
+    assert.equal(resendDispatches, 1);
+    assert.equal(resendOutcomeReads, 2);
+    const completedResend = await readObject(await request(`/operations/${resend.operationId}`));
+    assert.equal(completedResend.state, 'SUCCEEDED');
+    assert.equal(completedResend.errorCode, null);
+    assert.equal(
+      (await readObject(await request(`/people/users/${supervisor.userId}`))).configRevision,
+      1,
+    );
     const secondResend = await readObject(
       await request(resendPath, { ...resendCommand, commandId: randomUUID() }),
     );

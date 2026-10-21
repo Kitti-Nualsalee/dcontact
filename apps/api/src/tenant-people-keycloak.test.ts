@@ -119,6 +119,16 @@ test('preparation readback binds the complete attempt and uses only the provider
     response = malformed;
     assert.deepEqual(await adapter.readPreparation(attempt), { outcome: 'UNKNOWN' });
   }
+  response = { ...valid, serverEpoch: 100 };
+  assert.deepEqual(
+    await adapter.dispatchPrepared(attempt, { intentRef: 'c'.repeat(64), notBeforeEpoch: 100 }),
+    { outcome: 'UNKNOWN' },
+  );
+  response = valid;
+  assert.deepEqual(
+    await adapter.dispatchPrepared(attempt, { intentRef: 'b'.repeat(64), notBeforeEpoch: 100 }),
+    { outcome: 'UNKNOWN' },
+  );
   const calls = methods.length;
   await assert.rejects(adapter.readPreparation({ ...attempt, tenantId: 'foreign' }), /SCOPE/);
   assert.equal(methods.length, calls);

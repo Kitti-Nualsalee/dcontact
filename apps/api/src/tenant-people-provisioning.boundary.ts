@@ -14,6 +14,7 @@ import { DatabaseTenantPeopleReadiness } from './tenant-people-readiness.js';
 import { TenantPeopleRuntime } from './tenant-people-runtime.js';
 import { reconcilePeopleInvitationAttempt } from './tenant-people-invitation-worker.js';
 import { runPeopleInvitationPreparation } from './tenant-people-invitation-preparation.js';
+import { runPeopleInvitationResend } from './tenant-people-invitation-sender.js';
 import type { TenantPeopleIdentityPort } from './tenant-people-worker.js';
 import {
   OidcGlobalGuard,
@@ -498,6 +499,40 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
         assert.equal((await read(`people/users/${userId}`)).deliveryState, 'INTENT');
         assert.equal(invitationPosts, 1);
         assert.equal(await mailboxCount(), messagesBefore);
+        assert.equal(
+          await runPeopleInvitationResend(worker, delivery, tenantId, accepted.operationId),
+          'AMBIGUOUS',
+        );
+        assert.equal((await read(`operations/${accepted.operationId}`)).state, 'ACTION_REQUIRED');
+        let outcome: 'NOT_ELIGIBLE' | 'AMBIGUOUS' | 'RECORDED' = 'AMBIGUOUS';
+        for (let retry = 0; retry < 40; retry++) {
+          outcome = await runPeopleInvitationResend(
+            worker,
+            delivery,
+            tenantId,
+            accepted.operationId,
+          );
+          if (outcome === 'RECORDED') break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        assert.equal(outcome, 'RECORDED');
+        assert.equal(
+          await runPeopleInvitationResend(worker, delivery, tenantId, accepted.operationId),
+          'RECORDED',
+        );
+        assert.equal(invitationPosts, 2);
+        assert.equal(await mailboxCount(), messagesBefore + 1);
+        const completed = await read(`operations/${accepted.operationId}`);
+        assert.equal(completed.state, 'SUCCEEDED');
+        assert.equal(completed.errorCode, null);
+        const resentUser = await read(`people/users/${userId}`);
+        assert.equal(resentUser.invitationGeneration, 2);
+        assert.equal(resentUser.deliveryState, 'SENT');
+        assert.equal(resentUser.configRevision, 1);
+        assert.equal(resentUser.activationState, 'PENDING');
+        assert.equal(resentUser.isActive, false);
+        assert.equal(await owner.agentSipCredential.count({ where: { tenantId, userId } }), 0);
+        assert.equal(await owner.agentWorkSessionLease.count({ where: { tenantId, userId } }), 0);
         allowResendPreparation = false;
       }
     }

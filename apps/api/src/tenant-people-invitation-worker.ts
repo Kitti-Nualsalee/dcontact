@@ -64,6 +64,19 @@ export interface TenantPeopleInvitationPreparePort extends TenantPeopleInvitatio
   prepare(attempt: PeopleInvitationAttempt): Promise<void>;
 }
 
+export interface PeopleInvitationPreparedProof {
+  intentRef: string;
+  notBeforeEpoch: number;
+}
+
+export interface TenantPeopleInvitationResendPort {
+  dispatchPrepared(
+    attempt: PeopleInvitationAttempt,
+    proof: PeopleInvitationPreparedProof,
+  ): Promise<PeopleInvitationOutcome>;
+  readOutcome(attempt: PeopleInvitationAttempt): Promise<PeopleInvitationOutcome>;
+}
+
 async function admitAttempt(
   database: PrismaClient,
   tenantId: string,
