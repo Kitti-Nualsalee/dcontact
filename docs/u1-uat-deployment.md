@@ -365,6 +365,8 @@ script จะ:
 - สร้างบัญชีใหม่พร้อม attribute `tenant_id`/`tenant_slug`/`dc_user_id`, สมาชิก Organization ของ tenant,
   รหัสผ่านแบบ temporary และ required action `UPDATE_PASSWORD` + `CONFIGURE_TOTP`
 - บัญชีเดิม: อัปเดต attribute เท่านั้น ไม่รีเซ็ตรหัสผ่าน; ถ้า `dc_user_id` เดิมไม่ตรง = หยุด (`ACCOUNT_SUBJECT_MISMATCH`)
+- บัญชีเดิมที่มี client role ของ `dcontact-platform-api` = หยุด (`PLATFORM_IDENTITY_REFUSED`, #685) — platform operator
+  ห้ามเป็นสมาชิก tenant (#387) ถ้าคนเดียวกันต้องทดสอบ tenant ให้ใช้ username แยก
 - พิมพ์เฉพาะ role, Keycloak id และสถานะ — ไม่พิมพ์รหัสผ่าน
 
 login ครั้งแรก ผู้ทดสอบต้องเปลี่ยนรหัสผ่านและผูก authenticator app (TOTP) — browser flow

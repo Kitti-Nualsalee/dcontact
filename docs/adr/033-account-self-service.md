@@ -27,6 +27,8 @@ API ของ D-Contact ต้องแก้ข้อมูลผู้ใช�
    - **อนุญาต:** `Users` scope `view`, `manage`, `reset-password` บนผู้ใช้ทุกคน
      ไม่มี `map-roles`, `manage-group-membership`, `impersonate`
    - **ปฏิเสธทุก scope** กับผู้ใช้ที่ไม่เป็นสมาชิก Organization ใดเลย ได้แก่ platform operator/auditor, service account ของทุก client และ admin ของ realm
+     - ผู้ถือ client role ของ `dcontact-platform-api` ถูกปฏิเสธเสมอแม้อยู่ใน Organization ([#685](https://github.com/Kitti-Nualsalee/dcontact/issues/685))
+       — #387 ห้าม platform identity เป็นสมาชิก tenant แต่ UAT เคยผูกผิดพลาดผ่านการสร้างบัญชี U1
      - รายชื่อนี้คำนวณใหม่ทุกครั้งที่รันสคริปต์ จึงต้องรันซ้ำหลังสร้าง platform user ใหม่
      - งาน `platform-operator-setup` ของ UAT รันให้อัตโนมัติ
 4. **ชั้นที่สอง:** API ของ D-Contact (AC4) ส่งคำสั่งได้เฉพาะกับผู้ใช้เจ้าของ token ใน tenant เดียวกันเท่านั้น

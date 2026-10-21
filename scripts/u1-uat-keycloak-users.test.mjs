@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  PLATFORM_API_CLIENT,
   UAT_REALM_TEMPLATE,
   applyAccounts,
   applyRealmConfig,
@@ -97,7 +98,7 @@ test('บัญชี: maker/reviewer คนละบัญชี, ไม่ใ�
 });
 
 /** Keycloak admin REST ปลอม — เก็บ state ขั้นต่ำและบันทึก call (ไม่มี network) */
-function fakeKeycloak({ realmExists = false, existingUsers = [] } = {}) {
+function fakeKeycloak({ realmExists = false, existingUsers = [], roleMappings = {} } = {}) {
   const calls = [];
   const state = {
     realm: realmExists ? { realm: 'dcontact' } : null,
@@ -194,6 +195,8 @@ function fakeKeycloak({ realmExists = false, existingUsers = [] } = {}) {
       state.users.push({ id: `user-${state.users.length + 1}`, ...body });
       return respond(201);
     }
+    const mappings = /\/users\/([^/]+)\/role-mappings$/.exec(pathname);
+    if (mappings && method === 'GET') return respond(200, roleMappings[mappings[1]] ?? {});
     if (/\/organizations\/[^/]+\/members$/.test(pathname)) {
       if (method === 'GET')
         return respond(
@@ -343,4 +346,38 @@ test('Workspace client opt-in แยก origin ใช้ exact redirect/PKCE แ
       /REALM_ENV_INVALID/,
     );
   }
+});
+
+test('users (#685): บัญชีเดิมที่มี platform role = หยุด ไม่เติม tenant attribute/Organization', async () => {
+  const fake = fakeKeycloak({
+    realmExists: true,
+    existingUsers: [{ id: 'platform-1', username: 'maker.one@uat.example.test', attributes: {} }],
+    roleMappings: {
+      'platform-1': {
+        clientMappings: {
+          [PLATFORM_API_CLIENT]: {
+            client: PLATFORM_API_CLIENT,
+            mappings: [{ name: 'platform_operator' }],
+          },
+        },
+      },
+    },
+  });
+  await assert.rejects(
+    applyAccounts(await admin(fake), {
+      realm: 'dcontact',
+      tenantId,
+      tenantSlug: 'uat-tenant',
+      accounts: validateAccounts(accounts),
+    }),
+    /PLATFORM_IDENTITY_REFUSED/,
+  );
+  assert.equal(
+    fake.calls.some(
+      (call) =>
+        (call.method === 'PUT' && call.pathname.endsWith('/users/platform-1')) ||
+        (call.method === 'POST' && call.pathname.endsWith('/members')),
+    ),
+    false,
+  );
 });
