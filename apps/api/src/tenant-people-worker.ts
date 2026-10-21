@@ -229,7 +229,7 @@ export function recordPeopleStep(
       await transaction.$executeRaw`SELECT dc_tenant_people_apply_identity_proof(${claim.tenantId}::uuid,${claim.operationId}::uuid,${claim.fencingToken}::bigint,${identityId}::uuid)`;
     }
     if (result.outcome === 'SUCCEEDED' && claim.step === 'INVITATION_INTENT') {
-      await transaction.$executeRaw`INSERT INTO tenant_people_invitation_intents(tenant_id,operation_id,user_id) VALUES(${claim.tenantId}::uuid,${claim.operationId}::uuid,${claim.userId}::uuid) ON CONFLICT(tenant_id,operation_id) DO NOTHING`;
+      await transaction.$executeRaw`INSERT INTO tenant_people_invitation_intents(tenant_id,operation_id,user_id) VALUES(${claim.tenantId}::uuid,${claim.operationId}::uuid,${claim.userId}::uuid) ON CONFLICT(tenant_id,operation_id,generation) DO NOTHING`;
     }
     const state =
       result.outcome === 'UNKNOWN'

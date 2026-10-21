@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { TenantPeopleKeycloak } from './tenant-people-keycloak.js';
 import type { PeopleWorkerClaim } from './tenant-people-worker.js';
+import type { PeopleInvitationAttempt } from './tenant-people-invitation-worker.js';
 
 function required(name: string): string {
   const value = process.env[name];
@@ -85,4 +86,122 @@ test('real Keycloak service client creates once and reads the immutable outcome'
     adapter.readOutcome({ ...claim, tenantId: randomUUID(), reconcileOnly: true }),
     /SCOPE_MISMATCH/,
   );
+  const invitation = adapter.invitationPort();
+  const firstAttempt: PeopleInvitationAttempt = {
+    tenantId,
+    operationId: claim.operationId,
+    userId: claim.userId,
+    generation: 1,
+    providerAttemptRef: randomUUID(),
+    payloadDigest: claim.payloadDigest,
+    fencingToken: '1',
+    leaseOwner: 'adapter-generation-one',
+    leaseExpiresAt: new Date(Date.now() + 30_000),
+    command: claim.command,
+  };
+  async function readSent(attempt: PeopleInvitationAttempt) {
+    for (let retry = 0; retry < 40; retry++) {
+      const outcome = await invitation.readOutcome(attempt);
+      if (outcome.outcome === 'SENT') return outcome;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.fail('ต้องได้ exact SENT receipt ของ generation ที่ร้องขอ');
+  }
+  await invitation.dispatch(firstAttempt);
+  const firstSent = await readSent(firstAttempt);
+  const secondAttempt = {
+    ...firstAttempt,
+    generation: 2,
+    providerAttemptRef: randomUUID(),
+    fencingToken: '2',
+    leaseOwner: 'adapter-generation-two',
+  };
+  const issuer = required('B2_KEYCLOAK_ISSUER');
+  const tokenResponse = await fetch(`${issuer}/protocol/openid-connect/token`, {
+    method: 'POST',
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: required('B2_KEYCLOAK_CLIENT_ID'),
+      client_secret: required('B2_KEYCLOAK_CLIENT_SECRET'),
+    }),
+    redirect: 'error',
+    signal: AbortSignal.timeout(10_000),
+  });
+  assert.equal(tokenResponse.status, 200);
+  const token: unknown = await tokenResponse.json();
+  assert.ok(
+    token &&
+      typeof token === 'object' &&
+      'access_token' in token &&
+      typeof token.access_token === 'string',
+  );
+  const headers = {
+    authorization: `Bearer ${token.access_token}`,
+    'content-type': 'application/json',
+  };
+  const correlation = {
+    tenantId,
+    targetUserId: secondAttempt.userId,
+    payloadDigest: secondAttempt.payloadDigest,
+    providerAttemptRef: secondAttempt.providerAttemptRef,
+    fencingToken: secondAttempt.fencingToken,
+    leaseOwner: secondAttempt.leaseOwner,
+  };
+  const descriptor = {
+    ...correlation,
+    email: claim.command.email,
+    displayName: claim.command.displayName,
+    role: claim.command.role,
+  };
+  const endpoint = `${issuer}/dc-tenant-people/operations/${claim.operationId}/invitations/2`;
+  const prepared = await fetch(`${endpoint}/intent`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(descriptor),
+    redirect: 'error',
+    signal: AbortSignal.timeout(10_000),
+  });
+  assert.equal(prepared.status, 200);
+  let reached = false;
+  for (let retry = 0; retry < 40; retry++) {
+    const readback = await fetch(`${endpoint}/intent?${new URLSearchParams(correlation)}`, {
+      headers,
+      redirect: 'error',
+      signal: AbortSignal.timeout(10_000),
+    });
+    assert.equal(readback.status, 200);
+    const proof: unknown = await readback.json();
+    assert.ok(
+      proof &&
+        typeof proof === 'object' &&
+        'serverEpoch' in proof &&
+        typeof proof.serverEpoch === 'number' &&
+        'notBeforeEpoch' in proof &&
+        typeof proof.notBeforeEpoch === 'number',
+    );
+    if (proof.serverEpoch >= proof.notBeforeEpoch) {
+      reached = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(reached, true);
+  const sent = await fetch(`${endpoint}/dispatch`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(descriptor),
+    redirect: 'error',
+    signal: AbortSignal.timeout(10_000),
+  });
+  assert.equal(sent.status, 200);
+  const secondSent = await readSent(secondAttempt);
+  assert.equal(secondSent.generation, 2);
+  assert.equal(secondSent.providerAttemptRef, secondAttempt.providerAttemptRef);
+  assert.ok(
+    secondSent.notBeforeEpoch !== null &&
+      firstSent.issuedAtEpoch !== null &&
+      secondSent.notBeforeEpoch > firstSent.issuedAtEpoch,
+  );
+  assert.deepEqual(await invitation.readOutcome(firstAttempt), firstSent);
+  await assert.rejects(invitation.dispatch(secondAttempt), /GENERATION_NOT_READY/);
 });

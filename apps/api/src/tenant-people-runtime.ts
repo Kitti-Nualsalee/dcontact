@@ -236,11 +236,13 @@ export class TenantPeopleRuntime {
       this.database,
       tenantId,
       async (transaction) => {
-        const rows = await transaction.$queryRaw<{ operationId: string }[]>`
-        SELECT i.operation_id AS "operationId" FROM tenant_people_invitation_intents i
+        const rows = await transaction.$queryRaw<
+          { operationId: string; generation: number; providerAttemptRef: string }[]
+        >`
+        SELECT i.operation_id AS "operationId",i.generation,i.provider_attempt_ref AS "providerAttemptRef" FROM tenant_people_invitation_intents i
         JOIN tenant_people_operations o ON o.tenant_id=i.tenant_id AND o.id=i.operation_id AND o.target_user_id=i.user_id
         JOIN tenant_user_lifecycles l ON l.tenant_id=i.tenant_id AND l.user_id=i.user_id AND l.operation_id=i.operation_id
-        WHERE i.tenant_id=${tenantId}::uuid AND o.state='SUCCEEDED'
+        WHERE i.tenant_id=${tenantId}::uuid AND i.generation=1 AND o.state='SUCCEEDED'
           AND l.account_state='PENDING_ACTIVATION' AND l.provisioning_state='PROVISIONED' AND l.activation_state='PENDING'
           AND NOT EXISTS(SELECT 1 FROM tenant_people_invitation_receipts r WHERE r.tenant_id=i.tenant_id AND r.provider_attempt_ref=i.provider_attempt_ref)
           AND i.operation_id::text NOT IN (SELECT value FROM jsonb_array_elements_text(${JSON.stringify([...deferred])}::jsonb) AS skipped(value))
@@ -261,6 +263,7 @@ export class TenantPeopleRuntime {
       tenantId,
       candidate.operationId,
       this.owner,
+      { generation: candidate.generation, providerAttemptRef: candidate.providerAttemptRef },
     );
     return true;
   }

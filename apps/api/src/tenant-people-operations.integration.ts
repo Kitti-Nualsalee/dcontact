@@ -1012,6 +1012,103 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
     assert.equal(provisionedUser.isActive, false);
     assert.equal(provisionedUser.extension, null);
     assert.equal(provisionedUser.passwordHash, '!keycloak-managed');
+    const oldReconcile = await readAccepted(
+      await request(`/people/users/${supervisor.userId}/reconcile`, {
+        commandId: randomUUID(),
+        expectedRevision: 1,
+        reasonCode: 'DELIVERY_CHECK',
+        reason: 'อ่านผลรุ่นเดิมหลังมีรุ่นใหม่',
+      }),
+    );
+    const nextAttempt = randomUUID();
+    await withTenantDatabaseTransaction(
+      worker,
+      tenantId,
+      (transaction) =>
+        transaction.$executeRaw`INSERT INTO tenant_people_invitation_intents(tenant_id,operation_id,user_id,generation,provider_attempt_ref) VALUES(${tenantId}::uuid,${supervisor.operationId}::uuid,${supervisor.userId}::uuid,2,${nextAttempt}::uuid)`,
+    );
+    const secondIntent = await readObject(await request(`/people/users/${supervisor.userId}`));
+    assert.equal(secondIntent.invitationGeneration, 2);
+    assert.equal(secondIntent.deliveryState, 'INTENT');
+    assert.equal(
+      await runPeopleInvitationAttempt(
+        worker,
+        {
+          async dispatch() {
+            assert.fail('generation ใหม่ยังไม่มี preparation barrier จึงห้าม dispatch');
+          },
+          async readOutcome() {
+            assert.fail('ต้องไม่หยิบ receipt รุ่นเดิมมาแทนรุ่นใหม่');
+          },
+        },
+        tenantId,
+        supervisor.operationId,
+        'no-unprepared-generation',
+        { generation: 2, providerAttemptRef: nextAttempt },
+      ),
+      'NOT_ELIGIBLE',
+    );
+    assert.equal(
+      await runNextPeopleInvitationReconcile(
+        worker,
+        {
+          async readOutcome() {
+            assert.fail('receipt รุ่นเดิมจบแล้ว ไม่ต้องอ่าน provider ใหม่');
+          },
+        },
+        tenantId,
+      ),
+      true,
+    );
+    assert.equal(
+      (await readObject(await request(`/operations/${oldReconcile.operationId}`))).state,
+      'SUCCEEDED',
+    );
+    assert.equal(
+      (await readObject(await request(`/people/users/${supervisor.userId}`))).deliveryState,
+      'INTENT',
+    );
+    await withTenantDatabaseTransaction(
+      worker,
+      tenantId,
+      (transaction) =>
+        transaction.$executeRaw`INSERT INTO tenant_people_invitation_dispatches(tenant_id,operation_id,user_id,generation,provider_attempt_ref,fencing_token,lease_owner) VALUES(${tenantId}::uuid,${supervisor.operationId}::uuid,${supervisor.userId}::uuid,2,${nextAttempt}::uuid,2,'frozen-generation-two')`,
+    );
+    const secondReconcile = await readAccepted(
+      await request(`/people/users/${supervisor.userId}/reconcile`, {
+        commandId: randomUUID(),
+        expectedRevision: 1,
+        reasonCode: 'DELIVERY_CHECK',
+        reason: 'อ่าน proof ของ generation สองเท่านั้น',
+      }),
+    );
+    let secondGenerationReads = 0;
+    assert.equal(
+      await runNextPeopleInvitationReconcile(
+        worker,
+        {
+          async readOutcome(attempt) {
+            secondGenerationReads++;
+            assert.equal(attempt.generation, 2);
+            assert.equal(attempt.providerAttemptRef, nextAttempt);
+            assert.equal(attempt.fencingToken, '2');
+            assert.equal(attempt.leaseOwner, 'frozen-generation-two');
+            return completionProof(attempt);
+          },
+        },
+        tenantId,
+      ),
+      true,
+    );
+    assert.equal(secondGenerationReads, 1);
+    assert.equal(
+      (await readObject(await request(`/operations/${secondReconcile.operationId}`))).state,
+      'SUCCEEDED',
+    );
+    const secondSent = await readObject(await request(`/people/users/${supervisor.userId}`));
+    assert.equal(secondSent.invitationGeneration, 2);
+    assert.equal(secondSent.deliveryState, 'SENT');
+    assert.equal(secondSent.configRevision, 1);
     const foreignRows = await withTenantDatabaseTransaction(
       application,
       randomUUID(),

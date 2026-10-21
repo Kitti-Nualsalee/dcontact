@@ -58,8 +58,15 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
     attempt: PeopleInvitationAttempt,
     mutation: boolean,
   ): Promise<PeopleInvitationOutcome> {
-    if (attempt.tenantId !== this.configuration.tenantId || attempt.generation !== 1)
+    if (
+      attempt.tenantId !== this.configuration.tenantId ||
+      !Number.isInteger(attempt.generation) ||
+      attempt.generation < 1 ||
+      attempt.generation > 2147483647
+    )
       throw new Error('PEOPLE_INVITATION_SCOPE_MISMATCH');
+    if (mutation && attempt.generation !== 1)
+      throw new Error('PEOPLE_INVITATION_GENERATION_NOT_READY');
     const options = { redirect: 'error' as const, cache: 'no-store' as const };
     const tokenResponse = await this.request(`${this.issuer}/protocol/openid-connect/token`, {
       ...options,
@@ -82,7 +89,7 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
     )
       return { outcome: 'UNKNOWN' };
     const endpoint = new URL(
-      `${this.issuer}/dc-tenant-people/operations/${encodeURIComponent(attempt.operationId)}/invitations/1/dispatch`,
+      `${this.issuer}/dc-tenant-people/operations/${encodeURIComponent(attempt.operationId)}/invitations/${attempt.generation}/dispatch`,
     );
     const correlation = {
       tenantId: attempt.tenantId,

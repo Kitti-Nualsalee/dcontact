@@ -49,13 +49,17 @@ Admin-only `POST /api/v1/tenant-voice/people/users/:id/reconcile` รับ `com
 
 Endpoint ต้องผ่าน `canReconcileInvitation` ของ opt-in runtime และมี invitation port ที่พร้อม; composition ปกติไม่ส่ง port นี้จึงยังตอบ `CAPABILITY_NOT_READY` คิวใช้ batch budget ร่วมและสลับกับงานส่งปกติ ไม่เปิด full invitation capability จากการเพิ่ม reconcile endpoint นี้
 
+Application intent key แยก `(tenant, create operation, generation)` และ dispatch fence ต้องไม่น้อยกว่า generation อ่าน frozen dispatch ด้วยทั้ง generation/attempt ที่ command snapshot ไว้ จึง reconcile รุ่นเดิมที่ค้างอยู่ได้แม้มี intent รุ่นใหม่ และไม่ใช้ receipt รุ่นเดิมแทนรุ่นล่าสุด Directory ยังเลือกสถานะจาก generation สูงสุดโดยไม่เปลี่ยน user.configRevision การเปลี่ยน PK ต้องอัปเดต SQL `ON CONFLICT` ของ provisioning worker พร้อม migration นี้ ไม่ถือว่า worker รุ่นเก่าที่ใช้ conflict target เดิมรองรับ schema ใหม่แบบ rolling โดยอัตโนมัติ
+
+Adapter อ่าน exact provider receipt ของ generation ที่ร้องขอได้ รวม historical receipt หลัง supersession แต่ application dispatch/automatic scheduler ยังคง generation แรก รุ่นใหม่ที่ยังไม่มี preparation/readback barrier จะไม่สร้าง claim หรือ POST ส่งเมล การทดสอบ HTTP/RLS หลาย generation ใช้ fixture ของ approved worker เพื่อพิสูจน์การอ่าน ไม่ใช่หลักฐานว่า public resend admission/cap/sender เปิดใช้แล้ว
+
 Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ตรวจครบสาม roles ว่าคืนสถานะ `SENT` ผ่าน API หลัง lost response และปฏิเสธ proof ที่มี field เกิน บัญชียัง inactive/PENDING ไม่สร้าง SIP credential หรือ work-session lease
 
 `TenantPeopleRuntime` รับ `invitations` เป็น tenant-bound port แบบ opt-in เท่านั้น ค่าเริ่มต้นว่าง และ composition ปกติยังไม่ส่ง port นี้ ก่อน claim ต้องผ่าน DB principal/binding, provisioning readiness และ invitation readiness ที่ตอบ `invitationReady: true` อย่างชัดเจน รุ่น provider ที่ไม่มี field นี้ถือว่ายังไม่พร้อม งาน invitation ใช้ batch budget ร่วมกับ provisioning สลับคิวต่อ tenant และเลื่อน cursor เพื่อไม่ให้ attempt ที่ยังไม่ทราบผลขวางรายการอื่น ภายใน batch เดียวไม่ทำ attempt เดิมซ้ำ ไม่มี transaction ครอบ provider call; shutdown รอ in-flight drain จบ
 
 Boundary ตรวจ gate ปิดแล้วสถานะยัง `INTENT`/ไม่มี dispatch, gate เปิดแล้ว response หายเป็น `AMBIGUOUS`, proof ผิดรูปไม่ผ่าน และ runtime ใหม่อ่าน finished receipt เดิมผ่าน GET จนเป็น `SENT` โดย POST รวมเพียงครั้งเดียวต่อ role ยังไม่เปิด public invitation capability หรือส่งเมลจาก runtime ปกติ
 
-Application adapter/runtime ยังรับเฉพาะ generation แรก ไม่มี public resend command หรือ Console resend/activation เปิดใช้งาน การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ application resend cap/command audit, expiry ด้วยเวลาจริง และ fresh activation proof ผ่าน password/TOTP/login ยังต้องผ่านเกตของตนเอง
+Application sender ยังส่งเฉพาะ generation แรก ไม่มี public resend command หรือ Console resend/activation เปิดใช้งาน การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ application resend cap/command audit/preparation barrier, expiry ด้วยเวลาจริง และ fresh activation proof ผ่าน password/TOTP/login ยังต้องผ่านเกตของตนเอง
 
 ไฟล์ `tenant-people-operations.integration.ts` แยกทดสอบ HTTP/RLS/quotas/claims ด้วย identity port ที่ควบคุมได้ ไม่ใช้ผลชุดนั้นแทน real Keycloak boundary ส่วน `tenant-people-keycloak.boundary.ts` และ `tenant-people-provisioning.boundary.ts` รับ environment ของ runner และ fail หากไม่มี configuration ไม่ skip แล้วนับผ่าน
 

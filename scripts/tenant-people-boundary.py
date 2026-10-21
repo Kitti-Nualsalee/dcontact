@@ -201,7 +201,7 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         if missing_intent!={'outcome':'UNKNOWN'}:raise RuntimeError('MISSING_INVITATION_INTENT_NOT_UNKNOWN')
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             invitation_results=list(pool.map(lambda _:call(invitation_path,tenants[0]['token'],invitation_body),range(2)))
-        if [result[0] for result in invitation_results]!=[200,200]:raise RuntimeError('CONCURRENT_INVITATION_INTENT_FAILED')
+        if [result[0] for result in invitation_results]!=[200,200]:raise RuntimeError('CONCURRENT_INVITATION_INTENT_FAILED_'+str([(result[0],result[1].get('code','UNKNOWN') if isinstance(result[1],dict) else 'UNKNOWN') for result in invitation_results]))
         first_intent=invitation_results[0][1]
         expected_intent_fields={'outcome','intentRef','tenantId','operationId','userId','generation','providerAttemptRef','payloadDigest','fencingToken','leaseOwner','notBeforeEpoch','serverEpoch','quiescent'}
         if set(first_intent)!=expected_intent_fields or first_intent['outcome']!='INTENT' or first_intent['quiescent'] is not False:raise RuntimeError('INVITATION_INTENT_PROJECTION_INVALID')

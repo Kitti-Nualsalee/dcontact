@@ -52,7 +52,19 @@ async function admitAttempt(
   operationId: string,
   owner: string,
   allowDispatch: boolean,
+  expected?: { generation: number; providerAttemptRef: string },
 ) {
+  const expectedAttempt = expected
+    ? voiceUuid(expected.providerAttemptRef, 'providerAttemptRef')
+    : null;
+  const expectedGeneration = expected?.generation ?? null;
+  if (
+    expectedGeneration !== null &&
+    (!Number.isInteger(expectedGeneration) ||
+      expectedGeneration < 1 ||
+      expectedGeneration > 2147483647)
+  )
+    voiceFail('INVALID_INVITATION_GENERATION', 400);
   return withTenantDatabaseTransaction(database, tenantId, async (transaction) => {
     const admitted = allowDispatch
       ? await transaction.$queryRaw<{ providerAttemptRef: string }[]>`
@@ -64,6 +76,8 @@ async function admitAttempt(
       JOIN tenant_user_lifecycles l ON l.tenant_id=i.tenant_id AND l.user_id=i.user_id AND l.operation_id=i.operation_id
       JOIN users u ON u.tenant_id=i.tenant_id AND u.id=i.user_id
       WHERE i.tenant_id=${tenantId}::uuid AND i.operation_id=${operationId}::uuid
+        AND i.generation=1 AND (${expectedAttempt}::uuid IS NULL OR i.provider_attempt_ref=${expectedAttempt}::uuid)
+        AND (${expectedGeneration}::integer IS NULL OR i.generation=${expectedGeneration})
         AND o.state='SUCCEEDED' AND l.account_state='PENDING_ACTIVATION'
         AND l.provisioning_state='PROVISIONED' AND l.activation_state='PENDING'
         AND NOT u.is_active AND u.keycloak_id=l.verified_identity_id
@@ -85,7 +99,10 @@ async function admitAttempt(
         EXISTS(SELECT 1 FROM tenant_people_invitation_receipts r WHERE r.tenant_id=d.tenant_id AND r.provider_attempt_ref=d.provider_attempt_ref) AS finished
       FROM tenant_people_invitation_dispatches d
       JOIN tenant_people_operations o ON o.tenant_id=d.tenant_id AND o.id=d.operation_id AND o.target_user_id=d.user_id
-      WHERE d.tenant_id=${tenantId}::uuid AND d.operation_id=${operationId}::uuid`;
+      WHERE d.tenant_id=${tenantId}::uuid AND d.operation_id=${operationId}::uuid
+        AND (${expectedAttempt}::uuid IS NULL OR d.provider_attempt_ref=${expectedAttempt}::uuid)
+        AND (${expectedGeneration}::integer IS NULL OR d.generation=${expectedGeneration})
+      ORDER BY d.generation DESC LIMIT 1`;
     if (!claims[0]) return null;
     const { finished, payload, actorId, commandId, ...attempt } = claims[0];
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
@@ -139,8 +156,9 @@ export function runPeopleInvitationAttempt(
   tenant: string,
   operation: string,
   owner: string,
+  expected?: { generation: number; providerAttemptRef: string },
 ): Promise<InvitationAttemptResult> {
-  return processInvitationAttempt(database, provider, tenant, operation, owner, true);
+  return processInvitationAttempt(database, provider, tenant, operation, owner, true, expected);
 }
 
 export function reconcilePeopleInvitationAttempt(
@@ -175,7 +193,7 @@ async function processInvitationAttempt(
   const operationId = voiceUuid(operation, 'operationId');
   if (typeof owner !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(owner))
     voiceFail('INVALID_WORKER_OWNER', 400);
-  const claim = await admitAttempt(database, tenantId, operationId, owner, allowDispatch);
+  const claim = await admitAttempt(database, tenantId, operationId, owner, allowDispatch, expected);
   if (!claim) return 'NOT_ELIGIBLE';
   if (
     expected &&
