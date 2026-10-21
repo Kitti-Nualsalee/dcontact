@@ -1167,7 +1167,8 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
         tenantId,
         async (transaction) => {
           await transaction.$executeRaw`INSERT INTO tenant_people_invitation_intents(tenant_id,operation_id,user_id,generation,provider_attempt_ref)
-          SELECT tenant_id,source_operation_id,user_id,generation,provider_attempt_ref FROM tenant_people_invitation_resends WHERE tenant_id=${tenantId}::uuid AND id=${operationId}::uuid`;
+          SELECT tenant_id,source_operation_id,user_id,generation,provider_attempt_ref FROM tenant_people_invitation_resends WHERE tenant_id=${tenantId}::uuid AND id=${operationId}::uuid
+          ON CONFLICT(tenant_id,operation_id,generation) DO NOTHING`;
           return transaction.$queryRaw<
             { attempt: string }[]
           >`SELECT provider_attempt_ref AS attempt FROM tenant_people_invitation_resends WHERE tenant_id=${tenantId}::uuid AND id=${operationId}::uuid`;
@@ -1201,6 +1202,102 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
         'RECORDED',
       );
     }
+    const { runPeopleInvitationPreparation } =
+      await import('./tenant-people-invitation-preparation.js');
+    let preparations = 0;
+    let preparationReads = 0;
+    let providerClock = 4102444800;
+    let frozenPreparation: PeopleInvitationAttempt | undefined;
+    const preparingPort = {
+      async prepare(attempt: PeopleInvitationAttempt) {
+        preparations++;
+        assert.equal(attempt.generation, 3);
+        frozenPreparation = attempt;
+        throw new Error('response lost after provider preparation commit');
+      },
+      async readPreparation(attempt: PeopleInvitationAttempt) {
+        preparationReads++;
+        assert.deepEqual(attempt, frozenPreparation);
+        return {
+          outcome: 'INTENT' as const,
+          intentRef: 'f'.repeat(64),
+          notBeforeEpoch: 4102444801,
+          serverEpoch: providerClock,
+          clockReached: providerClock >= 4102444801,
+        };
+      },
+    };
+    assert.equal(
+      await runPeopleInvitationPreparation(
+        worker,
+        preparingPort,
+        tenantId,
+        String(resend.operationId),
+      ),
+      'WAITING_READBACK',
+    );
+    assert.equal(
+      (await readObject(await request(`/operations/${resend.operationId}`))).step,
+      'READ_INVITATION_FENCE',
+    );
+    assert.equal(preparations, 1);
+    const repeatedPreparation = await Promise.all([
+      runPeopleInvitationPreparation(worker, preparingPort, tenantId, String(resend.operationId)),
+      runPeopleInvitationPreparation(worker, preparingPort, tenantId, String(resend.operationId)),
+    ]);
+    assert.deepEqual(repeatedPreparation, ['WAITING_READBACK', 'WAITING_READBACK']);
+    assert.equal(preparations, 1);
+    providerClock = 4102444801;
+    assert.equal(
+      await runPeopleInvitationPreparation(
+        worker,
+        preparingPort,
+        tenantId,
+        String(resend.operationId),
+      ),
+      'READY',
+    );
+    assert.equal(
+      await runPeopleInvitationPreparation(
+        worker,
+        preparingPort,
+        tenantId,
+        String(resend.operationId),
+      ),
+      'READY',
+    );
+    assert.equal(preparations, 1);
+    assert.equal(preparationReads, 4);
+    for (const table of [
+      'tenant_people_invitation_preparations',
+      'tenant_people_invitation_preparation_proofs',
+    ]) {
+      for (const principal of [application, worker]) {
+        assert.deepEqual(
+          await withTenantDatabaseTransaction(principal, randomUUID(), (transaction) =>
+            transaction.$queryRaw(Prisma.sql`SELECT tenant_id FROM ${Prisma.raw(table)}`),
+          ),
+          [],
+        );
+        for (const statement of [
+          Prisma.sql`UPDATE ${Prisma.raw(table)} SET tenant_id=tenant_id WHERE tenant_id=${tenantId}::uuid`,
+          Prisma.sql`DELETE FROM ${Prisma.raw(table)} WHERE tenant_id=${tenantId}::uuid`,
+        ])
+          await assert.rejects(() =>
+            withTenantDatabaseTransaction(principal, tenantId, (transaction) =>
+              transaction.$executeRaw(statement),
+            ),
+          );
+      }
+    }
+    assert.equal(
+      (await readObject(await request(`/operations/${resend.operationId}`))).step,
+      'DISPATCH_INVITATION',
+    );
+    assert.equal(
+      (await readObject(await request(`/people/users/${supervisor.userId}`))).deliveryState,
+      'INTENT',
+    );
     await finishResendFixture(resend.operationId, 3);
     const secondResend = await readObject(
       await request(resendPath, { ...resendCommand, commandId: randomUUID() }),

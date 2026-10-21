@@ -450,6 +450,7 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         application_database='v709_provisioning_'+uuid.uuid4().hex[:12]
         sql('CREATE DATABASE '+application_database+';')
         adapter_environment.update(B2_KEYCLOAK_ADMIN_ACCESS_TOKEN=human_login['access_token'],B2_KEYCLOAK_ADMIN_SUBJECT=human_id,B2_KEYCLOAK_TENANT_SLUG=tenants[0]['slug'],B2_KEYCLOAK_ORGANIZATION_ID=tenants[0]['organization'],DATABASE_URL='postgresql://'+urllib.parse.quote(owner,safe='')+':'+urllib.parse.quote(settings['POSTGRES_PASSWORD'],safe='')+'@127.0.0.1:'+str(postgres_port)+'/'+application_database,APPLICATION_DATABASE_URL='postgresql://dcontact_app:dcontact_app@127.0.0.1:'+str(postgres_port)+'/'+application_database)
+        adapter_environment['B3_MAILPIT_URL']='http://127.0.0.1:'+smtp_port
         for command in (['corepack','pnpm','db:migrate'],['corepack','pnpm','db:rls'],['corepack','pnpm','--filter','@d-contact/api','exec','tsx','--test','--test-concurrency=1','src/tenant-people-keycloak.boundary.ts','src/tenant-people-provisioning.boundary.ts']):subprocess.run(command,cwd=root,env=adapter_environment,check=True)
         print('B2_TENANT_PEOPLE_BOUNDARY_PASS')
     finally:

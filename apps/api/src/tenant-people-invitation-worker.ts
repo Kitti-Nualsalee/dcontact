@@ -60,6 +60,10 @@ export interface TenantPeopleInvitationPreparationPort {
   readPreparation(attempt: PeopleInvitationAttempt): Promise<PeopleInvitationPreparation>;
 }
 
+export interface TenantPeopleInvitationPreparePort extends TenantPeopleInvitationPreparationPort {
+  prepare(attempt: PeopleInvitationAttempt): Promise<void>;
+}
+
 async function admitAttempt(
   database: PrismaClient,
   tenantId: string,

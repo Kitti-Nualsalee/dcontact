@@ -67,7 +67,15 @@ Admin-only `POST /api/v1/tenant-voice/people/users/:id/invitation/resend` มี
 
 ตรวจ user config/status revision, positive verified mapping และ latest local `SENT/quiescent` receipt ภายใต้ user/lifecycle lock ก่อนรับงาน ไม่รับ `INTENT`, ambiguity หรือ activated user; replay command เดิมคืนผลเดิมโดยไม่กิน slot เพิ่ม อีก command ของ generation ที่จองแล้วถูกปฏิเสธ DB trigger ตรวจ eligibility/snapshot/receipt ซ้ำและจำกัด 3 admissions ต่อ rolling 60 นาทีด้วย DB clock และ row lock แยกจาก cap ของ Keycloak ไม่นับ initial send; reservation ที่รับแล้วไม่ถูกปลดจาก timeout/lease expiry application แก้ timestamp ไม่ได้ ledger ห้าม UPDATE/DELETE และ worker อ่านได้เฉพาะ tenant ที่ผูกไว้
 
-การทดสอบ cap ฝั่ง HTTP/RLS ใช้ approved-worker fixtures ของ generation/finished proof เพื่อเดินถึงแต่ละ slot ไม่ใช่หลักฐานว่าส่ง resend จริงจาก application แล้ว ยังไม่มี worker รับ reservation หรือ terminal processing state จนกว่าจะทำ durable preparation/readback barrier และ generation-aware sender เสร็จ จึงต้องคง readiness ปิด การ release slot หลังครบ 60 นาทีและ failure/restart ของ sender ยังต้องทดสอบเพิ่มเติม
+การทดสอบ cap ฝั่ง HTTP/RLS ใช้ approved-worker fixtures ของ generation/finished proof เพื่อเดินถึงแต่ละ slot ไม่ใช่หลักฐานว่าส่ง resend จริงจาก application แล้ว ยังไม่มี automatic scheduler รับ reservation หรือ terminal processing state จนกว่า generation-aware sender เสร็จ จึงต้องคง readiness ปิด การ release slot หลังครบ 60 นาทีและ failure/restart ของ sender ยังต้องทดสอบเพิ่มเติม
+
+### Durable preparation/readback barrier
+
+`runPeopleInvitationPreparation` รับ reservation ที่ระบุผ่าน approved worker เท่านั้น ล็อก user/lifecycle แล้วตรวจ config/status snapshot, mapping, pending state และ previous `SENT/quiescent` receipt ก่อนบันทึก immutable preparation descriptor และ generation intent ใน transaction เดียว ใช้ fence มากกว่า dispatch รุ่นก่อนและคง owner/attempt/lease เดิมตลอด จากนั้นจึงออกจาก transaction เพื่อ POST preparation ได้เพียงผู้ที่ insert claim สำเร็จ ไม่สร้าง dispatch claim หรือส่งเมลในขั้นนี้
+
+การ restart/concurrent invocation/response loss จะอ่าน frozen descriptor และทำ GET-only readback ไม่ POST preparation ซ้ำ แม้ lease หมดหรือยังไม่พบ provider intent ถ้า clock ยังไม่ถึงหรือ proof ไม่ชัด คง `WAITING_EXTERNAL/READ_INVITATION_FENCE` และไม่มี permission ส่ง เมื่อ exact readback มี monotonic not-before มากกว่ารุ่นก่อนและ Keycloak clock ถึงแล้ว บันทึก immutable preparation proof และแสดง `DISPATCH_INVITATION`; phase `READY` นี้ไม่ใช่ delivery success, activation หรือ authorization ส่งเมลโดยลำพัง sender ยังต้องใช้ descriptor/proof เดิมและตรวจ fresh guard ก่อน side effect
+
+มี HTTP/RLS test ของ response loss, concurrent read-only recovery และ immutable/tenant isolation รวม real HTTP → PostgreSQL → Keycloak preparation/readback ที่ Mailpit ไม่เพิ่มอีเมล แต่ยังไม่ใช่ application resend end-to-end จนกว่า sender/terminal operation และ failure/late-worker gates ผ่าน
 
 Application sender ยังส่งเฉพาะ generation แรก Console resend/activation ยังไม่เปิด การทดสอบ provider นี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ application preparation barrier/sender, expiry ด้วยเวลาจริง และ fresh activation proof ผ่าน password/TOTP/login ยังต้องผ่านเกตของตนเอง
 

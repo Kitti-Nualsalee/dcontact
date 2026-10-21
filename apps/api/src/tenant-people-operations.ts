@@ -210,10 +210,15 @@ export function readPeopleOperation(db: PrismaClient, identity: VoiceActor, oper
       FROM tenant_people_invitation_reconciles operation JOIN tenant_user_lifecycles lifecycle ON lifecycle.tenant_id=operation.tenant_id AND lifecycle.user_id=operation.user_id
       WHERE operation.tenant_id=${identity.tenantId}::uuid AND operation.id=${id}::uuid
       UNION ALL
-      SELECT operation.id AS "operationId",operation.user_id AS "userId",'QUEUED' AS state,'PREPARE_INVITATION' AS step,1 AS revision,
+      SELECT operation.id AS "operationId",operation.user_id AS "userId",
+        CASE WHEN preparation.resend_id IS NULL THEN 'QUEUED' ELSE 'WAITING_EXTERNAL' END AS state,
+        CASE WHEN proof.provider_attempt_ref IS NOT NULL THEN 'DISPATCH_INVITATION' WHEN preparation.resend_id IS NOT NULL THEN 'READ_INVITATION_FENCE' ELSE 'PREPARE_INVITATION' END AS step,
+        CASE WHEN proof.provider_attempt_ref IS NOT NULL THEN 3 WHEN preparation.resend_id IS NOT NULL THEN 2 ELSE 1 END AS revision,
         lifecycle.account_state AS "accountState",lifecycle.activation_state AS "activationState",lifecycle.provisioning_state AS "provisioningState",
-        NULL AS "errorCode",operation.created_at AS "createdAt",operation.created_at AS "updatedAt"
+        NULL AS "errorCode",operation.created_at AS "createdAt",COALESCE(proof.recorded_at,preparation.created_at,operation.created_at) AS "updatedAt"
       FROM tenant_people_invitation_resends operation JOIN tenant_user_lifecycles lifecycle ON lifecycle.tenant_id=operation.tenant_id AND lifecycle.user_id=operation.user_id
+      LEFT JOIN tenant_people_invitation_preparations preparation ON preparation.tenant_id=operation.tenant_id AND preparation.resend_id=operation.id
+      LEFT JOIN tenant_people_invitation_preparation_proofs proof ON proof.tenant_id=preparation.tenant_id AND proof.provider_attempt_ref=preparation.provider_attempt_ref
       WHERE operation.tenant_id=${identity.tenantId}::uuid AND operation.id=${id}::uuid`;
     if (!reconciles[0]) voiceFail('RESOURCE_NOT_FOUND', 404);
     return reconciles[0];

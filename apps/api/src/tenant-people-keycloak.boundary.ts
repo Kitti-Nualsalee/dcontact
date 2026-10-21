@@ -154,14 +154,7 @@ test('real Keycloak service client creates once and reads the immutable outcome'
     role: claim.command.role,
   };
   const endpoint = `${issuer}/dc-tenant-people/operations/${claim.operationId}/invitations/2`;
-  const prepared = await fetch(`${endpoint}/intent`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(descriptor),
-    redirect: 'error',
-    signal: AbortSignal.timeout(10_000),
-  });
-  assert.equal(prepared.status, 200);
+  await invitation.prepare(secondAttempt);
   const preparation = await invitation.readPreparation(secondAttempt);
   assert.equal(preparation.outcome, 'INTENT');
   assert.deepEqual(

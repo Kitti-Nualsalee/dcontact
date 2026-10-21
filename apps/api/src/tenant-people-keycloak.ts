@@ -7,7 +7,7 @@ import type {
   PeopleInvitationAttempt,
   PeopleInvitationOutcome,
   PeopleInvitationPreparation,
-  TenantPeopleInvitationPreparationPort,
+  TenantPeopleInvitationPreparePort,
   TenantPeopleInvitationRuntimePort,
 } from './tenant-people-invitation-worker.js';
 
@@ -48,13 +48,69 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
     return this.execute(claim, false);
   }
 
-  invitationPort(): TenantPeopleInvitationRuntimePort & TenantPeopleInvitationPreparationPort {
+  invitationPort(): TenantPeopleInvitationRuntimePort & TenantPeopleInvitationPreparePort {
     return {
       isReady: (tenantId) => this.readReadiness(tenantId, true),
       dispatch: (attempt) => this.executeInvitation(attempt, true),
       readOutcome: (attempt) => this.executeInvitation(attempt, false),
       readPreparation: (attempt) => this.readInvitationPreparation(attempt),
+      prepare: (attempt) => this.prepareInvitation(attempt),
     };
+  }
+
+  private async prepareInvitation(attempt: PeopleInvitationAttempt): Promise<void> {
+    if (
+      attempt.tenantId !== this.configuration.tenantId ||
+      !Number.isInteger(attempt.generation) ||
+      attempt.generation < 2 ||
+      attempt.generation > 2147483647
+    )
+      throw new Error('PEOPLE_INVITATION_SCOPE_MISMATCH');
+    const options = { redirect: 'error' as const, cache: 'no-store' as const };
+    const tokenResponse = await this.request(`${this.issuer}/protocol/openid-connect/token`, {
+      ...options,
+      method: 'POST',
+      signal: AbortSignal.timeout(10_000),
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: this.configuration.clientId,
+        client_secret: this.configuration.clientSecret,
+      }),
+    });
+    if (!tokenResponse.ok) throw new Error('PEOPLE_INVITATION_PREPARATION_UNKNOWN');
+    const token: unknown = await tokenResponse.json();
+    if (
+      !token ||
+      typeof token !== 'object' ||
+      !('access_token' in token) ||
+      typeof token.access_token !== 'string' ||
+      !token.access_token
+    )
+      throw new Error('PEOPLE_INVITATION_PREPARATION_UNKNOWN');
+    const response = await this.request(
+      `${this.issuer}/dc-tenant-people/operations/${encodeURIComponent(attempt.operationId)}/invitations/${attempt.generation}/intent`,
+      {
+        ...options,
+        method: 'POST',
+        signal: AbortSignal.timeout(10_000),
+        headers: {
+          Authorization: `Bearer ${token.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          tenantId: attempt.tenantId,
+          targetUserId: attempt.userId,
+          payloadDigest: attempt.payloadDigest,
+          providerAttemptRef: attempt.providerAttemptRef,
+          fencingToken: attempt.fencingToken,
+          leaseOwner: attempt.leaseOwner,
+          email: attempt.command.email,
+          displayName: attempt.command.displayName,
+          role: attempt.command.role,
+        }),
+      },
+    );
+    if (!response.ok) throw new Error('PEOPLE_INVITATION_PREPARATION_UNKNOWN');
   }
 
   private async readInvitationPreparation(

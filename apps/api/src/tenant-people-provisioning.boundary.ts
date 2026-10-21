@@ -13,6 +13,7 @@ import { TenantPeopleKeycloak } from './tenant-people-keycloak.js';
 import { DatabaseTenantPeopleReadiness } from './tenant-people-readiness.js';
 import { TenantPeopleRuntime } from './tenant-people-runtime.js';
 import { reconcilePeopleInvitationAttempt } from './tenant-people-invitation-worker.js';
+import { runPeopleInvitationPreparation } from './tenant-people-invitation-preparation.js';
 import type { TenantPeopleIdentityPort } from './tenant-people-worker.js';
 import {
   OidcGlobalGuard,
@@ -73,6 +74,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
   const readiness = new DatabaseTenantPeopleReadiness(worker, new Map([[tenantId, adapter]]));
   let app: Awaited<ReturnType<typeof NestFactory.create>> | undefined;
   let invitationRuntime: TenantPeopleRuntime | undefined;
+  let allowResendPreparation = false;
   try {
     await owner.$executeRawUnsafe(
       `CREATE ROLE "${workerPrincipal}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS PASSWORD '${workerPassword}'`,
@@ -153,6 +155,8 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
             nodesForTenant: (scope: string) => runtime.nodesForTenant(scope),
             canReconcileInvitation: (scope: string) =>
               invitationRuntime?.canReconcileInvitation(scope) ?? Promise.resolve(false),
+            canResendInvitation: async (scope: string) =>
+              allowResendPreparation && scope === tenantId,
             onModuleInit: () => runtime.onModuleInit(),
             onModuleDestroy: () => runtime.onModuleDestroy(),
           },
@@ -421,6 +425,81 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
       assert.equal(await owner.agentWorkSessionLease.count({ where: { tenantId, userId } }), 0);
       for (const field of ['actionLink', 'providerAttemptRef', 'receiptRef', 'leaseOwner'])
         assert.equal(field in sentInvitation, false);
+      if (role === 'SUPERVISOR') {
+        async function mailboxCount() {
+          const response = await fetch(`${required('B3_MAILPIT_URL')}/api/v1/messages`, {
+            signal: AbortSignal.timeout(10_000),
+          });
+          assert.equal(response.status, 200);
+          const body: unknown = await response.json();
+          assert.ok(
+            body && typeof body === 'object' && 'total' in body && typeof body.total === 'number',
+          );
+          return body.total;
+        }
+        const messagesBefore = await mailboxCount();
+        allowResendPreparation = true;
+        const response = await fetch(
+          `${base}/api/v1/tenant-voice/people/users/${userId}/invitation/resend`,
+          {
+            method: 'POST',
+            headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              commandId: randomUUID(),
+              expectedRevision: 1,
+              reasonCode: 'REQUEST_RESEND',
+              reason: 'ทดสอบ preparation จริงโดยยังไม่ส่งเมล',
+            }),
+          },
+        );
+        assert.equal(response.status, 202);
+        const accepted: unknown = await response.json();
+        assert.ok(
+          accepted &&
+            typeof accepted === 'object' &&
+            'operationId' in accepted &&
+            typeof accepted.operationId === 'string',
+        );
+        let preparePosts = 0;
+        const preparationPort = {
+          async prepare(attempt: Parameters<typeof delivery.prepare>[0]) {
+            preparePosts++;
+            await delivery.prepare(attempt);
+            throw new Error('response lost after real preparation commit');
+          },
+          readPreparation: delivery.readPreparation,
+        };
+        let preparation: 'NOT_ELIGIBLE' | 'WAITING_READBACK' | 'READY' = 'WAITING_READBACK';
+        for (let retry = 0; retry < 40; retry++) {
+          preparation = await runPeopleInvitationPreparation(
+            worker,
+            preparationPort,
+            tenantId,
+            accepted.operationId,
+          );
+          if (preparation === 'READY') break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        assert.equal(preparation, 'READY');
+        assert.equal(
+          await runPeopleInvitationPreparation(
+            worker,
+            preparationPort,
+            tenantId,
+            accepted.operationId,
+          ),
+          'READY',
+        );
+        assert.equal(preparePosts, 1);
+        assert.equal(
+          (await read(`operations/${accepted.operationId}`)).step,
+          'DISPATCH_INVITATION',
+        );
+        assert.equal((await read(`people/users/${userId}`)).deliveryState, 'INTENT');
+        assert.equal(invitationPosts, 1);
+        assert.equal(await mailboxCount(), messagesBefore);
+        allowResendPreparation = false;
+      }
     }
     assert.equal(mutations, 15);
     assert.equal(reconciliations, 3);
@@ -450,7 +529,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
     const intents = await owner.$queryRaw<
       { count: bigint }[]
     >`SELECT count(*) FROM tenant_people_invitation_intents WHERE tenant_id=${tenantId}::uuid`;
-    assert.equal(intents[0]?.count, 3n);
+    assert.equal(intents[0]?.count, 4n);
     await app.close();
     app = undefined;
     assert.equal(await runtime.isReady(tenantId), false);
