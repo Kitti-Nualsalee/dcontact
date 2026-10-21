@@ -8,8 +8,11 @@ import {
   TENANT_BROWSER_FLOW,
   USERS_PERMISSION,
   browserFlowFailures,
+  PLATFORM_API_CLIENT,
+  PLATFORM_ROLES,
   childrenOf,
   clientRepresentation,
+  firstTenantUser,
   locateBrowserSubflows,
   permissionRepresentations,
   protectedUserIds,
@@ -24,6 +27,26 @@ test('ผู้ใช้ที่ไม่อยู่ใน Organization ใด
     ['platform-operator', 'service-account-x'],
   );
   assert.deepEqual(protectedUserIds([], []), []);
+});
+
+test('#685: ผู้ถือ platform role ถูกป้องกันเสมอ แม้ถูกผูกเข้า Organization ของ tenant', () => {
+  const protectedIds = protectedUserIds(
+    ['tenant-a', 'platform-in-org', 'platform-only'],
+    ['platform-in-org', 'tenant-a'],
+    ['platform-in-org', 'platform-only'],
+  );
+  assert.deepEqual(protectedIds, ['platform-in-org', 'platform-only']);
+  // --verify ต้องเลือกผู้ใช้ tenant จริง ไม่ใช่บัญชี platform ที่อยู่ใน Organization
+  assert.equal(firstTenantUser(['platform-in-org', 'tenant-a'], protectedIds), 'tenant-a');
+  assert.equal(firstTenantUser(['platform-in-org'], protectedIds), undefined);
+});
+
+test('#685: client/roles ของ platform ตรงกับ keycloak-platform-setup.mjs', async () => {
+  const platform = await import('./keycloak-platform-setup.mjs');
+  assert.equal(PLATFORM_API_CLIENT, platform.PLATFORM_API_CLIENT);
+  assert.deepEqual([...PLATFORM_ROLES], [...platform.PLATFORM_ROLES]);
+  const uat = await import('./u1-uat-keycloak-users.mjs');
+  assert.equal(uat.PLATFORM_API_CLIENT, platform.PLATFORM_API_CLIENT);
 });
 
 test('client ไม่มี browser/direct grant และใช้ service account เท่านั้น', () => {

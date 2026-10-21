@@ -10,6 +10,8 @@ import { resolve } from 'node:path';
  * - **deny ทุก scope** กับผู้ใช้ที่ไม่เป็นสมาชิก Organization ใดเลย (platform operator/auditor, service account
  *   ของระบบ, admin ของ realm) — ผล probe บน 26.7.5: deny ระดับ group ไม่ครอบ `reset-password`
  *   จึงต้อง deny เป็นราย user ซึ่งครอบทุก scope
+ * - ผู้ถือ client role ของ `dcontact-platform-api` ถูก deny เสมอแม้อยู่ใน Organization (#685, #387: platform identity
+ *   ห้ามเป็นสมาชิก tenant — กันกรณีถูกผูกผิดพลาดแบบที่พบบน UAT)
  * - รายชื่อที่ถูกป้องกันคำนวณใหม่ทุกครั้งที่รัน — เพิ่ม platform user ใหม่แล้วต้องรันสคริปต์นี้ซ้ำ (runbook)
  *   และ API ของ D-Contact ยังตรวจว่าเป้าหมายเป็นผู้ใช้เจ้าของ token ใน tenant เดียวกันเสมอ (ชั้นที่สอง)
  *
@@ -40,6 +42,12 @@ export const TENANT_BROWSER_FLOW = 'dcontact-browser';
 export const ORG_MFA_FLOW = `${TENANT_BROWSER_FLOW} Org 2FA`;
 export const ORG_MFA_CONDITION = 'dc-org-mfa-required';
 export const ORG_MFA_NEGATE_CONFIG = `${TENANT_BROWSER_FLOW}-org-mfa-negate`;
+/**
+ * #685: client/roles ของ platform (ค่าเดียวกับ keycloak-platform-setup.mjs — ไม่ import เพราะโมดูลนั้นตรวจ env ตอนโหลด)
+ * ผู้ใช้ที่มี role เหล่านี้ถูกป้องกันเสมอ แม้ถูกผูกเข้า Organization ของ tenant โดยผิดพลาด (#387)
+ */
+export const PLATFORM_API_CLIENT = 'dcontact-platform-api';
+export const PLATFORM_ROLES = Object.freeze(['platform_operator', 'platform_auditor']);
 export const ALLOWED_USER_SCOPES = Object.freeze(['view', 'manage', 'reset-password']);
 export const ALL_USER_SCOPES = Object.freeze([
   'view',
@@ -60,9 +68,16 @@ export const accountServiceSecret =
 const PAGE = 100;
 
 /** ผู้ใช้ที่ไม่เป็นสมาชิก Organization ใดเลย = ไม่ใช่ผู้ใช้ของ tenant → ห้าม service account แตะ */
-export function protectedUserIds(allUserIds, organizationMemberIds) {
+export function protectedUserIds(allUserIds, organizationMemberIds, platformUserIds = []) {
   const members = new Set(organizationMemberIds);
-  return [...new Set(allUserIds)].filter((id) => !members.has(id)).sort();
+  const platform = new Set(platformUserIds);
+  return [...new Set(allUserIds)].filter((id) => !members.has(id) || platform.has(id)).sort();
+}
+
+/** ผู้ใช้ tenant ตัวแรกที่ไม่ถูกป้องกัน — ใช้เป็นเป้าของ `--verify` */
+export function firstTenantUser(organizationMemberIds, protectedIds) {
+  const blocked = new Set(protectedIds);
+  return organizationMemberIds.find((id) => !blocked.has(id));
 }
 
 export function clientRepresentation(secret) {
@@ -250,7 +265,23 @@ async function realmUsers(accessToken) {
     );
     memberIds.push(...members.map((member) => member.id));
   }
-  return { userIds: [...users.map((user) => user.id), ...serviceAccounts], memberIds };
+  // #685: ผู้ถือ platform role ทุกคน (direct mapping) — ต้องอยู่ใน deny list แม้เป็นสมาชิก Organization
+  const platformIds = [];
+  const platformClient = clients.find((client) => client.clientId === PLATFORM_API_CLIENT);
+  if (platformClient) {
+    for (const role of PLATFORM_ROLES) {
+      const holders = await pages(
+        `${realmPath}/clients/${platformClient.id}/roles/${role}/users?briefRepresentation=true`,
+        accessToken,
+      );
+      platformIds.push(...holders.map((user) => user.id));
+    }
+  }
+  return {
+    userIds: [...users.map((user) => user.id), ...serviceAccounts],
+    memberIds,
+    platformIds,
+  };
 }
 
 /**
@@ -473,8 +504,8 @@ export async function setupAccountService({ bindRealm = true } = {}) {
     accessToken,
   );
 
-  const { userIds, memberIds } = await realmUsers(accessToken);
-  const protectedIds = protectedUserIds(userIds, memberIds);
+  const { userIds, memberIds, platformIds } = await realmUsers(accessToken);
+  const protectedIds = protectedUserIds(userIds, memberIds, platformIds);
 
   const permissions = permissionRepresentations({ allowPolicyId, denyPolicyId, protectedIds });
   if (!permissions.some((permission) => permission.name === PROTECTED_PERMISSION)) {
@@ -507,9 +538,9 @@ export async function setupAccountService({ bindRealm = true } = {}) {
 /** ตรวจด้วย token ของ service account จริง — คืนรายการ check ที่ล้ม (ว่าง = ผ่าน) */
 export async function verifyAccountService({ bindRealm = true } = {}) {
   const accessToken = await adminToken();
-  const { userIds, memberIds } = await realmUsers(accessToken);
-  const protectedIds = protectedUserIds(userIds, memberIds);
-  const tenantUserId = memberIds[0];
+  const { userIds, memberIds, platformIds } = await realmUsers(accessToken);
+  const protectedIds = protectedUserIds(userIds, memberIds, platformIds);
+  const tenantUserId = firstTenantUser(memberIds, protectedIds);
   if (!tenantUserId || protectedIds.length === 0)
     return ['ต้องมีผู้ใช้ tenant และผู้ใช้ที่ถูกป้องกันอย่างน้อยอย่างละหนึ่งคน'];
 

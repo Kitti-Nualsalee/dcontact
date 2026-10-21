@@ -42,6 +42,9 @@ export const KNOWN_DEV_PASSWORDS = Object.freeze([
 const DEV_ACCOUNT_DOMAIN = /\.local$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** #685: client ของ Platform API (ค่าเดียวกับ keycloak-platform-setup.mjs — ops image ไม่มีไฟล์นั้น) */
+export const PLATFORM_API_CLIENT = 'dcontact-platform-api';
+
 export class UatKeycloakError extends Error {
   constructor(code, detail = '') {
     super(detail ? `${code}: ${detail}` : code);
@@ -413,6 +416,11 @@ export async function applyAccounts(admin, { realm, tenantId, tenantSlug, accoun
       });
       status = 'CREATED';
     } else {
+      // #685 (#387): platform identity ห้ามเป็นสมาชิก tenant — ห้ามเติม tenant attribute/Organization ให้บัญชี platform
+      const mappings = await admin.call(`${base}/users/${user.id}/role-mappings`);
+      if (mappings?.clientMappings?.[PLATFORM_API_CLIENT]?.mappings?.length) {
+        throw new UatKeycloakError('PLATFORM_IDENTITY_REFUSED', account.role);
+      }
       const bound = user.attributes?.dc_user_id?.[0];
       if (bound && bound !== account.dcUserId) {
         // ห้ามย้ายบัญชี Keycloak ไปผูก subject อื่นเงียบ ๆ
