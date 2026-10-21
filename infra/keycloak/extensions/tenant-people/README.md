@@ -41,6 +41,8 @@ Runner compile และ mount `invitation-guard` จาก source ตัวเ�
 
 ฝั่ง application มี `TenantPeopleKeycloak.invitationPort()` สำหรับ dispatch/readback โดยใช้ tenant service credentials เดิม Worker โหลด accepted payload และตรวจ digest ก่อนเรียก provider รับเฉพาะ `SENT` ที่มี field ตรง private contract ทั้งหมดและ quiescence proof ของ operation/user/generation/attempt/fence/send owner เดิม ไม่รับ field เกินหรืออนุมานผลจาก HTTP status อย่างเดียว หาก response หาย รอบถัดไปอ่านด้วย GET เท่านั้น
 
+`reconcilePeopleInvitationAttempt` เป็น read-only path แยกจาก worker ที่ส่งคำเชิญ รับ port ที่มีเพียง `readOutcome` ไม่สร้าง dispatch claim ใหม่ หากมีแต่ `INTENT` คืน `NOT_ELIGIBLE` โดยไม่เรียก provider; หากมี frozen dispatch จะใช้ descriptor/owner เดิมอ่าน proof และบันทึกเฉพาะ receipt หรือ ambiguity ตามผลจริง ไม่เปลี่ยน identity หรือส่งเมล ส่วนนี้เป็น prerequisite ของ public reconcile command ยังไม่มี HTTP route/command admission/revision/reason/audit เปิดใช้งาน
+
 Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ตรวจครบสาม roles ว่าคืนสถานะ `SENT` ผ่าน API หลัง lost response และปฏิเสธ proof ที่มี field เกิน บัญชียัง inactive/PENDING ไม่สร้าง SIP credential หรือ work-session lease
 
 `TenantPeopleRuntime` รับ `invitations` เป็น tenant-bound port แบบ opt-in เท่านั้น ค่าเริ่มต้นว่าง และ composition ปกติยังไม่ส่ง port นี้ ก่อน claim ต้องผ่าน DB principal/binding, provisioning readiness และ invitation readiness ที่ตอบ `invitationReady: true` อย่างชัดเจน รุ่น provider ที่ไม่มี field นี้ถือว่ายังไม่พร้อม งาน invitation ใช้ batch budget ร่วมกับ provisioning สลับคิวต่อ tenant และเลื่อน cursor เพื่อไม่ให้ attempt ที่ยังไม่ทราบผลขวางรายการอื่น ภายใน batch เดียวไม่ทำ attempt เดิมซ้ำ ไม่มี transaction ครอบ provider call; shutdown รอ in-flight drain จบ

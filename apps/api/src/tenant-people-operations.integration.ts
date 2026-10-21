@@ -23,6 +23,7 @@ import {
 } from './tenant-people-worker.js';
 import {
   runPeopleInvitationAttempt,
+  reconcilePeopleInvitationAttempt,
   type PeopleInvitationAttempt,
 } from './tenant-people-invitation-worker.js';
 
@@ -622,6 +623,23 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
       );
     }
     let invitationSends = 0;
+    assert.equal(
+      await reconcilePeopleInvitationAttempt(
+        worker,
+        {
+          async readOutcome() {
+            assert.fail('INTENT ไม่มี frozen dispatch ให้ reconcile');
+          },
+        },
+        tenantId,
+        supervisor.operationId,
+      ),
+      'NOT_ELIGIBLE',
+    );
+    assert.equal(
+      (await readObject(await request(`/people/users/${supervisor.userId}`))).deliveryState,
+      'INTENT',
+    );
     let invitationLookups = 0;
     let dispatchObservedState: unknown;
     const invitationProvider = {
@@ -657,12 +675,11 @@ test('People authenticated HTTP → PostgreSQL/RLS: acceptance/readback/replay �
     assert.equal(ambiguousInvitation.deliveryState, 'AMBIGUOUS');
     assert.equal(ambiguousInvitation.invitationGeneration, 1);
     assert.equal(ambiguousInvitation.activationState, 'PENDING');
-    await runPeopleInvitationAttempt(
+    await reconcilePeopleInvitationAttempt(
       worker,
       invitationProvider,
       tenantId,
       supervisor.operationId,
-      'invitation-worker-restarted',
     );
     assert.equal(invitationSends, 1);
     assert.equal(invitationLookups, 3);

@@ -12,6 +12,7 @@ import { TENANT_VOICE_DATABASE, TenantVoiceCatalogController } from './tenant-vo
 import { TenantPeopleKeycloak } from './tenant-people-keycloak.js';
 import { DatabaseTenantPeopleReadiness } from './tenant-people-readiness.js';
 import { TenantPeopleRuntime } from './tenant-people-runtime.js';
+import { reconcilePeopleInvitationAttempt } from './tenant-people-invitation-worker.js';
 import type { TenantPeopleIdentityPort } from './tenant-people-worker.js';
 import {
   OidcGlobalGuard,
@@ -289,6 +290,17 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
       assert.equal(await delivery.isReady(tenantId), false);
       allowInvitationReadiness = true;
       assert.equal(await delivery.isReady(tenantId), true);
+      assert.equal(
+        await reconcilePeopleInvitationAttempt(
+          worker,
+          {
+            readOutcome: delivery.readOutcome,
+          },
+          tenantId,
+          String(pendingInvitation.operationId),
+        ),
+        'NOT_ELIGIBLE',
+      );
       const createInvitationRuntime = () =>
         new TenantPeopleRuntime(worker, new Map([[tenantId, adapter]]), {
           intervalMs: 100,
@@ -317,6 +329,32 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
       assert.ok(malformedProofs > 0);
       assert.equal((await read(`people/users/${userId}`)).deliveryState, 'AMBIGUOUS');
       await invitationRuntime.onModuleDestroy();
+      if (role === 'AGENT') {
+        assert.equal(
+          await reconcilePeopleInvitationAttempt(
+            worker,
+            {
+              readOutcome: delivery.readOutcome,
+            },
+            tenantId,
+            String(pendingInvitation.operationId),
+          ),
+          'AMBIGUOUS',
+        );
+        allowCleanProof = true;
+        assert.equal(
+          await reconcilePeopleInvitationAttempt(
+            worker,
+            {
+              readOutcome: delivery.readOutcome,
+            },
+            tenantId,
+            String(pendingInvitation.operationId),
+          ),
+          'RECORDED',
+        );
+        assert.equal(invitationPosts, 1);
+      }
       invitationRuntime = createInvitationRuntime();
       allowCleanProof = true;
       invitationRuntime.onModuleInit();

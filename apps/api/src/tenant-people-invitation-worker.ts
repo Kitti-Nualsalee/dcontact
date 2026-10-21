@@ -51,9 +51,11 @@ async function admitAttempt(
   tenantId: string,
   operationId: string,
   owner: string,
+  allowDispatch: boolean,
 ) {
   return withTenantDatabaseTransaction(database, tenantId, async (transaction) => {
-    const admitted = await transaction.$queryRaw<{ providerAttemptRef: string }[]>`
+    const admitted = allowDispatch
+      ? await transaction.$queryRaw<{ providerAttemptRef: string }[]>`
       INSERT INTO tenant_people_invitation_dispatches
         (tenant_id,operation_id,user_id,generation,provider_attempt_ref,lease_owner)
       SELECT i.tenant_id,i.operation_id,i.user_id,i.generation,i.provider_attempt_ref,${owner}
@@ -66,7 +68,8 @@ async function admitAttempt(
         AND l.provisioning_state='PROVISIONED' AND l.activation_state='PENDING'
         AND NOT u.is_active AND u.keycloak_id=l.verified_identity_id
       ON CONFLICT(tenant_id,provider_attempt_ref) DO NOTHING
-      RETURNING provider_attempt_ref AS "providerAttemptRef"`;
+      RETURNING provider_attempt_ref AS "providerAttemptRef"`
+      : [];
     const claims = await transaction.$queryRaw<
       (Omit<PeopleInvitationAttempt, 'command'> & {
         finished: boolean;
@@ -128,25 +131,56 @@ function matchesAttempt(
   );
 }
 
-export async function runPeopleInvitationAttempt(
+type InvitationAttemptResult = 'NOT_ELIGIBLE' | 'AMBIGUOUS' | 'RECORDED';
+
+export function runPeopleInvitationAttempt(
   database: PrismaClient,
   provider: TenantPeopleInvitationPort,
   tenant: string,
   operation: string,
   owner: string,
-): Promise<'NOT_ELIGIBLE' | 'AMBIGUOUS' | 'RECORDED'> {
+): Promise<InvitationAttemptResult> {
+  return processInvitationAttempt(database, provider, tenant, operation, owner, true);
+}
+
+export function reconcilePeopleInvitationAttempt(
+  database: PrismaClient,
+  provider: Pick<TenantPeopleInvitationPort, 'readOutcome'>,
+  tenant: string,
+  operation: string,
+): Promise<InvitationAttemptResult> {
+  return processInvitationAttempt(
+    database,
+    provider,
+    tenant,
+    operation,
+    'invitation-reconcile',
+    false,
+  );
+}
+
+async function processInvitationAttempt(
+  database: PrismaClient,
+  provider: Pick<TenantPeopleInvitationPort, 'readOutcome'> &
+    Partial<Pick<TenantPeopleInvitationPort, 'dispatch'>>,
+  tenant: string,
+  operation: string,
+  owner: string,
+  allowDispatch: boolean,
+): Promise<InvitationAttemptResult> {
   const tenantId = voiceUuid(tenant, 'tenantId');
   const operationId = voiceUuid(operation, 'operationId');
   if (typeof owner !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(owner))
     voiceFail('INVALID_WORKER_OWNER', 400);
-  const claim = await admitAttempt(database, tenantId, operationId, owner);
+  const claim = await admitAttempt(database, tenantId, operationId, owner, allowDispatch);
   if (!claim) return 'NOT_ELIGIBLE';
   if (claim.finished) return 'RECORDED';
   let result: PeopleInvitationOutcome = { outcome: 'UNKNOWN' };
   try {
-    result = claim.dispatch
-      ? await provider.dispatch(claim.attempt)
-      : await provider.readOutcome(claim.attempt);
+    if (claim.dispatch) {
+      if (!provider.dispatch) throw new Error('INVITATION_DISPATCH_NOT_ALLOWED');
+      result = await provider.dispatch(claim.attempt);
+    } else result = await provider.readOutcome(claim.attempt);
   } catch {}
   if (matchesAttempt(claim.attempt, result)) {
     const proof = result;
