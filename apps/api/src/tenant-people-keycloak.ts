@@ -6,6 +6,8 @@ import type {
 import type {
   PeopleInvitationAttempt,
   PeopleInvitationOutcome,
+  PeopleInvitationPreparation,
+  TenantPeopleInvitationPreparationPort,
   TenantPeopleInvitationRuntimePort,
 } from './tenant-people-invitation-worker.js';
 
@@ -46,11 +48,113 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort {
     return this.execute(claim, false);
   }
 
-  invitationPort(): TenantPeopleInvitationRuntimePort {
+  invitationPort(): TenantPeopleInvitationRuntimePort & TenantPeopleInvitationPreparationPort {
     return {
       isReady: (tenantId) => this.readReadiness(tenantId, true),
       dispatch: (attempt) => this.executeInvitation(attempt, true),
       readOutcome: (attempt) => this.executeInvitation(attempt, false),
+      readPreparation: (attempt) => this.readInvitationPreparation(attempt),
+    };
+  }
+
+  private async readInvitationPreparation(
+    attempt: PeopleInvitationAttempt,
+  ): Promise<PeopleInvitationPreparation> {
+    if (
+      attempt.tenantId !== this.configuration.tenantId ||
+      !Number.isInteger(attempt.generation) ||
+      attempt.generation < 1 ||
+      attempt.generation > 2147483647
+    )
+      throw new Error('PEOPLE_INVITATION_SCOPE_MISMATCH');
+    const options = { redirect: 'error' as const, cache: 'no-store' as const };
+    const tokenResponse = await this.request(`${this.issuer}/protocol/openid-connect/token`, {
+      ...options,
+      method: 'POST',
+      signal: AbortSignal.timeout(10_000),
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: this.configuration.clientId,
+        client_secret: this.configuration.clientSecret,
+      }),
+    });
+    if (!tokenResponse.ok) return { outcome: 'UNKNOWN' };
+    const token: unknown = await tokenResponse.json();
+    if (
+      !token ||
+      typeof token !== 'object' ||
+      !('access_token' in token) ||
+      typeof token.access_token !== 'string' ||
+      !token.access_token
+    )
+      return { outcome: 'UNKNOWN' };
+    const endpoint = new URL(
+      `${this.issuer}/dc-tenant-people/operations/${encodeURIComponent(attempt.operationId)}/invitations/${attempt.generation}/intent`,
+    );
+    endpoint.search = new URLSearchParams({
+      tenantId: attempt.tenantId,
+      targetUserId: attempt.userId,
+      payloadDigest: attempt.payloadDigest,
+      providerAttemptRef: attempt.providerAttemptRef,
+      fencingToken: attempt.fencingToken,
+      leaseOwner: attempt.leaseOwner,
+    }).toString();
+    const response = await this.request(endpoint, {
+      ...options,
+      method: 'GET',
+      signal: AbortSignal.timeout(10_000),
+      headers: { Authorization: `Bearer ${token.access_token}` },
+    });
+    if (!response.ok) return { outcome: 'UNKNOWN' };
+    const raw: unknown = await response.json();
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { outcome: 'UNKNOWN' };
+    const proof: Record<string, unknown> = Object.fromEntries(Object.entries(raw));
+    const fields = [
+      'outcome',
+      'intentRef',
+      'quiescent',
+      'tenantId',
+      'operationId',
+      'userId',
+      'generation',
+      'providerAttemptRef',
+      'payloadDigest',
+      'fencingToken',
+      'leaseOwner',
+      'notBeforeEpoch',
+      'serverEpoch',
+    ];
+    if (
+      Object.keys(proof).length !== fields.length ||
+      Object.keys(proof).some((field) => !fields.includes(field)) ||
+      proof.outcome !== 'INTENT' ||
+      proof.quiescent !== false ||
+      proof.tenantId !== attempt.tenantId ||
+      proof.operationId !== attempt.operationId ||
+      proof.userId !== attempt.userId ||
+      proof.generation !== attempt.generation ||
+      proof.providerAttemptRef !== attempt.providerAttemptRef ||
+      proof.payloadDigest !== attempt.payloadDigest ||
+      proof.fencingToken !== attempt.fencingToken ||
+      proof.leaseOwner !== attempt.leaseOwner ||
+      typeof proof.intentRef !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(proof.intentRef) ||
+      typeof proof.notBeforeEpoch !== 'number' ||
+      !Number.isSafeInteger(proof.notBeforeEpoch) ||
+      proof.notBeforeEpoch <= 0 ||
+      proof.notBeforeEpoch > 253402041599 ||
+      typeof proof.serverEpoch !== 'number' ||
+      !Number.isSafeInteger(proof.serverEpoch) ||
+      proof.serverEpoch <= 0 ||
+      proof.serverEpoch > 253402041599
+    )
+      return { outcome: 'UNKNOWN' };
+    return {
+      outcome: 'INTENT',
+      intentRef: proof.intentRef,
+      notBeforeEpoch: proof.notBeforeEpoch,
+      serverEpoch: proof.serverEpoch,
+      clockReached: proof.serverEpoch >= proof.notBeforeEpoch,
     };
   }
 

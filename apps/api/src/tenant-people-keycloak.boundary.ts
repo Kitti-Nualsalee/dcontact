@@ -162,24 +162,19 @@ test('real Keycloak service client creates once and reads the immutable outcome'
     signal: AbortSignal.timeout(10_000),
   });
   assert.equal(prepared.status, 200);
+  const preparation = await invitation.readPreparation(secondAttempt);
+  assert.equal(preparation.outcome, 'INTENT');
+  assert.deepEqual(
+    await invitation.readPreparation({ ...secondAttempt, providerAttemptRef: randomUUID() }),
+    { outcome: 'UNKNOWN' },
+  );
   let reached = false;
   for (let retry = 0; retry < 40; retry++) {
-    const readback = await fetch(`${endpoint}/intent?${new URLSearchParams(correlation)}`, {
-      headers,
-      redirect: 'error',
-      signal: AbortSignal.timeout(10_000),
-    });
-    assert.equal(readback.status, 200);
-    const proof: unknown = await readback.json();
-    assert.ok(
-      proof &&
-        typeof proof === 'object' &&
-        'serverEpoch' in proof &&
-        typeof proof.serverEpoch === 'number' &&
-        'notBeforeEpoch' in proof &&
-        typeof proof.notBeforeEpoch === 'number',
-    );
-    if (proof.serverEpoch >= proof.notBeforeEpoch) {
+    const proof = await invitation.readPreparation(secondAttempt);
+    assert.equal(proof.outcome, 'INTENT');
+    if (proof.outcome === 'INTENT' && proof.clockReached) {
+      assert.ok(firstSent.issuedAtEpoch !== null && proof.notBeforeEpoch > firstSent.issuedAtEpoch);
+      assert.ok(proof.serverEpoch >= proof.notBeforeEpoch);
       reached = true;
       break;
     }

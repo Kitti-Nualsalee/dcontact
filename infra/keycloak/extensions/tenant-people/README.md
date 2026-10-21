@@ -53,6 +53,8 @@ Application intent key แยก `(tenant, create operation, generation)` แล
 
 Adapter อ่าน exact provider receipt ของ generation ที่ร้องขอได้ รวม historical receipt หลัง supersession แต่ application dispatch/automatic scheduler ยังคง generation แรก รุ่นใหม่ที่ยังไม่มี preparation/readback barrier จะไม่สร้าง claim หรือ POST ส่งเมล การทดสอบ HTTP/RLS หลาย generation ใช้ fixture ของ approved worker เพื่อพิสูจน์การอ่าน ไม่ใช่หลักฐานว่า public resend admission/cap/sender เปิดใช้แล้ว
 
+Adapter มี `readPreparation` แบบ GET-only สำหรับ exact generation/attempt/digest/fence/owner ตรวจ intent proof ครบทุก field และคืน `clockReached` จาก `serverEpoch >= notBeforeEpoch` ของ Keycloak เท่านั้น ไม่ใช้เวลาบน application หรือ lease expiry เป็นหลักฐาน การอ่านไม่ได้หรือ proof ไม่ตรงไม่เปลี่ยนเป็น permission ส่งเมล และ `INTENT` ไม่ใช่ finished/quiescent receipt; application ยังต้องมี durable preparation barrier และตรวจ no-in-flight ก่อนเปิด sender รุ่นใหม่
+
 Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ตรวจครบสาม roles ว่าคืนสถานะ `SENT` ผ่าน API หลัง lost response และปฏิเสธ proof ที่มี field เกิน บัญชียัง inactive/PENDING ไม่สร้าง SIP credential หรือ work-session lease
 
 `TenantPeopleRuntime` รับ `invitations` เป็น tenant-bound port แบบ opt-in เท่านั้น ค่าเริ่มต้นว่าง และ composition ปกติยังไม่ส่ง port นี้ ก่อน claim ต้องผ่าน DB principal/binding, provisioning readiness และ invitation readiness ที่ตอบ `invitationReady: true` อย่างชัดเจน รุ่น provider ที่ไม่มี field นี้ถือว่ายังไม่พร้อม งาน invitation ใช้ batch budget ร่วมกับ provisioning สลับคิวต่อ tenant และเลื่อน cursor เพื่อไม่ให้ attempt ที่ยังไม่ทราบผลขวางรายการอื่น ภายใน batch เดียวไม่ทำ attempt เดิมซ้ำ ไม่มี transaction ครอบ provider call; shutdown รอ in-flight drain จบ

@@ -46,6 +46,20 @@ export interface TenantPeopleInvitationRuntimePort extends TenantPeopleInvitatio
   isReady(tenantId: string): Promise<boolean>;
 }
 
+export type PeopleInvitationPreparation =
+  | { outcome: 'UNKNOWN' }
+  | {
+      outcome: 'INTENT';
+      intentRef: string;
+      notBeforeEpoch: number;
+      serverEpoch: number;
+      clockReached: boolean;
+    };
+
+export interface TenantPeopleInvitationPreparationPort {
+  readPreparation(attempt: PeopleInvitationAttempt): Promise<PeopleInvitationPreparation>;
+}
+
 async function admitAttempt(
   database: PrismaClient,
   tenantId: string,
