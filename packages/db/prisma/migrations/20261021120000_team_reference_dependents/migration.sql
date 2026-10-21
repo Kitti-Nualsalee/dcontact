@@ -59,7 +59,7 @@ END $$;
 REVOKE ALL ON FUNCTION dc_team_reference_dependents(text,jsonb,timestamptz) FROM PUBLIC;
 
 CREATE FUNCTION dc_team_reference_hint(r jsonb) RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
-  SELECT jsonb_object_agg(key,value) FROM jsonb_each(r) WHERE key=ANY(ARRAY['tenant_id','id','user_id','operation_id','target_user_id','delegation_id','action_id','action_key','command_id','enrollment_id','reservation_id','occurrence_id','segment_intent_id','journey_id','journey_version','version','contact_id','segment_id','entry_id','terminal_entry_id','is_active','lifecycle','expires_at'])
+  SELECT jsonb_object_agg(key,value) FROM jsonb_each(r) WHERE key=ANY(ARRAY['tenant_id','id','user_id','operation_id','target_user_id','delegation_id','action_id','action_key','command_id','enrollment_id','reservation_id','occurrence_id','segment_intent_id','journey_id','journey_version','version','contact_id','segment_id','entry_id','terminal_entry_id','is_active','lifecycle','expires_at','active_version','active_definition_id','active_version_id','active_runtime_hash'])
 $$;
 REVOKE ALL ON FUNCTION dc_team_reference_hint(jsonb) FROM PUBLIC;
 CREATE FUNCTION dc_team_capture_reference_check(p_table text,p_previous jsonb,p_following jsonb,p_keys text[])
@@ -82,7 +82,10 @@ CREATE FUNCTION dc_team_claim_renewed(p_table text,previous jsonb,following json
 LANGUAGE plpgsql VOLATILE SET search_path=pg_catalog AS $$ BEGIN
   IF previous IS NULL OR following IS NULL THEN RETURN false; END IF;
   IF p_table IN ('users','queues') THEN RETURN coalesce(previous->>'is_active'='false' AND following->>'is_active'='true',false);
-  ELSIF p_table IN ('jr_journey_heads','jr_template_heads') THEN RETURN coalesce(previous->>'lifecycle'<>'ACTIVE' AND following->>'lifecycle'='ACTIVE',false);
+  ELSIF p_table IN ('jr_journey_heads','jr_template_heads') THEN
+    RETURN coalesce(previous->>'lifecycle'<>'ACTIVE' AND following->>'lifecycle'='ACTIVE',false)
+      OR EXISTS(SELECT 1 FROM unnest(ARRAY['active_version','active_definition_id','active_version_id','active_runtime_hash']) field
+        WHERE following->>field IS NOT NULL AND previous->field IS DISTINCT FROM following->field);
   ELSIF p_table='iam_authoring_capability_grants' AND previous->>'expires_at' IS NOT NULL THEN
     RETURN following->>'expires_at' IS NULL OR (following->>'expires_at')::timestamptz>(previous->>'expires_at')::timestamptz;
   END IF;
@@ -169,6 +172,7 @@ DECLARE previous jsonb; following jsonb; scope uuid; old_teams uuid[]; new_teams
   PERFORM public.dc_team_reference_lock(scope,affected,false);
   PERFORM public.dc_team_capture_reference_check(TG_TABLE_NAME,previous,following,string_to_array(coalesce(TG_ARGV[0],'id'),','));
   IF TG_TABLE_NAME IN ('iam_authoring_delegation_revocations','jr_owner_continuations') AND TG_OP='INSERT' THEN old_teams:=new_teams; END IF;
+  IF public.dc_team_claim_renewed(TG_TABLE_NAME,previous,following) THEN old_teams:=ARRAY[]::uuid[]; END IF;
   FOR team IN SELECT x FROM unnest(new_teams) x WHERE NOT(x=ANY(coalesce(old_teams,ARRAY[]::uuid[]))) LOOP
     SELECT is_active INTO active FROM public.teams WHERE tenant_id=scope AND id=team;
     IF NOT FOUND THEN RAISE EXCEPTION 'TEAM_INACTIVE' USING ERRCODE='23514'; END IF;

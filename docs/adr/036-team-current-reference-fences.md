@@ -17,3 +17,5 @@ Baseline final-state เก็บใน `dc_team_reference_checks` แบบ tra
 Platform bootstrap ใช้ข้อยกเว้นเดิมเฉพาะ database principal ที่เป็นสมาชิก provisioner และ tenant ยัง PROVISIONING พร้อม row lock กัน activation ไม่ยืม lifecycle อย่างเดียวเป็น authority ของ app และไม่เปิด bypass บน ACTIVE tenant การปิด Team ตรวจ closure ครั้งเดียวใน final guard; hot predicates อ่าน direct columns เพื่อลดต้นทุน มี budget test ทั้ง EXPLAIN และ commit บน 60,000 references
 
 รายละเอียด canonical sources, current writers, cleanup, indexes และ evidence discovery อยู่ที่ [Team reference inventory](../core-settings/team-reference-inventory.md) การเพิ่ม writer จาก People หรือ context อื่นต้องขยาย coordination และหลักฐานก่อนเปิดใช้ ไม่มีการเพิ่ม owner decision/authority จากรายการ inventory เอง
+
+Publication version/pointer/runtime hash ที่เปลี่ยนบน head ACTIVE เดิมยังเป็น acquisition ตาม contract ต้องตรวจ Team active หลัง lock และใน final state ด้วย ไม่ยกเว้นเพียง Team UUID/lifecycle ตรง baseline; hints เก็บ publication fields เพื่อแยก publish จาก metadata/cleanup ของ legacy inactive ownership

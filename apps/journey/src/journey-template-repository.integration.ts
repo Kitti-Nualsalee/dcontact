@@ -2,7 +2,7 @@ import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
-import { PrismaClient } from '@d-contact/db';
+import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { DcExprEvaluator } from '@d-contact/expression';
 import { IamJourneyAuthoringAuthorizer } from '@d-contact/iam';
 import type {
@@ -188,6 +188,7 @@ async function setup(t: TestContext) {
 
   return {
     owner,
+    application,
     tenantId,
     otherTenantId,
     teamA,
@@ -696,3 +697,33 @@ for (const operation of [
         write,
       });
     });
+
+test('Core Team fence: raw ACTIVE Template publication ต้องปฏิเสธ legacy inactive Team', async (t) => {
+  const f = await setup(t);
+  const content = f.builtIn.content;
+  const published = await f.publishTenantTemplate(content.document, content.parameterSchema);
+  await f.owner.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
+    await tx.team.update({ where: { id: f.teamA }, data: { isActive: false } });
+  });
+  const nextId = randomUUID();
+  await f.owner
+    .$executeRaw`INSERT INTO public.jr_template_versions SELECT r.* FROM public.jr_template_versions v CROSS JOIN LATERAL jsonb_populate_record(NULL::public.jr_template_versions,to_jsonb(v)||jsonb_build_object('id',${nextId}::text,'version',2)) r WHERE v.tenant_id=${f.tenantId}::uuid AND v.template_id=${published.templateId}::uuid AND v.version=1`;
+  await assert.rejects(
+    withTenantDatabaseTransaction(f.application, f.tenantId, (tx) =>
+      tx.jrTemplateHead.update({
+        where: { tenantId_templateId: { tenantId: f.tenantId, templateId: published.templateId } },
+        data: { activeVersion: 2, activeVersionId: nextId, version: { increment: 1 } },
+      }),
+    ),
+    /TEAM_INACTIVE/,
+  );
+  assert.equal(
+    (
+      await f.owner.jrTemplateHead.findFirstOrThrow({
+        where: { tenantId: f.tenantId, templateId: published.templateId },
+      })
+    ).activeVersion,
+    1,
+  );
+});

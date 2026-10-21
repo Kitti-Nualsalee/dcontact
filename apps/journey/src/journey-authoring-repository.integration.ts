@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test, { type TestContext } from 'node:test';
-import { PrismaClient } from '@d-contact/db';
+import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { DcExprEvaluator } from '@d-contact/expression';
 import type { AuthoringDocumentV1 } from '@d-contact/cxa-contracts';
 import { JOURNEY_RUNTIME_CAPABILITIES } from './journey-authoring-canonical.js';
@@ -682,3 +682,37 @@ for (const operation of ['publish', 'resume', 'transfer', 'rollForward', 'clone'
         write,
       });
     });
+
+test('Core Team fence: raw ACTIVE Journey publication ต้องปฏิเสธ legacy inactive Team', async (t) => {
+  const f = await setup(t);
+  const repo = f.repository();
+  const created = await repo.createJourneyDraft(f.context(), {
+    ownerTeamId: f.teamId,
+    document: f.document(),
+  });
+  await repo.publishJourneyDraft(f.context(), await f.approve(created.journeyId));
+  await f.owner.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
+    await tx.team.update({ where: { id: f.teamId }, data: { isActive: false } });
+  });
+  const nextId = randomUUID();
+  await f.owner
+    .$executeRaw`INSERT INTO public.jr_journey_definitions SELECT r.* FROM public.jr_journey_definitions v CROSS JOIN LATERAL jsonb_populate_record(NULL::public.jr_journey_definitions,to_jsonb(v)||jsonb_build_object('id',${nextId}::text,'version',2)) r WHERE v.tenant_id=${f.tenantId}::uuid AND v.journey_id=${created.journeyId}::uuid AND v.version=1`;
+  await assert.rejects(
+    withTenantDatabaseTransaction(f.application, f.tenantId, (tx) =>
+      tx.jrJourneyHead.update({
+        where: { tenantId_journeyId: { tenantId: f.tenantId, journeyId: created.journeyId } },
+        data: { activeVersion: 2, activeDefinitionId: nextId, version: { increment: 1 } },
+      }),
+    ),
+    /TEAM_INACTIVE/,
+  );
+  assert.equal(
+    (
+      await f.owner.jrJourneyHead.findFirstOrThrow({
+        where: { tenantId: f.tenantId, journeyId: created.journeyId },
+      })
+    ).activeVersion,
+    1,
+  );
+});

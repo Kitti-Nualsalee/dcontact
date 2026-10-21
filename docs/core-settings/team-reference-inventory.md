@@ -12,7 +12,7 @@ Authority: [Phase Contract #723 §7](https://github.com/Kitti-Nualsalee/dcontact
 - `dc_team_reference_checks` เก็บ baseline claims ภายใน transaction ผ่าน trigger เท่านั้น เก็บ opaque resource references และ state hints ที่จำเป็น ไม่เก็บ User/email/password/token/raw request; app/PUBLIC ไม่มีสิทธิ์อ่านหรือเขียน; deferred `dc_team_reference_check_final` อ่าน final canonical state แล้วลบ baseline เมื่อผ่าน การ rollback ลบทั้ง unit
 - `team_reference_final_state` ตรวจ closure ของ Team ที่ถูกปิดอีกครั้งเพื่อกัน reentrant advisory locks ใน transaction เดียว; `withTenantDatabaseTransaction` force constraints ก่อนคืน callback result ป้องกัน Prisma คืน success จาก COMMIT ที่ rollback
 - การลบ proof ที่เคย suppress current work เช่น revocation, continuation, terminal segment head หรือ enrollment ต้องล็อก canonical Team candidates ด้วย แม้ก่อนลบยังไม่มี current claim; candidates ใช้ประสาน lock เท่านั้น ไม่เป็น blocker เพิ่ม
-- active-check เฉพาะ claim ที่เพิ่ม/เปิดใหม่ หรือ User/Queue reactivation, publish/resume และ grant expiry extension ไม่บังคับ active old Team ของ cleanup/move-out การเปลี่ยนข้อมูลทั่วไปไม่เท่ากับ acquisition
+- active-check เฉพาะ claim ที่เพิ่ม/เปิดใหม่ หรือ User/Queue reactivation, publish/resume รวม publication version/pointer/hash เปลี่ยนบน ACTIVE เดิม และ grant expiry extension ไม่บังคับ active old Team ของ cleanup/move-out การเปลี่ยนข้อมูลทั่วไปไม่เท่ากับ acquisition
 - Core ใช้ lock timeout 250 ms, statement 2 s, transaction 5 s; busy rollback execution แต่คง admitted command ให้ตรวจ receipt/reconcile ID เดิม ไม่มี force/unassign/auto-cancel
 
 ## Predicates, canonical binding และ material writers
@@ -65,7 +65,7 @@ Authority: [Phase Contract #723 §7](https://github.com/Kitti-Nualsalee/dcontact
 
 `team-reference-guards.integration.ts` มี EXPLAIN ANALYZE/BUFFERS บน synthetic 40,000 User + 10,000 Queue + 10,000 Skill, query ผ่าน app role/RLS และ final deactivate constraint ภายใต้ statement budget 2 s; timeout ห้าม fallback ข้าม closure
 
-- `pnpm test:core-settings:writers` ค้นพบ Team DB/HTTP และ actual writer suites ที่เพิ่ม case `Core Team fence` โดย explicit files; suite ที่ไม่พบ test หรือ exit ผิดเป็น failure
+- `pnpm test:core-settings:writers` รันทีละไฟล์ตาม `scripts/core-settings-writer-cases.json` ซึ่งเป็น manifest ของ required case IDs รวมทั้งสองลำดับ ตรวจชื่อ/ผลราย case; หาย/ซ้ำ/skip/TODO/fail หรือ process exit ผิดเป็น failure แม้ case อื่นผ่าน Case ใหม่ที่เลือกมารันต้องเพิ่ม manifest พร้อม review coverage; `pnpm test:core-settings:discovery` พิสูจน์ CLI ด้วย pnpm process boundary ที่จำลอง TAP หาย/skip โดยไม่จำลอง DB guard
 - `.github/workflows/ci.yml` job `core-settings-writer-races` ใช้ PostgreSQL15.4 + app role, migration และ apply-rls ซ้ำสองครั้งก่อนรัน; ไม่มี provider/SMTP/Voice I/O ใน fence tests
 - API/DB full integration, affected package regression/build/typecheck และ review ยังเป็น gates แยก ไม่ใช้ focused suite แทนทั้งหมด
 

@@ -63,6 +63,8 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm --filter "@d-contact/api^..." --filter "@d-contact/journey^..." --filter "@d-contact/dialer^..." build
       - run: pnpm db:migrate && pnpm db:rls && pnpm db:rls
+      - name: ตรวจ discovery ว่าจับ required case ที่หายหรือ skip ได้
+        run: node --test scripts/core-settings-writer-tests.test.mjs
       - name: ตรวจ Team HTTP, final constraints และ actual writer races ทั้งสองลำดับ
         run: pnpm test:core-settings:writers
 

@@ -30,6 +30,7 @@ async function fixture(t: TestContext) {
     await owner.cg5AlertTransition.deleteMany({ where });
     await owner.cg5AlertState.deleteMany({ where });
     await owner.cg5ProjectionCursor.deleteMany({ where });
+    await owner.team.deleteMany({ where });
     await owner.tenant.deleteMany({ where: { id: { in: [tenantId, otherTenantId] } } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -62,6 +63,9 @@ test('CG5.7 metrics กรอง tenant และ team scope ก่อน cursor
   await markReady(f.owner, f.otherTenantId);
   const teamA = randomUUID();
   const teamB = randomUUID();
+  await f.owner.team.createMany({
+    data: [teamA, teamB].map((id) => ({ id, tenantId: f.tenantId, name: id })),
+  });
   const at = new Date('2026-09-20T00:00:00.000Z');
   const insert = (tenantId: string, teamId: string, minute: number) =>
     f.owner.cg5MetricBucket.create({
@@ -115,6 +119,9 @@ test('CG5-AU01 SUPERVISOR เห็นเฉพาะทีมตัวเอง
   await markReady(f.owner, f.tenantId);
   const teamA = randomUUID();
   const teamB = randomUUID();
+  await f.owner.team.createMany({
+    data: [teamA, teamB].map((id) => ({ id, tenantId: f.tenantId, name: id })),
+  });
   const at = new Date('2026-09-20T00:00:00.000Z');
   const bucket = (teamId: string | null, value: number) =>
     f.owner.cg5MetricBucket.create({
