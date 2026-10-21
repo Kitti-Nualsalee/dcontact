@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 /**
  * C1.5 acceptance: durable execution ของ J1 บน Postgres จริง
  *
@@ -509,3 +510,86 @@ test('enrollment evidence carries no event payload or contact data', async (t) =
   ]);
   assert.equal(serialized.includes('order.created'), false);
 });
+
+for (const ingress of ['event', 'schedule'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual Journey ${ingress} ingress ${order}`, async (t) => {
+      const f = await fixture(t);
+      const definition = await f.owner.jrJourneyDefinition.findFirstOrThrow({
+        where: { tenantId: f.tenantId, journeyId: f.journeyId, version: 1 },
+      });
+      const receiptId = ingress === 'event' ? await f.acceptEvent() : undefined;
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.tenantId,
+        teamId: definition.ownerTeamId,
+        table: ingress === 'event' ? 'jr_enrollments' : 'jr_schedule_occurrences',
+        order,
+        write: () =>
+          ingress === 'event'
+            ? f.execution.enrollFromEvent(f.tenantId, {
+                receiptId: receiptId!,
+                journeyId: f.journeyId,
+                journeyVersion: 1,
+                correlationId: randomUUID(),
+              })
+            : f.execution.enrollFromSchedule(f.tenantId, {
+                journeyId: f.journeyId,
+                journeyVersion: 1,
+                occurrenceAt: new Date().toISOString(),
+                correlationId: randomUUID(),
+              }),
+      });
+    });
+
+for (const operation of [
+  'advance',
+  'claim',
+  'completeSend',
+  'cancel',
+  'goal',
+  'exit',
+  'maxAge',
+] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual enrollment ${operation} ${order}`, async (t) => {
+      const f = await fixture(t);
+      const enrollment = await enrolled(f);
+      const definition = await f.owner.jrJourneyDefinition.findFirstOrThrow({
+        where: { tenantId: f.tenantId, journeyId: f.journeyId, version: 1 },
+      });
+      if (operation === 'completeSend') {
+        await f.execution.advance(f.tenantId, enrollment.enrollmentId, OPT_IN_CONTEXT);
+        await f.execution.advance(f.tenantId, enrollment.enrollmentId, OPT_IN_CONTEXT);
+      }
+      if (operation === 'maxAge') f.advanceClock(31 * 86400000);
+      const write = () => {
+        switch (operation) {
+          case 'advance':
+            return f.execution.advance(f.tenantId, enrollment.enrollmentId, OPT_IN_CONTEXT);
+          case 'claim':
+            return f.execution.claimDueWork(f.tenantId, { workerId: 'core-writer' });
+          case 'completeSend':
+            return f.execution.completeSend(f.tenantId, enrollment.enrollmentId, {
+              correlationId: randomUUID(),
+            });
+          case 'cancel':
+            return f.execution.cancel(f.tenantId, enrollment.enrollmentId);
+          case 'goal':
+            return f.execution.reachGoal(f.tenantId, enrollment.enrollmentId);
+          case 'exit':
+            return f.execution.applyExitRule(f.tenantId, enrollment.enrollmentId);
+          case 'maxAge':
+            return f.execution.sweepMaxAge(f.tenantId);
+        }
+      };
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.tenantId,
+        teamId: definition.ownerTeamId,
+        table: 'jr_enrollments',
+        order,
+        existingReferences: true,
+        write,
+      });
+    });

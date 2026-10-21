@@ -208,6 +208,7 @@ model Team {
   tenantId String  @map("tenant_id") @db.Uuid
   name     String
   isActive Boolean @default(true) @map("is_active")
+  revision BigInt @default(1)
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   members User[]

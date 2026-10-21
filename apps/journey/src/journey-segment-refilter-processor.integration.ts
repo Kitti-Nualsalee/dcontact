@@ -1,3 +1,6 @@
+import { JourneySegmentTriggerProcessor } from './journey-segment-trigger-processor.js';
+import { JourneySegmentRecovery } from './journey-segment-recovery.js';
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -72,6 +75,7 @@ async function fixture(t: TestContext) {
   const segmentId = `segment-gold-${suffix}`;
 
   t.after(async () => {
+    await owner.jrRecoveryAudit.deleteMany({ where: { tenantId } });
     await owner.jrSegmentOutbox.deleteMany({ where: { tenantId } });
     await owner.jrIamScopeInvalidationInbox.deleteMany({ where: { tenantId } });
     await owner.jrSegmentRefilterCursor.deleteMany({ where: { tenantId } });
@@ -813,3 +817,91 @@ test('ยกเลิกซ้ำไม่สั่ง owner ยกเลิก�
     ['CANCELLED'],
   );
 });
+
+for (const operation of ['process', 'recover'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual refilter ${operation} ${order}`, async (t) => {
+      const f = await fixture(t);
+      const entryId = `entry-${f.suffix}`;
+      await publishJourney(f);
+      await queueRefilter(f, 1, 'CORRECTED', entryId);
+      const current = await cursor(f);
+      await f.owner.jrSegmentRefilterCursor.update({
+        where: { id: current.id },
+        data: { scopeTeamId: f.teamId, ...(operation === 'recover' ? { state: 'HELD' } : {}) },
+      });
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.tenantId,
+        teamId: f.teamId,
+        table: 'jr_segment_refilter_cursors',
+        order,
+        existingReferences: true,
+        write: () =>
+          operation === 'process'
+            ? processor(f, eligible(f, entryId)).executeNext(f.tenantId, 'core-writer')
+            : new JourneySegmentRecovery(f.application).revalidateRefilter({
+                tenantId: f.tenantId,
+                targetRef: current.id,
+                expectedVersion: current.version,
+                reasonCode: 'ISOLATED_RECHECK',
+                actorId: randomUUID(),
+              }),
+      });
+    });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual IAM invalidation scoped refilter ${order}`, async (t) => {
+    const f = await fixture(t);
+    const entryId = `entry-${f.suffix}`;
+    await publishJourney(f);
+    await f.receipts.ingest({
+      tenantId: f.tenantId,
+      source: 'CUSTOMER_360',
+      eventId: randomUUID(),
+      contactId: f.contactId,
+      segmentId: f.segmentId,
+      membershipRevision: 1,
+      changeKind: 'ENTERED',
+      entryId,
+      segmentDefinitionVersion: 1,
+      payloadHash: HASH,
+      correlationId: randomUUID(),
+    });
+    await new JourneySegmentTriggerProcessor(f.application, f.definitions, {
+      membershipReader: reader(eligible(f, entryId)) as never,
+      teamContactScopeAuthorizer: authorizer(ALLOW) as never,
+    }).executeNext(f.tenantId, 'core-trigger');
+    const event = {
+      schemaVersion: 2,
+      eventKind: 'CANONICAL',
+      eventId: randomUUID(),
+      type: 'team.segment-scope.changed',
+      tenantId: f.tenantId,
+      occurredAt: new Date().toISOString(),
+      correlationId: randomUUID(),
+      orderingKey: f.teamId,
+      aggregateType: 'iam_team_scope',
+      aggregateId: f.teamId,
+      aggregateVersion: 2,
+      payload: {
+        contractVersion: 1,
+        teamId: f.teamId,
+        grantId: randomUUID(),
+        scopeVersion: 2,
+        kind: 'REVOKED',
+      },
+    } as const;
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId: f.teamId,
+      table: 'jr_segment_refilter_cursors',
+      order,
+      existingReferences: true,
+      write: () =>
+        withTenantDatabaseTransaction(f.application, f.tenantId, (tx) =>
+          new JourneyIamScopeInvalidationService().apply(event, 'core-writer', tx),
+        ),
+    });
+  });

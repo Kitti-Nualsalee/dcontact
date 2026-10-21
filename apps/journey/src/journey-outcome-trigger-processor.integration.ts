@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -706,3 +707,23 @@ test('contactId ของ tenant อื่นถูกปฏิเสธเป�
   assert.equal(await processor.executeNext(f.tenantId, 'worker-1'), 'REVIEW');
   assert.equal(await f.owner.jrEnrollment.count({ where: { tenantId: f.tenantId } }), 0);
 });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual outcome trigger enrollment ${order}`, async (t) => {
+    const f = await fixture(t);
+    const definitions = new JourneyDefinitionRepository(f.application, evaluator);
+    await publishOutcomeJourney(definitions, f);
+    await ingestReceipt(new JourneyOutcomeReceiptRepository(f.application), f);
+    const processor = new JourneyOutcomeTriggerProcessor(f.application, definitions, {
+      identityResolver: allowResolver(f.contactId),
+      teamContactScopeAuthorizer: fixedScope('ALLOW'),
+    });
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId: f.ownerTeamId,
+      table: 'jr_enrollments',
+      order,
+      write: () => processor.executeNext(f.tenantId, 'core-writer'),
+    });
+  });

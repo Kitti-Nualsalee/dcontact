@@ -37,6 +37,9 @@ export async function withTenantDatabaseTransaction<T>(
 
   return prisma.$transaction(async (transaction) => {
     await transaction.$executeRawUnsafe("SELECT set_config('app.tenant_id', $1, true)", tenantId);
-    return withTenantContext(tenantId, () => work(transaction));
+    const result = await withTenantContext(tenantId, () => work(transaction));
+    // ให้ caller เห็น deferred constraint failure ภายใน callback ด้วย; ห้ามนำผลสำเร็จออกก่อน final-state checks
+    await transaction.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+    return result;
   }, options);
 }

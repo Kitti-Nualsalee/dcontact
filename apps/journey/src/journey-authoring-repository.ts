@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   Prisma,
   withTenantDatabaseTransaction,
+  lockTeamReferences,
   type JrJourneyHead,
   type PrismaClient,
 } from '@d-contact/db';
@@ -169,6 +170,7 @@ export class JourneyAuthoringRepository {
   ): Promise<JourneyDraftResult> {
     const journeyId = this.id();
     return this.command(context, 'CreateJourneyDraft', journeyId, input, async (tx) => {
+      await lockTeamReferences(tx, context.tenantId, [input.ownerTeamId]);
       await this.assertWriteEnabled(tx, context.tenantId, 'canvasWrite');
       await this.authorize(tx, context, 'journey.edit', { teamId: input.ownerTeamId });
       const diagnostics = this.assertSavable(input.document);
@@ -322,6 +324,7 @@ export class JourneyAuthoringRepository {
   ): Promise<JourneyDraftResult> {
     const cloneId = this.id();
     return this.command(context, 'CloneJourneyFromVersion', cloneId, input, async (tx) => {
+      await lockTeamReferences(tx, context.tenantId, [input.targetOwnerTeamId]);
       await this.assertWriteEnabled(tx, context.tenantId, 'canvasWrite');
       const source = await this.head(tx, context.tenantId, input.journeyId);
       await this.authorize(tx, context, 'journey.read', this.scopeOf(source));
@@ -864,7 +867,9 @@ export class JourneyAuthoringRepository {
     input: TransferJourneyOwnershipRequestV1 & { readonly journeyId: string },
   ): Promise<JourneyDraftResult> {
     return this.command(context, 'TransferJourneyOwnership', input.journeyId, input, async (tx) => {
-      const head = await this.lockedHead(tx, context.tenantId, input.journeyId);
+      const head = await this.lockedHead(tx, context.tenantId, input.journeyId, [
+        input.targetTeamId,
+      ]);
       await this.authorize(tx, context, 'journey.transfer', this.scopeOf(head), {
         requireDirect: true,
         allowInactiveTeam: true,
@@ -1670,8 +1675,14 @@ export class JourneyAuthoringRepository {
     return head;
   }
 
-  protected async lockedHead(tx: Tx, tenantId: string, journeyId: string) {
+  protected async lockedHead(
+    tx: Tx,
+    tenantId: string,
+    journeyId: string,
+    additionalTeams: readonly string[] = [],
+  ) {
     const head = await this.head(tx, tenantId, journeyId);
+    await lockTeamReferences(tx, tenantId, [head.ownerTeamId, ...additionalTeams]);
     await this.lockJourney(tx, tenantId, journeyId);
     await this.options.writeGuard?.assertJourneyWritable(tx, tenantId, head.journeyId);
     // อ่านซ้ำหลังได้ lock เพื่อให้ CAS เทียบกับค่าที่ commit ล่าสุด

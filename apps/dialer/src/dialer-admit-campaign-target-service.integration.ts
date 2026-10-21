@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -542,3 +543,39 @@ test('cancel ที่ไม่มี admit ต้นเรื่องถูก
   assert.equal(result?.status, 'REJECTED');
   assert.equal(result?.reasonCode, 'ORIGINAL_ACTION_NOT_FOUND');
 });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual campaign admission ${order}`, async (t) => {
+    const f = await fixture(t);
+    const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.rawTenantId,
+      teamId: f.rawSourceTeamId,
+      table: 'ob_campaign_targets',
+      order,
+      write: () => service.persistCommand(toTenantId(f.rawTenantId), commandFor(f)),
+    });
+  });
+
+for (const operation of ['cancel', 'supersede'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual campaign ${operation} ${order}`, async (t) => {
+      const f = await fixture(t);
+      const service = new DialerAdmitCampaignTargetService(f.application, allowAllScope);
+      const command = commandFor(f);
+      await service.persistCommand(toTenantId(f.rawTenantId), command);
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.rawTenantId,
+        teamId: f.rawSourceTeamId,
+        table: 'ob_campaign_targets',
+        order,
+        existingReferences: true,
+        write: () =>
+          service.persistCommand(
+            toTenantId(f.rawTenantId),
+            targetCancelFor(f, command, operation === 'supersede'),
+          ),
+      });
+    });

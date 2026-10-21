@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -36,6 +37,7 @@ async function createTenantFixture(t: TestContext) {
     await owner.cgRestriction.deleteMany({ where: { tenantId } });
     await owner.jrEventInbox.deleteMany({ where: { tenantId } });
     await owner.contact.deleteMany({ where: { tenantId } });
+    await owner.team.deleteMany({ where: { tenantId } });
     await owner.tenant.deleteMany({ where: { id: tenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -317,3 +319,42 @@ test('delivery validation เป็น fail-closed หลังหมดอา�
   assert.equal(await expiredService.releaseExpiredReservations(tenantId), 0);
   assert.equal(await owner.cgReservation.count({ where: { tenantId, state: 'RELEASED' } }), 1);
 });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual CG reservation admission ${order}`, async (t) => {
+    const f = await createTenantFixture(t);
+    const teamId = randomUUID();
+    await f.owner.team.create({
+      data: { id: teamId, tenantId: f.tenantId, name: 'Reservation writer' },
+    });
+    await f.owner.cgConsent.create({
+      data: {
+        tenantId: f.tenantId,
+        contactId: f.contactId,
+        purpose: 'MARKETING',
+        channel: 'EMAIL',
+        status: 'GRANTED',
+        lawfulBasis: 'CONSENT',
+        evidence: { source: 'isolated-writer' },
+      },
+    });
+    const service = new ContactGovernanceService(f.application);
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId,
+      table: 'cg_reservations',
+      order,
+      write: () =>
+        service.authorizeAndReserve(f.tenantId, {
+          contactId: f.contactId,
+          teamId,
+          channel: 'EMAIL',
+          purpose: 'MARKETING',
+          source: 'JOURNEY',
+          sourceId: 'core-writer',
+          actionKey: randomUUID(),
+          policyVersion: 1,
+        }),
+    });
+  });

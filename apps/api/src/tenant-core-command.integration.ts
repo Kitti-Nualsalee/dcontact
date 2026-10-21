@@ -491,7 +491,12 @@ test('Core HTTP race: Supervisor team drift ต้องได้ current own ac
     const writer = f.owner.$transaction(async (tx) => {
       if (change === 'assignment')
         await tx.user.update({ where: { id: actor.id }, data: { teamId: null } });
-      else await tx.team.update({ where: { id: f.teamId }, data: { isActive: false } });
+      else {
+        // owner-only legacy fault: guard ใหม่ห้ามปิด Team ที่ยังมี User อ้างถึงตามปกติ
+        // ยังต้องพิสูจน์ authorization เมื่อพบข้อมูลเก่าและ row lock ที่ค้างจริง
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
+        await tx.team.update({ where: { id: f.teamId }, data: { isActive: false } });
+      }
       enter();
       await gate;
     });

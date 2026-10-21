@@ -186,12 +186,13 @@ test('role และ plan ต่างกันได้รายการต่
     'agent-workspace',
     'supervisor-workspace',
     'journeys',
+    'tenant-people',
   ]);
   assert.ok(!journeyAdmin.text.includes('contact-governance'), 'plan ไม่รวม governance');
   assert.ok(!journeyAdmin.text.includes('navigation.apps.contactGovernance'));
   assert.deepEqual(
     journeyAdmin.json.groups.map((group: { id: string }) => group.id),
-    ['live', 'automation', 'operations'],
+    ['live', 'automation', 'operations', 'settings'],
   );
   assert.deepEqual(journeyAdmin.json.apps[3], {
     id: 'journeys',
@@ -237,6 +238,17 @@ test('role และ plan ต่างกันได้รายการต่
         { id: 'work', labelKey: 'navigation.sections.work', items: [{ appId: 'journeys' }] },
       ],
     },
+    {
+      id: 'people',
+      labelKey: 'navigation.areas.people',
+      sections: [
+        {
+          id: 'accounts',
+          labelKey: 'navigation.sections.accounts',
+          items: [{ appId: 'tenant-people' }],
+        },
+      ],
+    },
   ]);
   assert.ok(!journeyAdmin.text.includes('navigation.areas.governance'));
   assert.ok(!journeyAdmin.text.includes('navigation.areas.integrations'));
@@ -254,7 +266,12 @@ test('role และ plan ต่างกันได้รายการต่
   assert.equal(journeyAgent.json.tenantDefaultPins, undefined, 'เฉพาะ ADMIN');
 
   const emptyAdmin = await navigation('empty-admin');
-  assert.deepEqual(appIds(emptyAdmin.json), ['home', 'agent-workspace', 'supervisor-workspace']);
+  assert.deepEqual(appIds(emptyAdmin.json), [
+    'home',
+    'agent-workspace',
+    'supervisor-workspace',
+    'tenant-people',
+  ]);
 
   // tenant ที่ไม่มี plan binding (ก่อน A1) — role อย่างเดียว (ตัดสินใน #451)
   const legacyAdmin = await navigation('legacy-admin');
@@ -265,6 +282,7 @@ test('role และ plan ต่างกันได้รายการต่
     'journeys',
     'contact-governance',
     'dphone-embedding',
+    'tenant-people',
   ]);
   assert.deepEqual(legacyAdmin.json.pins, {
     appIds: [
@@ -274,6 +292,7 @@ test('role และ plan ต่างกันได้รายการต่
       'journeys',
       'contact-governance',
       'dphone-embedding',
+      'tenant-people',
     ],
     source: 'SYSTEM',
     revision: 0,

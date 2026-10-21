@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
+import {
+  Prisma,
+  withTenantDatabaseTransaction,
+  lockTeamReferences,
+  type PrismaClient,
+} from '@d-contact/db';
 import {
   CG5_CONTRACT_VERSION,
   CG5_EVENT_AGGREGATE_TYPES,
@@ -44,6 +49,7 @@ export class Cg5AlertRepository {
   }) {
     const scopeKey = cg5AlertScopeKey(input.scope);
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (tx) => {
+      await lockTeamReferences(tx, input.tenantId, [input.scope.teamId]);
       const current = await tx.cg5AlertState.findUnique({
         where: {
           tenantId_ruleCode_scopeKey: {

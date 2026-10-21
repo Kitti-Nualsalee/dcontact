@@ -6,5 +6,9 @@ export * from './qm';
 export * from './platform-provisioning';
 export * from './embed-origin';
 export * from './object-storage';
-export { coreOrganizationNameError, coreTimeZoneValid } from './core-settings.js';
+export {
+  coreOrganizationNameError,
+  coreTeamNameError,
+  coreTimeZoneValid,
+} from './core-settings.js';
 export { coreNameFixtures, coreTimeZoneFixtures } from './core-settings-fixtures.js';

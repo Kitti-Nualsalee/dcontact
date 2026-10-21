@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 /**
  * C1.6 acceptance: SEND composition ต่อ ContactGovernanceService และ DeliveryTestAdapter
  * ตัวจริงบน Postgres — พิสูจน์ boundary ข้าม app ไม่ใช่ยืมโค้ด (`@d-contact/contact-governance`
@@ -641,3 +642,33 @@ test('BRANCH ตัดสินผ่าน DC_EXPR:1 ก่อนถึง SEND
   assert.equal(result.enrollment.currentStepId, 'exit-done');
   assert.equal(await f.owner.dlOutboxEntry.count({ where: { tenantId: f.rawTenantId } }), 1);
 });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual legacy SEND reservation ${order}`, async (t) => {
+    const f = await fixture(t);
+    const parked = await f.enrollAndAdvanceToSend();
+    const executor = new JourneySendExecutor(
+      f.execution,
+      f.definitions,
+      new AllowAllScope(),
+      f.governance,
+      f.delivery,
+    );
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.rawTenantId,
+      teamId: f.rawTeamId,
+      table: 'cg_reservations',
+      order,
+      existingReferences: true,
+      write: () =>
+        executor.handleSend({
+          tenantId: f.rawTenantId,
+          enrollmentId: parked.enrollment.enrollmentId,
+          stepId: parked.stepId,
+          stepSequence: parked.stepSequence,
+          contact: { contactId: f.rawContactId, identityId: f.rawIdentityId },
+          correlationId: randomUUID(),
+        }),
+    });
+  });

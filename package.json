@@ -107,7 +107,9 @@
     "test:identity-traces": "node scripts/identity-traces-acceptance.mjs",
     "test:keycloak-branding": "node --test scripts/keycloak-branding-setup.test.mjs",
     "test:keycloak-account-service": "node --test scripts/keycloak-account-service-setup.test.mjs",
-    "test:keycloak-provisioning": "node --test scripts/keycloak-provisioning-setup.test.mjs"
+    "test:keycloak-provisioning": "node --test scripts/keycloak-provisioning-setup.test.mjs",
+    "test:core-settings:writers": "node scripts/core-settings-writer-tests.mjs",
+    "test:core-settings:discovery": "node --test scripts/core-settings-writer-tests.test.mjs"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

@@ -4,6 +4,7 @@ import {
   type JrJourneyDefinitionStatus,
   type PrismaClient,
   withTenantDatabaseTransaction,
+  lockTeamReferences,
 } from '@d-contact/db';
 import type { ExpressionEvaluator } from '@d-contact/cxa-contracts';
 import {
@@ -152,6 +153,7 @@ export class JourneyDefinitionRepository {
     const contentHash = canonicalContentHash(input);
 
     const persist = async (transaction: Prisma.TransactionClient) => {
+      await lockTeamReferences(transaction, input.tenantId, [input.ownerTeamId]);
       await transaction.$queryRaw(
         Prisma.sql`SELECT 1 AS acquired FROM pg_advisory_xact_lock(hashtext(${`jr-journey-definition:${input.tenantId}:${input.journeyId}`}))`,
       );

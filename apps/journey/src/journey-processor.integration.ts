@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -541,3 +542,69 @@ test('สอง tenant ใช้ identity เดียวกันแต่ไ�
     (error: unknown) => error instanceof JourneyEventNotReadyError,
   );
 });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual legacy processor SEND action ${order}`, async (t) => {
+    const f = await createTenantFixture(t);
+    const teamId = randomUUID(),
+      contactId = randomUUID(),
+      identityId = randomUUID();
+    const email = `${randomUUID()}@test.invalid`;
+    await f.owner.team.create({
+      data: { id: teamId, tenantId: f.tenantId, name: 'Legacy processor' },
+    });
+    await f.owner.contact.create({
+      data: {
+        id: contactId,
+        tenantId: f.tenantId,
+        identities: {
+          create: { id: identityId, tenantId: f.tenantId, type: 'EMAIL', value: email },
+        },
+        cgConsents: {
+          create: {
+            identityId,
+            purpose: 'MARKETING',
+            channel: 'EMAIL',
+            status: 'GRANTED',
+            lawfulBasis: 'CONSENT',
+            evidence: {},
+          },
+        },
+      },
+    });
+    const inbox = new EventInboxService(f.application);
+    const receipt = await inbox.accept(f.tenantId, {
+      source: 'billing',
+      eventId: randomUUID(),
+      type: 'payment.failed',
+      occurredAt: new Date().toISOString(),
+      schemaVersion: 1,
+      contactRef: { kind: 'EMAIL', value: email },
+      payload: {},
+    });
+    await inbox.publishNext(f.tenantId, { publish: async () => {} });
+    const ports = createJourneyFoundationPorts(f.application);
+    const processor = new JourneyProcessor(f.application, {
+      ...ports,
+      teamContactScopeAuthorizer: {
+        authorize: async (input) => ({ decision: 'ALLOW', scopeVersion: 1, evaluatedAt: input.at }),
+      },
+    });
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId,
+      table: 'jr_actions',
+      order,
+      write: () =>
+        processor.processEvent(f.tenantId, {
+          receiptId: receipt.receiptId,
+          journeyVersion: 1,
+          stepId: 'send',
+          channel: 'EMAIL',
+          purpose: 'MARKETING',
+          policyVersion: 1,
+          teamId,
+        }),
+    });
+  });
