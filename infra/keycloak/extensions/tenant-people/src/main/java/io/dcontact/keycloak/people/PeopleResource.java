@@ -22,14 +22,22 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.keycloak.connections.jpa.JpaConnectionProvider;
+import org.keycloak.common.util.Time;
+import org.keycloak.authentication.actiontoken.execactions.ExecuteActionsActionToken;
+import org.keycloak.email.EmailException;
+import org.keycloak.email.EmailSenderProvider;
+import org.keycloak.models.AbstractKeycloakTransaction;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.OrganizationModel;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
+import org.keycloak.models.credential.OTPCredentialModel;
 import org.keycloak.models.utils.KeycloakModelUtils;
+import org.keycloak.models.utils.SystemClientUtil;
 import org.keycloak.organization.OrganizationProvider;
 import org.keycloak.services.managers.AppAuthManager;
+import org.keycloak.services.resources.LoginActionsService;
 import org.keycloak.userprofile.UserProfileProvider;
 
 @Produces(MediaType.APPLICATION_JSON)
@@ -109,7 +117,7 @@ public class PeopleResource {
       var configured=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
       if(configured==null||configured.isComposite())throw denied(503,"TENANT_ROLE_NOT_READY");
     }
-    return json(200,Map.of("version",1,"ready",true,"tenantId",tenantId));
+    return json(200,Map.of("version",1,"ready",true,"tenantId",tenantId,"invitationReady",invitationReady(binding.realm())));
   }
 
   @POST @Path("operations/{operationId}/steps/CREATE_IDENTITY") @Consumes(MediaType.APPLICATION_JSON)
@@ -243,5 +251,269 @@ public class PeopleResource {
     if(!operation.tenantId.equals(tenantId)||!operation.targetUserId.equals(target)||!operation.payloadDigest.equals(payloadDigest))throw denied(409,"CORRELATION_CONFLICT");
     PeopleReceipt result=manager.find(PeopleReceipt.class,hash(key+":"+step+":0"));
     return result==null?json(200,Map.of("outcome","UNKNOWN")):receipt(result);
+  }
+
+  @GET @Path("operations/{operationId}/activation")
+  public Response activation(@PathParam("operationId") String operationId,@QueryParam("tenantId") String tenantId,
+    @QueryParam("targetUserId") String target,@QueryParam("payloadDigest") String payloadDigest,
+    @QueryParam("email") String email,@QueryParam("displayName") String name,@QueryParam("role") String role,
+    @QueryParam("probeRef") String probeRef) {
+    uuid(tenantId);Binding binding=authorize(tenantId);uuid(operationId);uuid(target);uuid(probeRef);
+    if(payloadDigest==null||!payloadDigest.matches("[a-f0-9]{64}")||email==null||name==null||role==null
+      ||!Set.of("AGENT","SUPERVISOR","ADMIN").contains(role))throw denied(400,"INVALID_REQUEST");
+    EntityManager manager=entityManager();String key=operationKey(binding,operationId);
+    PeopleOperation operation=manager.find(PeopleOperation.class,key);
+    if(operation==null)return json(200,Map.of("outcome","UNKNOWN"));
+    String fingerprint=hash(String.join("\n",tenantId,target,payloadDigest,email,name,role,binding.organization().getId()));
+    if(!operation.tenantId.equals(tenantId)||!operation.targetUserId.equals(target)
+      ||!operation.payloadDigest.equals(payloadDigest)||!operation.requestDigest.equals(fingerprint))throw denied(409,"CORRELATION_CONFLICT");
+    PeopleReceipt provisioned=manager.find(PeopleReceipt.class,hash(key+":VERIFY_PROVISIONED:0"));
+    if(provisioned==null||!"SUCCEEDED".equals(provisioned.outcome)||!target.equals(provisioned.identityId))return json(200,Map.of("outcome","UNKNOWN"));
+    UserModel user=session.users().getUserById(binding.realm(),target);
+    var desired=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
+    if(user==null||desired==null||desired.isComposite()||user.getServiceAccountClientLink()!=null||!user.isEnabled()
+      ||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getUsername())||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getEmail())
+      ||!"TENANT_USER".equals(user.getFirstAttribute("dc_identity_class"))
+      ||!tenantId.equals(user.getFirstAttribute("tenant_id"))||!target.equals(user.getFirstAttribute("dc_user_id"))
+      ||!binding.organization().getAlias().equals(user.getFirstAttribute("tenant_slug"))
+      ||!operationId.equals(user.getFirstAttribute("dc_tenant_people_operation_id")))throw denied(409,"IDENTITY_MAPPING_CONFLICT");
+    var roles=user.getRoleMappingsStream().toList();
+    if(roles.size()!=1||!roles.get(0).getId().equals(desired.getId()))throw denied(409,"IDENTITY_ROLE_CONFLICT");
+    var memberships=session.getProvider(OrganizationProvider.class).getByMember(user).toList();
+    if(memberships.size()!=1||!memberships.get(0).getId().equals(binding.organization().getId()))throw denied(409,"IDENTITY_ORGANIZATION_CONFLICT");
+    var credentials=user.credentialManager().getStoredCredentialsStream().toList();
+    boolean password=credentials.stream().anyMatch(credential->"password".equals(credential.getType()));
+    boolean totp=credentials.stream().filter(credential->"otp".equals(credential.getType()))
+      .anyMatch(credential->"totp".equals(OTPCredentialModel.createFromCredentialModel(credential).getOTPCredentialData().getSubType()));
+    boolean verified=user.isEmailVerified()&&user.getRequiredActionsStream().findAny().isEmpty()&&password&&totp;
+    return json(200,Map.of("version",1,"outcome",verified?"VERIFIED":"PENDING","tenantId",tenantId,"operationId",operationId,
+      "userId",target,"payloadDigest",payloadDigest,"probeRef",probeRef,"serverEpoch",Time.currentTime()));
+  }
+
+  private void invitationProfileReady() {
+    var field=session.getProvider(UserProfileProvider.class).getConfiguration().getAttribute("dc_invitation_not_before");
+    if(field==null||field.isMultivalued()||field.getPermissions()==null
+      ||!Set.of("admin").equals(field.getPermissions().getEdit())||!Set.of("admin").equals(field.getPermissions().getView()))throw denied(503,"INVITATION_PROFILE_NOT_READY");
+  }
+
+  private boolean invitationReady(RealmModel realm) {
+    try { invitationProfileReady(); }
+    catch(WebApplicationException unavailable) {
+      if(unavailable.getResponse().getStatus()==503)return false;
+      throw unavailable;
+    }
+    var smtp=realm.getSmtpConfig();
+    if(smtp==null||smtp.get("host")==null||smtp.get("host").isBlank()
+      ||smtp.get("from")==null||smtp.get("from").isBlank())return false;
+    String port=smtp.get("port");
+    if(port==null||!port.matches("[0-9]{1,5}"))return false;
+    int number=Integer.parseInt(port);
+    if(number<1||number>65535)return false;
+    var systemClient=SystemClientUtil.getSystemClient(realm);
+    if(systemClient==null||!systemClient.isEnabled())return false;
+    var sender=session.getProvider(EmailSenderProvider.class);
+    return sender!=null&&"org.keycloak.email.DefaultEmailSenderProvider".equals(sender.getClass().getName());
+  }
+
+  private Response invitationIntent(PeopleOperation operation,PeopleInvitationIntent intent) {
+    var result=new java.util.HashMap<String,Object>();
+    result.put("outcome","INTENT");result.put("intentRef",intent.id);result.put("quiescent",false);
+    result.put("tenantId",operation.tenantId);result.put("operationId",operation.operationId);result.put("userId",operation.targetUserId);
+    result.put("generation",intent.generation);result.put("providerAttemptRef",intent.providerAttemptRef);
+    result.put("payloadDigest",operation.payloadDigest);result.put("fencingToken",Long.toString(intent.fencingToken));
+    result.put("leaseOwner",intent.leaseOwner);result.put("notBeforeEpoch",intent.notBeforeEpoch);result.put("serverEpoch",Time.currentTimeSeconds());
+    return json(200,result);
+  }
+
+  private void invitationDescriptor(PeopleInvitationIntent intent,String attempt,String fence,String owner) {
+    if(!intent.providerAttemptRef.equals(attempt)||!Long.toString(intent.fencingToken).equals(fence)||!intent.leaseOwner.equals(owner))throw denied(409,"CORRELATION_CONFLICT");
+  }
+
+  private long invitationGeneration(String generation) {
+    if(generation==null||!generation.matches("[1-9][0-9]{0,9}"))throw denied(400,"INVALID_REQUEST");
+    long number=Long.parseLong(generation);
+    if(number>Integer.MAX_VALUE)throw denied(400,"INVALID_REQUEST");
+    return number;
+  }
+
+  @POST @Path("operations/{operationId}/invitations/{generation}/intent") @Consumes(MediaType.APPLICATION_JSON)
+  public Response prepareInvitation(@PathParam("operationId") String operationId,@PathParam("generation") String generation,Map<String,Object> body) {
+    String tenantId=text(body,"tenantId");uuid(tenantId);Binding binding=authorize(tenantId);uuid(operationId);
+    if(!body.keySet().equals(Set.of("tenantId","targetUserId","payloadDigest","fencingToken","email","displayName","role","providerAttemptRef","leaseOwner")))throw denied(400,"INVALID_REQUEST");
+    long generationNumber=invitationGeneration(generation);
+    invitationProfileReady();
+    String target=text(body,"targetUserId"),payloadDigest=text(body,"payloadDigest"),email=text(body,"email"),name=text(body,"displayName"),role=text(body,"role");
+    String attempt=text(body,"providerAttemptRef"),owner=text(body,"leaseOwner"),suppliedFence=text(body,"fencingToken");
+    uuid(target);uuid(attempt);
+    long fence;
+    try { if(!suppliedFence.matches("[1-9][0-9]{0,18}"))throw new IllegalArgumentException();fence=Long.parseLong(suppliedFence); }
+    catch(IllegalArgumentException failure) { throw denied(400,"INVALID_REQUEST"); }
+    if(!payloadDigest.matches("[a-f0-9]{64}")||!owner.matches("[A-Za-z0-9_.:-]{1,128}"))throw denied(400,"INVALID_REQUEST");
+    EntityManager manager=entityManager();lockTenant(manager,binding,tenantId);
+    String key=operationKey(binding,operationId),fingerprint=hash(String.join("\n",tenantId,target,payloadDigest,email,name,role,binding.organization().getId()));
+    PeopleOperation operation=manager.find(PeopleOperation.class,key);
+    if(operation==null)throw denied(409,"PROVISIONING_REQUIRED");
+    if(!operation.requestDigest.equals(fingerprint)||!operation.payloadDigest.equals(payloadDigest))throw denied(409,"CORRELATION_CONFLICT");
+    PeopleReceipt provisioned=manager.find(PeopleReceipt.class,hash(key+":VERIFY_PROVISIONED:0"));
+    if(provisioned==null||!"SUCCEEDED".equals(provisioned.outcome)||!target.equals(provisioned.identityId))throw denied(409,"PROVISIONING_REQUIRED");
+    UserModel user=session.users().getUserById(binding.realm(),target);
+    var desired=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
+    if(!Set.of("AGENT","SUPERVISOR","ADMIN").contains(role)
+      ||!Arrays.asList(String.valueOf(binding.client().getAttribute("dc_allowed_roles")).split(",")).contains(role)
+      ||desired==null||desired.isComposite())throw denied(503,"TENANT_ROLE_NOT_READY");
+    if(user==null||user.getServiceAccountClientLink()!=null||!user.isEnabled()
+      ||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getUsername())||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getEmail())
+      ||!name.equals(user.getFirstName())||!"TENANT_USER".equals(user.getFirstAttribute("dc_identity_class"))
+      ||!tenantId.equals(user.getFirstAttribute("tenant_id"))||!target.equals(user.getFirstAttribute("dc_user_id"))
+      ||!binding.organization().getAlias().equals(user.getFirstAttribute("tenant_slug"))
+      ||!operationId.equals(user.getFirstAttribute("dc_tenant_people_operation_id")))throw denied(409,"IDENTITY_MAPPING_CONFLICT");
+    if(!user.hasRole(desired)||user.getRoleMappingsStream().anyMatch(mapped->!mapped.getId().equals(desired.getId())))throw denied(409,"IDENTITY_ROLE_CONFLICT");
+    var memberships=session.getProvider(OrganizationProvider.class).getByMember(user).toList();
+    if(memberships.size()!=1||!memberships.get(0).getId().equals(binding.organization().getId()))throw denied(409,"IDENTITY_ORGANIZATION_CONFLICT");
+    if(user.isEmailVerified()||user.credentialManager().getStoredCredentialsStream().findAny().isPresent()
+      ||!Set.of("VERIFY_EMAIL","UPDATE_PASSWORD","CONFIGURE_TOTP").equals(user.getRequiredActionsStream().collect(java.util.stream.Collectors.toSet())))throw denied(409,"IDENTITY_ACTIVATION_CONFLICT");
+    String intentId=hash(key+":SEND_INTENT:"+generation);PeopleInvitationIntent previous=manager.find(PeopleInvitationIntent.class,intentId);
+    var history=manager.createQuery("SELECT intent FROM PeopleInvitationIntent intent WHERE intent.operationKey=:operation ORDER BY intent.generation DESC",PeopleInvitationIntent.class)
+      .setParameter("operation",key).setMaxResults(1).getResultList();
+    PeopleInvitationIntent latest=history.isEmpty()?null:history.get(0);
+    if(previous!=null) {
+      invitationDescriptor(previous,attempt,suppliedFence,owner);
+      if(latest==null||!latest.id.equals(previous.id)||!Long.toString(previous.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before")))throw denied(409,"GENERATION_FENCE_CONFLICT");
+      return invitationIntent(operation,previous);
+    }
+    long serverEpoch=Time.currentTimeSeconds(),notBefore=serverEpoch;
+    if(generationNumber==1) {
+      if(latest!=null||user.getFirstAttribute("dc_invitation_not_before")!=null)throw denied(409,"GENERATION_FENCE_CONFLICT");
+    } else {
+      if(latest==null||generationNumber!=latest.generation+1||fence<=latest.fencingToken)throw denied(409,"INVITATION_GENERATION_CONFLICT");
+      if(!Long.toString(latest.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before")))throw denied(409,"GENERATION_FENCE_CONFLICT");
+      PeopleInvitationFinished finished=manager.find(PeopleInvitationFinished.class,latest.id);
+      if(finished==null||!"SENT".equals(finished.outcome))throw denied(409,"INVITATION_PREVIOUS_OUTCOME_UNKNOWN");
+      long recent=manager.createQuery("SELECT COUNT(intent) FROM PeopleInvitationIntent intent WHERE intent.operationKey=:operation AND intent.generation>1 AND intent.createdAtEpoch>:cutoff",Long.class)
+        .setParameter("operation",key).setParameter("cutoff",serverEpoch-3600).getSingleResult();
+      if(recent>=3)throw denied(429,"INVITATION_RESEND_RATE_LIMIT");
+      notBefore=Math.max(serverEpoch,Math.max(latest.notBeforeEpoch,finished.issuedAtEpoch)+1);
+    }
+    PeopleInvitationIntent intent=new PeopleInvitationIntent();intent.id=intentId;intent.operationKey=key;intent.generation=generationNumber;
+    intent.providerAttemptRef=attempt;intent.requestDigest=fingerprint;intent.fencingToken=fence;intent.leaseOwner=owner;intent.notBeforeEpoch=notBefore;intent.createdAtEpoch=serverEpoch;
+    try {
+      user.setSingleAttribute("dc_invitation_not_before",Long.toString(intent.notBeforeEpoch));
+      manager.persist(intent);manager.flush();return invitationIntent(operation,intent);
+    } catch(RuntimeException failure) {
+      session.getTransactionManager().setRollbackOnly();throw denied(503,"INVITATION_OUTCOME_UNKNOWN");
+    }
+  }
+
+  @GET @Path("operations/{operationId}/invitations/{generation}/intent")
+  public Response readInvitationIntent(@PathParam("operationId") String operationId,@PathParam("generation") String generation,
+    @QueryParam("tenantId") String tenantId,@QueryParam("targetUserId") String target,@QueryParam("payloadDigest") String payloadDigest,
+    @QueryParam("providerAttemptRef") String attempt,@QueryParam("fencingToken") String fence,@QueryParam("leaseOwner") String owner) {
+    return readInvitationIntent(operationId,generation,tenantId,target,payloadDigest,attempt,fence,owner,true);
+  }
+
+  private Response readInvitationIntent(String operationId,String generation,String tenantId,String target,String payloadDigest,
+    String attempt,String fence,String owner,boolean requireCurrentFence) {
+    uuid(tenantId);Binding binding=authorize(tenantId);uuid(operationId);uuid(target);uuid(attempt);
+    invitationGeneration(generation);
+    invitationProfileReady();
+    if(payloadDigest==null||!payloadDigest.matches("[a-f0-9]{64}")||fence==null||!fence.matches("[1-9][0-9]{0,18}")
+      ||owner==null||!owner.matches("[A-Za-z0-9_.:-]{1,128}"))throw denied(400,"INVALID_REQUEST");
+    EntityManager manager=entityManager();String key=operationKey(binding,operationId);
+    PeopleOperation operation=manager.find(PeopleOperation.class,key);
+    if(operation==null)return json(200,Map.of("outcome","UNKNOWN"));
+    if(!operation.tenantId.equals(tenantId)||!operation.targetUserId.equals(target)||!operation.payloadDigest.equals(payloadDigest))throw denied(409,"CORRELATION_CONFLICT");
+    PeopleInvitationIntent intent=manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:"+generation));
+    if(intent==null)return json(200,Map.of("outcome","UNKNOWN"));
+    invitationDescriptor(intent,attempt,fence,owner);
+    UserModel user=session.users().getUserById(binding.realm(),target);
+    if(user==null||(requireCurrentFence&&!Long.toString(intent.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before"))))throw denied(409,"GENERATION_FENCE_CONFLICT");
+    return invitationIntent(operation,intent);
+  }
+
+  private Response invitationDelivery(PeopleOperation operation,PeopleInvitationIntent intent) {
+    EntityManager manager=entityManager();
+    PeopleInvitationDispatch dispatch=manager.find(PeopleInvitationDispatch.class,intent.id);
+    if(dispatch==null)return json(200,Map.of("outcome","UNKNOWN"));
+    PeopleInvitationFinished finished=manager.find(PeopleInvitationFinished.class,intent.id);
+    var result=new java.util.HashMap<String,Object>();
+    result.put("outcome",finished==null?"DISPATCHING":finished.outcome);result.put("quiescent",finished!=null);
+    result.put("tenantId",operation.tenantId);result.put("operationId",operation.operationId);result.put("userId",operation.targetUserId);
+    result.put("generation",intent.generation);result.put("providerAttemptRef",intent.providerAttemptRef);result.put("payloadDigest",operation.payloadDigest);
+    result.put("fencingToken",Long.toString(intent.fencingToken));result.put("leaseOwner",intent.leaseOwner);result.put("notBeforeEpoch",intent.notBeforeEpoch);
+    if(finished!=null) { result.put("receiptRef",finished.receiptRef);result.put("issuedAtEpoch",finished.issuedAtEpoch); }
+    return json(200,result);
+  }
+
+  @POST @Path("operations/{operationId}/invitations/{generation}/dispatch") @Consumes(MediaType.APPLICATION_JSON)
+  public Response dispatchInvitation(@PathParam("operationId") String operationId,@PathParam("generation") String generation,Map<String,Object> body) {
+    prepareInvitation(operationId,generation,body);
+    Binding binding=authorize(text(body,"tenantId"));
+    EntityManager manager=entityManager();String key=operationKey(binding,operationId);
+    PeopleOperation operation=manager.find(PeopleOperation.class,key);
+    PeopleInvitationIntent intent=manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:"+generation));
+    if(Time.currentTimeSeconds()<intent.notBeforeEpoch)throw denied(409,"GENERATION_FENCE_NOT_REACHED");
+    if(manager.find(PeopleInvitationDispatch.class,intent.id)!=null)return invitationDelivery(operation,intent);
+    PeopleInvitationDispatch dispatch=new PeopleInvitationDispatch();dispatch.id=intent.id;dispatch.startedAtEpoch=Time.currentTimeSeconds();
+    try { manager.persist(dispatch);manager.flush(); }
+    catch(RuntimeException failure) { session.getTransactionManager().setRollbackOnly();throw denied(503,"INVITATION_OUTCOME_UNKNOWN"); }
+    var factory=session.getKeycloakSessionFactory();var context=session.getContext();var request=context.getHttpRequest();var connection=context.getConnection();
+    var accepted=Map.copyOf(body);
+    session.getTransactionManager().enlistAfterCompletion(new AbstractKeycloakTransaction() {
+      protected void rollbackImpl() {}
+      protected void commitImpl() {
+        try {
+          KeycloakModelUtils.runJobInTransaction(factory,context,sendSession->{
+            sendSession.getContext().setHttpRequest(request);sendSession.getContext().setConnection(connection);
+            new PeopleResource(sendSession).finishInvitation(operationId,generation,accepted);
+          });
+        } catch(RuntimeException failure) {
+          System.getLogger(PeopleResource.class.getName()).log(System.Logger.Level.WARNING,"INVITATION_FINISH_UNKNOWN:"+failure.getClass().getSimpleName());
+        }
+      }
+    });
+    return invitationDelivery(operation,intent);
+  }
+
+  private void finishInvitation(String operationId,String generation,Map<String,Object> body) {
+    prepareInvitation(operationId,generation,body);
+    Binding binding=authorize(text(body,"tenantId"));
+    EntityManager manager=entityManager();String key=operationKey(binding,operationId);
+    PeopleInvitationIntent intent=manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:"+generation));
+    if(manager.find(PeopleInvitationDispatch.class,intent.id)==null)throw denied(409,"DISPATCH_REQUIRED");
+    if(manager.find(PeopleInvitationFinished.class,intent.id)!=null)return;
+    UserModel user=session.users().getUserById(binding.realm(),text(body,"targetUserId"));
+    long issuedAt=Time.currentTimeSeconds();
+    if(issuedAt<intent.notBeforeEpoch)throw denied(409,"GENERATION_FENCE_NOT_REACHED");
+    var systemClient=SystemClientUtil.getSystemClient(binding.realm());
+    if(systemClient==null||!systemClient.isEnabled())throw denied(503,"INVITATION_CLIENT_NOT_READY");
+    var sender=session.getProvider(EmailSenderProvider.class);
+    if(sender==null||!"org.keycloak.email.DefaultEmailSenderProvider".equals(sender.getClass().getName()))throw denied(503,"INVITATION_SENDER_NOT_READY");
+    var token=new ExecuteActionsActionToken(user.getId(),user.getEmail(),Math.toIntExact(issuedAt+259200),List.of("VERIFY_EMAIL","UPDATE_PASSWORD","CONFIGURE_TOTP"),null,systemClient.getClientId());
+    var uri=session.getContext().getUri();
+    String encoded=token.serialize(session,binding.realm(),uri);
+    issuedAt=token.getIat();
+    if(issuedAt<intent.notBeforeEpoch)throw denied(409,"GENERATION_FENCE_NOT_REACHED");
+    if(token.getExp()!=issuedAt+259200) { token.exp(issuedAt+259200);encoded=session.tokens().encode(token); }
+    String link=LoginActionsService.actionTokenProcessor(uri).queryParam("key",encoded).build(binding.realm().getName()).toString();
+    String outcome;
+    try {
+      sender.send(binding.realm().getSmtpConfig(),user,
+        "คำเชิญเข้าใช้งาน D-Contact [dc-attempt:"+intent.providerAttemptRef+"]",
+        "ตั้งรหัสผ่าน ยืนยันอีเมล และตั้งค่า Authenticator ผ่านลิงก์นี้ภายใน 72 ชั่วโมง:\n\n"+link+"\n\nหากไม่ได้ขอใช้งาน ให้เพิกเฉยต่ออีเมลนี้",null);
+      outcome="SENT";
+    } catch(EmailException failure) { outcome="UNKNOWN"; }
+    PeopleInvitationFinished finished=new PeopleInvitationFinished();finished.id=intent.id;finished.outcome=outcome;finished.issuedAtEpoch=issuedAt;
+    finished.receiptRef=hash(intent.id+":SMTP_FINISHED:"+outcome+":"+issuedAt);
+    manager.persist(finished);manager.flush();
+  }
+
+  @GET @Path("operations/{operationId}/invitations/{generation}/dispatch")
+  public Response readInvitationDelivery(@PathParam("operationId") String operationId,@PathParam("generation") String generation,
+    @QueryParam("tenantId") String tenantId,@QueryParam("targetUserId") String target,@QueryParam("payloadDigest") String payloadDigest,
+    @QueryParam("providerAttemptRef") String attempt,@QueryParam("fencingToken") String fence,@QueryParam("leaseOwner") String owner) {
+    Response validated=readInvitationIntent(operationId,generation,tenantId,target,payloadDigest,attempt,fence,owner,false);
+    if(validated.getEntity() instanceof Map<?,?> result&&"UNKNOWN".equals(result.get("outcome")))return validated;
+    Binding binding=authorize(tenantId);EntityManager manager=entityManager();String key=operationKey(binding,operationId);
+    return invitationDelivery(manager.find(PeopleOperation.class,key),manager.find(PeopleInvitationIntent.class,hash(key+":SEND_INTENT:"+generation)));
   }
 }

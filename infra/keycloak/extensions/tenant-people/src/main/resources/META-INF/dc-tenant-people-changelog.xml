@@ -36,4 +36,44 @@
     ]]></sql>
     <sql>CREATE TRIGGER dc_tp_receipt_immutable BEFORE UPDATE OR DELETE ON DC_TENANT_PEOPLE_RECEIPT FOR EACH ROW EXECUTE FUNCTION dc_tp_receipt_immutable()</sql>
   </changeSet>
+  <changeSet id="dc-tenant-people-invitation-intent-v1" author="dcontact">
+    <createTable tableName="DC_TENANT_PEOPLE_INVITATION_INTENT">
+      <column name="ID" type="VARCHAR(64)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="OPERATION_KEY" type="VARCHAR(64)"><constraints nullable="false"/></column>
+      <column name="GENERATION" type="BIGINT"><constraints nullable="false"/></column>
+      <column name="PROVIDER_ATTEMPT_REF" type="VARCHAR(36)"><constraints nullable="false"/></column>
+      <column name="REQUEST_DIGEST" type="VARCHAR(64)"><constraints nullable="false"/></column>
+      <column name="FENCING_TOKEN" type="BIGINT"><constraints nullable="false"/></column>
+      <column name="LEASE_OWNER" type="VARCHAR(128)"><constraints nullable="false"/></column>
+      <column name="NOT_BEFORE_EPOCH" type="BIGINT"><constraints nullable="false"/></column>
+    </createTable>
+    <addUniqueConstraint tableName="DC_TENANT_PEOPLE_INVITATION_INTENT" columnNames="OPERATION_KEY,GENERATION" constraintName="DC_TP_INVITATION_GENERATION"/>
+    <addUniqueConstraint tableName="DC_TENANT_PEOPLE_INVITATION_INTENT" columnNames="PROVIDER_ATTEMPT_REF" constraintName="DC_TP_INVITATION_ATTEMPT"/>
+    <addForeignKeyConstraint baseTableName="DC_TENANT_PEOPLE_INVITATION_INTENT" baseColumnNames="OPERATION_KEY" referencedTableName="DC_TENANT_PEOPLE_OPERATION" referencedColumnNames="ID" constraintName="DC_TP_INVITATION_OPERATION"/>
+    <sql>ALTER TABLE DC_TENANT_PEOPLE_INVITATION_INTENT ADD CONSTRAINT DC_TP_INVITATION_POSITIVE CHECK (GENERATION&gt;0 AND FENCING_TOKEN&gt;0 AND NOT_BEFORE_EPOCH&gt;0)</sql>
+    <sql>CREATE TRIGGER dc_tp_invitation_intent_immutable BEFORE UPDATE OR DELETE ON DC_TENANT_PEOPLE_INVITATION_INTENT FOR EACH ROW EXECUTE FUNCTION dc_tp_receipt_immutable()</sql>
+  </changeSet>
+  <changeSet id="dc-tenant-people-invitation-dispatch-v1" author="dcontact">
+    <createTable tableName="DC_TENANT_PEOPLE_INVITATION_DISPATCH">
+      <column name="ID" type="VARCHAR(64)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="STARTED_AT_EPOCH" type="BIGINT"><constraints nullable="false"/></column>
+    </createTable>
+    <addForeignKeyConstraint baseTableName="DC_TENANT_PEOPLE_INVITATION_DISPATCH" baseColumnNames="ID" referencedTableName="DC_TENANT_PEOPLE_INVITATION_INTENT" referencedColumnNames="ID" constraintName="DC_TP_DISPATCH_INTENT"/>
+    <createTable tableName="DC_TENANT_PEOPLE_INVITATION_FINISHED">
+      <column name="ID" type="VARCHAR(64)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="OUTCOME" type="VARCHAR(32)"><constraints nullable="false"/></column>
+      <column name="ISSUED_AT_EPOCH" type="BIGINT"><constraints nullable="false"/></column>
+      <column name="RECEIPT_REF" type="VARCHAR(64)"><constraints nullable="false"/></column>
+    </createTable>
+    <addForeignKeyConstraint baseTableName="DC_TENANT_PEOPLE_INVITATION_FINISHED" baseColumnNames="ID" referencedTableName="DC_TENANT_PEOPLE_INVITATION_DISPATCH" referencedColumnNames="ID" constraintName="DC_TP_FINISHED_DISPATCH"/>
+    <sql>ALTER TABLE DC_TENANT_PEOPLE_INVITATION_FINISHED ADD CONSTRAINT DC_TP_FINISHED_OUTCOME CHECK (OUTCOME IN ('SENT','UNKNOWN') AND ISSUED_AT_EPOCH&gt;0)</sql>
+    <sql>CREATE TRIGGER dc_tp_invitation_dispatch_immutable BEFORE UPDATE OR DELETE ON DC_TENANT_PEOPLE_INVITATION_DISPATCH FOR EACH ROW EXECUTE FUNCTION dc_tp_receipt_immutable()</sql>
+    <sql>CREATE TRIGGER dc_tp_invitation_finished_immutable BEFORE UPDATE OR DELETE ON DC_TENANT_PEOPLE_INVITATION_FINISHED FOR EACH ROW EXECUTE FUNCTION dc_tp_receipt_immutable()</sql>
+  </changeSet>
+  <changeSet id="dc-tenant-people-invitation-generation-v1" author="dcontact">
+    <addColumn tableName="DC_TENANT_PEOPLE_INVITATION_INTENT">
+      <column name="CREATED_AT_EPOCH" type="BIGINT" defaultValueNumeric="0"><constraints nullable="false"/></column>
+    </addColumn>
+    <sql>ALTER TABLE DC_TENANT_PEOPLE_INVITATION_INTENT ADD CONSTRAINT DC_TP_INVITATION_CREATED CHECK (CREATED_AT_EPOCH&gt;=0 AND (GENERATION=1 OR CREATED_AT_EPOCH&gt;0))</sql>
+  </changeSet>
 </databaseChangeLog>

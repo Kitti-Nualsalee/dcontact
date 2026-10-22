@@ -81,7 +81,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm --filter "@d-contact/api^..." build
-      - name: ตรวจ B2 HTTP, RLS และ Keycloak distribution จริงใน sandbox แยก
+      - name: Install browser สำหรับ real invitation onboarding
+        run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
+      - name: ตรวจ B2 HTTP/RLS และ B3 intent/SMTP บน Keycloak จริงใน sandbox แยก
         run: pnpm voice:tenant-people:boundary
 
   e1-voice-gateway:
@@ -475,7 +477,7 @@ jobs:
         run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
 
       - name: Console i18n + shell e2e
-        run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts e2e/shell.spec.ts e2e/journey-authoring.spec.ts e2e/home.spec.ts e2e/agent-history.spec.ts e2e/voice-routing.spec.ts e2e/tenant-people.spec.ts e2e/tenant-people-directory.spec.ts
+        run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts e2e/shell.spec.ts e2e/journey-authoring.spec.ts e2e/home.spec.ts e2e/agent-history.spec.ts e2e/voice-routing.spec.ts e2e/tenant-people.spec.ts e2e/tenant-people-directory.spec.ts e2e/tenant-people-invitation.spec.ts
 
       - name: Workspace shell e2e
         run: pnpm --filter @d-contact/workspace exec playwright test e2e/shell.spec.ts e2e/dphone.spec.ts e2e/dphone-embed.spec.ts e2e/dphone-host-reference.spec.ts e2e/agent-availability.spec.ts e2e/dphone-owner.spec.ts e2e/wrapup.spec.ts e2e/wrapup-recovery.spec.ts

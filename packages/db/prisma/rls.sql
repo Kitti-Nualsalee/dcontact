@@ -394,6 +394,12 @@ GRANT INSERT ON tenant_people_step_receipts TO dcontact_tenant_people_worker;
 REVOKE ALL ON tenant_people_invitation_intents FROM dcontact_app, dcontact_tenant_people_worker;
 GRANT SELECT ON tenant_people_invitation_intents TO dcontact_app;
 GRANT SELECT, INSERT ON tenant_people_invitation_intents TO dcontact_tenant_people_worker;
+REVOKE ALL ON tenant_people_invitation_dispatches, tenant_people_invitation_ambiguities FROM dcontact_app, dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_invitation_dispatches, tenant_people_invitation_ambiguities TO dcontact_app;
+GRANT SELECT, INSERT ON tenant_people_invitation_dispatches, tenant_people_invitation_ambiguities TO dcontact_tenant_people_worker;
+REVOKE ALL ON tenant_people_invitation_receipts FROM dcontact_app, dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_invitation_receipts TO dcontact_app;
+GRANT SELECT, INSERT ON tenant_people_invitation_receipts TO dcontact_tenant_people_worker;
 REVOKE ALL ON FUNCTION dc_tenant_people_apply_identity_proof(uuid,uuid,bigint,uuid) FROM PUBLIC, dcontact_app;
 GRANT EXECUTE ON FUNCTION dc_tenant_people_apply_identity_proof(uuid,uuid,bigint,uuid) TO dcontact_tenant_people_worker;
 -- Core Settings งานฐาน: apply-rls ซ้ำต้องไม่เปิดแก้ command/receipt/audit/proof
@@ -407,6 +413,27 @@ REVOKE DELETE,TRUNCATE ON tenant_settings FROM dcontact_app;
 REVOKE INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER ON tenant_core_profile_revisions FROM dcontact_app;
 REVOKE TRIGGER ON tenants,tenant_settings,tenant_core_config_audits FROM dcontact_app;
 REVOKE ALL ON FUNCTION dc_core_capture_organization_effect() FROM PUBLIC;
+
+REVOKE ALL ON tenant_people_invitation_reconciles FROM dcontact_app,dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_invitation_reconciles TO dcontact_app;
+GRANT INSERT(tenant_id,id,command_id,actor_user_id,user_id,source_operation_id,generation,provider_attempt_ref,expected_revision,status_revision,reason_code,reason) ON tenant_people_invitation_reconciles TO dcontact_app;
+GRANT SELECT ON tenant_people_invitation_reconciles TO dcontact_tenant_people_worker;
+GRANT UPDATE(state,revision,lease_token,lease_expires_at,error_code,updated_at) ON tenant_people_invitation_reconciles TO dcontact_tenant_people_worker;
+
+REVOKE ALL ON tenant_people_invitation_resends FROM dcontact_app,dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_invitation_resends TO dcontact_app,dcontact_tenant_people_worker;
+GRANT INSERT(tenant_id,id,command_id,actor_user_id,user_id,source_operation_id,previous_generation,previous_attempt_ref,generation,provider_attempt_ref,expected_revision,status_revision,reason_code,reason) ON tenant_people_invitation_resends TO dcontact_app;
+
+REVOKE ALL ON tenant_people_invitation_preparations,tenant_people_invitation_preparation_proofs FROM dcontact_app,dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_invitation_preparations,tenant_people_invitation_preparation_proofs TO dcontact_app,dcontact_tenant_people_worker;
+GRANT INSERT(tenant_id,resend_id,operation_id,user_id,generation,provider_attempt_ref,fencing_token,lease_owner) ON tenant_people_invitation_preparations TO dcontact_tenant_people_worker;
+GRANT INSERT(tenant_id,provider_attempt_ref,intent_ref,not_before_epoch,server_epoch) ON tenant_people_invitation_preparation_proofs TO dcontact_tenant_people_worker;
+GRANT SELECT(config_revision) ON users TO dcontact_tenant_people_worker;
+
+REVOKE ALL ON tenant_people_activation_attempts,tenant_people_activation_receipts FROM dcontact_app,dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_activation_attempts,tenant_people_activation_receipts TO dcontact_app,dcontact_tenant_people_worker;
+REVOKE ALL ON FUNCTION dc_people_claim_activation(uuid,uuid,uuid),dc_people_apply_activation(uuid,uuid,uuid,bigint) FROM PUBLIC,dcontact_app;
+GRANT EXECUTE ON FUNCTION dc_people_claim_activation(uuid,uuid,uuid),dc_people_apply_activation(uuid,uuid,uuid,bigint) TO dcontact_tenant_people_worker;
 
 -- Core Team revision/captured effect เขียนได้เฉพาะ trigger ไม่คืน broad UPDATE หลัง rerun
 REVOKE UPDATE,DELETE,TRUNCATE,TRIGGER ON teams FROM dcontact_app;

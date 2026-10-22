@@ -1,7 +1,7 @@
 {
   "title": "User accounts",
   "attention": "This account requires attention. Contact an administrator; it is not activated.",
-  "notice": "Provisioning only. Users must activate their own accounts. No invitation is sent and calls remain closed.",
+  "notice": "Provisioning, invitation delivery and activation are separate states. Users set their own password/TOTP; activation does not open calls automatically.",
   "notReady": "Account provisioning is unavailable or you do not have permission to create accounts.",
   "operation": "Account provisioning status",
   "provisioned": "Account provisioned — awaiting user activation",
@@ -18,7 +18,11 @@
   "chooseExtension": "Choose extension",
   "create": "Create account",
   "signIn": "Sign in",
-  "roles": { "AGENT": "Agent", "SUPERVISOR": "Supervisor", "ADMIN": "Admin" },
+  "roles": {
+    "AGENT": "Agent",
+    "SUPERVISOR": "Supervisor",
+    "ADMIN": "Admin"
+  },
   "directory": {
     "title": "Accounts in this scope",
     "detail": "Account details",
@@ -38,5 +42,41 @@
     "UNAUTHORIZED": "Sign in again, then check the original command.",
     "FORBIDDEN": "You do not have permission to manage accounts in this scope.",
     "FAILED": "The outcome is not confirmed. Check the original command instead of creating a duplicate account."
+  },
+  "invitation": {
+    "title": "Invitation and activation",
+    "provisioning": "Provisioning",
+    "delivery": "Invitation delivery",
+    "activation": "Activation",
+    "generation": "Invitation generation",
+    "reason": "Reason (1–500 characters)",
+    "resend": "Send new invitation generation",
+    "reconcile": "Check delivery evidence",
+    "refresh": "Check original invitation status",
+    "pending": "Checking the original command. Do not submit a duplicate.",
+    "failed": "Outcome not confirmed. Check the original command before submitting again.",
+    "limited": "The limit of 3 resends per rolling 60 minutes has been reached. Wait before trying again.",
+    "active": "Account activated — calls are not opened automatically.",
+    "provisioningStates": {
+      "PENDING": "Provisioning",
+      "PROVISIONED": "Provisioned",
+      "REJECTED": "Rejected",
+      "UNKNOWN": "Unconfirmed"
+    },
+    "deliveryStates": {
+      "UNKNOWN": "Unconfirmed",
+      "NOT_STARTED": "Not started",
+      "INTENT": "Queued",
+      "DISPATCHING": "Checking dispatch",
+      "AMBIGUOUS": "Ambiguous delivery; do not resend",
+      "SENT": "Sent",
+      "FAILED": "Failed",
+      "EXPIRED": "Expired"
+    },
+    "activationStates": {
+      "PENDING": "Awaiting user activation",
+      "ACTIVATED": "Activated",
+      "UNKNOWN": "Unconfirmed"
+    }
   }
 }

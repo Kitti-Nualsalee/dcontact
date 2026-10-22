@@ -1,6 +1,6 @@
 # Tenant People identity boundary
 
-Implementation ของ [B2 #709](https://github.com/Kitti-Nualsalee/dcontact/issues/709) ตาม [สัญญา #704](https://github.com/Kitti-Nualsalee/dcontact/issues/704) และ [ADR-035](../../../../docs/adr/035-tenant-people-identity-authority.md) ยังไม่ใช่การเปิดใช้ provisioning บน UAT หรือ production
+Implementation ของ [B2 #709](https://github.com/Kitti-Nualsalee/dcontact/issues/709) และส่วน provider intent/SMTP ของ [B3 #710](https://github.com/Kitti-Nualsalee/dcontact/issues/710) ตาม [สัญญา #704](https://github.com/Kitti-Nualsalee/dcontact/issues/704) และ [ADR-035](../../../../docs/adr/035-tenant-people-identity-authority.md) ยังไม่ใช่การเปิดใช้ provisioning บน UAT หรือ production
 
 ## ทดสอบ boundary
 
@@ -13,11 +13,87 @@ pnpm --filter "@d-contact/api^..." build
 pnpm voice:tenant-people:boundary
 ```
 
-Runner สร้าง network/container ชื่อสุ่มของตัวเอง ใช้ PostgreSQL บน tmpfs และ Keycloak 26.7.5 ตาม distribution digest ของ repo เปิด port เฉพาะ loopback แบบสุ่ม compile extension กับ jars จาก image นั้นโดยตรง แล้วสร้าง realm/Organization/bootstrap user/service clients สังเคราะห์ ไม่อ่าน credentials หรือฐานข้อมูล UAT และไม่ใช้ container ของงานอื่น จะดึง image ที่จำเป็นหากยังไม่มีในเครื่อง และล้างเฉพาะทรัพยากรที่สร้างในรอบนี้เมื่อจบหรือเกิด exception
+Runner สร้าง network/container ชื่อสุ่มของตัวเอง ใช้ PostgreSQL บน tmpfs, Keycloak 26.7.5 และ Mailpit v1.31.1 ตาม distribution digest ของ repo เปิด port เฉพาะ loopback แบบสุ่ม compile extension กับ jars จาก image นั้นโดยตรง แล้วสร้าง realm/Organization/bootstrap user/service clients สังเคราะห์ Mailpit เก็บ mailbox ใน tmpfs ของตัวเอง โดย runner ส่งเฉพาะเมลทดสอบ `example.test` เข้า Mailpit ไม่อ่าน credentials หรือฐานข้อมูล UAT และไม่ใช้ container ของงานอื่น จะดึง image ที่จำเป็นหากยังไม่มีในเครื่อง และล้างเฉพาะทรัพยากรที่สร้างในรอบนี้เมื่อจบหรือเกิด exception
 
 ทดสอบ service JWT/tenant binding, concurrent create/replay, stale fence/correlation conflict, foreign target no effect และ fault injection ให้ identity/role/membership rollback พร้อม receipt จากนั้นทดสอบ JWT ของ bootstrap user จริงผ่าน HTTP → application RLS → fenced worker → narrow service client → Keycloak ครบ AGENT/SUPERVISOR/ADMIN รวม response loss ที่ reconcile ด้วย readback ไม่ blind-create
 
 บัญชีใหม่ยัง inactive, mapping/role/team ตรง, required actions ครบ และ `PENDING_ACTIVATION` ไม่มี temporary password/SIP credential/work-session lease การมี invitation intent ใน application DB ไม่ได้แปลว่าส่ง email แล้ว การส่งและ activation เป็น B3 ไม่ส่งอีเมลไปภายนอกใน boundary นี้
+
+## B3 provider intent/SMTP ที่ยังอยู่ระหว่าง implementation
+
+Private `readiness` แยก `invitationReady` จาก `ready` ของ provisioning: ตรวจ admin-only invitation profile, SMTP host/from/port, system client และ synchronous sender ของ pinned distribution โดยไม่ส่งอีเมล หาก invitation configuration ยังไม่พร้อมจะคืน `invitationReady: false` โดยไม่ปิด provisioning ที่ผ่านเกตเดิม นี่เป็น configuration readiness ไม่ใช่หลักฐานว่า SMTP ส่งถึงผู้รับได้ และยังไม่เปิด application scheduler หรือ public invitation capability
+
+Private endpoints ใต้ `operations/{operationId}/invitations/{generation}/intent` และ `/dispatch` รับเฉพาะ tenant service client เดิม พร้อม accepted descriptor, `providerAttemptRef`, `fencingToken` และ `leaseOwner` ไม่รับ SMTP configuration, action link หรือ redirect URI จาก caller ต้องมี provisioning proof และตรวจ identity/role/Organization/required actions/credential state ใหม่ก่อนส่ง User Profile ของ `dc_invitation_not_before` ต้องเป็น admin-only แบบเดียวกับ classification attributes
+
+Intent กับ not-before fence จาก Keycloak server clock commit ใน transaction เดียวกัน ส่วน dispatch claim commit ก่อน callback ส่ง SMTP ด้วย transaction ใหม่ Callback ตรวจสิทธิ์และ pending identity ซ้ำ ถือ tenant gate ระหว่างส่ง และบันทึก immutable finished receipt หลัง synchronous sender คืนผล รองรับเฉพาะ `DefaultEmailSenderProvider` ของ pinned distribution; provider อื่นไม่ถูกถือว่าให้ quiescence proof โดยอัตโนมัติ
+
+SMTP accepted ให้ `SENT` และ quiescence proof ของ attempt เดิมเท่านั้น ส่วน SMTP exception ให้ `UNKNOWN` หาก claim commit แล้วแต่ callback/finished receipt ล้ม จะคง `DISPATCHING` และไม่มี blind retry หรือ re-arm จากเวลา/lease เมลที่ถึง Mailpit แต่ไม่มี finished receipt ไม่ใช่เหตุให้ปลด quiescence gate
+
+Provider รับ generation ถัดไปแบบไม่ข้ามเลขเมื่อรุ่นล่าสุดมี immutable finished receipt เป็น `SENT` เท่านั้น โดยถือ tenant gate เดียวกับ callback ส่งเมล ต้องใช้ attempt ใหม่และ fencing token สูงขึ้น และ current user fence ต้องตรงกับ ledger ก่อนเปลี่ยน fence ใหม่เป็นค่าสูงสุดระหว่าง Keycloak clock, fence เดิมบวกหนึ่ง และเวลาออก token เดิมบวกหนึ่ง การเตรียม intent ไม่ส่งเมล; ต้อง readback fence และรอ Keycloak clock ถึงก่อน dispatch claim ส่วน POST รุ่นเก่าถูกปฏิเสธ แต่ finished receipt รุ่นเก่ายังอ่านได้ด้วย descriptor เดิม
+
+Cap ฝั่ง provider จำกัดสาม resend intents ต่อ rolling 60 นาที ไม่นับ generation แรก ใช้ `createdAtEpoch` จาก Keycloak clock และนับภายใต้ tenant gate/transaction เดียวกับ insert intent จึงไม่เพิ่ม slot จาก replay หรือคำขอแข่งกัน Additive Liquibase change เพิ่ม admission epoch โดยให้ intent generation แรกเดิมมีค่า sentinel 0 ได้ ไม่แก้ immutable rows หรือ rewrite changeset เดิม Cap/ledger ฝั่ง application และ Admin command/revision/reason/audit ยังเป็นงานถัดไป
+
+Scenario generation จริงเตรียม/ส่งรุ่น 1–4 ผ่าน provider ตรวจ concurrent replay และการแข่งกันขอ slot สุดท้าย, รุ่นที่ 5 ถูกจำกัด, INTENT/finished-receipt loss ห้ามสร้างรุ่นถัดไป, readback fence กับ Keycloak clock ก่อนส่ง, POST รุ่นเก่าไม่ส่งซ้ำ และ GET receipt เดิมยังอ่านได้ ลิงก์รุ่นแรกที่ยังไม่เคยเปิดถูก guard ปฏิเสธหลัง supersession ส่วนลิงก์รุ่นล่าสุดเปิดได้ การทดสอบนี้ยังไม่ได้รอครบ 60 นาทีเพื่อพิสูจน์การคืน slot ด้วยเวลาจริง
+
+Runner ตรวจ concurrent intent/dispatch/replay, profile guard, atomic rollback ของ fence/intent, durable readback หลัง Keycloak restart, exact-attempt SMTP subject, required actions และอายุ token 72 ชั่วโมงจาก Keycloak clock รวม fault หลังส่งจริงแต่ก่อน finished receipt ลิงก์อ่านเฉพาะใน memory ของ mailbox test ไม่เก็บใน evidence/log/operation result
+
+Runner compile และ mount `invitation-guard` จาก source ตัวเดียวกับ production บน pinned distribution ด้วย ตรวจลิงก์ที่ยังไม่เคยเปิด: fence สูงกว่า `iat` ต้องถูกปฏิเสธด้วยหน้า expired action และหลังคืน fence ลิงก์ pending ต้องเปิดได้ อีกลิงก์ที่ยังไม่เคยเปิดต้องถูกปฏิเสธเมื่อ fixture ไม่มี required actions ค้าง การแก้ fixture ใช้ user representation ครบเพื่อไม่ให้ admin update ล้าง email แล้วเกิดผลบวกลวงจาก invalid-email error ขั้นนี้ยังไม่ใช่หลักฐาน generation supersession แบบ monotonic/no-in-flight, การหมดอายุจริง หรือ fresh activation ผ่าน password/TOTP/login ซึ่งมีเกตแยก
+
+ฝั่ง application มี `TenantPeopleKeycloak.invitationPort()` สำหรับ dispatch/readback โดยใช้ tenant service credentials เดิม Worker โหลด accepted payload และตรวจ digest ก่อนเรียก provider รับเฉพาะ `SENT` ที่มี field ตรง private contract ทั้งหมดและ quiescence proof ของ operation/user/generation/attempt/fence/send owner เดิม ไม่รับ field เกินหรืออนุมานผลจาก HTTP status อย่างเดียว หาก response หาย รอบถัดไปอ่านด้วย GET เท่านั้น
+
+`reconcilePeopleInvitationAttempt` เป็น read-only path แยกจาก worker ที่ส่งคำเชิญ รับ port ที่มีเพียง `readOutcome` ไม่สร้าง dispatch claim ใหม่ หากมีแต่ `INTENT` คืน `NOT_ELIGIBLE` โดยไม่เรียก provider; หากมี frozen dispatch จะใช้ descriptor/owner เดิมอ่าน proof และบันทึกเฉพาะ receipt หรือ ambiguity ตามผลจริง ไม่เปลี่ยน identity หรือส่งเมล
+
+Admin-only `POST /api/v1/tenant-voice/people/users/:id/reconcile` รับ `commandId/expectedRevision/reasonCode/reason` และตอบ 202/Location พร้อม operation/user/generation ไม่มี link บันทึก command digest ที่ผูก tenant/actor/action/resource/revision/reason, immutable admission receipt, accepted/rejected audit และ snapshot generation/attempt/status revision ภายใต้ scoped row locks รองรับ replay/command lookup และปฏิเสธ stale revision, foreign/protected scope และบัญชีที่ activate แล้ว การล็อก lifecycle ใช้ scoped lock-only function ไม่เพิ่มสิทธิ์แก้ lifecycle ให้ application
+
+คิว `tenant_people_invitation_reconciles` แยกจาก create/send operations มี tenant RLS + worker binding; app insert ได้เฉพาะ admission columns ส่วน worker update ได้เฉพาะ processing columns descriptor เปลี่ยนไม่ได้และ terminal state แก้ซ้ำไม่ได้ Worker claim ด้วย bounded lease/UUID token แล้วออกจาก transaction ก่อนอ่าน provider และ finish แบบ token CAS; restart/lease expiry ทำซ้ำได้เฉพาะ read ไม่ส่งเมล `SUCCEEDED` หมายถึงมี delivery receipt เดิม ไม่ใช่ activation สำเร็จ หากไม่มี dispatch/ผลยังไม่ชัด/อ่านไม่ได้จะเป็น `ACTION_REQUIRED` โดยไม่เพิ่ม generation หรือแก้ user.configRevision
+
+Endpoint ต้องผ่าน `canReconcileInvitation` ของ opt-in runtime และมี invitation port ที่พร้อม; composition ปกติไม่ส่ง port นี้จึงยังตอบ `CAPABILITY_NOT_READY` คิวใช้ batch budget ร่วมและสลับกับงานส่งปกติ ไม่เปิด full invitation capability จากการเพิ่ม reconcile endpoint นี้
+
+Application intent key แยก `(tenant, create operation, generation)` และ dispatch fence ต้องไม่น้อยกว่า generation อ่าน frozen dispatch ด้วยทั้ง generation/attempt ที่ command snapshot ไว้ จึง reconcile รุ่นเดิมที่ค้างอยู่ได้แม้มี intent รุ่นใหม่ และไม่ใช้ receipt รุ่นเดิมแทนรุ่นล่าสุด Directory ยังเลือกสถานะจาก generation สูงสุดโดยไม่เปลี่ยน user.configRevision การเปลี่ยน PK ต้องอัปเดต SQL `ON CONFLICT` ของ provisioning worker พร้อม migration นี้ ไม่ถือว่า worker รุ่นเก่าที่ใช้ conflict target เดิมรองรับ schema ใหม่แบบ rolling โดยอัตโนมัติ
+
+Adapter อ่าน exact provider receipt ของ generation ที่ร้องขอได้ รวม historical receipt หลัง supersession แต่ legacy `dispatch`/automatic scheduler ยังคง generation แรก รุ่นใหม่ที่ยังไม่มี preparation/readback barrier จะไม่สร้าง claim หรือ POST ส่งเมล การทดสอบ HTTP/RLS หลาย generation ใช้ fixture ของ approved worker เพื่อพิสูจน์การอ่าน ไม่ใช่หลักฐานว่า public resend capability เปิดใช้แล้ว
+
+Adapter มี `readPreparation` แบบ GET-only สำหรับ exact generation/attempt/digest/fence/owner ตรวจ intent proof ครบทุก field และคืน `clockReached` จาก `serverEpoch >= notBeforeEpoch` ของ Keycloak เท่านั้น ไม่ใช้เวลาบน application หรือ lease expiry เป็นหลักฐาน การอ่านไม่ได้หรือ proof ไม่ตรงไม่เปลี่ยนเป็น permission ส่งเมล และ `INTENT` ไม่ใช่ finished/quiescent receipt; application ยังต้องมี durable preparation barrier และตรวจ no-in-flight ก่อนเปิด sender รุ่นใหม่
+
+Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ตรวจครบสาม roles ว่าคืนสถานะ `SENT` ผ่าน API หลัง lost response และปฏิเสธ proof ที่มี field เกิน บัญชียัง inactive/PENDING ไม่สร้าง SIP credential หรือ work-session lease
+
+`TenantPeopleRuntime` รับ `invitations` เป็น tenant-bound port แบบ opt-in เท่านั้น ค่าเริ่มต้นว่าง และ composition ปกติยังไม่ส่ง port นี้ ก่อน claim ต้องผ่าน DB principal/binding, provisioning readiness และ invitation readiness ที่ตอบ `invitationReady: true` อย่างชัดเจน รุ่น provider ที่ไม่มี field นี้ถือว่ายังไม่พร้อม งาน invitation ใช้ batch budget ร่วมกับ provisioning สลับคิวต่อ tenant และเลื่อน cursor เพื่อไม่ให้ attempt ที่ยังไม่ทราบผลขวางรายการอื่น ภายใน batch เดียวไม่ทำ attempt เดิมซ้ำ ไม่มี transaction ครอบ provider call; shutdown รอ in-flight drain จบ
+
+Boundary ตรวจ gate ปิดแล้วสถานะยัง `INTENT`/ไม่มี dispatch, gate เปิดแล้ว response หายเป็น `AMBIGUOUS`, proof ผิดรูปไม่ผ่าน และ runtime ใหม่อ่าน finished receipt เดิมผ่าน GET จนเป็น `SENT` โดย POST รวมเพียงครั้งเดียวต่อ role ยังไม่เปิด public invitation capability หรือส่งเมลจาก runtime ปกติ
+
+### Resend admission และ readiness
+
+Admin-only `POST /api/v1/tenant-voice/people/users/:id/invitation/resend` มี readiness gate แยก `canResendInvitation` ซึ่ง normal composition ยังไม่เปิด รับ common command envelope แล้วบันทึก immutable reservation ใน `tenant_people_invitation_resends`, command receipt และ audit ใน transaction เดียว มี generation candidate/Location และ operation read เป็น `QUEUED/PREPARE_INVITATION` แต่ยังไม่สร้าง generation intent, invalidate link หรือส่ง email
+
+ตรวจ user config/status revision, positive verified mapping และ latest local `SENT/quiescent` receipt ภายใต้ user/lifecycle lock ก่อนรับงาน ไม่รับ `INTENT`, ambiguity หรือ activated user; replay command เดิมคืนผลเดิมโดยไม่กิน slot เพิ่ม อีก command ของ generation ที่จองแล้วถูกปฏิเสธ DB trigger ตรวจ eligibility/snapshot/receipt ซ้ำและจำกัด 3 admissions ต่อ rolling 60 นาทีด้วย DB clock และ row lock แยกจาก cap ของ Keycloak ไม่นับ initial send; reservation ที่รับแล้วไม่ถูกปลดจาก timeout/lease expiry application แก้ timestamp ไม่ได้ ledger ห้าม UPDATE/DELETE และ worker อ่านได้เฉพาะ tenant ที่ผูกไว้
+
+การทดสอบ cap ฝั่ง HTTP/RLS ใช้ approved-worker fixtures ของ generation/finished proof เพื่อเดินถึงแต่ละ slot ไม่ใช่หลักฐานของ SMTP ทุก generation มี explicit resend worker และ opt-in scheduler แล้ว แต่ normal readiness ยังปิด การ release slot หลังครบ 60 นาทีและ failure gates ที่ยังไม่ครอบคลุมต้องทดสอบเพิ่มเติมก่อน acceptance
+
+### Durable preparation/readback barrier
+
+`runPeopleInvitationPreparation` รับ reservation ที่ระบุผ่าน approved worker เท่านั้น ล็อก user/lifecycle แล้วตรวจ config/status snapshot, mapping, pending state และ previous `SENT/quiescent` receipt ก่อนบันทึก immutable preparation descriptor และ generation intent ใน transaction เดียว ใช้ fence มากกว่า dispatch รุ่นก่อนและคง owner/attempt/lease เดิมตลอด จากนั้นจึงออกจาก transaction เพื่อ POST preparation ได้เพียงผู้ที่ insert claim สำเร็จ ไม่สร้าง dispatch claim หรือส่งเมลในขั้นนี้
+
+การ restart/concurrent invocation/response loss จะอ่าน frozen descriptor และทำ GET-only readback ไม่ POST preparation ซ้ำ แม้ lease หมดหรือยังไม่พบ provider intent ถ้า clock ยังไม่ถึงหรือ proof ไม่ชัด คง `WAITING_EXTERNAL/READ_INVITATION_FENCE` และไม่มี permission ส่ง เมื่อ exact readback มี monotonic not-before มากกว่ารุ่นก่อนและ Keycloak clock ถึงแล้ว บันทึก immutable preparation proof และแสดง `DISPATCH_INVITATION`; phase `READY` นี้ไม่ใช่ delivery success, activation หรือ authorization ส่งเมลโดยลำพัง sender ยังต้องใช้ descriptor/proof เดิมและตรวจ fresh guard ก่อน side effect
+
+มี HTTP/RLS test ของ response loss, concurrent read-only recovery และ immutable/tenant isolation รวม real HTTP → PostgreSQL → Keycloak preparation/readback ที่ Mailpit ไม่เพิ่มอีเมล ก่อนทดสอบ explicit sender ต่อ
+
+### Generation-aware sender และ terminal delivery operation
+
+`runPeopleInvitationResend` ล็อก user/lifecycle และตรวจ pending mapping/config/status snapshot กับ latest generation อีกครั้ง แล้วสร้าง immutable dispatch claim จาก frozen preparation descriptor ได้เมื่อมี durable preparation proof เท่านั้น fence/owner/attempt คงเดิม มีเพียงผู้ insert dispatch สำเร็จที่เรียก `dispatchPrepared` ได้ adapter อ่าน exact intent/fence/Keycloak clock ใหม่ก่อน POST และ provider ยังตรวจ fresh identity/credential/role/Organization ก่อน SMTP
+
+เมื่อ dispatch claim มีแล้ว restart หรือ worker คู่แข่งจะ GET outcome เท่านั้น แม้ lease หมดและผู้ส่งเดิมยังค้าง ไม่ rearm หรือให้ resend ใหม่จาก timeout เมื่อ response หายจะเป็น `ACTION_REQUIRED/INVITATION_DELIVERY_AMBIGUOUS` จนมี exact finished/quiescent receipt; outcome `SENT` ต้องใช้ not-before เดียวกับ frozen proof แล้วจึงเป็น `SUCCEEDED/INVITATION_FINISHED` receipt มี precedence เหนือ ambiguity เดิม ส่วน `FAILED` เป็น `ACTION_REQUIRED/INVITATION_DELIVERY_FAILED` status revision เพิ่มตาม immutable processing facts โดยไม่เปลี่ยน user.configRevision หรือ activate ผู้ใช้
+
+Real HTTP → PostgreSQL → Keycloak → Mailpit boundary ทดสอบ preparation แล้วส่ง generation 2 จริงใน sandbox จำลอง SMTP response loss และเริ่ม worker อ่านใหม่จนจบ operation นับอีเมลเพิ่มเพียงหนึ่งฉบับ ไม่มี SIP credential/work-session lease หรือ ACTIVE จากการส่งสำเร็จ นี่เป็น explicit-worker integration ไม่ใช่ normal runtime rollout หรือ B3 acceptance ทั้งหมด
+
+### Opt-in resend scheduling
+
+`TenantPeopleRuntime` รับ `resends` map แยกจาก initial `invitations` map ต้องมี full preparation/readback/prepared-dispatch/outcome/readiness port และ tenant อยู่ใน approved identity map จึงประกอบได้ ค่าเริ่มต้นไม่มี resend port และ normal composition ยังไม่ส่ง map นี้ `canResendInvitation` ต้องผ่าน running/healthy, approved least-privilege database principal/binding และ provider readiness แยกจาก initial send/reconcile
+
+Scheduler สลับ resend กับ initial delivery/reconcile และ provisioning ภายใต้ batch/tenant budget เดิม มี UUID cursor ต่อ tenant และ deferred key ต่อ resend ทำได้เพียงหนึ่ง phase ต่อ reservation ต่อ drain จึงไม่วน GET งาน unknown เดิมจนกินทั้ง batch และไม่วน terminal receipt อีก เมื่อมี proof จึงไป sender; ถ้า restart ขณะ preparation ค้างจะอ่าน descriptor เดิมผ่าน GET เท่านั้น ไม่ POST preparation ใหม่ การปิด readiness หยุด phase ใหม่ และ shutdown รอ in-flight phase ก่อนจบ
+
+มี focused HTTP/PostgreSQL/RLS test ด้วย approved login principal ที่แยกเฉพาะ sandbox: default-off, readiness pause/recovery, shutdown ระหว่าง preparation และ restart จน terminal โดยไม่ prepare/send ซ้ำ การทดสอบ SMTP จริงใน boundary ก่อนหน้าเป็น explicit-worker integration; ต้องรัน scheduler + Keycloak/SMTP รวมอีกครั้งก่อน acceptance ไม่ถือว่า mock/controlled port นี้เป็น real SMTP proof
+
+Normal invitation capability ยังปิด Console resend/activation ยังไม่เปิด การทดสอบนี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ normal composition, rolling-window release, expiry ด้วยเวลาจริง และ fresh activation proof ผ่าน password/TOTP/login ยังต้องผ่านเกตของตนเอง
 
 ไฟล์ `tenant-people-operations.integration.ts` แยกทดสอบ HTTP/RLS/quotas/claims ด้วย identity port ที่ควบคุมได้ ไม่ใช้ผลชุดนั้นแทน real Keycloak boundary ส่วน `tenant-people-keycloak.boundary.ts` และ `tenant-people-provisioning.boundary.ts` รับ environment ของ runner และ fail หากไม่มี configuration ไม่ skip แล้วนับผ่าน
 

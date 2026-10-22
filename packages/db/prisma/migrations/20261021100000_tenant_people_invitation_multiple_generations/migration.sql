@@ -1,0 +1,4 @@
+ALTER TABLE tenant_people_invitation_intents DROP CONSTRAINT tenant_people_invitation_intents_pkey;
+ALTER TABLE tenant_people_invitation_intents ADD PRIMARY KEY(tenant_id,operation_id,generation);
+ALTER TABLE tenant_people_invitation_dispatches DROP CONSTRAINT tenant_people_invitation_dispatches_fencing_token_check;
+ALTER TABLE tenant_people_invitation_dispatches ADD CONSTRAINT invitation_dispatch_generation_fence CHECK(fencing_token>=generation);

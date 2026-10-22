@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TenantPeopleKeycloak } from './tenant-people-keycloak.js';
 import type { PeopleWorkerClaim } from './tenant-people-worker.js';
+import type { PeopleInvitationAttempt } from './tenant-people-invitation-worker.js';
 
 const tenantId = '00000000-0000-4000-8000-000000000001';
 const claim: PeopleWorkerClaim = {
@@ -30,6 +31,175 @@ const configuration = {
   clientId: `dcontact-tenant-people-${tenantId}`,
   clientSecret: 'synthetic-secret',
 };
+
+test('activation ใช้ fresh GET และปฏิเสธ proof ที่ correlation หรือ schema ไม่ครบ', async () => {
+  let transform: (proof: Record<string, unknown>) => unknown = (proof) => proof;
+  const probes = new Set<string>();
+  const methods: string[] = [];
+  const adapter = new TenantPeopleKeycloak(configuration, async (input, options) => {
+    methods.push(options?.method ?? 'GET');
+    assert.equal(options?.redirect, 'error');
+    assert.ok(options && 'cache' in options);
+    assert.equal(options.cache, 'no-store');
+    const endpoint = new URL(String(input));
+    if (endpoint.pathname.endsWith('/token'))
+      return Response.json({ access_token: 'synthetic-token' });
+    assert.equal(options?.method, 'GET');
+    assert.equal(endpoint.pathname.endsWith(`/operations/${claim.operationId}/activation`), true);
+    const probeRef = endpoint.searchParams.get('probeRef');
+    assert.ok(probeRef && !probes.has(probeRef));
+    probes.add(probeRef);
+    assert.equal(endpoint.searchParams.get('email'), claim.command.email);
+    return Response.json(
+      transform({
+        version: 1,
+        outcome: 'VERIFIED',
+        tenantId,
+        operationId: claim.operationId,
+        userId: claim.userId,
+        payloadDigest: claim.payloadDigest,
+        probeRef,
+        serverEpoch: 100,
+      }),
+    );
+  });
+  const verified = await adapter.readActivation(claim);
+  assert.equal(verified.outcome, 'VERIFIED');
+  transform = (proof) => ({ ...proof, outcome: 'PENDING' });
+  assert.equal((await adapter.readActivation(claim)).outcome, 'PENDING');
+  for (const field of [
+    'version',
+    'outcome',
+    'tenantId',
+    'operationId',
+    'userId',
+    'payloadDigest',
+    'probeRef',
+    'serverEpoch',
+  ]) {
+    transform = (proof) => ({ ...proof, [field]: null });
+    assert.deepEqual(await adapter.readActivation(claim), { outcome: 'UNKNOWN' }, field);
+  }
+  for (const changes of [
+    { probeRef: claim.command.commandId },
+    { tenantId: claim.userId },
+    { outcome: 'SUCCEEDED' },
+    { serverEpoch: -1 },
+    { serverEpoch: 1.5 },
+    { serverEpoch: 253402041600 },
+    { credential: 'must-not-be-exposed' },
+  ]) {
+    transform = (proof) => ({ ...proof, ...changes });
+    assert.deepEqual(await adapter.readActivation(claim), { outcome: 'UNKNOWN' });
+  }
+  const calls = methods.length;
+  await assert.rejects(adapter.readActivation({ ...claim, tenantId: claim.userId }), /SCOPE/);
+  assert.equal(methods.length, calls);
+  assert.deepEqual(methods, Array.from({ length: calls / 2 }, () => ['POST', 'GET']).flat());
+});
+
+test('preparation readback binds the complete attempt and uses only the provider clock', async () => {
+  const attempt: PeopleInvitationAttempt = {
+    tenantId,
+    operationId: claim.operationId,
+    userId: claim.userId,
+    generation: 2,
+    providerAttemptRef: '00000000-0000-4000-8000-000000000007',
+    payloadDigest: claim.payloadDigest,
+    fencingToken: '2',
+    leaseOwner: 'preparation-worker',
+    leaseExpiresAt: new Date(0),
+    command: claim.command,
+  };
+  const valid = {
+    outcome: 'INTENT',
+    intentRef: 'b'.repeat(64),
+    quiescent: false,
+    tenantId,
+    operationId: attempt.operationId,
+    userId: attempt.userId,
+    generation: 2,
+    providerAttemptRef: attempt.providerAttemptRef,
+    payloadDigest: attempt.payloadDigest,
+    fencingToken: '2',
+    leaseOwner: attempt.leaseOwner,
+    notBeforeEpoch: 100,
+    serverEpoch: 99,
+  };
+  let response: unknown = valid;
+  const methods: string[] = [];
+  const adapter = new TenantPeopleKeycloak(configuration, async (input, options) => {
+    const endpoint = new URL(String(input));
+    methods.push(options?.method ?? 'GET');
+    assert.equal(options?.redirect, 'error');
+    assert.ok(options && 'cache' in options);
+    assert.equal(options.cache, 'no-store');
+    if (endpoint.pathname.endsWith('/token'))
+      return Response.json({ access_token: 'synthetic-token' });
+    assert.equal(options?.method, 'GET');
+    assert.equal(endpoint.pathname.endsWith('/invitations/2/intent'), true);
+    assert.equal(endpoint.searchParams.get('providerAttemptRef'), attempt.providerAttemptRef);
+    assert.equal(endpoint.searchParams.get('fencingToken'), '2');
+    return Response.json(response);
+  }).invitationPort();
+  assert.deepEqual(await adapter.readPreparation(attempt), {
+    outcome: 'INTENT',
+    intentRef: 'b'.repeat(64),
+    notBeforeEpoch: 100,
+    serverEpoch: 99,
+    clockReached: false,
+  });
+  response = { ...valid, serverEpoch: 100 };
+  assert.deepEqual(await adapter.readPreparation(attempt), {
+    outcome: 'INTENT',
+    intentRef: 'b'.repeat(64),
+    notBeforeEpoch: 100,
+    serverEpoch: 100,
+    clockReached: true,
+  });
+  for (const field of [
+    'tenantId',
+    'operationId',
+    'userId',
+    'generation',
+    'providerAttemptRef',
+    'payloadDigest',
+    'fencingToken',
+    'leaseOwner',
+    'intentRef',
+    'quiescent',
+    'notBeforeEpoch',
+    'serverEpoch',
+  ]) {
+    response = { ...valid, [field]: null };
+    assert.deepEqual(await adapter.readPreparation(attempt), { outcome: 'UNKNOWN' }, field);
+  }
+  for (const malformed of [
+    { ...valid, generation: 1 },
+    { ...valid, quiescent: true },
+    { ...valid, serverEpoch: 99.5 },
+    { ...valid, notBeforeEpoch: -1 },
+    { ...valid, extra: 'unexpected' },
+    { ...valid, serverEpoch: 253402041600 },
+  ]) {
+    response = malformed;
+    assert.deepEqual(await adapter.readPreparation(attempt), { outcome: 'UNKNOWN' });
+  }
+  response = { ...valid, serverEpoch: 100 };
+  assert.deepEqual(
+    await adapter.dispatchPrepared(attempt, { intentRef: 'c'.repeat(64), notBeforeEpoch: 100 }),
+    { outcome: 'UNKNOWN' },
+  );
+  response = valid;
+  assert.deepEqual(
+    await adapter.dispatchPrepared(attempt, { intentRef: 'b'.repeat(64), notBeforeEpoch: 100 }),
+    { outcome: 'UNKNOWN' },
+  );
+  const calls = methods.length;
+  await assert.rejects(adapter.readPreparation({ ...attempt, tenantId: 'foreign' }), /SCOPE/);
+  assert.equal(methods.length, calls);
+  assert.deepEqual(methods, Array.from({ length: calls / 2 }, () => ['POST', 'GET']).flat());
+});
 
 test('unknown readback never retries a mutation', async () => {
   const methods: string[] = [];

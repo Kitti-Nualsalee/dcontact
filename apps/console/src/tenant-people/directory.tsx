@@ -3,14 +3,17 @@ import { useTranslation } from '@d-contact/i18n/react';
 import { Button } from '@d-contact/ui-react';
 import { CatalogApiError } from '../voice-routing/api.js';
 import type { PeopleDirectoryApi, PeopleDirectoryUser } from './directory-api.js';
+import { PeopleInvitation } from './invitation.js';
 
 export function PeopleDirectory({
   api,
   onFailure,
   onOperation,
   canOpenOperation,
+  identityKey,
 }: {
   api: PeopleDirectoryApi;
+  identityKey: string;
   canOpenOperation: boolean;
   onFailure(error: unknown): void;
   onOperation(reference: { commandId: string; operationId: string }): void;
@@ -116,11 +119,23 @@ export function PeopleDirectory({
             <dd>{selected.extensionRef ?? label('directory.none')}</dd>
           </dl>
           <p>
-            {selected.accountState === 'PENDING_ACTIVATION' &&
-            selected.provisioningState === 'PROVISIONED'
-              ? label('provisioned')
-              : label('directory.unverified')}
+            {selected.accountState === 'ACTIVE' &&
+            selected.activationState === 'ACTIVATED' &&
+            selected.isActive
+              ? label('invitation.active')
+              : selected.accountState === 'PENDING_ACTIVATION' &&
+                  selected.provisioningState === 'PROVISIONED'
+                ? label('provisioned')
+                : label('directory.unverified')}
           </p>
+          <PeopleInvitation
+            key={selected.id}
+            api={api}
+            user={selected}
+            identityKey={identityKey}
+            onUser={setSelected}
+            onFailure={failed}
+          />
           {selected.operationId && selected.commandId ? (
             <Button
               isDisabled={busy || !canOpenOperation}

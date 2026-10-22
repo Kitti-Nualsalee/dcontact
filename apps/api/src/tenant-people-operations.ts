@@ -207,7 +207,30 @@ export function readPeopleOperation(db: PrismaClient, identity: VoiceActor, oper
         updatedAt: Date;
       }[]
     >`SELECT o.id AS "operationId",o.target_user_id AS "userId",o.state,o.step,o.revision,l.account_state AS "accountState",l.activation_state AS "activationState",l.provisioning_state AS "provisioningState",o.error_code AS "errorCode",o.created_at AS "createdAt",o.updated_at AS "updatedAt" FROM tenant_people_operations o JOIN tenant_user_lifecycles l ON l.tenant_id=o.tenant_id AND l.user_id=o.target_user_id WHERE o.tenant_id=${identity.tenantId}::uuid AND o.id=${id}::uuid`;
-    if (!rows[0]) voiceFail('RESOURCE_NOT_FOUND', 404);
-    return rows[0];
+    if (rows[0]) return rows[0];
+    const reconciles = await transaction.$queryRaw<typeof rows>`
+      SELECT operation.id AS "operationId",operation.user_id AS "userId",operation.state,'RECONCILE_INVITATION' AS step,operation.revision,
+        lifecycle.account_state AS "accountState",lifecycle.activation_state AS "activationState",lifecycle.provisioning_state AS "provisioningState",
+        operation.error_code AS "errorCode",operation.created_at AS "createdAt",operation.updated_at AS "updatedAt"
+      FROM tenant_people_invitation_reconciles operation JOIN tenant_user_lifecycles lifecycle ON lifecycle.tenant_id=operation.tenant_id AND lifecycle.user_id=operation.user_id
+      WHERE operation.tenant_id=${identity.tenantId}::uuid AND operation.id=${id}::uuid
+      UNION ALL
+      SELECT operation.id AS "operationId",operation.user_id AS "userId",
+        CASE WHEN receipt.outcome='SENT' THEN 'SUCCEEDED' WHEN receipt.outcome='FAILED' OR ambiguity.provider_attempt_ref IS NOT NULL THEN 'ACTION_REQUIRED' WHEN preparation.resend_id IS NULL THEN 'QUEUED' ELSE 'WAITING_EXTERNAL' END AS state,
+        CASE WHEN receipt.provider_attempt_ref IS NOT NULL THEN 'INVITATION_FINISHED' WHEN dispatch.provider_attempt_ref IS NOT NULL THEN 'RECONCILE_INVITATION' WHEN proof.provider_attempt_ref IS NOT NULL THEN 'DISPATCH_INVITATION' WHEN preparation.resend_id IS NOT NULL THEN 'READ_INVITATION_FENCE' ELSE 'PREPARE_INVITATION' END AS step,
+        1+(CASE WHEN preparation.resend_id IS NOT NULL THEN 1 ELSE 0 END)+(CASE WHEN proof.provider_attempt_ref IS NOT NULL THEN 1 ELSE 0 END)
+          +(CASE WHEN dispatch.provider_attempt_ref IS NOT NULL THEN 1 ELSE 0 END)+(CASE WHEN ambiguity.provider_attempt_ref IS NOT NULL THEN 1 ELSE 0 END)
+          +(CASE WHEN receipt.provider_attempt_ref IS NOT NULL THEN 1 ELSE 0 END) AS revision,
+        lifecycle.account_state AS "accountState",lifecycle.activation_state AS "activationState",lifecycle.provisioning_state AS "provisioningState",
+        CASE WHEN receipt.outcome='SENT' THEN NULL WHEN receipt.outcome='FAILED' THEN 'INVITATION_DELIVERY_FAILED' WHEN ambiguity.provider_attempt_ref IS NOT NULL THEN 'INVITATION_DELIVERY_AMBIGUOUS' ELSE NULL END AS "errorCode",operation.created_at AS "createdAt",COALESCE(receipt.recorded_at,ambiguity.observed_at,dispatch.started_at,proof.recorded_at,preparation.created_at,operation.created_at) AS "updatedAt"
+      FROM tenant_people_invitation_resends operation JOIN tenant_user_lifecycles lifecycle ON lifecycle.tenant_id=operation.tenant_id AND lifecycle.user_id=operation.user_id
+      LEFT JOIN tenant_people_invitation_preparations preparation ON preparation.tenant_id=operation.tenant_id AND preparation.resend_id=operation.id
+      LEFT JOIN tenant_people_invitation_preparation_proofs proof ON proof.tenant_id=preparation.tenant_id AND proof.provider_attempt_ref=preparation.provider_attempt_ref
+      LEFT JOIN tenant_people_invitation_dispatches dispatch ON dispatch.tenant_id=preparation.tenant_id AND dispatch.provider_attempt_ref=preparation.provider_attempt_ref
+      LEFT JOIN tenant_people_invitation_receipts receipt ON receipt.tenant_id=dispatch.tenant_id AND receipt.provider_attempt_ref=dispatch.provider_attempt_ref
+      LEFT JOIN tenant_people_invitation_ambiguities ambiguity ON ambiguity.tenant_id=dispatch.tenant_id AND ambiguity.provider_attempt_ref=dispatch.provider_attempt_ref
+      WHERE operation.tenant_id=${identity.tenantId}::uuid AND operation.id=${id}::uuid`;
+    if (!reconciles[0]) voiceFail('RESOURCE_NOT_FOUND', 404);
+    return reconciles[0];
   });
 }

@@ -21,6 +21,9 @@ interface DirectoryRow {
   accountState: string;
   provisioningState: string;
   activationState: string;
+  deliveryState: string;
+  invitationGeneration: number | null;
+  invitationExpiresAt: Date | null;
   statusRevision: number | null;
   operationId: string | null;
   commandId: string | null;
@@ -42,6 +45,9 @@ function projection(row: DirectoryRow) {
     accountState: row.accountState,
     provisioningState: row.provisioningState,
     activationState: row.activationState,
+    deliveryState: row.deliveryState,
+    invitationGeneration: row.invitationGeneration,
+    invitationExpiresAt: row.invitationExpiresAt?.toISOString() ?? null,
     statusRevision: row.statusRevision,
     operationId: row.operationId,
     commandId: row.commandId,
@@ -121,11 +127,23 @@ export function readPeopleDirectory(
           u.team_id AS "teamId",t.name AS "teamName",u.is_active AS "isActive",u.created_at AS "createdAt",u.config_revision AS "configRevision",
           COALESCE(l.account_state,'UNKNOWN') AS "accountState",
           COALESCE(l.provisioning_state,'UNKNOWN') AS "provisioningState",
-          COALESCE(l.activation_state,'UNKNOWN') AS "activationState",l.revision AS "statusRevision",o.id AS "operationId",o.command_id AS "commandId"
+          COALESCE(l.activation_state,'UNKNOWN') AS "activationState",l.revision AS "statusRevision",o.id AS "operationId",o.command_id AS "commandId",
+          COALESCE(i.delivery_state,CASE WHEN o.id IS NULL THEN 'UNKNOWN' ELSE 'NOT_STARTED' END) AS "deliveryState",
+          i.generation AS "invitationGeneration",i.expires_at AS "invitationExpiresAt"
         FROM users u
         LEFT JOIN teams t ON t.tenant_id=u.tenant_id AND t.id=u.team_id
         LEFT JOIN tenant_user_lifecycles l ON l.tenant_id=u.tenant_id AND l.user_id=u.id
         LEFT JOIN tenant_people_operations o ON o.tenant_id=l.tenant_id AND o.id=l.operation_id AND o.target_user_id=u.id
+        LEFT JOIN LATERAL (
+          SELECT CASE WHEN r.outcome='SENT' AND to_timestamp(r.expires_at_epoch)<=clock_timestamp() THEN 'EXPIRED'
+            WHEN r.outcome IS NOT NULL THEN r.outcome WHEN a.provider_attempt_ref IS NOT NULL THEN 'AMBIGUOUS'
+            WHEN d.provider_attempt_ref IS NOT NULL THEN 'DISPATCHING' ELSE intent.delivery_state END AS delivery_state,
+            intent.generation,to_timestamp(r.expires_at_epoch) AS expires_at FROM tenant_people_invitation_intents intent
+          LEFT JOIN tenant_people_invitation_dispatches d ON d.tenant_id=intent.tenant_id AND d.provider_attempt_ref=intent.provider_attempt_ref
+          LEFT JOIN tenant_people_invitation_ambiguities a ON a.tenant_id=intent.tenant_id AND a.provider_attempt_ref=intent.provider_attempt_ref
+          LEFT JOIN tenant_people_invitation_receipts r ON r.tenant_id=intent.tenant_id AND r.provider_attempt_ref=intent.provider_attempt_ref
+          WHERE intent.tenant_id=u.tenant_id AND intent.user_id=u.id ORDER BY intent.generation DESC LIMIT 1
+        ) i ON true
         WHERE u.tenant_id=${identity.tenantId}::uuid AND u.role::text IN ('AGENT','SUPERVISOR','ADMIN')
           AND (o.id IS NOT NULL OR EXISTS (
             SELECT 1 FROM tenant_voice_identity_bindings b WHERE b.tenant_id=u.tenant_id AND b.user_id=u.id

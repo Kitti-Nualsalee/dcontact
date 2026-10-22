@@ -218,13 +218,18 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
       {pending ? (
         <section aria-label={label('operation')}>
           <p role="status">
-            {provisioned
-              ? label('provisioned')
-              : status?.state === 'ACTION_REQUIRED' || status?.accountState === 'ATTENTION_REQUIRED'
-                ? label('attention')
-                : status?.state === 'REJECTED'
-                  ? label('rejected')
-                  : label('pending')}
+            {status?.state === 'SUCCEEDED' &&
+            status.accountState === 'ACTIVE' &&
+            status.activationState === 'ACTIVATED'
+              ? label('invitation.active')
+              : provisioned
+                ? label('provisioned')
+                : status?.state === 'ACTION_REQUIRED' ||
+                    status?.accountState === 'ATTENTION_REQUIRED'
+                  ? label('attention')
+                  : status?.state === 'REJECTED'
+                    ? label('rejected')
+                    : label('pending')}
           </p>
           <Button isDisabled={busy} onPress={() => void recover()}>
             {label('refresh')}
@@ -285,6 +290,7 @@ function PeopleSession({ api, identityKey, onSignIn }: Props) {
       </section>
       {options && api.directory ? (
         <PeopleDirectory
+          identityKey={identityKey}
           api={api.directory}
           canOpenOperation={!busy && (!pending || !!terminal)}
           onFailure={failure}

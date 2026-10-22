@@ -30,7 +30,15 @@ test('People composition defaults off without opening a database connection', as
 
 test('People configuration requires a dedicated worker connection and exact server-owned bindings', () => {
   assert.equal(peopleConfiguration(environment)?.bindings[0]?.tenantId, tenantId);
+  assert.equal(peopleConfiguration(environment)?.invitationsEnabled, false);
+  assert.equal(
+    peopleConfiguration({ ...environment, TENANT_PEOPLE_INVITATIONS_ENABLED: 'true' })
+      ?.invitationsEnabled,
+    true,
+  );
+  assert.throws(() => peopleConfiguration({ TENANT_PEOPLE_INVITATIONS_ENABLED: 'true' }));
   for (const override of [
+    { TENANT_PEOPLE_INVITATIONS_ENABLED: 'yes' },
     { TENANT_PEOPLE_WORKER_DATABASE_URL: '' },
     { TENANT_PEOPLE_WORKER_DATABASE_URL: 'postgresql://owner:owner@127.0.0.1/synthetic' },
     { TENANT_PEOPLE_SECRET_SYNTHETIC: '' },
