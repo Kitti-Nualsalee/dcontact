@@ -77,6 +77,11 @@ export interface TenantPeopleInvitationResendPort {
   readOutcome(attempt: PeopleInvitationAttempt): Promise<PeopleInvitationOutcome>;
 }
 
+export interface TenantPeopleInvitationResendRuntimePort
+  extends TenantPeopleInvitationPreparePort, TenantPeopleInvitationResendPort {
+  isReady(tenantId: string): Promise<boolean>;
+}
+
 async function admitAttempt(
   database: PrismaClient,
   tenantId: string,

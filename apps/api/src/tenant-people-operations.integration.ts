@@ -15,6 +15,7 @@ import {
   GATEWAY_DIAGNOSTICS,
 } from './gateway-auth.js';
 import type { VoiceActor } from './tenant-voice-catalog.js';
+import { TenantPeopleRuntime } from './tenant-people-runtime.js';
 import {
   claimPeopleOperation,
   recordPeopleStep,
@@ -1393,7 +1394,152 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
       await request(resendPath, { ...resendCommand, commandId: randomUUID() }),
     );
     assert.equal(secondResend.generation, 4);
-    await finishResendFixture(secondResend.operationId, 4);
+    const runtimePrincipal = `v710_runtime_${randomUUID().replaceAll('-', '')}`;
+    const runtimePassword = randomUUID().replaceAll('-', '');
+    const runtimeUrl = new URL(workerUrl);
+    runtimeUrl.username = runtimePrincipal;
+    runtimeUrl.password = runtimePassword;
+    const runtimeDatabase = new PrismaClient({
+      datasources: { db: { url: runtimeUrl.toString() } },
+    });
+    let scheduled: TenantPeopleRuntime | undefined;
+    let runtimeRoleCreated = false;
+    let schedulerReady = false;
+    let scheduledPreparations = 0;
+    let scheduledDispatches = 0;
+    let runtimeClock = 4102444801;
+    let markPreparationStarted: () => void = () => {};
+    let releasePreparation: () => void = () => {};
+    const preparationStarted = new Promise<void>((resolve) => {
+      markPreparationStarted = resolve;
+    });
+    const preparationReleased = new Promise<void>((resolve) => {
+      releasePreparation = resolve;
+    });
+    const resends = new Map([
+      [
+        tenantId,
+        {
+          isReady: async () => schedulerReady,
+          async prepare() {
+            scheduledPreparations++;
+            markPreparationStarted();
+            await preparationReleased;
+          },
+          async readPreparation() {
+            return {
+              outcome: 'INTENT' as const,
+              intentRef: 'e'.repeat(64),
+              notBeforeEpoch: 4102444802,
+              serverEpoch: runtimeClock,
+              clockReached: runtimeClock >= 4102444802,
+            };
+          },
+          async dispatchPrepared(attempt: PeopleInvitationAttempt) {
+            scheduledDispatches++;
+            assert.equal(attempt.generation, 4);
+            return {
+              ...completionProof(attempt),
+              notBeforeEpoch: 4102444802,
+              issuedAtEpoch: 4102444802,
+            };
+          },
+          async readOutcome() {
+            assert.fail('finished scheduler attempt must not be read or sent again');
+          },
+        },
+      ],
+    ]);
+    const identities = new Map([
+      [
+        tenantId,
+        {
+          isReady: async () => true,
+          async mutateStep() {
+            assert.fail('scheduler test must not mutate provisioning');
+          },
+          async readOutcome() {
+            assert.fail('scheduler test must not read provisioning');
+          },
+        },
+      ],
+    ]);
+    const createScheduled = () =>
+      new TenantPeopleRuntime(runtimeDatabase, identities, {
+        intervalMs: 60_000,
+        batchSize: 1,
+        resends,
+      });
+    try {
+      await owner.$executeRawUnsafe(
+        `CREATE ROLE "${runtimePrincipal}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS PASSWORD '${runtimePassword}'`,
+      );
+      runtimeRoleCreated = true;
+      await owner.$executeRawUnsafe(`GRANT dcontact_tenant_people_worker TO "${runtimePrincipal}"`);
+      await owner.$executeRaw`INSERT INTO tenant_people_worker_bindings(tenant_id,database_principal,approval_ref) VALUES(${tenantId}::uuid,${runtimePrincipal},'isolated-resend-scheduler')`;
+      const unwired = new TenantPeopleRuntime(runtimeDatabase, identities, {
+        intervalMs: 60_000,
+        batchSize: 1,
+      });
+      unwired.onModuleInit();
+      try {
+        await unwired.runOnce();
+        assert.equal(await unwired.canResendInvitation(tenantId), false);
+        assert.equal(scheduledPreparations, 0);
+      } finally {
+        await unwired.onModuleDestroy();
+      }
+      scheduled = createScheduled();
+      assert.equal(await scheduled.canResendInvitation(tenantId), false);
+      scheduled.onModuleInit();
+      await scheduled.runOnce();
+      assert.equal(await scheduled.canResendInvitation(tenantId), false);
+      assert.equal(scheduledPreparations, 0);
+      schedulerReady = true;
+      assert.equal(await scheduled.canResendInvitation(tenantId), true);
+      assert.equal(await scheduled.canResendInvitation(randomUUID()), false);
+      for (let retry = 0; retry < 8 && scheduledPreparations === 0; retry++) {
+        await Promise.race([scheduled.runOnce(), preparationStarted]);
+      }
+      assert.equal(scheduledPreparations, 1);
+      assert.equal(scheduledDispatches, 0);
+      let shutdownComplete = false;
+      const stopping = scheduled.onModuleDestroy().then(() => {
+        shutdownComplete = true;
+      });
+      await Promise.resolve();
+      assert.equal(shutdownComplete, false);
+      releasePreparation();
+      await stopping;
+      assert.equal(shutdownComplete, true);
+      assert.equal(await scheduled.canResendInvitation(tenantId), false);
+      runtimeClock = 4102444802;
+      schedulerReady = false;
+      scheduled = createScheduled();
+      scheduled.onModuleInit();
+      for (let retry = 0; retry < 4; retry++) await scheduled.runOnce();
+      assert.equal(scheduledDispatches, 0);
+      assert.equal(await scheduled.canResendInvitation(tenantId), false);
+      schedulerReady = true;
+      for (let retry = 0; retry < 10 && scheduledDispatches === 0; retry++)
+        await scheduled.runOnce();
+      assert.equal(scheduledPreparations, 1);
+      assert.equal(scheduledDispatches, 1);
+      await scheduled.runOnce();
+      assert.equal(scheduledDispatches, 1);
+      assert.equal(
+        (await readObject(await request(`/operations/${secondResend.operationId}`))).state,
+        'SUCCEEDED',
+      );
+    } finally {
+      releasePreparation();
+      await scheduled?.onModuleDestroy();
+      await runtimeDatabase.$disconnect();
+      if (runtimeRoleCreated) {
+        await owner.$executeRaw`DELETE FROM tenant_people_worker_bindings WHERE tenant_id=${tenantId}::uuid AND database_principal=${runtimePrincipal}`;
+        await owner.$executeRawUnsafe(`DROP ROLE "${runtimePrincipal}"`);
+      }
+    }
     const lastSlot = await Promise.all([
       request(resendPath, { ...resendCommand, commandId: randomUUID() }),
       request(resendPath, { ...resendCommand, commandId: randomUUID() }),

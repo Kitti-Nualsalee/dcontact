@@ -61,13 +61,13 @@ Boundary ฝั่ง real JWT HTTP → PostgreSQL/RLS → Keycloak → SMTP ต
 
 Boundary ตรวจ gate ปิดแล้วสถานะยัง `INTENT`/ไม่มี dispatch, gate เปิดแล้ว response หายเป็น `AMBIGUOUS`, proof ผิดรูปไม่ผ่าน และ runtime ใหม่อ่าน finished receipt เดิมผ่าน GET จนเป็น `SENT` โดย POST รวมเพียงครั้งเดียวต่อ role ยังไม่เปิด public invitation capability หรือส่งเมลจาก runtime ปกติ
 
-### Resend admission ที่ยังไม่เปิด runtime
+### Resend admission และ readiness
 
 Admin-only `POST /api/v1/tenant-voice/people/users/:id/invitation/resend` มี readiness gate แยก `canResendInvitation` ซึ่ง normal composition ยังไม่เปิด รับ common command envelope แล้วบันทึก immutable reservation ใน `tenant_people_invitation_resends`, command receipt และ audit ใน transaction เดียว มี generation candidate/Location และ operation read เป็น `QUEUED/PREPARE_INVITATION` แต่ยังไม่สร้าง generation intent, invalidate link หรือส่ง email
 
 ตรวจ user config/status revision, positive verified mapping และ latest local `SENT/quiescent` receipt ภายใต้ user/lifecycle lock ก่อนรับงาน ไม่รับ `INTENT`, ambiguity หรือ activated user; replay command เดิมคืนผลเดิมโดยไม่กิน slot เพิ่ม อีก command ของ generation ที่จองแล้วถูกปฏิเสธ DB trigger ตรวจ eligibility/snapshot/receipt ซ้ำและจำกัด 3 admissions ต่อ rolling 60 นาทีด้วย DB clock และ row lock แยกจาก cap ของ Keycloak ไม่นับ initial send; reservation ที่รับแล้วไม่ถูกปลดจาก timeout/lease expiry application แก้ timestamp ไม่ได้ ledger ห้าม UPDATE/DELETE และ worker อ่านได้เฉพาะ tenant ที่ผูกไว้
 
-การทดสอบ cap ฝั่ง HTTP/RLS ใช้ approved-worker fixtures ของ generation/finished proof เพื่อเดินถึงแต่ละ slot ไม่ใช่หลักฐานของ SMTP ทุก generation แม้มี explicit resend worker แล้ว แต่ยังไม่มี automatic scheduler รับ reservation และ normal readiness ยังปิด การ release slot หลังครบ 60 นาทีและ failure gates ที่ยังไม่ครอบคลุมต้องทดสอบเพิ่มเติมก่อน acceptance
+การทดสอบ cap ฝั่ง HTTP/RLS ใช้ approved-worker fixtures ของ generation/finished proof เพื่อเดินถึงแต่ละ slot ไม่ใช่หลักฐานของ SMTP ทุก generation มี explicit resend worker และ opt-in scheduler แล้ว แต่ normal readiness ยังปิด การ release slot หลังครบ 60 นาทีและ failure gates ที่ยังไม่ครอบคลุมต้องทดสอบเพิ่มเติมก่อน acceptance
 
 ### Durable preparation/readback barrier
 
@@ -85,7 +85,15 @@ Admin-only `POST /api/v1/tenant-voice/people/users/:id/invitation/resend` มี
 
 Real HTTP → PostgreSQL → Keycloak → Mailpit boundary ทดสอบ preparation แล้วส่ง generation 2 จริงใน sandbox จำลอง SMTP response loss และเริ่ม worker อ่านใหม่จนจบ operation นับอีเมลเพิ่มเพียงหนึ่งฉบับ ไม่มี SIP credential/work-session lease หรือ ACTIVE จากการส่งสำเร็จ นี่เป็น explicit-worker integration ไม่ใช่ normal runtime rollout หรือ B3 acceptance ทั้งหมด
 
-Automatic sender ยังส่งเฉพาะ generation แรกและ normal invitation capability ปิด Console resend/activation ยังไม่เปิด การทดสอบนี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ runtime composition, rolling-window release, expiry ด้วยเวลาจริง และ fresh activation proof ผ่าน password/TOTP/login ยังต้องผ่านเกตของตนเอง
+### Opt-in resend scheduling
+
+`TenantPeopleRuntime` รับ `resends` map แยกจาก initial `invitations` map ต้องมี full preparation/readback/prepared-dispatch/outcome/readiness port และ tenant อยู่ใน approved identity map จึงประกอบได้ ค่าเริ่มต้นไม่มี resend port และ normal composition ยังไม่ส่ง map นี้ `canResendInvitation` ต้องผ่าน running/healthy, approved least-privilege database principal/binding และ provider readiness แยกจาก initial send/reconcile
+
+Scheduler สลับ resend กับ initial delivery/reconcile และ provisioning ภายใต้ batch/tenant budget เดิม มี UUID cursor ต่อ tenant และ deferred key ต่อ resend ทำได้เพียงหนึ่ง phase ต่อ reservation ต่อ drain จึงไม่วน GET งาน unknown เดิมจนกินทั้ง batch และไม่วน terminal receipt อีก เมื่อมี proof จึงไป sender; ถ้า restart ขณะ preparation ค้างจะอ่าน descriptor เดิมผ่าน GET เท่านั้น ไม่ POST preparation ใหม่ การปิด readiness หยุด phase ใหม่ และ shutdown รอ in-flight phase ก่อนจบ
+
+มี focused HTTP/PostgreSQL/RLS test ด้วย approved login principal ที่แยกเฉพาะ sandbox: default-off, readiness pause/recovery, shutdown ระหว่าง preparation และ restart จน terminal โดยไม่ prepare/send ซ้ำ การทดสอบ SMTP จริงใน boundary ก่อนหน้าเป็น explicit-worker integration; ต้องรัน scheduler + Keycloak/SMTP รวมอีกครั้งก่อน acceptance ไม่ถือว่า mock/controlled port นี้เป็น real SMTP proof
+
+Normal invitation capability ยังปิด Console resend/activation ยังไม่เปิด การทดสอบนี้ยังไม่ใช่ acceptance ของ B3 ทั้งหมด โดยเฉพาะ normal composition, rolling-window release, expiry ด้วยเวลาจริง และ fresh activation proof ผ่าน password/TOTP/login ยังต้องผ่านเกตของตนเอง
 
 ไฟล์ `tenant-people-operations.integration.ts` แยกทดสอบ HTTP/RLS/quotas/claims ด้วย identity port ที่ควบคุมได้ ไม่ใช้ผลชุดนั้นแทน real Keycloak boundary ส่วน `tenant-people-keycloak.boundary.ts` และ `tenant-people-provisioning.boundary.ts` รับ environment ของ runner และ fail หากไม่มี configuration ไม่ skip แล้วนับผ่าน
 

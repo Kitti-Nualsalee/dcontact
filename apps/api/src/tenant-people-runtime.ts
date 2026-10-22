@@ -7,9 +7,12 @@ import {
 import { runPeopleWorkerStep, type TenantPeopleIdentityPort } from './tenant-people-worker.js';
 import { voiceUuid } from './tenant-voice-catalog.js';
 import { runNextPeopleInvitationReconcile } from './tenant-people-invitation-reconcile.js';
+import { runPeopleInvitationPreparation } from './tenant-people-invitation-preparation.js';
+import { runPeopleInvitationResend } from './tenant-people-invitation-sender.js';
 import {
   runPeopleInvitationAttempt,
   type TenantPeopleInvitationRuntimePort,
+  type TenantPeopleInvitationResendRuntimePort,
 } from './tenant-people-invitation-worker.js';
 import {
   acceptedExtensionMatches,
@@ -34,6 +37,9 @@ export class TenantPeopleRuntime {
   private readonly invitationCursors = new Map<string, string>();
   private readonly invitationTurns = new Map<string, boolean>();
   private readonly reconcileTurns = new Map<string, boolean>();
+  private readonly resends: ReadonlyMap<string, TenantPeopleInvitationResendRuntimePort>;
+  private readonly resendTurns = new Map<string, boolean>();
+  private readonly resendCursors = new Map<string, string>();
 
   constructor(
     private readonly database: PrismaClient,
@@ -43,12 +49,14 @@ export class TenantPeopleRuntime {
       batchSize?: number;
       nodes?: ReadonlyMap<string, readonly PeopleTelephonyNode[]>;
       invitations?: ReadonlyMap<string, TenantPeopleInvitationRuntimePort>;
+      resends?: ReadonlyMap<string, TenantPeopleInvitationResendRuntimePort>;
     } = {},
   ) {
     this.intervalMs = options.intervalMs ?? 1_000;
     this.batchSize = options.batchSize ?? 20;
     this.nodes = options.nodes ?? new Map();
     this.invitations = new Map(options.invitations);
+    this.resends = new Map(options.resends);
     if (
       !Number.isInteger(this.intervalMs) ||
       this.intervalMs < 100 ||
@@ -71,6 +79,18 @@ export class TenantPeopleRuntime {
         throw new Error('INVALID_PEOPLE_INVITATION_RUNTIME_CONFIGURATION');
     }
     this.readiness = new DatabaseTenantPeopleReadiness(database, identities);
+    for (const [tenantId, port] of this.resends) {
+      if (
+        !identities.has(tenantId) ||
+        !port ||
+        typeof port.isReady !== 'function' ||
+        typeof port.prepare !== 'function' ||
+        typeof port.readPreparation !== 'function' ||
+        typeof port.dispatchPrepared !== 'function' ||
+        typeof port.readOutcome !== 'function'
+      )
+        throw new Error('INVALID_PEOPLE_RESEND_RUNTIME_CONFIGURATION');
+    }
   }
 
   async isReady(tenantId: string): Promise<boolean> {
@@ -87,6 +107,17 @@ export class TenantPeopleRuntime {
     const port = this.invitations.get(tenantId);
     return (
       !!port && (await this.isReady(tenantId)) && (await port.isReady(tenantId)) && this.running
+    );
+  }
+
+  async canResendInvitation(tenantId: string): Promise<boolean> {
+    const port = this.resends.get(tenantId);
+    return (
+      !!port &&
+      (await this.isReady(tenantId)) &&
+      (await port.isReady(tenantId)) &&
+      this.running &&
+      this.healthy
     );
   }
 
@@ -154,8 +185,10 @@ export class TenantPeopleRuntime {
       }
       if (!this.running) break;
       const invitationFirst =
-        this.invitations.has(tenantId) && (this.invitationTurns.get(tenantId) ?? true);
-      if (this.invitations.has(tenantId)) this.invitationTurns.set(tenantId, !invitationFirst);
+        (this.invitations.has(tenantId) || this.resends.has(tenantId)) &&
+        (this.invitationTurns.get(tenantId) ?? true);
+      if (this.invitations.has(tenantId) || this.resends.has(tenantId))
+        this.invitationTurns.set(tenantId, !invitationFirst);
       if (invitationFirst && (await this.tryInvitation(tenantId, deferred, invitationChecked))) {
         attempts++;
         idle = 0;
@@ -219,6 +252,53 @@ export class TenantPeopleRuntime {
   }
 
   private async tryInvitation(
+    tenantId: string,
+    deferred: Set<string>,
+    checked: Map<string, boolean>,
+  ): Promise<boolean> {
+    const resendFirst = this.resends.has(tenantId) && (this.resendTurns.get(tenantId) ?? true);
+    if (this.resends.has(tenantId)) this.resendTurns.set(tenantId, !resendFirst);
+    if (resendFirst && (await this.tryResend(tenantId, deferred, checked))) return true;
+    if (await this.tryDelivery(tenantId, deferred, checked)) return true;
+    return !resendFirst && (await this.tryResend(tenantId, deferred, checked));
+  }
+
+  private async tryResend(
+    tenantId: string,
+    deferred: Set<string>,
+    checked: Map<string, boolean>,
+  ): Promise<boolean> {
+    const port = this.resends.get(tenantId);
+    if (!this.running || !port) return false;
+    const readinessKey = `resend:${tenantId}`;
+    if (!checked.has(readinessKey)) checked.set(readinessKey, await port.isReady(tenantId));
+    if (!this.running || !checked.get(readinessKey)) return false;
+    const cursor = this.resendCursors.get(tenantId) ?? '00000000-0000-0000-0000-000000000000';
+    const candidate = await withTenantDatabaseTransaction(
+      this.database,
+      tenantId,
+      async (transaction) => {
+        const rows = await transaction.$queryRaw<{ id: string; prepared: boolean }[]>`
+        SELECT r.id,proof.provider_attempt_ref IS NOT NULL AS prepared FROM tenant_people_invitation_resends r
+        LEFT JOIN tenant_people_invitation_preparations p ON p.tenant_id=r.tenant_id AND p.resend_id=r.id
+        LEFT JOIN tenant_people_invitation_preparation_proofs proof ON proof.tenant_id=p.tenant_id AND proof.provider_attempt_ref=p.provider_attempt_ref
+        WHERE r.tenant_id=${tenantId}::uuid
+          AND NOT EXISTS(SELECT 1 FROM tenant_people_invitation_receipts receipt WHERE receipt.tenant_id=r.tenant_id AND receipt.provider_attempt_ref=r.provider_attempt_ref)
+          AND ('resend:' || r.tenant_id::text || ':' || r.id::text) NOT IN(SELECT value FROM jsonb_array_elements_text(${JSON.stringify([...deferred])}::jsonb) AS skipped(value))
+        ORDER BY (r.id>${cursor}::uuid) DESC,r.id LIMIT 1`;
+        return rows[0];
+      },
+    );
+    if (!this.running || !candidate) return false;
+    this.resendCursors.set(tenantId, candidate.id);
+    deferred.add(`resend:${tenantId}:${candidate.id}`);
+    if (candidate.prepared)
+      await runPeopleInvitationResend(this.database, port, tenantId, candidate.id);
+    else await runPeopleInvitationPreparation(this.database, port, tenantId, candidate.id);
+    return true;
+  }
+
+  private async tryDelivery(
     tenantId: string,
     deferred: Set<string>,
     checked: Map<string, boolean>,
