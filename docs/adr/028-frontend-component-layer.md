@@ -7,6 +7,11 @@
   Phase Contract [D1.8 #428](https://github.com/Kitti-Nualsalee/dcontact/issues/428),
   implementation [D1.10 #449](https://github.com/Kitti-Nualsalee/dcontact/issues/449)
 
+> **ขยายขอบเขต (2026-10-22):** Platform Console ใช้ token, base components และแกน i18n ร่วมด้วย
+> ตาม [#605](https://github.com/Kitti-Nualsalee/dcontact/issues/605) โดยคง platform shell และ
+> authentication/authorization boundary ของ [#387](https://github.com/Kitti-Nualsalee/dcontact/issues/387)
+> แยกจาก tenant รายละเอียดอยู่ในภาคผนวกด้านล่าง; การย้ายหน้าจอเป็น implementation งานถัดไป
+
 ## บริบท
 
 [ADR-026](026-frontend-app-split.md) แยก `apps/console` กับ `apps/workspace` แต่ข้อ 6 ให้ทั้งสองแอป
@@ -73,3 +78,57 @@ D1 ต้องการ shell ร่วม (rail, launcher, SubNav) และ�
 - **Tailwind ใน component**: preset ของ `packages/ui` ยังใช้ได้ในหน้าจอที่ต้องการ แต่ component ร่วม
   ต้องมี stylesheet ที่ lint ได้และ override ได้ผ่าน token โดยไม่พึ่ง utility class ของผู้ใช้
 - **Storybook**: หนักเกินความจำเป็นของ 13 component; หน้า Vite เดียวให้ผลเดียวกันสำหรับ axe/keyboard
+
+## ภาคผนวก: Platform Console (#605)
+
+เลือก **ก. ใช้ token + `ui-react` base components + i18n แต่คง shell ของ platform** เพราะการใช้
+token อย่างเดียวแก้สีได้ แต่ยังต้องดูแล keyboard, focus และข้อความอีกชุด ส่วนการแยกทุกอย่างต่อไป
+ทำให้แก้ component และแบรนด์ซ้ำ ขอบเขตนี้ขยาย ADR-028 โดยไม่เปลี่ยนการแบ่งแอป tenant ใน ADR-026
+และไม่เปิด completion boundary ของ D1/A1 ที่ส่งมอบแล้วขึ้นใหม่
+
+1. **ใช้ฐาน UI เดียวกัน** — `apps/platform-console` โหลด `@d-contact/ui/tokens.css` โดยตรง
+   และใช้ base components จาก `@d-contact/ui-react` เมื่อมี component ตรงหน้าที่ เช่น Button,
+   TextField, Select, Table, Badge, Dialog และ Tabs; layout/provisioning timeline เฉพาะงานยังอยู่ในแอป
+   โดยอ้าง token เดิม ไม่ fork component และไม่สร้าง palette หรือ component library ของ platform
+   การปรับ component ร่วมต้องรักษา contract ของ Console/Workspace และผ่าน checks ของ package
+
+2. **คง shell และ navigation ของ platform** — ใช้เส้นทางและเมนู Tenants/สร้าง tenant เดิม
+   ไม่เรียก tenant Navigation API ไม่ผูก `ui.shell.v2` และไม่ใช้ tenant AppShell, launcher, pins หรือ
+   UserMenu ที่อาศัย tenant identity; shell ต้องแสดงว่าเป็น Internal Platform Operations ชัดเจน
+   ปุ่มออกจากระบบยังเรียก platform OIDC flow เดิม
+
+3. **TH และ EN เป็น acceptance ที่ต้องผ่านทั้งคู่** — ใช้ `@d-contact/i18n` กับ react-i18next,
+   typed keys และ `uiResources`; catalog ของแอปเป็นเจ้าของข้อความ login/session/error,
+   navigation, form/validation, provisioning/recovery, invitation และ Action history รวม accessible
+   names และ live regions สลับภาษาโดยไม่ reload/remount, ไม่ล้าง draft, เปลี่ยน route หรือส่งคำสั่งซ้ำ
+   API/state/error codes, request IDs, plan/template codes และข้อมูลที่ผู้ใช้กรอกคงค่าเดิม;
+   แปล label ที่ครอบข้อมูลเท่านั้น ไม่แปลข้อความอิสระจากผู้ใช้หรือส่ง raw server error มาเป็นข้อความ UI
+
+4. **ใช้ locale adapter ของ platform** — ใช้ `LocaleProvider` และ formatter กลาง โดยเลือกภาษา
+   จากค่าที่เลือกในแท็บ → `navigator.languages` → `th`; เก็บเพียง `th`/`en` ใน `sessionStorage`
+   ชื่อ `dcontact.platform.locale` เพื่อคงภาษาหลัง refresh/OIDC redirect อ่านหรือเขียน storage ไม่ได้
+   ต้องยังสลับภาษาใน memory ได้ ค่านี้ไม่ใช่ identity หรือ authority และไม่เก็บ token/PII เพิ่ม
+   timezone ของเวลาปฏิบัติการคง `Asia/Bangkok` ไม่ใช้ timezone ของเครื่องหรือ tenant ที่กำลังเปิดดู;
+   TH ใช้ปี พ.ศ., EN ใช้ en-GB และเวลา 24 ชั่วโมงตาม formatter กลาง ช่อง locale/timezone ของ tenant
+   ที่กำลังสร้างเป็นข้อมูล provisioning แยกจากภาษาของผู้ปฏิบัติงานเสมอ
+
+5. **ไม่ขยายสิทธิ์เพื่อใช้ระบบภาษา** — ไม่ใช้ `SessionLocaleProvider` ของ tenant เพราะเรียก
+   `/api/v1/tenant/locale-defaults` และ Keycloak Account API; platform ยังคง client `platform-console`,
+   audience `dcontact-platform-api`, scope `openid`, Password+TOTP, token ใน memory และ platform-only
+   identity ตาม #387 ไม่เพิ่ม profile/account scope, tenant context หรือการบันทึกภาษาเข้า Keycloak
+   ในงานนี้ การรองรับ preference ข้ามเครื่องต้องตัดสิน contract แยกก่อน
+
+6. **การย้ายและหลักฐาน** — ทำฐาน token/locale adapter ก่อน แล้วจึงย้าย components และข้อความ
+   ทุกหน้าพร้อมกันให้ครบ TH/EN ก่อนรับงาน migration ว่าเสร็จ ต้องผ่าน catalog/literal/CSS checks,
+   model tests และ Playwright เดิม รวมทั้งสองภาษา, keyboard/axe, operator/auditor/rollout-disabled,
+   การคง draft/polling/recovery ระหว่างสลับภาษา และการไม่เรียก Tenant/Account API
+   ไม่เปลี่ยน lifecycle, idempotency, expectedRevision, preview/execute หรือ server capabilities
+   การ deploy และ browser acceptance บน UAT 3 VM ยังคงต้องผ่าน gate ของ #574 ต่างหาก
+
+ทางเลือก ข. (token อย่างเดียว) ใช้เป็นขั้นย้ายชั่วคราวได้ แต่ไม่ใช่ completion boundary;
+ทางเลือก ค. (คงแยกทั้งหมด) ไม่เลือกเพราะไม่มีข้อกำหนดของ platform ที่ต้องมี UI อีกระบบ
+
+เส้นทาง implementation: [#744 — ฐาน token/locale](https://github.com/Kitti-Nualsalee/dcontact/issues/744)
+แล้วจึง [#745 — ย้าย components/ข้อความทุกหน้าและตรวจรับ TH/EN](https://github.com/Kitti-Nualsalee/dcontact/issues/745)
+ทั้งสอง ticket รอข้อสรุปและ ADR ของ #605 เข้า `main` ก่อน; การรับงาน decision ว่าเสร็จไม่ได้หมายถึง
+หน้าจอถูกย้ายหรือผ่าน UAT แล้ว

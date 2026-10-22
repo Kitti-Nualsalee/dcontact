@@ -3,6 +3,10 @@
 component layer ร่วมของ `apps/console` และ `apps/workspace` — ดู [ADR-028](../../docs/adr/028-frontend-component-layer.md)
 (D1.10 [#449](https://github.com/Kitti-Nualsalee/dcontact/issues/449))
 
+Platform Console จะใช้ base components ชุดเดียวกันตาม [#605](https://github.com/Kitti-Nualsalee/dcontact/issues/605)
+และภาคผนวก ADR-028 โดยคง shell, navigation และ platform OIDC แยกจาก tenant;
+ไม่ใช้ tenant AppShell/Navigation API หรือ flag `ui.shell.v2` การย้ายหน้าจอติดตามใน implementation tickets ของ #605
+
 - React Aria Components รับผิดชอบ keyboard, focus และ ARIA
 - CSS Modules อ้าง `var(--dc-*)` จาก `@d-contact/ui/tokens.css` เท่านั้น (stylelint บังคับ)
 - ข้อความของ component อยู่ใน namespace `ui` ของ react-i18next
@@ -48,7 +52,7 @@ toastQueue.add({ title: t('journeys.saved'), tone: 'success' }, { timeout: 5000 
 
 ข้อความของงาน (label, ปุ่ม) ส่งเข้ามาทาง props จาก catalog ของแอปเสมอ — ห้าม hardcode
 
-## Shell (D1.13)
+## Shell ของ Console/Workspace (D1.13)
 
 ```tsx
 const nav = useShellNavigation({ apiBaseUrl, accessToken, currentHost: 'console', hostOrigins, tenantAlias, translate: t });
