@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { AuthProvider, useAuth } from 'react-oidc-context';
 import { createPlatformApi } from './api.js';
 import { PlatformConsoleApp } from './app.js';
+import { PlatformAuthScreen } from './auth-screen.js';
+import { PlatformLocaleProvider } from './i18n/provider.js';
 import {
   allowPlatformSessionRestore,
   beginPlatformSessionRestore,
@@ -11,6 +13,7 @@ import {
   hasAttemptedPlatformSessionRestore,
   pausePlatformSessionRestore,
 } from './auth.js';
+import '@d-contact/ui/tokens.css';
 import './style.css';
 
 const apiBaseUrl = (import.meta.env.VITE_PLATFORM_API_URL as string | undefined) ?? '';
@@ -43,24 +46,14 @@ function AuthenticatedConsole() {
       !auth.isAuthenticated &&
       !hasAttemptedPlatformSessionRestore(window.sessionStorage))
   ) {
-    return (
-      <main className="centered" aria-busy="true">
-        <h1>กำลังเข้าสู่ระบบ</h1>
-      </main>
-    );
+    return <PlatformAuthScreen state="loading" />;
   }
   if (auth.error || !auth.isAuthenticated || !accessToken) {
     return (
-      <main className="centered">
-        <h1>D-Contact Platform Console</h1>
-        <p>สำหรับทีม D-Contact ภายในเท่านั้น — เข้าสู่ระบบด้วยบัญชี platform (รหัสผ่าน + OTP)</p>
-        <button
-          className="button primary"
-          onClick={() => void auth.signinRedirect({ prompt: 'login' })}
-        >
-          เข้าสู่ระบบ
-        </button>
-      </main>
+      <PlatformAuthScreen
+        state="login"
+        onSignIn={() => void auth.signinRedirect({ prompt: 'login' })}
+      />
     );
   }
   return (
@@ -79,12 +72,7 @@ function ProductionRoot() {
   const issuer = import.meta.env.VITE_KC_ISSUER as string | undefined;
   const clientId = (import.meta.env.VITE_KC_CLIENT_ID as string | undefined) ?? 'platform-console';
   if (!issuer) {
-    return (
-      <main className="centered">
-        <h1>ยังไม่ได้ตั้งค่า</h1>
-        <p>ต้องตั้ง VITE_KC_ISSUER และ VITE_PLATFORM_API_URL</p>
-      </main>
-    );
+    return <PlatformAuthScreen state="configuration" />;
   }
   return (
     <AuthProvider
@@ -117,5 +105,9 @@ function E2eRoot() {
 const root = document.getElementById('root');
 if (!root) throw new Error('root element is required');
 createRoot(root).render(
-  <StrictMode>{import.meta.env.MODE === 'e2e' ? <E2eRoot /> : <ProductionRoot />}</StrictMode>,
+  <StrictMode>
+    <PlatformLocaleProvider>
+      {import.meta.env.MODE === 'e2e' ? <E2eRoot /> : <ProductionRoot />}
+    </PlatformLocaleProvider>
+  </StrictMode>,
 );

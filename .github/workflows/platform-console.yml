@@ -1,0 +1,61 @@
+name: Platform Console
+
+on:
+  pull_request:
+    paths:
+      - 'apps/platform-console/**'
+      - 'packages/ui/**'
+      - 'packages/ui-react/**'
+      - 'packages/i18n/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/platform-console.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/platform-console/**'
+      - 'packages/ui/**'
+      - 'packages/ui-react/**'
+      - 'packages/i18n/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/platform-console.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  platform-console-foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: สร้าง dependencies และ Platform Console
+        run: pnpm --filter '@d-contact/platform-console...' build
+      - name: ตรวจ catalog, literals, token CSS, types และ model/locale contracts
+        run: |
+          pnpm --filter @d-contact/platform-console i18n:check
+          pnpm --filter @d-contact/platform-console i18n:literals
+          pnpm --filter @d-contact/platform-console lint:css
+          pnpm --filter @d-contact/platform-console typecheck
+          pnpm --filter @d-contact/platform-console test
+      - run: pnpm --filter @d-contact/platform-console exec playwright install --with-deps chromium
+      - name: ตรวจ browser regression, TH/EN, keyboard/axe และ platform boundary
+        run: pnpm --filter @d-contact/platform-console test:e2e
+      - name: สร้าง image ด้วย dependency graph ของ platform
+        run: >-
+          docker build -f apps/platform-console/Dockerfile
+          --build-arg VITE_KC_ISSUER=https://identity.example.test/realms/dcontact
+          --build-arg SOURCE_SHA=${{ github.sha }}
+          -t dcontact-platform-console:ci .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: platform-console-browser
+          path: apps/platform-console/test-results
+          if-no-files-found: ignore

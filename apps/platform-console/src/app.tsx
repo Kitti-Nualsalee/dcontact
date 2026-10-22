@@ -20,6 +20,8 @@ import {
   type ReactNode,
 } from 'react';
 import { PlatformApiError, type PlatformApi } from './api.js';
+import { PlatformAuthScreen } from './auth-screen.js';
+import { PlatformHeader } from './platform-header.js';
 import {
   ACTOR_LABELS,
   BLOCKED_REASONS,
@@ -117,58 +119,21 @@ export function PlatformConsoleApp({
 
   if (sessionError) {
     return (
-      <Centered title="เปิด Platform Console ไม่ได้">
-        <p>{errorMessage(sessionError)}</p>
-        {sessionError.code === 'UNAUTHENTICATED' && onSessionExpired ? (
-          <button className="button primary" onClick={onSessionExpired}>
-            เข้าสู่ระบบใหม่
-          </button>
-        ) : null}
-      </Centered>
+      <PlatformAuthScreen
+        state="session-error"
+        errorCode={sessionError.code}
+        onSignIn={sessionError.code === 'UNAUTHENTICATED' ? onSessionExpired : undefined}
+      />
     );
   }
-  if (!session) return <Centered title="กำลังตรวจสอบ session" busy />;
+  if (!session) return <PlatformAuthScreen state="session-loading" />;
 
   const mutate = canMutate(session);
   const readOnly = readOnlyCopy(session);
   return (
     <NavigationContext.Provider value={navigations}>
       <div className="shell">
-        <a className="skip-link" href="#main">
-          ข้ามไปเนื้อหาหลัก
-        </a>
-        <header className="topbar">
-          <div className="brand">
-            <span className="eyebrow">INTERNAL · PLATFORM OPERATIONS</span>
-            <strong>D-Contact Platform Console</strong>
-          </div>
-          <nav aria-label="เมนูหลัก" className="topnav">
-            <button
-              className={`nav-link${route.name === 'list' ? ' active' : ''}`}
-              aria-current={route.name === 'list' ? 'page' : undefined}
-              onClick={() => navigate({ name: 'list' })}
-            >
-              Tenants
-            </button>
-            {mutate ? (
-              <button
-                className={`nav-link${route.name === 'new' ? ' active' : ''}`}
-                aria-current={route.name === 'new' ? 'page' : undefined}
-                onClick={() => navigate({ name: 'new' })}
-              >
-                สร้าง tenant
-              </button>
-            ) : null}
-          </nav>
-          <div className="identity">
-            <span className="chip neutral">{mutate ? 'Platform Operator' : readOnly.chip}</span>
-            {onSignOut ? (
-              <button className="button subtle" onClick={onSignOut}>
-                ออกจากระบบ
-              </button>
-            ) : null}
-          </div>
-        </header>
+        <PlatformHeader session={session} route={route} navigate={navigate} onSignOut={onSignOut} />
         <main id="main" className="main" tabIndex={-1}>
           {!mutate && readOnly.banner ? (
             <p role="status" className="callout warning">
