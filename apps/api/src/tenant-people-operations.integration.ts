@@ -16,6 +16,7 @@ import {
 } from './gateway-auth.js';
 import type { VoiceActor } from './tenant-voice-catalog.js';
 import { TenantPeopleRuntime } from './tenant-people-runtime.js';
+import { runPeopleActivation } from './tenant-people-activation.js';
 import {
   claimPeopleOperation,
   recordPeopleStep,
@@ -1591,6 +1592,245 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
         ),
       /INVITATION_RESEND_LIMIT/,
     );
+    const activationPrincipal = `activation_${randomUUID().replaceAll('-', '')}`;
+    const activationUrl = new URL(process.env.DATABASE_URL!);
+    activationUrl.username = activationPrincipal;
+    activationUrl.password = randomUUID();
+    activationUrl.searchParams.set('options', '-c role=dcontact_tenant_people_worker');
+    const activationWorker = new PrismaClient({
+      datasources: { db: { url: activationUrl.toString() } },
+    });
+    await owner.$executeRawUnsafe(
+      `CREATE ROLE "${activationPrincipal}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS PASSWORD '${activationUrl.password}'`,
+    );
+    try {
+      await owner.$executeRawUnsafe(
+        `GRANT dcontact_tenant_people_worker TO "${activationPrincipal}"`,
+      );
+      await owner.$executeRaw`INSERT INTO tenant_people_worker_bindings(tenant_id,database_principal,approval_ref) VALUES(${tenantId}::uuid,${activationPrincipal},'isolated-activation-test')`;
+      const activationOperation = supervisor.operationId;
+      const proof = async (
+        activationClaim: Parameters<
+          import('./tenant-people-activation.js').TenantPeopleActivationPort['readActivation']
+        >[0],
+      ) => ({
+        outcome: 'VERIFIED' as const,
+        tenantId: activationClaim.tenantId,
+        operationId: activationClaim.operationId,
+        userId: activationClaim.userId,
+        payloadDigest: activationClaim.payloadDigest,
+        probeRef: randomUUID(),
+        serverEpoch: 100,
+      });
+      assert.equal(
+        await runPeopleActivation(
+          activationWorker,
+          { readActivation: async () => ({ outcome: 'UNKNOWN' }) },
+          tenantId,
+          activationOperation,
+        ),
+        'UNKNOWN',
+      );
+      assert.equal(
+        await runPeopleActivation(
+          activationWorker,
+          { readActivation: async (claim) => ({ ...(await proof(claim)), outcome: 'PENDING' }) },
+          tenantId,
+          activationOperation,
+        ),
+        'PENDING',
+      );
+      assert.equal(
+        await runPeopleActivation(
+          activationWorker,
+          { readActivation: async (claim) => ({ ...(await proof(claim)), userId: randomUUID() }) },
+          tenantId,
+          activationOperation,
+        ),
+        'UNKNOWN',
+      );
+      assert.equal(
+        (await owner.user.findUniqueOrThrow({ where: { id: supervisor.userId } })).isActive,
+        false,
+      );
+      assert.equal(
+        await runPeopleActivation(
+          activationWorker,
+          {
+            async readActivation(claim) {
+              await owner.$executeRaw`UPDATE users SET config_revision=config_revision+1 WHERE tenant_id=${tenantId}::uuid AND id=${supervisor.userId}::uuid`;
+              return proof(claim);
+            },
+          },
+          tenantId,
+          activationOperation,
+        ),
+        'STALE',
+      );
+      assert.equal(
+        await runPeopleActivation(
+          activationWorker,
+          {
+            async readActivation(claim) {
+              await new Promise((resolve) => setTimeout(resolve, 30_100));
+              return proof(claim);
+            },
+          },
+          tenantId,
+          activationOperation,
+        ),
+        'STALE',
+      );
+      await assert.rejects(
+        () =>
+          runPeopleActivation(
+            activationWorker,
+            {
+              async readActivation(claim) {
+                await owner.$executeRaw`UPDATE tenant_people_worker_bindings SET enabled=false WHERE tenant_id=${tenantId}::uuid AND database_principal=${activationPrincipal}`;
+                return proof(claim);
+              },
+            },
+            tenantId,
+            activationOperation,
+          ),
+        /PEOPLE_ACTIVATION_SCOPE_DENIED/,
+      );
+      await owner.$executeRaw`UPDATE tenant_people_worker_bindings SET enabled=true WHERE tenant_id=${tenantId}::uuid AND database_principal=${activationPrincipal}`;
+      const fault = `activation_fault_${randomUUID().replaceAll('-', '')}`;
+      await owner.$executeRawUnsafe(
+        `CREATE FUNCTION ${fault}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.tenant_id='${tenantId}'::uuid AND NEW.action='ACTIVATE_TENANT_USER' THEN RAISE EXCEPTION 'ACTIVATION_TEST_AUDIT_FAILURE'; END IF; RETURN NEW; END $$`,
+      );
+      await owner.$executeRawUnsafe(
+        `CREATE TRIGGER ${fault} BEFORE INSERT ON voice_config_audit FOR EACH ROW EXECUTE FUNCTION ${fault}()`,
+      );
+      try {
+        await assert.rejects(
+          () =>
+            runPeopleActivation(
+              activationWorker,
+              { readActivation: proof },
+              tenantId,
+              activationOperation,
+            ),
+          /ACTIVATION_TEST_AUDIT_FAILURE/,
+        );
+        assert.equal(
+          (await owner.user.findUniqueOrThrow({ where: { id: supervisor.userId } })).isActive,
+          false,
+        );
+        const rolledBackReceipts = await owner.$queryRaw<
+          { count: bigint }[]
+        >`SELECT count(*) FROM tenant_people_activation_receipts WHERE tenant_id=${tenantId}::uuid`;
+        assert.equal(rolledBackReceipts[0].count, 0n);
+      } finally {
+        await owner.$executeRawUnsafe(`DROP TRIGGER ${fault} ON voice_config_audit`);
+        await owner.$executeRawUnsafe(`DROP FUNCTION ${fault}()`);
+      }
+      const beforeActivation = await owner.user.findUniqueOrThrow({
+        where: { id: supervisor.userId },
+      });
+      await assert.rejects(() =>
+        withTenantDatabaseTransaction(
+          application,
+          tenantId,
+          (transaction) =>
+            transaction.$queryRaw`SELECT * FROM dc_people_claim_activation(${tenantId}::uuid,${activationOperation}::uuid,${randomUUID()}::uuid)`,
+        ),
+      );
+      await assert.rejects(() =>
+        withTenantDatabaseTransaction(
+          activationWorker,
+          tenantId,
+          (transaction) =>
+            transaction.$executeRaw`UPDATE users SET is_active=true WHERE tenant_id=${tenantId}::uuid AND id=${supervisor.userId}::uuid`,
+        ),
+      );
+      await assert.rejects(() =>
+        runPeopleActivation(
+          activationWorker,
+          { readActivation: proof },
+          randomUUID(),
+          activationOperation,
+        ),
+      );
+      let releaseActivation!: () => void;
+      let bothProbes!: () => void;
+      const activationReleased = new Promise<void>((resolve) => {
+        releaseActivation = resolve;
+      });
+      const probesStarted = new Promise<void>((resolve) => {
+        bothProbes = resolve;
+      });
+      let activationReads = 0;
+      const concurrentPort = {
+        async readActivation(claim: Parameters<typeof proof>[0]) {
+          activationReads++;
+          if (activationReads === 2) bothProbes();
+          await activationReleased;
+          return proof(claim);
+        },
+      };
+      const activating = Promise.all([
+        runPeopleActivation(activationWorker, concurrentPort, tenantId, activationOperation),
+        runPeopleActivation(activationWorker, concurrentPort, tenantId, activationOperation),
+      ]);
+      await probesStarted;
+      releaseActivation();
+      assert.deepEqual((await activating).sort(), ['ACTIVATED', 'STALE']);
+      assert.equal(
+        await runPeopleActivation(
+          activationWorker,
+          { readActivation: proof },
+          tenantId,
+          activationOperation,
+        ),
+        'NOT_ELIGIBLE',
+      );
+      const activatedUser = await owner.user.findUniqueOrThrow({
+        where: { id: supervisor.userId },
+      });
+      assert.equal(activatedUser.isActive, true);
+      assert.equal(activatedUser.configRevision, beforeActivation.configRevision);
+      const lifecycle = await owner.$queryRaw<
+        { account: string; activation: string }[]
+      >`SELECT account_state AS account,activation_state AS activation FROM tenant_user_lifecycles WHERE tenant_id=${tenantId}::uuid AND user_id=${supervisor.userId}::uuid`;
+      assert.deepEqual(lifecycle, [{ account: 'ACTIVE', activation: 'ACTIVATED' }]);
+      const activationAudits = await owner.$queryRaw<
+        { count: bigint }[]
+      >`SELECT count(*) FROM voice_config_audit WHERE tenant_id=${tenantId}::uuid AND resource_id=${supervisor.userId}::uuid AND action='ACTIVATE_TENANT_USER'`;
+      assert.equal(activationAudits[0].count, 1n);
+      assert.equal(
+        await owner.agentSipCredential.count({ where: { tenantId, userId: supervisor.userId } }),
+        0,
+      );
+      assert.equal(
+        await owner.agentWorkSessionLease.count({ where: { tenantId, userId: supervisor.userId } }),
+        0,
+      );
+      for (const table of [
+        'tenant_people_activation_attempts',
+        'tenant_people_activation_receipts',
+      ]) {
+        assert.deepEqual(
+          await withTenantDatabaseTransaction(application, randomUUID(), (transaction) =>
+            transaction.$queryRaw(Prisma.sql`SELECT tenant_id FROM ${Prisma.raw(table)}`),
+          ),
+          [],
+        );
+        await assert.rejects(() =>
+          withTenantDatabaseTransaction(activationWorker, tenantId, (transaction) =>
+            transaction.$executeRaw(
+              Prisma.sql`DELETE FROM ${Prisma.raw(table)} WHERE tenant_id=${tenantId}::uuid`,
+            ),
+          ),
+        );
+      }
+    } finally {
+      await activationWorker.$disconnect();
+      await owner.$executeRaw`DELETE FROM tenant_people_worker_bindings WHERE tenant_id=${tenantId}::uuid AND database_principal=${activationPrincipal}`;
+      await owner.$executeRawUnsafe(`DROP ROLE "${activationPrincipal}"`);
+    }
     const foreignRows = await withTenantDatabaseTransaction(
       application,
       randomUUID(),

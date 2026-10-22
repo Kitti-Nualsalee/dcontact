@@ -429,3 +429,8 @@ GRANT SELECT ON tenant_people_invitation_preparations,tenant_people_invitation_p
 GRANT INSERT(tenant_id,resend_id,operation_id,user_id,generation,provider_attempt_ref,fencing_token,lease_owner) ON tenant_people_invitation_preparations TO dcontact_tenant_people_worker;
 GRANT INSERT(tenant_id,provider_attempt_ref,intent_ref,not_before_epoch,server_epoch) ON tenant_people_invitation_preparation_proofs TO dcontact_tenant_people_worker;
 GRANT SELECT(config_revision) ON users TO dcontact_tenant_people_worker;
+
+REVOKE ALL ON tenant_people_activation_attempts,tenant_people_activation_receipts FROM dcontact_app,dcontact_tenant_people_worker;
+GRANT SELECT ON tenant_people_activation_attempts,tenant_people_activation_receipts TO dcontact_app,dcontact_tenant_people_worker;
+REVOKE ALL ON FUNCTION dc_people_claim_activation(uuid,uuid,uuid),dc_people_apply_activation(uuid,uuid,uuid,bigint) FROM PUBLIC,dcontact_app;
+GRANT EXECUTE ON FUNCTION dc_people_claim_activation(uuid,uuid,uuid),dc_people_apply_activation(uuid,uuid,uuid,bigint) TO dcontact_tenant_people_worker;
