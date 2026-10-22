@@ -167,7 +167,7 @@ jobs:
             upper="$(echo "$name" | tr '[:lower:]' '[:upper:]')"
             echo "${upper}_IMAGE=$REGISTRY/dcontact-uat-$name@$digest" >> "$release/release.env"
           done
-          cp infra/uat/docker-compose.uat.yml infra/uat/docker-compose.uat.migration.yml "$release/"
+          cp infra/uat/docker-compose.uat.yml "$release/"
           cp infra/uat/bin/uat-deploy.sh infra/uat/bin/db-roles.sh infra/uat/bin/object-storage-entrypoint.sh "$release/bin/"
           cat "$release/release.env"
 

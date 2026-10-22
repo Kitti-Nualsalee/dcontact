@@ -73,7 +73,7 @@ preflight() {
 
 layout() {
   install -d -m 700 "$UAT_ROOT" "$UAT_ROOT/tls" "$release" "$release/bin"
-  cp "$REPO/infra/uat/docker-compose.uat.yml" "$REPO/infra/uat/docker-compose.uat.migration.yml" "$release/"
+  cp "$REPO/infra/uat/docker-compose.uat.yml" "$release/"
   cp "$REPO/infra/uat/bin/uat-deploy.sh" "$REPO/infra/uat/bin/db-roles.sh" "$REPO/infra/uat/bin/object-storage-entrypoint.sh" "$release/bin/"
 }
 
