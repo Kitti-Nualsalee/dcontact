@@ -17,9 +17,12 @@
 	header {
 		X-Content-Type-Options nosniff
 		Referrer-Policy no-referrer
-		X-Frame-Options DENY
 		-Server
 	}
+
+	# ADR033: ใช้ framing policy ของ Keycloak เฉพาะ protocol iframe นี้
+	@frameProtected not path /auth/realms/dcontact/dc-account/login-status-iframe.html
+	header @frameProtected >X-Frame-Options DENY
 
 	route {
 		@notEdge not remote_ip 192.168.102.114/32

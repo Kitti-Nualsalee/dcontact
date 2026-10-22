@@ -1,0 +1,39 @@
+name: UAT Session Iframe
+on:
+  pull_request:
+    paths:
+      - 'infra/uat/Caddyfile*'
+      - 'scripts/uat-session-iframe.boundary.mjs'
+      - '.github/workflows/uat-session-iframe.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/uat/Caddyfile*'
+      - 'scripts/uat-session-iframe.boundary.mjs'
+      - '.github/workflows/uat-session-iframe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  caddy-http-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: HTTP ผ่าน Caddy จริงทั้ง 4 tenant templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/session-iframe
+          git rev-parse HEAD > artifacts/session-iframe/source-sha.txt
+          node --test scripts/uat-session-iframe.boundary.mjs | tee artifacts/session-iframe/boundary.tap
+          sha256sum infra/uat/Caddyfile infra/uat/Caddyfile.3vm infra/uat/Caddyfile.3vm.line infra/uat/Caddyfile.3vm.e1 > artifacts/session-iframe/config-sha256.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uat-session-iframe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/session-iframe/
+          retention-days: 30
