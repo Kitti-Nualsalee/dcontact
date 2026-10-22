@@ -27,12 +27,15 @@ https://{$UAT_HOST} {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
 		Referrer-Policy no-referrer
-		X-Frame-Options DENY
 		-Server
 	}
 
 	# `route` คงลำดับตามที่เขียน — ไม่งั้น Caddy เรียง `handle` ก่อน `respond` และ allowlist/การปิด admin
 	# จะถูกข้ามสำหรับ /auth และ /api (readiness UAT-L05 จับได้)
+	# ADR033: ใช้ framing policy ของ Keycloak เฉพาะ protocol iframe นี้
+	@frameProtected not path /auth/realms/dcontact/dc-account/login-status-iframe.html
+	header @frameProtected >X-Frame-Options DENY
+
 	route {
 		@outside not remote_ip {$UAT_ALLOWED_CIDRS}
 		respond @outside 403
