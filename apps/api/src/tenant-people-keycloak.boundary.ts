@@ -82,6 +82,15 @@ test('real Keycloak service client creates once and reads the immutable outcome'
   };
   const provisioned = await adapter.mutateStep(terminalClaim);
   assert.ok(provisioned.outcome === 'SUCCEEDED' && provisioned.identityId === claim.userId);
+  const activation = await adapter.readActivation(claim);
+  assert.equal(activation.outcome, 'PENDING');
+  const nextActivation = await adapter.readActivation(claim);
+  assert.equal(nextActivation.outcome, 'PENDING');
+  if (activation.outcome === 'PENDING' && nextActivation.outcome === 'PENDING')
+    assert.notEqual(activation.probeRef, nextActivation.probeRef);
+  assert.deepEqual(await adapter.readActivation({ ...claim, payloadDigest: '0'.repeat(64) }), {
+    outcome: 'UNKNOWN',
+  });
   await assert.rejects(
     adapter.readOutcome({ ...claim, tenantId: randomUUID(), reconcileOnly: true }),
     /SCOPE_MISMATCH/,

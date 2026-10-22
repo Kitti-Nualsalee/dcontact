@@ -32,6 +32,72 @@ const configuration = {
   clientSecret: 'synthetic-secret',
 };
 
+test('activation ใช้ fresh GET และปฏิเสธ proof ที่ correlation หรือ schema ไม่ครบ', async () => {
+  let transform: (proof: Record<string, unknown>) => unknown = (proof) => proof;
+  const probes = new Set<string>();
+  const methods: string[] = [];
+  const adapter = new TenantPeopleKeycloak(configuration, async (input, options) => {
+    methods.push(options?.method ?? 'GET');
+    assert.equal(options?.redirect, 'error');
+    assert.ok(options && 'cache' in options);
+    assert.equal(options.cache, 'no-store');
+    const endpoint = new URL(String(input));
+    if (endpoint.pathname.endsWith('/token'))
+      return Response.json({ access_token: 'synthetic-token' });
+    assert.equal(options?.method, 'GET');
+    assert.equal(endpoint.pathname.endsWith(`/operations/${claim.operationId}/activation`), true);
+    const probeRef = endpoint.searchParams.get('probeRef');
+    assert.ok(probeRef && !probes.has(probeRef));
+    probes.add(probeRef);
+    assert.equal(endpoint.searchParams.get('email'), claim.command.email);
+    return Response.json(
+      transform({
+        version: 1,
+        outcome: 'VERIFIED',
+        tenantId,
+        operationId: claim.operationId,
+        userId: claim.userId,
+        payloadDigest: claim.payloadDigest,
+        probeRef,
+        serverEpoch: 100,
+      }),
+    );
+  });
+  const verified = await adapter.readActivation(claim);
+  assert.equal(verified.outcome, 'VERIFIED');
+  transform = (proof) => ({ ...proof, outcome: 'PENDING' });
+  assert.equal((await adapter.readActivation(claim)).outcome, 'PENDING');
+  for (const field of [
+    'version',
+    'outcome',
+    'tenantId',
+    'operationId',
+    'userId',
+    'payloadDigest',
+    'probeRef',
+    'serverEpoch',
+  ]) {
+    transform = (proof) => ({ ...proof, [field]: null });
+    assert.deepEqual(await adapter.readActivation(claim), { outcome: 'UNKNOWN' }, field);
+  }
+  for (const changes of [
+    { probeRef: claim.command.commandId },
+    { tenantId: claim.userId },
+    { outcome: 'SUCCEEDED' },
+    { serverEpoch: -1 },
+    { serverEpoch: 1.5 },
+    { serverEpoch: 253402041600 },
+    { credential: 'must-not-be-exposed' },
+  ]) {
+    transform = (proof) => ({ ...proof, ...changes });
+    assert.deepEqual(await adapter.readActivation(claim), { outcome: 'UNKNOWN' });
+  }
+  const calls = methods.length;
+  await assert.rejects(adapter.readActivation({ ...claim, tenantId: claim.userId }), /SCOPE/);
+  assert.equal(methods.length, calls);
+  assert.deepEqual(methods, Array.from({ length: calls / 2 }, () => ['POST', 'GET']).flat());
+});
+
 test('preparation readback binds the complete attempt and uses only the provider clock', async () => {
   const attempt: PeopleInvitationAttempt = {
     tenantId,

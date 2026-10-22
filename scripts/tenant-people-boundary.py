@@ -410,6 +410,30 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         newest_status,newest_page=action_page()
         if newest_status!=200 or 'kc-error-message' in newest_page:raise RuntimeError('PROVIDER_NEWEST_LINK_NOT_USABLE')
         print('B3_INVITATION_GENERATION_BOUNDARY_PASS')
+        activation_path=generation_base+'/activation'
+        activation_query={key:generation_body[key] for key in ('tenantId','targetUserId','payloadDigest','email','displayName','role')}
+        activation_query['probeRef']=str(uuid.uuid4())
+        activation_url=activation_path+'?'+urllib.parse.urlencode(activation_query)
+        expect(activation_url,None,status=401)
+        expect(activation_url,tenants[1]['token'],status=403)
+        def activation_read(outcome):
+            activation_query['probeRef']=str(uuid.uuid4())
+            proof,_=expect(activation_path+'?'+urllib.parse.urlencode(activation_query),tenants[0]['token'],status=200)
+            if set(proof)!={'version','outcome','tenantId','operationId','userId','payloadDigest','probeRef','serverEpoch'}:raise RuntimeError('ACTIVATION_PROOF_FIELDS_INVALID')
+            if proof['outcome']!=outcome or proof['probeRef']!=activation_query['probeRef'] or proof['userId']!=generation_body['targetUserId']:raise RuntimeError('ACTIVATION_FRESH_READBACK_FAILED')
+        activation_read('PENDING')
+        activation_user=adminbase+'/users/'+generation_body['targetUserId']
+        expect(activation_user,admin,{'emailVerified':True,'requiredActions':[]},method='PUT',status=204)
+        activation_read('PENDING')
+        expect(activation_user+'/reset-password',admin,{'type':'password','value':uuid.uuid4().hex,'temporary':False},method='PUT',status=204)
+        activation_read('PENDING')
+        expect(activation_user,admin,{'credentials':[{'type':'otp','secretData':json.dumps({'value':'JBSWY3DPEHPK3PXP'}),'credentialData':json.dumps({'subType':'totp','digits':6,'counter':0,'period':30,'algorithm':'HmacSHA1'})}]},method='PUT',status=204)
+        activation_read('VERIFIED')
+        expect(activation_user,admin,{'enabled':False},method='PUT',status=204)
+        expect(activation_path+'?'+urllib.parse.urlencode(activation_query),tenants[0]['token'],status=409)
+        expect(activation_user,admin,{'enabled':True,'emailVerified':False},method='PUT',status=204)
+        activation_read('PENDING')
+        print('B3_ACTIVATION_FRESH_PROBE_BOUNDARY_PASS')
         atomicbody=envelope();atomicoperation=str(uuid.uuid4());atomicbase='/realms/'+realm+'/dc-tenant-people/operations/'+atomicoperation+'/steps/'
         expect(atomicbase+'CREATE_IDENTITY',tenants[0]['token'],atomicbody,status=200)
         expect('/realms/'+realm+'/dc-tenant-people/operations/'+atomicoperation+'/invitations/1/intent',tenants[0]['token'],{**atomicbody,'providerAttemptRef':str(uuid.uuid4()),'leaseOwner':'not-provisioned-worker'},status=409)

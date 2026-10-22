@@ -32,6 +32,7 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.OrganizationModel;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
+import org.keycloak.models.credential.OTPCredentialModel;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.models.utils.SystemClientUtil;
 import org.keycloak.organization.OrganizationProvider;
@@ -250,6 +251,43 @@ public class PeopleResource {
     if(!operation.tenantId.equals(tenantId)||!operation.targetUserId.equals(target)||!operation.payloadDigest.equals(payloadDigest))throw denied(409,"CORRELATION_CONFLICT");
     PeopleReceipt result=manager.find(PeopleReceipt.class,hash(key+":"+step+":0"));
     return result==null?json(200,Map.of("outcome","UNKNOWN")):receipt(result);
+  }
+
+  @GET @Path("operations/{operationId}/activation")
+  public Response activation(@PathParam("operationId") String operationId,@QueryParam("tenantId") String tenantId,
+    @QueryParam("targetUserId") String target,@QueryParam("payloadDigest") String payloadDigest,
+    @QueryParam("email") String email,@QueryParam("displayName") String name,@QueryParam("role") String role,
+    @QueryParam("probeRef") String probeRef) {
+    uuid(tenantId);Binding binding=authorize(tenantId);uuid(operationId);uuid(target);uuid(probeRef);
+    if(payloadDigest==null||!payloadDigest.matches("[a-f0-9]{64}")||email==null||name==null||role==null
+      ||!Set.of("AGENT","SUPERVISOR","ADMIN").contains(role))throw denied(400,"INVALID_REQUEST");
+    EntityManager manager=entityManager();String key=operationKey(binding,operationId);
+    PeopleOperation operation=manager.find(PeopleOperation.class,key);
+    if(operation==null)return json(200,Map.of("outcome","UNKNOWN"));
+    String fingerprint=hash(String.join("\n",tenantId,target,payloadDigest,email,name,role,binding.organization().getId()));
+    if(!operation.tenantId.equals(tenantId)||!operation.targetUserId.equals(target)
+      ||!operation.payloadDigest.equals(payloadDigest)||!operation.requestDigest.equals(fingerprint))throw denied(409,"CORRELATION_CONFLICT");
+    PeopleReceipt provisioned=manager.find(PeopleReceipt.class,hash(key+":VERIFY_PROVISIONED:0"));
+    if(provisioned==null||!"SUCCEEDED".equals(provisioned.outcome)||!target.equals(provisioned.identityId))return json(200,Map.of("outcome","UNKNOWN"));
+    UserModel user=session.users().getUserById(binding.realm(),target);
+    var desired=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
+    if(user==null||desired==null||desired.isComposite()||user.getServiceAccountClientLink()!=null||!user.isEnabled()
+      ||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getUsername())||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getEmail())
+      ||!"TENANT_USER".equals(user.getFirstAttribute("dc_identity_class"))
+      ||!tenantId.equals(user.getFirstAttribute("tenant_id"))||!target.equals(user.getFirstAttribute("dc_user_id"))
+      ||!binding.organization().getAlias().equals(user.getFirstAttribute("tenant_slug"))
+      ||!operationId.equals(user.getFirstAttribute("dc_tenant_people_operation_id")))throw denied(409,"IDENTITY_MAPPING_CONFLICT");
+    var roles=user.getRoleMappingsStream().toList();
+    if(roles.size()!=1||!roles.get(0).getId().equals(desired.getId()))throw denied(409,"IDENTITY_ROLE_CONFLICT");
+    var memberships=session.getProvider(OrganizationProvider.class).getByMember(user).toList();
+    if(memberships.size()!=1||!memberships.get(0).getId().equals(binding.organization().getId()))throw denied(409,"IDENTITY_ORGANIZATION_CONFLICT");
+    var credentials=user.credentialManager().getStoredCredentialsStream().toList();
+    boolean password=credentials.stream().anyMatch(credential->"password".equals(credential.getType()));
+    boolean totp=credentials.stream().filter(credential->"otp".equals(credential.getType()))
+      .anyMatch(credential->"totp".equals(OTPCredentialModel.createFromCredentialModel(credential).getOTPCredentialData().getSubType()));
+    boolean verified=user.isEmailVerified()&&user.getRequiredActionsStream().findAny().isEmpty()&&password&&totp;
+    return json(200,Map.of("version",1,"outcome",verified?"VERIFIED":"PENDING","tenantId",tenantId,"operationId",operationId,
+      "userId",target,"payloadDigest",payloadDigest,"probeRef",probeRef,"serverEpoch",Time.currentTime()));
   }
 
   private void invitationProfileReady() {
