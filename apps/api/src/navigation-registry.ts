@@ -203,6 +203,16 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
         labelKey: 'navigation.pages.voiceRouting.skills',
         path: '/?view=voice-routing&section=skills',
       },
+      {
+        id: 'destinations',
+        labelKey: 'navigation.pages.voiceRouting.destinations',
+        path: '/?view=voice-routing&section=destinations',
+      },
+      {
+        id: 'agent-skills',
+        labelKey: 'navigation.pages.voiceRouting.agentSkills',
+        path: '/?view=voice-routing&section=agent-skills',
+      },
     ],
   },
   {
@@ -214,6 +224,18 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     hostApp: 'console',
     path: '/?view=tenant-people',
     roles: ['admin'],
+    pages: [
+      {
+        id: 'users',
+        labelKey: 'navigation.pages.tenantPeople.users',
+        path: '/?view=tenant-people',
+      },
+      {
+        id: 'agent-skills',
+        labelKey: 'navigation.pages.tenantPeople.agentSkills',
+        path: '/?view=tenant-people&section=agent-skills',
+      },
+    ],
   },
   {
     id: 'core-settings',

@@ -1,4 +1,9 @@
 {
+  "pages": {
+    "navigation": "People pages",
+    "users": "User accounts",
+    "agentSkills": "Agent skills"
+  },
   "title": "User accounts",
   "attention": "This account requires attention. Contact an administrator; it is not activated.",
   "notice": "Provisioning, invitation delivery and activation are separate states. Users set their own password/TOTP; activation does not open calls automatically.",

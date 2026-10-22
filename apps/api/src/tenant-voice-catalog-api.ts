@@ -8,6 +8,8 @@ import {
   Inject,
   Param,
   Post,
+  Put,
+  Patch,
   Query,
   Req,
   UnauthorizedException,
@@ -15,6 +17,12 @@ import {
   Optional,
 } from '@nestjs/common';
 import type { PrismaClient } from '@d-contact/db';
+import { mutateConfiguration } from './tenant-voice-configuration.js';
+import {
+  readConfiguration,
+  configurationProjection,
+  configurationEligibility,
+} from './tenant-voice-configuration-read.js';
 import { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import {
@@ -49,6 +57,73 @@ export class TenantVoiceCatalogController {
     @Inject(TENANT_VOICE_DATABASE) private readonly db: PrismaClient,
     @Optional() @Inject(TENANT_PEOPLE_READINESS) private readonly people?: TenantPeopleReadiness,
   ) {}
+  @Patch('queues/:id') @GatewayRoles('admin') @Header('Cache-Control', 'no-store') updateQueue(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return mutateConfiguration(this.db, actor(request), 'queue', id, body);
+  }
+  @Get('queues/:id/required-skills') @Header('Cache-Control', 'no-store') requirements(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+  ) {
+    return readConfiguration(this.db, actor(request), 'requirements', id);
+  }
+  @Put('queues/:id/required-skills')
+  @GatewayRoles('admin')
+  @Header('Cache-Control', 'no-store')
+  replaceRequirements(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return mutateConfiguration(this.db, actor(request), 'requirements', id, body);
+  }
+  @Get('people/users/:id/skills') @Header('Cache-Control', 'no-store') agentSkills(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+  ) {
+    return readConfiguration(this.db, actor(request), 'agent-skills', id);
+  }
+  @Put('people/users/:id/skills')
+  @GatewayRoles('admin')
+  @Header('Cache-Control', 'no-store')
+  replaceAgentSkills(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return mutateConfiguration(this.db, actor(request), 'agent-skills', id, body);
+  }
+  @Get('people/roster') @Header('Cache-Control', 'no-store') roster(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return configurationProjection(this.db, actor(request), 'roster', query);
+  }
+  @Get('destinations') @Header('Cache-Control', 'no-store') destinations(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return configurationProjection(this.db, actor(request), 'destinations', query);
+  }
+  @Put('destinations/:id/binding')
+  @GatewayRoles('admin')
+  @Header('Cache-Control', 'no-store')
+  binding(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return mutateConfiguration(this.db, actor(request), 'binding', id, body);
+  }
+  @Get('eligibility') @Header('Cache-Control', 'no-store') eligibility(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Query() query: Record<string, unknown>,
+  ) {
+    return configurationEligibility(this.db, actor(request), query);
+  }
   @Get('capabilities') @Header('Cache-Control', 'no-store') async capabilities(
     @Req() r: AuthenticatedGatewayRequest,
   ) {

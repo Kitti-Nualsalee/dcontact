@@ -11,6 +11,7 @@ DECLARE
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'users', 'teams', 'queues', 'voice_destinations', 'queue_audit_events', 'skills',
+    'agent_skills', 'queue_skills',
     'agent_state_logs', 'contacts', 'contact_identities',
     'interactions', 'interaction_events', 'conversations', 'messages', 'recordings',
     'recording_audit_events', 'recording_legal_holds',
@@ -94,6 +95,9 @@ BEGIN
     );
   END LOOP;
 END $$;
+
+ALTER TABLE agent_skills FORCE ROW LEVEL SECURITY;
+ALTER TABLE queue_skills FORCE ROW LEVEL SECURITY;
 
 -- application role สำหรับ production (ไม่ bypass RLS)
 DO $$
@@ -375,6 +379,8 @@ REVOKE UPDATE, DELETE ON voice_config_commands, voice_config_command_receipts, v
 REVOKE INSERT, UPDATE, DELETE ON voice_managed_queue_policies FROM dcontact_app;
 GRANT INSERT ON voice_managed_queue_policies TO dcontact_app;
 GRANT EXECUTE ON FUNCTION dc_voice_lock_policy_refs(uuid) TO dcontact_app;
+REVOKE ALL ON FUNCTION dc_voice_lock_config_refs(uuid,uuid[],uuid[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dc_voice_lock_config_refs(uuid,uuid[],uuid[]) TO dcontact_app;
 REVOKE INSERT, UPDATE, DELETE ON tenant_voice_policy_audit FROM dcontact_app;
 
 -- Positive identity เป็น operator authority; app อ่านอย่างเดียวและยังอยู่ใต้ RLS

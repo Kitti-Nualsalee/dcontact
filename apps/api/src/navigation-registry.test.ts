@@ -249,7 +249,12 @@ test('#658: Governance และ Voice ส่งหน้าย่อยจา�
   const everyone = visibleAreas(visibleApps({ roles: ['admin'], entitlements: null }));
   const withoutPages = everyone
     .flatMap((a) => a.sections.flatMap((s) => s.items))
-    .filter((i) => !['contact-governance', 'voice-routing', 'core-settings'].includes(i.appId));
+    .filter(
+      (i) =>
+        !['contact-governance', 'voice-routing', 'tenant-people', 'core-settings'].includes(
+          i.appId,
+        ),
+    );
   assert.ok(withoutPages.every((i) => i.pages === undefined));
   const voice = everyone
     .find((a) => a.id === 'routing')!
@@ -257,6 +262,6 @@ test('#658: Governance และ Voice ส่งหน้าย่อยจา�
     .find((i) => i.appId === 'voice-routing')!;
   assert.deepEqual(
     voice.pages!.map((p) => p.id),
-    ['queues', 'skills'],
+    ['queues', 'skills', 'destinations', 'agent-skills'],
   );
 });

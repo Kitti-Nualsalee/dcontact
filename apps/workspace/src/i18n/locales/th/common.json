@@ -64,7 +64,13 @@
       },
       "voiceRouting": {
         "queues": "คิว Voice",
-        "skills": "ทักษะ"
+        "skills": "ทักษะ",
+        "destinations": "ปลายทาง",
+        "agentSkills": "ทักษะ Agent"
+      },
+      "tenantPeople": {
+        "users": "บัญชีผู้ใช้",
+        "agentSkills": "ทักษะ Agent"
       },
       "coreSettings": {
         "organization": "ข้อมูลองค์กร"

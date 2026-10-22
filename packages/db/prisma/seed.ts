@@ -89,7 +89,7 @@ async function main() {
   await prisma.queueSkill.upsert({
     where: { queueId_skillId: { queueId: queue.id, skillId: skill.id } },
     update: {},
-    create: { queueId: queue.id, skillId: skill.id, minLevel: 1 },
+    create: { tenantId: tenant.id, queueId: queue.id, skillId: skill.id, minLevel: 1 },
   });
 
   await prisma.voiceDestination.upsert({
@@ -131,7 +131,7 @@ async function main() {
     await prisma.agentSkill.upsert({
       where: { userId_skillId: { userId: agent.id, skillId: skill.id } },
       update: {},
-      create: { userId: agent.id, skillId: skill.id, level: 3 },
+      create: { tenantId: tenant.id, userId: agent.id, skillId: skill.id, level: 3 },
     });
     const latestState = await prisma.agentStateLog.findFirst({
       where: { tenantId: tenant.id, userId: agent.id },
@@ -219,7 +219,12 @@ async function main() {
       queueId_skillId: { queueId: secondQueue.id, skillId: secondSkill.id },
     },
     update: {},
-    create: { queueId: secondQueue.id, skillId: secondSkill.id, minLevel: 1 },
+    create: {
+      tenantId: secondTenant.id,
+      queueId: secondQueue.id,
+      skillId: secondSkill.id,
+      minLevel: 1,
+    },
   });
   await prisma.voiceDestination.upsert({
     where: { tenantId_destination: { tenantId: secondTenant.id, destination: '3000' } },
@@ -229,7 +234,12 @@ async function main() {
   await prisma.agentSkill.upsert({
     where: { userId_skillId: { userId: secondAgent.id, skillId: secondSkill.id } },
     update: { level: 3 },
-    create: { userId: secondAgent.id, skillId: secondSkill.id, level: 3 },
+    create: {
+      tenantId: secondTenant.id,
+      userId: secondAgent.id,
+      skillId: secondSkill.id,
+      level: 3,
+    },
   });
   const secondLatestState = await prisma.agentStateLog.findFirst({
     where: { tenantId: secondTenant.id, userId: secondAgent.id },

@@ -1,4 +1,30 @@
 {
+  "config": {
+    "navigation": "Routing pages",
+    "requirements": "Queue required skills",
+    "agentSkills": "Agent skills",
+    "destinations": "Destinations",
+    "destination": "Reserved destination",
+    "agent": "Agent",
+    "pendingNotice": "Skills can be prepared before activation. Pending accounts cannot receive calls. This does not change availability.",
+    "inactiveBinding": "Bindings remain inactive until managed routing is ready in B5.",
+    "unassigned": "Not assigned",
+    "level": "Level {{level}}",
+    "reason": "Reason (1–500 characters)",
+    "save": "Save configuration",
+    "eligibility": "Queue eligibility",
+    "evaluated": "Configuration revision {{revision}} · evaluated {{at}}",
+    "eligible": "Eligible and available",
+    "notEligible": "Not eligible or unavailable",
+    "reasons": {
+      "INACTIVE_AGENT": "Account is not active",
+      "TEAM_MISMATCH": "Agent belongs to another team",
+      "SKILL_LEVEL_INSUFFICIENT": "Required skill level is not met",
+      "NOT_AVAILABLE": "Agent is not available",
+      "NO_REQUIRED_SKILLS": "No required skills configured",
+      "NO_ELIGIBLE_AVAILABLE_AGENT": "No eligible available Agent. Valid configuration can still be saved."
+    }
+  },
   "title": "Voice configuration",
   "catalog": "Queues and skills",
   "queues": "Voice queues",
@@ -34,6 +60,8 @@
   "openResource": "Open {{name}}",
   "more": "Load more",
   "errors": {
+    "REVISION_CONFLICT": "Configuration changed. Reload before saving again.",
+    "COMMAND_ID_REUSED": "Check the original command before making another change.",
     "UNAUTHORIZED": "Session expired. Sign in and check the original command.",
     "FORBIDDEN": "You do not have permission to access this data.",
     "FAILED": "Loading or saving failed. Please retry.",

@@ -1,3 +1,4 @@
+import { createConfigApi, type ConfigApi } from './config-api.js';
 export type CatalogKind = 'queues' | 'skills';
 export interface CatalogItem {
   id: string;
@@ -29,6 +30,7 @@ export class CatalogApiError extends Error {
   }
 }
 export interface CatalogApi {
+  config?: ConfigApi;
   capabilities(): Promise<Capabilities>;
   teams(): Promise<{ items: { id: string; name: string }[] }>;
   list(
@@ -73,6 +75,7 @@ export function createCatalogApi(options: {
     return response.json();
   }
   return {
+    config: createConfigApi(options),
     capabilities: () => request('capabilities'),
     teams: () => request('teams'),
     list: (kind, cursor) =>

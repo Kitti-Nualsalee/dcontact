@@ -437,6 +437,7 @@ export function setQueueRequiredSkills(
     if (command.requiredSkills.length > 0) {
       await transaction.queueSkill.createMany({
         data: command.requiredSkills.map((skill) => ({
+          tenantId: command.tenantId,
           queueId: queue.id,
           skillId: skill.skillId,
           minLevel: skill.minLevel,
@@ -513,6 +514,14 @@ export function setDirectVoiceDestination(
 ) {
   return withTenantDatabaseTransaction(database, command.tenantId, async (transaction) => {
     await assertLegacyVoiceQueue(transaction, command.tenantId, command.queueId);
+    const existing = await transaction.voiceDestination.findUnique({
+      where: {
+        tenantId_destination: { tenantId: command.tenantId, destination: command.destination },
+      },
+      select: { voiceConfigVersion: true, queue: { select: { voiceConfigVersion: true } } },
+    });
+    if (existing?.voiceConfigVersion === 1 || existing?.queue.voiceConfigVersion === 1)
+      throw new HttpException({ code: 'VOICE_CONFIG_V1_REQUIRED' }, 409);
     const queue = await transaction.queue.findFirst({
       where: {
         id: command.queueId,

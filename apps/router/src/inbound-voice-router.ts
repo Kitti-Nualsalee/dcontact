@@ -1303,6 +1303,13 @@ export class InboundVoiceRouter {
         AND u.role = 'AGENT'
         AND u.is_active = true
         AND u.extension IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM queues routing_queue
+          WHERE routing_queue.tenant_id = ${tenantId}::uuid
+            AND routing_queue.id = ${queueId}::uuid
+            AND (routing_queue.voice_config_version IS DISTINCT FROM 1
+              OR (routing_queue.team_id IS NOT NULL AND routing_queue.team_id = u.team_id))
+        )
         AND latest.state = 'AVAILABLE'
         AND NOT EXISTS (
           SELECT 1
@@ -1310,7 +1317,9 @@ export class InboundVoiceRouter {
           LEFT JOIN agent_skills agent_skill
             ON agent_skill.skill_id = required_skill.skill_id
             AND agent_skill.user_id = u.id
+            AND agent_skill.tenant_id = ${tenantId}::uuid
           WHERE required_skill.queue_id = ${queueId}::uuid
+            AND required_skill.tenant_id = ${tenantId}::uuid
             AND (agent_skill.user_id IS NULL OR agent_skill.level < required_skill.min_level)
         )
       ORDER BY ${ordering}

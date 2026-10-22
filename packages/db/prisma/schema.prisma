@@ -309,6 +309,8 @@ enum VoiceDestinationEntryMode {
 }
 
 model VoiceDestination {
+  configRevision Int @default(1) @map("config_revision")
+  voiceConfigVersion Int? @map("voice_config_version")
   id          String                    @id @default(uuid()) @db.Uuid
   tenantId    String                    @map("tenant_id") @db.Uuid
   destination String
@@ -375,26 +377,30 @@ model Skill {
 }
 
 model AgentSkill {
+  tenantId String @map("tenant_id") @db.Uuid
   userId  String @map("user_id") @db.Uuid
   skillId String @map("skill_id") @db.Uuid
   level   Int    @default(1) // 1-5
 
-  user  User  @relation(fields: [userId], references: [id])
-  skill Skill @relation(fields: [skillId], references: [id])
+  user  User  @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Restrict, onUpdate: Cascade)
+  skill Skill @relation(fields: [tenantId, skillId], references: [tenantId, id], onDelete: Restrict, onUpdate: Cascade)
 
   @@id([userId, skillId])
+  @@index([tenantId, skillId])
   @@map("agent_skills")
 }
 
 model QueueSkill {
+  tenantId String @map("tenant_id") @db.Uuid
   queueId  String @map("queue_id") @db.Uuid
   skillId  String @map("skill_id") @db.Uuid
   minLevel Int    @default(1) @map("min_level")
 
-  queue Queue @relation(fields: [queueId], references: [id])
-  skill Skill @relation(fields: [skillId], references: [id])
+  queue Queue @relation(fields: [tenantId, queueId], references: [tenantId, id], onDelete: Restrict, onUpdate: Cascade)
+  skill Skill @relation(fields: [tenantId, skillId], references: [tenantId, id], onDelete: Restrict, onUpdate: Cascade)
 
   @@id([queueId, skillId])
+  @@index([tenantId, skillId])
   @@map("queue_skills")
 }
 
