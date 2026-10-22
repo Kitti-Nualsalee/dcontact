@@ -5,131 +5,180 @@ import { PrismaClient } from '@d-contact/db';
 import type { TelephonyCallEvent } from '@d-contact/shared';
 import { InboundVoiceRouter } from './inbound-voice-router.js';
 
-test('Router assigns only an AVAILABLE agent whose skills meet every queue minimum', async (t) => {
-  const owner = new PrismaClient();
-  const application = new PrismaClient({
-    datasources: {
-      db: {
-        url:
-          process.env.APPLICATION_DATABASE_URL ??
-          'postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public',
+for (const managed of [false, true])
+  test(`Router checks every skill minimum and managed team scope (managed=${managed})`, async (t) => {
+    const owner = new PrismaClient();
+    const application = new PrismaClient({
+      datasources: {
+        db: {
+          url:
+            process.env.APPLICATION_DATABASE_URL ??
+            'postgresql://dcontact_app:dcontact_app@localhost:5433/dcontact?schema=public',
+        },
       },
-    },
-  });
-  const tenantId = randomUUID();
-  const queueId = randomUUID();
-  const skillId = randomUUID();
-  const secondSkillId = randomUUID();
-  const ineligibleAgentId = '00000000-0000-4000-8000-000000000001';
-  const eligibleAgentId = '00000000-0000-4000-8000-000000000002';
-  const callUuid = randomUUID();
-  await owner.tenant.create({
-    data: {
-      id: tenantId,
-      name: `Routing ${tenantId}`,
-      slug: `routing-policy-${tenantId}`,
-      sipDomain: `${tenantId}.routing-policy.test`,
-    },
-  });
-  await owner.queue.create({
-    data: { id: queueId, tenantId, name: 'Billing', channels: ['VOICE'] },
-  });
-  await owner.voiceDestination.create({
-    data: { tenantId, destination: '2000', queueId },
-  });
-  await owner.skill.createMany({
-    data: [
-      { id: skillId, tenantId, name: 'billing' },
-      { id: secondSkillId, tenantId, name: 'identity-verification' },
-    ],
-  });
-  await owner.queueSkill.createMany({
-    data: [
-      { queueId, skillId, minLevel: 2 },
-      { queueId, skillId: secondSkillId, minLevel: 1 },
-    ],
-  });
-  await owner.user.createMany({
-    data: [
-      {
-        id: ineligibleAgentId,
+    });
+    const tenantId = randomUUID();
+    const queueId = randomUUID();
+    const skillId = randomUUID();
+    const secondSkillId = randomUUID();
+    const ineligibleAgentId = '00000000-0000-4000-8000-000000000001';
+    const eligibleAgentId = '00000000-0000-4000-8000-000000000002';
+    const callUuid = randomUUID();
+    const teamId = randomUUID();
+    const otherTeamId = randomUUID();
+    await owner.tenant.create({
+      data: {
+        id: tenantId,
+        name: `Routing ${tenantId}`,
+        slug: `routing-policy-${tenantId}`,
+        sipDomain: `${tenantId}.routing-policy.test`,
+      },
+    });
+    await owner.team.createMany({
+      data: [
+        { id: teamId, tenantId, name: 'Billing team' },
+        { id: otherTeamId, tenantId, name: 'Other team' },
+      ],
+    });
+    await owner.queue.create({
+      data: {
+        id: queueId,
         tenantId,
-        email: `ineligible-${tenantId}@router.test`,
-        passwordHash: 'not-used',
-        displayName: 'Below minimum',
-        role: 'AGENT',
-        extension: '1001',
+        name: 'Billing',
+        channels: ['VOICE'],
+        ...(managed
+          ? { teamId, voiceConfigVersion: 1, voiceWrapupPolicy: 'VOICE_NOTE_V1' as const }
+          : {}),
       },
-      {
-        id: eligibleAgentId,
-        tenantId,
-        email: `eligible-${tenantId}@router.test`,
-        passwordHash: 'not-used',
-        displayName: 'Qualified',
-        role: 'AGENT',
-        extension: '1002',
+    });
+    await owner.voiceDestination.create({
+      data: { tenantId, destination: '2000', queueId },
+    });
+    await owner.skill.createMany({
+      data: [
+        { id: skillId, tenantId, name: 'billing' },
+        { id: secondSkillId, tenantId, name: 'identity-verification' },
+      ],
+    });
+    await owner.queueSkill.createMany({
+      data: [
+        { tenantId, queueId, skillId, minLevel: 2 },
+        { tenantId, queueId, skillId: secondSkillId, minLevel: 1 },
+      ],
+    });
+    await owner.user.createMany({
+      data: [
+        {
+          id: ineligibleAgentId,
+          teamId,
+          tenantId,
+          email: `ineligible-${tenantId}@router.test`,
+          passwordHash: 'not-used',
+          displayName: 'Below minimum',
+          role: 'AGENT',
+          extension: '1001',
+        },
+        {
+          id: eligibleAgentId,
+          teamId,
+          tenantId,
+          email: `eligible-${tenantId}@router.test`,
+          passwordHash: 'not-used',
+          displayName: 'Qualified',
+          role: 'AGENT',
+          extension: '1002',
+        },
+      ],
+    });
+    await owner.agentSkill.createMany({
+      data: [
+        { tenantId, userId: ineligibleAgentId, skillId, level: 1 },
+        { tenantId, userId: eligibleAgentId, skillId, level: 2 },
+        { tenantId, userId: eligibleAgentId, skillId: secondSkillId, level: 1 },
+      ],
+    });
+    await owner.agentStateLog.createMany({
+      data: [
+        { tenantId, userId: ineligibleAgentId, state: 'AVAILABLE' },
+        { tenantId, userId: eligibleAgentId, state: 'AVAILABLE' },
+      ],
+    });
+    if (managed) {
+      const wrongTeamAgentId = '00000000-0000-4000-8000-000000000000';
+      await owner.user.create({
+        data: {
+          id: wrongTeamAgentId,
+          tenantId,
+          teamId: otherTeamId,
+          email: `other-team-${tenantId}@router.test`,
+          passwordHash: 'not-used',
+          displayName: 'Qualified in another team',
+          role: 'AGENT',
+          extension: '1003',
+        },
+      });
+      await owner.agentSkill.createMany({
+        data: [
+          { tenantId, userId: wrongTeamAgentId, skillId, level: 5 },
+          { tenantId, userId: wrongTeamAgentId, skillId: secondSkillId, level: 5 },
+        ],
+      });
+      await owner.agentStateLog.create({
+        data: {
+          tenantId,
+          userId: wrongTeamAgentId,
+          state: 'AVAILABLE',
+          startedAt: new Date('2020-01-01T00:00:00Z'),
+        },
+      });
+    }
+    t.after(async () => {
+      await owner.interactionEvent.deleteMany({ where: { tenantId } });
+      await owner.interaction.deleteMany({ where: { tenantId } });
+      await owner.agentStateLog.deleteMany({ where: { tenantId } });
+      await owner.agentSkill.deleteMany({ where: { skillId: { in: [skillId, secondSkillId] } } });
+      await owner.queueSkill.deleteMany({ where: { queueId } });
+      await owner.voiceDestination.deleteMany({ where: { tenantId } });
+      await owner.user.deleteMany({ where: { tenantId } });
+      await owner.skill.deleteMany({ where: { id: { in: [skillId, secondSkillId] } } });
+      await owner.queue.delete({ where: { id: queueId } });
+      await owner.team.deleteMany({ where: { tenantId } });
+      await owner.tenant.delete({ where: { id: tenantId } });
+      await Promise.all([owner.$disconnect(), application.$disconnect()]);
+    });
+
+    const router = new InboundVoiceRouter(application, {
+      publish: async () => undefined,
+      eventId: randomUUID,
+      now: () => '2026-09-04T11:00:00.000Z',
+    });
+    const result = await router.handle({
+      eventId: 'routing-policy-created',
+      type: 'call.created',
+      tenantId,
+      occurredAt: '2026-09-04T11:00:00.000Z',
+      correlationId: callUuid,
+      orderingKey: callUuid,
+      payload: {
+        callUuid,
+        vendor: 'freeswitch',
+        telephonyNodeId: 'fs-bkk-02',
+        caller: '1002',
+        destination: '2000',
       },
-    ],
-  });
-  await owner.agentSkill.createMany({
-    data: [
-      { userId: ineligibleAgentId, skillId, level: 1 },
-      { userId: eligibleAgentId, skillId, level: 2 },
-      { userId: eligibleAgentId, skillId: secondSkillId, level: 1 },
-    ],
-  });
-  await owner.agentStateLog.createMany({
-    data: [
-      { tenantId, userId: ineligibleAgentId, state: 'AVAILABLE' },
-      { tenantId, userId: eligibleAgentId, state: 'AVAILABLE' },
-    ],
-  });
-  t.after(async () => {
-    await owner.interactionEvent.deleteMany({ where: { tenantId } });
-    await owner.interaction.deleteMany({ where: { tenantId } });
-    await owner.agentStateLog.deleteMany({ where: { tenantId } });
-    await owner.agentSkill.deleteMany({ where: { skillId: { in: [skillId, secondSkillId] } } });
-    await owner.queueSkill.deleteMany({ where: { queueId } });
-    await owner.voiceDestination.deleteMany({ where: { tenantId } });
-    await owner.user.deleteMany({ where: { tenantId } });
-    await owner.skill.deleteMany({ where: { id: { in: [skillId, secondSkillId] } } });
-    await owner.queue.delete({ where: { id: queueId } });
-    await owner.tenant.delete({ where: { id: tenantId } });
-    await Promise.all([owner.$disconnect(), application.$disconnect()]);
-  });
+    } satisfies {
+      eventId: string;
+      type: 'call.created';
+      tenantId: string;
+      occurredAt: string;
+      correlationId: string;
+      orderingKey: string;
+      payload: TelephonyCallEvent;
+    });
 
-  const router = new InboundVoiceRouter(application, {
-    publish: async () => undefined,
-    eventId: randomUUID,
-    now: () => '2026-09-04T11:00:00.000Z',
+    assert.equal(result.status, 'ASSIGNED');
+    assert.equal(result.agentId, eligibleAgentId);
   });
-  const result = await router.handle({
-    eventId: 'routing-policy-created',
-    type: 'call.created',
-    tenantId,
-    occurredAt: '2026-09-04T11:00:00.000Z',
-    correlationId: callUuid,
-    orderingKey: callUuid,
-    payload: {
-      callUuid,
-      vendor: 'freeswitch',
-      telephonyNodeId: 'fs-bkk-02',
-      caller: '1002',
-      destination: '2000',
-    },
-  } satisfies {
-    eventId: string;
-    type: 'call.created';
-    tenantId: string;
-    occurredAt: string;
-    correlationId: string;
-    orderingKey: string;
-    payload: TelephonyCallEvent;
-  });
-
-  assert.equal(result.status, 'ASSIGNED');
-  assert.equal(result.agentId, eligibleAgentId);
-});
 
 test('Router applies each routing strategy with deterministic agent-ID tie breaking', async (t) => {
   const owner = new PrismaClient();
@@ -177,6 +226,7 @@ test('Router applies each routing strategy with deterministic agent-ID tie break
   });
   await owner.queueSkill.createMany({
     data: queues.map((queue, index) => ({
+      tenantId,
       queueId: queue.id,
       skillId: skillIds[index],
       minLevel: 1,
@@ -212,8 +262,8 @@ test('Router applies each routing strategy with deterministic agent-ID tie break
   });
   await owner.agentSkill.createMany({
     data: agents.flatMap(([first, second], index) => [
-      { userId: first, skillId: skillIds[index], level: 1 },
-      { userId: second, skillId: skillIds[index], level: 1 },
+      { tenantId, userId: first, skillId: skillIds[index], level: 1 },
+      { tenantId, userId: second, skillId: skillIds[index], level: 1 },
     ]),
   });
   await owner.interaction.createMany({
@@ -272,6 +322,7 @@ test('Router applies each routing strategy with deterministic agent-ID tie break
     await owner.user.deleteMany({ where: { tenantId } });
     await owner.skill.deleteMany({ where: { id: { in: skillIds } } });
     await owner.queue.deleteMany({ where: { tenantId } });
+    await owner.team.deleteMany({ where: { tenantId } });
     await owner.tenant.delete({ where: { id: tenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });

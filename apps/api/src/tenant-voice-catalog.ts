@@ -317,8 +317,16 @@ export function mapDatabaseError(error: unknown): never {
     if (error.code === 'P2002' || code === '23505') voiceFail('IDENTITY_CONFLICT', 409);
     if (['55P03', '57014', '40P01'].includes(code) || error.code === 'P2028')
       voiceFail('CONFIG_BUSY', 409);
-    if (String(error.meta?.message ?? '').includes('VOICE_CONFIG_V1_REQUIRED'))
-      voiceFail('VOICE_CONFIG_V1_REQUIRED', 409);
+    const message = String(error.meta?.message ?? error.message);
+    for (const domainCode of [
+      'VOICE_CONFIG_V1_REQUIRED',
+      'REVISION_CONFLICT',
+      'REFERENCE_SCOPE_MISMATCH',
+      'CAPABILITY_NOT_READY',
+    ]) {
+      if (message.includes(domainCode))
+        voiceFail(domainCode, domainCode === 'CAPABILITY_NOT_READY' ? 503 : 409);
+    }
     if (error.code === 'P2003') voiceFail('REFERENCE_SCOPE_MISMATCH', 409);
   }
   throw error;

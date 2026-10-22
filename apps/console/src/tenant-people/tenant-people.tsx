@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
-import { Button, Select, TextField } from '@d-contact/ui-react';
+import { Button, Select, TextField, useShellPageNav } from '@d-contact/ui-react';
+import { ConfigPanel } from '../voice-routing/config-panel.js';
 import { ConsoleShell, type ConsoleShellProps } from '../shell/console-shell.js';
 import { CatalogApiError } from '../voice-routing/api.js';
 import { peopleUuid, type PeopleApi, type PeopleRole, type PeopleStatus } from './api.js';
@@ -31,10 +32,54 @@ type Props = {
   shell: Omit<ConsoleShellProps, 'appId' | 'children'>;
 };
 export function TenantPeoplePage(props: Props) {
+  const [page, setPage] = useState(() =>
+    new URL(window.location.href).searchParams.get('section') === 'agent-skills'
+      ? 'agent-skills'
+      : 'users',
+  );
+  useEffect(() => {
+    const onPop = () =>
+      setPage(
+        new URL(window.location.href).searchParams.get('section') === 'agent-skills'
+          ? 'agent-skills'
+          : 'users',
+      );
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  function go(next: string) {
+    if (next !== 'users' && next !== 'agent-skills') return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('section', next);
+    url.searchParams.delete('resource');
+    window.history.pushState(null, '', url);
+    setPage(next);
+  }
   return (
-    <ConsoleShell {...props.shell} appId="tenant-people">
-      <PeopleSession key={props.identityKey} {...props} />
+    <ConsoleShell {...props.shell} appId="tenant-people" pageId={page} onPageSelect={go}>
+      <PeopleContent {...props} page={page} go={go} />
     </ConsoleShell>
+  );
+}
+function PeopleContent(props: Props & { page: string; go(page: string): void }) {
+  const inShell = useShellPageNav();
+  const { t } = useTranslation('tenantPeople');
+  return (
+    <>
+      {!inShell ? (
+        <nav aria-label={t('pages.navigation')}>
+          <Button onPress={() => props.go('users')}>{t('pages.users')}</Button>
+          <Button onPress={() => props.go('agent-skills')}>{t('pages.agentSkills')}</Button>
+        </nav>
+      ) : null}
+      {props.page === 'agent-skills' ? (
+        props.api.config ? (
+          <ConfigPanel api={props.api.config} identityKey={props.identityKey} mode="agentSkills" />
+        ) : null
+      ) : (
+        <PeopleSession key={props.identityKey} {...props} />
+      )}
+    </>
   );
 }
 function PeopleSession({ api, identityKey, onSignIn }: Props) {

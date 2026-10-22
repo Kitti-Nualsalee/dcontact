@@ -108,10 +108,10 @@ async function createTenant(label: string, destination: string): Promise<TenantF
     },
   });
   await owner.queueSkill.create({
-    data: { queueId: fixture.queueId, skillId, minLevel: 2 },
+    data: { tenantId: fixture.tenantId, queueId: fixture.queueId, skillId, minLevel: 2 },
   });
   await owner.agentSkill.create({
-    data: { userId: fixture.agentId, skillId, level: 3 },
+    data: { tenantId: fixture.tenantId, userId: fixture.agentId, skillId, level: 3 },
   });
   await owner.voiceDestination.create({
     data: {

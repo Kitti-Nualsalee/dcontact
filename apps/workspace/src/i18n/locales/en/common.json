@@ -64,7 +64,13 @@
       },
       "voiceRouting": {
         "queues": "Voice queues",
-        "skills": "Skills"
+        "skills": "Skills",
+        "destinations": "Destinations",
+        "agentSkills": "Agent skills"
+      },
+      "tenantPeople": {
+        "users": "User accounts",
+        "agentSkills": "Agent skills"
       },
       "coreSettings": {
         "organization": "Organization profile"

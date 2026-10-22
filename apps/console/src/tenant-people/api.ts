@@ -1,4 +1,5 @@
 import { CatalogApiError } from '../voice-routing/api.js';
+import { createConfigApi, type ConfigApi } from '../voice-routing/config-api.js';
 import { createPeopleDirectoryApi, type PeopleDirectoryApi } from './directory-api.js';
 
 export type PeopleRole = 'AGENT' | 'SUPERVISOR' | 'ADMIN';
@@ -21,6 +22,7 @@ export interface PeopleStatus extends PeopleAccepted {
   provisioningState: string;
 }
 export interface PeopleApi {
+  config?: ConfigApi;
   directory?: PeopleDirectoryApi;
   options(): Promise<{
     ready: boolean;
@@ -83,6 +85,7 @@ export function createPeopleApi(options: {
     return object(await response.json());
   }
   return {
+    config: createConfigApi(options),
     directory: createPeopleDirectoryApi(options),
     async options() {
       const [caps, teams] = await Promise.all([request('capabilities'), request('teams')]);

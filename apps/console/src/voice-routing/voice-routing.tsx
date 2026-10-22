@@ -21,17 +21,26 @@ import {
   type Capabilities,
 } from './api.js';
 import './voice-routing.css';
+import { ConfigPanel } from './config-panel.js';
 interface Props {
   api: CatalogApi;
   identityKey: string;
   onSignIn?: () => void;
   kind: CatalogKind;
   onKindSelect: (kind: CatalogKind) => void;
+  suppressFallbackNav?: boolean;
 }
 export function VoiceRouting(props: Props) {
   return <CatalogSession key={`${props.identityKey}:${props.kind}`} {...props} />;
 }
-function CatalogSession({ api, onSignIn, identityKey, kind, onKindSelect }: Props) {
+function CatalogSession({
+  api,
+  onSignIn,
+  identityKey,
+  kind,
+  onKindSelect,
+  suppressFallbackNav,
+}: Props) {
   const pagesInShell = useShellPageNav();
   const { t: translate } = useTranslation('voiceRouting');
   const t = translate as (key: string, options?: Record<string, unknown>) => string;
@@ -221,7 +230,7 @@ function CatalogSession({ api, onSignIn, identityKey, kind, onKindSelect }: Prop
       <h1 id="voice-catalog-title" tabIndex={-1}>
         {t('title')}
       </h1>
-      {!pagesInShell ? (
+      {!pagesInShell && !suppressFallbackNav ? (
         <nav aria-label={t('catalog')}>
           {(['queues', 'skills'] as const).map((page) => (
             <button
@@ -301,6 +310,14 @@ function CatalogSession({ api, onSignIn, identityKey, kind, onKindSelect }: Prop
               {detail.policy?.terminalAction === 'HANGUP' ? t('hangup') : t('unavailable')} —{' '}
               {t(detail.isActive ? 'active' : 'inactive')}
             </p>
+          ) : null}
+          {kind === 'queues' && !detail.legacy && detail.voiceConfigVersion === 1 && api.config ? (
+            <ConfigPanel
+              api={api.config}
+              identityKey={identityKey}
+              mode="requirements"
+              queue={detail}
+            />
           ) : null}
           <Button onPress={() => open()}>{t('back')}</Button>
         </article>

@@ -1,4 +1,30 @@
 {
+  "config": {
+    "navigation": "หน้าตั้งค่า Routing",
+    "requirements": "ทักษะที่คิวต้องการ",
+    "agentSkills": "ทักษะ Agent",
+    "destinations": "ปลายทาง",
+    "destination": "ปลายทางที่จองไว้",
+    "agent": "Agent",
+    "pendingNotice": "เตรียมทักษะก่อนเปิดใช้บัญชีได้ บัญชีที่รอเปิดใช้ยังรับสายไม่ได้ การตั้งค่านี้ไม่เปลี่ยนสถานะว่าง",
+    "inactiveBinding": "บันทึก binding แบบปิดใช้งานจนกว่า managed routing พร้อมใน B5",
+    "unassigned": "ไม่กำหนด",
+    "level": "ระดับ {{level}}",
+    "reason": "เหตุผล (1–500 ตัวอักษร)",
+    "save": "บันทึกการตั้งค่า",
+    "eligibility": "ผลตรวจสิทธิ์รับสายของคิว",
+    "evaluated": "Configuration revision {{revision}} · ตรวจเมื่อ {{at}}",
+    "eligible": "เข้าเกณฑ์และว่าง",
+    "notEligible": "ไม่เข้าเกณฑ์หรือไม่ว่าง",
+    "reasons": {
+      "INACTIVE_AGENT": "บัญชียังไม่เปิดใช้งาน",
+      "TEAM_MISMATCH": "Agent อยู่คนละทีม",
+      "SKILL_LEVEL_INSUFFICIENT": "ระดับทักษะยังไม่ถึงเกณฑ์",
+      "NOT_AVAILABLE": "Agent ยังไม่ว่าง",
+      "NO_REQUIRED_SKILLS": "ยังไม่กำหนดทักษะที่ต้องการ",
+      "NO_ELIGIBLE_AVAILABLE_AGENT": "ยังไม่มี Agent ที่เข้าเกณฑ์และว่าง ยังคงบันทึกการตั้งค่าที่ถูกต้องได้"
+    }
+  },
   "title": "ตั้งค่า Voice",
   "catalog": "คิวและทักษะ",
   "queues": "คิว Voice",
@@ -34,6 +60,8 @@
   "openResource": "เปิด {{name}}",
   "more": "โหลดเพิ่ม",
   "errors": {
+    "REVISION_CONFLICT": "การตั้งค่าเปลี่ยนแล้ว กรุณาโหลดใหม่ก่อนบันทึกอีกครั้ง",
+    "COMMAND_ID_REUSED": "ตรวจผลคำสั่งเดิมก่อนเปลี่ยนการตั้งค่าอีกครั้ง",
     "UNAUTHORIZED": "session หมดอายุ กรุณาเข้าสู่ระบบแล้วตรวจผลคำสั่งเดิม",
     "FORBIDDEN": "ไม่มีสิทธิ์เข้าถึงข้อมูลนี้",
     "FAILED": "โหลดหรือบันทึกไม่สำเร็จ กรุณาลองอีกครั้ง",
