@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, type Page, type Route } from '@playwright/test';
+import { test } from './platform-test.js';
 
 /**
  * A1.7 (#412): Platform Console end-to-end กับ Platform API ที่ mock บน origin เดียวกัน
@@ -665,4 +666,121 @@ test('keyboard: skip link และค้นหาด้วยคีย์บอ
   await page.goto('/requests/00000009-0000-4000-8000-000000000009');
   await expect(page.getByRole('heading', { name: 'ไม่พบคำขอ' })).toBeVisible();
   await expectAccessible(page);
+});
+
+test('สลับภาษากลาง draft/review/progress คง DOM และ payload เดิมโดยไม่ส่งคำสั่งซ้ำ', async ({
+  page,
+}, testInfo) => {
+  const api = new MockPlatformApi();
+  api.hold = true;
+  let sessions = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/session') sessions += 1;
+  });
+  await open(page, api, '/new');
+  await fillValidForm(page);
+  await page.getByLabel('Locale', { exact: true }).selectOption('en-US');
+  await page.getByLabel('Timezone', { exact: true }).selectOption('UTC');
+  const input = await page.getByLabel('Slug', { exact: true }).elementHandle();
+  const sessionCount = sessions;
+  await page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+  await expect(
+    page.getByRole('navigation').getByRole('button', { name: 'Create tenant' }),
+  ).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByLabel('Slug', { exact: true })).toHaveValue('nova-care');
+  expect(await input!.evaluate((node) => node.isConnected)).toBe(true);
+  await expect(page.getByLabel('Locale', { exact: true })).toHaveValue('en-US');
+  await expect(page.getByLabel('Timezone', { exact: true })).toHaveValue('UTC');
+  expect(api.posts).toHaveLength(0);
+  expect(sessions).toBe(sessionCount);
+  await expectAccessible(page);
+  await page.screenshot({ path: testInfo.outputPath('platform-draft-en.png'), fullPage: true });
+
+  await page.getByRole('button', { name: 'ตรวจสอบข้อมูล →' }).click();
+  const confirmation = page.getByLabel(/ฉันตรวจสอบ identity/);
+  await confirmation.check();
+  const review = await page.getByRole('heading', { level: 1 }).elementHandle();
+  await page.getByRole('button', { name: 'Switch to Thai' }).click();
+  expect(await review!.evaluate((node) => node.isConnected)).toBe(true);
+  await expect(confirmation).toBeChecked();
+  await page.getByRole('button', { name: 'ยืนยันและเริ่ม provision' }).click();
+  await expect(page).toHaveURL(/\/requests\/[0-9a-f-]{36}$/);
+  const requestUrl = page.url();
+  const progress = await page.getByRole('heading', { level: 1 }).elementHandle();
+  await page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  expect(page.url()).toBe(requestUrl);
+  expect(await progress!.evaluate((node) => node.isConnected)).toBe(true);
+  const posts = api.posts.filter((post) => post.path === '/api/v1/provisioning-requests');
+  expect(posts).toHaveLength(1);
+  expect(posts[0]!.body).toMatchObject({ locale: 'en-US', timezone: 'UTC' });
+  expect(api.posts).toHaveLength(1);
+  expect(sessions).toBe(sessionCount);
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+  expect(page.url()).toBe(requestUrl);
+  expect(api.posts).toHaveLength(1);
+});
+
+test('storage ของ preference ใช้ไม่ได้ยังสลับภาษาใน memory ได้', async ({ page }) => {
+  await page.addInitScript(() => {
+    const get = Storage.prototype.getItem;
+    const set = Storage.prototype.setItem;
+    Storage.prototype.getItem = function (key: string) {
+      if (key === 'dcontact.platform.locale') throw new DOMException('Denied', 'SecurityError');
+      return get.call(this, key);
+    };
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === 'dcontact.platform.locale') throw new DOMException('Full', 'QuotaExceededError');
+      return set.call(this, key, value);
+    };
+  });
+  await open(page, new MockPlatformApi());
+  await page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+  await page.getByRole('button', { name: 'Switch to Thai' }).click();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'th');
+});
+
+for (const mode of ['auditor', 'DISABLED', 'NOT_ALLOWLISTED'] as const) {
+  test(`header EN คง capability ของ ${mode}`, async ({ page }) => {
+    const api =
+      mode === 'auditor'
+        ? new MockPlatformApi('platform_auditor')
+        : new MockPlatformApi('platform_operator', mode);
+    await open(page, api);
+    await page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' }).click();
+    const copy =
+      mode === 'auditor'
+        ? 'Platform Auditor (read only)'
+        : mode === 'DISABLED'
+          ? 'Platform Operator (mutations disabled)'
+          : 'Platform Operator (outside canary)';
+    await expect(page.getByRole('banner').getByText(copy)).toBeVisible();
+    await expect(
+      page.getByRole('navigation').getByRole('button', { name: 'Create tenant' }),
+    ).toHaveCount(0);
+    await expectAccessible(page);
+    expect(api.posts).toHaveLength(0);
+  });
+}
+
+test.describe('browser ภาษาอังกฤษ', () => {
+  test.use({ locale: 'en-GB' });
+  test('ไม่มี preference ใช้ browser และสลับด้วย keyboard โดยคง focus', async ({ page }) => {
+    await open(page, new MockPlatformApi());
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: 'Skip to main content' })).toBeFocused();
+    const toggle = page.getByRole('button', { name: 'Switch to Thai' });
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' })).toBeFocused();
+    await expect(page.locator('html')).toHaveAttribute('lang', 'th');
+  });
 });

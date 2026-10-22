@@ -11,7 +11,7 @@ RUN pnpm install --frozen-lockfile --filter "@d-contact/platform-console..."
 ARG VITE_KC_ISSUER
 RUN test -n "$VITE_KC_ISSUER" \
   && VITE_KC_ISSUER="$VITE_KC_ISSUER" VITE_KC_CLIENT_ID=platform-console \
-     VITE_PLATFORM_API_URL='' pnpm --filter @d-contact/platform-console build \
+     VITE_PLATFORM_API_URL='' pnpm --filter "@d-contact/platform-console..." build \
   && test -f apps/platform-console/dist/index.html
 
 FROM ${CADDY_IMAGE} AS runtime
