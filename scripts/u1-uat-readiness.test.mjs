@@ -19,6 +19,7 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  APPROVED_DROP_MIGRATIONS,
   PLATFORM_AMR_MAX_AGE_SECONDS,
   UAT_FILES,
   buildDeploymentRecord,
@@ -1371,6 +1372,23 @@ test('UAT-M01: migration ใหม่ที่มี DROP หรือการ�
     'APPLIED_MIGRATION_CHANGED',
   );
   assert.deepEqual(findDropStatements('SELECT 1; -- DROP TABLE x'), []);
+});
+
+test('UAT-M01 (#710): migration ที่ pin ไว้ผ่านเฉพาะ bytes เดิม แก้ไฟล์หรือย้าย path ยังล้ม', () => {
+  for (const pin of APPROVED_DROP_MIGRATIONS) {
+    const sql = readFileSync(resolve(repositoryRoot, pin.path), 'utf8');
+    assert.equal(guardMigrations([{ status: 'A', path: pin.path, sql }]).status, 'PASS');
+    failed(
+      guardMigrations([
+        { status: 'A', path: pin.path, sql: `${sql}\nALTER TABLE t DROP COLUMN y;` },
+      ]),
+      'DROP_STATEMENT',
+    );
+    failed(
+      guardMigrations([{ status: 'A', path: pin.path.replace(/\/\d+_/, '/99999999999999_'), sql }]),
+      'DROP_STATEMENT',
+    );
+  }
 });
 
 test('UAT-M01 (#567): แทนที่ CHECK ที่ review แล้วผ่าน แต่ชื่ออื่น/ไม่มี ADD ชื่อเดิม/DROP แบบอื่นยังล้ม', () => {

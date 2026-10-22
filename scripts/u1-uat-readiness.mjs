@@ -1358,10 +1358,19 @@ export function disallowedDropStatements(sql) {
 /** changes = [{ status: 'A'|'M'|'D'|'R...', path, sql }] ของ migration ระหว่าง base..HEAD */
 // Phase Contract Core Settings §5 (#723/#726) ยอม nullable bootstrap เฉพาะ CORE_ADMIN
 // Pin ทั้งไฟล์เพื่อไม่เปิดช่อง DROP NOT NULL ทั่วไป; ทุก field เดิมของ PROVISIONING ยังบังคับครบด้วย CHECK
-const CORE_PROVENANCE_RELAXATION = Object.freeze({
-  path: 'packages/db/prisma/migrations/20261019140000_core_organization_provenance/migration.sql',
-  sha256: '6bd0e2a58f1b16e82a56a5d07194f7a5f8a98918e792bd385d5236bc694ea48c',
-});
+// #710: เปลี่ยน PK ของ invitation intents เป็น (tenant_id, operation_id, generation) และเปลี่ยนชื่อ fencing CHECK
+// ปลอดภัยบน UAT เพราะทั้งสองตารางสร้างใน migration ชุดเดียวกันที่ยังไม่เคย apply (base e3f2197 ไม่มีตาราง)
+// และไม่มี INSERT ก่อนไฟล์นี้ ตอน DROP ตารางจึงว่างเสมอ — pin ทั้งไฟล์ ไม่เปิด DROP PRIMARY KEY ทั่วไป
+export const APPROVED_DROP_MIGRATIONS = Object.freeze([
+  Object.freeze({
+    path: 'packages/db/prisma/migrations/20261019140000_core_organization_provenance/migration.sql',
+    sha256: '6bd0e2a58f1b16e82a56a5d07194f7a5f8a98918e792bd385d5236bc694ea48c',
+  }),
+  Object.freeze({
+    path: 'packages/db/prisma/migrations/20261021100000_tenant_people_invitation_multiple_generations/migration.sql',
+    sha256: '99c6732a4cd6104d8fe513c2ee34283da9da033a88675fd63073db0524c0feae',
+  }),
+]);
 export function guardMigrations(changes) {
   const failures = [];
   const added = [];
@@ -1378,12 +1387,13 @@ export function guardMigrations(changes) {
     }
     added.push(change.path);
     if (!change.path.endsWith('.sql')) continue;
-    const approvedCoreOrigin =
-      change.path === CORE_PROVENANCE_RELAXATION.path &&
-      createHash('sha256')
-        .update(change.sql ?? '')
-        .digest('hex') === CORE_PROVENANCE_RELAXATION.sha256;
-    const drops = approvedCoreOrigin ? [] : disallowedDropStatements(change.sql ?? '');
+    const digest = createHash('sha256')
+      .update(change.sql ?? '')
+      .digest('hex');
+    const approved = APPROVED_DROP_MIGRATIONS.some(
+      (pin) => pin.path === change.path && pin.sha256 === digest,
+    );
+    const drops = approved ? [] : disallowedDropStatements(change.sql ?? '');
     if (drops.length > 0)
       failures.push({ path: change.path, kind: 'DROP_STATEMENT', statements: drops });
   }
