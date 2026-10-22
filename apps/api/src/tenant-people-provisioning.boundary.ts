@@ -75,6 +75,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
   const readiness = new DatabaseTenantPeopleReadiness(worker, new Map([[tenantId, adapter]]));
   let app: Awaited<ReturnType<typeof NestFactory.create>> | undefined;
   let invitationRuntime: TenantPeopleRuntime | undefined;
+  let resendRuntime: TenantPeopleRuntime | undefined;
   let allowResendPreparation = false;
   try {
     await owner.$executeRawUnsafe(
@@ -157,7 +158,9 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
             canReconcileInvitation: (scope: string) =>
               invitationRuntime?.canReconcileInvitation(scope) ?? Promise.resolve(false),
             canResendInvitation: async (scope: string) =>
-              allowResendPreparation && scope === tenantId,
+              resendRuntime
+                ? resendRuntime.canResendInvitation(scope)
+                : allowResendPreparation && scope === tenantId,
             onModuleInit: () => runtime.onModuleInit(),
             onModuleDestroy: () => runtime.onModuleDestroy(),
           },
@@ -534,6 +537,115 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
         assert.equal(await owner.agentSipCredential.count({ where: { tenantId, userId } }), 0);
         assert.equal(await owner.agentWorkSessionLease.count({ where: { tenantId, userId } }), 0);
         allowResendPreparation = false;
+        let resendGateOpen = false;
+        let allowResendProof = false;
+        let schedulerPreparations = 0;
+        let schedulerPreparationReads = 0;
+        let schedulerDispatches = 0;
+        const schedulerPort = {
+          isReady: async (scope: string) => resendGateOpen && delivery.isReady(scope),
+          async prepare(attempt: Parameters<typeof delivery.prepare>[0]) {
+            schedulerPreparations++;
+            await delivery.prepare(attempt);
+            throw new Error('response lost after scheduler preparation commit');
+          },
+          readPreparation(attempt: Parameters<typeof delivery.readPreparation>[0]) {
+            schedulerPreparationReads++;
+            return delivery.readPreparation(attempt);
+          },
+          dispatchPrepared(
+            attempt: Parameters<typeof delivery.dispatchPrepared>[0],
+            proof: Parameters<typeof delivery.dispatchPrepared>[1],
+          ) {
+            schedulerDispatches++;
+            return delivery.dispatchPrepared(attempt, proof);
+          },
+          readOutcome(attempt: Parameters<typeof delivery.readOutcome>[0]) {
+            if (!allowResendProof) throw new Error('synthetic receipt read unavailable');
+            return delivery.readOutcome(attempt);
+          },
+        };
+        const createResendRuntime = () =>
+          new TenantPeopleRuntime(worker, new Map([[tenantId, adapter]]), {
+            intervalMs: 60_000,
+            batchSize: 2,
+            resends: new Map([[tenantId, schedulerPort]]),
+          });
+        resendRuntime = createResendRuntime();
+        resendRuntime.onModuleInit();
+        await resendRuntime.runOnce();
+        assert.equal(await resendRuntime.canResendInvitation(tenantId), false);
+        assert.equal(schedulerPreparations, 0);
+        resendGateOpen = true;
+        assert.equal(await resendRuntime.canResendInvitation(tenantId), true);
+        const scheduledResponse = await fetch(
+          `${base}/api/v1/tenant-voice/people/users/${userId}/invitation/resend`,
+          {
+            method: 'POST',
+            headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              commandId: randomUUID(),
+              expectedRevision: 1,
+              reasonCode: 'REQUEST_RESEND',
+              reason: 'ทดสอบ scheduler จริงและกู้ response loss โดยไม่ส่งซ้ำ',
+            }),
+          },
+        );
+        assert.equal(scheduledResponse.status, 202);
+        const scheduled: unknown = await scheduledResponse.json();
+        assert.ok(
+          scheduled &&
+            typeof scheduled === 'object' &&
+            'operationId' in scheduled &&
+            typeof scheduled.operationId === 'string',
+        );
+        for (let retry = 0; retry < 40; retry++) {
+          await resendRuntime.runOnce();
+          if ((await read(`operations/${scheduled.operationId}`)).step === 'DISPATCH_INVITATION')
+            break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        assert.equal(
+          (await read(`operations/${scheduled.operationId}`)).step,
+          'DISPATCH_INVITATION',
+        );
+        assert.equal(schedulerPreparations, 1);
+        assert.ok(schedulerPreparationReads > 0);
+        assert.equal(schedulerDispatches, 0);
+        assert.equal(await mailboxCount(), messagesBefore + 1);
+        await resendRuntime.onModuleDestroy();
+        assert.equal(await resendRuntime.canResendInvitation(tenantId), false);
+        resendRuntime = createResendRuntime();
+        resendRuntime.onModuleInit();
+        await resendRuntime.runOnce();
+        assert.equal((await read(`operations/${scheduled.operationId}`)).state, 'ACTION_REQUIRED');
+        assert.equal(schedulerDispatches, 1);
+        assert.equal(await mailboxCount(), messagesBefore + 2);
+        await resendRuntime.onModuleDestroy();
+        allowResendProof = true;
+        resendRuntime = createResendRuntime();
+        resendRuntime.onModuleInit();
+        for (let retry = 0; retry < 40; retry++) {
+          await resendRuntime.runOnce();
+          if ((await read(`operations/${scheduled.operationId}`)).state === 'SUCCEEDED') break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        assert.equal((await read(`operations/${scheduled.operationId}`)).state, 'SUCCEEDED');
+        await resendRuntime.runOnce();
+        assert.equal(schedulerPreparations, 1);
+        assert.equal(schedulerDispatches, 1);
+        assert.equal(invitationPosts, 3);
+        assert.equal(await mailboxCount(), messagesBefore + 2);
+        const scheduledUser = await read(`people/users/${userId}`);
+        assert.equal(scheduledUser.invitationGeneration, 3);
+        assert.equal(scheduledUser.deliveryState, 'SENT');
+        assert.equal(scheduledUser.configRevision, 1);
+        assert.equal(scheduledUser.activationState, 'PENDING');
+        assert.equal(scheduledUser.isActive, false);
+        assert.equal(await owner.agentSipCredential.count({ where: { tenantId, userId } }), 0);
+        assert.equal(await owner.agentWorkSessionLease.count({ where: { tenantId, userId } }), 0);
+        await resendRuntime.onModuleDestroy();
+        resendRuntime = undefined;
       }
     }
     assert.equal(mutations, 15);
@@ -564,11 +676,12 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
     const intents = await owner.$queryRaw<
       { count: bigint }[]
     >`SELECT count(*) FROM tenant_people_invitation_intents WHERE tenant_id=${tenantId}::uuid`;
-    assert.equal(intents[0]?.count, 4n);
+    assert.equal(intents[0]?.count, 5n);
     await app.close();
     app = undefined;
     assert.equal(await runtime.isReady(tenantId), false);
   } finally {
+    await resendRuntime?.onModuleDestroy();
     await invitationRuntime?.onModuleDestroy();
     await app?.close();
     await Promise.all([
