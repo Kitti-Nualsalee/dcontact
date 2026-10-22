@@ -6,7 +6,6 @@
 #   $UAT_ROOT/releases/<sha>/         compose + bin/ + release.env (digest ของ image) ของแต่ละ release
 #   $UAT_ROOT/deployments/            deployment record (current.json, previous.json, <time>-<sha>.json)
 #   $UAT_ROOT/backups/                pg_dump ก่อน migrate ทุกครั้ง
-#   $UAT_ROOT/object-storage-migrated เวลาที่ย้ายหลักฐานจาก MinIO → SeaweedFS สำเร็จ (#540)
 #   $UAT_ROOT/line-pilot.enabled      มีไฟล์ = ใส่ overlay `uat-line` (#565, ADR-031); ลบแล้ว deploy = ถอด LINE ออก
 #   $UAT_ROOT/secrets/line/           secret ของ LINE (operator/vm2-line-secrets.sh) — ใช้เมื่อเปิด overlay เท่านั้น
 #
@@ -17,8 +16,6 @@ umask 077
 
 UAT_ROOT="${UAT_ROOT:-/opt/dcontact-uat}"
 PROJECT=dcontact-uat
-# #540: เขียนหลัง migrate-object-storage สำเร็จ — deploy บน VM ที่มี volume minio-data ต้องมีไฟล์นี้
-MIGRATION_MARKER="$UAT_ROOT/object-storage-migrated"
 DIGEST_REF='^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
 
 # #565: overlay `uat-line` เปิดด้วยไฟล์ flag นอก release — release มีไฟล์ overlay เสมอแต่ไม่ถูกใช้ถ้าไม่มี flag
@@ -29,7 +26,7 @@ E1_FLAG="$UAT_ROOT/e1-acceptance.enabled"
 E1_LAUNCHER_FLAG="$UAT_ROOT/e1-launcher-hosting.enabled"
 
 usage() {
-  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|ui-flag|migrate-object-storage|deploy|smoke|record|current|e1-status|e1-enable|e1-disable|e1-voice-control|e1-voice-on|e1-voice-off|e1-launcher-enable|e1-launcher-status|e1-launcher-alias|line-status|line-run|line-reload|rollback-target|rollback> [sha] [...]' >&2
+  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|ui-flag|deploy|smoke|record|current|e1-status|e1-enable|e1-disable|e1-voice-control|e1-voice-on|e1-voice-off|e1-launcher-enable|e1-launcher-status|e1-launcher-alias|line-status|line-run|line-reload|rollback-target|rollback> [sha] [...]' >&2
   exit 64
 }
 
@@ -290,36 +287,15 @@ case "$cmd" in
       --tenant "$tenant" "${mode[@]}" --flag dphone.embed.enabled --reason "$reason" --actor "$actor"
     ;;
 
-  migrate-object-storage)
-    # #540 (ADR-029): ย้ายหลักฐานจาก MinIO เดิม → SeaweedFS ครั้งเดียวก่อน `deploy` ของ release ใหม่
-    # (runbook docs/u1-uat-deployment.md) — หยุด api ก่อนเพื่อไม่ให้มีหลักฐานใหม่เข้า MinIO ระหว่างคัดลอก
-    # รันซ้ำได้: object ที่คัดลอกแล้ว (sha256 ตรง) ถูกข้าม; ต้องมี UAT_MINIO_ROOT_* เดิมใน uat.env
-    dir="$(release_dir "${1:?sha}")"
-    overlay="$dir/docker-compose.uat.migration.yml"
-    [[ -f "$overlay" ]] || fail 'MIGRATION_OVERLAY_MISSING'
-    compose "$dir" stop api || true
-    compose "$dir" -f "$overlay" up -d --wait "$(database_service "$dir")" minio object-storage
-    compose "$dir" -f "$overlay" run --rm -T object-storage-init
-    compose "$dir" -f "$overlay" run --rm -T object-storage-migrate
-    compose "$dir" -f "$overlay" stop minio
-    date -u +%Y-%m-%dT%H:%M:%SZ >"$MIGRATION_MARKER"
-    echo '{"type":"u1.uat.deploy","step":"migrate-object-storage","status":"PASS"}'
-    ;;
-
   deploy)
     dir="$(release_dir "${1:?sha}")"
-    # #540: VM ที่เคยมี MinIO ต้องย้ายหลักฐานก่อน (migrate-object-storage) — ไม่งั้น api บูตบน bucket ว่าง
-    if docker volume inspect "${PROJECT}_minio-data" >/dev/null 2>&1 && [[ ! -f "$MIGRATION_MARKER" ]]; then
-      fail 'OBJECT_STORAGE_MIGRATION_PENDING'
-    fi
     # #540: object storage (SeaweedFS; s3.json + policy ของ API สร้างใน entrypoint) → bucket private
-    # ก่อน api บูต (U1.5 #433: api ไม่บูตถ้า bucket ไม่พร้อม) แล้ว lifecycle/expiry ที่รันต่อเนื่อง
+    # ก่อน api บูต (U1.5 #433: api ไม่บูตถ้า bucket ไม่พร้อม) แล้ว lifecycle ที่รันต่อเนื่อง
     compose "$dir" up -d --wait object-storage
     compose "$dir" run --rm -T object-storage-init
     # --no-deps: object-storage-init จบไปแล้วข้างบน และไม่ให้ `--wait` ไปรอ container one-shot ที่ exit แล้ว
-    # --remove-orphans ไม่ลบ volume minio-data (ย้ายข้อมูล/rollback จนถึง #541)
     # #565: ไม่มี flag = container line-* เป็น orphan และถูกถอดที่นี่; runner/relay ไม่รันค้าง (profile line-pilot)
-    services=(object-storage-lifecycle object-storage-migrated-expiry api proxy)
+    services=(object-storage-lifecycle api proxy)
     if is_e1 "$dir"; then services+=(freeswitch e1-sandbox); fi
     if is_line "$dir"; then services+=(line-webhook); fi
     # #567: trial = relay รันตลอด; ไม่มี trial = ถอด relay ที่อาจค้างจาก trial ก่อนหน้า (runner เรียกขึ้นใหม่เองได้)

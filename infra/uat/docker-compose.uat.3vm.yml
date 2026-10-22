@@ -58,8 +58,6 @@ services:
     mem_limit: 1536m
   object-storage-lifecycle:
     mem_limit: 256m
-  object-storage-migrated-expiry:
-    mem_limit: 256m
   object-storage-init:
     mem_limit: 256m
 

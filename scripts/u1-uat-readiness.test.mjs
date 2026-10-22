@@ -211,7 +211,6 @@ test('parser ของ compose อ่าน service/ports/env ของ UAT ไ�
     'object-storage',
     'object-storage-init',
     'object-storage-lifecycle',
-    'object-storage-migrated-expiry',
     'postgres',
     'proxy',
     'tenant-ui-flag',
