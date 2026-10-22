@@ -1,0 +1,1 @@
+CREATE INDEX tenant_people_activation_attempts_recent ON tenant_people_activation_attempts(tenant_id,operation_id,created_at DESC);

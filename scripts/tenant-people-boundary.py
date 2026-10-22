@@ -33,8 +33,11 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
     os.chmod(work/'dcontact-tenant-people.jar',0o644)
     subprocess.run(['docker','run','--rm','--network','none','--user',str(os.getuid())+':'+str(os.getgid()),'-v',str(root/'infra/keycloak/extensions/invitation-guard/src/main')+':/src:ro','-v',str(work)+':/work','eclipse-temurin:21-jdk','sh','-ec','mkdir -p /work/guard-classes; javac --release 21 -proc:none -cp "/work/lib/*" -d /work/guard-classes $(find /src/java -name "*.java"); cp -r /src/resources/. /work/guard-classes/; cd /work/guard-classes; jar cf /work/dcontact-invitation-guard.jar .'],check=True)
     os.chmod(work/'dcontact-invitation-guard.jar',0o644)
+    subprocess.run(['docker','run','--rm','--network','none','--user',str(os.getuid())+':'+str(os.getgid()),'-v',str(root/'infra/keycloak/extensions/tenant-people/src/test/clock')+':/src:ro','-v',str(work)+':/work','eclipse-temurin:21-jdk','sh','-ec','mkdir -p /work/clock-classes; javac --release 21 -proc:none -cp "/work/lib/*" -d /work/clock-classes $(find /src/java -name "*.java"); cp -r /src/resources/. /work/clock-classes/; cd /work/clock-classes; jar cf /work/dcontact-boundary-clock.jar .'],check=True)
+    os.chmod(work/'dcontact-boundary-clock.jar',0o644)
     environment=os.environ.copy()
     environment.update(KC_DB_PASSWORD=settings['POSTGRES_PASSWORD'],KC_BOOTSTRAP_ADMIN_PASSWORD=uuid.uuid4().hex)
+    environment['B3_BOUNDARY_CLOCK_SECRET']=uuid.uuid4().hex
     base=None
     started=False
     smtp=container+'-smtp'
@@ -72,6 +75,8 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         args=['docker','run','-d','--pull=never','--name',container,'--network',network,'--memory','1g','--cpus','2','--security-opt','no-new-privileges','--cap-drop','ALL','-p','127.0.0.1::8080',
             '-v',str(work/'dcontact-tenant-people.jar')+':/opt/keycloak/providers/dcontact-tenant-people.jar:ro',
             '-v',str(work/'dcontact-invitation-guard.jar')+':/opt/keycloak/providers/dcontact-invitation-guard.jar:ro',
+            '-v',str(work/'dcontact-boundary-clock.jar')+':/opt/keycloak/providers/dcontact-boundary-clock.jar:ro',
+            '-e','B3_BOUNDARY_CLOCK_SECRET',
             '-e','KC_DB=postgres','-e','KC_DB_URL=jdbc:postgresql://'+postgres+':5432/'+database,'-e','KC_DB_USERNAME='+owner,'-e','KC_DB_PASSWORD','-e','KC_BOOTSTRAP_ADMIN_USERNAME=b2-boundary-admin','-e','KC_BOOTSTRAP_ADMIN_PASSWORD',image,'start-dev','--http-port=8080']
         subprocess.run(args,env=environment,check=True,stdout=subprocess.DEVNULL);started=True
         published=json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]['NetworkSettings']['Ports']['8080/tcp'][0]
@@ -410,6 +415,32 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         newest_status,newest_page=action_page()
         if newest_status!=200 or 'kc-error-message' in newest_page:raise RuntimeError('PROVIDER_NEWEST_LINK_NOT_USABLE')
         print('B3_INVITATION_GENERATION_BOUNDARY_PASS')
+        def clock_offset(seconds):
+            request=urllib.request.Request(base+'/realms/master/dc-boundary-clock/'+str(seconds),data=b'',headers={'X-Boundary-Clock':environment['B3_BOUNDARY_CLOCK_SECRET']},method='POST')
+            with urllib.request.urlopen(request,timeout=20) as response:
+                if response.status!=200:raise RuntimeError('BOUNDARY_CLOCK_UNAVAILABLE')
+        def refresh_services():
+            for tenant in tenants:
+                status,login,_=call('/realms/'+realm+'/protocol/openid-connect/token',form={'grant_type':'client_credentials','client_id':tenant['clientId'],'client_secret':tenant['secret']})
+                if status!=200:raise RuntimeError('CLOCK_SERVICE_RELOGIN_FAILED')
+                tenant['token']=login['access_token']
+        try:
+            clock_offset(3601)
+            refresh_services()
+            released_intent=generation_base+'/invitations/5/intent'
+            expect(released_intent,tenants[0]['token'],over_limit,status=200)
+            generation_delivery(5,over_limit)
+            action_path=generation_link(over_limit)
+            action_browser=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+            live_status,live_page=action_page()
+            if live_status!=200 or 'kc-error-message' in live_page:raise RuntimeError('UNEXPIRED_CURRENT_LINK_REJECTED')
+            clock_offset(3601+259201)
+            expired_status,expired_page=action_page()
+            if expired_status!=400 or 'Action expired' not in expired_page:raise RuntimeError('REAL_ACTION_TOKEN_EXPIRY_NOT_ENFORCED')
+        finally:
+            clock_offset(0)
+            refresh_services()
+        print('B3_PROVIDER_ROLLING_WINDOW_AND_72H_EXPIRY_BOUNDARY_PASS')
         activation_path=generation_base+'/activation'
         activation_query={key:generation_body[key] for key in ('tenantId','targetUserId','payloadDigest','email','displayName','role')}
         activation_query['probeRef']=str(uuid.uuid4())
@@ -475,6 +506,7 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         sql('CREATE DATABASE '+application_database+';')
         adapter_environment.update(B2_KEYCLOAK_ADMIN_ACCESS_TOKEN=human_login['access_token'],B2_KEYCLOAK_ADMIN_SUBJECT=human_id,B2_KEYCLOAK_TENANT_SLUG=tenants[0]['slug'],B2_KEYCLOAK_ORGANIZATION_ID=tenants[0]['organization'],DATABASE_URL='postgresql://'+urllib.parse.quote(owner,safe='')+':'+urllib.parse.quote(settings['POSTGRES_PASSWORD'],safe='')+'@127.0.0.1:'+str(postgres_port)+'/'+application_database,APPLICATION_DATABASE_URL='postgresql://dcontact_app:dcontact_app@127.0.0.1:'+str(postgres_port)+'/'+application_database)
         adapter_environment['B3_MAILPIT_URL']='http://127.0.0.1:'+smtp_port
+        expect(adminbase+'/clients',admin,{'clientId':'b3-onboarding-console','enabled':True,'publicClient':True,'standardFlowEnabled':True,'directAccessGrantsEnabled':False,'fullScopeAllowed':False,'redirectUris':['http://127.0.0.1:60606/b3-callback'],'attributes':{'pkce.code.challenge.method':'S256'}})
         for command in (['corepack','pnpm','db:migrate'],['corepack','pnpm','db:rls'],['corepack','pnpm','--filter','@d-contact/api','exec','tsx','--test','--test-concurrency=1','src/tenant-people-keycloak.boundary.ts','src/tenant-people-provisioning.boundary.ts']):subprocess.run(command,cwd=root,env=adapter_environment,check=True)
         print('B2_TENANT_PEOPLE_BOUNDARY_PASS')
     finally:

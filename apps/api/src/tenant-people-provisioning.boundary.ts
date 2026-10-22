@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 import { Module } from '@nestjs/common';
@@ -12,6 +14,7 @@ import { TENANT_VOICE_DATABASE, TenantVoiceCatalogController } from './tenant-vo
 import { TenantPeopleKeycloak } from './tenant-people-keycloak.js';
 import { DatabaseTenantPeopleReadiness } from './tenant-people-readiness.js';
 import { TenantPeopleRuntime } from './tenant-people-runtime.js';
+import { configuredPeopleRuntime } from './tenant-people-composition.js';
 import { reconcilePeopleInvitationAttempt } from './tenant-people-invitation-worker.js';
 import { runPeopleInvitationPreparation } from './tenant-people-invitation-preparation.js';
 import { runPeopleInvitationResend } from './tenant-people-invitation-sender.js';
@@ -76,6 +79,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
   let app: Awaited<ReturnType<typeof NestFactory.create>> | undefined;
   let invitationRuntime: TenantPeopleRuntime | undefined;
   let resendRuntime: TenantPeopleRuntime | undefined;
+  let activationRuntime: TenantPeopleRuntime | undefined;
   let allowResendPreparation = false;
   try {
     await owner.$executeRawUnsafe(
@@ -668,6 +672,106 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
       }
     }
     assert.deepEqual((await read('extension-pool')).items, []);
+    const activationUser = directory.items.find(
+      (raw) => raw && typeof raw === 'object' && 'role' in raw && raw.role === 'SUPERVISOR',
+    );
+    assert.ok(
+      activationUser &&
+        typeof activationUser === 'object' &&
+        'id' in activationUser &&
+        typeof activationUser.id === 'string',
+    );
+    const activationDetail = await read(`people/users/${activationUser.id}`);
+    assert.equal(typeof activationDetail.email, 'string');
+    const latestAttempts = await owner.$queryRaw<
+      { attempt: string }[]
+    >`SELECT provider_attempt_ref AS attempt FROM tenant_people_invitation_intents WHERE tenant_id=${tenantId}::uuid AND user_id=${activationUser.id}::uuid ORDER BY generation DESC LIMIT 1`;
+    const mailboxResponse = await fetch(`${required('B3_MAILPIT_URL')}/api/v1/messages`);
+    const mailbox = await mailboxResponse.json();
+    assert.ok(
+      mailbox &&
+        typeof mailbox === 'object' &&
+        'messages' in mailbox &&
+        Array.isArray(mailbox.messages),
+    );
+    const matching = mailbox.messages.filter(
+      (message: { Subject: string }) =>
+        message.Subject === `คำเชิญเข้าใช้งาน D-Contact [dc-attempt:${latestAttempts[0].attempt}]`,
+    );
+    assert.equal(matching.length, 1);
+    const mailResponse = await fetch(
+      `${required('B3_MAILPIT_URL')}/api/v1/message/${matching[0].ID}`,
+    );
+    const message = await mailResponse.json();
+    assert.ok(
+      message &&
+        typeof message === 'object' &&
+        'Text' in message &&
+        typeof message.Text === 'string',
+    );
+    const link = message.Text.match(/https?:\/\/\S+action-token\S+/)?.[0];
+    assert.ok(link);
+    const onboarding = spawnSync(
+      process.execPath,
+      [resolve(__dirname, '../../../scripts/tenant-people-onboarding.mjs')],
+      {
+        input: JSON.stringify({
+          issuer,
+          link,
+          userId: activationUser.id,
+          email: activationDetail.email,
+          password: randomUUID() + 'Aa1!',
+        }),
+        encoding: 'utf8',
+        timeout: 90_000,
+      },
+    );
+    assert.equal(onboarding.status, 0, onboarding.stderr);
+    assert.deepEqual(JSON.parse(onboarding.stdout), {
+      completed: true,
+      login: true,
+      userId: activationUser.id,
+    });
+    const composeActivation = (enabled: boolean) => {
+      const composed = configuredPeopleRuntime({
+        TENANT_PEOPLE_WORKER_DATABASE_URL: workerUrl.toString(),
+        TENANT_PEOPLE_BINDINGS_JSON: JSON.stringify([
+          { tenantId, issuer, clientSecretEnv: 'TENANT_PEOPLE_SECRET_BOUNDARY', nodes: [] },
+        ]),
+        TENANT_PEOPLE_SECRET_BOUNDARY: required('B2_KEYCLOAK_CLIENT_SECRET'),
+        TENANT_PEOPLE_INVITATIONS_ENABLED: String(enabled),
+      });
+      assert.ok(composed instanceof TenantPeopleRuntime);
+      return composed;
+    };
+    activationRuntime = composeActivation(false);
+    activationRuntime.onModuleInit();
+    await activationRuntime.runOnce();
+    assert.equal((await read(`people/users/${activationUser.id}`)).isActive, false);
+    assert.equal(await activationRuntime.canResendInvitation(tenantId), false);
+    await activationRuntime.onModuleDestroy();
+    activationRuntime = composeActivation(true);
+    activationRuntime.onModuleInit();
+    for (let retry = 0; retry < 12; retry++) {
+      await activationRuntime.runOnce();
+      if ((await read(`people/users/${activationUser.id}`)).accountState === 'ACTIVE') break;
+    }
+    const activated = await read(`people/users/${activationUser.id}`);
+    assert.equal(activated.accountState, 'ACTIVE');
+    assert.equal(activated.activationState, 'ACTIVATED');
+    assert.equal(activated.configRevision, 1);
+    assert.equal(activated.isActive, true);
+    assert.equal(await activationRuntime.canResendInvitation(tenantId), true);
+    assert.equal(
+      await owner.agentSipCredential.count({ where: { tenantId, userId: activationUser.id } }),
+      0,
+    );
+    assert.equal(
+      await owner.agentWorkSessionLease.count({ where: { tenantId, userId: activationUser.id } }),
+      0,
+    );
+    await activationRuntime.onModuleDestroy();
+    activationRuntime = undefined;
     await owner.$executeRaw`UPDATE tenant_people_worker_bindings SET enabled=false WHERE tenant_id=${tenantId}::uuid AND database_principal=${workerPrincipal}`;
     assert.deepEqual((await read('capabilities')).peopleProvisioning, {
       ready: false,
@@ -681,6 +785,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
     app = undefined;
     assert.equal(await runtime.isReady(tenantId), false);
   } finally {
+    await activationRuntime?.onModuleDestroy();
     await resendRuntime?.onModuleDestroy();
     await invitationRuntime?.onModuleDestroy();
     await app?.close();

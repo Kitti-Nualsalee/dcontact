@@ -60,6 +60,13 @@ export class TenantVoiceCatalogController {
       (await this.people?.isReady(identity.tenantId))
     )
       result.peopleProvisioning = { ready: true, reasons: [] };
+    if (
+      result.canWrite &&
+      result.configuration.ready &&
+      (await this.people?.canReconcileInvitation?.(identity.tenantId)) &&
+      (await this.people?.canResendInvitation?.(identity.tenantId))
+    )
+      result.invitation = { ready: true, reasons: [] };
     return result;
   }
   @Get('teams') @Header('Cache-Control', 'no-store') teams(@Req() r: AuthenticatedGatewayRequest) {

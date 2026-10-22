@@ -21,6 +21,11 @@ export function peopleConfiguration(environment: NodeJS.ProcessEnv) {
 function parsePeopleConfiguration(environment: NodeJS.ProcessEnv) {
   const raw = environment.TENANT_PEOPLE_BINDINGS_JSON;
   const workerUrl = environment.TENANT_PEOPLE_WORKER_DATABASE_URL;
+  const invitationFlag = environment.TENANT_PEOPLE_INVITATIONS_ENABLED;
+  if (invitationFlag !== undefined && !['true', 'false'].includes(invitationFlag))
+    throw new Error('INVALID_PEOPLE_CONFIGURATION');
+  const invitationsEnabled = invitationFlag === 'true';
+  if (invitationsEnabled && (!raw || !workerUrl)) throw new Error('INVALID_PEOPLE_CONFIGURATION');
   if (!raw && !workerUrl) return null;
   if (!raw || !workerUrl) throw new Error('INVALID_PEOPLE_CONFIGURATION');
   const database = new URL(workerUrl);
@@ -43,6 +48,7 @@ function parsePeopleConfiguration(environment: NodeJS.ProcessEnv) {
   const seen = new Set<string>();
   return {
     workerUrl,
+    invitationsEnabled,
     bindings: bindings.map((value) => {
       const entry = object(value);
       if (
@@ -101,11 +107,25 @@ class OwnedPeopleRuntime extends TenantPeopleRuntime {
   constructor(
     private readonly workerDatabase: PrismaClient,
     bindings: NonNullable<ReturnType<typeof peopleConfiguration>>['bindings'],
+    invitationsEnabled: boolean,
   ) {
     super(
       workerDatabase,
       new Map(bindings.map((binding) => [binding.tenantId, binding.identity])),
-      { nodes: new Map(bindings.map((binding) => [binding.tenantId, binding.nodes])) },
+      {
+        nodes: new Map(bindings.map((binding) => [binding.tenantId, binding.nodes])),
+        ...(invitationsEnabled
+          ? {
+              invitations: new Map(
+                bindings.map((binding) => [binding.tenantId, binding.identity.invitationPort()]),
+              ),
+              resends: new Map(
+                bindings.map((binding) => [binding.tenantId, binding.identity.invitationPort()]),
+              ),
+              activations: new Map(bindings.map((binding) => [binding.tenantId, binding.identity])),
+            }
+          : {}),
+      },
     );
   }
   override async onModuleDestroy() {
@@ -120,5 +140,5 @@ export function configuredPeopleRuntime(
   const configuration = peopleConfiguration(environment);
   if (!configuration) return { isReady: async () => false, nodesForTenant: () => [] };
   const worker = new PrismaClient({ datasources: { db: { url: configuration.workerUrl } } });
-  return new OwnedPeopleRuntime(worker, configuration.bindings);
+  return new OwnedPeopleRuntime(worker, configuration.bindings, configuration.invitationsEnabled);
 }
