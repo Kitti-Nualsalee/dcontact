@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -48,6 +49,7 @@ async function fixture(t: TestContext, legacyNullStatus = false) {
     await owner.cgReservation.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.contactIdentity.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.contact.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.team.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.tenant.deleteMany({ where: { id: rawTenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -709,4 +711,76 @@ test('policy ที่อ้างว่า acceptance เป็น Touch ถู
   const row = await f.owner.cgReservation.findUniqueOrThrow({ where: { id: f.reservationId } });
   assert.equal(row.terminalOutcome, null);
   assert.equal(await f.owner.cgAttempt.count({ where: { tenantId: f.tenantId } }), 0);
+});
+
+for (const operation of ['release', 'settle'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual reservation ${operation} ${order}`, async (t) => {
+      const f = await fixture(t);
+      const teamId = randomUUID();
+      await f.owner.team.create({ data: { id: teamId, tenantId: f.tenantId, name: 'Settlement' } });
+      await f.owner.cgReservation.update({ where: { id: f.reservationId }, data: { teamId } });
+      const service = f.service();
+      const input = commands(f);
+      if (operation === 'settle') {
+        await service.claimReservationForDelivery(input.claim);
+        await service.beginProviderSubmission(input.begin);
+        await service.confirmProviderAcceptance(input.confirm);
+      }
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.tenantId,
+        teamId,
+        table: 'cg_reservations',
+        order,
+        existingReferences: true,
+        write: () =>
+          operation === 'settle'
+            ? service.settleDelivery(input.delivered)
+            : service.releaseBeforeSubmit({
+                tenantId: f.tenantId,
+                correlationId: randomUUID(),
+                reservationId: f.reservationId,
+                actionKey: f.actionKey,
+                reason: 'CANCELLED_BEFORE_SUBMIT',
+              }),
+      });
+    });
+
+test('Core Team fence: actual settlement cleanup ยังทำได้บน legacy inactive Team โดยไม่เปิดกลับ', async (t) => {
+  for (const operation of ['release', 'settle'] as const) {
+    const f = await fixture(t);
+    const teamId = randomUUID();
+    await f.owner.team.create({
+      data: { id: teamId, tenantId: f.tenantId, name: 'Inactive cleanup' },
+    });
+    await f.owner.cgReservation.update({ where: { id: f.reservationId }, data: { teamId } });
+    const service = f.service();
+    const input = commands(f);
+    if (operation === 'settle') {
+      await service.claimReservationForDelivery(input.claim);
+      await service.beginProviderSubmission(input.begin);
+      await service.confirmProviderAcceptance(input.confirm);
+    }
+    await f.owner.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
+      await tx.team.update({ where: { id: teamId }, data: { isActive: false } });
+    });
+    if (operation === 'settle')
+      assert.equal((await service.settleDelivery(input.delivered)).status, 'SETTLED');
+    else
+      assert.equal(
+        (
+          await service.releaseBeforeSubmit({
+            tenantId: f.tenantId,
+            correlationId: randomUUID(),
+            reservationId: f.reservationId,
+            actionKey: f.actionKey,
+            reason: 'CANCELLED_BEFORE_SUBMIT',
+          })
+        ).state,
+        'RELEASED',
+      );
+    assert.equal((await f.owner.team.findUniqueOrThrow({ where: { id: teamId } })).isActive, false);
+  }
 });

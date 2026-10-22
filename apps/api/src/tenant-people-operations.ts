@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
+import {
+  withTenantDatabaseTransaction,
+  lockTeamReferences,
+  type PrismaClient,
+} from '@d-contact/db';
 import {
   catalogActor,
   digest,
@@ -46,6 +50,7 @@ export function acceptPeopleCreate(
       if (previous[0].payloadDigest !== payloadDigest) voiceFail('COMMAND_PAYLOAD_MISMATCH', 409);
       return previous[0].result;
     }
+    await lockTeamReferences(transaction, identity.tenantId, [command.teamId]);
     const fence = await transaction.$queryRaw<
       { ok: boolean }[]
     >`SELECT pg_try_advisory_xact_lock(hashtextextended(${`dc:v1:voice-config:${identity.tenantId}`},0)) AS ok`;

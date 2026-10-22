@@ -5,6 +5,7 @@ import {
   Inject,
   Req,
   Param,
+  Query,
   Res,
   Post,
   Patch,
@@ -15,6 +16,13 @@ import {
 import { type PrismaClient } from '@d-contact/db';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import { coreOrganizationSnapshot, updateCoreOrganization } from './tenant-core-organization.js';
+import {
+  createCoreTeam,
+  readCoreTeam,
+  renameCoreTeam,
+  listCoreTeams,
+  deactivateCoreTeam,
+} from './tenant-core-teams.js';
 import { tenantConfigurationCaller } from './tenant-config-identity.js';
 
 import type { ServerResponse } from 'node:http';
@@ -46,6 +54,74 @@ export function coreRequestIdentity(req: AuthenticatedGatewayRequest) {
 @GatewayRoles('admin', 'supervisor')
 export class TenantCoreSettingsController {
   constructor(@Inject(TENANT_CORE_DATABASE) private readonly db: PrismaClient) {}
+
+  @Get('teams')
+  @Header('Cache-Control', 'no-store')
+  teams(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Query() query: Record<string, unknown>,
+    @Res({ passthrough: true }) response: ServerResponse,
+  ) {
+    const identity = coreRequestIdentity(req);
+    if (identity.correlationId) response.setHeader('X-Request-Id', identity.correlationId);
+    return listCoreTeams(this.db, identity, query);
+  }
+
+  @Get('teams/:id')
+  @Header('Cache-Control', 'no-store')
+  team(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Res({ passthrough: true }) response: ServerResponse,
+  ) {
+    const identity = coreRequestIdentity(req);
+    if (identity.correlationId) response.setHeader('X-Request-Id', identity.correlationId);
+    return readCoreTeam(this.db, identity, id);
+  }
+
+  @Post('teams')
+  @GatewayRoles('admin')
+  async createTeam(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Body() body: unknown,
+    @Res() response: ServerResponse,
+  ) {
+    sendCoreResponse(
+      response,
+      await createCoreTeam(this.db, coreRequestIdentity(req), body),
+      coreRequestId(req),
+    );
+  }
+
+  @Patch('teams/:id')
+  @GatewayRoles('admin')
+  async renameTeam(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Res() response: ServerResponse,
+  ) {
+    sendCoreResponse(
+      response,
+      await renameCoreTeam(this.db, coreRequestIdentity(req), id, body),
+      coreRequestId(req),
+    );
+  }
+
+  @Post('teams/:id/deactivate')
+  @GatewayRoles('admin')
+  async deactivateTeam(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Res() response: ServerResponse,
+  ) {
+    sendCoreResponse(
+      response,
+      await deactivateCoreTeam(this.db, coreRequestIdentity(req), id, body),
+      coreRequestId(req),
+    );
+  }
 
   @Get('organization')
   @Header('Cache-Control', 'no-store')

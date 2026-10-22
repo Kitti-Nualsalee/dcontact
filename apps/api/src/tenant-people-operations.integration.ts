@@ -181,7 +181,8 @@ test('People authenticated HTTP â†’ PostgreSQL/RLS: acceptance/readback/replay à
       400,
     );
     const response = await request('/people/users', command);
-    assert.equal(response.status, 202);
+    const failure = response.status === 202 ? '' : await response.clone().text();
+    assert.equal(response.status, 202, failure);
     assert.equal(response.headers.get('cache-control'), 'no-store');
     const accepted = await readAccepted(response);
     assert.equal(response.headers.get('location'), accepted.location);

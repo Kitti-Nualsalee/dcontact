@@ -1,0 +1,40 @@
+{
+  "brand": {
+    "title": "D-Contact Platform Console",
+    "internal": "INTERNAL · PLATFORM OPERATIONS"
+  },
+  "language": {
+    "switch": "Switch to Thai",
+    "next": "ไทย"
+  },
+  "navigation": {
+    "label": "Main navigation",
+    "skip": "Skip to main content",
+    "tenants": "Tenants",
+    "create": "Create tenant"
+  },
+  "identity": {
+    "operator": "Platform Operator",
+    "auditor": "Platform Auditor (read only)",
+    "disabled": "Platform Operator (mutations disabled)",
+    "canary": "Platform Operator (outside canary)"
+  },
+  "auth": {
+    "loading": "Signing in",
+    "intro": "For the internal D-Contact team only. Sign in with a platform account (password + OTP).",
+    "signIn": "Sign in",
+    "signInAgain": "Sign in again",
+    "signOut": "Sign out"
+  },
+  "configuration": {
+    "title": "Setup required",
+    "description": "The connection settings are incomplete. Please contact your administrator."
+  },
+  "session": {
+    "loading": "Checking session",
+    "title": "Cannot open Platform Console",
+    "expired": "Your session has expired. Please sign in again.",
+    "forbidden": "This account cannot access Platform Console.",
+    "unavailable": "Your session could not be checked. Please try again."
+  }
+}

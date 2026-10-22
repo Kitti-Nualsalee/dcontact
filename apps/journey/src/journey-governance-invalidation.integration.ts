@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -131,6 +132,8 @@ async function fixture(t: TestContext) {
     await owner.cgConsent.deleteMany({ where: { tenantId } });
     await owner.contactIdentity.deleteMany({ where: { tenantId } });
     await owner.contact.deleteMany({ where: { tenantId } });
+    await owner.jrJourneyDefinition.deleteMany({ where: { tenantId } });
+    await owner.team.deleteMany({ where: { tenantId } });
     await owner.tenant.deleteMany({ where: { id: tenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -454,3 +457,130 @@ test('post-barrier ที่ไม่มี immutable binding ถูก HOLD แ
     'FAILED',
   );
 });
+
+for (const operation of ['lifecycle', 'invalidation'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual SEND ${operation} ${order}`, async (t) => {
+      const f = await fixture(t);
+      const teamId = randomUUID(),
+        journeyId = randomUUID();
+      await f.owner.team.create({
+        data: { id: teamId, tenantId: f.tenantId, name: 'SEND current' },
+      });
+      await f.owner.jrJourneyDefinition.create({
+        data: {
+          tenantId: f.tenantId,
+          journeyId,
+          version: 1,
+          name: 'SEND canonical',
+          ownerTeamId: teamId,
+          purpose: 'MARKETING',
+          senderIdentityId: 'test',
+          status: 'PUBLISHED',
+          trigger: {},
+          graph: {},
+          goal: {},
+          exitRules: {},
+          maxDurationDays: 1,
+          inputHash: 'a'.repeat(64),
+          correlationId: randomUUID(),
+        },
+      });
+      await f.owner.jrEnrollment.updateMany({
+        where: { tenantId: f.tenantId },
+        data: { journeyId },
+      });
+      const action = await f.owner.jrAction.findFirstOrThrow({ where: { tenantId: f.tenantId } });
+      const lifecycle = new JourneyActionLifecycleInboxService(f.application);
+      const service = new JourneyGovernanceInvalidationService(
+        f.application,
+        { revalidate: async () => ({ decision: 'BLOCK', reasonCode: 'PREFERENCE_BLOCKED' }) },
+        { releaseBeforeBarrier: async () => {}, requestReconcile: async () => {} },
+        { consumer: 'core-writer', now: () => new Date('2026-09-12T09:00:01.000Z') },
+      );
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.tenantId,
+        teamId,
+        table: 'jr_actions',
+        order,
+        existingReferences: true,
+        write: () =>
+          operation === 'lifecycle'
+            ? lifecycle.record({
+                tenantId: f.tenantId as never,
+                actionKey: f.actionKey as never,
+                reservationId: action.reservationId as never,
+                deliveryId: randomUUID() as never,
+                providerRequestKey: 'isolated-provider' as never,
+                state: 'PRE_BARRIER',
+                eventId: randomUUID(),
+                occurredAt: '2026-09-12T09:00:00.000Z',
+                correlationId: randomUUID(),
+              })
+            : service.apply(preferenceEvent(f.tenantId, f.contactId, f.identityId)),
+      });
+    });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual governance effect reconcile writer ${order}`, async (t) => {
+    const f = await fixture(t);
+    const teamId = randomUUID(),
+      journeyId = randomUUID();
+    await f.owner.team.create({
+      data: { id: teamId, tenantId: f.tenantId, name: 'Effect reconcile' },
+    });
+    await f.owner.jrJourneyDefinition.create({
+      data: {
+        tenantId: f.tenantId,
+        journeyId,
+        version: 1,
+        name: 'Effect pin',
+        ownerTeamId: teamId,
+        purpose: 'MARKETING',
+        senderIdentityId: 'test',
+        status: 'PUBLISHED',
+        trigger: {},
+        graph: {},
+        goal: {},
+        exitRules: {},
+        maxDurationDays: 1,
+        inputHash: 'a'.repeat(64),
+        correlationId: randomUUID(),
+      },
+    });
+    await f.owner.jrEnrollment.updateMany({ where: { tenantId: f.tenantId }, data: { journeyId } });
+    const settlement: JourneyRealtimeSettlementPort = {
+      releaseBeforeBarrier: async () => {
+        throw Object.assign(new Error('barrier won'), { code: 'DELIVERY_RECONCILIATION_REQUIRED' });
+      },
+      requestReconcile: async () => {},
+    };
+    const service = new JourneyGovernanceInvalidationService(
+      f.application,
+      { revalidate: async () => ({ decision: 'BLOCK', reasonCode: 'DNC' }) },
+      settlement,
+      { consumer: 'core-effect', now: () => new Date('2026-09-12T09:00:01.000Z') },
+    );
+    await service.apply(preferenceEvent(f.tenantId, f.contactId, f.identityId));
+    await f.owner.jrAction.updateMany({
+      where: { tenantId: f.tenantId },
+      data: {
+        realtimeState: 'POST_BARRIER',
+        deliveryId: randomUUID(),
+        providerRequestKey: 'isolated-provider',
+      },
+    });
+    const relay = new JourneyGovernanceEffectRelay(f.application, settlement, {
+      now: () => new Date('2026-09-12T09:00:01.500Z'),
+    });
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId,
+      table: 'jr_actions',
+      order,
+      existingReferences: true,
+      write: () => relay.executeNext(f.tenantId),
+    });
+  });

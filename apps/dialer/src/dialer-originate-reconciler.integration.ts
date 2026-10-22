@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 /**
  * J2.9 follow-up — พิสูจน์ crash recovery ของ originate barrier:
  * แถวที่ค้าง `ORIGINATING` จน lease หมดต้องถูกกวาดเข้า `RECONCILING` โดยไม่ originate ซ้ำ
@@ -242,3 +243,21 @@ test('originate ที่สำเร็จตามปกติล้าง lea
   );
   assert.deepEqual(evidence, []);
 });
+
+for (const kind of ['campaign', 'callback'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual ${kind} originate reconcile ${order}`, async (t) => {
+      const f = await fixture(t);
+      if (kind === 'campaign') await stuckTarget(f, new Date(Date.now() - 60000));
+      else await stuckCallback(f, new Date(Date.now() - 60000));
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.tenantId,
+        teamId: f.teamId,
+        table: kind === 'campaign' ? 'ob_campaign_targets' : 'ob_callbacks',
+        order,
+        existingReferences: true,
+        write: () =>
+          new DialerOriginateReconciler(f.application).reconcileExpired(f.tenantId, randomUUID()),
+      });
+    });

@@ -1,0 +1,40 @@
+{
+  "brand": {
+    "title": "D-Contact Platform Console",
+    "internal": "INTERNAL · PLATFORM OPERATIONS"
+  },
+  "language": {
+    "switch": "เปลี่ยนเป็นภาษาอังกฤษ",
+    "next": "EN"
+  },
+  "navigation": {
+    "label": "เมนูหลัก",
+    "skip": "ข้ามไปเนื้อหาหลัก",
+    "tenants": "Tenants",
+    "create": "สร้าง tenant"
+  },
+  "identity": {
+    "operator": "Platform Operator",
+    "auditor": "Platform Auditor (อ่านอย่างเดียว)",
+    "disabled": "Platform Operator (ปิดการแก้ไขชั่วคราว)",
+    "canary": "Platform Operator (ยังไม่อยู่ในกลุ่ม canary)"
+  },
+  "auth": {
+    "loading": "กำลังเข้าสู่ระบบ",
+    "intro": "สำหรับทีม D-Contact ภายในเท่านั้น — เข้าสู่ระบบด้วยบัญชี platform (รหัสผ่าน + OTP)",
+    "signIn": "เข้าสู่ระบบ",
+    "signInAgain": "เข้าสู่ระบบใหม่",
+    "signOut": "ออกจากระบบ"
+  },
+  "configuration": {
+    "title": "ยังไม่ได้ตั้งค่า",
+    "description": "การตั้งค่าการเชื่อมต่อยังไม่ครบ กรุณาติดต่อผู้ดูแลระบบ"
+  },
+  "session": {
+    "loading": "กำลังตรวจสอบ session",
+    "title": "เปิด Platform Console ไม่ได้",
+    "expired": "session หมดอายุ กรุณาเข้าสู่ระบบใหม่",
+    "forbidden": "บัญชีนี้ไม่มีสิทธิ์เข้า Platform Console",
+    "unavailable": "ไม่สามารถตรวจสอบ session ได้ กรุณาลองใหม่อีกครั้ง"
+  }
+}

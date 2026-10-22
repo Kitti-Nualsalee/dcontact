@@ -29,11 +29,11 @@
     "infra:check": "node scripts/dev-infra-readiness.mjs && pnpm infra:identity:check",
     "infra:ready": "node scripts/phase-zero-readiness.mjs",
     "test:e1-embed-contract": "pnpm --filter @d-contact/dphone-embed typecheck && pnpm --filter @d-contact/dphone-embed test && pnpm --filter @d-contact/workspace test:embed",
-    "test:d1-i18n": "node --test scripts/keycloak-locale-setup.test.mjs && pnpm --filter @d-contact/i18n test && pnpm --filter @d-contact/console i18n:check && pnpm --filter @d-contact/workspace i18n:check && pnpm --filter @d-contact/console i18n:literals && pnpm --filter @d-contact/workspace i18n:literals && pnpm --filter @d-contact/console lint:css && pnpm --filter @d-contact/workspace lint:css && node packages/i18n/scripts/check-catalogs.mjs packages/ui-react/src/locales packages/ui-react/preview/locales",
+    "test:d1-i18n": "node --test scripts/keycloak-locale-setup.test.mjs && pnpm --filter @d-contact/i18n test && pnpm --filter @d-contact/console i18n:check && pnpm --filter @d-contact/workspace i18n:check && pnpm --filter @d-contact/console i18n:literals && pnpm --filter @d-contact/workspace i18n:literals && pnpm --filter @d-contact/console lint:css && pnpm --filter @d-contact/workspace lint:css && node packages/i18n/scripts/check-catalogs.mjs packages/ui-react/src/locales packages/ui-react/preview/locales && pnpm --filter @d-contact/platform-console i18n:check && pnpm --filter @d-contact/platform-console i18n:literals && pnpm --filter @d-contact/platform-console lint:css",
     "test:freeswitch-config": "node --test scripts/freeswitch-config.test.mjs scripts/e1-uat-media-operator.test.mjs",
     "test:keycloak-theme": "node --test scripts/keycloak-theme.test.mjs",
     "test:readiness": "node --test scripts/phase-zero-readiness.test.mjs scripts/object-storage-readiness.test.mjs scripts/prisma-platform-targets.test.mjs scripts/pnpm-platform-targets.test.mjs",
-    "test:object-storage": "pnpm --filter @d-contact/shared test && pnpm --filter @d-contact/telephony exec tsx --test src/s3-recording-archive.test.ts && pnpm --filter @d-contact/api exec tsx --test src/uat-evidence-storage.test.ts src/uat-api.test.ts && node --test scripts/object-storage-readiness.test.mjs scripts/object-storage-init.test.mjs scripts/uat-object-storage.test.mjs scripts/phase-zero-readiness.test.mjs scripts/u1-uat-readiness.test.mjs scripts/u1-acceptance.test.mjs",
+    "test:object-storage": "pnpm --filter @d-contact/shared test && pnpm --filter @d-contact/telephony exec tsx --test src/s3-recording-archive.test.ts && pnpm --filter @d-contact/api exec tsx --test src/uat-evidence-storage.test.ts src/uat-api.test.ts && node --test scripts/object-storage-readiness.test.mjs scripts/object-storage-init.test.mjs scripts/phase-zero-readiness.test.mjs scripts/u1-uat-readiness.test.mjs scripts/u1-acceptance.test.mjs",
     "test:object-storage:contract": "node --test scripts/object-storage-contract.test.mjs",
     "test:object-storage:least-privilege": "node --test scripts/object-storage-least-privilege.test.mjs",
     "test:phase-one-readiness": "node --test scripts/phase-one-readiness.test.mjs scripts/phase-one-tenants.test.mjs scripts/child-process-lifecycle.test.mjs",
@@ -107,7 +107,9 @@
     "test:identity-traces": "node scripts/identity-traces-acceptance.mjs",
     "test:keycloak-branding": "node --test scripts/keycloak-branding-setup.test.mjs",
     "test:keycloak-account-service": "node --test scripts/keycloak-account-service-setup.test.mjs",
-    "test:keycloak-provisioning": "node --test scripts/keycloak-provisioning-setup.test.mjs"
+    "test:keycloak-provisioning": "node --test scripts/keycloak-provisioning-setup.test.mjs",
+    "test:core-settings:writers": "node scripts/core-settings-writer-tests.mjs",
+    "test:core-settings:discovery": "node --test scripts/core-settings-writer-tests.test.mjs"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

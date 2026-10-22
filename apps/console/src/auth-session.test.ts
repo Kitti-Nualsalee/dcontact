@@ -8,6 +8,7 @@ import {
   consumeConsoleReturnUrl,
   createConsoleOidcSettings,
   isConsoleSignedOutLanding,
+  shouldRestoreConsoleSession,
   isOidcCallback,
   rememberConsoleReturnUrl,
   rememberConsoleSignOut,
@@ -274,4 +275,31 @@ test('#684 callback ที่ไม่มี return URL เปิด Home แล
     url: '/?tenant=acme',
     view: 'home',
   });
+});
+
+test('#733 กู้ SSO เฉพาะ boot ปกติ ไม่แย่ง callback หรือกลับเข้าเองหลัง explicit sign-out', () => {
+  const storage = new MemoryStorage();
+  const home = new URL('https://console.example/?tenant=acme');
+  const account = new URL('https://console.example/?tenant=acme&view=account');
+  assert.equal(shouldRestoreConsoleSession(home, storage), true);
+  assert.equal(shouldRestoreConsoleSession(account, storage), true);
+  assert.equal(
+    shouldRestoreConsoleSession(
+      new URL('https://console.example/?tenant=acme&code=code&state=state'),
+      storage,
+    ),
+    false,
+  );
+  assert.equal(
+    shouldRestoreConsoleSession(
+      new URL('https://console.example/?tenant=acme&error=login_required&state=state'),
+      storage,
+    ),
+    false,
+  );
+  rememberConsoleSignOut(account, storage);
+  assert.equal(shouldRestoreConsoleSession(home, storage), false);
+  assert.equal(shouldRestoreConsoleSession(account, storage), false);
+  clearConsoleSignOut(storage);
+  assert.equal(shouldRestoreConsoleSession(account, storage), true);
 });

@@ -58,7 +58,7 @@ identity-aware gateway / allowlist (provisioning gate)
 │   api ── postgres (dcontact: role dcontact_app, NOBYPASSRLS)                                        │
 │   keycloak ── postgres (database keycloak, role keycloak)                                          │
 │   api ── object-storage:8333 (SeaweedFS; user uat-evidence-api เฉพาะ `uat-evidence` private)      │
-│   object-storage-lifecycle (lifecycle pass ทุก 1 ชม.), object-storage-migrated-expiry (#540/#541)   │
+│   object-storage-lifecycle (lifecycle pass ทุก 1 ชม.)                                               │
 │                                                                                                   │
 │ one-shot (profile ops, image OPS_IMAGE): db-roles, migrate, keycloak-config                         │
 │ one-shot ทุก deploy ก่อน api: object-storage-init (bucket private ผ่าน S3 API)                     │
@@ -78,8 +78,7 @@ env `LINE_*`, `KAFKA_BROKERS` หรือ `SIP_*`
 | `infra/uat/bin/uat-deploy.sh`            | ขั้นตอนบน VM: prepare/backup/migrate/keycloak/provision/deploy/smoke/record/rollback               |
 | `infra/uat/bin/db-roles.sh`              | role ของ Postgres (Keycloak, `dcontact_app`) จาก secret                                            |
 | `infra/uat/bin/object-storage-entrypoint.sh` | SeaweedFS `weed server -s3`: สร้าง `s3.json` (identity root/API + policy) ใน tmpfs จาก secret |
-| `infra/uat/docker-compose.uat.migration.yml` | overlay ย้ายหลักฐานจาก MinIO เดิมครั้งเดียว (#540) — ถอดใน #541                              |
-| `scripts/uat-object-storage.mjs`         | ops: `init` (bucket private), `migrate`, `expire-migrated`                                         |
+| `scripts/uat-object-storage.mjs`         | ops: `init` (bucket private)                                                                       |
 | `infra/uat/bin/ci-ssh-setup.sh`          | SSH ของ runner จาก secrets ของ environment `uat-preview`                                           |
 | `infra/uat/uat.env.example`              | รายชื่อค่าใน `uat.env` (ไม่มีค่า)                                                                  |
 | `infra/keycloak/realm-dcontact.uat.json` | realm UAT (template `${env.*}`) — ไม่มี user/secret, บังคับ password+TOTP                          |
@@ -133,7 +132,6 @@ secret runtime ของ UAT (รหัสผ่าน DB/Keycloak/object storag
 | `UAT_KEYCLOAK_ADMIN_USERNAME` / `UAT_KEYCLOAK_ADMIN_PASSWORD` | bootstrap admin ของ Keycloak (ใช้ภายใน VM เท่านั้น)                      |
 | `UAT_S3_ROOT_ACCESS_KEY` / `UAT_S3_ROOT_SECRET_KEY`           | root ของ object storage — init, lifecycle, ย้ายข้อมูล, expiry เท่านั้น   |
 | `UAT_S3_API_ACCESS_KEY` / `UAT_S3_API_SECRET_KEY`             | user เฉพาะของ API (`S3_ACCESS_KEY`/`S3_SECRET_KEY`) — ต่างจาก root       |
-| `UAT_MINIO_ROOT_USER` / `UAT_MINIO_ROOT_PASSWORD` (ชั่วคราว)  | root ของ MinIO **เดิม** — ใช้เฉพาะตอนย้ายข้อมูล (ข้อ 7.1) ลบหลัง #541    |
 
 credential ของ object storage (`UAT_S3_*`) ต้องเป็น `[A-Za-z0-9_-]` ยาว ≥ 8 (entrypoint เขียนลง `s3.json` โดยตรง
 และไม่ยอมบูตถ้าผิดรูป)
@@ -158,7 +156,7 @@ credential ของ object storage (`UAT_S3_*`) ต้องเป็น `[A-Za
   SeaweedFS 4.48 ไม่รัน lifecycle เอง — `object-storage-lifecycle` สั่ง `s3.lifecycle.run-shard -refresh 1h`
 - object storage ไม่เปิดพอร์ตสู่ host; ภาพหน้าจอเข้า/ออกผ่าน API ที่ตรวจสิทธิ์เท่านั้น (ไม่มี presigned/public URL)
 - rotate secret: แก้ `uat.env` แล้ว deploy ซ้ำ (`object-storage` สร้าง `s3.json` ใหม่ตอน container ถูกสร้างใหม่)
-- disk: `-volume.max=64` × 64 MB = สูงสุด 4 GB สำหรับ bucket เดียว; ระหว่างย้ายข้อมูล volume `minio-data` เดิมยังอยู่
+- disk: `-volume.max=64` × 64 MB = สูงสุด 4 GB สำหรับ bucket เดียว
 
 ## 4. เตรียม VM ครั้งแรก
 
@@ -365,6 +363,8 @@ script จะ:
 - สร้างบัญชีใหม่พร้อม attribute `tenant_id`/`tenant_slug`/`dc_user_id`, สมาชิก Organization ของ tenant,
   รหัสผ่านแบบ temporary และ required action `UPDATE_PASSWORD` + `CONFIGURE_TOTP`
 - บัญชีเดิม: อัปเดต attribute เท่านั้น ไม่รีเซ็ตรหัสผ่าน; ถ้า `dc_user_id` เดิมไม่ตรง = หยุด (`ACCOUNT_SUBJECT_MISMATCH`)
+- บัญชีเดิมที่มี client role ของ `dcontact-platform-api` = หยุด (`PLATFORM_IDENTITY_REFUSED`, #685) — platform operator
+  ห้ามเป็นสมาชิก tenant (#387) ถ้าคนเดียวกันต้องทดสอบ tenant ให้ใช้ username แยก
 - พิมพ์เฉพาะ role, Keycloak id และสถานะ — ไม่พิมพ์รหัสผ่าน
 
 login ครั้งแรก ผู้ทดสอบต้องเปลี่ยนรหัสผ่านและผูก authenticator app (TOTP) — browser flow
@@ -408,50 +408,17 @@ realm ไม่ถูก import ตอนบูต Keycloak: ขั้น `keycl
 7. `migrate`: `db-roles` → `prisma migrate deploy` + `rls.sql` → `db-roles` อีกรอบ
 8. `keycloak`: Keycloak production mode + realm config
 9. `deploy`: `object-storage` → `object-storage-init` (bucket private) แล้ว `object-storage-lifecycle`,
-   `object-storage-migrated-expiry`, `api` และ `proxy` ด้วย digest ใหม่
+   `api` และ `proxy` ด้วย digest ใหม่
 10. `smoke`: `u1-uat-readiness.mjs --live` จาก ops image บน VM (ต่อ `127.0.0.1:443` ด้วย SNI ของ `UAT_HOST`) — ไม่ผ่าน = job ล้ม
 11. deployment record: job summary + artifact `uat-preview-<sha>-<attempt>` + `/opt/dcontact-uat/deployments/`
 
 smoke ล้มหลัง deploy: stack ค้างที่ release ใหม่ — ตัดสินใจ rollback (ข้อ 10) หรือแก้แล้ว deploy ใหม่
 ไม่มี auto-rollback เพราะต้องมีคนดูว่า migration ของ release นั้นเข้ากับ API เดิมได้
 
-### 7.1 Cutover object storage: MinIO → SeaweedFS (ครั้งเดียว, #540)
+### 7.1 ไม่มีขั้นย้ายข้อมูลจาก MinIO แล้ว (#541)
 
-ทำครั้งแรกที่ deploy release ที่มี `object-storage` บน VM ที่เคยมี MinIO — ห้ามข้าม: ถ้า deploy ก่อนย้าย API จะบูตบน
-bucket ว่าง และหลักฐานเดิมใน `minio-data` จะไม่ถูกลบตามวันหมดอายุ
-
-1. เพิ่มใน `uat.env`: `UAT_S3_ROOT_*`, `UAT_S3_API_*` (ค่าใหม่ สุ่ม) และคง `UAT_MINIO_ROOT_USER`/`UAT_MINIO_ROOT_PASSWORD`
-   เดิมไว้ (ต้องเป็นค่าที่ MinIO ใช้อยู่) — ลบ `UAT_MINIO_API_*` ได้
-2. รัน workflow `uat-preview` ตามปกติ — ขั้น `deploy` จะ **ล้มด้วย `OBJECT_STORAGE_MIGRATION_PENDING`** ก่อน api บูต
-   (VM มี volume `minio-data` แต่ยังไม่มี `/opt/dcontact-uat/object-storage-migrated`) ซึ่งเป็นสิ่งที่ตั้งใจ: release ถูก
-   `prepare`, backup และ migrate DB แล้ว
-3. บน VM: `bin/uat-deploy.sh migrate-object-storage <sha>` — หยุด api, เปิด MinIO เดิมจาก overlay
-   `docker-compose.uat.migration.yml`, `object-storage-init`, แล้ว `object-storage-migrate`:
-   - คัดลอกทุก object ใต้ `uat-evidence/` โดยคง key, ตรวจ sha256 กับ `uat_run_evidence.sha256`
-   - object ที่ถึงวันหมดอายุแล้วถูกข้าม; object ไม่มีแถว (`ORPHAN_OBJECT`) หรือแถวที่ยังไม่หมดอายุแต่ไม่มี object
-     (`MISSING_OBJECT`) = หยุดทั้งหมด ไม่เขียนอะไร
-   - เขียน manifest `migration/uat-evidence-<วันที่>.json` (key, `sourceLastModified`, `expiresAt`, sha256) ด้วย root
-   - รันซ้ำได้ (object ที่ sha256 ตรงถูกข้าม) — แนบบรรทัด JSON `"step":"migrate","status":"PASS"` ใน issue #540
-   เมื่อสำเร็จจะเขียน `/opt/dcontact-uat/object-storage-migrated`
-4. รัน workflow `uat-preview` ด้วย SHA เดิมอีกครั้ง (หรือ `bin/uat-deploy.sh deploy <sha>` แล้ว `smoke`) — `--remove-orphans` ลบ container MinIO
-   แต่ **ไม่** ลบ volume `minio-data`
-5. `object-storage-migrated-expiry` ลบหลักฐานที่ย้ายมาตาม `expiresAt` เดิม (วันที่สร้างใน MinIO + 90 วัน ปัดเที่ยงคืน UTC)
-   ตรวจด้วย `docker logs dcontact-uat-object-storage-migrated-expiry-1` — ครบแล้วจะเห็น `"status":"DONE"`
-
-**Rollback หลัง cutover** ไป release ที่ยังใช้ MinIO (ข้อ 10 ใช้ `up --no-deps api proxy` ซึ่ง**ไม่**เปิด MinIO ให้):
-
-```bash
-cd /opt/dcontact-uat/releases/<sha ก่อน cutover>
-alias uatc='docker compose --project-name dcontact-uat --project-directory . --env-file /opt/dcontact-uat/uat.env --env-file release.env -f docker-compose.uat.yml'
-uatc up -d --wait minio && uatc run --rm -T minio-init   # ต้องมี UAT_MINIO_* เดิมใน uat.env
-rm /opt/dcontact-uat/object-storage-migrated             # deploy รอบหน้าต้องย้ายหลักฐานใหม่อีกครั้ง
-```
-
-แล้วกด rollback ใน workflow — volume `minio-data` ยังอยู่จึงกลับไปใช้หลักฐานเดิมได้ แต่ **หลักฐานที่เขียนหลัง cutover
-อยู่ใน SeaweedFS เท่านั้นและไม่ตามกลับไป** (บันทึกใน issue); เมื่อ deploy release ใหม่อีกครั้ง `migrate-object-storage`
-จะคัดลอกหลักฐานที่เพิ่มใน MinIO ระหว่างนั้น (object ที่มีแล้วถูกข้าม)
-
-**ลบ `minio-data`:** เฉพาะหลัง cutover + 90 วัน และ expiry เป็น `DONE` — ทำใน #541
+UAT ใช้ SeaweedFS ตั้งแต่ deploy แรก และไม่เคยมีหลักฐานใน MinIO จึงถอด overlay ย้ายข้อมูล, `migrate-object-storage`,
+`object-storage-migrated-expiry` และ volume `minio-data` ออกแล้ว ถ้าพบ `UAT_MINIO_ROOT_*` ค้างใน `uat.env` ลบได้
 
 ## 8. กฎ "ไม่มี down migration"
 

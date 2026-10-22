@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -345,3 +346,22 @@ test('legacy action ที่ไม่มี deterministic binding ยังร�
   assert.equal(enrollment.stepSequence, 0);
   assert.equal(await f.owner.jrOwnerContinuation.count({ where: { tenantId: f.tenantId } }), 0);
 });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual owner result continuation ${order}`, async (t) => {
+    const f = await fixture(t);
+    const repository = new JourneyOwnerActionRepository(f.application);
+    await dispatched(f, repository);
+    const definition = await f.owner.jrJourneyDefinition.findFirstOrThrow({
+      where: { tenantId: f.tenantId },
+    });
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId: definition.ownerTeamId,
+      table: 'jr_owner_continuations',
+      order,
+      existingReferences: true,
+      write: () => repository.applyResult(f.resultInput()),
+    });
+  });

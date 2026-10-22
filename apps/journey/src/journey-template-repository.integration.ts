@@ -1,7 +1,8 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
-import { PrismaClient } from '@d-contact/db';
+import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { DcExprEvaluator } from '@d-contact/expression';
 import { IamJourneyAuthoringAuthorizer } from '@d-contact/iam';
 import type {
@@ -187,6 +188,7 @@ async function setup(t: TestContext) {
 
   return {
     owner,
+    application,
     tenantId,
     otherTenantId,
     teamA,
@@ -558,4 +560,170 @@ test('J5.5 getTemplate แนบ draft เฉพาะผู้แก้ได�
   });
   assert.equal(discarded.draftRevision, head.currentDraftRevision + 1);
   assert.equal(discarded.draftDigest, published.contentDigest);
+});
+
+for (const operation of [
+  'publish',
+  'deprecate',
+  'archive',
+  'fork',
+  'instantiate',
+  'upgrade',
+] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual Template ${operation} ${order}`, async (t) => {
+      const f = await setup(t);
+      const content = structuredClone(f.builtIn.content);
+      let write: () => Promise<unknown>;
+      if (operation === 'fork' || operation === 'instantiate') {
+        const source = {
+          origin: 'PLATFORM_BUILTIN' as const,
+          templateId: REMINDER,
+          version: 1,
+          expectedContentDigest: f.builtIn.contentDigest,
+          targetOwnerTeamId: f.teamA,
+          name: 'Core template race',
+        };
+        write = () =>
+          operation === 'fork'
+            ? f.repo.forkTemplate(f.as('author'), { ...source, visibility: 'TEAM' })
+            : f.repo.instantiateTemplate(f.as('author'), { ...source, bindings });
+      } else if (operation === 'publish') {
+        const draft = await f.repo.createTemplateDraft(f.as('author'), {
+          ownerTeamId: f.teamA,
+          visibility: 'TEAM',
+          name: 'Publish race',
+          document: content.document,
+          parameterSchema: content.parameterSchema,
+        });
+        const review = await f.repo.submitTemplateReview(f.as('author'), {
+          templateId: draft.templateId,
+          draftRevision: 1,
+          draftDigest: draft.draftDigest,
+          baseHeadVersion: 1,
+        });
+        await f.repo.decideTemplateReview(f.as('reviewer'), {
+          templateId: draft.templateId,
+          reviewId: review.reviewId,
+          decision: 'APPROVE',
+          reasonCode: 'OK',
+          evidenceRef: 'isolated-evidence',
+        });
+        write = () =>
+          f.repo.publishTemplateVersion(f.as('author'), {
+            templateId: draft.templateId,
+            reviewId: review.reviewId,
+            draftRevision: 1,
+            draftDigest: draft.draftDigest,
+            expectedHeadVersion: 1,
+          });
+      } else {
+        const published = await f.publishTenantTemplate(content.document, content.parameterSchema);
+        if (operation === 'upgrade') {
+          const instance = await f.repo.instantiateTemplate(f.as('author'), {
+            origin: 'TENANT',
+            templateId: published.templateId,
+            version: 1,
+            expectedContentDigest: published.contentDigest,
+            bindings,
+            targetOwnerTeamId: f.teamA,
+            name: 'Upgrade race',
+          });
+          const changed = structuredClone(content);
+          const done = changed.document.nodes.find(
+            (node) => 'templateNodeKey' in node && node.templateNodeKey === 'done',
+          )!;
+          assert.ok(done && 'config' in done);
+          (done.config as { reason: string }).reason = 'UPDATED';
+          await f.publishTenantTemplate(
+            changed.document,
+            changed.parameterSchema,
+            published.templateId,
+          );
+          const head = await f.owner.jrJourneyHead.findFirstOrThrow({
+            where: { tenantId: f.tenantId, journeyId: instance.journeyId },
+          });
+          const proposal = await f.repo.checkTemplateUpgrade(f.tenantId, f.actor('author'), {
+            journeyId: instance.journeyId,
+            draftRevision: 1,
+            draftDigest: instance.draftDigest,
+            targetVersion: 2,
+          });
+          write = () =>
+            f.repo.applyTemplateUpgrade(f.as('author'), {
+              journeyId: instance.journeyId,
+              targetVersion: 2,
+              expectedHeadVersion: head.version,
+              expectedDraftRevision: 1,
+              expectedDraftDigest: instance.draftDigest,
+              proposalDigest: proposal.proposalDigest,
+              conflictDigest: proposal.conflictDigest,
+              resolutions: {},
+            });
+        } else {
+          let head = await f.owner.jrTemplateHead.findFirstOrThrow({
+            where: { tenantId: f.tenantId, templateId: published.templateId },
+          });
+          if (operation === 'archive') {
+            await f.repo.changeTemplateLifecycle(f.as('admin'), {
+              templateId: published.templateId,
+              expectedHeadVersion: head.version,
+              target: 'DEPRECATED',
+              reasonCode: 'ISOLATED_DEPRECATE',
+            });
+            head = await f.owner.jrTemplateHead.findFirstOrThrow({
+              where: { tenantId: f.tenantId, templateId: published.templateId },
+            });
+          }
+          write = () =>
+            f.repo.changeTemplateLifecycle(f.as('admin'), {
+              templateId: published.templateId,
+              expectedHeadVersion: head.version,
+              target: operation === 'archive' ? 'ARCHIVED' : 'DEPRECATED',
+              reasonCode: 'ISOLATED_LIFECYCLE',
+            });
+        }
+      }
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.tenantId,
+        teamId: f.teamA,
+        table:
+          operation === 'instantiate' || operation === 'upgrade'
+            ? 'jr_journey_heads'
+            : 'jr_template_heads',
+        order,
+        existingReferences: true,
+        write,
+      });
+    });
+
+test('Core Team fence: raw ACTIVE Template publication ต้องปฏิเสธ legacy inactive Team', async (t) => {
+  const f = await setup(t);
+  const content = f.builtIn.content;
+  const published = await f.publishTenantTemplate(content.document, content.parameterSchema);
+  await f.owner.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role='replica'");
+    await tx.team.update({ where: { id: f.teamA }, data: { isActive: false } });
+  });
+  const nextId = randomUUID();
+  await f.owner
+    .$executeRaw`INSERT INTO public.jr_template_versions SELECT r.* FROM public.jr_template_versions v CROSS JOIN LATERAL jsonb_populate_record(NULL::public.jr_template_versions,to_jsonb(v)||jsonb_build_object('id',${nextId}::text,'version',2)) r WHERE v.tenant_id=${f.tenantId}::uuid AND v.template_id=${published.templateId}::uuid AND v.version=1`;
+  await assert.rejects(
+    withTenantDatabaseTransaction(f.application, f.tenantId, (tx) =>
+      tx.jrTemplateHead.update({
+        where: { tenantId_templateId: { tenantId: f.tenantId, templateId: published.templateId } },
+        data: { activeVersion: 2, activeVersionId: nextId, version: { increment: 1 } },
+      }),
+    ),
+    /TEAM_INACTIVE/,
+  );
+  assert.equal(
+    (
+      await f.owner.jrTemplateHead.findFirstOrThrow({
+        where: { tenantId: f.tenantId, templateId: published.templateId },
+      })
+    ).activeVersion,
+    1,
+  );
 });

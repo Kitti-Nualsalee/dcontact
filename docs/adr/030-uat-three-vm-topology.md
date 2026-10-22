@@ -98,8 +98,7 @@ api (profile `uat`), Keycloak, Postgres, MinIO บน network `internal: true` �
 
 5. **ทรัพยากรบน VM2 (RAM 7.9 GB, disk ว่าง 20 GB)**: กำหนดเพดานหน่วยความจำต่อ service (เช่น Keycloak `JAVA_OPTS_KC_HEAP`
    และ `mem_limit`) ตามงบ 8 GB, one-shot (`migrate`, `keycloak-config`, `uat-provision`) รันทีละตัว, ไม่รันงานอื่นบน VM2,
-   และเฝ้า disk (image + volume ของ object storage ที่ retention 90 วัน — นับ volume `minio-data` เดิมที่ค้างระหว่างย้ายไป
-   SeaweedFS (#540) รวมในงบด้วย) เป็นเงื่อนไขของ readiness; ก่อน deploy ต้องตรวจว่า container/volume/network เก่าที่หยุดไว้บน VM2
+   และเฝ้า disk (image + volume ของ object storage ที่ retention 90 วัน) เป็นเงื่อนไขของ readiness; ก่อน deploy ต้องตรวจว่า container/volume/network เก่าที่หยุดไว้บน VM2
    ไม่ชนชื่อ project `dcontact-uat` (project, volume, พอร์ต) หรือเก็บกวาดก่อน
 
 6. **backup/restore ต้องไม่พึ่ง `pg_dump` ใน container `postgres`**: `uat-deploy.sh backup` (`exec postgres pg_dump`)

@@ -3,6 +3,13 @@
 ระบบภาษา TH/EN ของ `apps/console` และ `apps/workspace` ตาม [D1.5 #425](https://github.com/Kitti-Nualsalee/dcontact/issues/425)
 (implementation: [D1.11 #450](https://github.com/Kitti-Nualsalee/dcontact/issues/450))
 
+Platform Console จะใช้แกน i18n/formatter และ `LocaleProvider` ตาม [ADR-028 ภาคผนวก #605](../../docs/adr/028-frontend-component-layer.md#ภาคผนวก-platform-console-605)
+โดยมี locale adapter ของ platform แยก: ภาษาที่เลือกในแท็บ → browser → `th`, timezone `Asia/Bangkok`;
+ไม่ใช้ `SessionLocaleProvider`, tenant locale defaults หรือ Keycloak Account API และไม่เพิ่ม OIDC scope
+การย้ายหน้าจอติดตามใน implementation tickets ของ [#605](https://github.com/Kitti-Nualsalee/dcontact/issues/605)
+
+พฤติกรรมของ Tenant Console/Workspace:
+
 - react-i18next + typed keys (`CustomTypeOptions`) — key ที่ไม่มีใน catalog ตกที่ typecheck
 - ลำดับภาษา: ผู้ใช้ (Keycloak `locale`) → tenant (`tenant_settings.locale`) → browser → `th`
 - timezone: ผู้ใช้ (Keycloak `zoneinfo`) → tenant (`tenant_settings.timezone`) → `Asia/Bangkok` — ไม่ใช้เวลาเครื่อง

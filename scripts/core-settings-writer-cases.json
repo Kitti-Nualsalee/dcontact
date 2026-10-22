@@ -1,0 +1,361 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "package": "@d-contact/db",
+      "file": "src/team-reference-guards.integration.ts",
+      "pattern": null,
+      "requiredCases": [
+        "Team guards: application User INSERT ไม่เพิ่ม reference เข้าทีมปิด แม้ไม่ผ่าน Core API",
+        "Team guards: final state กัน same-tx insert→deactivate และยอมรับเพิ่มแล้วถอนก่อนปิด",
+        "Team guards: Queue ที่ inactive และ Skill ยังเป็น current reference; ย้ายออก/ถอนได้ก่อนปิด",
+        "Team guards: future delegation ยังบล็อก แต่หมดอายุ/ถอนแล้วไม่บล็อก",
+        "Team guards: Journey ใช้ pinned version; terminal/history ไม่บล็อก และ unresolved legacy บล็อกเฉพาะการปิด",
+        "Team guards: CG และ outbound แยก terminal จริงจาก expiry/lease; reopening ต้องใช้ทีม active",
+        "Team guards: User writer-first/deactivate-first แข่งกันด้วย transaction จริงและ try-lock ไม่รอ",
+        "Team guards: owner intent legacy ไม่มี canonical binding ปิดทีมใดใน tenant ไม่ได้ แต่ rename/cleanup ยังทำได้",
+        "Team guards: validated owner payload ระบุ source/target โดยไม่เดา head และ ACK ยังบล็อกจน continuation durable",
+        "Team guards: schedule CLAIMED ต้องมี durable enrollment จึงเลิกบล็อก pinned owner",
+        "Team guards: scoped refilter/future work และ pending segment intent บล็อก; unscoped/terminal entry ไม่บล็อก",
+        "Team guards: SEND ที่ยัง HELD บล็อกแม้ enrollment terminal และ reservation release แล้ว; terminal SEND เป็น history",
+        "Team guards: resolve canonical owner receipt ก่อนถือว่า legacy unknown; version ที่ไม่รู้จักไม่ยืม proof ของ command เดิม",
+        "Team guards: legacy reference เดิมไม่อนุญาต reactivate User/Queue หรือยืด grant บนทีมปิด; cleanup ยังได้",
+        "Team guards: EXPLAIN ANALYZE closure บน 60,000 references อยู่ใน budget 2s และไม่รวม tenant อื่น",
+        "Team guards: app ไม่ยืม PROVISIONING lifecycle เพื่อข้าม Core effect receipt ของ provisioner"
+      ]
+    },
+    {
+      "package": "@d-contact/api",
+      "file": "src/tenant-core-teams.integration.ts",
+      "pattern": null,
+      "requiredCases": [
+        "ทีม: Admin สร้างผ่าน HTTP แล้วอ่านกลับ UUID เดิมและ revision1 โดยไม่เปิด Voice policy",
+        "ทีม: เปลี่ยนชื่อด้วย CAS และ replay เดิม ไม่เพิ่ม revision เมื่อ no-op และปฏิเสธ revision เก่า",
+        "ทีม: รายการ UUID keyset มี signed cursor ผูก tenant/live scope และ Supervisor เห็นทีมตนเอง",
+        "ทีม DB: no-op DML หลัง Core command ไม่เพิ่ม revision และไม่บังคับ receipt เก่าซ้ำ",
+        "ทีม DB: app ลบ UUID หรือแก้ metadata revision และเปลี่ยนชื่อโดยไม่มี effect receipt ไม่ได้",
+        "ทีม: ปิดทีมว่างด้วย CAS เก็บ receipt/audit แล้ว replay/no-op ได้; ยังเปลี่ยนชื่อทีมปิดได้",
+        "ทีม: ปิดทีมที่มี User รวม inactive ไม่ได้ เก็บ rejection เดิม และส่งเฉพาะชนิดกับจำนวน",
+        "ทีม: unknown legacy ระงับเฉพาะปิดทีม; create/rename ทำได้ และ inactive no-op ไม่ตรวจ closure ซ้ำ",
+        "ทีม: validation ใช้ UTF-16/trim/อักขระควบคุม และชื่อ unique รวม inactive แบบ case-sensitive",
+        "ทีม: ทุก endpoint ใช้ live proof/role และไม่เปิดเผยข้อมูล resource ต่าง tenant หรือทีม Supervisor อื่น",
+        "ทีม: reference fence busy คง admission ไว้ ไม่มี effect และ retry command เดิมสำเร็จหลังปล่อย lock",
+        "ทีม: read/list คืน X-Request-Id ที่ตรวจแล้ว และไม่ cache ผลตามสิทธิ์ผู้ใช้",
+        "ทีม: เปลี่ยนชื่อยังทำได้ขณะ reference fence ถูกถือ ไม่ต้องรอ tenant ว่าง"
+      ]
+    },
+    {
+      "package": "@d-contact/api",
+      "file": "src/tenant-core-team-people.integration.ts",
+      "pattern": null,
+      "requiredCases": [
+        "Team/People: actual B2 pending operation/lifecycle คง creation Team แม้ User ย้ายออก; terminal no-effect เหลือประวัติ"
+      ]
+    },
+    {
+      "package": "@d-contact/api",
+      "file": "src/tenant-core-team-writers.integration.ts",
+      "pattern": null,
+      "requiredCases": [
+        "Core Team fence: actual queues writer-first",
+        "Core Team fence: actual queues deactivate-first",
+        "Core Team fence: actual skills writer-first",
+        "Core Team fence: actual skills deactivate-first",
+        "Core Team fence: actual people writer-first",
+        "Core Team fence: actual people deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/iam",
+      "file": "src/team-segment-scope-repository.integration.ts",
+      "pattern": "Core Team fence",
+      "requiredCases": [
+        "Core Team fence: actual IAM grant writer-first",
+        "Core Team fence: actual IAM grant deactivate-first",
+        "Core Team fence: known IAM writer ต้องตรวจ Team fence ก่อนรอ scope-version row เดิม",
+        "Core Team fence: actual IAM current grant revoke writer-first",
+        "Core Team fence: actual IAM current grant revoke deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/iam",
+      "file": "src/team-authoring-reference.integration.ts",
+      "pattern": "Core Team fence",
+      "requiredCases": [
+        "Core Team fence: actual authoring delegate writer-first",
+        "Core Team fence: actual authoring delegate deactivate-first",
+        "Core Team fence: actual authoring revoke writer-first",
+        "Core Team fence: actual authoring revoke deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/contact-governance",
+      "file": "src/authorize-and-reserve.integration.ts",
+      "pattern": "Core Team fence",
+      "requiredCases": [
+        "Core Team fence: actual CG reservation admission writer-first",
+        "Core Team fence: actual CG reservation admission deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/contact-governance",
+      "file": "src/cg5-alert-repository.integration.ts",
+      "pattern": "Core Team fence",
+      "requiredCases": [
+        "Core Team fence: actual CG alert opening writer-first",
+        "Core Team fence: actual CG alert opening deactivate-first",
+        "Core Team fence: actual alert ack writer-first",
+        "Core Team fence: actual alert ack deactivate-first",
+        "Core Team fence: actual alert resolve writer-first",
+        "Core Team fence: actual alert resolve deactivate-first",
+        "Core Team fence: actual alert reopen writer-first",
+        "Core Team fence: actual alert reopen deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/contact-governance",
+      "file": "src/reservation-runtime.integration.ts",
+      "pattern": "Core Team fence",
+      "requiredCases": [
+        "Core Team fence: actual reservation release writer-first",
+        "Core Team fence: actual reservation release deactivate-first",
+        "Core Team fence: actual reservation settle writer-first",
+        "Core Team fence: actual reservation settle deactivate-first",
+        "Core Team fence: actual settlement cleanup ยังทำได้บน legacy inactive Team โดยไม่เปิดกลับ"
+      ]
+    },
+    {
+      "package": "@d-contact/dialer",
+      "file": "src/dialer-admit-campaign-target-service.integration.ts",
+      "pattern": "Core Team fence",
+      "requiredCases": [
+        "Core Team fence: actual campaign admission writer-first",
+        "Core Team fence: actual campaign admission deactivate-first",
+        "Core Team fence: actual campaign cancel writer-first",
+        "Core Team fence: actual campaign cancel deactivate-first",
+        "Core Team fence: actual campaign supersede writer-first",
+        "Core Team fence: actual campaign supersede deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/dialer",
+      "file": "src/dialer-callback-service.integration.ts",
+      "pattern": "Core Team fence",
+      "requiredCases": [
+        "Core Team fence: actual callback scheduling writer-first",
+        "Core Team fence: actual callback scheduling deactivate-first",
+        "Core Team fence: actual callback cancel writer-first",
+        "Core Team fence: actual callback cancel deactivate-first",
+        "Core Team fence: actual callback supersede writer-first",
+        "Core Team fence: actual callback supersede deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/dialer",
+      "file": "src/dialer-originate-barrier.integration.ts",
+      "pattern": "Core Team fence",
+      "requiredCases": [
+        "Core Team fence: actual campaign originate barrier writer-first",
+        "Core Team fence: actual campaign originate barrier deactivate-first",
+        "Core Team fence: actual callback originate barrier writer-first",
+        "Core Team fence: actual callback originate barrier deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/dialer",
+      "file": "src/dialer-originate-reconciler.integration.ts",
+      "pattern": "Core Team fence",
+      "requiredCases": [
+        "Core Team fence: actual campaign originate reconcile writer-first",
+        "Core Team fence: actual campaign originate reconcile deactivate-first",
+        "Core Team fence: actual callback originate reconcile writer-first",
+        "Core Team fence: actual callback originate reconcile deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/team-reference-writers.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Team writers: actual Journey/Template draft writers สร้าง current ownership ที่ห้ามปิดทีม",
+        "Core Team fence: actual Journey draft ownership writer-first",
+        "Core Team fence: actual Journey draft ownership deactivate-first",
+        "Core Team fence: actual Template draft ownership writer-first",
+        "Core Team fence: actual Template draft ownership deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-authoring-repository.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual Journey authoring publish writer-first",
+        "Core Team fence: actual Journey authoring publish deactivate-first",
+        "Core Team fence: actual Journey authoring resume writer-first",
+        "Core Team fence: actual Journey authoring resume deactivate-first",
+        "Core Team fence: actual Journey authoring transfer writer-first",
+        "Core Team fence: actual Journey authoring transfer deactivate-first",
+        "Core Team fence: actual Journey authoring rollForward writer-first",
+        "Core Team fence: actual Journey authoring rollForward deactivate-first",
+        "Core Team fence: actual Journey authoring clone writer-first",
+        "Core Team fence: actual Journey authoring clone deactivate-first",
+        "Core Team fence: raw ACTIVE Journey publication ต้องปฏิเสธ legacy inactive Team"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-template-repository.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual Template publish writer-first",
+        "Core Team fence: actual Template publish deactivate-first",
+        "Core Team fence: actual Template deprecate writer-first",
+        "Core Team fence: actual Template deprecate deactivate-first",
+        "Core Team fence: actual Template archive writer-first",
+        "Core Team fence: actual Template archive deactivate-first",
+        "Core Team fence: actual Template fork writer-first",
+        "Core Team fence: actual Template fork deactivate-first",
+        "Core Team fence: actual Template instantiate writer-first",
+        "Core Team fence: actual Template instantiate deactivate-first",
+        "Core Team fence: actual Template upgrade writer-first",
+        "Core Team fence: actual Template upgrade deactivate-first",
+        "Core Team fence: raw ACTIVE Template publication ต้องปฏิเสธ legacy inactive Team"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-execution.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual Journey event ingress writer-first",
+        "Core Team fence: actual Journey event ingress deactivate-first",
+        "Core Team fence: actual Journey schedule ingress writer-first",
+        "Core Team fence: actual Journey schedule ingress deactivate-first",
+        "Core Team fence: actual enrollment advance writer-first",
+        "Core Team fence: actual enrollment advance deactivate-first",
+        "Core Team fence: actual enrollment claim writer-first",
+        "Core Team fence: actual enrollment claim deactivate-first",
+        "Core Team fence: actual enrollment completeSend writer-first",
+        "Core Team fence: actual enrollment completeSend deactivate-first",
+        "Core Team fence: actual enrollment cancel writer-first",
+        "Core Team fence: actual enrollment cancel deactivate-first",
+        "Core Team fence: actual enrollment goal writer-first",
+        "Core Team fence: actual enrollment goal deactivate-first",
+        "Core Team fence: actual enrollment exit writer-first",
+        "Core Team fence: actual enrollment exit deactivate-first",
+        "Core Team fence: actual enrollment maxAge writer-first",
+        "Core Team fence: actual enrollment maxAge deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-outcome-trigger-processor.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual outcome trigger enrollment writer-first",
+        "Core Team fence: actual outcome trigger enrollment deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-segment-trigger-processor.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual segment trigger intent writer-first",
+        "Core Team fence: actual segment trigger intent deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-segment-refilter-processor.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual refilter process writer-first",
+        "Core Team fence: actual refilter process deactivate-first",
+        "Core Team fence: actual refilter recover writer-first",
+        "Core Team fence: actual refilter recover deactivate-first",
+        "Core Team fence: actual IAM invalidation scoped refilter writer-first",
+        "Core Team fence: actual IAM invalidation scoped refilter deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-owner-action-repository.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual owner ensure/stage writer-first",
+        "Core Team fence: actual owner ensure/stage deactivate-first",
+        "Core Team fence: actual owner dispatch writer-first",
+        "Core Team fence: actual owner dispatch deactivate-first",
+        "Core Team fence: actual owner retry writer-first",
+        "Core Team fence: actual owner retry deactivate-first",
+        "Core Team fence: actual owner cancel writer-first",
+        "Core Team fence: actual owner cancel deactivate-first",
+        "Core Team fence: actual owner replay writer-first",
+        "Core Team fence: actual owner replay deactivate-first",
+        "Core Team fence: actual owner result writer-first",
+        "Core Team fence: actual owner result deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-owner-continuation.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual owner result continuation writer-first",
+        "Core Team fence: actual owner result continuation deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-owner-command-relay.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual owner relay worker writer-first",
+        "Core Team fence: actual owner relay worker deactivate-first",
+        "Core Team fence: actual owner reconcile worker writer-first",
+        "Core Team fence: actual owner reconcile worker deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-processor.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual legacy processor SEND action writer-first",
+        "Core Team fence: actual legacy processor SEND action deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-governance-invalidation.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual SEND lifecycle writer-first",
+        "Core Team fence: actual SEND lifecycle deactivate-first",
+        "Core Team fence: actual SEND invalidation writer-first",
+        "Core Team fence: actual SEND invalidation deactivate-first",
+        "Core Team fence: actual governance effect reconcile writer writer-first",
+        "Core Team fence: actual governance effect reconcile writer deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-segment-receipt-repository.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual segment intent/enrollment writer-first",
+        "Core Team fence: actual segment intent/enrollment deactivate-first"
+      ]
+    },
+    {
+      "package": "@d-contact/journey",
+      "file": "src/journey-send-executor.integration.ts",
+      "pattern": "Core Team fence|Team writers",
+      "requiredCases": [
+        "Core Team fence: actual legacy SEND reservation writer-first",
+        "Core Team fence: actual legacy SEND reservation deactivate-first"
+      ]
+    }
+  ]
+}

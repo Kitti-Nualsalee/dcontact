@@ -11,7 +11,6 @@
 # - มีแค่ proxy ที่เปิดพอร์ตสู่ host (443 และ 80 สำหรับ redirect) — DB, object storage, Keycloak และ api ไม่เปิด
 # - service ใน profile `ops` เป็น one-shot ที่ `infra/uat/bin/uat-deploy.sh` สั่งตามลำดับ;
 #   `object-storage-init` เป็น one-shot นอก profile เพราะ api ต้องรอให้จบสำเร็จก่อนบูต (U1.5 #433)
-# - ย้ายข้อมูลจาก MinIO เดิม (#540) ใช้ overlay `docker-compose.uat.migration.yml` เท่านั้น — ถอดใน #541
 #
 # ใช้งาน: docker compose --env-file uat.env --env-file release.env -f docker-compose.uat.yml ...
 name: dcontact-uat
@@ -201,23 +200,6 @@ services:
     networks:
       - internal
 
-  # #540 (การตัดสินใจ (ก) #539): ลบหลักฐานที่ย้ายมาจาก MinIO ตามวันหมดอายุเดิมใน manifest
-  # ถอดออกหลัง cutover + 90 วัน (#541)
-  object-storage-migrated-expiry:
-    <<: *hardening
-    image: ${OPS_IMAGE:?OPS_IMAGE (digest) is required}
-    depends_on:
-      object-storage-init:
-        condition: service_completed_successfully
-    environment:
-      S3_ENDPOINT: http://object-storage:8333
-      UAT_S3_ROOT_ACCESS_KEY: ${UAT_S3_ROOT_ACCESS_KEY:?UAT_S3_ROOT_ACCESS_KEY is required}
-      UAT_S3_ROOT_SECRET_KEY: ${UAT_S3_ROOT_SECRET_KEY:?UAT_S3_ROOT_SECRET_KEY is required}
-    command: ['node', 'scripts/uat-object-storage.mjs', 'expire-migrated', '--loop', '60']
-    read_only: true
-    networks:
-      - internal
-
   # ── one-shot ของ operator ──────────────────────────────────────────────────────────
 
   # ทุก deploy (ไม่อยู่ใน profile ops เพราะ api รอให้จบก่อน): bucket private ผ่าน S3 API ด้วย root
@@ -342,8 +324,6 @@ secrets:
 volumes:
   postgres-data:
   object-storage-data:
-  # MinIO เดิม — เก็บไว้สำหรับย้ายข้อมูล/rollback จนถึง #541
-  minio-data:
 
 networks:
   edge: {}

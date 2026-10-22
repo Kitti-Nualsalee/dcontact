@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { SegmentMembershipChangePayloadV1 } from '@d-contact/cxa-contracts';
-import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
+import {
+  Prisma,
+  withTenantDatabaseTransaction,
+  lockTeamReferences,
+  type PrismaClient,
+} from '@d-contact/db';
 
 export type IamScopePermission = 'WORK' | 'CONTACT' | 'VIEW';
 
@@ -32,6 +37,7 @@ export class IamTeamSegmentScopeRepository {
 
   async grant(input: GrantTeamSegmentScopeInput) {
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+      await lockTeamReferences(transaction, input.tenantId, [input.teamId]);
       // Serialize same-team changes before examining the mutable head. The historical
       // grant/revocation evidence itself is never updated.
       await this.ensureScopeVersionRow(transaction, input.tenantId, input.teamId);
@@ -89,6 +95,7 @@ export class IamTeamSegmentScopeRepository {
       const grant = await transaction.iamTeamSegmentScopeGrant.findFirstOrThrow({
         where: { id: input.grantId, tenantId: input.tenantId },
       });
+      await lockTeamReferences(transaction, input.tenantId, [grant.teamId]);
       const existing = await transaction.iamTeamSegmentScopeRevocation.findFirst({
         where: { tenantId: input.tenantId, grantId: input.grantId },
       });

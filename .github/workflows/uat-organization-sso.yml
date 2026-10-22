@@ -1,0 +1,73 @@
+name: UAT Organization SSO
+on:
+  pull_request:
+    paths:
+      - 'scripts/u1-uat-organization-sso*'
+      - 'scripts/u1-uat-keycloak-users.mjs'
+      - 'infra/keycloak/realm-dcontact.uat.json'
+      - '.github/workflows/uat-organization-sso.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/u1-uat-organization-sso*'
+      - 'scripts/u1-uat-keycloak-users.mjs'
+      - 'infra/keycloak/realm-dcontact.uat.json'
+      - '.github/workflows/uat-organization-sso.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  organization-sso:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - name: Operator guards และ regression ของ UAT config
+        run: node --test scripts/u1-uat-organization-sso.test.mjs scripts/u1-uat-keycloak-users.test.mjs
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Keycloak image เดียวกับ deployed UAT ใน sandbox แยก
+        run: |
+          docker run -d --name uat-sso-sandbox -p 127.0.0.1:15441:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=core733-local-only \
+            -e KC_HTTP_RELATIVE_PATH=/auth -e KC_HOSTNAME=https://127.0.0.1:15442/auth \
+            -e KC_HTTP_ENABLED=true -e KC_PROXY_HEADERS=xforwarded \
+            ghcr.io/kitti-nualsalee/dcontact-uat-operator-keycloak@sha256:d61db55cf4ce68439f98238a44d3b6dce557898c9ec9a7719823580e066046d9 start-dev
+      - name: HTTPS sandbox ที่เชื่อถือ cert ของตน แล้วทดสอบ SSO/MFA/rollback
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          UAT_SSO_SANDBOX_CONFIRM: owned-disposable
+          UAT_SSO_CERT_DIR: /tmp/uat-sso-cert
+          NODE_EXTRA_CA_CERTS: /tmp/uat-sso-cert/cert.pem
+        run: |
+          mkdir -m 700 /tmp/uat-sso-cert
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/uat-sso-cert/key.pem -out /tmp/uat-sso-cert/cert.pem -days 1 -subj /CN=127.0.0.1 -addext subjectAltName=IP:127.0.0.1
+          node scripts/u1-uat-organization-sso-proxy.mjs > /tmp/uat-sso-proxy.log 2>&1 &
+          mkdir -p artifacts/uat-sso
+          node --test scripts/u1-uat-organization-sso.boundary.mjs | tee artifacts/uat-sso/boundary.tap
+          git diff --exit-code
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uat-organization-sso-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/uat-sso/
+          retention-days: 30
+      - name: ปิดเฉพาะ sandbox ของ job
+        if: always()
+        run: docker rm -f uat-sso-sandbox || true

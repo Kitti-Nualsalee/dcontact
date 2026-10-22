@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -84,6 +85,7 @@ async function fixture(t: TestContext) {
     await owner.jrOwnerResultInbox.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.jrOwnerCommandOutbox.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.jrOwnerAction.deleteMany({ where: { tenantId: rawTenantId } });
+    await owner.team.deleteMany({ where: { tenantId: rawTenantId } });
     await owner.tenant.deleteMany({ where: { id: rawTenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -419,3 +421,62 @@ test('tenant คนละใบไม่ relay command ของกันแล�
   assert.equal(await relayB.executeNext(b.rawTenantId), undefined);
   assert.equal(dialerPortA.persisted.length, 0);
 });
+
+for (const operation of ['relay', 'reconcile'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual owner ${operation} worker ${order}`, async (t) => {
+      const f = await fixture(t);
+      const team = randomUUID();
+      await f.owner.team.create({
+        data: { id: team, tenantId: f.rawTenantId, name: 'Owner worker' },
+      });
+      const actions = new JourneyOwnerActionRepository(f.application),
+        port = fakePort();
+      const rawActionKey = `${randomUUID()}:1:admit-campaign`;
+      const command = admitCampaignCommand(f.rawTenantId, rawActionKey);
+      await actions.ensureAction({
+        tenantId: f.rawTenantId,
+        actionKey: rawActionKey,
+        enrollmentId: randomUUID(),
+        kind: 'ADMIT_CAMPAIGN_TARGET',
+        requestHash: command.requestHash,
+        correlationId: randomUUID(),
+        commandId: command.commandId,
+        commandPayload: command,
+      });
+      if (operation === 'reconcile') {
+        await actions.markCommandDispatched(f.rawTenantId, command.commandId);
+        port.results.set(rawActionKey, {
+          contractVersion: 1,
+          commandId: command.commandId,
+          actionKey: command.actionKey,
+          requestHash: command.requestHash,
+          commandType: 'ADMIT_CAMPAIGN_TARGET',
+          status: 'ADMITTED',
+          code: 'ADMITTED',
+          category: 'BUSINESS',
+          reasonCode: 'CAMPAIGN_ACTIVE_ADMITTED',
+          failureClass: 'NONE',
+          retryDisposition: 'NONE',
+          observedAt: new Date().toISOString(),
+          ownerAggregate: { type: 'campaign_target', id: 'isolated-record', version: 1 },
+        });
+      }
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.rawTenantId,
+        teamId: team,
+        table: operation === 'relay' ? 'jr_owner_command_outbox' : 'jr_owner_actions',
+        order,
+        existingReferences: true,
+        write: () =>
+          operation === 'relay'
+            ? new JourneyOwnerCommandRelay(f.application, fakePort(), port).executeNext(
+                f.rawTenantId,
+              )
+            : new JourneyOwnerResultReconciler(f.application, fakePort(), port).reconcile(
+                f.rawTenantId,
+                rawActionKey,
+              ),
+      });
+    });

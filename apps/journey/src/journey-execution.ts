@@ -20,6 +20,7 @@ import {
   type JrTerminalReason,
   type PrismaClient,
   withTenantDatabaseTransaction,
+  lockTeamReferences,
 } from '@d-contact/db';
 import type { ExpressionContext, ExpressionEvaluator } from '@d-contact/cxa-contracts';
 import { lifecycleAcceptsNewEnrollments } from './journey-authoring-model.js';
@@ -226,6 +227,7 @@ export class JourneyExecutionService {
   async enrollFromEvent(tenantId: string, input: EnrollFromEventInput): Promise<EnrollmentView> {
     const definition = await this.publishedGraph(tenantId, input.journeyId, input.journeyVersion);
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      await lockTeamReferences(transaction, tenantId, [definition.ownerTeamId]);
       await this.lock(transaction, `jr-enroll-event:${tenantId}:${input.receiptId}`);
       const existing = await transaction.jrEnrollment.findFirst({
         where: { tenantId, eventInboxId: input.receiptId },
@@ -268,6 +270,7 @@ export class JourneyExecutionService {
     }
 
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      await lockTeamReferences(transaction, tenantId, [definition.ownerTeamId]);
       await this.lock(
         transaction,
         `jr-occurrence:${tenantId}:${input.journeyId}:${input.journeyVersion}:${occurrenceAt.toISOString()}`,
@@ -344,6 +347,7 @@ export class JourneyExecutionService {
     );
 
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      await lockTeamReferences(transaction, tenantId, [definition.ownerTeamId]);
       await this.lock(transaction, `jr-enrollment:${tenantId}:${enrollmentId}`);
       const row = await transaction.jrEnrollment.findFirst({
         where: { id: enrollmentId, tenantId },
@@ -532,6 +536,7 @@ export class JourneyExecutionService {
     );
 
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      await lockTeamReferences(transaction, tenantId, [definition.ownerTeamId]);
       await this.lock(transaction, `jr-enrollment:${tenantId}:${enrollmentId}`);
       const row = await transaction.jrEnrollment.findFirst({
         where: { id: enrollmentId, tenantId },
@@ -646,6 +651,7 @@ export class JourneyExecutionService {
     reason: JrTerminalReason,
   ): Promise<EnrollmentView> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (transaction) => {
+      await lockTeamReferences(transaction, tenantId, []);
       await this.lock(transaction, `jr-enrollment:${tenantId}:${enrollmentId}`);
       const row = await transaction.jrEnrollment.findFirst({
         where: { id: enrollmentId, tenantId },

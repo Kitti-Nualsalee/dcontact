@@ -434,3 +434,10 @@ REVOKE ALL ON tenant_people_activation_attempts,tenant_people_activation_receipt
 GRANT SELECT ON tenant_people_activation_attempts,tenant_people_activation_receipts TO dcontact_app,dcontact_tenant_people_worker;
 REVOKE ALL ON FUNCTION dc_people_claim_activation(uuid,uuid,uuid),dc_people_apply_activation(uuid,uuid,uuid,bigint) FROM PUBLIC,dcontact_app;
 GRANT EXECUTE ON FUNCTION dc_people_claim_activation(uuid,uuid,uuid),dc_people_apply_activation(uuid,uuid,uuid,bigint) TO dcontact_tenant_people_worker;
+
+-- Core Team revision/captured effect เขียนได้เฉพาะ trigger ไม่คืน broad UPDATE หลัง rerun
+REVOKE UPDATE,DELETE,TRUNCATE,TRIGGER ON teams FROM dcontact_app;
+GRANT UPDATE(name,is_active) ON teams TO dcontact_app;
+
+-- transaction-local guard evidence เป็นของ DB triggers เท่านั้น ไม่ให้ app ปลอม/ลบ baseline
+REVOKE ALL ON TABLE dc_team_reference_checks FROM PUBLIC,dcontact_app;

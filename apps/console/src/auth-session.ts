@@ -64,7 +64,16 @@ export function accessTokenRealmRoles(accessToken: string | undefined): string[]
  */
 export function cleanConsoleCallbackUrl(location: URL): string {
   const next = new URL(location.href);
-  for (const key of ['code', 'state', 'session_state', 'iss']) next.searchParams.delete(key);
+  for (const key of [
+    'code',
+    'state',
+    'session_state',
+    'iss',
+    'error',
+    'error_description',
+    'error_uri',
+  ])
+    next.searchParams.delete(key);
   return `${next.pathname}${next.search}${next.hash}`;
 }
 
@@ -151,6 +160,11 @@ export function isConsoleSignedOutLanding(location: URL, storage: Storage): bool
   );
 }
 
+/** กู้ SSO เฉพาะ boot ปกติ; callback และการออกจากระบบเองต้องจบตาม flow ของตน */
+export function shouldRestoreConsoleSession(location: URL, storage: Storage): boolean {
+  return !isOidcCallback(location) && storage.getItem(CONSOLE_SIGNED_OUT_KEY) !== '1';
+}
+
 export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): UserManagerSettings {
   const redirectUrl = new URL('/', input.origin);
   redirectUrl.searchParams.set('tenant', input.tenantAlias);
@@ -164,6 +178,8 @@ export function createConsoleOidcSettings(input: ConsoleOidcSettingsInput): User
     scope: `openid profile email roles organization:${input.tenantAlias}`,
     disablePKCE: false,
     automaticSilentRenew: true,
+    silentRequestTimeoutInSeconds: 10,
+    requestTimeoutInSeconds: 5,
     monitorSession: true,
     // R1 (#593): cookie ของ realm เปลี่ยนชื่อเป็น DC_* — iframe ของ session management ต้องเป็นตัวที่อ่านชื่อใหม่
     // (iframe เดิมของ IdP อ่านชื่อเดิมตายตัวและ override ด้วย theme ไม่ได้)

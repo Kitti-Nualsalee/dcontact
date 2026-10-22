@@ -38,6 +38,7 @@ import {
   consumeConsoleReturnLocation,
   createConsoleOidcSettings,
   isConsoleSignedOutLanding,
+  shouldRestoreConsoleSession,
   rememberConsoleReturnUrl,
   rememberConsoleSignOut,
   resolveConsoleContextId,
@@ -48,7 +49,10 @@ import {
 
 function signInFromCurrentPage(auth: AuthContextProps) {
   clearConsoleSignOut(window.sessionStorage);
-  rememberConsoleReturnUrl(new URL(window.location.href), window.sessionStorage);
+  rememberConsoleReturnUrl(
+    resolveConsoleLocation(new URL(window.location.href), window.sessionStorage),
+    window.sessionStorage,
+  );
   return auth.signinRedirect();
 }
 
@@ -97,6 +101,45 @@ function Status({ title, detail, action }: { title: string; detail: string; acti
       ) : null}
     </main>
   );
+}
+
+/**
+ * userStore อยู่ใน memory: กู้ SSO ตอน boot ผ่าน top-level prompt=none
+ * Console มี X-Frame-Options: DENY จึงใช้ root callback ภายใน iframe ไม่ได้
+ * callback (รวม login_required) ไม่เริ่มรอบใหม่; same-page reauth ไม่อยู่ใน bootstrap นี้
+ */
+function ConsoleSessionBootstrap({ children }: { children: ReactNode }) {
+  const auth = useAuth();
+  const { t } = useTranslation('common');
+  const [eligible] = useState(() =>
+    shouldRestoreConsoleSession(new URL(window.location.href), window.sessionStorage),
+  );
+  const attempted = useRef(false);
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (auth.isLoading || auth.activeNavigator) return;
+    if (!eligible || auth.isAuthenticated || auth.error) {
+      attempted.current = true;
+      setSettled(true);
+      return;
+    }
+    if (attempted.current) return;
+    attempted.current = true;
+    rememberConsoleReturnUrl(new URL(window.location.href), window.sessionStorage);
+    void auth
+      .signinRedirect({ prompt: 'none', redirectMethod: 'replace' })
+      .catch(() => setSettled(true));
+  }, [
+    eligible,
+    auth.isLoading,
+    auth.activeNavigator,
+    auth.isAuthenticated,
+    auth.error,
+    auth.signinRedirect,
+  ]);
+  if (!settled && !auth.isAuthenticated)
+    return <Status title={t('auth.restoring.title')} detail={t('auth.restoring.detail')} />;
+  return <>{children}</>;
 }
 
 function AuthenticatedConsole({
@@ -215,37 +258,39 @@ export function ConsoleAuthRoot() {
         setView(restored.view);
       }}
     >
-      <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
-        {signedOut ? (
-          <SignedOutSurface />
-        ) : homeView ? (
-          <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : coreSettingsView ? (
-          <CoreSettingsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : routingView ? (
-          <VoiceRoutingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : peopleView ? (
-          <TenantPeopleSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : historyView ? (
-          <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : accountView ? (
-          <AccountSurface
-            apiBaseUrl={apiBaseUrl}
-            tenantAlias={tenantAlias}
-            policy={view === 'account-policy'}
-          />
-        ) : journeyView ? (
-          <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : lineInboundView ? (
-          <LineInboundSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : embeddingView ? (
-          <DphoneEmbeddingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : governanceView ? (
-          <GovernanceSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-        ) : (
-          <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
-        )}
-      </ConsoleLocale>
+      <ConsoleSessionBootstrap>
+        <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
+          {signedOut ? (
+            <SignedOutSurface />
+          ) : homeView ? (
+            <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : coreSettingsView ? (
+            <CoreSettingsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : routingView ? (
+            <VoiceRoutingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : peopleView ? (
+            <TenantPeopleSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : historyView ? (
+            <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : accountView ? (
+            <AccountSurface
+              apiBaseUrl={apiBaseUrl}
+              tenantAlias={tenantAlias}
+              policy={view === 'account-policy'}
+            />
+          ) : journeyView ? (
+            <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : lineInboundView ? (
+            <LineInboundSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : embeddingView ? (
+            <DphoneEmbeddingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : governanceView ? (
+            <GovernanceSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+          ) : (
+            <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
+          )}
+        </ConsoleLocale>
+      </ConsoleSessionBootstrap>
     </AuthProvider>
   );
 }

@@ -10,7 +10,7 @@
 #   ops     — one-shot ของ operator: `prisma migrate deploy` (additive เท่านั้น), rls.sql,
 #             ตั้งค่า Keycloak realm/บัญชี, readiness smoke และ provision tenant/บัญชี/fixture pack
 #             ของ UAT (U1.8 #502: `/app/dist/uat-provision-main.js` ใช้ build เดียวกับ runtime),
-#             object storage init/migrate/expiry (#540: `scripts/uat-object-storage.mjs`) และ runner
+#             object storage init (#540: `scripts/uat-object-storage.mjs`) และ runner
 #             `line-pilot` ของ overlay `uat-line` (#565: CLI ใน `@d-contact/delivery/dist`) —
 #             CMD/entry ไม่ใช่ API server
 #

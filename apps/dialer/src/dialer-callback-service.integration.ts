@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -614,3 +615,41 @@ test('cancel ที่ contact/team ไม่ตรงกับ callback เด�
   });
   assert.equal(callback.state, 'SCHEDULED');
 });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual callback scheduling ${order}`, async (t) => {
+    const f = await fixture(t);
+    const service = new DialerCallbackService(f.application, allowAllScope);
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.rawTenantId,
+      teamId: f.rawSourceTeamId,
+      table: 'ob_callbacks',
+      order,
+      write: () => service.persistCommand(toTenantId(f.rawTenantId), scheduleCommandFor(f)),
+    });
+  });
+
+for (const operation of ['cancel', 'supersede'] as const)
+  for (const order of ['writer-first', 'deactivate-first'] as const)
+    test(`Core Team fence: actual callback ${operation} ${order}`, async (t) => {
+      const f = await fixture(t);
+      const service = new DialerCallbackService(f.application, allowAllScope);
+      const command = scheduleCommandFor(f);
+      await service.persistCommand(toTenantId(f.rawTenantId), command);
+      await teamWriterRace({
+        owner: f.owner,
+        tenantId: f.rawTenantId,
+        teamId: f.rawSourceTeamId,
+        table: 'ob_callbacks',
+        order,
+        existingReferences: true,
+        write: () =>
+          service.persistCommand(
+            toTenantId(f.rawTenantId),
+            operation === 'cancel'
+              ? cancelCommandFor(f, command.actionKey)
+              : supersedeCommandFor(f, command.actionKey),
+          ),
+      });
+    });

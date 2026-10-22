@@ -21,6 +21,7 @@ import {
 import {
   Prisma,
   withTenantDatabaseTransaction,
+  lockTeamReferences,
   type JrTemplateHead,
   type PrismaClient,
 } from '@d-contact/db';
@@ -93,6 +94,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
       templateId,
       input,
       async (tx) => {
+        await lockTeamReferences(tx, context.tenantId, [input.ownerTeamId]);
         await this.assertWriteEnabled(tx, context.tenantId, 'templateCatalog');
         await this.authorize(tx, context, 'template.edit', { teamId: input.ownerTeamId });
         const content = this.contentOf(input.document, input.parameterSchema);
@@ -739,6 +741,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
   > {
     const journeyId = this.id();
     return this.command(context, 'InstantiateTemplate', journeyId, input, async (tx) => {
+      await lockTeamReferences(tx, context.tenantId, [input.targetOwnerTeamId]);
       await this.assertWriteEnabled(tx, context.tenantId, 'templateCatalog');
       const source = await this.resolveSource(tx, context.tenantId, context.actor, input);
       if (source.view.lifecycle !== 'ACTIVE')
@@ -822,6 +825,7 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
       forkedId,
       input,
       async (tx) => {
+        await lockTeamReferences(tx, context.tenantId, [input.targetOwnerTeamId]);
         await this.assertWriteEnabled(tx, context.tenantId, 'templateCatalog');
         const source = await this.resolveSource(tx, context.tenantId, context.actor, input);
         if (source.view.lifecycle !== 'ACTIVE')
@@ -1156,7 +1160,8 @@ export class JourneyTemplateRepository extends JourneyAuthoringRepository {
   }
 
   private async lockedTemplateHead(tx: Tx, tenantId: string, templateId: string) {
-    await this.templateHead(tx, tenantId, templateId);
+    const head = await this.templateHead(tx, tenantId, templateId);
+    await lockTeamReferences(tx, tenantId, [head.ownerTeamId]);
     await tx.$queryRaw(
       Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`jr-template-authoring:${tenantId}:${templateId}`}))`,
     );

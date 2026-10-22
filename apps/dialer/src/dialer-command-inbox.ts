@@ -20,6 +20,7 @@ import {
   type ObDialerCommandInbox,
   type PrismaClient,
   withTenantDatabaseTransaction,
+  lockTeamReferences,
 } from '@d-contact/db';
 import {
   actionKey as toActionKey,
@@ -84,6 +85,10 @@ export async function persistDialerCommand<TCommand extends J2DialerOwnerCommand
   const { tenant, command } = options;
   const id = options.id ?? randomUUID;
   await withTenantDatabaseTransaction(options.database, tenant, async (transaction) => {
+    await lockTeamReferences(transaction, tenant, [
+      command.sourceOwnerTeamId,
+      command.targetOwnerTeamId,
+    ]);
     await transaction.$queryRaw(
       Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`ob-command:${tenant}:${command.actionKey}`}))`,
     );

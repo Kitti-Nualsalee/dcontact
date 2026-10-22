@@ -1,3 +1,4 @@
+import { teamWriterRace } from '@d-contact/db/testing/team-reference-races.js';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
@@ -38,6 +39,7 @@ async function fixture(t: TestContext) {
     await owner.jrSegmentHead.deleteMany({ where: { tenantId } });
     await owner.jrSegmentReceipt.deleteMany({ where: { tenantId } });
     await owner.contact.deleteMany({ where: { tenantId } });
+    await owner.team.deleteMany({ where: { tenantId } });
     await owner.tenant.deleteMany({ where: { id: tenantId } });
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
@@ -529,3 +531,41 @@ test('outbox ถูกเขียนในทรานแซกชันเด�
     assert.doesNotMatch(wire, new RegExp(forbidden, 'i'), `${forbidden} ต้องไม่อยู่ใน outbox`);
   }
 });
+
+for (const order of ['writer-first', 'deactivate-first'] as const)
+  test(`Core Team fence: actual segment intent/enrollment ${order}`, async (t) => {
+    const f = await fixture(t);
+    const teamId = randomUUID();
+    await f.owner.team.create({
+      data: { id: teamId, tenantId: f.tenantId, name: 'Segment writer' },
+    });
+    const receipt = await f.repository.ingest(ingestInput(f));
+    await teamWriterRace({
+      owner: f.owner,
+      tenantId: f.tenantId,
+      teamId,
+      table: 'jr_segment_enrollment_intents',
+      order,
+      write: () =>
+        f.repository.applyEnrollment(
+          {
+            tenantId: f.tenantId,
+            receiptId: receipt.receipt.id,
+            entryId: `entry-${f.suffix}`,
+            canonicalContactId: f.contactId,
+            intents: [
+              {
+                journeyId: randomUUID(),
+                journeyVersion: 1,
+                entryStepId: 'send',
+                reasonMembershipRevision: 1,
+                reasonDefinitionVersion: 1,
+                reasonDigest: HASH,
+              },
+            ],
+            correlationId: randomUUID(),
+          },
+          event(f),
+        ),
+    });
+  });
