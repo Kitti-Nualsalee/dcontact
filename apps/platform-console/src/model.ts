@@ -1,3 +1,5 @@
+import type { MessageKey } from './i18n/messages.js';
+
 /**
  * Owner: Platform Console — logic ล้วนของ Guided onboarding (A1.7 #412)
  *
@@ -156,23 +158,23 @@ export const EMPTY_DRAFT: TenantDraft = {
 };
 
 export const LOCALES = [
-  { value: 'th-TH', label: 'ไทย (th-TH)' },
-  { value: 'en-US', label: 'English (en-US)' },
+  { value: 'th-TH', label: 'locales.th' },
+  { value: 'en-US', label: 'locales.en' },
 ] as const;
 
 export const TIMEZONES = ['Asia/Bangkok', 'Asia/Singapore', 'Asia/Tokyo', 'UTC'] as const;
 
 /** ชื่อ field ใน form ↔ key ของ `fieldErrors` จาก API */
-export const FIELD_LABELS: Record<keyof TenantDraft, string> = {
-  displayName: 'ชื่อลูกค้า / องค์กร',
-  slug: 'Slug',
-  primaryDomain: 'Primary domain',
-  planCode: 'Plan',
-  locale: 'Locale',
-  timezone: 'Timezone',
-  bootstrapTemplateVersion: 'Bootstrap template',
-  firstAdminDisplayName: 'ชื่อ First admin',
-  firstAdminEmail: 'อีเมล First admin',
+export const FIELD_LABELS: Record<keyof TenantDraft, MessageKey> = {
+  displayName: 'fields.displayName',
+  slug: 'fields.slug',
+  primaryDomain: 'fields.primaryDomain',
+  planCode: 'fields.planCode',
+  locale: 'fields.locale',
+  timezone: 'fields.timezone',
+  bootstrapTemplateVersion: 'fields.bootstrapTemplateVersion',
+  firstAdminDisplayName: 'fields.firstAdminDisplayName',
+  firstAdminEmail: 'fields.firstAdminEmail',
 };
 
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
@@ -180,26 +182,27 @@ const DOMAIN = /^(?=.{3,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(
 const EMAIL = /^[^\s@]{1,64}@[^\s@]+\.[^\s@]+$/;
 
 /** ตรวจเบื้องต้นก่อน review — server ตรวจซ้ำทุกค่าและเป็นผู้ตัดสิน */
-export function validateDraft(draft: TenantDraft): Partial<Record<keyof TenantDraft, string>> {
-  const errors: Partial<Record<keyof TenantDraft, string>> = {};
+export function validateDraft(draft: TenantDraft): Partial<Record<keyof TenantDraft, MessageKey>> {
+  const errors: Partial<Record<keyof TenantDraft, MessageKey>> = {};
   const name = draft.displayName.trim();
-  if (name.length < 2 || name.length > 120) errors.displayName = 'กรอกชื่อ 2–120 ตัวอักษร';
+  if (name.length < 2 || name.length > 120) errors.displayName = 'validation.displayName';
   const slug = draft.slug.trim().toLowerCase();
   if (!SLUG.test(slug) || slug.includes('--')) {
-    errors.slug = 'ใช้ a-z, 0-9 และ - (ไม่ขึ้นต้น/ลงท้ายด้วย - และไม่มี --)';
+    errors.slug = 'validation.slug';
   }
   if (!DOMAIN.test(draft.primaryDomain.trim().replace(/\.$/, ''))) {
-    errors.primaryDomain = 'กรอกโดเมน เช่น example.co.th';
+    errors.primaryDomain = 'validation.primaryDomain';
   }
-  if (!draft.planCode) errors.planCode = 'เลือก plan';
+  if (!draft.planCode) errors.planCode = 'validation.planCode';
   if (!draft.bootstrapTemplateVersion)
-    errors.bootstrapTemplateVersion = 'ไม่มี bootstrap template ที่ใช้งานได้';
-  if (!LOCALES.some((locale) => locale.value === draft.locale)) errors.locale = 'เลือก locale';
-  if (!draft.timezone) errors.timezone = 'เลือก timezone';
+    errors.bootstrapTemplateVersion = 'validation.bootstrapTemplateVersion';
+  if (!LOCALES.some((locale) => locale.value === draft.locale)) errors.locale = 'validation.locale';
+  if (!draft.timezone) errors.timezone = 'validation.timezone';
   const adminName = draft.firstAdminDisplayName.trim();
   if (adminName.length < 1 || adminName.length > 120)
-    errors.firstAdminDisplayName = 'กรอกชื่อผู้ดูแลคนแรก';
-  if (!EMAIL.test(draft.firstAdminEmail.trim())) errors.firstAdminEmail = 'กรอกอีเมลให้ถูกต้อง';
+    errors.firstAdminDisplayName = 'validation.firstAdminDisplayName';
+  if (!EMAIL.test(draft.firstAdminEmail.trim()))
+    errors.firstAdminEmail = 'validation.firstAdminEmail';
   return errors;
 }
 
@@ -223,7 +226,7 @@ export function draftToRequestBody(draft: TenantDraft) {
 /** API ใช้ชื่อ field ของตัวเอง — map กลับเข้า form เพื่อโฟกัส/แสดงผลถูกช่อง */
 export function fieldErrorsToDraft(
   fieldErrors: Record<string, string> | undefined,
-): Partial<Record<keyof TenantDraft, string>> {
+): Partial<Record<keyof TenantDraft, MessageKey>> {
   const map: Record<string, keyof TenantDraft> = {
     displayName: 'displayName',
     slug: 'slug',
@@ -235,10 +238,13 @@ export function fieldErrorsToDraft(
     'firstAdmin.email': 'firstAdminEmail',
     'firstAdmin.displayName': 'firstAdminDisplayName',
   };
-  const result: Partial<Record<keyof TenantDraft, string>> = {};
+  const result: Partial<Record<keyof TenantDraft, MessageKey>> = {};
   for (const [field, value] of Object.entries(fieldErrors ?? {})) {
-    const key = map[field];
-    if (key) result[key] = value === 'INVALID' ? 'ระบบตรวจแล้วว่าค่านี้ไม่ถูกต้อง' : value;
+    const key = Object.hasOwn(map, field) ? map[field] : undefined;
+    if (key)
+      result[key] = Object.hasOwn(ERROR_MESSAGES, value)
+        ? ERROR_MESSAGES[value]
+        : 'validation.serverInvalid';
   }
   return result;
 }
@@ -250,28 +256,31 @@ export function newIdempotencyKey(prefix: string): string {
 
 // ── Presentation ────────────────────────────────────────────────────────────
 
-export const STEP_LABELS: Record<StepKey, { title: string; detail: string }> = {
+export const STEP_LABELS: Record<StepKey, { title: MessageKey; detail: MessageKey }> = {
   TENANT_RECORD: {
-    title: 'รับคำขอและ reserve identity',
-    detail: 'slug, domain และอีเมลถูกจองแล้ว',
+    title: 'steps.TENANT_RECORD.title',
+    detail: 'steps.TENANT_RECORD.detail',
   },
-  KEYCLOAK_ORGANIZATION: { title: 'สร้าง Organization', detail: 'ขอบเขต identity ของ tenant' },
+  KEYCLOAK_ORGANIZATION: {
+    title: 'steps.KEYCLOAK_ORGANIZATION.title',
+    detail: 'steps.KEYCLOAK_ORGANIZATION.detail',
+  },
   PLAN_BOOTSTRAP: {
-    title: 'Bootstrap baseline',
-    detail: 'ทีม คิว เวลาทำการ (draft) และ plan ที่ pin',
+    title: 'steps.PLAN_BOOTSTRAP.title',
+    detail: 'steps.PLAN_BOOTSTRAP.detail',
   },
-  FIRST_ADMIN: { title: 'สร้าง First admin', detail: 'identity + สิทธิ์ admin ของ tenant' },
-  INVITATION: { title: 'ส่งคำเชิญ', detail: 'ยืนยันอีเมล ตั้งรหัสผ่าน และ TOTP (72 ชั่วโมง)' },
-  READINESS: { title: 'Readiness proof', detail: 'ตรวจครบก่อนเปิดใช้งาน' },
+  FIRST_ADMIN: { title: 'steps.FIRST_ADMIN.title', detail: 'steps.FIRST_ADMIN.detail' },
+  INVITATION: { title: 'steps.INVITATION.title', detail: 'steps.INVITATION.detail' },
+  READINESS: { title: 'steps.READINESS.title', detail: 'steps.READINESS.detail' },
 };
 
-export const STATUS_LABELS: Record<RequestStatus, { label: string; tone: Tone }> = {
-  PENDING: { label: 'รอเริ่ม', tone: 'neutral' },
-  RUNNING: { label: 'กำลัง provision', tone: 'info' },
-  SUCCEEDED: { label: 'พร้อมใช้งาน', tone: 'success' },
-  ACTION_REQUIRED: { label: 'ต้องการการตัดสินใจ', tone: 'danger' },
-  FAILED_FINAL: { label: 'ยุติแล้ว', tone: 'danger' },
-  CANCELLED: { label: 'ยกเลิกแล้ว', tone: 'neutral' },
+export const STATUS_LABELS: Record<RequestStatus, { label: MessageKey; tone: Tone }> = {
+  PENDING: { label: 'statuses.PENDING', tone: 'neutral' },
+  RUNNING: { label: 'statuses.RUNNING', tone: 'info' },
+  SUCCEEDED: { label: 'statuses.SUCCEEDED', tone: 'success' },
+  ACTION_REQUIRED: { label: 'statuses.ACTION_REQUIRED', tone: 'danger' },
+  FAILED_FINAL: { label: 'statuses.FAILED_FINAL', tone: 'danger' },
+  CANCELLED: { label: 'statuses.CANCELLED', tone: 'neutral' },
 };
 
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
@@ -295,8 +304,8 @@ export function currentStep(
 export interface RecoveryOption {
   action: RecoveryAction;
   path: 'reconcile' | 'retry' | 'safe-compensate' | 'mark-failed-final';
-  title: string;
-  detail: string;
+  title: MessageKey;
+  detail: MessageKey;
   recommended: boolean;
   destructive: boolean;
 }
@@ -306,118 +315,131 @@ export const RECOVERY_OPTIONS: readonly RecoveryOption[] = [
   {
     action: 'RECONCILE',
     path: 'reconcile',
-    title: 'Reconcile & resume',
-    detail: 'อ่านสถานะจริงจาก dependency แล้ว adopt ของที่สร้างสำเร็จ ลดการสร้างซ้ำ',
+    title: 'recovery.actions.RECONCILE.title',
+    detail: 'recovery.actions.RECONCILE.detail',
     recommended: true,
     destructive: false,
   },
   {
     action: 'RETRY_STEP',
     path: 'retry',
-    title: 'Retry current step',
-    detail: 'ทำขั้นปัจจุบันใหม่เมื่อยืนยันแล้วว่า resource ไม่มีอยู่จริง',
+    title: 'recovery.actions.RETRY_STEP.title',
+    detail: 'recovery.actions.RETRY_STEP.detail',
     recommended: false,
     destructive: false,
   },
   {
     action: 'SAFE_COMPENSATE',
     path: 'safe-compensate',
-    title: 'Safe compensate',
-    detail: 'ลบเฉพาะ resource ที่พิสูจน์ ownership แล้วและ step รองรับ',
+    title: 'recovery.actions.SAFE_COMPENSATE.title',
+    detail: 'recovery.actions.SAFE_COMPENSATE.detail',
     recommended: false,
     destructive: true,
   },
   {
     action: 'MARK_FAILED_FINAL',
     path: 'mark-failed-final',
-    title: 'Mark FAILED_FINAL',
-    detail: 'ยุติคำขอ เก็บ ledger และ tombstone slug/domain/email 30 วัน',
+    title: 'recovery.actions.MARK_FAILED_FINAL.title',
+    detail: 'recovery.actions.MARK_FAILED_FINAL.detail',
     recommended: false,
     destructive: true,
   },
 ];
 
-export const BLOCKED_REASONS: Record<string, string> = {
-  REQUEST_NOT_ACTION_REQUIRED: 'คำขอไม่ได้อยู่ในสถานะที่ต้องตัดสินใจแล้ว',
-  NO_ACTION_REQUIRED_STEP: 'ไม่มีขั้นตอนที่หยุดรอ',
-  CORRELATION_MISMATCH: 'พบ resource ชื่อเดียวกันของเจ้าของอื่น — ห้ามยึด',
-  RESOURCE_MAY_EXIST: 'resource อาจมีอยู่แล้ว ต้อง Reconcile หรือ Safe compensate ก่อน',
-  COMPENSATION_UNSUPPORTED: 'ขั้นตอนนี้ชดเชยไม่ได้',
-  NOTHING_TO_COMPENSATE: 'ไม่พบ resource ที่ต้องชดเชย',
+export const BLOCKED_REASONS: Record<string, MessageKey> = {
+  REQUEST_NOT_ACTION_REQUIRED: 'blocked.REQUEST_NOT_ACTION_REQUIRED',
+  NO_ACTION_REQUIRED_STEP: 'blocked.NO_ACTION_REQUIRED_STEP',
+  CORRELATION_MISMATCH: 'blocked.CORRELATION_MISMATCH',
+  RESOURCE_MAY_EXIST: 'blocked.RESOURCE_MAY_EXIST',
+  COMPENSATION_UNSUPPORTED: 'blocked.COMPENSATION_UNSUPPORTED',
+  NOTHING_TO_COMPENSATE: 'blocked.NOTHING_TO_COMPENSATE',
 };
 
-export const ACTOR_LABELS: Record<ActionHistoryItem['actor']['kind'], string> = {
-  SYSTEM: 'System',
-  PLATFORM_OPERATOR: 'Platform Operator',
-  PLATFORM_AUDITOR: 'Platform Auditor',
-  FIRST_ADMIN: 'First admin',
+export const ACTOR_LABELS: Record<ActionHistoryItem['actor']['kind'], MessageKey> = {
+  SYSTEM: 'actors.SYSTEM',
+  PLATFORM_OPERATOR: 'identity.operator',
+  PLATFORM_AUDITOR: 'actors.PLATFORM_AUDITOR',
+  FIRST_ADMIN: 'actors.FIRST_ADMIN',
 };
 
-const ACTION_LABELS: Record<string, string> = {
-  REQUEST_ACCEPTED: 'รับคำขอ',
-  COMMAND_REPLAYED: 'ส่งคำขอซ้ำ (idempotent)',
-  STATE_CHANGED: 'เปลี่ยนสถานะ',
-  STEP_STARTED: 'เริ่มขั้นตอน',
-  STEP_SUCCEEDED: 'ขั้นตอนสำเร็จ',
-  STEP_ACTION_REQUIRED: 'ขั้นตอนหยุดรอ Operator',
-  STEP_RETRY_SCHEDULED: 'นัดลองใหม่',
-  RECONCILE: 'Reconcile',
-  RETRY_STEP: 'Retry step',
-  RESEND_INVITATION: 'ส่งคำเชิญซ้ำ',
-  SAFE_COMPENSATE: 'Safe compensate',
-  MARK_FAILED_FINAL: 'Mark FAILED_FINAL',
-  CANCEL: 'ยกเลิก',
-  RESERVATION_TOMBSTONED: 'Tombstone identity',
-  SECURITY_DENIED: 'ถูกปฏิเสธด้านความปลอดภัย',
-  REQUEST_EDITED: 'แก้ข้อมูลคำขอ',
-  FIRST_ADMIN_EMAIL_VERIFIED: 'ยืนยันอีเมล',
-  FIRST_ADMIN_PASSWORD_SET: 'ตั้งรหัสผ่าน',
-  FIRST_ADMIN_TOTP_ENROLLED: 'ลงทะเบียน TOTP',
-  FIRST_ADMIN_ACTIVATED: 'เปิดใช้งานบัญชี',
+const ACTION_LABELS: Record<string, MessageKey> = {
+  REQUEST_ACCEPTED: 'actions.REQUEST_ACCEPTED',
+  COMMAND_REPLAYED: 'actions.COMMAND_REPLAYED',
+  STATE_CHANGED: 'actions.STATE_CHANGED',
+  STEP_STARTED: 'actions.STEP_STARTED',
+  STEP_SUCCEEDED: 'actions.STEP_SUCCEEDED',
+  STEP_ACTION_REQUIRED: 'actions.STEP_ACTION_REQUIRED',
+  STEP_RETRY_SCHEDULED: 'actions.STEP_RETRY_SCHEDULED',
+  RECONCILE: 'actions.RECONCILE',
+  RETRY_STEP: 'actions.RETRY_STEP',
+  RESEND_INVITATION: 'actions.RESEND_INVITATION',
+  SAFE_COMPENSATE: 'recovery.actions.SAFE_COMPENSATE.title',
+  MARK_FAILED_FINAL: 'recovery.actions.MARK_FAILED_FINAL.title',
+  CANCEL: 'actions.CANCEL',
+  RESERVATION_TOMBSTONED: 'actions.RESERVATION_TOMBSTONED',
+  SECURITY_DENIED: 'actions.SECURITY_DENIED',
+  REQUEST_EDITED: 'actions.REQUEST_EDITED',
+  FIRST_ADMIN_EMAIL_VERIFIED: 'actions.FIRST_ADMIN_EMAIL_VERIFIED',
+  FIRST_ADMIN_PASSWORD_SET: 'actions.FIRST_ADMIN_PASSWORD_SET',
+  FIRST_ADMIN_TOTP_ENROLLED: 'actions.FIRST_ADMIN_TOTP_ENROLLED',
+  FIRST_ADMIN_ACTIVATED: 'actions.FIRST_ADMIN_ACTIVATED',
 };
 
-export function actionLabel(action: string): string {
-  return ACTION_LABELS[action] ?? action;
+export function actionLabel(action: string | undefined): MessageKey {
+  return action && Object.hasOwn(ACTION_LABELS, action) ? ACTION_LABELS[action] : 'actions.unknown';
 }
 
-/** คำอธิบายสั้นของ timeline entry — มีแค่ code/state ไม่มี PII */
-export function describeHistory(item: ActionHistoryItem): string {
-  const parts: string[] = [];
-  if (item.stepKey) parts.push(STEP_LABELS[item.stepKey]?.title ?? item.stepKey);
-  if (item.beforeState || item.afterState)
-    parts.push(`${item.beforeState ?? '—'} → ${item.afterState ?? '—'}`);
-  if (item.attempt) parts.push(`attempt ${item.attempt}`);
-  if (item.errorCode) parts.push(item.errorCode);
-  if (item.reasonCode) parts.push(`เหตุผล ${item.reasonCode}`);
-  return parts.join(' · ');
-}
-
-const ERROR_MESSAGES: Record<string, string> = {
-  UNAUTHENTICATED: 'session หมดอายุ กรุณาเข้าสู่ระบบใหม่',
-  FORBIDDEN: 'บัญชีนี้ไม่มีสิทธิ์ทำรายการนี้',
-  NOT_FOUND: 'ไม่พบรายการ',
-  VALIDATION_FAILED: 'ข้อมูลบางช่องไม่ถูกต้อง',
-  TENANT_SLUG_CONFLICT: 'slug นี้ถูกใช้หรือถูกจองแล้ว',
-  TENANT_DOMAIN_CONFLICT: 'โดเมนนี้ถูกใช้หรือถูกจองแล้ว',
-  FIRST_ADMIN_EMAIL_CONFLICT: 'อีเมลผู้ดูแลคนแรกถูกใช้แล้ว',
-  IDEMPOTENCY_KEY_REUSED: 'ข้อมูลถูกแก้หลังส่งไปแล้ว กรุณาส่งใหม่เป็นคำขอใหม่',
-  REVISION_CONFLICT: 'ข้อมูลถูกเปลี่ยนโดยคนอื่นหรือระบบ กรุณาโหลดใหม่แล้วตรวจอีกครั้ง',
-  INVALID_STATE_TRANSITION: 'สถานะปัจจุบันทำรายการนี้ไม่ได้',
-  PLAN_UNAVAILABLE: 'plan ที่เลือกไม่พร้อมใช้งานแล้ว',
-  BOOTSTRAP_TEMPLATE_UNAVAILABLE: 'bootstrap template ไม่พร้อมใช้งานแล้ว',
-  PREVIEW_STALE: 'ผล preview เก่าแล้ว กรุณา preview ใหม่',
-  RECOVERY_PRECONDITION_FAILED: 'เงื่อนไขของรายการนี้ไม่ผ่าน',
-  COMMAND_IN_PROGRESS: 'มีคำสั่งอื่นของคำขอนี้กำลังทำงาน',
-  INVITATION_RESEND_LIMITED: 'ส่งคำเชิญซ้ำเกิน 3 ครั้งต่อชั่วโมงแล้ว',
-  SERVICE_UNAVAILABLE: 'ระบบไม่พร้อมชั่วคราว ลองใหม่อีกครั้ง',
-  PROVISIONING_DISABLED: 'ระบบปิดการสร้างและแก้ไขชั่วคราว ดูสถานะได้ตามปกติ',
-  COMMAND_ATTEMPTS_EXHAUSTED:
-    'ตรวจสถานะของระบบภายนอกไม่สำเร็จ ลอง preview ใหม่เมื่อระบบภายนอกพร้อม',
-  NETWORK: 'เชื่อมต่อ Platform API ไม่ได้ ลองใหม่อีกครั้ง',
+const ERROR_MESSAGES: Record<string, MessageKey> = {
+  UNAUTHENTICATED: 'errors.UNAUTHENTICATED',
+  FORBIDDEN: 'errors.FORBIDDEN',
+  NOT_FOUND: 'errors.NOT_FOUND',
+  VALIDATION_FAILED: 'errors.VALIDATION_FAILED',
+  TENANT_SLUG_CONFLICT: 'errors.TENANT_SLUG_CONFLICT',
+  TENANT_DOMAIN_CONFLICT: 'errors.TENANT_DOMAIN_CONFLICT',
+  FIRST_ADMIN_EMAIL_CONFLICT: 'errors.FIRST_ADMIN_EMAIL_CONFLICT',
+  IDEMPOTENCY_KEY_REUSED: 'errors.IDEMPOTENCY_KEY_REUSED',
+  REVISION_CONFLICT: 'errors.REVISION_CONFLICT',
+  INVALID_STATE_TRANSITION: 'errors.INVALID_STATE_TRANSITION',
+  PLAN_UNAVAILABLE: 'errors.PLAN_UNAVAILABLE',
+  BOOTSTRAP_TEMPLATE_UNAVAILABLE: 'errors.BOOTSTRAP_TEMPLATE_UNAVAILABLE',
+  PREVIEW_STALE: 'errors.PREVIEW_STALE',
+  RECOVERY_PRECONDITION_FAILED: 'errors.RECOVERY_PRECONDITION_FAILED',
+  COMMAND_IN_PROGRESS: 'errors.COMMAND_IN_PROGRESS',
+  INVITATION_RESEND_LIMITED: 'errors.INVITATION_RESEND_LIMITED',
+  SERVICE_UNAVAILABLE: 'errors.SERVICE_UNAVAILABLE',
+  PROVISIONING_DISABLED: 'errors.PROVISIONING_DISABLED',
+  COMMAND_ATTEMPTS_EXHAUSTED: 'errors.COMMAND_ATTEMPTS_EXHAUSTED',
+  NETWORK: 'errors.NETWORK',
 };
 
-export function errorMessage(error: Pick<ErrorEnvelope, 'code' | 'title'>): string {
-  return ERROR_MESSAGES[error.code] ?? error.title ?? 'เกิดข้อผิดพลาด';
+export function errorMessageKey(error: { code?: string | null }): MessageKey {
+  return error.code && Object.hasOwn(ERROR_MESSAGES, error.code)
+    ? ERROR_MESSAGES[error.code]
+    : 'errors.generic';
+}
+
+export function statusPresentation(status: string | undefined): { label: MessageKey; tone: Tone } {
+  return status && Object.hasOwn(STATUS_LABELS, status)
+    ? STATUS_LABELS[status as RequestStatus]
+    : { label: 'statuses.unknown', tone: 'warning' };
+}
+
+export function stepPresentation(step: string | undefined) {
+  return step && Object.hasOwn(STEP_LABELS, step)
+    ? STEP_LABELS[step as StepKey]
+    : { title: 'steps.unknown.title' as const, detail: 'steps.unknown.detail' as const };
+}
+
+export function blockedReasonKey(reason: string | null | undefined): MessageKey {
+  return reason && Object.hasOwn(BLOCKED_REASONS, reason)
+    ? BLOCKED_REASONS[reason]
+    : 'blocked.unknown';
+}
+
+export function actorLabelKey(actor: string | undefined): MessageKey {
+  return actor && Object.hasOwn(ACTOR_LABELS, actor)
+    ? ACTOR_LABELS[actor as ActionHistoryItem['actor']['kind']]
+    : 'actors.unknown';
 }
 
 export function canMutate(session: SessionView | null): boolean {
@@ -425,37 +447,36 @@ export function canMutate(session: SessionView | null): boolean {
 }
 
 export interface ReadOnlyCopy {
-  chip: string;
+  chip: MessageKey;
   /** ประกาศทั้งหน้า — เฉพาะ operator ที่ถูกปิดชั่วคราว (auditor อ่านอย่างเดียวเป็นปกติ) */
-  banner: string | null;
-  create: string;
-  decision: string;
+  banner: MessageKey | null;
+  create: MessageKey;
+  decision: MessageKey;
 }
 
 /** ข้อความเมื่อ session เขียนไม่ได้ — แยก auditor ออกจาก operator ที่ถูก rollout ปิดไว้ */
 export function readOnlyCopy(session: SessionView): ReadOnlyCopy {
   if (session.mutations === 'DISABLED') {
     return {
-      chip: 'Platform Operator (ปิดการแก้ไขชั่วคราว)',
-      banner:
-        'ระบบปิดการสร้างและแก้ไข tenant ชั่วคราว — ดูสถานะและประวัติได้ตามปกติ งานที่ค้างอยู่จะทำต่อเมื่อเปิดอีกครั้ง',
-      create: 'ขณะนี้ปิดการสร้าง tenant ชั่วคราว',
-      decision: 'ปิดการแก้ไขชั่วคราว — ตัดสินใจได้เมื่อระบบเปิดอีกครั้ง',
+      chip: 'identity.disabled',
+      banner: 'readOnly.disabledBanner',
+      create: 'readOnly.disabledCreate',
+      decision: 'readOnly.disabledDecision',
     };
   }
   if (session.mutations === 'NOT_ALLOWLISTED') {
     return {
-      chip: 'Platform Operator (ยังไม่อยู่ในกลุ่ม canary)',
-      banner: 'บัญชีนี้ยังไม่อยู่ในกลุ่มผู้ใช้ช่วงเปิดทดลอง (canary) จึงดูได้อย่างเดียว',
-      create: 'บัญชีนี้ยังสร้าง tenant ไม่ได้ในช่วง canary',
-      decision: 'บัญชีนี้ยังไม่อยู่ในกลุ่ม canary — ต้องให้ operator ในกลุ่มตัดสินใจ',
+      chip: 'identity.canary',
+      banner: 'readOnly.canaryBanner',
+      create: 'readOnly.canaryCreate',
+      decision: 'readOnly.canaryDecision',
     };
   }
   return {
-    chip: 'Platform Auditor (อ่านอย่างเดียว)',
+    chip: 'identity.auditor',
     banner: null,
-    create: 'Platform Auditor สร้าง tenant ไม่ได้',
-    decision: 'Platform Auditor ดูได้อย่างเดียว — ต้องให้ Platform Operator ตัดสินใจ',
+    create: 'readOnly.auditorCreate',
+    decision: 'readOnly.auditorDecision',
   };
 }
 
@@ -477,11 +498,22 @@ export function routePath(route: Route): string {
   return '/';
 }
 
-export function formatTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  return new Intl.DateTimeFormat('th-TH', {
-    dateStyle: 'medium',
-    timeStyle: 'medium',
-    timeZone: 'Asia/Bangkok',
-  }).format(new Date(iso));
+export function deliveryMessageKey(delivery: string | undefined): MessageKey {
+  const keys: Record<string, MessageKey> = {
+    SENT: 'invitation.delivery.SENT',
+    INTENT: 'invitation.delivery.INTENT',
+    FAILED: 'invitation.delivery.FAILED',
+    AMBIGUOUS: 'invitation.delivery.AMBIGUOUS',
+  };
+  return delivery && Object.hasOwn(keys, delivery) ? keys[delivery] : 'invitation.delivery.unknown';
+}
+
+export function outcomeMessageKey(outcome: string | undefined): MessageKey {
+  const keys: Record<string, MessageKey> = {
+    REJECTED: 'outcomes.REJECTED',
+    QUEUED: 'outcomes.QUEUED',
+    RUNNING: 'outcomes.RUNNING',
+    SUCCEEDED: 'outcomes.SUCCEEDED',
+  };
+  return outcome && Object.hasOwn(keys, outcome) ? keys[outcome] : 'outcomes.unknown';
 }

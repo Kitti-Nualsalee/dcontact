@@ -1,4 +1,4 @@
-/* #744: layout ของ platform ใช้ token กลาง; legacy controls ย้ายเป็น ui-react ต่อใน #745 */
+/* #745: คงเฉพาะ layout/timeline ของ platform; controls มาจาก ui-react และใช้ token กลาง */
 * {
   box-sizing: border-box;
 }
@@ -200,20 +200,6 @@ legend {
   gap: var(--dc-space-2);
 }
 
-.field.checkbox {
-  flex-direction: row;
-  align-items: flex-start;
-  gap: var(--dc-space-4);
-  margin: var(--dc-space-5) 0;
-}
-
-.field.checkbox input {
-  margin-top: var(--dc-space-2);
-  width: 18px;
-  height: 18px;
-}
-
-label,
 .label {
   font-weight: var(--dc-weight-semibold);
   font-size: var(--dc-text-base);
@@ -223,21 +209,6 @@ label,
   margin: 0;
   font-size: var(--dc-text-sm);
   color: var(--dc-text-secondary);
-}
-
-input,
-select,
-textarea {
-  font: inherit;
-  padding: var(--dc-space-4) var(--dc-space-5);
-  border: 1px solid var(--dc-border-strong);
-  border-radius: var(--dc-radius-md);
-  background: var(--dc-surface-raised);
-  color: var(--dc-text-primary);
-}
-
-[aria-invalid='true'] {
-  border-color: var(--dc-critical-fg);
 }
 
 .field-error {
@@ -255,79 +226,6 @@ textarea {
 
 .actions.end {
   justify-content: flex-end;
-}
-
-.button {
-  font: inherit;
-  padding: var(--dc-space-4) var(--dc-space-5);
-  border-radius: var(--dc-radius-md);
-  border: 1px solid var(--dc-border-strong);
-  background: var(--dc-surface-raised);
-  color: var(--dc-text-primary);
-  cursor: pointer;
-}
-
-.button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.button.primary {
-  background: var(--dc-brand-700);
-  border-color: var(--dc-brand-700);
-  color: var(--dc-text-on-brand);
-}
-
-.button.danger {
-  background: var(--dc-critical-fg);
-  border-color: var(--dc-critical-fg);
-  color: var(--dc-text-on-brand);
-}
-
-.button.subtle {
-  border-color: transparent;
-}
-
-.button.link {
-  border: 0;
-  background: none;
-  color: var(--dc-brand-700);
-  text-decoration: underline;
-  padding: var(--dc-space-2);
-}
-
-.chip {
-  display: inline-block;
-  padding: var(--dc-space-1) var(--dc-space-5);
-  border-radius: var(--dc-radius-pill);
-  font-size: var(--dc-text-sm);
-  font-weight: var(--dc-weight-semibold);
-  margin-right: var(--dc-space-2);
-}
-
-.chip.neutral {
-  background: var(--dc-neutral-bg);
-  color: var(--dc-neutral-fg);
-}
-
-.chip.info {
-  background: var(--dc-info-bg);
-  color: var(--dc-info-fg);
-}
-
-.chip.success {
-  background: var(--dc-success-bg);
-  color: var(--dc-success-fg);
-}
-
-.chip.warning {
-  background: var(--dc-attention-bg);
-  color: var(--dc-attention-fg-strong);
-}
-
-.chip.danger {
-  background: var(--dc-critical-bg);
-  color: var(--dc-critical-fg);
 }
 
 .callout {
@@ -364,24 +262,6 @@ textarea {
 
 .callout a {
   color: inherit;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.table th,
-.table td {
-  text-align: left;
-  padding: var(--dc-space-5) var(--dc-space-5);
-  border-bottom: 1px solid var(--dc-border-subtle);
-  vertical-align: top;
-}
-
-.table thead th {
-  font-size: var(--dc-text-sm);
-  color: var(--dc-text-secondary);
 }
 
 .empty-state {
@@ -538,4 +418,8 @@ textarea {
   .identity {
     flex-wrap: wrap;
   }
+}
+
+.confirmation {
+  margin: var(--dc-space-5) 0;
 }

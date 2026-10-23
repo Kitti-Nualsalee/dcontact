@@ -19,28 +19,45 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import {
+  Badge,
+  Button,
+  Cell,
+  Checkbox,
+  Column,
+  Row,
+  SearchField,
+  Select,
+  Table,
+  TableBody,
+  TableHeader,
+  TextField as UiTextField,
+} from '@d-contact/ui-react';
+import type { MessageKey } from './i18n/messages.js';
+import { usePlatformText } from './use-platform-text.js';
 import { PlatformApiError, type PlatformApi } from './api.js';
 import { PlatformAuthScreen } from './auth-screen.js';
 import { PlatformHeader } from './platform-header.js';
 import {
-  ACTOR_LABELS,
-  BLOCKED_REASONS,
   EMPTY_DRAFT,
   FIELD_LABELS,
   LOCALES,
   RECOVERY_OPTIONS,
   STATUS_LABELS,
-  STEP_LABELS,
   TIMEZONES,
   actionLabel,
+  actorLabelKey,
+  blockedReasonKey,
+  errorMessageKey,
+  deliveryMessageKey,
+  outcomeMessageKey,
+  statusPresentation,
+  stepPresentation,
   canMutate,
   readOnlyCopy,
   currentStep,
-  describeHistory,
   draftToRequestBody,
-  errorMessage,
   fieldErrorsToDraft,
-  formatTime,
   isHandoffReady,
   newIdempotencyKey,
   parseRoute,
@@ -86,6 +103,8 @@ export function PlatformConsoleApp({
   onSignOut?: () => void;
   onSessionExpired?: () => void;
 }) {
+  const { t } = usePlatformText();
+
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.pathname));
   const [navigations, setNavigations] = useState(0);
   const [session, setSession] = useState<SessionView | null>(null);
@@ -137,7 +156,7 @@ export function PlatformConsoleApp({
         <main id="main" className="main" tabIndex={-1}>
           {!mutate && readOnly.banner ? (
             <p role="status" className="callout warning">
-              {readOnly.banner}
+              {t(readOnly.banner)}
             </p>
           ) : null}
           {route.name === 'list' ? (
@@ -146,9 +165,9 @@ export function PlatformConsoleApp({
             mutate ? (
               <CreateWizard api={api} navigate={navigate} />
             ) : (
-              <PageHeading title="สร้าง tenant" subtitle="บัญชีนี้เป็นแบบอ่านอย่างเดียว">
+              <PageHeading title={t('navigation.create')} subtitle={t('readOnly.subtitle')}>
                 <p role="alert" className="callout warning">
-                  {readOnly.create}
+                  {t(readOnly.create)}
                 </p>
               </PageHeading>
             )
@@ -158,7 +177,7 @@ export function PlatformConsoleApp({
               api={api}
               requestId={route.requestId}
               canMutate={mutate}
-              readOnlyNotice={readOnly.decision}
+              readOnlyNotice={t(readOnly.decision)}
               navigate={navigate}
               pollMs={pollMs}
             />
@@ -169,40 +188,27 @@ export function PlatformConsoleApp({
   );
 }
 
-function Centered({
-  title,
-  busy,
-  children,
-}: {
-  title: string;
-  busy?: boolean;
-  children?: ReactNode;
-}) {
-  return (
-    <main className="centered" aria-busy={busy ? 'true' : undefined}>
-      <h1>{title}</h1>
-      {children}
-    </main>
-  );
-}
-
 /** หัวข้อหน้า — รับโฟกัสทุกครั้งที่เปิดหน้า เพื่อให้ screen reader รู้ว่าเปลี่ยนหน้าแล้ว */
 function PageHeading({
   title,
   subtitle,
   actions,
   children,
+  focusKey,
 }: {
   title: string;
   subtitle?: string;
+  focusKey?: string;
   actions?: ReactNode;
   children?: ReactNode;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   const navigations = useContext(NavigationContext);
+  const previousFocusKey = useRef(focusKey);
   useEffect(() => {
-    if (navigations > 0) heading.current?.focus();
-  }, [title, navigations]);
+    if (navigations > 0 || previousFocusKey.current !== focusKey) heading.current?.focus();
+    previousFocusKey.current = focusKey;
+  }, [focusKey, navigations]);
   return (
     <section className="page">
       <div className="page-head">
@@ -220,30 +226,40 @@ function PageHeading({
 }
 
 function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
-  return <span className={`chip ${tone}`}>{children}</span>;
+  return (
+    <Badge tone={tone === 'danger' ? 'critical' : tone === 'warning' ? 'attention' : tone}>
+      {children}
+    </Badge>
+  );
 }
 
 function StatusChip({ status }: { status: RequestStatus }) {
-  const presentation = STATUS_LABELS[status];
+  const { t } = usePlatformText();
+
+  const presentation = statusPresentation(status);
   return (
     <Chip tone={presentation.tone}>
-      {presentation.label} <span className="code">({status})</span>
+      {t(presentation.label)}{' '}
+      {Object.hasOwn(STATUS_LABELS, status) ? <span className="code">({status})</span> : null}
     </Chip>
   );
 }
 
 function ErrorAlert({ error, onRetry }: { error: ErrorEnvelope; onRetry?: () => void }) {
+  const { t, errorMessage } = usePlatformText();
+
   return (
     <div role="alert" className="callout danger">
       <strong>{errorMessage(error)}</strong>
       {error.correlationId ? (
-        <span className="muted small"> · อ้างอิง {error.correlationId}</span>
+        <span className="muted small">
+          {' '}
+          · {t('common.reference')} {error.correlationId}
+        </span>
       ) : null}
       {onRetry && error.retryable ? (
         <div className="actions">
-          <button className="button" onClick={onRetry}>
-            ลองอีกครั้ง
-          </button>
+          <Button onPress={onRetry}>{t('common.retry')}</Button>
         </div>
       ) : null}
     </div>
@@ -261,6 +277,8 @@ function TenantList({
   navigate: Navigate;
   canCreate: boolean;
 }) {
+  const { t, formatTime } = usePlatformText();
+
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('');
   const [submitted, setSubmitted] = useState<{ query: string; status: string }>({
@@ -299,13 +317,13 @@ function TenantList({
 
   return (
     <PageHeading
-      title="Tenants"
-      subtitle="ค้นหาด้วยชื่อองค์กร, slug, primary domain, request ID หรืออีเมล first admin"
+      title={t('navigation.tenants')}
+      subtitle={t('list.subtitle')}
       actions={
         canCreate ? (
-          <button className="button primary" onClick={() => navigate({ name: 'new' })}>
-            สร้าง tenant
-          </button>
+          <Button variant="primary" onPress={() => navigate({ name: 'new' })}>
+            {t('navigation.create')}
+          </Button>
         ) : undefined
       }
     >
@@ -317,135 +335,130 @@ function TenantList({
           setSubmitted({ query: query.trim(), status });
         }}
       >
-        <div className="field grow">
-          <label htmlFor="tenant-search">ค้นหา tenant</label>
-          <input
-            id="tenant-search"
-            type="search"
-            value={query}
-            maxLength={254}
-            autoComplete="off"
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="tenant-status">สถานะคำขอ</label>
-          <select
-            id="tenant-status"
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            <option value="">ทั้งหมด</option>
-            {(Object.keys(STATUS_LABELS) as RequestStatus[]).map((value) => (
-              <option key={value} value={value}>
-                {STATUS_LABELS[value].label} ({value})
-              </option>
-            ))}
-          </select>
-        </div>
+        <SearchField
+          className="grow"
+          label={t('list.searchLabel')}
+          value={query}
+          maxLength={254}
+          autoComplete="off"
+          onChange={setQuery}
+        />
+        <Select
+          label={t('list.statusLabel')}
+          selectedKey={status || 'all'}
+          onSelectionChange={(key) => setStatus(key === 'all' ? '' : String(key ?? ''))}
+          options={[
+            { id: 'all', label: t('list.all') },
+            ...Object.keys(STATUS_LABELS).map((value) => ({
+              id: value,
+              label: `${t(statusPresentation(value).label)} (${value})`,
+            })),
+          ]}
+        />
         <div className="actions end">
-          <button className="button primary" type="submit">
-            ค้นหา
-          </button>
-          <button
-            className="button"
+          <Button variant="primary" type="submit">
+            {t('list.search')}
+          </Button>
+          <Button
             type="button"
-            onClick={() => {
+            onPress={() => {
               setQuery('');
               setStatus('');
               setSubmitted({ query: '', status: '' });
             }}
           >
-            ล้าง
-          </button>
+            {t('common.clear')}
+          </Button>
         </div>
       </form>
 
       <div className="card" aria-busy={state === 'loading' ? 'true' : 'false'}>
         <p className="sr-only" role="status" aria-live="polite">
           {state === 'loading'
-            ? 'กำลังโหลด tenant'
+            ? t('list.loading')
             : state === 'ready'
-              ? `พบ ${items.length} รายการ`
+              ? t('list.count', { count: items.length })
               : ''}
         </p>
         {state === 'loading' ? (
-          <p className="muted pad">กำลังโหลด…</p>
+          <p className="muted pad">{t('common.loading')}</p>
         ) : state === 'error' && error ? (
           <div className="pad">
             <ErrorAlert error={error} onRetry={() => void load(submitted)} />
           </div>
         ) : items.length === 0 ? (
           <div className="pad empty-state">
-            <h2>ไม่พบ tenant</h2>
-            <p className="muted">ลองคำค้นอื่น หรือล้างตัวกรอง</p>
+            <h2>{t('list.empty')}</h2>
+            <p className="muted">{t('list.emptyHint')}</p>
           </div>
         ) : (
-          <table className="table">
-            <caption className="sr-only">รายการ tenant</caption>
-            <thead>
-              <tr>
-                <th scope="col">Tenant</th>
-                <th scope="col">Identity</th>
-                <th scope="col">Lifecycle</th>
-                <th scope="col">Provisioning</th>
-                <th scope="col">อัปเดตล่าสุด</th>
-                <th scope="col">
-                  <span className="sr-only">การทำงาน</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table aria-label={t('list.table')}>
+            <TableHeader>
+              <Column id="tenant" isRowHeader>
+                {t('list.tenant')}
+              </Column>
+              <Column id="identity">{t('list.identity')}</Column>
+              <Column id="lifecycle">{t('list.lifecycle')}</Column>
+              <Column id="provisioning">{t('labels.provisioning')}</Column>
+              <Column id="updated">{t('list.updated')}</Column>
+              <Column id="actions">{t('list.actions')}</Column>
+            </TableHeader>
+            <TableBody>
               {items.map((item) => (
-                <tr key={item.tenantId}>
-                  <th scope="row">{item.name}</th>
-                  <td>
+                <Row key={item.tenantId} id={item.tenantId} textValue={item.name}>
+                  <Cell>{item.name}</Cell>
+                  <Cell>
                     <span className="code">{item.slug}</span>
                     <br />
                     <span className="muted small">{item.primaryDomain ?? '—'}</span>
-                  </td>
-                  <td>
+                  </Cell>
+                  <Cell>
                     <Chip tone={item.lifecycleStatus === 'ACTIVE' ? 'success' : 'info'}>
-                      {item.lifecycleStatus}
+                      {t(
+                        item.lifecycleStatus === 'ACTIVE'
+                          ? 'lifecycle.ACTIVE'
+                          : item.lifecycleStatus === 'PROVISIONING'
+                            ? 'lifecycle.PROVISIONING'
+                            : 'statuses.unknown',
+                      )}
+                      {['ACTIVE', 'PROVISIONING'].includes(item.lifecycleStatus) ? (
+                        <span className="code"> ({item.lifecycleStatus})</span>
+                      ) : null}
                     </Chip>
-                  </td>
-                  <td>
+                  </Cell>
+                  <Cell>
                     {item.request ? (
                       <StatusChip status={item.request.status} />
                     ) : (
-                      <Chip tone="neutral">legacy</Chip>
+                      <Chip tone="neutral">{t('list.legacy')}</Chip>
                     )}
-                  </td>
-                  <td>{formatTime(item.request?.updatedAt ?? item.createdAt)}</td>
-                  <td>
+                  </Cell>
+                  <Cell>{formatTime(item.request?.updatedAt ?? item.createdAt)}</Cell>
+                  <Cell>
                     {item.request ? (
-                      <button
-                        className="button link"
-                        onClick={() =>
+                      <Button
+                        variant="ghost"
+                        onPress={() =>
                           navigate({ name: 'request', requestId: item.request!.requestId })
                         }
-                        aria-label={`เปิดรายละเอียด ${item.name}`}
+                        aria-label={t('list.openDetails', { name: item.name })}
                       >
-                        เปิด →
-                      </button>
+                        {t('list.open')}
+                      </Button>
                     ) : (
-                      <span className="muted small">ไม่มี provisioning history</span>
+                      <span className="muted small">{t('list.noHistory')}</span>
                     )}
-                  </td>
-                </tr>
+                  </Cell>
+                </Row>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         )}
         {cursor && state !== 'loading' ? (
           <div className="pad">
-            <button
-              className="button"
-              disabled={state === 'more'}
-              onClick={() => void load(submitted, cursor)}
-            >
-              {state === 'more' ? 'กำลังโหลด…' : 'โหลดเพิ่ม'}
-            </button>
+            <Button isDisabled={state === 'more'} onPress={() => void load(submitted, cursor)}>
+              {state === 'more' ? t('common.loading') : t('common.more')}
+            </Button>
           </div>
         ) : null}
       </div>
@@ -455,32 +468,41 @@ function TenantList({
 
 // ── Create wizard ───────────────────────────────────────────────────────────
 
-const WIZARD_STEPS = ['ข้อมูลลูกค้า', 'ตรวจสอบ', 'Provisioning', 'ส่งมอบ'] as const;
+const WIZARD_STEPS = [
+  'wizard.stepData',
+  'wizard.stepReview',
+  'labels.provisioning',
+  'wizard.stepHandoff',
+] as const;
 
 function Stepper({ active }: { active: number }) {
+  const { t } = usePlatformText();
+
   return (
-    <ol className="stepper" aria-label="ขั้นตอนการสร้าง tenant">
+    <ol className="stepper" aria-label={t('wizard.stepsLabel')}>
       {WIZARD_STEPS.map((label, index) => (
         <li
           key={label}
           className={index === active ? 'on' : index < active ? 'done' : ''}
           aria-current={index === active ? 'step' : undefined}
         >
-          <span aria-hidden="true">{index < active ? '✓' : index + 1}</span> {label}
+          <span aria-hidden="true">{index < active ? '✓' : index + 1}</span> {t(label)}
         </li>
       ))}
     </ol>
   );
 }
 
-type DraftErrors = Partial<Record<keyof TenantDraft, string>>;
+type DraftErrors = Partial<Record<keyof TenantDraft, MessageKey>>;
 
 function ErrorSummary({ errors }: { errors: DraftErrors }) {
+  const { t } = usePlatformText();
+
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     box.current?.focus();
   }, [errors]);
-  const entries = Object.entries(errors) as [keyof TenantDraft, string][];
+  const entries = Object.entries(errors) as [keyof TenantDraft, MessageKey][];
   if (entries.length === 0) return null;
   return (
     <div
@@ -490,7 +512,7 @@ function ErrorSummary({ errors }: { errors: DraftErrors }) {
       tabIndex={-1}
       aria-labelledby="error-summary-title"
     >
-      <h2 id="error-summary-title">ข้อมูลบางช่องต้องแก้ไข ({entries.length})</h2>
+      <h2 id="error-summary-title">{t('validation.summary', { count: entries.length })}</h2>
       <ul>
         {entries.map(([field, message]) => (
           <li key={field}>
@@ -498,16 +520,23 @@ function ErrorSummary({ errors }: { errors: DraftErrors }) {
               href={`#field-${field}`}
               onClick={(event) => {
                 event.preventDefault();
-                document.getElementById(`field-${field}`)?.focus();
+                focusDraftField(field);
               }}
             >
-              {FIELD_LABELS[field]}: {message}
+              {t(FIELD_LABELS[field])}: {t(message)}
             </a>
           </li>
         ))}
       </ul>
     </div>
   );
+}
+
+function focusDraftField(field: keyof TenantDraft) {
+  const control = document.querySelector<HTMLElement>(
+    `[data-field="${field}"] input:not([type="hidden"]), [data-field="${field}"] button, [data-field="${field}"] textarea`,
+  );
+  (control ?? document.getElementById(`field-${field}`))?.focus();
 }
 
 function TextField({
@@ -523,41 +552,32 @@ function TextField({
   draft: TenantDraft;
   errors: DraftErrors;
   onChange: (field: keyof TenantDraft, value: string) => void;
-  type?: string;
+  type?: import('react').HTMLInputTypeAttribute;
   hint?: string;
   autoComplete?: string;
 }) {
-  const hintId = `hint-${field}`;
-  const errorId = `error-${field}`;
+  const { t } = usePlatformText();
   return (
-    <div className="field">
-      <label htmlFor={`field-${field}`}>{FIELD_LABELS[field]}</label>
-      {hint ? (
-        <p id={hintId} className="hint">
-          {hint}
-        </p>
-      ) : null}
-      <input
+    <div data-field={field}>
+      <UiTextField
         id={`field-${field}`}
-        type={type}
+        label={t(FIELD_LABELS[field])}
+        description={hint}
         value={draft[field]}
+        onChange={(value) => onChange(field, value)}
+        type={type}
         autoComplete={autoComplete}
-        aria-invalid={errors[field] ? 'true' : undefined}
-        aria-describedby={
-          [hint ? hintId : '', errors[field] ? errorId : ''].filter(Boolean).join(' ') || undefined
-        }
-        onChange={(event) => onChange(field, event.target.value)}
+        validationBehavior="aria"
+        isInvalid={!!errors[field]}
+        errorMessage={errors[field] ? t(errors[field]) : undefined}
       />
-      {errors[field] ? (
-        <p id={errorId} className="field-error">
-          {errors[field]}
-        </p>
-      ) : null}
     </div>
   );
 }
 
 function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate }) {
+  const { t, errorMessage } = usePlatformText();
+
   const [catalog, setCatalog] = useState<CatalogView | null>(null);
   const [catalogError, setCatalogError] = useState<ErrorEnvelope | null>(null);
   const [draft, setDraft] = useState<TenantDraft>(EMPTY_DRAFT);
@@ -615,10 +635,12 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
         PLAN_UNAVAILABLE: 'planCode',
         BOOTSTRAP_TEMPLATE_UNAVAILABLE: 'bootstrapTemplateVersion',
       };
-      const conflict = conflictField[envelope.code];
+      const conflict = Object.hasOwn(conflictField, envelope.code)
+        ? conflictField[envelope.code]
+        : undefined;
       if (Object.keys(fields).length > 0 || conflict) {
         // กลับไปแก้ในฟอร์ม: ข้อมูลเปลี่ยน = key ใหม่
-        setErrors({ ...fields, ...(conflict ? { [conflict]: errorMessage(envelope) } : {}) });
+        setErrors({ ...fields, ...(conflict ? { [conflict]: errorMessageKey(envelope) } : {}) });
         idempotencyKey.current = null;
         setPhase('form');
       } else {
@@ -631,16 +653,16 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
 
   if (catalogError) {
     return (
-      <PageHeading title="สร้าง tenant">
+      <PageHeading title={t('navigation.create')}>
         <ErrorAlert error={catalogError} />
       </PageHeading>
     );
   }
   if (!catalog) {
     return (
-      <PageHeading title="สร้าง tenant">
+      <PageHeading title={t('navigation.create')}>
         <p className="muted" aria-busy="true">
-          กำลังโหลด plan และ bootstrap template…
+          {t('wizard.catalogLoading')}
         </p>
       </PageHeading>
     );
@@ -651,10 +673,9 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
   );
   return (
     <PageHeading
-      title={
-        phase === 'form' ? 'สร้าง tenant: ข้อมูลลูกค้า' : 'สร้าง tenant: ตรวจสอบก่อน provision'
-      }
-      subtitle="Guided onboarding — tenant จะพร้อมใช้งานเมื่อทุกขั้นผ่านและสถานะเป็น ACTIVE เท่านั้น"
+      title={phase === 'form' ? t('wizard.titleData') : t('wizard.titleReview')}
+      focusKey={phase}
+      subtitle={t('wizard.subtitle')}
     >
       <Stepper active={phase === 'form' ? 0 : 1} />
       <div className="layout">
@@ -669,7 +690,7 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
           >
             <ErrorSummary errors={errors} />
             <fieldset>
-              <legend>องค์กรลูกค้า</legend>
+              <legend>{t('wizard.organization')}</legend>
               <TextField
                 field="displayName"
                 draft={draft}
@@ -682,71 +703,61 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
                 draft={draft}
                 errors={errors}
                 onChange={update}
-                hint="แก้ไม่ได้หลังยืนยัน ใช้เป็น subdomain และ SIP domain"
+                hint={t('wizard.slugHint')}
               />
               <TextField
                 field="primaryDomain"
                 draft={draft}
                 errors={errors}
                 onChange={update}
-                hint="เช่น example.co.th"
+                hint={t('wizard.domainHint')}
               />
             </fieldset>
             <fieldset>
-              <legend>Plan และค่าตั้งต้น</legend>
-              <div className="field">
-                <label htmlFor="field-planCode">{FIELD_LABELS.planCode}</label>
-                <select
+              <legend>{t('wizard.defaults')}</legend>
+              <div data-field="planCode">
+                <Select
                   id="field-planCode"
-                  value={draft.planCode}
-                  aria-invalid={errors.planCode ? 'true' : undefined}
-                  aria-describedby={errors.planCode ? 'error-planCode' : undefined}
-                  onChange={(event) => update('planCode', event.target.value)}
-                >
-                  <option value="">เลือก plan</option>
-                  {catalog.plans.map((plan) => (
-                    <option key={plan.code} value={plan.code}>
-                      {plan.code} (v{plan.version})
-                    </option>
-                  ))}
-                </select>
-                {errors.planCode ? (
-                  <p id="error-planCode" className="field-error">
-                    {errors.planCode}
-                  </p>
-                ) : null}
+                  label={t(FIELD_LABELS.planCode)}
+                  selectedKey={draft.planCode || null}
+                  placeholder={t('validation.planCode')}
+                  onSelectionChange={(key) => update('planCode', String(key ?? ''))}
+                  validationBehavior="aria"
+                  isInvalid={!!errors.planCode}
+                  errorMessage={errors.planCode ? t(errors.planCode) : undefined}
+                  options={catalog.plans.map((plan) => ({
+                    id: plan.code,
+                    label: `${plan.code} (v${plan.version})`,
+                  }))}
+                />
               </div>
-              <div className="field">
-                <label htmlFor="field-locale">{FIELD_LABELS.locale}</label>
-                <select
+              <div data-field="locale">
+                <Select
                   id="field-locale"
-                  value={draft.locale}
-                  onChange={(event) => update('locale', event.target.value)}
-                >
-                  {LOCALES.map((locale) => (
-                    <option key={locale.value} value={locale.value}>
-                      {locale.label}
-                    </option>
-                  ))}
-                </select>
+                  label={t(FIELD_LABELS.locale)}
+                  selectedKey={draft.locale}
+                  onSelectionChange={(key) => update('locale', String(key ?? ''))}
+                  validationBehavior="aria"
+                  isInvalid={!!errors.locale}
+                  errorMessage={errors.locale ? t(errors.locale) : undefined}
+                  options={LOCALES.map((locale) => ({ id: locale.value, label: t(locale.label) }))}
+                />
               </div>
-              <div className="field">
-                <label htmlFor="field-timezone">{FIELD_LABELS.timezone}</label>
-                <select
+              <div data-field="timezone">
+                <Select
                   id="field-timezone"
-                  value={draft.timezone}
-                  onChange={(event) => update('timezone', event.target.value)}
-                >
-                  {TIMEZONES.map((timezone) => (
-                    <option key={timezone} value={timezone}>
-                      {timezone}
-                    </option>
-                  ))}
-                </select>
+                  label={t(FIELD_LABELS.timezone)}
+                  selectedKey={draft.timezone}
+                  onSelectionChange={(key) => update('timezone', String(key ?? ''))}
+                  validationBehavior="aria"
+                  isInvalid={!!errors.timezone}
+                  errorMessage={errors.timezone ? t(errors.timezone) : undefined}
+                  options={TIMEZONES.map((timezone) => ({ id: timezone, label: timezone }))}
+                />
               </div>
               <div className="field">
                 <span className="label" id="template-label">
-                  {FIELD_LABELS.bootstrapTemplateVersion}
+                  {t(FIELD_LABELS.bootstrapTemplateVersion)}
                 </span>
                 <p
                   id="field-bootstrapTemplateVersion"
@@ -756,15 +767,15 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
                 >
                   {template
                     ? `${template.version} · ${template.contentDigest.slice(0, 12)}…`
-                    : 'ไม่มี template ที่ใช้งานได้'}
+                    : t('wizard.templateMissing')}
                 </p>
                 {errors.bootstrapTemplateVersion ? (
-                  <p className="field-error">{errors.bootstrapTemplateVersion}</p>
+                  <p className="field-error">{t(errors.bootstrapTemplateVersion)}</p>
                 ) : null}
               </div>
             </fieldset>
             <fieldset>
-              <legend>First admin</legend>
+              <legend>{t('actors.FIRST_ADMIN')}</legend>
               <TextField
                 field="firstAdminDisplayName"
                 draft={draft}
@@ -779,16 +790,16 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
                 onChange={update}
                 type="email"
                 autoComplete="email"
-                hint="ต้องไม่ซ้ำทั้ง platform — ระบบส่งคำเชิญ (72 ชั่วโมง) ไปที่อีเมลนี้"
+                hint={t('wizard.emailHint')}
               />
             </fieldset>
             <div className="actions end">
-              <button type="button" className="button" onClick={() => navigate({ name: 'list' })}>
-                ยกเลิก
-              </button>
-              <button type="submit" className="button primary">
-                ตรวจสอบข้อมูล →
-              </button>
+              <Button type="button" onPress={() => navigate({ name: 'list' })}>
+                {t('actions.CANCEL')}
+              </Button>
+              <Button type="submit" variant="primary">
+                {t('wizard.review')}
+              </Button>
             </div>
           </form>
         ) : (
@@ -808,7 +819,7 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
                 ] as (keyof TenantDraft)[]
               ).map((field) => (
                 <div key={field}>
-                  <dt>{FIELD_LABELS[field]}</dt>
+                  <dt>{t(FIELD_LABELS[field])}</dt>
                   <dd
                     className={
                       ['slug', 'primaryDomain', 'bootstrapTemplateVersion'].includes(field)
@@ -822,52 +833,35 @@ function CreateWizard({ api, navigate }: { api: PlatformApi; navigate: Navigate 
               ))}
             </dl>
             <div className="callout warning">
-              <strong>ค่าที่แก้ไม่ได้หลังส่งคำขอ</strong>
-              <p>
-                Tenant ID ถูกสร้างโดย server; slug, primary domain, plan และ template ถูก pin ตลอด
-                onboarding ถ้าคำขอจบแบบยุติ ค่าเหล่านี้จะติด tombstone 30 วัน
-              </p>
+              <strong>{t('wizard.immutableTitle')}</strong>
+              <p>{t('wizard.immutableBody')}</p>
             </div>
             {submitError ? <ErrorAlert error={submitError} onRetry={() => void submit()} /> : null}
-            <div className="field checkbox">
-              <input
-                id="confirm-provision"
-                type="checkbox"
-                checked={confirmed}
-                onChange={(event) => setConfirmed(event.target.checked)}
-              />
-              <label htmlFor="confirm-provision">
-                ฉันตรวจสอบ identity, plan และ first admin แล้ว และเข้าใจว่าระบบจะเริ่ม durable
-                provisioning
-              </label>
-            </div>
+            <Checkbox className="confirmation" isSelected={confirmed} onChange={setConfirmed}>
+              {t('wizard.confirm')}
+            </Checkbox>
             <div className="actions end">
-              <button className="button" onClick={() => setPhase('form')} disabled={submitting}>
-                ← แก้ไข
-              </button>
-              <button
-                className="button primary"
-                onClick={() => void submit()}
-                disabled={!confirmed || submitting}
+              <Button onPress={() => setPhase('form')} isDisabled={submitting}>
+                {t('wizard.edit')}
+              </Button>
+              <Button
+                variant="primary"
+                onPress={() => void submit()}
+                isDisabled={!confirmed || submitting}
               >
-                {submitting ? 'กำลังส่ง…' : 'ยืนยันและเริ่ม provision'}
-              </button>
+                {submitting ? t('common.sending') : t('wizard.submit')}
+              </Button>
             </div>
           </div>
         )}
-        <aside className="side" aria-label="ข้อมูลประกอบ">
+        <aside className="side" aria-label={t('wizard.aside')}>
           <div className="card pad">
-            <h2 className="h3">Completion boundary</h2>
-            <p className="muted small">
-              แสดงว่าพร้อมใช้งานเมื่อ Organization, bootstrap, first admin, คำเชิญ และ readiness
-              ผ่านครบเท่านั้น
-            </p>
+            <h2 className="h3">{t('wizard.boundary')}</h2>
+            <p className="muted small">{t('wizard.boundaryBody')}</p>
           </div>
           <div className="callout info">
-            <strong>ข้อมูลปลอดภัย</strong>
-            <p className="small">
-              ไม่มี temporary password หรือ secret ใน UI, URL และ Action history
-            </p>
+            <strong>{t('wizard.safeTitle')}</strong>
+            <p className="small">{t('wizard.safeBody')}</p>
           </div>
         </aside>
       </div>
@@ -892,10 +886,25 @@ function RequestDetail({
   navigate: Navigate;
   pollMs: number;
 }) {
+  const { t, formatTime } = usePlatformText();
+
   const [view, setView] = useState<RequestView | null>(null);
   const [error, setError] = useState<ErrorEnvelope | null>(null);
   const [recovery, setRecovery] = useState<RecoveryOption | 'RESEND' | null>(null);
   const [historyVersion, setHistoryVersion] = useState(0);
+  const recoveryTrigger = useRef<HTMLElement | null>(null);
+  const closeRecovery = () => {
+    const wasResend = recovery === 'RESEND';
+    setRecovery(null);
+    requestAnimationFrame(() => {
+      const target = recoveryTrigger.current?.isConnected
+        ? recoveryTrigger.current
+        : wasResend
+          ? document.getElementById('resend-invitation')
+          : null;
+      (target ?? document.querySelector<HTMLElement>('#main h1'))?.focus();
+    });
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -926,12 +935,8 @@ function RequestDetail({
   if (error && !view) {
     return (
       <PageHeading
-        title={error.code === 'NOT_FOUND' ? 'ไม่พบคำขอ' : 'เปิดคำขอไม่ได้'}
-        actions={
-          <button className="button" onClick={() => navigate({ name: 'list' })}>
-            ← กลับรายการ
-          </button>
-        }
+        title={error.code === 'NOT_FOUND' ? t('request.notFound') : t('request.unavailable')}
+        actions={<Button onPress={() => navigate({ name: 'list' })}>{t('request.back')}</Button>}
       >
         <ErrorAlert error={error} onRetry={() => void refresh()} />
       </PageHeading>
@@ -939,9 +944,9 @@ function RequestDetail({
   }
   if (!view) {
     return (
-      <PageHeading title="กำลังโหลดคำขอ">
+      <PageHeading title={t('request.loading')}>
         <p className="muted" aria-busy="true">
-          กำลังโหลด…
+          {t('common.loading')}
         </p>
       </PageHeading>
     );
@@ -953,16 +958,12 @@ function RequestDetail({
   return (
     <PageHeading
       title={view.displayName}
-      subtitle={`Request ${view.requestId}`}
-      actions={
-        <button className="button" onClick={() => navigate({ name: 'list' })}>
-          ← กลับรายการ
-        </button>
-      }
+      subtitle={t('request.subtitle', { id: view.requestId })}
+      actions={<Button onPress={() => navigate({ name: 'list' })}>{t('request.back')}</Button>}
     >
       <Stepper active={activeStage} />
       <p className="sr-only" role="status" aria-live="polite">
-        สถานะ {STATUS_LABELS[view.status].label}
+        {t('progress.status', { state: t(statusPresentation(view.status).label) })}
       </p>
       <div className="layout">
         <div className="stack">
@@ -970,40 +971,43 @@ function RequestDetail({
             <div className="card-head">
               <h2 id="progress-title">
                 {ready
-                  ? 'พร้อมส่งมอบให้ลูกค้า'
+                  ? t('request.ready')
                   : view.status === 'ACTION_REQUIRED'
-                    ? 'ต้องการการตัดสินใจ'
-                    : 'Provisioning'}
+                    ? t('statuses.ACTION_REQUIRED')
+                    : t('labels.provisioning')}
               </h2>
               <StatusChip status={view.status} />
             </div>
             <div className="pad">
               {view.status === 'PENDING' ? (
-                <p className="callout info">
-                  รับคำขอแล้ว — worker จะเริ่มอัตโนมัติ หน้านี้อัปเดตเอง
-                </p>
+                <p className="callout info">{t('request.pending')}</p>
               ) : null}
               {view.status === 'ACTION_REQUIRED' ? (
                 <div className="callout danger" role="alert">
                   <strong>
-                    หยุดอย่างปลอดภัยที่ขั้น {step ? STEP_LABELS[step.stepKey].title : '—'}
+                    {t('progress.stopped', {
+                      step: step ? t(stepPresentation(step.stepKey).title) : '—',
+                    })}
                   </strong>
                   <p className="small">
-                    เหตุผล{' '}
-                    <span className="code">{view.failureCode ?? step?.errorCode ?? '—'}</span> ·
-                    revision {view.revision}
+                    {t('request.reason')}{' '}
+                    <span className="code">{view.failureCode ?? step?.errorCode ?? '—'}</span> ·{' '}
+                    {t('request.revision')} {view.revision}
                   </p>
                 </div>
               ) : null}
               {ready ? (
                 <div className="callout success">
-                  <strong>Tenant ACTIVE</strong>
-                  <p className="small">ทุกขั้นผ่านครบและเปิดใช้งานใน transaction เดียวกัน</p>
+                  <strong>{t('request.active')}</strong>
+                  <p className="small">{t('request.activeBody')}</p>
                 </div>
               ) : null}
               <ol className="progress">
                 {view.steps.map((entry) => (
-                  <li key={entry.stepKey} className={`progress-item ${entry.state.toLowerCase()}`}>
+                  <li
+                    key={entry.stepKey}
+                    className={`progress-item ${String(entry.state ?? 'unknown').toLowerCase()}`}
+                  >
                     <span className="progress-icon" aria-hidden="true">
                       {entry.state === 'SUCCEEDED'
                         ? '✓'
@@ -1014,18 +1018,20 @@ function RequestDetail({
                             : '○'}
                     </span>
                     <div>
-                      <strong>{STEP_LABELS[entry.stepKey].title}</strong>
-                      <span className="sr-only"> สถานะ {entry.state}</span>
+                      <strong>{t(stepPresentation(entry.stepKey).title)}</strong>
+                      <span className="sr-only">
+                        {t('progress.status', { state: t(statusPresentation(entry.state).label) })}
+                      </span>
                       <p className="muted small">
                         {entry.state === 'SUCCEEDED'
-                          ? `สำเร็จ · ${formatTime(entry.finishedAt)}`
+                          ? t('progress.completed', { time: formatTime(entry.finishedAt) })
                           : entry.state === 'ACTION_REQUIRED'
-                            ? `หยุดรอ Operator · ${entry.errorCode ?? ''}`
+                            ? t('progress.waiting', { code: entry.errorCode ?? '' })
                             : entry.state === 'RUNNING'
-                              ? `กำลังทำ · attempt ${entry.attempt}`
+                              ? t('progress.running', { count: entry.attempt })
                               : entry.nextAttemptAt
-                                ? `นัดลองใหม่ ${formatTime(entry.nextAttemptAt)}`
-                                : STEP_LABELS[entry.stepKey].detail}
+                                ? t('progress.retry', { time: formatTime(entry.nextAttemptAt) })
+                                : t(stepPresentation(entry.stepKey).detail)}
                       </p>
                     </div>
                   </li>
@@ -1037,31 +1043,38 @@ function RequestDetail({
           {view.status === 'ACTION_REQUIRED' ? (
             <section className="card" aria-labelledby="recovery-title">
               <div className="card-head">
-                <h2 id="recovery-title">Recovery</h2>
+                <h2 id="recovery-title">{t('recovery.title')}</h2>
               </div>
               <div className="pad">
                 {canMutate ? (
                   <>
-                    <p className="muted small">
-                      แนะนำ: Reconcile ก่อน — ทุก action ต้อง preview แล้วยืนยันพร้อมเหตุผล
-                    </p>
+                    <p className="muted small">{t('recovery.guidance')}</p>
                     <div className="recovery-options">
                       {RECOVERY_OPTIONS.map((option) => (
-                        <button
+                        <Button
                           key={option.action}
-                          className={`button ${option.recommended ? 'primary' : option.destructive ? 'danger' : ''}`}
-                          onClick={() => setRecovery(option)}
+                          variant={
+                            option.recommended
+                              ? 'primary'
+                              : option.destructive
+                                ? 'danger'
+                                : 'secondary'
+                          }
+                          onPress={(event) => {
+                            recoveryTrigger.current = event.target as HTMLElement;
+                            setRecovery(option);
+                          }}
                           aria-describedby={`recovery-${option.path}`}
                         >
-                          {option.title}
-                          {option.recommended ? ' (แนะนำ)' : ''}
-                        </button>
+                          {t(option.title)}
+                          {option.recommended ? t('recovery.recommended') : ''}
+                        </Button>
                       ))}
                     </div>
                     <ul className="small muted">
                       {RECOVERY_OPTIONS.map((option) => (
                         <li key={option.action} id={`recovery-${option.path}`}>
-                          <strong>{option.title}:</strong> {option.detail}
+                          <strong>{t(option.title)}:</strong> {t(option.detail)}
                         </li>
                       ))}
                     </ul>
@@ -1078,7 +1091,7 @@ function RequestDetail({
               <ResendPanel
                 api={api}
                 view={view}
-                onClose={() => setRecovery(null)}
+                onClose={closeRecovery}
                 onDone={async () => {
                   await refresh();
                   setHistoryVersion((value) => value + 1);
@@ -1091,7 +1104,7 @@ function RequestDetail({
                 option={recovery}
                 pollMs={Math.min(pollMs, 1_000)}
                 refresh={refresh}
-                onClose={() => setRecovery(null)}
+                onClose={closeRecovery}
                 onDone={() => setHistoryVersion((value) => value + 1)}
               />
             )
@@ -1100,45 +1113,43 @@ function RequestDetail({
           <ActionHistory api={api} tenantId={view.tenantId} version={historyVersion} />
         </div>
 
-        <aside className="side" aria-label="ข้อมูลที่ pin และการส่งมอบ">
+        <aside className="side" aria-label={t('request.aside')}>
           <section className="card pad" aria-labelledby="pinned-title">
             <h2 id="pinned-title" className="h3">
-              ค่าที่ pin ไว้
+              {t('request.pinned')}
             </h2>
             <dl className="summary compact">
               <div>
-                <dt>Slug</dt>
+                <dt>{t('fields.slug')}</dt>
                 <dd className="code">{view.slug}</dd>
               </div>
               <div>
-                <dt>Primary domain</dt>
+                <dt>{t('fields.primaryDomain')}</dt>
                 <dd className="code">{view.primaryDomain}</dd>
               </div>
               <div>
-                <dt>Plan</dt>
-                <dd>
-                  {view.plan.code} v{view.plan.version}
-                </dd>
+                <dt>{t('fields.planCode')}</dt>
+                <dd>{`${view.plan.code} v${view.plan.version}`}</dd>
               </div>
               <div>
-                <dt>Bootstrap template</dt>
+                <dt>{t('fields.bootstrapTemplateVersion')}</dt>
                 <dd className="code">{view.bootstrapTemplateVersion}</dd>
               </div>
               <div>
-                <dt>Locale / Timezone</dt>
+                <dt>{t('request.localeTimezone')}</dt>
                 <dd>
                   {view.locale} · {view.timezone}
                 </dd>
               </div>
               <div>
-                <dt>รับคำขอ</dt>
+                <dt>{t('actions.REQUEST_ACCEPTED')}</dt>
                 <dd>{formatTime(view.acceptedAt)}</dd>
               </div>
             </dl>
           </section>
           <section className="card pad" aria-labelledby="handoff-title">
             <h2 id="handoff-title" className="h3">
-              First admin และคำเชิญ
+              {t('invitation.title')}
             </h2>
             <p>
               {view.firstAdmin.displayName}
@@ -1147,25 +1158,27 @@ function RequestDetail({
             </p>
             {view.invitation ? (
               <p className="small">
-                คำเชิญรุ่นที่ {view.invitation.generation}:{' '}
-                <strong>
-                  {view.invitation.delivery === 'SENT'
-                    ? 'ส่งถึงผู้ให้บริการอีเมลแล้ว'
-                    : view.invitation.delivery}
-                </strong>
+                {t('invitation.generation', { count: view.invitation.generation })}{' '}
+                <strong>{t(deliveryMessageKey(view.invitation.delivery))}</strong>
                 <br />
-                หมดอายุ {formatTime(view.invitation.expiresAt)}
-                {view.invitation.expired ? ' (หมดอายุแล้ว)' : ''}
+                {t('invitation.expires', { time: formatTime(view.invitation.expiresAt) })}
+                {view.invitation.expired ? t('invitation.expired') : ''}
                 <br />
-                <span className="muted">การส่งถึงไม่ได้แปลว่าผู้ใช้ activate แล้ว</span>
+                <span className="muted">{t('invitation.deliveryHint')}</span>
               </p>
             ) : (
-              <p className="muted small">ยังไม่ได้ส่งคำเชิญ</p>
+              <p className="muted small">{t('invitation.notSent')}</p>
             )}
             {canMutate && view.invitation && !recovery ? (
-              <button className="button" onClick={() => setRecovery('RESEND')}>
-                ส่งคำเชิญอีกครั้ง
-              </button>
+              <Button
+                id="resend-invitation"
+                onPress={(event) => {
+                  recoveryTrigger.current = event.target as HTMLElement;
+                  setRecovery('RESEND');
+                }}
+              >
+                {t('invitation.resend')}
+              </Button>
             ) : null}
           </section>
         </aside>
@@ -1177,10 +1190,10 @@ function RequestDetail({
 // ── Recovery (preview → confirm → execute) ──────────────────────────────────
 
 const REASONS = [
-  { value: 'OPERATOR_VERIFIED', label: 'Operator ตรวจสถานะจริงแล้ว' },
-  { value: 'DEPENDENCY_RECOVERED', label: 'ระบบภายนอกกลับมาปกติแล้ว' },
-  { value: 'CUSTOMER_REQUEST', label: 'ลูกค้าร้องขอ' },
-  { value: 'INVALID_REQUEST', label: 'คำขอไม่ถูกต้อง ต้องยุติ' },
+  { value: 'OPERATOR_VERIFIED', label: 'reasons.OPERATOR_VERIFIED' },
+  { value: 'DEPENDENCY_RECOVERED', label: 'reasons.DEPENDENCY_RECOVERED' },
+  { value: 'CUSTOMER_REQUEST', label: 'reasons.CUSTOMER_REQUEST' },
+  { value: 'INVALID_REQUEST', label: 'reasons.INVALID_REQUEST' },
 ] as const;
 
 function RecoveryPanel({
@@ -1200,6 +1213,8 @@ function RecoveryPanel({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { t, errorMessage } = usePlatformText();
+
   const titleId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const [phase, setPhase] = useState<'previewing' | 'confirm' | 'executing' | 'done'>('previewing');
@@ -1209,7 +1224,7 @@ function RecoveryPanel({
   const [reasonCode, setReasonCode] = useState<string>(REASONS[0].value);
   const [comment, setComment] = useState('');
   const [acknowledged, setAcknowledged] = useState(!option.destructive);
-  const [commentError, setCommentError] = useState<string | null>(null);
+  const [commentError, setCommentError] = useState<MessageKey | null>(null);
   const key = useRef(newIdempotencyKey(option.path));
   const revision = useRef(view.revision);
 
@@ -1248,7 +1263,7 @@ function RecoveryPanel({
 
   const execute = async () => {
     if (!comment.trim()) {
-      setCommentError('ต้องระบุเหตุผลเพิ่มเติม');
+      setCommentError('validation.comment');
       document.getElementById(`${titleId}-comment`)?.focus();
       return;
     }
@@ -1307,30 +1322,26 @@ function RecoveryPanel({
     >
       <div className="card-head">
         <h2 id={titleId} ref={heading} tabIndex={-1}>
-          {option.title}:{' '}
+          {t(option.title)}:{' '}
           {phase === 'previewing'
-            ? 'กำลัง preview'
+            ? t('recovery.previewing')
             : phase === 'executing'
-              ? 'กำลังดำเนินการ'
+              ? t('recovery.executing')
               : phase === 'done'
-                ? 'ผลการดำเนินการ'
-                : 'ยืนยัน'}
+                ? t('recovery.done')
+                : t('recovery.confirming')}
         </h2>
-        <button className="button subtle" onClick={onClose} disabled={phase === 'executing'}>
-          ปิด
-        </button>
+        <Button variant="ghost" onPress={onClose} isDisabled={phase === 'executing'}>
+          {t('common.close')}
+        </Button>
       </div>
       <div className="pad" aria-live="polite">
-        {phase === 'previewing' ? (
-          <p className="muted">ระบบกำลังตรวจสถานะจริงของ dependency…</p>
-        ) : null}
+        {phase === 'previewing' ? <p className="muted">{t('recovery.checking')}</p> : null}
         {error ? (
           <>
             <ErrorAlert error={error} />
             {['REVISION_CONFLICT', 'PREVIEW_STALE', 'COMMAND_IN_PROGRESS'].includes(error.code) ? (
-              <button className="button" onClick={() => void runPreview()}>
-                โหลดสถานะล่าสุดแล้ว preview ใหม่
-              </button>
+              <Button onPress={() => void runPreview()}>{t('recovery.reloadPreview')}</Button>
             ) : null}
           </>
         ) : null}
@@ -1338,6 +1349,7 @@ function RecoveryPanel({
           allowed ? (
             <form
               className="form"
+              noValidate
               onSubmit={(event) => {
                 event.preventDefault();
                 void execute();
@@ -1345,110 +1357,106 @@ function RecoveryPanel({
             >
               <dl className="summary compact">
                 <div>
-                  <dt>ผลการตรวจ</dt>
+                  <dt>{t('recovery.finding')}</dt>
                   <dd className="code">{result?.finding ?? '—'}</dd>
                 </div>
                 <div>
-                  <dt>Revision ที่ยืนยัน</dt>
+                  <dt>{t('recovery.revision')}</dt>
                   <dd>{revision.current}</dd>
                 </div>
                 <div>
-                  <dt>Preview digest</dt>
+                  <dt>{t('recovery.digest')}</dt>
                   <dd className="code">{result?.previewDigest?.slice(0, 16)}…</dd>
                 </div>
               </dl>
-              <div className="field">
-                <label htmlFor={`${titleId}-reason`}>เหตุผล</label>
-                <select
-                  id={`${titleId}-reason`}
-                  value={reasonCode}
-                  onChange={(event) => setReasonCode(event.target.value)}
-                >
-                  {REASONS.map((reason) => (
-                    <option key={reason.value} value={reason.value}>
-                      {reason.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor={`${titleId}-comment`}>รายละเอียด (บันทึกใน Action history)</label>
-                <textarea
-                  id={`${titleId}-comment`}
-                  value={comment}
-                  maxLength={500}
-                  rows={3}
-                  aria-invalid={commentError ? 'true' : undefined}
-                  aria-describedby={commentError ? `${titleId}-comment-error` : undefined}
-                  onChange={(event) => setComment(event.target.value)}
-                />
-                {commentError ? (
-                  <p id={`${titleId}-comment-error`} className="field-error">
-                    {commentError}
-                  </p>
-                ) : null}
-              </div>
+              <Select
+                id={`${titleId}-reason`}
+                label={t('request.reason')}
+                selectedKey={reasonCode}
+                onSelectionChange={(key) => setReasonCode(String(key ?? REASONS[0].value))}
+                options={REASONS.map((reason) => ({ id: reason.value, label: t(reason.label) }))}
+              />
+              <UiTextField
+                id={`${titleId}-comment`}
+                multiline
+                label={t('recovery.comment')}
+                value={comment}
+                maxLength={500}
+                onChange={(value) => {
+                  setComment(value);
+                  setCommentError(null);
+                }}
+                validationBehavior="aria"
+                isInvalid={!!commentError}
+                errorMessage={commentError ? t(commentError) : undefined}
+              />
               {option.destructive ? (
-                <div className="field checkbox">
-                  <input
-                    id={`${titleId}-ack`}
-                    type="checkbox"
-                    checked={acknowledged}
-                    onChange={(event) => setAcknowledged(event.target.checked)}
-                  />
-                  <label htmlFor={`${titleId}-ack`}>
-                    ฉันเข้าใจผลกระทบของ {option.title} และตรวจสอบแล้ว
-                  </label>
-                </div>
+                <Checkbox
+                  className="confirmation"
+                  isSelected={acknowledged}
+                  onChange={setAcknowledged}
+                >
+                  {t('recovery.acknowledge', { action: t(option.title) })}
+                </Checkbox>
               ) : null}
               <div className="actions end">
-                <button type="button" className="button" onClick={onClose}>
-                  ยกเลิก
-                </button>
-                <button
+                <Button type="button" onPress={onClose}>
+                  {t('actions.CANCEL')}
+                </Button>
+                <Button
                   type="submit"
-                  className={`button ${option.destructive ? 'danger' : 'primary'}`}
-                  disabled={!acknowledged}
+                  variant={option.destructive ? 'danger' : 'primary'}
+                  isDisabled={!acknowledged}
                 >
-                  ยืนยัน {option.title}
-                </button>
+                  {t('recovery.confirm', { action: t(option.title) })}
+                </Button>
               </div>
             </form>
           ) : (
             <div className="callout warning" role="alert">
-              <strong>ทำรายการนี้ไม่ได้ตอนนี้</strong>
+              <strong>{t('recovery.blocked')}</strong>
               <p>
                 {preview.state === 'REJECTED'
                   ? errorMessage({
                       code: preview.errorCode ?? 'INTERNAL',
                       title: preview.errorCode ?? '',
                     })
-                  : (BLOCKED_REASONS[result?.blockedBy ?? ''] ?? result?.blockedBy)}
+                  : t(blockedReasonKey(result?.blockedBy))}
               </p>
             </div>
           )
         ) : null}
-        {phase === 'executing' ? (
-          <p className="muted">ส่งคำสั่งแล้ว (202) — รอ worker ดำเนินการ…</p>
-        ) : null}
+        {phase === 'executing' ? <p className="muted">{t('recovery.accepted')}</p> : null}
         {phase === 'done' && command ? (
           command.state === 'SUCCEEDED' ? (
             <div className="callout success" role="status">
-              <strong>{option.title} สำเร็จ</strong>
-              <p className="small">สถานะคำขอ: {String(command.result?.status ?? '—')}</p>
+              <strong>{t('recovery.succeeded', { action: t(option.title) })}</strong>
+              <p className="small">
+                {t('recovery.requestState', {
+                  state: t(
+                    statusPresentation(
+                      typeof command.result?.status === 'string'
+                        ? command.result.status
+                        : undefined,
+                    ).label,
+                  ),
+                })}
+              </p>
             </div>
           ) : (
             <div className="callout danger" role="alert">
-              <strong>{option.title} ถูกปฏิเสธ</strong>
+              <strong>
+                {t(command.state === 'REJECTED' ? 'recovery.rejected' : 'recovery.unconfirmed', {
+                  action: t(option.title),
+                })}
+              </strong>
               <p className="small">
                 {errorMessage({
                   code: command.errorCode ?? 'INTERNAL',
                   title: command.errorCode ?? '',
                 })}
               </p>
-              <button className="button" onClick={() => void runPreview()}>
-                preview ใหม่
-              </button>
+              <Button onPress={() => void runPreview()}>{t('recovery.previewAgain')}</Button>
             </div>
           )
         ) : null}
@@ -1468,6 +1476,8 @@ function ResendPanel({
   onClose: () => void;
   onDone: () => Promise<void>;
 }) {
+  const { t, errorMessage } = usePlatformText();
+
   const titleId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const key = useRef(newIdempotencyKey('resend'));
@@ -1515,14 +1525,20 @@ function ResendPanel({
   };
 
   return (
-    <section className="card panel" aria-labelledby={titleId}>
+    <section
+      className="card panel"
+      aria-labelledby={titleId}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && state !== 'sending') onClose();
+      }}
+    >
       <div className="card-head">
         <h2 id={titleId} ref={heading} tabIndex={-1}>
-          ส่งคำเชิญอีกครั้ง
+          {t('invitation.resend')}
         </h2>
-        <button className="button subtle" onClick={onClose}>
-          ปิด
-        </button>
+        <Button variant="ghost" onPress={onClose}>
+          {t('common.close')}
+        </Button>
       </div>
       <div className="pad">
         {error ? (
@@ -1530,14 +1546,14 @@ function ResendPanel({
             <strong>{errorMessage(error.envelope)}</strong>
             {error.retryAfter ? (
               <p className="small">
-                ลองได้อีกครั้งในประมาณ {Math.ceil(error.retryAfter / 60)} นาที
+                {t('invitation.retryAfter', { count: Math.ceil(error.retryAfter / 60) })}
               </p>
             ) : null}
           </div>
         ) : null}
         {state === 'queued' ? (
           <p role="status" className="callout success">
-            รับคำสั่งแล้ว — worker จะสร้างคำเชิญรุ่นใหม่และยกเลิกรุ่นเก่า
+            {t('invitation.queued')}
           </p>
         ) : (
           <form
@@ -1548,26 +1564,23 @@ function ResendPanel({
             }}
           >
             <p className="muted small">
-              ส่งซ้ำได้ไม่เกิน 3 ครั้งต่อชั่วโมง · ส่งไปแล้วในชั่วโมงนี้{' '}
-              {view.invitation?.resendsInLastHour ?? 0} ครั้ง
+              {t('invitation.limit', { count: view.invitation?.resendsInLastHour ?? 0 })}
             </p>
-            <div className="field">
-              <label htmlFor={`${titleId}-comment`}>เหตุผล (บันทึกใน Action history)</label>
-              <textarea
-                id={`${titleId}-comment`}
-                rows={3}
-                maxLength={500}
-                value={comment}
-                onChange={(event) => setComment(event.target.value)}
-              />
-            </div>
+            <UiTextField
+              id={`${titleId}-comment`}
+              multiline
+              label={t('invitation.comment')}
+              maxLength={500}
+              value={comment}
+              onChange={setComment}
+            />
             <div className="actions end">
-              <button type="button" className="button" onClick={onClose}>
-                ยกเลิก
-              </button>
-              <button type="submit" className="button primary" disabled={state === 'sending'}>
-                {state === 'sending' ? 'กำลังส่ง…' : 'ส่งคำเชิญอีกครั้ง'}
-              </button>
+              <Button type="button" onPress={onClose}>
+                {t('actions.CANCEL')}
+              </Button>
+              <Button type="submit" variant="primary" isDisabled={state === 'sending'}>
+                {state === 'sending' ? t('common.sending') : t('invitation.resend')}
+              </Button>
             </div>
           </form>
         )}
@@ -1587,6 +1600,8 @@ function ActionHistory({
   tenantId: string;
   version: number;
 }) {
+  const { t, formatTime, describeHistory } = usePlatformText();
+
   const [items, setItems] = useState<ActionHistoryItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<ErrorEnvelope | null>(null);
@@ -1618,18 +1633,16 @@ function ActionHistory({
     <section className="card" aria-labelledby="history-title">
       <div className="card-head">
         <div>
-          <h2 id="history-title">Action history</h2>
-          <p className="muted small">
-            Timeline แบบ append-only — ใครทำอะไร เมื่อไร และอ้างอิง context ใด
-          </p>
+          <h2 id="history-title">{t('history.title')}</h2>
+          <p className="muted small">{t('history.subtitle')}</p>
         </div>
       </div>
       <div className="pad" aria-busy={loading ? 'true' : 'false'}>
         {error ? <ErrorAlert error={error} onRetry={() => void load()} /> : null}
         {!error && items.length === 0 && !loading ? (
-          <p className="muted">ยังไม่มีเหตุการณ์</p>
+          <p className="muted">{t('history.empty')}</p>
         ) : null}
-        <ol className="timeline" aria-label="เหตุการณ์ล่าสุดก่อน">
+        <ol className="timeline" aria-label={t('history.order')}>
           {ordered.map((item) => (
             <li
               key={item.id}
@@ -1638,31 +1651,31 @@ function ActionHistory({
               <div className="timeline-meta">
                 <time dateTime={item.occurredAt}>{formatTime(item.occurredAt)}</time>
                 <Chip tone={item.actor.kind === 'SYSTEM' ? 'neutral' : 'info'}>
-                  {ACTOR_LABELS[item.actor.kind] ?? item.actor.kind}
+                  {t(actorLabelKey(item.actor.kind))}
                 </Chip>
               </div>
               <div>
-                <strong>{actionLabel(item.action)}</strong>
+                <strong>{t(actionLabel(item.action))}</strong>
                 {item.outcome !== 'SUCCEEDED' ? (
                   <Chip tone={item.outcome === 'REJECTED' ? 'danger' : 'neutral'}>
-                    {item.outcome}
+                    {t(outcomeMessageKey(item.outcome))}
                   </Chip>
                 ) : null}
                 <p className="small">{describeHistory(item)}</p>
                 {item.comment ? <p className="small quote">“{item.comment}”</p> : null}
                 <p className="muted small">
-                  correlation <span className="code">{item.correlationId}</span> · request{' '}
-                  <span className="code">{item.requestId.slice(0, 8)}</span> · audit{' '}
-                  <span className="code">{item.id.slice(0, 8)}</span>
+                  {t('history.correlation')} <span className="code">{item.correlationId}</span> ·{' '}
+                  {t('history.request')} <span className="code">{item.requestId.slice(0, 8)}</span>{' '}
+                  · {t('history.audit')} <span className="code">{item.id.slice(0, 8)}</span>
                 </p>
               </div>
             </li>
           ))}
         </ol>
         {cursor ? (
-          <button className="button" disabled={loading} onClick={() => void load(cursor)}>
-            {loading ? 'กำลังโหลด…' : 'โหลดเหตุการณ์ใหม่กว่านี้'}
-          </button>
+          <Button isDisabled={loading} onPress={() => void load(cursor)}>
+            {loading ? t('common.loading') : t('history.more')}
+          </Button>
         ) : null}
       </div>
     </section>
