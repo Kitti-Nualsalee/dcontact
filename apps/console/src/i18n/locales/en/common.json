@@ -73,7 +73,8 @@
         "agentSkills": "Agent skills"
       },
       "coreSettings": {
-        "organization": "Organization profile"
+        "organization": "Organization profile",
+        "teams": "Teams"
       }
     }
   },

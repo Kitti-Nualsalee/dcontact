@@ -82,9 +82,98 @@ test('Core organization smoke: ใช้ authenticated HTTP จริงแล�
     baseUrl: `http://127.0.0.1:${server.address().port}`,
     accessToken: 'synthetic-never-log',
   });
+  const teamRequired = await runOrganizationSmoke({
+    baseUrl: `http://127.0.0.1:${server.address().port}`,
+    accessToken: 'synthetic-never-log',
+    includeTeams: true,
+  });
+  assert.equal(
+    teamRequired.result,
+    'FAIL',
+    'ไม่มี Team routes/capabilities/menu ต้องไม่รับรอง Team smoke',
+  );
   assert.equal(result.result, 'PASS');
   assert.equal(result.voiceSmoke, 'NOT_RUN');
   assert.equal(result.vmTrial, 'NOT_PROVEN');
   assert.ok(!JSON.stringify(result).includes('synthetic-never-log'));
   assert.ok(!JSON.stringify(result).includes('ห้ามอยู่ใน report'));
+});
+test('Core Team smoke: ต้องมี list/detail/menu และรายงานไม่เผยชื่อหรือ token', async (t) => {
+  const { runOrganizationSmoke } = await import('./core-settings-organization-smoke.mjs');
+  const team = {
+    id: '11111111-1111-4111-8111-111111111111',
+    name: 'ห้ามเผยชื่อทีม',
+    isActive: true,
+    revision: '1',
+  };
+  let detailAvailable = true;
+  const server = createServer((req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.url === '/api/v1/runtime-profile')
+      return res.end(
+        JSON.stringify({
+          profile: 'uat-workspace',
+          providerEgress: 'BLOCKED',
+          kafka: 'DISABLED',
+          lineWebhook: 'DISABLED',
+        }),
+      );
+    if (!req.headers.authorization) {
+      res.statusCode = 401;
+      res.end('{}');
+      return;
+    }
+    const data = {
+      '/api/v1/tenant/core-settings/capabilities': {
+        organization: { read: true, write: true },
+        teams: { read: true, create: true, rename: true, deactivate: true },
+      },
+      '/api/v1/tenant/core-settings/organization': {
+        organization: { id: 'org', displayName: 'Org', revision: '0', defaults: null },
+      },
+      '/api/v1/tenant/locale-defaults': { locale: null, timeZone: null },
+      '/api/v1/me/navigation': {
+        apps: [{ id: 'core-settings', path: '/?view=core-settings&page=organization' }],
+        areas: [
+          {
+            sections: [
+              {
+                items: [
+                  {
+                    appId: 'core-settings',
+                    pages: [
+                      { id: 'organization' },
+                      { id: 'teams', path: '/?view=core-settings&page=teams' },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      '/api/v1/tenant/core-settings/teams?limit=50': { teams: [team], nextCursor: null },
+      [`/api/v1/tenant/core-settings/teams/${team.id}`]: detailAvailable ? { team } : null,
+    }[req.url];
+    res.end(JSON.stringify(data));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  const options = {
+    baseUrl: `http://127.0.0.1:${server.address().port}`,
+    accessToken: 'team-secret-not-in-report',
+    includeTeams: true,
+  };
+  const pass = await runOrganizationSmoke(options);
+  assert.equal(pass.result, 'PASS');
+  assert.equal(pass.vmTrial, 'NOT_PROVEN');
+  assert.equal(pass.voiceSmoke, 'NOT_RUN');
+  assert.ok(!JSON.stringify(pass).includes(team.name));
+  assert.ok(!JSON.stringify(pass).includes(options.accessToken));
+  detailAvailable = false;
+  assert.equal((await runOrganizationSmoke(options)).result, 'FAIL');
 });

@@ -77,3 +77,6 @@
     grid-template-columns: 1fr;
   }
 }
+.core-settings__detail {
+  margin-block-start: var(--dc-space-6);
+}

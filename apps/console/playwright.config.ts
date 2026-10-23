@@ -2,6 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: '.',
+  // Core ใช้ AuthRoot/API/DB sandbox ของ dedicated config; ไม่รันกับ mocked D1 harness
+  testIgnore: ['**/core-settings-*.spec.ts'],
   timeout: 30_000,
   use: { baseURL: 'http://127.0.0.1:5174', trace: 'retain-on-failure', video: 'retain-on-failure' },
   webServer: {
