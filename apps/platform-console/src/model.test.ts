@@ -12,9 +12,15 @@ import {
   EMPTY_DRAFT,
   RECOVERY_OPTIONS,
   currentStep,
-  describeHistory,
   draftToRequestBody,
-  errorMessage,
+  errorMessageKey,
+  actionLabel,
+  actorLabelKey,
+  blockedReasonKey,
+  statusPresentation,
+  stepPresentation,
+  deliveryMessageKey,
+  outcomeMessageKey,
   fieldErrorsToDraft,
   isHandoffReady,
   parseRoute,
@@ -22,7 +28,6 @@ import {
   routePath,
   shouldPoll,
   validateDraft,
-  type ActionHistoryItem,
   type TenantDraft,
 } from './model.js';
 
@@ -78,8 +83,8 @@ test('fieldErrorsToDraft: ชื่อ field ของ API map กลับเ�
   assert.deepEqual(
     fieldErrorsToDraft({ 'firstAdmin.email': 'INVALID', timezone: 'INVALID', unknown: 'X' }),
     {
-      firstAdminEmail: 'ระบบตรวจแล้วว่าค่านี้ไม่ถูกต้อง',
-      timezone: 'ระบบตรวจแล้วว่าค่านี้ไม่ถูกต้อง',
+      firstAdminEmail: 'validation.serverInvalid',
+      timezone: 'validation.serverInvalid',
     },
   );
 });
@@ -172,35 +177,42 @@ test('OIDC callback error: ลบ error/state เพื่อไม่ประ�
   );
 });
 
-test('timeline/error: คำอธิบายมีแค่ code/state และ error code ที่ไม่รู้จักใช้ title ของ API', () => {
-  const item: ActionHistoryItem = {
-    id: 'a',
-    requestId: 'r',
-    action: 'STEP_ACTION_REQUIRED',
-    outcome: 'SUCCEEDED',
-    actor: { kind: 'SYSTEM', subject: 'provisioning-worker:x', role: null },
-    stepKey: 'FIRST_ADMIN',
-    attempt: 2,
-    beforeState: null,
-    afterState: null,
-    reasonCode: null,
-    comment: null,
-    errorCode: 'FIRST_ADMIN_EMAIL_CONFLICT',
-    correlationId: 'corr',
-    occurredAt: '2026-09-24T00:00:00.000Z',
-  };
-  assert.equal(describeHistory(item), 'สร้าง First admin · attempt 2 · FIRST_ADMIN_EMAIL_CONFLICT');
-  assert.equal(errorMessage({ code: 'REVISION_CONFLICT', title: 'x' }).includes('โหลดใหม่'), true);
-  assert.equal(errorMessage({ code: 'SOMETHING_NEW', title: 'จาก API' }), 'จาก API');
+test('error/state/action ที่ไม่รู้จักให้ generic keys และไม่อ่าน raw server title', () => {
+  assert.equal(errorMessageKey({ code: 'REVISION_CONFLICT' }), 'errors.REVISION_CONFLICT');
+  for (const code of [undefined, null, '', 'NEW_ERROR', '__proto__', 'constructor']) {
+    assert.equal(errorMessageKey({ code }), 'errors.generic');
+  }
+  for (const code of [undefined, '', 'NEW_VALUE', '__proto__', 'constructor']) {
+    assert.equal(actionLabel(code), 'actions.unknown');
+    assert.equal(actorLabelKey(code), 'actors.unknown');
+    assert.equal(blockedReasonKey(code), 'blocked.unknown');
+    assert.equal(statusPresentation(code).label, 'statuses.unknown');
+    assert.equal(statusPresentation(code).tone, 'warning');
+    assert.equal(stepPresentation(code).title, 'steps.unknown.title');
+    assert.equal(deliveryMessageKey(code), 'invitation.delivery.unknown');
+    assert.equal(outcomeMessageKey(code), 'outcomes.unknown');
+  }
+  assert.equal(isHandoffReady({ status: 'UNKNOWN' as never }), false);
+  assert.equal(shouldPoll('UNKNOWN' as never), false);
+  assert.deepEqual(
+    fieldErrorsToDraft({
+      'firstAdmin.email': 'RAW_SERVER_SECRET',
+      timezone: 'TENANT_DOMAIN_CONFLICT',
+      unknown: 'INVALID',
+      constructor: 'INVALID',
+      ['__proto__']: 'INVALID',
+    }),
+    {
+      firstAdminEmail: 'validation.serverInvalid',
+      timezone: 'errors.TENANT_DOMAIN_CONFLICT',
+    },
+  );
 });
 
 test('A1.8 readOnlyCopy: แยก auditor, operator ที่ rollout ปิด และ operator นอก canary', () => {
   const base = { subject: 's', roles: ['platform_operator'], capabilities: [], expiresAt: '' };
   assert.equal(readOnlyCopy({ ...base, roles: ['platform_auditor'] }).banner, null);
-  assert.match(
-    readOnlyCopy({ ...base, mutations: 'DISABLED' }).banner ?? '',
-    /ปิดการสร้างและแก้ไข/,
-  );
-  assert.match(readOnlyCopy({ ...base, mutations: 'NOT_ALLOWLISTED' }).chip, /canary/);
-  assert.equal(errorMessage({ code: 'PROVISIONING_DISABLED', title: '' }).includes('ปิด'), true);
+  assert.equal(readOnlyCopy({ ...base, mutations: 'DISABLED' }).banner, 'readOnly.disabledBanner');
+  assert.equal(readOnlyCopy({ ...base, mutations: 'NOT_ALLOWLISTED' }).chip, 'identity.canary');
+  assert.equal(errorMessageKey({ code: 'PROVISIONING_DISABLED' }), 'errors.PROVISIONING_DISABLED');
 });

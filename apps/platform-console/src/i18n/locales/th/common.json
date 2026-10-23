@@ -36,5 +36,326 @@
     "expired": "session หมดอายุ กรุณาเข้าสู่ระบบใหม่",
     "forbidden": "บัญชีนี้ไม่มีสิทธิ์เข้า Platform Console",
     "unavailable": "ไม่สามารถตรวจสอบ session ได้ กรุณาลองใหม่อีกครั้ง"
+  },
+  "fields": {
+    "displayName": "ชื่อลูกค้า / องค์กร",
+    "slug": "Slug",
+    "primaryDomain": "Primary domain",
+    "planCode": "Plan",
+    "locale": "Locale",
+    "timezone": "Timezone",
+    "bootstrapTemplateVersion": "Bootstrap template",
+    "firstAdminDisplayName": "ชื่อ First admin",
+    "firstAdminEmail": "อีเมล First admin"
+  },
+  "locales": {
+    "th": "ไทย (th-TH)",
+    "en": "English (en-US)"
+  },
+  "validation": {
+    "displayName": "กรอกชื่อ 2–120 ตัวอักษร",
+    "slug": "ใช้ a-z, 0-9 และ - (ไม่ขึ้นต้น/ลงท้ายด้วย - และไม่มี --)",
+    "primaryDomain": "กรอกโดเมน เช่น example.co.th",
+    "planCode": "เลือก plan",
+    "bootstrapTemplateVersion": "ไม่มี bootstrap template ที่ใช้งานได้",
+    "locale": "เลือก locale",
+    "timezone": "เลือก timezone",
+    "firstAdminDisplayName": "กรอกชื่อผู้ดูแลคนแรก",
+    "firstAdminEmail": "กรอกอีเมลให้ถูกต้อง",
+    "serverInvalid": "ระบบตรวจแล้วว่าค่านี้ไม่ถูกต้อง",
+    "comment": "ต้องระบุเหตุผลเพิ่มเติม",
+    "summary": "ข้อมูลบางช่องต้องแก้ไข ({{count}})"
+  },
+  "steps": {
+    "TENANT_RECORD": {
+      "title": "รับคำขอและ reserve identity",
+      "detail": "slug, domain และอีเมลถูกจองแล้ว"
+    },
+    "KEYCLOAK_ORGANIZATION": {
+      "title": "สร้าง Organization",
+      "detail": "ขอบเขต identity ของ tenant"
+    },
+    "PLAN_BOOTSTRAP": {
+      "title": "Bootstrap baseline",
+      "detail": "ทีม คิว เวลาทำการ (draft) และ plan ที่ pin"
+    },
+    "FIRST_ADMIN": {
+      "title": "สร้าง First admin",
+      "detail": "identity + สิทธิ์ admin ของ tenant"
+    },
+    "INVITATION": {
+      "title": "ส่งคำเชิญ",
+      "detail": "ยืนยันอีเมล ตั้งรหัสผ่าน และ TOTP (72 ชั่วโมง)"
+    },
+    "READINESS": {
+      "title": "Readiness proof",
+      "detail": "ตรวจครบก่อนเปิดใช้งาน"
+    },
+    "unknown": {
+      "title": "ขั้นตอนที่ไม่รู้จัก",
+      "detail": "กรุณาตรวจสอบรหัสอ้างอิงกับผู้ดูแล"
+    }
+  },
+  "statuses": {
+    "PENDING": "รอเริ่ม",
+    "RUNNING": "กำลัง provision",
+    "SUCCEEDED": "พร้อมใช้งาน",
+    "ACTION_REQUIRED": "ต้องการการตัดสินใจ",
+    "FAILED_FINAL": "ยุติแล้ว",
+    "CANCELLED": "ยกเลิกแล้ว",
+    "unknown": "สถานะไม่ทราบแน่ชัด"
+  },
+  "recovery": {
+    "actions": {
+      "RECONCILE": {
+        "title": "Reconcile & resume",
+        "detail": "อ่านสถานะจริงจาก dependency แล้ว adopt ของที่สร้างสำเร็จ ลดการสร้างซ้ำ"
+      },
+      "RETRY_STEP": {
+        "title": "Retry current step",
+        "detail": "ทำขั้นปัจจุบันใหม่เมื่อยืนยันแล้วว่า resource ไม่มีอยู่จริง"
+      },
+      "SAFE_COMPENSATE": {
+        "title": "Safe compensate",
+        "detail": "ลบเฉพาะ resource ที่พิสูจน์ ownership แล้วและ step รองรับ"
+      },
+      "MARK_FAILED_FINAL": {
+        "title": "Mark FAILED_FINAL",
+        "detail": "ยุติคำขอ เก็บ ledger และ tombstone slug/domain/email 30 วัน"
+      }
+    },
+    "title": "Recovery",
+    "guidance": "แนะนำ: Reconcile ก่อน — ทุก action ต้อง preview แล้วยืนยันพร้อมเหตุผล",
+    "recommended": " (แนะนำ)",
+    "previewing": "กำลัง preview",
+    "executing": "กำลังดำเนินการ",
+    "done": "ผลการดำเนินการ",
+    "confirming": "ยืนยัน",
+    "checking": "ระบบกำลังตรวจสถานะจริงของ dependency…",
+    "reloadPreview": "โหลดสถานะล่าสุดแล้ว preview ใหม่",
+    "finding": "ผลการตรวจ",
+    "revision": "Revision ที่ยืนยัน",
+    "digest": "Preview digest",
+    "comment": "รายละเอียด (บันทึกใน Action history)",
+    "blocked": "ทำรายการนี้ไม่ได้ตอนนี้",
+    "accepted": "ส่งคำสั่งแล้ว (202) — รอ worker ดำเนินการ…",
+    "previewAgain": "preview ใหม่",
+    "acknowledge": "ฉันเข้าใจผลกระทบของ {{action}} และตรวจสอบแล้ว",
+    "confirm": "ยืนยัน {{action}}",
+    "succeeded": "{{action}} สำเร็จ",
+    "rejected": "{{action}} ถูกปฏิเสธ",
+    "requestState": "สถานะคำขอ: {{state}}",
+    "unconfirmed": "{{action}}: ยังยืนยันผลไม่ได้"
+  },
+  "blocked": {
+    "REQUEST_NOT_ACTION_REQUIRED": "คำขอไม่ได้อยู่ในสถานะที่ต้องตัดสินใจแล้ว",
+    "NO_ACTION_REQUIRED_STEP": "ไม่มีขั้นตอนที่หยุดรอ",
+    "CORRELATION_MISMATCH": "พบ resource ชื่อเดียวกันของเจ้าของอื่น — ห้ามยึด",
+    "RESOURCE_MAY_EXIST": "resource อาจมีอยู่แล้ว ต้อง Reconcile หรือ Safe compensate ก่อน",
+    "COMPENSATION_UNSUPPORTED": "ขั้นตอนนี้ชดเชยไม่ได้",
+    "NOTHING_TO_COMPENSATE": "ไม่พบ resource ที่ต้องชดเชย",
+    "unknown": "ไม่สามารถยืนยันเงื่อนไขของรายการนี้ได้"
+  },
+  "actors": {
+    "SYSTEM": "System",
+    "PLATFORM_OPERATOR": "Platform Operator",
+    "PLATFORM_AUDITOR": "Platform Auditor",
+    "FIRST_ADMIN": "First admin",
+    "unknown": "ผู้ดำเนินการที่ไม่รู้จัก"
+  },
+  "actions": {
+    "REQUEST_ACCEPTED": "รับคำขอ",
+    "COMMAND_REPLAYED": "ส่งคำขอซ้ำ (idempotent)",
+    "STATE_CHANGED": "เปลี่ยนสถานะ",
+    "STEP_STARTED": "เริ่มขั้นตอน",
+    "STEP_SUCCEEDED": "ขั้นตอนสำเร็จ",
+    "STEP_ACTION_REQUIRED": "ขั้นตอนหยุดรอ Operator",
+    "STEP_RETRY_SCHEDULED": "นัดลองใหม่",
+    "RECONCILE": "Reconcile",
+    "RETRY_STEP": "Retry step",
+    "RESEND_INVITATION": "ส่งคำเชิญซ้ำ",
+    "SAFE_COMPENSATE": "Safe compensate",
+    "MARK_FAILED_FINAL": "Mark FAILED_FINAL",
+    "CANCEL": "ยกเลิก",
+    "RESERVATION_TOMBSTONED": "Tombstone identity",
+    "SECURITY_DENIED": "ถูกปฏิเสธด้านความปลอดภัย",
+    "REQUEST_EDITED": "แก้ข้อมูลคำขอ",
+    "FIRST_ADMIN_EMAIL_VERIFIED": "ยืนยันอีเมล",
+    "FIRST_ADMIN_PASSWORD_SET": "ตั้งรหัสผ่าน",
+    "FIRST_ADMIN_TOTP_ENROLLED": "ลงทะเบียน TOTP",
+    "FIRST_ADMIN_ACTIVATED": "เปิดใช้งานบัญชี",
+    "unknown": "เหตุการณ์ที่ไม่รู้จัก"
+  },
+  "errors": {
+    "UNAUTHENTICATED": "session หมดอายุ กรุณาเข้าสู่ระบบใหม่",
+    "FORBIDDEN": "บัญชีนี้ไม่มีสิทธิ์ทำรายการนี้",
+    "NOT_FOUND": "ไม่พบรายการ",
+    "VALIDATION_FAILED": "ข้อมูลบางช่องไม่ถูกต้อง",
+    "TENANT_SLUG_CONFLICT": "slug นี้ถูกใช้หรือถูกจองแล้ว",
+    "TENANT_DOMAIN_CONFLICT": "โดเมนนี้ถูกใช้หรือถูกจองแล้ว",
+    "FIRST_ADMIN_EMAIL_CONFLICT": "อีเมลผู้ดูแลคนแรกถูกใช้แล้ว",
+    "IDEMPOTENCY_KEY_REUSED": "ข้อมูลถูกแก้หลังส่งไปแล้ว กรุณาส่งใหม่เป็นคำขอใหม่",
+    "REVISION_CONFLICT": "ข้อมูลถูกเปลี่ยนโดยคนอื่นหรือระบบ กรุณาโหลดใหม่แล้วตรวจอีกครั้ง",
+    "INVALID_STATE_TRANSITION": "สถานะปัจจุบันทำรายการนี้ไม่ได้",
+    "PLAN_UNAVAILABLE": "plan ที่เลือกไม่พร้อมใช้งานแล้ว",
+    "BOOTSTRAP_TEMPLATE_UNAVAILABLE": "bootstrap template ไม่พร้อมใช้งานแล้ว",
+    "PREVIEW_STALE": "ผล preview เก่าแล้ว กรุณา preview ใหม่",
+    "RECOVERY_PRECONDITION_FAILED": "เงื่อนไขของรายการนี้ไม่ผ่าน",
+    "COMMAND_IN_PROGRESS": "มีคำสั่งอื่นของคำขอนี้กำลังทำงาน",
+    "INVITATION_RESEND_LIMITED": "ส่งคำเชิญซ้ำเกิน 3 ครั้งต่อชั่วโมงแล้ว",
+    "SERVICE_UNAVAILABLE": "ระบบไม่พร้อมชั่วคราว ลองใหม่อีกครั้ง",
+    "PROVISIONING_DISABLED": "ระบบปิดการสร้างและแก้ไขชั่วคราว ดูสถานะได้ตามปกติ",
+    "COMMAND_ATTEMPTS_EXHAUSTED": "ตรวจสถานะของระบบภายนอกไม่สำเร็จ ลอง preview ใหม่เมื่อระบบภายนอกพร้อม",
+    "NETWORK": "เชื่อมต่อ Platform API ไม่ได้ ลองใหม่อีกครั้ง",
+    "generic": "เกิดข้อผิดพลาด กรุณาลองใหม่หรือแจ้งรหัสอ้างอิงแก่ผู้ดูแล"
+  },
+  "readOnly": {
+    "disabledBanner": "ระบบปิดการสร้างและแก้ไข tenant ชั่วคราว — ดูสถานะและประวัติได้ตามปกติ งานที่ค้างอยู่จะทำต่อเมื่อเปิดอีกครั้ง",
+    "disabledCreate": "ขณะนี้ปิดการสร้าง tenant ชั่วคราว",
+    "disabledDecision": "ปิดการแก้ไขชั่วคราว — ตัดสินใจได้เมื่อระบบเปิดอีกครั้ง",
+    "canaryBanner": "บัญชีนี้ยังไม่อยู่ในกลุ่มผู้ใช้ช่วงเปิดทดลอง (canary) จึงดูได้อย่างเดียว",
+    "canaryCreate": "บัญชีนี้ยังสร้าง tenant ไม่ได้ในช่วง canary",
+    "canaryDecision": "บัญชีนี้ยังไม่อยู่ในกลุ่ม canary — ต้องให้ operator ในกลุ่มตัดสินใจ",
+    "auditorCreate": "Platform Auditor สร้าง tenant ไม่ได้",
+    "auditorDecision": "Platform Auditor ดูได้อย่างเดียว — ต้องให้ Platform Operator ตัดสินใจ",
+    "subtitle": "บัญชีนี้เป็นแบบอ่านอย่างเดียว"
+  },
+  "common": {
+    "retry": "ลองอีกครั้ง",
+    "reference": "อ้างอิง",
+    "loading": "กำลังโหลด…",
+    "more": "โหลดเพิ่ม",
+    "clear": "ล้าง",
+    "close": "ปิด",
+    "cancel": "ยกเลิก",
+    "sending": "กำลังส่ง…"
+  },
+  "list": {
+    "subtitle": "ค้นหาด้วยชื่อองค์กร, slug, primary domain, request ID หรืออีเมล first admin",
+    "searchLabel": "ค้นหา tenant",
+    "statusLabel": "สถานะคำขอ",
+    "all": "ทั้งหมด",
+    "search": "ค้นหา",
+    "loading": "กำลังโหลด tenant",
+    "empty": "ไม่พบ tenant",
+    "emptyHint": "ลองคำค้นอื่น หรือล้างตัวกรอง",
+    "table": "รายการ tenant",
+    "tenant": "Tenant",
+    "identity": "Identity",
+    "lifecycle": "Lifecycle",
+    "updated": "อัปเดตล่าสุด",
+    "actions": "การทำงาน",
+    "open": "เปิด →",
+    "noHistory": "ไม่มี provisioning history",
+    "legacy": "legacy",
+    "count_one": "พบ {{count}} รายการ",
+    "count_other": "พบ {{count}} รายการ",
+    "openDetails": "เปิดรายละเอียด {{name}}"
+  },
+  "labels": {
+    "provisioning": "Provisioning"
+  },
+  "wizard": {
+    "stepData": "ข้อมูลลูกค้า",
+    "stepReview": "ตรวจสอบ",
+    "stepHandoff": "ส่งมอบ",
+    "stepsLabel": "ขั้นตอนการสร้าง tenant",
+    "titleData": "สร้าง tenant: ข้อมูลลูกค้า",
+    "titleReview": "สร้าง tenant: ตรวจสอบก่อน provision",
+    "subtitle": "Guided onboarding — tenant จะพร้อมใช้งานเมื่อทุกขั้นผ่านและสถานะเป็น ACTIVE เท่านั้น",
+    "catalogLoading": "กำลังโหลด plan และ bootstrap template…",
+    "organization": "องค์กรลูกค้า",
+    "defaults": "Plan และค่าตั้งต้น",
+    "slugHint": "แก้ไม่ได้หลังยืนยัน ใช้เป็น subdomain และ SIP domain",
+    "domainHint": "เช่น example.co.th",
+    "templateMissing": "ไม่มี template ที่ใช้งานได้",
+    "emailHint": "ต้องไม่ซ้ำทั้ง platform — ระบบส่งคำเชิญ (72 ชั่วโมง) ไปที่อีเมลนี้",
+    "review": "ตรวจสอบข้อมูล →",
+    "immutableTitle": "ค่าที่แก้ไม่ได้หลังส่งคำขอ",
+    "immutableBody": "Tenant ID ถูกสร้างโดย server; slug, primary domain, plan และ template ถูก pin ตลอด onboarding ถ้าคำขอจบแบบยุติ ค่าเหล่านี้จะติด tombstone 30 วัน",
+    "confirm": "ฉันตรวจสอบ identity, plan และ first admin แล้ว และเข้าใจว่าระบบจะเริ่ม durable provisioning",
+    "edit": "← แก้ไข",
+    "submit": "ยืนยันและเริ่ม provision",
+    "aside": "ข้อมูลประกอบ",
+    "boundary": "Completion boundary",
+    "boundaryBody": "แสดงว่าพร้อมใช้งานเมื่อ Organization, bootstrap, first admin, คำเชิญ และ readiness ผ่านครบเท่านั้น",
+    "safeTitle": "ข้อมูลปลอดภัย",
+    "safeBody": "ไม่มี temporary password หรือ secret ใน UI, URL และ Action history"
+  },
+  "request": {
+    "notFound": "ไม่พบคำขอ",
+    "unavailable": "เปิดคำขอไม่ได้",
+    "back": "← กลับรายการ",
+    "loading": "กำลังโหลดคำขอ",
+    "ready": "พร้อมส่งมอบให้ลูกค้า",
+    "pending": "รับคำขอแล้ว — worker จะเริ่มอัตโนมัติ หน้านี้อัปเดตเอง",
+    "active": "Tenant ACTIVE",
+    "activeBody": "ทุกขั้นผ่านครบและเปิดใช้งานใน transaction เดียวกัน",
+    "reason": "เหตุผล",
+    "revision": "revision",
+    "aside": "ข้อมูลที่ pin และการส่งมอบ",
+    "pinned": "ค่าที่ pin ไว้",
+    "localeTimezone": "Locale / Timezone",
+    "accepted": "รับคำขอ",
+    "subtitle": "Request {{id}}"
+  },
+  "invitation": {
+    "title": "First admin และคำเชิญ",
+    "sent": "ส่งถึงผู้ให้บริการอีเมลแล้ว",
+    "expired": " (หมดอายุแล้ว)",
+    "deliveryHint": "การส่งถึงไม่ได้แปลว่าผู้ใช้ activate แล้ว",
+    "notSent": "ยังไม่ได้ส่งคำเชิญ",
+    "resend": "ส่งคำเชิญอีกครั้ง",
+    "queued": "รับคำสั่งแล้ว — worker จะสร้างคำเชิญรุ่นใหม่และยกเลิกรุ่นเก่า",
+    "comment": "เหตุผล (บันทึกใน Action history)",
+    "generation": "คำเชิญรุ่นที่ {{count}}:",
+    "expires": "หมดอายุ {{time}}",
+    "retryAfter": "ลองได้อีกครั้งในประมาณ {{count}} นาที",
+    "limit": "ส่งซ้ำได้ไม่เกิน 3 ครั้งต่อชั่วโมง · ส่งไปแล้วในชั่วโมงนี้ {{count}} ครั้ง",
+    "delivery": {
+      "INTENT": "เตรียมส่ง",
+      "FAILED": "ส่งไม่สำเร็จ",
+      "AMBIGUOUS": "ยังยืนยันผลส่งไม่ได้",
+      "unknown": "สถานะการส่งที่ไม่รู้จัก",
+      "SENT": "ส่งถึงผู้ให้บริการอีเมลแล้ว"
+    }
+  },
+  "reasons": {
+    "OPERATOR_VERIFIED": "Operator ตรวจสถานะจริงแล้ว",
+    "DEPENDENCY_RECOVERED": "ระบบภายนอกกลับมาปกติแล้ว",
+    "CUSTOMER_REQUEST": "ลูกค้าร้องขอ",
+    "INVALID_REQUEST": "คำขอไม่ถูกต้อง ต้องยุติ"
+  },
+  "history": {
+    "title": "Action history",
+    "subtitle": "Timeline แบบ append-only — ใครทำอะไร เมื่อไร และอ้างอิง context ใด",
+    "empty": "ยังไม่มีเหตุการณ์",
+    "order": "เหตุการณ์ล่าสุดก่อน",
+    "more": "โหลดเหตุการณ์ใหม่กว่านี้",
+    "correlation": "correlation",
+    "request": "request",
+    "audit": "audit",
+    "attempt": "attempt {{count}}",
+    "reason": "เหตุผล {{code}}",
+    "transition": "{{before}} → {{after}}"
+  },
+  "progress": {
+    "status": "สถานะ {{state}}",
+    "stopped": "หยุดอย่างปลอดภัยที่ขั้น {{step}}",
+    "completed": "สำเร็จ · {{time}}",
+    "waiting": "หยุดรอ Operator · {{code}}",
+    "running": "กำลังทำ · attempt {{count}}",
+    "retry": "นัดลองใหม่ {{time}}"
+  },
+  "outcomes": {
+    "REJECTED": "ถูกปฏิเสธ",
+    "QUEUED": "อยู่ในคิว",
+    "RUNNING": "กำลังดำเนินการ",
+    "SUCCEEDED": "สำเร็จ",
+    "unknown": "ผลที่ยังยืนยันไม่ได้"
+  },
+  "lifecycle": {
+    "ACTIVE": "เปิดใช้งาน",
+    "PROVISIONING": "กำลังเตรียมระบบ"
   }
 }

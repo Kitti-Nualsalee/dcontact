@@ -36,5 +36,326 @@
     "expired": "Your session has expired. Please sign in again.",
     "forbidden": "This account cannot access Platform Console.",
     "unavailable": "Your session could not be checked. Please try again."
+  },
+  "fields": {
+    "displayName": "Customer / organization name",
+    "slug": "Slug",
+    "primaryDomain": "Primary domain",
+    "planCode": "Plan",
+    "locale": "Locale",
+    "timezone": "Timezone",
+    "bootstrapTemplateVersion": "Bootstrap template",
+    "firstAdminDisplayName": "First admin name",
+    "firstAdminEmail": "First admin email"
+  },
+  "locales": {
+    "th": "Thai (th-TH)",
+    "en": "English (en-US)"
+  },
+  "validation": {
+    "displayName": "Enter a name with 2–120 characters",
+    "slug": "Use a-z, 0-9 and - (no leading/trailing - or --)",
+    "primaryDomain": "Enter a domain, such as example.co.th",
+    "planCode": "Select a plan",
+    "bootstrapTemplateVersion": "No bootstrap template is available",
+    "locale": "Select a locale",
+    "timezone": "Select a timezone",
+    "firstAdminDisplayName": "Enter the first administrator’s name",
+    "firstAdminEmail": "Enter a valid email address",
+    "serverInvalid": "The server rejected this value",
+    "comment": "Enter an explanation",
+    "summary": "Some fields need correction ({{count}})"
+  },
+  "steps": {
+    "TENANT_RECORD": {
+      "title": "Accept request and reserve identity",
+      "detail": "Slug, domain and email are reserved"
+    },
+    "KEYCLOAK_ORGANIZATION": {
+      "title": "Create Organization",
+      "detail": "Tenant identity boundary"
+    },
+    "PLAN_BOOTSTRAP": {
+      "title": "Bootstrap baseline",
+      "detail": "Draft teams, queues, business hours and pinned plan"
+    },
+    "FIRST_ADMIN": {
+      "title": "Create first admin",
+      "detail": "Identity and tenant admin permissions"
+    },
+    "INVITATION": {
+      "title": "Send invitation",
+      "detail": "Verify email, set password and TOTP (72 hours)"
+    },
+    "READINESS": {
+      "title": "Readiness proof",
+      "detail": "Complete all checks before activation"
+    },
+    "unknown": {
+      "title": "Unknown step",
+      "detail": "Check the reference with your administrator"
+    }
+  },
+  "statuses": {
+    "PENDING": "Pending",
+    "RUNNING": "Provisioning",
+    "SUCCEEDED": "Ready",
+    "ACTION_REQUIRED": "Action required",
+    "FAILED_FINAL": "Terminated",
+    "CANCELLED": "Cancelled",
+    "unknown": "Unknown state"
+  },
+  "recovery": {
+    "actions": {
+      "RECONCILE": {
+        "title": "Reconcile & resume",
+        "detail": "Read the dependency state and adopt verified resources to avoid duplicate creation"
+      },
+      "RETRY_STEP": {
+        "title": "Retry current step",
+        "detail": "Retry the current step after verifying that the resource does not exist"
+      },
+      "SAFE_COMPENSATE": {
+        "title": "Safe compensate",
+        "detail": "Remove only verified owned resources when the step supports compensation"
+      },
+      "MARK_FAILED_FINAL": {
+        "title": "Mark FAILED_FINAL",
+        "detail": "Terminate the request; retain the ledger and tombstone slug/domain/email for 30 days"
+      }
+    },
+    "title": "Recovery",
+    "guidance": "Reconcile first is recommended. Every action requires a preview and confirmation with a reason.",
+    "recommended": " (recommended)",
+    "previewing": "Previewing",
+    "executing": "Executing",
+    "done": "Result",
+    "confirming": "Confirm",
+    "checking": "Checking the actual dependency state…",
+    "reloadPreview": "Reload state and preview again",
+    "finding": "Finding",
+    "revision": "Confirmed revision",
+    "digest": "Preview digest",
+    "comment": "Details (recorded in Action history)",
+    "blocked": "This action is currently unavailable",
+    "accepted": "Command accepted (202). Waiting for the worker…",
+    "previewAgain": "Preview again",
+    "acknowledge": "I understand the impact of {{action}} and have verified it",
+    "confirm": "Confirm {{action}}",
+    "succeeded": "{{action}} succeeded",
+    "rejected": "{{action}} rejected",
+    "requestState": "Request state: {{state}}",
+    "unconfirmed": "{{action}}: result unconfirmed"
+  },
+  "blocked": {
+    "REQUEST_NOT_ACTION_REQUIRED": "The request no longer requires an action",
+    "NO_ACTION_REQUIRED_STEP": "No step is waiting for an action",
+    "CORRELATION_MISMATCH": "A resource with this name belongs to another owner; adoption is forbidden",
+    "RESOURCE_MAY_EXIST": "The resource may already exist; reconcile or safely compensate first",
+    "COMPENSATION_UNSUPPORTED": "This step does not support compensation",
+    "NOTHING_TO_COMPENSATE": "No resource requires compensation",
+    "unknown": "The action preconditions could not be verified"
+  },
+  "actors": {
+    "SYSTEM": "System",
+    "PLATFORM_OPERATOR": "Platform Operator",
+    "PLATFORM_AUDITOR": "Platform Auditor",
+    "FIRST_ADMIN": "First admin",
+    "unknown": "Unknown actor"
+  },
+  "actions": {
+    "REQUEST_ACCEPTED": "Request accepted",
+    "COMMAND_REPLAYED": "Request replayed (idempotent)",
+    "STATE_CHANGED": "State changed",
+    "STEP_STARTED": "Step started",
+    "STEP_SUCCEEDED": "Step succeeded",
+    "STEP_ACTION_REQUIRED": "Step awaiting operator",
+    "STEP_RETRY_SCHEDULED": "Retry scheduled",
+    "RECONCILE": "Reconcile",
+    "RETRY_STEP": "Retry step",
+    "RESEND_INVITATION": "Resend invitation",
+    "SAFE_COMPENSATE": "Safe compensate",
+    "MARK_FAILED_FINAL": "Mark FAILED_FINAL",
+    "CANCEL": "Cancel",
+    "RESERVATION_TOMBSTONED": "Tombstone identity",
+    "SECURITY_DENIED": "Security check denied",
+    "REQUEST_EDITED": "Request edited",
+    "FIRST_ADMIN_EMAIL_VERIFIED": "Email verified",
+    "FIRST_ADMIN_PASSWORD_SET": "Password set",
+    "FIRST_ADMIN_TOTP_ENROLLED": "TOTP enrolled",
+    "FIRST_ADMIN_ACTIVATED": "Account activated",
+    "unknown": "Unknown event"
+  },
+  "errors": {
+    "UNAUTHENTICATED": "Your session expired. Please sign in again.",
+    "FORBIDDEN": "This account cannot perform this action.",
+    "NOT_FOUND": "Item not found.",
+    "VALIDATION_FAILED": "Some fields are invalid.",
+    "TENANT_SLUG_CONFLICT": "This slug is already used or reserved.",
+    "TENANT_DOMAIN_CONFLICT": "This domain is already used or reserved.",
+    "FIRST_ADMIN_EMAIL_CONFLICT": "The first admin email is already in use.",
+    "IDEMPOTENCY_KEY_REUSED": "The submitted data changed. Submit it as a new request.",
+    "REVISION_CONFLICT": "The data changed. Reload the latest state and review it again.",
+    "INVALID_STATE_TRANSITION": "This action is unavailable in the current state.",
+    "PLAN_UNAVAILABLE": "The selected plan is no longer available.",
+    "BOOTSTRAP_TEMPLATE_UNAVAILABLE": "The bootstrap template is no longer available.",
+    "PREVIEW_STALE": "The preview is stale. Generate a new preview.",
+    "RECOVERY_PRECONDITION_FAILED": "The action preconditions were not met.",
+    "COMMAND_IN_PROGRESS": "Another command is running for this request.",
+    "INVITATION_RESEND_LIMITED": "The limit of 3 invitation resends per hour was reached.",
+    "SERVICE_UNAVAILABLE": "The service is temporarily unavailable. Please try again.",
+    "PROVISIONING_DISABLED": "Creation and updates are temporarily disabled. Status remains available.",
+    "COMMAND_ATTEMPTS_EXHAUSTED": "The dependency could not be checked. Preview again when it is available.",
+    "NETWORK": "Cannot connect to Platform API. Please try again.",
+    "generic": "An error occurred. Please try again or share the reference with your administrator."
+  },
+  "readOnly": {
+    "disabledBanner": "Tenant creation and updates are temporarily disabled. Status and history remain available; pending work resumes when enabled.",
+    "disabledCreate": "Tenant creation is temporarily disabled.",
+    "disabledDecision": "Updates are temporarily disabled. Actions become available when enabled.",
+    "canaryBanner": "This account is outside the canary group and has read-only access.",
+    "canaryCreate": "This account cannot create tenants during the canary rollout.",
+    "canaryDecision": "This account is outside the canary group. An operator in the group must act.",
+    "auditorCreate": "Platform Auditor cannot create tenants.",
+    "auditorDecision": "Platform Auditor has read-only access. A Platform Operator must act.",
+    "subtitle": "This account has read-only access"
+  },
+  "common": {
+    "retry": "Try again",
+    "reference": "Reference",
+    "loading": "Loading…",
+    "more": "Load more",
+    "clear": "Clear",
+    "close": "Close",
+    "cancel": "Cancel",
+    "sending": "Sending…"
+  },
+  "list": {
+    "subtitle": "Search by organization name, slug, primary domain, request ID or first admin email",
+    "searchLabel": "Find tenant",
+    "statusLabel": "Request status",
+    "all": "All",
+    "search": "Search",
+    "loading": "Loading tenants",
+    "empty": "No tenants found",
+    "emptyHint": "Try another search or clear the filters",
+    "table": "Tenant list",
+    "tenant": "Tenant",
+    "identity": "Identity",
+    "lifecycle": "Lifecycle",
+    "updated": "Last updated",
+    "actions": "Actions",
+    "open": "Open →",
+    "noHistory": "No provisioning history",
+    "legacy": "Legacy",
+    "count_one": "{{count}} item found",
+    "count_other": "{{count}} items found",
+    "openDetails": "Open details for {{name}}"
+  },
+  "labels": {
+    "provisioning": "Provisioning"
+  },
+  "wizard": {
+    "stepData": "Customer details",
+    "stepReview": "Review",
+    "stepHandoff": "Handoff",
+    "stepsLabel": "Tenant creation steps",
+    "titleData": "Create tenant: customer details",
+    "titleReview": "Create tenant: review before provisioning",
+    "subtitle": "Guided onboarding: the tenant is ready only when every step passes and its state is ACTIVE",
+    "catalogLoading": "Loading plans and bootstrap templates…",
+    "organization": "Customer organization",
+    "defaults": "Plan and defaults",
+    "slugHint": "Immutable after confirmation; used as subdomain and SIP domain",
+    "domainHint": "For example, example.co.th",
+    "templateMissing": "No template is available",
+    "emailHint": "Must be unique across the platform; the 72-hour invitation is sent here",
+    "review": "Review details →",
+    "immutableTitle": "Values that are immutable after submission",
+    "immutableBody": "The server assigns Tenant ID and pins slug, primary domain, plan and template throughout onboarding. Terminated requests retain identity tombstones for 30 days.",
+    "confirm": "I reviewed the identity, plan and first admin and understand that durable provisioning will start",
+    "edit": "← Edit",
+    "submit": "Confirm and start provisioning",
+    "aside": "Supporting information",
+    "boundary": "Completion boundary",
+    "boundaryBody": "Ready is shown only after Organization, bootstrap, first admin, invitation and readiness all pass",
+    "safeTitle": "Data safety",
+    "safeBody": "No temporary passwords or secrets appear in the UI, URL or Action history"
+  },
+  "request": {
+    "notFound": "Request not found",
+    "unavailable": "Cannot open request",
+    "back": "← Back to list",
+    "loading": "Loading request",
+    "ready": "Ready for customer handoff",
+    "pending": "Request accepted. The worker starts automatically and this page updates itself.",
+    "active": "Tenant ACTIVE",
+    "activeBody": "All steps passed and activation completed in the same transaction",
+    "reason": "Reason",
+    "revision": "Revision",
+    "aside": "Pinned values and handoff",
+    "pinned": "Pinned values",
+    "localeTimezone": "Locale / Timezone",
+    "accepted": "Accepted",
+    "subtitle": "Request {{id}}"
+  },
+  "invitation": {
+    "title": "First admin and invitation",
+    "sent": "Accepted by email provider",
+    "expired": " (expired)",
+    "deliveryHint": "Delivery does not mean the account is activated",
+    "notSent": "No invitation sent yet",
+    "resend": "Resend invitation",
+    "queued": "Command accepted. The worker will create a new invitation generation and invalidate the old one.",
+    "comment": "Reason (recorded in Action history)",
+    "generation": "Invitation generation {{count}}:",
+    "expires": "Expires {{time}}",
+    "retryAfter": "Try again in about {{count}} minutes",
+    "limit": "Up to 3 resends per hour. Resent {{count}} times this hour.",
+    "delivery": {
+      "INTENT": "Preparing delivery",
+      "FAILED": "Delivery failed",
+      "AMBIGUOUS": "Delivery unconfirmed",
+      "unknown": "Unknown delivery state",
+      "SENT": "Accepted by email provider"
+    }
+  },
+  "reasons": {
+    "OPERATOR_VERIFIED": "Operator verified the actual state",
+    "DEPENDENCY_RECOVERED": "Dependency recovered",
+    "CUSTOMER_REQUEST": "Customer request",
+    "INVALID_REQUEST": "Invalid request; termination required"
+  },
+  "history": {
+    "title": "Action history",
+    "subtitle": "Append-only timeline: who did what, when and in which context",
+    "empty": "No events yet",
+    "order": "Latest events first",
+    "more": "Load newer events",
+    "correlation": "Correlation",
+    "request": "Request",
+    "audit": "Audit",
+    "attempt": "attempt {{count}}",
+    "reason": "Reason {{code}}",
+    "transition": "{{before}} → {{after}}"
+  },
+  "progress": {
+    "status": "Status {{state}}",
+    "stopped": "Stopped safely at {{step}}",
+    "completed": "Completed · {{time}}",
+    "waiting": "Awaiting operator · {{code}}",
+    "running": "Running · attempt {{count}}",
+    "retry": "Retry scheduled for {{time}}"
+  },
+  "outcomes": {
+    "REJECTED": "Rejected",
+    "QUEUED": "Queued",
+    "RUNNING": "Running",
+    "SUCCEEDED": "Succeeded",
+    "unknown": "Unconfirmed outcome"
+  },
+  "lifecycle": {
+    "ACTIVE": "Active",
+    "PROVISIONING": "Provisioning"
   }
 }

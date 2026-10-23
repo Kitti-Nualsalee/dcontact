@@ -1,6 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page, type Route } from '@playwright/test';
 import { test } from './platform-test.js';
+import commonTh from '../src/i18n/locales/th/common.json' with { type: 'json' };
+import commonEn from '../src/i18n/locales/en/common.json' with { type: 'json' };
 
 /**
  * A1.7 (#412): Platform Console end-to-end กับ Platform API ที่ mock บน origin เดียวกัน
@@ -405,6 +407,25 @@ class MockPlatformApi {
   }
 }
 
+function seedRequest(api: MockPlatformApi, status: Status = 'ACTION_REQUIRED') {
+  const entry: MockRequest = {
+    requestId: '00000001-0000-4000-8000-00000000cafe',
+    tenantId: '00000002-0000-4000-8000-00000000cafe',
+    status,
+    revision: 3,
+    displayName: 'Synthetic Customer',
+    slug: 'synthetic-customer',
+    primaryDomain: 'synthetic.example.test',
+    plan: { code: 'growth', version: 7 },
+    failing: status === 'ACTION_REQUIRED',
+    polls: 5,
+    email: 'operator@synthetic.example.test',
+  };
+  api.requests.set(entry.requestId, entry);
+  api.history.push(api.event(entry, 'REQUEST_ACCEPTED', 'SYSTEM'));
+  return entry;
+}
+
 async function open(page: Page, api: MockPlatformApi, path = '/') {
   await page.route('**/api/v1/**', (route) => api.handle(route));
   // request ออกนอก origin = ห้าม (ไม่มี telemetry/third party)
@@ -419,254 +440,336 @@ async function open(page: Page, api: MockPlatformApi, path = '/') {
 }
 
 async function expectAccessible(page: Page) {
+  await page.evaluate(() =>
+    Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => {}))),
+  );
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(
-    results.violations.map((violation) => `${violation.id}: ${violation.nodes.length}`),
+    results.violations.map((violation) => ({
+      id: violation.id,
+      nodes: violation.nodes.map(({ target, failureSummary }) => ({ target, failureSummary })),
+    })),
   ).toEqual([]);
 }
 
-async function fillValidForm(page: Page, slug = 'nova-care') {
-  await page.getByLabel('ชื่อลูกค้า / องค์กร').fill('Nova Care Thailand');
-  await page.getByLabel('Slug').fill(slug);
-  await page.getByLabel('Primary domain').fill('nova.example.test');
-  await page.getByLabel('Plan').selectOption('growth');
-  await page.getByLabel('ชื่อ First admin').fill('Narin');
-  await page.getByLabel('อีเมล First admin').fill(EMAIL);
+async function choose(page: Page, label: string, option: string) {
+  const trigger = page.getByRole('button', { name: new RegExp(label) });
+  await trigger.click();
+  await page.getByRole('option', { name: option, exact: true }).click();
 }
 
-test('happy path: create → review → track จน ACTIVE → search → timeline (a11y ผ่านทุกหน้า)', async ({
-  page,
-}) => {
-  const api = new MockPlatformApi();
-  api.hold = true;
-  const outside = await open(page, api);
-  await expect(page.getByRole('heading', { name: 'Tenants', level: 1 })).toBeVisible();
-  await expect(page.getByText('ไม่พบ tenant')).toBeVisible();
-  await expectAccessible(page);
+async function confirmReview(page: Page, label = commonTh.wizard.confirm) {
+  const checkbox = page.getByRole('checkbox', { name: label });
+  await checkbox.focus();
+  await checkbox.press('Space');
+  await expect(checkbox).toBeChecked();
+}
 
-  await page.getByRole('button', { name: 'สร้าง tenant' }).first().click();
-  await expect(page).toHaveURL(/\/new$/);
-  // เปลี่ยนหน้าแล้วโฟกัสย้ายไปหัวข้อ
-  await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
-  // validation: error summary ได้โฟกัสและลิงก์ไปช่องที่ผิด
-  await page.getByRole('button', { name: 'ตรวจสอบข้อมูล →' }).click();
-  const summary = page.getByRole('alert').filter({ hasText: 'ข้อมูลบางช่องต้องแก้ไข' });
-  await expect(summary).toBeFocused();
-  await expectAccessible(page);
-  await summary.getByRole('link', { name: /Slug/ }).click();
-  await expect(page.getByLabel('Slug')).toBeFocused();
-  await expect(page.getByLabel('Slug')).toHaveAttribute('aria-invalid', 'true');
+async function fillValidForm(page: Page, slug = 'nova-care', copy = commonTh) {
+  await page.getByLabel(copy.fields.displayName).fill('Nova Care Thailand');
+  await page.getByLabel(copy.fields.slug, { exact: true }).fill(slug);
+  await page.getByLabel(copy.fields.primaryDomain).fill('nova.example.test');
+  await choose(page, copy.fields.planCode, 'growth (v3)');
+  await page.getByLabel(copy.fields.firstAdminDisplayName).fill('Narin');
+  await page.getByLabel(copy.fields.firstAdminEmail).fill(EMAIL);
+}
 
-  await fillValidForm(page);
-  await page.getByRole('button', { name: 'ตรวจสอบข้อมูล →' }).click();
-  await expect(page.getByRole('heading', { name: /ตรวจสอบก่อน provision/ })).toBeFocused();
-  const confirm = page.getByRole('button', { name: 'ยืนยันและเริ่ม provision' });
-  await expect(confirm).toBeDisabled();
-  await expectAccessible(page);
-  await page.getByLabel(/ฉันตรวจสอบ identity/).check();
-  await confirm.click();
+for (const language of ['th', 'en'] as const) {
+  test.describe(`Guided onboarding ${language}`, () => {
+    test.use({ locale: language === 'th' ? 'th-TH' : 'en-GB' });
+    const copy = language === 'th' ? commonTh : commonEn;
+    test('happy path: create → review → track จน ACTIVE → search → timeline (a11y ผ่านทุกหน้า)', async ({
+      page,
+    }, testInfo) => {
+      const api = new MockPlatformApi();
+      api.hold = true;
+      const outside = await open(page, api);
+      await expect(
+        page.getByRole('heading', { name: copy.navigation.tenants, level: 1 }),
+      ).toBeVisible();
+      await expect(page.getByText(copy.list.empty)).toBeVisible();
+      await expectAccessible(page);
 
-  // สถานะมาจาก API: PENDING → RUNNING → SUCCEEDED; ไม่บอกว่าสำเร็จก่อนเวลา
-  await expect(page).toHaveURL(/\/requests\/[0-9a-f-]{36}$/);
-  await expect(page.getByText('รับคำขอแล้ว — worker จะเริ่มอัตโนมัติ')).toBeVisible();
-  await expect(page.getByText('พร้อมส่งมอบให้ลูกค้า')).toHaveCount(0);
-  api.hold = false;
-  await expect(page.getByRole('heading', { name: 'พร้อมส่งมอบให้ลูกค้า' })).toBeVisible({
-    timeout: 10_000,
+      await page.getByRole('button', { name: copy.navigation.create }).first().click();
+      await expect(page).toHaveURL(/\/new$/);
+      // เปลี่ยนหน้าแล้วโฟกัสย้ายไปหัวข้อ
+      await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
+      // validation: error summary ได้โฟกัสและลิงก์ไปช่องที่ผิด
+      await page.getByRole('button', { name: copy.wizard.review }).click();
+      const summary = page
+        .getByRole('alert')
+        .filter({ hasText: copy.validation.summary.split(' (')[0] });
+      await expect(summary).toBeFocused();
+      await expectAccessible(page);
+      await summary.getByRole('link', { name: /Slug/ }).focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByLabel('Slug')).toBeFocused();
+      await expect(page.getByLabel('Slug')).toHaveAttribute('aria-invalid', 'true');
+
+      await fillValidForm(page, 'nova-care', copy);
+      await page.getByRole('button', { name: copy.wizard.review }).click();
+      await expect(page.getByRole('heading', { name: copy.wizard.titleReview })).toBeFocused();
+      const confirm = page.getByRole('button', { name: copy.wizard.submit });
+      await expect(confirm).toBeDisabled();
+      await expectAccessible(page);
+      await confirmReview(page, copy.wizard.confirm);
+      await confirm.click();
+
+      // สถานะมาจาก API: PENDING → RUNNING → SUCCEEDED; ไม่บอกว่าสำเร็จก่อนเวลา
+      await expect(page).toHaveURL(/\/requests\/[0-9a-f-]{36}$/);
+      await expect(page.getByText(copy.request.pending)).toBeVisible();
+      await expect(page.getByText(copy.request.ready)).toHaveCount(0);
+      api.hold = false;
+      await expect(page.getByRole('heading', { name: copy.request.ready })).toBeVisible({
+        timeout: 10_000,
+      });
+      // plan ที่แสดงคือค่าที่ server pin (v7) ไม่ใช่ตัวเลือกใน catalog (v3)
+      await expect(page.getByText('growth v7')).toBeVisible();
+      await expect(page.getByText('o***@nova.example.test')).toBeVisible();
+      await expect(
+        page.getByRole('list', { name: copy.history.order }).getByText('Platform Operator'),
+      ).toBeVisible();
+      await expect(
+        page.getByRole('list', { name: copy.history.order }).getByText('System').first(),
+      ).toBeVisible();
+      await expectAccessible(page);
+
+      await page.screenshot({
+        path: testInfo.outputPath(`handoff-${language}.png`),
+        fullPage: true,
+      });
+
+      // idempotency: ส่งครั้งเดียวด้วย key และไม่มี tenant/status จาก browser
+      const created = api.posts.filter((post) => post.path === '/api/v1/provisioning-requests');
+      expect(created).toHaveLength(1);
+      expect(created[0]!.key).toMatch(/^create-/);
+      expect(Object.keys(created[0]!.body as object)).not.toContain('tenantId');
+
+      // search ด้วยอีเมล: คำค้นไม่ลง URL
+      await page.getByRole('button', { name: copy.navigation.tenants }).click();
+      await page.getByLabel(copy.list.searchLabel).fill(EMAIL);
+      await page.getByLabel(copy.list.searchLabel).press('Enter');
+      await expect(page.getByRole('row', { name: /Nova Care Thailand/ })).toBeVisible();
+      expect(page.url()).not.toContain('owner');
+      await page
+        .getByRole('button', {
+          name: copy.list.openDetails.replace('{{name}}', 'Nova Care Thailand'),
+        })
+        .click();
+      await expect(page.getByRole('heading', { name: copy.history.title })).toBeVisible();
+
+      // ไม่มี token/อีเมลใน storage และไม่มี request ออกนอก origin
+      const storage = await page.evaluate(() =>
+        JSON.stringify({ ...localStorage, ...sessionStorage }),
+      );
+      expect(storage).not.toContain('e2e-access-token');
+      expect(storage).not.toContain(EMAIL);
+      expect(outside).toEqual([]);
+    });
+
+    test('conflict: slug ที่ถูกจองแล้วพากลับฟอร์มพร้อม error ที่ช่อง slug', async ({ page }) => {
+      const api = new MockPlatformApi();
+      await open(page, api, '/new');
+      await fillValidForm(page, 'taken', copy);
+      await page.getByRole('button', { name: copy.wizard.review }).click();
+      await confirmReview(page, copy.wizard.confirm);
+      await page.getByRole('button', { name: copy.wizard.submit }).click();
+      const summary = page
+        .getByRole('alert')
+        .filter({ hasText: copy.validation.summary.split(' (')[0] });
+      await expect(summary).toBeFocused();
+      await expect(summary).toContainText(copy.errors.TENANT_SLUG_CONFLICT);
+      await expect(page.getByLabel('Slug')).toHaveAttribute('aria-invalid', 'true');
+    });
+
+    test('ACTION_REQUIRED: Reconcile แนะนำก่อน, preview async, stale revision → preview ใหม่ แล้วสำเร็จ', async ({
+      page,
+    }) => {
+      const api = new MockPlatformApi();
+      await open(page, api, '/new');
+      await fillValidForm(page, 'failing', copy);
+      await page.getByRole('button', { name: copy.wizard.review }).click();
+      await confirmReview(page, copy.wizard.confirm);
+      await page.getByRole('button', { name: copy.wizard.submit }).click();
+      await expect(page.getByRole('heading', { name: copy.statuses.ACTION_REQUIRED })).toBeVisible({
+        timeout: 10_000,
+      });
+      const options = page.getByRole('region', { name: 'Recovery' }).getByRole('button');
+      await expect(options.first()).toHaveText(
+        copy.recovery.actions.RECONCILE.title + copy.recovery.recommended,
+      );
+      await expect(options.nth(3)).toHaveText('Mark FAILED_FINAL');
+      await expectAccessible(page);
+
+      await options.first().click();
+      const panel = page.getByRole('region', { name: /Reconcile & resume/ });
+      await expect(
+        panel.getByRole('heading', { name: new RegExp(copy.recovery.confirming) }),
+      ).toBeFocused();
+      // ต้องมีเหตุผล: ช่องว่าง = error ที่ช่อง comment
+      await panel
+        .getByRole('button', {
+          name: copy.recovery.confirm.replace('{{action}}', copy.recovery.actions.RECONCILE.title),
+        })
+        .click();
+      await expect(panel.getByText(copy.validation.comment)).toBeVisible();
+      await panel.getByLabel(copy.recovery.comment).fill('ตรวจแล้วว่า Organization เป็นของเรา');
+
+      // คนอื่นขยับ revision ก่อน → 409 แล้ว preview ใหม่ได้
+      api.bumpRevisionBeforeExecute = true;
+      await panel
+        .getByRole('button', {
+          name: copy.recovery.confirm.replace('{{action}}', copy.recovery.actions.RECONCILE.title),
+        })
+        .click();
+      await expect(panel.getByRole('alert')).toContainText(copy.errors.REVISION_CONFLICT);
+      await panel.getByRole('button', { name: copy.recovery.reloadPreview }).click();
+      await panel.getByLabel(copy.recovery.comment).fill('ตรวจอีกครั้งหลังโหลดใหม่');
+      await panel
+        .getByRole('button', {
+          name: copy.recovery.confirm.replace('{{action}}', copy.recovery.actions.RECONCILE.title),
+        })
+        .click();
+      await expect(
+        panel.getByText(
+          copy.recovery.succeeded.replace('{{action}}', copy.recovery.actions.RECONCILE.title),
+        ),
+      ).toBeVisible();
+      await expect(page.getByRole('heading', { name: copy.request.ready })).toBeVisible({
+        timeout: 10_000,
+      });
+
+      const actions = api.posts.filter((post) => post.path.endsWith('/actions/reconcile'));
+      expect(actions).toHaveLength(2);
+      // ลองใหม่หลัง preview ใหม่ = key ใหม่ พร้อม revision ล่าสุด
+      expect(actions[0]!.key).not.toBe(actions[1]!.key);
+      expect((actions[1]!.body as { previewDigest: string }).previewDigest).toBe(PREVIEW_DIGEST);
+    });
+
+    test('resend เกิน cap: แสดงเวลาที่ลองใหม่ได้จาก Retry-After', async ({ page }) => {
+      const api = new MockPlatformApi();
+      await open(page, api, '/new');
+      await fillValidForm(page, 'nova-care', copy);
+      await page.getByRole('button', { name: copy.wizard.review }).click();
+      await confirmReview(page, copy.wizard.confirm);
+      await page.getByRole('button', { name: copy.wizard.submit }).click();
+      await expect(page.getByRole('heading', { name: copy.request.ready })).toBeVisible({
+        timeout: 10_000,
+      });
+      await page.getByRole('button', { name: copy.invitation.resend }).click();
+      const panel = page.getByRole('region', { name: copy.invitation.resend });
+      await panel.getByLabel(copy.invitation.comment).fill('ผู้รับแจ้งว่าไม่ได้รับอีเมล');
+      await panel.getByRole('button', { name: copy.invitation.resend }).click();
+      await expect(panel.getByRole('alert')).toContainText(copy.errors.INVITATION_RESEND_LIMITED);
+      await expect(panel.getByRole('alert')).toContainText(
+        copy.invitation.retryAfter.replace('{{count}}', '30'),
+      );
+      await expectAccessible(page);
+      await panel.getByRole('button', { name: copy.common.close }).focus();
+      await page.keyboard.press('Escape');
+      await expect(panel).toHaveCount(0);
+      await expect(page.getByRole('button', { name: copy.invitation.resend })).toBeFocused();
+    });
+
+    test('auditor: อ่านได้อย่างเดียว — ไม่มีปุ่มสร้าง/recovery และหน้า /new ถูกปฏิเสธ', async ({
+      page,
+    }) => {
+      const operator = new MockPlatformApi();
+      const auditor = new MockPlatformApi('platform_auditor');
+      // สร้างข้อมูลด้วย operator mock แล้วให้ auditor อ่านชุดเดียวกัน
+      auditor.requests = operator.requests;
+      auditor.history = operator.history;
+      const entry = {
+        requestId: '00000001-0000-4000-8000-00000000abcd',
+        tenantId: '00000002-0000-4000-8000-00000000abcd',
+        status: 'ACTION_REQUIRED' as const,
+        revision: 3,
+        displayName: 'Metro Retail Lab',
+        slug: 'metro-retail',
+        primaryDomain: 'metro.example.test',
+        plan: { code: 'starter', version: 1 },
+        failing: true,
+        polls: 5,
+        email: 'ops@metro.example.test',
+      };
+      auditor.requests.set(entry.requestId, entry);
+      await open(page, auditor);
+      await expect(page.getByText(copy.identity.auditor)).toBeVisible();
+      await expect(page.getByRole('button', { name: copy.navigation.create })).toHaveCount(0);
+      await page
+        .getByRole('button', {
+          name: copy.list.openDetails.replace('{{name}}', 'Metro Retail Lab'),
+        })
+        .click();
+      await expect(
+        page.getByRole('heading', { name: copy.statuses.ACTION_REQUIRED }),
+      ).toBeVisible();
+      await expect(page.getByText(copy.readOnly.auditorDecision)).toBeVisible();
+      await expect(page.getByRole('button', { name: /Reconcile/ })).toHaveCount(0);
+      await expectAccessible(page);
+      await page.goto('/new');
+      await expect(page.getByText(copy.readOnly.auditorCreate)).toBeVisible();
+    });
+
+    test('A1.8 rollback: operator เห็นประกาศปิดชั่วคราว, ไม่มีปุ่มสร้าง/recovery แต่ยังดูสถานะได้', async ({
+      page,
+    }) => {
+      const api = new MockPlatformApi('platform_operator', 'DISABLED');
+      api.requests.set('00000001-0000-4000-8000-00000000beef', {
+        requestId: '00000001-0000-4000-8000-00000000beef',
+        tenantId: '00000002-0000-4000-8000-00000000beef',
+        status: 'ACTION_REQUIRED' as const,
+        revision: 3,
+        displayName: 'Harbor Freight Lab',
+        slug: 'harbor-freight',
+        primaryDomain: 'harbor.example.test',
+        plan: { code: 'starter', version: 1 },
+        failing: true,
+        polls: 5,
+        email: 'ops@harbor.example.test',
+      });
+      await open(page, api);
+      await expect(
+        page.getByRole('status').filter({ hasText: copy.readOnly.disabledBanner }),
+      ).toBeVisible();
+      await expect(page.getByText(copy.identity.disabled)).toBeVisible();
+      await expect(page.getByRole('button', { name: copy.navigation.create })).toHaveCount(0);
+      await page
+        .getByRole('button', {
+          name: copy.list.openDetails.replace('{{name}}', 'Harbor Freight Lab'),
+        })
+        .click();
+      await expect(
+        page.getByRole('heading', { name: copy.statuses.ACTION_REQUIRED }),
+      ).toBeVisible();
+      await expect(page.getByText(copy.readOnly.disabledDecision)).toBeVisible();
+      await expect(page.getByRole('button', { name: /Reconcile/ })).toHaveCount(0);
+      await expectAccessible(page);
+      await page.goto('/new');
+      await expect(page.getByText(copy.readOnly.disabledCreate)).toBeVisible();
+    });
+
+    test('keyboard: skip link และค้นหาด้วยคีย์บอร์ดล้วน; request ที่ไม่มีได้หน้า generic', async ({
+      page,
+    }) => {
+      const api = new MockPlatformApi();
+      await open(page, api);
+      await expect(
+        page.getByRole('heading', { name: copy.navigation.tenants, level: 1 }),
+      ).toBeVisible();
+      await page.keyboard.press('Tab');
+      await expect(page.getByRole('link', { name: copy.navigation.skip })).toBeFocused();
+      await page.keyboard.press('Enter');
+      await page.getByLabel(copy.list.searchLabel).focus();
+      await page.keyboard.type('ไม่มีอยู่จริง');
+      await page.keyboard.press('Enter');
+      await expect(page.getByText(copy.list.empty)).toBeVisible();
+      await page.goto('/requests/00000009-0000-4000-8000-000000000009');
+      await expect(page.getByRole('heading', { name: copy.request.notFound })).toBeVisible();
+      await expectAccessible(page);
+    });
   });
-  // plan ที่แสดงคือค่าที่ server pin (v7) ไม่ใช่ตัวเลือกใน catalog (v3)
-  await expect(page.getByText('growth v7')).toBeVisible();
-  await expect(page.getByText('o***@nova.example.test')).toBeVisible();
-  await expect(
-    page.getByRole('list', { name: 'เหตุการณ์ล่าสุดก่อน' }).getByText('Platform Operator'),
-  ).toBeVisible();
-  await expect(
-    page.getByRole('list', { name: 'เหตุการณ์ล่าสุดก่อน' }).getByText('System').first(),
-  ).toBeVisible();
-  await expectAccessible(page);
-
-  // idempotency: ส่งครั้งเดียวด้วย key และไม่มี tenant/status จาก browser
-  const created = api.posts.filter((post) => post.path === '/api/v1/provisioning-requests');
-  expect(created).toHaveLength(1);
-  expect(created[0]!.key).toMatch(/^create-/);
-  expect(Object.keys(created[0]!.body as object)).not.toContain('tenantId');
-
-  // search ด้วยอีเมล: คำค้นไม่ลง URL
-  await page.getByRole('button', { name: 'Tenants' }).click();
-  await page.getByLabel('ค้นหา tenant').fill(EMAIL);
-  await page.getByLabel('ค้นหา tenant').press('Enter');
-  await expect(page.getByRole('row', { name: /Nova Care Thailand/ })).toBeVisible();
-  expect(page.url()).not.toContain('owner');
-  await page.getByRole('button', { name: 'เปิดรายละเอียด Nova Care Thailand' }).click();
-  await expect(page.getByRole('heading', { name: 'Action history' })).toBeVisible();
-
-  // ไม่มี token/อีเมลใน storage และไม่มี request ออกนอก origin
-  const storage = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }));
-  expect(storage).not.toContain('e2e-access-token');
-  expect(storage).not.toContain(EMAIL);
-  expect(outside).toEqual([]);
-});
-
-test('conflict: slug ที่ถูกจองแล้วพากลับฟอร์มพร้อม error ที่ช่อง slug', async ({ page }) => {
-  const api = new MockPlatformApi();
-  await open(page, api, '/new');
-  await fillValidForm(page, 'taken');
-  await page.getByRole('button', { name: 'ตรวจสอบข้อมูล →' }).click();
-  await page.getByLabel(/ฉันตรวจสอบ identity/).check();
-  await page.getByRole('button', { name: 'ยืนยันและเริ่ม provision' }).click();
-  const summary = page.getByRole('alert').filter({ hasText: 'ข้อมูลบางช่องต้องแก้ไข' });
-  await expect(summary).toBeFocused();
-  await expect(summary).toContainText('slug นี้ถูกใช้หรือถูกจองแล้ว');
-  await expect(page.getByLabel('Slug')).toHaveAttribute('aria-invalid', 'true');
-});
-
-test('ACTION_REQUIRED: Reconcile แนะนำก่อน, preview async, stale revision → preview ใหม่ แล้วสำเร็จ', async ({
-  page,
-}) => {
-  const api = new MockPlatformApi();
-  await open(page, api, '/new');
-  await fillValidForm(page, 'failing');
-  await page.getByRole('button', { name: 'ตรวจสอบข้อมูล →' }).click();
-  await page.getByLabel(/ฉันตรวจสอบ identity/).check();
-  await page.getByRole('button', { name: 'ยืนยันและเริ่ม provision' }).click();
-  await expect(page.getByRole('heading', { name: 'ต้องการการตัดสินใจ' })).toBeVisible({
-    timeout: 10_000,
-  });
-  const options = page.getByRole('region', { name: 'Recovery' }).getByRole('button');
-  await expect(options.first()).toHaveText('Reconcile & resume (แนะนำ)');
-  await expect(options.nth(3)).toHaveText('Mark FAILED_FINAL');
-  await expectAccessible(page);
-
-  await options.first().click();
-  const panel = page.getByRole('region', { name: /Reconcile & resume/ });
-  await expect(panel.getByRole('heading', { name: /ยืนยัน/ })).toBeFocused();
-  // ต้องมีเหตุผล: ช่องว่าง = error ที่ช่อง comment
-  await panel.getByRole('button', { name: 'ยืนยัน Reconcile & resume' }).click();
-  await expect(panel.getByText('ต้องระบุเหตุผลเพิ่มเติม')).toBeVisible();
-  await panel.getByLabel(/รายละเอียด/).fill('ตรวจแล้วว่า Organization เป็นของเรา');
-
-  // คนอื่นขยับ revision ก่อน → 409 แล้ว preview ใหม่ได้
-  api.bumpRevisionBeforeExecute = true;
-  await panel.getByRole('button', { name: 'ยืนยัน Reconcile & resume' }).click();
-  await expect(panel.getByRole('alert')).toContainText('ข้อมูลถูกเปลี่ยนโดยคนอื่นหรือระบบ');
-  await panel.getByRole('button', { name: 'โหลดสถานะล่าสุดแล้ว preview ใหม่' }).click();
-  await panel.getByLabel(/รายละเอียด/).fill('ตรวจอีกครั้งหลังโหลดใหม่');
-  await panel.getByRole('button', { name: 'ยืนยัน Reconcile & resume' }).click();
-  await expect(panel.getByText('Reconcile & resume สำเร็จ')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'พร้อมส่งมอบให้ลูกค้า' })).toBeVisible({
-    timeout: 10_000,
-  });
-
-  const actions = api.posts.filter((post) => post.path.endsWith('/actions/reconcile'));
-  expect(actions).toHaveLength(2);
-  // ลองใหม่หลัง preview ใหม่ = key ใหม่ พร้อม revision ล่าสุด
-  expect(actions[0]!.key).not.toBe(actions[1]!.key);
-  expect((actions[1]!.body as { previewDigest: string }).previewDigest).toBe(PREVIEW_DIGEST);
-});
-
-test('resend เกิน cap: แสดงเวลาที่ลองใหม่ได้จาก Retry-After', async ({ page }) => {
-  const api = new MockPlatformApi();
-  await open(page, api, '/new');
-  await fillValidForm(page);
-  await page.getByRole('button', { name: 'ตรวจสอบข้อมูล →' }).click();
-  await page.getByLabel(/ฉันตรวจสอบ identity/).check();
-  await page.getByRole('button', { name: 'ยืนยันและเริ่ม provision' }).click();
-  await expect(page.getByRole('heading', { name: 'พร้อมส่งมอบให้ลูกค้า' })).toBeVisible({
-    timeout: 10_000,
-  });
-  await page.getByRole('button', { name: 'ส่งคำเชิญอีกครั้ง' }).click();
-  const panel = page.getByRole('region', { name: 'ส่งคำเชิญอีกครั้ง' });
-  await panel.getByLabel(/เหตุผล/).fill('ผู้รับแจ้งว่าไม่ได้รับอีเมล');
-  await panel.getByRole('button', { name: 'ส่งคำเชิญอีกครั้ง' }).click();
-  await expect(panel.getByRole('alert')).toContainText('ส่งคำเชิญซ้ำเกิน 3 ครั้งต่อชั่วโมงแล้ว');
-  await expect(panel.getByRole('alert')).toContainText('30 นาที');
-});
-
-test('auditor: อ่านได้อย่างเดียว — ไม่มีปุ่มสร้าง/recovery และหน้า /new ถูกปฏิเสธ', async ({
-  page,
-}) => {
-  const operator = new MockPlatformApi();
-  const auditor = new MockPlatformApi('platform_auditor');
-  // สร้างข้อมูลด้วย operator mock แล้วให้ auditor อ่านชุดเดียวกัน
-  auditor.requests = operator.requests;
-  auditor.history = operator.history;
-  const entry = {
-    requestId: '00000001-0000-4000-8000-00000000abcd',
-    tenantId: '00000002-0000-4000-8000-00000000abcd',
-    status: 'ACTION_REQUIRED' as const,
-    revision: 3,
-    displayName: 'Metro Retail Lab',
-    slug: 'metro-retail',
-    primaryDomain: 'metro.example.test',
-    plan: { code: 'starter', version: 1 },
-    failing: true,
-    polls: 5,
-    email: 'ops@metro.example.test',
-  };
-  auditor.requests.set(entry.requestId, entry);
-  await open(page, auditor);
-  await expect(page.getByText('Platform Auditor (อ่านอย่างเดียว)')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'สร้าง tenant' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'เปิดรายละเอียด Metro Retail Lab' }).click();
-  await expect(page.getByRole('heading', { name: 'ต้องการการตัดสินใจ' })).toBeVisible();
-  await expect(page.getByText('Platform Auditor ดูได้อย่างเดียว')).toBeVisible();
-  await expect(page.getByRole('button', { name: /Reconcile/ })).toHaveCount(0);
-  await expectAccessible(page);
-  await page.goto('/new');
-  await expect(page.getByText('Platform Auditor สร้าง tenant ไม่ได้')).toBeVisible();
-});
-
-test('A1.8 rollback: operator เห็นประกาศปิดชั่วคราว, ไม่มีปุ่มสร้าง/recovery แต่ยังดูสถานะได้', async ({
-  page,
-}) => {
-  const api = new MockPlatformApi('platform_operator', 'DISABLED');
-  api.requests.set('00000001-0000-4000-8000-00000000beef', {
-    requestId: '00000001-0000-4000-8000-00000000beef',
-    tenantId: '00000002-0000-4000-8000-00000000beef',
-    status: 'ACTION_REQUIRED' as const,
-    revision: 3,
-    displayName: 'Harbor Freight Lab',
-    slug: 'harbor-freight',
-    primaryDomain: 'harbor.example.test',
-    plan: { code: 'starter', version: 1 },
-    failing: true,
-    polls: 5,
-    email: 'ops@harbor.example.test',
-  });
-  await open(page, api);
-  await expect(
-    page.getByRole('status').filter({ hasText: 'ปิดการสร้างและแก้ไข tenant ชั่วคราว' }),
-  ).toBeVisible();
-  await expect(page.getByText('Platform Operator (ปิดการแก้ไขชั่วคราว)')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'สร้าง tenant' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'เปิดรายละเอียด Harbor Freight Lab' }).click();
-  await expect(page.getByRole('heading', { name: 'ต้องการการตัดสินใจ' })).toBeVisible();
-  await expect(
-    page.getByText('ปิดการแก้ไขชั่วคราว — ตัดสินใจได้เมื่อระบบเปิดอีกครั้ง'),
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: /Reconcile/ })).toHaveCount(0);
-  await expectAccessible(page);
-  await page.goto('/new');
-  await expect(page.getByText('ขณะนี้ปิดการสร้าง tenant ชั่วคราว')).toBeVisible();
-});
-
-test('keyboard: skip link และค้นหาด้วยคีย์บอร์ดล้วน; request ที่ไม่มีได้หน้า generic', async ({
-  page,
-}) => {
-  const api = new MockPlatformApi();
-  await open(page, api);
-  await expect(page.getByRole('heading', { name: 'Tenants', level: 1 })).toBeVisible();
-  await page.keyboard.press('Tab');
-  await expect(page.getByRole('link', { name: 'ข้ามไปเนื้อหาหลัก' })).toBeFocused();
-  await page.keyboard.press('Enter');
-  await page.getByLabel('ค้นหา tenant').focus();
-  await page.keyboard.type('ไม่มีอยู่จริง');
-  await page.keyboard.press('Enter');
-  await expect(page.getByText('ไม่พบ tenant')).toBeVisible();
-  await page.goto('/requests/00000009-0000-4000-8000-000000000009');
-  await expect(page.getByRole('heading', { name: 'ไม่พบคำขอ' })).toBeVisible();
-  await expectAccessible(page);
-});
+}
 
 test('สลับภาษากลาง draft/review/progress คง DOM และ payload เดิมโดยไม่ส่งคำสั่งซ้ำ', async ({
   page,
@@ -679,8 +782,8 @@ test('สลับภาษากลาง draft/review/progress คง DOM แ�
   });
   await open(page, api, '/new');
   await fillValidForm(page);
-  await page.getByLabel('Locale', { exact: true }).selectOption('en-US');
-  await page.getByLabel('Timezone', { exact: true }).selectOption('UTC');
+  await choose(page, 'Locale', 'English (en-US)');
+  await choose(page, 'Timezone', 'UTC');
   const input = await page.getByLabel('Slug', { exact: true }).elementHandle();
   const sessionCount = sessions;
   await page.getByRole('button', { name: 'เปลี่ยนเป็นภาษาอังกฤษ' }).click();
@@ -691,16 +794,17 @@ test('สลับภาษากลาง draft/review/progress คง DOM แ�
   ).toHaveAttribute('aria-current', 'page');
   await expect(page.getByLabel('Slug', { exact: true })).toHaveValue('nova-care');
   expect(await input!.evaluate((node) => node.isConnected)).toBe(true);
-  await expect(page.getByLabel('Locale', { exact: true })).toHaveValue('en-US');
-  await expect(page.getByLabel('Timezone', { exact: true })).toHaveValue('UTC');
+  await expect(page.getByRole('button', { name: /Locale/ })).toContainText('English (en-US)');
+  await expect(page.getByRole('button', { name: /Timezone/ })).toContainText('UTC');
   expect(api.posts).toHaveLength(0);
   expect(sessions).toBe(sessionCount);
   await expectAccessible(page);
   await page.screenshot({ path: testInfo.outputPath('platform-draft-en.png'), fullPage: true });
 
-  await page.getByRole('button', { name: 'ตรวจสอบข้อมูล →' }).click();
-  const confirmation = page.getByLabel(/ฉันตรวจสอบ identity/);
-  await confirmation.check();
+  await page.getByRole('button', { name: commonEn.wizard.review }).click();
+  const confirmation = page.getByRole('checkbox');
+  await confirmation.focus();
+  await confirmation.press('Space');
   const review = await page.getByRole('heading', { level: 1 }).elementHandle();
   await page.getByRole('button', { name: 'Switch to Thai' }).click();
   expect(await review!.evaluate((node) => node.isConnected)).toBe(true);
@@ -784,3 +888,233 @@ test.describe('browser ภาษาอังกฤษ', () => {
     await expect(page.locator('html')).toHaveAttribute('lang', 'th');
   });
 });
+
+for (const language of ['th', 'en'] as const) {
+  test.describe(`Migration invariants ${language}`, () => {
+    test.use({ locale: language === 'th' ? 'th-TH' : 'en-GB' });
+    const copy = language === 'th' ? commonTh : commonEn;
+    const other = language === 'th' ? commonEn : commonTh;
+
+    test('recovery เปลี่ยนภาษาคง preview/revision/comment/reason และ Escape คืน focus', async ({
+      page,
+    }, testInfo) => {
+      const api = new MockPlatformApi();
+      const entry = seedRequest(api);
+      let previews = 0;
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/previews'))
+          previews += 1;
+      });
+      await open(page, api, `/requests/${entry.requestId}`);
+      const trigger = page
+        .getByRole('region', { name: copy.recovery.title })
+        .getByRole('button')
+        .first();
+      await trigger.focus();
+      await page.keyboard.press('Enter');
+      let panel = page.getByRole('region', { name: /Reconcile & resume/ });
+      await expect(panel.getByRole('heading')).toContainText(copy.recovery.confirming);
+      await page.keyboard.press('Escape');
+      await expect(trigger).toBeFocused();
+      await expect(panel).toHaveCount(0);
+      await page.keyboard.press('Enter');
+      panel = page.getByRole('region', { name: /Reconcile & resume/ });
+      await expect(panel.getByRole('heading')).toContainText(copy.recovery.confirming);
+      await panel
+        .getByRole('button', {
+          name: copy.recovery.confirm.replace('{{action}}', 'Reconcile & resume'),
+        })
+        .click();
+      await expect(panel.getByText(copy.validation.comment)).toBeVisible();
+      const textarea = panel.getByLabel(copy.recovery.comment);
+      const element = await textarea.elementHandle();
+      const previewCount = previews;
+      const url = page.url();
+      await page.getByRole('button', { name: copy.language.switch }).click();
+      await expect(page.getByRole('button', { name: other.language.switch })).toBeFocused();
+      await expect(panel.getByText(other.validation.comment)).toBeVisible();
+      expect(await element!.evaluate((node) => node.isConnected)).toBe(true);
+      await panel.getByLabel(other.recovery.comment).fill('ข้อความผู้ใช้ — keep this text');
+      await choose(page, other.request.reason, other.reasons.CUSTOMER_REQUEST);
+      expect(previews).toBe(previewCount);
+      expect(api.posts).toHaveLength(0);
+      expect(page.url()).toBe(url);
+      await expectAccessible(page);
+      await page.screenshot({
+        path: testInfo.outputPath(`recovery-switch-${language}.png`),
+        fullPage: true,
+      });
+      const confirm = panel.getByRole('button', {
+        name: other.recovery.confirm.replace('{{action}}', 'Reconcile & resume'),
+      });
+      await confirm.focus();
+      await page.keyboard.press('Enter');
+      await expect(
+        panel.getByText(other.recovery.succeeded.replace('{{action}}', 'Reconcile & resume')),
+      ).toBeVisible();
+      const commands = api.posts.filter((post) => post.path.endsWith('/actions/reconcile'));
+      expect(commands).toHaveLength(1);
+      expect(commands[0]!.body).toMatchObject({
+        expectedRevision: 3,
+        previewDigest: PREVIEW_DIGEST,
+        reasonCode: 'CUSTOMER_REQUEST',
+        comment: 'ข้อความผู้ใช้ — keep this text',
+      });
+      expect(commands[0]!.key).toMatch(/^reconcile-/);
+      expect(previews).toBe(previewCount);
+      await panel.getByRole('button', { name: other.common.close }).click();
+      await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
+    });
+
+    test('unknown error ไม่แสดง raw title และ validation เปลี่ยนภาษาจาก key เดิม', async ({
+      page,
+    }) => {
+      const api = new MockPlatformApi();
+      await open(page, api, '/new');
+      await page.getByRole('button', { name: copy.wizard.review }).click();
+      const summary = page
+        .getByRole('alert')
+        .filter({ hasText: copy.validation.summary.split(' (')[0] });
+      await expect(summary).toBeFocused();
+      await page.getByRole('button', { name: copy.language.switch }).click();
+      await expect(page.getByRole('button', { name: other.language.switch })).toBeFocused();
+      await expect(page.getByRole('alert')).toContainText(other.validation.displayName);
+      await fillValidForm(page, 'generic-error', other);
+      await page.getByRole('button', { name: other.wizard.review }).click();
+      await confirmReview(page, other.wizard.confirm);
+      const submitted: { key: string | undefined; body: unknown }[] = [];
+      await page.route('**/api/v1/provisioning-requests', async (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        submitted.push({
+          key: route.request().headers()['idempotency-key'],
+          body: route.request().postDataJSON(),
+        });
+        await route.fulfill({
+          status: 500,
+          json: {
+            status: 500,
+            code: 'constructor',
+            title: 'RAW_SERVER_SECRET synthetic@example.test',
+            correlationId: 'synthetic-reference',
+            retryable: true,
+          },
+        });
+      });
+      await page.getByRole('button', { name: other.wizard.submit }).click();
+      await expect(page.getByRole('alert')).toContainText(other.errors.generic);
+      await expect(page.getByRole('alert')).toContainText('synthetic-reference');
+      await expect(page.locator('body')).not.toContainText('RAW_SERVER_SECRET');
+      await expect(page.locator('body')).not.toContainText('synthetic@example.test');
+      await page.getByRole('button', { name: other.language.switch }).click();
+      await page.getByRole('button', { name: copy.common.retry }).click();
+      await expect.poll(() => submitted.length).toBe(2);
+      expect(submitted[0]!.key).toMatch(/^create-/);
+      expect(submitted[1]).toEqual(submitted[0]);
+      expect(page.url()).not.toContain('generic-error');
+      expect(
+        await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage })),
+      ).not.toContain(EMAIL);
+      await expectAccessible(page);
+    });
+
+    test('unknown state/step/action ใช้ fallback และเวลาเปลี่ยนภาษาโดย instant คงเดิม', async ({
+      page,
+    }) => {
+      const api = new MockPlatformApi();
+      const entry = seedRequest(api);
+      const original = api.view.bind(api);
+      api.view = (request) =>
+        ({
+          ...original(request),
+          status: 'UNRECOGNIZED',
+          timezone: 'UTC',
+          steps: [
+            {
+              stepKey: 'NEW_STEP',
+              state: 'UNRECOGNIZED',
+              attempt: 1,
+              errorCode: null,
+              nextAttemptAt: null,
+              finishedAt: null,
+            },
+          ],
+          invitation: {
+            generation: 2,
+            delivery: 'NEW_DELIVERY',
+            expiresAt: '2026-10-23T03:00:00.000Z',
+            expired: false,
+            resendsInLastHour: 0,
+          },
+        }) as unknown as ReturnType<MockPlatformApi['view']>;
+      api.history = [
+        api.event(entry, 'NEW_ACTION', 'SYSTEM', {
+          stepKey: 'NEW_STEP',
+          outcome: 'NEW_OUTCOME',
+          actor: { kind: 'NEW_ACTOR', subject: 'synthetic', role: null },
+          comment: 'ข้อความผู้ใช้ keep this',
+        }),
+      ];
+      let reads = 0;
+      page.on('request', (request) => {
+        if (new URL(request.url()).pathname === `/api/v1/provisioning-requests/${entry.requestId}`)
+          reads += 1;
+      });
+      await open(page, api, `/requests/${entry.requestId}`);
+      await expect(page.getByText(copy.statuses.unknown).first()).toBeVisible();
+      await expect(page.getByText(copy.steps.unknown.title).first()).toBeVisible();
+      await expect(page.getByText(copy.actions.unknown)).toBeVisible();
+      await expect(page.getByText(copy.actors.unknown)).toBeVisible();
+      await expect(page.getByText(copy.invitation.delivery.unknown)).toBeVisible();
+      await expect(page.getByRole('heading', { name: copy.request.ready })).toHaveCount(0);
+      await expect(page.getByText('ข้อความผู้ใช้ keep this', { exact: false })).toBeVisible();
+      const time = page.locator('time').first();
+      await expect(time).toBeVisible();
+      const instant = await time.getAttribute('datetime');
+      const before = await time.textContent();
+      const count = reads;
+      await expectAccessible(page);
+      await page.getByRole('button', { name: copy.language.switch }).click();
+      await expect(page.getByText(other.actions.unknown)).toBeVisible();
+      await expect(time).toHaveAttribute('datetime', instant!);
+      expect(await time.textContent()).not.toBe(before);
+      expect(await time.textContent()).toContain('10:01');
+      await expect(page.getByText('ข้อความผู้ใช้ keep this', { exact: false })).toBeVisible();
+      await expect(page.getByRole('heading', { name: other.request.ready })).toHaveCount(0);
+      expect(reads).toBe(count);
+      expect(api.posts).toHaveLength(0);
+      await expectAccessible(page);
+    });
+
+    test('keyboard ของ Table และ Select ใช้พฤติกรรมจาก component ร่วม', async ({ page }) => {
+      const api = new MockPlatformApi();
+      seedRequest(api, 'SUCCEEDED');
+      await open(page, api);
+      const table = page.getByRole('grid', { name: copy.list.table });
+      await table.focus();
+      await page.keyboard.press('ArrowDown');
+      const row = page.getByRole('row', { name: /Synthetic Customer/ });
+      await expect(row).toBeFocused();
+      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('End');
+      const openButton = page.getByRole('button', {
+        name: copy.list.openDetails.replace('{{name}}', 'Synthetic Customer'),
+      });
+      await expect(openButton).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(page).toHaveURL(/\/requests\//);
+      await page
+        .getByRole('navigation')
+        .getByRole('button', { name: copy.navigation.create })
+        .focus();
+      await page.keyboard.press('Enter');
+      const plan = page.getByRole('button', { name: new RegExp(copy.fields.planCode) });
+      await plan.focus();
+      await page.keyboard.press('Space');
+      await page.keyboard.press('Home');
+      await page.keyboard.press('Enter');
+      await expect(plan).toContainText('growth (v3)');
+      await expect(plan).toBeFocused();
+      await expectAccessible(page);
+    });
+  });
+}
