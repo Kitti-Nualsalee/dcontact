@@ -1,26 +1,82 @@
-import { useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
 import { Button, TextField, Select } from '@d-contact/ui-react';
 import { ConsoleShell, type ConsoleShellProps } from '../shell/console-shell.js';
 import { useShellTokens } from '../shell/tokens.js';
-import type { CoreApi } from './api.js';
+import type { CoreApi, CoreTeamsApi } from './api.js';
+import { CorePageLinks } from './page-links.js';
+import { CoreTeamsPage } from './teams-page.js';
 import { CoreOrganizationModel } from './model.js';
 import './core-settings.css';
 import { clearCoreCommandReferences } from './storage.js';
 type ShellProps = Omit<ConsoleShellProps, 'appId' | 'pageId' | 'children'>;
-export function CoreSettingsPage({
+export function CoreSettingsPage(props: CoreSettingsProps) {
+  const [location, setLocation] = useState({ href: window.location.href, revision: 0 });
+  const leave = useRef<() => boolean>(() => true);
+  const previous = useRef(location.href);
+  const registerLeaveGuard = useCallback((guard: () => boolean) => {
+    leave.current = guard;
+    return () => {
+      leave.current = () => true;
+    };
+  }, []);
+  const onResourceUrl = useCallback((id?: string) => {
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set('team', id);
+    else url.searchParams.delete('team');
+    window.history.replaceState(null, '', url);
+    previous.current = url.href;
+    setLocation((current) => ({ ...current, href: url.href }));
+  }, []);
+  const onPageSelect = (pageId: string) => {
+    if (!['organization', 'teams'].includes(pageId) || !leave.current()) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('page', pageId);
+    url.searchParams.delete('team');
+    window.history.pushState(null, '', url);
+    previous.current = url.href;
+    setLocation((current) => ({ href: url.href, revision: current.revision + 1 }));
+  };
+  useEffect(() => {
+    const pop = () => {
+      if (!leave.current()) {
+        window.history.pushState(null, '', previous.current);
+        return;
+      }
+      previous.current = window.location.href;
+      const href = window.location.href;
+      setLocation((current) => ({ href, revision: current.revision + 1 }));
+    };
+    window.addEventListener('popstate', pop);
+    return () => window.removeEventListener('popstate', pop);
+  }, []);
+  const page = new URL(location.href).searchParams.get('page');
+  const pageProps = { ...props, registerLeaveGuard, onPageSelect, onResourceUrl };
+  return page === 'teams' ? (
+    <CoreTeamsPage key={location.revision} {...pageProps} />
+  ) : (
+    <CoreOrganizationPage key={location.revision} {...pageProps} />
+  );
+}
+export interface CoreSettingsProps {
+  api: CoreApi & { teams: CoreTeamsApi };
+  identityKey: string;
+  shell: ShellProps;
+  onSignIn?: () => Promise<void>;
+  signedIn?: boolean;
+  onPageSelect?: (pageId: string) => void;
+  onResourceUrl?: (id?: string) => void;
+  registerLeaveGuard?: (guard: () => boolean) => () => void;
+}
+function CoreOrganizationPage({
   api,
   identityKey,
   shell,
   onSignIn,
   signedIn = true,
-}: {
-  api: CoreApi;
-  identityKey: string;
-  shell: ShellProps;
-  onSignIn?: () => Promise<void>;
-  signedIn?: boolean;
-}) {
+  onPageSelect,
+  registerLeaveGuard,
+}: CoreSettingsProps) {
   const { t: translate } = useTranslation('coreSettings');
   const t = translate as (key: string) => string;
   const model = useMemo(
@@ -38,7 +94,7 @@ export function CoreSettingsPage({
   useEffect(() => model.subscribe(render), [model]);
   useEffect(() => {
     // คนละ identity ต้องไม่เห็นร่างหรือ command reference ของบัญชีก่อน
-    clearCoreCommandReferences(model.storageKey);
+    clearCoreCommandReferences(model.storageKey, `dc:core-settings:command:${identityKey}:`);
     model.narrow = window.matchMedia('(max-width:760px)').matches;
     void model.load();
   }, [model, signedIn]);
@@ -57,19 +113,16 @@ export function CoreSettingsPage({
         e.returnValue = '';
       }
     };
-    let lastUrl = window.location.href;
-    const pop = () => {
-      if ((model.dirty || model.pending) && !window.confirm(t('discard')))
-        window.history.pushState(null, '', lastUrl);
-      else lastUrl = window.location.href;
-    };
     window.addEventListener('beforeunload', before);
-    window.addEventListener('popstate', pop);
     return () => {
       window.removeEventListener('beforeunload', before);
-      window.removeEventListener('popstate', pop);
     };
   }, [model, t]);
+  useEffect(
+    () =>
+      registerLeaveGuard?.(() => !(model.dirty || model.pending) || window.confirm(t('discard'))),
+    [registerLeaveGuard, model, t],
+  );
   const account = shell.account
     ? {
         ...shell.account,
@@ -90,7 +143,13 @@ export function CoreSettingsPage({
   const page = new URL(window.location.href).searchParams.get('page');
   const status = model.message || model.state;
   return (
-    <ConsoleShell {...shell} account={account} appId="core-settings" pageId="organization">
+    <ConsoleShell
+      {...shell}
+      account={account}
+      appId="core-settings"
+      pageId="organization"
+      onPageSelect={onPageSelect}
+    >
       {!tokens ? (
         <main aria-busy="true">{t('status.LOADING')}</main>
       ) : page && page !== 'organization' ? (
@@ -100,6 +159,12 @@ export function CoreSettingsPage({
         </main>
       ) : (
         <main className="core-settings">
+          <CorePageLinks
+            tenant={shell.tenantAlias}
+            teams={!!model.caps?.teams?.read}
+            t={t}
+            onSelect={onPageSelect}
+          />
           <header>
             <p className="core-settings__eyebrow">{t('eyebrow')}</p>
             <h1 tabIndex={-1} id="core-organization-title">

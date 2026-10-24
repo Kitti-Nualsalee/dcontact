@@ -44,6 +44,7 @@ function captureEvidence() {
     'contract-db': ['contract.tap', 'http.tap', 'db.tap', 'provisioner.tap'],
     'identity-boundary': ['identity.tap'],
     'organization-browser': ['model.tap', 'browser.tap'],
+    'settings-browser': ['model.tap', 'browser.tap'],
     'organization-compatibility': ['compatibility.tap'],
   }[env.GITHUB_JOB];
   if (
@@ -77,12 +78,14 @@ function captureEvidence() {
   const needsKeycloak = [
     'identity-boundary',
     'organization-browser',
+    'settings-browser',
     'organization-compatibility',
   ].includes(env.GITHUB_JOB);
   const keycloak = needsKeycloak ? imageId('core-settings-identity') : null;
   const metadataFiles =
     {
       'organization-browser': ['browser-config.json'],
+      'settings-browser': ['browser-config.json'],
       'organization-compatibility': ['compatibility-config.json', 'migration-config.json'],
     }[env.GITHUB_JOB] ?? [];
   const metadata = metadataFiles.map((file) => {

@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CoreOrganizationModel } from './core-settings/model.js';
+import { CoreTeamModel } from './core-settings/team-model.js';
 import {
   CoreApiError,
   type CoreApi,
   type Organization,
   type CoreReceipt,
+  type CoreTeamsApi,
+  type Team,
 } from './core-settings/api.js';
 const original: Organization = {
   id: 'f7e4aba1-dc3c-4f02-9f3b-e050ee5ef7a0',
@@ -24,6 +27,47 @@ const receipt: CoreReceipt = {
     error: null,
   },
 };
+test('หน้าทีม: pending ของ Admin ไม่ขวาง Supervisor อ่าน own Team หลังเปลี่ยนสิทธิ์', async () => {
+  const team: Team = { id: original.id, name: 'ทีมของฉัน', isActive: true, revision: '1' };
+  const saved = storage();
+  saved.setItem(`dc:core-settings:command:identity:team:${team.id}`, receipt.command.id);
+  const forbidden = async () => {
+    throw new CoreApiError(403, 'CORE_ACCESS_DENIED');
+  };
+  const api: CoreApi & { teams: CoreTeamsApi } = {
+    ...fixture().api,
+    capabilities: async () => ({
+      organization: { read: true, write: false },
+      teams: { read: true, create: false, rename: false, deactivate: false },
+    }),
+    teams: {
+      list: async () => ({ teams: [team], nextCursor: null }),
+      read: async () => team,
+      create: forbidden,
+      rename: forbidden,
+      deactivate: forbidden,
+      command: forbidden,
+      reconcile: forbidden,
+    },
+  };
+  const model = new CoreTeamModel(api, 'identity', team.id, {
+    ...saved,
+    clear: () => saved.map.clear(),
+    key: (index) => [...saved.map.keys()][index] ?? null,
+    get length() {
+      return saved.map.size;
+    },
+  });
+  for (let retry = 0; retry < 2; retry++) {
+    await model.load();
+    assert.equal(model.state, 'READ_ONLY');
+    assert.deepEqual(model.current, team);
+    assert.deepEqual(model.teams, [team]);
+    assert.equal(model.message, '');
+    assert.equal(model.editable, false);
+    assert.equal(saved.getItem(model.storageKey), receipt.command.id);
+  }
+});
 function storage() {
   const map = new Map<string, string>();
   return {

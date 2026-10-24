@@ -1,7 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
-  testMatch: 'core-settings-organization.spec.ts',
+  testMatch: [
+    'core-settings-organization.spec.ts',
+    'core-settings-teams.spec.ts',
+    'core-settings-navigation.spec.ts',
+  ],
   timeout: 60_000,
   workers: 1,
   fullyParallel: false,

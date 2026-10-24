@@ -165,7 +165,7 @@ jobs:
         if: always()
         run: docker rm --force --volumes core-settings-identity || true
 
-  organization-browser:
+  settings-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -212,7 +212,7 @@ jobs:
           exit 1
       - name: เตรียม browser ตาม Playwright ที่ pin ใน repo
         run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
-      - name: ตรวจ model, typecheck, i18n และ CSS ของหน้าองค์กร
+      - name: ตรวจ model, typecheck, i18n และ CSS ของหน้าองค์กรและทีม
         run: |
           mkdir -p artifacts/core-settings
           pnpm --filter @d-contact/console exec tsx --test src/core-settings-model.test.ts | tee artifacts/core-settings/model.tap

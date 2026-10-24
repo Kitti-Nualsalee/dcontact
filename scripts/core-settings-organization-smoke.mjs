@@ -7,6 +7,7 @@ export async function runOrganizationSmoke({
   accessToken,
   expectedWrite = true,
   connectHost,
+  includeTeams = false,
 }) {
   const base = new URL(baseUrl);
   if (
@@ -127,9 +128,60 @@ export async function runOrganizationSmoke({
   );
   const denied = await request('/api/v1/tenant/core-settings/organization', false, 'PATCH');
   check('ORG-SM06-implemented-auth-route', denied.status === 401, denied.status);
+  if (includeTeams) {
+    const validTeam = (team) =>
+      team &&
+      /^[a-f0-9-]{36}$/.test(team.id ?? '') &&
+      typeof team.name === 'string' &&
+      typeof team.isActive === 'boolean' &&
+      /^[1-9][0-9]*$/.test(team.revision ?? '');
+    check(
+      'TEAM-SM01-authority',
+      caps.status === 200 &&
+        caps.data?.teams?.read === true &&
+        ['create', 'rename', 'deactivate'].every(
+          (key) => caps.data?.teams?.[key] === expectedWrite,
+        ),
+      caps.status,
+    );
+    check(
+      'TEAM-SM02-navigation',
+      navigation.status === 200 &&
+        pages.some((p) => p.id === 'teams' && p.path === '/?view=core-settings&page=teams'),
+      navigation.status,
+    );
+    const list = await request('/api/v1/tenant/core-settings/teams?limit=50');
+    const rows = list.data?.teams;
+    check(
+      'TEAM-SM03-list',
+      list.status === 200 &&
+        list.cache === 'no-store' &&
+        Array.isArray(rows) &&
+        rows.every(validTeam) &&
+        (list.data.nextCursor === null || typeof list.data.nextCursor === 'string'),
+      list.status,
+    );
+    // fixture ต้องมีอย่างน้อยหนึ่งทีมเพื่อพิสูจน์ detail ด้วยสิทธิ์จริง
+    const detail =
+      Array.isArray(rows) && validTeam(rows[0])
+        ? await request(`/api/v1/tenant/core-settings/teams/${encodeURIComponent(rows[0].id)}`)
+        : null;
+    check(
+      'TEAM-SM04-detail',
+      detail?.status === 200 &&
+        detail.cache === 'no-store' &&
+        validTeam(detail.data?.team) &&
+        detail.data.team.id === rows[0].id,
+      detail?.status ?? 0,
+    );
+    const deniedTeam = await request('/api/v1/tenant/core-settings/teams', false, 'POST');
+    check('TEAM-SM05-auth-route', deniedTeam.status === 401, deniedTeam.status);
+  }
   return {
     schemaVersion: 1,
-    kind: 'CORE_ORGANIZATION_AUTHENTICATED_ROUTE_SMOKE',
+    kind: includeTeams
+      ? 'CORE_SETTINGS_AUTHENTICATED_ROUTE_SMOKE'
+      : 'CORE_ORGANIZATION_AUTHENTICATED_ROUTE_SMOKE',
     result: checks.every((c) => c.result === 'PASS') ? 'PASS' : 'FAIL',
     origin: base.origin,
     checks,
@@ -145,6 +197,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       accessToken: process.env.CORE_SETTINGS_ACCESS_TOKEN,
       expectedWrite: process.env.CORE_SETTINGS_EXPECT_WRITE !== 'false',
       connectHost: process.env.CORE_SETTINGS_CONNECT_HOST,
+      includeTeams: process.env.CORE_SETTINGS_INCLUDE_TEAMS === 'true',
     });
     console.log(JSON.stringify(result));
     if (result.result !== 'PASS') process.exitCode = 1;
