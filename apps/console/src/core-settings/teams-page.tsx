@@ -43,6 +43,11 @@ export function CoreTeamsPage({
   );
   const [, render] = useReducer((x) => x + 1, 0);
   const tokens = useShellTokens();
+  const canDeactivate =
+    model.editable && !model.dirty && !!model.current?.isActive && !!model.caps?.teams?.deactivate;
+  useEffect(() => {
+    if (!canDeactivate) setConfirm(false);
+  }, [canDeactivate]);
   const allowUnload = useRef(false);
   const creationOrigin = useRef(window.location.href);
   const returnCreateFocus = useRef(false);
@@ -327,7 +332,7 @@ export function CoreTeamsPage({
         <Dialog
           role="alertdialog"
           title={t('team.confirmTitle')}
-          isOpen={confirm}
+          isOpen={confirm && canDeactivate}
           onOpenChange={setConfirm}
         >
           <p>{t('team.confirmHint')}</p>
@@ -336,6 +341,7 @@ export function CoreTeamsPage({
             <Button onPress={() => setConfirm(false)}>{t('team.cancel')}</Button>
             <Button
               variant="primary"
+              isDisabled={!canDeactivate}
               onPress={() => {
                 setConfirm(false);
                 void model.deactivate();

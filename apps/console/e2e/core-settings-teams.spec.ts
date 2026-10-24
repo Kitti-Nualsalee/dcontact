@@ -161,6 +161,19 @@ test('ทีม: narrow ระหว่างร่างเป็น readonly �
     page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true }),
   ).toBeEnabled();
 });
+test('ทีม: ย่อจอระหว่างยืนยันปิดทีมต้องซ่อน mutation และไม่ปิดทีม', async ({ page, request }) => {
+  const config = await coreLogin(page, request);
+  const history = await (await request.post('/__core_test/history')).json();
+  await page.goto(`/?tenant=${config.tenant}&view=core-settings&page=teams&team=${history.id}`);
+  await page.getByRole('button', { name: 'ปิดทีม', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await page.setViewportSize({ width: 700, height: 900 });
+  await expect(page.getByRole('button', { name: 'ยืนยันปิดทีม', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(page.getByRole('button', { name: 'ปิดทีม', exact: true })).toBeEnabled();
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+});
 test('ทีม: history-only ปิดได้ ส่วน unresolved legacy บล็อกเฉพาะปิดทีม', async ({
   page,
   request,

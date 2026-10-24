@@ -98,7 +98,7 @@ export class CoreTeamModel {
       const caps = await this.api.capabilities();
       if (seq !== this.sequence) return;
       this.caps = caps;
-      if (this.pending) {
+      if (this.pending && caps.teams?.rename) {
         await this.checkPending();
         return;
       }
@@ -123,7 +123,6 @@ export class CoreTeamModel {
             : 'CONFLICT'
           : 'CLEAN';
       if (this.state === 'CONFLICT') this.message = 'REVISION_CONFLICT';
-      if (this.pending) await this.checkPending();
     } catch (e) {
       if (seq === this.sequence) this.failure(e);
     }
