@@ -162,3 +162,27 @@ test('UAT gate: ไม่มี release = FAIL, attestation ไม่ผ่า�
   );
   assert.equal(uatGate({ expectedSha: SHA, repo: 'o/r', run: runner() }).ok, true);
 });
+
+test('run ID ที่คล้ายเบอร์โทรใช้ root metadata contract เดิม แต่ PII ใน manifest อื่นยังถูกปฏิเสธ', () => {
+  const fast = manifest('fast', {
+    run: { id: '40080776718-1', profile: 'fast', startedFrom: 'github' },
+  });
+  const boundary = manifest('real-boundary', {
+    run: { id: '40080776718-1', profile: 'real-boundary', startedFrom: 'github' },
+  });
+  const result = buildBundle({ manifestTexts: texts(fast, boundary), expectedSha: SHA });
+  assert.equal(result.ok, true, JSON.stringify(result.reasons));
+  assert.equal(verifyBundle(result.text, SHA).ok, true);
+  for (const privateValue of [
+    '0812345678',
+    'owner@example.test',
+    'postgresql://user:secret@db/data',
+  ]) {
+    const rejected = buildBundle({
+      manifestTexts: texts(fast, { ...boundary, artifacts: [{ summary: privateValue }] }),
+      expectedSha: SHA,
+    });
+    assert.equal(rejected.ok, false);
+    assert.ok(rejected.reasons.includes('PII_OR_SECRET_IN_EVIDENCE'));
+  }
+});
