@@ -2,7 +2,7 @@ import { VoiceRoutingPage } from './voice-routing/voice-routing-page.js';
 import { TenantPeoplePage } from './tenant-people/tenant-people.js';
 import { createPeopleApi } from './tenant-people/api.js';
 import { createCatalogApi } from './voice-routing/api.js';
-import { StrictMode, useEffect, useMemo, useState } from 'react';
+import { lazy, StrictMode, Suspense, useEffect, useMemo, useState } from 'react';
 import { AuthProvider } from 'react-oidc-context';
 import { User, UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import { createRoot } from 'react-dom/client';
@@ -41,9 +41,24 @@ if (new URL(window.location.href).searchParams.get('view') === 'account') {
 
 const root = document.getElementById('root');
 if (!root) throw new Error('root element is required');
+// Throwaway UX route #762; production ไม่โหลด prototype หรือข้าม auth ด้วย route นี้
+const Cus360Prototype = import.meta.env.DEV
+  ? lazy(() =>
+      import('./cus360/cus360-prototype.js').then((module) => ({
+        default: module.Cus360Prototype,
+      })),
+    )
+  : null;
 createRoot(root).render(
   <StrictMode>
-    {import.meta.env.MODE === 'e2e' ? (
+    {Cus360Prototype &&
+    new URL(window.location.href).searchParams.get('view') === 'cus360-prototype' ? (
+      <SessionLocaleProvider i18n={appI18n}>
+        <Suspense fallback={<p>กำลังเปิด prototype…</p>}>
+          <Cus360Prototype />
+        </Suspense>
+      </SessionLocaleProvider>
+    ) : import.meta.env.MODE === 'e2e' ? (
       <SessionLocaleProvider i18n={appI18n}>
         <ConsoleE2eRoot />
       </SessionLocaleProvider>

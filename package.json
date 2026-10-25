@@ -6,6 +6,7 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "prototype:cus360": "pnpm --filter @d-contact/console dev --host 127.0.0.1 --port 5190 --strictPort",
     "typecheck": "turbo run typecheck",
     "lint": "git ls-files -z | xargs -0 prettier --check --ignore-unknown",
     "test:unit": "pnpm --recursive --workspace-concurrency=2 --if-present --filter '!@d-contact/router' --filter '!@d-contact/phase-one-acceptance' --filter '!@d-contact/iam' --filter '!@d-contact/journey-composition' test",
