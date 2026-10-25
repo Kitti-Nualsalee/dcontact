@@ -16,6 +16,8 @@ export interface ShellFrameProps {
   currentAppId: string;
   /** #651: พื้นที่งานบน rail (ว่าง/ไม่ส่ง = rail แสดงหมุดแอปแบบเดิม) */
   areas?: readonly ShellArea[];
+  /** ย้ายทางเข้าบางแอปไปแถบบน โดยไม่เปลี่ยนข้อมูล launcher หรือหมุดที่บันทึกไว้ */
+  railExcludedAppIds?: readonly string[];
   brand: ReactNode;
   breadcrumb: readonly string[];
   /** Console ย้ายตำแหน่งมาเหนือเนื้อหา; ค่าเดิมของ Workspace ยังอยู่แถบบน */
@@ -35,17 +37,31 @@ export interface ShellFrameProps {
 
 /** ประกอบ AppShell + Rail + AppLauncher + TopBar ชุดเดียวกันให้ทั้งสองแอป */
 export function ShellFrame(props: ShellFrameProps) {
+  const excluded = new Set(props.railExcludedAppIds);
   const pinnedApps = props.pinnedIds
+    .filter((id) => !excluded.has(id))
     .map((id) => props.apps.find((app) => app.id === id))
     .filter((app): app is ShellApp => app !== undefined);
+  const railAreas = excluded.size
+    ? props.areas?.flatMap((area) => {
+        const sections = area.sections
+          .map((section) => ({
+            ...section,
+            items: section.items.filter((item) => !excluded.has(item.id)),
+          }))
+          .filter((section) => section.items.length);
+        const first = sections[0]?.items[0];
+        return first ? [{ ...area, href: first.href, external: first.external, sections }] : [];
+      })
+    : props.areas;
   return (
     <AppShell
       rail={
         <Rail
           pinnedApps={pinnedApps}
           currentAppId={props.currentAppId}
-          areas={props.areas}
-          currentAreaId={areaOf(props.areas, props.currentAppId)}
+          areas={railAreas}
+          currentAreaId={areaOf(railAreas, props.currentAppId)}
           footer={props.railFooter}
           launcher={
             <AppLauncher

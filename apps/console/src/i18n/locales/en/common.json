@@ -107,7 +107,10 @@
       "mine": "My account",
       "policy": "Account policy"
     },
-    "pinned": "Pinned"
+    "pinned": "Pinned",
+    "liveSystems": "Live workspaces",
+    "liveWorkspace": "Workspace",
+    "liveSupervisor": "Supervisor"
   },
   "auth": {
     "signedOut": {

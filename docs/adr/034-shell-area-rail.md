@@ -72,3 +72,9 @@ Owner ยืนยันวันที่ 25 ตุลาคม 2569 ให้�
 Owner ยืนยันวันที่ 25 ตุลาคม 2569 ให้ย้ายตำแหน่งปัจจุบันจากแถบบนมาอยู่เหนือเนื้อหาของแต่ละหน้า Console รวม Home และ Account. แถบบนคงโลโก้ ภาษา และเมนูผู้ใช้ ส่วน breadcrumb เลื่อนตามเนื้อหา ตัดบรรทัดบนจอแคบได้ และคง locale/aria-current เดิม
 
 ใช้ `Breadcrumb` และตัวเลือก `ShellFrame.breadcrumbPlacement` ร่วม ไม่ทำสำเนารายหน้า. ค่าเริ่มต้นของ shared shell และ Workspace ยังเป็นแถบบน ไม่เปลี่ยน lifecycle ของงานสด. Home ที่ปิด shell ย้าย breadcrumb เหนือเนื้อหาเช่นกัน; legacy ที่ไม่แสดง shell ไม่เพิ่ม breadcrumb ใหม่
+
+## ภาคผนวก: ทางเข้าระบบสดบนแถบบน Console (#758)
+
+Owner ยืนยันวันที่ 25 ตุลาคม 2569 ให้ย้าย Workspace และ Supervisor จาก rail ของ Console ไปแถบบน เพราะมีหน้า main/menu ของระบบสดแยกอยู่แล้ว. แสดงเฉพาะรายการที่ Navigation API อนุญาตพร้อม host origin จริง คง tenant และเปิดแท็บใหม่ตาม ADR-026. จอแคบแสดงไอคอนพร้อม accessible name
+
+ใช้ TopBarLinks ร่วมและกรองเฉพาะ projection ของ rail ไม่ลบ apps/pins ของ launcher หรือทางลัดใน Home. Workspace ไม่ส่งตัวเลือก rail ใหม่และคง layout/mount/session เดิม ไม่เปลี่ยน API หรือสิทธิ์

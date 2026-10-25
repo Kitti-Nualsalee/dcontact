@@ -1,5 +1,8 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-aria-components';
 import { useUiText } from '../i18n.js';
+import { ShellIcon } from './icons.js';
+import type { ShellApp } from './types.js';
 import styles from './TopBar.module.css';
 
 export interface TopBarProps {
@@ -49,6 +52,29 @@ export function TopBar({ brand, breadcrumb, children }: TopBarProps) {
       <div className={styles.spacer} />
       <div className={styles.actions}>{children}</div>
     </header>
+  );
+}
+
+/** ทางเข้าระบบอื่นบนแถบบน ใช้ลิงก์/สิทธิ์ที่ host app ประกอบจาก Navigation API */
+export function TopBarLinks({ apps, label }: { apps: readonly ShellApp[]; label: string }) {
+  const t = useUiText();
+  if (!apps.length) return null;
+  return (
+    <nav aria-label={label} className={styles.systemLinks}>
+      {apps.map((app) => (
+        <Link
+          key={app.id}
+          href={app.href}
+          title={app.label}
+          aria-label={`${app.label}${app.external ? ` ${t('shell.opensInNewTab')}` : ''}`}
+          className={styles.systemLink}
+          {...(app.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+        >
+          <ShellIcon name={app.id} />
+          <span className={styles.systemLabel}>{app.label}</span>
+        </Link>
+      ))}
+    </nav>
   );
 }
 

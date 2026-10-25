@@ -121,10 +121,12 @@ test('flag เปิด → shell ครอบ Journeys: rail, SubNav, แถบ
     'aria-current',
     'page',
   );
-  // #651: rail แสดงพื้นที่งาน — พื้นที่ของอีกแอปเปิดแท็บใหม่และลิงก์มีแค่ path + tenant
-  const workspace = rail(page).getByRole('link', { name: /พื้นที่ทำงาน/ });
+  // #758: ทางเข้าระบบสดอยู่แถบบนและเปิดแท็บใหม่พร้อม tenant
+  const workspace = page.locator('header').getByRole('link', { name: /^Workspace/ });
   await expect(workspace).toHaveAttribute('href', 'http://localhost:5173/?tenant=demo');
   await expect(workspace).toHaveAttribute('target', '_blank');
+  await expect(workspace).toHaveAttribute('rel', 'noopener noreferrer');
+  await expect(rail(page).locator('a[data-area=workspace]')).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Journeys' })).toBeVisible(); // SubNav
   await expect(page.getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' })).toContainText(
     'ระบบอัตโนมัติ',
@@ -215,9 +217,8 @@ test('#651: rail แสดงพื้นที่งานที่มีสิ
   await mockNavigation(page, { status: 200, body: navigation(true) });
   await page.goto('/?view=journeys&tenant=demo');
   const links = rail(page).locator('a[data-area]');
-  await expect(links).toHaveCount(3);
+  await expect(links).toHaveCount(2);
   expect(await links.evaluateAll((els) => els.map((el) => el.getAttribute('data-area')))).toEqual([
-    'workspace',
     'journeys',
     'governance',
   ]);

@@ -21,6 +21,20 @@ test('Home เป็น default, rail active, sidebar และเมนูเ�
     page.locator('#dc-main').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' }),
   ).toBeVisible();
   await expect(page.locator('a[data-area=home]')).toHaveAttribute('aria-current', 'page');
+  const systems = page.locator('header').getByRole('navigation', { name: 'ระบบงานสด' });
+  await expect(systems.getByRole('link', { name: /^Workspace/ })).toHaveAttribute(
+    'href',
+    'http://localhost:5173/?tenant=demo',
+  );
+  await expect(systems.getByRole('link', { name: /^Supervisor/ })).toHaveAttribute(
+    'href',
+    'http://localhost:5173/?view=supervisor&tenant=demo',
+  );
+  for (const link of await systems.getByRole('link').all()) {
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  }
+  await expect(page.locator('a[data-area=workspace], a[data-area=supervisor]')).toHaveCount(0);
   const sidebar = page.locator('.home-sidebar');
   await expect(sidebar.getByText('ปักหมุด', { exact: true })).toBeVisible();
   const pinned = sidebar
@@ -91,6 +105,9 @@ test('สิทธิ์ compliance เห็นเฉพาะ Governance ท�
   await expect(page.locator('.home-sidebar')).not.toContainText('Journeys');
   await expect(page.locator('.home-sidebar')).not.toContainText('dphone');
   await expect(page.getByRole('heading', { name: 'งานสด', exact: true })).toHaveCount(0);
+  await expect(
+    page.locator('header').getByRole('link', { name: /^(Workspace|Supervisor)/ }),
+  ).toHaveCount(0);
 });
 
 test('plan ปิด modules ยังคง catalog Voice ตาม registry และ Home ไม่ขึ้นกับหมุด', async ({
@@ -175,6 +192,10 @@ for (const shellV2 of [true, false]) {
     await expect(page.locator('.home__entry')).toHaveCount(8);
     await expect(page.getByRole('button', { name: 'English' })).toBeInViewport();
     await expect(page.getByRole('button', { name: 'เมนูผู้ใช้ ผู้ทดสอบ คอนโซล' })).toBeInViewport();
+    await expect(page.locator('header').getByRole('link', { name: /^Workspace/ })).toBeInViewport();
+    await expect(
+      page.locator('header').getByRole('link', { name: /^Supervisor/ }),
+    ).toBeInViewport();
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);

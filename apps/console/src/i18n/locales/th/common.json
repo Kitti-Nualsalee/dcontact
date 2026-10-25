@@ -107,7 +107,10 @@
       "mine": "บัญชีของฉัน",
       "policy": "นโยบายบัญชี"
     },
-    "pinned": "ปักหมุด"
+    "pinned": "ปักหมุด",
+    "liveSystems": "ระบบงานสด",
+    "liveWorkspace": "Workspace",
+    "liveSupervisor": "Supervisor"
   },
   "auth": {
     "signedOut": {

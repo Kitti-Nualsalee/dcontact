@@ -14,6 +14,7 @@ import {
   Breadcrumb,
   LanguageSwitch,
   TopBar,
+  TopBarLinks,
   UserMenu,
   type ShellNavigationState,
   ShellPageNavProvider,
@@ -192,11 +193,22 @@ export function ConsoleShell({
       toastQueue.add({ title: t('language.saveFailed'), tone: 'attention' }, { timeout: 6000 }),
     );
   };
+  const liveApps = (nav.apps ?? []).flatMap((app) => {
+    const label =
+      app.id === 'agent-workspace'
+        ? t('shell.liveWorkspace')
+        : app.id === 'supervisor-workspace'
+          ? t('shell.liveSupervisor')
+          : undefined;
+    return label ? [{ ...app, label }] : [];
+  });
+  const liveLinks = <TopBarLinks apps={liveApps} label={t('shell.liveSystems')} />;
   // Home ยังเปิดได้เมื่อปิด shell; ไม่แสดง rail จนกว่าจะเปิด flag ตาม rollout เดิม
   if (nav.status === 'legacy')
     return (
       <div className="home-shell">
         <TopBar brand={brand} breadcrumb={[]}>
+          {liveLinks}
           <LanguageSwitch value={locale} onChange={onLanguageChange} />
           {account ? <UserMenu {...userMenu(account)} /> : null}
         </TopBar>
@@ -328,7 +340,9 @@ export function ConsoleShell({
         onTogglePin={nav.togglePin}
         currentAppId={appId}
         areas={nav.areas}
+        railExcludedAppIds={liveApps.map((app) => app.id)}
         brand={brand}
+        topBarActions={liveLinks}
         breadcrumbPlacement="content"
         breadcrumb={
           appId === 'home'

@@ -12,6 +12,7 @@ export {
   Breadcrumb,
   LanguageSwitch,
   TopBar,
+  TopBarLinks,
   type BreadcrumbProps,
   type LanguageSwitchProps,
   type TopBarProps,
