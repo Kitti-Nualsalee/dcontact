@@ -56,6 +56,90 @@ async function login(page: Page, request: APIRequestContext, alias = 'admin') {
   );
   return config;
 }
+test('Rail: เปลี่ยน Home/องค์กรและ back/forward โดยคง document กับ OIDC session เดิม', async ({
+  page,
+  request,
+}) => {
+  const config = await login(page, request);
+  const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+  let documents = 0,
+    identityRequests = 0;
+  page.on('request', (req) => {
+    if (req.isNavigationRequest() && req.frame() === page.mainFrame()) documents++;
+    if (req.url().startsWith(config.issuer)) identityRequests++;
+  });
+  const rail = page.getByRole('navigation', { name: /^(เมนูหลัก|Main navigation)$/ });
+  await rail.getByRole('link', { name: /^(หน้าแรก|Home)$/ }).click();
+  await expect(
+    page.getByRole('heading', {
+      name: /^(วันนี้ต้องการทำอะไร\?|What would you like to do today\?)$/,
+    }),
+  ).toBeVisible();
+  await rail.getByRole('link', { name: /^(ตั้งค่าองค์กร|Organization settings)$/ }).click();
+  await expect(
+    page.getByRole('heading', { name: /^(ตั้งค่าองค์กร|Organization settings)$/, exact: true }),
+  ).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/view=home/);
+  await page.goForward();
+  await expect(page).toHaveURL(/view=core-settings/);
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
+  expect(documents).toBe(0);
+  expect(identityRequests).toBe(0);
+});
+test('Rail: ร่างองค์กรคงอยู่เมื่อยกเลิก Rail/forward และยืนยันแล้วออกได้โดยไม่เสีย history', async ({
+  page,
+  request,
+}) => {
+  await login(page, request);
+  const rail = page.getByRole('navigation', { name: /^(เมนูหลัก|Main navigation)$/ });
+  const home = rail.getByRole('link', { name: /^(หน้าแรก|Home)$/ });
+  const name = page.getByRole('textbox', {
+    name: /^(ชื่อแสดงขององค์กร|Organization display name)$/,
+  });
+  const draft = 'ร่างสำหรับตรวจ Rail';
+  await name.fill(draft);
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await home.click();
+  await expect(page).toHaveURL(/view=core-settings/);
+  await expect(name).toHaveValue(draft);
+  page.once('dialog', (dialog) => dialog.accept());
+  await home.click();
+  await expect(page).toHaveURL(/view=home/);
+  await page.goBack();
+  await expect(name).toBeVisible();
+  await name.fill(draft);
+  page.once('dialog', (dialog) => dialog.dismiss());
+  await page.goForward();
+  await expect(page).toHaveURL(/view=core-settings/);
+  await expect(name).toHaveValue(draft);
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.goForward();
+  await expect(page).toHaveURL(/view=home/);
+});
+test('Rail: หน้าย่อย Governance คง tenant และ back/forward เดิมก่อนเปลี่ยนกลับ Home', async ({
+  page,
+  request,
+}) => {
+  const config = await login(page, request);
+  const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+  const rail = page.getByRole('navigation', { name: /^(เมนูหลัก|Main navigation)$/ });
+  await rail.getByRole('link', { name: /Governance/ }).click();
+  const nav = page.getByRole('navigation', { name: /^(Governance|Contact Governance)$/ });
+  await nav.getByRole('link', { name: /^(นโยบาย|Policies)$/ }).click();
+  await expect(page).toHaveURL(/section=policies/);
+  await nav.getByRole('link', { name: /^(ภาพรวม|Overview)$/ }).click();
+  await expect(page).toHaveURL(/section=overview/);
+  await page.goBack();
+  await expect(nav.getByRole('link', { name: /^(นโยบาย|Policies)$/ })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  expect(new URL(page.url()).searchParams.get('tenant')).toBe(config.tenant);
+  await rail.getByRole('link', { name: /^(หน้าแรก|Home)$/ }).click();
+  await expect(page).toHaveURL(/view=home/);
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
+});
 test('องค์กร: login จริง → แก้ชื่อ → readback และตั้ง defaults ครั้งแรกโดยหน้าเดิมไม่เปลี่ยนภาษา', async ({
   page,
   request,

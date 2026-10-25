@@ -14,6 +14,8 @@ export interface ShellFrameProps {
   maxPins: number;
   onTogglePin: (appId: string) => void;
   currentAppId: string;
+  /** host router รับลิงก์ภายในได้ โดย Workspace ไม่ต้องเปลี่ยนการนำทางเดิม */
+  onNavigate?: (href: string) => boolean;
   /** #651: พื้นที่งานบน rail (ว่าง/ไม่ส่ง = rail แสดงหมุดแอปแบบเดิม) */
   areas?: readonly ShellArea[];
   /** ย้ายทางเข้าบางแอปไปแถบบน โดยไม่เปลี่ยนข้อมูล launcher หรือหมุดที่บันทึกไว้ */
@@ -60,6 +62,7 @@ export function ShellFrame(props: ShellFrameProps) {
         <Rail
           pinnedApps={pinnedApps}
           currentAppId={props.currentAppId}
+          onNavigate={props.onNavigate}
           areas={railAreas}
           currentAreaId={areaOf(railAreas, props.currentAppId)}
           footer={props.railFooter}

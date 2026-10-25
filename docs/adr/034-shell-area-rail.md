@@ -78,3 +78,13 @@ Owner ยืนยันวันที่ 25 ตุลาคม 2569 ให้�
 Owner ยืนยันวันที่ 25 ตุลาคม 2569 ให้ย้าย Workspace และ Supervisor จาก rail ของ Console ไปแถบบน เพราะมีหน้า main/menu ของระบบสดแยกอยู่แล้ว. แสดงเฉพาะรายการที่ Navigation API อนุญาตพร้อม host origin จริง คง tenant และเปิดแท็บใหม่ตาม ADR-026. จอแคบแสดงไอคอนพร้อม accessible name
 
 ใช้ TopBarLinks ร่วมและกรองเฉพาะ projection ของ rail ไม่ลบ apps/pins ของ launcher หรือทางลัดใน Home. Workspace ไม่ส่งตัวเลือก rail ใหม่และคง layout/mount/session เดิม ไม่เปลี่ยน API หรือสิทธิ์
+
+## ภาคผนวก: Rail ภายใน Console ไม่ reload session และ Home ตัด WORKSPACES (#758)
+
+Owner ยืนยันวันที่ 25 ตุลาคม 2569 ให้การเปลี่ยนเมนู Rail ไม่ขึ้นหน้ากู้ SSO ทุกครั้ง และเอาหมวด WORKSPACES ที่ซ้ำใน sidebar Home ออก
+
+- ลิงก์ Rail ภายใน origin/tenant เดียวกันเปลี่ยนหน้าผ่าน client routing โดยคง AuthProvider และ token ใน memory เดิม ไม่เพิ่ม token ลง web storage และไม่ซ่อนการตรวจ boot/expired session/reauth จริง
+- คง URL/deep links, modifier click และลิงก์ภายนอก/tenantอื่น/identity action ให้ใช้ browser flow เดิม. Workspace ไม่ส่ง router callback และคง lifecycle ของงานสด
+- Root เก็บลำดับ history เพื่อยกเลิก back/forward ข้ามหน้าได้โดยคงร่างและ forward stack; ใช้ beforeunload guards ของหน้าปัจจุบันก่อนข้ามหน้า ส่วน pop ภายใน view ส่งต่อให้ router ของหน้านั้นตามเดิม ไม่ remount/reset state โดย root
+- การ push/replace URL ของหน้าย่อยที่ไม่ระบุ tenant คง tenant เดิม ไม่ตีความ hostname ของ local เป็น tenant ใหม่. History state มีเพียงลำดับ ไม่มี token หรือข้อมูลร่าง
+- Sidebar ของ Home เหลือ Home/PINNED/บัญชี แทนข้อกำหนดเดิมใน #684 ที่ให้แสดงแอปทั้งหมดใน sidebar; cards ทางเข้าทั้งหมดในเนื้อหา Home ยังอยู่ตามสิทธิ์

@@ -110,7 +110,8 @@
     "pinned": "Pinned",
     "liveSystems": "Live workspaces",
     "liveWorkspace": "Workspace",
-    "liveSupervisor": "Supervisor"
+    "liveSupervisor": "Supervisor",
+    "discardChanges": "You have unsaved changes or an unconfirmed save. Leave this page?"
   },
   "auth": {
     "signedOut": {

@@ -30,6 +30,7 @@ import {
   type UserMenuProps,
 } from '@d-contact/ui-react';
 import { useShellTokens } from './tokens.js';
+import { useConsoleNavigation } from './console-navigation.js';
 
 export type ConsoleShellApp =
   | 'home'
@@ -137,6 +138,7 @@ export function ConsoleShell({
 }: ConsoleShellProps) {
   const { t } = useTranslation();
   const { locale, setLocale } = useLocale();
+  const onNavigate = useConsoleNavigation();
   const { t: homeText } = useTranslation('home');
   const translate = t as unknown as (key: string) => string;
   const nav = useShellNavigation({
@@ -233,7 +235,7 @@ export function ConsoleShell({
   });
   const homeSubNav = (
     <SubNav
-      title={homeText('nav')}
+      title={t('navigation.apps.home')}
       currentItemId="home"
       sections={[
         {
@@ -248,11 +250,6 @@ export function ConsoleShell({
           ],
         },
         ...(homePins.length ? [{ id: 'pinned', label: t('shell.pinned'), items: homePins }] : []),
-        {
-          id: 'workspaces',
-          label: homeText('nav'),
-          items: homeApps.map(homeItem),
-        },
         {
           id: 'account',
           items: [
@@ -339,6 +336,7 @@ export function ConsoleShell({
         maxPins={nav.maxPins}
         onTogglePin={nav.togglePin}
         currentAppId={appId}
+        onNavigate={onNavigate}
         areas={nav.areas}
         railExcludedAppIds={liveApps.map((app) => app.id)}
         brand={brand}

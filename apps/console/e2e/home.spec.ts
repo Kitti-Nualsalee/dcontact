@@ -36,6 +36,7 @@ test('Home เป็น default, rail active, sidebar และเมนูเ�
   }
   await expect(page.locator('a[data-area=workspace], a[data-area=supervisor]')).toHaveCount(0);
   const sidebar = page.locator('.home-sidebar');
+  await expect(sidebar.getByText('พื้นที่ทำงาน', { exact: true })).toHaveCount(0);
   await expect(sidebar.getByText('ปักหมุด', { exact: true })).toBeVisible();
   const pinned = sidebar
     .locator('div')
@@ -73,6 +74,9 @@ test('Home เป็น default, rail active, sidebar และเมนูเ�
     await expect(
       sidebar.getByText(lang === 'EN' ? 'Pinned' : 'ปักหมุด', { exact: true }),
     ).toBeVisible();
+    await expect(
+      sidebar.getByText(lang === 'EN' ? 'Workspaces' : 'พื้นที่ทำงาน', { exact: true }),
+    ).toHaveCount(0);
     const axe = await new AxeBuilder({ page }).analyze();
     expect(
       axe.violations
