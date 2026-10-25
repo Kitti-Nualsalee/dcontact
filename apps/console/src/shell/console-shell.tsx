@@ -53,14 +53,11 @@ export function hostOrigins(): Partial<Record<HostApp, string>> {
 }
 
 /**
- * #651: เมนูย่อยของพื้นที่ — ส่วน "ปักหมุด" (ถ้ามี) อยู่บนสุด ตามด้วยกลุ่มย่อยของพื้นที่ตามลำดับที่ server ส่ง
+ * #651/#758: เมนูย่อยแสดงกลุ่มของพื้นที่ตามลำดับที่ server ส่ง; หมุดอยู่เฉพาะ Home
  * ไอคอนของรายการ = id ของแอป (ShellIcon ใช้ไอคอน fallback เมื่อไม่รู้จัก)
  */
 export function areaSections(
   area: ShellArea,
-  apps: readonly ShellApp[],
-  pinnedIds: readonly string[],
-  pinnedLabel: string,
   /** #658: เลือกหน้าย่อยของแอปที่กำลังเปิดโดยไม่โหลดหน้าใหม่ */
   page?: { appId: string; onSelect: (pageId: string) => void },
 ) {
@@ -81,21 +78,11 @@ export function areaSections(
       ? { onSelect: () => page.onSelect(app.pageId!) }
       : {}),
   });
-  // หมุดที่อยู่ในพื้นที่นี้อยู่แล้วไม่ซ้ำในส่วนปักหมุด
-  const inArea = new Set(area.sections.flatMap((section) => section.items.map((i) => i.id)));
-  const pinned = pinnedIds.flatMap((id) => {
-    if (inArea.has(id)) return [];
-    const app = apps.find((candidate) => candidate.id === id);
-    return app ? [item(app)] : [];
-  });
-  return [
-    ...(pinned.length > 0 ? [{ id: 'pinned', label: pinnedLabel, items: pinned }] : []),
-    ...area.sections.map((section) => ({
-      id: section.id,
-      label: section.label,
-      items: section.items.map(item),
-    })),
-  ];
+  return area.sections.map((section) => ({
+    id: section.id,
+    label: section.label,
+    items: section.items.map(item),
+  }));
 }
 
 /** id ของรายการหน้าย่อยในเมนูย่อย — ใช้เป็น `currentItemId` */
@@ -217,6 +204,19 @@ export function ConsoleShell({
       </div>
     );
   const homeApps = nav.apps.filter((app) => app.id !== 'home');
+  const homeItem = (app: ShellApp) => ({
+    ...app,
+    label:
+      app.id === 'agent-workspace'
+        ? app.label
+        : homeText(`names.${app.id}`, { defaultValue: app.label }),
+    icon: app.id === 'dphone-embedding' ? 'area-integrations' : app.id,
+  });
+  // Home มีลิงก์ถาวรแล้ว; หมุดใช้เฉพาะแอปที่ server อนุญาตและคงลำดับของผู้ใช้
+  const homePins = nav.pinnedIds.flatMap((id) => {
+    const app = homeApps.find((candidate) => candidate.id === id);
+    return app ? [homeItem(app)] : [];
+  });
   const homeSubNav = (
     <SubNav
       title={homeText('nav')}
@@ -233,17 +233,11 @@ export function ConsoleShell({
             },
           ],
         },
+        ...(homePins.length ? [{ id: 'pinned', label: t('shell.pinned'), items: homePins }] : []),
         {
           id: 'workspaces',
           label: homeText('nav'),
-          items: homeApps.map((app) => ({
-            ...app,
-            label:
-              app.id === 'agent-workspace'
-                ? app.label
-                : homeText(`names.${app.id}`, { defaultValue: app.label }),
-            icon: app.id === 'dphone-embedding' ? 'area-integrations' : app.id,
-          })),
+          items: homeApps.map(homeItem),
         },
         {
           id: 'account',
@@ -314,9 +308,6 @@ export function ConsoleShell({
         currentItemId={hasPages && pageId ? subNavItemId(appId, pageId) : appId}
         sections={areaSections(
           area,
-          nav.apps,
-          nav.pinnedIds,
-          t('shell.pinned'),
           hasPages && onPageSelect ? { appId, onSelect: onPageSelect } : undefined,
         )}
       />
