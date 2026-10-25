@@ -8,7 +8,14 @@ export {
 export { Rail, RailLink, type RailProps } from './Rail.js';
 export { AppLauncher, type AppLauncherProps } from './AppLauncher.js';
 export { SubNav, type SubNavItem, type SubNavProps, type SubNavSection } from './SubNav.js';
-export { LanguageSwitch, TopBar, type LanguageSwitchProps, type TopBarProps } from './TopBar.js';
+export {
+  Breadcrumb,
+  LanguageSwitch,
+  TopBar,
+  type BreadcrumbProps,
+  type LanguageSwitchProps,
+  type TopBarProps,
+} from './TopBar.js';
 export { ShellFrame, type ShellFrameProps } from './ShellFrame.js';
 export { areaOf } from './areas.js';
 export { ShellIcon } from './icons.js';

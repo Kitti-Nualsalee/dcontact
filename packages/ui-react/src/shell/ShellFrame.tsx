@@ -3,7 +3,7 @@ import { AppLauncher } from './AppLauncher.js';
 import { AppShell } from './AppShell.js';
 import { areaOf } from './areas.js';
 import { Rail } from './Rail.js';
-import { LanguageSwitch, TopBar } from './TopBar.js';
+import { Breadcrumb, LanguageSwitch, TopBar } from './TopBar.js';
 import type { ShellApp, ShellArea, ShellCreateAction, ShellGroup } from './types.js';
 import { UserMenu, type UserMenuProps } from './UserMenu.js';
 
@@ -18,6 +18,8 @@ export interface ShellFrameProps {
   areas?: readonly ShellArea[];
   brand: ReactNode;
   breadcrumb: readonly string[];
+  /** Console ย้ายตำแหน่งมาเหนือเนื้อหา; ค่าเดิมของ Workspace ยังอยู่แถบบน */
+  breadcrumbPlacement?: 'topbar' | 'content';
   language: 'th' | 'en';
   onLanguageChange: (language: 'th' | 'en') => void;
   /** Console ส่ง `<SubNav>`; Workspace ไม่ส่ง (D1.2) */
@@ -59,14 +61,24 @@ export function ShellFrame(props: ShellFrameProps) {
       }
       subNav={props.subNav}
       topBar={
-        <TopBar brand={props.brand} breadcrumb={props.breadcrumb}>
+        <TopBar
+          brand={props.brand}
+          breadcrumb={props.breadcrumbPlacement === 'content' ? [] : props.breadcrumb}
+        >
           {props.topBarActions}
           <LanguageSwitch value={props.language} onChange={props.onLanguageChange} />
           {props.user ? <UserMenu {...props.user} /> : null}
         </TopBar>
       }
     >
-      {props.children}
+      {props.breadcrumbPlacement === 'content' ? (
+        <>
+          <Breadcrumb items={props.breadcrumb} placement="content" />
+          {props.children}
+        </>
+      ) : (
+        props.children
+      )}
     </AppShell>
   );
 }

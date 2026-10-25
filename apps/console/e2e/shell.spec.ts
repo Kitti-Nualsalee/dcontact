@@ -129,6 +129,12 @@ test('flag เปิด → shell ครอบ Journeys: rail, SubNav, แถบ
   await expect(page.getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' })).toContainText(
     'ระบบอัตโนมัติ',
   );
+  await expect(
+    page.locator('header').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' }),
+  ).toHaveCount(0);
+  const breadcrumb = page.locator('#dc-main').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' });
+  await expect(breadcrumb).toBeVisible();
+  await expect(breadcrumb.locator('[aria-current=page]')).toHaveText('Journeys');
 
   const axe = await new AxeBuilder({ page }).include('nav').include('header').analyze();
   expect(

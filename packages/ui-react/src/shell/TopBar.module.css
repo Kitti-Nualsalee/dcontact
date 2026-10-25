@@ -28,6 +28,16 @@
   color: var(--dc-text-muted);
 }
 
+.contentBreadcrumb {
+  padding-block-start: var(--dc-space-6);
+  padding-inline: var(--dc-space-8);
+  overflow-wrap: anywhere;
+}
+
+.contentBreadcrumb .crumbs {
+  flex-wrap: wrap;
+}
+
 .crumb + .crumb::before {
   content: '/';
   margin-right: var(--dc-space-3);

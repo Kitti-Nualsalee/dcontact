@@ -11,25 +11,41 @@ export interface TopBarProps {
   children?: ReactNode;
 }
 
+export interface BreadcrumbProps {
+  items: readonly string[];
+  placement?: 'topbar' | 'content';
+}
+
+/** ตำแหน่งปัจจุบันใช้ร่วมกันได้ทั้งแถบบนและเหนือเนื้อหา */
+export function Breadcrumb({ items, placement = 'topbar' }: BreadcrumbProps) {
+  const t = useUiText();
+  if (!items.length) return null;
+  return (
+    <nav
+      aria-label={t('shell.breadcrumb')}
+      className={placement === 'content' ? styles.contentBreadcrumb : undefined}
+    >
+      <ol className={styles.crumbs}>
+        {items.map((part, index) => (
+          <li
+            key={`${index}-${part}`}
+            className={styles.crumb}
+            aria-current={index === items.length - 1 ? 'page' : undefined}
+          >
+            {part}
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
 /** แถบบนสูง `--dc-bar-top` (44px) */
 export function TopBar({ brand, breadcrumb, children }: TopBarProps) {
-  const t = useUiText();
   return (
     <header className={styles.bar}>
       <div className={styles.brand}>{brand}</div>
-      <nav aria-label={t('shell.breadcrumb')}>
-        <ol className={styles.crumbs}>
-          {breadcrumb.map((part, index) => (
-            <li
-              key={`${index}-${part}`}
-              className={styles.crumb}
-              aria-current={index === breadcrumb.length - 1 ? 'page' : undefined}
-            >
-              {part}
-            </li>
-          ))}
-        </ol>
-      </nav>
+      <Breadcrumb items={breadcrumb} />
       <div className={styles.spacer} />
       <div className={styles.actions}>{children}</div>
     </header>

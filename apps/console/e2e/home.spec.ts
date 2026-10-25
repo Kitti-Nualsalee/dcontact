@@ -14,6 +14,12 @@ test('Home เป็น default, rail active, sidebar และเมนูเ�
   await expect(page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?' })).toBeVisible();
   // Registry ปัจจุบันมี People และ Core Settings เพิ่มจากชุด Home เดิม
   await expect(page.locator('.home__entry')).toHaveCount(8);
+  await expect(
+    page.locator('header').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('#dc-main').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' }),
+  ).toBeVisible();
   await expect(page.locator('a[data-area=home]')).toHaveAttribute('aria-current', 'page');
   const sidebar = page.locator('.home-sidebar');
   await expect(sidebar.getByText('ปักหมุด', { exact: true })).toBeVisible();
@@ -111,6 +117,10 @@ test('ปิด shell flag ยังแสดงเมนูที่ server อ
   await page.goto('/?tenant=demo');
   await expect(page.locator('.home__entry')).toHaveCount(2);
   await expect(page.getByRole('navigation', { name: 'เมนูหลัก' })).toHaveCount(0);
+  await expect(
+    page.locator('header').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' }),
+  ).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' })).toBeVisible();
   await page.getByRole('button', { name: 'English' }).click();
   await expect(
     page.getByRole('heading', { name: 'What would you like to do today?' }),

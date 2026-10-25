@@ -11,6 +11,7 @@ import type { ReactNode } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import {
   ShellFrame,
+  Breadcrumb,
   LanguageSwitch,
   TopBar,
   UserMenu,
@@ -195,10 +196,11 @@ export function ConsoleShell({
   if (nav.status === 'legacy')
     return (
       <div className="home-shell">
-        <TopBar brand={brand} breadcrumb={[t('navigation.apps.home')]}>
+        <TopBar brand={brand} breadcrumb={[]}>
           <LanguageSwitch value={locale} onChange={onLanguageChange} />
           {account ? <UserMenu {...userMenu(account)} /> : null}
         </TopBar>
+        <Breadcrumb items={[t('navigation.apps.home')]} placement="content" />
         <main>{content}</main>
         <ToastRegion />
       </div>
@@ -327,6 +329,7 @@ export function ConsoleShell({
         currentAppId={appId}
         areas={nav.areas}
         brand={brand}
+        breadcrumbPlacement="content"
         breadcrumb={
           appId === 'home'
             ? [t('navigation.apps.home')]
