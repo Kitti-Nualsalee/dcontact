@@ -65,7 +65,6 @@ export function TopBarLinks({ apps, label }: { apps: readonly ShellApp[]; label:
         <Link
           key={app.id}
           href={app.href}
-          title={app.label}
           aria-label={`${app.label}${app.external ? ` ${t('shell.opensInNewTab')}` : ''}`}
           className={styles.systemLink}
           {...(app.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
