@@ -99,7 +99,7 @@ export function Cus360Prototype() {
   const [surface, setSurface] = useState(
     initial.get('surface') === 'workspace' ? 'workspace' : 'console',
   );
-  const [lang, setLang] = useState<'th' | 'en'>('th');
+  const [lang, setLang] = useState<'th' | 'en'>(initial.get('lang') === 'en' ? 'en' : 'th');
   const t = (th: string, en: string) => (lang === 'th' ? th : en);
   const [role, setRole] = useState(initial.get('surface') === 'workspace' ? 'agent' : 'admin');
   const [scenario, setScenario] = useState<(typeof scenarios)[number]>('normal');
@@ -120,7 +120,7 @@ export function Cus360Prototype() {
   const [candidate, setCandidate] = useState('demo-01');
   const [panelTab, setPanelTab] = useState('profile');
   useEffect(() => {
-    void appI18n.changeLanguage('th');
+    void appI18n.changeLanguage(lang);
   }, []);
   const [pendingNav, setPendingNav] = useState<null | (() => void)>(null);
   const nav = (fn: () => void) => {
@@ -174,6 +174,7 @@ export function Cus360Prototype() {
   }, [dirty, wrapup]);
   const language = (next: 'th' | 'en') => {
     setLang(next);
+    url({ lang: next });
     void appI18n.changeLanguage(next);
   };
   const open = (c: Customer) =>
