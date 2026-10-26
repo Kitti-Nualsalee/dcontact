@@ -317,6 +317,7 @@ function CatalogSession({
               identityKey={identityKey}
               mode="requirements"
               queue={detail}
+              onQueueRead={setDetail}
             />
           ) : null}
           <Button onPress={() => open()}>{t('back')}</Button>

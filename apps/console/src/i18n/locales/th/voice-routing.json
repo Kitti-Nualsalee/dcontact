@@ -1,4 +1,31 @@
 {
+  "activation": {
+    "title": "Managed routing",
+    "fixedPolicy": "นโยบายคงที่: เสนอให้ Agent คนละ 20 วินาที รอก่อนรับสายรวม 60 วินาที แล้ววางสาย",
+    "ready": "Managed routing พร้อมใช้งาน",
+    "blocked": "Managed routing ยังไม่พร้อมเปิดใช้งาน",
+    "activateQueue": "เปิดใช้งานคิว",
+    "deactivateQueue": "ปิดใช้งานคิว",
+    "bindingState": "สถานะ binding",
+    "skillsRequired": "บันทึกทักษะที่ต้องการอย่างน้อยหนึ่งรายการก่อนเปิดใช้งานคิว",
+    "terminal": "เหตุผลสิ้นสุดล่าสุดจาก server",
+    "noTerminal": "ยังไม่มีเหตุการณ์สิ้นสุดที่รายงาน",
+    "runtimeUnavailable": "อ่านสถานะ runtime ไม่ได้ ลองอีกครั้งเพื่ออ่านสถานะจาก server",
+    "terminalReasons": {
+      "PREANSWER_DEADLINE_EXCEEDED": "หมดเวลารวมก่อน Agent รับสาย",
+      "TOTAL_PREANSWER_TIMEOUT": "หมดเวลารวมก่อน Agent รับสาย",
+      "CALLER_CANCELLED": "ผู้โทรยกเลิกก่อนรับสาย",
+      "CALLER_HANGUP": "ผู้โทรวางสาย",
+      "AGENT_HANGUP": "สิ้นสุดการสนทนา",
+      "NO_ELIGIBLE_AGENT": "ไม่มี Agent ที่เข้าเกณฑ์",
+      "UNKNOWN": "ยังไม่ทราบเหตุผลสิ้นสุด"
+    },
+    "teardown": {
+      "PENDING": "กำลังรอยืนยันการสิ้นสุดขาสายผู้โทรและ Agent",
+      "CONFIRMED": "ยืนยันการสิ้นสุดขาสายผู้โทรและ Agent แล้ว",
+      "ACTION_REQUIRED": "ยังยืนยันผลการตัดสายไม่ได้ ต้องให้ operator ตรวจสอบก่อนลองใหม่"
+    }
+  },
   "config": {
     "navigation": "หน้าตั้งค่า Routing",
     "requirements": "ทักษะที่คิวต้องการ",

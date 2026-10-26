@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import net from 'node:net';
-import { PrismaClient } from '@d-contact/db';
+import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import type { KafkaEventEnvelope } from '@d-contact/kafka';
 import { KAFKA_TOPICS, type TelephonyCommand } from '@d-contact/shared';
-import { InboundVoiceRouter } from '@d-contact/router';
+import {
+  InboundVoiceRouter,
+  ManagedVoiceRuntime,
+  type ManagedVoiceDirectCommand,
+} from '@d-contact/router';
+import { runManagedVoiceDue, runManagedVoiceReadiness } from './managed-voice-due.js';
+import { FreeSwitchManagedVoiceAdapter } from './managed-voice-adapter.js';
+import { normalizeManagedVoiceEvent } from './managed-voice-events.js';
 import { parseEslEvent } from './esl-event.js';
 import { FreeSwitchCommandAdapter } from './freeswitch-command-adapter.js';
 import { DatabaseFreeSwitchVoiceTargetResolver } from './freeswitch-voice-target-resolver.js';
@@ -76,7 +83,10 @@ async function main() {
   const voiceTenantId = process.env.E1_VOICE_TENANT_ID ?? '';
   const voiceSecret = process.env.E1_VOICE_COMMAND_SECRET ?? '';
 
-  const database = new PrismaClient();
+  const databaseUrl = process.env.APPLICATION_DATABASE_URL ?? process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error('APPLICATION_DATABASE_URL or DATABASE_URL is required');
+  const database = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+  const dispatchDatabase = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
   const socket = net.createConnection({ host, port });
   const knownCalls = new Map<string, string>();
   const voiceOutcomes = new E1VoiceOutcomes(database, voiceTenantId, nodeId);
@@ -84,8 +94,58 @@ async function main() {
     voiceOutcomes.backgroundFailure(jobUuid, callUuid),
   );
   let authenticated = false;
+  let subscribed = false;
   let stopping = false;
   let eventChain = Promise.resolve();
+  let managedPortReady = false;
+  let managedDueTask: Promise<void> = Promise.resolve();
+  let managedReadinessTask: Promise<void> = Promise.resolve();
+  let managedDispatchTask: Promise<void> = Promise.resolve();
+  const managedBackgroundJobs = new Set<string>();
+  const managedTenants = new Set<string>();
+  async function clearManagedReadiness() {
+    for (const tenantId of managedTenants) {
+      await withTenantDatabaseTransaction(
+        database,
+        tenantId,
+        (transaction) =>
+          transaction.$executeRaw`UPDATE voice_managed_runtime_readiness
+          SET direct_wired=false,expires_at=clock_timestamp(),updated_at=clock_timestamp()
+          WHERE tenant_id=${tenantId}::uuid AND telephony_node_id=${nodeId}`,
+      ).catch(() => console.error('[e1-sandbox] readiness clear failed; TTL expiry required'));
+    }
+  }
+  const managedAdapter = new FreeSwitchManagedVoiceAdapter(
+    new E1EslCommandClient({ host, port, password }),
+    nodeId,
+    process.env.FREESWITCH_SIP_DOMAIN ?? 'dcontact.local',
+  );
+  const managedRuntime = new ManagedVoiceRuntime(
+    database,
+    {
+      readback: async (command: ManagedVoiceDirectCommand) => {
+        if (!managedPortReady) throw new Error('MANAGED_VOICE_PORT_UNAVAILABLE');
+        return managedAdapter.readback(command);
+      },
+      execute: async (command: ManagedVoiceDirectCommand) => {
+        if (!managedPortReady) throw new Error('MANAGED_VOICE_PORT_UNAVAILABLE');
+        await managedAdapter.bindCaller(command.tenantId, command.callUuid);
+        return managedAdapter.execute(command);
+      },
+    },
+    dispatchDatabase,
+  );
+  async function managedTenantIds() {
+    return (
+      await database.tenant.findMany({
+        where: { lifecycleStatus: 'ACTIVE' },
+        select: { id: true },
+      })
+    ).map((tenant) => {
+      managedTenants.add(tenant.id);
+      return tenant.id;
+    });
+  }
   const commandAdapter = new FreeSwitchCommandAdapter(
     new E1EslCommandClient({
       host,
@@ -131,9 +191,14 @@ async function main() {
 
   socket.on('error', (error) => console.error('[e1-sandbox] ESL error', error));
   socket.on('close', () => {
+    subscribed = false;
+    managedPortReady = false;
     if (!stopping) {
+      clearInterval(dueTimer);
+      clearInterval(readinessTimer);
+      clearInterval(dispatchTimer);
       console.error('[e1-sandbox] ESL connection closed; restarting container');
-      process.exit(1);
+      void managedReadinessTask.then(clearManagedReadiness).finally(() => process.exit(1));
     }
   });
   socket.on(
@@ -145,12 +210,88 @@ async function main() {
     }),
   );
 
+  let processingLegacyDue = false;
+  let processingManagedDue = false;
   const dueTimer = setInterval(() => {
-    void router
-      .processDue()
-      .catch((error: unknown) => console.error('[e1-sandbox] due-work failed', error));
+    if (!processingLegacyDue) {
+      processingLegacyDue = true;
+      void router
+        .processDue()
+        .catch((error: unknown) => console.error('[e1-sandbox] legacy due-work failed', error))
+        .finally(() => {
+          processingLegacyDue = false;
+        });
+    }
+    if (!processingManagedDue) {
+      processingManagedDue = true;
+      managedDueTask = runManagedVoiceDue({
+        tenantIds: managedTenantIds,
+        tick: (tenantId) => managedRuntime.tick(tenantId, nodeId),
+        onError: (error) => console.error('[e1-sandbox] managed due-work failed', error),
+      })
+        .catch((error: unknown) => console.error('[e1-sandbox] DB due-work failed', error))
+        .finally(() => {
+          processingManagedDue = false;
+        });
+    }
   }, 1_000);
   dueTimer.unref();
+
+  let processingReadiness = false;
+  const readinessTimer = setInterval(() => {
+    if (processingReadiness) return;
+    processingReadiness = true;
+    managedReadinessTask = runManagedVoiceReadiness({
+      ready: () => (subscribed ? managedAdapter.ready() : Promise.resolve(false)),
+      setPortReady: (ready) => {
+        managedPortReady = ready && subscribed;
+      },
+      clearReadiness: clearManagedReadiness,
+      tenantIds: managedTenantIds,
+      heartbeat: (tenantId) =>
+        subscribed && managedPortReady
+          ? managedRuntime.heartbeat(tenantId, nodeId)
+          : clearManagedReadiness(),
+      onError: (error) => console.error('[e1-sandbox] readiness failed', error),
+    })
+      .catch(async (error: unknown) => {
+        managedPortReady = false;
+        console.error('[e1-sandbox] readiness failed', error);
+        await clearManagedReadiness();
+      })
+      .finally(() => {
+        processingReadiness = false;
+      });
+  }, 1000);
+  readinessTimer.unref();
+
+  let processingDispatch = false;
+  const dispatchTimer = setInterval(() => {
+    if (processingDispatch || !managedPortReady) return;
+    processingDispatch = true;
+    managedDispatchTask = (async () => {
+      for (const jobUuid of [...managedBackgroundJobs].slice(0, 4)) {
+        await managedAdapter.backgroundJob(jobUuid);
+        managedBackgroundJobs.delete(jobUuid);
+      }
+      const tenantIds = [...managedTenants];
+      for (let offset = 0; offset < tenantIds.length; offset += 4) {
+        const results = await Promise.allSettled(
+          tenantIds
+            .slice(offset, offset + 4)
+            .map((tenantId) => managedRuntime.flushCommands(tenantId, nodeId)),
+        );
+        for (const result of results)
+          if (result.status === 'rejected')
+            console.error('[e1-sandbox] managed dispatch failed', result.reason);
+      }
+    })()
+      .catch((error: unknown) => console.error('[e1-sandbox] managed dispatch failed', error))
+      .finally(() => {
+        processingDispatch = false;
+      });
+  }, 1000);
+  dispatchTimer.unref();
 
   async function handleFrame(frame: string) {
     if (!authenticated && /auth\/request/i.test(frame)) {
@@ -160,8 +301,14 @@ async function main() {
     if (!authenticated && /\+OK accepted/i.test(frame)) {
       authenticated = true;
       socket.write(
-        'events plain CHANNEL_CREATE CHANNEL_PARK CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE BACKGROUND_JOB\n\n',
+        'events plain CHANNEL_CREATE CHANNEL_PARK CHANNEL_ANSWER CHANNEL_BRIDGE CHANNEL_HANGUP_COMPLETE BACKGROUND_JOB\n\n',
       );
+      return;
+    }
+    if (authenticated && !subscribed && /Content-Type:\s*command\/reply/i.test(frame)) {
+      if (!/Reply-Text:\s*\+OK/i.test(frame))
+        throw new Error('MANAGED_VOICE_EVENT_SUBSCRIPTION_UNCONFIRMED');
+      subscribed = true;
       return;
     }
     const parsed = parseEslEvent(frame);
@@ -172,12 +319,25 @@ async function main() {
         typeof jobUuid === 'string' &&
         typeof parsed.Body === 'string' &&
         /^(?:\+OK|-ERR)/.test(parsed.Body)
-      )
+      ) {
+        managedBackgroundJobs.add(jobUuid);
         await outboundJobs.completed(jobUuid, parsed.Body.startsWith('+OK'));
+      }
       return;
     }
     const source = e1CallSource(parsed, (callUuid) => knownCalls.has(callUuid));
     if (!source || isDeniedAgentDirectOutbound(source)) return;
+    if (typeof source.variable_dcontact_offer_id === 'string') {
+      const tenantId = source.variable_dcontact_tenant_id;
+      if (typeof tenantId !== 'string') return;
+      const managedEvent = normalizeManagedVoiceEvent(source, tenantId, nodeId);
+      if (managedEvent) {
+        await managedRuntime.handle(managedEvent);
+        if (managedEvent.type === 'call.hangup' && !managedEvent.offerId)
+          knownCalls.delete(managedEvent.callUuid);
+      }
+      return;
+    }
     const callUuid =
       source['Event-Name'] === 'CHANNEL_BRIDGE'
         ? source['Bridge-A-Unique-ID']
@@ -198,6 +358,18 @@ async function main() {
         : undefined;
     const tenantId = outboundBinding?.tenantId ?? tenantIdFromDomain ?? knownCalls.get(callUuid);
     if (!tenantId) return;
+    if (!outboundBinding) {
+      const managedEvent = normalizeManagedVoiceEvent(source, tenantId, nodeId);
+      if (managedEvent) {
+        const handled = await managedRuntime.handle(managedEvent);
+        if (handled) {
+          if (managedEvent.type === 'call.created') knownCalls.set(callUuid, tenantId);
+          if (managedEvent.type === 'call.hangup') knownCalls.delete(callUuid);
+          return;
+        }
+      }
+    }
+    if (source['Event-Name'] === 'CHANNEL_ANSWER') return;
     const event = normalizeFreeSwitchEvent(source, {
       telephonyNodeId: nodeId,
       resolveTenantId: (domain) => (domain === sipDomain ? tenantId : undefined),
@@ -214,10 +386,16 @@ async function main() {
   const shutdown = async () => {
     stopping = true;
     clearInterval(dueTimer);
+    clearInterval(readinessTimer);
+    clearInterval(dispatchTimer);
+    subscribed = false;
+    managedPortReady = false;
+    await Promise.allSettled([managedDueTask, managedReadinessTask, managedDispatchTask]);
+    await clearManagedReadiness();
     socket.destroy();
     voiceServer.closeAllConnections();
     await new Promise<void>((resolve) => voiceServer.close(() => resolve()));
-    await database.$disconnect();
+    await Promise.all([database.$disconnect(), dispatchDatabase.$disconnect()]);
   };
   process.once('SIGINT', () => void shutdown().finally(() => process.exit(0)));
   process.once('SIGTERM', () => void shutdown().finally(() => process.exit(0)));

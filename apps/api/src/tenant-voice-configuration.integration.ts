@@ -22,6 +22,15 @@ interface Payload {
   result: unknown;
   items: { id: string; teamId: string; email?: unknown }[];
   candidates: { userId: string; available: boolean; eligible: boolean }[];
+  managedRouting: { ready: boolean; reasons: string[] };
+  ready: boolean;
+  policy: {
+    version: number;
+    offerTimeoutSec: number;
+    maxTotalPreanswerSec: number;
+    terminalAction: string;
+  };
+  terminal: { teardownState: string | null } | null;
 }
 type TestResponse = Omit<Response, 'json'> & { json(): Promise<Payload> };
 
@@ -562,6 +571,140 @@ test('B4 authenticated HTTP/PostgreSQL: atomic config, receipts, scoped projecti
           3,
         );
       }
+    },
+  );
+  await context.test(
+    'B5 activation requires a live direct runtime, requirements and reserved node',
+    async () => {
+      const nodeId = `b5-${randomUUID()}`;
+      assert.equal((await (await request('/capabilities')).json()).managedRouting.ready, false);
+      await owner.$executeRaw`INSERT INTO voice_managed_runtime_readiness(tenant_id,telephony_node_id,version,direct_wired,expires_at) VALUES(${tenantId}::uuid,${nodeId},1,false,clock_timestamp()+interval '1 minute')`;
+      assert.equal((await (await request('/capabilities')).json()).managedRouting.ready, false);
+      await owner.$executeRaw`UPDATE voice_managed_runtime_readiness SET direct_wired=true,expires_at=clock_timestamp()-interval '1 second' WHERE tenant_id=${tenantId}::uuid`;
+      assert.equal((await (await request('/capabilities')).json()).managedRouting.ready, false);
+      await owner.$executeRaw`UPDATE voice_managed_runtime_readiness SET expires_at=clock_timestamp()+interval '1 minute' WHERE tenant_id=${tenantId}::uuid`;
+      assert.equal((await (await request('/capabilities')).json()).managedRouting.ready, true);
+      const empty = await create('queues');
+      const missing = await request(`/queues/${empty.id}`, 'PATCH', {
+        ...envelope(),
+        isActive: true,
+      });
+      assert.equal(missing.status, 400);
+      assert.equal((await missing.json()).code, 'VALIDATION_FAILED');
+      const activated = await request(`/queues/${queue.id}`, 'PATCH', {
+        ...envelope(3),
+        isActive: true,
+      });
+      assert.equal(activated.status, 200, await activated.clone().text());
+      assert.equal((await activated.json()).configRevision, 4);
+      const runtime = await request(`/queues/${queue.id}/runtime`);
+      const projected = await runtime.json();
+      assert.equal(projected.ready, true);
+      assert.deepEqual(projected.policy, {
+        version: 1,
+        offerTimeoutSec: 20,
+        maxTotalPreanswerSec: 60,
+        terminalAction: 'HANGUP',
+      });
+      const destinationId = randomUUID();
+      await owner.voiceDestination.create({
+        data: {
+          id: destinationId,
+          tenantId,
+          destination: '4501',
+          queueId: queue.id,
+          isActive: false,
+          voiceConfigVersion: 1,
+        },
+      });
+      await owner.$executeRaw`UPDATE tenant_voice_provisioning_policies SET destination_pool=${JSON.stringify([{ destinationId, telephonyNodeId: `${nodeId}-other` }])}::jsonb,revision=revision+1 WHERE tenant_id=${tenantId}::uuid`;
+      const wrongNode = await request(`/destinations/${destinationId}/binding`, 'PUT', {
+        ...envelope(),
+        queueId: queue.id,
+        isActive: true,
+      });
+      assert.equal((await wrongNode.json()).code, 'CAPABILITY_NOT_READY');
+      await owner.$executeRaw`UPDATE tenant_voice_provisioning_policies SET destination_pool=${JSON.stringify([{ destinationId, telephonyNodeId: nodeId }])}::jsonb,revision=revision+1 WHERE tenant_id=${tenantId}::uuid`;
+      const bound = await request(`/destinations/${destinationId}/binding`, 'PUT', {
+        ...envelope(),
+        queueId: queue.id,
+        isActive: true,
+      });
+      assert.equal(bound.status, 200, await bound.clone().text());
+      const clearing = await request(`/queues/${queue.id}/required-skills`, 'PUT', {
+        ...envelope(4),
+        items: [],
+      });
+      assert.equal(clearing.status, 400);
+      const foreignQueue = await create('queues', otherTeam);
+      assert.equal(
+        (await request(`/queues/${foreignQueue.id}/runtime`, 'GET', undefined, 'supervisor'))
+          .status,
+        404,
+      );
+      await owner.$executeRaw`UPDATE voice_managed_runtime_readiness SET expires_at=clock_timestamp()-interval '1 second' WHERE tenant_id=${tenantId}::uuid`;
+      const disabled = await request(`/destinations/${destinationId}/binding`, 'PUT', {
+        ...envelope(2),
+        queueId: queue.id,
+        isActive: false,
+      });
+      assert.equal(disabled.status, 200, await disabled.clone().text());
+      const stopped = await request(`/queues/${queue.id}`, 'PATCH', {
+        ...envelope(4),
+        isActive: false,
+      });
+      assert.equal(stopped.status, 200, await stopped.clone().text());
+    },
+  );
+  await context.test(
+    'B5 pending teardown remains busy and exposes authoritative reconciliation state',
+    async () => {
+      const interaction = await owner.interaction.create({
+        data: {
+          tenantId,
+          queueId: queue.id,
+          channel: 'VOICE',
+          direction: 'INBOUND',
+          state: 'ABANDONED',
+          externalId: randomUUID(),
+        },
+      });
+      await owner.$executeRaw`INSERT INTO voice_managed_calls(tenant_id,interaction_id,telephony_node_id,call_uuid,first_queue_entered_at,preanswer_deadline,terminal_reason) SELECT ${tenantId}::uuid,${interaction.id}::uuid,'b5-projection',${interaction.externalId!},stamp,stamp+interval '60 seconds','PREANSWER_DEADLINE_EXCEEDED' FROM (SELECT clock_timestamp() AS stamp) entered`;
+      const teardownId = randomUUID();
+      await owner.$executeRaw`INSERT INTO voice_managed_commands(tenant_id,id,interaction_id,telephony_node_id,call_uuid,command_type,payload) VALUES(${tenantId}::uuid,${teardownId}::uuid,${interaction.id}::uuid,'b5-projection',${interaction.externalId!},'call.hangup','{}')`;
+      await owner.interactionEvent.create({
+        data: {
+          tenantId,
+          interactionId: interaction.id,
+          type: 'interaction.managed_terminal',
+          payload: { reason: 'PREANSWER_DEADLINE_EXCEEDED' },
+        },
+      });
+      assert.equal(
+        (await (await request(`/queues/${queue.id}/runtime`)).json()).terminal?.teardownState,
+        'PENDING',
+      );
+      const revision = (await (await request(`/queues/${queue.id}`)).json()).configRevision;
+      const busy = await request(`/queues/${queue.id}`, 'PATCH', {
+        ...envelope(revision),
+        name: 'Cannot edit before teardown',
+      });
+      assert.equal((await busy.json()).code, 'CONFIG_BUSY');
+      await owner.$executeRaw`UPDATE voice_managed_commands SET last_error='MANAGED_VOICE_ORIGINATE_OUTCOME_UNKNOWN' WHERE tenant_id=${tenantId}::uuid AND id=${teardownId}::uuid`;
+      assert.equal(
+        (await (await request(`/queues/${queue.id}/runtime`)).json()).terminal?.teardownState,
+        'ACTION_REQUIRED',
+      );
+      await owner.$executeRaw`UPDATE voice_managed_commands SET status='CONFIRMED',last_error=NULL,confirmed_at=clock_timestamp() WHERE tenant_id=${tenantId}::uuid AND id=${teardownId}::uuid`;
+      assert.equal(
+        (await (await request(`/queues/${queue.id}/runtime`)).json()).terminal?.teardownState,
+        'CONFIRMED',
+      );
+      const saved = await request(`/queues/${queue.id}`, 'PATCH', {
+        ...envelope(revision),
+        name: 'Readback after teardown',
+      });
+      assert.equal(saved.status, 200, await saved.clone().text());
     },
   );
 });

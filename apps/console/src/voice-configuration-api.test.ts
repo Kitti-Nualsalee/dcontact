@@ -14,17 +14,21 @@ test('B4 ใช้ scoped endpoints พร้อม no-store และ PUT envel
     const api = createConfigApi({ baseUrl: 'https://api.example/', accessToken: () => 'token' });
     await api.roster('scoped+/cursor');
     await api.skills('people/users', 'agent');
-    const command = {
+    const envelope = {
       commandId: 'same-command',
       expectedRevision: 7,
       reasonCode: 'ADMIN_CONFIGURATION',
       reason: 'ทดสอบ',
-      items: [{ skillId: 'thai', level: 3 }],
     };
+    const command = { ...envelope, items: [{ skillId: 'thai', level: 3 }] };
     const result = await api.replace('people/users', 'agent', command);
     await api.replace('queues', 'queue', { ...command, items: [{ skillId: 'thai', minLevel: 2 }] });
-    await api.bind('destination', { ...command, queueId: 'queue', isActive: false });
+    await api.bind('destination', { ...envelope, queueId: 'queue', isActive: false });
     await api.eligibility('queue/?&');
+    await api.queue('queue/?&', { ...envelope, isActive: true });
+    await api.queue('queue/?&');
+    await api.runtime('queue/?&');
+    await api.bind('destination', { ...envelope, queueId: 'queue', isActive: true });
     assert.equal(result.configRevision, 8);
     assert.equal(new URL(requests[0].url).searchParams.get('cursor'), 'scoped+/cursor');
     assert.match(requests[1].url, /people\/users\/agent\/skills$/);
@@ -32,6 +36,12 @@ test('B4 ใช้ scoped endpoints พร้อม no-store และ PUT envel
     assert.match(requests[3].url, /queues\/queue\/required-skills$/);
     assert.equal(JSON.parse(String(requests[4].init?.body)).isActive, false);
     assert.equal(new URL(requests[5].url).searchParams.get('queueId'), 'queue/?&');
+    assert.match(requests[6].url, /queues\/queue%2F%3F%26$/);
+    assert.equal(requests[6].init?.method, 'PATCH');
+    assert.equal(JSON.parse(String(requests[6].init?.body)).isActive, true);
+    assert.equal(requests[7].init?.method, 'GET');
+    assert.match(requests[8].url, /queues\/queue%2F%3F%26\/runtime$/);
+    assert.equal(JSON.parse(String(requests[9].init?.body)).isActive, true);
     for (const request of requests) {
       assert.equal(request.init?.cache, 'no-store');
       assert.equal(request.init?.redirect, 'error');

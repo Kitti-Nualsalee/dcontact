@@ -9,12 +9,22 @@ const destinationId = '7a33ac96-d87d-4ca4-ab75-f27e40e943b3';
 test.use({ locale: 'en-US' });
 async function harness(
   page: Page,
-  options: { readOnly?: boolean; lost?: boolean; conflict?: boolean } = {},
+  options: {
+    readOnly?: boolean;
+    lost?: boolean;
+    conflict?: boolean;
+    ready?: boolean;
+    active?: boolean;
+    requiredSkills?: boolean;
+    teardown?: 'PENDING' | 'CONFIRMED' | 'ACTION_REQUIRED';
+  } = {},
 ) {
   const writes: Record<string, unknown>[] = [];
   const reads: string[] = [];
   let revision = 4;
-  let items: { skillId: string; level?: number; minLevel?: number }[] = [];
+  let items: { skillId: string; level?: number; minLevel?: number }[] =
+    (options.requiredSkills ?? options.ready) ? [{ skillId, minLevel: 2 }] : [];
+  let bindingActive = !!options.active;
   const queue = {
     id: queueId,
     name: 'Voice queue',
@@ -22,19 +32,24 @@ async function harness(
     legacy: false,
     voiceConfigVersion: 1,
     configRevision: 3,
-    isActive: false,
+    isActive: !!options.active,
   };
   await page.route('**/api/v1/me/navigation**', (route) =>
     route.fulfill({ json: homeNavigation(['admin'], false) }),
   );
   await page.route('**/api/v1/tenant-voice/**', async (route) => {
     const path = new URL(route.request().url()).pathname.split('/tenant-voice/')[1];
-    if (route.request().method() === 'PUT') {
+    if (['PUT', 'PATCH'].includes(route.request().method())) {
       const body = route.request().postDataJSON();
       writes.push(body);
       if (options.conflict)
         return route.fulfill({ status: 409, json: { code: 'REVISION_CONFLICT' } });
       revision++;
+      if (path === `queues/${queueId}`) {
+        queue.isActive = body.isActive;
+        queue.configRevision = revision;
+      }
+      if (path.endsWith('/binding')) bindingActive = body.isActive;
       items = body.items ?? [];
       if (options.lost) return route.abort('failed');
       return route.fulfill({ json: { configRevision: revision, items } });
@@ -46,7 +61,10 @@ async function harness(
           version: 1,
           canWrite: !options.readOnly,
           configuration: { ready: true, reasons: [] },
-          managedRouting: { ready: false, reasons: ['CAPABILITY_NOT_READY'] },
+          managedRouting: {
+            ready: !!options.ready,
+            reasons: options.ready ? [] : ['CAPABILITY_NOT_READY'],
+          },
           limits: null,
         },
       });
@@ -60,6 +78,27 @@ async function harness(
       });
     if (path === 'queues') return route.fulfill({ json: { items: [queue], nextCursor: null } });
     if (path === `queues/${queueId}`) return route.fulfill({ json: queue });
+    if (path === `queues/${queueId}/runtime`)
+      return route.fulfill({
+        json: {
+          queueId,
+          configRevision: revision,
+          ready: !!options.ready,
+          reasons: options.ready ? [] : ['RUNTIME_HEARTBEAT_STALE'],
+          policy: {
+            version: 1,
+            offerTimeoutSec: 20,
+            maxTotalPreanswerSec: 60,
+            terminalAction: 'HANGUP',
+          },
+          terminal: {
+            reason: 'PREANSWER_DEADLINE_EXCEEDED',
+            occurredAt: '2026-10-24T00:00:00Z',
+            teardownState: options.teardown ?? 'PENDING',
+          },
+          evaluatedAt: '2026-10-24T00:01:00Z',
+        },
+      });
     if (path === 'people/roster')
       return route.fulfill({
         json: {
@@ -87,7 +126,7 @@ async function harness(
               destination: '1000',
               queueId,
               entryMode: 'DIRECT_QUEUE',
-              isActive: false,
+              isActive: bindingActive,
               configRevision: revision,
               voiceConfigVersion: 1,
             },
@@ -193,7 +232,7 @@ test('destination binding บันทึก inactive และอ่านผ�
   await page.goto('/?view=voice-routing&section=destinations&tenant=demo');
   await select(page, 'Reserved destination', '1000');
   await expect(
-    page.getByText('Bindings remain inactive until managed routing is ready in B5.', {
+    page.getByText('Managed routing is not ready for activation', {
       exact: true,
     }),
   ).toBeVisible();
@@ -279,9 +318,169 @@ test.describe('Thai B4', () => {
     await select(page, 'ปลายทางที่จองไว้', '1000');
     await expect(page.getByRole('heading', { name: 'ปลายทาง', exact: true })).toBeVisible();
     await expect(
-      page.getByText('บันทึก binding แบบปิดใช้งานจนกว่า managed routing พร้อมใน B5', {
+      page.getByText('Managed routing ยังไม่พร้อมเปิดใช้งาน', {
         exact: true,
       }),
     ).toBeVisible();
+  });
+});
+
+test('B5 เปิดคิวพร้อม warning อ่านสถานะจริงและ terminal reason จาก server', async ({ page }) => {
+  const data = await harness(page, { ready: true });
+  await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
+  await expect(page.getByText(/Fixed policy: offer 20 seconds/)).toBeVisible();
+  await expect(page.getByText(/Total pre-answer time expired/)).toBeVisible();
+  await expect(
+    page.getByText('Waiting for confirmation that caller and Agent legs have ended'),
+  ).toBeVisible();
+  await expect(page.getByText(/No eligible available Agent\./)).toBeVisible();
+  await page
+    .getByRole('textbox', { name: 'Reason (1–500 characters)' })
+    .fill('Enable managed queue');
+  await page.getByRole('button', { name: 'Activate queue', exact: true }).click();
+  await expect(
+    page.getByText('Saved and read back from the server', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Deactivate queue', exact: true })).toBeVisible();
+  expect(data.writes[0]).toMatchObject({
+    expectedRevision: 3,
+    isActive: true,
+    reasonCode: 'ADMIN_CONFIGURATION',
+  });
+  expect(data.writes[0].commandId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(data.reads.filter((path) => path === `queues/${queueId}`).length).toBeGreaterThan(1);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Deactivate queue', exact: true })).toBeVisible();
+});
+
+test('B5 readiness ปิด gate เปิดคิวและ binding แต่ยังปิดคิวได้', async ({ page }) => {
+  const data = await harness(page, { active: true });
+  await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
+  await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Stop route');
+  await page.getByRole('button', { name: 'Deactivate queue', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Activate queue', exact: true })).toBeDisabled();
+  expect(data.writes[0]).toMatchObject({ isActive: false });
+  await page.goto('/?view=voice-routing&section=destinations&tenant=demo');
+  await select(page, 'Reserved destination', '1000');
+  await select(page, 'Binding status', 'Inactive');
+  await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Stop destination');
+  await page.getByRole('button', { name: 'Save configuration', exact: true }).click();
+  await expect(
+    page.getByText('Saved and read back from the server', { exact: true }),
+  ).toBeVisible();
+  expect(data.writes[1]).toMatchObject({ isActive: false, queueId });
+});
+
+test('B5 เปิด binding ด้วย boolean และ readback', async ({ page }) => {
+  const data = await harness(page, { ready: true, active: true });
+  await page.goto('/?view=voice-routing&section=destinations&tenant=demo');
+  await select(page, 'Reserved destination', '1000');
+  await select(page, 'Binding status', 'Inactive');
+  await select(page, 'Binding status', 'Active');
+  await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Enable destination');
+  await page.getByRole('button', { name: 'Save configuration', exact: true }).click();
+  await expect(
+    page.getByText('Saved and read back from the server', { exact: true }),
+  ).toBeVisible();
+  expect(data.writes[0]).toMatchObject({ isActive: true, queueId, expectedRevision: 4 });
+});
+
+for (const failure of ['conflict', 'lost'] as const) {
+  test(`B5 activation ${failure} ไม่ส่งซ้ำและกู้/โหลด revision ใหม่`, async ({ page }) => {
+    const data = await harness(page, { ready: true, [failure]: true });
+    await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
+    await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Enable queue');
+    await page.getByRole('button', { name: 'Activate queue', exact: true }).click();
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Activate queue', exact: true })).toBeDisabled();
+    if (failure === 'lost') {
+      await page.reload();
+      await page.getByRole('button', { name: 'Check original command', exact: true }).click();
+      await expect(
+        page.getByText('Saved and read back from the server', { exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Deactivate queue', exact: true }),
+      ).toBeVisible();
+      expect(data.reads.some((path) => path.startsWith('commands/'))).toBe(true);
+    } else {
+      await page
+        .getByRole('region', { name: 'Queue required skills', exact: true })
+        .getByRole('button', { name: 'Retry', exact: true })
+        .click();
+      await expect(page.getByRole('button', { name: 'Activate queue', exact: true })).toBeEnabled();
+    }
+    expect(data.writes).toHaveLength(1);
+  });
+}
+
+test('B5 Supervisor อ่าน runtime ได้แต่ไม่มี activation controls', async ({ page }) => {
+  const data = await harness(page, { ready: true, readOnly: true });
+  await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
+  await expect(page.getByText(/Total pre-answer time expired/)).toBeVisible();
+  await expect(page.getByRole('button', { name: /^(Activate|Deactivate) queue$/ })).toHaveCount(0);
+  expect(data.writes).toEqual([]);
+});
+
+test('B5 readiness gate ใช้ server capability แม้มี skills แล้ว', async ({ page }) => {
+  const data = await harness(page, { requiredSkills: true });
+  await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
+  await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Enable route');
+  await expect(page.getByRole('button', { name: 'Activate queue', exact: true })).toBeDisabled();
+  await page.goto('/?view=voice-routing&section=destinations&tenant=demo');
+  await select(page, 'Reserved destination', '1000');
+  await page
+    .getByRole('button', { name: /Binding status$/ })
+    .and(page.locator('[aria-haspopup="listbox"]'))
+    .click();
+  await expect(page.getByRole('option', { name: 'Active', exact: true })).toHaveCount(0);
+  expect(data.writes).toEqual([]);
+});
+
+test('B5 runtime พร้อมแต่ไม่มี required skills ยังเปิดคิวไม่ได้', async ({ page }) => {
+  const data = await harness(page, { ready: true, requiredSkills: false });
+  await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
+  await page.getByRole('textbox', { name: 'Reason (1–500 characters)' }).fill('Enable route');
+  await expect(
+    page.getByText('Save at least one required skill before activating this queue.'),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Activate queue', exact: true })).toBeDisabled();
+  expect(data.writes).toEqual([]);
+});
+
+test('B5 runtime อ่านไม่ได้ไม่แสดง terminal reason ที่ browser เดาเอง', async ({ page }) => {
+  await harness(page, { ready: true });
+  await page.route('**/api/v1/tenant-voice/queues/*/runtime', (route) =>
+    route.fulfill({ status: 503, json: { code: 'CAPABILITY_NOT_READY' } }),
+  );
+  await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
+  await expect(
+    page.getByText('Runtime status is unavailable. Retry to read the server status.'),
+  ).toBeVisible();
+  await expect(page.getByText(/Total pre-answer time expired/)).toHaveCount(0);
+});
+
+test('B5 ผล teardown ไม่ชัดเจนไม่แสดงว่ายืนยันการตัดสายสำเร็จ', async ({ page }) => {
+  await harness(page, { ready: true, teardown: 'ACTION_REQUIRED' });
+  await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
+  await expect(
+    page.getByText('Teardown outcome is unknown. An operator must reconcile it before retrying.'),
+  ).toBeVisible();
+  await expect(page.getByText('Caller and Agent leg teardown is confirmed')).toHaveCount(0);
+});
+
+test.describe('Thai B5', () => {
+  test.use({ locale: 'th-TH' });
+  test('เปิดคิวพร้อม fixed policy และเหตุผลจาก server ภาษาไทย', async ({ page }) => {
+    const data = await harness(page, { ready: true });
+    await page.goto(`/?view=voice-routing&resource=${queueId}&tenant=demo`);
+    await expect(page.getByText(/นโยบายคงที่: เสนอให้ Agent คนละ 20 วินาที/)).toBeVisible();
+    await expect(
+      page.getByText(/เหตุผลสิ้นสุดล่าสุดจาก server: หมดเวลารวมก่อน Agent รับสาย/),
+    ).toBeVisible();
+    await page.getByRole('textbox', { name: 'เหตุผล (1–500 ตัวอักษร)' }).fill('เปิดเส้นทางรับสาย');
+    await page.getByRole('button', { name: 'เปิดใช้งานคิว', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'ปิดใช้งานคิว', exact: true })).toBeVisible();
+    expect(data.writes[0]).toMatchObject({ isActive: true, reason: 'เปิดเส้นทางรับสาย' });
   });
 });
