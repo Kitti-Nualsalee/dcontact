@@ -133,7 +133,9 @@ export function runStaticChecks(directory = root) {
   checks.push(
     check(
       'WORKER_DRAIN_AND_RECONCILE',
-      /onModuleDestroy/.test(artifacts.worker) && /runPeopleDisable/.test(artifacts.worker),
+      /onModuleDestroy/.test(artifacts.worker) &&
+        /runPeopleDisable/.test(artifacts.worker) &&
+        /app\.enableShutdownHooks\(\)/.test(artifacts.bootstrap),
     ),
   );
   const worktree = spawnSync('git', ['status', '--porcelain'], {

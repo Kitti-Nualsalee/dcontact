@@ -233,6 +233,7 @@ export async function bootstrapE1UatApi(
   const fullWorkspace = workspace?.createWorkspaceUatApiModule(dependencies);
   const module = fullWorkspace?.module ?? createE1UatApiModule(dependencies);
   const app = await NestFactory.create(module);
+  app.enableShutdownHooks();
   app.use(routeGuard.middleware);
   const tenantScope = <T>(tenantId: string, work: () => Promise<T> | T): Promise<T> =>
     withTenantDatabaseTransaction(database, tenantId, async (transaction) => {

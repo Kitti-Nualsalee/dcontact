@@ -63,6 +63,15 @@ test('static ปฏิเสธ artifact หายหรือ wiring direct flu
       runStaticChecks(directory).checks.find((item) => item.id === 'DIRECT_SIP_FLUSH').status,
       'FAIL',
     );
+    writeFileSync(
+      path,
+      readFileSync(path, 'utf8').replace('app.enableShutdownHooks()', 'removedShutdownHook()'),
+    );
+    assert.equal(
+      runStaticChecks(directory).checks.find((item) => item.id === 'WORKER_DRAIN_AND_RECONCILE')
+        .status,
+      'FAIL',
+    );
     rmSync(resolve(directory, STATIC_ARTIFACTS.identityPort));
     assert.equal(
       runStaticChecks(directory).checks.find((item) => item.id === 'ARTIFACT_IDENTITYPORT').status,
