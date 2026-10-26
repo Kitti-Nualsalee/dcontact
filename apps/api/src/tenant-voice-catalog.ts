@@ -124,8 +124,16 @@ export function catalogCapabilities(db: PrismaClient, identity: VoiceActor) {
     const [voiceQueues, skills, accounts, agents] = await Promise.all([
       tx.queue.count({ where: { tenantId: identity.tenantId, channels: { has: 'VOICE' } } }),
       tx.skill.count({ where: { tenantId: identity.tenantId } }),
-      tx.user.count({ where: { tenantId: identity.tenantId } }),
-      tx.user.count({ where: { tenantId: identity.tenantId, role: 'AGENT' } }),
+      tx.$queryRaw<
+        { count: number }[]
+      >`SELECT dc_people_reserved_accounts(${identity.tenantId}::uuid,false)::integer AS count`.then(
+        (rows) => rows[0].count,
+      ),
+      tx.$queryRaw<
+        { count: number }[]
+      >`SELECT dc_people_reserved_accounts(${identity.tenantId}::uuid,true)::integer AS count`.then(
+        (rows) => rows[0].count,
+      ),
     ]);
     return {
       version: 1,

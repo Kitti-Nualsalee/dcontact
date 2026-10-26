@@ -386,6 +386,10 @@ REVOKE INSERT, UPDATE, DELETE ON tenant_voice_policy_audit FROM dcontact_app;
 -- Positive identity เป็น operator authority; app อ่านอย่างเดียวและยังอยู่ใต้ RLS
 REVOKE INSERT, UPDATE, DELETE ON tenant_voice_identity_bindings, tenant_voice_identity_binding_audit FROM dcontact_app;
 
+REVOKE ALL ON tenant_people_disables,tenant_people_disable_receipts,tenant_people_disable_flushes FROM dcontact_app,dcontact_tenant_people_worker;
+GRANT SELECT,INSERT ON tenant_people_disables TO dcontact_app;
+GRANT SELECT ON tenant_people_disable_receipts,tenant_people_disable_flushes TO dcontact_app;
+GRANT SELECT ON tenant_people_disables,tenant_people_disable_receipts,tenant_people_disable_flushes TO dcontact_tenant_people_worker;
 REVOKE ALL ON tenant_people_operations, tenant_identity_reservations, tenant_user_lifecycles, tenant_people_step_receipts FROM dcontact_app;
 GRANT SELECT, INSERT ON tenant_people_operations, tenant_identity_reservations, tenant_user_lifecycles TO dcontact_app;
 GRANT SELECT ON tenant_people_step_receipts TO dcontact_app;

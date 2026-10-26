@@ -1,0 +1,307 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import test from 'node:test';
+import { HttpException } from '@nestjs/common';
+import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { acceptPeopleDisable, runPeopleDisable } from './tenant-people-disable.js';
+import type { TenantPeopleDisablePort } from './tenant-people-disable-keycloak.js';
+import type { VoiceActor } from './tenant-voice-catalog.js';
+import { readPeopleOperation } from './tenant-people-operations.js';
+import { readPeopleDirectory } from './tenant-people-directory.js';
+
+test('disable แบบ idle ปิด local admission ทันที และ reconcile ไม่ส่ง mutation ซ้ำ', async () => {
+  const owner = new PrismaClient();
+  const application = new PrismaClient({
+    datasources: { db: { url: process.env.APPLICATION_DATABASE_URL } },
+  });
+  const workerUrl = new URL(process.env.DATABASE_URL!);
+  const principal = `disable_${randomUUID().replaceAll('-', '')}`;
+  workerUrl.username = principal;
+  workerUrl.password = randomUUID();
+  workerUrl.searchParams.set('options', '-c role=dcontact_tenant_people_worker');
+  const worker = new PrismaClient({ datasources: { db: { url: workerUrl.toString() } } });
+  const tenantId = randomUUID(),
+    teamId = randomUUID(),
+    adminId = randomUUID(),
+    userId = randomUUID();
+  const slug = `b6-${tenantId}`;
+  const actor: VoiceActor = {
+    tenantId,
+    userId: adminId,
+    roles: ['admin'],
+    caller: {
+      issuer: 'https://b6-idp.test/realms/dcontact',
+      subject: adminId,
+      clientId: 'dcontact-console',
+      tenantSlug: slug,
+    },
+  };
+  let mutations = 0,
+    reads = 0,
+    probes = 0,
+    complete = false;
+  const reserved = () =>
+    withTenantDatabaseTransaction(
+      application,
+      tenantId,
+      (transaction) =>
+        transaction.$queryRaw<
+          { count: number }[]
+        >`SELECT dc_people_reserved_accounts(${tenantId}::uuid,false)::integer AS count`,
+    );
+  const provider: TenantPeopleDisablePort = {
+    async probe() {
+      probes++;
+      return { outcome: 'READY' };
+    },
+    async disable() {
+      mutations++;
+      return { outcome: 'UNKNOWN' };
+    },
+    async readOutcome(attempt) {
+      reads++;
+      return complete
+        ? {
+            outcome: 'SUCCEEDED',
+            reasonCode: 'DISABLED',
+            identityId: attempt.identityId,
+            receiptRef: 'b'.repeat(64),
+          }
+        : { outcome: 'UNKNOWN' };
+    },
+  };
+  try {
+    await owner.$executeRawUnsafe(
+      `CREATE ROLE "${principal}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS PASSWORD '${workerUrl.password}'`,
+    );
+    await owner.$executeRawUnsafe(`GRANT dcontact_tenant_people_worker TO "${principal}"`);
+    await owner.tenant.create({
+      data: { id: tenantId, name: 'B6 isolated disable', slug, sipDomain: `${slug}.test` },
+    });
+    await owner.team.create({ data: { id: teamId, tenantId, name: 'B6 team' } });
+    for (const [id, role] of [
+      [adminId, 'ADMIN'],
+      [userId, 'AGENT'],
+    ] as const) {
+      await owner.user.create({
+        data: {
+          id,
+          tenantId,
+          teamId,
+          keycloakId: id,
+          email: `${id}@b6.test`,
+          displayName: 'B6 fixture',
+          role,
+          passwordHash: '!keycloak-managed',
+        },
+      });
+      await owner.$executeRaw`INSERT INTO tenant_voice_identity_bindings(tenant_id,user_id,issuer,subject_id,client_id,tenant_slug,organization_id,identity_class,source_kind,evidence_ref,evidence_digest,verified_by_operator_subject,verified_at,revision,is_active)
+        VALUES(${tenantId}::uuid,${id}::uuid,${actor.caller!.issuer},${id},'dcontact-console',${slug},${tenantId}::uuid,'TENANT_USER','BOOTSTRAP_MANIFEST','isolated-b6',${'a'.repeat(64)},'sandbox-operator',now(),1,true)`;
+    }
+    await owner.$executeRaw`INSERT INTO tenant_voice_provisioning_policies(tenant_id,revision,source_kind,accounts_limit,agents_limit,voice_queues_limit,skills_limit,approved_by_operator_subject,approved_at,approval_ref,reason,extension_pool)
+      VALUES(${tenantId}::uuid,1,'UAT_EXPLICIT',5,3,3,3,'sandbox-operator',now(),'isolated-b6','ทดสอบปิดบัญชี','[]'::jsonb)`;
+    await owner.$executeRaw`INSERT INTO tenant_people_worker_bindings(tenant_id,database_principal,approval_ref) VALUES(${tenantId}::uuid,${principal},'isolated-b6')`;
+    const command = {
+      commandId: randomUUID(),
+      expectedRevision: 1,
+      reasonCode: 'OPERATOR_REQUEST',
+      reason: 'ทดสอบปิดบัญชี fixture',
+    };
+    const queue = await owner.queue.create({
+      data: { tenantId, teamId, name: 'B6 busy fixture', channels: ['VOICE', 'EMAIL'] },
+    });
+    for (const channel of ['VOICE', 'EMAIL'] as const) {
+      for (const state of ['QUEUED', 'ASSIGNED', 'ACTIVE', 'WRAPUP'] as const) {
+        const interaction = await owner.interaction.create({
+          data: {
+            tenantId,
+            queueId: queue.id,
+            agentId: userId,
+            channel,
+            direction: 'INBOUND',
+            state,
+          },
+        });
+        await assert.rejects(
+          acceptPeopleDisable(
+            application,
+            actor,
+            userId,
+            { ...command, commandId: randomUUID() },
+            provider,
+          ),
+          (error: unknown) => {
+            assert.ok(error instanceof HttpException);
+            assert.equal(error.getStatus(), 409);
+            assert.match(JSON.stringify(error.getResponse()), /CONFIG_BUSY/);
+            return true;
+          },
+        );
+        assert.equal(
+          (await owner.user.findUniqueOrThrow({ where: { id: userId } })).isActive,
+          true,
+        );
+        await owner.interaction.update({
+          where: { id: interaction.id },
+          data: { state: 'COMPLETED' },
+        });
+      }
+    }
+    probes = 0;
+    const accepted = await acceptPeopleDisable(application, actor, userId, command, provider);
+    assert.equal(accepted.accountState, 'DISABLING');
+    const user = await owner.user.findUniqueOrThrow({ where: { id: userId } });
+    assert.equal(user.isActive, false);
+    assert.equal(user.configRevision, 2);
+    assert.equal((await reserved())[0].count, 2);
+    assert.equal(
+      (await readPeopleOperation(application, actor, accepted.operationId)).accountState,
+      'DISABLING',
+    );
+    const disabling = await readPeopleDirectory(application, actor, {}, userId);
+    assert.ok('accountState' in disabling);
+    assert.equal(disabling.accountState, 'DISABLING');
+    assert.deepEqual(
+      await acceptPeopleDisable(application, actor, userId, command, provider),
+      accepted,
+    );
+    assert.equal(probes, 1);
+    assert.equal(
+      await runPeopleDisable(
+        worker,
+        provider,
+        { async flush() {} },
+        tenantId,
+        accepted.operationId,
+      ),
+      'ACTION_REQUIRED',
+    );
+    assert.equal((await owner.user.findUniqueOrThrow({ where: { id: userId } })).isActive, false);
+    complete = true;
+    assert.equal(
+      await runPeopleDisable(
+        worker,
+        provider,
+        { async flush() {} },
+        tenantId,
+        accepted.operationId,
+      ),
+      'SUCCEEDED',
+    );
+    assert.equal(mutations, 1);
+    assert.equal(reads, 2);
+    assert.equal(
+      (await readPeopleOperation(application, actor, accepted.operationId)).accountState,
+      'DISABLED',
+    );
+    const disabled = await readPeopleDirectory(application, actor, {}, userId);
+    assert.ok('accountState' in disabled);
+    assert.equal(disabled.accountState, 'DISABLED');
+    assert.equal((await reserved())[0].count, 1);
+    assert.equal(
+      await runPeopleDisable(
+        worker,
+        provider,
+        { async flush() {} },
+        tenantId,
+        accepted.operationId,
+      ),
+      'NOT_ELIGIBLE',
+    );
+    const rejectedProvider: TenantPeopleDisablePort = {
+      async probe() {
+        return { outcome: 'READY' };
+      },
+      async disable(attempt) {
+        return {
+          outcome: 'REJECTED_NO_EFFECT',
+          reasonCode: 'LAST_USABLE_ADMIN',
+          receiptRef: 'c'.repeat(64),
+          identityId: attempt.identityId,
+        };
+      },
+      async readOutcome() {
+        assert.fail('fresh rejection must not need reconciliation');
+      },
+    };
+    const selfCommand = { ...command, commandId: randomUUID() };
+    const selfDisable = await acceptPeopleDisable(
+      application,
+      actor,
+      adminId,
+      selfCommand,
+      rejectedProvider,
+    );
+    assert.equal((await owner.user.findUniqueOrThrow({ where: { id: adminId } })).isActive, false);
+    assert.equal(
+      await runPeopleDisable(
+        worker,
+        rejectedProvider,
+        { async flush() {} },
+        tenantId,
+        selfDisable.operationId,
+      ),
+      'REJECTED',
+    );
+    const restored = await owner.user.findUniqueOrThrow({ where: { id: adminId } });
+    assert.equal(restored.isActive, true);
+    assert.equal(restored.configRevision, 3);
+    await assert.rejects(
+      runPeopleDisable(worker, provider, { async flush() {} }, randomUUID(), accepted.operationId),
+      /SCOPE_DENIED/,
+    );
+    const unknownProvider: TenantPeopleDisablePort = {
+      ...provider,
+      async probe() {
+        return { outcome: 'UNKNOWN' };
+      },
+    };
+    await assert.rejects(
+      acceptPeopleDisable(
+        application,
+        actor,
+        adminId,
+        { ...command, commandId: randomUUID(), expectedRevision: 3 },
+        unknownProvider,
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof HttpException);
+        assert.equal(error.getStatus(), 503);
+        assert.match(JSON.stringify(error.getResponse()), /IDENTITY_UNAVAILABLE/);
+        return true;
+      },
+    );
+    assert.equal((await owner.user.findUniqueOrThrow({ where: { id: adminId } })).isActive, true);
+    const mismatchedProvider: TenantPeopleDisablePort = {
+      ...provider,
+      async disable() {
+        return {
+          outcome: 'SUCCEEDED',
+          reasonCode: 'DISABLED',
+          identityId: randomUUID(),
+          receiptRef: 'd'.repeat(64),
+        };
+      },
+    };
+    const mismatched = await acceptPeopleDisable(
+      application,
+      actor,
+      adminId,
+      { ...command, commandId: randomUUID(), expectedRevision: 3 },
+      mismatchedProvider,
+    );
+    assert.equal(
+      await runPeopleDisable(
+        worker,
+        mismatchedProvider,
+        { async flush() {} },
+        tenantId,
+        mismatched.operationId,
+      ),
+      'ACTION_REQUIRED',
+    );
+    assert.equal((await owner.user.findUniqueOrThrow({ where: { id: adminId } })).isActive, false);
+  } finally {
+    await Promise.all([owner.$disconnect(), application.$disconnect(), worker.$disconnect()]);
+  }
+});

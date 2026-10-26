@@ -89,13 +89,14 @@ export function acceptPeopleCreate(
         resourcePolicy.reason,
         resourcePolicy.reason === 'RESOURCE_POLICY_STALE' ? 409 : 503,
       );
-    const usage = await transaction.user.count({ where: { tenantId: identity.tenantId } });
+    const [reservation] = await transaction.$queryRaw<{ accounts: number; agents: number }[]>`
+      SELECT dc_people_reserved_accounts(${identity.tenantId}::uuid,false)::integer AS accounts,
+        dc_people_reserved_accounts(${identity.tenantId}::uuid,true)::integer AS agents`;
+    const usage = reservation.accounts;
     if (usage >= resourcePolicy.policy!.accountsLimit) voiceFail('RESOURCE_LIMIT_REACHED', 429);
     let infrastructure: PeopleExtensionPermit | null = null;
     if (command.role === 'AGENT') {
-      const agents = await transaction.user.count({
-        where: { tenantId: identity.tenantId, role: 'AGENT' },
-      });
+      const agents = reservation.agents;
       if (agents >= resourcePolicy.policy!.agentsLimit) voiceFail('RESOURCE_LIMIT_REACHED', 429);
       const pools = await transaction.$queryRaw<
         { extensionPool: unknown }[]
@@ -208,6 +209,15 @@ export function readPeopleOperation(db: PrismaClient, identity: VoiceActor, oper
       }[]
     >`SELECT o.id AS "operationId",o.target_user_id AS "userId",o.state,o.step,o.revision,l.account_state AS "accountState",l.activation_state AS "activationState",l.provisioning_state AS "provisioningState",o.error_code AS "errorCode",o.created_at AS "createdAt",o.updated_at AS "updatedAt" FROM tenant_people_operations o JOIN tenant_user_lifecycles l ON l.tenant_id=o.tenant_id AND l.user_id=o.target_user_id WHERE o.tenant_id=${identity.tenantId}::uuid AND o.id=${id}::uuid`;
     if (rows[0]) return rows[0];
+    const disables = await transaction.$queryRaw<typeof rows>`
+      SELECT operation.id AS "operationId",operation.user_id AS "userId",operation.state,'DISABLE_ACCOUNT' AS step,operation.revision,
+        CASE WHEN operation.state='SUCCEEDED' THEN 'DISABLED' WHEN operation.state='ACTION_REQUIRED' THEN 'ATTENTION_REQUIRED'
+          WHEN operation.state='REJECTED' THEN COALESCE(lifecycle.account_state,operation.snapshot->'target'->>'account_state','UNKNOWN') ELSE 'DISABLING' END AS "accountState",
+        COALESCE(lifecycle.activation_state,'UNKNOWN') AS "activationState",COALESCE(lifecycle.provisioning_state,'UNKNOWN') AS "provisioningState",
+        operation.error_code AS "errorCode",operation.created_at AS "createdAt",operation.updated_at AS "updatedAt"
+      FROM tenant_people_disables operation LEFT JOIN tenant_user_lifecycles lifecycle ON lifecycle.tenant_id=operation.tenant_id AND lifecycle.user_id=operation.user_id
+      WHERE operation.tenant_id=${identity.tenantId}::uuid AND operation.id=${id}::uuid`;
+    if (disables[0]) return disables[0];
     const reconciles = await transaction.$queryRaw<typeof rows>`
       SELECT operation.id AS "operationId",operation.user_id AS "userId",operation.state,'RECONCILE_INVITATION' AS step,operation.revision,
         lifecycle.account_state AS "accountState",lifecycle.activation_state AS "activationState",lifecycle.provisioning_state AS "provisioningState",

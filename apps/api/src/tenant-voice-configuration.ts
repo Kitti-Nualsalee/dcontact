@@ -150,6 +150,9 @@ export async function lockConfigurationClosure(
     { id: string }[]
   >`SELECT command.id FROM voice_managed_commands command JOIN interactions interaction ON interaction.tenant_id=command.tenant_id AND interaction.id=command.interaction_id LEFT JOIN voice_managed_offers offer ON offer.tenant_id=command.tenant_id AND offer.id=command.offer_id WHERE command.tenant_id=${tenantId}::uuid AND command.status='PENDING' AND command.command_type IN ('offer.cancel','call.hangup') AND (interaction.queue_id=ANY(${affectedQueues}::uuid[]) OR interaction.agent_id=ANY(${affectedUsers}::uuid[]) OR offer.agent_id=ANY(${affectedUsers}::uuid[])) LIMIT 1`;
   if (cleanup.length) voiceFail('CONFIG_BUSY', 409);
+  const [disabling] = await tx.$queryRaw<{ pending: boolean }[]>`
+    SELECT dc_people_disable_pending(${tenantId}::uuid,${affectedQueues}::uuid[],${affectedUsers}::uuid[]) AS pending`;
+  if (disabling?.pending) voiceFail('CONFIG_BUSY', 409);
 }
 
 export async function mutateConfiguration(

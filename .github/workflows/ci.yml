@@ -160,6 +160,7 @@ jobs:
       - name: ตรวจ B6 local account deny และ lease เดิมหลัง disable ภายใต้ RLS จริง
         run: |
           pnpm --filter @d-contact/api exec tsx --test src/local-account-verifier.integration.ts
+          pnpm --filter @d-contact/api exec tsx --test src/tenant-people-disable.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/work-session.integration.ts
       - name: ตรวจ Voice wrap-up V1 และ legacy guards ภายใต้ RLS จริง
         run: |

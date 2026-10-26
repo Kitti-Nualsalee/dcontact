@@ -163,3 +163,39 @@ test('tenant หรือ candidate ที่ผิดรูปถูกปฏ�
     /INVALID_PEOPLE_DISABLE_CONFIGURATION/,
   );
 });
+
+test('preflight ใช้ check และยอมรับเฉพาะ fresh proof ที่ตรง descriptor', async () => {
+  const { attempt, configuration } = fixture();
+  const proof = {
+    version: 1,
+    outcome: 'READY',
+    reasonCode: 'READY',
+    tenantId: attempt.tenantId,
+    userId: attempt.userId,
+    identityId: attempt.identityId,
+    payloadDigest: attempt.payloadDigest,
+  };
+  for (const [response, expected] of [
+    [proof, { outcome: 'READY' }],
+    [
+      { ...proof, outcome: 'REJECTED', reasonCode: 'LAST_USABLE_ADMIN' },
+      { outcome: 'REJECTED', reasonCode: 'LAST_USABLE_ADMIN' },
+    ],
+    [{ ...proof, tenantId: randomUUID() }, { outcome: 'UNKNOWN' }],
+    [{ ...proof, payloadDigest: '0'.repeat(64) }, { outcome: 'UNKNOWN' }],
+    [{ ...proof, receiptRef: 'b'.repeat(64) }, { outcome: 'UNKNOWN' }],
+    [{ ...proof, outcome: 'SUCCEEDED', reasonCode: 'DISABLED' }, { outcome: 'UNKNOWN' }],
+  ]) {
+    const request: typeof fetch = async (input, options) => {
+      if (String(input).endsWith('/token'))
+        return Response.json({ access_token: 'synthetic-token' });
+      assert.equal(new URL(String(input)).pathname.endsWith('/disable/check'), true);
+      assert.equal(options?.method, 'POST');
+      return Response.json(response);
+    };
+    assert.deepEqual(
+      await new TenantPeopleDisableKeycloak(configuration, request).probe(attempt),
+      expected,
+    );
+  }
+});

@@ -24,9 +24,17 @@ export type PeopleDisableOutcome =
     };
 
 export interface TenantPeopleDisablePort {
+  probe(attempt: PeopleDisableAttempt): Promise<PeopleDisableProbe>;
   disable(attempt: PeopleDisableAttempt): Promise<PeopleDisableOutcome>;
   readOutcome(attempt: PeopleDisableAttempt): Promise<PeopleDisableOutcome>;
 }
+
+export type PeopleDisableProbe =
+  | { outcome: 'READY' | 'UNKNOWN' }
+  | {
+      outcome: 'REJECTED';
+      reasonCode: 'LAST_USABLE_ADMIN' | 'PROTECTED_OR_FOREIGN_IDENTITY' | 'IDENTITY_STATE_CONFLICT';
+    };
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -68,10 +76,26 @@ export class TenantPeopleDisableKeycloak implements TenantPeopleDisablePort {
     return this.execute(attempt, false);
   }
 
+  probe(attempt: PeopleDisableAttempt) {
+    return this.execute(attempt, true, true);
+  }
+
+  private execute(
+    attempt: PeopleDisableAttempt,
+    mutation: boolean,
+    precheck: true,
+  ): Promise<PeopleDisableProbe>;
+  private execute(
+    attempt: PeopleDisableAttempt,
+    mutation: boolean,
+    precheck?: false,
+  ): Promise<PeopleDisableOutcome>;
+
   private async execute(
     attempt: PeopleDisableAttempt,
     mutation: boolean,
-  ): Promise<PeopleDisableOutcome> {
+    precheck = false,
+  ): Promise<PeopleDisableOutcome | PeopleDisableProbe> {
     if (
       attempt.tenantId !== this.configuration.tenantId ||
       ![attempt.operationId, attempt.userId, attempt.identityId].every((value) =>
@@ -113,7 +137,9 @@ export class TenantPeopleDisableKeycloak implements TenantPeopleDisablePort {
         !token.access_token
       )
         return { outcome: 'UNKNOWN' };
-      const endpoint = new URL(`${this.issuer}/dc-tenant-people/disable/${attempt.operationId}`);
+      const endpoint = new URL(
+        `${this.issuer}/dc-tenant-people/disable/${precheck ? 'check' : attempt.operationId}`,
+      );
       const correlation = {
         tenantId: attempt.tenantId,
         targetUserId: attempt.userId,
@@ -148,6 +174,37 @@ export class TenantPeopleDisableKeycloak implements TenantPeopleDisablePort {
       if (!proof || typeof proof !== 'object' || Array.isArray(proof))
         return { outcome: 'UNKNOWN' };
       const fields = Object.fromEntries(Object.entries(proof));
+      if (precheck) {
+        const expected = [
+          'version',
+          'outcome',
+          'reasonCode',
+          'tenantId',
+          'userId',
+          'identityId',
+          'payloadDigest',
+        ];
+        if (
+          Object.keys(fields).length !== expected.length ||
+          Object.keys(fields).some((key) => !expected.includes(key)) ||
+          fields.version !== 1 ||
+          fields.tenantId !== attempt.tenantId ||
+          fields.userId !== attempt.userId ||
+          fields.identityId !== attempt.identityId ||
+          fields.payloadDigest !== attempt.payloadDigest
+        )
+          return { outcome: 'UNKNOWN' };
+        if (fields.outcome === 'READY' && fields.reasonCode === 'READY')
+          return { outcome: 'READY' };
+        if (
+          fields.outcome === 'REJECTED' &&
+          (fields.reasonCode === 'LAST_USABLE_ADMIN' ||
+            fields.reasonCode === 'PROTECTED_OR_FOREIGN_IDENTITY' ||
+            fields.reasonCode === 'IDENTITY_STATE_CONFLICT')
+        )
+          return { outcome: 'REJECTED', reasonCode: fields.reasonCode };
+        return { outcome: 'UNKNOWN' };
+      }
       const allowed = [
         'version',
         'outcome',

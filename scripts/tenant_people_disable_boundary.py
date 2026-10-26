@@ -76,6 +76,16 @@ def check_disable_boundary(call, expect, adminbase, admin, tenant, foreign, sql)
     agent = provision('AGENT', with_session=True)
     path = resource + '/disable/' + str(uuid.uuid4())
     body = command(agent, 'AGENT')
+    preflight = resource + '/disable/check'
+    expect(preflight, None, body, status=401)
+    expect(preflight, foreign['token'], body, status=403)
+    ready, _ = expect(preflight, token, body, status=200)
+    if ready != {'version': 1, 'outcome': 'READY', 'reasonCode': 'READY',
+                 'tenantId': tenant['id'], 'userId': agent, 'identityId': agent,
+                 'payloadDigest': body['payloadDigest']}:
+        raise RuntimeError('B6_PREFLIGHT_PROOF_MISMATCH')
+    if not expect(adminbase + '/users/' + agent, admin, status=200)[0]['enabled'] or not offline_sessions(agent):
+        raise RuntimeError('B6_PREFLIGHT_CHANGED_ACCOUNT_OR_SESSION')
     expect(path, None, body, status=401)
     expect(path, foreign['token'], body, status=403)
     expect(path, token, {**body, 'extra': 'forbidden'}, status=400)

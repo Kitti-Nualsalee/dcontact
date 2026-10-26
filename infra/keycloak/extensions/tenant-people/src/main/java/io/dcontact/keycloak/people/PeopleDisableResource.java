@@ -123,6 +123,22 @@ public class PeopleDisableResource {
       "payloadDigest",operation.payloadDigest,"identityId",proof.identityId));
   }
 
+  @POST @Path("check") @Consumes(MediaType.APPLICATION_JSON)
+  public Response check(Map<String,Object> body) {
+    Command command=parse(body);
+    Binding binding=authority.authorize(command.tenantId());
+    if(!Arrays.asList(String.valueOf(binding.client().getAttribute("dc_allowed_roles")).split(",")).contains(command.role()))throw denied(403,"FORBIDDEN");
+    EntityManager manager=session.getProvider(JpaConnectionProvider.class).getEntityManager();
+    authority.lockTenant(manager,binding,command.tenantId());
+    UserModel user=UserStoragePrivateUtil.userLocalStorage(session).getUserById(binding.realm(),command.identityId());
+    String reason="READY";
+    if(!identityMatches(binding,command.tenantId(),command.userId(),user,command.role()))reason="PROTECTED_OR_FOREIGN_IDENTITY";
+    else if(!user.isEnabled()||!identityEnabled(binding,command.identityId()))reason="IDENTITY_STATE_CONFLICT";
+    else if("ADMIN".equals(command.role())&&command.admins().stream().noneMatch(candidate->usableAdmin(binding,command,candidate)))reason="LAST_USABLE_ADMIN";
+    return json(200,Map.of("version",1,"outcome","READY".equals(reason)?"READY":"REJECTED","reasonCode",reason,
+      "tenantId",command.tenantId(),"userId",command.userId(),"identityId",command.identityId(),"payloadDigest",command.digest()));
+  }
+
   @POST @Path("{operationId}") @Consumes(MediaType.APPLICATION_JSON)
   public Response disable(@PathParam("operationId") String operationId,Map<String,Object> body) {
     Command command=parse(body);uuid(operationId);
