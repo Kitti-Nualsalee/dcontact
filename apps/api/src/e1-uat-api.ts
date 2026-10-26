@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { withLocalAccountAdmission } from './local-account-verifier.js';
 import { UnauthorizedException, type DynamicModule } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ContactGovernanceService } from '@d-contact/contact-governance';
@@ -127,11 +128,14 @@ export async function bootstrapE1UatApi(
   const diagnostics = { write: (event: object) => console.log(JSON.stringify(event)) };
   const routeGuard = new RuntimeProfileRouteGuard(profile, diagnostics);
   const database = new PrismaClient();
-  const verifier = new KeycloakAccessTokenVerifier({
-    issuer: required(environment, 'KEYCLOAK_ISSUER'),
-    audience: required(environment, 'KEYCLOAK_AUDIENCE'),
-    jwksUri: required(environment, 'KEYCLOAK_JWKS_URI'),
-  });
+  const verifier = withLocalAccountAdmission(
+    database,
+    new KeycloakAccessTokenVerifier({
+      issuer: required(environment, 'KEYCLOAK_ISSUER'),
+      audience: required(environment, 'KEYCLOAK_AUDIENCE'),
+      jwksUri: required(environment, 'KEYCLOAK_JWKS_URI'),
+    }),
+  );
   const lifecycle = new CachedTenantLifecycleGate((tenantId) =>
     database.tenant
       .findUnique({ where: { id: tenantId }, select: { lifecycleStatus: true } })

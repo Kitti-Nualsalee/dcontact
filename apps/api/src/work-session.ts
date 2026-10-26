@@ -308,6 +308,14 @@ export class WorkSessionLeases {
       const open = await this.lockOpen(tx, actor);
       if (open && open.id === leaseId) {
         const busy = await this.busy(tx, actor);
+        const account = await tx.user.findFirst({
+          where: { tenantId: actor.tenantId, id: actor.userId, isActive: true, role: 'AGENT' },
+          select: { id: true },
+        });
+        if (!account) {
+          if (!busy) await this.close(tx, actor, open, 'auth_revoked', correlationId);
+          return { status: 'REVOKED' as const, reason: 'auth_revoked' as const };
+        }
         // origin ถูกปิด/ลบ: ว่าง = ปล่อยทันที, มีสาย = คุยต่อจนจบแล้วค่อยปล่อย (E1.5 ข้อ 3)
         if (originRevoked && !busy) {
           await this.close(tx, actor, open, 'origin_revoked', correlationId);
@@ -345,6 +353,11 @@ export class WorkSessionLeases {
   async isCurrent(actor: WorkSessionActor, leaseId: string): Promise<boolean> {
     if (await this.originRevoked(actor, leaseId)) return false;
     return this.transaction(actor, async (tx) => {
+      const account = await tx.user.findFirst({
+        where: { tenantId: actor.tenantId, id: actor.userId, isActive: true, role: 'AGENT' },
+        select: { id: true },
+      });
+      if (!account) return false;
       const open = await tx.agentWorkSessionLease.findFirst({
         where: { id: leaseId, tenantId: actor.tenantId, userId: actor.userId, releasedAt: null },
         select: { expiresAt: true },

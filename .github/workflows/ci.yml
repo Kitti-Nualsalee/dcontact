@@ -157,6 +157,10 @@ jobs:
           pnpm --filter @d-contact/telephony exec tsx --test src/e1-registration-flush.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/agent-sip-credentials.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/agent-availability.integration.ts
+      - name: ตรวจ B6 local account deny และ lease เดิมหลัง disable ภายใต้ RLS จริง
+        run: |
+          pnpm --filter @d-contact/api exec tsx --test src/local-account-verifier.integration.ts
+          pnpm --filter @d-contact/api exec tsx --test src/work-session.integration.ts
       - name: ตรวจ Voice wrap-up V1 และ legacy guards ภายใต้ RLS จริง
         run: |
           pnpm --filter @d-contact/api exec tsx --test src/agent-workspace.integration.ts

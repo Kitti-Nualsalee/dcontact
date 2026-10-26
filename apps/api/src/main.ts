@@ -1,4 +1,5 @@
 import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
+import { withLocalAccountAdmission } from './local-account-verifier.js';
 import 'reflect-metadata';
 import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
 import { TenantPeopleController } from './tenant-people-api.js';
@@ -176,11 +177,14 @@ const cg5QueryCache = new Cg5QueryCache(
   new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379'),
 );
 const cg5TenantClientRateLimiter = new TenantClientRateLimiter();
-const verifier = new KeycloakAccessTokenVerifier({
-  issuer: required('KEYCLOAK_ISSUER'),
-  audience: required('KEYCLOAK_AUDIENCE'),
-  jwksUri: required('KEYCLOAK_JWKS_URI'),
-});
+const verifier = withLocalAccountAdmission(
+  prisma,
+  new KeycloakAccessTokenVerifier({
+    issuer: required('KEYCLOAK_ISSUER'),
+    audience: required('KEYCLOAK_AUDIENCE'),
+    jwksUri: required('KEYCLOAK_JWKS_URI'),
+  }),
+);
 // AC1/AC2 (#594/#595): บังคับ 2FA sync ไป Organization ผ่าน extension `dc-account` — ไม่มี secret ของ
 // account service = ไม่มี port และการเปิดบังคับ 2FA ตอบ 409 MFA_ENFORCEMENT_UNAVAILABLE (ไม่บันทึกค่าที่บังคับไม่ได้)
 const accountServiceSecret = process.env.KEYCLOAK_ACCOUNT_SERVICE_SECRET;
