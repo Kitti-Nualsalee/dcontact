@@ -117,7 +117,7 @@ export function Cus360Prototype() {
   const [phase, setPhase] = useState('ACTIVE');
   const [wrapup, setWrapup] = useState('');
   const [disposition, setDisposition] = useState('CUSTOMER_ASSISTED');
-  const [candidate, setCandidate] = useState('demo-01');
+  const [candidate, setCandidate] = useState('');
   const [panelTab, setPanelTab] = useState('profile');
   useEffect(() => {
     void appI18n.changeLanguage(lang);
@@ -679,6 +679,7 @@ export function Cus360Prototype() {
       </>
     );
   const link = () => {
+    if (!candidate) return;
     setLinked(candidate);
     setSelected(candidate);
     setNotice(
@@ -692,7 +693,9 @@ export function Cus360Prototype() {
     const run = () => {
       setWork((w) => w + 1);
       setLinked(null);
+      setCandidate('');
       setWrapup('');
+      setDisposition('CUSTOMER_ASSISTED');
       setDraft(null);
       setDirty(false);
       setNotice('');
@@ -770,7 +773,7 @@ export function Cus360Prototype() {
               </span>
             </label>
           ))}
-          <Button variant="primary" onPress={link}>
+          <Button variant="primary" onPress={link} isDisabled={!candidate}>
             {t('เลือกผูกกับงานนี้', 'Link to this work')}
           </Button>
           <p>
@@ -972,6 +975,7 @@ export function Cus360Prototype() {
                 setError('');
                 if (s === 'assignment') {
                   setLinked(null);
+                  setCandidate('');
                   setDraft(null);
                   setDirty(false);
                 }
