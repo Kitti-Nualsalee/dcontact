@@ -27,6 +27,9 @@ Local overlay ส่ง DB ไป PostgreSQL ใน project เดียวก�
 Ports 80/443 และ UDP 16384–16420 bind เฉพาะ `127.0.0.1`; ถ้าชน service เดิมให้หยุดตรวจ
 ไม่หยุดหรือลบ container อื่นเอง ตัวแปร media ที่โฆษณาเป็น loopback ใช้เฉพาะ browser บนเครื่องเดียวกัน
 การ render Compose ผ่านยังไม่ยืนยัน media บน Docker Desktop ต้องพิสูจน์เสียงจริงแยก
+Local entrypoint กำหนด `local_ip_v4` จาก IPv4 ของ container ก่อนเรียก entrypoint เดิม
+เพราะ FreeSWITCH อาจตรวจได้ loopback เมื่ออยู่บน internal network; advertised media ยังคง loopback
+ไม่แก้ entrypoint หรือค่า bind ของ VM และไม่เปิด SIP/ESL port บน host
 ไม่ใช้ local rehearsal ปิด VM/human acceptance ของ #714 และไม่รัน `down -v` เพื่อทำให้ smoke ผ่าน
 
 ```bash

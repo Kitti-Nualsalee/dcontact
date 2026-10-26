@@ -24,10 +24,13 @@ services:
     mem_limit: 384m
 
   freeswitch:
+    entrypoint: ['/bin/sh', '/e1-local-source/local-entrypoint.sh']
     ports: !override
       - '127.0.0.1:16384-16420:16384-16420/udp'
-    volumes:
-      - ./e1-freeswitch/vars.local.xml:/e1-freeswitch/conf/vars.xml:ro
+    volumes: !override
+      - ./e1-freeswitch:/e1-local-source:ro
+    tmpfs:
+      - /e1-freeswitch:mode=0755
     mem_limit: 512m
 
   mailpit:
