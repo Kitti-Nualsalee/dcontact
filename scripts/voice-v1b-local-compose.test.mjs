@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { renderRealm } from './u1-uat-keycloak-users.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = resolve(root, 'infra/uat');
@@ -21,12 +22,13 @@ for (const filename of files) {
   }
 }
 Object.assign(environment, {
-  UAT_HOST: 'console.localhost',
-  UAT_WORKSPACE_HOST: 'workspace.localhost',
+  UAT_HOST: 'console.dcontact.test',
+  UAT_WORKSPACE_HOST: 'workspace.dcontact.test',
   UAT_TLS_CERT_FILE: '/tmp/voice-v1b-local-fixture.crt',
   UAT_TLS_KEY_FILE: '/tmp/voice-v1b-local-fixture.key',
   UAT_ALLOWED_CIDRS: '127.0.0.1/32',
   SOURCE_SHA: '1'.repeat(40),
+  UAT_TENANT_ID: '11111111-1111-4111-8111-111111111111',
 });
 for (const image of ['API_IMAGE', 'OPS_IMAGE', 'CONSOLE_IMAGE', 'KEYCLOAK_IMAGE']) {
   environment[image] = `example.invalid/local-fixture@sha256:${'1'.repeat(64)}`;
@@ -46,6 +48,15 @@ const result = spawnSync(
 );
 assert.equal(result.status, 0, result.stderr || result.error?.message);
 const configuration = JSON.parse(result.stdout);
+
+test('local hostnames ผ่าน Keycloak realm renderer เดียวกับ bootstrap จริง', () => {
+  const template = JSON.parse(
+    readFileSync(resolve(root, 'infra/keycloak/realm-dcontact.uat.json'), 'utf8'),
+  );
+  const realm = renderRealm(template, environment);
+  const workspace = realm.clients.find((client) => client.clientId === 'dcontact-uat-workspace');
+  assert.deepEqual(workspace.webOrigins, [`https://${environment.UAT_WORKSPACE_HOST}`]);
+});
 
 test('local composition แยก project และไม่เชื่อม DB relay ของ VM', () => {
   assert.equal(configuration.name, 'dcontact-v1b-local');
@@ -69,12 +80,16 @@ test('local ports เป็น loopback เท่านั้น ไม่มี
   assert.ok(published.length > 0);
   for (const port of published) {
     assert.equal(port.host_ip, '127.0.0.1');
-    assert.ok(['proxy', 'freeswitch', 'mailpit'].includes(port.name));
+    assert.ok(['proxy', 'freeswitch', 'mailpit-ui'].includes(port.name));
     assert.ok(![1025, 5060, 5066, 7443, 8021].includes(port.target));
   }
   assert.deepEqual(configuration.services.mailpit.networks, { internal: null });
   assert.equal(configuration.networks.internal.internal, true);
   assert.equal(configuration.services.mailpit.environment, undefined);
+  assert.equal(configuration.services.mailpit.ports, undefined);
+  assert.deepEqual(configuration.services['mailpit-ui'].networks, { edge: null, internal: null });
+  const mailboxProxy = readFileSync(resolve(directory, 'Caddyfile.mailpit-local'), 'utf8');
+  assert.match(mailboxProxy, /reverse_proxy mailpit:8025/);
 });
 
 test('local ใช้ Workspace/direct sandbox และ switches default-off', () => {
