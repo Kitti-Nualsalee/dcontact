@@ -39,3 +39,33 @@ for (const result of ['+OK accepted', '-ERR command rejected', 'timeout']) {
     await assert.rejects(client.command('api status\napi shutdown'), /E1_ESL_INVALID_COMMAND/);
   });
 }
+
+test('ESL readback คืน raw boolean และไม่ตีความ -ERR เป็น channel absent', async (context) => {
+  const server = net.createServer((socket) => {
+    socket.write('Content-Type: auth/request\n\n');
+    let authenticated = false;
+    socket.on('data', (chunk) => {
+      if (!authenticated) {
+        authenticated = true;
+        socket.write('Content-Type: command/reply\nReply-Text: +OK accepted\n\n');
+        return;
+      }
+      const response = chunk.toString().includes('uuid_exists') ? 'false' : '-ERR unavailable';
+      const frame = `Content-Type: api/response\nContent-Length: ${Buffer.byteLength(response)}\n\n${response}`;
+      socket.write(frame.slice(0, 19));
+      socket.write(frame.slice(19));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('missing TCP address');
+  const client = new E1EslCommandClient({
+    host: '127.0.0.1',
+    port: address.port,
+    password: 'test-only',
+  });
+  assert.equal(await client.request('api uuid_exists test'), 'false');
+  assert.equal(await client.request('api status'), '-ERR unavailable');
+  await assert.rejects(client.command('api status'), /UNCONFIRMED/);
+});

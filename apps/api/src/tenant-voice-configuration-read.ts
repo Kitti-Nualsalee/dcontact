@@ -7,7 +7,64 @@ import {
   type VoiceActor,
 } from './tenant-voice-catalog.js';
 import type { ConfigurationKind } from './tenant-voice-configuration.js';
+import { managedRuntimeReady } from './tenant-voice-runtime-readiness.js';
 type Tx = Prisma.TransactionClient;
+export function configurationRuntime(db: PrismaClient, identity: VoiceActor, rawId: string) {
+  const id = voiceUuid(rawId, 'queueId');
+  return withTenantDatabaseTransaction(db, identity.tenantId, async (tx) => {
+    await readFence(tx, identity.tenantId);
+    const queue = await configurationResource(tx, identity, 'queue', id);
+    const ready =
+      queue.voiceConfigVersion === 1 && (await managedRuntimeReady(tx, identity.tenantId));
+    const events = await tx.$queryRaw<
+      { interactionId: string; reason: string | null; occurredAt: Date }[]
+    >`SELECT e.interaction_id AS "interactionId",e.payload->>'reason' AS reason,e.created_at AS "occurredAt" FROM interaction_events e JOIN interactions i ON i.tenant_id=e.tenant_id AND i.id=e.interaction_id WHERE e.tenant_id=${identity.tenantId}::uuid AND i.queue_id=${id}::uuid AND e.type='interaction.managed_terminal' ORDER BY e.created_at DESC,e.id DESC LIMIT 1`;
+    const latest = events[0];
+    const cleanup = latest
+      ? await tx.$queryRaw<
+          { status: string; actionRequired: boolean }[]
+        >`SELECT status,last_error='MANAGED_VOICE_ORIGINATE_OUTCOME_UNKNOWN' AS "actionRequired" FROM voice_managed_commands WHERE tenant_id=${identity.tenantId}::uuid AND interaction_id=${latest.interactionId}::uuid AND command_type IN ('offer.cancel','call.hangup')`
+      : [];
+    const teardownState = !cleanup.length
+      ? null
+      : cleanup.some((item) => item.actionRequired)
+        ? 'ACTION_REQUIRED'
+        : cleanup.some((item) => item.status !== 'CONFIRMED')
+          ? 'PENDING'
+          : 'CONFIRMED';
+    const reasons = [
+      'PREANSWER_DEADLINE_EXCEEDED',
+      'CALLER_CANCELLED',
+      'CALLER_HANGUP',
+      'AGENT_HANGUP',
+      'TOTAL_PREANSWER_TIMEOUT',
+      'NO_ELIGIBLE_AGENT',
+    ];
+    return {
+      queueId: id,
+      configRevision: queue.configRevision,
+      ready,
+      reasons: ready ? [] : ['CAPABILITY_NOT_READY'],
+      policy:
+        queue.voiceConfigVersion === 1
+          ? {
+              version: 1,
+              offerTimeoutSec: 20,
+              maxTotalPreanswerSec: 60,
+              terminalAction: 'HANGUP',
+            }
+          : null,
+      terminal: latest
+        ? {
+            reason: reasons.includes(latest.reason ?? '') ? latest.reason : 'UNKNOWN',
+            occurredAt: latest.occurredAt.toISOString(),
+            teardownState,
+          }
+        : null,
+      evaluatedAt: new Date().toISOString(),
+    };
+  });
+}
 async function readFence(tx: Tx, tenantId: string) {
   const rows = await tx.$queryRaw<
     { ok: boolean }[]

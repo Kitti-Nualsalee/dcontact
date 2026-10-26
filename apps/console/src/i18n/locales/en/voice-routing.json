@@ -1,4 +1,31 @@
 {
+  "activation": {
+    "title": "Managed routing",
+    "fixedPolicy": "Fixed policy: offer 20 seconds per Agent; total pre-answer wait 60 seconds; then hang up.",
+    "ready": "Managed routing is ready",
+    "blocked": "Managed routing is not ready for activation",
+    "activateQueue": "Activate queue",
+    "deactivateQueue": "Deactivate queue",
+    "bindingState": "Binding status",
+    "skillsRequired": "Save at least one required skill before activating this queue.",
+    "terminal": "Latest terminal reason from server",
+    "noTerminal": "No terminal event reported",
+    "runtimeUnavailable": "Runtime status is unavailable. Retry to read the server status.",
+    "terminalReasons": {
+      "PREANSWER_DEADLINE_EXCEEDED": "Total pre-answer time expired",
+      "TOTAL_PREANSWER_TIMEOUT": "Total pre-answer time expired",
+      "CALLER_CANCELLED": "Caller cancelled before answer",
+      "CALLER_HANGUP": "Caller ended the call",
+      "AGENT_HANGUP": "The conversation ended",
+      "NO_ELIGIBLE_AGENT": "No eligible Agent",
+      "UNKNOWN": "Terminal reason is unavailable"
+    },
+    "teardown": {
+      "PENDING": "Waiting for confirmation that caller and Agent legs have ended",
+      "CONFIRMED": "Caller and Agent leg teardown is confirmed",
+      "ACTION_REQUIRED": "Teardown outcome is unknown. An operator must reconcile it before retrying."
+    }
+  },
   "config": {
     "navigation": "Routing pages",
     "requirements": "Queue required skills",

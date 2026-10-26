@@ -9,6 +9,7 @@ import {
 
 import type { VoiceCaller } from './tenant-voice-identity.js';
 import { findTenantConfigurationActor } from './tenant-config-identity.js';
+import { managedRuntimeReady } from './tenant-voice-runtime-readiness.js';
 type Tx = Prisma.TransactionClient;
 export type CatalogKind = 'queues' | 'skills';
 export interface VoiceActor {
@@ -119,6 +120,7 @@ export function catalogCapabilities(db: PrismaClient, identity: VoiceActor) {
   return withTenantDatabaseTransaction(db, identity.tenantId, async (tx) => {
     const actor = await catalogActor(tx, identity);
     const p = await policy(tx, identity.tenantId);
+    const runtimeReady = !p.reason && (await managedRuntimeReady(tx, identity.tenantId));
     const [voiceQueues, skills, accounts, agents] = await Promise.all([
       tx.queue.count({ where: { tenantId: identity.tenantId, channels: { has: 'VOICE' } } }),
       tx.skill.count({ where: { tenantId: identity.tenantId } }),
@@ -130,7 +132,10 @@ export function catalogCapabilities(db: PrismaClient, identity: VoiceActor) {
       canWrite: actor.role === 'ADMIN',
       catalog: { ready: true, reasons: [] },
       configuration: { ready: !p.reason, reasons: p.reason ? [p.reason] : [] },
-      managedRouting: { ready: false, reasons: ['CAPABILITY_NOT_READY'] },
+      managedRouting: {
+        ready: runtimeReady,
+        reasons: runtimeReady ? [] : ['CAPABILITY_NOT_READY'],
+      },
       peopleProvisioning: { ready: false, reasons: ['CAPABILITY_NOT_READY'] },
       invitation: { ready: false, reasons: ['CAPABILITY_NOT_READY'] },
       disable: { ready: false, reasons: ['CAPABILITY_NOT_READY'] },

@@ -4348,6 +4348,7 @@ model Interaction {
   wrapupResults       InteractionWrapupResult[]
 
   @@unique([tenantId, id, agentId])
+  @@unique([tenantId, id], map: "interactions_tenant_managed_id")
   @@unique([tenantId, externalId])
   @@index([tenantId, queuedAt])
   @@index([tenantId, conversationId, queuedAt])
@@ -6528,6 +6529,67 @@ model VoiceConfigAudit {
 
   @@index([tenantId, resourceId, createdAt, id], map: "voice_config_audit_resource")
   @@map("voice_config_audit")
+}
+
+model VoiceManagedRuntimeReadiness {
+  tenantId        String   @map("tenant_id") @db.Uuid
+  telephonyNodeId String   @map("telephony_node_id")
+  version         Int      @default(1)
+  directWired     Boolean  @map("direct_wired")
+  expiresAt       DateTime @map("expires_at") @db.Timestamptz
+  updatedAt       DateTime @default(dbgenerated("clock_timestamp()")) @map("updated_at") @db.Timestamptz
+
+  @@id([tenantId, telephonyNodeId])
+  @@map("voice_managed_runtime_readiness")
+}
+
+model VoiceManagedCall {
+  tenantId            String   @map("tenant_id") @db.Uuid
+  interactionId       String   @map("interaction_id") @db.Uuid
+  telephonyNodeId     String   @map("telephony_node_id")
+  callUuid            String   @map("call_uuid")
+  firstQueueEnteredAt DateTime @default(dbgenerated("clock_timestamp()")) @map("first_queue_entered_at") @db.Timestamptz
+  preanswerDeadline   DateTime @map("preanswer_deadline") @db.Timestamptz
+  currentOfferId      String?  @map("current_offer_id") @db.Uuid
+  terminalReason      String?  @map("terminal_reason")
+
+  @@id([tenantId, interactionId])
+  @@unique([tenantId, telephonyNodeId, callUuid])
+  @@map("voice_managed_calls")
+}
+
+model VoiceManagedOffer {
+  tenantId       String   @map("tenant_id") @db.Uuid
+  id             String   @db.Uuid
+  interactionId  String   @map("interaction_id") @db.Uuid
+  agentId        String   @map("agent_id") @db.Uuid
+  agentExtension String   @map("agent_extension")
+  blegUuid       String   @unique @map("bleg_uuid") @db.Uuid
+  assignedAt     DateTime @map("assigned_at") @db.Timestamptz
+  expiresAt      DateTime @map("expires_at") @db.Timestamptz
+  outcome        String
+
+  @@id([tenantId, id])
+  @@map("voice_managed_offers")
+}
+
+model VoiceManagedCommand {
+  tenantId        String    @map("tenant_id") @db.Uuid
+  id              String    @db.Uuid
+  interactionId   String    @map("interaction_id") @db.Uuid
+  telephonyNodeId String    @map("telephony_node_id")
+  callUuid        String    @map("call_uuid")
+  offerId         String?   @map("offer_id") @db.Uuid
+  commandType     String    @map("command_type")
+  payload         Json
+  status          String    @default("PENDING")
+  attempts        Int       @default(0)
+  lastError       String?   @map("last_error")
+  createdAt       DateTime  @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz
+  confirmedAt     DateTime? @map("confirmed_at") @db.Timestamptz
+
+  @@id([tenantId, id])
+  @@map("voice_managed_commands")
 }
 
 model VoiceManagedQueuePolicy {

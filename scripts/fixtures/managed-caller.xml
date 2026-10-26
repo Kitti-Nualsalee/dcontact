@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<!DOCTYPE scenario SYSTEM "sipp.dtd">
+<scenario name="managed caller observes real BYE">
+  <send retrans="500"><![CDATA[
+INVITE sip:[service]@[remote_ip]:[remote_port] SIP/2.0
+Via: SIP/2.0/UDP [local_ip]:[local_port];branch=[branch]
+From: caller <sip:caller@[local_ip]:[local_port]>;tag=[call_number]
+To: <sip:[service]@[remote_ip]:[remote_port]>
+Call-ID: [call_id]
+CSeq: 1 INVITE
+Contact: <sip:caller@[local_ip]:[local_port]>
+Max-Forwards: 70
+Content-Type: application/sdp
+Content-Length: [len]
+
+v=0
+o=caller 1 1 IN IP4 [local_ip]
+s=managed
+c=IN IP4 [local_ip]
+t=0 0
+m=audio [media_port] RTP/AVP 0
+a=rtpmap:0 PCMU/8000
+]]></send>
+  <recv response="100" optional="true"/>
+  <recv response="180" optional="true"/>
+  <recv response="183" optional="true"/>
+  <recv response="200" rrs="true"/>
+  <send><![CDATA[
+ACK [next_url] SIP/2.0
+Via: SIP/2.0/UDP [local_ip]:[local_port];branch=[branch]
+[last_From:]
+[last_To:]
+[last_Call-ID:]
+CSeq: 1 ACK
+Contact: <sip:caller@[local_ip]:[local_port]>
+Content-Length: 0
+
+]]></send>
+  <recv request="BYE" timeout="150000"/>
+  <send><![CDATA[
+SIP/2.0 200 OK
+[last_Via:]
+[last_From:]
+[last_To:]
+[last_Call-ID:]
+[last_CSeq:]
+Content-Length: 0
+
+]]></send>
+  <ResponseTimeRepartition value="10,100,1000"/>
+</scenario>

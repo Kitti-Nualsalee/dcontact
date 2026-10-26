@@ -2,7 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
 import { Button, Select, TextField } from '@d-contact/ui-react';
 import { CatalogApiError, type Capabilities, type CatalogItem } from './api.js';
-import type { ConfigApi, Destination, Eligibility, RosterUser, SkillSet } from './config-api.js';
+import type {
+  ConfigApi,
+  Destination,
+  Eligibility,
+  ManagedRuntime,
+  RosterUser,
+  SkillSet,
+} from './config-api.js';
 
 type Mode = 'requirements' | 'agentSkills' | 'destinations';
 interface Props {
@@ -10,6 +17,7 @@ interface Props {
   identityKey: string;
   mode: Mode;
   queue?: CatalogItem;
+  onQueueRead?(queue: CatalogItem): void;
 }
 interface Pending {
   commandId: string;
@@ -43,7 +51,7 @@ export function ConfigPanel(props: Props) {
     <ConfigSession key={`${props.identityKey}:${props.mode}:${props.queue?.id ?? ''}`} {...props} />
   );
 }
-function ConfigSession({ api, identityKey, mode, queue }: Props) {
+function ConfigSession({ api, identityKey, mode, queue, onQueueRead }: Props) {
   const { t: translate } = useTranslation('voiceRouting');
   const t = translate as (key: string, options?: Record<string, unknown>) => string;
   const key = `dc:voice-config:${identityKey}:${mode}:${queue?.id ?? ''}`;
@@ -55,6 +63,9 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [target, setTarget] = useState(() => restore(key)?.target ?? queue?.id ?? '');
   const [bindingQueue, setBindingQueue] = useState('');
+  const [bindingActive, setBindingActive] = useState(false);
+  const [currentQueue, setCurrentQueue] = useState(queue);
+  const [runtime, setRuntime] = useState<ManagedRuntime>();
   const [set, setSet] = useState<SkillSet>();
   const [levels, setLevels] = useState<Record<string, number>>({});
   const [eligibility, setEligibility] = useState<Eligibility>();
@@ -87,6 +98,8 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
       setSet(undefined);
       setEligibility(undefined);
       setAgentQueues([]);
+      setCurrentQueue(undefined);
+      setRuntime(undefined);
     }
   }
   async function read(id: string) {
@@ -94,10 +107,13 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
       const values = await allPages((cursor) => api.destinations(cursor));
       const value = values.find((item) => item.id === id);
       if (!value) throw new CatalogApiError(404, 'RESOURCE_NOT_FOUND');
-      return { destinations: values, queueId: value.queueId ?? '' };
+      return { destinations: values, queueId: value.queueId ?? '', isActive: value.isActive };
     }
     const value = await api.skills(kind, id);
     const result = mode === 'requirements' ? await api.eligibility(id) : undefined;
+    const queueValue = mode === 'requirements' ? await api.queue(id) : undefined;
+    const runtimeValue =
+      mode === 'requirements' ? await api.runtime(id).catch(() => undefined) : undefined;
     const agentResults =
       mode === 'agentSkills'
         ? await Promise.all(
@@ -106,13 +122,14 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
               .map(async (item) => ({ name: item.name, result: await api.eligibility(item.id) })),
           )
         : [];
-    return { value, result, agentResults };
+    return { value, result, agentResults, queueValue, runtimeValue };
   }
   function apply(result: Awaited<ReturnType<typeof read>>) {
     if (!active.current) return;
     if (result.destinations !== undefined) {
       setDestinations(result.destinations);
       setBindingQueue(result.queueId);
+      setBindingActive(result.isActive);
     } else {
       setSet(result.value);
       setLevels(
@@ -122,6 +139,11 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
       );
       setEligibility(result.result);
       setAgentQueues(result.agentResults);
+      if (result.queueValue) {
+        setCurrentQueue(result.queueValue);
+        onQueueRead?.(result.queueValue);
+        setRuntime(result.runtimeValue);
+      }
     }
   }
   async function load() {
@@ -174,8 +196,10 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
   const revision = mode === 'destinations' ? destination?.configRevision : set?.configRevision;
   const disabled =
     busy || !!pending || !caps?.canWrite || !caps.configuration.ready || !revision || !!error;
-  async function save() {
+  async function save(activation = false) {
     if (disabled || locked.current || !target) return;
+    if (activation && !currentQueue?.isActive && !caps?.managedRouting.ready) return;
+    if (mode === 'destinations' && bindingActive && !caps?.managedRouting.ready) return;
     if (!reason.trim() || reason.trim().length > 500 || /[\p{Cc}\p{Cf}]/u.test(reason)) {
       setError('VALIDATION_FAILED');
       return;
@@ -183,7 +207,7 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
     const intent = { commandId: crypto.randomUUID(), target };
     const envelope = {
       commandId: intent.commandId,
-      expectedRevision: revision!,
+      expectedRevision: activation ? currentQueue!.configRevision! : revision!,
       reasonCode: 'ADMIN_CONFIGURATION',
       reason: reason.trim(),
     };
@@ -195,7 +219,9 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
     let accepted = false;
     try {
       if (mode === 'destinations')
-        await api.bind(target, { ...envelope, queueId: bindingQueue, isActive: false });
+        await api.bind(target, { ...envelope, queueId: bindingQueue, isActive: bindingActive });
+      else if (activation)
+        await api.queue(target, { ...envelope, isActive: !currentQueue?.isActive });
       else
         await api.replace(kind, target, {
           ...envelope,
@@ -251,6 +277,47 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
   return (
     <section className="vr-form" aria-label={t(`config.${mode}`)} aria-busy={busy}>
       <h2>{t(`config.${mode}`)}</h2>
+      {mode !== 'agentSkills' && caps ? (
+        <section aria-label={t('activation.title')}>
+          <h3>{t('activation.title')}</h3>
+          <p>{t('activation.fixedPolicy')}</p>
+          <p role="status">
+            {t(caps.managedRouting.ready ? 'activation.ready' : 'activation.blocked')}
+          </p>
+          {caps.managedRouting.reasons.map((code) => (
+            <p key={code}>{t(`errors.${code}`, { defaultValue: code })}</p>
+          ))}
+          {runtime ? (
+            <>
+              <p>{t(runtime.ready ? 'activation.ready' : 'activation.blocked')}</p>
+              {runtime.reasons.map((code) => (
+                <p key={code}>{t(`errors.${code}`, { defaultValue: code })}</p>
+              ))}
+              <p>
+                {t('config.evaluated', {
+                  revision: runtime.configRevision,
+                  at: runtime.evaluatedAt,
+                })}
+              </p>
+              <p>
+                {t('activation.terminal')}:{' '}
+                {runtime.terminal
+                  ? `${t(`activation.terminalReasons.${runtime.terminal.reason}`, { defaultValue: t('activation.terminalReasons.UNKNOWN') })} · ${runtime.terminal.occurredAt}`
+                  : t('activation.noTerminal')}
+              </p>
+              {runtime.terminal?.teardownState ? (
+                <p>
+                  {t(`activation.teardown.${runtime.terminal.teardownState}`, {
+                    defaultValue: t('activation.teardown.PENDING'),
+                  })}
+                </p>
+              ) : null}
+            </>
+          ) : mode === 'requirements' && !busy ? (
+            <p>{t('activation.runtimeUnavailable')}</p>
+          ) : null}
+        </section>
+      ) : null}
       {busy ? <p role="status">{t('loading')}</p> : null}
       {error ? (
         <p role="alert">{t(`errors.${error}`, { defaultValue: t('errors.FAILED') })}</p>
@@ -291,7 +358,7 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
           {mode === 'agentSkills' ? <p>{t('config.pendingNotice')}</p> : null}
           {mode === 'destinations' ? (
             <>
-              <p>{t('config.inactiveBinding')}</p>
+              <p>{t(destination?.isActive ? 'active' : 'inactive')}</p>
               <Select
                 label={t('queues')}
                 selectedKey={bindingQueue || null}
@@ -300,6 +367,18 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
                 options={queues
                   .filter((item) => !item.legacy && item.voiceConfigVersion === 1)
                   .map((item) => ({ id: item.id, label: item.name }))}
+              />
+              <Select
+                label={t('activation.bindingState')}
+                selectedKey={String(bindingActive)}
+                onSelectionChange={(value) => setBindingActive(value === 'true')}
+                isDisabled={disabled}
+                options={[
+                  { id: 'false', label: t('inactive') },
+                  ...(caps.managedRouting.ready || bindingActive
+                    ? [{ id: 'true', label: t('active') }]
+                    : []),
+                ]}
               />
             </>
           ) : (
@@ -332,11 +411,37 @@ function ConfigSession({ api, identityKey, mode, queue }: Props) {
               <Button
                 onPress={() => void save()}
                 isDisabled={
-                  disabled || !reason.trim() || (mode === 'destinations' && !bindingQueue)
+                  disabled ||
+                  !reason.trim() ||
+                  (mode === 'destinations' &&
+                    (!bindingQueue || (bindingActive && !caps.managedRouting.ready)))
                 }
               >
                 {t('config.save')}
               </Button>
+              {mode === 'requirements' && currentQueue ? (
+                <>
+                  <p>{t(currentQueue.isActive ? 'active' : 'inactive')}</p>
+                  {!currentQueue.isActive && !set?.items.length ? (
+                    <p role="status">{t('activation.skillsRequired')}</p>
+                  ) : null}
+                  <Button
+                    onPress={() => void save(true)}
+                    isDisabled={
+                      disabled ||
+                      !reason.trim() ||
+                      !currentQueue.configRevision ||
+                      (!currentQueue.isActive && (!caps.managedRouting.ready || !set?.items.length))
+                    }
+                  >
+                    {t(
+                      currentQueue.isActive
+                        ? 'activation.deactivateQueue'
+                        : 'activation.activateQueue',
+                    )}
+                  </Button>
+                </>
+              ) : null}
             </>
           ) : null}
           {eligibility ? (
