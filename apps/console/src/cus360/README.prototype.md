@@ -2,6 +2,12 @@
 
 Prototype สำหรับ [Cus360: เลือก UX ของ Console และแผงลูกค้าใน Workspace](https://github.com/Kitti-Nualsalee/dcontact/issues/762) ใช้กรอบข้อมูล/สิทธิ์จาก [resolution ที่ยืนยันแล้ว](https://github.com/Kitti-Nualsalee/dcontact/issues/761#issuecomment-6403026011)
 
+## ผลการเลือก
+
+Owner เลือก **Console A และ Workspace A** พร้อมยืนยันรูปแบบสถานะตาม prototype วันที่ 26 ตุลาคม 2569. ข้อตกลงขั้นสุดท้ายอยู่ใน [UX resolution](https://github.com/Kitti-Nualsalee/dcontact/issues/762#issuecomment-6407669066)
+
+Source ที่ใช้ตัดสินคือ `a90067aa414db675687dcceb8212e63c89d44130`; เก็บ B/C เป็นทางเลือกอ้างอิงใน branch นี้เท่านั้น. การเลือก UX ไม่ใช่การอนุมัติ API contracts ที่ยังค้าง และไม่ย้ายโค้ด prototype เข้า main
+
 ## คำถามที่ใช้ตัดสิน
 
 Console ควรเป็น A รายการแล้วเปิดโปรไฟล์เต็มหน้า, B รายการคู่แผงรายละเอียด หรือ C โปรไฟล์เป็นศูนย์กลาง? Workspace ควรวางแผงลูกค้าข้างงาน, แท็บในพื้นที่หลัก หรือคอลัมน์ลูกค้าคู่บันทึกผล? เลือกต่างแบบระหว่าง Console/Workspace หรือผสมส่วนที่ชอบได้
