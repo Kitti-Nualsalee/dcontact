@@ -469,7 +469,102 @@
   font-size: 10px;
   margin-top: 5px;
 }
+.c360m-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.c360m-metric {
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.c360m-metric:hover {
+  border-color: var(--dc-border-brand);
+}
+.c360m-metric strong {
+  display: block;
+  font-size: 32px;
+  margin-bottom: 12px;
+  color: var(--dc-text-brand-strong);
+}
+.c360m-metric span {
+  font-size: 12px;
+}
+.c360m-task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 0;
+  border-top: 1px solid var(--dc-border-subtle);
+  font-size: 13px;
+}
+.c360m-task p {
+  margin-bottom: 0;
+  color: var(--dc-text-muted);
+}
+.c360m-roadmap {
+  padding-left: 24px;
+  font-size: 13px;
+  line-height: 2.3;
+}
+.c360m-steps {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 20px 0;
+}
+.c360m-steps li {
+  font-size: 12px;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--dc-border-subtle);
+}
+.c360m-steps li[aria-current] {
+  border-color: var(--dc-border-brand);
+  color: var(--dc-text-brand-strong);
+  font-weight: 700;
+}
+.c360m-table-wrap {
+  overflow-x: auto;
+}
+.c360m-table-wrap table {
+  width: 100%;
+  font-size: 12px;
+  border-collapse: collapse;
+}
+.c360m-table-wrap caption {
+  text-align: left;
+  padding: 12px 0;
+  color: var(--dc-text-muted);
+}
+.c360m-table-wrap th,
+.c360m-table-wrap td {
+  padding: 14px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--dc-border-subtle);
+  overflow-wrap: anywhere;
+}
+.c360m-definitions {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.4fr) minmax(0, 1fr);
+  gap: 16px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.c360m-definitions dt {
+  color: var(--dc-text-muted);
+}
+.c360m-definitions dd {
+  margin: 0;
+}
 @media (max-width: 1000px) {
+  .c360m-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .c360p-split,
   .c360p-profile-grid,
   .variant-C .c360p-focus-profile .c360p-profile-grid,
@@ -490,6 +585,18 @@
   }
 }
 @media (max-width: 600px) {
+  .c360m-task {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .c360m-definitions {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .c360m-definitions dd {
+    margin-bottom: 12px;
+  }
   .c360p-root {
     padding: 8px 12px 140px;
   }

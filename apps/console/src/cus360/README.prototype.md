@@ -59,3 +59,24 @@ pnpm prototype:cus360
 กฎ validation, duplicate/shared-phone, การแก้ tags/VIP โดย Agent, candidate fields, attach/relink lifecycle และ permission/resource scope ขั้นสุดท้ายยังเป็นงาน API/runtime contract ไม่อ้างว่าการสาธิตตัดสินแทน owner แล้ว. Production ต้อง implement ใหม่พร้อม real boundary tests; prototype ไม่ใช่ VM UAT PASS
 
 เก็บ source บน throwaway branch `codex/762-cus360-prototype` เท่านั้น ไม่เปิด PR ให้ merge prototype เข้า main
+
+## ส่วนต่อยอด: ศูนย์จัดการ Cus360
+
+วันที่ 27 ตุลาคม 2569 เพิ่ม prototype สำหรับ [Cus360: ทดลองเมนูศูนย์จัดการและลำดับงานของ Admin](https://github.com/Kitti-Nualsalee/dcontact/issues/774) ภายใต้ [แผนศูนย์จัดการข้อมูลลูกค้าและการเชื่อมต่อ](https://github.com/Kitti-Nualsalee/dcontact/issues/773). ใช้ shell และ Console A เดิม ไม่เปลี่ยน resolution ของโปรไฟล์/Workspace และไม่ขยาย first slice โดยปริยาย
+
+เปิด <http://127.0.0.1:5190/?view=cus360-prototype&variant=A&surface=console&section=overview&lang=th>
+
+- ทางเข้า Cus360 เดียวบน Rail; SubNav แบ่ง 3 กลุ่ม 9 หน้า: Overview, Customers, Data quality, Imports, Integrations, Tags & classification, Data settings, Activity และ Privacy
+- เปลี่ยนหน้าผ่าน `section=overview|customers|quality|imports|integrations|tags|settings|activity|privacy`; active menu/breadcrumb เปลี่ยนโดยไม่ reload
+- Overview ใช้ตัวเลขสมมติและทางไปจัดการ; ยังไม่ใช่รายงานจากระบบจริง
+- Imports ใช้ไฟล์ตัวอย่างเท่านั้น: sample → mapping → validation → ยืนยันเฉพาะแถวที่ผ่าน → ผลจำลอง; มี template/error CSV ให้ดาวน์โหลด ไม่อ่านไฟล์ส่วนตัว ไม่เพิ่มลูกค้าใน directory/DB จริง
+- Tags ทดลองเพิ่มรายการและ Settings ทดลองบันทึก/readback ใน memory; กฎบริษัทไม่บังคับของ first slice และโปรไฟล์ลูกค้าไม่ถูกแก้ตามค่าจำลอง
+- Activity มาจาก action ที่ลองในส่วนบริหาร ไม่ใช่ immutable server audit. สลับไป Workspace/เปลี่ยน role/รีโหลดอาจเริ่ม state ส่วนบริหารใหม่
+- Integrations เป็นตัวอย่าง CRM read-through และ connection check เท่านั้น ไม่มี secret หรือคำสั่งเรียกบริการภายนอก; ไม่อนุมัติ write-back/full CRM sync
+- Privacy แสดง ownership และสถานะยังไม่อ่าน; ไม่มีปุ่ม consent/DNC/DSAR ที่แสร้งว่าเขียนระบบจริงได้
+- Supervisor เหลือ customer view และ Agent ใช้ customer panel ตามงานเดิม; role selector สาธิต UX เท่านั้น ไม่ใช่ server authorization
+- Dirty navigation ใช้ shared Dialog เดิม. ค่าที่ยังไม่บันทึกถูกล้างเมื่อยืนยันออก; ค่าที่จำลองบันทึกยังอยู่ขณะสลับเมนูภายใน Console เดิม
+
+ตรวจด้วย typecheck/build และ browser walkthrough: mapping ผิด/ถูก, แยกแถวผิดพลาด, dirty cancel, save/readback, เพิ่มแท็ก→Activity, connection check, Privacy/quality details, Supervisor/Agent, TH/EN และจอแคบ 390px. ไม่เพิ่ม automated tests ให้ throwaway prototype และไม่นับ browser walkthrough เป็น backend/VM UAT PASS
+
+ยังรอ owner ทดลองและยืนยันโครงเมนู/ลำดับเฟส จึงไม่ปิด decision และยังไม่สร้าง production implementation tickets สำหรับทุกเมนู

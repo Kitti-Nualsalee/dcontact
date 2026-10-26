@@ -4,6 +4,12 @@ import { Badge, Button, Dialog, ShellFrame, SubNav } from '@d-contact/ui-react';
 import { appI18n } from '../i18n/index.js';
 import '@d-contact/ui/tokens.css';
 import './cus360-prototype.css';
+import {
+  Cus360ManagementPrototype,
+  managementPages,
+  type ManagementPage,
+  type ManagementActivity,
+} from './cus360-management-prototype.js';
 
 type Customer = {
   id: string;
@@ -100,6 +106,10 @@ export function Cus360Prototype() {
     initial.get('surface') === 'workspace' ? 'workspace' : 'console',
   );
   const [lang, setLang] = useState<'th' | 'en'>(initial.get('lang') === 'en' ? 'en' : 'th');
+  const [section, setSection] = useState<ManagementPage>(
+    managementPages.find((p) => p.id === initial.get('section'))?.id ?? 'customers',
+  );
+  const [managementActivity, setManagementActivity] = useState<ManagementActivity[]>([]);
   const t = (th: string, en: string) => (lang === 'th' ? th : en);
   const [role, setRole] = useState(initial.get('surface') === 'workspace' ? 'agent' : 'admin');
   const [scenario, setScenario] = useState<(typeof scenarios)[number]>('normal');
@@ -150,6 +160,13 @@ export function Cus360Prototype() {
       setSurface(next);
       setRole(next === 'workspace' ? 'agent' : 'admin');
       url({ surface: next });
+    });
+  const changeSection = (next: ManagementPage) =>
+    nav(() => {
+      setSection(next);
+      setPage('list');
+      setScenario('normal');
+      url({ section: next });
     });
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -873,7 +890,16 @@ export function Cus360Prototype() {
     <ShellFrame
       apps={[app]}
       groups={[{ id: 'data', label: t('ข้อมูลลูกค้า', 'Customer data') }]}
-      pinnedIds={[app.id]}
+      areas={[
+        {
+          id: 'customer360',
+          label: 'Cus360',
+          href: '?view=cus360-prototype&surface=console&section=overview',
+          external: false,
+          sections: [{ id: 'customer-data', label: 'Cus360', items: [app] }],
+        },
+      ]}
+      pinnedIds={[]}
       maxPins={15}
       onTogglePin={() =>
         setNotice(
@@ -884,7 +910,17 @@ export function Cus360Prototype() {
         )
       }
       currentAppId={app.id}
-      onNavigate={() => true}
+      onNavigate={() => {
+        nav(() => {
+          const next = role === 'admin' ? 'overview' : 'customers';
+          setSurface('console');
+          setSection(next);
+          setPage('list');
+          setScenario('normal');
+          url({ surface: 'console', section: next });
+        });
+        return true;
+      }}
       brand={
         <span className="c360p-brand">
           <img src="/d-contact-icon-64.png" alt="" />
@@ -892,7 +928,15 @@ export function Cus360Prototype() {
         </span>
       }
       breadcrumb={
-        surface === 'console' ? ['Cus360', t('ลูกค้า', 'Customers')] : ['Workspace', `DEMO-${work}`]
+        surface === 'console'
+          ? [
+              'Cus360',
+              t(
+                managementPages.find((p) => p.id === section)!.th,
+                managementPages.find((p) => p.id === section)!.en,
+              ),
+            ]
+          : ['Workspace', `DEMO-${work}`]
       }
       breadcrumbPlacement="content"
       language={lang}
@@ -902,20 +946,24 @@ export function Cus360Prototype() {
           <SubNav
             title="Cus360"
             eyebrow={t('ข้อมูลลูกค้า', 'Customer data')}
-            currentItemId="customers"
-            sections={[
-              {
-                id: 'work',
-                items: [
-                  {
-                    id: 'customers',
-                    label: t('ลูกค้า', 'Customers'),
-                    href: '?view=cus360-prototype',
-                    onSelect: () => nav(() => setPage('list')),
-                  },
-                ],
-              },
-            ]}
+            currentItemId={section}
+            sections={(role === 'admin' ? [0, 1, 2] : [0]).map((group) => ({
+              id: `management-${group}`,
+              label: [
+                t('ภาพรวมและลูกค้า', 'Overview & customers'),
+                t('จัดการข้อมูล', 'Data operations'),
+                t('ตั้งค่าและตรวจสอบ', 'Administration'),
+              ][group],
+              items: managementPages
+                .filter((p) => p.group === group && (role === 'admin' || p.id === 'customers'))
+                .map((p) => ({
+                  id: p.id,
+                  label: t(p.th, p.en),
+                  icon: p.icon,
+                  href: `?view=cus360-prototype&variant=${variant}&surface=console&section=${p.id}&lang=${lang}`,
+                  onSelect: () => changeSection(p.id),
+                })),
+            }))}
           />
         ) : undefined
       }
@@ -952,6 +1000,8 @@ export function Cus360Prototype() {
               onChange={(e) =>
                 nav(() => {
                   setRole(e.target.value);
+                  setSection('customers');
+                  url({ section: 'customers' });
                   setSelected('demo-01');
                   setScenario('normal');
                 })
@@ -964,30 +1014,32 @@ export function Cus360Prototype() {
               ))}
             </select>
           </label>
-          <label>
-            {t('สถานะจำลอง', 'Scenario')}
-            <select
-              aria-label={t('สถานะจำลอง', 'Scenario')}
-              value={scenario}
-              onChange={(e) => {
-                const s = e.target.value as typeof scenario;
-                setScenario(s);
-                setError('');
-                if (s === 'assignment') {
-                  setLinked(null);
-                  setCandidate('');
-                  setDraft(null);
-                  setDirty(false);
-                }
-              }}
-            >
-              {scenarios.map((s) => (
-                <option value={s} key={s}>
-                  {t(labels[s][0], labels[s][1])}
-                </option>
-              ))}
-            </select>
-          </label>
+          {(surface === 'workspace' || section === 'customers') && (
+            <label>
+              {t('สถานะจำลอง', 'Scenario')}
+              <select
+                aria-label={t('สถานะจำลอง', 'Scenario')}
+                value={scenario}
+                onChange={(e) => {
+                  const s = e.target.value as typeof scenario;
+                  setScenario(s);
+                  setError('');
+                  if (s === 'assignment') {
+                    setLinked(null);
+                    setCandidate('');
+                    setDraft(null);
+                    setDirty(false);
+                  }
+                }}
+              >
+                {scenarios.map((s) => (
+                  <option value={s} key={s}>
+                    {t(labels[s][0], labels[s][1])}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         {notice && (
           <div className="c360p-notice" role="status">
@@ -996,24 +1048,48 @@ export function Cus360Prototype() {
         )}
         {surface === 'console' ? (
           <>
-            <div className="c360p-page-title">
-              <div>
-                <p className="c360p-eyebrow">CUSTOMER 360</p>
-                <h1>{t('รู้จักลูกค้าจากหน้าเดียว', 'Know your customer in one place')}</h1>
-                <p>
-                  {t(
-                    'ค้นหา เปิดโปรไฟล์ และดูประวัติตามสิทธิ์',
-                    'Find profiles and authorized interaction history',
-                  )}
-                </p>
+            <div hidden={section !== 'customers'}>
+              <div className="c360p-page-title">
+                <div>
+                  <p className="c360p-eyebrow">CUSTOMER 360</p>
+                  <h1>{t('รู้จักลูกค้าจากหน้าเดียว', 'Know your customer in one place')}</h1>
+                  <p>
+                    {t(
+                      'ค้นหา เปิดโปรไฟล์ และดูประวัติตามสิทธิ์',
+                      'Find profiles and authorized interaction history',
+                    )}
+                  </p>
+                </div>
+                {role === 'admin' && (
+                  <Button variant="primary" onPress={() => nav(() => edit(true))}>
+                    + {t('สร้างลูกค้า', 'Create customer')}
+                  </Button>
+                )}
               </div>
-              {role === 'admin' && (
-                <Button variant="primary" onPress={() => nav(() => edit(true))}>
-                  + {t('สร้างลูกค้า', 'Create customer')}
-                </Button>
-              )}
+              {consoleBody()}
             </div>
-            {consoleBody()}
+            {role === 'admin' && (
+              <div hidden={section === 'customers'}>
+                <Cus360ManagementPrototype
+                  page={section}
+                  lang={lang}
+                  customerCount={customers.length}
+                  onNavigate={changeSection}
+                  onDirty={setDirty}
+                  activity={managementActivity}
+                  onRecord={(action, resource) =>
+                    setManagementActivity((rows) => [
+                      {
+                        action,
+                        resource,
+                        at: new Date().toLocaleTimeString(lang === 'th' ? 'th-TH' : 'en-GB'),
+                      },
+                      ...rows,
+                    ])
+                  }
+                />
+              </div>
+            )}
           </>
         ) : (
           workspace()
@@ -1051,7 +1127,7 @@ export function Cus360Prototype() {
         <footer className="c360p-state">
           {t('สถานะต้นแบบ', 'Prototype state')}: {variant} · {surface} ·{' '}
           {surface === 'workspace' ? 'agent' : role} · {scenario} · {draft ? 'editor' : page} ·{' '}
-          {dirty ? 'dirty' : 'clean'}
+          {dirty ? 'dirty' : 'clean'} · {section}
           {surface === 'workspace' ? ` · DEMO-${work} · ${phase} · ${linked ?? 'unlinked'}` : ''}
         </footer>
       </div>
