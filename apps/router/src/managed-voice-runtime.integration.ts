@@ -396,15 +396,41 @@ test('old writer waiting on an interaction cannot win managed answer CAS', async
     await releaseLock;
   });
   await lockAcquired;
-  const oldWriter = withTenantDatabaseTransaction(application, tenantId, (transaction) =>
-    transaction.interaction.update({
+  let writerStarted!: (backendPid: number) => void;
+  const writerBackend = new Promise<number>((resolve) => {
+    writerStarted = resolve;
+  });
+  const oldWriter = withTenantDatabaseTransaction(application, tenantId, async (transaction) => {
+    const [backend] = await transaction.$queryRaw<
+      { pid: number }[]
+    >`SELECT pg_backend_pid() AS pid`;
+    writerStarted(backend.pid);
+    return transaction.interaction.update({
       where: { id: created!.interactionId },
       data: { state: 'ACTIVE' },
-    }),
-  ).then(
+    });
+  }).then(
     () => ({ rejected: false }),
     (error) => ({ rejected: /VOICE_CONFIG_V1_REQUIRED/.test(String(error)) }),
   );
+  const writerPid = await writerBackend;
+  try {
+    let waiting = false;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const [activity] = await owner.$queryRaw<{ waiting: boolean }[]>`
+        SELECT wait_event_type='Lock' AS waiting FROM pg_stat_activity WHERE pid=${writerPid}`;
+      if (activity?.waiting) {
+        waiting = true;
+        break;
+      }
+      await delay(10);
+    }
+    assert.equal(waiting, true, 'old writer must be waiting on the held interaction row');
+  } catch (error) {
+    unlock();
+    await Promise.allSettled([blocker, oldWriter]);
+    throw error;
+  }
   const answer = handleAndFlush(runtime, {
     ...event,
     type: 'call.answered',
@@ -412,11 +438,11 @@ test('old writer waiting on an interaction cannot win managed answer CAS', async
     offerId: offer.offerId!,
     blegUuid: offer.blegUuid,
   });
-  await delay(50);
   unlock();
   await blocker;
-  assert.equal((await oldWriter).rejected, true);
-  assert.equal((await answer)?.status, 'ACTIVE');
+  const [writerResult, answerResult] = await Promise.all([oldWriter, answer]);
+  assert.equal(writerResult.rejected, true);
+  assert.equal(answerResult?.status, 'ACTIVE');
   assert.equal(
     await owner.interactionEvent.count({ where: { tenantId, type: 'interaction.answered' } }),
     1,
