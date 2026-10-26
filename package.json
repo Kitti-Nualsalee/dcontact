@@ -43,7 +43,7 @@
     "voice:ivr:demo": "INBOUND_DEMO_DTMF=2 node scripts/inbound-voice-demo.mjs",
     "voice:acceptance": "node scripts/phase-one-readiness.mjs",
     "voice:v1b:readiness": "node scripts/voice-v1b-readiness.mjs",
-    "test:voice-v1b:readiness": "node --test scripts/voice-v1b-readiness.test.mjs",
+    "test:voice-v1b:readiness": "node --test scripts/voice-v1b-readiness.test.mjs scripts/voice-v1b-local-compose.test.mjs",
     "voice:phase2:acceptance": "node scripts/phase-two-readiness.mjs",
     "e1:voice:acceptance": "node scripts/e1-18-real-call-acceptance.mjs",
     "test:e1-voice-acceptance": "node --test scripts/e1-18-real-call-acceptance.test.mjs",
