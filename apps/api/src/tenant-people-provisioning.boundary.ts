@@ -80,6 +80,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
   let invitationRuntime: TenantPeopleRuntime | undefined;
   let resendRuntime: TenantPeopleRuntime | undefined;
   let activationRuntime: TenantPeopleRuntime | undefined;
+  let disableRuntime: TenantPeopleRuntime | undefined;
   let allowResendPreparation = false;
   try {
     await owner.$executeRawUnsafe(
@@ -165,6 +166,9 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
               resendRuntime
                 ? resendRuntime.canResendInvitation(scope)
                 : allowResendPreparation && scope === tenantId,
+            canDisable: (scope: string) =>
+              disableRuntime?.canDisable(scope) ?? Promise.resolve(false),
+            disablePortForTenant: (scope: string) => disableRuntime?.disablePortForTenant(scope),
             onModuleInit: () => runtime.onModuleInit(),
             onModuleDestroy: () => runtime.onModuleDestroy(),
           },
@@ -772,6 +776,67 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
     );
     await activationRuntime.onModuleDestroy();
     activationRuntime = undefined;
+    const disablePort = adapter.disablePort();
+    let disableMutations = 0,
+      disableReads = 0;
+    disableRuntime = new TenantPeopleRuntime(worker, new Map([[tenantId, adapter]]), {
+      intervalMs: 60_000,
+      disables: new Map([
+        [
+          tenantId,
+          {
+            isReady: disablePort.isReady,
+            probe: disablePort.probe,
+            async disable(attempt) {
+              disableMutations++;
+              const result = await disablePort.disable(attempt);
+              assert.equal(result.outcome, 'SUCCEEDED');
+              return { outcome: 'UNKNOWN' as const };
+            },
+            readOutcome(attempt) {
+              disableReads++;
+              return disablePort.readOutcome(attempt);
+            },
+          },
+        ],
+      ]),
+      disableFlush: {
+        async flush() {
+          assert.fail('fixture has no SIP credential to flush');
+        },
+      },
+    });
+    disableRuntime.onModuleInit();
+    await disableRuntime.runOnce();
+    assert.equal(await disableRuntime.canDisable(tenantId), true);
+    const disableResponse = await fetch(
+      `${base}/api/v1/tenant-voice/people/users/${activationUser.id}/disable`,
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: randomUUID(),
+          expectedRevision: 1,
+          reasonCode: 'OPERATOR_REQUEST',
+          reason: 'ปิดบัญชีสังเคราะห์หลังทดสอบ activation',
+        }),
+      },
+    );
+    assert.equal(disableResponse.status, 202, await disableResponse.clone().text());
+    const disableRaw: unknown = await disableResponse.json();
+    assert.ok(disableRaw && typeof disableRaw === 'object' && !Array.isArray(disableRaw));
+    const disableAccepted = Object.fromEntries(Object.entries(disableRaw));
+    assert.equal(disableAccepted.accountState, 'DISABLING');
+    await disableRuntime.runOnce();
+    const disabled = await read(`people/users/${activationUser.id}`);
+    assert.equal(disabled.accountState, 'DISABLED');
+    assert.equal(disabled.isActive, false);
+    assert.equal((await read(`operations/${disableAccepted.operationId}`)).state, 'SUCCEEDED');
+    assert.equal(disableMutations, 1);
+    assert.equal(disableReads, 1);
+    await disableRuntime.onModuleDestroy();
+    disableRuntime = undefined;
+    console.log('B6_HTTP_RLS_KEYCLOAK_DISABLE_RESPONSE_LOSS_PASS');
     await owner.$executeRaw`UPDATE tenant_people_worker_bindings SET enabled=false WHERE tenant_id=${tenantId}::uuid AND database_principal=${workerPrincipal}`;
     assert.deepEqual((await read('capabilities')).peopleProvisioning, {
       ready: false,
@@ -785,6 +850,7 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
     app = undefined;
     assert.equal(await runtime.isReady(tenantId), false);
   } finally {
+    await disableRuntime?.onModuleDestroy();
     await activationRuntime?.onModuleDestroy();
     await resendRuntime?.onModuleDestroy();
     await invitationRuntime?.onModuleDestroy();

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { HttpException } from '@nestjs/common';
 import {
   withTenantDatabaseTransaction,
   lockTeamReferences,
@@ -46,7 +47,7 @@ export interface DisableAccepted {
   location: string;
 }
 
-export async function acceptPeopleDisable(
+async function acceptPeopleDisableCommand(
   database: PrismaClient,
   identity: VoiceActor,
   target: string,
@@ -184,6 +185,39 @@ export async function acceptPeopleDisable(
       VALUES(${randomUUID()}::uuid,${identity.tenantId}::uuid,${identity.userId}::uuid,${userId}::uuid,${command.commandId}::uuid,'DISABLE_TENANT_USER','ACCEPTED',${command.expectedRevision},${command.expectedRevision + 1},ARRAY['isActive','accountState','disableOperation'],${command.reasonCode},${identity.correlationId ?? operationId})`;
     return result;
   }).catch(mapDatabaseError);
+}
+
+export async function acceptPeopleDisable(
+  database: PrismaClient,
+  identity: VoiceActor,
+  target: string,
+  raw: unknown,
+  provider: TenantPeopleDisablePort,
+): Promise<DisableAccepted> {
+  const userId = voiceUuid(target, 'userId');
+  const command = normalizePeopleInvitationCommand(raw);
+  try {
+    return await acceptPeopleDisableCommand(database, identity, userId, command, provider);
+  } catch (error) {
+    try {
+      mapDatabaseError(error);
+    } catch (mapped) {
+      if (mapped instanceof HttpException && [409, 429, 503].includes(mapped.getStatus())) {
+        const response = mapped.getResponse();
+        const code =
+          typeof response === 'object' && 'code' in response && typeof response.code === 'string'
+            ? response.code
+            : 'CONFIG_BUSY';
+        await withTenantDatabaseTransaction(database, identity.tenantId, async (transaction) => {
+          await catalogActor(transaction, identity, true);
+          await transaction.$executeRaw`INSERT INTO voice_config_audit(id,tenant_id,actor_user_id,resource_id,command_id,action,outcome,reason_code,correlation_id)
+            VALUES(${randomUUID()}::uuid,${identity.tenantId}::uuid,${identity.userId}::uuid,${userId}::uuid,${command.commandId}::uuid,'DISABLE_TENANT_USER','REJECTED',${code},${identity.correlationId ?? randomUUID()})`;
+        });
+      }
+      throw mapped;
+    }
+    throw error;
+  }
 }
 
 export interface PeopleDisableFlushPort {

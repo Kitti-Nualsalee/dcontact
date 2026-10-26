@@ -120,7 +120,7 @@ public class PeopleResource {
       var configured=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
       if(configured==null||configured.isComposite())throw denied(503,"TENANT_ROLE_NOT_READY");
     }
-    return json(200,Map.of("version",1,"ready",true,"tenantId",tenantId,"invitationReady",invitationReady(binding.realm())));
+    return json(200,Map.of("version",1,"ready",true,"tenantId",tenantId,"invitationReady",invitationReady(binding.realm()),"disableReady",true));
   }
 
   @POST @Path("operations/{operationId}/steps/CREATE_IDENTITY") @Consumes(MediaType.APPLICATION_JSON)

@@ -73,7 +73,7 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path=pg_catalog,public AS $$
   )
   SELECT jsonb_build_object('target',to_jsonb(person),'admins',coalesce((
     SELECT jsonb_agg(to_jsonb(admin) ORDER BY admin.id) FROM eligible admin
-    WHERE admin.role='ADMIN' AND admin.is_active
+    WHERE admin.role='ADMIN' AND admin.is_active AND admin.binding_revision IS NOT NULL
       AND (admin.status_revision IS NULL OR (admin.account_state='ACTIVE' AND admin.activation_state='ACTIVATED'))
   ),'[]'::jsonb)) FROM eligible person WHERE person.id=target
 $$;

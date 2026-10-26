@@ -413,7 +413,24 @@ class WorkspaceSessionController {
   providers: [
     { provide: TENANT_CORE_DATABASE, useValue: prisma },
     { provide: TENANT_VOICE_DATABASE, useValue: prisma },
-    { provide: TENANT_PEOPLE_READINESS, useFactory: () => configuredPeopleRuntime() },
+    {
+      provide: TENANT_PEOPLE_READINESS,
+      useFactory: () =>
+        configuredPeopleRuntime(process.env, {
+          flush: (registration) =>
+            recordingCommandPublisher.publish({
+              tenantId: registration.tenantId,
+              command: {
+                type: 'sip.registration.flush',
+                vendor: 'freeswitch',
+                telephonyNodeId: registration.telephonyNodeId,
+                extension: registration.extension,
+                sipDomain: registration.sipDomain,
+                workSessionLeaseId: registration.workSessionLeaseId,
+              },
+            }),
+        }),
+    },
     { provide: TENANT_QUEUE_DATABASE, useValue: prisma },
     { provide: TENANT_LOCALE_DATABASE, useValue: prisma },
     { provide: NAVIGATION_DATABASE, useValue: prisma },

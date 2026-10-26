@@ -149,6 +149,12 @@ export class TenantVoiceCatalogController {
       (await this.people?.canResendInvitation?.(identity.tenantId))
     )
       result.invitation = { ready: true, reasons: [] };
+    if (
+      result.canWrite &&
+      result.configuration.ready &&
+      (await this.people?.canDisable?.(identity.tenantId))
+    )
+      result.disable = { ready: true, reasons: [] };
     return result;
   }
   @Get('teams') @Header('Cache-Control', 'no-store') teams(@Req() r: AuthenticatedGatewayRequest) {

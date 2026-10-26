@@ -1,13 +1,31 @@
+import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { HttpException } from '@nestjs/common';
+import { HttpException, Module, type INestApplication } from '@nestjs/common';
+import { APP_GUARD, NestFactory } from '@nestjs/core';
+import type { AddressInfo } from 'node:net';
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { acceptPeopleDisable, runPeopleDisable } from './tenant-people-disable.js';
 import type { TenantPeopleDisablePort } from './tenant-people-disable-keycloak.js';
 import type { VoiceActor } from './tenant-voice-catalog.js';
 import { readPeopleOperation } from './tenant-people-operations.js';
 import { readPeopleDirectory } from './tenant-people-directory.js';
+import { TenantPeopleController, TENANT_PEOPLE_READINESS } from './tenant-people-api.js';
+import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
+import {
+  OidcGlobalGuard,
+  OIDC_ACCESS_TOKEN_VERIFIER,
+  TENANT_LIFECYCLE,
+  GATEWAY_DIAGNOSTICS,
+} from './gateway-auth.js';
+import { TenantPeopleRuntime } from './tenant-people-runtime.js';
+
+async function readObject(response: Response): Promise<Record<string, unknown>> {
+  const value: unknown = await response.json();
+  assert.ok(value && typeof value === 'object' && !Array.isArray(value));
+  return Object.fromEntries(Object.entries(value));
+}
 
 test('disable แบบ idle ปิด local admission ทันที และ reconcile ไม่ส่ง mutation ซ้ำ', async () => {
   const owner = new PrismaClient();
@@ -70,6 +88,8 @@ test('disable แบบ idle ปิด local admission ทันที และ
         : { outcome: 'UNKNOWN' };
     },
   };
+  let app: INestApplication | undefined;
+  let runtime: TenantPeopleRuntime | undefined;
   try {
     await owner.$executeRawUnsafe(
       `CREATE ROLE "${principal}" LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS PASSWORD '${workerUrl.password}'`,
@@ -148,11 +168,129 @@ test('disable แบบ idle ปิด local admission ทันที และ
       }
     }
     probes = 0;
-    const accepted = await acceptPeopleDisable(application, actor, userId, command, provider);
+    let disableReady = false;
+    @Module({
+      controllers: [TenantPeopleController, TenantVoiceCatalogController],
+      providers: [
+        { provide: TENANT_VOICE_DATABASE, useValue: application },
+        {
+          provide: TENANT_PEOPLE_READINESS,
+          useValue: {
+            isReady: async () => false,
+            canDisable: async () => disableReady,
+            disablePortForTenant: () => provider,
+          },
+        },
+        {
+          provide: OIDC_ACCESS_TOKEN_VERIFIER,
+          useValue: {
+            verifyAccessToken: async (token: string) => {
+              if (!['admin', 'agent', 'protected'].includes(token))
+                throw Error('invalid fixture token');
+              return {
+                iss: actor.caller!.issuer,
+                sub: adminId,
+                azp: actor.caller!.clientId,
+                tenant_id: tenantId,
+                tenant_slug: slug,
+                organization: { [slug]: { tenant_id: [tenantId] } },
+                dc_user_id: adminId,
+                sid: 'b6-fixture',
+                exp: 2_000_000_000,
+                realm_access: { roles: token === 'agent' ? ['agent'] : ['admin'] },
+                dc_identity_class: token === 'protected' ? 'PLATFORM_USER' : 'TENANT_USER',
+              };
+            },
+          },
+        },
+        { provide: TENANT_LIFECYCLE, useValue: { isActive: async () => true } },
+        { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
+        { provide: APP_GUARD, useClass: OidcGlobalGuard },
+      ],
+    })
+    class TestModule {}
+    app = await NestFactory.create(TestModule, { logger: false });
+    await app.listen(0, '127.0.0.1');
+    const base = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}/api/v1/tenant-voice`;
+    const request = (path: string, body?: unknown, token = 'admin') =>
+      fetch(base + path, {
+        method: body ? 'POST' : 'GET',
+        headers: {
+          authorization: `Bearer ${token}`,
+          ...(body ? { 'content-type': 'application/json' } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(10_000),
+      });
+    assert.equal((await request(`/people/users/${userId}/disable`, command)).status, 503);
+    disableReady = true;
+    assert.equal(
+      (await request(`/people/users/${userId}/disable`, command, 'invalid')).status,
+      401,
+    );
+    assert.equal((await request(`/people/users/${userId}/disable`, command, 'agent')).status, 403);
+    assert.equal(
+      (await request(`/people/users/${userId}/disable`, command, 'protected')).status,
+      403,
+    );
+    assert.equal((await request(`/people/users/${randomUUID()}/disable`, command)).status, 404);
+    assert.equal(
+      (await request(`/people/users/${userId}/disable`, { ...command, tenantId })).status,
+      400,
+    );
+    const capabilities = await readObject(await request('/capabilities'));
+    assert.deepEqual(capabilities.disable, { ready: true, reasons: [] });
+    const leaseId = randomUUID();
+    await owner.agentWorkSessionLease.create({
+      data: {
+        id: leaseId,
+        tenantId,
+        userId,
+        surface: 'workspace',
+        acquiredAt: new Date(),
+        heartbeatAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    await owner.agentSipCredential.create({
+      data: {
+        workSessionLeaseId: leaseId,
+        tenantId,
+        userId,
+        extension: '1104',
+        sipDomain: `${slug}.test`,
+        telephonyNodeId: 'b6-node',
+        a1Hash: '0'.repeat(32),
+        issuedAt: new Date(),
+      },
+    });
+    const response = await request(`/people/users/${userId}/disable`, command);
+    assert.equal(response.status, 202, await response.clone().text());
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const received = await readObject(response);
+    assert.equal(typeof received.operationId, 'string');
+    assert.ok(typeof received.operationId === 'string' && typeof received.location === 'string');
+    const accepted = {
+      operationId: received.operationId,
+      userId,
+      status: 'ACCEPTED' as const,
+      accountState: 'DISABLING' as const,
+      location: received.location,
+    };
+    assert.equal(response.headers.get('location'), accepted.location);
     assert.equal(accepted.accountState, 'DISABLING');
     const user = await owner.user.findUniqueOrThrow({ where: { id: userId } });
     assert.equal(user.isActive, false);
     assert.equal(user.configRevision, 2);
+    assert.equal(
+      (await owner.agentWorkSessionLease.findUniqueOrThrow({ where: { id: leaseId } }))
+        .releaseReason,
+      'auth_revoked',
+    );
+    assert.ok(
+      (await owner.agentSipCredential.findUniqueOrThrow({ where: { workSessionLeaseId: leaseId } }))
+        .revokedAt,
+    );
     assert.equal((await reserved())[0].count, 2);
     assert.equal(
       (await readPeopleOperation(application, actor, accepted.operationId)).accountState,
@@ -186,10 +324,31 @@ test('disable แบบ idle ปิด local admission ทันที และ
         tenantId,
         accepted.operationId,
       ),
+      'ACTION_REQUIRED',
+    );
+    assert.equal((await reserved())[0].count, 2);
+    await owner.dlVoiceAuditEvent.create({
+      data: {
+        tenantId,
+        eventId: `e1-sandbox:sip.registration.flush:${leaseId}`,
+        code: 'E1_SANDBOX_REGISTRATION_FLUSHED',
+        actorRef: 'system:e1-sandbox',
+        subjectId: leaseId,
+        occurredAt: new Date(),
+      },
+    });
+    assert.equal(
+      await runPeopleDisable(
+        worker,
+        provider,
+        { async flush() {} },
+        tenantId,
+        accepted.operationId,
+      ),
       'SUCCEEDED',
     );
     assert.equal(mutations, 1);
-    assert.equal(reads, 2);
+    assert.equal(reads, 3);
     assert.equal(
       (await readPeopleOperation(application, actor, accepted.operationId)).accountState,
       'DISABLED',
@@ -290,18 +449,54 @@ test('disable แบบ idle ปิด local admission ทันที และ
       { ...command, commandId: randomUUID(), expectedRevision: 3 },
       mismatchedProvider,
     );
-    assert.equal(
-      await runPeopleDisable(
-        worker,
-        mismatchedProvider,
-        { async flush() {} },
-        tenantId,
-        mismatched.operationId,
-      ),
-      'ACTION_REQUIRED',
+    runtime = new TenantPeopleRuntime(
+      worker,
+      new Map([
+        [
+          tenantId,
+          {
+            async isReady() {
+              return true;
+            },
+            async mutateStep() {
+              assert.fail('disable scheduler must not provision');
+            },
+            async readOutcome() {
+              assert.fail('disable scheduler must not reconcile provisioning');
+            },
+          },
+        ],
+      ]),
+      {
+        intervalMs: 60_000,
+        disables: new Map([
+          [
+            tenantId,
+            {
+              ...mismatchedProvider,
+              async isReady() {
+                return true;
+              },
+            },
+          ],
+        ]),
+        disableFlush: { async flush() {} },
+      },
     );
+    assert.equal(await runtime.canDisable(tenantId), false);
+    runtime.onModuleInit();
+    await runtime.runOnce();
+    const [scheduled] = await owner.$queryRaw<
+      { state: string }[]
+    >`SELECT state FROM tenant_people_disables WHERE tenant_id=${tenantId}::uuid AND id=${mismatched.operationId}::uuid`;
+    assert.equal(scheduled.state, 'ACTION_REQUIRED');
+    assert.equal(await runtime.canDisable(tenantId), true);
+    await runtime.onModuleDestroy();
+    assert.equal(await runtime.canDisable(tenantId), false);
     assert.equal((await owner.user.findUniqueOrThrow({ where: { id: adminId } })).isActive, false);
   } finally {
+    await runtime?.onModuleDestroy();
+    await app?.close();
     await Promise.all([owner.$disconnect(), application.$disconnect(), worker.$disconnect()]);
   }
 });

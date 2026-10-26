@@ -29,8 +29,15 @@ Bootstrap Admin ที่ไม่มี classification ใหม่จะนั
 ไม่ enroll จาก email หรือ tenant membership โดยอัตโนมัติ และ protected classification/roles ยังคงถูกปฏิเสธ
 application ต้องมี operator-positive binding เดิมด้วยก่อนส่ง candidate นี้ ไม่มี Tenant UI สำหรับแก้ attribute
 
-ส่วนนี้ยังไม่เปิด public disable capability: application admission/idle closure/durable worker,
-local compensation CAS และ UI เป็น gate ของ #713 ที่ต้องทำให้ครบก่อนเปิดใช้
+Public disable ยังคง default-off เปิดเฉพาะ `TENANT_PEOPLE_DISABLE_ENABLED=true` พร้อม approved worker binding,
+identity readiness ที่มี `disableReady=true` และ SIP flush port ใน composition เท่านั้น
+`POST /api/v1/tenant-voice/people/users/:id/disable` ตรวจ common envelope, idle closure และ identity สดก่อน local deny
+worker ใช้ batch budget ร่วมกับ provisioning/invitation สลับ turn ไม่ยิงคำสั่ง disable ซ้ำหลัง attempted แล้ว
+unknown ใช้ GET receipt อย่างเดียว และ retry readback อย่างน้อยห่าง 10 วินาที; หยุด runtime แล้วต้องรอ drain ก่อน disconnect
+receipt สำเร็จยังไม่พอถ้า SIP flush audit ไม่ยืนยันจริง: คง `ACTION_REQUIRED`/local deny และ quota reservation
+Console แยกเหตุผลและขั้นยืนยัน เก็บเฉพาะ command/operation IDs เพื่อกู้ผลหลัง response หายหรือ reload ไม่เก็บ token/PII/เหตุผล
+ไม่คืน extension และไม่เปิดบัญชีกลับจาก UI; compensation ทำได้เฉพาะ known no-effect/last-Admin receipt และ revision CAS ตรง
+การเปิด flag ไม่ใช่หลักฐาน acceptance; ต้องผ่าน HTTP/RLS, real identity boundary, browser, review และ CI ของ #713 ก่อน merge
 
 Focused identity loop ใช้ `B6_DISABLE_BOUNDARY_ONLY=1 pnpm voice:tenant-people:boundary`
 และพิมพ์ `B6_FOCUSED_IDENTITY_BOUNDARY_PASS` เท่านั้น ไม่ใช่ผลรวม B2/B3/B6
