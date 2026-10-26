@@ -39,8 +39,36 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-    ports:
-      - '127.0.0.1:18025:8025'
     mem_limit: 128m
     networks:
+      - internal
+
+  mailpit-ui:
+    image: ${CONSOLE_IMAGE:?CONSOLE_IMAGE (digest) is required}
+    command:
+      [
+        '/usr/local/bin/caddy-uat',
+        'run',
+        '--config',
+        '/etc/caddy/mailpit-local',
+        '--adapter',
+        'caddyfile',
+      ]
+    depends_on:
+      - mailpit
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /data:uid=10001,gid=10001,mode=0700
+      - /config:uid=10001,gid=10001,mode=0700
+    volumes:
+      - ./Caddyfile.mailpit-local:/etc/caddy/mailpit-local:ro
+    ports:
+      - '127.0.0.1:18025:8080'
+    mem_limit: 128m
+    networks:
+      - edge
       - internal

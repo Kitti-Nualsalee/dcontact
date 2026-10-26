@@ -15,7 +15,8 @@ Authority: #704 และ #714; B1–B6 เป็น implementation prerequisite
 ตัวรัน `uat-local.sh` เดิมยังเป็น U1 ไม่ใช่ตัวรัน B7 ครบชุด
 
 Local overlay ส่ง DB ไป PostgreSQL ใน project เดียวกัน ใช้ proxy/media แบบ loopback
-และ Mailpit ใน internal network (SMTP `mailpit:1025`, mailbox UI `http://127.0.0.1:18025`)
+และ Mailpit ใน internal network (SMTP `mailpit:1025`, mailbox UI `http://127.0.0.1:18025`
+ผ่าน service `mailpit-ui` ที่ reverse proxy เฉพาะ HTTP ไป Mailpit; ตัว Mailpit ไม่ต่อ edge network)
 ไม่ตั้ง relay/forward ออกภายนอก ใช้ผู้รับสังเคราะห์ `@example.test` เท่านั้น
 ต้องสร้าง env ส่วนตัว, build images จาก candidate SHA, certificate ที่ browser เชื่อถือสำหรับ
 `console.dcontact.test`/`workspace.dcontact.test` และ bootstrap identity/worker ก่อน `up`

@@ -80,12 +80,16 @@ test('local ports เป็น loopback เท่านั้น ไม่มี
   assert.ok(published.length > 0);
   for (const port of published) {
     assert.equal(port.host_ip, '127.0.0.1');
-    assert.ok(['proxy', 'freeswitch', 'mailpit'].includes(port.name));
+    assert.ok(['proxy', 'freeswitch', 'mailpit-ui'].includes(port.name));
     assert.ok(![1025, 5060, 5066, 7443, 8021].includes(port.target));
   }
   assert.deepEqual(configuration.services.mailpit.networks, { internal: null });
   assert.equal(configuration.networks.internal.internal, true);
   assert.equal(configuration.services.mailpit.environment, undefined);
+  assert.equal(configuration.services.mailpit.ports, undefined);
+  assert.deepEqual(configuration.services['mailpit-ui'].networks, { edge: null, internal: null });
+  const mailboxProxy = readFileSync(resolve(directory, 'Caddyfile.mailpit-local'), 'utf8');
+  assert.match(mailboxProxy, /reverse_proxy mailpit:8025/);
 });
 
 test('local ใช้ Workspace/direct sandbox และ switches default-off', () => {
