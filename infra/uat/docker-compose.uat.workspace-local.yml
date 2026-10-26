@@ -1,0 +1,46 @@
+services:
+  proxy:
+    ports: !override
+      - '127.0.0.1:443:8443'
+      - '127.0.0.1:80:8080'
+    volumes: !override
+      - ./Caddyfile.workspace-local:/etc/caddy/Caddyfile:ro
+    mem_limit: 256m
+
+  api:
+    mem_limit: 1024m
+
+  postgres:
+    mem_limit: 512m
+
+  keycloak:
+    environment:
+      JAVA_OPTS_KC_HEAP: '-Xms128m -Xmx768m'
+    mem_limit: 1024m
+
+  e1-sandbox:
+    environment:
+      DATABASE_URL: postgresql://dcontact_app:${UAT_APP_DB_PASSWORD:?UAT_APP_DB_PASSWORD is required}@postgres:5432/dcontact?schema=public
+    mem_limit: 384m
+
+  freeswitch:
+    ports: !override
+      - '127.0.0.1:16384-16420:16384-16420/udp'
+    volumes:
+      - ./e1-freeswitch/vars.local.xml:/e1-freeswitch/conf/vars.xml:ro
+    mem_limit: 512m
+
+  mailpit:
+    image: docker.io/axllent/mailpit:v1.31.1@sha256:98b916bd3c8d61f7633a52d3ea2f58d00620cb01ca57ab59edde68c347a95365
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    ports:
+      - '127.0.0.1:18025:8025'
+    mem_limit: 128m
+    networks:
+      - internal

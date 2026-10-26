@@ -6,6 +6,26 @@ Authority: #704 และ #714; B1–B6 เป็น implementation prerequisite
 
 ## 1. ตรวจ source artifacts ก่อน package
 
+### Local rehearsal แยกจาก VM
+
+สำหรับ #714 ใช้ Compose project `dcontact-v1b-local` และเรียง overlay:
+`docker-compose.uat.yml` → `docker-compose.uat.e1.yml` →
+`docker-compose.uat.workspace.yml` → `docker-compose.uat.workspace-local.yml`
+จาก `infra/uat/` ไม่ใส่ overlay `3vm` และไม่ใช้ project `dcontact-uat` ที่อาจมีข้อมูลเดิม
+ตัวรัน `uat-local.sh` เดิมยังเป็น U1 ไม่ใช่ตัวรัน B7 ครบชุด
+
+Local overlay ส่ง DB ไป PostgreSQL ใน project เดียวกัน ใช้ proxy/media แบบ loopback
+และ Mailpit ใน internal network (SMTP `mailpit:1025`, mailbox UI `http://127.0.0.1:18025`)
+ไม่ตั้ง relay/forward ออกภายนอก ใช้ผู้รับสังเคราะห์ `@example.test` เท่านั้น
+ต้องสร้าง env ส่วนตัว, build images จาก candidate SHA, certificate ที่ browser เชื่อถือสำหรับ
+`console.localhost`/`workspace.localhost` และ bootstrap identity/worker ก่อน `up`
+อย่าใช้ image placeholder ของ composition tests หรือ credential ของ VM
+
+Ports 80/443 และ UDP 16384–16420 bind เฉพาะ `127.0.0.1`; ถ้าชน service เดิมให้หยุดตรวจ
+ไม่หยุดหรือลบ container อื่นเอง ตัวแปร media ที่โฆษณาเป็น loopback ใช้เฉพาะ browser บนเครื่องเดียวกัน
+การ render Compose ผ่านยังไม่ยืนยัน media บน Docker Desktop ต้องพิสูจน์เสียงจริงแยก
+ไม่ใช้ local rehearsal ปิด VM/human acceptance ของ #714 และไม่รัน `down -v` เพื่อทำให้ smoke ผ่าน
+
 ```bash
 pnpm test:voice-v1b:readiness
 pnpm voice:v1b:readiness -- --static
