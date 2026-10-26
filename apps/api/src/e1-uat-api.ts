@@ -63,6 +63,7 @@ import {
 } from './uat-api.js';
 import { WORK_SESSION_LEASES, WorkSessionController } from './work-session-api.js';
 import { WorkSessionLeases } from './work-session.js';
+import type { PeopleDisableFlushPort } from './tenant-people-disable.js';
 import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
 
 function required(environment: NodeJS.ProcessEnv, name: string): string {
@@ -72,6 +73,8 @@ function required(environment: NodeJS.ProcessEnv, name: string): string {
 }
 
 export interface E1UatApiDependencies {
+  environment?: NodeJS.ProcessEnv;
+  peopleDisableFlush?: PeopleDisableFlushPort;
   database: PrismaClient;
   verifier: unknown;
   diagnostics: GatewayDiagnosticSink;
@@ -197,6 +200,8 @@ export async function bootstrapE1UatApi(
     }),
   });
   const dependencies: E1UatApiDependencies = {
+    environment,
+    peopleDisableFlush: { flush: (registration) => voiceCommands.flush(registration) },
     database,
     verifier,
     diagnostics,
@@ -228,6 +233,7 @@ export async function bootstrapE1UatApi(
   const fullWorkspace = workspace?.createWorkspaceUatApiModule(dependencies);
   const module = fullWorkspace?.module ?? createE1UatApiModule(dependencies);
   const app = await NestFactory.create(module);
+  app.enableShutdownHooks();
   app.use(routeGuard.middleware);
   const tenantScope = <T>(tenantId: string, work: () => Promise<T> | T): Promise<T> =>
     withTenantDatabaseTransaction(database, tenantId, async (transaction) => {

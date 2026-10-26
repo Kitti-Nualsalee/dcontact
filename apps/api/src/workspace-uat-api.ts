@@ -32,6 +32,15 @@ export const WORKSPACE_UAT_APPS = NAVIGATION_APPS.filter((app) =>
   ].includes(app.id),
 );
 
+export function createWorkspacePeopleRuntime(
+  dependencies: Pick<E1UatApiDependencies, 'environment' | 'peopleDisableFlush'>,
+) {
+  return configuredPeopleRuntime(
+    dependencies.environment ?? process.env,
+    dependencies.peopleDisableFlush,
+  );
+}
+
 export function createWorkspaceUatApiModule(dependencies: E1UatApiDependencies) {
   const base = createE1UatApiModule(dependencies);
   const events = new SupervisorLiveEventStream();
@@ -51,7 +60,10 @@ export function createWorkspaceUatApiModule(dependencies: E1UatApiDependencies) 
       providers: [
         { provide: TENANT_CORE_DATABASE, useValue: dependencies.database },
         { provide: TENANT_VOICE_DATABASE, useValue: dependencies.database },
-        { provide: TENANT_PEOPLE_READINESS, useFactory: () => configuredPeopleRuntime() },
+        {
+          provide: TENANT_PEOPLE_READINESS,
+          useFactory: () => createWorkspacePeopleRuntime(dependencies),
+        },
         ...(base.providers ?? []),
         { provide: NAVIGATION_DATABASE, useValue: dependencies.database },
         { provide: NAVIGATION_REGISTRY, useValue: WORKSPACE_UAT_APPS },

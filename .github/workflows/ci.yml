@@ -255,6 +255,9 @@ jobs:
       - name: U1.6 UAT deployment readiness validator tests
         run: pnpm test:u1-uat-readiness
 
+      - name: ตรวจ B7 read-only readiness และ Workspace profile
+        run: pnpm test:voice-v1b:readiness && pnpm voice:v1b:readiness -- --static
+
       # U1.7 (#435): marker ของ acceptance gate, negative scan ของ manifest และ realm/env ของ gate
       - name: U1.7 acceptance gate validator tests
         run: pnpm test:u1-acceptance
