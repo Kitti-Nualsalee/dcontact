@@ -80,6 +80,7 @@
     "a1:provisioning:boundary": "pnpm --filter @d-contact/platform-control test:boundary",
     "e1:auth:boundary": "pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/dphone-embedded-auth.boundary.ts && pnpm --filter @d-contact/workspace test:boundary",
     "voice:tenant-people:boundary": "python3 scripts/tenant-people-boundary.py",
+    "voice:tenant-people:intent-boundary": "B3_INVITATION_INTENT_BOUNDARY_ONLY=1 python3 scripts/tenant-people-boundary.py",
     "d1:shell-flag": "pnpm --filter @d-contact/platform-control build && pnpm --filter @d-contact/platform-control ui-flag",
     "a1:dev-catalog": "pnpm --filter @d-contact/platform-control dev-catalog",
     "a1:console:uat": "pnpm --filter @d-contact/platform-console test:uat",

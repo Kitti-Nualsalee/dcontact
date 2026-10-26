@@ -112,7 +112,7 @@ jobs:
       - name: Install browser สำหรับ real invitation onboarding
         run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
       - name: ตรวจ B2 HTTP/RLS และ B3 intent/SMTP บน Keycloak จริงใน sandbox แยก
-        run: pnpm voice:tenant-people:boundary
+        run: pnpm voice:tenant-people:intent-boundary && pnpm voice:tenant-people:boundary
 
   e1-voice-gateway:
     runs-on: ubuntu-latest
