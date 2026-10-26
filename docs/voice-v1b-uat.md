@@ -18,7 +18,9 @@ Local overlay ส่ง DB ไป PostgreSQL ใน project เดียวก�
 และ Mailpit ใน internal network (SMTP `mailpit:1025`, mailbox UI `http://127.0.0.1:18025`)
 ไม่ตั้ง relay/forward ออกภายนอก ใช้ผู้รับสังเคราะห์ `@example.test` เท่านั้น
 ต้องสร้าง env ส่วนตัว, build images จาก candidate SHA, certificate ที่ browser เชื่อถือสำหรับ
-`console.localhost`/`workspace.localhost` และ bootstrap identity/worker ก่อน `up`
+`console.dcontact.test`/`workspace.dcontact.test` และ bootstrap identity/worker ก่อน `up`
+ชื่อทั้งสองต้อง resolve เป็น `127.0.0.1` บนเครื่องผู้ทดสอบ (เช่นผ่าน `/etc/hosts`)
+ไม่ใช้ `*.localhost` เพราะ realm bootstrap ปฏิเสธตาม identity guard เดิม
 อย่าใช้ image placeholder ของ composition tests หรือ credential ของ VM
 
 Ports 80/443 และ UDP 16384–16420 bind เฉพาะ `127.0.0.1`; ถ้าชน service เดิมให้หยุดตรวจ
