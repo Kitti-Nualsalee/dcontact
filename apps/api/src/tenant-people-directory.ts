@@ -27,6 +27,8 @@ interface DirectoryRow {
   statusRevision: number | null;
   operationId: string | null;
   commandId: string | null;
+  disableOperationId: string | null;
+  disableCommandId: string | null;
 }
 
 function projection(row: DirectoryRow) {
@@ -51,6 +53,8 @@ function projection(row: DirectoryRow) {
     statusRevision: row.statusRevision,
     operationId: row.operationId,
     commandId: row.commandId,
+    disableOperationId: row.disableOperationId,
+    disableCommandId: row.disableCommandId,
   };
 }
 
@@ -125,7 +129,9 @@ export function readPeopleDirectory(
       WITH directory AS (
         SELECT u.id,u.display_name AS "displayName",u.email,u.role::text AS role,u.extension,
           u.team_id AS "teamId",t.name AS "teamName",u.is_active AS "isActive",u.created_at AS "createdAt",u.config_revision AS "configRevision",
-          COALESCE(l.account_state,'UNKNOWN') AS "accountState",
+          CASE WHEN disable.state='SUCCEEDED' THEN 'DISABLED' WHEN disable.state='ACTION_REQUIRED' THEN 'ATTENTION_REQUIRED'
+            WHEN disable.state IN ('QUEUED','WAITING_EXTERNAL') THEN 'DISABLING' ELSE COALESCE(l.account_state,'UNKNOWN') END AS "accountState",
+          disable.id AS "disableOperationId",disable.command_id AS "disableCommandId",
           COALESCE(l.provisioning_state,'UNKNOWN') AS "provisioningState",
           COALESCE(l.activation_state,'UNKNOWN') AS "activationState",l.revision AS "statusRevision",o.id AS "operationId",o.command_id AS "commandId",
           COALESCE(i.delivery_state,CASE WHEN o.id IS NULL THEN 'UNKNOWN' ELSE 'NOT_STARTED' END) AS "deliveryState",
@@ -134,6 +140,10 @@ export function readPeopleDirectory(
         LEFT JOIN teams t ON t.tenant_id=u.tenant_id AND t.id=u.team_id
         LEFT JOIN tenant_user_lifecycles l ON l.tenant_id=u.tenant_id AND l.user_id=u.id
         LEFT JOIN tenant_people_operations o ON o.tenant_id=l.tenant_id AND o.id=l.operation_id AND o.target_user_id=u.id
+        LEFT JOIN LATERAL (
+          SELECT id,command_id,state FROM tenant_people_disables d WHERE d.tenant_id=u.tenant_id AND d.user_id=u.id
+          ORDER BY d.created_at DESC,d.id DESC LIMIT 1
+        ) disable ON true
         LEFT JOIN LATERAL (
           SELECT CASE WHEN r.outcome='SENT' AND to_timestamp(r.expires_at_epoch)<=clock_timestamp() THEN 'EXPIRED'
             WHEN r.outcome IS NOT NULL THEN r.outcome WHEN a.provider_attempt_ref IS NOT NULL THEN 'AMBIGUOUS'

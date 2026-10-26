@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { TenantPeopleDisableKeycloak } from './tenant-people-disable-keycloak.js';
 import type {
   PeopleActivationClaim,
   PeopleActivationOutcome,
@@ -462,7 +463,21 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
     return this.readReadiness(tenantId, false);
   }
 
-  private async readReadiness(tenantId: string, invitation: boolean): Promise<boolean> {
+  disablePort() {
+    const adapter = new TenantPeopleDisableKeycloak(this.configuration, this.request);
+    return {
+      isReady: (tenantId: string) => this.readReadiness(tenantId, false, true),
+      probe: adapter.probe.bind(adapter),
+      disable: adapter.disable.bind(adapter),
+      readOutcome: adapter.readOutcome.bind(adapter),
+    };
+  }
+
+  private async readReadiness(
+    tenantId: string,
+    invitation: boolean,
+    disable = false,
+  ): Promise<boolean> {
     if (tenantId !== this.configuration.tenantId) return false;
     try {
       const options = { redirect: 'error' as const, cache: 'no-store' as const };
@@ -505,7 +520,8 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
         result.version === 1 &&
         'tenantId' in result &&
         result.tenantId === this.configuration.tenantId &&
-        (!invitation || ('invitationReady' in result && result.invitationReady === true))
+        (!invitation || ('invitationReady' in result && result.invitationReady === true)) &&
+        (!disable || ('disableReady' in result && result.disableReady === true))
       );
     } catch {
       return false;

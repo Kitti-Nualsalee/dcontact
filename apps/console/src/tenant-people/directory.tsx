@@ -4,6 +4,7 @@ import { Button } from '@d-contact/ui-react';
 import { CatalogApiError } from '../voice-routing/api.js';
 import type { PeopleDirectoryApi, PeopleDirectoryUser } from './directory-api.js';
 import { PeopleInvitation } from './invitation.js';
+import { PeopleDisable } from './disable.js';
 
 export function PeopleDirectory({
   api,
@@ -107,6 +108,14 @@ export function PeopleDirectory({
       ) : null}
       {selected ? (
         <section aria-label={label('directory.detail')}>
+          <PeopleDisable
+            key={`disable:${selected.id}`}
+            api={api}
+            user={selected}
+            identityKey={identityKey}
+            onUser={setSelected}
+            onFailure={failed}
+          />
           <h3>{selected.displayName}</h3>
           <dl>
             <dt>{label('email')}</dt>

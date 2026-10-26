@@ -1,11 +1,14 @@
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import type { PeopleTelephonyNode } from './tenant-people-infrastructure.js';
+import type { TenantPeopleDisablePort } from './tenant-people-disable-keycloak.js';
 
 export const TENANT_PEOPLE_READINESS = Symbol('TENANT_PEOPLE_READINESS');
 export interface TenantPeopleReadiness {
   isReady(tenantId: string): Promise<boolean>;
   canReconcileInvitation?(tenantId: string): Promise<boolean>;
   canResendInvitation?(tenantId: string): Promise<boolean>;
+  canDisable?(tenantId: string): Promise<boolean>;
+  disablePortForTenant?(tenantId: string): TenantPeopleDisablePort | undefined;
   nodesForTenant?(tenantId: string): readonly PeopleTelephonyNode[];
 }
 
