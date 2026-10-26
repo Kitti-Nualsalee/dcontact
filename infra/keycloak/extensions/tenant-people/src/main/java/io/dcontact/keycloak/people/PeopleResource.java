@@ -46,23 +46,23 @@ public class PeopleResource {
   private static final Set<String> FIELDS=Set.of("tenantId","targetUserId","payloadDigest","fencingToken","email","displayName","role");
   private final KeycloakSession session;
   public PeopleResource(KeycloakSession session) { this.session=session; }
-  private record Binding(RealmModel realm,ClientModel client,OrganizationModel organization) {}
+  record Binding(RealmModel realm,ClientModel client,OrganizationModel organization) {}
 
-  private static Response json(int status,Object value) {
+  static Response json(int status,Object value) {
     return Response.status(status).type(MediaType.APPLICATION_JSON).header("Cache-Control","no-store").entity(value).build();
   }
-  private static WebApplicationException denied(int status,String code) { return new WebApplicationException(json(status,Map.of("code",code))); }
+  static WebApplicationException denied(int status,String code) { return new WebApplicationException(json(status,Map.of("code",code))); }
   private static String text(Map<String,Object> body,String key) {
     Object value=body==null?null:body.get(key);
     if(!(value instanceof String))throw denied(400,"INVALID_REQUEST");
     return (String)value;
   }
-  private static void uuid(String value) { if(value==null||!UUID.matcher(value).matches())throw denied(400,"INVALID_REQUEST"); }
-  private static String hash(String value) {
+  static void uuid(String value) { if(value==null||!UUID.matcher(value).matches())throw denied(400,"INVALID_REQUEST"); }
+  static String hash(String value) {
     try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
     catch(Exception failure) { throw new IllegalStateException("digest unavailable"); }
   }
-  private Binding authorize(String tenantId) {
+  Binding authorize(String tenantId) {
     var auth=new AppAuthManager.BearerTokenAuthenticator(session).authenticate();
     if(auth==null)throw denied(401,"UNAUTHORIZED");
     var client=auth.client();var caller=auth.user();var realm=session.getContext().getRealm();
@@ -93,8 +93,8 @@ public class PeopleResource {
     return new Binding(realm,client,organization);
   }
   private EntityManager entityManager() { return session.getProvider(JpaConnectionProvider.class).getEntityManager(); }
-  private String operationKey(Binding binding,String operationId) { return hash(binding.realm().getId()+":"+binding.client().getId()+":"+operationId); }
-  private void lockTenant(EntityManager manager,Binding binding,String tenantId) {
+  String operationKey(Binding binding,String operationId) { return hash(binding.realm().getId()+":"+binding.client().getId()+":"+operationId); }
+  void lockTenant(EntityManager manager,Binding binding,String tenantId) {
     String key=hash(binding.realm().getId()+":"+tenantId);
     manager.createNativeQuery("INSERT INTO DC_TENANT_PEOPLE_GATE(ID,REALM_ID,TENANT_ID) VALUES(:id,:realm,:tenant) ON CONFLICT(ID) DO NOTHING")
       .setParameter("id",key).setParameter("realm",binding.realm().getId()).setParameter("tenant",tenantId).executeUpdate();
@@ -106,6 +106,9 @@ public class PeopleResource {
     if(receipt.identityId!=null)result.put("identityId",receipt.identityId);
     return json(200,result);
   }
+
+  @Path("disable")
+  public PeopleDisableResource disable() { return new PeopleDisableResource(session,this); }
 
   @GET @Path("readiness")
   public Response readiness(@QueryParam("tenantId") String tenantId) {
