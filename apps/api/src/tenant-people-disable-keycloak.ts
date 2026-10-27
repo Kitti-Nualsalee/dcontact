@@ -56,7 +56,7 @@ export class TenantPeopleDisableKeycloak implements TenantPeopleDisablePort {
       issuer.password ||
       issuer.search ||
       issuer.hash ||
-      !/^\/realms\/[A-Za-z0-9._-]+\/?$/.test(issuer.pathname) ||
+      !/^\/(?:auth\/)?realms\/[A-Za-z0-9._-]+\/?$/.test(issuer.pathname) ||
       (issuer.protocol !== 'https:' &&
         !(issuer.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(issuer.hostname))) ||
       !uuid.test(configuration.tenantId) ||
