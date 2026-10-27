@@ -262,6 +262,36 @@ test('#565 entrypoint ของ line-webhook รับแค่ uat-line แล�
   rejectsWith(() => assertEntrypointProfile('uat', UAT_LINE), 'WRONG_ENTRYPOINT');
 });
 
+test('B4 eligibility/destinations เปิดเฉพาะ workspace และไม่เปิด lookalike/provider routes', () => {
+  const paths = [
+    '/api/v1/tenant-voice/eligibility',
+    '/api/v1/tenant-voice/destinations',
+    '/api/v1/tenant-voice/destinations/fixture/binding',
+    '/api/v1/tenant-voice/queues/fixture/required-skills',
+  ];
+  for (const name of ['uat', 'uat-e1', 'uat-workspace']) {
+    const guard = new RuntimeProfileRouteGuard(
+      resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: name }),
+      { write() {} },
+    );
+    for (const path of paths)
+      assert.equal(guard.isAllowed(path), name === 'uat-workspace', `${name}: ${path}`);
+  }
+  const guard = new RuntimeProfileRouteGuard(
+    resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'uat-workspace' }),
+    { write() {} },
+  );
+  for (const path of [
+    '/api/v1/tenant-voice/eligibility-evil',
+    '/api/v1/tenant-voice/destinations-evil',
+    '/api/v1/tenant-voice/provider',
+    '/api/v1/tenant-voice/admin',
+    '/api/v1/journey-authoring/journeys',
+    '/api/v1/line/webhook',
+  ])
+    assert.equal(guard.isAllowed(path), false, path);
+});
+
 test('uat-workspace เปิด UI APIs เพิ่มแบบ opt-in และคง E1/provider boundary', () => {
   const profile = resolveApiRuntimeProfile({ DCONTACT_API_PROFILE: 'uat-workspace' });
   assert.equal(profile.kafka, 'DISABLED');
