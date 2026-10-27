@@ -102,7 +102,7 @@ test('local wrapper ปฏิเสธ DNS ผิด/หลาย addresses ก�
       'sh',
       [
         '-c',
-        'getent() { printf "%s\\n" "$LOCAL_BIND_TEST_IP"; }; awk() { case "$*" in *"/proc/net/fib_trie"*) printf "%s\\n" "172.20.0.7" "10.240.61.3";; *) command awk "$@";; esac; }; . "$1"',
+        'nslookup() { printf "Server: 127.0.0.11\\nAddress: 127.0.0.11:53\\nName: freeswitch-control\\n"; printf "%s\\n" "$LOCAL_BIND_TEST_IP" | while IFS= read -r address; do printf "Address: %s\\n" "$address"; done; }; awk() { case "$*" in *"/proc/net/fib_trie"*) printf "%s\\n" "172.20.0.7" "10.240.61.3";; *) command awk "$@";; esac; }; . "$1"',
         'local-bind-test',
         resolve(directory, 'e1-freeswitch/local-entrypoint.sh'),
       ],

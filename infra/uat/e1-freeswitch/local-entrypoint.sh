@@ -6,8 +6,11 @@ fail() { echo 'LOCAL_FREESWITCH_BIND_IP_INVALID' >&2; exit 1; }
 media_ip="${LOCAL_RTP_FREESWITCH_MEDIA_ADDRESS:-}"
 media_subnet="${LOCAL_RTP_MEDIA_SUBNET:-}"
 [ -n "$media_ip" ] && [ -n "$media_subnet" ] || fail
-resolved="$(getent ahostsv4 freeswitch-control)" || fail
-control_ip="$(printf '%s\n' "$resolved" | awk '{print $1}' | sort -u)"
+resolved="$(nslookup -type=A freeswitch-control)" || fail
+control_ip="$(printf '%s\n' "$resolved" | awk '
+  $1 == "Name:" { answer = ($2 == "freeswitch-control"); next }
+  answer && $1 == "Address:" { print $2 }
+' | sort -u)"
 printf '%s\n' "$control_ip" | awk -F. '
   NR != 1 || NF != 4 { invalid = 1; exit 1 }
   {
