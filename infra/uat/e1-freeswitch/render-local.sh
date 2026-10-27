@@ -34,7 +34,8 @@ LOCAL_FS_CONTROL="$control_ip" LOCAL_FS_MEDIA="$media_ip" LOCAL_FS_SUBNET="$medi
     count = split(subnet, cidr, "/")
     network = address(cidr[1])
     if (count != 2 || cidr[2] !~ /^(0|[1-9][0-9]*)$/ || cidr[2] > 29) exit 1
-    size = 2 ^ (32 - cidr[2])
+    size = 1
+    for (bit = cidr[2]; bit < 32; bit++) size *= 2
     if (!private_ip(network) || !private_ip(network + size - 1) || network % size != 0 ||
       !private_ip(control_number) || media_number != network + 3 ||
       (control_number >= network && control_number < network + size)) exit 1
