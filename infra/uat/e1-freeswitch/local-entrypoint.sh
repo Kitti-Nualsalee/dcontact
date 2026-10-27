@@ -25,4 +25,6 @@ owned_ips="$(awk '/\/32 host LOCAL/ { print previous } { previous = $NF }' /proc
 
 printf '%s\n' "$owned_ips" | /bin/sh /e1-local-source/render-local.sh \
   /e1-local-source /e1-freeswitch "$control_ip" "$media_ip" "$media_subnet"
+ERL_EPMD_ADDRESS="$control_ip"
+export ERL_EPMD_ADDRESS
 exec /bin/sh /e1-freeswitch/entrypoint.sh
