@@ -79,4 +79,6 @@ pnpm prototype:cus360
 
 ตรวจด้วย typecheck/build และ browser walkthrough: mapping ผิด/ถูก, แยกแถวผิดพลาด, dirty cancel, save/readback, เพิ่มแท็ก→Activity, connection check, Privacy/quality details, Supervisor/Agent, TH/EN และจอแคบ 390px. ไม่เพิ่ม automated tests ให้ throwaway prototype และไม่นับ browser walkthrough เป็น backend/VM UAT PASS
 
-ยังรอ owner ทดลองและยืนยันโครงเมนู/ลำดับเฟส จึงไม่ปิด decision และยังไม่สร้าง production implementation tickets สำหรับทุกเมนู
+Owner ยืนยัน UX วันที่ 27 ตุลาคม 2569: ทางเข้าเดียวบน Rail, เมนูย่อย 9 หน้าแบ่ง 3 กลุ่ม, คง Console A/Workspace A และ production เปิดเฉพาะหน้าที่ต่อระบบจริงพร้อมแล้ว. Source ที่ใช้ยืนยันส่วนบริหารคือ `eeba1c65bdb40c902668d20a5a41fa4d99d5db85`. การเปิดดู variant C ไม่เปลี่ยนข้อตกลง A/A
+
+การยืนยันนี้ครอบคลุม UX เท่านั้น ยังไม่อนุมัติ API/สิทธิ์หรือการพัฒนาทุกเฟส; ลำดับเฟสและขอบเขตเจ้าของข้อมูลตัดสินต่อใน [Cus360: เลือกเฟสบริหารข้อมูลและขอบเขตเจ้าของข้อมูล](https://github.com/Kitti-Nualsalee/dcontact/issues/775)
