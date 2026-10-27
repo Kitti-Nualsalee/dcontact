@@ -16,6 +16,14 @@ import {
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const template = JSON.parse(readFileSync(resolve(repositoryRoot, UAT_REALM_TEMPLATE), 'utf8'));
+test('UAT realm มี VERIFY_EMAIL provider ที่เปิดใช้งานสำหรับ onboarding แต่ไม่บังคับทุกบัญชี', () => {
+  const rendered = renderRealm(template, environment);
+  const actions = rendered.requiredActions.filter((entry) => entry.alias === 'VERIFY_EMAIL');
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].providerId, 'VERIFY_EMAIL');
+  assert.equal(actions[0].enabled, true);
+  assert.equal(actions[0].defaultAction, false);
+});
 const tenantId = '00000000-0000-4000-8000-000000000001';
 const environment = {
   UAT_HOST: 'uat.example.test',
