@@ -20,6 +20,7 @@ services:
   keycloak:
     environment:
       JAVA_OPTS_KC_HEAP: '-Xms128m -Xmx768m'
+      KC_HTTP_MANAGEMENT_SCHEME: 'http'
       KC_HTTPS_PORT: '443'
       KC_HTTPS_CERTIFICATE_FILE: /run/local-identity.crt
       KC_HTTPS_CERTIFICATE_KEY_FILE: /run/local-identity.key

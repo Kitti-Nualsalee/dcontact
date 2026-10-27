@@ -49,6 +49,16 @@ const result = spawnSync(
 assert.equal(result.status, 0, result.stderr || result.error?.message);
 const configuration = JSON.parse(result.stdout);
 
+test('local Keycloak healthcheck ใช้ HTTP ภายในโดยไม่เปลี่ยน HTTPS identity', () => {
+  const keycloak = configuration.services.keycloak;
+  assert.equal(keycloak.environment.KC_HTTP_MANAGEMENT_SCHEME, 'http');
+  assert.equal(keycloak.environment.KC_HTTPS_PORT, '443');
+  assert.equal(keycloak.ports, undefined);
+  assert.deepEqual(keycloak.networks.internal.aliases, [environment.UAT_HOST]);
+  assert.match(keycloak.healthcheck.test.join(' '), /127\.0\.0\.1\/9000/);
+  assert.equal(configuration.networks.internal.internal, true);
+});
+
 test('local bind entrypoint ปฏิเสธ loopback/multiple IP/ข้อมูลแทรกก่อนเขียน config', () => {
   for (const address of [
     '127.0.0.1',
