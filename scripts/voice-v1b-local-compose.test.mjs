@@ -102,6 +102,42 @@ test('local composition แยก project และไม่เชื่อม D
   }
 });
 
+test('local worker ใช้ canonical identity HTTPS และเพิ่ม CA เฉพาะ API ไม่ปิด TLS verification', () => {
+  const api = configuration.services.api;
+  const identity = configuration.services.keycloak;
+  assert.equal(api.environment.NODE_EXTRA_CA_CERTS, '/run/local-identity-ca.crt');
+  assert.equal(api.environment.NODE_TLS_REJECT_UNAUTHORIZED, undefined);
+  assert.ok(
+    api.volumes.some(
+      (volume) =>
+        volume.target === '/run/local-identity-ca.crt' &&
+        volume.source === environment.UAT_TLS_CERT_FILE &&
+        volume.read_only,
+    ),
+  );
+  assert.ok(!api.volumes.some((volume) => volume.source === environment.UAT_TLS_KEY_FILE));
+  assert.equal(identity.environment.KC_HTTPS_PORT, '443');
+  assert.equal(identity.environment.KC_HOSTNAME, `https://${environment.UAT_HOST}/auth`);
+  assert.deepEqual(identity.networks, { internal: { aliases: [environment.UAT_HOST] } });
+  assert.equal(identity.ports, undefined);
+  assert.ok(
+    identity.volumes.some(
+      (volume) =>
+        volume.target === '/run/local-identity.crt' &&
+        volume.source === environment.UAT_TLS_CERT_FILE &&
+        volume.read_only,
+    ),
+  );
+  assert.ok(
+    identity.volumes.some(
+      (volume) =>
+        volume.target === '/run/local-identity.key' &&
+        volume.source === environment.UAT_TLS_KEY_FILE &&
+        volume.read_only,
+    ),
+  );
+});
+
 test('local ports เป็น loopback เท่านั้น ไม่มี SIP/ESL หรือ SMTP ออก host', () => {
   const published = Object.entries(configuration.services).flatMap(([name, service]) =>
     (service.ports ?? []).map((port) => ({ name, ...port })),

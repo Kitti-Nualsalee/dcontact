@@ -30,6 +30,12 @@ Local overlay ส่ง DB ไป PostgreSQL ใน project เดียวก�
 ไม่ใช้ `*.localhost` เพราะ realm bootstrap ปฏิเสธตาม identity guard เดิม
 อย่าใช้ image placeholder ของ composition tests หรือ credential ของ VM
 
+Keycloak local เปิด HTTPS 443 เฉพาะ internal network และใช้ DNS alias ของ Console
+เพื่อให้ worker เรียก canonical issuer URL เดียวกับ browser ได้โดยไม่ผ่าน host port mapping
+API mount เฉพาะ public certificate แบบ read-only ผ่าน `NODE_EXTRA_CA_CERTS`; ไม่ได้ private key
+ไม่ตั้ง `NODE_TLS_REJECT_UNAUTHORIZED=0` และไม่แก้ system trust store ของเครื่อง
+ต้องตรวจ TLS/issuer จริงก่อนเปิด worker binding; browser ยังต้องจัดการ trust ของ local certificate เอง
+
 Ports 80/443 และ UDP 16384–16420 bind เฉพาะ `127.0.0.1`; ถ้าชน service เดิมให้หยุดตรวจ
 ไม่หยุดหรือลบ container อื่นเอง ตัวแปร media ที่โฆษณาเป็น loopback ใช้เฉพาะ browser บนเครื่องเดียวกัน
 การ render Compose ผ่านยังไม่ยืนยัน media บน Docker Desktop ต้องพิสูจน์เสียงจริงแยก
