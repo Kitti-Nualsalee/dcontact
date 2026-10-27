@@ -15,6 +15,7 @@ import uuid
 
 import tempfile
 from tenant_people_disable_boundary import check_disable_boundary
+from tenant_people_invitation_concurrency import check_invitation_concurrency
 
 KEYCLOAK_IMAGE='docker.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85'
 MAILPIT_IMAGE='docker.io/axllent/mailpit:v1.31.1@sha256:98b916bd3c8d61f7633a52d3ea2f58d00620cb01ca57ab59edde68c347a95365'
@@ -150,6 +151,9 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         expect(ready_path,tenants[0]['token'],status=503)
         expect(adminbase+'/users/profile',admin,profile,method='PUT',status=200)
         expect(ready_path,tenants[0]['token'],status=200)
+        if os.environ.get('B3_INVITATION_INTENT_BOUNDARY_ONLY') == '1':
+            check_invitation_concurrency(call, expect, adminbase, admin, tenants[0], sql)
+            return
         def envelope():return {'tenantId':tenants[0]['id'],'targetUserId':str(uuid.uuid4()),'payloadDigest':hashlib.sha256(uuid.uuid4().bytes).hexdigest(),'fencingToken':'1','email':uuid.uuid4().hex+'@example.test','displayName':'ทดสอบ B2','role':'AGENT'}
         body=envelope();operation=str(uuid.uuid4());path='/realms/'+realm+'/dc-tenant-people/operations/'+operation+'/steps/CREATE_IDENTITY'
         expect(path,None,body,status=401)

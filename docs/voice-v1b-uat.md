@@ -6,6 +6,12 @@ Authority: #704 และ #714; B1–B6 เป็น implementation prerequisite
 
 ## 1. ตรวจ source artifacts ก่อน package
 
+Regression ของ #771 ใช้ `pnpm voice:tenant-people:intent-boundary` บน Keycloak/PostgreSQL ชั่วคราว
+ยิง intent คู่พร้อมกัน 50 รอบด้วย operation ใหม่ทุกครั้ง และหยุดทันทีที่ผิด ไม่ retry คู่เสีย
+fixture รอบแรกจำลอง ledger/user fence ที่ commit พร้อมกันแต่ cache ยังเก่าด้วย SQL เฉพาะ sandbox
+ตรวจ replay/readback/receipt เดียวและปฏิเสธ persisted fence drift จริงทั้ง POST/GET ไม่ส่ง SMTP
+ผลนี้พิสูจน์ regression แยกจาก full boundary และไม่ใช่หลักฐาน business/VM/human trial
+
 ### Local rehearsal แยกจาก VM
 
 สำหรับ #714 ใช้ Compose project `dcontact-v1b-local` และเรียง overlay:
