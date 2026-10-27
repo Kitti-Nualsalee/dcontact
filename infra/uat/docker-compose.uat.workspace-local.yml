@@ -8,6 +8,10 @@ services:
     mem_limit: 256m
 
   api:
+    environment:
+      NODE_EXTRA_CA_CERTS: /run/local-identity-ca.crt
+    volumes:
+      - ${UAT_TLS_CERT_FILE:?UAT_TLS_CERT_FILE is required}:/run/local-identity-ca.crt:ro
     mem_limit: 1024m
 
   postgres:
@@ -16,6 +20,16 @@ services:
   keycloak:
     environment:
       JAVA_OPTS_KC_HEAP: '-Xms128m -Xmx768m'
+      KC_HTTPS_PORT: '443'
+      KC_HTTPS_CERTIFICATE_FILE: /run/local-identity.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /run/local-identity.key
+    volumes:
+      - ${UAT_TLS_CERT_FILE:?UAT_TLS_CERT_FILE is required}:/run/local-identity.crt:ro
+      - ${UAT_TLS_KEY_FILE:?UAT_TLS_KEY_FILE is required}:/run/local-identity.key:ro
+    networks:
+      internal:
+        aliases:
+          - ${UAT_HOST:?UAT_HOST is required}
     mem_limit: 1024m
 
   e1-sandbox:
@@ -24,10 +38,13 @@ services:
     mem_limit: 384m
 
   freeswitch:
+    entrypoint: ['/bin/sh', '/e1-local-source/local-entrypoint.sh']
     ports: !override
       - '127.0.0.1:16384-16420:16384-16420/udp'
-    volumes:
-      - ./e1-freeswitch/vars.local.xml:/e1-freeswitch/conf/vars.xml:ro
+    volumes: !override
+      - ./e1-freeswitch:/e1-local-source:ro
+    tmpfs:
+      - /e1-freeswitch:mode=0755
     mem_limit: 512m
 
   mailpit:

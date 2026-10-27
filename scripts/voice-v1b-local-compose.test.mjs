@@ -49,6 +49,35 @@ const result = spawnSync(
 assert.equal(result.status, 0, result.stderr || result.error?.message);
 const configuration = JSON.parse(result.stdout);
 
+test('local bind entrypoint ปฏิเสธ loopback/multiple IP/ข้อมูลแทรกก่อนเขียน config', () => {
+  for (const address of [
+    '127.0.0.1',
+    '0.0.0.0',
+    '256.1.1.1',
+    '172.20.0.7 172.21.0.7',
+    '172.20.0.7\n127.0.0.1',
+    '172.20.0.7\n172.20.0.8',
+    '172.20.0.7;id',
+    '',
+  ]) {
+    const execution = spawnSync(
+      'sh',
+      [
+        '-c',
+        'hostname() { printf "%s\\n" "$LOCAL_BIND_TEST_IP"; }; . "$1"',
+        'local-bind-test',
+        resolve(directory, 'e1-freeswitch/local-entrypoint.sh'),
+      ],
+      {
+        env: { PATH: process.env.PATH, LOCAL_BIND_TEST_IP: address },
+        encoding: 'utf8',
+      },
+    );
+    assert.notEqual(execution.status, 0);
+    assert.match(execution.stderr, /LOCAL_FREESWITCH_BIND_IP_INVALID/);
+  }
+});
+
 test('local hostnames ผ่าน Keycloak realm renderer เดียวกับ bootstrap จริง', () => {
   const template = JSON.parse(
     readFileSync(resolve(root, 'infra/keycloak/realm-dcontact.uat.json'), 'utf8'),
@@ -71,6 +100,42 @@ test('local composition แยก project และไม่เชื่อม D
     assert.match(volume.name, /^dcontact-v1b-local_/);
     assert.notEqual(volume.external, true);
   }
+});
+
+test('local worker ใช้ canonical identity HTTPS และเพิ่ม CA เฉพาะ API ไม่ปิด TLS verification', () => {
+  const api = configuration.services.api;
+  const identity = configuration.services.keycloak;
+  assert.equal(api.environment.NODE_EXTRA_CA_CERTS, '/run/local-identity-ca.crt');
+  assert.equal(api.environment.NODE_TLS_REJECT_UNAUTHORIZED, undefined);
+  assert.ok(
+    api.volumes.some(
+      (volume) =>
+        volume.target === '/run/local-identity-ca.crt' &&
+        volume.source === environment.UAT_TLS_CERT_FILE &&
+        volume.read_only,
+    ),
+  );
+  assert.ok(!api.volumes.some((volume) => volume.source === environment.UAT_TLS_KEY_FILE));
+  assert.equal(identity.environment.KC_HTTPS_PORT, '443');
+  assert.equal(identity.environment.KC_HOSTNAME, `https://${environment.UAT_HOST}/auth`);
+  assert.deepEqual(identity.networks, { internal: { aliases: [environment.UAT_HOST] } });
+  assert.equal(identity.ports, undefined);
+  assert.ok(
+    identity.volumes.some(
+      (volume) =>
+        volume.target === '/run/local-identity.crt' &&
+        volume.source === environment.UAT_TLS_CERT_FILE &&
+        volume.read_only,
+    ),
+  );
+  assert.ok(
+    identity.volumes.some(
+      (volume) =>
+        volume.target === '/run/local-identity.key' &&
+        volume.source === environment.UAT_TLS_KEY_FILE &&
+        volume.read_only,
+    ),
+  );
 });
 
 test('local ports เป็น loopback เท่านั้น ไม่มี SIP/ESL หรือ SMTP ออก host', () => {
@@ -115,7 +180,9 @@ test('local proxy/media overrides ไม่ใช้ config หรือ IP ข�
   assert.ok(
     configuration.services.freeswitch.volumes.some(
       (volume) =>
-        volume.source === resolve(directory, 'e1-freeswitch/vars.local.xml') && volume.read_only,
+        volume.source === resolve(directory, 'e1-freeswitch') &&
+        volume.target === '/e1-local-source' &&
+        volume.read_only,
     ),
   );
   const caddy = readFileSync(resolve(directory, 'Caddyfile.workspace-local'), 'utf8');
@@ -124,5 +191,9 @@ test('local proxy/media overrides ไม่ใช้ config หรือ IP ข�
   assert.match(caddy, /reverse_proxy https:\/\/freeswitch:7443/);
   assert.match(caddy, /respond @keycloakAdmin 404/);
   assert.match(variables, /external_rtp_ip=127\.0\.0\.1/);
+  assert.deepEqual(configuration.services.freeswitch.entrypoint, [
+    '/bin/sh',
+    '/e1-local-source/local-entrypoint.sh',
+  ]);
   assert.doesNotMatch(caddy + variables + result.stdout, /192\.168\.102\./);
 });
