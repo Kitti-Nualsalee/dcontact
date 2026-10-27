@@ -332,6 +332,13 @@ public class PeopleResource {
     if(!intent.providerAttemptRef.equals(attempt)||!Long.toString(intent.fencingToken).equals(fence)||!intent.leaseOwner.equals(owner))throw denied(409,"CORRELATION_CONFLICT");
   }
 
+  private String persistedInvitationFence(EntityManager manager,String target) {
+    var values=manager.createNativeQuery("SELECT value FROM user_attribute WHERE user_id=:target AND name='dc_invitation_not_before'",String.class)
+      .setParameter("target",target).getResultList();
+    if(values.size()>1)throw denied(409,"GENERATION_FENCE_CONFLICT");
+    return values.isEmpty()?null:(String)values.get(0);
+  }
+
   private long invitationGeneration(String generation) {
     if(generation==null||!generation.matches("[1-9][0-9]{0,9}"))throw denied(400,"INVALID_REQUEST");
     long number=Long.parseLong(generation);
@@ -375,21 +382,22 @@ public class PeopleResource {
     if(memberships.size()!=1||!memberships.get(0).getId().equals(binding.organization().getId()))throw denied(409,"IDENTITY_ORGANIZATION_CONFLICT");
     if(user.isEmailVerified()||user.credentialManager().getStoredCredentialsStream().findAny().isPresent()
       ||!Set.of("VERIFY_EMAIL","UPDATE_PASSWORD","CONFIGURE_TOTP").equals(user.getRequiredActionsStream().collect(java.util.stream.Collectors.toSet())))throw denied(409,"IDENTITY_ACTIVATION_CONFLICT");
+    String currentFence=persistedInvitationFence(manager,target);
     String intentId=hash(key+":SEND_INTENT:"+generation);PeopleInvitationIntent previous=manager.find(PeopleInvitationIntent.class,intentId);
     var history=manager.createQuery("SELECT intent FROM PeopleInvitationIntent intent WHERE intent.operationKey=:operation ORDER BY intent.generation DESC",PeopleInvitationIntent.class)
       .setParameter("operation",key).setMaxResults(1).getResultList();
     PeopleInvitationIntent latest=history.isEmpty()?null:history.get(0);
     if(previous!=null) {
       invitationDescriptor(previous,attempt,suppliedFence,owner);
-      if(latest==null||!latest.id.equals(previous.id)||!Long.toString(previous.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before")))throw denied(409,"GENERATION_FENCE_CONFLICT");
+      if(latest==null||!latest.id.equals(previous.id)||!Long.toString(previous.notBeforeEpoch).equals(currentFence))throw denied(409,"GENERATION_FENCE_CONFLICT");
       return invitationIntent(operation,previous);
     }
     long serverEpoch=Time.currentTimeSeconds(),notBefore=serverEpoch;
     if(generationNumber==1) {
-      if(latest!=null||user.getFirstAttribute("dc_invitation_not_before")!=null)throw denied(409,"GENERATION_FENCE_CONFLICT");
+      if(latest!=null||currentFence!=null)throw denied(409,"GENERATION_FENCE_CONFLICT");
     } else {
       if(latest==null||generationNumber!=latest.generation+1||fence<=latest.fencingToken)throw denied(409,"INVITATION_GENERATION_CONFLICT");
-      if(!Long.toString(latest.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before")))throw denied(409,"GENERATION_FENCE_CONFLICT");
+      if(!Long.toString(latest.notBeforeEpoch).equals(currentFence))throw denied(409,"GENERATION_FENCE_CONFLICT");
       PeopleInvitationFinished finished=manager.find(PeopleInvitationFinished.class,latest.id);
       if(finished==null||!"SENT".equals(finished.outcome))throw denied(409,"INVITATION_PREVIOUS_OUTCOME_UNKNOWN");
       long recent=manager.createQuery("SELECT COUNT(intent) FROM PeopleInvitationIntent intent WHERE intent.operationKey=:operation AND intent.generation>1 AND intent.createdAtEpoch>:cutoff",Long.class)
@@ -429,7 +437,7 @@ public class PeopleResource {
     if(intent==null)return json(200,Map.of("outcome","UNKNOWN"));
     invitationDescriptor(intent,attempt,fence,owner);
     UserModel user=session.users().getUserById(binding.realm(),target);
-    if(user==null||(requireCurrentFence&&!Long.toString(intent.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before"))))throw denied(409,"GENERATION_FENCE_CONFLICT");
+    if(user==null||(requireCurrentFence&&!Long.toString(intent.notBeforeEpoch).equals(persistedInvitationFence(manager,target))))throw denied(409,"GENERATION_FENCE_CONFLICT");
     return invitationIntent(operation,intent);
   }
 
