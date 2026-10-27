@@ -106,6 +106,15 @@
       "defaultAction": false,
       "priority": 30,
       "config": {}
+    },
+    {
+      "alias": "VERIFY_EMAIL",
+      "name": "Verify Email",
+      "providerId": "VERIFY_EMAIL",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 5,
+      "config": {}
     }
   ],
   "roles": {
