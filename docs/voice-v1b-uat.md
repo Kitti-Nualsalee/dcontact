@@ -60,6 +60,8 @@ API mount เฉพาะ public certificate แบบ read-only ผ่าน `N
 ไม่ตั้ง `NODE_TLS_REJECT_UNAUTHORIZED=0` และไม่แก้ system trust store ของเครื่อง
 ต้องตรวจ TLS/issuer จริงก่อนเปิด worker binding; browser ยังต้องจัดการ trust ของ local certificate เอง
 
+ก่อน render local overlay ต้องกำหนด media network/IP ทั้งเจ็ดและตรวจ CIDR collisions ตาม
+[คู่มือ local RTP](uat-local-media.md); ไม่มี defaults ให้เลือกโดยปริยาย และไม่เพิ่มสิทธิ์ให้ relay
 Ports 80/443 และ UDP 16384–16420 bind เฉพาะ `127.0.0.1`; ถ้าชน service เดิมให้หยุดตรวจ
 ไม่หยุดหรือลบ container อื่นเอง ตัวแปร media ที่โฆษณาเป็น loopback ใช้เฉพาะ browser บนเครื่องเดียวกัน
 การ render Compose ผ่านยังไม่ยืนยัน media บน Docker Desktop ต้องพิสูจน์เสียงจริงแยก
