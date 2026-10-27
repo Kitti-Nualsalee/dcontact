@@ -144,6 +144,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm --filter "@d-contact/api^..." --filter "@d-contact/telephony^..." build
+      - name: ตรวจ local RTP relay isolation และ shutdown โดยไม่ส่ง media จริง
+        run: pnpm --filter @d-contact/telephony exec tsx --test src/local-rtp-relay.test.ts src/local-rtp-relay-main.test.ts
       - run: pnpm db:migrate && pnpm db:rls
       - name: ตรวจ gateway กับ submission/rollout/settlement ภายใต้ RLS จริง
         run: >-
