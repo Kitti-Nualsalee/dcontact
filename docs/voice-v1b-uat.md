@@ -14,6 +14,30 @@ fixture รอบแรกจำลอง ledger/user fence ที่ commit พ
 
 ### Local rehearsal แยกจาก VM
 
+Diagnostic #780 เปิดเฉพาะ `uat-workspace` และ issuer
+`https://console.dcontact.test/auth/realms/dcontact` ด้วย environment
+`LOCAL_BOOTSTRAP_CLAIMS_EVIDENCE_JSON`; ไม่ตั้งตัวแปรนี้คือปิดและใช้ verifier เดิม
+หากกำหนด `UAT_HOST` ต้องเป็น `console.dcontact.test` เท่านั้น config ผิดทำให้ startup ปฏิเสธ
+operator จัด manifest private ที่มีเฉพาะ `tenantId`, `userId`, `subject`, `tenantSlug`,
+`organizationId`, `clientId` โดย client ต้องเป็น `dcontact-uat-console` และ IDs เป็น UUID
+ไม่ส่ง manifest หรือ credentials ผ่าน command arguments และไม่เพิ่ม environment นี้ใน VM overlay
+
+หลัง signature/issuer/audience verification และ local account admission ผ่านแล้วเท่านั้น
+diagnostic ส่ง event `local.bootstrap.verified_claims` ที่มี digest ของ claim tuple ที่เลือกไว้,
+digest ของ expected manifest, evidenceId/observedAt และผลตรวจ boolean ไม่มี raw JWT/claim values,
+username/session/password/OTP; dedupe tuple เดิมและจำกัดสูงสุด 32 events ต่อ verifier instance
+process restart เริ่มนับใหม่ ค่า `classificationAllowed` ใช้กฎ caller เดิมที่อนุญาต attribute ไม่ปรากฏ
+พร้อม `classificationPresent=false` จึงไม่ใช่หลักฐานว่า JWT มี `TENANT_USER` จริง
+Organization context ที่ตรวจจาก JWT คือ alias/tenant UUID เท่านั้น `organizationId` อยู่ใน
+expected manifest digest และมี marker `OPERATOR_MANIFEST_ONLY` ไม่อ้างว่าเห็น Organization UUID ใน JWT
+operator ใช้ evidenceId/observedAt/expectedManifestDigest จับคู่หลักฐาน; wrapper นี้ไม่ได้รับหรือบันทึก
+request `x-correlation-id` และไม่อ้างว่า event ผูกกับ HTTP request ID โดยอัตโนมัติ
+
+เก็บ event จาก actual Console request เป็นหลักฐานประกอบ operator review แล้วปิด diagnostic
+`matched=true` ไม่ใช่ authorization grant, identity/Org proof หรือการสร้าง positive binding;
+ไม่มี endpoint/enrollment/user mutation และไม่เปลี่ยนผล auth แม้ mismatch หรือ sink ล้มเหลว
+ผล unit/source tests ไม่ใช่ actual Console evidence, VM trial หรือ acceptance ของ #714
+
 สำหรับ #714 ใช้ Compose project `dcontact-v1b-local` และเรียง overlay:
 `docker-compose.uat.yml` → `docker-compose.uat.e1.yml` →
 `docker-compose.uat.workspace.yml` → `docker-compose.uat.workspace-local.yml`
