@@ -406,9 +406,17 @@ case "$cmd" in
       compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js off "$actor"
       compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js idle
       if [[ "$cmd" == 'e1-voice-on' ]]; then
+        media_operator_sha="${UAT_E1_MEDIA_OPERATOR_SHA:-$sha}"
+        [[ "$media_operator_sha" =~ ^[a-f0-9]{40}$ ]] || fail 'E1_MEDIA_OPERATOR_SHA_INVALID'
+        media_operator="$UAT_ROOT/releases/$media_operator_sha/operator/vm2-e1-media-uat.py"
+        [[ -f "$media_operator" ]] || fail 'E1_MEDIA_OPERATOR_MISSING'
+        media_arguments=(--verify-snapshot --source-sha "$sha")
+        if [[ -n "${UAT_E1_MEDIA_OPERATOR_SHA:-}" ]]; then
+          media_arguments+=(--candidate-sha "$sha" --operator-sha "$media_operator_sha")
+        fi
         exec 8</var/lib/dcontact-uat-e1-media/lock || fail 'E1_MEDIA_SNAPSHOT_MISSING_OR_STALE'
         flock -s -n 8 || fail 'E1_MEDIA_OPERATOR_BUSY'
-        python3 "$dir/operator/vm2-e1-media-uat.py" --verify-snapshot --source-sha "$sha"
+        python3 "$media_operator" "${media_arguments[@]}"
         compose "$dir" exec -T e1-sandbox node /e1-sandbox/dist/e1-voice-control-main.js on "$actor"
         if ! UAT_E1_OUTBOUND_VOICE_ENABLED=true compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox; then
           UAT_E1_OUTBOUND_VOICE_ENABLED=false compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox || true
