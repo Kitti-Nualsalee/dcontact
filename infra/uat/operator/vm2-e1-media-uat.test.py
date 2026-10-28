@@ -347,6 +347,143 @@ class MediaTests(unittest.TestCase):
             with patch.object(media, 'runtime', return_value=CURRENT), patch.object(media, 'require_canonical'), patch.object(media, 'root_owned'), patch.object(media, 'read_state', return_value=state), self.assertRaisesRegex(media.MediaGuardError, 'SNAPSHOT_MISSING_OR_STALE'):
                 media.run('verify', None, None)
 
+    def test_candidate_selectors_are_explicit_paired_and_canonical(self):
+        operator_sha = 'd' * 40
+        for candidate, operator in ((CURRENT['sourceSha'], None), (None, operator_sha), ('../release', operator_sha), (CURRENT['sourceSha'], 'd' * 39), ('', operator_sha)):
+            with self.subTest(candidate=candidate, operator=operator), patch.object(media, 'runtime') as runtime, self.assertRaisesRegex(media.MediaGuardError, 'CANDIDATE_OPERATOR_SHA_REQUIRED'):
+                media.run('verify', None, None, candidate, operator)
+            runtime.assert_not_called()
+        current = {**CURRENT, 'recordedSourceSha': 'e' * 40}
+        with patch.object(media, 'runtime', return_value=current) as runtime, patch.object(media, 'require_canonical') as canonical, patch.object(media, 'root_owned'), patch.object(media, 'read_state', return_value=snapshot()):
+            result = media.run('verify', None, CURRENT['sourceSha'], CURRENT['sourceSha'], operator_sha)
+        runtime.assert_called_once_with(CURRENT['sourceSha'])
+        canonical.assert_called_once_with({**current, 'operatorSourceSha': operator_sha}, operator_sha)
+        self.assertEqual(result['recordedSourceSha'], 'e' * 40)
+        self.assertEqual(result['operatorSourceSha'], operator_sha)
+        self.assertEqual(self.fake.mutations, [])
+
+    def test_candidate_restore_and_inspect_require_operator_lineage(self):
+        for mode in ('restore', 'inspect'):
+            with self.subTest(mode=mode), patch.object(media.os, 'geteuid', return_value=0), patch.object(media, 'runtime', return_value=CURRENT), patch.object(media, 'require_operator', side_effect=media.MediaGuardError('E1_MEDIA_CANONICAL_OPERATOR_REQUIRED')), self.assertRaisesRegex(media.MediaGuardError, 'CANONICAL_OPERATOR_REQUIRED'):
+                media.run(mode, ACTOR, CURRENT['sourceSha'], CURRENT['sourceSha'], 'd' * 40)
+        self.assertEqual(self.fake.mutations, [])
+
+
+class CandidateRuntimeTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        (self.root / 'deployments').mkdir()
+        self.recorded = 'a' * 40
+        self.candidate = 'b' * 40
+        self.operator = 'c' * 40
+        self.record = self.root / 'deployments/current.json'
+        self.record.write_text(json.dumps({'sourceSha': self.recorded, 'acceptance': 'OLD_RELEASE'}))
+        (self.root / 'e1-acceptance.enabled').touch()
+        self.boot = self.root / 'boot-id'
+        self.boot.write_text(CURRENT['bootId'])
+        self.labels = {name: self.candidate for name in ('api', 'e1-sandbox')}
+        self.mount_sha = self.candidate
+        self.commands = []
+        self.root_patch = patch.object(media, 'ROOT', self.root)
+        self.root_patch.start()
+        self.addCleanup(self.root_patch.stop)
+
+    def execute(self, arguments):
+        self.commands.append(arguments)
+        if arguments[0] == 'ip':
+            return json.dumps([{'addr_info': [{'local': media.HOST}]}])
+        if arguments[:3] == ['docker', 'network', 'inspect']:
+            return 'true' if '{{.Internal}}' in arguments else '1' * 64
+        if arguments[:3] == ['docker', 'exec', media.FS]:
+            return 'Iface Destination Gateway Flags RefCnt Use Metric Mask\neth0 00000000 010015AC 0003 0 0 0 00000000'
+        if arguments == ['iptables', '--version']:
+            return CURRENT['iptablesVersion']
+        raise AssertionError(arguments)
+
+    def inspect(self, expression, name):
+        if name == 'dcontact-uat-api-1' and expression == '.Config.Env':
+            return ['DCONTACT_API_PROFILE=uat-workspace']
+        if expression == '.Config.Labels':
+            return {'org.opencontainers.image.revision': self.labels[name.removeprefix('dcontact-uat-').removesuffix('-1')]}
+        values = {
+            '.NetworkSettings.Networks': {media.NETWORK: {'IPAddress': CURRENT['ip'], 'Gateway': '172.21.0.1'}},
+            '.Config.Image': media.FS_IMAGE,
+            '.State.Health.Status': 'healthy',
+            '.Mounts': [{'Destination': '/e1-freeswitch', 'Source': str(self.root / 'releases' / self.mount_sha / 'e1-freeswitch'), 'RW': False}],
+            '.Id': CURRENT['containerId'],
+        }
+        return values[expression]
+
+    def read_runtime(self, candidate=None):
+        with patch.object(media, 'command', side_effect=self.execute), patch.object(media, 'docker_value', side_effect=self.inspect), patch.object(media, 'Path', side_effect=lambda value: self.boot if value == '/proc/sys/kernel/random/boot_id' else Path(value)):
+            return media.runtime(candidate)
+
+    def test_candidate_matches_actual_runtime_without_rewriting_record(self):
+        before = self.record.read_bytes()
+        result = self.read_runtime(self.candidate)
+        self.assertEqual(result['sourceSha'], self.candidate)
+        self.assertEqual(result['recordedSourceSha'], self.recorded)
+        self.assertEqual(before, self.record.read_bytes())
+        self.assertFalse(any(command[0] == 'iptables' and command != ['iptables', '--version'] for command in self.commands))
+
+    def test_default_still_requires_recorded_runtime(self):
+        with self.assertRaisesRegex(media.MediaGuardError, 'RUNTIME_SHA_MISMATCH'):
+            self.read_runtime()
+        self.labels = {name: self.recorded for name in self.labels}
+        self.mount_sha = self.recorded
+        result = self.read_runtime()
+        self.assertEqual(result['sourceSha'], self.recorded)
+        self.assertNotIn('recordedSourceSha', result)
+
+    def test_candidate_rejects_either_service_from_another_release(self):
+        for name in self.labels:
+            with self.subTest(service=name):
+                self.labels[name] = self.recorded
+                with self.assertRaisesRegex(media.MediaGuardError, 'RUNTIME_SHA_MISMATCH'):
+                    self.read_runtime(self.candidate)
+                self.labels[name] = self.candidate
+
+    def test_candidate_rejects_recorded_mount_even_when_images_match(self):
+        self.mount_sha = self.recorded
+        with self.assertRaisesRegex(media.MediaGuardError, 'SOURCE_MOUNT_REQUIRED'):
+            self.read_runtime(self.candidate)
+
+    def test_candidate_does_not_accept_invalid_recorded_identity(self):
+        self.record.write_text(json.dumps({'sourceSha': '../untrusted'}))
+        with self.assertRaisesRegex(media.MediaGuardError, 'RELEASE_REQUIRED'):
+            self.read_runtime(self.candidate)
+
+    def stage_operator(self):
+        path = self.root / 'releases' / self.operator / 'operator/vm2-e1-media-uat.py'
+        path.parent.mkdir(parents=True)
+        path.write_bytes(Path(media.__file__).read_bytes())
+        profile = self.root / 'releases' / self.candidate / 'e1-freeswitch/conf/sip_profiles/internal.xml'
+        profile.parent.mkdir(parents=True)
+        profile.write_text('<profile><param name="local-network-acl" value="none"/><param name="auth-calls" value="true"/><param name="apply-candidate-acl" value="dcontact_webrtc_candidates"/></profile>')
+        return path, profile
+
+    def test_operator_lineage_is_separate_but_runtime_profile_stays_pinned(self):
+        self.stage_operator()
+        with patch.object(media, 'command') as command:
+            media.require_canonical({'sourceSha': self.candidate}, self.operator)
+        self.assertEqual(command.call_args.args[0][-2:], ['/etc/freeswitch/sip_profiles/internal.xml', '/e1-freeswitch/conf/sip_profiles/internal.xml'])
+
+    def test_tampered_operator_fails_before_container_profile_check(self):
+        path, _ = self.stage_operator()
+        path.write_text('# unreviewed replacement')
+        with patch.object(media, 'command') as command, self.assertRaisesRegex(media.MediaGuardError, 'CANONICAL_OPERATOR_REQUIRED'):
+            media.require_canonical({'sourceSha': self.candidate}, self.operator)
+        command.assert_not_called()
+
+    def test_candidate_profile_still_rejects_relaxed_acl(self):
+        _, profile = self.stage_operator()
+        profile.write_text(profile.read_text().replace('value="none"', 'value="lan"'))
+        with patch.object(media, 'command') as command, self.assertRaisesRegex(media.MediaGuardError, 'CANONICAL_PROFILE_REQUIRED'):
+            media.require_canonical({'sourceSha': self.candidate}, self.operator)
+        command.assert_not_called()
+
 
 class SnapshotPublishTests(unittest.TestCase):
     def setUp(self):

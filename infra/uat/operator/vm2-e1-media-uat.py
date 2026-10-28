@@ -56,12 +56,13 @@ def require_media_profile(environment):
         raise MediaGuardError('E1_MEDIA_PROFILE_UAT_E1_REQUIRED')
 
 
-def runtime():
+def runtime(candidate_sha=None):
     addresses = json.loads(command(['ip', '-j', '-4', 'addr', 'show']))
     if not any(address.get('local') == HOST for interface in addresses for address in interface.get('addr_info', [])):
         raise MediaGuardError('E1_MEDIA_VM2_REQUIRED')
-    source_sha = json.loads((ROOT / 'deployments/current.json').read_text())['sourceSha']
-    if not re.fullmatch('[0-9a-f]{40}', source_sha) or not (ROOT / 'e1-acceptance.enabled').is_file():
+    recorded_sha = json.loads((ROOT / 'deployments/current.json').read_text())['sourceSha']
+    source_sha = recorded_sha if candidate_sha is None else candidate_sha
+    if not all(isinstance(sha, str) and re.fullmatch('[0-9a-f]{40}', sha) for sha in (recorded_sha, source_sha)) or not (ROOT / 'e1-acceptance.enabled').is_file():
         raise MediaGuardError('E1_MEDIA_RELEASE_REQUIRED')
     require_media_profile(docker_value('.Config.Env', 'dcontact-uat-api-1'))
     for service in ('api', 'e1-sandbox'):
@@ -79,14 +80,21 @@ def runtime():
     if not any(mount['Destination'] == '/e1-freeswitch' and mount['Source'] == str(release / 'e1-freeswitch') and not mount['RW'] for mount in mounts):
         raise MediaGuardError('E1_MEDIA_SOURCE_MOUNT_REQUIRED')
     network_id = command(['docker', 'network', 'inspect', '--format', '{{.Id}}', NETWORK])
-    return {'sourceSha': source_sha, 'containerId': docker_value('.Id', FS), 'ip': networks[NETWORK]['IPAddress'], 'bridge': 'br-' + network_id[:12], 'bootId': Path('/proc/sys/kernel/random/boot_id').read_text().strip(), 'iptablesVersion': command(['iptables', '--version'])}
+    result = {'sourceSha': source_sha, 'containerId': docker_value('.Id', FS), 'ip': networks[NETWORK]['IPAddress'], 'bridge': 'br-' + network_id[:12], 'bootId': Path('/proc/sys/kernel/random/boot_id').read_text().strip(), 'iptablesVersion': command(['iptables', '--version'])}
+    if candidate_sha is not None:
+        result['recordedSourceSha'] = recorded_sha
+    return result
 
 
-def require_canonical(current):
-    release = ROOT / 'releases' / current['sourceSha']
-    source = release / 'operator/vm2-e1-media-uat.py'
+def require_operator(current, operator_sha=None):
+    source = ROOT / 'releases' / (operator_sha or current['sourceSha']) / 'operator/vm2-e1-media-uat.py'
     if source.read_bytes() != Path(__file__).read_bytes():
         raise MediaGuardError('E1_MEDIA_CANONICAL_OPERATOR_REQUIRED')
+
+
+def require_canonical(current, operator_sha=None):
+    require_operator(current, operator_sha)
+    release = ROOT / 'releases' / current['sourceSha']
     profile = xml.parse(release / 'e1-freeswitch/conf/sip_profiles/internal.xml')
     for name, expected in [('local-network-acl', 'none'), ('auth-calls', 'true'), ('apply-candidate-acl', 'dcontact_webrtc_candidates')]:
         values = [element.get('value') for element in profile.findall('.//param') if element.get('name') == name]
@@ -302,19 +310,28 @@ def reconcile(firewall, previous, current, actor, restore=False):
     return 'RESTORED' if restore else 'APPLIED'
 
 
-def run(mode, actor, source_sha):
+def run(mode, actor, source_sha, candidate_sha=None, operator_sha=None):
     if mode != 'verify' and os.geteuid() != 0:
         raise MediaGuardError('E1_MEDIA_SUDO_ON_VM2_REQUIRED')
     if mode in ('apply', 'restore') and not re.fullmatch('operator:[A-Za-z0-9_-]{1,64}', actor or ''):
         raise MediaGuardError('E1_MEDIA_ACTOR_REQUIRED')
-    current = runtime()
+    if (candidate_sha is None) != (operator_sha is None) or any(not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{40}', sha) for sha in (candidate_sha, operator_sha) if sha is not None):
+        raise MediaGuardError('E1_MEDIA_CANDIDATE_OPERATOR_SHA_REQUIRED')
+    current = runtime(candidate_sha) if candidate_sha is not None else runtime()
+    if operator_sha is not None:
+        current = {**current, 'operatorSourceSha': operator_sha}
     if source_sha and source_sha != current['sourceSha']:
         raise MediaGuardError('E1_MEDIA_SOURCE_SHA_MISMATCH')
+    if operator_sha is not None and mode in ('inspect', 'restore'):
+        require_operator(current, operator_sha)
     if mode == 'inspect':
         tables = MediaFirewall().tables()
         return {'status': 'INSPECTED', **current, 'publishedPorts': docker_value('.NetworkSettings.Ports', FS), 'uatBridgeRules': [list(row) for rows in tables.values() for row in rows if current['bridge'] in row]}
     if mode != 'restore':
-        require_canonical(current)
+        if operator_sha is None:
+            require_canonical(current)
+        else:
+            require_canonical(current, operator_sha)
     if mode in ('check', 'verify'):
         if not STATE_DIR.exists() or not (STATE_DIR / 'lock').exists():
             raise MediaGuardError('E1_MEDIA_SNAPSHOT_MISSING_OR_STALE')
@@ -370,9 +387,11 @@ def main():
     modes.add_argument('--verify-snapshot', dest='mode', action='store_const', const='verify')
     parser.add_argument('--actor')
     parser.add_argument('--source-sha')
+    parser.add_argument('--candidate-sha')
+    parser.add_argument('--operator-sha')
     arguments = parser.parse_args()
     try:
-        result = run(arguments.mode, arguments.actor, arguments.source_sha)
+        result = run(arguments.mode, arguments.actor, arguments.source_sha, arguments.candidate_sha, arguments.operator_sha)
         print(json.dumps({'type': 'e1.uat.media', 'client': CLIENT, 'ports': PORTS, **result}))
     except Exception as error:
         reason = str(error) if isinstance(error, MediaGuardError) else 'E1_MEDIA_STATE_OR_COMMAND_INVALID'
