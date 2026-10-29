@@ -31,7 +31,7 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
     def sql(statement):
         return subprocess.check_output(['docker','exec','-i',postgres,'psql','-X','-At','-v','ON_ERROR_STOP=1','-U',owner,'-d',database],input=statement,text=True)
     subprocess.run(['docker','exec','-i',postgres,'psql','-X','-v','ON_ERROR_STOP=1','-U',owner,'-d','postgres'],input='CREATE DATABASE '+database+';',text=True,check=True,stdout=subprocess.DEVNULL)
-    subprocess.run(['docker','run','--rm','--network','none','--user',str(os.getuid())+':'+str(os.getgid()),'-v',str(root/'infra/keycloak/extensions/tenant-people/src/main')+':/src:ro','-v',str(work)+':/work','eclipse-temurin:21-jdk','sh','-ec','javac --release 21 -proc:none -cp "/work/lib/*" -d /work/classes $(find /src/java -name "*.java"); cp -r /src/resources/. /work/classes/; cd /work/classes; jar cf /work/dcontact-tenant-people.jar .'],check=True)
+    subprocess.run(['docker','run','--rm','--network','none','--user',str(os.getuid())+':'+str(os.getgid()),'-v',str(root/'infra/keycloak/extensions/tenant-people/src/main')+':/src:ro','-v',str(root/'infra/keycloak/extensions/tenant-people/src/test/roles')+':/tests:ro','-v',str(work)+':/work','eclipse-temurin:21-jdk','sh','-ec','javac --release 21 -proc:none -cp "/work/lib/*" -d /work/classes $(find /src/java -name "*.java"); javac --release 21 -proc:none -cp "/work/lib/*:/work/classes" -d /work/role-tests $(find /tests/java -name "*.java"); java -cp "/work/lib/*:/work/classes:/work/role-tests" io.dcontact.keycloak.people.TenantRolesTest; cp -r /src/resources/. /work/classes/; cd /work/classes; jar cf /work/dcontact-tenant-people.jar .'],check=True)
     os.chmod(work/'dcontact-tenant-people.jar',0o644)
     subprocess.run(['docker','run','--rm','--network','none','--user',str(os.getuid())+':'+str(os.getgid()),'-v',str(root/'infra/keycloak/extensions/invitation-guard/src/main')+':/src:ro','-v',str(work)+':/work','eclipse-temurin:21-jdk','sh','-ec','mkdir -p /work/guard-classes; javac --release 21 -proc:none -cp "/work/lib/*" -d /work/guard-classes $(find /src/java -name "*.java"); cp -r /src/resources/. /work/guard-classes/; cd /work/guard-classes; jar cf /work/dcontact-invitation-guard.jar .'],check=True)
     os.chmod(work/'dcontact-invitation-guard.jar',0o644)
@@ -96,6 +96,9 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         expect('/admin/realms',admin,{'realm':realm,'enabled':True,'organizationsEnabled':True,'sslRequired':'none'})
         expect(adminbase,admin,{'smtpServer':{'host':smtp,'port':'1025','from':'onboarding@example.test','ssl':'false','starttls':'false','auth':'false'}},method='PUT',status=204)
         for role in ('agent','supervisor','admin'):expect(adminbase+'/roles',admin,{'name':role})
+        tenant_roles={name:expect(adminbase+'/roles/'+name,admin,status=200)[0] for name in ('agent','supervisor','admin')}
+        expect(adminbase+'/roles/supervisor/composites',admin,[tenant_roles['agent']],status=204)
+        expect(adminbase+'/roles/admin/composites',admin,[tenant_roles['supervisor']],status=204)
         profile,_=expect(adminbase+'/users/profile',admin,status=200)
         for name in ('dc_identity_class','tenant_id','tenant_slug','dc_user_id','dc_tenant_people_operation_id','dc_invitation_not_before'):
             profile['attributes'].append({'name':name,'multivalued':False,'permissions':{'view':['admin'],'edit':['admin']}})
@@ -122,6 +125,15 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
             print('B6_FOCUSED_IDENTITY_BOUNDARY_PASS')
             return
         ready_path='/realms/'+realm+'/dc-tenant-people/readiness?tenantId='+tenants[0]['id']
+        for forbidden_role in ('platform_admin','service','unexpected'):
+            expect(adminbase+'/roles',admin,{'name':forbidden_role})
+            forbidden,_=expect(adminbase+'/roles/'+forbidden_role,admin,status=200)
+            expect(adminbase+'/roles/agent/composites',admin,[forbidden],status=204)
+            rejected,_=expect(ready_path,tenants[0]['token'],status=503)
+            if rejected.get('code')!='TENANT_ROLE_NOT_READY':raise RuntimeError('TENANT_ROLE_GRAPH_REJECTION_MISSING')
+            expect(adminbase+'/roles/agent/composites',admin,[forbidden],method='DELETE',status=204)
+            expect(ready_path,tenants[0]['token'],status=200)
+        print('TENANT_CANONICAL_ROLE_GRAPH_BOUNDARY_PASS')
         invitation_ready,_=expect(ready_path,tenants[0]['token'],status=200)
         if invitation_ready.get('invitationReady') is not True:raise RuntimeError('INVITATION_READINESS_NOT_READY')
         configured_realm,_=expect(adminbase,admin,status=200)

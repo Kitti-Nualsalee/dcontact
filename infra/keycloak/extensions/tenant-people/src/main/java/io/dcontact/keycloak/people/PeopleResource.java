@@ -118,7 +118,7 @@ public class PeopleResource {
     if(!allowed.equals(Set.of("AGENT","SUPERVISOR","ADMIN")))throw denied(503,"TENANT_ROLE_NOT_READY");
     for(String role:allowed) {
       var configured=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
-      if(configured==null||configured.isComposite())throw denied(503,"TENANT_ROLE_NOT_READY");
+      if(!TenantRoles.valid(binding.realm(),configured))throw denied(503,"TENANT_ROLE_NOT_READY");
     }
     return json(200,Map.of("version",1,"ready",true,"tenantId",tenantId,"invitationReady",invitationReady(binding.realm()),"disableReady",true));
   }
@@ -135,7 +135,7 @@ public class PeopleResource {
       ||!Arrays.asList(String.valueOf(binding.client().getAttribute("dc_allowed_roles")).split(",")).contains(role))throw denied(400,"INVALID_REQUEST");
     if(name.codePointCount(0,name.length())<1||name.codePointCount(0,name.length())>120||Pattern.compile("[\\p{Cc}\\p{Cf}]").matcher(name).find()
       ||!name.equals(name.strip().replaceAll("\\s+"," "))||email.length()>254||!email.matches("[^\\s@\\p{Cc}\\p{Cf}]{1,64}@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\\.[a-z0-9-]+"))throw denied(400,"INVALID_REQUEST");
-    if(binding.realm().getRole(role.toLowerCase(Locale.ROOT))==null)throw denied(503,"TENANT_ROLE_NOT_READY");
+    if(!TenantRoles.valid(binding.realm(),binding.realm().getRole(role.toLowerCase(Locale.ROOT))))throw denied(503,"TENANT_ROLE_NOT_READY");
     long fence;
     try { String supplied=text(body,"fencingToken");if(!supplied.matches("[1-9][0-9]{0,18}"))throw new IllegalArgumentException();fence=Long.parseLong(supplied); }
     catch(IllegalArgumentException failure) { throw denied(400,"INVALID_REQUEST"); }
@@ -213,7 +213,7 @@ public class PeopleResource {
     }
     UserModel user=session.users().getUserById(binding.realm(),target);
     var desired=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
-    if(desired==null||desired.isComposite())throw denied(503,"TENANT_ROLE_NOT_READY");
+    if(!TenantRoles.valid(binding.realm(),desired))throw denied(503,"TENANT_ROLE_NOT_READY");
     if(user==null||user.getServiceAccountClientLink()!=null||!user.isEnabled()
       ||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getUsername())||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getEmail())
       ||!"TENANT_USER".equals(user.getFirstAttribute("dc_identity_class"))
@@ -274,7 +274,7 @@ public class PeopleResource {
     if(provisioned==null||!"SUCCEEDED".equals(provisioned.outcome)||!target.equals(provisioned.identityId))return json(200,Map.of("outcome","UNKNOWN"));
     UserModel user=session.users().getUserById(binding.realm(),target);
     var desired=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
-    if(user==null||desired==null||desired.isComposite()||user.getServiceAccountClientLink()!=null||!user.isEnabled()
+    if(user==null||!TenantRoles.valid(binding.realm(),desired)||user.getServiceAccountClientLink()!=null||!user.isEnabled()
       ||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getUsername())||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getEmail())
       ||!"TENANT_USER".equals(user.getFirstAttribute("dc_identity_class"))
       ||!tenantId.equals(user.getFirstAttribute("tenant_id"))||!target.equals(user.getFirstAttribute("dc_user_id"))
@@ -370,7 +370,7 @@ public class PeopleResource {
     var desired=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
     if(!Set.of("AGENT","SUPERVISOR","ADMIN").contains(role)
       ||!Arrays.asList(String.valueOf(binding.client().getAttribute("dc_allowed_roles")).split(",")).contains(role)
-      ||desired==null||desired.isComposite())throw denied(503,"TENANT_ROLE_NOT_READY");
+      ||!TenantRoles.valid(binding.realm(),desired))throw denied(503,"TENANT_ROLE_NOT_READY");
     if(user==null||user.getServiceAccountClientLink()!=null||!user.isEnabled()
       ||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getUsername())||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getEmail())
       ||!name.equals(user.getFirstName())||!"TENANT_USER".equals(user.getFirstAttribute("dc_identity_class"))
