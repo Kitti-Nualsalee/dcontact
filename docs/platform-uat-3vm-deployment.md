@@ -74,6 +74,8 @@ bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh status <SOURCE_SHA>
 
 `keycloak` เปลี่ยนเฉพาะ image ของ service U1 ด้วย overlay; release directory และ `release.env` ของ U1 ไม่ถูกแก้. `configure` ตั้ง `platform-console`/provisioner/SMTP และ seed operational baseline UAT (`uat-operational-v1`, plan starter/growth/enterprise) แบบทำซ้ำได้. `start` ต้องตรวจว่า rollout ยังปิด.
 
+**Dependent proxy (#804):** ก่อนสลับ Keycloak ทั้ง `keycloak` และ `rollback` ตรวจว่า proxy container ใช้ Console digest ของ current Tenant release แล้วเริ่ม container เดิมกลับหลัง Compose ทำงาน (รวมกรณี Compose ล้ม). ไม่ recreate proxy ด้วยไฟล์ฐานที่ขาด E1/Workspace overlay. Helper รอ HTTP 200 ของ runtime-profile และ OIDC discovery ผ่าน HTTPS VM1 โดยตรวจ certificate และ resolve hostname ไป `192.168.102.114` ภายใน LAN; ถ้าไม่พร้อมจะหยุดและไม่ให้ marker ของ rollback drill. การเริ่ม drill รอบใหม่ล้าง marker เก่าก่อนเสมอ.
+
 ## ตรวจ UAT และเปิด canary
 
 1. ตรวจ Keycloak invitation guard ใน server info, OIDC discovery, API `/health/live`, HTTPS `platform-uat.osd.co.th`, Caddy allowlist และปฏิเสธ `/auth/admin`, `/metrics` จาก browser. ตรวจ U1 Journey smoke เดิมหลัง Keycloak เปลี่ยน.

@@ -60,6 +60,42 @@ uat_keycloak_overlay() {
     "${files[@]}" "$@"
 }
 
+# Compose อาจหยุด dependent proxy ระหว่าง recreate Keycloak แม้ระบุ --no-deps (#804).
+# เริ่ม container เดิมเท่านั้น: compose ไฟล์ฐานของ helper ไม่มี E1/Workspace overlay ของ proxy.
+uat_proxy=dcontact-uat-proxy-1
+check_uat_proxy() {
+  local expected actual
+  expected="$(sed -n 's/^CONSOLE_IMAGE=//p' "$uat_release/release.env")"
+  [[ "$expected" =~ @sha256:[a-f0-9]{64}$ ]] || { echo 'Tenant Console digest ไม่ครบ' >&2; return 1; }
+  actual="$(docker inspect --format '{{.Config.Image}}' "$uat_proxy")" || return 1
+  [[ "$actual" == "$expected" ]] || { echo 'Tenant proxy image ไม่ตรง current release; หยุดก่อนเปลี่ยน Keycloak' >&2; return 1; }
+}
+resume_uat_proxy() {
+  docker start "$uat_proxy" >/dev/null || return 1
+  local attempt endpoint status ready
+  for attempt in {1..15}; do
+    ready=true
+    for endpoint in /api/v1/runtime-profile /auth/realms/dcontact/.well-known/openid-configuration; do
+      # VM2 ไม่มี DNS entry ของ UAT; ยังคงตรวจ TLS certificate และผ่าน nginx/allowlist ของ VM1 จริง.
+      status="$(curl --silent --max-time 5 --output /dev/null --write-out '%{http_code}' \
+        --resolve dcontact-uat.osd.co.th:443:192.168.102.114 \
+        "https://dcontact-uat.osd.co.th$endpoint")" || status=000
+      if [[ "$status" != 200 ]]; then ready=false; break; fi
+    done
+    if [[ "$ready" == true ]]; then return 0; fi
+    sleep 2
+  done
+  echo 'Tenant HTTP/OIDC ผ่าน VM1 ยังไม่พร้อม; ห้ามเปิด canary' >&2
+  return 1
+}
+switch_keycloak() {
+  local result=0
+  "$@" || result=$?
+  # คืน proxy แม้ Compose ล้มหลังหยุด dependent แล้ว; failure ของการสลับยังต้องคงอยู่.
+  resume_uat_proxy || return 1
+  return "$result"
+}
+
 case "$action" in
   check)
     platform_compose --profile ops config --quiet
@@ -72,8 +108,9 @@ case "$action" in
     echo 'PULL ผ่าน: image ตาม digest ครบ'
     ;;
   keycloak)
-    uat_keycloak_overlay up -d --no-deps --wait keycloak
-    echo 'KEYCLOAK ผ่าน: image ใหม่ healthy'
+    check_uat_proxy
+    switch_keycloak uat_keycloak_overlay up -d --no-deps --wait keycloak
+    echo 'KEYCLOAK ผ่าน: image ใหม่ healthy; Tenant HTTP/OIDC พร้อมผ่าน VM1'
     ;;
   configure)
     platform_compose up -d --wait mailpit
@@ -131,6 +168,7 @@ PY
     echo "CANARY ผ่าน: subject $subject; API และ worker ใช้ rollout เดียวกัน"
     ;;
   rollback)
+    rm -f "$platform/drill-$sha.ok"
     # ปิด mutation/claim ก่อน แล้วคืน Keycloak digest ของ U1; ledger/tenant ไม่ถูกลบ
     python3 - "$env_file" <<'PY'
 import os, sys, tempfile
@@ -149,7 +187,8 @@ finally:
 PY
     platform_compose up -d --no-deps --force-recreate platform-api platform-worker
     platform_compose stop platform-worker platform-api platform-console mailpit
-    uat_compose up -d --no-deps --wait keycloak
+    check_uat_proxy
+    switch_keycloak uat_compose up -d --no-deps --wait keycloak
     printf '%s\n' "$sha" > "$platform/drill-$sha.ok"
     echo 'ROLLBACK ผ่าน: Platform หยุด; Keycloak U1 digest เดิมกลับมา; DB/ledger คงเดิม'
     ;;
