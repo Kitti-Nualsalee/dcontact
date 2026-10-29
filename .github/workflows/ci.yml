@@ -32,6 +32,34 @@ on:
         default: unit
 
 jobs:
+  managed-routing-sip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter "@d-contact/router..." build
+      - name: เตรียม images ของ dev SIP sandbox ที่ตรึง digest
+        run: |
+          docker pull postgres@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+          docker pull safarov/freeswitch@sha256:f156e01a96d48944078ed7f0e24304be63ea15f6466cf607a0aeb6cb47761da7
+          docker pull ctaloi/sipp@sha256:c459f2340443ddcc159227efc798217dbdaad0dbe88b76b78b1a876aa271986a
+      - name: พิสูจน์ offer20s/budget60s/restart กับ caller และ B-leg จริง
+        run: pnpm voice:managed-routing:acceptance
+      - name: เก็บหลักฐาน SIP และ runtime
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: managed-routing-sip-evidence
+          path: /tmp/managed-*/
+          if-no-files-found: warn
+          retention-days: 7
+
   core-settings-writer-races:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -84,7 +112,7 @@ jobs:
       - name: Install browser สำหรับ real invitation onboarding
         run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
       - name: ตรวจ B2 HTTP/RLS และ B3 intent/SMTP บน Keycloak จริงใน sandbox แยก
-        run: pnpm voice:tenant-people:boundary
+        run: pnpm voice:tenant-people:intent-boundary && pnpm voice:tenant-people:boundary
 
   e1-voice-gateway:
     runs-on: ubuntu-latest
@@ -116,6 +144,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm --filter "@d-contact/api^..." --filter "@d-contact/telephony^..." build
+      - name: ตรวจ local RTP relay isolation และ shutdown โดยไม่ส่ง media จริง
+        run: pnpm --filter @d-contact/telephony exec tsx --test src/local-rtp-relay.test.ts src/local-rtp-relay-main.test.ts
       - run: pnpm db:migrate && pnpm db:rls
       - name: ตรวจ gateway กับ submission/rollout/settlement ภายใต้ RLS จริง
         run: >-
@@ -129,6 +159,11 @@ jobs:
           pnpm --filter @d-contact/telephony exec tsx --test src/e1-registration-flush.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/agent-sip-credentials.integration.ts
           pnpm --filter @d-contact/api exec tsx --test src/agent-availability.integration.ts
+      - name: ตรวจ B6 local account deny และ lease เดิมหลัง disable ภายใต้ RLS จริง
+        run: |
+          pnpm --filter @d-contact/api exec tsx --test src/local-account-verifier.integration.ts
+          pnpm --filter @d-contact/api exec tsx --test src/tenant-people-disable.integration.ts
+          pnpm --filter @d-contact/api exec tsx --test src/work-session.integration.ts
       - name: ตรวจ Voice wrap-up V1 และ legacy guards ภายใต้ RLS จริง
         run: |
           pnpm --filter @d-contact/api exec tsx --test src/agent-workspace.integration.ts
@@ -221,6 +256,9 @@ jobs:
       # U1.6 (#434): compose/Dockerfile/realm/workflow ของ UAT + migration guard + live smoke กับ stub
       - name: U1.6 UAT deployment readiness validator tests
         run: pnpm test:u1-uat-readiness
+
+      - name: ตรวจ B7 read-only readiness และ Workspace profile
+        run: pnpm test:voice-v1b:readiness && pnpm voice:v1b:readiness -- --static
 
       # U1.7 (#435): marker ของ acceptance gate, negative scan ของ manifest และ realm/env ของ gate
       - name: U1.7 acceptance gate validator tests
@@ -486,7 +524,7 @@ jobs:
         run: pnpm --filter @d-contact/console exec playwright install --with-deps chromium
 
       - name: Console i18n + shell e2e
-        run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts e2e/shell.spec.ts e2e/journey-authoring.spec.ts e2e/home.spec.ts e2e/agent-history.spec.ts e2e/voice-routing.spec.ts e2e/voice-configuration.spec.ts e2e/tenant-people.spec.ts e2e/tenant-people-directory.spec.ts e2e/tenant-people-invitation.spec.ts
+        run: pnpm --filter @d-contact/console exec playwright test e2e/i18n.spec.ts e2e/shell.spec.ts e2e/journey-authoring.spec.ts e2e/home.spec.ts e2e/agent-history.spec.ts e2e/voice-routing.spec.ts e2e/voice-configuration.spec.ts e2e/tenant-people.spec.ts e2e/tenant-people-directory.spec.ts e2e/tenant-people-invitation.spec.ts e2e/tenant-people-disable.spec.ts
 
       - name: Workspace shell e2e
         run: pnpm --filter @d-contact/workspace exec playwright test e2e/shell.spec.ts e2e/dphone.spec.ts e2e/dphone-embed.spec.ts e2e/dphone-host-reference.spec.ts e2e/agent-availability.spec.ts e2e/dphone-owner.spec.ts e2e/wrapup.spec.ts e2e/wrapup-recovery.spec.ts

@@ -22,6 +22,7 @@ import {
   readConfiguration,
   configurationProjection,
   configurationEligibility,
+  configurationRuntime,
 } from './tenant-voice-configuration-read.js';
 import { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
@@ -57,6 +58,12 @@ export class TenantVoiceCatalogController {
     @Inject(TENANT_VOICE_DATABASE) private readonly db: PrismaClient,
     @Optional() @Inject(TENANT_PEOPLE_READINESS) private readonly people?: TenantPeopleReadiness,
   ) {}
+  @Get('queues/:id/runtime') @Header('Cache-Control', 'no-store') runtime(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+  ) {
+    return configurationRuntime(this.db, actor(request), id);
+  }
   @Patch('queues/:id') @GatewayRoles('admin') @Header('Cache-Control', 'no-store') updateQueue(
     @Req() request: AuthenticatedGatewayRequest,
     @Param('id') id: string,
@@ -142,6 +149,12 @@ export class TenantVoiceCatalogController {
       (await this.people?.canResendInvitation?.(identity.tenantId))
     )
       result.invitation = { ready: true, reasons: [] };
+    if (
+      result.canWrite &&
+      result.configuration.ready &&
+      (await this.people?.canDisable?.(identity.tenantId))
+    )
+      result.disable = { ready: true, reasons: [] };
     return result;
   }
   @Get('teams') @Header('Cache-Control', 'no-store') teams(@Req() r: AuthenticatedGatewayRequest) {

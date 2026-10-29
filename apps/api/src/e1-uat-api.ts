@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { withLocalAccountAdmission } from './local-account-verifier.js';
+import { withLocalBootstrapClaimsEvidence } from './local-bootstrap-claims-evidence.js';
 import { UnauthorizedException, type DynamicModule } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ContactGovernanceService } from '@d-contact/contact-governance';
@@ -62,6 +64,7 @@ import {
 } from './uat-api.js';
 import { WORK_SESSION_LEASES, WorkSessionController } from './work-session-api.js';
 import { WorkSessionLeases } from './work-session.js';
+import type { PeopleDisableFlushPort } from './tenant-people-disable.js';
 import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
 
 function required(environment: NodeJS.ProcessEnv, name: string): string {
@@ -71,6 +74,8 @@ function required(environment: NodeJS.ProcessEnv, name: string): string {
 }
 
 export interface E1UatApiDependencies {
+  environment?: NodeJS.ProcessEnv;
+  peopleDisableFlush?: PeopleDisableFlushPort;
   database: PrismaClient;
   verifier: unknown;
   diagnostics: GatewayDiagnosticSink;
@@ -127,11 +132,18 @@ export async function bootstrapE1UatApi(
   const diagnostics = { write: (event: object) => console.log(JSON.stringify(event)) };
   const routeGuard = new RuntimeProfileRouteGuard(profile, diagnostics);
   const database = new PrismaClient();
-  const verifier = new KeycloakAccessTokenVerifier({
-    issuer: required(environment, 'KEYCLOAK_ISSUER'),
-    audience: required(environment, 'KEYCLOAK_AUDIENCE'),
-    jwksUri: required(environment, 'KEYCLOAK_JWKS_URI'),
-  });
+  const verifier = withLocalBootstrapClaimsEvidence(
+    withLocalAccountAdmission(
+      database,
+      new KeycloakAccessTokenVerifier({
+        issuer: required(environment, 'KEYCLOAK_ISSUER'),
+        audience: required(environment, 'KEYCLOAK_AUDIENCE'),
+        jwksUri: required(environment, 'KEYCLOAK_JWKS_URI'),
+      }),
+    ),
+    environment,
+    (evidence) => diagnostics.write(evidence),
+  );
   const lifecycle = new CachedTenantLifecycleGate((tenantId) =>
     database.tenant
       .findUnique({ where: { id: tenantId }, select: { lifecycleStatus: true } })
@@ -193,6 +205,8 @@ export async function bootstrapE1UatApi(
     }),
   });
   const dependencies: E1UatApiDependencies = {
+    environment,
+    peopleDisableFlush: { flush: (registration) => voiceCommands.flush(registration) },
     database,
     verifier,
     diagnostics,
@@ -224,6 +238,7 @@ export async function bootstrapE1UatApi(
   const fullWorkspace = workspace?.createWorkspaceUatApiModule(dependencies);
   const module = fullWorkspace?.module ?? createE1UatApiModule(dependencies);
   const app = await NestFactory.create(module);
+  app.enableShutdownHooks();
   app.use(routeGuard.middleware);
   const tenantScope = <T>(tenantId: string, work: () => Promise<T> | T): Promise<T> =>
     withTenantDatabaseTransaction(database, tenantId, async (transaction) => {

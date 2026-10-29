@@ -386,6 +386,10 @@ REVOKE INSERT, UPDATE, DELETE ON tenant_voice_policy_audit FROM dcontact_app;
 -- Positive identity เป็น operator authority; app อ่านอย่างเดียวและยังอยู่ใต้ RLS
 REVOKE INSERT, UPDATE, DELETE ON tenant_voice_identity_bindings, tenant_voice_identity_binding_audit FROM dcontact_app;
 
+REVOKE ALL ON tenant_people_disables,tenant_people_disable_receipts,tenant_people_disable_flushes FROM dcontact_app,dcontact_tenant_people_worker;
+GRANT SELECT,INSERT ON tenant_people_disables TO dcontact_app;
+GRANT SELECT ON tenant_people_disable_receipts,tenant_people_disable_flushes TO dcontact_app;
+GRANT SELECT ON tenant_people_disables,tenant_people_disable_receipts,tenant_people_disable_flushes TO dcontact_tenant_people_worker;
 REVOKE ALL ON tenant_people_operations, tenant_identity_reservations, tenant_user_lifecycles, tenant_people_step_receipts FROM dcontact_app;
 GRANT SELECT, INSERT ON tenant_people_operations, tenant_identity_reservations, tenant_user_lifecycles TO dcontact_app;
 GRANT SELECT ON tenant_people_step_receipts TO dcontact_app;
@@ -447,3 +451,10 @@ GRANT UPDATE(name,is_active) ON teams TO dcontact_app;
 
 -- transaction-local guard evidence เป็นของ DB triggers เท่านั้น ไม่ให้ app ปลอม/ลบ baseline
 REVOKE ALL ON TABLE dc_team_reference_checks FROM PUBLIC,dcontact_app;
+
+GRANT SELECT,INSERT,UPDATE ON voice_managed_runtime_readiness,voice_managed_calls,voice_managed_offers,voice_managed_commands TO dcontact_app;
+REVOKE DELETE,TRUNCATE,TRIGGER ON voice_managed_runtime_readiness,voice_managed_calls,voice_managed_offers,voice_managed_commands FROM dcontact_app;
+REVOKE ALL ON FUNCTION dc_voice_managed_runtime_ready(uuid,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dc_voice_managed_runtime_ready(uuid,text) TO dcontact_app;
+REVOKE ALL ON FUNCTION dc_voice_managed_cleanup_pending(uuid,uuid[],uuid[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dc_voice_managed_cleanup_pending(uuid,uuid[],uuid[]) TO dcontact_app;

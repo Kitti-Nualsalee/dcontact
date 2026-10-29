@@ -12,17 +12,22 @@ export class E1EslCommandClient implements FreeSwitchEslCommandClient {
     },
   ) {}
 
-  command(value: string): Promise<void> {
+  async command(value: string): Promise<void> {
+    const response = await this.request(value);
+    if (!response.startsWith('+OK')) throw new Error('E1_ESL_COMMAND_UNCONFIRMED');
+  }
+
+  request(value: string): Promise<string> {
     if (/[\r\n]/.test(value)) return Promise.reject(new Error('E1_ESL_INVALID_COMMAND'));
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<string>((resolve, reject) => {
       const socket = net.createConnection({ host: this.options.host, port: this.options.port });
       let buffer = Buffer.alloc(0);
       let stage: 'AUTH_REQUEST' | 'AUTH_REPLY' | 'COMMAND_REPLY' = 'AUTH_REQUEST';
       const timer = setTimeout(() => finish(false), this.options.timeoutMs ?? 5000);
-      const finish = (accepted: boolean) => {
+      const finish = (accepted: boolean, response = '') => {
         clearTimeout(timer);
         socket.destroy();
-        if (accepted) resolve();
+        if (accepted) resolve(response);
         else reject(new Error('E1_ESL_COMMAND_UNCONFIRMED'));
       };
       socket.on('error', () => finish(false));
@@ -61,7 +66,10 @@ export class E1EslCommandClient implements FreeSwitchEslCommandClient {
                 /^\+OK/m.test(frame.slice(headerLength)));
             const jobUuid = /Reply-Text:\s*\+OK Job-UUID:\s*([0-9a-f-]{36})/i.exec(header)?.[1];
             if (accepted && jobUuid) this.options.onBackgroundJob?.(jobUuid, value);
-            finish(accepted);
+            const response = /Content-Type:\s*api\/response/i.test(header)
+              ? frame.slice(headerLength).trim()
+              : (/^Reply-Text:\s*(.*)$/im.exec(header)?.[1]?.trim() ?? '');
+            finish(accepted || /Content-Type:\s*api\/response/i.test(header), response);
             return;
           }
         }

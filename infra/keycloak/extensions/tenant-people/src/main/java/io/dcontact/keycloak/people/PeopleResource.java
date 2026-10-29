@@ -46,23 +46,23 @@ public class PeopleResource {
   private static final Set<String> FIELDS=Set.of("tenantId","targetUserId","payloadDigest","fencingToken","email","displayName","role");
   private final KeycloakSession session;
   public PeopleResource(KeycloakSession session) { this.session=session; }
-  private record Binding(RealmModel realm,ClientModel client,OrganizationModel organization) {}
+  record Binding(RealmModel realm,ClientModel client,OrganizationModel organization) {}
 
-  private static Response json(int status,Object value) {
+  static Response json(int status,Object value) {
     return Response.status(status).type(MediaType.APPLICATION_JSON).header("Cache-Control","no-store").entity(value).build();
   }
-  private static WebApplicationException denied(int status,String code) { return new WebApplicationException(json(status,Map.of("code",code))); }
+  static WebApplicationException denied(int status,String code) { return new WebApplicationException(json(status,Map.of("code",code))); }
   private static String text(Map<String,Object> body,String key) {
     Object value=body==null?null:body.get(key);
     if(!(value instanceof String))throw denied(400,"INVALID_REQUEST");
     return (String)value;
   }
-  private static void uuid(String value) { if(value==null||!UUID.matcher(value).matches())throw denied(400,"INVALID_REQUEST"); }
-  private static String hash(String value) {
+  static void uuid(String value) { if(value==null||!UUID.matcher(value).matches())throw denied(400,"INVALID_REQUEST"); }
+  static String hash(String value) {
     try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
     catch(Exception failure) { throw new IllegalStateException("digest unavailable"); }
   }
-  private Binding authorize(String tenantId) {
+  Binding authorize(String tenantId) {
     var auth=new AppAuthManager.BearerTokenAuthenticator(session).authenticate();
     if(auth==null)throw denied(401,"UNAUTHORIZED");
     var client=auth.client();var caller=auth.user();var realm=session.getContext().getRealm();
@@ -93,8 +93,8 @@ public class PeopleResource {
     return new Binding(realm,client,organization);
   }
   private EntityManager entityManager() { return session.getProvider(JpaConnectionProvider.class).getEntityManager(); }
-  private String operationKey(Binding binding,String operationId) { return hash(binding.realm().getId()+":"+binding.client().getId()+":"+operationId); }
-  private void lockTenant(EntityManager manager,Binding binding,String tenantId) {
+  String operationKey(Binding binding,String operationId) { return hash(binding.realm().getId()+":"+binding.client().getId()+":"+operationId); }
+  void lockTenant(EntityManager manager,Binding binding,String tenantId) {
     String key=hash(binding.realm().getId()+":"+tenantId);
     manager.createNativeQuery("INSERT INTO DC_TENANT_PEOPLE_GATE(ID,REALM_ID,TENANT_ID) VALUES(:id,:realm,:tenant) ON CONFLICT(ID) DO NOTHING")
       .setParameter("id",key).setParameter("realm",binding.realm().getId()).setParameter("tenant",tenantId).executeUpdate();
@@ -107,6 +107,9 @@ public class PeopleResource {
     return json(200,result);
   }
 
+  @Path("disable")
+  public PeopleDisableResource disable() { return new PeopleDisableResource(session,this); }
+
   @GET @Path("readiness")
   public Response readiness(@QueryParam("tenantId") String tenantId) {
     uuid(tenantId);
@@ -115,9 +118,9 @@ public class PeopleResource {
     if(!allowed.equals(Set.of("AGENT","SUPERVISOR","ADMIN")))throw denied(503,"TENANT_ROLE_NOT_READY");
     for(String role:allowed) {
       var configured=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
-      if(configured==null||configured.isComposite())throw denied(503,"TENANT_ROLE_NOT_READY");
+      if(!TenantRoles.valid(binding.realm(),configured))throw denied(503,"TENANT_ROLE_NOT_READY");
     }
-    return json(200,Map.of("version",1,"ready",true,"tenantId",tenantId,"invitationReady",invitationReady(binding.realm())));
+    return json(200,Map.of("version",1,"ready",true,"tenantId",tenantId,"invitationReady",invitationReady(binding.realm()),"disableReady",true));
   }
 
   @POST @Path("operations/{operationId}/steps/CREATE_IDENTITY") @Consumes(MediaType.APPLICATION_JSON)
@@ -132,7 +135,7 @@ public class PeopleResource {
       ||!Arrays.asList(String.valueOf(binding.client().getAttribute("dc_allowed_roles")).split(",")).contains(role))throw denied(400,"INVALID_REQUEST");
     if(name.codePointCount(0,name.length())<1||name.codePointCount(0,name.length())>120||Pattern.compile("[\\p{Cc}\\p{Cf}]").matcher(name).find()
       ||!name.equals(name.strip().replaceAll("\\s+"," "))||email.length()>254||!email.matches("[^\\s@\\p{Cc}\\p{Cf}]{1,64}@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\\.[a-z0-9-]+"))throw denied(400,"INVALID_REQUEST");
-    if(binding.realm().getRole(role.toLowerCase(Locale.ROOT))==null)throw denied(503,"TENANT_ROLE_NOT_READY");
+    if(!TenantRoles.valid(binding.realm(),binding.realm().getRole(role.toLowerCase(Locale.ROOT))))throw denied(503,"TENANT_ROLE_NOT_READY");
     long fence;
     try { String supplied=text(body,"fencingToken");if(!supplied.matches("[1-9][0-9]{0,18}"))throw new IllegalArgumentException();fence=Long.parseLong(supplied); }
     catch(IllegalArgumentException failure) { throw denied(400,"INVALID_REQUEST"); }
@@ -210,7 +213,7 @@ public class PeopleResource {
     }
     UserModel user=session.users().getUserById(binding.realm(),target);
     var desired=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
-    if(desired==null||desired.isComposite())throw denied(503,"TENANT_ROLE_NOT_READY");
+    if(!TenantRoles.valid(binding.realm(),desired))throw denied(503,"TENANT_ROLE_NOT_READY");
     if(user==null||user.getServiceAccountClientLink()!=null||!user.isEnabled()
       ||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getUsername())||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getEmail())
       ||!"TENANT_USER".equals(user.getFirstAttribute("dc_identity_class"))
@@ -271,7 +274,7 @@ public class PeopleResource {
     if(provisioned==null||!"SUCCEEDED".equals(provisioned.outcome)||!target.equals(provisioned.identityId))return json(200,Map.of("outcome","UNKNOWN"));
     UserModel user=session.users().getUserById(binding.realm(),target);
     var desired=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
-    if(user==null||desired==null||desired.isComposite()||user.getServiceAccountClientLink()!=null||!user.isEnabled()
+    if(user==null||!TenantRoles.valid(binding.realm(),desired)||user.getServiceAccountClientLink()!=null||!user.isEnabled()
       ||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getUsername())||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getEmail())
       ||!"TENANT_USER".equals(user.getFirstAttribute("dc_identity_class"))
       ||!tenantId.equals(user.getFirstAttribute("tenant_id"))||!target.equals(user.getFirstAttribute("dc_user_id"))
@@ -329,6 +332,13 @@ public class PeopleResource {
     if(!intent.providerAttemptRef.equals(attempt)||!Long.toString(intent.fencingToken).equals(fence)||!intent.leaseOwner.equals(owner))throw denied(409,"CORRELATION_CONFLICT");
   }
 
+  private String persistedInvitationFence(EntityManager manager,String target) {
+    var values=manager.createNativeQuery("SELECT value FROM user_attribute WHERE user_id=:target AND name='dc_invitation_not_before'",String.class)
+      .setParameter("target",target).getResultList();
+    if(values.size()>1)throw denied(409,"GENERATION_FENCE_CONFLICT");
+    return values.isEmpty()?null:(String)values.get(0);
+  }
+
   private long invitationGeneration(String generation) {
     if(generation==null||!generation.matches("[1-9][0-9]{0,9}"))throw denied(400,"INVALID_REQUEST");
     long number=Long.parseLong(generation);
@@ -360,7 +370,7 @@ public class PeopleResource {
     var desired=binding.realm().getRole(role.toLowerCase(Locale.ROOT));
     if(!Set.of("AGENT","SUPERVISOR","ADMIN").contains(role)
       ||!Arrays.asList(String.valueOf(binding.client().getAttribute("dc_allowed_roles")).split(",")).contains(role)
-      ||desired==null||desired.isComposite())throw denied(503,"TENANT_ROLE_NOT_READY");
+      ||!TenantRoles.valid(binding.realm(),desired))throw denied(503,"TENANT_ROLE_NOT_READY");
     if(user==null||user.getServiceAccountClientLink()!=null||!user.isEnabled()
       ||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getUsername())||!KeycloakModelUtils.toLowerCaseSafe(email).equals(user.getEmail())
       ||!name.equals(user.getFirstName())||!"TENANT_USER".equals(user.getFirstAttribute("dc_identity_class"))
@@ -372,21 +382,22 @@ public class PeopleResource {
     if(memberships.size()!=1||!memberships.get(0).getId().equals(binding.organization().getId()))throw denied(409,"IDENTITY_ORGANIZATION_CONFLICT");
     if(user.isEmailVerified()||user.credentialManager().getStoredCredentialsStream().findAny().isPresent()
       ||!Set.of("VERIFY_EMAIL","UPDATE_PASSWORD","CONFIGURE_TOTP").equals(user.getRequiredActionsStream().collect(java.util.stream.Collectors.toSet())))throw denied(409,"IDENTITY_ACTIVATION_CONFLICT");
+    String currentFence=persistedInvitationFence(manager,target);
     String intentId=hash(key+":SEND_INTENT:"+generation);PeopleInvitationIntent previous=manager.find(PeopleInvitationIntent.class,intentId);
     var history=manager.createQuery("SELECT intent FROM PeopleInvitationIntent intent WHERE intent.operationKey=:operation ORDER BY intent.generation DESC",PeopleInvitationIntent.class)
       .setParameter("operation",key).setMaxResults(1).getResultList();
     PeopleInvitationIntent latest=history.isEmpty()?null:history.get(0);
     if(previous!=null) {
       invitationDescriptor(previous,attempt,suppliedFence,owner);
-      if(latest==null||!latest.id.equals(previous.id)||!Long.toString(previous.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before")))throw denied(409,"GENERATION_FENCE_CONFLICT");
+      if(latest==null||!latest.id.equals(previous.id)||!Long.toString(previous.notBeforeEpoch).equals(currentFence))throw denied(409,"GENERATION_FENCE_CONFLICT");
       return invitationIntent(operation,previous);
     }
     long serverEpoch=Time.currentTimeSeconds(),notBefore=serverEpoch;
     if(generationNumber==1) {
-      if(latest!=null||user.getFirstAttribute("dc_invitation_not_before")!=null)throw denied(409,"GENERATION_FENCE_CONFLICT");
+      if(latest!=null||currentFence!=null)throw denied(409,"GENERATION_FENCE_CONFLICT");
     } else {
       if(latest==null||generationNumber!=latest.generation+1||fence<=latest.fencingToken)throw denied(409,"INVITATION_GENERATION_CONFLICT");
-      if(!Long.toString(latest.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before")))throw denied(409,"GENERATION_FENCE_CONFLICT");
+      if(!Long.toString(latest.notBeforeEpoch).equals(currentFence))throw denied(409,"GENERATION_FENCE_CONFLICT");
       PeopleInvitationFinished finished=manager.find(PeopleInvitationFinished.class,latest.id);
       if(finished==null||!"SENT".equals(finished.outcome))throw denied(409,"INVITATION_PREVIOUS_OUTCOME_UNKNOWN");
       long recent=manager.createQuery("SELECT COUNT(intent) FROM PeopleInvitationIntent intent WHERE intent.operationKey=:operation AND intent.generation>1 AND intent.createdAtEpoch>:cutoff",Long.class)
@@ -426,7 +437,7 @@ public class PeopleResource {
     if(intent==null)return json(200,Map.of("outcome","UNKNOWN"));
     invitationDescriptor(intent,attempt,fence,owner);
     UserModel user=session.users().getUserById(binding.realm(),target);
-    if(user==null||(requireCurrentFence&&!Long.toString(intent.notBeforeEpoch).equals(user.getFirstAttribute("dc_invitation_not_before"))))throw denied(409,"GENERATION_FENCE_CONFLICT");
+    if(user==null||(requireCurrentFence&&!Long.toString(intent.notBeforeEpoch).equals(persistedInvitationFence(manager,target))))throw denied(409,"GENERATION_FENCE_CONFLICT");
     return invitationIntent(operation,intent);
   }
 

@@ -96,7 +96,9 @@ export function evaluateManifests(manifests, expectedSha) {
     reasons.push('IMAGE_DIGESTS_MISSING');
   }
   try {
-    assertPiiSafeEvidence(manifests);
+    // แต่ละ manifest ใช้ root contract เดิม (เช่น trusted metadata $.run.id)
+    // ห้ามขยาย exemption ของ shared PII scanner ให้ครอบ business identifiers
+    for (const manifest of manifests) assertPiiSafeEvidence(manifest);
   } catch {
     reasons.push('PII_OR_SECRET_IN_EVIDENCE');
   }

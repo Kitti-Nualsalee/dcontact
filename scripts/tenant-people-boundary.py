@@ -14,6 +14,8 @@ import urllib.request
 import uuid
 
 import tempfile
+from tenant_people_disable_boundary import check_disable_boundary
+from tenant_people_invitation_concurrency import check_invitation_concurrency
 
 KEYCLOAK_IMAGE='docker.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85'
 MAILPIT_IMAGE='docker.io/axllent/mailpit:v1.31.1@sha256:98b916bd3c8d61f7633a52d3ea2f58d00620cb01ca57ab59edde68c347a95365'
@@ -29,7 +31,7 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
     def sql(statement):
         return subprocess.check_output(['docker','exec','-i',postgres,'psql','-X','-At','-v','ON_ERROR_STOP=1','-U',owner,'-d',database],input=statement,text=True)
     subprocess.run(['docker','exec','-i',postgres,'psql','-X','-v','ON_ERROR_STOP=1','-U',owner,'-d','postgres'],input='CREATE DATABASE '+database+';',text=True,check=True,stdout=subprocess.DEVNULL)
-    subprocess.run(['docker','run','--rm','--network','none','--user',str(os.getuid())+':'+str(os.getgid()),'-v',str(root/'infra/keycloak/extensions/tenant-people/src/main')+':/src:ro','-v',str(work)+':/work','eclipse-temurin:21-jdk','sh','-ec','javac --release 21 -proc:none -cp "/work/lib/*" -d /work/classes $(find /src/java -name "*.java"); cp -r /src/resources/. /work/classes/; cd /work/classes; jar cf /work/dcontact-tenant-people.jar .'],check=True)
+    subprocess.run(['docker','run','--rm','--network','none','--user',str(os.getuid())+':'+str(os.getgid()),'-v',str(root/'infra/keycloak/extensions/tenant-people/src/main')+':/src:ro','-v',str(root/'infra/keycloak/extensions/tenant-people/src/test/roles')+':/tests:ro','-v',str(work)+':/work','eclipse-temurin:21-jdk','sh','-ec','javac --release 21 -proc:none -cp "/work/lib/*" -d /work/classes $(find /src/java -name "*.java"); javac --release 21 -proc:none -cp "/work/lib/*:/work/classes" -d /work/role-tests $(find /tests/java -name "*.java"); java -cp "/work/lib/*:/work/classes:/work/role-tests" io.dcontact.keycloak.people.TenantRolesTest; cp -r /src/resources/. /work/classes/; cd /work/classes; jar cf /work/dcontact-tenant-people.jar .'],check=True)
     os.chmod(work/'dcontact-tenant-people.jar',0o644)
     subprocess.run(['docker','run','--rm','--network','none','--user',str(os.getuid())+':'+str(os.getgid()),'-v',str(root/'infra/keycloak/extensions/invitation-guard/src/main')+':/src:ro','-v',str(work)+':/work','eclipse-temurin:21-jdk','sh','-ec','mkdir -p /work/guard-classes; javac --release 21 -proc:none -cp "/work/lib/*" -d /work/guard-classes $(find /src/java -name "*.java"); cp -r /src/resources/. /work/guard-classes/; cd /work/guard-classes; jar cf /work/dcontact-invitation-guard.jar .'],check=True)
     os.chmod(work/'dcontact-invitation-guard.jar',0o644)
@@ -94,6 +96,9 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         expect('/admin/realms',admin,{'realm':realm,'enabled':True,'organizationsEnabled':True,'sslRequired':'none'})
         expect(adminbase,admin,{'smtpServer':{'host':smtp,'port':'1025','from':'onboarding@example.test','ssl':'false','starttls':'false','auth':'false'}},method='PUT',status=204)
         for role in ('agent','supervisor','admin'):expect(adminbase+'/roles',admin,{'name':role})
+        tenant_roles={name:expect(adminbase+'/roles/'+name,admin,status=200)[0] for name in ('agent','supervisor','admin')}
+        expect(adminbase+'/roles/supervisor/composites',admin,[tenant_roles['agent']],status=204)
+        expect(adminbase+'/roles/admin/composites',admin,[tenant_roles['supervisor']],status=204)
         profile,_=expect(adminbase+'/users/profile',admin,status=200)
         for name in ('dc_identity_class','tenant_id','tenant_slug','dc_user_id','dc_tenant_people_operation_id','dc_invitation_not_before'):
             profile['attributes'].append({'name':name,'multivalued':False,'permissions':{'view':['admin'],'edit':['admin']}})
@@ -112,7 +117,23 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
             status,token,_=call('/realms/'+realm+'/protocol/openid-connect/token',form={'grant_type':'client_credentials','client_id':clientid,'client_secret':secret['value']})
             if status!=200:raise RuntimeError('SANDBOX_SERVICE_LOGIN_FAILED')
             tenants.append({'id':tenant,'slug':slug,'token':token['access_token'],'client':clients[0]['id'],'organization':organization,'clientId':clientid,'secret':secret['value']})
+        if os.environ.get('B6_DISABLE_BOUNDARY_ONLY')=='1':
+            disable_environment=check_disable_boundary(call,expect,adminbase,admin,tenants[0],tenants[1],sql)
+            disable_environment.update(os.environ)
+            disable_environment.update(B2_KEYCLOAK_ISSUER=base+'/realms/'+realm,B2_KEYCLOAK_TENANT_ID=tenants[0]['id'],B2_KEYCLOAK_CLIENT_ID=tenants[0]['clientId'],B2_KEYCLOAK_CLIENT_SECRET=tenants[0]['secret'])
+            subprocess.run(['corepack','pnpm','--filter','@d-contact/api','exec','tsx','--test','src/tenant-people-disable-keycloak.boundary.ts'],cwd=root,env=disable_environment,check=True)
+            print('B6_FOCUSED_IDENTITY_BOUNDARY_PASS')
+            return
         ready_path='/realms/'+realm+'/dc-tenant-people/readiness?tenantId='+tenants[0]['id']
+        for forbidden_role in ('platform_admin','service','unexpected'):
+            expect(adminbase+'/roles',admin,{'name':forbidden_role})
+            forbidden,_=expect(adminbase+'/roles/'+forbidden_role,admin,status=200)
+            expect(adminbase+'/roles/agent/composites',admin,[forbidden],status=204)
+            rejected,_=expect(ready_path,tenants[0]['token'],status=503)
+            if rejected.get('code')!='TENANT_ROLE_NOT_READY':raise RuntimeError('TENANT_ROLE_GRAPH_REJECTION_MISSING')
+            expect(adminbase+'/roles/agent/composites',admin,[forbidden],method='DELETE',status=204)
+            expect(ready_path,tenants[0]['token'],status=200)
+        print('TENANT_CANONICAL_ROLE_GRAPH_BOUNDARY_PASS')
         invitation_ready,_=expect(ready_path,tenants[0]['token'],status=200)
         if invitation_ready.get('invitationReady') is not True:raise RuntimeError('INVITATION_READINESS_NOT_READY')
         configured_realm,_=expect(adminbase,admin,status=200)
@@ -142,6 +163,9 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         expect(ready_path,tenants[0]['token'],status=503)
         expect(adminbase+'/users/profile',admin,profile,method='PUT',status=200)
         expect(ready_path,tenants[0]['token'],status=200)
+        if os.environ.get('B3_INVITATION_INTENT_BOUNDARY_ONLY') == '1':
+            check_invitation_concurrency(call, expect, adminbase, admin, tenants[0], sql)
+            return
         def envelope():return {'tenantId':tenants[0]['id'],'targetUserId':str(uuid.uuid4()),'payloadDigest':hashlib.sha256(uuid.uuid4().bytes).hexdigest(),'fencingToken':'1','email':uuid.uuid4().hex+'@example.test','displayName':'ทดสอบ B2','role':'AGENT'}
         body=envelope();operation=str(uuid.uuid4());path='/realms/'+realm+'/dc-tenant-people/operations/'+operation+'/steps/CREATE_IDENTITY'
         expect(path,None,body,status=401)
@@ -465,6 +489,7 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         expect(activation_user,admin,{'enabled':True,'emailVerified':False},method='PUT',status=204)
         activation_read('PENDING')
         print('B3_ACTIVATION_FRESH_PROBE_BOUNDARY_PASS')
+        disable_environment=check_disable_boundary(call,expect,adminbase,admin,tenants[0],tenants[1],sql)
         atomicbody=envelope();atomicoperation=str(uuid.uuid4());atomicbase='/realms/'+realm+'/dc-tenant-people/operations/'+atomicoperation+'/steps/'
         expect(atomicbase+'CREATE_IDENTITY',tenants[0]['token'],atomicbody,status=200)
         expect('/realms/'+realm+'/dc-tenant-people/operations/'+atomicoperation+'/invitations/1/intent',tenants[0]['token'],{**atomicbody,'providerAttemptRef':str(uuid.uuid4()),'leaseOwner':'not-provisioned-worker'},status=409)
@@ -488,6 +513,7 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         except subprocess.CalledProcessError:pass
         else:raise RuntimeError('RECEIPT_NOT_IMMUTABLE')
         adapter_environment=os.environ.copy()
+        adapter_environment.update(disable_environment)
         adapter_environment.update(B2_KEYCLOAK_ISSUER=base+'/realms/'+realm,B2_KEYCLOAK_TENANT_ID=tenants[0]['id'],B2_KEYCLOAK_CLIENT_ID=tenants[0]['clientId'],B2_KEYCLOAK_CLIENT_SECRET=tenants[0]['secret'])
         human_name='bootstrap-'+uuid.uuid4().hex+'@example.test';human_password=uuid.uuid4().hex
         _,human_headers=expect(adminbase+'/users',admin,{'username':human_name,'email':human_name,'emailVerified':True,'enabled':True,'firstName':'Synthetic','lastName':'Bootstrap','credentials':[{'type':'password','value':human_password,'temporary':False}]})
@@ -507,7 +533,7 @@ def run_boundary(root,work,postgres,network,container,postgres_port):
         adapter_environment.update(B2_KEYCLOAK_ADMIN_ACCESS_TOKEN=human_login['access_token'],B2_KEYCLOAK_ADMIN_SUBJECT=human_id,B2_KEYCLOAK_TENANT_SLUG=tenants[0]['slug'],B2_KEYCLOAK_ORGANIZATION_ID=tenants[0]['organization'],DATABASE_URL='postgresql://'+urllib.parse.quote(owner,safe='')+':'+urllib.parse.quote(settings['POSTGRES_PASSWORD'],safe='')+'@127.0.0.1:'+str(postgres_port)+'/'+application_database,APPLICATION_DATABASE_URL='postgresql://dcontact_app:dcontact_app@127.0.0.1:'+str(postgres_port)+'/'+application_database)
         adapter_environment['B3_MAILPIT_URL']='http://127.0.0.1:'+smtp_port
         expect(adminbase+'/clients',admin,{'clientId':'b3-onboarding-console','enabled':True,'publicClient':True,'standardFlowEnabled':True,'directAccessGrantsEnabled':False,'fullScopeAllowed':False,'redirectUris':['http://127.0.0.1:60606/b3-callback'],'attributes':{'pkce.code.challenge.method':'S256'}})
-        for command in (['corepack','pnpm','db:migrate'],['corepack','pnpm','db:rls'],['corepack','pnpm','--filter','@d-contact/api','exec','tsx','--test','--test-concurrency=1','src/tenant-people-keycloak.boundary.ts','src/tenant-people-provisioning.boundary.ts']):subprocess.run(command,cwd=root,env=adapter_environment,check=True)
+        for command in (['corepack','pnpm','db:migrate'],['corepack','pnpm','db:rls'],['corepack','pnpm','--filter','@d-contact/api','exec','tsx','--test','--test-concurrency=1','src/tenant-people-keycloak.boundary.ts','src/tenant-people-provisioning.boundary.ts','src/tenant-people-disable-keycloak.boundary.ts']):subprocess.run(command,cwd=root,env=adapter_environment,check=True)
         print('B2_TENANT_PEOPLE_BOUNDARY_PASS')
     finally:
         if started:subprocess.run(['docker','rm','-f',container],check=True,stdout=subprocess.DEVNULL)

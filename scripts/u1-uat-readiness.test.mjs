@@ -62,7 +62,49 @@ const compose = read(UAT_FILES.compose);
 const caddyfile = read(UAT_FILES.caddyfile);
 const realm = read(UAT_FILES.realm);
 const workflow = read(UAT_FILES.workflow);
+const operatorPackageWorkflow = read('.github/workflows/uat-operator-package.yml');
 const smokeWorkflow = read(UAT_FILES.smokeWorkflow);
+
+for (const guardExit of [0, 1]) {
+  test(`operator package: migration exit ${guardExit} คงผลและหยุดก่อน build เมื่อ guard ล้ม`, () => {
+    const step = operatorPackageWorkflow.match(
+      /      - name: Migration guard\n([\s\S]*?)(?=\n      - )/,
+    )?.[1];
+    assert.ok(step);
+    const command = step.match(/^        run: (.+)$/m)?.[1];
+    assert.ok(command);
+    const directory = mkdtempSync(resolve(tmpdir(), 'uat-package-guard-'));
+    try {
+      writeFileSync(
+        resolve(directory, 'node'),
+        '#!/bin/sh\nprintf \'{"status":"%s"}\\n\' "$GUARD_STATUS"\nexit "$GUARD_EXIT"\n',
+        { mode: 0o700 },
+      );
+      const flags = /^        shell: bash$/m.test(step)
+        ? ['--noprofile', '--norc', '-eo', 'pipefail']
+        : ['--noprofile', '--norc', '-e'];
+      const result = spawnSync('bash', [...flags, '-c', `${command}\nprintf BUILD_STARTED`], {
+        cwd: directory,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${directory}:${process.env.PATH}`,
+          GUARD_EXIT: String(guardExit),
+          GUARD_STATUS: guardExit === 0 ? 'PASS' : 'FAIL',
+          DEPLOYED_BASE_SHA: 'a'.repeat(40),
+        },
+      });
+      assert.equal(result.status, guardExit);
+      assert.equal(result.stdout.includes('BUILD_STARTED'), guardExit === 0);
+      assert.equal(
+        JSON.parse(readFileSync(resolve(directory, 'migration-guard.json'), 'utf8')).status,
+        guardExit === 0 ? 'PASS' : 'FAIL',
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
 const apiDockerfile = read(UAT_FILES.apiDockerfile);
 const consoleDockerfile = read(UAT_FILES.consoleDockerfile);
 const keycloakDockerfile = read(UAT_FILES.keycloakDockerfile);
@@ -1372,6 +1414,17 @@ test('UAT-M01: migration ใหม่ที่มี DROP หรือการ�
     'APPLIED_MIGRATION_CHANGED',
   );
   assert.deepEqual(findDropStatements('SELECT 1; -- DROP TABLE x'), []);
+});
+
+test('UAT-M01 (#714): skill-scope ที่อนุมัติต้อง pin exact path และ digest', () => {
+  assert.ok(
+    APPROVED_DROP_MIGRATIONS.some(
+      (pin) =>
+        pin.path ===
+          'packages/db/prisma/migrations/20261022130000_tenant_voice_skill_scope/migration.sql' &&
+        pin.sha256 === '5e281f7a38bace24cf114dde5a0484a41a0e01d2b317ea95293fce41a8f825c9',
+    ),
+  );
 });
 
 test('UAT-M01 (#710): migration ที่ pin ไว้ผ่านเฉพาะ bytes เดิม แก้ไฟล์หรือย้าย path ยังล้ม', () => {

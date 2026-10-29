@@ -39,6 +39,24 @@ export interface Eligibility {
   }[];
   warnings: string[];
 }
+export interface ManagedRuntime {
+  queueId: string;
+  configRevision: number;
+  ready: boolean;
+  reasons: string[];
+  policy: {
+    version: 1;
+    offerTimeoutSec: 20;
+    maxTotalPreanswerSec: 60;
+    terminalAction: 'HANGUP';
+  } | null;
+  terminal: {
+    reason: string;
+    occurredAt: string;
+    teardownState?: 'PENDING' | 'CONFIRMED' | 'ACTION_REQUIRED' | null;
+  } | null;
+  evaluatedAt: string;
+}
 export interface ConfigApi {
   capabilities(): Promise<Capabilities>;
   catalog(
@@ -53,7 +71,12 @@ export interface ConfigApi {
     id: string,
     body: ConfigCommand & Pick<SkillSet, 'items'>,
   ): Promise<SkillSet>;
-  bind(id: string, body: ConfigCommand & { queueId: string; isActive: false }): Promise<unknown>;
+  queue(
+    id: string,
+    body?: ConfigCommand & { name?: string; isActive?: boolean },
+  ): Promise<CatalogItem>;
+  runtime(id: string): Promise<ManagedRuntime>;
+  bind(id: string, body: ConfigCommand & { queueId: string; isActive: boolean }): Promise<unknown>;
   eligibility(queueId: string): Promise<Eligibility>;
   command(commandId: string): Promise<{ state: string }>;
 }
@@ -61,13 +84,13 @@ export function createConfigApi(options: {
   baseUrl: string;
   accessToken(): string | undefined;
 }): ConfigApi {
-  async function request(path: string, body?: unknown) {
+  async function request(path: string, body?: unknown, method = body ? 'PUT' : 'GET') {
     const token = options.accessToken();
     if (!token) throw new CatalogApiError(401, 'UNAUTHORIZED');
     const response = await fetch(
       `${options.baseUrl.replace(/\/$/, '')}/api/v1/tenant-voice/${path}`,
       {
-        method: body ? 'PUT' : 'GET',
+        method,
         cache: 'no-store',
         redirect: 'error',
         headers: {
@@ -101,6 +124,8 @@ export function createConfigApi(options: {
     destinations: (cursor) => page('destinations', cursor),
     skills: (kind, id) => request(skillPath(kind, id)),
     replace: (kind, id, body) => request(skillPath(kind, id), body),
+    queue: (id, body) => request(`queues/${encodeURIComponent(id)}`, body, body ? 'PATCH' : 'GET'),
+    runtime: (id) => request(`queues/${encodeURIComponent(id)}/runtime`),
     bind: (id, body) => request(`destinations/${encodeURIComponent(id)}/binding`, body),
     eligibility: (id) => request(`eligibility?${new URLSearchParams({ queueId: id })}`),
     command: (id) => request(`commands/${encodeURIComponent(id)}`),

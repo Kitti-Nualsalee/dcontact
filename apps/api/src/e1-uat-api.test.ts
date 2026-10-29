@@ -60,6 +60,7 @@ test('composition root ของ uat-e1 ใช้ Voice Delivery Gate แต่�
   assert.match(source, /enabled: environment.OUTBOUND_VOICE_DELIVERY_ENABLED === 'true'/);
   assert.match(source, /new E1VoiceCommandPublisher/);
   assert.match(source, /voiceCommands.flush\(registration\)/);
+  assert.match(source, /app\.enableShutdownHooks\(\)/);
   assert.doesNotMatch(source, /sip_registration_flush_required/);
 });
 

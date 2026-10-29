@@ -52,6 +52,41 @@ bash "$RUNNER" smoke "$SHA" --token-stdin
 # record ทำหลัง authenticated Core + Voice checks ด้านล่างครบตาม runbookเดิม
 ```
 
+### Media gate ของ candidate ที่ยังไม่ record (#790)
+
+ถ้า runtime เป็น candidate ใหม่แต่ `current.json` ยังเป็น rollback base เดิม ให้ใช้ operator artifact
+รุ่นที่รองรับ candidate โดย pin full SHA ของ operator แยกจาก application candidate ไม่แก้ checkpoint
+หรือไฟล์ใน release เดิมเพื่อให้ตรวจผ่าน Stage `bin/uat-deploy.sh` และ
+`operator/vm2-e1-media-uat.py` จาก commit ที่ review/CI/merge แล้วไว้ใต้
+`/opt/dcontact-uat/releases/<operator-sha>/` พร้อมบันทึก source/archive/file SHA256.
+API/Console/Keycloak และ FreeSWITCH config/mount ยังใช้ candidate เดิมทั้งหมด
+
+```bash
+CANDIDATE_SHA='<actual runtime candidate SHA 40 ตัว>'
+MEDIA_OPERATOR_SHA='<reviewed immutable operator SHA 40 ตัว>'
+MEDIA_TOOL="/opt/dcontact-uat/releases/$MEDIA_OPERATOR_SHA/operator/vm2-e1-media-uat.py"
+# operator ที่มี sudo บน VM2: ตรวจ identity/owned rules และ idle/default-off ก่อน apply
+sudo python3 "$MEDIA_TOOL" --inspect --source-sha "$CANDIDATE_SHA" \
+  --candidate-sha "$CANDIDATE_SHA" --operator-sha "$MEDIA_OPERATOR_SHA"
+sudo python3 "$MEDIA_TOOL" --apply --actor operator:kittin --source-sha "$CANDIDATE_SHA" \
+  --candidate-sha "$CANDIDATE_SHA" --operator-sha "$MEDIA_OPERATOR_SHA"
+sudo python3 "$MEDIA_TOOL" --check --source-sha "$CANDIDATE_SHA" \
+  --candidate-sha "$CANDIDATE_SHA" --operator-sha "$MEDIA_OPERATOR_SHA"
+# หลัง fixtures/caps/allowlist พร้อมสำหรับ synthetic Voice trial เท่านั้น
+UAT_E1_MEDIA_OPERATOR_SHA="$MEDIA_OPERATOR_SHA" \
+  bash "/opt/dcontact-uat/releases/$MEDIA_OPERATOR_SHA/bin/uat-deploy.sh" \
+  e1-voice-on "$CANDIDATE_SHA" operator:kittin
+```
+
+helper ต้องได้รับ `--candidate-sha` และ `--operator-sha` ครบคู่ ตรวจ actual API/e1-sandbox labels,
+FreeSWITCH image/health/network/return route และ canonical config/mount ของ candidate พร้อมเทียบ bytes
+กับ immutable operator artifact. Runner ถือ shared flock ต่อเนื่องตั้งแต่ verify จนเปิด switch/recreate
+snapshot ยังคงผูก source/container/boot/IP และ owned firewall scope เดิม รายงาน `sourceSha`,
+`recordedSourceSha` และ `operatorSourceSha` ตามจริง ถ้า runtime/config/snapshot หรือสิทธิ์ sudo ไม่พร้อม
+ให้หยุด ไม่เปิด Voice และไม่อ้างว่า `--inspect` หรือ tooling tests คือ Voice PASS.
+หลัง Core + Voice checks ผ่านแล้วจึง `record` candidate ตามลำดับเดิม; หลังจบ trial ปิด Voice ตาม runner
+เดิมโดยคง ledger/audit/data
+
 ## Authenticated route smoke ของหน้าองค์กร
 
 Ops image รุ่นนี้มี `scripts/core-settings-organization-smoke.mjs` เพิ่มแล้ว รันจากเครื่อง operator ที่มี Node หรือ ops image ของ candidate โดยรับ token ผ่านช่องทางส่วนตัว/env ที่มีอายุสั้น ไม่ใส่ token ใน command line/history/issue
@@ -80,8 +115,10 @@ unset CORE_SETTINGS_ACCESS_TOKEN
 | ORG-TR05 | Same-identity reauth หน้าเดิมคงร่างและตรวจ authority/current values/command ก่อนแก้ต่อ Sign-out/เปลี่ยน tenant/identity ล้างร่างและ reference เดิม                                  |
 | ORG-TR06 | Supervisor/narrow≤760 อ่านอย่างเดียว; ย่อจอระหว่างร่างเก็บ memory กลับจอกว้าง recheck; Agent/Compliance/missing proof ไม่มี Core access และ Home/Account เดิมยังทำงาน               |
 | ORG-TR07 | Keyboard/focus/error summary/TH-EN/dirty warning, back/forward/reload และ direct organization URL ผ่าน ไม่มี Team/People/Calendar placeholder                                       |
-| ORG-TR08 | Voice smoke จริงหลัง deploy: SIP test caller → offer → รับสาย → เสียงสองทาง → WRAPUP/disposition+โน้ต → บันทึกและอ่านผลกลับ                                                         |
+| ORG-TR08 | Voice smoke จริงหลัง deploy: SIP test caller → offer → รับสาย → เสียงสองทาง → WRAPUP ตาม policy ของคิวเดิมตามเกตด้านล่าง → บันทึกและอ่านผลกลับ                                      |
 | ORG-TR09 | ระหว่างสายทดสอบ ให้ Admin แก้ชื่อ/defaults แล้วบันทึกได้ โดยสาย/เสียง/work-session/UI ภาษาของงานสดไม่เปลี่ยน เสร็จแล้วผู้ไม่มี personal preference ใช้ defaults เมื่อโหลดครั้งถัดไป |
+
+ORG-TR08 ใช้ `voiceWrapupPolicy` ของคิวที่ deploy จริงตามขอบเขต Voice flow เดิมใน Phase Contract #723 §10 และ[ข้อยุติ owner ของ #726 วันที่ 29 ตุลาคม 2569](https://github.com/Kitti-Nualsalee/dcontact/issues/726#issuecomment-6489967235): `LEGACY` ต้องบันทึก disposition และอ่านผลกลับ ส่วน `VOICE_NOTE_V1` ต้องบันทึก disposition พร้อมโน้ตและอ่านผลกลับ ระบุ policy และ coverage ในหลักฐานทุกครั้ง ไม่เปลี่ยนคิว `LEGACY` เป็น `VOICE_NOTE_V1` เพื่อให้ Core trial ผ่าน และไม่อ้างว่า trial ของ `LEGACY` ได้ทดสอบ notes flow
 
 Trial พร้อมได้เมื่อ release/migration/compatibility/backup/authenticated/Core/Voice gates ของช่วงนี้ครบ หาก VM/VPN/บัญชี/Voice fixture ไม่พร้อม ให้รายงาน NOT_RUN พร้อม blocker/ผู้ดำเนินการ ไม่ปิดเป็น VM PASS จาก CI/prototype/route smoke เพียงอย่างเดียว Final UAT ยังคงสองรอบ build/configเดียวกัน Chrome และ Edge จริง ไม่มี S1/S2 ค้าง และทีมรับรองตามงาน final UAT
 

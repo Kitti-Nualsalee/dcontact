@@ -117,26 +117,45 @@ test('Tenant Admin A สลับไป tenant B: SELECT ได้ 0 แถว�
   }
 });
 
-test('Tenant Admin A แก้/ลบแถวของ B ไม่ได้ และ INSERT โดยอ้าง tenant B ถูก RLS ปฏิเสธ', async (t) => {
+test('Tenant Admin A แก้/ลบแถวของ B ไม่ได้ทั้ง RLS และ table grants และ INSERT ข้าม tenant ถูกปฏิเสธ', async (t) => {
   const { f, a, b } = await setup(t);
+  // #753: ใช้คอลัมน์ที่ tenant writer แก้ได้จริง เพื่อให้ UPDATE พิสูจน์ RLS;
+  // tenant_id ของ teams ถูกถอดสิทธิ์แล้วโดย Core Settings (#727)
+  const updateColumns = {
+    users: 'display_name',
+    teams: 'name',
+    queues: 'name',
+    tenant_settings: 'locale',
+    tenant_plan_bindings: 'plan_code',
+    business_hours: 'name',
+  } as const;
   for (const table of BASELINE_TABLES) {
+    const column = updateColumns[table];
     const updated = await asTenant(f.application, a.tenantId, (tx) =>
       tx.$executeRawUnsafe(
-        `UPDATE "${table}" SET "tenant_id" = "tenant_id" WHERE "tenant_id" = $1::uuid`,
+        `UPDATE "${table}" SET "${column}" = "${column}" WHERE "tenant_id" = $1::uuid`,
         b.tenantId,
       ),
     );
     assert.equal(updated, 0, `${table}: A แก้แถวของ B ได้`);
-    const deleted = await asTenant(f.application, a.tenantId, (tx) =>
-      tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE "tenant_id" = $1::uuid`, b.tenantId),
-    );
-    assert.equal(deleted, 0, `${table}: A ลบแถวของ B ได้`);
+    const removeForeign = () =>
+      asTenant(f.application, a.tenantId, (tx) =>
+        tx.$executeRawUnsafe(`DELETE FROM "${table}" WHERE "tenant_id" = $1::uuid`, b.tenantId),
+      );
+    // #726/#727 ห้าม direct DELETE สองตารางนี้ทุก tenant ที่ระดับ GRANT
+    // ต้องยืนยันว่าถูกปฏิเสธตรงตาม contract ไม่คืนสิทธิ์เพื่อให้ test ผ่าน
+    if (table === 'teams' || table === 'tenant_settings') {
+      await assert.rejects(removeForeign, new RegExp(`permission denied for table ${table}`));
+    } else {
+      assert.equal(await removeForeign(), 0, `${table}: A ลบแถวของ B ได้`);
+    }
   }
+  // Core Settings ตรวจ tenant context ก่อน INSERT policy ของ teams (#727)
   await assert.rejects(
     asTenant(f.application, a.tenantId, (tx) =>
       tx.team.create({ data: { tenantId: b.tenantId, name: 'Injected' } }),
     ),
-    /row-level security/,
+    /CORE_ACTIVE_TENANT_CONTEXT_REQUIRED/,
   );
   await assert.rejects(
     asTenant(f.application, a.tenantId, (tx) =>

@@ -28,6 +28,18 @@ test('People composition defaults off without opening a database connection', as
   assert.equal(await configuredPeopleRuntime({}).isReady(tenantId), false);
 });
 
+test('disable ต้อง opt in และมี flush port ก่อนประกอบ runtime', () => {
+  assert.equal(peopleConfiguration(environment)?.disableEnabled, false);
+  assert.throws(() => peopleConfiguration({ TENANT_PEOPLE_DISABLE_ENABLED: 'true' }));
+  assert.throws(() =>
+    peopleConfiguration({ ...environment, TENANT_PEOPLE_DISABLE_ENABLED: 'yes' }),
+  );
+  assert.throws(
+    () => configuredPeopleRuntime({ ...environment, TENANT_PEOPLE_DISABLE_ENABLED: 'true' }),
+    /PEOPLE_DISABLE_FLUSH_REQUIRED/,
+  );
+});
+
 test('People configuration requires a dedicated worker connection and exact server-owned bindings', () => {
   assert.equal(peopleConfiguration(environment)?.bindings[0]?.tenantId, tenantId);
   assert.equal(peopleConfiguration(environment)?.invitationsEnabled, false);

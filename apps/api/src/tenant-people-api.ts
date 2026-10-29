@@ -28,6 +28,7 @@ import { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-pe
 import { readPeopleDirectory } from './tenant-people-directory.js';
 import { acceptPeopleInvitationReconcile } from './tenant-people-invitation-reconcile.js';
 import { acceptPeopleInvitationResend } from './tenant-people-invitation-resend.js';
+import { acceptPeopleDisable } from './tenant-people-disable.js';
 export { TENANT_PEOPLE_READINESS, type TenantPeopleReadiness } from './tenant-people-readiness.js';
 
 function actor(request: AuthenticatedGatewayRequest): VoiceActor {
@@ -103,6 +104,25 @@ export class TenantPeopleController {
   @Header('Cache-Control', 'no-store')
   read(@Req() request: AuthenticatedGatewayRequest, @Param('id') id: string) {
     return readPeopleOperation(this.database, actor(request), id);
+  }
+
+  @Post('people/users/:id/disable')
+  @HttpCode(202)
+  @Header('Cache-Control', 'no-store')
+  async disable(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: { setHeader(name: string, value: string): void },
+  ) {
+    const identity = actor(request);
+    if (!(await this.readiness.canDisable?.(identity.tenantId)))
+      voiceFail('CAPABILITY_NOT_READY', 503);
+    const port = this.readiness.disablePortForTenant?.(identity.tenantId);
+    if (!port) voiceFail('CAPABILITY_NOT_READY', 503);
+    const accepted = await acceptPeopleDisable(this.database, identity, id, body, port);
+    response.setHeader('Location', accepted.location);
+    return accepted;
   }
 
   @Post('people/users/:id/reconcile')

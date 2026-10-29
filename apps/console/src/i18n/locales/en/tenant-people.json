@@ -1,4 +1,29 @@
 {
+  "disable": {
+    "title": "Disable account",
+    "warning": "Only idle accounts can be disabled. Access stops immediately. The last usable Admin cannot be disabled.",
+    "confirm": "Disable this account? History is retained. This page cannot re-enable the account.",
+    "start": "Prepare to disable",
+    "submit": "Confirm disable",
+    "cancel": "Cancel",
+    "refresh": "Check existing command",
+    "pending": "Checking the existing command. Do not submit again. Unknown outcomes retain local deny and quota reservations.",
+    "states": {
+      "QUEUED": "Accepted; disabling account",
+      "WAITING_EXTERNAL": "Access denied; awaiting identity and SIP confirmation",
+      "SUCCEEDED": "Account and sessions disabled",
+      "REJECTED": "Disable rejected; previous state restored only after verified proof",
+      "ACTION_REQUIRED": "Outcome unknown. Access remains denied and quota reserved. Check the existing command."
+    },
+    "errors": {
+      "NOT_ACCEPTED": "The command was not accepted because a service is not ready. Refresh before starting again.",
+      "FAILED": "Outcome not confirmed. Check the existing command; do not resubmit.",
+      "LAST_USABLE_ADMIN": "The last usable Admin cannot be disabled.",
+      "CONFIG_BUSY": "The user or affected queues have unfinished work. Complete that work first.",
+      "REVISION_CONFLICT": "Data changed. Refresh before submitting another command.",
+      "PROTECTED_OR_FOREIGN_IDENTITY": "This account is outside the permitted disable scope."
+    }
+  },
   "pages": {
     "navigation": "People pages",
     "users": "User accounts",

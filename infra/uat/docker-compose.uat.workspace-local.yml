@@ -1,0 +1,156 @@
+services:
+  proxy:
+    ports: !override
+      - '127.0.0.1:443:8443'
+      - '127.0.0.1:80:8080'
+    volumes: !override
+      - ./Caddyfile.workspace-local:/etc/caddy/Caddyfile:ro
+    mem_limit: 256m
+
+  api:
+    environment:
+      NODE_EXTRA_CA_CERTS: /run/local-identity-ca.crt
+    volumes:
+      - ${UAT_TLS_CERT_FILE:?UAT_TLS_CERT_FILE is required}:/run/local-identity-ca.crt:ro
+    mem_limit: 1024m
+
+  postgres:
+    mem_limit: 512m
+
+  keycloak:
+    environment:
+      JAVA_OPTS_KC_HEAP: '-Xms128m -Xmx768m'
+      KC_HTTP_MANAGEMENT_SCHEME: 'http'
+      KC_HTTPS_PORT: '443'
+      KC_HTTPS_CERTIFICATE_FILE: /run/local-identity.crt
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /run/local-identity.key
+    volumes:
+      - ${UAT_TLS_CERT_FILE:?UAT_TLS_CERT_FILE is required}:/run/local-identity.crt:ro
+      - ${UAT_TLS_KEY_FILE:?UAT_TLS_KEY_FILE is required}:/run/local-identity.key:ro
+    networks:
+      internal:
+        aliases:
+          - ${UAT_HOST:?UAT_HOST is required}
+    mem_limit: 1024m
+
+  e1-sandbox:
+    environment:
+      DATABASE_URL: postgresql://dcontact_app:${UAT_APP_DB_PASSWORD:?UAT_APP_DB_PASSWORD is required}@postgres:5432/dcontact?schema=public
+    mem_limit: 384m
+
+  freeswitch:
+    entrypoint: ['/bin/sh', '/e1-local-source/local-entrypoint.sh']
+    ports: !override []
+    environment:
+      LOCAL_RTP_FREESWITCH_MEDIA_ADDRESS: ${LOCAL_RTP_FREESWITCH_MEDIA_ADDRESS:?LOCAL_RTP_FREESWITCH_MEDIA_ADDRESS is required}
+      LOCAL_RTP_MEDIA_SUBNET: ${LOCAL_RTP_MEDIA_SUBNET:?LOCAL_RTP_MEDIA_SUBNET is required}
+    volumes: !override
+      - ./e1-freeswitch:/e1-local-source:ro
+    tmpfs:
+      - /e1-freeswitch:mode=0755
+    mem_limit: 512m
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'fs_cli -H "$$(cat /e1-freeswitch/control-ip)" -p "$$E1_ESL_PASSWORD" -x status',
+        ]
+    networks: !override
+      internal:
+        aliases:
+          - freeswitch-control
+      rtp-media:
+        ipv4_address: ${LOCAL_RTP_FREESWITCH_MEDIA_ADDRESS:?LOCAL_RTP_FREESWITCH_MEDIA_ADDRESS is required}
+
+  local-rtp-relay:
+    image: ${API_IMAGE:?API_IMAGE (digest) is required}
+    command: ['node', '/e1-sandbox/dist/local-rtp-relay-main.js']
+    user: '10001:10001'
+    restart: 'no'
+    depends_on:
+      freeswitch:
+        condition: service_healthy
+    environment:
+      LOCAL_RTP_RELAY_PROJECT: dcontact-v1b-local
+      LOCAL_RTP_RELAY_HOST: ${UAT_WORKSPACE_HOST:?UAT_WORKSPACE_HOST is required}
+      LOCAL_RTP_RELAY_CONFIG_JSON: >-
+        {"publicationAddress":"${LOCAL_RTP_PUBLICATION_ADDRESS:?LOCAL_RTP_PUBLICATION_ADDRESS is required}","relayMediaAddress":"${LOCAL_RTP_RELAY_MEDIA_ADDRESS:?LOCAL_RTP_RELAY_MEDIA_ADDRESS is required}","freeSwitchMediaAddress":"${LOCAL_RTP_FREESWITCH_MEDIA_ADDRESS:?LOCAL_RTP_FREESWITCH_MEDIA_ADDRESS is required}","publicationSubnet":"${LOCAL_RTP_PUBLICATION_SUBNET:?LOCAL_RTP_PUBLICATION_SUBNET is required}","mediaSubnet":"${LOCAL_RTP_MEDIA_SUBNET:?LOCAL_RTP_MEDIA_SUBNET is required}"}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    mem_limit: 128m
+    pids_limit: 32
+    stop_grace_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: 2m
+        max-file: '2'
+    ports:
+      - '127.0.0.1:16384-16420:16384-16420/udp'
+    networks:
+      rtp-publication:
+        ipv4_address: ${LOCAL_RTP_PUBLICATION_ADDRESS:?LOCAL_RTP_PUBLICATION_ADDRESS is required}
+      rtp-media:
+        ipv4_address: ${LOCAL_RTP_RELAY_MEDIA_ADDRESS:?LOCAL_RTP_RELAY_MEDIA_ADDRESS is required}
+
+  mailpit:
+    image: docker.io/axllent/mailpit:v1.31.1@sha256:98b916bd3c8d61f7633a52d3ea2f58d00620cb01ca57ab59edde68c347a95365
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 128m
+    networks:
+      - internal
+
+  mailpit-ui:
+    image: ${CONSOLE_IMAGE:?CONSOLE_IMAGE (digest) is required}
+    command:
+      [
+        '/usr/local/bin/caddy-uat',
+        'run',
+        '--config',
+        '/etc/caddy/mailpit-local',
+        '--adapter',
+        'caddyfile',
+      ]
+    depends_on:
+      - mailpit
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /data:uid=10001,gid=10001,mode=0700
+      - /config:uid=10001,gid=10001,mode=0700
+    volumes:
+      - ./Caddyfile.mailpit-local:/etc/caddy/mailpit-local:ro
+    ports:
+      - '127.0.0.1:18025:8080'
+    mem_limit: 128m
+    networks:
+      - edge
+      - internal
+
+networks:
+  rtp-publication:
+    driver: bridge
+    internal: false
+    ipam:
+      config:
+        - subnet: ${LOCAL_RTP_PUBLICATION_SUBNET:?LOCAL_RTP_PUBLICATION_SUBNET is required}
+          gateway: ${LOCAL_RTP_PUBLICATION_GATEWAY:?LOCAL_RTP_PUBLICATION_GATEWAY is required}
+  rtp-media:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: ${LOCAL_RTP_MEDIA_SUBNET:?LOCAL_RTP_MEDIA_SUBNET is required}
+          gateway: ${LOCAL_RTP_MEDIA_GATEWAY:?LOCAL_RTP_MEDIA_GATEWAY is required}

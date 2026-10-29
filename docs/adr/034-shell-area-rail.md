@@ -20,8 +20,8 @@ D1 ให้ rail เป็น "แอปที่หมุดไว้" (≤15)
    - เพิ่มหน้าใหม่ = เพิ่มแถวใน registry + ข้อความ `navigation.sections.<id>` (และ `navigation.areas.<id>` ถ้าพื้นที่ใหม่)
      ไม่ต้องแก้ `console-shell.tsx`
    - `apps`, `groups`, `pins` เดิมไม่เปลี่ยน — additive, ไม่มี migration; launcher ใช้ต่อได้
-4. **หมุดและ launcher คงไว้ แต่ไม่กำหนด rail:** รายการที่หมุดแสดงเป็นส่วน "ปักหมุด" บนสุดของเมนูย่อยของ Console
-   (เปลี่ยนที่อยู่ของหมุดได้โดยไม่แตะ API)
+4. **หมุดและ launcher คงไว้ แต่ไม่กำหนด rail:** ตาม owner amendment #758 รายการปักหมุดแสดงเฉพาะเมนูย่อยของ Home
+   พื้นที่อื่นแสดงเฉพาะเมนูของพื้นที่นั้น (เปลี่ยนที่อยู่ของหมุดได้โดยไม่แตะ API)
 5. **Workspace มีแต่ rail ไม่มีเมนูย่อย** — คงผล D1.2 และ ADR-026 (หน้าสด ห้าม remount)
 6. หน้านอก registry (หน้าบัญชีของฉัน/นโยบายบัญชี) ไม่อยู่พื้นที่ใด: rail ไม่เลือกพื้นที่ และใช้เมนูย่อยของตัวเอง (AC5 #598)
 
@@ -57,3 +57,34 @@ D1 ให้ rail เป็น "แอปที่หมุดไว้" (≤15)
 - ปิด flag shell → Home แสดงรายการกับแถบบนโดยไม่มี rail/เมนูย่อย; API ล้มเหลว → แจ้งโหลดไม่สำเร็จพร้อมลองใหม่ ไม่แสดงเมนูที่เดาเอง
 - คงส่วนประกอบ rail, launcher, แถบบน, icons และ tokens เดิมของระบบ; external-link indicator แสดงเฉพาะลิงก์ข้าม host จริง
 - จอแคบซ่อนเมนูย่อยซึ่งซ้ำกับรายการใน Home และย่อแถบบน โดยยังเข้าถึงทุกพื้นที่จากรายการและบัญชีจากเมนูผู้ใช้ได้
+
+## ภาคผนวก: แสดง PINNED เฉพาะ Home (#758)
+
+Owner ยืนยันวันที่ 25 ตุลาคม 2569 ให้หมวด PINNED อยู่เฉพาะหน้า Home เพื่อไม่แทรกทางลัดซ้ำบนทุกพื้นที่ของ Console
+
+- Home เพิ่มส่วนปักหมุดตามลำดับของผู้ใช้และเฉพาะแอปที่ server อนุญาต โดยไม่ซ้ำลิงก์ Home ถาวรและไม่แสดงหมวดว่าง
+- Home ยังคงรายการทางเข้าทั้งหมดและบัญชีของฉันตาม #684; ปักหมุดเป็นทางลัดเพิ่มเติม
+- เมนูย่อยพื้นที่อื่นแสดงเฉพาะกลุ่มและหน้าย่อยของพื้นที่จาก registry; Account และ legacy fallback คงพฤติกรรมเดิม
+- การเก็บหมุด, ปัก/ถอนหมุดผ่าน launcher, API และสิทธิ์ไม่เปลี่ยน; ลิงก์ข้าม host ยังคงเปิดแท็บใหม่
+
+## ภาคผนวก: Breadcrumb เหนือเนื้อหา Console (#758)
+
+Owner ยืนยันวันที่ 25 ตุลาคม 2569 ให้ย้ายตำแหน่งปัจจุบันจากแถบบนมาอยู่เหนือเนื้อหาของแต่ละหน้า Console รวม Home และ Account. แถบบนคงโลโก้ ภาษา และเมนูผู้ใช้ ส่วน breadcrumb เลื่อนตามเนื้อหา ตัดบรรทัดบนจอแคบได้ และคง locale/aria-current เดิม
+
+ใช้ `Breadcrumb` และตัวเลือก `ShellFrame.breadcrumbPlacement` ร่วม ไม่ทำสำเนารายหน้า. ค่าเริ่มต้นของ shared shell และ Workspace ยังเป็นแถบบน ไม่เปลี่ยน lifecycle ของงานสด. Home ที่ปิด shell ย้าย breadcrumb เหนือเนื้อหาเช่นกัน; legacy ที่ไม่แสดง shell ไม่เพิ่ม breadcrumb ใหม่
+
+## ภาคผนวก: ทางเข้าระบบสดบนแถบบน Console (#758)
+
+Owner ยืนยันวันที่ 25 ตุลาคม 2569 ให้ย้าย Workspace และ Supervisor จาก rail ของ Console ไปแถบบน เพราะมีหน้า main/menu ของระบบสดแยกอยู่แล้ว. แสดงเฉพาะรายการที่ Navigation API อนุญาตพร้อม host origin จริง คง tenant และเปิดแท็บใหม่ตาม ADR-026. จอแคบแสดงไอคอนพร้อม accessible name
+
+ใช้ TopBarLinks ร่วมและกรองเฉพาะ projection ของ rail ไม่ลบ apps/pins ของ launcher หรือทางลัดใน Home. Workspace ไม่ส่งตัวเลือก rail ใหม่และคง layout/mount/session เดิม ไม่เปลี่ยน API หรือสิทธิ์
+
+## ภาคผนวก: Rail ภายใน Console ไม่ reload session และ Home ตัด WORKSPACES (#758)
+
+Owner ยืนยันวันที่ 25 ตุลาคม 2569 ให้การเปลี่ยนเมนู Rail ไม่ขึ้นหน้ากู้ SSO ทุกครั้ง และเอาหมวด WORKSPACES ที่ซ้ำใน sidebar Home ออก
+
+- ลิงก์ Rail ภายใน origin/tenant เดียวกันเปลี่ยนหน้าผ่าน client routing โดยคง AuthProvider และ token ใน memory เดิม ไม่เพิ่ม token ลง web storage และไม่ซ่อนการตรวจ boot/expired session/reauth จริง
+- คง URL/deep links, modifier click และลิงก์ภายนอก/tenantอื่น/identity action ให้ใช้ browser flow เดิม. Workspace ไม่ส่ง router callback และคง lifecycle ของงานสด
+- Root เก็บลำดับ history เพื่อยกเลิก back/forward ข้ามหน้าได้โดยคงร่างและ forward stack; ใช้ beforeunload guards ของหน้าปัจจุบันก่อนข้ามหน้า ส่วน pop ภายใน view ส่งต่อให้ router ของหน้านั้นตามเดิม ไม่ remount/reset state โดย root
+- การ push/replace URL ของหน้าย่อยที่ไม่ระบุ tenant คง tenant เดิม ไม่ตีความ hostname ของ local เป็น tenant ใหม่. History state มีเพียงลำดับ ไม่มี token หรือข้อมูลร่าง
+- Sidebar ของ Home เหลือ Home/PINNED/บัญชี แทนข้อกำหนดเดิมใน #684 ที่ให้แสดงแอปทั้งหมดใน sidebar; cards ทางเข้าทั้งหมดในเนื้อหา Home ยังอยู่ตามสิทธิ์

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   A1_CHECKS,
+  collectA1ImageDigests,
   NON_WAIVABLE_GATES,
   judge,
   parsePlaywright,
@@ -96,4 +97,33 @@ test('runA1Acceptance: skip = FAIL, manifest ผูก commit/config digest แ�
   assert.equal(manifest.artifacts.length, 1);
   const log = readFileSync(`artifacts/a1/${manifest.run.id}/${manifest.artifacts[0].file}`, 'utf8');
   assert.equal(log.includes('owner@example.test'), false);
+});
+
+test('digest ผูก container Image ID จริง โดยไม่ต้องมี bare-tag alias ของ pinned reference', () => {
+  const calls = [];
+  const result = collectA1ImageDigests((command, args) => {
+    assert.equal(command, 'docker');
+    calls.push(args);
+    if (args[0] === 'compose') return { status: 0, stdout: `container-${args.at(-1)}\n` };
+    if (args[0] === 'inspect') return { status: 0, stdout: `sha256:image-${args.at(-1)}\n` };
+    assert.equal(args[0], 'image');
+    assert.match(args.at(-1), /^sha256:image-container-/);
+    return { status: 0, stdout: `registry.test/runtime@sha256:${'d'.repeat(64)}\n` };
+  });
+  assert.deepEqual(Object.keys(result), ['keycloak', 'postgres', 'mailpit']);
+  assert.ok(Object.values(result).every((value) => /@sha256:[a-f0-9]{64}$/.test(value)));
+  assert.equal(calls.length, 9);
+});
+
+test('digest ที่ container/image inspection ล้มหรือไม่มี RepoDigest คง missing เพื่อให้ bundle fail closed', () => {
+  for (const missing of ['container', 'image', 'digest', 'empty-digest']) {
+    const result = collectA1ImageDigests((_command, args) => {
+      if (args[0] === 'compose')
+        return { status: missing === 'container' ? 1 : 0, stdout: 'container' };
+      if (args[0] === 'inspect')
+        return { status: missing === 'image' ? 1 : 0, stdout: 'sha256:image' };
+      return { status: missing === 'digest' ? 1 : 0, stdout: '' };
+    });
+    assert.deepEqual(result, { keycloak: null, postgres: null, mailpit: null }, missing);
+  }
 });

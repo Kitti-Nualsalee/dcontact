@@ -283,22 +283,28 @@ function git(...args) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-/** image digest ของ dependency จริง (real-boundary เท่านั้น) — pinned version เป็นส่วนหนึ่งของหลักฐาน */
-function imageDigests() {
+/** ผูก digest กับ container ที่ Compose รันจริง; image ที่ pull ด้วย digest อาจไม่มี bare-tag alias */
+export function collectA1ImageDigests(execute = spawnSync) {
   const digests = {};
-  for (const image of [
-    'docker.io/keycloak/keycloak:26.7.5',
-    'postgres:16-alpine',
-    'axllent/mailpit:v1.20',
-  ]) {
-    const result = spawnSync(
-      'docker',
-      ['image', 'inspect', '--format', '{{index .RepoDigests 0}}', image],
-      {
-        encoding: 'utf8',
-      },
-    );
-    digests[image] = result.status === 0 ? result.stdout.trim() : null;
+  const docker = (arguments_) => {
+    const result = execute('docker', arguments_, { cwd: repositoryRoot, encoding: 'utf8' });
+    return result.status === 0 ? result.stdout.trim() : null;
+  };
+  for (const service of ['keycloak', 'postgres', 'mailpit']) {
+    const container = docker([
+      'compose',
+      '-f',
+      'infra/docker/docker-compose.dev.yml',
+      'ps',
+      '-q',
+      service,
+    ]);
+    const image = container ? docker(['inspect', '--format', '{{.Image}}', container]) : null;
+    const digest = image
+      ? docker(['image', 'inspect', '--format', '{{index .RepoDigests 0}}', image])
+      : null;
+    // ไม่เดา digest จาก config และไม่ถือว่า inspect ที่ขาด/ว่างเป็นหลักฐานผ่าน
+    digests[service] = digest || null;
   }
   return digests;
 }
@@ -392,7 +398,7 @@ export function runA1Acceptance({
     environment: {
       node: process.version,
       platform: process.platform,
-      ...(profile !== 'fast' ? { images: imageDigests() } : {}),
+      ...(profile !== 'fast' ? { images: collectA1ImageDigests() } : {}),
     },
     status: passed ? 'PASS' : 'FAIL',
     nonWaivable: gateStatus,
