@@ -115,8 +115,10 @@ unset CORE_SETTINGS_ACCESS_TOKEN
 | ORG-TR05 | Same-identity reauth หน้าเดิมคงร่างและตรวจ authority/current values/command ก่อนแก้ต่อ Sign-out/เปลี่ยน tenant/identity ล้างร่างและ reference เดิม                                  |
 | ORG-TR06 | Supervisor/narrow≤760 อ่านอย่างเดียว; ย่อจอระหว่างร่างเก็บ memory กลับจอกว้าง recheck; Agent/Compliance/missing proof ไม่มี Core access และ Home/Account เดิมยังทำงาน               |
 | ORG-TR07 | Keyboard/focus/error summary/TH-EN/dirty warning, back/forward/reload และ direct organization URL ผ่าน ไม่มี Team/People/Calendar placeholder                                       |
-| ORG-TR08 | Voice smoke จริงหลัง deploy: SIP test caller → offer → รับสาย → เสียงสองทาง → WRAPUP/disposition+โน้ต → บันทึกและอ่านผลกลับ                                                         |
+| ORG-TR08 | Voice smoke จริงหลัง deploy: SIP test caller → offer → รับสาย → เสียงสองทาง → WRAPUP ตาม policy ของคิวเดิมตามเกตด้านล่าง → บันทึกและอ่านผลกลับ                                      |
 | ORG-TR09 | ระหว่างสายทดสอบ ให้ Admin แก้ชื่อ/defaults แล้วบันทึกได้ โดยสาย/เสียง/work-session/UI ภาษาของงานสดไม่เปลี่ยน เสร็จแล้วผู้ไม่มี personal preference ใช้ defaults เมื่อโหลดครั้งถัดไป |
+
+ORG-TR08 ใช้ `voiceWrapupPolicy` ของคิวที่ deploy จริงตามขอบเขต Voice flow เดิมใน Phase Contract #723 §10 และ[ข้อยุติ owner ของ #726 วันที่ 29 ตุลาคม 2569](https://github.com/Kitti-Nualsalee/dcontact/issues/726#issuecomment-6489967235): `LEGACY` ต้องบันทึก disposition และอ่านผลกลับ ส่วน `VOICE_NOTE_V1` ต้องบันทึก disposition พร้อมโน้ตและอ่านผลกลับ ระบุ policy และ coverage ในหลักฐานทุกครั้ง ไม่เปลี่ยนคิว `LEGACY` เป็น `VOICE_NOTE_V1` เพื่อให้ Core trial ผ่าน และไม่อ้างว่า trial ของ `LEGACY` ได้ทดสอบ notes flow
 
 Trial พร้อมได้เมื่อ release/migration/compatibility/backup/authenticated/Core/Voice gates ของช่วงนี้ครบ หาก VM/VPN/บัญชี/Voice fixture ไม่พร้อม ให้รายงาน NOT_RUN พร้อม blocker/ผู้ดำเนินการ ไม่ปิดเป็น VM PASS จาก CI/prototype/route smoke เพียงอย่างเดียว Final UAT ยังคงสองรอบ build/configเดียวกัน Chrome และ Edge จริง ไม่มี S1/S2 ค้าง และทีมรับรองตามงาน final UAT
 
