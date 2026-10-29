@@ -78,13 +78,16 @@ public class PeopleDisableResource {
       &&Arrays.asList(bootstrap.split(",")).contains(userId+":"+user.getId());
     if(!classified&&!enrolled)return false;
     var desired=binding.realm().getRole(role.toLowerCase(java.util.Locale.ROOT));
-    if(desired==null||desired.isComposite()||!user.hasRole(desired))return false;
+    var effectiveRoles=TenantRoles.effectiveRoleIds(binding.realm(),desired);
+    if(effectiveRoles.isEmpty()||!user.hasRole(desired))return false;
+    var directTenantRoles=user.getRoleMappingsStream().filter(grant->Set.of("agent","supervisor","admin").contains(grant.getName())).toList();
+    if(directTenantRoles.size()!=1||!directTenantRoles.get(0).getId().equals(desired.getId()))return false;
     if(user.getRoleMappingsStream().anyMatch(grant->grant.getName().startsWith("platform_")
-      ||Set.of("create-realm","realm-admin").contains(grant.getName())
+      ||Set.of("create-realm","realm-admin","service").contains(grant.getName())
       ||(Set.of("agent","supervisor","admin").contains(grant.getName())&&!grant.getId().equals(desired.getId()))))return false;
     if(binding.realm().getRolesStream().filter(grant->grant.getName().startsWith("platform_")
-      ||Set.of("create-realm","realm-admin").contains(grant.getName())
-      ||(Set.of("agent","supervisor","admin").contains(grant.getName())&&!grant.getId().equals(desired.getId()))).anyMatch(user::hasRole))return false;
+      ||Set.of("create-realm","realm-admin","service").contains(grant.getName())
+      ||(Set.of("agent","supervisor","admin").contains(grant.getName())&&!effectiveRoles.contains(grant.getId()))).anyMatch(user::hasRole))return false;
     var management=session.clients().getClientByClientId(binding.realm(),"realm-management");
     if(management!=null&&management.getRolesStream().anyMatch(user::hasRole))return false;
     var memberships=session.getProvider(OrganizationProvider.class).getByMember(user).toList();

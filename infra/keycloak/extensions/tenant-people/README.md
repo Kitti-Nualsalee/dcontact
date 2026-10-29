@@ -46,6 +46,15 @@ protected/bootstrap classification, response readback และ receipt-failure 
 
 ## ทดสอบ boundary
 
+Tenant roles รองรับทั้งสาม leaf roles เดิม และ hierarchy ตาม ADR-004 เท่านั้น:
+`admin → supervisor → agent` ตรวจ realm/container/role IDs และ direct edges ทั้งกราฟ
+ไม่ยอมรับ partial hierarchy, cycles, extra roles หรือ client roles และไม่แก้ role graph ให้อัตโนมัติ
+ผู้ใช้ยังต้องมี direct tenant role เดียวตรงกับ domain User role; inherited lower roles ไม่ใช่การเปลี่ยนบทบาท
+Bootstrap Admin ยังต้องมี operator-enrolled pair เดิม และ default role ที่พาไปสิทธิ์ protected ถูกปฏิเสธ
+
+Boundary runner รัน Java role-graph/disable identity tests ก่อนสร้าง extension jar แล้วใช้ hierarchy จริง
+กับ Keycloak/SMTP/HTTP tests รวม readiness ที่ปฏิเสธ extra composite roles ไม่อ้าง unit tests แทน VM acceptance
+
 ต้องมี Node 20, pnpm ตาม `packageManager`, Python 3 และ Docker ที่ทำงานอยู่ ติดตั้ง dependencies และ build dependencies ของ API ก่อน:
 
 ```sh
