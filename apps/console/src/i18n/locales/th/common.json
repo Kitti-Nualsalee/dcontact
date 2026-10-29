@@ -73,7 +73,8 @@
         "agentSkills": "ทักษะ Agent"
       },
       "coreSettings": {
-        "organization": "ข้อมูลองค์กร"
+        "organization": "ข้อมูลองค์กร",
+        "teams": "ทีม"
       }
     }
   },

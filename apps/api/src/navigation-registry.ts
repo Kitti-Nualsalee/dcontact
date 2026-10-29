@@ -252,6 +252,11 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
         labelKey: 'navigation.pages.coreSettings.organization',
         path: '/?view=core-settings&page=organization',
       },
+      {
+        id: 'teams',
+        labelKey: 'navigation.pages.coreSettings.teams',
+        path: '/?view=core-settings&page=teams',
+      },
     ],
   },
 ]);

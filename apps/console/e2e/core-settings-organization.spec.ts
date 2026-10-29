@@ -295,16 +295,16 @@ test('องค์กร: narrow เก็บร่าง เตือนก่�
     await request.post('/__core_test/restore');
   }
 });
-test('องค์กร: Supervisor อ่านอย่างเดียวและไม่มีปุ่ม Team placeholder', async ({
-  page,
-  request,
-}) => {
+test('องค์กร: Supervisor อ่านอย่างเดียวและมีทางเข้าหน้า Team จริง', async ({ page, request }) => {
   await login(page, request, 'supervisor');
   await expect(page.getByText('คุณมีสิทธิ์ดูข้อมูลเท่านั้น')).toBeVisible();
   await expect(page.getByRole('button', { name: 'บันทึกการเปลี่ยนแปลง', exact: true })).toHaveCount(
     0,
   );
-  await expect(page.getByRole('link', { name: 'ทีม', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'ทีม', exact: true })).toHaveAttribute(
+    'href',
+    /page=teams/,
+  );
 });
 
 test('องค์กร: same identity reauth อยู่หน้าเดิมคงร่าง แล้วตรวจคำสั่งก่อนแก้ใหม่', async ({
