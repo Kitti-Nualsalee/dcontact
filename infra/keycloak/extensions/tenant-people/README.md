@@ -2,6 +2,48 @@
 
 Implementation ของ [B2 #709](https://github.com/Kitti-Nualsalee/dcontact/issues/709) และส่วน provider intent/SMTP ของ [B3 #710](https://github.com/Kitti-Nualsalee/dcontact/issues/710) ตาม [สัญญา #704](https://github.com/Kitti-Nualsalee/dcontact/issues/704) และ [ADR-035](../../../../docs/adr/035-tenant-people-identity-authority.md) ยังไม่ใช่การเปิดใช้ provisioning บน UAT หรือ production
 
+## B6: disable identity และ receipt
+
+`POST dc-tenant-people/disable/:operationId` เป็น narrow service-client endpoint ไม่ใช่ public Tenant API
+รับ frozen tenant/target/identity/digest/fence/role และรายชื่อ Admin สำรองที่ application ตรวจ local state แล้ว
+tenant gate เดียวกับ provisioning serialize การปิดพร้อมกัน และตรวจ identity/role/Organization/credentials
+ใหม่จาก local JPA provider (ไม่ใช้ cached UserModel) ใน transaction ก่อนปิดบัญชี Pending Admin,
+บัญชี disabled และ identity ที่ไม่ตรงไม่ถูกนับเป็น Admin สำรอง
+ล็อกแถว identity ตามลำดับ UUID เพื่อไม่ให้การแก้ enabled แข่งผ่าน guard
+
+ปิด enabled, revoke sessions และ immutable `DISABLE_ACCOUNT` receipt ใน transaction เดียวกัน
+`GET dc-tenant-people/disable/:operationId` อ่าน exact tenant/target/digest โดยไม่ส่ง mutation ซ้ำ
+ผลสำเร็จต้อง readback ว่า identity ยัง disabled และไม่มี online/offline sessions; manual re-enable
+หลัง receipt ทำให้ผลเป็น `UNKNOWN` ไม่คืน successful marker เก่าแทนสถานะจริง
+การปฏิเสธก่อนเปลี่ยน identity มี durable `REJECTED_NO_EFFECT` receipt; network error หรือไม่มี receipt
+ไม่ใช่หลักฐานสำหรับเปิด local account กลับ
+
+receipt ที่ปฏิเสธเพราะ protected/foreign mapping หรือ identity state conflict เป็นหลักฐานว่า
+operation นี้ไม่เปลี่ยน provider ไม่ใช่หลักฐานว่า account ยังปลอดภัยสำหรับ local admission
+application ต้องคง deny/reconcile เมื่อพบ drift; ห้ามเปิดบัญชีกลับจาก receipt เพียงอย่างเดียว
+เส้นทาง compensation ของ #713 ยังต้องตรวจ digest/revision/current operation และความสอดคล้องของ identity
+
+Bootstrap Admin ที่ไม่มี classification ใหม่จะนับได้เฉพาะ operator ลงทะเบียนคู่
+`domainUserId:keycloakIdentityId` จาก bootstrap manifest ที่ตรวจสอบแล้วใน service client attribute
+`dc_verified_bootstrap_admins` (คั่นหลายคู่ด้วย comma) และ fresh role/Organization/password/TOTP probe ผ่าน
+ไม่ enroll จาก email หรือ tenant membership โดยอัตโนมัติ และ protected classification/roles ยังคงถูกปฏิเสธ
+application ต้องมี operator-positive binding เดิมด้วยก่อนส่ง candidate นี้ ไม่มี Tenant UI สำหรับแก้ attribute
+
+Public disable ยังคง default-off เปิดเฉพาะ `TENANT_PEOPLE_DISABLE_ENABLED=true` พร้อม approved worker binding,
+identity readiness ที่มี `disableReady=true` และ SIP flush port ใน composition เท่านั้น
+`POST /api/v1/tenant-voice/people/users/:id/disable` ตรวจ common envelope, idle closure และ identity สดก่อน local deny
+worker ใช้ batch budget ร่วมกับ provisioning/invitation สลับ turn ไม่ยิงคำสั่ง disable ซ้ำหลัง attempted แล้ว
+unknown ใช้ GET receipt อย่างเดียว และ retry readback อย่างน้อยห่าง 10 วินาที; หยุด runtime แล้วต้องรอ drain ก่อน disconnect
+receipt สำเร็จยังไม่พอถ้า SIP flush audit ไม่ยืนยันจริง: คง `ACTION_REQUIRED`/local deny และ quota reservation
+Console แยกเหตุผลและขั้นยืนยัน เก็บเฉพาะ command/operation IDs เพื่อกู้ผลหลัง response หายหรือ reload ไม่เก็บ token/PII/เหตุผล
+ไม่คืน extension และไม่เปิดบัญชีกลับจาก UI; compensation ทำได้เฉพาะ known no-effect/last-Admin receipt และ revision CAS ตรง
+การเปิด flag ไม่ใช่หลักฐาน acceptance; ต้องผ่าน HTTP/RLS, real identity boundary, browser, review และ CI ของ #713 ก่อน merge
+
+Focused identity loop ใช้ `B6_DISABLE_BOUNDARY_ONLY=1 pnpm voice:tenant-people:boundary`
+และพิมพ์ `B6_FOCUSED_IDENTITY_BOUNDARY_PASS` เท่านั้น ไม่ใช่ผลรวม B2/B3/B6
+คำสั่งปกติยังรันทุกกรณีรวม real session revoke, concurrent last-Admin, manual identity drift,
+protected/bootstrap classification, response readback และ receipt-failure rollback
+
 ## ทดสอบ boundary
 
 ต้องมี Node 20, pnpm ตาม `packageManager`, Python 3 และ Docker ที่ทำงานอยู่ ติดตั้ง dependencies และ build dependencies ของ API ก่อน:

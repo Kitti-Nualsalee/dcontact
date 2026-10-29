@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { runPeopleDisable, type PeopleDisableFlushPort } from './tenant-people-disable.js';
+import type { TenantPeopleDisablePort } from './tenant-people-disable-keycloak.js';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import {
   DatabaseTenantPeopleReadiness,
@@ -49,6 +51,12 @@ export class TenantPeopleRuntime {
     TenantPeopleActivationPort & TenantPeopleIdentityReadiness
   >;
   private readonly activationTurns = new Map<string, boolean>();
+  private readonly disables: ReadonlyMap<
+    string,
+    TenantPeopleDisablePort & TenantPeopleIdentityReadiness
+  >;
+  private readonly disableTurns = new Map<string, boolean>();
+  private readonly disableFlush: PeopleDisableFlushPort | undefined;
 
   constructor(
     private readonly database: PrismaClient,
@@ -60,6 +68,8 @@ export class TenantPeopleRuntime {
       invitations?: ReadonlyMap<string, TenantPeopleInvitationRuntimePort>;
       resends?: ReadonlyMap<string, TenantPeopleInvitationResendRuntimePort>;
       activations?: ReadonlyMap<string, TenantPeopleActivationPort & TenantPeopleIdentityReadiness>;
+      disables?: ReadonlyMap<string, TenantPeopleDisablePort & TenantPeopleIdentityReadiness>;
+      disableFlush?: PeopleDisableFlushPort;
     } = {},
   ) {
     this.intervalMs = options.intervalMs ?? 1_000;
@@ -68,6 +78,20 @@ export class TenantPeopleRuntime {
     this.invitations = new Map(options.invitations);
     this.resends = new Map(options.resends);
     this.activations = new Map(options.activations);
+    this.disables = new Map(options.disables);
+    this.disableFlush = options.disableFlush;
+    for (const [tenantId, port] of this.disables) {
+      if (
+        !identities.has(tenantId) ||
+        !port ||
+        typeof port.isReady !== 'function' ||
+        typeof port.probe !== 'function' ||
+        typeof port.disable !== 'function' ||
+        typeof port.readOutcome !== 'function' ||
+        typeof this.disableFlush?.flush !== 'function'
+      )
+        throw new Error('INVALID_PEOPLE_DISABLE_RUNTIME_CONFIGURATION');
+    }
     if (
       !Number.isInteger(this.intervalMs) ||
       this.intervalMs < 100 ||
@@ -141,6 +165,22 @@ export class TenantPeopleRuntime {
     );
   }
 
+  disablePortForTenant(tenantId: string): TenantPeopleDisablePort | undefined {
+    return this.disables.get(tenantId);
+  }
+
+  async canDisable(tenantId: string): Promise<boolean> {
+    const port = this.disables.get(tenantId);
+    return (
+      !!port &&
+      !!this.disableFlush &&
+      (await this.isReady(tenantId)) &&
+      (await port.isReady(tenantId)) &&
+      this.running &&
+      this.healthy
+    );
+  }
+
   onModuleInit(): void {
     if (this.running) return;
     this.running = true;
@@ -207,12 +247,14 @@ export class TenantPeopleRuntime {
       const invitationFirst =
         (this.invitations.has(tenantId) ||
           this.resends.has(tenantId) ||
-          this.activations.has(tenantId)) &&
+          this.activations.has(tenantId) ||
+          this.disables.has(tenantId)) &&
         (this.invitationTurns.get(tenantId) ?? true);
       if (
         this.invitations.has(tenantId) ||
         this.resends.has(tenantId) ||
-        this.activations.has(tenantId)
+        this.activations.has(tenantId) ||
+        this.disables.has(tenantId)
       )
         this.invitationTurns.set(tenantId, !invitationFirst);
       if (invitationFirst && (await this.tryInvitation(tenantId, deferred, invitationChecked))) {
@@ -282,12 +324,42 @@ export class TenantPeopleRuntime {
     deferred: Set<string>,
     checked: Map<string, boolean>,
   ): Promise<boolean> {
+    const disableFirst = this.disables.has(tenantId) && (this.disableTurns.get(tenantId) ?? true);
+    if (this.disables.has(tenantId)) this.disableTurns.set(tenantId, !disableFirst);
+    if (disableFirst && (await this.tryDisable(tenantId, deferred, checked))) return true;
     const activationFirst =
       this.activations.has(tenantId) && (this.activationTurns.get(tenantId) ?? true);
     if (this.activations.has(tenantId)) this.activationTurns.set(tenantId, !activationFirst);
     if (activationFirst && (await this.tryActivation(tenantId, deferred, checked))) return true;
     if (await this.tryInvitationDelivery(tenantId, deferred, checked)) return true;
-    return !activationFirst && (await this.tryActivation(tenantId, deferred, checked));
+    if (!activationFirst && (await this.tryActivation(tenantId, deferred, checked))) return true;
+    return !disableFirst && (await this.tryDisable(tenantId, deferred, checked));
+  }
+
+  private async tryDisable(
+    tenantId: string,
+    deferred: Set<string>,
+    checked: Map<string, boolean>,
+  ): Promise<boolean> {
+    const port = this.disables.get(tenantId);
+    if (!this.running || !port || !this.disableFlush) return false;
+    const readinessKey = `disable:${tenantId}`;
+    if (!checked.has(readinessKey)) checked.set(readinessKey, await port.isReady(tenantId));
+    if (!this.running || !checked.get(readinessKey)) return false;
+    const [candidate] = await withTenantDatabaseTransaction(
+      this.database,
+      tenantId,
+      (transaction) => transaction.$queryRaw<{ id: string }[]>`
+      SELECT id FROM tenant_people_disables WHERE tenant_id=${tenantId}::uuid
+        AND state IN ('QUEUED','WAITING_EXTERNAL','ACTION_REQUIRED') AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp())
+        AND (state='QUEUED' OR updated_at<clock_timestamp()-interval '10 seconds')
+        AND ('disable:'||id::text) NOT IN (SELECT value FROM jsonb_array_elements_text(${JSON.stringify([...deferred])}::jsonb) AS skipped(value))
+      ORDER BY updated_at,id LIMIT 1`,
+    );
+    if (!this.running || !candidate) return false;
+    deferred.add(`disable:${candidate.id}`);
+    await runPeopleDisable(this.database, port, this.disableFlush, tenantId, candidate.id);
+    return true;
   }
 
   private async tryActivation(

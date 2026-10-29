@@ -3,6 +3,7 @@ import { TenantPeopleKeycloak } from './tenant-people-keycloak.js';
 import { TenantPeopleRuntime } from './tenant-people-runtime.js';
 import type { PeopleTelephonyNode } from './tenant-people-infrastructure.js';
 import type { TenantPeopleReadiness } from './tenant-people-readiness.js';
+import type { PeopleDisableFlushPort } from './tenant-people-disable.js';
 
 function object(raw: unknown): Record<string, unknown> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw))
@@ -22,6 +23,11 @@ function parsePeopleConfiguration(environment: NodeJS.ProcessEnv) {
   const raw = environment.TENANT_PEOPLE_BINDINGS_JSON;
   const workerUrl = environment.TENANT_PEOPLE_WORKER_DATABASE_URL;
   const invitationFlag = environment.TENANT_PEOPLE_INVITATIONS_ENABLED;
+  const disableFlag = environment.TENANT_PEOPLE_DISABLE_ENABLED;
+  if (disableFlag !== undefined && !['true', 'false'].includes(disableFlag))
+    throw new Error('INVALID_PEOPLE_CONFIGURATION');
+  const disableEnabled = disableFlag === 'true';
+  if (disableEnabled && (!raw || !workerUrl)) throw new Error('INVALID_PEOPLE_CONFIGURATION');
   if (invitationFlag !== undefined && !['true', 'false'].includes(invitationFlag))
     throw new Error('INVALID_PEOPLE_CONFIGURATION');
   const invitationsEnabled = invitationFlag === 'true';
@@ -49,6 +55,7 @@ function parsePeopleConfiguration(environment: NodeJS.ProcessEnv) {
   return {
     workerUrl,
     invitationsEnabled,
+    disableEnabled,
     bindings: bindings.map((value) => {
       const entry = object(value);
       if (
@@ -108,12 +115,22 @@ class OwnedPeopleRuntime extends TenantPeopleRuntime {
     private readonly workerDatabase: PrismaClient,
     bindings: NonNullable<ReturnType<typeof peopleConfiguration>>['bindings'],
     invitationsEnabled: boolean,
+    disableEnabled: boolean,
+    disableFlush?: PeopleDisableFlushPort,
   ) {
     super(
       workerDatabase,
       new Map(bindings.map((binding) => [binding.tenantId, binding.identity])),
       {
         nodes: new Map(bindings.map((binding) => [binding.tenantId, binding.nodes])),
+        ...(disableEnabled
+          ? {
+              disables: new Map(
+                bindings.map((binding) => [binding.tenantId, binding.identity.disablePort()]),
+              ),
+              disableFlush,
+            }
+          : {}),
         ...(invitationsEnabled
           ? {
               invitations: new Map(
@@ -136,9 +153,18 @@ class OwnedPeopleRuntime extends TenantPeopleRuntime {
 
 export function configuredPeopleRuntime(
   environment: NodeJS.ProcessEnv = process.env,
+  disableFlush?: PeopleDisableFlushPort,
 ): TenantPeopleReadiness {
   const configuration = peopleConfiguration(environment);
   if (!configuration) return { isReady: async () => false, nodesForTenant: () => [] };
+  if (configuration.disableEnabled && !disableFlush)
+    throw new Error('PEOPLE_DISABLE_FLUSH_REQUIRED');
   const worker = new PrismaClient({ datasources: { db: { url: configuration.workerUrl } } });
-  return new OwnedPeopleRuntime(worker, configuration.bindings, configuration.invitationsEnabled);
+  return new OwnedPeopleRuntime(
+    worker,
+    configuration.bindings,
+    configuration.invitationsEnabled,
+    configuration.disableEnabled,
+    disableFlush,
+  );
 }

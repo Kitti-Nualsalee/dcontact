@@ -1,0 +1,60 @@
+{
+	admin off
+	persist_config off
+	http_port 8080
+	https_port 8443
+	auto_https off
+}
+
+https://{$UAT_HOST}, https://{$UAT_WORKSPACE_HOST} {
+	tls /run/secrets/uat_tls_cert /run/secrets/uat_tls_key
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	@frameProtected not path /auth/realms/dcontact/dc-account/login-status-iframe.html
+	header @frameProtected >X-Frame-Options DENY
+	route {
+		@keycloakAdmin path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* /auth/metrics /auth/health /auth/health/*
+		respond @keycloakAdmin 404
+		handle /sip-ws {
+			reverse_proxy https://freeswitch:7443 {
+				flush_interval -1
+				transport http {
+					tls_insecure_skip_verify
+				}
+			}
+		}
+		handle /auth/* {
+			reverse_proxy keycloak:8080 {
+				header_up X-Forwarded-Proto https
+			}
+		}
+		handle /api/* {
+			reverse_proxy api:3000
+		}
+		handle /dphone/* {
+			header -X-Frame-Options
+			reverse_proxy api:3000
+		}
+		handle /embed/* {
+			reverse_proxy api:3000
+		}
+		handle_path /workspace/* {
+			root * /srv/workspace
+			file_server
+		}
+		@fullWorkspace host {$UAT_WORKSPACE_HOST}
+		handle @fullWorkspace {
+			root * /srv/workspace
+			try_files {path} /index.html
+			file_server
+		}
+		handle {
+			root * /srv/console
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}

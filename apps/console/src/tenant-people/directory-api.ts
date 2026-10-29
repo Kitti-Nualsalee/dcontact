@@ -2,6 +2,8 @@ import { CatalogApiError } from '../voice-routing/api.js';
 import { peopleUuid, type PeopleRole } from './api.js';
 
 export interface PeopleDirectoryUser {
+  disableOperationId?: string | null;
+  disableCommandId?: string | null;
   id: string;
   displayName: string;
   email: string;
@@ -37,6 +39,9 @@ export interface PeopleDirectoryApi {
   ): Promise<{ operationId: string }>;
   invitationCommand(commandId: string, userId: string): Promise<{ operationId: string }>;
   invitationOperation(operationId: string, userId: string): Promise<string>;
+  disableReady?(): Promise<boolean>;
+  disable?(userId: string, command: InvitationCommand): Promise<{ operationId: string }>;
+  disableOperation?(operationId: string, userId: string): Promise<string>;
 }
 
 function object(raw: unknown): Record<string, unknown> {
@@ -69,6 +74,8 @@ function account(raw: unknown): PeopleDirectoryUser {
     throw new CatalogApiError(502, 'FAILED');
   return {
     id: value.id,
+    disableOperationId: peopleUuid(value.disableOperationId) ? value.disableOperationId : null,
+    disableCommandId: peopleUuid(value.disableCommandId) ? value.disableCommandId : null,
     displayName: value.displayName,
     email: value.email,
     username: value.email,
@@ -154,6 +161,44 @@ export function createPeopleDirectoryApi(options: {
       )
         throw new CatalogApiError(502, 'FAILED');
       return { items: value.items.map(account), nextCursor: value.nextCursor };
+    },
+    async disableReady() {
+      const capability = await request('capabilities');
+      const disable = capability.disable;
+      return (
+        capability.canWrite === true &&
+        !!disable &&
+        typeof disable === 'object' &&
+        'ready' in disable &&
+        disable.ready === true
+      );
+    },
+    async disable(userId, command) {
+      if (!peopleUuid(userId) || !peopleUuid(command.commandId))
+        throw new CatalogApiError(400, 'FAILED');
+      const accepted = await request(`people/users/${userId}/disable`, command);
+      if (
+        !peopleUuid(accepted.operationId) ||
+        accepted.userId !== userId ||
+        accepted.accountState !== 'DISABLING'
+      )
+        throw new CatalogApiError(502, 'FAILED');
+      return { operationId: accepted.operationId };
+    },
+    async disableOperation(operationId, userId) {
+      if (!peopleUuid(operationId) || !peopleUuid(userId)) throw new CatalogApiError(400, 'FAILED');
+      const operation = await request(`operations/${operationId}`);
+      if (
+        operation.operationId !== operationId ||
+        operation.userId !== userId ||
+        operation.step !== 'DISABLE_ACCOUNT' ||
+        typeof operation.state !== 'string' ||
+        !['QUEUED', 'WAITING_EXTERNAL', 'SUCCEEDED', 'REJECTED', 'ACTION_REQUIRED'].includes(
+          operation.state,
+        )
+      )
+        throw new CatalogApiError(502, 'FAILED');
+      return operation.state;
     },
     async detail(userId) {
       if (!peopleUuid(userId)) throw new CatalogApiError(400, 'FAILED');

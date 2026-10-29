@@ -1,0 +1,9 @@
+{
+	admin off
+	persist_config off
+	auto_https off
+}
+
+:8080 {
+	reverse_proxy mailpit:8025
+}

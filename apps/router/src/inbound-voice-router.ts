@@ -117,6 +117,28 @@ export class InboundVoiceRouter {
   ) {}
 
   async handle(event: KafkaEventEnvelope<TelephonyCallEvent>): Promise<InboundVoiceRoutingResult> {
+    await withTenantDatabaseTransaction(this.database, event.tenantId, async (transaction) => {
+      const managed = await transaction.interaction.findFirst({
+        where: {
+          tenantId: event.tenantId,
+          externalId: event.payload.callUuid,
+          queue: { voiceConfigVersion: 1 },
+        },
+        select: { id: true },
+      });
+      const destination =
+        event.type === 'call.created'
+          ? await transaction.voiceDestination.findFirst({
+              where: {
+                tenantId: event.tenantId,
+                destination: event.payload.destination,
+                queue: { voiceConfigVersion: 1 },
+              },
+              select: { id: true },
+            })
+          : null;
+      if (managed || destination) throw new Error('VOICE_CONFIG_V1_REQUIRED');
+    });
     if (event.type === 'call.answered') return this.handleAnswered(event);
     if (event.type === 'call.hangup') return this.handleHangup(event);
     if (event.type === 'call.input') return this.handleIvrInput(event);
@@ -331,6 +353,7 @@ export class InboundVoiceRouter {
               state: 'QUEUED',
               ivrStage: { not: null },
               ivrInputExpiresAt: { lte: now },
+              OR: [{ queueId: null }, { queue: { voiceConfigVersion: null } }],
             },
             select: { id: true, externalId: true, metadata: true },
           });
@@ -357,6 +380,7 @@ export class InboundVoiceRouter {
               channel: 'VOICE',
               state: 'ASSIGNED',
               offerExpiresAt: { lte: now },
+              queue: { voiceConfigVersion: null },
             },
             select: {
               id: true,
@@ -554,6 +578,7 @@ export class InboundVoiceRouter {
               channel: 'VOICE',
               state: 'QUEUED',
               requeueAt: { lte: now },
+              queue: { voiceConfigVersion: null },
             },
             select: {
               id: true,
@@ -623,6 +648,7 @@ export class InboundVoiceRouter {
               tenantId: tenant.id,
               channel: 'VOICE',
               state: 'QUEUED',
+              queue: { voiceConfigVersion: null },
             },
             select: {
               id: true,
@@ -716,6 +742,18 @@ export class InboundVoiceRouter {
       this.database,
       command.tenantId,
       async (transaction) => {
+        if (
+          await transaction.interaction.findFirst({
+            where: {
+              id: command.interactionId,
+              tenantId: command.tenantId,
+              queue: { voiceConfigVersion: 1 },
+            },
+            select: { id: true },
+          })
+        ) {
+          throw new Error('VOICE_CONFIG_V1_REQUIRED');
+        }
         const existing = await transaction.interaction.findFirstOrThrow({
           where: { id: command.interactionId, tenantId: command.tenantId },
           select: {
@@ -1311,6 +1349,12 @@ export class InboundVoiceRouter {
               OR (routing_queue.team_id IS NOT NULL AND routing_queue.team_id = u.team_id))
         )
         AND latest.state = 'AVAILABLE'
+        AND NOT EXISTS (
+          SELECT 1 FROM voice_managed_commands pending_cleanup
+          JOIN voice_managed_offers managed_offer ON managed_offer.tenant_id=pending_cleanup.tenant_id AND managed_offer.id=pending_cleanup.offer_id
+          WHERE pending_cleanup.tenant_id=u.tenant_id AND managed_offer.agent_id=u.id
+            AND pending_cleanup.status='PENDING' AND pending_cleanup.command_type IN ('offer.cancel','call.hangup')
+        )
         AND NOT EXISTS (
           SELECT 1
           FROM queue_skills required_skill

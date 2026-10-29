@@ -299,6 +299,52 @@ test('ปล่อยตอนว่าง = OFFLINE ทันที; lease ข�
   assert.equal((await f.call('POST', PATH, token, { surface: 'workspace' })).status, 201);
 });
 
+test('บัญชี inactive ไม่รับ routing offer และ heartbeat เพิกถอน idle lease เดิม', async (t) => {
+  const f = await setup(t);
+  const actor = { tenantId: f.tenantA, userId: f.agentA };
+  const lease = await f.leases.acquire(
+    actor,
+    { surface: 'workspace', hostOrigin: null },
+    'disable-idle',
+  );
+  await owner.user.update({ where: { id: f.agentA }, data: { isActive: false } });
+  assert.equal(await f.leases.isCurrent(actor, lease.leaseId), false);
+  assert.deepEqual(await f.leases.heartbeat(actor, lease.leaseId), {
+    status: 'REVOKED',
+    reason: 'auth_revoked',
+  });
+  const released = await owner.agentWorkSessionLease.findUniqueOrThrow({
+    where: { id: lease.leaseId },
+  });
+  assert.ok(released.releasedAt);
+  assert.equal(released.releaseReason, 'auth_revoked');
+  await assert.rejects(
+    f.leases.acquire(actor, { surface: 'workspace', hostOrigin: null }, 'disabled-acquire'),
+    /AGENT_NOT_FOUND/,
+  );
+});
+
+test('บัญชี inactive ระหว่างมีงานหยุดรับงานใหม่ แต่ไม่ตัด active lease ก่อนงานจบ', async (t) => {
+  const f = await setup(t);
+  const actor = { tenantId: f.tenantA, userId: f.agentA };
+  const lease = await f.leases.acquire(
+    actor,
+    { surface: 'workspace', hostOrigin: null },
+    'disable-busy',
+  );
+  await f.interaction('ACTIVE');
+  await owner.user.update({ where: { id: f.agentA }, data: { isActive: false } });
+  assert.equal(await f.leases.isCurrent(actor, lease.leaseId), false);
+  assert.deepEqual(await f.leases.heartbeat(actor, lease.leaseId), {
+    status: 'REVOKED',
+    reason: 'auth_revoked',
+  });
+  const retained = await owner.agentWorkSessionLease.findUniqueOrThrow({
+    where: { id: lease.leaseId },
+  });
+  assert.equal(retained.releasedAt, null);
+});
+
 test('หลุดตอนว่าง: ปล่อยเมื่อครบ 60 วินาที; หลุดระหว่างมีงาน: lease ยังอยู่จนงานจบ', async (t) => {
   const f = await setup(t);
   const actor = { tenantId: f.tenantA, userId: f.agentA };

@@ -16,6 +16,11 @@ export interface FreeSwitchEvent {
   variable_dcontact_tenant_id?: unknown;
   variable_dcontact_delivery_id?: unknown;
   variable_dcontact_provider_request_key?: unknown;
+  variable_dcontact_call_uuid?: unknown;
+  variable_dcontact_node_id?: unknown;
+  variable_dcontact_offer_id?: unknown;
+  variable_dcontact_agent_id?: unknown;
+  variable_dcontact_bleg_uuid?: unknown;
   'Hangup-Cause'?: unknown;
 }
 

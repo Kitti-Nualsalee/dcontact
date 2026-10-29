@@ -152,7 +152,7 @@ for (const managed of [false, true])
       eventId: randomUUID,
       now: () => '2026-09-04T11:00:00.000Z',
     });
-    const result = await router.handle({
+    const request = {
       eventId: 'routing-policy-created',
       type: 'call.created',
       tenantId,
@@ -174,7 +174,12 @@ for (const managed of [false, true])
       correlationId: string;
       orderingKey: string;
       payload: TelephonyCallEvent;
-    });
+    };
+    if (managed) {
+      await assert.rejects(router.handle(request), /VOICE_CONFIG_V1_REQUIRED/);
+      return;
+    }
+    const result = await router.handle(request);
 
     assert.equal(result.status, 'ASSIGNED');
     assert.equal(result.agentId, eligibleAgentId);

@@ -16,6 +16,7 @@ import {
   type VoiceActor,
 } from './tenant-voice-catalog.js';
 import { configurationRead, configurationResource } from './tenant-voice-configuration-read.js';
+import { managedRuntimeReady } from './tenant-voice-runtime-readiness.js';
 
 type Tx = Prisma.TransactionClient;
 export type ConfigurationKind = 'queue' | 'requirements' | 'agent-skills' | 'binding';
@@ -145,6 +146,13 @@ export async function lockConfigurationClosure(
     { id: string }[]
   >`SELECT id FROM interactions WHERE tenant_id=${tenantId}::uuid AND state IN ('QUEUED','ASSIGNED','ACTIVE','WRAPUP') AND (queue_id=ANY(${affectedQueues}::uuid[]) OR agent_id=ANY(${affectedUsers}::uuid[]) OR metadata->>'targetAgentId'=ANY(${affectedUsers}::text[]) OR metadata->>'target_agent_id'=ANY(${affectedUsers}::text[])) LIMIT 1`;
   if (busy.length) voiceFail('CONFIG_BUSY', 409);
+  const cleanup = await tx.$queryRaw<
+    { id: string }[]
+  >`SELECT command.id FROM voice_managed_commands command JOIN interactions interaction ON interaction.tenant_id=command.tenant_id AND interaction.id=command.interaction_id LEFT JOIN voice_managed_offers offer ON offer.tenant_id=command.tenant_id AND offer.id=command.offer_id WHERE command.tenant_id=${tenantId}::uuid AND command.status='PENDING' AND command.command_type IN ('offer.cancel','call.hangup') AND (interaction.queue_id=ANY(${affectedQueues}::uuid[]) OR interaction.agent_id=ANY(${affectedUsers}::uuid[]) OR offer.agent_id=ANY(${affectedUsers}::uuid[])) LIMIT 1`;
+  if (cleanup.length) voiceFail('CONFIG_BUSY', 409);
+  const [disabling] = await tx.$queryRaw<{ pending: boolean }[]>`
+    SELECT dc_people_disable_pending(${tenantId}::uuid,${affectedQueues}::uuid[],${affectedUsers}::uuid[]) AS pending`;
+  if (disabling?.pending) voiceFail('CONFIG_BUSY', 409);
 }
 
 export async function mutateConfiguration(
@@ -247,7 +255,25 @@ export async function mutateConfiguration(
       const readiness = await policy(tx, identity.tenantId);
       if (readiness.reason)
         voiceFail(readiness.reason, readiness.reason === 'RESOURCE_POLICY_STALE' ? 409 : 503);
-      if (command.isActive === true) voiceFail('CAPABILITY_NOT_READY', 503);
+      if (command.isActive === true) {
+        let nodeId: string | null = null;
+        if (kind === 'binding') {
+          const reserved = await tx.$queryRaw<
+            { nodeId: string | null }[]
+          >`SELECT item->>'telephonyNodeId' AS "nodeId" FROM tenant_voice_provisioning_policies p CROSS JOIN LATERAL jsonb_array_elements(p.destination_pool) item WHERE p.tenant_id=${identity.tenantId}::uuid AND item->>'destinationId'=${id}`;
+          nodeId = reserved[0]?.nodeId ?? null;
+          if (!nodeId || !newQueue?.isActive) voiceFail('CAPABILITY_NOT_READY', 503);
+        }
+        if (!(await managedRuntimeReady(tx, identity.tenantId, nodeId)))
+          voiceFail('CAPABILITY_NOT_READY', 503);
+        const queueId = kind === 'binding' ? command.queueId! : id;
+        const required = await tx.queueSkill.count({
+          where: { tenantId: identity.tenantId, queueId },
+        });
+        if (!required) voiceFail('VALIDATION_FAILED', 400, { field: 'requiredSkills' });
+      }
+      if (kind === 'requirements' && current.isActive && !command.items.length)
+        voiceFail('VALIDATION_FAILED', 400, { field: 'requiredSkills' });
       if (kind === 'requirements' || kind === 'agent-skills') {
         const skills = await tx.skill.findMany({
           where: {
@@ -300,7 +326,7 @@ export async function mutateConfiguration(
       if (kind === 'agent-skills')
         await tx.user.update({ where: { id }, data: { configRevision: { increment: 1 } } });
       if (kind === 'binding')
-        await tx.$executeRaw`UPDATE voice_destinations SET queue_id=${command.queueId!}::uuid,entry_mode='DIRECT_QUEUE',is_active=false,config_revision=config_revision+1,updated_at=now() WHERE tenant_id=${identity.tenantId}::uuid AND id=${id}::uuid`;
+        await tx.$executeRaw`UPDATE voice_destinations SET queue_id=${command.queueId!}::uuid,entry_mode='DIRECT_QUEUE',is_active=${command.isActive!},config_revision=config_revision+1,updated_at=now() WHERE tenant_id=${identity.tenantId}::uuid AND id=${id}::uuid`;
       const result = await configurationRead(tx, identity, kind, id);
       const changedKeys =
         kind === 'queue'
