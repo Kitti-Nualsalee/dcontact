@@ -425,6 +425,15 @@ UAT ใช้ SeaweedFS ตั้งแต่ deploy แรก และไม�
 - ใช้ `prisma migrate deploy` เท่านั้น — ห้าม `migrate dev`, `migrate reset`, `db push`, `--accept-data-loss`
   (static readiness UAT-S11 ตรวจ workflow)
 - migration ใหม่ต้อง additive: workflow ปฏิเสธไฟล์ที่มี `DROP` (หลังตัด comment) และการแก้/ลบ migration ที่มีอยู่
+- ข้อยกเว้น #714 ที่ owner อนุมัติวันที่ 29 ตุลาคม 2569 จำกัดเฉพาะ
+  `20261022130000_tenant_voice_skill_scope/migration.sql` และ SHA-256
+  `5e281f7a38bace24cf114dde5a0484a41a0e01d2b317ea95293fce41a8f825c9` เท่านั้น:
+  เปลี่ยน FK เป็น composite tenant FK และแทนที่ trigger ใน transaction เดียว พร้อมตรวจ contamination
+  และ backfill ข้อมูลเดิมก่อนเพิ่ม constraints; แก้ bytes, ย้าย path หรือแก้ migration ที่ apply แล้วต้องถูกปฏิเสธ
+  หลักฐานซ้อม restore/migrate จากสำเนา VM และ permission/auth restore อยู่ใน #714
+- exact pin ไม่ใช่การอนุมัติ deploy: ต้องมี backup สด, global idle, หยุด writer รุ่นเดิมตลอด migration
+  และ follow-ups ทั้งชุดก่อนเปิด writes เพราะ `tenant_id NOT NULL`/FORCE RLS ไม่รองรับ writer เดิมโดยปริยาย
+  ต้องพิสูจน์ rollback compatibility แยก ห้ามใช้ pin นี้ข้ามเกตหรือเปิด writes ของรุ่นที่ไม่เข้ากัน
 - rollback ไม่ย้อน schema: API เวอร์ชันก่อนต้องทำงานกับ schema ใหม่ได้ (expand ก่อน, contract ภายหลังเมื่อเลิกใช้จริง)
 - ต้องการคืนข้อมูลจริง = restore จาก backup (ข้อ 9) ซึ่งเป็นการตัดสินใจของ owner ไม่ใช่ขั้นอัตโนมัติ
 
