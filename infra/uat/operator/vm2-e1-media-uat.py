@@ -370,9 +370,16 @@ def run(mode, actor, source_sha, candidate_sha=None, operator_sha=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise MediaGuardError('E1_MEDIA_OPERATOR_BUSY') from None
-        current = runtime()
+        current = runtime(candidate_sha) if candidate_sha is not None else runtime()
+        if operator_sha is not None:
+            current = {**current, 'operatorSourceSha': operator_sha}
         if mode != 'restore':
-            require_canonical(current)
+            if operator_sha is None:
+                require_canonical(current)
+            else:
+                require_canonical(current, operator_sha)
+        elif operator_sha is not None:
+            require_operator(current, operator_sha)
         require_idle_off(current)
         result = reconcile(MediaFirewall(), read_state(), current, actor, restore=mode == 'restore')
     return {'status': result, **current}

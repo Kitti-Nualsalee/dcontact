@@ -6,7 +6,7 @@ import shlex
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 
 spec = importlib.util.spec_from_file_location('e1_media', Path(__file__).with_name('vm2-e1-media-uat.py'))
@@ -367,6 +367,54 @@ class MediaTests(unittest.TestCase):
             with self.subTest(mode=mode), patch.object(media.os, 'geteuid', return_value=0), patch.object(media, 'runtime', return_value=CURRENT), patch.object(media, 'require_operator', side_effect=media.MediaGuardError('E1_MEDIA_CANONICAL_OPERATOR_REQUIRED')), self.assertRaisesRegex(media.MediaGuardError, 'CANONICAL_OPERATOR_REQUIRED'):
                 media.run(mode, ACTOR, CURRENT['sourceSha'], CURRENT['sourceSha'], 'd' * 40)
         self.assertEqual(self.fake.mutations, [])
+
+    def test_apply_and_restore_keep_candidate_lineage_after_exclusive_lock(self):
+        operator = 'd' * 40
+        current = {**CURRENT, 'recordedSourceSha': 'e' * 40}
+        selected = {**current, 'operatorSourceSha': operator}
+        self.state_dir.chmod(0o755)
+        for mode in ('apply', 'restore'):
+            with self.subTest(mode=mode):
+                fake = FakeIptables()
+                firewall = media.MediaFirewall(fake.execute)
+                if mode == 'restore':
+                    firewall.install(media.ruleset(CURRENT['ip']))
+                def runtime(candidate=None):
+                    if candidate != CURRENT['sourceSha']:
+                        raise media.MediaGuardError('E1_MEDIA_RUNTIME_SHA_MISMATCH')
+                    return current
+                with patch.object(media.os, 'geteuid', return_value=0), patch.object(media, 'runtime', side_effect=runtime) as read_runtime, patch.object(media, 'require_canonical') as canonical, patch.object(media, 'require_operator') as lineage, patch.object(media, 'require_idle_off') as idle, patch.object(media, 'root_owned'), patch.object(media, 'read_state', return_value=snapshot(current) if mode == 'restore' else None), patch.object(media, 'MediaFirewall', return_value=firewall):
+                    result = media.run(mode, ACTOR, CURRENT['sourceSha'], CURRENT['sourceSha'], operator)
+                self.assertEqual(read_runtime.call_args_list, [call(CURRENT['sourceSha'])] * 2)
+                self.assertEqual(idle.call_args_list, [call(selected)] * 2)
+                guard = canonical if mode == 'apply' else lineage
+                self.assertEqual(guard.call_args_list, [call(selected, operator)] * 2)
+                self.assertEqual(result['status'], 'APPLIED' if mode == 'apply' else 'RESTORED')
+                self.assertEqual(result['recordedSourceSha'], current['recordedSourceSha'])
+                self.assertEqual(result['operatorSourceSha'], operator)
+                self.assertEqual(self.written[-1]['sourceSha'], CURRENT['sourceSha'])
+
+    def test_candidate_rechecks_guards_inside_lock_before_firewall_mutation(self):
+        self.state_dir.chmod(0o755)
+        for mode, guard_name in (('apply', 'runtime'), ('apply', 'require_canonical'), ('apply', 'require_idle_off'), ('restore', 'require_operator'), ('restore', 'require_idle_off')):
+            with self.subTest(mode=mode, guard=guard_name):
+                self.written.clear()
+                guards = {name: patch.object(media, name, return_value=CURRENT if name == 'runtime' else None) for name in ('runtime', 'require_canonical', 'require_operator', 'require_idle_off')}
+                with patch.object(media.os, 'geteuid', return_value=0), guards['runtime'] as runtime, guards['require_canonical'] as canonical, guards['require_operator'] as lineage, guards['require_idle_off'] as idle, patch.object(media, 'root_owned'), patch.object(media, 'MediaFirewall', return_value=self.firewall):
+                    guard = {'runtime': runtime, 'require_canonical': canonical, 'require_operator': lineage, 'require_idle_off': idle}[guard_name]
+                    guard.side_effect = [CURRENT if guard_name == 'runtime' else None, media.MediaGuardError('E1_MEDIA_RECHECK_REJECTED')]
+                    with self.assertRaisesRegex(media.MediaGuardError, 'RECHECK_REJECTED'):
+                        media.run(mode, ACTOR, CURRENT['sourceSha'], CURRENT['sourceSha'], 'd' * 40)
+                self.assertEqual(self.fake.mutations, [])
+                self.assertEqual(self.written, [])
+
+    def test_recorded_apply_keeps_default_guards_after_lock(self):
+        self.state_dir.chmod(0o755)
+        with patch.object(media.os, 'geteuid', return_value=0), patch.object(media, 'runtime', return_value=CURRENT) as runtime, patch.object(media, 'require_canonical') as canonical, patch.object(media, 'require_idle_off') as idle, patch.object(media, 'root_owned'), patch.object(media, 'read_state', return_value=None), patch.object(media, 'MediaFirewall', return_value=self.firewall):
+            self.assertEqual(media.run('apply', ACTOR, CURRENT['sourceSha'])['status'], 'APPLIED')
+        self.assertEqual(runtime.call_args_list, [call(), call()])
+        self.assertEqual(canonical.call_args_list, [call(CURRENT), call(CURRENT)])
+        self.assertEqual(idle.call_args_list, [call(CURRENT), call(CURRENT)])
 
 
 class CandidateRuntimeTests(unittest.TestCase):
