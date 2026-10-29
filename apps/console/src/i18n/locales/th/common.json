@@ -107,7 +107,11 @@
       "mine": "บัญชีของฉัน",
       "policy": "นโยบายบัญชี"
     },
-    "pinned": "ปักหมุด"
+    "pinned": "ปักหมุด",
+    "liveSystems": "ระบบงานสด",
+    "liveWorkspace": "Workspace",
+    "liveSupervisor": "Supervisor",
+    "discardChanges": "มีร่างหรือผลบันทึกที่ยังไม่ยืนยัน ต้องการออกจากหน้านี้หรือไม่?"
   },
   "auth": {
     "signedOut": {

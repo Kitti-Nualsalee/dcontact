@@ -28,6 +28,16 @@
   color: var(--dc-text-muted);
 }
 
+.contentBreadcrumb {
+  padding-block-start: var(--dc-space-6);
+  padding-inline: var(--dc-space-8);
+  overflow-wrap: anywhere;
+}
+
+.contentBreadcrumb .crumbs {
+  flex-wrap: wrap;
+}
+
 .crumb + .crumb::before {
   content: '/';
   margin-right: var(--dc-space-3);
@@ -77,4 +87,46 @@
 .languageButton:focus-visible {
   outline: none;
   box-shadow: inset var(--dc-focus-ring);
+}
+
+.systemLinks {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-2);
+}
+
+.systemLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dc-space-3);
+  min-height: var(--dc-control-sm);
+  padding-inline: var(--dc-space-4);
+  border-radius: var(--dc-radius-md);
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+  font-weight: var(--dc-weight-semibold);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.systemLink[data-hovered] {
+  background: var(--dc-surface-hover);
+}
+
+.systemLink[data-focus-visible] {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+@media (max-width: 760px) {
+  .systemLabel {
+    display: none;
+  }
+  .bar:has(.systemLinks) {
+    gap: var(--dc-space-3);
+    padding-inline: var(--dc-space-4);
+  }
+  .actions:has(.systemLinks) {
+    gap: var(--dc-space-3);
+  }
 }

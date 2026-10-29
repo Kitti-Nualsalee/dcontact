@@ -11,8 +11,10 @@ import type { ReactNode } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import {
   ShellFrame,
+  Breadcrumb,
   LanguageSwitch,
   TopBar,
+  TopBarLinks,
   UserMenu,
   type ShellNavigationState,
   ShellPageNavProvider,
@@ -28,6 +30,7 @@ import {
   type UserMenuProps,
 } from '@d-contact/ui-react';
 import { useShellTokens } from './tokens.js';
+import { useConsoleNavigation } from './console-navigation.js';
 
 export type ConsoleShellApp =
   | 'home'
@@ -53,14 +56,11 @@ export function hostOrigins(): Partial<Record<HostApp, string>> {
 }
 
 /**
- * #651: เมนูย่อยของพื้นที่ — ส่วน "ปักหมุด" (ถ้ามี) อยู่บนสุด ตามด้วยกลุ่มย่อยของพื้นที่ตามลำดับที่ server ส่ง
+ * #651/#758: เมนูย่อยแสดงกลุ่มของพื้นที่ตามลำดับที่ server ส่ง; หมุดอยู่เฉพาะ Home
  * ไอคอนของรายการ = id ของแอป (ShellIcon ใช้ไอคอน fallback เมื่อไม่รู้จัก)
  */
 export function areaSections(
   area: ShellArea,
-  apps: readonly ShellApp[],
-  pinnedIds: readonly string[],
-  pinnedLabel: string,
   /** #658: เลือกหน้าย่อยของแอปที่กำลังเปิดโดยไม่โหลดหน้าใหม่ */
   page?: { appId: string; onSelect: (pageId: string) => void },
 ) {
@@ -81,21 +81,11 @@ export function areaSections(
       ? { onSelect: () => page.onSelect(app.pageId!) }
       : {}),
   });
-  // หมุดที่อยู่ในพื้นที่นี้อยู่แล้วไม่ซ้ำในส่วนปักหมุด
-  const inArea = new Set(area.sections.flatMap((section) => section.items.map((i) => i.id)));
-  const pinned = pinnedIds.flatMap((id) => {
-    if (inArea.has(id)) return [];
-    const app = apps.find((candidate) => candidate.id === id);
-    return app ? [item(app)] : [];
-  });
-  return [
-    ...(pinned.length > 0 ? [{ id: 'pinned', label: pinnedLabel, items: pinned }] : []),
-    ...area.sections.map((section) => ({
-      id: section.id,
-      label: section.label,
-      items: section.items.map(item),
-    })),
-  ];
+  return area.sections.map((section) => ({
+    id: section.id,
+    label: section.label,
+    items: section.items.map(item),
+  }));
 }
 
 /** id ของรายการหน้าย่อยในเมนูย่อย — ใช้เป็น `currentItemId` */
@@ -148,6 +138,7 @@ export function ConsoleShell({
 }: ConsoleShellProps) {
   const { t } = useTranslation();
   const { locale, setLocale } = useLocale();
+  const onNavigate = useConsoleNavigation();
   const { t: homeText } = useTranslation('home');
   const translate = t as unknown as (key: string) => string;
   const nav = useShellNavigation({
@@ -204,22 +195,47 @@ export function ConsoleShell({
       toastQueue.add({ title: t('language.saveFailed'), tone: 'attention' }, { timeout: 6000 }),
     );
   };
+  const liveApps = (nav.apps ?? []).flatMap((app) => {
+    const label =
+      app.id === 'agent-workspace'
+        ? t('shell.liveWorkspace')
+        : app.id === 'supervisor-workspace'
+          ? t('shell.liveSupervisor')
+          : undefined;
+    return label ? [{ ...app, label }] : [];
+  });
+  const liveLinks = <TopBarLinks apps={liveApps} label={t('shell.liveSystems')} />;
   // Home ยังเปิดได้เมื่อปิด shell; ไม่แสดง rail จนกว่าจะเปิด flag ตาม rollout เดิม
   if (nav.status === 'legacy')
     return (
       <div className="home-shell">
-        <TopBar brand={brand} breadcrumb={[t('navigation.apps.home')]}>
+        <TopBar brand={brand} breadcrumb={[]}>
+          {liveLinks}
           <LanguageSwitch value={locale} onChange={onLanguageChange} />
           {account ? <UserMenu {...userMenu(account)} /> : null}
         </TopBar>
+        <Breadcrumb items={[t('navigation.apps.home')]} placement="content" />
         <main>{content}</main>
         <ToastRegion />
       </div>
     );
   const homeApps = nav.apps.filter((app) => app.id !== 'home');
+  const homeItem = (app: ShellApp) => ({
+    ...app,
+    label:
+      app.id === 'agent-workspace'
+        ? app.label
+        : homeText(`names.${app.id}`, { defaultValue: app.label }),
+    icon: app.id === 'dphone-embedding' ? 'area-integrations' : app.id,
+  });
+  // Home มีลิงก์ถาวรแล้ว; หมุดใช้เฉพาะแอปที่ server อนุญาตและคงลำดับของผู้ใช้
+  const homePins = nav.pinnedIds.flatMap((id) => {
+    const app = homeApps.find((candidate) => candidate.id === id);
+    return app ? [homeItem(app)] : [];
+  });
   const homeSubNav = (
     <SubNav
-      title={homeText('nav')}
+      title={t('navigation.apps.home')}
       currentItemId="home"
       sections={[
         {
@@ -233,18 +249,7 @@ export function ConsoleShell({
             },
           ],
         },
-        {
-          id: 'workspaces',
-          label: homeText('nav'),
-          items: homeApps.map((app) => ({
-            ...app,
-            label:
-              app.id === 'agent-workspace'
-                ? app.label
-                : homeText(`names.${app.id}`, { defaultValue: app.label }),
-            icon: app.id === 'dphone-embedding' ? 'area-integrations' : app.id,
-          })),
-        },
+        ...(homePins.length ? [{ id: 'pinned', label: t('shell.pinned'), items: homePins }] : []),
         {
           id: 'account',
           items: [
@@ -314,9 +319,6 @@ export function ConsoleShell({
         currentItemId={hasPages && pageId ? subNavItemId(appId, pageId) : appId}
         sections={areaSections(
           area,
-          nav.apps,
-          nav.pinnedIds,
-          t('shell.pinned'),
           hasPages && onPageSelect ? { appId, onSelect: onPageSelect } : undefined,
         )}
       />
@@ -334,8 +336,12 @@ export function ConsoleShell({
         maxPins={nav.maxPins}
         onTogglePin={nav.togglePin}
         currentAppId={appId}
+        onNavigate={onNavigate}
         areas={nav.areas}
+        railExcludedAppIds={liveApps.map((app) => app.id)}
         brand={brand}
+        topBarActions={liveLinks}
+        breadcrumbPlacement="content"
         breadcrumb={
           appId === 'home'
             ? [t('navigation.apps.home')]

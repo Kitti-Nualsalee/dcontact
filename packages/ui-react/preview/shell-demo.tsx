@@ -11,6 +11,7 @@ import {
   RailLink,
   SubNav,
   TopBar,
+  TopBarLinks,
   UserMenu,
   shellUserFromClaims,
   useShellNavigation,
@@ -179,6 +180,12 @@ export function ShellDemo() {
           brand="D-Contact"
           breadcrumb={[t('shellDemo.groups.automation'), t('shellDemo.apps.journeys')]}
         >
+          <TopBarLinks
+            apps={nav.apps.filter((app) =>
+              ['agent-workspace', 'supervisor-workspace'].includes(app.id),
+            )}
+            label={t('shellDemo.groups.live')}
+          />
           <LanguageSwitch
             value={language}
             onChange={(next) => {
