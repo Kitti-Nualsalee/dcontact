@@ -49,6 +49,7 @@ jobs:
           node-version: 20
 
       - name: Migration guard
+        shell: bash
         env:
           DEPLOYED_BASE_SHA: ${{ inputs.deployed_base_sha }}
         run: node scripts/u1-uat-readiness.mjs --migration-guard --base "$DEPLOYED_BASE_SHA" | tee migration-guard.json
