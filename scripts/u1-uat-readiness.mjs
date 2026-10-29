@@ -1370,6 +1370,10 @@ export const APPROVED_DROP_MIGRATIONS = Object.freeze([
     path: 'packages/db/prisma/migrations/20261021100000_tenant_people_invitation_multiple_generations/migration.sql',
     sha256: '99c6732a4cd6104d8fe513c2ee34283da9da033a88675fd63073db0524c0feae',
   }),
+  Object.freeze({
+    path: 'packages/db/prisma/migrations/20261022130000_tenant_voice_skill_scope/migration.sql',
+    sha256: '5e281f7a38bace24cf114dde5a0484a41a0e01d2b317ea95293fce41a8f825c9',
+  }),
 ]);
 export function guardMigrations(changes) {
   const failures = [];

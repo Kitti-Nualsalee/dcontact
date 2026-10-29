@@ -1416,6 +1416,17 @@ test('UAT-M01: migration ใหม่ที่มี DROP หรือการ�
   assert.deepEqual(findDropStatements('SELECT 1; -- DROP TABLE x'), []);
 });
 
+test('UAT-M01 (#714): skill-scope ที่อนุมัติต้อง pin exact path และ digest', () => {
+  assert.ok(
+    APPROVED_DROP_MIGRATIONS.some(
+      (pin) =>
+        pin.path ===
+          'packages/db/prisma/migrations/20261022130000_tenant_voice_skill_scope/migration.sql' &&
+        pin.sha256 === '5e281f7a38bace24cf114dde5a0484a41a0e01d2b317ea95293fce41a8f825c9',
+    ),
+  );
+});
+
 test('UAT-M01 (#710): migration ที่ pin ไว้ผ่านเฉพาะ bytes เดิม แก้ไฟล์หรือย้าย path ยังล้ม', () => {
   for (const pin of APPROVED_DROP_MIGRATIONS) {
     const sql = readFileSync(resolve(repositoryRoot, pin.path), 'utf8');
