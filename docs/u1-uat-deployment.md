@@ -491,6 +491,20 @@ uatc up -d --wait keycloak
 กด `uat-preview` ด้วย `action=rollback` (ว่าง `rollback_sha` = record ก่อนหน้า หรือใส่ SHA ที่เคย deploy สำเร็จ)
 
 - อ่าน digest จาก deployment record บน VM แล้ว `up -d --no-deps api proxy` ด้วย release นั้น
+- ก่อน `up` canonical `infra/uat/bin/uat-deploy.sh` อ่าน live `_prisma_migrations` แบบ read-only
+  ผ่าน `db-roles` โดย `--no-deps` ไม่ start relay/DB; 3VM ต้องเป็น `dcontact_uat_owner` บน `dcontact_uat`.
+  Query error, unresolved/inconsistent ledger, skill-scope checksum ไม่ตรง หรือ active entry ซ้ำจะหยุดก่อนเปลี่ยน runtime.
+  เมื่อ `20261022130000_tenant_voice_skill_scope` applied แล้ว ต้องตรวจ generated Prisma ของ target image
+  แบบ offline (`--network none`, read-only, จำกัดเวลา/resource) ว่า `AgentSkill` และ `QueueSkill`
+  มี required `tenantId` ที่ map ไป `tenant_id`; รุ่น 158 ที่ไม่มี field นี้ rollback ไม่ได้.
+  เกตนี้ป้องกันเฉพาะ skill-scope incompatibility ไม่ใช่การรับรอง full API/JWT/write-path compatibility ของ 14ca หรือรุ่นอื่น.
+  ก่อน skill-scope applied จะคงพฤติกรรม rollback เดิมเมื่อ ledger ตรวจผ่าน.
+  Probe ใช้ cached images เท่านั้น (`--pull never`), มี outer deadline และ cleanup เฉพาะ container ID
+  ที่ตรวจชื่อ/ownership label ตรง invocation; TERM/INT/HUP หยุด rollback และ cleanup เช่นกัน.
+  ถ้า inspect/remove/absence readback ยืนยันไม่ได้ จะรายงาน `RECONCILIATION_REQUIRED` พร้อมชื่อ probe
+  และห้ามถือว่า cleanup สำเร็จหรือเริ่ม `up` ต่อ; operator ต้อง reconcile probe ก่อนลองใหม่.
+- Workflow ใช้ script จาก checkout ปัจจุบันผ่าน `ci-ssh-setup.sh`; manual rollback ต้องใช้ operator copy
+  ของ canonical script ที่ review แล้ว ไม่เรียก script จาก historical immutable release ซึ่งไม่มี guard นี้.
 - **ไม่** backup/migrate/restore และไม่แตะ Keycloak realm
 - รัน smoke แล้วเขียน record `action: rollback` (record เดิมกลายเป็น previous — rollback ซ้ำ = สลับกลับ)
 
