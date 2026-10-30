@@ -10,6 +10,7 @@ import {
   applyRealmConfig,
   createKeycloakAdmin,
   realmConfigDigest,
+  reconcileConsoleRedirects,
   renderRealm,
   validateAccounts,
 } from './u1-uat-keycloak-users.mjs';
@@ -69,6 +70,104 @@ test('render realm: แทน ${env.*} ครบ, redirect ตรง host/tenant
     realmConfigDigest(rendered),
     realmConfigDigest(renderRealm(template, { ...environment, UAT_HOST: 'other.example.test' })),
   );
+});
+
+test('additional tenants: exact Console login/logout, deterministic และ Workspace ไม่ขยาย', () => {
+  const options = {
+    ...environment,
+    UAT_ADDITIONAL_TENANT_SLUGS: 'tenant-z,tenant-a,tenant-z,uat-tenant',
+    UAT_WORKSPACE_HOST: 'workspace.example.test',
+  };
+  const rendered = renderRealm(template, options);
+  const consoleClient = rendered.clients.find(
+    (client) => client.clientId === 'dcontact-uat-console',
+  );
+  const expected = ['tenant-a', 'tenant-z', 'uat-tenant'].map(
+    (slug) => `https://uat.example.test/?tenant=${slug}`,
+  );
+  assert.deepEqual(consoleClient.redirectUris, expected);
+  assert.equal(consoleClient.attributes['post.logout.redirect.uris'], expected.join('##'));
+  assert.deepEqual(consoleClient.webOrigins, ['https://uat.example.test']);
+  assert.deepEqual(
+    rendered.clients.find((client) => client.clientId === 'dcontact-uat-workspace').redirectUris,
+    ['https://workspace.example.test/?tenant=uat-tenant'],
+  );
+  assert.equal(
+    realmConfigDigest(rendered),
+    realmConfigDigest(
+      renderRealm(template, { ...options, UAT_ADDITIONAL_TENANT_SLUGS: 'tenant-a,tenant-z' }),
+    ),
+  );
+});
+
+test('additional tenants: ค่าผิดรูปและ redirect injection ถูกปฏิเสธก่อน apply', () => {
+  for (const value of [
+    'ok,,two',
+    'BAD',
+    'ok&next=https://evil.test',
+    '../evil',
+    'foo--bar',
+    'foo-',
+    '-foo',
+    'x'.repeat(64),
+    Array(51).fill('ok').join(','),
+  ]) {
+    assert.throws(
+      () => renderRealm(template, { ...environment, UAT_ADDITIONAL_TENANT_SLUGS: value }),
+      /REALM_ENV_INVALID: UAT_ADDITIONAL_TENANT_SLUGS/,
+    );
+  }
+});
+
+test('Console redirect reconciliation: check, compare-before-apply, idempotency และ rollback', async () => {
+  const initial = renderRealm(template, environment);
+  const desired = renderRealm(template, {
+    ...environment,
+    UAT_ADDITIONAL_TENANT_SLUGS: 'tenant-a,tenant-b',
+  });
+  let client = {
+    ...structuredClone(initial.clients.find((entry) => entry.clientId === 'dcontact-uat-console')),
+    id: 'client-id',
+    extra: 'preserve',
+  };
+  const calls = [];
+  const admin = {
+    async call(path, options = {}) {
+      calls.push({ path, method: options.method ?? 'GET' });
+      if (path.includes('?clientId=')) return [{ id: client.id }];
+      if (options.method === 'PUT') client = structuredClone(options.body);
+      return structuredClone(client);
+    },
+  };
+  const check = await reconcileConsoleRedirects(admin, desired);
+  assert.equal(check.changed, true);
+  assert.equal(calls.filter((call) => call.method === 'PUT').length, 0);
+  await assert.rejects(
+    reconcileConsoleRedirects(admin, desired, {
+      apply: true,
+      expectedDigest: 'sha256:' + '0'.repeat(64),
+    }),
+    /CONSOLE_REDIRECT_STATE_CHANGED/,
+  );
+  await reconcileConsoleRedirects(admin, desired, {
+    apply: true,
+    expectedDigest: check.beforeDigest,
+  });
+  assert.equal(client.extra, 'preserve');
+  assert.equal(client.redirectUris.length, 3);
+  const same = await reconcileConsoleRedirects(admin, desired, {
+    apply: true,
+    expectedDigest: check.targetDigest,
+  });
+  assert.equal(same.changed, false);
+  const reverse = await reconcileConsoleRedirects(admin, initial);
+  await reconcileConsoleRedirects(admin, initial, {
+    apply: true,
+    expectedDigest: reverse.beforeDigest,
+  });
+  assert.deepEqual(client.redirectUris, ['https://uat.example.test/?tenant=uat-tenant']);
+  assert.equal(client.attributes['post.logout.redirect.uris'], client.redirectUris[0]);
+  assert.equal(calls.filter((call) => call.method === 'PUT').length, 2);
 });
 
 test('render realm: env ขาดหรือผิดรูป = fail closed', () => {
