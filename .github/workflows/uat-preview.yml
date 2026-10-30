@@ -74,7 +74,7 @@ jobs:
 
       - name: U1.6 static readiness (compose/Dockerfile/realm/workflow/secret scan)
         run: |
-          node --test scripts/u1-uat-readiness.test.mjs scripts/u1-uat-keycloak-users.test.mjs
+          node --test scripts/u1-uat-readiness.test.mjs scripts/u1-uat-keycloak-users.test.mjs scripts/uat-rollback-compat.test.mjs
           node scripts/u1-uat-readiness.mjs --static
 
       - name: Configure SSH to UAT VM

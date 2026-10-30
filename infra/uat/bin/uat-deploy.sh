@@ -84,6 +84,11 @@ is_workspace() {
 compose() {
   local dir="$1"
   shift
+  local deadline=()
+  if [[ "${1:-}" == --rollback-probe ]]; then
+    deadline=(timeout --signal=TERM --kill-after=5s 45s)
+    shift
+  fi
   if is_3vm "$dir"; then
     local binary="$UAT_ROOT/bin/docker-compose"
     [[ -x "$binary" ]] || fail 'COMPOSE_3VM_BINARY_MISSING'
@@ -93,7 +98,7 @@ compose() {
     if is_workspace "$dir"; then files+=(-f "$dir/docker-compose.uat.workspace.yml"); fi
     if is_line "$dir"; then files+=(-f "$dir/docker-compose.uat.line.yml"); fi
     if is_trial "$dir"; then files+=(-f "$dir/docker-compose.uat.line-trial.yml"); fi
-    "$binary" --project-name "$PROJECT" \
+    ${deadline[@]+"${deadline[@]}"} "$binary" --project-name "$PROJECT" \
       --project-directory "$dir" \
       --env-file "$UAT_ROOT/uat.env" \
       --env-file "$dir/release.env" \
@@ -103,7 +108,7 @@ compose() {
     if is_e1 "$dir"; then files+=(-f "$dir/docker-compose.uat.e1.yml"); fi
     if is_e1_launcher "$dir"; then files+=(-f "$dir/docker-compose.uat.e1-launcher.yml"); fi
     if is_workspace "$dir"; then files+=(-f "$dir/docker-compose.uat.workspace.yml"); fi
-    docker compose --project-name "$PROJECT" \
+    ${deadline[@]+"${deadline[@]}"} docker compose --project-name "$PROJECT" \
       --project-directory "$dir" \
       --env-file "$UAT_ROOT/uat.env" \
       --env-file "$dir/release.env" \
@@ -137,6 +142,93 @@ check_release_env() {
   done
   [[ "$(release_value "$dir" SOURCE_SHA)" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
 }
+
+rollback_probe_cleanup() {
+  local name="$1" ownership remaining id
+  if ownership="$(timeout --signal=TERM --kill-after=2s 5s docker inspect \
+    --format '{{.Id}}|{{ index .Config.Labels "com.dcontact.rollback-probe" }}' "$name" 2>/dev/null)"; then
+    id="${ownership%%|*}"
+    [[ "$id" =~ ^[0-9a-f]{64}$ && "$ownership" == "$id|$name" ]] || return 1
+    timeout --signal=TERM --kill-after=2s 5s docker rm -f "$id" >/dev/null 2>&1 || return 1
+  fi
+  remaining="$(timeout --signal=TERM --kill-after=2s 5s docker ps -aq \
+    --filter "name=^/${name}$" 2>/dev/null)" || return 1
+  [[ -z "$remaining" ]]
+}
+
+rollback_preflight() (
+  local dir="$1" ledger capability database principal probe active_probe=''
+  command -v timeout >/dev/null 2>&1 || fail 'ROLLBACK_TIMEOUT_REQUIRED'
+  probe="dcontact-uat-rollback-$$-${RANDOM}-${RANDOM}"
+  trap 'exit 143' TERM
+  trap 'exit 130' INT
+  trap 'exit 129' HUP
+  trap 'if [[ -n "$active_probe" ]]; then
+    rollback_probe_cleanup "$active_probe" || {
+      echo "{\"type\":\"u1.uat.deploy\",\"status\":\"RECONCILIATION_REQUIRED\",\"reason\":\"ROLLBACK_PROBE_CLEANUP_UNKNOWN\",\"probe\":\"$active_probe\"}" >&2
+      exit 1
+    }
+  fi' EXIT
+  if is_3vm "$dir"; then
+    database=dcontact_uat
+    principal="AND current_user='dcontact_uat_owner'"
+  else
+    database=dcontact
+    principal=''
+  fi
+  active_probe="$probe-ledger"
+  if ! ledger="$(compose "$dir" --rollback-probe --profile ops run --rm -T --no-deps --pull never \
+    --name "$probe-ledger" --label "com.dcontact.rollback-probe=$probe-ledger" \
+    -e PGCONNECT_TIMEOUT=5 \
+    -e 'PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=10000 -c lock_timeout=3000' \
+    --entrypoint psql db-roles -X -qAt -v ON_ERROR_STOP=1 -f - 2>/dev/null <<SQL
+BEGIN READ ONLY;
+SELECT CASE
+  WHEN NOT (current_database()='$database' $principal) THEN 'INVALID_SCOPE'
+  WHEN EXISTS (SELECT 1 FROM public._prisma_migrations
+    WHERE (finished_at IS NULL AND rolled_back_at IS NULL)
+       OR (finished_at IS NOT NULL AND rolled_back_at IS NOT NULL)) THEN 'INVALID_LEDGER'
+  WHEN EXISTS (SELECT 1 FROM public._prisma_migrations
+    WHERE migration_name='20261022130000_tenant_voice_skill_scope'
+      AND checksum<>'5e281f7a38bace24cf114dde5a0484a41a0e01d2b317ea95293fce41a8f825c9') THEN 'INVALID_CHECKSUM'
+  WHEN (SELECT count(*) FROM public._prisma_migrations
+    WHERE migration_name='20261022130000_tenant_voice_skill_scope'
+      AND rolled_back_at IS NULL)>1 THEN 'AMBIGUOUS_LEDGER'
+  WHEN EXISTS (SELECT 1 FROM public._prisma_migrations
+    WHERE migration_name='20261022130000_tenant_voice_skill_scope'
+      AND finished_at IS NOT NULL AND rolled_back_at IS NULL) THEN 'APPLIED'
+  ELSE 'ABSENT' END;
+COMMIT;
+SQL
+  )"; then
+    fail 'ROLLBACK_LEDGER_QUERY_FAILED'
+  fi
+  rollback_probe_cleanup "$active_probe" || fail 'ROLLBACK_PROBE_CLEANUP_UNKNOWN'
+  active_probe=''
+  case "$ledger" in
+    ABSENT) return ;;
+    APPLIED) ;;
+    *) fail 'ROLLBACK_LEDGER_INVALID' ;;
+  esac
+  active_probe="$probe-capability"
+  if ! capability="$(timeout --signal=TERM --kill-after=5s 30s docker run --rm --pull never \
+    --name "$probe-capability" --label "com.dcontact.rollback-probe=$probe-capability" \
+    --network none --read-only \
+    --cap-drop ALL --security-opt no-new-privileges --memory 128m --cpus 0.5 --pids-limit 64 \
+    --entrypoint /usr/bin/timeout "$(release_value "$dir" API_IMAGE)" 20s node -e '
+const { Prisma } = require("/app/node_modules/@d-contact/db");
+const models = Prisma.dmmf.datamodel.models;
+const scoped = ["AgentSkill", "QueueSkill"].every(name => models.some(model =>
+  model.name === name && model.fields.some(field => field.name === "tenantId" &&
+    field.dbName === "tenant_id" && field.type === "String" && field.isRequired && field.kind === "scalar")));
+process.stdout.write(scoped ? "SCOPED" : "UNSCOPED");
+' 2>/dev/null)"; then
+    fail 'ROLLBACK_CAPABILITY_QUERY_FAILED'
+  fi
+  rollback_probe_cleanup "$active_probe" || fail 'ROLLBACK_PROBE_CLEANUP_UNKNOWN'
+  active_probe=''
+  [[ "$capability" == SCOPED ]] || fail 'ROLLBACK_SKILL_SCOPE_INCOMPATIBLE'
+)
 
 prepare_mount_templates() {
   local dir="$1" file directory
@@ -526,6 +618,7 @@ case "$cmd" in
     sha="${1:?previous sha}"
     dir="$(release_dir "$sha")"
     check_release_env "$dir"
+    rollback_preflight "$dir"
     compose "$dir" up -d --wait --no-deps api proxy
     echo "{\"type\":\"u1.uat.deploy\",\"step\":\"rollback\",\"status\":\"PASS\",\"sourceSha\":\"${sha}\"}"
     ;;
