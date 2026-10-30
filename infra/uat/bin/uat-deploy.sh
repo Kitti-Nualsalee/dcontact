@@ -606,10 +606,10 @@ case "$cmd" in
       [[ "$1" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
       target="$(ls -1 "$UAT_ROOT/deployments/"*"-$1.json" 2>/dev/null | sort | tail -n 1 || true)"
       [[ -n "$target" ]] || fail 'NO_DEPLOYMENT_FOR_SHA'
-      cat "$target"
+      python3 -c 'import json,sys; record=json.load(open(sys.argv[1])); sys.exit("RECONCILIATION_NOT_ROLLBACK_CERTIFIED") if record.get("action")=="reconciliation" or record.get("rollbackEligible") is False else print(json.dumps(record))' "$target"
     else
       [[ -f "$UAT_ROOT/deployments/previous.json" ]] || fail 'NO_PREVIOUS_DEPLOYMENT'
-      cat "$UAT_ROOT/deployments/previous.json"
+      python3 -c 'import json,sys; record=json.load(open(sys.argv[1])); sys.exit("RECONCILIATION_NOT_ROLLBACK_CERTIFIED") if record.get("action")=="reconciliation" or record.get("rollbackEligible") is False else print(json.dumps(record))' "$UAT_ROOT/deployments/previous.json"
     fi
     ;;
 

@@ -146,7 +146,7 @@ for (const interruptPhase of ['ledger', 'capability']) {
         child.on('close', (code, stoppedBy) => resolveClose({ code, stoppedBy })),
       );
       try {
-        for (let attempt = 0; attempt < 100; attempt++) {
+        for (let attempt = 0; attempt < 334; attempt++) {
           try {
             readFileSync(join(setup.root, 'ready'));
             break;

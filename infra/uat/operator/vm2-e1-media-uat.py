@@ -1,5 +1,6 @@
 import argparse
 import fcntl
+import hashlib
 import ipaddress
 import json
 import os
@@ -60,7 +61,8 @@ def runtime(candidate_sha=None):
     addresses = json.loads(command(['ip', '-j', '-4', 'addr', 'show']))
     if not any(address.get('local') == HOST for interface in addresses for address in interface.get('addr_info', [])):
         raise MediaGuardError('E1_MEDIA_VM2_REQUIRED')
-    recorded_sha = json.loads((ROOT / 'deployments/current.json').read_text())['sourceSha']
+    deployment = json.loads((ROOT / 'deployments/current.json').read_text())
+    recorded_sha = deployment['sourceSha']
     source_sha = recorded_sha if candidate_sha is None else candidate_sha
     if not all(isinstance(sha, str) and re.fullmatch('[0-9a-f]{40}', sha) for sha in (recorded_sha, source_sha)) or not (ROOT / 'e1-acceptance.enabled').is_file():
         raise MediaGuardError('E1_MEDIA_RELEASE_REQUIRED')
@@ -76,18 +78,33 @@ def runtime(candidate_sha=None):
     if docker_value('.Config.Image', FS) != FS_IMAGE or docker_value('.State.Health.Status', FS) != 'healthy':
         raise MediaGuardError('E1_MEDIA_FREESWITCH_REQUIRED')
     mounts = docker_value('.Mounts', FS)
-    release = ROOT / 'releases' / source_sha
+    reconciled = deployment.get('schema') == 'UatDeploymentReconciliationV1' and source_sha == recorded_sha
+    media_sha = deployment.get('mediaSourceSha') if reconciled else source_sha
+    if not isinstance(media_sha, str) or not re.fullmatch('[0-9a-f]{40}', media_sha):
+        raise MediaGuardError('E1_MEDIA_SOURCE_SHA_REQUIRED')
+    release = ROOT / 'releases' / media_sha
     if not any(mount['Destination'] == '/e1-freeswitch' and mount['Source'] == str(release / 'e1-freeswitch') and not mount['RW'] for mount in mounts):
         raise MediaGuardError('E1_MEDIA_SOURCE_MOUNT_REQUIRED')
+    if reconciled:
+        tree = release / 'e1-freeswitch'
+        files = sorted(tree.rglob('*'))
+        if tree.resolve() != tree or not files or len(files) > 128 or any(path.is_symlink() for path in files):
+            raise MediaGuardError('E1_MEDIA_SOURCE_TREE_REQUIRED')
+        fingerprint = {str(path.relative_to(tree)): hashlib.sha256(path.read_bytes()).hexdigest() for path in files if path.is_file()}
+        actual = hashlib.sha256(json.dumps(fingerprint, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        if actual != deployment.get('mediaSourceDigest'):
+            raise MediaGuardError('E1_MEDIA_SOURCE_DIGEST_REQUIRED')
     network_id = command(['docker', 'network', 'inspect', '--format', '{{.Id}}', NETWORK])
-    result = {'sourceSha': source_sha, 'containerId': docker_value('.Id', FS), 'ip': networks[NETWORK]['IPAddress'], 'bridge': 'br-' + network_id[:12], 'bootId': Path('/proc/sys/kernel/random/boot_id').read_text().strip(), 'iptablesVersion': command(['iptables', '--version'])}
+    result = {'sourceSha': media_sha, 'containerId': docker_value('.Id', FS), 'ip': networks[NETWORK]['IPAddress'], 'bridge': 'br-' + network_id[:12], 'bootId': Path('/proc/sys/kernel/random/boot_id').read_text().strip(), 'iptablesVersion': command(['iptables', '--version'])}
+    if reconciled:
+        result['applicationSourceSha'] = source_sha
     if candidate_sha is not None:
         result['recordedSourceSha'] = recorded_sha
     return result
 
 
 def require_operator(current, operator_sha=None):
-    source = ROOT / 'releases' / (operator_sha or current['sourceSha']) / 'operator/vm2-e1-media-uat.py'
+    source = ROOT / 'releases' / (operator_sha or current.get('applicationSourceSha', current['sourceSha'])) / 'operator/vm2-e1-media-uat.py'
     if source.read_bytes() != Path(__file__).read_bytes():
         raise MediaGuardError('E1_MEDIA_CANONICAL_OPERATOR_REQUIRED')
 
@@ -104,11 +121,12 @@ def require_canonical(current, operator_sha=None):
 
 
 def require_idle_off(current):
-    runner = str(ROOT / 'releases' / current['sourceSha'] / 'bin/uat-deploy.sh')
-    status = json.loads(command(['bash', runner, 'e1-voice-control', current['sourceSha'], 'status']))
+    application_sha = current.get('applicationSourceSha', current['sourceSha'])
+    runner = str(ROOT / 'releases' / application_sha / 'bin/uat-deploy.sh')
+    status = json.loads(command(['bash', runner, 'e1-voice-control', application_sha, 'status']))
     if status.get('runtimeEnabled') is not False or status.get('technicalSwitchOn') is not False:
         raise MediaGuardError('E1_MEDIA_DEFAULT_OFF_REQUIRED')
-    command(['bash', runner, 'e1-voice-control', current['sourceSha'], 'idle'])
+    command(['bash', runner, 'e1-voice-control', application_sha, 'idle'])
     count = command(['docker', 'exec', FS, 'sh', '-c', 'fs_cli -p "$E1_ESL_PASSWORD" -x "show calls count"'])
     if not re.search(r'^0 total\.$', count, re.MULTILINE):
         raise MediaGuardError('E1_MEDIA_CALLS_STILL_ACTIVE')
@@ -320,7 +338,7 @@ def run(mode, actor, source_sha, candidate_sha=None, operator_sha=None):
     current = runtime(candidate_sha) if candidate_sha is not None else runtime()
     if operator_sha is not None:
         current = {**current, 'operatorSourceSha': operator_sha}
-    if source_sha and source_sha != current['sourceSha']:
+    if source_sha and source_sha != current.get('applicationSourceSha', current['sourceSha']):
         raise MediaGuardError('E1_MEDIA_SOURCE_SHA_MISMATCH')
     if operator_sha is not None and mode in ('inspect', 'restore'):
         require_operator(current, operator_sha)
