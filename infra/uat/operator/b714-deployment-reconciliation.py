@@ -17,6 +17,14 @@ ROOT = Path('/opt/dcontact-uat')
 SOURCE = 'a4e41ff8dbec5a78bbe9d4a7164a5e8f2bba7f64'
 HISTORICAL = '158c8ccec29e37bd51ac1fe26676b8cf3123d7be'
 PUBLIC_MEDIA = Path('/var/lib/dcontact-uat-e1-media/state.json')
+CUTOVER_PATH = ROOT / 'operator/b714-candidate-a4e41ff-source/cutover-20261030-8045c4f45a8d96c5/state.json'
+PUBLIC_COMPOSE_PATHS = frozenset(
+    [ROOT / 'releases' / HISTORICAL / name for name in [
+        'docker-compose.uat.yml', 'docker-compose.uat.3vm.yml', 'docker-compose.uat.e1.yml',
+        'docker-compose.uat.e1-launcher.yml', 'docker-compose.uat.workspace.yml']]
+    + [ROOT / 'platform/releases/894355c4b0ad32f16c113a309fe9bc75a00eb694' / name for name in [
+        'docker-compose.platform-keycloak.3vm.yml', 'docker-compose.platform.3vm.yml']]
+    + [ROOT / 'platform/releases/1a54d5938b64586f958dad95bf75241cb713baa6/docker-compose.platform.3vm.yml'])
 BACKUPS = {'application': ('dcontact_uat.dump', 'f928bcb6a7dea52e8267fda9bfa9aa87108f5f9b2c5abc4be673137879c3d565'),
            'keycloak': ('keycloak_uat.dump', 'e7734993c847d05b4f02672b26e517629f15d2d33cfe01fd42b3db180c5b6e23')}
 STATIC_PROOFS = {'cutover': 'cf586f2af8636c15a9bbbb889129467d68332e0d74f04062925fffcc7635e563',
@@ -60,6 +68,8 @@ def canonical(value):
 def read(path, private=True):
     path = Path(path)
     require(path.is_absolute() and path.resolve() == path, 'SYMLINK_OR_RELATIVE_PATH')
+    if path in PUBLIC_COMPOSE_PATHS:
+        return read_public_compose(path)
     descriptor = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
     try:
         info = os.fstat(descriptor)
@@ -77,6 +87,27 @@ def read(path, private=True):
                 'PRIVATE_OPERATOR_INPUT_REQUIRED')
         with os.fdopen(descriptor, 'rb', closefd=False) as stream:
             return stream.read(8388609)
+    finally:
+        os.close(descriptor)
+
+
+def read_public_compose(path):
+    require(path in PUBLIC_COMPOSE_PATHS and path.is_absolute() and path.resolve() == path,
+            'PUBLIC_COMPOSE_PATH_REQUIRED')
+    proof = read(CUTOVER_PATH)
+    require(sha(proof) == STATIC_PROOFS['cutover'], 'CUTOVER_PROOF_HASH_REQUIRED')
+    expected = json.loads(proof).get('preservedFileHashes', {}).get(str(path))
+    require(isinstance(expected, str) and re.fullmatch('[0-9a-f]{64}', expected), 'PUBLIC_COMPOSE_HASH_REQUIRED')
+    descriptor = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(descriptor)
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == 1000 and
+                stat.S_IMODE(info.st_mode) in [0o444, 0o644] and info.st_size <= 8388608,
+                'PUBLIC_COMPOSE_METADATA_REQUIRED')
+        with os.fdopen(descriptor, 'rb', closefd=False) as stream:
+            raw = stream.read(8388609)
+        require(sha(raw) == expected, 'PUBLIC_COMPOSE_HASH_CHANGED')
+        return raw
     finally:
         os.close(descriptor)
 
