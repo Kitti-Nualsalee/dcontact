@@ -545,6 +545,11 @@ Platform/env/acceptance files และ FS mount source158แบบread-onlyพ�
 OPS pin คือ approved artifact ไม่ใช่ service ที่กำลังรัน.
 Media state exception อนุญาตเฉพาะ `/var/lib/dcontact-uat-e1-media/state.json` แบบ root-owned,
 regular/non-symlink และ group/other เขียนไม่ได้ ไม่ chmod หรือผ่อน policy สำหรับ secret files.
+ข้อยกเว้น public compose จำกัด8 exact paths ของ historical158/Platform894/Platform1a54 ที่อยู่ใน
+`PUBLIC_COMPOSE_PATHS` เท่านั้น: UID1000, mode0444/0644, regular/non-symlink และ content hash ต้องตรง
+`preservedFileHashes` จาก private cutover proof ที่ตรวจ SHA256 `cf586…` ก่อนใช้ทุกครั้ง.
+Path/hash ไม่ตรง, writable หรือ proof เปลี่ยนต้อง fail-closed; ไม่ใช้ exception นี้กับ env/credentials
+หรือไฟล์ชื่อคล้ายกัน และไม่เปลี่ยน permissions ของ artifact จริง.
 
 Helper lock `operator/b714-cutover.lock` ครอบ read/CAS/archive/stage/promotion; เขียน private PENDING
 ก่อนเปลี่ยน record, O_EXCL+file/directory fsync, archive current/previous แบบ byte-preserving,

@@ -309,5 +309,78 @@ class ContractTests(unittest.TestCase):
         self.assertTrue((self.operator / 'b714-reconciliation.pending').exists())
 
 
+class PublicComposeTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve()
+        self.artifact = self.root / 'docker-compose.uat.yml'
+        self.artifact.write_bytes(b'services: {}\n')
+        self.artifact.chmod(0o644)
+        self.cutover = self.root / 'state.json'
+        self.cutover.write_bytes(MODULE.canonical({'preservedFileHashes': {
+            str(self.artifact): MODULE.sha(self.artifact.read_bytes())}}))
+        self.cutover.chmod(0o600)
+        self.addCleanup(patch.stopall)
+        patch.object(MODULE, 'PUBLIC_COMPOSE_PATHS', frozenset([self.artifact]), create=True).start()
+        patch.object(MODULE, 'CUTOVER_PATH', self.cutover, create=True).start()
+        patch.dict(MODULE.STATIC_PROOFS, {'cutover': MODULE.sha(self.cutover.read_bytes())}).start()
+        self.owner = 1000
+        original = os.fstat
+        def metadata(descriptor):
+            info = original(descriptor)
+            if info.st_ino == self.artifact.stat().st_ino:
+                return SimpleNamespace(st_mode=info.st_mode, st_size=info.st_size, st_uid=self.owner)
+            return info
+        patch.object(MODULE.os, 'fstat', side_effect=metadata).start()
+
+    def test_actual_public_mode_is_read_without_chmod(self):
+        self.assertEqual(MODULE.read(self.artifact), b'services: {}\n')
+        self.assertEqual(stat.S_IMODE(self.artifact.stat().st_mode), 0o644)
+
+    def test_public_content_drift_refused(self):
+        self.artifact.write_bytes(b'services: changed\n')
+        with self.assertRaisesRegex(RuntimeError, 'PUBLIC_COMPOSE_HASH'):
+            MODULE.read(self.artifact)
+
+    def test_unreviewed_cutover_hash_refused(self):
+        self.cutover.write_bytes(MODULE.canonical({'preservedFileHashes': {str(self.artifact): 'f' * 64}}))
+        with self.assertRaisesRegex(RuntimeError, 'CUTOVER_PROOF_HASH'):
+            MODULE.read(self.artifact)
+
+    def test_missing_cutover_entry_refused(self):
+        self.cutover.write_bytes(MODULE.canonical({'preservedFileHashes': {}}))
+        MODULE.STATIC_PROOFS['cutover'] = MODULE.sha(self.cutover.read_bytes())
+        with self.assertRaisesRegex(RuntimeError, 'PUBLIC_COMPOSE_HASH'):
+            MODULE.read(self.artifact)
+
+    def test_alternate_path_and_public_secrets_still_refused(self):
+        for name in ['elsewhere/docker-compose.uat.yml', 'uat.env', 'platform.env', 'people-identity.json']:
+            path = self.root / name
+            path.parent.mkdir(exist_ok=True)
+            path.write_bytes(b'not-for-output')
+            path.chmod(0o644)
+            with self.subTest(name=name), self.assertRaisesRegex(RuntimeError, 'PRIVATE_OPERATOR_INPUT'):
+                MODULE.read(path)
+
+    def test_writable_public_compose_refused(self):
+        for mode in [0o664, 0o646]:
+            self.artifact.chmod(mode)
+            with self.subTest(mode=mode), self.assertRaisesRegex(RuntimeError, 'PUBLIC_COMPOSE_METADATA'):
+                MODULE.read(self.artifact)
+
+    def test_wrong_public_owner_refused(self):
+        self.owner = 1234
+        with self.assertRaisesRegex(RuntimeError, 'PUBLIC_COMPOSE_METADATA'):
+            MODULE.read(self.artifact)
+
+    def test_allowlisted_symlink_refused(self):
+        target = self.root / 'real.yml'
+        self.artifact.rename(target)
+        self.artifact.symlink_to(target)
+        with self.assertRaisesRegex(RuntimeError, 'SYMLINK'):
+            MODULE.read(self.artifact)
+
+
 if __name__ == '__main__':
     unittest.main()
