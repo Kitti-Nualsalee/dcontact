@@ -270,6 +270,8 @@ services:
       UAT_HOST: ${UAT_HOST:?UAT_HOST is required}
       UAT_TENANT_ID: ${UAT_TENANT_ID:?UAT_TENANT_ID is required}
       UAT_TENANT_SLUG: ${UAT_TENANT_SLUG:?UAT_TENANT_SLUG is required}
+      UAT_ADDITIONAL_TENANT_SLUGS: ${UAT_ADDITIONAL_TENANT_SLUGS}
+      UAT_CONSOLE_EXPECTED_REDIRECT_DIGEST: ${UAT_CONSOLE_EXPECTED_REDIRECT_DIGEST}
       UAT_TENANT_NAME: ${UAT_TENANT_NAME:?UAT_TENANT_NAME is required}
       UAT_ORGANIZATION_DOMAIN: ${UAT_ORGANIZATION_DOMAIN:?UAT_ORGANIZATION_DOMAIN is required}
     # AC6 (#599): branding (displayName, account theme, baseUrl ของ account clients, attribute ภายในที่ผู้ใช้ไม่เห็น) ต่อท้ายสคริปต์ realm เดิม

@@ -369,8 +369,28 @@ script จะ:
 
 login ครั้งแรก ผู้ทดสอบต้องเปลี่ยนรหัสผ่านและผูก authenticator app (TOTP) — browser flow
 `uat browser password otp` ตั้ง OTP เป็น REQUIRED จึงไม่มีทาง login ด้วยรหัสผ่านอย่างเดียว
-Console client (`dcontact-uat-console`) เป็น public client + PKCE S256 และรับ redirect URI เดียว
-`https://<UAT_HOST>/?tenant=<UAT_TENANT_SLUG>`
+Console client (`dcontact-uat-console`) เป็น public client + PKCE S256. ค่าเริ่มต้นรับ exact redirect
+`https://<UAT_HOST>/?tenant=<UAT_TENANT_SLUG>` ทั้ง login และ logout. สำหรับ internal UAT ที่ต้องทดสอบ
+tenant จาก Platform operator เพิ่ม `UAT_ADDITIONAL_TENANT_SLUGS` ใน `uat.env` เป็น slug คั่นด้วย comma
+(สูงสุด 50 รายการ, lowercase ASCII, ตัวเลขและ `-`, ห้ามขึ้นต้น/ลงท้ายด้วย `-` หรือมี `--`). ไม่รับ URL,
+wildcard หรือรายการว่างระหว่าง comma. Slug เดิมยังอยู่เสมอและรายการซ้ำถูกตัดออก; Workspace ยังคงใช้
+tenant เดิม. Operator ต้องลงทะเบียน alias ที่อนุญาตเอง ไม่ใช่การเปิดอัตโนมัติเมื่อ Platform สร้าง tenant
+
+`keycloak-config` ใน release ที่มี #807 จะ render ทั้ง login และ logout redirect จากรายการเดียวกัน และรวม
+รายการใน realm config digest. ก่อนแก้ shared realm ให้สำรอง `uat.env` และ client redirect เดิม, ยืนยัน
+Tenant proxy/realm flow/VERIFY_EMAIL/SMTP และไม่มีงานที่ห้ามรบกวน แล้วใช้ ops image ที่ pin digest และผูก
+source SHA ของ release นี้รัน `node scripts/u1-uat-keycloak-users.mjs --console-redirects-check`. คำสั่งนี้
+อ่าน client อย่างเดียวและคืน `beforeDigest` กับ `targetDigest`; ตรวจ target/จำนวนเทียบ config ที่อนุมัติ.
+รัน `--console-redirects-apply` ด้วย env เดิมและ `UAT_CONSOLE_EXPECTED_REDIRECT_DIGEST=<beforeDigest>`
+เพื่อเปลี่ยนเฉพาะ redirect ของ Console client และอ่านกลับ; ถ้า state เปลี่ยนระหว่างตรวจให้หยุดและตรวจใหม่
+ก่อน apply. คำสั่งนี้ไม่ reconcile realm, Organization, flow, required actions หรือ SMTP
+
+หลัง apply ให้ทดสอบ tenant เดิมและ tenant ที่เพิ่มด้วย login/OTP, logout และ negative redirect/isolation;
+บันทึก SHA, config digest และผลตรวจปลอด secrets. หากต้อง rollback ให้คืนรายการ alias ที่สำรองใน `uat.env`,
+รัน check อีกครั้ง แล้ว apply ด้วย `beforeDigest` ที่อ่านสดและตรวจ readback. Release U1 เก่าที่ยังไม่มี #807
+จะ reconcile callback เฉพาะ tenant เดิม: หลัง rollback ไป release เก่าต้องถือ tenant เพิ่มว่าใช้งาน Console
+ไม่ได้จนกว่า operator จะใช้เครื่องมือ #807 ที่ pin SHA reconcile รายการที่อนุมัติและทดสอบซ้ำ ห้ามแก้ release
+directory ที่เป็น immutable. การขยายนี้ไม่ใช่การอนุมัติ production หรือ custom domain
 
 session ของ realm UAT (#645): ไม่ใช้งานได้นาน 8 ชั่วโมง (`ssoSessionIdleTimeout`) และอยู่ได้สูงสุด 10 ชั่วโมง
 (`ssoSessionMaxLifespan`) — ผู้ทดสอบกรอก OTP ราววันละครั้ง ส่วน access token ยังมีอายุ 5 นาที

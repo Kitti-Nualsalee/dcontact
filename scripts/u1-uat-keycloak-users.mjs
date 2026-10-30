@@ -80,6 +80,28 @@ export function renderRealm(template, environment) {
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(environment.UAT_TENANT_SLUG)) {
     throw new UatKeycloakError('REALM_ENV_INVALID', 'UAT_TENANT_SLUG');
   }
+  const additional = environment.UAT_ADDITIONAL_TENANT_SLUGS ?? '';
+  const entries = additional === '' ? [] : additional.split(',').map((entry) => entry.trim());
+  if (
+    entries.length > 50 ||
+    entries.some(
+      (entry) =>
+        entry.length > 63 ||
+        !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(entry) ||
+        entry.includes('--'),
+    )
+  ) {
+    throw new UatKeycloakError('REALM_ENV_INVALID', 'UAT_ADDITIONAL_TENANT_SLUGS');
+  }
+  const consoleClient = rendered.clients.find(
+    (client) => client.clientId === UAT_CONSOLE_CLIENT_ID,
+  );
+  if (!consoleClient) throw new UatKeycloakError('KEYCLOAK_CLIENT_MISSING', UAT_CONSOLE_CLIENT_ID);
+  const aliases = [...new Set([environment.UAT_TENANT_SLUG, ...entries])].sort();
+  consoleClient.redirectUris = aliases.map(
+    (alias) => `https://${environment.UAT_HOST}/?tenant=${alias}`,
+  );
+  consoleClient.attributes['post.logout.redirect.uris'] = consoleClient.redirectUris.join('##');
   if (environment.UAT_WORKSPACE_HOST) {
     const host = environment.UAT_WORKSPACE_HOST;
     if (
@@ -107,6 +129,68 @@ export function renderRealm(template, environment) {
 /** digest ของ realm config ที่ render แล้ว (ไม่มี secret) — บันทึกลง deployment record */
 export function realmConfigDigest(rendered) {
   return `sha256:${createHash('sha256').update(canonicalJson(rendered)).digest('hex')}`;
+}
+
+/** เปลี่ยนเฉพาะ redirect ของ Console โดยไม่ reconcile shared realm หรือ required actions */
+export async function reconcileConsoleRedirects(
+  admin,
+  rendered,
+  { apply = false, expectedDigest } = {},
+) {
+  const base = `/admin/realms/${encodeURIComponent(rendered.realm)}`;
+  const matches = await admin.call(
+    `${base}/clients?clientId=${encodeURIComponent(UAT_CONSOLE_CLIENT_ID)}`,
+  );
+  if (matches.length !== 1 || !matches[0].id) throw new UatKeycloakError('KEYCLOAK_CLIENT_MISSING');
+  const path = `${base}/clients/${encodeURIComponent(matches[0].id)}`;
+  const current = await admin.call(path);
+  const desired = rendered.clients.find((client) => client.clientId === UAT_CONSOLE_CLIENT_ID);
+  if (
+    !desired ||
+    current.clientId !== UAT_CONSOLE_CLIENT_ID ||
+    current.publicClient !== true ||
+    current.attributes?.['pkce.code.challenge.method'] !== 'S256'
+  ) {
+    throw new UatKeycloakError('CONSOLE_CLIENT_UNEXPECTED');
+  }
+  const state = (client) => ({
+    redirectUris: client.redirectUris ?? [],
+    postLogoutRedirectUris: client.attributes?.['post.logout.redirect.uris'] ?? '',
+  });
+  const digest = (client) =>
+    `sha256:${createHash('sha256')
+      .update(canonicalJson(state(client)))
+      .digest('hex')}`;
+  const before = digest(current);
+  const target = digest(desired);
+  if (apply) {
+    if (!/^sha256:[0-9a-f]{64}$/.test(expectedDigest ?? '') || expectedDigest !== before) {
+      throw new UatKeycloakError('CONSOLE_REDIRECT_STATE_CHANGED');
+    }
+    if (before !== target) {
+      await admin.call(path, {
+        method: 'PUT',
+        body: {
+          ...current,
+          redirectUris: desired.redirectUris,
+          attributes: {
+            ...current.attributes,
+            'post.logout.redirect.uris': desired.attributes['post.logout.redirect.uris'],
+          },
+        },
+      });
+    }
+    const verified = await admin.call(path);
+    if (digest(verified) !== target) throw new UatKeycloakError('CONSOLE_REDIRECT_VERIFY_FAILED');
+  }
+  return {
+    type: 'u1.uat.console-redirects',
+    mode: apply ? 'apply' : 'check',
+    beforeDigest: before,
+    targetDigest: target,
+    changed: before !== target,
+    redirectCount: desired.redirectUris.length,
+  };
 }
 
 function canonicalJson(value) {
@@ -457,8 +541,20 @@ function required(environment, name) {
 }
 
 export async function runUatKeycloak(argv = process.argv.slice(2), environment = process.env) {
-  const mode = argv.includes('--config') ? 'config' : argv.includes('--users') ? 'users' : null;
-  if (!mode) throw new UatKeycloakError('USAGE', '--config | --users <accounts.json>');
+  const mode = argv.includes('--console-redirects-check')
+    ? 'redirect-check'
+    : argv.includes('--console-redirects-apply')
+      ? 'redirect-apply'
+      : argv.includes('--config')
+        ? 'config'
+        : argv.includes('--users')
+          ? 'users'
+          : null;
+  if (!mode)
+    throw new UatKeycloakError(
+      'USAGE',
+      '--config | --users <accounts.json> | --console-redirects-check | --console-redirects-apply',
+    );
   const adminPassword = required(environment, 'KEYCLOAK_ADMIN_PASSWORD');
   assertNotDevCredential('KEYCLOAK_ADMIN_PASSWORD', adminPassword);
   const admin = createKeycloakAdmin({
@@ -474,6 +570,12 @@ export async function runUatKeycloak(argv = process.argv.slice(2), environment =
   );
   const rendered = renderRealm(template, environment);
   await admin.login();
+  if (mode === 'redirect-check' || mode === 'redirect-apply') {
+    return reconcileConsoleRedirects(admin, rendered, {
+      apply: mode === 'redirect-apply',
+      expectedDigest: environment.UAT_CONSOLE_EXPECTED_REDIRECT_DIGEST,
+    });
+  }
   if (mode === 'config') {
     return { type: 'u1.uat.keycloak', mode, ...(await applyRealmConfig(admin, rendered)) };
   }
