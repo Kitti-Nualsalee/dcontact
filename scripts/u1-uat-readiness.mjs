@@ -1772,9 +1772,32 @@ export function buildDeploymentRecord({
   backup,
   migrationGuard,
   smoke,
+  reconciliation,
   environment = process.env,
   now = new Date(),
 }) {
+  if (action === 'reconciliation') {
+    if (typeof reconciliation !== 'string') throw new Error('ต้องระบุ reconciliation manifest');
+    const result = spawnSync(
+      'python3',
+      [
+        '-B',
+        resolve(repositoryRoot, 'infra/uat/operator/b714-deployment-reconciliation.py'),
+        '--build',
+        '--manifest',
+        reconciliation,
+      ],
+      { encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 },
+    );
+    if (result.status !== 0) throw new Error('reconciliation evidence ไม่ผ่าน');
+    return JSON.parse(result.stdout);
+  }
+  if (!['deploy', 'rollback'].includes(action)) throw new Error('deployment action ไม่ถูกต้อง');
+  if (
+    action === 'rollback' &&
+    (rollbackOf?.action === 'reconciliation' || rollbackOf?.rollbackEligible === false)
+  )
+    throw new Error('reconciliation record ไม่ใช่ rollback certification');
   const images =
     action === 'rollback'
       ? rollbackOf?.images
@@ -1857,11 +1880,21 @@ export function renderSummary(record) {
       'migration guard',
       record.migration.applied
         ? `${record.migration.guard} (base ${record.migration.base ?? 'initial'})`
-        : 'ไม่ migrate (rollback)',
+        : record.action === 'reconciliation'
+          ? 'สังเกต ledger เท่านั้น ไม่ migrate'
+          : 'ไม่ migrate (rollback)',
     ],
     ['backup', record.backup ? `${record.backup.status} ${record.backup.file ?? ''}`.trim() : '—'],
     ['smoke', record.smoke.status],
-    ['deployed at', record.deployedAt],
+    ['deployed at', record.deployedAt ?? 'ไม่ทราบ (แยกจากเวลาสังเกต)'],
+    ...(record.action === 'reconciliation'
+      ? [
+          ['observed at', record.observedAt],
+          ['recorded at', record.recordedAt],
+          ['business trial', record.businessTrial],
+          ['realm provenance', 'historical เท่านั้น ไม่ใช่ current config digest'],
+        ]
+      : []),
   ];
   return [
     `## UAT deployment record (${record.action})`,
@@ -1897,9 +1930,11 @@ export async function main(argv = process.argv.slice(2), environment = process.e
   }
   if (argv.includes('--deployment-record')) {
     const action = option(argv, '--action');
-    if (!['deploy', 'rollback'].includes(action)) throw new Error('--action deploy|rollback');
+    if (!['deploy', 'rollback', 'reconciliation'].includes(action))
+      throw new Error('--action deploy|rollback|reconciliation');
     return buildDeploymentRecord({
       action,
+      reconciliation: option(argv, '--reconciliation-manifest'),
       release: option(argv, '--release') ? readEnvFile(option(argv, '--release')) : null,
       rollbackOf: readJson(option(argv, '--rollback-of')),
       keycloak: readJson(option(argv, '--keycloak')),

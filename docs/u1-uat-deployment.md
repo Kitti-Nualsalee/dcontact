@@ -510,6 +510,69 @@ uatc up -d --wait keycloak
 
 ## 11. อ่าน deployment record
 
+### #714: record-only reconciliation หลัง selective cutover
+
+`UatDeploymentReconciliationV1` / `action: reconciliation` เป็นหลักฐาน observed runtime ไม่ใช่
+การเรียก deploy หรือ realm config ใหม่ ใช้เฉพาะ candidate a4 ของ #714 เมื่อ historical record ยังเป็น158:
+`deployedAt: null` + `UNKNOWN_SEPARATE_OBSERVATION`, `observedAt` จาก runtime receipt และ
+`recordedAt` จากเวลาสร้าง record จริง; summary ไม่แทน unknown ด้วยปี1970.
+`realmConfigDigest: null` โดย digest เก่าอยู่เฉพาะ `realmConfigProvenance` พร้อม file hash/sourceSHA
+และ `realmReconciled: false` ไม่สร้าง `u1.uat.keycloak --config` receipt เทียม ไม่อ้างว่า digest เก่า
+เป็น live realm config ปัจจุบันของ A1/callback/People.
+
+Operator ใช้ Python3.8 จาก checkout ที่ review แล้ว:
+
+```sh
+python3 -B infra/uat/operator/b714-deployment-reconciliation.py --ledger-query
+python3 -B infra/uat/operator/b714-deployment-reconciliation.py --manifest /private/operator/manifest.json
+# หลัง source review/CI และ owner อนุมัติ apply เฉพาะ record แล้วเท่านั้น:
+python3 -B infra/uat/operator/b714-deployment-reconciliation.py --manifest /private/operator/manifest.json --apply-owner-approved
+```
+
+Manifest `B714ReconciliationInputV1` ใช้ `{path,sha256}` อ้าง historical158 immutable copy,
+a4 `release.env`, `cutover`, `applicationCopy`, `keycloakCopy`, `rollbackGuard`, `runtime`, `ledger`,
+`smoke`, `backups.application/keycloak`, `protectedFiles` และ expected current/previous SHA256
+(previous เป็น null ได้เฉพาะเมื่อไม่มีไฟล์). Proofs/static backups pin เฉพาะ approved cutover นี้.
+Runtime/ledger/smoke receipts ต้องอายุไม่เกิน300s ไม่ล่วงหน้าเกิน30s และ cross-reference runtime hash เดียวกัน.
+Ledger ต้องเป็น metadata152rows จาก SQL ที่ helper แสดง ภายใต้ read-only owner connection บน
+`dcontact_uat`:151finished/1historical worker rolled-back/0unresolved พร้อม skill-scope checksumจริง.
+Receipt ไม่ใช่ automatic DB prover: primary/operator เป็นผู้เก็บผล SQL สด helper ไม่ต่อ DB เอง.
+Smoke ต้องเก็บผล live canonical8checks จริง:7PASS/1SKIPPEDที่L06 คง `businessTrial: NOT_EVALUATED`.
+
+Apply ตรวจ `docker inspect` สดแบบ bounded เท่านั้น ไม่มี start/restart/exec/network/DB operation;
+ตรวจ IDs/images/revisions/projects/config digests กับ runtime/cutover proofs, Config.Image กับ record digests,
+Platform/env/acceptance files และ FS mount source158แบบread-onlyพร้อม tree digest โดยไม่ restartFS.
+OPS pin คือ approved artifact ไม่ใช่ service ที่กำลังรัน.
+Media state exception อนุญาตเฉพาะ `/var/lib/dcontact-uat-e1-media/state.json` แบบ root-owned,
+regular/non-symlink และ group/other เขียนไม่ได้ ไม่ chmod หรือผ่อน policy สำหรับ secret files.
+
+Helper lock `operator/b714-cutover.lock` ครอบ read/CAS/archive/stage/promotion; เขียน private PENDING
+ก่อนเปลี่ยน record, O_EXCL+file/directory fsync, archive current/previous แบบ byte-preserving,
+replace previous ด้วย historical158 จริง แล้ว replace current เป็น commit point สุดท้าย.
+ไม่อ้าง multi-file atomic transaction; interruption/unknown outcome เหลือ pending marker และต้อง manual
+reconcile ไม่มี blind retry/rollback. Current/previous CAS pins แยกเป็น `controlledRecordReplacement`/
+`controlledPreviousReplacement` ไม่อยู่ใน `unchangedProtectedFiles`; current new hash อยู่ใน commit receipt.
+Cutover evidence เดิมไม่ถูก rewrite.158 เป็น historical/noneligible;14ca COPY ไม่ถูกสร้างเป็น previous release.
+Rollback resolver/builder ไม่ใช้ reconciliation เป็น full rollback certification และ guard #809 ยังบังคับอยู่.
+
+Media consumer แยก application SHA(a4) ออกจาก `mediaSourceSha`(actual mounted158) จึงไม่ทำให้
+existing media snapshot stale เพียงเพราะ record promotion. Profile/mount/tree digest guards ยัง strict;
+ใช้ operator helper รุ่นที่รองรับ contract นี้พร้อม reviewed operator SHA ตาม lineage guard เดิม
+ไม่แก้ immutable release helpers และ reconciliation ไม่ apply media/firewall.
+ติดตั้ง helper ที่ review/CI ผ่านเป็น **operator-only bundle** ที่
+`releases/<operator-commit>/operator/vm2-e1-media-uat.py` พร้อม manifest และ exact file hash.
+ห้ามสร้าง `release.env`, compose หรือ deployment record ให้ operator commit นี้ และห้ามเขียนทับ helper ใน releasea4.
+หลัง reconcile ให้ใช้ `--verify-snapshot` พร้อมทั้ง `--candidate-sha <a4-full-sha>` และ
+`--operator-sha <merged-operator-full-sha>` เพื่อพิสูจน์ read-only ว่า applicationa4 ยังใช้ media158 เดิมได้.
+โหมดนี้ไม่เรียก apply/restore และไม่ใช่ live firewall check; จนกว่าจะติดตั้งและ verify จริง
+ให้ระบุว่า consumer source-compatible แต่ operational activation ยัง pending.
+Platform helper ที่อ่าน `sourceSha` ยังเลือก releasea4 โดย schema ใหม่ไม่เปลี่ยน Platform pointer/config.
+
+Node builder/CLI รองรับ `--deployment-record --action reconciliation --reconciliation-manifest <file>`
+ผ่าน Python validator เดียวกันใน build-only mode (ไม่ promote/current หรือ Docker call).
+PR CI discovery รวม Python mocked filesystem/inspect tests และ Node builder/summary/resolver tests ผ่าน
+`pnpm test:u1-uat-readiness`; ไม่ถือผลเหล่านี้เป็น VM/B trial/independent JWT verification.
+
 ```json
 {
   "schema": "UatDeploymentRecordV1",

@@ -421,7 +421,7 @@ class CandidateRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.root = Path(self.directory.name)
+        self.root = Path(self.directory.name).resolve()
         (self.root / 'deployments').mkdir()
         self.recorded = 'a' * 40
         self.candidate = 'b' * 40
@@ -467,6 +467,58 @@ class CandidateRuntimeTests(unittest.TestCase):
     def read_runtime(self, candidate=None):
         with patch.object(media, 'command', side_effect=self.execute), patch.object(media, 'docker_value', side_effect=self.inspect), patch.object(media, 'Path', side_effect=lambda value: self.boot if value == '/proc/sys/kernel/random/boot_id' else Path(value)):
             return media.runtime(candidate)
+
+    def reconciliation_record(self):
+        tree = self.root / 'releases' / self.recorded / 'e1-freeswitch'
+        profile = tree / 'conf/sip_profiles/internal.xml'
+        profile.parent.mkdir(parents=True, exist_ok=True)
+        profile.write_text('<include><param name="local-network-acl" value="none"/>'
+                           '<param name="auth-calls" value="true"/>'
+                           '<param name="apply-candidate-acl" value="dcontact_webrtc_candidates"/></include>')
+        fingerprint = {str(path.relative_to(tree)): media.hashlib.sha256(path.read_bytes()).hexdigest()
+                       for path in sorted(tree.rglob('*')) if path.is_file()}
+        digest = media.hashlib.sha256(json.dumps(fingerprint, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        self.record.write_text(json.dumps({'schema': 'UatDeploymentReconciliationV1',
+            'sourceSha': self.candidate, 'mediaSourceSha': self.recorded, 'mediaSourceDigest': digest}))
+        self.mount_sha = self.recorded
+        return profile
+
+    def test_reconciliation_preserves_media_identity_and_existing_snapshot(self):
+        self.labels = {name: self.recorded for name in self.labels}
+        self.mount_sha = self.recorded
+        before = self.read_runtime()
+        state = snapshot(before)
+        state_path = self.root / 'untouched-state.json'
+        state_path.write_text(json.dumps(state))
+        state_bytes = state_path.read_bytes()
+        self.labels = {name: self.candidate for name in self.labels}
+        self.reconciliation_record()
+        after = self.read_runtime()
+        self.assertEqual(after['sourceSha'], self.recorded)
+        self.assertEqual(after['applicationSourceSha'], self.candidate)
+        self.assertTrue(media.matches_current(state, after))
+        self.assertEqual(state_path.read_bytes(), state_bytes)
+        with patch.object(media, 'require_operator'), patch.object(media, 'command', return_value=''):
+            media.require_canonical(after)
+        explicit = self.read_runtime(self.candidate)
+        self.assertTrue(media.matches_current(state, explicit))
+
+    def test_reconciliation_changed_mount_or_source_tree_rejected(self):
+        profile = self.reconciliation_record()
+        self.mount_sha = self.candidate
+        with self.assertRaisesRegex(media.MediaGuardError, 'SOURCE_MOUNT_REQUIRED'):
+            self.read_runtime()
+        self.mount_sha = self.recorded
+        profile.write_text('tampered')
+        with self.assertRaisesRegex(media.MediaGuardError, 'SOURCE_DIGEST_REQUIRED'):
+            self.read_runtime()
+
+    def test_reconciliation_profile_guards_still_use_actual_media_source(self):
+        profile = self.reconciliation_record()
+        current = self.read_runtime()
+        profile.write_text('<include><param name="auth-calls" value="false"/></include>')
+        with patch.object(media, 'require_operator'), self.assertRaisesRegex(media.MediaGuardError, 'CANONICAL_PROFILE'):
+            media.require_canonical(current)
 
     def test_candidate_matches_actual_runtime_without_rewriting_record(self):
         before = self.record.read_bytes()
