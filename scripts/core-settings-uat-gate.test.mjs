@@ -456,7 +456,7 @@ test('config/image/SHA ที่เปลี่ยนบน VM ปฏิเส�
   const shim = join(directory, 'ssh');
   writeFileSync(
     shim,
-    '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(JSON.parse(process.env.CORE729_TEST_SNAPSHOT)));\n',
+    "#!/usr/bin/env node\nprocess.stdin.resume();process.stdin.on('end',()=>process.stdout.write(JSON.stringify(JSON.parse(process.env.CORE729_TEST_SNAPSHOT))));\n",
   );
   chmodSync(shim, 0o700);
   const previous = Object.fromEntries(
@@ -492,7 +492,7 @@ test('config/image/SHA ที่เปลี่ยนบน VM ปฏิเส�
   }
   writeFileSync(
     shim,
-    '#!/usr/bin/env node\nprocess.stderr.write("private-do-not-print");process.exit(1);\n',
+    "#!/usr/bin/env node\nprocess.stdin.resume();process.stdin.on('end',()=>{process.stderr.write('private-do-not-print');process.exit(1);});\n",
   );
   const result = await runUatGate(f.path, pins);
   assert.deepEqual(result.errors, ['RUNTIME_SNAPSHOT_UNAVAILABLE']);

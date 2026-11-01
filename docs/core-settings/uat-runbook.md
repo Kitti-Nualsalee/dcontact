@@ -126,7 +126,7 @@ CI job `uat-evidence-tools` ตรวจ validator ด้วยข้อมู�
 
 ## Config digest v2 และการรับหลักฐานรุ่นก่อน
 
-v2 เพิ่ม fresh Keycloak Admin read-only fingerprint จาก realm/OTP/browser flows/executions/authenticator configs/required actions/clients+bindings+protocol mappers/client scopes/roles+composites/Organizations+attributes+broker links/user profile/keys/components อ่านจาก private network ของ Keycloak container ด้วย bootstrap admin credential ที่อยู่ใน operator process เท่านั้น ขอ token แบบ POST และอ่าน config แบบ GET ไม่เขียน realm ไม่พิมพ์ credential/token/raw identity configuration และไม่ใช้ realmConfigDigest ใน deployment record แทน live state
+v2 เพิ่ม fresh Keycloak Admin read-only fingerprint จาก realm/OTP/browser flows/executions/authenticator configs/required actions/clients+bindings+protocol mappers/client scopes/role scope-mappings ของทั้ง client และ client-scope/roles+composites/Organizations+attributes+broker links/user profile/keys/components อ่านจาก private network ของ Keycloak container ด้วย bootstrap admin credential ที่อยู่ใน operator process เท่านั้น ขอ token แบบ POST และอ่าน config แบบ GET ไม่เขียน realm ไม่พิมพ์ credential/token/raw identity configuration และไม่ใช้ realmConfigDigest ใน deployment record แทน live state
 
 Collector อ่าน identity graph สองรอบติดกัน ถ้าแตกต่าง/อ่านไม่ได้ให้ล้มโดยไม่มี fallback จากนั้นรวม identityConfigDigest กับ Docker/mounted-file fingerprint เป็น configDigest v2 เกตตรวจ version/identity bindings ของทุก observation และ snapshot ก่อน–หลัง live smoke การเปลี่ยน OTP/browser flow/Org MFA โดยไม่ recreate container จึงทำให้ pins เก่าไม่ผ่าน
 

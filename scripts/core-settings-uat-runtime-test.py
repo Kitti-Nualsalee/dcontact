@@ -27,6 +27,8 @@ class IdentityFixture:
             BASE + '/clients': [{'id': 'console'}],
             BASE + '/clients/console': {'id': 'console', 'clientId': 'dcontact-uat-console', 'authenticationFlowBindingOverrides': {}},
             BASE + '/clients/console/roles': [],
+            BASE + '/clients/console/scope-mappings': {'realmMappings': [{'id': 'agent-role', 'name': 'agent'}]},
+            BASE + '/client-scopes/scope/scope-mappings': {'clientMappings': {'target': {'mappings': [{'id': 'read-role', 'name': 'read'}]}}},
             BASE + '/clients/console/protocol-mappers/models': [{'id': 'mapper', 'config': {'claim.name': 'dc_user_id'}}],
             BASE + '/roles': [{'id': 'admin-role', 'name': 'admin', 'composite': True}],
             BASE + '/roles-by-id/admin-role/composites': [{'id': 'agent-role', 'name': 'agent'}],
@@ -71,6 +73,8 @@ class IdentityDigestTests(unittest.TestCase):
             (BASE + '/clients/console', lambda d: d['authenticationFlowBindingOverrides'].update(browser='other-flow-id')),
             (BASE + '/clients/console/protocol-mappers/models', lambda d: d[0]['config'].update({'claim.name': 'other-user-id'})),
             (BASE + '/roles-by-id/admin-role/composites', lambda d: d.clear()),
+            (BASE + '/clients/console/scope-mappings', lambda d: d['realmMappings'][0].update(name='admin', id='admin-role')),
+            (BASE + '/client-scopes/scope/scope-mappings', lambda d: d['clientMappings']['target']['mappings'].clear()),
             (BASE + '/client-scopes/scope/protocol-mappers/models', lambda d: d[0]['config'].update({'claim.name': 'other-roles'})),
             (BASE + '/organizations', lambda d: d[0]['attributes'].update(dc_mfa_required=['false'])),
             (BASE + '/authentication/required-actions', lambda d: d[0].update(enabled=False)),
@@ -109,6 +113,17 @@ class IdentityDigestTests(unittest.TestCase):
         before = fixture.hash()
         fixture.rows[BASE + '/organizations'].reverse()
         fixture.rows[BASE] = dict(reversed(list(fixture.rows[BASE].items())))
+        self.assertEqual(before, fixture.hash())
+
+    def test_role_scope_mapping_order_does_not_change_digest(self):
+        fixture = IdentityFixture()
+        client = fixture.rows[BASE + '/clients/console/scope-mappings']['realmMappings']
+        scope = fixture.rows[BASE + '/client-scopes/scope/scope-mappings']['clientMappings']['target']['mappings']
+        client.append({'id': 'other-role', 'name': 'other'})
+        scope.append({'id': 'write-role', 'name': 'write'})
+        before = fixture.hash()
+        client.reverse()
+        scope.reverse()
         self.assertEqual(before, fixture.hash())
 
     def test_unavailable_live_config_is_not_an_empty_valid_fingerprint(self):

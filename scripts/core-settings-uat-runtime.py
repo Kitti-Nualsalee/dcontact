@@ -45,7 +45,16 @@ def identity_configuration(get):
             key = row.get('authenticationConfig')
             if key and key not in configs:
                 configs[key] = get(base + '/authentication/config/' + urllib.parse.quote(key, safe=''))
-    clients, roles, composites, client_mappers = [], {}, {}, {}
+    def scope_mapping(path):
+        value = get(path + '/scope-mappings')
+        if isinstance(value.get('realmMappings'), list):
+            value['realmMappings'] = ordered(value['realmMappings'])
+        for mapping in (value.get('clientMappings') or {}).values():
+            if isinstance(mapping.get('mappings'), list):
+                mapping['mappings'] = ordered(mapping['mappings'])
+        return value
+
+    clients, roles, composites, client_mappers, client_scope_mappings = [], {}, {}, {}, {}
     roles['realm'] = pages(base + '/roles')
     for summary in pages(base + '/clients'):
         key = summary['id']
@@ -59,12 +68,14 @@ def identity_configuration(get):
         clients.append(client)
         roles[key] = pages(path + '/roles')
         client_mappers[key] = ordered(get(path + '/protocol-mappers/models'))
+        client_scope_mappings[key] = scope_mapping(path)
     for rows in roles.values():
         for role in rows:
             if role.get('composite'):
                 key = role['id']
                 composites[key] = ordered(get(base + '/roles-by-id/' + urllib.parse.quote(key, safe='') + '/composites'))
     scopes = ordered([get(base + '/client-scopes/' + urllib.parse.quote(scope['id'], safe='')) for scope in get(base + '/client-scopes')])
+    scope_role_mappings = {scope['id']: scope_mapping(base + '/client-scopes/' + urllib.parse.quote(scope['id'], safe='')) for scope in scopes}
     scope_mappers = {scope['id']: ordered(get(base + '/client-scopes/' + urllib.parse.quote(scope['id'], safe='') + '/protocol-mappers/models')) for scope in scopes}
     for scope in scopes:
         if 'protocolMappers' in scope:
@@ -82,6 +93,7 @@ def identity_configuration(get):
         'requiredActions': ordered(get(base + '/authentication/required-actions')),
         'clients': ordered(clients), 'roles': roles, 'composites': composites,
         'clientMappers': client_mappers, 'clientScopes': scopes, 'scopeMappers': scope_mappers,
+        'clientScopeMappings': client_scope_mappings, 'scopeRoleMappings': scope_role_mappings,
         'organizations': organizations, 'organizationBrokers': org_brokers,
         'brokers': ordered(get(base + '/identity-provider/instances')),
         'userProfile': get(base + '/users/profile'), 'keys': keys,

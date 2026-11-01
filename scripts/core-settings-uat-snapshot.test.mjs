@@ -10,5 +10,5 @@ test('snapshot v2: live Keycloak configuration/transport/freshness ไม่ใ�
     { encoding: 'utf8' },
   );
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.match(result.stderr, /Ran 10 tests/);
+  assert.match(result.stderr, /Ran 11 tests/);
 });
