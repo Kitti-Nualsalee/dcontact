@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig } from '@playwright/test';
 
 const baseURL = process.env.CORE_SETTINGS_BASE_URL;
 if (baseURL !== 'https://dcontact-uat.osd.co.th')
@@ -26,7 +26,7 @@ export default defineConfig({
     timezoneId: 'Asia/Bangkok',
   },
   projects: [
-    { name: 'chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
-    { name: 'msedge', use: { ...devices['Desktop Edge'], channel: 'msedge' } },
+    { name: 'chrome', use: { channel: 'chrome' } },
+    { name: 'msedge', use: { channel: 'msedge' } },
   ],
 });
