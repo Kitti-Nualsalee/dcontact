@@ -51,7 +51,9 @@ Supervisor ใช้ `CORE_SETTINGS_EXPECT_WRITE=false` และต้องม
 | TEAM-TR06 | Supervisor own team readonly; Agent/Compliance/foreign/missing/revoked proof ไม่เห็น metadata หรือ mutation; ไม่ใช้ cached capability             |
 | TEAM-TR07 | production deep links/back/forward/refresh/dirty warning/TH-EN และ narrow≤760 readonly; ย่อระหว่างร่างเก็บ memory ขยายกลับตรวจ revision/authority |
 | TEAM-TR08 | API รุ่นก่อน/Console ใหม่ navigation fallback; runtime allowlist ไม่เปิด test hooks/prototype และ profiles uat/uat-e1 ยังปิด                      |
-| TEAM-TR09 | SIP caller → offer → รับ → เสียงสองทาง → WRAPUP/disposition+โน้ต → save/readback; แก้ชื่อ/defaults ระหว่างสายไม่เปลี่ยนงานสด                      |
+| TEAM-TR09 | SIP caller → offer → รับ → เสียงสองทาง → WRAPUP ตาม policy คิวจริง → save/readback; แก้ชื่อ/defaults ระหว่างสายไม่เปลี่ยนงานสด                    |
+
+TEAM-TR09 ใช้ wrap-up policy ของคิวจริงตาม [owner resolution](https://github.com/Kitti-Nualsalee/dcontact/issues/723#issuecomment-6489966786): `LEGACY` ตรวจ disposition/readback; `VOICE_NOTE_V1` ตรวจ disposition+โน้ต/readback ไม่เปลี่ยน policy เพื่อให้ Core ผ่าน และไม่อ้าง notes coverage จาก LEGACY
 
 เก็บ case/browser/version/run/timezone/actor alias/expected-actual/tested+deployed SHA/image+config digests/fixture version/checksum ของหลักฐาน ห้าม raw JWT/password/HAR/storageState ใน issue. Trace/video ปิดตามเดิม หน้าองค์กรและทีม limited trialไม่ใช่ final slice PASS; final UATยังต้องสองรอบต่อเนื่องบน build/configเดียวกัน ChromeและEdgeจริง ไม่มีS1/S2ค้าง และowner/ผู้แทนทีมรับรอง
 

@@ -1,0 +1,775 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "หลักฐาน Core Settings VM UAT ตาม #729",
+  "description": "รูปร่างเอกสารเท่านั้น ใช้ executable gate ตรวจ bytes, bindings, Git ancestry, chronology, live smoke และการรับรองจริงเพิ่มเติม",
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "kind",
+        "testedSha",
+        "deployedSha",
+        "configDigest",
+        "fixtureVersion",
+        "images",
+        "deployedBaseSha",
+        "environment",
+        "runtimeProfile",
+        "timezone",
+        "fixtureCoverage",
+        "openDefects",
+        "artifacts",
+        "releaseChecks",
+        "runs"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "kind": {
+          "const": "CORE_SETTINGS_VM_UAT"
+        },
+        "testedSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "deployedSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "configDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "fixtureVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "images": {
+          "type": "object",
+          "required": ["api", "console", "ops", "keycloak", "freeswitch", "e1"],
+          "properties": {
+            "api": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "console": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "ops": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "keycloak": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "freeswitch": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "e1": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "deployedBaseSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "environment": {
+          "const": "vm-uat"
+        },
+        "runtimeProfile": {
+          "const": "uat-workspace"
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fixtureCoverage": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "two-tenants",
+              "two-admins",
+              "supervisor-own-team",
+              "agent",
+              "compliance",
+              "missing-proof",
+              "revoked-proof",
+              "mismatched-proof",
+              "legacy-defaults",
+              "provisioned-defaults",
+              "ref-free",
+              "referenced",
+              "history-only",
+              "current-future",
+              "unresolved-negative"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "openDefects": {
+          "type": "array",
+          "minItems": 0,
+          "items": {
+            "type": "object",
+            "required": ["id", "severity"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "severity": {
+                "enum": ["S3", "S4"]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "path", "sha256", "redacted", "kind"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "redacted": {
+                "const": true
+              },
+              "kind": {
+                "enum": ["capture", "observation"]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "releaseChecks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "evidence"],
+            "properties": {
+              "id": {
+                "enum": [
+                  "candidate-ci",
+                  "deployed-base",
+                  "workspace-overlay",
+                  "identity-fixtures",
+                  "migration-rls",
+                  "old-api-new-schema",
+                  "backup-restore-readiness",
+                  "idle-window",
+                  "authenticated-smoke",
+                  "voice-smoke",
+                  "live-defaults",
+                  "app-rollback",
+                  "candidate-restored",
+                  "final-state"
+                ]
+              },
+              "evidence": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "runs": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "object",
+            "required": ["id", "browser", "round", "startedAt", "endedAt", "provenance", "cases"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "browser": {
+                "enum": ["chrome", "msedge"]
+              },
+              "round": {
+                "enum": [1, 2]
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "provenance": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cases": {
+                "type": "array",
+                "minItems": 18,
+                "items": {
+                  "type": "object",
+                  "required": ["id", "evidence"],
+                  "properties": {
+                    "id": {
+                      "enum": [
+                        "ORG-TR01",
+                        "ORG-TR02",
+                        "ORG-TR03",
+                        "ORG-TR04",
+                        "ORG-TR05",
+                        "ORG-TR06",
+                        "ORG-TR07",
+                        "ORG-TR08",
+                        "ORG-TR09",
+                        "TEAM-TR01",
+                        "TEAM-TR02",
+                        "TEAM-TR03",
+                        "TEAM-TR04",
+                        "TEAM-TR05",
+                        "TEAM-TR06",
+                        "TEAM-TR07",
+                        "TEAM-TR08",
+                        "TEAM-TR09"
+                      ]
+                    },
+                    "evidence": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "maxItems": 18
+              }
+            },
+            "additionalProperties": false
+          },
+          "maxItems": 4
+        }
+      },
+      "additionalProperties": false
+    },
+    "uiObservation": {
+      "type": "object",
+      "required": [
+        "kind",
+        "testedSha",
+        "deployedSha",
+        "configDigest",
+        "fixtureVersion",
+        "images",
+        "result",
+        "actor",
+        "expected",
+        "actual",
+        "recordedAt",
+        "artifacts",
+        "runId",
+        "caseId",
+        "method"
+      ],
+      "properties": {
+        "kind": {
+          "const": "CORE_SETTINGS_UI_OBSERVATION"
+        },
+        "testedSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "deployedSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "configDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "fixtureVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "images": {
+          "type": "object",
+          "required": ["api", "console", "ops", "keycloak", "freeswitch", "e1"],
+          "properties": {
+            "api": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "console": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "ops": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "keycloak": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "freeswitch": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "e1": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "const": "PASS"
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actual": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "caseId": {
+          "enum": [
+            "ORG-TR01",
+            "ORG-TR02",
+            "ORG-TR03",
+            "ORG-TR04",
+            "ORG-TR05",
+            "ORG-TR06",
+            "ORG-TR07",
+            "ORG-TR08",
+            "ORG-TR09",
+            "TEAM-TR01",
+            "TEAM-TR02",
+            "TEAM-TR03",
+            "TEAM-TR04",
+            "TEAM-TR05",
+            "TEAM-TR06",
+            "TEAM-TR07",
+            "TEAM-TR08",
+            "TEAM-TR09"
+          ]
+        },
+        "method": {
+          "const": "real-ui"
+        }
+      },
+      "additionalProperties": false
+    },
+    "releaseObservation": {
+      "type": "object",
+      "required": [
+        "kind",
+        "testedSha",
+        "deployedSha",
+        "configDigest",
+        "fixtureVersion",
+        "images",
+        "result",
+        "actor",
+        "expected",
+        "actual",
+        "recordedAt",
+        "artifacts",
+        "checkId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "CORE_SETTINGS_RELEASE_OBSERVATION"
+        },
+        "testedSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "deployedSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "configDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "fixtureVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "images": {
+          "type": "object",
+          "required": ["api", "console", "ops", "keycloak", "freeswitch", "e1"],
+          "properties": {
+            "api": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "console": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "ops": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "keycloak": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "freeswitch": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "e1": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "result": {
+          "const": "PASS"
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actual": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "checkId": {
+          "enum": [
+            "candidate-ci",
+            "deployed-base",
+            "workspace-overlay",
+            "identity-fixtures",
+            "migration-rls",
+            "old-api-new-schema",
+            "backup-restore-readiness",
+            "idle-window",
+            "authenticated-smoke",
+            "voice-smoke",
+            "live-defaults",
+            "app-rollback",
+            "candidate-restored",
+            "final-state"
+          ]
+        },
+        "deployedBaseSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "voiceWrapupPolicy": {
+          "enum": ["LEGACY", "VOICE_NOTE_V1"]
+        },
+        "twoWayAudioConfirmedBy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dispositionReadback": {
+          "type": "boolean"
+        },
+        "notesReadback": {
+          "type": "boolean"
+        },
+        "voiceEnabled": {
+          "const": false
+        },
+        "calls": {
+          "const": 0
+        },
+        "liveLeases": {
+          "const": 0
+        },
+        "defaultsRestored": {
+          "const": true
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "checkId": {
+                "enum": ["deployed-base", "old-api-new-schema", "app-rollback"]
+              }
+            }
+          },
+          "then": {
+            "required": ["deployedBaseSha"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "checkId": {
+                "const": "voice-smoke"
+              }
+            }
+          },
+          "then": {
+            "required": ["voiceWrapupPolicy", "twoWayAudioConfirmedBy", "dispositionReadback"]
+          }
+        },
+        {
+          "if": {
+            "required": ["voiceWrapupPolicy"],
+            "properties": {
+              "voiceWrapupPolicy": {
+                "const": "VOICE_NOTE_V1"
+              }
+            }
+          },
+          "then": {
+            "required": ["notesReadback"],
+            "properties": {
+              "notesReadback": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "checkId": {
+                "const": "final-state"
+              }
+            }
+          },
+          "then": {
+            "required": ["voiceEnabled", "calls", "liveLeases", "defaultsRestored"]
+          }
+        }
+      ]
+    },
+    "browserProvenance": {
+      "type": "object",
+      "required": [
+        "kind",
+        "testedSha",
+        "deployedSha",
+        "configDigest",
+        "fixtureVersion",
+        "images",
+        "runId",
+        "channel",
+        "version",
+        "userAgent",
+        "syntheticIdentity",
+        "fakeMedia",
+        "routeMocks",
+        "timezone",
+        "startedAt",
+        "endedAt"
+      ],
+      "properties": {
+        "kind": {
+          "const": "CORE_SETTINGS_BROWSER_PROVENANCE"
+        },
+        "testedSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "deployedSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "configDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "fixtureVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "images": {
+          "type": "object",
+          "required": ["api", "console", "ops", "keycloak", "freeswitch", "e1"],
+          "properties": {
+            "api": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "console": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "ops": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "keycloak": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "freeswitch": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "e1": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channel": {
+          "enum": ["chrome", "msedge"]
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "userAgent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "syntheticIdentity": {
+          "const": false
+        },
+        "fakeMedia": {
+          "const": false
+        },
+        "routeMocks": {
+          "const": false
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "signoff": {
+      "type": "object",
+      "required": [
+        "kind",
+        "manifestSha256",
+        "role",
+        "name",
+        "scope",
+        "decision",
+        "recordedAt",
+        "attestationReference"
+      ],
+      "properties": {
+        "kind": {
+          "const": "CORE_SETTINGS_UAT_SIGNOFF"
+        },
+        "manifestSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "role": {
+          "enum": ["owner", "test-delegate"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "const": "core-settings-first-slice"
+        },
+        "decision": {
+          "const": "ACCEPT"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "attestationReference": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/manifest"
+    },
+    {
+      "$ref": "#/$defs/uiObservation"
+    },
+    {
+      "$ref": "#/$defs/releaseObservation"
+    },
+    {
+      "$ref": "#/$defs/browserProvenance"
+    },
+    {
+      "$ref": "#/$defs/signoff"
+    }
+  ]
+}

@@ -12,7 +12,8 @@
     "test": "tsx --test src/*.test.ts",
     "test:e2e": "playwright test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:core-settings:browser": "playwright test --config playwright.core-settings.config.ts"
+    "test:core-settings:browser": "playwright test --config playwright.core-settings.config.ts",
+    "test:core-settings:uat:preflight": "playwright test --config playwright.core-settings-uat.config.ts"
   },
   "dependencies": {
     "@d-contact/dphone-embed": "workspace:*",
