@@ -10,7 +10,7 @@ Authority: [งาน #729](https://github.com/Kitti-Nualsalee/dcontact/issues/7
 
 ## เตรียม fixtures และอุปกรณ์
 
-Operator เตรียม fixture version เดียวที่ตรวจย้อนหลังได้ มีอย่างน้อยสอง tenants; tenant ทดสอบมี Admin สองคนที่เปิดพร้อมกัน, Supervisor ที่มี own active Team, Agent และ Compliance พร้อม native Organizations/verified proof จริงตาม [identity packet](./organization-limited-trial.md#verified-identity-proof) ใช้ actor aliases ในหลักฐาน ไม่แนบ credential หรือข้อมูลบัญชีส่วนตัว
+Operator เตรียม fixture version เดียวที่ตรวจย้อนหลังได้ มีอย่างน้อยสอง tenants; tenant ทดสอบมี Admin สองคนที่เปิดพร้อมกัน, Supervisor ที่มี own active Team, Agent และ Compliance พร้อม native Organizations/verified proof จริงตาม [identity packet](./organization-limited-trial.md#handoff-ให้-operator-สำหรับบัญชี-admin-uat) ใช้ actor aliases ในหลักฐาน ไม่แนบ credential หรือข้อมูลบัญชีส่วนตัว
 
 จัด legacy missing defaults และ provisioned defaults แยกกัน เตรียม Team ref-free, referenced, history-only, current/future claim และ unresolved negative ตาม §7 รวม missing/revoked/mismatched proof ห้ามแก้ประวัติหรือเติม canonical binding ด้วยการเดาเพื่อให้ deactivate ผ่าน การ cleanup/revoke/settle ใช้กระบวนการของ domain และคืน fixtures ตามที่บันทึกไว้ การ seed เตรียมสภาพเริ่มต้นได้ แต่ create/rename/deactivate/defaults ใน cases ต้องทำผ่าน UI
 
@@ -18,7 +18,7 @@ Operator เตรียม fixture version เดียวที่ตรวจ
 
 ## Release และ rollback ก่อนเปิดรอบ
 
-ทำตาม [หน้าองค์กร](./organization-limited-trial.md#release-และ-migration) และ [หน้า Team](./team-limited-trial.md#ก่อนขึ้น-vm) โดยใช้ operator package ของ candidate จริงและ `full_workspace=true` ตรวจ full Workspace/E1 overlay ที่ใช้อยู่จริง คง profile `uat-workspace`; `uat`/`uat-e1` ยังปิด Core routes ไม่เปิด LINE หรือเปลี่ยน switches/Keycloak/provision โดยอัตโนมัติ
+ทำตาม [หน้าองค์กร](./organization-limited-trial.md#package-และ-deploy-ด้วยเครื่องมือเดิม) และ [หน้า Team](./team-limited-trial.md#ก่อนขึ้น-vm) โดยใช้ operator package ของ candidate จริงและ `full_workspace=true` ตรวจ full Workspace/E1 overlay ที่ใช้อยู่จริง คง profile `uat-workspace`; `uat`/`uat-e1` ยังปิด Core routes ไม่เปิด LINE หรือเปลี่ยน switches/Keycloak/provision โดยอัตโนมัติ
 
 1. ตรวจ tested SHA ว่าเป็น ancestor ของ `origin/main` และ image source labels/Console/API/proxy/config ตรง candidate เดียวกัน บันทึก current deployed base จาก VM และ release record จริง ไม่ใช้ PR SHA แทน tested ancestor หรือ rewrite SHA หลัง merge
 2. ซ้อม additive migration/RLS ซ้ำ พร้อม fresh/legacy/data conservation และ old API image ของ current deployed base กับ new schema เก็บ image digests และ TAP/ผล query จริง Coverage CI บน baseline รุ่นเก่าไม่แทน rehearsal ของ deployed base ใหม่
