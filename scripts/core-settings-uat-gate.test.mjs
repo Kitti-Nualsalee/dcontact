@@ -498,3 +498,67 @@ test('final state ต้องอยู่หลัง UI รอบสุดท�
   assert.ok(result.errors.includes('FINAL_STATE_BEFORE_RUNS'));
   assert.ok(result.errors.includes('CANDIDATE_NOT_RESTORED_BEFORE_RUNS'));
 });
+
+function registrationMode(f) {
+  f.m.voiceVerification = 'registration-with-prior-trial';
+  f.m.voiceAmendmentReference =
+    'https://github.com/Kitti-Nualsalee/dcontact/issues/723#issuecomment-6559426967';
+  f.m.priorVoiceTrialReference =
+    'https://github.com/Kitti-Nualsalee/dcontact/issues/726#issuecomment-6500773233';
+  f.m.priorVoiceTestedSha = '158c8ccec29e37bd51ac1fe26676b8cf3123d7be';
+  const update = (d) =>
+    Object.assign(d, {
+      voiceVerification: f.m.voiceVerification,
+      registered: true,
+      twoWayAudio: 'NOT_RUN',
+      activeCallTrial: 'NOT_RUN',
+      priorVoiceTrialReference: f.m.priorVoiceTrialReference,
+      priorVoiceTestedSha: f.m.priorVoiceTestedSha,
+      registrationStayedRegistered: true,
+    });
+  for (const id of ['voice-smoke', 'live-defaults']) f.edit(id, update);
+  for (const run of f.m.runs)
+    for (const id of ['ORG-TR08', 'ORG-TR09', 'TEAM-TR09']) f.edit(`${run.id}-${id}`, update);
+  f.seal();
+}
+
+test('owner amendment รับ current registration + prior trial โดยไม่อ้าง audio ใหม่', (t) => {
+  const f = fixture(t);
+  registrationMode(f);
+  assert.equal(f.validate().result, 'BUNDLE_CONSISTENT');
+});
+for (const [name, mutate, code] of [
+  [
+    'ขาด authority reference',
+    (f) => delete f.m.voiceAmendmentReference,
+    'VOICE_AMENDMENT_REQUIRED',
+  ],
+  ['ย้าย SHA ของ prior trial', (f) => (f.m.priorVoiceTestedSha = sha), 'VOICE_AMENDMENT_REQUIRED'],
+  [
+    'ยังไม่ REGISTERED',
+    (f) => f.edit('voice-smoke', (d) => (d.registered = false)),
+    'REGISTRATION_NOT_PROVEN',
+  ],
+  [
+    'อ้างว่า audio ใหม่ผ่าน',
+    (f) => f.edit('voice-smoke', (d) => (d.twoWayAudio = 'PASS')),
+    'REGISTRATION_NOT_PROVEN',
+  ],
+  [
+    'save ทำ registration หลุด',
+    (f) => f.edit('live-defaults', (d) => (d.registrationStayedRegistered = false)),
+    'REGISTERED_DEFAULTS_NOT_PROVEN',
+  ],
+  [
+    'case Voice ไม่ระบุข้อยกเว้น',
+    (f) => f.edit('run-0-ORG-TR08', (d) => delete d.voiceVerification),
+    'CASE_REGISTRATION_NOT_PROVEN:run-0:ORG-TR08',
+  ],
+])
+  test(`registration mode ปฏิเสธ ${name}`, (t) => {
+    const f = fixture(t);
+    registrationMode(f);
+    mutate(f);
+    f.seal();
+    assert.ok(f.validate().errors.includes(code));
+  });

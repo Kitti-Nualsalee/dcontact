@@ -2,6 +2,16 @@
 
 Authority: [งาน #729](https://github.com/Kitti-Nualsalee/dcontact/issues/729), [Phase Contract #723 §§7–12](https://github.com/Kitti-Nualsalee/dcontact/issues/723), ADR-030/031/032 และ [operator runbook](../../infra/uat/operator/README.md) ของ candidate ที่ตรวจแล้ว เอกสารนี้เป็นขั้นตอนดำเนินงาน ยังไม่มีผล VM UAT จากการสร้างเครื่องมือ
 
+## Owner amendment สำหรับรอบนี้: Registration และหลักฐานเสียงเดิม
+
+[Owner amendment 1 พฤศจิกายน 2569](https://github.com/Kitti-Nualsalee/dcontact/issues/723#issuecomment-6559426967) ให้รอบ #729 ตรวจผล Register ปัจจุบันเป็น `REGISTERED` และอ้าง [actual Voice/headset/live defaults ของ #726](https://github.com/Kitti-Nualsalee/dcontact/issues/726#issuecomment-6500773233) บน SHA `158c8ccec29e37bd51ac1fe26676b8cf3123d7be` โดยไม่โทร/ทดสอบเสียงสองทางใหม่ ไม่ต้องรอผู้ทดสอบ headset สำหรับรอบนี้
+
+ใช้ `voiceVerification=registration-with-prior-trial`, `voiceAmendmentReference` เป็น URL amendment ข้างต้น, `priorVoiceTrialReference` เป็น URL #726 ข้างต้น และ `priorVoiceTestedSha` เป็น SHA เดิมบน manifest เก็บ source ของหลักฐานเก่าตามจริง ไม่ย้าย SHA มาเป็น candidate ปัจจุบัน หากไม่เลือก mode นี้ เกตเดิม `full-call` ยังบังคับ actual Voice ทั้งหมด
+
+สำหรับ release checks `voice-smoke`/`live-defaults` และ UI observations `ORG-TR08`, `ORG-TR09`, `TEAM-TR09` ทุกรอบ ระบุ `voiceVerification=registration-with-prior-trial`, `registered=true`, `twoWayAudio=NOT_RUN`, `activeCallTrial=NOT_RUN`, `priorVoiceTrialReference`, `priorVoiceTestedSha`; `live-defaults` ต้องมี `registrationStayedRegistered=true` จากการ save/defaults ขณะ registered ปัจจุบัน พร้อม current UI/readback captures การเรียกเกตนี้ผ่านไม่ใช่การรับรอง active call ใหม่ หรือเสียงสองทางบน candidate นี้
+
+ข้อกำหนด actual call/headset/WRAPUP/แก้ค่าระหว่างสายในขั้นตอนเดิมด้านล่างใช้กับ mode `full-call`; สำหรับรอบนี้ใช้ amendment ทดแทนเฉพาะ Voice ส่วน UI/error paths, Chrome/Edge สองรอบ, identity/fixtures, migration/backup/rollback, no S1/S2 และ final signoff ยังต้องครบเช่นเดิม ห้ามเปิด switch/เปลี่ยน rollout authority เพียงเพื่อ Register โดยอัตโนมัติ
+
 ## ขอบเขตและผู้ดำเนินการ
 
 ทดสอบ Tenant Console แบบ A หน้าองค์กรและ Team เดิม โดย PostgreSQL เป็น authority ใช้ verified identity proof จริง ไม่สร้าง identity/email/name sync, hierarchy, reactivate, auto-move/revoke/cancel หรือเวลาทำการ Operator รับผิดชอบ fixtures/release/backup/rollback ทีมทดสอบทำ business steps ผ่าน UI และ owner หรือผู้แทนทีมรับรองขอบเขตทั้งหมดด้วยชื่อ บทบาท และวันเวลา Agent เก็บและตรวจหลักฐานได้ แต่สร้าง human signoff แทนทีมไม่ได้

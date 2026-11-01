@@ -266,9 +266,40 @@
             "additionalProperties": false
           },
           "maxItems": 4
+        },
+        "voiceVerification": {
+          "enum": ["full-call", "registration-with-prior-trial"]
+        },
+        "voiceAmendmentReference": {
+          "const": "https://github.com/Kitti-Nualsalee/dcontact/issues/723#issuecomment-6559426967"
+        },
+        "priorVoiceTrialReference": {
+          "const": "https://github.com/Kitti-Nualsalee/dcontact/issues/726#issuecomment-6500773233"
+        },
+        "priorVoiceTestedSha": {
+          "const": "158c8ccec29e37bd51ac1fe26676b8cf3123d7be"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["voiceVerification"],
+            "properties": {
+              "voiceVerification": {
+                "const": "registration-with-prior-trial"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "voiceAmendmentReference",
+              "priorVoiceTrialReference",
+              "priorVoiceTestedSha"
+            ]
+          }
+        }
+      ]
     },
     "uiObservation": {
       "type": "object",
@@ -395,6 +426,27 @@
         },
         "method": {
           "const": "real-ui"
+        },
+        "voiceVerification": {
+          "const": "registration-with-prior-trial"
+        },
+        "registered": {
+          "const": true
+        },
+        "twoWayAudio": {
+          "const": "NOT_RUN"
+        },
+        "activeCallTrial": {
+          "const": "NOT_RUN"
+        },
+        "priorVoiceTrialReference": {
+          "const": "https://github.com/Kitti-Nualsalee/dcontact/issues/726#issuecomment-6500773233"
+        },
+        "priorVoiceTestedSha": {
+          "const": "158c8ccec29e37bd51ac1fe26676b8cf3123d7be"
+        },
+        "registrationStayedRegistered": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
@@ -540,6 +592,27 @@
         },
         "defaultsRestored": {
           "const": true
+        },
+        "voiceVerification": {
+          "const": "registration-with-prior-trial"
+        },
+        "registered": {
+          "const": true
+        },
+        "twoWayAudio": {
+          "const": "NOT_RUN"
+        },
+        "activeCallTrial": {
+          "const": "NOT_RUN"
+        },
+        "priorVoiceTrialReference": {
+          "const": "https://github.com/Kitti-Nualsalee/dcontact/issues/726#issuecomment-6500773233"
+        },
+        "priorVoiceTestedSha": {
+          "const": "158c8ccec29e37bd51ac1fe26676b8cf3123d7be"
+        },
+        "registrationStayedRegistered": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -558,11 +631,25 @@
         },
         {
           "if": {
-            "properties": {
-              "checkId": {
-                "const": "voice-smoke"
+            "allOf": [
+              {
+                "properties": {
+                  "checkId": {
+                    "const": "voice-smoke"
+                  }
+                }
+              },
+              {
+                "not": {
+                  "required": ["voiceVerification"],
+                  "properties": {
+                    "voiceVerification": {
+                      "const": "registration-with-prior-trial"
+                    }
+                  }
+                }
               }
-            }
+            ]
           },
           "then": {
             "required": ["voiceWrapupPolicy", "twoWayAudioConfirmedBy", "dispositionReadback"]

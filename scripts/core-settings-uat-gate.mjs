@@ -7,6 +7,11 @@ import { isDeepStrictEqual } from 'node:util';
 import { runOrganizationSmoke } from './core-settings-organization-smoke.mjs';
 import { collectRuntimeSnapshot } from './core-settings-uat-snapshot.mjs';
 
+export const REGISTRATION_AMENDMENT =
+  'https://github.com/Kitti-Nualsalee/dcontact/issues/723#issuecomment-6559426967';
+export const PRIOR_VOICE_TRIAL =
+  'https://github.com/Kitti-Nualsalee/dcontact/issues/726#issuecomment-6500773233';
+export const PRIOR_VOICE_SHA = '158c8ccec29e37bd51ac1fe26676b8cf3123d7be';
 export const CASE_IDS = [
   ...Array.from({ length: 9 }, (_, i) => `ORG-TR0${i + 1}`),
   ...Array.from({ length: 9 }, (_, i) => `TEAM-TR0${i + 1}`),
@@ -74,6 +79,26 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
   need(HASH.test(pins?.config ?? ''), 'EXPECTED_CONFIG_REQUIRED');
   need(text(pins?.fixtures), 'EXPECTED_FIXTURES_REQUIRED');
   need(m.schemaVersion === 1 && m.kind === 'CORE_SETTINGS_VM_UAT', 'SCHEMA');
+  const registrationOnly = m.voiceVerification === 'registration-with-prior-trial';
+  need(
+    m.voiceVerification === undefined || m.voiceVerification === 'full-call' || registrationOnly,
+    'VOICE_MODE',
+  );
+  if (registrationOnly)
+    need(
+      m.voiceAmendmentReference === REGISTRATION_AMENDMENT &&
+        m.priorVoiceTrialReference === PRIOR_VOICE_TRIAL &&
+        m.priorVoiceTestedSha === PRIOR_VOICE_SHA,
+      'VOICE_AMENDMENT_REQUIRED',
+    );
+  const registrationEvidence = (d) =>
+    d?.voiceVerification === 'registration-with-prior-trial' &&
+    d.registered === true &&
+    d.twoWayAudio === 'NOT_RUN' &&
+    d.activeCallTrial === 'NOT_RUN' &&
+    d.priorVoiceTrialReference === PRIOR_VOICE_TRIAL &&
+    d.priorVoiceTestedSha === PRIOR_VOICE_SHA;
+
   need(
     SHA.test(m.testedSha ?? '') && m.testedSha === pins?.sha && m.deployedSha === m.testedSha,
     'STALE_SHA',
@@ -213,7 +238,14 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
         row.id === 'app-rollback'
       )
         need(d.deployedBaseSha === m.deployedBaseSha, `BASE_BINDING:${row.id}`);
-      if (row.id === 'voice-smoke')
+      if (row.id === 'voice-smoke' && registrationOnly)
+        need(registrationEvidence(d), 'REGISTRATION_NOT_PROVEN');
+      if (row.id === 'live-defaults' && registrationOnly)
+        need(
+          registrationEvidence(d) && d.registrationStayedRegistered === true,
+          'REGISTERED_DEFAULTS_NOT_PROVEN',
+        );
+      if (row.id === 'voice-smoke' && !registrationOnly)
         need(
           ['LEGACY', 'VOICE_NOTE_V1'].includes(d.voiceWrapupPolicy) &&
             d.twoWayAudioConfirmedBy === d.actor &&
@@ -304,6 +336,8 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
         `CASE_NOT_PASSED:${tag}:${row.id}`,
       );
       if (d) evidenceRefs(d.artifacts, `CASE_ARTIFACTS:${tag}:${row.id}`);
+      if (registrationOnly && ['ORG-TR08', 'ORG-TR09', 'TEAM-TR09'].includes(row.id))
+        need(registrationEvidence(d), `CASE_REGISTRATION_NOT_PROVEN:${tag}:${row.id}`);
     }
     need(
       CASE_IDS.every((id) => ids.has(id)),
