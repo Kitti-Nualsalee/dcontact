@@ -389,6 +389,8 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
   if (errors.length) return fail();
   return {
     result: 'BUNDLE_CONSISTENT',
+    voiceVerification: m.voiceVerification ?? 'full-call',
+    audioTrial: registrationOnly ? 'PRIOR_TRIAL_ONLY' : 'TEAM_ATTESTED_CURRENT_TRIAL',
     vmUat: 'NOT_INDEPENDENTLY_VERIFIED',
     manifestSha256: sha256(manifestBytes),
     testedSha: m.testedSha,

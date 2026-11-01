@@ -525,7 +525,9 @@ function registrationMode(f) {
 test('owner amendment รับ current registration + prior trial โดยไม่อ้าง audio ใหม่', (t) => {
   const f = fixture(t);
   registrationMode(f);
-  assert.equal(f.validate().result, 'BUNDLE_CONSISTENT');
+  const result = f.validate();
+  assert.equal(result.result, 'BUNDLE_CONSISTENT');
+  assert.equal(result.audioTrial, 'PRIOR_TRIAL_ONLY');
 });
 for (const [name, mutate, code] of [
   [
