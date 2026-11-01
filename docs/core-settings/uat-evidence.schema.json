@@ -21,11 +21,13 @@
         "openDefects",
         "artifacts",
         "releaseChecks",
-        "runs"
+        "runs",
+        "configDigestVersion",
+        "identityConfigDigest"
       ],
       "properties": {
         "schemaVersion": {
-          "const": 1
+          "const": 2
         },
         "kind": {
           "const": "CORE_SETTINGS_VM_UAT"
@@ -278,6 +280,13 @@
         },
         "priorVoiceTestedSha": {
           "const": "158c8ccec29e37bd51ac1fe26676b8cf3123d7be"
+        },
+        "configDigestVersion": {
+          "const": 2
+        },
+        "identityConfigDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       },
       "additionalProperties": false,
@@ -318,7 +327,9 @@
         "artifacts",
         "runId",
         "caseId",
-        "method"
+        "method",
+        "configDigestVersion",
+        "identityConfigDigest"
       ],
       "properties": {
         "kind": {
@@ -447,6 +458,13 @@
         },
         "registrationStayedRegistered": {
           "type": "boolean"
+        },
+        "configDigestVersion": {
+          "const": 2
+        },
+        "identityConfigDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       },
       "additionalProperties": false
@@ -466,7 +484,9 @@
         "actual",
         "recordedAt",
         "artifacts",
-        "checkId"
+        "checkId",
+        "configDigestVersion",
+        "identityConfigDigest"
       ],
       "properties": {
         "kind": {
@@ -613,6 +633,13 @@
         },
         "registrationStayedRegistered": {
           "type": "boolean"
+        },
+        "configDigestVersion": {
+          "const": 2
+        },
+        "identityConfigDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       },
       "additionalProperties": false,
@@ -705,7 +732,9 @@
         "routeMocks",
         "timezone",
         "startedAt",
-        "endedAt"
+        "endedAt",
+        "configDigestVersion",
+        "identityConfigDigest"
       ],
       "properties": {
         "kind": {
@@ -793,6 +822,13 @@
         "endedAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "configDigestVersion": {
+          "const": 2
+        },
+        "identityConfigDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       },
       "additionalProperties": false

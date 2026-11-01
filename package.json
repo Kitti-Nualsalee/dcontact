@@ -115,7 +115,7 @@
     "test:core-settings:writers": "node scripts/core-settings-writer-tests.mjs",
     "test:core-settings:discovery": "node --test scripts/core-settings-writer-tests.test.mjs",
     "core-settings:uat:gate": "node scripts/core-settings-uat-gate.mjs",
-    "test:core-settings:uat": "node --test scripts/core-settings-uat-gate.test.mjs"
+    "test:core-settings:uat": "node --test scripts/core-settings-uat-gate.test.mjs scripts/core-settings-uat-snapshot.test.mjs"
   },
   "devDependencies": {
     "prettier": "^3.3.3",

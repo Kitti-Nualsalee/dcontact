@@ -78,7 +78,7 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
   need(SHA.test(pins?.sha ?? ''), 'EXPECTED_SHA_REQUIRED');
   need(HASH.test(pins?.config ?? ''), 'EXPECTED_CONFIG_REQUIRED');
   need(text(pins?.fixtures), 'EXPECTED_FIXTURES_REQUIRED');
-  need(m.schemaVersion === 1 && m.kind === 'CORE_SETTINGS_VM_UAT', 'SCHEMA');
+  need(m.schemaVersion === 2 && m.kind === 'CORE_SETTINGS_VM_UAT', 'SCHEMA');
   const registrationOnly = m.voiceVerification === 'registration-with-prior-trial';
   need(
     m.voiceVerification === undefined || m.voiceVerification === 'full-call' || registrationOnly,
@@ -104,6 +104,10 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
     'STALE_SHA',
   );
   need(HASH.test(m.configDigest ?? '') && m.configDigest === pins?.config, 'STALE_CONFIG');
+  need(
+    m.configDigestVersion === 2 && HASH.test(m.identityConfigDigest ?? ''),
+    'IDENTITY_CONFIG_PROOF_REQUIRED',
+  );
   need(m.fixtureVersion === pins?.fixtures && text(m.fixtureVersion), 'STALE_FIXTURES');
   need(m.environment === 'vm-uat' && m.runtimeProfile === 'uat-workspace', 'VM_PROFILE');
   need(SHA.test(m.deployedBaseSha ?? '') && m.deployedBaseSha !== m.testedSha, 'DEPLOYED_BASE');
@@ -194,6 +198,8 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
         d.testedSha === m.testedSha &&
         d.deployedSha === m.deployedSha &&
         d.configDigest === m.configDigest &&
+        d.configDigestVersion === m.configDigestVersion &&
+        d.identityConfigDigest === m.identityConfigDigest &&
         d.fixtureVersion === m.fixtureVersion &&
         isDeepStrictEqual(d.images, m.images),
       code,
@@ -395,6 +401,8 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
     manifestSha256: sha256(manifestBytes),
     testedSha: m.testedSha,
     images: m.images,
+    configDigestVersion: m.configDigestVersion,
+    identityConfigDigest: m.identityConfigDigest,
     // ไม่ใช่ acceptance marker และไม่ยืนยันตัวตนผู้ลงนามแทนช่องทางรับรองของทีม
     acceptanceMarkerIssued: false,
     errors,
@@ -405,43 +413,31 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
 export async function runUatGate(manifestPath, pins) {
   const bundle = validateUatBundle(manifestPath, pins);
   if (bundle.result !== 'BUNDLE_CONSISTENT') return bundle;
+  const reject = (code) => ({
+    ...bundle,
+    result: 'NOT_PASSED',
+    vmUat: 'NOT_PROVEN',
+    errors: [code],
+  });
   const env = process.env;
   if (!env.CORE_SETTINGS_ACCESS_TOKEN || !env.CORE_SETTINGS_BASE_URL)
-    return {
-      ...bundle,
-      result: 'NOT_PASSED',
-      vmUat: 'NOT_PROVEN',
-      errors: ['LIVE_SMOKE_REQUIRED'],
-    };
+    return reject('LIVE_SMOKE_REQUIRED');
   if (env.CORE_SETTINGS_BASE_URL !== 'https://dcontact-uat.osd.co.th')
-    return {
-      ...bundle,
-      result: 'NOT_PASSED',
-      vmUat: 'NOT_PROVEN',
-      errors: ['LIVE_TARGET_MISMATCH'],
-    };
+    return reject('LIVE_TARGET_MISMATCH');
   let snapshot;
   try {
     snapshot = collectRuntimeSnapshot();
   } catch {
-    return {
-      ...bundle,
-      result: 'NOT_PASSED',
-      vmUat: 'NOT_PROVEN',
-      errors: ['RUNTIME_SNAPSHOT_UNAVAILABLE'],
-    };
+    return reject('RUNTIME_SNAPSHOT_UNAVAILABLE');
   }
   if (
+    snapshot.configDigestVersion !== 2 ||
+    snapshot.identityConfigDigest !== bundle.identityConfigDigest ||
     snapshot.sourceSha !== pins.sha ||
     snapshot.configDigest !== pins.config ||
     !isDeepStrictEqual(snapshot.images, bundle.images)
   )
-    return {
-      ...bundle,
-      result: 'NOT_PASSED',
-      vmUat: 'NOT_PROVEN',
-      errors: ['LIVE_DEPLOYMENT_CHANGED'],
-    };
+    return reject('LIVE_DEPLOYMENT_CHANGED');
   let smoke;
   try {
     smoke = await runOrganizationSmoke({
@@ -453,46 +449,27 @@ export async function runUatGate(manifestPath, pins) {
   } catch {
     /* ไม่คืน credential หรือ error payload จาก transport */
   }
-  if (smoke?.result !== 'PASS')
-    return {
-      ...bundle,
-      result: 'NOT_PASSED',
-      vmUat: 'NOT_PROVEN',
-      errors: ['LIVE_SMOKE_NOT_PASSED'],
-    };
+  if (smoke?.result !== 'PASS') return reject('LIVE_SMOKE_NOT_PASSED');
   const rechecked = validateUatBundle(manifestPath, pins);
   if (
     rechecked.result !== 'BUNDLE_CONSISTENT' ||
     rechecked.manifestSha256 !== bundle.manifestSha256
   )
-    return {
-      ...bundle,
-      result: 'NOT_PASSED',
-      vmUat: 'NOT_PROVEN',
-      errors: ['BUNDLE_CHANGED_DURING_GATE'],
-    };
+    return reject('BUNDLE_CHANGED_DURING_GATE');
   let after;
   try {
     after = collectRuntimeSnapshot();
   } catch {
-    return {
-      ...bundle,
-      result: 'NOT_PASSED',
-      vmUat: 'NOT_PROVEN',
-      errors: ['RUNTIME_SNAPSHOT_UNAVAILABLE'],
-    };
+    return reject('RUNTIME_SNAPSHOT_UNAVAILABLE');
   }
   if (
+    after.configDigestVersion !== snapshot.configDigestVersion ||
+    after.identityConfigDigest !== snapshot.identityConfigDigest ||
     after.sourceSha !== snapshot.sourceSha ||
     after.configDigest !== snapshot.configDigest ||
     !isDeepStrictEqual(after.images, snapshot.images)
   )
-    return {
-      ...bundle,
-      result: 'NOT_PASSED',
-      vmUat: 'NOT_PROVEN',
-      errors: ['LIVE_DEPLOYMENT_CHANGED'],
-    };
+    return reject('LIVE_DEPLOYMENT_CHANGED');
   return { ...bundle, result: 'EVIDENCE_VALIDATED', vmUat: 'ATTESTED_BY_TEAM', liveSmoke: 'PASS' };
 }
 

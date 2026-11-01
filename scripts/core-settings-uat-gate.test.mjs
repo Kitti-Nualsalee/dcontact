@@ -34,11 +34,13 @@ function fixture(t) {
     testedSha: sha,
     deployedSha: sha,
     configDigest: pins.config,
+    configDigestVersion: 2,
+    identityConfigDigest: 'e'.repeat(64),
     fixtureVersion: pins.fixtures,
     images,
   };
   const m = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'CORE_SETTINGS_VM_UAT',
     ...binding,
     environment: 'vm-uat',
@@ -471,11 +473,19 @@ test('config/image/SHA ที่เปลี่ยนบน VM ปฏิเส�
   process.env.PATH = `${directory}:${process.env.PATH}`;
   process.env.CORE_SETTINGS_ACCESS_TOKEN = 'unit-test-only';
   process.env.CORE_SETTINGS_BASE_URL = 'https://dcontact-uat.osd.co.th';
-  const base = { sourceSha: sha, configDigest: pins.config, images: f.m.images };
+  const base = {
+    sourceSha: sha,
+    configDigest: pins.config,
+    configDigestVersion: 2,
+    identityConfigDigest: f.m.identityConfigDigest,
+    images: f.m.images,
+  };
   for (const snapshot of [
     { ...base, sourceSha: 'a'.repeat(40) },
     { ...base, configDigest: 'a'.repeat(64) },
     { ...base, images: {} },
+    { ...base, identityConfigDigest: 'f'.repeat(64) },
+    { ...base, configDigestVersion: 1 },
   ]) {
     process.env.CORE729_TEST_SNAPSHOT = JSON.stringify(snapshot);
     assert.deepEqual((await runUatGate(f.path, pins)).errors, ['LIVE_DEPLOYMENT_CHANGED']);
@@ -564,3 +574,20 @@ for (const [name, mutate, code] of [
     f.seal();
     assert.ok(f.validate().errors.includes(code));
   });
+
+test('manifest v1 ไม่มี fresh identity proof ต้องไม่ผ่าน', (t) => {
+  const f = fixture(t);
+  f.m.schemaVersion = 1;
+  delete f.m.identityConfigDigest;
+  delete f.m.configDigestVersion;
+  f.seal();
+  const result = f.validate();
+  assert.ok(result.errors.includes('SCHEMA'));
+  assert.ok(result.errors.includes('IDENTITY_CONFIG_PROOF_REQUIRED'));
+});
+test('case identity config ไม่ตรง manifest ต้องไม่ผ่านแม้ Docker/config field เดิมตรง', (t) => {
+  const f = fixture(t);
+  f.edit('run-0-ORG-TR01', (d) => (d.identityConfigDigest = 'f'.repeat(64)));
+  f.seal();
+  assert.ok(f.validate().errors.includes('CASE_BINDING:run-0:ORG-TR01'));
+});

@@ -59,7 +59,7 @@ jobs:
         with:
           node-version: 20
       - name: ตรวจ validator ด้วยข้อมูลจำลอง ไม่ใช่ผล VM หรือทีมรับรอง
-        run: node --test scripts/core-settings-uat-gate.test.mjs scripts/core-settings-evidence.test.mjs scripts/core-settings-release.test.mjs
+        run: node --test scripts/core-settings-uat-gate.test.mjs scripts/core-settings-uat-snapshot.test.mjs scripts/core-settings-evidence.test.mjs scripts/core-settings-release.test.mjs
   contract-db:
     runs-on: ubuntu-latest
     timeout-minutes: 20
