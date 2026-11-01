@@ -76,7 +76,7 @@ function fixture(t) {
         expected: 'expected',
         actual: 'actual',
         artifacts: ['capture'],
-        recordedAt: '2026-01-01T00:00:00Z',
+        recordedAt: id === 'final-state' ? '2026-01-01T05:00:00Z' : '2026-01-01T00:00:00Z',
         deployedBaseSha: m.deployedBaseSha,
         voiceWrapupPolicy: 'LEGACY',
         twoWayAudioConfirmedBy: 'test-operator',
@@ -487,4 +487,14 @@ test('config/image/SHA ที่เปลี่ยนบน VM ปฏิเส�
   const result = await runUatGate(f.path, pins);
   assert.deepEqual(result.errors, ['RUNTIME_SNAPSHOT_UNAVAILABLE']);
   assert.ok(!JSON.stringify(result).includes('private-do-not-print'));
+});
+
+test('final state ต้องอยู่หลัง UI รอบสุดท้าย และคืน candidate ก่อนเริ่มรอบ', (t) => {
+  const f = fixture(t);
+  f.edit('final-state', (d) => (d.recordedAt = '2026-01-01T00:00:00Z'));
+  f.edit('candidate-restored', (d) => (d.recordedAt = '2026-01-01T05:00:00Z'));
+  f.seal();
+  const result = f.validate();
+  assert.ok(result.errors.includes('FINAL_STATE_BEFORE_RUNS'));
+  assert.ok(result.errors.includes('CANDIDATE_NOT_RESTORED_BEFORE_RUNS'));
 });

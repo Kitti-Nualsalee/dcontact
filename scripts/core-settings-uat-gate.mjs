@@ -184,6 +184,7 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
 
   const releaseIds = new Set();
   let latestRelease = 0;
+  const releaseTimes = new Map();
   for (const row of Array.isArray(m.releaseChecks) ? m.releaseChecks : []) {
     if (!row || !RELEASE_CHECKS.includes(row.id) || releaseIds.has(row.id)) {
       need(false, 'RELEASE_ID');
@@ -204,6 +205,7 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
     );
     if (d) {
       evidenceRefs(d.artifacts, `RELEASE_ARTIFACTS:${row.id}`);
+      releaseTimes.set(row.id, Date.parse(d.recordedAt));
       latestRelease = Math.max(latestRelease, Date.parse(d.recordedAt) || 0);
       if (
         row.id === 'deployed-base' ||
@@ -324,6 +326,11 @@ export function validateUatBundle(manifestPath, pins, { repo = process.cwd() } =
       );
     }
   }
+  need(releaseTimes.get('final-state') >= lastEnd, 'FINAL_STATE_BEFORE_RUNS');
+  need(
+    releaseTimes.get('candidate-restored') <= Date.parse(runs[0]?.startedAt),
+    'CANDIDATE_NOT_RESTORED_BEFORE_RUNS',
+  );
   // Detached attestation ลงนามผูก exact manifest bytes ไม่ใส่ signoff ในไฟล์ที่ hash ตัวเอง
   let signoff;
   try {

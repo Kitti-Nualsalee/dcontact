@@ -16,6 +16,9 @@ for key, service in services.items():
     sources[key] = value['Config'].get('Labels',{}).get('org.opencontainers.image.revision')
     configs[key] = {k:value[k] for k in ['Config','HostConfig','Mounts']}
 images['ops'] = record['images']['ops'].split('@')[-1]
+for key in ['api','console','keycloak']:
+    if record['images'][key].split('@')[-1] != images[key]:
+        raise ValueError('IMAGE_RECORD_MISMATCH')
 sha = record['sourceSha']
 if any(sources[k] != sha for k in ['api','console','e1']):
     raise ValueError('SOURCE_RECORD_MISMATCH')
