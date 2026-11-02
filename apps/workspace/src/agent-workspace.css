@@ -44,6 +44,222 @@
   margin-bottom: var(--dc-space-7);
 }
 
+.aw-shell-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-2);
+}
+
+.aw-shell-heading :where(h1) {
+  margin: 0;
+  font-size: var(--dc-text-lg);
+}
+
+.aw-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── #813: สามคอลัมน์ตามดีไซน์ A · Workspace (งาน · งานปัจจุบัน · ความพร้อม) ── */
+.aw-in-shell > .aw-warning,
+.aw-in-shell > .aw-governance,
+.aw-in-shell > .aw-panel {
+  margin-bottom: var(--dc-space-6);
+}
+
+.aw-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--dc-space-6);
+  align-items: start;
+}
+
+.aw-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-5);
+  min-width: 0;
+}
+
+.aw-column-title {
+  font-size: var(--dc-text-md);
+}
+
+.aw-column-work {
+  padding: var(--dc-space-6);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+}
+
+.aw-work-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aw-work-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-2);
+  padding: var(--dc-space-5);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-selected);
+  box-shadow: inset 3px 0 0 var(--dc-border-brand);
+}
+
+.aw-work-row,
+.aw-call-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+}
+
+.aw-work-row {
+  justify-content: space-between;
+}
+
+.aw-work-time,
+.aw-call-duration {
+  font-family: var(--dc-font-numeric);
+  font-variant-numeric: tabular-nums;
+}
+
+.aw-work-time,
+.aw-work-meta,
+.aw-call-meta {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-channel {
+  padding: 0 var(--dc-space-3);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-info-bg);
+  color: var(--dc-info-fg);
+  font-size: var(--dc-text-xs);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.aw-work-item .aw-channel {
+  align-self: flex-start;
+}
+
+.aw-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-2);
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-empty strong {
+  color: var(--dc-text-primary);
+}
+
+.aw-call-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dc-space-5);
+  padding: var(--dc-space-6) var(--dc-space-7);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+}
+
+.aw-call-identity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-2);
+  min-width: 0;
+}
+
+.aw-call-caller {
+  font-size: var(--dc-text-lg);
+  overflow-wrap: anywhere;
+}
+
+.aw-call-duration {
+  font-weight: var(--dc-weight-semibold);
+}
+
+.aw-detail {
+  padding: var(--dc-space-5) var(--dc-space-7) var(--dc-space-7);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+}
+
+.aw-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-5);
+  padding-top: var(--dc-space-6);
+}
+
+/* แผงที่อยู่ในแท็บไม่ต้องมีกรอบซ้อน */
+.aw-detail-panel > .aw-panel {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.aw-detail-title {
+  margin: 0;
+  font-size: var(--dc-text-base);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.aw-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--dc-text-sm);
+}
+
+.aw-timeline li {
+  display: grid;
+  grid-template-columns: max-content 10px minmax(0, 1fr);
+  gap: var(--dc-space-4);
+  align-items: center;
+}
+
+.aw-timeline time {
+  color: var(--dc-text-secondary);
+  font-family: var(--dc-font-numeric);
+  font-variant-numeric: tabular-nums;
+}
+
+.aw-timeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--dc-radius-pill);
+  background: var(--dc-neutral-solid);
+}
+
+.aw-timeline-answered {
+  background: var(--dc-success-solid);
+}
+
+@media (min-width: 1280px) {
+  .aw-columns {
+    grid-template-columns: 280px minmax(0, 1fr) 340px;
+  }
+}
+
 /* ── chrome เดิมตอนปิด flag ui.shell.v2 ── */
 .aw-legacy {
   display: flex;

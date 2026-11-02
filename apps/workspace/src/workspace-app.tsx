@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { WrapupRuntime } from './wrapup-runtime.js';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
-import { Button, useInShell } from '@d-contact/ui-react';
+import { Button, Tab, TabList, TabPanel, Tabs, useInShell } from '@d-contact/ui-react';
 import {
   AgentApiError,
   type AgentWorkspaceApi,
@@ -44,6 +44,7 @@ import { WorkSessionPanel } from './work-session-panel.js';
 import './agent-workspace.css';
 import './dphone/dphone.css';
 
+type DetailTab = 'overview' | 'wrapup' | 'recent';
 type MediaReadiness = 'UNCHECKED' | 'CHECKING' | 'READY' | 'BLOCKED';
 type Availability = 'OFFLINE' | 'AVAILABLE';
 type WorkspaceMessage =
@@ -138,6 +139,14 @@ declare global {
 const SIZE_KEY = 'dcontact.dphone.size';
 const DTMF_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
 
+function formatDuration(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return hours ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`;
+}
+
 function loadSize(): DphoneSize {
   try {
     const saved = localStorage.getItem(SIZE_KEY);
@@ -231,6 +240,9 @@ function AgentWorkspace({
   const [liveRetry, setLiveRetry] = useState(0);
   const [dphoneSize, setDphoneSize] = useState<DphoneSize>(loadSize);
   const [detached, setDetached] = useState(false);
+  // #813: แท็บรายละเอียดงานใน shell — เลือกแท็บที่ต้องทำต่อให้เองเมื่อสถานะงานเปลี่ยน
+  const [detailTab, setDetailTab] = useState<DetailTab>('overview');
+  const [now, setNow] = useState(() => Date.now());
   const mediaStream = useRef<MediaStream | undefined>(undefined);
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
   const dphone = useRef<BrowserDphone | undefined>(undefined);
@@ -293,6 +305,26 @@ function AgentWorkspace({
       onCallEventRef.current?.({ type: 'offered', interaction });
     if (interaction.state === 'ACTIVE') onCallEventRef.current?.({ type: 'answered', interaction });
   }, [interactionKey, snapshot]);
+  // #813: งานใหม่ → ภาพรวม, เข้า WRAPUP → สรุปผล, บันทึกผลแล้ว → ล่าสุด (ผู้ใช้ยังสลับแท็บเองได้)
+  const wrapupFormOpen =
+    wrapupTarget?.state === 'WRAPUP' && savedWrapup?.interactionId !== wrapupTarget.id;
+  const detailFocus = wrapupFormOpen
+    ? `wrapup:${wrapupTarget.id}`
+    : savedWrapup && savedWrapup.interactionId === wrapupTarget?.id
+      ? `recent:${savedWrapup.interactionId}`
+      : snapshot?.interaction
+        ? `overview:${snapshot.interaction.id}`
+        : undefined;
+  useEffect(() => {
+    if (detailFocus) setDetailTab(detailFocus.split(':')[0] as DetailTab);
+  }, [detailFocus]);
+  const callRunning = Boolean(snapshot?.interaction?.answeredAt && !snapshot.interaction.endedAt);
+  useEffect(() => {
+    if (!callRunning) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [callRunning]);
   const ownsWorkRef = useRef(ownsWork);
   ownsWorkRef.current = ownsWork;
   const workInHandRef = useRef(workInHand);
@@ -1059,100 +1091,103 @@ function AgentWorkspace({
       return;
     }
   })();
+  const savedPanel = savedWrapup ? (
+    <article className="aw-panel" aria-live="polite">
+      <h2>{t('wrapup.saved')}</h2>
+      {wrapupAlreadyCompleted ? <p>{t('wrapup.alreadyCompleted')}</p> : null}
+      <p>
+        {savedWrapup.disposition === 'CUSTOMER_ASSISTED'
+          ? t('wrapup.assisted')
+          : t('wrapup.followUp')}
+      </p>
+      <p className="aw-wrapup-note">{savedWrapup.note}</p>
+      <time dateTime={savedWrapup.recordedAt}>
+        {new Date(savedWrapup.recordedAt).toLocaleString(locale)}
+      </time>
+      {historyHref ? (
+        <a href={historyHref} target="_blank" rel="noopener noreferrer">
+          {t('wrapup.history')}
+        </a>
+      ) : null}
+    </article>
+  ) : null;
+  const wrapupForm =
+    wrapupTarget?.state === 'WRAPUP' && savedWrapup?.interactionId !== wrapupTarget.id ? (
+      <article className="aw-panel" aria-labelledby="wrapup-title">
+        <div>
+          <p className="aw-step">{t('wrapup.step')}</p>
+          <h2 id="wrapup-title">{t('wrapup.title')}</h2>
+          <p className="aw-copy">{t('wrapup.copy')}</p>
+          {wrapupUnknown || wrapupPending ? (
+            <p>{t('wrapup.recoveringInteraction', { interactionId: wrapupTarget.id })}</p>
+          ) : null}
+        </div>
+        <div className="aw-segmented" role="group" aria-label={t('wrapup.choose')}>
+          <button
+            type="button"
+            aria-pressed={wrapupDisposition === 'CUSTOMER_ASSISTED'}
+            disabled={wrapupPending || wrapupUnknown}
+            onClick={() => setWrapupDisposition('CUSTOMER_ASSISTED')}
+          >
+            {t('wrapup.assisted')}
+          </button>
+          <button
+            type="button"
+            aria-pressed={wrapupDisposition === 'FOLLOW_UP_REQUIRED'}
+            disabled={wrapupPending || wrapupUnknown}
+            onClick={() => setWrapupDisposition('FOLLOW_UP_REQUIRED')}
+          >
+            {t('wrapup.followUp')}
+          </button>
+        </div>
+        {requiresWrapupV1 ? (
+          <>
+            <label htmlFor="wrapup-note">{t('wrapup.note')}</label>
+            <textarea
+              id="wrapup-note"
+              value={wrapupNote}
+              disabled={wrapupPending || wrapupUnknown || !wrapupV1Supported}
+              aria-describedby="wrapup-note-help"
+              onChange={(event) => setWrapupNote(event.target.value)}
+            />
+            <p id="wrapup-note-help">{t('wrapup.noteCount', { count: noteLength })}</p>
+            {!validNote ? <p>{t('wrapup.noteRequired')}</p> : null}
+            {!wrapupV1Supported ? <p role="alert">{t('wrapup.upgradeRequired')}</p> : null}
+          </>
+        ) : null}
+        <Button
+          variant="primary"
+          isDisabled={
+            !wrapupDisposition ||
+            !sessionReady ||
+            wrapupPending ||
+            (requiresWrapupV1 && (!wrapupV1Supported || !validNote))
+          }
+          onPress={() => void submitWrapup()}
+        >
+          {t('wrapup.submit')}
+        </Button>
+        {wrapupPending && !wrapupState.reconciling ? (
+          <p role="status">{t('wrapup.pending')}</p>
+        ) : null}
+        {wrapupState.reconciling ? <p role="status">{t('wrapup.reconciling')}</p> : null}
+        {wrapupUnknown ? <p role="status">{t('wrapup.unknown')}</p> : null}
+        {wrapupUnknown && api?.wrapupResult && api.wrapupCommand ? (
+          <Button isDisabled={wrapupPending} onPress={() => void checkWrapupResult()}>
+            {t('wrapup.checkResult')}
+          </Button>
+        ) : null}
+        {wrapupError ? (
+          <p role="alert" className="aw-error">
+            {t(wrapupError)}
+          </p>
+        ) : null}
+      </article>
+    ) : null;
   const wrapupPanel = (
     <>
-      {savedWrapup ? (
-        <article className="aw-panel" aria-live="polite">
-          <h2>{t('wrapup.saved')}</h2>
-          {wrapupAlreadyCompleted ? <p>{t('wrapup.alreadyCompleted')}</p> : null}
-          <p>
-            {savedWrapup.disposition === 'CUSTOMER_ASSISTED'
-              ? t('wrapup.assisted')
-              : t('wrapup.followUp')}
-          </p>
-          <p className="aw-wrapup-note">{savedWrapup.note}</p>
-          <time dateTime={savedWrapup.recordedAt}>
-            {new Date(savedWrapup.recordedAt).toLocaleString(locale)}
-          </time>
-          {historyHref ? (
-            <a href={historyHref} target="_blank" rel="noopener noreferrer">
-              {t('wrapup.history')}
-            </a>
-          ) : null}
-        </article>
-      ) : null}
-      {wrapupTarget?.state === 'WRAPUP' && savedWrapup?.interactionId !== wrapupTarget.id ? (
-        <article className="aw-panel" aria-labelledby="wrapup-title">
-          <div>
-            <p className="aw-step">{t('wrapup.step')}</p>
-            <h2 id="wrapup-title">{t('wrapup.title')}</h2>
-            <p className="aw-copy">{t('wrapup.copy')}</p>
-            {wrapupUnknown || wrapupPending ? (
-              <p>{t('wrapup.recoveringInteraction', { interactionId: wrapupTarget.id })}</p>
-            ) : null}
-          </div>
-          <div className="aw-segmented" role="group" aria-label={t('wrapup.choose')}>
-            <button
-              type="button"
-              aria-pressed={wrapupDisposition === 'CUSTOMER_ASSISTED'}
-              disabled={wrapupPending || wrapupUnknown}
-              onClick={() => setWrapupDisposition('CUSTOMER_ASSISTED')}
-            >
-              {t('wrapup.assisted')}
-            </button>
-            <button
-              type="button"
-              aria-pressed={wrapupDisposition === 'FOLLOW_UP_REQUIRED'}
-              disabled={wrapupPending || wrapupUnknown}
-              onClick={() => setWrapupDisposition('FOLLOW_UP_REQUIRED')}
-            >
-              {t('wrapup.followUp')}
-            </button>
-          </div>
-          {requiresWrapupV1 ? (
-            <>
-              <label htmlFor="wrapup-note">{t('wrapup.note')}</label>
-              <textarea
-                id="wrapup-note"
-                value={wrapupNote}
-                disabled={wrapupPending || wrapupUnknown || !wrapupV1Supported}
-                aria-describedby="wrapup-note-help"
-                onChange={(event) => setWrapupNote(event.target.value)}
-              />
-              <p id="wrapup-note-help">{t('wrapup.noteCount', { count: noteLength })}</p>
-              {!validNote ? <p>{t('wrapup.noteRequired')}</p> : null}
-              {!wrapupV1Supported ? <p role="alert">{t('wrapup.upgradeRequired')}</p> : null}
-            </>
-          ) : null}
-          <Button
-            variant="primary"
-            isDisabled={
-              !wrapupDisposition ||
-              !sessionReady ||
-              wrapupPending ||
-              (requiresWrapupV1 && (!wrapupV1Supported || !validNote))
-            }
-            onPress={() => void submitWrapup()}
-          >
-            {t('wrapup.submit')}
-          </Button>
-          {wrapupPending && !wrapupState.reconciling ? (
-            <p role="status">{t('wrapup.pending')}</p>
-          ) : null}
-          {wrapupState.reconciling ? <p role="status">{t('wrapup.reconciling')}</p> : null}
-          {wrapupUnknown ? <p role="status">{t('wrapup.unknown')}</p> : null}
-          {wrapupUnknown && api?.wrapupResult && api.wrapupCommand ? (
-            <Button isDisabled={wrapupPending} onPress={() => void checkWrapupResult()}>
-              {t('wrapup.checkResult')}
-            </Button>
-          ) : null}
-          {wrapupError ? (
-            <p role="alert" className="aw-error">
-              {t(wrapupError)}
-            </p>
-          ) : null}
-        </article>
-      ) : null}
+      {savedPanel}
+      {wrapupForm}
     </>
   );
 
@@ -1235,17 +1270,8 @@ function AgentWorkspace({
     </article>
   );
 
-  const content = (
+  const alerts = (
     <>
-      <div className="aw-page-heading">
-        <div>
-          <p className="aw-eyebrow">{t('heading.eyebrow')}</p>
-          <h1>{t('heading.title')}</h1>
-          <p>{t('heading.lede')}</p>
-        </div>
-        <span className="aw-phase-badge">{t('heading.phase')}</span>
-      </div>
-
       {enforced && !leaseHeld && workInHand ? (
         <p className="aw-warning" role="alert">
           {t('lease.inHand')}
@@ -1270,57 +1296,247 @@ function AgentWorkspace({
           ) : null}
         </section>
       ) : null}
+    </>
+  );
+
+  const recoveryPanel =
+    sessionReady && recoveryRevision !== undefined && !acceptingSession ? (
+      <article className="aw-panel" role="status">
+        <p>{t('wrapup.reconciling')}</p>
+        <Button onPress={() => setNetworkRevision((revision) => revision + 1)}>
+          {t('recovery.retry')}
+        </Button>
+      </article>
+    ) : null;
+
+  const snapshotWarning = snapshotError ? (
+    <p className="aw-warning" role="status">
+      {t(snapshotError)}
+    </p>
+  ) : null;
+
+  const dphoneWarning = dphoneError ? (
+    <p className="aw-warning" role="alert">
+      {t(dphoneError)}
+    </p>
+  ) : null;
+
+  const authorityPanel = (
+    <article className="aw-panel">
+      <p className="aw-step">{t('authority.step')}</p>
+      <h2>{t('authority.title')}</h2>
+      <dl className="aw-facts">
+        <div>
+          <dt>{t('authority.interaction')}</dt>
+          <dd>{snapshot?.interaction?.state ?? t('authority.routerApi')}</dd>
+        </div>
+        <div>
+          <dt>{t('authority.media')}</dt>
+          <dd>{readinessLabel}</dd>
+        </div>
+        <div>
+          <dt>{t('authority.presence')}</dt>
+          <dd>{snapshot?.agent.state ?? availability}</dd>
+        </div>
+      </dl>
+      <p className="aw-note">{t('authority.note')}</p>
+    </article>
+  );
+
+  // chrome เดิมตอนปิด flag — โครงหน้าเดิมทุกประการ
+  const content = (
+    <>
+      <div className="aw-page-heading">
+        <div>
+          <p className="aw-eyebrow">{t('heading.eyebrow')}</p>
+          <h1>{t('heading.title')}</h1>
+          <p>{t('heading.lede')}</p>
+        </div>
+        <span className="aw-phase-badge">{t('heading.phase')}</span>
+      </div>
+
+      {alerts}
 
       <section className="aw-grid" aria-label={t('grid')}>
-        {sessionReady && recoveryRevision !== undefined && !acceptingSession ? (
-          <article className="aw-panel" role="status">
-            <p>{t('wrapup.reconciling')}</p>
-            <Button onPress={() => setNetworkRevision((revision) => revision + 1)}>
-              {t('recovery.retry')}
-            </Button>
-          </article>
-        ) : null}
+        {recoveryPanel}
         {offerPanel}
         {controlsPanel}
 
         {wrapupPanel}
 
-        {snapshotError ? (
-          <p className="aw-warning" role="status">
-            {t(snapshotError)}
-          </p>
-        ) : null}
+        {snapshotWarning}
 
-        {dphoneError ? (
-          <p className="aw-warning" role="alert">
-            {t(dphoneError)}
-          </p>
-        ) : null}
+        {dphoneWarning}
 
         {mediaPanel}
 
         {availabilityPanel}
 
-        <article className="aw-panel">
-          <p className="aw-step">{t('authority.step')}</p>
-          <h2>{t('authority.title')}</h2>
-          <dl className="aw-facts">
-            <div>
-              <dt>{t('authority.interaction')}</dt>
-              <dd>{snapshot?.interaction?.state ?? t('authority.routerApi')}</dd>
-            </div>
-            <div>
-              <dt>{t('authority.media')}</dt>
-              <dd>{readinessLabel}</dd>
-            </div>
-            <div>
-              <dt>{t('authority.presence')}</dt>
-              <dd>{snapshot?.agent.state ?? availability}</dd>
-            </div>
-          </dl>
-          <p className="aw-note">{t('authority.note')}</p>
-        </article>
+        {authorityPanel}
       </section>
+    </>
+  );
+
+  // #813: shell ใหม่ — สามคอลัมน์ตามดีไซน์ A · Workspace ด้วยข้อมูล Voice ที่มีจริงเท่านั้น
+  // คอลัมน์ขวาเป็นความพร้อมรับงาน; แผงลูกค้าเป็นของ Cus360 C5 (#795) — ห้ามวาง placeholder (E1 ข้อ E)
+  const current = snapshot?.interaction ?? undefined;
+  const callSeconds =
+    current?.answeredAt !== null && current?.answeredAt !== undefined
+      ? Math.max(
+          0,
+          Math.floor(
+            ((current.endedAt ? Date.parse(current.endedAt) : now) -
+              Date.parse(current.answeredAt)) /
+              1_000,
+          ),
+        )
+      : undefined;
+  const callDuration = callSeconds === undefined ? undefined : formatDuration(callSeconds);
+  const clock = (iso: string) =>
+    new Date(iso).toLocaleTimeString(locale, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  const timeline = current
+    ? [
+        current.state === 'ASSIGNED' && current.offerExpiresAt
+          ? {
+              key: 'offered',
+              at: current.offerExpiresAt,
+              text: t('layout.event.offered', { time: clock(current.offerExpiresAt) }),
+            }
+          : undefined,
+        current.answeredAt
+          ? { key: 'answered', at: current.answeredAt, text: t('layout.event.answered') }
+          : undefined,
+        current.endedAt
+          ? { key: 'ended', at: current.endedAt, text: t('layout.event.ended') }
+          : undefined,
+      ].filter((event) => event !== undefined)
+    : [];
+  const caller = current ? (current.caller ?? t('offer.noNumber')) : undefined;
+  const queueName = current?.queue?.name ?? t('offer.unknownQueue');
+
+  const workColumn = (
+    <section className="aw-column aw-column-work" aria-labelledby="aw-work-title">
+      <h2 id="aw-work-title" className="aw-column-title">
+        {t('layout.work')}
+      </h2>
+      {current ? (
+        <ul className="aw-work-list">
+          <li className="aw-work-item" aria-current="true">
+            <span className="aw-work-row">
+              <strong>{caller}</strong>
+              {callDuration ? <span className="aw-work-time">{callDuration}</span> : null}
+            </span>
+            <span className="aw-work-meta">
+              {t(`layout.state.${current.state}`)} · {queueName}
+            </span>
+            <span className="aw-channel">{t('layout.channelVoice')}</span>
+          </li>
+        </ul>
+      ) : (
+        <div className="aw-empty">
+          <strong>{t('layout.workEmpty')}</strong>
+          <span>{t('layout.workEmptyHint')}</span>
+        </div>
+      )}
+    </section>
+  );
+
+  const currentColumn = (
+    <section className="aw-column aw-column-current" aria-labelledby="aw-current-title">
+      <h2 id="aw-current-title" className="aw-visually-hidden">
+        {t('layout.current')}
+      </h2>
+      <div className="aw-call-header">
+        {current ? (
+          <>
+            <div className="aw-call-identity">
+              <span className="aw-call-row">
+                <strong className="aw-call-caller">{caller}</strong>
+                <span className="aw-channel">{t('layout.channelVoice')}</span>
+                <span className="aw-chip aw-chip-neutral">
+                  {t(`layout.state.${current.state}`)}
+                </span>
+              </span>
+              <span className="aw-call-meta">
+                {t(`layout.direction.${current.direction}`)} · {queueName} · {t('layout.inDphone')}
+              </span>
+            </div>
+            {callDuration ? (
+              <span className="aw-call-duration" role="timer">
+                {t('layout.duration', { duration: callDuration })}
+              </span>
+            ) : null}
+          </>
+        ) : (
+          <div className="aw-call-identity">
+            <strong className="aw-call-caller">{t('layout.noCurrent')}</strong>
+            <span className="aw-call-meta">{t('layout.noCurrentHint')}</span>
+          </div>
+        )}
+      </div>
+      <Tabs
+        className="aw-detail"
+        aria-label={t('layout.tabs.label')}
+        selectedKey={detailTab}
+        onSelectionChange={(key) => setDetailTab(key as DetailTab)}
+      >
+        <TabList aria-label={t('layout.tabs.label')}>
+          <Tab id="overview">{t('layout.tabs.overview')}</Tab>
+          <Tab id="wrapup">{t('layout.tabs.wrapup')}</Tab>
+          <Tab id="recent">{t('layout.tabs.recent')}</Tab>
+        </TabList>
+        <TabPanel id="overview" className="aw-detail-panel">
+          <h3 className="aw-detail-title">{t('layout.timeline')}</h3>
+          {timeline.length ? (
+            <ol className="aw-timeline">
+              {timeline.map((event) => (
+                <li key={event.key}>
+                  <time dateTime={event.at}>{clock(event.at)}</time>
+                  <span className={'aw-timeline-dot aw-timeline-' + event.key} aria-hidden="true" />
+                  <span>{event.text}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="aw-copy">{t('layout.timelineEmpty')}</p>
+          )}
+        </TabPanel>
+        <TabPanel id="wrapup" className="aw-detail-panel">
+          {wrapupForm ?? <p className="aw-copy">{t('layout.wrapupEmpty')}</p>}
+        </TabPanel>
+        <TabPanel id="recent" className="aw-detail-panel">
+          {savedPanel ?? <p className="aw-copy">{t('layout.recentEmpty')}</p>}
+        </TabPanel>
+      </Tabs>
+    </section>
+  );
+
+  const readinessColumn = (
+    <section className="aw-column aw-column-readiness" aria-labelledby="aw-readiness-title">
+      <h2 id="aw-readiness-title" className="aw-column-title">
+        {t('layout.readiness')}
+      </h2>
+      {mediaPanel}
+      {availabilityPanel}
+      {authorityPanel}
+    </section>
+  );
+
+  const shellContent = (
+    <>
+      {alerts}
+      {recoveryPanel}
+      {snapshotWarning}
+      {dphoneWarning}
+      <div className="aw-columns">
+        {workColumn}
+        {currentColumn}
+        {readinessColumn}
+      </div>
     </>
   );
 
@@ -1379,10 +1595,13 @@ function AgentWorkspace({
       {inShell ? (
         <>
           <header className="aw-content-header">
-            {identity}
+            <div className="aw-shell-heading">
+              <h1>{t('heading.title')}</h1>
+              {identity}
+            </div>
             {statusStrip}
           </header>
-          {content}
+          {shellContent}
         </>
       ) : (
         <>

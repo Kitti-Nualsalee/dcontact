@@ -171,5 +171,41 @@
     "confirm": "Confirm move",
     "cancel": "Cancel",
     "inHand": "This place stopped taking new work — your current call or work can continue until it ends"
+  },
+  "layout": {
+    "work": "My work",
+    "workEmpty": "No work in hand",
+    "workEmptyHint": "Work assigned to you appears here once you are available",
+    "current": "Current work",
+    "readiness": "Readiness",
+    "channelVoice": "Voice",
+    "state": {
+      "ASSIGNED": "Incoming",
+      "ACTIVE": "On call",
+      "WRAPUP": "Wrap-up"
+    },
+    "direction": {
+      "INBOUND": "Inbound",
+      "OUTBOUND": "Outbound"
+    },
+    "inDphone": "Call controls in dphone",
+    "duration": "Call time {{duration}}",
+    "noCurrent": "No active call",
+    "noCurrentHint": "Check your audio device and become available in the Readiness column",
+    "tabs": {
+      "label": "Work details",
+      "overview": "Overview",
+      "wrapup": "Wrap-up",
+      "recent": "Latest"
+    },
+    "timeline": "Call timeline",
+    "timelineEmpty": "No call events yet",
+    "event": {
+      "offered": "Offered to you · answer by {{time}}",
+      "answered": "Answered",
+      "ended": "Call ended"
+    },
+    "wrapupEmpty": "Nothing to wrap up",
+    "recentEmpty": "No wrap-up saved in this session yet"
   }
 }
