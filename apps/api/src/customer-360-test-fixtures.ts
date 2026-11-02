@@ -15,6 +15,9 @@ export type Fixture = Awaited<ReturnType<typeof setup>>;
 
 export async function setup(extraControllers: Parameters<typeof coreFixture>[0] = []) {
   const f = await coreFixture([Customer360Controller, ...extraControllers]);
+  // platform operator ใช้ realm role ใน org login ของ tenant แต่ไม่ใช่ domain User ของ tenant
+  // เพิ่มเฉพาะ fixture ของ Cus360: core identity sandbox สร้าง Keycloak user ให้ทุก actor ใน core fixture
+  f.actors.set('operator', { id: randomUUID(), role: 'PLATFORM-OPERATOR', tenantId: f.tenantId });
   const contactId = randomUUID();
   await f.owner.contact.create({
     data: { id: contactId, tenantId: f.tenantId, displayName: 'ลูกค้า C1' },
