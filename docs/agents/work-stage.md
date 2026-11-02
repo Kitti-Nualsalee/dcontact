@@ -49,6 +49,14 @@ Mapping ปัจจุบันเมื่อโมเดลเหล่าน
 - `IMPLEMENTER`: `gpt-5.6-terra`
 - `MECHANICAL`: `gpt-5.6-luna` หรือ `gpt-5.4-mini`
 
+Mapping เมื่อทำงานใน Claude Code (ตรงกับ `model` ใน `.claude/agents/`):
+
+- `ARCHITECT`: Opus
+- `IMPLEMENTER`: Sonnet
+- `MECHANICAL`: Haiku
+
+เมื่อใช้ agent หลายตัวพร้อมกัน ให้ทำตาม [`parallel-work.md`](parallel-work.md)
+
 ชื่อโมเดลเป็น mapping ที่เปลี่ยนได้ แต่ความหมายของ tier และ Stage เป็น contract ของ repository
 
 ## วิธีตรวจ Stage
