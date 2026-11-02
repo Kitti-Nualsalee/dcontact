@@ -114,13 +114,20 @@ export class C360MembershipRepositoryError extends Error {
        * ให้ไป reconcile จาก head" ซึ่งเป็นคำสัญญาที่ caller เชื่อแล้วข้าม change ที่หายไปได้
        * ถ้าเราตอบแบบนั้นโดยไม่มีหลักฐาน เท่ากับกลบ data loss ให้ดูเหมือนเหตุการณ์ปกติ
        */
-      | 'MEMBERSHIP_CHANGE_GAP',
+      | 'MEMBERSHIP_CHANGE_GAP'
+      /** identity closure ถูกถือ fence อยู่หรือเปลี่ยนระหว่างล็อกจน retry ครบแล้ว; ลองใหม่ได้ */
+      | 'RESOURCE_BUSY',
     message: string,
   ) {
     super(message);
     this.name = 'C360MembershipRepositoryError';
   }
 }
+
+/** สัญญาณภายใน: rollback transaction แล้ว retry canonical transition ใหม่ทั้งชุด */
+class IdentityClosureBusy extends Error {}
+
+const IDENTITY_CLOSURE_ATTEMPTS = 5;
 
 export interface C360MembershipRepositoryOptions {
   id?: () => string;
@@ -588,6 +595,11 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
     });
 
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+      // E1 G: identity fence ก่อน stream; canonical transition ถือ exclusive จึงไม่มี commit ที่อ่าน
+      // identity ACTIVE แล้วเขียน head ทับหลัง merge invalidate ไปแล้ว
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock_shared(hashtext(${`c360-membership:${input.tenantId}:identity:${input.contactId}`}))`,
+      );
       await this.lock(transaction, input.tenantId, `stream:${input.contactId}:${input.segmentId}`);
       const receipt = await transaction.c360MembershipCommandReceipt.findUnique({
         where: {
@@ -928,9 +940,87 @@ export class C360SegmentMembershipRepository implements CustomerSegmentMembershi
     }
     const requestHash = stableDigest(input);
 
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.applyIdentityTransition(input, requestHash);
+      } catch (error) {
+        if (!(error instanceof IdentityClosureBusy)) throw error;
+        if (attempt >= IDENTITY_CLOSURE_ATTEMPTS - 1) {
+          throw new C360MembershipRepositoryError(
+            'RESOURCE_BUSY',
+            'identity closure ถูกล็อกหรือเปลี่ยนระหว่าง transition ให้ลองใหม่',
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20 + Math.random() * 60));
+      }
+    }
+  }
+
+  /**
+   * E1 G: อ่าน closure → try identity locks ทุก affected contact เรียง ID → อ่าน closure ซ้ำ
+   * ถ้า closure เปลี่ยนหรือมีคนถือ fence อยู่ให้ rollback แล้ว retry; จากนั้นล็อก stream เรียงก่อนเขียน
+   *
+   * closure = source, target และ contact ที่ MERGED อยู่ใต้ anchor (descendant ที่ repoint ได้จริง)
+   * ใช้ try เพื่อไม่รอ Cus360/membership ที่ถือ shared fence อยู่ และไม่สร้างการรอย้อนลำดับ
+   */
+  private async identityClosure(
+    transaction: Transaction,
+    input: {
+      tenantId: string;
+      operation: string;
+      sourceContactId: string;
+      targetContactId: string;
+    },
+  ): Promise<string[]> {
+    const anchor = input.operation === 'MERGE' ? input.sourceContactId : input.targetContactId;
+    const descendants = await transaction.c360IdentityHead.findMany({
+      where: { tenantId: input.tenantId, canonicalContactId: anchor, state: 'MERGED' },
+      select: { contactId: true },
+    });
+    return [
+      ...new Set([
+        input.sourceContactId,
+        input.targetContactId,
+        ...descendants.map((head) => head.contactId),
+      ]),
+    ].sort();
+  }
+
+  private async applyIdentityTransition(
+    input: {
+      tenantId: string;
+      commandId: string;
+      operation: 'MERGE' | 'SPLIT' | 'UNMERGE';
+      sourceContactId: string;
+      targetContactId: string;
+      expectedSourceLineageRevision: number;
+      correlationId: string;
+    },
+    requestHash: string,
+  ): Promise<C360IdentityTransitionResult> {
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
-      for (const contact of [input.sourceContactId, input.targetContactId].sort()) {
-        await this.lock(transaction, input.tenantId, `identity:${contact}`);
+      const closure = await this.identityClosure(transaction, input);
+      for (const contact of closure) {
+        const [row] = await transaction.$queryRaw<Array<{ locked: boolean }>>(
+          Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtext(${`c360-membership:${input.tenantId}:identity:${contact}`})) AS locked`,
+        );
+        if (!row?.locked) throw new IdentityClosureBusy();
+      }
+      const locked = new Set(closure);
+      if ((await this.identityClosure(transaction, input)).some((id) => !locked.has(id))) {
+        throw new IdentityClosureBusy();
+      }
+      const streams = await transaction.c360SegmentMembershipHead.findMany({
+        where: { tenantId: input.tenantId, contactId: { in: closure } },
+        select: { contactId: true, segmentId: true },
+        orderBy: [{ contactId: 'asc' }, { segmentId: 'asc' }],
+      });
+      for (const stream of streams) {
+        await this.lock(
+          transaction,
+          input.tenantId,
+          `stream:${stream.contactId}:${stream.segmentId}`,
+        );
       }
       const existing = await transaction.c360IdentityLineage.findUnique({
         where: { tenantId_commandId: { tenantId: input.tenantId, commandId: input.commandId } },
