@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 import { Prisma, PrismaClient } from '@d-contact/db';
+import { deleteC360Fixtures, importLegacyContactPoints } from './c360-legacy-points.testing.js';
 import {
   type AuthorizationOutcome,
   type AuthorizeAndReserveInput,
@@ -45,6 +46,7 @@ async function createFixture(t: TestContext) {
     await owner.cgConsent.deleteMany({ where: { tenantId } });
     await owner.jrKafkaConsumerInbox.deleteMany({ where: { tenantId } });
     await owner.jrEventInbox.deleteMany({ where: { tenantId } });
+    await deleteC360Fixtures(owner, tenantId);
     await owner.contactIdentity.deleteMany({ where: { tenantId } });
     await owner.contact.deleteMany({ where: { tenantId } });
     await owner.tenant.deleteMany({ where: { id: tenantId } });
@@ -184,6 +186,7 @@ test('crash หลัง Governance reserve rollback handler ทั้งชุ�
       },
     },
   });
+  await importLegacyContactPoints(tenantId);
   await owner.jrEventInbox.create({
     data: {
       id: receiptId,

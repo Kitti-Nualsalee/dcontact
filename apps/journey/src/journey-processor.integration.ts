@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 import { PrismaClient } from '@d-contact/db';
+import { deleteC360Fixtures, importLegacyContactPoints } from './c360-legacy-points.testing.js';
 import { createJourneyFoundationPorts } from '@d-contact/journey-composition';
 import type { InboundBusinessEvent } from '@d-contact/shared';
 import { EventInboxService } from './event-inbox.js';
@@ -37,6 +38,7 @@ async function createTenantFixture(t: TestContext) {
     await owner.cgConsent.deleteMany({ where: { tenantId } });
     await owner.cgRestriction.deleteMany({ where: { tenantId } });
     await owner.jrEventInbox.deleteMany({ where: { tenantId } });
+    await deleteC360Fixtures(owner, tenantId);
     await owner.contactIdentity.deleteMany({ where: { tenantId } });
     await owner.contact.deleteMany({ where: { tenantId } });
     await owner.team.deleteMany({ where: { tenantId } });
@@ -194,6 +196,7 @@ test('event ที่ resolve contact ได้สร้าง action ที่�
       },
     },
   });
+  await importLegacyContactPoints(tenantId);
   await owner.team.create({ data: { id: teamId, tenantId, name: 'Journey scope allow' } });
   const event: InboundBusinessEvent = {
     source: 'billing',
@@ -335,6 +338,7 @@ test('scope ที่ปฏิเสธจบ Journey ก่อน Contact Gover
       },
     },
   });
+  await importLegacyContactPoints(tenantId);
   await owner.team.create({ data: { id: teamId, tenantId, name: 'Journey scope deny' } });
   const inbox = new EventInboxService(application, { id: () => receiptId });
   await inbox.accept(tenantId, event);
@@ -407,6 +411,7 @@ test('scope ที่ stale ไม่สร้าง enrollment หรือเ�
       },
     },
   });
+  await importLegacyContactPoints(tenantId);
   await owner.team.create({ data: { id: teamId, tenantId, name: 'Journey scope stale' } });
   const inbox = new EventInboxService(application, { id: () => receiptId });
   await inbox.accept(tenantId, event);
@@ -482,6 +487,7 @@ test('สอง tenant ใช้ identity เดียวกันแต่ไ�
         },
       },
     });
+    await importLegacyContactPoints(tenantId);
   }
 
   await seedContact(tenantA.owner, tenantA.tenantId, '01', 'GRANTED');
@@ -572,6 +578,7 @@ for (const order of ['writer-first', 'deactivate-first'] as const)
         },
       },
     });
+    await importLegacyContactPoints(f.tenantId);
     const inbox = new EventInboxService(f.application);
     const receipt = await inbox.accept(f.tenantId, {
       source: 'billing',

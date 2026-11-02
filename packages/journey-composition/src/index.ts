@@ -13,6 +13,7 @@ import {
   type TeamContactScopeAuthorizer,
 } from '@d-contact/cxa-contracts';
 import {
+  legacyIdentityEligibility,
   Prisma,
   type IdentityType,
   type PrismaClient,
@@ -90,6 +91,17 @@ class PrismaCustomerContextReader implements CustomerContextReader<Prisma.Transa
         },
         select: { id: true, contactId: true },
       });
+      if (!identity)
+        return { status: 'NOT_FOUND' as const, reasonCode: 'IDENTITY_NOT_FOUND' as const };
+      // C3 (#793) bridge: raw unique match ไม่ใช่ verified identity; PHONE/EMAIL ต้องมี contact point
+      // ที่ import จาก identity นี้และยัง ACTIVE, ค่าเดียวกันบนหลาย contact = AMBIGUOUS
+      if (identityType === 'PHONE' || identityType === 'EMAIL') {
+        const eligibility = await legacyIdentityEligibility(client, input.tenantId, identity.id);
+        if (eligibility === 'SHARED')
+          return { status: 'AMBIGUOUS' as const, reasonCode: 'IDENTITY_AMBIGUOUS' as const };
+        if (eligibility !== 'ELIGIBLE')
+          return { status: 'NOT_FOUND' as const, reasonCode: 'IDENTITY_NOT_FOUND' as const };
+      }
       return identity
         ? {
             status: 'RESOLVED' as const,
