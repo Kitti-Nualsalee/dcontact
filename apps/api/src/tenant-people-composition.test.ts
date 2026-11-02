@@ -28,6 +28,65 @@ test('People composition defaults off without opening a database connection', as
   assert.equal(await configuredPeopleRuntime({}).isReady(tenantId), false);
 });
 
+test('People binding เปิด backchannel เฉพาะ Keycloak ภายใน realm เดิมโดยคง issuer และ default-off', () => {
+  const configuration = peopleConfiguration({
+    ...environment,
+    TENANT_PEOPLE_BINDINGS_JSON: JSON.stringify([
+      { ...binding, backchannelUrl: 'http://keycloak:8080/realms/synthetic' },
+    ]),
+  });
+  assert.equal(configuration?.bindings[0]?.tenantId, tenantId);
+  assert.equal(configuration?.invitationsEnabled, false);
+  assert.equal(configuration?.disableEnabled, false);
+  for (const backchannelUrl of [
+    null,
+    '',
+    'http://foreign:8080/realms/synthetic',
+    'http://keycloak:8080/realms/foreign',
+  ])
+    assert.throws(
+      () =>
+        peopleConfiguration({
+          ...environment,
+          TENANT_PEOPLE_BINDINGS_JSON: JSON.stringify([{ ...binding, backchannelUrl }]),
+        }),
+      /INVALID_PEOPLE_CONFIGURATION/,
+    );
+});
+
+test('composition ใช้ backchannel เดียวกันกับ provisioning/invitation/disable readiness', async () => {
+  const calls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  let configuration: ReturnType<typeof peopleConfiguration>;
+  try {
+    globalThis.fetch = async (input) => {
+      calls.push(String(input));
+      return Response.json(
+        String(input).endsWith('/token')
+          ? { access_token: 'synthetic-only' }
+          : { version: 1, tenantId, ready: true, invitationReady: true, disableReady: true },
+      );
+    };
+    configuration = peopleConfiguration({
+      ...environment,
+      TENANT_PEOPLE_BINDINGS_JSON: JSON.stringify([
+        { ...binding, backchannelUrl: 'http://keycloak:8080/realms/synthetic' },
+      ]),
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.ok(configuration);
+  const identity = configuration.bindings[0]!.identity;
+  assert.equal(await identity.isReady(tenantId), true);
+  assert.equal(await identity.invitationPort().isReady(tenantId), true);
+  assert.equal(await identity.disablePort().isReady(tenantId), true);
+  assert.equal(calls.length, 6);
+  assert.ok(calls.every((url) => url.startsWith('http://keycloak:8080/realms/synthetic/')));
+  assert.equal(await identity.isReady('00000000-0000-4000-8000-000000000999'), false);
+  assert.equal(calls.length, 6);
+});
+
 test('disable ต้อง opt in และมี flush port ก่อนประกอบ runtime', () => {
   assert.equal(peopleConfiguration(environment)?.disableEnabled, false);
   assert.throws(() => peopleConfiguration({ TENANT_PEOPLE_DISABLE_ENABLED: 'true' }));
