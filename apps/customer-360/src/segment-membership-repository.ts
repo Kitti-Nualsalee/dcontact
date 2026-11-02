@@ -182,6 +182,59 @@ function resultDigest(value: Omit<C360MembershipCommitResult, 'responseDigest'>)
  * Durable Customer 360 owner ของ membership stream. ทุก canonical transition, change ledger
  * และ outbox row ถูก commit ใน tenant transaction เดียว; Journey อ่านผ่าน read port ด้านล่างเท่านั้น.
  */
+export type C360IdentityHeadInitialization =
+  | { outcome: 'INITIALIZED' | 'ALREADY_PRESENT'; lineageRevision: number; state: string }
+  | { outcome: 'LINEAGE_CONFLICT' };
+
+/**
+ * E1 D: initialize identity head ที่ขาดของ legacy contact ผ่าน owner ใต้ canonical fence
+ *
+ * caller ต้องอยู่ใน tenant transaction; ฟังก์ชันนี้ try-lock identity แบบ exclusive (key เดียวกับ
+ * canonical transition) และไม่เดาว่า "ไม่มี head" = self-verified: ถ้ามี lineage อ้าง contact นี้อยู่แล้ว
+ * แต่ head หาย ถือเป็น conflict ให้ตรวจด้วยคน ไม่สร้าง head ACTIVE ทับประวัติ merge
+ * ล็อกไม่ได้ = throw C360MembershipRepositoryError('RESOURCE_BUSY')
+ */
+export async function initializeC360IdentityHead(
+  transaction: Transaction,
+  tenantId: string,
+  contactId: string,
+  options: { dryRun?: boolean } = {},
+): Promise<C360IdentityHeadInitialization> {
+  const [row] = await transaction.$queryRaw<Array<{ locked: boolean }>>(
+    Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtext(${`c360-membership:${tenantId}:identity:${contactId}`})) AS locked`,
+  );
+  if (!row?.locked) {
+    throw new C360MembershipRepositoryError('RESOURCE_BUSY', 'identity fence ถูกถืออยู่');
+  }
+  const existing = await transaction.c360IdentityHead.findUnique({
+    where: { tenantId_contactId: { tenantId, contactId } },
+  });
+  if (existing) {
+    return {
+      outcome: 'ALREADY_PRESENT',
+      lineageRevision: existing.lineageRevision,
+      state: existing.state,
+    };
+  }
+  const lineage = await transaction.c360IdentityLineage.count({
+    where: { tenantId, OR: [{ sourceContactId: contactId }, { targetContactId: contactId }] },
+  });
+  if (lineage > 0) return { outcome: 'LINEAGE_CONFLICT' };
+  if (!options.dryRun) {
+    await transaction.c360IdentityHead.create({
+      data: {
+        tenantId,
+        contactId,
+        state: 'ACTIVE',
+        canonicalContactId: contactId,
+        lineageRevision: 0,
+        stateDigest: stableDigest({ tenantId, contactId, state: 'ACTIVE', lineageRevision: 0 }),
+      },
+    });
+  }
+  return { outcome: 'INITIALIZED', lineageRevision: 0, state: 'ACTIVE' };
+}
+
 export class C360SegmentMembershipRepository implements CustomerSegmentMembershipReader {
   private readonly id: () => string;
 
