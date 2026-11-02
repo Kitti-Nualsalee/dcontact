@@ -88,7 +88,8 @@ BEGIN
     -- Cus360 C1 (#791): โปรไฟล์ลูกค้า, command/receipt และ work mutation auth
     'c360_profile_commands', 'c360_profile_command_receipts', 'c360_profile_audits',
     'c360_contact_points', 'c360_contact_custodian_grants', 'c360_contact_custodian_revocations',
-    'c360_interaction_customer_changes', 'c360_tags', 'c360_contact_tags', 'c360_work_mutation_auth'
+    'c360_interaction_customer_changes', 'c360_tags', 'c360_contact_tags', 'c360_work_mutation_auth',
+    'c360_actor_capability_grants', 'c360_actor_capability_revocations'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -264,6 +265,8 @@ REVOKE DELETE ON c360_contact_points FROM dcontact_app;
 REVOKE DELETE ON c360_tags FROM dcontact_app;
 REVOKE UPDATE ON c360_contact_tags FROM dcontact_app;
 REVOKE DELETE ON c360_work_mutation_auth FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_actor_capability_grants FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_actor_capability_revocations FROM dcontact_app;
 
 -- J3.5/J3.10: bootstrap ต้องไม่คืนสิทธิ์แก้/ลบหลักฐานที่ migration กำหนดเป็น append-only
 REVOKE UPDATE, DELETE ON jr_segment_enrollment_intents FROM dcontact_app;

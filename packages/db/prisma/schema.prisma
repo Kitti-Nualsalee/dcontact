@@ -1081,6 +1081,39 @@ model C360ContactTag {
   @@map("c360_contact_tags")
 }
 
+/// R1 C: "Cus360 create capability" ระดับผู้ใช้ — operator ให้พร้อมหลักฐาน ไม่มี self-grant; append-only
+model C360ActorCapabilityGrant {
+  id               String   @id @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  granteeUserId    String   @map("grantee_user_id") @db.Uuid
+  /// CONTACT_CREATE
+  capability       String
+  evidenceRef      String   @map("evidence_ref")
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  actorUserId      String?  @map("actor_user_id") @db.Uuid
+  grantedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("granted_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, id], map: "c360_actor_capability_grants_tenant_id_key")
+  @@index([tenantId, granteeUserId, capability], map: "c360_actor_capability_grants_grantee_idx")
+  @@map("c360_actor_capability_grants")
+}
+
+model C360ActorCapabilityRevocation {
+  id               String   @id @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  grantId          String   @map("grant_id") @db.Uuid
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  actorUserId      String?  @map("actor_user_id") @db.Uuid
+  reason           String
+  evidenceRef      String   @map("evidence_ref")
+  revokedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("revoked_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, grantId], map: "c360_actor_capability_revocations_grant_key")
+  @@map("c360_actor_capability_revocations")
+}
+
 /// E1 H: durable auth state ต่อ work lease; server-only และไม่เก็บ access/refresh token
 model C360WorkMutationAuth {
   tenantId                 String    @map("tenant_id") @db.Uuid
