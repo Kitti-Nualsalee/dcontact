@@ -37,6 +37,7 @@ export type ConsoleShellApp =
   | 'core-settings'
   | 'voice-routing'
   | 'tenant-people'
+  | 'customers'
   | 'agent-history'
   | 'journeys'
   | 'contact-governance'
@@ -356,15 +357,17 @@ export function ConsoleShell({
                   ? [t('navigation.apps.voiceRouting'), ...(pageLabel ? [pageLabel] : [])]
                   : appId === 'tenant-people'
                     ? [t('navigation.apps.tenantPeople')]
-                    : appId === 'journeys'
-                      ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
-                      : appId === 'dphone-embedding'
-                        ? [t('navigation.groups.settings'), t('navigation.apps.dphoneEmbedding')]
-                        : [
-                            t('navigation.groups.quality'),
-                            t('navigation.apps.contactGovernance'),
-                            ...(pageLabel ? [pageLabel] : []),
-                          ]
+                    : appId === 'customers'
+                      ? [t('navigation.apps.customers')]
+                      : appId === 'journeys'
+                        ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
+                        : appId === 'dphone-embedding'
+                          ? [t('navigation.groups.settings'), t('navigation.apps.dphoneEmbedding')]
+                          : [
+                              t('navigation.groups.quality'),
+                              t('navigation.apps.contactGovernance'),
+                              ...(pageLabel ? [pageLabel] : []),
+                            ]
         }
         language={locale}
         onLanguageChange={onLanguageChange}

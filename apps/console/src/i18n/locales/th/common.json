@@ -27,7 +27,8 @@
       "home": "หน้าแรก",
       "voiceRouting": "ตั้งค่า Voice",
       "tenantPeople": "บัญชีผู้ใช้",
-      "coreSettings": "ตั้งค่าองค์กร"
+      "coreSettings": "ตั้งค่าองค์กร",
+      "customers": "ลูกค้า"
     },
     "areas": {
       "home": "หน้าแรก",
@@ -53,7 +54,8 @@
       "work": "งาน",
       "live": "งานสด",
       "embedding": "ฝังระบบ",
-      "configuration": "การตั้งค่า"
+      "configuration": "การตั้งค่า",
+      "customers": "ลูกค้า"
     },
     "pages": {
       "contactGovernance": {

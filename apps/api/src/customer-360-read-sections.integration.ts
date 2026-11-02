@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { Customer360ReadController } from './customer-360-read-api.js';
 import { deliverToIam, ownerCommit, setup, type Fixture } from './customer-360-test-fixtures.js';
+import { contact, grant, interaction } from './customer-360-read-test-fixtures.js';
 
 /**
  * Cus360 C2 (#792) S2: timeline และ governance summary เป็น section แยกจาก core profile
@@ -45,74 +46,13 @@ const governance = async (f: Fixture, token: string, contactId: string, body?: u
   return { status: response.status, body: response.body as unknown as Section };
 };
 
-let tick = 0;
-async function contact(f: Fixture, name: string) {
-  const id = randomUUID();
-  await f.owner.contact.create({ data: { id, tenantId: f.tenantId, displayName: name } });
-  return id;
-}
-
-async function grant(f: Fixture, token: string, contactId: string) {
-  const commandId = randomUUID();
-  await f.owner.c360ProfileCommand.create({
-    data: {
-      tenantId: f.tenantId,
-      actorIdentityKey: 'operator-fixture',
-      commandId,
-      action: 'CUSTODIAN_GRANT',
-      resourceType: 'CONTACT',
-      resourceId: contactId,
-      payloadDigest: 'f'.repeat(64),
-      normalizationContractVersion: 'cus360-v1',
-    },
-  });
-  await f.owner.c360ContactCustodianGrant.create({
-    data: {
-      id: randomUUID(),
-      tenantId: f.tenantId,
-      contactId,
-      granteeUserId: f.actors.get(token)!.id,
-      permission: 'READ',
-      origin: 'OPERATOR',
-      evidenceRef: 'fixture-evidence',
-      actorIdentityKey: 'operator-fixture',
-      commandId,
-    },
-  });
-}
-
-async function interaction(
-  f: Fixture,
-  contactId: string,
-  agentToken: string | null,
-  channel: 'VOICE' | 'WEBCHAT' = 'VOICE',
-) {
-  tick += 1;
-  const queuedAt = new Date(Date.UTC(2026, 9, 1, 0, 0, 0, tick));
-  await f.owner.interaction.create({
-    data: {
-      id: randomUUID(),
-      tenantId: f.tenantId,
-      channel,
-      direction: 'INBOUND',
-      state: 'COMPLETED',
-      contactId,
-      agentId: agentToken ? f.actors.get(agentToken)!.id : null,
-      queuedAt,
-      endedAt: new Date(queuedAt.getTime() + 60_000),
-      wrapUpCode: 'SECRET-WRAP-CODE',
-      metadata: { note: 'SECRET-NOTE' },
-    },
-  });
-}
-
 test('C2 S2 timeline: คืนเฉพาะวัน-เวลา/ช่องทาง/สถานะของสายที่พิสูจน์สิทธิ์ได้ และ LIMITED เมื่อมีสายที่พิสูจน์ไม่ได้', async () => {
   const f = await setup([Customer360ReadController]);
   try {
-    const target = await contact(f, 'Timeline One');
-    const emptyContact = await contact(f, 'Timeline Empty');
-    const foreignOnly = await contact(f, 'Timeline Foreign Calls');
-    for (const id of [target, emptyContact, foreignOnly]) await grant(f, 'admin', id);
+    const target = await contact(f, { displayName: 'Timeline One' });
+    const emptyContact = await contact(f, { displayName: 'Timeline Empty' });
+    const foreignOnly = await contact(f, { displayName: 'Timeline Foreign Calls' });
+    for (const id of [target, emptyContact, foreignOnly]) await grant(f, 'admin', id, 'READ');
     // admin รับสายเอง 3 สาย; agent รับ 2 สาย (ไม่มี historical team attribution ให้ admin); webchat และงานไม่มีเจ้าของ
     for (let i = 0; i < 3; i += 1) await interaction(f, target, 'admin');
     await interaction(f, target, 'agent');
@@ -164,7 +104,7 @@ test('C2 S2 timeline: คืนเฉพาะวัน-เวลา/ช่อ�
       (await timeline(f, 'admin', emptyContact, `?cursor=${encodeURIComponent(token)}`)).status,
       400,
     );
-    await grant(f, 'admin-two', target);
+    await grant(f, 'admin-two', target, 'READ');
     assert.equal(
       (await timeline(f, 'admin-two', target, `?cursor=${encodeURIComponent(token)}`)).status,
       400,
@@ -179,7 +119,7 @@ test('C2 S2 timeline: คืนเฉพาะวัน-เวลา/ช่อ�
 test('C2 S2 timeline/governance: สิทธิ์ลูกค้าตรงกับ core profile — DENY=404 เหมือนไม่พบ, DEFER=503, Agent/Compliance 403, ไม่มีข้อมูลเสริมหลุด', async () => {
   const f = await setup([Customer360ReadController]);
   try {
-    const hidden = await contact(f, 'Hidden Person');
+    const hidden = await contact(f, { displayName: 'Hidden Person' });
     await interaction(f, hidden, 'admin');
     for (const call of [
       (token: string, id: string) => timeline(f, token, id),
@@ -227,8 +167,8 @@ test('C2 S2 timeline/governance: สิทธิ์ลูกค้าตรง�
 test('C2 S2 owner error: Voice owner ล้ม = section UNAVAILABLE (200) และ core profile ยังอ่านได้ ไม่เป็น empty', async () => {
   const f = await setup([Customer360ReadController]);
   try {
-    const id = await contact(f, 'Owner Down');
-    await grant(f, 'admin', id);
+    const id = await contact(f, { displayName: 'Owner Down' });
+    await grant(f, 'admin', id, 'READ');
     await interaction(f, id, 'admin');
     assert.equal((await timeline(f, 'admin', id)).body.data!.items.length, 1);
 
@@ -256,7 +196,7 @@ test('C2 S2 owner error: Voice owner ล้ม = section UNAVAILABLE (200) แ�
 test('C2 S2 governance: context-required → ready ไม่ใช่ allowed; read ไม่มี side effect; owner ล้ม = UNAVAILABLE', async () => {
   const f = await setup([Customer360ReadController]);
   try {
-    const id = await contact(f, 'Governed');
+    const id = await contact(f, { displayName: 'Governed' });
     await f.owner.c360IdentityHead.create({
       data: {
         tenantId: f.tenantId,
@@ -266,7 +206,7 @@ test('C2 S2 governance: context-required → ready ไม่ใช่ allowed; r
         stateDigest: 'e'.repeat(64),
       },
     });
-    await grant(f, 'admin', id);
+    await grant(f, 'admin', id, 'READ');
     const sideEffects = async () => ({
       audit: await f.owner.cgAuditLog.count(),
       reservations: await f.owner.cgReservation.count(),
@@ -387,7 +327,7 @@ test('C2 S2 governance: context-required → ready ไม่ใช่ allowed; r
     }
 
     // identity ยังไม่ canonical → unavailable ไม่ใช่ allowed
-    const ambiguous = await contact(f, 'Amb');
+    const ambiguous = await contact(f, { displayName: 'Amb' });
     await f.owner.c360IdentityHead.create({
       data: {
         tenantId: f.tenantId,
@@ -397,7 +337,7 @@ test('C2 S2 governance: context-required → ready ไม่ใช่ allowed; r
         stateDigest: 'a'.repeat(64),
       },
     });
-    await grant(f, 'admin', ambiguous);
+    await grant(f, 'admin', ambiguous, 'READ');
     const notCanonical = await governance(f, 'admin', ambiguous, {
       channel: 'VOICE',
       purpose: 'SERVICE',
