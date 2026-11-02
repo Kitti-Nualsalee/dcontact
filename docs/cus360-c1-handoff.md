@@ -9,13 +9,13 @@
 
 | slice | PR | merge SHA | ขอบเขต |
 |---|---|---|---|
-| S1 schema | #816 | รอ merge | ตาราง/คอลัมน์ตาม E1 A/H, composite tenant FK, RLS, append-only |
-| S2 command engine | #817 | รอ merge | admission/digest/try-lock/receipt/tombstone/reconcile ตาม E1 B |
-| S3 authorization + HTTP | #818 | รอ merge | predicate เดียวสำหรับ detail/list/count, IAM freshness, capabilities endpoint |
-| S4 owner fences | #823 | รอ merge | fence ร่วมกับ canonical/membership/IAM writers ตาม E1 G |
-| S5 operator + fixtures | (PR นี้) | รอ merge | operator commands, tag normalization, fixture matrix, เอกสารนี้ |
+| S1 schema | #816 | `9a69806` | ตาราง/คอลัมน์ตาม E1 A/H, composite tenant FK, RLS, append-only |
+| S2 command engine | #817 | `664a4c5` | admission/digest/try-lock/receipt/tombstone/reconcile ตาม E1 B |
+| S3 authorization + HTTP | #818 | `8c04e06` | predicate เดียวสำหรับ detail/list/count, IAM freshness, capabilities endpoint |
+| S4 owner fences | #823 | `eeb5a71` | fence ร่วมกับ canonical/membership/IAM writers ตาม E1 G |
+| S5 operator + fixtures | #824 | ดูใน #791 | operator commands, tag normalization, fixture matrix, เอกสารนี้ |
 
-merge SHA ต้องเติมหลัง stack merge เข้า `main` ก่อนปิด #791
+merge SHA ของ S5 (PR ที่เพิ่มเอกสารนี้) บันทึกไว้ใน comment ปิดของ #791
 
 ## สำหรับ C2 (read/composition)
 
