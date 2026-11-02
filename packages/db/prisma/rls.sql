@@ -84,7 +84,11 @@ BEGIN
     'tenant_account_policies', 'tenant_account_policy_audit_events',
     'account_email_changes', 'account_totp_enrolments', 'account_audit_events',
     -- AC3 (#596): outbox ของ email บัญชี
-    'account_email_outbox'
+    'account_email_outbox',
+    -- Cus360 C1 (#791): โปรไฟล์ลูกค้า, command/receipt และ work mutation auth
+    'c360_profile_commands', 'c360_profile_command_receipts', 'c360_profile_audits',
+    'c360_contact_points', 'c360_contact_custodian_grants', 'c360_contact_custodian_revocations',
+    'c360_interaction_customer_changes', 'c360_tags', 'c360_contact_tags', 'c360_work_mutation_auth'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -248,6 +252,18 @@ REVOKE UPDATE, DELETE ON c360_membership_command_receipts FROM dcontact_app;
 REVOKE UPDATE, DELETE ON c360_membership_quarantine FROM dcontact_app;
 REVOKE DELETE ON c360_identity_heads FROM dcontact_app;
 REVOKE UPDATE, DELETE ON c360_identity_lineage FROM dcontact_app;
+-- Cus360 C1 (#791): command/receipt/audit/history/custodian evidence เป็น append-only;
+-- point/tag เดินได้เฉพาะ retire ผ่าน DB trigger, contact tag เป็น current relation (detach = DELETE)
+REVOKE UPDATE, DELETE ON c360_profile_commands FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_profile_command_receipts FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_profile_audits FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_contact_custodian_grants FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_contact_custodian_revocations FROM dcontact_app;
+REVOKE UPDATE, DELETE ON c360_interaction_customer_changes FROM dcontact_app;
+REVOKE DELETE ON c360_contact_points FROM dcontact_app;
+REVOKE DELETE ON c360_tags FROM dcontact_app;
+REVOKE UPDATE ON c360_contact_tags FROM dcontact_app;
+REVOKE DELETE ON c360_work_mutation_auth FROM dcontact_app;
 
 -- J3.5/J3.10: bootstrap ต้องไม่คืนสิทธิ์แก้/ลบหลักฐานที่ migration กำหนดเป็น append-only
 REVOKE UPDATE, DELETE ON jr_segment_enrollment_intents FROM dcontact_app;

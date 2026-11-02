@@ -447,6 +447,11 @@ model Contact {
   id          String   @id @default(uuid()) @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid
   displayName String?  @map("display_name")
+  company     String?
+  vip         Boolean  @default(false)
+  vipSource   String   @default("LEGACY_DEFAULT") @map("vip_source")
+  profileRevision BigInt @default(0) @map("profile_revision")
+  tagRevision BigInt   @default(0) @map("tag_revision")
   createdAt   DateTime @default(now()) @map("created_at")
 
   tenant                 Tenant                        @relation(fields: [tenantId], references: [id])
@@ -484,6 +489,7 @@ model Contact {
 
   @@unique([tenantId, id])
   @@index([tenantId])
+  @@index([tenantId, createdAt, id], map: "contacts_tenant_created_id_idx")
   @@map("contacts")
 }
 
@@ -891,6 +897,209 @@ model C360IdentityLineage {
   @@index([tenantId, sourceContactId, lineageRevision])
   @@index([tenantId, targetContactId, occurredAt])
   @@map("c360_identity_lineage")
+}
+
+// ─────────────────────────── Cus360 C1 (#791): โปรไฟล์ลูกค้า ───────────────────────────
+// Composite tenant FK, append-only grants และ immutable/retire triggers อยู่ใน migration
+// 20261102100000_cus360_profile_foundation; model ด้านล่างเป็น typed columns เท่านั้นจึงไม่ประกาศ relation
+
+/// E1 B: admission ของคำสั่งโปรไฟล์ — ไม่เก็บ raw payload/PII/credential; tombstone ปิด key ที่ไม่เคยถูก admit
+model C360ProfileCommand {
+  tenantId                     String   @map("tenant_id") @db.Uuid
+  actorIdentityKey             String   @map("actor_identity_key")
+  commandId                    String   @map("command_id") @db.Uuid
+  actorUserId                  String?  @map("actor_user_id") @db.Uuid
+  action                       String?
+  resourceType                 String?  @map("resource_type")
+  resourceId                   String?  @map("resource_id") @db.Uuid
+  payloadDigest                String?  @map("payload_digest") @db.Char(64)
+  normalizationContractVersion String?  @map("normalization_contract_version")
+  expectedRevisions            Json     @default("{}") @map("expected_revisions")
+  admittedAt                   DateTime @default(dbgenerated("clock_timestamp()")) @map("admitted_at") @db.Timestamptz(6)
+  isTombstone                  Boolean  @default(false) @map("is_tombstone")
+
+  @@id([tenantId, actorIdentityKey, commandId])
+  @@map("c360_profile_commands")
+}
+
+/// ผลสุดท้ายของคำสั่ง (APPLIED/NO_OP/REJECTED); append-only และไม่มี profile/PII snapshot
+model C360ProfileCommandReceipt {
+  tenantId           String   @map("tenant_id") @db.Uuid
+  actorIdentityKey   String   @map("actor_identity_key")
+  commandId          String   @map("command_id") @db.Uuid
+  outcome            String
+  code               String?
+  httpStatus         Int      @map("http_status")
+  committedRevisions Json     @default("{}") @map("committed_revisions")
+  resourceRefs       Json     @default("[]") @map("resource_refs")
+  committedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("committed_at") @db.Timestamptz(6)
+
+  @@id([tenantId, actorIdentityKey, commandId])
+  @@map("c360_profile_command_receipts")
+}
+
+model C360ProfileAudit {
+  id               String   @id @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  eventOrdinal     Int      @default(0) @map("event_ordinal")
+  actorUserId      String?  @map("actor_user_id") @db.Uuid
+  operation        String
+  resourceType     String   @map("resource_type")
+  resourceId       String   @map("resource_id") @db.Uuid
+  changedFields    String[] @default([]) @map("changed_fields")
+  beforeRevisions  Json     @default("{}") @map("before_revisions")
+  afterRevisions   Json     @default("{}") @map("after_revisions")
+  evidenceRefs     String[] @default([]) @map("evidence_refs")
+  createdAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, actorIdentityKey, commandId, eventOrdinal], map: "c360_profile_audits_ordinal_key")
+  @@index([tenantId, resourceType, resourceId, createdAt, id], map: "c360_profile_audits_resource_idx")
+  @@map("c360_profile_audits")
+}
+
+/// ความสัมพันธ์ contact ↔ phone/email (R1 B.2) แยกจาก ContactIdentity; แก้ค่า = retire + insert
+model C360ContactPoint {
+  id                      String    @id @db.Uuid
+  tenantId                String    @map("tenant_id") @db.Uuid
+  contactId               String    @map("contact_id") @db.Uuid
+  /// PHONE | EMAIL
+  kind                    String
+  rawValue                String    @map("raw_value")
+  normalizedValue         String?   @map("normalized_value")
+  normalizationVersion    String?   @map("normalization_version")
+  explicitCountry         String?   @map("explicit_country")
+  /// ACTIVE | RETIRED | REVIEW_REQUIRED
+  state                   String
+  /// PROFILE_COMMAND | LEGACY_IDENTITY
+  sourceKind              String    @map("source_kind")
+  sourceIdentityId        String?   @map("source_identity_id") @db.Uuid
+  createdAt               DateTime  @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+  createdActorIdentityKey String    @map("created_actor_identity_key")
+  createdCommandId        String    @map("created_command_id") @db.Uuid
+  retiredAt               DateTime? @map("retired_at") @db.Timestamptz(6)
+  retiredActorIdentityKey String?   @map("retired_actor_identity_key")
+  retiredCommandId        String?   @map("retired_command_id") @db.Uuid
+
+  @@unique([tenantId, id], map: "c360_contact_points_tenant_id_key")
+  @@index([tenantId, contactId, state, createdAt, id], map: "c360_contact_points_contact_idx")
+  @@map("c360_contact_points")
+}
+
+/// สิทธิ์ดูแลลูกค้ารายการ (R1 C) — append-only; ถอนด้วย C360ContactCustodianRevocation
+model C360ContactCustodianGrant {
+  id               String   @id @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  contactId        String   @map("contact_id") @db.Uuid
+  granteeUserId    String   @map("grantee_user_id") @db.Uuid
+  /// READ | MANAGE
+  permission       String
+  /// CREATOR | OPERATOR
+  origin           String
+  evidenceRef      String?  @map("evidence_ref")
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  actorUserId      String?  @map("actor_user_id") @db.Uuid
+  grantedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("granted_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, id], map: "c360_contact_custodian_grants_tenant_id_key")
+  @@index([tenantId, granteeUserId, contactId], map: "c360_contact_custodian_grants_grantee_idx")
+  @@index([tenantId, contactId], map: "c360_contact_custodian_grants_contact_idx")
+  @@map("c360_contact_custodian_grants")
+}
+
+model C360ContactCustodianRevocation {
+  id               String   @id @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  grantId          String   @map("grant_id") @db.Uuid
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  actorUserId      String?  @map("actor_user_id") @db.Uuid
+  reason           String
+  evidenceRef      String   @map("evidence_ref")
+  revokedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("revoked_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, grantId], map: "c360_contact_custodian_revocations_grant_key")
+  @@map("c360_contact_custodian_revocations")
+}
+
+/// ประวัติการผูกลูกค้ากับงาน; Interaction.contactId ยังเป็น current link
+model C360InteractionCustomerChange {
+  id                 String   @id @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  interactionId      String   @map("interaction_id") @db.Uuid
+  /// LINK | RELINK | DETACH
+  action             String
+  beforeContactId    String?  @map("before_contact_id") @db.Uuid
+  afterContactId     String?  @map("after_contact_id") @db.Uuid
+  beforeLinkRevision BigInt   @map("before_link_revision")
+  afterLinkRevision  BigInt   @map("after_link_revision")
+  actorUserId        String   @map("actor_user_id") @db.Uuid
+  leaseId            String   @map("lease_id") @db.Uuid
+  actorIdentityKey   String   @map("actor_identity_key")
+  commandId          String   @map("command_id") @db.Uuid
+  /// เหตุผล raw ของ relink/detach — restricted ไม่ส่งเข้า Activity projection
+  reason             String?
+  createdAt          DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, interactionId, afterLinkRevision], map: "c360_interaction_customer_changes_revision_key")
+  @@index([tenantId, interactionId, createdAt, id], map: "c360_interaction_customer_changes_interaction_idx")
+  @@map("c360_interaction_customer_changes")
+}
+
+model C360Tag {
+  id               String    @id @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  name             String
+  /// NFC(fullDefaultCaseFold(NFC(trim(name)))) เทียบแบบ binary (COLLATE "C")
+  nameKey          String    @map("name_key")
+  /// ACTIVE | RETIRED
+  state            String    @default("ACTIVE")
+  revision         BigInt    @default(0)
+  createdAt        DateTime  @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+  retiredAt        DateTime? @map("retired_at") @db.Timestamptz(6)
+  actorIdentityKey String    @map("actor_identity_key")
+  commandId        String    @map("command_id") @db.Uuid
+  evidenceRef      String?   @map("evidence_ref")
+
+  @@unique([tenantId, id], map: "c360_tags_tenant_id_key")
+  @@unique([tenantId, nameKey], map: "c360_tags_name_key")
+  @@map("c360_tags")
+}
+
+model C360ContactTag {
+  tenantId         String   @map("tenant_id") @db.Uuid
+  contactId        String   @map("contact_id") @db.Uuid
+  tagId            String   @map("tag_id") @db.Uuid
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  attachedAt       DateTime @default(dbgenerated("clock_timestamp()")) @map("attached_at") @db.Timestamptz(6)
+
+  @@id([tenantId, contactId, tagId])
+  @@index([tenantId, tagId], map: "c360_contact_tags_tag_idx")
+  @@map("c360_contact_tags")
+}
+
+/// E1 H: durable auth state ต่อ work lease; server-only และไม่เก็บ access/refresh token
+model C360WorkMutationAuth {
+  tenantId                 String    @map("tenant_id") @db.Uuid
+  userId                   String    @map("user_id") @db.Uuid
+  leaseId                  String    @map("lease_id") @db.Uuid
+  authEpoch                BigInt    @default(0) @map("auth_epoch")
+  /// ACTIVE | REAUTH_REQUIRED
+  authState                String    @map("auth_state")
+  issuer                   String
+  subject                  String
+  sid                      String
+  tokenFingerprint         String    @map("token_fingerprint") @db.Char(64)
+  tokenExpiresAt           DateTime  @map("token_expires_at") @db.Timestamptz(6)
+  lastOnlineCheckStartedAt DateTime? @map("last_online_check_started_at") @db.Timestamptz(6)
+  invalidationReason       String?   @map("invalidation_reason")
+  updatedAt                DateTime  @default(dbgenerated("clock_timestamp()")) @map("updated_at") @db.Timestamptz(6)
+
+  @@id([tenantId, userId, leaseId])
+  @@map("c360_work_mutation_auth")
 }
 
 // ─────────────────────────── Contact Governance & Journey Inbox ───────────────────────────
@@ -4309,6 +4518,7 @@ model Interaction {
   queueId                   String?              @map("queue_id") @db.Uuid
   agentId                   String?              @map("agent_id") @db.Uuid
   contactId                 String?              @map("contact_id") @db.Uuid
+  customerLinkRevision      BigInt               @default(0) @map("customer_link_revision")
   // thread ที่งานนี้เกิดขึ้น — null สำหรับ voice (ADR-023)
   conversationId            String?              @map("conversation_id") @db.Uuid
   // งานนี้เกิดจากลูกค้าพิมพ์กลับภายใน reopen window ของงานใบไหน (ADR-023 ข้อ 4)
