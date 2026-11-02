@@ -4,6 +4,7 @@ export * from './profile-authorization.js';
 export * from './profile-fences.js';
 export * from './profile-operator.js';
 export * from './profile-points.js';
+export * from './profile-points-legacy.js';
 export * from './profile-tags.js';
 export * from './segment-definition.js';
 export * from './segment-evaluator.js';
