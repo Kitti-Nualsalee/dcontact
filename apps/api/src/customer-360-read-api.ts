@@ -8,6 +8,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   Req,
   UseFilters,
   type ArgumentsHost,
@@ -20,6 +21,7 @@ import {
   c360CursorCodecFromEnv,
   c360Uuid,
   readC360Profile,
+  readC360Timeline,
   searchC360Contacts,
   type C360CursorCodec,
 } from '@d-contact/customer-360';
@@ -29,6 +31,7 @@ import {
   c360CurrentActor,
   requestIdentity,
 } from './customer-360-api.js';
+import { readC360GovernanceSummary } from './customer-360-read-governance.js';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import { TenantClientRateLimiter } from './tenant-client-rate-limiter.js';
 import { coreRequestId } from './tenant-core-errors.js';
@@ -70,6 +73,15 @@ export class Customer360ReadErrors implements ExceptionFilter {
         requestId,
       }),
     );
+  }
+}
+
+/** path ที่ไม่ใช่ UUID ตอบเหมือน resource ที่ไม่พบ (ไม่มี oracle) */
+function pathContactId(value: string): string {
+  try {
+    return c360Uuid(value);
+  } catch {
+    throw new C360ReadError(404, 'RESOURCE_NOT_FOUND');
   }
 }
 
@@ -115,16 +127,59 @@ export class Customer360ReadController {
   @Header('Cache-Control', 'no-store')
   async profile(@Req() req: AuthenticatedGatewayRequest, @Param('contactId') contactId: string) {
     const identity = requestIdentity(req);
-    let id: string;
-    try {
-      id = c360Uuid(contactId);
-    } catch {
-      // path ที่ไม่ใช่ UUID ตอบเหมือน resource ที่ไม่พบ (ไม่มี oracle)
-      throw new C360ReadError(404, 'RESOURCE_NOT_FOUND');
-    }
+    const id = pathContactId(contactId);
     return withTenantDatabaseTransaction(this.db, identity.tenantId, async (tx) => {
       const actor = await c360CurrentActor(tx, identity);
       return readC360Profile(tx, actor, id);
+    });
+  }
+
+  /**
+   * Voice timeline: section แยกจาก core profile — owner ล้ม = 200 พร้อม state UNAVAILABLE (ไม่ใช่ list ว่าง)
+   * ส่วน DENY/ไม่พบ/DEFER ของลูกค้ายังเป็น 404/503 และไม่ส่งข้อมูลเสริมใด ๆ
+   */
+  @Get('contacts/:contactId/timeline')
+  @Header('Cache-Control', 'no-store')
+  async timeline(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Param('contactId') contactId: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const identity = requestIdentity(req);
+    const id = pathContactId(contactId);
+    if (limit !== undefined && !/^\d{1,3}$/.test(limit))
+      throw new C360ReadError(400, 'VALIDATION_FAILED', false, [
+        { field: 'limit', code: 'LIMIT_INVALID' },
+      ]);
+    if (cursor !== undefined && (typeof cursor !== 'string' || cursor.length === 0))
+      throw new C360ReadError(400, 'CURSOR_INVALID');
+    return withTenantDatabaseTransaction(this.db, identity.tenantId, async (tx) => {
+      const actor = await c360CurrentActor(tx, identity);
+      return readC360Timeline(
+        tx,
+        actor,
+        id,
+        { ...(limit ? { limit: Number(limit) } : {}), ...(cursor ? { cursor } : {}) },
+        this.codec,
+      );
+    });
+  }
+
+  /** read-only (POST เพราะรับ context ใน body): ไม่รับ commandId, ไม่ authorize/reserve, ไม่มี side effect */
+  @Post('contacts/:contactId/governance-summary')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  async governanceSummary(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Param('contactId') contactId: string,
+    @Body() body: unknown,
+  ) {
+    const identity = requestIdentity(req);
+    const id = pathContactId(contactId);
+    return withTenantDatabaseTransaction(this.db, identity.tenantId, async (tx) => {
+      const actor = await c360CurrentActor(tx, identity);
+      return readC360GovernanceSummary(tx, actor, id, body);
     });
   }
 }

@@ -4,6 +4,7 @@ import {
   authorizeC360ContactAccess,
   c360DeferredContactSql,
   c360ReadableContactSql,
+  type C360ContactAccess,
   type C360IdentityView,
   type C360VerifiedActor,
 } from './profile-authorization.js';
@@ -458,16 +459,55 @@ export interface C360ProfileView {
   source: { authorizationBasis: string; vipSource: string };
 }
 
-/** Core profile: DENY/ไม่พบ = 404 เหมือนกัน, DEFER = 503 SCOPE_UNAVAILABLE; ไม่ส่ง supplementary data ใด ๆ */
+/** DENY/ไม่พบ = 404 เหมือนกัน, DEFER = 503 SCOPE_UNAVAILABLE; ใช้ร่วมกันทุก read ของ contact เดียว */
+export async function requireReadableC360Contact(
+  tx: Prisma.TransactionClient,
+  actor: C360VerifiedActor,
+  contactId: string,
+): Promise<Extract<C360ContactAccess, { decision: 'ALLOW' }>> {
+  if (!SEARCH_ROLES.has(actor.role)) throw new C360ReadError(403, 'CUSTOMER_ACCESS_DENIED');
+  const access = await authorizeC360ContactAccess(tx, actor, contactId);
+  if (access.decision === 'DEFER') throw new C360ReadError(503, 'SCOPE_UNAVAILABLE', true);
+  if (access.decision === 'DENY') throw new C360ReadError(404, 'RESOURCE_NOT_FOUND');
+  return access;
+}
+
+export type C360SectionResult<T> =
+  | { state: 'READY'; asOf: string; data: T }
+  | { state: 'UNAVAILABLE'; asOf: string; reason: 'OWNER_UNAVAILABLE'; retryable: true };
+
+/**
+ * อ่านข้อมูลเสริมจาก owner หลังตรวจสิทธิ์ลูกค้าแล้ว: ถ้า owner ล้ม (error ของ DB/owner) ต้องได้ typed
+ * UNAVAILABLE ไม่ใช่ empty และไม่ทำให้ core profile ล้ม. ใช้ SAVEPOINT เพื่อให้ transaction ใช้ต่อได้
+ */
+export async function runC360OwnerSection<T>(
+  tx: Prisma.TransactionClient,
+  read: () => Promise<T>,
+): Promise<C360SectionResult<T>> {
+  await tx.$executeRawUnsafe('SAVEPOINT c360_owner_section');
+  try {
+    const data = await read();
+    await tx.$executeRawUnsafe('RELEASE SAVEPOINT c360_owner_section');
+    return { state: 'READY', asOf: new Date().toISOString(), data };
+  } catch (error) {
+    if (error instanceof C360ReadError) throw error;
+    await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT c360_owner_section');
+    return {
+      state: 'UNAVAILABLE',
+      asOf: new Date().toISOString(),
+      reason: 'OWNER_UNAVAILABLE',
+      retryable: true,
+    };
+  }
+}
+
+/** Core profile: ไม่ส่ง supplementary data ใด ๆ (timeline/governance แยก endpoint และแยก failure) */
 export async function readC360Profile(
   tx: Prisma.TransactionClient,
   actor: C360VerifiedActor,
   contactId: string,
 ): Promise<C360ProfileView> {
-  if (!SEARCH_ROLES.has(actor.role)) throw new C360ReadError(403, 'CUSTOMER_ACCESS_DENIED');
-  const access = await authorizeC360ContactAccess(tx, actor, contactId);
-  if (access.decision === 'DEFER') throw new C360ReadError(503, 'SCOPE_UNAVAILABLE', true);
-  if (access.decision === 'DENY') throw new C360ReadError(404, 'RESOURCE_NOT_FOUND');
+  const access = await requireReadableC360Contact(tx, actor, contactId);
   const [contact] = await tx.$queryRaw<
     {
       id: string;
