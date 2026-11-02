@@ -1,5 +1,6 @@
 import { PrismaClient } from '@d-contact/db';
 import { TenantPeopleKeycloak } from './tenant-people-keycloak.js';
+import { peopleKeycloakRequest } from './tenant-people-backchannel.js';
 import { TenantPeopleRuntime } from './tenant-people-runtime.js';
 import type { PeopleTelephonyNode } from './tenant-people-infrastructure.js';
 import type { TenantPeopleReadiness } from './tenant-people-readiness.js';
@@ -59,7 +60,11 @@ function parsePeopleConfiguration(environment: NodeJS.ProcessEnv) {
     bindings: bindings.map((value) => {
       const entry = object(value);
       if (
-        Object.keys(entry).sort().join(',') !== 'clientSecretEnv,issuer,nodes,tenantId' ||
+        Object.keys(entry).sort().join(',') !==
+          ('backchannelUrl' in entry
+            ? 'backchannelUrl,clientSecretEnv,issuer,nodes,tenantId'
+            : 'clientSecretEnv,issuer,nodes,tenantId') ||
+        ('backchannelUrl' in entry && typeof entry.backchannelUrl !== 'string') ||
         typeof entry.tenantId !== 'string' ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(entry.tenantId) ||
         seen.has(entry.tenantId) ||
@@ -99,12 +104,18 @@ function parsePeopleConfiguration(environment: NodeJS.ProcessEnv) {
           extensions: node.extensions,
         };
       });
-      const identity = new TenantPeopleKeycloak({
-        tenantId: entry.tenantId,
-        issuer: entry.issuer,
-        clientId: `dcontact-tenant-people-${entry.tenantId}`,
-        clientSecret: environment[entry.clientSecretEnv]!,
-      });
+      const identity = new TenantPeopleKeycloak(
+        {
+          tenantId: entry.tenantId,
+          issuer: entry.issuer,
+          clientId: `dcontact-tenant-people-${entry.tenantId}`,
+          clientSecret: environment[entry.clientSecretEnv]!,
+        },
+        peopleKeycloakRequest(
+          entry.issuer,
+          typeof entry.backchannelUrl === 'string' ? entry.backchannelUrl : undefined,
+        ),
+      );
       return { tenantId: entry.tenantId, identity, nodes };
     }),
   };

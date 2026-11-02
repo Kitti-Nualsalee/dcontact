@@ -83,6 +83,27 @@ pnpm voice:v1b:readiness -- --static
 
 ## 2. เงื่อนไขก่อน deploy/เปิด writes
 
+### People backchannel บน 3 VM
+
+หาก API อยู่บน internal network และ resolve public issuer ไม่ได้ ให้ operator ระบุ
+`backchannelUrl` แบบ opt-in ใน binding ของ `UAT_TENANT_PEOPLE_BINDINGS_JSON` เฉพาะ tenant
+ที่อนุมัติ เช่น `http://keycloak:8080/auth/realms/dcontact` โดยคง `issuer` เป็น public HTTPS URL เดิม
+ระบบยอมรับเฉพาะ service `keycloak:8080` และ realm path เดียวกับ issuer ไม่รับ host/port/realm อื่น
+ข้อมูลรับรองเดินเฉพาะเครือข่าย Docker ภายในที่แยกไว้ตามขอบเขตที่ owner อนุมัติ ไม่ผ่าน public egress
+ห้ามนำตัวเลือกนี้ไปใช้เมื่อเครือข่ายภายในไม่เป็น trusted boundary หรือ Keycloak เป็น service คนละตัว
+
+Transport ส่งต่อเฉพาะ token endpoint และ `dc-tenant-people/` ของ realm เดิม ห้าม redirects
+ไม่เปลี่ยน public issuer, tenant/client/identity guards, callback URLs, secret หรือสิทธิ์ของบัญชี
+ไม่ปิด certificate validation ของ HTTPS และไม่เปลี่ยน transport เดิมหากไม่มี opt-in
+เส้นทาง provisioning, invitation/activation และ disable ใช้ transport เดียวกัน แต่ switches
+ยัง default-off; backchannel readiness ไม่ใช่สิทธิ์เปิด invitation/disable หรือผล VM trial
+
+ต้องรวม private People env file เดิมเป็น Compose input ทุกครั้งที่สร้าง API ใหม่ มิฉะนั้น config
+จะหายแม้ image เดิม ห้ามแสดงค่าจริงจาก `compose config` หรือ env file ใน log/หลักฐานสาธารณะ
+ก่อน deploy ให้ตรวจเฉพาะชื่อ key/diff ที่ redacted, idle gates และ ownership แล้วตรวจ
+actual API readiness หลังเริ่มใหม่ ห้ามใช้ readiness จาก host หรือ COPY rehearsal แทน network
+ของ API container จริง และห้ามแก้ immutable release/env ที่มี receipt แล้วโดยไม่มีขั้น reconciliation
+
 - Candidate ต้องอยู่บน main ตาม ADR-032 พร้อม review/CI/affected HTTP/RLS, Keycloak/SMTP,
   browser และ real managed SIP proofs ที่ผูก SHA เดียวกัน
 - ตรวจ VM1/VM2/VM3 สด: capacity, clock, current deployment/image digests/OCI source SHA,
