@@ -1,3 +1,4 @@
+export * from './profile-command.js';
 export * from './segment-definition.js';
 export * from './segment-evaluator.js';
 export * from './segment-membership-relay.js';
