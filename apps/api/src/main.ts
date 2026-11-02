@@ -1,3 +1,4 @@
+import { Customer360Controller, CUSTOMER_360_DATABASE } from './customer-360-api.js';
 import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
 import { withLocalAccountAdmission } from './local-account-verifier.js';
 import 'reflect-metadata';
@@ -370,6 +371,7 @@ class WorkspaceSessionController {
 @Module({
   controllers: [
     TenantCoreSettingsController,
+    Customer360Controller,
     TenantVoiceCatalogController,
     TenantPeopleController,
     WorkspaceSessionController,
@@ -412,6 +414,7 @@ class WorkspaceSessionController {
   ],
   providers: [
     { provide: TENANT_CORE_DATABASE, useValue: prisma },
+    { provide: CUSTOMER_360_DATABASE, useValue: prisma },
     { provide: TENANT_VOICE_DATABASE, useValue: prisma },
     {
       provide: TENANT_PEOPLE_READINESS,

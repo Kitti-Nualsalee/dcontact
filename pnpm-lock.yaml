@@ -29,6 +29,9 @@ importers:
       '@d-contact/contact-governance':
         specifier: workspace:*
         version: link:../contact-governance
+      '@d-contact/customer-360':
+        specifier: workspace:*
+        version: link:../customer-360
       '@d-contact/cxa-contracts':
         specifier: workspace:*
         version: link:../../packages/cxa-contracts

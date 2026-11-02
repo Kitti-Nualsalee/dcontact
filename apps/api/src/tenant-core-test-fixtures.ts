@@ -19,6 +19,7 @@ import {
   TENANT_LIFECYCLE,
 } from './gateway-auth.js';
 import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
+import { CUSTOMER_360_DATABASE } from './customer-360-api.js';
 import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
 
 export interface CoreTestBody {
@@ -135,6 +136,7 @@ export async function coreFixture(
       { provide: NAVIGATION_REGISTRY, useValue: NAVIGATION_APPS },
       { provide: TENANT_LOCALE_DATABASE, useValue: db },
       { provide: TENANT_CORE_DATABASE, useValue: db },
+      { provide: CUSTOMER_360_DATABASE, useValue: db },
       { provide: TENANT_VOICE_DATABASE, useValue: db },
       { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier ?? { verifyAccessToken: claims } },
       {
