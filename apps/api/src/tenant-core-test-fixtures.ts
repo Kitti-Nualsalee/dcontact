@@ -105,6 +105,8 @@ export async function coreFixture(
         'isolated-core-fixture',${'a'.repeat(64)},'isolated-test-operator',now(),1,true)`;
     }
   }
+  // platform operator ใช้ realm role ใน org login ของ tenant แต่ไม่ใช่ domain User ของ tenant
+  actors.set('operator', { id: randomUUID(), role: 'PLATFORM-OPERATOR', tenantId });
   const claims = async (
     token: string,
   ): Promise<VerifiedOidcClaims & { iss: string; organization: unknown }> => {

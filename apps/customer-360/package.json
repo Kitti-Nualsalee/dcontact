@@ -16,7 +16,8 @@
     "@d-contact/db": "workspace:*",
     "@d-contact/expression": "workspace:*",
     "@d-contact/kafka": "workspace:*",
-    "@d-contact/shared": "workspace:*"
+    "@d-contact/shared": "workspace:*",
+    "unicode-case-folding": "1.1.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

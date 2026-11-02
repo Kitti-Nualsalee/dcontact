@@ -255,6 +255,9 @@ importers:
       '@d-contact/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      unicode-case-folding:
+        specifier: 1.1.1
+        version: 1.1.1
     devDependencies:
       '@types/node':
         specifier: ^20.14.0
@@ -2828,6 +2831,9 @@ packages:
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
+  unicode-case-folding@1.1.1:
+    resolution: {integrity: sha512-ZAYziAnMTBisO2dT5tyGvBFMNsIfonOS/BZTd3UZaKWtXMOZqK8s8HRUCrlKxGCTeCxCuCjS/6HW+4a6G+rbzw==}
+
   unicorn-magic@0.4.1:
     resolution: {integrity: sha512-lzlXPoVB0Uy/FvTaUgX39RbixYiSKoc3JSoSf01+0c2B6FR3qdYIPN7Qjo/AV7n6sqLCk0509cT3LRj1oSZ1+A==}
     engines: {node: '>=20'}
@@ -4750,6 +4756,8 @@ snapshots:
   uint8array-extras@1.5.0: {}
 
   undici-types@6.21.0: {}
+
+  unicode-case-folding@1.1.1: {}
 
   unicorn-magic@0.4.1: {}
 
