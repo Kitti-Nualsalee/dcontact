@@ -41,6 +41,10 @@ artifacts/u1-acceptance/
 skills-lock.json
 *.agents
 *.claude
+# แชร์ role ของ agent ใน repo (docs/agents/parallel-work.md) ส่วนอื่นใน .claude ยังเป็น local
+!/.claude/
+/.claude/*
+!/.claude/agents/
 
 # ข้อมูลรับรองของเครื่องมือภายนอก (เช่น Jira API token) ห้าม commit
 .jira

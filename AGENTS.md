@@ -15,6 +15,11 @@ mutation, report the confirmed stage, active artifact, recommended model tier, a
 the tracker as the source of truth instead of relying on chat history. If the evidence conflicts,
 report `STATE_CONFLICT` and reconcile it before changing code or tracker state.
 
+### Parallel agents
+
+When work uses more than one agent at a time, follow `docs/agents/parallel-work.md`. Role definitions
+live in `.claude/agents/`. UI work is designed and reviewed against `docs/ui-principles.md`.
+
 ### Domain docs
 
 This is a multi-context repository. `CONTEXT-MAP.md` points to the relevant per-context `CONTEXT.md` files, while `docs/adr/` holds system-wide decisions. See `docs/agents/domain.md`.
