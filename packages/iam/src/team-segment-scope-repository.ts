@@ -134,6 +134,11 @@ export class IamTeamSegmentScopeRepository {
     payload: SegmentMembershipChangePayloadV1;
   }) {
     return withTenantDatabaseTransaction(this.database, input.tenantId, async (transaction) => {
+      // E1 G: per-contact fence ก่อน inbox/read/upsert ทั้งแถวที่ยังไม่มีและที่มีอยู่
+      // Cus360 ถือ key เดียวกันแบบ shared ระหว่างตัดสิน freshness
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${`iam-contact-scope:${input.tenantId}:${input.payload.contactId}`}, 0))`,
+      );
       const completed = await transaction.iamScopeConsumerInbox.findUnique({
         where: {
           consumerGroup_tenantId_eventId: {
