@@ -1,3 +1,9 @@
+import {
+  normalizeC360ServiceOperatorCommand,
+  isC360ServiceOperatorCommand,
+  planC360ServiceOperator,
+  type C360ServiceOperatorCommand,
+} from './service-principal.js';
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@d-contact/db';
 import {
@@ -46,6 +52,7 @@ export interface C360TrustedOperator {
 }
 
 export type C360OperatorCommand =
+  | C360ServiceOperatorCommand
   | {
       action: 'CUSTODIAN_GRANT';
       contactId: string;
@@ -182,7 +189,7 @@ export function normalizeC360OperatorCommand(command: unknown): C360OperatorComm
       only('contactId');
       return { action: input.action, contactId: c360Uuid(input.contactId) };
     default:
-      invalid();
+      return normalizeC360ServiceOperatorCommand(input);
   }
 }
 
@@ -301,6 +308,8 @@ async function plan(
   reason: string,
   actor: C360CommandActor,
 ): Promise<Plan> {
+  if (isC360ServiceOperatorCommand(command))
+    return planC360ServiceOperator(tx, operator, command, evidence, reason, actor);
   const tenantId = operator.tenantId;
   const audit = (
     operation: string,
@@ -728,4 +737,41 @@ export async function executeC360OperatorCommand(
       };
     },
   );
+}
+
+/** Metadata เฉพาะ trusted operator; ไม่คืน issuer/subject/token หรือ customer payload */
+export async function readC360ServicePrincipalMetadata(
+  db: PrismaClient,
+  operator: C360TrustedOperator,
+  id: string,
+) {
+  return c360MutationTransaction(db, operator.tenantId, async (tx) => {
+    await authorizeOperator(tx, operator);
+    const [p] = await tx.$queryRaw<
+      {
+        id: string;
+        active: boolean;
+        authz_epoch: bigint;
+        custodian_admin_id: string;
+        evidence_ref: string;
+      }[]
+    >`SELECT id,active,authz_epoch,custodian_admin_id,evidence_ref FROM int_service_principals WHERE tenant_id=${operator.tenantId}::uuid AND id=${c360Uuid(id)}::uuid`;
+    if (!p) return null;
+    const [scopes] = await tx.$queryRaw<{ read: boolean; create: boolean }[]>`SELECT
+   EXISTS(SELECT 1 FROM int_service_contact_grants g WHERE g.tenant_id=${operator.tenantId}::uuid AND g.principal_id=${p.id}::uuid AND NOT EXISTS(SELECT 1 FROM int_service_contact_revocations r WHERE r.tenant_id=g.tenant_id AND r.grant_id=g.id)) AS read,
+   EXISTS(SELECT 1 FROM int_service_capability_grants g WHERE g.tenant_id=${operator.tenantId}::uuid AND g.principal_id=${p.id}::uuid AND NOT EXISTS(SELECT 1 FROM int_service_capability_revocations r WHERE r.tenant_id=g.tenant_id AND r.grant_id=g.id)) AS create`;
+    return {
+      id: p.id,
+      active: p.active,
+      authzEpoch: p.authz_epoch.toString(),
+      custodianUserId: p.custodian_admin_id,
+      evidenceRefs: [p.evidence_ref],
+      scopes: p.active
+        ? [
+            ...(scopes?.read ? ['customer360.contacts.read'] : []),
+            ...(scopes?.create ? ['customer360.contacts.create'] : []),
+          ]
+        : [],
+    };
+  });
 }

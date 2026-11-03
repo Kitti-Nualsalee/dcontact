@@ -1,5 +1,7 @@
 import {
   Body,
+  Get,
+  Param,
   Controller,
   Header,
   HttpCode,
@@ -14,6 +16,7 @@ import type { ServerResponse } from 'node:http';
 import type { PrismaClient } from '@d-contact/db';
 import {
   c360Uuid,
+  readC360ServicePrincipalMetadata,
   executeC360OperatorCommand,
   previewC360OperatorCommand,
   type C360TrustedOperator,
@@ -34,6 +37,13 @@ import {
  * dryRun=true คืน preview ที่ไม่มี PII และไม่ admit command; ของจริงคืน receipt จาก S2 engine
  */
 function operator(req: AuthenticatedGatewayRequest): C360TrustedOperator {
+  if (
+    req.gatewayServiceIdentity ||
+    (typeof req.gatewayVerifiedClaims?.preferred_username === 'string' &&
+      req.gatewayVerifiedClaims.preferred_username ===
+        `service-account-${req.gatewayVerifiedClaims.azp}`)
+  )
+    throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
   const identity = req.gatewayIdentity;
   if (!identity) throw new UnauthorizedException();
   const caller = tenantConfigurationCaller(req);
@@ -65,6 +75,17 @@ function body(value: unknown): Record<string, unknown> {
 @GatewayRoles('platform-operator')
 export class Customer360OperatorController {
   constructor(@Inject(CUSTOMER_360_DATABASE) private readonly db: PrismaClient) {}
+
+  @Get('service-principals/:principalId')
+  @Header('Cache-Control', 'no-store')
+  async principal(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Param('principalId') principalId: string,
+  ) {
+    const result = await readC360ServicePrincipalMetadata(this.db, operator(req), principalId);
+    if (!result) throw new Customer360HttpError(404, 'RESOURCE_NOT_FOUND');
+    return result;
+  }
 
   @Post('commands')
   @HttpCode(200)
