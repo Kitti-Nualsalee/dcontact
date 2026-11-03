@@ -125,6 +125,8 @@ test('EMAIL: ปฏิเสธ wrapper/list/group/comment/newline/IP/single-lab
     // IP ในรูป dot-atom และ TLD ตัวเลขล้วนไม่ใช่ DNS name ตาม E1 C
     'a@1.2.3.4',
     'a@example.123',
+    'a@1.2.3.４',
+    'a@１.２.３.４',
     `a@${'x'.repeat(64)}.com`,
   ])
     rejects(() => normalizeC360Email(value), 'EMAIL_DOMAIN_INVALID');

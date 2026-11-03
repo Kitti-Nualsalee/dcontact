@@ -101,20 +101,20 @@ function validDomain(domain: string): boolean {
   if (domain.startsWith('[') || IDNA_DOTS.test(domain)) return false;
   const labels = domain.split('.');
   if (labels.length < 2 || labels.some((label) => label.length === 0)) return false;
-  // IP domain ในรูป dot-atom (เช่น 1.2.3.4) และ TLD ที่เป็นตัวเลขล้วนไม่ใช่ DNS name ตาม E1 C
-  if (/^[0-9]+$/.test(labels[labels.length - 1]!)) return false;
   // validation เท่านั้น: ผล A-label ถูกทิ้ง ไม่ใช่ค่าที่เก็บ
-  return (
-    tr46.toASCII(domain, {
-      checkHyphens: true,
-      checkBidi: true,
-      checkJoiners: true,
-      useSTD3ASCIIRules: true,
-      verifyDNSLength: true,
-      transitionalProcessing: false,
-      ignoreInvalidPunycode: false,
-    }) !== null
-  );
+  const ascii = tr46.toASCII(domain, {
+    checkHyphens: true,
+    checkBidi: true,
+    checkJoiners: true,
+    useSTD3ASCIIRules: true,
+    verifyDNSLength: true,
+    transitionalProcessing: false,
+    ignoreInvalidPunycode: false,
+  });
+  if (ascii === null) return false;
+  // IP domain ในรูป dot-atom และ TLD ตัวเลขล้วนไม่ใช่ DNS name ตาม E1 C; ตรวจหลัง IDNA mapping
+  // เพื่อให้ตัวเลข full-width (เช่น １.２.３.４) ที่ถูก map เป็น ASCII ไม่หลุด
+  return !/^[0-9]+$/.test(ascii.slice(ascii.lastIndexOf('.') + 1));
 }
 
 /** E1 C EMAIL: addr-spec เดี่ยว, คง local tokens ตรงเดิม, lowercase เฉพาะ domain */
