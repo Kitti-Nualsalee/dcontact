@@ -7,7 +7,6 @@ export interface TenantConfigurationCaller {
   clientId: string;
   tenantSlug: string;
 }
-/** Claims ที่ verify แล้วเป็นเพียง context; positive authority อยู่ที่ operator binding ใน DB */
 export function tenantConfigurationCaller(
   req: AuthenticatedGatewayRequest,
 ): TenantConfigurationCaller | undefined {
@@ -69,7 +68,6 @@ export interface TenantConfigurationActor {
   scopeStamp: string;
 }
 
-/** ตัวตรวจสิทธิ์กลางอ่าน operator proof เดิม โดยไม่ผูก feature policy หรือเพิ่ม proof enrollment */
 export async function findTenantConfigurationActor(
   tx: Prisma.TransactionClient,
   identity: TenantConfigurationIdentity,
@@ -107,7 +105,25 @@ export async function findTenantConfigurationActor(
       AND identity_class='TENANT_USER' AND is_active`);
   // B1 trigger บังคับ proof writer ให้ถือ User FOR UPDATE NOWAIT อยู่แล้ว
   // ถือ User FOR SHARE จึงกันการเปลี่ยน proof โดยไม่เพิ่ม UPDATE grant ให้ตาราง proof
-  if (!binding[0]) return undefined;
+  const provisioned = !binding[0]
+    ? await tx.$queryRaw<
+        { statusRevision: number; operationId: string; activationProbeRef: string }[]
+      >(Prisma.sql`
+          SELECT status_revision AS "statusRevision",operation_id::text AS "operationId",
+            activation_probe_ref::text AS "activationProbeRef"
+          FROM dc_people_configuration_authority(${identity.tenantId}::uuid,${user.id}::uuid,${caller.issuer},${caller.clientId},${caller.tenantSlug})`)
+    : [];
+  const authority = binding[0]
+    ? binding[0].revision
+    : provisioned[0]
+      ? [
+          'B2_VERIFIED_RECEIPTS',
+          provisioned[0].statusRevision,
+          provisioned[0].operationId,
+          provisioned[0].activationProbeRef,
+        ]
+      : undefined;
+  if (authority === undefined) return undefined;
   if (user.role === 'SUPERVISOR') {
     if (!user.teamId) return undefined;
     if (lock)
@@ -125,16 +141,7 @@ export async function findTenantConfigurationActor(
     role: user.role,
     teamId: user.teamId,
     scopeStamp: createHash('sha256')
-      .update(
-        JSON.stringify([
-          identity.tenantId,
-          user.id,
-          user.role,
-          true,
-          user.teamId,
-          binding[0].revision,
-        ]),
-      )
+      .update(JSON.stringify([identity.tenantId, user.id, user.role, true, user.teamId, authority]))
       .digest('hex'),
   };
 }
