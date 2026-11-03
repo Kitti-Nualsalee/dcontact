@@ -20,11 +20,14 @@ import {
   type SearchType,
 } from './api.js';
 import { errorKind, fieldErrorKey, type ErrorKind } from './model.js';
+import { Skeleton } from './skeleton.js';
 
 interface Props {
   api: CustomersApi;
   onOpen(contactId: string): void;
   onSignIn?: () => void;
+  /** กลับมาจากโปรไฟล์: ย้าย focus ไปหัวข้อเพื่อไม่ให้ผู้ใช้คีย์บอร์ดหลุดกลางหน้า */
+  focusHeading?: boolean;
 }
 
 type Applied = { type: SearchType; query: string };
@@ -36,13 +39,17 @@ type View =
 const SEARCH_TYPES = ['NAME', 'PHONE', 'EMAIL'] as const;
 
 /** รายการ + ค้นหาลูกค้า (Console A): ผลทั้งหมดมาจาก server ตามสิทธิ์; ไม่มี query ใน URL */
-export function CustomerDirectory({ api, onOpen, onSignIn }: Props) {
+export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props) {
   const { t: translate } = useTranslation('customers');
   const t = translate as (key: string, options?: Record<string, unknown>) => string;
   const [type, setType] = useState<(typeof SEARCH_TYPES)[number]>('NAME');
   const [query, setQuery] = useState('');
   const [fieldError, setFieldError] = useState<string>();
+  // applied = คำขอล่าสุด; shown = ชุดที่ผลบนจอเป็นของจริง (validation ล้มแล้วผลเดิมยังเป็นของ shown)
   const [applied, setApplied] = useState<Applied>({ type: 'DIRECTORY', query: '' });
+  const [shown, setShown] = useState<Applied>({ type: 'DIRECTORY', query: '' });
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const [focusId, setFocusId] = useState<string>();
   const [items, setItems] = useState<CustomerListItem[]>([]);
   const [page, setPage] = useState<Pick<CustomerSearchPage, 'scope' | 'accessibleCount'>>();
   const [cursor, setCursor] = useState<string | null>(null);
@@ -74,6 +81,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn }: Props) {
         setItems(result.items);
         setCursor(result.nextCursor);
         setPage({ scope: result.scope, accessibleCount: result.accessibleCount });
+        setShown(applied);
         setFieldError(undefined);
         setView({ state: 'ready' });
       })
@@ -123,12 +131,16 @@ export function CustomerDirectory({ api, onOpen, onSignIn }: Props) {
     setMore(true);
     api
       .search({
-        type: applied.type,
-        ...(applied.type === 'DIRECTORY' ? {} : { query: applied.query }),
+        type: shown.type,
+        ...(shown.type === 'DIRECTORY' ? {} : { query: shown.query }),
         cursor,
       })
       .then((result) => {
         if (mine !== sequence.current) return;
+        const fresh = result.items.filter(
+          (item) => !items.some((c) => c.contactId === item.contactId),
+        );
+        setFocusId(fresh[0]?.contactId);
         setItems((current) => [
           ...current,
           ...result.items.filter((item) => !current.some((c) => c.contactId === item.contactId)),
@@ -148,10 +160,23 @@ export function CustomerDirectory({ api, onOpen, onSignIn }: Props) {
   const name = (item: CustomerListItem) => item.displayName?.trim() || t('list.noName');
   const queryLabel = t(`search.query.${type}`);
   const incomplete = page?.scope.state === 'INCOMPLETE';
+  const searching = shown.type !== 'DIRECTORY';
+
+  useEffect(() => {
+    if (focusHeading) headingRef.current?.focus();
+  }, [focusHeading]);
+  // โหลดเพิ่มแล้ว focus ไปรายการแรกที่เพิ่ม เพื่อให้ผู้ใช้คีย์บอร์ดอ่านต่อได้ทันที
+  useEffect(() => {
+    if (!focusId) return;
+    document.querySelector<HTMLElement>(`[data-cu-open="${focusId}"]`)?.focus();
+    setFocusId(undefined);
+  }, [focusId, items]);
 
   return (
     <section aria-labelledby="customers-search-title" className="cu-section">
-      <h2 id="customers-search-title">{t('search.title')}</h2>
+      <h2 id="customers-search-title" ref={headingRef} tabIndex={-1}>
+        {t('search.title')}
+      </h2>
       <form className="cu-search" onSubmit={submit} noValidate>
         <Select
           label={t('search.type')}
@@ -159,6 +184,8 @@ export function CustomerDirectory({ api, onOpen, onSignIn }: Props) {
           selectedKey={type}
           onSelectionChange={(key) => {
             setType(key as (typeof SEARCH_TYPES)[number]);
+            // คำค้นของชนิดเดิมใช้กับชนิดใหม่ไม่ได้ (เช่น ชื่อ → เบอร์) จึงล้างพร้อมข้อผิดพลาดเดิม
+            setQuery('');
             setFieldError(undefined);
           }}
         />
@@ -186,12 +213,8 @@ export function CustomerDirectory({ api, onOpen, onSignIn }: Props) {
         </div>
       </form>
 
-      <h2>{t('list.title')}</h2>
-      {view.state === 'loading' ? (
-        <p role="status" aria-busy="true" className="cu-skeleton">
-          {t('loading')}
-        </p>
-      ) : null}
+      <h2>{searching ? t('list.resultsTitle') : t('list.title')}</h2>
+      {view.state === 'loading' ? <Skeleton label={t('loading')} rows={6} /> : null}
       {kind ? (
         <div role="alert" className="cu-alert">
           <p>
@@ -230,7 +253,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn }: Props) {
 
       {view.state === 'ready' && page ? (
         <>
-          {applied.type === 'DIRECTORY' && page.accessibleCount ? (
+          {!searching && page.accessibleCount ? (
             <p className="cu-muted">
               {page.accessibleCount.state === 'AVAILABLE'
                 ? t('list.count', { count: page.accessibleCount.value })
@@ -238,62 +261,65 @@ export function CustomerDirectory({ api, onOpen, onSignIn }: Props) {
             </p>
           ) : null}
           {incomplete ? (
-            <p role="status" className="cu-notice">
-              {t('list.incomplete')}
-            </p>
-          ) : null}
-          {items.length === 0 && !incomplete ? (
-            <p>{applied.type === 'DIRECTORY' ? t('list.empty') : t('list.emptySearch')}</p>
-          ) : null}
-          {items.length > 0 ? (
-            <div className="cu-scroll">
-              <Table aria-label={t('list.label')}>
-                <TableHeader>
-                  <Column isRowHeader>{t('list.columns.name')}</Column>
-                  <Column>{t('list.columns.company')}</Column>
-                  <Column>{t('list.columns.status')}</Column>
-                  <Column>{t('list.columns.match')}</Column>
-                  <Column>{t('list.columns.open')}</Column>
-                </TableHeader>
-                <TableBody>
-                  {items.map((item) => (
-                    <Row key={item.contactId} id={item.contactId}>
-                      <Cell>
-                        <span className="cu-name">{name(item)}</span>
-                      </Cell>
-                      <Cell>{item.company?.trim() || t('list.noCompany')}</Cell>
-                      <Cell>
-                        <span className="cu-badges">
-                          {item.vip ? <Badge tone="attention">{t('badges.vip')}</Badge> : null}
-                          {item.identity === 'AMBIGUOUS' ? (
-                            <Badge tone="critical">{t('badges.review')}</Badge>
-                          ) : item.identity === 'LEGACY_MISSING_HEAD' ? (
-                            <Badge tone="neutral">{t('badges.legacy')}</Badge>
-                          ) : (
-                            <Badge tone="neutral">{t('badges.active')}</Badge>
-                          )}
-                        </span>
-                      </Cell>
-                      <Cell>{item.matchedChannel?.masked ?? '—'}</Cell>
-                      <Cell>
-                        <Button
-                          size="sm"
-                          aria-label={t('list.openItem', { name: name(item) })}
-                          onPress={() => onOpen(item.contactId)}
-                        >
-                          {t('list.open')}
-                        </Button>
-                      </Cell>
-                    </Row>
-                  ))}
-                </TableBody>
-              </Table>
+            <div role="status" className="cu-notice">
+              <p>{t('list.incomplete')}</p>
+              <Button onPress={() => setRevision((value) => value + 1)}>{t('retry')}</Button>
             </div>
           ) : null}
+          {items.length === 0 && !incomplete ? (
+            <p>{searching ? t('list.emptySearch') : t('list.empty')}</p>
+          ) : null}
+          {items.length > 0 ? (
+            <Table aria-label={t('list.label')} className="cu-table">
+              <TableHeader>
+                <Column isRowHeader width="36%">
+                  {t('list.columns.name')}
+                </Column>
+                <Column width="26%">{t('list.columns.company')}</Column>
+                <Column width="22%">{t('list.columns.status')}</Column>
+                <Column width="16%">{t('list.columns.match')}</Column>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => (
+                  <Row key={item.contactId} id={item.contactId}>
+                    <Cell>
+                      <Button
+                        variant="ghost"
+                        className="cu-name"
+                        data-cu-open={item.contactId}
+                        aria-label={t('list.openItem', { name: name(item) })}
+                        onPress={() => onOpen(item.contactId)}
+                      >
+                        {name(item)}
+                      </Button>
+                    </Cell>
+                    <Cell>
+                      <span className="cu-wrap">{item.company?.trim() || t('list.noCompany')}</span>
+                    </Cell>
+                    <Cell>
+                      <span className="cu-badges">
+                        {item.vip ? <Badge tone="attention">{t('badges.vip')}</Badge> : null}
+                        {item.identity === 'AMBIGUOUS' ? (
+                          <Badge tone="critical">{t('badges.review')}</Badge>
+                        ) : item.identity === 'LEGACY_MISSING_HEAD' ? (
+                          <Badge tone="neutral">{t('badges.legacy')}</Badge>
+                        ) : (
+                          <Badge tone="neutral">{t('badges.active')}</Badge>
+                        )}
+                      </span>
+                    </Cell>
+                    <Cell>{item.matchedChannel?.masked ?? '—'}</Cell>
+                  </Row>
+                ))}
+              </TableBody>
+            </Table>
+          ) : null}
           {cursor ? (
-            <Button isDisabled={more} onPress={loadMore}>
-              {more ? t('loading') : t('list.more')}
-            </Button>
+            <div className="cu-more">
+              <Button isDisabled={more} onPress={loadMore}>
+                {more ? t('loading') : t('list.more')}
+              </Button>
+            </div>
           ) : null}
         </>
       ) : null}

@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
+import { serverTime } from '../journey-authoring/server-time.js';
+import { Skeleton } from './skeleton.js';
 import { Badge, Button, Select, TextField } from '@d-contact/ui-react';
 import {
   type CustomerProfile,
@@ -52,7 +54,7 @@ const isAbort = (failure: unknown) =>
 export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }: Props) {
   const { t: translate } = useTranslation('customers');
   const t = translate as (key: string, options?: Record<string, unknown>) => string;
-  const { locale } = useLocale();
+  const { formatters } = useLocale();
   const [core, setCore] = useState<Core>({ state: 'loading' });
   const [timeline, setTimeline] = useState<TimelineView>({ state: 'loading' });
   const [governance, setGovernance] = useState<GovernanceView>({ state: 'loading' });
@@ -65,13 +67,40 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
   const coreRef = useRef<Core>(core);
   coreRef.current = core;
 
-  const format = useCallback(
-    (value: string) =>
-      new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(
-        new Date(value),
-      ),
-    [locale],
-  );
+  const format = useCallback((value: string) => serverTime(formatters, value), [formatters]);
+
+  // ปิดข้อมูลลูกค้าทั้งหน้า (core + section) เมื่อ section ได้ session/สิทธิ์/scope เปลี่ยน — เหมือนตอนโหลด core
+  const closeAll = useCallback((kind: ErrorKind) => {
+    setTimeline({ state: 'loading' });
+    setGovernance({ state: 'loading' });
+    setContext(undefined);
+    setCore({ state: 'error', kind });
+  }, []);
+
+  const nameRef = useRef<HTMLHeadingElement>(null);
+  const timelineHeadRef = useRef<HTMLHeadingElement>(null);
+  const governanceHeadRef = useRef<HTMLHeadingElement>(null);
+  const focusedCore = useRef(false);
+  const pendingFocus = useRef<'timeline' | 'governance' | null>(null);
+
+  // เปิดโปรไฟล์แล้ว focus ชื่อลูกค้า (ผู้ใช้คีย์บอร์ด/screen reader ไม่หลุดอยู่ที่ปุ่มที่หายไป)
+  useEffect(() => {
+    if (core.state === 'ready' && !focusedCore.current) {
+      focusedCore.current = true;
+      nameRef.current?.focus();
+    }
+  }, [core.state]);
+  // retry/โหลดเพิ่มของ section สำเร็จแล้วย้าย focus มาที่หัว section นั้น
+  useEffect(() => {
+    if (pendingFocus.current === 'timeline' && timeline.state === 'ready') {
+      pendingFocus.current = null;
+      timelineHeadRef.current?.focus();
+    }
+    if (pendingFocus.current === 'governance' && governance.state === 'ready') {
+      pendingFocus.current = null;
+      governanceHeadRef.current?.focus();
+    }
+  }, [timeline, governance]);
 
   // core profile
   useEffect(() => {
@@ -94,13 +123,10 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
         const kind = errorKind(failure);
         // revalidate เงียบแล้วล้มชั่วคราว (network/5xx): คงที่แสดงอยู่ได้ แต่ถ้าสิทธิ์หาย/scope ไม่พร้อมต้องปิดทันที
         if (wasSilent && !closesCustomerData(kind) && coreRef.current.state === 'ready') return;
-        setTimeline({ state: 'loading' });
-        setGovernance({ state: 'loading' });
-        setContext(undefined);
-        setCore({ state: 'error', kind });
+        closeAll(kind);
       });
     return () => controller.abort();
-  }, [api, contactId, revision]);
+  }, [api, contactId, revision, closeAll]);
 
   // กลับมาที่แท็บ → ตรวจสิทธิ์ใหม่ (ข้อมูลที่แสดงมาจากสิทธิ์ ณ ตอนก่อนหน้า)
   useEffect(() => {
@@ -136,11 +162,13 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
       })
       .catch((failure: unknown) => {
         if (isAbort(failure)) return;
-        setTimeline({ state: 'error', kind: errorKind(failure) });
+        const kind = errorKind(failure);
+        if (closesCustomerData(kind)) return closeAll(kind);
+        setTimeline({ state: 'error', kind });
       });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, contactId, readyStamp, sectionRevision]);
+  }, [api, contactId, readyStamp, sectionRevision, closeAll]);
 
   // governance (section แยก)
   useEffect(() => {
@@ -151,15 +179,18 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
       .then((summary) => setGovernance({ state: 'ready', summary }))
       .catch((failure: unknown) => {
         if (isAbort(failure)) return;
-        setGovernance({ state: 'error', kind: errorKind(failure) });
+        const kind = errorKind(failure);
+        if (closesCustomerData(kind)) return closeAll(kind);
+        setGovernance({ state: 'error', kind });
       });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, contactId, readyStamp, sectionRevision, context]);
+  }, [api, contactId, readyStamp, sectionRevision, context, closeAll]);
 
   function loadMoreTimeline() {
     if (timeline.state !== 'ready' || !timeline.cursor || !contactId || moreTimeline) return;
     setMoreTimeline(true);
+    pendingFocus.current = 'timeline';
     api
       .timeline(contactId, timeline.cursor)
       .then((section) => {
@@ -175,15 +206,24 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
             : current,
         );
       })
-      .catch((failure: unknown) => setTimeline({ state: 'error', kind: errorKind(failure) }))
+      .catch((failure: unknown) => {
+        const kind = errorKind(failure);
+        if (closesCustomerData(kind)) return closeAll(kind);
+        setTimeline({ state: 'error', kind });
+      })
       .finally(() => setMoreTimeline(false));
   }
 
   if (core.state === 'loading')
     return (
-      <p role="status" aria-busy="true" className="cu-skeleton">
-        {t('profile.loading')}
-      </p>
+      <div className="cu-profile">
+        <Skeleton label={t('profile.loading')} rows={2} kind="card" />
+        <Skeleton label={t('governance.loading')} rows={3} kind="card" />
+        <div className="cu-grid">
+          <Skeleton label={t('timeline.loading')} rows={5} kind="card" />
+          <Skeleton label={t('profile.loading')} rows={5} kind="card" />
+        </div>
+      </div>
     );
 
   if (core.state === 'error') {
@@ -219,7 +259,9 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
       <header className="cu-profile-head">
         <div>
           <div className="cu-title-row">
-            <h2 id="customer-name">{name}</h2>
+            <h2 id="customer-name" ref={nameRef} tabIndex={-1}>
+              {name}
+            </h2>
             {profile.contact.vip ? <Badge tone="attention">{t('badges.vip')}</Badge> : null}
             {identity.state === 'AMBIGUOUS' ? (
               <Badge tone="critical">{t('badges.review')}</Badge>
@@ -261,19 +303,23 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
         view={governance}
         context={context}
         onContext={setContext}
-        onRetry={() => setSectionRevision((value) => value + 1)}
+        onRetry={() => {
+          pendingFocus.current = 'governance';
+          setSectionRevision((value) => value + 1);
+        }}
+        headingRef={governanceHeadRef}
         format={format}
         t={t}
       />
 
       <div className="cu-grid">
         <section aria-labelledby="timeline-title" className="cu-card">
-          <h3 id="timeline-title">{t('timeline.title')}</h3>
+          <h3 id="timeline-title" ref={timelineHeadRef} tabIndex={-1}>
+            {t('timeline.title')}
+          </h3>
           <p className="cu-muted">{t('timeline.scope')}</p>
           {timeline.state === 'loading' ? (
-            <p role="status" aria-busy="true" className="cu-skeleton">
-              {t('timeline.loading')}
-            </p>
+            <Skeleton label={t('timeline.loading')} rows={4} />
           ) : null}
           {timeline.state === 'unavailable' || timeline.state === 'error' ? (
             <div role="alert" className="cu-alert">
@@ -284,6 +330,7 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
               </p>
               <Button
                 onPress={() => {
+                  pendingFocus.current = 'timeline';
                   setTimeline({ state: 'loading' });
                   setSectionRevision((value) => value + 1);
                 }}
@@ -400,6 +447,7 @@ function GovernanceBlock({
   context,
   onContext,
   onRetry,
+  headingRef,
   format,
   t,
 }: {
@@ -407,6 +455,7 @@ function GovernanceBlock({
   context: GovernanceContext | undefined;
   onContext(next: GovernanceContext | undefined): void;
   onRetry(): void;
+  headingRef: RefObject<HTMLHeadingElement | null>;
   format(value: string): string;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
@@ -427,13 +476,11 @@ function GovernanceBlock({
   const summary = view.state === 'ready' ? view.summary : undefined;
   return (
     <section aria-labelledby="governance-title" className="cu-governance">
-      <h3 id="governance-title">{t('governance.title')}</h3>
+      <h3 id="governance-title" ref={headingRef} tabIndex={-1}>
+        {t('governance.title')}
+      </h3>
       <p className="cu-muted">{t('governance.notPermission')}</p>
-      {view.state === 'loading' ? (
-        <p role="status" aria-busy="true" className="cu-skeleton">
-          {t('governance.loading')}
-        </p>
-      ) : null}
+      {view.state === 'loading' ? <Skeleton label={t('governance.loading')} rows={2} /> : null}
       {view.state === 'error' ? (
         <div role="alert" className="cu-alert">
           <p>{t('governance.unavailable')}</p>
@@ -455,7 +502,10 @@ function GovernanceBlock({
           <p>{t('governance.contextRequired')}</p>
           <Select
             label={t('governance.channel')}
-            options={GOVERNANCE_CHANNELS.map((value) => ({ id: value, label: value }))}
+            options={GOVERNANCE_CHANNELS.map((value) => ({
+              id: value,
+              label: t(`governance.channels.${value}`),
+            }))}
             selectedKey={channel}
             onSelectionChange={(key) => setChannel(String(key))}
           />
@@ -480,7 +530,9 @@ function GovernanceBlock({
         <div role="status" className="cu-gov-ready">
           <p>
             {t('governance.context', {
-              channel: summary.context.channel,
+              channel: t(`governance.channels.${summary.context.channel}`, {
+                defaultValue: summary.context.channel,
+              }),
               purpose: summary.context.purpose,
             })}
           </p>

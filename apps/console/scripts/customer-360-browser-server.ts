@@ -95,8 +95,18 @@ try {
     correlationId: 'c2-browser-merge',
   });
   ids.hidden = await contact(f, { displayName: 'ซ่อนจากทุกคน' });
-  ids.revokable = await contact(f, { displayName: 'Revoke Rita' });
-  const revokableGrant = await grant(f, 'admin', ids.revokable, 'READ');
+  const revokable: Record<string, Awaited<ReturnType<typeof grant>>> = {};
+  for (const [key, displayName] of [
+    ['revokable', 'Revoke Rita'],
+    ['revokableRetry', 'Revoke Retry Rex'],
+    ['revokableGovernance', 'Revoke Gov Gus'],
+    ['revokableMore', 'Revoke More Mia'],
+  ] as const) {
+    ids[key] = await contact(f, { displayName });
+    revokable[key] = await grant(f, 'admin', ids[key], 'READ');
+  }
+  // Mia มีสายของผู้ใช้มากกว่าหนึ่งหน้า (limit 20) เพื่อทดสอบโหลดประวัติเพิ่ม
+  for (let i = 0; i < 22; i += 1) await interaction(f, ids.revokableMore, 'admin');
   ids.empty = await contact(f, { displayName: 'ไม่มีประวัติ Empty' });
   await grant(f, 'admin', ids.empty, 'READ');
   for (let i = 1; i <= 24; i += 1) {
@@ -177,13 +187,14 @@ try {
             scopeLagging = false;
           }
         } else if (action === 'revoke') {
+          const target = revokable[a ?? 'revokable']!;
           await f.owner.c360ContactCustodianRevocation.create({
             data: {
               id: randomUUID(),
               tenantId: f.tenantId,
-              grantId: revokableGrant.id,
-              actorIdentityKey: revokableGrant.actorIdentityKey,
-              commandId: revokableGrant.commandId,
+              grantId: target.id,
+              actorIdentityKey: target.actorIdentityKey,
+              commandId: target.commandId,
               reason: 'browser fixture revoke',
               evidenceRef: 'fixture-evidence',
             },

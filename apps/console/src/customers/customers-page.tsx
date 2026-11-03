@@ -26,6 +26,7 @@ export function CustomersPage(props: Props) {
 
 function CustomersSession({ api, shell, onSignIn }: Props) {
   const { t } = useTranslation('customers');
+  const [returned, setReturned] = useState(false);
   const [route, setRoute] = useState(() => parseCustomersRoute(new URL(window.location.href)));
 
   useEffect(() => {
@@ -36,6 +37,7 @@ function CustomersSession({ api, shell, onSignIn }: Props) {
 
   function go(contactId?: string) {
     window.history.pushState(null, '', customersHref(shell.tenantAlias, contactId));
+    setReturned(!contactId);
     setRoute(contactId ? { contactId } : {});
     window.scrollTo?.({ top: 0 });
   }
@@ -45,7 +47,7 @@ function CustomersSession({ api, shell, onSignIn }: Props) {
       <h1>{t('title')}</h1>
       <p className="cu-muted">{t('readOnly')}</p>
       {route.contactId === undefined ? (
-        <CustomerDirectory api={api} onOpen={go} onSignIn={onSignIn} />
+        <CustomerDirectory api={api} onOpen={go} onSignIn={onSignIn} focusHeading={returned} />
       ) : (
         <CustomerProfileView
           key={route.contactId ?? 'invalid'}

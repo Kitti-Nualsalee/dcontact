@@ -41,7 +41,7 @@ test('รายการ: loading แยกจาก empty, อ่านอย�
   await expect(page.getByRole('status')).toContainText('กำลังอ่านข้อมูล');
   await expect(page.getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้')).toHaveCount(0);
   await expect(table(page)).toBeVisible();
-  await expect(page.getByText(/ลูกค้าที่เข้าถึงได้ 33 รายการ/)).toBeVisible();
+  await expect(page.getByText(/ลูกค้าที่เข้าถึงได้ 36 รายการ/)).toBeVisible();
   await expect(page.getByText('หน้านี้อ่านอย่างเดียว')).toBeVisible();
   // ไม่มี control ที่ดูเหมือนเขียนได้ (แม้เป็น disabled)
   await expect(
@@ -55,7 +55,7 @@ test('รายการ: loading แยกจาก empty, อ่านอย�
   // 20 แถวแรกแล้วโหลดเพิ่ม ไม่ซ้ำ
   expect(await table(page).getByRole('row').count()).toBe(21);
   await page.getByRole('button', { name: 'โหลดเพิ่ม' }).click();
-  await expect(table(page).getByRole('row')).toHaveCount(34);
+  await expect(table(page).getByRole('row')).toHaveCount(37);
 });
 
 test('ค้นหา: NAME prefix, ตัวอักษรพิเศษ, PHONE/EMAIL เต็มค่า และ validation ใกล้ช่องโดยไม่สะท้อนค่า', async ({
@@ -266,7 +266,7 @@ test('สิทธิ์เปลี่ยน (ถอน custodian): ตรว�
 }) => {
   await profile(page, 'revokable');
   await expect(page.getByRole('heading', { name: 'Revoke Rita' })).toBeVisible();
-  await control(request, 'revoke/x');
+  await control(request, 'revoke/revokable');
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
@@ -274,6 +274,97 @@ test('สิทธิ์เปลี่ยน (ถอน custodian): ตรว�
   await expect(page.getByRole('alert')).toContainText('ไม่พบลูกค้ารายนี้หรือคุณไม่มีสิทธิ์เปิด');
   await expect(page.getByText('Revoke Rita')).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'ประวัติการติดต่อ' })).toHaveCount(0);
+});
+
+test('สิทธิ์ถูกถอนระหว่างเปิด: retry ของ timeline ปิด PII ของ core ทั้งหน้า (ไม่ใช่แค่ section)', async ({
+  page,
+  request,
+}) => {
+  await profile(page, 'revokableRetry');
+  const timeline = page.getByRole('region', { name: 'ประวัติการติดต่อ' });
+  await expect(timeline).toBeVisible();
+  await control(request, 'owner/down');
+  await profile(page, 'revokableRetry');
+  await expect(timeline.getByRole('alert')).toBeVisible();
+  await control(request, 'revoke/revokableRetry');
+  await control(request, 'owner/up');
+  await timeline.getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+  await expect(page.getByRole('alert')).toContainText('ไม่พบลูกค้ารายนี้หรือคุณไม่มีสิทธิ์เปิด');
+  await expect(page.getByText('Revoke Retry Rex')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'สถานะ Contact Governance' })).toHaveCount(0);
+});
+
+test('สิทธิ์ถูกถอนระหว่างเปิด: ดูสถานะ Governance และโหลดประวัติเพิ่มปิด PII ทั้งหน้า', async ({
+  page,
+  request,
+}) => {
+  await profile(page, 'revokableGovernance');
+  const governance = page.getByRole('region', { name: 'สถานะ Contact Governance' });
+  await expect(governance).toBeVisible();
+  await control(request, 'revoke/revokableGovernance');
+  await governance.getByRole('textbox').fill('SERVICE');
+  await governance.getByRole('button', { name: 'ดูสถานะ' }).click();
+  await expect(page.getByRole('alert')).toContainText('ไม่พบลูกค้ารายนี้หรือคุณไม่มีสิทธิ์เปิด');
+  await expect(page.getByText('Revoke Gov Gus')).toHaveCount(0);
+
+  await profile(page, 'revokableMore');
+  const timeline = page.getByRole('region', { name: 'ประวัติการติดต่อ' });
+  await expect(timeline.getByRole('listitem')).toHaveCount(20);
+  await control(request, 'revoke/revokableMore');
+  await timeline.getByRole('button', { name: 'โหลดประวัติเพิ่ม' }).click();
+  await expect(page.getByRole('alert')).toContainText('ไม่พบลูกค้ารายนี้หรือคุณไม่มีสิทธิ์เปิด');
+  await expect(page.getByText('Revoke More Mia')).toHaveCount(0);
+  await expect(timeline).toHaveCount(0);
+});
+
+test('focus: เปิดโปรไฟล์ → ชื่อลูกค้า, กลับ → หัวข้อค้นหา, retry section → หัว section', async ({
+  page,
+  request,
+}) => {
+  await list(page);
+  await expect(table(page)).toBeVisible();
+  await search(page, 'ชื่อ (ขึ้นต้นด้วย)', 'Somsri');
+  await expect(table(page).getByRole('row')).toHaveCount(2);
+  await page.getByRole('button', { name: /เปิดโปรไฟล์ Somsri Rakdee/ }).click();
+  await expect(page.getByRole('heading', { name: 'Somsri Rakdee' })).toBeFocused();
+  await page.getByRole('button', { name: 'กลับไปรายการลูกค้า' }).click();
+  await expect(page.getByRole('heading', { name: 'ค้นหาลูกค้า' })).toBeFocused();
+  await control(request, 'owner/down');
+  await profile(page, 'somchai');
+  const timeline = page.getByRole('region', { name: 'ประวัติการติดต่อ' });
+  await expect(timeline.getByRole('alert')).toBeVisible();
+  await control(request, 'owner/up');
+  await timeline.getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+  await expect(timeline.getByRole('heading', { name: 'ประวัติการติดต่อ' })).toBeFocused();
+});
+
+test('รายการ: INCOMPLETE มีปุ่มลองอีกครั้ง, validation ไม่ทิ้งผลเก่า, สลับชนิดค้นหาล้างคำค้น, หัวข้อเปลี่ยนเป็นผลการค้นหา', async ({
+  page,
+  request,
+}) => {
+  await control(request, 'actor/supervisor');
+  await control(request, 'scope/lag');
+  await list(page);
+  await expect(page.getByText(/บางรายการยังตรวจสิทธิ์ไม่เสร็จ/)).toBeVisible();
+  await control(request, 'scope/fresh');
+  await page.getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+  await expect(table(page).getByRole('row')).toHaveCount(2);
+  await expect(page.getByText(/บางรายการยังตรวจสิทธิ์ไม่เสร็จ/)).toHaveCount(0);
+
+  await control(request, 'actor/admin');
+  await list(page);
+  await expect(table(page)).toBeVisible();
+  await search(page, 'ชื่อ (ขึ้นต้นด้วย)', 'Somsri');
+  await expect(page.getByRole('heading', { name: 'ผลการค้นหา' })).toBeVisible();
+  await expect(table(page).getByRole('row')).toHaveCount(2);
+  // validation ล้ม: ผลเดิมของ Somsri ยังอยู่และไม่ถูกตีความเป็นผลของคำค้นใหม่
+  await search(page, 'ชื่อ (ขึ้นต้นด้วย)', 'x');
+  await expect(page.getByText('พิมพ์ชื่ออย่างน้อย 2 ตัวอักษร')).toBeVisible();
+  await expect(table(page)).toContainText('Somsri Rakdee');
+  // สลับชนิดค้นหา → ล้างคำค้นเดิม
+  await page.getByRole('button', { name: /ค้นหาด้วย/ }).click();
+  await page.getByRole('option', { name: 'อีเมล (เต็มค่า)' }).click();
+  await expect(page.getByRole('textbox')).toHaveValue('');
 });
 
 test('Supervisor: อ่านเฉพาะรายการใน IAM VIEW; projection lag = INCOMPLETE/สิทธิ์ยังไม่พร้อม ไม่ใช่ว่าง/ศูนย์', async ({
