@@ -99,6 +99,9 @@ class PrismaCustomerContextReader implements CustomerContextReader<Prisma.Transa
         const eligibility = await legacyIdentityEligibility(client, input.tenantId, identity.id);
         if (eligibility === 'SHARED')
           return { status: 'AMBIGUOUS' as const, reasonCode: 'IDENTITY_AMBIGUOUS' as const };
+        // ยังไม่ import: ห้ามตัดสินเป็น NOT_FOUND ถาวรในช่วง rollout ให้ consumer retry หลัง import
+        if (eligibility === 'UNMAPPED')
+          return { status: 'DEFERRED' as const, reasonCode: 'IDENTITY_MAPPING_PENDING' as const };
         if (eligibility !== 'ELIGIBLE')
           return { status: 'NOT_FOUND' as const, reasonCode: 'IDENTITY_NOT_FOUND' as const };
       }

@@ -94,6 +94,19 @@ export class JourneyScopeContextStaleError extends Error {
   }
 }
 
+/**
+ * Cus360 C3 (#793): identity ของ event ยังไม่ถูก import เป็น contact point จึงยังตัดสินไม่ได้
+ * ห้ามสร้าง enrollment หรือเรียก Governance; Kafka handler จะไม่ mark receipt ว่า PROCESSED จึง retry
+ */
+export class JourneyIdentityMappingPendingError extends Error {
+  readonly code = 'IDENTITY_MAPPING_PENDING';
+
+  constructor(readonly receiptId: string) {
+    super(`identity ของ receipt ยังรอ import เป็น contact point: ${receiptId}`);
+    this.name = 'JourneyIdentityMappingPendingError';
+  }
+}
+
 export class JourneyProcessor {
   private readonly now: () => Date;
 
@@ -125,6 +138,8 @@ export class JourneyProcessor {
       },
       transaction,
     );
+    if (resolution.status === 'DEFERRED')
+      throw new JourneyIdentityMappingPendingError(input.receiptId);
     const resolved = this.toResolvedContact(resolution);
     if (resolved && input.teamId) {
       const scope = await this.ports.teamContactScopeAuthorizer.authorize(

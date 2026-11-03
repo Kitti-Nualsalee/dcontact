@@ -42,8 +42,20 @@ export interface MissingCustomerContext {
   reasonCode: 'IDENTITY_NOT_FOUND';
 }
 
+/**
+ * Cus360 C3 (#793): identity เดิมยังไม่ถูก import เป็น contact point จึงตัดสินไม่ได้ในตอนนี้
+ * ไม่ใช่ NOT_FOUND: consumer ต้องไม่บันทึกผลถาวร และ retry หลัง import ครบ (ไม่ fallback ไปค่า raw)
+ */
+export interface DeferredCustomerContext {
+  status: 'DEFERRED';
+  reasonCode: 'IDENTITY_MAPPING_PENDING';
+}
+
 export type CustomerContextResolution =
-  ResolvedCustomerContext | AmbiguousCustomerContext | MissingCustomerContext;
+  | ResolvedCustomerContext
+  | AmbiguousCustomerContext
+  | MissingCustomerContext
+  | DeferredCustomerContext;
 
 /**
  * Customer 360 owns this read boundary. Implementations resolve current identity

@@ -5,12 +5,13 @@ import { Prisma } from '@prisma/client';
  *
  * raw unique match ของ ContactIdentity ไม่ใช่ verified identity อีกต่อไป: identity จะใช้ lookup ได้
  * เมื่อมี contact point ที่ import จาก identity นั้น (source_kind = LEGACY_IDENTITY) และยัง ACTIVE
- * - ไม่มี mapping / REVIEW_REQUIRED / RETIRED = ไม่พบ (ไม่ fallback ไป raw value)
+ * - ไม่มี mapping = ยังตัดสินไม่ได้ (UNMAPPED); REVIEW_REQUIRED / RETIRED = ไม่พบ; ไม่ fallback ไป raw value
  * - normalized key เดียวกัน ACTIVE อยู่บน contact อื่นด้วย = กำกวม (shared ไม่ถูกตีความเป็นคนเดียวกัน)
  *
  * ใช้ภายใน tenant transaction (RLS) เท่านั้น; ไม่แก้ ContactIdentity หรือหลักฐาน CG
  */
-export type LegacyIdentityEligibility = 'ELIGIBLE' | 'SHARED' | 'INELIGIBLE';
+/** UNMAPPED = identity ยังไม่ถูก import (ยังตัดสินไม่ได้); INELIGIBLE = import แล้วแต่ REVIEW_REQUIRED/RETIRED */
+export type LegacyIdentityEligibility = 'ELIGIBLE' | 'SHARED' | 'UNMAPPED' | 'INELIGIBLE';
 
 export async function legacyIdentityEligibility(
   transaction: Prisma.TransactionClient,
@@ -28,7 +29,8 @@ export async function legacyIdentityEligibility(
     FROM c360_contact_points p
     WHERE p.tenant_id = ${tenantId}::uuid AND p.source_kind = 'LEGACY_IDENTITY'
       AND p.source_identity_id = ${identityId}::uuid`;
-  if (!row || row.state !== 'ACTIVE') return 'INELIGIBLE';
+  if (!row) return 'UNMAPPED';
+  if (row.state !== 'ACTIVE') return 'INELIGIBLE';
   return row.shared ? 'SHARED' : 'ELIGIBLE';
 }
 

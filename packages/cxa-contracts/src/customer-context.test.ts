@@ -23,6 +23,8 @@ function describeResolution(resolution: CustomerContextResolution): string {
       return resolution.reasonCode;
     case 'NOT_FOUND':
       return resolution.reasonCode;
+    case 'DEFERRED':
+      return resolution.reasonCode;
     default:
       return assertNever(resolution);
   }

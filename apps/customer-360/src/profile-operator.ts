@@ -1011,6 +1011,10 @@ export async function importAllC360LegacyContactPoints(
           attempt >= 5
         )
           throw error;
+        // backoff แบบ exponential + jitter ไม่ยิงซ้ำทันทีขณะ fence/contact ถูกถืออยู่
+        await new Promise((resolve) =>
+          setTimeout(resolve, 100 * 2 ** attempt + Math.random() * 100),
+        );
       }
     }
     if (result.state !== 'TERMINAL')
