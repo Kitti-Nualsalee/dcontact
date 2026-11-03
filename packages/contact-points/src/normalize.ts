@@ -90,7 +90,8 @@ export function normalizeC360Phone(
     rawValue: value,
     normalizedValue: parsed.number,
     normalizationVersion: C360_PHONE_NORMALIZATION_VERSION,
-    explicitCountry: country ?? null,
+    // provenance: เก็บประเทศเฉพาะเมื่อใช้ parse จริง (input แบบ international ไม่ใช้ประเทศที่เลือก)
+    explicitCountry: country && !input.startsWith('+') ? country : null,
   };
 }
 
@@ -100,6 +101,8 @@ function validDomain(domain: string): boolean {
   if (domain.startsWith('[') || IDNA_DOTS.test(domain)) return false;
   const labels = domain.split('.');
   if (labels.length < 2 || labels.some((label) => label.length === 0)) return false;
+  // IP domain ในรูป dot-atom (เช่น 1.2.3.4) และ TLD ที่เป็นตัวเลขล้วนไม่ใช่ DNS name ตาม E1 C
+  if (/^[0-9]+$/.test(labels[labels.length - 1]!)) return false;
   // validation เท่านั้น: ผล A-label ถูกทิ้ง ไม่ใช่ค่าที่เก็บ
   return (
     tr46.toASCII(domain, {

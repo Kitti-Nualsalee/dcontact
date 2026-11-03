@@ -29,6 +29,8 @@ test('PHONE: international และ explicit country ได้ E.164 เดี�
   const national = normalizeC360Phone('(213) 373-4253', 'US');
   assert.equal(national.normalizedValue, '+12133734253');
   assert.equal(national.explicitCountry, 'US');
+  // international ไม่ใช้ประเทศที่เลือก จึงไม่บันทึกเป็น provenance
+  assert.equal(normalizeC360Phone('+1 213 373 4253', 'TH').explicitCountry, null);
   // non-geographic international ไม่บังคับ country
   assert.equal(normalizeC360Phone('+800 1234 5678').normalizedValue, '+80012345678');
   assert.equal(normalizeC360Phone('081 234 5678', 'TH').normalizedValue, '+66812345678');
@@ -120,6 +122,9 @@ test('EMAIL: ปฏิเสธ wrapper/list/group/comment/newline/IP/single-lab
     'a@xn--zz.com',
     'a@exa_mple.com',
     'a@example。com',
+    // IP ในรูป dot-atom และ TLD ตัวเลขล้วนไม่ใช่ DNS name ตาม E1 C
+    'a@1.2.3.4',
+    'a@example.123',
     `a@${'x'.repeat(64)}.com`,
   ])
     rejects(() => normalizeC360Email(value), 'EMAIL_DOMAIN_INVALID');
@@ -142,5 +147,9 @@ test('TAG: Unicode 17 full case fold (C+F) และ NFC ตาม E1', () => {
   assert.equal(key('\u{10D50}'), '\u{10D70}');
   assert.equal(key('\uA7DC'), '\u019B');
   assert.equal(key('\u1C89'), '\u1C8A');
+  // Latin Extended-D \u0E0A\u0E38\u0E14\u0E43\u0E2B\u0E21\u0E48\u0E17\u0E35\u0E48 package \u0E21\u0E35 mapping (A7CE/A7D2/A7D4): \u0E15\u0E23\u0E36\u0E07\u0E44\u0E27\u0E49\u0E01\u0E31\u0E19\u0E01\u0E32\u0E23 downgrade data
+  assert.equal(key('\uA7CE'), '\uA7CF');
+  assert.equal(key('\uA7D2'), '\uA7D3');
+  assert.equal(key('\uA7D4'), '\uA7D5');
   assert.throws(() => normalizeC360TagName('a'.repeat(81)), C360TagNameError);
 });
