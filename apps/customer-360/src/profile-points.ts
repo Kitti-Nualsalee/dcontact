@@ -262,8 +262,9 @@ export async function retireC360ContactPoint(
 }
 
 /**
- * Replace = retire เดิม + add ใหม่ใน transaction เดียว; จำนวน ACTIVE ไม่เพิ่ม จึงไม่ติด quota
- * (legacy ที่เกินเพดานแก้ค่าที่ผิดได้) ค่าใหม่ที่ ACTIVE อยู่แล้วบน contact เดียวกันไม่ insert ซ้ำ
+ * Replace = retire เดิม + add ใหม่ใน transaction เดียว ค่าใหม่ที่ ACTIVE อยู่แล้วบน contact เดียวกันไม่ insert ซ้ำ
+ * แทน ACTIVE ด้วย ACTIVE จำนวนไม่เพิ่ม จึงไม่ติด quota (legacy ที่เกินเพดานแก้ค่าที่ผิดได้) แต่แทน
+ * REVIEW_REQUIRED ด้วยค่าที่ใช้ได้คือการเพิ่ม ACTIVE ใหม่ จึงต้องผ่าน quota เหมือน add
  */
 export async function replaceC360ContactPoint(
   tx: Prisma.TransactionClient,
@@ -282,8 +283,14 @@ export async function replaceC360ContactPoint(
     current.normalizedValue === next.normalizedValue
   )
     return noOp(context, contact.profileRevision, current.id);
-  await retirePoint(tx, context, current.id);
   const duplicate = await activeDuplicate(tx, context, next);
+  if (
+    current.state !== 'ACTIVE' &&
+    !duplicate &&
+    (await activeCount(tx, context, next.kind)) >= C360_CONTACT_POINT_QUOTA
+  )
+    throw new C360ProfileCommandRejection('POINT_QUOTA_EXCEEDED', 422);
+  await retirePoint(tx, context, current.id);
   const refs = [current.id];
   if (!duplicate) refs.push(await insertPoint(tx, context, next));
   else refs.push(duplicate.id);

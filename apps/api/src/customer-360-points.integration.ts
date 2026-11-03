@@ -306,6 +306,38 @@ test('S2: quota 10 ACTIVE ต่อชนิด; legacy ที่เกินอ
       'APPLIED',
     );
     assert.equal(await active(), 11);
+
+    // แทน REVIEW_REQUIRED ด้วยค่าที่ใช้ได้ = เพิ่ม ACTIVE ใหม่ จึงต้องผ่าน quota (legacy ไม่ข้ามเพดาน)
+    const review = randomUUID();
+    await f.owner.c360ContactPoint.create({
+      data: {
+        id: review,
+        tenantId: f.tenantId,
+        contactId: f.contactId,
+        kind: 'PHONE',
+        rawValue: '0812345678',
+        state: 'REVIEW_REQUIRED',
+        sourceKind: 'PROFILE_COMMAND',
+        createdActorIdentityKey: command!.actorIdentityKey,
+        createdCommandId: command!.commandId,
+      },
+    });
+    const fixReview = () =>
+      point(f, (tx, c) =>
+        replaceC360ContactPoint(tx, c, review, {
+          kind: 'PHONE',
+          value: '0812345678',
+          explicitCountry: 'TH',
+        }),
+      );
+    const blocked = await fixReview();
+    assert.deepEqual([blocked.outcome, blocked.code], ['REJECTED', 'POINT_QUOTA_EXCEEDED']);
+    assert.equal(await active(), 11);
+    for (const row of (await points(f)).filter((p) => p.state === 'ACTIVE').slice(0, 2))
+      await point(f, (tx, c) => retireC360ContactPoint(tx, c, row.id));
+    assert.equal(await active(), 9);
+    assert.equal((await fixReview()).outcome, 'APPLIED');
+    assert.equal(await active(), 10);
   } finally {
     await f.close();
   }
