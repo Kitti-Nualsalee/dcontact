@@ -27,6 +27,10 @@ test('ตัดสินแบบ fail closed: มี contact point แล้ว
       status: 'FAIL',
       reason: 'ROLLBACK_CONTACT_POINT_PROBE_FAILED',
     });
+  assert.deepEqual(decideContactPointRollback({ points: 'ROLE_INSUFFICIENT', bridge: 'BRIDGED' }), {
+    status: 'FAIL',
+    reason: 'ROLLBACK_CONTACT_POINT_ROLE_INSUFFICIENT',
+  });
   for (const points of ['', 'ERROR: relation', undefined])
     assert.equal(decideContactPointRollback({ points }).status, 'FAIL');
 });
@@ -36,8 +40,8 @@ test('ledger SQL อ่านอย่างเดียวและไม่ม
   assert.doesNotMatch(CONTACT_POINT_LEDGER_SQL, /\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE)\b/i);
 });
 
-function probe(modulePath) {
-  return spawnSync(process.execPath, ['-e', CONTACT_POINT_BRIDGE_PROBE, modulePath], {
+function probe(modulePath, ...consumers) {
+  return spawnSync(process.execPath, ['-e', CONTACT_POINT_BRIDGE_PROBE, modulePath, ...consumers], {
     encoding: 'utf8',
   });
 }
@@ -55,6 +59,21 @@ test('bridge probe: image ที่ไม่มี bridge = UNBRIDGED; โหล
   const unbridged = probe(old);
   assert.equal(unbridged.status, 0);
   assert.equal(unbridged.stdout, 'UNBRIDGED');
+  // db ใหม่แต่ consumer ใน image ไม่เรียก bridge = UNBRIDGED; consumer ที่ไม่มีไฟล์ถูกข้าม
+  const fresh = join(root, 'new-db');
+  mkdirSync(fresh);
+  writeFileSync(
+    join(fresh, 'index.js'),
+    'exports.legacyIdentityEligibility = () => 0; exports.eligibleLegacyIdentityByKey = () => 0;\n',
+  );
+  const consumer = join(root, 'click-to-call.js');
+  writeFileSync(consumer, 'regexp_replace(value, digits)\n');
+  assert.equal(probe(fresh, `${consumer}=eligibleLegacyIdentityByKey`).stdout, 'UNBRIDGED');
+  writeFileSync(consumer, 'await eligibleLegacyIdentityByKey(tx)\n');
+  assert.equal(
+    probe(fresh, `${consumer}=eligibleLegacyIdentityByKey`, `${join(root, 'absent.js')}=x`).stdout,
+    'BRIDGED',
+  );
   const missing = probe(join(root, 'absent'));
   assert.notEqual(missing.status, 0);
   assert.equal(
@@ -71,7 +90,10 @@ test(
       'ต้อง build packages/db ก่อน (ตั้ง CUS360_GUARD_DB_BUILT=1)',
   },
   () => {
-    const result = probe(resolve('packages/db'));
+    const result = probe(
+      resolve('packages/db'),
+      `${resolve('packages/journey-composition/dist/index.js')}=legacyIdentityEligibility`,
+    );
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, 'BRIDGED');
   },
@@ -86,7 +108,7 @@ test(
   },
   () => {
     const [empty, populated] = (process.env.CUS360_GUARD_DATABASES ?? '').split(',');
-    const run = (database) => {
+    const run = (database, user = 'dcontact') => {
       const result = spawnSync(
         'docker',
         [
@@ -95,7 +117,7 @@ test(
           process.env.CUS360_GUARD_PSQL_CONTAINER,
           'psql',
           '-U',
-          'dcontact',
+          user,
           '-d',
           database,
           '-X',
@@ -112,5 +134,7 @@ test(
     };
     assert.equal(run(empty), 'NONE');
     assert.equal(run(populated), 'PRESENT');
+    // role ที่ติด tenant RLS เห็น 0 แถว: ต้องไม่ตอบ NONE (fail open)
+    assert.equal(run(populated, 'dcontact_app'), 'ROLE_INSUFFICIENT');
   },
 );

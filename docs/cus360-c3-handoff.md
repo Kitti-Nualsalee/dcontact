@@ -25,6 +25,7 @@
   - ประเทศต้องมาจากที่ผู้ใช้เลือกเอง (`explicitCountry`, ISO 3166 alpha-2 ตัวใหญ่) ห้ามเดาจาก locale/timezone/IP
 - **Runtime:** เรียก `assertC360ContactPointRuntime()` จาก `@d-contact/contact-points/runtime-manifest` ตอน API start
   ถ้ารุ่นหรือ phone metadata SHA256 ไม่ตรงกับ E1 ให้ fail closed และบันทึก manifest ลง release evidence
+  manifest ยังไม่มี container digest และ package integrity ตาม E1 C ให้เติมจาก release metadata ตอนเปิด writer
 - **Point writer:** ใน `perform` ของ `executeC360ProfileCommand` หลัง `fenceC360ContactMutation` และ `access.manage === true`
   เรียก `addC360ContactPoint` / `retireC360ContactPoint` / `replaceC360ContactPoint` ซึ่งคืน `C360ProfileEffect` ให้ engine
   - expected revision คือ `expectedProfileRevision` (decimal string) ของ R1 F; mismatch = `REVISION_CONFLICT` (409)
@@ -40,7 +41,7 @@
 | สถานการณ์ | ผล | หลักฐาน |
 |---|---|---|
 | API เก่า + schema ใหม่ | ทำงานได้: C3 ไม่มี migration; schema ของ contact point มาจาก C1 ซึ่ง additive | ไม่มีไฟล์ใน `packages/db/prisma/migrations` ใน diff ของ C3 |
-| API ใหม่ + ข้อมูลเดิมที่ยังไม่ import | resolver ของ journey และ click-to-call (เบอร์ภายนอก) **resolve ไม่ได้** เพราะ missing mapping ไม่ fallback | test ของ bridge ใน `click-to-call.integration.ts` |
+| API ใหม่ + ข้อมูลเดิมที่ยังไม่ import | journey ได้ `DEFERRED` แล้ว retry (ไม่บันทึก NOT_FOUND ถาวร ไม่สร้าง enrollment/decision); click-to-call เบอร์ภายนอกได้ NOT_FOUND (ไม่โทรออก) ทั้งสองไม่ fallback ไป raw value | `contact-point-bridge.integration.ts`, `journey-processor.integration.ts`, `click-to-call.integration.ts` |
 | API ใหม่ + import ครบแล้ว | resolve เฉพาะ ACTIVE ที่ไม่ shared; review/retired/shared ไม่ resolve | journey suites และ click-to-call 10/10 |
 | rollback ไป image ก่อน S4 ขณะมี contact point | **ห้าม**: จะคืน raw resolver; guard ตอบ `ROLLBACK_CONTACT_POINT_BRIDGE_REQUIRED` | `scripts/cus360-contact-point-rollback-guard.test.mjs` |
 | rollback ไป image ก่อน S4 ขณะยังไม่มี contact point | ทำได้: ไม่มีสถานะ shared/retired/review ให้ข้าม | guard ตอบ PASS |
@@ -56,8 +57,10 @@
 4. deploy release ที่มี S4 (bridge) — ตั้งแต่จุดนี้ rollback ต้องผ่าน guard
 5. identity ที่ legacy writer สร้างเพิ่มภายหลังต้องรัน import ซ้ำ (รันซ้ำได้ ไม่สร้างแถวซ้ำ)
 
-**ข้อจำกัดของลำดับนี้:** stack ของ C3 merge เป็นลำดับเดียว ถ้า deploy ทั้ง stack พร้อมกัน ให้ถือว่าขั้น 1–3 ต้องทำบน release
-ก่อนหน้า หรือรัน import ทันทีหลัง deploy ก่อนเปิดใช้ journey/click-to-call กับ tenant นั้น
+**ตาข่ายกันพลาด:** stack ของ C3 merge เป็นลำดับเดียว ถ้า deploy ทั้ง stack พร้อมกันโดยยังไม่ import
+journey จะได้ `DEFERRED` (`IDENTITY_MAPPING_PENDING`) และ Kafka retry จนกว่า import ครบ ไม่บันทึกผลถาวร
+ส่วน click-to-call เบอร์ภายนอกจะยังโทรไม่ได้จนกว่า import ครบ จึงยังควรทำตามลำดับข้างบน
+event ที่ค้าง retry ยาวต้องดูที่ DLQ/metrics ของ journey consumer ถ้า import ไม่ถูกรัน
 
 ## Operator runbook: `LEGACY_POINT_IMPORT`
 
@@ -79,8 +82,10 @@
 `scripts/cus360-contact-point-rollback-guard.mjs` ยังไม่ได้เชื่อมเข้า `infra/uat/bin/uat-deploy.sh` เพื่อไม่ชนกับ #812
 ขั้นเชื่อมใน `rollback_preflight`:
 
-1. รัน `CONTACT_POINT_LEDGER_SQL` ผ่าน probe แบบ read-only เดียวกับ ledger probe เดิม
+1. รัน `CONTACT_POINT_LEDGER_SQL` ผ่าน probe แบบ read-only เดียวกับ ledger probe เดิม ด้วย role ที่เห็นข้อมูลครบ
+   (owner/BYPASSRLS เช่น `dcontact_uat_owner`) role ที่ติด tenant RLS จะได้ `ROLE_INSUFFICIENT` และ guard ไม่ผ่าน
 2. ถ้าได้ `PRESENT` รัน `CONTACT_POINT_BRIDGE_PROBE` ใน image ปลายทางแบบ `--network none --read-only` เหมือน capability probe เดิม
+   probe ตรวจทั้ง export ของ `@d-contact/db` และ consumer ที่มีใน image (`/app/dist/click-to-call.js`, journey-composition)
 3. ส่งผลเข้า `decideContactPointRollback` ถ้า FAIL ให้ `fail` ด้วย reason ที่คืน
 
 จนกว่าจะเชื่อม การ rollback ของ release ที่มี bridge ต้องรัน guard ด้วยมือ (`node --test` ใช้ตรวจตัว guard เอง)
@@ -89,7 +94,10 @@
 
 - shared normalized key ข้าม contact เก็บได้ตาม R1 และถูกนับใน inventory (`sharedKeys`) — bridge ไม่ resolve ค่าเหล่านี้
 - vector ของ parser ครบตาม E1 C (`packages/contact-points/src/normalize.test.ts`) และ phone metadata SHA256 ตรงกับ E1
-- case folding ยืนยันได้ว่าไม่ต่ำกว่า Unicode 16 (มี test) แต่ยังพิสูจน์จาก package ไม่ได้ว่าเป็น Unicode 17
+- case folding ตรึง mapping ของ Unicode 16 และ Latin Extended-D ชุดใหม่ (A7CE/A7D2/A7D4) ที่ reviewer ระบุว่าเป็นของ
+  Unicode 17 ไว้ใน test แล้ว ยังไม่ได้เทียบกับ UCD 17 ทั้งไฟล์
+- `DUPLICATE_ON_CONTACT`: identity อีกแถวที่ normalize แล้วซ้ำบน contact เดียวกันถูกเก็บเป็น REVIEW_REQUIRED
+  ผลคือ event ที่ใช้รูปแบบนั้นได้ NOT_FOUND และ review แถวนั้นยังไม่มีทางปิด (ห้าม ACTIVE ซ้ำ) รอเจ้าของงานตัดสิน
 
 ## Tests และวิธีรัน
 
@@ -101,8 +109,8 @@
 | point service | `apps/api/src/customer-360-points.integration.ts` | 5/5 (race ใช้ trigger barrier) |
 | legacy import | `apps/api/src/customer-360-legacy-points.integration.ts` | 3/3 |
 | bridge (click-to-call) | `apps/api/src/click-to-call.integration.ts` | 10/10 |
-| bridge (journey) | `apps/journey/src/journey-{processor,event-consumer,send-executor,governance-cg4,governance-invalidation,outcome-trigger-processor}.integration.ts` | ผ่านครบ |
-| rollback guard | `scripts/cus360-contact-point-rollback-guard.test.mjs` | 5/5 เมื่อมี DB/build, 3/3 + skip 2 เมื่อไม่มี |
+| bridge (journey) | `packages/journey-composition/src/contact-point-bridge.integration.ts` และ `apps/journey/src/journey-{processor,event-consumer,send-executor,governance-cg4,governance-invalidation,outcome-trigger-processor}.integration.ts` | ผ่านครบ |
+| rollback guard | `scripts/cus360-contact-point-rollback-guard.test.mjs` | 5/5 เมื่อมี DB/build (รวม role ที่ติด RLS = `ROLE_INSUFFICIENT`), 3/3 + skip 2 เมื่อไม่มี |
 
 ```sh
 pnpm --filter @d-contact/contact-points test
