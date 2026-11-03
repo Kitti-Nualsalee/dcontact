@@ -173,6 +173,8 @@ jobs:
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-voice-catalog.integration.ts
       - name: ตรวจ B2 reservation, fenced worker, mapping และ pending activation ผ่าน HTTP กับ RLS จริง
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-people-operations.integration.ts
+      - name: ตรวจ authority ของบัญชี B2 ใหม่และ disable compensation ภายใต้ RLS จริง
+        run: pnpm --filter @d-contact/api exec tsx --test src/tenant-provisioned-authority.integration.ts
       - name: ตรวจ People directory, pagination และ positive identity authority ผ่าน HTTP กับ RLS จริง
         run: pnpm --filter @d-contact/api exec tsx --test src/tenant-people-directory.integration.ts
       - name: ตรวจ B4 skills, binding, scope และ idle guards ผ่าน HTTP กับ RLS จริง
