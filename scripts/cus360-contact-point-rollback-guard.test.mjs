@@ -74,6 +74,11 @@ test('bridge probe: image ที่ไม่มี bridge = UNBRIDGED; โหล
     probe(fresh, `${consumer}=eligibleLegacyIdentityByKey`, `${join(root, 'absent.js')}=x`).stdout,
     'BRIDGED',
   );
+  // ไม่เจอ consumer สักไฟล์ (path ใน image เปลี่ยน) = UNBRIDGED ไม่ใช่ผ่านจาก export ของ db อย่างเดียว
+  assert.equal(
+    probe(fresh, `${join(root, 'renamed.js')}=eligibleLegacyIdentityByKey`).stdout,
+    'UNBRIDGED',
+  );
   const missing = probe(join(root, 'absent'));
   assert.notEqual(missing.status, 0);
   assert.equal(

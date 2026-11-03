@@ -33,6 +33,9 @@
   - ค่าที่ ACTIVE อยู่แล้ว / retire ซ้ำ = NO_OP; replace point ที่ RETIRED = `POINT_RETIRED`; ต่างชนิด = `POINT_KIND_MISMATCH`
   - owner ปฏิเสธ contact ที่ identity head ไม่ ACTIVE (`IDENTITY_NOT_ACTIVE`) และ point ของ contact อื่น (`POINT_NOT_FOUND`)
 - **Audit/PII:** effect ที่คืนไม่มีค่า phone/email; response ของ C4 ต้องอ่าน point กลับตามสิทธิ์ ไม่ใช้ receipt แทนข้อมูล
+- **ข้อตกลงของ point ที่ถูกแทนที่ตั้งแต่ import:** แถว `LEGACY_IDENTITY` ที่ `retired_command_id = created_command_id`
+  (และ actor เดียวกัน) หมายถึงค่าซ้ำบน contact เดียวที่ bridge ตัดสินตาม ACTIVE ตัวเดียวกัน writer ของ C4 ห้ามสร้างแล้ว
+  retire แถวเดียวกันใน command เดียว (เช่น merge/undo ในคำสั่งเดียว) เพราะจะถูกตีความเป็นแถวที่ถูกแทนที่
 - **point ใหม่ไม่ใช่ identity:** point ที่ C4 สร้างไม่มี `ContactIdentity` คู่กัน จึงไม่ถูกใช้ dispatch ของ CG/Voice
   (`eligibleLegacyIdentityByKey` คืนเฉพาะ point ที่มาจาก legacy identity) ห้ามสร้าง identity เพื่อให้โทรออกผ่าน
 
