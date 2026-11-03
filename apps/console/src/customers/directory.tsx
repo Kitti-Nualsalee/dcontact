@@ -50,6 +50,9 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
   const [shown, setShown] = useState<Applied>({ type: 'DIRECTORY', query: '' });
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [focusId, setFocusId] = useState<string>();
+  const resultsRef = useRef<HTMLHeadingElement>(null);
+  const alertRef = useRef<HTMLDivElement>(null);
+  const pendingResultsFocus = useRef(false);
   const [items, setItems] = useState<CustomerListItem[]>([]);
   const [page, setPage] = useState<Pick<CustomerSearchPage, 'scope' | 'accessibleCount'>>();
   const [cursor, setCursor] = useState<string | null>(null);
@@ -160,17 +163,37 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
   const name = (item: CustomerListItem) => item.displayName?.trim() || t('list.noName');
   const queryLabel = t(`search.query.${type}`);
   const incomplete = page?.scope.state === 'INCOMPLETE';
-  const searching = shown.type !== 'DIRECTORY';
+  // หัวข้อตามคำขอล่าสุดทันทีที่ส่งค้นหา (ระหว่างโหลดใช้ applied; หลังได้ผลใช้ shown ซึ่งตรงกับผลบนจอ)
+  const searching = (view.state === 'loading' ? applied : shown).type !== 'DIRECTORY';
 
   useEffect(() => {
     if (focusHeading) headingRef.current?.focus();
   }, [focusHeading]);
   // โหลดเพิ่มแล้ว focus ไปรายการแรกที่เพิ่ม เพื่อให้ผู้ใช้คีย์บอร์ดอ่านต่อได้ทันที
+  // แถวใหม่ของ Table (react-aria) render หลัง state เปลี่ยน — รอจนเจอ element จริงค่อย focus แล้วเคลียร์ id
   useEffect(() => {
     if (!focusId) return;
-    document.querySelector<HTMLElement>(`[data-cu-open="${focusId}"]`)?.focus();
-    setFocusId(undefined);
-  }, [focusId, items]);
+    let frame = 0;
+    let tries = 0;
+    const tick = () => {
+      const target = document.querySelector<HTMLElement>(`[data-cu-open="${focusId}"]`);
+      if (target) {
+        target.focus();
+        setFocusId(undefined);
+      } else if (tries++ < 60) frame = requestAnimationFrame(tick);
+      else setFocusId(undefined);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [focusId]);
+  // ลองใหม่/ข้อผิดพลาด: ย้าย focus ไปหัวข้อผลหรือข้อความ state ใหม่ ไม่ให้หลุดไป BODY
+  useEffect(() => {
+    if (pendingResultsFocus.current && view.state === 'ready') {
+      pendingResultsFocus.current = false;
+      resultsRef.current?.focus();
+    }
+    if (view.state === 'error') alertRef.current?.focus();
+  }, [view]);
 
   return (
     <section aria-labelledby="customers-search-title" className="cu-section">
@@ -213,10 +236,12 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
         </div>
       </form>
 
-      <h2>{searching ? t('list.resultsTitle') : t('list.title')}</h2>
+      <h2 ref={resultsRef} tabIndex={-1}>
+        {searching ? t('list.resultsTitle') : t('list.title')}
+      </h2>
       {view.state === 'loading' ? <Skeleton label={t('loading')} rows={6} /> : null}
       {kind ? (
-        <div role="alert" className="cu-alert">
+        <div role="alert" className="cu-alert" ref={alertRef} tabIndex={-1}>
           <p>
             {kind === 'session'
               ? t('errors.unauthorized')
@@ -263,21 +288,32 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
           {incomplete ? (
             <div role="status" className="cu-notice">
               <p>{t('list.incomplete')}</p>
-              <Button onPress={() => setRevision((value) => value + 1)}>{t('retry')}</Button>
+              <Button
+                onPress={() => {
+                  pendingResultsFocus.current = true;
+                  setRevision((value) => value + 1);
+                }}
+              >
+                {t('retry')}
+              </Button>
             </div>
           ) : null}
           {items.length === 0 && !incomplete ? (
-            <p>{searching ? t('list.emptySearch') : t('list.empty')}</p>
+            <p role={searching ? 'status' : undefined}>
+              {searching ? t('list.emptySearch') : t('list.empty')}
+            </p>
           ) : null}
           {items.length > 0 ? (
-            <Table aria-label={t('list.label')} className="cu-table">
+            <Table
+              aria-label={t('list.label')}
+              className="cu-table"
+              onRowAction={(key) => onOpen(String(key))}
+            >
               <TableHeader>
-                <Column isRowHeader width="36%">
-                  {t('list.columns.name')}
-                </Column>
-                <Column width="26%">{t('list.columns.company')}</Column>
-                <Column width="22%">{t('list.columns.status')}</Column>
-                <Column width="16%">{t('list.columns.match')}</Column>
+                <Column isRowHeader>{t('list.columns.name')}</Column>
+                <Column>{t('list.columns.company')}</Column>
+                <Column>{t('list.columns.status')}</Column>
+                <Column>{t('list.columns.match')}</Column>
               </TableHeader>
               <TableBody>
                 {items.map((item) => (

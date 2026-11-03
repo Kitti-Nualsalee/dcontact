@@ -101,6 +101,7 @@ try {
     ['revokableRetry', 'Revoke Retry Rex'],
     ['revokableGovernance', 'Revoke Gov Gus'],
     ['revokableMore', 'Revoke More Mia'],
+    ['revokableGovernance2', 'Revoke Gov Two'],
   ] as const) {
     ids[key] = await contact(f, { displayName });
     revokable[key] = await grant(f, 'admin', ids[key], 'READ');
@@ -132,6 +133,8 @@ try {
   let delayMs = 0;
   let failNext: { fragment: string; status: number } | undefined;
   let scopeLagging = false;
+  // หน่วงการตอบหลัง forward แล้ว (ผลถูกคำนวณก่อน แต่ถึง browser ช้า) เพื่อทดสอบ response ค้างที่มาหลังสิทธิ์ถูกถอน
+  let slow: { pattern: RegExp; ms: number } | undefined;
   const proxy = createHttpServer(async (req, res) => {
     try {
       const url = req.url ?? '';
@@ -148,6 +151,7 @@ try {
           sessionExpired = false;
           delayMs = 0;
           failNext = undefined;
+          slow = undefined;
           await f.owner.$executeRawUnsafe('GRANT SELECT ON interactions TO dcontact_app');
           await f.owner.$executeRawUnsafe('GRANT SELECT ON cg_preferences TO dcontact_app');
           if (scopeLagging) {
@@ -159,6 +163,14 @@ try {
         } else if (action === 'actor') actor = a ?? 'admin';
         else if (action === 'session') sessionExpired = a === 'expire';
         else if (action === 'delay') delayMs = Number(a ?? 0);
+        else if (action === 'slow')
+          slow =
+            Number(a) > 0
+              ? {
+                  pattern: b === 'profile' ? /\/contacts\/[0-9a-f-]{36}$/ : new RegExp(b ?? ''),
+                  ms: Number(a),
+                }
+              : undefined;
         else if (action === 'fail')
           // คงอยู่จนกว่าจะสั่ง fail/0/x เพราะ React StrictMode (dev) ยิง effect สองรอบ
           failNext = Number(a) > 0 ? { fragment: b ?? '', status: Number(a) } : undefined;
@@ -218,7 +230,15 @@ try {
       if (failNext && url.includes(failNext.fragment)) {
         res.statusCode = failNext.status;
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: { code: 'REQUEST_FAILED', retryable: true } }));
+        const code =
+          failNext.status === 503
+            ? 'SCOPE_UNAVAILABLE'
+            : failNext.status === 403
+              ? 'CUSTOMER_ACCESS_DENIED'
+              : failNext.status === 401
+                ? 'SESSION_REQUIRED'
+                : 'REQUEST_FAILED';
+        res.end(JSON.stringify({ error: { code, retryable: failNext.status >= 500 } }));
         return;
       }
       const chunks: Buffer[] = [];
@@ -233,12 +253,14 @@ try {
         headers,
         ...(['GET', 'HEAD'].includes(req.method ?? 'GET') ? {} : { body: Buffer.concat(chunks) }),
       });
+      const text = await response.text();
+      if (slow?.pattern.test(url)) await new Promise((resolve) => setTimeout(resolve, slow!.ms));
       res.statusCode = response.status;
       for (const name of ['content-type', 'cache-control', 'retry-after', 'x-request-id']) {
         const value = response.headers.get(name);
         if (value) res.setHeader(name, value);
       }
-      res.end(await response.text());
+      res.end(text);
     } catch {
       res.statusCode = 500;
       res.end('{"error":{"code":"HARNESS_FAILED"}}');

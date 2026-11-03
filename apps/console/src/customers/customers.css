@@ -45,23 +45,47 @@
 }
 .cu-table {
   table-layout: fixed;
+  width: 100%;
+}
+.cu-table th:nth-child(1) {
+  width: 36%;
+}
+.cu-table th:nth-child(2) {
+  width: 26%;
+}
+.cu-table th:nth-child(3) {
+  width: 22%;
+}
+.cu-table th:nth-child(4) {
+  width: 16%;
 }
 .cu-table th {
   position: sticky;
   inset-block-start: 0;
   z-index: 1;
 }
-.cu-name {
+.cu-table td {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.cu-table .cu-name {
+  display: inline-block;
+  min-width: 0;
   max-width: 100%;
   height: auto;
   min-height: var(--dc-control-md);
-  justify-content: flex-start;
+  padding: var(--dc-space-2) 0;
+  border: 0;
+  color: var(--dc-text-brand);
   font-weight: var(--dc-weight-semibold);
   text-align: start;
+  text-decoration: underline;
   white-space: normal;
   overflow-wrap: break-word;
 }
-.cu-wrap {
+.cu-table .cu-wrap {
+  display: block;
+  min-width: 0;
   overflow-wrap: break-word;
 }
 .cu-more {
@@ -77,10 +101,12 @@
   white-space: nowrap;
 }
 .cu-skel {
-  min-height: calc(var(--dc-row-table) * 6);
+  min-height: calc(var(--dc-row-table) * var(--cu-rows, 6));
 }
 .cu-skel-card {
-  min-height: calc(var(--dc-row-table) * 3);
+  min-height: calc(
+    (var(--dc-row-table) + var(--dc-space-3)) * var(--cu-rows, 3) + var(--dc-space-5) * 2
+  );
   padding: var(--dc-space-5);
   border: 1px solid var(--dc-border-default);
   border-radius: var(--dc-radius-md);

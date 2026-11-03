@@ -70,7 +70,12 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
   const format = useCallback((value: string) => serverTime(formatters, value), [formatters]);
 
   // ปิดข้อมูลลูกค้าทั้งหน้า (core + section) เมื่อ section ได้ session/สิทธิ์/scope เปลี่ยน — เหมือนตอนโหลด core
+  // generation + AbortController กัน response ของ core ที่ยิงค้างก่อนสิทธิ์ถูกถอน (200 มาทีหลัง) เปิด PII กลับ
+  const generation = useRef(0);
+  const coreAbort = useRef<AbortController | null>(null);
   const closeAll = useCallback((kind: ErrorKind) => {
+    generation.current += 1;
+    coreAbort.current?.abort();
     setTimeline({ state: 'loading' });
     setGovernance({ state: 'loading' });
     setContext(undefined);
@@ -80,6 +85,7 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
   const nameRef = useRef<HTMLHeadingElement>(null);
   const timelineHeadRef = useRef<HTMLHeadingElement>(null);
   const governanceHeadRef = useRef<HTMLHeadingElement>(null);
+  const alertRef = useRef<HTMLDivElement>(null);
   const focusedCore = useRef(false);
   const pendingFocus = useRef<'timeline' | 'governance' | null>(null);
 
@@ -89,6 +95,10 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
       focusedCore.current = true;
       nameRef.current?.focus();
     }
+  }, [core.state]);
+  // ปิด PII (session/สิทธิ์/scope) แล้วย้าย focus ไปที่ข้อความของ state ใหม่ ไม่ปล่อยให้หลุดไป BODY
+  useEffect(() => {
+    if (core.state === 'error') alertRef.current?.focus();
   }, [core.state]);
   // retry/โหลดเพิ่มของ section สำเร็จแล้วย้าย focus มาที่หัว section นั้น
   useEffect(() => {
@@ -109,17 +119,20 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
       return;
     }
     const controller = new AbortController();
+    coreAbort.current = controller;
+    const myGeneration = generation.current;
     if (!silent.current) setCore({ state: 'loading' });
     const wasSilent = silent.current;
     silent.current = false;
     void api
       .profile(contactId, controller.signal)
       .then((profile) => {
+        if (controller.signal.aborted || myGeneration !== generation.current) return;
         stamp.current += 1;
         setCore({ state: 'ready', profile, stamp: stamp.current });
       })
       .catch((failure: unknown) => {
-        if (isAbort(failure)) return;
+        if (isAbort(failure) || myGeneration !== generation.current) return;
         const kind = errorKind(failure);
         // revalidate เงียบแล้วล้มชั่วคราว (network/5xx): คงที่แสดงอยู่ได้ แต่ถ้าสิทธิ์หาย/scope ไม่พร้อมต้องปิดทันที
         if (wasSilent && !closesCustomerData(kind) && coreRef.current.state === 'ready') return;
@@ -218,10 +231,14 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
     return (
       <div className="cu-profile">
         <Skeleton label={t('profile.loading')} rows={2} kind="card" />
-        <Skeleton label={t('governance.loading')} rows={3} kind="card" />
+        <Skeleton label={t('governance.loading')} rows={4} kind="card" />
         <div className="cu-grid">
-          <Skeleton label={t('timeline.loading')} rows={5} kind="card" />
-          <Skeleton label={t('profile.loading')} rows={5} kind="card" />
+          <Skeleton label={t('timeline.loading')} rows={6} kind="card" />
+          <div>
+            <Skeleton label={t('profile.loading')} rows={3} kind="card" />
+            <Skeleton label={t('profile.loading')} rows={2} kind="card" />
+            <Skeleton label={t('profile.loading')} rows={2} kind="card" />
+          </div>
         </div>
       </div>
     );
@@ -231,14 +248,14 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
       core.kind === 'session'
         ? t('errors.unauthorized')
         : core.kind === 'forbidden'
-          ? t('errors.forbidden')
+          ? t('errors.profileForbidden')
           : core.kind === 'notFound'
             ? t('errors.notFound')
             : core.kind === 'scope'
               ? t('errors.scope')
               : t('errors.failed');
     return (
-      <div role="alert" className="cu-alert">
+      <div role="alert" className="cu-alert" ref={alertRef} tabIndex={-1}>
         <p>{message}</p>
         {core.kind === 'session' && onSignIn ? (
           <Button onPress={onSignIn}>{t('signIn')}</Button>
@@ -302,7 +319,10 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
       <GovernanceBlock
         view={governance}
         context={context}
-        onContext={setContext}
+        onContext={(next) => {
+          pendingFocus.current = 'governance';
+          setContext(next);
+        }}
         onRetry={() => {
           pendingFocus.current = 'governance';
           setSectionRevision((value) => value + 1);

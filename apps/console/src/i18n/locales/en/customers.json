@@ -73,7 +73,8 @@
     "failed": "Could not read the data and the outcome is unknown. Try again.",
     "rateLimited": "Too many searches. Try again in {{seconds}} seconds.",
     "rateLimitedNow": "Too many searches. Wait a moment and try again.",
-    "cursor": "The open list expired or your access changed. Search again."
+    "cursor": "The open list expired or your access changed. Search again.",
+    "profileForbidden": "This profile was closed because your access changed or you cannot open it. The system does not say whether it exists. Reopen it from the customer list, or contact an administrator if you should have access."
   },
   "profile": {
     "loading": "Loading customer profile",
