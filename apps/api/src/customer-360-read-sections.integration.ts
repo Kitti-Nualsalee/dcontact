@@ -338,6 +338,35 @@ test('C2 S2 governance: context-required → ready ไม่ใช่ allowed; r
     assert.deepEqual(blocked.body.preference, { decision: 'BLOCK', version: 1 });
     assert.equal(blocked.body.activeRestrictionCount, 1);
     assert.equal(blocked.body.contactPermission, 'NOT_EVALUATED');
+    // restriction ระดับ tenant (contactId null) ที่ผูก channel EMAIL: นับเฉพาะบริบทที่ channel ตรง; null = ทุกค่า
+    await f.owner.cgRestriction.create({
+      data: {
+        tenantId: f.tenantId,
+        type: 'REGULATORY',
+        channel: 'EMAIL',
+        scope: 'TENANT',
+        reasonCode: 'FIXTURE',
+        source: 'fixture',
+        createdBy: 'fixture',
+      },
+    });
+    await f.owner.cgRestriction.create({
+      data: {
+        tenantId: f.tenantId,
+        type: 'REGULATORY',
+        purpose: 'SERVICE',
+        scope: 'TENANT',
+        reasonCode: 'FIXTURE',
+        source: 'fixture',
+        createdBy: 'fixture',
+      },
+    });
+    const emailCtx = await governance(f, 'admin', id, { channel: 'EMAIL', purpose: 'SERVICE' });
+    assert.equal(emailCtx.body.activeRestrictionCount, 3); // contact DNC + tenant EMAIL + tenant purpose SERVICE
+    const voiceCtx = await governance(f, 'admin', id, { channel: 'VOICE', purpose: 'SERVICE' });
+    assert.equal(voiceCtx.body.activeRestrictionCount, 2); // contact DNC + tenant purpose SERVICE (EMAIL ไม่นับ)
+    const voiceOther = await governance(f, 'admin', id, { channel: 'VOICE', purpose: 'OTHER' });
+    assert.equal(voiceOther.body.activeRestrictionCount, 1); // เฉพาะ contact DNC (channel/purpose null)
     const other = await governance(f, 'admin', id, { channel: 'VOICE', purpose: 'MARKETING' });
     assert.equal(other.body.preference, null);
     assert.deepEqual(await sideEffects(), before);

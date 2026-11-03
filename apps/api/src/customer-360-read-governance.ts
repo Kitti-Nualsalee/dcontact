@@ -96,12 +96,20 @@ export async function readC360GovernanceSummary(
       purpose: context.purpose,
       preferences: facts.preferences,
     });
+    // predicate เดียวกับที่ CG owner ใช้ตอนตัดสิน (contact-governance-service.ts: authorizeAndReserve/reservation):
+    // รวมข้อจำกัดระดับ tenant (contactId null) และ null ของ channel/purpose = ใช้กับทุกค่า; ไม่มี identity ในบริบทนี้
+    // จึงนับเฉพาะ identityId null. CG ยังไม่ export read function ของส่วนนี้ — ซ้ำ predicate ไว้ชั่วคราว (ดู PR)
     const activeRestrictionCount = await tx.cgRestriction.count({
       where: {
         tenantId: actor.tenantId,
-        contactId,
         startsAt: { lte: now },
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        AND: [
+          { OR: [{ contactId: null }, { contactId }] },
+          { identityId: null },
+          { OR: [{ channel: null }, { channel: context.channel }] },
+          { OR: [{ purpose: null }, { purpose: context.purpose }] },
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+        ],
       },
     });
     return {
