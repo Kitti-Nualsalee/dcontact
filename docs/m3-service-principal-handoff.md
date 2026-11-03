@@ -11,7 +11,7 @@
 - `authorizeC360ServiceContact(tx,p,contactId)` อนุญาตเฉพาะ persisted READ grant ที่ยังไม่ถูกถอน. ไม่ตาม grant ไป canonical target หลัง merge
 - `c360ServiceActor(identity,bindingId)` ใช้เฉพาะ issuer/subject/tenant/client/binding ใน namespace SERVICE; ไม่ใช้ token bytes/roles/sid เป็น command identity
 - Operator ใช้ C1 `/api/v1/customer-360/operator/commands`, dryRun/evidence/reason/digest/receipt engine เดิม พร้อม actions SERVICE_BIND_CREATE/DISABLE/REPLACE_CUSTODIAN, SERVICE_CAPABILITY_GRANT/REVOKE และ SERVICE_CONTACT_GRANT/REVOKE
-- Operator อ่าน receipt ที่ GET `/api/v1/customer-360/operator/commands/:commandId` และปิดคำสั่งที่ยังไม่สำเร็จผ่าน POST `/api/v1/customer-360/operator/commands/:commandId/reconcile` ด้วย body ว่าง ใช้ actor เดียวกับ POST เดิมและตรวจ refs ใน tenant ปัจจุบัน คำสั่งของ actor อื่นจะอยู่คนละ namespace
+- Operator อ่าน receipt ที่ GET `/api/v1/customer-360/operator/commands/:commandId` และปิดคำสั่งที่ยังไม่สำเร็จผ่าน POST `/api/v1/customer-360/operator/commands/:commandId/reconcile` ด้วย body ว่าง ใช้ storage key เดียวกันกับ POST และตรวจ refs ใน tenant ปัจจุบัน คำสั่ง operator ที่ admit ใน C1 ใช้ key เดิม ส่วนคำสั่งและ tombstone ใหม่ใช้ operator namespace แยกจาก domain User แม้ issuer, subject และ commandId ตรงกัน
 - Operator metadata GET `/api/v1/customer-360/operator/service-principals/:id` ไม่เปิด credential/subject/customer payload. Service-account token รวมถึง mixed workspace claims เรียก operator ไม่ได้
 
 ## Lock order และการกู้สิทธิ์

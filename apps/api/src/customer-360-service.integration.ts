@@ -162,6 +162,118 @@ test('M3-A HTTP: non-domain operator อ่าน receipt และ reconcile �
   }
 });
 
+test('M3-A HTTP: human และ operator ที่มี identity เดียวกันใช้ commandId เดียวกันได้โดยไม่แตะ receipt ข้ามประเภท', async () => {
+  const f = await setup([Customer360OperatorController]);
+  try {
+    const admin = f.actors.get('admin')!;
+    f.actors.set('dual-operator', { ...admin, role: 'PLATFORM-OPERATOR' });
+    const actor = {
+      tenantId: f.tenantId,
+      actorUserId: admin.id,
+      actorIdentityKey: c360ActorIdentityKey({
+        issuer: 'https://core-idp.test/realms/dcontact',
+        subject: admin.id,
+        tenantId: f.tenantId,
+        userId: admin.id,
+      }),
+    };
+    const commandId = randomUUID();
+    const human = `customer-360/commands/${commandId}`;
+    const operator = `customer-360/operator/commands/${commandId}`;
+    const input = {
+      commandId,
+      action: 'CONTACT_UPDATE',
+      resourceType: 'CONTACT',
+      resourceId: f.contactId,
+      expectedRevisions: {},
+      normalizationContractVersion: 'isolated-fixture',
+      normalizedRequest: {},
+    };
+    const authorization = { authorize: async () => undefined };
+    const crash = new Error('isolated fixture crash after human admission');
+    await assert.rejects(
+      executeC360ProfileCommand(
+        f.db,
+        actor,
+        input,
+        authorization,
+        async () => assert.fail('human effect executed'),
+        {
+          afterAdmission: async () => {
+            throw crash;
+          },
+        },
+      ),
+      (error) => error === crash,
+    );
+    assert.equal((await f.request(human, 'admin')).status, 202);
+    assert.equal((await f.request(operator, 'dual-operator')).status, 404);
+    const operatorTombstone = await f.request(`${operator}/reconcile`, 'dual-operator', {});
+    assert.equal(operatorTombstone.status, 409);
+    assert.equal(receipt(operatorTombstone).action, null);
+    assert.equal((await f.request(human, 'admin')).status, 202);
+
+    const humanResult = await executeC360ProfileCommand(
+      f.db,
+      actor,
+      input,
+      authorization,
+      async () => ({
+        outcome: 'NO_OP',
+        committedRevisions: {},
+        resourceRefs: [],
+      }),
+    );
+    assert.equal(humanResult.status, 200);
+    assert.equal(receipt(await f.request(human, 'admin')).action, 'CONTACT_UPDATE');
+    assert.deepEqual((await f.request(operator, 'dual-operator')).body, operatorTombstone.body);
+
+    const unseenId = randomUUID();
+    const unseenPath = `customer-360/operator/commands/${unseenId}/reconcile`;
+    assert.equal((await f.request(unseenPath, 'dual-operator', {})).status, 409);
+    const lateHuman = await executeC360ProfileCommand(
+      f.db,
+      actor,
+      { ...input, commandId: unseenId },
+      authorization,
+      async () => ({ outcome: 'NO_OP', committedRevisions: {}, resourceRefs: [] }),
+    );
+    assert.equal(lateHuman.status, 200);
+
+    const reverseId = randomUUID();
+    const command = {
+      action: 'SERVICE_BIND_CREATE',
+      issuer: 'https://service.test',
+      subject: randomUUID(),
+      clientId: 'dual-841',
+      custodianAdminId: f.actors.get('supervisor')!.id,
+    };
+    // ใช้ custodian คนละ User จาก operator ใน tenant เดียวกัน
+    await f.owner.user.update({
+      where: { id: command.custodianAdminId },
+      data: { role: 'ADMIN' },
+    });
+    const humanTombstone = await f.request(
+      `customer-360/commands/${reverseId}/reconcile`,
+      'admin',
+      {},
+    );
+    assert.equal(humanTombstone.status, 409);
+    const operatorApplied = await operate(f, command, { id: reverseId, token: 'dual-operator' });
+    assert.equal(operatorApplied.status, 201, JSON.stringify(operatorApplied.body));
+    assert.equal(receipt(operatorApplied).action, 'OPERATOR_SERVICE_BIND_CREATE');
+    assert.deepEqual(
+      (await f.request(`customer-360/commands/${reverseId}`, 'admin')).body,
+      humanTombstone.body,
+    );
+    await f.owner.user.update({ where: { id: admin.id }, data: { isActive: false } });
+    assert.equal((await f.request(human, 'admin')).status, 403);
+    assert.deepEqual((await f.request(operator, 'dual-operator')).body, operatorTombstone.body);
+  } finally {
+    await f.close();
+  }
+});
+
 test('M3-A HTTP: operator-only, dry-run zero effect, idempotency และ provenance/epoch', async () => {
   const f = await setup([Customer360OperatorController]);
   try {

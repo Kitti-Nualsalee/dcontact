@@ -4,8 +4,8 @@ import {
   planC360ServiceOperator,
   type C360ServiceOperatorCommand,
 } from './service-principal.js';
-import { randomUUID } from 'node:crypto';
-import { Prisma, type PrismaClient } from '@d-contact/db';
+import { createHash, randomUUID } from 'node:crypto';
+import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import {
   C360ProfileCommandError,
   C360ProfileCommandRejection,
@@ -207,6 +207,40 @@ function operatorActor(operator: C360TrustedOperator): C360CommandActor {
     }),
     // operator ไม่ใช่ domain User ของ tenant; ตัวตนอยู่ใน actorIdentityKey
     actorUserId: null,
+  };
+}
+
+const isOperatorCommand: NonNullable<C360CommandAuthorization['canAccessCommand']> = (command) =>
+  command.actorUserId === null &&
+  (command.isTombstone || command.action?.startsWith('OPERATOR_') === true);
+
+async function operatorCommandActor(
+  db: PrismaClient,
+  operator: C360TrustedOperator,
+  commandIdInput: unknown,
+): Promise<C360CommandActor> {
+  const legacy = operatorActor(operator);
+  const commandId = c360Uuid(commandIdInput);
+  // คำสั่งที่ admit แล้วใน C1 ยัง recover ได้ด้วย key เดิม
+  const stored = await withTenantDatabaseTransaction(db, legacy.tenantId, (tx) =>
+    tx.c360ProfileCommand.findUnique({
+      where: {
+        tenantId_actorIdentityKey_commandId: {
+          tenantId: legacy.tenantId,
+          actorIdentityKey: legacy.actorIdentityKey,
+          commandId,
+        },
+      },
+      select: { actorUserId: true, action: true, isTombstone: true },
+    }),
+  );
+  if (stored && isOperatorCommand(stored)) return legacy;
+  // แยก key ของคำสั่งและ tombstone ใหม่จาก namespace ของ domain User
+  return {
+    ...legacy,
+    actorIdentityKey: createHash('sha256')
+      .update(JSON.stringify(['c360-operator-actor-v1', legacy.actorIdentityKey]))
+      .digest('hex'),
   };
 }
 
@@ -661,6 +695,7 @@ async function authorizeOperator(tx: Prisma.TransactionClient, operator: C360Tru
 function operatorAuthorization(operator: C360TrustedOperator): C360CommandAuthorization {
   return {
     authorize: (tx) => authorizeOperator(tx, operator),
+    canAccessCommand: isOperatorCommand,
     canReadRef: async (tx, ref) => {
       const query = {
         where: { tenantId: operator.tenantId, id: ref.id },
@@ -682,20 +717,20 @@ function operatorAuthorization(operator: C360TrustedOperator): C360CommandAuthor
   };
 }
 
-export function lookupC360OperatorCommand(
+export async function lookupC360OperatorCommand(
   db: PrismaClient,
   operator: C360TrustedOperator,
   commandId: unknown,
 ): Promise<C360ProfileCommandResult> {
   return lookupC360ProfileCommand(
     db,
-    operatorActor(operator),
+    await operatorCommandActor(db, operator, commandId),
     commandId,
     operatorAuthorization(operator),
   );
 }
 
-export function reconcileC360OperatorCommand(
+export async function reconcileC360OperatorCommand(
   db: PrismaClient,
   operator: C360TrustedOperator,
   commandId: unknown,
@@ -703,7 +738,7 @@ export function reconcileC360OperatorCommand(
 ): Promise<C360ProfileCommandResult> {
   return reconcileC360ProfileCommand(
     db,
-    operatorActor(operator),
+    await operatorCommandActor(db, operator, commandId),
     commandId,
     body,
     operatorAuthorization(operator),
@@ -749,7 +784,7 @@ export async function executeC360OperatorCommand(
   request: C360OperatorRequest,
 ): Promise<C360ProfileCommandResult> {
   const input = prepared(request);
-  const actor = operatorActor(operator);
+  const actor = await operatorCommandActor(db, operator, request.commandId);
   const resourceId =
     'contactId' in input.command
       ? input.command.contactId
