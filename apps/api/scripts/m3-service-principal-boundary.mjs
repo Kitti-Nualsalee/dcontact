@@ -1,6 +1,7 @@
 /** #841: สร้าง PostgreSQL/Keycloak ของ runner เอง ไม่ใช้ DB/realm/VM ร่วม */
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { get } from 'node:http';
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const suffix = randomBytes(6).toString('hex');
@@ -78,7 +79,18 @@ try {
   const kcPort = capture('docker', ['port', keycloak, '8080/tcp']).split(':').at(-1),
     kcUrl = `http://127.0.0.1:${kcPort}`;
   await ready(
-    async () => (await fetch(`${kcUrl}/realms/master/.well-known/openid-configuration`)).ok,
+    () =>
+      new Promise((resolve) => {
+        const request = get(
+          `${kcUrl}/realms/master/.well-known/openid-configuration`,
+          (response) => {
+            response.resume();
+            resolve(response.statusCode === 200);
+          },
+        );
+        request.setTimeout(2000, () => request.destroy());
+        request.on('error', () => resolve(false));
+      }),
   );
   const env = {
     ...process.env,
