@@ -575,7 +575,9 @@ test('C2 S1: rate limit ของ search ต่อ actor ตอบ 429 พร้
     assert.equal(limited.status, 429);
     assert.equal(limited.body.error.code, 'RATE_LIMITED');
     assert.equal(limited.body.error.retryable, true);
-    assert.ok(Number(limited.headers.get('retry-after')) >= 1);
+    // ค่าจริงของ limiter (เหลือของ window 60 วินาที) ไม่ใช่ค่าเริ่มต้น 1
+    const retryAfter = Number(limited.headers.get('retry-after'));
+    assert.ok(retryAfter > 1 && retryAfter <= 60, `retry-after ${retryAfter}`);
     assert.equal((await search(f, 'admin-two')).status, 200);
   } finally {
     await f.close();

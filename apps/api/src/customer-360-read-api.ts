@@ -9,7 +9,6 @@ import {
   Param,
   Post,
   Req,
-  Res,
   UseFilters,
   type ArgumentsHost,
   type ExceptionFilter,
@@ -57,7 +56,7 @@ export class Customer360ReadErrors implements ExceptionFilter {
     response.statusCode = error.status;
     response.setHeader('Content-Type', 'application/json');
     response.setHeader('Cache-Control', 'no-store');
-    if (error.retryable) response.setHeader('Retry-After', '1');
+    if (error.retryable) response.setHeader('Retry-After', String(error.retryAfterSeconds ?? 1));
     const requestId = coreRequestId(request);
     if (requestId) response.setHeader('X-Request-Id', requestId);
     response.end(
@@ -83,7 +82,7 @@ export class Customer360ReadController {
 
   constructor(@Inject(CUSTOMER_360_DATABASE) private readonly db: PrismaClient) {}
 
-  private throttle(tenantId: string, userId: string, response?: ServerResponse) {
+  private throttle(tenantId: string, userId: string) {
     const rejected =
       this.limiter.consume({
         tenantId,
@@ -96,21 +95,16 @@ export class Customer360ReadController {
         limitPerMinute: C360_SEARCH_LIMIT_PER_TENANT,
       });
     if (rejected) {
-      response?.setHeader('Retry-After', String(rejected.retryAfterSeconds));
-      throw new C360ReadError(429, 'RATE_LIMITED', true);
+      throw new C360ReadError(429, 'RATE_LIMITED', true, undefined, rejected.retryAfterSeconds);
     }
   }
 
   @Post('contacts/search')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
-  async search(
-    @Req() req: AuthenticatedGatewayRequest,
-    @Res({ passthrough: true }) response: ServerResponse,
-    @Body() body: unknown,
-  ) {
+  async search(@Req() req: AuthenticatedGatewayRequest, @Body() body: unknown) {
     const identity = requestIdentity(req);
-    this.throttle(identity.tenantId, identity.userId, response);
+    this.throttle(identity.tenantId, identity.userId);
     return withTenantDatabaseTransaction(this.db, identity.tenantId, async (tx) => {
       const actor = await c360CurrentActor(tx, identity);
       return searchC360Contacts(tx, actor, body, this.codec);

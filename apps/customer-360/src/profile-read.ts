@@ -34,6 +34,8 @@ export class C360ReadError extends Error {
     readonly code: string,
     readonly retryable = false,
     readonly fieldErrors?: readonly { field: string; code: string }[],
+    /** ค่าที่คำนวณจริง (เช่น จาก limiter) — filter ต้องคงไว้ ไม่ทับด้วยค่าเริ่มต้น */
+    readonly retryAfterSeconds?: number,
   ) {
     super(code);
     this.name = 'C360ReadError';
@@ -89,6 +91,8 @@ export function createC360CursorCodec(
   for (const entry of keys)
     if (entry.key.length !== 32 || !/^[A-Za-z0-9_-]{1,32}$/.test(entry.id))
       throw new TypeError('cursor key must be 32 bytes with a short id');
+  if (new Set(keys.map((entry) => entry.id)).size !== keys.length)
+    throw new TypeError('cursor key ids must be unique');
   const active = keys[0]!;
   return {
     seal(payload) {
@@ -151,6 +155,13 @@ export function c360CursorCodecFromEnv(
         return { id, key: Buffer.from(value, 'base64') };
       })
     : [{ id: 'eph', key: randomBytes(32) }];
+  if (!raw && env.NODE_ENV === 'production')
+    // ไม่ fail closed เพราะ cursor ที่ใช้ข้าม instance ไม่ได้ทำให้ต้องค้นใหม่เท่านั้น (ไม่เปิดข้อมูล) และ
+    // deployment ที่ยังไม่มี secret นี้ต้องไม่ล้ม; แจ้งเตือนชัดเจนให้ตั้งค่าก่อนใช้หลาย instance
+    process.emitWarning(
+      'CUSTOMER_360_CURSOR_KEYS ไม่ได้ตั้งค่า: cursor ของ Customer 360 ใช้ key ชั่วคราวต่อ process และใช้ข้าม instance/restart ไม่ได้',
+      { code: 'C360_CURSOR_KEYS_MISSING' },
+    );
   return createC360CursorCodec(keys);
 }
 

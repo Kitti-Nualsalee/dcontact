@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   C360ReadError,
+  c360CursorCodecFromEnv,
   c360FilterDigest,
   c360ScopeDigest,
   createC360CursorCodec,
@@ -95,6 +96,11 @@ test('cursor: key rotation ถอด token ของ key เก่าได้�
   assert.deepEqual(rotated.open(oldToken, expected), ['a', 'b']);
   assert.match(rotated.seal({ ...expected, position: ['a', 'b'] }), /^v1\.k2\./);
   assert.throws(() => createC360CursorCodec([]), TypeError);
+  assert.throws(
+    () => createC360CursorCodec([key('k1', 1), key('k1', 2)]),
+    TypeError,
+    'duplicate id',
+  );
   assert.throws(() => createC360CursorCodec([{ id: 'k', key: Buffer.alloc(16) }]), TypeError);
 });
 
@@ -200,4 +206,31 @@ test('search input: EMAIL คง local ตามเดิม lowercase เฉพ
 test('mask: ไม่คืนค่าเต็มของ channel', () => {
   assert.equal(maskC360Channel('PHONE', '+12133734253'), '+12•••••4253');
   assert.equal(maskC360Channel('EMAIL', 'User.Name@example.com'), 'U•••@example.com');
+});
+
+test('cursor key จาก env: ไม่มี key ใน production แจ้งเตือน (ไม่ใช่เงียบ) และ key ที่ตั้งไว้ใช้งานได้', () => {
+  const warnings: string[] = [];
+  const original = process.emitWarning;
+  process.emitWarning = ((message: string) => {
+    warnings.push(String(message));
+  }) as typeof process.emitWarning;
+  try {
+    c360CursorCodecFromEnv({ NODE_ENV: 'production' });
+    assert.equal(warnings.length, 1);
+    c360CursorCodecFromEnv({ NODE_ENV: 'development' });
+    c360CursorCodecFromEnv({
+      NODE_ENV: 'production',
+      CUSTOMER_360_CURSOR_KEYS: `a:${Buffer.alloc(32, 1).toString('base64')}`,
+    });
+    assert.equal(warnings.length, 1);
+    assert.throws(
+      () =>
+        c360CursorCodecFromEnv({
+          CUSTOMER_360_CURSOR_KEYS: `a:${Buffer.alloc(32, 1).toString('base64')},a:${Buffer.alloc(32, 2).toString('base64')}`,
+        }),
+      TypeError,
+    );
+  } finally {
+    process.emitWarning = original;
+  }
 });
