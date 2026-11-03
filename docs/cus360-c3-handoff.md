@@ -74,8 +74,8 @@ event ที่ค้าง retry ยาวต้องดูที่ DLQ/metri
 - dry-run คืน inventory: จำนวน identity ต่อชนิด, imported/pending, `reviewReasons`, `contactsOverQuota`, `sharedKeys`
   พร้อม digest ที่ผูก tenant และสถานะ identity head ไม่มีค่า phone/email ดิบ
 - ของจริง import หนึ่ง batch (≤200) และคืน `committedRevisions.remaining`; ไม่มี pending = NO_OP
-- `REVIEW_REQUIRED` เกิดจาก: ไม่มีประเทศ (`PHONE_COUNTRY_REQUIRED`), extension, รูปแบบผิด หรือค่าซ้ำใน contact เดียว
-  (`DUPLICATE_ON_CONTACT`) — ต้องให้คนตรวจ ไม่มีการเดาหรือแก้ค่าอัตโนมัติ
+- `REVIEW_REQUIRED` เกิดจาก: ไม่มีประเทศ (`PHONE_COUNTRY_REQUIRED`), extension หรือรูปแบบผิด — ต้องให้คนตรวจ
+  ไม่มีการเดาหรือแก้ค่าอัตโนมัติ ส่วนค่าซ้ำใน contact เดียวนับแยกเป็น `pendingSuperseded`
 
 ## Rollback guard
 
@@ -96,8 +96,9 @@ event ที่ค้าง retry ยาวต้องดูที่ DLQ/metri
 - vector ของ parser ครบตาม E1 C (`packages/contact-points/src/normalize.test.ts`) และ phone metadata SHA256 ตรงกับ E1
 - case folding ตรึง mapping ของ Unicode 16 และ Latin Extended-D ชุดใหม่ (A7CE/A7D2/A7D4) ที่ reviewer ระบุว่าเป็นของ
   Unicode 17 ไว้ใน test แล้ว ยังไม่ได้เทียบกับ UCD 17 ทั้งไฟล์
-- `DUPLICATE_ON_CONTACT`: identity อีกแถวที่ normalize แล้วซ้ำบน contact เดียวกันถูกเก็บเป็น REVIEW_REQUIRED
-  ผลคือ event ที่ใช้รูปแบบนั้นได้ NOT_FOUND และ review แถวนั้นยังไม่มีทางปิด (ห้าม ACTIVE ซ้ำ) รอเจ้าของงานตัดสิน
+- ค่าซ้ำบน contact เดียว (identity หลายแถวที่ normalize แล้วเท่ากัน) เก็บเป็น point ที่ถูกแทนที่ตั้งแต่ import
+  (RETIRED โดย command เดียวกับที่สร้าง) bridge ตัดสินตาม ACTIVE ค่าเดียวกันบน contact เดียวกัน (เจ้าของงานเลือก)
+  UI ของ C2/C4 ควรแสดงแถวนี้เป็น "ซ้ำกับค่าที่ใช้อยู่" ไม่ใช่ประวัติที่ผู้ใช้ retire
 
 ## Tests และวิธีรัน
 
