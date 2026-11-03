@@ -719,6 +719,7 @@ async function plan(
                   imported: String(batch.imported),
                   active: String(batch.active),
                   reviewRequired: String(batch.reviewRequired),
+                  superseded: String(batch.superseded),
                   contacts: String(batch.contacts.length),
                 },
               },
@@ -818,6 +819,7 @@ function inventorySubject(tenantId: string, inventory: C360LegacyInventory) {
       imported: String(inventory.imported),
       pendingActive: String(inventory.pending.active),
       pendingReviewRequired: String(inventory.pending.reviewRequired),
+      pendingSuperseded: String(inventory.pending.superseded),
       reviewReasons: JSON.stringify(inventory.reviewReasons),
       contactsOverQuota: String(inventory.contactsOverQuota),
       sharedKeys: String(inventory.sharedKeys.keys),
@@ -856,7 +858,10 @@ export async function previewC360OperatorCommand(
           dryRun: true as const,
           action: 'LEGACY_POINT_IMPORT' as const,
           outcome:
-            inventory.pending.active + inventory.pending.reviewRequired === 0
+            inventory.pending.active +
+              inventory.pending.reviewRequired +
+              inventory.pending.superseded ===
+            0
               ? ('WOULD_NO_OP' as const)
               : ('WOULD_APPLY' as const),
           code: null,
