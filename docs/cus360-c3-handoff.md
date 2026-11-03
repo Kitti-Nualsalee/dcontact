@@ -61,9 +61,14 @@
 5. identity ที่ legacy writer สร้างเพิ่มภายหลังต้องรัน import ซ้ำ (รันซ้ำได้ ไม่สร้างแถวซ้ำ)
 
 **ตาข่ายกันพลาด:** stack ของ C3 merge เป็นลำดับเดียว ถ้า deploy ทั้ง stack พร้อมกันโดยยังไม่ import
-journey จะได้ `DEFERRED` (`IDENTITY_MAPPING_PENDING`) และ Kafka retry จนกว่า import ครบ ไม่บันทึกผลถาวร
+journey จะได้ `DEFERRED` (`IDENTITY_MAPPING_PENDING`) และ Kafka retry ได้ไม่เกิน `identityMappingRetryWindowMs`
+(ค่าเริ่มต้น 15 นาที นับจาก `created_at` ของ inbox) ระหว่างนี้ไม่บันทึกผลถาวร แต่ partition ของ consumer จะรอ
+พ้นช่วงแล้ว Governance บันทึก `REVIEW` ด้วย reason `IDENTITY_MAPPING_PENDING` (แยกจาก `IDENTITY_NOT_FOUND`)
 ส่วน click-to-call เบอร์ภายนอกจะยังโทรไม่ได้จนกว่า import ครบ จึงยังควรทำตามลำดับข้างบน
-event ที่ค้าง retry ยาวต้องดูที่ DLQ/metrics ของ journey consumer ถ้า import ไม่ถูกรัน
+
+event ที่ได้ reason นี้ไม่ถูกประมวลผลซ้ำเอง (error นี้ไม่ไป DLQ) หลัง import ครบให้หาด้วย
+`cg_decision_logs.reason_code = 'IDENTITY_MAPPING_PENDING'` ที่ `source = 'JOURNEY'` แล้วตัดสินเป็นรายกรณี
+คำสั่ง re-drive ของ operator แบบมี audit ยังไม่มี (journey recovery ตอนนี้ replay ได้เฉพาะ owner action)
 
 ## Operator runbook: `LEGACY_POINT_IMPORT`
 
