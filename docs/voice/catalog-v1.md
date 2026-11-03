@@ -30,6 +30,14 @@ operator ทำตามนี้ในสภาพแวดล้อมที�
 
 application role มีเพียง SELECT ของ binding/audit พร้อม RLS ไม่มี endpoint enroll หรือ client flag ข้าม gate นี้ การยังไม่มี binding บน VM เป็น readiness blocker ที่ต้องแก้ด้วยหลักฐานจริงก่อน B7 ไม่ใช่เหตุให้ใช้ denylist อย่างเดียว
 
+### Authority ของบัญชีใหม่ B2
+
+บัญชีใหม่ ADMIN/SUPERVISOR ไม่ต้องมี operator binding รายคน ตัวตรวจกลางอ่าน lifecycle ที่ ACTIVE/PROVISIONED/ACTIVATED พร้อม operation และ receipts ของ provisioning/activation ที่ผูก tenant, user, payload และ fencing token เดียวกัน ตรวจ live User/role/team และ verified caller ทุกครั้ง บัญชีก่อน activation และ Agent ไม่ได้ configuration authority
+
+issuer/client/tenant slug ต้องตรง deployment context ใน immutable operator binding audit ที่รับรองไว้ก่อนสร้างบัญชี ไม่เดาจากชื่อ client หรือ token เพียงอย่างเดียว ประวัติ deployment นี้คงใช้ตรวจ context ได้หลัง bootstrap account ถูกปิด แต่ไม่ใช้แทน receipts ของบัญชีใหม่ หากบัญชีเป้าหมายมี operator binding อยู่แล้วแต่ถูกถอนหรือไม่ตรง caller จะไม่ fallback ไปใช้ lifecycle เพื่อคืนสิทธิ์
+
+การปิดบัญชีตัดสิทธิ์ทันทีเมื่อเป็น DISABLING/DISABLED หาก provider ปฏิเสธแบบไม่มีผลและระบบคืน ACTIVE ตาม compensation contract ให้ใช้ activation provenance เดิมกับ lifecycle revision ปัจจุบันได้ last-Admin snapshot ใช้ตัวตรวจ receipts/deployment context เดียวกับ configuration actor
+
 ## API ที่ B1 เปิด
 
 namespace `/api/v1/tenant-voice`: GET capabilities, teams, queues, skills, queues/:id, skills/:id, commands/:commandId และ POST queues/skills ทุก mutation ใช้ commandId UUID จาก browser actor/tenant มาจาก verified request เท่านั้น
