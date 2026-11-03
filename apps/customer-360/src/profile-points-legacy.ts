@@ -7,6 +7,7 @@ import {
 } from '@d-contact/contact-points';
 import { Prisma } from '@d-contact/db';
 import { C360ProfileCommandError } from './profile-command.js';
+import { tryC360IdentityFences } from './profile-fences.js';
 import { C360_CONTACT_POINT_QUOTA } from './profile-points.js';
 
 /**
@@ -223,6 +224,8 @@ export async function importC360LegacyContactPointsBatch(
     limit: batchSize,
   });
   const contacts = [...new Set(rows.map((row) => row.contact_id))].sort();
+  // E1 G: identity fence ของ contact ทั้งชุดก่อน profile rows (canonical transition ถือ exclusive)
+  await tryC360IdentityFences(tx, context.tenantId, contacts);
   for (const contactId of contacts) {
     try {
       await tx.$queryRaw`
@@ -238,6 +241,8 @@ export async function importC360LegacyContactPointsBatch(
   let active = 0;
   let reviewRequired = 0;
   let imported = 0;
+  // revision เพิ่มเฉพาะ contact ที่มีแถวถูก insert จริง (แถวที่ ON CONFLICT ไม่ใช่ mutation)
+  const touched = new Set<string>();
   const contactKeys = new Set(
     contacts.length === 0
       ? []
@@ -272,19 +277,26 @@ export async function importC360LegacyContactPointsBatch(
       ON CONFLICT (tenant_id, source_identity_id) WHERE source_kind = 'LEGACY_IDENTITY' DO NOTHING`;
     if (inserted !== 1) continue;
     imported += 1;
+    touched.add(row.contact_id);
     if (result.state === 'ACTIVE') active += 1;
     else reviewRequired += 1;
   }
-  if (contacts.length > 0)
+  if (touched.size > 0)
     await tx.$executeRaw`
       UPDATE contacts SET profile_revision = profile_revision + 1
       WHERE tenant_id = ${context.tenantId}::uuid AND id IN (${Prisma.join(
-        contacts.map((id) => Prisma.sql`${id}::uuid`),
+        [...touched].map((id) => Prisma.sql`${id}::uuid`),
       )})`;
   const [left] = await tx.$queryRaw<{ n: bigint }[]>`
     SELECT count(*) AS n FROM contact_identities ci
     WHERE ci.tenant_id = ${context.tenantId}::uuid AND ci.type::text IN ('PHONE', 'EMAIL')
       AND NOT EXISTS (SELECT 1 FROM c360_contact_points p
                       WHERE p.tenant_id = ci.tenant_id AND p.source_identity_id = ci.id)`;
-  return { imported, active, reviewRequired, contacts, remaining: Number(left?.n ?? 0) };
+  return {
+    imported,
+    active,
+    reviewRequired,
+    contacts: [...touched].sort(),
+    remaining: Number(left?.n ?? 0),
+  };
 }

@@ -688,21 +688,21 @@ async function plan(
       };
     }
     case 'LEGACY_POINT_IMPORT': {
-      // แต่ละ batch นับแค่จำนวนที่ค้าง (ไม่สแกน inventory ทั้ง tenant ใต้ timeout ของ mutation)
-      const [row] = await tx.$queryRaw<{ n: bigint }[]>`
-        SELECT count(*) AS n FROM contact_identities ci
-        WHERE ci.tenant_id = ${tenantId}::uuid AND ci.type::text IN ('PHONE', 'EMAIL')
-          AND NOT EXISTS (SELECT 1 FROM c360_contact_points p
-                          WHERE p.tenant_id = ci.tenant_id AND p.source_identity_id = ci.id)`;
-      const pending = Number(row?.n ?? 0);
+      // แต่ละ batch ตรวจแค่ว่ายังมีค้างไหม (จำนวนคงเหลือคำนวณครั้งเดียวหลัง import ใน batch)
+      const [row] = await tx.$queryRaw<{ pending: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1 FROM contact_identities ci
+          WHERE ci.tenant_id = ${tenantId}::uuid AND ci.type::text IN ('PHONE', 'EMAIL')
+            AND NOT EXISTS (SELECT 1 FROM c360_contact_points p
+                            WHERE p.tenant_id = ci.tenant_id AND p.source_identity_id = ci.id)
+        ) AS pending`;
+      const pending = row?.pending ? 1 : 0;
       const refs = [{ type: 'TENANT', id: tenantId }];
       return {
         outcome: pending === 0 ? 'NO_OP' : 'APPLY',
         resourceType: 'TENANT',
         resourceId: tenantId,
-        subjects: [
-          { type: 'LEGACY_POINT_IMPORT', id: tenantId, facts: { pending: String(pending) } },
-        ],
+        subjects: [{ type: 'LEGACY_POINT_IMPORT', id: tenantId, facts: { pending: pending > 0 } }],
         refs,
         apply: async (write, { commandId }) => {
           const batch = await importC360LegacyContactPointsBatch(
@@ -839,12 +839,18 @@ export async function previewC360OperatorCommand(
   c360Uuid(request.commandId);
   const actor = operatorActor(operator);
   if (input.command.action === 'LEGACY_POINT_IMPORT') {
-    // สแกนทั้ง tenant แบบอ่านอย่างเดียวใน snapshot เดียว ไม่ถือ lock และไม่ใช้ timeout ของ mutation
+    // สแกนทั้ง tenant ใน snapshot เดียว (RepeatableRead) ไม่ใช้ timeout 2 วินาทีของ mutation
     return withTenantDatabaseTransaction(
       db,
       actor.tenantId,
       async (tx) => {
-        await authorizeOperator(tx, operator);
+        // dry-run อ่านอย่างเดียวจริงและไม่ถือ lock ของ tenant row ระหว่างสแกน (ไม่ขวาง writer อื่น)
+        await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');
+        await tx.$executeRawUnsafe("SET LOCAL statement_timeout = '50s'");
+        const [tenant] = await tx.$queryRaw<{ id: string }[]>`
+          SELECT id FROM tenants WHERE id = ${operator.tenantId}::uuid
+            AND lifecycle_status::text = 'ACTIVE'`;
+        if (!tenant) throw new C360ProfileCommandError('INVALID_REQUEST', 400);
         const inventory = await inventoryC360LegacyContactPoints(tx, actor.tenantId);
         return {
           dryRun: true as const,
