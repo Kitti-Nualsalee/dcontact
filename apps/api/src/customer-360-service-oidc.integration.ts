@@ -155,11 +155,16 @@ test(
           : []),
       ],
     });
+    const mixedWithoutUsername = client('mixed-no-username', f.tenantId, true, true);
+    mixedWithoutUsername.protocolMappers = mixedWithoutUsername.protocolMappers.filter(
+      (mapper) => mapper.name !== 'username',
+    );
     const clients = [
       client('reference-841'),
       client('foreign-841', f.otherTenantId),
       client('wrong-audience', f.tenantId, false),
       client('mixed-841', f.tenantId, true, true),
+      mixedWithoutUsername,
       { ...client('without-scope'), defaultClientScopes: ['roles', 'profile'] },
     ];
     const realmBody = {
@@ -178,7 +183,9 @@ test(
         username: `service-account-${c.clientId}`,
         enabled: true,
         serviceAccountClientId: c.clientId,
-        realmRoles: c.clientId === 'mixed-841' ? ['service', 'platform-operator'] : ['service'],
+        realmRoles: c.clientId.startsWith('mixed-')
+          ? ['service', 'platform-operator']
+          : ['service'],
       })),
     };
     try {
@@ -239,24 +246,39 @@ test(
         (await f.request('m3-test-probe', (await token('without-scope')).body.access_token)).status,
         403,
       );
-      const mixed = (await token('mixed-841')).body.access_token;
-      assert.equal((await f.request('m3-test-probe', mixed)).status, 401);
-      assert.equal(
-        (
-          await f.request(
-            'customer-360/operator/commands',
-            mixed,
-            {
-              commandId: randomUUID(),
-              evidenceRef: 'ticket:M3-MIXED',
-              reasonCode: 'APPROVED_INTEGRATION',
-              command,
-            },
-            'POST',
-          )
-        ).status,
-        403,
-      );
+      const count = () => f.owner.c360ProfileCommand.count({ where: { tenantId: f.tenantId } });
+      const admissionsBefore = await count();
+      for (const clientId of ['mixed-841', 'mixed-no-username']) {
+        const mixed = (await token(clientId)).body.access_token;
+        const claims = JSON.parse(Buffer.from(mixed.split('.')[1]!, 'base64url').toString('utf8'));
+        assert.equal(claims.dc_user_id, f.actors.get('admin')!.id);
+        assert.ok(claims.sid);
+        assert.ok(claims.realm_access.roles.includes('service'));
+        assert.ok(claims.realm_access.roles.includes('platform-operator'));
+        if (clientId === 'mixed-no-username') assert.equal(claims.preferred_username, undefined);
+        assert.equal((await f.request('m3-test-probe', mixed)).status, 401);
+        const commandId = randomUUID();
+        const path = 'customer-360/operator/commands';
+        assert.equal(
+          (
+            await f.request(
+              path,
+              mixed,
+              {
+                commandId,
+                evidenceRef: 'ticket:M3-MIXED',
+                reasonCode: 'APPROVED_INTEGRATION',
+                command,
+              },
+              'POST',
+            )
+          ).status,
+          403,
+        );
+        assert.equal((await f.request(`${path}/${commandId}`, mixed)).status, 403);
+        assert.equal((await f.request(`${path}/${commandId}/reconcile`, mixed, {})).status, 403);
+      }
+      assert.equal(await count(), admissionsBefore);
       const wrongIssuer = new KeycloakAccessTokenVerifier({
         issuer: `${kc}/realms/not-this-realm`,
         jwksUri: `${issuer}/protocol/openid-connect/certs`,

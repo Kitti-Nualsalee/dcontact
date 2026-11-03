@@ -1,6 +1,6 @@
 # M3-A: service principal และสิทธิ์ต่อ Contact
 
-งาน #841 ตาม Phase Contract #832. สร้างบน main `a460cde` โดยไม่เปลี่ยน human authorization ของ C1 หรือเปิด customer CRUD ให้ service ก่อน slice B
+งาน #841 ตาม Phase Contract #832. สร้างบน main `a460cde` และใช้ actor namespace ของ C1 สำหรับ trusted operator
 
 ## สิ่งที่ส่งต่อ
 
@@ -11,6 +11,7 @@
 - `authorizeC360ServiceContact(tx,p,contactId)` อนุญาตเฉพาะ persisted READ grant ที่ยังไม่ถูกถอน. ไม่ตาม grant ไป canonical target หลัง merge
 - `c360ServiceActor(identity,bindingId)` ใช้เฉพาะ issuer/subject/tenant/client/binding ใน namespace SERVICE; ไม่ใช้ token bytes/roles/sid เป็น command identity
 - Operator ใช้ C1 `/api/v1/customer-360/operator/commands`, dryRun/evidence/reason/digest/receipt engine เดิม พร้อม actions SERVICE_BIND_CREATE/DISABLE/REPLACE_CUSTODIAN, SERVICE_CAPABILITY_GRANT/REVOKE และ SERVICE_CONTACT_GRANT/REVOKE
+- Operator อ่าน receipt ที่ GET `/api/v1/customer-360/operator/commands/:commandId` และปิดคำสั่งที่ยังไม่สำเร็จผ่าน POST `/api/v1/customer-360/operator/commands/:commandId/reconcile` ด้วย body ว่าง ใช้ actor เดียวกับ POST เดิมและตรวจ refs ใน tenant ปัจจุบัน คำสั่งของ actor อื่นจะอยู่คนละ namespace
 - Operator metadata GET `/api/v1/customer-360/operator/service-principals/:id` ไม่เปิด credential/subject/customer payload. Service-account token รวมถึง mixed workspace claims เรียก operator ไม่ได้
 
 ## Lock order และการกู้สิทธิ์
@@ -38,8 +39,8 @@ pnpm --filter @d-contact/api test:m3-principal:boundary
 
 Runner สร้าง container/port/credentials/DB ของตัวเองบน loopback: PostgreSQL15.4 และ Keycloak26.7.5 ตาม digest ของ repo. Apply main migrations+M3, apply RLS, ตรวจ application role ไม่เป็น superuser/no BYPASSRLS; รัน focused M3 และ human C1 regression แล้วลบเฉพาะ containers ของ runner ใน finally. ไม่เชื่อม shared DB/Keycloak/UAT
 
-Actual service token ได้จาก Keycloak client_credentials; operator ใน HTTP fixture เป็น synthetic trusted verifier ของ C1. แยกข้อเท็จจริงนี้จาก actual machine OIDC proof. Tests ครอบคลุม issuer/audience/scopes/tenant/rotation/unbound/disabled และ mixed-service claims; raw token/secret ไม่ถูกพิมพ์
+Actual service token ได้จาก Keycloak client_credentials; operator ใน HTTP fixture เป็น synthetic trusted verifier ของ C1. แยกข้อเท็จจริงนี้จาก actual machine OIDC proof. Tests ครอบคลุม issuer/audience/scopes/tenant/rotation/unbound/disabled และ mixed-service claims ทั้งที่มีและไม่มี `preferred_username`
 
-หลักฐาน DB/HTTP: dry-run zero admission/effect/audit/epoch, idempotency/mismatched digest, stale epoch/no-op, explicit grants/current custodian, tenant RLS/FK, append-only/delete denial, actual locked authorization-vs-revoke/rebind/User-disable และ exact-purpose custody ledger
+หลักฐาน DB/HTTP: dry-run zero admission/effect/audit/epoch, idempotency/mismatched digest, stale epoch/no-op, explicit grants/current custodian, tenant RLS/FK, append-only/delete denial, actual locked authorization-vs-revoke/rebind/User-disable exact-purpose custody ledger และการกู้คืนของ non-domain operator ตั้งแต่ pending ถึง receipt หรือ tombstone พร้อมป้องกัน late POST
 
 ยังไม่รวม actual customer-create/read endpoint ของ B, reference service ของ C, full shared API integration suite หรือ VM UAT ของ D. ไม่มี deploy/VM/real customer traffic จาก PR นี้

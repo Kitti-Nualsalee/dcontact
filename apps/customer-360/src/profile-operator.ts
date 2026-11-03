@@ -13,6 +13,9 @@ import {
   c360MutationTransaction,
   c360Uuid,
   executeC360ProfileCommand,
+  lookupC360ProfileCommand,
+  reconcileC360ProfileCommand,
+  type C360CommandAuthorization,
   type C360AuditEvent,
   type C360CommandActor,
   type C360ProfileCommandResult,
@@ -655,6 +658,58 @@ async function authorizeOperator(tx: Prisma.TransactionClient, operator: C360Tru
   if (!tenant) throw new C360ProfileCommandError('INVALID_REQUEST', 400);
 }
 
+function operatorAuthorization(operator: C360TrustedOperator): C360CommandAuthorization {
+  return {
+    authorize: (tx) => authorizeOperator(tx, operator),
+    canReadRef: async (tx, ref) => {
+      const query = {
+        where: { tenantId: operator.tenantId, id: ref.id },
+        select: { id: true } as const,
+      };
+      switch (ref.type) {
+        case 'CONTACT':
+          return Boolean(await tx.contact.findFirst(query));
+        case 'USER':
+          return Boolean(await tx.user.findFirst(query));
+        case 'TAG':
+          return Boolean(await tx.c360Tag.findFirst(query));
+        case 'SERVICE_PRINCIPAL':
+          return Boolean(await tx.intServicePrincipal.findFirst(query));
+        default:
+          return false;
+      }
+    },
+  };
+}
+
+export function lookupC360OperatorCommand(
+  db: PrismaClient,
+  operator: C360TrustedOperator,
+  commandId: unknown,
+): Promise<C360ProfileCommandResult> {
+  return lookupC360ProfileCommand(
+    db,
+    operatorActor(operator),
+    commandId,
+    operatorAuthorization(operator),
+  );
+}
+
+export function reconcileC360OperatorCommand(
+  db: PrismaClient,
+  operator: C360TrustedOperator,
+  commandId: unknown,
+  body: unknown,
+): Promise<C360ProfileCommandResult> {
+  return reconcileC360ProfileCommand(
+    db,
+    operatorActor(operator),
+    commandId,
+    body,
+    operatorAuthorization(operator),
+  );
+}
+
 /** Dry-run: ตรวจทุกเงื่อนไขเหมือนของจริงแต่ไม่ admit command และไม่เขียนอะไร */
 export async function previewC360OperatorCommand(
   db: PrismaClient,
@@ -722,7 +777,7 @@ export async function executeC360OperatorCommand(
         reasonCode: input.reason,
       },
     },
-    { authorize: (tx) => authorizeOperator(tx, operator) },
+    operatorAuthorization(operator),
     async (tx, command): Promise<C360ProfileEffect> => {
       const result = await plan(tx, operator, input.command, input.evidence, input.reason, actor);
       if (result.outcome === 'NO_OP')

@@ -3,7 +3,10 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { withTenantDatabaseTransaction } from '@d-contact/db';
 import {
+  C360_OPERATOR_CONTRACT_VERSION,
+  c360ActorIdentityKey,
   c360ServiceActor,
+  executeC360ProfileCommand,
   lockC360ServicePrincipal,
   authorizeC360ServiceCapability,
   authorizeC360ServiceContact,
@@ -17,6 +20,7 @@ const receipt = (r: { body: unknown }) =>
   (
     r.body as {
       command: {
+        action: string | null;
         outcome: string;
         code: string;
         resourceRefs: { id: string }[];
@@ -59,6 +63,104 @@ async function bind(f: Fixture) {
   const id = receipt(r).resourceRefs[0]!.id;
   return { identity, id, command };
 }
+
+test('M3-A HTTP: non-domain operator อ่าน receipt และ reconcile ได้เฉพาะ actor namespace ของตน', async () => {
+  const f = await setup([Customer360OperatorController]);
+  try {
+    const operatorId = f.actors.get('operator')!.id;
+    assert.equal(await f.owner.user.count({ where: { id: operatorId } }), 0);
+    f.actors.set('other-operator', {
+      id: randomUUID(),
+      role: 'PLATFORM-OPERATOR',
+      tenantId: f.tenantId,
+    });
+    f.actors.set('foreign-operator', {
+      id: randomUUID(),
+      role: 'PLATFORM-OPERATOR',
+      tenantId: f.otherTenantId,
+    });
+    const command = {
+      action: 'SERVICE_BIND_CREATE',
+      issuer: 'https://service.test',
+      subject: randomUUID(),
+      clientId: 'recover-841',
+      custodianAdminId: f.actors.get('admin')!.id,
+    };
+    const commandId = randomUUID();
+    const path = `customer-360/operator/commands/${commandId}`;
+    const crash = new Error('isolated fixture crash after admission');
+    await assert.rejects(
+      executeC360ProfileCommand(
+        f.db,
+        {
+          tenantId: f.tenantId,
+          actorUserId: null,
+          actorIdentityKey: c360ActorIdentityKey({
+            issuer: 'https://core-idp.test/realms/dcontact',
+            subject: operatorId,
+            tenantId: f.tenantId,
+            userId: operatorId,
+          }),
+        },
+        {
+          commandId,
+          action: 'OPERATOR_SERVICE_BIND_CREATE',
+          resourceType: 'OPERATOR_TARGET',
+          resourceId: null,
+          expectedRevisions: {},
+          normalizationContractVersion: C360_OPERATOR_CONTRACT_VERSION,
+          normalizedRequest: {
+            command,
+            evidenceRef: 'ticket:M3-841',
+            reasonCode: 'APPROVED_INTEGRATION',
+          },
+        },
+        { authorize: async () => undefined },
+        async () => assert.fail('fixture must stop after admission'),
+        {
+          afterAdmission: async () => {
+            throw crash;
+          },
+        },
+      ),
+      (error) => error === crash,
+    );
+    assert.deepEqual((await f.request(path, 'operator')).body, { state: 'PENDING', commandId });
+    for (const token of ['other-operator', 'foreign-operator']) {
+      assert.deepEqual((await f.request(path, token)).body, { state: 'UNKNOWN', commandId });
+      assert.equal(receipt(await f.request(`${path}/reconcile`, token, {})).action, null);
+      assert.deepEqual((await f.request(path, 'operator')).body, { state: 'PENDING', commandId });
+    }
+    assert.equal((await f.request(`${path}/reconcile`, 'operator', { command })).status, 400);
+    const recovered = await f.request(`${path}/reconcile`, 'operator', {});
+    assert.equal(recovered.status, 409);
+    assert.equal(receipt(recovered).code, 'COMMAND_NOT_APPLIED');
+    assert.deepEqual((await operate(f, command, { id: commandId })).body, recovered.body);
+
+    const unseen = randomUUID();
+    const tombstone = await f.request(
+      `customer-360/operator/commands/${unseen}/reconcile`,
+      'operator',
+      undefined,
+      'POST',
+    );
+    assert.equal(tombstone.status, 409);
+    assert.equal(receipt(tombstone).code, 'COMMAND_NOT_APPLIED');
+    assert.deepEqual((await operate(f, command, { id: unseen })).body, tombstone.body);
+    assert.equal(await f.owner.intServicePrincipal.count({ where: { tenantId: f.tenantId } }), 0);
+
+    const appliedId = randomUUID();
+    const applied = await operate(f, command, { id: appliedId });
+    assert.equal(applied.status, 201);
+    const readback = `customer-360/operator/commands/${appliedId}`;
+    const read = await f.request(readback, 'operator');
+    assert.equal(read.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(read.body, applied.body);
+    assert.deepEqual((await f.request(`${readback}/reconcile`, 'operator', {})).body, applied.body);
+  } finally {
+    await f.close();
+  }
+});
 
 test('M3-A HTTP: operator-only, dry-run zero effect, idempotency และ provenance/epoch', async () => {
   const f = await setup([Customer360OperatorController]);

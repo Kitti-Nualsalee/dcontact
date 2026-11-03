@@ -28,7 +28,7 @@ CREATE TABLE int_service_capability_grants (
  id uuid PRIMARY KEY, tenant_id uuid NOT NULL, principal_id uuid NOT NULL, capability text NOT NULL CHECK (capability = 'CONTACT_CREATE'),
  evidence_ref text NOT NULL CHECK(evidence_ref<>''), actor_identity_key text NOT NULL, command_id uuid NOT NULL,
  granted_at timestamptz NOT NULL DEFAULT clock_timestamp(), UNIQUE(tenant_id,id),
- FOREIGN KEY(tenant_id,principal_id) REFERENCES int_service_principals(tenant_id,id), 
+ FOREIGN KEY(tenant_id,principal_id) REFERENCES int_service_principals(tenant_id,id),
  FOREIGN KEY(tenant_id,actor_identity_key,command_id) REFERENCES c360_profile_commands(tenant_id,actor_identity_key,command_id)
 );
 CREATE INDEX int_service_capability_grantee_idx ON int_service_capability_grants(tenant_id,principal_id);
