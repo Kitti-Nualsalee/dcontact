@@ -41,17 +41,19 @@ async function fixture(t: TestContext) {
       sipDomain: `${tenantId}.journey-bridge.test`,
     },
   });
-  await owner.c360ProfileCommand.create({
-    data: {
-      tenantId,
-      actorIdentityKey,
-      commandId,
-      action: 'FIXTURE_POINT',
-      resourceType: 'CONTACT',
-      payloadDigest: '0'.repeat(64),
-      normalizationContractVersion: 'fixture',
-    },
-  });
+  const laterCommandId = randomUUID();
+  for (const id of [commandId, laterCommandId])
+    await owner.c360ProfileCommand.create({
+      data: {
+        tenantId,
+        actorIdentityKey,
+        commandId: id,
+        action: 'FIXTURE_POINT',
+        resourceType: 'CONTACT',
+        payloadDigest: '0'.repeat(64),
+        normalizationContractVersion: 'fixture',
+      },
+    });
   const contact = async () => {
     const id = randomUUID();
     await owner.contact.create({ data: { id, tenantId } });
@@ -60,7 +62,7 @@ async function fixture(t: TestContext) {
   const point = async (
     contactId: string,
     normalized: string | null,
-    state: 'ACTIVE' | 'REVIEW_REQUIRED' | 'RETIRED',
+    state: 'ACTIVE' | 'REVIEW_REQUIRED' | 'RETIRED' | 'SUPERSEDED',
     sourceIdentityId: string | null,
   ) =>
     owner.$executeRaw`INSERT INTO c360_contact_points
@@ -68,12 +70,13 @@ async function fixture(t: TestContext) {
        source_kind, source_identity_id, created_actor_identity_key, created_command_id,
        retired_at, retired_actor_identity_key, retired_command_id)
       VALUES (${randomUUID()}::uuid, ${tenantId}::uuid, ${contactId}::uuid, 'PHONE', 'fixture',
-        ${normalized}, ${normalized === null ? null : PHONE_VERSION}, ${state},
+        ${normalized}, ${normalized === null ? null : PHONE_VERSION},
+        ${state === 'SUPERSEDED' ? 'RETIRED' : state},
         ${sourceIdentityId ? 'LEGACY_IDENTITY' : 'PROFILE_COMMAND'}, ${sourceIdentityId}::uuid,
         ${actorIdentityKey}, ${commandId}::uuid,
-        ${state === 'RETIRED' ? new Date() : null},
-        ${state === 'RETIRED' ? actorIdentityKey : null},
-        ${state === 'RETIRED' ? commandId : null}::uuid)`;
+        ${state === 'RETIRED' || state === 'SUPERSEDED' ? new Date() : null},
+        ${state === 'RETIRED' || state === 'SUPERSEDED' ? actorIdentityKey : null},
+        ${state === 'SUPERSEDED' ? commandId : state === 'RETIRED' ? laterCommandId : null}::uuid)`;
   const identity = async (contactId: string, type: 'PHONE' | 'LINE', value: string) =>
     (await owner.contactIdentity.create({ data: { tenantId, contactId, type, value } })).id;
   const ports = createJourneyFoundationPorts(application);
@@ -128,4 +131,22 @@ test('bridge ของ journey: ยังไม่ import = DEFERRED, ACTIVE = R
   const line = await f.identity(b, 'LINE', 'U-bridge-line');
   const lineResolved = await f.resolve('LINE', 'U-bridge-line');
   assert.equal(lineResolved.status === 'RESOLVED' && lineResolved.identityId, line);
+});
+
+test('bridge ของ journey: identity ซ้ำบน contact เดียวที่ถูกแทนที่ตั้งแต่ import ตัดสินตาม ACTIVE ตัวเดียวกัน', async (t) => {
+  const f = await fixture(t);
+  const a = await f.contact();
+  const first = await f.identity(a, 'PHONE', '+66812345680');
+  const second = await f.identity(a, 'PHONE', '+66 81 234 5680');
+  await f.point(a, '+66812345680', 'ACTIVE', first);
+  await f.point(a, '+66812345680', 'SUPERSEDED', second);
+  // ทั้งสองรูปแบบที่กรอกได้ contact เดียวกัน ไม่ขึ้นกับว่ากรอกแบบไหน
+  for (const value of ['+66812345680', '+66 81 234 5680']) {
+    const result = await f.resolve('PHONE', value);
+    assert.equal(result.status === 'RESOLVED' && result.contactId, a);
+  }
+  // point ที่ retire ภายหลังด้วยคำสั่งอื่นไม่ถือว่าถูกแทนที่ แม้ค่าเดียวกันยัง ACTIVE
+  const later = await f.identity(a, 'PHONE', '+668 1234 5680');
+  await f.point(a, '+66812345680', 'RETIRED', later);
+  assert.equal((await f.resolve('PHONE', '+668 1234 5680')).status, 'NOT_FOUND');
 });
