@@ -54,7 +54,12 @@ export interface JourneyProcessingResult {
 
 export interface JourneyProcessorOptions {
   now?: () => Date;
+  /** Cus360 C3 (#793): เพดานเวลา retry ของ identity ที่ยังไม่ import นับจากที่ event เข้า inbox */
+  identityMappingRetryWindowMs?: number;
 }
+
+/** Kafka retry ได้ไม่เกินช่วงนี้ partition จึงค้างได้ไม่นานถ้า import ไม่ถูกรัน */
+export const DEFAULT_IDENTITY_MAPPING_RETRY_WINDOW_MS = 15 * 60 * 1000;
 
 interface ResolvedContact {
   contactId: string;
@@ -97,6 +102,7 @@ export class JourneyScopeContextStaleError extends Error {
 /**
  * Cus360 C3 (#793): identity ของ event ยังไม่ถูก import เป็น contact point จึงยังตัดสินไม่ได้
  * ห้ามสร้าง enrollment หรือเรียก Governance; Kafka handler จะไม่ mark receipt ว่า PROCESSED จึง retry
+ * จนพ้น `identityMappingRetryWindowMs` แล้วจึงบันทึก REVIEW ด้วย reason `IDENTITY_MAPPING_PENDING`
  */
 export class JourneyIdentityMappingPendingError extends Error {
   readonly code = 'IDENTITY_MAPPING_PENDING';
@@ -109,6 +115,7 @@ export class JourneyIdentityMappingPendingError extends Error {
 
 export class JourneyProcessor {
   private readonly now: () => Date;
+  private readonly identityMappingRetryWindowMs: number;
 
   constructor(
     private readonly database: PrismaClient,
@@ -116,6 +123,8 @@ export class JourneyProcessor {
     options: JourneyProcessorOptions = {},
   ) {
     this.now = options.now ?? (() => new Date());
+    this.identityMappingRetryWindowMs =
+      options.identityMappingRetryWindowMs ?? DEFAULT_IDENTITY_MAPPING_RETRY_WINDOW_MS;
   }
 
   async processEvent(
@@ -123,7 +132,7 @@ export class JourneyProcessor {
     input: ProcessJourneyEventInput,
     transaction?: Prisma.TransactionClient,
   ): Promise<JourneyProcessingResult> {
-    const event = await this.loadEvent(tenantId, input, transaction);
+    const { event, receivedAt } = await this.loadEvent(tenantId, input, transaction);
     const enrollmentId = input.receiptId;
     const actionKey = createJourneyActionKey({
       enrollmentId,
@@ -138,7 +147,11 @@ export class JourneyProcessor {
       },
       transaction,
     );
-    if (resolution.status === 'DEFERRED')
+    // นับจากเวลาที่ inbox รับ ไม่ใช่ occurredAt ของ producer: event ย้อนหลังต้องได้ retry ครบช่วงเช่นกัน
+    if (
+      resolution.status === 'DEFERRED' &&
+      this.now().getTime() - receivedAt.getTime() < this.identityMappingRetryWindowMs
+    )
       throw new JourneyIdentityMappingPendingError(input.receiptId);
     const resolved = this.toResolvedContact(resolution);
     if (resolved && input.teamId) {
@@ -186,7 +199,12 @@ export class JourneyProcessor {
         }
       : {
           ...authorizationBase,
-          identityResolution: resolution.status === 'AMBIGUOUS' ? 'AMBIGUOUS' : 'NOT_FOUND',
+          identityResolution:
+            resolution.status === 'AMBIGUOUS'
+              ? 'AMBIGUOUS'
+              : resolution.status === 'DEFERRED'
+                ? 'IDENTITY_MAPPING_PENDING'
+                : 'NOT_FOUND',
         };
     const authorization = await this.ports.contactAuthorizationPort.authorizeAndReserve(
       tenantId,
@@ -222,17 +240,20 @@ export class JourneyProcessor {
     tenantId: string,
     input: ProcessJourneyEventInput,
     transaction?: Prisma.TransactionClient,
-  ): Promise<InboundBusinessEvent> {
+  ): Promise<{ event: InboundBusinessEvent; receivedAt: Date }> {
     const load = async (
       transactionClient: Prisma.TransactionClient,
-    ): Promise<InboundBusinessEvent> => {
+    ): Promise<{ event: InboundBusinessEvent; receivedAt: Date }> => {
       const inbox = await transactionClient.jrEventInbox.findFirst({
         where: { id: input.receiptId, tenantId, state: { in: ['PUBLISHED', 'PROCESSED'] } },
-        select: { payload: true },
+        select: { payload: true, createdAt: true },
       });
       if (!inbox) throw new JourneyEventNotReadyError(input.receiptId);
 
-      return inbox.payload as unknown as InboundBusinessEvent;
+      return {
+        event: inbox.payload as unknown as InboundBusinessEvent,
+        receivedAt: inbox.createdAt,
+      };
     };
     return transaction
       ? load(transaction)

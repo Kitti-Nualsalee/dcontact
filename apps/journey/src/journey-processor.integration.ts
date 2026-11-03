@@ -221,6 +221,66 @@ test('C3 bridge: identity ที่ยังไม่ import ไม่ถูก�
   );
 });
 
+test('C3 bridge: identity ที่ยังไม่ import เกินช่วง retry บันทึก REVIEW ด้วย IDENTITY_MAPPING_PENDING ไม่ขวาง partition', async (t) => {
+  const { owner, application, tenantId } = await createTenantFixture(t);
+  const receiptId = randomUUID();
+  const event: InboundBusinessEvent = {
+    source: 'billing',
+    eventId: 'payment-failed-mapping-timeout-001',
+    type: 'payment.failed',
+    occurredAt: '2026-09-08T01:40:00.000Z',
+    schemaVersion: 1,
+    contactRef: { kind: 'EMAIL', value: 'mapping-timeout@example.test' },
+    payload: {},
+  };
+  await owner.contact.create({
+    data: {
+      tenantId,
+      identities: { create: { tenantId, type: 'EMAIL', value: event.contactRef.value } },
+    },
+  });
+  const inbox = new EventInboxService(application, { id: () => receiptId });
+  await inbox.accept(tenantId, event);
+  await inbox.publishNext(tenantId, { publish: async () => undefined });
+  const { createdAt } = await owner.jrEventInbox.findUniqueOrThrow({ where: { id: receiptId } });
+  const processorAt = (elapsedMs: number) =>
+    new JourneyProcessor(application, createJourneyFoundationPorts(application), {
+      now: () => new Date(createdAt.getTime() + elapsedMs),
+      identityMappingRetryWindowMs: 60_000,
+    });
+  const input = {
+    receiptId,
+    journeyVersion: 1,
+    stepId: 'notify-mapping-timeout',
+    channel: 'EMAIL' as const,
+    purpose: 'SERVICE_NOTIFICATION',
+    policyVersion: 1,
+  };
+
+  // ยังอยู่ในช่วง: retry ได้ (occurredAt ของ producer ที่เก่ากว่าช่วงไม่ทำให้หมดเวลาทันที)
+  await assert.rejects(
+    processorAt(59_999).processEvent(tenantId, input),
+    JourneyIdentityMappingPendingError,
+  );
+  assert.equal(await owner.cgDecisionLog.count({ where: { tenantId } }), 0);
+
+  // พ้นช่วง: REVIEW ที่แยกจาก NOT_FOUND จึง query หา event ที่ต้อง re-drive หลัง import ได้
+  const result = await processorAt(60_000).processEvent(tenantId, input);
+  assert.equal(result.decision, 'REVIEW');
+  assert.equal(result.reasonCode, 'IDENTITY_MAPPING_PENDING');
+  assert.equal(result.action, undefined);
+  assert.equal(
+    (await owner.jrEnrollment.findUniqueOrThrow({ where: { id: receiptId } })).state,
+    'REVIEW',
+  );
+  assert.equal(
+    (await owner.jrEventInbox.findUniqueOrThrow({ where: { id: receiptId } })).state,
+    'PROCESSED',
+  );
+  assert.equal(await owner.cgReservation.count({ where: { tenantId } }), 0);
+  assert.equal(await owner.jrAction.count({ where: { tenantId } }), 0);
+});
+
 test('event ที่ resolve contact ได้สร้าง action ที่เชื่อม decision และ reservation เดิมข้าม retry', async (t) => {
   const { owner, application, tenantId } = await createTenantFixture(t);
   const contactId = '30000000-0000-4000-8000-000000000001';

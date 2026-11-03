@@ -96,7 +96,8 @@ export type AuthorizeAndReserveInput = AuthorizationInputBase &
     | {
         contactId?: never;
         identityId?: never;
-        identityResolution: 'AMBIGUOUS' | 'NOT_FOUND';
+        /** IDENTITY_MAPPING_PENDING: Cus360 C3 (#793) identity ยังไม่ import เป็น contact point เกินช่วง retry */
+        identityResolution: 'AMBIGUOUS' | 'NOT_FOUND' | 'IDENTITY_MAPPING_PENDING';
       }
   );
 

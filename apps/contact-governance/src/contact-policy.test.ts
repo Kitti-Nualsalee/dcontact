@@ -56,6 +56,18 @@ test('identity ที่ resolve ไม่ได้ต้อง REVIEW ก่อ
   });
 });
 
+test('identity ที่ยังไม่ import เป็น contact point เกินช่วง retry ต้อง REVIEW ด้วย reason ของตัวเอง', () => {
+  assert.deepEqual(
+    evaluateContactPolicy({ policyVersion: 4, identityResolution: 'IDENTITY_MAPPING_PENDING' }),
+    {
+      decision: 'REVIEW',
+      reasonCode: 'IDENTITY_MAPPING_PENDING',
+      policyVersion: 4,
+      trace: [{ gate: 'IDENTITY', outcome: 'REVIEW', reasonCode: 'IDENTITY_MAPPING_PENDING' }],
+    },
+  );
+});
+
 test('identity ที่ resolve ได้พร้อม consent ที่มีผลสามารถสร้าง reservation', () => {
   const result = evaluateContactPolicy({
     policyVersion: 9,
