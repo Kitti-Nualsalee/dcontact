@@ -12,12 +12,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@d-contact/contact-points": "workspace:*",
     "@d-contact/cxa-contracts": "workspace:*",
     "@d-contact/db": "workspace:*",
     "@d-contact/expression": "workspace:*",
     "@d-contact/kafka": "workspace:*",
-    "@d-contact/shared": "workspace:*",
-    "unicode-case-folding": "1.1.1"
+    "@d-contact/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
