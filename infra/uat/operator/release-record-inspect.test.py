@@ -17,7 +17,8 @@ class InspectionTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         records = self.root / 'deployments'
         records.mkdir()
-        (records / 'current.json').write_text(json.dumps({'sourceSha': 'a' * 40}))
+        images = {name: 'example/image@sha256:' + 'a' * 64 for name in ('api', 'console', 'keycloak')}
+        (records / 'current.json').write_text(json.dumps({'sourceSha': 'a' * 40, 'images': images}))
         (records / 'previous.json').write_text(json.dumps({'sourceSha': 'b' * 40}))
         self.containers = []
         for name in inspection.SERVICES:
@@ -39,8 +40,16 @@ class InspectionTests(unittest.TestCase):
     def test_detects_mixed_runtime_without_disclosing_environment(self):
         result = self.run_inspection()
         self.assertEqual(result['sourceMismatch'], ['api'])
+        self.assertEqual(result['imageDigestMismatch'], [])
         self.assertFalse(result['rollbackCertified'])
         self.assertNotIn('must-not-appear', json.dumps(result))
+
+    def test_recorded_digest_mismatch_is_reported_per_component(self):
+        path = self.root / 'deployments' / 'current.json'
+        record = json.loads(path.read_text())
+        record['images']['api'] = 'example/image@sha256:' + 'b' * 64
+        path.write_text(json.dumps(record))
+        self.assertEqual(self.run_inspection()['imageDigestMismatch'], ['api', 'e1-sandbox'])
 
     def test_missing_container_fails_closed(self):
         self.containers.pop()

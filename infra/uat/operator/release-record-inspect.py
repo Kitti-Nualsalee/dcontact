@@ -20,7 +20,8 @@ def read_records(root):
         records[name] = {'sha256': hashlib.sha256(raw).hexdigest(),
                          'schema': record.get('schema'), 'action': record.get('action'),
                          'sourceSha': record.get('sourceSha'),
-                         'rollbackEligible': record.get('rollbackEligible')}
+                         'rollbackEligible': record.get('rollbackEligible'),
+                         'images': record.get('images')}
     return records
 
 
@@ -77,8 +78,20 @@ def inspect(root=ROOT, execute=subprocess.run):
         raise RuntimeError('RECORD_CHANGED_DURING_INSPECTION')
     mismatch = sorted(name for name, component in components.items()
                       if component['sourceSha'] != records['current']['sourceSha'])
+    recorded_images = records['current'].get('images')
+    if not isinstance(recorded_images, dict):
+        raise RuntimeError('RECORD_IMAGES_REQUIRED')
+    keys = {'api': 'api', 'e1-sandbox': 'api', 'proxy': 'console', 'keycloak': 'keycloak'}
+    digest_mismatch = []
+    for service, key in keys.items():
+        reference = recorded_images.get(key)
+        if not isinstance(reference, str) or not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', reference):
+            raise RuntimeError('RECORD_IMMUTABLE_IMAGE_REQUIRED')
+        if reference not in components[service]['repositoryDigests']:
+            digest_mismatch.append(service)
     return {'schema': 'UatReleaseInspectionV1', 'records': records,
             'components': components, 'sourceMismatch': mismatch,
+            'imageDigestMismatch': sorted(digest_mismatch),
             'rollbackCertified': False, 'runtimeConsistency': 'TWO_MATCHING_OBSERVATIONS'}
 
 
