@@ -648,15 +648,22 @@ for (const [name, size] of [
           const cell = badge.closest('td');
           return (
             cell !== null &&
+            badge.scrollWidth <= badge.clientWidth &&
             badge.getBoundingClientRect().right <= cell.getBoundingClientRect().right
           );
         }),
       );
+    await expect(
+      page.locator('.cu-badges').filter({ hasText: 'ข้อมูลเดิม (อ่านอย่างเดียว)' }).first(),
+    ).toBeVisible();
     expect(await headersFit()).toBe(true);
     expect(await badgesFit()).toBe(true);
     await expect(page.getByRole('button', { name: /เมนูผู้ใช้/ })).toBeInViewport({ ratio: 1 });
     await page.getByRole('button', { name: 'English', exact: true }).click();
     await expect(page.getByRole('columnheader', { name: 'Matched channel' })).toBeVisible();
+    await expect(
+      page.locator('.cu-badges').filter({ hasText: 'Legacy record (read-only)' }).first(),
+    ).toBeVisible();
     expect(await headersFit()).toBe(true);
     expect(await badgesFit()).toBe(true);
     await expect(page.getByRole('button', { name: /User menu/ })).toBeInViewport({ ratio: 1 });
