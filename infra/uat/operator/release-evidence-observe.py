@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,7 +16,9 @@ QUERY = """SELECT json_build_object('database',current_database(),'principal',cu
 'finished',count(*) FILTER (WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL),
 'rolledBack',count(*) FILTER (WHERE rolled_back_at IS NOT NULL AND finished_at IS NULL),
 'unresolved',count(*) FILTER (WHERE (finished_at IS NULL) = (rolled_back_at IS NULL)),
-'authorityMatches',count(*) FILTER (WHERE checksum='%s' AND finished_at IS NOT NULL AND rolled_back_at IS NULL))
+'authorityMatches',count(*) FILTER (WHERE checksum='%s' AND finished_at IS NOT NULL AND rolled_back_at IS NULL),
+'migrations',COALESCE(json_agg(json_build_object('name',migration_name,'checksum',checksum) ORDER BY migration_name)
+  FILTER (WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL),'[]'::json))
 FROM public._prisma_migrations;""" % AUTHORITY_CHECKSUM
 
 
@@ -37,6 +40,14 @@ def observe(inspect_runtime, protected_snapshot, read_ledger):
         raise RuntimeError('LEDGER_INCOMPLETE')
     if ledger['finished'] < ledger['authorityMatches']:
         raise RuntimeError('LEDGER_COUNTS_INVALID')
+    migrations = ledger.get('migrations')
+    if (not isinstance(migrations, list) or len(migrations) != ledger['finished'] or len(migrations) > 5000
+            or any(not isinstance(item, dict) or set(item) != {'name', 'checksum'}
+                   or not isinstance(item['name'], str) or not item['name']
+                   or not isinstance(item['checksum'], str) or not re.fullmatch('[0-9a-f]{64}', item['checksum'])
+                   for item in migrations)
+            or len({item['name'] for item in migrations}) != len(migrations)):
+        raise RuntimeError('LEDGER_MIGRATIONS_INVALID')
     if inspect_runtime() != runtime:
         raise RuntimeError('RUNTIME_CHANGED_DURING_LEDGER_READ')
     if protected_snapshot() != protected:

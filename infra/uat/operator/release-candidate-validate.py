@@ -84,6 +84,13 @@ def validate(observation, approved_sha256, now=None):
         raise RuntimeError('LEDGER_COUNTS_INVALID')
     if ledger['unresolved'] != 0 or ledger['authorityMatches'] != 1 or ledger['finished'] < 1:
         raise RuntimeError('LEDGER_INCOMPLETE')
+    migrations = ledger.get('migrations')
+    if (not isinstance(migrations, list) or len(migrations) != ledger['finished'] or len(migrations) > 5000
+            or any(not isinstance(item, dict) or set(item) != {'name', 'checksum'}
+                   or not isinstance(item['name'], str) or not item['name']
+                   or not valid('[0-9a-f]{64}', item['checksum']) for item in migrations)
+            or len({item['name'] for item in migrations}) != len(migrations)):
+        raise RuntimeError('LEDGER_MIGRATIONS_INVALID')
     return {'status': 'OBSERVATION_VALIDATED_NOT_RECORDABLE', 'observationSha256': approved_sha256,
             'expectedCurrentSha256': records['current']['sha256'],
             'expectedPreviousSha256': records['previous']['sha256'],
@@ -115,6 +122,14 @@ def validate_rehearsal(observation, approved_observation_sha256, proof, approved
             or copied.get('historicalRowsByteValuesPreserved') is not True
             or copied.get('secondDeploy') != 'NOOP' or live.get('unresolved') != 0):
         raise RuntimeError('REHEARSAL_LEDGER_MISMATCH')
+    manifest = proof.get('migrationManifest')
+    migrations = manifest.get('migrations') if isinstance(manifest, dict) else None
+    if (not isinstance(migrations, list) or len(migrations) != len(live['migrations'])
+            or any(not isinstance(item, dict) or set(item) != {'name', 'checksum'}
+                   or not isinstance(item['name'], str) or not valid('[0-9a-f]{64}', item['checksum'])
+                   for item in migrations)
+            or sorted(migrations, key=lambda item: item['name']) != sorted(live['migrations'], key=lambda item: item['name'])):
+        raise RuntimeError('REHEARSAL_MIGRATION_CHECKSUM_MISMATCH')
     limitations = proof.get('limitations')
     if not isinstance(limitations, list) or 'OLD_API_803_DATA_COMPATIBILITY_NOT_NEW_B2_AUTHORITY_OR_VM_ROLLBACK' not in limitations:
         raise RuntimeError('REHEARSAL_LIMITATIONS_REQUIRED')

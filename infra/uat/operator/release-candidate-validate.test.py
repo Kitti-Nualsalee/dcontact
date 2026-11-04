@@ -27,7 +27,8 @@ class CandidateTests(unittest.TestCase):
             'protectedRuntime': protected,
             'protectedRuntimeSha256': hashlib.sha256(candidate.canonical(protected)).hexdigest(),
             'ledger': {'database': 'dcontact_uat', 'principal': 'dcontact_uat_owner', 'readonly': 'on',
-                       'finished': 154, 'rolledBack': 1, 'unresolved': 0, 'authorityMatches': 1}}
+                       'finished': 154, 'rolledBack': 1, 'unresolved': 0, 'authorityMatches': 1,
+                       'migrations': [{'name': f'migration-{i:03d}', 'checksum': 'a' * 64} for i in range(154)]}}
 
     def check(self, observation=None):
         observation = observation or self.observation
@@ -75,6 +76,7 @@ class CandidateTests(unittest.TestCase):
         proof = {'status': 'COPY_OWNER_ACL_STANDARD_MIGRATIONS_GENERATED_WRITER_PASS',
                  'scope': 'B714_VM2_APP_PERMISSION_COPY_ONLY', 'sourceSha': 'c' * 40,
                  'images': {'api': 'sha256:' + 'b' * 64},
+                 'migrationManifest': {'migrations': copy.deepcopy(self.observation['ledger']['migrations'])},
                  'ledger': {'afterFinished': 154, 'rolledBackPreserved': 1,
                             'historicalRowsByteValuesPreserved': True, 'secondDeploy': 'NOOP'},
                  'limitations': ['OLD_API_803_DATA_COMPATIBILITY_NOT_NEW_B2_AUTHORITY_OR_VM_ROLLBACK']}
@@ -83,6 +85,10 @@ class CandidateTests(unittest.TestCase):
             observation_sha = hashlib.sha256(candidate.canonical(self.observation)).hexdigest()
             return candidate.validate_rehearsal(self.observation, observation_sha, proof, sha, self.now)
         self.assertFalse(check()['rollbackCertified'])
+        proof['migrationManifest']['migrations'][0]['checksum'] = 'f' * 64
+        with self.assertRaisesRegex(RuntimeError, 'MIGRATION_CHECKSUM_MISMATCH'):
+            check()
+        proof['migrationManifest']['migrations'][0]['checksum'] = 'a' * 64
         proof['ledger']['secondDeploy'] = 'APPLIED'
         with self.assertRaisesRegex(RuntimeError, 'LEDGER_MISMATCH'):
             check()

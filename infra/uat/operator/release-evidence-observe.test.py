@@ -13,7 +13,8 @@ class EvidenceTests(unittest.TestCase):
         self.runtime = {'api': {'imageId': 'a'}}
         self.protected = {'platform': {'id': 'b'}}
         self.ledger = {'database': 'dcontact_uat', 'principal': 'dcontact_uat_owner', 'readonly': 'on',
-                       'finished': 154, 'rolledBack': 1, 'unresolved': 0, 'authorityMatches': 1}
+                       'finished': 154, 'rolledBack': 1, 'unresolved': 0, 'authorityMatches': 1,
+                       'migrations': [{'name': f'migration-{i:03d}', 'checksum': 'a' * 64} for i in range(154)]}
 
     def capture(self, runtime=None, protected=None):
         return evidence.observe(runtime or (lambda: self.runtime), protected or (lambda: self.protected),
@@ -44,6 +45,11 @@ class EvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'COUNTS_INVALID'):
                     self.capture()
                 self.ledger[key] = original
+
+    def test_rejects_duplicate_migration_name(self):
+        self.ledger['migrations'][1]['name'] = self.ledger['migrations'][0]['name']
+        with self.assertRaisesRegex(RuntimeError, 'LEDGER_MIGRATIONS_INVALID'):
+            self.capture()
 
     def test_rejects_runtime_or_protected_drift(self):
         for keyword in ('runtime', 'protected'):
