@@ -377,15 +377,18 @@ test('response ของ core ที่ยิงค้างตอบ 200 มา
 }) => {
   await profile(page, 'revokableGovernance2');
   await expect(page.getByRole('heading', { name: 'Revoke Gov Two' })).toBeVisible();
+  const governance = page.getByRole('region', { name: 'สถานะ Contact Governance' });
+  await governance.getByRole('textbox').fill('SERVICE');
   // revalidate ของ core ถูกคำนวณก่อน (200) แต่ไปถึง browser ช้า 2.5 วินาที
   await control(request, 'slow/2500/profile');
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
   });
+  await expect
+    .poll(async () => (await (await control(request, 'slow-state')).json()).status)
+    .toBe(200);
   await control(request, 'revoke/revokableGovernance2');
-  const governance = page.getByRole('region', { name: 'สถานะ Contact Governance' });
-  await governance.getByRole('textbox').fill('SERVICE');
   await governance.getByRole('button', { name: 'ดูสถานะ' }).click();
   await expect(page.getByRole('alert')).toContainText('ไม่พบลูกค้ารายนี้หรือคุณไม่มีสิทธิ์เปิด');
   // รอให้ response ค้างมาถึง แล้วยืนยันว่ายังปิดอยู่

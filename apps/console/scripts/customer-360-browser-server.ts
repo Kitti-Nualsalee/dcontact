@@ -135,6 +135,7 @@ try {
   let scopeLagging = false;
   // หน่วงการตอบหลัง forward แล้ว (ผลถูกคำนวณก่อน แต่ถึง browser ช้า) เพื่อทดสอบ response ค้างที่มาหลังสิทธิ์ถูกถอน
   let slow: { pattern: RegExp; ms: number } | undefined;
+  let slowStatus: number | null = null;
   const proxy = createHttpServer(async (req, res) => {
     try {
       const url = req.url ?? '';
@@ -146,12 +147,17 @@ try {
           res.end(JSON.stringify({ tenant: `core-${f.tenantId}`, ids }));
           return;
         }
+        if (action === 'slow-state') {
+          res.end(JSON.stringify({ status: slowStatus }));
+          return;
+        }
         if (action === 'reset') {
           actor = 'admin';
           sessionExpired = false;
           delayMs = 0;
           failNext = undefined;
           slow = undefined;
+          slowStatus = null;
           await f.owner.$executeRawUnsafe('GRANT SELECT ON interactions TO dcontact_app');
           await f.owner.$executeRawUnsafe('GRANT SELECT ON cg_preferences TO dcontact_app');
           if (scopeLagging) {
@@ -163,7 +169,8 @@ try {
         } else if (action === 'actor') actor = a ?? 'admin';
         else if (action === 'session') sessionExpired = a === 'expire';
         else if (action === 'delay') delayMs = Number(a ?? 0);
-        else if (action === 'slow')
+        else if (action === 'slow') {
+          slowStatus = null;
           slow =
             Number(a) > 0
               ? {
@@ -171,7 +178,7 @@ try {
                   ms: Number(a),
                 }
               : undefined;
-        else if (action === 'fail')
+        } else if (action === 'fail')
           // คงอยู่จนกว่าจะสั่ง fail/0/x เพราะ React StrictMode (dev) ยิง effect สองรอบ
           failNext = Number(a) > 0 ? { fragment: b ?? '', status: Number(a) } : undefined;
         else if (action === 'owner')
@@ -254,7 +261,10 @@ try {
         ...(['GET', 'HEAD'].includes(req.method ?? 'GET') ? {} : { body: Buffer.concat(chunks) }),
       });
       const text = await response.text();
-      if (slow?.pattern.test(url)) await new Promise((resolve) => setTimeout(resolve, slow!.ms));
+      if (slow?.pattern.test(url)) {
+        slowStatus = response.status;
+        await new Promise((resolve) => setTimeout(resolve, slow!.ms));
+      }
       res.statusCode = response.status;
       for (const name of ['content-type', 'cache-control', 'retry-after', 'x-request-id']) {
         const value = response.headers.get(name);
