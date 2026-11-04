@@ -61,6 +61,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
   const [more, setMore] = useState(false);
   const [revision, setRevision] = useState(0);
   const sequence = useRef(0);
+  const searchPaused = useRef(false);
 
   // ปิด PII ทั้งหมดเมื่อสิทธิ์/session เปลี่ยน (ไม่เก็บผลเก่าไว้ใน state)
   const closeData = useCallback(() => {
@@ -70,6 +71,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
   }, []);
 
   const closeSearchContext = useCallback(() => {
+    searchPaused.current = true;
     setQuery('');
     setFieldError(undefined);
     setApplied(DIRECTORY_SEARCH);
@@ -77,6 +79,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
   }, []);
 
   useEffect(() => {
+    if (searchPaused.current) return;
     const mine = ++sequence.current;
     const controller = new AbortController();
     setView({ state: 'loading' });
@@ -123,7 +126,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
 
   useEffect(() => {
     function onVisibilityChange() {
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible' || searchPaused.current) return;
       sequence.current += 1;
       closeData();
       setView({ state: 'loading' });
@@ -140,10 +143,12 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
       setFieldError('QUERY_REQUIRED');
       return;
     }
+    searchPaused.current = false;
     setApplied({ type, query });
   }
 
   function clear() {
+    searchPaused.current = false;
     setQuery('');
     setFieldError(undefined);
     setApplied({ type: 'DIRECTORY', query: '' });
@@ -287,6 +292,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
           ) : (
             <Button
               onPress={() => {
+                searchPaused.current = false;
                 setApplied((current) =>
                   kind === 'cursor' ? { type: 'DIRECTORY', query: '' } : { ...current },
                 );
