@@ -6,6 +6,10 @@ import json
 import re
 
 SERVICES = {'api', 'e1-sandbox', 'proxy', 'keycloak'}
+PROTECTED = {'/dcontact-uat-freeswitch-1', '/dcontact-uat-proxy-1', '/dcontact-uat-keycloak-1',
+             '/dcontact-uat-e1-sandbox-1', '/dcontact-platform-uat-mailpit-1',
+             '/dcontact-platform-uat-platform-api-1', '/dcontact-platform-uat-platform-worker-1',
+             '/dcontact-platform-uat-platform-console-1'}
 
 
 def canonical(value):
@@ -38,8 +42,16 @@ def validate(observation, approved_sha256, now=None):
         raise RuntimeError('RUNTIME_BINDING_MISMATCH')
     if runtime.get('schema') != 'UatReleaseInspectionV1' or runtime.get('runtimeConsistency') != 'TWO_MATCHING_OBSERVATIONS' or runtime.get('rollbackCertified') is not False:
         raise RuntimeError('RUNTIME_NOT_ELIGIBLE')
-    if not valid('[0-9a-f]{64}', observation.get('protectedRuntimeSha256')):
+    protected = observation.get('protectedRuntime')
+    if (not isinstance(protected, dict) or set(protected) != PROTECTED
+            or hashlib.sha256(canonical(protected)).hexdigest() != observation.get('protectedRuntimeSha256')):
         raise RuntimeError('PROTECTED_RUNTIME_REQUIRED')
+    for item in protected.values():
+        if (not isinstance(item, dict) or item.get('running') is not True
+                or not valid('[0-9a-f]{64}', item.get('id'))
+                or not valid('sha256:[0-9a-f]{64}', item.get('image'))
+                or not valid('[0-9a-f]{64}', item.get('configSha256'))):
+            raise RuntimeError('PROTECTED_IDENTITY_REQUIRED')
     components = runtime.get('components')
     if not isinstance(components, dict) or set(components) != SERVICES:
         raise RuntimeError('COMPONENT_INVENTORY_REQUIRED')
@@ -53,6 +65,13 @@ def validate(observation, approved_sha256, now=None):
         refs = component.get('repositoryDigests')
         if not isinstance(refs, list) or not refs or any(not valid(r'[^\s@]+@sha256:[0-9a-f]{64}', ref) for ref in refs):
             raise RuntimeError('COMPONENT_DIGEST_REQUIRED')
+    for service in ('e1-sandbox', 'proxy', 'keycloak'):
+        item = protected['/dcontact-uat-' + service + '-1']
+        component = components[service]
+        if (item['id'] != component['containerId'] or item['image'] != component['imageId']
+                or item['configSha256'] != component['configSha256']
+                or item.get('startedAt') != component.get('startedAt')):
+            raise RuntimeError('PROTECTED_COMPONENT_MISMATCH')
     records = runtime.get('records')
     if not isinstance(records, dict) or set(records) != {'current', 'previous'} or any(
             not isinstance(item, dict) or not valid('[0-9a-f]{64}', item.get('sha256')) for item in records.values()):

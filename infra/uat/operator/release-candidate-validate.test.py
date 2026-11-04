@@ -19,10 +19,13 @@ class CandidateTests(unittest.TestCase):
         runtime = {'schema': 'UatReleaseInspectionV1', 'runtimeConsistency': 'TWO_MATCHING_OBSERVATIONS',
                    'rollbackCertified': False, 'components': {name: copy.deepcopy(component) for name in candidate.SERVICES},
                    'records': {'current': {'sha256': 'f' * 64}, 'previous': {'sha256': 'e' * 64}}}
+        protected = {name: {'id': 'a' * 64, 'image': 'sha256:' + 'b' * 64,
+                            'configSha256': 'd' * 64, 'running': True} for name in candidate.PROTECTED}
         self.observation = {'schema': 'UatReleaseEvidenceObservationV1', 'status': 'OBSERVED_NOT_CERTIFIED',
             'rollbackCertified': False, 'observedAt': self.now.isoformat().replace('+00:00', 'Z'),
             'runtime': runtime, 'runtimeSha256': hashlib.sha256(candidate.canonical(runtime)).hexdigest(),
-            'protectedRuntimeSha256': 'a' * 64,
+            'protectedRuntime': protected,
+            'protectedRuntimeSha256': hashlib.sha256(candidate.canonical(protected)).hexdigest(),
             'ledger': {'database': 'dcontact_uat', 'principal': 'dcontact_uat_owner', 'readonly': 'on',
                        'finished': 154, 'rolledBack': 1, 'unresolved': 0, 'authorityMatches': 1}}
 
@@ -59,6 +62,13 @@ class CandidateTests(unittest.TestCase):
         self.observation['ledger']['unresolved'] = 0
         self.observation['rollbackCertified'] = True
         with self.assertRaisesRegex(RuntimeError, 'OBSERVATION_NOT_ELIGIBLE'):
+            self.check()
+
+    def test_protected_component_must_match_runtime_observation(self):
+        protected = self.observation['protectedRuntime']
+        protected['/dcontact-uat-keycloak-1']['id'] = 'f' * 64
+        self.observation['protectedRuntimeSha256'] = hashlib.sha256(candidate.canonical(protected)).hexdigest()
+        with self.assertRaisesRegex(RuntimeError, 'PROTECTED_COMPONENT_MISMATCH'):
             self.check()
 
     def test_copy_rehearsal_does_not_certify_vm_rollback(self):

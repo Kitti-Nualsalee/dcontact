@@ -43,7 +43,7 @@ def observe(inspect_runtime, protected_snapshot, read_ledger):
         raise RuntimeError('PROTECTED_RUNTIME_CHANGED')
     return {'schema': 'UatReleaseEvidenceObservationV1', 'runtimeSha256': digest(runtime),
             'runtime': runtime,
-            'protectedRuntimeSha256': digest(protected), 'ledger': ledger,
+            'protectedRuntimeSha256': digest(protected), 'protectedRuntime': protected, 'ledger': ledger,
             'observedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             'status': 'OBSERVED_NOT_CERTIFIED', 'rollbackCertified': False}
 
