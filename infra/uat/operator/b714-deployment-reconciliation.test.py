@@ -297,6 +297,17 @@ class ContractTests(unittest.TestCase):
             MODULE._apply_record(self.manifest, self.root, lambda _: record, lambda _: None)
         self.assertFalse((self.operator / 'b714-reconciliation.pending').exists())
 
+    def test_transaction_rejects_candidate_drift_before_promoting(self):
+        original = (self.root / 'deployments/current.json').read_bytes()
+        record = {'sourceSha': 'c' * 40, 'recordedAt': self.observed,
+                  'action': 'reconciliation', 'rollbackEligible': False, 'proof': 'first'}
+        changed = dict(record, proof='changed')
+        calls = iter([record, record, changed])
+        with self.assertRaisesRegex(RuntimeError, 'CANDIDATE_CHANGED'):
+            MODULE._apply_record(self.manifest, self.root, lambda _: next(calls), lambda _: None)
+        self.assertEqual((self.root / 'deployments/current.json').read_bytes(), original)
+        self.assertTrue((self.operator / 'b714-reconciliation.pending').exists())
+
     def test_locked_operation_refused(self):
         with (self.operator / 'b714-cutover.lock').open('w') as stream:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
