@@ -12,6 +12,9 @@ on:
       - 'packages/workspace-session/**'
       - '.github/workflows/core-settings.yml'
       - 'pnpm-lock.yaml'
+      - 'scripts/core-settings-uat-*'
+      - 'docs/core-settings/**'
+      - 'package.json'
       - 'scripts/core-settings-evidence*'
       - 'scripts/acceptance-main-proof.mjs'
       - 'scripts/core-settings-release*'
@@ -30,6 +33,9 @@ on:
       - 'packages/workspace-session/**'
       - '.github/workflows/core-settings.yml'
       - 'pnpm-lock.yaml'
+      - 'scripts/core-settings-uat-*'
+      - 'docs/core-settings/**'
+      - 'package.json'
       - 'scripts/core-settings-evidence*'
       - 'scripts/acceptance-main-proof.mjs'
       - 'scripts/core-settings-release*'
@@ -42,6 +48,18 @@ defaults:
   run:
     shell: bash
 jobs:
+  uat-evidence-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: ตรวจ validator ด้วยข้อมูลจำลอง ไม่ใช่ผล VM หรือทีมรับรอง
+        run: node --test scripts/core-settings-uat-gate.test.mjs scripts/core-settings-uat-snapshot.test.mjs scripts/core-settings-evidence.test.mjs scripts/core-settings-release.test.mjs
   contract-db:
     runs-on: ubuntu-latest
     timeout-minutes: 20
