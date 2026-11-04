@@ -1,5 +1,6 @@
 import { Customer360Controller, CUSTOMER_360_DATABASE } from './customer-360-api.js';
 import { Customer360OperatorController } from './customer-360-operator-api.js';
+import { Customer360ReadController } from './customer-360-read-api.js';
 import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
 import { withLocalAccountAdmission } from './local-account-verifier.js';
 import 'reflect-metadata';
@@ -374,6 +375,7 @@ class WorkspaceSessionController {
     TenantCoreSettingsController,
     Customer360Controller,
     Customer360OperatorController,
+    Customer360ReadController,
     TenantVoiceCatalogController,
     TenantPeopleController,
     WorkspaceSessionController,
