@@ -145,10 +145,10 @@ jobs:
           done
           echo 'Keycloak sandbox ไม่พร้อม: identity boundary NOT_RUN' >&2
           exit 1
-      - name: ตรวจ OIDC/JWKS/native Organizations/proof จริง ไม่ใช้ verifier stub
+      - name: ตรวจ OIDC/JWKS/native Organizations/proof จริง ไม่ใช้ verifier stub (รวม Customer 360 read, #792)
         run: |
           mkdir -p artifacts/core-settings
-          pnpm --filter @d-contact/api exec tsx --test src/tenant-core-identity.boundary.ts | tee artifacts/core-settings/identity.tap
+          pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/tenant-core-identity.boundary.ts src/customer-360-read.boundary.ts | tee artifacts/core-settings/identity.tap
       - name: เก็บ SHA/config/run และ checksum ของผลทดสอบที่รันจริง
         if: always()
         env:

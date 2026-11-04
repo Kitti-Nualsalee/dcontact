@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { Fixture } from './customer-360-test-fixtures.js';
+import type { coreFixture } from './tenant-core-test-fixtures.js';
+
+/** เฉพาะส่วนที่ helper ใช้ — ทั้ง `setup()` ของ C1 และ identity sandbox เข้ากันได้ */
+type Fixture = Pick<
+  Awaited<ReturnType<typeof coreFixture>>,
+  'owner' | 'tenantId' | 'otherTenantId' | 'actors'
+>;
 
 /**
  * Cus360 C2 (#792): helper ข้อมูลสังเคราะห์ของ read tests และ browser sandbox
