@@ -377,19 +377,32 @@ test('response ของ core ที่ยิงค้างตอบ 200 มา
 }) => {
   await profile(page, 'revokableGovernance2');
   await expect(page.getByRole('heading', { name: 'Revoke Gov Two' })).toBeVisible();
-  // revalidate ของ core ถูกคำนวณก่อน (200) แต่ไปถึง browser ช้า 2.5 วินาที
-  await control(request, 'slow/2500/profile');
+  const governance = page.getByRole('region', { name: 'สถานะ Contact Governance' });
+  await governance.getByRole('textbox').fill('SERVICE');
+  // ค้าง response 200 ของ core จนกว่าจะยืนยันว่าถอนสิทธิ์และปิดข้อมูลแล้ว
+  await control(request, 'slow/hold/profile');
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
   });
+  await expect
+    .poll(async () => (await (await control(request, 'slow-state')).json()).status)
+    .toBe(200);
+  const abortedCore = page.waitForEvent('requestfailed', {
+    predicate: (req) =>
+      req.method() === 'GET' &&
+      new URL(req.url()).pathname.endsWith(`/contacts/${config.ids.revokableGovernance2}`),
+  });
   await control(request, 'revoke/revokableGovernance2');
-  const governance = page.getByRole('region', { name: 'สถานะ Contact Governance' });
-  await governance.getByRole('textbox').fill('SERVICE');
   await governance.getByRole('button', { name: 'ดูสถานะ' }).click();
   await expect(page.getByRole('alert')).toContainText('ไม่พบลูกค้ารายนี้หรือคุณไม่มีสิทธิ์เปิด');
-  // รอให้ response ค้างมาถึง แล้วยืนยันว่ายังปิดอยู่
-  await page.waitForTimeout(3500);
+  const aborted = await abortedCore;
+  expect(aborted.failure()?.errorText).toContain('ERR_ABORTED');
+  // ปล่อย response หลัง browser ยืนยันว่า request ถูกยกเลิกแล้ว
+  await control(request, 'slow-release');
+  await expect
+    .poll(async () => (await (await control(request, 'slow-state')).json()).sent)
+    .toBe(true);
   await expect(page.getByRole('alert')).toContainText('ไม่พบลูกค้ารายนี้หรือคุณไม่มีสิทธิ์เปิด');
   await expect(page.getByText('Revoke Gov Two')).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'ประวัติการติดต่อ' })).toHaveCount(0);

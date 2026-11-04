@@ -213,11 +213,8 @@ test('C2 S1: NAME prefix, ตัวอักษรพิเศษเป็นต
       idsOf((await search(f, 'admin', { type: 'PHONE', query: '+66 89 999 9999' })).body),
       [],
     );
-    // substring/ส่วนหนึ่งของเบอร์ไม่ตรง
-    assert.deepEqual(
-      idsOf((await search(f, 'admin', { type: 'PHONE', query: '+1 213 373 42' })).body),
-      [],
-    );
+    // เบอร์ที่ไม่สมบูรณ์ถูกปฏิเสธก่อนค้นหา
+    assert.equal((await search(f, 'admin', { type: 'PHONE', query: '+1 213 373 42' })).status, 400);
     const email = await search(f, 'admin', { type: 'EMAIL', query: ' User.Name+Tag@EXAMPLE.com ' });
     assert.deepEqual(idsOf(email.body), [ids.Somchai]);
     assert.equal(JSON.stringify(email.body).includes('example.com'), true);

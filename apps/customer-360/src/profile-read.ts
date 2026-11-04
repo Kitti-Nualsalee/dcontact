@@ -1,6 +1,11 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { Prisma } from '@d-contact/db';
 import {
+  C360ContactPointError,
+  normalizeC360Email,
+  normalizeC360Phone,
+} from '@d-contact/contact-points';
+import {
   authorizeC360ContactAccess,
   c360DeferredContactSql,
   c360ReadableContactSql,
@@ -26,8 +31,6 @@ export const C360_SEARCH_MAX_LIMIT = 100;
 export const C360_CURSOR_TTL_MS = 15 * 60_000;
 const NAME_MIN = 2;
 const NAME_MAX = 160;
-const PHONE_MAX = 64;
-const EMAIL_MAX = 512;
 
 export class C360ReadError extends Error {
   constructor(
@@ -207,38 +210,19 @@ function nameKey(value: string): string {
   return normalized;
 }
 
-/**
- * ค้นเบอร์: รับเฉพาะรูปแบบสากล (+รหัสประเทศ) เท่านั้น — ไม่เดาประเทศ ไม่ fallback เป็น digits-only (E1 C)
- * นี่เป็น search key เท่านั้น (ไม่ validate ว่าเป็นเบอร์จริง); parser เต็มของ C3/C4 แทนที่ได้โดยไม่เปลี่ยน contract
- */
-function phoneKey(value: string): string {
-  if (value.length > PHONE_MAX || !wellFormed(value) || CONTROL.test(value))
-    throw validation('query', 'PHONE_INVALID');
-  const trimmed = value.trim();
-  if (!/^\+[\d\s().-]+$/.test(trimmed)) throw validation('query', 'PHONE_INTERNATIONAL_REQUIRED');
-  const digits = trimmed.slice(1).replace(/\D/g, '');
-  if (digits.length < 8 || digits.length > 15 || digits.startsWith('0'))
-    throw validation('query', 'PHONE_INVALID');
-  return `+${digits}`;
-}
-
-/** key เดียวกับ E1 C: local ตามเดิม + `@` + domain lowercase (ไม่ strip alias/ไม่ fold local) */
-function emailKey(value: string): string {
-  if (value.length > EMAIL_MAX || !wellFormed(value) || CONTROL.test(value))
-    throw validation('query', 'EMAIL_INVALID');
-  const trimmed = value.trim();
-  const at = trimmed.lastIndexOf('@');
-  const local = trimmed.slice(0, at);
-  const domain = trimmed.slice(at + 1);
-  const labels = domain.split('.');
-  if (
-    at < 1 ||
-    labels.length < 2 ||
-    labels.some((label) => label.length === 0 || /\s/.test(label)) ||
-    (/\s/.test(local) && !(local.startsWith('"') && local.endsWith('"')))
-  )
-    throw validation('query', 'EMAIL_INVALID');
-  return `${local}@${domain.toLowerCase()}`;
+/** ใช้ parser เดียวกับ owner โดยคงรหัส validation ที่ Console รองรับ */
+function contactPointKey(kind: 'PHONE' | 'EMAIL', value: string): string {
+  try {
+    return (kind === 'PHONE' ? normalizeC360Phone(value) : normalizeC360Email(value))
+      .normalizedValue;
+  } catch (error) {
+    if (!(error instanceof C360ContactPointError)) throw error;
+    const code =
+      kind === 'PHONE' && error.code === 'PHONE_COUNTRY_REQUIRED'
+        ? 'PHONE_INTERNATIONAL_REQUIRED'
+        : `${kind}_INVALID`;
+    throw validation('query', code);
+  }
 }
 
 const SEARCH_FIELDS = new Set(['type', 'query', 'limit', 'cursor']);
@@ -273,12 +257,7 @@ export function parseC360SearchInput(body: unknown): NormalizedSearch {
     return { type, key: null, limit, cursor };
   }
   if (typeof input.query !== 'string') throw validation('query', 'QUERY_REQUIRED');
-  const key =
-    type === 'NAME'
-      ? nameKey(input.query)
-      : type === 'PHONE'
-        ? phoneKey(input.query)
-        : emailKey(input.query);
+  const key = type === 'NAME' ? nameKey(input.query) : contactPointKey(type, input.query);
   return { type, key, limit, cursor };
 }
 
