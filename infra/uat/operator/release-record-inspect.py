@@ -62,12 +62,17 @@ def inspect(root=ROOT, execute=subprocess.run):
         if len(images) != len(image_ids) or {image['Id'] for image in images} != set(image_ids):
             raise RuntimeError('IMAGE_INVENTORY_CHANGED')
         digests = {}
+        revisions = {}
         for image in images:
             refs = image.get('RepoDigests') or []
             if not refs or any(not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', ref) for ref in refs):
                 raise RuntimeError('IMAGE_REPOSITORY_DIGEST_REQUIRED')
             digests[image['Id']] = sorted(set(refs))
+            revisions[image['Id']] = (image.get('Config', {}).get('Labels') or {}).get(
+                'org.opencontainers.image.revision')
         for component in components.values():
+            if revisions[component['imageId']] != component['sourceSha']:
+                raise RuntimeError('IMAGE_SOURCE_LABEL_MISMATCH')
             component['repositoryDigests'] = digests[component['imageId']]
         return components
 

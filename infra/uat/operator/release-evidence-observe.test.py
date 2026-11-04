@@ -22,6 +22,7 @@ class EvidenceTests(unittest.TestCase):
     def test_observation_binds_inputs_without_certifying_rollback(self):
         result = self.capture()
         self.assertEqual(result['runtimeSha256'], evidence.digest(self.runtime))
+        self.assertEqual(result['runtime'], self.runtime)
         self.assertEqual(result['protectedRuntimeSha256'], evidence.digest(self.protected))
         self.assertFalse(result['rollbackCertified'])
 
@@ -32,6 +33,15 @@ class EvidenceTests(unittest.TestCase):
                 original = self.ledger[key]
                 self.ledger[key] = value
                 with self.assertRaisesRegex(RuntimeError, reason):
+                    self.capture()
+                self.ledger[key] = original
+
+    def test_rejects_non_integer_or_impossible_ledger_counts(self):
+        for key, value in [('finished', 0), ('rolledBack', -1), ('unresolved', False), ('authorityMatches', True)]:
+            with self.subTest(key=key):
+                original = self.ledger[key]
+                self.ledger[key] = value
+                with self.assertRaisesRegex(RuntimeError, 'COUNTS_INVALID'):
                     self.capture()
                 self.ledger[key] = original
 

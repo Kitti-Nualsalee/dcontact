@@ -23,7 +23,7 @@ class InspectionTests(unittest.TestCase):
         self.containers = []
         for name in inspection.SERVICES:
             self.containers.append({'Name': '/dcontact-uat-' + name + '-1', 'Id': name,
-                'Image': 'sha256:' + 'a' * 64, 'Config': {'Image': 'example/image',
+                'Image': 'sha256:' + ('c' if name == 'api' else 'a') * 64, 'Config': {'Image': 'example/image',
                 'Env': ['PASSWORD=must-not-appear'], 'Labels': {'com.docker.compose.project': 'dcontact-uat',
                 'org.opencontainers.image.revision': ('c' if name == 'api' else 'a') * 40}},
                 'HostConfig': {}, 'Mounts': [], 'State': {'Running': True}})
@@ -32,7 +32,9 @@ class InspectionTests(unittest.TestCase):
         def execute(args, **kwargs):
             if args[:3] == ['docker', 'image', 'inspect']:
                 return SimpleNamespace(stdout=json.dumps([{'Id': image_id,
-                    'RepoDigests': ['example/image@sha256:' + 'a' * 64]} for image_id in args[3:]]).encode())
+                    'RepoDigests': ['example/image@sha256:' + 'a' * 64],
+                    'Config': {'Labels': {'org.opencontainers.image.revision':
+                        ('c' if image_id.endswith('c' * 64) else 'a') * 40}}} for image_id in args[3:]]).encode())
             self.assertEqual(args[:2], ['docker', 'inspect'])
             return SimpleNamespace(stdout=json.dumps(self.containers).encode())
         return inspection.inspect(self.root, execute)
@@ -61,7 +63,9 @@ class InspectionTests(unittest.TestCase):
             (self.root / 'deployments' / 'current.json').write_text(json.dumps({'sourceSha': 'd' * 40}))
             if args[:3] == ['docker', 'image', 'inspect']:
                 return SimpleNamespace(stdout=json.dumps([{'Id': image_id,
-                    'RepoDigests': ['example/image@sha256:' + 'a' * 64]} for image_id in args[3:]]).encode())
+                    'RepoDigests': ['example/image@sha256:' + 'a' * 64],
+                    'Config': {'Labels': {'org.opencontainers.image.revision':
+                        ('c' if image_id.endswith('c' * 64) else 'a') * 40}}} for image_id in args[3:]]).encode())
             return SimpleNamespace(stdout=json.dumps(self.containers).encode())
         with self.assertRaisesRegex(RuntimeError, 'RECORD_CHANGED_DURING_INSPECTION'):
             inspection.inspect(self.root, execute)
@@ -72,7 +76,9 @@ class InspectionTests(unittest.TestCase):
             nonlocal calls
             if args[:3] == ['docker', 'image', 'inspect']:
                 return SimpleNamespace(stdout=json.dumps([{'Id': image_id,
-                    'RepoDigests': ['example/image@sha256:' + 'a' * 64]} for image_id in args[3:]]).encode())
+                    'RepoDigests': ['example/image@sha256:' + 'a' * 64],
+                    'Config': {'Labels': {'org.opencontainers.image.revision':
+                        ('c' if image_id.endswith('c' * 64) else 'a') * 40}}} for image_id in args[3:]]).encode())
             calls += 1
             if calls == 2:
                 self.containers[0]['Id'] = 'replacement'
@@ -88,6 +94,11 @@ class InspectionTests(unittest.TestCase):
             return SimpleNamespace(stdout=json.dumps(self.containers).encode())
         with self.assertRaisesRegex(RuntimeError, 'IMAGE_REPOSITORY_DIGEST_REQUIRED'):
             inspection.inspect(self.root, execute)
+
+    def test_container_source_must_match_image_source(self):
+        self.containers[0]['Config']['Labels']['org.opencontainers.image.revision'] = 'b' * 40
+        with self.assertRaisesRegex(RuntimeError, 'IMAGE_SOURCE_LABEL_MISMATCH'):
+            self.run_inspection()
 
     def test_unknown_source_and_image_are_rejected(self):
         labels = self.containers[0]['Config']['Labels']

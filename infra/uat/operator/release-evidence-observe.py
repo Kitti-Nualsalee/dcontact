@@ -30,13 +30,19 @@ def observe(inspect_runtime, protected_snapshot, read_ledger):
     if (ledger.get('database'), ledger.get('principal'), ledger.get('readonly')) != (
             'dcontact_uat', 'dcontact_uat_owner', 'on'):
         raise RuntimeError('LEDGER_SCOPE_REQUIRED')
+    if any(type(ledger.get(key)) is not int or ledger[key] < 0
+           for key in ('finished', 'rolledBack', 'unresolved', 'authorityMatches')):
+        raise RuntimeError('LEDGER_COUNTS_INVALID')
     if ledger.get('unresolved') != 0 or ledger.get('authorityMatches') != 1:
         raise RuntimeError('LEDGER_INCOMPLETE')
+    if ledger['finished'] < ledger['authorityMatches']:
+        raise RuntimeError('LEDGER_COUNTS_INVALID')
     if inspect_runtime() != runtime:
         raise RuntimeError('RUNTIME_CHANGED_DURING_LEDGER_READ')
     if protected_snapshot() != protected:
         raise RuntimeError('PROTECTED_RUNTIME_CHANGED')
     return {'schema': 'UatReleaseEvidenceObservationV1', 'runtimeSha256': digest(runtime),
+            'runtime': runtime,
             'protectedRuntimeSha256': digest(protected), 'ledger': ledger,
             'observedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             'status': 'OBSERVED_NOT_CERTIFIED', 'rollbackCertified': False}
