@@ -16,6 +16,15 @@ test('#714 Python record-only tests ผ่านโดยไม่เรีย�
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
+test('#868 ตรวจ record และ runtime โดยไม่เรียก VM/Docker จริง', () => {
+  const result = spawnSync('python3', ['-B', resolve('infra/uat/operator/release-record-inspect.test.py')], {
+    encoding: 'utf8',
+    timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Ran \d+ tests/);
+});
+
 test('reconciliation ต้องมี manifest จริง ไม่สร้าง config receipt เทียม', async () => {
   assert.throws(() => buildDeploymentRecord({ action: 'reconciliation' }), /manifest/);
   await assert.rejects(

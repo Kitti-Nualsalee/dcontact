@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""ตรวจความต่างระหว่าง deployment record และ runtime โดยไม่แก้ระบบ."""
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+
+ROOT = Path('/opt/dcontact-uat')
+SERVICES = ('api', 'e1-sandbox', 'proxy', 'keycloak')
+
+
+def read_records(root):
+    records = {}
+    for name in ('current', 'previous'):
+        raw = (root / 'deployments' / (name + '.json')).read_bytes()
+        record = json.loads(raw)
+        if not isinstance(record, dict) or not re.fullmatch('[0-9a-f]{40}', str(record.get('sourceSha', ''))):
+            raise RuntimeError('RECORD_SOURCE_REQUIRED')
+        records[name] = {'sha256': hashlib.sha256(raw).hexdigest(),
+                         'schema': record.get('schema'), 'action': record.get('action'),
+                         'sourceSha': record.get('sourceSha'),
+                         'rollbackEligible': record.get('rollbackEligible')}
+    return records
+
+
+def inspect(root=ROOT, execute=subprocess.run):
+    records = read_records(root)
+    names = ['dcontact-uat-' + service + '-1' for service in SERVICES]
+    def observe():
+        result = execute(['docker', 'inspect', *names], check=True, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, timeout=20)
+        containers = json.loads(result.stdout)
+        if len(containers) != len(names) or {c['Name'].lstrip('/') for c in containers} != set(names):
+            raise RuntimeError('RUNTIME_INVENTORY_CHANGED')
+        components = {}
+        for container in containers:
+            name = container['Name'].lstrip('/')
+            service = name[len('dcontact-uat-'):-2]
+            labels = container['Config'].get('Labels') or {}
+            if labels.get('com.docker.compose.project') != 'dcontact-uat':
+                raise RuntimeError('RUNTIME_PROJECT_MISMATCH')
+            if not re.fullmatch('[0-9a-f]{40}', str(labels.get('org.opencontainers.image.revision', ''))):
+                raise RuntimeError('RUNTIME_SOURCE_REQUIRED')
+            if not re.fullmatch('sha256:[0-9a-f]{64}', str(container.get('Image', ''))):
+                raise RuntimeError('RUNTIME_IMAGE_ID_REQUIRED')
+            config = {key: container[key] for key in ('Config', 'HostConfig', 'Mounts')}
+            config_bytes = json.dumps(config, sort_keys=True, separators=(',', ':')).encode()
+            components[service] = {'containerId': container['Id'], 'imageId': container['Image'],
+                                   'imageReference': container['Config']['Image'],
+                                   'sourceSha': labels.get('org.opencontainers.image.revision'),
+                                   'running': container['State']['Running'],
+                                   'startedAt': container['State'].get('StartedAt'),
+                                   'configSha256': hashlib.sha256(config_bytes).hexdigest()}
+        if not all(c['running'] for c in components.values()):
+            raise RuntimeError('RUNTIME_NOT_RUNNING')
+        return components
+
+    components = observe()
+    if observe() != components:
+        raise RuntimeError('RUNTIME_CHANGED_DURING_INSPECTION')
+    if read_records(root) != records:
+        raise RuntimeError('RECORD_CHANGED_DURING_INSPECTION')
+    mismatch = sorted(name for name, component in components.items()
+                      if component['sourceSha'] != records['current']['sourceSha'])
+    return {'schema': 'UatReleaseInspectionV1', 'records': records,
+            'components': components, 'sourceMismatch': mismatch,
+            'rollbackCertified': False, 'runtimeConsistency': 'TWO_MATCHING_OBSERVATIONS'}
+
+
+if __name__ == '__main__':
+    print(json.dumps(inspect(), sort_keys=True))
