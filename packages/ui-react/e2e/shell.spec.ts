@@ -276,3 +276,30 @@ test('เมนูผู้ใช้: จอแคบเหลือวงกล
   await expect(trigger.getByText('สมชาย ใจดี')).toBeHidden();
   await expect(trigger.getByText('สจ')).toBeVisible();
 });
+
+for (const lang of ['th', 'en'] as const) {
+  for (const width of [768, 1280, 1440]) {
+    test(`TopBar actions อยู่ในจอและเปิดเมนูด้วย keyboard ที่ ${width}px (${lang})`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?view=shell&lang=${lang}`);
+      const header = page.locator('header');
+      const menu = userTrigger(page);
+      await expect(menu).toBeVisible();
+      const bounds = await header.evaluate((element) => ({
+        client: element.clientWidth,
+        scroll: element.scrollWidth,
+      }));
+      expect(bounds.scroll).toBeLessThanOrEqual(bounds.client);
+      for (const control of await header.locator('a, button').all()) {
+        await expect(control).toBeInViewport({ ratio: 1 });
+      }
+      await menu.focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('menu')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(menu).toBeFocused();
+    });
+  }
+}
