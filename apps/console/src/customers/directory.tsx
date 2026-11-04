@@ -19,7 +19,7 @@ import {
   type CustomersApi,
   type SearchType,
 } from './api.js';
-import { errorKind, fieldErrorKey, type ErrorKind } from './model.js';
+import { closesCustomerData, errorKind, fieldErrorKey, type ErrorKind } from './model.js';
 import { Skeleton } from './skeleton.js';
 
 interface Props {
@@ -37,6 +37,7 @@ type View =
   | { state: 'error'; kind: ErrorKind; retryAfter?: number };
 
 const SEARCH_TYPES = ['NAME', 'PHONE', 'EMAIL'] as const;
+const DIRECTORY_SEARCH: Applied = { type: 'DIRECTORY', query: '' };
 
 /** รายการ + ค้นหาลูกค้า (Console A): ผลทั้งหมดมาจาก server ตามสิทธิ์; ไม่มี query ใน URL */
 export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props) {
@@ -46,8 +47,8 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
   const [query, setQuery] = useState('');
   const [fieldError, setFieldError] = useState<string>();
   // applied = คำขอล่าสุด; shown = ชุดที่ผลบนจอเป็นของจริง (validation ล้มแล้วผลเดิมยังเป็นของ shown)
-  const [applied, setApplied] = useState<Applied>({ type: 'DIRECTORY', query: '' });
-  const [shown, setShown] = useState<Applied>({ type: 'DIRECTORY', query: '' });
+  const [applied, setApplied] = useState<Applied>(DIRECTORY_SEARCH);
+  const [shown, setShown] = useState<Applied>(DIRECTORY_SEARCH);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [focusId, setFocusId] = useState<string>();
   const resultsRef = useRef<HTMLHeadingElement>(null);
@@ -66,6 +67,13 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
     setItems([]);
     setCursor(null);
     setPage(undefined);
+  }, []);
+
+  const closeSearchContext = useCallback(() => {
+    setQuery('');
+    setFieldError(undefined);
+    setApplied(DIRECTORY_SEARCH);
+    setShown(DIRECTORY_SEARCH);
   }, []);
 
   useEffect(() => {
@@ -103,6 +111,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
           return;
         }
         closeData();
+        if (closesCustomerData(kind)) closeSearchContext();
         setView({
           state: 'error',
           kind,
@@ -110,7 +119,7 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
         });
       });
     return () => controller.abort();
-  }, [api, applied, revision, closeData]);
+  }, [api, applied, revision, closeData, closeSearchContext]);
 
   useEffect(() => {
     function onVisibilityChange() {
@@ -166,7 +175,9 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
       .catch((failure: unknown) => {
         if (mine !== sequence.current) return;
         closeData();
-        setView({ state: 'error', kind: errorKind(failure) });
+        const kind = errorKind(failure);
+        if (closesCustomerData(kind)) closeSearchContext();
+        setView({ state: 'error', kind });
       })
       .finally(() => setMore(false));
   }

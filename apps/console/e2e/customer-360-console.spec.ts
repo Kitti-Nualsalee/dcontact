@@ -241,6 +241,8 @@ test('ไม่มีสิทธิ์/ไม่พบ: ข้อความ�
 test('รายการปิดข้อมูลเมื่อ session หมดระหว่างสลับแท็บ', async ({ page, request }) => {
   await list(page);
   await expect(table(page)).toBeVisible();
+  await search(page, 'อีเมล (เต็มค่า)', 'somchai@example.com');
+  await expect(table(page)).toContainText('สมชาย ใจดี');
   await control(request, 'session/expire');
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
@@ -249,6 +251,7 @@ test('รายการปิดข้อมูลเมื่อ session ห�
   await expect(page.getByRole('alert')).toContainText('เซสชันหมดอายุ');
   await expect(table(page)).toHaveCount(0);
   await expect(page.getByText('สมชาย ใจดี')).toHaveCount(0);
+  await expect(page.getByRole('textbox')).toHaveValue('');
 });
 
 test('session หมด: กลับมาที่แท็บแล้วปิด PII ทั้งหน้าทันที ไม่ค้างข้อมูลเสริม', async ({
