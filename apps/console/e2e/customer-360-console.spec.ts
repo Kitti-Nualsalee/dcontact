@@ -621,6 +621,7 @@ test('i18n: สลับ TH/EN ในหน้าเดิมโดยไม่ 
 // ที่ 390px พื้นที่เนื้อหาเหลือราว 74px จึงไม่นับเป็นหลักฐานจอแคบของหน้านี้ — ตรวจตั้งแต่ tablet 768 ขึ้นไป
 for (const [name, size] of [
   ['tablet 768', { width: 768, height: 1024 }],
+  ['tablet 950', { width: 950, height: 900 }],
   ['laptop 1280', { width: 1280, height: 800 }],
 ] as const) {
   test(`responsive ${name}: เนื้อหาไม่ล้นทั้งหน้าและพื้นที่เนื้อหา, ชื่อ/บริษัทยาวถูก wrap`, async ({
