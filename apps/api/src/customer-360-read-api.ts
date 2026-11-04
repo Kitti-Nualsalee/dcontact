@@ -117,10 +117,17 @@ export class Customer360ReadController {
   async search(@Req() req: AuthenticatedGatewayRequest, @Body() body: unknown) {
     const identity = requestIdentity(req);
     this.throttle(identity.tenantId, identity.userId);
-    return withTenantDatabaseTransaction(this.db, identity.tenantId, async (tx) => {
-      const actor = await c360CurrentActor(tx, identity);
-      return searchC360Contacts(tx, actor, body, this.codec);
-    });
+    return withTenantDatabaseTransaction(
+      this.db,
+      identity.tenantId,
+      async (tx) => {
+        // Search ใช้ query สั้นหลายครั้ง ค่า compile JIT อาจสูงกว่าเวลาประมวลผลจริง
+        await tx.$queryRaw`SELECT set_config('jit', 'off', true)`;
+        const actor = await c360CurrentActor(tx, identity);
+        return searchC360Contacts(tx, actor, body, this.codec);
+      },
+      { isolationLevel: 'RepeatableRead' },
+    );
   }
 
   @Get('contacts/:contactId')

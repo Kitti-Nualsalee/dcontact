@@ -238,6 +238,28 @@ test('ไม่มีสิทธิ์/ไม่พบ: ข้อความ�
   await expect(page.getByRole('alert')).toContainText('ไม่พบลูกค้ารายนี้หรือคุณไม่มีสิทธิ์เปิด');
 });
 
+test('รายการปิดข้อมูลเมื่อ session หมดระหว่างสลับแท็บ', async ({ page, request }) => {
+  await list(page);
+  await expect(table(page)).toBeVisible();
+  await search(page, 'อีเมล (เต็มค่า)', 'somchai@example.com');
+  await expect(table(page)).toContainText('สมชาย ใจดี');
+  await control(request, 'session/expire');
+  let searches = 0;
+  page.on('request', (req) => {
+    if (req.url().includes('/customer-360/contacts/search')) searches += 1;
+  });
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.getByRole('alert')).toContainText('เซสชันหมดอายุ');
+  await expect(table(page)).toHaveCount(0);
+  await expect(page.getByText('สมชาย ใจดี')).toHaveCount(0);
+  await expect(page.getByRole('textbox')).toHaveValue('');
+  await page.waitForTimeout(200);
+  expect(searches).toBe(1);
+});
+
 test('session หมด: กลับมาที่แท็บแล้วปิด PII ทั้งหน้าทันที ไม่ค้างข้อมูลเสริม', async ({
   page,
   request,
@@ -617,6 +639,9 @@ test('accessibility: รายการและโปรไฟล์ไม่�
 }) => {
   await list(page);
   await expect(table(page)).toBeVisible();
+  await page.getByRole('button', { name: 'ค้นหา', exact: true }).evaluate(async (button) => {
+    await Promise.all(button.getAnimations().map((animation) => animation.finished));
+  });
   const serious = (results: Awaited<ReturnType<AxeBuilder['analyze']>>) =>
     results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(serious(await new AxeBuilder({ page }).include('main').analyze())).toEqual([]);

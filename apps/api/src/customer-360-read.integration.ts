@@ -161,7 +161,15 @@ test('C2 S1: Agent, Compliance, unbound, disabled ไม่มี generic direct
 test('C2 S1: NAME prefix, ตัวอักษรพิเศษเป็นตัวอักษรธรรมดา, PHONE/EMAIL เต็มค่า และ shared/retired/review ไม่หลุดสิทธิ์', async () => {
   const f = await setup([Customer360ReadController]);
   try {
-    const names = ['100%_Done', 'Somchai', 'somsri', 'Anan\\Tee', 'A_B', 'AxB'];
+    const names = [
+      '100%_Done',
+      'Somchai',
+      'somsri',
+      'Anan\\Tee',
+      'A_B',
+      'AxB',
+      'Cafe\u0301 legacy',
+    ];
     const ids: Record<string, string> = {};
     for (const name of names) {
       ids[name] = await contact(f, { displayName: name });
@@ -178,6 +186,7 @@ test('C2 S1: NAME prefix, ตัวอักษรพิเศษเป็นต
     assert.deepEqual(await names_('A_'), [ids.A_B]);
     assert.deepEqual(await names_('.*'), []);
     assert.deepEqual(await names_('chai'), []);
+    assert.deepEqual(await names_('Café'), [ids['Cafe\u0301 legacy']]);
     assert.deepEqual(await names_('Anan\\'), [ids['Anan\\Tee']]);
     assert.equal(
       (await search(f, 'admin', { type: 'NAME', query: 'x' })).body.error.fieldErrors?.[0]?.code,
@@ -304,6 +313,25 @@ test('C2 S1: cursor แบบ opaque แบ่งหน้าไม่ซ้ำ;
     const expired = await search(f, 'admin', { cursor: old });
     assert.equal(expired.status, 410);
     assert.equal(expired.body.error.code, 'CURSOR_EXPIRED');
+
+    // ถอน grant ของรายการหน้าแรกระหว่างหน้า ต้องปฏิเสธ cursor เดิม
+    const revokeGrant = await f.owner.c360ContactCustodianGrant.findFirstOrThrow({
+      where: { tenantId: f.tenantId, contactId: created[4], granteeUserId: admin.id },
+    });
+    await f.owner.c360ContactCustodianRevocation.create({
+      data: {
+        id: randomUUID(),
+        tenantId: f.tenantId,
+        grantId: revokeGrant.id,
+        actorIdentityKey: revokeGrant.actorIdentityKey,
+        commandId: revokeGrant.commandId,
+        reason: 'test revoke',
+        evidenceRef: 'fixture-evidence',
+      },
+    });
+    const revoked = await search(f, 'admin', { limit: 2, cursor: token });
+    assert.equal(revoked.status, 400);
+    assert.equal(revoked.body.error.code, 'CURSOR_INVALID');
 
     // scope เปลี่ยนระหว่างหน้า (ย้ายทีม): cursor เดิมใช้ไม่ได้ ต้องค้นใหม่
     const otherTeam = randomUUID();
