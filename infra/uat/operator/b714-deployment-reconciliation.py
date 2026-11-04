@@ -350,13 +350,13 @@ def _apply_record(manifest, root, prepare_candidate, inspect_candidate):
         require(not pending.exists(), 'PENDING_RECONCILIATION_REQUIRES_MANUAL_REVIEW')
         current, previous = deployments / 'current.json', deployments / 'previous.json'
         def stable_record(value):
-            return {key: item for key, item in value.items() if key != 'recordedAt'}
+            return canonical({key: item for key, item in value.items() if key != 'recordedAt'})
         def verify(expected_previous, expected_record=None):
             require(current_hash(current) == manifest['expectedCurrentSha256'] and
                     current_hash(previous) == expected_previous, 'RECORD_CAS_CONFLICT')
             candidate = prepare_candidate(manifest)
             if expected_record is not None:
-                require(stable_record(candidate) == stable_record(expected_record), 'CANDIDATE_CHANGED')
+                require(stable_record(candidate) == expected_record, 'CANDIDATE_CHANGED')
             inspect_candidate(manifest)
         verify(manifest['expectedPreviousSha256'])
         record = prepare_candidate(manifest)
@@ -364,6 +364,7 @@ def _apply_record(manifest, root, prepare_candidate, inspect_candidate):
         require(record.get('action') == 'reconciliation' and record.get('rollbackEligible') is False,
                 'RECONCILIATION_NOT_ROLLBACK_CERTIFIED')
         raw = canonical(record) + b'\n'
+        expected_record = stable_record(record)
         name = 'b714-reconciliation-' + uuid.uuid4().hex
         transaction = operator / name
         create(pending, canonical({'status': 'PENDING', 'transaction': str(transaction)}))
@@ -382,10 +383,10 @@ def _apply_record(manifest, root, prepare_candidate, inspect_candidate):
         staged_current = deployments / (name + '-current.tmp')
         create(staged_previous, read(current))
         create(staged_current, raw)
-        verify(manifest['expectedPreviousSha256'], record)
+        verify(manifest['expectedPreviousSha256'], expected_record)
         os.replace(str(staged_previous), str(previous))
         sync_directory(deployments)
-        verify(manifest['expectedCurrentSha256'], record)
+        verify(manifest['expectedCurrentSha256'], expected_record)
         os.replace(str(staged_current), str(current))
         sync_directory(deployments)
         require(read(current) == raw, 'CURRENT_COMMIT_READBACK_FAILED')

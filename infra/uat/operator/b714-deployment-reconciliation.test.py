@@ -308,6 +308,21 @@ class ContractTests(unittest.TestCase):
         self.assertEqual((self.root / 'deployments/current.json').read_bytes(), original)
         self.assertTrue((self.operator / 'b714-reconciliation.pending').exists())
 
+    def test_transaction_detects_mutation_of_shared_nested_candidate(self):
+        original = (self.root / 'deployments/current.json').read_bytes()
+        record = {'sourceSha': 'c' * 40, 'recordedAt': self.observed,
+                  'action': 'reconciliation', 'rollbackEligible': False, 'proof': {'digest': 'first'}}
+        count = 0
+        def prepare(_):
+            nonlocal count
+            count += 1
+            if count == 3:
+                record['proof']['digest'] = 'changed'
+            return record
+        with self.assertRaisesRegex(RuntimeError, 'CANDIDATE_CHANGED'):
+            MODULE._apply_record(self.manifest, self.root, prepare, lambda _: None)
+        self.assertEqual((self.root / 'deployments/current.json').read_bytes(), original)
+
     def test_locked_operation_refused(self):
         with (self.operator / 'b714-cutover.lock').open('w') as stream:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
