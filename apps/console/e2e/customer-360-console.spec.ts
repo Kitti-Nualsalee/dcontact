@@ -388,10 +388,17 @@ test('response ของ core ที่ยิงค้างตอบ 200 มา
   await expect
     .poll(async () => (await (await control(request, 'slow-state')).json()).status)
     .toBe(200);
+  const abortedCore = page.waitForEvent('requestfailed', {
+    predicate: (req) =>
+      req.method() === 'GET' &&
+      new URL(req.url()).pathname.endsWith(`/contacts/${config.ids.revokableGovernance2}`),
+  });
   await control(request, 'revoke/revokableGovernance2');
   await governance.getByRole('button', { name: 'ดูสถานะ' }).click();
   await expect(page.getByRole('alert')).toContainText('ไม่พบลูกค้ารายนี้หรือคุณไม่มีสิทธิ์เปิด');
-  // ปล่อย response ที่ค้างและรอ proxy ส่งก่อนตรวจว่า PII ยังถูกปิด
+  const aborted = await abortedCore;
+  expect(aborted.failure()?.errorText).toContain('ERR_ABORTED');
+  // ปล่อย response หลัง browser ยืนยันว่า request ถูกยกเลิกแล้ว
   await control(request, 'slow-release');
   await expect
     .poll(async () => (await (await control(request, 'slow-state')).json()).sent)
