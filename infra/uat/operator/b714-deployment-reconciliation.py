@@ -336,6 +336,11 @@ def current_hash(path):
 
 
 def apply_record(manifest, root=ROOT):
+    return _apply_record(manifest, root, prepare, inspect_runtime)
+
+
+def _apply_record(manifest, root, prepare_candidate, inspect_candidate):
+    """ใช้ขั้นตอน commit เดียวกันหลังผ่านตัวตรวจหลักฐานของ candidate."""
     deployments = root / 'deployments'
     operator = root / 'operator'
     pending = operator / 'b714-reconciliation.pending'
@@ -347,10 +352,13 @@ def apply_record(manifest, root=ROOT):
         def verify(expected_previous):
             require(current_hash(current) == manifest['expectedCurrentSha256'] and
                     current_hash(previous) == expected_previous, 'RECORD_CAS_CONFLICT')
-            prepare(manifest)
-            inspect_runtime(manifest)
+            prepare_candidate(manifest)
+            inspect_candidate(manifest)
         verify(manifest['expectedPreviousSha256'])
-        record = prepare(manifest)
+        record = prepare_candidate(manifest)
+        require(re.fullmatch('[0-9a-f]{40}', str(record.get('sourceSha', ''))), 'RECORD_SOURCE_REQUIRED')
+        require(record.get('action') == 'reconciliation' and record.get('rollbackEligible') is False,
+                'RECONCILIATION_NOT_ROLLBACK_CERTIFIED')
         raw = canonical(record) + b'\n'
         name = 'b714-reconciliation-' + uuid.uuid4().hex
         transaction = operator / name
@@ -364,7 +372,7 @@ def apply_record(manifest, root=ROOT):
                'expectedCurrentSha256': manifest['expectedCurrentSha256'],
                'expectedPreviousSha256': manifest['expectedPreviousSha256']}))
         target = deployments / (instant(record['recordedAt']).strftime('%Y%m%dT%H%M%SZ') + '-' +
-                                uuid.uuid4().hex + '-' + SOURCE + '.json')
+                                uuid.uuid4().hex + '-' + record['sourceSha'] + '.json')
         create(target, raw)
         staged_previous = deployments / (name + '-previous.tmp')
         staged_current = deployments / (name + '-current.tmp')

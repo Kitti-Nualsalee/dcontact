@@ -273,6 +273,30 @@ class ContractTests(unittest.TestCase):
             MODULE.apply_record(self.manifest, self.root)
         self.assertFalse((self.operator / 'b714-reconciliation.pending').exists())
 
+    def test_transaction_uses_candidate_source_and_preserves_previous(self):
+        original = (self.root / 'deployments/current.json').read_bytes()
+        source = 'c' * 40
+        record = {'sourceSha': source, 'recordedAt': self.observed,
+                  'action': 'reconciliation', 'rollbackEligible': False}
+        result = MODULE._apply_record(self.manifest, self.root, lambda _: record, lambda _: None)
+        self.assertEqual(result['status'], 'COMMITTED')
+        self.assertEqual((self.root / 'deployments/previous.json').read_bytes(), original)
+        self.assertEqual(len(list((self.root / 'deployments').glob('*-' + source + '.json'))), 1)
+        self.assertFalse(json.loads((self.root / 'deployments/current.json').read_bytes())['rollbackEligible'])
+
+    def test_transaction_rejects_invalid_candidate_before_pending(self):
+        record = {'sourceSha': '../invalid', 'recordedAt': self.observed}
+        with self.assertRaisesRegex(RuntimeError, 'RECORD_SOURCE_REQUIRED'):
+            MODULE._apply_record(self.manifest, self.root, lambda _: record, lambda _: None)
+        self.assertFalse((self.operator / 'b714-reconciliation.pending').exists())
+
+    def test_transaction_refuses_uncertified_record_marked_rollback_eligible(self):
+        record = {'sourceSha': 'c' * 40, 'recordedAt': self.observed,
+                  'action': 'reconciliation', 'rollbackEligible': True}
+        with self.assertRaisesRegex(RuntimeError, 'NOT_ROLLBACK_CERTIFIED'):
+            MODULE._apply_record(self.manifest, self.root, lambda _: record, lambda _: None)
+        self.assertFalse((self.operator / 'b714-reconciliation.pending').exists())
+
     def test_locked_operation_refused(self):
         with (self.operator / 'b714-cutover.lock').open('w') as stream:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
