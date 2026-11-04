@@ -1,5 +1,7 @@
 import {
   Body,
+  Get,
+  Param,
   Controller,
   Header,
   HttpCode,
@@ -14,7 +16,11 @@ import type { ServerResponse } from 'node:http';
 import type { PrismaClient } from '@d-contact/db';
 import {
   c360Uuid,
+  readC360ServicePrincipalMetadata,
   executeC360OperatorCommand,
+  lookupC360OperatorCommand,
+  reconcileC360OperatorCommand,
+  type C360ProfileCommandResult,
   previewC360OperatorCommand,
   type C360TrustedOperator,
 } from '@d-contact/customer-360';
@@ -36,6 +42,15 @@ import {
 function operator(req: AuthenticatedGatewayRequest): C360TrustedOperator {
   const identity = req.gatewayIdentity;
   if (!identity) throw new UnauthorizedException();
+  if (
+    !identity.roles.includes('platform-operator') ||
+    identity.roles.includes('service') ||
+    req.gatewayServiceIdentity ||
+    (typeof req.gatewayVerifiedClaims?.preferred_username === 'string' &&
+      req.gatewayVerifiedClaims.preferred_username ===
+        `service-account-${req.gatewayVerifiedClaims.azp}`)
+  )
+    throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
   const caller = tenantConfigurationCaller(req);
   if (!caller) throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
   return {
@@ -60,11 +75,62 @@ function body(value: unknown): Record<string, unknown> {
   return input;
 }
 
+function sendCommand(response: ServerResponse, result: C360ProfileCommandResult) {
+  response.statusCode = result.status;
+  response.setHeader('Content-Type', 'application/json');
+  response.setHeader('Cache-Control', 'no-store');
+  response.end(
+    JSON.stringify(
+      result.state === 'TERMINAL'
+        ? { state: 'TERMINAL', command: result.receipt }
+        : { state: result.state, commandId: result.commandId },
+    ),
+  );
+}
+
 @UseFilters(Customer360Errors)
 @Controller('api/v1/customer-360/operator')
 @GatewayRoles('platform-operator')
 export class Customer360OperatorController {
   constructor(@Inject(CUSTOMER_360_DATABASE) private readonly db: PrismaClient) {}
+
+  @Get('service-principals/:principalId')
+  @Header('Cache-Control', 'no-store')
+  async principal(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Param('principalId') principalId: string,
+  ) {
+    const result = await readC360ServicePrincipalMetadata(this.db, operator(req), principalId);
+    if (!result) throw new Customer360HttpError(404, 'RESOURCE_NOT_FOUND');
+    return result;
+  }
+
+  @Get('commands/:commandId')
+  async lookup(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Param('commandId') commandId: string,
+    @Res() response: ServerResponse,
+  ) {
+    sendCommand(response, await lookupC360OperatorCommand(this.db, operator(req), commandId));
+  }
+
+  @Post('commands/:commandId/reconcile')
+  async reconcile(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Param('commandId') commandId: string,
+    @Body() payload: unknown,
+    @Res() response: ServerResponse,
+  ) {
+    sendCommand(
+      response,
+      await reconcileC360OperatorCommand(
+        this.db,
+        operator(req),
+        commandId,
+        payload === undefined ? {} : payload,
+      ),
+    );
+  }
 
   @Post('commands')
   @HttpCode(200)
@@ -82,21 +148,13 @@ export class Customer360OperatorController {
       reasonCode: input.reasonCode,
       command: input.command as never,
     };
-    response.setHeader('Content-Type', 'application/json');
-    response.setHeader('Cache-Control', 'no-store');
     if (input.dryRun === true) {
+      response.setHeader('Content-Type', 'application/json');
+      response.setHeader('Cache-Control', 'no-store');
       response.statusCode = 200;
       response.end(JSON.stringify(await previewC360OperatorCommand(this.db, trusted, request)));
       return;
     }
-    const result = await executeC360OperatorCommand(this.db, trusted, request);
-    response.statusCode = result.status;
-    response.end(
-      JSON.stringify(
-        result.state === 'TERMINAL'
-          ? { state: 'TERMINAL', command: result.receipt }
-          : { state: result.state, commandId: result.commandId },
-      ),
-    );
+    sendCommand(response, await executeC360OperatorCommand(this.db, trusted, request));
   }
 }

@@ -1,5 +1,11 @@
-import { randomUUID } from 'node:crypto';
-import { Prisma, type PrismaClient } from '@d-contact/db';
+import {
+  normalizeC360ServiceOperatorCommand,
+  isC360ServiceOperatorCommand,
+  planC360ServiceOperator,
+  type C360ServiceOperatorCommand,
+} from './service-principal.js';
+import { createHash, randomUUID } from 'node:crypto';
+import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import {
   C360ProfileCommandError,
   C360ProfileCommandRejection,
@@ -7,6 +13,9 @@ import {
   c360MutationTransaction,
   c360Uuid,
   executeC360ProfileCommand,
+  lookupC360ProfileCommand,
+  reconcileC360ProfileCommand,
+  type C360CommandAuthorization,
   type C360AuditEvent,
   type C360CommandActor,
   type C360ProfileCommandResult,
@@ -46,6 +55,7 @@ export interface C360TrustedOperator {
 }
 
 export type C360OperatorCommand =
+  | C360ServiceOperatorCommand
   | {
       action: 'CUSTODIAN_GRANT';
       contactId: string;
@@ -182,7 +192,7 @@ export function normalizeC360OperatorCommand(command: unknown): C360OperatorComm
       only('contactId');
       return { action: input.action, contactId: c360Uuid(input.contactId) };
     default:
-      invalid();
+      return normalizeC360ServiceOperatorCommand(input);
   }
 }
 
@@ -197,6 +207,40 @@ function operatorActor(operator: C360TrustedOperator): C360CommandActor {
     }),
     // operator ไม่ใช่ domain User ของ tenant; ตัวตนอยู่ใน actorIdentityKey
     actorUserId: null,
+  };
+}
+
+const isOperatorCommand: NonNullable<C360CommandAuthorization['canAccessCommand']> = (command) =>
+  command.actorUserId === null &&
+  (command.isTombstone || command.action?.startsWith('OPERATOR_') === true);
+
+async function operatorCommandActor(
+  db: PrismaClient,
+  operator: C360TrustedOperator,
+  commandIdInput: unknown,
+): Promise<C360CommandActor> {
+  const legacy = operatorActor(operator);
+  const commandId = c360Uuid(commandIdInput);
+  // คำสั่งที่ admit แล้วใน C1 ยัง recover ได้ด้วย key เดิม
+  const stored = await withTenantDatabaseTransaction(db, legacy.tenantId, (tx) =>
+    tx.c360ProfileCommand.findUnique({
+      where: {
+        tenantId_actorIdentityKey_commandId: {
+          tenantId: legacy.tenantId,
+          actorIdentityKey: legacy.actorIdentityKey,
+          commandId,
+        },
+      },
+      select: { actorUserId: true, action: true, isTombstone: true },
+    }),
+  );
+  if (stored && isOperatorCommand(stored)) return legacy;
+  // แยก key ของคำสั่งและ tombstone ใหม่จาก namespace ของ domain User
+  return {
+    ...legacy,
+    actorIdentityKey: createHash('sha256')
+      .update(JSON.stringify(['c360-operator-actor-v1', legacy.actorIdentityKey]))
+      .digest('hex'),
   };
 }
 
@@ -301,6 +345,8 @@ async function plan(
   reason: string,
   actor: C360CommandActor,
 ): Promise<Plan> {
+  if (isC360ServiceOperatorCommand(command))
+    return planC360ServiceOperator(tx, operator, command, evidence, reason, actor);
   const tenantId = operator.tenantId;
   const audit = (
     operation: string,
@@ -646,6 +692,59 @@ async function authorizeOperator(tx: Prisma.TransactionClient, operator: C360Tru
   if (!tenant) throw new C360ProfileCommandError('INVALID_REQUEST', 400);
 }
 
+function operatorAuthorization(operator: C360TrustedOperator): C360CommandAuthorization {
+  return {
+    authorize: (tx) => authorizeOperator(tx, operator),
+    canAccessCommand: isOperatorCommand,
+    canReadRef: async (tx, ref) => {
+      const query = {
+        where: { tenantId: operator.tenantId, id: ref.id },
+        select: { id: true } as const,
+      };
+      switch (ref.type) {
+        case 'CONTACT':
+          return Boolean(await tx.contact.findFirst(query));
+        case 'USER':
+          return Boolean(await tx.user.findFirst(query));
+        case 'TAG':
+          return Boolean(await tx.c360Tag.findFirst(query));
+        case 'SERVICE_PRINCIPAL':
+          return Boolean(await tx.intServicePrincipal.findFirst(query));
+        default:
+          return false;
+      }
+    },
+  };
+}
+
+export async function lookupC360OperatorCommand(
+  db: PrismaClient,
+  operator: C360TrustedOperator,
+  commandId: unknown,
+): Promise<C360ProfileCommandResult> {
+  return lookupC360ProfileCommand(
+    db,
+    await operatorCommandActor(db, operator, commandId),
+    commandId,
+    operatorAuthorization(operator),
+  );
+}
+
+export async function reconcileC360OperatorCommand(
+  db: PrismaClient,
+  operator: C360TrustedOperator,
+  commandId: unknown,
+  body: unknown,
+): Promise<C360ProfileCommandResult> {
+  return reconcileC360ProfileCommand(
+    db,
+    await operatorCommandActor(db, operator, commandId),
+    commandId,
+    body,
+    operatorAuthorization(operator),
+  );
+}
+
 /** Dry-run: ตรวจทุกเงื่อนไขเหมือนของจริงแต่ไม่ admit command และไม่เขียนอะไร */
 export async function previewC360OperatorCommand(
   db: PrismaClient,
@@ -685,7 +784,7 @@ export async function executeC360OperatorCommand(
   request: C360OperatorRequest,
 ): Promise<C360ProfileCommandResult> {
   const input = prepared(request);
-  const actor = operatorActor(operator);
+  const actor = await operatorCommandActor(db, operator, request.commandId);
   const resourceId =
     'contactId' in input.command
       ? input.command.contactId
@@ -713,7 +812,7 @@ export async function executeC360OperatorCommand(
         reasonCode: input.reason,
       },
     },
-    { authorize: (tx) => authorizeOperator(tx, operator) },
+    operatorAuthorization(operator),
     async (tx, command): Promise<C360ProfileEffect> => {
       const result = await plan(tx, operator, input.command, input.evidence, input.reason, actor);
       if (result.outcome === 'NO_OP')
@@ -728,4 +827,41 @@ export async function executeC360OperatorCommand(
       };
     },
   );
+}
+
+/** Metadata เฉพาะ trusted operator; ไม่คืน issuer/subject/token หรือ customer payload */
+export async function readC360ServicePrincipalMetadata(
+  db: PrismaClient,
+  operator: C360TrustedOperator,
+  id: string,
+) {
+  return c360MutationTransaction(db, operator.tenantId, async (tx) => {
+    await authorizeOperator(tx, operator);
+    const [p] = await tx.$queryRaw<
+      {
+        id: string;
+        active: boolean;
+        authz_epoch: bigint;
+        custodian_admin_id: string;
+        evidence_ref: string;
+      }[]
+    >`SELECT id,active,authz_epoch,custodian_admin_id,evidence_ref FROM int_service_principals WHERE tenant_id=${operator.tenantId}::uuid AND id=${c360Uuid(id)}::uuid`;
+    if (!p) return null;
+    const [scopes] = await tx.$queryRaw<{ read: boolean; create: boolean }[]>`SELECT
+   EXISTS(SELECT 1 FROM int_service_contact_grants g WHERE g.tenant_id=${operator.tenantId}::uuid AND g.principal_id=${p.id}::uuid AND NOT EXISTS(SELECT 1 FROM int_service_contact_revocations r WHERE r.tenant_id=g.tenant_id AND r.grant_id=g.id)) AS read,
+   EXISTS(SELECT 1 FROM int_service_capability_grants g WHERE g.tenant_id=${operator.tenantId}::uuid AND g.principal_id=${p.id}::uuid AND NOT EXISTS(SELECT 1 FROM int_service_capability_revocations r WHERE r.tenant_id=g.tenant_id AND r.grant_id=g.id)) AS create`;
+    return {
+      id: p.id,
+      active: p.active,
+      authzEpoch: p.authz_epoch.toString(),
+      custodianUserId: p.custodian_admin_id,
+      evidenceRefs: [p.evidence_ref],
+      scopes: p.active
+        ? [
+            ...(scopes?.read ? ['customer360.contacts.read'] : []),
+            ...(scopes?.create ? ['customer360.contacts.create'] : []),
+          ]
+        : [],
+    };
+  });
 }

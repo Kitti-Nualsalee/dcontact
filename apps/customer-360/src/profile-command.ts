@@ -227,14 +227,33 @@ export type C360ProfileCommandResult =
   | { status: 202; state: 'PENDING'; commandId: string }
   | { status: 404; state: 'UNKNOWN'; commandId: string };
 
+type StoredCommandOwner = {
+  actorUserId: string | null;
+  action: string | null;
+  isTombstone: boolean;
+};
+
 export interface C360CommandAuthorization {
   /**
    * ตรวจ active actor/current capability ภายใน transaction; เรียกซ้ำทุก transaction และหลัง effect
    * ต้อง throw เมื่อไม่มีสิทธิ์ (ไม่สร้าง receipt)
    */
   authorize: (tx: Prisma.TransactionClient) => Promise<void>;
+  /** ตรวจประเภทคำสั่งก่อนเปิด receipt หรือเปลี่ยนสถานะ */
+  canAccessCommand?: (command: StoredCommandOwner) => boolean;
   /** E1 B.8: refs ที่ผู้อ่านปัจจุบันไม่มีสิทธิ์ต้องไม่คืน */
   canReadRef?: (tx: Prisma.TransactionClient, ref: C360ResourceRef) => Promise<boolean>;
+}
+
+function ownsCommand(
+  actor: C360CommandActor,
+  command: StoredCommandOwner,
+  authorization: C360CommandAuthorization,
+): boolean {
+  return (
+    command.actorUserId === (actor.actorUserId?.toLowerCase() ?? null) &&
+    (authorization.canAccessCommand?.(command) ?? true)
+  );
 }
 
 export interface C360ProfileCommandHooks {
@@ -391,6 +410,8 @@ export async function executeC360ProfileCommand(
         where: { tenantId_actorIdentityKey_commandId: key },
       });
       if (row) {
+        if (!ownsCommand(actor, row, authorization))
+          throw new C360ProfileCommandError('COMMAND_PAYLOAD_MISMATCH', 409);
         const receipt = await tx.c360ProfileCommandReceipt.findUnique({
           where: { tenantId_actorIdentityKey_commandId: key },
         });
@@ -427,6 +448,8 @@ export async function executeC360ProfileCommand(
       const row = await tx.c360ProfileCommand.findUniqueOrThrow({
         where: { tenantId_actorIdentityKey_commandId: key },
       });
+      if (!ownsCommand(actor, row, authorization))
+        throw new C360ProfileCommandError('COMMAND_PAYLOAD_MISMATCH', 409);
       const existing = await tx.c360ProfileCommandReceipt.findUnique({
         where: { tenantId_actorIdentityKey_commandId: key },
       });
@@ -499,7 +522,8 @@ export async function lookupC360ProfileCommand(
     const row = await tx.c360ProfileCommand.findUnique({
       where: { tenantId_actorIdentityKey_commandId: key },
     });
-    if (!row) return { status: 404, state: 'UNKNOWN', commandId: key.commandId };
+    if (!row || !ownsCommand(actor, row, authorization))
+      return { status: 404, state: 'UNKNOWN', commandId: key.commandId };
     const receipt = await tx.c360ProfileCommandReceipt.findUnique({
       where: { tenantId_actorIdentityKey_commandId: key },
     });
@@ -525,11 +549,13 @@ export async function reconcileC360ProfileCommand(
   const key = commandKey(actor, commandId);
   return c360MutationTransaction(db, key.tenantId, async (tx) => {
     await authorization.authorize(tx);
-    if (!(await tryC360CommandLock(tx, actor, commandId)))
-      return { status: 202, state: 'PENDING', commandId };
+    const locked = await tryC360CommandLock(tx, actor, commandId);
     let row = await tx.c360ProfileCommand.findUnique({
       where: { tenantId_actorIdentityKey_commandId: key },
     });
+    if (row && !ownsCommand(actor, row, authorization))
+      return { status: 404, state: 'UNKNOWN', commandId };
+    if (!locked) return { status: 202, state: 'PENDING', commandId };
     if (row) {
       const receipt = await tx.c360ProfileCommandReceipt.findUnique({
         where: { tenantId_actorIdentityKey_commandId: key },
