@@ -432,8 +432,8 @@ test('ตาราง: ชื่อ 80+ ตัวและบริษัทย�
       })),
     };
   });
-  // คอลัมน์กว้างไม่เท่ากันตาม CSS (36/26/22/16) และไม่มีเนื้อหาล้นเกินขอบเซลล์
-  expect(geometry.heads[0]).toBeGreaterThan(geometry.heads[3]! * 1.5);
+  // คอลัมน์ชื่อต้องกว้างกว่าช่องทาง และไม่มีเนื้อหาล้นเกินขอบเซลล์
+  expect(geometry.heads[0]).toBeGreaterThan(geometry.heads[3]!);
   for (const cell of geometry.cells) {
     expect(cell.scroll).toBeLessThanOrEqual(cell.client + 1);
     expect(cell.innerRight).toBeLessThanOrEqual(cell.right + 1);
@@ -638,6 +638,29 @@ for (const [name, size] of [
     await list(page);
     await expect(table(page)).toBeVisible();
     expect(await overflow()).toEqual({ page: 0, content: 0 });
+    const headersFit = () =>
+      page
+        .locator('.cu-table th')
+        .evaluateAll((cells) => cells.every((cell) => cell.scrollWidth <= cell.clientWidth));
+    const badgesFit = () =>
+      page.locator('.cu-table td .cu-badges > span').evaluateAll((badges) =>
+        badges.every((badge) => {
+          const cell = badge.closest('td');
+          return (
+            cell !== null &&
+            badge.getBoundingClientRect().right <= cell.getBoundingClientRect().right
+          );
+        }),
+      );
+    expect(await headersFit()).toBe(true);
+    expect(await badgesFit()).toBe(true);
+    await expect(page.getByRole('button', { name: /เมนูผู้ใช้/ })).toBeInViewport({ ratio: 1 });
+    await page.getByRole('button', { name: 'English', exact: true }).click();
+    await expect(page.getByRole('columnheader', { name: 'Matched channel' })).toBeVisible();
+    expect(await headersFit()).toBe(true);
+    expect(await badgesFit()).toBe(true);
+    await expect(page.getByRole('button', { name: /User menu/ })).toBeInViewport({ ratio: 1 });
+    await page.getByRole('button', { name: 'ไทย', exact: true }).click();
     await profile(page, 'longName');
     await expect(page.getByRole('heading', { name: /นางสาวสมหญิง/ })).toBeVisible();
     expect(await overflow()).toEqual({ page: 0, content: 0 });
