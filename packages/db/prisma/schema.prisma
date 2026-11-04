@@ -989,13 +989,14 @@ model C360ContactPoint {
 
 /// สิทธิ์ดูแลลูกค้ารายการ (R1 C) — append-only; ถอนด้วย C360ContactCustodianRevocation
 model C360ContactCustodianGrant {
+  integrationPrincipalId String? @map("integration_principal_id") @db.Uuid
   id               String   @id @db.Uuid
   tenantId         String   @map("tenant_id") @db.Uuid
   contactId        String   @map("contact_id") @db.Uuid
   granteeUserId    String   @map("grantee_user_id") @db.Uuid
   /// READ | MANAGE
   permission       String
-  /// CREATOR | OPERATOR
+  /// CREATOR | OPERATOR | INTEGRATION
   origin           String
   evidenceRef      String?  @map("evidence_ref")
   actorIdentityKey String   @map("actor_identity_key")
@@ -6998,4 +6999,99 @@ model TenantCoreProfileRevision {
   tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("tenant_core_profile_revisions")
+}
+
+/// M3-A: operator-bound machine principal; credential อยู่กับ Keycloak/Integration
+model IntServicePrincipal {
+  serviceActorIdentityKey String   @map("service_actor_identity_key")
+  id                      String   @id @db.Uuid
+  tenantId                String   @map("tenant_id") @db.Uuid
+  issuer                  String
+  subject                 String
+  clientId                String   @map("client_id")
+  custodianAdminId        String   @map("custodian_admin_id") @db.Uuid
+  active                  Boolean  @default(true)
+  authzEpoch              BigInt   @default(0) @map("authz_epoch")
+  evidenceRef             String   @map("evidence_ref")
+  actorIdentityKey        String   @map("actor_identity_key")
+  commandId               String   @map("command_id") @db.Uuid
+  createdAt               DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, issuer, subject, clientId])
+  @@map("int_service_principals")
+}
+
+model IntServiceCapabilityGrant {
+  id               String   @id @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  principalId      String   @map("principal_id") @db.Uuid
+  capability       String
+  evidenceRef      String   @map("evidence_ref")
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  grantedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("granted_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, principalId], map: "int_service_capability_grantee_idx")
+  @@map("int_service_capability_grants")
+}
+
+model IntServiceCapabilityRevocation {
+  id               String   @id @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  grantId          String   @map("grant_id") @db.Uuid
+  evidenceRef      String   @map("evidence_ref")
+  reasonCode       String   @map("reason_code")
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  revokedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("revoked_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, grantId])
+  @@map("int_service_capability_revocations")
+}
+
+model IntServiceContactGrant {
+  id               String   @id @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  principalId      String   @map("principal_id") @db.Uuid
+  contactId        String   @map("contact_id") @db.Uuid
+  permission       String
+  evidenceRef      String   @map("evidence_ref")
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  grantedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("granted_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, principalId], map: "int_service_contact_grantee_idx")
+  @@map("int_service_contact_grants")
+}
+
+model IntServiceContactRevocation {
+  id               String   @id @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  grantId          String   @map("grant_id") @db.Uuid
+  evidenceRef      String   @map("evidence_ref")
+  reasonCode       String   @map("reason_code")
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  revokedAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("revoked_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, grantId])
+  @@map("int_service_contact_revocations")
+}
+
+/// M3-A: exact owner-purpose ledger ก่อนให้ INTEGRATION custody; ไม่มี PII snapshot
+model IntServiceCommandEvidence {
+  tenantId         String   @map("tenant_id") @db.Uuid
+  actorIdentityKey String   @map("actor_identity_key")
+  commandId        String   @map("command_id") @db.Uuid
+  principalId      String   @map("principal_id") @db.Uuid
+  contactId        String   @map("contact_id") @db.Uuid
+  purpose          String
+  createdAt        DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+
+  @@id([tenantId, actorIdentityKey, commandId])
+  @@unique([tenantId, contactId])
+  @@map("int_service_command_evidence")
 }

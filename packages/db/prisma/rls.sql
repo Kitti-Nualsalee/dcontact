@@ -477,3 +477,13 @@ REVOKE ALL ON FUNCTION dc_voice_managed_runtime_ready(uuid,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dc_voice_managed_runtime_ready(uuid,text) TO dcontact_app;
 REVOKE ALL ON FUNCTION dc_voice_managed_cleanup_pending(uuid,uuid[],uuid[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dc_voice_managed_cleanup_pending(uuid,uuid[],uuid[]) TO dcontact_app;
+
+-- M3-A: apply-rls ซ้ำไม่คืนสิทธิ์แก้หลักฐานของ service
+REVOKE UPDATE,DELETE,TRUNCATE,TRIGGER ON int_service_principals FROM dcontact_app;
+REVOKE UPDATE,DELETE,TRUNCATE,TRIGGER ON int_service_capability_grants FROM dcontact_app;
+REVOKE UPDATE,DELETE,TRUNCATE,TRIGGER ON int_service_capability_revocations FROM dcontact_app;
+REVOKE UPDATE,DELETE,TRUNCATE,TRIGGER ON int_service_contact_grants FROM dcontact_app;
+REVOKE UPDATE,DELETE,TRUNCATE,TRIGGER ON int_service_contact_revocations FROM dcontact_app;
+GRANT UPDATE(active,authz_epoch,custodian_admin_id) ON int_service_principals TO dcontact_app;
+
+REVOKE UPDATE,DELETE,TRUNCATE,TRIGGER ON int_service_command_evidence FROM dcontact_app;
