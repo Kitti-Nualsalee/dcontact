@@ -316,7 +316,7 @@ function filterSql(search: NormalizedSearch): Prisma.Sql {
     case 'DIRECTORY':
       return Prisma.sql`true`;
     case 'NAME':
-      return Prisma.sql`starts_with(lower(coalesce(c.display_name, '')), lower(${search.key}))`;
+      return Prisma.sql`starts_with(lower(normalize(coalesce(c.display_name, ''), NFC)), lower(${search.key}))`;
     default:
       return Prisma.sql`EXISTS (
         SELECT 1 FROM c360_contact_points p
@@ -342,12 +342,18 @@ export async function searchC360Contacts(
   // Agent/Compliance ไม่มี generic directory (R1 C); gateway ตัดไปแล้ว ที่นี่เป็นชั้นที่สอง
   if (!SEARCH_ROLES.has(actor.role)) throw new C360ReadError(403, 'CUSTOMER_ACCESS_DENIED');
   const search = parseC360SearchInput(body);
+  const readable = Prisma.sql`${c360ReadableContactSql(actor)} AND ${NOT_MERGED}`;
+  const filter = filterSql(search);
+  const [authorization] = await tx.$queryRaw<{ fingerprint: string }[]>(Prisma.sql`
+    SELECT md5(coalesce(string_agg(c.id::text, ',' ORDER BY c.id), '')) AS fingerprint
+    FROM contacts c
+    WHERE c.tenant_id = ${actor.tenantId}::uuid AND ${readable} AND ${filter}`);
   const cursorScope = {
     kind: 'directory',
     tenantId: actor.tenantId,
     userId: actor.userId,
     filter: c360FilterDigest([search.type, search.key ?? '']),
-    scope: c360ScopeDigest(actor),
+    scope: sha256(`${c360ScopeDigest(actor)}|${authorization!.fingerprint}`),
   };
   const position = search.cursor ? codec.open(search.cursor, cursorScope) : null;
   if (position && (position.length !== 2 || !position[0] || !position[1]))
@@ -362,8 +368,6 @@ export async function searchC360Contacts(
       throw new C360ReadError(400, 'CURSOR_INVALID');
     after = Prisma.sql`(c.created_at, c.id) < (${createdKey}::timestamp, ${id}::uuid)`;
   }
-  const readable = Prisma.sql`${c360ReadableContactSql(actor)} AND ${NOT_MERGED}`;
-  const filter = filterSql(search);
   const rows = await tx.$queryRaw<
     {
       id: string;

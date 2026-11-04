@@ -112,6 +112,18 @@ export function CustomerDirectory({ api, onOpen, onSignIn, focusHeading }: Props
     return () => controller.abort();
   }, [api, applied, revision, closeData]);
 
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.visibilityState !== 'visible') return;
+      sequence.current += 1;
+      closeData();
+      setView({ state: 'loading' });
+      setRevision((current) => current + 1);
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [closeData]);
+
   function submit(event: FormEvent) {
     event.preventDefault();
     setFieldError(undefined);
