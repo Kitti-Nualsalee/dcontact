@@ -61,6 +61,30 @@ class CandidateTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'OBSERVATION_NOT_ELIGIBLE'):
             self.check()
 
+    def test_copy_rehearsal_does_not_certify_vm_rollback(self):
+        proof = {'status': 'COPY_OWNER_ACL_STANDARD_MIGRATIONS_GENERATED_WRITER_PASS',
+                 'scope': 'B714_VM2_APP_PERMISSION_COPY_ONLY', 'sourceSha': 'c' * 40,
+                 'images': {'api': 'sha256:' + 'b' * 64},
+                 'ledger': {'afterFinished': 154, 'rolledBackPreserved': 1,
+                            'historicalRowsByteValuesPreserved': True, 'secondDeploy': 'NOOP'},
+                 'limitations': ['OLD_API_803_DATA_COMPATIBILITY_NOT_NEW_B2_AUTHORITY_OR_VM_ROLLBACK']}
+        def check():
+            sha = hashlib.sha256(candidate.canonical(proof)).hexdigest()
+            observation_sha = hashlib.sha256(candidate.canonical(self.observation)).hexdigest()
+            return candidate.validate_rehearsal(self.observation, observation_sha, proof, sha, self.now)
+        self.assertFalse(check()['rollbackCertified'])
+        proof['ledger']['secondDeploy'] = 'APPLIED'
+        with self.assertRaisesRegex(RuntimeError, 'LEDGER_MISMATCH'):
+            check()
+        proof['ledger']['secondDeploy'] = 'NOOP'
+        proof['sourceSha'] = 'd' * 40
+        with self.assertRaisesRegex(RuntimeError, 'SOURCE_MISMATCH'):
+            check()
+        proof['sourceSha'] = 'c' * 40
+        proof['images']['api'] = 'sha256:' + 'f' * 64
+        with self.assertRaisesRegex(RuntimeError, 'API_IMAGE_MISMATCH'):
+            check()
+
 
 if __name__ == '__main__':
     unittest.main()

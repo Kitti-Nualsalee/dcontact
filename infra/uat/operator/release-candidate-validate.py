@@ -69,3 +69,35 @@ def validate(observation, approved_sha256, now=None):
             'expectedCurrentSha256': records['current']['sha256'],
             'expectedPreviousSha256': records['previous']['sha256'],
             'rollbackCertified': False}
+
+
+def validate_rehearsal(observation, approved_observation_sha256, proof, approved_proof_sha256, now=None):
+    """ตรวจหลักฐาน copy ที่ผ่าน review; ไม่อ้างว่าเป็น rollback บน VM."""
+    validate(observation, approved_observation_sha256, now)
+    if not valid('[0-9a-f]{64}', approved_proof_sha256) or hashlib.sha256(canonical(proof)).hexdigest() != approved_proof_sha256:
+        raise RuntimeError('APPROVED_REHEARSAL_MISMATCH')
+    if (proof.get('status'), proof.get('scope')) != (
+            'COPY_OWNER_ACL_STANDARD_MIGRATIONS_GENERATED_WRITER_PASS', 'B714_VM2_APP_PERMISSION_COPY_ONLY'):
+        raise RuntimeError('REHEARSAL_SCOPE_REQUIRED')
+    runtime = observation.get('runtime', {})
+    api = runtime.get('components', {}).get('api', {})
+    if not valid('[0-9a-f]{40}', api.get('sourceSha')) or proof.get('sourceSha') != api['sourceSha']:
+        raise RuntimeError('REHEARSAL_SOURCE_MISMATCH')
+    images = proof.get('images')
+    if not isinstance(images, dict) or images.get('api') != api.get('imageId'):
+        raise RuntimeError('REHEARSAL_API_IMAGE_MISMATCH')
+    copied = proof.get('ledger')
+    live = observation.get('ledger')
+    if not isinstance(copied, dict) or not isinstance(live, dict):
+        raise RuntimeError('REHEARSAL_LEDGER_REQUIRED')
+    if (type(copied.get('afterFinished')) is not int or copied['afterFinished'] != live.get('finished')
+            or type(copied.get('rolledBackPreserved')) is not int
+            or copied['rolledBackPreserved'] != live.get('rolledBack')
+            or copied.get('historicalRowsByteValuesPreserved') is not True
+            or copied.get('secondDeploy') != 'NOOP' or live.get('unresolved') != 0):
+        raise RuntimeError('REHEARSAL_LEDGER_MISMATCH')
+    limitations = proof.get('limitations')
+    if not isinstance(limitations, list) or 'OLD_API_803_DATA_COMPATIBILITY_NOT_NEW_B2_AUTHORITY_OR_VM_ROLLBACK' not in limitations:
+        raise RuntimeError('REHEARSAL_LIMITATIONS_REQUIRED')
+    return {'status': 'COPY_REHEARSAL_VALIDATED_NOT_VM_ROLLBACK',
+            'rehearsalSha256': approved_proof_sha256, 'rollbackCertified': False}
