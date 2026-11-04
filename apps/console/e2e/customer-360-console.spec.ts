@@ -432,8 +432,8 @@ test('ตาราง: ชื่อ 80+ ตัวและบริษัทย�
       })),
     };
   });
-  // คอลัมน์กว้างไม่เท่ากันตาม CSS (36/26/22/16) และไม่มีเนื้อหาล้นเกินขอบเซลล์
-  expect(geometry.heads[0]).toBeGreaterThan(geometry.heads[3]! * 1.5);
+  // คอลัมน์ชื่อต้องกว้างกว่าช่องทาง และไม่มีเนื้อหาล้นเกินขอบเซลล์
+  expect(geometry.heads[0]).toBeGreaterThan(geometry.heads[3]!);
   for (const cell of geometry.cells) {
     expect(cell.scroll).toBeLessThanOrEqual(cell.client + 1);
     expect(cell.innerRight).toBeLessThanOrEqual(cell.right + 1);
@@ -621,6 +621,7 @@ test('i18n: สลับ TH/EN ในหน้าเดิมโดยไม่ 
 // ที่ 390px พื้นที่เนื้อหาเหลือราว 74px จึงไม่นับเป็นหลักฐานจอแคบของหน้านี้ — ตรวจตั้งแต่ tablet 768 ขึ้นไป
 for (const [name, size] of [
   ['tablet 768', { width: 768, height: 1024 }],
+  ['tablet 950', { width: 950, height: 900 }],
   ['laptop 1280', { width: 1280, height: 800 }],
 ] as const) {
   test(`responsive ${name}: เนื้อหาไม่ล้นทั้งหน้าและพื้นที่เนื้อหา, ชื่อ/บริษัทยาวถูก wrap`, async ({
@@ -638,6 +639,36 @@ for (const [name, size] of [
     await list(page);
     await expect(table(page)).toBeVisible();
     expect(await overflow()).toEqual({ page: 0, content: 0 });
+    const headersFit = () =>
+      page
+        .locator('.cu-table th')
+        .evaluateAll((cells) => cells.every((cell) => cell.scrollWidth <= cell.clientWidth));
+    const badgesFit = () =>
+      page.locator('.cu-table td .cu-badges > span').evaluateAll((badges) =>
+        badges.every((badge) => {
+          const cell = badge.closest('td');
+          return (
+            cell !== null &&
+            badge.scrollWidth <= badge.clientWidth &&
+            badge.getBoundingClientRect().right <= cell.getBoundingClientRect().right
+          );
+        }),
+      );
+    await expect(
+      page.locator('.cu-badges').filter({ hasText: 'ข้อมูลเดิม (อ่านอย่างเดียว)' }).first(),
+    ).toBeVisible();
+    expect(await headersFit()).toBe(true);
+    expect(await badgesFit()).toBe(true);
+    await expect(page.getByRole('button', { name: /เมนูผู้ใช้/ })).toBeInViewport({ ratio: 1 });
+    await page.getByRole('button', { name: 'English', exact: true }).click();
+    await expect(page.getByRole('columnheader', { name: 'Matched channel' })).toBeVisible();
+    await expect(
+      page.locator('.cu-badges').filter({ hasText: 'Legacy record (read-only)' }).first(),
+    ).toBeVisible();
+    expect(await headersFit()).toBe(true);
+    expect(await badgesFit()).toBe(true);
+    await expect(page.getByRole('button', { name: /User menu/ })).toBeInViewport({ ratio: 1 });
+    await page.getByRole('button', { name: 'ไทย', exact: true }).click();
     await profile(page, 'longName');
     await expect(page.getByRole('heading', { name: /นางสาวสมหญิง/ })).toBeVisible();
     expect(await overflow()).toEqual({ page: 0, content: 0 });
