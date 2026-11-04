@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { C360TagName } from './index.js';
 import { C360TagNameError, normalizeC360TagName } from './profile-tags.js';
 
 const key = (value: string) => normalizeC360TagName(value).nameKey;
@@ -16,7 +17,8 @@ test('tag key vectors ตาม E1: full case fold แบบ C+F และ NFC',
   assert.notEqual(key('i'), key('ı'));
   assert.notEqual(key('Ａ'), key('A'));
   assert.equal(key('ﬀ'), key('ff'));
-  assert.equal(normalizeC360TagName('  VIP  ').name, 'VIP');
+  const result: C360TagName = normalizeC360TagName('  VIP  ');
+  assert.equal(result.name, 'VIP');
 });
 
 test('ß 80 ตัวมี key 160 ตัวและไม่ถูกตัด; ชื่อเกิน 80 UTF-16 ถูกปฏิเสธก่อน fold', () => {
