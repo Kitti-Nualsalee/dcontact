@@ -639,6 +639,9 @@ test('accessibility: รายการและโปรไฟล์ไม่�
 }) => {
   await list(page);
   await expect(table(page)).toBeVisible();
+  await page.getByRole('button', { name: 'ค้นหา', exact: true }).evaluate(async (button) => {
+    await Promise.all(button.getAnimations().map((animation) => animation.finished));
+  });
   const serious = (results: Awaited<ReturnType<AxeBuilder['analyze']>>) =>
     results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
   expect(serious(await new AxeBuilder({ page }).include('main').analyze())).toEqual([]);
