@@ -150,3 +150,25 @@ test('bridge ของ journey: identity ซ้ำบน contact เดียว
   await f.point(a, '+66812345680', 'RETIRED', later);
   assert.equal((await f.resolve('PHONE', '+668 1234 5680')).status, 'NOT_FOUND');
 });
+
+test('bridge ของ journey: ACTIVE ถูก retire แล้วเพิ่มค่าเดิมกลับผ่าน profile command แถวที่ถูกแทนที่ใช้ได้อีกครั้ง', async (t) => {
+  const f = await fixture(t);
+  const a = await f.contact();
+  const original = await f.identity(a, 'PHONE', '+66812345690');
+  const superseded = await f.identity(a, 'PHONE', '+66 81 234 5690');
+  // X (ACTIVE ตอน import) ถูก retire ด้วยคำสั่งอื่น แล้วค่าเดิมถูกเพิ่มกลับเป็น ACTIVE ที่ไม่มี legacy identity
+  await f.point(a, '+66812345690', 'RETIRED', original);
+  await f.point(a, '+66812345690', 'SUPERSEDED', superseded);
+  await f.point(a, '+66812345690', 'ACTIVE', null);
+  // ตัดสินตามที่ตกลงไว้: ค่านี้ ACTIVE บน contact เดียวกันอีกครั้ง แถวที่ถูกแทนที่จึงพา journey ไปถึง contact ได้
+  // ส่วน identity ของ X ที่ retire แล้วยังใช้ไม่ได้ (consent ที่ผูกกับ X หมดผลตั้งแต่ retire)
+  const revived = await f.resolve('PHONE', '+66 81 234 5690');
+  assert.equal(revived.status, 'RESOLVED');
+  assert.equal(revived.status === 'RESOLVED' && revived.contactId, a);
+  assert.equal(revived.status === 'RESOLVED' && revived.identityId, superseded);
+  assert.deepEqual(await f.resolve('PHONE', '+66812345690'), {
+    status: 'NOT_FOUND',
+    reasonCode: 'IDENTITY_NOT_FOUND',
+  });
+  assert.notEqual(original, superseded);
+});
