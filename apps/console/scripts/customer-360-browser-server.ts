@@ -134,8 +134,9 @@ try {
   let failNext: { fragment: string; status: number } | undefined;
   let scopeLagging = false;
   // หน่วงการตอบหลัง forward แล้ว (ผลถูกคำนวณก่อน แต่ถึง browser ช้า) เพื่อทดสอบ response ค้างที่มาหลังสิทธิ์ถูกถอน
-  let slow: { pattern: RegExp; ms: number } | undefined;
+  let slow: { pattern: RegExp; wait: Promise<void>; release: () => void } | undefined;
   let slowStatus: number | null = null;
+  let slowSent = false;
   const proxy = createHttpServer(async (req, res) => {
     try {
       const url = req.url ?? '';
@@ -148,7 +149,12 @@ try {
           return;
         }
         if (action === 'slow-state') {
-          res.end(JSON.stringify({ status: slowStatus }));
+          res.end(JSON.stringify({ status: slowStatus, sent: slowSent }));
+          return;
+        }
+        if (action === 'slow-release') {
+          slow?.release();
+          res.end('{}');
           return;
         }
         if (action === 'reset') {
@@ -156,8 +162,10 @@ try {
           sessionExpired = false;
           delayMs = 0;
           failNext = undefined;
+          slow?.release();
           slow = undefined;
           slowStatus = null;
+          slowSent = false;
           await f.owner.$executeRawUnsafe('GRANT SELECT ON interactions TO dcontact_app');
           await f.owner.$executeRawUnsafe('GRANT SELECT ON cg_preferences TO dcontact_app');
           if (scopeLagging) {
@@ -170,14 +178,18 @@ try {
         else if (action === 'session') sessionExpired = a === 'expire';
         else if (action === 'delay') delayMs = Number(a ?? 0);
         else if (action === 'slow') {
+          slow?.release();
           slowStatus = null;
-          slow =
-            Number(a) > 0
-              ? {
-                  pattern: b === 'profile' ? /\/contacts\/[0-9a-f-]{36}$/ : new RegExp(b ?? ''),
-                  ms: Number(a),
-                }
-              : undefined;
+          slowSent = false;
+          let release = () => {};
+          const wait = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          slow = {
+            pattern: b === 'profile' ? /\/contacts\/[0-9a-f-]{36}$/ : new RegExp(b ?? ''),
+            wait,
+            release,
+          };
         } else if (action === 'fail')
           // คงอยู่จนกว่าจะสั่ง fail/0/x เพราะ React StrictMode (dev) ยิง effect สองรอบ
           failNext = Number(a) > 0 ? { fragment: b ?? '', status: Number(a) } : undefined;
@@ -263,7 +275,7 @@ try {
       const text = await response.text();
       if (slow?.pattern.test(url)) {
         slowStatus = response.status;
-        await new Promise((resolve) => setTimeout(resolve, slow!.ms));
+        await slow.wait;
       }
       res.statusCode = response.status;
       for (const name of ['content-type', 'cache-control', 'retry-after', 'x-request-id']) {
@@ -271,6 +283,7 @@ try {
         if (value) res.setHeader(name, value);
       }
       res.end(text);
+      if (slow?.pattern.test(url)) slowSent = true;
     } catch {
       res.statusCode = 500;
       res.end('{"error":{"code":"HARNESS_FAILED"}}');
