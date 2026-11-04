@@ -275,7 +275,7 @@ test('#588: มีสายถูก offer มา (ASSIGNED) แม้ dphone �
   expect(await signOuts(page)).toBe(0);
 });
 
-for (const width of [768, 1280, 1440]) {
+for (const width of [768, 950, 1280, 1440]) {
   test(`Workspace TopBar ใช้งานเมนูผู้ใช้ได้ที่ ${width}px ทั้งไทยและอังกฤษ`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mockApis(page, true);

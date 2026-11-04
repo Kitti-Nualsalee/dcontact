@@ -58,7 +58,7 @@
 }
 
 /* ใช้ความกว้างเนื้อหาจริงหลังหัก rail และ SubNav */
-@container dc-shell-content (max-width: 620px) {
+@container dc-shell-content (max-width: 800px) {
   .name {
     display: none;
   }

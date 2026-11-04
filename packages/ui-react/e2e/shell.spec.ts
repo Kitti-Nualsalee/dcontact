@@ -278,7 +278,7 @@ test('เมนูผู้ใช้: จอแคบเหลือวงกล
 });
 
 for (const lang of ['th', 'en'] as const) {
-  for (const width of [768, 1280, 1440]) {
+  for (const width of [768, 950, 1280, 1440]) {
     test(`TopBar actions อยู่ในจอและเปิดเมนูด้วย keyboard ที่ ${width}px (${lang})`, async ({
       page,
     }) => {

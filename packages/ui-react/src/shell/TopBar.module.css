@@ -132,7 +132,7 @@
 }
 
 /* ความกว้าง TopBar ลดลงตาม rail และ SubNav แม้ viewport ยังเป็น tablet */
-@container dc-shell-content (max-width: 620px) {
+@container dc-shell-content (max-width: 800px) {
   .systemLabel {
     display: none;
   }
