@@ -36,6 +36,9 @@
 - **ข้อตกลงของ point ที่ถูกแทนที่ตั้งแต่ import:** แถว `LEGACY_IDENTITY` ที่ `retired_command_id = created_command_id`
   (และ actor เดียวกัน) หมายถึงค่าซ้ำบน contact เดียวที่ bridge ตัดสินตาม ACTIVE ตัวเดียวกัน writer ของ C4 ห้ามสร้างแล้ว
   retire แถวเดียวกันใน command เดียว (เช่น merge/undo ในคำสั่งเดียว) เพราะจะถูกตีความเป็นแถวที่ถูกแทนที่
+  แถวที่ถูกแทนที่ใช้ได้ทุกครั้งที่มี ACTIVE ค่าเดียวกันบน contact เดียวกัน ไม่ว่า ACTIVE นั้นมาจากไหน: ถ้า ACTIVE จาก import
+  ถูก retire แล้วค่าเดิมถูกเพิ่มกลับผ่าน profile command แถวที่ถูกแทนที่จะพา journey/dispatch ไปถึง contact ได้อีก
+  ส่วน identity ของ ACTIVE เดิมที่ retire แล้วยังใช้ไม่ได้ (ตัดสินแล้วใน review ของ #793 และมี test pin ไว้)
 - **point ใหม่ไม่ใช่ identity:** point ที่ C4 สร้างไม่มี `ContactIdentity` คู่กัน จึงไม่ถูกใช้ dispatch ของ CG/Voice
   (`eligibleLegacyIdentityByKey` คืนเฉพาะ point ที่มาจาก legacy identity) ห้ามสร้าง identity เพื่อให้โทรออกผ่าน
 
