@@ -1,0 +1,164 @@
+{
+  "title": "Customers",
+  "breadcrumb": "Customers",
+  "readOnly": "This page is read-only. Customer data cannot be created or edited here yet.",
+  "back": "Back to customers",
+  "retry": "Try again",
+  "signIn": "Sign in again",
+  "loading": "Loading",
+  "search": {
+    "title": "Find a customer",
+    "type": "Search by",
+    "types": {
+      "NAME": "Name (starts with)",
+      "PHONE": "Phone number (full number)",
+      "EMAIL": "Email (full address)"
+    },
+    "query": {
+      "NAME": "Customer name",
+      "PHONE": "Phone number",
+      "EMAIL": "Email"
+    },
+    "hints": {
+      "NAME": "Type at least the first 2 characters of the name. Searching the middle of a name is not supported.",
+      "PHONE": "Enter the full number with country code, for example +66 2 123 4567. The country is never guessed.",
+      "EMAIL": "Enter the full address, for example name@example.com"
+    },
+    "submit": "Search",
+    "clear": "Clear search",
+    "errors": {
+      "NAME_TOO_SHORT": "Enter at least 2 characters",
+      "NAME_INVALID": "The name has characters that cannot be searched or is longer than 160",
+      "PHONE_INTERNATIONAL_REQUIRED": "Enter the number in international format starting with + and the country code",
+      "PHONE_INVALID": "The phone number is not valid. Check the digits and format.",
+      "EMAIL_INVALID": "The email is not valid. Enter one full address.",
+      "QUERY_REQUIRED": "Enter a search term first",
+      "GENERIC": "The search term is not valid"
+    }
+  },
+  "list": {
+    "title": "Accessible customers",
+    "label": "Customer list",
+    "count": "{{count}} accessible customer records (not a count of unique people)",
+    "countUnavailable": "The count is not available yet because some access is still updating. It is not zero.",
+    "incomplete": "Some records are still being checked for access and are not shown. Results may be incomplete. Try again shortly.",
+    "empty": "You have no accessible customers yet. If you expect some, ask an administrator to check your customer access.",
+    "emptySearch": "No customers in your accessible scope match this search. Check the spelling, try another search type, or clear the search to see the full list.",
+    "columns": {
+      "name": "Name",
+      "company": "Company",
+      "status": "Status",
+      "match": "Matched channel",
+      "open": "Open"
+    },
+    "noName": "No name",
+    "noCompany": "No company",
+    "more": "Load more",
+    "open": "Open profile",
+    "openItem": "Open profile of {{name}}",
+    "resultsTitle": "Search results"
+  },
+  "badges": {
+    "vip": "VIP",
+    "review": "Needs review (read-only)",
+    "legacy": "Legacy record (read-only)",
+    "merged": "Merged (read-only)",
+    "active": "Normal"
+  },
+  "errors": {
+    "unauthorized": "Your session expired and customer data was closed. Sign in again to continue.",
+    "forbidden": "You do not have access to the customer list. Contact an administrator if you should.",
+    "notFound": "This customer was not found or you cannot open it. The system does not say whether it exists. If you should have access, contact an administrator.",
+    "scope": "Access is not ready yet, so customer data is kept closed. Try again shortly.",
+    "failed": "Could not read the data and the outcome is unknown. Try again.",
+    "rateLimited": "Too many searches. Try again in {{seconds}} seconds.",
+    "rateLimitedNow": "Too many searches. Wait a moment and try again.",
+    "cursor": "The open list expired or your access changed. Search again.",
+    "profileForbidden": "This profile was closed because your access changed or you cannot open it. The system does not say whether it exists. Reopen it from the customer list, or contact an administrator if you should have access."
+  },
+  "profile": {
+    "loading": "Loading customer profile",
+    "company": "Company",
+    "noCompany": "No company provided",
+    "noName": "No name",
+    "mergedNotice": "This profile was merged into another profile. The canonical profile is not opened automatically, and this one is shown read-only.",
+    "openCanonical": "Open the canonical profile you can access",
+    "reviewNotice": "This customer's identity still needs review, so it is shown read-only. Nothing is picked, linked or merged automatically.",
+    "legacyNotice": "Legacy record without an identity state. Shown read-only.",
+    "points": {
+      "title": "Contact points",
+      "notVerified": "Having a contact point does not mean the person is verified or that contact is permitted.",
+      "phone": "Phone",
+      "email": "Email",
+      "empty": "This profile has no active contact points.",
+      "reviewRequired": "Under review, not used for search"
+    },
+    "tags": {
+      "title": "Tags",
+      "empty": "No tags",
+      "retired": "Retired"
+    },
+    "source": {
+      "title": "Data sources",
+      "body": "D-Contact (read from the live system, not sample data)",
+      "crm": "External CRM is outside the first slice"
+    }
+  },
+  "timeline": {
+    "title": "Interaction timeline",
+    "scope": "Only voice calls you are allowed to see, with date, channel and state only. No notes, audio or transcripts.",
+    "loading": "Loading interaction timeline",
+    "empty": "This customer has no voice interactions yet.",
+    "limited": "Part of this customer's history cannot be proven visible to you, so it is not shown. This does not mean there is no other history.",
+    "limitedEmpty": "Nothing can be shown because the existing history cannot be proven visible to you. This does not mean there is no history.",
+    "unavailable": "The timeline cannot be read right now. The rest of the profile still works.",
+    "more": "Load more history",
+    "started": "Started",
+    "ended": "Ended",
+    "stillOpen": "Not ended",
+    "channels": {
+      "VOICE": "Voice"
+    },
+    "states": {
+      "QUEUED": "Queued",
+      "ASSIGNED": "Assigned",
+      "ACTIVE": "In progress",
+      "WRAPUP": "Wrap-up",
+      "COMPLETED": "Completed",
+      "ABANDONED": "Abandoned"
+    }
+  },
+  "governance": {
+    "title": "Contact Governance status",
+    "notPermission": "This summary is not permission to contact. The real decision is made by Contact Governance when contact is attempted.",
+    "loading": "Loading Contact Governance status",
+    "contextRequired": "Choose a channel and a purpose to see this customer's status.",
+    "channel": "Channel",
+    "purpose": "Purpose (for example SERVICE)",
+    "purposeInvalid": "Enter a purpose of 1 to 64 characters",
+    "submit": "Show status",
+    "unavailable": "Contact Governance status cannot be read. Permission to contact is not assumed.",
+    "notCanonical": "Status cannot be shown because the identity is not a canonical profile. Permission to contact is not assumed.",
+    "asOf": "As of {{time}}",
+    "context": "Channel {{channel}} · purpose {{purpose}}",
+    "preference": {
+      "none": "No customer preference matches this context",
+      "ALLOW": "Customer preference: consented",
+      "BLOCK": "Customer preference: do not contact",
+      "DEFER": "Customer preference: defer contact"
+    },
+    "callbackPending": "There is an active callback request",
+    "noCallback": "No callback request",
+    "exceptions": "{{count}} active exceptions",
+    "restrictions": "{{count}} active restrictions",
+    "changeContext": "Change context",
+    "channels": {
+      "VOICE": "Voice",
+      "WEBCHAT": "Web chat",
+      "LINE": "LINE",
+      "FACEBOOK": "Facebook",
+      "WHATSAPP": "WhatsApp",
+      "EMAIL": "Email"
+    }
+  }
+}

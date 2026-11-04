@@ -187,6 +187,7 @@ test('role และ plan ต่างกันได้รายการต่
     'supervisor-workspace',
     'journeys',
     'tenant-people',
+    'customers',
   ]);
   assert.ok(!journeyAdmin.text.includes('contact-governance'), 'plan ไม่รวม governance');
   assert.ok(!journeyAdmin.text.includes('navigation.apps.contactGovernance'));
@@ -245,7 +246,28 @@ test('role และ plan ต่างกันได้รายการต่
         {
           id: 'accounts',
           labelKey: 'navigation.sections.accounts',
-          items: [{ appId: 'tenant-people' }],
+          items: [
+            {
+              appId: 'tenant-people',
+              pages: [
+                {
+                  id: 'users',
+                  labelKey: 'navigation.pages.tenantPeople.users',
+                  path: '/?view=tenant-people',
+                },
+                {
+                  id: 'agent-skills',
+                  labelKey: 'navigation.pages.tenantPeople.agentSkills',
+                  path: '/?view=tenant-people&section=agent-skills',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: 'customers',
+          labelKey: 'navigation.sections.customers',
+          items: [{ appId: 'customers' }],
         },
       ],
     },
@@ -271,6 +293,7 @@ test('role และ plan ต่างกันได้รายการต่
     'agent-workspace',
     'supervisor-workspace',
     'tenant-people',
+    'customers',
   ]);
 
   // tenant ที่ไม่มี plan binding (ก่อน A1) — role อย่างเดียว (ตัดสินใน #451)
@@ -283,6 +306,7 @@ test('role และ plan ต่างกันได้รายการต่
     'contact-governance',
     'dphone-embedding',
     'tenant-people',
+    'customers',
   ]);
   assert.deepEqual(legacyAdmin.json.pins, {
     appIds: [
@@ -293,6 +317,7 @@ test('role และ plan ต่างกันได้รายการต่
       'contact-governance',
       'dphone-embedding',
       'tenant-people',
+      'customers',
     ],
     source: 'SYSTEM',
     revision: 0,

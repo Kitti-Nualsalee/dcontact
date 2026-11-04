@@ -1,6 +1,8 @@
 import { VoiceRoutingPage } from './voice-routing/voice-routing-page.js';
 import { TenantPeoplePage } from './tenant-people/tenant-people.js';
 import { createPeopleApi } from './tenant-people/api.js';
+import { CustomersPage } from './customers/customers-page.js';
+import { createCustomersApi } from './customers/api.js';
 import { createCatalogApi } from './voice-routing/api.js';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { AuthProvider } from 'react-oidc-context';
@@ -184,6 +186,23 @@ function ConsoleE2eRoot() {
           accessToken: () => 'e2e-access-token',
         })}
         identityKey="e2e-people"
+      />
+    );
+  if (view === 'customers')
+    // Cus360 C2 (#792): harness ของ browser test — token จำลองถูกแปลงเป็น actor ที่ proxy ของ sandbox
+    return (
+      <CustomersPage
+        shell={{
+          ...e2eShellUser(url.searchParams.get('tenant') ?? undefined),
+          apiBaseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+          tenantAlias: url.searchParams.get('tenant') ?? undefined,
+        }}
+        api={createCustomersApi({
+          baseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+        })}
+        identityKey="e2e-customers"
       />
     );
   if (view === 'dphone-embedding') {
