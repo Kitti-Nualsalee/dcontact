@@ -8,3 +8,9 @@ export {
   C360_TAG_NORMALIZATION_VERSION,
   normalizeC360TagName,
 } from '@d-contact/contact-points';
+
+/** รูปแบบผลลัพธ์เดิมที่ผู้เรียก customer-360 ใช้ร่วมกับ tag normalizer */
+export interface C360TagName {
+  name: string;
+  nameKey: string;
+}

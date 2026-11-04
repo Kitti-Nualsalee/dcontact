@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { lookupFolding } from 'unicode-case-folding';
 import test from 'node:test';
 import {
   C360ContactPointError,
@@ -131,6 +133,19 @@ test('EMAIL: ปฏิเสธ wrapper/list/group/comment/newline/IP/single-lab
   ])
     rejects(() => normalizeC360Email(value), 'EMAIL_DOMAIN_INVALID');
   rejects(() => normalizeC360Email('a@b..com'), 'EMAIL_INVALID');
+});
+
+test('TAG: mapping ทั้งชุดตรง fingerprint ของ Unicode 17 C+F', () => {
+  const mappings: [number, number[]][] = [];
+  for (let codePoint = 0; codePoint <= 0x10ffff; codePoint += 1) {
+    const folding = lookupFolding(codePoint);
+    if (folding) mappings.push([codePoint, folding]);
+  }
+  assert.equal(mappings.length, 1585);
+  assert.equal(
+    createHash('sha256').update(JSON.stringify(mappings)).digest('hex'),
+    'e1ae424f8316151877f3ba4f5e9054915ccf60a8c1d6f39ab78f263dd6e13bae',
+  );
 });
 
 test('TAG: Unicode 17 full case fold (C+F) และ NFC ตาม E1', () => {
