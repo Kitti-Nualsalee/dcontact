@@ -29,7 +29,10 @@ class InspectionTests(unittest.TestCase):
 
     def run_inspection(self):
         def execute(args, **kwargs):
-            self.assertEqual(args[0:2], ['docker', 'inspect'])
+            if args[:3] == ['docker', 'image', 'inspect']:
+                return SimpleNamespace(stdout=json.dumps([{'Id': image_id,
+                    'RepoDigests': ['example/image@sha256:' + 'a' * 64]} for image_id in args[3:]]).encode())
+            self.assertEqual(args[:2], ['docker', 'inspect'])
             return SimpleNamespace(stdout=json.dumps(self.containers).encode())
         return inspection.inspect(self.root, execute)
 
@@ -47,6 +50,9 @@ class InspectionTests(unittest.TestCase):
     def test_record_change_during_observation_is_rejected(self):
         def execute(args, **kwargs):
             (self.root / 'deployments' / 'current.json').write_text(json.dumps({'sourceSha': 'd' * 40}))
+            if args[:3] == ['docker', 'image', 'inspect']:
+                return SimpleNamespace(stdout=json.dumps([{'Id': image_id,
+                    'RepoDigests': ['example/image@sha256:' + 'a' * 64]} for image_id in args[3:]]).encode())
             return SimpleNamespace(stdout=json.dumps(self.containers).encode())
         with self.assertRaisesRegex(RuntimeError, 'RECORD_CHANGED_DURING_INSPECTION'):
             inspection.inspect(self.root, execute)
@@ -55,11 +61,23 @@ class InspectionTests(unittest.TestCase):
         calls = 0
         def execute(args, **kwargs):
             nonlocal calls
+            if args[:3] == ['docker', 'image', 'inspect']:
+                return SimpleNamespace(stdout=json.dumps([{'Id': image_id,
+                    'RepoDigests': ['example/image@sha256:' + 'a' * 64]} for image_id in args[3:]]).encode())
             calls += 1
             if calls == 2:
                 self.containers[0]['Id'] = 'replacement'
             return SimpleNamespace(stdout=json.dumps(self.containers).encode())
         with self.assertRaisesRegex(RuntimeError, 'RUNTIME_CHANGED_DURING_INSPECTION'):
+            inspection.inspect(self.root, execute)
+
+    def test_missing_immutable_repository_digest_is_rejected(self):
+        def execute(args, **kwargs):
+            if args[:3] == ['docker', 'image', 'inspect']:
+                return SimpleNamespace(stdout=json.dumps([{'Id': image_id, 'RepoDigests': []}
+                                                          for image_id in args[3:]]).encode())
+            return SimpleNamespace(stdout=json.dumps(self.containers).encode())
+        with self.assertRaisesRegex(RuntimeError, 'IMAGE_REPOSITORY_DIGEST_REQUIRED'):
             inspection.inspect(self.root, execute)
 
     def test_unknown_source_and_image_are_rejected(self):

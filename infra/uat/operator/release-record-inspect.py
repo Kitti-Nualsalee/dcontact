@@ -54,6 +54,20 @@ def inspect(root=ROOT, execute=subprocess.run):
                                    'configSha256': hashlib.sha256(config_bytes).hexdigest()}
         if not all(c['running'] for c in components.values()):
             raise RuntimeError('RUNTIME_NOT_RUNNING')
+        image_ids = sorted({item['imageId'] for item in components.values()})
+        result = execute(['docker', 'image', 'inspect', *image_ids], check=True,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+        images = json.loads(result.stdout)
+        if len(images) != len(image_ids) or {image['Id'] for image in images} != set(image_ids):
+            raise RuntimeError('IMAGE_INVENTORY_CHANGED')
+        digests = {}
+        for image in images:
+            refs = image.get('RepoDigests') or []
+            if not refs or any(not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', ref) for ref in refs):
+                raise RuntimeError('IMAGE_REPOSITORY_DIGEST_REQUIRED')
+            digests[image['Id']] = sorted(set(refs))
+        for component in components.values():
+            component['repositoryDigests'] = digests[component['imageId']]
         return components
 
     components = observe()
