@@ -345,7 +345,10 @@ export async function searchC360Contacts(
   const readable = Prisma.sql`${c360ReadableContactSql(actor)} AND ${NOT_MERGED}`;
   const filter = filterSql(search);
   const [authorization] = await tx.$queryRaw<{ fingerprint: string }[]>(Prisma.sql`
-    SELECT md5(coalesce(string_agg(c.id::text, ',' ORDER BY c.id), '')) AS fingerprint
+    SELECT concat(count(*), ':',
+      coalesce(bit_xor(('x' || substr(md5(c.id::text), 1, 16))::bit(64)::bigint), 0), ':',
+      coalesce(bit_xor(('x' || substr(md5(c.id::text), 17, 16))::bit(64)::bigint), 0)
+    ) AS fingerprint
     FROM contacts c
     WHERE c.tenant_id = ${actor.tenantId}::uuid AND ${readable} AND ${filter}`);
   const cursorScope = {
