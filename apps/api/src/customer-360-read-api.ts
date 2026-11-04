@@ -121,6 +121,8 @@ export class Customer360ReadController {
       this.db,
       identity.tenantId,
       async (tx) => {
+        // Search ใช้ query สั้นหลายครั้ง ค่า compile JIT อาจสูงกว่าเวลาประมวลผลจริง
+        await tx.$queryRaw`SELECT set_config('jit', 'off', true)`;
         const actor = await c360CurrentActor(tx, identity);
         return searchC360Contacts(tx, actor, body, this.codec);
       },
