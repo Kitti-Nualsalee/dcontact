@@ -16,8 +16,9 @@ import { C360_CONTACT_POINT_QUOTA } from './profile-points.js';
  * - อ่าน ContactIdentity อย่างเดียว ไม่แก้ owner/value/verification/consent ของแถวเดิม
  * - ผ่าน parser ตามค่าที่บันทึกไว้จริง = ACTIVE; ไม่มี + และไม่มีประเทศ, extension หรือรูปแบบผิด =
  *   REVIEW_REQUIRED (ไม่มี normalized key จึงไม่ถูก lookup/dispatch) ไม่เดาประเทศจาก tenant/locale
- * - identity หลายแถวของ contact เดียวที่ normalize แล้วซ้ำกัน (หรือซ้ำ point ACTIVE เดิม) เก็บเป็น
- *   REVIEW_REQUIRED เหตุผล DUPLICATE_ON_CONTACT: ยังมี provenance ครบ แต่ lookup ใช้ ACTIVE ตัวเดียว
+ * - identity หลายแถวของ contact เดียวที่ normalize แล้วซ้ำกัน (หรือซ้ำ point ACTIVE เดิม) เก็บเป็น point
+ *   ที่ถูกแทนที่ตั้งแต่ import (RETIRED โดย command เดียวกับที่สร้าง, มี normalized key) เพราะ ACTIVE ซ้ำ
+ *   บน contact เดียวไม่ได้; bridge ตัดสินแถวนี้ตาม ACTIVE ค่าเดียวกันบน contact เดียวกัน (เจ้าของงานเลือก)
  * - idempotent: unique (tenant_id, source_identity_id) และ FK (tenant, identity, contact) พิสูจน์
  *   provenance; รันซ้ำได้โดยไม่สร้างแถวซ้ำ legacy ที่เกิน quota ไม่ถูกตัดทิ้ง
  * - รายงานมีแค่ counts และ digest ไม่มีค่า phone/email ดิบ
@@ -29,7 +30,9 @@ type ImportableType = (typeof IMPORTABLE)[number];
 
 export type C360LegacyClassification =
   | { state: 'ACTIVE'; normalizedValue: string; normalizationVersion: string }
-  | { state: 'REVIEW_REQUIRED'; reason: C360ContactPointErrorCode | 'DUPLICATE_ON_CONTACT' };
+  | { state: 'REVIEW_REQUIRED'; reason: C360ContactPointErrorCode }
+  /** ค่าซ้ำกับ ACTIVE บน contact เดียวกัน: เก็บเป็น RETIRED ที่ command เดียวกันสร้างและ retire */
+  | { state: 'SUPERSEDED'; normalizedValue: string; normalizationVersion: string };
 
 export function classifyC360LegacyIdentity(
   type: ImportableType,
@@ -62,7 +65,7 @@ export interface C360LegacyInventory {
   tenantId: string;
   identities: Record<ImportableType, number>;
   imported: number;
-  pending: { active: number; reviewRequired: number };
+  pending: { active: number; reviewRequired: number; superseded: number };
   reviewReasons: Record<string, number>;
   /** contact ที่ ACTIVE ต่อชนิดเกิน quota หลัง import (ไม่ถูกตัดทิ้ง แต่เพิ่มใหม่ไม่ได้) */
   contactsOverQuota: number;
@@ -78,7 +81,7 @@ function keyDigest(tenantId: string, keys: string[]): string {
   return hash.digest('hex');
 }
 
-/** ACTIVE ซ้ำบน contact เดียวกันทำไม่ได้ (unique index) จึงลดเป็น REVIEW_REQUIRED แทนการทิ้งแถว */
+/** ACTIVE ซ้ำบน contact เดียวกันทำไม่ได้ (unique index) จึงเก็บเป็น SUPERSEDED แทนการทิ้งแถว */
 function dedupe(
   result: C360LegacyClassification,
   row: { contact_id: string; type: string },
@@ -86,7 +89,12 @@ function dedupe(
 ): C360LegacyClassification {
   if (result.state !== 'ACTIVE') return result;
   const key = `${row.contact_id}\0${row.type}\0${result.normalizationVersion}\0${result.normalizedValue}`;
-  if (contactKeys.has(key)) return { state: 'REVIEW_REQUIRED', reason: 'DUPLICATE_ON_CONTACT' };
+  if (contactKeys.has(key))
+    return {
+      state: 'SUPERSEDED',
+      normalizedValue: result.normalizedValue,
+      normalizationVersion: result.normalizationVersion,
+    };
   contactKeys.add(key);
   return result;
 }
@@ -120,6 +128,7 @@ export async function inventoryC360LegacyContactPoints(
   let imported = 0;
   let active = 0;
   let review = 0;
+  let superseded = 0;
   // ACTIVE ที่จะมีหลัง import ต่อ contact/ชนิด และ key → contacts สำหรับ shared/collision
   const perContact = new Map<string, number>();
   const keyContacts = new Map<string, Set<string>>();
@@ -159,6 +168,8 @@ export async function inventoryC360LegacyContactPoints(
         row.type,
         `${row.type}\0${result.normalizationVersion}\0${result.normalizedValue}`,
       );
+    } else if (result.state === 'SUPERSEDED') {
+      superseded += 1;
     } else {
       review += 1;
       reviewReasons[result.reason] = (reviewReasons[result.reason] ?? 0) + 1;
@@ -176,7 +187,7 @@ export async function inventoryC360LegacyContactPoints(
     tenantId,
     identities,
     imported,
-    pending: { active, reviewRequired: review },
+    pending: { active, reviewRequired: review, superseded },
     reviewReasons,
     contactsOverQuota: new Set(
       [...perContact.entries()]
@@ -203,6 +214,7 @@ export interface C360LegacyImportBatch {
   imported: number;
   active: number;
   reviewRequired: number;
+  superseded: number;
   contacts: string[];
   remaining: number;
 }
@@ -240,6 +252,7 @@ export async function importC360LegacyContactPointsBatch(
   }
   let active = 0;
   let reviewRequired = 0;
+  let superseded = 0;
   let imported = 0;
   // revision เพิ่มเฉพาะ contact ที่มีแถวถูก insert จริง (แถวที่ ON CONFLICT ไม่ใช่ mutation)
   const touched = new Set<string>();
@@ -267,18 +280,23 @@ export async function importC360LegacyContactPointsBatch(
     const inserted = await tx.$executeRaw`
       INSERT INTO c360_contact_points
         (id, tenant_id, contact_id, kind, raw_value, normalized_value, normalization_version, state,
-         source_kind, source_identity_id, created_actor_identity_key, created_command_id)
+         source_kind, source_identity_id, created_actor_identity_key, created_command_id,
+         retired_at, retired_actor_identity_key, retired_command_id)
       VALUES (${randomUUID()}::uuid, ${context.tenantId}::uuid, ${row.contact_id}::uuid, ${row.type},
         ${row.value},
-        ${result.state === 'ACTIVE' ? result.normalizedValue : null},
-        ${result.state === 'ACTIVE' ? result.normalizationVersion : null},
-        ${result.state}, 'LEGACY_IDENTITY', ${row.id}::uuid,
-        ${context.actorIdentityKey}, ${context.commandId}::uuid)
+        ${result.state === 'REVIEW_REQUIRED' ? null : result.normalizedValue},
+        ${result.state === 'REVIEW_REQUIRED' ? null : result.normalizationVersion},
+        ${result.state === 'SUPERSEDED' ? 'RETIRED' : result.state}, 'LEGACY_IDENTITY', ${row.id}::uuid,
+        ${context.actorIdentityKey}, ${context.commandId}::uuid,
+        ${result.state === 'SUPERSEDED' ? new Date() : null},
+        ${result.state === 'SUPERSEDED' ? context.actorIdentityKey : null},
+        ${result.state === 'SUPERSEDED' ? context.commandId : null}::uuid)
       ON CONFLICT (tenant_id, source_identity_id) WHERE source_kind = 'LEGACY_IDENTITY' DO NOTHING`;
     if (inserted !== 1) continue;
     imported += 1;
     touched.add(row.contact_id);
     if (result.state === 'ACTIVE') active += 1;
+    else if (result.state === 'SUPERSEDED') superseded += 1;
     else reviewRequired += 1;
   }
   if (touched.size > 0)
@@ -296,6 +314,7 @@ export async function importC360LegacyContactPointsBatch(
     imported,
     active,
     reviewRequired,
+    superseded,
     contacts: [...touched].sort(),
     remaining: Number(left?.n ?? 0),
   };

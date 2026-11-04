@@ -51,7 +51,7 @@ async function legacyFixture(f: Fixture) {
   const c = await contact(f);
   const d = await contact(f);
   const many = await contact(f);
-  // A: ค่าเดียวกันสองรูปแบบบน contact เดียว → ACTIVE หนึ่ง + DUPLICATE_ON_CONTACT
+  // A: ค่าเดียวกันสองรูปแบบบน contact เดียว → ACTIVE หนึ่ง + แถวที่ถูกแทนที่ (ชี้ไป ACTIVE เดียวกัน)
   await identity(f, a, 'PHONE', '+66812345678');
   await identity(f, a, 'PHONE', '+66 81 234 5678');
   // B: เบอร์ไม่มีประเทศ (ห้ามเดา) และ email ที่ใช้ได้
@@ -103,6 +103,7 @@ test('S3: dry-run inventory นับครบโดยไม่มี raw PII �
         imported: inventory.imported,
         pendingActive: inventory.pendingActive,
         pendingReviewRequired: inventory.pendingReviewRequired,
+        pendingSuperseded: inventory.pendingSuperseded,
         reviewReasons: JSON.parse(inventory.reviewReasons!),
         contactsOverQuota: inventory.contactsOverQuota,
         sharedKeys: inventory.sharedKeys,
@@ -115,9 +116,9 @@ test('S3: dry-run inventory นับครบโดยไม่มี raw PII �
         imported: '0',
         // A หนึ่ง, B email, C, many 11
         pendingActive: '14',
-        pendingReviewRequired: '3',
+        pendingReviewRequired: '2',
+        pendingSuperseded: '1',
         reviewReasons: {
-          DUPLICATE_ON_CONTACT: 1,
           PHONE_COUNTRY_REQUIRED: 1,
           PHONE_EXTENSION_UNSUPPORTED: 1,
         },
@@ -178,7 +179,7 @@ test('S3: import ทีละ batch จนครบ, รันซ้ำได้
       // provenance: contact และค่าดิบตรงกับ identity ต้นทาง ไม่ย้ายเจ้าของ
       assert.equal(row.contactId, source.contactId);
       assert.equal(row.rawValue, source.value);
-      assert.equal(row.state === 'ACTIVE', row.normalizedValue !== null);
+      assert.equal(row.state === 'REVIEW_REQUIRED', row.normalizedValue === null);
     }
     const state = (contactId: string) =>
       rows
@@ -188,8 +189,11 @@ test('S3: import ทีละ batch จนครบ, รันซ้ำได้
     const row = (value: unknown[]) => JSON.stringify(value);
     assert.deepEqual(state(ids.a), [
       ['+66812345678', 'ACTIVE'],
-      [null, 'REVIEW_REQUIRED'],
+      ['+66812345678', 'RETIRED'],
     ]);
+    // แถวที่ถูกแทนที่ตั้งแต่ import: retire โดย command เดียวกับที่สร้าง ไม่ใช่ retire ภายหลัง
+    const superseded = rows.find((row) => row.contactId === ids.a && row.state === 'RETIRED')!;
+    assert.equal(superseded.retiredCommandId, superseded.createdCommandId);
     assert.deepEqual(state(ids.b), [
       ['User@example.com', 'ACTIVE'],
       [null, 'REVIEW_REQUIRED'],
