@@ -24,6 +24,12 @@ def validate(observation, approved_sha256, now=None):
     """ค่า approved_sha256 ต้องมาจากช่องทาง review ที่เชื่อถือได้ ไม่ใช่ observation เอง."""
     if not valid('[0-9a-f]{64}', approved_sha256) or hashlib.sha256(canonical(observation)).hexdigest() != approved_sha256:
         raise RuntimeError('APPROVED_OBSERVATION_MISMATCH')
+    result = validate_unreviewed(observation, now)
+    return {**result, 'status': 'OBSERVATION_VALIDATED_NOT_RECORDABLE', 'observationSha256': approved_sha256}
+
+
+def validate_unreviewed(observation, now=None):
+    """ตรวจรูปแบบและความสอดคล้องเท่านั้น ไม่ยืนยันที่มาหรือการ review."""
     if (observation.get('schema'), observation.get('status')) != (
             'UatReleaseEvidenceObservationV1', 'OBSERVED_NOT_CERTIFIED') or observation.get('rollbackCertified') is not False:
         raise RuntimeError('OBSERVATION_NOT_ELIGIBLE')
@@ -91,7 +97,7 @@ def validate(observation, approved_sha256, now=None):
                    or not valid('[0-9a-f]{64}', item['checksum']) for item in migrations)
             or len({item['name'] for item in migrations}) != len(migrations)):
         raise RuntimeError('LEDGER_MIGRATIONS_INVALID')
-    return {'status': 'OBSERVATION_VALIDATED_NOT_RECORDABLE', 'observationSha256': approved_sha256,
+    return {'status': 'OBSERVATION_CONSISTENT_NOT_REVIEWED',
             'expectedCurrentSha256': records['current']['sha256'],
             'expectedPreviousSha256': records['previous']['sha256'],
             'rollbackCertified': False}
@@ -102,6 +108,14 @@ def validate_rehearsal(observation, approved_observation_sha256, proof, approved
     validate(observation, approved_observation_sha256, now)
     if not valid('[0-9a-f]{64}', approved_proof_sha256) or hashlib.sha256(canonical(proof)).hexdigest() != approved_proof_sha256:
         raise RuntimeError('APPROVED_REHEARSAL_MISMATCH')
+    result = validate_rehearsal_unreviewed(observation, proof, now)
+    return {**result, 'status': 'COPY_REHEARSAL_VALIDATED_NOT_VM_ROLLBACK',
+            'rehearsalSha256': approved_proof_sha256}
+
+
+def validate_rehearsal_unreviewed(observation, proof, now=None):
+    """ตรวจความสอดคล้องของ copy เท่านั้น ไม่อ้างว่า evidence ได้รับ review."""
+    validate_unreviewed(observation, now)
     if (proof.get('status'), proof.get('scope')) != (
             'COPY_OWNER_ACL_STANDARD_MIGRATIONS_GENERATED_WRITER_PASS', 'B714_VM2_APP_PERMISSION_COPY_ONLY'):
         raise RuntimeError('REHEARSAL_SCOPE_REQUIRED')
@@ -133,5 +147,4 @@ def validate_rehearsal(observation, approved_observation_sha256, proof, approved
     limitations = proof.get('limitations')
     if not isinstance(limitations, list) or 'OLD_API_803_DATA_COMPATIBILITY_NOT_NEW_B2_AUTHORITY_OR_VM_ROLLBACK' not in limitations:
         raise RuntimeError('REHEARSAL_LIMITATIONS_REQUIRED')
-    return {'status': 'COPY_REHEARSAL_VALIDATED_NOT_VM_ROLLBACK',
-            'rehearsalSha256': approved_proof_sha256, 'rollbackCertified': False}
+    return {'status': 'COPY_REHEARSAL_CONSISTENT_NOT_REVIEWED', 'rollbackCertified': False}

@@ -40,6 +40,9 @@ class CandidateTests(unittest.TestCase):
         self.assertEqual(result['status'], 'OBSERVATION_VALIDATED_NOT_RECORDABLE')
         self.assertFalse(result['rollbackCertified'])
         self.assertEqual(result['expectedCurrentSha256'], 'f' * 64)
+        unreviewed = candidate.validate_unreviewed(self.observation, self.now)
+        self.assertEqual(unreviewed['status'], 'OBSERVATION_CONSISTENT_NOT_REVIEWED')
+        self.assertNotIn('observationSha256', unreviewed)
 
     def test_unapproved_or_stale_observation_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, 'APPROVED_OBSERVATION'):
