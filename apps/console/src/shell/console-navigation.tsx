@@ -14,6 +14,7 @@ const VIEWS = new Set([
   'dphone-embedding',
   'voice-routing',
   'tenant-people',
+  'customers',
   'core-settings',
   'line-inbound',
   'account',
