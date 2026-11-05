@@ -7,6 +7,13 @@ import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { buildDeploymentRecord, main, renderSummary } from './u1-uat-readiness.mjs';
 
+test('#868 inspect journal ตรวจสถานะค้างโดยไม่รับรอง runtime', () => {
+  const result = spawnSync('python3', ['-B', resolve('infra/uat/operator/b868-record-recovery-inspect.test.py')], {
+    encoding: 'utf8', timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 function markCommitted(path) {
   writeFileSync(`${path}.committed`, `${createHash('sha256').update(readFileSync(path)).digest('hex')}\n`, { mode: 0o600 });
 }
