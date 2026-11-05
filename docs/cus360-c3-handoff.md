@@ -1,6 +1,6 @@
 # Cus360 C3 handoff — contact points, legacy และ compatibility bridge
 
-อัปเดตล่าสุด: 2026-11-03 · issue #793 · สัญญาต้นทาง: E1 A/C/D/E/G (#764) และ R1 B/E/J (#763)
+อัปเดตล่าสุด: 2026-11-05 · issue #793 · สัญญาต้นทาง: E1 A/C/D/E/G (#764) และ R1 B/E/J (#763)
 
 เอกสารนี้บอกว่า C3 ส่งอะไรให้ C4 (เปิด writer) และงาน rollout ใช้อย่างไร รวมถึงสิ่งที่ **ยังไม่ได้ทำ**
 รายละเอียดการ implement อยู่ใน PR และ commit message ของแต่ละ slice
@@ -9,11 +9,11 @@
 
 | slice | PR | merge SHA | ขอบเขต |
 |---|---|---|---|
-| S1 parser | #851 | รอ merge | `@d-contact/contact-points`: phone/email/tag normalization v1 และ runtime manifest |
-| S2 owner point service | #853 | รอ merge | add/retire/replace, quota, NO_OP, revision, provenance |
-| S3 legacy | #855 | รอ merge | inventory และ import `ContactIdentity` → contact point ผ่าน operator |
-| S4 consumer bridge | #858 | รอ merge | guard ของ consumer ที่ lookup จากค่า |
-| S5 compatibility | (PR นี้) | รอ merge | compatibility matrix, rollback guard และเอกสารนี้ |
+| S1 parser | #851 | `376dc938` | `@d-contact/contact-points`: phone/email/tag normalization v1 และ runtime manifest |
+| S2 owner point service | #853 | `28440b5f` | add/retire/replace, quota, NO_OP, revision, provenance |
+| S3 legacy | #855 | ดูสถานะใน PR | inventory และ import `ContactIdentity` → contact point ผ่าน operator |
+| S4 consumer bridge | #858 | ดูสถานะใน PR | guard ของ consumer ที่ lookup จากค่า |
+| S5 compatibility | #864 | ดูสถานะใน PR | compatibility matrix, rollback guard และเอกสารนี้ |
 
 ## สำหรับ C4 (writers)
 
@@ -105,8 +105,8 @@ event ที่ได้ reason นี้ไม่ถูกประมวลผ
 
 - shared normalized key ข้าม contact เก็บได้ตาม R1 และถูกนับใน inventory (`sharedKeys`) — bridge ไม่ resolve ค่าเหล่านี้
 - vector ของ parser ครบตาม E1 C (`packages/contact-points/src/normalize.test.ts`) และ phone metadata SHA256 ตรงกับ E1
-- case folding ตรึง mapping ของ Unicode 16 และ Latin Extended-D ชุดใหม่ (A7CE/A7D2/A7D4) ที่ reviewer ระบุว่าเป็นของ
-  Unicode 17 ไว้ใน test แล้ว ยังไม่ได้เทียบกับ UCD 17 ทั้งไฟล์
+- case folding มี test ตรวจ fingerprint ของ Unicode 17 C+F ทั้ง 1,585 mapping เทียบกับ UCD ตามหลักฐาน review #851;
+  NFC/ICU และ package integrity ของ release ยังคงเป็น gate แยกก่อนเปิด writer
 - ค่าซ้ำบน contact เดียว (identity หลายแถวที่ normalize แล้วเท่ากัน) เก็บเป็น point ที่ถูกแทนที่ตั้งแต่ import
   (RETIRED โดย command เดียวกับที่สร้าง) bridge ตัดสินตาม ACTIVE ค่าเดียวกันบน contact เดียวกัน (เจ้าของงานเลือก)
   UI ของ C2/C4 ควรแสดงแถวนี้เป็น "ซ้ำกับค่าที่ใช้อยู่" ไม่ใช่ประวัติที่ผู้ใช้ retire
@@ -134,5 +134,5 @@ cd apps/api && npx tsx --test --test-concurrency=1 src/customer-360-points.integ
 
 - dispatch จาก `ContactIdentity` ID และเบอร์ภายในของ sandbox → decision gap #857
 - การเชื่อม rollback guard เข้า `uat-deploy.sh` → หลัง #812 merge
-- HTTP route และ UI ของ point (C4) และการค้น PHONE/EMAIL ของ C2 ด้วย parser นี้ (follow-up ของ #792)
+- HTTP route และ UI สำหรับเขียน point อยู่ใน C4; การค้น PHONE/EMAIL ของ C2 ใช้ parser กลางแล้ว (#869)
 - test import สองคำสั่งพร้อมกันไม่ได้บังคับ interleave จึงพิสูจน์แค่ว่า unique index กันแถวซ้ำ
