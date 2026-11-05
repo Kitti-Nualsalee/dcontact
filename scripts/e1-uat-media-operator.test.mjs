@@ -32,7 +32,7 @@ test('#657: voice-on ปิด switch/ตรวจ idle และ snapshot ก�
 
 function voiceRunner(
   context,
-  { explicit = true, operator, missing = false, failVerify = false } = {},
+  { explicit = true, operator, missing = false, failVerify = false, command = 'e1-voice-on', pending = false } = {},
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'e1-media-candidate-'));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -54,6 +54,10 @@ function voiceRunner(
   writeFileSync(join(release, 'e1-freeswitch/entrypoint.sh'), '#!/bin/sh\n', { mode: 0o700 });
   writeFileSync(join(directory, 'e1-acceptance.enabled'), '');
   writeFileSync(join(directory, 'uat.env'), '', { mode: 0o600 });
+  if (pending) {
+    mkdirSync(join(directory, 'operator'), { mode: 0o700 });
+    writeFileSync(join(directory, 'operator/uat-rollback.pending'), '{}', { mode: 0o600 });
+  }
   const lock = join(directory, 'media.lock');
   writeFileSync(lock, '');
   const log = join(directory, 'commands.jsonl');
@@ -112,7 +116,7 @@ if os.environ.get('TEST_FAIL_VERIFY') == 'true': sys.exit(1)
   };
   delete environment.UAT_E1_MEDIA_OPERATOR_SHA;
   if (explicit) environment.UAT_E1_MEDIA_OPERATOR_SHA = operatorSha;
-  const result = spawnSync('bash', [runner, 'e1-voice-on', candidate, 'operator:fixture'], {
+  const result = spawnSync('bash', [runner, command, candidate, 'operator:fixture'], {
     encoding: 'utf8',
     env: environment,
   });
@@ -125,6 +129,14 @@ if os.environ.get('TEST_FAIL_VERIFY') == 'true': sys.exit(1)
   })();
   return { result, commands, directory, candidate, operatorSha };
 }
+
+test('voice-off ปิด switch ได้เมื่อมี pending แต่ไม่ recreate runtime', (context) => {
+  const { result, commands } = voiceRunner(context, { command: 'e1-voice-off', pending: true });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /E1_VOICE_OFF_RECREATE_BLOCKED_SWITCH_OFF/);
+  assert.ok(commands.some((c) => c.tool === 'compose' && c.args.includes('off')));
+  assert.equal(commands.some((c) => c.tool === 'compose' && c.args.includes('up')), false);
+});
 
 test('#790: voice-on ใช้ operator artifact ที่ pin แยกและถือ outer lock ตลอด verify→enable', (context) => {
   const { result, commands, directory, candidate, operatorSha } = voiceRunner(context);

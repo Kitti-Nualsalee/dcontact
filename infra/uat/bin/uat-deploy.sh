@@ -742,6 +742,7 @@ PY
     ;;
 
   e1-enable)
+    uat_mutation_lock
     dir="$(release_dir "${1:?sha}")"
     [[ -f "$dir/docker-compose.uat.e1.yml" && -x "$dir/e1-freeswitch/entrypoint.sh" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
     : >"$E1_FLAG"
@@ -754,6 +755,7 @@ PY
     ;;
 
   e1-disable)
+    uat_mutation_lock
     dir="$(release_dir "${1:?sha}")"
     [[ "$(release_value "$dir" UAT_WORKSPACE_ENABLED)" != true ]] || fail 'WORKSPACE_REQUIRES_E1_ROLLBACK_FIRST'
     # ต้องถอด daemon ขณะ overlay ยัง active; หลังลบ flag compose จะไม่รู้จัก service นี้แล้ว
@@ -764,6 +766,10 @@ PY
     ;;
 
   e1-voice-control|e1-voice-on|e1-voice-off)
+    # คำสั่งปิดฉุกเฉินต้องทำงานได้แม้มี transaction ค้าง
+    if [[ "$cmd" == e1-voice-on || ( "$cmd" == e1-voice-control && "${2:-}" != off && "${2:-}" != status && "${2:-}" != idle ) ]]; then
+      uat_mutation_lock
+    fi
     sha="${1:?sha}"
     shift
     dir="$(release_dir "$sha")"
@@ -798,13 +804,22 @@ PY
           fail 'E1_VOICE_ENABLE_FAILED'
         fi
       else
-        UAT_E1_OUTBOUND_VOICE_ENABLED=false compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox
+        # ปิด switch ก่อนเสมอ แม้ lock ถูกถืออยู่; recreate ต้องรอ transaction อื่นจบ
+        (
+          uat_mutation_lock
+          for service in api e1-sandbox; do
+            running_sha="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${PROJECT}-${service}-1")"
+            [[ "$running_sha" == "$sha" ]] || fail 'E1_VOICE_RUNTIME_SHA_MISMATCH'
+          done
+          UAT_E1_OUTBOUND_VOICE_ENABLED=false compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox
+        ) || fail 'E1_VOICE_OFF_RECREATE_BLOCKED_SWITCH_OFF'
       fi
       echo "{\"type\":\"u1.uat.deploy\",\"step\":\"$cmd\",\"status\":\"PASS\"}"
     fi
     ;;
 
   e1-launcher-enable|e1-launcher-status|e1-launcher-alias)
+    if [[ "$cmd" != e1-launcher-status ]]; then uat_mutation_lock; fi
     sha="${1:?sha}"
     shift
     dir="$(release_dir "$sha")"
@@ -875,6 +890,7 @@ PY
     ;;
 
   line-reload)
+    uat_mutation_lock
     # #565: หลัง vm2-line-secrets.sh --rotate — ไฟล์ secret เปลี่ยนแต่ compose config ไม่เปลี่ยน จึงต้อง recreate เอง
     dir="$(release_dir "${1:?sha}")"
     is_line "$dir" || fail 'LINE_NOT_ENABLED'
