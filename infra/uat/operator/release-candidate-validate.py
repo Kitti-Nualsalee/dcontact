@@ -73,6 +73,9 @@ def validate_unreviewed(observation, now=None):
         refs = component.get('repositoryDigests')
         if not isinstance(refs, list) or not refs or any(not valid(r'[^\s@]+@sha256:[0-9a-f]{64}', ref) for ref in refs):
             raise RuntimeError('COMPONENT_DIGEST_REQUIRED')
+        reference = component.get('imageReference')
+        if not valid(r'[^\s@]+@sha256:[0-9a-f]{64}', reference) or reference not in refs:
+            raise RuntimeError('COMPONENT_REFERENCE_MISMATCH')
     for service in ('e1-sandbox', 'proxy', 'keycloak'):
         item = protected['/dcontact-uat-' + service + '-1']
         component = components[service]

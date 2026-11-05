@@ -15,6 +15,7 @@ class CandidateTests(unittest.TestCase):
         self.now = datetime.now(timezone.utc)
         component = {'containerId': 'a' * 64, 'imageId': 'sha256:' + 'b' * 64,
                      'sourceSha': 'c' * 40, 'configSha256': 'd' * 64, 'running': True,
+                     'imageReference': 'example/image@sha256:' + 'e' * 64,
                      'repositoryDigests': ['example/image@sha256:' + 'e' * 64]}
         runtime = {'schema': 'UatReleaseInspectionV1', 'runtimeConsistency': 'TWO_MATCHING_OBSERVATIONS',
                    'rollbackCertified': False, 'components': {name: copy.deepcopy(component) for name in candidate.SERVICES},
@@ -75,6 +76,16 @@ class CandidateTests(unittest.TestCase):
         self.observation['runtimeSha256'] = hashlib.sha256(candidate.canonical(self.observation['runtime'])).hexdigest()
         with self.assertRaisesRegex(RuntimeError, 'COMPONENT_IDENTITY'):
             self.check()
+
+    def test_rejects_unpinned_or_mismatched_component_reference(self):
+        component = self.observation['runtime']['components']['proxy']
+        for reference in ('example/image:latest', 'example/image@sha256:' + 'f' * 64,
+                          'other/image@sha256:' + 'e' * 64):
+            with self.subTest(reference=reference):
+                component['imageReference'] = reference
+                self.observation['runtimeSha256'] = hashlib.sha256(candidate.canonical(self.observation['runtime'])).hexdigest()
+                with self.assertRaisesRegex(RuntimeError, 'COMPONENT_REFERENCE_MISMATCH'):
+                    candidate.validate_unreviewed(self.observation, self.now)
 
     def test_unresolved_migration_and_false_certification_are_rejected(self):
         self.observation['ledger']['unresolved'] = 1

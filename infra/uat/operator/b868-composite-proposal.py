@@ -122,6 +122,8 @@ def build(manifest_path, expected_sha256, root=ROOT, now=None):
         components[name] = {key: component[key] for key in ('containerId', 'imageId', 'sourceSha', 'configSha256', 'running')}
         components[name]['repositoryDigestsSha256'] = sha(CANDIDATE.canonical(refs))
         components[name]['imageDigests'] = sorted({ref.rsplit('@sha256:', 1)[1] for ref in refs})
+        components[name]['configuredImageDigest'] = component['imageReference'].rsplit('@sha256:', 1)[1]
+        components[name]['configuredReferenceSha256'] = sha(component['imageReference'].encode('utf-8'))
     return {'schema': 'UatCompositeReconciliationProposalV1', 'status': 'NOT_AUTHORIZED_NOT_RECORDABLE',
             'sourceSha': api['sourceSha'], 'components': components,
             'mediaObservation': {'sourceSha': media['sourceSha'], 'sourceDigest': media['sourceDigest'],
