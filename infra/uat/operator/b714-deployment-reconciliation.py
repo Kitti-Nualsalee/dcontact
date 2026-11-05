@@ -347,6 +347,7 @@ def _apply_record(manifest, root, prepare_candidate, inspect_candidate):
     lock = os.open(str(operator / 'b714-cutover.lock'), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        require(not os.path.lexists(operator / 'uat-record-transaction'), 'RECORD_TRANSACTION_REQUIRES_MANUAL_REVIEW')
         require(not os.path.lexists(operator / 'uat-rollback.pending'), 'ROLLBACK_PENDING_REQUIRES_MANUAL_REVIEW')
         require(not pending.exists(), 'PENDING_RECONCILIATION_REQUIRES_MANUAL_REVIEW')
         current, previous = deployments / 'current.json', deployments / 'previous.json'

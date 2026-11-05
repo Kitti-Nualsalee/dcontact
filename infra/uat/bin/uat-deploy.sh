@@ -170,6 +170,7 @@ except BlockingIOError:
     sys.exit('UAT_MUTATION_LOCK_BUSY')
 PY
   [[ ! -e "$UAT_ROOT/operator/b714-reconciliation.pending" && ! -L "$UAT_ROOT/operator/b714-reconciliation.pending" ]] || fail 'UAT_RECONCILIATION_PENDING'
+  [[ ! -e "$UAT_ROOT/operator/uat-record-transaction" && ! -L "$UAT_ROOT/operator/uat-record-transaction" ]] || fail 'UAT_RECORD_TRANSACTION_PENDING'
   if [[ "${1:-}" != allow-rollback-record ]]; then
     [[ ! -e "$UAT_ROOT/operator/uat-rollback.pending" && ! -L "$UAT_ROOT/operator/uat-rollback.pending" ]] || fail 'UAT_ROLLBACK_PENDING'
   fi
@@ -339,6 +340,38 @@ if len(sys.argv) > 3:
         sys.exit('ROLLBACK_TARGET_RELEASE_MISMATCH')
 print(json.dumps(record))
 PY
+}
+
+# Archive ใหม่มีสิทธิ์เป็น target เมื่อบันทึก pointer และ marker ที่ผูก bytes ครบแล้วเท่านั้น
+uat_require_committed_archive() {
+  python3 - "$1" <<'PY'
+import hashlib, os, stat, sys
+path = sys.argv[1]
+def read_private(name, limit):
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or info.st_size > limit:
+            raise ValueError('invalid file')
+        return stream.read(limit + 1)
+try:
+    archive = read_private(path, 8388608)
+    marker = read_private(path + '.committed', 65)
+    if marker != (hashlib.sha256(archive).hexdigest() + '\n').encode():
+        raise ValueError('digest mismatch')
+except (OSError, ValueError):
+    sys.exit('ROLLBACK_ARCHIVE_NOT_COMMITTED')
+PY
+}
+
+uat_require_committed_pointer() {
+  local pointer="$1" archive
+  for archive in "$UAT_ROOT"/deployments/*-*.json; do
+    [[ -f "$archive" && ! -L "$archive" ]] || continue
+    uat_require_committed_archive "$archive" 2>/dev/null || continue
+    cmp -s "$pointer" "$archive" && return 0
+  done
+  fail 'ROLLBACK_POINTER_NOT_COMMITTED'
 }
 
 rollback_probe_cleanup() {
@@ -685,9 +718,64 @@ if (pending.get("schema") != "UatRollbackPendingV1" or pending.get("targetSha") 
       fail 'UAT_ROLLBACK_SMOKE_RECEIPT_AND_RECOVERY_REQUIRED'
     fi
     target="$UAT_ROOT/deployments/$(date -u +%Y%m%dT%H%M%SZ)-${sha}.json"
-    (set -C; printf '%s' "$validated_record" | python3 -c 'import base64,sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.buffer.read(), validate=True))' >"$target") || fail 'RECORD_ARCHIVE_EXISTS'
+    [[ ! -e "$target" && ! -L "$target" ]] || fail 'RECORD_ARCHIVE_EXISTS'
+    printf '%s' "$validated_record" | python3 -c '
+import base64, hashlib, json, os, stat, sys
+operator, deployments, archive = sys.argv[1:]
+transaction = os.path.join(operator, "uat-record-transaction")
+desired = base64.b64decode(sys.stdin.buffer.read(), validate=True)
+os.mkdir(transaction, 0o700)
+def syncdir(path):
+    fd = os.open(path, os.O_RDONLY)
+    try: os.fsync(fd)
+    finally: os.close(fd)
+def save(name, data):
+    fd = os.open(os.path.join(transaction, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(data); stream.flush(); os.fsync(stream.fileno())
+syncdir(operator)
+snapshots = {}
+for name in ("current.json", "previous.json"):
+    path = os.path.join(deployments, name)
+    if os.path.lexists(path):
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or info.st_size > 8388608:
+                sys.exit("RECORD_SNAPSHOT_INVALID")
+            data = stream.read()
+        save(name, data)
+        snapshots[name] = hashlib.sha256(data).hexdigest()
+    else:
+        snapshots[name] = None
+save("desired.json", desired)
+save("intent.json", json.dumps({"schema":"UatRecordIntentV1", "archive":os.path.basename(archive),
+    "desiredSha256":hashlib.sha256(desired).hexdigest(), "snapshots":snapshots}).encode())
+syncdir(transaction)
+' "$UAT_ROOT/operator" "$UAT_ROOT/deployments" "$target"
+    printf '%s' "$validated_record" | python3 -c '
+import base64, os, sys, tempfile
+target = sys.argv[1]
+data = base64.b64decode(sys.stdin.buffer.read(), validate=True)
+directory = os.path.dirname(target)
+fd, staging = tempfile.mkstemp(prefix=".uat-archive-", dir=directory)
+try:
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
+    try:
+        os.link(staging, target, follow_symlinks=False)
+    except FileExistsError:
+        sys.exit("RECORD_ARCHIVE_EXISTS")
+finally:
+    if os.path.exists(staging): os.unlink(staging)
+fd = os.open(directory, os.O_RDONLY)
+try: os.fsync(fd)
+finally: os.close(fd)
+' "$target"
     python3 - "$UAT_ROOT/deployments" "$target" "$rollback_pending" "$UAT_ROOT/operator/uat-rollback.pending" <<'PY'
-import os, pathlib, sys, tempfile
+import hashlib, os, pathlib, sys, tempfile
 directory, archive, pending, marker = sys.argv[1:]
 directory = pathlib.Path(directory)
 def replace(path, data):
@@ -712,6 +800,17 @@ if current.exists():
 replace(current, pathlib.Path(archive).read_bytes())
 if current.read_bytes() != pathlib.Path(archive).read_bytes():
     sys.exit('RECORD_READBACK_MISMATCH')
+marker_path = archive + '.committed'
+fd = os.open(marker_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, 'wb') as stream:
+    stream.write((hashlib.sha256(pathlib.Path(archive).read_bytes()).hexdigest() + '\n').encode())
+    stream.flush()
+    os.fsync(stream.fileno())
+fd = os.open(str(directory), os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
 if pending == 'true':
     os.unlink(marker)
     fd = os.open(os.path.dirname(marker), os.O_RDONLY)
@@ -720,10 +819,19 @@ if pending == 'true':
     finally:
         os.close(fd)
 PY
+    python3 - "$UAT_ROOT/operator" <<'PY'
+import os, shutil, sys
+operator = sys.argv[1]
+shutil.rmtree(os.path.join(operator, 'uat-record-transaction'))
+fd = os.open(operator, os.O_RDONLY)
+try: os.fsync(fd)
+finally: os.close(fd)
+PY
     echo "{\"type\":\"u1.uat.deploy\",\"step\":\"record\",\"status\":\"PASS\",\"file\":\"deployments/$(basename "$target")\"}"
     ;;
 
   current)
+    uat_mutation_lock
     # record ปัจจุบัน (ไม่มี secret) — workflow ใช้หา SHA ฐานของ migration guard
     if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
       cat "$UAT_ROOT/deployments/current.json"
@@ -899,14 +1007,17 @@ PY
     ;;
 
   rollback-target)
+    uat_mutation_lock
     # ไม่ระบุ sha = record ก่อนหน้า (previous.json); ระบุ sha = record ล่าสุดของ sha นั้นที่เคย deploy สำเร็จ
     if [[ -n "${1:-}" ]]; then
       [[ "$1" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
       target="$(ls -1 "$UAT_ROOT/deployments/"*"-$1.json" 2>/dev/null | sort | tail -n 1 || true)"
       [[ -n "$target" ]] || fail 'NO_DEPLOYMENT_FOR_SHA'
+      uat_require_committed_archive "$target"
       uat_resolve_rollback_record "$target" "$1"
     else
       [[ -f "$UAT_ROOT/deployments/previous.json" ]] || fail 'NO_PREVIOUS_DEPLOYMENT'
+      uat_require_committed_pointer "$UAT_ROOT/deployments/previous.json"
       uat_resolve_rollback_record "$UAT_ROOT/deployments/previous.json"
     fi
     ;;
@@ -954,6 +1065,8 @@ PY
     selected=''
     for candidate in "$archive" "$UAT_ROOT/deployments/previous.json"; do
       [[ -n "$candidate" && -e "$candidate" && ! -L "$candidate" ]] || continue
+      if [[ "$candidate" == "$archive" ]]; then uat_require_committed_archive "$candidate" || continue; fi
+      if [[ "$candidate" != "$archive" ]]; then uat_require_committed_pointer "$candidate" || continue; fi
       candidate_record="$(uat_resolve_rollback_record "$candidate" "$sha" 2>/dev/null)" || continue
       candidate_hash="$(printf '%s\n' "$candidate_record" | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
       if [[ "$candidate_hash" == "$expected_target_hash" ]]; then
