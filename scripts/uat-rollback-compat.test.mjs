@@ -171,7 +171,16 @@ exec "$@"
     });
     return { ...result, commands: readFileSync(log, 'utf8') };
   }
-  return { root, run, log, env, targetHash };
+  function seedPending(sha = compatibleSha) {
+    mkdirSync(join(root, 'operator'), { mode: 0o700, recursive: true });
+    const target = JSON.parse(readFileSync(join(root, 'deployments', `20200101T000000Z-${sha}.json`), 'utf8'));
+    const current = readFileSync(join(root, 'deployments', 'current.json'));
+    writeFileSync(join(root, 'operator', 'uat-rollback.pending'), JSON.stringify({
+      schema: 'UatRollbackPendingV1', targetSha: sha, targetRecordSha256: targetHash(sha),
+      currentRecordSha256: createHash('sha256').update(current).digest('hex'), targetRecord: target,
+    }), { mode: 0o600 });
+  }
+  return { root, run, log, env, targetHash, seedPending };
 }
 
 test('158 rollback หลัง skill scope ต้องหยุดก่อน up', (context) => {
@@ -209,6 +218,15 @@ test('rollback ห้ามใช้ release.env ที่ digest ต่าง�
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
+test('rollback หยุดก่อนสลับ runtime หาก transaction ยังไม่รับรอง', (context) => {
+  const setup = fixture(context);
+  const result = setup.run(compatibleSha);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /UAT_ROLLBACK_TRANSACTION_NOT_CERTIFIED/);
+  assert.doesNotMatch(result.commands, /up -d/);
+  assert.throws(() => readFileSync(join(setup.root, 'operator', 'uat-rollback.pending')), { code: 'ENOENT' });
+});
+
 test('rollback หยุดก่อนเปลี่ยน runtime เมื่อ record เป้าหมายเปลี่ยนหลังเลือก', (context) => {
   const setup = fixture(context);
   const selectedHash = setup.targetHash(compatibleSha);
@@ -238,8 +256,58 @@ test('rollback เลือก previous ที่มี SHA เดียวก�
   const result = spawnSync('bash', [deploy, 'rollback', compatibleSha, hash], {
     encoding: 'utf8', env: setup.env, timeout: 10000,
   });
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(readFileSync(setup.log, 'utf8'), /up -d/);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /UAT_ROLLBACK_TRANSACTION_NOT_CERTIFIED/);
+  assert.doesNotMatch(readFileSync(setup.log, 'utf8'), /up -d/);
+});
+
+test('เมื่อมี pending ห้าม mutation อื่นจน reconcile', (context) => {
+  const setup = fixture(context);
+  setup.seedPending();
+  const marker = JSON.parse(readFileSync(join(setup.root, 'operator', 'uat-rollback.pending'), 'utf8'));
+  assert.equal(marker.schema, 'UatRollbackPendingV1');
+  assert.equal(marker.targetSha, compatibleSha);
+  assert.match(marker.currentRecordSha256, /^[0-9a-f]{64}$/);
+  for (const action of ['deploy', 'migrate', 'keycloak', 'rollback', 'e1-enable', 'e1-disable', 'line-reload']) {
+    const next = spawnSync('bash', [deploy, action, compatibleSha, join(setup.root, 'unused.json')], {
+      encoding: 'utf8', env: setup.env, timeout: 10000,
+    });
+    assert.notEqual(next.status, 0, action);
+    assert.match(next.stderr, /UAT_ROLLBACK_PENDING/, action);
+  }
+});
+
+test('record rollback ที่อ้าง smoke PASS เองยังปลด pending ไม่ได้', (context) => {
+  const setup = fixture(context);
+  setup.seedPending();
+  const input = join(setup.root, 'rollback.json');
+  writeFileSync(input, JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'rollback',
+    sourceSha: compatibleSha, images: recordImages,
+    rollbackOf: { recordedAt: null, runUrl: null }, smoke: { status: 'PASS' } }), { mode: 0o600 });
+  const result = spawnSync('bash', [deploy, 'record', compatibleSha, input], {
+    encoding: 'utf8', env: setup.env, timeout: 10000,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /UAT_ROLLBACK_SMOKE_RECEIPT_AND_RECOVERY_REQUIRED/);
+  assert.ok(readFileSync(join(setup.root, 'operator', 'uat-rollback.pending')));
+});
+
+test('record rollback ที่ smoke ไม่ผ่านต้องคง pending และ current เดิม', (context) => {
+  const setup = fixture(context);
+  setup.seedPending();
+  const current = join(setup.root, 'deployments', 'current.json');
+  const before = readFileSync(current, 'utf8');
+  const input = join(setup.root, 'rollback.json');
+  writeFileSync(input, JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'rollback',
+    sourceSha: compatibleSha, images: recordImages,
+    rollbackOf: { recordedAt: null, runUrl: null }, smoke: { status: 'FAIL' } }), { mode: 0o600 });
+  const result = spawnSync('bash', [deploy, 'record', compatibleSha, input], {
+    encoding: 'utf8', env: setup.env, timeout: 10000,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /UAT_ROLLBACK_PENDING_MISMATCH/);
+  assert.equal(readFileSync(current, 'utf8'), before);
+  assert.ok(readFileSync(join(setup.root, 'operator', 'uat-rollback.pending')));
 });
 
 test('คำสั่งเปลี่ยน release ต้องหยุดถ้า reconciliation กำลังถือ lock', async (context) => {
@@ -537,13 +605,12 @@ for (const interruptPhase of ['ledger', 'capability']) {
   }
 }
 
-test('explicit compatible target ผ่าน narrow capability ก่อน up', (context) => {
+test('explicit compatible target ผ่าน narrow capability แล้วหยุดก่อน up', (context) => {
   const setup = fixture(context);
   const result = setup.run(compatibleSha);
-  assert.equal(result.status, 0, result.stderr);
-  assert.ok(
-    result.commands.indexOf('--entrypoint /usr/bin/timeout') < result.commands.indexOf('up -d'),
-  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /UAT_ROLLBACK_TRANSACTION_NOT_CERTIFIED/);
+  assert.doesNotMatch(result.commands, /up -d/);
   assert.match(result.commands, /--network none --read-only/);
   assert.match(result.commands, /run --rm -T --no-deps/);
   assert.match(result.commands, /--no-deps --pull never/);
@@ -571,7 +638,7 @@ test('capability process failure ปฏิเสธโดยไม่เผย s
 
 test('predicate จริงตรวจทั้งสอง generated models และ required mapped tenant field', (context) => {
   const setup = fixture(context);
-  assert.equal(setup.run(compatibleSha).status, 0);
+  assert.match(setup.run(compatibleSha).stderr, /UAT_ROLLBACK_TRANSACTION_NOT_CERTIFIED/);
   const code = readFileSync(join(setup.root, 'capability.js'), 'utf8');
   const model = (name) => ({
     name,
@@ -619,10 +686,11 @@ test('predicate จริงตรวจทั้งสอง generated models �
   }
 });
 
-test('pre-skill ledger คง rollback เดิมโดยไม่รัน target capability', (context) => {
+test('pre-skill ledger ไม่รัน target capability และหยุดก่อน up', (context) => {
   const result = fixture(context, { ledger: 'ABSENT', capability: 'UNSCOPED', runtimeSha: oldSha }).run();
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.commands, /up -d/);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /UAT_ROLLBACK_TRANSACTION_NOT_CERTIFIED/);
+  assert.doesNotMatch(result.commands, /up -d/);
   assert.doesNotMatch(result.commands, /--entrypoint \/usr\/bin\/timeout/);
 });
 

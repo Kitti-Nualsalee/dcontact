@@ -170,6 +170,9 @@ except BlockingIOError:
     sys.exit('UAT_MUTATION_LOCK_BUSY')
 PY
   [[ ! -e "$UAT_ROOT/operator/b714-reconciliation.pending" && ! -L "$UAT_ROOT/operator/b714-reconciliation.pending" ]] || fail 'UAT_RECONCILIATION_PENDING'
+  if [[ "${1:-}" != allow-rollback-record ]]; then
+    [[ ! -e "$UAT_ROOT/operator/uat-rollback.pending" && ! -L "$UAT_ROOT/operator/uat-rollback.pending" ]] || fail 'UAT_ROLLBACK_PENDING'
+  fi
 }
 
 # ตรวจตั้งแต่ก่อน migrate/deploy เพื่อไม่ให้ runtime เปลี่ยนก่อนพบว่า record เขียนไม่ได้
@@ -643,15 +646,80 @@ case "$cmd" in
     dir="$(release_dir "$sha")"
     check_release_env "$dir"
     [[ "$(release_value "$dir" SOURCE_SHA)" == "$sha" ]] || fail 'RELEASE_SOURCE_MISMATCH'
-    uat_mutation_lock
+    uat_mutation_lock allow-rollback-record
     uat_require_recordable_current
     validated_record="$(uat_verify_record_runtime "$dir" "$sha" "$file")" || fail 'RECORD_VALIDATION_FAILED'
+    rollback_pending=false
+    if [[ -e "$UAT_ROOT/operator/uat-rollback.pending" || -L "$UAT_ROOT/operator/uat-rollback.pending" ]]; then
+      printf '%s' "$validated_record" | python3 -c '
+import base64, hashlib, json, os, stat, sys
+marker, current, sha = sys.argv[1:]
+fd = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW)
+with os.fdopen(fd, "rb") as stream:
+    info = os.fstat(stream.fileno())
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        sys.exit("UAT_ROLLBACK_PENDING_INVALID")
+    pending = json.load(stream)
+fd = os.open(current, os.O_RDONLY | os.O_NOFOLLOW)
+with os.fdopen(fd, "rb") as stream:
+    current_hash = hashlib.sha256(stream.read()).hexdigest()
+record = json.loads(base64.b64decode(sys.stdin.buffer.read(), validate=True))
+target = pending.get("targetRecord")
+if not isinstance(target, dict):
+    sys.exit("UAT_ROLLBACK_PENDING_INVALID")
+target_digest = hashlib.sha256((json.dumps(target) + "\n").encode()).hexdigest()
+if (pending.get("schema") != "UatRollbackPendingV1" or pending.get("targetSha") != sha
+        or pending.get("currentRecordSha256") != current_hash
+        or pending.get("targetRecordSha256") != target_digest
+        or record.get("action") != "rollback" or record.get("sourceSha") != sha
+        or record.get("images") != target.get("images")
+        or record.get("environment") != target.get("environment")
+        or record.get("realmConfigDigest") != target.get("realmConfigDigest")
+        or record.get("fixturePackVersion") != target.get("fixturePackVersion")
+        or record.get("rollbackOf") != {"recordedAt": target.get("deployedAt"), "runUrl": target.get("runUrl")}
+        or not isinstance(record.get("smoke"), dict) or record["smoke"].get("status") != "PASS"):
+    sys.exit("UAT_ROLLBACK_PENDING_MISMATCH")
+' "$UAT_ROOT/operator/uat-rollback.pending" "$UAT_ROOT/deployments/current.json" "$sha"
+      # status จาก record ที่ส่งมาไม่ใช่หลักฐาน smoke จาก runtime; ห้าม commit
+      # จนกว่าจะมี receipt ที่ผูกกับ runtime และ recovery ของ pointer transaction
+      fail 'UAT_ROLLBACK_SMOKE_RECEIPT_AND_RECOVERY_REQUIRED'
+    fi
     target="$UAT_ROOT/deployments/$(date -u +%Y%m%dT%H%M%SZ)-${sha}.json"
     (set -C; printf '%s' "$validated_record" | python3 -c 'import base64,sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.buffer.read(), validate=True))' >"$target") || fail 'RECORD_ARCHIVE_EXISTS'
-    if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
-      cp "$UAT_ROOT/deployments/current.json" "$UAT_ROOT/deployments/previous.json"
-    fi
-    cp "$target" "$UAT_ROOT/deployments/current.json"
+    python3 - "$UAT_ROOT/deployments" "$target" "$rollback_pending" "$UAT_ROOT/operator/uat-rollback.pending" <<'PY'
+import os, pathlib, sys, tempfile
+directory, archive, pending, marker = sys.argv[1:]
+directory = pathlib.Path(directory)
+def replace(path, data):
+    fd, name = tempfile.mkstemp(prefix='.uat-record-', dir=directory)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+        fd = os.open(str(directory), os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+current = directory / 'current.json'
+if current.exists():
+    replace(directory / 'previous.json', current.read_bytes())
+replace(current, pathlib.Path(archive).read_bytes())
+if current.read_bytes() != pathlib.Path(archive).read_bytes():
+    sys.exit('RECORD_READBACK_MISMATCH')
+if pending == 'true':
+    os.unlink(marker)
+    fd = os.open(os.path.dirname(marker), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+PY
     echo "{\"type\":\"u1.uat.deploy\",\"step\":\"record\",\"status\":\"PASS\",\"file\":\"deployments/$(basename "$target")\"}"
     ;;
 
@@ -674,6 +742,7 @@ case "$cmd" in
     ;;
 
   e1-enable)
+    uat_mutation_lock
     dir="$(release_dir "${1:?sha}")"
     [[ -f "$dir/docker-compose.uat.e1.yml" && -x "$dir/e1-freeswitch/entrypoint.sh" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
     : >"$E1_FLAG"
@@ -686,6 +755,7 @@ case "$cmd" in
     ;;
 
   e1-disable)
+    uat_mutation_lock
     dir="$(release_dir "${1:?sha}")"
     [[ "$(release_value "$dir" UAT_WORKSPACE_ENABLED)" != true ]] || fail 'WORKSPACE_REQUIRES_E1_ROLLBACK_FIRST'
     # ต้องถอด daemon ขณะ overlay ยัง active; หลังลบ flag compose จะไม่รู้จัก service นี้แล้ว
@@ -696,6 +766,9 @@ case "$cmd" in
     ;;
 
   e1-voice-control|e1-voice-on|e1-voice-off)
+    if [[ "$cmd" == e1-voice-on || ( "$cmd" == e1-voice-control && "${2:-}" != off && "${2:-}" != status && "${2:-}" != idle ) ]]; then
+      uat_mutation_lock
+    fi
     sha="${1:?sha}"
     shift
     dir="$(release_dir "$sha")"
@@ -737,6 +810,7 @@ case "$cmd" in
     ;;
 
   e1-launcher-enable|e1-launcher-status|e1-launcher-alias)
+    if [[ "$cmd" != e1-launcher-status ]]; then uat_mutation_lock; fi
     sha="${1:?sha}"
     shift
     dir="$(release_dir "$sha")"
@@ -798,6 +872,7 @@ case "$cmd" in
     ;;
 
   line-run)
+    uat_mutation_lock
     # #565: runner ของ LINE pilot — uat-deploy.sh line-run <sha> <line-pilot-setup|line-provider-runner|line-pilot-cli> <command> [...]
     # relay line-egress ขึ้นตาม depends_on และไม่รันค้าง (profile line-pilot); stdout มีแค่ ID/digest ตาม CLI
     dir="$(release_dir "${1:?sha}")"
@@ -807,6 +882,7 @@ case "$cmd" in
     ;;
 
   line-reload)
+    uat_mutation_lock
     # #565: หลัง vm2-line-secrets.sh --rotate — ไฟล์ secret เปลี่ยนแต่ compose config ไม่เปลี่ยน จึงต้อง recreate เอง
     dir="$(release_dir "${1:?sha}")"
     is_line "$dir" || fail 'LINE_NOT_ENABLED'
@@ -888,6 +964,28 @@ if record["images"] != dict(zip(("api", "console", "ops", "keycloak"), sys.argv[
     rollback_preflight "$dir"
     # V1 record ไม่รองรับ mixed release; หยุดก่อนสลับ API หาก component ที่ไม่ rollback ต่างจาก target
     uat_verify_record_runtime "$dir" "$sha" '' untouched
+    # หยุดก่อนแตะ runtime จนกว่าจะมี smoke receipt และ recovery ที่ตรวจสอบได้ครบ
+    fail 'UAT_ROLLBACK_TRANSACTION_NOT_CERTIFIED'
+    # คง pending แม้ compose ถูกขัดจังหวะ: ห้ามงานอื่นเขียน record ที่ไม่ตรง runtime
+    UAT_ROLLBACK_SELECTED_RECORD="$candidate_record" python3 - "$UAT_ROOT/operator/uat-rollback.pending" "$UAT_ROOT/deployments/current.json" "$sha" "$expected_target_hash" <<'PY'
+import hashlib, json, os, sys
+marker, current, target, target_hash = sys.argv[1:]
+fd = os.open(current, os.O_RDONLY | os.O_NOFOLLOW)
+with os.fdopen(fd, 'rb') as stream:
+    current_hash = hashlib.sha256(stream.read()).hexdigest()
+fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, 'w') as stream:
+    json.dump({'schema': 'UatRollbackPendingV1', 'targetSha': target,
+               'targetRecordSha256': target_hash, 'currentRecordSha256': current_hash,
+               'targetRecord': json.loads(os.environ['UAT_ROLLBACK_SELECTED_RECORD'])}, stream)
+    stream.flush()
+    os.fsync(stream.fileno())
+directory = os.open(os.path.dirname(marker), os.O_RDONLY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PY
     compose "$dir" up -d --wait --no-deps api proxy
     echo "{\"type\":\"u1.uat.deploy\",\"step\":\"rollback\",\"status\":\"PASS\",\"sourceSha\":\"${sha}\"}"
     ;;
