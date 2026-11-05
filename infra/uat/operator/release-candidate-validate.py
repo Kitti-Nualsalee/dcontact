@@ -10,6 +10,8 @@ PROTECTED = {'/dcontact-uat-freeswitch-1', '/dcontact-uat-proxy-1', '/dcontact-u
              '/dcontact-uat-e1-sandbox-1', '/dcontact-platform-uat-mailpit-1',
              '/dcontact-platform-uat-platform-api-1', '/dcontact-platform-uat-platform-worker-1',
              '/dcontact-platform-uat-platform-console-1'}
+AUTHORITY_MIGRATION = '20261103120000_tenant_provisioned_configuration_authority'
+AUTHORITY_CHECKSUM = 'f5feda4f26297ed4bc98aa85c1e298e43e7292e44d66791b0f708fa6d53c8c47'
 
 
 def canonical(value):
@@ -97,6 +99,8 @@ def validate_unreviewed(observation, now=None):
                    or not valid('[0-9a-f]{64}', item['checksum']) for item in migrations)
             or len({item['name'] for item in migrations}) != len(migrations)):
         raise RuntimeError('LEDGER_MIGRATIONS_INVALID')
+    if {'name': AUTHORITY_MIGRATION, 'checksum': AUTHORITY_CHECKSUM} not in migrations:
+        raise RuntimeError('LEDGER_AUTHORITY_MISMATCH')
     return {'status': 'OBSERVATION_CONSISTENT_NOT_REVIEWED',
             'expectedCurrentSha256': records['current']['sha256'],
             'expectedPreviousSha256': records['previous']['sha256'],

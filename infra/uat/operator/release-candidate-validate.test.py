@@ -29,6 +29,17 @@ class CandidateTests(unittest.TestCase):
             'ledger': {'database': 'dcontact_uat', 'principal': 'dcontact_uat_owner', 'readonly': 'on',
                        'finished': 154, 'rolledBack': 1, 'unresolved': 0, 'authorityMatches': 1,
                        'migrations': [{'name': f'migration-{i:03d}', 'checksum': 'a' * 64} for i in range(154)]}}
+        self.observation['ledger']['migrations'][0] = {'name': candidate.AUTHORITY_MIGRATION, 'checksum': candidate.AUTHORITY_CHECKSUM}
+
+    def test_rejects_authority_count_without_exact_migration(self):
+        migration = self.observation['ledger']['migrations'][0]
+        for key, value in [('name', 'different_migration'), ('checksum', '0' * 64)]:
+            with self.subTest(key=key):
+                original = migration[key]
+                migration[key] = value
+                with self.assertRaisesRegex(RuntimeError, 'LEDGER_AUTHORITY_MISMATCH'):
+                    candidate.validate_unreviewed(self.observation, self.now)
+                migration[key] = original
 
     def check(self, observation=None):
         observation = observation or self.observation
@@ -91,7 +102,7 @@ class CandidateTests(unittest.TestCase):
         proof['migrationManifest']['migrations'][0]['checksum'] = 'f' * 64
         with self.assertRaisesRegex(RuntimeError, 'MIGRATION_CHECKSUM_MISMATCH'):
             check()
-        proof['migrationManifest']['migrations'][0]['checksum'] = 'a' * 64
+        proof['migrationManifest']['migrations'][0]['checksum'] = candidate.AUTHORITY_CHECKSUM
         proof['ledger']['secondDeploy'] = 'APPLIED'
         with self.assertRaisesRegex(RuntimeError, 'LEDGER_MISMATCH'):
             check()

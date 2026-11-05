@@ -15,6 +15,17 @@ class EvidenceTests(unittest.TestCase):
         self.ledger = {'database': 'dcontact_uat', 'principal': 'dcontact_uat_owner', 'readonly': 'on',
                        'finished': 154, 'rolledBack': 1, 'unresolved': 0, 'authorityMatches': 1,
                        'migrations': [{'name': f'migration-{i:03d}', 'checksum': 'a' * 64} for i in range(154)]}
+        self.ledger['migrations'][0] = {'name': evidence.AUTHORITY_MIGRATION, 'checksum': evidence.AUTHORITY_CHECKSUM}
+
+    def test_requires_exact_authority_name_and_checksum(self):
+        self.assertIn("migration_name='" + evidence.AUTHORITY_MIGRATION + "'", evidence.QUERY)
+        for key, value in [('name', 'different_migration'), ('checksum', '0' * 64)]:
+            with self.subTest(key=key):
+                original = self.ledger['migrations'][0][key]
+                self.ledger['migrations'][0][key] = value
+                with self.assertRaisesRegex(RuntimeError, 'LEDGER_AUTHORITY_MISMATCH'):
+                    self.capture()
+                self.ledger['migrations'][0][key] = original
 
     def capture(self, runtime=None, protected=None):
         return evidence.observe(runtime or (lambda: self.runtime), protected or (lambda: self.protected),
