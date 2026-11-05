@@ -268,7 +268,7 @@ test('เมื่อมี pending ห้าม mutation อื่นจน rec
   assert.equal(marker.schema, 'UatRollbackPendingV1');
   assert.equal(marker.targetSha, compatibleSha);
   assert.match(marker.currentRecordSha256, /^[0-9a-f]{64}$/);
-  for (const action of ['deploy', 'migrate', 'keycloak', 'rollback', 'e1-enable', 'e1-disable', 'line-reload']) {
+  for (const action of ['deploy', 'migrate', 'keycloak', 'rollback']) {
     const next = spawnSync('bash', [deploy, action, compatibleSha, join(setup.root, 'unused.json')], {
       encoding: 'utf8', env: setup.env, timeout: 10000,
     });

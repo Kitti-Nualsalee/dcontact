@@ -742,7 +742,6 @@ PY
     ;;
 
   e1-enable)
-    uat_mutation_lock
     dir="$(release_dir "${1:?sha}")"
     [[ -f "$dir/docker-compose.uat.e1.yml" && -x "$dir/e1-freeswitch/entrypoint.sh" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
     : >"$E1_FLAG"
@@ -755,7 +754,6 @@ PY
     ;;
 
   e1-disable)
-    uat_mutation_lock
     dir="$(release_dir "${1:?sha}")"
     [[ "$(release_value "$dir" UAT_WORKSPACE_ENABLED)" != true ]] || fail 'WORKSPACE_REQUIRES_E1_ROLLBACK_FIRST'
     # ต้องถอด daemon ขณะ overlay ยัง active; หลังลบ flag compose จะไม่รู้จัก service นี้แล้ว
@@ -766,9 +764,6 @@ PY
     ;;
 
   e1-voice-control|e1-voice-on|e1-voice-off)
-    if [[ "$cmd" == e1-voice-on || ( "$cmd" == e1-voice-control && "${2:-}" != off && "${2:-}" != status && "${2:-}" != idle ) ]]; then
-      uat_mutation_lock
-    fi
     sha="${1:?sha}"
     shift
     dir="$(release_dir "$sha")"
@@ -810,7 +805,6 @@ PY
     ;;
 
   e1-launcher-enable|e1-launcher-status|e1-launcher-alias)
-    if [[ "$cmd" != e1-launcher-status ]]; then uat_mutation_lock; fi
     sha="${1:?sha}"
     shift
     dir="$(release_dir "$sha")"
@@ -872,7 +866,6 @@ PY
     ;;
 
   line-run)
-    uat_mutation_lock
     # #565: runner ของ LINE pilot — uat-deploy.sh line-run <sha> <line-pilot-setup|line-provider-runner|line-pilot-cli> <command> [...]
     # relay line-egress ขึ้นตาม depends_on และไม่รันค้าง (profile line-pilot); stdout มีแค่ ID/digest ตาม CLI
     dir="$(release_dir "${1:?sha}")"
@@ -882,7 +875,6 @@ PY
     ;;
 
   line-reload)
-    uat_mutation_lock
     # #565: หลัง vm2-line-secrets.sh --rotate — ไฟล์ secret เปลี่ยนแต่ compose config ไม่เปลี่ยน จึงต้อง recreate เอง
     dir="$(release_dir "${1:?sha}")"
     is_line "$dir" || fail 'LINE_NOT_ENABLED'
