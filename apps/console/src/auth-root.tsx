@@ -4,6 +4,8 @@ import { createCoreApi } from './core-settings/api.js';
 import { VoiceRoutingPage } from './voice-routing/voice-routing-page.js';
 import { TenantPeoplePage } from './tenant-people/tenant-people.js';
 import { createPeopleApi } from './tenant-people/api.js';
+import { CustomersPage } from './customers/customers-page.js';
+import { createCustomersApi } from './customers/api.js';
 import { createCatalogApi } from './voice-routing/api.js';
 import { useMemo, useRef, useState, useEffect, type ReactNode } from 'react';
 import { AuthProvider, useAuth, type AuthContextProps } from 'react-oidc-context';
@@ -209,6 +211,8 @@ export function ConsoleAuthRoot() {
   const routingView = view === 'voice-routing';
   const peopleView = view === 'tenant-people';
   const coreSettingsView = view === 'core-settings';
+  // Cus360 C2 (#792): Customers + โปรไฟล์ (อ่านอย่างเดียว)
+  const customersView = view === 'customers';
   // #566: read-only ของ LINE pilot — มีเฉพาะ UAT ที่ใส่ overlay `uat-line` (ไม่มี = หน้าแจ้งว่าไม่ได้เปิด)
   const lineInboundView = view === 'line-inbound';
   // AC5 (#598): บัญชีของฉัน (ทุก role) และนโยบายบัญชี (admin)
@@ -226,6 +230,7 @@ export function ConsoleAuthRoot() {
       embeddingView ||
       routingView ||
       peopleView ||
+      customersView ||
       coreSettingsView ||
       lineInboundView ||
       accountView
@@ -280,6 +285,8 @@ export function ConsoleAuthRoot() {
               <VoiceRoutingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : peopleView ? (
               <TenantPeopleSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : customersView ? (
+              <CustomersSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : historyView ? (
               <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : accountView ? (
@@ -766,6 +773,59 @@ export function TenantPeopleSurface({
   return (
     <TenantPeoplePage
       key={identityKey}
+      api={api}
+      identityKey={identityKey}
+      onSignIn={() => void signInFromCurrentPage(auth)}
+      shell={{
+        ...shellUserProps(auth, tenantAlias),
+        apiBaseUrl,
+        accessToken: () => tokenRef.current,
+        tenantAlias,
+      }}
+    />
+  );
+}
+
+export function CustomersSurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
+  const auth = useAuth();
+  const { t: translate } = useTranslation('customers');
+  const token = auth.user?.access_token;
+  const tokenRef = useRef(token);
+  tokenRef.current = auth.isAuthenticated ? token : undefined;
+  const api = useMemo(
+    () => createCustomersApi({ baseUrl: apiBaseUrl, accessToken: () => tokenRef.current }),
+    [apiBaseUrl],
+  );
+  if (auth.isLoading) return <main aria-busy="true" />;
+  // session หมด/ไม่มี: ไม่ render หน้าลูกค้าใด ๆ (ข้อมูลเดิมถูกทิ้งเพราะ unmount)
+  if (auth.error || !auth.isAuthenticated || !token)
+    return (
+      <main className="empty" role="alert">
+        <p>{translate('errors.unauthorized')}</p>
+        <Button onPress={() => void signInFromCurrentPage(auth)}>{translate('signIn')}</Button>
+      </main>
+    );
+  const profile = auth.user?.profile;
+  const identity = [profile?.iss, profile?.tenant_id, profile?.dc_user_id, profile?.sub];
+  if (
+    profile?.iss !== auth.settings.authority ||
+    profile?.tenant_slug !== tenantAlias ||
+    !identity.every((value) => typeof value === 'string' && value.length > 0)
+  )
+    return (
+      <main className="empty" role="alert">
+        {translate('errors.forbidden')}
+      </main>
+    );
+  const identityKey = JSON.stringify(identity);
+  return (
+    <CustomersPage
       api={api}
       identityKey={identityKey}
       onSignIn={() => void signInFromCurrentPage(auth)}

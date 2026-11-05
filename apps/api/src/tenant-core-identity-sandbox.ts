@@ -25,6 +25,8 @@ interface KcRole {
 
 export async function coreIdentitySandbox(
   registerCleanup: (cleanup: () => Promise<unknown>) => void,
+  /** controller เพิ่มของ boundary test เฉพาะเรื่อง (ไม่ระบุ = พฤติกรรมเดิม) */
+  extraControllers: Parameters<typeof coreFixture>[0] = [],
 ) {
   assert.ok(sandbox);
   const origin = new URL(sandbox);
@@ -176,7 +178,7 @@ export async function coreIdentitySandbox(
     audience: 'dcontact-api',
     jwksUri: `${issuer}/protocol/openid-connect/certs`,
   });
-  const f = await coreFixture([], verifier);
+  const f = await coreFixture(extraControllers, verifier);
   registerCleanup(() => f.close());
   const orgs = new Map<string, KcOrg>();
   for (const tenantId of [f.tenantId, f.otherTenantId]) {

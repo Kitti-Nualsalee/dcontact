@@ -29,6 +29,8 @@ import homeEn from './locales/en/home.json' with { type: 'json' };
 import homeTh from './locales/th/home.json' with { type: 'json' };
 import historyEn from './locales/en/history.json' with { type: 'json' };
 import historyTh from './locales/th/history.json' with { type: 'json' };
+import customersEn from './locales/en/customers.json' with { type: 'json' };
+import customersTh from './locales/th/customers.json' with { type: 'json' };
 
 export const DEFAULT_NAMESPACE = 'common';
 
@@ -41,6 +43,7 @@ export const resources = {
     tenantPeople: tenantPeopleTh,
     home: homeTh,
     history: historyTh,
+    customers: customersTh,
     journeys: journeysTh,
     integrations: integrationsTh,
     account: accountTh,
@@ -54,6 +57,7 @@ export const resources = {
     tenantPeople: tenantPeopleEn,
     home: homeEn,
     history: historyEn,
+    customers: customersEn,
     journeys: journeysEn,
     integrations: integrationsEn,
     account: accountEn,

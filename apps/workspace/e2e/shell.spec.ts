@@ -274,3 +274,24 @@ test('#588: มีสายถูก offer มา (ASSIGNED) แม้ dphone �
   ).toBeVisible();
   expect(await signOuts(page)).toBe(0);
 });
+
+for (const width of [768, 950, 1280, 1440]) {
+  test(`Workspace TopBar ใช้งานเมนูผู้ใช้ได้ที่ ${width}px ทั้งไทยและอังกฤษ`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mockApis(page, true);
+    await page.goto('/?tenant=demo');
+    for (const [language, triggerName] of [
+      ['ไทย', /เมนูผู้ใช้/],
+      ['English', /User menu/],
+    ] as const) {
+      await page.getByRole('button', { name: language, exact: true }).click();
+      const trigger = page.getByRole('button', { name: triggerName });
+      await expect(trigger).toBeInViewport({ ratio: 1 });
+      await trigger.focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('menu')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(trigger).toBeFocused();
+    }
+  });
+}

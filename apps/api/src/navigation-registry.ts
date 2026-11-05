@@ -238,6 +238,18 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     ],
   },
   {
+    // Cus360 C2 (#792): Customers + โปรไฟล์ read-only; ไม่มี Agent/Compliance (ไม่มี generic directory, R1 C)
+    // สิทธิ์ต่อรายการตัดสินที่ API ทุก request — role ที่นี่เป็นแค่การมองเห็นเมนู
+    id: 'customers',
+    area: 'people',
+    section: 'customers',
+    group: 'operations',
+    labelKey: 'navigation.apps.customers',
+    hostApp: 'console',
+    path: '/?view=customers',
+    roles: ['admin', 'supervisor'],
+  },
+  {
     id: 'core-settings',
     area: 'settings',
     section: 'configuration',
