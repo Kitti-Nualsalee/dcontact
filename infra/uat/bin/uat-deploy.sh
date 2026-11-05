@@ -143,6 +143,65 @@ check_release_env() {
   [[ "$(release_value "$dir" SOURCE_SHA)" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
 }
 
+# ใช้ lock เดียวกับ reconciliation สำหรับคำสั่ง deploy ที่เปลี่ยน runtime หรือ record
+uat_mutation_lock() {
+  [[ ! -L "$UAT_ROOT/operator" ]] || fail 'UAT_LOCK_DIRECTORY_INVALID'
+  mkdir -p -m 700 "$UAT_ROOT/operator"
+  [[ ! -L "$UAT_ROOT/operator/b714-cutover.lock" ]] || fail 'UAT_LOCK_INVALID'
+  exec 9<>"$UAT_ROOT/operator/b714-cutover.lock"
+  python3 - "$UAT_ROOT/operator" "$UAT_ROOT/operator/b714-cutover.lock" <<'PY'
+import os
+import fcntl
+import stat
+import sys
+
+for path in sys.argv[1:]:
+    info = os.lstat(path)
+    if info.st_uid != os.geteuid() or info.st_mode & 0o077 or stat.S_ISLNK(info.st_mode):
+        sys.exit('UAT_LOCK_INVALID')
+if not stat.S_ISDIR(os.lstat(sys.argv[1]).st_mode) or not stat.S_ISREG(os.lstat(sys.argv[2]).st_mode):
+    sys.exit('UAT_LOCK_INVALID')
+opened, named = os.fstat(9), os.lstat(sys.argv[2])
+if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+    sys.exit('UAT_LOCK_INVALID')
+try:
+    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit('UAT_MUTATION_LOCK_BUSY')
+PY
+  [[ ! -e "$UAT_ROOT/operator/b714-reconciliation.pending" && ! -L "$UAT_ROOT/operator/b714-reconciliation.pending" ]] || fail 'UAT_RECONCILIATION_PENDING'
+}
+
+# ตรวจตั้งแต่ก่อน migrate/deploy เพื่อไม่ให้ runtime เปลี่ยนก่อนพบว่า record เขียนไม่ได้
+uat_require_recordable_current() {
+  python3 - "$UAT_ROOT/deployments/current.json" <<'PY'
+import json
+import os
+import re
+import stat
+import sys
+
+path = sys.argv[1]
+if os.path.lexists(path):
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, encoding='utf-8') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+                raise ValueError('record permissions invalid')
+            record = json.load(stream)
+        if not isinstance(record, dict):
+            raise ValueError('record must be an object')
+    except (OSError, ValueError):
+        sys.exit('RECORD_CURRENT_INVALID')
+    if record.get('action') == 'reconciliation' or record.get('rollbackEligible') is False:
+        sys.exit('RECORD_RECONCILIATION_REQUIRES_REVIEW')
+    if (record.get('schema') != 'UatDeploymentRecordV1' or record.get('action') not in ('deploy', 'rollback')
+            or not isinstance(record.get('sourceSha'), str) or not re.fullmatch('[0-9a-f]{40}', record['sourceSha'])):
+        sys.exit('RECORD_CURRENT_INVALID')
+PY
+}
+
 rollback_probe_cleanup() {
   local name="$1" ownership remaining id
   if ownership="$(timeout --signal=TERM --kill-after=2s 5s docker inspect \
@@ -189,6 +248,12 @@ SELECT CASE
     WHERE (finished_at IS NULL AND rolled_back_at IS NULL)
        OR (finished_at IS NOT NULL AND rolled_back_at IS NOT NULL)) THEN 'INVALID_LEDGER'
   WHEN EXISTS (SELECT 1 FROM public._prisma_migrations
+    WHERE migration_name='20261103120000_tenant_provisioned_configuration_authority'
+      AND checksum<>'f5feda4f26297ed4bc98aa85c1e298e43e7292e44d66791b0f708fa6d53c8c47') THEN 'INVALID_CHECKSUM'
+  WHEN EXISTS (SELECT 1 FROM public._prisma_migrations
+    WHERE migration_name='20261103120000_tenant_provisioned_configuration_authority'
+      AND finished_at IS NOT NULL AND rolled_back_at IS NULL) THEN 'B7_AUTHORITY_APPLIED'
+  WHEN EXISTS (SELECT 1 FROM public._prisma_migrations
     WHERE migration_name='20261022130000_tenant_voice_skill_scope'
       AND checksum<>'5e281f7a38bace24cf114dde5a0484a41a0e01d2b317ea95293fce41a8f825c9') THEN 'INVALID_CHECKSUM'
   WHEN (SELECT count(*) FROM public._prisma_migrations
@@ -208,6 +273,7 @@ SQL
   case "$ledger" in
     ABSENT) return ;;
     APPLIED) ;;
+    B7_AUTHORITY_APPLIED) fail 'ROLLBACK_B7_COMPATIBILITY_NOT_CERTIFIED' ;;
     *) fail 'ROLLBACK_LEDGER_INVALID' ;;
   esac
   active_probe="$probe-capability"
@@ -327,6 +393,8 @@ case "$cmd" in
 
   migrate)
     dir="$(release_dir "${1:?sha}")"
+    uat_mutation_lock
+    uat_require_recordable_current
     compose "$dir" up -d --wait "$(database_service "$dir")"
     compose "$dir" --profile ops run --rm -T db-roles >/dev/null
     compose "$dir" --profile ops run --rm -T migrate
@@ -336,6 +404,8 @@ case "$cmd" in
 
   keycloak)
     dir="$(release_dir "${1:?sha}")"
+    uat_mutation_lock
+    uat_require_recordable_current
     compose "$dir" up -d --wait keycloak
     compose "$dir" --profile ops run --rm -T keycloak-config
     ;;
@@ -381,6 +451,8 @@ case "$cmd" in
 
   deploy)
     dir="$(release_dir "${1:?sha}")"
+    uat_mutation_lock
+    uat_require_recordable_current
     # #540: object storage (SeaweedFS; s3.json + policy ของ API สร้างใน entrypoint) → bucket private
     # ก่อน api บูต (U1.5 #433: api ไม่บูตถ้า bucket ไม่พร้อม) แล้ว lifecycle ที่รันต่อเนื่อง
     compose "$dir" up -d --wait object-storage
@@ -430,8 +502,12 @@ case "$cmd" in
     sha="${1:?sha}"
     file="${2:?record file}"
     release_dir "$sha" >/dev/null
+    uat_mutation_lock
+    uat_require_recordable_current
     node_check="$(sed -n 's/.*"sourceSha" *: *"\([0-9a-f]\{40\}\)".*/\1/p' "$file" | head -n 1)"
     [[ "$node_check" == "$sha" ]] || fail 'RECORD_SHA_MISMATCH'
+    running_sha="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${PROJECT}-api-1")" || fail 'RECORD_RUNTIME_INSPECT_FAILED'
+    [[ "$running_sha" == "$sha" ]] || fail 'RECORD_RUNTIME_SOURCE_MISMATCH'
     target="$UAT_ROOT/deployments/$(date -u +%Y%m%dT%H%M%SZ)-${sha}.json"
     cp "$file" "$target"
     if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
@@ -618,6 +694,38 @@ case "$cmd" in
     sha="${1:?previous sha}"
     dir="$(release_dir "$sha")"
     check_release_env "$dir"
+    uat_mutation_lock
+    # Record จาก reconciliation ไม่ได้พิสูจน์ compatibility ของ schema/identity สำหรับ rollback
+    # แม้ operator ระบุ SHA ตรงก็ต้องหยุดจนกว่าจะมีเกต recovery ที่รับรองครบ
+    if [[ ! -e "$UAT_ROOT/deployments/current.json" && ! -L "$UAT_ROOT/deployments/current.json" ]]; then
+      fail 'ROLLBACK_CURRENT_RECORD_REQUIRED'
+    fi
+    if [[ -e "$UAT_ROOT/deployments/current.json" || -L "$UAT_ROOT/deployments/current.json" ]]; then
+      python3 - "$UAT_ROOT/deployments/current.json" <<'PY'
+import json
+import os
+import re
+import stat
+import sys
+
+try:
+    descriptor = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, encoding='utf-8') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError('record permissions invalid')
+        record = json.load(stream)
+    if not isinstance(record, dict):
+        raise ValueError('record must be an object')
+except (OSError, ValueError):
+    sys.exit('ROLLBACK_CURRENT_RECORD_INVALID')
+if record.get('action') == 'reconciliation' or record.get('rollbackEligible') is False:
+    sys.exit('ROLLBACK_RECONCILIATION_REQUIRES_CERTIFICATION')
+if (record.get('schema') != 'UatDeploymentRecordV1' or record.get('action') not in ('deploy', 'rollback')
+        or not isinstance(record.get('sourceSha'), str) or not re.fullmatch('[0-9a-f]{40}', record['sourceSha'])):
+    sys.exit('ROLLBACK_CURRENT_RECORD_INVALID')
+PY
+    fi
     rollback_preflight "$dir"
     compose "$dir" up -d --wait --no-deps api proxy
     echo "{\"type\":\"u1.uat.deploy\",\"step\":\"rollback\",\"status\":\"PASS\",\"sourceSha\":\"${sha}\"}"
