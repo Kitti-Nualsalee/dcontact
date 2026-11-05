@@ -14,6 +14,13 @@ test('#868 inspect journal ตรวจสถานะค้างโดยไ�
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('#868 legacy inventory แยก marker จาก provenance', () => {
+  const result = spawnSync('python3', ['-B', resolve('infra/uat/operator/b868-legacy-inventory.test.py')], {
+    encoding: 'utf8', timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 function markCommitted(path) {
   writeFileSync(`${path}.committed`, `${createHash('sha256').update(readFileSync(path)).digest('hex')}\n`, { mode: 0o600 });
 }
