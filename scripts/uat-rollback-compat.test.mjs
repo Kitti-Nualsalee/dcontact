@@ -224,6 +224,24 @@ test('rollback หยุดก่อนเปลี่ยน runtime เมื�
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
+test('rollback เลือก previous ที่มี SHA เดียวกับ archive แต่เป็นคนละ record ได้', (context) => {
+  const setup = fixture(context);
+  writeFileSync(join(setup.root, 'deployments', 'previous.json'), JSON.stringify({
+    schema: 'UatDeploymentRecordV1', action: 'deploy', sourceSha: compatibleSha,
+    images: recordImages, note: 'previous deployment',
+  }), { mode: 0o600 });
+  const selected = spawnSync('bash', [deploy, 'rollback-target'], {
+    encoding: 'utf8', env: setup.env, timeout: 10000,
+  });
+  assert.equal(selected.status, 0, selected.stderr);
+  const hash = createHash('sha256').update(selected.stdout).digest('hex');
+  const result = spawnSync('bash', [deploy, 'rollback', compatibleSha, hash], {
+    encoding: 'utf8', env: setup.env, timeout: 10000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(readFileSync(setup.log, 'utf8'), /up -d/);
+});
+
 test('คำสั่งเปลี่ยน release ต้องหยุดถ้า reconciliation กำลังถือ lock', async (context) => {
   const setup = fixture(context);
   mkdirSync(join(setup.root, 'operator'), { mode: 0o700 });

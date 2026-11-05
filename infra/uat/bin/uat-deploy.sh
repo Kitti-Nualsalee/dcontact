@@ -866,13 +866,25 @@ PY
     fi
     expected_target_hash="${2:?rollback target record SHA-256 required}"
     [[ "$expected_target_hash" =~ ^[0-9a-f]{64}$ ]] || fail 'ROLLBACK_TARGET_HASH_INVALID'
-    target="$(ls -1 "$UAT_ROOT/deployments/"*"-$sha.json" 2>/dev/null | sort | tail -n 1 || true)"
-    [[ -n "$target" ]] || fail 'NO_DEPLOYMENT_FOR_SHA'
-    target_record="$(uat_resolve_rollback_record "$target" "$sha" \
-      "$(release_value "$dir" API_IMAGE)" "$(release_value "$dir" CONSOLE_IMAGE)" \
-      "$(release_value "$dir" OPS_IMAGE)" "$(release_value "$dir" KEYCLOAK_IMAGE)")"
-    actual_target_hash="$(printf '%s\n' "$target_record" | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
-    [[ "$actual_target_hash" == "$expected_target_hash" ]] || fail 'ROLLBACK_TARGET_CHANGED'
+    archive="$(ls -1 "$UAT_ROOT/deployments/"*"-$sha.json" 2>/dev/null | sort | tail -n 1 || true)"
+    selected=''
+    for candidate in "$archive" "$UAT_ROOT/deployments/previous.json"; do
+      [[ -n "$candidate" && -e "$candidate" && ! -L "$candidate" ]] || continue
+      candidate_record="$(uat_resolve_rollback_record "$candidate" "$sha" 2>/dev/null)" || continue
+      candidate_hash="$(printf '%s\n' "$candidate_record" | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
+      if [[ "$candidate_hash" == "$expected_target_hash" ]]; then
+        selected="$candidate"
+        break
+      fi
+    done
+    [[ -n "$selected" ]] || fail 'ROLLBACK_TARGET_CHANGED'
+    printf '%s' "$candidate_record" | python3 -c '
+import json, sys
+record = json.load(sys.stdin)
+if record["images"] != dict(zip(("api", "console", "ops", "keycloak"), sys.argv[1:])):
+    sys.exit("ROLLBACK_TARGET_RELEASE_MISMATCH")
+' "$(release_value "$dir" API_IMAGE)" "$(release_value "$dir" CONSOLE_IMAGE)" \
+      "$(release_value "$dir" OPS_IMAGE)" "$(release_value "$dir" KEYCLOAK_IMAGE)"
     rollback_preflight "$dir"
     # V1 record ไม่รองรับ mixed release; หยุดก่อนสลับ API หาก component ที่ไม่ rollback ต่างจาก target
     uat_verify_record_runtime "$dir" "$sha" '' untouched
