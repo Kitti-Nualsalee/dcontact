@@ -33,7 +33,11 @@ import {
 } from './customer-360-api.js';
 import { readC360GovernanceSummary } from './customer-360-read-governance.js';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
-import { TenantClientRateLimiter } from './tenant-client-rate-limiter.js';
+import {
+  C360_SEARCH_POLICY,
+  CUSTOMER_360_SEARCH_LIMITER,
+  type SharedRateLimiter,
+} from './shared-rate-limiter.js';
 import { coreRequestId } from './tenant-core-errors.js';
 
 /**
@@ -41,11 +45,10 @@ import { coreRequestId } from './tenant-core-errors.js';
  *
  * - POST /contacts/search และ GET /contacts/:contactId เป็น read-only: ไม่รับ commandId, ไม่สร้าง head/receipt/audit
  * - search body/ค่า query ไม่ลง log: ไม่มีการ log ใน controller นี้ และ error body ไม่สะท้อนค่าที่ผู้ใช้กรอก
- * - rate (R1 G): search 60/นาที/actor และ 600/นาที/tenant; limiter ปัจจุบันเป็น in-memory ต่อ instance
- *   (ยังไม่ใช่ shared limiter ข้าม instance ตามที่ R1 G ต้องการ — ดูหมายเหตุใน PR)
+ * - rate (R1 G): search 60/นาที/actor และ 600/นาที/tenant ผ่าน shared limiter
  */
-export const C360_SEARCH_LIMIT_PER_ACTOR = 60;
-export const C360_SEARCH_LIMIT_PER_TENANT = 600;
+export const C360_SEARCH_LIMIT_PER_ACTOR = C360_SEARCH_POLICY.actorLimit;
+export const C360_SEARCH_LIMIT_PER_TENANT = C360_SEARCH_POLICY.tenantLimit;
 
 /** ตอบ C360ReadError ในรูป error family เดียวกับ C1 (เพิ่ม fieldErrors ที่ไม่มีค่า PII) แล้วส่งที่เหลือให้ filter ของ C1 */
 @Catch()
@@ -90,22 +93,22 @@ function pathContactId(value: string): string {
 @GatewayRoles('admin', 'supervisor')
 export class Customer360ReadController {
   private readonly codec: C360CursorCodec = c360CursorCodecFromEnv();
-  private readonly limiter = new TenantClientRateLimiter();
+  constructor(
+    @Inject(CUSTOMER_360_DATABASE) private readonly db: PrismaClient,
+    @Inject(CUSTOMER_360_SEARCH_LIMITER) private readonly limiter: SharedRateLimiter,
+  ) {}
 
-  constructor(@Inject(CUSTOMER_360_DATABASE) private readonly db: PrismaClient) {}
-
-  private throttle(tenantId: string, userId: string) {
-    const rejected =
-      this.limiter.consume({
+  private async throttle(tenantId: string, userId: string) {
+    let rejected: { retryAfterSeconds: number } | null;
+    try {
+      rejected = await this.limiter.consume({
         tenantId,
-        clientId: `c360-search-actor:${userId}`,
-        limitPerMinute: C360_SEARCH_LIMIT_PER_ACTOR,
-      }) ??
-      this.limiter.consume({
-        tenantId,
-        clientId: 'c360-search-tenant',
-        limitPerMinute: C360_SEARCH_LIMIT_PER_TENANT,
+        actorId: userId,
+        policy: C360_SEARCH_POLICY,
       });
+    } catch {
+      throw new C360ReadError(503, 'RATE_LIMITER_UNAVAILABLE', true);
+    }
     if (rejected) {
       throw new C360ReadError(429, 'RATE_LIMITED', true, undefined, rejected.retryAfterSeconds);
     }
@@ -116,7 +119,7 @@ export class Customer360ReadController {
   @Header('Cache-Control', 'no-store')
   async search(@Req() req: AuthenticatedGatewayRequest, @Body() body: unknown) {
     const identity = requestIdentity(req);
-    this.throttle(identity.tenantId, identity.userId);
+    await this.throttle(identity.tenantId, identity.userId);
     return withTenantDatabaseTransaction(
       this.db,
       identity.tenantId,

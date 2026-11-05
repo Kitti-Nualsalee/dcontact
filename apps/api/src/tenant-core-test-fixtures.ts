@@ -20,6 +20,8 @@ import {
 } from './gateway-auth.js';
 import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
 import { CUSTOMER_360_DATABASE } from './customer-360-api.js';
+import { CUSTOMER_360_SEARCH_LIMITER, type SharedRateLimiter } from './shared-rate-limiter.js';
+import { TenantClientRateLimiter } from './tenant-client-rate-limiter.js';
 import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
 
 export interface CoreTestBody {
@@ -44,6 +46,7 @@ export async function coreFixture(
   extraControllers: Type[] = [],
   verifier?: OidcAccessTokenVerifier,
   provisionedDefaults?: { locale: string; timeZone: string },
+  searchLimiter?: SharedRateLimiter,
 ) {
   const owner = new PrismaClient();
   const db = new PrismaClient({
@@ -123,38 +126,65 @@ export async function coreFixture(
       realm_access: { roles: [actor.role.toLowerCase()] },
     };
   };
-  @Module({
-    controllers: [
-      NavigationController,
-      TenantLocaleDefaultsController,
-      TenantCoreSettingsController,
-      TenantVoiceCatalogController,
-      ...extraControllers,
-    ],
-    providers: [
-      { provide: NAVIGATION_DATABASE, useValue: db },
-      { provide: NAVIGATION_REGISTRY, useValue: NAVIGATION_APPS },
-      { provide: TENANT_LOCALE_DATABASE, useValue: db },
-      { provide: TENANT_CORE_DATABASE, useValue: db },
-      { provide: CUSTOMER_360_DATABASE, useValue: db },
-      { provide: TENANT_VOICE_DATABASE, useValue: db },
-      { provide: OIDC_ACCESS_TOKEN_VERIFIER, useValue: verifier ?? { verifyAccessToken: claims } },
-      {
-        provide: TENANT_LIFECYCLE,
-        useValue: {
-          isActive: async (id: string) =>
-            !!(await db.tenant.findFirst({
-              where: { id, lifecycleStatus: 'ACTIVE' },
-              select: { id: true },
-            })),
+  // Synthetic fixture only: production always supplies the Redis adapter.
+  const fixtureLimiter = new TenantClientRateLimiter();
+  const limiter: SharedRateLimiter = searchLimiter ?? {
+    async consume({ tenantId, actorId, policy }) {
+      return (
+        fixtureLimiter.consume({
+          tenantId,
+          clientId: `actor:${actorId}`,
+          limitPerMinute: policy.actorLimit,
+          windowMs: policy.windowMs,
+        }) ??
+        fixtureLimiter.consume({
+          tenantId,
+          clientId: 'tenant',
+          limitPerMinute: policy.tenantLimit,
+          windowMs: policy.windowMs,
+        })
+      );
+    },
+  };
+  function fixtureModule(limiterForInstance: SharedRateLimiter) {
+    @Module({
+      controllers: [
+        NavigationController,
+        TenantLocaleDefaultsController,
+        TenantCoreSettingsController,
+        TenantVoiceCatalogController,
+        ...extraControllers,
+      ],
+      providers: [
+        { provide: NAVIGATION_DATABASE, useValue: db },
+        { provide: NAVIGATION_REGISTRY, useValue: NAVIGATION_APPS },
+        { provide: TENANT_LOCALE_DATABASE, useValue: db },
+        { provide: TENANT_CORE_DATABASE, useValue: db },
+        { provide: CUSTOMER_360_DATABASE, useValue: db },
+        { provide: CUSTOMER_360_SEARCH_LIMITER, useValue: limiterForInstance },
+        { provide: TENANT_VOICE_DATABASE, useValue: db },
+        {
+          provide: OIDC_ACCESS_TOKEN_VERIFIER,
+          useValue: verifier ?? { verifyAccessToken: claims },
         },
-      },
-      { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
-      { provide: APP_GUARD, useClass: OidcGlobalGuard },
-    ],
-  })
-  class CoreTestModule {}
-  const app = await NestFactory.create(CoreTestModule, { logger: false });
+        {
+          provide: TENANT_LIFECYCLE,
+          useValue: {
+            isActive: async (id: string) =>
+              !!(await db.tenant.findFirst({
+                where: { id, lifecycleStatus: 'ACTIVE' },
+                select: { id: true },
+              })),
+          },
+        },
+        { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
+        { provide: APP_GUARD, useClass: OidcGlobalGuard },
+      ],
+    })
+    class CoreTestModule {}
+    return CoreTestModule;
+  }
+  const app = await NestFactory.create(fixtureModule(limiter), { logger: false });
   await app.listen(0, '127.0.0.1');
   const base = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
   return {
@@ -165,6 +195,12 @@ export async function coreFixture(
     otherTenantId,
     teamId,
     actors,
+    async startReplica(replicaLimiter: SharedRateLimiter) {
+      const replica = await NestFactory.create(fixtureModule(replicaLimiter), { logger: false });
+      await replica.listen(0, '127.0.0.1');
+      const replicaBase = `http://127.0.0.1:${(replica.getHttpServer().address() as AddressInfo).port}`;
+      return { base: replicaBase, close: () => replica.close() };
+    },
     async request(
       path: string,
       token = 'admin',

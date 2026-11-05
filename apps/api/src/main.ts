@@ -147,6 +147,10 @@ import {
 import { Redis } from 'ioredis';
 import { Cg5QueryCache, ContactGovernanceService } from '@d-contact/contact-governance';
 import { TenantClientRateLimiter } from './tenant-client-rate-limiter.js';
+import {
+  CUSTOMER_360_SEARCH_LIMITER,
+  createCustomer360SearchLimiter,
+} from './shared-rate-limiter.js';
 import { assertEntrypointProfile } from './runtime-profile.js';
 import {
   CG5_TENANT_CLIENT_RATE_LIMITER,
@@ -180,6 +184,8 @@ const cg5QueryCache = new Cg5QueryCache(
   new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379'),
 );
 const cg5TenantClientRateLimiter = new TenantClientRateLimiter();
+// Missing Redis configuration fails search closed without disabling other API routes.
+const c360SearchLimiter = createCustomer360SearchLimiter(process.env.REDIS_URL);
 const verifier = withLocalAccountAdmission(
   prisma,
   new KeycloakAccessTokenVerifier({
@@ -419,6 +425,7 @@ class WorkspaceSessionController {
   providers: [
     { provide: TENANT_CORE_DATABASE, useValue: prisma },
     { provide: CUSTOMER_360_DATABASE, useValue: prisma },
+    { provide: CUSTOMER_360_SEARCH_LIMITER, useValue: c360SearchLimiter },
     { provide: TENANT_VOICE_DATABASE, useValue: prisma },
     {
       provide: TENANT_PEOPLE_READINESS,

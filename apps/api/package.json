@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/main.ts",
     "test:boundary": "tsx --test --test-concurrency=1 src/*.boundary.ts",
-    "test:m3-principal:boundary": "node scripts/m3-service-principal-boundary.mjs"
+    "test:m3-principal:boundary": "node scripts/m3-service-principal-boundary.mjs",
+    "test:c360-shared-limiter": "node scripts/cus360-shared-limiter.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.0.0",
