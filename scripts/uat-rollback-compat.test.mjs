@@ -10,6 +10,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 const deploy = resolve('infra/uat/bin/uat-deploy.sh');
 const oldSha = '158c8ccec29e37bd51ac1fe26676b8cf3123d7be';
 const compatibleSha = '14ca86e2b55e7d8ef253f0d9727cef2ad49c09b5';
+const recordImages = Object.fromEntries(['api', 'console', 'ops', 'keycloak'].map(
+  (name) => [name, `example.test/${name}@sha256:${'a'.repeat(64)}`],
+));
 
 function fixture(
   context,
@@ -22,6 +25,8 @@ function fixture(
     cleanupFailure = '',
     interruptPhase = '',
     runtimeSha = compatibleSha,
+    badService = '',
+    badSourceService = '',
   } = {},
 ) {
   const root = mkdtempSync(join(tmpdir(), 'uat-rollback-'));
@@ -71,6 +76,35 @@ elif [[ "$*" == *'--entrypoint /usr/bin/timeout'* ]]; then
   if [[ "$STUB_INTERRUPT" == capability ]]; then touch "$STUB_READY"; sleep 30; fi
   [[ "$STUB_CAPABILITY_FAILURE" == false ]] || { echo 'PRIVATE_IMAGE_ERROR' >&2; exit 1; }
   printf '%s\\n' "$STUB_CAPABILITY"
+elif [[ "$*" == 'inspect dcontact-uat-'* ]]; then
+  python3 - "$@" <<'PY'
+import json, os, sys
+ids = {'api': 'a', 'proxy': 'b', 'keycloak': 'c', 'e1-sandbox': 'a'}
+if os.environ.get('STUB_MUTATE_INPUT'):
+    with open(os.environ['STUB_MUTATE_INPUT'], 'w') as stream:
+        stream.write('{"tampered":true}')
+rows = []
+for name in sys.argv[2:]:
+    service = name[len('dcontact-uat-'):-2]
+    revision = 'f' * 40 if service == os.environ['STUB_BAD_SOURCE_SERVICE'] else os.environ['STUB_RUNTIME_SHA']
+    rows.append({'Name': '/' + name, 'Image': 'sha256:' + ids[service] * 64,
+                 'Config': {'Labels': {'org.opencontainers.image.revision': revision,
+                                       'com.docker.compose.project': 'dcontact-uat'}},
+                 'State': {'Running': True}})
+print(json.dumps(rows))
+PY
+elif [[ "$*" == 'image inspect '* ]]; then
+  python3 - "$@" <<'PY'
+import json, os, sys
+names = {'a': 'api', 'b': 'console', 'c': 'keycloak'}
+rows = []
+for ref in sys.argv[3:]:
+    name = names[ref[-1]] if ref.startswith('sha256:') else 'ops'
+    digest = 'b' if os.environ['STUB_BAD_SERVICE'] == name else 'a'
+    rows.append({'Id': ref, 'RepoDigests': ['example.test/' + name + '@sha256:' + digest * 64],
+                 'Config': {'Labels': {'org.opencontainers.image.revision': os.environ['STUB_RUNTIME_SHA']}}})
+print(json.dumps(rows))
+PY
 elif [[ "$*" == inspect* ]]; then
   if [[ "$*" == *org.opencontainers.image.revision* ]]; then printf '%s\n' "$STUB_RUNTIME_SHA"; exit 0; fi
   [[ "$STUB_CLEANUP_FAILURE" != inspect ]] || exit 1
@@ -116,6 +150,8 @@ exec "$@"
     STUB_TIMEOUT_LOG: join(root, 'deadlines'),
     STUB_INTERRUPT: interruptPhase,
     STUB_RUNTIME_SHA: runtimeSha,
+    STUB_BAD_SERVICE: badService,
+    STUB_BAD_SOURCE_SERVICE: badSourceService,
     STUB_READY: join(root, 'ready'),
   };
   function run(sha = oldSha) {
@@ -141,6 +177,13 @@ test('migration authority ของ B7 ต้องหยุด rollback จน�
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /ROLLBACK_B7_COMPATIBILITY_NOT_CERTIFIED/);
   assert.doesNotMatch(result.commands, /up -d|migrate|record/);
+});
+
+test('rollback ต้องหยุดก่อน up หาก Keycloak ที่ไม่เปลี่ยนไม่ตรง target', (context) => {
+  const result = fixture(context, { badSourceService: 'keycloak' }).run(compatibleSha);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /RECORD_RUNTIME_COMPONENT_MISMATCH/);
+  assert.doesNotMatch(result.commands, /up -d/);
 });
 
 test('คำสั่งเปลี่ยน release ต้องหยุดถ้า reconciliation กำลังถือ lock', async (context) => {
@@ -236,7 +279,8 @@ test('deploy workflow ต้องหยุดก่อนเปลี่ยน 
   const original = JSON.stringify({ action: 'reconciliation', rollbackEligible: false });
   writeFileSync(current, original, { mode: 0o600 });
   const input = join(setup.root, 'input.json');
-  writeFileSync(input, JSON.stringify({ sourceSha: compatibleSha }), { mode: 0o600 });
+  writeFileSync(input, JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy',
+    sourceSha: compatibleSha, images: recordImages }), { mode: 0o600 });
   for (const action of ['migrate', 'keycloak', 'deploy', 'record']) {
     const result = spawnSync('bash', [deploy, action, compatibleSha, input], {
       encoding: 'utf8', env: setup.env, timeout: 10000,
@@ -248,18 +292,115 @@ test('deploy workflow ต้องหยุดก่อนเปลี่ยน 
   }
 });
 
+test('release เก่าที่มี record ต้องผ่าน rollback guard ไม่ใช่ deploy ตรง', (context) => {
+  const setup = fixture(context);
+  writeFileSync(join(setup.root, 'deployments', `20261101T000000Z-${oldSha}.json`), '{}', { mode: 0o600 });
+  for (const action of ['migrate', 'keycloak', 'deploy']) {
+    const result = spawnSync('bash', [deploy, action, oldSha], {
+      encoding: 'utf8', env: setup.env, timeout: 10000,
+    });
+    assert.notEqual(result.status, 0, action);
+    assert.match(result.stderr, /UAT_PREVIOUS_RELEASE_REQUIRES_ROLLBACK/, action);
+    assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
+  }
+});
+
+test('target ที่ไม่มีประวัติและยังไม่มีหลักฐาน compatibility ต้องหยุดก่อน migrate', (context) => {
+  const setup = fixture(context);
+  for (const action of ['migrate', 'keycloak', 'deploy']) {
+    const result = spawnSync('bash', [deploy, action, oldSha], {
+      encoding: 'utf8', env: setup.env, timeout: 10000,
+    });
+    assert.notEqual(result.status, 0, action);
+    assert.match(result.stderr, /UAT_TARGET_COMPATIBILITY_EVIDENCE_REQUIRED/, action);
+    assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
+  }
+});
+
+test('deploy source เดิมยังผ่าน target gate', (context) => {
+  const setup = fixture(context);
+  const result = spawnSync('bash', [deploy, 'deploy', compatibleSha], {
+    encoding: 'utf8', env: setup.env, timeout: 10000,
+  });
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.match(readFileSync(setup.log, 'utf8'), /up -d/);
+});
+
+test('current record หายแต่มีประวัติ deployment ต้องไม่ถือเป็น initial deploy', (context) => {
+  const setup = fixture(context);
+  rmSync(join(setup.root, 'deployments', 'current.json'));
+  writeFileSync(join(setup.root, 'deployments', `20261101T000000Z-${oldSha}.json`), '{}', { mode: 0o600 });
+  const result = spawnSync('bash', [deploy, 'deploy', compatibleSha], {
+    encoding: 'utf8', env: setup.env, timeout: 10000,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /UAT_CURRENT_RECORD_REQUIRED/);
+  assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
+});
+
 test('record ห้ามเขียนเมื่อ API runtime เป็นคนละ source', (context) => {
   const setup = fixture(context, { runtimeSha: oldSha });
   const current = join(setup.root, 'deployments', 'current.json');
   const original = readFileSync(current, 'utf8');
   const input = join(setup.root, 'input.json');
-  writeFileSync(input, JSON.stringify({ sourceSha: compatibleSha }), { mode: 0o600 });
+  writeFileSync(input, JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy',
+    sourceSha: compatibleSha, images: recordImages }), { mode: 0o600 });
   const result = spawnSync('bash', [deploy, 'record', compatibleSha, input], {
     encoding: 'utf8', env: setup.env, timeout: 10000,
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /RECORD_RUNTIME_SOURCE_MISMATCH/);
+  assert.match(result.stderr, /RECORD_RUNTIME_COMPONENT_MISMATCH/);
   assert.equal(readFileSync(current, 'utf8'), original);
+});
+
+test('record ห้ามเขียนเมื่อ proxy image digest ไม่ตรง release', (context) => {
+  const setup = fixture(context, { badService: 'console' });
+  const current = join(setup.root, 'deployments', 'current.json');
+  const original = readFileSync(current, 'utf8');
+  const input = join(setup.root, 'input.json');
+  writeFileSync(input, JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy',
+    sourceSha: compatibleSha, images: recordImages }), { mode: 0o600 });
+  const result = spawnSync('bash', [deploy, 'record', compatibleSha, input], {
+    encoding: 'utf8', env: setup.env, timeout: 10000,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /RECORD_IMAGE_DIGEST_MISMATCH/);
+  assert.equal(readFileSync(current, 'utf8'), original);
+});
+
+test('record ห้ามอ้าง ops digest ที่ต่างจาก release', (context) => {
+  const setup = fixture(context);
+  const current = join(setup.root, 'deployments', 'current.json');
+  const original = readFileSync(current, 'utf8');
+  const input = join(setup.root, 'input.json');
+  writeFileSync(input, JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy',
+    sourceSha: compatibleSha, images: { ...recordImages, ops: `example.test/ops@sha256:${'f'.repeat(64)}` } }),
+  { mode: 0o600 });
+  const result = spawnSync('bash', [deploy, 'record', compatibleSha, input], {
+    encoding: 'utf8', env: setup.env, timeout: 10000,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /RECORD_CONTENT_MISMATCH/);
+  assert.equal(readFileSync(current, 'utf8'), original);
+  assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
+});
+
+test('record ตรวจ sandbox เมื่อเปิด E1', (context) => {
+  const setup = fixture(context, { badSourceService: 'e1-sandbox' });
+  const release = join(setup.root, 'releases', compatibleSha);
+  mkdirSync(join(release, 'e1-freeswitch'));
+  writeFileSync(join(release, 'e1-freeswitch', 'entrypoint.sh'), '#!/bin/sh\n', { mode: 0o700 });
+  writeFileSync(join(release, 'docker-compose.uat.e1.yml'), 'services: {}\n');
+  writeFileSync(join(release, 'Caddyfile.3vm.e1'), '');
+  writeFileSync(join(setup.root, 'e1-acceptance.enabled'), '');
+  const input = join(setup.root, 'input.json');
+  writeFileSync(input, JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy',
+    sourceSha: compatibleSha, images: recordImages }), { mode: 0o600 });
+  const result = spawnSync('bash', [deploy, 'record', compatibleSha, input], {
+    encoding: 'utf8', env: setup.env, timeout: 10000,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /RECORD_RUNTIME_COMPONENT_MISMATCH/);
 });
 
 test('record เขียนได้เมื่อ API source ตรงและเก็บ previous', (context) => {
@@ -267,7 +408,8 @@ test('record เขียนได้เมื่อ API source ตรงแล�
   const current = join(setup.root, 'deployments', 'current.json');
   const original = readFileSync(current, 'utf8');
   const input = join(setup.root, 'input.json');
-  const next = JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy', sourceSha: compatibleSha });
+  const next = `${JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy',
+    sourceSha: compatibleSha, images: recordImages })}\n\n `;
   writeFileSync(input, next, { mode: 0o600 });
   const result = spawnSync('bash', [deploy, 'record', compatibleSha, input], {
     encoding: 'utf8', env: setup.env, timeout: 10000,
@@ -275,6 +417,20 @@ test('record เขียนได้เมื่อ API source ตรงแล�
   assert.equal(result.status, 0, result.stderr);
   assert.equal(readFileSync(current, 'utf8'), next);
   assert.equal(readFileSync(join(setup.root, 'deployments', 'previous.json'), 'utf8'), original);
+});
+
+test('record ใช้ bytes ที่ตรวจแล้วแม้ input ถูกเปลี่ยนระหว่างตรวจ runtime', (context) => {
+  const setup = fixture(context);
+  const input = join(setup.root, 'input.json');
+  const next = JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy',
+    sourceSha: compatibleSha, images: recordImages });
+  writeFileSync(input, next, { mode: 0o600 });
+  const result = spawnSync('bash', [deploy, 'record', compatibleSha, input], {
+    encoding: 'utf8', env: { ...setup.env, STUB_MUTATE_INPUT: input }, timeout: 10000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(input, 'utf8'), '{"tampered":true}');
+  assert.equal(readFileSync(join(setup.root, 'deployments', 'current.json'), 'utf8'), next);
 });
 
 for (const interruptPhase of ['ledger', 'capability']) {
@@ -407,7 +563,7 @@ test('predicate จริงตรวจทั้งสอง generated models �
 });
 
 test('pre-skill ledger คง rollback เดิมโดยไม่รัน target capability', (context) => {
-  const result = fixture(context, { ledger: 'ABSENT', capability: 'UNSCOPED' }).run();
+  const result = fixture(context, { ledger: 'ABSENT', capability: 'UNSCOPED', runtimeSha: oldSha }).run();
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.commands, /up -d/);
   assert.doesNotMatch(result.commands, /--entrypoint \/usr\/bin\/timeout/);

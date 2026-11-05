@@ -202,6 +202,102 @@ if os.path.lexists(path):
 PY
 }
 
+# release ที่เคย deploy แล้วต้องใช้ rollback guard ไม่ใช่สั่ง deploy ย้อนตรง
+uat_require_nonhistorical_target() {
+  local sha="$1" current='' recorded
+  if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
+    current="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceSha"])' "$UAT_ROOT/deployments/current.json")"
+  else
+    for recorded in "$UAT_ROOT"/deployments/*-*.json; do
+      [[ ! -e "$recorded" && ! -L "$recorded" ]] || fail 'UAT_CURRENT_RECORD_REQUIRED'
+    done
+    return
+  fi
+  [[ "$current" != "$sha" ]] || return 0
+  for recorded in "$UAT_ROOT"/deployments/*-"$sha".json; do
+    [[ ! -e "$recorded" && ! -L "$recorded" ]] || fail 'UAT_PREVIOUS_RELEASE_REQUIRES_ROLLBACK'
+  done
+  # ยังไม่มีหลักฐาน compatibility ที่ผูกกับ target: ปฏิเสธไว้ก่อน ไม่เดาว่า SHA ที่ไม่รู้จักใหม่กว่า
+  fail 'UAT_TARGET_COMPATIBILITY_EVIDENCE_REQUIRED'
+}
+
+# ตรวจ record และ image ที่รันจริงก่อนเขียน pointer; ไม่พิมพ์ Docker configuration
+uat_verify_record_runtime() {
+  local dir="$1" sha="$2" record="$3" mode="${4:-record}" e1=false
+  if is_e1 "$dir"; then e1=true; fi
+  python3 - "$record" "$sha" "$e1" "$mode" \
+    "$(release_value "$dir" API_IMAGE)" "$(release_value "$dir" CONSOLE_IMAGE)" \
+    "$(release_value "$dir" KEYCLOAK_IMAGE)" "$(release_value "$dir" OPS_IMAGE)" <<'PY'
+import base64
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+
+path, sha, e1, mode, api, console, keycloak, ops = sys.argv[1:]
+expected = {'api': api, 'console': console, 'keycloak': keycloak, 'ops': ops}
+try:
+    if mode == 'record':
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022 or info.st_size > 8388608:
+                raise ValueError('invalid record file')
+            record_bytes = stream.read(8388609)
+            if len(record_bytes) > 8388608:
+                raise ValueError('record too large')
+            record = json.loads(record_bytes)
+        if (not isinstance(record, dict) or record.get('schema') != 'UatDeploymentRecordV1'
+                or record.get('action') not in ('deploy', 'rollback') or record.get('sourceSha') != sha
+                or record.get('images') != expected):
+            sys.exit('RECORD_CONTENT_MISMATCH')
+        refs = {'api': api, 'proxy': console, 'keycloak': keycloak}
+    elif mode == 'untouched':
+        refs = {'keycloak': keycloak}
+    else:
+        sys.exit('RECORD_VALIDATION_MODE_INVALID')
+    if e1 == 'true':
+        refs['e1-sandbox'] = api
+    names = ['dcontact-uat-' + service + '-1' for service in refs]
+    output = subprocess.run(['docker', 'inspect', *names], check=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, timeout=20)
+    containers = json.loads(output.stdout)
+    if len(containers) != len(names) or {x['Name'].lstrip('/') for x in containers} != set(names):
+        sys.exit('RECORD_RUNTIME_INVENTORY_MISMATCH')
+    expected_ids = {}
+    for container in containers:
+        service = container['Name'].lstrip('/')[len('dcontact-uat-'):-2]
+        labels = container['Config'].get('Labels') or {}
+        state = container['State']
+        if (labels.get('org.opencontainers.image.revision') != sha
+                or labels.get('com.docker.compose.project') != 'dcontact-uat'
+                or state.get('Running') is not True
+                or state.get('Health', {}).get('Status', 'healthy') != 'healthy'
+                or not re.fullmatch('sha256:[0-9a-f]{64}', container.get('Image', ''))):
+            sys.exit('RECORD_RUNTIME_COMPONENT_MISMATCH')
+        expected_ids.setdefault(container['Image'], set()).add(refs[service])
+    image_refs = sorted(expected_ids) + ([ops] if mode == 'record' else [])
+    output = subprocess.run(['docker', 'image', 'inspect', *image_refs], check=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20)
+    images = json.loads(output.stdout)
+    if len(images) != len(image_refs):
+        sys.exit('RECORD_IMAGE_INVENTORY_MISMATCH')
+    for image, reference in zip(images, image_refs):
+        wanted = expected_ids[reference] if reference in expected_ids else {ops}
+        labels = image.get('Config', {}).get('Labels') or {}
+        if (not wanted.issubset(set(image.get('RepoDigests') or []))
+                or labels.get('org.opencontainers.image.revision') != sha
+                or (reference in expected_ids and image.get('Id') != reference)):
+            sys.exit('RECORD_IMAGE_DIGEST_MISMATCH')
+    if mode == 'record':
+        sys.stdout.write(base64.b64encode(record_bytes).decode('ascii'))
+except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+    sys.exit('RECORD_RUNTIME_VALIDATION_FAILED')
+PY
+}
+
 rollback_probe_cleanup() {
   local name="$1" ownership remaining id
   if ownership="$(timeout --signal=TERM --kill-after=2s 5s docker inspect \
@@ -395,6 +491,7 @@ case "$cmd" in
     dir="$(release_dir "${1:?sha}")"
     uat_mutation_lock
     uat_require_recordable_current
+    uat_require_nonhistorical_target "${1:?sha}"
     compose "$dir" up -d --wait "$(database_service "$dir")"
     compose "$dir" --profile ops run --rm -T db-roles >/dev/null
     compose "$dir" --profile ops run --rm -T migrate
@@ -406,6 +503,7 @@ case "$cmd" in
     dir="$(release_dir "${1:?sha}")"
     uat_mutation_lock
     uat_require_recordable_current
+    uat_require_nonhistorical_target "${1:?sha}"
     compose "$dir" up -d --wait keycloak
     compose "$dir" --profile ops run --rm -T keycloak-config
     ;;
@@ -453,6 +551,7 @@ case "$cmd" in
     dir="$(release_dir "${1:?sha}")"
     uat_mutation_lock
     uat_require_recordable_current
+    uat_require_nonhistorical_target "${1:?sha}"
     # #540: object storage (SeaweedFS; s3.json + policy ของ API สร้างใน entrypoint) → bucket private
     # ก่อน api บูต (U1.5 #433: api ไม่บูตถ้า bucket ไม่พร้อม) แล้ว lifecycle ที่รันต่อเนื่อง
     compose "$dir" up -d --wait object-storage
@@ -501,15 +600,14 @@ case "$cmd" in
     # file = deployment record ที่ workflow สร้าง (JSON) — เก็บคู่ current/previous สำหรับ rollback
     sha="${1:?sha}"
     file="${2:?record file}"
-    release_dir "$sha" >/dev/null
+    dir="$(release_dir "$sha")"
+    check_release_env "$dir"
+    [[ "$(release_value "$dir" SOURCE_SHA)" == "$sha" ]] || fail 'RELEASE_SOURCE_MISMATCH'
     uat_mutation_lock
     uat_require_recordable_current
-    node_check="$(sed -n 's/.*"sourceSha" *: *"\([0-9a-f]\{40\}\)".*/\1/p' "$file" | head -n 1)"
-    [[ "$node_check" == "$sha" ]] || fail 'RECORD_SHA_MISMATCH'
-    running_sha="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${PROJECT}-api-1")" || fail 'RECORD_RUNTIME_INSPECT_FAILED'
-    [[ "$running_sha" == "$sha" ]] || fail 'RECORD_RUNTIME_SOURCE_MISMATCH'
+    validated_record="$(uat_verify_record_runtime "$dir" "$sha" "$file")" || fail 'RECORD_VALIDATION_FAILED'
     target="$UAT_ROOT/deployments/$(date -u +%Y%m%dT%H%M%SZ)-${sha}.json"
-    cp "$file" "$target"
+    (set -C; printf '%s' "$validated_record" | python3 -c 'import base64,sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.buffer.read(), validate=True))' >"$target") || fail 'RECORD_ARCHIVE_EXISTS'
     if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
       cp "$UAT_ROOT/deployments/current.json" "$UAT_ROOT/deployments/previous.json"
     fi
@@ -727,6 +825,8 @@ if (record.get('schema') != 'UatDeploymentRecordV1' or record.get('action') not 
 PY
     fi
     rollback_preflight "$dir"
+    # V1 record ไม่รองรับ mixed release; หยุดก่อนสลับ API หาก component ที่ไม่ rollback ต่างจาก target
+    uat_verify_record_runtime "$dir" "$sha" '' untouched
     compose "$dir" up -d --wait --no-deps api proxy
     echo "{\"type\":\"u1.uat.deploy\",\"step\":\"rollback\",\"status\":\"PASS\",\"sourceSha\":\"${sha}\"}"
     ;;
