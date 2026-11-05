@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import unittest
@@ -16,6 +17,12 @@ class EvidenceTests(unittest.TestCase):
                        'finished': 154, 'rolledBack': 1, 'unresolved': 0, 'authorityMatches': 1,
                        'migrations': [{'name': f'migration-{i:03d}', 'checksum': 'a' * 64} for i in range(154)]}
         self.ledger['migrations'][0] = {'name': evidence.AUTHORITY_MIGRATION, 'checksum': evidence.AUTHORITY_CHECKSUM}
+
+    def test_authority_identity_matches_repository_migration(self):
+        name = '20261103120000_tenant_provisioned_configuration_authority'
+        migration = Path(__file__).resolve().parents[3] / 'packages/db/prisma/migrations' / name / 'migration.sql'
+        self.assertEqual(evidence.AUTHORITY_MIGRATION, name)
+        self.assertEqual(evidence.AUTHORITY_CHECKSUM, hashlib.sha256(migration.read_bytes()).hexdigest())
 
     def test_requires_exact_authority_name_and_checksum(self):
         self.assertIn("migration_name='" + evidence.AUTHORITY_MIGRATION + "'", evidence.QUERY)

@@ -31,6 +31,12 @@ class CandidateTests(unittest.TestCase):
                        'migrations': [{'name': f'migration-{i:03d}', 'checksum': 'a' * 64} for i in range(154)]}}
         self.observation['ledger']['migrations'][0] = {'name': candidate.AUTHORITY_MIGRATION, 'checksum': candidate.AUTHORITY_CHECKSUM}
 
+    def test_authority_identity_matches_repository_migration(self):
+        name = '20261103120000_tenant_provisioned_configuration_authority'
+        migration = Path(__file__).resolve().parents[3] / 'packages/db/prisma/migrations' / name / 'migration.sql'
+        self.assertEqual(candidate.AUTHORITY_MIGRATION, name)
+        self.assertEqual(candidate.AUTHORITY_CHECKSUM, hashlib.sha256(migration.read_bytes()).hexdigest())
+
     def test_rejects_authority_count_without_exact_migration(self):
         migration = self.observation['ledger']['migrations'][0]
         for key, value in [('name', 'different_migration'), ('checksum', '0' * 64)]:
