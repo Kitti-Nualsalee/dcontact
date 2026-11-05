@@ -13,6 +13,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient } from '@d-contact/db';
 import { ContactGovernanceService } from '@d-contact/contact-governance';
+import { importAllC360LegacyContactPoints } from '@d-contact/customer-360';
 import type { AuthorizationOutcome, AuthorizeAndReserveInput } from '@d-contact/cxa-contracts';
 import type { VerifiedOidcClaims } from '@d-contact/workspace-session';
 import { CLICK_TO_CALL_SERVICE, ClickToCallController } from './click-to-call-api.js';
@@ -43,7 +44,8 @@ const application = new PrismaClient({
 });
 
 const HOST = 'https://crm.example.test';
-const NUMBER = '081-234-5678';
+// C3 (#793): เบอร์ต้อง parse ได้แบบ international และต้องผ่าน legacy import ก่อน bridge จึง resolve ได้
+const NUMBER = '+66 81 234 5678';
 
 function claims(token: string): VerifiedOidcClaims {
   const [tenantId, userId, role] = token.split('|');
@@ -134,8 +136,14 @@ async function setup(
   const contactId = randomUUID();
   await owner.contact.create({ data: { id: contactId, tenantId, displayName: 'ลูกค้า' } });
   const identity = await owner.contactIdentity.create({
-    data: { tenantId, contactId, type: 'PHONE', value: '0812345678' },
+    data: { tenantId, contactId, type: 'PHONE', value: '+66812345678' },
   });
+  // ลำดับ rollout จริง: import legacy identity เป็น contact point ผ่าน operator command ก่อนใช้ bridge
+  await importAllC360LegacyContactPoints(
+    application,
+    { tenantId, issuer: 'https://fixture.test', subject: 'legacy-import-fixture', userId: null },
+    { evidenceRef: 'fixture:c3-bridge', reasonCode: 'LEGACY_POINT_MIGRATION' },
+  );
 
   const service = new ClickToCallService(application, {
     hostOriginOfLease: (actor, leaseId) => leases.embeddedHostOrigin(actor, leaseId),
@@ -167,6 +175,13 @@ async function setup(
     await owner.dphoneClickToCallAuditEvent.deleteMany({ where: { tenantId } });
     await owner.$executeRaw`DELETE FROM cg_reservations WHERE tenant_id = ${tenantId}::uuid`;
     await owner.$executeRaw`DELETE FROM cg_decision_logs WHERE tenant_id = ${tenantId}::uuid`;
+    for (const table of [
+      'c360_profile_audits',
+      'c360_profile_command_receipts',
+      'c360_contact_points',
+      'c360_profile_commands',
+    ])
+      await owner.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, tenantId);
     await owner.contactIdentity.deleteMany({ where: { tenantId } });
     await owner.contact.deleteMany({ where: { tenantId } });
     await owner.agentWorkSessionEvent.deleteMany({ where: { tenantId } });
@@ -345,6 +360,72 @@ test('contact มาจากเบอร์ฝั่ง server — contactId �
   assert.equal(stub.calls[0]!.identityResolution, 'NOT_FOUND');
   // actionKey ผูก lease + requestId ของ host (idempotent)
   assert.equal(stub.calls[0]!.actionKey, `dphone-click-to-call:${f.lease.leaseId}:r1`);
+});
+
+test('C3 bridge: ไม่ fallback ตัวเลขล้วน, ไม่ resolve point ที่ retire/review หรือใช้ร่วมหลาย contact, เบอร์ภายใน sandbox คงเดิม', async (t) => {
+  const stub = stubGovernance('BLOCK');
+  const f = await setup(t, stub.governance);
+  const identityOf = async (number: string) => {
+    stub.calls.length = 0;
+    await f.call('agent', { requestId: randomUUID(), number });
+    return stub.calls[0]!.identityId ?? stub.calls[0]!.identityResolution;
+  };
+  // international ที่ import แล้ว resolve ได้; เบอร์ในประเทศไม่มีประเทศไม่เดา (เดิม match ด้วยตัวเลขล้วน)
+  assert.equal(await identityOf(NUMBER), f.identityId);
+  assert.equal(await identityOf('081-234-5678'), 'NOT_FOUND');
+
+  // identity ใหม่ที่ยังไม่ import (missing mapping) ไม่ fallback ไปค่า raw
+  const later = randomUUID();
+  await owner.contact.create({ data: { id: later, tenantId: f.tenantId, displayName: 'ทีหลัง' } });
+  await owner.contactIdentity.create({
+    data: { tenantId: f.tenantId, contactId: later, type: 'PHONE', value: '+66812345679' },
+  });
+  assert.equal(await identityOf('+66 81 234 5679'), 'NOT_FOUND');
+
+  // ค่าเดียวกัน ACTIVE บนอีก contact = กำกวม ไม่ resolve
+  const commandId = randomUUID();
+  await owner.c360ProfileCommand.create({
+    data: {
+      tenantId: f.tenantId,
+      actorIdentityKey: 'fixture-writer',
+      commandId,
+      action: 'FIXTURE_POINT',
+      resourceType: 'CONTACT',
+      payloadDigest: '0'.repeat(64),
+      normalizationContractVersion: 'fixture',
+    },
+  });
+  const shared = await owner.c360ContactPoint.create({
+    data: {
+      id: randomUUID(),
+      tenantId: f.tenantId,
+      contactId: later,
+      kind: 'PHONE',
+      rawValue: '+66812345678',
+      normalizedValue: '+66812345678',
+      normalizationVersion: 'c360-phone-v1+libphonenumber-js@1.13.15/max',
+      state: 'ACTIVE',
+      sourceKind: 'PROFILE_COMMAND',
+      createdActorIdentityKey: 'fixture-writer',
+      createdCommandId: commandId,
+    },
+  });
+  assert.equal(await identityOf(NUMBER), 'NOT_FOUND');
+  // retire ค่าที่ใช้ร่วมแล้ว contact เดิมกลับมา resolve ได้; retire ของ legacy mapping แล้ว resolve ไม่ได้
+  await owner.$executeRaw`UPDATE c360_contact_points SET state = 'RETIRED', retired_at = now(),
+    retired_actor_identity_key = 'fixture-writer', retired_command_id = ${commandId}::uuid
+    WHERE id = ${shared.id}::uuid`;
+  assert.equal(await identityOf(NUMBER), f.identityId);
+  await owner.$executeRaw`UPDATE c360_contact_points SET state = 'RETIRED', retired_at = now(),
+    retired_actor_identity_key = 'fixture-writer', retired_command_id = ${commandId}::uuid
+    WHERE tenant_id = ${f.tenantId}::uuid AND source_identity_id = ${f.identityId}::uuid`;
+  assert.equal(await identityOf(NUMBER), 'NOT_FOUND');
+
+  // เบอร์ภายในของ sandbox (ไม่ใช่ PHONE ตาม E1 F) คงการ match ตรงตัวแบบเดิม
+  const extension = await owner.contactIdentity.create({
+    data: { tenantId: f.tenantId, contactId: later, type: 'PHONE', value: '1001' },
+  });
+  assert.equal(await identityOf('1001'), extension.id);
 });
 
 test('rate limit ต่อ agent → rate_limited โดยไม่ถึง Governance แต่ยัง audit', async (t) => {

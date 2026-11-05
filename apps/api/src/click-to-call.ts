@@ -11,7 +11,13 @@
  * - ตอบ host โดยไม่มี PII; rate limit ต่อ agent; audit ทุกครั้ง (ไม่เก็บเบอร์)
  */
 import { randomUUID } from 'node:crypto';
-import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
+import { C360ContactPointError, normalizeC360Phone } from '@d-contact/contact-points';
+import {
+  eligibleLegacyIdentityByKey,
+  Prisma,
+  withTenantDatabaseTransaction,
+  type PrismaClient,
+} from '@d-contact/db';
 import type { CallResultMessage } from '@d-contact/dphone-embed';
 import type {
   AuthorizationOutcome,
@@ -93,6 +99,9 @@ export function normalizeDialNumber(value: string): string | null {
   return digits.length >= 3 && digits.length <= 20 ? digits : null;
 }
 
+/** เบอร์ภายในของ sandbox ที่ telephony ยอมให้ dial (`freeswitch-voice-target-resolver.ts`) */
+const SANDBOX_EXTENSION = /^1[0-9]{3}$/;
+
 export class ClickToCallService {
   private readonly now: () => Date;
   private readonly id: () => string;
@@ -138,7 +147,7 @@ export class ClickToCallService {
       return { status: 'result', message, hostOrigin };
     }
 
-    const target = await this.resolveTarget(actor.tenantId, number);
+    const target = await this.resolveTarget(actor.tenantId, input.number, number);
     const outcome = await this.deps.governance.authorizeAndReserve(actor.tenantId, {
       channel: 'VOICE',
       purpose: CLICK_TO_CALL_PURPOSE,
@@ -238,19 +247,44 @@ export class ClickToCallService {
     return true;
   }
 
-  /** identity PHONE เดียวที่ตรงกับเบอร์ — ไม่พบหรือพบหลายราย = ไม่ระบุ (NOT_FOUND) */
+  /**
+   * หา identity ของเบอร์ปลายทาง — ไม่พบหรือกำกวม = ไม่ระบุ (NOT_FOUND)
+   *
+   * C3 (#793) bridge: เบอร์ภายในของ sandbox (`^1\d{3}$`, ตรงกับที่ telephony จำกัดไว้) คงการ match
+   * ตรงตัวแบบเดิมเพื่อไม่เปลี่ยน Voice policy ของ sandbox (เปิด decision gap แยก) เบอร์อื่นต้อง parse
+   * ผ่าน contact point parser แบบ international และ match เฉพาะ ACTIVE point ที่มาจาก legacy identity
+   * ของ contact เดียว ไม่ fallback ไปเทียบตัวเลขล้วนกับค่า raw
+   */
   private resolveTarget(
     tenantId: string,
+    raw: string,
     digits: string,
   ): Promise<{ contactId: string; identityId: string } | null> {
     return withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
-      const rows = await tx.$queryRaw<{ contact_id: string; identity_id: string }[]>(Prisma.sql`
-        SELECT id::text AS identity_id, contact_id::text AS contact_id FROM contact_identities
-        WHERE tenant_id = ${tenantId}::uuid AND type = 'PHONE'
-          AND regexp_replace(value, '[^0-9]', '', 'g') = ${digits}
-        LIMIT 2`);
-      return rows.length === 1
-        ? { contactId: rows[0]!.contact_id, identityId: rows[0]!.identity_id }
+      if (SANDBOX_EXTENSION.test(raw.trim())) {
+        const rows = await tx.$queryRaw<{ contact_id: string; identity_id: string }[]>(Prisma.sql`
+          SELECT id::text AS identity_id, contact_id::text AS contact_id FROM contact_identities
+          WHERE tenant_id = ${tenantId}::uuid AND type = 'PHONE'
+            AND regexp_replace(value, '[^0-9]', '', 'g') = ${digits}
+          LIMIT 2`);
+        return rows.length === 1
+          ? { contactId: rows[0]!.contact_id, identityId: rows[0]!.identity_id }
+          : null;
+      }
+      let phone;
+      try {
+        phone = normalizeC360Phone(raw, null);
+      } catch (error) {
+        if (error instanceof C360ContactPointError) return null;
+        throw error;
+      }
+      const resolved = await eligibleLegacyIdentityByKey(tx, tenantId, {
+        kind: 'PHONE',
+        normalizationVersion: phone.normalizationVersion,
+        normalizedValue: phone.normalizedValue,
+      });
+      return resolved.status === 'RESOLVED'
+        ? { contactId: resolved.contactId, identityId: resolved.identityId }
         : null;
     });
   }

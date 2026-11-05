@@ -982,3 +982,48 @@ export async function readC360ServicePrincipalMetadata(
     };
   });
 }
+
+/**
+ * C3 (#793) S3/S4: รัน LEGACY_POINT_IMPORT ทีละ batch จน remaining = 0 (ลำดับ rollout: import ก่อนเปิด bridge)
+ * แต่ละ batch เป็นคำสั่งของตัวเองที่มี receipt/audit; busy ให้ retry batch ด้วย commandId เดิม
+ */
+export async function importAllC360LegacyContactPoints(
+  db: PrismaClient,
+  operator: C360TrustedOperator,
+  options: { evidenceRef: string; reasonCode: string; batchSize?: number; maxBatches?: number },
+): Promise<{ batches: number; imported: number }> {
+  let imported = 0;
+  for (let batches = 0; batches < (options.maxBatches ?? 1_000); batches += 1) {
+    const commandId = randomUUID();
+    let result: C360ProfileCommandResult | undefined;
+    for (let attempt = 0; !result; attempt += 1) {
+      try {
+        result = await executeC360OperatorCommand(db, operator, {
+          commandId,
+          evidenceRef: options.evidenceRef,
+          reasonCode: options.reasonCode,
+          command: { action: 'LEGACY_POINT_IMPORT', batchSize: options.batchSize ?? 100 },
+        });
+      } catch (error) {
+        if (
+          !(error instanceof C360ProfileCommandError) ||
+          error.code !== 'RESOURCE_BUSY' ||
+          attempt >= 5
+        )
+          throw error;
+        // backoff แบบ exponential + jitter ไม่ยิงซ้ำทันทีขณะ fence/contact ถูกถืออยู่
+        await new Promise((resolve) =>
+          setTimeout(resolve, 100 * 2 ** attempt + Math.random() * 100),
+        );
+      }
+    }
+    if (result.state !== 'TERMINAL')
+      throw new Error(`legacy import ${commandId} ยังไม่มีผลที่แน่นอน`);
+    const receipt = result.receipt;
+    if (receipt.outcome === 'NO_OP') return { batches, imported };
+    if (receipt.outcome !== 'APPLIED') throw new Error(`legacy import ถูกปฏิเสธ: ${receipt.code}`);
+    imported += Number(receipt.committedRevisions.imported ?? 0);
+    if (receipt.committedRevisions.remaining === '0') return { batches: batches + 1, imported };
+  }
+  throw new Error('legacy import ไม่จบภายในจำนวน batch ที่กำหนด');
+}

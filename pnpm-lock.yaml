@@ -29,6 +29,9 @@ importers:
       '@d-contact/contact-governance':
         specifier: workspace:*
         version: link:../contact-governance
+      '@d-contact/contact-points':
+        specifier: workspace:*
+        version: link:../../packages/contact-points
       '@d-contact/customer-360':
         specifier: workspace:*
         version: link:../customer-360
@@ -349,6 +352,9 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
     devDependencies:
+      '@d-contact/customer-360':
+        specifier: workspace:*
+        version: link:../customer-360
       '@d-contact/iam':
         specifier: workspace:*
         version: link:../../packages/iam

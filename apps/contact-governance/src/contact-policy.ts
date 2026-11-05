@@ -3,7 +3,7 @@ export type { ContactPolicyTraceEntry, ContactDecision } from '@d-contact/cxa-co
 
 export interface ContactPolicyFacts {
   policyVersion: number;
-  identityResolution: 'RESOLVED' | 'AMBIGUOUS' | 'NOT_FOUND';
+  identityResolution: 'RESOLVED' | 'AMBIGUOUS' | 'NOT_FOUND' | 'IDENTITY_MAPPING_PENDING';
   activeRestriction?: {
     type: 'DNC' | 'OBJECTION' | 'CONSENT_REVOKED' | 'INBOUND_SAFETY' | 'REGULATORY';
     reasonCode: string;
@@ -38,6 +38,16 @@ export function evaluateContactPolicy(facts: ContactPolicyFacts): ContactPolicyR
       reasonCode: 'IDENTITY_NOT_FOUND',
       policyVersion: facts.policyVersion,
       trace: [{ gate: 'IDENTITY', outcome: 'REVIEW', reasonCode: 'IDENTITY_NOT_FOUND' }],
+    };
+  }
+
+  // แยกจาก NOT_FOUND เพื่อให้ query หา event ที่ต้อง re-drive หลัง import contact point ได้
+  if (facts.identityResolution === 'IDENTITY_MAPPING_PENDING') {
+    return {
+      decision: 'REVIEW',
+      reasonCode: 'IDENTITY_MAPPING_PENDING',
+      policyVersion: facts.policyVersion,
+      trace: [{ gate: 'IDENTITY', outcome: 'REVIEW', reasonCode: 'IDENTITY_MAPPING_PENDING' }],
     };
   }
 
