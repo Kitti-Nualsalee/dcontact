@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { buildDeploymentRecord, main, renderSummary } from './u1-uat-readiness.mjs';
@@ -118,6 +118,7 @@ test('rollback resolver ปฏิเสธ reconciliation แต่เลือ�
   writeFileSync(
     resolve(root, `deployments/20261030T040000Z-uuid-${sourceSha}.json`),
     JSON.stringify(record),
+    { mode: 0o600 },
   );
   const run = () =>
     spawnSync('bash', [resolve('infra/uat/bin/uat-deploy.sh'), 'rollback-target', sourceSha], {
@@ -127,9 +128,41 @@ test('rollback resolver ปฏิเสธ reconciliation แต่เลือ�
   assert.notEqual(run().status, 0);
   writeFileSync(
     resolve(root, `deployments/20261031T040000Z-${sourceSha}.json`),
-    JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy', sourceSha }),
+    JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy', sourceSha,
+      images: Object.fromEntries(['api', 'console', 'ops', 'keycloak'].map(
+        (name) => [name, `example.test/${name}@sha256:${'b'.repeat(64)}`],
+      )) }),
+    { mode: 0o600 },
   );
   const result = run();
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).action, 'deploy');
+});
+
+test('rollback resolver ปฏิเสธ proposal และ record ที่ source ไม่ตรงชื่อไฟล์', (context) => {
+  const root = mkdtempSync(resolve(tmpdir(), 'rollback-proposal-'));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(resolve(root, 'deployments'));
+  writeFileSync(resolve(root, 'uat.env'), 'UAT_ENVIRONMENT=uat\n', { mode: 0o600 });
+  const sourceSha = 'a'.repeat(40);
+  const path = resolve(root, `deployments/20261105T000000Z-${sourceSha}.json`);
+  const run = () => spawnSync('bash', [resolve('infra/uat/bin/uat-deploy.sh'), 'rollback-target', sourceSha], {
+    encoding: 'utf8', env: { ...process.env, UAT_ROOT: root },
+  });
+  writeFileSync(path, JSON.stringify({ schema: 'UatCompositeReconciliationProposalV1', sourceSha }), { mode: 0o600 });
+  assert.notEqual(run().status, 0);
+  writeFileSync(path, JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy',
+    sourceSha: 'b'.repeat(40), images: Object.fromEntries(['api', 'console', 'ops', 'keycloak'].map(
+      (name) => [name, `example.test/${name}@sha256:${'c'.repeat(64)}`],
+    )) }), { mode: 0o600 });
+  const wrongSource = run();
+  assert.notEqual(wrongSource.status, 0);
+  assert.match(wrongSource.stderr, /ROLLBACK_TARGET_INVALID/);
+  rmSync(path);
+  const other = resolve(root, 'other.json');
+  writeFileSync(other, JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy', sourceSha }), { mode: 0o600 });
+  symlinkSync(other, path);
+  const symlink = run();
+  assert.notEqual(symlink.status, 0);
+  assert.match(symlink.stderr, /ROLLBACK_TARGET_INVALID/);
 });

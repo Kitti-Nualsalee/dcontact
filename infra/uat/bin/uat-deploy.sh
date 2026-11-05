@@ -298,6 +298,46 @@ except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
 PY
 }
 
+# ไม่ถือ proposal หรือ record schema ที่ไม่รู้จักว่าเป็น rollback target
+uat_resolve_rollback_record() {
+  local target="$1" expected_sha="${2:-}"
+  if [[ $# -ge 2 ]]; then shift 2; else shift; fi
+  python3 - "$target" "$expected_sha" "$@" <<'PY'
+import json
+import os
+import re
+import stat
+import sys
+
+try:
+    descriptor = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, encoding='utf-8') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or info.st_size > 8388608:
+            raise ValueError('invalid file')
+        record = json.load(stream)
+    if not isinstance(record, dict):
+        raise ValueError('invalid record')
+except (OSError, ValueError):
+    sys.exit('ROLLBACK_TARGET_INVALID')
+if record.get('action') == 'reconciliation' or ('rollbackEligible' in record and record['rollbackEligible'] is not True):
+    sys.exit('RECONCILIATION_NOT_ROLLBACK_CERTIFIED')
+sha = record.get('sourceSha')
+images = record.get('images')
+if (record.get('schema') != 'UatDeploymentRecordV1' or record.get('action') not in ('deploy', 'rollback')
+        or not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{40}', sha)
+        or (sys.argv[2] and sha != sys.argv[2]) or not isinstance(images, dict)
+        or set(images) != {'api', 'console', 'ops', 'keycloak'}
+        or any(not isinstance(ref, str) or not re.fullmatch(r'[a-z0-9.-]+(?::[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}', ref)
+               for ref in images.values())):
+    sys.exit('ROLLBACK_TARGET_INVALID')
+if len(sys.argv) > 3:
+    if len(sys.argv) != 7 or images != dict(zip(('api', 'console', 'ops', 'keycloak'), sys.argv[3:])):
+        sys.exit('ROLLBACK_TARGET_RELEASE_MISMATCH')
+print(json.dumps(record))
+PY
+}
+
 rollback_probe_cleanup() {
   local name="$1" ownership remaining id
   if ownership="$(timeout --signal=TERM --kill-after=2s 5s docker inspect \
@@ -780,10 +820,10 @@ case "$cmd" in
       [[ "$1" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
       target="$(ls -1 "$UAT_ROOT/deployments/"*"-$1.json" 2>/dev/null | sort | tail -n 1 || true)"
       [[ -n "$target" ]] || fail 'NO_DEPLOYMENT_FOR_SHA'
-      python3 -c 'import json,sys; record=json.load(open(sys.argv[1])); sys.exit("RECONCILIATION_NOT_ROLLBACK_CERTIFIED") if record.get("action")=="reconciliation" or record.get("rollbackEligible") is False else print(json.dumps(record))' "$target"
+      uat_resolve_rollback_record "$target" "$1"
     else
       [[ -f "$UAT_ROOT/deployments/previous.json" ]] || fail 'NO_PREVIOUS_DEPLOYMENT'
-      python3 -c 'import json,sys; record=json.load(open(sys.argv[1])); sys.exit("RECONCILIATION_NOT_ROLLBACK_CERTIFIED") if record.get("action")=="reconciliation" or record.get("rollbackEligible") is False else print(json.dumps(record))' "$UAT_ROOT/deployments/previous.json"
+      uat_resolve_rollback_record "$UAT_ROOT/deployments/previous.json"
     fi
     ;;
 
@@ -824,6 +864,15 @@ if (record.get('schema') != 'UatDeploymentRecordV1' or record.get('action') not 
     sys.exit('ROLLBACK_CURRENT_RECORD_INVALID')
 PY
     fi
+    expected_target_hash="${2:?rollback target record SHA-256 required}"
+    [[ "$expected_target_hash" =~ ^[0-9a-f]{64}$ ]] || fail 'ROLLBACK_TARGET_HASH_INVALID'
+    target="$(ls -1 "$UAT_ROOT/deployments/"*"-$sha.json" 2>/dev/null | sort | tail -n 1 || true)"
+    [[ -n "$target" ]] || fail 'NO_DEPLOYMENT_FOR_SHA'
+    target_record="$(uat_resolve_rollback_record "$target" "$sha" \
+      "$(release_value "$dir" API_IMAGE)" "$(release_value "$dir" CONSOLE_IMAGE)" \
+      "$(release_value "$dir" OPS_IMAGE)" "$(release_value "$dir" KEYCLOAK_IMAGE)")"
+    actual_target_hash="$(printf '%s\n' "$target_record" | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
+    [[ "$actual_target_hash" == "$expected_target_hash" ]] || fail 'ROLLBACK_TARGET_CHANGED'
     rollback_preflight "$dir"
     # V1 record ไม่รองรับ mixed release; หยุดก่อนสลับ API หาก component ที่ไม่ rollback ต่างจาก target
     uat_verify_record_runtime "$dir" "$sha" '' untouched

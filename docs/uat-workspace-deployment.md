@@ -52,7 +52,10 @@ Kafka/LINE/egress. Authenticated role smoke ต้องใช้ session ผู
 
 ## Rollback
 
-บันทึก SHA/image digest และ current record ก่อน deploy. ใช้ `uat-deploy.sh rollback <previous-sha>`
-ตาม runbookเดิม; release เก่าที่ไม่มี `UAT_WORKSPACE_ENABLED=true` ไม่เลือก overlay ใหม่และไม่ต้องลบ
+บันทึก SHA/image digest และ current record ก่อน deploy. เลือก target ด้วย
+`uat-deploy.sh rollback-target <previous-sha> > rollback-target.json` แล้วคำนวณ SHA-256
+ของไฟล์ผลลัพธ์นั้น จากนั้นใช้ `uat-deploy.sh rollback <previous-sha> <target-record-sha256>`;
+หาก record ที่เลือกไม่ตรงกับ archive ล่าสุดของ SHA นั้น คำสั่งจะหยุดก่อนเปลี่ยน runtime
+release เก่าที่ไม่มี `UAT_WORKSPACE_ENABLED=true` ไม่เลือก overlay ใหม่และไม่ต้องลบ
 marker กลาง จึงคืน API/Console เดิมได้. ไม่มี down migration. Client ใหม่และ vhost อาจคงอยู่แต่ไม่ควรแจก
 ลิงก์ Workspace หลัง rollback; ถอน vhost ด้วย `--remove` ได้หลังตรวจว่าไม่มีผู้ใช้งาน.

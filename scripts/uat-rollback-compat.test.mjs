@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -51,6 +52,9 @@ function fixture(
           )
           .join(''),
     );
+    writeFileSync(join(root, 'deployments', `20200101T000000Z-${sha}.json`),
+      JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy', sourceSha: sha, images: recordImages }),
+      { mode: 0o600 });
   }
   const log = join(root, 'commands');
   const stub = `#!/usr/bin/env bash
@@ -154,15 +158,20 @@ exec "$@"
     STUB_BAD_SOURCE_SERVICE: badSourceService,
     STUB_READY: join(root, 'ready'),
   };
+  function targetHash(sha) {
+    const result = spawnSync('bash', [deploy, 'rollback-target', sha], { encoding: 'utf8', env, timeout: 10000 });
+    assert.equal(result.status, 0, result.stderr);
+    return createHash('sha256').update(result.stdout).digest('hex');
+  }
   function run(sha = oldSha) {
-    const result = spawnSync('bash', [deploy, 'rollback', sha], {
+    const result = spawnSync('bash', [deploy, 'rollback', sha, targetHash(sha)], {
       encoding: 'utf8',
       env,
       timeout: 10000,
     });
     return { ...result, commands: readFileSync(log, 'utf8') };
   }
-  return { root, run, log, env };
+  return { root, run, log, env, targetHash };
 }
 
 test('158 rollback หลัง skill scope ต้องหยุดก่อน up', (context) => {
@@ -184,6 +193,35 @@ test('rollback ต้องหยุดก่อน up หาก Keycloak ที
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /RECORD_RUNTIME_COMPONENT_MISMATCH/);
   assert.doesNotMatch(result.commands, /up -d/);
+});
+
+test('rollback ห้ามใช้ release.env ที่ digest ต่างจาก record ของ target', (context) => {
+  const setup = fixture(context);
+  const target = join(setup.root, 'deployments', `20200101T000000Z-${compatibleSha}.json`);
+  writeFileSync(target, JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy',
+    sourceSha: compatibleSha, images: { ...recordImages, api: `example.test/api@sha256:${'f'.repeat(64)}` } }),
+  { mode: 0o600 });
+  const result = spawnSync('bash', [deploy, 'rollback', compatibleSha, setup.targetHash(compatibleSha)], {
+    encoding: 'utf8', env: setup.env, timeout: 10000,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /ROLLBACK_TARGET_RELEASE_MISMATCH/);
+  assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
+});
+
+test('rollback หยุดก่อนเปลี่ยน runtime เมื่อ record เป้าหมายเปลี่ยนหลังเลือก', (context) => {
+  const setup = fixture(context);
+  const selectedHash = setup.targetHash(compatibleSha);
+  const target = join(setup.root, 'deployments', `20200101T000000Z-${compatibleSha}.json`);
+  const record = JSON.parse(readFileSync(target, 'utf8'));
+  record.note = 'changed after selection';
+  writeFileSync(target, JSON.stringify(record), { mode: 0o600 });
+  const result = spawnSync('bash', [deploy, 'rollback', compatibleSha, selectedHash], {
+    encoding: 'utf8', env: setup.env, timeout: 10000,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /ROLLBACK_TARGET_CHANGED/);
+  assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
 test('คำสั่งเปลี่ยน release ต้องหยุดถ้า reconciliation กำลังถือ lock', async (context) => {
@@ -307,6 +345,7 @@ test('release เก่าที่มี record ต้องผ่าน rollba
 
 test('target ที่ไม่มีประวัติและยังไม่มีหลักฐาน compatibility ต้องหยุดก่อน migrate', (context) => {
   const setup = fixture(context);
+  rmSync(join(setup.root, 'deployments', `20200101T000000Z-${oldSha}.json`));
   for (const action of ['migrate', 'keycloak', 'deploy']) {
     const result = spawnSync('bash', [deploy, action, oldSha], {
       encoding: 'utf8', env: setup.env, timeout: 10000,
@@ -437,7 +476,7 @@ for (const interruptPhase of ['ledger', 'capability']) {
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
     test(`${signal} ระหว่าง ${interruptPhase} cleanup เฉพาะ probe และไม่ up`, async (context) => {
       const setup = fixture(context, { interruptPhase, cleanupOwner: 'own' });
-      const child = spawn('bash', [deploy, 'rollback', compatibleSha], {
+      const child = spawn('bash', [deploy, 'rollback', compatibleSha, setup.targetHash(compatibleSha)], {
         env: setup.env,
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -635,7 +674,8 @@ test('target จาก previous record ยังต้องผ่าน guard �
   mkdirSync(join(setup.root, 'deployments'), { recursive: true });
   writeFileSync(
     join(setup.root, 'deployments/previous.json'),
-    JSON.stringify({ sourceSha: oldSha }),
+    JSON.stringify({ schema: 'UatDeploymentRecordV1', action: 'deploy', sourceSha: oldSha, images: recordImages }),
+    { mode: 0o600 },
   );
   const selected = spawnSync('bash', [deploy, 'rollback-target'], {
     encoding: 'utf8',
