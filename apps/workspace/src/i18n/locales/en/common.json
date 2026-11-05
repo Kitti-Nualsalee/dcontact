@@ -27,7 +27,8 @@
       "home": "Home",
       "voiceRouting": "Voice configuration",
       "tenantPeople": "User accounts",
-      "coreSettings": "Organization settings"
+      "coreSettings": "Organization settings",
+      "customers": "Customers"
     },
     "areas": {
       "home": "Home",
@@ -53,7 +54,8 @@
       "work": "Work",
       "live": "Live",
       "embedding": "Embedding",
-      "configuration": "Configuration"
+      "configuration": "Configuration",
+      "customers": "Customers"
     },
     "pages": {
       "contactGovernance": {

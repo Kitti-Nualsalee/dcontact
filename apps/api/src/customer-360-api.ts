@@ -91,11 +91,11 @@ export class Customer360Errors implements ExceptionFilter {
   }
 }
 
-interface C360RequestIdentity extends TenantConfigurationIdentity {
+export interface C360RequestIdentity extends TenantConfigurationIdentity {
   caller: NonNullable<TenantConfigurationIdentity['caller']>;
 }
 
-function requestIdentity(req: AuthenticatedGatewayRequest): C360RequestIdentity {
+export function requestIdentity(req: AuthenticatedGatewayRequest): C360RequestIdentity {
   if (!req.gatewayIdentity) throw new UnauthorizedException();
   const caller = tenantConfigurationCaller(req);
   if (!caller) throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');

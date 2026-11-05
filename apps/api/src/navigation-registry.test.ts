@@ -41,6 +41,7 @@ test('role ต่างกันเห็นรายการต่างกั
     'contact-governance',
     'agent-history',
     'voice-routing',
+    'customers',
     'core-settings',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: ['compliance'], entitlements: FULL })), [
@@ -59,6 +60,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'journeys',
     'voice-routing',
     'tenant-people',
+    'customers',
     'core-settings',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: admin, entitlements: {} })), [
@@ -67,6 +69,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'supervisor-workspace',
     'voice-routing',
     'tenant-people',
+    'customers',
     'core-settings',
   ]);
   assert.deepEqual(
@@ -82,6 +85,7 @@ test('plan ต่างกันเห็นรายการต่างกั
       'supervisor-workspace',
       'voice-routing',
       'tenant-people',
+      'customers',
       'core-settings',
     ],
   );
@@ -97,6 +101,7 @@ test('tenant ที่ไม่มี plan binding (null) ใช้ role อย�
     'dphone-embedding',
     'voice-routing',
     'tenant-people',
+    'customers',
     'core-settings',
   ]);
 });
@@ -110,6 +115,7 @@ test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ข�
     'dphone-embedding',
     'voice-routing',
     'tenant-people',
+    'customers',
     'core-settings',
   ]);
   assert.equal(
@@ -131,6 +137,7 @@ test('ชุดเริ่มต้นของ tenant ขึ้นกับ en
     'agent-history',
     'voice-routing',
     'tenant-people',
+    'customers',
     'core-settings',
   ]);
 });

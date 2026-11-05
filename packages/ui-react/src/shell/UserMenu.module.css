@@ -57,6 +57,17 @@
   }
 }
 
+/* ใช้ความกว้างเนื้อหาจริงหลังหัก rail และ SubNav */
+@container dc-shell-content (max-width: 800px) {
+  .name {
+    display: none;
+  }
+
+  .trigger {
+    padding: 0 var(--dc-space-2);
+  }
+}
+
 .popover {
   min-width: 240px;
   max-width: min(320px, calc(100vw - var(--dc-space-8)));
