@@ -28,6 +28,13 @@ test('#868 media observation ตรวจ mount และ digest โดยไม
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('#868 media Git comparison ตรวจ tree โดยไม่รับรอง deployment', () => {
+  const result = spawnSync('python3', ['-B', resolve('infra/uat/operator/b868-media-git-compare.test.py')], {
+    encoding: 'utf8', timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 function markCommitted(path) {
   writeFileSync(`${path}.committed`, `${createHash('sha256').update(readFileSync(path)).digest('hex')}\n`, { mode: 0o600 });
 }
