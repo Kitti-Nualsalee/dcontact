@@ -1,0 +1,34 @@
+name: Cus360 shared limiter
+on:
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - 'apps/customer-360/**'
+      - 'packages/db/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/cus360-shared-limiter.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'apps/customer-360/**'
+      - 'packages/db/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/cus360-shared-limiter.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  redis-multi-instance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: ทดสอบ Redis หลาย instance และ C2 บนฐานข้อมูลแยก
+        run: pnpm --filter @d-contact/api test:c360-shared-limiter
