@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+const browserPort = Number(process.env.C360_BROWSER_PORT ?? 5198);
 
 /**
  * Cus360 C2 (#792): browser tests ของ Customers/โปรไฟล์ (read-only)
@@ -14,7 +15,7 @@ export default defineConfig({
   retries: 0,
   reporter: [['list']],
   use: {
-    baseURL: 'http://127.0.0.1:5198',
+    baseURL: `http://127.0.0.1:${browserPort}`,
     locale: 'th-TH',
     trace: 'off',
     video: 'off',
@@ -23,7 +24,7 @@ export default defineConfig({
   webServer: {
     command:
       'pnpm --filter @d-contact/api exec tsx --tsconfig tsconfig.json ../console/scripts/customer-360-browser-server.ts',
-    url: 'http://127.0.0.1:5198/__c360_test/config',
+    url: `http://127.0.0.1:${browserPort}/__c360_test/config`,
     timeout: 120_000,
     reuseExistingServer: false,
   },

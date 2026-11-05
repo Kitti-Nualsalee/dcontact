@@ -1,6 +1,10 @@
 import { Customer360Controller, CUSTOMER_360_DATABASE } from './customer-360-api.js';
 import { Customer360OperatorController } from './customer-360-operator-api.js';
 import { Customer360ReadController } from './customer-360-read-api.js';
+import {
+  CUSTOMER_360_WRITE_RUNTIME,
+  createC360WriteRuntime,
+} from './customer-360-write-runtime.js';
 import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
 import { withLocalAccountAdmission } from './local-account-verifier.js';
 import 'reflect-metadata';
@@ -425,6 +429,7 @@ class WorkspaceSessionController {
   providers: [
     { provide: TENANT_CORE_DATABASE, useValue: prisma },
     { provide: CUSTOMER_360_DATABASE, useValue: prisma },
+    { provide: CUSTOMER_360_WRITE_RUNTIME, useValue: createC360WriteRuntime() },
     { provide: CUSTOMER_360_SEARCH_LIMITER, useValue: c360SearchLimiter },
     { provide: TENANT_VOICE_DATABASE, useValue: prisma },
     {

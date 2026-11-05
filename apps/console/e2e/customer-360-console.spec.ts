@@ -42,7 +42,7 @@ test('รายการ: loading แยกจาก empty, อ่านอย�
   await expect(page.getByText('ยังไม่มีลูกค้าที่คุณเข้าถึงได้')).toHaveCount(0);
   await expect(table(page)).toBeVisible();
   await expect(page.getByText(/ลูกค้าที่เข้าถึงได้ 37 รายการ/)).toBeVisible();
-  await expect(page.getByText('หน้านี้อ่านอย่างเดียว')).toBeVisible();
+  await expect(page.getByText('การสร้างลูกค้าต้องได้รับสิทธิ์จากผู้ดูแล')).toBeVisible();
   // ไม่มี control ที่ดูเหมือนเขียนได้ (แม้เป็น disabled)
   await expect(
     main(page).getByRole('button', {
@@ -694,4 +694,324 @@ test('accessibility: รายการและโปรไฟล์ไม่�
     page.getByRole('region', { name: 'ประวัติการติดต่อ' }).getByRole('listitem'),
   ).toHaveCount(2);
   expect(serious(await new AxeBuilder({ page }).include('main').analyze())).toEqual([]);
+});
+
+test('C4: สร้างลูกค้าแล้วอ่านข้อมูลกลับก่อนแสดงโปรไฟล์', async ({ page, request }) => {
+  await control(request, 'grant-create');
+  await list(page);
+  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill('ลูกค้าทดลอง C4');
+  await page.getByLabel('บริษัท').fill('บริษัท ทดสอบ');
+  await page.getByLabel('เบอร์โทรศัพท์').fill('+1 213 373 4253');
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await expect(page.getByRole('heading', { name: 'ลูกค้าทดลอง C4' })).toBeVisible();
+  await expect(page.getByText('บันทึกและอ่านข้อมูลลูกค้ากลับแล้ว')).toBeVisible();
+  await expect(page.getByText('บริษัท ทดสอบ')).toBeVisible();
+  await expect(page.getByText('+12133734253')).toBeVisible();
+  expect(page.url()).not.toContain('ลูกค้าทดลอง');
+  const stored = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }));
+  expect(stored).not.toContain('ลูกค้าทดลอง C4');
+  expect(stored).not.toContain('213 373');
+});
+
+test('C4: แก้ข้อมูลที่เปลี่ยนพร้อมกันโดยเก็บร่างและแสดงข้อมูลล่าสุด', async ({ page, request }) => {
+  await profile(page, 'somchai');
+  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill('ร่างที่ต้องเก็บ');
+  const current = await (
+    await request.get(`/api/v1/customer-360/contacts/${config.ids.somchai}`)
+  ).json();
+  const changed = await request.patch(`/api/v1/customer-360/contacts/${config.ids.somchai}`, {
+    data: {
+      commandId: crypto.randomUUID(),
+      expectedProfileRevision: current.revisions.profile,
+      expectedLineageRevision: String(current.revisions.lineage),
+      displayName: 'ชื่อจากผู้ใช้อื่น',
+    },
+  });
+  expect(changed.status()).toBe(200);
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await expect(page.getByRole('alert')).toContainText('ข้อมูลเปลี่ยนระหว่างแก้ไข');
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ร่างที่ต้องเก็บ');
+  await page.getByRole('button', { name: 'ตรวจข้อมูลล่าสุด' }).click();
+  await expect(page.getByText(/ข้อมูลล่าสุด:/)).toContainText('ชื่อจากผู้ใช้อื่น');
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ร่างที่ต้องเก็บ');
+});
+
+test('C4: เพิ่ม แทนที่ และเลิกใช้ช่องทาง รวมทั้งถอดแท็กด้วย readback', async ({ page }) => {
+  await profile(page, 'somchai');
+  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
+  await page.getByLabel('ข้อมูลช่องทางติดต่อ').fill('+1 415 555 2671');
+  await page.getByRole('button', { name: 'เพิ่มช่องทาง' }).click();
+  await expect(page.getByText('+14155552671')).toBeVisible();
+  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
+  await page
+    .locator('li')
+    .filter({ hasText: '+14155552671' })
+    .getByRole('button', { name: 'เปลี่ยน' })
+    .click();
+  await page.getByLabel('ข้อมูลช่องทางใหม่').fill('+44 20 7946 0018');
+  await page.getByRole('button', { name: 'บันทึกช่องทางใหม่' }).click();
+  await expect(page.getByText('+442079460018')).toBeVisible();
+  await expect(page.getByText('+14155552671')).toHaveCount(0);
+  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
+  await page
+    .locator('li')
+    .filter({ hasText: '+442079460018' })
+    .getByRole('button', { name: 'เลิกใช้' })
+    .click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'เลิกใช้' }).click();
+  await expect(page.getByText('+442079460018')).toHaveCount(0);
+  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
+  await page.getByLabel('ลูกค้าสำคัญ').uncheck();
+  await page.getByRole('button', { name: 'บันทึกแท็ก' }).click();
+  await expect(page.getByText('ลูกค้าสำคัญ')).toHaveCount(0);
+});
+
+test('C4: response หลุดหลัง commit กู้ receipt หลัง reload โดยไม่สร้างซ้ำหรือเก็บ PII', async ({
+  page,
+}) => {
+  await list(page);
+  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill('ทดสอบกู้คำสั่ง');
+  let delivered!: () => void;
+  const disconnected = new Promise<void>((resolve) => {
+    delivered = resolve;
+  });
+  await page.route('**/api/v1/customer-360/contacts', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    await route.fetch();
+    await route.abort('failed');
+    delivered();
+  });
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await disconnected;
+  await expect(page.getByRole('button', { name: 'ตรวจสถานะการบันทึก' })).toBeVisible();
+  const stored = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }));
+  expect(stored).not.toContain('ทดสอบกู้คำสั่ง');
+  await page.unrouteAll();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.reload();
+  await page.getByRole('button', { name: 'ตรวจสถานะการบันทึก' }).click();
+  await expect(page.getByRole('heading', { name: 'ทดสอบกู้คำสั่ง' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'ตรวจสถานะการบันทึก' })).toHaveCount(0);
+});
+
+test('C4: session หมดซ่อนข้อมูล เก็บร่างใน memory และตรวจคำสั่งเดิมหลัง reauthorize', async ({
+  page,
+  request,
+}) => {
+  await list(page);
+  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill('ร่างหลังเข้าสู่ระบบใหม่');
+  await control(request, 'session/expire');
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await expect(page.getByRole('alert')).toContainText('ไม่สามารถแสดงข้อมูลลูกค้าได้');
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
+  await control(request, 'session/restore');
+  await page.getByRole('alert').getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ร่างหลังเข้าสู่ระบบใหม่');
+  await page.getByRole('button', { name: 'ตรวจสถานะการบันทึก' }).click();
+  await expect(page.getByText('ยืนยันแล้วว่าคำสั่งเดิมไม่มีผล สามารถเริ่มใหม่ได้')).toBeVisible();
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await expect(page.getByRole('heading', { name: 'ร่างหลังเข้าสู่ระบบใหม่' })).toBeVisible();
+});
+
+test('C4: ฟอร์ม TH/EN ไม่ล้นที่ 768/1280/1440 และผ่าน axe ระดับ serious/critical', async ({
+  page,
+  request,
+}) => {
+  await control(request, 'grant-create');
+  await list(page);
+  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
+  for (const width of [768, 1280, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const language of ['ไทย', 'English']) {
+      await page.getByRole('button', { name: language, exact: true }).click();
+      await expect(page.locator('form.cu-form')).toBeVisible();
+      const overflow = await page.evaluate(() => {
+        const main = document.querySelector('main.cu-root')!;
+        return {
+          page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          content: main.scrollWidth - main.clientWidth,
+        };
+      });
+      expect(overflow).toEqual({ page: 0, content: 0 });
+      const results = await new AxeBuilder({ page })
+        .include('main')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+        .analyze();
+      expect(
+        results.violations.filter((violation) =>
+          ['serious', 'critical'].includes(violation.impact ?? ''),
+        ),
+      ).toEqual([]);
+    }
+  }
+});
+
+test('C4: capability service ล่มแจ้งว่าตรวจสิทธิ์ไม่ได้ และลองใหม่ได้', async ({
+  page,
+  request,
+}) => {
+  await control(request, 'grant-create');
+  await control(request, 'fail/503/capabilities');
+  await list(page);
+  await expect(
+    page.getByText('ตรวจสิทธิ์การสร้างหรือแก้ไขลูกค้าไม่ได้ในขณะนี้ กรุณาลองอีกครั้ง'),
+  ).toBeVisible();
+  await expect(page.getByText('การสร้างลูกค้าต้องได้รับสิทธิ์จากผู้ดูแล')).toHaveCount(0);
+  await control(request, 'fail/0/capabilities');
+  await page.getByRole('status').getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+  await expect(page.getByRole('button', { name: 'สร้างลูกค้า' })).toBeVisible();
+});
+
+test('C4: tag selector ล่มแสดง unavailable และไม่ให้บันทึกรายการไม่ครบ', async ({
+  page,
+  request,
+}) => {
+  await control(request, 'fail/500/tags');
+  await profile(page, 'somchai');
+  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
+  await expect(page.getByText('โหลดรายการแท็กไม่ได้ในขณะนี้ กรุณาลองอีกครั้ง')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'บันทึกแท็ก' })).toBeDisabled();
+  await control(request, 'fail/0/tags');
+  await page.getByRole('status').getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+  await expect(page.getByRole('button', { name: 'บันทึกแท็ก' })).toBeEnabled();
+});
+
+test('C4: บันทึกข้อมูลเดิมคืน NO_OP และอ่านข้อมูลปัจจุบันกลับ', async ({ page }) => {
+  await profile(page, 'somchai');
+  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
+  const response = page.waitForResponse(
+    (candidate) =>
+      candidate.request().method() === 'PATCH' &&
+      candidate.url().endsWith(`/contacts/${config.ids.somchai}`),
+  );
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  expect((await (await response).json()).command.outcome).toBe('NO_OP');
+  await expect(page.getByText('ข้อมูลไม่เปลี่ยนแปลง อ่านข้อมูลล่าสุดกลับแล้ว')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'แก้ไขลูกค้า' })).toBeVisible();
+});
+
+test('C4: response ตรวจสิทธิ์เก่าที่มาช้าหลัง session หมดไม่เปิดร่างกลับ', async ({
+  page,
+  request,
+}) => {
+  await control(request, 'grant-create');
+  await list(page);
+  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill('ร่างห้ามเปิดจากผลเก่า');
+  await control(request, 'slow/hold/capabilities');
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect
+    .poll(async () => (await (await control(request, 'slow-state')).json()).status)
+    .toBe(200);
+  await control(request, 'session/expire');
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
+  await control(request, 'slow-release');
+  await expect
+    .poll(async () => (await (await control(request, 'slow-state')).json()).sent)
+    .toBe(true);
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
+});
+
+test('C4: ตรวจ receipt แล้วสิทธิ์ถูกถอนต้องซ่อนร่างจนตรวจสิทธิ์ใหม่ผ่าน', async ({
+  page,
+  request,
+}) => {
+  await profile(page, 'somchai');
+  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill('ร่างตรวจสิทธิ์ receipt');
+  let delivered!: () => void;
+  const disconnected = new Promise<void>((resolve) => {
+    delivered = resolve;
+  });
+  await page.route(`**/api/v1/customer-360/contacts/${config.ids.somchai}`, async (route) => {
+    if (route.request().method() !== 'PATCH') return route.continue();
+    await route.fetch();
+    await route.abort('failed');
+    delivered();
+  });
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await disconnected;
+  await page.unrouteAll();
+  await control(request, 'fail/403/commands');
+  await page.getByRole('button', { name: 'ตรวจสถานะการบันทึก' }).click();
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
+  await expect(page.getByRole('alert')).toContainText('ไม่สามารถแสดงข้อมูลลูกค้าได้');
+  await control(request, 'fail/0/commands');
+  await page.getByRole('alert').getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ร่างตรวจสิทธิ์ receipt');
+  await page.getByRole('button', { name: 'ตรวจสถานะการบันทึก' }).click();
+  await expect(page.getByRole('heading', { name: 'ร่างตรวจสิทธิ์ receipt' })).toBeVisible();
+});
+
+test('C4: กู้ receipt ที่ conflict แล้วเก็บร่างและบังคับตรวจข้อมูลล่าสุดก่อนบันทึก', async ({
+  page,
+  request,
+}) => {
+  await profile(page, 'somchai');
+  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill('ร่าง conflict ที่กู้ได้');
+  const current = await (
+    await request.get(`/api/v1/customer-360/contacts/${config.ids.somchai}`)
+  ).json();
+  const changed = await request.patch(`/api/v1/customer-360/contacts/${config.ids.somchai}`, {
+    data: {
+      commandId: crypto.randomUUID(),
+      expectedProfileRevision: current.revisions.profile,
+      expectedLineageRevision: String(current.revisions.lineage),
+      displayName: 'ข้อมูลล่าสุดจากอีกเครื่อง',
+    },
+  });
+  expect(changed.status()).toBe(200);
+  let delivered!: () => void;
+  const disconnected = new Promise<void>((resolve) => {
+    delivered = resolve;
+  });
+  await page.route(`**/api/v1/customer-360/contacts/${config.ids.somchai}`, async (route) => {
+    if (route.request().method() !== 'PATCH') return route.continue();
+    await route.fetch();
+    await route.abort('failed');
+    delivered();
+  });
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await disconnected;
+  await page.unrouteAll();
+  await page.getByRole('button', { name: 'ตรวจสถานะการบันทึก' }).click();
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ร่าง conflict ที่กู้ได้');
+  await expect(page.getByRole('button', { name: 'บันทึกลูกค้า' })).toBeDisabled();
+  await page.getByRole('button', { name: 'ตรวจข้อมูลล่าสุด' }).click();
+  await expect(page.getByText(/ข้อมูลล่าสุด:/)).toContainText('ข้อมูลล่าสุดจากอีกเครื่อง');
+  await expect(page.getByRole('button', { name: 'บันทึกลูกค้า' })).toBeEnabled();
+});
+
+test('C4: ไม่แสดงผลสำเร็จก่อน readback ตอบกลับ', async ({ page, request }) => {
+  await control(request, 'grant-create');
+  await list(page);
+  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill('รออ่านกลับ');
+  let arrived!: () => void;
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(/\/api\/v1\/customer-360\/contacts\/[0-9a-f-]{36}$/, async (route) => {
+    const response = await route.fetch();
+    arrived();
+    await gate;
+    await route.fulfill({ response });
+  });
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await waiting;
+  await expect(page.getByText('บันทึกและอ่านข้อมูลลูกค้ากลับแล้ว')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ตรวจสถานะการบันทึก' })).toBeVisible();
+  release();
+  await expect(page.getByText('บันทึกและอ่านข้อมูลลูกค้ากลับแล้ว')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'รออ่านกลับ' })).toBeVisible();
 });

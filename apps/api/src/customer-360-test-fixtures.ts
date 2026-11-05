@@ -10,6 +10,7 @@ import type { SegmentMembershipChangePayloadV1 } from '@d-contact/cxa-contracts'
 import { Customer360Controller } from './customer-360-api.js';
 import { coreFixture } from './tenant-core-test-fixtures.js';
 import type { SharedRateLimiter } from './shared-rate-limiter.js';
+import type { C360WriteRuntime } from './customer-360-write-runtime.js';
 
 /** Cus360 C1 (#791): fixture ร่วมของ S3/S4 ใช้ owner writers จริง ไม่เขียน head ปลอม */
 export type Fixture = Awaited<ReturnType<typeof setup>>;
@@ -17,12 +18,14 @@ export type Fixture = Awaited<ReturnType<typeof setup>>;
 export async function setup(
   extraControllers: Parameters<typeof coreFixture>[0] = [],
   searchLimiter?: SharedRateLimiter,
+  writeRuntime?: C360WriteRuntime,
 ) {
   const f = await coreFixture(
     [Customer360Controller, ...extraControllers],
     undefined,
     undefined,
     searchLimiter,
+    writeRuntime,
   );
   // platform operator ใช้ realm role ใน org login ของ tenant แต่ไม่ใช่ domain User ของ tenant
   // เพิ่มเฉพาะ fixture ของ Cus360: core identity sandbox สร้าง Keycloak user ให้ทุก actor ใน core fixture

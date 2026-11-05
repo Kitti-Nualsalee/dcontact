@@ -1,5 +1,6 @@
 export * from './service-principal.js';
 export * from './profile-command.js';
+export * from './profile-write.js';
 export * from './profile-authorization.js';
 export * from './profile-fences.js';
 export * from './profile-operator.js';

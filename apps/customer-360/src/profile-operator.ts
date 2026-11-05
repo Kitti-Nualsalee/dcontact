@@ -22,7 +22,7 @@ import {
   type C360ProfileEffect,
   type C360ResourceRef,
 } from './profile-command.js';
-import { tryC360IdentityFences } from './profile-fences.js';
+import { tryC360CustodianFences, tryC360IdentityFences } from './profile-fences.js';
 import {
   C360_LEGACY_IMPORT_BATCH_MAX,
   importC360LegacyContactPointsBatch,
@@ -306,6 +306,7 @@ async function lockCanonicalContact(
   contactId: string,
 ) {
   await tryC360IdentityFences(tx, tenantId, [contactId]);
+  await tryC360CustodianFences(tx, tenantId, [contactId]);
   const [row] = await tx.$queryRaw<{ identity: string | null }[]>`
     SELECT (SELECT state::text FROM c360_identity_heads ih
             WHERE ih.tenant_id = c.tenant_id AND ih.contact_id = c.id) AS identity
@@ -468,6 +469,7 @@ async function plan(
       });
       if (!grant) throw new C360ProfileCommandRejection('GRANT_NOT_FOUND', 404);
       await tryC360IdentityFences(tx, tenantId, [grant.contactId]);
+      await tryC360CustodianFences(tx, tenantId, [grant.contactId]);
       const revoked = await tx.c360ContactCustodianRevocation.findFirst({
         where: { tenantId, grantId: grant.id },
       });
@@ -544,6 +546,12 @@ async function plan(
         where: { tenantId, id: command.grantId },
       });
       if (!grant) throw new C360ProfileCommandRejection('GRANT_NOT_FOUND', 404);
+      // จัดลำดับการถอน capability กับการสร้างและ grant อื่นบน User แถวเดียวกัน
+      await lockBusy(
+        () => tx.$queryRaw`
+        SELECT id FROM users WHERE tenant_id = ${tenantId}::uuid AND id = ${grant.granteeUserId}::uuid
+        FOR NO KEY UPDATE NOWAIT`,
+      );
       const revoked = await tx.c360ActorCapabilityRevocation.findFirst({
         where: { tenantId, grantId: grant.id },
       });

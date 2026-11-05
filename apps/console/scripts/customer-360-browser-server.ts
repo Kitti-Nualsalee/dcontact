@@ -10,6 +10,8 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 import { Customer360ReadController } from '../../api/src/customer-360-read-api.js';
+import { Customer360OperatorController } from '../../api/src/customer-360-operator-api.js';
+import { TenantClientRateLimiter } from '../../api/src/tenant-client-rate-limiter.js';
 import {
   contact,
   grant,
@@ -21,6 +23,8 @@ import {
 import { deliverToIam, ownerCommit, setup } from '../../api/src/customer-360-test-fixtures.js';
 
 const cleanups: (() => Promise<unknown>)[] = [];
+const browserPort = Number(process.env.C360_BROWSER_PORT ?? 5198);
+const proxyPort = Number(process.env.C360_BROWSER_PROXY_PORT ?? 5199);
 let closing = false;
 async function close() {
   if (closing) return;
@@ -29,7 +33,26 @@ async function close() {
 }
 
 try {
-  const f = await setup([Customer360ReadController]);
+  // แต่ละ browser test ใช้ budget ของตัวเอง; multi-instance budget ทดสอบกับ Redis จริงแยกแล้ว
+  let quota = new TenantClientRateLimiter();
+  const f = await setup([Customer360ReadController, Customer360OperatorController], {
+    async consume({ tenantId, actorId, policy }) {
+      return (
+        quota.consume({
+          tenantId,
+          clientId: `${policy.name}:actor:${actorId}`,
+          limitPerMinute: policy.actorLimit,
+          windowMs: policy.windowMs,
+        }) ??
+        quota.consume({
+          tenantId,
+          clientId: `${policy.name}:tenant`,
+          limitPerMinute: policy.tenantLimit,
+          windowMs: policy.windowMs,
+        })
+      );
+    },
+  });
   cleanups.push(() => f.close());
   await f.owner.tenantUiFlag.create({
     data: {
@@ -129,6 +152,7 @@ try {
 
   // ---- control ----
   let actor = 'admin';
+  let createGranted = false;
   let sessionExpired = false;
   let delayMs = 0;
   let failNext: { fragment: string; status: number } | undefined;
@@ -158,6 +182,7 @@ try {
           return;
         }
         if (action === 'reset') {
+          quota = new TenantClientRateLimiter();
           actor = 'admin';
           sessionExpired = false;
           delayMs = 0;
@@ -174,6 +199,19 @@ try {
             await deliverToIam(f);
             scopeLagging = false;
           }
+        } else if (action === 'grant-create' && !createGranted) {
+          const result = await f.request('customer-360/operator/commands', 'operator', {
+            commandId: randomUUID(),
+            evidenceRef: 'ticket:TEST-C4-BROWSER',
+            reasonCode: 'APPROVED_CUSTODIAN',
+            command: {
+              action: 'CAPABILITY_GRANT',
+              granteeUserId: f.actors.get('admin')!.id,
+              capability: 'CONTACT_CREATE',
+            },
+          });
+          if (result.status !== 201) throw new Error('fixture grant failed');
+          createGranted = true;
         } else if (action === 'actor') actor = a ?? 'admin';
         else if (action === 'session') sessionExpired = a === 'expire';
         else if (action === 'delay') delayMs = Number(a ?? 0);
@@ -289,7 +327,7 @@ try {
       res.end('{"error":{"code":"HARNESS_FAILED"}}');
     }
   });
-  await new Promise<void>((resolve) => proxy.listen(5199, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => proxy.listen(proxyPort, '127.0.0.1', resolve));
   cleanups.push(async () => {
     proxy.closeAllConnections();
     await new Promise<void>((resolve, reject) => proxy.close((e) => (e ? reject(e) : resolve())));
@@ -300,9 +338,12 @@ try {
     mode: 'e2e',
     server: {
       host: '127.0.0.1',
-      port: 5198,
+      port: browserPort,
       strictPort: true,
-      proxy: { '/api': 'http://127.0.0.1:5199', '/__c360_test': 'http://127.0.0.1:5199' },
+      proxy: {
+        '/api': `http://127.0.0.1:${proxyPort}`,
+        '/__c360_test': `http://127.0.0.1:${proxyPort}`,
+      },
     },
   });
   await vite.listen();
