@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -45,6 +46,23 @@ class InspectionTests(unittest.TestCase):
         self.assertEqual(result['imageDigestMismatch'], [])
         self.assertFalse(result['rollbackCertified'])
         self.assertNotIn('must-not-appear', json.dumps(result))
+
+    def test_missing_previous_requires_explicit_opt_in(self):
+        (self.root / 'deployments/previous.json').unlink()
+        with self.assertRaises(FileNotFoundError):
+            inspection.read_records(self.root)
+        self.assertIsNone(inspection.read_records(self.root, allow_missing=True)['previous'])
+
+    def test_pointer_fifo_and_symlink_fail_without_reading_target(self):
+        path = self.root / 'deployments/current.json'
+        path.unlink()
+        os.mkfifo(path)
+        with self.assertRaisesRegex(RuntimeError, 'RECORD_FILE_INVALID'):
+            inspection.read_records(self.root)
+        path.unlink()
+        path.symlink_to(self.root / 'deployments/previous.json')
+        with self.assertRaises(OSError):
+            inspection.read_records(self.root)
 
     def test_recorded_digest_mismatch_is_reported_per_component(self):
         path = self.root / 'deployments' / 'current.json'

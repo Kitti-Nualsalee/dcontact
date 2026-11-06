@@ -2,18 +2,34 @@
 """ตรวจความต่างระหว่าง deployment record และ runtime โดยไม่แก้ระบบ."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 
 ROOT = Path('/opt/dcontact-uat')
 SERVICES = ('api', 'e1-sandbox', 'proxy', 'keycloak')
 
 
-def read_records(root):
+def read_records(root, allow_missing=False):
     records = {}
     for name in ('current', 'previous'):
-        raw = (root / 'deployments' / (name + '.json')).read_bytes()
+        path = root / 'deployments' / (name + '.json')
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            if allow_missing:
+                records[name] = None
+                continue
+            raise
+        with os.fdopen(fd, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size > 8388608:
+                raise RuntimeError('RECORD_FILE_INVALID')
+            raw = stream.read(8388609)
+            if len(raw) > 8388608:
+                raise RuntimeError('RECORD_FILE_INVALID')
         record = json.loads(raw)
         if not isinstance(record, dict) or not re.fullmatch('[0-9a-f]{40}', str(record.get('sourceSha', ''))):
             raise RuntimeError('RECORD_SOURCE_REQUIRED')
@@ -25,8 +41,11 @@ def read_records(root):
     return records
 
 
-def inspect(root=ROOT, execute=subprocess.run):
-    records = read_records(root)
+def inspect(root=ROOT, execute=subprocess.run, allow_missing=False, fallback_current=None):
+    records = read_records(root, allow_missing)
+    reference = records['current'] if records['current'] is not None else fallback_current
+    if not isinstance(reference, dict) or not re.fullmatch('[0-9a-f]{40}', str(reference.get('sourceSha', ''))):
+        raise RuntimeError('RECORD_SOURCE_REQUIRED')
     names = ['dcontact-uat-' + service + '-1' for service in SERVICES]
     def observe():
         result = execute(['docker', 'inspect', *names], check=True, stdout=subprocess.PIPE,
@@ -79,11 +98,11 @@ def inspect(root=ROOT, execute=subprocess.run):
     components = observe()
     if observe() != components:
         raise RuntimeError('RUNTIME_CHANGED_DURING_INSPECTION')
-    if read_records(root) != records:
+    if read_records(root, allow_missing) != records:
         raise RuntimeError('RECORD_CHANGED_DURING_INSPECTION')
     mismatch = sorted(name for name, component in components.items()
-                      if component['sourceSha'] != records['current']['sourceSha'])
-    recorded_images = records['current'].get('images')
+                      if component['sourceSha'] != reference['sourceSha'])
+    recorded_images = reference.get('images')
     if not isinstance(recorded_images, dict):
         raise RuntimeError('RECORD_IMAGES_REQUIRED')
     keys = {'api': 'api', 'e1-sandbox': 'api', 'proxy': 'console', 'keycloak': 'keycloak'}
