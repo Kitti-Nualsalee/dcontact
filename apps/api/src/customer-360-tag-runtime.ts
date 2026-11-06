@@ -9,5 +9,10 @@ export interface C360TagCatalogRuntime {
 export function createC360TagCatalogRuntime(
   env: NodeJS.ProcessEnv = process.env,
 ): C360TagCatalogRuntime {
-  return { ready: env.C360_TAG_CATALOG_ENABLED === 'true' && createC360WriteRuntime(env).ready };
+  return {
+    ready:
+      env.C360_TAG_CATALOG_ENABLED === 'true' &&
+      (env.NODE_ENV !== 'production' || !!env.CUSTOMER_360_CURSOR_KEYS?.trim()) &&
+      createC360WriteRuntime(env).ready,
+  };
 }

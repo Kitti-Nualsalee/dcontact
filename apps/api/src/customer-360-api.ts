@@ -50,6 +50,20 @@ import { coreBusy, coreRequestId } from './tenant-core-errors.js';
  * Agent/Compliance ไม่มี generic route; target นอกสิทธิ์ตอบเหมือนไม่พบ (ไม่มี existence oracle)
  */
 export const CUSTOMER_360_DATABASE = Symbol('CUSTOMER_360_DATABASE');
+// จำกัด DB recovery ต่อ process เมื่อ Redis ไม่พร้อม; ไม่สร้างคิวที่โตไม่จำกัด
+export class ReceiptRecoveryGate {
+  private inFlight = 0;
+  async run<T>(work: () => Promise<T>, unavailable: () => never): Promise<T> {
+    if (this.inFlight >= 4) return unavailable();
+    this.inFlight += 1;
+    try {
+      return await work();
+    } finally {
+      this.inFlight -= 1;
+    }
+  }
+}
+const receiptRecoveryGate = new ReceiptRecoveryGate();
 
 export class Customer360HttpError extends Error {
   constructor(
@@ -245,14 +259,22 @@ export class Customer360Controller {
     } catch (error) {
       if (!(error instanceof Customer360HttpError) || error.code !== 'RATE_LIMITER_UNAVAILABLE')
         throw error;
-      const recovered = await lookupC360ProfileCommand(
-        this.db,
-        commandActor(identity),
-        commandId,
-        commandAuthorization(identity),
+      return receiptRecoveryGate.run(
+        async () => {
+          const recovered = await lookupC360ProfileCommand(
+            this.db,
+            commandActor(identity),
+            commandId,
+            commandAuthorization(identity),
+            { boundedRecovery: true },
+          );
+          if (recovered.state !== 'TERMINAL') throw error;
+          return send(response, recovered);
+        },
+        () => {
+          throw error;
+        },
       );
-      if (recovered.state !== 'TERMINAL') throw error;
-      return send(response, recovered);
     }
     send(
       response,

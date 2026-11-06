@@ -59,6 +59,12 @@ function TagSession({ api, identityKey, signedIn = true, onSignIn }: Props) {
   const generation = useRef(0);
   const mounted = useRef(true);
   const inFlight = useRef(false);
+  const verified = useRef(false);
+  const priorSignedIn = useRef(signedIn);
+  if (priorSignedIn.current !== signedIn) {
+    priorSignedIn.current = signedIn;
+    verified.current = false;
+  }
 
   useEffect(() => {
     mounted.current = true;
@@ -101,6 +107,7 @@ function TagSession({ api, identityKey, signedIn = true, onSignIn }: Props) {
     if (!(failure instanceof CustomersApiError) || ![401, 403, 404, 503].includes(failure.status))
       return false;
     generation.current += 1;
+    verified.current = false;
     setItems([]);
     setCursor(null);
     setLatest(undefined);
@@ -126,8 +133,22 @@ function TagSession({ api, identityKey, signedIn = true, onSignIn }: Props) {
     setLoaded(false);
     void api
       .list({ state: filter, signal: controller.signal })
-      .then((page) => {
+      .then(async (page) => {
+        const tagId = draft?.tag?.id ?? retiring?.id;
+        const current =
+          tagId && !verified.current ? await api.detail(tagId, controller.signal) : null;
         if (request !== generation.current) return;
+        const previous = draft?.tag ?? retiring;
+        if (
+          current &&
+          previous &&
+          (current.state !== 'ACTIVE' || current.revision !== previous.revision)
+        ) {
+          setLatest(current);
+          setMessage('conflict');
+          if (!draft) setRetiring(undefined);
+        }
+        verified.current = true;
         setItems(page.items);
         setCursor(page.nextCursor);
         setLoading(false);
@@ -165,17 +186,18 @@ function TagSession({ api, identityKey, signedIn = true, onSignIn }: Props) {
       return;
     }
     if (result.command.outcome === 'REJECTED') {
-      clearPending();
       if (result.command.code === 'REVISION_CONFLICT' && context.tagId) {
         const current = await api.detail(context.tagId);
         if (request !== generation.current) return;
+        clearPending();
         setLatest(current);
         setMessage('conflict');
         if (!draft) {
           setRetiring(undefined);
           setVersion((value) => value + 1);
         }
-      } else
+      } else {
+        clearPending();
         setMessage(
           result.command.code === 'COMMAND_NOT_APPLIED'
             ? 'notApplied'
@@ -183,6 +205,7 @@ function TagSession({ api, identityKey, signedIn = true, onSignIn }: Props) {
               ? 'duplicate'
               : 'failed',
         );
+      }
       return;
     }
     const tagId =
@@ -427,7 +450,7 @@ function TagSession({ api, identityKey, signedIn = true, onSignIn }: Props) {
           ) : null}
           <Dialog
             title={t(draft?.kind === 'create' ? 'create' : 'rename')}
-            isOpen={!!draft}
+            isOpen={!!draft && loaded && verified.current}
             onOpenChange={(open) => {
               if (!open && !pending) {
                 setDraft(undefined);
@@ -439,6 +462,11 @@ function TagSession({ api, identityKey, signedIn = true, onSignIn }: Props) {
           >
             {draft ? (
               <form onSubmit={save} noValidate>
+                {!pending && message && !['invalid', 'duplicate', 'conflict'].includes(message) ? (
+                  <div role="alert">
+                    <p>{t(message)}</p>
+                  </div>
+                ) : null}
                 {pending ? (
                   <div role="status">
                     <p>{t(message || 'pending')}</p>
@@ -463,6 +491,7 @@ function TagSession({ api, identityKey, signedIn = true, onSignIn }: Props) {
                       {t('latest')}: {latest.name} · {t(`states.${latest.state}`)}
                     </p>
                     <Button
+                      isDisabled={latest.state !== 'ACTIVE'}
                       onPress={() => {
                         setDraft({ ...draft, tag: latest });
                         setLatest(undefined);
@@ -496,13 +525,18 @@ function TagSession({ api, identityKey, signedIn = true, onSignIn }: Props) {
           <Dialog
             role="alertdialog"
             title={t('retireTitle')}
-            isOpen={!!retiring}
+            isOpen={!!retiring && loaded && verified.current}
             onOpenChange={(open) => {
               if (!open && !pending) setRetiring(undefined);
             }}
           >
             <p>{t('retireBody')}</p>
             <p>{retiring?.name}</p>
+            {!pending && message ? (
+              <div role="alert">
+                <p>{t(message)}</p>
+              </div>
+            ) : null}
             {pending ? (
               <div role="status">
                 <p>{t(message || 'pending')}</p>

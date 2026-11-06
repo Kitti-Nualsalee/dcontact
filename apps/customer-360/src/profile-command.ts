@@ -515,9 +515,13 @@ export async function lookupC360ProfileCommand(
   actor: C360CommandActor,
   commandIdInput: unknown,
   authorization: C360CommandAuthorization,
+  options?: { boundedRecovery?: boolean },
 ): Promise<C360ProfileCommandResult> {
   const key = commandKey(actor, c360Uuid(commandIdInput));
-  return withTenantDatabaseTransaction(db, key.tenantId, async (tx) => {
+  const transact = options?.boundedRecovery
+    ? c360MutationTransaction
+    : withTenantDatabaseTransaction;
+  return transact(db, key.tenantId, async (tx) => {
     await authorization.authorize(tx);
     const row = await tx.c360ProfileCommand.findUnique({
       where: { tenantId_actorIdentityKey_commandId: key },

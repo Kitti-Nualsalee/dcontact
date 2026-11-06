@@ -329,8 +329,35 @@ test('rename คง ID และ provenance; no-op/conflict/retire ไม่ท�
 
 test('tag catalog ปิดโดยปริยายและเปิดได้เมื่อ runtime ผ่านและตั้ง feature flag ชัดเจน', async () => {
   const { createC360TagCatalogRuntime } = await import('./customer-360-tag-runtime.js');
+  const { C360_PARSER_INTEGRITY } = await import('./customer-360-write-runtime.js');
+  const { assertC360ContactPointRuntime } =
+    await import('@d-contact/contact-points/runtime-manifest');
   assert.equal(createC360TagCatalogRuntime({}).ready, false);
   assert.equal(createC360TagCatalogRuntime({ C360_TAG_CATALOG_ENABLED: 'true' }).ready, true);
+  const parser = assertC360ContactPointRuntime();
+  const imageDigest = `sha256:${'a'.repeat(64)}`;
+  const production = {
+    NODE_ENV: 'production',
+    C360_TAG_CATALOG_ENABLED: 'true',
+    C360_IMAGE_DIGEST: imageDigest,
+    C360_WRITE_RELEASE_MANIFEST: JSON.stringify({
+      imageDigest,
+      nodeVersion: parser.nodeVersion,
+      icuVersion: process.versions.icu,
+      unicodeVersion: process.versions.unicode,
+      phoneMetadataSha256: parser.phoneMetadataSha256,
+      normalizationVersions: parser.normalizationVersions,
+      packageIntegrity: C360_PARSER_INTEGRITY,
+    }),
+  };
+  assert.equal(createC360TagCatalogRuntime(production).ready, false);
+  assert.equal(
+    createC360TagCatalogRuntime({
+      ...production,
+      CUSTOMER_360_CURSOR_KEYS: `key:${Buffer.alloc(32, 1).toString('base64')}`,
+    }).ready,
+    true,
+  );
 });
 
 test('catalog runtime ไม่พร้อมปิดเฉพาะ catalog routes โดยไม่สร้าง command', async (t) => {
