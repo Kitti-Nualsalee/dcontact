@@ -5,6 +5,10 @@ import { KeycloakAccessTokenVerifier } from '@d-contact/workspace-session';
 import { coreFixture } from './tenant-core-test-fixtures.js';
 import { Customer360Controller } from './customer-360-api.js';
 import { Customer360TagCatalogController } from './customer-360-tag-catalog-api.js';
+import { Customer360ReadController } from './customer-360-read-api.js';
+import { Redis } from 'ioredis';
+import { RedisSharedRateLimiter, type SharedRateLimiter } from './shared-rate-limiter.js';
+import { PrismaClient } from '@d-contact/db';
 
 const sandbox = process.env.CORE_IDENTITY_SANDBOX_URL;
 interface Scope {
@@ -33,10 +37,87 @@ export function coreM1IdentitySandbox(registerCleanup: (cleanup: () => Promise<u
   ]);
 }
 
+/** C4 browser trial ใช้ route อ่านและเขียนจริงภายใน identity sandbox เดียวกัน */
+export async function coreC4IdentitySandbox(
+  registerCleanup: (cleanup: () => Promise<unknown>) => void,
+) {
+  const ownerUrl = process.env.DATABASE_URL;
+  const appUrl = process.env.APPLICATION_DATABASE_URL;
+  const expectedDb = process.env.CXA_ACCEPTANCE_DATABASE_NAME;
+  assert.ok(
+    ownerUrl && appUrl && expectedDb && /^dcontact_[a-z0-9_]+_test$/.test(expectedDb),
+    'C4 trial ต้องระบุ database sandbox แยก',
+  );
+  const owner = new URL(ownerUrl);
+  const app = new URL(appUrl);
+  assert.ok(
+    ['127.0.0.1', 'localhost'].includes(owner.hostname) &&
+      ['127.0.0.1', 'localhost'].includes(app.hostname),
+    'C4 trial ใช้ database บน loopback เท่านั้น',
+  );
+  assert.equal(owner.port, app.port, 'owner และ app ต้องใช้ database sandbox เดียวกัน');
+  assert.equal(owner.pathname, `/${expectedDb}`);
+  assert.equal(app.pathname, `/${expectedDb}`);
+  assert.notEqual(owner.username, app.username, 'owner และ app ต้องใช้คนละ role');
+  const check = new PrismaClient({ datasources: { db: { url: appUrl } } });
+  try {
+    const [role] = await check.$queryRaw<
+      { name: string; rolsuper: boolean; rolbypassrls: boolean }[]
+    >`SELECT current_user AS name, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+    assert.ok(
+      role &&
+        !role.rolsuper &&
+        !role.rolbypassrls &&
+        role.name === decodeURIComponent(app.username),
+      'application role ต้องไม่ใช่ superuser หรือ BYPASSRLS',
+    );
+    const tables = await check.$queryRaw<
+      { relname: string; rls: boolean; owner_access: boolean }[]
+    >`
+      SELECT c.relname, c.relrowsecurity AS rls, pg_has_role(current_user, c.relowner, 'USAGE') AS owner_access
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relname IN (
+        'users', 'contacts', 'c360_identity_heads', 'c360_profile_commands',
+        'c360_profile_command_receipts', 'c360_profile_audits', 'c360_contact_points',
+        'c360_tags', 'c360_contact_tags', 'c360_contact_custodian_grants',
+        'c360_actor_capability_grants'
+      )`;
+    assert.equal(tables.length, 11, 'ต้องมีตาราง C4 ครบใน sandbox');
+    assert.ok(
+      tables.every((table) => table.rls && !table.owner_access),
+      'application role ต้องไม่เป็น owner/สมาชิก owner และต้องเปิด RLS',
+    );
+  } finally {
+    await check.$disconnect();
+  }
+  const url = process.env.C360_C4_TEST_REDIS_URL;
+  assert.ok(
+    url && ['127.0.0.1', 'localhost'].includes(new URL(url).hostname),
+    'C4 trial ต้องใช้ Redis loopback แยก',
+  );
+  const redis = new Redis(url, {
+    lazyConnect: true,
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 0,
+    commandTimeout: 1000,
+  });
+  redis.on('error', () => undefined);
+  registerCleanup(async () => {
+    redis.disconnect();
+  });
+  await redis.connect();
+  return coreIdentitySandbox(
+    registerCleanup,
+    [Customer360Controller, Customer360ReadController, Customer360TagCatalogController],
+    new RedisSharedRateLimiter(redis),
+  );
+}
+
 export async function coreIdentitySandbox(
   registerCleanup: (cleanup: () => Promise<unknown>) => void,
   /** controller เพิ่มของ boundary test เฉพาะเรื่อง (ไม่ระบุ = พฤติกรรมเดิม) */
   extraControllers: Parameters<typeof coreFixture>[0] = [],
+  limiter?: SharedRateLimiter,
 ) {
   assert.ok(sandbox);
   const origin = new URL(sandbox);
@@ -188,7 +269,7 @@ export async function coreIdentitySandbox(
     audience: 'dcontact-api',
     jwksUri: `${issuer}/protocol/openid-connect/certs`,
   });
-  const f = await coreFixture(extraControllers, verifier);
+  const f = await coreFixture(extraControllers, verifier, undefined, limiter);
   registerCleanup(() => f.close());
   const orgs = new Map<string, KcOrg>();
   for (const tenantId of [f.tenantId, f.otherTenantId]) {

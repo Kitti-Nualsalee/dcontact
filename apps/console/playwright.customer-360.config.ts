@@ -10,7 +10,11 @@ export default defineConfig({
   testDir: './e2e',
   testMatch: ['customer-360-*.spec.ts'],
   // M1 ใช้ sandbox/identity คนละชุดและมี config เฉพาะ ห้ามรันผ่าน C2 config
-  testIgnore: ['customer-360-m1.spec.ts', 'customer-360-m1-oidc.spec.ts'],
+  testIgnore: [
+    'customer-360-m1.spec.ts',
+    'customer-360-m1-oidc.spec.ts',
+    'customer-360-c4-oidc.spec.ts',
+  ],
   timeout: 60_000,
   workers: 1,
   fullyParallel: false,

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   coreIdentitySandbox,
   coreM1IdentitySandbox,
+  coreC4IdentitySandbox,
 } from '../../api/src/tenant-core-identity-sandbox.js';
 const cleanups: (() => Promise<unknown>)[] = [];
 let closing = false;
@@ -15,10 +16,40 @@ async function close() {
   for (const cleanup of cleanups.reverse()) await cleanup();
 }
 try {
-  const sandbox = await (process.env.C360_M1_BROWSER_OIDC === 'true'
-    ? coreM1IdentitySandbox((cleanup) => cleanups.push(cleanup))
-    : coreIdentitySandbox((cleanup) => cleanups.push(cleanup)));
+  const c4 = process.env.C360_C4_BROWSER_OIDC === 'true';
+  const register = (cleanup: () => Promise<unknown>) => cleanups.push(cleanup);
+  const sandbox = await (c4
+    ? coreC4IdentitySandbox(register)
+    : process.env.C360_M1_BROWSER_OIDC === 'true'
+      ? coreM1IdentitySandbox(register)
+      : coreIdentitySandbox(register));
   const { f, issuer, password } = sandbox;
+  if (c4) {
+    const commandId = randomUUID();
+    const actorIdentityKey = 'fixture-c4-oidc';
+    await f.owner.c360ProfileCommand.create({
+      data: {
+        tenantId: f.tenantId,
+        actorIdentityKey,
+        commandId,
+        action: 'CAPABILITY_GRANT',
+        resourceType: 'USER',
+        payloadDigest: 'f'.repeat(64),
+        normalizationContractVersion: 'fixture',
+      },
+    });
+    await f.owner.c360ActorCapabilityGrant.create({
+      data: {
+        id: randomUUID(),
+        tenantId: f.tenantId,
+        granteeUserId: f.actors.get('admin')!.id,
+        capability: 'CONTACT_CREATE',
+        evidenceRef: 'fixture-c4-oidc',
+        actorIdentityKey,
+        commandId,
+      },
+    });
+  }
   await f.owner.tenantUiFlag.create({
     data: {
       tenantId: f.tenantId,
