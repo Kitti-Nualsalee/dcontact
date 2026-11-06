@@ -4,6 +4,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -60,6 +62,7 @@ class JournalRetireTest(unittest.TestCase):
         self.assertFalse(result['pointersChanged'])
         self.assertFalse(result['runtimeVerified'])
         self.assertFalse(result['rollbackCertified'])
+        self.assertTrue(result['cleanupDurable'])
         self.assertFalse(self.journal.exists())
         self.assertEqual(self.contents(self.operator / result['retainedDirectory']), journal)
         self.assertEqual(self.contents(self.deployments), pointers)
@@ -92,7 +95,7 @@ class JournalRetireTest(unittest.TestCase):
     def test_sync_failure_keeps_gate_before_or_after_rename(self):
         journal, pointers = self.contents(self.journal), self.contents(self.deployments)
         actual_sync = os.fsync
-        for failure_at in (1, 2, 3, 4):
+        for failure_at in range(1, 14):
             with self.subTest(failure_at=failure_at):
                 calls = 0
                 def sync(fd):
@@ -117,6 +120,51 @@ class JournalRetireTest(unittest.TestCase):
                 for path in self.operator.glob('uat-record-completed-*'):
                     path.rmdir()
                 (self.operator / 'uat-record-retirement.pending').unlink()
+
+    def test_final_cleanup_sync_failure_reports_committed_data_with_warning(self):
+        journal, pointers = self.contents(self.journal), self.contents(self.deployments)
+        actual_sync, calls = os.fsync, 0
+        def sync(fd):
+            nonlocal calls
+            calls += 1
+            if calls == 14:
+                raise OSError('cleanup directory sync failed')
+            actual_sync(fd)
+        with patch.object(MODULE.os, 'fsync', side_effect=sync):
+            result = self.retire()
+        self.assertEqual(result['status'], 'COMMITTED_JOURNAL_RETAINED')
+        self.assertFalse(result['cleanupDurable'])
+        self.assertEqual(result['warning'], 'RETIRE_GATE_REMOVAL_DURABILITY_UNKNOWN')
+        self.assertEqual(self.contents(self.operator / result['retainedDirectory']), journal)
+        self.assertEqual(self.contents(self.deployments), pointers)
+
+    def test_process_exit_after_gate_removal_preserves_all_committed_evidence(self):
+        # process exit ตรวจขอบเขต cleanup เท่านั้น ไม่จำลอง power loss ของ filesystem
+        journal, pointers = self.contents(self.journal), self.contents(self.deployments)
+        code = '''
+import importlib.util, os, sys
+from pathlib import Path
+s = importlib.util.spec_from_file_location('retire_crash', sys.argv[1])
+m = importlib.util.module_from_spec(s)
+s.loader.exec_module(m)
+real_sync, calls = os.fsync, 0
+def sync(fd):
+    global calls
+    calls += 1
+    if calls == 14:
+        os._exit(91)
+    real_sync(fd)
+m.os.fsync = sync
+m.retire(Path(sys.argv[2]), sys.argv[3], sys.argv[4])
+'''
+        result = subprocess.run([sys.executable, '-B', '-c', code, str(Path(MODULE.__file__)),
+                                 str(self.root), self.sha, self.intent_sha], capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 91, result.stderr)
+        retained = list(self.operator.glob('uat-record-completed-*'))
+        self.assertEqual(len(retained), 1)
+        self.assertEqual(self.contents(retained[0]), journal)
+        self.assertEqual(self.contents(self.deployments), pointers)
+        self.assertFalse((self.operator / 'uat-record-retirement.pending').exists())
 
     def test_changed_pointer_is_rejected_and_evidence_is_preserved(self):
         self.put(self.deployments / 'current.json', b'foreign')

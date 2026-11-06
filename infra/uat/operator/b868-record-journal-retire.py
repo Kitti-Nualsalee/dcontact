@@ -15,6 +15,28 @@ JOURNAL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(JOURNAL)
 
 
+def sync_private(path, expected_sha256):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077 or info.st_size > 8388608
+                or JOURNAL.digest(stream.read(8388609)) != expected_sha256):
+            raise RuntimeError('RETIRE_SYNC_FILE_CHANGED')
+        os.fsync(stream.fileno())
+        named = os.lstat(path)
+        if (named.st_dev, named.st_ino) != (info.st_dev, info.st_ino):
+            raise RuntimeError('RETIRE_SYNC_FILE_CHANGED')
+
+
+def sync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 def retire(root, expected_desired_sha256, expected_intent_sha256):
     root = Path(root)
     operator = root / 'operator'
@@ -60,6 +82,21 @@ def retire(root, expected_desired_sha256, expected_intent_sha256):
                 stream.flush()
                 os.fsync(stream.fileno())
             os.fsync(parent)
+            journal = operator / 'uat-record-transaction'
+            sync_private(journal / 'intent.json', expected_intent_sha256)
+            sync_private(journal / 'desired.json', expected_desired_sha256)
+            for name, expected in snapshots.items():
+                if expected is not None:
+                    sync_private(journal / name, expected)
+            sync_directory(journal)
+            deployments = root / 'deployments'
+            sync_private(deployments / intent['archive'], expected_desired_sha256)
+            sync_private(deployments / 'current.json', expected_desired_sha256)
+            if expected_previous is not None:
+                sync_private(deployments / 'previous.json', expected_previous)
+            marker_sha = JOURNAL.digest((expected_desired_sha256 + '\n').encode())
+            sync_private(deployments / (intent['archive'] + '.committed'), marker_sha)
+            sync_directory(deployments)
             if (JOURNAL.inspect_locked(root) != state
                     or JOURNAL.read_private(operator / 'uat-record-transaction/intent.json') != intent_raw):
                 raise RuntimeError('RETIRE_JOURNAL_CHANGED')
@@ -71,20 +108,20 @@ def retire(root, expected_desired_sha256, expected_intent_sha256):
             for name, expected in snapshots.items():
                 if JOURNAL.optional_digest(destination / name) != expected:
                     raise RuntimeError('RETIRE_READBACK_MISMATCH')
+            # ทุก record/snapshot/marker และ directory ที่เกี่ยวข้อง durable แล้ว
+            # unlink เป็นจุดจบของ gate; crash หลังจุดนี้อาจทำให้ gate กลับมา แต่ข้อมูลครบ
             os.unlink(pending)
+            cleanup_durable = True
             try:
                 os.fsync(parent)
             except OSError:
-                # หาก fsync การถอน gate ล้ม ต้องคืน gate ก่อนปล่อย lock
-                fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-                with os.fdopen(fd, 'wb') as stream:
-                    stream.write(pending_raw)
-                    stream.flush()
-                raise
+                cleanup_durable = False
         finally:
             os.close(parent)
         return {'status': 'COMMITTED_JOURNAL_RETAINED', 'retainedDirectory': destination.name,
                 'desiredSha256': expected_desired_sha256, 'pointersChanged': False,
+                'cleanupDurable': cleanup_durable,
+                'warning': None if cleanup_durable else 'RETIRE_GATE_REMOVAL_DURABILITY_UNKNOWN',
                 'runtimeVerified': False, 'rollbackCertified': False}
     finally:
         os.close(descriptor)

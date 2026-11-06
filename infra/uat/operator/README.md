@@ -151,3 +151,20 @@ HTML shell ของ E1 อ้าง bootstrap JS/CSS ด้วย query `releas
 คำสั่ง launcher ใช้ lock เดียวกันและปฏิเสธเมื่อมี operator อีกคำสั่งกำลังทำงาน จึงไม่ให้ import ทับ alias ที่กำลัง rollback
 
 ไฟล์ `e1-launcher-hosting.enabled` อยู่นอก release; operator ของ release นี้สืบทอด mount เมื่อ E1 เปิดอยู่ ถ้าจะ rollback ไป release รุ่นเก่าที่ไม่มี overlay ต้องถอด E1 profile ก่อนตามขั้น rollback แล้วคืน profile/flag และทดสอบ smoke named volume ไม่ถูกลบ การมี helper หรือ unit tests ผ่านยังไม่ใช่หลักฐานว่าซ้อม alias บน UAT จริงแล้ว
+
+### #868: เก็บ journal หลัง record commit ครบแล้ว
+
+`b868-record-journal-retire.py` รับ `--expected-desired-sha256` และ `--expected-intent-sha256`
+จาก journal ที่ operator ตรวจแล้ว ใช้ exclusive lock เดียวกับ deploy และยอมทำงานเมื่อ archive,
+current, previous และ committed marker ครบตรงตาม intent เท่านั้น ไม่ซ่อม transaction ที่ยังไม่ commit
+และไม่เปลี่ยน deployment pointer, runtime หรือ DB
+
+ก่อนย้าย journal จะสร้าง `uat-record-retirement.pending` และ sync ไฟล์/metadata ของ record,
+marker และ snapshots ทั้งหมด แล้วเก็บ journal ทั้ง directory เป็น `operator/uat-record-completed-*`
+พร้อมตรวจ readback หาก mandatory sync/readback ล้ม gate จะคงอยู่ให้ deploy/reconciliation หยุด
+ต้องตรวจ intent, snapshots และ directory ที่เก็บไว้ก่อนกู้ต่อ ห้ามลบ gate เพื่อข้ามการตรวจ
+
+หลังข้อมูลครบและ durable แล้วจึงถอน gate หาก sync การถอน gate ล้ม ผลจะระบุ
+`cleanupDurable=false` และ `RETIRE_GATE_REMOVAL_DURABILITY_UNKNOWN`; gate อาจกลับมาหลัง reboot
+จึงต้องตรวจอีกครั้ง ผล `COMMITTED_JOURNAL_RETAINED` ไม่รับรอง provenance ของ release หรือ rollback:
+`runtimeVerified` และ `rollbackCertified` ยังคงเป็น `false` การทดสอบ process exit ไม่ใช่การทดสอบ power loss
