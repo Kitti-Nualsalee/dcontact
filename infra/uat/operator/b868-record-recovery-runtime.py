@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """เทียบ runtime กับ desired record ใน journal แบบอ่านอย่างเดียว ไม่อนุญาต recovery."""
 from datetime import datetime, timezone
+import argparse
 import fcntl
 import hashlib
 import importlib.util
@@ -25,9 +26,10 @@ def load(name, filename):
 
 JOURNAL = load('b868_journal_inspect', 'b868-record-recovery-inspect.py')
 RUNTIME = load('b868_runtime_inspect', 'release-record-inspect.py')
+CANDIDATE = load('b868_candidate_validate', 'release-candidate-validate.py')
 
 
-def assess(root=ROOT, probe=None, execute=subprocess.run):
+def assess(root=ROOT, probe=None, execute=subprocess.run, evidence=None, now=None):
     root = Path(root)
     lock_path = root / 'operator/b714-cutover.lock'
     fd = os.open(lock_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -98,10 +100,28 @@ def assess(root=ROOT, probe=None, execute=subprocess.run):
                 raise RuntimeError('RECOVERY_RECORDS_CHANGED')
         if observe() != observed or JOURNAL.inspect_locked(root) != before:
             raise RuntimeError('RECOVERY_RUNTIME_CHANGED')
+        evidence_status = 'NOT_SUPPLIED'
+        evidence_sha = None
+        if evidence is not None:
+            if not isinstance(evidence, dict):
+                raise RuntimeError('RECOVERY_EVIDENCE_INVALID')
+            if any(records.get(name) is None for name in ('current', 'previous')):
+                raise RuntimeError('RECOVERY_EVIDENCE_POINTERS_REQUIRED')
+            def check_time():
+                return now() if callable(now) else now or datetime.now(timezone.utc)
+            CANDIDATE.validate_unreviewed(evidence, check_time())
+            if evidence.get('runtime') != observed:
+                raise RuntimeError('RECOVERY_EVIDENCE_RUNTIME_MISMATCH')
+            if observe() != observed or JOURNAL.inspect_locked(root) != before:
+                raise RuntimeError('RECOVERY_RUNTIME_CHANGED')
+            CANDIDATE.validate_unreviewed(evidence, check_time())
+            evidence_sha = hashlib.sha256(CANDIDATE.canonical(evidence)).hexdigest()
+            evidence_status = 'CONSISTENT_NOT_REVIEWED_OR_CERTIFIED'
         digest = hashlib.sha256(json.dumps(observed, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
         return {'status': 'RUNTIME_MATCH_OBSERVED_NOT_CERTIFIED', 'desiredRecordSha256': before['desiredSha256'],
                 'journalState': before, 'runtimeObservationSha256': digest,
                 'observedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+                'suppliedEvidenceStatus': evidence_status, 'suppliedEvidenceSha256': evidence_sha,
                 'ledgerVerified': False, 'protectedRuntimeVerified': False,
                 'recoveryAuthorized': False, 'rollbackCertified': False}
     finally:
@@ -109,8 +129,18 @@ def assess(root=ROOT, probe=None, execute=subprocess.run):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--evidence', type=Path)
+    args = parser.parse_args()
     try:
-        print(json.dumps(assess(), separators=(',', ':')))
+        evidence = None
+        if args.evidence is not None:
+            operator = ROOT / 'operator'
+            if (not args.evidence.is_absolute() or args.evidence.resolve() != args.evidence
+                    or operator not in args.evidence.parents):
+                raise RuntimeError('RECOVERY_EVIDENCE_PATH_INVALID')
+            evidence = json.loads(JOURNAL.read_private(args.evidence))
+        print(json.dumps(assess(evidence=evidence), separators=(',', ':')))
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, JOURNAL.InvalidJournal, subprocess.SubprocessError):
         print(json.dumps({'status': 'INSPECTION_FAILED', 'recoveryAuthorized': False, 'rollbackCertified': False}))
         sys.exit(1)

@@ -1,4 +1,5 @@
 import copy
+from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
 import json
@@ -60,6 +61,22 @@ class RecoveryRuntimeTest(unittest.TestCase):
     def execute(self, *_args, **_kwargs):
         return SimpleNamespace(stdout=json.dumps([{'RepoDigests': [self.images['ops']],
             'Config': {'Labels': {'org.opencontainers.image.revision': self.source}}}]).encode())
+
+    def evidence(self, now):
+        self.observed.update({'schema': 'UatReleaseInspectionV1',
+                              'runtimeConsistency': 'TWO_MATCHING_OBSERVATIONS', 'rollbackCertified': False})
+        protected = {name: {'id': 'c' * 64, 'image': 'sha256:' + 'd' * 64,
+                            'configSha256': 'e' * 64, 'running': True}
+                     for name in MODULE.CANDIDATE.PROTECTED}
+        return {'schema': 'UatReleaseEvidenceObservationV1', 'status': 'OBSERVED_NOT_CERTIFIED',
+                'rollbackCertified': False, 'observedAt': now.isoformat().replace('+00:00', 'Z'),
+                'runtime': copy.deepcopy(self.observed),
+                'runtimeSha256': self.sha(MODULE.CANDIDATE.canonical(self.observed)),
+                'protectedRuntime': protected, 'protectedRuntimeSha256': self.sha(MODULE.CANDIDATE.canonical(protected)),
+                'ledger': {'database': 'dcontact_uat', 'principal': 'dcontact_uat_owner', 'readonly': 'on',
+                           'finished': 1, 'rolledBack': 0, 'unresolved': 0, 'authorityMatches': 1,
+                           'migrations': [{'name': MODULE.CANDIDATE.AUTHORITY_MIGRATION,
+                                           'checksum': MODULE.CANDIDATE.AUTHORITY_CHECKSUM}]}}
 
     def test_match_does_not_authorize_recovery(self):
         result = MODULE.assess(self.root, self.probe, self.execute)
@@ -124,6 +141,64 @@ class RecoveryRuntimeTest(unittest.TestCase):
         result = MODULE.assess(self.root, execute=docker)
         self.assertEqual(result['status'], 'RUNTIME_MATCH_OBSERVED_NOT_CERTIFIED')
         self.assertFalse(result['recoveryAuthorized'])
+
+    def test_optional_ledger_and_protected_evidence_is_bound_but_not_authorized(self):
+        now = datetime.now(timezone.utc)
+        evidence = self.evidence(now)
+        result = MODULE.assess(self.root, self.probe, self.execute, evidence, now)
+        self.assertEqual(result['suppliedEvidenceStatus'], 'CONSISTENT_NOT_REVIEWED_OR_CERTIFIED')
+        self.assertFalse(result['recoveryAuthorized'])
+        self.assertFalse(result['ledgerVerified'])
+        self.assertFalse(result['protectedRuntimeVerified'])
+        self.assertNotIn('DO_NOT_DISCLOSE', json.dumps(result))
+        evidence['ledger']['unresolved'] = 1
+        with self.assertRaisesRegex(RuntimeError, 'LEDGER_INCOMPLETE'):
+            MODULE.assess(self.root, self.probe, self.execute, evidence, now)
+
+    def test_evidence_for_different_or_stale_runtime_fails(self):
+        now = datetime.now(timezone.utc)
+        evidence = self.evidence(now)
+        evidence['runtime']['components']['api']['sourceSha'] = 'f' * 40
+        evidence['runtimeSha256'] = self.sha(MODULE.CANDIDATE.canonical(evidence['runtime']))
+        with self.assertRaisesRegex(RuntimeError, 'EVIDENCE_RUNTIME_MISMATCH'):
+            MODULE.assess(self.root, self.probe, self.execute, evidence, now)
+        evidence = self.evidence(now - timedelta(seconds=301))
+        with self.assertRaisesRegex(RuntimeError, 'STALE'):
+            MODULE.assess(self.root, self.probe, self.execute, evidence, now)
+
+    def test_runtime_change_after_evidence_binding_fails(self):
+        now = datetime.now(timezone.utc)
+        evidence = self.evidence(now)
+        calls = 0
+        def changed(root):
+            nonlocal calls
+            calls += 1
+            result = self.probe(root)
+            if calls == 3:
+                result['components']['api']['containerId'] = 'f' * 64
+            return result
+        with self.assertRaisesRegex(RuntimeError, 'RUNTIME_CHANGED'):
+            MODULE.assess(self.root, changed, self.execute, evidence, now)
+
+    def test_evidence_expiring_during_runtime_recheck_fails(self):
+        now = datetime.now(timezone.utc)
+        evidence = self.evidence(now - timedelta(seconds=299))
+        times = iter([now, now + timedelta(seconds=2)])
+        with self.assertRaisesRegex(RuntimeError, 'STALE'):
+            MODULE.assess(self.root, self.probe, self.execute, evidence, lambda: next(times))
+
+    def test_optional_evidence_rejects_missing_pointer_without_relaxing_proof(self):
+        (self.deployments / 'previous.json').unlink()
+        (self.journal / 'previous.json').unlink()
+        intent_path = self.journal / 'intent.json'
+        intent = json.loads(intent_path.read_bytes())
+        intent['snapshots']['previous.json'] = None
+        self.put(intent_path, json.dumps(intent).encode())
+        self.observed['records']['previous'] = None
+        now = datetime.now(timezone.utc)
+        evidence = self.evidence(now)
+        with self.assertRaisesRegex(RuntimeError, 'EVIDENCE_POINTERS_REQUIRED'):
+            MODULE.assess(self.root, self.probe, self.execute, evidence, now)
 
 
 if __name__ == '__main__':
