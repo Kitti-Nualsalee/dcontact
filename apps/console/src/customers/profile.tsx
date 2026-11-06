@@ -62,7 +62,48 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
   const [revision, setRevision] = useState(0);
   const [sectionRevision, setSectionRevision] = useState(0);
   const [moreTimeline, setMoreTimeline] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ displayName: '', company: '', vip: false });
+  const [submitting, setSubmitting] = useState(false);
   const silent = useRef(false);
+
+  function startEdit(profile: CustomerProfile) {
+    setEditForm({
+      displayName: profile.contact.displayName ?? '',
+      company: profile.contact.company ?? '',
+      vip: profile.contact.vip,
+    });
+    setEditing(true);
+  }
+
+  async function submitEdit() {
+    if (core.state !== 'ready' || !contactId || submitting) return;
+    setSubmitting(true);
+    try {
+      await api.submitCommand({
+        command: {
+          action: 'SET_NAME',
+          contactId,
+          displayName: editForm.displayName.trim(),
+        },
+      });
+      if (editForm.company.trim() !== (core.profile.contact.company ?? '').trim()) {
+        await api.submitCommand({
+          command: {
+            action: 'SET_COMPANY',
+            contactId,
+            company: editForm.company.trim(),
+          },
+        });
+      }
+      setRevision((r) => r + 1);
+      setEditing(false);
+    } catch (err) {
+      console.error('Failed to save profile', err);
+    } finally {
+      setSubmitting(false);
+    }
+  }
   const stamp = useRef(0);
   const coreRef = useRef<Core>(core);
   coreRef.current = core;
@@ -277,7 +318,16 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
         <div>
           <div className="cu-title-row">
             <h2 id="customer-name" ref={nameRef} tabIndex={-1}>
-              {name}
+              {editing ? (
+                <TextField
+                  value={editForm.displayName}
+                  onChange={(value) => setEditForm({ ...editForm, displayName: value })}
+                  label={t('profile.displayName')}
+                  aria-label={t('profile.displayName')}
+                />
+              ) : (
+                name
+              )}
             </h2>
             {profile.contact.vip ? <Badge tone="attention">{t('badges.vip')}</Badge> : null}
             {identity.state === 'AMBIGUOUS' ? (
@@ -289,10 +339,30 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
             ) : null}
           </div>
           <p className="cu-muted">
-            {t('profile.company')}: {profile.contact.company?.trim() || t('profile.noCompany')}
+            {t('profile.company')}:{' '}
+            {editing ? (
+              <TextField
+                value={editForm.company}
+                onChange={(value) => setEditForm({ ...editForm, company: value })}
+                label={t('profile.company')}
+                aria-label={t('profile.company')}
+              />
+            ) : (
+              profile.contact.company?.trim() || t('profile.noCompany')
+            )}
           </p>
         </div>
-        <Button onPress={onBack}>{t('back')}</Button>
+        <div>
+          {editing ? (
+            <>
+              <Button variant="secondary" onPress={() => setEditing(false)}>{t('cancel')}</Button>
+              <Button variant="primary" onPress={submitEdit}>{t('save')}</Button>
+            </>
+          ) : profile.capabilities.manage ? (
+            <Button onPress={() => startEdit(profile)}>{t('edit')}</Button>
+          ) : null}
+          <Button onPress={onBack}>{t('back')}</Button>
+        </div>
       </header>
 
       {identity.state === 'MERGED' ? (

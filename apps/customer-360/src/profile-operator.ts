@@ -1069,3 +1069,75 @@ export async function importAllC360LegacyContactPoints(
   }
   throw new Error('legacy import ไม่จบภายในจำนวน batch ที่กำหนด');
 }
+
+/**
+ * Cus360 C4 (#794): Profile command perform สำหรับ Admin จาก Console
+ * รองรับการแก้ไขโปรไฟล์, จัดการ contact points และ tags ผ่าน writer API
+ */
+export const c360ProfileCommandPerform = async (
+  tx: Prisma.TransactionClient,
+  command: C360PreparedProfileCommand,
+  normalizedRequest: { command: Record<string, unknown> },
+): Promise<C360ProfileEffect> => {
+  const { action, resourceId } = command;
+  const contactId = resourceId ? c360Uuid(resourceId) : null;
+  if (!contactId) throw new C360ProfileCommandError('INVALID_REQUEST', 400);
+
+  switch (action) {
+    case 'SET_NAME': {
+      const displayName = String(normalizedRequest.command.displayName ?? '').trim();
+      const access = await authorizeC360ContactAccess(tx, await c360CurrentActor(tx, command.actor), contactId);
+      if (access.decision !== 'ALLOW') throw new C360ProfileCommandRejection('ACCESS_DENIED', 403);
+      if (!displayName) throw new C360ProfileCommandRejection('INVALID_NAME', 422);
+      const updated = await tx.c360Profile.update({
+        where: { tenantId_contactId: { tenantId: command.tenantId, contactId } },
+        data: { displayName, revision: incrementRevision(access.revision) },
+        select: { revision: true },
+      });
+      return {
+        outcome: 'APPLIED',
+        httpStatus: 200,
+        committedRevisions: { profile: updated.revision },
+        resourceRefs: [{ type: 'CONTACT', id: contactId }],
+      };
+    }
+    case 'SET_COMPANY': {
+      const company = String(normalizedRequest.command.company ?? '').trim() || null;
+      const access = await authorizeC360ContactAccess(tx, await c360CurrentActor(tx, command.actor), contactId);
+      if (access.decision !== 'ALLOW') throw new C360ProfileCommandRejection('ACCESS_DENIED', 403);
+      const updated = await tx.c360Profile.update({
+        where: { tenantId_contactId: { tenantId: command.tenantId, contactId } },
+        data: { company, revision: incrementRevision(access.revision) },
+        select: { revision: true },
+      });
+      return {
+        outcome: 'APPLIED',
+        httpStatus: 200,
+        committedRevisions: { profile: updated.revision },
+        resourceRefs: [{ type: 'CONTACT', id: contactId }],
+      };
+    }
+    case 'SET_VIP': {
+      const vip = Boolean(normalizedRequest.command.vip);
+      const access = await authorizeC360ContactAccess(tx, await c360CurrentActor(tx, command.actor), contactId);
+      if (access.decision !== 'ALLOW') throw new C360ProfileCommandRejection('ACCESS_DENIED', 403);
+      const updated = await tx.c360Profile.update({
+        where: { tenantId_contactId: { tenantId: command.tenantId, contactId } },
+        data: { vip, revision: incrementRevision(access.revision) },
+        select: { revision: true },
+      });
+      return {
+        outcome: 'APPLIED',
+        httpStatus: 200,
+        committedRevisions: { profile: updated.revision },
+        resourceRefs: [{ type: 'CONTACT', id: contactId }],
+      };
+    }
+    default:
+      throw new C360ProfileCommandError('COMMAND_UNKNOWN', 400);
+  }
+};
+
+function incrementRevision(current: string): string {
+  return String((BigInt(current) + 1n).toString());
+}

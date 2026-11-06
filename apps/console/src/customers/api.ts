@@ -83,6 +83,36 @@ export class CustomersApiError extends Error {
   }
 }
 
+export interface ProfileCommandInput {
+  commandId?: string;
+  expectedRevision?: string;
+  command: {
+    action: 'SET_NAME' | 'SET_COMPANY' | 'SET_VIP' | 'ADD_POINT' | 'RETIRE_POINT' | 'REPLACE_POINT' | 'ADD_TAG' | 'REMOVE_TAG';
+    contactId: string;
+    displayName?: string;
+    company?: string;
+    vip?: boolean;
+    kind?: 'PHONE' | 'EMAIL' | 'TAG';
+    value?: string;
+    tagId?: string;
+    pointId?: string;
+    newPointValue?: string;
+    explicitCountry?: string;
+  };
+}
+
+export interface ProfileCommandResult {
+  state: 'PENDING' | 'IN_PROGRESS' | 'TERMINAL';
+  commandId: string;
+  command?: {
+    id: string;
+    contactId: string;
+    revision: string;
+    effects: unknown[];
+  };
+  retryAfterSeconds?: number;
+}
+
 export interface CustomersApi {
   search(input: {
     type: SearchType;
@@ -101,6 +131,9 @@ export interface CustomersApi {
     context?: GovernanceContext,
     signal?: AbortSignal,
   ): Promise<GovernanceSummary>;
+  submitCommand(input: ProfileCommandInput, signal?: AbortSignal): Promise<ProfileCommandResult>;
+  lookupCommand(commandId: string, signal?: AbortSignal): Promise<ProfileCommandResult>;
+  reconcileCommand(commandId: string, payload?: unknown, signal?: AbortSignal): Promise<ProfileCommandResult>;
 }
 
 export const customerUuid = (value: unknown): value is string =>
@@ -190,6 +223,23 @@ export function createCustomersApi(options: {
         method: 'POST',
         signal,
         body: context ?? {},
+      });
+    },
+    async submitCommand(input, signal) {
+      return request('commands', {
+        method: 'POST',
+        signal,
+        body: input,
+      });
+    },
+    async lookupCommand(commandId, signal) {
+      return request(`commands/${encodeURIComponent(commandId)}`, { signal });
+    },
+    async reconcileCommand(commandId, payload, signal) {
+      return request(`commands/${encodeURIComponent(commandId)}/reconcile`, {
+        method: 'POST',
+        signal,
+        body: payload ?? {},
       });
     },
   };

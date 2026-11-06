@@ -287,6 +287,32 @@ export class Customer360Controller {
     );
   }
 
+  @Post('commands')
+  @GatewayRoles('admin')
+  async submit(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Body() body: unknown,
+    @Res() response: ServerResponse,
+  ) {
+    const identity = requestIdentity(req);
+    const correlationId = coreRequestId(req);
+    await this.receiptBudget(identity);
+    const { executeC360ProfileCommand, c360ProfileCommandPerform } = await import(
+      '@d-contact/customer-360'
+    );
+    send(
+      response,
+      await executeC360ProfileCommand(
+        this.db,
+        commandActor(identity),
+        body,
+        commandAuthorization(identity),
+        c360ProfileCommandPerform,
+        { correlationId },
+      ),
+    );
+  }
+
   @Post('commands/:commandId/reconcile')
   @GatewayRoles('admin')
   async reconcile(
