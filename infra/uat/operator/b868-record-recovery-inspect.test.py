@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -89,6 +90,24 @@ class RecoveryInspectTest(unittest.TestCase):
         self.put(self.deployments / 'current.json', self.desired)
         with self.assertRaises(MODULE.InvalidJournal):
             MODULE.inspect(self.root)
+
+    def test_fifo_instead_of_journal_file_does_not_block(self):
+        desired = self.journal / 'desired.json'
+        desired.unlink()
+        os.mkfifo(desired, 0o600)
+        result = subprocess.run(['python3', '-B', str(MODULE_PATH), '--root', str(self.root)],
+                                capture_output=True, text=True, timeout=3)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(json.loads(result.stdout)['status'], 'INVALID_OR_INCOMPLETE')
+
+    def test_fifo_instead_of_lock_does_not_block(self):
+        lock = self.operator / 'b714-cutover.lock'
+        lock.unlink()
+        os.mkfifo(lock, 0o600)
+        result = subprocess.run(['python3', '-B', str(MODULE_PATH), '--root', str(self.root)],
+                                capture_output=True, text=True, timeout=3)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(json.loads(result.stdout)['status'], 'INVALID_OR_INCOMPLETE')
 
 
 if __name__ == '__main__':
