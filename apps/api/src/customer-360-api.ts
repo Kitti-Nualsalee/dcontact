@@ -96,7 +96,6 @@ export class ReceiptRecoveryGate {
 }
 const receiptRecoveryGate = new ReceiptRecoveryGate();
 
-
 export class Customer360HttpError extends Error {
   constructor(
     readonly status: number,
@@ -162,7 +161,9 @@ export class Customer360Errors implements ExceptionFilter {
           messageKey: `customer360.errors.${code}`,
           retryable,
           ...(error instanceof C360WriteValidationError ? { fieldErrors: error.fieldErrors } : {}),
-          ...(error instanceof Customer360HttpError && error.fieldErrors ? { fieldErrors: error.fieldErrors } : {}),
+          ...(error instanceof Customer360HttpError && error.fieldErrors
+            ? { fieldErrors: error.fieldErrors }
+            : {}),
         },
         requestId,
       }),
@@ -219,9 +220,11 @@ export function commandAuthorization(identity: C360RequestIdentity): C360Command
       if (actor.role !== 'ADMIN') throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
     },
     canReadRef: async (tx, ref) =>
-      !!actor && (ref.type === 'CONTACT'
+      !!actor &&
+      (ref.type === 'CONTACT'
         ? (await authorizeC360ContactAccess(tx, actor, ref.id)).decision === 'ALLOW'
-        : ref.type === 'TAG' && !!(await tx.c360Tag.findFirst({ where: { tenantId: identity.tenantId, id: ref.id } }))),
+        : ref.type === 'TAG' &&
+          !!(await tx.c360Tag.findFirst({ where: { tenantId: identity.tenantId, id: ref.id } }))),
   };
 }
 

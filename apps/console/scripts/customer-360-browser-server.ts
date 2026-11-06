@@ -37,24 +37,31 @@ try {
   // แต่ละ browser test ใช้ budget ของตัวเอง; multi-instance budget ทดสอบกับ Redis จริงแยกแล้ว
   let quota = new TenantClientRateLimiter();
   const m1 = process.env.C360_M1_BROWSER === 'true';
-  const f = await setup([Customer360ReadController, Customer360OperatorController, ...(m1 ? [Customer360TagCatalogController] : [])], {
-    async consume({ tenantId, actorId, policy }) {
-      return (
-        quota.consume({
-          tenantId,
-          clientId: `${policy.name}:actor:${actorId}`,
-          limitPerMinute: policy.actorLimit,
-          windowMs: policy.windowMs,
-        }) ??
-        quota.consume({
-          tenantId,
-          clientId: `${policy.name}:tenant`,
-          limitPerMinute: policy.tenantLimit,
-          windowMs: policy.windowMs,
-        })
-      );
+  const f = await setup(
+    [
+      Customer360ReadController,
+      Customer360OperatorController,
+      ...(m1 ? [Customer360TagCatalogController] : []),
+    ],
+    {
+      async consume({ tenantId, actorId, policy }) {
+        return (
+          quota.consume({
+            tenantId,
+            clientId: `${policy.name}:actor:${actorId}`,
+            limitPerMinute: policy.actorLimit,
+            windowMs: policy.windowMs,
+          }) ??
+          quota.consume({
+            tenantId,
+            clientId: `${policy.name}:tenant`,
+            limitPerMinute: policy.tenantLimit,
+            windowMs: policy.windowMs,
+          })
+        );
+      },
     },
-  });
+  );
   f.tagRuntime.ready = m1;
   cleanups.push(() => f.close());
   await f.owner.tenantUiFlag.create({
