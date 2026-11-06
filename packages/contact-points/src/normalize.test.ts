@@ -170,3 +170,14 @@ test('TAG: Unicode 17 full case fold (C+F) และ NFC ตาม E1', () => {
   assert.equal(key('\uA7D4'), '\uA7D5');
   assert.throws(() => normalizeC360TagName('a'.repeat(81)), C360TagNameError);
 });
+
+test('TAG: ปฏิเสธ control characters โดยไม่สะท้อนค่าที่กรอก', () => {
+  for (const value of ['a\u0000b', 'a\tb', 'a\u007fb', 'a\u0085b', 'a\u2028b', 'a\u2029b'])
+    assert.throws(
+      () => normalizeC360TagName(value),
+      (error: unknown) =>
+        error instanceof C360TagNameError &&
+        error.code === 'TAG_NAME_INVALID' &&
+        !error.message.includes(value),
+    );
+});

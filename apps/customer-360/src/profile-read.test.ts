@@ -82,6 +82,12 @@ test('cursor: tamper, ข้าม actor/tenant/filter/scope/kind และ key 
       code(() => codec.open(token, { ...expected, ...mismatch })),
       '400:CURSOR_INVALID',
     );
+  assert.equal(
+    code(() =>
+      codec.open(token, { ...expected, scope: 'changed' }, { distinguishScopeChange: true }),
+    ),
+    '409:CURSOR_CONTEXT_CHANGED',
+  );
   // key อื่นถอดไม่ได้แม้ใช้ id เดียวกัน
   assert.equal(
     code(() => createC360CursorCodec([key('k1', 2)]).open(token, expected)),

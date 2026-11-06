@@ -28,7 +28,8 @@
       "voiceRouting": "Voice configuration",
       "tenantPeople": "User accounts",
       "coreSettings": "Organization settings",
-      "customers": "Customers"
+      "customers": "Customers",
+      "customerTags": "Manage tags"
     },
     "areas": {
       "home": "Home",

@@ -163,7 +163,11 @@ export class C360TagNameError extends Error {
  * ห้าม Turkic T/NFKC/toLowerCase/locale collator; ชื่อแสดง 1–80 UTF-16 ตรวจก่อน fold, key ห้ามตัด
  */
 export function normalizeC360TagName(value: unknown): { name: string; nameKey: string } {
-  if (typeof value !== 'string' || !wellFormed(value) || /[\r\n]/.test(value))
+  if (
+    typeof value !== 'string' ||
+    !wellFormed(value) ||
+    /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(value)
+  )
     throw new C360TagNameError('TAG_NAME_INVALID');
   const name = value.trim().normalize('NFC');
   if (name.length === 0) throw new C360TagNameError('TAG_NAME_INVALID');

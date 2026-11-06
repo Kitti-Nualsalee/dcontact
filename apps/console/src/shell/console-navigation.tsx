@@ -15,6 +15,7 @@ const VIEWS = new Set([
   'voice-routing',
   'tenant-people',
   'customers',
+  'customer-tags',
   'core-settings',
   'line-inbound',
   'account',

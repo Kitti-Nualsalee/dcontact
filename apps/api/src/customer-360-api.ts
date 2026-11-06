@@ -31,6 +31,11 @@ import {
 } from '@d-contact/customer-360';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import {
+  C360_RECEIPT_POLICY,
+  CUSTOMER_360_SEARCH_LIMITER,
+  type SharedRateLimiter,
+} from './shared-rate-limiter.js';
+import {
   findTenantConfigurationActor,
   tenantConfigurationCaller,
   type TenantConfigurationIdentity,
@@ -51,6 +56,8 @@ export class Customer360HttpError extends Error {
     readonly status: number,
     readonly code: string,
     readonly retryable = false,
+    readonly retryAfterSeconds?: number,
+    readonly fieldErrors?: readonly { field: string; code: string }[],
   ) {
     super(code);
   }
@@ -79,12 +86,23 @@ export class Customer360Errors implements ExceptionFilter {
     response.statusCode = status;
     response.setHeader('Content-Type', 'application/json');
     response.setHeader('Cache-Control', 'no-store');
-    if (retryable) response.setHeader('Retry-After', '1');
+    if (retryable)
+      response.setHeader(
+        'Retry-After',
+        String(error instanceof Customer360HttpError ? (error.retryAfterSeconds ?? 1) : 1),
+      );
     const requestId = coreRequestId(request);
     if (requestId) response.setHeader('X-Request-Id', requestId);
     response.end(
       JSON.stringify({
-        error: { code, messageKey: `customer360.errors.${code}`, retryable },
+        error: {
+          code,
+          messageKey: `customer360.errors.${code}`,
+          retryable,
+          ...(error instanceof Customer360HttpError && error.fieldErrors
+            ? { fieldErrors: error.fieldErrors }
+            : {}),
+        },
         requestId,
       }),
     );
@@ -118,7 +136,7 @@ export async function c360CurrentActor(
   return { tenantId: identity.tenantId, userId: actor.id, role: actor.role, teamId: actor.teamId };
 }
 
-function commandActor(identity: C360RequestIdentity): C360CommandActor {
+export function commandActor(identity: C360RequestIdentity): C360CommandActor {
   return {
     tenantId: identity.tenantId,
     actorUserId: identity.userId,
@@ -132,7 +150,7 @@ function commandActor(identity: C360RequestIdentity): C360CommandActor {
 }
 
 /** คำสั่งโปรไฟล์เป็นของ Admin; replay ตรวจสิทธิ์ปัจจุบันและกรอง refs ตามสิทธิ์อ่านขณะนี้ */
-function commandAuthorization(identity: C360RequestIdentity): C360CommandAuthorization {
+export function commandAuthorization(identity: C360RequestIdentity): C360CommandAuthorization {
   let actor: C360VerifiedActor | undefined;
   return {
     authorize: async (tx) => {
@@ -140,13 +158,18 @@ function commandAuthorization(identity: C360RequestIdentity): C360CommandAuthori
       if (actor.role !== 'ADMIN') throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
     },
     canReadRef: async (tx, ref) =>
-      ref.type === 'CONTACT' &&
       !!actor &&
-      (await authorizeC360ContactAccess(tx, actor, ref.id)).decision === 'ALLOW',
+      (ref.type === 'CONTACT'
+        ? (await authorizeC360ContactAccess(tx, actor, ref.id)).decision === 'ALLOW'
+        : ref.type === 'TAG' &&
+          !!(await tx.c360Tag.findFirst({
+            where: { tenantId: identity.tenantId, id: ref.id },
+            select: { id: true },
+          }))),
   };
 }
 
-function send(response: ServerResponse, result: C360ProfileCommandResult) {
+export function send(response: ServerResponse, result: C360ProfileCommandResult) {
   response.statusCode = result.status;
   response.setHeader('Content-Type', 'application/json');
   response.setHeader('Cache-Control', 'no-store');
@@ -163,7 +186,25 @@ function send(response: ServerResponse, result: C360ProfileCommandResult) {
 @Controller('api/v1/customer-360')
 @GatewayRoles('admin', 'supervisor')
 export class Customer360Controller {
-  constructor(@Inject(CUSTOMER_360_DATABASE) private readonly db: PrismaClient) {}
+  constructor(
+    @Inject(CUSTOMER_360_DATABASE) private readonly db: PrismaClient,
+    @Inject(CUSTOMER_360_SEARCH_LIMITER) private readonly limiter: SharedRateLimiter,
+  ) {}
+
+  private async receiptBudget(identity: C360RequestIdentity): Promise<void> {
+    let limited: { retryAfterSeconds: number } | null;
+    try {
+      limited = await this.limiter.consume({
+        tenantId: identity.tenantId,
+        actorId: identity.userId,
+        policy: C360_RECEIPT_POLICY,
+      });
+    } catch {
+      throw new Customer360HttpError(503, 'RATE_LIMITER_UNAVAILABLE', true);
+    }
+    if (limited)
+      throw new Customer360HttpError(429, 'RATE_LIMITED', true, limited.retryAfterSeconds);
+  }
 
   /**
    * Capability hint ของ contact หนึ่งราย (R1 F: capabilities เป็น UI hint, server ตรวจซ้ำทุก mutation)
@@ -199,6 +240,20 @@ export class Customer360Controller {
     @Res() response: ServerResponse,
   ) {
     const identity = requestIdentity(req);
+    try {
+      await this.receiptBudget(identity);
+    } catch (error) {
+      if (!(error instanceof Customer360HttpError) || error.code !== 'RATE_LIMITER_UNAVAILABLE')
+        throw error;
+      const recovered = await lookupC360ProfileCommand(
+        this.db,
+        commandActor(identity),
+        commandId,
+        commandAuthorization(identity),
+      );
+      if (recovered.state !== 'TERMINAL') throw error;
+      return send(response, recovered);
+    }
     send(
       response,
       await lookupC360ProfileCommand(
@@ -219,6 +274,7 @@ export class Customer360Controller {
     @Res() response: ServerResponse,
   ) {
     const identity = requestIdentity(req);
+    await this.receiptBudget(identity);
     send(
       response,
       await reconcileC360ProfileCommand(

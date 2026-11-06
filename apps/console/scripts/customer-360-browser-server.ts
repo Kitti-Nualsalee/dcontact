@@ -10,6 +10,8 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 import { Customer360ReadController } from '../../api/src/customer-360-read-api.js';
+import { Customer360TagCatalogController } from '../../api/src/customer-360-tag-catalog-api.js';
+import { Customer360OperatorController } from '../../api/src/customer-360-operator-api.js';
 import {
   contact,
   grant,
@@ -29,7 +31,12 @@ async function close() {
 }
 
 try {
-  const f = await setup([Customer360ReadController]);
+  const m1 = process.env.C360_M1_BROWSER === 'true';
+  const f = await setup([
+    Customer360ReadController,
+    ...(m1 ? [Customer360TagCatalogController, Customer360OperatorController] : []),
+  ]);
+  f.tagRuntime.ready = m1;
   cleanups.push(() => f.close());
   await f.owner.tenantUiFlag.create({
     data: {
