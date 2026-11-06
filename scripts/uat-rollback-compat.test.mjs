@@ -580,6 +580,121 @@ test('record ใช้ bytes ที่ตรวจแล้วแม้ input �
   assert.equal(readFileSync(join(setup.root, 'deployments', 'current.json'), 'utf8'), next);
 });
 
+for (const hasPrevious of [false, true]) {
+  for (const phase of [
+    'journal',
+    'ready',
+    'archive',
+    'previous',
+    'current',
+    'marker-empty',
+    'marker',
+  ]) {
+    test(`record ถูกขัดจังหวะหลัง ${phase} (previous ${hasPrevious}) ต้องคง journal`, (context) => {
+      const setup = fixture(context);
+      chmodSync(join(setup.root, 'deployments'), 0o700);
+      const current = join(setup.root, 'deployments', 'current.json');
+      const original = readFileSync(current, 'utf8');
+      const previous = JSON.stringify({
+        schema: 'UatDeploymentRecordV1',
+        action: 'deploy',
+        sourceSha: oldSha,
+      });
+      if (hasPrevious)
+        writeFileSync(join(setup.root, 'deployments', 'previous.json'), previous, { mode: 0o600 });
+      const input = join(setup.root, 'input.json');
+      const desired = JSON.stringify({
+        schema: 'UatDeploymentRecordV1',
+        action: 'deploy',
+        sourceSha: compatibleSha,
+        images: recordImages,
+      });
+      writeFileSync(input, desired, { mode: 0o600 });
+      const python = spawnSync('python3', ['-c', 'import sys; print(sys.executable)'], {
+        encoding: 'utf8',
+      });
+      assert.equal(python.status, 0, python.stderr);
+      const anchors = {
+        journal: 'save("desired.json", desired)',
+        ready: 'syncdir(transaction)',
+        archive: '        os.link(staging, target, follow_symlinks=False)',
+        previous: "    replace(directory / 'previous.json', current.read_bytes())",
+        current: 'replace(current, pathlib.Path(archive).read_bytes())',
+        'marker-empty':
+          'fd = os.open(marker_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)',
+        marker:
+          "    stream.write((hashlib.sha256(pathlib.Path(archive).read_bytes()).hexdigest() + '\\n').encode())\n    stream.flush()\n    os.fsync(stream.fileno())",
+      };
+      const injector = `#!${python.stdout.trim()}
+import os, sys
+if sys.argv[1:2] in (['-'], ['-c']):
+    inline = sys.argv[1] == '-c'
+    program = sys.argv[2] if inline else sys.stdin.read()
+    extra = sys.argv[3:] if inline else sys.argv[2:]
+    anchor = ${JSON.stringify(anchors[phase])}
+    if anchor in program:
+        assert program.count(anchor) == 1
+        program = program.replace(anchor, anchor + ${JSON.stringify(phase === 'previous' ? '\n    os._exit(97)' : phase === 'archive' ? '\n        os._exit(97)' : '\nos._exit(97)')})
+    os.execv(sys.executable, [sys.executable, '-c', program, *extra])
+os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
+`;
+      const shim = join(setup.root, 'bin', 'python3');
+      writeFileSync(shim, injector, { mode: 0o700 });
+      const result = spawnSync('bash', [deploy, 'record', compatibleSha, input], {
+        encoding: 'utf8',
+        env: setup.env,
+        timeout: 10000,
+      });
+      assert.equal(result.status, 97, result.stderr);
+      const journal = join(setup.root, 'operator', 'uat-record-transaction');
+      assert.equal(readFileSync(join(journal, 'current.json'), 'utf8'), original);
+      assert.equal(readFileSync(join(journal, 'desired.json'), 'utf8'), desired);
+      if (hasPrevious) assert.equal(readFileSync(join(journal, 'previous.json'), 'utf8'), previous);
+      else assert.throws(() => readFileSync(join(journal, 'previous.json')), { code: 'ENOENT' });
+      const inspected = spawnSync(
+        'python3',
+        [resolve('infra/uat/operator/b868-record-recovery-inspect.py'), '--root', setup.root],
+        {
+          encoding: 'utf8',
+          timeout: 10000,
+        },
+      );
+      const state = JSON.parse(inspected.stdout);
+      if (['journal', 'marker-empty'].includes(phase)) {
+        assert.equal(inspected.status, 1);
+        assert.equal(state.status, 'INVALID_OR_INCOMPLETE');
+        if (phase === 'marker-empty') {
+          const intent = JSON.parse(readFileSync(join(journal, 'intent.json'), 'utf8'));
+          assert.equal(
+            statSync(join(setup.root, 'deployments', `${intent.archive}.committed`)).size,
+            0,
+          );
+          assert.equal(readFileSync(current, 'utf8'), desired);
+        }
+      } else {
+        assert.equal(inspected.status, 0, inspected.stderr);
+        assert.equal(
+          state.current,
+          ['ready', 'archive', 'previous'].includes(phase) ? 'original' : 'desired',
+        );
+        assert.equal(
+          state.previous,
+          ['ready', 'archive'].includes(phase) ? 'original' : 'current-before',
+        );
+        assert.equal(state.archivePresent, phase !== 'ready');
+        assert.equal(state.markerPresent, phase === 'marker');
+      }
+      assert.equal(state.recoveryAuthorized, false);
+      const retry = spawnSync('bash', [deploy, 'record', compatibleSha, input], {
+        encoding: 'utf8',
+        env: setup.env,
+        timeout: 10000,
+      });
+      assert.match(retry.stderr, /UAT_RECORD_TRANSACTION_PENDING/);
+    });
+  }
+}
+
 test('record ไม่เขียนทับ archive ชื่อซ้ำและไม่เปลี่ยน current', (context) => {
   const setup = fixture(context);
   const current = join(setup.root, 'deployments', 'current.json');
