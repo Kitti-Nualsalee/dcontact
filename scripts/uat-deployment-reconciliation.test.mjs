@@ -21,6 +21,13 @@ test('#868 recovery runtime ตรวจ image โดยไม่อนุญา
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('#868 retire journal เก็บ transaction ที่ commit ครบโดยไม่เปลี่ยน pointer', () => {
+  const result = spawnSync('python3', ['-B', resolve('infra/uat/operator/b868-record-journal-retire.test.py')], {
+    encoding: 'utf8', timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test('#868 legacy inventory แยก marker จาก provenance', () => {
   const result = spawnSync('python3', ['-B', resolve('infra/uat/operator/b868-legacy-inventory.test.py')], {
     encoding: 'utf8', timeout: 30000,
