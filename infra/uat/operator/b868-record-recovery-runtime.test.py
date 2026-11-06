@@ -59,7 +59,7 @@ class RecoveryRuntimeTest(unittest.TestCase):
         return copy.deepcopy(self.observed)
 
     def execute(self, *_args, **_kwargs):
-        return SimpleNamespace(stdout=json.dumps([{'RepoDigests': [self.images['ops']],
+        return SimpleNamespace(stdout=json.dumps([{'Id': 'sha256:' + 'f' * 64, 'RepoDigests': [self.images['ops']],
             'Config': {'Labels': {'org.opencontainers.image.revision': self.source}}}]).encode())
 
     def evidence(self, now):
@@ -114,6 +114,18 @@ class RecoveryRuntimeTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'RUNTIME_CHANGED'):
             MODULE.assess(self.root, changed, self.execute)
 
+    def test_ops_image_changes_during_assessment_fails(self):
+        calls = 0
+        def changed(*_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            image = json.loads(self.execute().stdout)
+            if calls == 2:
+                image[0]['Id'] = 'sha256:' + '1' * 64
+            return SimpleNamespace(stdout=json.dumps(image).encode())
+        with self.assertRaisesRegex(RuntimeError, 'RUNTIME_CHANGED'):
+            MODULE.assess(self.root, self.probe, changed)
+
     def test_actual_runtime_probe_allows_absent_initial_pointers(self):
         for name in ('current.json', 'previous.json'):
             (self.deployments / name).unlink()
@@ -134,7 +146,8 @@ class RecoveryRuntimeTest(unittest.TestCase):
                                  'HostConfig': {}, 'Mounts': [], 'State': {'Running': True}})
                 return SimpleNamespace(stdout=json.dumps(rows).encode())
             if args[:3] == ['docker', 'image', 'inspect']:
-                return SimpleNamespace(stdout=json.dumps([{'Id': ref, 'RepoDigests': list(self.images.values()),
+                return SimpleNamespace(stdout=json.dumps([{'Id': ref if ref.startswith('sha256:') else 'sha256:' + 'f' * 64,
+                    'RepoDigests': list(self.images.values()),
                     'Config': {'Labels': {'org.opencontainers.image.revision': self.source}}}
                     for ref in args[3:]]).encode())
             raise AssertionError('unexpected command')
