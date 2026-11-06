@@ -217,9 +217,14 @@ for (const fault of ['network', 'rate'] as const)
       .click();
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('ชื่อแท็ก').fill('ร่าง conflict readback');
-    await request.patch(`/api/v1/customer-360/tags/${id}`, {
-      data: { commandId: randomUUID(), expectedRevision: '0', name: 'ข้อมูลล่าสุด readback' },
+    const changed = await request.patch(`/api/v1/customer-360/tags/${id}`, {
+      data: {
+        commandId: randomUUID(),
+        expectedRevision: '0',
+        name: `ข้อมูลล่าสุด readback ${fault}`,
+      },
     });
+    expect(changed.status()).toBe(200);
     let dropped = false;
     await page.route(`**/api/v1/customer-360/tags/${id}`, async (route) => {
       if (!dropped && route.request().method() === 'GET') {
@@ -236,7 +241,7 @@ for (const fault of ['network', 'rate'] as const)
     await dialog.getByRole('button', { name: 'บันทึก' }).click();
     await expect(dialog.getByRole('button', { name: 'ตรวจผลการบันทึก' })).toBeVisible();
     await dialog.getByRole('button', { name: 'ตรวจผลการบันทึก' }).click();
-    await expect(dialog).toContainText('ข้อมูลล่าสุด readback');
+    await expect(dialog).toContainText(`ข้อมูลล่าสุด readback ${fault}`);
     await expect(dialog.getByLabel('ชื่อแท็ก')).toHaveValue('ร่าง conflict readback');
   });
 
