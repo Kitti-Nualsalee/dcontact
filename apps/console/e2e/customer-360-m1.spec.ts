@@ -201,37 +201,44 @@ test('กักร่างจนตรวจสิทธิ์ซ้ำแล�
   await expect(page.getByRole('alert')).toContainText('ไม่สามารถเข้าถึงแท็ก');
 });
 
-test('conflict ที่อ่านข้อมูลล่าสุดไม่สำเร็จยังตรวจผลเดิมและกู้ได้', async ({ page, request }) => {
-  const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
-  const create = await request.post('/api/v1/customer-360/tags', {
-    data: { commandId: randomUUID(), name: 'ก่อน conflict readback' },
+for (const fault of ['network', 'rate'] as const)
+  test(`conflict ที่ readback ${fault} ยังตรวจผลเดิมและกู้ได้`, async ({ page, request }) => {
+    const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };
+    const create = await request.post('/api/v1/customer-360/tags', {
+      data: { commandId: randomUUID(), name: `ก่อน conflict readback ${fault}` },
+    });
+    const receipt = (await create.json()) as { command: { resourceRefs: { id: string }[] } };
+    const id = receipt.command.resourceRefs[0]!.id;
+    await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
+    await page
+      .getByRole('row')
+      .filter({ hasText: `ก่อน conflict readback ${fault}` })
+      .getByRole('button', { name: 'เปลี่ยนชื่อ' })
+      .click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('ชื่อแท็ก').fill('ร่าง conflict readback');
+    await request.patch(`/api/v1/customer-360/tags/${id}`, {
+      data: { commandId: randomUUID(), expectedRevision: '0', name: 'ข้อมูลล่าสุด readback' },
+    });
+    let dropped = false;
+    await page.route(`**/api/v1/customer-360/tags/${id}`, async (route) => {
+      if (!dropped && route.request().method() === 'GET') {
+        dropped = true;
+        if (fault === 'network') await route.abort('failed');
+        else
+          await route.fulfill({
+            status: 429,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: { code: 'RATE_LIMITED' } }),
+          });
+      } else await route.continue();
+    });
+    await dialog.getByRole('button', { name: 'บันทึก' }).click();
+    await expect(dialog.getByRole('button', { name: 'ตรวจผลการบันทึก' })).toBeVisible();
+    await dialog.getByRole('button', { name: 'ตรวจผลการบันทึก' }).click();
+    await expect(dialog).toContainText('ข้อมูลล่าสุด readback');
+    await expect(dialog.getByLabel('ชื่อแท็ก')).toHaveValue('ร่าง conflict readback');
   });
-  const receipt = (await create.json()) as { command: { resourceRefs: { id: string }[] } };
-  const id = receipt.command.resourceRefs[0]!.id;
-  await page.goto(`/?view=customer-tags&tenant=${config.tenant}`);
-  await page
-    .getByRole('row')
-    .filter({ hasText: 'ก่อน conflict readback' })
-    .getByRole('button', { name: 'เปลี่ยนชื่อ' })
-    .click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('ชื่อแท็ก').fill('ร่าง conflict readback');
-  await request.patch(`/api/v1/customer-360/tags/${id}`, {
-    data: { commandId: randomUUID(), expectedRevision: '0', name: 'ข้อมูลล่าสุด readback' },
-  });
-  let dropped = false;
-  await page.route(`**/api/v1/customer-360/tags/${id}`, async (route) => {
-    if (!dropped && route.request().method() === 'GET') {
-      dropped = true;
-      await route.abort('failed');
-    } else await route.continue();
-  });
-  await dialog.getByRole('button', { name: 'บันทึก' }).click();
-  await expect(dialog.getByRole('button', { name: 'ตรวจผลการบันทึก' })).toBeVisible();
-  await dialog.getByRole('button', { name: 'ตรวจผลการบันทึก' }).click();
-  await expect(dialog).toContainText('ข้อมูลล่าสุด readback');
-  await expect(dialog.getByLabel('ชื่อแท็ก')).toHaveValue('ร่าง conflict readback');
-});
 
 test('แท็กถูก retire ระหว่างเสียสิทธิ์ ต้องไม่เปิดให้บันทึกร่างเดิม', async ({ page, request }) => {
   const config = (await (await request.get('/__c360_test/config')).json()) as { tenant: string };

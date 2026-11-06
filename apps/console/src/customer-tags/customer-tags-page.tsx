@@ -259,11 +259,15 @@ function TagSession({ api, identityKey, signedIn = true, onSignIn }: Props) {
     setBusy(true);
     setMessage('pending');
     const request = generation.current;
+    let received = false;
     try {
-      await finish(await submit(context.commandId), context, request);
+      const result = await submit(context.commandId);
+      received = true;
+      await finish(result, context, request);
     } catch (failure) {
       if (request !== generation.current) return;
       if (
+        !received &&
         failure instanceof CustomersApiError &&
         (failure.status === 400 || failure.status === 429)
       ) {
