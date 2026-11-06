@@ -348,6 +348,7 @@ def _apply_record(manifest, root, prepare_candidate, inspect_candidate):
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         require(not os.path.lexists(operator / 'uat-record-transaction'), 'RECORD_TRANSACTION_REQUIRES_MANUAL_REVIEW')
+        require(not os.path.lexists(operator / 'uat-record-retirement.pending'), 'RECORD_RETIREMENT_REQUIRES_MANUAL_REVIEW')
         require(not os.path.lexists(operator / 'uat-rollback.pending'), 'ROLLBACK_PENDING_REQUIRES_MANUAL_REVIEW')
         require(not pending.exists(), 'PENDING_RECONCILIATION_REQUIRES_MANUAL_REVIEW')
         current, previous = deployments / 'current.json', deployments / 'previous.json'

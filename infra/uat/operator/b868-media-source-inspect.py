@@ -94,7 +94,7 @@ def inspect(root=ROOT, execute=subprocess.run):
         if not stat.S_ISREG(named.st_mode) or (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
             raise RuntimeError('MEDIA_LOCK_INVALID')
         if any(os.path.lexists(root / 'operator' / name) for name in
-               ('uat-record-transaction', 'uat-rollback.pending', 'b714-reconciliation.pending')):
+               ('uat-record-transaction', 'uat-record-retirement.pending', 'uat-rollback.pending', 'b714-reconciliation.pending')):
             raise RuntimeError('MEDIA_TRANSACTION_PENDING')
         record_path = root / 'deployments/current.json'
         raw = read_file(record_path, 8 * 1024 * 1024)

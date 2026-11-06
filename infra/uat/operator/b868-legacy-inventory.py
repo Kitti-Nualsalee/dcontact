@@ -48,7 +48,7 @@ def inspect(root):
         if not stat.S_ISREG(named.st_mode) or (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
             raise InventoryError('INVALID_LOCK')
         if any(os.path.lexists(operator / name) for name in
-               ('uat-record-transaction', 'uat-rollback.pending', 'b714-reconciliation.pending')):
+               ('uat-record-transaction', 'uat-record-retirement.pending', 'uat-rollback.pending', 'b714-reconciliation.pending')):
             raise InventoryError('TRANSACTION_PENDING')
         pointers = {}
         for name in ('current', 'previous'):

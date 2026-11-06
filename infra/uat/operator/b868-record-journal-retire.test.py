@@ -35,6 +35,7 @@ class JournalRetireTest(unittest.TestCase):
             'snapshots': {name: hashlib.sha256(raw).hexdigest()
                           for name, raw in (('current.json', self.old), ('previous.json', self.previous))},
         }).encode())
+        self.intent_sha = hashlib.sha256((self.journal / 'intent.json').read_bytes()).hexdigest()
         for name, raw in (('current.json', self.desired), ('previous.json', self.old),
                           (self.archive, self.desired), (self.archive + '.committed', (self.sha + '\n').encode())):
             self.put(self.deployments / name, raw)
@@ -48,10 +49,13 @@ class JournalRetireTest(unittest.TestCase):
     def contents(directory):
         return {p.name: p.read_bytes() for p in directory.iterdir()}
 
+    def retire(self, desired_sha=None, intent_sha=None):
+        return MODULE.retire(self.root, desired_sha or self.sha, intent_sha or self.intent_sha)
+
     def test_retains_entire_committed_journal_without_changing_pointers(self):
         journal = self.contents(self.journal)
         pointers = self.contents(self.deployments)
-        result = MODULE.retire(self.root, self.sha)
+        result = self.retire()
         self.assertEqual(result['status'], 'COMMITTED_JOURNAL_RETAINED')
         self.assertFalse(result['pointersChanged'])
         self.assertFalse(result['runtimeVerified'])
@@ -63,17 +67,17 @@ class JournalRetireTest(unittest.TestCase):
     def test_incomplete_transaction_is_not_retired(self):
         (self.deployments / (self.archive + '.committed')).unlink()
         with self.assertRaisesRegex(RuntimeError, 'COMMITTED_TRANSACTION_REQUIRED'):
-            MODULE.retire(self.root, self.sha)
+            self.retire()
         self.assertTrue(self.journal.exists())
         self.assertEqual(list(self.operator.glob('uat-record-completed-*')), [])
 
     def test_wrong_expected_hash_or_other_pending_transaction_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, 'DESIRED_CHANGED'):
-            MODULE.retire(self.root, '0' * 64)
-        for name in ('uat-rollback.pending', 'b714-reconciliation.pending'):
+            self.retire(desired_sha='0' * 64)
+        for name in ('uat-rollback.pending', 'b714-reconciliation.pending', 'uat-record-retirement.pending'):
             self.put(self.operator / name, b'pending')
             with self.assertRaisesRegex(RuntimeError, 'OTHER_TRANSACTION_PENDING'):
-                MODULE.retire(self.root, self.sha)
+                self.retire()
             (self.operator / name).unlink()
         self.assertTrue(self.journal.exists())
 
@@ -82,25 +86,77 @@ class JournalRetireTest(unittest.TestCase):
             with (self.operator / 'b714-cutover.lock').open('r') as lock:
                 fcntl.flock(lock, mode | fcntl.LOCK_NB)
                 with self.assertRaises(BlockingIOError):
-                    MODULE.retire(self.root, self.sha)
+                    self.retire()
         self.assertTrue(self.journal.exists())
 
-    def test_sync_failure_after_rename_preserves_journal_and_pointers(self):
+    def test_sync_failure_keeps_gate_before_or_after_rename(self):
         journal, pointers = self.contents(self.journal), self.contents(self.deployments)
-        with patch.object(MODULE.os, 'fsync', side_effect=OSError('disk error')):
-            with self.assertRaises(OSError):
-                MODULE.retire(self.root, self.sha)
-        retained = list(self.operator.glob('uat-record-completed-*'))
-        self.assertEqual(len(retained), 1)
-        self.assertEqual(self.contents(retained[0]), journal)
-        self.assertEqual(self.contents(self.deployments), pointers)
+        actual_sync = os.fsync
+        for failure_at in (1, 2, 3, 4):
+            with self.subTest(failure_at=failure_at):
+                calls = 0
+                def sync(fd):
+                    nonlocal calls
+                    calls += 1
+                    if calls == failure_at:
+                        raise OSError('disk error')
+                    actual_sync(fd)
+                with patch.object(MODULE.os, 'fsync', side_effect=sync):
+                    with self.assertRaises(OSError):
+                        self.retire()
+                self.assertTrue((self.operator / 'uat-record-retirement.pending').exists())
+                with self.assertRaisesRegex(RuntimeError, 'OTHER_TRANSACTION_PENDING'):
+                    self.retire()
+                self.assertEqual(self.contents(self.deployments), pointers)
+                retained = list(self.operator.glob('uat-record-completed-*'))
+                if self.journal.exists():
+                    self.assertEqual(self.contents(self.journal), journal)
+                else:
+                    self.assertEqual(self.contents(retained[0]), journal)
+                    retained[0].rename(self.journal)
+                for path in self.operator.glob('uat-record-completed-*'):
+                    path.rmdir()
+                (self.operator / 'uat-record-retirement.pending').unlink()
 
     def test_changed_pointer_is_rejected_and_evidence_is_preserved(self):
         self.put(self.deployments / 'current.json', b'foreign')
         with self.assertRaises(MODULE.JOURNAL.InvalidJournal):
-            MODULE.retire(self.root, self.sha)
+            self.retire()
         self.assertTrue(self.journal.exists())
         self.assertEqual((self.deployments / 'current.json').read_bytes(), b'foreign')
+
+    def test_same_desired_bytes_do_not_allow_different_intent(self):
+        intent = json.loads((self.journal / 'intent.json').read_bytes())
+        intent['archive'] = '20261106T120001Z-' + 'a' * 40 + '.json'
+        (self.deployments / self.archive).rename(self.deployments / intent['archive'])
+        (self.deployments / (self.archive + '.committed')).rename(self.deployments / (intent['archive'] + '.committed'))
+        self.put(self.journal / 'intent.json', json.dumps(intent).encode())
+        with self.assertRaisesRegex(RuntimeError, 'RETIRE_INTENT_CHANGED'):
+            self.retire()
+        self.assertTrue(self.journal.exists())
+
+    def test_equal_original_and_desired_require_committed_previous_pointer(self):
+        self.put(self.journal / 'current.json', self.desired)
+        intent = json.loads((self.journal / 'intent.json').read_bytes())
+        intent['snapshots']['current.json'] = self.sha
+        self.put(self.journal / 'intent.json', json.dumps(intent).encode())
+        self.intent_sha = hashlib.sha256((self.journal / 'intent.json').read_bytes()).hexdigest()
+        self.put(self.deployments / 'previous.json', self.previous)
+        with self.assertRaisesRegex(RuntimeError, 'RETIRE_PREVIOUS_NOT_COMMITTED'):
+            self.retire()
+        self.assertTrue(self.journal.exists())
+
+    def test_readback_failure_keeps_gate_and_retained_evidence(self):
+        original_read = MODULE.JOURNAL.read_private
+        def read(path, *args):
+            if path.parent.name.startswith('uat-record-completed-') and path.name == 'desired.json':
+                return b'wrong'
+            return original_read(path, *args)
+        with patch.object(MODULE.JOURNAL, 'read_private', side_effect=read):
+            with self.assertRaisesRegex(RuntimeError, 'READBACK_MISMATCH'):
+                self.retire()
+        self.assertTrue((self.operator / 'uat-record-retirement.pending').exists())
+        self.assertEqual(len(list(self.operator.glob('uat-record-completed-*'))), 1)
 
 
 if __name__ == '__main__':

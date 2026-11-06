@@ -416,6 +416,20 @@ test('record transaction ค้างต้องหยุด mutation แม้
   assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
 });
 
+test('record retirement ค้างต้องหยุด mutation แม้ journal ถูกย้ายแล้ว', (context) => {
+  const setup = fixture(context);
+  mkdirSync(join(setup.root, 'operator'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(setup.root, 'operator', 'uat-record-retirement.pending'), '{}', { mode: 0o600 });
+  for (const action of ['deploy', 'migrate', 'keycloak', 'record', 'rollback']) {
+    const result = spawnSync('bash', [deploy, action, compatibleSha, join(setup.root, 'input.json')], {
+      encoding: 'utf8', env: setup.env, timeout: 10000,
+    });
+    assert.notEqual(result.status, 0, action);
+    assert.match(result.stderr, /UAT_RECORD_RETIREMENT_PENDING/, action);
+  }
+  assert.throws(() => readFileSync(setup.log), { code: 'ENOENT' });
+});
+
 test('deploy workflow ต้องหยุดก่อนเปลี่ยน runtime เมื่อ current เป็น reconciliation', (context) => {
   const setup = fixture(context);
   const current = join(setup.root, 'deployments', 'current.json');

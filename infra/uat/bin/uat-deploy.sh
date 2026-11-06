@@ -171,6 +171,7 @@ except BlockingIOError:
 PY
   [[ ! -e "$UAT_ROOT/operator/b714-reconciliation.pending" && ! -L "$UAT_ROOT/operator/b714-reconciliation.pending" ]] || fail 'UAT_RECONCILIATION_PENDING'
   [[ ! -e "$UAT_ROOT/operator/uat-record-transaction" && ! -L "$UAT_ROOT/operator/uat-record-transaction" ]] || fail 'UAT_RECORD_TRANSACTION_PENDING'
+  [[ ! -e "$UAT_ROOT/operator/uat-record-retirement.pending" && ! -L "$UAT_ROOT/operator/uat-record-retirement.pending" ]] || fail 'UAT_RECORD_RETIREMENT_PENDING'
   if [[ "${1:-}" != allow-rollback-record ]]; then
     [[ ! -e "$UAT_ROOT/operator/uat-rollback.pending" && ! -L "$UAT_ROOT/operator/uat-rollback.pending" ]] || fail 'UAT_ROLLBACK_PENDING'
   fi
