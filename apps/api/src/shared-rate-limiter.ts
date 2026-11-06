@@ -13,6 +13,18 @@ export interface SharedRateLimiter {
 }
 
 export const CUSTOMER_360_SEARCH_LIMITER = Symbol('CUSTOMER_360_SEARCH_LIMITER');
+export const C360_WRITE_POLICY = Object.freeze({
+  name: 'c360-write-v1',
+  actorLimit: 30,
+  tenantLimit: 300,
+  windowMs: 60_000,
+});
+export const C360_RECEIPT_POLICY = Object.freeze({
+  name: 'c360-receipt-v1',
+  actorLimit: 120,
+  tenantLimit: 1200,
+  windowMs: 60_000,
+});
 export const C360_SEARCH_POLICY = Object.freeze({
   name: 'c360-search-v1',
   actorLimit: 60,

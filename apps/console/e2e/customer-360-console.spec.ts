@@ -323,6 +323,7 @@ test('สิทธิ์ถูกถอนระหว่างเปิด: ด
   await profile(page, 'revokableGovernance');
   const governance = page.getByRole('region', { name: 'สถานะ Contact Governance' });
   await expect(governance).toBeVisible();
+  await expect(governance.getByRole('textbox')).toBeVisible();
   await control(request, 'revoke/revokableGovernance');
   await governance.getByRole('textbox').fill('SERVICE');
   await governance.getByRole('button', { name: 'ดูสถานะ' }).click();

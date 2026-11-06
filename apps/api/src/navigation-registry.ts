@@ -250,6 +250,16 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     roles: ['admin', 'supervisor'],
   },
   {
+    id: 'customer-tags',
+    area: 'people',
+    section: 'customers',
+    group: 'operations',
+    labelKey: 'navigation.apps.customerTags',
+    hostApp: 'console',
+    path: '/?view=customer-tags',
+    roles: ['admin'],
+  },
+  {
     id: 'core-settings',
     area: 'settings',
     section: 'configuration',

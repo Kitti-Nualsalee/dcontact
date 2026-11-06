@@ -61,6 +61,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'voice-routing',
     'tenant-people',
     'customers',
+    'customer-tags',
     'core-settings',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: admin, entitlements: {} })), [
@@ -70,6 +71,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'voice-routing',
     'tenant-people',
     'customers',
+    'customer-tags',
     'core-settings',
   ]);
   assert.deepEqual(
@@ -86,6 +88,7 @@ test('plan ต่างกันเห็นรายการต่างกั
       'voice-routing',
       'tenant-people',
       'customers',
+      'customer-tags',
       'core-settings',
     ],
   );
@@ -102,6 +105,7 @@ test('tenant ที่ไม่มี plan binding (null) ใช้ role อย�
     'voice-routing',
     'tenant-people',
     'customers',
+    'customer-tags',
     'core-settings',
   ]);
 });
@@ -116,6 +120,7 @@ test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ข�
     'voice-routing',
     'tenant-people',
     'customers',
+    'customer-tags',
     'core-settings',
   ]);
   assert.equal(
@@ -138,6 +143,7 @@ test('ชุดเริ่มต้นของ tenant ขึ้นกับ en
     'voice-routing',
     'tenant-people',
     'customers',
+    'customer-tags',
     'core-settings',
   ]);
 });

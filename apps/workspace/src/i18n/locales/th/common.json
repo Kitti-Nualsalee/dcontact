@@ -28,7 +28,8 @@
       "voiceRouting": "ตั้งค่า Voice",
       "tenantPeople": "บัญชีผู้ใช้",
       "coreSettings": "ตั้งค่าองค์กร",
-      "customers": "ลูกค้า"
+      "customers": "ลูกค้า",
+      "customerTags": "จัดการแท็ก"
     },
     "areas": {
       "home": "หน้าแรก",

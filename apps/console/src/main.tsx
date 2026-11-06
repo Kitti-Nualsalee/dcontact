@@ -3,6 +3,8 @@ import { TenantPeoplePage } from './tenant-people/tenant-people.js';
 import { createPeopleApi } from './tenant-people/api.js';
 import { CustomersPage } from './customers/customers-page.js';
 import { createCustomersApi } from './customers/api.js';
+import { CustomerTagsPage } from './customer-tags/customer-tags-page.js';
+import { createCustomerTagsApi } from './customer-tags/api.js';
 import { createCatalogApi } from './voice-routing/api.js';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { AuthProvider } from 'react-oidc-context';
@@ -203,6 +205,22 @@ function ConsoleE2eRoot() {
           accessToken: () => 'e2e-access-token',
         })}
         identityKey="e2e-customers"
+      />
+    );
+  if (view === 'customer-tags')
+    return (
+      <CustomerTagsPage
+        shell={{
+          ...e2eShellUser(url.searchParams.get('tenant') ?? undefined),
+          apiBaseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+          tenantAlias: url.searchParams.get('tenant') ?? undefined,
+        }}
+        api={createCustomerTagsApi({
+          baseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+        })}
+        identityKey="e2e-customer-tags"
       />
     );
   if (view === 'dphone-embedding') {

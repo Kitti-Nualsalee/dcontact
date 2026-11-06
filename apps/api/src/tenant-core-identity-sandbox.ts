@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { KeycloakAccessTokenVerifier } from '@d-contact/workspace-session';
 import { coreFixture } from './tenant-core-test-fixtures.js';
+import { Customer360Controller } from './customer-360-api.js';
+import { Customer360TagCatalogController } from './customer-360-tag-catalog-api.js';
 
 const sandbox = process.env.CORE_IDENTITY_SANDBOX_URL;
 interface Scope {
@@ -21,6 +23,14 @@ interface KcOrg {
 interface KcRole {
   id: string;
   name: string;
+}
+
+/** ให้ controller และ provider ถูกโหลดผ่าน module context เดียวกันเมื่อเรียกจาก Console ESM harness */
+export function coreM1IdentitySandbox(registerCleanup: (cleanup: () => Promise<unknown>) => void) {
+  return coreIdentitySandbox(registerCleanup, [
+    Customer360Controller,
+    Customer360TagCatalogController,
+  ]);
 }
 
 export async function coreIdentitySandbox(

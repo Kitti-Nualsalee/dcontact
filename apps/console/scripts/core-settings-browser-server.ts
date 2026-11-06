@@ -3,7 +3,10 @@ import { createServer as createHttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { createServer as createViteServer } from 'vite';
 import { fileURLToPath } from 'node:url';
-import { coreIdentitySandbox } from '../../api/src/tenant-core-identity-sandbox.js';
+import {
+  coreIdentitySandbox,
+  coreM1IdentitySandbox,
+} from '../../api/src/tenant-core-identity-sandbox.js';
 const cleanups: (() => Promise<unknown>)[] = [];
 let closing = false;
 async function close() {
@@ -12,7 +15,9 @@ async function close() {
   for (const cleanup of cleanups.reverse()) await cleanup();
 }
 try {
-  const sandbox = await coreIdentitySandbox((cleanup) => cleanups.push(cleanup));
+  const sandbox = await (process.env.C360_M1_BROWSER_OIDC === 'true'
+    ? coreM1IdentitySandbox((cleanup) => cleanups.push(cleanup))
+    : coreIdentitySandbox((cleanup) => cleanups.push(cleanup)));
   const { f, issuer, password } = sandbox;
   await f.owner.tenantUiFlag.create({
     data: {
