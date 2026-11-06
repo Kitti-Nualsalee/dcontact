@@ -65,6 +65,12 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({ displayName: '', company: '', vip: false });
   const [submitting, setSubmitting] = useState(false);
+  const [addPointVisible, setAddPointVisible] = useState(false);
+  const [newPointKind, setNewPointKind] = useState<'PHONE' | 'EMAIL'>('PHONE');
+  const [newPointValue, setNewPointValue] = useState('');
+  const [newPointCountry, setNewPointCountry] = useState('TH');
+  const [addTagVisible, setAddTagVisible] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
   const silent = useRef(false);
 
   function startEdit(profile: CustomerProfile) {
@@ -80,13 +86,15 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
     if (core.state !== 'ready' || !contactId || submitting) return;
     setSubmitting(true);
     try {
-      await api.submitCommand({
-        command: {
-          action: 'SET_NAME',
-          contactId,
-          displayName: editForm.displayName.trim(),
-        },
-      });
+      if (editForm.displayName.trim() !== (core.profile.contact.displayName ?? '').trim()) {
+        await api.submitCommand({
+          command: {
+            action: 'SET_NAME',
+            contactId,
+            displayName: editForm.displayName.trim(),
+          },
+        });
+      }
       if (editForm.company.trim() !== (core.profile.contact.company ?? '').trim()) {
         await api.submitCommand({
           command: {
@@ -100,6 +108,98 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
       setEditing(false);
     } catch (err) {
       console.error('Failed to save profile', err);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function addPointForm() {
+    setAddPointVisible(true);
+    setNewPointValue('');
+    setNewPointKind('PHONE');
+    setNewPointCountry('TH');
+  }
+
+  async function submitAddPoint() {
+    if (!contactId || submitting || !newPointValue.trim()) return;
+    setSubmitting(true);
+    try {
+      await api.submitCommand({
+        command: {
+          action: 'ADD_POINT',
+          contactId,
+          kind: newPointKind,
+          value: newPointValue.trim(),
+          explicitCountry: newPointKind === 'PHONE' ? newPointCountry : undefined,
+        },
+      });
+      setAddPointVisible(false);
+      setRevision((r) => r + 1);
+    } catch (err) {
+      console.error('Failed to add point', err);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function retirePoint(pointId: string) {
+    if (!contactId || submitting) return;
+    setSubmitting(true);
+    try {
+      await api.submitCommand({
+        command: {
+          action: 'RETIRE_POINT',
+          contactId,
+          pointId,
+        },
+      });
+      setRevision((r) => r + 1);
+    } catch (err) {
+      console.error('Failed to retire point', err);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function addTagForm() {
+    setAddTagVisible(true);
+    setNewTagName('');
+  }
+
+  async function submitAddTag() {
+    if (!contactId || submitting || !newTagName.trim()) return;
+    setSubmitting(true);
+    try {
+      await api.submitCommand({
+        command: {
+          action: 'ADD_TAG',
+          contactId,
+          value: newTagName.trim(),
+        },
+      });
+      setAddTagVisible(false);
+      setRevision((r) => r + 1);
+    } catch (err) {
+      console.error('Failed to add tag', err);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function removeTag(tagId: string) {
+    if (!contactId || submitting) return;
+    setSubmitting(true);
+    try {
+      await api.submitCommand({
+        command: {
+          action: 'REMOVE_TAG',
+          contactId,
+          tagId,
+        },
+      });
+      setRevision((r) => r + 1);
+    } catch (err) {
+      console.error('Failed to remove tag', err);
     } finally {
       setSubmitting(false);
     }
@@ -480,14 +580,54 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
 
         <div>
           <section aria-labelledby="points-title" className="cu-card">
-            <h3 id="points-title">{t('profile.points.title')}</h3>
+            <div className="cu-section-header">
+              <h3 id="points-title">{t('profile.points.title')}</h3>
+              {editing ? (
+                <Button size="small" onPress={addPointForm}>{t('profile.points.add')}</Button>
+              ) : null}
+            </div>
             <p className="cu-muted">{t('profile.points.notVerified')}</p>
-            {profile.contactPoints.length === 0 ? (
+            {addPointVisible ? (
+              <div className="cu-point-form">
+                <Select
+                  label={t('profile.points.kind')}
+                  selectedKey={newPointKind}
+                  onSelectionChange={(key) => setNewPointKind(String(key))}
+                  options={[
+                    { id: 'PHONE', label: t('profile.points.phone') },
+                    { id: 'EMAIL', label: t('profile.points.email') },
+                  ]}
+                />
+                <TextField
+                  label={t('profile.points.value')}
+                  value={newPointValue}
+                  onChange={setNewPointValue}
+                  aria-label={t('profile.points.value')}
+                />
+                {newPointKind === 'PHONE' ? (
+                  <Select
+                    label={t('profile.points.country')}
+                    selectedKey={newPointCountry}
+                    onSelectionChange={(key) => setNewPointCountry(String(key))}
+                    options={[
+                      { id: 'TH', label: 'Thailand (+66)' },
+                      { id: 'US', label: 'United States (+1)' },
+                      { id: 'GB', label: 'United Kingdom (+44)' },
+                    ]}
+                  />
+                ) : null}
+                <div className="cu-form-actions">
+                  <Button variant="secondary" size="small" onPress={() => setAddPointVisible(false)}>{t('cancel')}</Button>
+                  <Button variant="primary" size="small" onPress={submitAddPoint}>{t('save')}</Button>
+                </div>
+              </div>
+            ) : null}
+            {profile.contactPoints.length === 0 && !addPointVisible ? (
               <p>{t('profile.points.empty')}</p>
-            ) : (
+            ) : !addPointVisible ? (
               <dl className="cu-points">
                 {profile.contactPoints.map((point) => (
-                  <div key={point.id}>
+                  <div key={point.id} className="cu-point-row">
                     <dt>
                       {point.kind === 'PHONE'
                         ? t('profile.points.phone')
@@ -499,27 +639,66 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
                         <Badge tone="attention">{t('profile.points.reviewRequired')}</Badge>
                       ) : null}
                     </dd>
+                    {editing ? (
+                      <Button
+                        variant="secondary"
+                        size="small"
+                        isDisabled={submitting}
+                        onPress={() => retirePoint(point.id)}
+                      >
+                        {t('delete')}
+                      </Button>
+                    ) : null}
                   </div>
                 ))}
               </dl>
-            )}
+            ) : null}
           </section>
           <section aria-labelledby="tags-title" className="cu-card">
-            <h3 id="tags-title">{t('profile.tags.title')}</h3>
-            {profile.tags.length === 0 ? (
+            <div className="cu-section-header">
+              <h3 id="tags-title">{t('profile.tags.title')}</h3>
+              {editing ? (
+                <Button size="small" onPress={addTagForm}>{t('profile.tags.add')}</Button>
+              ) : null}
+            </div>
+            {addTagVisible ? (
+              <div className="cu-tag-form">
+                <TextField
+                  label={t('profile.tags.name')}
+                  value={newTagName}
+                  onChange={setNewTagName}
+                  aria-label={t('profile.tags.name')}
+                />
+                <div className="cu-form-actions">
+                  <Button variant="secondary" size="small" onPress={() => setAddTagVisible(false)}>{t('cancel')}</Button>
+                  <Button variant="primary" size="small" onPress={submitAddTag}>{t('save')}</Button>
+                </div>
+              </div>
+            ) : null}
+            {profile.tags.length === 0 && !addTagVisible ? (
               <p>{t('profile.tags.empty')}</p>
-            ) : (
+            ) : !addTagVisible ? (
               <ul className="cu-tags">
                 {profile.tags.map((tag) => (
-                  <li key={tag.id}>
+                  <li key={tag.id} className="cu-tag-row">
                     <Badge tone="neutral">
                       {tag.name}
                       {tag.state === 'RETIRED' ? ` · ${t('profile.tags.retired')}` : ''}
                     </Badge>
+                    {editing && tag.state !== 'RETIRED' ? (
+                      <Button
+                        variant="secondary"
+                        size="small"
+                        isDisabled={submitting}
+                        onPress={() => removeTag(tag.id)}
+                      >
+                        {t('delete')}
+                      </Button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
-            )}
+            ) : null}
           </section>
           <section aria-labelledby="source-title" className="cu-card">
             <h3 id="source-title">{t('profile.source.title')}</h3>

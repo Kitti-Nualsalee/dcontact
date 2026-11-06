@@ -24,6 +24,11 @@ import {
 } from './profile-command.js';
 import { tryC360IdentityFences } from './profile-fences.js';
 import {
+  addC360ContactPoint,
+  retireC360ContactPoint,
+  replaceC360ContactPoint,
+} from './profile-points.js';
+import {
   C360_LEGACY_IMPORT_BATCH_MAX,
   importC360LegacyContactPointsBatch,
   inventoryC360LegacyContactPoints,
@@ -1133,10 +1138,147 @@ export const c360ProfileCommandPerform = async (
         resourceRefs: [{ type: 'CONTACT', id: contactId }],
       };
     }
+    case 'ADD_POINT': {
+      const kind = String(normalizedRequest.command.kind);
+      const rawValue = String(normalizedRequest.command.value);
+      const explicitCountry = normalizedRequest.command.explicitCountry ? String(normalizedRequest.command.explicitCountry) : undefined;
+      const access = await authorizeC360ContactAccess(tx, await c360CurrentActor(tx, command.actor), contactId);
+      if (access.decision !== 'ALLOW' || !access.manage) throw new C360ProfileCommandRejection('ACCESS_DENIED', 403);
+      if (kind !== 'PHONE' && kind !== 'EMAIL') throw new C360ProfileCommandRejection('INVALID_POINT_KIND', 422);
+      const result = await addC360ContactPoint(tx, command.tenantId, {
+        contactId,
+        kind,
+        rawValue,
+        explicitCountry,
+        actor: command.actor,
+      });
+      if (result.outcome === 'NO_OP') {
+        return {
+          outcome: 'NO_OP',
+          httpStatus: 200,
+          committedRevisions: { profile: access.revision },
+          resourceRefs: [{ type: 'CONTACT', id: contactId }],
+        };
+      }
+      return {
+        outcome: 'APPLIED',
+        httpStatus: 201,
+        committedRevisions: { profile: incrementRevision(access.revision) },
+        resourceRefs: [{ type: 'CONTACT', id: contactId }, { type: 'POINT', id: result.pointId }],
+      };
+    }
+    case 'RETIRE_POINT': {
+      const pointId = c360Uuid(normalizedRequest.command.pointId);
+      const access = await authorizeC360ContactAccess(tx, await c360CurrentActor(tx, command.actor), contactId);
+      if (access.decision !== 'ALLOW' || !access.manage) throw new C360ProfileCommandRejection('ACCESS_DENIED', 403);
+      const result = await retireC360ContactPoint(tx, command.tenantId, {
+        contactId,
+        pointId,
+        actor: command.actor,
+      });
+      if (result.outcome === 'NO_OP') {
+        return {
+          outcome: 'NO_OP',
+          httpStatus: 200,
+          committedRevisions: { profile: access.revision },
+          resourceRefs: [{ type: 'CONTACT', id: contactId }],
+        };
+      }
+      return {
+        outcome: 'APPLIED',
+        httpStatus: 200,
+        committedRevisions: { profile: incrementRevision(access.revision) },
+        resourceRefs: [{ type: 'CONTACT', id: contactId }, { type: 'POINT', id: pointId }],
+      };
+    }
+    case 'REPLACE_POINT': {
+      const pointId = c360Uuid(normalizedRequest.command.pointId);
+      const newRawValue = String(normalizedRequest.command.newPointValue);
+      const explicitCountry = normalizedRequest.command.explicitCountry ? String(normalizedRequest.command.explicitCountry) : undefined;
+      const access = await authorizeC360ContactAccess(tx, await c360CurrentActor(tx, command.actor), contactId);
+      if (access.decision !== 'ALLOW' || !access.manage) throw new C360ProfileCommandRejection('ACCESS_DENIED', 403);
+      const result = await replaceC360ContactPoint(tx, command.tenantId, {
+        contactId,
+        pointId,
+        newRawValue,
+        explicitCountry,
+        actor: command.actor,
+      });
+      if (result.outcome === 'NO_OP') {
+        return {
+          outcome: 'NO_OP',
+          httpStatus: 200,
+          committedRevisions: { profile: access.revision },
+          resourceRefs: [{ type: 'CONTACT', id: contactId }],
+        };
+      }
+      return {
+        outcome: 'APPLIED',
+        httpStatus: 200,
+        committedRevisions: { profile: incrementRevision(access.revision) },
+        resourceRefs: [{ type: 'CONTACT', id: contactId }, { type: 'POINT', id: pointId }],
+      };
+    }
+    case 'ADD_TAG': {
+      const tagName = String(normalizedRequest.command.value ?? '').trim();
+      const access = await authorizeC360ContactAccess(tx, await c360CurrentActor(tx, command.actor), contactId);
+      if (access.decision !== 'ALLOW' || !access.manage) throw new C360ProfileCommandRejection('ACCESS_DENIED', 403);
+      const tag = await getOrCreateC360Tag(tx, command.tenantId, tagName, command.actor);
+      const link = await tx.c360ContactTag.upsert({
+        where: { tenantId_contactId_tagId: { tenantId: command.tenantId, contactId, tagId: tag.id } },
+        update: { retiredAt: null, actorIdentityKey: command.actor.actorIdentityKey },
+        create: { tenantId: command.tenantId, contactId, tagId: tag.id, actorIdentityKey: command.actor.actorIdentityKey },
+        select: {},
+      });
+      return {
+        outcome: 'APPLIED',
+        httpStatus: 201,
+        committedRevisions: { tag: incrementRevision(access.revisions.tag ?? '0') },
+        resourceRefs: [{ type: 'CONTACT', id: contactId }, { type: 'TAG', id: tag.id }],
+      };
+    }
+    case 'REMOVE_TAG': {
+      const tagId = c360Uuid(normalizedRequest.command.tagId);
+      const access = await authorizeC360ContactAccess(tx, await c360CurrentActor(tx, command.actor), contactId);
+      if (access.decision !== 'ALLOW' || !access.manage) throw new C360ProfileCommandRejection('ACCESS_DENIED', 403);
+      await tx.c360ContactTag.update({
+        where: { tenantId_contactId_tagId: { tenantId: command.tenantId, contactId, tagId } },
+        data: { retiredAt: new Date(), actorIdentityKey: command.actor.actorIdentityKey },
+      });
+      return {
+        outcome: 'APPLIED',
+        httpStatus: 200,
+        committedRevisions: { tag: incrementRevision(access.revisions.tag ?? '0') },
+        resourceRefs: [{ type: 'CONTACT', id: contactId }, { type: 'TAG', id: tagId }],
+      };
+    }
     default:
       throw new C360ProfileCommandError('COMMAND_UNKNOWN', 400);
   }
 };
+
+async function getOrCreateC360Tag(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  tagName: string,
+  actor: C360CommandActor,
+) {
+  const normalized = normalizeC360TagName(tagName);
+  const existing = await tx.c360Tag.findFirst({
+    where: { tenantId, normalizedName: normalized },
+    select: { id: true, name: true },
+  });
+  if (existing) return existing;
+  return tx.c360Tag.create({
+    data: {
+      tenantId,
+      name: tagName,
+      normalizedName: normalized,
+      actorIdentityKey: actor.actorIdentityKey,
+    },
+    select: { id: true, name: true },
+  });
+}
 
 function incrementRevision(current: string): string {
   return String((BigInt(current) + 1n).toString());

@@ -275,3 +275,32 @@
   padding: 0;
   list-style: none;
 }
+.cu-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+  margin-block-end: var(--dc-space-3);
+}
+.cu-point-row,
+.cu-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+  justify-content: space-between;
+  width: 100%;
+}
+.cu-point-form,
+.cu-tag-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-3);
+  margin-block: var(--dc-space-3);
+}
+.cu-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-2);
+  justify-content: flex-end;
+}
