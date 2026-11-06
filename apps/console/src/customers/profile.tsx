@@ -583,7 +583,7 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
             <div className="cu-section-header">
               <h3 id="points-title">{t('profile.points.title')}</h3>
               {editing ? (
-                <Button size="small" onPress={addPointForm}>{t('profile.points.add')}</Button>
+                <Button size="sm" onPress={addPointForm}>{t('profile.points.add')}</Button>
               ) : null}
             </div>
             <p className="cu-muted">{t('profile.points.notVerified')}</p>
@@ -592,7 +592,7 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
                 <Select
                   label={t('profile.points.kind')}
                   selectedKey={newPointKind}
-                  onSelectionChange={(key) => setNewPointKind(String(key))}
+                  onSelectionChange={(key) => setNewPointKind(key as "PHONE" | "EMAIL")}
                   options={[
                     { id: 'PHONE', label: t('profile.points.phone') },
                     { id: 'EMAIL', label: t('profile.points.email') },
@@ -617,8 +617,8 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
                   />
                 ) : null}
                 <div className="cu-form-actions">
-                  <Button variant="secondary" size="small" onPress={() => setAddPointVisible(false)}>{t('cancel')}</Button>
-                  <Button variant="primary" size="small" onPress={submitAddPoint}>{t('save')}</Button>
+                  <Button variant="secondary" size="sm" onPress={() => setAddPointVisible(false)}>{t('cancel')}</Button>
+                  <Button variant="primary" size="sm" onPress={submitAddPoint}>{t('save')}</Button>
                 </div>
               </div>
             ) : null}
@@ -642,7 +642,7 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
                     {editing ? (
                       <Button
                         variant="secondary"
-                        size="small"
+                        size="sm"
                         isDisabled={submitting}
                         onPress={() => retirePoint(point.id)}
                       >
@@ -658,7 +658,7 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
             <div className="cu-section-header">
               <h3 id="tags-title">{t('profile.tags.title')}</h3>
               {editing ? (
-                <Button size="small" onPress={addTagForm}>{t('profile.tags.add')}</Button>
+                <Button size="sm" onPress={addTagForm}>{t('profile.tags.add')}</Button>
               ) : null}
             </div>
             {addTagVisible ? (
@@ -670,8 +670,8 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
                   aria-label={t('profile.tags.name')}
                 />
                 <div className="cu-form-actions">
-                  <Button variant="secondary" size="small" onPress={() => setAddTagVisible(false)}>{t('cancel')}</Button>
-                  <Button variant="primary" size="small" onPress={submitAddTag}>{t('save')}</Button>
+                  <Button variant="secondary" size="sm" onPress={() => setAddTagVisible(false)}>{t('cancel')}</Button>
+                  <Button variant="primary" size="sm" onPress={submitAddTag}>{t('save')}</Button>
                 </div>
               </div>
             ) : null}
@@ -688,7 +688,7 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
                     {editing && tag.state !== 'RETIRED' ? (
                       <Button
                         variant="secondary"
-                        size="small"
+                        size="sm"
                         isDisabled={submitting}
                         onPress={() => removeTag(tag.id)}
                       >
