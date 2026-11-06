@@ -275,3 +275,18 @@
   padding: 0;
   list-style: none;
 }
+
+.cu-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+  max-width: 42rem;
+}
+
+.cu-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-3);
+  border-block-start: 1px solid var(--dc-border-default);
+  padding-block-start: var(--dc-space-4);
+}

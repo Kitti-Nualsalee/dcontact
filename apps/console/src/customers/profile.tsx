@@ -24,6 +24,8 @@ interface Props {
   onBack(): void;
   onOpen(contactId: string): void;
   onSignIn?: () => void;
+  onEdit(profile: CustomerProfile): void;
+  writeReady: boolean;
 }
 
 type Core =
@@ -51,7 +53,15 @@ const isAbort = (failure: unknown) =>
  * - core ล้มด้วย session/สิทธิ์/scope = ปิดข้อมูลลูกค้าทั้งหน้าทันที ไม่ค้างข้อมูลเสริมจากสิทธิ์เก่า
  * - กลับมาที่แท็บแล้วตรวจสิทธิ์ใหม่แบบเงียบ ๆ; ถ้าไม่ผ่านจะปิดข้อมูลทันที
  */
-export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }: Props) {
+export function CustomerProfileView({
+  api,
+  contactId,
+  onBack,
+  onOpen,
+  onSignIn,
+  onEdit,
+  writeReady,
+}: Props) {
   const { t: translate } = useTranslation('customers');
   const t = translate as (key: string, options?: Record<string, unknown>) => string;
   const { formatters } = useLocale();
@@ -292,7 +302,15 @@ export function CustomerProfileView({ api, contactId, onBack, onOpen, onSignIn }
             {t('profile.company')}: {profile.contact.company?.trim() || t('profile.noCompany')}
           </p>
         </div>
-        <Button onPress={onBack}>{t('back')}</Button>
+        <div className="cu-actions">
+          {writeReady &&
+          profile.capabilities.manage &&
+          identity.state === 'ACTIVE' &&
+          profile.revisions.lineage !== null ? (
+            <Button onPress={() => onEdit(profile)}>{t('write.edit')}</Button>
+          ) : null}
+          <Button onPress={onBack}>{t('back')}</Button>
+        </div>
       </header>
 
       {identity.state === 'MERGED' ? (

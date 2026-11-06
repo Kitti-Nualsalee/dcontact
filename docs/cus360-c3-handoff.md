@@ -136,3 +136,17 @@ cd apps/api && npx tsx --test --test-concurrency=1 src/customer-360-points.integ
 - การเชื่อม rollback guard เข้า `uat-deploy.sh` → หลัง #812 merge
 - HTTP route และ UI สำหรับเขียน point อยู่ใน C4; การค้น PHONE/EMAIL ของ C2 ใช้ parser กลางแล้ว (#869)
 - test import สองคำสั่งพร้อมกันไม่ได้บังคับ interleave จึงพิสูจน์แค่ว่า unique index กันแถวซ้ำ
+
+### C4: release gate ของ writer
+
+API ตรวจ parser และ metadata ตอนเริ่มต้นเสมอ และใน `NODE_ENV=production` writer จะตอบ
+`WRITE_RUNTIME_UNAVAILABLE` จนกว่าจะมี release manifest ที่ตรงกับ runtime และ image digest;
+read routes และระบบอื่นไม่ถูกปิดตาม writer. ให้สร้าง manifest **ภายใน image ที่จะ release** ด้วย
+`C360_IMAGE_DIGEST=sha256:<digest> node dist/customer-360-release-manifest.js`
+จากนั้นส่ง JSON เป็น `C360_WRITE_RELEASE_MANIFEST` และส่ง digest เดียวกันเป็น `C360_IMAGE_DIGEST`
+ผ่าน deployment configuration. เก็บ manifest, digest ที่ตรวจจาก registry/deployment และผลทดสอบไว้ใน release evidence.
+
+Manifest ระบุ Node/ICU/Unicode, normalization versions, phone metadata SHA-256 และ lockfile package
+integrity ที่ pin รวม transitive `punycode`. ค่า integrity เป็นหลักฐานจาก lockfile ไม่ใช่การพิสูจน์ว่าไฟล์ใน image
+ไม่ถูกแก้; ผู้ deploy ยังต้องตรวจ digest ของ image จากแหล่ง deployment ที่เชื่อถือได้ และกระบวนการ build/install
+ตาม lockfile ก่อนเปิด writer. การสร้าง manifest จากค่าที่ป้อนเองเพียงอย่างเดียวไม่ใช่หลักฐาน release ผ่าน.

@@ -32,6 +32,20 @@ export function iamContactScopeFenceKey(tenantId: string, contactId: string): st
   return `iam-contact-scope:${tenantId}:${contactId}`;
 }
 
+/** จัดลำดับ grant/revoke ของ custodian กับการเขียนโปรไฟล์หลัง identity fence */
+export async function tryC360CustodianFences(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  contactIds: readonly string[],
+): Promise<void> {
+  for (const contactId of sortedUnique(contactIds)) {
+    const key = `c360-custodian:${tenantId}:${contactId}`;
+    const [row] = await tx.$queryRaw<{ locked: boolean }[]>`
+      SELECT pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) AS locked`;
+    if (!row?.locked) throw busy();
+  }
+}
+
 function busy(): C360ProfileCommandError {
   return new C360ProfileCommandError('RESOURCE_BUSY', 503, true);
 }
@@ -112,6 +126,7 @@ export async function fenceC360ContactMutation(
   }
   await tryC360IdentityFences(tx, actor.tenantId, contacts);
   if (team) await tryIamContactProjectionFences(tx, actor.tenantId, contacts);
+  await tryC360CustodianFences(tx, actor.tenantId, contacts);
 
   const access = new Map<string, C360ContactAccess>();
   for (const contactId of contacts) {

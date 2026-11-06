@@ -35,8 +35,10 @@ import { readC360GovernanceSummary } from './customer-360-read-governance.js';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import {
   C360_SEARCH_POLICY,
+  C360_RECEIPT_POLICY,
   CUSTOMER_360_SEARCH_LIMITER,
   type SharedRateLimiter,
+  type SharedRateLimitInput,
 } from './shared-rate-limiter.js';
 import { coreRequestId } from './tenant-core-errors.js';
 
@@ -98,13 +100,17 @@ export class Customer360ReadController {
     @Inject(CUSTOMER_360_SEARCH_LIMITER) private readonly limiter: SharedRateLimiter,
   ) {}
 
-  private async throttle(tenantId: string, userId: string) {
+  private async throttle(
+    tenantId: string,
+    userId: string,
+    policy: SharedRateLimitInput['policy'] = C360_SEARCH_POLICY,
+  ) {
     let rejected: { retryAfterSeconds: number } | null;
     try {
       rejected = await this.limiter.consume({
         tenantId,
         actorId: userId,
-        policy: C360_SEARCH_POLICY,
+        policy,
       });
     } catch {
       throw new C360ReadError(503, 'RATE_LIMITER_UNAVAILABLE', true);
@@ -138,6 +144,7 @@ export class Customer360ReadController {
   async profile(@Req() req: AuthenticatedGatewayRequest, @Param('contactId') contactId: string) {
     const identity = requestIdentity(req);
     const id = pathContactId(contactId);
+    await this.throttle(identity.tenantId, identity.userId, C360_RECEIPT_POLICY);
     return withTenantDatabaseTransaction(this.db, identity.tenantId, async (tx) => {
       const actor = await c360CurrentActor(tx, identity);
       return readC360Profile(tx, actor, id);

@@ -21,6 +21,11 @@ import {
 } from './gateway-auth.js';
 import { TenantCoreSettingsController, TENANT_CORE_DATABASE } from './tenant-core-api.js';
 import { CUSTOMER_360_DATABASE } from './customer-360-api.js';
+import {
+  CUSTOMER_360_WRITE_RUNTIME,
+  createC360WriteRuntime,
+  type C360WriteRuntime,
+} from './customer-360-write-runtime.js';
 import { CUSTOMER_360_SEARCH_LIMITER, type SharedRateLimiter } from './shared-rate-limiter.js';
 import { TenantClientRateLimiter } from './tenant-client-rate-limiter.js';
 import { TenantVoiceCatalogController, TENANT_VOICE_DATABASE } from './tenant-voice-catalog-api.js';
@@ -48,6 +53,7 @@ export async function coreFixture(
   verifier?: OidcAccessTokenVerifier,
   provisionedDefaults?: { locale: string; timeZone: string },
   searchLimiter?: SharedRateLimiter,
+  writeRuntime?: C360WriteRuntime,
 ) {
   const owner = new PrismaClient();
   const db = new PrismaClient({
@@ -164,6 +170,7 @@ export async function coreFixture(
         { provide: TENANT_CORE_DATABASE, useValue: db },
         { provide: CUSTOMER_360_DATABASE, useValue: db },
         { provide: CUSTOMER_360_TAG_RUNTIME, useValue: tagRuntime },
+        { provide: CUSTOMER_360_WRITE_RUNTIME, useValue: writeRuntime ?? createC360WriteRuntime() },
         { provide: CUSTOMER_360_SEARCH_LIMITER, useValue: limiterForInstance },
         { provide: TENANT_VOICE_DATABASE, useValue: db },
         {

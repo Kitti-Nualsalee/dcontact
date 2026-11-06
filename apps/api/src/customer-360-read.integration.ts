@@ -146,8 +146,13 @@ test('C2 S1: Agent, Compliance, unbound, disabled ไม่มี generic direct
     assert.equal((await search(f, 'admin', { type: 'NAME', query: 'Legacy' })).status, 200);
     assert.equal((await profile(f, 'admin', legacy)).status, 200);
     assert.deepEqual(await counts(), before);
-    // read routes ไม่รับ method เขียนใด ๆ
-    for (const method of ['PATCH', 'PUT', 'DELETE'])
+    // C4 เปิด PATCH แล้ว แต่ request ที่ไม่ถูกต้องต้องไม่สร้างผล; PUT/DELETE ยังไม่มี route
+    assert.equal(
+      (await f.request(`customer-360/contacts/${legacy}`, 'admin', {}, 'PATCH')).status,
+      400,
+    );
+    assert.deepEqual(await counts(), before);
+    for (const method of ['PUT', 'DELETE'])
       assert.equal(
         (await f.request(`customer-360/contacts/${legacy}`, 'admin', {}, method)).status,
         404,

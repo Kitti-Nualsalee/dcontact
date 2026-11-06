@@ -65,7 +65,7 @@ test('validPurpose: 1–64 ตัวอักษรและไม่มี cont
   assert.equal(validPurpose('a\nb'), false);
 });
 
-test('api: ไม่มี method เขียน, ไม่ยิง request ถ้าไม่มี token หรือ id ไม่ใช่ UUID, และ query อยู่ใน body ไม่ใช่ URL', async () => {
+test('api: ไม่ยิง read/write ถ้าไม่มี token หรือ id ไม่ใช่ UUID และ query อยู่ใน body ไม่ใช่ URL', async () => {
   const calls: { url: string; init: RequestInit }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = (async (url: string, init: RequestInit) => {
@@ -78,11 +78,25 @@ test('api: ไม่มี method เขียน, ไม่ยิง request �
   try {
     let token: string | undefined;
     const api = createCustomersApi({ baseUrl: 'https://api.test/', accessToken: () => token });
-    assert.deepEqual(Object.keys(api).sort(), ['governance', 'profile', 'search', 'timeline']);
     await assert.rejects(api.search({ type: 'DIRECTORY' }), { status: 401 });
+    await assert.rejects(
+      api.create({ commandId: ID, displayName: 'test', company: null, vip: false, points: [] }),
+      { status: 401 },
+    );
     assert.equal(calls.length, 0);
     token = 'tok';
     await assert.rejects(api.profile('not-a-uuid'), { status: 404 });
+    await assert.rejects(
+      api.update('not-a-uuid', {
+        commandId: ID,
+        expectedProfileRevision: '0',
+        expectedLineageRevision: '0',
+        displayName: 'test',
+        company: null,
+        vip: false,
+      }),
+      { status: 404 },
+    );
     assert.equal(calls.length, 0);
 
     await api.search({ type: 'NAME', query: 'สมชาย' });

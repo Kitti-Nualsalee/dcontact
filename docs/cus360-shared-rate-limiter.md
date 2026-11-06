@@ -7,7 +7,7 @@
 
 API ใช้ `REDIS_URL` ที่ตั้งไว้อย่างชัดเจน หากไม่มีค่า เชื่อมต่อไม่ได้ หมดเวลา หรือข้อมูล counter
 ผิดรูปแบบ จะตอบ `503 RATE_LIMITER_UNAVAILABLE` สำหรับ search โดยไม่ใช้ local fallback และไม่รัน search
-การทำงานส่วนอื่นของ API รวม Voice ไม่พึ่ง limiter นี้ Redis key เก็บ digest ของ tenant/actor
+Voice และ navigation ไม่พึ่ง limiter นี้ ส่วน profile readback ใช้ budget แยกของ C4 Redis key เก็บ digest ของ tenant/actor
 และ policy เท่านั้น ไม่เก็บคำค้น หมายเลขโทรศัพท์ หรืออีเมล
 
 ## ก่อน deploy หลาย instance หรือ VM UAT

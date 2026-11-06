@@ -5,9 +5,12 @@ import test from 'node:test';
 import { Redis } from 'ioredis';
 import { Customer360ReadController } from './customer-360-read-api.js';
 import { Customer360TagCatalogController } from './customer-360-tag-catalog-api.js';
+import { Customer360OperatorController } from './customer-360-operator-api.js';
 import { setup } from './customer-360-test-fixtures.js';
 import {
   C360_SEARCH_POLICY,
+  C360_WRITE_POLICY,
+  C360_RECEIPT_POLICY,
   createCustomer360SearchLimiter,
   RedisSharedRateLimiter,
 } from './shared-rate-limiter.js';
@@ -27,7 +30,7 @@ const client = () => {
 };
 
 test(
-  'HTTP: ไม่มี Redis configuration ปิดเฉพาะ search ไม่ปิด profile route',
+  'HTTP: ไม่มี Redis configuration ปิด search และ readback แต่ไม่ปิด route อื่น',
   { skip },
   async (t) => {
     const f = await setup([Customer360ReadController], createCustomer360SearchLimiter(undefined));
@@ -36,7 +39,93 @@ test(
     assert.equal(search.status, 503);
     assert.equal(search.body.error.code, 'RATE_LIMITER_UNAVAILABLE');
     const profile = await f.request(`customer-360/contacts/${randomUUID()}`, 'admin');
-    assert.equal(profile.status, 404);
+    assert.equal(profile.status, 503);
+    assert.equal((await f.request('me/navigation', 'admin')).status, 200);
+  },
+);
+
+test(
+  'Redis จริง: write และ receipt มี actor/tenant budget แยกกันบนสอง instance',
+  { skip },
+  async (t) => {
+    const { first, second } = await clients(t);
+    const tenantId = randomUUID();
+    const actorId = randomUUID();
+    for (const policy of [C360_WRITE_POLICY, C360_RECEIPT_POLICY]) {
+      const input = { tenantId, actorId, policy };
+      const results = await Promise.all(
+        Array.from({ length: policy.actorLimit + 10 }, (_, i) =>
+          (i % 2 ? first : second).consume(input),
+        ),
+      );
+      assert.equal(results.filter((result) => result === null).length, policy.actorLimit);
+      assert.equal(await first.consume({ ...input, actorId: randomUUID() }), null);
+    }
+    assert.equal(await second.consume({ tenantId, actorId, policy: C360_SEARCH_POLICY }), null);
+    for (const policy of [C360_WRITE_POLICY, C360_RECEIPT_POLICY]) {
+      const isolatedTenant = randomUUID();
+      const results = await Promise.all(
+        Array.from({ length: policy.tenantLimit + 5 }, (_, i) =>
+          (i % 2 ? first : second).consume({
+            tenantId: isolatedTenant,
+            actorId: randomUUID(),
+            policy,
+          }),
+        ),
+      );
+      assert.equal(results.filter((result) => result === null).length, policy.tenantLimit);
+    }
+  },
+);
+
+test(
+  'HTTP สอง instance ใช้ write และ receipt budget ร่วมกันโดย replay ไม่มี effect ซ้ำ',
+  { skip },
+  async (t) => {
+    const { first, second } = await clients(t);
+    const f = await setup([Customer360ReadController, Customer360OperatorController], first);
+    t.after(() => f.close());
+    const replica = await f.startReplica(second);
+    t.after(() => replica.close());
+    const grant = await f.request('customer-360/operator/commands', 'operator', {
+      commandId: randomUUID(),
+      evidenceRef: 'ticket:TEST-C4-LIMITER',
+      reasonCode: 'APPROVED_CUSTODIAN',
+      command: {
+        action: 'CAPABILITY_GRANT',
+        granteeUserId: f.actors.get('admin')!.id,
+        capability: 'CONTACT_CREATE',
+      },
+    });
+    assert.equal(grant.status, 201);
+    const commandId = randomUUID();
+    const body = { commandId, displayName: 'Limiter test' };
+    const requestReplica = (path: string, method: string, data?: unknown) =>
+      fetch(`${replica.base}/api/v1/customer-360/${path}`, {
+        method,
+        headers: { authorization: 'Bearer admin', 'content-type': 'application/json' },
+        ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+      });
+    for (let i = 0; i < C360_WRITE_POLICY.actorLimit; i++) {
+      const response =
+        i % 2
+          ? await requestReplica('contacts', 'POST', body)
+          : await f.request('customer-360/contacts', 'admin', body);
+      assert.equal(response.status, 201);
+    }
+    assert.equal((await requestReplica('contacts', 'POST', body)).status, 429);
+    assert.equal(
+      await f.owner.contact.count({ where: { tenantId: f.tenantId, displayName: 'Limiter test' } }),
+      1,
+    );
+    for (let i = 0; i < C360_RECEIPT_POLICY.actorLimit; i++) {
+      const response =
+        i % 2
+          ? await requestReplica(`commands/${commandId}`, 'GET')
+          : await f.request(`customer-360/commands/${commandId}`, 'admin');
+      assert.equal(response.status, 201);
+    }
+    assert.equal((await requestReplica(`commands/${commandId}`, 'GET')).status, 429);
   },
 );
 
