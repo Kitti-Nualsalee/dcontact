@@ -18,6 +18,7 @@ import {
   HttpCode,
   HttpException,
   Inject,
+  Optional,
   Put,
   Req,
   UnauthorizedException,
@@ -25,6 +26,10 @@ import {
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import { findActiveAgent } from './active-agent.js';
+import {
+  CUSTOMER_360_TAG_RUNTIME,
+  type C360TagCatalogRuntime,
+} from './customer-360-tag-runtime.js';
 import {
   MAX_PINS,
   NAVIGATION_APPS,
@@ -134,6 +139,11 @@ async function domainVisibleApps(
     !(await findTenantConfigurationActor(tx, { ...actor, caller }))
   )
     apps = apps.filter((app) => app.id !== 'core-settings');
+  if (
+    apps.some((app) => app.id === 'customer-tags') &&
+    (await findTenantConfigurationActor(tx, { ...actor, caller }))?.role !== 'ADMIN'
+  )
+    apps = apps.filter((app) => app.id !== 'customer-tags');
   if (!apps.some((app) => app.id === 'agent-history')) return apps;
   const agent = await findActiveAgent(tx, actor);
   return agent ? apps : apps.filter((app) => app.id !== 'agent-history');
@@ -163,7 +173,16 @@ export class NavigationController {
   constructor(
     @Inject(NAVIGATION_DATABASE) private readonly database: PrismaClient,
     @Inject(NAVIGATION_REGISTRY) private readonly registry: readonly NavigationAppDefinition[],
+    @Optional()
+    @Inject(CUSTOMER_360_TAG_RUNTIME)
+    private readonly tagRuntime?: C360TagCatalogRuntime,
   ) {}
+
+  private get availableRegistry() {
+    return this.tagRuntime?.ready
+      ? this.registry
+      : this.registry.filter((app) => app.id !== 'customer-tags');
+  }
 
   @Get('me/navigation')
   async navigation(@Req() request: AuthenticatedGatewayRequest): Promise<NavigationV1> {
@@ -174,7 +193,7 @@ export class NavigationController {
         tx,
         { tenantId, userId, roles },
         entitlements,
-        this.registry,
+        this.availableRegistry,
         voiceCatalogCaller(request),
       );
       const [userRow, tenantRow, shellFlag] = await Promise.all([
@@ -217,7 +236,9 @@ export class NavigationController {
           ? {
               tenantDefaultPins: {
                 appIds: (tenantRow?.appIds ?? []).filter((id) =>
-                  tenantAvailableApps(entitlements, this.registry).some((app) => app.id === id),
+                  tenantAvailableApps(entitlements, this.availableRegistry).some(
+                    (app) => app.id === id,
+                  ),
                 ),
                 revision: tenantRow?.revision ?? 0,
               },
@@ -241,7 +262,7 @@ export class NavigationController {
           tx,
           { tenantId, userId, roles },
           await loadEntitlements(tx, tenantId),
-          this.registry,
+          this.availableRegistry,
           voiceCatalogCaller(request),
         );
         const invalid = pinValidationError(appIds, visible);
@@ -281,7 +302,10 @@ export class NavigationController {
     const { appIds, expectedRevision } = parsePinsBody(body);
     try {
       return await withTenantDatabaseTransaction(this.database, tenantId, async (tx) => {
-        const available = tenantAvailableApps(await loadEntitlements(tx, tenantId), this.registry);
+        const available = tenantAvailableApps(
+          await loadEntitlements(tx, tenantId),
+          this.availableRegistry,
+        );
         const invalid = pinValidationError(appIds, available);
         if (invalid === 'PIN_LIMIT_EXCEEDED') throw fail(invalid, 422, { limit: MAX_PINS });
         if (invalid) throw fail(invalid, 422, { field: 'appIds' });

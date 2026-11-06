@@ -1,3 +1,8 @@
+import {
+  CUSTOMER_360_TAG_RUNTIME,
+  createC360TagCatalogRuntime,
+} from './customer-360-tag-runtime.js';
+import { Customer360TagCatalogController } from './customer-360-tag-catalog-api.js';
 import { Customer360Controller, CUSTOMER_360_DATABASE } from './customer-360-api.js';
 import { Customer360OperatorController } from './customer-360-operator-api.js';
 import { Customer360ReadController } from './customer-360-read-api.js';
@@ -384,6 +389,7 @@ class WorkspaceSessionController {
   controllers: [
     TenantCoreSettingsController,
     Customer360Controller,
+    Customer360TagCatalogController,
     Customer360OperatorController,
     Customer360ReadController,
     TenantVoiceCatalogController,
@@ -429,6 +435,7 @@ class WorkspaceSessionController {
   providers: [
     { provide: TENANT_CORE_DATABASE, useValue: prisma },
     { provide: CUSTOMER_360_DATABASE, useValue: prisma },
+    { provide: CUSTOMER_360_TAG_RUNTIME, useValue: createC360TagCatalogRuntime() },
     { provide: CUSTOMER_360_WRITE_RUNTIME, useValue: createC360WriteRuntime() },
     { provide: CUSTOMER_360_SEARCH_LIMITER, useValue: c360SearchLimiter },
     { provide: TENANT_VOICE_DATABASE, useValue: prisma },

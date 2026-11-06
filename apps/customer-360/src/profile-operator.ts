@@ -138,6 +138,18 @@ function permission(value: unknown): 'READ' | 'MANAGE' {
 
 /** Validate + normalize ก่อนคำนวณ digest; ค่าที่ไม่รู้จักถูกปฏิเสธ ไม่ถูกตัดทิ้งเงียบ ๆ */
 export function normalizeC360OperatorCommand(command: unknown): C360OperatorCommand {
+  return normalizeOperatorCommand(command, false);
+}
+
+// ใช้ normalization เดิมเฉพาะคำนวณ digest สำหรับ replay receipt ที่ commit แล้ว
+function legacyTagNameForReceipt(value: unknown): string {
+  if (typeof value !== 'string' || /\p{Cs}/u.test(value) || /[\r\n]/.test(value)) invalid();
+  const name = value.trim().normalize('NFC');
+  if (name.length === 0 || name.length > 80) invalid();
+  return name;
+}
+
+function normalizeOperatorCommand(command: unknown, legacyReceipt: boolean): C360OperatorCommand {
   if (!command || typeof command !== 'object' || Array.isArray(command)) invalid();
   const input = command as Record<string, unknown>;
   const only = (...keys: string[]) => {
@@ -189,7 +201,9 @@ export function normalizeC360OperatorCommand(command: unknown): C360OperatorComm
         // เก็บชื่อแสดงตามที่ normalize แล้ว; ซ้ำกันใน request เดียวตัดสินที่ plan (TAG_NAME_DUPLICATE)
         return {
           action: input.action,
-          names: input.names.map((n) => normalizeC360TagName(n).name),
+          names: input.names.map((n) =>
+            legacyReceipt ? legacyTagNameForReceipt(n) : normalizeC360TagName(n).name,
+          ),
         };
       } catch (error) {
         if (error instanceof C360TagNameError) invalid();
@@ -743,9 +757,9 @@ async function plan(
   }
 }
 
-function prepared(request: C360OperatorRequest) {
+function prepared(request: C360OperatorRequest, legacyReceipt = false) {
   return {
-    command: normalizeC360OperatorCommand(request.command),
+    command: normalizeOperatorCommand(request.command, legacyReceipt),
     evidence: evidenceRef(request.evidenceRef),
     reason: reasonCode(request.reasonCode),
   };
@@ -908,8 +922,35 @@ export async function executeC360OperatorCommand(
   operator: C360TrustedOperator,
   request: C360OperatorRequest,
 ): Promise<C360ProfileCommandResult> {
-  const input = prepared(request);
   const actor = await operatorCommandActor(db, operator, request.commandId);
+  let input: ReturnType<typeof prepared>;
+  let receiptOnly = false;
+  try {
+    input = prepared(request);
+  } catch (error) {
+    const command = request.command;
+    if (
+      !(error instanceof C360ProfileCommandError) ||
+      !command ||
+      command.action !== 'TAG_SEED' ||
+      !Array.isArray(command.names) ||
+      !command.names.some(
+        (name) =>
+          typeof name === 'string' && /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(name),
+      )
+    )
+      throw error;
+    const legacyInput = prepared(request, true);
+    const existing = await lookupC360ProfileCommand(
+      db,
+      actor,
+      request.commandId,
+      operatorAuthorization(operator),
+    );
+    if (existing.state !== 'TERMINAL') throw error;
+    input = legacyInput;
+    receiptOnly = true;
+  }
   const resourceId =
     'contactId' in input.command
       ? input.command.contactId
@@ -939,6 +980,7 @@ export async function executeC360OperatorCommand(
     },
     operatorAuthorization(operator),
     async (tx, command): Promise<C360ProfileEffect> => {
+      if (receiptOnly) invalid();
       const result = await plan(tx, operator, input.command, input.evidence, input.reason, actor);
       if (result.outcome === 'NO_OP')
         return { outcome: 'NO_OP', committedRevisions: {}, resourceRefs: result.refs };

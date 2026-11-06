@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { Redis } from 'ioredis';
 import { Customer360ReadController } from './customer-360-read-api.js';
+import { Customer360TagCatalogController } from './customer-360-tag-catalog-api.js';
 import { Customer360OperatorController } from './customer-360-operator-api.js';
 import { setup } from './customer-360-test-fixtures.js';
 import {
@@ -245,6 +246,45 @@ test(
     assert.equal(error.error.retryable, true);
     assert.equal(unavailable.headers.get('retry-after'), '1');
     assert.equal(unavailable.headers.get('cache-control'), 'no-store');
+  },
+);
+
+test(
+  'M1 HTTP สอง instance ใช้ write quota ร่วมกันและกู้ receipt ที่ commit แล้วเมื่อ Redis ล่ม',
+  { skip },
+  async (t) => {
+    const { b, first, second } = await clients(t);
+    const f = await setup([Customer360TagCatalogController], first);
+    t.after(() => f.close());
+    const replica = await f.startReplica(second);
+    t.after(() => replica.close());
+    const request = (base: string, path: string, body?: unknown) =>
+      fetch(`${base}/api/v1/customer-360/${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { authorization: 'Bearer admin', 'content-type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+    const firstCommand = randomUUID();
+    for (let i = 0; i < 30; i++) {
+      const response = await request(i % 2 ? replica.base : f.base, 'tags', {
+        commandId: i === 0 ? firstCommand : randomUUID(),
+        name: `แท็ก ${i}`,
+      });
+      assert.equal(response.status, 201);
+    }
+    const rejected = await request(replica.base, 'tags', {
+      commandId: randomUUID(),
+      name: 'เกิน quota',
+    });
+    assert.equal(rejected.status, 429);
+    assert.ok(Number(rejected.headers.get('retry-after')) > 0);
+    assert.equal((await request(replica.base, 'tags')).status, 200);
+    b.disconnect();
+    assert.equal((await request(replica.base, 'tags')).status, 503);
+    const recovered = await request(replica.base, `commands/${firstCommand}`);
+    assert.equal(recovered.status, 201);
+    assert.equal(((await recovered.json()) as { state: string }).state, 'TERMINAL');
+    assert.equal((await request(replica.base, `commands/${randomUUID()}`)).status, 503);
   },
 );
 

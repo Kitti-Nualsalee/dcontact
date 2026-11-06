@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 import { Customer360ReadController } from '../../api/src/customer-360-read-api.js';
+import { Customer360TagCatalogController } from '../../api/src/customer-360-tag-catalog-api.js';
 import { Customer360OperatorController } from '../../api/src/customer-360-operator-api.js';
 import { TenantClientRateLimiter } from '../../api/src/tenant-client-rate-limiter.js';
 import {
@@ -35,7 +36,8 @@ async function close() {
 try {
   // แต่ละ browser test ใช้ budget ของตัวเอง; multi-instance budget ทดสอบกับ Redis จริงแยกแล้ว
   let quota = new TenantClientRateLimiter();
-  const f = await setup([Customer360ReadController, Customer360OperatorController], {
+  const m1 = process.env.C360_M1_BROWSER === 'true';
+  const f = await setup([Customer360ReadController, Customer360OperatorController, ...(m1 ? [Customer360TagCatalogController] : [])], {
     async consume({ tenantId, actorId, policy }) {
       return (
         quota.consume({
@@ -53,6 +55,7 @@ try {
       );
     },
   });
+  f.tagRuntime.ready = m1;
   cleanups.push(() => f.close());
   await f.owner.tenantUiFlag.create({
     data: {

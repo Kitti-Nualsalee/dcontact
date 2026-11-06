@@ -1,3 +1,4 @@
+import { CUSTOMER_360_TAG_RUNTIME } from './customer-360-tag-runtime.js';
 import {
   NavigationController,
   NAVIGATION_DATABASE,
@@ -152,6 +153,7 @@ export async function coreFixture(
       );
     },
   };
+  const tagRuntime = { ready: true };
   function fixtureModule(limiterForInstance: SharedRateLimiter) {
     @Module({
       controllers: [
@@ -167,6 +169,7 @@ export async function coreFixture(
         { provide: TENANT_LOCALE_DATABASE, useValue: db },
         { provide: TENANT_CORE_DATABASE, useValue: db },
         { provide: CUSTOMER_360_DATABASE, useValue: db },
+        { provide: CUSTOMER_360_TAG_RUNTIME, useValue: tagRuntime },
         { provide: CUSTOMER_360_WRITE_RUNTIME, useValue: writeRuntime ?? createC360WriteRuntime() },
         { provide: CUSTOMER_360_SEARCH_LIMITER, useValue: limiterForInstance },
         { provide: TENANT_VOICE_DATABASE, useValue: db },
@@ -197,6 +200,7 @@ export async function coreFixture(
   return {
     owner,
     db,
+    tagRuntime,
     base,
     tenantId,
     otherTenantId,

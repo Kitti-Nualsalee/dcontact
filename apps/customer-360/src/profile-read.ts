@@ -70,7 +70,11 @@ export interface C360CursorPayload {
 
 export interface C360CursorCodec {
   seal(payload: C360CursorPayload): string;
-  open(token: string, expected: Omit<C360CursorPayload, 'position'>): readonly string[];
+  open(
+    token: string,
+    expected: Omit<C360CursorPayload, 'position'>,
+    options?: { distinguishScopeChange?: boolean },
+  ): readonly string[];
 }
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -109,7 +113,7 @@ export function createC360CursorCodec(
       ]);
       return `v1.${active.id}.${Buffer.concat([iv, body, cipher.getAuthTag()]).toString('base64url')}`;
     },
-    open(token, expected) {
+    open(token, expected, options) {
       const invalid = () => new C360ReadError(400, 'CURSOR_INVALID');
       const [version, keyId, data, extra] = token.split('.');
       if (version !== 'v1' || !keyId || !data || extra !== undefined || token.length > 2048)
@@ -139,10 +143,13 @@ export function createC360CursorCodec(
         payload.tenantId !== expected.tenantId ||
         payload.userId !== expected.userId ||
         payload.filter !== expected.filter ||
-        payload.scope !== expected.scope ||
         !payload.position.every((part): part is string => typeof part === 'string')
       )
         throw invalid();
+      if (payload.scope !== expected.scope)
+        throw options?.distinguishScopeChange
+          ? new C360ReadError(409, 'CURSOR_CONTEXT_CHANGED')
+          : invalid();
       return payload.position as string[];
     },
   };

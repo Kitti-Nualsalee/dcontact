@@ -9,6 +9,8 @@ const browserPort = Number(process.env.C360_BROWSER_PORT ?? 5198);
 export default defineConfig({
   testDir: './e2e',
   testMatch: ['customer-360-*.spec.ts'],
+  // M1 ใช้ sandbox/identity คนละชุดและมี config เฉพาะ ห้ามรันผ่าน C2 config
+  testIgnore: ['customer-360-m1.spec.ts', 'customer-360-m1-oidc.spec.ts'],
   timeout: 60_000,
   workers: 1,
   fullyParallel: false,
