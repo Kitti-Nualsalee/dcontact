@@ -1,0 +1,32 @@
+import { defineConfig, devices } from '@playwright/test';
+
+/** Local dev trial: Chrome/Edge → Keycloak จริง → Console/API → PostgreSQL RLS */
+export default defineConfig({
+  testDir: './e2e',
+  testMatch: ['customer-360-c4-oidc.spec.ts'],
+  timeout: 60_000,
+  workers: 1,
+  retries: 0,
+  repeatEach: 2,
+  reporter: [['list']],
+  use: {
+    baseURL: 'http://127.0.0.1:5188',
+    locale: 'th-TH',
+    trace: 'off',
+    video: 'off',
+    screenshot: 'off',
+  },
+  webServer: {
+    command:
+      'C360_C4_BROWSER_OIDC=true pnpm --filter @d-contact/api exec tsx --tsconfig tsconfig.json ../console/scripts/core-settings-browser-server.ts',
+    url: 'http://127.0.0.1:5188/__core_test/config',
+    timeout: 180_000,
+    reuseExistingServer: false,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  },
+  projects: [
+    { name: 'chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
+    { name: 'edge', use: { ...devices['Desktop Edge'], channel: 'msedge' } },
+  ],
+});

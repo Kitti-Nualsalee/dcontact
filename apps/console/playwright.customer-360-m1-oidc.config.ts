@@ -1,4 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
+const devTrialBrowser = process.env.C360_DEV_TRIAL_BROWSER;
+if (devTrialBrowser && !['chrome', 'edge'].includes(devTrialBrowser))
+  throw new Error('C360_DEV_TRIAL_BROWSER ต้องเป็น chrome หรือ edge');
 
 /** Console production auth → Keycloak sandbox จริง → API/RLS */
 export default defineConfig({
@@ -7,6 +10,7 @@ export default defineConfig({
   timeout: 60_000,
   workers: 1,
   retries: 0,
+  repeatEach: 1,
   reporter: [['list']],
   use: {
     baseURL: 'http://127.0.0.1:5188',
@@ -24,5 +28,16 @@ export default defineConfig({
     stdout: 'pipe',
     stderr: 'pipe',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // รัน process ใหม่ต่อ browser/รอบ เพื่อให้ webServer สร้าง fixtures ใหม่ทุกครั้ง
+  projects: devTrialBrowser
+    ? [
+        {
+          name: devTrialBrowser,
+          use: {
+            ...devices[devTrialBrowser === 'chrome' ? 'Desktop Chrome' : 'Desktop Edge'],
+            channel: devTrialBrowser === 'chrome' ? 'chrome' : 'msedge',
+          },
+        },
+      ]
+    : [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 });

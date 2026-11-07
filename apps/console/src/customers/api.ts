@@ -1,4 +1,4 @@
-/** Cus360 C2 (#792): client ของ /api/v1/customer-360 (อ่านอย่างเดียว) — ไม่มี method เขียนใด ๆ */
+/** Client ของ /api/v1/customer-360; ผลเขียนต้องอ่านข้อมูลกลับผ่าน profile ก่อนแสดงว่าสำเร็จ */
 
 export type SearchType = 'DIRECTORY' | 'NAME' | 'PHONE' | 'EMAIL';
 export type IdentityState = 'ACTIVE' | 'MERGED' | 'AMBIGUOUS' | 'LEGACY_MISSING_HEAD';
@@ -71,6 +71,38 @@ export interface GovernanceContext {
   purpose: string;
 }
 
+export type CustomerCommandResult =
+  | { state: 'PENDING' | 'UNKNOWN'; commandId: string }
+  | {
+      state: 'TERMINAL';
+      command: {
+        commandId: string;
+        outcome: 'APPLIED' | 'NO_OP' | 'REJECTED';
+        code: string | null;
+        committedRevisions: Record<string, string>;
+        resourceRefs: { type: string; id: string }[];
+      };
+    };
+
+export interface CustomerProfileInput {
+  displayName: string;
+  company: string | null;
+  vip: boolean;
+}
+
+export interface CustomerCapabilities {
+  create: boolean;
+  runtimeReady: boolean;
+  writeReady: boolean;
+  validation: {
+    displayNameMax: number;
+    companyMax: number;
+    phoneRawMax: number;
+    emailRawMax: number;
+    activePointsPerKind: number;
+  };
+}
+
 export class CustomersApiError extends Error {
   constructor(
     readonly status: number,
@@ -84,6 +116,31 @@ export class CustomersApiError extends Error {
 }
 
 export interface CustomersApi {
+  capabilities(): Promise<CustomerCapabilities>;
+  create(
+    input: CustomerProfileInput & {
+      commandId: string;
+      points: { kind: 'PHONE' | 'EMAIL'; value: string }[];
+    },
+  ): Promise<CustomerCommandResult>;
+  update(
+    contactId: string,
+    input: CustomerProfileInput & {
+      commandId: string;
+      expectedProfileRevision: string;
+      expectedLineageRevision: string;
+    },
+  ): Promise<CustomerCommandResult>;
+  point(
+    contactId: string,
+    pointId: string | null,
+    operation: 'ADD' | 'RETIRE' | 'REPLACE',
+    input: Record<string, unknown>,
+  ): Promise<CustomerCommandResult>;
+  tagOptions(): Promise<{ items: { id: string; name: string }[] }>;
+  tags(contactId: string, input: Record<string, unknown>): Promise<CustomerCommandResult>;
+  command(commandId: string): Promise<CustomerCommandResult>;
+  reconcile(commandId: string): Promise<CustomerCommandResult>;
   search(input: {
     type: SearchType;
     query?: string;
@@ -113,7 +170,12 @@ export function createCustomersApi(options: {
 }): CustomersApi {
   async function request<T>(
     path: string,
-    init: { method?: 'GET' | 'POST'; body?: unknown; signal?: AbortSignal } = {},
+    init: {
+      method?: 'GET' | 'POST' | 'PATCH';
+      body?: unknown;
+      signal?: AbortSignal;
+      command?: boolean;
+    } = {},
   ): Promise<T> {
     const token = options.accessToken();
     if (!token) throw new CustomersApiError(401, 'SESSION_REQUIRED');
@@ -139,12 +201,15 @@ export function createCustomersApi(options: {
       let fieldErrors: { field: string; code: string }[] = [];
       try {
         const body = (await response.json()) as {
+          state?: unknown;
           error?: {
             code?: unknown;
             retryable?: unknown;
             fieldErrors?: { field: string; code: string }[];
           };
         };
+        if (init.command && (body.state === 'TERMINAL' || body.state === 'UNKNOWN'))
+          return body as T;
         if (typeof body.error?.code === 'string') code = body.error.code;
         if (typeof body.error?.retryable === 'boolean') retryable = body.error.retryable;
         if (Array.isArray(body.error?.fieldErrors)) fieldErrors = body.error.fieldErrors;
@@ -168,6 +233,24 @@ export function createCustomersApi(options: {
     return encodeURIComponent(contactId);
   };
   return {
+    capabilities: () => request('capabilities'),
+    create: (body) => request('contacts', { method: 'POST', body, command: true }),
+    update: async (contactId, body) =>
+      request(`contacts/${id(contactId)}`, { method: 'PATCH', body, command: true }),
+    point: async (contactId, pointId, operation, body) => {
+      const suffix = operation === 'ADD' ? '' : `/${id(pointId ?? '')}/${operation.toLowerCase()}`;
+      return request(`contacts/${id(contactId)}/contact-points${suffix}`, {
+        method: 'POST',
+        body,
+        command: true,
+      });
+    },
+    tagOptions: () => request('tags/options'),
+    tags: async (contactId, body) =>
+      request(`contacts/${id(contactId)}/tags`, { method: 'PATCH', body, command: true }),
+    command: async (commandId) => request(`commands/${id(commandId)}`, { command: true }),
+    reconcile: async (commandId) =>
+      request(`commands/${id(commandId)}/reconcile`, { method: 'POST', body: {}, command: true }),
     search: ({ type, query, cursor, signal }) =>
       request('contacts/search', {
         method: 'POST',

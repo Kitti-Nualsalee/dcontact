@@ -808,33 +808,37 @@ export function CustomersSurface({
     () => createCustomersApi({ baseUrl: apiBaseUrl, accessToken: () => tokenRef.current }),
     [apiBaseUrl],
   );
-  if (auth.isLoading) return <main aria-busy="true" />;
-  // session หมด/ไม่มี: ไม่ render หน้าลูกค้าใด ๆ (ข้อมูลเดิมถูกทิ้งเพราะ unmount)
-  if (auth.error || !auth.isAuthenticated || !token)
-    return (
-      <main className="empty" role="alert">
-        <p>{translate('errors.unauthorized')}</p>
-        <Button onPress={() => void signInFromCurrentPage(auth)}>{translate('signIn')}</Button>
-      </main>
-    );
+  const retained = useRef('');
+  if (auth.isLoading && !retained.current) return <main aria-busy="true" />;
   const profile = auth.user?.profile;
   const identity = [profile?.iss, profile?.tenant_id, profile?.dc_user_id, profile?.sub];
   if (
-    profile?.iss !== auth.settings.authority ||
-    profile?.tenant_slug !== tenantAlias ||
-    !identity.every((value) => typeof value === 'string' && value.length > 0)
+    profile &&
+    (profile?.iss !== auth.settings.authority ||
+      profile?.tenant_slug !== tenantAlias ||
+      !identity.every((value) => typeof value === 'string' && value.length > 0))
   )
     return (
       <main className="empty" role="alert">
         {translate('errors.forbidden')}
       </main>
     );
-  const identityKey = JSON.stringify(identity);
+  if (profile) retained.current = JSON.stringify(identity);
+  if (!retained.current)
+    return (
+      <main className="empty" role="alert">
+        <p>{translate('errors.unauthorized')}</p>
+        <Button onPress={() => void signInFromCurrentPage(auth)}>{translate('signIn')}</Button>
+      </main>
+    );
   return (
     <CustomersPage
       api={api}
-      identityKey={identityKey}
-      onSignIn={() => void signInFromCurrentPage(auth)}
+      identityKey={retained.current}
+      signedIn={!!auth.isAuthenticated && !!token && !auth.error && !auth.isLoading}
+      onSignIn={() => {
+        void auth.signinSilent().catch(() => auth.signinPopup());
+      }}
       shell={{
         ...shellUserProps(auth, tenantAlias),
         apiBaseUrl,

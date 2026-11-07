@@ -15,7 +15,8 @@
     "test:core-settings:browser": "playwright test --config playwright.core-settings.config.ts",
     "test:customer-360:browser": "playwright test --config playwright.customer-360.config.ts",
     "test:customer-360-m1:browser": "playwright test --config playwright.customer-360-m1.config.ts",
-    "test:customer-360-m1:oidc": "playwright test --config playwright.customer-360-m1-oidc.config.ts"
+    "test:customer-360-m1:oidc": "playwright test --config playwright.customer-360-m1-oidc.config.ts",
+    "test:customer-360-c4:oidc": "playwright test --config playwright.customer-360-c4-oidc.config.ts"
   },
   "dependencies": {
     "@d-contact/dphone-embed": "workspace:*",
