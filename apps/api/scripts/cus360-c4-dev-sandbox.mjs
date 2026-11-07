@@ -125,7 +125,6 @@ try {
     CXA_ACCEPTANCE_DATABASE_NAME: dbName,
     CORE_IDENTITY_SANDBOX_URL: identityUrl,
     CORE_IDENTITY_SANDBOX_ADMIN_PASSWORD: identityPassword,
-    C360_DEV_TRIAL: 'true',
     C360_C4_TEST_REDIS_URL: `redis://127.0.0.1:${port(redis, 6379)}`,
   };
   await run('pnpm', ['--filter', '@d-contact/api^...', '--if-present', 'build'], env);
@@ -176,10 +175,29 @@ try {
     env,
   );
   await run('pnpm', ['--filter', '@d-contact/api', 'test:customer-360-m1-c4:race'], env);
-  await run('pnpm', ['--filter', '@d-contact/console', 'test:customer-360:browser'], env);
-  await run('pnpm', ['--filter', '@d-contact/console', 'test:customer-360-m1:browser'], env);
-  await run('pnpm', ['--filter', '@d-contact/console', 'test:customer-360-m1:oidc'], env);
-  await run('pnpm', ['--filter', '@d-contact/console', 'test:customer-360-c4:oidc'], env);
+  // แต่ละ browser/รอบเริ่ม server และ fixture ใหม่: suite มี mutation ที่ต้องไม่รั่วข้ามรอบ
+  for (const browser of ['chrome', 'edge']) {
+    for (let round = 1; round <= 2; round++) {
+      const trialEnv = {
+        ...env,
+        C360_DEV_TRIAL_BROWSER: browser,
+        C360_DEV_TRIAL_ROUND: String(round),
+      };
+      console.log(`C360_DEV_TRIAL_ROUND ${browser} ${round}`);
+      for (const suite of [
+        'test:customer-360:browser',
+        'test:customer-360-m1:browser',
+        'test:customer-360-m1:oidc',
+        'test:customer-360-c4:oidc',
+      ]) {
+        await run(
+          'pnpm',
+          ['--filter', '@d-contact/console', suite, '--project', browser, '--repeat-each', '1'],
+          trialEnv,
+        );
+      }
+    }
+  }
   completed = true;
 } catch (error) {
   console.error('C360 C4 local dev trial failed', {

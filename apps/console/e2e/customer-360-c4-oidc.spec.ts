@@ -55,7 +55,10 @@ test('OIDC จริง: สร้างลูกค้าและอ่าน�
   if (evidenceDir) {
     mkdirSync(evidenceDir, { recursive: true });
     await page.screenshot({
-      path: join(evidenceDir, `create-readback-${info.project.name}-${info.repeatEachIndex}.png`),
+      path: join(
+        evidenceDir,
+        `create-readback-${info.project.name}-${process.env.C360_DEV_TRIAL_ROUND ?? info.repeatEachIndex}.png`,
+      ),
       fullPage: true,
     });
   }
