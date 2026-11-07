@@ -1,49 +1,25 @@
 # Issue tracker: GitHub
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+ใช้ `gh` CLI สำหรับ GitHub ของ repo นี้ GitHub issue เป็นที่ติดตามเป้าหมายและการตัดสินใจ ส่วน PR เป็นหลักฐานการเปลี่ยนโค้ด
 
-## Conventions
+## ขนาดของงาน
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
-- **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`
-- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: `gh issue close <number> --comment "..."`
+งานเล็กทำจากคำสั่งผู้ใช้ได้โดยไม่ต้องเปิด issue งานยาว มี dependency หรือ handoff ใช้หนึ่ง issue ต่อผลลัพธ์ที่ส่งมอบได้
+body ระบุเป้าหมาย ขอบเขต เงื่อนไขเสร็จ และข้อจำกัด/dependency ที่จำเป็น แตก child เฉพาะงานที่แยกส่งมอบได้จริง
+ไม่สร้าง research/prototype/grilling tickets หรือ Phase Contract โดยอัตโนมัติ
 
-Infer the repository from `git remote -v`; `gh` does this automatically when run inside a clone.
+## การใช้งาน
 
-## Pull requests as a triage surface
+- อ่านงาน: `gh issue view <n> --comments` และตรวจ PR/labels ที่เกี่ยวข้องเท่าที่จำเป็น
+- สร้าง/แก้ body หรือ comment หลายบรรทัด: เขียนไฟล์ UTF-8 แล้วส่ง `--body-file <path>`
+- ปิด issue เมื่อเงื่อนไขเสร็จผ่านจริง ถ้ายกเลิกใช้ `gh issue close <n> --reason 'not planned'` พร้อมเหตุผลและลิงก์งานที่ไปต่อ
+- ให้ Lead เป็นผู้เขียน tracker รายเดียวในทีม อัปเดตเมื่อมี decision, blocker, handoff หรือผลส่งมอบสำคัญ
+- คง native dependency ที่จำเป็นต่อความถูกต้อง ตรวจ gate จริงก่อนเริ่มส่วนที่ต้องพึ่ง ไม่ถือ closed issue แทน acceptance โดยอัตโนมัติ
 
-**PRs as a request surface: no.**
+## Wayfinder เดิม
 
-## When a skill says "publish to the issue tracker"
-
-Create a GitHub issue.
-
-## When a skill says "fetch the relevant ticket"
-
-Run `gh issue view <number> --comments`.
-
-## Wayfinding operations
-
-Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
-
-- **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body. Create it with `gh issue create --label wayfinder:map`.
-- **Child ticket**: an issue linked to the map as a GitHub sub-issue (`gh api` on the sub-issues endpoint). Where sub-issues are not enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels are `wayfinder:<type>`: `research`, `prototype`, `grilling`, or `task`. Once claimed, assign the ticket to the driving developer.
-- **Blocking**: use GitHub's native issue dependencies. Add an edge with `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`, where `<blocker-db-id>` comes from `gh api repos/<owner>/<repo>/issues/<n> --jq .id`. If dependencies are unavailable, add `Blocked by: #<n>, #<n>` at the top of the child body. A ticket is unblocked when every blocker is closed.
-- **Frontier query**: list the map's open children, excluding tickets with an open blocker or an assignee; the first in map order wins.
-- **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
-- **Resolve**: post the answer with `gh issue comment <n> --body "<answer>"`, close the issue, then append a context pointer to the map's Decisions-so-far.
-
-## Work stage
-
-`docs/agents/work-stage.md` is the canonical Stage catalog and precedence rule. Tracked work has
-exactly one active `stage:*` label on its primary artifact: the map when charting, the claimed decision
-ticket when resolving a decision, the implementation issue while building, and the pull request while
-reviewing or accepting.
-
-The label is the lowercase Stage name (`stage:wayfinding`, `stage:decision`, and so on), with
-`STATE_CONFLICT` represented as `stage:conflict`. Keep the map's **Current work state** block in sync
-using the template in the canonical protocol. Verify linked tracker, Git, CI, and acceptance evidence;
-the label alone is not sufficient proof.
+เลิกสร้าง map และไม่ต้อง claim frontier, เปลี่ยน stage label หรือ sync Current work state
+`wayfinder:*`, `stage:*` และ `ready-for-agent` ที่เหลือเป็น metadata เดิม ไม่ใช่ gate ของกระบวนการใหม่
+ข้อกำหนดผลิตภัณฑ์ API/data/security และ acceptance ที่ owner ยืนยันแล้วยังใช้จนมีคำแก้ไขที่ชัดเจน
+เก็บ map และ decision ที่ปิดไว้เป็นหลักฐาน อ้างลิงก์เฉพาะส่วนที่จำเป็นจาก issue งานได้ ไม่คัดลอก map ทั้งชุด
+การปิด map เพื่อเปลี่ยนกระบวนการไม่ปิด child issue ไม่ลบ dependency และไม่รับรอง runtime

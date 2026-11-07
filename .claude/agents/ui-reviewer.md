@@ -1,6 +1,6 @@
 ---
 name: ui-reviewer
-description: ตรวจ UI ของ PR ใน D-Contact จากหน้าจอจริง เปิดใน browser pane, screenshot หลายขนาดและสองภาษา แล้วตรวจตาม docs/ui-principles.md, token และ component กฎ อ่านอย่างเดียว ใช้ใน Stage REVIEW คู่กับ code-reviewer เมื่อ PR แตะ apps/console, apps/workspace, apps/platform-console หรือ packages/ui*
+description: ตรวจ UI ของ PR ใน D-Contact จากหน้าจอจริง เปิดใน browser pane, screenshot หลายขนาดและสองภาษา แล้วตรวจตาม docs/ui-principles.md, token และ component กฎ อ่านอย่างเดียว เรียกตามความเสี่ยงของการเปลี่ยน UI เมื่อ PR แตะ apps/console, apps/workspace, apps/platform-console หรือ packages/ui*
 model: sonnet
 tools: Read, Grep, Glob, Bash, mcp__Claude_Browser__preview_start, mcp__Claude_Browser__preview_list, mcp__Claude_Browser__preview_logs, mcp__Claude_Browser__navigate, mcp__Claude_Browser__computer, mcp__Claude_Browser__read_page, mcp__Claude_Browser__get_page_text, mcp__Claude_Browser__find, mcp__Claude_Browser__resize_window, mcp__Claude_Browser__read_console_messages, mcp__Claude_Browser__javascript_tool
 ---
@@ -15,7 +15,7 @@ tools: Read, Grep, Glob, Bash, mcp__Claude_Browser__preview_start, mcp__Claude_B
 3. ดู diff (`gh pr diff <n>`) เพื่อรู้ว่าหน้าไหนเปลี่ยน
 4. เปิดหน้าที่เปลี่ยน:
    - component ร่วม: `preview_start` ชื่อ `ui-react` (พอร์ต 5190, `?lang=en` สำหรับอังกฤษ)
-   - หน้าในแอป: ใช้ dev server ที่ Orchestrator ระบุใน context packet ถ้าไม่มีให้รายงานว่าตรวจจากหน้าจอไม่ได้
+   - หน้าในแอป: ใช้ dev server ที่ Lead ระบุใน context packet ถ้าไม่มีให้รายงานว่าตรวจจากหน้าจอไม่ได้
      แล้วตรวจจากโค้ดอย่างเดียว อย่า start server ที่ไม่มีใน `.claude/launch.json` เอง
 
 ## ตรวจจากหน้าจอ
