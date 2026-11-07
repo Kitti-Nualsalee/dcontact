@@ -210,6 +210,14 @@
     "tagsUnavailable": "Could not load available tags. Try again.",
     "nameHint": "Customer name is required.",
     "saved": "Customer saved and read back.",
-    "unchanged": "No changes were needed. The latest customer data was loaded."
+    "unchanged": "No changes were needed. The latest customer data was loaded.",
+    "revisionChanged": "The command was saved, but the current data has changed since then.",
+    "committedRevision": "Committed revision",
+    "currentRevision": "Current revision",
+    "revision": {
+      "profile": "Profile",
+      "tag": "Tags",
+      "lineage": "Identity"
+    }
   }
 }

@@ -79,6 +79,7 @@ export type CustomerCommandResult =
         commandId: string;
         outcome: 'APPLIED' | 'NO_OP' | 'REJECTED';
         code: string | null;
+        committedRevisions: Record<string, string>;
         resourceRefs: { type: string; id: string }[];
       };
     };

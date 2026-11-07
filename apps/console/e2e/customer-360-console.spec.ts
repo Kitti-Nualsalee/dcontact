@@ -1016,3 +1016,45 @@ test('C4: ไม่แสดงผลสำเร็จก่อน readback ต
   await expect(page.getByText('บันทึกและอ่านข้อมูลลูกค้ากลับแล้ว')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'รออ่านกลับ' })).toBeVisible();
 });
+
+test('C4: แสดง revision ที่ commit และข้อมูลปัจจุบันเมื่อมีการแก้ต่อก่อน readback', async ({
+  page,
+  request,
+}) => {
+  await profile(page, 'somchai');
+  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill('ชื่อที่คำสั่งแรกบันทึก');
+  let committedRevision = '';
+  let currentRevision = '';
+  await page.route(`**/api/v1/customer-360/contacts/${config.ids.somchai}`, async (route) => {
+    if (route.request().method() !== 'PATCH') return route.continue();
+    const response = await route.fetch();
+    const saved = await response.json();
+    expect(saved.command.outcome).toBe('APPLIED');
+    committedRevision = saved.command.committedRevisions.profile;
+    const current = await (
+      await request.get(`/api/v1/customer-360/contacts/${config.ids.somchai}`)
+    ).json();
+    const next = await request.patch(`/api/v1/customer-360/contacts/${config.ids.somchai}`, {
+      data: {
+        commandId: crypto.randomUUID(),
+        expectedProfileRevision: current.revisions.profile,
+        expectedLineageRevision: String(current.revisions.lineage),
+        displayName: 'ชื่อที่ถูกแก้ไขต่อ',
+      },
+    });
+    expect(next.status()).toBe(200);
+    currentRevision = (await next.json()).command.committedRevisions.profile;
+    await route.fulfill({ response });
+  });
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await expect(page.getByRole('heading', { name: 'ชื่อที่ถูกแก้ไขต่อ' })).toBeVisible();
+  const notice = page
+    .getByRole('status')
+    .filter({ hasText: 'ข้อมูลปัจจุบันมีการเปลี่ยนแปลงต่อแล้ว' });
+  await expect(notice).toBeVisible();
+  expect(BigInt(currentRevision)).toBe(BigInt(committedRevision) + 1n);
+  await expect(notice).toContainText(
+    `โปรไฟล์: revision ที่บันทึก ${committedRevision}; revision ปัจจุบัน ${currentRevision}`,
+  );
+});

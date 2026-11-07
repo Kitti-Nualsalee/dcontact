@@ -55,6 +55,9 @@ function CustomersSession({ api, shell, onSignIn, identityKey, signedIn = true }
   const [recoveryMessage, setRecoveryMessage] = useState('');
   const [accessBlocked, setAccessBlocked] = useState(false);
   const [savedMessage, setSavedMessage] = useState<'saved' | 'unchanged'>();
+  const [changedRevisions, setChangedRevisions] = useState<
+    { dimension: keyof CustomerProfile['revisions']; committed: string; current: string }[]
+  >([]);
   const [pageVersion, setPageVersion] = useState(0);
   const routeRef = useRef(route);
   routeRef.current = route;
@@ -138,6 +141,7 @@ function CustomersSession({ api, shell, onSignIn, identityKey, signedIn = true }
     window.history.pushState(null, '', customersHref(shell.tenantAlias, contactId));
     setEditor(undefined);
     setSavedMessage(undefined);
+    setChangedRevisions([]);
     setPageVersion((value) => value + 1);
     setReturned(!contactId);
     setRoute(contactId ? { contactId } : {});
@@ -170,8 +174,9 @@ function CustomersSession({ api, shell, onSignIn, identityKey, signedIn = true }
       setRecoveryMessage('readbackUnavailable');
       return null;
     }
+    let current: CustomerProfile;
     try {
-      await api.profile(contactId);
+      current = await api.profile(contactId);
     } catch (failure) {
       setRecoveryMessage('readbackUnavailable');
       if (
@@ -189,6 +194,15 @@ function CustomersSession({ api, shell, onSignIn, identityKey, signedIn = true }
     setAccessBlocked(false);
     go(contactId);
     setSavedMessage(result.command.outcome === 'NO_OP' ? 'unchanged' : 'saved');
+    setChangedRevisions(
+      (['profile', 'tag', 'lineage'] as const).flatMap((dimension) => {
+        const committed = result.command.committedRevisions[dimension];
+        const readback = current.revisions[dimension];
+        return committed !== undefined && committed !== String(readback)
+          ? [{ dimension, committed, current: readback === null ? '—' : String(readback) }]
+          : [];
+      }),
+    );
     return null;
   }
   async function run(
@@ -261,6 +275,19 @@ function CustomersSession({ api, shell, onSignIn, identityKey, signedIn = true }
         <p role="status" className="cu-notice">
           {t(`write.${savedMessage}`)}
         </p>
+      ) : null}
+      {changedRevisions.length ? (
+        <div role="status" className="cu-notice">
+          <p>{t('write.revisionChanged')}</p>
+          <ul>
+            {changedRevisions.map(({ dimension, committed, current }) => (
+              <li key={dimension}>
+                {t(`write.revision.${dimension}`)}: {t('write.committedRevision')}{' '}
+                <bdi>{committed}</bdi>; {t('write.currentRevision')} <bdi>{current}</bdi>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       {signedIn && !editor && capabilityState === 'ready' && !capabilities?.create ? (
         <p className="cu-muted">

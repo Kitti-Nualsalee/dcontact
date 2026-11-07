@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 async function login(page: Page, request: APIRequestContext, alias = 'admin') {
@@ -33,7 +35,10 @@ test.afterEach(async ({ request }) => {
   await request.post('/__core_test/restore');
 });
 
-test('OIDC จริง: สร้างลูกค้าและอ่านกลับโดยไม่เก็บร่างใน browser', async ({ page, request }) => {
+test('OIDC จริง: สร้างลูกค้าและอ่านกลับโดยไม่เก็บร่างใน browser', async ({
+  page,
+  request,
+}, info) => {
   await login(page, request);
   const name = `ลูกค้า OIDC ${randomUUID()}`;
   await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
@@ -46,6 +51,14 @@ test('OIDC จริง: สร้างลูกค้าและอ่าน�
   await page.reload();
   await expect(page.getByRole('heading', { name })).toBeVisible();
   await expectDraftPrivate(page, name);
+  const evidenceDir = process.env.C360_C4_EVIDENCE_DIR;
+  if (evidenceDir) {
+    mkdirSync(evidenceDir, { recursive: true });
+    await page.screenshot({
+      path: join(evidenceDir, `create-readback-${info.project.name}-${info.repeatEachIndex}.png`),
+      fullPage: true,
+    });
+  }
 });
 
 test('OIDC จริง: คำตอบหายหลัง commit แล้ว reload กู้ผลเดิมได้', async ({ page, request }) => {
@@ -83,4 +96,31 @@ test('OIDC จริง: Supervisor ไม่มีสิทธิ์สร้�
   await login(page, request, 'supervisor');
   await expect(page.getByRole('heading', { name: 'ลูกค้า', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'สร้างลูกค้า' })).toHaveCount(0);
+});
+
+test('OIDC จริง: บันทึกข้อมูลเดิมเป็น no-op และอ่านผลกลับ', async ({ page, request }) => {
+  await login(page, request);
+  const name = `ตรวจ no-op OIDC ${randomUUID()}`;
+  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill(name);
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await expect(page.getByRole('heading', { name })).toBeVisible();
+  await page.getByRole('button', { name: 'แก้ไขลูกค้า' }).click();
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await expect(page.getByText('ข้อมูลไม่เปลี่ยนแปลง อ่านข้อมูลล่าสุดกลับแล้ว')).toBeVisible();
+});
+
+test('OIDC จริง: ถอนสิทธิ์ปิดร่างและกู้เฉพาะเมื่อสิทธิ์กลับมา', async ({ page, request }) => {
+  await login(page, request);
+  const name = `ร่างหลังถอนสิทธิ์ ${randomUUID()}`;
+  await page.getByRole('button', { name: 'สร้างลูกค้า' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill(name);
+  await request.post('/__core_test/revoke');
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await expect(page.getByRole('alert')).toContainText('ไม่สามารถแสดงข้อมูลลูกค้าได้');
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
+  await expectDraftPrivate(page, name);
+  await request.post('/__core_test/restore');
+  await page.getByRole('alert').getByRole('button', { name: 'ลองอีกครั้ง' }).click();
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue(name);
 });
