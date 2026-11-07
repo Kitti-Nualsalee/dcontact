@@ -1,117 +1,39 @@
-# Work Stage Protocol
+# ขั้นตอนทำงานแบบ Lead และ specialist
 
-เอกสารนี้ทำให้ผู้ใช้สั่งเพียง “เดินงานต่อจากสถานะปัจจุบัน” ได้ โดย Agent ตรวจขั้นตอน งานที่กำลังทำ
-และระดับโมเดลจากหลักฐานใน GitHub กับ Git เอง ไม่อาศัยความจำจากบทสนทนา
+เอกสารนี้แทน Work Stage Protocol เดิม ชื่อไฟล์คงไว้เพื่อให้ลิงก์จาก issue เก่ายังใช้ได้
+ใช้ขั้นตอนนี้แทนข้อบังคับ Wayfinder/stage ใน issue เก่า โดยคงขอบเขตผลิตภัณฑ์ สัญญาข้อมูล
+สิทธิ์ ความปลอดภัย acceptance และคำตัดสิน owner ที่ยังมีผล
 
-## หลักการ
+## ลำดับงาน
 
-1. GitHub issue/map เป็นแหล่งจริงของขอบเขตและการตัดสินใจ
-2. branch และ pull request เป็นหลักฐานของการลงมือทำและการ review
-3. acceptance comment หรือ evidence bundle เป็นหลักฐานของ completion
-4. งานหนึ่งขอบเขตมี Stage เดียว หากหลักฐานขัดกันให้ใช้ `STATE_CONFLICT`
-5. ใช้โมเดลเก่งกับการตัดสินใจที่เปลี่ยนยาก ใช้โมเดลสมดุลกับ implementation และใช้โมเดลเร็วกับงานเชิงกล
-6. วาง roadmap ทุกเฟสที่ความละเอียดต่ำ และทำรายละเอียดแบบ just-in-time เฉพาะเฟสที่กำลังจะเริ่ม
+1. อ่านคำสั่งและ issue/PR ที่เกี่ยวข้อง ตรวจ branch และ working tree เท่าที่จำเป็น
+2. สรุปผลลัพธ์ที่ต้องการและวิธีตรวจ ถ้าชัดแล้วให้ลงมือ ไม่สร้าง spec หรือ decision ticket เพิ่มโดยอัตโนมัติ
+3. Lead ทำเองหรือแบ่งงานอิสระตาม `parallel-work.md` พร้อมระบุเจ้าของและขอบเขต
+4. ตรวจ diff และรัน checks ที่เกี่ยวข้อง ใช้ reviewer สำหรับ logic สำคัญ security, migration หรือการเปลี่ยนข้าม context
+5. ส่งผลพร้อม acceptance ที่ผ่าน/ยังไม่ผ่านและข้อจำกัด อัปเดต issue เมื่อมีผลสำคัญ ไม่ comment ทุกก้าว
 
-## Status card
+ไม่ต้องมี stage label, status card, map synchronization หรือ `ready-for-agent` ก่อนทำงาน
+งานเล็กไม่ต้องสร้าง issue ส่วนงานยาวหรือมี handoff ใช้ issue เดียวต่อผลลัพธ์ที่ส่งมอบได้
 
-ก่อนใช้ tool ครั้งแรก ให้ Agent แจ้งขอบเขต, Stage แบบ provisional จากบริบทที่มี และหลักฐานที่จะตรวจ
-จากนั้นใช้ read-only tools เท่าที่จำเป็นเพื่อยืนยัน tracker, Git, PR และ acceptance evidence ก่อน mutation
+## การตัดสินใจและโมเดล
 
-หลังยืนยันหลักฐานและก่อนแก้ไฟล์หรือ tracker ให้แจ้ง status card นี้:
+Lead เลือกรายละเอียดวิศวกรรมที่ย้อนกลับได้ตาม pattern เดิมและบันทึกเหตุผลสั้น ๆ เมื่อมีผลต่อผู้ตรวจ
+ถาม owner เฉพาะเรื่องผลิตภัณฑ์/สิทธิ์/ข้อมูลที่ยังไม่มีคำตอบ หรือข้อกำหนดที่ขัดกันจริง
+หยุดเฉพาะส่วนที่ติดปัญหาแล้วทำส่วนอิสระต่อ ไม่เปิด decision gap ticket ทุกครั้ง
 
-```text
-สถานะ: <STAGE>
-ขอบเขต: <ชื่อ map หรือ phase>
-งานปัจจุบัน: <ชื่อ issue/PR หรือ “ยังไม่มี”>
-โมเดลแนะนำ: <tier และ reasoning>
-Next gate: <หลักฐานที่ต้องมีเพื่อไปขั้นถัดไป>
-```
+ใช้โมเดลสมดุลสำหรับงานทั่วไป โมเดลเร็วสำหรับการค้นข้อเท็จจริง และโมเดล reasoning สูงเฉพาะการตัดสินใจหรือ review ที่เสี่ยง
+ไม่ต้องเปลี่ยนโมเดลหรือสร้าง agent เพียงเพราะชื่อขั้นตอนเปลี่ยน
 
-ถ้าผู้ใช้เลือกโมเดลที่ต่างจากคำแนะนำ ให้ทำงานต่อได้เมื่อโมเดลนั้นรองรับงาน แต่ต้องแจ้งเฉพาะเมื่อความต่าง
-เพิ่มความเสี่ยงต่อผลลัพธ์อย่างมีนัยสำคัญ
+## Context ที่ส่งให้ specialist
 
-## Stage และ model routing
+ส่งเฉพาะเป้าหมาย/issue, acceptance, ขอบเขตไฟล์, constraints และลิงก์เอกสารที่จำเป็น
+เพิ่ม branch/worktree/DB และคำสั่งตรวจเมื่อเกี่ยวข้อง ไม่ส่ง chat history หรือ map ทั้งชุด
+ให้รายงานผล หลักฐานที่ตรวจ และข้อที่ติดขัดอย่างกระชับ
 
-| Stage            | หลักฐานที่ทำให้ Stage นี้เป็นคำตอบเดียว                                                                    | งานที่อนุญาต                                                  | Model tier                                                                     |
-| ---------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `WAYFINDING`     | map เปิด, ไม่มี child ถูก claim และมี unblocked frontier                                                   | ตั้ง Destination, สร้าง decision tickets, dependency          | `ARCHITECT` `high/xhigh`                                                       |
-| `DECISION`       | มี Wayfinder child ถูก claim และ child นั้นเป็น primary artifact                                           | research, grilling, prototype และบันทึกคำตอบ                  | `ARCHITECT` `high/xhigh`; ใช้ tier ต่ำกว่าสำหรับ research เชิงกลได้            |
-| `PHASE_SPEC`     | decision blockers ที่จำเป็นปิดครบ แต่ implementation-ready specification ยังไม่ผ่าน                        | สร้าง implementation-ready spec และแตก implementation tickets | `ARCHITECT` `high`                                                             |
-| `IMPLEMENTATION` | spec มี `ready-for-agent`, มี implementation branch และยังไม่มี PR ของ branch นั้น                         | เขียนโค้ดและ tests ตาม ticket                                 | `IMPLEMENTER` `medium/high`; `MECHANICAL` สำหรับงานซ้ำรูปแบบ                   |
-| `REVIEW`         | มี PR เปิด และ review ยังไม่ clear, มี finding เปิด หรือ required preliminary CI ยังไม่ผ่าน                | review เทียบ spec/ADR, แก้ findings, ตรวจ diff                | `ARCHITECT` `high` สำหรับ review; `IMPLEMENTER` สำหรับ remediation             |
-| `ACCEPTANCE`     | มี PR เปิด, review findings ปิดและ preliminary CI ผ่าน แต่ completion/acceptance gate หรือ merge ยังไม่ครบ | รัน integration/release gates และเก็บ evidence                | `IMPLEMENTER` `medium/high`; ใช้ `ARCHITECT` วิเคราะห์ failure ที่ข้าม context |
-| `COMPLETE`       | merge เข้า target ที่ถูกต้องและ completion evidence ถูกบันทึกครบ                                           | อัปเดต map และเปิด frontier ถัดไป                             | ไม่ต้องใช้โมเดลเก่ง เว้นแต่ต้องตัดสินใจใหม่                                    |
-| `STATE_CONFLICT` | primary artifact มีหลาย `stage:*` label หรือ identity/base/spec/evidence ของ linked artifacts ขัดกันจริง   | ตรวจและคืนแหล่งจริงให้สอดคล้อง                                | `ARCHITECT` `high` หากต้องตัดสินผลกระทบ                                        |
+## งานเดิม
 
-Mapping ปัจจุบันเมื่อโมเดลเหล่านี้มีให้ใช้:
-
-- `ARCHITECT`: `gpt-5.6-sol`
-- `IMPLEMENTER`: `gpt-5.6-terra`
-- `MECHANICAL`: `gpt-5.6-luna` หรือ `gpt-5.4-mini`
-
-Mapping เมื่อทำงานใน Claude Code (ตรงกับ `model` ใน `.claude/agents/`):
-
-- `ARCHITECT`: Opus
-- `IMPLEMENTER`: Sonnet
-- `MECHANICAL`: Haiku
-
-เมื่อใช้ agent หลายตัวพร้อมกัน ให้ทำตาม [`parallel-work.md`](parallel-work.md)
-
-ชื่อโมเดลเป็น mapping ที่เปลี่ยนได้ แต่ความหมายของ tier และ Stage เป็น contract ของ repository
-
-## วิธีตรวจ Stage
-
-ตรวจเฉพาะขอบเขตที่ผู้ใช้สั่ง โดยเรียงหลักฐานดังนี้:
-
-1. หา issue/map จากชื่อที่ผู้ใช้ระบุ หรือจาก branch/PR ปัจจุบัน
-2. อ่าน issue body, comments, labels, assignee และ child/dependency state
-3. ตรวจ branch, base branch, working tree และ commit ที่เกี่ยวข้อง
-4. ตรวจ PR state, review decision และ CI
-5. ตรวจ acceptance criteria และ evidence ล่าสุด
-
-ตัดสิน Stage ด้วย precedence ต่อไปนี้และหยุดที่ข้อแรกที่ตรง:
-
-1. หาก primary artifact มีหลาย `stage:*` label หรือ linked identity/base/spec/evidence ขัดกันจริง → `STATE_CONFLICT`
-2. หาก merge เข้า target และ completion evidence ครบ → `COMPLETE`
-3. หากมี PR เปิดและ review clear แต่ acceptance gate หรือ merge ยังไม่ครบ → `ACCEPTANCE`
-4. หากมี PR เปิดแต่ review/required preliminary CI ยังไม่ clear → `REVIEW`
-5. หาก issue มี `ready-for-agent`, มี implementation branch และยังไม่มี PR → `IMPLEMENTATION`
-6. หาก Wayfinder child ถูก claim → `DECISION`
-7. หาก decision blockers ปิดครบและ implementation-ready specification ยังไม่ผ่าน → `PHASE_SPEC`
-8. หาก map เปิด, ไม่มี child ถูก claim และมี unblocked frontier → `WAYFINDING`
-
-การที่ map มี frontier พร้อมกับ child ที่ถูก claim หรือ PR มี CI ผ่าน ไม่ใช่ conflict; precedence ข้างต้น
-ใช้แยก progression ปกติเหล่านี้ให้เหลือ Stage เดียว
-
-branch ที่สร้างไว้ล่วงหน้าแต่ issue ยังไม่มี `ready-for-agent` ไม่ทำให้ Stage เปลี่ยนเป็น `IMPLEMENTATION`:
-หาก branch ยังไม่มี scoped implementation changes ให้คง `PHASE_SPEC`; หากมี implementation changes
-ที่มาก่อน authoritative specification ให้ใช้ `STATE_CONFLICT` และ reconcile ก่อนทำต่อ
-
-อย่าใช้ open issue ทั้ง repository เพื่อเดา Stage หากมีหลาย effort ทำคู่ขนาน ให้ระบุ map/phase ที่กำลังตอบเสมอ
-
-## Context packet สำหรับ implementation
-
-เพื่อประหยัด token โมเดล implementation ต้องได้รับเฉพาะ:
-
-- ชื่อและ URL ของ implementation issue
-- Destination และ Phase Contract ที่เป็น authority
-- ADR/`CONTEXT.md` ที่เกี่ยวข้องโดยตรง
-- invariants และ out-of-scope
-- API/event/error/state contracts
-- acceptance criteria และคำสั่งทดสอบ
-- stop condition: หากต้องตัดสินใจนอก spec ให้หยุด implementation และเปิด decision gap
-
-อย่าคัดลอก map, ADR หรือ chat history ทั้งหมดลง prompt ให้ลิงก์ไปยังแหล่งจริงและอ่านเฉพาะส่วนที่เกี่ยวข้อง
-
-## การเปลี่ยน Stage
-
-เมื่อเปลี่ยน Stage ให้ทำเป็นชุดเดียว:
-
-1. ตรวจว่า Next gate ของ Stage เดิมผ่านจริง
-2. ย้าย `stage:*` label บน primary artifact ให้เหลือหนึ่งค่า
-3. อัปเดต `Current work state` ใน Notes ของ map
-4. comment หลักฐานหรือเหตุผลของ transition บน issue/PR
-5. แจ้ง status card ใหม่แก่ผู้ใช้
-
-การสร้าง branch, เปิด PR, merge หรือปิด issue ไม่ได้แปลว่า Stage ถัดไปผ่านเอง ต้องตรวจ completion boundary
-ของขอบเขตนั้นด้วย
+Wayfinder maps เป็นประวัติ ใช้ implementation issue และ PR เป็นงานปัจจุบัน
+Closed map/spec หรือ merged PR ไม่ยืนยันว่า runtime/acceptance ผ่านครบ
+ตรวจคำแก้ไขล่าสุดของ owner ก่อนใช้ข้อความเก่า และเมื่อสถานะขัดกันให้ยึดหลักฐานล่าสุดที่ตรงขอบเขต
+หากยังตัดสินไม่ได้ ให้รายงานความขัดกันและหยุดเฉพาะ mutation ที่ได้รับผล
+ไม่ลบ dependency ที่จำเป็นต่อความถูกต้องเพื่อให้เริ่มงานได้เร็วขึ้น และไม่รัน acceptance เดิมซ้ำโดยไม่มีเหตุจากการเปลี่ยนแปลง
