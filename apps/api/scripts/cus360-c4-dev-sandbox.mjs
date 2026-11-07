@@ -125,6 +125,7 @@ try {
     CXA_ACCEPTANCE_DATABASE_NAME: dbName,
     CORE_IDENTITY_SANDBOX_URL: identityUrl,
     CORE_IDENTITY_SANDBOX_ADMIN_PASSWORD: identityPassword,
+    C360_DEV_TRIAL: 'true',
     C360_C4_TEST_REDIS_URL: `redis://127.0.0.1:${port(redis, 6379)}`,
   };
   await run('pnpm', ['--filter', '@d-contact/api^...', '--if-present', 'build'], env);

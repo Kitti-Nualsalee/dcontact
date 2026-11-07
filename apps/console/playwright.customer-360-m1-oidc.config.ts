@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+const devTrial = process.env.C360_DEV_TRIAL === 'true';
 
 /** Console production auth → Keycloak sandbox จริง → API/RLS */
 export default defineConfig({
@@ -7,6 +8,7 @@ export default defineConfig({
   timeout: 60_000,
   workers: 1,
   retries: 0,
+  repeatEach: devTrial ? 2 : 1,
   reporter: [['list']],
   use: {
     baseURL: 'http://127.0.0.1:5188',
@@ -24,5 +26,10 @@ export default defineConfig({
     stdout: 'pipe',
     stderr: 'pipe',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: devTrial
+    ? [
+        { name: 'chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
+        { name: 'edge', use: { ...devices['Desktop Edge'], channel: 'msedge' } },
+      ]
+    : [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 });

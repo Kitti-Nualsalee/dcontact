@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+const devTrial = process.env.C360_DEV_TRIAL === 'true';
 
 /** M1 sandbox: browser และ API/RLS จริง พร้อม synthetic identity; ไม่ใช่ actual OIDC */
 export default defineConfig({
@@ -7,6 +8,7 @@ export default defineConfig({
   timeout: 60_000,
   workers: 1,
   retries: 0,
+  repeatEach: devTrial ? 2 : 1,
   reporter: [['list']],
   use: {
     baseURL: 'http://127.0.0.1:5198',
@@ -22,5 +24,10 @@ export default defineConfig({
     timeout: 120_000,
     reuseExistingServer: false,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: devTrial
+    ? [
+        { name: 'chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
+        { name: 'edge', use: { ...devices['Desktop Edge'], channel: 'msedge' } },
+      ]
+    : [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 });

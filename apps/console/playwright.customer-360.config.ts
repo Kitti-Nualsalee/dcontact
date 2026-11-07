@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+const devTrial = process.env.C360_DEV_TRIAL === 'true';
 const browserPort = Number(process.env.C360_BROWSER_PORT ?? 5198);
 
 /**
@@ -19,6 +20,7 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   retries: 0,
+  repeatEach: devTrial ? 2 : 1,
   reporter: [['list']],
   use: {
     baseURL: `http://127.0.0.1:${browserPort}`,
@@ -34,5 +36,10 @@ export default defineConfig({
     timeout: 120_000,
     reuseExistingServer: false,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: devTrial
+    ? [
+        { name: 'chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
+        { name: 'edge', use: { ...devices['Desktop Edge'], channel: 'msedge' } },
+      ]
+    : [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 });
