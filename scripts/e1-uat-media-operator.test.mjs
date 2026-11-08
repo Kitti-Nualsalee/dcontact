@@ -32,7 +32,14 @@ test('#657: voice-on ปิด switch/ตรวจ idle และ snapshot ก�
 
 function voiceRunner(
   context,
-  { explicit = true, operator, missing = false, failVerify = false, command = 'e1-voice-on', pending = false } = {},
+  {
+    explicit = true,
+    operator,
+    missing = false,
+    failVerify = false,
+    command = 'e1-voice-on',
+    pending = false,
+  } = {},
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'e1-media-candidate-'));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -85,13 +92,16 @@ function voiceRunner(
     `if args[0] != "inspect": sys.exit(1)\nsys.stdout.write(${JSON.stringify(candidate)} + chr(10))`,
   );
   executable(join(bin, 'flock'), 'flock', 'if not held: sys.exit(1)');
-  writeFileSync(join(bin, 'python3'), `#!${python.stdout.trim()}
+  writeFileSync(
+    join(bin, 'python3'),
+    `#!${python.stdout.trim()}
 import os, sys
 if sys.argv[1:2] == ['-']:
     os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
 ${record.replace('TOOL', JSON.stringify('verify'))}
 if os.environ.get('TEST_FAIL_VERIFY') == 'true': sys.exit(1)
-`);
+`,
+  );
   chmodSync(join(bin, 'python3'), 0o700);
   executable(join(directory, 'bin/docker-compose'), 'compose');
   if (!missing && /^[a-f0-9]{40}$/.test(operatorSha)) {
@@ -135,7 +145,10 @@ test('voice-off ปิด switch ได้เมื่อมี pending แต�
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /E1_VOICE_OFF_RECREATE_BLOCKED_SWITCH_OFF/);
   assert.ok(commands.some((c) => c.tool === 'compose' && c.args.includes('off')));
-  assert.equal(commands.some((c) => c.tool === 'compose' && c.args.includes('up')), false);
+  assert.equal(
+    commands.some((c) => c.tool === 'compose' && c.args.includes('up')),
+    false,
+  );
 });
 
 test('#790: voice-on ใช้ operator artifact ที่ pin แยกและถือ outer lock ตลอด verify→enable', (context) => {
