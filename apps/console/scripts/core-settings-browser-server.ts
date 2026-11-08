@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import { fileURLToPath } from 'node:url';
 import {
   coreIdentitySandbox,
+  coreOverviewIdentitySandbox,
   coreM1IdentitySandbox,
   coreC4IdentitySandbox,
 } from '../../api/src/tenant-core-identity-sandbox.js';
@@ -18,11 +19,14 @@ async function close() {
 try {
   const c4 = process.env.C360_C4_BROWSER_OIDC === 'true';
   const register = (cleanup: () => Promise<unknown>) => cleanups.push(cleanup);
-  const sandbox = await (c4
-    ? coreC4IdentitySandbox(register)
-    : process.env.C360_M1_BROWSER_OIDC === 'true'
-      ? coreM1IdentitySandbox(register)
-      : coreIdentitySandbox(register));
+  const overview = process.env.C360_OVERVIEW_BROWSER_OIDC === 'true';
+  const sandbox = await (overview
+    ? coreOverviewIdentitySandbox(register)
+    : c4
+      ? coreC4IdentitySandbox(register)
+      : process.env.C360_M1_BROWSER_OIDC === 'true'
+        ? coreM1IdentitySandbox(register)
+        : coreIdentitySandbox(register));
   const { f, issuer, password } = sandbox;
   if (c4) {
     const commandId = randomUUID();

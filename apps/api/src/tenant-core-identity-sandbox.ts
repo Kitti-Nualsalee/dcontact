@@ -5,6 +5,7 @@ import { KeycloakAccessTokenVerifier } from '@d-contact/workspace-session';
 import { coreFixture } from './tenant-core-test-fixtures.js';
 import { Customer360Controller } from './customer-360-api.js';
 import { Customer360TagCatalogController } from './customer-360-tag-catalog-api.js';
+import { Customer360OverviewController } from './customer-360-overview-api.js';
 import { Customer360ReadController } from './customer-360-read-api.js';
 import { Redis } from 'ioredis';
 import { RedisSharedRateLimiter, type SharedRateLimiter } from './shared-rate-limiter.js';
@@ -34,6 +35,17 @@ export function coreM1IdentitySandbox(registerCleanup: (cleanup: () => Promise<u
   return coreIdentitySandbox(registerCleanup, [
     Customer360Controller,
     Customer360TagCatalogController,
+  ]);
+}
+
+/** M1-B trial ใช้ auth จริงกับ overview/rules และ read owner เดิม */
+export function coreOverviewIdentitySandbox(
+  registerCleanup: (cleanup: () => Promise<unknown>) => void,
+) {
+  return coreIdentitySandbox(registerCleanup, [
+    Customer360Controller,
+    Customer360ReadController,
+    Customer360OverviewController,
   ]);
 }
 

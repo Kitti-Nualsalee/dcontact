@@ -29,7 +29,9 @@
       "tenantPeople": "บัญชีผู้ใช้",
       "coreSettings": "ตั้งค่าองค์กร",
       "customers": "ลูกค้า",
-      "customerTags": "จัดการแท็ก"
+      "customerTags": "จัดการแท็ก",
+      "customerOverview": "ภาพรวมข้อมูลลูกค้า",
+      "customerRules": "กฎข้อมูล"
     },
     "areas": {
       "home": "หน้าแรก",

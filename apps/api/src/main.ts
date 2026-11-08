@@ -5,6 +5,7 @@ import {
 import { Customer360TagCatalogController } from './customer-360-tag-catalog-api.js';
 import { Customer360Controller, CUSTOMER_360_DATABASE } from './customer-360-api.js';
 import { Customer360OperatorController } from './customer-360-operator-api.js';
+import { Customer360OverviewController } from './customer-360-overview-api.js';
 import { Customer360ReadController } from './customer-360-read-api.js';
 import {
   CUSTOMER_360_WRITE_RUNTIME,
@@ -392,6 +393,7 @@ class WorkspaceSessionController {
     Customer360TagCatalogController,
     Customer360OperatorController,
     Customer360ReadController,
+    Customer360OverviewController,
     TenantVoiceCatalogController,
     TenantPeopleController,
     WorkspaceSessionController,
