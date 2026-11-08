@@ -94,6 +94,8 @@ test('C5 durable auth: PostgreSQL/RLS, epoch CAS, reauth และ Voice lease i
       assert.equal(await leases.revokeForAuth(actor, leaseId, 'actual-revoke', binding), false);
       assert.equal((await row()).authState, 'REAUTH_REQUIRED');
       assert.equal((await row()).authEpoch, 1n);
+      assert.equal(await service.invalidateCaptured(binding, 'DUPLICATE_CALLBACK'), true);
+      assert.equal((await row()).authEpoch, 1n, 'tuple ที่ invalidate แล้วไม่ bump epoch ซ้ำ');
       assert.equal(
         (await f.owner.agentWorkSessionLease.findUniqueOrThrow({ where: { id: leaseId } }))
           .releasedAt,
