@@ -173,4 +173,8 @@ test('M1 Rules: writer registry unavailable เป็น 503 ไม่ส่ง 
   assert.equal(r.status, 503);
   assert.equal(r.body.error.code, 'RULES_UNAVAILABLE');
   assert.equal(r.body.fields, undefined);
+  f.tagRuntime.ready = false;
+  for (const path of ['overview/customers', 'overview/tags', 'field-rules']) {
+    assert.equal((await f.request(`customer-360/${path}`, 'admin')).status, 503, path);
+  }
 });

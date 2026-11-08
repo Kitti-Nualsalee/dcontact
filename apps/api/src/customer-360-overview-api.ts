@@ -71,7 +71,10 @@ export class Customer360OverviewController {
   @Get('overview/customers')
   @Header('Cache-Control', 'no-store')
   customers(@Req() req: AuthenticatedGatewayRequest, @Query() query: Record<string, unknown>) {
-    return this.read(req, query, (tx, actor) => countC360AccessibleDirectory(tx, actor));
+    return this.read(req, query, (tx, actor) => {
+      if (!this.catalog.ready) throw new Customer360HttpError(503, 'SCOPE_UNAVAILABLE', true);
+      return countC360AccessibleDirectory(tx, actor);
+    });
   }
   @Get('overview/tags')
   @Header('Cache-Control', 'no-store')
@@ -85,7 +88,8 @@ export class Customer360OverviewController {
   @Header('Cache-Control', 'no-store')
   rules(@Req() req: AuthenticatedGatewayRequest, @Query() query: Record<string, unknown>) {
     return this.read(req, query, async () => {
-      if (!this.writer.ready) throw new Customer360HttpError(503, 'RULES_UNAVAILABLE', true);
+      if (!this.writer.ready || !this.catalog.ready)
+        throw new Customer360HttpError(503, 'RULES_UNAVAILABLE', true);
       return { ...c360ProfileFieldRules(), asOf: new Date().toISOString() };
     });
   }
