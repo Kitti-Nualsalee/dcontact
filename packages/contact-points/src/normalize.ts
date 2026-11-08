@@ -50,6 +50,11 @@ function wellFormed(value: string): boolean {
   return !/\p{Cs}/u.test(value);
 }
 
+/** ใช้ metadata รุ่นเดียวกับ C4 เพื่อตรวจประเทศที่ผู้ใช้ระบุ ไม่อนุมานจาก locale */
+export function isC360SupportedPhoneCountry(value: unknown): value is CountryCode {
+  return typeof value === 'string' && /^[A-Z]{2}$/.test(value) && isSupportedCountry(value);
+}
+
 /** E1 C PHONE: whole-input, international หรือประเทศที่เลือกชัดเจน, ห้ามตัดส่วนใดทิ้ง */
 export function normalizeC360Phone(
   value: unknown,
@@ -62,9 +67,7 @@ export function normalizeC360Phone(
   if (/[:;]/.test(value)) throw new C360ContactPointError('PHONE_INVALID');
   let country: CountryCode | undefined;
   if (explicitCountry !== null && explicitCountry !== undefined) {
-    if (typeof explicitCountry !== 'string' || !/^[A-Z]{2}$/.test(explicitCountry))
-      throw new C360ContactPointError('PHONE_COUNTRY_UNSUPPORTED');
-    if (!isSupportedCountry(explicitCountry))
+    if (!isC360SupportedPhoneCountry(explicitCountry))
       throw new C360ContactPointError('PHONE_COUNTRY_UNSUPPORTED');
     country = explicitCountry;
   }
