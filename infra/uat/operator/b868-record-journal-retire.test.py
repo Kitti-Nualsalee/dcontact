@@ -173,6 +173,14 @@ m.retire(Path(sys.argv[2]), sys.argv[3], sys.argv[4])
         self.assertTrue(self.journal.exists())
         self.assertEqual((self.deployments / 'current.json').read_bytes(), b'foreign')
 
+    def test_retirement_refuses_unknown_archive_hard_link(self):
+        other = self.root / 'unknown-archive-link'
+        os.link(self.deployments / self.archive, other)
+        with self.assertRaisesRegex(RuntimeError, 'RETIRE_ARCHIVE_ALIAS_REQUIRES_REVIEW'):
+            self.retire()
+        self.assertEqual(other.read_bytes(), self.desired)
+        self.assertTrue(self.journal.exists())
+
     def test_same_desired_bytes_do_not_allow_different_intent(self):
         intent = json.loads((self.journal / 'intent.json').read_bytes())
         intent['archive'] = '20261106T120001Z-' + 'a' * 40 + '.json'

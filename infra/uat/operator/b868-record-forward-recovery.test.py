@@ -125,17 +125,16 @@ class ForwardRecoveryTest(unittest.TestCase):
         self.assertFalse((self.journal / 'forward-postcheck.pending').exists())
 
     def test_partial_pointer_write_can_resume_with_fresh_reviewed_observation(self):
-        original_replace, calls = os.replace, 0
+        original_replace = os.replace
         def replace(source, destination, *args, **kwargs):
-            nonlocal calls
-            calls += 1
-            if calls == 2:
+            if Path(destination).name == 'current.json':
                 raise OSError('injected pointer interruption')
             return original_replace(source, destination, *args, **kwargs)
         with patch.object(os, 'replace', side_effect=replace):
             with self.assertRaises(OSError):
                 self.recover()
         self.assert_gate_retained()
+        self.assertEqual((self.deployments / 'previous.json').read_bytes(), self.fixture.current)
         result = self.recover()
         self.assertTrue(result['retirementRequired'])
         self.assertEqual((self.deployments / 'previous.json').read_bytes(), self.fixture.current)

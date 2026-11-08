@@ -187,6 +187,8 @@ marker และ snapshots ทั้งหมด แล้วเก็บ journa
 เมื่อข้อมูลตรงจึงเขียน archive → previous จาก snapshot → current → committed marker แบบ atomic พร้อม
 fsync/readback โดยคง journal ไว้ หาก postcheck หรือหลักฐานหมดอายุหลังเขียน จะคง `forward-postcheck.pending`
 ให้ retirement หยุด ต้องตรวจและอนุมัติ observation ปัจจุบันใหม่ก่อน retry ไม่ใช้ไฟล์เก่าหรือข้าม gate
+staging ของ archive ผูกกับ journal เพื่อเก็บ hard link ที่ค้างจากการขัดจังหวะได้อย่างระบุเจ้าของ
+หากยังพบ alias ของ archive ที่ไม่อยู่ในขอบเขตนี้ จะหยุดให้ตรวจ ไม่ลบไฟล์อื่นเพื่อให้ผ่าน
 
 หลัง postcheck ผ่านจะเก็บ `forward-postcheck.json` ที่ผูก intent/request/evidence แล้วจึงถอนเกต postcheck
 ผล `RECORD_TRANSACTION_COMMITTED_PENDING_RETIREMENT` ต้องเรียก retirement แยกต่อ ซึ่งตรวจหลักฐานนี้ด้วย

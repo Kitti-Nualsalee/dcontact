@@ -190,8 +190,36 @@ m.complete_locked(sys.argv[2], sys.argv[3])
                                 capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 91, result.stderr)
         self.assertTrue(self.journal.exists())
+        self.assertEqual(self.archive.stat().st_nlink, 2)
+        self.assertTrue((self.journal / 'forward-archive-staging.json').exists())
         self.complete()
         self.assert_complete()
+        self.assertEqual(self.archive.stat().st_nlink, 1)
+        self.assertFalse((self.journal / 'forward-archive-staging.json').exists())
+        spec = importlib.util.spec_from_file_location('crash_retire', Path(__file__).with_name('b868-record-journal-retire.py'))
+        retire = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(retire)
+        self.lock.close()
+        result = retire.retire(self.root, self.sha(self.desired), self.intent_sha)
+        self.assertEqual(result['status'], 'COMMITTED_JOURNAL_RETAINED')
+        self.assertEqual(self.archive.stat().st_nlink, 1)
+
+    def test_unknown_archive_alias_is_preserved_and_blocks_completion(self):
+        self.complete()
+        other = self.root / 'unknown-archive-link'
+        os.link(self.archive, other)
+        with self.assertRaisesRegex(RuntimeError, 'ARCHIVE_ALIAS_REQUIRES_REVIEW'):
+            self.complete()
+        self.assertEqual(other.read_bytes(), self.desired)
+        self.assertTrue(self.journal.exists())
+
+    def test_foreign_owned_staging_is_not_overwritten_or_deleted(self):
+        staging = self.journal / 'forward-archive-staging.json'
+        self.put(staging, b'foreign')
+        with self.assertRaisesRegex(RuntimeError, 'ARCHIVE_STAGING_CHANGED'):
+            self.complete()
+        self.assertEqual(staging.read_bytes(), b'foreign')
+        self.assertFalse(self.archive.exists())
 
 
 if __name__ == '__main__':

@@ -101,23 +101,38 @@ def complete_locked(root, expected_intent_sha256):
             finally:
                 os.close(fd)
     _sync_directory(journal)
+    archive_staging = journal / 'forward-archive-staging.json'
     if observed[0] is None:
         check()
-        fd, staging = tempfile.mkstemp(prefix='.uat-record-recovery-archive-', dir=deployments)
-        with os.fdopen(fd, 'wb') as stream:
-            stream.write(desired)
-            stream.flush()
-            os.fsync(stream.fileno())
+        if os.path.lexists(archive_staging):
+            if JOURNAL.read_private(archive_staging) != desired:
+                raise RuntimeError('COMMIT_ARCHIVE_STAGING_CHANGED')
+        else:
+            fd, staging = tempfile.mkstemp(prefix='.forward-archive-pending-', dir=journal)
+            with os.fdopen(fd, 'wb') as stream:
+                stream.write(desired)
+                stream.flush()
+                os.fsync(stream.fileno())
+            check()
+            if os.path.lexists(archive_staging):
+                raise RuntimeError('COMMIT_ARCHIVE_STAGING_CHANGED')
+            os.replace(staging, archive_staging)
+            _sync_directory(journal)
         check()
-        os.link(staging, archive, follow_symlinks=False)
+        os.link(archive_staging, archive, follow_symlinks=False)
         _sync_directory(deployments)
         if JOURNAL.read_private(archive) != desired:
             raise RuntimeError('COMMIT_READBACK_MISMATCH')
         observed = (desired, *observed[1:])
+    if os.path.lexists(archive_staging):
         check()
-        # เก็บ archive แล้วจึงถอนเฉพาะ staging ที่คำสั่งนี้สร้างเอง
-        os.unlink(staging)
-        _sync_directory(deployments)
+        if JOURNAL.read_private(archive_staging) != desired:
+            raise RuntimeError('COMMIT_ARCHIVE_STAGING_CHANGED')
+        # path นี้เป็น staging ของ transaction ใน journal; retry เก็บ alias เดิมได้
+        os.unlink(archive_staging)
+        _sync_directory(journal)
+    if os.stat(archive, follow_symlinks=False).st_nlink != 1:
+        raise RuntimeError('COMMIT_ARCHIVE_ALIAS_REQUIRES_REVIEW')
     if observed[1] != expected_previous:
         replace(deployments / 'previous.json', expected_previous)
         observed = (observed[0], expected_previous, *observed[2:])

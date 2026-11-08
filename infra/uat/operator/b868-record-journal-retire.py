@@ -93,6 +93,8 @@ def retire(root, expected_desired_sha256, expected_intent_sha256):
             raise RuntimeError('RETIRE_DESIRED_CHANGED')
         if not state['markerPresent'] or state['current'] != 'desired':
             raise RuntimeError('RETIRE_COMMITTED_TRANSACTION_REQUIRED')
+        if os.stat(root / 'deployments' / intent['archive'], follow_symlinks=False).st_nlink != 1:
+            raise RuntimeError('RETIRE_ARCHIVE_ALIAS_REQUIRES_REVIEW')
         snapshots = intent['snapshots']
         expected_previous = snapshots['current.json'] if snapshots['current.json'] is not None else snapshots['previous.json']
         if JOURNAL.optional_digest(root / 'deployments/previous.json') != expected_previous:
