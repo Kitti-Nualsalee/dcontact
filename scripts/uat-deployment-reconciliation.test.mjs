@@ -51,6 +51,30 @@ test('#868 retire journal เก็บ transaction ที่ commit ครบโ
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('#868 forward commit กู้ลำดับ pointer โดยคง journal เป็น gate', () => {
+  const result = spawnSync(
+    'python3',
+    ['-B', resolve('infra/uat/operator/b868-record-commit.test.py')],
+    {
+      encoding: 'utf8',
+      timeout: 30000,
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('#868 forward recovery ตรวจหลักฐานที่อนุมัติและ live ledger ก่อนเก็บ journal', () => {
+  const result = spawnSync(
+    'python3',
+    ['-B', resolve('infra/uat/operator/b868-record-forward-recovery.test.py')],
+    {
+      encoding: 'utf8',
+      timeout: 30000,
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test('#868 legacy inventory แยก marker จาก provenance', () => {
   const result = spawnSync(
     'python3',

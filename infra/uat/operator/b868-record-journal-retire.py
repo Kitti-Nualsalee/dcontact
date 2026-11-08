@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import tempfile
 
@@ -37,6 +38,34 @@ def sync_directory(path):
         os.close(descriptor)
 
 
+def forward_evidence(journal, expected_intent_sha256, expected_desired_sha256):
+    path = journal / 'forward-postcheck.json'
+    if not os.path.lexists(path) and not any(journal.glob('forward-request-*.json')):
+        return {}
+    raw = JOURNAL.read_private(path)
+    report = json.loads(raw)
+    if (not isinstance(report, dict) or report.get('schema') != 'UatForwardPostcheckV1'
+            or report.get('status') != 'MATCHED_LIVE_RECORD_EVIDENCE'
+            or report.get('rollbackCertified') is not False
+            or report.get('intentSha256') != expected_intent_sha256
+            or report.get('desiredSha256') != expected_desired_sha256
+            or not isinstance(report.get('request'), str)
+            or not re.fullmatch(r'forward-request-[A-Za-z0-9_-]+\.json', report['request'])
+            or any(not re.fullmatch('[0-9a-f]{64}', str(report.get(name, ''))) for name in
+                   ('requestSha256', 'evidenceSha256', 'opsObservationSha256', 'ledgerSha256', 'protectedRuntimeSha256'))):
+        raise RuntimeError('RETIRE_FORWARD_EVIDENCE_INVALID')
+    request_raw = JOURNAL.read_private(journal / report['request'])
+    request = json.loads(request_raw)
+    if (JOURNAL.digest(request_raw) != report['requestSha256'] or not isinstance(request, dict)
+            or request.get('schema') != 'UatForwardRecordRequestV1'
+            or request.get('decision') != 'FORWARD_COMPLETE_RECORD_ONLY'
+            or request.get('intentSha256') != expected_intent_sha256
+            or request.get('desiredSha256') != expected_desired_sha256
+            or request.get('evidenceSha256') != report['evidenceSha256']):
+        raise RuntimeError('RETIRE_FORWARD_EVIDENCE_INVALID')
+    return {'forward-postcheck.json': raw, report['request']: request_raw}
+
+
 def retire(root, expected_desired_sha256, expected_intent_sha256):
     root = Path(root)
     operator = root / 'operator'
@@ -53,6 +82,8 @@ def retire(root, expected_desired_sha256, expected_intent_sha256):
         for name in ('uat-rollback.pending', 'b714-reconciliation.pending', 'uat-record-retirement.pending'):
             if os.path.lexists(operator / name):
                 raise RuntimeError('OTHER_TRANSACTION_PENDING')
+        if os.path.lexists(operator / 'uat-record-transaction/forward-postcheck.pending'):
+            raise RuntimeError('FORWARD_POSTCHECK_REQUIRED')
         state = JOURNAL.inspect_locked(root)
         intent_raw = JOURNAL.read_private(operator / 'uat-record-transaction/intent.json')
         if JOURNAL.digest(intent_raw) != expected_intent_sha256:
@@ -66,6 +97,8 @@ def retire(root, expected_desired_sha256, expected_intent_sha256):
         expected_previous = snapshots['current.json'] if snapshots['current.json'] is not None else snapshots['previous.json']
         if JOURNAL.optional_digest(root / 'deployments/previous.json') != expected_previous:
             raise RuntimeError('RETIRE_PREVIOUS_NOT_COMMITTED')
+        proof_files = forward_evidence(operator / 'uat-record-transaction', expected_intent_sha256,
+                                       expected_desired_sha256)
         # rename เก็บ intent/snapshots ทั้ง directory: ไม่ลบหลักฐาน ไม่แตะ deployment pointer
         destination = Path(tempfile.mkdtemp(prefix='uat-record-completed-', dir=operator))
         pending = operator / 'uat-record-retirement.pending'
@@ -88,6 +121,8 @@ def retire(root, expected_desired_sha256, expected_intent_sha256):
             for name, expected in snapshots.items():
                 if expected is not None:
                     sync_private(journal / name, expected)
+            for name, raw in proof_files.items():
+                sync_private(journal / name, JOURNAL.digest(raw))
             sync_directory(journal)
             deployments = root / 'deployments'
             sync_private(deployments / intent['archive'], expected_desired_sha256)
@@ -98,7 +133,8 @@ def retire(root, expected_desired_sha256, expected_intent_sha256):
             sync_private(deployments / (intent['archive'] + '.committed'), marker_sha)
             sync_directory(deployments)
             if (JOURNAL.inspect_locked(root) != state
-                    or JOURNAL.read_private(operator / 'uat-record-transaction/intent.json') != intent_raw):
+                    or JOURNAL.read_private(operator / 'uat-record-transaction/intent.json') != intent_raw
+                    or any(JOURNAL.read_private(journal / name) != raw for name, raw in proof_files.items())):
                 raise RuntimeError('RETIRE_JOURNAL_CHANGED')
             os.rename(operator / 'uat-record-transaction', destination)
             os.fsync(parent)
@@ -108,6 +144,8 @@ def retire(root, expected_desired_sha256, expected_intent_sha256):
             for name, expected in snapshots.items():
                 if JOURNAL.optional_digest(destination / name) != expected:
                     raise RuntimeError('RETIRE_READBACK_MISMATCH')
+            if any(JOURNAL.read_private(destination / name) != raw for name, raw in proof_files.items()):
+                raise RuntimeError('RETIRE_READBACK_MISMATCH')
             # ทุก record/snapshot/marker และ directory ที่เกี่ยวข้อง durable แล้ว
             # unlink เป็นจุดจบของ gate; crash หลังจุดนี้อาจทำให้ gate กลับมา แต่ข้อมูลครบ
             os.unlink(pending)

@@ -1,4 +1,5 @@
 import copy
+import fcntl
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
@@ -85,6 +86,18 @@ class RecoveryRuntimeTest(unittest.TestCase):
         self.assertFalse(result['protectedRuntimeVerified'])
         self.assertFalse(result['recoveryAuthorized'])
         self.assertNotIn('DO_NOT_DISCLOSE', json.dumps(result))
+
+    def test_writer_can_reuse_assessment_without_releasing_exclusive_lock(self):
+        path = self.operator / 'b714-cutover.lock'
+        with path.open('r') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaises(BlockingIOError):
+                MODULE.assess(self.root, self.probe, self.execute)
+            result = MODULE._assess_locked(self.root, self.probe, self.execute)
+            self.assertEqual(result['status'], 'RUNTIME_MATCH_OBSERVED_NOT_CERTIFIED')
+            with path.open('r') as reader:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(reader, fcntl.LOCK_SH | fcntl.LOCK_NB)
 
     def test_mixed_runtime_and_wrong_ops_fail(self):
         self.observed['components']['proxy']['sourceSha'] = 'f' * 40

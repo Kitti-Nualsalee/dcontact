@@ -168,3 +168,27 @@ marker และ snapshots ทั้งหมด แล้วเก็บ journa
 `cleanupDurable=false` และ `RETIRE_GATE_REMOVAL_DURABILITY_UNKNOWN`; gate อาจกลับมาหลัง reboot
 จึงต้องตรวจอีกครั้ง ผล `COMMITTED_JOURNAL_RETAINED` ไม่รับรอง provenance ของ release หรือ rollback:
 `runtimeVerified` และ `rollbackCertified` ยังคงเป็น `false` การทดสอบ process exit ไม่ใช่การทดสอบ power loss
+
+### #868: กู้ record transaction ที่ commit ไม่ครบ
+
+`b868-record-forward-recovery.py --apply` ใช้เฉพาะ `deploy` record V1 ที่ runtime ทั้งสี่ component
+ตรงกับ desired ใน journal และมี current/previous อยู่แล้ว กรณี rollback, mixed source หรือไม่มี pointer
+ที่หลักฐานต้องใช้จะถูกปฏิเสธ ไม่ผ่อน validator เพื่อให้ผ่าน
+
+ผู้เรียกต้องส่ง `--evidence` เป็นไฟล์ส่วนตัวใต้ `/opt/dcontact-uat/operator`,
+`--approved-evidence-sha256` ของ canonical JSON และ `--approved-intent-sha256` ของ intent bytes
+ที่ owner อนุมัติจากการ review อิสระ พร้อม `--actor operator:<ชื่อ>` ตัว hash ตรวจเพียงความตรงของ
+ข้อมูล และ actor เป็น audit label; CLI ไม่ได้พิสูจน์ตัวตนหรือสร้าง approval ให้เอง หลักฐานมีอายุไม่เกิน 300 วินาที
+
+คำสั่งถือ exclusive lock ตลอด ตรวจ runtime/ops และอ่าน protected runtime กับ migration ledger สดก่อน–หลัง
+การเขียน โดยใช้ helper และ collector จาก bytes ที่ตรงกับ hash ที่ pin ไว้ การอ่าน ledger ใช้ probe container
+แบบ read-only ชั่วคราวที่จำกัดทรัพยากรและตรวจ ownership ตอน cleanup ไม่เปลี่ยน application containers หรือข้อมูลแอป
+
+เมื่อข้อมูลตรงจึงเขียน archive → previous จาก snapshot → current → committed marker แบบ atomic พร้อม
+fsync/readback โดยคง journal ไว้ หาก postcheck หรือหลักฐานหมดอายุหลังเขียน จะคง `forward-postcheck.pending`
+ให้ retirement หยุด ต้องตรวจและอนุมัติ observation ปัจจุบันใหม่ก่อน retry ไม่ใช้ไฟล์เก่าหรือข้าม gate
+
+หลัง postcheck ผ่านจะเก็บ `forward-postcheck.json` ที่ผูก intent/request/evidence แล้วจึงถอนเกต postcheck
+ผล `RECORD_TRANSACTION_COMMITTED_PENDING_RETIREMENT` ต้องเรียก retirement แยกต่อ ซึ่งตรวจหลักฐานนี้ด้วย
+หาก `postcheckGateCleanupDurable=false` เกตอาจกลับมาหลัง reboot ต้องตรวจซ้ำ ผลทั้งหมดนี้ไม่รับรอง compatible
+rollback และไม่สร้าง smoke PASS, realm receipt หรือ final C
