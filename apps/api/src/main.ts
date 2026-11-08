@@ -120,7 +120,11 @@ import { S3RecordingStorage } from './s3-recording-storage.js';
 import { S3GovernanceExportStorage } from './s3-governance-export-storage.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
 import { KafkaQmJobPublisher } from './qm-job-publisher.js';
-import { AgentWorkspaceController, AGENT_WORKSPACE_DATABASE } from './agent-workspace-api.js';
+import {
+  AgentWorkspaceController,
+  AGENT_WORKSPACE_DATABASE,
+  AGENT_WORKSPACE_CUSTOMER_AVAILABLE,
+} from './agent-workspace-api.js';
 import {
   AGENT_SIP_CREDENTIALS,
   configuredAgentSipCredentialService,
@@ -371,6 +375,7 @@ const c360WorkAuth =
         }),
       )
     : undefined;
+const c360WriteRuntime = createC360WriteRuntime();
 const socketAdapter = new WorkspaceSessionWebSocketAdapter(
   gateway,
   tenantScope,
@@ -458,7 +463,11 @@ class WorkspaceSessionController {
     { provide: TENANT_CORE_DATABASE, useValue: prisma },
     { provide: CUSTOMER_360_DATABASE, useValue: prisma },
     { provide: CUSTOMER_360_TAG_RUNTIME, useValue: createC360TagCatalogRuntime() },
-    { provide: CUSTOMER_360_WRITE_RUNTIME, useValue: createC360WriteRuntime() },
+    { provide: CUSTOMER_360_WRITE_RUNTIME, useValue: c360WriteRuntime },
+    {
+      provide: AGENT_WORKSPACE_CUSTOMER_AVAILABLE,
+      useValue: Boolean(c360WorkAuth && c360WriteRuntime.ready),
+    },
     { provide: CUSTOMER_360_SEARCH_LIMITER, useValue: c360SearchLimiter },
     { provide: TENANT_VOICE_DATABASE, useValue: prisma },
     {

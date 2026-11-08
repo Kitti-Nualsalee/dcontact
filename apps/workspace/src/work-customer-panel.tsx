@@ -43,7 +43,7 @@ export function WorkCustomerPanel({
     | 'empty'
   >('');
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<{ displayName: string; company: string }>();
+  const [draft, setDraft] = useState<{ contactId: string; displayName: string; company: string }>();
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<'PHONE' | 'EMAIL'>('PHONE');
   const [items, setItems] = useState<WorkCandidate[]>([]);
@@ -58,12 +58,15 @@ export function WorkCustomerPanel({
     setItems([]);
     setChoice(undefined);
     setQuery('');
+    setCursor(null);
+    setReason('');
     setStatus('blocked');
   }
   async function load(epoch = stamp.current) {
     try {
       const next = await api.read(workId, leaseId);
       if (epoch !== stamp.current) return;
+      setDraft((current) => (current?.contactId === next.contact?.id ? current : undefined));
       setView(next);
       setStatus('ready');
     } catch {
@@ -142,6 +145,7 @@ export function WorkCustomerPanel({
   }
   async function save(operation: 'link' | 'update') {
     if (!view || busy || pending) return;
+    if (operation === 'update' && (!draft || draft.contactId !== view.contact?.id)) return;
     const epoch = stamp.current;
     const commandId = crypto.randomUUID();
     remember(commandId);
@@ -155,7 +159,8 @@ export function WorkCustomerPanel({
               expectedLinkageRevision: view.linkageRevision,
               expectedProfileRevision: view.revisions?.profile,
               expectedLineageRevision: view.revisions?.lineage,
-              ...draft,
+              displayName: draft?.displayName,
+              company: draft?.company,
             }
           : {
               commandId,
@@ -266,6 +271,7 @@ export function WorkCustomerPanel({
                 <Button
                   onPress={() =>
                     setDraft({
+                      contactId: view.contact!.id,
                       displayName: view.contact?.displayName ?? '',
                       company: view.contact?.company ?? '',
                     })

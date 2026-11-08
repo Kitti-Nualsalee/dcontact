@@ -21,7 +21,7 @@ type WorkTestBody = {
   canEdit: boolean;
 };
 /** HTTP/PG/RLS ใช้ verifier/introspection สังเคราะห์; actual Keycloak อยู่ boundary แยก */
-async function fixture() {
+async function fixture(options: { voiceNoteWrapup?: boolean } = {}) {
   let online = true;
   let shortProof = false;
   let service!: C360WorkAuthService;
@@ -51,6 +51,16 @@ async function fixture() {
     { surface: 'workspace', hostOrigin: null },
     'work-fixture',
   );
+  const queue = options.voiceNoteWrapup
+    ? await f.owner.queue.create({
+        data: {
+          tenantId: f.tenantId,
+          name: 'C5 Voice trial',
+          channels: ['VOICE'],
+          voiceWrapupPolicy: 'VOICE_NOTE_V1',
+        },
+      })
+    : null;
   const interactionId = randomUUID();
   await f.owner.interaction.create({
     data: {
@@ -60,6 +70,7 @@ async function fixture() {
       channel: 'VOICE',
       direction: 'INBOUND',
       state: 'ACTIVE',
+      ...(queue ? { queueId: queue.id } : {}),
     },
   });
   await f.scopes.grant({
@@ -358,4 +369,55 @@ test('C5 relink/detach: reason+confirmation, history/audit atomically และ�
     (await f.call(`commands/${firstId}`, undefined, 'GET', 'agent', another)).status,
     404,
   );
+});
+
+test('C5 กับ Voice wrap-up owner: link ก่อนจบงานได้ แต่คำสั่งใหม่หลังจบงานถูกปฏิเสธ', async (t) => {
+  const f = await fixture({ voiceNoteWrapup: true });
+  t.after(() => f.close());
+  const actor = { tenantId: f.tenantId, userId: f.actors.get('agent')!.id };
+  const { saveAgentWrapup } = await import('./agent-wrapup-v1.js');
+  const finish = (id: string) =>
+    saveAgentWrapup(f.db, actor, id, {
+      commandId: randomUUID(),
+      disposition: 'CUSTOMER_ASSISTED',
+      note: 'ผลทดสอบการจบงาน',
+    });
+  await f.owner.interaction.update({
+    where: { id: f.interactionId },
+    data: { state: 'WRAPUP', endedAt: new Date() },
+  });
+  const candidate = (await f.search()).body.items[0]!.candidateRef;
+  const applied = await f.call('customer-link', {
+    commandId: randomUUID(),
+    expectedLinkageRevision: '0',
+    candidateRef: candidate,
+  });
+  assert.equal(applied.status, 200);
+  await finish(f.interactionId);
+  const completed = await f.owner.interaction.findUniqueOrThrow({ where: { id: f.interactionId } });
+  assert.equal(completed.state, 'COMPLETED');
+  assert.equal(completed.contactId, f.contactId);
+  assert.equal(completed.customerLinkRevision, 1n);
+  const rejectedId = randomUUID();
+  const rejected = await f.call('customer-link', {
+    commandId: rejectedId,
+    expectedLinkageRevision: '1',
+    candidateRef: null,
+    reason: 'ทดสอบหลังจบงาน',
+    confirmed: true,
+  });
+  assert.equal(rejected.status, 409);
+  assert.equal(
+    await f.owner.c360InteractionCustomerChange.count({ where: { tenantId: f.tenantId } }),
+    1,
+  );
+  assert.equal(
+    await f.owner.c360ProfileCommandReceipt.count({
+      where: { tenantId: f.tenantId, commandId: rejectedId },
+    }),
+    0,
+  );
+  const read = await f.call('customer');
+  assert.equal(read.status, 200);
+  assert.equal(read.body.canEdit, false);
 });

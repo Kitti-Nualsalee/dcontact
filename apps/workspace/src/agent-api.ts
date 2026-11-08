@@ -2,7 +2,7 @@ import { createWorkCustomerApi, type WorkCustomerApi } from './work-customer-api
 import type { SipCredentialLease } from './dphone/dphone.js';
 
 export interface AgentWorkspaceSnapshot {
-  capabilities?: { voiceWrapupV1?: number };
+  capabilities?: { voiceWrapupV1?: number; workCustomerV1?: number };
   agent: {
     id: string;
     displayName: string;

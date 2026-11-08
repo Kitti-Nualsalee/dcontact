@@ -85,7 +85,20 @@ async function fixture(
     return route.fulfill({ json: view });
   });
   await page.goto('/?view=customer-trial');
-  return { mutations: () => mutations };
+  return {
+    mutations: () => mutations,
+    replaceLinkedContact: () => {
+      view = {
+        ...linked(),
+        linkageRevision: '2',
+        contact: {
+          id: '55555555-5555-4555-8555-555555555555',
+          displayName: 'ลูกค้าคนใหม่',
+          company: null,
+        },
+      };
+    },
+  };
 }
 async function privateDraft(page: Page, value: string) {
   expect(decodeURIComponent(page.url())).not.toContain(value);
@@ -160,4 +173,21 @@ test('admissionค้างแต่ไม่มีeffect ต้องreconcile 
   await expect(page.getByText('คำสั่งเดิมไม่มีผลบันทึก ตรวจร่างก่อนส่งใหม่')).toBeVisible();
   await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ร่างที่ยังไม่บันทึก');
   await expect(page.getByRole('button', { name: 'บันทึกลูกค้า' })).toBeEnabled();
+});
+
+test('ร่างของลูกค้าคนเดิมไม่ย้ายไปคนใหม่เมื่องานเดิมเปลี่ยน linkage ระหว่าง reauth', async ({
+  page,
+}) => {
+  const f = await fixture(page);
+  await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill('ร่างของคนเดิม');
+  await page.getByRole('button', { name: 'Pause fixture' }).click();
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
+  f.replaceLinkedContact();
+  await page.getByRole('button', { name: 'Resume fixture' }).click();
+  await expect(page.getByText('ลูกค้าคนใหม่', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveCount(0);
+  await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ลูกค้าคนใหม่');
+  expect(f.mutations()).toBe(0);
 });

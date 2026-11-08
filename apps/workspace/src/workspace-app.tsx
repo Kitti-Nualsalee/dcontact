@@ -1505,6 +1505,7 @@ function AgentWorkspace({
         </TabList>
         <TabPanel id="overview" className="aw-detail-panel">
           {api?.customer &&
+          snapshot?.capabilities?.workCustomerV1 === 1 &&
           snapshot?.interaction &&
           ['ACTIVE', 'WRAPUP'].includes(snapshot.interaction.state) &&
           customerLease.current ? (
@@ -1538,7 +1539,7 @@ function AgentWorkspace({
         </TabPanel>
         <TabPanel id="recent" className="aw-detail-panel">
           {savedPanel ?? <p className="aw-copy">{t('layout.recentEmpty')}</p>}
-          {api?.customer && savedWrapup ? (
+          {api?.customer && snapshot?.capabilities?.workCustomerV1 === 1 && savedWrapup ? (
             <WorkCustomerPanel
               key={`${identityKey}:completed:${savedWrapup.interactionId}`}
               api={api.customer}
