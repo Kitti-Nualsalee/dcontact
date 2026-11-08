@@ -1,3 +1,5 @@
+import { CustomerOverviewPage } from './customer-overview/customer-overview-page.js';
+import { createCustomerOverviewApi } from './customer-overview/api.js';
 import { VoiceRoutingPage } from './voice-routing/voice-routing-page.js';
 import { TenantPeoplePage } from './tenant-people/tenant-people.js';
 import { createPeopleApi } from './tenant-people/api.js';
@@ -205,6 +207,25 @@ function ConsoleE2eRoot() {
           accessToken: () => 'e2e-access-token',
         })}
         identityKey="e2e-customers"
+      />
+    );
+  if (view === 'customer-overview' || view === 'customer-rules')
+    return (
+      <CustomerOverviewPage
+        mode={view === 'customer-rules' ? 'rules' : 'overview'}
+        signedIn={true}
+        onSignIn={() => undefined}
+        identityKey="e2e-overview"
+        shell={{
+          ...e2eShellUser(url.searchParams.get('tenant') ?? undefined),
+          apiBaseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+          tenantAlias: url.searchParams.get('tenant') ?? undefined,
+        }}
+        api={createCustomerOverviewApi({
+          baseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+        })}
       />
     );
   if (view === 'customer-tags')

@@ -140,10 +140,12 @@ async function domainVisibleApps(
   )
     apps = apps.filter((app) => app.id !== 'core-settings');
   if (
-    apps.some((app) => app.id === 'customer-tags') &&
+    apps.some((app) => ['customer-tags', 'customer-overview', 'customer-rules'].includes(app.id)) &&
     (await findTenantConfigurationActor(tx, { ...actor, caller }))?.role !== 'ADMIN'
   )
-    apps = apps.filter((app) => app.id !== 'customer-tags');
+    apps = apps.filter(
+      (app) => !['customer-tags', 'customer-overview', 'customer-rules'].includes(app.id),
+    );
   if (!apps.some((app) => app.id === 'agent-history')) return apps;
   const agent = await findActiveAgent(tx, actor);
   return agent ? apps : apps.filter((app) => app.id !== 'agent-history');
@@ -181,7 +183,9 @@ export class NavigationController {
   private get availableRegistry() {
     return this.tagRuntime?.ready
       ? this.registry
-      : this.registry.filter((app) => app.id !== 'customer-tags');
+      : this.registry.filter(
+          (app) => !['customer-tags', 'customer-overview', 'customer-rules'].includes(app.id),
+        );
   }
 
   @Get('me/navigation')

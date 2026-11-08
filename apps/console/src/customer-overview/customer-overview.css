@@ -1,0 +1,13 @@
+.cu-overview .cu-card {
+  margin-block: var(--dc-space-4);
+}
+.cu-overview dd {
+  margin-inline-start: var(--dc-space-4);
+  overflow-wrap: anywhere;
+}
+.cu-overview dt {
+  font-weight: var(--dc-font-weight-semibold);
+}
+.cu-overview dd p {
+  margin-block: var(--dc-space-2);
+}

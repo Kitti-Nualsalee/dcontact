@@ -18,9 +18,10 @@ import { c360IdentityFenceKey, fenceC360ContactMutation } from './profile-fences
 import { initializeC360IdentityHead } from './segment-membership-repository.js';
 import { C360_CONTACT_POINT_QUOTA } from './profile-points.js';
 
-export const C360_PROFILE_WRITE_VERSION = 'c360-profile-v1';
-export const C360_PROFILE_NAME_MAX = 160;
-export const C360_PROFILE_COMPANY_MAX = 200;
+import { C360_PROFILE_RULE_VERSION, C360_PROFILE_TEXT_RULES } from './profile-field-rules.js';
+export const C360_PROFILE_WRITE_VERSION = C360_PROFILE_RULE_VERSION;
+export const C360_PROFILE_NAME_MAX = C360_PROFILE_TEXT_RULES.displayName.maxCodeUnits;
+export const C360_PROFILE_COMPANY_MAX = C360_PROFILE_TEXT_RULES.company.maxCodeUnits;
 
 export class C360WriteValidationError extends Error {
   constructor(readonly fieldErrors: readonly { field: string; code: string }[]) {

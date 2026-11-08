@@ -1,3 +1,5 @@
+import { CustomerOverviewPage } from './customer-overview/customer-overview-page.js';
+import { createCustomerOverviewApi } from './customer-overview/api.js';
 import { clearCoreCommandReferences } from './core-settings/storage.js';
 import { CoreSettingsPage } from './core-settings/core-settings-page.js';
 import { createCoreApi } from './core-settings/api.js';
@@ -216,6 +218,7 @@ export function ConsoleAuthRoot() {
   // Cus360 C2 (#792): Customers + โปรไฟล์ (อ่านอย่างเดียว)
   const customersView = view === 'customers';
   const customerTagsView = view === 'customer-tags';
+  const customerOverviewView = view === 'customer-overview' || view === 'customer-rules';
   // #566: read-only ของ LINE pilot — มีเฉพาะ UAT ที่ใส่ overlay `uat-line` (ไม่มี = หน้าแจ้งว่าไม่ได้เปิด)
   const lineInboundView = view === 'line-inbound';
   // AC5 (#598): บัญชีของฉัน (ทุก role) และนโยบายบัญชี (admin)
@@ -235,6 +238,7 @@ export function ConsoleAuthRoot() {
       peopleView ||
       customersView ||
       customerTagsView ||
+      customerOverviewView ||
       coreSettingsView ||
       lineInboundView ||
       accountView
@@ -291,6 +295,12 @@ export function ConsoleAuthRoot() {
               <TenantPeopleSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : customersView ? (
               <CustomersSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : customerOverviewView ? (
+              <CustomerOverviewSurface
+                apiBaseUrl={apiBaseUrl}
+                tenantAlias={tenantAlias}
+                mode={view === 'customer-rules' ? 'rules' : 'overview'}
+              />
             ) : customerTagsView ? (
               <CustomerTagsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : historyView ? (
@@ -886,6 +896,62 @@ export function CustomerTagsSurface({
     );
   return (
     <CustomerTagsPage
+      api={api}
+      identityKey={retained.current}
+      signedIn={!!auth.isAuthenticated && !!token && !auth.error && !auth.isLoading}
+      onSignIn={() => {
+        void auth.signinSilent().catch(() => auth.signinPopup());
+      }}
+      shell={{
+        ...shellUserProps(auth, tenantAlias),
+        apiBaseUrl,
+        accessToken: () => tokenRef.current,
+        tenantAlias,
+      }}
+    />
+  );
+}
+
+export function CustomerOverviewSurface({
+  apiBaseUrl,
+  tenantAlias,
+  mode,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+  mode: 'overview' | 'rules';
+}) {
+  const auth = useAuth();
+  const { t } = useTranslation('customerOverview');
+  const token = auth.user?.access_token;
+  const tokenRef = useRef(token);
+  tokenRef.current = auth.isAuthenticated ? token : undefined;
+  const api = useMemo(
+    () => createCustomerOverviewApi({ baseUrl: apiBaseUrl, accessToken: () => tokenRef.current }),
+    [apiBaseUrl, token],
+  );
+  const retained = useRef('');
+  if (auth.isLoading && !retained.current) return <main aria-busy="true" />;
+  const profile = auth.user?.profile;
+  const identity = [profile?.iss, profile?.tenant_id, profile?.dc_user_id, profile?.sub];
+  if (
+    profile &&
+    (profile.iss !== auth.settings.authority ||
+      profile.tenant_slug !== tenantAlias ||
+      !identity.every((value) => typeof value === 'string' && value.length > 0))
+  )
+    return <main role="alert">{t('access')}</main>;
+  if (profile) retained.current = JSON.stringify(identity);
+  if (!retained.current)
+    return (
+      <main role="alert">
+        <p>{t('session')}</p>
+        <Button onPress={() => void signInFromCurrentPage(auth)}>{t('signIn')}</Button>
+      </main>
+    );
+  return (
+    <CustomerOverviewPage
+      mode={mode}
       api={api}
       identityKey={retained.current}
       signedIn={!!auth.isAuthenticated && !!token && !auth.error && !auth.isLoading}
