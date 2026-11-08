@@ -119,3 +119,22 @@ test('Activity OIDC: Supervisor เปิด deep link ไม่ได้', asyn
   await expect(page.getByRole('alert')).toContainText('โปรดติดต่อผู้ดูแล tenant');
   await expect(page.getByRole('grid', { name: 'กิจกรรมลูกค้า' })).toHaveCount(0);
 });
+
+test('Activity OIDC: กลับมาหน้าเดิมหลังถอนสิทธิ์ต้องอ่านสิทธิ์ใหม่', async ({ page, request }) => {
+  expect((await request.post('/__core_test/activity/seed')).ok()).toBe(true);
+  await login(page, request);
+  const grid = page.getByRole('grid', { name: 'กิจกรรมลูกค้า' });
+  await expect(grid.getByRole('row')).toHaveCount(51);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(grid).toHaveCount(0);
+  expect((await request.post('/__core_test/revoke')).ok()).toBe(true);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.getByRole('alert')).toContainText('โปรดติดต่อผู้ดูแล tenant');
+  await expect(grid).toHaveCount(0);
+});

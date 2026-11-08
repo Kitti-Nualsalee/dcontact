@@ -321,12 +321,13 @@ test('Activity stale IAM is 503 and matching coverage is never inferred from aud
     permission: 'VIEW',
     correlationId: 'activity-scope',
   });
-  await auditFixture(f, f.contactId, 'CONTACT_UPDATE');
-  await auditFixture(f, f.contactId, 'CONTACT_UPDATE');
+  await auditFixture(f, f.contactId, 'LEGACY_UNMAPPED_PRIVATE');
   await ownerCommit(f, 'GOLD');
   const stale = await f.request(ACTIVITY, 'admin');
   assert.equal(stale.status, 503);
   assert.equal(stale.body.error.code, 'SCOPE_UNAVAILABLE');
+  await auditFixture(f, f.contactId, 'CONTACT_UPDATE');
+  await auditFixture(f, f.contactId, 'CONTACT_UPDATE');
   await deliverToIam(f);
   const available = page((await f.request(ACTIVITY, 'admin')).body);
   assert.equal(available.items.length, 2);

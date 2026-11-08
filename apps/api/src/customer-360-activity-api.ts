@@ -1,7 +1,6 @@
 import { Controller, Get, Header, Inject, Query, Req, UseFilters } from '@nestjs/common';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
 import {
-  C360ReadError,
   c360CursorCodecFromEnv,
   parseC360ActivityEvidence,
   readC360Activity,
@@ -55,30 +54,25 @@ export class Customer360ActivityController {
     }
     if (rejected)
       throw new Customer360HttpError(429, 'RATE_LIMITED', true, rejected.retryAfterSeconds);
-    try {
-      return await withTenantDatabaseTransaction(
-        this.db,
-        identity.tenantId,
-        async (tx) => {
-          const actor = await c360CurrentActor(tx, identity);
-          if (actor.role !== 'ADMIN') throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
-          if (!this.runtime.ready) throw new Customer360HttpError(503, 'AUDIT_UNAVAILABLE', true);
-          await tx.$queryRaw`SELECT set_config('jit', 'off', true), set_config('statement_timeout', '2s', true)`;
-          return readC360Activity(
-            tx,
-            actor,
-            commandActor(identity).actorIdentityKey,
-            query,
-            this.codec,
-            this.evidence,
-            new Date(),
-          );
-        },
-        { isolationLevel: 'RepeatableRead' },
-      );
-    } catch (error) {
-      if (error instanceof C360ReadError || error instanceof Customer360HttpError) throw error;
-      throw new Customer360HttpError(503, 'AUDIT_UNAVAILABLE', true);
-    }
+    return await withTenantDatabaseTransaction(
+      this.db,
+      identity.tenantId,
+      async (tx) => {
+        const actor = await c360CurrentActor(tx, identity);
+        if (actor.role !== 'ADMIN') throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
+        if (!this.runtime.ready) throw new Customer360HttpError(503, 'AUDIT_UNAVAILABLE', true);
+        await tx.$queryRaw`SELECT set_config('jit', 'off', true), set_config('statement_timeout', '2s', true)`;
+        return readC360Activity(
+          tx,
+          actor,
+          commandActor(identity).actorIdentityKey,
+          query,
+          this.codec,
+          this.evidence,
+          new Date(),
+        );
+      },
+      { isolationLevel: 'RepeatableRead' },
+    );
   }
 }

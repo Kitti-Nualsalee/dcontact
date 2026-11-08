@@ -260,14 +260,15 @@ export async function readC360Activity(
   const mapped = Prisma.sql`a.operation IN (${Prisma.join(operations)}) AND
     ((a.resource_type = 'TAG' AND a.operation IN (${Prisma.join(CATALOG_OPERATIONS)})) OR
      (a.resource_type = 'CONTACT' AND a.operation NOT IN (${Prisma.join(CATALOG_OPERATIONS)})))`;
+  const unknown = Prisma.sql`NOT (a.operation IN (${Prisma.join(Object.keys(OPERATIONS))}) AND
+    (a.resource_type = 'TAG') = (a.operation IN (${Prisma.join(CATALOG_OPERATIONS)})))`;
   const [status] = await tx.$queryRaw<{ deferred: boolean; unmapped: boolean }[]>(Prisma.sql`
     SELECT EXISTS (
       SELECT 1 FROM c360_profile_audits a JOIN contacts c ON c.tenant_id = a.tenant_id AND c.id = a.resource_id
-      WHERE ${eligible} AND ${mapped} AND a.resource_type = 'CONTACT' AND ${c360DeferredContactSql(actor)}
+      WHERE ${eligible} AND (${mapped} OR ${unknown}) AND a.resource_type = 'CONTACT' AND ${c360DeferredContactSql(actor)}
     ) AS deferred, EXISTS (
       SELECT 1 FROM c360_profile_audits a WHERE ${eligible} AND (${catalog} OR ${contact})
-        AND NOT (a.operation IN (${Prisma.join(Object.keys(OPERATIONS))}) AND
-          (a.resource_type = 'TAG') = (a.operation IN (${Prisma.join(CATALOG_OPERATIONS)})))
+        AND ${unknown}
     ) AS unmapped`);
   if (status?.deferred) throw new C360ReadError(503, 'SCOPE_UNAVAILABLE', true);
   const currentView = previousView ? await viewFingerprint() : undefined;

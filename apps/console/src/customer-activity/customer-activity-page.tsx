@@ -105,6 +105,17 @@ function ActivitySession({ api, signedIn, onSignIn }: Props) {
     return abort;
   }, [api, signedIn, query, version]);
 
+  useEffect(() => {
+    function onVisibilityChange() {
+      abort();
+      setLoadingMore(false);
+      setState({ api, value: { kind: 'loading' } });
+      if (document.visibilityState === 'visible' && signedIn) setVersion((value) => value + 1);
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [api, signedIn]);
+
   function apply() {
     abort();
     const start = from ? new Date(from) : undefined;
