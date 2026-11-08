@@ -110,3 +110,35 @@ test('preview ตรึง mapping ก่อนรอ duplicate authority ไม
   assert.deepEqual(seen, ['Alice', 'Bob']);
   assert.deepEqual(result.counts, { valid: 2, invalid: 0, warning: 0 });
 });
+
+test('preview ที่ไม่มีแถว valid ยังตรวจ duplicate authority และ fail closed เมื่อ scope ไม่พร้อม', async () => {
+  const invalidSource = Buffer.from('name\n""');
+  const calls: number[] = [];
+  const input = {
+    source: invalidSource,
+    sourceDigest: createHash('sha256').update(invalidSource).digest('hex'),
+    mapping: { version: 1, columns: { displayName: 'name' } },
+  };
+  const result = await prepareC360ImportPreview({
+    ...input,
+    duplicateAuthority: {
+      async findReadableDuplicates(profiles) {
+        calls.push(profiles.length);
+        return [];
+      },
+    },
+  });
+  assert.deepEqual(calls, [0]);
+  assert.deepEqual(result.counts, { valid: 0, invalid: 1, warning: 0 });
+  await assert.rejects(
+    prepareC360ImportPreview({
+      ...input,
+      duplicateAuthority: {
+        async findReadableDuplicates() {
+          throw Error('stale scope');
+        },
+      },
+    }),
+    { code: 'SCOPE_UNAVAILABLE' },
+  );
+});

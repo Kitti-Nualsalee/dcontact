@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'node:stream';
-import { reconcileC360ProfileCommand } from '@d-contact/customer-360';
+import { createC360CursorCodec, reconcileC360ProfileCommand } from '@d-contact/customer-360';
 import {
   commandActor,
   commandAuthorization,
@@ -12,7 +12,8 @@ import {
 import { admitC360Import, updateC360ImportMapping } from './customer-360-import-intake.js';
 import { C360ImportObjectStorage } from './customer-360-import-storage.js';
 import { Customer360OperatorController } from './customer-360-operator-api.js';
-import { setup, type Fixture } from './customer-360-test-fixtures.js';
+import { readC360ImportPreview } from './customer-360-import-preview.js';
+import { grantCustodian, ownerCommit, setup, type Fixture } from './customer-360-test-fixtures.js';
 
 function identity(f: Fixture, name: string): C360RequestIdentity {
   const actor = f.actors.get(name)!;
@@ -493,4 +494,235 @@ test('M2 mapping: source หมดอายุระหว่าง storage fail
     release();
   }
   await assert.rejects(pending, { status: 410, code: 'SOURCE_EXPIRED' });
+});
+
+test('M2 preview: อ่านแบบแบ่งหน้าเฉพาะ owner โดยไม่มี Contact side effect และ cursor เดิมใช้ไม่ได้หลังเปลี่ยน mapping', async (t) => {
+  const f = await setup([Customer360OperatorController]);
+  t.after(() => f.close());
+  await permit(f);
+  const actor = identity(f, 'admin');
+  const files = new Map<string, Buffer>();
+  const storage = new C360ImportObjectStorage(
+    {
+      async send(command) {
+        if (command instanceof PutObjectCommand) {
+          files.set(command.input.Key!, Buffer.from(command.input.Body as Uint8Array));
+          return {};
+        }
+        if (command instanceof GetObjectCommand)
+          return { Body: Readable.from([files.get(command.input.Key!)!]) };
+        throw Error('unexpected');
+      },
+    },
+    'isolated',
+  );
+  const csv = `name,email\n${Array.from({ length: 22 }, (_, i) => `name${i},person${i}@example.test`).join('\n')}`;
+  const upload = await admitC360Import({
+    db: f.db,
+    storage,
+    identity: actor,
+    commandId: randomUUID(),
+    bytes: Buffer.from(csv),
+  });
+  if (upload.state !== 'TERMINAL') throw Error('expected terminal');
+  const jobId = upload.receipt.resourceRefs[0]!.id;
+  const mapping = { version: 1, columns: { displayName: 'name', email: 'email' } };
+  await updateC360ImportMapping({
+    db: f.db,
+    storage,
+    identity: actor,
+    jobId,
+    commandId: randomUUID(),
+    expectedRevision: '0',
+    mapping,
+  });
+  const count = await f.owner.contact.count({ where: { tenantId: f.tenantId } });
+  const codec = createC360CursorCodec([{ id: 'test', key: Buffer.alloc(32, 7) }]);
+  const first = await readC360ImportPreview({ db: f.db, storage, identity: actor, codec, jobId });
+  assert.equal(first.rows.length, 20);
+  assert.deepEqual(first.counts, { valid: 22, invalid: 0, warning: 0 });
+  assert.ok(first.nextCursor);
+  const second = await readC360ImportPreview({
+    db: f.db,
+    storage,
+    identity: actor,
+    codec,
+    jobId,
+    previewRef: first.previewRef,
+    cursor: first.nextCursor,
+  });
+  assert.deepEqual(
+    second.rows.map((row) => row.rowNo),
+    [21, 22],
+  );
+  assert.equal(second.nextCursor, null);
+  assert.equal(await f.owner.contact.count({ where: { tenantId: f.tenantId } }), count);
+  // สิทธิ์ VIEW เปลี่ยนแม้ไม่มี duplicate warning ใหม่ ต้องไม่ใช้ cursor เดิม
+  await assert.rejects(
+    readC360ImportPreview({
+      db: f.db,
+      storage,
+      identity: actor,
+      codec,
+      jobId,
+      hooks: {
+        async afterInitialFingerprint() {
+          await grantCustodian(f, 'admin', 'READ');
+        },
+      },
+    }),
+    { code: 'SCOPE_UNAVAILABLE' },
+  );
+  await assert.rejects(
+    readC360ImportPreview({
+      db: f.db,
+      storage,
+      identity: actor,
+      codec,
+      jobId,
+      previewRef: first.previewRef,
+      cursor: first.nextCursor,
+    }),
+    { code: 'CURSOR_CONTEXT_CHANGED' },
+  );
+  await assert.rejects(
+    readC360ImportPreview({ db: f.db, storage, identity: identity(f, 'admin-two'), codec, jobId }),
+    { code: 'CUSTOMER_ACCESS_DENIED' },
+  );
+  await updateC360ImportMapping({
+    db: f.db,
+    storage,
+    identity: actor,
+    jobId,
+    commandId: randomUUID(),
+    expectedRevision: '1',
+    mapping: { version: 1, columns: { displayName: 'name' } },
+  });
+  await assert.rejects(
+    readC360ImportPreview({
+      db: f.db,
+      storage,
+      identity: actor,
+      codec,
+      jobId,
+      previewRef: first.previewRef,
+      cursor: first.nextCursor,
+    }),
+  );
+});
+
+test('M2 preview: แถว invalid ทั้งหมดก็ต้องตรวจ scope ที่ยัง stale', async (t) => {
+  const f = await setup([Customer360OperatorController]);
+  t.after(() => f.close());
+  await permit(f);
+  const actor = identity(f, 'admin');
+  const files = new Map<string, Buffer>();
+  const storage = new C360ImportObjectStorage(
+    {
+      async send(command) {
+        if (command instanceof PutObjectCommand) {
+          files.set(command.input.Key!, Buffer.from(command.input.Body as Uint8Array));
+          return {};
+        }
+        if (command instanceof GetObjectCommand)
+          return { Body: Readable.from([files.get(command.input.Key!)!]) };
+        throw Error('unexpected');
+      },
+    },
+    'isolated',
+  );
+  const upload = await admitC360Import({
+    db: f.db,
+    storage,
+    identity: actor,
+    commandId: randomUUID(),
+    bytes: Buffer.from('name\n""'),
+  });
+  if (upload.state !== 'TERMINAL') throw Error('expected terminal');
+  const jobId = upload.receipt.resourceRefs[0]!.id;
+  await updateC360ImportMapping({
+    db: f.db,
+    storage,
+    identity: actor,
+    jobId,
+    commandId: randomUUID(),
+    expectedRevision: '0',
+    mapping: { version: 1, columns: { displayName: 'name' } },
+  });
+  const codec = createC360CursorCodec([{ id: 'test', key: Buffer.alloc(32, 7) }]);
+  const before = await readC360ImportPreview({ db: f.db, storage, identity: actor, codec, jobId });
+  assert.deepEqual(before.counts, { valid: 0, invalid: 1, warning: 0 });
+  await f.scopes.grant({
+    tenantId: f.tenantId,
+    teamId: f.teamId,
+    segmentId: f.segmentId,
+    permission: 'VIEW',
+    correlationId: 'm2-preview-test',
+  });
+  await ownerCommit(f, 'GOLD');
+  await assert.rejects(
+    readC360ImportPreview({ db: f.db, storage, identity: actor, codec, jobId }),
+    { code: 'SCOPE_UNAVAILABLE' },
+  );
+});
+
+test('M2 preview: source หมดอายุหลัง scope fingerprint ต้องไม่คืน raw rows', async (t) => {
+  const f = await setup([Customer360OperatorController]);
+  t.after(() => f.close());
+  await permit(f);
+  const actor = identity(f, 'admin');
+  const files = new Map<string, Buffer>();
+  const storage = new C360ImportObjectStorage(
+    {
+      async send(command) {
+        if (command instanceof PutObjectCommand) {
+          files.set(command.input.Key!, Buffer.from(command.input.Body as Uint8Array));
+          return {};
+        }
+        if (command instanceof GetObjectCommand)
+          return { Body: Readable.from([files.get(command.input.Key!)!]) };
+        throw Error('unexpected');
+      },
+    },
+    'isolated',
+  );
+  const upload = await admitC360Import({
+    db: f.db,
+    storage,
+    identity: actor,
+    commandId: randomUUID(),
+    bytes: Buffer.from('name\nprivate-row'),
+  });
+  if (upload.state !== 'TERMINAL') throw Error('expected terminal');
+  const jobId = upload.receipt.resourceRefs[0]!.id;
+  await updateC360ImportMapping({
+    db: f.db,
+    storage,
+    identity: actor,
+    jobId,
+    commandId: randomUUID(),
+    expectedRevision: '0',
+    mapping: { version: 1, columns: { displayName: 'name' } },
+  });
+  await f.owner
+    .$executeRaw`UPDATE c360_import_jobs SET source_expires_at=clock_timestamp()+interval '2 seconds' WHERE tenant_id=${f.tenantId}::uuid AND id=${jobId}::uuid`;
+  const codec = createC360CursorCodec([{ id: 'test', key: Buffer.alloc(32, 7) }]);
+  let reached = false;
+  await assert.rejects(
+    readC360ImportPreview({
+      db: f.db,
+      storage,
+      identity: actor,
+      codec,
+      jobId,
+      hooks: {
+        async beforeFinalClock() {
+          reached = true;
+          await new Promise((resolve) => setTimeout(resolve, 2200));
+        },
+      },
+    }),
+    { code: 'SOURCE_EXPIRED', status: 410 },
+  );
+  assert.ok(reached, 'expiry ต้องเกิดหลัง fingerprint');
 });

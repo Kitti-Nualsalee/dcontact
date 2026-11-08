@@ -79,7 +79,7 @@ export async function prepareC360ImportPreview(input: {
       warnings: [],
     });
   }
-  if (validProfiles.length) {
+  {
     let matches: readonly boolean[];
     try {
       matches = await input.duplicateAuthority.findReadableDuplicates(validProfiles);
