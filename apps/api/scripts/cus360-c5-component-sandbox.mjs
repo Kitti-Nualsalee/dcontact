@@ -157,6 +157,7 @@ try {
       '--test-concurrency=1',
       'src/customer-360-work-auth.integration.ts',
       'src/customer-360-work.integration.ts',
+      'src/customer-360-work-socket.integration.ts',
     ],
     env,
   );

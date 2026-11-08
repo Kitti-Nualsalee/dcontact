@@ -414,18 +414,42 @@ export class WorkspaceSessionGateway {
   ) {}
 
   async connect(handshake: WorkspaceSessionHandshake): Promise<WorkspaceSession> {
-    const identity = await this.identityFrom(handshake.accessToken);
-    return this.registry.connect(identity, handshake.tabId);
+    return this.commitHandshake(
+      'connect',
+      await this.verifyHandshake(handshake.accessToken),
+      handshake.tabId,
+    );
   }
 
   async refresh(handshake: WorkspaceSessionHandshake): Promise<WorkspaceSession> {
-    const identity = await this.identityFrom(handshake.accessToken);
-    return this.registry.refresh(identity, handshake.tabId);
+    return this.commitHandshake(
+      'refresh',
+      await this.verifyHandshake(handshake.accessToken),
+      handshake.tabId,
+    );
   }
 
   async claimWorkingTab(handshake: WorkspaceSessionHandshake): Promise<WorkspaceSession> {
-    const identity = await this.identityFrom(handshake.accessToken);
-    return this.registry.claimWorkingTab(identity, handshake.tabId);
+    return this.commitHandshake(
+      'claim',
+      await this.verifyHandshake(handshake.accessToken),
+      handshake.tabId,
+    );
+  }
+
+  /** ตรวจ token/lifecycle ก่อน แล้วให้ adapter ตรวจ callback generation ก่อนเปลี่ยน registry */
+  async verifyHandshake(accessToken: string): Promise<VerifiedWorkspaceIdentity> {
+    return this.identityFrom(accessToken);
+  }
+
+  commitHandshake(
+    action: 'connect' | 'refresh' | 'claim',
+    identity: VerifiedWorkspaceIdentity,
+    tabId: string,
+  ): WorkspaceSession {
+    if (action === 'connect') return this.registry.connect(identity, tabId);
+    if (action === 'claim') return this.registry.claimWorkingTab(identity, tabId);
+    return this.registry.refresh(identity, tabId);
   }
 
   requireReauthentication(
@@ -436,6 +460,10 @@ export class WorkspaceSessionGateway {
 
   canReceiveRoutingWork(session: Pick<WorkspaceSession, 'tenantId' | 'userId' | 'tabId'>): boolean {
     return this.registry.canReceiveRoutingWork(session.tenantId, session.userId, session.tabId);
+  }
+
+  isTokenCurrent(expiresAt: Date): boolean {
+    return expiresAt.getTime() > this.now().getTime();
   }
 
   private async identityFrom(accessToken: string): Promise<VerifiedWorkspaceIdentity> {
