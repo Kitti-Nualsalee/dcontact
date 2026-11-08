@@ -23,3 +23,31 @@ test('registry และ writer ตรง version/name-company boundaries แล
   assert.throws(() => normalizeC360CreateProfile({ displayName: 'fixture', vip: 'true' }));
   assert.throws(() => normalizeC360CreateProfile({ displayName: '' }));
 });
+
+test('email registry ตรง writer: IDNA ใช้ตรวจเท่านั้น ไม่รวม U-label กับ A-label หรือ normalize NFC', () => {
+  const rules = c360ProfileFieldRules();
+  const metadata = rules.fields.find((field) => field.name === 'email')!;
+  assert.equal(
+    metadata.normalization,
+    'trim,preserve-local-tokens,lowercase-domain,IDNA-validation-only,no-punycode,no-NFC,no-NFKC',
+  );
+  const vectors = [
+    ['  User@BÜCHER.DE  ', 'User@bücher.de'],
+    ['User@xn--bcher-kva.de', 'User@xn--bcher-kva.de'],
+    ['User@BU\u0308CHER.DE', 'User@bu\u0308cher.de'],
+  ] as const;
+  const keys = vectors.map(([input, expected]) => {
+    const point = normalizeC360CreateProfile({
+      displayName: 'fixture',
+      points: [{ kind: 'EMAIL', value: input }],
+    }).points[0]!;
+    assert.equal(point.normalizedValue, expected);
+    assert.equal(point.normalizationVersion, metadata.normalizationVersion);
+    return point.normalizedValue;
+  });
+  assert.equal(
+    new Set(keys).size,
+    vectors.length,
+    'U-label, A-label และ decomposed domain ไม่ใช้ key เดียวกัน',
+  );
+});

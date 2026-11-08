@@ -21,7 +21,7 @@
   "normalization": "Normalization",
   "absent": "Not supplied by registry",
   "session": "Sign in to view data",
-  "access": "You cannot access this data",
+  "access": "You cannot access this data. Contact your tenant administrator.",
   "signIn": "Sign in again",
   "fields": {
     "displayName": "Customer name",

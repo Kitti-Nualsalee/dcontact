@@ -50,7 +50,8 @@ export function c360ProfileFieldRules() {
         type: 'string',
         required: false,
         constraints: { maxCodeUnits: C360_EMAIL_RAW_MAX, activePerKind: C360_CONTACT_POINT_QUOTA },
-        normalization: 'local-part-case-preserved,IDNA-domain',
+        normalization:
+          'trim,preserve-local-tokens,lowercase-domain,IDNA-validation-only,no-punycode,no-NFC,no-NFKC',
         normalizationVersion: C360_EMAIL_NORMALIZATION_VERSION,
       },
       {
