@@ -86,7 +86,9 @@ test('เลือก candidate เองโดยไม่ auto-link แม้�
   await expect(page.getByText('งานนี้ยังไม่เชื่อมกับลูกค้า')).toBeVisible();
   await page.getByLabel('เบอร์โทรศัพท์สากลหรืออีเมลเต็มค่า').fill('+6621234511');
   await page.getByRole('button', { name: 'ค้นหาลูกค้าสำหรับงานนี้' }).click();
-  await expect(page.getByText(/รายการที่พบยังไม่ใช่การยืนยันตัวบุคคล/)).toBeVisible();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'รายการที่พบยังไม่ใช่การยืนยันตัวบุคคล' }),
+  ).toBeVisible();
   expect(f.mutations()).toBe(0);
   await page.getByRole('button', { name: 'เลือกเชื่อมลูกค้า' }).click();
   await page.getByRole('button', { name: 'ยืนยัน', exact: true }).click();

@@ -443,6 +443,7 @@ export class Customer360WorkController {
         this.db,
         commandActor(requestIdentity(req)),
         commandId,
+        {},
         this.authorization(req, id, proof, true),
       ),
     );

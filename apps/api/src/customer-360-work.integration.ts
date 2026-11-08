@@ -11,6 +11,15 @@ import { OIDC_ACCESS_TOKEN_VERIFIER } from './gateway-auth.js';
 import { C360WorkAuthService } from './customer-360-work-auth.js';
 import { WorkSessionLeases } from './work-session.js';
 
+type WorkTestBody = {
+  state: string;
+  items: { candidateRef: string }[];
+  verified: boolean;
+  command: { outcome: string };
+  contact: { id: string; displayName: string };
+  revisions: { profile: string; lineage: string };
+  canEdit: boolean;
+};
 /** HTTP/PG/RLS ใช้ verifier/introspection สังเคราะห์; actual Keycloak อยู่ boundary แยก */
 async function fixture() {
   let online = true;
@@ -104,7 +113,7 @@ async function fixture() {
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    return { status: response.status, body: await response.json() };
+    return { status: response.status, body: (await response.json()) as WorkTestBody };
   };
   const search = () => call('candidates/search', { type: 'EMAIL', query: 'work@example.test' });
   return {
