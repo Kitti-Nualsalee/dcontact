@@ -284,6 +284,42 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(len(list((self.root / 'deployments').glob('*-' + source + '.json'))), 1)
         self.assertFalse(json.loads((self.root / 'deployments/current.json').read_bytes())['rollbackEligible'])
 
+    def test_observation_reconciliation_preserves_previous_bytes_and_records_mode(self):
+        current = self.root / 'deployments/current.json'
+        previous = self.root / 'deployments/previous.json'
+        original_current, original_previous = current.read_bytes(), previous.read_bytes()
+        record = {'sourceSha': 'c' * 40, 'recordedAt': self.observed,
+                  'action': 'reconciliation', 'rollbackEligible': False}
+        result = MODULE._apply_record(self.manifest, self.root, lambda _: record, lambda _: None,
+                                      preserve_previous=True)
+        self.assertTrue(result['previousPreserved'])
+        self.assertEqual(previous.read_bytes(), original_previous)
+        self.assertEqual(json.loads(current.read_bytes()), record)
+        transaction = next(self.operator.glob('b714-reconciliation-*'))
+        self.assertEqual((transaction / 'current-before.json').read_bytes(), original_current)
+        self.assertEqual((transaction / 'previous-before.json').read_bytes(), original_previous)
+        self.assertTrue(json.loads((transaction / 'intent.json').read_bytes())['previousPreserved'])
+        self.assertTrue(json.loads((transaction / 'committed.json').read_bytes())['previousPreserved'])
+        self.assertEqual(list((self.root / 'deployments').glob('*-previous.tmp')), [])
+
+    def test_observation_reconciliation_previous_drift_stops_before_current(self):
+        current = self.root / 'deployments/current.json'
+        previous = self.root / 'deployments/previous.json'
+        original = current.read_bytes()
+        record = {'sourceSha': 'c' * 40, 'recordedAt': self.observed,
+                  'action': 'reconciliation', 'rollbackEligible': False}
+        calls = 0
+        def inspect(_):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                previous.write_bytes(b'changed')
+        with self.assertRaisesRegex(RuntimeError, 'RECORD_CAS_CONFLICT'):
+            MODULE._apply_record(self.manifest, self.root, lambda _: record, inspect, preserve_previous=True)
+        self.assertEqual(current.read_bytes(), original)
+        self.assertEqual(previous.read_bytes(), b'changed')
+        self.assertTrue((self.operator / 'b714-reconciliation.pending').exists())
+
     def test_transaction_rejects_invalid_candidate_before_pending(self):
         record = {'sourceSha': '../invalid', 'recordedAt': self.observed}
         with self.assertRaisesRegex(RuntimeError, 'RECORD_SOURCE_REQUIRED'):

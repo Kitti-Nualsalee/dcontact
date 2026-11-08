@@ -194,3 +194,24 @@ staging ของ archive ผูกกับ journal เพื่อเก็บ
 ผล `RECORD_TRANSACTION_COMMITTED_PENDING_RETIREMENT` ต้องเรียก retirement แยกต่อ ซึ่งตรวจหลักฐานนี้ด้วย
 หาก `postcheckGateCleanupDurable=false` เกตอาจกลับมาหลัง reboot ต้องตรวจซ้ำ ผลทั้งหมดนี้ไม่รับรอง compatible
 rollback และไม่สร้าง smoke PASS, realm receipt หรือ final C
+
+### #868: เติม observation ราย component โดยรักษา layout เดิม
+
+Manifest `UatCompositeEvidenceManifestV3` เพิ่ม `componentPackages` ครบ API, sandbox, proxy และ Keycloak
+โดยผูกแต่ละ component กับ `release.env` ของ source ที่ใช้จริงผ่าน hash, OCI reference และ digest
+ผลที่ประกอบยังเป็น proposal ไม่ถือว่า artifact hash พิสูจน์ build attestation หรืออนุมัติให้เขียนเอง
+
+`b868-record-reconcile.py` เตรียม record แบบ additive จาก `UatDeploymentReconciliationV1` ที่ถูก quarantine
+ไว้เท่านั้น คง `sourceSha`/`images` และ fields เดิมสำหรับ release-layout readers แล้วอธิบาย fields ประวัติเหล่านี้
+ใน `legacyAnchor` ข้อมูลปัจจุบันอยู่ใน `components`, `componentPackageBindings` และ `observationProof`
+ซึ่งผูก actual observation bytes และ ledger snapshot ไม่เปลี่ยน realm digest ที่ยังเป็น `null` และไม่สร้าง smoke PASS ใหม่
+
+การตรวจ runtime รุ่นนี้รู้จัก `legacyAnchor` และเปรียบเทียบ source/image/config/identity กับข้อมูลราย component
+โดยคง `rollbackCertified=false`; reader เก่าที่ไม่รู้จัก fields ใหม่ยังไม่ถือว่าผ่าน release certification
+Platform ยังคงใช้ path จาก source anchor เดิม ส่วน media operator ที่ต้องการ API/sandbox source เดียวกัน
+ยังหยุดเมื่อ runtime mixed ไม่ถือว่า observation นี้ซ่อม runtime หรือผ่าน media gate
+
+ก่อน apply ต้อง review manifest hash และ stable record hash จากข้อเสนอ `--approved-stable-record-sha256`
+ซึ่งไม่รวม `recordedAt` actor เป็น audit label การอนุมัติต้องมาจาก review อิสระเช่นเดียวกับ recovery
+ตัวเขียนใช้ lock/CAS/readback เดิมและ `preserve_previous=True` เพื่อเก็บ previous เดิม byte-for-byte
+พร้อม snapshot และ receipt เมื่อไม่แน่ใจจะคง reconciliation pending ให้ตรวจ ไม่มีการ restart หรือเขียน DB

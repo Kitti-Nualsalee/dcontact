@@ -47,6 +47,59 @@ class InspectionTests(unittest.TestCase):
         self.assertFalse(result['rollbackCertified'])
         self.assertNotIn('must-not-appear', json.dumps(result))
 
+    def component_reference(self):
+        for index, container in enumerate(self.containers, 1):
+            container['Id'] = str(index) * 64
+            container['Config']['Image'] = 'example/image@sha256:' + 'a' * 64
+        observed = self.run_inspection()
+        path = self.root / 'deployments/current.json'
+        record = json.loads(path.read_text())
+        record.update(schema='UatDeploymentReconciliationV1', action='reconciliation', rollbackEligible=False,
+            legacyAnchor={'kind': 'HISTORICAL_RELEASE_LAYOUT_NOT_CURRENT_RUNTIME', 'sourceSha': record['sourceSha']},
+            components=observed['components'])
+        path.write_text(json.dumps(record))
+        return path, record
+
+    def test_explicit_component_observation_uses_truth_instead_of_legacy_anchor(self):
+        self.component_reference()
+        result = self.run_inspection()
+        self.assertEqual(result['sourceMismatch'], [])
+        self.assertEqual(result['imageDigestMismatch'], [])
+        self.assertEqual(result['componentConfigMismatch'], [])
+        self.assertEqual(result['componentIdentityMismatch'], [])
+        self.assertEqual(result['referenceKind'], 'PER_COMPONENT_OBSERVATION')
+        self.assertFalse(result['rollbackCertified'])
+        self.assertNotIn('must-not-appear', json.dumps(result))
+
+    def test_component_record_reports_configuration_and_identity_drift(self):
+        self.component_reference()
+        self.containers[0]['Config']['Env'].append('FEATURE_FLAG=changed')
+        self.containers[1]['State']['StartedAt'] = '2026-11-08T00:00:00Z'
+        result = self.run_inspection()
+        self.assertEqual(result['componentConfigMismatch'], ['api'])
+        self.assertEqual(result['componentIdentityMismatch'], ['e1-sandbox'])
+
+    def test_component_summary_does_not_copy_unrecognized_record_details(self):
+        path, record = self.component_reference()
+        record['components']['api']['unrecognizedDetails'] = 'DO_NOT_COPY_RECORD_EXTRA'
+        record['legacyAnchor']['unrecognizedDetails'] = 'DO_NOT_COPY_ANCHOR_EXTRA'
+        path.write_text(json.dumps(record))
+        result = self.run_inspection()
+        self.assertNotIn('DO_NOT_COPY_RECORD_EXTRA', json.dumps(result))
+        self.assertNotIn('DO_NOT_COPY_ANCHOR_EXTRA', json.dumps(result))
+
+    def test_component_reference_requires_quarantine_and_complete_inventory(self):
+        path, record = self.component_reference()
+        record['rollbackEligible'] = True
+        path.write_text(json.dumps(record))
+        with self.assertRaisesRegex(RuntimeError, 'RECORD_COMPONENT_REFERENCE_INVALID'):
+            self.run_inspection()
+        record['rollbackEligible'] = False
+        del record['components']['keycloak']
+        path.write_text(json.dumps(record))
+        with self.assertRaisesRegex(RuntimeError, 'RECORD_COMPONENT_REFERENCE_INVALID'):
+            self.run_inspection()
+
     def test_missing_previous_requires_explicit_opt_in(self):
         (self.root / 'deployments/previous.json').unlink()
         with self.assertRaises(FileNotFoundError):

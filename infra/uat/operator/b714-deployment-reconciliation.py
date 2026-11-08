@@ -339,7 +339,7 @@ def apply_record(manifest, root=ROOT):
     return _apply_record(manifest, root, prepare, inspect_runtime)
 
 
-def _apply_record(manifest, root, prepare_candidate, inspect_candidate):
+def _apply_record(manifest, root, prepare_candidate, inspect_candidate, *, preserve_previous=False):
     """ใช้ขั้นตอน commit เดียวกันหลังผ่านตัวตรวจหลักฐานของ candidate."""
     deployments = root / 'deployments'
     operator = root / 'operator'
@@ -376,27 +376,43 @@ def _apply_record(manifest, root, prepare_candidate, inspect_candidate):
         create(transaction / 'current-before.json', read(current))
         if previous.exists():
             create(transaction / 'previous-before.json', read(previous))
-        create(transaction / 'intent.json', canonical({'status': 'PENDING', 'recordSha256': sha(raw),
+        intent = {'status': 'PENDING', 'recordSha256': sha(raw),
                'expectedCurrentSha256': manifest['expectedCurrentSha256'],
-               'expectedPreviousSha256': manifest['expectedPreviousSha256']}))
+               'expectedPreviousSha256': manifest['expectedPreviousSha256']}
+        if preserve_previous:
+            intent['previousPreserved'] = True
+        create(transaction / 'intent.json', canonical(intent))
         target = deployments / (instant(record['recordedAt']).strftime('%Y%m%dT%H%M%SZ') + '-' +
                                 uuid.uuid4().hex + '-' + record['sourceSha'] + '.json')
         create(target, raw)
-        staged_previous = deployments / (name + '-previous.tmp')
         staged_current = deployments / (name + '-current.tmp')
-        create(staged_previous, read(current))
+        if not preserve_previous:
+            staged_previous = deployments / (name + '-previous.tmp')
+            create(staged_previous, read(current))
         create(staged_current, raw)
         verify(manifest['expectedPreviousSha256'], expected_record)
-        os.replace(str(staged_previous), str(previous))
-        sync_directory(deployments)
-        verify(manifest['expectedCurrentSha256'], expected_record)
+        if not preserve_previous:
+            os.replace(str(staged_previous), str(previous))
+            sync_directory(deployments)
+            verify(manifest['expectedCurrentSha256'], expected_record)
+        else:
+            require(current_hash(current) == manifest['expectedCurrentSha256'] and
+                    current_hash(previous) == manifest['expectedPreviousSha256'], 'RECORD_CAS_CONFLICT')
         os.replace(str(staged_current), str(current))
         sync_directory(deployments)
         require(read(current) == raw, 'CURRENT_COMMIT_READBACK_FAILED')
-        create(transaction / 'committed.json', canonical({'status': 'COMMITTED', 'recordSha256': sha(raw)}))
+        if preserve_previous:
+            require(current_hash(previous) == manifest['expectedPreviousSha256'], 'PREVIOUS_COMMIT_READBACK_FAILED')
+        receipt = {'status': 'COMMITTED', 'recordSha256': sha(raw)}
+        if preserve_previous:
+            receipt['previousPreserved'] = True
+        create(transaction / 'committed.json', canonical(receipt))
         pending.unlink()
         sync_directory(operator)
-        return {'status': 'COMMITTED', 'recordSha256': sha(raw), 'businessTrial': 'NOT_EVALUATED'}
+        result = {'status': 'COMMITTED', 'recordSha256': sha(raw), 'businessTrial': 'NOT_EVALUATED'}
+        if preserve_previous:
+            result['previousPreserved'] = True
+        return result
     finally:
         os.close(lock)
 

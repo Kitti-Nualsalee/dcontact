@@ -38,6 +38,16 @@ def read_records(root, allow_missing=False):
                          'sourceSha': record.get('sourceSha'),
                          'rollbackEligible': record.get('rollbackEligible'),
                          'images': record.get('images')}
+        if 'components' in record or 'legacyAnchor' in record:
+            saved = record.get('components')
+            anchor = record.get('legacyAnchor')
+            if (not isinstance(saved, dict) or set(saved) != set(SERVICES)
+                    or any(not isinstance(item, dict) for item in saved.values()) or not isinstance(anchor, dict)):
+                raise RuntimeError('RECORD_COMPONENT_REFERENCE_INVALID')
+            fields = ('containerId', 'imageId', 'imageReference', 'sourceSha', 'running',
+                      'startedAt', 'configSha256', 'repositoryDigests')
+            records[name]['components'] = {service: {key: saved[service].get(key) for key in fields} for service in SERVICES}
+            records[name]['legacyAnchor'] = {key: anchor.get(key) for key in ('kind', 'sourceSha')}
     return records
 
 
@@ -100,23 +110,56 @@ def inspect(root=ROOT, execute=subprocess.run, allow_missing=False, fallback_cur
         raise RuntimeError('RUNTIME_CHANGED_DURING_INSPECTION')
     if read_records(root, allow_missing) != records:
         raise RuntimeError('RECORD_CHANGED_DURING_INSPECTION')
+    per_component = reference.get('components')
+    if per_component is not None or reference.get('legacyAnchor') is not None:
+        anchor = reference.get('legacyAnchor')
+        if (reference.get('schema') != 'UatDeploymentReconciliationV1' or reference.get('action') != 'reconciliation'
+                or reference.get('rollbackEligible') is not False or not isinstance(anchor, dict)
+                or anchor.get('kind') != 'HISTORICAL_RELEASE_LAYOUT_NOT_CURRENT_RUNTIME'
+                or anchor.get('sourceSha') != reference['sourceSha']
+                or not isinstance(per_component, dict) or set(per_component) != set(SERVICES)):
+            raise RuntimeError('RECORD_COMPONENT_REFERENCE_INVALID')
+        for item in per_component.values():
+            if (not isinstance(item, dict)
+                    or not re.fullmatch('[0-9a-f]{40}', str(item.get('sourceSha', '')))
+                    or not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', str(item.get('imageReference', '')))
+                    or not re.fullmatch('sha256:[0-9a-f]{64}', str(item.get('imageId', '')))
+                    or not re.fullmatch('[0-9a-f]{64}', str(item.get('configSha256', '')))
+                    or not re.fullmatch('[0-9a-f]{64}', str(item.get('containerId', '')))
+                    or item.get('running') is not True
+                    or item.get('startedAt') is not None and not re.fullmatch(
+                        r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?Z', str(item['startedAt']))
+                    or not isinstance(item.get('repositoryDigests'), list)
+                    or item['imageReference'] not in item['repositoryDigests']
+                    or any(not isinstance(ref, str) or not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', ref)
+                           for ref in item['repositoryDigests'])):
+                raise RuntimeError('RECORD_COMPONENT_REFERENCE_INVALID')
     mismatch = sorted(name for name, component in components.items()
-                      if component['sourceSha'] != reference['sourceSha'])
+                      if component['sourceSha'] != (per_component[name]['sourceSha'] if per_component else reference['sourceSha']))
     recorded_images = reference.get('images')
     if not isinstance(recorded_images, dict):
         raise RuntimeError('RECORD_IMAGES_REQUIRED')
     keys = {'api': 'api', 'e1-sandbox': 'api', 'proxy': 'console', 'keycloak': 'keycloak'}
     digest_mismatch = []
     for service, key in keys.items():
-        reference = recorded_images.get(key)
-        if not isinstance(reference, str) or not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', reference):
+        image_reference = per_component[service]['imageReference'] if per_component else recorded_images.get(key)
+        if not isinstance(image_reference, str) or not re.fullmatch(r'[^\s@]+@sha256:[0-9a-f]{64}', image_reference):
             raise RuntimeError('RECORD_IMMUTABLE_IMAGE_REQUIRED')
-        if reference not in components[service]['repositoryDigests']:
+        if (image_reference not in components[service]['repositoryDigests']
+                or per_component and per_component[service]['imageId'] != components[service]['imageId']):
             digest_mismatch.append(service)
-    return {'schema': 'UatReleaseInspectionV1', 'records': records,
+    result = {'schema': 'UatReleaseInspectionV1', 'records': records,
             'components': components, 'sourceMismatch': mismatch,
             'imageDigestMismatch': sorted(digest_mismatch),
             'rollbackCertified': False, 'runtimeConsistency': 'TWO_MATCHING_OBSERVATIONS'}
+    if per_component:
+        result['componentConfigMismatch'] = sorted(name for name in SERVICES
+            if components[name]['configSha256'] != per_component[name]['configSha256'])
+        result['componentIdentityMismatch'] = sorted(name for name in SERVICES
+            if components[name]['containerId'] != per_component[name]['containerId']
+            or components[name].get('startedAt') != per_component[name].get('startedAt'))
+        result['referenceKind'] = 'PER_COMPONENT_OBSERVATION'
+    return result
 
 
 if __name__ == '__main__':

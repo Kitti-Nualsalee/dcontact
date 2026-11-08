@@ -5,6 +5,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -68,6 +70,123 @@ class ProposalTests(unittest.TestCase):
             'references': {'baseManifest': base, 'mediaObservation': media},
             'limitations': ['NO_REALM_RECEIPT', 'NO_VM_ROLLBACK_CERTIFICATION',
                             'PACKAGE_BINDING_API_ONLY', 'FRESH_REVALIDATION_REQUIRED']})
+
+    def assemble_component_bound(self):
+        self.assemble()
+        top = json.loads((self.root / 'manifest.json').read_bytes())
+        top['schema'] = 'UatCompositeEvidenceManifestV3'
+        top['limitations'].remove('PACKAGE_BINDING_API_ONLY')
+        top['limitations'].append('NO_BUILD_ATTESTATION')
+        refs = {}
+        for name, component in self.obs['runtime']['components'].items():
+            raw = 'SOURCE_SHA=' + component['sourceSha'] + '\n'
+            raw += ''.join(key + '=' + component['imageReference'] + '\n'
+                           for key in ('API_IMAGE', 'OPS_IMAGE', 'CONSOLE_IMAGE', 'KEYCLOAK_IMAGE'))
+            refs[name] = self.write(name + '-package.env', raw)
+        top['references']['componentPackages'] = refs
+        return self.write('component-manifest.json', top)
+
+    def test_all_component_packages_bind_mixed_sources_without_certification(self):
+        for name in ('e1-sandbox', 'proxy', 'keycloak'):
+            component = self.obs['runtime']['components'][name]
+            component.update(sourceSha='d' * 40, imageId='sha256:' + '1' * 64,
+                             imageReference='example/legacy@sha256:' + 'd' * 64,
+                             repositoryDigests=['example/legacy@sha256:' + 'd' * 64])
+            self.obs['protectedRuntime']['/dcontact-uat-' + name + '-1']['image'] = component['imageId']
+        self.obs['runtimeSha256'] = proposal.sha(proposal.CANDIDATE.canonical(self.obs['runtime']))
+        self.obs['protectedRuntimeSha256'] = proposal.sha(proposal.CANDIDATE.canonical(self.obs['protectedRuntime']))
+        ref = self.assemble_component_bound()
+        result = proposal.build(ref['path'], ref['sha256'], self.root, self.now)
+        self.assertEqual(result['schema'], 'UatCompositeReconciliationProposalV2')
+        self.assertEqual(set(result['componentPackageBindings']), {'api', 'e1-sandbox', 'proxy', 'keycloak'})
+        self.assertEqual(result['componentPackageBindings']['api']['sourceSha'], 'c' * 40)
+        self.assertEqual(result['componentPackageBindings']['proxy']['sourceSha'], 'd' * 40)
+        self.assertFalse(result['rollbackCertified'])
+        self.assertEqual(result['status'], 'NOT_AUTHORIZED_NOT_RECORDABLE')
+        self.assertIn('NO_BUILD_ATTESTATION', result['limitations'])
+        self.assertNotIn('PACKAGE_BINDING_API_ONLY', result['limitations'])
+
+    def test_wrong_component_source_or_missing_package_is_rejected(self):
+        ref = self.assemble_component_bound()
+        top = json.loads(Path(ref['path']).read_bytes())
+        package = (self.root / 'proxy-package.env').read_text().replace('c' * 40, 'd' * 40)
+        top['references']['componentPackages']['proxy'] = self.write('wrong-proxy.env', package)
+        changed = self.write('wrong-source.json', top)
+        with self.assertRaisesRegex(RuntimeError, 'COMPONENT_PACKAGE_MISMATCH'):
+            proposal.build(changed['path'], changed['sha256'], self.root, self.now)
+        del top['references']['componentPackages']['keycloak']
+        changed = self.write('missing-component.json', top)
+        with self.assertRaisesRegex(RuntimeError, 'COMPONENT_PACKAGES_REQUIRED'):
+            proposal.build(changed['path'], changed['sha256'], self.root, self.now)
+
+    def test_component_package_requires_all_pinned_image_entries(self):
+        ref = self.assemble_component_bound()
+        top = json.loads(Path(ref['path']).read_bytes())
+        top['references']['componentPackages']['api'] = self.write('thin-package.env', self.package)
+        changed = self.write('thin-component.json', top)
+        with self.assertRaisesRegex(RuntimeError, 'COMPONENT_PACKAGE_INVALID'):
+            proposal.build(changed['path'], changed['sha256'], self.root, self.now)
+
+    def test_fifo_cannot_block_component_evidence_reader(self):
+        path = self.root / 'package-fifo'
+        os.mkfifo(path, 0o600)
+        code = '''
+import importlib.util,sys
+from pathlib import Path
+s=importlib.util.spec_from_file_location('proposal',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+try:
+    m.read_private(Path(sys.argv[2]),Path(sys.argv[3]))
+except RuntimeError:
+    sys.exit(0)
+sys.exit(1)
+'''
+        result = subprocess.run([sys.executable, '-B', '-c', code, str(HERE / 'b868-composite-proposal.py'),
+                                 str(path), str(self.root)], capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def observed_record_inputs(self):
+        current = {'schema': 'UatDeploymentReconciliationV1', 'action': 'reconciliation',
+            'sourceSha': 'f' * 40, 'rollbackEligible': False, 'recordedAt': 'historical',
+            'observedAt': 'historical-observation', 'realmConfigDigest': None,
+            'mediaSourceSha': self.media['sourceSha'], 'mediaSourceDigest': self.media['sourceDigest'],
+            'realmConfigProvenance': {'kind': 'HISTORICAL_RENDERED_TEMPLATE_ONLY', 'realmReconciled': False},
+            'images': {key: 'example/historical@sha256:' + 'f' * 64 for key in ('api', 'console', 'ops', 'keycloak')},
+            'smoke': {'status': 'PASS'}, 'businessTrial': 'LIMITED_TRIAL_ONLY'}
+        previous = {'schema': 'UatDeploymentRecordV1', 'sourceSha': 'a' * 40}
+        current_raw, previous_raw = proposal.CANDIDATE.canonical(current), proposal.CANDIDATE.canonical(previous)
+        self.obs['runtime']['records']['current']['sha256'] = proposal.sha(current_raw)
+        self.media['currentRecordSha256'] = proposal.sha(current_raw)
+        self.obs['runtime']['records']['previous']['sha256'] = proposal.sha(previous_raw)
+        self.obs['runtimeSha256'] = proposal.sha(proposal.CANDIDATE.canonical(self.obs['runtime']))
+        return current, current_raw, previous_raw
+
+    def test_observation_record_preserves_legacy_layout_and_scopes_old_claims(self):
+        current, raw, previous = self.observed_record_inputs()
+        ref = self.assemble_component_bound()
+        record = proposal.build_observed_record(ref['path'], ref['sha256'], raw, previous, self.root, self.now)
+        for key, value in current.items():
+            if key != 'recordedAt':
+                self.assertEqual(record[key], value, key)
+        self.assertEqual(record['components']['api']['sourceSha'], 'c' * 40)
+        self.assertEqual(record['components']['api']['imageReference'], self.obs['runtime']['components']['api']['imageReference'])
+        self.assertEqual(record['legacyAnchor']['sourceSha'], current['sourceSha'])
+        self.assertIn('smoke', record['legacyAnchor']['fields'])
+        self.assertTrue(record['observationProof']['previousPreserved'])
+        self.assertEqual(record['observationProof']['previousRecordSha256'], proposal.sha(previous))
+        self.assertFalse(record['observationProof']['rollbackCertified'])
+        self.assertIsNone(record['realmConfigDigest'])
+        self.assertEqual(record['realmConfigProvenance'], current['realmConfigProvenance'])
+
+    def test_observation_record_rejects_pointer_drift_or_api_only_package_proof(self):
+        _, raw, previous = self.observed_record_inputs()
+        ref = self.assemble_component_bound()
+        with self.assertRaisesRegex(RuntimeError, 'RECORD_CAS_MISMATCH'):
+            proposal.build_observed_record(ref['path'], ref['sha256'], raw + b' ', previous, self.root, self.now)
+        with self.assertRaisesRegex(RuntimeError, 'RECORD_CAS_MISMATCH'):
+            proposal.build_observed_record(ref['path'], ref['sha256'], raw, previous + b' ', self.root, self.now)
+        ref = self.assemble()
+        with self.assertRaisesRegex(RuntimeError, 'ALL_COMPONENT_PACKAGES_REQUIRED'):
+            proposal.build_observed_record(ref['path'], ref['sha256'], raw, previous, self.root, self.now)
 
     def test_proposal_does_not_authorize_record_or_rollback(self):
         ref = self.assemble()

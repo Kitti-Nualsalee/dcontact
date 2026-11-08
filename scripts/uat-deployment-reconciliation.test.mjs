@@ -181,6 +181,18 @@ test('#868 สร้าง proposal จากหลักฐานที่ผ�
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
+test('#868 observation reconciliation คง legacy layout และ previous เดิม', () => {
+  const result = spawnSync(
+    'python3',
+    ['-B', resolve('infra/uat/operator/b868-record-reconcile.test.py')],
+    {
+      encoding: 'utf8',
+      timeout: 30000,
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test('reconciliation ต้องมี manifest จริง ไม่สร้าง config receipt เทียม', async () => {
   assert.throws(() => buildDeploymentRecord({ action: 'reconciliation' }), /manifest/);
   await assert.rejects(

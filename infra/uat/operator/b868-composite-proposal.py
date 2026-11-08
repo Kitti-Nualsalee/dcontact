@@ -24,7 +24,7 @@ def read_private(path, root):
     root = Path(root)
     if not path.is_absolute() or path.resolve() != path or root not in path.parents:
         raise RuntimeError('EVIDENCE_PATH_INVALID')
-    descriptor = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
+    descriptor = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or info.st_size > 8388608:
@@ -47,6 +47,18 @@ def reference(ref, root):
     return raw
 
 
+def parse_package(raw):
+    package = {}
+    for line in raw.decode('utf-8').splitlines():
+        if not line or line.startswith('#'):
+            continue
+        key, separator, value = line.partition('=')
+        if not separator or key in package:
+            raise RuntimeError('PACKAGE_INVALID')
+        package[key] = value
+    return package
+
+
 def build(manifest_path, expected_sha256, root=ROOT, now=None):
     """ผลลัพธ์เป็น proposal เท่านั้น; expected hash ไม่ใช่หลักฐานอนุมัติ."""
     now = now or datetime.now(timezone.utc)
@@ -54,11 +66,14 @@ def build(manifest_path, expected_sha256, root=ROOT, now=None):
     if not re.fullmatch('[0-9a-f]{64}', str(expected_sha256)) or sha(raw) != expected_sha256:
         raise RuntimeError('MANIFEST_HASH_MISMATCH')
     top = json.loads(raw)
-    if (top.get('schema'), top.get('status')) != (
-            'UatCompositeEvidenceManifestV2', 'NOT_REVIEWED_NOT_RECORDABLE') or top.get('rollbackCertified') is not False:
+    version = top.get('schema')
+    if (version not in ('UatCompositeEvidenceManifestV2', 'UatCompositeEvidenceManifestV3')
+            or top.get('status') != 'NOT_REVIEWED_NOT_RECORDABLE' or top.get('rollbackCertified') is not False):
         raise RuntimeError('MANIFEST_SCOPE_INVALID')
     refs = top.get('references', {})
-    if not isinstance(refs, dict) or set(refs) != {'baseManifest', 'mediaObservation'}:
+    component_bound = version == 'UatCompositeEvidenceManifestV3'
+    expected_refs = {'baseManifest', 'mediaObservation'} | ({'componentPackages'} if component_bound else set())
+    if not isinstance(refs, dict) or set(refs) != expected_refs:
         raise RuntimeError('MANIFEST_REFERENCES_INVALID')
     base = json.loads(reference(refs['baseManifest'], root))
     media = json.loads(reference(refs['mediaObservation'], root))
@@ -74,14 +89,7 @@ def build(manifest_path, expected_sha256, root=ROOT, now=None):
     CANDIDATE.validate_rehearsal_unreviewed(observation, proof, now)
     runtime = observation['runtime']
     api = runtime['components']['api']
-    package = {}
-    for line in data['package'].decode('utf-8').splitlines():
-        if not line or line.startswith('#'):
-            continue
-        key, separator, value = line.partition('=')
-        if not separator or key in package:
-            raise RuntimeError('PACKAGE_INVALID')
-        package[key] = value
+    package = parse_package(data['package'])
     if package.get('SOURCE_SHA') != api['sourceSha'] or package.get('API_IMAGE') not in api['repositoryDigests']:
         raise RuntimeError('PACKAGE_API_MISMATCH')
     guard = json.loads(data['migrationGuard'])
@@ -113,9 +121,30 @@ def build(manifest_path, expected_sha256, root=ROOT, now=None):
         raise RuntimeError('MEDIA_TIME_INVALID') from None
     if age < -30 or age > 300:
         raise RuntimeError('MEDIA_OBSERVATION_STALE')
-    if not isinstance(top.get('limitations'), list) or set(top['limitations']) != {
-            'NO_REALM_RECEIPT', 'NO_VM_ROLLBACK_CERTIFICATION', 'PACKAGE_BINDING_API_ONLY', 'FRESH_REVALIDATION_REQUIRED'}:
+    expected_limits = {'NO_REALM_RECEIPT', 'NO_VM_ROLLBACK_CERTIFICATION', 'FRESH_REVALIDATION_REQUIRED',
+                       'NO_BUILD_ATTESTATION' if component_bound else 'PACKAGE_BINDING_API_ONLY'}
+    if not isinstance(top.get('limitations'), list) or set(top['limitations']) != expected_limits:
         raise RuntimeError('LIMITATIONS_REQUIRED')
+    bindings = {}
+    if component_bound:
+        package_refs = refs['componentPackages']
+        keys = {'api': 'API_IMAGE', 'e1-sandbox': 'API_IMAGE', 'proxy': 'CONSOLE_IMAGE', 'keycloak': 'KEYCLOAK_IMAGE'}
+        if not isinstance(package_refs, dict) or set(package_refs) != set(keys):
+            raise RuntimeError('COMPONENT_PACKAGES_REQUIRED')
+        for name, key in keys.items():
+            package_raw = reference(package_refs[name], root)
+            component_package = parse_package(package_raw)
+            if any(not CANDIDATE.valid(r'[^\s@]+@sha256:[0-9a-f]{64}', component_package.get(field))
+                   for field in ('API_IMAGE', 'OPS_IMAGE', 'CONSOLE_IMAGE', 'KEYCLOAK_IMAGE')):
+                raise RuntimeError('COMPONENT_PACKAGE_INVALID')
+            component = runtime['components'][name]
+            image = component_package.get(key)
+            if (component_package.get('SOURCE_SHA') != component['sourceSha']
+                    or image != component['imageReference'] or image not in component['repositoryDigests']):
+                raise RuntimeError('COMPONENT_PACKAGE_MISMATCH')
+            bindings[name] = {'sourceSha': component['sourceSha'], 'packageSha256': sha(package_raw),
+                              'imageReferenceSha256': sha(image.encode()),
+                              'imageDigest': image.rsplit('@sha256:', 1)[1]}
     components = {}
     for name, component in runtime['components'].items():
         refs = sorted(component['repositoryDigests'])
@@ -124,7 +153,12 @@ def build(manifest_path, expected_sha256, root=ROOT, now=None):
         components[name]['imageDigests'] = sorted({ref.rsplit('@sha256:', 1)[1] for ref in refs})
         components[name]['configuredImageDigest'] = component['imageReference'].rsplit('@sha256:', 1)[1]
         components[name]['configuredReferenceSha256'] = sha(component['imageReference'].encode('utf-8'))
-    return {'schema': 'UatCompositeReconciliationProposalV1', 'status': 'NOT_AUTHORIZED_NOT_RECORDABLE',
+        if component_bound:
+            components[name]['imageReference'] = component['imageReference']
+            components[name]['repositoryDigests'] = list(component['repositoryDigests'])
+            components[name]['startedAt'] = component.get('startedAt')
+    result = {'schema': 'UatCompositeReconciliationProposalV2' if component_bound else 'UatCompositeReconciliationProposalV1',
+            'status': 'NOT_AUTHORIZED_NOT_RECORDABLE',
             'sourceSha': api['sourceSha'], 'components': components,
             'mediaObservation': {'sourceSha': media['sourceSha'], 'sourceDigest': media['sourceDigest'],
                                  'verification': 'UNVERIFIED_OUTSIDE_PROPOSAL'},
@@ -133,3 +167,60 @@ def build(manifest_path, expected_sha256, root=ROOT, now=None):
             'manifestSha256': expected_sha256, 'rollbackCertified': False,
             'realmConfigDigest': None,
             'limitations': top['limitations'] + ['MEDIA_SOURCE_REVALIDATION_REQUIRED']}
+    if component_bound:
+        result['componentPackageBindings'] = bindings
+        result['runtimeObservedAt'] = observation['observedAt']
+        result['observationReference'] = sources['observation']
+        result['ledgerSha256'] = sha(CANDIDATE.canonical(observation['ledger']))
+        result['ledgerSummary'] = {key: observation['ledger'][key] for key in
+                                  ('database', 'readonly', 'finished', 'rolledBack', 'unresolved', 'authorityMatches')}
+    return result
+
+
+def build_observed_record(manifest_path, expected_sha256, current_raw, previous_raw, root=ROOT, now=None):
+    """เติม observation ราย component โดยรักษา legacy layout และประวัติเดิม."""
+    now = now or datetime.now(timezone.utc)
+    proposal = build(manifest_path, expected_sha256, root, now)
+    if proposal['schema'] != 'UatCompositeReconciliationProposalV2':
+        raise RuntimeError('ALL_COMPONENT_PACKAGES_REQUIRED')
+    if (sha(current_raw) != proposal['expectedCurrentSha256']
+            or sha(previous_raw) != proposal['expectedPreviousSha256']):
+        raise RuntimeError('OBSERVATION_RECORD_CAS_MISMATCH')
+    record = json.loads(current_raw)
+    if (not isinstance(record, dict) or record.get('schema') != 'UatDeploymentReconciliationV1'
+            or record.get('action') != 'reconciliation' or record.get('rollbackEligible') is not False
+            or not CANDIDATE.valid('[0-9a-f]{40}', record.get('sourceSha'))
+            or record.get('realmConfigDigest') is not None):
+        raise RuntimeError('OBSERVATION_LEGACY_RECORD_REQUIRED')
+    if (not isinstance(record.get('images'), dict) or set(record['images']) != {'api', 'console', 'ops', 'keycloak'}
+            or any(not CANDIDATE.valid(r'[^\s@]+@sha256:[0-9a-f]{64}', image) for image in record['images'].values())):
+        raise RuntimeError('OBSERVATION_LEGACY_IMAGES_REQUIRED')
+    if (record.get('mediaSourceSha') != proposal['mediaObservation']['sourceSha']
+            or record.get('mediaSourceDigest') != proposal['mediaObservation']['sourceDigest']):
+        raise RuntimeError('OBSERVATION_MEDIA_ANCHOR_MISMATCH')
+    anchor = {'kind': 'HISTORICAL_RELEASE_LAYOUT_NOT_CURRENT_RUNTIME',
+              'sourceSha': record['sourceSha'],
+              'fields': sorted(key for key in record if key not in {
+                  'schema', 'action', 'rollbackEligible', 'recordedAt', 'legacyAnchor',
+                  'components', 'componentPackageBindings', 'observationProof'}),
+              'firstSourceRecordSha256': sha(current_raw)}
+    if 'legacyAnchor' in record:
+        old = record['legacyAnchor']
+        if (not isinstance(old, dict) or old.get('kind') != anchor['kind'] or old.get('sourceSha') != anchor['sourceSha']
+                or old.get('fields') != anchor['fields']
+                or not CANDIDATE.valid('[0-9a-f]{64}', old.get('firstSourceRecordSha256'))):
+            raise RuntimeError('OBSERVATION_LEGACY_ANCHOR_CHANGED')
+        anchor = old
+    record['legacyAnchor'] = anchor
+    record['components'] = proposal['components']
+    record['componentPackageBindings'] = proposal['componentPackageBindings']
+    record['observationProof'] = {'schema': 'UatComponentObservationReferenceV1',
+        'scope': 'CURRENT_COMPONENTS_PACKAGE_BOUND_NOT_RELEASE_CERTIFIED',
+        'observedAt': proposal['runtimeObservedAt'], 'reference': proposal['observationReference'],
+        'manifestSha256': expected_sha256, 'ledgerSha256': proposal['ledgerSha256'],
+        'ledgerSummary': proposal['ledgerSummary'],
+        'parentRecordSha256': sha(current_raw), 'previousRecordSha256': sha(previous_raw),
+        'previousPreserved': True, 'rollbackCertified': False,
+        'limitations': proposal['limitations']}
+    record['recordedAt'] = now.isoformat().replace('+00:00', 'Z')
+    return record
