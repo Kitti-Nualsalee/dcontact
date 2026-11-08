@@ -7104,7 +7104,7 @@ model C360ImportJob {
   actorIdentityKey  String    @map("actor_identity_key")
   revision          BigInt    @default(0)
   state             String
-  sourceObjectId    String    @map("source_object_id") @db.Uuid
+  sourceObjectId    String?   @map("source_object_id") @db.Uuid
   sourceDigest      String?   @map("source_digest") @db.Char(64)
   sourceBytes       Int?      @map("source_bytes")
   mapping           Json?
@@ -7120,6 +7120,22 @@ model C360ImportJob {
   @@unique([tenantId, id, ownerUserId], map: "c360_import_jobs_owner_key")
   @@index([tenantId, ownerUserId, state, createdAt, id], map: "c360_import_jobs_owner_idx")
   @@map("c360_import_jobs")
+}
+
+/// attempt มี object ID แยกต่อ upload; การกู้ผลไม่ใช้ filename หรือ raw cells
+model C360ImportUploadAttempt {
+  tenantId     String   @map("tenant_id") @db.Uuid
+  jobId        String   @map("job_id") @db.Uuid
+  objectId     String   @map("object_id") @db.Uuid
+  state        String
+  sourceDigest String   @map("source_digest") @db.Char(64)
+  sourceBytes  Int      @map("source_bytes")
+  createdAt    DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+  expiresAt    DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@id([tenantId, jobId, objectId])
+  @@index([tenantId, state, expiresAt], map: "c360_import_upload_cleanup_idx")
+  @@map("c360_import_upload_attempts")
 }
 
 /// childCommandId คงที่ทุก retry/reconcile; ไม่มี raw cells หรือ token

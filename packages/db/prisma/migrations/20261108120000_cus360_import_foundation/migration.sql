@@ -6,7 +6,7 @@ CREATE TABLE c360_import_jobs (
   actor_identity_key text NOT NULL,
   revision bigint NOT NULL DEFAULT 0 CHECK (revision >= 0),
   state text NOT NULL CHECK (state IN ('UPLOADING','DRAFT','READY','QUEUED','RUNNING','COMPLETED','COMPLETED_WITH_ERRORS','PAUSING','PAUSED_USER','PAUSED_AUTH','CANCEL_REQUESTED','CANCELLED','EXPIRED','FAILED_SYSTEM')),
-  source_object_id uuid NOT NULL,
+  source_object_id uuid,
   source_digest char(64),
   source_bytes integer CHECK (source_bytes BETWEEN 0 AND 5242880),
   mapping jsonb,
@@ -27,6 +27,25 @@ CREATE TABLE c360_import_jobs (
   CHECK (mapping IS NULL OR jsonb_typeof(mapping) = 'object')
 );
 CREATE INDEX c360_import_jobs_owner_idx ON c360_import_jobs (tenant_id, owner_user_id, state, created_at, id);
+
+-- durable attempt ก่อน network call; objectId ไม่ใช้ซ้ำข้าม attempt
+CREATE TABLE c360_import_upload_attempts (
+  tenant_id uuid NOT NULL,
+  job_id uuid NOT NULL,
+  object_id uuid NOT NULL,
+  state text NOT NULL CHECK (state IN ('ALLOCATED','UPLOADING','ATTACHED','DELETING','DELETED')),
+  source_digest char(64) NOT NULL CHECK (source_digest ~ '^[0-9a-f]{64}$'),
+  source_bytes integer NOT NULL CHECK (source_bytes BETWEEN 0 AND 5242880),
+  created_at timestamptz(6) NOT NULL DEFAULT clock_timestamp(),
+  expires_at timestamptz(6) NOT NULL,
+  PRIMARY KEY (tenant_id, job_id, object_id),
+  FOREIGN KEY (tenant_id, job_id) REFERENCES c360_import_jobs (tenant_id, id),
+  CHECK (expires_at <= created_at + interval '24 hours')
+);
+CREATE INDEX c360_import_upload_cleanup_idx ON c360_import_upload_attempts (tenant_id, state, expires_at);
+CREATE UNIQUE INDEX c360_import_upload_one_attached ON c360_import_upload_attempts (tenant_id, job_id) WHERE state = 'ATTACHED';
+ALTER TABLE c360_import_jobs ADD CONSTRAINT c360_import_jobs_source_attempt_fkey
+  FOREIGN KEY (tenant_id, id, source_object_id) REFERENCES c360_import_upload_attempts (tenant_id, job_id, object_id);
 
 CREATE TABLE c360_import_rows (
   tenant_id uuid NOT NULL,
@@ -86,9 +105,12 @@ CREATE TRIGGER c360_import_row_immutable BEFORE UPDATE ON c360_import_rows
 
 CREATE FUNCTION c360_import_job_identity_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF (NEW.tenant_id, NEW.id, NEW.owner_user_id, NEW.actor_identity_key, NEW.source_object_id, NEW.created_at)
+  IF (NEW.tenant_id, NEW.id, NEW.owner_user_id, NEW.actor_identity_key, NEW.created_at)
      IS DISTINCT FROM
-     (OLD.tenant_id, OLD.id, OLD.owner_user_id, OLD.actor_identity_key, OLD.source_object_id, OLD.created_at) THEN
+     (OLD.tenant_id, OLD.id, OLD.owner_user_id, OLD.actor_identity_key, OLD.created_at)
+     OR (OLD.source_object_id IS NOT NULL AND
+       (NEW.source_object_id, NEW.source_digest, NEW.source_bytes) IS DISTINCT FROM
+       (OLD.source_object_id, OLD.source_digest, OLD.source_bytes)) THEN
     RAISE EXCEPTION 'import job identity is immutable' USING ERRCODE = '23514';
   END IF;
   IF NEW.source_expires_at > OLD.source_expires_at OR
@@ -97,10 +119,53 @@ BEGIN
        (NEW.report_expires_at IS NULL OR NEW.report_expires_at > OLD.report_expires_at)) THEN
     RAISE EXCEPTION 'import retention deadline cannot be extended' USING ERRCODE = '23514';
   END IF;
+  IF OLD.source_object_id IS NULL AND NEW.source_object_id IS NOT NULL THEN
+    PERFORM 1 FROM c360_import_upload_attempts a
+      WHERE a.tenant_id = NEW.tenant_id AND a.job_id = NEW.id AND a.object_id = NEW.source_object_id
+        AND a.state = 'ATTACHED' AND a.source_digest = NEW.source_digest AND a.source_bytes = NEW.source_bytes
+      FOR UPDATE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'import source must reference attached attempt' USING ERRCODE = '23514';
+    END IF;
+  END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER c360_import_job_identity_immutable BEFORE UPDATE ON c360_import_jobs
   FOR EACH ROW EXECUTE FUNCTION c360_import_job_identity_immutable();
+
+CREATE FUNCTION c360_import_attempt_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF (NEW.tenant_id, NEW.job_id, NEW.object_id, NEW.source_digest, NEW.source_bytes, NEW.created_at)
+     IS DISTINCT FROM
+     (OLD.tenant_id, OLD.job_id, OLD.object_id, OLD.source_digest, OLD.source_bytes, OLD.created_at)
+     OR NEW.expires_at > OLD.expires_at
+     OR (OLD.state = 'DELETED' AND NEW IS DISTINCT FROM OLD)
+     OR (NEW.state <> OLD.state AND NOT (
+       (OLD.state = 'ALLOCATED' AND NEW.state IN ('UPLOADING','DELETING')) OR
+       (OLD.state = 'UPLOADING' AND NEW.state IN ('ATTACHED','DELETING')) OR
+       (OLD.state = 'ATTACHED' AND NEW.state = 'DELETING') OR
+       (OLD.state = 'DELETING' AND NEW.state = 'DELETED')
+     )) THEN
+    RAISE EXCEPTION 'import upload attempt cannot be reused' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER c360_import_attempt_immutable BEFORE UPDATE ON c360_import_upload_attempts
+  FOR EACH ROW EXECUTE FUNCTION c360_import_attempt_immutable();
+
+-- attempt ไม่ยืดอายุไฟล์ของ job ได้; cleanup ยังต้องใช้ min(job, attempt) หาก job ถูกย่นเวลา
+CREATE FUNCTION c360_import_attempt_deadline() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE job_deadline timestamptz;
+BEGIN
+  SELECT source_expires_at INTO job_deadline FROM c360_import_jobs
+    WHERE tenant_id = NEW.tenant_id AND id = NEW.job_id FOR SHARE;
+  IF job_deadline IS NULL OR NEW.expires_at > job_deadline THEN
+    RAISE EXCEPTION 'import attempt exceeds job deadline' USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER c360_import_attempt_deadline BEFORE INSERT ON c360_import_upload_attempts
+  FOR EACH ROW EXECUTE FUNCTION c360_import_attempt_deadline();
 
 CREATE FUNCTION c360_import_delegation_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -118,12 +183,12 @@ CREATE TRIGGER c360_import_delegation_immutable BEFORE UPDATE ON c360_import_del
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['c360_import_jobs','c360_import_rows','c360_import_delegations','c360_import_control_audits'] LOOP
+  FOREACH t IN ARRAY ARRAY['c360_import_jobs','c360_import_upload_attempts','c360_import_rows','c360_import_delegations','c360_import_control_audits'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (tenant_id = nullif(current_setting(''app.tenant_id'', true), '''')::uuid) WITH CHECK (tenant_id = nullif(current_setting(''app.tenant_id'', true), '''')::uuid)', t);
   END LOOP;
 END $$;
-GRANT SELECT, INSERT, UPDATE, DELETE ON c360_import_jobs, c360_import_rows, c360_import_delegations, c360_import_control_audits TO dcontact_app;
-REVOKE DELETE ON c360_import_jobs, c360_import_rows, c360_import_delegations FROM dcontact_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON c360_import_jobs, c360_import_upload_attempts, c360_import_rows, c360_import_delegations, c360_import_control_audits TO dcontact_app;
+REVOKE DELETE ON c360_import_jobs, c360_import_upload_attempts, c360_import_rows, c360_import_delegations FROM dcontact_app;
 REVOKE UPDATE, DELETE ON c360_import_control_audits FROM dcontact_app;

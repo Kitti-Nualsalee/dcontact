@@ -105,7 +105,7 @@ END $$;
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['c360_import_jobs','c360_import_rows','c360_import_delegations','c360_import_control_audits'] LOOP
+  FOREACH t IN ARRAY ARRAY['c360_import_jobs','c360_import_upload_attempts','c360_import_rows','c360_import_delegations','c360_import_control_audits'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
@@ -279,7 +279,7 @@ REVOKE UPDATE ON c360_contact_tags FROM dcontact_app;
 REVOKE DELETE ON c360_work_mutation_auth FROM dcontact_app;
 REVOKE UPDATE, DELETE ON c360_actor_capability_grants FROM dcontact_app;
 REVOKE UPDATE, DELETE ON c360_actor_capability_revocations FROM dcontact_app;
-REVOKE DELETE ON c360_import_jobs, c360_import_rows, c360_import_delegations FROM dcontact_app;
+REVOKE DELETE ON c360_import_jobs, c360_import_upload_attempts, c360_import_rows, c360_import_delegations FROM dcontact_app;
 REVOKE UPDATE, DELETE ON c360_import_control_audits FROM dcontact_app;
 
 -- J3.5/J3.10: bootstrap ต้องไม่คืนสิทธิ์แก้/ลบหลักฐานที่ migration กำหนดเป็น append-only

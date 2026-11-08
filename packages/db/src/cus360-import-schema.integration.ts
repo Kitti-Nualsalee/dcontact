@@ -47,7 +47,7 @@ test('M2 import schema แยก tenant, ผูก delegation กับเจ้
   await scope(
     tenants[0]!,
     (tx) =>
-      tx.$executeRaw`INSERT INTO c360_import_jobs(tenant_id,id,owner_user_id,actor_identity_key,state,source_object_id,created_at,source_expires_at) VALUES (${tenants[0]}::uuid,${job}::uuid,${users[0]}::uuid,'verified-actor','UPLOADING',${objectId}::uuid,transaction_timestamp(),transaction_timestamp()+interval '24 hours')`,
+      tx.$executeRaw`INSERT INTO c360_import_jobs(tenant_id,id,owner_user_id,actor_identity_key,state,created_at,source_expires_at) VALUES (${tenants[0]}::uuid,${job}::uuid,${users[0]}::uuid,'verified-actor','UPLOADING',transaction_timestamp(),transaction_timestamp()+interval '24 hours')`,
   );
   const visible = await scope(
     tenants[0]!,
@@ -59,6 +59,50 @@ test('M2 import schema แยก tenant, ผูก delegation กับเจ้
   );
   assert.equal(visible.length, 1);
   assert.equal(hidden.length, 0);
+  await assert.rejects(
+    scope(
+      tenants[0]!,
+      (tx) =>
+        tx.$executeRaw`INSERT INTO c360_import_upload_attempts(tenant_id,job_id,object_id,state,source_digest,source_bytes,created_at,expires_at) VALUES (${tenants[0]}::uuid,${job}::uuid,${randomUUID()}::uuid,'UPLOADING',${'a'.repeat(64)},4,transaction_timestamp(),transaction_timestamp()+interval '25 hours')`,
+    ),
+  );
+  await scope(
+    tenants[0]!,
+    (tx) =>
+      tx.$executeRaw`INSERT INTO c360_import_upload_attempts(tenant_id,job_id,object_id,state,source_digest,source_bytes,created_at,expires_at) VALUES (${tenants[0]}::uuid,${job}::uuid,${objectId}::uuid,'UPLOADING',${'a'.repeat(64)},4,transaction_timestamp(),transaction_timestamp()+interval '1 hour')`,
+  );
+  await scope(
+    tenants[0]!,
+    (tx) =>
+      tx.$executeRaw`UPDATE c360_import_upload_attempts SET state='DELETING' WHERE job_id=${job}::uuid AND object_id=${objectId}::uuid`,
+  );
+  await assert.rejects(
+    scope(
+      tenants[0]!,
+      (tx) =>
+        tx.$executeRaw`UPDATE c360_import_upload_attempts SET state='ATTACHED' WHERE job_id=${job}::uuid AND object_id=${objectId}::uuid`,
+    ),
+  );
+  await assert.rejects(
+    scope(
+      tenants[0]!,
+      (tx) =>
+        tx.$executeRaw`UPDATE c360_import_jobs SET source_object_id=${objectId}::uuid, source_digest=${'a'.repeat(64)}, source_bytes=4 WHERE id=${job}::uuid`,
+    ),
+  );
+  const secondObjectId = randomUUID();
+  await scope(tenants[0]!, async (tx) => {
+    await tx.$executeRaw`INSERT INTO c360_import_upload_attempts(tenant_id,job_id,object_id,state,source_digest,source_bytes,created_at,expires_at) VALUES (${tenants[0]}::uuid,${job}::uuid,${secondObjectId}::uuid,'UPLOADING',${'a'.repeat(64)},4,transaction_timestamp(),transaction_timestamp()+interval '1 hour')`;
+    await tx.$executeRaw`UPDATE c360_import_upload_attempts SET state='ATTACHED' WHERE job_id=${job}::uuid AND object_id=${secondObjectId}::uuid`;
+    await tx.$executeRaw`UPDATE c360_import_jobs SET source_object_id=${secondObjectId}::uuid, source_digest=${'a'.repeat(64)}, source_bytes=4 WHERE id=${job}::uuid`;
+  });
+  await assert.rejects(
+    scope(
+      tenants[0]!,
+      (tx) =>
+        tx.$executeRaw`UPDATE c360_import_jobs SET source_digest=${'b'.repeat(64)} WHERE id=${job}::uuid`,
+    ),
+  );
   await assert.rejects(
     scope(
       tenants[0]!,
