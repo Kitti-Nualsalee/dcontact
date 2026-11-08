@@ -214,4 +214,5 @@ Platform ยังคงใช้ path จาก source anchor เดิม ส�
 ก่อน apply ต้อง review manifest hash และ stable record hash จากข้อเสนอ `--approved-stable-record-sha256`
 ซึ่งไม่รวม `recordedAt` actor เป็น audit label การอนุมัติต้องมาจาก review อิสระเช่นเดียวกับ recovery
 ตัวเขียนใช้ lock/CAS/readback เดิมและ `preserve_previous=True` เพื่อเก็บ previous เดิม byte-for-byte
-พร้อม snapshot และ receipt เมื่อไม่แน่ใจจะคง reconciliation pending ให้ตรวจ ไม่มีการ restart หรือเขียน DB
+พร้อม snapshot และตรวจ live หลังเขียน current ก่อนยืนยัน receipt หาก postcheck ล้มหรือไม่แน่ใจ
+จะคง reconciliation pending ให้ตรวจ ไม่มีการ restart หรือเขียน DB

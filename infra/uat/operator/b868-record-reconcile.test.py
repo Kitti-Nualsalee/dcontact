@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 
 def load(name, filename):
@@ -40,13 +41,28 @@ class ReconcileTests(unittest.TestCase):
 
     def apply(self, approved=None, actor=None, reader=None):
         return MODULE.apply(self.ref['path'], self.ref['sha256'], approved or MODULE.stable_sha(self.prepare()),
-            actor or self.actor, root=self.root, observe_live=reader or (lambda: copy.deepcopy(self.fixture.obs)), now=self.now)
+            actor or self.actor, root=self.root, observe_live=reader or self.live, now=self.now)
+
+    def live(self):
+        value = copy.deepcopy(self.fixture.obs)
+        current = (self.deployments / 'current.json').read_bytes()
+        previous = (self.deployments / 'previous.json').read_bytes()
+        if current != self.current:
+            record = json.loads(current)
+            value['runtime']['records']['current'] = {'sha256': hashlib.sha256(current).hexdigest(),
+                'sourceSha': record['sourceSha']}
+            value['runtime']['records']['previous']['sha256'] = hashlib.sha256(previous).hexdigest()
+            value['runtime'].update(sourceMismatch=[], imageDigestMismatch=[], componentConfigMismatch=[],
+                                    componentIdentityMismatch=[], referenceKind='PER_COMPONENT_OBSERVATION')
+        value['runtimeSha256'] = hashlib.sha256(MODULE.PROPOSAL.CANDIDATE.canonical(value['runtime'])).hexdigest()
+        return value
 
     def test_observation_commit_preserves_previous_and_platform_layout_anchor(self):
         record = self.prepare()
         result = self.apply()
         self.assertEqual(result['status'], 'COMMITTED')
         self.assertTrue(result['previousPreserved'])
+        self.assertTrue(result['livePostcheckMatched'])
         self.assertFalse(result['rollbackCertified'])
         current = json.loads((self.deployments / 'current.json').read_bytes())
         self.assertEqual(MODULE.stable_sha(current), MODULE.stable_sha(record))
@@ -91,6 +107,20 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual((self.deployments / 'current.json').read_bytes(), self.current)
         self.assertEqual((self.deployments / 'previous.json').read_bytes(), b'concurrent')
         self.assertTrue((self.root / 'operator/b714-reconciliation.pending').exists())
+
+    def test_ledger_drift_during_current_replace_retains_pending(self):
+        actual_replace = MODULE.TRANSACTION.os.replace
+        def replace(source, destination):
+            actual_replace(source, destination)
+            if Path(destination).name == 'current.json':
+                self.fixture.obs['ledger']['unresolved'] = 1
+        with patch.object(MODULE.TRANSACTION.os, 'replace', side_effect=replace):
+            with self.assertRaises(RuntimeError):
+                self.apply()
+        self.assertNotEqual((self.deployments / 'current.json').read_bytes(), self.current)
+        self.assertEqual((self.deployments / 'previous.json').read_bytes(), self.previous)
+        self.assertTrue((self.root / 'operator/b714-reconciliation.pending').exists())
+        self.assertEqual(list((self.root / 'operator').glob('b714-reconciliation-*/committed.json')), [])
 
 
 if __name__ == '__main__':

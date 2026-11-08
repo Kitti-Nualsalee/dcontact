@@ -339,7 +339,7 @@ def apply_record(manifest, root=ROOT):
     return _apply_record(manifest, root, prepare, inspect_runtime)
 
 
-def _apply_record(manifest, root, prepare_candidate, inspect_candidate, *, preserve_previous=False):
+def _apply_record(manifest, root, prepare_candidate, inspect_candidate, *, preserve_previous=False, post_commit_check=None):
     """ใช้ขั้นตอน commit เดียวกันหลังผ่านตัวตรวจหลักฐานของ candidate."""
     deployments = root / 'deployments'
     operator = root / 'operator'
@@ -403,15 +403,24 @@ def _apply_record(manifest, root, prepare_candidate, inspect_candidate, *, prese
         require(read(current) == raw, 'CURRENT_COMMIT_READBACK_FAILED')
         if preserve_previous:
             require(current_hash(previous) == manifest['expectedPreviousSha256'], 'PREVIOUS_COMMIT_READBACK_FAILED')
+        if post_commit_check is not None:
+            post_commit_check(record)
+            require(read(current) == raw, 'CURRENT_POSTCHECK_READBACK_FAILED')
+            require(current_hash(previous) == (manifest['expectedPreviousSha256'] if preserve_previous
+                    else manifest['expectedCurrentSha256']), 'PREVIOUS_POSTCHECK_READBACK_FAILED')
         receipt = {'status': 'COMMITTED', 'recordSha256': sha(raw)}
         if preserve_previous:
             receipt['previousPreserved'] = True
+        if post_commit_check is not None:
+            receipt['livePostcheckMatched'] = True
         create(transaction / 'committed.json', canonical(receipt))
         pending.unlink()
         sync_directory(operator)
         result = {'status': 'COMMITTED', 'recordSha256': sha(raw), 'businessTrial': 'NOT_EVALUATED'}
         if preserve_previous:
             result['previousPreserved'] = True
+        if post_commit_check is not None:
+            result['livePostcheckMatched'] = True
         return result
     finally:
         os.close(lock)

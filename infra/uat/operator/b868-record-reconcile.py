@@ -70,7 +70,28 @@ def apply(manifest_path, approved_manifest_sha256, approved_stable_record_sha256
             raise RuntimeError('RECONCILE_LIVE_EVIDENCE_CHANGED')
         PROPOSAL.CANDIDATE.validate_unreviewed(approved, check_time())
 
-    result = TRANSACTION._apply_record(envelope, root, candidate, inspect, preserve_previous=True)
+    def postcheck(committed_record):
+        PROPOSAL.build(manifest_path, approved_manifest_sha256, root / 'operator', check_time())
+        approved = json.loads(PROPOSAL.reference(record['observationProof']['reference'], root / 'operator'))
+        PROPOSAL.CANDIDATE.validate_unreviewed(approved, check_time())
+        live = reader()
+        PROPOSAL.CANDIDATE.validate_unreviewed(live, check_time())
+        if (live['runtime']['components'] != approved['runtime']['components']
+                or live['ledger'] != approved['ledger'] or live['protectedRuntime'] != approved['protectedRuntime']):
+            raise RuntimeError('RECONCILE_POSTCHECK_EVIDENCE_CHANGED')
+        current_raw = TRANSACTION.read(root / 'deployments/current.json')
+        expected_raw = TRANSACTION.canonical(committed_record) + b'\n'
+        if (current_raw != expected_raw
+                or live['runtime']['records']['current']['sha256'] != PROPOSAL.sha(expected_raw)
+                or live['runtime']['records']['previous']['sha256'] != previous
+                or any(live['runtime'].get(key) != [] for key in
+                       ('sourceMismatch', 'imageDigestMismatch', 'componentConfigMismatch', 'componentIdentityMismatch'))
+                or live['runtime'].get('referenceKind') != 'PER_COMPONENT_OBSERVATION'):
+            raise RuntimeError('RECONCILE_POSTCHECK_RECORD_MISMATCH')
+        PROPOSAL.build(manifest_path, approved_manifest_sha256, root / 'operator', check_time())
+
+    result = TRANSACTION._apply_record(envelope, root, candidate, inspect, preserve_previous=True,
+                                       post_commit_check=postcheck)
     return {**result, 'scope': 'COMPONENT_OBSERVATION_RECORD_ONLY', 'rollbackCertified': False}
 
 
