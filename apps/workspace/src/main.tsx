@@ -1,3 +1,4 @@
+import { E2eWorkCustomerHarness } from './e2e-work-customer-harness.js';
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createAgentWorkspaceApi, type AgentWorkspaceApi } from './agent-api.js';
@@ -112,7 +113,9 @@ const application =
     </SessionLocaleProvider>
   ) : import.meta.env.MODE === 'e2e' ? (
     <SessionLocaleProvider i18n={appI18n}>
-      {e2eSearch.get('authHarness') === '1' ? (
+      {e2eView === 'customer-trial' ? (
+        <E2eWorkCustomerHarness />
+      ) : e2eSearch.get('authHarness') === '1' ? (
         <E2eAuthHarness />
       ) : e2eView === 'supervisor' ? (
         <WorkspaceShell {...e2eShellProps} appId="supervisor-workspace">

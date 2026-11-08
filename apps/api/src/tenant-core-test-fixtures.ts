@@ -9,7 +9,7 @@ import { TenantLocaleDefaultsController, TENANT_LOCALE_DATABASE } from './tenant
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { Module, type Type } from '@nestjs/common';
+import { Module, type Type, type Provider } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { PrismaClient } from '@d-contact/db';
 import type { VerifiedOidcClaims, OidcAccessTokenVerifier } from '@d-contact/workspace-session';
@@ -54,6 +54,7 @@ export async function coreFixture(
   provisionedDefaults?: { locale: string; timeZone: string },
   searchLimiter?: SharedRateLimiter,
   writeRuntime?: C360WriteRuntime,
+  extraProviders: Provider[] = [],
 ) {
   const owner = new PrismaClient();
   const db = new PrismaClient({
@@ -189,6 +190,7 @@ export async function coreFixture(
         },
         { provide: GATEWAY_DIAGNOSTICS, useValue: { write: () => undefined } },
         { provide: APP_GUARD, useClass: OidcGlobalGuard },
+        ...extraProviders,
       ],
     })
     class CoreTestModule {}

@@ -12,6 +12,7 @@ import {
   InternalServerErrorException,
   Inject,
   NotFoundException,
+  Optional,
   Param,
   Post,
   Query,
@@ -25,6 +26,7 @@ import { saveAgentWrapup, readAgentWrapup, readAgentWrapupCommand } from './agen
 import { readAgentHistory } from './agent-history.js';
 
 export const AGENT_WORKSPACE_DATABASE = Symbol('AGENT_WORKSPACE_DATABASE');
+export const AGENT_WORKSPACE_CUSTOMER_AVAILABLE = Symbol('AGENT_WORKSPACE_CUSTOMER_AVAILABLE');
 
 async function wrapupOperation<Result>(
   request: AuthenticatedGatewayRequest,
@@ -86,6 +88,9 @@ export class AgentWorkspaceController {
     @Inject(AGENT_WORKSPACE_DATABASE) private readonly database: PrismaClient,
     @Inject(AGENT_SIP_CREDENTIALS)
     private readonly sipCredentialsService: AgentSipCredentialService,
+    @Optional()
+    @Inject(AGENT_WORKSPACE_CUSTOMER_AVAILABLE)
+    private readonly customerAvailable = false,
   ) {}
 
   @Get('history')
@@ -148,7 +153,10 @@ export class AgentWorkspaceController {
       });
 
       return {
-        capabilities: { voiceWrapupV1: 1 },
+        capabilities: {
+          voiceWrapupV1: 1,
+          ...(this.customerAvailable ? { workCustomerV1: 1 } : {}),
+        },
         agent: {
           id: agent.id,
           displayName: agent.displayName,

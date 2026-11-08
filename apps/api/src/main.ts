@@ -1,3 +1,5 @@
+import { Customer360WorkController, CUSTOMER_360_WORK_AUTH } from './customer-360-work-api.js';
+import { C360WorkAuthService, KeycloakC360TokenIntrospector } from './customer-360-work-auth.js';
 import {
   CUSTOMER_360_TAG_RUNTIME,
   createC360TagCatalogRuntime,
@@ -120,7 +122,11 @@ import { S3RecordingStorage } from './s3-recording-storage.js';
 import { S3GovernanceExportStorage } from './s3-governance-export-storage.js';
 import { QmController, QM_DATABASE, QM_JOB_PUBLISHER } from './qm-api.js';
 import { KafkaQmJobPublisher } from './qm-job-publisher.js';
-import { AgentWorkspaceController, AGENT_WORKSPACE_DATABASE } from './agent-workspace-api.js';
+import {
+  AgentWorkspaceController,
+  AGENT_WORKSPACE_DATABASE,
+  AGENT_WORKSPACE_CUSTOMER_AVAILABLE,
+} from './agent-workspace-api.js';
 import {
   AGENT_SIP_CREDENTIALS,
   configuredAgentSipCredentialService,
@@ -354,11 +360,30 @@ const clickToCall = new ClickToCallService(prisma, {
     },
   ),
 });
+// Cus360 online authorization ใช้ confidential client แยก; ไม่ตั้ง = ปิดเฉพาะ Cus360 work writes
+const c360WorkClientId = process.env.KEYCLOAK_C360_CLIENT_ID;
+const c360WorkClientSecret = process.env.KEYCLOAK_C360_CLIENT_SECRET;
+if (Boolean(c360WorkClientId) !== Boolean(c360WorkClientSecret))
+  throw new Error('Cus360 confidential client configuration is incomplete');
+const c360WorkAuth =
+  c360WorkClientId && c360WorkClientSecret
+    ? new C360WorkAuthService(
+        prisma,
+        verifier,
+        new KeycloakC360TokenIntrospector({
+          issuer: required('KEYCLOAK_ISSUER'),
+          clientId: c360WorkClientId,
+          clientSecret: c360WorkClientSecret,
+        }),
+      )
+    : undefined;
+const c360WriteRuntime = createC360WriteRuntime();
 const socketAdapter = new WorkspaceSessionWebSocketAdapter(
   gateway,
   tenantScope,
   { write: (diagnostic) => console.log(JSON.stringify(diagnostic)) },
   workSessionLeases,
+  c360WorkAuth,
 );
 leaseSignals.forward = socketAdapter;
 // ปล่อย lease ที่หลุดตอนว่างเกิน TTL (presence → OFFLINE); ทุก instance รันได้เพราะ lock แถวก่อนปิด
@@ -394,6 +419,7 @@ class WorkspaceSessionController {
     Customer360TagCatalogController,
     Customer360OperatorController,
     Customer360ReadController,
+    Customer360WorkController,
     Customer360OverviewController,
     Customer360ActivityController,
     TenantVoiceCatalogController,
@@ -437,10 +463,15 @@ class WorkspaceSessionController {
     NavigationController,
   ],
   providers: [
+    { provide: CUSTOMER_360_WORK_AUTH, useValue: c360WorkAuth ?? null },
     { provide: TENANT_CORE_DATABASE, useValue: prisma },
     { provide: CUSTOMER_360_DATABASE, useValue: prisma },
     { provide: CUSTOMER_360_TAG_RUNTIME, useValue: createC360TagCatalogRuntime() },
-    { provide: CUSTOMER_360_WRITE_RUNTIME, useValue: createC360WriteRuntime() },
+    { provide: CUSTOMER_360_WRITE_RUNTIME, useValue: c360WriteRuntime },
+    {
+      provide: AGENT_WORKSPACE_CUSTOMER_AVAILABLE,
+      useValue: Boolean(c360WorkAuth && c360WriteRuntime.ready),
+    },
     { provide: CUSTOMER_360_SEARCH_LIMITER, useValue: c360SearchLimiter },
     { provide: TENANT_VOICE_DATABASE, useValue: prisma },
     {

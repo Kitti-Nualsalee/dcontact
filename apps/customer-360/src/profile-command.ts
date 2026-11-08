@@ -228,6 +228,8 @@ export type C360ProfileCommandResult =
   | { status: 404; state: 'UNKNOWN'; commandId: string };
 
 type StoredCommandOwner = {
+  resourceType?: string | null;
+  resourceId?: string | null;
   actorUserId: string | null;
   action: string | null;
   isTombstone: boolean;
@@ -240,7 +242,13 @@ export interface C360CommandAuthorization {
    */
   authorize: (tx: Prisma.TransactionClient) => Promise<void>;
   /** ตรวจประเภทคำสั่งก่อนเปิด receipt หรือเปลี่ยนสถานะ */
+  /** Resource fences ใช้หลัง command fence เท่านั้น; read-only lookup เรียกก่อนอ่าน receipt */
+  fence?: (tx: Prisma.TransactionClient) => Promise<void>;
+  /** ตรวจ deadline/สิทธิ์หลัง audit+receipt+constraints โดยไม่ทำ network */
+  beforeCommit?: (tx: Prisma.TransactionClient) => Promise<void>;
   canAccessCommand?: (command: StoredCommandOwner) => boolean;
+  /** รวบรวม resource IDs ทั้งชุดก่อนถือ fences เพื่อรักษาลำดับ lock ของ receipt */
+  fenceReceiptRefs?: (tx: Prisma.TransactionClient, refs: C360ResourceRef[]) => Promise<void>;
   /** E1 B.8: refs ที่ผู้อ่านปัจจุบันไม่มีสิทธิ์ต้องไม่คืน */
   canReadRef?: (tx: Prisma.TransactionClient, ref: C360ResourceRef) => Promise<boolean>;
 }
@@ -324,11 +332,18 @@ async function receiptView(
   },
   authorization: C360CommandAuthorization,
 ): Promise<C360ProfileCommandResult> {
+  const storedRefs = receipt.resourceRefs as unknown as C360ResourceRef[];
+  await authorization.fenceReceiptRefs?.(tx, [
+    ...storedRefs,
+    ...(command.resourceType && command.resourceId
+      ? [{ type: command.resourceType, id: command.resourceId }]
+      : []),
+  ]);
   const refs: C360ResourceRef[] = [];
-  for (const ref of receipt.resourceRefs as unknown as C360ResourceRef[])
+  for (const ref of storedRefs)
     if (!authorization.canReadRef || (await authorization.canReadRef(tx, ref))) refs.push(ref);
   const outcome = receipt.outcome as C360ProfileCommandReceiptView['outcome'];
-  return {
+  const result: C360ProfileCommandResult = {
     status: receipt.httpStatus,
     state: 'TERMINAL',
     receipt: {
@@ -355,6 +370,11 @@ async function receiptView(
       readbackRequired: outcome !== 'REJECTED',
     },
   };
+  if (authorization.beforeCommit) {
+    await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+    await authorization.beforeCommit(tx);
+  }
+  return result;
 }
 
 function isLockBusy(error: unknown): boolean {
@@ -406,6 +426,7 @@ export async function executeC360ProfileCommand(
       await authorization.authorize(tx);
       if (!(await tryC360CommandLock(tx, actor, key.commandId)))
         throw new C360ProfileCommandError('RESOURCE_BUSY', 503, true);
+      await authorization.fence?.(tx);
       const row = await tx.c360ProfileCommand.findUnique({
         where: { tenantId_actorIdentityKey_commandId: key },
       });
@@ -434,6 +455,7 @@ export async function executeC360ProfileCommand(
           expectedRevisions: prepared.expectedRevisions,
         },
       });
+      await authorization.beforeCommit?.(tx);
       return null;
     }),
   );
@@ -445,6 +467,7 @@ export async function executeC360ProfileCommand(
       await authorization.authorize(tx);
       if (!(await tryC360CommandLock(tx, actor, key.commandId)))
         throw new C360ProfileCommandError('RESOURCE_BUSY', 503, true);
+      await authorization.fence?.(tx);
       const row = await tx.c360ProfileCommand.findUniqueOrThrow({
         where: { tenantId_actorIdentityKey_commandId: key },
       });
@@ -523,6 +546,7 @@ export async function lookupC360ProfileCommand(
     : withTenantDatabaseTransaction;
   return transact(db, key.tenantId, async (tx) => {
     await authorization.authorize(tx);
+    await authorization.fence?.(tx);
     const row = await tx.c360ProfileCommand.findUnique({
       where: { tenantId_actorIdentityKey_commandId: key },
     });
@@ -554,6 +578,7 @@ export async function reconcileC360ProfileCommand(
   return c360MutationTransaction(db, key.tenantId, async (tx) => {
     await authorization.authorize(tx);
     const locked = await tryC360CommandLock(tx, actor, commandId);
+    if (locked) await authorization.fence?.(tx);
     let row = await tx.c360ProfileCommand.findUnique({
       where: { tenantId_actorIdentityKey_commandId: key },
     });

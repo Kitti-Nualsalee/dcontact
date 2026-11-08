@@ -12,6 +12,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import { Prisma, withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
+import type { WorkspaceMutationAuthBinding } from '@d-contact/workspace-session';
+import { invalidateC360WorkAuthInTransaction } from './customer-360-work-auth.js';
 import { normalizeEmbedOrigin } from '@d-contact/shared';
 
 export const WORK_SESSION_TTL_MS = 60_000;
@@ -386,10 +388,22 @@ export class WorkSessionLeases {
    * token ถูกเพิกถอนระหว่างถือ lease: ว่าง = ปล่อยทันที (`auth_revoked`), มีงาน = คง lease ไว้จนงานจบ
    * (คุยต่อได้ ห้ามรับงานใหม่ — socket หยุดรับ offer เอง) แล้ว sweeper ปล่อยเมื่อหมดอายุ
    */
-  async revokeForAuth(actor: WorkSessionActor, leaseId: string, correlationId: string) {
+  async revokeForAuth(
+    actor: WorkSessionActor,
+    leaseId: string,
+    correlationId: string,
+    expected?: WorkspaceMutationAuthBinding,
+  ) {
     const released = await this.transaction(actor, async (tx) => {
       const open = await this.lockOpen(tx, actor);
       if (!open || open.id !== leaseId) return false;
+      const invalidated = await invalidateC360WorkAuthInTransaction(
+        tx,
+        { ...actor, leaseId },
+        'AUTH_REVOKED',
+        expected,
+      );
+      if (invalidated === 'stale' || (expected && invalidated === 'absent')) return false;
       if (await this.busy(tx, actor)) return false;
       await this.close(tx, actor, open, 'auth_revoked', correlationId);
       return true;

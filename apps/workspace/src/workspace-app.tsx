@@ -1,3 +1,4 @@
+import { WorkCustomerPanel } from './work-customer-panel.js';
 /**
  * Agent Workspace — D1.15 (#454): ข้อความผ่าน catalog `workspace`/`dphone`, CSS token ล้วน (`aw-*`),
  * ใน AppShell (flag `ui.shell.v2`) ไม่วาด chrome เดิมและใช้ dphone widget ลอยแทนแผงควบคุมสาย
@@ -259,6 +260,8 @@ function AgentWorkspace({
     workSession ? { phase: 'idle' } : { phase: 'disabled' },
   );
   const [socketLeaseId, setSocketLeaseId] = useState<string>();
+  const [customerInvalidation, setCustomerInvalidation] = useState(0);
+  const customerLease = useRef<string | undefined>(undefined);
   const enforced = lease.phase !== 'disabled';
   const leaseHeld = lease.phase === 'held';
   const inCall =
@@ -375,6 +378,41 @@ function AgentWorkspace({
     };
   }, [api, sessionReady, recoveryRevision, networkRevision]);
 
+  // Media อาจต่อก่อน Router ยืนยัน ACTIVE. อ่าน snapshot ซ้ำเฉพาะช่วงรอยต่อนี้
+  // เพื่อเปิดแผงลูกค้าเมื่อ owner ยืนยันงานเดียวกันแล้ว
+  useEffect(() => {
+    if (
+      !api?.customer ||
+      !sessionReady ||
+      snapshot?.capabilities?.workCustomerV1 !== 1 ||
+      dphoneState.phase !== 'ACTIVE' ||
+      snapshot.interaction?.state !== 'ASSIGNED' ||
+      snapshot.interaction.id !== dphoneState.interactionId
+    )
+      return;
+    const interactionId = dphoneState.interactionId;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function refresh(attempt: number) {
+      try {
+        const current = await api!.snapshot();
+        if (cancelled) return;
+        if (current.interaction?.id === interactionId && current.interaction.state !== 'ASSIGNED') {
+          setSnapshot(current);
+          return;
+        }
+      } catch {
+        // การอ่าน Cus360 ไม่มีผลต่อ Voice และลองใหม่ได้ในช่วงรอยต่อนี้
+      }
+      if (!cancelled && attempt < 11) timer = setTimeout(() => void refresh(attempt + 1), 500);
+    }
+    void refresh(0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [api, sessionReady, snapshot, dphoneState]);
+
   // WS ของ routing: flag เปิดต่อหลังได้ lease เท่านั้น (แนบ leaseId) และ heartbeat ผ่าน socket นี้
   const liveKey = enforced ? socketLeaseId : workingTab ? 'working-tab' : undefined;
   useEffect(() => {
@@ -383,12 +421,22 @@ function AgentWorkspace({
     const connection = api.subscribeLive(
       {
         onEvent: (event) => {
+          if (
+            event &&
+            typeof event === 'object' &&
+            'type' in event &&
+            event.type === 'customer.auth'
+          ) {
+            setCustomerInvalidation((value) => value + 1);
+            return;
+          }
           if (leaseClient.current?.handleSocketEvent(event)) return;
           const alert = governanceGate.apply(event);
           if (alert) setGovernanceAlert(alert);
         },
         onDisconnect: (code) => {
           if (disposed) return;
+          setCustomerInvalidation((value) => value + 1);
           leaseClient.current?.handleSocketClosed(code);
           setGovernanceAlert(governanceGate.markDisconnected());
         },
@@ -512,6 +560,7 @@ function AgentWorkspace({
 
   // ได้ lease = ที่นี่เป็นจุดรับงาน: ประกาศ leader ใน origin ให้แท็บอื่นไม่ขอ lease ซ้อน
   const heldLeaseId = lease.phase === 'held' ? lease.lease.leaseId : undefined;
+  if (heldLeaseId) customerLease.current = heldLeaseId;
   const onLeaseChangeRef = useRef(onLeaseChange);
   onLeaseChangeRef.current = onLeaseChange;
   useEffect(() => onLeaseChangeRef.current?.(heldLeaseId), [heldLeaseId]);
@@ -1489,7 +1538,26 @@ function AgentWorkspace({
           <Tab id="wrapup">{t('layout.tabs.wrapup')}</Tab>
           <Tab id="recent">{t('layout.tabs.recent')}</Tab>
         </TabList>
-        <TabPanel id="overview" className="aw-detail-panel">
+        <TabPanel
+          id="overview"
+          className="aw-detail-panel"
+          shouldForceMount={snapshot?.capabilities?.workCustomerV1 === 1}
+        >
+          {api?.customer &&
+          snapshot?.capabilities?.workCustomerV1 === 1 &&
+          snapshot?.interaction &&
+          ['ACTIVE', 'WRAPUP'].includes(snapshot.interaction.state) &&
+          customerLease.current ? (
+            <WorkCustomerPanel
+              key={`${identityKey}:${snapshot.interaction.id}`}
+              api={api.customer}
+              workId={snapshot.interaction.id}
+              leaseId={customerLease.current!}
+              invalidationRevision={customerInvalidation}
+              identityKey={identityKey ?? 'unknown'}
+              sessionReady={sessionReady}
+            />
+          ) : null}
           <h3 className="aw-detail-title">{t('layout.timeline')}</h3>
           {timeline.length ? (
             <ol className="aw-timeline">
@@ -1510,6 +1578,17 @@ function AgentWorkspace({
         </TabPanel>
         <TabPanel id="recent" className="aw-detail-panel">
           {savedPanel ?? <p className="aw-copy">{t('layout.recentEmpty')}</p>}
+          {api?.customer && snapshot?.capabilities?.workCustomerV1 === 1 && savedWrapup ? (
+            <WorkCustomerPanel
+              key={`${identityKey}:completed:${savedWrapup.interactionId}`}
+              api={api.customer}
+              workId={savedWrapup.interactionId}
+              leaseId=""
+              identityKey={identityKey ?? 'unknown'}
+              sessionReady={sessionReady}
+              readOnly
+            />
+          ) : null}
         </TabPanel>
       </Tabs>
     </section>
