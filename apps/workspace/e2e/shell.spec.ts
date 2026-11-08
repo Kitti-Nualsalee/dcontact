@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
+import { homeNavigation } from '../../console/e2e/support/home-navigation.js';
 
 /**
  * D1.13 (#452): flag `ui.shell.v2` ของ Workspace — shell ตัดสินก่อน mount WorkspaceApp
@@ -78,6 +79,33 @@ async function mockApis(page: Page, shellV2: boolean) {
 }
 
 const rail = (page: Page) => page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ });
+
+test('#860: พื้นที่ลูกค้าจาก Workspace เปิด Console พร้อมภาษาและ tenant', async ({ page }) => {
+  await mockApis(page, true);
+  await page.route('**/api/v1/me/navigation', (route) =>
+    route.fulfill({ status: 200, json: homeNavigation(['admin']) }),
+  );
+  await page.goto('/?tenant=demo');
+  const customers = rail(page).getByRole('link', { name: /ลูกค้า/ });
+  await expect(customers).toHaveAttribute(
+    'href',
+    'http://localhost:5174/?view=customers&tenant=demo',
+  );
+  await expect(customers).toHaveAttribute('target', '_blank');
+  await rail(page).getByRole('button', { name: 'แอปทั้งหมด' }).click();
+  const launcher = page.getByRole('dialog', { name: 'แอป D-Contact' });
+  await expect(launcher.getByRole('link', { name: /ภาพรวมข้อมูลลูกค้า/ })).toBeVisible();
+  await expect(launcher.getByRole('link', { name: /กฎข้อมูล/ })).toBeVisible();
+  await expect(launcher.getByRole('link', { name: /กิจกรรมลูกค้า/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'English' }).click();
+  await expect(rail(page).getByRole('link', { name: /Customers/ })).toBeVisible();
+  await rail(page).getByRole('button', { name: 'All apps' }).click();
+  const englishLauncher = page.getByRole('dialog', { name: 'D-Contact apps' });
+  await expect(englishLauncher.getByRole('link', { name: /Customer overview/ })).toBeVisible();
+  await expect(englishLauncher.getByRole('link', { name: /Data rules/ })).toBeVisible();
+  await expect(englishLauncher.getByRole('link', { name: /Customer activity/ })).toBeVisible();
+});
 
 test('flag ปิด → Workspace เดิมไม่มี rail', async ({ page }) => {
   await mockApis(page, false);

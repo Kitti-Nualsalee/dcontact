@@ -39,6 +39,7 @@ export const NAVIGATION_AREAS = [
   'cases',
   'routing',
   'ai',
+  'customers',
   'people',
   'wfm',
   'qm',
@@ -241,7 +242,7 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     // Cus360 C2 (#792): Customers + โปรไฟล์ read-only; ไม่มี Agent/Compliance (ไม่มี generic directory, R1 C)
     // สิทธิ์ต่อรายการตัดสินที่ API ทุก request — role ที่นี่เป็นแค่การมองเห็นเมนู
     id: 'customers',
-    area: 'people',
+    area: 'customers',
     section: 'customers',
     group: 'operations',
     labelKey: 'navigation.apps.customers',
@@ -251,7 +252,7 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
   },
   {
     id: 'customer-overview',
-    area: 'people',
+    area: 'customers',
     section: 'customers',
     group: 'operations',
     labelKey: 'navigation.apps.customerOverview',
@@ -261,7 +262,7 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
   },
   {
     id: 'customer-rules',
-    area: 'people',
+    area: 'customers',
     section: 'customers',
     group: 'operations',
     labelKey: 'navigation.apps.customerRules',
@@ -271,7 +272,7 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
   },
   {
     id: 'customer-activity',
-    area: 'people',
+    area: 'customers',
     section: 'customers',
     group: 'operations',
     labelKey: 'navigation.apps.customerActivity',
@@ -281,7 +282,7 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
   },
   {
     id: 'customer-tags',
-    area: 'people',
+    area: 'customers',
     section: 'customers',
     group: 'operations',
     labelKey: 'navigation.apps.customerTags',

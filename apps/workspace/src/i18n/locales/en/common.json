@@ -29,7 +29,10 @@
       "tenantPeople": "User accounts",
       "coreSettings": "Organization settings",
       "customers": "Customers",
-      "customerTags": "Manage tags"
+      "customerTags": "Manage tags",
+      "customerOverview": "Customer overview",
+      "customerRules": "Data rules",
+      "customerActivity": "Customer activity"
     },
     "areas": {
       "home": "Home",
@@ -41,6 +44,7 @@
       "cases": "Cases",
       "routing": "Routing",
       "ai": "AI",
+      "customers": "Customers",
       "people": "People",
       "wfm": "Workforce",
       "qm": "Quality",

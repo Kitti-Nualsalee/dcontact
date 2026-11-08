@@ -219,6 +219,7 @@ test('#651: พื้นที่เมนูคัดตาม role/plan; ล�
     'journeys',
     'governance',
     'routing',
+    'customers',
     'people',
     'integrations',
     'settings',
@@ -230,6 +231,32 @@ test('#651: พื้นที่เมนูคัดตาม role/plan; ล�
   assert.deepEqual(
     visibleAreas(reversed).map((area) => area.id),
     NAVIGATION_AREAS.filter((id) => NAVIGATION_APPS.some((app) => app.area === id)),
+  );
+});
+
+test('#860: เมนูลูกค้าอยู่พื้นที่เดียวตามสิทธิ์ โดยไม่เพิ่มหน้าหรือสิทธิ์ใหม่', () => {
+  const customerArea = (roles: string[]) =>
+    visibleAreas(visibleApps({ roles, entitlements: null })).find(
+      (area) => area.id === 'customers',
+    );
+  assert.deepEqual(
+    customerArea(['admin'])?.sections.flatMap((section) => section.items.map((item) => item.appId)),
+    ['customers', 'customer-overview', 'customer-rules', 'customer-activity', 'customer-tags'],
+  );
+  assert.deepEqual(
+    customerArea(['supervisor'])?.sections.flatMap((section) =>
+      section.items.map((item) => item.appId),
+    ),
+    ['customers'],
+  );
+  assert.equal(customerArea(['agent']), undefined);
+  assert.equal(customerArea(['compliance']), undefined);
+  const people = visibleAreas(visibleApps({ roles: ['admin'], entitlements: null })).find(
+    (area) => area.id === 'people',
+  );
+  assert.deepEqual(
+    people?.sections.map((section) => section.id),
+    ['accounts'],
   );
 });
 
