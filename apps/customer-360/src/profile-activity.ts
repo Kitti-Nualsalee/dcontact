@@ -301,7 +301,16 @@ export async function readC360Activity(
     }),
     nextCursor:
       rows.length > size && last
-        ? codec.seal({ ...context, position: [window.from, window.to, last.occurred_at, last.id] })
+        ? codec.seal({
+            ...context,
+            position: [
+              window.from,
+              window.to,
+              last.occurred_at,
+              last.id,
+              currentView ?? (await viewFingerprint()),
+            ],
+          })
         : null,
     coverage: c360ActivityCoverage(
       window,

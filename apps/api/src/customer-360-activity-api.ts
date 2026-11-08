@@ -55,16 +55,16 @@ export class Customer360ActivityController {
     }
     if (rejected)
       throw new Customer360HttpError(429, 'RATE_LIMITED', true, rejected.retryAfterSeconds);
-    return withTenantDatabaseTransaction(
-      this.db,
-      identity.tenantId,
-      async (tx) => {
-        const actor = await c360CurrentActor(tx, identity);
-        if (actor.role !== 'ADMIN') throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
-        if (!this.runtime.ready) throw new Customer360HttpError(503, 'AUDIT_UNAVAILABLE', true);
-        try {
+    try {
+      return await withTenantDatabaseTransaction(
+        this.db,
+        identity.tenantId,
+        async (tx) => {
+          const actor = await c360CurrentActor(tx, identity);
+          if (actor.role !== 'ADMIN') throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
+          if (!this.runtime.ready) throw new Customer360HttpError(503, 'AUDIT_UNAVAILABLE', true);
           await tx.$queryRaw`SELECT set_config('jit', 'off', true), set_config('statement_timeout', '2s', true)`;
-          return await readC360Activity(
+          return readC360Activity(
             tx,
             actor,
             commandActor(identity).actorIdentityKey,
@@ -73,12 +73,12 @@ export class Customer360ActivityController {
             this.evidence,
             new Date(),
           );
-        } catch (error) {
-          if (error instanceof C360ReadError) throw error;
-          throw new Customer360HttpError(503, 'AUDIT_UNAVAILABLE', true);
-        }
-      },
-      { isolationLevel: 'RepeatableRead' },
-    );
+        },
+        { isolationLevel: 'RepeatableRead' },
+      );
+    } catch (error) {
+      if (error instanceof C360ReadError || error instanceof Customer360HttpError) throw error;
+      throw new Customer360HttpError(503, 'AUDIT_UNAVAILABLE', true);
+    }
   }
 }
