@@ -179,7 +179,9 @@ export async function searchC360WorkCandidates(
     : null;
   if (
     position &&
-    (position.length !== 2 || !/^\d{4}-/.test(position[0]!) || !/^[\da-f-]{36}$/.test(position[1]!))
+    (position.length !== 2 ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}$/.test(position[0]!) ||
+      !/^[\da-f-]{36}$/.test(position[1]!))
   )
     throw new C360ReadError(400, 'CURSOR_INVALID');
   const matching = Prisma.sql`EXISTS (SELECT 1 FROM c360_contact_points cp WHERE cp.tenant_id=c.tenant_id AND cp.contact_id=c.id AND cp.state='ACTIVE' AND cp.kind=${search.kind} AND cp.normalization_version=${search.version} AND cp.normalized_value=${search.value})`;
@@ -195,9 +197,9 @@ export async function searchC360WorkCandidates(
       created_key: string;
       lineage_revision: number;
     }[]
-  >(Prisma.sql`SELECT c.id,c.display_name,c.company,to_char(c.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_key,ih.lineage_revision FROM contacts c JOIN c360_identity_heads ih ON ih.tenant_id=c.tenant_id AND ih.contact_id=c.id AND ih.state='ACTIVE'
+  >(Prisma.sql`SELECT c.id,c.display_name,c.company,to_char(c.created_at,'YYYY-MM-DD"T"HH24:MI:SS.US') AS created_key,ih.lineage_revision FROM contacts c JOIN c360_identity_heads ih ON ih.tenant_id=c.tenant_id AND ih.contact_id=c.id AND ih.state='ACTIVE'
     WHERE c.tenant_id=${actor.tenantId}::uuid AND ${matching} AND ${scopeRows(actor, 'WORK', fresh)}
-    ${position ? Prisma.sql`AND (c.created_at,c.id) < (${position[0]}::timestamptz,${position[1]}::uuid)` : Prisma.empty}
+    ${position ? Prisma.sql`AND (c.created_at,c.id) < (${position[0]}::timestamp,${position[1]}::uuid)` : Prisma.empty}
     ORDER BY c.created_at DESC,c.id DESC LIMIT 11`);
   const visible = rows.slice(0, 10);
   const last = visible.at(-1);

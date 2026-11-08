@@ -378,6 +378,41 @@ function AgentWorkspace({
     };
   }, [api, sessionReady, recoveryRevision, networkRevision]);
 
+  // Media อาจต่อก่อน Router ยืนยัน ACTIVE. อ่าน snapshot ซ้ำเฉพาะช่วงรอยต่อนี้
+  // เพื่อเปิดแผงลูกค้าเมื่อ owner ยืนยันงานเดียวกันแล้ว
+  useEffect(() => {
+    if (
+      !api?.customer ||
+      !sessionReady ||
+      snapshot?.capabilities?.workCustomerV1 !== 1 ||
+      dphoneState.phase !== 'ACTIVE' ||
+      snapshot.interaction?.state !== 'ASSIGNED' ||
+      snapshot.interaction.id !== dphoneState.interactionId
+    )
+      return;
+    const interactionId = dphoneState.interactionId;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function refresh(attempt: number) {
+      try {
+        const current = await api!.snapshot();
+        if (cancelled) return;
+        if (current.interaction?.id === interactionId && current.interaction.state !== 'ASSIGNED') {
+          setSnapshot(current);
+          return;
+        }
+      } catch {
+        // การอ่าน Cus360 ไม่มีผลต่อ Voice และลองใหม่ได้ในช่วงรอยต่อนี้
+      }
+      if (!cancelled && attempt < 11) timer = setTimeout(() => void refresh(attempt + 1), 500);
+    }
+    void refresh(0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [api, sessionReady, snapshot, dphoneState]);
+
   // WS ของ routing: flag เปิดต่อหลังได้ lease เท่านั้น (แนบ leaseId) และ heartbeat ผ่าน socket นี้
   const liveKey = enforced ? socketLeaseId : workingTab ? 'working-tab' : undefined;
   useEffect(() => {
@@ -1503,7 +1538,11 @@ function AgentWorkspace({
           <Tab id="wrapup">{t('layout.tabs.wrapup')}</Tab>
           <Tab id="recent">{t('layout.tabs.recent')}</Tab>
         </TabList>
-        <TabPanel id="overview" className="aw-detail-panel">
+        <TabPanel
+          id="overview"
+          className="aw-detail-panel"
+          shouldForceMount={snapshot?.capabilities?.workCustomerV1 === 1}
+        >
           {api?.customer &&
           snapshot?.capabilities?.workCustomerV1 === 1 &&
           snapshot?.interaction &&

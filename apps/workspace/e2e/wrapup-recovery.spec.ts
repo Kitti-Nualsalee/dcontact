@@ -103,14 +103,53 @@ test('refresh/expire/locale ระหว่างสายใช้ SIP session 
 }) => {
   let state = 'ASSIGNED';
   let acquired = 0;
+  let customerReads = 0;
+  await page.route('**/api/v1/customer-360/work/*/customer', (route) => {
+    customerReads++;
+    expect(route.request().headers()['x-work-session-lease-id']).toBeTruthy();
+    return route.fulfill({
+      json: { interactionId: originalId, state: 'UNLINKED', linkageRevision: '0', canLink: true },
+    });
+  });
   page.on('request', (request) => {
     if (request.method() === 'POST' && request.url().includes('/me/work-session')) acquired += 1;
   });
-  await page.route('**/api/v1/navigation**', (route) => route.fulfill({ status: 404 }));
+  await page.route('**/api/v1/me/navigation', (route) =>
+    route.fulfill({
+      json: {
+        groups: [{ id: 'live', labelKey: 'navigation.groups.live' }],
+        apps: [
+          {
+            id: 'agent-workspace',
+            groupId: 'live',
+            labelKey: 'navigation.apps.agentWorkspace',
+            hostApp: 'workspace',
+            path: '/',
+          },
+        ],
+        areas: [
+          {
+            id: 'workspace',
+            labelKey: 'navigation.areas.workspace',
+            sections: [
+              {
+                id: 'work',
+                labelKey: 'navigation.sections.work',
+                items: [{ appId: 'agent-workspace' }],
+              },
+            ],
+          },
+        ],
+        pins: { appIds: ['agent-workspace'], source: 'TENANT', revision: 0 },
+        limits: { maxPins: 15 },
+        features: { shellV2: true },
+      },
+    }),
+  );
   await page.route('**/api/v1/workspace/agent/snapshot', (route) =>
     route.fulfill({
       json: {
-        capabilities: { voiceWrapupV1: 1 },
+        capabilities: { voiceWrapupV1: 1, workCustomerV1: 1 },
         agent: { id: 'agent-one', displayName: 'Agent', extension: '1000', state: 'ACW' },
         interaction: {
           id: originalId,
@@ -144,9 +183,13 @@ test('refresh/expire/locale ระหว่างสายใช้ SIP session 
   await page.goto('/?authHarness=1&tenant=demo');
   await page.getByRole('button', { name: 'Sign in fixture', exact: true }).click();
   await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง', exact: true }).click();
+  expect(customerReads).toBe(0);
   await page.getByRole('button', { name: 'รับสาย', exact: true }).click();
-  await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('กำลังสนทนา');
+  await expect(
+    page.getByRole('region', { name: 'dphone' }).getByRole('status', { name: 'dphone' }),
+  ).toHaveText('กำลังสนทนา');
   state = 'ACTIVE';
+  await expect(page.getByText('งานนี้ยังไม่เชื่อมกับลูกค้า')).toBeVisible();
   const original = await page.evaluate(() => ({
     sip: window.__dcontactDphone?.sipSessionId(),
     lease: window.__dcontactDphone?.workSessionLeaseId(),
@@ -158,7 +201,10 @@ test('refresh/expire/locale ระหว่างสายใช้ SIP session 
   await page.getByRole('button', { name: 'Refresh fixture', exact: true }).click();
   await page.getByRole('button', { name: 'Expire fixture', exact: true }).click();
   await page.getByRole('button', { name: 'Locale fixture', exact: true }).click();
-  await expect(page.getByRole('status', { name: 'dphone status' })).toHaveText('On a call');
+  await expect(
+    page.getByRole('region', { name: 'dphone' }).getByRole('status', { name: 'dphone' }),
+  ).toHaveText('On a call');
+  await expect(page.getByText('This work has no customer link')).toHaveCount(0);
   await page.getByRole('button', { name: 'Sign in fixture', exact: true }).click();
   const after = await page.evaluate(() => ({
     sip: window.__dcontactDphone?.sipSessionId(),

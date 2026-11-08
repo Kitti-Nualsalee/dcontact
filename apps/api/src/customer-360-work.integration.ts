@@ -13,7 +13,8 @@ import { WorkSessionLeases } from './work-session.js';
 
 type WorkTestBody = {
   state: string;
-  items: { candidateRef: string }[];
+  items: { candidateRef: string; displayName: string }[];
+  nextCursor: string | null;
   verified: boolean;
   command: { outcome: string };
   contact: { id: string; displayName: string };
@@ -420,4 +421,72 @@ test('C5 กับ Voice wrap-up owner: link ก่อนจบงานได�
   const read = await f.call('customer');
   assert.equal(read.status, 200);
   assert.equal(read.body.canEdit, false);
+});
+
+test('C5 candidate keyset ใช้ ID ตัดสินเมื่อ timestamp เท่ากันและกรองสิทธิ์ก่อนตัดหน้า', async (t) => {
+  const f = await fixture();
+  t.after(() => f.close());
+  const original = await f.owner.c360ContactPoint.findFirstOrThrow({
+    where: { tenantId: f.tenantId, contactId: f.contactId },
+  });
+  const visible: { id: string; name: string }[] = [];
+  for (let i = 1; i <= 12; i++) {
+    const id = randomUUID();
+    const name = 'candidate-page-' + i;
+    const stamp = '2026-11-01T00:00:00.000';
+    await f.owner
+      .$executeRaw`INSERT INTO contacts(id,tenant_id,display_name,created_at) VALUES(${id}::uuid,${f.tenantId}::uuid,${name},${stamp}::timestamp)`;
+    const candidate = { ...f, contactId: id, snapshotVersion: 0, membershipRevision: 0 };
+    await ownerCommit(candidate, 'GOLD');
+    await deliverToIam(candidate);
+    if (i === 12) {
+      await ownerCommit(candidate, 'SILVER');
+      await deliverToIam(candidate);
+    }
+    await f.owner.c360ContactPoint.create({
+      data: { ...original, id: randomUUID(), contactId: id },
+    });
+    if (i < 12) visible.push({ id, name });
+  }
+  const first = await f.search();
+  assert.equal(first.status, 201);
+  assert.equal(first.body.items.length, 10);
+  assert.ok(first.body.nextCursor);
+  const second = await f.call('candidates/search', {
+    type: 'EMAIL',
+    query: 'work@example.test',
+    cursor: first.body.nextCursor,
+  });
+  assert.equal(second.status, 201);
+  const items = [...first.body.items, ...second.body.items].map((row) => row.displayName);
+  assert.deepEqual(
+    items.filter((name) => name.startsWith('candidate-page-')),
+    visible.sort((a, b) => b.id.localeCompare(a.id)).map((row) => row.name),
+  );
+  assert.equal(items.length, 12);
+  assert.equal(second.body.nextCursor, null);
+  const link = await f.call('customer-link', {
+    commandId: randomUUID(),
+    expectedLinkageRevision: '0',
+    candidateRef: first.body.items[0]!.candidateRef,
+  });
+  assert.equal(link.status, 200);
+  const next = (await f.search()).body.items[1]!;
+  const relink = await f.call('customer-link', {
+    commandId: randomUUID(),
+    expectedLinkageRevision: '1',
+    candidateRef: next.candidateRef,
+    reason: 'เลือกลูกค้าที่ถูกต้อง',
+    confirmed: true,
+  });
+  assert.equal(relink.status, 200);
+  assert.equal((await f.call('customer')).body.contact.displayName, next.displayName);
+  const history = await f.owner.c360InteractionCustomerChange.findMany({
+    where: { tenantId: f.tenantId },
+    orderBy: { afterLinkRevision: 'asc' },
+  });
+  assert.deepEqual(
+    history.map((row) => row.action),
+    ['LINK', 'RELINK'],
+  );
 });
