@@ -311,6 +311,45 @@ test('Activity authorization before keyset limit, exact time bounds, encrypted c
   assert.equal(page((await f.request(path, 'admin')).body).items.length, 0);
 });
 
+test('Activity keyset อ่าน event ที่เพิ่มระหว่างหน้าโดยไม่อ้าง snapshot', async (t) => {
+  const f = await fixture();
+  t.after(() => f.close());
+  const id = await contact(f);
+  await grant(f, 'admin', id, 'READ');
+  const now = Date.now();
+  const firstId = await auditFixture(f, id, 'CONTACT_UPDATE', new Date(now - 60_000));
+  const secondId = await auditFixture(f, id, 'CONTACT_UPDATE', new Date(now - 120_000));
+  const path = `${ACTIVITY}?type=PROFILE_UPDATED&limit=1`;
+  const first = page((await f.request(path, 'admin')).body);
+  assert.deepEqual(
+    first.items.map((item) => item.id),
+    [firstId],
+  );
+  assert.ok(first.nextCursor);
+
+  const newer = await auditFixture(f, id, 'CONTACT_UPDATE', new Date(now - 30_000));
+  const older = await auditFixture(f, id, 'CONTACT_UPDATE', new Date(now - 180_000));
+  const second = page(
+    (await f.request(`${path}&cursor=${encodeURIComponent(first.nextCursor)}`, 'admin')).body,
+  );
+  assert.deepEqual(
+    second.items.map((item) => item.id),
+    [secondId],
+  );
+  assert.ok(second.nextCursor);
+  const third = page(
+    (await f.request(`${path}&cursor=${encodeURIComponent(second.nextCursor)}`, 'admin')).body,
+  );
+  assert.deepEqual(
+    third.items.map((item) => item.id),
+    [older],
+  );
+  assert.deepEqual(
+    page((await f.request(path, 'admin')).body).items.map((item) => item.id),
+    [newer],
+  );
+});
+
 test('Activity stale IAM is 503 and matching coverage is never inferred from audit rows', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
