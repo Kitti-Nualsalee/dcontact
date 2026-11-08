@@ -141,6 +141,7 @@ export async function coreIdentitySandbox(
   /** controller เพิ่มของ boundary test เฉพาะเรื่อง (ไม่ระบุ = พฤติกรรมเดิม) */
   extraControllers: Parameters<typeof coreFixture>[0] = [],
   limiter?: SharedRateLimiter,
+  extraProviders: Parameters<typeof coreFixture>[5] = [],
 ) {
   assert.ok(sandbox);
   const origin = new URL(sandbox);
@@ -292,7 +293,14 @@ export async function coreIdentitySandbox(
     audience: 'dcontact-api',
     jwksUri: `${issuer}/protocol/openid-connect/certs`,
   });
-  const f = await coreFixture(extraControllers, verifier, undefined, limiter);
+  const f = await coreFixture(
+    extraControllers,
+    verifier,
+    undefined,
+    limiter,
+    undefined,
+    extraProviders,
+  );
   registerCleanup(() => f.close());
   const orgs = new Map<string, KcOrg>();
   for (const tenantId of [f.tenantId, f.otherTenantId]) {

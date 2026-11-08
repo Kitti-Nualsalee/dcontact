@@ -6,6 +6,13 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { withTenantDatabaseTransaction } from '@d-contact/db';
 import {
+  C360SegmentEvaluator,
+  C360SegmentMembershipRepository,
+  C360SegmentRepository,
+} from '@d-contact/customer-360';
+import { DcExprEvaluator } from '@d-contact/expression';
+import { IamTeamSegmentScopeRepository } from '@d-contact/iam';
+import {
   KeycloakAccessTokenVerifier,
   WorkspaceSessionGateway,
   WorkspaceSessionRegistry,
@@ -13,6 +20,8 @@ import {
 } from '@d-contact/workspace-session';
 import WebSocket from 'ws';
 import { attachWorkspaceSessionWebSocket } from './workspace-session-websocket.js';
+import { CUSTOMER_360_WORK_AUTH, Customer360WorkController } from './customer-360-work-api.js';
+import { ownerCommit, deliverToIam } from './customer-360-test-fixtures.js';
 import { coreIdentitySandbox } from './tenant-core-identity-sandbox.js';
 import { C360WorkAuthService, KeycloakC360TokenIntrospector } from './customer-360-work-auth.js';
 import { WorkSessionLeases } from './work-session.js';
@@ -22,8 +31,19 @@ test(
   'C5 gateway WebSocket และ Keycloak จริง: refresh sid เดิมและ state หลัง expiry',
   { skip: !sandbox ? 'NOT_RUN: ต้องมี isolated Keycloak sandbox' : false, timeout: 180_000 },
   async (t) => {
-    const { f, admin, prefix, issuer, verifier, password } = await coreIdentitySandbox((cleanup) =>
-      t.after(cleanup),
+    let workAuth!: C360WorkAuthService;
+    const authProvider = new Proxy({} as C360WorkAuthService, {
+      get: (_target, property) => {
+        if (!workAuth) return undefined;
+        const value = Reflect.get(workAuth, property, workAuth);
+        return typeof value === 'function' ? value.bind(workAuth) : value;
+      },
+    });
+    const { f, admin, prefix, issuer, verifier, password } = await coreIdentitySandbox(
+      (cleanup) => t.after(cleanup),
+      [Customer360WorkController],
+      undefined,
+      [{ provide: CUSTOMER_360_WORK_AUTH, useValue: authProvider }],
     );
     const realm = await admin<Record<string, unknown>>('GET', prefix);
     await admin('PUT', prefix, { ...realm, accessTokenLifespan: 12 });
@@ -48,13 +68,80 @@ test(
       verifier,
       new KeycloakC360TokenIntrospector({ issuer, clientId: 'dcontact-api', clientSecret: secret }),
     );
+    workAuth = service;
     const actor = { tenantId: f.tenantId, userId: f.actors.get('agent')!.id };
+    const contactId = randomUUID();
+    await f.owner.contact.create({
+      data: { id: contactId, tenantId: f.tenantId, displayName: 'ลูกค้าทดลอง recovery' },
+    });
+    const segmentId = `segment:recovery-${f.tenantId.slice(0, 8)}`;
+    const evaluator = new C360SegmentEvaluator(new DcExprEvaluator());
+    const segments = new C360SegmentRepository(f.db, evaluator);
+    const draft = await segments.createVersion({
+      tenantId: f.tenantId,
+      segmentId,
+      version: 1,
+      definition: {
+        contractVersion: 1,
+        name: 'Recovery',
+        expression: {
+          language: 'DC_EXPR',
+          version: 1,
+          expression: {
+            type: 'comparison',
+            operator: 'eq',
+            left: { type: 'ref', path: ['contact', 'tier'] },
+            right: { type: 'literal', value: 'GOLD' },
+          },
+        },
+      },
+      correlationId: 'recovery-segment',
+    });
+    await segments.publishVersion({
+      tenantId: f.tenantId,
+      segmentId,
+      version: 1,
+      expectedContentDigest: draft.contentDigest,
+      expectedHeadVersion: 0,
+    });
+    const c360 = {
+      ...f,
+      contactId,
+      segmentId,
+      segments,
+      memberships: new C360SegmentMembershipRepository(f.db, evaluator),
+      scopes: new IamTeamSegmentScopeRepository(f.db),
+      snapshotVersion: 0,
+      membershipRevision: 0,
+    };
+    for (const permission of ['WORK', 'VIEW'] as const)
+      await c360.scopes.grant({
+        tenantId: f.tenantId,
+        teamId: f.teamId,
+        segmentId,
+        permission,
+        correlationId: 'recovery-grant',
+      });
+    await ownerCommit(c360, 'GOLD');
+    await deliverToIam(c360);
     const leases = new WorkSessionLeases(f.db);
     const lease = await leases.acquire(
       actor,
       { surface: 'workspace', hostOrigin: null },
       'gateway-expiry',
     );
+    const interactionId = randomUUID();
+    await f.owner.interaction.create({
+      data: {
+        id: interactionId,
+        tenantId: actor.tenantId,
+        agentId: actor.userId,
+        contactId,
+        channel: 'VOICE',
+        direction: 'INBOUND',
+        state: 'ACTIVE',
+      },
+    });
     const gateway = new WorkspaceSessionGateway(verifier, new WorkspaceSessionRegistry(), {
       isActive: async () => true,
     });
@@ -142,6 +229,62 @@ test(
       status: string;
     };
     assert.equal(session.status, 'reauthentication-required');
+    assert.equal(
+      (await f.owner.agentWorkSessionLease.findUniqueOrThrow({ where: { id: lease.leaseId } }))
+        .releasedAt,
+      null,
+    );
+    const fresh = await token(
+      new URLSearchParams({
+        client_id: 'dcontact-console',
+        grant_type: 'refresh_token',
+        refresh_token: second.refresh_token,
+      }),
+    );
+    send(fresh.access_token, 'auth:refresh');
+    await waitMessages(4);
+    const recovered = await f.owner.c360WorkMutationAuth.findUniqueOrThrow({ where: key });
+    assert.equal(recovered.authState, 'ACTIVE');
+    assert.equal(recovered.sid, original.sid);
+    assert.equal(recovered.authEpoch, expired.authEpoch + 1n);
+    assert.equal(
+      (messages.filter((m) => m.type === 'workspace.session').at(-1)!.session as { status: string })
+        .status,
+      'active',
+    );
+    assert.equal(
+      (await f.owner.interaction.findUniqueOrThrow({ where: { id: interactionId } })).state,
+      'ACTIVE',
+    );
+    const path = `${f.base}/api/v1/customer-360/work/${interactionId}/customer`;
+    const headers = {
+      authorization: `Bearer ${fresh.access_token}`,
+      'content-type': 'application/json',
+      'x-work-session-lease-id': lease.leaseId,
+    };
+    const read = await fetch(path, { headers });
+    assert.equal(read.status, 200, await read.clone().text());
+    const current = (await read.json()) as {
+      revisions: { profile: string; lineage: string };
+      canEdit: boolean;
+    };
+    assert.equal(current.canEdit, true);
+    const mutation = await fetch(path, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({
+        commandId: randomUUID(),
+        expectedLinkageRevision: '0',
+        expectedProfileRevision: current.revisions.profile,
+        expectedLineageRevision: current.revisions.lineage,
+        displayName: 'แก้หลัง recovery',
+      }),
+    });
+    assert.equal(mutation.status, 200, await mutation.clone().text());
+    assert.equal(
+      (await f.owner.contact.findUniqueOrThrow({ where: { id: contactId } })).displayName,
+      'แก้หลัง recovery',
+    );
     assert.ok(!JSON.stringify(messages).includes('tokenFingerprint'));
   },
 );
