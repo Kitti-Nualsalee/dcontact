@@ -228,6 +228,8 @@ export type C360ProfileCommandResult =
   | { status: 404; state: 'UNKNOWN'; commandId: string };
 
 type StoredCommandOwner = {
+  resourceType?: string | null;
+  resourceId?: string | null;
   actorUserId: string | null;
   action: string | null;
   isTombstone: boolean;

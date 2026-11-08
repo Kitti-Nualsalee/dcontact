@@ -1,3 +1,4 @@
+import { createWorkCustomerApi, type WorkCustomerApi } from './work-customer-api.js';
 import type { SipCredentialLease } from './dphone/dphone.js';
 
 export interface AgentWorkspaceSnapshot {
@@ -49,6 +50,7 @@ export class AgentApiError extends Error {
 }
 
 export interface AgentWorkspaceApi {
+  customer?: WorkCustomerApi;
   snapshot(): Promise<AgentWorkspaceSnapshot>;
   becomeAvailable(workSessionLeaseId: string): Promise<void>;
   sipCredentials(workSessionLeaseId: string): Promise<SipCredentialLease>;
@@ -162,6 +164,7 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
     return result as WrapupResultV1;
   }
   return {
+    customer: createWorkCustomerApi(send),
     async wrapupCommand(interactionId, commandId) {
       const response = await send(
         `/api/v1/workspace/agent/interactions/${encodeURIComponent(interactionId)}/wrapup-commands/${encodeURIComponent(commandId)}`,

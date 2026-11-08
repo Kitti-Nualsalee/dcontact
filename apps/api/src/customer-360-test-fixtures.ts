@@ -19,6 +19,7 @@ export async function setup(
   extraControllers: Parameters<typeof coreFixture>[0] = [],
   searchLimiter?: SharedRateLimiter,
   writeRuntime?: C360WriteRuntime,
+  extraProviders: import('@nestjs/common').Provider[] = [],
 ) {
   const f = await coreFixture(
     [Customer360Controller, ...extraControllers],
@@ -26,6 +27,7 @@ export async function setup(
     undefined,
     searchLimiter,
     writeRuntime,
+    extraProviders,
   );
   // platform operator ใช้ realm role ใน org login ของ tenant แต่ไม่ใช่ domain User ของ tenant
   // เพิ่มเฉพาะ fixture ของ Cus360: core identity sandbox สร้าง Keycloak user ให้ทุก actor ใน core fixture

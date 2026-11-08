@@ -1,3 +1,4 @@
+import { WorkCustomerPanel } from './work-customer-panel.js';
 /**
  * Agent Workspace — D1.15 (#454): ข้อความผ่าน catalog `workspace`/`dphone`, CSS token ล้วน (`aw-*`),
  * ใน AppShell (flag `ui.shell.v2`) ไม่วาด chrome เดิมและใช้ dphone widget ลอยแทนแผงควบคุมสาย
@@ -1490,6 +1491,19 @@ function AgentWorkspace({
           <Tab id="recent">{t('layout.tabs.recent')}</Tab>
         </TabList>
         <TabPanel id="overview" className="aw-detail-panel">
+          {api?.customer &&
+          snapshot?.interaction &&
+          ['ACTIVE', 'WRAPUP'].includes(snapshot.interaction.state) &&
+          heldLeaseId ? (
+            <WorkCustomerPanel
+              key={`${identityKey}:${snapshot.interaction.id}`}
+              api={api.customer}
+              workId={snapshot.interaction.id}
+              leaseId={heldLeaseId}
+              identityKey={identityKey ?? 'unknown'}
+              sessionReady={sessionReady}
+            />
+          ) : null}
           <h3 className="aw-detail-title">{t('layout.timeline')}</h3>
           {timeline.length ? (
             <ol className="aw-timeline">
@@ -1510,6 +1524,17 @@ function AgentWorkspace({
         </TabPanel>
         <TabPanel id="recent" className="aw-detail-panel">
           {savedPanel ?? <p className="aw-copy">{t('layout.recentEmpty')}</p>}
+          {api?.customer && savedWrapup ? (
+            <WorkCustomerPanel
+              key={`${identityKey}:completed:${savedWrapup.interactionId}`}
+              api={api.customer}
+              workId={savedWrapup.interactionId}
+              leaseId=""
+              identityKey={identityKey ?? 'unknown'}
+              sessionReady={sessionReady}
+              readOnly
+            />
+          ) : null}
         </TabPanel>
       </Tabs>
     </section>
