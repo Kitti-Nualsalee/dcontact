@@ -7095,3 +7095,76 @@ model IntServiceCommandEvidence {
   @@unique([tenantId, contactId])
   @@map("int_service_command_evidence")
 }
+
+/// M2: job เป็นของ actor ผู้เริ่มเท่านั้น; source เป็น object ส่วนตัว ไม่เก็บ CSV ในฐาน
+model C360ImportJob {
+  tenantId          String    @map("tenant_id") @db.Uuid
+  id                String    @db.Uuid
+  ownerUserId       String    @map("owner_user_id") @db.Uuid
+  actorIdentityKey  String    @map("actor_identity_key")
+  revision          BigInt    @default(0)
+  state             String
+  sourceObjectId    String    @map("source_object_id") @db.Uuid
+  sourceDigest      String?   @map("source_digest") @db.Char(64)
+  sourceBytes       Int?      @map("source_bytes")
+  mapping           Json?
+  rulesVersion      String?   @map("rules_version")
+  confirmedPlanHash String?   @map("confirmed_plan_hash") @db.Char(64)
+  leaseEpoch        BigInt    @default(0) @map("lease_epoch")
+  createdAt         DateTime  @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+  sourceExpiresAt   DateTime  @map("source_expires_at") @db.Timestamptz(6)
+  terminalAt        DateTime? @map("terminal_at") @db.Timestamptz(6)
+  reportExpiresAt   DateTime? @map("report_expires_at") @db.Timestamptz(6)
+
+  @@id([tenantId, id])
+  @@unique([tenantId, id, ownerUserId], map: "c360_import_jobs_owner_key")
+  @@index([tenantId, ownerUserId, state, createdAt, id], map: "c360_import_jobs_owner_idx")
+  @@map("c360_import_jobs")
+}
+
+/// childCommandId คงที่ทุก retry/reconcile; ไม่มี raw cells หรือ token
+model C360ImportRow {
+  tenantId       String @map("tenant_id") @db.Uuid
+  jobId          String @map("job_id") @db.Uuid
+  rowNo          Int    @map("row_no")
+  childCommandId String @map("child_command_id") @db.Uuid
+  planVersion    BigInt @default(0) @map("plan_version")
+  state          String
+  leaseEpoch     BigInt @default(0) @map("lease_epoch")
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(6)
+  terminalRef    Json?  @map("terminal_ref")
+
+  @@id([tenantId, jobId, rowNo])
+  @@unique([tenantId, childCommandId], map: "c360_import_rows_command_key")
+  @@index([tenantId, jobId, state, rowNo], map: "c360_import_rows_state_idx")
+  @@map("c360_import_rows")
+}
+
+/// delegation เป็นอำนาจเฉพาะ job/plan ไม่ใช่ human JWT
+model C360ImportDelegation {
+  tenantId           String    @map("tenant_id") @db.Uuid
+  jobId              String    @map("job_id") @db.Uuid
+  actorUserId        String    @map("actor_user_id") @db.Uuid
+  confirmedPlanHash  String    @map("confirmed_plan_hash") @db.Char(64)
+  authorizationEpoch BigInt    @map("authorization_epoch")
+  expiresAt          DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt          DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  @@id([tenantId, jobId, authorizationEpoch])
+  @@map("c360_import_delegations")
+}
+
+/// audit ควบคุม job ไม่มี raw cells, filename หรือ secret
+model C360ImportControlAudit {
+  tenantId    String   @map("tenant_id") @db.Uuid
+  id          String   @db.Uuid
+  jobId       String   @map("job_id") @db.Uuid
+  actorUserId String   @map("actor_user_id") @db.Uuid
+  commandId   String   @map("command_id") @db.Uuid
+  action      String
+  createdAt   DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(6)
+
+  @@id([tenantId, id])
+  @@unique([tenantId, jobId, commandId], map: "c360_import_control_command_key")
+  @@map("c360_import_control_audits")
+}
