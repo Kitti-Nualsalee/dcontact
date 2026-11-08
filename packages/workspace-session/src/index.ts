@@ -2,3 +2,4 @@ export * from './workspace-session.js';
 export * from './http-session-adapter.js';
 export * from './websocket-session-adapter.js';
 export * from './remote-command.js';
+export * from './mutation-auth.js';

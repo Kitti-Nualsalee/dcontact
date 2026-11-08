@@ -3,6 +3,10 @@ import {
   type WorkspaceSession,
   type WorkspaceSessionGateway,
 } from './workspace-session.js';
+import type {
+  WorkspaceMutationAuthAuthority,
+  WorkspaceMutationAuthBinding,
+} from './mutation-auth.js';
 
 export interface WorkspaceSessionSocket {
   send(message: string): void;
@@ -71,7 +75,12 @@ export interface WorkSessionLeaseAuthority {
     | { status: 'EXPIRED' }
   >;
   isCurrent(actor: Actor, leaseId: string): Promise<boolean>;
-  revokeForAuth(actor: Actor, leaseId: string, correlationId: string): Promise<boolean>;
+  revokeForAuth(
+    actor: Actor,
+    leaseId: string,
+    correlationId: string,
+    expected?: WorkspaceMutationAuthBinding,
+  ): Promise<boolean>;
 }
 
 interface SocketBinding {
@@ -79,6 +88,7 @@ interface SocketBinding {
   /** lease ที่ socket นี้ถือ (มีเฉพาะ tenant ที่บังคับ lease) */
   leaseId?: string;
   enforced: boolean;
+  mutationAuth?: WorkspaceMutationAuthBinding;
 }
 
 const silentDiagnostics: WorkspaceSessionDiagnosticSink = { write: () => undefined };
@@ -93,6 +103,7 @@ export class WorkspaceSessionWebSocketAdapter {
     private readonly withTenant: WorkspaceTenantScope = async (_tenantId, work) => work(),
     private readonly diagnostics: WorkspaceSessionDiagnosticSink = silentDiagnostics,
     private readonly leases?: WorkSessionLeaseAuthority,
+    private readonly mutationAuth?: WorkspaceMutationAuthAuthority,
   ) {}
 
   async handle(
@@ -117,6 +128,8 @@ export class WorkspaceSessionWebSocketAdapter {
       socket.close(4401, 'workspace authentication required');
       return;
     }
+    // Capture ก่อน verifier/JWKS/online call เพื่อไม่ให้ callback เก่าเปลี่ยน binding ใหม่
+    const captured = this.authenticatedSessions.get(socket);
     try {
       const handshake = { accessToken: message.accessToken, tabId: message.tabId };
       let session =
@@ -127,6 +140,33 @@ export class WorkspaceSessionWebSocketAdapter {
             : await this.gateway.refresh(handshake);
       const binding = await this.bindLease(socket, session, message.leaseId, correlationId);
       if (!binding) return;
+      if (this.authenticatedSessions.get(socket) !== captured) return;
+      let customerAuthRequired = false;
+      if (this.mutationAuth && binding.leaseId && session.agent) {
+        const previous = captured?.leaseId === binding.leaseId ? captured.mutationAuth : undefined;
+        try {
+          binding.mutationAuth = await this.mutationAuth.reauthenticate({
+            accessToken: message.accessToken,
+            leaseId: binding.leaseId,
+            identity: session,
+            expected: previous,
+          });
+        } catch {
+          // JWT/Voice lease ผ่านแล้ว Cus360/IdP fault ต้องไม่เข้าทาง Voice auth failure
+          // หรือปล่อย idle/busy lease ให้ปิดเฉพาะ customer mutation
+          if (this.authenticatedSessions.get(socket) !== captured) return;
+          if (previous) {
+            try {
+              await this.mutationAuth.invalidateCaptured(previous, 'CUSTOMER_REAUTH_FAILED');
+            } catch {
+              /* ไม่อ้างว่า invalidation durable แล้ว customer endpoint ยังคง fail closed */
+            }
+          }
+          binding.mutationAuth = previous;
+          customerAuthRequired = true;
+        }
+      }
+      if (this.authenticatedSessions.get(socket) !== captured) return;
       session = binding.session;
       await this.withTenant(session.tenantId, () => {
         this.authenticatedSessions.set(socket, binding);
@@ -137,6 +177,8 @@ export class WorkspaceSessionWebSocketAdapter {
             ...(binding.leaseId ? { leaseId: binding.leaseId } : {}),
           }),
         );
+        if (customerAuthRequired)
+          socket.send(JSON.stringify({ type: 'customer.auth', state: 'REAUTH_REQUIRED' }));
       });
       this.diagnostics.write({
         event: 'workspace.session.authenticated',
@@ -145,7 +187,31 @@ export class WorkspaceSessionWebSocketAdapter {
         userId: session.userId,
       });
     } catch (error) {
+      if (this.authenticatedSessions.get(socket) !== captured) return;
+      // ไม่รายงาน invalidation/revoke ก่อน durable CAS commit หาก persist ล้ม
+      // ให้ปิด transport โดยไม่อ้างว่า invalidate สำเร็จหรือปล่อย Voice lease
+      if (captured?.mutationAuth && this.mutationAuth) {
+        try {
+          if (
+            !(await this.mutationAuth.invalidateCaptured(
+              captured.mutationAuth,
+              'SESSION_VERIFICATION_FAILED',
+            ))
+          )
+            return;
+        } catch {
+          socket.close(4401, 'workspace authentication failed');
+          return;
+        }
+      }
       if (error instanceof WorkspaceAuthorizationError) {
+        if (captured?.leaseId && this.leases)
+          await this.leases.revokeForAuth(
+            captured.session,
+            captured.leaseId,
+            correlationId,
+            captured.mutationAuth,
+          );
         this.authenticatedSessions.delete(socket);
         this.diagnostics.write({
           event: 'workspace.session.denied',
@@ -160,12 +226,19 @@ export class WorkspaceSessionWebSocketAdapter {
         await this.withTenant(current.session.tenantId, async () => {
           const session = this.gateway.requireReauthentication(current.session);
           const leaseId = current.leaseId;
-          // token ถูกเพิกถอน: หยุดรับงานใหม่ทันที แต่ไม่ปิด socket (สายที่คุยอยู่ต้องไม่หลุด)
+          if (leaseId && this.leases) {
+            await this.leases.revokeForAuth(
+              current.session,
+              leaseId,
+              correlationId,
+              captured?.mutationAuth,
+            );
+          }
+          // Persist ก่อนรายงาน โดยคง Voice connection/policy สำหรับสายที่ยังคุยอยู่
           this.authenticatedSessions.set(socket, { ...current, session, leaseId: undefined });
           socket.send(JSON.stringify({ type: 'workspace.session', session }));
           if (leaseId && this.leases) {
             socket.send(JSON.stringify({ type: 'lease.revoked', leaseId, reason: 'auth_revoked' }));
-            await this.leases.revokeForAuth(current.session, leaseId, correlationId);
           }
         });
         return;
