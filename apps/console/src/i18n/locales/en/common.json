@@ -31,7 +31,8 @@
       "customers": "Customers",
       "customerTags": "Manage tags",
       "customerOverview": "Customer overview",
-      "customerRules": "Data rules"
+      "customerRules": "Data rules",
+      "customerActivity": "Customer activity"
     },
     "areas": {
       "home": "Home",

@@ -1,0 +1,60 @@
+{
+  "title": "Customer activity",
+  "description": "View profile and tag changes within your current access.",
+  "filters": "Activity filters",
+  "operation": "Event",
+  "from": "From (local time)",
+  "to": "To (local time)",
+  "apply": "Apply filters",
+  "results": "Activity results",
+  "loading": "Loading activity",
+  "session": "Sign in to view activity",
+  "signIn": "Sign in again",
+  "access": "You cannot view activity. Contact your tenant administrator.",
+  "unavailable": "Activity is unavailable right now.",
+  "retry": "Retry",
+  "restart": "Start from the first page to continue.",
+  "firstPage": "Load first page",
+  "invalidWindow": "Enter both dates. The window must be at most 90 days and cannot end in the future.",
+  "coverage": {
+    "KNOWN": "Evidence covers the selected window.",
+    "PARTIAL": "Evidence covers only part of the selected window.",
+    "UNKNOWN": "Evidence coverage for the selected window is unconfirmed."
+  },
+  "coverageGaps": "Evidence gaps",
+  "empty": "No activity in the selected window.",
+  "emptyUnconfirmed": "No visible activity in this window.",
+  "asOf": "As of",
+  "occurredAt": "Time (UTC)",
+  "actor": "Actor",
+  "resource": "Resource",
+  "changedFields": "Changed fields",
+  "unknownActor": "Unknown actor",
+  "refresh": "Refresh",
+  "more": "Load more",
+  "resources": {
+    "CONTACT": "Customer",
+    "TAG": "Tag"
+  },
+  "operations": {
+    "ALL": "All events",
+    "CONTACT_CREATED": "Customer created",
+    "PROFILE_UPDATED": "Profile updated",
+    "TAG_CREATED": "Tag created",
+    "TAG_RENAMED": "Tag renamed",
+    "TAG_RETIRED": "Tag retired",
+    "TAG_ATTACHED": "Tag attached",
+    "TAG_DETACHED": "Tag detached"
+  },
+  "fields": {
+    "displayName": "Customer name",
+    "company": "Company",
+    "vip": "VIP",
+    "points": "Contact points",
+    "contactPoints": "Contact points",
+    "name": "Name",
+    "state": "State",
+    "tags": "Tags"
+  },
+  "tableRegion": "Activity table. Scroll horizontally to view all columns."
+}

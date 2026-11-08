@@ -31,7 +31,8 @@
       "customers": "ลูกค้า",
       "customerTags": "จัดการแท็ก",
       "customerOverview": "ภาพรวมข้อมูลลูกค้า",
-      "customerRules": "กฎข้อมูล"
+      "customerRules": "กฎข้อมูล",
+      "customerActivity": "กิจกรรมลูกค้า"
     },
     "areas": {
       "home": "หน้าแรก",

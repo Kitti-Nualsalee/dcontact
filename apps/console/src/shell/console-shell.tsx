@@ -41,6 +41,7 @@ export type ConsoleShellApp =
   | 'customer-tags'
   | 'customer-overview'
   | 'customer-rules'
+  | 'customer-activity'
   | 'agent-history'
   | 'journeys'
   | 'contact-governance'
@@ -371,20 +372,22 @@ export function ConsoleShell({
                                 : 'navigation.apps.customerOverview',
                             ),
                           ]
-                        : appId === 'customer-tags'
-                          ? [t('navigation.apps.customers'), t('navigation.apps.customerTags')]
-                          : appId === 'journeys'
-                            ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
-                            : appId === 'dphone-embedding'
-                              ? [
-                                  t('navigation.groups.settings'),
-                                  t('navigation.apps.dphoneEmbedding'),
-                                ]
-                              : [
-                                  t('navigation.groups.quality'),
-                                  t('navigation.apps.contactGovernance'),
-                                  ...(pageLabel ? [pageLabel] : []),
-                                ]
+                        : appId === 'customer-activity'
+                          ? [t('navigation.apps.customers'), t('navigation.apps.customerActivity')]
+                          : appId === 'customer-tags'
+                            ? [t('navigation.apps.customers'), t('navigation.apps.customerTags')]
+                            : appId === 'journeys'
+                              ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
+                              : appId === 'dphone-embedding'
+                                ? [
+                                    t('navigation.groups.settings'),
+                                    t('navigation.apps.dphoneEmbedding'),
+                                  ]
+                                : [
+                                    t('navigation.groups.quality'),
+                                    t('navigation.apps.contactGovernance'),
+                                    ...(pageLabel ? [pageLabel] : []),
+                                  ]
         }
         language={locale}
         onLanguageChange={onLanguageChange}

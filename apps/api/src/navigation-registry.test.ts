@@ -63,6 +63,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'customers',
     'customer-overview',
     'customer-rules',
+    'customer-activity',
     'customer-tags',
     'core-settings',
   ]);
@@ -75,6 +76,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'customers',
     'customer-overview',
     'customer-rules',
+    'customer-activity',
     'customer-tags',
     'core-settings',
   ]);
@@ -94,6 +96,7 @@ test('plan ต่างกันเห็นรายการต่างกั
       'customers',
       'customer-overview',
       'customer-rules',
+      'customer-activity',
       'customer-tags',
       'core-settings',
     ],
@@ -113,6 +116,7 @@ test('tenant ที่ไม่มี plan binding (null) ใช้ role อย�
     'customers',
     'customer-overview',
     'customer-rules',
+    'customer-activity',
     'customer-tags',
     'core-settings',
   ]);
@@ -130,6 +134,7 @@ test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ข�
     'customers',
     'customer-overview',
     'customer-rules',
+    'customer-activity',
     'customer-tags',
     'core-settings',
   ]);
@@ -155,6 +160,7 @@ test('ชุดเริ่มต้นของ tenant ขึ้นกับ en
     'customers',
     'customer-overview',
     'customer-rules',
+    'customer-activity',
     'customer-tags',
     'core-settings',
   ]);

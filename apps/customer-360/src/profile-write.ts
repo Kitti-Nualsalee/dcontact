@@ -418,15 +418,15 @@ export async function updateC360ProfileTags(
     httpStatus: 200,
     committedRevisions: { tag: after },
     resourceRefs: [{ type: 'CONTACT', id: contactId }],
-    audits: [
-      {
-        operation: 'CONTACT_TAGS_UPDATE',
+    audits: [...(add.length ? ['TAG_ATTACH'] : []), ...(remove.length ? ['TAG_DETACH'] : [])].map(
+      (operation) => ({
+        operation,
         resourceType: 'CONTACT',
         resourceId: contactId,
         changedFields: ['tags'],
         beforeRevisions: { tag: before },
         afterRevisions: { tag: after },
-      },
-    ],
+      }),
+    ),
   };
 }
