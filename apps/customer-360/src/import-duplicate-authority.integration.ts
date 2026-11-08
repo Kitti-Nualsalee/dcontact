@@ -131,25 +131,49 @@ test('M2 duplicate warnings คืนเฉพาะสิทธิ์ปัจ�
   assert.ok(repeated.every(Boolean));
   const noCapability = randomUUID();
   await owner.user.create({
-    data: { id: noCapability, tenantId: tenant, teamId: team, email: `${noCapability}@test.local`, displayName: 'fixture', passwordHash: '!fixture', role: 'ADMIN' },
+    data: {
+      id: noCapability,
+      tenantId: tenant,
+      teamId: team,
+      email: `${noCapability}@test.local`,
+      displayName: 'fixture',
+      passwordHash: '!fixture',
+      role: 'ADMIN',
+    },
   });
   await assert.rejects(
-    run((tx) => createC360ImportDuplicateAuthority(tx, { ...actor, userId: noCapability }).findReadableDuplicates([profile('visible@example.test')])),
+    run((tx) =>
+      createC360ImportDuplicateAuthority(tx, {
+        ...actor,
+        userId: noCapability,
+      }).findReadableDuplicates([profile('visible@example.test')]),
+    ),
     { code: 'SCOPE_UNAVAILABLE' },
   );
   let release!: () => void;
   let reached!: () => void;
-  const waiting = new Promise<void>((resolve) => { release = resolve; });
-  const ready = new Promise<void>((resolve) => { reached = resolve; });
-  const holder = owner.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtext(${c360IdentityFenceKey(tenant, readable)}))`;
-    reached();
-    await waiting;
-  }, { timeout: 10_000 });
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const ready = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const holder = owner.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtext(${c360IdentityFenceKey(tenant, readable)}))`;
+      reached();
+      await waiting;
+    },
+    { timeout: 10_000 },
+  );
   try {
     await ready;
     await assert.rejects(
-      run((tx) => createC360ImportDuplicateAuthority(tx, actor).findReadableDuplicates([profile('visible@example.test')])),
+      run((tx) =>
+        createC360ImportDuplicateAuthority(tx, actor).findReadableDuplicates([
+          profile('visible@example.test'),
+        ]),
+      ),
       { code: 'SCOPE_UNAVAILABLE' },
     );
   } finally {
