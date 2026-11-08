@@ -23,15 +23,25 @@ type WorkTestBody = {
 /** HTTP/PG/RLS ใช้ verifier/introspection สังเคราะห์; actual Keycloak อยู่ boundary แยก */
 async function fixture() {
   let online = true;
+  let shortProof = false;
   let service!: C360WorkAuthService;
   const f = await setup([Customer360WorkController], undefined, undefined, [
     {
       provide: CUSTOMER_360_WORK_AUTH,
       inject: [CUSTOMER_360_DATABASE, OIDC_ACCESS_TOKEN_VERIFIER],
-      useFactory: (db: PrismaClient, verifier: OidcAccessTokenVerifier) =>
-        (service = new C360WorkAuthService(db, verifier, {
+      useFactory: (db: PrismaClient, verifier: OidcAccessTokenVerifier) => {
+        service = new C360WorkAuthService(db, verifier, {
           introspect: async () => ({ active: online }),
-        })),
+        });
+        const verify = service.verifyOnline.bind(service);
+        service.verifyOnline = async (input) => {
+          const proof = await verify(input);
+          return shortProof
+            ? { ...proof, deadline: new Date(proof.checkStartedAt.getTime() + 600) }
+            : proof;
+        };
+        return service;
+      },
     },
   ]);
   const actor = f.actors.get('agent')!;
@@ -127,6 +137,9 @@ async function fixture() {
     setOnline: (value: boolean) => {
       online = value;
     },
+    shortenProof: () => {
+      shortProof = true;
+    },
   };
 }
 
@@ -207,6 +220,53 @@ test('C5 HTTP/PG/RLS: explicit opaque candidate, link/replay, จำกัด fi
       })
     ).status,
     409,
+  );
+});
+
+test('C5 deadline หมดระหว่าง receipt INSERT ต้อง rollback link/history/audit/receipt ทั้งชุด', async (t) => {
+  const f = await fixture();
+  const candidate = (await f.search()).body.items[0]!.candidateRef;
+  const commandId = randomUUID();
+  // ใช้ trigger wait จริงใน PostgreSQL หลัง effect/audit ก่อน receipt เพื่อพิสูจน์ last-moment check
+  await f.owner.$executeRawUnsafe(
+    `CREATE FUNCTION c5_receipt_wait() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.command_id='${commandId}'::uuid THEN PERFORM pg_sleep(0.9); END IF; RETURN NEW; END $$`,
+  );
+  await f.owner.$executeRawUnsafe(
+    'CREATE TRIGGER c5_receipt_wait BEFORE INSERT ON c360_profile_command_receipts FOR EACH ROW EXECUTE FUNCTION c5_receipt_wait()',
+  );
+  t.after(async () => {
+    await f.owner.$executeRawUnsafe(
+      'DROP TRIGGER IF EXISTS c5_receipt_wait ON c360_profile_command_receipts',
+    );
+    await f.owner.$executeRawUnsafe('DROP FUNCTION IF EXISTS c5_receipt_wait()');
+    await f.close();
+  });
+  f.shortenProof();
+  const result = await f.call('customer-link', {
+    commandId,
+    expectedLinkageRevision: '0',
+    candidateRef: candidate,
+  });
+  assert.equal(result.status, 503);
+  assert.equal(
+    (result.body as unknown as { error: { code: string } }).error.code,
+    'WORK_AUTH_PROOF_EXPIRED',
+  );
+  assert.equal(
+    (await f.owner.interaction.findUniqueOrThrow({ where: { id: f.interactionId } })).contactId,
+    null,
+  );
+  assert.equal(
+    await f.owner.c360InteractionCustomerChange.count({ where: { tenantId: f.tenantId } }),
+    0,
+  );
+  assert.equal(
+    await f.owner.c360ProfileAudit.count({ where: { tenantId: f.tenantId, commandId } }),
+    0,
+  );
+  assert.equal(
+    await f.owner.c360ProfileCommandReceipt.count({ where: { tenantId: f.tenantId, commandId } }),
+    0,
   );
 });
 

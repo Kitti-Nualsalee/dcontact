@@ -17,6 +17,7 @@ export function WorkCustomerPanel({
   identityKey,
   sessionReady,
   readOnly = false,
+  invalidationRevision = 0,
 }: {
   api: WorkCustomerApi;
   workId: string;
@@ -24,6 +25,7 @@ export function WorkCustomerPanel({
   identityKey: string;
   sessionReady: boolean;
   readOnly?: boolean;
+  invalidationRevision?: number;
 }) {
   const { t } = useTranslation('workspace');
   const [view, setView] = useState<WorkCustomerView>();
@@ -84,6 +86,13 @@ export function WorkCustomerPanel({
       stamp.current++;
     };
   }, [api, workId, leaseId, identityKey, sessionReady]);
+  useEffect(() => {
+    if (!invalidationRevision) return;
+    stamp.current++;
+    setBusy(false);
+    closePii();
+    setMessage('unavailable');
+  }, [invalidationRevision]);
   useEffect(() => {
     if (!draft && !pending) return;
     const warn = (event: BeforeUnloadEvent) => {
@@ -203,7 +212,7 @@ export function WorkCustomerPanel({
     setBusy(true);
     try {
       let result = await api.receipt(workId, leaseId, pending);
-      if (result.state === 'UNKNOWN') result = await api.receipt(workId, leaseId, pending, true);
+      if (result.state !== 'TERMINAL') result = await api.receipt(workId, leaseId, pending, true);
       await terminal(result, epoch);
     } catch {
       if (epoch === stamp.current) {

@@ -1,3 +1,4 @@
+import { currentC360WorkActor } from './customer-360-work-identity.js';
 import {
   Body,
   Catch,
@@ -44,7 +45,6 @@ import {
   CUSTOMER_360_DATABASE,
   Customer360HttpError,
   ReceiptRecoveryGate,
-  c360CurrentActor,
   commandActor,
   requestIdentity,
   send,
@@ -147,8 +147,9 @@ export class Customer360WorkController {
     write: boolean,
     proof?: Proof,
   ) {
-    const actor = await c360CurrentActor(tx, requestIdentity(req));
+    const actor = await currentC360WorkActor(tx, requestIdentity(req));
     const work = await fenceC360Work(tx, actor, id, this.lease(req), write);
+    await currentC360WorkActor(tx, requestIdentity(req));
     if (proof) await this.ready().assertOnlineProof(tx, proof);
     return { actor, work };
   }
@@ -188,8 +189,9 @@ export class Customer360WorkController {
     );
     const proof = completed ? undefined : await this.proof(req);
     return withTenantDatabaseTransaction(this.db, identity.tenantId, async (tx) => {
-      const actor = await c360CurrentActor(tx, identity);
+      const actor = await currentC360WorkActor(tx, identity);
       const work = await fenceC360Work(tx, actor, id, completed ? null : this.lease(req), false);
+      await currentC360WorkActor(tx, identity);
       if (proof) await this.ready().assertOnlineProof(tx, proof);
       return readC360WorkCustomer(tx, actor, work);
     });
@@ -221,9 +223,24 @@ export class Customer360WorkController {
     let current: { actor: C360VerifiedActor; work: C360WorkContext } | undefined;
     const authorization: C360CommandAuthorization = {
       authorize: async (tx) => {
+        const actor = await currentC360WorkActor(tx, requestIdentity(req));
+        const work = await tx.interaction.findFirst({
+          where: { tenantId: actor.tenantId, id, agentId: actor.userId, channel: 'VOICE' },
+          select: { state: true },
+        });
+        if (!work) throw new C360WorkError(404, 'RESOURCE_NOT_FOUND');
+        if (!['ACTIVE', 'WRAPUP', ...(readOnly ? ['COMPLETED'] : [])].includes(work.state))
+          throw new C360WorkError(409, 'WORK_STATE_CHANGED');
+      },
+      beforeCommit: async (tx) => {
+        await currentC360WorkActor(tx, requestIdentity(req));
+        if (proof && current?.work.state !== 'COMPLETED')
+          await this.ready().assertOnlineProof(tx, proof);
+      },
+      fence: async (tx) => {
         if (!readOnly) current = await this.context(tx, req, id, true, proof);
         else {
-          const actor = await c360CurrentActor(tx, requestIdentity(req));
+          const actor = await currentC360WorkActor(tx, requestIdentity(req));
           const completed = await tx.interaction.findFirst({
             where: { tenantId: actor.tenantId, id, agentId: actor.userId, state: 'COMPLETED' },
             select: { id: true },
@@ -235,6 +252,7 @@ export class Customer360WorkController {
             completed ? null : this.lease(req),
             false,
           );
+          await currentC360WorkActor(tx, requestIdentity(req));
           if (work.state !== 'COMPLETED' && proof) await this.ready().assertOnlineProof(tx, proof);
           current = { actor, work };
         }

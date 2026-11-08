@@ -260,6 +260,8 @@ function AgentWorkspace({
     workSession ? { phase: 'idle' } : { phase: 'disabled' },
   );
   const [socketLeaseId, setSocketLeaseId] = useState<string>();
+  const [customerInvalidation, setCustomerInvalidation] = useState(0);
+  const customerLease = useRef<string | undefined>(undefined);
   const enforced = lease.phase !== 'disabled';
   const leaseHeld = lease.phase === 'held';
   const inCall =
@@ -384,12 +386,22 @@ function AgentWorkspace({
     const connection = api.subscribeLive(
       {
         onEvent: (event) => {
+          if (
+            event &&
+            typeof event === 'object' &&
+            'type' in event &&
+            event.type === 'customer.auth'
+          ) {
+            setCustomerInvalidation((value) => value + 1);
+            return;
+          }
           if (leaseClient.current?.handleSocketEvent(event)) return;
           const alert = governanceGate.apply(event);
           if (alert) setGovernanceAlert(alert);
         },
         onDisconnect: (code) => {
           if (disposed) return;
+          setCustomerInvalidation((value) => value + 1);
           leaseClient.current?.handleSocketClosed(code);
           setGovernanceAlert(governanceGate.markDisconnected());
         },
@@ -513,6 +525,7 @@ function AgentWorkspace({
 
   // ได้ lease = ที่นี่เป็นจุดรับงาน: ประกาศ leader ใน origin ให้แท็บอื่นไม่ขอ lease ซ้อน
   const heldLeaseId = lease.phase === 'held' ? lease.lease.leaseId : undefined;
+  if (heldLeaseId) customerLease.current = heldLeaseId;
   const onLeaseChangeRef = useRef(onLeaseChange);
   onLeaseChangeRef.current = onLeaseChange;
   useEffect(() => onLeaseChangeRef.current?.(heldLeaseId), [heldLeaseId]);
@@ -1494,12 +1507,13 @@ function AgentWorkspace({
           {api?.customer &&
           snapshot?.interaction &&
           ['ACTIVE', 'WRAPUP'].includes(snapshot.interaction.state) &&
-          heldLeaseId ? (
+          customerLease.current ? (
             <WorkCustomerPanel
               key={`${identityKey}:${snapshot.interaction.id}`}
               api={api.customer}
               workId={snapshot.interaction.id}
-              leaseId={heldLeaseId}
+              leaseId={customerLease.current!}
+              invalidationRevision={customerInvalidation}
               identityKey={identityKey ?? 'unknown'}
               sessionReady={sessionReady}
             />

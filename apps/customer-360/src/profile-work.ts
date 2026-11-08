@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, lockTeamReferences } from '@d-contact/db';
-import { normalizeC360Email, normalizeC360Phone } from '@d-contact/contact-points';
+import {
+  C360ContactPointError,
+  normalizeC360Email,
+  normalizeC360Phone,
+} from '@d-contact/contact-points';
 import { type C360VerifiedActor } from './profile-authorization.js';
 import {
   C360ProfileCommandError,
@@ -90,7 +94,7 @@ function scopeRows(
     JOIN teams t ON t.tenant_id=g.tenant_id AND t.id=g.team_id AND t.is_active
     LEFT JOIN iam_contact_segment_scope_projection p ON p.tenant_id=g.tenant_id AND p.segment_id=g.segment_id AND p.contact_id=c.id
     LEFT JOIN c360_segment_membership_heads h ON h.tenant_id=g.tenant_id AND h.segment_id=g.segment_id AND h.contact_id=c.id
-    WHERE g.tenant_id=c.tenant_id AND g.team_id=${actor.teamId}::uuid AND g.permission=${permission} AND (${condition}))`;
+    WHERE g.tenant_id=c.tenant_id AND g.team_id=${actor.teamId}::uuid AND g.permission::text=${permission} AND (${condition}))`;
 }
 const fresh = Prisma.sql`p.state='IN' AND h.state='IN' AND p.membership_revision=h.membership_revision`;
 const stale = Prisma.sql`p.state='INVALIDATED' OR h.state='INVALIDATED' OR p.membership_revision IS DISTINCT FROM h.membership_revision`;
@@ -125,10 +129,19 @@ export function normalizeC360WorkSearch(body: Record<string, unknown>) {
     throw new C360ProfileCommandError('INVALID_REQUEST', 400);
   if (body.type === 'EMAIL' && body.explicitCountry !== undefined)
     throw new C360ProfileCommandError('INVALID_REQUEST', 400);
-  const point =
-    body.type === 'PHONE'
-      ? normalizeC360Phone(body.query, body.explicitCountry)
-      : normalizeC360Email(body.query);
+  let point;
+  try {
+    point =
+      body.type === 'PHONE'
+        ? normalizeC360Phone(body.query, body.explicitCountry)
+        : normalizeC360Email(body.query);
+  } catch (error) {
+    if (error instanceof C360ContactPointError)
+      throw new C360ReadError(400, 'VALIDATION_FAILED', false, [
+        { field: 'query', code: error.code },
+      ]);
+    throw error;
+  }
   if (body.cursor !== undefined && typeof body.cursor !== 'string')
     throw new C360ProfileCommandError('INVALID_REQUEST', 400);
   return {

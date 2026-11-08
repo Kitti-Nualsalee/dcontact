@@ -11,7 +11,10 @@ const linked = () => ({
   canLink: true,
   identity: 'ACTIVE',
 });
-async function fixture(page: Page, options: { unknown?: boolean; unlinked?: boolean } = {}) {
+async function fixture(
+  page: Page,
+  options: { unknown?: boolean; unlinked?: boolean; pending?: boolean } = {},
+) {
   let view: Record<string, unknown> = options.unlinked
     ? { interactionId: workId, state: 'UNLINKED', linkageRevision: '0', canLink: true }
     : linked();
@@ -45,10 +48,21 @@ async function fixture(page: Page, options: { unknown?: boolean; unlinked?: bool
           verified: false,
         },
       });
+    if (path.includes('/commands/') && options.pending && method === 'GET')
+      return route.fulfill({ json: { state: 'PENDING', commandId: command?.commandId } });
     if (path.includes('/commands/')) return route.fulfill({ json: { state: 'TERMINAL', command } });
     if (method === 'PATCH' || path.endsWith('/customer-link')) {
       mutations++;
       const body = route.request().postDataJSON();
+      if (options.pending) {
+        command = {
+          commandId: body.commandId,
+          outcome: 'REJECTED',
+          code: 'COMMAND_NOT_APPLIED',
+          committedRevisions: {},
+        };
+        return route.abort('failed');
+      }
       view = path.endsWith('/customer-link')
         ? {
             ...linked(),
@@ -119,6 +133,8 @@ test('responseหายหลังบันทึก ใช้commandเดิ�
   await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
   await expect(page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม' })).toBeVisible();
   await privateDraft(page, 'ร่าง unknown');
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.reload();
   await page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม' }).click();
   await expect(page.getByText('บันทึกและอ่านข้อมูลปัจจุบันกลับแล้ว')).toBeVisible();
   expect(f.mutations()).toBe(1);
@@ -131,4 +147,17 @@ test('ถอดหรือเปลี่ยนลูกค้าต้อง�
   await page.getByLabel('เหตุผล (ไม่ใส่ข้อมูลส่วนบุคคล)').fill('เลือกผิดรายการ');
   await expect(page.getByRole('button', { name: 'ยืนยัน', exact: true })).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('admissionค้างแต่ไม่มีeffect ต้องreconcile PENDINGให้NOT_APPLIEDก่อนเริ่มใหม่', async ({
+  page,
+}) => {
+  await fixture(page, { pending: true });
+  await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
+  await page.getByLabel('ชื่อลูกค้า').fill('ร่างที่ยังไม่บันทึก');
+  await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
+  await page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม' }).click();
+  await expect(page.getByText('คำสั่งเดิมไม่มีผลบันทึก ตรวจร่างก่อนส่งใหม่')).toBeVisible();
+  await expect(page.getByLabel('ชื่อลูกค้า')).toHaveValue('ร่างที่ยังไม่บันทึก');
+  await expect(page.getByRole('button', { name: 'บันทึกลูกค้า' })).toBeEnabled();
 });
