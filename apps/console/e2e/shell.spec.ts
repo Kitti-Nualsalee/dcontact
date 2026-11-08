@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { homeNavigation } from './support/home-navigation.js';
 
 /**
  * D1.13 (#452): flag `ui.shell.v2` ของ Console — Navigation API จำลองด้วย page.route
@@ -86,6 +87,36 @@ async function mockNavigation(page: Page, response: { status: number; body?: unk
 }
 
 const rail = (page: Page) => page.getByRole('navigation', { name: 'เมนูหลัก' });
+
+test('#860: เมนูลูกค้าตาม registry ใช้คีย์บอร์ดและเปลี่ยนภาษาได้บนจอแคบ', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await mockNavigation(page, { status: 200, body: homeNavigation(['admin']) });
+  await page.goto('/?view=journeys&tenant=demo');
+  const customers = rail(page).getByRole('link', { name: 'ลูกค้า' });
+  await expect(customers).toBeVisible();
+  await customers.focus();
+  await expect(customers).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(customers).toHaveAttribute('aria-current', 'page');
+  const subnav = page.getByRole('navigation', { name: 'ลูกค้า' });
+  await expect(subnav.getByRole('link', { name: 'ภาพรวมข้อมูลลูกค้า' })).toBeVisible();
+  await expect(subnav.getByRole('link', { name: 'กฎข้อมูล' })).toBeVisible();
+  await expect(subnav.getByRole('link', { name: 'กิจกรรมลูกค้า' })).toBeVisible();
+  await expect(subnav.getByRole('link', { name: 'จัดการแท็ก' })).toBeVisible();
+  await page.getByRole('button', { name: 'English' }).click();
+  await expect(
+    page.getByRole('navigation', { name: 'Customers' }).getByRole('link', { name: 'Data rules' }),
+  ).toBeVisible();
+});
+
+test('#860: Supervisor เห็นเฉพาะหน้าลูกค้าที่ server ส่ง', async ({ page }) => {
+  await mockNavigation(page, { status: 200, body: homeNavigation(['supervisor']) });
+  await page.goto('/?view=journeys&tenant=demo');
+  await rail(page).getByRole('link', { name: 'ลูกค้า' }).click();
+  const subnav = page.getByRole('navigation', { name: 'ลูกค้า' });
+  await expect(subnav.getByRole('link')).toHaveCount(1);
+  await expect(subnav.getByRole('link', { name: 'ลูกค้า' })).toBeVisible();
+});
 
 test('flag ปิด → ไม่มี rail และหน้าที่ยังไม่ย้ายไม่โหลด token ของ shell', async ({ page }) => {
   await mockNavigation(page, { status: 200, body: navigation(false) });

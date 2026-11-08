@@ -29,7 +29,10 @@
       "tenantPeople": "บัญชีผู้ใช้",
       "coreSettings": "ตั้งค่าองค์กร",
       "customers": "ลูกค้า",
-      "customerTags": "จัดการแท็ก"
+      "customerTags": "จัดการแท็ก",
+      "customerOverview": "ภาพรวมข้อมูลลูกค้า",
+      "customerRules": "กฎข้อมูล",
+      "customerActivity": "กิจกรรมลูกค้า"
     },
     "areas": {
       "home": "หน้าแรก",
@@ -41,6 +44,7 @@
       "cases": "เคส",
       "routing": "การกระจายงาน",
       "ai": "AI",
+      "customers": "ลูกค้า",
       "people": "บุคลากร",
       "wfm": "กำลังคน",
       "qm": "คุณภาพ",

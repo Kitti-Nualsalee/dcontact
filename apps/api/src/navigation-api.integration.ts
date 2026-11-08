@@ -240,6 +240,17 @@ test('role และ plan ต่างกันได้รายการต่
       ],
     },
     {
+      id: 'customers',
+      labelKey: 'navigation.areas.customers',
+      sections: [
+        {
+          id: 'customers',
+          labelKey: 'navigation.sections.customers',
+          items: [{ appId: 'customers' }],
+        },
+      ],
+    },
+    {
       id: 'people',
       labelKey: 'navigation.areas.people',
       sections: [
@@ -263,11 +274,6 @@ test('role และ plan ต่างกันได้รายการต่
               ],
             },
           ],
-        },
-        {
-          id: 'customers',
-          labelKey: 'navigation.sections.customers',
-          items: [{ appId: 'customers' }],
         },
       ],
     },
