@@ -143,7 +143,14 @@ export function validateC360ImportMapping(
       !isC360SupportedPhoneCountry(value.defaultPhoneCountry))
   )
     throw new C360ImportMappingError();
-  return value as unknown as C360ImportMapping;
+  const columns = Object.freeze({ ...value.columns }) as C360ImportMapping['columns'];
+  return Object.freeze({
+    version: 1 as const,
+    columns,
+    ...(value.defaultPhoneCountry !== undefined
+      ? { defaultPhoneCountry: value.defaultPhoneCountry as string }
+      : {}),
+  });
 }
 
 export class C360ImportMappingError extends Error {

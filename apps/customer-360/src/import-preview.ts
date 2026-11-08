@@ -29,7 +29,8 @@ export interface C360ImportPreviewRow {
  * หาก scope ไม่พร้อมต้อง throw ไม่คืน false แทนความไม่แน่นอน
  */
 export interface C360ImportDuplicateAuthority {
-  hasReadableDuplicate(profile: C360CreateProfile): Promise<boolean>;
+  /** คืนผลตามลำดับ input; implementation ต้องจำกัด query budget และตรวจ scope ปัจจุบัน */
+  findReadableDuplicates(profiles: readonly C360CreateProfile[]): Promise<readonly boolean[]>;
 }
 
 /** ผลภายใน service เท่านั้น: caller ต้อง authorize owner ก่อนอ่านและก่อนส่งแต่ละหน้า */
@@ -51,6 +52,8 @@ export async function prepareC360ImportPreview(input: {
   const mapping = validateC360ImportMapping(input.mapping, csv.headers);
   const rules = c360ProfileFieldRules();
   const rows: C360ImportPreviewRow[] = [];
+  const validProfiles: C360CreateProfile[] = [];
+  const validRowIndexes: number[] = [];
   const counts = { valid: 0, invalid: 0, warning: 0 };
   for (const [index, cells] of csv.rows.entries()) {
     const result = normalizeC360ImportRow(csv.headers, cells, mapping);
@@ -65,22 +68,36 @@ export async function prepareC360ImportPreview(input: {
       });
       continue;
     }
-    let duplicate: boolean;
-    try {
-      duplicate = await input.duplicateAuthority.hasReadableDuplicate(result.profile);
-      if (typeof duplicate !== 'boolean') throw new Error('invalid duplicate authority result');
-    } catch {
-      throw new C360ImportPreviewError('SCOPE_UNAVAILABLE');
-    }
     counts.valid++;
-    if (duplicate) counts.warning++;
+    validProfiles.push(result.profile);
+    validRowIndexes.push(rows.length);
     rows.push({
       rowNo: index + 1,
       cells,
       valid: true,
       fieldErrors: [],
-      warnings: duplicate ? ['READABLE_DUPLICATE'] : [],
+      warnings: [],
     });
+  }
+  if (validProfiles.length) {
+    let matches: readonly boolean[];
+    try {
+      matches = await input.duplicateAuthority.findReadableDuplicates(validProfiles);
+      if (
+        !Array.isArray(matches) ||
+        matches.length !== validProfiles.length ||
+        matches.some((value) => typeof value !== 'boolean')
+      )
+        throw new Error('invalid duplicate authority result');
+    } catch {
+      throw new C360ImportPreviewError('SCOPE_UNAVAILABLE');
+    }
+    for (const [index, match] of matches.entries()) {
+      if (!match) continue;
+      counts.warning++;
+      const rowIndex = validRowIndexes[index]!;
+      rows[rowIndex] = { ...rows[rowIndex]!, warnings: ['READABLE_DUPLICATE'] };
+    }
   }
   // ผูก selection และ warnings กับ source/mapping/rules โดยไม่มี raw values ใน plan
   const plan = {

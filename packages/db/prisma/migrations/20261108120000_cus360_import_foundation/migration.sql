@@ -22,6 +22,8 @@ CREATE TABLE c360_import_jobs (
   FOREIGN KEY (tenant_id, owner_user_id) REFERENCES users (tenant_id, id),
   CHECK (source_digest IS NULL OR source_digest ~ '^[0-9a-f]{64}$'),
   CHECK (confirmed_plan_hash IS NULL OR confirmed_plan_hash ~ '^[0-9a-f]{64}$'),
+  CHECK (source_expires_at <= created_at + interval '24 hours'),
+  CHECK (report_expires_at IS NULL OR (terminal_at IS NOT NULL AND report_expires_at <= terminal_at + interval '7 days')),
   CHECK (mapping IS NULL OR jsonb_typeof(mapping) = 'object')
 );
 CREATE INDEX c360_import_jobs_owner_idx ON c360_import_jobs (tenant_id, owner_user_id, state, created_at, id);
@@ -88,6 +90,12 @@ BEGIN
      IS DISTINCT FROM
      (OLD.tenant_id, OLD.id, OLD.owner_user_id, OLD.actor_identity_key, OLD.source_object_id, OLD.created_at) THEN
     RAISE EXCEPTION 'import job identity is immutable' USING ERRCODE = '23514';
+  END IF;
+  IF NEW.source_expires_at > OLD.source_expires_at OR
+     (OLD.terminal_at IS NOT NULL AND NEW.terminal_at IS DISTINCT FROM OLD.terminal_at) OR
+     (OLD.report_expires_at IS NOT NULL AND
+       (NEW.report_expires_at IS NULL OR NEW.report_expires_at > OLD.report_expires_at)) THEN
+    RAISE EXCEPTION 'import retention deadline cannot be extended' USING ERRCODE = '23514';
   END IF;
   RETURN NEW;
 END $$;

@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import {
   DeleteObjectCommand,
+  GetBucketPolicyCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -60,7 +62,26 @@ export class C360ImportObjectStorage {
   private key(identity: C360ImportObjectIdentity): string {
     if (![identity.tenantId, identity.jobId, identity.objectId].every((id) => UUID.test(id)))
       throw new C360ImportStorageError();
-    return `c360-imports/${identity.tenantId}/${identity.jobId}/${identity.objectId}`;
+    return `c360-imports/${identity.tenantId.toLowerCase()}/${identity.jobId.toLowerCase()}/${identity.objectId.toLowerCase()}`;
+  }
+
+  /** ตรวจ connectivity และ bucket policy เท่านั้น ไม่ใช่หลักฐานว่า ACL เป็น private */
+  async checkBucketPolicy(): Promise<void> {
+    try {
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      try {
+        const result = (await this.client.send(
+          new GetBucketPolicyCommand({ Bucket: this.bucket }),
+        )) as {
+          Policy?: unknown;
+        };
+        if (result.Policy) throw new C360ImportStorageError();
+      } catch (error) {
+        if ((error as { name?: unknown })?.name !== 'NoSuchBucketPolicy') throw error;
+      }
+    } catch {
+      throw new C360ImportStorageError();
+    }
   }
 
   async put(identity: C360ImportObjectIdentity, bytes: Uint8Array): Promise<string> {
@@ -74,6 +95,7 @@ export class C360ImportObjectStorage {
           Key: key,
           Body: bytes,
           ContentType: 'application/octet-stream',
+          IfNoneMatch: '*',
           ContentLength: bytes.byteLength,
           CacheControl: 'private, no-store',
           Metadata: { sha256: digest },

@@ -14,14 +14,14 @@ test('preview ใช้ core rules นับ invalid และเตือนเ
     sourceDigest,
     mapping,
     duplicateAuthority: {
-      async hasReadableDuplicate(profile) {
+      async findReadableDuplicates(profiles) {
         calls++;
-        return profile.displayName === 'Bob';
+        return profiles.map((profile) => profile.displayName === 'Bob');
       },
     },
   });
   assert.deepEqual(result.counts, { valid: 2, invalid: 1, warning: 1 });
-  assert.equal(calls, 2);
+  assert.equal(calls, 1);
   assert.deepEqual(
     result.rows.map((row) => row.rowNo),
     [1, 2, 3],
@@ -36,16 +36,16 @@ test('plan ผูก source, mapping, rules และ warnings; scope ล้ม�
   const noDuplicates = await prepareC360ImportPreview({
     ...base,
     duplicateAuthority: {
-      async hasReadableDuplicate() {
-        return false;
+      async findReadableDuplicates(profiles) {
+        return profiles.map(() => false);
       },
     },
   });
   const duplicate = await prepareC360ImportPreview({
     ...base,
     duplicateAuthority: {
-      async hasReadableDuplicate() {
-        return true;
+      async findReadableDuplicates(profiles) {
+        return profiles.map(() => true);
       },
     },
   });
@@ -55,8 +55,8 @@ test('plan ผูก source, mapping, rules และ warnings; scope ล้ม�
       ...base,
       sourceDigest: '0'.repeat(64),
       duplicateAuthority: {
-        async hasReadableDuplicate() {
-          return false;
+        async findReadableDuplicates(profiles) {
+          return profiles.map(() => false);
         },
       },
     }),
@@ -66,7 +66,7 @@ test('plan ผูก source, mapping, rules และ warnings; scope ล้ม�
     prepareC360ImportPreview({
       ...base,
       duplicateAuthority: {
-        async hasReadableDuplicate() {
+        async findReadableDuplicates() {
           throw Error('secret');
         },
       },
@@ -78,4 +78,35 @@ test('plan ผูก source, mapping, rules และ warnings; scope ล้ม�
       return true;
     },
   );
+  await assert.rejects(
+    prepareC360ImportPreview({
+      ...base,
+      duplicateAuthority: {
+        async findReadableDuplicates() {
+          return [];
+        },
+      },
+    }),
+    { code: 'SCOPE_UNAVAILABLE' },
+  );
+});
+
+test('preview ตรึง mapping ก่อนรอ duplicate authority ไม่ให้ client เปลี่ยนแผนกลางทาง', async () => {
+  const csv = Buffer.from('name,alternate\nAlice,Wrong\nBob,Wrong');
+  const mutable = { version: 1, columns: { displayName: 'name' } };
+  const seen: string[] = [];
+  const result = await prepareC360ImportPreview({
+    source: csv,
+    sourceDigest: createHash('sha256').update(csv).digest('hex'),
+    mapping: mutable,
+    duplicateAuthority: {
+      async findReadableDuplicates(profiles) {
+        seen.push(...profiles.map((profile) => profile.displayName));
+        mutable.columns.displayName = 'alternate';
+        return profiles.map(() => false);
+      },
+    },
+  });
+  assert.deepEqual(seen, ['Alice', 'Bob']);
+  assert.deepEqual(result.counts, { valid: 2, invalid: 0, warning: 0 });
 });

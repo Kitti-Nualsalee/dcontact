@@ -47,7 +47,7 @@ test('M2 import schema แยก tenant, ผูก delegation กับเจ้
   await scope(
     tenants[0]!,
     (tx) =>
-      tx.$executeRaw`INSERT INTO c360_import_jobs(tenant_id,id,owner_user_id,actor_identity_key,state,source_object_id,source_expires_at) VALUES (${tenants[0]}::uuid,${job}::uuid,${users[0]}::uuid,'verified-actor','UPLOADING',${objectId}::uuid,clock_timestamp()+interval '24 hours')`,
+      tx.$executeRaw`INSERT INTO c360_import_jobs(tenant_id,id,owner_user_id,actor_identity_key,state,source_object_id,created_at,source_expires_at) VALUES (${tenants[0]}::uuid,${job}::uuid,${users[0]}::uuid,'verified-actor','UPLOADING',${objectId}::uuid,transaction_timestamp(),transaction_timestamp()+interval '24 hours')`,
   );
   const visible = await scope(
     tenants[0]!,
@@ -59,6 +59,20 @@ test('M2 import schema แยก tenant, ผูก delegation กับเจ้
   );
   assert.equal(visible.length, 1);
   assert.equal(hidden.length, 0);
+  await assert.rejects(
+    scope(
+      tenants[0]!,
+      (tx) =>
+        tx.$executeRaw`UPDATE c360_import_jobs SET source_expires_at=source_expires_at+interval '1 second' WHERE id=${job}::uuid`,
+    ),
+  );
+  await assert.rejects(
+    scope(
+      tenants[0]!,
+      (tx) =>
+        tx.$executeRaw`UPDATE c360_import_jobs SET report_expires_at=clock_timestamp()+interval '7 days' WHERE id=${job}::uuid`,
+    ),
+  );
   await assert.rejects(
     scope(
       tenants[1]!,
