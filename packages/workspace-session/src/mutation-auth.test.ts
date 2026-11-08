@@ -81,7 +81,11 @@ function fixture() {
       },
       async invalidateCaptured(binding: WorkspaceMutationAuthBinding) {
         if (persistenceFailure) throw Error('database unavailable');
-        assert.equal(Number(binding.authEpoch), epoch);
+        if (Number(binding.authEpoch) + 1 === epoch) {
+          events.push('already-invalidated');
+          return true;
+        }
+        if (Number(binding.authEpoch) !== epoch) return false;
         events.push('persist-invalidation');
         epoch += 1;
         return true;
@@ -220,4 +224,33 @@ test('Cus360 online ล้มหลัง gateway ผ่านต้องคง
   assert.equal(session.leaseId, f.leaseId);
   assert.equal(f.closed.length, 0);
   assert.equal(f.events.includes('lease-revoke'), false);
+});
+
+test('gateway expiry หลัง Cus360 invalidation เดิมยังใช้ Voice auth policy โดยไม่ bump epoch ซ้ำ', async () => {
+  const f = fixture();
+  await f.adapter.handle(f.socket, {
+    type: 'auth:connect',
+    accessToken: 'one',
+    tabId: 'a',
+    leaseId: f.leaseId,
+  });
+  f.failOnline();
+  await f.adapter.handle(f.socket, {
+    type: 'auth:refresh',
+    accessToken: 'two',
+    tabId: 'a',
+    leaseId: f.leaseId,
+  });
+  f.events.length = 0;
+  await f.adapter.handle(f.socket, {
+    type: 'auth:refresh',
+    accessToken: 'expired',
+    tabId: 'a',
+    leaseId: f.leaseId,
+  });
+  assert.deepEqual(f.events, ['already-invalidated', 'lease-revoke', 'send', 'send']);
+  const event = f.sent.at(-2) as { session: { routingEnabled: boolean; status: string } };
+  assert.equal(event.session.routingEnabled, false);
+  assert.equal(event.session.status, 'reauthentication-required');
+  assert.equal(f.closed.length, 0);
 });

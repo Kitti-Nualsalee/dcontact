@@ -456,10 +456,10 @@ export class C360WorkAuthService implements WorkspaceMutationAuthAuthority {
       async (tx) => {
         const lease = await lockLease(tx, binding, false);
         if (lease.released_at) return false;
-        return (
-          (await invalidateC360WorkAuthInTransaction(tx, binding, reason, binding)) ===
-          'invalidated'
-        );
+        const result = await invalidateC360WorkAuthInTransaction(tx, binding, reason, binding);
+        // true = tuple นี้ถูก invalidate แล้วอย่างปลอดภัย รวมผลเดิมจาก callback เดียวกัน
+        // false = เป็น tuple เก่าที่มี binding ใหม่กว่า หรือ lease ถูกย้าย/ปล่อยแล้ว
+        return result === 'invalidated' || result === 'already-invalidated';
       },
       { timeout: 2_000 },
     );

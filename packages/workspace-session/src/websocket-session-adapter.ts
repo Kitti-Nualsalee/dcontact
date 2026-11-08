@@ -204,6 +204,7 @@ export class WorkspaceSessionWebSocketAdapter {
           return;
         }
       }
+      if (this.authenticatedSessions.get(socket) !== captured) return;
       if (error instanceof WorkspaceAuthorizationError) {
         if (captured?.leaseId && this.leases)
           await this.leases.revokeForAuth(
