@@ -41,7 +41,7 @@ export class C360ProfileCommandError extends Error {
 export class C360ProfileCommandRejection extends Error {
   constructor(
     readonly code: string,
-    readonly httpStatus: 404 | 409 | 422,
+    readonly httpStatus: 404 | 409 | 410 | 422,
   ) {
     super(code);
     this.name = 'C360ProfileCommandRejection';

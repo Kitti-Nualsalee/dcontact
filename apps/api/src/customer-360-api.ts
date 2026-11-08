@@ -219,12 +219,26 @@ export function commandAuthorization(identity: C360RequestIdentity): C360Command
       actor = await c360CurrentActor(tx, identity);
       if (actor.role !== 'ADMIN') throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
     },
-    canReadRef: async (tx, ref) =>
-      !!actor &&
-      (ref.type === 'CONTACT'
-        ? (await authorizeC360ContactAccess(tx, actor, ref.id)).decision === 'ALLOW'
-        : ref.type === 'TAG' &&
-          !!(await tx.c360Tag.findFirst({ where: { tenantId: identity.tenantId, id: ref.id } }))),
+    canReadRef: async (tx, ref) => {
+      if (!actor) return false;
+      if (ref.type === 'CONTACT')
+        return (await authorizeC360ContactAccess(tx, actor, ref.id)).decision === 'ALLOW';
+      if (ref.type === 'TAG')
+        return !!(await tx.c360Tag.findFirst({
+          where: { tenantId: identity.tenantId, id: ref.id },
+        }));
+      if (ref.type === 'IMPORT_JOB')
+        return !!(await tx.c360ImportJob.findFirst({
+          where: {
+            tenantId: identity.tenantId,
+            id: ref.id,
+            ownerUserId: identity.userId,
+            actorIdentityKey: commandActor(identity).actorIdentityKey,
+          },
+          select: { id: true },
+        }));
+      return false;
+    },
   };
 }
 
