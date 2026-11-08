@@ -227,7 +227,19 @@ test('C2 S1: NAME prefix, ตัวอักษรพิเศษเป็นต
 
     // validation ไม่สะท้อนค่าที่กรอกและไม่ค้นแบบเดา
     for (const query of ['0812345678', '911', 'Call: +12133734253']) {
-      const bad = await search(f, 'admin', { type: 'PHONE', query });
+      // ค่า sentinel สั้นอย่าง 911 อาจบังเอิญตรงกับ random UUID requestId ได้
+      // ใช้ correlation คงที่เพื่อให้ assertion ทั้ง payload ตรวจเฉพาะการสะท้อน input จริง
+      const bad = await f.request(
+        'customer-360/contacts/search',
+        'admin',
+        { type: 'PHONE', query },
+        'POST',
+        { 'x-request-id': 'fixture-no-reflection' },
+      );
+      assert.equal(
+        (bad.body as unknown as { requestId: string }).requestId,
+        'fixture-no-reflection',
+      );
       assert.equal(bad.status, 400);
       assert.equal(bad.body.error.code, 'VALIDATION_FAILED');
       assert.equal(JSON.stringify(bad.body).includes(query), false);

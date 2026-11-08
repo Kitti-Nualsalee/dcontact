@@ -29,7 +29,9 @@
       "tenantPeople": "User accounts",
       "coreSettings": "Organization settings",
       "customers": "Customers",
-      "customerTags": "Manage tags"
+      "customerTags": "Manage tags",
+      "customerOverview": "Customer overview",
+      "customerRules": "Data rules"
     },
     "areas": {
       "home": "Home",

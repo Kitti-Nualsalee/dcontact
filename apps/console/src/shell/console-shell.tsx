@@ -39,6 +39,8 @@ export type ConsoleShellApp =
   | 'tenant-people'
   | 'customers'
   | 'customer-tags'
+  | 'customer-overview'
+  | 'customer-rules'
   | 'agent-history'
   | 'journeys'
   | 'contact-governance'
@@ -360,20 +362,29 @@ export function ConsoleShell({
                     ? [t('navigation.apps.tenantPeople')]
                     : appId === 'customers'
                       ? [t('navigation.apps.customers')]
-                      : appId === 'customer-tags'
-                        ? [t('navigation.apps.customers'), t('navigation.apps.customerTags')]
-                        : appId === 'journeys'
-                          ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
-                          : appId === 'dphone-embedding'
-                            ? [
-                                t('navigation.groups.settings'),
-                                t('navigation.apps.dphoneEmbedding'),
-                              ]
-                            : [
-                                t('navigation.groups.quality'),
-                                t('navigation.apps.contactGovernance'),
-                                ...(pageLabel ? [pageLabel] : []),
-                              ]
+                      : appId === 'customer-overview' || appId === 'customer-rules'
+                        ? [
+                            t('navigation.apps.customers'),
+                            t(
+                              appId === 'customer-rules'
+                                ? 'navigation.apps.customerRules'
+                                : 'navigation.apps.customerOverview',
+                            ),
+                          ]
+                        : appId === 'customer-tags'
+                          ? [t('navigation.apps.customers'), t('navigation.apps.customerTags')]
+                          : appId === 'journeys'
+                            ? [t('navigation.groups.automation'), t('navigation.apps.journeys')]
+                            : appId === 'dphone-embedding'
+                              ? [
+                                  t('navigation.groups.settings'),
+                                  t('navigation.apps.dphoneEmbedding'),
+                                ]
+                              : [
+                                  t('navigation.groups.quality'),
+                                  t('navigation.apps.contactGovernance'),
+                                  ...(pageLabel ? [pageLabel] : []),
+                                ]
         }
         language={locale}
         onLanguageChange={onLanguageChange}

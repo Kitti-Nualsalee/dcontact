@@ -319,6 +319,25 @@ const NOT_MERGED = Prisma.sql`NOT EXISTS (
 
 const SEARCH_ROLES = new Set(['ADMIN', 'SUPERVISOR']);
 
+/** Predicate ของ directory ใช้ร่วมระหว่าง C2 list/count และ M1 Overview เสมอ */
+const directoryReadable = (actor: C360VerifiedActor) =>
+  Prisma.sql`${c360ReadableContactSql(actor)} AND ${NOT_MERGED}`;
+
+export async function countC360AccessibleDirectory(
+  tx: Prisma.TransactionClient,
+  actor: C360VerifiedActor,
+) {
+  if (!SEARCH_ROLES.has(actor.role)) throw new C360ReadError(403, 'CUSTOMER_ACCESS_DENIED');
+  const [deferred] = await tx.$queryRaw<{ deferred: boolean }[]>(Prisma.sql`
+    SELECT EXISTS (SELECT 1 FROM contacts c WHERE c.tenant_id = ${actor.tenantId}::uuid
+      AND ${c360DeferredContactSql(actor)} AND ${NOT_MERGED}) AS deferred`);
+  if (deferred?.deferred) throw new C360ReadError(503, 'SCOPE_UNAVAILABLE', true);
+  const [row] = await tx.$queryRaw<{ count: bigint; as_of: Date }[]>(Prisma.sql`
+    SELECT count(*)::bigint AS count, statement_timestamp() AS as_of FROM contacts c
+    WHERE c.tenant_id = ${actor.tenantId}::uuid AND ${directoryReadable(actor)}`);
+  return { count: row!.count.toString(), asOf: row!.as_of.toISOString() };
+}
+
 export async function searchC360Contacts(
   tx: Prisma.TransactionClient,
   actor: C360VerifiedActor,
@@ -328,7 +347,7 @@ export async function searchC360Contacts(
   // Agent/Compliance ไม่มี generic directory (R1 C); gateway ตัดไปแล้ว ที่นี่เป็นชั้นที่สอง
   if (!SEARCH_ROLES.has(actor.role)) throw new C360ReadError(403, 'CUSTOMER_ACCESS_DENIED');
   const search = parseC360SearchInput(body);
-  const readable = Prisma.sql`${c360ReadableContactSql(actor)} AND ${NOT_MERGED}`;
+  const readable = directoryReadable(actor);
   const filter = filterSql(search);
   const [authorization] = await tx.$queryRaw<{ fingerprint: string }[]>(Prisma.sql`
     SELECT concat(count(*), ':',
@@ -414,10 +433,8 @@ export async function searchC360Contacts(
   if (search.type === 'DIRECTORY' && !search.cursor) {
     if (incomplete) result.accessibleCount = { state: 'UNAVAILABLE', value: null };
     else {
-      const [count] = await tx.$queryRaw<{ n: bigint }[]>(Prisma.sql`
-        SELECT count(*)::bigint AS n FROM contacts c
-        WHERE c.tenant_id = ${actor.tenantId}::uuid AND ${readable}`);
-      result.accessibleCount = { state: 'AVAILABLE', value: Number(count?.n ?? 0n) };
+      const count = await countC360AccessibleDirectory(tx, actor);
+      result.accessibleCount = { state: 'AVAILABLE', value: Number(count.count) };
     }
   }
   return result;

@@ -3,8 +3,10 @@ import { createServer as createHttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { createServer as createViteServer } from 'vite';
 import { fileURLToPath } from 'node:url';
+import { createOverviewBrowserFixture } from '../../api/src/customer-360-overview-browser-fixtures.js';
 import {
   coreIdentitySandbox,
+  coreOverviewIdentitySandbox,
   coreM1IdentitySandbox,
   coreC4IdentitySandbox,
 } from '../../api/src/tenant-core-identity-sandbox.js';
@@ -18,12 +20,16 @@ async function close() {
 try {
   const c4 = process.env.C360_C4_BROWSER_OIDC === 'true';
   const register = (cleanup: () => Promise<unknown>) => cleanups.push(cleanup);
-  const sandbox = await (c4
-    ? coreC4IdentitySandbox(register)
-    : process.env.C360_M1_BROWSER_OIDC === 'true'
-      ? coreM1IdentitySandbox(register)
-      : coreIdentitySandbox(register));
+  const overview = process.env.C360_OVERVIEW_BROWSER_OIDC === 'true';
+  const sandbox = await (overview
+    ? coreOverviewIdentitySandbox(register)
+    : c4
+      ? coreC4IdentitySandbox(register)
+      : process.env.C360_M1_BROWSER_OIDC === 'true'
+        ? coreM1IdentitySandbox(register)
+        : coreIdentitySandbox(register));
   const { f, issuer, password } = sandbox;
+  const overviewFixture = overview ? await createOverviewBrowserFixture(f) : undefined;
   if (c4) {
     const commandId = randomUUID();
     const actorIdentityKey = 'fixture-c4-oidc';
@@ -151,6 +157,16 @@ try {
         res.end('{}');
         return;
       }
+      if (
+        overviewFixture &&
+        req.method === 'POST' &&
+        req.url?.startsWith('/__core_test/overview/')
+      ) {
+        const kind = req.url.split('/').at(-1) ?? '';
+        res.statusCode = (await overviewFixture.change(kind)) ? 200 : 404;
+        res.end('{}');
+        return;
+      }
       if (req.url === '/__core_test/revoke') {
         const actor = f.actors.get('admin')!;
         await f.owner.user.update({ where: { id: actor.id }, data: { isActive: false } });
@@ -158,6 +174,7 @@ try {
         return;
       }
       if (req.url === '/__core_test/restore') {
+        await overviewFixture?.restore();
         legacyNavigation = false;
         const actor = f.actors.get('admin')!;
         await f.owner.user.update({ where: { id: actor.id }, data: { isActive: true } });
