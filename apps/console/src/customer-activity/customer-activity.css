@@ -1,0 +1,28 @@
+.ca-root > .cu-search {
+  margin-block-end: var(--dc-space-4);
+}
+
+.ca-root time,
+.ca-ref,
+.ca-coverage {
+  overflow-wrap: anywhere;
+}
+
+.ca-ref {
+  display: block;
+}
+
+.ca-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.ca-table {
+  width: 100%;
+  min-width: 34rem;
+}
+
+.ca-table th {
+  position: sticky;
+  inset-block-start: 0;
+}

@@ -17,3 +17,4 @@ export * from './segment-repository.js';
 
 export * from './profile-work.js';
 export * from './profile-field-rules.js';
+export * from './profile-activity.js';

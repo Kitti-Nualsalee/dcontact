@@ -15,7 +15,8 @@
     "test:customer-360-m1-c4:race": "tsx --test --test-concurrency=1 acceptance/customer-360-m1-c4-race.integration.ts",
     "test:customer-360-c4:dev-sandbox": "node scripts/cus360-c4-dev-sandbox.mjs",
     "test:customer-360-c5:components": "node scripts/cus360-c5-component-sandbox.mjs",
-    "test:customer-overview:dev-sandbox": "node scripts/cus360-overview-dev-sandbox.mjs"
+    "test:customer-overview:dev-sandbox": "node scripts/cus360-overview-dev-sandbox.mjs",
+    "test:customer-activity:dev-sandbox": "node scripts/cus360-overview-dev-sandbox.mjs activity"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.0.0",

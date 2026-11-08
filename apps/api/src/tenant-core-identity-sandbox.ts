@@ -5,6 +5,7 @@ import { KeycloakAccessTokenVerifier } from '@d-contact/workspace-session';
 import { coreFixture } from './tenant-core-test-fixtures.js';
 import { Customer360Controller } from './customer-360-api.js';
 import { Customer360TagCatalogController } from './customer-360-tag-catalog-api.js';
+import { Customer360ActivityController } from './customer-360-activity-api.js';
 import { Customer360OverviewController } from './customer-360-overview-api.js';
 import { Customer360ReadController } from './customer-360-read-api.js';
 import { Redis } from 'ioredis';
@@ -46,6 +47,16 @@ export function coreOverviewIdentitySandbox(
     Customer360Controller,
     Customer360ReadController,
     Customer360OverviewController,
+  ]);
+}
+
+export function coreActivityIdentitySandbox(
+  registerCleanup: (cleanup: () => Promise<unknown>) => void,
+) {
+  return coreIdentitySandbox(registerCleanup, [
+    Customer360Controller,
+    Customer360TagCatalogController,
+    Customer360ActivityController,
   ]);
 }
 
