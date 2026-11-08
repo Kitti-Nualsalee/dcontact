@@ -4,11 +4,13 @@ import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
+const activity = process.argv[2] === 'activity';
+const trial = activity ? 'activity' : 'overview';
 const suffix = randomBytes(6).toString('hex');
-const pg = `overview-dev-pg-${suffix}`;
-const redis = `overview-dev-redis-${suffix}`;
-const keycloak = `overview-dev-keycloak-${suffix}`;
-const dbName = 'dcontact_820_test';
+const pg = `${trial}-dev-pg-${suffix}`;
+const redis = `${trial}-dev-redis-${suffix}`;
+const keycloak = `${trial}-dev-keycloak-${suffix}`;
+const dbName = activity ? 'dcontact_821_test' : 'dcontact_820_test';
 const dbPassword = randomBytes(18).toString('hex');
 const appPassword = randomBytes(18).toString('hex');
 const identityPassword = randomBytes(18).toString('hex');
@@ -155,15 +157,16 @@ try {
       'tsx',
       '--test',
       '--test-concurrency=1',
-      'src/customer-360-overview.integration.ts',
-      'src/customer-360-overview.boundary.ts',
+      ...(activity
+        ? ['src/customer-360-activity.integration.ts', 'src/customer-360-write.integration.ts']
+        : ['src/customer-360-overview.integration.ts', 'src/customer-360-overview.boundary.ts']),
     ],
     env,
   );
   for (const browser of ['chrome', 'edge'])
     for (let round = 1; round <= 2; round++) {
-      console.log(`C360_OVERVIEW_ROUND ${browser} ${round}`);
-      await run('pnpm', ['--filter', '@d-contact/console', 'test:customer-overview:oidc'], {
+      console.log(`C360_${trial.toUpperCase()}_ROUND ${browser} ${round}`);
+      await run('pnpm', ['--filter', '@d-contact/console', `test:customer-${trial}:oidc`], {
         ...env,
         C360_DEV_TRIAL_BROWSER: browser,
         C360_DEV_TRIAL_ROUND: String(round),
@@ -171,7 +174,7 @@ try {
     }
   completed = true;
 } catch (error) {
-  console.error('C360 Overview local dev trial failed', {
+  console.error(`C360 ${trial} local dev trial failed`, {
     exitCode: error?.status ?? null,
     interrupted: interrupted ?? null,
   });
@@ -198,5 +201,6 @@ try {
   if (cleanupFailures.length) {
     console.error('C360 sandbox cleanup ไม่สำเร็จ', { containers: cleanupFailures });
     if (!interrupted) process.exitCode = 1;
-  } else if (completed && !interrupted) console.log('C360_OVERVIEW_LOCAL_DEV_TRIAL_PASS');
+  } else if (completed && !interrupted)
+    console.log(`C360_${trial.toUpperCase()}_LOCAL_DEV_TRIAL_PASS`);
 }

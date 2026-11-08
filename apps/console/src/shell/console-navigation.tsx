@@ -18,6 +18,7 @@ const VIEWS = new Set([
   'customer-tags',
   'customer-overview',
   'customer-rules',
+  'customer-activity',
   'core-settings',
   'line-inbound',
   'account',

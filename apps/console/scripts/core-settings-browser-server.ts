@@ -7,6 +7,7 @@ import { createOverviewBrowserFixture } from '../../api/src/customer-360-overvie
 import {
   coreIdentitySandbox,
   coreOverviewIdentitySandbox,
+  coreActivityIdentitySandbox,
   coreM1IdentitySandbox,
   coreC4IdentitySandbox,
 } from '../../api/src/tenant-core-identity-sandbox.js';
@@ -21,13 +22,16 @@ try {
   const c4 = process.env.C360_C4_BROWSER_OIDC === 'true';
   const register = (cleanup: () => Promise<unknown>) => cleanups.push(cleanup);
   const overview = process.env.C360_OVERVIEW_BROWSER_OIDC === 'true';
-  const sandbox = await (overview
-    ? coreOverviewIdentitySandbox(register)
-    : c4
-      ? coreC4IdentitySandbox(register)
-      : process.env.C360_M1_BROWSER_OIDC === 'true'
-        ? coreM1IdentitySandbox(register)
-        : coreIdentitySandbox(register));
+  const activity = process.env.C360_ACTIVITY_BROWSER_OIDC === 'true';
+  const sandbox = await (activity
+    ? coreActivityIdentitySandbox(register)
+    : overview
+      ? coreOverviewIdentitySandbox(register)
+      : c4
+        ? coreC4IdentitySandbox(register)
+        : process.env.C360_M1_BROWSER_OIDC === 'true'
+          ? coreM1IdentitySandbox(register)
+          : coreIdentitySandbox(register));
   const { f, issuer, password } = sandbox;
   const overviewFixture = overview ? await createOverviewBrowserFixture(f) : undefined;
   if (c4) {
@@ -65,6 +69,7 @@ try {
       updatedByActor: 'core726-isolated-operator',
     },
   });
+  let activitySeeded = false;
   let legacyNavigation = false;
   let held: (() => Promise<number>) | undefined;
   let unresolvedId: string | undefined;
@@ -164,6 +169,24 @@ try {
       ) {
         const kind = req.url.split('/').at(-1) ?? '';
         res.statusCode = (await overviewFixture.change(kind)) ? 200 : 404;
+        res.end('{}');
+        return;
+      }
+      if (activity && req.method === 'POST' && req.url === '/__core_test/activity/seed') {
+        if (!activitySeeded) {
+          // 51 actual owner operations across two authorized actors, within per-actor write budgets.
+          for (const alias of ['admin', 'admin-two']) {
+            const token = await sandbox.tokenFor(alias);
+            for (let index = 0; index < (alias === 'admin' ? 26 : 25); index++) {
+              const result = await f.request('customer-360/tags', token, {
+                commandId: randomUUID(),
+                name: `Synthetic private tag ${alias} ${index}`,
+              });
+              if (result.status !== 201) throw new Error('activity owner fixture write failed');
+            }
+          }
+          activitySeeded = true;
+        }
         res.end('{}');
         return;
       }

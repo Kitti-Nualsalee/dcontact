@@ -37,6 +37,9 @@ import customerTagsTh from './locales/th/customer-tags.json' with { type: 'json'
 import customerOverviewTh from './locales/th/customer-overview.json' with { type: 'json' };
 import customerOverviewEn from './locales/en/customer-overview.json' with { type: 'json' };
 
+import customerActivityTh from './locales/th/customer-activity.json' with { type: 'json' };
+import customerActivityEn from './locales/en/customer-activity.json' with { type: 'json' };
+
 export const DEFAULT_NAMESPACE = 'common';
 
 // namespace `ui` ของ component layer (ADR-028) โหลดพร้อมกัน จึงสลับภาษาพร้อมกันทั้งจอ
@@ -51,6 +54,7 @@ export const resources = {
     customers: customersTh,
     customerTags: customerTagsTh,
     customerOverview: customerOverviewTh,
+    customerActivity: customerActivityTh,
     journeys: journeysTh,
     integrations: integrationsTh,
     account: accountTh,
@@ -67,6 +71,7 @@ export const resources = {
     customers: customersEn,
     customerTags: customerTagsEn,
     customerOverview: customerOverviewEn,
+    customerActivity: customerActivityEn,
     journeys: journeysEn,
     integrations: integrationsEn,
     account: accountEn,

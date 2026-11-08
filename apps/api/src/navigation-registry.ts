@@ -270,6 +270,16 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     roles: ['admin'],
   },
   {
+    id: 'customer-activity',
+    area: 'people',
+    section: 'customers',
+    group: 'operations',
+    labelKey: 'navigation.apps.customerActivity',
+    hostApp: 'console',
+    path: '/?view=customer-activity',
+    roles: ['admin'],
+  },
+  {
     id: 'customer-tags',
     area: 'people',
     section: 'customers',
