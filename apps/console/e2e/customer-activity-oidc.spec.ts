@@ -125,16 +125,41 @@ test('Activity OIDC: กลับมาหน้าเดิมหลังถ�
   await login(page, request);
   const grid = page.getByRole('grid', { name: 'กิจกรรมลูกค้า' });
   await expect(grid.getByRole('row')).toHaveCount(51);
-  await page.evaluate(() => {
-    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
-    document.dispatchEvent(new Event('visibilitychange'));
+  let release!: () => void;
+  let arrived!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
   });
-  await expect(grid).toHaveCount(0);
-  expect((await request.post('/__core_test/revoke')).ok()).toBe(true);
-  await page.evaluate(() => {
-    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
-    document.dispatchEvent(new Event('visibilitychange'));
+  const reached = new Promise<void>((resolve) => {
+    arrived = resolve;
   });
-  await expect(page.getByRole('alert')).toContainText('โปรดติดต่อผู้ดูแล tenant');
+  let captured = false;
+  await page.route('**/api/v1/customer-360/activity?*', async (route) => {
+    if (captured) return route.continue();
+    captured = true;
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    arrived();
+    await held;
+    await route.fulfill({ response }).catch(() => undefined);
+  });
+  await page.getByRole('button', { name: 'อ่านข้อมูลใหม่' }).click();
+  await reached;
+  try {
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await expect(grid).toHaveCount(0);
+    expect((await request.post('/__core_test/revoke')).ok()).toBe(true);
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await expect(page.getByRole('alert')).toContainText('โปรดติดต่อผู้ดูแล tenant');
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
   await expect(grid).toHaveCount(0);
 });
