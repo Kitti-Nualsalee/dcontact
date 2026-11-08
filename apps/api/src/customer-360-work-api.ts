@@ -28,6 +28,7 @@ import {
   c360Uuid,
   executeC360ProfileCommand,
   fenceC360Work,
+  fenceC360WorkContacts,
   lookupC360ProfileCommand,
   normalizeC360WorkPatch,
   normalizeC360WorkSearch,
@@ -262,6 +263,14 @@ export class Customer360WorkController {
         (command.resourceType === 'INTERACTION' &&
           command.resourceId === id &&
           ['WORK_CUSTOMER_LINK', 'WORK_CUSTOMER_UPDATE'].includes(command.action)),
+      fenceReceiptRefs: async (tx, refs) => {
+        if (!current) throw new C360WorkError(503, 'RESOURCE_BUSY', true);
+        await fenceC360WorkContacts(
+          tx,
+          current.actor,
+          refs.filter((ref) => ref.type === 'CONTACT').map((ref) => ref.id),
+        );
+      },
       canReadRef: async (tx, ref) => {
         if (!current) return false;
         if (ref.type === 'INTERACTION') return ref.id === id;
@@ -275,7 +284,7 @@ export class Customer360WorkController {
           );
           return true;
         } catch (error) {
-          if (error instanceof C360WorkError) return false;
+          if (error instanceof C360WorkError && error.status === 404) return false;
           throw error;
         }
       },

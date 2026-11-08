@@ -247,6 +247,8 @@ export interface C360CommandAuthorization {
   /** ตรวจ deadline/สิทธิ์หลัง audit+receipt+constraints โดยไม่ทำ network */
   beforeCommit?: (tx: Prisma.TransactionClient) => Promise<void>;
   canAccessCommand?: (command: StoredCommandOwner) => boolean;
+  /** รวบรวม resource IDs ทั้งชุดก่อนถือ fences เพื่อรักษาลำดับ lock ของ receipt */
+  fenceReceiptRefs?: (tx: Prisma.TransactionClient, refs: C360ResourceRef[]) => Promise<void>;
   /** E1 B.8: refs ที่ผู้อ่านปัจจุบันไม่มีสิทธิ์ต้องไม่คืน */
   canReadRef?: (tx: Prisma.TransactionClient, ref: C360ResourceRef) => Promise<boolean>;
 }
@@ -330,8 +332,15 @@ async function receiptView(
   },
   authorization: C360CommandAuthorization,
 ): Promise<C360ProfileCommandResult> {
+  const storedRefs = receipt.resourceRefs as unknown as C360ResourceRef[];
+  await authorization.fenceReceiptRefs?.(tx, [
+    ...storedRefs,
+    ...(command.resourceType && command.resourceId
+      ? [{ type: command.resourceType, id: command.resourceId }]
+      : []),
+  ]);
   const refs: C360ResourceRef[] = [];
-  for (const ref of receipt.resourceRefs as unknown as C360ResourceRef[])
+  for (const ref of storedRefs)
     if (!authorization.canReadRef || (await authorization.canReadRef(tx, ref))) refs.push(ref);
   const outcome = receipt.outcome as C360ProfileCommandReceiptView['outcome'];
   const result: C360ProfileCommandResult = {

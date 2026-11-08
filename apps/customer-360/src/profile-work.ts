@@ -14,8 +14,8 @@ import {
   type C360ProfileEffect,
 } from './profile-command.js';
 import {
+  c360IdentityFenceKey,
   lockIamScopeVersionsShared,
-  tryC360IdentityFences,
   tryIamContactProjectionFences,
 } from './profile-fences.js';
 import { C360ReadError, c360FilterDigest, type C360CursorCodec } from './profile-read.js';
@@ -118,7 +118,13 @@ export async function fenceC360WorkContacts(
   actor: C360VerifiedActor,
   ids: string[],
 ) {
-  await tryC360IdentityFences(tx, actor.tenantId, ids);
+  // Membership writer ใช้ shared identity lock ด้วย จึงต้องใช้ exclusive เพื่อกัน head เปลี่ยน
+  for (const id of [...new Set(ids)].sort()) {
+    const [row] = await tx.$queryRaw<{ locked: boolean }[]>(
+      Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtext(${c360IdentityFenceKey(actor.tenantId, id)})) AS locked`,
+    );
+    if (!row?.locked) throw new C360WorkError(503, 'RESOURCE_BUSY', true);
+  }
   await tryIamContactProjectionFences(tx, actor.tenantId, ids);
 }
 
@@ -189,18 +195,33 @@ export async function searchC360WorkCandidates(
     Prisma.sql`SELECT EXISTS(SELECT 1 FROM contacts c WHERE c.tenant_id=${actor.tenantId}::uuid AND ${matching} AND NOT ${scopeRows(actor, 'WORK', fresh)} AND ${scopeRows(actor, 'WORK', stale)}) AS exists`,
   );
   if (pending?.exists) throw new C360WorkError(503, 'SCOPE_UNAVAILABLE', true);
-  const rows = await tx.$queryRaw<
-    {
-      id: string;
-      display_name: string | null;
-      company: string | null;
-      created_key: string;
-      lineage_revision: number;
-    }[]
-  >(Prisma.sql`SELECT c.id,c.display_name,c.company,to_char(c.created_at,'YYYY-MM-DD"T"HH24:MI:SS.US') AS created_key,ih.lineage_revision FROM contacts c JOIN c360_identity_heads ih ON ih.tenant_id=c.tenant_id AND ih.contact_id=c.id AND ih.state='ACTIVE'
+  const queryRows = () =>
+    tx.$queryRaw<
+      {
+        id: string;
+        display_name: string | null;
+        company: string | null;
+        created_key: string;
+        lineage_revision: number;
+      }[]
+    >(Prisma.sql`SELECT c.id,c.display_name,c.company,to_char(c.created_at,'YYYY-MM-DD"T"HH24:MI:SS.US') AS created_key,ih.lineage_revision FROM contacts c JOIN c360_identity_heads ih ON ih.tenant_id=c.tenant_id AND ih.contact_id=c.id AND ih.state='ACTIVE'
     WHERE c.tenant_id=${actor.tenantId}::uuid AND ${matching} AND ${scopeRows(actor, 'WORK', fresh)}
     ${position ? Prisma.sql`AND (c.created_at,c.id) < (${position[0]}::timestamp,${position[1]}::uuid)` : Prisma.empty}
     ORDER BY c.created_at DESC,c.id DESC LIMIT 11`);
+  const initial = await queryRows();
+  await fenceC360WorkContacts(
+    tx,
+    actor,
+    initial.map((row) => row.id),
+  );
+  // IDs ใช้ pre-read เพื่อรวบรวม lock เท่านั้น ต้องอ่านหลัง lock อีกครั้ง
+  const [pendingAfter] = await tx.$queryRaw<{ exists: boolean }[]>(
+    Prisma.sql`SELECT EXISTS(SELECT 1 FROM contacts c WHERE c.tenant_id=${actor.tenantId}::uuid AND ${matching} AND NOT ${scopeRows(actor, 'WORK', fresh)} AND ${scopeRows(actor, 'WORK', stale)}) AS exists`,
+  );
+  if (pendingAfter?.exists) throw new C360WorkError(503, 'SCOPE_UNAVAILABLE', true);
+  const rows = await queryRows();
+  if (rows.length !== initial.length || rows.some((row, index) => row.id !== initial[index]?.id))
+    throw new C360WorkError(503, 'RESOURCE_BUSY', true);
   const visible = rows.slice(0, 10);
   const last = visible.at(-1);
   return {

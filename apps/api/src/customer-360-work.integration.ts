@@ -310,6 +310,74 @@ test('C5 reauth/IdP fault: ปิด Cus360 แต่ไม่แก้ Voice st
   assert.equal(JSON.stringify(stale.body).includes('work@example.test'), false);
 });
 
+for (const mode of ['search', 'receipt'] as const) {
+  test(`C5 ${mode}: owner membership รอก่อนเปลี่ยน head ระหว่างส่งผลที่มีสิทธิ์`, async (t) => {
+    const f = await fixture();
+    t.after(() => f.close());
+    let commandId = '';
+    if (mode === 'receipt') {
+      const candidate = (await f.search()).body.items[0]!.candidateRef;
+      commandId = randomUUID();
+      assert.equal(
+        (
+          await f.call('customer-link', {
+            commandId,
+            expectedLinkageRevision: '0',
+            candidateRef: candidate,
+          })
+        ).status,
+        200,
+      );
+    }
+    let release!: () => void;
+    let reached!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const original = f.service.assertOnlineProof.bind(f.service);
+    let calls = 0;
+    f.service.assertOnlineProof = async (...args) => {
+      await original(...args);
+      if (++calls === 2) {
+        reached();
+        await held;
+      }
+    };
+    const result = mode === 'search' ? f.search() : f.call(`commands/${commandId}`);
+    await ready;
+    const writer = ownerCommit(f, 'SILVER');
+    try {
+      let waiting = false;
+      const identityKey = `c360-membership:${f.tenantId}:identity:${f.contactId}`;
+      for (let attempt = 0; attempt < 150; attempt++) {
+        const [row] = await f.owner.$queryRaw<{ count: bigint }[]>`
+          SELECT count(*)::bigint AS count FROM pg_locks
+          WHERE locktype='advisory' AND NOT granted AND mode='ShareLock' AND objsubid=1
+            AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
+            AND classid::bigint=((hashtext(${identityKey})::bigint >> 32) & 4294967295)
+            AND objid::bigint=(hashtext(${identityKey})::bigint & 4294967295)`;
+        if (Number(row?.count) > 0) {
+          waiting = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.equal(waiting, true, 'actual membership writer ต้องรอ fence ของ reader');
+    } finally {
+      release();
+    }
+    assert.equal((await result).status, mode === 'search' ? 201 : 200);
+    await writer;
+    f.service.assertOnlineProof = original;
+    const stale = mode === 'search' ? await f.search() : await f.call(`commands/${commandId}`);
+    assert.equal(stale.status, 503, 'head ที่เปลี่ยนก่อนอ่านต้อง DEFER จน IAM ตามทัน');
+    assert.doesNotMatch(JSON.stringify(stale.body), new RegExp(f.contactId));
+  });
+}
+
 test('C5 relink/detach: reason+confirmation, history/audit atomically และไม่คืน receipt ข้ามงาน', async (t) => {
   const f = await fixture();
   t.after(() => f.close());
