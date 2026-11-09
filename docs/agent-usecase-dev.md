@@ -86,7 +86,9 @@ Unit ของ control simulator อยู่ใน `test:agent-usecase:unit` �
 pnpm --filter @d-contact/workspace exec playwright test e2e/external-phone-control.spec.ts
 ```
 
-Browser spec ใช้ query เลือกโหมดเฉพาะ E2E harness; production เลือกผ่าน build config เท่านั้น. ## D-Phone สำหรับ Chrome
+Browser spec ใช้ query เลือกโหมดเฉพาะ E2E harness ส่วน production เลือกผ่าน build config
+
+## D-Phone สำหรับ Chrome
 
 1. รัน `pnpm dphone:extension:build` ค่าปริยายจับคู่กับ Workspace ที่ `http://localhost:5173` สำหรับ dev origin อื่นกำหนด `D_PHONE_WORKSPACE_ORIGIN` ตอน build
 2. เปิด `chrome://extensions` เปิด Developer mode แล้วเลือก **Load unpacked** ที่ `apps/workspace/dist-dphone-extension` คัดลอก extension ID ที่แสดง
