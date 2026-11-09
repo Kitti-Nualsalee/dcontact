@@ -1,3 +1,4 @@
+import { resolvePhoneControlMode } from './external-phone-control.js';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
 import { AuthProvider, useAuth } from 'react-oidc-context';
@@ -23,6 +24,8 @@ import { WorkspaceApp, type DphoneFactory } from './workspace-app.js';
 import { createWorkSessionApi } from './work-session.js';
 import { WrapupRuntime } from './wrapup-runtime.js';
 import { UserManager, type UserManagerSettings } from 'oidc-client-ts';
+
+const phoneControlMode = resolvePhoneControlMode(import.meta.env.VITE_SOFTPHONE_CONTROL);
 
 const createProductionDphone: DphoneFactory = (remoteAudio, callbacks) =>
   new BrowserDphone(new SipJsBrowserTransport(remoteAudio, callbacks));
@@ -264,6 +267,7 @@ export function AuthenticatedWorkspace({
           workInHand={workInHand || runtime.hasUnsavedWork()}
         >
           <WorkspaceApp
+            phoneControlMode={phoneControlMode}
             api={agentApi}
             tenantLabel={tenantAlias}
             onSignOut={signOut}

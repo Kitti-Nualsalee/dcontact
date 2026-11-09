@@ -67,3 +67,23 @@ gh workflow run CI --ref main -f acceptance=integration
 ```
 
 ชุดนี้ไม่รวม focused DB trial หรือ browser fixtures ของ #796 ต้องเรียกคำสั่งด้านบนเมื่อต้องตรวจ seams เหล่านั้น Acceptance chain เดิมยังเลือกด้วย `acceptance=chain` และใช้ marker ตาม ADR-032
+
+## External softphone control — owner เลือก 10 พฤศจิกายน 2569
+
+ใช้ UI control ใน Workspace จริงและเริ่มจากตัวจำลองก่อน เพราะยังไม่ได้เลือก desktop app หรือ Chrome extension. เริ่ม Workspace พร้อม build-time opt-in ด้วย:
+
+```sh
+pnpm workspace:external-control
+```
+
+คำสั่งเปิด Vite ของ Workspace บน localhost (default port 5173) ต้องมี API/OIDC config ใน environment แบบเดียวกับ Workspace ปกติ คำสั่งนี้ไม่เริ่ม API/Keycloak หรือ Voice stack. หาก build เพื่อทดสอบบน environment ที่เตรียมแล้ว ให้ตั้ง `VITE_SOFTPHONE_CONTROL=external-simulator` ตอน build; ต้อง rebuild เมื่อต้องเปลี่ยนโหมด ค่าอื่น/ไม่ตั้งยังเป็น browser phone เดิม Embedded dphone ไม่รับโหมดนี้
+
+แผงตัวจำลองอยู่คอลัมน์ความพร้อม: เริ่มตัวจำลอง → จำลองสายเข้า → รับสายจำลอง → จบสายจำลอง → ทดลองใหม่. ใช้ได้เมื่อ session/lease ของ Workspace พร้อมและไม่มีงานจริงอยู่ สถานะไม่มีเสียงและไม่สร้าง work item หรือประวัติ จึงไม่เรียก SIP credentials, microphone, AVAILABLE หรือ WRAPUP ของ server
+
+Unit ของ control simulator อยู่ใน `test:agent-usecase:unit` และตรวจ browser แบบ focused ได้ด้วย:
+
+```sh
+pnpm --filter @d-contact/workspace exec playwright test e2e/external-phone-control.spec.ts
+```
+
+Browser spec ใช้ query เลือกโหมดเฉพาะ E2E harness; production เลือกผ่าน build config เท่านั้น. การเลือก connector/desktop/extension และการพิสูจน์เสียงจริงเป็นงานถัดไปใน #796 ไม่ต้องรอจึงจะทดลอง UI control ได้ ดู ADR-037 และ `apps/workspace/GLOSSARY.md`

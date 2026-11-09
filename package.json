@@ -115,10 +115,11 @@
     "test:keycloak-provisioning": "node --test scripts/keycloak-provisioning-setup.test.mjs",
     "test:core-settings:writers": "node scripts/core-settings-writer-tests.mjs",
     "test:core-settings:discovery": "node --test scripts/core-settings-writer-tests.test.mjs",
-    "test:agent-usecase:unit": "pnpm --filter @d-contact/customer-360 exec tsx --test src/profile-work.test.ts && pnpm --filter @d-contact/workspace exec tsx --test src/workspace-runtime.test.ts src/agent-api.test.ts src/work-session.test.ts src/auth-session.test.ts src/ended-call-snapshot.test.ts",
+    "test:agent-usecase:unit": "pnpm --filter @d-contact/customer-360 exec tsx --test src/profile-work.test.ts && pnpm --filter @d-contact/workspace exec tsx --test src/workspace-runtime.test.ts src/agent-api.test.ts src/work-session.test.ts src/auth-session.test.ts src/ended-call-snapshot.test.ts src/external-phone-control.test.ts",
     "test:agent-usecase:integration": "node apps/api/scripts/cus360-c5-component-sandbox.mjs --usecase",
     "test:agent-usecase:browser": "pnpm --filter @d-contact/workspace exec playwright test --config playwright.work-customer.config.ts --grep \"เลือก candidate\" && pnpm --filter @d-contact/workspace exec playwright test e2e/wrapup.spec.ts --grep \"V1 success\"",
-    "agent:usecase:prepare": "pnpm --filter @d-contact/api^... --filter @d-contact/workspace^... --if-present build"
+    "agent:usecase:prepare": "pnpm --filter @d-contact/api^... --filter @d-contact/workspace^... --if-present build",
+    "workspace:external-control": "VITE_SOFTPHONE_CONTROL=external-simulator pnpm --filter @d-contact/workspace dev --host 127.0.0.1"
   },
   "devDependencies": {
     "prettier": "^3.3.3",
