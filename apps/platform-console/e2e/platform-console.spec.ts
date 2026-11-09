@@ -1118,3 +1118,33 @@ for (const language of ['th', 'en'] as const) {
     });
   });
 }
+
+for (const width of [390, 768, 1440]) {
+  for (const language of ['th', 'en'] as const) {
+    test(`#861: Platform header ทุก control อยู่ในจอ ${width}px (${language})`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.addInitScript(
+        (locale) => sessionStorage.setItem('dcontact.platform.locale', locale),
+        language,
+      );
+      await open(page, new MockPlatformApi());
+      await expect(page.locator('html')).toHaveAttribute('lang', language);
+      const header = page.getByRole('banner');
+      await expect(header).toBeVisible();
+      for (const control of await header.locator('a, button').all()) {
+        await expect(control).toBeInViewport({ ratio: 1 });
+      }
+      const bounds = await header.evaluate((node) => ({
+        width: node.clientWidth,
+        scroll: node.scrollWidth,
+      }));
+      expect(bounds.scroll).toBeLessThanOrEqual(bounds.width);
+      await page.screenshot({
+        path: test.info().outputPath(`platform-${width}-${language}.png`),
+        fullPage: true,
+      });
+    });
+  }
+}

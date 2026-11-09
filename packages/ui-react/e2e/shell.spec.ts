@@ -278,7 +278,7 @@ test('เมนูผู้ใช้: จอแคบเหลือวงกล
 });
 
 for (const lang of ['th', 'en'] as const) {
-  for (const width of [768, 950, 1280, 1440]) {
+  for (const width of [390, 768, 950, 1280, 1440]) {
     test(`TopBar actions อยู่ในจอและเปิดเมนูด้วย keyboard ที่ ${width}px (${lang})`, async ({
       page,
     }) => {
@@ -303,3 +303,78 @@ for (const lang of ['th', 'en'] as const) {
     });
   }
 }
+
+for (const lang of ['th', 'en'] as const) {
+  for (const width of [390, 768]) {
+    test(`เมนูจอแคบ: keyboard, focus และเนื้อหาไม่ remount ที่ ${width}px (${lang})`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?view=shell&lang=${lang}`);
+      const trigger = page.getByRole('button', {
+        name: lang === 'th' ? 'เปิดเมนูนำทาง' : 'Open navigation',
+      });
+      const main = page.locator('#dc-main');
+      const original = await main.elementHandle();
+      await expect(rail(page)).toBeHidden();
+      expect(await main.evaluate((node) => node.clientWidth)).toBeGreaterThanOrEqual(width - 2);
+      await trigger.focus();
+      await page.keyboard.press('Enter');
+      await expect(rail(page)).toBeVisible();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      await page.screenshot({
+        path: test.info().outputPath(`drawer-${width}-${lang}.png`),
+        fullPage: true,
+      });
+      await expect(rail(page).getByRole('link', { name: 'Journeys' })).toBeVisible();
+      expect(await seriousViolations(page)).toEqual([]);
+      await page.keyboard.press('Escape');
+      await expect(rail(page)).toBeHidden();
+      await expect(trigger).toBeFocused();
+      await trigger.click();
+      await page
+        .getByRole('link', { name: lang === 'th' ? 'รายการ Journey' : 'Journey list', exact: true })
+        .click();
+      await expect(rail(page)).toBeHidden();
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await expect(rail(page)).toBeVisible();
+      await expect(trigger).toBeHidden();
+      expect(await original!.evaluate((node) => node === document.getElementById('dc-main'))).toBe(
+        true,
+      );
+      await page.setViewportSize({ width, height: 900 });
+      await expect(rail(page)).toBeHidden();
+      expect(await original!.evaluate((node) => node === document.getElementById('dc-main'))).toBe(
+        true,
+      );
+      expect(await seriousViolations(page)).toEqual([]);
+      await page.screenshot({
+        path: test.info().outputPath(`shell-${width}-${lang}.png`),
+        fullPage: true,
+      });
+    });
+  }
+}
+
+test('#861: focus ตอนเปลี่ยน breakpoint และ Escape ของ launcher ไม่ปิดเมนูนำทางก่อน', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto('/?view=shell&lang=en');
+  const trigger = page.getByRole('button', { name: 'Open navigation' });
+  await trigger.click();
+  await expect(page.getByRole('button', { name: 'Close navigation' })).toBeFocused();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(rail(page).getByRole('link').first()).toBeFocused();
+  await page.setViewportSize({ width: 390, height: 900 });
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await page.getByRole('button', { name: 'All apps' }).click();
+  await expect(page.getByRole('dialog', { name: 'D-Contact apps' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(trigger).toBeFocused();
+});

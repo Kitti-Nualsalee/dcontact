@@ -17,6 +17,9 @@
   },
   "shell": {
     "mainNav": "เมนูหลัก",
+    "openNavigation": "เปิดเมนูนำทาง",
+    "navigation": "เมนูนำทาง",
+    "closeNavigation": "ปิดเมนูนำทาง",
     "apps": "แอป",
     "allApps": "แอปทั้งหมด",
     "skipToContent": "ข้ามไปที่เนื้อหา",

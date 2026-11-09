@@ -77,3 +77,14 @@ pnpm --filter @d-contact/ui-react test:e2e   # axe TH/EN + keyboard ของท
 ```
 
 `dist/` ส่ง CSS Modules แบบยังไม่ bundle ให้ Vite ของแอปประมวลผลเอง — ต้อง `build` ก่อนแอปที่ใช้จะ typecheck ได้
+
+## Shell บนจอแคบ (#861)
+
+ที่ viewport ไม่เกิน 768px `AppShell` เก็บ rail และ SubNav ไว้ในเมนูนำทางแบบ nonmodal
+เปิดด้วยปุ่มบนแถบบน ปิดด้วยปุ่มปิด, Escape หรือเลือกลิงก์ตามปกติ และคืน focus ไปปุ่มเปิด
+launcher จัดการ Escape ของตนก่อนเมนูนำทาง เมื่อข้าม breakpoint จะย้าย focus ออกจาก control ที่ถูกซ่อน
+navigation และเนื้อหาหน้ายังคง DOM เดิม ไม่ remount งานสดของ Workspace และไม่เปลี่ยน registry/สิทธิ์
+TopBar ย่อข้อความและรองรับส่วน actions บนพื้นที่แคบ โดยยังมีชื่อที่เข้าถึงได้สำหรับ control
+
+Platform Console คง header ของตนเองตาม boundary เดิม ตรวจ responsive แยกจาก shared shell
+browser regression ครอบคลุม 390/768/desktop ทั้ง TH/EN พร้อม axe, keyboard และการคง DOM

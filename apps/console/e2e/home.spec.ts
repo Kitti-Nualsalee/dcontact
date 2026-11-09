@@ -9,11 +9,14 @@ test('Home เป็น default, rail active, sidebar และเมนูเ�
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: homeNavigation() }));
+  const nav = homeNavigation();
+  await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: nav }));
   await page.goto('/?tenant=demo');
   await expect(page.getByRole('heading', { name: 'วันนี้ต้องการทำอะไร?' })).toBeVisible();
-  // Registry ปัจจุบันมี People และ Core Settings เพิ่มจากชุด Home เดิม
-  await expect(page.locator('.home__entry')).toHaveCount(8);
+  // Home แสดงหนึ่งรายการต่อแอปที่ server อนุญาต ยกเว้น Home เอง
+  await expect(page.locator('.home__entry')).toHaveCount(
+    nav.apps.filter((app) => app.id !== 'home').length,
+  );
   await expect(
     page.locator('header').getByRole('navigation', { name: 'ตำแหน่งปัจจุบัน' }),
   ).toHaveCount(0);
@@ -121,7 +124,9 @@ test('plan ปิด modules ยังคง catalog Voice ตาม registry �
   nav.pins.appIds = [];
   await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: nav }));
   await page.goto('/?tenant=demo');
-  await expect(page.locator('.home__entry')).toHaveCount(5);
+  await expect(page.locator('.home__entry')).toHaveCount(
+    nav.apps.filter((app) => app.id !== 'home').length,
+  );
   await expect(page.getByText('ปักหมุด', { exact: true })).toHaveCount(0);
   await expect(page.locator('.home__entry').filter({ hasText: 'ตั้งค่า Voice' })).toHaveAttribute(
     'href',
@@ -180,7 +185,7 @@ test('API รุ่นเก่าไม่มี areas ยังใช้ Home 
   legacy.pins.appIds = legacy.pins.appIds.filter((id) => id !== 'home');
   await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: legacy }));
   await page.goto('/?tenant=demo');
-  await expect(page.locator('.home__entry')).toHaveCount(8);
+  await expect(page.locator('.home__entry')).toHaveCount(legacy.apps.length);
   await expect(
     page.locator('.home-sidebar').getByRole('link', { name: 'หน้าแรก', exact: true }),
   ).toHaveAttribute('aria-current', 'page');
@@ -188,12 +193,13 @@ test('API รุ่นเก่าไม่มี areas ยังใช้ Home 
 
 for (const shellV2 of [true, false]) {
   test(`Home บนจอแคบไม่ล้นแนวนอน (shellV2=${shellV2})`, async ({ page }) => {
-    await page.route('**/api/v1/me/navigation', (route) =>
-      route.fulfill({ json: homeNavigation(['admin'], shellV2) }),
-    );
+    const nav = homeNavigation(['admin'], shellV2);
+    await page.route('**/api/v1/me/navigation', (route) => route.fulfill({ json: nav }));
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/?tenant=demo');
-    await expect(page.locator('.home__entry')).toHaveCount(8);
+    await expect(page.locator('.home__entry')).toHaveCount(
+      nav.apps.filter((app) => app.id !== 'home').length,
+    );
     await expect(page.getByRole('button', { name: 'English' })).toBeInViewport();
     await expect(page.getByRole('button', { name: 'เมนูผู้ใช้ ผู้ทดสอบ คอนโซล' })).toBeInViewport();
     await expect(page.locator('header').getByRole('link', { name: /^Workspace/ })).toBeInViewport();

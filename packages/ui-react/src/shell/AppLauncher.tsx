@@ -63,7 +63,7 @@ export function AppLauncher({
           {t('shell.apps')}
         </span>
       </AriaButton>
-      <Popover className={styles.popover} placement="end top" offset={6}>
+      <Popover className={styles.popover} placement="end top" offset={6} data-shell-launcher>
         <AriaDialog className={styles.dialog} aria-label={t('launcher.title')}>
           <Heading slot="title" className={styles.srOnly}>
             {t('launcher.title')}
