@@ -558,3 +558,79 @@ test('C5 candidate keyset ใช้ ID ตัดสินเมื่อ timesta
     ['LINK', 'RELINK'],
   );
 });
+
+// เส้นทางหลักรอบแรก: ใช้ HTTP owner API จริงร่วมกับ wrap-up/history writers บน application role + RLS
+// จำลอง ACTIVE→WRAPUP ที่ fixture เท่านั้น ไม่ใช่หลักฐาน SIP/เสียงจริง
+for (const linked of [true, false]) {
+  test(`Use case Agent ${linked ? 'linked' : 'unlinked'}: บันทึกโน้ต อ่านประวัติ และ retry ไม่ซ้ำ`, async (t) => {
+    const f = await fixture({ voiceNoteWrapup: true });
+    t.after(() => f.close());
+    const actor = { tenantId: f.tenantId, userId: f.actors.get('agent')!.id };
+    const { saveAgentWrapup, readAgentWrapup } = await import('./agent-wrapup-v1.js');
+    const { readAgentHistory } = await import('./agent-history.js');
+    const roles = await f.db.$queryRaw<{ rolsuper: boolean; rolbypassrls: boolean }[]>`
+      SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+    assert.deepEqual(roles, [{ rolsuper: false, rolbypassrls: false }]);
+    if (linked) {
+      const candidate = (await f.search()).body.items[0]!.candidateRef;
+      assert.equal(
+        (
+          await f.call('customer-link', {
+            commandId: randomUUID(),
+            expectedLinkageRevision: '0',
+            candidateRef: candidate,
+          })
+        ).status,
+        200,
+      );
+      const current = (await f.call('customer')).body;
+      assert.equal(
+        (
+          await f.call(
+            'customer',
+            {
+              commandId: randomUUID(),
+              expectedLinkageRevision: '1',
+              expectedProfileRevision: current.revisions.profile,
+              expectedLineageRevision: current.revisions.lineage,
+              displayName: 'ลูกค้ารอบแรก',
+              company: 'บริษัททดสอบ',
+            },
+            'PATCH',
+          )
+        ).status,
+        200,
+      );
+      assert.equal((await f.call('customer')).body.contact.displayName, 'ลูกค้ารอบแรก');
+    } else {
+      assert.equal((await f.call('customer')).body.state, 'UNLINKED');
+    }
+    await f.owner.interaction.update({
+      where: { id: f.interactionId },
+      data: { state: 'WRAPUP', endedAt: new Date() },
+    });
+    const input = {
+      commandId: randomUUID(),
+      disposition: 'CUSTOMER_ASSISTED',
+      note: 'สรุปผลการติดต่อรอบแรก',
+    };
+    const saved = await saveAgentWrapup(f.db, actor, f.interactionId, input);
+    assert.equal(saved.state, 'COMPLETED');
+    assert.deepEqual(await saveAgentWrapup(f.db, actor, f.interactionId, input), saved);
+    const result = await readAgentWrapup(f.db, actor, f.interactionId);
+    assert.equal(result.note, input.note);
+    assert.equal(result.disposition, input.disposition);
+    const history = await readAgentHistory(f.db, actor, undefined, undefined);
+    assert.equal(history.items.filter((item) => item.interactionId === f.interactionId).length, 1);
+    assert.equal(history.items[0].disposition, input.disposition);
+    assert.equal(history.items[0].recordedAtSource, 'SERVER_COMMIT');
+    const interaction = await f.owner.interaction.findUniqueOrThrow({
+      where: { id: f.interactionId },
+    });
+    assert.equal(interaction.contactId, linked ? f.contactId : null);
+    assert.equal(
+      await f.owner.interactionWrapupResult.count({ where: { interactionId: f.interactionId } }),
+      1,
+    );
+  });
+}

@@ -7,12 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       acceptance:
-        # push/PR รันชุด unit; ชุดที่ใช้ service จริงสั่งด้วยมือ
-        description: 'ชุดทดสอบ (unit | all | object-storage | a1-fast | browser | s1 | chain | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused | u1)'
+        # push/PR รัน unit และ integration ที่เกี่ยวกับ diff; ชุด acceptance สั่งด้วยมือ
+        description: 'ชุดทดสอบ (unit | all | integration | object-storage | a1-fast | browser | s1 | chain | cg4 | cg5 | j2 | j5 | j5-focused | s2-pr01 | s2 | s2-focused | u1)'
         type: choice
         options: [
             unit,
             all,
+            integration,
             object-storage,
             a1-fast,
             browser,
@@ -32,7 +33,35 @@ on:
         default: unit
 
 jobs:
+  integration-impact:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      managed: ${{ steps.impact.outputs.managed }}
+      core: ${{ steps.impact.outputs.core }}
+      people: ${{ steps.impact.outputs.people }}
+      voice: ${{ steps.impact.outputs.voice }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: ตรวจ classifier และ fallback เมื่อฐาน diff ใช้ไม่ได้
+        run: node --test scripts/ci-impact.test.mjs
+      - name: เลือก integration ตาม diff หรือคำสั่ง manual
+        id: impact
+        run: node scripts/ci-impact.mjs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          ACCEPTANCE: ${{ inputs.acceptance }}
+
   managed-routing-sip:
+    needs: integration-impact
+    # classifier ล้ม/ไม่มี output ให้รันไว้ก่อน; manual เลือก integration หรือ all
+    if: always() && !cancelled() && needs.integration-impact.outputs.managed != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -61,6 +90,9 @@ jobs:
           retention-days: 7
 
   core-settings-writer-races:
+    needs: integration-impact
+    # classifier ล้ม/ไม่มี output ให้รันไว้ก่อน; manual เลือก integration หรือ all
+    if: always() && !cancelled() && needs.integration-impact.outputs.core != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -97,6 +129,9 @@ jobs:
         run: pnpm test:core-settings:writers
 
   tenant-people-boundary:
+    needs: integration-impact
+    # classifier ล้ม/ไม่มี output ให้รันไว้ก่อน; manual เลือก integration หรือ all
+    if: always() && !cancelled() && needs.integration-impact.outputs.people != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -115,6 +150,9 @@ jobs:
         run: pnpm voice:tenant-people:intent-boundary && pnpm voice:tenant-people:boundary
 
   e1-voice-gateway:
+    needs: integration-impact
+    # classifier ล้ม/ไม่มี output ให้รันไว้ก่อน; manual เลือก integration หรือ all
+    if: always() && !cancelled() && needs.integration-impact.outputs.voice != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
