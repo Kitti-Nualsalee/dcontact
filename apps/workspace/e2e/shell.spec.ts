@@ -303,7 +303,7 @@ test('#588: มีสายถูก offer มา (ASSIGNED) แม้ dphone �
   expect(await signOuts(page)).toBe(0);
 });
 
-for (const width of [768, 950, 1280, 1440]) {
+for (const width of [390, 768, 950, 1280, 1440]) {
   test(`Workspace TopBar ใช้งานเมนูผู้ใช้ได้ที่ ${width}px ทั้งไทยและอังกฤษ`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await mockApis(page, true);
@@ -320,6 +320,30 @@ for (const width of [768, 950, 1280, 1440]) {
       await expect(page.getByRole('menu')).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(trigger).toBeFocused();
+      const main = page.locator('#dc-main');
+      const child = await page.getByText('สมชาย ใจดี', { exact: true }).elementHandle();
+      const original = await main.elementHandle();
+      if (width <= 768) {
+        const navigation = page.getByRole('button', { name: /เปิดเมนูนำทาง|Open navigation/ });
+        await navigation.click();
+        await expect(rail(page)).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(navigation).toBeFocused();
+        expect(
+          await original!.evaluate((node) => node === document.getElementById('dc-main')),
+        ).toBe(true);
+      }
+      if (width <= 768) {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.setViewportSize({ width, height: 900 });
+      }
+      expect(await child!.evaluate((node) => node.isConnected)).toBe(true);
+      await page.screenshot({
+        path: test
+          .info()
+          .outputPath(`workspace-${width}-${language === 'English' ? 'en' : 'th'}.png`),
+        fullPage: true,
+      });
     }
   });
 }

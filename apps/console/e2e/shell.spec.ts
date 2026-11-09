@@ -92,18 +92,22 @@ test('#860: เมนูลูกค้าตาม registry ใช้คีย�
   await page.setViewportSize({ width: 375, height: 812 });
   await mockNavigation(page, { status: 200, body: homeNavigation(['admin']) });
   await page.goto('/?view=journeys&tenant=demo');
+  await page.getByRole('button', { name: 'เปิดเมนูนำทาง' }).click();
   const customers = rail(page).getByRole('link', { name: 'ลูกค้า' });
   await expect(customers).toBeVisible();
   await customers.focus();
   await expect(customers).toBeFocused();
   await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'เปิดเมนูนำทาง' }).click();
   await expect(customers).toHaveAttribute('aria-current', 'page');
   const subnav = page.getByRole('navigation', { name: 'ลูกค้า' });
   await expect(subnav.getByRole('link', { name: 'ภาพรวมข้อมูลลูกค้า' })).toBeVisible();
   await expect(subnav.getByRole('link', { name: 'กฎข้อมูล' })).toBeVisible();
   await expect(subnav.getByRole('link', { name: 'กิจกรรมลูกค้า' })).toBeVisible();
   await expect(subnav.getByRole('link', { name: 'จัดการแท็ก' })).toBeVisible();
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'English' }).click();
+  await page.getByRole('button', { name: 'Open navigation' }).click();
   await expect(
     page.getByRole('navigation', { name: 'Customers' }).getByRole('link', { name: 'Data rules' }),
   ).toBeVisible();
@@ -305,3 +309,39 @@ test('#651: API รุ่นเก่าที่ไม่ส่ง areas → ra
   );
   await expect(page.getByRole('navigation', { name: 'Journeys' })).toBeVisible();
 });
+
+for (const width of [390, 768, 1440]) {
+  test(`#861: Console header และ navigation ที่ ${width}px ทั้ง TH/EN`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mockNavigation(page, { status: 200, body: homeNavigation(['admin']) });
+    await page.goto('/?view=journeys&tenant=demo');
+    for (const language of ['ไทย', 'English']) {
+      await page.getByRole('button', { name: language, exact: true }).click();
+      const user = page.getByRole('button', { name: /เมนูผู้ใช้|User menu/ });
+      await expect(user).toBeInViewport({ ratio: 1 });
+      await user.focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('menu')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(user).toBeFocused();
+      if (width <= 768) {
+        await expect(
+          page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ }),
+        ).toBeHidden();
+        const trigger = page.getByRole('button', { name: /เปิดเมนูนำทาง|Open navigation/ });
+        await trigger.click();
+        await expect(
+          page.getByRole('navigation', { name: /เมนูหลัก|Main navigation/ }),
+        ).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(trigger).toBeFocused();
+      }
+      await page.screenshot({
+        path: test
+          .info()
+          .outputPath(`console-${width}-${language === 'English' ? 'en' : 'th'}.png`),
+        fullPage: true,
+      });
+    }
+  });
+}

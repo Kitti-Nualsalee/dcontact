@@ -17,6 +17,9 @@
   },
   "shell": {
     "mainNav": "Main navigation",
+    "openNavigation": "Open navigation",
+    "navigation": "Navigation",
+    "closeNavigation": "Close navigation",
     "apps": "Apps",
     "allApps": "All apps",
     "skipToContent": "Skip to content",
