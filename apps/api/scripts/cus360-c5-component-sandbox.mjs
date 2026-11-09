@@ -1,14 +1,15 @@
-/** Local dev trial แยก: Chrome/Edge + Keycloak จริง + Redis + PostgreSQL/RLS */
+/** Dev component trial แยก; --usecase ตรวจ DB seam ด้วย PostgreSQL เพียงตัวเดียว */
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
+const usecase = process.argv.includes('--usecase');
 const suffix = randomBytes(6).toString('hex');
 const pg = `c5-dev-pg-${suffix}`;
 const redis = `c5-dev-redis-${suffix}`;
 const keycloak = `c5-dev-keycloak-${suffix}`;
-const dbName = 'dcontact_795_test';
+const dbName = usecase ? 'dcontact_796_test' : 'dcontact_795_test';
 const dbPassword = randomBytes(18).toString('hex');
 const appPassword = randomBytes(18).toString('hex');
 const identityPassword = randomBytes(18).toString('hex');
@@ -94,41 +95,49 @@ try {
       'accepting connections',
     ),
   );
-  owned.push(redis);
-  await run('docker', ['run', '-d', '--name', redis, '-p', '127.0.0.1::6379', 'redis:7-alpine']);
-  await ready(() => capture('docker', ['exec', redis, 'redis-cli', 'ping']) === 'PONG');
-  owned.push(keycloak);
-  await run('docker', [
-    'run',
-    '-d',
-    '--name',
-    keycloak,
-    '-p',
-    '127.0.0.1::8080',
-    '-e',
-    'KC_BOOTSTRAP_ADMIN_USERNAME=admin',
-    '-e',
-    `KC_BOOTSTRAP_ADMIN_PASSWORD=${identityPassword}`,
-    process.env.C360_TEST_KEYCLOAK_IMAGE ?? 'quay.io/keycloak/keycloak:26.7.5',
-    'start-dev',
-  ]);
-  const identityUrl = `http://127.0.0.1:${port(keycloak, 8080)}`;
-  await ready(
-    async () =>
-      (await fetch(`${identityUrl}/realms/master`, { signal: AbortSignal.timeout(1500) })).ok,
-    180,
-  );
+  let identityUrl;
+  if (!usecase) {
+    owned.push(redis);
+    await run('docker', ['run', '-d', '--name', redis, '-p', '127.0.0.1::6379', 'redis:7-alpine']);
+    await ready(() => capture('docker', ['exec', redis, 'redis-cli', 'ping']) === 'PONG');
+    owned.push(keycloak);
+    await run('docker', [
+      'run',
+      '-d',
+      '--name',
+      keycloak,
+      '-p',
+      '127.0.0.1::8080',
+      '-e',
+      'KC_BOOTSTRAP_ADMIN_USERNAME=admin',
+      '-e',
+      `KC_BOOTSTRAP_ADMIN_PASSWORD=${identityPassword}`,
+      process.env.C360_TEST_KEYCLOAK_IMAGE ?? 'quay.io/keycloak/keycloak:26.7.5',
+      'start-dev',
+    ]);
+    identityUrl = `http://127.0.0.1:${port(keycloak, 8080)}`;
+    await ready(
+      async () =>
+        (await fetch(`${identityUrl}/realms/master`, { signal: AbortSignal.timeout(1500) })).ok,
+      180,
+    );
+  }
   const env = {
     ...process.env,
     DATABASE_URL: `postgresql://dcontact:${dbPassword}@127.0.0.1:${port(pg, 5432)}/${dbName}`,
     APPLICATION_DATABASE_URL: `postgresql://dcontact_app:${appPassword}@127.0.0.1:${port(pg, 5432)}/${dbName}`,
     CXA_ACCEPTANCE_DATABASE_NAME: dbName,
-    CORE_IDENTITY_SANDBOX_URL: identityUrl,
-    CORE_IDENTITY_SANDBOX_ADMIN_PASSWORD: identityPassword,
-    C360_C4_TEST_REDIS_URL: `redis://127.0.0.1:${port(redis, 6379)}`,
+    ...(!usecase
+      ? {
+          CORE_IDENTITY_SANDBOX_URL: identityUrl,
+          CORE_IDENTITY_SANDBOX_ADMIN_PASSWORD: identityPassword,
+          C360_C4_TEST_REDIS_URL: `redis://127.0.0.1:${port(redis, 6379)}`,
+        }
+      : {}),
   };
   await run('pnpm', ['--filter', '@d-contact/api^...', '--if-present', 'build'], env);
-  await run('pnpm', ['--filter', '@d-contact/workspace^...', '--if-present', 'build'], env);
+  if (!usecase)
+    await run('pnpm', ['--filter', '@d-contact/workspace^...', '--if-present', 'build'], env);
   await run('pnpm', ['--filter', '@d-contact/db', 'migrate:deploy'], env);
   await run('pnpm', ['--filter', '@d-contact/db', 'apply-rls'], env);
   await run(
@@ -146,35 +155,53 @@ try {
     ],
     env,
   );
-  await run(
-    'pnpm',
-    [
-      '--filter',
-      '@d-contact/api',
-      'exec',
-      'tsx',
-      '--test',
-      '--test-concurrency=1',
-      'src/customer-360-work-auth.integration.ts',
-      'src/customer-360-work.integration.ts',
-      'src/customer-360-work-socket.integration.ts',
-    ],
-    env,
-  );
-  await run(
-    'pnpm',
-    [
-      '--filter',
-      '@d-contact/api',
-      'exec',
-      'tsx',
-      '--test',
-      '--test-concurrency=1',
-      'src/customer-360-work-auth.boundary.ts',
-    ],
-    env,
-  );
-  await run('pnpm', ['--filter', '@d-contact/workspace', 'test'], env);
+  if (usecase) {
+    // API fixture ใช้ verifier/introspection สังเคราะห์; ไม่ใช่ real Keycloak boundary หรือ SIP proof
+    await run(
+      'pnpm',
+      [
+        '--filter',
+        '@d-contact/api',
+        'exec',
+        'tsx',
+        '--test',
+        '--test-concurrency=1',
+        '--test-name-pattern=Use case Agent|C5 HTTP/PG/RLS',
+        'src/customer-360-work.integration.ts',
+      ],
+      env,
+    );
+  } else {
+    await run(
+      'pnpm',
+      [
+        '--filter',
+        '@d-contact/api',
+        'exec',
+        'tsx',
+        '--test',
+        '--test-concurrency=1',
+        'src/customer-360-work-auth.integration.ts',
+        'src/customer-360-work.integration.ts',
+        'src/customer-360-work-socket.integration.ts',
+      ],
+      env,
+    );
+    await run(
+      'pnpm',
+      [
+        '--filter',
+        '@d-contact/api',
+        'exec',
+        'tsx',
+        '--test',
+        '--test-concurrency=1',
+        'src/customer-360-work-auth.boundary.ts',
+      ],
+      env,
+    );
+    await run('pnpm', ['--filter', '@d-contact/workspace', 'test'], env);
+  }
   console.log('C360_C5_SIP_AUDIO_TRIAL_NOT_RUN');
   completed = true;
 } catch (error) {
@@ -205,5 +232,6 @@ try {
   if (cleanupFailures.length) {
     console.error('C360 sandbox cleanup ไม่สำเร็จ', { containers: cleanupFailures });
     if (!interrupted) process.exitCode = 1;
-  } else if (completed && !interrupted) console.log('C360_C5_COMPONENT_TRIAL_PASS');
+  } else if (completed && !interrupted)
+    console.log(usecase ? 'AGENT_USECASE_DB_TRIAL_PASS' : 'C360_C5_COMPONENT_TRIAL_PASS');
 }
