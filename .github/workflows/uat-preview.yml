@@ -272,12 +272,15 @@ jobs:
           fi
           uat-deploy rollback-target $ROLLBACK_SHA > rollback-target.json
           sha="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('rollback-target.json','utf8')).sourceSha)")"
+          record_sha="$(node -e "process.stdout.write(require('crypto').createHash('sha256').update(require('fs').readFileSync('rollback-target.json')).digest('hex'))")"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "record_sha=$record_sha" >> "$GITHUB_OUTPUT"
 
       - name: Rollback Console/api (no DB change)
         env:
           TARGET_SHA: ${{ steps.target.outputs.sha }}
-        run: uat-deploy rollback "$TARGET_SHA"
+          TARGET_RECORD_SHA: ${{ steps.target.outputs.record_sha }}
+        run: uat-deploy rollback "$TARGET_SHA" "$TARGET_RECORD_SHA"
 
       - name: UAT readiness smoke (u1-uat-readiness.mjs --live)
         env:

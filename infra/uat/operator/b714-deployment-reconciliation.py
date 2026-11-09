@@ -336,22 +336,38 @@ def current_hash(path):
 
 
 def apply_record(manifest, root=ROOT):
+    return _apply_record(manifest, root, prepare, inspect_runtime)
+
+
+def _apply_record(manifest, root, prepare_candidate, inspect_candidate, *, preserve_previous=False, post_commit_check=None):
+    """ใช้ขั้นตอน commit เดียวกันหลังผ่านตัวตรวจหลักฐานของ candidate."""
     deployments = root / 'deployments'
     operator = root / 'operator'
     pending = operator / 'b714-reconciliation.pending'
     lock = os.open(str(operator / 'b714-cutover.lock'), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        require(not os.path.lexists(operator / 'uat-record-transaction'), 'RECORD_TRANSACTION_REQUIRES_MANUAL_REVIEW')
+        require(not os.path.lexists(operator / 'uat-record-retirement.pending'), 'RECORD_RETIREMENT_REQUIRES_MANUAL_REVIEW')
+        require(not os.path.lexists(operator / 'uat-rollback.pending'), 'ROLLBACK_PENDING_REQUIRES_MANUAL_REVIEW')
         require(not pending.exists(), 'PENDING_RECONCILIATION_REQUIRES_MANUAL_REVIEW')
         current, previous = deployments / 'current.json', deployments / 'previous.json'
-        def verify(expected_previous):
+        def stable_record(value):
+            return canonical({key: item for key, item in value.items() if key != 'recordedAt'})
+        def verify(expected_previous, expected_record=None):
             require(current_hash(current) == manifest['expectedCurrentSha256'] and
                     current_hash(previous) == expected_previous, 'RECORD_CAS_CONFLICT')
-            prepare(manifest)
-            inspect_runtime(manifest)
+            candidate = prepare_candidate(manifest)
+            if expected_record is not None:
+                require(stable_record(candidate) == expected_record, 'CANDIDATE_CHANGED')
+            inspect_candidate(manifest)
         verify(manifest['expectedPreviousSha256'])
-        record = prepare(manifest)
+        record = prepare_candidate(manifest)
+        require(re.fullmatch('[0-9a-f]{40}', str(record.get('sourceSha', ''))), 'RECORD_SOURCE_REQUIRED')
+        require(record.get('action') == 'reconciliation' and record.get('rollbackEligible') is False,
+                'RECONCILIATION_NOT_ROLLBACK_CERTIFIED')
         raw = canonical(record) + b'\n'
+        expected_record = stable_record(record)
         name = 'b714-reconciliation-' + uuid.uuid4().hex
         transaction = operator / name
         create(pending, canonical({'status': 'PENDING', 'transaction': str(transaction)}))
@@ -360,27 +376,52 @@ def apply_record(manifest, root=ROOT):
         create(transaction / 'current-before.json', read(current))
         if previous.exists():
             create(transaction / 'previous-before.json', read(previous))
-        create(transaction / 'intent.json', canonical({'status': 'PENDING', 'recordSha256': sha(raw),
+        intent = {'status': 'PENDING', 'recordSha256': sha(raw),
                'expectedCurrentSha256': manifest['expectedCurrentSha256'],
-               'expectedPreviousSha256': manifest['expectedPreviousSha256']}))
+               'expectedPreviousSha256': manifest['expectedPreviousSha256']}
+        if preserve_previous:
+            intent['previousPreserved'] = True
+        create(transaction / 'intent.json', canonical(intent))
         target = deployments / (instant(record['recordedAt']).strftime('%Y%m%dT%H%M%SZ') + '-' +
-                                uuid.uuid4().hex + '-' + SOURCE + '.json')
+                                uuid.uuid4().hex + '-' + record['sourceSha'] + '.json')
         create(target, raw)
-        staged_previous = deployments / (name + '-previous.tmp')
         staged_current = deployments / (name + '-current.tmp')
-        create(staged_previous, read(current))
+        if not preserve_previous:
+            staged_previous = deployments / (name + '-previous.tmp')
+            create(staged_previous, read(current))
         create(staged_current, raw)
-        verify(manifest['expectedPreviousSha256'])
-        os.replace(str(staged_previous), str(previous))
-        sync_directory(deployments)
-        verify(manifest['expectedCurrentSha256'])
+        verify(manifest['expectedPreviousSha256'], expected_record)
+        if not preserve_previous:
+            os.replace(str(staged_previous), str(previous))
+            sync_directory(deployments)
+            verify(manifest['expectedCurrentSha256'], expected_record)
+        else:
+            require(current_hash(current) == manifest['expectedCurrentSha256'] and
+                    current_hash(previous) == manifest['expectedPreviousSha256'], 'RECORD_CAS_CONFLICT')
         os.replace(str(staged_current), str(current))
         sync_directory(deployments)
         require(read(current) == raw, 'CURRENT_COMMIT_READBACK_FAILED')
-        create(transaction / 'committed.json', canonical({'status': 'COMMITTED', 'recordSha256': sha(raw)}))
+        if preserve_previous:
+            require(current_hash(previous) == manifest['expectedPreviousSha256'], 'PREVIOUS_COMMIT_READBACK_FAILED')
+        if post_commit_check is not None:
+            post_commit_check(record)
+            require(read(current) == raw, 'CURRENT_POSTCHECK_READBACK_FAILED')
+            require(current_hash(previous) == (manifest['expectedPreviousSha256'] if preserve_previous
+                    else manifest['expectedCurrentSha256']), 'PREVIOUS_POSTCHECK_READBACK_FAILED')
+        receipt = {'status': 'COMMITTED', 'recordSha256': sha(raw)}
+        if preserve_previous:
+            receipt['previousPreserved'] = True
+        if post_commit_check is not None:
+            receipt['livePostcheckMatched'] = True
+        create(transaction / 'committed.json', canonical(receipt))
         pending.unlink()
         sync_directory(operator)
-        return {'status': 'COMMITTED', 'recordSha256': sha(raw), 'businessTrial': 'NOT_EVALUATED'}
+        result = {'status': 'COMMITTED', 'recordSha256': sha(raw), 'businessTrial': 'NOT_EVALUATED'}
+        if preserve_previous:
+            result['previousPreserved'] = True
+        if post_commit_check is not None:
+            result['livePostcheckMatched'] = True
+        return result
     finally:
         os.close(lock)
 

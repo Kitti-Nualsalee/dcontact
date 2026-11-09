@@ -1,0 +1,81 @@
+import importlib.util
+import hashlib
+import json
+from pathlib import Path
+import unittest
+
+spec = importlib.util.spec_from_file_location('evidence', Path(__file__).with_name('release-evidence-observe.py'))
+evidence = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(evidence)
+
+
+class EvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.runtime = {'api': {'imageId': 'a'}}
+        self.protected = {'platform': {'id': 'b'}}
+        self.ledger = {'database': 'dcontact_uat', 'principal': 'dcontact_uat_owner', 'readonly': 'on',
+                       'finished': 154, 'rolledBack': 1, 'unresolved': 0, 'authorityMatches': 1,
+                       'migrations': [{'name': f'migration-{i:03d}', 'checksum': 'a' * 64} for i in range(154)]}
+        self.ledger['migrations'][0] = {'name': evidence.AUTHORITY_MIGRATION, 'checksum': evidence.AUTHORITY_CHECKSUM}
+
+    def test_authority_identity_matches_repository_migration(self):
+        name = '20261103120000_tenant_provisioned_configuration_authority'
+        migration = Path(__file__).resolve().parents[3] / 'packages/db/prisma/migrations' / name / 'migration.sql'
+        self.assertEqual(evidence.AUTHORITY_MIGRATION, name)
+        self.assertEqual(evidence.AUTHORITY_CHECKSUM, hashlib.sha256(migration.read_bytes()).hexdigest())
+
+    def test_requires_exact_authority_name_and_checksum(self):
+        self.assertIn("migration_name='" + evidence.AUTHORITY_MIGRATION + "'", evidence.QUERY)
+        for key, value in [('name', 'different_migration'), ('checksum', '0' * 64)]:
+            with self.subTest(key=key):
+                original = self.ledger['migrations'][0][key]
+                self.ledger['migrations'][0][key] = value
+                with self.assertRaisesRegex(RuntimeError, 'LEDGER_AUTHORITY_MISMATCH'):
+                    self.capture()
+                self.ledger['migrations'][0][key] = original
+
+    def capture(self, runtime=None, protected=None):
+        return evidence.observe(runtime or (lambda: self.runtime), protected or (lambda: self.protected),
+                                lambda _: json.dumps(self.ledger).encode())
+
+    def test_observation_binds_inputs_without_certifying_rollback(self):
+        result = self.capture()
+        self.assertEqual(result['runtimeSha256'], evidence.digest(self.runtime))
+        self.assertEqual(result['runtime'], self.runtime)
+        self.assertEqual(result['protectedRuntimeSha256'], evidence.digest(self.protected))
+        self.assertFalse(result['rollbackCertified'])
+
+    def test_rejects_wrong_scope_or_incomplete_ledger(self):
+        for key, value, reason in [('readonly', 'off', 'SCOPE'), ('database', 'other', 'SCOPE'),
+                                   ('unresolved', 1, 'INCOMPLETE'), ('authorityMatches', 0, 'INCOMPLETE')]:
+            with self.subTest(key=key):
+                original = self.ledger[key]
+                self.ledger[key] = value
+                with self.assertRaisesRegex(RuntimeError, reason):
+                    self.capture()
+                self.ledger[key] = original
+
+    def test_rejects_non_integer_or_impossible_ledger_counts(self):
+        for key, value in [('finished', 0), ('rolledBack', -1), ('unresolved', False), ('authorityMatches', True)]:
+            with self.subTest(key=key):
+                original = self.ledger[key]
+                self.ledger[key] = value
+                with self.assertRaisesRegex(RuntimeError, 'COUNTS_INVALID'):
+                    self.capture()
+                self.ledger[key] = original
+
+    def test_rejects_duplicate_migration_name(self):
+        self.ledger['migrations'][1]['name'] = self.ledger['migrations'][0]['name']
+        with self.assertRaisesRegex(RuntimeError, 'LEDGER_MIGRATIONS_INVALID'):
+            self.capture()
+
+    def test_rejects_runtime_or_protected_drift(self):
+        for keyword in ('runtime', 'protected'):
+            with self.subTest(keyword=keyword):
+                values = iter([{'before': True}, {'after': True}])
+                with self.assertRaisesRegex(RuntimeError, 'CHANGED'):
+                    self.capture(**{keyword: lambda: next(values)})
+
+
+if __name__ == '__main__':
+    unittest.main()

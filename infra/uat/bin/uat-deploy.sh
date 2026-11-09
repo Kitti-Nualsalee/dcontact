@@ -143,6 +143,238 @@ check_release_env() {
   [[ "$(release_value "$dir" SOURCE_SHA)" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
 }
 
+# ใช้ lock เดียวกับ reconciliation สำหรับคำสั่ง deploy ที่เปลี่ยน runtime หรือ record
+uat_mutation_lock() {
+  [[ ! -L "$UAT_ROOT/operator" ]] || fail 'UAT_LOCK_DIRECTORY_INVALID'
+  mkdir -p -m 700 "$UAT_ROOT/operator"
+  [[ ! -L "$UAT_ROOT/operator/b714-cutover.lock" ]] || fail 'UAT_LOCK_INVALID'
+  exec 9<>"$UAT_ROOT/operator/b714-cutover.lock"
+  python3 - "$UAT_ROOT/operator" "$UAT_ROOT/operator/b714-cutover.lock" <<'PY'
+import os
+import fcntl
+import stat
+import sys
+
+for path in sys.argv[1:]:
+    info = os.lstat(path)
+    if info.st_uid != os.geteuid() or info.st_mode & 0o077 or stat.S_ISLNK(info.st_mode):
+        sys.exit('UAT_LOCK_INVALID')
+if not stat.S_ISDIR(os.lstat(sys.argv[1]).st_mode) or not stat.S_ISREG(os.lstat(sys.argv[2]).st_mode):
+    sys.exit('UAT_LOCK_INVALID')
+opened, named = os.fstat(9), os.lstat(sys.argv[2])
+if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+    sys.exit('UAT_LOCK_INVALID')
+try:
+    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit('UAT_MUTATION_LOCK_BUSY')
+PY
+  [[ ! -e "$UAT_ROOT/operator/b714-reconciliation.pending" && ! -L "$UAT_ROOT/operator/b714-reconciliation.pending" ]] || fail 'UAT_RECONCILIATION_PENDING'
+  [[ ! -e "$UAT_ROOT/operator/uat-record-transaction" && ! -L "$UAT_ROOT/operator/uat-record-transaction" ]] || fail 'UAT_RECORD_TRANSACTION_PENDING'
+  [[ ! -e "$UAT_ROOT/operator/uat-record-retirement.pending" && ! -L "$UAT_ROOT/operator/uat-record-retirement.pending" ]] || fail 'UAT_RECORD_RETIREMENT_PENDING'
+  if [[ "${1:-}" != allow-rollback-record ]]; then
+    [[ ! -e "$UAT_ROOT/operator/uat-rollback.pending" && ! -L "$UAT_ROOT/operator/uat-rollback.pending" ]] || fail 'UAT_ROLLBACK_PENDING'
+  fi
+}
+
+# ตรวจตั้งแต่ก่อน migrate/deploy เพื่อไม่ให้ runtime เปลี่ยนก่อนพบว่า record เขียนไม่ได้
+uat_require_recordable_current() {
+  python3 - "$UAT_ROOT/deployments/current.json" <<'PY'
+import json
+import os
+import re
+import stat
+import sys
+
+path = sys.argv[1]
+if os.path.lexists(path):
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, encoding='utf-8') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+                raise ValueError('record permissions invalid')
+            record = json.load(stream)
+        if not isinstance(record, dict):
+            raise ValueError('record must be an object')
+    except (OSError, ValueError):
+        sys.exit('RECORD_CURRENT_INVALID')
+    if record.get('action') == 'reconciliation' or record.get('rollbackEligible') is False:
+        sys.exit('RECORD_RECONCILIATION_REQUIRES_REVIEW')
+    if (record.get('schema') != 'UatDeploymentRecordV1' or record.get('action') not in ('deploy', 'rollback')
+            or not isinstance(record.get('sourceSha'), str) or not re.fullmatch('[0-9a-f]{40}', record['sourceSha'])):
+        sys.exit('RECORD_CURRENT_INVALID')
+PY
+}
+
+# release ที่เคย deploy แล้วต้องใช้ rollback guard ไม่ใช่สั่ง deploy ย้อนตรง
+uat_require_nonhistorical_target() {
+  local sha="$1" current='' recorded
+  if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
+    current="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sourceSha"])' "$UAT_ROOT/deployments/current.json")"
+  else
+    for recorded in "$UAT_ROOT"/deployments/*-*.json; do
+      [[ ! -e "$recorded" && ! -L "$recorded" ]] || fail 'UAT_CURRENT_RECORD_REQUIRED'
+    done
+    return
+  fi
+  [[ "$current" != "$sha" ]] || return 0
+  for recorded in "$UAT_ROOT"/deployments/*-"$sha".json; do
+    [[ ! -e "$recorded" && ! -L "$recorded" ]] || fail 'UAT_PREVIOUS_RELEASE_REQUIRES_ROLLBACK'
+  done
+  # ยังไม่มีหลักฐาน compatibility ที่ผูกกับ target: ปฏิเสธไว้ก่อน ไม่เดาว่า SHA ที่ไม่รู้จักใหม่กว่า
+  fail 'UAT_TARGET_COMPATIBILITY_EVIDENCE_REQUIRED'
+}
+
+# ตรวจ record และ image ที่รันจริงก่อนเขียน pointer; ไม่พิมพ์ Docker configuration
+uat_verify_record_runtime() {
+  local dir="$1" sha="$2" record="$3" mode="${4:-record}" e1=false
+  if is_e1 "$dir"; then e1=true; fi
+  python3 - "$record" "$sha" "$e1" "$mode" \
+    "$(release_value "$dir" API_IMAGE)" "$(release_value "$dir" CONSOLE_IMAGE)" \
+    "$(release_value "$dir" KEYCLOAK_IMAGE)" "$(release_value "$dir" OPS_IMAGE)" <<'PY'
+import base64
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+
+path, sha, e1, mode, api, console, keycloak, ops = sys.argv[1:]
+expected = {'api': api, 'console': console, 'keycloak': keycloak, 'ops': ops}
+try:
+    if mode == 'record':
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022 or info.st_size > 8388608:
+                raise ValueError('invalid record file')
+            record_bytes = stream.read(8388609)
+            if len(record_bytes) > 8388608:
+                raise ValueError('record too large')
+            record = json.loads(record_bytes)
+        if (not isinstance(record, dict) or record.get('schema') != 'UatDeploymentRecordV1'
+                or record.get('action') not in ('deploy', 'rollback') or record.get('sourceSha') != sha
+                or record.get('images') != expected):
+            sys.exit('RECORD_CONTENT_MISMATCH')
+        refs = {'api': api, 'proxy': console, 'keycloak': keycloak}
+    elif mode == 'untouched':
+        refs = {'keycloak': keycloak}
+    else:
+        sys.exit('RECORD_VALIDATION_MODE_INVALID')
+    if e1 == 'true':
+        refs['e1-sandbox'] = api
+    names = ['dcontact-uat-' + service + '-1' for service in refs]
+    output = subprocess.run(['docker', 'inspect', *names], check=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, timeout=20)
+    containers = json.loads(output.stdout)
+    if len(containers) != len(names) or {x['Name'].lstrip('/') for x in containers} != set(names):
+        sys.exit('RECORD_RUNTIME_INVENTORY_MISMATCH')
+    expected_ids = {}
+    for container in containers:
+        service = container['Name'].lstrip('/')[len('dcontact-uat-'):-2]
+        labels = container['Config'].get('Labels') or {}
+        state = container['State']
+        if (labels.get('org.opencontainers.image.revision') != sha
+                or labels.get('com.docker.compose.project') != 'dcontact-uat'
+                or state.get('Running') is not True
+                or state.get('Health', {}).get('Status', 'healthy') != 'healthy'
+                or not re.fullmatch('sha256:[0-9a-f]{64}', container.get('Image', ''))):
+            sys.exit('RECORD_RUNTIME_COMPONENT_MISMATCH')
+        expected_ids.setdefault(container['Image'], set()).add(refs[service])
+    image_refs = sorted(expected_ids) + ([ops] if mode == 'record' else [])
+    output = subprocess.run(['docker', 'image', 'inspect', *image_refs], check=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20)
+    images = json.loads(output.stdout)
+    if len(images) != len(image_refs):
+        sys.exit('RECORD_IMAGE_INVENTORY_MISMATCH')
+    for image, reference in zip(images, image_refs):
+        wanted = expected_ids[reference] if reference in expected_ids else {ops}
+        labels = image.get('Config', {}).get('Labels') or {}
+        if (not wanted.issubset(set(image.get('RepoDigests') or []))
+                or labels.get('org.opencontainers.image.revision') != sha
+                or (reference in expected_ids and image.get('Id') != reference)):
+            sys.exit('RECORD_IMAGE_DIGEST_MISMATCH')
+    if mode == 'record':
+        sys.stdout.write(base64.b64encode(record_bytes).decode('ascii'))
+except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+    sys.exit('RECORD_RUNTIME_VALIDATION_FAILED')
+PY
+}
+
+# ไม่ถือ proposal หรือ record schema ที่ไม่รู้จักว่าเป็น rollback target
+uat_resolve_rollback_record() {
+  local target="$1" expected_sha="${2:-}"
+  if [[ $# -ge 2 ]]; then shift 2; else shift; fi
+  python3 - "$target" "$expected_sha" "$@" <<'PY'
+import json
+import os
+import re
+import stat
+import sys
+
+try:
+    descriptor = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, encoding='utf-8') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or info.st_size > 8388608:
+            raise ValueError('invalid file')
+        record = json.load(stream)
+    if not isinstance(record, dict):
+        raise ValueError('invalid record')
+except (OSError, ValueError):
+    sys.exit('ROLLBACK_TARGET_INVALID')
+if record.get('action') == 'reconciliation' or ('rollbackEligible' in record and record['rollbackEligible'] is not True):
+    sys.exit('RECONCILIATION_NOT_ROLLBACK_CERTIFIED')
+sha = record.get('sourceSha')
+images = record.get('images')
+if (record.get('schema') != 'UatDeploymentRecordV1' or record.get('action') not in ('deploy', 'rollback')
+        or not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{40}', sha)
+        or (sys.argv[2] and sha != sys.argv[2]) or not isinstance(images, dict)
+        or set(images) != {'api', 'console', 'ops', 'keycloak'}
+        or any(not isinstance(ref, str) or not re.fullmatch(r'[a-z0-9.-]+(?::[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}', ref)
+               for ref in images.values())):
+    sys.exit('ROLLBACK_TARGET_INVALID')
+if len(sys.argv) > 3:
+    if len(sys.argv) != 7 or images != dict(zip(('api', 'console', 'ops', 'keycloak'), sys.argv[3:])):
+        sys.exit('ROLLBACK_TARGET_RELEASE_MISMATCH')
+print(json.dumps(record))
+PY
+}
+
+# Archive ใหม่มีสิทธิ์เป็น target เมื่อบันทึก pointer และ marker ที่ผูก bytes ครบแล้วเท่านั้น
+uat_require_committed_archive() {
+  python3 - "$1" <<'PY'
+import hashlib, os, stat, sys
+path = sys.argv[1]
+def read_private(name, limit):
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or info.st_size > limit:
+            raise ValueError('invalid file')
+        return stream.read(limit + 1)
+try:
+    archive = read_private(path, 8388608)
+    marker = read_private(path + '.committed', 65)
+    if marker != (hashlib.sha256(archive).hexdigest() + '\n').encode():
+        raise ValueError('digest mismatch')
+except (OSError, ValueError):
+    sys.exit('ROLLBACK_ARCHIVE_NOT_COMMITTED')
+PY
+}
+
+uat_require_committed_pointer() {
+  local pointer="$1" archive
+  for archive in "$UAT_ROOT"/deployments/*-*.json; do
+    [[ -f "$archive" && ! -L "$archive" ]] || continue
+    uat_require_committed_archive "$archive" 2>/dev/null || continue
+    cmp -s "$pointer" "$archive" && return 0
+  done
+  fail 'ROLLBACK_POINTER_NOT_COMMITTED'
+}
+
 rollback_probe_cleanup() {
   local name="$1" ownership remaining id
   if ownership="$(timeout --signal=TERM --kill-after=2s 5s docker inspect \
@@ -189,6 +421,12 @@ SELECT CASE
     WHERE (finished_at IS NULL AND rolled_back_at IS NULL)
        OR (finished_at IS NOT NULL AND rolled_back_at IS NOT NULL)) THEN 'INVALID_LEDGER'
   WHEN EXISTS (SELECT 1 FROM public._prisma_migrations
+    WHERE migration_name='20261103120000_tenant_provisioned_configuration_authority'
+      AND checksum<>'f5feda4f26297ed4bc98aa85c1e298e43e7292e44d66791b0f708fa6d53c8c47') THEN 'INVALID_CHECKSUM'
+  WHEN EXISTS (SELECT 1 FROM public._prisma_migrations
+    WHERE migration_name='20261103120000_tenant_provisioned_configuration_authority'
+      AND finished_at IS NOT NULL AND rolled_back_at IS NULL) THEN 'B7_AUTHORITY_APPLIED'
+  WHEN EXISTS (SELECT 1 FROM public._prisma_migrations
     WHERE migration_name='20261022130000_tenant_voice_skill_scope'
       AND checksum<>'5e281f7a38bace24cf114dde5a0484a41a0e01d2b317ea95293fce41a8f825c9') THEN 'INVALID_CHECKSUM'
   WHEN (SELECT count(*) FROM public._prisma_migrations
@@ -208,6 +446,7 @@ SQL
   case "$ledger" in
     ABSENT) return ;;
     APPLIED) ;;
+    B7_AUTHORITY_APPLIED) fail 'ROLLBACK_B7_COMPATIBILITY_NOT_CERTIFIED' ;;
     *) fail 'ROLLBACK_LEDGER_INVALID' ;;
   esac
   active_probe="$probe-capability"
@@ -327,6 +566,9 @@ case "$cmd" in
 
   migrate)
     dir="$(release_dir "${1:?sha}")"
+    uat_mutation_lock
+    uat_require_recordable_current
+    uat_require_nonhistorical_target "${1:?sha}"
     compose "$dir" up -d --wait "$(database_service "$dir")"
     compose "$dir" --profile ops run --rm -T db-roles >/dev/null
     compose "$dir" --profile ops run --rm -T migrate
@@ -336,6 +578,9 @@ case "$cmd" in
 
   keycloak)
     dir="$(release_dir "${1:?sha}")"
+    uat_mutation_lock
+    uat_require_recordable_current
+    uat_require_nonhistorical_target "${1:?sha}"
     compose "$dir" up -d --wait keycloak
     compose "$dir" --profile ops run --rm -T keycloak-config
     ;;
@@ -381,6 +626,9 @@ case "$cmd" in
 
   deploy)
     dir="$(release_dir "${1:?sha}")"
+    uat_mutation_lock
+    uat_require_recordable_current
+    uat_require_nonhistorical_target "${1:?sha}"
     # #540: object storage (SeaweedFS; s3.json + policy ของ API สร้างใน entrypoint) → bucket private
     # ก่อน api บูต (U1.5 #433: api ไม่บูตถ้า bucket ไม่พร้อม) แล้ว lifecycle ที่รันต่อเนื่อง
     compose "$dir" up -d --wait object-storage
@@ -429,19 +677,162 @@ case "$cmd" in
     # file = deployment record ที่ workflow สร้าง (JSON) — เก็บคู่ current/previous สำหรับ rollback
     sha="${1:?sha}"
     file="${2:?record file}"
-    release_dir "$sha" >/dev/null
-    node_check="$(sed -n 's/.*"sourceSha" *: *"\([0-9a-f]\{40\}\)".*/\1/p' "$file" | head -n 1)"
-    [[ "$node_check" == "$sha" ]] || fail 'RECORD_SHA_MISMATCH'
-    target="$UAT_ROOT/deployments/$(date -u +%Y%m%dT%H%M%SZ)-${sha}.json"
-    cp "$file" "$target"
-    if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
-      cp "$UAT_ROOT/deployments/current.json" "$UAT_ROOT/deployments/previous.json"
+    dir="$(release_dir "$sha")"
+    check_release_env "$dir"
+    [[ "$(release_value "$dir" SOURCE_SHA)" == "$sha" ]] || fail 'RELEASE_SOURCE_MISMATCH'
+    uat_mutation_lock allow-rollback-record
+    uat_require_recordable_current
+    validated_record="$(uat_verify_record_runtime "$dir" "$sha" "$file")" || fail 'RECORD_VALIDATION_FAILED'
+    rollback_pending=false
+    if [[ -e "$UAT_ROOT/operator/uat-rollback.pending" || -L "$UAT_ROOT/operator/uat-rollback.pending" ]]; then
+      printf '%s' "$validated_record" | python3 -c '
+import base64, hashlib, json, os, stat, sys
+marker, current, sha = sys.argv[1:]
+fd = os.open(marker, os.O_RDONLY | os.O_NOFOLLOW)
+with os.fdopen(fd, "rb") as stream:
+    info = os.fstat(stream.fileno())
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        sys.exit("UAT_ROLLBACK_PENDING_INVALID")
+    pending = json.load(stream)
+fd = os.open(current, os.O_RDONLY | os.O_NOFOLLOW)
+with os.fdopen(fd, "rb") as stream:
+    current_hash = hashlib.sha256(stream.read()).hexdigest()
+record = json.loads(base64.b64decode(sys.stdin.buffer.read(), validate=True))
+target = pending.get("targetRecord")
+if not isinstance(target, dict):
+    sys.exit("UAT_ROLLBACK_PENDING_INVALID")
+target_digest = hashlib.sha256((json.dumps(target) + "\n").encode()).hexdigest()
+if (pending.get("schema") != "UatRollbackPendingV1" or pending.get("targetSha") != sha
+        or pending.get("currentRecordSha256") != current_hash
+        or pending.get("targetRecordSha256") != target_digest
+        or record.get("action") != "rollback" or record.get("sourceSha") != sha
+        or record.get("images") != target.get("images")
+        or record.get("environment") != target.get("environment")
+        or record.get("realmConfigDigest") != target.get("realmConfigDigest")
+        or record.get("fixturePackVersion") != target.get("fixturePackVersion")
+        or record.get("rollbackOf") != {"recordedAt": target.get("deployedAt"), "runUrl": target.get("runUrl")}
+        or not isinstance(record.get("smoke"), dict) or record["smoke"].get("status") != "PASS"):
+    sys.exit("UAT_ROLLBACK_PENDING_MISMATCH")
+' "$UAT_ROOT/operator/uat-rollback.pending" "$UAT_ROOT/deployments/current.json" "$sha"
+      # status จาก record ที่ส่งมาไม่ใช่หลักฐาน smoke จาก runtime; ห้าม commit
+      # จนกว่าจะมี receipt ที่ผูกกับ runtime และ recovery ของ pointer transaction
+      fail 'UAT_ROLLBACK_SMOKE_RECEIPT_AND_RECOVERY_REQUIRED'
     fi
-    cp "$target" "$UAT_ROOT/deployments/current.json"
+    target="$UAT_ROOT/deployments/$(date -u +%Y%m%dT%H%M%SZ)-${sha}.json"
+    [[ ! -e "$target" && ! -L "$target" ]] || fail 'RECORD_ARCHIVE_EXISTS'
+    printf '%s' "$validated_record" | python3 -c '
+import base64, hashlib, json, os, stat, sys
+operator, deployments, archive = sys.argv[1:]
+transaction = os.path.join(operator, "uat-record-transaction")
+desired = base64.b64decode(sys.stdin.buffer.read(), validate=True)
+os.mkdir(transaction, 0o700)
+def syncdir(path):
+    fd = os.open(path, os.O_RDONLY)
+    try: os.fsync(fd)
+    finally: os.close(fd)
+def save(name, data):
+    fd = os.open(os.path.join(transaction, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(data); stream.flush(); os.fsync(stream.fileno())
+syncdir(operator)
+snapshots = {}
+for name in ("current.json", "previous.json"):
+    path = os.path.join(deployments, name)
+    if os.path.lexists(path):
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or info.st_size > 8388608:
+                sys.exit("RECORD_SNAPSHOT_INVALID")
+            data = stream.read()
+        save(name, data)
+        snapshots[name] = hashlib.sha256(data).hexdigest()
+    else:
+        snapshots[name] = None
+save("desired.json", desired)
+save("intent.json", json.dumps({"schema":"UatRecordIntentV1", "archive":os.path.basename(archive),
+    "desiredSha256":hashlib.sha256(desired).hexdigest(), "snapshots":snapshots}).encode())
+syncdir(transaction)
+' "$UAT_ROOT/operator" "$UAT_ROOT/deployments" "$target"
+    printf '%s' "$validated_record" | python3 -c '
+import base64, os, sys, tempfile
+target = sys.argv[1]
+data = base64.b64decode(sys.stdin.buffer.read(), validate=True)
+directory = os.path.dirname(target)
+fd, staging = tempfile.mkstemp(prefix=".uat-archive-", dir=directory)
+try:
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
+    try:
+        os.link(staging, target, follow_symlinks=False)
+    except FileExistsError:
+        sys.exit("RECORD_ARCHIVE_EXISTS")
+finally:
+    if os.path.exists(staging): os.unlink(staging)
+fd = os.open(directory, os.O_RDONLY)
+try: os.fsync(fd)
+finally: os.close(fd)
+' "$target"
+    python3 - "$UAT_ROOT/deployments" "$target" "$rollback_pending" "$UAT_ROOT/operator/uat-rollback.pending" <<'PY'
+import hashlib, os, pathlib, sys, tempfile
+directory, archive, pending, marker = sys.argv[1:]
+directory = pathlib.Path(directory)
+def replace(path, data):
+    fd, name = tempfile.mkstemp(prefix='.uat-record-', dir=directory)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+        fd = os.open(str(directory), os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+current = directory / 'current.json'
+if current.exists():
+    replace(directory / 'previous.json', current.read_bytes())
+replace(current, pathlib.Path(archive).read_bytes())
+if current.read_bytes() != pathlib.Path(archive).read_bytes():
+    sys.exit('RECORD_READBACK_MISMATCH')
+marker_path = archive + '.committed'
+fd = os.open(marker_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, 'wb') as stream:
+    stream.write((hashlib.sha256(pathlib.Path(archive).read_bytes()).hexdigest() + '\n').encode())
+    stream.flush()
+    os.fsync(stream.fileno())
+fd = os.open(str(directory), os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+if pending == 'true':
+    os.unlink(marker)
+    fd = os.open(os.path.dirname(marker), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+PY
+    python3 - "$UAT_ROOT/operator" <<'PY'
+import os, shutil, sys
+operator = sys.argv[1]
+shutil.rmtree(os.path.join(operator, 'uat-record-transaction'))
+fd = os.open(operator, os.O_RDONLY)
+try: os.fsync(fd)
+finally: os.close(fd)
+PY
     echo "{\"type\":\"u1.uat.deploy\",\"step\":\"record\",\"status\":\"PASS\",\"file\":\"deployments/$(basename "$target")\"}"
     ;;
 
   current)
+    uat_mutation_lock
     # record ปัจจุบัน (ไม่มี secret) — workflow ใช้หา SHA ฐานของ migration guard
     if [[ -f "$UAT_ROOT/deployments/current.json" ]]; then
       cat "$UAT_ROOT/deployments/current.json"
@@ -460,6 +851,7 @@ case "$cmd" in
     ;;
 
   e1-enable)
+    uat_mutation_lock
     dir="$(release_dir "${1:?sha}")"
     [[ -f "$dir/docker-compose.uat.e1.yml" && -x "$dir/e1-freeswitch/entrypoint.sh" ]] || fail 'E1_ACCEPTANCE_OVERLAY_MISSING'
     : >"$E1_FLAG"
@@ -472,6 +864,7 @@ case "$cmd" in
     ;;
 
   e1-disable)
+    uat_mutation_lock
     dir="$(release_dir "${1:?sha}")"
     [[ "$(release_value "$dir" UAT_WORKSPACE_ENABLED)" != true ]] || fail 'WORKSPACE_REQUIRES_E1_ROLLBACK_FIRST'
     # ต้องถอด daemon ขณะ overlay ยัง active; หลังลบ flag compose จะไม่รู้จัก service นี้แล้ว
@@ -482,6 +875,10 @@ case "$cmd" in
     ;;
 
   e1-voice-control|e1-voice-on|e1-voice-off)
+    # คำสั่งปิดฉุกเฉินต้องทำงานได้แม้มี transaction ค้าง
+    if [[ "$cmd" == e1-voice-on || ( "$cmd" == e1-voice-control && "${2:-}" != off && "${2:-}" != status && "${2:-}" != idle ) ]]; then
+      uat_mutation_lock
+    fi
     sha="${1:?sha}"
     shift
     dir="$(release_dir "$sha")"
@@ -516,13 +913,22 @@ case "$cmd" in
           fail 'E1_VOICE_ENABLE_FAILED'
         fi
       else
-        UAT_E1_OUTBOUND_VOICE_ENABLED=false compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox
+        # ปิด switch ก่อนเสมอ แม้ lock ถูกถืออยู่; recreate ต้องรอ transaction อื่นจบ
+        (
+          uat_mutation_lock
+          for service in api e1-sandbox; do
+            running_sha="$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${PROJECT}-${service}-1")"
+            [[ "$running_sha" == "$sha" ]] || fail 'E1_VOICE_RUNTIME_SHA_MISMATCH'
+          done
+          UAT_E1_OUTBOUND_VOICE_ENABLED=false compose "$dir" up -d --wait --no-deps --force-recreate api e1-sandbox
+        ) || fail 'E1_VOICE_OFF_RECREATE_BLOCKED_SWITCH_OFF'
       fi
       echo "{\"type\":\"u1.uat.deploy\",\"step\":\"$cmd\",\"status\":\"PASS\"}"
     fi
     ;;
 
   e1-launcher-enable|e1-launcher-status|e1-launcher-alias)
+    if [[ "$cmd" != e1-launcher-status ]]; then uat_mutation_lock; fi
     sha="${1:?sha}"
     shift
     dir="$(release_dir "$sha")"
@@ -593,6 +999,7 @@ case "$cmd" in
     ;;
 
   line-reload)
+    uat_mutation_lock
     # #565: หลัง vm2-line-secrets.sh --rotate — ไฟล์ secret เปลี่ยนแต่ compose config ไม่เปลี่ยน จึงต้อง recreate เอง
     dir="$(release_dir "${1:?sha}")"
     is_line "$dir" || fail 'LINE_NOT_ENABLED'
@@ -601,15 +1008,18 @@ case "$cmd" in
     ;;
 
   rollback-target)
+    uat_mutation_lock
     # ไม่ระบุ sha = record ก่อนหน้า (previous.json); ระบุ sha = record ล่าสุดของ sha นั้นที่เคย deploy สำเร็จ
     if [[ -n "${1:-}" ]]; then
       [[ "$1" =~ ^[0-9a-f]{40}$ ]] || fail 'SOURCE_SHA_INVALID'
       target="$(ls -1 "$UAT_ROOT/deployments/"*"-$1.json" 2>/dev/null | sort | tail -n 1 || true)"
       [[ -n "$target" ]] || fail 'NO_DEPLOYMENT_FOR_SHA'
-      python3 -c 'import json,sys; record=json.load(open(sys.argv[1])); sys.exit("RECONCILIATION_NOT_ROLLBACK_CERTIFIED") if record.get("action")=="reconciliation" or record.get("rollbackEligible") is False else print(json.dumps(record))' "$target"
+      uat_require_committed_archive "$target"
+      uat_resolve_rollback_record "$target" "$1"
     else
       [[ -f "$UAT_ROOT/deployments/previous.json" ]] || fail 'NO_PREVIOUS_DEPLOYMENT'
-      python3 -c 'import json,sys; record=json.load(open(sys.argv[1])); sys.exit("RECONCILIATION_NOT_ROLLBACK_CERTIFIED") if record.get("action")=="reconciliation" or record.get("rollbackEligible") is False else print(json.dumps(record))' "$UAT_ROOT/deployments/previous.json"
+      uat_require_committed_pointer "$UAT_ROOT/deployments/previous.json"
+      uat_resolve_rollback_record "$UAT_ROOT/deployments/previous.json"
     fi
     ;;
 
@@ -618,7 +1028,86 @@ case "$cmd" in
     sha="${1:?previous sha}"
     dir="$(release_dir "$sha")"
     check_release_env "$dir"
+    uat_mutation_lock
+    # Record จาก reconciliation ไม่ได้พิสูจน์ compatibility ของ schema/identity สำหรับ rollback
+    # แม้ operator ระบุ SHA ตรงก็ต้องหยุดจนกว่าจะมีเกต recovery ที่รับรองครบ
+    if [[ ! -e "$UAT_ROOT/deployments/current.json" && ! -L "$UAT_ROOT/deployments/current.json" ]]; then
+      fail 'ROLLBACK_CURRENT_RECORD_REQUIRED'
+    fi
+    if [[ -e "$UAT_ROOT/deployments/current.json" || -L "$UAT_ROOT/deployments/current.json" ]]; then
+      python3 - "$UAT_ROOT/deployments/current.json" <<'PY'
+import json
+import os
+import re
+import stat
+import sys
+
+try:
+    descriptor = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, encoding='utf-8') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError('record permissions invalid')
+        record = json.load(stream)
+    if not isinstance(record, dict):
+        raise ValueError('record must be an object')
+except (OSError, ValueError):
+    sys.exit('ROLLBACK_CURRENT_RECORD_INVALID')
+if record.get('action') == 'reconciliation' or record.get('rollbackEligible') is False:
+    sys.exit('ROLLBACK_RECONCILIATION_REQUIRES_CERTIFICATION')
+if (record.get('schema') != 'UatDeploymentRecordV1' or record.get('action') not in ('deploy', 'rollback')
+        or not isinstance(record.get('sourceSha'), str) or not re.fullmatch('[0-9a-f]{40}', record['sourceSha'])):
+    sys.exit('ROLLBACK_CURRENT_RECORD_INVALID')
+PY
+    fi
+    expected_target_hash="${2:?rollback target record SHA-256 required}"
+    [[ "$expected_target_hash" =~ ^[0-9a-f]{64}$ ]] || fail 'ROLLBACK_TARGET_HASH_INVALID'
+    archive="$(ls -1 "$UAT_ROOT/deployments/"*"-$sha.json" 2>/dev/null | sort | tail -n 1 || true)"
+    selected=''
+    for candidate in "$archive" "$UAT_ROOT/deployments/previous.json"; do
+      [[ -n "$candidate" && -e "$candidate" && ! -L "$candidate" ]] || continue
+      if [[ "$candidate" == "$archive" ]]; then uat_require_committed_archive "$candidate" || continue; fi
+      if [[ "$candidate" != "$archive" ]]; then uat_require_committed_pointer "$candidate" || continue; fi
+      candidate_record="$(uat_resolve_rollback_record "$candidate" "$sha" 2>/dev/null)" || continue
+      candidate_hash="$(printf '%s\n' "$candidate_record" | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
+      if [[ "$candidate_hash" == "$expected_target_hash" ]]; then
+        selected="$candidate"
+        break
+      fi
+    done
+    [[ -n "$selected" ]] || fail 'ROLLBACK_TARGET_CHANGED'
+    printf '%s' "$candidate_record" | python3 -c '
+import json, sys
+record = json.load(sys.stdin)
+if record["images"] != dict(zip(("api", "console", "ops", "keycloak"), sys.argv[1:])):
+    sys.exit("ROLLBACK_TARGET_RELEASE_MISMATCH")
+' "$(release_value "$dir" API_IMAGE)" "$(release_value "$dir" CONSOLE_IMAGE)" \
+      "$(release_value "$dir" OPS_IMAGE)" "$(release_value "$dir" KEYCLOAK_IMAGE)"
     rollback_preflight "$dir"
+    # V1 record ไม่รองรับ mixed release; หยุดก่อนสลับ API หาก component ที่ไม่ rollback ต่างจาก target
+    uat_verify_record_runtime "$dir" "$sha" '' untouched
+    # หยุดก่อนแตะ runtime จนกว่าจะมี smoke receipt และ recovery ที่ตรวจสอบได้ครบ
+    fail 'UAT_ROLLBACK_TRANSACTION_NOT_CERTIFIED'
+    # คง pending แม้ compose ถูกขัดจังหวะ: ห้ามงานอื่นเขียน record ที่ไม่ตรง runtime
+    UAT_ROLLBACK_SELECTED_RECORD="$candidate_record" python3 - "$UAT_ROOT/operator/uat-rollback.pending" "$UAT_ROOT/deployments/current.json" "$sha" "$expected_target_hash" <<'PY'
+import hashlib, json, os, sys
+marker, current, target, target_hash = sys.argv[1:]
+fd = os.open(current, os.O_RDONLY | os.O_NOFOLLOW)
+with os.fdopen(fd, 'rb') as stream:
+    current_hash = hashlib.sha256(stream.read()).hexdigest()
+fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+with os.fdopen(fd, 'w') as stream:
+    json.dump({'schema': 'UatRollbackPendingV1', 'targetSha': target,
+               'targetRecordSha256': target_hash, 'currentRecordSha256': current_hash,
+               'targetRecord': json.loads(os.environ['UAT_ROLLBACK_SELECTED_RECORD'])}, stream)
+    stream.flush()
+    os.fsync(stream.fileno())
+directory = os.open(os.path.dirname(marker), os.O_RDONLY)
+try:
+    os.fsync(directory)
+finally:
+    os.close(directory)
+PY
     compose "$dir" up -d --wait --no-deps api proxy
     echo "{\"type\":\"u1.uat.deploy\",\"step\":\"rollback\",\"status\":\"PASS\",\"sourceSha\":\"${sha}\"}"
     ;;

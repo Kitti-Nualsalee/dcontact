@@ -151,3 +151,68 @@ HTML shell ของ E1 อ้าง bootstrap JS/CSS ด้วย query `releas
 คำสั่ง launcher ใช้ lock เดียวกันและปฏิเสธเมื่อมี operator อีกคำสั่งกำลังทำงาน จึงไม่ให้ import ทับ alias ที่กำลัง rollback
 
 ไฟล์ `e1-launcher-hosting.enabled` อยู่นอก release; operator ของ release นี้สืบทอด mount เมื่อ E1 เปิดอยู่ ถ้าจะ rollback ไป release รุ่นเก่าที่ไม่มี overlay ต้องถอด E1 profile ก่อนตามขั้น rollback แล้วคืน profile/flag และทดสอบ smoke named volume ไม่ถูกลบ การมี helper หรือ unit tests ผ่านยังไม่ใช่หลักฐานว่าซ้อม alias บน UAT จริงแล้ว
+
+### #868: เก็บ journal หลัง record commit ครบแล้ว
+
+`b868-record-journal-retire.py` รับ `--expected-desired-sha256` และ `--expected-intent-sha256`
+จาก journal ที่ operator ตรวจแล้ว ใช้ exclusive lock เดียวกับ deploy และยอมทำงานเมื่อ archive,
+current, previous และ committed marker ครบตรงตาม intent เท่านั้น ไม่ซ่อม transaction ที่ยังไม่ commit
+และไม่เปลี่ยน deployment pointer, runtime หรือ DB
+
+ก่อนย้าย journal จะสร้าง `uat-record-retirement.pending` และ sync ไฟล์/metadata ของ record,
+marker และ snapshots ทั้งหมด แล้วเก็บ journal ทั้ง directory เป็น `operator/uat-record-completed-*`
+พร้อมตรวจ readback หาก mandatory sync/readback ล้ม gate จะคงอยู่ให้ deploy/reconciliation หยุด
+ต้องตรวจ intent, snapshots และ directory ที่เก็บไว้ก่อนกู้ต่อ ห้ามลบ gate เพื่อข้ามการตรวจ
+
+หลังข้อมูลครบและ durable แล้วจึงถอน gate หาก sync การถอน gate ล้ม ผลจะระบุ
+`cleanupDurable=false` และ `RETIRE_GATE_REMOVAL_DURABILITY_UNKNOWN`; gate อาจกลับมาหลัง reboot
+จึงต้องตรวจอีกครั้ง ผล `COMMITTED_JOURNAL_RETAINED` ไม่รับรอง provenance ของ release หรือ rollback:
+`runtimeVerified` และ `rollbackCertified` ยังคงเป็น `false` การทดสอบ process exit ไม่ใช่การทดสอบ power loss
+
+### #868: กู้ record transaction ที่ commit ไม่ครบ
+
+`b868-record-forward-recovery.py --apply` ใช้เฉพาะ `deploy` record V1 ที่ runtime ทั้งสี่ component
+ตรงกับ desired ใน journal และมี current/previous อยู่แล้ว กรณี rollback, mixed source หรือไม่มี pointer
+ที่หลักฐานต้องใช้จะถูกปฏิเสธ ไม่ผ่อน validator เพื่อให้ผ่าน
+
+ผู้เรียกต้องส่ง `--evidence` เป็นไฟล์ส่วนตัวใต้ `/opt/dcontact-uat/operator`,
+`--approved-evidence-sha256` ของ canonical JSON และ `--approved-intent-sha256` ของ intent bytes
+ที่ owner อนุมัติจากการ review อิสระ พร้อม `--actor operator:<ชื่อ>` ตัว hash ตรวจเพียงความตรงของ
+ข้อมูล และ actor เป็น audit label; CLI ไม่ได้พิสูจน์ตัวตนหรือสร้าง approval ให้เอง หลักฐานมีอายุไม่เกิน 300 วินาที
+
+คำสั่งถือ exclusive lock ตลอด ตรวจ runtime/ops และอ่าน protected runtime กับ migration ledger สดก่อน–หลัง
+การเขียน โดยใช้ helper และ collector จาก bytes ที่ตรงกับ hash ที่ pin ไว้ การอ่าน ledger ใช้ probe container
+แบบ read-only ชั่วคราวที่จำกัดทรัพยากรและตรวจ ownership ตอน cleanup ไม่เปลี่ยน application containers หรือข้อมูลแอป
+
+เมื่อข้อมูลตรงจึงเขียน archive → previous จาก snapshot → current → committed marker แบบ atomic พร้อม
+fsync/readback โดยคง journal ไว้ หาก postcheck หรือหลักฐานหมดอายุหลังเขียน จะคง `forward-postcheck.pending`
+ให้ retirement หยุด ต้องตรวจและอนุมัติ observation ปัจจุบันใหม่ก่อน retry ไม่ใช้ไฟล์เก่าหรือข้าม gate
+staging ของ archive ผูกกับ journal เพื่อเก็บ hard link ที่ค้างจากการขัดจังหวะได้อย่างระบุเจ้าของ
+หากยังพบ alias ของ archive ที่ไม่อยู่ในขอบเขตนี้ จะหยุดให้ตรวจ ไม่ลบไฟล์อื่นเพื่อให้ผ่าน
+
+หลัง postcheck ผ่านจะเก็บ `forward-postcheck.json` ที่ผูก intent/request/evidence แล้วจึงถอนเกต postcheck
+ผล `RECORD_TRANSACTION_COMMITTED_PENDING_RETIREMENT` ต้องเรียก retirement แยกต่อ ซึ่งตรวจหลักฐานนี้ด้วย
+หาก `postcheckGateCleanupDurable=false` เกตอาจกลับมาหลัง reboot ต้องตรวจซ้ำ ผลทั้งหมดนี้ไม่รับรอง compatible
+rollback และไม่สร้าง smoke PASS, realm receipt หรือ final C
+
+### #868: เติม observation ราย component โดยรักษา layout เดิม
+
+Manifest `UatCompositeEvidenceManifestV3` เพิ่ม `componentPackages` ครบ API, sandbox, proxy และ Keycloak
+โดยผูกแต่ละ component กับ `release.env` ของ source ที่ใช้จริงผ่าน hash, OCI reference และ digest
+ผลที่ประกอบยังเป็น proposal ไม่ถือว่า artifact hash พิสูจน์ build attestation หรืออนุมัติให้เขียนเอง
+
+`b868-record-reconcile.py` เตรียม record แบบ additive จาก `UatDeploymentReconciliationV1` ที่ถูก quarantine
+ไว้เท่านั้น คง `sourceSha`/`images` และ fields เดิมสำหรับ release-layout readers แล้วอธิบาย fields ประวัติเหล่านี้
+ใน `legacyAnchor` ข้อมูลปัจจุบันอยู่ใน `components`, `componentPackageBindings` และ `observationProof`
+ซึ่งผูก actual observation bytes และ ledger snapshot ไม่เปลี่ยน realm digest ที่ยังเป็น `null` และไม่สร้าง smoke PASS ใหม่
+
+การตรวจ runtime รุ่นนี้รู้จัก `legacyAnchor` และเปรียบเทียบ source/image/config/identity กับข้อมูลราย component
+โดยคง `rollbackCertified=false`; reader เก่าที่ไม่รู้จัก fields ใหม่ยังไม่ถือว่าผ่าน release certification
+Platform ยังคงใช้ path จาก source anchor เดิม ส่วน media operator ที่ต้องการ API/sandbox source เดียวกัน
+ยังหยุดเมื่อ runtime mixed ไม่ถือว่า observation นี้ซ่อม runtime หรือผ่าน media gate
+
+ก่อน apply ต้อง review manifest hash และ stable record hash จากข้อเสนอ `--approved-stable-record-sha256`
+ซึ่งไม่รวม `recordedAt` actor เป็น audit label การอนุมัติต้องมาจาก review อิสระเช่นเดียวกับ recovery
+ตัวเขียนใช้ lock/CAS/readback เดิมและ `preserve_previous=True` เพื่อเก็บ previous เดิม byte-for-byte
+พร้อม snapshot และตรวจ live หลังเขียน current ก่อนยืนยัน receipt หาก postcheck ล้มหรือไม่แน่ใจ
+จะคง reconciliation pending ให้ตรวจ ไม่มีการ restart หรือเขียน DB
