@@ -1,3 +1,4 @@
+import { connectDPhoneExtension, DPhoneExtensionTransport } from './dphone/extension-transport.js';
 import { resolvePhoneControlMode } from './external-phone-control.js';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useTranslation } from '@d-contact/i18n/react';
@@ -28,7 +29,14 @@ import { UserManager, type UserManagerSettings } from 'oidc-client-ts';
 const phoneControlMode = resolvePhoneControlMode(import.meta.env.VITE_SOFTPHONE_CONTROL);
 
 const createProductionDphone: DphoneFactory = (remoteAudio, callbacks) =>
-  new BrowserDphone(new SipJsBrowserTransport(remoteAudio, callbacks));
+  new BrowserDphone(
+    phoneControlMode === 'chrome-extension'
+      ? new DPhoneExtensionTransport(
+          () => connectDPhoneExtension(import.meta.env.VITE_D_PHONE_EXTENSION_ID),
+          callbacks,
+        )
+      : new SipJsBrowserTransport(remoteAudio, callbacks),
+  );
 
 export function AuthenticatedWorkspace({
   apiBaseUrl,

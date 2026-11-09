@@ -59,3 +59,6 @@ dist-launcher/
 
 # หลักฐาน CI ของ Core Settings foundation (แนบ immutable artifact แทน commit)
 artifacts/core-settings/
+
+# Unpacked D-Phone extension build
+dist-dphone-extension/

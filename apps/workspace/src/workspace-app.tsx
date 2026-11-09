@@ -57,6 +57,8 @@ type WorkspaceMessage =
   | 'micEnded'
   | 'micBlocked'
   | 'registerFailed'
+  | 'extensionCallFailed'
+  | 'extensionAudioBlocked'
   | 'availabilityFailed'
   | 'wrapupFailed';
 
@@ -186,6 +188,7 @@ function AgentWorkspace({
   onWorkInHandChange,
 }: WorkspaceAppProps) {
   const embedded = variant === 'embedded';
+  const extensionControl = !embedded && phoneControlMode === 'chrome-extension';
   const externalControl = !embedded && phoneControlMode === 'external-simulator';
   const { t } = useTranslation('workspace');
   const { t: td } = useTranslation('dphone');
@@ -265,6 +268,7 @@ function AgentWorkspace({
     workSession ? { phase: 'idle' } : { phase: 'disabled' },
   );
   const [socketLeaseId, setSocketLeaseId] = useState<string>();
+  const [disconnectedPhoneLease, setDisconnectedPhoneLease] = useState<string>();
   const [customerInvalidation, setCustomerInvalidation] = useState(0);
   const customerLease = useRef<string | undefined>(undefined);
   const enforced = lease.phase !== 'disabled';
@@ -387,11 +391,11 @@ function AgentWorkspace({
   // เพื่อเปิดแผงลูกค้าเมื่อ owner ยืนยันงานเดียวกันแล้ว
   useEffect(() => {
     if (
-      !api?.customer ||
+      !api ||
       !sessionReady ||
-      snapshot?.capabilities?.workCustomerV1 !== 1 ||
+      (!extensionControl && (!api.customer || snapshot?.capabilities?.workCustomerV1 !== 1)) ||
       dphoneState.phase !== 'ACTIVE' ||
-      snapshot.interaction?.state !== 'ASSIGNED' ||
+      snapshot?.interaction?.state !== 'ASSIGNED' ||
       snapshot.interaction.id !== dphoneState.interactionId
     )
       return;
@@ -416,7 +420,7 @@ function AgentWorkspace({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [api, sessionReady, snapshot, dphoneState]);
+  }, [api, sessionReady, snapshot, dphoneState, extensionControl]);
 
   // WS ของ routing: flag เปิดต่อหลังได้ lease เท่านั้น (แนบ leaseId) และ heartbeat ผ่าน socket นี้
   const liveKey = enforced ? socketLeaseId : workingTab ? 'working-tab' : undefined;
@@ -474,34 +478,68 @@ function AgentWorkspace({
     });
     endedCallSnapshot.current = reconciler;
     let disposed = false;
+    let invitationGeneration = 0;
     const phone = createDphone(remoteAudio.current, {
       onInvitation: () => {
         if (disposed) return;
         reconciler.cancel();
+        const invitation = ++invitationGeneration;
+        const invitationIsCurrent = () =>
+          !disposed && (!extensionControl || invitation === invitationGeneration);
         void api
           ?.snapshot()
           .then(async (nextSnapshot) => {
+            if (!invitationIsCurrent()) return;
             setSnapshot(nextSnapshot);
             const interaction = nextSnapshot.interaction;
-            if (interaction?.state !== 'ASSIGNED') return;
+            if (interaction?.state !== 'ASSIGNED' || (extensionControl && !ownsWorkRef.current)) {
+              if (extensionControl) await phone.rejectInvitation();
+              return;
+            }
             setDphoneState(await phone.receiveInvitation(interaction.id));
           })
-          .catch(() => setSnapshotError('offerConfirmFailed'));
+          .catch(() => {
+            if (!invitationIsCurrent()) return;
+            if (extensionControl) void phone.rejectInvitation().catch(() => undefined);
+            setSnapshotError('offerConfirmFailed');
+          });
       },
-      onSessionEstablished: () => setDphoneState(phone.connected()),
+      onSessionEstablished: () => {
+        if (!disposed) setDphoneState(phone.connected());
+      },
       onSessionTerminated: () => {
         if (disposed) return;
+        invitationGeneration += 1;
         const current = phone.current();
         const interactionId = 'interactionId' in current ? current.interactionId : undefined;
         setDphoneState(phone.terminated());
         setMuted(false);
         if (interactionId) void reconciler.start(interactionId);
       },
+      onControlDisconnected: () => {
+        if (disposed) return;
+        invitationGeneration += 1;
+        const current = phone.current();
+        const interactionId = 'interactionId' in current ? current.interactionId : undefined;
+        if (current.phase !== 'OFFLINE' && current.phase !== 'REGISTERING') {
+          setDisconnectedPhoneLease(leaseClient.current?.leaseId());
+        }
+        availabilityGeneration.current += 1;
+        mediaReadinessRef.current = 'BLOCKED';
+        setMediaReadiness('BLOCKED');
+        setAvailability('OFFLINE');
+        void phone.stop().then((state) => {
+          if (!disposed) setDphoneState(state);
+        });
+        if (interactionId) void reconciler.start(interactionId);
+      },
       onRegistrationLost: () => {
+        if (disposed) return;
         availabilityGeneration.current += 1;
         void phone.registrationLost().then(setDphoneState);
       },
-      onAutoplayBlocked: () => setDphoneError('autoplayBlocked'),
+      onAutoplayBlocked: () =>
+        setDphoneError(extensionControl ? 'extensionAudioBlocked' : 'autoplayBlocked'),
     });
     dphone.current = phone;
     return () => {
@@ -511,7 +549,7 @@ function AgentWorkspace({
       dphone.current = undefined;
       void phone.stop();
     };
-  }, [api, createDphone, externalControl]);
+  }, [api, createDphone, externalControl, extensionControl]);
 
   useEffect(() => {
     if (import.meta.env.MODE === 'production') return;
@@ -565,6 +603,19 @@ function AgentWorkspace({
 
   // ได้ lease = ที่นี่เป็นจุดรับงาน: ประกาศ leader ใน origin ให้แท็บอื่นไม่ขอ lease ซ้อน
   const heldLeaseId = lease.phase === 'held' ? lease.lease.leaseId : undefined;
+  useEffect(() => {
+    if (!disconnectedPhoneLease || workInHand) return;
+    if (heldLeaseId !== disconnectedPhoneLease) {
+      setDisconnectedPhoneLease(undefined);
+      return;
+    }
+    void leaseClient.current?.releaseIdle().then((released) => {
+      if (released)
+        setDisconnectedPhoneLease((current) =>
+          current === disconnectedPhoneLease ? undefined : current,
+        );
+    });
+  }, [disconnectedPhoneLease, heldLeaseId, workInHand]);
   if (heldLeaseId) customerLease.current = heldLeaseId;
   const onLeaseChangeRef = useRef(onLeaseChange);
   onLeaseChangeRef.current = onLeaseChange;
@@ -600,29 +651,41 @@ function AgentWorkspace({
   );
 
   async function checkMediaReadiness() {
-    if (externalControl || !ownsWork) return;
+    if (
+      externalControl ||
+      !ownsWork ||
+      (extensionControl &&
+        (signOutLosesWork ||
+          disconnectedPhoneLease ||
+          mediaReadinessRef.current === 'CHECKING' ||
+          dphone.current?.current().phase !== 'OFFLINE'))
+    )
+      return;
+    if (extensionControl) mediaReadinessRef.current = 'CHECKING';
     availabilityGeneration.current += 1;
     setMediaReadiness('CHECKING');
     setMediaError(undefined);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      for (const track of mediaStream.current?.getTracks() ?? []) track.stop();
-      mediaStream.current = stream;
-      for (const track of stream.getTracks()) {
-        track.addEventListener(
-          'ended',
-          () => {
-            availabilityGeneration.current += 1;
-            mediaReadinessRef.current = 'BLOCKED';
-            setAvailability('OFFLINE');
-            setMediaReadiness('BLOCKED');
-            setMediaError('micEnded');
-            void dphone.current?.stop().then(setDphoneState);
-          },
-          { once: true },
-        );
+      if (!extensionControl) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        for (const track of mediaStream.current?.getTracks() ?? []) track.stop();
+        mediaStream.current = stream;
+        for (const track of stream.getTracks()) {
+          track.addEventListener(
+            'ended',
+            () => {
+              availabilityGeneration.current += 1;
+              mediaReadinessRef.current = 'BLOCKED';
+              setAvailability('OFFLINE');
+              setMediaReadiness('BLOCKED');
+              setMediaError('micEnded');
+              void dphone.current?.stop().then(setDphoneState);
+            },
+            { once: true },
+          );
+        }
       }
-      setMediaReadiness('READY');
+      if (!extensionControl) setMediaReadiness('READY');
     } catch {
       setAvailability('OFFLINE');
       setMediaReadiness('BLOCKED');
@@ -638,17 +701,33 @@ function AgentWorkspace({
         if (!workSessionLeaseId) throw new Error('work-session lease is required for SIP');
         const sipLease = await api.sipCredentials(workSessionLeaseId);
         // register SIP เฉพาะเมื่อยังเป็นจุดรับงาน (flag เปิด = ยังถือ work-session lease) ณ ตอนนี้
-        if (!ownsWorkRef.current) {
+        if (!ownsWorkRef.current || leaseClient.current?.leaseId() !== workSessionLeaseId) {
+          if (extensionControl) setMediaReadiness('UNCHECKED');
           setDphoneState({ phase: 'OFFLINE' });
           return;
         }
         setDphoneState({ phase: 'REGISTERING', telephonyNodeId: sipLease.telephonyNodeId });
-        setDphoneState(
-          await dphone.current.start(sipLease, { ownsWorkingTab: true, mediaReady: true }),
-        );
+        const phone = dphone.current;
+        const state = await phone.start(sipLease, { ownsWorkingTab: true, mediaReady: true });
+        if (
+          extensionControl &&
+          (dphone.current !== phone ||
+            !ownsWorkRef.current ||
+            leaseClient.current?.leaseId() !== workSessionLeaseId)
+        ) {
+          await phone.stop();
+          if (dphone.current === phone) setMediaReadiness('UNCHECKED');
+          return;
+        }
+        setDphoneState(state);
+        if (extensionControl) setMediaReadiness('READY');
       } catch {
         setAvailability('OFFLINE');
         setDphoneState({ phase: 'OFFLINE' });
+        if (extensionControl) {
+          setMediaReadiness('BLOCKED');
+          await dphone.current?.stop();
+        }
         setDphoneError('registerFailed');
       }
     }
@@ -696,11 +775,17 @@ function AgentWorkspace({
       !acceptingSession ||
       wrapupPending ||
       wrapupUnknown ||
+      (extensionControl && (!ownsWorkRef.current || !leaseClient.current?.leaseId())) ||
       !dphone.current ||
-      dphoneState.phase !== 'RINGING'
+      dphone.current.current().phase !== 'RINGING'
     )
       return;
-    setDphoneState(await dphone.current.accept());
+    try {
+      setDphoneError(undefined);
+      setDphoneState(await dphone.current.accept());
+    } catch {
+      setDphoneError(extensionControl ? 'extensionCallFailed' : 'offerConfirmFailed');
+    }
   }
 
   function toggleMute() {
@@ -731,7 +816,14 @@ function AgentWorkspace({
     const stillCurrent = reconciler?.checkpoint();
     const current = phone.current();
     const interactionId = 'interactionId' in current ? current.interactionId : undefined;
-    const nextState = await phone.hangup();
+    let nextState: DphoneState;
+    try {
+      setDphoneError(undefined);
+      nextState = await phone.hangup();
+    } catch {
+      setDphoneError(extensionControl ? 'extensionCallFailed' : 'offerConfirmFailed');
+      return;
+    }
     if (dphone.current !== phone || !stillCurrent?.()) return;
     setDphoneState(nextState);
     setMuted(false);
@@ -909,9 +1001,10 @@ function AgentWorkspace({
   const commandRef = useRef<(command: DphoneCommand) => void>(() => undefined);
   commandRef.current = (command) => {
     if (command.type === 'accept') void acceptCall();
+    else if (command.type === 'hangup') void hangup();
+    else if (extensionControl) return;
     else if (command.type === 'toggleMute') toggleMute();
     else if (command.type === 'toggleHold') void toggleHold();
-    else if (command.type === 'hangup') void hangup();
     else void sendDtmf(command.value);
   };
   const dispatch = (command: DphoneCommand) => commandRef.current(command);
@@ -928,7 +1021,7 @@ function AgentWorkspace({
   // หรือยังมีสายในมือ) เสียจุดรับงานตอนว่าง → ปิดสะพานและหน้าต่างแยก
   const host = useRef<ReturnType<typeof createDphoneHost>>(undefined);
   useEffect(() => {
-    if (externalControl || !inShell || !mediaOwner) return;
+    if (externalControl || extensionControl || !inShell || !mediaOwner) return;
     const bridge = createDphoneHost({
       onCommand: (command) => commandRef.current(command),
       // bye ไม่ล้าง id: หน้าต่างแยกที่ reload จะส่ง hello ด้วย id เดิมและต่อกลับได้
@@ -942,7 +1035,7 @@ function AgentWorkspace({
       host.current = undefined;
       setDetached(false);
     };
-  }, [inShell, mediaOwner, externalControl]);
+  }, [inShell, mediaOwner, externalControl, extensionControl]);
 
   const viewKey = JSON.stringify(view);
   useEffect(() => {
@@ -1055,7 +1148,10 @@ function AgentWorkspace({
   );
 
   const offerPanel =
-    !externalControl && !inShell && snapshot?.interaction?.state === 'ASSIGNED' ? (
+    !externalControl &&
+    !extensionControl &&
+    !inShell &&
+    snapshot?.interaction?.state === 'ASSIGNED' ? (
       <article className="aw-panel aw-offer" aria-labelledby="incoming-offer-title">
         <div>
           <p className="aw-step">{t('offer.step')}</p>
@@ -1088,6 +1184,7 @@ function AgentWorkspace({
 
   const controlsPanel =
     !externalControl &&
+    !extensionControl &&
     !inShell &&
     (dphoneState.phase === 'ACTIVE' || dphoneState.phase === 'HELD') ? (
       <article className="aw-panel" aria-labelledby="call-controls-title">
@@ -1259,7 +1356,7 @@ function AgentWorkspace({
       <div className="aw-panel-heading">
         <div>
           <p className="aw-step">{t('media.step')}</p>
-          <h2>{t('media.title')}</h2>
+          <h2>{extensionControl ? td('chrome.title') : t('media.title')}</h2>
         </div>
         <span
           className={'aw-readiness aw-readiness-' + mediaReadiness.toLowerCase()}
@@ -1269,26 +1366,39 @@ function AgentWorkspace({
           {readinessLabel}
         </span>
       </div>
-      <p className="aw-copy">{t('media.copy')}</p>
-      <div className="aw-device">
-        <div className="aw-device-icon" aria-hidden="true">
-          {t('media.device')}
+      <p className="aw-copy">{extensionControl ? td('chrome.description') : t('media.copy')}</p>
+      {!extensionControl ? (
+        <div className="aw-device">
+          <div className="aw-device-icon" aria-hidden="true">
+            {t('media.device')}
+          </div>
+          <div>
+            <strong>{t('media.mic')}</strong>
+            <span>{t('media.micHint')}</span>
+          </div>
         </div>
-        <div>
-          <strong>{t('media.mic')}</strong>
-          <span>{t('media.micHint')}</span>
-        </div>
-      </div>
+      ) : null}
       {mediaError ? (
         <p className="aw-error" role="alert">
           {t(mediaError)}
         </p>
       ) : null}
       <Button
-        isDisabled={!ownsWork || mediaReadiness === 'CHECKING'}
+        isDisabled={
+          !ownsWork ||
+          mediaReadiness === 'CHECKING' ||
+          (extensionControl &&
+            (signOutLosesWork ||
+              Boolean(disconnectedPhoneLease) ||
+              dphoneState.phase !== 'OFFLINE'))
+        }
         onPress={() => void checkMediaReadiness()}
       >
-        {mediaReadiness === 'CHECKING' ? t('media.checking') : t('media.check')}
+        {mediaReadiness === 'CHECKING'
+          ? t('media.checking')
+          : extensionControl
+            ? td('chrome.connect')
+            : t('media.check')}
       </Button>
     </article>
   );
@@ -1309,7 +1419,9 @@ function AgentWorkspace({
         <span>
           {availability === 'AVAILABLE'
             ? t('availability.readyHint')
-            : t('availability.notReadyHint')}
+            : extensionControl
+              ? td('chrome.availabilityHint')
+              : t('availability.notReadyHint')}
         </span>
       </div>
       <Button
@@ -1394,7 +1506,9 @@ function AgentWorkspace({
           <dd>{snapshot?.interaction?.state ?? t('authority.routerApi')}</dd>
         </div>
         <div>
-          <dt>{externalControl ? td('external.mediaLabel') : t('authority.media')}</dt>
+          <dt>
+            {externalControl || extensionControl ? td('external.mediaLabel') : t('authority.media')}
+          </dt>
           <dd>{readinessLabel}</dd>
         </div>
         <div>
@@ -1413,7 +1527,13 @@ function AgentWorkspace({
         <div>
           <p className="aw-eyebrow">{t('heading.eyebrow')}</p>
           <h1>{t('heading.title')}</h1>
-          <p>{externalControl ? td('external.description') : t('heading.lede')}</p>
+          <p>
+            {externalControl
+              ? td('external.description')
+              : extensionControl
+                ? td('chrome.description')
+                : t('heading.lede')}
+          </p>
         </div>
         <span className="aw-phase-badge">{t('heading.phase')}</span>
       </div>
@@ -1539,7 +1659,11 @@ function AgentWorkspace({
           <div className="aw-call-identity">
             <strong className="aw-call-caller">{t('layout.noCurrent')}</strong>
             <span className="aw-call-meta">
-              {externalControl ? td('external.emptyHint') : t('layout.noCurrentHint')}
+              {externalControl
+                ? td('external.emptyHint')
+                : extensionControl
+                  ? td('chrome.description')
+                  : t('layout.noCurrentHint')}
             </span>
           </div>
         )}
@@ -1737,17 +1861,18 @@ function AgentWorkspace({
         </>
       )}
 
-      {inShell && mediaOwner && !externalControl ? (
+      {(inShell || extensionControl) && mediaOwner && !externalControl ? (
         detached ? (
           <DphoneDetachedBar view={view} onAttach={attach} />
         ) : (
           <DphoneWidget
             floating
             view={view}
-            size={dphoneSize}
+            size={extensionControl && dphoneSize === 'expanded' ? 'compact' : dphoneSize}
             onSizeChange={changeSize}
             onCommand={dispatch}
-            onDetach={detach}
+            onDetach={extensionControl ? undefined : detach}
+            basicControls={extensionControl}
           />
         )
       ) : null}

@@ -97,5 +97,11 @@
     "mediaLabel": "การควบคุมโทรศัพท์",
     "emptyHint": "ทดลองปุ่มควบคุมได้ที่แผงตัวจำลองด้านขวา โดยไม่สร้างสายจริง",
     "workHint": "งานจริงที่ได้รับจากระบบจะแสดงที่นี่"
+  },
+  "chrome": {
+    "title": "D-Phone",
+    "description": "เปิด D-Phone จากแถบส่วนขยาย Chrome อนุญาตไมค์ในแท็บ D-Phone แล้วเชื่อมต่อจาก Workspace",
+    "connect": "เชื่อมต่อ D-Phone",
+    "availabilityHint": "เชื่อมต่อ D-Phone ก่อนเปิดรับสาย"
   }
 }

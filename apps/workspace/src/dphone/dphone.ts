@@ -107,6 +107,10 @@ export class BrowserDphone {
     return this.state;
   }
 
+  async rejectInvitation(): Promise<void> {
+    await this.transport.reject();
+  }
+
   async accept(): Promise<DphoneState> {
     if (this.state.phase !== 'RINGING') throw new Error('accept requires RINGING dphone');
     // SIP.js resolve accept() หลัง session Established แล้ว — `connected()` จึงถูกเรียกระหว่างรอ

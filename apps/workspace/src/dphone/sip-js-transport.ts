@@ -17,6 +17,7 @@ export interface SipJsTransportCallbacks {
   onSessionTerminated?(): void;
   onRegistrationLost?(): void;
   onAutoplayBlocked?(): void;
+  onControlDisconnected?(): void;
 }
 
 export class SipJsBrowserTransport implements BrowserSipTransport {

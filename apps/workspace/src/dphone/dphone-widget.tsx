@@ -23,6 +23,7 @@ export interface DphoneWidgetProps {
   onDetach?(): void;
   /** ลอยบนหน้า Workspace และลากได้ — ในหน้า `/dphone` เต็มหน้าต่าง */
   floating?: boolean;
+  basicControls?: boolean;
 }
 
 interface Position {
@@ -49,6 +50,7 @@ export function DphoneWidget({
   onSizeChange,
   onDetach,
   floating = false,
+  basicControls = false,
 }: DphoneWidgetProps) {
   const { t } = useTranslation('dphone');
   const [position, setPosition] = useState<Position>(loadPosition);
@@ -95,24 +97,26 @@ export function DphoneWidget({
         onPointerCancel={onPointerUp}
         title={floating ? t('dragHint') : undefined}
       >
-        <span className="dp-name">{t('name')}</span>
+        <span className="dp-name">{t(basicControls ? 'chrome.title' : 'name')}</span>
         <span className="dp-status" role="status" aria-label={t('name')}>
           {t(`phase.${view.phase}`)}
         </span>
         <div className="dp-sizes" role="group" aria-label={t('size.label')}>
-          {DPHONE_SIZES.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className="dp-icon-button"
-              aria-pressed={size === option}
-              aria-label={t(`size.${option}`)}
-              title={t(`size.${option}`)}
-              onClick={() => onSizeChange(option)}
-            >
-              <SizeIcon size={option} />
-            </button>
-          ))}
+          {DPHONE_SIZES.filter((option) => !basicControls || option !== 'expanded').map(
+            (option) => (
+              <button
+                key={option}
+                type="button"
+                className="dp-icon-button"
+                aria-pressed={size === option}
+                aria-label={t(`size.${option}`)}
+                title={t(`size.${option}`)}
+                onClick={() => onSizeChange(option)}
+              >
+                <SizeIcon size={option} />
+              </button>
+            ),
+          )}
           {onDetach ? (
             <button
               type="button"
@@ -154,7 +158,7 @@ export function DphoneWidget({
               {t('accept')}
             </Button>
           ) : null}
-          {inCall && size !== 'bar' ? (
+          {inCall && size !== 'bar' && !basicControls ? (
             <>
               <Button size="sm" onPress={() => onCommand({ type: 'toggleMute' })}>
                 {view.muted ? t('unmute') : t('mute')}
@@ -174,7 +178,7 @@ export function DphoneWidget({
             </Button>
           ) : null}
         </div>
-        {size === 'expanded' ? (
+        {size === 'expanded' && !basicControls ? (
           <div className="dp-keypad" role="group" aria-label={t('dtmfPad')}>
             {KEYS.map((value) => (
               <button

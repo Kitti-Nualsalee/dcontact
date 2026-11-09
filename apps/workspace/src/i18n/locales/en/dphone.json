@@ -97,5 +97,11 @@
     "mediaLabel": "Phone control",
     "emptyHint": "Try the control simulator on the right without creating a real call.",
     "workHint": "Real work assigned by the system will appear here."
+  },
+  "chrome": {
+    "title": "D-Phone",
+    "description": "Open D-Phone from the Chrome extensions toolbar, allow microphone access in its tab, then connect from Workspace.",
+    "connect": "Connect D-Phone",
+    "availabilityHint": "Connect D-Phone before opening for calls."
   }
 }
