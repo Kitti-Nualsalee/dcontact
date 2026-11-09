@@ -1,3 +1,5 @@
+import { ExternalPhoneControlPanel } from './external-phone-control-panel.js';
+import type { WorkspacePhoneControlMode } from './external-phone-control.js';
 import { WorkCustomerPanel } from './work-customer-panel.js';
 /**
  * Agent Workspace — D1.15 (#454): ข้อความผ่าน catalog `workspace`/`dphone`, CSS token ล้วน (`aw-*`),
@@ -59,6 +61,7 @@ type WorkspaceMessage =
   | 'wrapupFailed';
 
 export interface WorkspaceAppProps {
+  phoneControlMode?: WorkspacePhoneControlMode;
   sessionReady?: boolean;
   wrapupRuntime?: WrapupRuntime;
   identityKey?: string;
@@ -166,6 +169,7 @@ export function WorkspaceApp(props: WorkspaceAppProps) {
 }
 
 function AgentWorkspace({
+  phoneControlMode = 'browser',
   sessionReady = true,
   wrapupRuntime,
   identityKey = 'standalone-document',
@@ -182,6 +186,7 @@ function AgentWorkspace({
   onWorkInHandChange,
 }: WorkspaceAppProps) {
   const embedded = variant === 'embedded';
+  const externalControl = !embedded && phoneControlMode === 'external-simulator';
   const { t } = useTranslation('workspace');
   const { t: td } = useTranslation('dphone');
   const { locale } = useLocale();
@@ -458,7 +463,7 @@ function AgentWorkspace({
   }, [api, enforced, governanceGate, liveRetry, liveKey]);
 
   useEffect(() => {
-    if (!api || !createDphone || !remoteAudio.current) return;
+    if (externalControl || !api || !createDphone || !remoteAudio.current) return;
     const reconciler = new EndedCallSnapshotReconciler({
       snapshot: () => api.snapshot(),
       apply: (nextSnapshot) => {
@@ -506,7 +511,7 @@ function AgentWorkspace({
       dphone.current = undefined;
       void phone.stop();
     };
-  }, [api, createDphone]);
+  }, [api, createDphone, externalControl]);
 
   useEffect(() => {
     if (import.meta.env.MODE === 'production') return;
@@ -595,7 +600,7 @@ function AgentWorkspace({
   );
 
   async function checkMediaReadiness() {
-    if (!ownsWork) return;
+    if (externalControl || !ownsWork) return;
     availabilityGeneration.current += 1;
     setMediaReadiness('CHECKING');
     setMediaError(undefined);
@@ -651,6 +656,7 @@ function AgentWorkspace({
 
   async function becomeAvailable() {
     if (
+      externalControl ||
       availabilityPending ||
       !ownsWork ||
       mediaReadiness !== 'READY' ||
@@ -922,7 +928,7 @@ function AgentWorkspace({
   // หรือยังมีสายในมือ) เสียจุดรับงานตอนว่าง → ปิดสะพานและหน้าต่างแยก
   const host = useRef<ReturnType<typeof createDphoneHost>>(undefined);
   useEffect(() => {
-    if (!inShell || !mediaOwner) return;
+    if (externalControl || !inShell || !mediaOwner) return;
     const bridge = createDphoneHost({
       onCommand: (command) => commandRef.current(command),
       // bye ไม่ล้าง id: หน้าต่างแยกที่ reload จะส่ง hello ด้วย id เดิมและต่อกลับได้
@@ -936,7 +942,7 @@ function AgentWorkspace({
       host.current = undefined;
       setDetached(false);
     };
-  }, [inShell, mediaOwner]);
+  }, [inShell, mediaOwner, externalControl]);
 
   const viewKey = JSON.stringify(view);
   useEffect(() => {
@@ -986,7 +992,7 @@ function AgentWorkspace({
     }
   }
 
-  const readinessLabel = t(`readiness.${mediaReadiness}`);
+  const readinessLabel = externalControl ? td('external.badge') : t(`readiness.${mediaReadiness}`);
 
   const statusStrip = (
     <div className="aw-status-strip" aria-label={t('status.label')}>
@@ -1021,15 +1027,17 @@ function AgentWorkspace({
       >
         {availability === 'AVAILABLE' ? t('status.available') : t('status.offline')}
       </span>
-      <span
-        className={
-          'aw-chip ' + (dphoneState.phase === 'READY' ? 'aw-chip-success' : 'aw-chip-neutral')
-        }
-        role="status"
-        aria-label={t('status.dphone')}
-      >
-        {td(`phase.${dphoneState.phase}`)}
-      </span>
+      {!externalControl ? (
+        <span
+          className={
+            'aw-chip ' + (dphoneState.phase === 'READY' ? 'aw-chip-success' : 'aw-chip-neutral')
+          }
+          role="status"
+          aria-label={t('status.dphone')}
+        >
+          {td(`phase.${dphoneState.phase}`)}
+        </span>
+      ) : null}
       {/* #588: ใน shell ใหม่ออกจากระบบที่เมนูผู้ใช้บนแถบบนที่เดียว */}
       {onSignOut && !inShellFrame ? (
         <Button size="sm" variant="ghost" onPress={onSignOut}>
@@ -1047,7 +1055,7 @@ function AgentWorkspace({
   );
 
   const offerPanel =
-    !inShell && snapshot?.interaction?.state === 'ASSIGNED' ? (
+    !externalControl && !inShell && snapshot?.interaction?.state === 'ASSIGNED' ? (
       <article className="aw-panel aw-offer" aria-labelledby="incoming-offer-title">
         <div>
           <p className="aw-step">{t('offer.step')}</p>
@@ -1079,7 +1087,9 @@ function AgentWorkspace({
     ) : null;
 
   const controlsPanel =
-    !inShell && (dphoneState.phase === 'ACTIVE' || dphoneState.phase === 'HELD') ? (
+    !externalControl &&
+    !inShell &&
+    (dphoneState.phase === 'ACTIVE' || dphoneState.phase === 'HELD') ? (
       <article className="aw-panel" aria-labelledby="call-controls-title">
         <div>
           <p className="aw-step">{t('controls.step')}</p>
@@ -1240,6 +1250,10 @@ function AgentWorkspace({
     </>
   );
 
+  const externalPhonePanel = (
+    <ExternalPhoneControlPanel enabled={Boolean(sessionReady && ownsWork && !signOutLosesWork)} />
+  );
+
   const mediaPanel = (
     <article className="aw-panel">
       <div className="aw-panel-heading">
@@ -1380,7 +1394,7 @@ function AgentWorkspace({
           <dd>{snapshot?.interaction?.state ?? t('authority.routerApi')}</dd>
         </div>
         <div>
-          <dt>{t('authority.media')}</dt>
+          <dt>{externalControl ? td('external.mediaLabel') : t('authority.media')}</dt>
           <dd>{readinessLabel}</dd>
         </div>
         <div>
@@ -1399,7 +1413,7 @@ function AgentWorkspace({
         <div>
           <p className="aw-eyebrow">{t('heading.eyebrow')}</p>
           <h1>{t('heading.title')}</h1>
-          <p>{t('heading.lede')}</p>
+          <p>{externalControl ? td('external.description') : t('heading.lede')}</p>
         </div>
         <span className="aw-phase-badge">{t('heading.phase')}</span>
       </div>
@@ -1417,9 +1431,9 @@ function AgentWorkspace({
 
         {dphoneWarning}
 
-        {mediaPanel}
+        {externalControl ? externalPhonePanel : mediaPanel}
 
-        {availabilityPanel}
+        {!externalControl ? availabilityPanel : null}
 
         {authorityPanel}
       </section>
@@ -1488,7 +1502,7 @@ function AgentWorkspace({
       ) : (
         <div className="aw-empty">
           <strong>{t('layout.workEmpty')}</strong>
-          <span>{t('layout.workEmptyHint')}</span>
+          <span>{externalControl ? td('external.workHint') : t('layout.workEmptyHint')}</span>
         </div>
       )}
     </section>
@@ -1511,7 +1525,8 @@ function AgentWorkspace({
                 </span>
               </span>
               <span className="aw-call-meta">
-                {t(`layout.direction.${current.direction}`)} · {queueName} · {t('layout.inDphone')}
+                {t(`layout.direction.${current.direction}`)} · {queueName} ·{' '}
+                {externalControl ? td('external.serverWork') : t('layout.inDphone')}
               </span>
             </div>
             {callDuration ? (
@@ -1523,7 +1538,9 @@ function AgentWorkspace({
         ) : (
           <div className="aw-call-identity">
             <strong className="aw-call-caller">{t('layout.noCurrent')}</strong>
-            <span className="aw-call-meta">{t('layout.noCurrentHint')}</span>
+            <span className="aw-call-meta">
+              {externalControl ? td('external.emptyHint') : t('layout.noCurrentHint')}
+            </span>
           </div>
         )}
       </div>
@@ -1599,8 +1616,8 @@ function AgentWorkspace({
       <h2 id="aw-readiness-title" className="aw-column-title">
         {t('layout.readiness')}
       </h2>
-      {mediaPanel}
-      {availabilityPanel}
+      {externalControl ? externalPhonePanel : mediaPanel}
+      {!externalControl ? availabilityPanel : null}
       {authorityPanel}
     </section>
   );
@@ -1720,7 +1737,7 @@ function AgentWorkspace({
         </>
       )}
 
-      {inShell && mediaOwner ? (
+      {inShell && mediaOwner && !externalControl ? (
         detached ? (
           <DphoneDetachedBar view={view} onAttach={attach} />
         ) : (

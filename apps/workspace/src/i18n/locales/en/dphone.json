@@ -76,5 +76,26 @@
       "rate_limited": "Too many call requests. Try again later.",
       "unavailable": "The call passed the permission check, but outbound calling from embedded dphone is not enabled yet"
     }
+  },
+  "external": {
+    "title": "External softphone — simulator",
+    "badge": "Simulated control",
+    "description": "Test controls only. No audio, work items or history are created.",
+    "paused": "Simulation is paused during real work or while the Workspace session/control is unavailable.",
+    "connect": "Start simulator",
+    "incoming": "Simulate incoming call",
+    "accept": "Answer simulated call",
+    "hangup": "End simulated call",
+    "serverWork": "Real work — this simulator does not control the call",
+    "phase": {
+      "DISCONNECTED": "Simulator not started",
+      "IDLE": "Simulator ready to test",
+      "RINGING": "Simulated incoming call",
+      "ACTIVE": "Simulated call in progress — no audio",
+      "ENDED": "Simulated call ended — ready to test again"
+    },
+    "mediaLabel": "Phone control",
+    "emptyHint": "Try the control simulator on the right without creating a real call.",
+    "workHint": "Real work assigned by the system will appear here."
   }
 }

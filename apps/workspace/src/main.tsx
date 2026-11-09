@@ -1,3 +1,4 @@
+import { resolvePhoneControlMode } from './external-phone-control.js';
 import { E2eWorkCustomerHarness } from './e2e-work-customer-harness.js';
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -93,6 +94,9 @@ function E2eAgentWorkspace() {
   return (
     <WorkspaceShell {...e2eShellProps} appId="agent-workspace" workInHand={workInHand}>
       <WorkspaceApp
+        phoneControlMode={resolvePhoneControlMode(
+          e2eSearch.get('phoneControl') ?? import.meta.env.VITE_SOFTPHONE_CONTROL,
+        )}
         api={e2eApi}
         tenantLabel="demo"
         createDphone={e2eCreateDphone}

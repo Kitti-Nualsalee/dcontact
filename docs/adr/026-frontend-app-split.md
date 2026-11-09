@@ -145,3 +145,7 @@ server-side work-session lease ยังคงเป็นผู้บังค�
 [ADR-022](022-internal-collaboration.md) · [ADR-004](004-keycloak-iam.md) ·
 [ADR-010](010-quality-management.md) · [interaction-data-flow.md](../interaction-data-flow.md) ·
 [iam-architecture.md](../iam-architecture.md)
+
+### External softphone control
+
+Owner ยืนยัน 10 พฤศจิกายน 2569 ให้ Workspace รองรับการควบคุม softphone ภายนอกที่ถือเสียงแยกจาก Workspace ตาม [ADR-037](037-external-softphone-control.md). รอบแรกมีเพียง control simulator แบบ opt-in โดยไม่สร้าง SIP session หรือเปลี่ยน Interaction state ของ server; browser phone/embedded owner เดิมยังใช้ ownership/lease ตามข้างต้นจนกว่าจะเปิด connector ที่ตรวจจริง
