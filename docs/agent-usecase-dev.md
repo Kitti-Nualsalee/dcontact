@@ -55,3 +55,15 @@ pnpm test:agent-usecase:browser
 ## งานที่พัก
 
 CSV import, External API/harness, Recording/playback, LINE pilot, สิทธิ์ประวัติทีม และ outbound dispatch อยู่ #888. ไม่ทำงานเหล่านี้เพื่อให้ dev trial ผ่าน ไม่คืน error/race matrix เก่าทั้งชุดเป็น gate แต่คง authorization, tenant isolation, data integrity และ idempotency ในเส้นทางที่เปิดใช้
+
+## CI ตามผลกระทบ
+
+CI ยังรัน build และ Unit checks ส่วน Integration สี่ชุด (managed routing SIP, core writer races, tenant people และ voice gateway) เลือกจากไฟล์ที่เปลี่ยน งานเอกสาร/UI/test tooling ของ Cus360 ไม่เรียกบริการเหล่านี้เอง เมื่อแก้ DB/RLS/IAM/contracts, infra, workflow, lockfile หรือ path ที่จำแนกไม่ได้ ให้รันแบบ conservative; ถ้าตรวจฐาน diff ไม่ได้ก็รันทั้งสี่ชุด
+
+เรียก Integration ทั้งสี่ด้วยมือได้:
+
+```sh
+gh workflow run CI --ref main -f acceptance=integration
+```
+
+ชุดนี้ไม่รวม focused DB trial หรือ browser fixtures ของ #796 ต้องเรียกคำสั่งด้านบนเมื่อต้องตรวจ seams เหล่านั้น Acceptance chain เดิมยังเลือกด้วย `acceptance=chain` และใช้ marker ตาม ADR-032
