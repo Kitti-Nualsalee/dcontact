@@ -70,7 +70,7 @@ gh workflow run CI --ref main -f acceptance=integration
 
 ## External softphone control — owner เลือก 10 พฤศจิกายน 2569
 
-ใช้ UI control ใน Workspace จริงและเริ่มจากตัวจำลองก่อน เพราะยังไม่ได้เลือก desktop app หรือ Chrome extension. เริ่ม Workspace พร้อม build-time opt-in ด้วย:
+ใช้ UI control ใน Workspace จริงและเริ่มจากตัวจำลองก่อน ก่อนเลือก D-Phone เป็น Chrome extension ตัวแรก. เริ่ม Workspace พร้อม build-time opt-in ด้วย:
 
 ```sh
 pnpm workspace:external-control
@@ -86,4 +86,12 @@ Unit ของ control simulator อยู่ใน `test:agent-usecase:unit` �
 pnpm --filter @d-contact/workspace exec playwright test e2e/external-phone-control.spec.ts
 ```
 
-Browser spec ใช้ query เลือกโหมดเฉพาะ E2E harness; production เลือกผ่าน build config เท่านั้น. การเลือก connector/desktop/extension และการพิสูจน์เสียงจริงเป็นงานถัดไปใน #796 ไม่ต้องรอจึงจะทดลอง UI control ได้ ดู ADR-037 และ `apps/workspace/GLOSSARY.md`
+Browser spec ใช้ query เลือกโหมดเฉพาะ E2E harness; production เลือกผ่าน build config เท่านั้น. ## D-Phone สำหรับ Chrome
+
+1. รัน `pnpm dphone:extension:build` ค่าปริยายจับคู่กับ Workspace ที่ `http://localhost:5173` สำหรับ dev origin อื่นกำหนด `D_PHONE_WORKSPACE_ORIGIN` ตอน build
+2. เปิด `chrome://extensions` เปิด Developer mode แล้วเลือก **Load unpacked** ที่ `apps/workspace/dist-dphone-extension` คัดลอก extension ID ที่แสดง
+3. เริ่ม Workspace ด้วย `VITE_SOFTPHONE_CONTROL=chrome-extension` และ `VITE_D_PHONE_EXTENSION_ID` ที่คัดลอกมา พร้อม API/OIDC config ของ dev stack
+4. เปิด D-Phone จาก toolbar และกด **เปิดไมโครโฟน** ในแท็บ D-Phone เปิดแท็บนี้ไว้ระหว่างรับสาย แล้วกลับ Workspace กด **เชื่อมต่อ D-Phone** และ **เปิดรับสาย**
+5. ใช้ **รับสาย** และ **วางสาย** ใน Workspace จากนั้นส่ง disposition และโน้ต แล้วเปิดผลจากประวัติงานตามปกติ
+
+D-Phone แสดงสถานะโทรศัพท์และไมค์ในแท็บของตัวเอง Workspace ยังอ่าน Interaction, WRAPUP และประวัติจาก server การปิดแท็บ D-Phone หรือออกจากหน้า Workspace จะสิ้นสุดช่องควบคุมและปิด SIP session ดู ADR-037

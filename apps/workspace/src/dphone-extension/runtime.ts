@@ -43,6 +43,7 @@ export function attachPhoneRuntime(options: {
     let configured = false;
     let registered = false;
     let call: 'idle' | 'ringing' | 'active' = 'idle';
+    let callId = 0;
     let work = Promise.resolve();
     let lastId = 0;
     const connection = { disconnect };
@@ -61,15 +62,16 @@ export function attachPhoneRuntime(options: {
           void transport.reject().catch(() => undefined);
           return;
         }
+        callId += 1;
         call = 'ringing';
         options.onStatus('ringing');
-        send({ type: 'event', event: 'invitation' });
+        send({ type: 'event', event: 'invitation', callId });
       },
       onSessionEstablished: () => {
         if (!connected) return;
         call = 'active';
         options.onStatus('active');
-        send({ type: 'event', event: 'established' });
+        send({ type: 'event', event: 'established', callId });
       },
       onSessionTerminated: () => {
         const hadCall = call !== 'idle';
@@ -77,7 +79,7 @@ export function attachPhoneRuntime(options: {
         if (!connected || !hadCall) return;
         options.onAudioBlocked(false);
         options.onStatus(registered ? 'ready' : 'lost');
-        send({ type: 'event', event: 'terminated' });
+        send({ type: 'event', event: 'terminated', callId });
       },
       onRegistrationLost: () => {
         if (!connected || !registered) return;
@@ -95,6 +97,7 @@ export function attachPhoneRuntime(options: {
     async function handle(request: ExtensionRequest) {
       if (!connected) return;
       try {
+        if ('callId' in request && request.callId !== callId) throw new Error('Call changed');
         switch (request.command) {
           case 'configure':
             if (configured || Date.parse(request.lease.expiresAt) <= Date.now()) {

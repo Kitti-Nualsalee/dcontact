@@ -246,5 +246,7 @@
     "confirm": "Confirm",
     "cancel": "Cancel",
     "retry": "Retry reading customer"
-  }
+  },
+  "extensionCallFailed": "D-Phone could not complete the action. Check the call status and try again.",
+  "extensionAudioBlocked": "Enable audio in the D-Phone tab to hear the call."
 }

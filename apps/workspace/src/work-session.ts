@@ -442,6 +442,23 @@ export class WorkSessionClient {
     if (code === LEASE_REQUIRED_CLOSE_CODE && this.state.phase === 'held') this.lose('expired');
   }
 
+  /** Release an idle controller after its phone disappears. The server guards in-flight work. */
+  async releaseIdle(): Promise<boolean> {
+    const leaseId = this.leaseId();
+    if (!leaseId || this.options.busy?.()) return false;
+    try {
+      await this.options.api.release(leaseId);
+    } catch (error) {
+      if (!(error instanceof WorkSessionRequestError && error.code === 'WORK_SESSION_CHANGED')) {
+        // Let the server sweep this lease when idle. It keeps the lease while work is in hand.
+        if (this.leaseId() === leaseId) this.socket = undefined;
+        return false;
+      }
+    }
+    if (this.leaseId() === leaseId) this.lose('released');
+    return true;
+  }
+
   /** ปิดหน้า: ปล่อย lease ให้ที่อื่นรับงานต่อได้ทันที (best effort — ไม่สำเร็จก็หมดอายุเองใน 60 วินาที) */
   releaseOnExit(): void {
     if (this.state.phase !== 'held') return;

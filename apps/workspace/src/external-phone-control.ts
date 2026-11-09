@@ -1,7 +1,7 @@
-export type WorkspacePhoneControlMode = 'browser' | 'external-simulator';
+export type WorkspacePhoneControlMode = 'browser' | 'external-simulator' | 'chrome-extension';
 
 export function resolvePhoneControlMode(value: unknown): WorkspacePhoneControlMode {
-  return value === 'external-simulator' ? value : 'browser';
+  return value === 'external-simulator' || value === 'chrome-extension' ? value : 'browser';
 }
 
 /** Local control simulator only: never produces Interaction, SIP or routing events. */

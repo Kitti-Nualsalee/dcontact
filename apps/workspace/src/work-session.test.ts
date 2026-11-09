@@ -390,3 +390,21 @@ test('HTTP: ส่ง bearer + surface, อ่าน envelope 409 พร้อ�
   );
   assert.equal(requests.at(-1)?.init?.keepalive, true);
 });
+
+test('D-Phone disconnect releases an idle work session and preserves busy work', async () => {
+  let busy = true;
+  const { api, client } = setup({ busy: () => busy });
+  await client.start({ autoAcquire: true });
+  await client.releaseIdle();
+  assert.equal(client.leaseId(), 'lease-new');
+  assert.equal(api.calls.includes('release:lease-new'), false);
+
+  busy = false;
+  await client.releaseIdle();
+  assert.equal(client.leaseId(), undefined);
+  assert.equal(client.current().phase, 'standby');
+  assert.equal(api.calls.filter((call) => call === 'release:lease-new').length, 1);
+  await client.acquire();
+  assert.equal(client.leaseId(), 'lease-new');
+  client.stop();
+});
