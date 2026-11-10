@@ -42,7 +42,7 @@ flowchart LR
 
 | Salesforce | D-Contact | สถานะ |
 |---|---|---|
-| Application Runtime (Kernel) | `apps/api` + `apps/router` + `apps/channels` (+ telephony/asterisk gateways, [ADR-006](adr/006-multi-vendor-telephony-gateway.md)) — stateless, deployment เดียว serve ทุก tenant | มีแล้ว (Phase 0) |
+| Application Runtime (Kernel) | `apps/api` + `apps/router` + `apps/channels` (+ telephony gateway, [ADR-038](adr/038-single-voice-stack-tenant-trunks.md)) — stateless, deployment เดียว serve ทุก tenant | มีแล้ว (Phase 0) |
 | Virtual tenant-specific schema | RLS (`app.tenant_id`) + service-layer scoping — ไม่มี schema จริงต่อ tenant | rls.sql มีแล้ว, การ engage จริงอยู่ใน iam-architecture §11 |
 | Shared physical database | Postgres เดียว shared schema ทุกตารางมี `tenant_id` | มีแล้ว |
 | Tenant-specific **data** | interactions, messages, recordings, contacts, agent state log | มีแล้ว |

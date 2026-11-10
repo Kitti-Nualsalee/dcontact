@@ -1,7 +1,12 @@
 # ADR 006: Multi-vendor telephony — deployment profile (SaaS = FreeSWITCH, on-prem = Asterisk)
 
-- **สถานะ:** Accepted
+- **สถานะ:** Accepted — บางส่วนถูกแทนที่โดย [ADR-038](038-single-voice-stack-tenant-trunks.md)
 - **วันที่:** 2026-07-15
+
+> **อัปเดต (2026-11-10):** [ADR-038](038-single-voice-stack-tenant-trunks.md) ยกเลิก profile on-prem = Asterisk
+> ทั้ง CCaaS และ on-prem ใช้ Kamailio + FreeSWITCH ชุดเดียว และไม่สร้าง `apps/asterisk-gateway`
+> ข้อ 1 (แถว On-prem และ Dual-stack), ข้อ 2 และข้อ 6 ไม่มีผลแล้ว ส่วน gateway abstraction, envelope กลาง,
+> header `vendor` และ command set ที่ไม่ผูก vendor ยังมีผล
 
 > **อัปเดต (2026-08-09):** `dc.fs.events` → `dc.telephony.events` ตาม [ADR-023](023-conversation-vs-interaction.md) ข้อ 6
 > (ชื่อเดิมขัดกับ ADR นี้เองที่รองรับ Asterisk)

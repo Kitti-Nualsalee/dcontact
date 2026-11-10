@@ -222,7 +222,7 @@ state ต่อ interaction เก็บใน Redis key `flow:{interactionId}` 
 2. node แบบ synchronous (`condition`, `setvar`) ทำใน process ไม่ผ่าน Kafka
 3. `play`/`collect` → produce `dc.telephony.commands` (`play` / `collect_dtmf`, key = callUuid,
    header `vendor` ตาม [ADR-006](adr/006-multi-vendor-telephony-gateway.md)) → set `WAITING` + `deadlineTs` → คืน consumer loop
-4. FreeSWITCH/Asterisk เล่นเสียง/เก็บปุ่ม → gateway ส่งผลลัพธ์ลง `dc.telephony.events`
+4. FreeSWITCH เล่นเสียง/เก็บปุ่ม → gateway ส่งผลลัพธ์ลง `dc.telephony.events`
 5. router consume event นั้น → โหลด state ด้วย `interactionId` → เทียบ `waitingFor.token` →
    เดินต่อ (dedupe ด้วย `eventId`)
 6. `queue` node → set `interaction.queueId` + append `interaction_events` → `HANDED_OFF` →
@@ -460,7 +460,7 @@ model FlowTrace {
 | ผังต่อช่องทาง | script คนละชนิดต่อสื่อ | ผังต่อช่องทาง | **โมเดลเดียว** + capability matrix ตรวจตอน publish |
 | ผังย่อยใช้ซ้ำ | มี | มี | มี (§10) |
 | pin เวอร์ชันต่อสายที่กำลังคุย | ไม่ชัด | ไม่ชัด | **มี ทั้งผังแม่และผังย่อย** (§6) |
-| รันบนโครงสร้างพื้นฐานของลูกค้าเอง | ไม่ได้ | ไม่ได้ | **ได้** — ผังเดียวกันรันบน FreeSWITCH หรือ Asterisk ([ADR-006](adr/006-multi-vendor-telephony-gateway.md)) |
+| รันบนโครงสร้างพื้นฐานของลูกค้าเอง | ไม่ได้ | ไม่ได้ | **ได้** — ผังเดียวกันรันบน stack เดียวกันที่ติดตั้งในไซต์ลูกค้า ([ADR-038](adr/038-single-voice-stack-tenant-trunks.md)) |
 | ดูย้อนหลังว่าสายเดินทางไหน | มี debugger | มี preview | **flow trace ต่อ interaction** (§5.6) |
 | ใครแก้ได้จริง | มักต้องพาร์ตเนอร์/คนที่ผ่านคอร์ส | หัวหน้าทีม | หัวหน้าทีม |
 
