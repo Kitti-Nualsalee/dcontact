@@ -1374,6 +1374,12 @@ export const APPROVED_DROP_MIGRATIONS = Object.freeze([
     path: 'packages/db/prisma/migrations/20261022130000_tenant_voice_skill_scope/migration.sql',
     sha256: '5e281f7a38bace24cf114dde5a0484a41a0e01d2b317ea95293fce41a8f825c9',
   }),
+  // #868: migration #841 คง CREATOR/OPERATOR และบังคับหลักฐานของ INTEGRATION
+  // ตรึงทั้งไฟล์ตามที่ซ้อมบนฐานแยก เพื่อให้การเปลี่ยน CHECK ครั้งอื่นต้องผ่าน review ใหม่
+  Object.freeze({
+    path: 'packages/db/prisma/migrations/20261103130000_m3_service_principals/migration.sql',
+    sha256: 'b3f3fd9105ce2898ce191db125299d45f8aaf7a9693041f93d1f08492db0b613',
+  }),
 ]);
 export function guardMigrations(changes) {
   const failures = [];

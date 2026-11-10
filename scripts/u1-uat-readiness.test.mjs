@@ -1444,6 +1444,17 @@ test('UAT-M01 (#710): migration ที่ pin ไว้ผ่านเฉพา�
   }
 });
 
+test('UAT-M01 (#868): migration #841 ผ่านเฉพาะไฟล์ใหม่ที่ตรงกับ bytes ที่ซ้อม', () => {
+  const path = 'packages/db/prisma/migrations/20261103130000_m3_service_principals/migration.sql';
+  const sql = readFileSync(resolve(repositoryRoot, path), 'utf8');
+  assert.equal(guardMigrations([{ status: 'A', path, sql }]).status, 'PASS');
+  failed(
+    guardMigrations([{ status: 'A', path, sql: `${sql}\n-- เปลี่ยนเพียง comment` }]),
+    'DROP_STATEMENT',
+  );
+  failed(guardMigrations([{ status: 'M', path, sql }]), 'APPLIED_MIGRATION_CHANGED');
+});
+
 test('UAT-M01 (#567): แทนที่ CHECK ที่ review แล้วผ่าน แต่ชื่ออื่น/ไม่มี ADD ชื่อเดิม/DROP แบบอื่นยังล้ม', () => {
   const path = (name) => `packages/db/prisma/migrations/${name}/migration.sql`;
   const name = 'dl_line_run_authorizations_caps_check';
