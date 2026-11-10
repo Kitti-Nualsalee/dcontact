@@ -208,6 +208,43 @@ Manifest `UatCompositeEvidenceManifestV3` เพิ่ม `componentPackages` �
 
 การตรวจ runtime รุ่นนี้รู้จัก `legacyAnchor` และเปรียบเทียบ source/image/config/identity กับข้อมูลราย component
 โดยคง `rollbackCertified=false`; reader เก่าที่ไม่รู้จัก fields ใหม่ยังไม่ถือว่าผ่าน release certification
+
+### #868 ตรวจหลักฐานก่อนซ้อม API-only rollback
+
+ใช้ observation สดจาก `release-evidence-observe.py` ก่อนเปลี่ยน API ตรวจว่า current record แบบ reconciliation
+ตรงกับ runtime ราย component, protected services และ migration ledger ปัจจุบัน ตัวตรวจใช้ API ที่สังเกตได้จริง
+เป็น target ของการซ้อม โดยแยก historical layout ออกจาก API source
+
+ไฟล์ `UatApiRollbackRehearsalV1` ใช้ `scope=ISOLATED_POSTGRES_SYNTHETIC_IDENTITY` และบันทึกผลซ้อม
+จาก PostgreSQL แยกและ identity fixture ที่ลงนาม token เอง เก็บข้อมูลเท่าที่ตัวตรวจใช้
+
+- `baselineMigrations` และ `candidateMigrations` เป็นรายการ `{name, checksum}` ของ migrations ที่ finished
+  และยังไม่ rolled back จาก Prisma ledger ก่อนและหลังใช้ candidate ops image
+- `candidateOpsImage` เป็น OCI reference แบบระบุ digest ที่ใช้ migrate จริง
+  `candidateReleaseEnvSha256` และ `candidateMigrationGuardSha256` เป็น SHA-256 ของ bytes จาก package เดียวกัน
+- `phases` เรียง `baseline`, `candidate`, `rollback`, `recovery` แต่ละรายการเก็บ `phase`, `sourceSha`, `apiImage`,
+  `profile`, `migrationChecksumsSha256`, `agentSnapshot`, `mismatchedTenant` และ `providerEgress` เก็บ hash ของ
+  `{migrationName: checksum}` แบบ canonical JSON โดยใช้ schema ใหม่ต่อเนื่องตั้งแต่ candidate จนจบ recovery
+- `protectedFixtureAndLedgerPreserved` เป็น `true` เมื่อผลตรวจหลัง recovery ตรงกับข้อมูลทดสอบและ ledger หลัง migrate
+
+Reviewer ตรวจผลรันและให้ SHA-256 ของ canonical JSON สำหรับ observation และ rehearsal แยกจากไฟล์หลักฐาน
+ใช้ `json.dumps` ด้วย `sort_keys=True` และ `separators=(',', ':')` แล้ว hash UTF-8 bytes โดยไม่มี newline ท้ายไฟล์
+รันจาก checkout ที่ผ่าน review โดยใช้ไฟล์ปกติใน operator directory ส่วนตัว
+
+```sh
+python3 -B infra/uat/operator/release-candidate-validate.py \
+  --observation /private/operator/observation.json \
+  --approved-observation-sha256 "$OBSERVATION_SHA256" \
+  --api-rehearsal /private/operator/api-rehearsal.json \
+  --approved-rehearsal-sha256 "$REHEARSAL_SHA256" \
+  --release-env /private/operator/release.env \
+  --migration-guard /private/operator/migration-guard.json
+```
+
+`ISOLATED_API_ROLLBACK_REHEARSAL_MATCHES_BASELINE` ยืนยันว่า package, UAT-M01, schema และ API ที่ซ้อม
+สอดคล้องกับ observation ก่อน maintenance ผลคง `rollbackEligible=false` และ `rollbackCertified=false`
+ก่อนเปลี่ยน runtime ต้องตรวจ identity generation จริง, worker drain, external outcomes และ protected data
+ภายใต้ maintenance window และ lock ของ UAT แล้วเก็บหลักฐาน rollback/recovery และ cleanup ตาม #704
 Platform ยังคงใช้ path จาก source anchor เดิม ส่วน media operator ที่ต้องการ API/sandbox source เดียวกัน
 ยังหยุดเมื่อ runtime mixed ไม่ถือว่า observation นี้ซ่อม runtime หรือผ่าน media gate
 

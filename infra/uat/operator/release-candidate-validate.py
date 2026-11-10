@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """ตรวจ observation สำหรับ candidate; ยังไม่อนุญาตเขียน deployment record."""
 from datetime import datetime, timezone
+import argparse
 import hashlib
 import json
+import os
+from pathlib import Path
 import re
+import stat
+import sys
 
 SERVICES = {'api', 'e1-sandbox', 'proxy', 'keycloak'}
 PROTECTED = {'/dcontact-uat-freeswitch-1', '/dcontact-uat-proxy-1', '/dcontact-uat-keycloak-1',
@@ -20,6 +25,18 @@ def canonical(value):
 
 def valid(pattern, value):
     return isinstance(value, str) and re.fullmatch(pattern, value) is not None
+
+
+def parse_package(raw):
+    package = {}
+    for line in raw.decode('utf-8').splitlines():
+        if not line or line.startswith('#'):
+            continue
+        key, separator, value = line.partition('=')
+        if not separator or key in package:
+            raise RuntimeError('PACKAGE_INVALID')
+        package[key] = value
+    return package
 
 
 def validate(observation, approved_sha256, now=None):
@@ -155,3 +172,137 @@ def validate_rehearsal_unreviewed(observation, proof, now=None):
     if not isinstance(limitations, list) or 'OLD_API_803_DATA_COMPATIBILITY_NOT_NEW_B2_AUTHORITY_OR_VM_ROLLBACK' not in limitations:
         raise RuntimeError('REHEARSAL_LIMITATIONS_REQUIRED')
     return {'status': 'COPY_REHEARSAL_CONSISTENT_NOT_REVIEWED', 'rollbackCertified': False}
+
+
+def migration_checksums(migrations):
+    if (not isinstance(migrations, list) or not 0 < len(migrations) <= 5000
+            or any(not isinstance(item, dict) or set(item) != {'name', 'checksum'}
+                   or not valid(r'[0-9]{14}_[a-z0-9_]+', item['name'])
+                   or not valid('[0-9a-f]{64}', item['checksum']) for item in migrations)):
+        raise RuntimeError('API_ROLLBACK_MIGRATIONS_INVALID')
+    checksums = {item['name']: item['checksum'] for item in migrations}
+    if len(checksums) != len(migrations):
+        raise RuntimeError('API_ROLLBACK_MIGRATIONS_INVALID')
+    return checksums
+
+
+def validate_api_rollback_rehearsal(observation, approved_observation_sha256, rehearsal,
+                                    approved_rehearsal_sha256, release_env, migration_guard, now=None):
+    """เทียบ rehearsal API-only กับ baseline ปัจจุบันก่อนเริ่ม maintenance บน UAT."""
+    validate(observation, approved_observation_sha256, now)
+    if (not valid('[0-9a-f]{64}', approved_rehearsal_sha256)
+            or hashlib.sha256(canonical(rehearsal)).hexdigest() != approved_rehearsal_sha256):
+        raise RuntimeError('APPROVED_API_ROLLBACK_REHEARSAL_MISMATCH')
+    if (not isinstance(rehearsal, dict) or rehearsal.get('schema') != 'UatApiRollbackRehearsalV1'
+            or rehearsal.get('scope') != 'ISOLATED_POSTGRES_SYNTHETIC_IDENTITY'
+            or rehearsal.get('protectedFixtureAndLedgerPreserved') is not True):
+        raise RuntimeError('API_ROLLBACK_REHEARSAL_SCOPE_INVALID')
+
+    runtime = observation['runtime']
+    current = runtime['records']['current']
+    previous = runtime['records']['previous']
+    components = runtime['components']
+    anchor = current.get('sourceSha')
+    if (runtime.get('referenceKind') != 'PER_COMPONENT_OBSERVATION'
+            or (current.get('schema'), current.get('action')) != ('UatDeploymentReconciliationV1', 'reconciliation')
+            or current.get('rollbackEligible') is not False or not valid('[0-9a-f]{40}', anchor)
+            or current.get('legacyAnchor') != {'kind': 'HISTORICAL_RELEASE_LAYOUT_NOT_CURRENT_RUNTIME', 'sourceSha': anchor}
+            or components['api']['sourceSha'] == anchor
+            or current.get('components') != components
+            or any(runtime.get(key) != [] for key in (
+                'sourceMismatch', 'imageDigestMismatch', 'componentConfigMismatch', 'componentIdentityMismatch'))):
+        raise RuntimeError('API_ROLLBACK_BASELINE_RUNTIME_DRIFT')
+
+    baseline = migration_checksums(observation['ledger']['migrations'])
+    if migration_checksums(rehearsal.get('baselineMigrations')) != baseline:
+        raise RuntimeError('API_ROLLBACK_BASELINE_LEDGER_MISMATCH')
+    migrated = migration_checksums(rehearsal.get('candidateMigrations'))
+    if any(migrated.get(name) != checksum for name, checksum in baseline.items()):
+        raise RuntimeError('API_ROLLBACK_CANDIDATE_LEDGER_NOT_ADDITIVE')
+
+    package_sha = hashlib.sha256(release_env).hexdigest()
+    if package_sha != rehearsal.get('candidateReleaseEnvSha256'):
+        raise RuntimeError('API_ROLLBACK_PACKAGE_HASH_MISMATCH')
+    package = parse_package(release_env)
+    api = components['api']
+    target_sha, target_image = api['sourceSha'], api['imageReference']
+    candidate_sha, candidate_image = package.get('SOURCE_SHA'), package.get('API_IMAGE')
+    ops_image = package.get('OPS_IMAGE')
+    if (package.get('UAT_WORKSPACE_ENABLED') != 'true'
+            or not valid('[0-9a-f]{40}', candidate_sha)
+            or not valid(r'[^\s@]+@sha256:[0-9a-f]{64}', candidate_image)
+            or not valid(r'[^\s@]+@sha256:[0-9a-f]{64}', ops_image)
+            or candidate_sha in (target_sha, anchor, previous.get('sourceSha'))
+            or candidate_image.rsplit('@', 1)[1] == target_image.rsplit('@', 1)[1]):
+        raise RuntimeError('API_ROLLBACK_PACKAGE_INVALID')
+    if rehearsal.get('candidateOpsImage') != ops_image:
+        raise RuntimeError('API_ROLLBACK_OPS_IMAGE_MISMATCH')
+    if hashlib.sha256(migration_guard).hexdigest() != rehearsal.get('candidateMigrationGuardSha256'):
+        raise RuntimeError('API_ROLLBACK_MIGRATION_GUARD_HASH_MISMATCH')
+    guard = json.loads(migration_guard)
+    if (not isinstance(guard, dict) or (guard.get('type'), guard.get('mode'), guard.get('status'),
+            guard.get('base'), guard.get('head')) != ('u1.uat.readiness', 'migration-guard', 'PASS',
+                                                      anchor, candidate_sha)):
+        raise RuntimeError('API_ROLLBACK_MIGRATION_GUARD_INVALID')
+    checks = guard.get('checks')
+    if (not isinstance(checks, list) or len(checks) != 1 or not isinstance(checks[0], dict)
+            or not str(checks[0].get('id', '')).startswith('UAT-M01 ') or checks[0].get('status') != 'PASS'
+            or not isinstance(checks[0].get('added'), list)):
+        raise RuntimeError('API_ROLLBACK_MIGRATION_GUARD_INVALID')
+    reviewed_paths = checks[0]['added']
+    new_paths = {f'packages/db/prisma/migrations/{name}/migration.sql' for name in migrated.keys() - baseline.keys()}
+    candidate_paths = {f'packages/db/prisma/migrations/{name}/migration.sql' for name in migrated}
+    if (any(not isinstance(path, str) or path not in candidate_paths for path in reviewed_paths)
+            or not new_paths.issubset(reviewed_paths)):
+        raise RuntimeError('API_ROLLBACK_MIGRATION_GUARD_LEDGER_MISMATCH')
+
+    expected = []
+    for name, source, image, ledger in (
+        ('baseline', target_sha, target_image, baseline),
+        ('candidate', candidate_sha, candidate_image, migrated),
+        ('rollback', target_sha, target_image, migrated),
+        ('recovery', candidate_sha, candidate_image, migrated),
+    ):
+        expected.append({'phase': name, 'sourceSha': source, 'apiImage': image, 'profile': 'uat-workspace',
+                         'migrationChecksumsSha256': hashlib.sha256(canonical(ledger)).hexdigest(),
+                         'agentSnapshot': 200, 'mismatchedTenant': 401, 'providerEgress': 'BLOCKED'})
+    if rehearsal.get('phases') != expected:
+        raise RuntimeError('API_ROLLBACK_PHASE_MISMATCH')
+    return {'status': 'ISOLATED_API_ROLLBACK_REHEARSAL_MATCHES_BASELINE',
+            'observationSha256': approved_observation_sha256, 'rehearsalSha256': approved_rehearsal_sha256,
+            'candidateReleaseEnvSha256': package_sha, 'candidateSourceSha': candidate_sha, 'targetSourceSha': target_sha,
+            'rollbackEligible': False, 'rollbackCertified': False}
+
+
+def read_api_rollback_input(path):
+    limit = 8388608
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+            raise RuntimeError('API_ROLLBACK_INPUT_FILE_INVALID')
+        raw = stream.read(limit + 1)
+        if len(raw) > limit:
+            raise RuntimeError('API_ROLLBACK_INPUT_FILE_INVALID')
+        return raw
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='ตรวจหลักฐาน API-only rollback rehearsal ก่อน maintenance')
+    parser.add_argument('--observation', required=True, type=Path)
+    parser.add_argument('--approved-observation-sha256', required=True)
+    parser.add_argument('--api-rehearsal', required=True, type=Path)
+    parser.add_argument('--approved-rehearsal-sha256', required=True)
+    parser.add_argument('--release-env', required=True, type=Path)
+    parser.add_argument('--migration-guard', required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        result = validate_api_rollback_rehearsal(
+            json.loads(read_api_rollback_input(args.observation)), args.approved_observation_sha256,
+            json.loads(read_api_rollback_input(args.api_rehearsal)), args.approved_rehearsal_sha256,
+            read_api_rollback_input(args.release_env), read_api_rollback_input(args.migration_guard))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RuntimeError) as error:
+        reason = str(error) if type(error) is RuntimeError else 'API_ROLLBACK_INPUT_INVALID'
+        print(json.dumps({'status': 'API_ROLLBACK_REHEARSAL_REJECTED', 'reason': reason,
+                          'rollbackEligible': False, 'rollbackCertified': False}))
+        sys.exit(1)
+    print(json.dumps(result))
