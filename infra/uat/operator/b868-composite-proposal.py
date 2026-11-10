@@ -47,18 +47,6 @@ def reference(ref, root):
     return raw
 
 
-def parse_package(raw):
-    package = {}
-    for line in raw.decode('utf-8').splitlines():
-        if not line or line.startswith('#'):
-            continue
-        key, separator, value = line.partition('=')
-        if not separator or key in package:
-            raise RuntimeError('PACKAGE_INVALID')
-        package[key] = value
-    return package
-
-
 def build(manifest_path, expected_sha256, root=ROOT, now=None):
     """ผลลัพธ์เป็น proposal เท่านั้น; expected hash ไม่ใช่หลักฐานอนุมัติ."""
     now = now or datetime.now(timezone.utc)
@@ -89,7 +77,7 @@ def build(manifest_path, expected_sha256, root=ROOT, now=None):
     CANDIDATE.validate_rehearsal_unreviewed(observation, proof, now)
     runtime = observation['runtime']
     api = runtime['components']['api']
-    package = parse_package(data['package'])
+    package = CANDIDATE.parse_package(data['package'])
     if package.get('SOURCE_SHA') != api['sourceSha'] or package.get('API_IMAGE') not in api['repositoryDigests']:
         raise RuntimeError('PACKAGE_API_MISMATCH')
     guard = json.loads(data['migrationGuard'])
@@ -133,7 +121,7 @@ def build(manifest_path, expected_sha256, root=ROOT, now=None):
             raise RuntimeError('COMPONENT_PACKAGES_REQUIRED')
         for name, key in keys.items():
             package_raw = reference(package_refs[name], root)
-            component_package = parse_package(package_raw)
+            component_package = CANDIDATE.parse_package(package_raw)
             if any(not CANDIDATE.valid(r'[^\s@]+@sha256:[0-9a-f]{64}', component_package.get(field))
                    for field in ('API_IMAGE', 'OPS_IMAGE', 'CONSOLE_IMAGE', 'KEYCLOAK_IMAGE')):
                 raise RuntimeError('COMPONENT_PACKAGE_INVALID')
