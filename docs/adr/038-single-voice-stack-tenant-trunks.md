@@ -53,7 +53,7 @@ Agent ต่อ SIP over WSS และเสียง WebRTC กับ FreeSWITC
 
 ### 7. Profile on-prem
 
-ติดตั้ง stack เดียวกันในไซต์ลูกค้าเป็น tenant เดียว ใช้ trunk หรือ PBX ของลูกค้า ไม่ต้องต่ออินเทอร์เน็ต ใช้ license แบบตรวจออฟไลน์ตาม [ADR-009](009-plan-entitlement-licensing.md) และ object storage ตาม [ADR-029](029-object-storage.md) ขนาดเครื่องกำหนดจากผล load test ของจำนวนสายพร้อมกันจริง รายละเอียดเครือข่ายอยู่ใน [voice-network-deployment.md](../voice-network-deployment.md)
+ติดตั้ง stack เดียวกันในไซต์ลูกค้าเป็น tenant เดียว ใช้ trunk หรือ PBX ของลูกค้า ไม่ต้องต่ออินเทอร์เน็ต ใช้ license แบบตรวจออฟไลน์ตาม [ADR-009](009-plan-entitlement-licensing.md) และ object storage ตาม [ADR-029](029-object-storage.md) ขนาดเครื่องกำหนดจากผล load test ของจำนวนสายพร้อมกันจริง ไซต์ขนาดเล็กติดตั้งบนเครื่องเดียวด้วย Docker Compose ได้ โดยใช้ Kamailio และ FreeSWITCH อย่างละตัวและไม่มีเครื่องสำรอง ซึ่งเป็นข้อยกเว้นของคู่ active/standby ในข้อ 2 และ N+1 ในข้อ 5 รายละเอียดเครือข่ายอยู่ใน [voice-network-deployment.md](../voice-network-deployment.md)
 
 ## ทางเลือกที่ปัดตก
 
