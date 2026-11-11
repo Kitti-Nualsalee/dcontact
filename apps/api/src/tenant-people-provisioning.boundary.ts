@@ -14,6 +14,7 @@ import { TENANT_VOICE_DATABASE, TenantVoiceCatalogController } from './tenant-vo
 import { TenantPeopleKeycloak } from './tenant-people-keycloak.js';
 import { DatabaseTenantPeopleReadiness } from './tenant-people-readiness.js';
 import { TenantPeopleRuntime } from './tenant-people-runtime.js';
+import { runPeopleIdentityEvidenceCli } from './tenant-people-identity-evidence-main.js';
 import { configuredPeopleRuntime } from './tenant-people-composition.js';
 import { reconcilePeopleInvitationAttempt } from './tenant-people-invitation-worker.js';
 import { runPeopleInvitationPreparation } from './tenant-people-invitation-preparation.js';
@@ -837,6 +838,77 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
     await disableRuntime.onModuleDestroy();
     disableRuntime = undefined;
     console.log('B6_HTTP_RLS_KEYCLOAK_DISABLE_RESPONSE_LOSS_PASS');
+    // #868: หลักฐาน identity ก่อนสลับ API อ่าน receipt ทุก operation/step/generation ผ่าน GET ของ extension จริง
+    const evidenceEnvironment = {
+      TENANT_PEOPLE_WORKER_DATABASE_URL: workerUrl.toString(),
+      TENANT_PEOPLE_BINDINGS_JSON: JSON.stringify([
+        { tenantId, issuer, clientSecretEnv: 'TENANT_PEOPLE_SECRET_BOUNDARY', nodes: [] },
+      ]),
+      TENANT_PEOPLE_SECRET_BOUNDARY: required('B2_KEYCLOAK_CLIENT_SECRET'),
+    };
+    const readEvidence = async (tamperStep?: string) => {
+      const lines: string[] = [];
+      const methods: string[] = [];
+      let tampered: string | undefined;
+      const code = await runPeopleIdentityEvidenceCli(
+        evidenceEnvironment,
+        (line) => lines.push(line),
+        async (input, init) => {
+          methods.push(init?.method ?? 'GET');
+          const response = await fetch(input, init);
+          const url = new URL(String(input instanceof Request ? input.url : input));
+          if (!tamperStep || tampered || !url.pathname.endsWith(`/steps/${tamperStep}`))
+            return response;
+          const body = (await response.json()) as Record<string, unknown>;
+          if (body.outcome !== 'SUCCEEDED') return Response.json(body, { status: response.status });
+          tampered = url.pathname.split('/operations/')[1]?.split('/')[0];
+          // จำลอง provider receipt ที่ต่างจาก application โดยไม่แก้ข้อมูลใน DB
+          return Response.json(
+            { ...body, receiptRef: 'f'.repeat(64) },
+            { status: response.status },
+          );
+        },
+        worker,
+      );
+      assert.ok(
+        methods.every((method) => method === 'GET' || method === 'POST'),
+        methods.join(','),
+      );
+      return { code, evidence: JSON.parse(lines[0] ?? '{}'), methods, tampered };
+    };
+    const consistent = await readEvidence();
+    assert.equal(consistent.code, 0, JSON.stringify(consistent.evidence));
+    assert.equal(consistent.evidence.status, 'CONSISTENT');
+    const [evidenceTenant] = consistent.evidence.tenants;
+    assert.deepEqual(evidenceTenant.mismatches, []);
+    assert.equal(evidenceTenant.requestFailures, 0);
+    assert.equal(evidenceTenant.readiness.ready, true);
+    assert.ok(evidenceTenant.counts.operations >= 3, JSON.stringify(evidenceTenant.counts));
+    assert.ok(evidenceTenant.counts.invitations >= 1, JSON.stringify(evidenceTenant.counts));
+    assert.ok(evidenceTenant.counts.disables >= 1, JSON.stringify(evidenceTenant.counts));
+    // POST มีเฉพาะการขอ service token; การอ่าน receipt ต้องเป็น GET ทั้งหมด
+    assert.equal(
+      consistent.methods.filter((method) => method === 'POST').length,
+      consistent.methods.length / 2,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(consistent.evidence),
+      new RegExp(required('B2_KEYCLOAK_CLIENT_SECRET')),
+    );
+    const inconsistent = await readEvidence('VERIFY_PROVISIONED');
+    assert.ok(inconsistent.tampered);
+    assert.equal(inconsistent.code, 2);
+    assert.deepEqual(
+      inconsistent.evidence.tenants[0].mismatches.map(
+        (item: { operationId: string; step: string; reason: string }) => [
+          item.operationId,
+          item.step,
+          item.reason,
+        ],
+      ),
+      [[inconsistent.tampered, 'VERIFY_PROVISIONED', 'RECEIPT_MISMATCH']],
+    );
+    console.log('UAT868_IDENTITY_EVIDENCE_PASS');
     await owner.$executeRaw`UPDATE tenant_people_worker_bindings SET enabled=false WHERE tenant_id=${tenantId}::uuid AND database_principal=${workerPrincipal}`;
     assert.deepEqual((await read('capabilities')).peopleProvisioning, {
       ready: false,

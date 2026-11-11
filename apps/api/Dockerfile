@@ -55,6 +55,7 @@ RUN pnpm --filter @d-contact/api deploy --prod /out/api \
   && test -f /out/api/dist/uat-main.js \
   && test -f /out/api/dist/e1-uat-main.js \
   && test -f /out/api/dist/uat-provision-main.js \
+  && test -f /out/api/dist/tenant-people-identity-evidence-main.js \
   && test -f /out/api/dist/line-webhook-main.js \
   && test -f /out/e1-sandbox/dist/e1-sandbox-main.js \
   && test -f /out/e1-sandbox/dist/e1-voice-control-main.js \
