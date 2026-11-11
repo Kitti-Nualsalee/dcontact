@@ -5,7 +5,7 @@
   `X-DContact-Admission-Fence: people` ก่อนถึง API. คำขอไม่มีสิทธิ์จึงไม่สร้างงานแม้ fence ปิด
 - `drain`: บน VM2 อ่าน `tenant_people_*` ทุกตารางที่มี state/lease ผ่าน DB principal เดียวกับ
   release-evidence-observe (read-only, BYPASSRLS) แล้วยืนยันว่าไม่มีงานค้าง lease ที่ยังถือ หรือผลที่ต้องให้คนตัดสิน
-  รวมงาน invitation ที่ยังไม่มี receipt และต้องได้ DRAINED ซ้ำหลังรอ settle (ค่าเริ่มต้น 60 วินาที)
+  รวมงาน invitation ที่ยังไม่มี receipt และต้องได้ DRAINED ซ้ำหลังรอ settle (ค่าเริ่มต้น 180 วินาที)
 
 ไม่เปิดหรือปิด fence เอง และไม่รับรอง rollback; ผลที่ไม่ใช่ DRAINED หมายถึงห้ามสลับ API
 """
@@ -23,6 +23,9 @@ from pathlib import Path
 DIRECTORY = Path(__file__).resolve().parent
 FENCE_FILE = Path('/opt/dcontact-uat/admission-fence/people-mutations')
 PROBE_PATH = '/api/v1/tenant-voice/people/users'
+# คำขอเดียวที่ช้าที่สุดคือ disable: readiness 2 ชั้น (Keycloak 2 calls x 10s ต่อชั้น + transaction ~7s)
+# + transaction ก่อน probe ~7s + probe Keycloak <=30s + transaction ปิดท้าย ~7s ≈ 91s จึงบังคับ settle อย่างน้อย 120s
+SETTLE_MIN, SETTLE_DEFAULT = 120, 180
 TERMINAL = frozenset({'SUCCEEDED', 'REJECTED'})
 TABLE = re.compile(r'tenant_people_[a-z_]{1,48}')
 TABLES_QUERY = r"""SELECT json_build_object('database',current_database(),'principal',current_user,
@@ -126,7 +129,7 @@ def observe_drain(read, fence_present):
 
 def observe_settled(read, fence_present, settle_seconds, sleep=time.sleep):
     """คำขอที่ผ่าน proxy ก่อนเปิด fence อาจ commit ช้า จึงต้อง DRAINED สองครั้งห่างกันอย่างน้อย settle_seconds"""
-    if type(settle_seconds) is not int or not 30 <= settle_seconds <= 3600:
+    if type(settle_seconds) is not int or not SETTLE_MIN <= settle_seconds <= 3600:
         raise RuntimeError('SETTLE_SECONDS_INVALID')
     first = observe_drain(read, fence_present())
     if first['status'] != 'DRAINED':
@@ -169,8 +172,8 @@ def main(argv):
     if len(argv) == 2 and argv[0] == 'probe':
         result = probe(argv[1])
         ok = result['status'] == 'FENCE_ACTIVE'
-    elif argv[:1] == ['drain'] and len(argv) <= 2:
-        settle = int(argv[1]) if len(argv) == 2 and argv[1].isdigit() else (60 if len(argv) == 1 else -1)
+    elif argv[:1] == ['drain'] and len(argv) <= 2 and (len(argv) == 1 or argv[1].isdigit()):
+        settle = int(argv[1]) if len(argv) == 2 else SETTLE_DEFAULT
         observer = load_module('release_evidence', DIRECTORY / 'release-evidence-observe.py')
         if hashlib.sha256(observer.HELPER.read_bytes()).hexdigest() != observer.HELPER_SHA:
             raise RuntimeError('REVIEWED_HELPER_CHANGED')

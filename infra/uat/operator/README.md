@@ -337,15 +337,18 @@ python3 -I infra/uat/operator/b868-people-drain-observe.py probe "https://$UAT_H
 ชุดเดียวกับ `release-evidence-observe.py`
 
 ```sh
-python3 -I /opt/dcontact-uat/operator/<package>/b868-people-drain-observe.py drain 60
+python3 -I /opt/dcontact-uat/operator/<package>/b868-people-drain-observe.py drain 180
 ```
 
 คำสั่งค้นทุกตาราง `tenant_people_*` ที่มี `state` หรือ `lease_expires_at` และยืนยันว่า principal มี `BYPASSRLS`
 เพราะตารางเหล่านี้ใช้ `FORCE ROW LEVEL SECURITY`. งาน invitation ไม่มีคอลัมน์ state จึงนับแยกด้วยเงื่อนไขเดียวกับ
 worker ได้แก่ intent รุ่นแรกที่ยังไม่ส่ง resend dispatch และ ambiguity ที่ยังไม่มี receipt. คำขอที่ผ่าน proxy ก่อนเปิด
-fence อาจ commit ช้า คำสั่งจึงอ่านซ้ำหลังรอ settle (30–3600 วินาที ค่าเริ่มต้น 60) และตอบ `DRAINED` (exit 0)
+fence อาจ commit ช้า คำขอที่ช้าที่สุดคือ disable ซึ่งรวม readiness สองชั้น probe Keycloak และ transaction แล้วใช้เวลาไม่เกินราว 91 วินาที
+คำสั่งจึงอ่านซ้ำหลังรอ settle (120–3600 วินาที ค่าเริ่มต้น 180) และตอบ `DRAINED` (exit 0)
 เฉพาะเมื่อทั้งสองรอบทุกแถวอยู่ใน `SUCCEEDED`/`REJECTED` ไม่มี lease ที่ยังถือ และงาน invitation เป็นศูนย์.
-Dispatch lease 30 วินาทีอาจยังไม่หมดอายุหลัง receipt จึงอาจได้ `NOT_DRAINED` ชั่วคราว ให้รันใหม่. `NOT_DRAINED` จะแสดงตารางและ state ที่ค้าง ให้รอ worker หรือ
+Dispatch lease 30 วินาทีอาจยังไม่หมดอายุหลัง receipt จึงอาจได้ `NOT_DRAINED` ชั่วคราว ให้รันใหม่.
+Activation polling ยังทำงานต่อโดยตั้งใจ เพราะอ่านสถานะจาก Keycloak แล้วบันทึกผลเท่านั้น และผู้ใช้ที่ยังไม่ activate อาจค้างได้นาน
+จึงไม่นับเป็นงานที่ต้อง drain. `NOT_DRAINED` จะแสดงตารางและ state ที่ค้าง ให้รอ worker หรือ
 reconcile ผลภายนอกก่อน `ACTION_REQUIRED` และ state ที่ไม่รู้จักถือว่ายังไม่ drain. `FENCE_NOT_ARMED` หมายถึง
 ไม่พบไฟล์ fence. ให้เก็บผลทั้งสองคำสั่งพร้อม hash ไว้กับหลักฐานของ window. ผลเหล่านี้ไม่รับรอง rollback และ
 `rollbackCertified` เป็น `false` เสมอ

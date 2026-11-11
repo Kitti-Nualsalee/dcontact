@@ -105,17 +105,17 @@ class DrainTests(unittest.TestCase):
         def sleep(seconds):
             slept.append(seconds)
             database.counts['tenant_people_operations'] = ({'QUEUED': 1}, 0)
-        result = drain.observe_settled(database, lambda: True, 60, sleep)
-        self.assertEqual(slept, [60])
+        result = drain.observe_settled(database, lambda: True, 180, sleep)
+        self.assertEqual(slept, [180])
         self.assertEqual(result['status'], 'NOT_DRAINED')
-        self.assertEqual(result['settledSeconds'], 60)
-        result = drain.observe_settled(Database(), lambda: True, 30, lambda _: None)
+        self.assertEqual(result['settledSeconds'], 180)
+        result = drain.observe_settled(Database(), lambda: True, 120, lambda _: None)
         self.assertEqual(result['status'], 'DRAINED')
         self.assertIn('firstObservedAt', result)
         slept.clear()
-        result = drain.observe_settled(Database(), lambda: False, 60, sleep)
+        result = drain.observe_settled(Database(), lambda: False, 180, sleep)
         self.assertEqual((result['status'], slept), ('FENCE_NOT_ARMED', []))
-        for value in [0, 29, 3601, '60']:
+        for value in [0, 60, 119, 3601, '180']:
             with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, 'SETTLE_SECONDS_INVALID'):
                 drain.observe_settled(Database(), lambda: True, value, lambda _: None)
 
@@ -128,6 +128,10 @@ class DrainTests(unittest.TestCase):
         database.counts['tenant_people_operations'] = ({'QUEUED': -1}, 0)
         with self.assertRaisesRegex(RuntimeError, 'PEOPLE_COUNTS_INVALID'):
             drain.observe_drain(database, True)
+
+    def test_cli_rejects_non_numeric_settle_with_usage(self):
+        self.assertEqual(drain.main(['drain', 'abc']), 64)
+        self.assertEqual(drain.main(['drain', '1', '2']), 64)
 
 
 class Response:
