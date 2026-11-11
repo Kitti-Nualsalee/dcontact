@@ -10,6 +10,10 @@
 [PostgreSQL handoff](k8s-uat-db-handoff.md); [แบบ CI/CD ที่ทีม CD ถือสิทธิ์ deploy](k8s-uat-cicd.md)
 — เป็นงานเตรียมไฟล์ ยังไม่ deploy.
 
+แบบเครือข่าย Voice สำหรับ CCaaS และ on-prem: [voice-network-deployment.md](voice-network-deployment.md)
+— เป็นข้อเสนอสำหรับทีม Infra ยังไม่ติดตั้ง. รุ่นการติดตั้งสำหรับทีมขาย (Cloud, Cluster, Duo, Solo):
+[deployment-models.md](deployment-models.md) — ร่างแรก ยังไม่มีราคา.
+
 > **ธรรมเนียมของ schema:** `packages/db/prisma/schema.prisma` เก็บเฉพาะ **ตาราง kernel**
 > (tenant · user · queue · interaction · conversation · message · recording) ที่ทุกโมดูลต้องใช้ร่วมกัน
 > ส่วน **ตารางของโมดูล** (`wfm_*` `qm_*` `ob_*` `fb_*` `cs_*` `ic_*` `jr_*` `cg_*` …) อยู่ใน
@@ -25,7 +29,7 @@
 | [003](adr/003-kafka-event-backbone.md) | Kafka เป็น event backbone | event ห้ามหาย/replay ได้เพื่อ billing; Redis เหลือ state store |
 | [004](adr/004-keycloak-iam.md) | Keycloak เป็น IAM | single realm + Organizations (org ต่อ tenant) |
 | [005](adr/005-multitenant-metadata-architecture.md) | Multi-tenant แบบ Salesforce | shared DB + metadata-driven — customize ด้วยข้อมูล ไม่ใช่ schema/โค้ด |
-| [006](adr/006-multi-vendor-telephony-gateway.md) | Multi-vendor telephony | 1 vendor/deployment (SaaS=FreeSWITCH, on-prem=Asterisk); kernel เดียวกัน สลับแค่ gateway — router ไม่รู้ vendor |
+| [006](adr/006-multi-vendor-telephony-gateway.md) | Multi-vendor telephony | gateway abstraction + envelope กลาง — router ไม่รู้ vendor; ส่วน on-prem=Asterisk ถูกแทนที่โดย ADR-038 |
 | [007](adr/007-flow-engine.md) | Omnichannel Flow engine | เปลี่ยนชื่อ IVR→Flow; interpreter ใน router ทำงานก่อน matching; designer ด้วย React Flow |
 | [008](adr/008-workforce-management.md) | Workforce Management | `apps/wfm` (TS) + `apps/wfm-engine` (Python/CP-SAT) คุยกันผ่าน Kafka job; ตารางกะเป็น soft constraint — router ไม่รู้จัก WFM |
 | [009](adr/009-plan-entitlement-licensing.md) | Plan & entitlement | แยก entitlement ออกจาก quota; guard จุดเดียว + ด่านที่ 2 ที่ขอบ job; หมดอายุ = อ่านอย่างเดียว **ห้ามกระทบการรับสาย**; on-prem ใช้ license เซ็น Ed25519 |
@@ -51,6 +55,7 @@
 | [029](adr/029-object-storage.md) | Object storage | **S3 API คือ contract**; dev/CI ใช้ **RustFS**, UAT 3 VM/on-prem/cloud ใช้ **SeaweedFS**; K8s UAT ใหม่มีข้อยกเว้น RustFS บน PVC พร้อม gate IAM/lifecycle; bootstrap ไม่ผูกกับ CLI ของผู้ผลิต |
 | [030](adr/030-uat-three-vm-topology.md) | UAT แบบ 3 VM | nginx (VM1) ทำ TLS/edge → stack บน Docker (VM2) → PostgreSQL ภายนอก (VM3) ผ่าน `db-relay` เพื่อคง `internal: true`; ทำเป็น overlay `docker-compose.uat.3vm.yml` ไม่แก้ไฟล์ฐาน; DB/role แยกชื่อบน cluster ร่วม |
 | [032](adr/032-acceptance-commit-on-main.md) | Acceptance marker บน main | marker ออกได้เมื่อ commit **อยู่บน main แล้ว** (ancestor ของ `origin/main`) ไม่ต้องเป็น HEAD; `acceptance=chain` รัน S1 → J2/CG4 → J3 → J5 ใน dispatch เดียวบน SHA เดียวกัน |
+| [038](adr/038-single-voice-stack-tenant-trunks.md) | Voice stack เดียว + trunk ต่อ tenant | CCaaS และ on-prem ใช้ **Kamailio + FreeSWITCH ชุดเดียว** ไม่ใช้ Asterisk; Kamailio เป็นขอบ SIP ที่รู้จัก tenant; มี trunk กลางและ trunk ของ tenant |
 
 ## เอกสารสถาปัตยกรรม
 

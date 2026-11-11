@@ -23,28 +23,27 @@
 > พร้อมชุดพิสูจน์สอง tenant ใน `apps/phase-one-acceptance` ส่วน path อื่นในตารางยังเป็นแผนผัง
 > และจะสร้างเมื่อเริ่มเฟสที่ใช้จริง
 
-| path                    | หน้าที่                                                                                                                                                   |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/api`              | REST + WebSocket gateway (auth, tenant, CRUD)                                                                                                             |
-| `apps/telephony`        | media gateway (ESL/ARI) → dc.telephony.events — ดู [ADR 006](docs/adr/006-multi-vendor-telephony-gateway.md)                                              |
-| `apps/asterisk-gateway` | Asterisk gateway (ARI) — parallel ของ telephony, ป้อน topic เดียว (Phase 1+)                                                                              |
-| `apps/router`           | ACD/routing engine (ทุก channel, ทุก vendor)                                                                                                              |
-| `apps/channels`         | Channel gateways (webchat, LINE, FB, WA, email)                                                                                                           |
-| `apps/workspace`        | หน้าทำงานที่ต้องมี session สด: กล่องงาน + softphone + หน้าสดของหัวหน้า (monitor/whisper/queue control) — ดู [ADR 026](docs/adr/026-frontend-app-split.md) |
-| `apps/console`          | หน้าตั้งค่า/รายงานทั้งหมด (routing · people · integrations · WFM/QM setup · journeys · reports · admin) — deploy คนละจังหวะกับ workspace                  |
-| `apps/wfm`              | Workforce management: กะ/ลา/adherence/RTA — ดู [ADR 008](docs/adr/008-workforce-management.md) (Phase W1+)                                                |
-| `apps/wfm-engine`       | **Python** — forecast (Erlang) + จัดกะด้วย OR-Tools CP-SAT, คุยผ่าน `dc.wfm.jobs` (Phase W4)                                                              |
-| `apps/qm`               | Quality management: recording lifecycle, transcript, ให้คะแนน, auto-QM — ดู [ADR 010](docs/adr/010-quality-management.md) (Phase Q1+)                     |
-| `apps/dialer`           | Outbound: แคมเปญ/รายชื่อ/pacing/DNC — ผลิต **งาน** ให้ router ไม่ใช่โทรเอง — ดู [ADR 011](docs/adr/011-outbound-campaign.md) (Phase O1+)                  |
-| `apps/bot`              | Virtual agent + คลังความรู้ (RAG บน pgvector) — ดู [ADR 013](docs/adr/013-virtual-agent-knowledge.md) (Phase B2+)                                         |
-| `apps/cases`            | Case management: งานที่ไม่จบในครั้งเดียว + SLA — ดู [ADR 016](docs/adr/016-case-management.md) (Phase C1+)                                                |
-| `apps/journey`          | CX automation: journey ที่ผูกกับลูกค้า + contact policy — ไม่สร้าง interaction เอง — ดู [ADR 025](docs/adr/025-journey-orchestration.md) (Phase J1+)      |
-| `apps/webhook`          | ส่ง event ออกให้ระบบลูกค้า — consumer ของ Kafka ไม่อยู่ในเส้นทางรับสาย — ดู [ADR 015](docs/adr/015-integration-platform.md) (Phase I2+)                   |
-| `packages/shared`       | Types + event contracts                                                                                                                                   |
-| `packages/ui`           | design system ร่วมของสองแอปหน้าจอ — ห้าม fork component ([ADR 026](docs/adr/026-frontend-app-split.md) ข้อ 6)                                             |
-| `packages/kafka`        | Kafka producer/consumer wrapper (ทุก service ใช้ตัวนี้)                                                                                                   |
-| `packages/db`           | Prisma schema, RLS, seed                                                                                                                                  |
-| `infra/`                | Docker Compose + FreeSWITCH config (config-as-code)                                                                                                       |
+| path              | หน้าที่                                                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/api`        | REST + WebSocket gateway (auth, tenant, CRUD)                                                                                                             |
+| `apps/telephony`  | media gateway (ESL) ของ FreeSWITCH → dc.telephony.events — ดู [ADR 038](docs/adr/038-single-voice-stack-tenant-trunks.md)                                 |
+| `apps/router`     | ACD/routing engine (ทุก channel, ทุก vendor)                                                                                                              |
+| `apps/channels`   | Channel gateways (webchat, LINE, FB, WA, email)                                                                                                           |
+| `apps/workspace`  | หน้าทำงานที่ต้องมี session สด: กล่องงาน + softphone + หน้าสดของหัวหน้า (monitor/whisper/queue control) — ดู [ADR 026](docs/adr/026-frontend-app-split.md) |
+| `apps/console`    | หน้าตั้งค่า/รายงานทั้งหมด (routing · people · integrations · WFM/QM setup · journeys · reports · admin) — deploy คนละจังหวะกับ workspace                  |
+| `apps/wfm`        | Workforce management: กะ/ลา/adherence/RTA — ดู [ADR 008](docs/adr/008-workforce-management.md) (Phase W1+)                                                |
+| `apps/wfm-engine` | **Python** — forecast (Erlang) + จัดกะด้วย OR-Tools CP-SAT, คุยผ่าน `dc.wfm.jobs` (Phase W4)                                                              |
+| `apps/qm`         | Quality management: recording lifecycle, transcript, ให้คะแนน, auto-QM — ดู [ADR 010](docs/adr/010-quality-management.md) (Phase Q1+)                     |
+| `apps/dialer`     | Outbound: แคมเปญ/รายชื่อ/pacing/DNC — ผลิต **งาน** ให้ router ไม่ใช่โทรเอง — ดู [ADR 011](docs/adr/011-outbound-campaign.md) (Phase O1+)                  |
+| `apps/bot`        | Virtual agent + คลังความรู้ (RAG บน pgvector) — ดู [ADR 013](docs/adr/013-virtual-agent-knowledge.md) (Phase B2+)                                         |
+| `apps/cases`      | Case management: งานที่ไม่จบในครั้งเดียว + SLA — ดู [ADR 016](docs/adr/016-case-management.md) (Phase C1+)                                                |
+| `apps/journey`    | CX automation: journey ที่ผูกกับลูกค้า + contact policy — ไม่สร้าง interaction เอง — ดู [ADR 025](docs/adr/025-journey-orchestration.md) (Phase J1+)      |
+| `apps/webhook`    | ส่ง event ออกให้ระบบลูกค้า — consumer ของ Kafka ไม่อยู่ในเส้นทางรับสาย — ดู [ADR 015](docs/adr/015-integration-platform.md) (Phase I2+)                   |
+| `packages/shared` | Types + event contracts                                                                                                                                   |
+| `packages/ui`     | design system ร่วมของสองแอปหน้าจอ — ห้าม fork component ([ADR 026](docs/adr/026-frontend-app-split.md) ข้อ 6)                                             |
+| `packages/kafka`  | Kafka producer/consumer wrapper (ทุก service ใช้ตัวนี้)                                                                                                   |
+| `packages/db`     | Prisma schema, RLS, seed                                                                                                                                  |
+| `infra/`          | Docker Compose + FreeSWITCH config (config-as-code)                                                                                                       |
 
 ## เริ่มต้น dev
 

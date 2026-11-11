@@ -19,7 +19,7 @@
 
 ไม่ต้องมี public URL เพิ่มสำหรับ RustFS, Mailpit, Keycloak admin หรือ metrics. ถ้าทดสอบ Mailpit ให้ใช้ `kubectl port-forward` ผ่านสิทธิ์ operator; ห้ามเพิ่ม public Ingress. DNS สองชื่อและ wildcard certificate ต้องตรวจว่า certificate ครอบคลุมทั้งสอง FQDN.
 
-`PLATFORM_SIP_BASE_DOMAIN=sip.k8s-uat.osd.co.th` เป็นชื่อสำรองใน config ขณะที่ Platform provisioning ปิดอยู่; ยังไม่ต้องสร้าง DNS นี้. หากจะทดสอบ voice/SIP จริง ต้องตกลง endpoint และแผนเครือข่ายแยกก่อนเปิด feature.
+`PLATFORM_SIP_BASE_DOMAIN=sip.k8s-uat.osd.co.th` เป็นชื่อสำรองใน config ขณะที่ Platform provisioning ปิดอยู่; ยังไม่ต้องสร้าง DNS นี้. หากจะทดสอบ voice/SIP จริง ต้องตกลง endpoint และแผนเครือข่ายแยกก่อนเปิด feature; ข้อเสนอแผนเครือข่ายอยู่ใน [voice-network-deployment.md](voice-network-deployment.md).
 
 ## ไฟล์และค่าเตรียมล่วงหน้า
 

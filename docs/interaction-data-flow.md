@@ -57,10 +57,8 @@ system of record) และ produce ลง `dc.interaction.events` (realtime fan
 ```mermaid
 flowchart TB
   FS["Voice — FreeSWITCH<br/>SIP trunk"] --> TEL["apps/telephony<br/>ESL → normalize"]
-  AST["Voice — Asterisk<br/>SIP trunk"] --> AGW["apps/asterisk-gateway<br/>ARI → normalize"]
   D["Digital channels<br/>webchat · LINE · FB · WA · email"] --> CHG["channels gateway<br/>webhook → normalize"]
   TEL --> K["Kafka: dc.telephony.events<br/>key = callUuid · header tenantId + vendor"]
-  AGW --> K
   CHG --> KC["Kafka: dc.channel.events<br/>key = conversationId · header tenantId"]
   K --> R["Router (ACD)<br/>สร้าง interaction · จับคู่ agent"]
   KC --> R
@@ -71,13 +69,12 @@ flowchart TB
   R --> PG[("Postgres<br/>interactions · event log")]
   R --> WSA["dc.interaction.events → API → WebSocket<br/>agent desktop · supervisor"]
   CMD -. "vendor=freeswitch" .-> TEL
-  CMD -. "vendor=asterisk" .-> AGW
   CMD -. "loop กลับ media" .-> FS
-  CMD -. "loop กลับ media" .-> AST
 ```
 
-> **Multi-vendor:** FreeSWITCH และ Asterisk มี gateway ของตัวเองแต่ produce ลง `dc.telephony.events`
-> เดียวกัน — router มองเห็นเหมือนกันหมด รายละเอียดเส้น command ขากลับดู §3b และ [ADR-006](adr/006-multi-vendor-telephony-gateway.md)
+> **Voice stack:** ทุก deployment ใช้ FreeSWITCH ผ่าน `apps/telephony` ตัวเดียว ตาม
+> [ADR-038](adr/038-single-voice-stack-tenant-trunks.md) — header `vendor` ยังอยู่ใน envelope
+> เพื่อให้ router ไม่ผูก vendor รายละเอียดดู §3b
 
 ลำดับเหตุการณ์:
 
@@ -116,6 +113,11 @@ speech บางชนิดไม่มี `variable_domain_name`; จึง no
 
 ## 3b. Multi-vendor voice (FreeSWITCH + Asterisk)
 
+> **อัปเดต (2026-11-10):** [ADR-038](adr/038-single-voice-stack-tenant-trunks.md) ยกเลิก Asterisk
+> ทั้ง CCaaS และ on-prem ใช้ FreeSWITCH และไม่สร้าง `apps/asterisk-gateway` หัวข้อนี้เก็บไว้เป็นคำอธิบาย
+> ของ gateway abstraction และ header `vendor` ที่ยังมีผล ส่วนที่กล่าวถึง Asterisk และ dual-stack
+> ไม่ใช่แผนงานแล้ว
+
 จาก [ADR-006](adr/006-multi-vendor-telephony-gateway.md): voice รองรับสอง media server ผ่าน
 gateway ที่ขนานกัน — **router ไม่รู้ว่าสายมาจาก vendor ไหน**
 
@@ -152,7 +154,7 @@ flowchart LR
 - **Command set = ความสามารถร่วม** ของทั้งคู่ (bridge/park/hangup/record/playback/DTMF) —
   gateway แปลงเป็น ESL app / ARI operation ของตัวเอง; feature เฉพาะ vendor ไม่รั่วถึง router
 
-**เคสหลัก = 1 vendor ต่อ deployment** (SaaS → FreeSWITCH, on-prem → Asterisk): deployment รัน gateway
+**ทุก deployment ใช้ FreeSWITCH** (ทั้ง CCaaS และ on-prem ตาม ADR-038): deployment รัน gateway
 ตัวเดียว → มี consumer เดียว → **เส้น command ขากลับข้างบนกลายเป็น no-op** (ไม่ต้อง filter จริง) —
 kernel image เดียวกันทุก profile ต่างแค่ gateway container ที่ deploy
 
@@ -338,9 +340,9 @@ Inbound Voice Phase 1 implement เส้นทางหลักแล้ว:
   แต่ React UI และ SIP.js browser softphone ยังเป็นงานของเฟสถัดไป
 - acceptance สอง tenant และ softphone E2E ตรวจได้ด้วย `pnpm voice:acceptance`
 
-**Multi-vendor (§3b):** `apps/telephony` (FreeSWITCH) เป็น gateway ตัวแรกที่ implement ใน Phase 1;
-`apps/asterisk-gateway` เป็น Phase 1+ — envelope contract, `vendor` header, และ command routing
-ถูกล็อกไว้แล้วใน ADR-006 เพื่อให้วาง interface ถูกตั้งแต่ telephony ตัวแรก ไม่ต้อง retrofit
+**Voice gateway (§3b):** `apps/telephony` (FreeSWITCH) เป็น gateway ตัวเดียวของทุก profile ตาม ADR-038;
+`apps/asterisk-gateway` ไม่อยู่ในแผนแล้ว — envelope contract, `vendor` header, และ command routing
+จาก ADR-006 ยังคงอยู่เพื่อให้ router ไม่ผูก vendor
 
 ## รายงานที่โมดูลนี้เป็นเจ้าของ
 
