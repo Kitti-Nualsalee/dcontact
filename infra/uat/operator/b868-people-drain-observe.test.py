@@ -16,19 +16,25 @@ class Database:
                       'bypassRls': True,
                       'tables': tables if tables is not None else [
                           {'table': 'tenant_people_disables', 'state': True, 'lease': True},
+                          {'table': 'tenant_people_invitation_dispatches', 'state': False, 'lease': True},
                           {'table': 'tenant_people_operations', 'state': True, 'lease': True},
                           {'table': 'tenant_people_worker_bindings', 'state': False, 'lease': True}]}
         self.scope.update(scope or {})
         self.counts = counts if counts is not None else {
             'tenant_people_disables': ({'SUCCEEDED': 2}, 0),
+            'tenant_people_invitation_dispatches': ({}, 0),
             'tenant_people_operations': ({'SUCCEEDED': 5, 'REJECTED': 1}, 0),
             'tenant_people_worker_bindings': ({}, 0)}
+        self.invitations = {'readonly': 'on', 'intentsPendingDelivery': 0, 'resendsWithoutReceipt': 0,
+                            'dispatchesWithoutReceipt': 0, 'ambiguitiesWithoutReceipt': 0}
         self.queries = []
 
     def __call__(self, sql):
         self.queries.append(sql)
-        if len(self.queries) == 1:
+        if sql == drain.TABLES_QUERY:
             return json.dumps(self.scope).encode()
+        if sql == drain.INVITATION_QUERY:
+            return json.dumps(self.invitations)
         return json.dumps({'readonly': 'on', 'tables': [
             {'table': name, 'states': states, 'liveLeases': leases}
             for name, (states, leases) in self.counts.items()]})
@@ -71,6 +77,47 @@ class DrainTests(unittest.TestCase):
             with self.subTest(tables=tables):
                 with self.assertRaisesRegex(RuntimeError, 'PEOPLE_TABLES_INVALID'):
                     drain.observe_drain(Database(tables=tables), True)
+        without_dispatches = [item for item in Database().scope['tables']
+                              if item['table'] != 'tenant_people_invitation_dispatches']
+        with self.assertRaisesRegex(RuntimeError, 'PEOPLE_TABLES_INVALID'):
+            drain.observe_drain(Database(tables=without_dispatches), True)
+
+    def test_invitations_without_receipt_block(self):
+        for key in drain.INVITATION_KEYS:
+            with self.subTest(key=key):
+                database = Database()
+                database.invitations[key] = 1
+                result = drain.observe_drain(database, True)
+                self.assertEqual(result['status'], 'NOT_DRAINED')
+                self.assertEqual(result['blocking'], [{'invitations': {key: 1}}])
+        self.assertIn("o.state='SUCCEEDED'", drain.INVITATION_QUERY)
+        self.assertEqual(drain.INVITATION_QUERY.count('tenant_people_invitation_receipts'), 4)
+        for broken in [{'readonly': 'off'}, {'resendsWithoutReceipt': -1}, {'extra': 0}]:
+            with self.subTest(broken=broken):
+                database = Database()
+                database.invitations.update(broken)
+                with self.assertRaisesRegex(RuntimeError, 'PEOPLE_COUNTS_INVALID'):
+                    drain.observe_drain(database, True)
+
+    def test_settled_requires_second_drained_observation(self):
+        database, slept = Database(), []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            database.counts['tenant_people_operations'] = ({'QUEUED': 1}, 0)
+        result = drain.observe_settled(database, lambda: True, 60, sleep)
+        self.assertEqual(slept, [60])
+        self.assertEqual(result['status'], 'NOT_DRAINED')
+        self.assertEqual(result['settledSeconds'], 60)
+        result = drain.observe_settled(Database(), lambda: True, 30, lambda _: None)
+        self.assertEqual(result['status'], 'DRAINED')
+        self.assertIn('firstObservedAt', result)
+        slept.clear()
+        result = drain.observe_settled(Database(), lambda: False, 60, sleep)
+        self.assertEqual((result['status'], slept), ('FENCE_NOT_ARMED', []))
+        for value in [0, 29, 3601, '60']:
+            with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, 'SETTLE_SECONDS_INVALID'):
+                drain.observe_settled(Database(), lambda: True, value, lambda _: None)
 
     def test_rejects_missing_or_malformed_counts(self):
         database = Database()

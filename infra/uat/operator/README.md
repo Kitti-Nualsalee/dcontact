@@ -317,7 +317,8 @@ Fence อยู่ที่ Caddy จึงมีผลกับ API ทุก�
 ส่วน GET รวม `operations/:id` ยังผ่านตามปกติ worker ใน API ไม่ผ่าน proxy จึงทำงานเดิมต่อจนจบ และ Console
 ทุกรุ่นอ่าน code นี้เป็นคำขอที่ไม่ถูกรับ
 
-Route และ mount (`/run/dcontact-admission-fence` แบบอ่านอย่างเดียว) ต้องอยู่ใน current layout ก่อน maintenance
+Route และ mount (`/run/dcontact-admission-fence` แบบอ่านอย่างเดียว) มีเฉพาะ overlay 3vm, e1 และ line.
+Compose แบบเครื่องเดียวมี route แต่ไม่มี mount จึงเปิด fence ไม่ได้ ทั้งสองส่วนต้องอยู่ใน current layout ก่อน maintenance
 window โดย deploy release ที่มี route ตามขั้นตอนปกติ `uat-deploy.sh` จะสร้าง directory ให้แต่ไม่สร้างไฟล์ fence.
 การเปิดหรือปิด fence ไม่ต้อง reload หรือ restart proxy
 
@@ -336,12 +337,15 @@ python3 -I infra/uat/operator/b868-people-drain-observe.py probe "https://$UAT_H
 ชุดเดียวกับ `release-evidence-observe.py`
 
 ```sh
-python3 -I /opt/dcontact-uat/operator/<package>/b868-people-drain-observe.py drain
+python3 -I /opt/dcontact-uat/operator/<package>/b868-people-drain-observe.py drain 60
 ```
 
 คำสั่งค้นทุกตาราง `tenant_people_*` ที่มี `state` หรือ `lease_expires_at` และยืนยันว่า principal มี `BYPASSRLS`
-เพราะตารางเหล่านี้ใช้ `FORCE ROW LEVEL SECURITY` จะสลับ API ได้เฉพาะเมื่อผลเป็น `DRAINED` (exit 0) คือทุกแถวอยู่ใน
-`SUCCEEDED`/`REJECTED` และไม่มี lease ที่ยังถือ. `NOT_DRAINED` จะแสดงตารางและ state ที่ค้าง ให้รอ worker หรือ
+เพราะตารางเหล่านี้ใช้ `FORCE ROW LEVEL SECURITY`. งาน invitation ไม่มีคอลัมน์ state จึงนับแยกด้วยเงื่อนไขเดียวกับ
+worker ได้แก่ intent รุ่นแรกที่ยังไม่ส่ง resend dispatch และ ambiguity ที่ยังไม่มี receipt. คำขอที่ผ่าน proxy ก่อนเปิด
+fence อาจ commit ช้า คำสั่งจึงอ่านซ้ำหลังรอ settle (30–3600 วินาที ค่าเริ่มต้น 60) และตอบ `DRAINED` (exit 0)
+เฉพาะเมื่อทั้งสองรอบทุกแถวอยู่ใน `SUCCEEDED`/`REJECTED` ไม่มี lease ที่ยังถือ และงาน invitation เป็นศูนย์.
+Dispatch lease 30 วินาทีอาจยังไม่หมดอายุหลัง receipt จึงอาจได้ `NOT_DRAINED` ชั่วคราว ให้รันใหม่. `NOT_DRAINED` จะแสดงตารางและ state ที่ค้าง ให้รอ worker หรือ
 reconcile ผลภายนอกก่อน `ACTION_REQUIRED` และ state ที่ไม่รู้จักถือว่ายังไม่ drain. `FENCE_NOT_ARMED` หมายถึง
 ไม่พบไฟล์ fence. ให้เก็บผลทั้งสองคำสั่งพร้อม hash ไว้กับหลักฐานของ window. ผลเหล่านี้ไม่รับรอง rollback และ
 `rollbackCertified` เป็น `false` เสมอ
