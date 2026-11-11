@@ -72,4 +72,6 @@ Agent ต่อ SIP over WSS และเสียง WebRTC กับ FreeSWITC
 
 ## สถานะการลงมือ
 
-ยังไม่ได้ implement: config ของ Kamailio, โมเดลข้อมูล trunk และเบอร์, หน้าจัดการใน Platform Console, ชุดติดตั้ง on-prem และ load test ยังไม่มี issue ติดตาม
+ยังไม่ได้ implement: config ของ Kamailio, โมเดลข้อมูล trunk และเบอร์, หน้าจัดการใน Platform Console, ชุดติดตั้ง on-prem และ load test
+
+owner ยืนยันเมื่อ 11 พฤศจิกายน 2569 ให้เก็บ ADR นี้และเอกสารประกอบเป็นแบบอ้างอิงก่อน ยังไม่เริ่มแผนขึ้นระบบจริงและไม่เปิด issue ติดตาม จนกว่า owner แจ้งว่าพร้อมทดสอบ
