@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -63,6 +63,8 @@ test(
       { stdio: 'ignore' },
     );
     writeFileSync(join(dir, 'index.html'), '<h1>Console fixture</h1>');
+    const fence = join(dir, 'admission-fence');
+    mkdirSync(fence);
     writeFileSync(
       join(dir, 'upstream.mjs'),
       `
@@ -72,6 +74,10 @@ test(
       res.writeHead(200,{'Content-Type':'text/html','Content-Security-Policy':"frame-src 'self'; object-src 'none';",'X-Upstream-Proto':req.headers['x-forwarded-proto']??''});
       res.end('<p>upstream session fixture</p>');
     }).listen(8080,'0.0.0.0');
+    http.createServer((req,res)=>{
+      res.writeHead(200,{'Content-Type':'application/json','X-Upstream':'api'});
+      res.end(JSON.stringify({method:req.method,path:req.url}));
+    }).listen(3000,'0.0.0.0');
   `,
     );
     docker([
@@ -83,6 +89,8 @@ test(
       network,
       '--network-alias',
       'keycloak',
+      '--network-alias',
+      'api',
       '-e',
       'NODE_EXTRA_CA_CERTS=/fixtures/cert.pem',
       '-v',
@@ -98,20 +106,21 @@ test(
       client,
     ]);
     let base;
-    async function request(path, forwardedFor = '198.51.100.10') {
+    async function request(path, forwardedFor = '198.51.100.10', method = 'GET') {
       const result = docker([
         'exec',
         client,
         'node',
         '-e',
         `
-      fetch(process.argv[1]+process.argv[2],{headers:{Origin:'https://session.test','X-Forwarded-For':process.argv[3]}})
+      fetch(process.argv[1]+process.argv[2],{method:process.argv[4],headers:{Origin:'https://session.test','X-Forwarded-For':process.argv[3]}})
       .then(async r=>console.log(JSON.stringify({status:r.status,headers:Object.fromEntries(r.headers),body:await r.text()})))
       .catch(()=>process.exit(1));
     `,
         base,
         path,
         forwardedFor,
+        method,
       ]);
       return JSON.parse(result);
     }
@@ -140,6 +149,8 @@ test(
         `${dir}/Caddyfile:/etc/caddy/Caddyfile:ro`,
         '-v',
         `${dir}/index.html:/srv/console/index.html:ro`,
+        '-v',
+        `${fence}:/run/dcontact-admission-fence:ro`,
         '-v',
         `${dir}/cert.pem:/run/secrets/uat_tls_cert:ro`,
         '-v',
@@ -204,6 +215,59 @@ test(
           assert.equal(blocked.headers['x-frame-options'], 'DENY', path);
           assert.doesNotMatch(blocked.body, /upstream session fixture/);
         }
+        // #868: admission fence ของ People เปิด/ปิดด้วยไฟล์โดยไม่ reload proxy
+        const people = '/api/v1/tenant-voice/people/users';
+        const fenced = [
+          ['POST', people],
+          ['POST', `${people}/`],
+          ['POST', '/API/V1/Tenant-Voice/People/Users'],
+          ['POST', '/api//v1/tenant-voice//people/users'],
+          ['POST', `${people}/u-1/disable`],
+          ['POST', `${people}/u-1/reconcile`],
+          ['POST', `${people}/u-1/invitation/resend`],
+          ['PUT', `${people}/u-1/skills`],
+          ['PATCH', `${people}/u-1`],
+          ['DELETE', `${people}/u-1`],
+        ];
+        const passThrough = [
+          ['GET', people],
+          ['GET', `${people}/u-1`],
+          ['HEAD', people],
+          ['GET', '/api/v1/tenant-voice/operations/op-1'],
+          ['POST', '/api/v1/tenant-voice/peoplex/users'],
+          ['POST', '/api/v1/tenant-voice/routing/rules'],
+        ];
+        const upstream = async (method, path) => {
+          const response = await request(path, '198.51.100.10', method);
+          assert.equal(response.status, 200, `${method} ${path}`);
+          assert.equal(response.headers['x-upstream'], 'api', `${method} ${path}`);
+          assert.equal(response.headers['x-dcontact-admission-fence'], undefined);
+        };
+        for (const [method, path] of [...fenced, ...passThrough]) await upstream(method, path);
+        writeFileSync(join(fence, 'people-mutations'), '');
+        try {
+          for (const [method, path] of fenced) {
+            const response = await request(path, '198.51.100.10', method);
+            assert.equal(response.status, 503, `${file}: ${method} ${path} ต้องถูก fence`);
+            assert.equal(response.headers['x-upstream'], undefined, `${method} ${path}`);
+            assert.equal(response.headers['x-dcontact-admission-fence'], 'people');
+            assert.equal(response.headers['content-type'], 'application/json');
+            assert.equal(response.headers['cache-control'], 'no-store');
+            assert.equal(response.headers['retry-after'], '300');
+            assert.deepEqual(JSON.parse(response.body), {
+              code: 'CAPABILITY_NOT_READY',
+              reason: 'ADMISSION_FENCED',
+            });
+          }
+          for (const [method, path] of passThrough) await upstream(method, path);
+          if (file !== 'Caddyfile') {
+            const outsideFenced = await request(people, '203.0.113.20', 'POST');
+            assert.equal(outsideFenced.status, 403, 'fence ต้องไม่ข้าม client allowlist');
+          }
+        } finally {
+          rmSync(join(fence, 'people-mutations'), { force: true });
+        }
+        for (const [method, path] of fenced) await upstream(method, path);
         if (file !== 'Caddyfile') {
           const outside = await request(iframe, '203.0.113.20');
           assert.equal(outside.status, 403, 'client allowlist ต้องบังคับแม้เป็น iframe');

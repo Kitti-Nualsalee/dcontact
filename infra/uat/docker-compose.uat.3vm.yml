@@ -33,6 +33,8 @@ services:
     secrets: !reset []
     volumes:
       - ./Caddyfile.3vm:/etc/caddy/Caddyfile:ro
+      # #868: fence อยู่นอก release directory เพื่อให้คงอยู่ระหว่างสลับ API; proxy อ่านอย่างเดียว
+      - /opt/dcontact-uat/admission-fence:/run/dcontact-admission-fence:ro
     mem_limit: 384m
 
   api:

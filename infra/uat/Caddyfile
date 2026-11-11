@@ -53,6 +53,24 @@ https://{$UAT_HOST} {
 		}
 
 		# ทั้ง `/api/*` ไปที่ API — route นอก allowlist ของ profile ถูกตอบ 404 ROUTE_NOT_AVAILABLE_IN_PROFILE
+		# #868: admission fence ของ People — มีไฟล์ people-mutations ใน directory ที่ mount แบบอ่านอย่างเดียว
+		# = ปฏิเสธคำขอแก้ไข People ใหม่ก่อนถึง API ทุกรุ่น; GET และ worker ใน API ยังทำงานต่อ
+		# ตอบ code เดียวกับ API เมื่อยังไม่รับงาน เพื่อให้ Console ทุกรุ่นรู้ว่าคำขอไม่ถูกรับ
+		@peopleAdmissionFence {
+			not method GET HEAD OPTIONS
+			path_regexp (?i)^/api/+v1/+tenant-voice/+people(/|$)
+			file {
+				root /run/dcontact-admission-fence
+				try_files /people-mutations
+			}
+		}
+		header @peopleAdmissionFence {
+			Content-Type application/json
+			Cache-Control no-store
+			Retry-After 300
+			X-DContact-Admission-Fence people
+		}
+		respond @peopleAdmissionFence `{"code":"CAPABILITY_NOT_READY","reason":"ADMISSION_FENCED"}` 503
 		handle /api/* {
 			reverse_proxy api:3000
 		}
