@@ -168,6 +168,16 @@ test('#868 ปฏิเสธ candidate ที่หลักฐานเก่�
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
+test('#868 สลับ API ใน sandbox และกู้จาก Docker state เมื่อคำสั่งถูกขัดจังหวะ', () => {
+  const result = spawnSync(
+    'python3',
+    ['-B', resolve('infra/uat/operator/b868-api-rehearsal-switch.test.py')],
+    { encoding: 'utf8', timeout: 30000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Ran \d+ tests/);
+});
+
 test('#868 สร้าง proposal จากหลักฐานที่ผูกกันโดยไม่อนุญาตเขียน record', () => {
   const result = spawnSync(
     'python3',

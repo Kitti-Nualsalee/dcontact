@@ -245,6 +245,60 @@ python3 -B infra/uat/operator/release-candidate-validate.py \
 สอดคล้องกับ observation ก่อน maintenance ผลคง `rollbackEligible=false` และ `rollbackCertified=false`
 ก่อนเปลี่ยน runtime ต้องตรวจ identity generation จริง, worker drain, external outcomes และ protected data
 ภายใต้ maintenance window และ lock ของ UAT แล้วเก็บหลักฐาน rollback/recovery และ cleanup ตาม #704
+
+### #868 ซ้อมคำสั่งสลับ API และ recovery ใน Docker sandbox
+
+ใช้ API/ops images แบบ OCI digest จาก package ที่ตรวจแล้ว ตั้ง `TARGET_API`, `CANDIDATE_API`, `TARGET_OPS`,
+`CANDIDATE_OPS` และ `CANDIDATE_SHA` ให้ตรงกับคู่ release ที่ต้องซ้อม เตรียม images ทั้งสี่ใน Docker แล้วสร้าง
+network และ PostgreSQL ของการซ้อมด้วยชื่อ project ใหม่ ฐานนี้ใช้ credential สำหรับข้อมูลสังเคราะห์
+
+```sh
+PROJECT="dcontact-868-rehearsal-$(openssl rand -hex 6)"
+docker network create --internal --label "com.dcontact.rehearsal=$PROJECT" "$PROJECT"
+docker run --rm -d --name "$PROJECT-db" --network "$PROJECT" --network-alias rehearsal-db \
+  --label "com.dcontact.rehearsal=$PROJECT" -e POSTGRES_DB=dcontact_868 \
+  -e POSTGRES_PASSWORD=rehearsal_owner postgres:15.4
+docker exec "$PROJECT-db" pg_isready -h 127.0.0.1 -U postgres -d dcontact_868
+```
+
+เมื่อ PostgreSQL พร้อม ให้ apply schema เดิมและ schema candidate ตามลำดับบนฐานแยก
+
+```bash
+(
+  set -eo pipefail
+  for ops in "$TARGET_OPS" "$CANDIDATE_OPS"; do
+    docker run --rm --platform linux/amd64 --network "$PROJECT" \
+      -e DATABASE_URL=postgresql://postgres:rehearsal_owner@rehearsal-db:5432/dcontact_868 \
+      "$ops" prisma migrate deploy --schema prisma/schema.prisma
+  done
+  git show "$CANDIDATE_SHA:packages/db/prisma/rls.sql" | \
+    docker exec -i "$PROJECT-db" psql -U postgres -d dcontact_868 -v ON_ERROR_STOP=1 -q
+  docker exec "$PROJECT-db" psql -U postgres -d dcontact_868 -v ON_ERROR_STOP=1 \
+    -c "ALTER ROLE dcontact_app WITH LOGIN NOBYPASSRLS PASSWORD 'dcontact_app'"
+)
+```
+
+รันทีละคำสั่งและตรวจ exit status ทุกครั้ง
+
+```sh
+run_api_rehearsal() {
+  python3 -B infra/uat/operator/b868-api-rehearsal-switch.py "$1" --project "$PROJECT" \
+    --candidate-image "$CANDIDATE_API" --target-image "$TARGET_API"
+}
+run_api_rehearsal start
+run_api_rehearsal rollback
+run_api_rehearsal recover
+```
+
+คำสั่งใช้ project ชื่อ `dcontact-868-rehearsal-*` กับ internal network ที่ติด label ของ project และสลับเฉพาะ
+Compose service `api` จาก image ในเครื่อง `rollback` บันทึก `pending.json` ก่อนหยุด API เดิม หากคำสั่งถูกขัดจังหวะ
+ให้ใช้ `recover` กับ project และ image คู่เดิม ตัวรันตรวจ Docker state ของ API และ PostgreSQL ก่อนกลับ candidate
+เมื่อ smoke ผ่านจึงบันทึก `recovery.json` แล้วถอน pending ใน `~/.local/state/dcontact-868-rehearsal/$PROJECT/`
+`rollbackApiId` ในไฟล์ recovery จะมีค่าเมื่อ target เคยผ่าน smoke และบันทึกผลแล้ว
+
+หลังซ้อมให้หยุดและลบเฉพาะ `$PROJECT-api-1` จากนั้นหยุด PostgreSQL ของ project แล้วลบ network ที่สร้างไว้
+ผล smoke ใช้ `uat-workspace` บน sandbox สำหรับตรวจขั้นตอนสลับและ recovery ส่วนการซ้อมบน VM ใช้เกต identity,
+worker drain, external outcomes และ protected state ของ #868 ก่อนเปลี่ยน runtime
 Platform ยังคงใช้ path จาก source anchor เดิม ส่วน media operator ที่ต้องการ API/sandbox source เดียวกัน
 ยังหยุดเมื่อ runtime mixed ไม่ถือว่า observation นี้ซ่อม runtime หรือผ่าน media gate
 
