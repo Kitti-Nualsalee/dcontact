@@ -66,7 +66,9 @@ def capture(read):
     result = json.loads(read(fingerprint_query(tables)))
     rows = result.get('tables')
     if (result.get('readonly') != 'on' or not isinstance(rows, list)
-            or [row.get('name') for row in rows if isinstance(row, dict)] != sorted(tables)
+            # ลำดับจาก DB ขึ้นกับ collation จึงเทียบเป็นชุดชื่อที่เรียงฝั่ง Python
+            or sorted(str(row.get('name')) for row in rows if isinstance(row, dict)) != sorted(tables)
+            or len(rows) != len(tables)
             or any(type(row.get('rows')) is not int or row['rows'] < 0
                    or not isinstance(row.get('digest'), str) or not re.fullmatch('[0-9a-f]{32}', row['digest'])
                    for row in rows)):
