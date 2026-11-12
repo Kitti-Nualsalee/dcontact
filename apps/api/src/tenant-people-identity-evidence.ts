@@ -296,20 +296,19 @@ export async function collectTenantPeopleIdentityEvidence(
       });
       continue;
     }
-    const provider = recorded(
-      await source.readInvitation({
-        tenantId,
-        operationId: dispatch.operationId,
-        userId: dispatch.userId,
-        generation: dispatch.generation,
-        providerAttemptRef: dispatch.providerAttemptRef,
-        payloadDigest: operation.payloadDigest,
-        fencingToken: dispatch.fencingToken,
-        leaseOwner: dispatch.leaseOwner,
-        leaseExpiresAt: NEVER,
-        command,
-      }),
-    );
+    const outcome = await source.readInvitation({
+      tenantId,
+      operationId: dispatch.operationId,
+      userId: dispatch.userId,
+      generation: dispatch.generation,
+      providerAttemptRef: dispatch.providerAttemptRef,
+      payloadDigest: operation.payloadDigest,
+      fencingToken: dispatch.fencingToken,
+      leaseOwner: dispatch.leaseOwner,
+      leaseExpiresAt: NEVER,
+      command,
+    });
+    const provider = recorded(outcome);
     // dispatch ที่ไม่มี receipt ทั้งสองฝั่งคือผลที่ยังไม่ชัด ไม่ใช่ความสอดคล้อง
     const reason =
       !local && provider.outcome === 'UNKNOWN' ? 'PROVIDER_UNREADABLE' : compare(local, provider);
@@ -322,9 +321,27 @@ export async function collectTenantPeopleIdentityEvidence(
         application: local,
         provider,
       });
+    // dispatch รุ่น ≥2 ต้องมี proof ใน DB และ not-before ที่ Keycloak ส่งจริงต้องตรงกับ proof นั้น
+    const prepared = application.preparations.find(
+      (row) => row.providerAttemptRef === dispatch.providerAttemptRef,
+    );
+    if (prepared && outcome.outcome !== 'UNKNOWN') {
+      counts.preparations++;
+      const proof = prepared.intentRef ? prepared.notBeforeEpoch : null;
+      const sent = outcome.notBeforeEpoch === null ? null : String(outcome.notBeforeEpoch);
+      if (proof === null || proof !== sent)
+        mismatches.push({
+          kind: 'PREPARATION',
+          operationId: dispatch.operationId,
+          generation: dispatch.generation,
+          reason: 'RECEIPT_MISMATCH',
+          application: proof === null ? null : { outcome: 'INTENT', receiptRef: proof },
+          provider: { outcome: outcome.outcome, receiptRef: sent },
+        });
+    }
   }
   for (const preparation of application.preparations) {
-    // preparation ที่มี dispatch แล้วถูกเทียบผ่าน dispatch GET ซึ่งตรวจ descriptor ของ intent เดียวกันโดยไม่ต้องเป็น fence ปัจจุบัน
+    // preparation ที่มี dispatch แล้วเทียบ not-before กับผล dispatch GET ด้านบน ซึ่งไม่ต้องเป็น fence ปัจจุบัน
     // intent GET ปฏิเสธรุ่นที่ถูกแทนแล้ว (GENERATION_FENCE_CONFLICT) จึงอ่านเฉพาะ intent ที่ยังไม่มี dispatch
     if (
       application.dispatches.some(

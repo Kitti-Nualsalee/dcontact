@@ -334,10 +334,28 @@ test('#868 identity evidence: preparation ที่มี dispatch แล้ว�
     providerAttemptRef: value.rows.preparations[0]!.providerAttemptRef,
   });
   value.provider.preparation = { outcome: 'UNKNOWN' };
+  value.provider.invitation = { ...value.provider.invitation, notBeforeEpoch: 1700000000 } as never;
   const evidence = await collectPeopleIdentityEvidence(value.database, [value.source]);
   assert.equal(evidence.status, 'CONSISTENT', JSON.stringify(evidence.tenants[0]?.mismatches));
-  assert.equal(evidence.tenants[0]?.counts.preparations, 0);
+  assert.equal(evidence.tenants[0]?.counts.preparations, 1);
   assert.equal(evidence.tenants[0]?.counts.invitations, 2);
+
+  // not-before ที่ส่งจริงต่างจาก proof หรือไม่มี proof ต้องไม่ผ่าน
+  value.provider.invitation = { ...value.provider.invitation, notBeforeEpoch: 1700000009 } as never;
+  const drifted = await collectPeopleIdentityEvidence(value.database, [value.source]);
+  assert.deepEqual(
+    drifted.tenants[0]?.mismatches.map((item) => [item.kind, item.reason]),
+    [['PREPARATION', 'RECEIPT_MISMATCH']],
+  );
+  value.provider.invitation = { ...value.provider.invitation, notBeforeEpoch: 1700000000 } as never;
+  value.rows.preparations[0]!.intentRef = null;
+  value.rows.preparations[0]!.notBeforeEpoch = null;
+  const missing = await collectPeopleIdentityEvidence(value.database, [value.source]);
+  assert.equal(missing.status, 'INCONSISTENT');
+  assert.deepEqual(
+    missing.tenants[0]?.mismatches.map((item) => [item.kind, item.reason]),
+    [['PREPARATION', 'RECEIPT_MISMATCH']],
+  );
 });
 
 test('#868 identity evidence: disable ที่ยังไม่ attempted และไม่มี receipt ไม่ถูกอ่านจาก provider', async () => {

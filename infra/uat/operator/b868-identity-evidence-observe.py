@@ -32,10 +32,17 @@ def observe(inspect_runtime, execute=subprocess.run):
     result = execute(COMMAND, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
     if result.returncode not in (0, 2):
         stderr = result.stderr.decode() if isinstance(result.stderr, bytes) else (result.stderr or '')
+        stdout = result.stdout.decode() if isinstance(result.stdout, bytes) else (result.stdout or '')
         try:
             failure = json.loads(stderr.strip().splitlines()[-1]).get('error')
         except (ValueError, IndexError, AttributeError):
             failure = None
+        if failure is None:
+            # NOT_CONFIGURED เขียนลง stdout เป็น {"status":"NOT_CONFIGURED"}
+            try:
+                failure = json.loads(stdout.strip().splitlines()[-1]).get('status')
+            except (ValueError, IndexError, AttributeError):
+                failure = None
         # CLI เขียนเฉพาะ status/error code ไม่มี secret; แนบ code ที่ตรงรูปแบบไว้ให้ผู้ปฏิบัติงานเห็นสาเหตุ
         detail = failure if isinstance(failure, str) and re.fullmatch('[A-Z0-9_]{1,64}', failure) else 'UNKNOWN'
         raise RuntimeError('IDENTITY_EVIDENCE_UNAVAILABLE:' + detail)

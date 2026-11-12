@@ -68,6 +68,11 @@ class IdentityObserveTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'IDENTITY_EVIDENCE_UNAVAILABLE:INVALID_PEOPLE_CONFIGURATION$'):
             identity.observe(lambda: runtime(), execute)
 
+        def unconfigured(command, **kwargs):
+            return SimpleNamespace(returncode=1, stdout=b'{"status":"NOT_CONFIGURED"}\n', stderr=b'')
+        with self.assertRaisesRegex(RuntimeError, 'IDENTITY_EVIDENCE_UNAVAILABLE:NOT_CONFIGURED$'):
+            identity.observe(lambda: runtime(), unconfigured)
+
         def leaky(command, **kwargs):
             return SimpleNamespace(returncode=1, stdout=b'', stderr=b'{"error":"secret value here"}')
         with self.assertRaisesRegex(RuntimeError, 'IDENTITY_EVIDENCE_UNAVAILABLE:UNKNOWN$'):
