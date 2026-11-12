@@ -178,6 +178,46 @@ test('#868 สลับ API ใน sandbox และกู้จาก Docker st
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
+test('#868 drain ของ People ต้อง DRAINED ซ้ำหลัง settle และตรวจ fence ผ่าน proxy', () => {
+  const result = spawnSync(
+    'python3',
+    ['-B', resolve('infra/uat/operator/b868-people-drain-observe.test.py')],
+    { encoding: 'utf8', timeout: 60000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Ran \d+ tests/);
+});
+
+test('#868 หลักฐาน identity ผูก runtime ของ API และ Keycloak', () => {
+  const result = spawnSync(
+    'python3',
+    ['-B', resolve('infra/uat/operator/b868-identity-evidence-observe.test.py')],
+    { encoding: 'utf8', timeout: 60000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Ran \d+ tests/);
+});
+
+test('#868 authorization ใช้ครั้งเดียวเปิด deploy candidate ทับ reconciliation', () => {
+  const result = spawnSync(
+    'python3',
+    ['-B', resolve('infra/uat/operator/b868-forward-authorize.test.py')],
+    { encoding: 'utf8', timeout: 60000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Ran \d+ tests/);
+});
+
+test('#868 สลับ API image บน VM ด้วย pending, smoke ผ่าน proxy และ receipt', () => {
+  const result = spawnSync(
+    'python3',
+    ['-B', resolve('infra/uat/operator/b868-api-switch.test.py')],
+    { encoding: 'utf8', timeout: 60000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Ran \d+ tests/);
+});
+
 test('#868 สร้าง proposal จากหลักฐานที่ผูกกันโดยไม่อนุญาตเขียน record', () => {
   const result = spawnSync(
     'python3',
