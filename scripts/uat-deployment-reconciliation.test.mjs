@@ -218,6 +218,16 @@ test('#868 สลับ API image บน VM ด้วย pending, smoke ผ่�
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
+test('#868 fingerprint ข้อมูลก่อน/หลังสลับ API แยกกลุ่มที่ต้องคงเดิม', () => {
+  const result = spawnSync(
+    'python3',
+    ['-B', resolve('infra/uat/operator/b868-protected-data-fingerprint.test.py')],
+    { encoding: 'utf8', timeout: 60000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Ran \d+ tests/);
+});
+
 test('#868 สร้าง proposal จากหลักฐานที่ผูกกันโดยไม่อนุญาตเขียน record', () => {
   const result = spawnSync(
     'python3',

@@ -459,3 +459,18 @@ VM2 resolve ชื่อสาธารณะของ UAT ไม่ได้ `-
 ระหว่างมี pending `uat-deploy.sh` ปฏิเสธทุก mutation (`UAT_API_SWITCH_PENDING`) ถ้าคำสั่งล้มหรือถูกขัดจังหวะ
 ให้รัน `recover` ซ้ำ ห้ามลบ pending เอง คำสั่งไม่ migrate, ไม่ restore DB, ไม่เขียน deployment record
 และไม่รับรอง rollback; ผลซ้อมจริงยังต้องผ่านเกตปิด #868
+
+### #868 fingerprint ข้อมูลก่อนและหลังสลับ API
+
+`b868-protected-data-fingerprint.py capture` อ่านทุกตารางใน schema `public` ด้วย statement เดียวใน transaction read-only
+ของ `dcontact_uat_owner` (ต้อง BYPASSRLS) แล้วเก็บเฉพาะจำนวนแถวและ hash ต่อตาราง ไม่มีค่าข้อมูลออกจาก DB
+เก็บสามจุด: ก่อน `rollback`, ขณะ API เป็น target และหลัง `recover` ภายใต้ fence เดียวกัน
+
+```sh
+python3 -B infra/uat/operator/b868-protected-data-fingerprint.py capture > before.json
+python3 -B infra/uat/operator/b868-protected-data-fingerprint.py compare before.json after.json
+```
+
+`compare` ได้ `PROTECTED_DATA_PRESERVED` (exit 0) เมื่อไม่มีตารางในกลุ่ม ledger, user, identity, result, history, outbox
+และ audit เปลี่ยน ตารางอื่นที่เปลี่ยน เช่น heartbeat ของ runtime รายงานใน `otherChanged`; `PROTECTED_DATA_CHANGED` (exit 2)
+ระบุตารางและจำนวนแถวก่อน–หลัง ผลไม่รับรอง rollback และใช้ได้เมื่อไม่มีผู้ใช้อื่นเขียนข้อมูลระหว่างซ้อมเท่านั้น
