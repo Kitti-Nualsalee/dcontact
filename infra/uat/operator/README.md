@@ -389,7 +389,8 @@ outcome และ `receiptRef` สำหรับ resend intent ที่ยั�
 - `WORKER_BINDING_DISABLED`: binding ของ worker principal ปิดอยู่ RLS จึงซ่อนทุกแถว คำสั่งจะไม่ถือว่า 0 แถวคือสอดคล้อง
 
 ถ้าคำสั่งล้มก่อนได้ผล (exit 1) จะได้ `IDENTITY_EVIDENCE_UNAVAILABLE:<code>` พร้อม code จาก CLI ซึ่งไม่มี secret เช่น `NOT_CONFIGURED` เมื่อ People configuration ไม่ครบ
-ถ้าไม่ได้ `CONSISTENT` ห้ามสลับ API ให้คง operation เดิมไว้แล้ว reconcile ก่อน
+ถ้าไม่ได้ `CONSISTENT` ห้ามสลับ API ให้คง operation เดิมไว้แล้ว reconcile ก่อน ยกเว้นกรณี People ไม่ได้ตั้งค่าเลย
+ซึ่ง `b868-api-switch.py` ยอมรับเป็น `PEOPLE_NOT_CONFIGURED` ตามเงื่อนไขในหัวข้อสลับ API image ด้านล่าง
 เก็บ `evidenceSha256` และ `runtimeSha256` ของทั้งสองรอบไว้กับหลักฐานของ window
 ใช้ได้กับ API image ที่มี entry นี้เท่านั้น ส่วน `a460cde` ไม่มี การตรวจจึงทำบน candidate ก่อนสลับและหลัง recovery
 `rollbackCertified` เป็น `false` เสมอ

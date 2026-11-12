@@ -463,20 +463,26 @@ class LiveDeps:
         return self.drainer.observe_settled(self.read, self.drainer.FENCE_FILE.is_file, settle)
 
     def identity(self):
+        before = self.api()
         try:
             return self.identity_observer.observe(lambda: self.identity_observer.components(self.inspect()))
         except RuntimeError as error:
             if str(error) != 'IDENTITY_EVIDENCE_UNAVAILABLE:NOT_CONFIGURED':
                 raise
         # CLI ไม่มี People configuration: อ่านเฉพาะว่ามี binding/flag หรือไม่ ไม่เก็บค่าซึ่งอาจมี secret
+        # container ต้องเป็นตัวเดียวกับที่ CLI ถูก exec และตีความ env เข้มเท่ากับ API (ไม่มีค่า = ปิด, มีเฉพาะ 'false')
         container = self.api()
-        require(container is not None, 'SWITCH_CANDIDATE_NOT_RUNNING')
+        require(before is not None and container is not None and container['Id'] == before['Id'],
+                'SWITCH_IDENTITY_RUNTIME_CHANGED')
         environment = dict(item.split('=', 1) for item in (container['Config'].get('Env') or []) if '=' in item)
+        def off(name):
+            return environment.get(name) in (None, '', 'false')
         return {'schema': 'UatPeopleIdentityNotConfiguredV1', 'status': 'PEOPLE_NOT_CONFIGURED',
                 'observedAt': utc_now(), 'apiContainerId': container['Id'],
-                'bindingsEmpty': environment.get('TENANT_PEOPLE_BINDINGS_JSON', '').strip() == '',
-                'invitationsEnabled': environment.get('TENANT_PEOPLE_INVITATIONS_ENABLED') == 'true',
-                'disableEnabled': environment.get('TENANT_PEOPLE_DISABLE_ENABLED') == 'true',
+                'bindingsEmpty': environment.get('TENANT_PEOPLE_BINDINGS_JSON', '') == ''
+                and environment.get('TENANT_PEOPLE_WORKER_DATABASE_URL', '') == '',
+                'invitationsEnabled': not off('TENANT_PEOPLE_INVITATIONS_ENABLED'),
+                'disableEnabled': not off('TENANT_PEOPLE_DISABLE_ENABLED'),
                 'rollbackCertified': False}
 
     def probe(self):

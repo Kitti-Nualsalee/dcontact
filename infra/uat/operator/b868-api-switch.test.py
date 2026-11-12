@@ -299,6 +299,18 @@ class ApiSwitchTests(unittest.TestCase):
         self.assertNotIn('s3cr3t', json.dumps(result))
         container['Config']['Env'] = ['TENANT_PEOPLE_BINDINGS_JSON=']
         self.assertTrue(live.identity()['bindingsEmpty'])
+        for env, key, expected in ((['TENANT_PEOPLE_BINDINGS_JSON= '], 'bindingsEmpty', False),
+                                   (['TENANT_PEOPLE_WORKER_DATABASE_URL=postgresql://x'], 'bindingsEmpty', False),
+                                   (['TENANT_PEOPLE_INVITATIONS_ENABLED=TRUE'], 'invitationsEnabled', True),
+                                   (['TENANT_PEOPLE_DISABLE_ENABLED=1'], 'disableEnabled', True)):
+            with self.subTest(env=env):
+                container['Config']['Env'] = env
+                self.assertEqual(live.identity()[key], expected)
+        containers = iter([container, {**container, 'Id': 'e' * 64}])
+        live.api = lambda: next(containers)
+        with self.assertRaisesRegex(switch.SwitchError, 'SWITCH_IDENTITY_RUNTIME_CHANGED'):
+            live.identity()
+        live.api = lambda: container
         def other(_inspect):
             raise RuntimeError('IDENTITY_EVIDENCE_UNAVAILABLE:UNKNOWN')
         live.identity_observer.observe = staticmethod(other)
