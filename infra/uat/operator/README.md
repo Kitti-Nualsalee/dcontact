@@ -393,3 +393,60 @@ outcome และ `receiptRef` สำหรับ resend intent ที่ยั�
 เก็บ `evidenceSha256` และ `runtimeSha256` ของทั้งสองรอบไว้กับหลักฐานของ window
 ใช้ได้กับ API image ที่มี entry นี้เท่านั้น ส่วน `a460cde` ไม่มี การตรวจจึงทำบน candidate ก่อนสลับและหลัง recovery
 `rollbackCertified` เป็น `false` เสมอ
+
+### #868 deploy candidate ทับ current แบบ reconciliation
+
+`uat-deploy.sh` ปฏิเสธ `migrate`, `keycloak`, `deploy` และ `record` เมื่อ current เป็น reconciliation
+(`RECORD_RECONCILIATION_REQUIRES_REVIEW`) และปฏิเสธ SHA ใหม่ที่ไม่มีหลักฐาน (`UAT_TARGET_COMPATIBILITY_EVIDENCE_REQUIRED`)
+`b868-forward-authorize.py` ออก authorization ให้ candidate เดียวผ่านเกตนี้ได้ โดยใช้หลักฐานชุดเดียวกับ
+`release-candidate-validate.py` ซึ่งต้องได้ `ISOLATED_API_ROLLBACK_REHEARSAL_MATCHES_BASELINE` จาก observation อายุไม่เกิน 300 วินาที
+
+prepare release ของ candidate ก่อน ให้ `releases/<sha>/release.env` มี bytes ตรงกับ package แล้วรัน
+
+```sh
+python3 -B infra/uat/operator/b868-forward-authorize.py \
+  --observation /private/operator/observation.json \
+  --approved-observation-sha256 "$OBSERVATION_SHA256" \
+  --api-rehearsal /private/operator/api-rehearsal.json \
+  --approved-rehearsal-sha256 "$REHEARSAL_SHA256" \
+  --release-env /private/operator/release.env \
+  --migration-guard /private/operator/migration-guard.json \
+  --actor operator:<ชื่อ> --window-minutes 240
+```
+
+คำสั่งถือ lock เดียวกับ deploy, ปฏิเสธเมื่อมี pending อื่น และเขียน `operator/uat-forward-deploy.authorization` (0600)
+ที่ผูก candidate SHA, SHA-256 ของ `release.env`, current/previous record bytes และ `expiresAt` (30–480 นาที)
+`uat-deploy.sh` ตรวจทุกค่านี้ใหม่ทุกครั้ง เมื่อ `record` ของ candidate เขียน current ใหม่ authorization จะใช้ไม่ได้อีก
+และ reconciliation เดิมกลายเป็น previous ผลไม่รับรอง rollback ค่า `rollbackCertified` คง `false`
+actor เป็น audit label และ hash ที่อนุมัติต้องมาจาก review อิสระเหมือนคำสั่ง #868 อื่น
+
+### #868 สลับ API image บน VM2
+
+`b868-api-switch.py` สลับเฉพาะ `services.api.image` ของ project `dcontact-uat` ระหว่าง candidate ใน current record
+กับ API ใน previous record (reconciliation ราย component หรือ deploy record) ใช้ชุดไฟล์ compose จาก
+`uat-deploy.sh compose-argv <candidate-sha>` และ override ชั่วคราว `operator/uat-api-switch.override.json`
+`e1-sandbox` ยังใช้ image ของ candidate ระหว่างสลับ media operator ที่ต้องการ source เดียวกันจึงยังหยุดตามเดิม
+
+```sh
+run_switch() {
+  python3 -B infra/uat/operator/b868-api-switch.py "$1" --base-url "https://$UAT_HOST"
+}
+run_switch plan
+run_switch rollback
+run_switch recover
+```
+
+- `plan` อ่านอย่างเดียว: ต้องไม่มี pending, current เป็น deploy record ของ candidate ที่ตรง `release.env`,
+  runtime ตรง current record, target image อยู่ในเครื่องพร้อม repository digest และ revision ที่ถูกต้อง
+  และ effective config ของ override ต่างจากเดิมเฉพาะ `services.api.image` (เก็บเพียง hash เพราะ config มีค่า secret)
+- `rollback` ต้องได้ `FENCE_ACTIVE` ผ่าน proxy, People `DRAINED` ซ้ำหลัง settle (`--settle`, ค่าเริ่ม 180 วินาที)
+  และ identity `CONSISTENT` บน candidate จากนั้นเขียน `operator/uat-api-switch.pending` พร้อม records, config,
+  ledger, protected state และหลักฐาน ก่อนสั่ง Compose ตรวจ target, smoke `runtime-profile` ผ่าน proxy,
+  fence, ledger, protected state และ drain อีกครั้ง แล้วบันทึก `TARGET_RUNNING`
+- `recover` ใช้ pending เดิมกลับ candidate ด้วย `--force-recreate` ตรวจ runtime ตรง current record, effective config,
+  protected state, ledger, smoke ผ่าน proxy, fence, drain และ identity แล้วเขียน
+  `operator/uat-api-switch-receipts/<transactionId>.json` ก่อนถอน pending
+
+ระหว่างมี pending `uat-deploy.sh` ปฏิเสธทุก mutation (`UAT_API_SWITCH_PENDING`) ถ้าคำสั่งล้มหรือถูกขัดจังหวะ
+ให้รัน `recover` ซ้ำ ห้ามลบ pending เอง คำสั่งไม่ migrate, ไม่ restore DB, ไม่เขียน deployment record
+และไม่รับรอง rollback; ผลซ้อมจริงยังต้องผ่านเกตปิด #868

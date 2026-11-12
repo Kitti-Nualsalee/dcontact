@@ -350,6 +350,8 @@ def _apply_record(manifest, root, prepare_candidate, inspect_candidate, *, prese
         require(not os.path.lexists(operator / 'uat-record-transaction'), 'RECORD_TRANSACTION_REQUIRES_MANUAL_REVIEW')
         require(not os.path.lexists(operator / 'uat-record-retirement.pending'), 'RECORD_RETIREMENT_REQUIRES_MANUAL_REVIEW')
         require(not os.path.lexists(operator / 'uat-rollback.pending'), 'ROLLBACK_PENDING_REQUIRES_MANUAL_REVIEW')
+        # #868: ระหว่างสลับ API runtime ไม่ตรง record ห้ามเขียน record ทับจน recover
+        require(not os.path.lexists(operator / 'uat-api-switch.pending'), 'API_SWITCH_PENDING_REQUIRES_RECOVER')
         require(not pending.exists(), 'PENDING_RECONCILIATION_REQUIRES_MANUAL_REVIEW')
         current, previous = deployments / 'current.json', deployments / 'previous.json'
         def stable_record(value):

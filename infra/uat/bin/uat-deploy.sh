@@ -26,7 +26,7 @@ E1_FLAG="$UAT_ROOT/e1-acceptance.enabled"
 E1_LAUNCHER_FLAG="$UAT_ROOT/e1-launcher-hosting.enabled"
 
 usage() {
-  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|ui-flag|deploy|smoke|record|current|e1-status|e1-enable|e1-disable|e1-voice-control|e1-voice-on|e1-voice-off|e1-launcher-enable|e1-launcher-status|e1-launcher-alias|line-status|line-run|line-reload|rollback-target|rollback> [sha] [...]' >&2
+  echo 'usage: uat-deploy.sh <prepare|backup|migrate|keycloak|provision|ui-flag|deploy|smoke|record|current|compose-argv|e1-status|e1-enable|e1-disable|e1-voice-control|e1-voice-on|e1-voice-off|e1-launcher-enable|e1-launcher-status|e1-launcher-alias|line-status|line-run|line-reload|rollback-target|rollback> [sha] [...]' >&2
   exit 64
 }
 
@@ -81,14 +81,9 @@ is_workspace() {
   [[ -n "$(release_value "$1" UAT_WORKSPACE_HOST)" ]] || fail 'WORKSPACE_HOST_MISSING'
 }
 
-compose() {
+# ตั้ง array `prefix` ของผู้เรียก (dynamic scope) เป็นคำสั่ง compose ของ release นี้ ไม่รวม subcommand
+compose_prefix() {
   local dir="$1"
-  shift
-  local deadline=()
-  if [[ "${1:-}" == --rollback-probe ]]; then
-    deadline=(timeout --signal=TERM --kill-after=5s 45s)
-    shift
-  fi
   if is_3vm "$dir"; then
     local binary="$UAT_ROOT/bin/docker-compose"
     [[ -x "$binary" ]] || fail 'COMPOSE_3VM_BINARY_MISSING'
@@ -98,22 +93,29 @@ compose() {
     if is_workspace "$dir"; then files+=(-f "$dir/docker-compose.uat.workspace.yml"); fi
     if is_line "$dir"; then files+=(-f "$dir/docker-compose.uat.line.yml"); fi
     if is_trial "$dir"; then files+=(-f "$dir/docker-compose.uat.line-trial.yml"); fi
-    ${deadline[@]+"${deadline[@]}"} "$binary" --project-name "$PROJECT" \
-      --project-directory "$dir" \
-      --env-file "$UAT_ROOT/uat.env" \
-      --env-file "$dir/release.env" \
-      "${files[@]}" "$@"
+    prefix=("$binary")
   else
     local files=(-f "$dir/docker-compose.uat.yml")
     if is_e1 "$dir"; then files+=(-f "$dir/docker-compose.uat.e1.yml"); fi
     if is_e1_launcher "$dir"; then files+=(-f "$dir/docker-compose.uat.e1-launcher.yml"); fi
     if is_workspace "$dir"; then files+=(-f "$dir/docker-compose.uat.workspace.yml"); fi
-    ${deadline[@]+"${deadline[@]}"} docker compose --project-name "$PROJECT" \
-      --project-directory "$dir" \
-      --env-file "$UAT_ROOT/uat.env" \
-      --env-file "$dir/release.env" \
-      "${files[@]}" "$@"
+    prefix=(docker compose)
   fi
+  prefix+=(--project-name "$PROJECT" --project-directory "$dir"
+    --env-file "$UAT_ROOT/uat.env" --env-file "$dir/release.env" "${files[@]}")
+}
+
+compose() {
+  local dir="$1"
+  shift
+  local deadline=()
+  if [[ "${1:-}" == --rollback-probe ]]; then
+    deadline=(timeout --signal=TERM --kill-after=5s 45s)
+    shift
+  fi
+  local prefix=()
+  compose_prefix "$dir"
+  ${deadline[@]+"${deadline[@]}"} "${prefix[@]}" "$@"
 }
 
 database_service() {
@@ -172,13 +174,63 @@ PY
   [[ ! -e "$UAT_ROOT/operator/b714-reconciliation.pending" && ! -L "$UAT_ROOT/operator/b714-reconciliation.pending" ]] || fail 'UAT_RECONCILIATION_PENDING'
   [[ ! -e "$UAT_ROOT/operator/uat-record-transaction" && ! -L "$UAT_ROOT/operator/uat-record-transaction" ]] || fail 'UAT_RECORD_TRANSACTION_PENDING'
   [[ ! -e "$UAT_ROOT/operator/uat-record-retirement.pending" && ! -L "$UAT_ROOT/operator/uat-record-retirement.pending" ]] || fail 'UAT_RECORD_RETIREMENT_PENDING'
+  # #868: ระหว่างสลับ API runtime ไม่ตรง current record จึงห้าม deploy/record ทุกชนิดจน recover
+  [[ ! -e "$UAT_ROOT/operator/uat-api-switch.pending" && ! -L "$UAT_ROOT/operator/uat-api-switch.pending" ]] || fail 'UAT_API_SWITCH_PENDING'
   if [[ "${1:-}" != allow-rollback-record ]]; then
     [[ ! -e "$UAT_ROOT/operator/uat-rollback.pending" && ! -L "$UAT_ROOT/operator/uat-rollback.pending" ]] || fail 'UAT_ROLLBACK_PENDING'
   fi
 }
 
 # ตรวจตั้งแต่ก่อน migrate/deploy เพื่อไม่ให้ runtime เปลี่ยนก่อนพบว่า record เขียนไม่ได้
+# #868: authorization จาก operator/b868-forward-authorize.py ใช้ได้กับ candidate เดียว, current/previous bytes เดิม,
+# release.env ที่ prepare แล้ว และก่อน expiresAt เท่านั้น เมื่อ record ของ candidate ถูกเขียน current hash เปลี่ยน
+uat_forward_authorized() {
+  local sha="${1:-}"
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 1
+  python3 - "$UAT_ROOT" "$sha" <<'PY' 2>/dev/null
+import hashlib, json, os, re, stat, sys
+from datetime import datetime, timezone
+root, sha = sys.argv[1:]
+def private(path, mask=0o077):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & mask or info.st_size > 8388608:
+            raise ValueError('invalid file')
+        return stream.read()
+def when(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z', value):
+        raise ValueError('invalid time')
+    return datetime.fromisoformat(value[:-1] + '+00:00')
+try:
+    data = json.loads(private(os.path.join(root, 'operator', 'uat-forward-deploy.authorization')))
+    current = private(os.path.join(root, 'deployments', 'current.json'))
+    previous = private(os.path.join(root, 'deployments', 'previous.json'))
+    release = private(os.path.join(root, 'releases', sha, 'release.env'), 0o022)
+    now = datetime.now(timezone.utc)
+    validation = data.get('validation') or {}
+    record = json.loads(current)
+    ok = (data.get('schema') == 'UatForwardDeployAuthorizationV1' and data.get('targetSha') == sha
+          and data.get('releaseEnvSha256') == hashlib.sha256(release).hexdigest()
+          and data.get('currentRecordSha256') == hashlib.sha256(current).hexdigest()
+          and data.get('previousRecordSha256') == hashlib.sha256(previous).hexdigest()
+          and data.get('rollbackCertified') is False
+          and re.fullmatch(r'operator:[A-Za-z0-9][A-Za-z0-9._@-]{0,127}', str(data.get('actor', '')))
+          and validation.get('status') == 'ISOLATED_API_ROLLBACK_REHEARSAL_MATCHES_BASELINE'
+          and validation.get('candidateSourceSha') == sha
+          and validation.get('candidateReleaseEnvSha256') == data['releaseEnvSha256']
+          and (record.get('schema'), record.get('action'), record.get('rollbackEligible')) == (
+              'UatDeploymentReconciliationV1', 'reconciliation', False)
+          and when(data.get('authorizedAt')).timestamp() <= now.timestamp() + 30
+          and now < when(data.get('expiresAt')))
+except (OSError, ValueError, TypeError, AttributeError):
+    ok = False
+sys.exit(0 if ok else 1)
+PY
+}
+
 uat_require_recordable_current() {
+  if [[ -n "${1:-}" ]] && uat_forward_authorized "$1"; then return 0; fi
   python3 - "$UAT_ROOT/deployments/current.json" <<'PY'
 import json
 import os
@@ -223,6 +275,8 @@ uat_require_nonhistorical_target() {
     [[ ! -e "$recorded" && ! -L "$recorded" ]] || fail 'UAT_PREVIOUS_RELEASE_REQUIRES_ROLLBACK'
   done
   # ยังไม่มีหลักฐาน compatibility ที่ผูกกับ target: ปฏิเสธไว้ก่อน ไม่เดาว่า SHA ที่ไม่รู้จักใหม่กว่า
+  # ยกเว้น authorization ของ #868 ที่ผูกหลักฐาน candidate กับ current record ปัจจุบัน
+  uat_forward_authorized "$sha" && return 0
   fail 'UAT_TARGET_COMPATIBILITY_EVIDENCE_REQUIRED'
 }
 
@@ -569,7 +623,7 @@ case "$cmd" in
   migrate)
     dir="$(release_dir "${1:?sha}")"
     uat_mutation_lock
-    uat_require_recordable_current
+    uat_require_recordable_current "${1:?sha}"
     uat_require_nonhistorical_target "${1:?sha}"
     compose "$dir" up -d --wait "$(database_service "$dir")"
     compose "$dir" --profile ops run --rm -T db-roles >/dev/null
@@ -581,7 +635,7 @@ case "$cmd" in
   keycloak)
     dir="$(release_dir "${1:?sha}")"
     uat_mutation_lock
-    uat_require_recordable_current
+    uat_require_recordable_current "${1:?sha}"
     uat_require_nonhistorical_target "${1:?sha}"
     compose "$dir" up -d --wait keycloak
     compose "$dir" --profile ops run --rm -T keycloak-config
@@ -629,7 +683,7 @@ case "$cmd" in
   deploy)
     dir="$(release_dir "${1:?sha}")"
     uat_mutation_lock
-    uat_require_recordable_current
+    uat_require_recordable_current "${1:?sha}"
     uat_require_nonhistorical_target "${1:?sha}"
     # #540: object storage (SeaweedFS; s3.json + policy ของ API สร้างใน entrypoint) → bucket private
     # ก่อน api บูต (U1.5 #433: api ไม่บูตถ้า bucket ไม่พร้อม) แล้ว lifecycle ที่รันต่อเนื่อง
@@ -683,7 +737,7 @@ case "$cmd" in
     check_release_env "$dir"
     [[ "$(release_value "$dir" SOURCE_SHA)" == "$sha" ]] || fail 'RELEASE_SOURCE_MISMATCH'
     uat_mutation_lock allow-rollback-record
-    uat_require_recordable_current
+    uat_require_recordable_current "$sha"
     validated_record="$(uat_verify_record_runtime "$dir" "$sha" "$file")" || fail 'RECORD_VALIDATION_FAILED'
     rollback_pending=false
     if [[ -e "$UAT_ROOT/operator/uat-rollback.pending" || -L "$UAT_ROOT/operator/uat-rollback.pending" ]]; then
@@ -831,6 +885,14 @@ try: os.fsync(fd)
 finally: os.close(fd)
 PY
     echo "{\"type\":\"u1.uat.deploy\",\"step\":\"record\",\"status\":\"PASS\",\"file\":\"deployments/$(basename "$target")\"}"
+    ;;
+
+  compose-argv)
+    # #868: คำสั่ง compose ของ release เป็น JSON (มีแต่ path ไม่มีค่า secret) ให้ b868-api-switch.py ใช้ชุดไฟล์เดียวกับ deploy
+    dir="$(release_dir "${1:?sha}")"
+    prefix=()
+    compose_prefix "$dir"
+    python3 -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "${prefix[@]}"
     ;;
 
   current)

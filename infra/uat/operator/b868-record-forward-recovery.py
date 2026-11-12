@@ -104,7 +104,8 @@ def recover(root, approved_intent_sha256, evidence, approved_evidence_sha256, ac
         named = os.lstat(lock)
         if not stat.S_ISREG(named.st_mode) or (info.st_dev, info.st_ino) != (named.st_dev, named.st_ino):
             raise RuntimeError('FORWARD_LOCK_INVALID')
-        for name in ('uat-rollback.pending', 'b714-reconciliation.pending', 'uat-record-retirement.pending'):
+        for name in ('uat-rollback.pending', 'uat-api-switch.pending', 'b714-reconciliation.pending',
+                     'uat-record-retirement.pending'):
             if os.path.lexists(operator / name):
                 raise RuntimeError('FORWARD_OTHER_TRANSACTION_PENDING')
         journal = operator / 'uat-record-transaction'

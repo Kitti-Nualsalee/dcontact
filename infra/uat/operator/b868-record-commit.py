@@ -52,7 +52,8 @@ def complete_locked(root, expected_intent_sha256):
     marker_bytes = (intent['desiredSha256'] + '\n').encode()
 
     def capture():
-        for name in ('uat-rollback.pending', 'b714-reconciliation.pending', 'uat-record-retirement.pending'):
+        for name in ('uat-rollback.pending', 'uat-api-switch.pending', 'b714-reconciliation.pending',
+                     'uat-record-retirement.pending'):
             if os.path.lexists(operator / name):
                 raise RuntimeError('COMMIT_OTHER_TRANSACTION_PENDING')
         JOURNAL.inspect_locked(root)
