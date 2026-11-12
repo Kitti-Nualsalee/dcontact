@@ -5,6 +5,8 @@ services:
         condition: service_healthy
     volumes: !override
       - ./Caddyfile.3vm.e1:/etc/caddy/Caddyfile:ro
+      # #868: ต้องคง admission fence ไว้เมื่อ override volumes ของ proxy
+      - /opt/dcontact-uat/admission-fence:/run/dcontact-admission-fence:ro
 
   api:
     command: ['node', 'dist/e1-uat-main.js']

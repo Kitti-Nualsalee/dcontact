@@ -307,3 +307,55 @@ Platform ยังคงใช้ path จาก source anchor เดิม ส�
 ตัวเขียนใช้ lock/CAS/readback เดิมและ `preserve_previous=True` เพื่อเก็บ previous เดิม byte-for-byte
 พร้อม snapshot และตรวจ live หลังเขียน current ก่อนยืนยัน receipt หาก postcheck ล้มหรือไม่แน่ใจ
 จะคง reconciliation pending ให้ตรวจ ไม่มีการ restart หรือเขียน DB
+
+### #868 หยุดรับคำขอแก้ไข People ระหว่างสลับ API
+
+Fence อยู่ที่ Caddy จึงมีผลกับ API ทุกรุ่นที่สลับไปมาในช่วงนี้ เมื่อมีไฟล์
+`/opt/dcontact-uat/admission-fence/people-mutations` บน VM2 proxy จะตอบ `503`
+`{"code":"CAPABILITY_NOT_READY","reason":"ADMISSION_FENCED"}` กับคำขอที่ไม่ใช่ `GET`/`HEAD`/`OPTIONS` ใต้
+`/api/v1/tenant-voice/people` ได้แก่ create, disable, reconcile, invitation resend และ skills ก่อนคำขอถึง API.
+ส่วน GET รวม `operations/:id` ยังผ่านตามปกติ worker ใน API ไม่ผ่าน proxy จึงทำงานเดิมต่อจนจบ และ Console
+ทุกรุ่นอ่าน code นี้เป็นคำขอที่ไม่ถูกรับ
+
+Route และ mount (`/run/dcontact-admission-fence` แบบอ่านอย่างเดียว) มีเฉพาะ overlay 3vm, e1 และ line.
+Compose แบบเครื่องเดียวมี route แต่ไม่มี mount จึงเปิด fence ไม่ได้ ทั้งสองส่วนต้องอยู่ใน current layout ก่อน maintenance
+window โดย deploy release ที่มี route ตามขั้นตอนปกติ `uat-deploy.sh` จะสร้าง directory ให้แต่ไม่สร้างไฟล์ fence.
+การเปิดหรือปิด fence ไม่ต้อง reload หรือ restart proxy
+
+```sh
+# VM2: เปิด fence
+install -m 0444 /dev/null /opt/dcontact-uat/admission-fence/people-mutations
+```
+
+ยืนยันจากเครื่องใน allowlist ผ่าน VM1 คำขอนี้ไม่มี token จึงไม่สร้างงานแม้ fence ยังไม่ทำงาน
+
+```sh
+python3 -I infra/uat/operator/b868-people-drain-observe.py probe "https://$UAT_HOST"
+```
+
+ต้องได้ `FENCE_ACTIVE` และ exit 0 จากนั้นตรวจ drain บน VM2 ด้วย DB principal และ helper ที่ review แล้ว
+ชุดเดียวกับ `release-evidence-observe.py`
+
+```sh
+python3 -I /opt/dcontact-uat/operator/<package>/b868-people-drain-observe.py drain 180
+```
+
+คำสั่งค้นทุกตาราง `tenant_people_*` ที่มี `state` หรือ `lease_expires_at` และยืนยันว่า principal มี `BYPASSRLS`
+เพราะตารางเหล่านี้ใช้ `FORCE ROW LEVEL SECURITY`. งาน invitation ไม่มีคอลัมน์ state จึงนับแยกด้วยเงื่อนไขเดียวกับ
+worker ได้แก่ intent รุ่นแรกที่ยังไม่ส่ง resend dispatch และ ambiguity ที่ยังไม่มี receipt. คำขอที่ผ่าน proxy ก่อนเปิด
+fence อาจ commit ช้า คำขอที่ช้าที่สุดคือ disable ซึ่งรวม readiness สองชั้น probe Keycloak และ transaction แล้วใช้เวลาไม่เกินราว 91 วินาที
+คำสั่งจึงอ่านซ้ำหลังรอ settle (120–3600 วินาที ค่าเริ่มต้น 180) และตอบ `DRAINED` (exit 0)
+เฉพาะเมื่อทั้งสองรอบทุกแถวอยู่ใน `SUCCEEDED`/`REJECTED` ไม่มี lease ที่ยังถือ และงาน invitation เป็นศูนย์.
+Dispatch lease 30 วินาทีอาจยังไม่หมดอายุหลัง receipt จึงอาจได้ `NOT_DRAINED` ชั่วคราว ให้รันใหม่.
+Activation polling ยังทำงานต่อโดยตั้งใจ เพราะอ่านสถานะจาก Keycloak แล้วบันทึกผลเท่านั้น และผู้ใช้ที่ยังไม่ activate อาจค้างได้นาน
+จึงไม่นับเป็นงานที่ต้อง drain. `NOT_DRAINED` จะแสดงตารางและ state ที่ค้าง ให้รอ worker หรือ
+reconcile ผลภายนอกก่อน `ACTION_REQUIRED` และ state ที่ไม่รู้จักถือว่ายังไม่ drain. `FENCE_NOT_ARMED` หมายถึง
+ไม่พบไฟล์ fence. ให้เก็บผลทั้งสองคำสั่งพร้อม hash ไว้กับหลักฐานของ window. ผลเหล่านี้ไม่รับรอง rollback และ
+`rollbackCertified` เป็น `false` เสมอ
+
+คง fence ไว้ตลอด candidate → target → candidate แล้วเอาออกหลัง readback ของ candidate ผ่าน
+
+```sh
+# VM2: ปิด fence
+rm -f /opt/dcontact-uat/admission-fence/people-mutations
+```

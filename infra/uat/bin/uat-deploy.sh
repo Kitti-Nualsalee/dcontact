@@ -505,6 +505,8 @@ shift
 [[ -f "$UAT_ROOT/uat.env" ]] || fail 'UAT_ENV_MISSING'
 if [[ "$(file_mode "$UAT_ROOT/uat.env")" != '600' ]]; then fail 'UAT_ENV_PERMISSIONS'; fi
 mkdir -p "$UAT_ROOT/deployments" "$UAT_ROOT/backups"
+# #868: directory ของ admission fence ต้องมีก่อน proxy mount; ไม่สร้างไฟล์ fence ให้อัตโนมัติ
+mkdir -p -m 755 "$UAT_ROOT/admission-fence"
 
 case "$cmd" in
   prepare)
