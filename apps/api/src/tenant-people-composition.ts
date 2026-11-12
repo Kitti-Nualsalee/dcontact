@@ -12,15 +12,15 @@ function object(raw: unknown): Record<string, unknown> {
   return Object.fromEntries(Object.entries(raw));
 }
 
-export function peopleConfiguration(environment: NodeJS.ProcessEnv) {
+export function peopleConfiguration(environment: NodeJS.ProcessEnv, request: typeof fetch = fetch) {
   try {
-    return parsePeopleConfiguration(environment);
+    return parsePeopleConfiguration(environment, request);
   } catch {
     throw new Error('INVALID_PEOPLE_CONFIGURATION');
   }
 }
 
-function parsePeopleConfiguration(environment: NodeJS.ProcessEnv) {
+function parsePeopleConfiguration(environment: NodeJS.ProcessEnv, request: typeof fetch) {
   const raw = environment.TENANT_PEOPLE_BINDINGS_JSON;
   const workerUrl = environment.TENANT_PEOPLE_WORKER_DATABASE_URL;
   const invitationFlag = environment.TENANT_PEOPLE_INVITATIONS_ENABLED;
@@ -104,19 +104,21 @@ function parsePeopleConfiguration(environment: NodeJS.ProcessEnv) {
           extensions: node.extensions,
         };
       });
+      const client = {
+        tenantId: entry.tenantId,
+        issuer: entry.issuer,
+        clientId: `dcontact-tenant-people-${entry.tenantId}`,
+        clientSecret: environment[entry.clientSecretEnv]!,
+      };
       const identity = new TenantPeopleKeycloak(
-        {
-          tenantId: entry.tenantId,
-          issuer: entry.issuer,
-          clientId: `dcontact-tenant-people-${entry.tenantId}`,
-          clientSecret: environment[entry.clientSecretEnv]!,
-        },
+        client,
         peopleKeycloakRequest(
           entry.issuer,
           typeof entry.backchannelUrl === 'string' ? entry.backchannelUrl : undefined,
+          request,
         ),
       );
-      return { tenantId: entry.tenantId, identity, nodes };
+      return { tenantId: entry.tenantId, identity, nodes, client };
     }),
   };
 }

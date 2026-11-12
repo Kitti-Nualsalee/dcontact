@@ -478,7 +478,26 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
     invitation: boolean,
     disable = false,
   ): Promise<boolean> {
-    if (tenantId !== this.configuration.tenantId) return false;
+    const result = await this.readReadinessEvidence(tenantId);
+    return (
+      !!result &&
+      result.ready === true &&
+      result.version === 1 &&
+      result.tenantId === this.configuration.tenantId &&
+      (!invitation || result.invitationReady === true) &&
+      (!disable || result.disableReady === true)
+    );
+  }
+
+  /** #868: readiness ดิบจาก extension สำหรับหลักฐานก่อนสลับ API; อ่านอย่างเดียวและไม่คืน token */
+  async readReadinessEvidence(tenantId = this.configuration.tenantId): Promise<{
+    version: unknown;
+    ready: unknown;
+    tenantId: unknown;
+    invitationReady?: unknown;
+    disableReady?: unknown;
+  } | null> {
+    if (tenantId !== this.configuration.tenantId) return null;
     try {
       const options = { redirect: 'error' as const, cache: 'no-store' as const };
       const tokenResponse = await this.request(`${this.issuer}/protocol/openid-connect/token`, {
@@ -491,7 +510,7 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
           client_secret: this.configuration.clientSecret,
         }),
       });
-      if (!tokenResponse.ok) return false;
+      if (!tokenResponse.ok) return null;
       const token: unknown = await tokenResponse.json();
       if (
         !token ||
@@ -500,7 +519,7 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
         typeof token.access_token !== 'string' ||
         !token.access_token
       )
-        return false;
+        return null;
       const endpoint = new URL(`${this.issuer}/dc-tenant-people/readiness`);
       endpoint.searchParams.set('tenantId', this.configuration.tenantId);
       const response = await this.request(endpoint, {
@@ -509,22 +528,19 @@ export class TenantPeopleKeycloak implements TenantPeopleIdentityPort, TenantPeo
         signal: AbortSignal.timeout(10_000),
         headers: { Authorization: `Bearer ${token.access_token}` },
       });
-      if (!response.ok) return false;
+      if (!response.ok) return null;
       const result: unknown = await response.json();
-      return (
-        !!result &&
-        typeof result === 'object' &&
-        'ready' in result &&
-        result.ready === true &&
-        'version' in result &&
-        result.version === 1 &&
-        'tenantId' in result &&
-        result.tenantId === this.configuration.tenantId &&
-        (!invitation || ('invitationReady' in result && result.invitationReady === true)) &&
-        (!disable || ('disableReady' in result && result.disableReady === true))
-      );
+      if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
+      const fields = Object.fromEntries(Object.entries(result));
+      return {
+        version: fields.version,
+        ready: fields.ready,
+        tenantId: fields.tenantId,
+        ...('invitationReady' in fields ? { invitationReady: fields.invitationReady } : {}),
+        ...('disableReady' in fields ? { disableReady: fields.disableReady } : {}),
+      };
     } catch {
-      return false;
+      return null;
     }
   }
 

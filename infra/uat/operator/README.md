@@ -359,3 +359,37 @@ reconcile ผลภายนอกก่อน `ACTION_REQUIRED` และ state
 # VM2: ปิด fence
 rm -f /opt/dcontact-uat/admission-fence/people-mutations
 ```
+
+### #868 เก็บหลักฐาน identity และผลภายนอกก่อนสลับ API
+
+หลังได้ `DRAINED` ให้รันบน VM2 กับ API รุ่น candidate ก่อนสลับ และรันซ้ำหลัง recovery กลับ candidate
+
+```sh
+python3 -I /opt/dcontact-uat/operator/<package>/b868-identity-evidence-observe.py
+```
+
+คำสั่งรัน `dist/tenant-people-identity-evidence-main.js` ใน `dcontact-uat-api-1` client secret จึงอยู่ใน container
+และหลักฐานเก็บเฉพาะ SHA-256 ของ secret. ผลถูกผูกกับ image ID, repository digest และ source ของ API กับ Keycloak
+จาก `release-record-inspect.py` ถ้า runtime เปลี่ยนระหว่างอ่าน คำสั่งจะหยุด
+
+ในแต่ละ tenant binding คำสั่งอ่าน readiness ของ extension (`version`, `ready`, `invitationReady`, `disableReady`) แล้ว
+ไล่ทุก operation, step, invitation dispatch, resend preparation และ disable ที่ attempted จาก application DB ด้วย
+worker principal ใน transaction read-only แบบ `REPEATABLE READ` ซึ่งอ่านจาก snapshot เดียวกัน จากนั้นอ่าน receipt ฝั่ง Keycloak ผ่าน GET ของ extension ด้วย adapter เดียวกับ worker
+ไม่มีการส่ง POST mutation และไม่ส่งเมล POST ที่มีคือการขอ service token เท่านั้น
+
+ผล `CONSISTENT` (exit 0) ต้องมี worker binding ที่เปิดอยู่สำหรับ tenant และ readiness ถูกต้อง โดยต้องได้
+`invitationReady` หรือ `disableReady` เมื่อเปิด flag นั้น ทุก HTTP ต้องตอบ 2xx และ receipt ทุกคู่ต้องตรงกันทั้ง
+outcome และ `receiptRef` สำหรับ resend intent ที่ยังไม่ส่งจะเทียบ `intentRef` และ not-before fence ส่วน resend ที่ส่งแล้วต้องมี proof ใน DB และ not-before ที่ Keycloak ส่งจริงต้องตรงกับ proof. `INCONSISTENT` (exit 2) จะระบุ operation, step หรือ generation พร้อมเหตุผล:
+
+- `RECEIPT_MISMATCH`: outcome หรือ receipt ต่างกัน
+- `UNRECORDED_PROVIDER_RECEIPT`: Keycloak มีผลที่ application ไม่ได้บันทึก
+- `PROVIDER_UNREADABLE`: application มี receipt แต่อ่านฝั่ง Keycloak ไม่ได้, provider ตอบว่าข้อมูลไม่ตรง หรือ
+  dispatch ไม่มี receipt ทั้งสองฝั่ง
+- `PAYLOAD_CORRUPTED`: payload ของ operation ไม่ตรง digest
+- `WORKER_BINDING_DISABLED`: binding ของ worker principal ปิดอยู่ RLS จึงซ่อนทุกแถว คำสั่งจะไม่ถือว่า 0 แถวคือสอดคล้อง
+
+ถ้าคำสั่งล้มก่อนได้ผล (exit 1) จะได้ `IDENTITY_EVIDENCE_UNAVAILABLE:<code>` พร้อม code จาก CLI ซึ่งไม่มี secret เช่น `NOT_CONFIGURED` เมื่อ People configuration ไม่ครบ
+ถ้าไม่ได้ `CONSISTENT` ห้ามสลับ API ให้คง operation เดิมไว้แล้ว reconcile ก่อน
+เก็บ `evidenceSha256` และ `runtimeSha256` ของทั้งสองรอบไว้กับหลักฐานของ window
+ใช้ได้กับ API image ที่มี entry นี้เท่านั้น ส่วน `a460cde` ไม่มี การตรวจจึงทำบน candidate ก่อนสลับและหลัง recovery
+`rollbackCertified` เป็น `false` เสมอ
