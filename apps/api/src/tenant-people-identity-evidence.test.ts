@@ -61,6 +61,19 @@ function fixture() {
         receiptRef: ref('a') as string | null,
       },
     ],
+    preparations: [
+      {
+        operationId,
+        userId,
+        generation: 2,
+        providerAttemptRef: '12121212-1212-4212-8212-121212121212',
+        fencingToken: '2',
+        leaseOwner: 'worker-2',
+        intentRef: ref('b') as string | null,
+        notBeforeEpoch: '1700000000' as string | null,
+      },
+    ],
+    bindingEnabled: true,
     disables: [
       {
         operationId: disableId,
@@ -84,6 +97,9 @@ function fixture() {
     $queryRaw: async (strings: TemplateStringsArray) => {
       const sql = strings.join('?');
       statements.push(sql);
+      if (sql.includes('FROM tenant_people_worker_bindings'))
+        return [{ enabled: rows.bindingEnabled }];
+      if (sql.includes('FROM tenant_people_invitation_preparations')) return rows.preparations;
       if (sql.includes('FROM tenant_people_operations')) return rows.operations;
       if (sql.includes('FROM tenant_people_step_receipts')) return rows.steps;
       if (sql.includes('FROM tenant_people_invitation_dispatches')) return rows.dispatches;
@@ -92,7 +108,13 @@ function fixture() {
     },
   };
   const database = {
-    $transaction: async (work: (tx: typeof transaction) => Promise<unknown>) => work(transaction),
+    $transaction: async (
+      work: (tx: typeof transaction) => Promise<unknown>,
+      options?: { isolationLevel?: string },
+    ) => {
+      statements.push(`ISOLATION ${options?.isolationLevel}`);
+      return work(transaction);
+    },
   } as unknown as PrismaClient;
   const provider = {
     readiness: {
@@ -116,6 +138,13 @@ function fixture() {
       outcome: string;
       receiptRef?: string;
     },
+    preparation: {
+      outcome: 'INTENT',
+      intentRef: ref('b'),
+      notBeforeEpoch: 1700000000,
+      serverEpoch: 1700000001,
+      clockReached: true,
+    } as Record<string, unknown>,
     failures: 0,
   };
   const seen: Record<string, unknown[]> = { step: [], invitation: [], disable: [] };
@@ -133,6 +162,7 @@ function fixture() {
       seen.invitation!.push(value);
       return provider.invitation as never;
     },
+    readPreparation: async () => provider.preparation as never,
     readDisable: async (value) => {
       seen.disable!.push(value);
       return provider.disable as never;
@@ -148,7 +178,14 @@ test('#868 identity evidence: receipt ทุกชนิดตรงกันเ
   assert.equal(evidence.status, 'CONSISTENT');
   assert.equal(evidence.rollbackCertified, false);
   const [tenant] = evidence.tenants;
-  assert.deepEqual(tenant?.counts, { operations: 1, steps: 5, invitations: 1, disables: 1 });
+  assert.deepEqual(tenant?.counts, {
+    operations: 1,
+    steps: 5,
+    invitations: 1,
+    preparations: 1,
+    disables: 1,
+  });
+  assert.ok(statements.includes('ISOLATION RepeatableRead'));
   assert.equal(tenant?.clientSecretSha256.length, 64);
   assert.doesNotMatch(JSON.stringify(evidence), /secret-value|agent\.one/);
   assert.ok(statements.includes('SET TRANSACTION READ ONLY'));
@@ -210,6 +247,42 @@ test('#868 identity evidence: ความต่างระหว่าง appl
       'UNRECORDED_PROVIDER_RECEIPT',
     ],
     [
+      'worker binding ถูกปิดจน RLS ซ่อนทุกแถว',
+      (f) => {
+        f.rows.bindingEnabled = false;
+        f.rows.operations = [];
+        f.rows.steps = [];
+        f.rows.dispatches = [];
+        f.rows.preparations = [];
+        f.rows.disables = [];
+      },
+      'WORKER_BINDING_DISABLED',
+    ],
+    [
+      'Keycloak มี resend intent แต่ application ไม่มี proof',
+      (f) => {
+        f.rows.preparations[0]!.intentRef = null;
+        f.rows.preparations[0]!.notBeforeEpoch = null;
+      },
+      'UNRECORDED_PROVIDER_RECEIPT',
+    ],
+    [
+      'resend intent fence ต่างกัน',
+      (f) => (f.provider.preparation = { ...f.provider.preparation, notBeforeEpoch: 1700000009 }),
+      'RECEIPT_MISMATCH',
+    ],
+    [
+      'provider ตอบ UNKNOWN พร้อม reasonCode แม้ application ไม่มี receipt',
+      (f) => {
+        f.rows.steps = f.rows.steps.filter((row) => row.step !== 'VERIFY_MAPPING');
+        f.provider.steps.set('VERIFY_MAPPING', {
+          outcome: 'UNKNOWN',
+          reasonCode: 'IDENTITY_MAPPING_CONFLICT',
+        } as never);
+      },
+      'PROVIDER_UNREADABLE',
+    ],
+    [
       'payload ของ operation ถูกแก้',
       (f) => {
         f.rows.operations[0]!.payload = { ...request, displayName: 'Changed' };
@@ -236,6 +309,10 @@ test('#868 identity evidence: readiness ผิดหรือ HTTP ล้มท�
     (f: ReturnType<typeof fixture>) =>
       (f.provider.readiness = { version: 2, ready: true, tenantId }),
     (f: ReturnType<typeof fixture>) => (f.provider.failures = 1),
+    (f: ReturnType<typeof fixture>) => {
+      f.source.requiredReadiness = ['invitationReady'];
+      f.provider.readiness = { ...f.provider.readiness, invitationReady: false };
+    },
   ]) {
     const value = fixture();
     mutate(value);
@@ -247,6 +324,20 @@ test('#868 identity evidence: readiness ผิดหรือ HTTP ล้มท�
     collectPeopleIdentityEvidence(fixture().database, []),
     /PEOPLE_BINDINGS_REQUIRED/,
   );
+});
+
+test('#868 identity evidence: preparation ที่มี dispatch แล้วเทียบผ่าน dispatch ไม่อ่าน intent ซ้ำ', async () => {
+  const value = fixture();
+  value.rows.dispatches.push({
+    ...value.rows.dispatches[0]!,
+    generation: 2,
+    providerAttemptRef: value.rows.preparations[0]!.providerAttemptRef,
+  });
+  value.provider.preparation = { outcome: 'UNKNOWN' };
+  const evidence = await collectPeopleIdentityEvidence(value.database, [value.source]);
+  assert.equal(evidence.status, 'CONSISTENT', JSON.stringify(evidence.tenants[0]?.mismatches));
+  assert.equal(evidence.tenants[0]?.counts.preparations, 0);
+  assert.equal(evidence.tenants[0]?.counts.invitations, 2);
 });
 
 test('#868 identity evidence: disable ที่ยังไม่ attempted และไม่มี receipt ไม่ถูกอ่านจาก provider', async () => {

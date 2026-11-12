@@ -373,18 +373,22 @@ python3 -I /opt/dcontact-uat/operator/<package>/b868-identity-evidence-observe.p
 จาก `release-record-inspect.py` ถ้า runtime เปลี่ยนระหว่างอ่าน คำสั่งจะหยุด
 
 ในแต่ละ tenant binding คำสั่งอ่าน readiness ของ extension (`version`, `ready`, `invitationReady`, `disableReady`) แล้ว
-ไล่ทุก operation, step, invitation generation และ disable ที่ attempted จาก application DB ด้วย worker principal
-ใน transaction read-only จากนั้นอ่าน receipt ฝั่ง Keycloak ผ่าน GET ของ extension ด้วย adapter เดียวกับ worker
+ไล่ทุก operation, step, invitation dispatch, resend preparation และ disable ที่ attempted จาก application DB ด้วย
+worker principal ใน transaction read-only แบบ `REPEATABLE READ` ซึ่งอ่านจาก snapshot เดียวกัน จากนั้นอ่าน receipt ฝั่ง Keycloak ผ่าน GET ของ extension ด้วย adapter เดียวกับ worker
 ไม่มีการส่ง POST mutation และไม่ส่งเมล POST ที่มีคือการขอ service token เท่านั้น
 
-ผล `CONSISTENT` (exit 0) ต้องได้ readiness ถูกต้อง ทุก HTTP ตอบ 2xx และ receipt ทุกคู่ตรงกันทั้ง outcome และ
-`receiptRef`. `INCONSISTENT` (exit 2) จะระบุ operation, step หรือ generation พร้อมเหตุผล:
+ผล `CONSISTENT` (exit 0) ต้องมี worker binding ที่เปิดอยู่สำหรับ tenant และ readiness ถูกต้อง โดยต้องได้
+`invitationReady` หรือ `disableReady` เมื่อเปิด flag นั้น ทุก HTTP ต้องตอบ 2xx และ receipt ทุกคู่ต้องตรงกันทั้ง
+outcome และ `receiptRef` สำหรับ resend intent จะเทียบ `intentRef` และ not-before fence. `INCONSISTENT` (exit 2) จะระบุ operation, step หรือ generation พร้อมเหตุผล:
 
 - `RECEIPT_MISMATCH`: outcome หรือ receipt ต่างกัน
 - `UNRECORDED_PROVIDER_RECEIPT`: Keycloak มีผลที่ application ไม่ได้บันทึก
-- `PROVIDER_UNREADABLE`: application มี receipt แต่อ่านฝั่ง Keycloak ไม่ได้ หรือ dispatch ไม่มี receipt ทั้งสองฝั่ง
+- `PROVIDER_UNREADABLE`: application มี receipt แต่อ่านฝั่ง Keycloak ไม่ได้, provider ตอบว่าข้อมูลไม่ตรง หรือ
+  dispatch ไม่มี receipt ทั้งสองฝั่ง
 - `PAYLOAD_CORRUPTED`: payload ของ operation ไม่ตรง digest
+- `WORKER_BINDING_DISABLED`: binding ของ worker principal ปิดอยู่ RLS จึงซ่อนทุกแถว คำสั่งจะไม่ถือว่า 0 แถวคือสอดคล้อง
 
+ถ้าคำสั่งล้มก่อนได้ผล (exit 1) จะได้ `IDENTITY_EVIDENCE_UNAVAILABLE:<code>` พร้อม code จาก CLI ซึ่งไม่มี secret
 ถ้าไม่ได้ `CONSISTENT` ห้ามสลับ API ให้คง operation เดิมไว้แล้ว reconcile ก่อน
 เก็บ `evidenceSha256` และ `runtimeSha256` ของทั้งสองรอบไว้กับหลักฐานของ window
 ใช้ได้กับ API image ที่มี entry นี้เท่านั้น ส่วน `a460cde` ไม่มี การตรวจจึงทำบน candidate ก่อนสลับและหลัง recovery

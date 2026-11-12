@@ -50,8 +50,13 @@ export async function runPeopleIdentityEvidenceCli(
         readReadiness: scoped(() => binding.identity.readReadinessEvidence()),
         readStep: scoped((claim) => binding.identity.readOutcome(claim)),
         readInvitation: scoped((attempt) => invitations.readOutcome(attempt)),
+        readPreparation: scoped((attempt) => invitations.readPreparation(attempt)),
         readDisable: scoped((attempt) => disable.readOutcome(attempt)),
         requestFailures: () => failures.get(binding.tenantId) ?? 0,
+        requiredReadiness: [
+          ...(configuration.invitationsEnabled ? (['invitationReady'] as const) : []),
+          ...(configuration.disableEnabled ? (['disableReady'] as const) : []),
+        ],
       } satisfies Parameters<typeof collectPeopleIdentityEvidence>[1][number];
     });
     const evidence = await collectPeopleIdentityEvidence(worker, sources);

@@ -31,7 +31,8 @@ class IdentityObserveTests(unittest.TestCase):
 
         def execute(command, **kwargs):
             calls.append(command)
-            return SimpleNamespace(returncode=code, stdout=output.encode() if isinstance(output, str) else output)
+            return SimpleNamespace(returncode=code, stdout=output.encode() if isinstance(output, str) else output,
+                                   stderr=b'')
         return identity.observe(lambda: runtimes.pop(0), execute), calls
 
     def test_consistent_binds_api_and_keycloak_runtime(self):
@@ -55,9 +56,22 @@ class IdentityObserveTests(unittest.TestCase):
             (json.dumps(evidence(rollbackCertified=True)), 0, 'IDENTITY_EVIDENCE_INVALID'),
             (json.dumps(evidence(tenants=[])), 0, 'IDENTITY_EVIDENCE_INVALID'),
             (json.dumps(evidence()), 137, 'IDENTITY_EVIDENCE_UNAVAILABLE'),
+            ('', 1, 'IDENTITY_EVIDENCE_UNAVAILABLE:UNKNOWN'),
         ]:
             with self.subTest(output=output, code=code), self.assertRaisesRegex(RuntimeError, error):
                 self.run_observe(output, code)
+
+    def test_unavailable_reports_cli_error_code_only(self):
+        def execute(command, **kwargs):
+            return SimpleNamespace(returncode=1, stdout=b'',
+                                   stderr=b'{"status":"FAILED","error":"INVALID_PEOPLE_CONFIGURATION"}\n')
+        with self.assertRaisesRegex(RuntimeError, 'IDENTITY_EVIDENCE_UNAVAILABLE:INVALID_PEOPLE_CONFIGURATION$'):
+            identity.observe(lambda: runtime(), execute)
+
+        def leaky(command, **kwargs):
+            return SimpleNamespace(returncode=1, stdout=b'', stderr=b'{"error":"secret value here"}')
+        with self.assertRaisesRegex(RuntimeError, 'IDENTITY_EVIDENCE_UNAVAILABLE:UNKNOWN$'):
+            identity.observe(lambda: runtime(), leaky)
 
     def test_rejects_runtime_change_or_missing_component(self):
         with self.assertRaisesRegex(RuntimeError, 'RUNTIME_CHANGED_DURING_IDENTITY_READ'):

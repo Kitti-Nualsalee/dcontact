@@ -14,6 +14,7 @@ import type { PeopleStep, PeopleStepOutcome, PeopleWorkerClaim } from './tenant-
 import type {
   PeopleInvitationAttempt,
   PeopleInvitationOutcome,
+  PeopleInvitationPreparation,
 } from './tenant-people-invitation-worker.js';
 import type {
   PeopleDisableAttempt,
@@ -38,22 +39,26 @@ export interface PeopleIdentityEvidenceSource {
   readReadiness(): Promise<Record<string, unknown> | null>;
   readStep(claim: PeopleWorkerClaim): Promise<PeopleStepOutcome>;
   readInvitation(attempt: PeopleInvitationAttempt): Promise<PeopleInvitationOutcome>;
+  readPreparation(attempt: PeopleInvitationAttempt): Promise<PeopleInvitationPreparation>;
   readDisable(attempt: PeopleDisableAttempt): Promise<PeopleDisableOutcome>;
   /** จำนวน HTTP ที่ไม่ใช่ 2xx หรือ exception; adapter คืน UNKNOWN ทั้งกรณีไม่มี receipt และอ่านไม่ได้ */
   requestFailures(): number;
+  /** readiness ที่ต้องเป็น true ตาม flag ของ runtime เช่น invitationReady เมื่อเปิด invitation */
+  requiredReadiness?: readonly ('invitationReady' | 'disableReady')[];
 }
 
-type Recorded = { outcome: string; receiptRef: string | null };
+type Recorded = { outcome: string; receiptRef: string | null; reasonCode?: string };
 export interface PeopleIdentityMismatch {
-  kind: 'STEP' | 'INVITATION' | 'DISABLE';
-  operationId: string;
+  kind: 'BINDING' | 'STEP' | 'INVITATION' | 'PREPARATION' | 'DISABLE';
+  operationId: string | null;
   step?: PeopleStep;
   generation?: number;
   reason:
     | 'RECEIPT_MISMATCH'
     | 'UNRECORDED_PROVIDER_RECEIPT'
     | 'PROVIDER_UNREADABLE'
-    | 'PAYLOAD_CORRUPTED';
+    | 'PAYLOAD_CORRUPTED'
+    | 'WORKER_BINDING_DISABLED';
   application: Recorded | null;
   provider: Recorded | null;
 }
@@ -83,6 +88,16 @@ interface DispatchRow {
   outcome: string | null;
   receiptRef: string | null;
 }
+interface PreparationRow {
+  operationId: string;
+  userId: string;
+  generation: number;
+  providerAttemptRef: string;
+  fencingToken: string;
+  leaseOwner: string;
+  intentRef: string | null;
+  notBeforeEpoch: string | null;
+}
 interface DisableRow {
   operationId: string;
   userId: string;
@@ -98,47 +113,83 @@ interface DisableRow {
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
 async function readApplication(database: PrismaClient, tenantId: string) {
-  return withTenantDatabaseTransaction(database, tenantId, async (transaction) => {
-    // set_config ของ tenant เป็น query แรกแล้ว PostgreSQL ยังยอมให้เปลี่ยนเป็น read-only ได้ (ไม่ยอมกลับเป็น read-write)
-    await transaction.$executeRawUnsafe('SET TRANSACTION READ ONLY');
-    const operations = await transaction.$queryRaw<OperationRow[]>`
+  return withTenantDatabaseTransaction(
+    database,
+    tenantId,
+    async (transaction) => {
+      // set_config ของ tenant เป็น query แรกแล้ว PostgreSQL ยังยอมให้เปลี่ยนเป็น read-only ได้ (ไม่ยอมกลับเป็น read-write)
+      await transaction.$executeRawUnsafe('SET TRANSACTION READ ONLY');
+      // RLS แบบ RESTRICTIVE ซ่อนทุกแถวเมื่อ binding ของ session_user ปิด; 0 rows ต้องไม่กลายเป็นความสอดคล้อง
+      const [binding] = await transaction.$queryRaw<{ enabled: boolean }[]>`
+      SELECT EXISTS(SELECT 1 FROM tenant_people_worker_bindings WHERE tenant_id=${tenantId}::uuid
+        AND database_principal=session_user AND enabled) AS enabled`;
+      const operations = await transaction.$queryRaw<OperationRow[]>`
       SELECT id::text AS "operationId",target_user_id::text AS "userId",actor_user_id::text AS "actorId",
         command_id::text AS "commandId",correlation_id::text AS "correlationId",payload_digest AS "payloadDigest",
         request_payload AS payload
       FROM tenant_people_operations WHERE tenant_id=${tenantId}::uuid ORDER BY id`;
-    // receipt ล่าสุดที่ไม่ใช่ UNKNOWN ต่อ step; Keycloak เก็บหนึ่ง receipt ต่อ operation/step
-    const steps = await transaction.$queryRaw<StepReceiptRow[]>`
+      // receipt ล่าสุดที่ไม่ใช่ UNKNOWN ต่อ step; Keycloak เก็บหนึ่ง receipt ต่อ operation/step
+      const steps = await transaction.$queryRaw<StepReceiptRow[]>`
       SELECT DISTINCT ON (operation_id,step) operation_id::text AS "operationId",step,outcome,
         provider_receipt_ref AS "receiptRef"
       FROM tenant_people_step_receipts WHERE tenant_id=${tenantId}::uuid AND outcome<>'UNKNOWN'
       ORDER BY operation_id,step,fencing_token DESC`;
-    const dispatches = await transaction.$queryRaw<DispatchRow[]>`
+      const dispatches = await transaction.$queryRaw<DispatchRow[]>`
       SELECT d.operation_id::text AS "operationId",d.user_id::text AS "userId",d.generation,
         d.provider_attempt_ref::text AS "providerAttemptRef",d.fencing_token::text AS "fencingToken",
         d.lease_owner AS "leaseOwner",r.outcome,r.receipt_ref AS "receiptRef"
       FROM tenant_people_invitation_dispatches d
       LEFT JOIN tenant_people_invitation_receipts r ON r.tenant_id=d.tenant_id AND r.provider_attempt_ref=d.provider_attempt_ref
       WHERE d.tenant_id=${tenantId}::uuid ORDER BY d.operation_id,d.generation`;
-    const disables = await transaction.$queryRaw<DisableRow[]>`
+      const preparations = await transaction.$queryRaw<PreparationRow[]>`
+      SELECT p.operation_id::text AS "operationId",p.user_id::text AS "userId",p.generation,
+        p.provider_attempt_ref::text AS "providerAttemptRef",p.fencing_token::text AS "fencingToken",
+        p.lease_owner AS "leaseOwner",proof.intent_ref AS "intentRef",proof.not_before_epoch::text AS "notBeforeEpoch"
+      FROM tenant_people_invitation_preparations p
+      LEFT JOIN tenant_people_invitation_preparation_proofs proof ON proof.tenant_id=p.tenant_id AND proof.provider_attempt_ref=p.provider_attempt_ref
+      WHERE p.tenant_id=${tenantId}::uuid ORDER BY p.operation_id,p.generation`;
+      const disables = await transaction.$queryRaw<DisableRow[]>`
       SELECT DISTINCT ON (s.id) s.id::text AS "operationId",s.user_id::text AS "userId",
         s.identity_id::text AS "identityId",s.role,s.payload_digest AS "payloadDigest",
         s.fencing_token::text AS "fencingToken",s.attempted,r.outcome,r.provider_receipt_ref AS "receiptRef"
       FROM tenant_people_disables s
       LEFT JOIN tenant_people_disable_receipts r ON r.tenant_id=s.tenant_id AND r.operation_id=s.id AND r.outcome<>'UNKNOWN'
       WHERE s.tenant_id=${tenantId}::uuid ORDER BY s.id,r.fencing_token DESC NULLS LAST`;
-    return { operations, steps, dispatches, disables };
-  });
+      return {
+        bindingEnabled: binding?.enabled === true,
+        operations,
+        steps,
+        dispatches,
+        preparations,
+        disables,
+      };
+    },
+    // snapshot เดียวกันทุก query เพื่อไม่ให้ operation ที่เกิดระหว่างอ่านกลายเป็นผลปลอม
+    { isolationLevel: 'RepeatableRead' },
+  );
 }
 
-function recorded(outcome: { outcome: string; receiptRef?: string }): Recorded {
-  return { outcome: outcome.outcome, receiptRef: outcome.receiptRef ?? null };
+function recorded(outcome: {
+  outcome: string;
+  receiptRef?: string;
+  reasonCode?: string;
+}): Recorded {
+  return {
+    outcome: outcome.outcome,
+    receiptRef: outcome.receiptRef ?? null,
+    ...(outcome.outcome === 'UNKNOWN' && outcome.reasonCode
+      ? { reasonCode: outcome.reasonCode }
+      : {}),
+  };
 }
 
 function compare(
   application: Recorded | null,
   provider: Recorded,
 ): PeopleIdentityMismatch['reason'] | null {
-  if (provider.outcome === 'UNKNOWN') return application ? 'PROVIDER_UNREADABLE' : null;
+  // UNKNOWN ที่มี reasonCode คือ provider ตอบว่าข้อมูลไม่ตรง ไม่ใช่ "ไม่มี receipt"
+  if (provider.outcome === 'UNKNOWN')
+    return application || provider.reasonCode ? 'PROVIDER_UNREADABLE' : null;
   if (!application) return 'UNRECORDED_PROVIDER_RECEIPT';
   return application.outcome === provider.outcome && application.receiptRef === provider.receiptRef
     ? null
@@ -153,7 +204,15 @@ export async function collectTenantPeopleIdentityEvidence(
   const readiness = await source.readReadiness();
   const application = await readApplication(database, tenantId);
   const mismatches: PeopleIdentityMismatch[] = [];
-  const counts = { operations: 0, steps: 0, invitations: 0, disables: 0 };
+  const counts = { operations: 0, steps: 0, invitations: 0, preparations: 0, disables: 0 };
+  if (!application.bindingEnabled)
+    mismatches.push({
+      kind: 'BINDING',
+      operationId: null,
+      reason: 'WORKER_BINDING_DISABLED',
+      application: null,
+      provider: null,
+    });
   const commands = new Map<string, PeopleWorkerClaim['command'] | null>();
   for (const operation of application.operations) {
     const payload = operation.payload;
@@ -264,6 +323,65 @@ export async function collectTenantPeopleIdentityEvidence(
         provider,
       });
   }
+  for (const preparation of application.preparations) {
+    // preparation ที่มี dispatch แล้วถูกเทียบผ่าน dispatch GET ซึ่งตรวจ descriptor ของ intent เดียวกันโดยไม่ต้องเป็น fence ปัจจุบัน
+    // intent GET ปฏิเสธรุ่นที่ถูกแทนแล้ว (GENERATION_FENCE_CONFLICT) จึงอ่านเฉพาะ intent ที่ยังไม่มี dispatch
+    if (
+      application.dispatches.some(
+        (dispatch) => dispatch.providerAttemptRef === preparation.providerAttemptRef,
+      )
+    )
+      continue;
+    const operation = application.operations.find(
+      (row) => row.operationId === preparation.operationId,
+    );
+    const command = commands.get(preparation.operationId);
+    counts.preparations++;
+    const local = preparation.intentRef
+      ? {
+          outcome: 'INTENT',
+          receiptRef: `${preparation.intentRef}:${preparation.notBeforeEpoch}`,
+        }
+      : null;
+    if (!operation || !command) {
+      mismatches.push({
+        kind: 'PREPARATION',
+        operationId: preparation.operationId,
+        generation: preparation.generation,
+        reason: 'PAYLOAD_CORRUPTED',
+        application: local,
+        provider: null,
+      });
+      continue;
+    }
+    const result = await source.readPreparation({
+      tenantId,
+      operationId: preparation.operationId,
+      userId: preparation.userId,
+      generation: preparation.generation,
+      providerAttemptRef: preparation.providerAttemptRef,
+      payloadDigest: operation.payloadDigest,
+      fencingToken: preparation.fencingToken,
+      leaseOwner: preparation.leaseOwner,
+      leaseExpiresAt: NEVER,
+      command,
+    });
+    // intent ฝั่ง Keycloak ตั้ง not-before fence ให้ลิงก์รุ่นก่อนแล้ว แม้ยังไม่มี dispatch จึงต้องมี proof ตรงกัน
+    const provider: Recorded =
+      result.outcome === 'INTENT'
+        ? { outcome: 'INTENT', receiptRef: `${result.intentRef}:${result.notBeforeEpoch}` }
+        : { outcome: 'UNKNOWN', receiptRef: null };
+    const reason = compare(local, provider);
+    if (reason)
+      mismatches.push({
+        kind: 'PREPARATION',
+        operationId: preparation.operationId,
+        generation: preparation.generation,
+        reason,
+        application: local,
+        provider,
+      });
+  }
   for (const disable of application.disables) {
     if (!disable.attempted && !disable.outcome) continue;
     counts.disables++;
@@ -299,7 +417,8 @@ export async function collectTenantPeopleIdentityEvidence(
     !!readiness &&
     readiness.ready === true &&
     readiness.version === 1 &&
-    readiness.tenantId === tenantId;
+    readiness.tenantId === tenantId &&
+    (source.requiredReadiness ?? []).every((field) => readiness[field] === true);
   return {
     tenantId,
     issuer: source.issuer,

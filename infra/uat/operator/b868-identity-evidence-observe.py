@@ -8,6 +8,7 @@
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -29,8 +30,15 @@ def observe(inspect_runtime, execute=subprocess.run):
         if service not in runtime:
             raise RuntimeError('RUNTIME_COMPONENT_REQUIRED')
     result = execute(COMMAND, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=600)
-    if result.returncode == 1 or result.returncode not in (0, 2):
-        raise RuntimeError('IDENTITY_EVIDENCE_UNAVAILABLE')
+    if result.returncode not in (0, 2):
+        stderr = result.stderr.decode() if isinstance(result.stderr, bytes) else (result.stderr or '')
+        try:
+            failure = json.loads(stderr.strip().splitlines()[-1]).get('error')
+        except (ValueError, IndexError, AttributeError):
+            failure = None
+        # CLI เขียนเฉพาะ status/error code ไม่มี secret; แนบ code ที่ตรงรูปแบบไว้ให้ผู้ปฏิบัติงานเห็นสาเหตุ
+        detail = failure if isinstance(failure, str) and re.fullmatch('[A-Z0-9_]{1,64}', failure) else 'UNKNOWN'
+        raise RuntimeError('IDENTITY_EVIDENCE_UNAVAILABLE:' + detail)
     lines = result.stdout.decode().strip().splitlines() if isinstance(result.stdout, bytes) else (
         result.stdout.strip().splitlines())
     if len(lines) != 1:

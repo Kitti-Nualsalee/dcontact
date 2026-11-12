@@ -910,6 +910,14 @@ test('real JWT HTTP → RLS worker → Keycloak/SMTP: สาม roles ยัง 
     );
     console.log('UAT868_IDENTITY_EVIDENCE_PASS');
     await owner.$executeRaw`UPDATE tenant_people_worker_bindings SET enabled=false WHERE tenant_id=${tenantId}::uuid AND database_principal=${workerPrincipal}`;
+    // #868: binding ที่ปิดทำให้ RLS ซ่อนทุกแถว ต้องไม่ได้ CONSISTENT จาก 0 rows
+    const hidden = await readEvidence();
+    assert.equal(hidden.code, 2);
+    assert.deepEqual(
+      hidden.evidence.tenants[0].mismatches.map((item: { reason: string }) => item.reason),
+      ['WORKER_BINDING_DISABLED'],
+    );
+    assert.equal(hidden.evidence.tenants[0].counts.operations, 0);
     assert.deepEqual((await read('capabilities')).peopleProvisioning, {
       ready: false,
       reasons: ['CAPABILITY_NOT_READY'],
