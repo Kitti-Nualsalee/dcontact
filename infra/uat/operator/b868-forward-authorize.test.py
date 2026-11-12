@@ -164,6 +164,20 @@ class ForwardAuthorizeTests(unittest.TestCase):
         self.assertEqual(json.loads(path.read_bytes())['currentRecordSha256'],
                          hashlib.sha256(self.current).hexdigest())
 
+    def test_expired_or_other_candidate_authorization_can_be_replaced(self):
+        self.run_authorize()
+        path = self.root / 'operator' / authorize.AUTHORIZATION
+        original = json.loads(path.read_bytes())
+        for change in ({'expiresAt': '2020-01-01T00:00:00Z'}, {'targetSha': 'e' * 40}):
+            with self.subTest(change=change):
+                path.write_text(json.dumps({**json.loads(path.read_bytes()), **change}))
+                path.chmod(0o600)
+                self.assertEqual(self.run_authorize()['status'], 'FORWARD_DEPLOY_AUTHORIZED')
+                self.assertEqual(json.loads(path.read_bytes())['targetSha'], original['targetSha'])
+                # ชื่อ retired ผูกเวลาเป็นวินาที ย้ายออกเพื่อให้รอบถัดไปในวินาทีเดียวกันเก็บได้
+                for retired in (self.root / 'operator').glob('uat-forward-deploy-retired-*.json'):
+                    retired.rename(retired.with_name('kept-' + list(change)[0]))
+
 
 if __name__ == '__main__':
     unittest.main()

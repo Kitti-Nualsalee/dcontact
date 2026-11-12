@@ -121,7 +121,14 @@ def authorize(root, observation, approved_observation_sha256, rehearsal, approve
         if os.path.lexists(path):
             # authorization เดิมใช้ไม่ได้แล้วถ้า current เปลี่ยน; เก็บไว้เป็นประวัติแทนการลบ
             existing = json.loads(read_private(path))
-            if existing.get('currentRecordSha256') == current_sha256:
+            try:
+                expires = datetime.fromisoformat(str(existing.get('expiresAt', ''))[:-1] + '+00:00')
+            except ValueError:
+                expires = None
+            # ใช้งานได้อยู่ = current เดิม, candidate เดิม และยังไม่หมดอายุ; กรณีอื่นเก็บเป็นประวัติแล้วออกใหม่ได้
+            # เช่น window หมดหลัง migrate แต่ก่อน record ต้องออก authorization ใหม่จากหลักฐานสดได้
+            if (existing.get('currentRecordSha256') == current_sha256 and existing.get('targetSha') == sha
+                    and expires is not None and clock < expires):
                 raise RuntimeError('AUTHORIZE_ACTIVE_AUTHORIZATION_EXISTS')
             retired = operator / ('uat-forward-deploy-retired-' + clock.strftime('%Y%m%dT%H%M%SZ') + '.json')
             if os.path.lexists(retired):

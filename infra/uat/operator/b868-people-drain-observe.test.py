@@ -166,6 +166,12 @@ class ProbeTests(unittest.TestCase):
                 result = drain.probe('https://uat.example', self.opener(status, headers, payload))
                 self.assertEqual(result['status'], 'FENCE_INACTIVE')
 
+    def test_transport_error_is_inactive_not_raised(self):
+        def broken(request, timeout):
+            raise urllib.error.URLError('connection reset')
+        result = drain.probe('https://uat.example', broken)
+        self.assertEqual((result['status'], result['httpStatus']), ('FENCE_INACTIVE', None))
+
     def test_rejects_non_https_or_path_urls(self):
         for url in ['http://uat.example', 'https://uat.example/api', 'https://uat.example?x=1']:
             with self.subTest(url=url), self.assertRaisesRegex(RuntimeError, 'PROBE_URL_INVALID'):

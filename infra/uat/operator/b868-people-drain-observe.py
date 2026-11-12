@@ -149,6 +149,9 @@ def probe(base_url, opener=urllib.request.urlopen):
         status, headers, body = response.status, response.headers, response.read(4096)
     except urllib.error.HTTPError as error:
         status, headers, body = error.code, error.headers, error.read(4096)
+    except (urllib.error.URLError, OSError):
+        # เชื่อมต่อไม่ได้ชั่วคราวไม่ใช่หลักฐานว่า fence ทำงาน ผู้เรียกจึงเห็น FENCE_INACTIVE และ retry ได้
+        status, headers, body = None, {}, b''
     marker = headers.get('X-DContact-Admission-Fence')
     try:
         payload = json.loads(body)

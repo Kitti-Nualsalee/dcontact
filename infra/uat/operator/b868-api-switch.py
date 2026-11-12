@@ -332,7 +332,15 @@ def recover(root, deps):
     require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid() and not info.st_mode & 0o077,
             'SWITCH_FILE_INVALID')
     data = canonical(receipt)
-    write_private(directory / (pending['transactionId'] + '.json'), data)
+    path = directory / (pending['transactionId'] + '.json')
+    if os.path.lexists(path):
+        # recover รอบก่อนเขียน receipt แล้วแต่ตายก่อนถอน pending: ตรวจรอบนี้ผ่านครบแล้วจึงใช้ receipt เดิม
+        data = read_private(path)
+        existing = json.loads(data)
+        require(existing.get('schema') == 'UatApiSwitchReceiptV1' and existing.get('phase') == 'RECOVERED'
+                and existing.get('transactionId') == pending['transactionId'], 'SWITCH_RECEIPT_CONFLICT')
+    else:
+        write_private(path, data)
     if os.path.lexists(operator / OVERRIDE):
         os.unlink(operator / OVERRIDE)
     os.unlink(operator / PENDING)

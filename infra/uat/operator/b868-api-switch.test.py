@@ -239,6 +239,27 @@ class ApiSwitchTests(unittest.TestCase):
         with self.assertRaisesRegex(switch.SwitchError, 'SWITCH_RECORDS_CHANGED|SWITCH_CANDIDATE_RELEASE'):
             switch.recover(self.root, self.deps)
 
+    def test_recover_reuses_receipt_written_before_crash(self):
+        switch.rollback(self.root, self.deps, 180)
+        pending = self.pending()
+        original_unlink = switch.os.unlink
+        def crash(path, *args, **kwargs):
+            if str(path).endswith(switch.OVERRIDE):
+                raise OSError('crash after receipt')
+            return original_unlink(path, *args, **kwargs)
+        switch.os.unlink = crash
+        try:
+            with self.assertRaises(OSError):
+                switch.recover(self.root, self.deps)
+        finally:
+            switch.os.unlink = original_unlink
+        receipt = self.root / 'operator' / switch.RECEIPTS / (pending['transactionId'] + '.json')
+        first = receipt.read_bytes()
+        result = switch.recover(self.root, self.deps)
+        self.assertEqual(result['status'], 'API_SWITCH_RECOVERED')
+        self.assertEqual(receipt.read_bytes(), first)
+        self.assertFalse((self.root / 'operator' / switch.PENDING).exists())
+
     def test_recover_refuses_unknown_api_image(self):
         switch.rollback(self.root, self.deps, 180)
         self.deps.api_container = self.deps.container('ghcr.io/x/api@sha256:' + 'e' * 64, 'e' * 40, 'sha256:' + '3' * 64)
