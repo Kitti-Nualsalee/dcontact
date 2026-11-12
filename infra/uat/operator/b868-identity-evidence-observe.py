@@ -68,6 +68,13 @@ def observe(inspect_runtime, execute=subprocess.run):
             'evidenceSha256': evidence.get('evidenceSha256'), 'evidence': evidence, 'rollbackCertified': False}
 
 
+def components(inspection):
+    # release-record-inspect คืน UatReleaseInspectionV1; observe ใช้เฉพาะข้อมูลราย component
+    if not isinstance(inspection, dict) or inspection.get('schema') != 'UatReleaseInspectionV1':
+        raise RuntimeError('RUNTIME_INSPECTION_INVALID')
+    return inspection['components']
+
+
 def load_module(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
@@ -77,7 +84,7 @@ def load_module(name, path):
 
 def main():
     inspector = load_module('release_inspector', DIRECTORY / 'release-record-inspect.py')
-    result = observe(inspector.inspect)
+    result = observe(lambda: components(inspector.inspect()))
     print(json.dumps(result, sort_keys=True, ensure_ascii=False))
     return 0 if result['status'] == 'CONSISTENT' else 2
 

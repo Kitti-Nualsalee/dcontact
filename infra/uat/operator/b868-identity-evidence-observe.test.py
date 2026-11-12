@@ -86,6 +86,15 @@ class IdentityObserveTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'RUNTIME_COMPONENT_REQUIRED'):
             self.run_observe(json.dumps(evidence()), runtimes=[missing])
 
+    def test_main_reads_components_from_release_inspection(self):
+        inspection = {'schema': 'UatReleaseInspectionV1', 'components': runtime(), 'records': {}}
+        self.assertEqual(identity.components(inspection), runtime())
+        with self.assertRaisesRegex(RuntimeError, 'RUNTIME_INSPECTION_INVALID'):
+            identity.components(runtime())
+        result, _ = self.run_observe(json.dumps(evidence()),
+                                     runtimes=[identity.components(inspection), identity.components(inspection)])
+        self.assertEqual(result['status'], 'CONSISTENT')
+
 
 if __name__ == '__main__':
     unittest.main()
