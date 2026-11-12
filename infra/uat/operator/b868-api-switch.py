@@ -21,12 +21,14 @@ import os
 from pathlib import Path
 import re
 import signal
+import socket
 import stat
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -377,6 +379,19 @@ def docker_environment():
     return {name: value for name, value in os.environ.items() if not name.startswith('COMPOSE_')}
 
 
+def pin_connect_host(base_url, connect_host, resolver=socket):
+    """เหมือน curl --resolve: ต่อ TCP ไปที่ connect_host เฉพาะ hostname ของ base_url ส่วน SNI/Host คงชื่อเดิม
+    VM2 resolve ชื่อสาธารณะของ UAT ไม่ได้ จึงต้องต่อผ่าน nginx บน VM1 แบบเดียวกับ uat-deploy.sh smoke"""
+    require(re.fullmatch(r'(?:[0-9]{1,3}\.){3}[0-9]{1,3}', connect_host or ''), 'SWITCH_CONNECT_HOST_INVALID')
+    host = urllib.parse.urlsplit(base_url).hostname
+    original = resolver.getaddrinfo
+
+    def getaddrinfo(name, *args, **kwargs):
+        return original(connect_host if name == host else name, *args, **kwargs)
+    resolver.getaddrinfo = getaddrinfo
+    return original
+
+
 class LiveDeps:
     """ผูกกับ VM2 จริง; ทุก mutation ส่ง lock fd ให้ Docker CLI ถือต่อแม้ Python ถูกขัดจังหวะ"""
 
@@ -531,7 +546,14 @@ def main():
     parser.add_argument('action', choices=('plan', 'rollback', 'recover'))
     parser.add_argument('--base-url', required=True, help='https://<uat-host> ผ่าน proxy')
     parser.add_argument('--settle', type=int, default=180)
+    parser.add_argument('--connect-host', help='IP ของ nginx ที่ต่อแทน DNS ของ base URL เช่น VM1')
     args = parser.parse_args()
+    if args.connect_host:
+        try:
+            pin_connect_host(args.base_url, args.connect_host)
+        except SwitchError as error:
+            print(json.dumps({'status': 'API_SWITCH_REJECTED', 'reason': str(error), 'rollbackCertified': False}))
+            return 1
 
     def run(lock):
         deps = LiveDeps(ROOT, args.base_url, lock)

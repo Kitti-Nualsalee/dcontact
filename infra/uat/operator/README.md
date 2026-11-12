@@ -430,12 +430,15 @@ actor เป็น audit label และ hash ที่อนุมัติต�
 
 ```sh
 run_switch() {
-  python3 -B infra/uat/operator/b868-api-switch.py "$1" --base-url "https://$UAT_HOST"
+  python3 -B infra/uat/operator/b868-api-switch.py "$1" --base-url "https://$UAT_HOST" --connect-host 192.168.102.114
 }
 run_switch plan
 run_switch rollback
 run_switch recover
 ```
+
+VM2 resolve ชื่อสาธารณะของ UAT ไม่ได้ `--connect-host` จึงต่อ TCP ไปที่ nginx บน VM1 เฉพาะ hostname ของ base URL
+โดยคง SNI และ Host เดิม เหมือน `curl --resolve` และขั้น smoke ของ `uat-deploy.sh`
 
 - `plan` อ่านอย่างเดียว: ต้องไม่มี pending, current เป็น deploy record ของ candidate ที่ตรง `release.env`,
   runtime ตรง current record, target image อยู่ในเครื่องพร้อม repository digest และ revision ที่ถูกต้อง

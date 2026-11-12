@@ -317,6 +317,16 @@ class ApiSwitchTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'UNKNOWN'):
             live.identity()
 
+    def test_connect_host_pins_only_base_url_hostname(self):
+        calls = []
+        fake = type('R', (), {'getaddrinfo': staticmethod(lambda name, *a, **k: calls.append(name) or [name])})
+        switch.pin_connect_host('https://dcontact-uat.example.test', '192.168.102.114', fake)
+        self.assertEqual(fake.getaddrinfo('dcontact-uat.example.test', 443), ['192.168.102.114'])
+        self.assertEqual(fake.getaddrinfo('other.example.test', 443), ['other.example.test'])
+        for bad in ('vm1', '192.168.1', ''):
+            with self.subTest(bad=bad), self.assertRaisesRegex(switch.SwitchError, 'SWITCH_CONNECT_HOST_INVALID'):
+                switch.pin_connect_host('https://dcontact-uat.example.test', bad, fake)
+
     def test_recover_refuses_identity_status_change(self):
         switch.rollback(self.root, self.deps, 180)
         self.deps.identity_status = 'PEOPLE_NOT_CONFIGURED'
