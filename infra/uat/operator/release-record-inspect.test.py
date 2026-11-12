@@ -40,6 +40,27 @@ class InspectionTests(unittest.TestCase):
             return SimpleNamespace(stdout=json.dumps(self.containers).encode())
         return inspection.inspect(self.root, execute)
 
+    def test_mount_order_does_not_change_configuration_hash(self):
+        proxy = next(c for c in self.containers if c['Name'] == '/dcontact-uat-proxy-1')
+        mounts = [{'Type': 'bind', 'Source': '/a', 'Destination': '/etc/caddy/Caddyfile'},
+                  {'Type': 'bind', 'Source': '/b', 'Destination': '/run/dcontact-admission-fence'}]
+        orders = iter([mounts, list(reversed(mounts))] * 4)
+        def execute(args, **kwargs):
+            if args[:3] == ['docker', 'image', 'inspect']:
+                return SimpleNamespace(stdout=json.dumps([{'Id': image_id,
+                    'RepoDigests': ['example/image@sha256:' + 'a' * 64],
+                    'Config': {'Labels': {'org.opencontainers.image.revision':
+                        ('c' if image_id.endswith('c' * 64) else 'a') * 40}}} for image_id in args[3:]]).encode())
+            proxy['Mounts'] = next(orders)
+            return SimpleNamespace(stdout=json.dumps(self.containers).encode())
+        result = inspection.inspect(self.root, execute)
+        single = dict(self.containers[0], Mounts=[mounts[0]])
+        config = {key: single[key] for key in ('Config', 'HostConfig', 'Mounts')}
+        expected = inspection.hashlib.sha256(json.dumps(config, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        self.containers[0]['Mounts'] = [mounts[0]]
+        self.assertEqual(self.run_inspection()['components'][inspection.SERVICES[0]]['configSha256'], expected)
+        self.assertIn('proxy', result['components'])
+
     def test_detects_mixed_runtime_without_disclosing_environment(self):
         result = self.run_inspection()
         self.assertEqual(result['sourceMismatch'], ['api'])
