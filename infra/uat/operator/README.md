@@ -389,7 +389,8 @@ outcome และ `receiptRef` สำหรับ resend intent ที่ยั�
 - `WORKER_BINDING_DISABLED`: binding ของ worker principal ปิดอยู่ RLS จึงซ่อนทุกแถว คำสั่งจะไม่ถือว่า 0 แถวคือสอดคล้อง
 
 ถ้าคำสั่งล้มก่อนได้ผล (exit 1) จะได้ `IDENTITY_EVIDENCE_UNAVAILABLE:<code>` พร้อม code จาก CLI ซึ่งไม่มี secret เช่น `NOT_CONFIGURED` เมื่อ People configuration ไม่ครบ
-ถ้าไม่ได้ `CONSISTENT` ห้ามสลับ API ให้คง operation เดิมไว้แล้ว reconcile ก่อน
+ถ้าไม่ได้ `CONSISTENT` ห้ามสลับ API ให้คง operation เดิมไว้แล้ว reconcile ก่อน ยกเว้นกรณี People ไม่ได้ตั้งค่าเลย
+ซึ่ง `b868-api-switch.py` ยอมรับเป็น `PEOPLE_NOT_CONFIGURED` ตามเงื่อนไขในหัวข้อสลับ API image ด้านล่าง
 เก็บ `evidenceSha256` และ `runtimeSha256` ของทั้งสองรอบไว้กับหลักฐานของ window
 ใช้ได้กับ API image ที่มี entry นี้เท่านั้น ส่วน `a460cde` ไม่มี การตรวจจึงทำบน candidate ก่อนสลับและหลัง recovery
 `rollbackCertified` เป็น `false` เสมอ
@@ -429,12 +430,15 @@ actor เป็น audit label และ hash ที่อนุมัติต�
 
 ```sh
 run_switch() {
-  python3 -B infra/uat/operator/b868-api-switch.py "$1" --base-url "https://$UAT_HOST"
+  python3 -B infra/uat/operator/b868-api-switch.py "$1" --base-url "https://$UAT_HOST" --connect-host 192.168.102.114
 }
 run_switch plan
 run_switch rollback
 run_switch recover
 ```
+
+VM2 resolve ชื่อสาธารณะของ UAT ไม่ได้ `--connect-host` จึงต่อ TCP ไปที่ nginx บน VM1 เฉพาะ hostname ของ base URL
+โดยคง SNI และ Host เดิม เหมือน `curl --resolve` และขั้น smoke ของ `uat-deploy.sh`
 
 - `plan` อ่านอย่างเดียว: ต้องไม่มี pending, current เป็น deploy record ของ candidate ที่ตรง `release.env`,
   runtime ตรง current record, target image อยู่ในเครื่องพร้อม repository digest และ revision ที่ถูกต้อง
@@ -446,6 +450,11 @@ run_switch recover
 - `recover` ใช้ pending เดิมกลับ candidate ด้วย `--force-recreate` ตรวจ runtime ตรง current record, effective config,
   protected state, ledger, smoke ผ่าน proxy, fence, drain และ identity แล้วเขียน
   `operator/uat-api-switch-receipts/<transactionId>.json` ก่อนถอน pending
+
+เมื่อ API ไม่มี People configuration คำสั่งหลักฐาน identity จะได้ `NOT_CONFIGURED` คำสั่งสลับยอมรับเป็น
+`PEOPLE_NOT_CONFIGURED` ได้เฉพาะเมื่อ `TENANT_PEOPLE_BINDINGS_JSON` ว่าง, ปิด invitations และ disable ทั้งคู่
+และ drain ได้ `DRAINED` คือไม่มีทางที่ worker จะเรียก Keycloak/SMTP ระหว่างสลับ ผลนี้เก็บใน pending/receipt
+โดยไม่คัดลอกค่า env และไม่ได้เทียบ receipt เก่ากับ Keycloak; recover ต้องได้สถานะ identity เดิมกับตอน rollback
 
 ระหว่างมี pending `uat-deploy.sh` ปฏิเสธทุก mutation (`UAT_API_SWITCH_PENDING`) ถ้าคำสั่งล้มหรือถูกขัดจังหวะ
 ให้รัน `recover` ซ้ำ ห้ามลบ pending เอง คำสั่งไม่ migrate, ไม่ restore DB, ไม่เขียน deployment record

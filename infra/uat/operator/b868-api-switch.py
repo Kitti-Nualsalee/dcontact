@@ -2,7 +2,8 @@
 """#868: สลับเฉพาะ image ของ Compose service `api` บน VM2 ระหว่าง candidate (current record) กับ target (previous record)
 
 - `plan` อ่านอย่างเดียว: ตรวจ records, runtime, effective config และ target image ในเครื่อง
-- `rollback` candidate → target: ต้องได้ fence ผ่าน proxy, People DRAINED หลัง settle, identity CONSISTENT,
+- `rollback` candidate → target: ต้องได้ fence ผ่าน proxy, People DRAINED หลัง settle, identity CONSISTENT
+  (หรือ PEOPLE_NOT_CONFIGURED เมื่อ API ไม่มี binding และปิด invitations/disable ทั้งคู่),
   ledger และ protected state สด แล้วเขียน `operator/uat-api-switch.pending` ก่อนแตะ container
 - `recover` target → candidate: อ่าน pending, กลับ config เดิมของ release, ตรวจ runtime ตรง current record,
   smoke ผ่าน proxy, fence/drain/identity/ledger/protected แล้วเขียน receipt ก่อนถอน pending
@@ -20,12 +21,14 @@ import os
 from pathlib import Path
 import re
 import signal
+import socket
 import stat
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -212,6 +215,20 @@ def smoke_through_proxy(deps):
     raise SwitchError('SWITCH_PROXY_SMOKE_FAILED')
 
 
+def require_identity(identity, drain, container_id):
+    """CONSISTENT ต้องผูกกับ API container ที่อ่าน; PEOPLE_NOT_CONFIGURED ยอมเฉพาะเมื่อไม่มีทางเกิดผลภายนอก
+    คือ binding ว่าง, ปิด invitations/disable และ drain ได้ DRAINED (ทุก operation อยู่ใน terminal state)"""
+    status = identity.get('status')
+    if status == 'CONSISTENT':
+        require(identity['runtime']['api']['containerId'] == container_id, 'SWITCH_IDENTITY_RUNTIME_CHANGED')
+        return
+    require(status == 'PEOPLE_NOT_CONFIGURED', 'SWITCH_IDENTITY_NOT_CONSISTENT')
+    require(identity.get('apiContainerId') == container_id, 'SWITCH_IDENTITY_RUNTIME_CHANGED')
+    require(identity.get('bindingsEmpty') is True and identity.get('invitationsEnabled') is False
+            and identity.get('disableEnabled') is False and drain.get('status') == 'DRAINED',
+            'SWITCH_IDENTITY_NOT_CONSISTENT')
+
+
 def wait_for_api(deps, identity, previous_id):
     for attempt in range(SMOKE_ATTEMPTS):
         container = deps.api()
@@ -247,12 +264,12 @@ def rollback(root, deps, settle):
     drain = deps.drain(settle)
     require(drain.get('status') == 'DRAINED', 'SWITCH_PEOPLE_NOT_DRAINED')
     identity = deps.identity()
-    require(identity.get('status') == 'CONSISTENT', 'SWITCH_IDENTITY_NOT_CONSISTENT')
+    require(identity.get('status') in ('CONSISTENT', 'PEOPLE_NOT_CONFIGURED'), 'SWITCH_IDENTITY_NOT_CONSISTENT')
     inspection = deps.inspect()
     require(runtime_matches_current(inspection), 'SWITCH_RUNTIME_NOT_CURRENT_RECORD')
     candidate_api = deps.api()
     require(api_state(candidate_api, records['candidate']) == 'RUNNING', 'SWITCH_CANDIDATE_NOT_RUNNING')
-    require(identity['runtime']['api']['containerId'] == candidate_api['Id'], 'SWITCH_IDENTITY_RUNTIME_CHANGED')
+    require_identity(identity, drain, candidate_api['Id'])
     require(read_records(root)['currentRecordSha256'] == records['currentRecordSha256'], 'SWITCH_RECORDS_CHANGED')
     pending = {
         'schema': 'UatApiSwitchPendingV1', 'transactionId': uuid.uuid4().hex, 'phase': 'ROLLBACK_STARTED',
@@ -319,11 +336,12 @@ def recover(root, deps):
     drain = deps.drain(None)
     require(drain.get('status') == 'DRAINED', 'SWITCH_PEOPLE_NOT_DRAINED')
     identity = deps.identity()
-    require(identity.get('status') == 'CONSISTENT', 'SWITCH_IDENTITY_NOT_CONSISTENT')
-    require(identity['runtime']['api']['containerId'] == recovered['Id'], 'SWITCH_IDENTITY_RUNTIME_CHANGED')
+    require_identity(identity, drain, recovered['Id'])
+    require(identity['status'] == pending['evidence']['identityStatus'], 'SWITCH_IDENTITY_STATUS_CHANGED')
     receipt = {**pending, 'schema': 'UatApiSwitchReceiptV1', 'phase': 'RECOVERED', 'recoveredAt': utc_now(),
                'recoveredApiId': recovered['Id'], 'recoverySmoke': proxy, 'recoveryDrainSha256': digest(drain),
-               'recoveryIdentitySha256': digest(identity), 'rollbackCertified': False}
+               'recoveryIdentitySha256': digest(identity), 'recoveryIdentityStatus': identity['status'],
+               'rollbackCertified': False}
     directory = operator / RECEIPTS
     if not directory.exists():
         directory.mkdir(mode=0o700)
@@ -359,6 +377,19 @@ def load_module(name, path):
 
 def docker_environment():
     return {name: value for name, value in os.environ.items() if not name.startswith('COMPOSE_')}
+
+
+def pin_connect_host(base_url, connect_host, resolver=socket):
+    """เหมือน curl --resolve: ต่อ TCP ไปที่ connect_host เฉพาะ hostname ของ base_url ส่วน SNI/Host คงชื่อเดิม
+    VM2 resolve ชื่อสาธารณะของ UAT ไม่ได้ จึงต้องต่อผ่าน nginx บน VM1 แบบเดียวกับ uat-deploy.sh smoke"""
+    require(re.fullmatch(r'(?:[0-9]{1,3}\.){3}[0-9]{1,3}', connect_host or ''), 'SWITCH_CONNECT_HOST_INVALID')
+    host = urllib.parse.urlsplit(base_url).hostname
+    original = resolver.getaddrinfo
+
+    def getaddrinfo(name, *args, **kwargs):
+        return original(connect_host if name == host else name, *args, **kwargs)
+    resolver.getaddrinfo = getaddrinfo
+    return original
 
 
 class LiveDeps:
@@ -447,7 +478,27 @@ class LiveDeps:
         return self.drainer.observe_settled(self.read, self.drainer.FENCE_FILE.is_file, settle)
 
     def identity(self):
-        return self.identity_observer.observe(lambda: self.identity_observer.components(self.inspect()))
+        before = self.api()
+        try:
+            return self.identity_observer.observe(lambda: self.identity_observer.components(self.inspect()))
+        except RuntimeError as error:
+            if str(error) != 'IDENTITY_EVIDENCE_UNAVAILABLE:NOT_CONFIGURED':
+                raise
+        # CLI ไม่มี People configuration: อ่านเฉพาะว่ามี binding/flag หรือไม่ ไม่เก็บค่าซึ่งอาจมี secret
+        # container ต้องเป็นตัวเดียวกับที่ CLI ถูก exec และตีความ env เข้มเท่ากับ API (ไม่มีค่า = ปิด, มีเฉพาะ 'false')
+        container = self.api()
+        require(before is not None and container is not None and container['Id'] == before['Id'],
+                'SWITCH_IDENTITY_RUNTIME_CHANGED')
+        environment = dict(item.split('=', 1) for item in (container['Config'].get('Env') or []) if '=' in item)
+        def off(name):
+            return environment.get(name) in (None, '', 'false')
+        return {'schema': 'UatPeopleIdentityNotConfiguredV1', 'status': 'PEOPLE_NOT_CONFIGURED',
+                'observedAt': utc_now(), 'apiContainerId': container['Id'],
+                'bindingsEmpty': environment.get('TENANT_PEOPLE_BINDINGS_JSON', '') == ''
+                and environment.get('TENANT_PEOPLE_WORKER_DATABASE_URL', '') == '',
+                'invitationsEnabled': not off('TENANT_PEOPLE_INVITATIONS_ENABLED'),
+                'disableEnabled': not off('TENANT_PEOPLE_DISABLE_ENABLED'),
+                'rollbackCertified': False}
 
     def probe(self):
         return self.drainer.probe(self.base_url)
@@ -495,7 +546,14 @@ def main():
     parser.add_argument('action', choices=('plan', 'rollback', 'recover'))
     parser.add_argument('--base-url', required=True, help='https://<uat-host> ผ่าน proxy')
     parser.add_argument('--settle', type=int, default=180)
+    parser.add_argument('--connect-host', help='IP ของ nginx ที่ต่อแทน DNS ของ base URL เช่น VM1')
     args = parser.parse_args()
+    if args.connect_host:
+        try:
+            pin_connect_host(args.base_url, args.connect_host)
+        except SwitchError as error:
+            print(json.dumps({'status': 'API_SWITCH_REJECTED', 'reason': str(error), 'rollbackCertified': False}))
+            return 1
 
     def run(lock):
         deps = LiveDeps(ROOT, args.base_url, lock)

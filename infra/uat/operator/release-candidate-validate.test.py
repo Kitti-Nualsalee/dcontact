@@ -213,6 +213,34 @@ class ApiRollbackTests(unittest.TestCase):
                     self.check()
                 current['components'][name]['configSha256'] = original
 
+    def restart(self, started='2026-11-12T05:55:20.787623193Z'):
+        runtime = self.observation['runtime']
+        runtime['records']['current']['components']['api']['startedAt'] = '2026-11-05T04:18:43.13045815Z'
+        runtime['components']['api']['startedAt'] = started
+        runtime['componentIdentityMismatch'] = ['api']
+
+    def test_accepts_api_restart_only_and_reports_it(self):
+        self.restart()
+        result = self.check()
+        self.assertEqual(result['status'], 'ISOLATED_API_ROLLBACK_REHEARSAL_MATCHES_BASELINE')
+        self.assertEqual(result['restartedComponents'], ['api'])
+
+    def test_rejects_restart_with_other_change_or_older_start(self):
+        runtime = self.observation['runtime']
+        for name, change in (
+            ('older', lambda: self.restart('2026-11-01T00:00:00Z')),
+            ('container', lambda: (self.restart(), runtime['components']['api'].update(containerId='9' * 64))),
+            ('config', lambda: (self.restart(), runtime['components']['api'].update(configSha256='9' * 64))),
+            ('other-component', lambda: (self.restart(), runtime['components']['proxy'].update(startedAt='2026-11-12T00:00:00Z'))),
+            ('mismatch-list', lambda: (self.restart(), runtime.update(componentIdentityMismatch=['api', 'proxy']))),
+        ):
+            with self.subTest(name):
+                self.setUp()
+                runtime = self.observation['runtime']
+                change()
+                with self.assertRaisesRegex(RuntimeError, 'API_ROLLBACK_BASELINE_RUNTIME_DRIFT|PROTECTED_COMPONENT_MISMATCH'):
+                    self.check()
+
     def test_rejects_changed_live_schema_and_non_additive_candidate(self):
         live = self.observation['ledger']['migrations'][1]
         original = live['checksum']
