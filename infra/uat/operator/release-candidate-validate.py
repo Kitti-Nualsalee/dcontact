@@ -186,6 +186,25 @@ def migration_checksums(migrations):
     return checksums
 
 
+def api_restart_only(recorded, live):
+    """API container เดิม restart เอง (เช่น db-relay ถูกสร้างใหม่) ทำให้ startedAt ใหม่กว่า record เท่านั้น
+    container, image, config, source และ component อื่นทั้งหมดต้องตรง record เดิม"""
+    if not isinstance(recorded, dict) or set(recorded) != set(live) or recorded == live:
+        return False
+    if any(recorded[name] != live[name] for name in live if name != 'api'):
+        return False
+    before, after = recorded['api'], live['api']
+    if {k: v for k, v in before.items() if k != 'startedAt'} != {k: v for k, v in after.items() if k != 'startedAt'}:
+        return False
+    pattern = r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?Z'
+    if not valid(pattern, before.get('startedAt')) or not valid(pattern, after.get('startedAt')):
+        return False
+    def parse(value):
+        seconds, _, fraction = value[:-1].partition('.')
+        return datetime.fromisoformat(seconds + '+00:00'), int((fraction + '000000000')[:9])
+    return parse(after['startedAt']) > parse(before['startedAt'])
+
+
 def validate_api_rollback_rehearsal(observation, approved_observation_sha256, rehearsal,
                                     approved_rehearsal_sha256, release_env, migration_guard, now=None):
     """เทียบ rehearsal API-only กับ baseline ปัจจุบันก่อนเริ่ม maintenance บน UAT."""
@@ -203,14 +222,16 @@ def validate_api_rollback_rehearsal(observation, approved_observation_sha256, re
     previous = runtime['records']['previous']
     components = runtime['components']
     anchor = current.get('sourceSha')
+    restarted = api_restart_only(current.get('components'), components)
     if (runtime.get('referenceKind') != 'PER_COMPONENT_OBSERVATION'
             or (current.get('schema'), current.get('action')) != ('UatDeploymentReconciliationV1', 'reconciliation')
             or current.get('rollbackEligible') is not False or not valid('[0-9a-f]{40}', anchor)
             or current.get('legacyAnchor') != {'kind': 'HISTORICAL_RELEASE_LAYOUT_NOT_CURRENT_RUNTIME', 'sourceSha': anchor}
             or components['api']['sourceSha'] == anchor
-            or current.get('components') != components
+            or (current.get('components') != components and not restarted)
+            or runtime.get('componentIdentityMismatch') != (['api'] if restarted else [])
             or any(runtime.get(key) != [] for key in (
-                'sourceMismatch', 'imageDigestMismatch', 'componentConfigMismatch', 'componentIdentityMismatch'))):
+                'sourceMismatch', 'imageDigestMismatch', 'componentConfigMismatch'))):
         raise RuntimeError('API_ROLLBACK_BASELINE_RUNTIME_DRIFT')
 
     baseline = migration_checksums(observation['ledger']['migrations'])
@@ -271,6 +292,7 @@ def validate_api_rollback_rehearsal(observation, approved_observation_sha256, re
     return {'status': 'ISOLATED_API_ROLLBACK_REHEARSAL_MATCHES_BASELINE',
             'observationSha256': approved_observation_sha256, 'rehearsalSha256': approved_rehearsal_sha256,
             'candidateReleaseEnvSha256': package_sha, 'candidateSourceSha': candidate_sha, 'targetSourceSha': target_sha,
+            'restartedComponents': ['api'] if restarted else [],
             'rollbackEligible': False, 'rollbackCertified': False}
 
 
