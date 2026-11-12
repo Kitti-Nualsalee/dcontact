@@ -447,6 +447,11 @@ run_switch recover
   protected state, ledger, smoke ผ่าน proxy, fence, drain และ identity แล้วเขียน
   `operator/uat-api-switch-receipts/<transactionId>.json` ก่อนถอน pending
 
+เมื่อ API ไม่มี People configuration คำสั่งหลักฐาน identity จะได้ `NOT_CONFIGURED` คำสั่งสลับยอมรับเป็น
+`PEOPLE_NOT_CONFIGURED` ได้เฉพาะเมื่อ `TENANT_PEOPLE_BINDINGS_JSON` ว่าง, ปิด invitations และ disable ทั้งคู่
+และ drain ได้ `DRAINED` คือไม่มีทางที่ worker จะเรียก Keycloak/SMTP ระหว่างสลับ ผลนี้เก็บใน pending/receipt
+โดยไม่คัดลอกค่า env และไม่ได้เทียบ receipt เก่ากับ Keycloak; recover ต้องได้สถานะ identity เดิมกับตอน rollback
+
 ระหว่างมี pending `uat-deploy.sh` ปฏิเสธทุก mutation (`UAT_API_SWITCH_PENDING`) ถ้าคำสั่งล้มหรือถูกขัดจังหวะ
 ให้รัน `recover` ซ้ำ ห้ามลบ pending เอง คำสั่งไม่ migrate, ไม่ restore DB, ไม่เขียน deployment record
 และไม่รับรอง rollback; ผลซ้อมจริงยังต้องผ่านเกตปิด #868

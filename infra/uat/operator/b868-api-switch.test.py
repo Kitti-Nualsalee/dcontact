@@ -27,6 +27,7 @@ class FakeDeps:
         self.fence = 'FENCE_ACTIVE'
         self.drain_status = 'DRAINED'
         self.identity_status = 'CONSISTENT'
+        self.people = {'bindingsEmpty': True, 'invitationsEnabled': False, 'disableEnabled': False}
         self.ledger_value = {'database': 'dcontact_uat', 'principal': 'dcontact_uat_owner', 'readonly': 'on',
                              'unresolved': 0, 'finished': 2, 'migrations': [{'name': 'm', 'checksum': 'x'}]}
         self.protected_value = {'/dcontact-uat-proxy-1': {'id': 'p'}}
@@ -88,6 +89,8 @@ class FakeDeps:
 
     def identity(self):
         self.calls.append(('identity',))
+        if self.identity_status == 'PEOPLE_NOT_CONFIGURED':
+            return {'status': self.identity_status, 'apiContainerId': self.api_container['Id'], **self.people}
         return {'status': self.identity_status, 'runtime': {'api': {'containerId': self.api_container['Id']}}}
 
     def probe(self):
@@ -259,6 +262,55 @@ class ApiSwitchTests(unittest.TestCase):
         self.assertEqual(result['status'], 'API_SWITCH_RECOVERED')
         self.assertEqual(receipt.read_bytes(), first)
         self.assertFalse((self.root / 'operator' / switch.PENDING).exists())
+
+    def test_people_not_configured_is_accepted_only_when_everything_is_off(self):
+        self.deps.identity_status = 'PEOPLE_NOT_CONFIGURED'
+        switch.rollback(self.root, self.deps, 180)
+        self.assertEqual(self.pending()['evidence']['identityStatus'], 'PEOPLE_NOT_CONFIGURED')
+        result = switch.recover(self.root, self.deps)
+        receipt = json.loads((self.root / 'operator' / switch.RECEIPTS / (result['transactionId'] + '.json')).read_text())
+        self.assertEqual(receipt['recoveryIdentityStatus'], 'PEOPLE_NOT_CONFIGURED')
+        for change in ({'bindingsEmpty': False}, {'invitationsEnabled': True}, {'disableEnabled': True}):
+            with self.subTest(change=change):
+                deps = FakeDeps()
+                deps.identity_status = 'PEOPLE_NOT_CONFIGURED'
+                deps.people.update(change)
+                with self.assertRaisesRegex(switch.SwitchError, 'SWITCH_IDENTITY_NOT_CONSISTENT'):
+                    switch.rollback(self.root, deps, 180)
+                self.assertNotIn(('up', TARGET_REF), deps.calls)
+        deps = FakeDeps()
+        deps.identity_status = 'NOT_CONFIGURED'
+        with self.assertRaisesRegex(switch.SwitchError, 'SWITCH_IDENTITY_NOT_CONSISTENT'):
+            switch.rollback(self.root, deps, 180)
+
+    def test_live_identity_maps_not_configured_without_copying_env_values(self):
+        live = object.__new__(switch.LiveDeps)
+        def unavailable(_inspect):
+            raise RuntimeError('IDENTITY_EVIDENCE_UNAVAILABLE:NOT_CONFIGURED')
+        live.identity_observer = type('O', (), {'observe': staticmethod(unavailable),
+                                                'components': staticmethod(lambda value: value)})
+        live.inspect = lambda: {}
+        container = {'Id': 'f' * 64, 'Config': {'Env': ['TENANT_PEOPLE_BINDINGS_JSON=[{"secret":"s3cr3t"}]',
+                                                       'TENANT_PEOPLE_INVITATIONS_ENABLED=false']}}
+        live.api = lambda: container
+        result = live.identity()
+        self.assertEqual((result['status'], result['bindingsEmpty'], result['invitationsEnabled']),
+                         ('PEOPLE_NOT_CONFIGURED', False, False))
+        self.assertNotIn('s3cr3t', json.dumps(result))
+        container['Config']['Env'] = ['TENANT_PEOPLE_BINDINGS_JSON=']
+        self.assertTrue(live.identity()['bindingsEmpty'])
+        def other(_inspect):
+            raise RuntimeError('IDENTITY_EVIDENCE_UNAVAILABLE:UNKNOWN')
+        live.identity_observer.observe = staticmethod(other)
+        with self.assertRaisesRegex(RuntimeError, 'UNKNOWN'):
+            live.identity()
+
+    def test_recover_refuses_identity_status_change(self):
+        switch.rollback(self.root, self.deps, 180)
+        self.deps.identity_status = 'PEOPLE_NOT_CONFIGURED'
+        with self.assertRaisesRegex(switch.SwitchError, 'SWITCH_IDENTITY_STATUS_CHANGED'):
+            switch.recover(self.root, self.deps)
+        self.assertTrue((self.root / 'operator' / switch.PENDING).exists())
 
     def test_recover_refuses_unknown_api_image(self):
         switch.rollback(self.root, self.deps, 180)
