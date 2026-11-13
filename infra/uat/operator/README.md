@@ -421,6 +421,24 @@ python3 -B infra/uat/operator/b868-forward-authorize.py \
 และ reconciliation เดิมกลายเป็น previous ผลไม่รับรอง rollback ค่า `rollbackCertified` คง `false`
 actor เป็น audit label และ hash ที่อนุมัติต้องมาจาก review อิสระเหมือนคำสั่ง #868 อื่น
 
+### #901 deploy release ที่ migration เป็น additive ทับ deploy record
+
+เมื่อ current เป็น deploy/rollback record ปกติ `uat-deploy.sh` ปฏิเสธ SHA ใหม่ด้วย `UAT_TARGET_COMPATIBILITY_EVIDENCE_REQUIRED`
+owner ตัดสินเมื่อ 13 พ.ย. 2569 ว่า release ที่ migration guard (UAT-M01) ผ่านไม่ต้องซ้อม isolated API rollback แบบ #868
+ทางย้อนกลับคือ deploy SHA เดิม เพราะ schema ที่เพิ่มแบบ additive ไม่ทำให้ API เดิมพัง
+
+วาง `release.env` และ `migration-guard.json` จาก artifact ของ `uat-operator-package` ไว้ใน `releases/<sha>/` แล้วรันบน VM2:
+
+```sh
+python3 -B /opt/dcontact-uat/releases/<sha>/operator/uat-additive-authorize.py <sha> --actor operator:<ชื่อ> --window-minutes 240
+```
+
+คำสั่งถือ lock เดียวกับ deploy, ปฏิเสธเมื่อมี pending อื่น, ตรวจว่า guard ได้ `PASS` โดย `base` ตรง SHA ของ current
+และ `head` ตรง candidate แล้วเขียน `operator/uat-forward-deploy.authorization` (0600, schema `UatAdditiveDeployAuthorizationV1`)
+ที่ผูก candidate, base, SHA-256 ของ `release.env` และ `migration-guard.json`, current/previous record bytes และ `expiresAt`
+`uat-deploy.sh` ตรวจทุกค่าใหม่ทุกครั้ง เมื่อ `record` ของ candidate เขียน current ใหม่ authorization ใช้ไม่ได้อีก
+ผลไม่รับรอง rollback (`rollbackCertified=false`) current ที่เป็น reconciliation ยังต้องใช้ `b868-forward-authorize.py`
+
 ### #868 สลับ API image บน VM2
 
 `b868-api-switch.py` สลับเฉพาะ `services.api.image` ของ project `dcontact-uat` ระหว่าง candidate ใน current record

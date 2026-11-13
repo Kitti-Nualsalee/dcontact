@@ -208,6 +208,16 @@ test('#868 authorization ใช้ครั้งเดียวเปิด dep
   assert.match(result.stderr, /Ran \d+ tests/);
 });
 
+test('#901 authorization แบบเบาเปิด deploy release ที่ migration เป็น additive ทับ deploy record', () => {
+  const result = spawnSync(
+    'python3',
+    ['-B', resolve('infra/uat/operator/uat-additive-authorize.test.py')],
+    { encoding: 'utf8', timeout: 60000 },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Ran \d+ tests/);
+});
+
 test('#868 สลับ API image บน VM ด้วย pending, smoke ผ่าน proxy และ receipt', () => {
   const result = spawnSync(
     'python3',
