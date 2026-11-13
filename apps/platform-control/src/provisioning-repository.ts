@@ -25,6 +25,7 @@ import {
   type ProvisioningStepKey,
 } from '@d-contact/shared';
 import { currentTraceparent } from './platform-tracing.js';
+import type { TenantConsoleContext } from './tenant-console-context.js';
 import { appendPlatformAction, type PlatformActionEntry } from './action-history.js';
 import {
   canonicalizeProvisioningRequest,
@@ -98,6 +99,11 @@ export interface ActionHistoryEntry {
 export interface ProvisioningRepositoryOptions {
   /** base domain ของ SIP (decision บน #406): sipDomain = `<slug>.<base>` */
   sipBaseDomain: string;
+  /**
+   * #901: issuer/client ของ tenant Console — ตั้งเมื่อ repository นี้ปิดงาน provisioning (saga worker)
+   * แล้ว `complete` จะบันทึก binding ของ first admin ใน transaction เดียวกับ ACTIVE
+   */
+  tenantConsole?: TenantConsoleContext;
   now?: () => Date;
   id?: () => string;
 }
@@ -589,6 +595,14 @@ export class ProvisioningControlRepository {
           where: { requestId: request.id, state: 'HELD' },
           data: { state: 'CONSUMED', revision: { increment: 1 } },
         });
+        // #901: first admin ได้ positive identity binding พร้อมกับที่ tenant เป็น ACTIVE — DB อ่าน
+        // subject/Organization/ผู้รับรองจากหลักฐานของ request เอง ผูกเฉพาะ issuer/client ของ deployment
+        const tenantConsole = this.options.tenantConsole;
+        if (tenantConsole) {
+          await transaction.$queryRaw`
+            SELECT dc_platform_bind_first_admin(${request.tenantId}::uuid, ${request.id}::uuid,
+              ${tenantConsole.issuer}, ${tenantConsole.clientId}) AS revision`;
+        }
         await this.appendAction(transaction, {
           tenantId: request.tenantId,
           requestId: request.id,

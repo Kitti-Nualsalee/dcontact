@@ -1343,6 +1343,8 @@ export const REPLACEABLE_CHECK_CONSTRAINTS = Object.freeze([
   'dphone_click_to_call_audit_events_values_check',
   // #520: เพิ่ม agent caps โดยคง shape เดิมและเพิ่มเฉพาะเงื่อนไขของ column ใหม่
   'dl_voice_scope_gates_shape',
+  // #901: เพิ่ม source_kind PLATFORM_PROVISIONING โดยคง BOOTSTRAP_MANIFEST/VERIFIED_ENROLLMENT เดิม
+  'tenant_voice_identity_bindings_source_kind_check',
 ]);
 
 /** DROP ที่เหลือหลังหักการแทนที่ CHECK constraint ที่อนุญาต */

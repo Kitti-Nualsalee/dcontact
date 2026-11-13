@@ -39,7 +39,7 @@ import {
   provisionerClient,
   tenantLogin,
 } from './keycloak-test-support.js';
-import { createPlatformFixture, OPERATOR, SIP_BASE } from './platform-fixture.js';
+import { createPlatformFixture, OPERATOR, SIP_BASE, TENANT_CONSOLE } from './platform-fixture.js';
 import { createFakeProvisioningPorts } from './provisioning-fakes.js';
 import { ProvisioningSagaWorker } from './provisioning-saga.js';
 import { TenantBootstrapPort, TenantReadinessPort } from './tenant-bootstrap.js';
@@ -110,6 +110,7 @@ async function setup(
   const worker = new ProvisioningSagaWorker(f.platform, ports, {
     workerId: `boundary-${randomUUID().slice(0, 8)}`,
     sipBaseDomain: SIP_BASE,
+    tenantConsole: TENANT_CONSOLE,
     scope: () => ({ tenantId: { in: [...tenants] } }),
     timeoutMs: 3_000,
     backoffBaseMs: 1,
@@ -211,6 +212,19 @@ test('create: Organization + first-admin + invitation 72 ชั่วโมง �
     `/users/${user!.id}/credentials`,
   );
   assert.deepEqual(credentials, []);
+  // #901: binding ของ first admin ผูก Keycloak subject และ Organization จริง พร้อมกับ ACTIVE
+  const [binding, ...extraBindings] = await s.f.owner.tenantVoiceIdentityBinding.findMany({
+    where: { tenantId: accepted.tenantId },
+  });
+  assert.equal(extraBindings.length, 0);
+  assert.deepEqual(
+    [binding!.userId, binding!.subjectId, binding!.organizationId, binding!.sourceKind],
+    [firstAdminUserId(accepted.requestId), user!.id, organization!.id, 'PLATFORM_PROVISIONING'],
+  );
+  assert.deepEqual(
+    [binding!.issuer, binding!.clientId, binding!.tenantSlug],
+    [TENANT_CONSOLE.issuer, TENANT_CONSOLE.clientId, accepted.input.slug],
+  );
 
   const row = await s.f.owner.user.findUniqueOrThrow({
     where: { id: firstAdminUserId(accepted.requestId) },

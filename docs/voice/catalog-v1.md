@@ -30,6 +30,14 @@ operator ทำตามนี้ในสภาพแวดล้อมที�
 
 application role มีเพียง SELECT ของ binding/audit พร้อม RLS ไม่มี endpoint enroll หรือ client flag ข้าม gate นี้ การยังไม่มี binding บน VM เป็น readiness blocker ที่ต้องแก้ด้วยหลักฐานจริงก่อน B7 ไม่ใช่เหตุให้ใช้ denylist อย่างเดียว
 
+### First admin จาก Platform provisioning (#901)
+
+first admin ที่ saga ของ Platform สร้างได้ binding `source_kind=PLATFORM_PROVISIONING` อัตโนมัติ ไม่ต้องมี operator
+ลงทะเบียนรายคน ผู้รับรองคือ Platform Operator ที่สั่งสร้าง tenant (`requested_by`) และ evidence คือ provisioning request
+binding ถูกบันทึกใน transaction เดียวกับที่ tenant เป็น ACTIVE ก่อน first admin รับคำเชิญ ส่วน activation บังคับโดย Keycloak:
+ไม่มี token จนกว่าจะทำ required actions ครบ ข้อยุติ owner วันที่ 13 พ.ย. 2569 รายละเอียดใน
+[runbook Platform provisioning](../platform-provisioning-rollout.md#identity-binding-ของ-first-admin-901)
+
 ### Authority ของบัญชีใหม่ B2
 
 บัญชีใหม่ ADMIN/SUPERVISOR ไม่ต้องมี operator binding รายคน ตัวตรวจกลางอ่าน lifecycle ที่ ACTIVE/PROVISIONED/ACTIVATED พร้อม operation และ receipts ของ provisioning/activation ที่ผูก tenant, user, payload และ fencing token เดียวกัน ตรวจ live User/role/team และ verified caller ทุกครั้ง บัญชีก่อน activation และ Agent ไม่ได้ configuration authority

@@ -28,6 +28,11 @@ export const OPERATOR: PlatformActor = {
 };
 export const WORKER: PlatformActor = { kind: 'SYSTEM', subject: 'provisioning-worker' };
 export const SIP_BASE = 'sip.dcontact.test';
+/** #901: deployment context ของ tenant Console ที่ binding ของ first admin ผูกไว้ */
+export const TENANT_CONSOLE = {
+  issuer: 'http://localhost:8081/realms/dcontact',
+  clientId: 'console',
+} as const;
 
 /** manifest v1 ของเทสต์ — ชื่อ/เวลาเป็นค่าสังเคราะห์ ไม่ใช่ baseline จริงของ production */
 export const FIXTURE_MANIFEST: BootstrapManifestV1 = {
@@ -136,6 +141,8 @@ export async function createPlatformFixture() {
           'business_hours',
           'tenant_plan_bindings',
           'tenant_settings',
+          'tenant_voice_identity_binding_audit',
+          'tenant_voice_identity_bindings',
           'users',
           'queues',
           'teams',

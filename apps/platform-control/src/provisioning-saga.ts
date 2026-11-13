@@ -24,6 +24,7 @@ import { appendPlatformAction } from './action-history.js';
 import { setSpanAttributes, withSpan } from './platform-tracing.js';
 import { platformIdentityHash } from './provisioning-input.js';
 import { ProvisioningControlRepository, type PlatformActor } from './provisioning-repository.js';
+import type { TenantConsoleContext } from './tenant-console-context.js';
 
 export type ExternalProvisioningStepKey = Exclude<ProvisioningStepKey, 'TENANT_RECORD'>;
 
@@ -103,6 +104,8 @@ export interface ProvisioningSagaOptions {
   batchSize?: number;
   /** จำกัดชุด request ที่ worker นี้รับ (sharding หรือแยก fixture ของเทสต์) — ไม่ใช่ authority */
   scope?: () => Prisma.PfProvisioningRequestWhereInput;
+  /** #901: issuer/client ของ tenant Console ที่ binding ของ first admin ผูกไว้ตอนปิดงาน */
+  tenantConsole?: TenantConsoleContext;
 }
 
 export type SagaRunResult =
@@ -200,6 +203,7 @@ export class ProvisioningSagaWorker {
     this.actor = { kind: 'SYSTEM', subject: `provisioning-worker:${options.workerId}` };
     this.repository = new ProvisioningControlRepository(database, {
       sipBaseDomain: options.sipBaseDomain,
+      ...(options.tenantConsole ? { tenantConsole: options.tenantConsole } : {}),
       now: this.now,
       id: this.id,
     });

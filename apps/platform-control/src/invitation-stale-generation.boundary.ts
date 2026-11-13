@@ -20,7 +20,7 @@ import {
   MAILPIT_URL,
   provisionerClient,
 } from './keycloak-test-support.js';
-import { createPlatformFixture, OPERATOR, SIP_BASE } from './platform-fixture.js';
+import { createPlatformFixture, OPERATOR, SIP_BASE, TENANT_CONSOLE } from './platform-fixture.js';
 import { createFakeProvisioningPorts } from './provisioning-fakes.js';
 import { ProvisioningSagaWorker } from './provisioning-saga.js';
 import { TenantBootstrapPort, TenantReadinessPort } from './tenant-bootstrap.js';
@@ -51,6 +51,7 @@ test('#436: หลัง activate ด้วย generation ใหม่ ลิง
     {
       workerId: `gap-436-${randomUUID().slice(0, 8)}`,
       sipBaseDomain: SIP_BASE,
+      tenantConsole: TENANT_CONSOLE,
       scope: () => ({ tenantId: { in: [...tenants] } }),
     },
   );

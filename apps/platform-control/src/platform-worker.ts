@@ -20,6 +20,7 @@ import {
 } from './invitation-outbox.js';
 import { KeycloakAdminClient } from './keycloak-admin.js';
 import { FirstAdminPort, KeycloakOrganizationPort } from './keycloak-provisioning-ports.js';
+import type { TenantConsoleContext } from './tenant-console-context.js';
 import { OperatorCommandWorker } from './operator-commands.js';
 import type { PlatformWorkerMetrics } from './platform-metrics.js';
 import type { PlatformRollout } from './platform-rollout.js';
@@ -33,6 +34,8 @@ export interface PlatformWorkerConfig {
   provisioner: PrismaClient;
   keycloak: KeycloakAdminClient;
   sipBaseDomain: string;
+  /** #901: issuer/client ของ tenant Console ที่ binding ของ first admin ผูกไว้ */
+  tenantConsole: TenantConsoleContext;
   rollout: PlatformRollout;
   metrics?: PlatformWorkerMetrics;
   probe?: InvitationDeliveryProbe;
@@ -71,6 +74,7 @@ export function createPlatformWorker(config: PlatformWorkerConfig) {
   const saga = new ProvisioningSagaWorker(config.platform, ports, {
     workerId: config.workerId,
     sipBaseDomain: config.sipBaseDomain,
+    tenantConsole: config.tenantConsole,
   });
   const commands = new OperatorCommandWorker(
     config.platform,

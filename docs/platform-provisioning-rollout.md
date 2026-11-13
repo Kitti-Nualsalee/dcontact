@@ -9,6 +9,7 @@
 | --- | --- | --- |
 | `PLATFORM_PROVISIONING_ENABLED` | Platform API + worker | `true` เท่านั้นที่เปิด (`platformProvisioning.enabled`); ไม่ตั้ง/ค่าอื่น = ปิด |
 | `PLATFORM_OPERATOR_ALLOWLIST` | Platform API | Keycloak subject (UUID) ของ Platform Operator ใน canary คั่นด้วย comma; ค่าที่ไม่ใช่ UUID ทำให้ process ไม่ start |
+| `PLATFORM_TENANT_CONSOLE_ISSUER` / `PLATFORM_TENANT_CONSOLE_CLIENT_ID` | worker | issuer ของ realm และ client ของ tenant Console ใน deployment นี้ (#901) — ต้องตรง `iss`/`azp` ของ Console session จริง; ไม่ตั้ง, รูปแบบผิด หรือเป็น client ของ platform/Keycloak ทำให้ worker ไม่ start |
 
 - ค่าอ่านตอน start: เปลี่ยนค่าแล้วต้อง restart Platform API และ worker **ทั้งคู่** ให้ค่าเดียวกัน
 - allowlist ใช้ subject ไม่ใช่ email เพื่อไม่ให้ PII อยู่ใน config/log
@@ -84,6 +85,22 @@ worker reconcile Keycloak user events ของ first admin ที่ได้�
 ลง Action history ด้วย actor `FIRST_ADMIN`: `FIRST_ADMIN_EMAIL_VERIFIED`, `FIRST_ADMIN_PASSWORD_SET`,
 `FIRST_ADMIN_TOTP_ENROLLED`, `FIRST_ADMIN_ACTIVATED` — เก็บแค่ชนิดและเวลา (ไม่มี email/IP จาก event details)
 ถ้า event หมดอายุก่อน worker อ่าน จะเห็นเฉพาะ `FIRST_ADMIN_ACTIVATED` ที่เวลาตรวจพบ
+
+## Identity binding ของ First admin (#901)
+
+ตอนปิดงาน provisioning worker บันทึก positive identity binding (`source_kind = PLATFORM_PROVISIONING`) ให้ first admin
+ใน transaction เดียวกับที่ request เป็น `SUCCEEDED` และ tenant เป็น `ACTIVE` ผ่าน `dc_platform_bind_first_admin`
+(EXECUTE เฉพาะ `dcontact_platform`) ฟังก์ชันอ่านหลักฐานจาก DB เอง: subject จากผลขั้น `FIRST_ADMIN`, Organization
+จากผลขั้น `KEYCLOAK_ORGANIZATION`, ผู้รับรองจาก `requested_by` และแถว `users` ที่ email ตรง request ผู้เรียกส่งได้เพียง
+issuer/client ของ deployment ถ้าหลักฐานไม่ตรง transaction ทั้งหมด rollback และ tenant ยังไม่ `ACTIVE`
+
+binding นี้ทำให้ first admin ใช้ Core Settings, Customer 360 และ Workspace ได้ทันทีหลังรับคำเชิญ (Keycloak ยังไม่ออก token
+จนกว่าจะยืนยันอีเมล ตั้งรหัสผ่าน และตั้ง OTP ครบ) และ audit ของ binding เป็น deployment context ให้ผู้ใช้ที่เชิญผ่าน
+People ภายหลังผ่านตัวตรวจ B2 เดิม
+
+tenant ที่ปิดงานก่อน release นี้ไม่มี binding ให้ operator backfill ด้วย role `dcontact_platform` (ไม่ใช่ owner):
+`SELECT dc_platform_bind_first_admin('<tenant>'::uuid, '<request>'::uuid, '<issuer>', '<client>')` — ฟังก์ชันตรวจหลักฐาน
+ชุดเดียวกันและเรียกซ้ำได้โดยไม่เพิ่ม revision ค่าที่ต่างจาก binding เดิมได้ `PLATFORM_BINDING_CONFLICT`
 
 ## Distributed trace (A1.8b #473)
 

@@ -59,6 +59,9 @@ services:
       PLATFORM_SIP_BASE_DOMAIN: ${PLATFORM_SIP_BASE_DOMAIN:?required}
       KEYCLOAK_URL: http://keycloak:8080/auth
       KEYCLOAK_PROVISIONER_SECRET: ${KEYCLOAK_PROVISIONER_SECRET:?required}
+      # #901: binding ของ first admin ผูก issuer/client ของ tenant Console ใน deployment นี้
+      PLATFORM_TENANT_CONSOLE_ISSUER: https://dcontact-uat.osd.co.th/auth/realms/dcontact
+      PLATFORM_TENANT_CONSOLE_CLIENT_ID: dcontact-uat-console
       PLATFORM_PROVISIONING_ENABLED: ${PLATFORM_PROVISIONING_ENABLED:-false}
       PLATFORM_OPERATOR_ALLOWLIST: ${PLATFORM_OPERATOR_ALLOWLIST:-}
       PLATFORM_METRICS_HOST: 127.0.0.1
