@@ -9,6 +9,7 @@ import {
   applyAccounts,
   applyRealmConfig,
   createKeycloakAdmin,
+  mergeTenantConsoleRedirects,
   realmConfigDigest,
   reconcileConsoleRedirects,
   renderRealm,
@@ -160,14 +161,73 @@ test('Console redirect reconciliation: check, compare-before-apply, idempotency 
     expectedDigest: check.targetDigest,
   });
   assert.equal(same.changed, false);
+  // #907: redirect ราย tenant ใน client ไม่ถูกถอดด้วยรายการใน env (saga ลงทะเบียนเองได้)
   const reverse = await reconcileConsoleRedirects(admin, initial);
-  await reconcileConsoleRedirects(admin, initial, {
-    apply: true,
-    expectedDigest: reverse.beforeDigest,
+  assert.equal(reverse.changed, false);
+  assert.deepEqual(client.redirectUris, [
+    'https://uat.example.test/?tenant=tenant-a',
+    'https://uat.example.test/?tenant=tenant-b',
+    'https://uat.example.test/?tenant=uat-tenant',
+  ]);
+  assert.equal(calls.filter((call) => call.method === 'PUT').length, 1);
+});
+
+test('#907: รวม redirect ราย tenant เดิมเฉพาะรูปแบบ exact ของ origin เดียวกัน', () => {
+  const desired = renderRealm(template, environment).clients.find(
+    (entry) => entry.clientId === 'dcontact-uat-console',
+  );
+  const merged = mergeTenantConsoleRedirects(desired, {
+    redirectUris: [
+      'https://uat.example.test/?tenant=auto-tenant',
+      'https://uat.example.test/?tenant=uat-tenant',
+      'https://other.example.test/?tenant=foreign',
+      'https://uat.example.test/admin?tenant=path',
+      'https://uat.example.test/?tenant=a&x=1',
+      'https://uat.example.test/?tenant=Bad',
+      'https://uat.example.test/?tenant=a--b',
+      'https://uat.example.test/*',
+      'https://uat.example.test/?tenant=frag#x',
+    ],
   });
-  assert.deepEqual(client.redirectUris, ['https://uat.example.test/?tenant=uat-tenant']);
-  assert.equal(client.attributes['post.logout.redirect.uris'], client.redirectUris[0]);
-  assert.equal(calls.filter((call) => call.method === 'PUT').length, 2);
+  assert.deepEqual(merged.redirectUris, [
+    'https://uat.example.test/?tenant=auto-tenant',
+    'https://uat.example.test/?tenant=uat-tenant',
+  ]);
+  assert.equal(merged.attributes['post.logout.redirect.uris'], merged.redirectUris.join('##'));
+  assert.equal(merged.attributes['pkce.code.challenge.method'], 'S256');
+  assert.deepEqual(
+    mergeTenantConsoleRedirects(desired, undefined).redirectUris,
+    desired.redirectUris,
+  );
+});
+
+test('#907: config ไม่ลบ redirect ราย tenant ที่ saga ลงทะเบียนไว้', async () => {
+  const rendered = renderRealm(template, environment);
+  const auto = 'https://uat.example.test/?tenant=auto-tenant';
+  const puts = [];
+  const admin = {
+    async call(path, options = {}) {
+      if (options.method === 'PUT' && path.includes('/clients/')) puts.push(options.body);
+      if (path.endsWith('/clients?clientId=dcontact-uat-console'))
+        return [{ id: 'console-id', clientId: 'dcontact-uat-console', redirectUris: [auto] }];
+      if (path.includes('/clients?clientId=')) return [{ id: 'other-id' }];
+      if (path.endsWith('/protocol-mappers/models')) return [];
+      if (path.endsWith('/admin/realms/dcontact')) return { realm: 'dcontact' };
+      return [];
+    },
+  };
+  for (const client of rendered.clients) {
+    if (client.clientId !== 'dcontact-uat-console') continue;
+    const { upsertClientForTest } = await import('./u1-uat-keycloak-users.mjs');
+    const scopes = [
+      ...(client.defaultClientScopes ?? []),
+      ...(client.optionalClientScopes ?? []),
+    ].map((name) => ({ id: `scope-${name}`, name }));
+    await upsertClientForTest(admin, 'dcontact', client, scopes);
+  }
+  const consolePut = puts.find((body) => body.clientId === 'dcontact-uat-console');
+  assert.ok(consolePut.redirectUris.includes(auto));
+  assert.ok(consolePut.attributes['post.logout.redirect.uris'].split('##').includes(auto));
 });
 
 test('Console redirect reconciliation: Keycloak คืนลำดับต่างกันได้ digest เดียวกันและ verify ผ่าน', async () => {

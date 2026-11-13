@@ -421,6 +421,13 @@ python3 -B infra/uat/operator/b868-forward-authorize.py \
 และ reconciliation เดิมกลายเป็น previous ผลไม่รับรอง rollback ค่า `rollbackCertified` คง `false`
 actor เป็น audit label และ hash ที่อนุมัติต้องมาจาก review อิสระเหมือนคำสั่ง #868 อื่น
 
+### #907 redirect ราย tenant อัตโนมัติ
+
+tenant ที่สร้างผ่าน Platform ได้ redirect ของ `dcontact-uat-console` เองในขั้น FIRST_ADMIN ไม่ต้องเพิ่มใน
+`UAT_ADDITIONAL_TENANT_SLUGS` หรือรันเครื่องมือ #807 อีก หลังอัปเดต Platform เป็น release ที่มี #907 ให้รัน
+`vm2-platform-deploy.sh configure <sha>` หนึ่งครั้งเพื่อให้ provisioner ได้ `query-clients` และ permission เฉพาะ client นี้
+`uat-deploy.sh keycloak` และ `--console-redirects-apply` คง redirect รูปแบบ `https://<UAT_HOST>/?tenant=<slug>` เดิมไว้
+
 ### #901 deploy release ที่ migration เป็น additive ทับ deploy record
 
 เมื่อ current เป็น deploy/rollback record ปกติ `uat-deploy.sh` ปฏิเสธ SHA ใหม่ด้วย `UAT_TARGET_COMPATIBILITY_EVIDENCE_REQUIRED`

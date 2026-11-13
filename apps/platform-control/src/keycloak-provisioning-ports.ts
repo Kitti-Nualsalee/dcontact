@@ -14,6 +14,7 @@
 import type { PrismaClient } from '@d-contact/db';
 import { FIRST_ADMIN_REQUIRED_ACTIONS } from '@d-contact/shared';
 import type { KeycloakAdminClient } from './keycloak-admin.js';
+import type { TenantConsoleRedirects } from './tenant-console-redirects.js';
 import { bootstrapRowIds, firstAdminUserId } from './provisioning-ids.js';
 import {
   ProvisioningStepError,
@@ -159,6 +160,8 @@ export class FirstAdminPort implements ProvisioningStepPort {
     /** Prisma ที่ต่อด้วย role `dcontact_provisioner` */
     private readonly provisioner: PrismaClient,
     private readonly organizations: KeycloakOrganizationPort,
+    /** #907: redirect ของ tenant Console — worker จริงตั้งเสมอ; เทสต์ที่ไม่มี Console client ละไว้ได้ */
+    private readonly redirects?: TenantConsoleRedirects,
   ) {}
 
   /** ผู้ใช้ Keycloak ที่ email ตรง (username = email) — มีได้อย่างมากหนึ่งคนเพราะ email unique ใน realm */
@@ -222,7 +225,9 @@ export class FirstAdminPort implements ProvisioningStepPort {
       `/organizations/${encodeURIComponent(organization.id)}/members/${encodeURIComponent(user.id)}`,
       { accept: [200, 404] },
     );
-    return membership.status === 200;
+    if (membership.status !== 200) return false;
+    // #907: first admin ต้อง login Console ของ tenant ได้ก่อนส่งคำเชิญ
+    return this.redirects ? this.redirects.registered(context.request.slug) : true;
   }
 
   async execute(context: ProvisioningStepContext, signal: AbortSignal) {
@@ -313,6 +318,9 @@ export class FirstAdminPort implements ProvisioningStepPort {
     });
     if (mapped.count !== 1)
       throw new ProvisioningStepError('PERMANENT', 'FIRST_ADMIN_ROW_CONFLICT');
+
+    // 5) #907 redirect แบบ exact ของ tenant ให้ Console client (idempotent, อ่านกลับตรวจ)
+    await this.redirects?.register(context.request.slug, signal);
 
     const adoption = await this.find(context);
     if (adoption.status !== 'FOUND') {

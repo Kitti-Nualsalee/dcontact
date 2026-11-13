@@ -23,6 +23,8 @@ spec:
           env:
             - name: KEYCLOAK_ADMIN_URL
               value: http://keycloak:8080/auth
+            - name: PLATFORM_TENANT_CONSOLE_CLIENT_ID
+              value: dcontact-uat-console
             - name: KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:

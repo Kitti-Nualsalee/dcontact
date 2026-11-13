@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | `PLATFORM_PROVISIONING_ENABLED` | Platform API + worker | `true` เท่านั้นที่เปิด (`platformProvisioning.enabled`); ไม่ตั้ง/ค่าอื่น = ปิด |
 | `PLATFORM_OPERATOR_ALLOWLIST` | Platform API | Keycloak subject (UUID) ของ Platform Operator ใน canary คั่นด้วย comma; ค่าที่ไม่ใช่ UUID ทำให้ process ไม่ start |
-| `PLATFORM_TENANT_CONSOLE_ISSUER` / `PLATFORM_TENANT_CONSOLE_CLIENT_ID` | worker | issuer ของ realm และ client ของ tenant Console ใน deployment นี้ (#901) — ต้องตรง `iss`/`azp` ของ Console session จริง; ไม่ตั้ง, รูปแบบผิด หรือเป็น client ของ platform/Keycloak ทำให้ worker ไม่ start |
+| `PLATFORM_TENANT_CONSOLE_ISSUER` / `PLATFORM_TENANT_CONSOLE_CLIENT_ID` / `PLATFORM_TENANT_CONSOLE_ORIGIN` | worker (client id ใช้กับ keycloak config ด้วย) | issuer ของ realm และ client ของ tenant Console ใน deployment นี้ (#901) — ต้องตรง `iss`/`azp` ของ Console session จริง; ไม่ตั้ง, รูปแบบผิด หรือเป็น client ของ platform/Keycloak ทำให้ worker ไม่ start |
 
 - ค่าอ่านตอน start: เปลี่ยนค่าแล้วต้อง restart Platform API และ worker **ทั้งคู่** ให้ค่าเดียวกัน
 - allowlist ใช้ subject ไม่ใช่ email เพื่อไม่ให้ PII อยู่ใน config/log
@@ -85,6 +85,20 @@ worker reconcile Keycloak user events ของ first admin ที่ได้�
 ลง Action history ด้วย actor `FIRST_ADMIN`: `FIRST_ADMIN_EMAIL_VERIFIED`, `FIRST_ADMIN_PASSWORD_SET`,
 `FIRST_ADMIN_TOTP_ENROLLED`, `FIRST_ADMIN_ACTIVATED` — เก็บแค่ชนิดและเวลา (ไม่มี email/IP จาก event details)
 ถ้า event หมดอายุก่อน worker อ่าน จะเห็นเฉพาะ `FIRST_ADMIN_ACTIVATED` ที่เวลาตรวจพบ
+
+## Redirect ของ tenant Console (#907)
+
+ในขั้น `FIRST_ADMIN` worker เพิ่ม redirect แบบ exact `<PLATFORM_TENANT_CONSOLE_ORIGIN>/?tenant=<slug>` ให้ client
+`PLATFORM_TENANT_CONSOLE_CLIENT_ID` ทั้ง login และ post-logout ก่อนส่งคำเชิญ แล้วอ่านกลับตรวจ เรียกซ้ำได้ ไม่แตะ redirect ของ
+tenant อื่น และ serialize ระหว่าง worker หลายตัวด้วย Postgres advisory lock ขั้นนี้นับว่า converged เมื่อ redirect มีครบเท่านั้น
+
+สิทธิ์: `keycloak-provisioning-setup.mjs` (ใน `configure`) ให้ `dcontact-provisioner` ได้ realm-management `query-clients`
+และ fine-grained admin permission v2 `view`/`manage` เฉพาะ client นี้ เมื่อเปิด FGAP v2 การค้น client ถูกกรองเหลือเฉพาะ client
+ที่มี `view` จึงไม่เห็นหรือแก้ client อื่น (boundary test ตรวจ) ห้ามลบ Console client ทิ้งโดยไม่ลบ permission นี้ก่อน เพราะ
+permission ที่ไม่เหลือ resource จะครอบ client ทุกตัว
+
+`keycloak-config` ของ Tenant release และเครื่องมือ #807 คง redirect ราย tenant ที่มีอยู่แล้วเสมอ การถอด redirect ตอนปิด tenant
+ยังไม่อยู่ในขอบเขต
 
 ## Identity binding ของ First admin (#901)
 

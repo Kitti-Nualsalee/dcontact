@@ -25,6 +25,9 @@ export const PROVISIONER_REALM_MANAGEMENT_ROLES = Object.freeze([
   'manage-organizations',
   // A1.8 (#413): อ่าน user events ของ first admin เพื่อลง Action history
   'view-events',
+  // #907: ค้น tenant Console client ตาม clientId — เมื่อเปิด fine-grained permission v2 ผลค้นถูกกรอง
+  // เหลือเฉพาะ client ที่ provisioner มี `view` (ไม่เห็น client อื่น); การแก้ใช้ permission ราย client
+  'query-clients',
 ]);
 /** ต้องตรงกับ `FIRST_ADMIN_KEYCLOAK_EVENT_TYPES` ใน platform-control (boundary test ตรวจ) */
 export const FIRST_ADMIN_EVENT_TYPES = Object.freeze([
@@ -237,6 +240,100 @@ async function verifyInvitationGuard(token) {
   return executeActions.order;
 }
 
+export const TENANT_CONSOLE_POLICY = 'dcontact-provisioner (tenant console redirects)';
+export const TENANT_CONSOLE_PERMISSION = 'dcontact-provisioner: tenant console redirects';
+export const TENANT_CONSOLE_SCOPES = Object.freeze(['view', 'manage']);
+
+async function upsertAuthz(server, kind, name, representation, token) {
+  const existing = await request(
+    `${server}/${kind === 'policy' ? 'policy' : 'permission'}?name=${encodeURIComponent(name)}`,
+    {
+      token,
+    },
+  );
+  const current = (existing ?? []).find((item) => item.name === name);
+  const path = kind === 'policy' ? `${server}/policy/client` : `${server}/permission/scope`;
+  if (current) {
+    await request(`${path}/${current.id}`, {
+      method: 'PUT',
+      token,
+      body: { ...representation, id: current.id },
+    });
+    return current.id;
+  }
+  return (await request(path, { method: 'POST', token, body: representation })).id;
+}
+
+/**
+ * #907: provisioner ได้ `view`/`manage` ผ่าน fine-grained admin permission v2 เฉพาะ tenant Console client
+ * เพื่อเพิ่ม redirect ราย tenant — ไม่ได้ realm-management `manage-clients` ทั้ง realm
+ * ตั้งเฉพาะเมื่อกำหนด client (UAT: `PLATFORM_TENANT_CONSOLE_CLIENT_ID`); permission เดิมถูกแทนที่ให้ชี้ client นี้ตัวเดียว
+ */
+export async function ensureTenantConsolePermission(consoleClientId, token) {
+  if (!/^[A-Za-z0-9._-]{1,255}$/.test(consoleClientId ?? '')) {
+    throw new Error('tenant Console client ไม่ถูกต้อง');
+  }
+  const accessToken = token ?? (await adminToken());
+  const current = await request(realmPath, { token: accessToken });
+  if (!current.adminPermissionsEnabled) {
+    await request(realmPath, {
+      method: 'PUT',
+      token: accessToken,
+      body: { ...current, adminPermissionsEnabled: true },
+    });
+  }
+  const [consoleClient] = await request(
+    `${realmPath}/clients?clientId=${encodeURIComponent(consoleClientId)}`,
+    { token: accessToken },
+  );
+  if (
+    !consoleClient ||
+    consoleClient.clientId !== consoleClientId ||
+    consoleClient.publicClient !== true
+  ) {
+    throw new Error(`ไม่พบ tenant Console client แบบ public: ${consoleClientId}`);
+  }
+  const [provisioner] = await request(`${realmPath}/clients?clientId=${PROVISIONER_CLIENT}`, {
+    token: accessToken,
+  });
+  const [adminPermissions] = await request(`${realmPath}/clients?clientId=admin-permissions`, {
+    token: accessToken,
+  });
+  if (!provisioner || !adminPermissions) {
+    throw new Error('ไม่พบ dcontact-provisioner หรือ admin-permissions — Keycloak ต้อง ≥ 26.2');
+  }
+  const server = `${realmPath}/clients/${adminPermissions.id}/authz/resource-server`;
+  const policyId = await upsertAuthz(
+    server,
+    'policy',
+    TENANT_CONSOLE_POLICY,
+    {
+      name: TENANT_CONSOLE_POLICY,
+      type: 'client',
+      logic: 'POSITIVE',
+      decisionStrategy: 'UNANIMOUS',
+      clients: [provisioner.id],
+    },
+    accessToken,
+  );
+  await upsertAuthz(
+    server,
+    'permission',
+    TENANT_CONSOLE_PERMISSION,
+    {
+      name: TENANT_CONSOLE_PERMISSION,
+      description: '#907: เพิ่ม redirect ราย tenant ให้ tenant Console client เท่านั้น',
+      resourceType: 'Clients',
+      resources: [consoleClient.id],
+      scopes: [...TENANT_CONSOLE_SCOPES],
+      policies: [policyId],
+      decisionStrategy: 'UNANIMOUS',
+    },
+    accessToken,
+  );
+  return { consoleClient: consoleClientId, scopes: [...TENANT_CONSOLE_SCOPES] };
+}
+
 export async function setupKeycloakProvisioning() {
   const token = await adminToken();
   await verifyInvitationGuard(token);
@@ -244,7 +341,15 @@ export async function setupKeycloakProvisioning() {
   await ensureUserProfile(token);
   await ensureSmtp(token);
   await ensureUserEvents(token);
-  return { client: PROVISIONER_CLIENT, roles: [...PROVISIONER_REALM_MANAGEMENT_ROLES] };
+  const consoleClientId = process.env.PLATFORM_TENANT_CONSOLE_CLIENT_ID;
+  const tenantConsole = consoleClientId
+    ? await ensureTenantConsolePermission(consoleClientId, token)
+    : null;
+  return {
+    client: PROVISIONER_CLIENT,
+    roles: [...PROVISIONER_REALM_MANAGEMENT_ROLES],
+    tenantConsole,
+  };
 }
 
 const invokedUrl = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;

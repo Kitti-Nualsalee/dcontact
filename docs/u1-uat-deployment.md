@@ -374,7 +374,10 @@ Console client (`dcontact-uat-console`) เป็น public client + PKCE S256. 
 tenant จาก Platform operator เพิ่ม `UAT_ADDITIONAL_TENANT_SLUGS` ใน `uat.env` เป็น slug คั่นด้วย comma
 (สูงสุด 50 รายการ, lowercase ASCII, ตัวเลขและ `-`, ห้ามขึ้นต้น/ลงท้ายด้วย `-` หรือมี `--`). ไม่รับ URL,
 wildcard หรือรายการว่างระหว่าง comma. Slug เดิมยังอยู่เสมอและรายการซ้ำถูกตัดออก; Workspace ยังคงใช้
-tenant เดิม. Operator ต้องลงทะเบียน alias ที่อนุญาตเอง ไม่ใช่การเปิดอัตโนมัติเมื่อ Platform สร้าง tenant
+tenant เดิม. ตั้งแต่ #907 (ข้อยุติ owner 13 พ.ย. 2569) tenant ที่สร้างผ่าน Platform ได้ redirect แบบ exact
+อัตโนมัติในขั้น FIRST_ADMIN ไม่ต้องเพิ่มใน `UAT_ADDITIONAL_TENANT_SLUGS`; `keycloak-config` และเครื่องมือด้านล่างคง redirect
+รูปแบบ `https://<UAT_HOST>/?tenant=<slug>` ที่มีใน client อยู่แล้วเสมอ (รวมกับรายการใน env ไม่ถอดทิ้ง) ส่วน env ยังใช้กับ tenant
+ที่ไม่ได้สร้างผ่าน Platform
 
 `keycloak-config` ใน release ที่มี #807 จะ render ทั้ง login และ logout redirect จากรายการเดียวกัน และรวม
 รายการใน realm config digest. ก่อนแก้ shared realm ให้สำรอง `uat.env` และ client redirect เดิม, ยืนยัน

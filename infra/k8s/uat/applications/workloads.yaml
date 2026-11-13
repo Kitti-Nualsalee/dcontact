@@ -266,6 +266,8 @@ spec:
               value: https://dcontact-uat.osd.co.th/auth/realms/dcontact
             - name: PLATFORM_TENANT_CONSOLE_CLIENT_ID
               value: dcontact-uat-console
+            - name: PLATFORM_TENANT_CONSOLE_ORIGIN
+              value: https://dcontact-uat.osd.co.th
             - name: PLATFORM_PROVISIONING_ENABLED
               value: 'false'
             - name: PLATFORM_OPERATOR_ALLOWLIST
