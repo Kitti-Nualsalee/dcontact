@@ -158,3 +158,45 @@ for (const env of [{ START_FAIL: '1' }, { HTTP_FAIL: '1' }]) {
     );
   });
 }
+
+test('update: สร้าง Platform API/worker/Console ใหม่จาก release นี้โดยคง rollout และไม่แตะ Keycloak', (t) => {
+  const f = fixture(t);
+  const env = 'PLATFORM_PROVISIONING_ENABLED=true\nPLATFORM_OPERATOR_ALLOWLIST=subject\n';
+  writeFileSync(join(f.root, 'platform/platform.env'), env, { mode: 0o600 });
+  const r = f.run('update');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /UPDATE ผ่าน/);
+  const compose = f.commands().filter((c) => c[0] === 'docker-compose');
+  assert.ok(compose.every((c) => c.includes('dcontact-platform-uat')));
+  assert.ok(
+    compose.every((c) => c.includes(join(f.root, `platform/releases/${sha}/platform-release.env`))),
+  );
+  const up = compose.find((c) => c.includes('up'));
+  assert.deepEqual(up?.slice(up.indexOf('up')), [
+    'up',
+    '-d',
+    '--no-deps',
+    '--force-recreate',
+    '--wait',
+    'platform-api',
+    'platform-worker',
+    'platform-console',
+  ]);
+  assert.ok(!compose.some((c) => c.includes('keycloak') || c.includes('platform-keycloak-config')));
+  assert.ok(!f.commands().some((c) => c[0] === 'docker'));
+  assert.equal(readFileSync(join(f.root, 'platform/platform.env'), 'utf8'), env);
+});
+
+test('update: release ที่ไฟล์ไม่ครบหรือ SHA ไม่ตรงต้องหยุดก่อนเรียก Compose', (t) => {
+  const f = fixture(t);
+  writeFileSync(
+    join(f.root, `platform/releases/${sha}/platform-release.env`),
+    `SOURCE_SHA=${'e'.repeat(40)}\n`,
+  );
+  const r = f.run('update');
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /release SHA ไม่ตรง/);
+  assert.ok(
+    !existsSync(join(f.root, 'commands')) || !f.commands().some((c) => c[0] === 'docker-compose'),
+  );
+});

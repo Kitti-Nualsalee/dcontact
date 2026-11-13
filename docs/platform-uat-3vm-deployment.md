@@ -85,6 +85,21 @@ bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh status <SOURCE_SHA>
 5. หลัง `a1:uat:gate` ของ SHA ที่ deploy ผ่าน และ rollback drill ผ่านแล้ว รัน `vm2-platform-deploy.sh canary <SOURCE_SHA> <platform-subject-uuid>`; สคริปต์ตั้ง allowlist/rollout และ recreate **ทั้ง** `platform-api` และ `platform-worker`.
 6. Internal Platform Operator รัน create → review → progress → failure/reconcile → handoff/search/Action history บนข้อมูลสังเคราะห์ พร้อม invitation ผ่าน Mailpit `/mail/`; ทดสอบสอง tenant แยกข้อมูลกัน และบันทึกหลักฐานใน #574.
 
+## อัปเดต Platform ระหว่างที่ stack เปิดอยู่ (#901)
+
+เมื่อ release ใหม่เปลี่ยนเฉพาะ Platform API, worker หรือ Console (ไม่เปลี่ยน Keycloak) ให้ทำ gate ก่อน deploy ข้อ 2–3 บน SHA ใหม่
+และวาง release directory ตามหัวข้อ VM2 แล้วรัน:
+
+```bash
+bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh check <SOURCE_SHA>
+bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh update <SOURCE_SHA>
+```
+
+`update` pull image ตาม digest แล้วสร้าง `platform-api`, `platform-worker` และ `platform-console` ใหม่ด้วย `--no-deps`
+โดยไม่แตะ Keycloak, `platform.env` หรือค่า rollout ใช้ได้ทั้งตอนเปิดและปิด rollout ย้อนกลับด้วย `update <SHA เดิม>`
+ถ้ามี provisioning request ที่ `RUNNING` อยู่ worker ตัวใหม่จะรับช่วงหลัง lease เดิมหมดอายุ (2 นาที) จึงควรอัปเดตตอนไม่มีงานค้าง
+ถ้า migration ของ release ใหม่ต้องลงก่อน (เช่น #901) ให้ deploy Tenant release ของ SHA เดียวกันก่อน
+
 ## Rollback
 
 บน VM2 รัน `bash /opt/dcontact-uat/platform/vm2-platform-deploy.sh rollback <SOURCE_SHA>`. สคริปต์ตั้ง rollout false, หยุด Platform stack และคืน Keycloak image ของ U1. ห้ามลบ A1 ledger, tenant หรือ migration.

@@ -4,8 +4,8 @@ set -euo pipefail
 umask 077
 action="${1:-}"
 sha="${2:-}"
-[[ "$action" =~ ^(check|pull|keycloak|configure|start|operator|canary|rollback|status)$ ]] || {
-  echo 'usage: vm2-platform-deploy.sh <check|pull|keycloak|configure|start|operator|canary|rollback|status> <source-sha> [platform-subject-uuid]' >&2; exit 64;
+[[ "$action" =~ ^(check|pull|keycloak|configure|start|update|operator|canary|rollback|status)$ ]] || {
+  echo 'usage: vm2-platform-deploy.sh <check|pull|keycloak|configure|start|update|operator|canary|rollback|status> <source-sha> [platform-subject-uuid]' >&2; exit 64;
 }
 [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || { echo 'source SHA ไม่ถูกต้อง' >&2; exit 64; }
 [[ "$(id -un)" == osdadmin ]] || { echo 'รันเป็น osdadmin บน VM2' >&2; exit 1; }
@@ -124,6 +124,15 @@ case "$action" in
     }
     platform_compose up -d --wait platform-api platform-worker platform-console mailpit
     echo 'START ผ่าน: Platform stack เปิดอยู่; provisioning ยังปิด'
+    ;;
+  update)
+    # #901: อัปเดต Platform API/worker/Console ไป release นี้ระหว่างที่ stack เปิดอยู่
+    # ไม่แตะ Keycloak, platform.env หรือค่า rollout; ย้อนกลับด้วย `update <SHA เดิม>`
+    # การเปลี่ยน Keycloak ยังต้องใช้ keycloak/rollback ตามเดิม
+    platform_compose config --quiet
+    platform_compose pull --quiet platform-api platform-worker platform-console
+    platform_compose up -d --no-deps --force-recreate --wait platform-api platform-worker platform-console
+    echo "UPDATE ผ่าน: Platform API/worker/Console ใช้ release $sha; rollout และ Keycloak คงเดิม"
     ;;
   operator)
     # รับ temporary password จาก stdin; ห้ามส่งทาง argument หรือ environment
