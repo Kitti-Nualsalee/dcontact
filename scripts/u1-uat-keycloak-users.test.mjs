@@ -170,6 +170,61 @@ test('Console redirect reconciliation: check, compare-before-apply, idempotency 
   assert.equal(calls.filter((call) => call.method === 'PUT').length, 2);
 });
 
+test('Console redirect reconciliation: Keycloak คืนลำดับต่างกันได้ digest เดียวกันและ verify ผ่าน', async () => {
+  const initial = renderRealm(template, environment);
+  const desired = renderRealm(template, {
+    ...environment,
+    UAT_ADDITIONAL_TENANT_SLUGS: 'tenant-a,tenant-b',
+  });
+  const reorder = (value) => {
+    const copy = structuredClone(value);
+    copy.redirectUris = [...copy.redirectUris].reverse();
+    const logout = copy.attributes?.['post.logout.redirect.uris'];
+    if (logout)
+      copy.attributes['post.logout.redirect.uris'] = logout.split('##').reverse().join('##');
+    return copy;
+  };
+  let client = {
+    ...structuredClone(initial.clients.find((entry) => entry.clientId === 'dcontact-uat-console')),
+    id: 'client-id',
+  };
+  let puts = 0;
+  const admin = {
+    async call(path, options = {}) {
+      if (path.includes('?clientId=')) return [{ id: client.id }];
+      if (options.method === 'PUT') {
+        puts += 1;
+        client = structuredClone(options.body);
+      }
+      return reorder(client);
+    },
+  };
+  const check = await reconcileConsoleRedirects(admin, desired);
+  const applied = await reconcileConsoleRedirects(admin, desired, {
+    apply: true,
+    expectedDigest: check.beforeDigest,
+  });
+  assert.equal(applied.changed, true);
+  assert.equal(puts, 1);
+
+  const sorted = await reconcileConsoleRedirects(
+    {
+      call: async (path) => (path.includes('?clientId=') ? [{ id: 'x' }] : structuredClone(client)),
+    },
+    desired,
+  );
+  const reversed = await reconcileConsoleRedirects(admin, desired);
+  assert.equal(sorted.beforeDigest, reversed.beforeDigest);
+  assert.equal(reversed.beforeDigest, reversed.targetDigest);
+  assert.equal(reversed.changed, false);
+  const again = await reconcileConsoleRedirects(admin, desired, {
+    apply: true,
+    expectedDigest: reversed.beforeDigest,
+  });
+  assert.equal(again.changed, false);
+  assert.equal(puts, 1);
+});
+
 test('render realm: env ขาดหรือผิดรูป = fail closed', () => {
   assert.throws(
     () => renderRealm(template, { ...environment, UAT_HOST: '' }),

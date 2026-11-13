@@ -153,9 +153,14 @@ export async function reconcileConsoleRedirects(
   ) {
     throw new UatKeycloakError('CONSOLE_CLIENT_UNEXPECTED');
   }
+  // Keycloak คืน redirectUris ไม่เรียงตามที่ส่งไป จึงเรียงก่อน hash ให้ digest ไม่ขึ้นกับลำดับ
   const state = (client) => ({
-    redirectUris: client.redirectUris ?? [],
-    postLogoutRedirectUris: client.attributes?.['post.logout.redirect.uris'] ?? '',
+    redirectUris: [...(client.redirectUris ?? [])].sort(),
+    postLogoutRedirectUris: (client.attributes?.['post.logout.redirect.uris'] ?? '')
+      .split('##')
+      .filter(Boolean)
+      .sort()
+      .join('##'),
   });
   const digest = (client) =>
     `sha256:${createHash('sha256')
