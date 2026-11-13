@@ -184,6 +184,8 @@ PY
 # ตรวจตั้งแต่ก่อน migrate/deploy เพื่อไม่ให้ runtime เปลี่ยนก่อนพบว่า record เขียนไม่ได้
 # #868: authorization จาก operator/b868-forward-authorize.py ใช้ได้กับ candidate เดียว, current/previous bytes เดิม,
 # release.env ที่ prepare แล้ว และก่อน expiresAt เท่านั้น เมื่อ record ของ candidate ถูกเขียน current hash เปลี่ยน
+# #901: operator/uat-additive-authorize.py ออก authorization แบบเบาให้ release ที่ migration guard ผ่าน
+# ทับ deploy/rollback record ปกติ โดยผูก release.env, migration-guard.json และ current/previous bytes ชุดเดียวกัน
 uat_forward_authorized() {
   local sha="${1:-}"
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 1
@@ -210,6 +212,28 @@ try:
     now = datetime.now(timezone.utc)
     validation = data.get('validation') or {}
     record = json.loads(current)
+    common = (data.get('targetSha') == sha
+              and data.get('releaseEnvSha256') == hashlib.sha256(release).hexdigest()
+              and data.get('currentRecordSha256') == hashlib.sha256(current).hexdigest()
+              and data.get('previousRecordSha256') == hashlib.sha256(previous).hexdigest()
+              and data.get('rollbackCertified') is False
+              and re.fullmatch(r'operator:[A-Za-z0-9][A-Za-z0-9._@-]{0,127}', str(data.get('actor', '')))
+              and when(data.get('authorizedAt')).timestamp() <= now.timestamp() + 30
+              and now < when(data.get('expiresAt')))
+    if data.get('schema') == 'UatAdditiveDeployAuthorizationV1':
+        # #901: release ที่ migration guard ผ่านทับ deploy/rollback record ปกติ ไม่ต้องซ้อม #868
+        guard_raw = private(os.path.join(root, 'releases', sha, 'migration-guard.json'), 0o022)
+        guard = json.loads(guard_raw)
+        checks = guard.get('checks') or [{}]
+        base = record.get('sourceSha')
+        ok = (common and record.get('schema') == 'UatDeploymentRecordV1'
+              and record.get('action') in ('deploy', 'rollback') and data.get('baseSha') == base != sha
+              and data.get('migrationGuardSha256') == hashlib.sha256(guard_raw).hexdigest()
+              and (guard.get('type'), guard.get('mode'), guard.get('status'), guard.get('base'), guard.get('head'))
+                  == ('u1.uat.readiness', 'migration-guard', 'PASS', base, sha)
+              and len(checks) == 1 and str(checks[0].get('id', '')).startswith('UAT-M01 ')
+              and checks[0].get('status') == 'PASS')
+        sys.exit(0 if ok else 1)
     ok = (data.get('schema') == 'UatForwardDeployAuthorizationV1' and data.get('targetSha') == sha
           and data.get('releaseEnvSha256') == hashlib.sha256(release).hexdigest()
           and data.get('currentRecordSha256') == hashlib.sha256(current).hexdigest()
