@@ -52,6 +52,43 @@ export interface PlatformWorkerLoopConfig {
   rollout: PlatformRollout;
   metrics?: PlatformWorkerMetrics;
   log?: (event: Record<string, unknown>) => void;
+  /** เพดานของ backoff ตอนรอบล้มติดกัน (ค่าเริ่ม 30 วินาที) */
+  maxBackoffMs?: number;
+  /** ฉีดได้ใน test — ค่าเริ่ม Math.random */
+  random?: () => number;
+  /** ฉีดได้ใน test — ค่าเริ่มคือรอแบบยกเลิกได้ด้วย signal */
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+}
+
+export const DEFAULT_MAX_BACKOFF_MS = 30_000;
+
+/**
+ * หน่วงหลังรอบที่ล้มติดกัน `failures` ครั้ง: exponential จาก `baseMs` มีเพดาน `maxMs` และ equal jitter
+ * (ครึ่งหนึ่งคงที่ อีกครึ่งสุ่ม) เพื่อไม่ให้ worker หลายตัวกลับมาพร้อมกันตอน DB กลับมา
+ */
+export function computeBackoffMs(
+  failures: number,
+  options: { baseMs: number; maxMs: number; random?: () => number },
+): number {
+  const base = Math.max(1, options.baseMs);
+  const exponent = Math.min(Math.max(0, failures - 1), 30);
+  const ceiling = Math.min(options.maxMs, base * 2 ** exponent);
+  const random = options.random ?? Math.random;
+  return Math.round(ceiling / 2 + random() * (ceiling / 2));
+}
+
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) return resolve();
+    // ถอด listener ทุกรอบ — loop ที่รันยาวต้องไม่สะสม listener บน signal เดียว
+    const wake = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', wake);
+      resolve();
+    };
+    const timer = setTimeout(wake, ms);
+    signal.addEventListener('abort', wake, { once: true });
+  });
 }
 
 export function createPlatformWorker(config: PlatformWorkerConfig) {
@@ -106,9 +143,16 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
   const log = config.log ?? (() => undefined);
 
   let paused: boolean | null = null;
+  const sleep = config.sleep ?? abortableSleep;
+  const maxBackoffMs = config.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
 
   /** หนึ่งรอบ: ทำ step หนึ่งหน่วยและ command หนึ่งคำสั่ง — คืน true ถ้ามีงานทำ */
   async function tick(): Promise<boolean> {
+    return (await round()).busy;
+  }
+
+  /** เหมือน tick แต่บอกด้วยว่ามี source ไหนล้มในรอบนี้ — run ใช้ตัดสินว่าต้อง backoff */
+  async function round(): Promise<{ busy: boolean; failed: boolean }> {
     const enabled = config.rollout.claimsEnabled();
     config.metrics?.claimsEnabled(enabled);
     if (paused !== !enabled) {
@@ -119,8 +163,9 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
       });
     }
     // rollback: ไม่ claim อะไรเลย — ไม่ใช่ claim แล้วปล่อย (ไม่เพิ่ม attempt/lease churn)
-    if (!enabled) return false;
+    if (!enabled) return { busy: false, failed: false };
     let busy = false;
+    let failed = false;
     for (const [source, work] of [
       ['saga', () => saga.runOnce()],
       ['command', () => commands.runOnce()],
@@ -142,6 +187,7 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
         }
       } catch (error) {
         busy = true;
+        failed = true;
         config.metrics?.error(source);
         log({
           event: 'platform.worker.error',
@@ -152,23 +198,39 @@ export function createPlatformWorkerLoop(config: PlatformWorkerLoopConfig) {
         });
       }
     }
-    return busy;
+    return { busy, failed };
   }
 
+  /**
+   * รอบที่ล้ม (เช่น DB หาย P1001/P1017) ต้องไม่วนทันที — เดิมเกิด `platform.worker.error` หลายหมื่นครั้ง
+   * ในไม่กี่วินาทีตอน db-relay ถูกสร้างใหม่ (#901) จึง backoff แบบ exponential + jitter มีเพดาน
+   * และ reset เมื่อรอบถัดไปไม่มี error
+   */
   async function run(signal: AbortSignal, pollMs = 1_000) {
+    let failures = 0;
     while (!signal.aborted) {
-      if (!(await tick())) {
-        await new Promise<void>((resolve) => {
-          // ถอด listener ทุกรอบ — loop ที่รันยาวต้องไม่สะสม listener บน signal เดียว
-          const wake = () => {
-            clearTimeout(timer);
-            signal.removeEventListener('abort', wake);
-            resolve();
-          };
-          const timer = setTimeout(wake, pollMs);
-          signal.addEventListener('abort', wake, { once: true });
+      const outcome = await round();
+      if (outcome.failed) {
+        failures += 1;
+        const delayMs = computeBackoffMs(failures, {
+          baseMs: pollMs,
+          maxMs: maxBackoffMs,
+          ...(config.random ? { random: config.random } : {}),
         });
+        log({
+          event: 'platform.worker.backoff',
+          workerId: config.workerId,
+          failures,
+          delayMs,
+        });
+        await sleep(delayMs, signal);
+        continue;
       }
+      if (failures > 0) {
+        log({ event: 'platform.worker.recovered', workerId: config.workerId, failures });
+        failures = 0;
+      }
+      if (!outcome.busy) await sleep(pollMs, signal);
     }
   }
 
