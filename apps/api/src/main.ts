@@ -48,6 +48,7 @@ import {
 } from '@d-contact/workspace-session';
 import { createWorkspaceSessionHandler } from './workspace-session-api.js';
 import { WorkSessionLeases } from './work-session.js';
+import { startBackgroundLoop } from './background-loop.js';
 import { EmbedOriginService } from './embed-origins.js';
 import { AccountPolicyService } from './account-policy.js';
 import { ACCOUNT_SELF_SERVICE, AccountController } from './account-api.js';
@@ -387,13 +388,12 @@ const socketAdapter = new WorkspaceSessionWebSocketAdapter(
 );
 leaseSignals.forward = socketAdapter;
 // ปล่อย lease ที่หลุดตอนว่างเกิน TTL (presence → OFFLINE); ทุก instance รันได้เพราะ lock แถวก่อนปิด
-setInterval(() => {
-  workSessionLeases
-    .sweep()
-    .catch((error) =>
-      console.error(JSON.stringify({ event: 'work_session.sweep_failed', error: String(error) })),
-    );
-}, 15_000).unref();
+// รอบที่ล้ม (เช่น P2028 ตอน DB ช้า) ถูก log แล้วรอรอบถัดไป — ไม่ทำให้ process ตาย
+startBackgroundLoop({
+  name: 'work_session.sweep',
+  intervalMs: 15_000,
+  work: () => workSessionLeases.sweep(),
+});
 supervisorLiveEvents.subscribe(async (event, recipientUserIds) => {
   await socketAdapter.deliverLiveEvent(event, recipientUserIds);
 });
