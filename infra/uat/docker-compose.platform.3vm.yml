@@ -62,6 +62,7 @@ services:
       # #901: binding ของ first admin ผูก issuer/client ของ tenant Console ใน deployment นี้
       PLATFORM_TENANT_CONSOLE_ISSUER: https://dcontact-uat.osd.co.th/auth/realms/dcontact
       PLATFORM_TENANT_CONSOLE_CLIENT_ID: dcontact-uat-console
+      PLATFORM_TENANT_CONSOLE_ORIGIN: https://dcontact-uat.osd.co.th
       PLATFORM_PROVISIONING_ENABLED: ${PLATFORM_PROVISIONING_ENABLED:-false}
       PLATFORM_OPERATOR_ALLOWLIST: ${PLATFORM_OPERATOR_ALLOWLIST:-}
       PLATFORM_METRICS_HOST: 127.0.0.1
@@ -98,6 +99,8 @@ services:
       KEYCLOAK_SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       KEYCLOAK_SMTP_FROM: ${SMTP_FROM:-no-reply@dcontact-uat.osd.co.th}
       PLATFORM_CONSOLE_REDIRECT: https://platform-uat.osd.co.th
+      # #907: provisioner แก้ได้เฉพาะ client นี้ (fine-grained permission) เพื่อเพิ่ม redirect ราย tenant
+      PLATFORM_TENANT_CONSOLE_CLIENT_ID: dcontact-uat-console
     networks: [uat-internal]
     depends_on: [mailpit]
 

@@ -32,6 +32,7 @@ export const SIP_BASE = 'sip.dcontact.test';
 export const TENANT_CONSOLE = {
   issuer: 'http://localhost:8081/realms/dcontact',
   clientId: 'console',
+  origin: 'http://localhost:5173',
 } as const;
 
 /** manifest v1 ของเทสต์ — ชื่อ/เวลาเป็นค่าสังเคราะห์ ไม่ใช่ baseline จริงของ production */

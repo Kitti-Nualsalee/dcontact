@@ -21,6 +21,7 @@ import {
 import { KeycloakAdminClient } from './keycloak-admin.js';
 import { FirstAdminPort, KeycloakOrganizationPort } from './keycloak-provisioning-ports.js';
 import type { TenantConsoleContext } from './tenant-console-context.js';
+import { TenantConsoleRedirects } from './tenant-console-redirects.js';
 import { OperatorCommandWorker } from './operator-commands.js';
 import type { PlatformWorkerMetrics } from './platform-metrics.js';
 import type { PlatformRollout } from './platform-rollout.js';
@@ -93,7 +94,12 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
 
 export function createPlatformWorker(config: PlatformWorkerConfig) {
   const organizations = new KeycloakOrganizationPort(config.keycloak);
-  const firstAdmin = new FirstAdminPort(config.keycloak, config.provisioner, organizations);
+  const firstAdmin = new FirstAdminPort(
+    config.keycloak,
+    config.provisioner,
+    organizations,
+    new TenantConsoleRedirects(config.keycloak, config.provisioner, config.tenantConsole),
+  );
   const invitations = new InvitationOutbox(config.platform, config.keycloak, firstAdmin, {
     probe: config.probe ?? NO_DELIVERY_PROBE,
   });

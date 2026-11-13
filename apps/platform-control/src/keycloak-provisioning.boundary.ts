@@ -32,6 +32,8 @@ import {
   actionTokenClaims,
   cleanupKeycloak,
   completeInvitation,
+  consoleRedirects,
+  ensureBoundaryConsole,
   invitationLinks,
   keycloakAdmin,
   MAILPIT_URL,
@@ -39,7 +41,8 @@ import {
   provisionerClient,
   tenantLogin,
 } from './keycloak-test-support.js';
-import { createPlatformFixture, OPERATOR, SIP_BASE, TENANT_CONSOLE } from './platform-fixture.js';
+import { createPlatformFixture, OPERATOR, SIP_BASE } from './platform-fixture.js';
+import { TenantConsoleRedirects } from './tenant-console-redirects.js';
 import { createFakeProvisioningPorts } from './provisioning-fakes.js';
 import { ProvisioningSagaWorker } from './provisioning-saga.js';
 import { TenantBootstrapPort, TenantReadinessPort } from './tenant-bootstrap.js';
@@ -88,7 +91,14 @@ async function setup(
   });
   const keycloak = provisionerClient(options.fault ? faultyFetch(options.fault) : undefined);
   const organizations = new KeycloakOrganizationPort(keycloak);
-  const firstAdmin = new FirstAdminPort(keycloak, f.provisioner, organizations);
+  // #907: Console client จริงของ boundary พร้อม fine-grained permission แบบเดียวกับ UAT
+  const tenantConsole = await ensureBoundaryConsole();
+  const firstAdmin = new FirstAdminPort(
+    keycloak,
+    f.provisioner,
+    organizations,
+    new TenantConsoleRedirects(keycloak, f.provisioner, tenantConsole),
+  );
   const outbox = new InvitationOutbox(f.platform, keycloak, firstAdmin, {
     probe: options.probe ?? mailpitDeliveryProbe(MAILPIT_URL),
   });
@@ -110,7 +120,7 @@ async function setup(
   const worker = new ProvisioningSagaWorker(f.platform, ports, {
     workerId: `boundary-${randomUUID().slice(0, 8)}`,
     sipBaseDomain: SIP_BASE,
-    tenantConsole: TENANT_CONSOLE,
+    tenantConsole,
     scope: () => ({ tenantId: { in: [...tenants] } }),
     timeoutMs: 3_000,
     backoffBaseMs: 1,
@@ -154,6 +164,7 @@ async function setup(
     accept,
     drain,
     state,
+    tenantConsole,
   };
 }
 
@@ -223,8 +234,14 @@ test('create: Organization + first-admin + invitation 72 ชั่วโมง �
   );
   assert.deepEqual(
     [binding!.issuer, binding!.clientId, binding!.tenantSlug],
-    [TENANT_CONSOLE.issuer, TENANT_CONSOLE.clientId, accepted.input.slug],
+    [s.tenantConsole.issuer, s.tenantConsole.clientId, accepted.input.slug],
   );
+  // #907: redirect แบบ exact ของ tenant ถูกเพิ่มทั้ง login และ post-logout โดยคงของเดิม
+  const redirect = `${s.tenantConsole.origin}/?tenant=${accepted.input.slug}`;
+  const registered = await consoleRedirects();
+  assert.ok(registered.redirectUris.includes(redirect));
+  assert.ok(registered.postLogout.includes(redirect));
+  assert.ok(registered.redirectUris.includes(`${s.tenantConsole.origin}/?tenant=boundary-base`));
 
   const row = await s.f.owner.user.findUniqueOrThrow({
     where: { id: firstAdminUserId(accepted.requestId) },
@@ -586,4 +603,41 @@ test('A1.5b (#441): อีเมลชนกับ identity เดิม → แ
   // คำเชิญไปที่อีเมลใหม่ ไม่ใช่ของ identity เดิม
   assert.equal((await messagesTo(fixedEmail)).length, 1);
   assert.equal((await usersOf(accepted.tenantId)).length, 1);
+});
+
+test('#907: provisioner แก้ได้เฉพาะ tenant Console client ที่ได้ permission ไม่ใช่ client อื่น', async (t) => {
+  const s = await setup(t);
+  const { body: own } = await s.keycloak.admin<{ id: string }[]>(
+    'GET',
+    `/clients?clientId=${s.tenantConsole.clientId}`,
+  );
+  assert.equal(own.length, 1);
+  const { body: client } = await s.keycloak.admin<Record<string, unknown>>(
+    'GET',
+    `/clients/${own[0]!.id}`,
+  );
+  const allowed = await s.keycloak.admin('PUT', `/clients/${own[0]!.id}`, {
+    body: client,
+    accept: [204, 403],
+  });
+  assert.equal(allowed.status, 204);
+
+  const { body: others } = await keycloakAdmin<{ id: string }[]>(
+    'GET',
+    '/clients?clientId=dcontact-dev-readiness',
+  );
+  const { body: other } = await keycloakAdmin<Record<string, unknown>>(
+    'GET',
+    `/clients/${others[0]!.id}`,
+  );
+  const denied = await s.keycloak.admin('PUT', `/clients/${others[0]!.id}`, {
+    body: { ...other, redirectUris: ['https://attacker.invalid/*'] },
+    accept: [204, 403, 404],
+  });
+  assert.notEqual(denied.status, 204);
+  const { body: unchanged } = await keycloakAdmin<{ redirectUris?: string[] }>(
+    'GET',
+    `/clients/${others[0]!.id}`,
+  );
+  assert.ok(!(unchanged.redirectUris ?? []).includes('https://attacker.invalid/*'));
 });

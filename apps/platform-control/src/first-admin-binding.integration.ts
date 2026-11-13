@@ -203,7 +203,7 @@ test('ปฏิเสธก่อน request สำเร็จ, context ที�
     /PLATFORM_BINDING_CONTEXT_INVALID/,
   );
   await rejects(
-    s.bind(s.f.platform, { issuer: 'not-an-issuer', clientId: TENANT_CONSOLE.clientId }),
+    s.bind(s.f.platform, { ...TENANT_CONSOLE, issuer: 'not-an-issuer' }),
     /PLATFORM_BINDING_CONTEXT_INVALID/,
   );
   await rejects(s.bind(s.f.provisioner), /permission denied/);

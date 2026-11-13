@@ -198,3 +198,54 @@ export async function tenantLogin(input: {
   const body = (await response.json()) as { access_token?: string; error?: string };
   return { status: response.status, accessToken: body.access_token, error: body.error };
 }
+
+/**
+ * #907: tenant Console client ของ boundary test (public + PKCE) พร้อม fine-grained permission ของ provisioner
+ * สร้างครั้งเดียวและคงไว้ — ถ้าลบ client ทิ้ง permission จะเหลือแบบไม่มี resource ซึ่งครอบ client ทุกตัว
+ */
+export const BOUNDARY_CONSOLE = {
+  issuer: `${KEYCLOAK_URL}/realms/${REALM}`,
+  clientId: 'dc-boundary-tenant-console',
+  origin: 'http://localhost:5174',
+} as const;
+
+export async function ensureBoundaryConsole() {
+  const { body: existing } = await keycloakAdmin<{ id: string }[]>(
+    'GET',
+    `/clients?clientId=${BOUNDARY_CONSOLE.clientId}`,
+  );
+  if ((existing ?? []).length === 0) {
+    await keycloakAdmin('POST', '/clients', {
+      clientId: BOUNDARY_CONSOLE.clientId,
+      enabled: true,
+      publicClient: true,
+      standardFlowEnabled: true,
+      directAccessGrantsEnabled: false,
+      redirectUris: [`${BOUNDARY_CONSOLE.origin}/?tenant=boundary-base`],
+      attributes: {
+        'pkce.code.challenge.method': 'S256',
+        'post.logout.redirect.uris': `${BOUNDARY_CONSOLE.origin}/?tenant=boundary-base`,
+      },
+    });
+  }
+  const { ensureTenantConsolePermission } = (await import(
+    new URL('../../../scripts/keycloak-provisioning-setup.mjs', import.meta.url).href
+  )) as { ensureTenantConsolePermission: (clientId: string) => Promise<unknown> };
+  await ensureTenantConsolePermission(BOUNDARY_CONSOLE.clientId);
+  return BOUNDARY_CONSOLE;
+}
+
+export async function consoleRedirects() {
+  const { body: matches } = await keycloakAdmin<{ id: string }[]>(
+    'GET',
+    `/clients?clientId=${BOUNDARY_CONSOLE.clientId}`,
+  );
+  const { body } = await keycloakAdmin<{
+    redirectUris?: string[];
+    attributes?: Record<string, string>;
+  }>('GET', `/clients/${matches[0]!.id}`);
+  return {
+    redirectUris: body.redirectUris ?? [],
+    postLogout: (body.attributes?.['post.logout.redirect.uris'] ?? '').split('##').filter(Boolean),
+  };
+}

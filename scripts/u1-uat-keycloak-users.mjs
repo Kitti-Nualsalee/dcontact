@@ -126,6 +126,46 @@ export function renderRealm(template, environment) {
   return rendered;
 }
 
+const TENANT_ALIAS = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
+/** redirect ราย tenant ของ Console (`<origin>/?tenant=<slug>`) ที่ origin ตรง — ไม่รับ path/query/fragment อื่น */
+function tenantConsoleRedirect(uri, origin) {
+  let url;
+  try {
+    url = new URL(uri);
+  } catch {
+    return false;
+  }
+  const tenant = url.searchParams.get('tenant') ?? '';
+  return (
+    url.origin === origin &&
+    url.pathname === '/' &&
+    !url.hash &&
+    [...url.searchParams.keys()].length === 1 &&
+    uri === `${origin}/?tenant=${tenant}` &&
+    tenant.length <= 63 &&
+    TENANT_ALIAS.test(tenant) &&
+    !tenant.includes('--')
+  );
+}
+
+/**
+ * #907: provisioning saga เพิ่ม redirect ราย tenant ให้ Console client เอง — config/redirect tool ต้องไม่ลบทิ้ง
+ * คืน desired ชุดใหม่ที่รวม redirect ของ tenant ใน client ปัจจุบัน (เฉพาะรูปแบบ exact ของ origin เดียวกัน)
+ */
+export function mergeTenantConsoleRedirects(desired, current) {
+  const origin = new URL(desired.redirectUris[0]).origin;
+  const preserved = (current?.redirectUris ?? []).filter((uri) =>
+    tenantConsoleRedirect(uri, origin),
+  );
+  const redirectUris = [...new Set([...desired.redirectUris, ...preserved])].sort();
+  return {
+    ...desired,
+    redirectUris,
+    attributes: { ...desired.attributes, 'post.logout.redirect.uris': redirectUris.join('##') },
+  };
+}
+
 /** digest ของ realm config ที่ render แล้ว (ไม่มี secret) — บันทึกลง deployment record */
 export function realmConfigDigest(rendered) {
   return `sha256:${createHash('sha256').update(canonicalJson(rendered)).digest('hex')}`;
@@ -144,7 +184,10 @@ export async function reconcileConsoleRedirects(
   if (matches.length !== 1 || !matches[0].id) throw new UatKeycloakError('KEYCLOAK_CLIENT_MISSING');
   const path = `${base}/clients/${encodeURIComponent(matches[0].id)}`;
   const current = await admin.call(path);
-  const desired = rendered.clients.find((client) => client.clientId === UAT_CONSOLE_CLIENT_ID);
+  const renderedConsole = rendered.clients.find(
+    (client) => client.clientId === UAT_CONSOLE_CLIENT_ID,
+  );
+  const desired = renderedConsole && mergeTenantConsoleRedirects(renderedConsole, current);
   if (
     !desired ||
     current.clientId !== UAT_CONSOLE_CLIENT_ID ||
@@ -312,6 +355,9 @@ const REALM_LEVEL_EXCLUDED = new Set([
   'requiredActions',
 ]);
 
+/** test-only: upsert ของ client เดียวโดยไม่ apply realm ทั้งก้อน */
+export const upsertClientForTest = (...args) => upsertClient(...args);
+
 async function upsertClient(admin, realm, desired, scopes) {
   const base = `/admin/realms/${realm}`;
   let [client] = await admin.call(
@@ -321,7 +367,10 @@ async function upsertClient(admin, realm, desired, scopes) {
     await admin.call(`${base}/clients`, { method: 'POST', body: desired });
     [client] = await admin.call(`${base}/clients?clientId=${encodeURIComponent(desired.clientId)}`);
   } else {
-    const { protocolMappers: _mappers, ...settings } = desired;
+    const { protocolMappers: _mappers, ...settings } =
+      desired.clientId === UAT_CONSOLE_CLIENT_ID
+        ? mergeTenantConsoleRedirects(desired, client)
+        : desired;
     await admin.call(`${base}/clients/${client.id}`, {
       method: 'PUT',
       body: { ...client, ...settings, id: client.id },
