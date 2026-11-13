@@ -26,6 +26,7 @@ import { AGENT_WORKSPACE_DATABASE, AgentWorkspaceController } from './agent-work
 import { CLICK_TO_CALL_SERVICE, ClickToCallController } from './click-to-call-api.js';
 import { ClickToCallService } from './click-to-call.js';
 import { E1VoiceCommandPublisher } from './e1-voice-command-publisher.js';
+import { startBackgroundLoop } from './background-loop.js';
 import { DphoneAuthCallbackController } from './dphone-auth-callback.js';
 import {
   DPHONE_LAUNCHER_OPTIONS,
@@ -260,6 +261,11 @@ export async function bootstrapE1UatApi(
   });
   socketRef.current = socketAdapter;
   attachWorkspaceSessionWebSocket(app.getHttpServer(), socketAdapter);
-  setInterval(() => void leases.sweep(), 15_000).unref();
+  // เดิม `void leases.sweep()` — P2028 ตอน VM ช้าหลุดเป็น unhandled rejection แล้ว API ตาย (#901)
+  startBackgroundLoop({
+    name: 'work_session.sweep',
+    intervalMs: 15_000,
+    work: () => leases.sweep(),
+  });
   await app.listen(Number(environment.PORT ?? 3000));
 }
