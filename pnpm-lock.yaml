@@ -77,6 +77,9 @@ importers:
       '@nestjs/platform-express':
         specifier: ^10.4.4
         version: 10.4.22(@nestjs/common@10.4.22(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22)
+      busboy:
+        specifier: 1.6.0
+        version: 1.6.0
       ioredis:
         specifier: ^5.4.1
         version: 5.11.1
@@ -93,6 +96,9 @@ importers:
         specifier: ^8.18.0
         version: 8.21.3
     devDependencies:
+      '@types/busboy':
+        specifier: 1.5.4
+        version: 1.5.4
       '@types/node':
         specifier: ^20.14.0
         version: 20.19.43
@@ -1882,6 +1888,9 @@ packages:
 
   '@types/bcryptjs@2.4.6':
     resolution: {integrity: sha512-9xlo6R2qDs5uixm0bcIqCeMCE6HiQsIyel9KQySStiyqNl2tnj2mP3DX1Nf56MD6KMenNNlBBsy3LJ7gUEQPXQ==}
+
+  '@types/busboy@1.5.4':
+    resolution: {integrity: sha512-kG7WrUuAKK0NoyxfQHsVE6j1m01s6kMma64E+OZenQABMQyTJop1DumUWcLwAQ2JzpefU7PDYoRDKl8uZosFjw==}
 
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
@@ -3736,6 +3745,10 @@ snapshots:
     optional: true
 
   '@types/bcryptjs@2.4.6': {}
+
+  '@types/busboy@1.5.4':
+    dependencies:
+      '@types/node': 20.19.43
 
   '@types/estree@1.0.9': {}
 

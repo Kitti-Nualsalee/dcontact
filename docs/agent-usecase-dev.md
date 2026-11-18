@@ -68,6 +68,25 @@ gh workflow run CI --ref main -f acceptance=integration
 
 ชุดนี้ไม่รวม focused DB trial หรือ browser fixtures ของ #796 ต้องเรียกคำสั่งด้านบนเมื่อต้องตรวจ seams เหล่านั้น Acceptance chain เดิมยังเลือกด้วย `acceptance=chain` และใช้ marker ตาม ADR-032
 
+## นำเข้าลูกค้าจาก CSV — owner เลือก 16 พฤศจิกายน 2569
+
+งานติดตามที่ [#909](https://github.com/Kitti-Nualsalee/dcontact/issues/909) เป็น Use case ถัดไปจาก #888 ใน Console เมนู **ลูกค้า → นำเข้า CSV** (`?view=customer-import`) สำหรับ Admin ที่มี `CONTACT_CREATE`
+
+- สร้างลูกค้าใหม่เท่านั้น ไม่เกิน 1,000 แถว/1 MiB/32 คอลัมน์ ประมวลผลใน request เดียว ไม่เก็บไฟล์ ไม่มี job/worker/object storage
+- `POST /api/v1/customer-360/imports/preview` ไม่สร้างข้อมูล; `POST .../imports/confirm` ส่งไฟล์เดิมพร้อม `planHash` และ `commandId` แล้วสร้างทีละแถวด้วย create command เดิมของ C4 (child commandId คงที่ต่อ request/plan/แถว) ส่งซ้ำด้วย commandId เดิมไม่สร้างลูกค้าซ้ำ
+- `planHash` ผูก source digest, mapping และ rules แต่ไม่ผูก warning ซ้ำ เพื่อให้ replay หลังสร้างแล้วยังผ่าน
+- confirm หยุดแถวที่เหลือเมื่อสิทธิ์หายหรือเกิน 45 วินาที (ผล `INCOMPLETE`) แถวที่ commit แล้วคงอยู่และส่งต่อได้
+
+```sh
+pnpm --filter @d-contact/customer-360 test
+pnpm --filter @d-contact/api exec tsx --test src/customer-360-import-multipart.test.ts src/customer-360-import-api.test.ts
+pnpm --filter @d-contact/console test
+pnpm --filter @d-contact/api test:customer-import:integration
+pnpm --filter @d-contact/console exec playwright test e2e/customer-import.spec.ts --project=chromium
+```
+
+`test:customer-import:integration` ใช้ PostgreSQL ชั่วคราวฐาน `dcontact_909_test` และลบ container เมื่อจบ ไม่แตะฐาน `dcontact`; ตรวจ HTTP→PostgreSQL/RLS ด้วย application role ที่ไม่ bypass RLS. Browser spec จำลอง API ด้วย route จึงยืนยัน UI เท่านั้น ไม่แทน HTTP/DB หรือ real OIDC
+
 ## External softphone control — owner เลือก 10 พฤศจิกายน 2569
 
 ใช้ UI control ใน Workspace จริงและเริ่มจากตัวจำลองก่อน ก่อนเลือก D-Phone เป็น Chrome extension ตัวแรก. เริ่ม Workspace พร้อม build-time opt-in ด้วย:

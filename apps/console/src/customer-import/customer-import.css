@@ -1,0 +1,64 @@
+.ci-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-5);
+}
+.ci-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+  padding: var(--dc-space-5);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+}
+.ci-card h2 {
+  margin: 0;
+}
+.ci-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+}
+.ci-file input[type='file'] {
+  max-width: 100%;
+  color: var(--dc-text-primary);
+}
+.ci-map {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--dc-space-4);
+}
+.ci-map > * {
+  min-width: 0;
+}
+.ci-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-3);
+}
+.ci-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.ci-table th:nth-child(1) {
+  width: 14%;
+}
+.ci-table th:nth-child(2) {
+  width: 32%;
+}
+.ci-table th:nth-child(3) {
+  width: 18%;
+}
+.ci-table th:nth-child(4) {
+  width: 36%;
+}
+.ci-table td {
+  overflow-wrap: anywhere;
+}
+@media (width <= 40rem) {
+  .ci-table th:nth-child(1) {
+    width: 18%;
+  }
+}
