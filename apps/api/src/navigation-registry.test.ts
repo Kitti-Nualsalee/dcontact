@@ -65,6 +65,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'customer-rules',
     'customer-activity',
     'customer-tags',
+    'customer-import',
     'core-settings',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: admin, entitlements: {} })), [
@@ -78,6 +79,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'customer-rules',
     'customer-activity',
     'customer-tags',
+    'customer-import',
     'core-settings',
   ]);
   assert.deepEqual(
@@ -98,6 +100,7 @@ test('plan ต่างกันเห็นรายการต่างกั
       'customer-rules',
       'customer-activity',
       'customer-tags',
+      'customer-import',
       'core-settings',
     ],
   );
@@ -118,6 +121,7 @@ test('tenant ที่ไม่มี plan binding (null) ใช้ role อย�
     'customer-rules',
     'customer-activity',
     'customer-tags',
+    'customer-import',
     'core-settings',
   ]);
 });
@@ -136,6 +140,7 @@ test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ข�
     'customer-rules',
     'customer-activity',
     'customer-tags',
+    'customer-import',
     'core-settings',
   ]);
   assert.equal(
@@ -162,6 +167,7 @@ test('ชุดเริ่มต้นของ tenant ขึ้นกับ en
     'customer-rules',
     'customer-activity',
     'customer-tags',
+    'customer-import',
     'core-settings',
   ]);
 });
@@ -234,14 +240,21 @@ test('#651: พื้นที่เมนูคัดตาม role/plan; ล�
   );
 });
 
-test('#860: เมนูลูกค้าอยู่พื้นที่เดียวตามสิทธิ์ โดยไม่เพิ่มหน้าหรือสิทธิ์ใหม่', () => {
+test('#860: เมนูลูกค้าอยู่พื้นที่เดียวตามสิทธิ์ (เพิ่มหน้านำเข้า CSV ของ #909 เฉพาะ admin)', () => {
   const customerArea = (roles: string[]) =>
     visibleAreas(visibleApps({ roles, entitlements: null })).find(
       (area) => area.id === 'customers',
     );
   assert.deepEqual(
     customerArea(['admin'])?.sections.flatMap((section) => section.items.map((item) => item.appId)),
-    ['customers', 'customer-overview', 'customer-rules', 'customer-activity', 'customer-tags'],
+    [
+      'customers',
+      'customer-overview',
+      'customer-rules',
+      'customer-activity',
+      'customer-tags',
+      'customer-import',
+    ],
   );
   assert.deepEqual(
     customerArea(['supervisor'])?.sections.flatMap((section) =>

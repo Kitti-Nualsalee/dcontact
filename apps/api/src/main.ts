@@ -6,6 +6,7 @@ import {
 } from './customer-360-tag-runtime.js';
 import { Customer360TagCatalogController } from './customer-360-tag-catalog-api.js';
 import { Customer360Controller, CUSTOMER_360_DATABASE } from './customer-360-api.js';
+import { Customer360ImportController } from './customer-360-import-api.js';
 import { Customer360OperatorController } from './customer-360-operator-api.js';
 import { Customer360ActivityController } from './customer-360-activity-api.js';
 import { Customer360OverviewController } from './customer-360-overview-api.js';
@@ -416,6 +417,7 @@ class WorkspaceSessionController {
   controllers: [
     TenantCoreSettingsController,
     Customer360Controller,
+    Customer360ImportController,
     Customer360TagCatalogController,
     Customer360OperatorController,
     Customer360ReadController,

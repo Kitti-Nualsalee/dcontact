@@ -30,6 +30,7 @@
       "coreSettings": "Organization settings",
       "customers": "Customers",
       "customerTags": "Manage tags",
+      "customerImport": "Import CSV",
       "customerOverview": "Customer overview",
       "customerRules": "Data rules",
       "customerActivity": "Customer activity"

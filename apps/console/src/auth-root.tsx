@@ -12,6 +12,8 @@ import { CustomersPage } from './customers/customers-page.js';
 import { createCustomersApi } from './customers/api.js';
 import { CustomerTagsPage } from './customer-tags/customer-tags-page.js';
 import { createCustomerTagsApi } from './customer-tags/api.js';
+import { CustomerImportPage } from './customer-import/customer-import-page.js';
+import { createCustomerImportApi } from './customer-import/api.js';
 import { createCatalogApi } from './voice-routing/api.js';
 import { useMemo, useRef, useState, useEffect, type ReactNode } from 'react';
 import { AuthProvider, useAuth, type AuthContextProps } from 'react-oidc-context';
@@ -220,6 +222,7 @@ export function ConsoleAuthRoot() {
   // Cus360 C2 (#792): Customers + โปรไฟล์ (อ่านอย่างเดียว)
   const customersView = view === 'customers';
   const customerTagsView = view === 'customer-tags';
+  const customerImportView = view === 'customer-import';
   const customerActivityView = view === 'customer-activity';
   const customerOverviewView = view === 'customer-overview' || view === 'customer-rules';
   // #566: read-only ของ LINE pilot — มีเฉพาะ UAT ที่ใส่ overlay `uat-line` (ไม่มี = หน้าแจ้งว่าไม่ได้เปิด)
@@ -241,6 +244,7 @@ export function ConsoleAuthRoot() {
       peopleView ||
       customersView ||
       customerTagsView ||
+      customerImportView ||
       customerOverviewView ||
       customerActivityView ||
       coreSettingsView ||
@@ -309,6 +313,8 @@ export function ConsoleAuthRoot() {
               <CustomerActivitySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : customerTagsView ? (
               <CustomerTagsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : customerImportView ? (
+              <CustomerImportSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : historyView ? (
               <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : accountView ? (
@@ -902,6 +908,59 @@ export function CustomerTagsSurface({
     );
   return (
     <CustomerTagsPage
+      api={api}
+      identityKey={retained.current}
+      signedIn={!!auth.isAuthenticated && !!token && !auth.error && !auth.isLoading}
+      onSignIn={() => {
+        void auth.signinSilent().catch(() => auth.signinPopup());
+      }}
+      shell={{
+        ...shellUserProps(auth, tenantAlias),
+        apiBaseUrl,
+        accessToken: () => tokenRef.current,
+        tenantAlias,
+      }}
+    />
+  );
+}
+
+export function CustomerImportSurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
+  const auth = useAuth();
+  const { t } = useTranslation('customerImport');
+  const token = auth.user?.access_token;
+  const tokenRef = useRef(token);
+  tokenRef.current = auth.isAuthenticated ? token : undefined;
+  const api = useMemo(
+    () => createCustomerImportApi({ baseUrl: apiBaseUrl, accessToken: () => tokenRef.current }),
+    [apiBaseUrl],
+  );
+  const retained = useRef('');
+  if (auth.isLoading && !retained.current) return <main aria-busy="true" />;
+  const profile = auth.user?.profile;
+  const identity = [profile?.iss, profile?.tenant_id, profile?.dc_user_id, profile?.sub];
+  if (
+    profile &&
+    (profile.iss !== auth.settings.authority ||
+      profile.tenant_slug !== tenantAlias ||
+      !identity.every((value) => typeof value === 'string' && value.length > 0))
+  )
+    return <main role="alert">{t('access')}</main>;
+  if (profile) retained.current = JSON.stringify(identity);
+  if (!retained.current)
+    return (
+      <main role="alert">
+        <p>{t('session')}</p>
+        <Button onPress={() => void signInFromCurrentPage(auth)}>{t('signIn')}</Button>
+      </main>
+    );
+  return (
+    <CustomerImportPage
       api={api}
       identityKey={retained.current}
       signedIn={!!auth.isAuthenticated && !!token && !auth.error && !auth.isLoading}

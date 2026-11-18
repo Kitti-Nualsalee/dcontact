@@ -7,6 +7,8 @@ import { CustomersPage } from './customers/customers-page.js';
 import { createCustomersApi } from './customers/api.js';
 import { CustomerTagsPage } from './customer-tags/customer-tags-page.js';
 import { createCustomerTagsApi } from './customer-tags/api.js';
+import { CustomerImportPage } from './customer-import/customer-import-page.js';
+import { createCustomerImportApi } from './customer-import/api.js';
 import { createCatalogApi } from './voice-routing/api.js';
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { AuthProvider } from 'react-oidc-context';
@@ -242,6 +244,22 @@ function ConsoleE2eRoot() {
           accessToken: () => 'e2e-access-token',
         })}
         identityKey="e2e-customer-tags"
+      />
+    );
+  if (view === 'customer-import')
+    return (
+      <CustomerImportPage
+        shell={{
+          ...e2eShellUser(url.searchParams.get('tenant') ?? undefined),
+          apiBaseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+          tenantAlias: url.searchParams.get('tenant') ?? undefined,
+        }}
+        api={createCustomerImportApi({
+          baseUrl: window.location.origin,
+          accessToken: () => 'e2e-access-token',
+        })}
+        identityKey="e2e-customer-import"
       />
     );
   if (view === 'dphone-embedding') {

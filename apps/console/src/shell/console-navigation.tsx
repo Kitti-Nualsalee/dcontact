@@ -16,6 +16,7 @@ const VIEWS = new Set([
   'tenant-people',
   'customers',
   'customer-tags',
+  'customer-import',
   'customer-overview',
   'customer-rules',
   'customer-activity',

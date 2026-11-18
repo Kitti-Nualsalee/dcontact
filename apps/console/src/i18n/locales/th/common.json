@@ -30,6 +30,7 @@
       "coreSettings": "ตั้งค่าองค์กร",
       "customers": "ลูกค้า",
       "customerTags": "จัดการแท็ก",
+      "customerImport": "นำเข้า CSV",
       "customerOverview": "ภาพรวมข้อมูลลูกค้า",
       "customerRules": "กฎข้อมูล",
       "customerActivity": "กิจกรรมลูกค้า"
