@@ -1,0 +1,261 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import test from 'node:test';
+import type { OidcAccessTokenVerifier } from '@d-contact/workspace-session';
+import type { PrismaClient } from '@d-contact/db';
+import { assertSegmentMembershipChangeEnvelope } from '@d-contact/cxa-contracts';
+import { C360SegmentMembershipRelay, C360SegmentRuntime } from '@d-contact/customer-360';
+import type { DcProducer } from '@d-contact/kafka';
+import { setup } from './customer-360-test-fixtures.js';
+import { Customer360WorkController, CUSTOMER_360_WORK_AUTH } from './customer-360-work-api.js';
+import { Customer360OperatorController } from './customer-360-operator-api.js';
+import { Customer360ReadController } from './customer-360-read-api.js';
+import { Customer360ImportController } from './customer-360-import-api.js';
+import { CUSTOMER_360_DATABASE } from './customer-360-api.js';
+import { OIDC_ACCESS_TOKEN_VERIFIER } from './gateway-auth.js';
+import { C360WorkAuthService } from './customer-360-work-auth.js';
+import { WorkSessionLeases } from './work-session.js';
+
+/**
+ * #911: ลูกค้าที่สร้างผ่าน HTTP (CSV import และ create) → segment ระบบ → outbox/relay →
+ * IAM projection → Agent ค้นเจอผ่าน work API จริง บน PostgreSQL ด้วย application role
+ * Kafka ถูกแทนด้วย producer ที่ส่ง envelope เข้า handler เดียวกับ IAM consumer (ไม่ใช่ broker จริง)
+ */
+
+const PHONE_IMPORTED = '+66812345678';
+const PHONE_CREATED = '+66898765432';
+
+async function fixture() {
+  let service!: C360WorkAuthService;
+  const f = await setup(
+    [
+      Customer360WorkController,
+      Customer360OperatorController,
+      Customer360ReadController,
+      Customer360ImportController,
+    ],
+    undefined,
+    undefined,
+    [
+      {
+        provide: CUSTOMER_360_WORK_AUTH,
+        inject: [CUSTOMER_360_DATABASE, OIDC_ACCESS_TOKEN_VERIFIER],
+        useFactory: (db: PrismaClient, verifier: OidcAccessTokenVerifier) => {
+          service = new C360WorkAuthService(db, verifier, {
+            introspect: async () => ({ active: true }),
+          });
+          return service;
+        },
+      },
+    ],
+  );
+  const agent = f.actors.get('agent')!;
+  const lease = await new WorkSessionLeases(f.db).acquire(
+    { tenantId: f.tenantId, userId: agent.id },
+    { surface: 'workspace', hostOrigin: null },
+    'segment-runtime-fixture',
+  );
+  const interactionId = randomUUID();
+  await f.owner.interaction.create({
+    data: {
+      id: interactionId,
+      tenantId: f.tenantId,
+      agentId: agent.id,
+      channel: 'VOICE',
+      direction: 'INBOUND',
+      state: 'ACTIVE',
+    },
+  });
+  await service.reauthenticate({ accessToken: 'agent', leaseId: lease.leaseId });
+  const work = async (path: string, body: unknown, token = 'agent') => {
+    const response = await fetch(`${f.base}/api/v1/customer-360/work/${interactionId}/${path}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        'x-work-session-lease-id': lease.leaseId,
+      },
+      body: JSON.stringify(body),
+    });
+    return { status: response.status, body: (await response.json()) as Record<string, any> };
+  };
+  const search = (phone: string, token = 'agent') =>
+    work('candidates/search', { type: 'PHONE', query: phone }, token);
+
+  // Kafka แทนด้วย producer ที่จด envelope; drain ส่งเข้า handler แบบเดียวกับ IAM consumer
+  const sent: unknown[] = [];
+  const producer: DcProducer = {
+    async send(_topic, event) {
+      sent.push(event);
+    },
+    async disconnect() {},
+  };
+  const relay = new C360SegmentMembershipRelay(f.db, producer);
+  const runtime = new C360SegmentRuntime(f.db, f.segments, f.memberships);
+  const project = async () => {
+    const before = sent.length;
+    while (await relay.publishNext(f.tenantId));
+    for (const event of sent.slice(before)) {
+      const envelope = assertSegmentMembershipChangeEnvelope(event);
+      await f.scopes.applyMembershipChange({
+        tenantId: envelope.tenantId,
+        eventId: envelope.eventId,
+        occurredAt: envelope.occurredAt,
+        consumerGroup: 'iam-segment-projection-911',
+        payload: envelope.payload,
+      });
+    }
+    return sent.slice(before).map((event) => {
+      const payload = assertSegmentMembershipChangeEnvelope(event).payload;
+      return `${payload.segmentId}:${payload.changeKind}`;
+    });
+  };
+  const heads = async (contactId: string) =>
+    Object.fromEntries(
+      (
+        await f.owner.c360SegmentMembershipHead.findMany({
+          where: { tenantId: f.tenantId, contactId },
+          select: { segmentId: true, state: true },
+        })
+      ).map((head) => [head.segmentId, head.state]),
+    );
+  return { ...f, work, search, runtime, project, heads, interactionId };
+}
+
+async function allowCreate(f: Awaited<ReturnType<typeof fixture>>) {
+  const grant = await f.request('customer-360/operator/commands', 'operator', {
+    commandId: randomUUID(),
+    evidenceRef: 'ticket:TEST-911',
+    reasonCode: 'APPROVED_CUSTODIAN',
+    command: {
+      action: 'CAPABILITY_GRANT',
+      granteeUserId: f.actors.get('admin')!.id,
+      capability: 'CONTACT_CREATE',
+    },
+  });
+  assert.equal(grant.status, 201);
+}
+
+async function importCsv(f: Awaited<ReturnType<typeof fixture>>, csv: string) {
+  const post = async (path: string, fields: Record<string, string>) => {
+    const form = new FormData();
+    form.set(
+      'mapping',
+      JSON.stringify({ version: 1, columns: { displayName: 'name', phone: 'phone' } }),
+    );
+    for (const [key, value] of Object.entries(fields)) form.set(key, value);
+    form.set('file', new Blob([csv], { type: 'text/csv' }), 'import.csv');
+    const response = await fetch(`${f.base}/api/v1/customer-360/imports/${path}`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer admin' },
+      body: form,
+    });
+    return (await response.json()) as Record<string, any>;
+  };
+  const preview = await post('preview', {});
+  const done = await post('confirm', { commandId: randomUUID(), planHash: preview.planHash });
+  assert.equal(done.state, 'COMPLETED');
+  return done.rows[0].contactId as string;
+}
+
+test('#911: ลูกค้าที่นำเข้า/สร้างใหม่เข้า segment ระบบ แล้ว Agent ของทีมที่ได้ WORK ค้นเจอและเลือกในสายได้', async (t) => {
+  const f = await fixture();
+  t.after(() => f.close());
+  await allowCreate(f);
+  const imported = await importCsv(f, `name,phone\nลูกค้านำเข้า,${PHONE_IMPORTED}\n`);
+  const created = await f.request('customer-360/contacts', 'admin', {
+    commandId: randomUUID(),
+    displayName: 'ลูกค้า VIP',
+    vip: true,
+    points: [{ kind: 'PHONE', value: PHONE_CREATED }],
+  });
+  assert.equal(created.status, 201);
+  const vipId = (
+    created.body as unknown as { command: { resourceRefs: { type: string; id: string }[] } }
+  ).command.resourceRefs.find((ref) => ref.type === 'CONTACT')!.id;
+
+  // ก่อน runtime ทำงาน: ไม่มี membership และ Agent ไม่เห็น
+  assert.deepEqual(await f.heads(imported), {});
+  assert.equal((await f.search(PHONE_IMPORTED)).body.items?.length ?? 0, 0);
+
+  const first = await f.runtime.evaluatePending(f.tenantId);
+  assert.ok(first.contacts >= 2);
+  assert.deepEqual(await f.heads(imported), { 'system:all-customers': 'IN', 'system:vip': 'OUT' });
+  assert.deepEqual(await f.heads(vipId), { 'system:all-customers': 'IN', 'system:vip': 'IN' });
+  // ประเมินซ้ำไม่มีงานค้าง
+  assert.equal((await f.runtime.evaluatePending(f.tenantId)).contacts, 0);
+
+  const events = await f.project();
+  assert.ok(events.includes('system:all-customers:ENTERED'));
+  assert.ok(events.includes('system:vip:ENTERED'));
+  assert.equal(events.filter((event) => event === 'system:vip:ENTERED').length, 1);
+
+  // membership อย่างเดียวไม่ให้สิทธิ์: ทีมที่ยังไม่ได้ WORK ค้นไม่เจอ
+  assert.equal((await f.search(PHONE_IMPORTED)).body.items?.length ?? 0, 0);
+
+  await f.scopes.grant({
+    tenantId: f.tenantId,
+    teamId: f.teamId,
+    segmentId: 'system:all-customers',
+    permission: 'WORK',
+    correlationId: 'grant-911-work',
+  });
+  const found = await f.search(PHONE_IMPORTED);
+  assert.equal(found.status, 201);
+  assert.equal(found.body.items.length, 1);
+  assert.equal(found.body.items[0].displayName, 'ลูกค้านำเข้า');
+  const linked = await f.work('customer-link', {
+    commandId: randomUUID(),
+    expectedLinkageRevision: '0',
+    candidateRef: found.body.items[0].candidateRef,
+  });
+  assert.equal(linked.status, 200);
+  assert.equal(linked.body.command.outcome, 'APPLIED');
+  // ต่าง tenant ใช้งานนี้ไม่ได้
+  assert.notEqual((await f.search(PHONE_IMPORTED, 'foreign')).status, 201);
+  assert.equal(
+    await f.owner.c360SegmentMembershipHead.count({ where: { tenantId: f.otherTenantId } }),
+    0,
+  );
+});
+
+test('#911: แก้ vip แล้ว VIP membership ตาม และประเมินซ้ำไม่สร้าง event ซ้ำ', async (t) => {
+  const f = await fixture();
+  t.after(() => f.close());
+  await allowCreate(f);
+  const contactId = await importCsv(f, `name,phone\nยังไม่ VIP,${PHONE_IMPORTED}\n`);
+  await f.runtime.evaluatePending(f.tenantId);
+  await f.project();
+  assert.equal((await f.heads(contactId))['system:vip'], 'OUT');
+
+  const profile = await f.request(`customer-360/contacts/${contactId}`, 'admin');
+  const revisions = (profile.body as unknown as { revisions: { profile: string; lineage: number } })
+    .revisions;
+  const patch = await f.request(
+    `customer-360/contacts/${contactId}`,
+    'admin',
+    {
+      commandId: randomUUID(),
+      expectedProfileRevision: revisions.profile,
+      expectedLineageRevision: String(revisions.lineage),
+      displayName: 'เป็น VIP แล้ว',
+      company: null,
+      vip: true,
+    },
+    'PATCH',
+  );
+  assert.equal(patch.status, 200);
+  const result = await f.runtime.evaluatePending(f.tenantId);
+  assert.equal(result.snapshots, 1);
+  assert.equal((await f.heads(contactId))['system:vip'], 'IN');
+  // snapshot ใหม่ที่ยังอยู่ใน "ลูกค้าทั้งหมด" ออก CORRECTED ตาม contract เดิมของ commitEvaluation
+  // (สถานะยัง IN ไม่กระทบสิทธิ์) ส่วน VIP เข้า segment เป็น ENTERED
+  assert.deepEqual((await f.project()).sort(), [
+    'system:all-customers:CORRECTED',
+    'system:vip:ENTERED',
+  ]);
+  assert.equal((await f.heads(contactId))['system:all-customers'], 'IN');
+  // ไม่มีอะไรเปลี่ยน: ไม่มีงานและไม่มี event ใหม่
+  assert.equal((await f.runtime.evaluatePending(f.tenantId)).contacts, 0);
+  assert.deepEqual(await f.project(), []);
+});
