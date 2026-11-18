@@ -50,6 +50,7 @@ import {
 import { createWorkspaceSessionHandler } from './workspace-session-api.js';
 import { WorkSessionLeases } from './work-session.js';
 import { startBackgroundLoop } from './background-loop.js';
+import { startC360SegmentWorker } from './customer-360-segment-worker.js';
 import { EmbedOriginService } from './embed-origins.js';
 import { AccountPolicyService } from './account-policy.js';
 import { ACCOUNT_SELF_SERVICE, AccountController } from './account-api.js';
@@ -596,6 +597,8 @@ async function bootstrap(): Promise<void> {
       await voiceOutcomeHandler.handle(event);
     },
   });
+  // #911: segment ระบบ → IAM projection; เริ่มแบบไม่บล็อก API และล้มเองได้โดย API ยังทำงาน
+  startC360SegmentWorker({ database: prisma });
   await app.listen(Number(process.env.PORT ?? 3000));
 }
 

@@ -1,12 +1,16 @@
-/** CSV import (#909): ตรวจ HTTP→PostgreSQL/RLS ด้วย PostgreSQL ชั่วคราวตัวเดียว ไม่แตะฐาน dcontact ร่วม */
+/**
+ * CSV import (#909) และ segment ระบบ (#911, `--segment`): ตรวจ HTTP→PostgreSQL/RLS ด้วย PostgreSQL
+ * ชั่วคราวตัวเดียว ไม่แตะฐาน dcontact ร่วม
+ */
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const suffix = randomBytes(6).toString('hex');
-const pg = `i909-pg-${suffix}`;
-const dbName = 'dcontact_909_test';
+const segment = process.argv.includes('--segment');
+const pg = `${segment ? 'i911' : 'i909'}-pg-${suffix}`;
+const dbName = segment ? 'dcontact_911_test' : 'dcontact_909_test';
 const dbPassword = randomBytes(18).toString('hex');
 const appPassword = randomBytes(18).toString('hex');
 const run = (exe, args, env) =>
@@ -80,35 +84,23 @@ try {
     ],
     env,
   );
-  await run(
-    'pnpm',
-    [
-      '--filter',
-      '@d-contact/api',
-      'exec',
-      'tsx',
-      '--test',
-      '--test-concurrency=1',
-      'src/customer-360-import.integration.ts',
-    ],
-    env,
-  );
-  await run(
-    'pnpm',
-    [
-      '--filter',
-      '@d-contact/customer-360',
-      'exec',
-      'tsx',
-      '--test',
-      '--test-concurrency=1',
-      'src/import-duplicate-authority.integration.ts',
-    ],
-    env,
-  );
+  const suites = segment
+    ? [['@d-contact/api', 'src/customer-360-segment-runtime.integration.ts']]
+    : [
+        ['@d-contact/api', 'src/customer-360-import.integration.ts'],
+        ['@d-contact/customer-360', 'src/import-duplicate-authority.integration.ts'],
+      ];
+  for (const [pkg, file] of suites)
+    await run(
+      'pnpm',
+      ['--filter', pkg, 'exec', 'tsx', '--test', '--test-concurrency=1', file],
+      env,
+    );
   completed = true;
 } catch (error) {
-  console.error('CSV import DB trial failed', { message: String(error?.message ?? error) });
+  console.error(segment ? 'Segment runtime DB trial failed' : 'CSV import DB trial failed', {
+    message: String(error?.message ?? error),
+  });
   process.exitCode = 1;
 } finally {
   try {
@@ -123,5 +115,6 @@ try {
   } catch {
     /* ไม่พบ container = ลบแล้ว */
   }
-  if (completed && !process.exitCode) console.log('CSV_IMPORT_DB_TRIAL_PASS');
+  if (completed && !process.exitCode)
+    console.log(segment ? 'C360_SEGMENT_RUNTIME_DB_TRIAL_PASS' : 'CSV_IMPORT_DB_TRIAL_PASS');
 }

@@ -87,6 +87,22 @@ pnpm --filter @d-contact/console exec playwright test e2e/customer-import.spec.t
 
 `test:customer-import:integration` ใช้ PostgreSQL ชั่วคราวฐาน `dcontact_909_test` และลบ container เมื่อจบ ไม่แตะฐาน `dcontact`; ตรวจ HTTP→PostgreSQL/RLS ด้วย application role ที่ไม่ bypass RLS. Browser spec จำลอง API ด้วย route จึงยืนยัน UI เท่านั้น ไม่แทน HTTP/DB หรือ real OIDC
 
+## Segment ระบบให้ Agent เห็นลูกค้าใหม่ — owner เลือก 18 พฤศจิกายน 2569
+
+งานติดตามที่ [#911](https://github.com/Kitti-Nualsalee/dcontact/issues/911) Agent ค้นลูกค้าในสายได้ผ่าน WORK scope ของ segment เท่านั้น จึงเพิ่ม segment ระบบต่อ tenant คือ `system:all-customers` และ `system:vip` (`contact.vip == true`) Admin ให้ทีมได้ VIEW/WORK ผ่านหน้า team-scopes เดิม การมี segment ไม่ให้สิทธิ์ใครเอง
+
+- `apps/api` รัน evaluator ทุก 5 วินาที: สร้าง/publish segment ระบบถ้ายังไม่มี แล้วบันทึก fact snapshot (`vip`, `company`) ของ contact ที่ข้อมูลเปลี่ยนหรือยังไม่มีผล และ `commitEvaluation` ตามเส้นทาง owner เดิม รวม backfill ลูกค้าเดิม
+- relay ส่ง membership change ไป `dc.customer.events` และ IAM consumer ใน process เดียวกันอัปเดต projection; เชื่อม Kafka แบบ retry/backoff ส่วน evaluator ทำงานได้โดยไม่รอ Kafka
+- ปิดทั้งหมดด้วย `C360_SEGMENT_WORKER=off`; consumer group ตั้งด้วย `IAM_SEGMENT_PROJECTION_GROUP_ID`
+
+```sh
+pnpm --filter @d-contact/customer-360 exec tsx --test src/segment-runtime.test.ts
+pnpm --filter @d-contact/api exec tsx --test src/customer-360-segment-worker.test.ts
+pnpm --filter @d-contact/api test:customer-segment:integration
+```
+
+Integration ใช้ PostgreSQL ชั่วคราวฐาน `dcontact_911_test` เดินเส้นสร้างลูกค้าผ่าน HTTP → evaluator → outbox/relay → IAM projection → Agent ค้นผ่าน work API; Kafka ในชุดนี้แทนด้วย producer ที่ส่ง envelope เข้า handler เดียวกับ IAM consumer จึงไม่ใช่หลักฐาน broker จริง
+
 ## External softphone control — owner เลือก 10 พฤศจิกายน 2569
 
 ใช้ UI control ใน Workspace จริงและเริ่มจากตัวจำลองก่อน ก่อนเลือก D-Phone เป็น Chrome extension ตัวแรก. เริ่ม Workspace พร้อม build-time opt-in ด้วย:
