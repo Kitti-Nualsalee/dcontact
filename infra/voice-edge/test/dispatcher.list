@@ -1,0 +1,2 @@
+# set 1 = FreeSWITCH ที่รับสายจาก Kamailio (profile pstn-sim)
+1 sip:172.30.50.30:5080 0 0

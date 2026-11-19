@@ -81,9 +81,28 @@ test('#562: context pstn route ได้แค่ DID 2000/2001 ไป park ไ�
   const context = dialplan.match(/<context name="pstn">([\s\S]*?)<\/context>/)?.[1];
   assert.ok(context);
   const expressions = [...context.matchAll(/expression="([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(expressions, ['^200[01]$']);
+  assert.deepEqual(expressions, [
+    '^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$',
+    '^200[01]$',
+    '^200[01]$',
+  ]);
   const applications = [...context.matchAll(/application="([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(applications, ['set', 'park']);
+  assert.deepEqual(applications, ['set', 'unset', 'park', 'set', 'park']);
+});
+
+test('#923: สายจาก Kamailio ใช้ domain ของ tenant จาก X-DContact-Domain และลบ header ก่อน park', () => {
+  const dialplan = read('infra/freeswitch/conf/dialplan/pstn.xml');
+  const edge = dialplan.match(
+    /<extension name="dcontact-inbound-voice-edge">([\s\S]*?)<\/extension>/,
+  )?.[1];
+  assert.ok(edge, 'ต้องมี extension ของสายที่ผ่าน Kamailio');
+  assert.match(edge, /<condition field="\$\{sip_h_X-DContact-Domain\}"/);
+  assert.match(edge, /data="domain_name=\$\{sip_h_X-DContact-Domain\}"/);
+  assert.match(edge, /application="unset" data="sip_h_X-DContact-Domain"/);
+  assert.ok(
+    dialplan.indexOf('dcontact-inbound-voice-edge') < dialplan.indexOf('"dcontact-inbound-voice"'),
+    'extension ของ Kamailio ต้องมาก่อน extension เดิมที่ใช้ domain ปริยาย',
+  );
 });
 
 test('#562: พอร์ต trunk จำลองไม่ publish ออก host', () => {
