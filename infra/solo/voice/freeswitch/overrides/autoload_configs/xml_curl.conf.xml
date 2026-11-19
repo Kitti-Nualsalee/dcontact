@@ -1,0 +1,14 @@
+<configuration name="xml_curl.conf" description="D-Contact active work-session SIP directory">
+  <bindings>
+    <binding name="dcontact-agent-directory">
+      <!-- #923 Solo: API บน VM app ผ่าน web (Caddy) ซึ่งตอบ /internal/* เฉพาะคำขอจาก VM voice -->
+      <param name="gateway-url"
+             value="http://__SOLO_APP_IP__:8080/internal/v1/freeswitch/directory"
+             bindings="directory"/>
+      <param name="gateway-credentials" value="__TELEPHONY_NODE_ID__:__FREESWITCH_DIRECTORY_PASSWORD__"/>
+      <param name="auth-scheme" value="basic"/>
+      <param name="timeout" value="3"/>
+      <param name="response-max-bytes" value="16384"/>
+    </binding>
+  </bindings>
+</configuration>

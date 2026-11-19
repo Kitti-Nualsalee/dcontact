@@ -1,0 +1,63 @@
+# #923: VM voice ของ UAT แบบ D-Contact Solo (192.168.31.206)
+# nginx (TLS), Kamailio (ขอบ SIP) และ FreeSWITCH ใช้ host network ของ VM ตามแบบ Solo
+# ใช้ผ่าน infra/solo/bin/solo-uat.sh เท่านั้น ไฟล์อยู่ที่ /opt/dcontact-solo/voice/ บน VM
+#
+# พอร์ตบน VM:
+#   443/TCP              nginx → web บน VM app และ /sip-ws → FreeSWITCH WSS 127.0.0.1:7443
+#   5060/UDP+TCP         Kamailio รับ trunk / สายจำลองที่อยู่ในตาราง voice edge
+#   5080/UDP             FreeSWITCH profile pstn-sim รับเฉพาะ Kamailio (ACL)
+#   8021/TCP             ESL รับเฉพาะ VM app (ACL)
+#   16384-16683/UDP      RTP
+name: dcontact-solo-voice
+
+x-service: &service
+  restart: unless-stopped
+  network_mode: host
+  logging:
+    driver: json-file
+    options:
+      max-size: 20m
+      max-file: '5'
+
+services:
+  nginx:
+    <<: *service
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./tls:/etc/nginx/tls:ro
+    mem_limit: 128m
+
+  kamailio:
+    <<: *service
+    image: dcontact-solo/kamailio:${SOLO_IMAGE_TAG:?SOLO_IMAGE_TAG is required}
+    environment:
+      KAMAILIO_SIP_IP: ${SOLO_VOICE_IP:?SOLO_VOICE_IP is required}
+      KAMAILIO_DB_URL: postgres://kamailio_ro:${SOLO_KAMAILIO_DB_PASSWORD:?SOLO_KAMAILIO_DB_PASSWORD is required}@${SOLO_DATA_IP:?SOLO_DATA_IP is required}:5432/dcontact_voice_edge
+    volumes:
+      - ./dispatcher.list:/etc/kamailio/dispatcher.list:ro
+    mem_limit: 256m
+
+  freeswitch:
+    <<: *service
+    image: docker.io/safarov/freeswitch@sha256:b31c743f4c911a19687c61e3214968f2a24f93f9d3d667cc26284192e158ffc6
+    entrypoint: ['/bin/sh', '/solo-freeswitch/entrypoint.sh']
+    environment:
+      SOLO_VOICE_IP: ${SOLO_VOICE_IP}
+      SOLO_APP_IP: ${SOLO_APP_IP:?SOLO_APP_IP is required}
+      TELEPHONY_NODE_ID: ${TELEPHONY_NODE_ID:?TELEPHONY_NODE_ID is required}
+      FREESWITCH_ESL_PASSWORD: ${FREESWITCH_ESL_PASSWORD:?FREESWITCH_ESL_PASSWORD is required}
+      FREESWITCH_DIRECTORY_PASSWORD: ${FREESWITCH_DIRECTORY_PASSWORD:?FREESWITCH_DIRECTORY_PASSWORD is required}
+    volumes:
+      - ./freeswitch:/solo-freeswitch:ro
+    tmpfs:
+      - /etc/freeswitch:mode=0755
+    cap_add:
+      - SYS_NICE
+    mem_limit: 1g
+    healthcheck:
+      # docker exec ได้ env ของ container (entrypoint unset เฉพาะใน process ของ FreeSWITCH)
+      test: ['CMD-SHELL', 'fs_cli -p "$$FREESWITCH_ESL_PASSWORD" -x status']
+      interval: 10s
+      timeout: 5s
+      retries: 18

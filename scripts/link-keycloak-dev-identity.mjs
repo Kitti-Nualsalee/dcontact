@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { compose } from './dev-infra-compose.mjs';
 import { PHASE_ONE_TENANT_IDENTITIES } from './phase-one-tenants.mjs';
 
@@ -6,6 +7,45 @@ const adminUsername = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME ?? 'admin';
 const adminPassword = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD ?? 'admin';
 const realm = 'dcontact';
 const fallbackOnly = process.argv.includes('--fallback-only');
+// #923 UAT Solo: รันใน container ops ที่ต่อ PostgreSQL ตรงด้วย URL นี้ ไม่มี docker compose ของ dev
+// ไม่ตั้ง = พฤติกรรม dev เดิม (psql ผ่าน compose และเปิด HTTP ของ realm master ด้วย kcadm)
+const directDatabaseUrl = process.env.DCONTACT_LINK_DATABASE_URL;
+const adminPasswordForUsers = process.env.DCONTACT_LINK_ADMIN_PASSWORD ?? 'admin1234';
+const agentPasswordForUsers = process.env.DCONTACT_LINK_AGENT_PASSWORD ?? 'agent1234';
+
+/** ส่งการเชื่อมต่อผ่าน PG* env ไม่ใส่ URL ใน argv — ข้อความ error ของ execFileSync จะไม่มีรหัสผ่าน */
+function postgresEnvironment(url) {
+  const parsed = new URL(url);
+  return {
+    ...process.env,
+    PGHOST: parsed.hostname,
+    PGPORT: parsed.port || '5432',
+    PGUSER: decodeURIComponent(parsed.username),
+    PGPASSWORD: decodeURIComponent(parsed.password),
+    PGDATABASE: parsed.pathname.replace(/^\//, ''),
+  };
+}
+
+function psql(...arguments_) {
+  if (directDatabaseUrl) {
+    return execFileSync('psql', ['-X', ...arguments_], {
+      encoding: 'utf8',
+      env: postgresEnvironment(directDatabaseUrl),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  }
+  return compose(
+    'exec',
+    '-T',
+    'postgres',
+    'psql',
+    '-U',
+    'dcontact',
+    '-d',
+    'dcontact',
+    ...arguments_,
+  );
+}
 
 function eventClientRepresentation(identity) {
   return {
@@ -74,6 +114,8 @@ async function adminToken() {
 }
 
 function allowDevHttpForAdminRealm() {
+  // Solo เรียก admin API จาก network ภายในซึ่ง realm master รับอยู่แล้ว (sslRequired=external)
+  if (directDatabaseUrl) return;
   const kcadm = '/opt/keycloak/bin/kcadm.sh';
   compose(
     'exec',
@@ -95,15 +137,7 @@ function allowDevHttpForAdminRealm() {
 }
 
 function databaseUsers() {
-  const output = compose(
-    'exec',
-    '-T',
-    'postgres',
-    'psql',
-    '-U',
-    'dcontact',
-    '-d',
-    'dcontact',
+  const output = psql(
     '-At',
     '-F',
     '|',
@@ -123,15 +157,7 @@ function updateDatabaseIdentity(userId, keycloakId) {
   if (!/^[0-9a-f-]{36}$/i.test(userId) || !/^[0-9a-f-]{36}$/i.test(keycloakId)) {
     throw new Error('Keycloak/Postgres identity id ไม่ใช่ UUID');
   }
-  compose(
-    'exec',
-    '-T',
-    'postgres',
-    'psql',
-    '-U',
-    'dcontact',
-    '-d',
-    'dcontact',
+  psql(
     '-v',
     'ON_ERROR_STOP=1',
     '-c',
@@ -403,7 +429,7 @@ async function main() {
         token,
         body: {
           type: 'password',
-          value: databaseUser.role === 'admin' ? 'admin1234' : 'agent1234',
+          value: databaseUser.role === 'admin' ? adminPasswordForUsers : agentPasswordForUsers,
           temporary: false,
         },
       });
