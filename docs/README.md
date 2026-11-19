@@ -13,6 +13,7 @@
 แบบเครือข่าย Voice สำหรับ CCaaS และ on-prem: [voice-network-deployment.md](voice-network-deployment.md)
 — เป็นข้อเสนอสำหรับทีม Infra ยังไม่ติดตั้ง. รุ่นการติดตั้งสำหรับทีมขาย (Cloud, Cluster, Duo, Solo):
 [deployment-models.md](deployment-models.md) — ร่างแรก ยังไม่มีราคา.
+Kamailio voice edge ของรุ่น Solo บน UAT (#923): [voice-edge.md](voice-edge.md) — ทดสอบบน dev แล้ว ยังไม่ขึ้น UAT.
 
 > **ธรรมเนียมของ schema:** `packages/db/prisma/schema.prisma` เก็บเฉพาะ **ตาราง kernel**
 > (tenant · user · queue · interaction · conversation · message · recording) ที่ทุกโมดูลต้องใช้ร่วมกัน

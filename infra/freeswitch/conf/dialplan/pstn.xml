@@ -2,6 +2,17 @@
   <!-- #562: context ของ trunk `pstn-sim` — สายลูกค้าเข้าได้เฉพาะ DID 2000 (direct queue) และ 2001 (IVR)
        ซึ่ง park ให้ Router ตัดสินใจผ่าน Kafka เหมือน context default ห้าม bridge ไป extension ของ agent -->
   <context name="pstn">
+    <!-- ADR-038: สายที่ผ่าน Kamailio มี X-DContact-Domain = SIP domain ของ tenant ที่ Kamailio ระบุจาก trunk/เบอร์
+         Kamailio ลบ header นี้จากภายนอกก่อนใส่เอง และ profile นี้ต้องรับเฉพาะ IP ของ Kamailio ใน deployment จริง
+         ลบ header ออกจากตัวแปรก่อน park เพื่อไม่ให้ติดไปกับขา bridge ไปหา agent -->
+    <extension name="dcontact-inbound-voice-edge">
+      <condition field="${sip_h_X-DContact-Domain}" expression="^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$"/>
+      <condition field="destination_number" expression="^200[01]$">
+        <action application="set" data="domain_name=${sip_h_X-DContact-Domain}"/>
+        <action application="unset" data="sip_h_X-DContact-Domain"/>
+        <action application="park"/>
+      </condition>
+    </extension>
     <extension name="dcontact-inbound-voice">
       <condition field="destination_number" expression="^200[01]$">
         <action application="set" data="domain_name=$${domain}"/>

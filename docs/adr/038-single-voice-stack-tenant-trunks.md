@@ -72,6 +72,8 @@ Agent ต่อ SIP over WSS และเสียง WebRTC กับ FreeSWITC
 
 ## สถานะการลงมือ
 
-ยังไม่ได้ implement: config ของ Kamailio, โมเดลข้อมูล trunk และเบอร์, หน้าจัดการใน Platform Console, ชุดติดตั้ง on-prem และ load test
+owner ยืนยันเมื่อ 11 พฤศจิกายน 2569 ให้เก็บ ADR นี้เป็นแบบอ้างอิงก่อน และสั่งเริ่มรุ่น Solo บน UAT 3 VM เดิมเมื่อ 19 พฤศจิกายน 2569 (#923) เพื่อให้ dev ทดสอบ ไม่ทำ load test
 
-owner ยืนยันเมื่อ 11 พฤศจิกายน 2569 ให้เก็บ ADR นี้และเอกสารประกอบเป็นแบบอ้างอิงก่อน ยังไม่เริ่มแผนขึ้นระบบจริงและไม่เปิด issue ติดตาม จนกว่า owner แจ้งว่าพร้อมทดสอบ
+ทำแล้ว: config ของ Kamailio และตาราง trunk/เบอร์ขั้นต่ำ ทดสอบกับ FreeSWITCH จริงบนเครื่อง dev ดู [voice-edge.md](../voice-edge.md)
+
+ยังไม่ได้ทำ: ขึ้นบน UAT, หน้าจัดการ trunk ใน Platform Console, อัตราโทรออกต่อ tenant, TLS/SRTP กับ trunk, คู่ active/standby, ชุดติดตั้ง on-prem สำหรับลูกค้า และ load test

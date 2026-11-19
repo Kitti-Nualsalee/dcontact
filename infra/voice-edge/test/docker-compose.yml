@@ -1,0 +1,81 @@
+# ชุดทดสอบ voice edge บนเครื่อง dev: Kamailio + FreeSWITCH + ฐาน voice edge + SIPp เป็น trunk จำลองสองราย
+# ใช้ผ่าน infra/voice-edge/test/run.sh เท่านั้น ไม่ publish พอร์ตออก host
+name: dcontact-voice-edge-test
+
+x-sipp: &sipp
+  image: ctaloi/sipp@sha256:c459f2340443ddcc159227efc798217dbdaad0dbe88b76b78b1a876aa271986a
+  entrypoint: ['sleep', 'infinity']
+  volumes:
+    - ./scenarios:/scenarios:ro
+
+services:
+  edge-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dcontact_voice_edge
+      POSTGRES_USER: edge_owner
+      POSTGRES_PASSWORD: edge-owner-test-only
+      KAMAILIO_DB_PASSWORD: kamailio-ro-test-only
+    volumes:
+      - ../schema.sql:/voice-edge/schema.sql:ro
+      - ../grant-kamailio.sql:/voice-edge/grant-kamailio.sql:ro
+      - ./seed.sql:/voice-edge/seed.sql:ro
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U edge_owner -d dcontact_voice_edge']
+      interval: 2s
+      retries: 30
+    networks:
+      edge:
+        ipv4_address: 172.30.50.10
+
+  kamailio:
+    build: ../kamailio
+    environment:
+      KAMAILIO_SIP_IP: 172.30.50.20
+      KAMAILIO_DB_URL: postgres://kamailio_ro:kamailio-ro-test-only@172.30.50.10:5432/dcontact_voice_edge
+    volumes:
+      - ./dispatcher.list:/etc/kamailio/dispatcher.list:ro
+    depends_on:
+      edge-db:
+        condition: service_healthy
+    networks:
+      edge:
+        ipv4_address: 172.30.50.20
+
+  freeswitch:
+    image: docker.io/safarov/freeswitch@sha256:b31c743f4c911a19687c61e3214968f2a24f93f9d3d667cc26284192e158ffc6
+    volumes:
+      - ../../freeswitch/conf:/etc/freeswitch:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'fs_cli -x status']
+      interval: 3s
+      retries: 40
+    networks:
+      edge:
+        ipv4_address: 172.30.50.30
+
+  # trunk ของ tenant t1
+  trunk-a:
+    <<: *sipp
+    networks:
+      edge:
+        ipv4_address: 172.30.50.40
+  # trunk ของ tenant t2
+  trunk-b:
+    <<: *sipp
+    networks:
+      edge:
+        ipv4_address: 172.30.50.41
+  # IP ที่ไม่อยู่ในตาราง trunk
+  stranger:
+    <<: *sipp
+    networks:
+      edge:
+        ipv4_address: 172.30.50.42
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.50.0/24
