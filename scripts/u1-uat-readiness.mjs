@@ -83,6 +83,7 @@ const DEV_CREDENTIAL_LITERALS = [
   'dcontact_app:dcontact_app',
   'dcontact:dcontact@',
   'dcontact-events-demo-secret',
+  'dcontact-c360-introspection-dev-secret',
 ];
 /** port ที่ต้องปิดบน host ของ UAT (มีแค่ 80/443 ของ proxy ที่เปิด) */
 export const FORBIDDEN_PORTS = Object.freeze([

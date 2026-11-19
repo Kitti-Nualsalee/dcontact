@@ -47,6 +47,17 @@
           "config": { "included.client.audience": "dcontact-api", "access.token.claim": "true" }
         },
         {
+          "name": "c360 introspection audience (development only)",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "dcontact-c360-introspection-dev",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
           "name": "tenant_id fallback",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-usermodel-attribute-mapper",
@@ -91,6 +102,25 @@
       ],
       "defaultClientScopes": ["web-origins", "acr", "basic", "roles", "profile", "email"],
       "optionalClientScopes": ["organization"]
+    },
+    {
+      "clientId": "dcontact-c360-introspection-dev",
+      "name": "D-Contact Cus360 introspection (development only)",
+      "description": "#916: API ใช้ introspect access token ของ agent-desktop เท่านั้น ไม่มี flow/service account/role",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dcontact-c360-introspection-dev-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false,
+      "fullScopeAllowed": false,
+      "attributes": { "standard.token.exchange.enabled": "false" },
+      "defaultClientScopes": [],
+      "optionalClientScopes": []
     },
     {
       "clientId": "dcontact-dev-readiness",

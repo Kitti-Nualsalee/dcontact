@@ -1,5 +1,6 @@
 import { Customer360WorkController, CUSTOMER_360_WORK_AUTH } from './customer-360-work-api.js';
 import { C360WorkAuthService, KeycloakC360TokenIntrospector } from './customer-360-work-auth.js';
+import { c360WorkReadiness, resolveC360WorkConfig } from './customer-360-work-config.js';
 import {
   CUSTOMER_360_TAG_RUNTIME,
   createC360TagCatalogRuntime,
@@ -364,23 +365,22 @@ const clickToCall = new ClickToCallService(prisma, {
   ),
 });
 // Cus360 online authorization ใช้ confidential client แยก; ไม่ตั้ง = ปิดเฉพาะ Cus360 work writes
-const c360WorkClientId = process.env.KEYCLOAK_C360_CLIENT_ID;
-const c360WorkClientSecret = process.env.KEYCLOAK_C360_CLIENT_SECRET;
-if (Boolean(c360WorkClientId) !== Boolean(c360WorkClientSecret))
-  throw new Error('Cus360 confidential client configuration is incomplete');
-const c360WorkAuth =
-  c360WorkClientId && c360WorkClientSecret
-    ? new C360WorkAuthService(
-        prisma,
-        verifier,
-        new KeycloakC360TokenIntrospector({
-          issuer: required('KEYCLOAK_ISSUER'),
-          clientId: c360WorkClientId,
-          clientSecret: c360WorkClientSecret,
-        }),
-      )
-    : undefined;
+// #916: บอกสถานะใน log ตอนเริ่ม ไม่ให้แผงลูกค้าหายเงียบ ๆ (ตั้งไม่ครบ = throw)
+const c360WorkConfig = resolveC360WorkConfig(process.env);
+const c360WorkAuth = c360WorkConfig.configured
+  ? new C360WorkAuthService(
+      prisma,
+      verifier,
+      new KeycloakC360TokenIntrospector({
+        issuer: required('KEYCLOAK_ISSUER'),
+        clientId: c360WorkConfig.clientId,
+        clientSecret: c360WorkConfig.clientSecret,
+      }),
+    )
+  : undefined;
 const c360WriteRuntime = createC360WriteRuntime();
+const c360WorkStatus = c360WorkReadiness(c360WorkConfig, c360WriteRuntime.ready);
+(c360WorkStatus.status === 'ENABLED' ? console.log : console.warn)(JSON.stringify(c360WorkStatus));
 const socketAdapter = new WorkspaceSessionWebSocketAdapter(
   gateway,
   tenantScope,
@@ -473,7 +473,7 @@ class WorkspaceSessionController {
     { provide: CUSTOMER_360_WRITE_RUNTIME, useValue: c360WriteRuntime },
     {
       provide: AGENT_WORKSPACE_CUSTOMER_AVAILABLE,
-      useValue: Boolean(c360WorkAuth && c360WriteRuntime.ready),
+      useValue: c360WorkStatus.status === 'ENABLED',
     },
     { provide: CUSTOMER_360_SEARCH_LIMITER, useValue: c360SearchLimiter },
     { provide: TENANT_VOICE_DATABASE, useValue: prisma },

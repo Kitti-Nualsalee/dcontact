@@ -50,6 +50,35 @@ Supervisor return URL, protected Navigation/Agent/Supervisor APIs และ runt
 Kafka/LINE/egress. Authenticated role smoke ต้องใช้ session ผู้ทดสอบที่ได้รับอนุญาต;
 หากไม่มี session ให้ระบุสิ่งที่ยังไม่ตรวจตามจริง ไม่ reset/create credential เพื่อ smoke.
 
+## แผงข้อมูลลูกค้า (Cus360) — ยังไม่เปิดบน UAT (#916)
+
+สถานะ 19 พฤศจิกายน 2569: ยังไม่ได้ตั้งค่าหรือ deploy บน UAT และ PR ของ #916 ไม่ได้แตะ VM
+profile `uat-workspace` ประกอบ Agent Workspace จาก E1 composition (`e1-uat-api.ts`) ซึ่งยังไม่มี
+Cus360 work auth/controller จึงไม่ประกาศ `workCustomerV1` แม้ตั้ง Keycloak และ env ครบ ต้องเพิ่ม Cus360 work
+เข้า profile นี้ก่อน (งานโค้ดแยก ต้องให้ owner ตัดสิน) ขั้นด้านล่างเป็นแผนสำหรับตอนนั้น ทำเมื่อถือ UAT lock
+และ owner สั่งเท่านั้น
+
+realm template ของ UAT ไม่มี client นี้โดยตั้งใจ: UAT-S08 ห้าม confidential client และ secret ใน template
+ส่วน reconcile ปัจจุบันเพิ่มเฉพาะ public client จึงทำผ่าน admin REST บน network ภายในแบบเดียวกับ
+`u1-uat-keycloak-users.mjs` ตามลำดับนี้
+
+1. สร้าง confidential client `dcontact-uat-c360-introspection` ปิด standard/implicit/direct access grant,
+   service account, `fullScopeAllowed` และ `standard.token.exchange.enabled` ไม่ให้ role ใด และถอด default/optional
+   client scopes ที่ admin REST ใส่ให้อัตโนมัติออก ให้ Keycloak สร้าง secret เอง อ่านครั้งเดียวแล้วเก็บใน
+   secret store ห้าม commit, ห้าม echo และห้ามใช้ค่า dev
+2. เพิ่ม audience mapper (`oidc-audience-mapper`) ที่ `dcontact-uat-workspace` เท่านั้น ไม่ใส่ที่
+   `dcontact-uat-console` ตั้ง `included.client.audience=dcontact-uat-c360-introspection`,
+   access token และ introspection เป็น `true`, ID token เป็น `false`
+3. ส่ง `KEYCLOAK_C360_CLIENT_ID` และ `KEYCLOAK_C360_CLIENT_SECRET` ให้ API ใน overlay ของ Workspace
+   (compose ใช้รูป `${VAR:?}` ตาม UAT-S05; K8s ใช้ `secretKeyRef`) ไม่ใส่ใน compose หลัก
+   เพราะ release ที่ไม่เปิด Workspace ไม่ต้องใช้
+4. ตรวจหลัง deploy: log API มี `customer_360.work.readiness` เป็น `ENABLED` (แปลว่า config ครบเท่านั้น),
+   Workspace แสดงแผงลูกค้าและยืนยัน session ของงานได้จริง, introspect token ของ Console ด้วย client นี้ได้ `active:false` (ไม่ขยายสิทธิ์ client อื่น)
+
+Rollback: ถอด env สองตัวออกจาก overlay แล้ว deploy ก่อน (API จะ log `DISABLED` และ Workspace ซ่อนแผงลูกค้าเอง
+ไม่กระทบ lease/SIP) จากนั้นจึงลบ mapper ที่ `dcontact-uat-workspace` และปิด client; ปิด client ก่อนถอด env
+จะทำให้ introspection ล้มและงานติด `WORK_REAUTH_REQUIRED`
+
 ## Rollback
 
 บันทึก SHA/image digest และ current record ก่อน deploy. เลือก target ด้วย

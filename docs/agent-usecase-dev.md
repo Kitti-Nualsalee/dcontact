@@ -52,6 +52,29 @@ pnpm test:agent-usecase:browser
 
 ยังไม่ปิด #796 ด้วย Unit/DB/UI fixture อย่างเดียว และไม่ต้องรันสอง browser/สองรอบหรือ VM UAT ซ้ำ Formal deployment/rollback ยังติดตาม #868/#879 แยกตามผลกระทบ
 
+## แผงข้อมูลลูกค้าใน Workspace (Cus360 introspection) — #916
+
+API ประกาศ `workCustomerV1` และยืนยัน session ของงาน (`WORK_REAUTH_REQUIRED`) ผ่าน token introspection ของ confidential client แยก Keycloak 26 ตอบ `active:false` ถ้า client ที่ถามไม่อยู่ใน `aud` ของ access token จึงต้องมีทั้งสองส่วน
+
+- realm dev (`infra/keycloak/realm-dcontact.dev.json`) มี client `dcontact-c360-introspection-dev` แบบ confidential ที่ปิดทุก flow, ไม่มี service account/role และ `fullScopeAllowed=false` และปิด standard token exchange ใช้ authenticate ตอน introspect เท่านั้น ออก token เองหรือแลก token ไม่ได้
+- `agent-desktop` มี audience mapper `c360 introspection audience (development only)` เพิ่ม client นี้ใน `aud` ของ access token (ไม่ใส่ใน ID token) client อื่นไม่ได้ mapper นี้ token ของ client อื่นจึงยังได้ `active:false`
+- API อ่าน `KEYCLOAK_C360_CLIENT_ID`/`KEYCLOAK_C360_CLIENT_SECRET` ค่าใน `.env.example` ตรงกับ realm dev และเป็นค่าเฉพาะ local dev เท่านั้น UAT ห้ามใช้ (ค่านี้อยู่ใน denylist ของ `u1-uat-readiness` ที่สแกนไฟล์ UAT ใน Git ตามรายการ `UAT_FILES` แต่ไม่ได้สแกน `uat.env` บน VM)
+
+ตอนเริ่ม API จะ log `customer_360.work.readiness` หนึ่งบรรทัด
+
+- `"status":"ENABLED"` พร้อม `clientId` = config ครบและ Workspace จะแสดงแผงลูกค้า ยังไม่ได้ยืนยันว่า secret หรือ mapper ถูก ให้ตรวจจากแผงจริงตามอาการด้านล่าง
+- `"status":"DISABLED"` พร้อม `reasons` = แผงลูกค้าปิด `KEYCLOAK_C360_CLIENT_NOT_CONFIGURED` คือไม่ได้ตั้ง env ทั้งคู่ (`missingEnv` บอกชื่อ) ส่วน `C360_WRITE_RUNTIME_NOT_READY` คือ contact-points runtime โหลดไม่ผ่าน (ทุก environment) หรือ release manifest ของ production ไม่ตรง
+- ตั้งแค่ตัวใดตัวหนึ่ง API หยุดตั้งแต่เริ่มพร้อมชื่อ env ที่ขาด diagnostic ทุกแบบไม่พิมพ์ secret
+
+dev ใหม่จาก `pnpm infra:ready` ได้ client และ mapper จากการ import realm เลย แต่ dev ที่ import realm ไปแล้ว Keycloak จะข้าม realm ที่มีอยู่ ให้เพิ่มเองใน Admin Console (`http://localhost:8081/admin` realm `dcontact`): Clients → Import client แล้ววาง JSON ของ client จาก realm file และที่ `agent-desktop` → Client scopes → `agent-desktop-dedicated` → Add mapper → By configuration → Audience ตามค่าในไฟล์
+
+อาการเมื่อแผงขึ้นแต่ใช้ไม่ได้
+
+- `WORK_REAUTH_REQUIRED` = introspection ตอบ `active:false` ตรวจว่า `agent-desktop` มี mapper แล้ว logout/login Workspace ใหม่เพื่อรับ token ที่มี `aud` ใหม่
+- `WORK_IDENTITY_UNAVAILABLE` (503) = introspection ล้ม เช่น secret ใน Keycloak ไม่ตรงกับ env (Keycloak ตอบ 401) หรือ `KEYCLOAK_ISSUER` ผิด ตรวจ Credentials ของ client กับ env
+
+UAT ยังไม่เปิดส่วนนี้ ดูสถานะและขั้นตอนใน [docs/uat-workspace-deployment.md](uat-workspace-deployment.md#แผงข้อมูลลูกค้า-cus360--ยังไม่เปิดบน-uat-916)
+
 ## งานที่พัก
 
 CSV import, External API/harness, Recording/playback, LINE pilot, สิทธิ์ประวัติทีม และ outbound dispatch อยู่ #888. ไม่ทำงานเหล่านี้เพื่อให้ dev trial ผ่าน ไม่คืน error/race matrix เก่าทั้งชุดเป็น gate แต่คง authorization, tenant isolation, data integrity และ idempotency ในเส้นทางที่เปิดใช้
