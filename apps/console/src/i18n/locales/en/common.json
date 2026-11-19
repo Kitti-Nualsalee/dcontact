@@ -31,6 +31,7 @@
       "customers": "Customers",
       "customerTags": "Manage tags",
       "customerImport": "Import CSV",
+      "customerAccess": "Team customer access",
       "customerOverview": "Customer overview",
       "customerRules": "Data rules",
       "customerActivity": "Customer activity"

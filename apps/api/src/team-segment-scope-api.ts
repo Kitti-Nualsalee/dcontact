@@ -9,6 +9,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
@@ -30,11 +31,28 @@ function uuid(value: unknown, field: string): string {
   return value;
 }
 
-function segment(value: unknown): string {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,120}$/.test(value))
+/** segment ระบบของ #911 ใช้ prefix `system:` จึงต้องรับ `:` ด้วย */
+export function teamScopeSegment(value: unknown): string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_:-]{1,120}$/.test(value))
     throw new BadRequestException({
       code: 'VALIDATION_FAILED',
       field: 'segmentId',
+      reason: 'INVALID',
+    });
+  return value;
+}
+
+/**
+ * #915: Admin ให้ทีมได้ VIEW (screen-pop, #519) หรือ WORK (Agent ค้น/เชื่อมลูกค้าในงาน, #911)
+ * ไม่ส่ง = VIEW เพื่อให้ client เดิมของหน้า dphone ทำงานเหมือนเดิม; CONTACT ยังไม่เปิดผ่าน API นี้
+ */
+export type TeamScopeApiPermission = 'VIEW' | 'WORK';
+export function teamScopePermission(value: unknown, fallback?: TeamScopeApiPermission) {
+  if (value === undefined && fallback) return fallback;
+  if (value !== 'VIEW' && value !== 'WORK')
+    throw new BadRequestException({
+      code: 'VALIDATION_FAILED',
+      field: 'permission',
       reason: 'INVALID',
     });
   return value;
@@ -56,18 +74,24 @@ export class TeamSegmentScopeController {
 
   @Get()
   @GatewayRoles('admin')
-  async list(@Req() request: AuthenticatedGatewayRequest) {
+  async list(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Query('permission') permission: unknown,
+  ) {
     const identity = actor(request);
+    const permissions: TeamScopeApiPermission[] =
+      permission === undefined ? ['VIEW', 'WORK'] : [teamScopePermission(permission)];
     return withTenantDatabaseTransaction(this.database, identity.tenantId, async (transaction) => {
       const grants = await transaction.iamTeamSegmentScopeActiveGrant.findMany({
-        where: { tenantId: identity.tenantId, permission: 'VIEW' },
+        where: { tenantId: identity.tenantId, permission: { in: permissions } },
         select: {
           teamId: true,
           segmentId: true,
+          permission: true,
           grantId: true,
           updatedAt: true,
         },
-        orderBy: [{ teamId: 'asc' }, { segmentId: 'asc' }],
+        orderBy: [{ teamId: 'asc' }, { segmentId: 'asc' }, { permission: 'asc' }],
       });
       return { scopes: grants };
     });
@@ -82,8 +106,8 @@ export class TeamSegmentScopeController {
     const result = await repository.grant({
       tenantId: identity.tenantId,
       teamId: uuid(body?.teamId, 'teamId'),
-      segmentId: segment(body?.segmentId),
-      permission: 'VIEW',
+      segmentId: teamScopeSegment(body?.segmentId),
+      permission: teamScopePermission(body?.permission, 'VIEW'),
       correlationId: request.correlationId ?? 'unavailable',
     });
     return { outcome: result.outcome, grantId: result.grant.id };

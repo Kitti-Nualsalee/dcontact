@@ -66,13 +66,13 @@ test('Console client ของ VIEW scope ส่งเฉพาะ team/segment/
     },
   });
 
-  await api.list();
+  await api.list('VIEW');
   await api.grant({ teamId: 'team-id', segmentId: 'VIP' });
   await api.revoke('grant/id', 'removed');
 
   assert.deepEqual(calls, [
     {
-      url: 'https://api.dcontact.test/api/v1/tenant/team-segment-scopes',
+      url: 'https://api.dcontact.test/api/v1/tenant/team-segment-scopes?permission=VIEW',
       init: { method: 'GET', headers: { authorization: 'Bearer access-token' } },
     },
     {

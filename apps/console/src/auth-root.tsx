@@ -14,6 +14,7 @@ import { CustomerTagsPage } from './customer-tags/customer-tags-page.js';
 import { createCustomerTagsApi } from './customer-tags/api.js';
 import { CustomerImportPage } from './customer-import/customer-import-page.js';
 import { createCustomerImportApi } from './customer-import/api.js';
+import { CustomerAccessPage } from './customer-access/customer-access-page.js';
 import { createCatalogApi } from './voice-routing/api.js';
 import { useMemo, useRef, useState, useEffect, type ReactNode } from 'react';
 import { AuthProvider, useAuth, type AuthContextProps } from 'react-oidc-context';
@@ -223,6 +224,7 @@ export function ConsoleAuthRoot() {
   const customersView = view === 'customers';
   const customerTagsView = view === 'customer-tags';
   const customerImportView = view === 'customer-import';
+  const customerAccessView = view === 'customer-access';
   const customerActivityView = view === 'customer-activity';
   const customerOverviewView = view === 'customer-overview' || view === 'customer-rules';
   // #566: read-only ของ LINE pilot — มีเฉพาะ UAT ที่ใส่ overlay `uat-line` (ไม่มี = หน้าแจ้งว่าไม่ได้เปิด)
@@ -245,6 +247,7 @@ export function ConsoleAuthRoot() {
       customersView ||
       customerTagsView ||
       customerImportView ||
+      customerAccessView ||
       customerOverviewView ||
       customerActivityView ||
       coreSettingsView ||
@@ -315,6 +318,8 @@ export function ConsoleAuthRoot() {
               <CustomerTagsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : customerImportView ? (
               <CustomerImportSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : customerAccessView ? (
+              <CustomerAccessSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : historyView ? (
               <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : accountView ? (
@@ -963,6 +968,71 @@ export function CustomerImportSurface({
     <CustomerImportPage
       api={api}
       identityKey={retained.current}
+      signedIn={!!auth.isAuthenticated && !!token && !auth.error && !auth.isLoading}
+      onSignIn={() => {
+        void auth.signinSilent().catch(() => auth.signinPopup());
+      }}
+      shell={{
+        ...shellUserProps(auth, tenantAlias),
+        apiBaseUrl,
+        accessToken: () => tokenRef.current,
+        tenantAlias,
+      }}
+    />
+  );
+}
+
+/** #915: สิทธิ์ทีมบน segment ระบบ — รายชื่อทีมมาจาก Core Settings, grant ผ่าน IAM team-segment-scopes */
+export function CustomerAccessSurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
+  const auth = useAuth();
+  const { t } = useTranslation('customerAccess');
+  const token = auth.user?.access_token;
+  const tokenRef = useRef(token);
+  tokenRef.current = auth.isAuthenticated ? token : undefined;
+  const scopes = useMemo(
+    () => createTeamScopeApi({ baseUrl: apiBaseUrl, accessToken: () => tokenRef.current }),
+    [apiBaseUrl],
+  );
+  const teams = useMemo(
+    () => createCoreApi({ baseUrl: apiBaseUrl, accessToken: () => tokenRef.current }).teams,
+    [apiBaseUrl],
+  );
+  const retained = useRef('');
+  if (auth.isLoading && !retained.current) return <main aria-busy="true" />;
+  const profile = auth.user?.profile;
+  const identity = [profile?.iss, profile?.tenant_id, profile?.dc_user_id, profile?.sub];
+  if (
+    profile &&
+    (profile.iss !== auth.settings.authority ||
+      profile.tenant_slug !== tenantAlias ||
+      !identity.every((value) => typeof value === 'string' && value.length > 0))
+  )
+    return <main role="alert">{t('errors.access')}</main>;
+  if (profile) retained.current = JSON.stringify(identity);
+  if (!retained.current)
+    return (
+      <main role="alert">
+        <p>{t('errors.session')}</p>
+        <Button onPress={() => void signInFromCurrentPage(auth)}>{t('signIn')}</Button>
+      </main>
+    );
+  const teamsUrl = new URL(window.location.href);
+  teamsUrl.search = '';
+  teamsUrl.searchParams.set('tenant', tenantAlias);
+  teamsUrl.searchParams.set('view', 'core-settings');
+  teamsUrl.searchParams.set('page', 'teams');
+  return (
+    <CustomerAccessPage
+      scopes={scopes}
+      teams={teams}
+      identityKey={retained.current}
+      teamsHref={teamsUrl.toString()}
       signedIn={!!auth.isAuthenticated && !!token && !auth.error && !auth.isLoading}
       onSignIn={() => {
         void auth.signinSilent().catch(() => auth.signinPopup());

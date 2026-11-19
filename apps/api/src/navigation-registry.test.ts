@@ -66,6 +66,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'customer-activity',
     'customer-tags',
     'customer-import',
+    'customer-access',
     'core-settings',
   ]);
   assert.deepEqual(ids(visibleApps({ roles: admin, entitlements: {} })), [
@@ -80,6 +81,7 @@ test('plan ต่างกันเห็นรายการต่างกั
     'customer-activity',
     'customer-tags',
     'customer-import',
+    'customer-access',
     'core-settings',
   ]);
   assert.deepEqual(
@@ -101,6 +103,7 @@ test('plan ต่างกันเห็นรายการต่างกั
       'customer-activity',
       'customer-tags',
       'customer-import',
+      'customer-access',
       'core-settings',
     ],
   );
@@ -122,6 +125,7 @@ test('tenant ที่ไม่มี plan binding (null) ใช้ role อย�
     'customer-activity',
     'customer-tags',
     'customer-import',
+    'customer-access',
     'core-settings',
   ]);
 });
@@ -141,6 +145,7 @@ test('E1.11: dphone embedding เห็นเฉพาะ ADMIN/SUPERVISOR ข�
     'customer-activity',
     'customer-tags',
     'customer-import',
+    'customer-access',
     'core-settings',
   ]);
   assert.equal(
@@ -168,6 +173,7 @@ test('ชุดเริ่มต้นของ tenant ขึ้นกับ en
     'customer-activity',
     'customer-tags',
     'customer-import',
+    'customer-access',
     'core-settings',
   ]);
 });
@@ -240,7 +246,7 @@ test('#651: พื้นที่เมนูคัดตาม role/plan; ล�
   );
 });
 
-test('#860: เมนูลูกค้าอยู่พื้นที่เดียวตามสิทธิ์ (เพิ่มหน้านำเข้า CSV ของ #909 เฉพาะ admin)', () => {
+test('#860: เมนูลูกค้าอยู่พื้นที่เดียวตามสิทธิ์ (หน้านำเข้า CSV #909 และสิทธิ์ทีม #915 เฉพาะ admin)', () => {
   const customerArea = (roles: string[]) =>
     visibleAreas(visibleApps({ roles, entitlements: null })).find(
       (area) => area.id === 'customers',
@@ -254,6 +260,7 @@ test('#860: เมนูลูกค้าอยู่พื้นที่เ�
       'customer-activity',
       'customer-tags',
       'customer-import',
+      'customer-access',
     ],
   );
   assert.deepEqual(

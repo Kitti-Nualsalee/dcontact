@@ -1,0 +1,47 @@
+{
+  "title": "Team customer access",
+  "description": "Agents can find and link customers during a call only in customer groups their team has access to. Having a customer group grants no access by itself.",
+  "loading": "Loading team access",
+  "grantTitle": "Grant team access",
+  "team": "Team",
+  "segment": "Customer group",
+  "permission": "Access",
+  "actions": "Actions",
+  "grant": "Grant access",
+  "revoke": "Revoke",
+  "cancel": "Cancel",
+  "retry": "Try again",
+  "signIn": "Sign in again",
+  "segments": {
+    "allCustomers": "All customers",
+    "vip": "VIP customers"
+  },
+  "permissions": {
+    "WORK": "Work with customers on calls",
+    "VIEW": "Show in screen-pop"
+  },
+  "permissionHint": {
+    "WORK": "Find, link, and edit customer name/company during a call",
+    "VIEW": "Show the customer name in dphone embedded in other systems; no customer work"
+  },
+  "unknownTeam": "Team not found",
+  "inactiveTeam": "Team deactivated",
+  "empty": "No team has access yet. Agents won't find customers during calls.",
+  "noTeams": "No active teams yet. Create a team in organization settings first.",
+  "openTeams": "Go to Teams",
+  "duplicate": "This team already has this access to this customer group",
+  "granted": "Access granted. Agents in the team will see customers within a few seconds.",
+  "revoked": "Access revoked",
+  "revokeTitle": "Revoke access?",
+  "revokeBody": "Agents in this team will no longer find or see customers in this group. You can grant it again later.",
+  "reason": "Reason (no personal data)",
+  "reasonHint": "3–120 characters",
+  "errors": {
+    "load": "Couldn't load team access",
+    "teams": "Couldn't load teams. The table shows team IDs instead of names.",
+    "grant": "Couldn't grant access. Try again.",
+    "revoke": "Couldn't revoke access. Try again.",
+    "access": "This account can't manage team access. Contact your organization's administrator.",
+    "session": "Your session expired. Sign in again to continue."
+  }
+}

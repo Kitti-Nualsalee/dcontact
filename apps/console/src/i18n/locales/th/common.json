@@ -31,6 +31,7 @@
       "customers": "ลูกค้า",
       "customerTags": "จัดการแท็ก",
       "customerImport": "นำเข้า CSV",
+      "customerAccess": "สิทธิ์ทีมเห็นลูกค้า",
       "customerOverview": "ภาพรวมข้อมูลลูกค้า",
       "customerRules": "กฎข้อมูล",
       "customerActivity": "กิจกรรมลูกค้า"
