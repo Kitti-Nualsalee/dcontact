@@ -55,6 +55,13 @@ owner อนุมัติเมื่อ 19 พฤศจิกายน 2569 �
 | `admin@demo.local` | `SOLO_ADMIN_PASSWORD` ใน `solo.env` |
 | `agent1000@demo.local`, `agent1001@demo.local` | `SOLO_AGENT_PASSWORD` ใน `solo.env` |
 
+เปิดด้วย `?tenant=demo` ทุกครั้ง: Console และ Workspace เดา tenant จาก subdomain แรกของ hostname ถ้าไม่ระบุ ซึ่งบน Solo จะได้ `dcontact-solo-uat` / `dcontact-solo-workspace-uat` และ Keycloak ตอบ `invalid_scope`
+
+| แอป | URL |
+| --- | --- |
+| Console | `https://dcontact-solo-uat.osd.co.th/?tenant=demo` |
+| Workspace | `https://dcontact-solo-workspace-uat.osd.co.th/?tenant=demo` |
+
 trunk จำลอง `lan-sim` รับสายจาก `SOLO_SIM_TRUNK_IP` เท่านั้น เบอร์ `021000001` เข้าคิวตรง (2000) และ `021000002` เข้า IVR (2001) โทรเข้าด้วย SIPp หรือ softphone จากเครื่องนั้นไปที่ `sip:021000001@192.168.31.206:5060`
 
 ## ข้อจำกัด
