@@ -13,7 +13,7 @@ export function TeamScopes({ api, canEdit }: { api: TeamScopeApi; canEdit: boole
   const [error, setError] = useState<string>();
   const reload = useCallback(async () => {
     try {
-      setScopes((await api.list()).scopes);
+      setScopes((await api.list('VIEW')).scopes);
       setError(undefined);
     } catch {
       setError(t('dphoneEmbedding.teamScopes.errors.load'));

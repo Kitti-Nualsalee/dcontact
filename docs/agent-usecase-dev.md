@@ -89,11 +89,14 @@ pnpm --filter @d-contact/console exec playwright test e2e/customer-import.spec.t
 
 ## Segment ระบบให้ Agent เห็นลูกค้าใหม่ — owner เลือก 18 พฤศจิกายน 2569
 
-งานติดตามที่ [#911](https://github.com/Kitti-Nualsalee/dcontact/issues/911) Agent ค้นลูกค้าในสายได้ผ่าน WORK scope ของ segment เท่านั้น จึงเพิ่ม segment ระบบต่อ tenant คือ `system:all-customers` และ `system:vip` (`contact.vip == true`) Admin ให้ทีมได้ VIEW/WORK ผ่านหน้า team-scopes เดิม การมี segment ไม่ให้สิทธิ์ใครเอง
+งานติดตามที่ [#911](https://github.com/Kitti-Nualsalee/dcontact/issues/911) Agent ค้นลูกค้าในสายได้ผ่าน WORK scope ของ segment เท่านั้น จึงเพิ่ม segment ระบบต่อ tenant คือ `system:all-customers` และ `system:vip` (`contact.vip == true`) Admin ให้ทีมได้ WORK หรือ VIEW ที่ Console เมนู **ลูกค้า → สิทธิ์ทีมเห็นลูกค้า** (`?view=customer-access`, [#915](https://github.com/Kitti-Nualsalee/dcontact/issues/915)) การมี segment ไม่ให้สิทธิ์ใครเอง
 
 - `apps/api` รัน evaluator ทุก 5 วินาที: สร้าง/publish segment ระบบถ้ายังไม่มี แล้วบันทึก fact snapshot (`vip`, `company`) ของ contact ที่ข้อมูลเปลี่ยนหรือยังไม่มีผล และ `commitEvaluation` ตามเส้นทาง owner เดิม รวม backfill ลูกค้าเดิม
 - relay ส่ง membership change ไป `dc.customer.events` และ IAM consumer ใน process เดียวกันอัปเดต projection; เชื่อม Kafka แบบ retry/backoff ส่วน evaluator ทำงานได้โดยไม่รอ Kafka
 - ปิดทั้งหมดด้วย `C360_SEGMENT_WORKER=off`; consumer group ตั้งด้วย `IAM_SEGMENT_PROJECTION_GROUP_ID`
+
+- `POST /api/v1/tenant/team-segment-scopes` รับ `permission` เป็น `WORK` หรือ `VIEW` (ไม่ส่ง = `VIEW` ตามพฤติกรรมเดิมของหน้า dphone) และ `GET` คืนทั้งสองแบบพร้อม `permission` หรือกรองด้วย `?permission=`
+- WORK ให้ Agent ค้น เชื่อม และแก้ลูกค้าในงาน; VIEW ใช้กับ screen-pop ของ dphone ที่ฝัง (#519) เท่านั้น
 
 ```sh
 pnpm --filter @d-contact/customer-360 exec tsx --test src/segment-runtime.test.ts

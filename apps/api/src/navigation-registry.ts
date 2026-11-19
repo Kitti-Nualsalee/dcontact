@@ -301,6 +301,16 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     roles: ['admin'],
   },
   {
+    id: 'customer-access',
+    area: 'customers',
+    section: 'customers',
+    group: 'operations',
+    labelKey: 'navigation.apps.customerAccess',
+    hostApp: 'console',
+    path: '/?view=customer-access',
+    roles: ['admin'],
+  },
+  {
     id: 'core-settings',
     area: 'settings',
     section: 'configuration',

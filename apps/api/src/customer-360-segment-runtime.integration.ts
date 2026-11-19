@@ -15,6 +15,10 @@ import { CUSTOMER_360_DATABASE } from './customer-360-api.js';
 import { OIDC_ACCESS_TOKEN_VERIFIER } from './gateway-auth.js';
 import { C360WorkAuthService } from './customer-360-work-auth.js';
 import { WorkSessionLeases } from './work-session.js';
+import {
+  TeamSegmentScopeController,
+  TEAM_SEGMENT_SCOPE_DATABASE,
+} from './team-segment-scope-api.js';
 
 /**
  * #911: ลูกค้าที่สร้างผ่าน HTTP (CSV import และ create) → segment ระบบ → outbox/relay →
@@ -33,10 +37,13 @@ async function fixture() {
       Customer360OperatorController,
       Customer360ReadController,
       Customer360ImportController,
+      TeamSegmentScopeController,
     ],
     undefined,
     undefined,
     [
+      // #915: Admin ให้ WORK ผ่าน HTTP ด้วย application role เดียวกับ Cus360
+      { provide: TEAM_SEGMENT_SCOPE_DATABASE, useExisting: CUSTOMER_360_DATABASE },
       {
         provide: CUSTOMER_360_WORK_AUTH,
         inject: [CUSTOMER_360_DATABASE, OIDC_ACCESS_TOKEN_VERIFIER],
@@ -217,6 +224,63 @@ test('#911: ลูกค้าที่นำเข้า/สร้างให�
     await f.owner.c360SegmentMembershipHead.count({ where: { tenantId: f.otherTenantId } }),
     0,
   );
+});
+
+test('#915: Admin ให้และถอน WORK บน segment ระบบผ่าน HTTP แล้ว Agent ค้นเจอและค้นไม่เจอตาม', async (t) => {
+  const f = await fixture();
+  t.after(() => f.close());
+  await allowCreate(f);
+  await importCsv(f, `name,phone\nลูกค้านำเข้า,${PHONE_IMPORTED}\n`);
+  await f.runtime.evaluatePending(f.tenantId);
+  await f.project();
+  type ScopeBody = {
+    outcome: string;
+    grantId: string;
+    scopes: { permission: string; grantId: string }[];
+  };
+  const path = 'tenant/team-segment-scopes';
+  const call = async (token: string, body?: unknown, query = '') => {
+    const response = await f.request(`${path}${query}`, token, body);
+    return { status: response.status, body: response.body as unknown as ScopeBody };
+  };
+  const scope = { teamId: f.teamId, segmentId: 'system:all-customers' };
+
+  // สิทธิ์ที่ไม่รองรับและ role อื่นถูกปฏิเสธ ไม่ขยายสิทธิ์ให้ supervisor/agent
+  assert.equal((await call('admin', { ...scope, permission: 'CONTACT' })).status, 400);
+  assert.equal((await call('supervisor', { ...scope, permission: 'WORK' })).status, 403);
+  assert.equal((await call('agent', { ...scope, permission: 'WORK' })).status, 403);
+  // VIEW (ค่าเริ่มต้นเดิม) ไม่ให้ Agent ค้นลูกค้าในงาน
+  const view = await call('admin', scope);
+  assert.equal(view.status, 201);
+  assert.equal((await f.search(PHONE_IMPORTED)).body.items?.length ?? 0, 0);
+
+  const work = await call('admin', { ...scope, permission: 'WORK' });
+  assert.equal(work.status, 201);
+  assert.equal(work.body.outcome, 'GRANTED');
+  const again = await call('admin', { ...scope, permission: 'WORK' });
+  assert.equal(again.body.outcome, 'DUPLICATE');
+  assert.equal(again.body.grantId, work.body.grantId);
+
+  assert.deepEqual(
+    (await call('admin')).body.scopes.map((row) => `${row.permission}:${row.grantId}`).sort(),
+    [`VIEW:${view.body.grantId}`, `WORK:${work.body.grantId}`].sort(),
+  );
+  assert.deepEqual(
+    (await call('admin', undefined, '?permission=VIEW')).body.scopes.map((row) => row.grantId),
+    [view.body.grantId],
+  );
+
+  const found = await f.search(PHONE_IMPORTED);
+  assert.equal(found.status, 201);
+  assert.equal(found.body.items.length, 1);
+
+  const revoked = await fetch(`${f.base}/api/v1/${path}/${work.body.grantId}`, {
+    method: 'DELETE',
+    headers: { authorization: 'Bearer admin', 'content-type': 'application/json' },
+    body: JSON.stringify({ reasonCode: 'ย้ายทีม' }),
+  });
+  assert.equal(revoked.status, 204);
+  assert.equal((await f.search(PHONE_IMPORTED)).body.items?.length ?? 0, 0);
 });
 
 test('#911: แก้ vip แล้ว VIP membership ตาม และประเมินซ้ำไม่สร้าง event ซ้ำ', async (t) => {

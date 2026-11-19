@@ -1,13 +1,21 @@
+/** VIEW = screen-pop (#519), WORK = Agent ค้นและเชื่อมลูกค้าในงาน (#915) */
+export type TeamScopePermission = 'VIEW' | 'WORK';
+
 export interface TeamViewScope {
   teamId: string;
   segmentId: string;
+  permission?: TeamScopePermission;
   grantId: string;
   updatedAt: string;
 }
 
 export interface TeamScopeApi {
-  list(): Promise<{ scopes: TeamViewScope[] }>;
-  grant(input: { teamId: string; segmentId: string }): Promise<void>;
+  list(permission?: TeamScopePermission): Promise<{ scopes: TeamViewScope[] }>;
+  grant(input: {
+    teamId: string;
+    segmentId: string;
+    permission?: TeamScopePermission;
+  }): Promise<{ outcome: 'GRANTED' | 'DUPLICATE'; grantId: string }>;
   revoke(grantId: string, reasonCode: string): Promise<void>;
 }
 
@@ -34,7 +42,7 @@ export function createTeamScopeApi(input: {
     return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
   };
   return {
-    list: () => call('', 'GET'),
+    list: (permission) => call(permission ? `?permission=${permission}` : '', 'GET'),
     grant: (body) => call('', 'POST', body),
     revoke: (grantId, reasonCode) =>
       call(`/${encodeURIComponent(grantId)}`, 'DELETE', { reasonCode }),
