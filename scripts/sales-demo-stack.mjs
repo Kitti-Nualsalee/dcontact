@@ -302,11 +302,17 @@ function prepareDatabase(claims) {
 
 /**
  * Agent ค้น/เชื่อม/แก้ลูกค้าระหว่างสายได้เมื่อ API มี confidential client สำหรับ introspection
- * (`KEYCLOAK_C360_CLIENT_ID/SECRET`) — สร้าง client เฉพาะ dev และหมุน secret ใหม่ทุกรอบ ไม่แสดงผล
+ * (`KEYCLOAK_C360_CLIENT_ID/SECRET`) ค่ามาตรฐานของ dev มาจาก realm และ `.env.example` (#916, #918)
+ * realm import ข้าม realm ที่มีอยู่แล้ว Keycloak dev เดิมจึงอาจยังไม่มี client/mapper — สร้างให้ตรง realm file
+ * และตั้ง secret เป็นค่าเดียวกับ `.env.example` (ไม่หมุน) เพื่อให้ API ที่รันตาม `.env.example` ใช้ได้พร้อมกัน
  */
+const C360_INTROSPECTION_CLIENT = 'dcontact-c360-introspection-dev';
+const C360_INTROSPECTION_SECRET = 'dcontact-c360-introspection-dev-secret';
+
 async function c360IntrospectionClient(admin) {
-  const clientId = 'dcontact-c360-introspection-dev';
-  let [client] = await admin(`/clients?clientId=${clientId}`);
+  const clientId = environment.KEYCLOAK_C360_CLIENT_ID ?? C360_INTROSPECTION_CLIENT;
+  const clientSecret = environment.KEYCLOAK_C360_CLIENT_SECRET ?? C360_INTROSPECTION_SECRET;
+  let [client] = await admin(`/clients?clientId=${encodeURIComponent(clientId)}`);
   if (!client) {
     await admin('/clients', {
       method: 'POST',
@@ -316,15 +322,29 @@ async function c360IntrospectionClient(admin) {
         enabled: true,
         protocol: 'openid-connect',
         publicClient: false,
+        clientAuthenticatorType: 'client-secret',
+        secret: clientSecret,
         standardFlowEnabled: false,
+        implicitFlowEnabled: false,
         directAccessGrantsEnabled: false,
-        serviceAccountsEnabled: true,
+        serviceAccountsEnabled: false,
+        fullScopeAllowed: false,
+        attributes: { 'standard.token.exchange.enabled': 'false' },
       }),
     });
-    [client] = await admin(`/clients?clientId=${clientId}`);
+    [client] = await admin(`/clients?clientId=${encodeURIComponent(clientId)}`);
+  } else {
+    // client เดิมจากสคริปต์รุ่นก่อนใช้ secret ที่หมุนไว้ — ตั้งกลับเป็นค่ามาตรฐานเท่านั้น ไม่แก้ค่าอื่น
+    const current = await admin(`/clients/${client.id}/client-secret`);
+    if (current?.value !== clientSecret) {
+      await admin(`/clients/${client.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ...client, secret: clientSecret }),
+      });
+    }
   }
   // Keycloak ตอบ introspection ว่า inactive ถ้า client ที่ถามไม่อยู่ใน aud ของ token —
-  // เพิ่ม audience mapper ที่ `agent-desktop` (additive, เฉพาะ realm dev)
+  // ชื่อ mapper ตรงกับ realm file ของ #918 จึงไม่สร้างซ้ำ
   const [desktop] = await admin('/clients?clientId=agent-desktop');
   const mapperName = 'c360 introspection audience (development only)';
   const mappers = await admin(`/clients/${desktop.id}/protocol-mappers/models`);
@@ -344,8 +364,7 @@ async function c360IntrospectionClient(admin) {
       }),
     });
   }
-  const secret = await admin(`/clients/${client.id}/client-secret`, { method: 'POST' });
-  return { clientId, clientSecret: secret.value };
+  return { clientId, clientSecret };
 }
 
 async function demoOrganizationId(admin) {

@@ -97,7 +97,7 @@ tenant `demo` มาจาก `db:seed` จึงไม่มีสิ่งท�
 | Identity binding ของ Admin และ Agent         | Platform provisioning, Tenant People      | เขียนฐานตรง                                   |
 | สิทธิ์ WORK/VIEW ของทีมบน `system:all-customers` | ยังไม่มีหน้าหรือ API ให้ WORK             | เรียก repository ของ IAM                      |
 | `CONTACT_CREATE` ของ Admin                   | platform operator                         | operator API จริง ด้วยบัญชี operator ของ dev  |
-| Client สำหรับ introspection ของ Cus360       | ยังไม่มีใน realm dev/UAT                  | สร้างใน Keycloak dev และหมุน secret ทุกรอบ    |
+| Client สำหรับ introspection ของ Cus360 | realm dev ตั้งแต่ #918 | สร้างให้ถ้า Keycloak dev เดิมยังไม่มี และตั้ง secret ตาม `.env.example` |
 | Shell รุ่น D1 (`ui.shell.v2`)                | คำสั่ง `d1:shell-flag`                    | เปิดเฉพาะ tenant demo ในฐานนี้                |
 
 ## คำถามที่ทีมขายอาจถามและคำตอบตามจริง
