@@ -602,6 +602,10 @@ export class ProvisioningControlRepository {
           await transaction.$queryRaw`
             SELECT dc_platform_bind_first_admin(${request.tenantId}::uuid, ${request.id}::uuid,
               ${tenantConsole.issuer}, ${tenantConsole.clientId}) AS revision`;
+          // #914: first admin สร้าง/นำเข้าลูกค้าได้ทันที — DB ให้ CONTACT_CREATE จาก binding ของ request นี้เอง
+          await transaction.$queryRaw`
+            SELECT dc_platform_grant_first_admin_contact_create(${request.tenantId}::uuid,
+              ${request.id}::uuid) AS outcome`;
         }
         await this.appendAction(transaction, {
           tenantId: request.tenantId,

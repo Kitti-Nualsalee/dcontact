@@ -142,6 +142,12 @@ export async function createPlatformFixture() {
           'business_hours',
           'tenant_plan_bindings',
           'tenant_settings',
+          // #914: CONTACT_CREATE ของ first admin ที่ provisioning ให้
+          'c360_actor_capability_revocations',
+          'c360_actor_capability_grants',
+          'c360_profile_audits',
+          'c360_profile_command_receipts',
+          'c360_profile_commands',
           'tenant_voice_identity_binding_audit',
           'tenant_voice_identity_bindings',
           'users',
