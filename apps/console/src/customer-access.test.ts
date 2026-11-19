@@ -4,6 +4,7 @@ import {
   accessRows,
   grantableTeams,
   hasGrant,
+  remainingPermission,
   SEGMENT_LABEL_KEYS,
   SYSTEM_SEGMENTS,
   validRevokeReason,
@@ -72,4 +73,27 @@ test('#915: เหตุผลการถอนสิทธิ์ 3–120 ต�
 
 test('#915: label ของ segment ระบบไม่มี `:` ซึ่ง i18next ใช้แยก namespace', () => {
   for (const id of SYSTEM_SEGMENTS) assert.doesNotMatch(SEGMENT_LABEL_KEYS[id], /:/);
+});
+
+test('#915: ถอนสิทธิ์หนึ่งแบบแล้วบอกสิทธิ์อีกแบบที่ยังอยู่บน team+segment เดียวกัน', () => {
+  const rows = accessRows(
+    [
+      { grantId: 'w', teamId: 't-a', segmentId: 'system:vip', permission: 'WORK', updatedAt: '' },
+      { grantId: 'v', teamId: 't-a', segmentId: 'system:vip', permission: 'VIEW', updatedAt: '' },
+      { grantId: 'o', teamId: 't-b', segmentId: 'system:vip', permission: 'VIEW', updatedAt: '' },
+      {
+        grantId: 'x',
+        teamId: 't-a',
+        segmentId: 'system:all-customers',
+        permission: 'VIEW',
+        updatedAt: '',
+      },
+    ],
+    teams,
+  );
+  const byId = (id: string) => rows.find((row) => row.grantId === id)!;
+  assert.equal(remainingPermission(rows, byId('w')), 'VIEW');
+  assert.equal(remainingPermission(rows, byId('v')), 'WORK');
+  assert.equal(remainingPermission(rows, byId('o')), undefined);
+  assert.equal(remainingPermission(rows, byId('x')), undefined);
 });

@@ -119,7 +119,9 @@ pnpm --filter @d-contact/console exec playwright test e2e/customer-import.spec.t
 - ปิดทั้งหมดด้วย `C360_SEGMENT_WORKER=off`; consumer group ตั้งด้วย `IAM_SEGMENT_PROJECTION_GROUP_ID`
 
 - `POST /api/v1/tenant/team-segment-scopes` รับ `permission` เป็น `WORK` หรือ `VIEW` (ไม่ส่ง = `VIEW` ตามพฤติกรรมเดิมของหน้า dphone) และ `GET` คืนทั้งสองแบบพร้อม `permission` หรือกรองด้วย `?permission=`
-- WORK ให้ Agent ค้น เชื่อม และแก้ลูกค้าในงาน; VIEW ใช้กับ screen-pop ของ dphone ที่ฝัง (#519) เท่านั้น
+- WORK ให้ Agent ค้น เชื่อม และแก้ลูกค้าในงานที่ยังไม่จบ และเป็นเงื่อนไขให้ Journey ที่ทีมเป็นเจ้าของรับลูกค้าเข้า
+- VIEW ใช้กับ screen-pop ของ dphone ที่ฝัง (#519), ให้ Admin/Supervisor ในทีมอ่านโปรไฟล์ลูกค้าใน segment นั้นใน Customer 360 (`c360ReadableContactSql`) และให้ Agent เปิดลูกค้าของงานที่ `COMPLETED` แล้ว (`profile-work.ts`) Agent ที่ต้องรับสายและดูลูกค้าย้อนหลังจึงต้องได้ทั้งสองสิทธิ์
+- ให้ VIEW บน `system:all-customers` เท่ากับให้ Admin/Supervisor ของทีมนั้นอ่านลูกค้าทั้ง tenant
 
 ```sh
 pnpm --filter @d-contact/customer-360 exec tsx --test src/segment-runtime.test.ts

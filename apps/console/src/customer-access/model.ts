@@ -71,3 +71,14 @@ export function validRevokeReason(value: string) {
   const length = value.trim().length;
   return length >= 3 && length <= 120;
 }
+
+/** สิทธิ์อีกแบบของทีมบน segment เดียวกันที่ยังอยู่หลังถอน `row` — VIEW/WORK เป็น grant คนละแถว */
+export function remainingPermission(rows: readonly AccessRow[], row: AccessRow) {
+  return rows.find(
+    (other) =>
+      other.grantId !== row.grantId &&
+      other.teamId === row.teamId &&
+      other.segmentId === row.segmentId &&
+      other.permission !== row.permission,
+  )?.permission;
+}
