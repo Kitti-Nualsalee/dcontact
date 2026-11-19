@@ -18,11 +18,11 @@
   },
   "permissions": {
     "WORK": "Work with customers on calls",
-    "VIEW": "Show in screen-pop"
+    "VIEW": "View customers"
   },
   "permissionHint": {
-    "WORK": "Find, link, and edit customer name/company during a call",
-    "VIEW": "Show the customer name in dphone embedded in other systems; no customer work"
+    "WORK": "Agents in the team can find, link, and edit name/company of customers in this group during a call, and journeys owned by the team can enroll them. Doesn't include opening customers after the call ends.",
+    "VIEW": "Shows customers in dphone screen-pop, lets admins and supervisors in the team open these customer profiles in Customer 360, and lets agents open customers of completed work. Doesn't allow finding or linking customers during a call."
   },
   "unknownTeam": "Team not found",
   "inactiveTeam": "Team deactivated",
@@ -33,7 +33,10 @@
   "granted": "Access granted. Agents in the team will see customers within a few seconds.",
   "revoked": "Access revoked",
   "revokeTitle": "Revoke access?",
-  "revokeBody": "Agents in this team will no longer find or see customers in this group. You can grant it again later.",
+  "revokeBody": {
+    "WORK": "Agents in this team will no longer find or link customers in this group during calls, and journeys owned by the team can't enroll them.",
+    "VIEW": "Screen-pop will stop showing customers in this group, admins and supervisors in the team can't open their profiles, and agents can't open customers of completed work."
+  },
   "reason": "Reason (no personal data)",
   "reasonHint": "3–120 characters",
   "errors": {
@@ -43,5 +46,10 @@
     "revoke": "Couldn't revoke access. Try again.",
     "access": "This account can't manage team access. Contact your organization's administrator.",
     "session": "Your session expired. Sign in again to continue."
-  }
+  },
+  "permissionsTitle": "What each access level allows",
+  "permissionAdvice": "Agents who take calls and also open customers of completed work need both.",
+  "teamUnresolved": "Team name unavailable",
+  "revokeKeeps": "This team still has “{{permission}}” on this group. Revoking this doesn't affect it.",
+  "revokeAgain": "You can grant it again later."
 }

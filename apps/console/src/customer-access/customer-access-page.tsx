@@ -22,6 +22,7 @@ import {
   grantableTeams,
   hasGrant,
   PERMISSIONS,
+  remainingPermission,
   SEGMENT_LABEL_KEYS,
   SYSTEM_SEGMENTS,
   validRevokeReason,
@@ -29,6 +30,7 @@ import {
   type AccessTeam,
 } from './model.js';
 import '../customers/customers.css';
+import './customer-access.css';
 
 export interface CustomerAccessTeamsApi {
   list(cursor?: string): Promise<{ teams: AccessTeam[]; nextCursor: string | null }>;
@@ -68,7 +70,7 @@ function denied(error: unknown) {
 
 function AccessSession({ scopes, teams, signedIn = true, onSignIn, teamsHref }: Props) {
   const { t: translate } = useTranslation('customerAccess');
-  const t = translate as (key: string) => string;
+  const t = translate as (key: string, options?: Record<string, unknown>) => string;
   const [rows, setRows] = useState<AccessRow[]>([]);
   const [teamList, setTeamList] = useState<AccessTeam[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,8 +129,14 @@ function AccessSession({ scopes, teams, signedIn = true, onSignIn, teamsHref }: 
   const duplicate =
     !!selectedTeam && hasGrant(rows, { teamId: selectedTeam, segmentId, permission });
   const segmentLabel = (id: string) =>
-    id in SEGMENT_LABEL_KEYS ? t(SEGMENT_LABEL_KEYS[id as keyof typeof SEGMENT_LABEL_KEYS]) : id;
-  const teamLabel = (row: AccessRow) => row.teamName ?? t('unknownTeam');
+    Object.hasOwn(SEGMENT_LABEL_KEYS, id)
+      ? t(SEGMENT_LABEL_KEYS[id as keyof typeof SEGMENT_LABEL_KEYS])
+      : id;
+  // รายชื่อทีมโหลดไม่สำเร็จ ≠ ทีมไม่มีอยู่ — อย่าติดป้าย "ไม่พบ" ให้ทุกแถว
+  const teamLabel = (row: AccessRow) =>
+    row.teamName ?? t(teamsError ? 'teamUnresolved' : 'unknownTeam');
+  // ถอนสิทธิ์หนึ่งแบบไม่กระทบอีกแบบบน team+segment เดียวกัน — บอก Admin ให้ชัด
+  const keptPermission = revoking ? remainingPermission(rows, revoking) : undefined;
 
   async function grant() {
     if (!selectedTeam || duplicate) return;
@@ -186,7 +194,9 @@ function AccessSession({ scopes, teams, signedIn = true, onSignIn, teamsHref }: 
             {!loading && options.length === 0 && !teamsError ? (
               <div role="status" className="cu-notice">
                 <p>{t('noTeams')}</p>
-                <a href={teamsHref}>{t('openTeams')}</a>
+                <a className="ca-link" href={teamsHref}>
+                  {t('openTeams')}
+                </a>
               </div>
             ) : (
               <>
@@ -209,7 +219,6 @@ function AccessSession({ scopes, teams, signedIn = true, onSignIn, teamsHref }: 
                 />
                 <Select
                   label={t('permission')}
-                  description={t(`permissionHint.${permission}`)}
                   options={PERMISSIONS.map((id) => ({ id, label: t(`permissions.${id}`) }))}
                   selectedKey={permission}
                   onSelectionChange={(key) => key && setPermission(key as TeamScopePermission)}
@@ -227,8 +236,24 @@ function AccessSession({ scopes, teams, signedIn = true, onSignIn, teamsHref }: 
               </>
             )}
           </section>
+          <section className="ca-perms" aria-labelledby="ca-perms-title">
+            <h2 id="ca-perms-title">{t('permissionsTitle')}</h2>
+            <dl>
+              {PERMISSIONS.map((id) => (
+                <div key={id}>
+                  <dt>
+                    <Badge tone={id === 'WORK' ? 'info' : 'neutral'}>
+                      {t(`permissions.${id}`)}
+                    </Badge>
+                  </dt>
+                  <dd>{t(`permissionHint.${id}`)}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="cu-muted">{t('permissionAdvice')}</p>
+          </section>
           {duplicate ? (
-            <p role="status" className="cu-muted">
+            <p role="status" className="cu-muted ca-duplicate">
               {t('duplicate')}
             </p>
           ) : null}
@@ -248,48 +273,53 @@ function AccessSession({ scopes, teams, signedIn = true, onSignIn, teamsHref }: 
           ) : rows.length === 0 ? (
             <p>{t('empty')}</p>
           ) : (
-            <Table aria-label={t('title')} className="cu-table">
-              <TableHeader>
-                <Column isRowHeader>{t('team')}</Column>
-                <Column>{t('segment')}</Column>
-                <Column>{t('permission')}</Column>
-                <Column>{t('actions')}</Column>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <Row key={row.grantId} id={row.grantId}>
-                    <Cell>
-                      <div>{teamLabel(row)}</div>
-                      {row.teamName === null ? (
-                        <code className="cu-muted">{row.teamId}</code>
-                      ) : !row.teamActive ? (
-                        <span className="cu-muted">{t('inactiveTeam')}</span>
-                      ) : null}
-                    </Cell>
-                    <Cell>{segmentLabel(row.segmentId)}</Cell>
-                    <Cell>
-                      <Badge tone={row.permission === 'WORK' ? 'info' : 'neutral'}>
-                        {t(`permissions.${row.permission}`)}
-                      </Badge>
-                    </Cell>
-                    <Cell>
-                      <div className="cu-actions">
-                        <Button
-                          isDisabled={busy}
-                          onPress={() => {
-                            setRevoking(row);
-                            setReason('');
-                            setRevokeError(undefined);
-                          }}
+            <div className="ca-scroll" role="region" aria-label={t('title')} tabIndex={0}>
+              <Table aria-label={t('title')} className="ca-table">
+                <TableHeader>
+                  <Column isRowHeader>{t('team')}</Column>
+                  <Column>{t('segment')}</Column>
+                  <Column>{t('permission')}</Column>
+                  <Column>{t('actions')}</Column>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row) => (
+                    <Row key={row.grantId} id={row.grantId}>
+                      <Cell>
+                        <div>{teamLabel(row)}</div>
+                        {row.teamName === null ? (
+                          <code className="cu-muted ca-id">{row.teamId}</code>
+                        ) : !row.teamActive ? (
+                          <span className="cu-muted">{t('inactiveTeam')}</span>
+                        ) : null}
+                      </Cell>
+                      <Cell>{segmentLabel(row.segmentId)}</Cell>
+                      <Cell>
+                        <Badge
+                          className="ca-badge"
+                          tone={row.permission === 'WORK' ? 'info' : 'neutral'}
                         >
-                          {t('revoke')}
-                        </Button>
-                      </div>
-                    </Cell>
-                  </Row>
-                ))}
-              </TableBody>
-            </Table>
+                          {t(`permissions.${row.permission}`)}
+                        </Badge>
+                      </Cell>
+                      <Cell>
+                        <div className="cu-actions">
+                          <Button
+                            isDisabled={busy}
+                            onPress={() => {
+                              setRevoking(row);
+                              setReason('');
+                              setRevokeError(undefined);
+                            }}
+                          >
+                            {t('revoke')}
+                          </Button>
+                        </div>
+                      </Cell>
+                    </Row>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
           <Dialog
             role="alertdialog"
@@ -298,37 +328,47 @@ function AccessSession({ scopes, teams, signedIn = true, onSignIn, teamsHref }: 
             onOpenChange={(open) => {
               if (!open && !busy) setRevoking(undefined);
             }}
+            footer={() => (
+              <>
+                <Button onPress={() => setRevoking(undefined)} isDisabled={busy}>
+                  {t('cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  isDisabled={busy || !validRevokeReason(reason)}
+                  onPress={() => void revoke()}
+                >
+                  {t('revoke')}
+                </Button>
+              </>
+            )}
           >
-            <p>{t('revokeBody')}</p>
-            {revoking ? (
-              <p>
-                <strong>{teamLabel(revoking)}</strong> · {segmentLabel(revoking.segmentId)} ·{' '}
-                {t(`permissions.${revoking.permission}`)}
-              </p>
-            ) : null}
-            <TextField
-              label={t('reason')}
-              description={t('reasonHint')}
-              value={reason}
-              onChange={setReason}
-              isDisabled={busy}
-            />
-            {revokeError ? (
-              <div role="alert">
-                <p>{revokeError}</p>
-              </div>
-            ) : null}
-            <div className="cu-actions">
-              <Button onPress={() => setRevoking(undefined)} isDisabled={busy}>
-                {t('cancel')}
-              </Button>
-              <Button
-                variant="danger"
-                isDisabled={busy || !validRevokeReason(reason)}
-                onPress={() => void revoke()}
-              >
-                {t('revoke')}
-              </Button>
+            <div className="ca-dialog">
+              {revoking ? (
+                <>
+                  <p>
+                    <strong>{teamLabel(revoking)}</strong> · {segmentLabel(revoking.segmentId)} ·{' '}
+                    {t(`permissions.${revoking.permission}`)}
+                  </p>
+                  <p>{t(`revokeBody.${revoking.permission}`)}</p>
+                  {keptPermission ? (
+                    <p>{t('revokeKeeps', { permission: t(`permissions.${keptPermission}`) })}</p>
+                  ) : null}
+                  <p className="cu-muted">{t('revokeAgain')}</p>
+                </>
+              ) : null}
+              <TextField
+                label={t('reason')}
+                description={t('reasonHint')}
+                value={reason}
+                onChange={setReason}
+                isDisabled={busy}
+              />
+              {revokeError ? (
+                <div role="alert" className="cu-alert">
+                  <p>{revokeError}</p>
+                </div>
+              ) : null}
             </div>
           </Dialog>
         </>

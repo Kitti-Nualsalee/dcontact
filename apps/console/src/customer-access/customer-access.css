@@ -1,0 +1,69 @@
+/* #915: หน้าสิทธิ์ทีมเห็นลูกค้า — ตารางไม่ตรึงสัดส่วนคอลัมน์แบบ .cu-table และ scroll แนวนอนอย่างตั้งใจบนจอแคบ */
+.ca-perms {
+  margin-block: var(--dc-space-5);
+  padding: var(--dc-space-5);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+}
+.ca-perms h2 {
+  font-size: var(--dc-text-base);
+}
+.ca-perms dl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+  margin: 0 0 var(--dc-space-4);
+}
+.ca-perms dl > div {
+  display: grid;
+  grid-template-columns: minmax(10rem, max-content) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--dc-space-2) var(--dc-space-4);
+}
+.ca-perms dd {
+  margin: 0;
+  color: var(--dc-text-secondary);
+}
+.ca-perms > p {
+  margin: 0;
+}
+.ca-duplicate {
+  margin-block: var(--dc-space-3);
+}
+.ca-link {
+  color: var(--dc-text-brand);
+  font-weight: var(--dc-weight-semibold);
+}
+.ca-scroll {
+  overflow-x: auto;
+}
+.ca-scroll:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+.ca-table {
+  min-width: 36rem;
+}
+.ca-table td {
+  overflow-wrap: break-word;
+}
+.ca-badge {
+  white-space: normal;
+}
+.ca-id {
+  overflow-wrap: anywhere;
+}
+.ca-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-3);
+}
+.ca-dialog p {
+  margin: 0;
+}
+@media (max-width: 40rem) {
+  .ca-perms dl > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
