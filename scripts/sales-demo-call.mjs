@@ -89,20 +89,21 @@ const channels = () => JSON.parse(fs('show channels as json')).rows ?? [];
  * ขาที่ trunk `pstn-sim` รับเข้า (ขาลูกค้าที่ Router เห็น) ของสายนี้
  * ขาที่ originate ไม่รู้ว่าอีกฝั่งวางสาย (BYE ไม่กลับมาถึง) จึงใช้ขานี้ตัดสินว่าสายยังอยู่ไหม
  */
-const trunkLeg = (rows, since) =>
-  rows.find(
-    (row) =>
-      row.name.startsWith('sofia/pstn-sim/') &&
-      row.initial_cid_num === callerNumber &&
-      Number(row.created_epoch) >= since,
-  );
+const isTrunkLeg = (row) =>
+  row.name.startsWith('sofia/pstn-sim/') && row.initial_cid_num === callerNumber;
+
+/**
+ * ไม่เทียบเวลา: นาฬิกาภายใน FreeSWITCH ใน Docker Desktop คลาดจากเครื่องได้หลายนาทีหลัง Mac sleep
+ * จึงถือว่าขา trunk ของสายนี้คือขาที่ไม่มีอยู่ก่อน originate
+ */
+const trunkLeg = (rows, existing) => rows.find((row) => isTrunkLeg(row) && !existing.has(row.uuid));
 
 /** รอจน Agent รับสาย: ขาไปหา Agent (bridge จากขา trunk) อยู่ในสถานะ ACTIVE */
-async function waitAnswered(since) {
+async function waitAnswered(existing) {
   let queued = false;
   for (let i = 0; i < 200; i += 1) {
     const rows = channels();
-    const trunk = trunkLeg(rows, since);
+    const trunk = trunkLeg(rows, existing);
     if (trunk) {
       if (!queued)
         console.log('สายเข้าคิวแล้ว ถ้า Agent ยังไม่เปิดรับสาย กด "เปิดรับสาย" ตอนนี้ได้');
@@ -132,7 +133,11 @@ async function main() {
     `sip_route_uri=sip:${address}:5080`,
   ].join(',');
   const app = echo ? '&echo' : '&park';
-  const since = Math.floor(Date.now() / 1000) - 1;
+  const existing = new Set(
+    channels()
+      .filter(isTrunkLeg)
+      .map((row) => row.uuid),
+  );
   const job = fs(`bgapi originate {${vars}}sofia/internal/2000@${address}:5080 ${app}`);
   if (!job.startsWith('+OK')) throw new Error(`FreeSWITCH ไม่รับคำสั่งโทร: ${job}`);
 
@@ -145,7 +150,7 @@ async function main() {
   });
 
   console.log(`โทรเข้าคิว 2000 จาก ${callerNumber} แล้ว รอ Agent รับสาย (สูงสุด 90 วินาที)…`);
-  const trunk = await waitAnswered(since);
+  const trunk = await waitAnswered(existing);
   if (!trunk) {
     hangup();
     throw new Error(
