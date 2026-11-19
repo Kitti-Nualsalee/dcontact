@@ -119,7 +119,7 @@ test('เลือก candidate เองโดยไม่ auto-link แม้�
   expect(f.mutations()).toBe(0);
   await page.getByRole('button', { name: 'เลือกเชื่อมลูกค้า' }).click();
   await page.getByRole('button', { name: 'ยืนยัน', exact: true }).click();
-  await expect(page.getByText('บันทึกและอ่านข้อมูลปัจจุบันกลับแล้ว')).toBeVisible();
+  await expect(page.getByText('บันทึกข้อมูลลูกค้าแล้ว')).toBeVisible();
   expect(f.mutations()).toBe(1);
   await privateDraft(page, '+6621234511');
 });
@@ -149,7 +149,7 @@ test('responseหายหลังบันทึก ใช้commandเดิ�
   page.once('dialog', (dialog) => void dialog.accept());
   await page.reload();
   await page.getByRole('button', { name: 'ตรวจผลคำสั่งเดิม' }).click();
-  await expect(page.getByText('บันทึกและอ่านข้อมูลปัจจุบันกลับแล้ว')).toBeVisible();
+  await expect(page.getByText('บันทึกข้อมูลลูกค้าแล้ว')).toBeVisible();
   expect(f.mutations()).toBe(1);
 });
 test('ถอดหรือเปลี่ยนลูกค้าต้องยืนยันพร้อมเหตุผลและจอ768ไม่ล้น', async ({ page }) => {

@@ -10,14 +10,14 @@
     "authRequired": "Session unavailable. Your draft and current call remain here; new calls stay closed.",
     "signIn": "Sign in again"
   },
-  "availabilityFailed": "Server could not confirm call availability. New calls remain closed.",
+  "availabilityFailed": "Couldn't start taking calls. Try again.",
   "snapshotLoadFailed": "Could not load status from the API; remote control is not available yet",
   "offerConfirmFailed": "Could not confirm the incoming offer with the API",
   "autoplayBlocked": "The browser blocked incoming call audio. Allow audio playback and try again.",
   "micEnded": "The microphone stopped. New calls are closed; check your audio device again.",
   "micBlocked": "Workspace cannot use the microphone. Allow access or connect an audio device and try again.",
   "registerFailed": "dphone registration failed, so new calls stay closed",
-  "wrapupFailed": "Could not submit the disposition. Try again with the same data.",
+  "wrapupFailed": "Couldn't save the result. Try again; what you entered is kept.",
   "readiness": {
     "UNCHECKED": "Device not checked",
     "CHECKING": "Checking audio device",
@@ -42,8 +42,8 @@
     "checking": "Checking tab",
     "working": "Working tab",
     "passive": "View-only tab",
-    "available": "AVAILABLE",
-    "offline": "OFFLINE",
+    "available": "Taking calls",
+    "offline": "Not taking calls",
     "dphone": "dphone status",
     "signOut": "Sign out"
   },
@@ -60,7 +60,7 @@
   },
   "grid": "Call readiness",
   "offer": {
-    "step": "VOICE OFFER",
+    "step": "Incoming call",
     "title": "Incoming call",
     "noNumber": "Number withheld",
     "queue": "Queue",
@@ -73,14 +73,14 @@
     "title": "Call controls"
   },
   "wrapup": {
-    "step": "WRAP-UP",
+    "step": "After the call",
     "title": "After-call wrap-up",
-    "copy": "Submit a disposition before returning to available",
-    "choose": "Choose a disposition",
+    "copy": "Choose a call result and write a note before your next call",
+    "choose": "Call result",
     "assisted": "Customer assisted",
     "followUp": "Follow-up required",
-    "submit": "Submit disposition",
-    "pending": "Waiting for server confirmation",
+    "submit": "Save result",
+    "pending": "Saving…",
     "reconciling": "Checking the command and recorded result before accepting new work",
     "recoveringInteraction": "The unfinished command belongs to interaction {{interactionId}}, not new work",
     "note": "Summary note",
@@ -97,31 +97,31 @@
     "step": "Step 1",
     "title": "Prepare audio device",
     "indicator": "Audio device readiness",
-    "copy": "The system asks for the microphone and checks that the browser can open a media stream before allowing voice offers",
+    "copy": "The system asks for your microphone and tests audio before you can take calls",
     "device": "MIC",
     "mic": "Primary microphone",
-    "micHint": "Checked through browser MediaDevices",
+    "micHint": "The microphone your browser is using",
     "checking": "Checking…",
     "check": "Check audio device"
   },
   "availability": {
-    "pending": "Waiting for server confirmation…",
+    "pending": "Turning on calls…",
     "step": "Step 2",
     "title": "Call availability",
     "ready": "Available for calls",
     "notReady": "Not available for calls",
-    "readyHint": "The router can send voice offers to this working tab",
+    "readyHint": "Calls from your queues will arrive on this page",
     "notReadyHint": "Pass the audio device check before opening for calls",
     "open": "Open for calls"
   },
   "authority": {
-    "step": "Authority boundary",
-    "title": "Trusted state",
-    "interaction": "Interaction",
-    "routerApi": "Router / API",
-    "media": "Browser media",
-    "presence": "Presence",
-    "note": "The browser shows a projection and sends intents only; it never creates durable interaction state"
+    "step": "Status",
+    "title": "Current status",
+    "interaction": "Work",
+    "media": "Audio device",
+    "presence": "Agent status",
+    "note": "Status in this box updates automatically from the system",
+    "noWork": "No work"
   },
   "passive": {
     "eyebrow": "SINGLE WORKING TAB",
@@ -211,16 +211,16 @@
   "customer": {
     "title": "Customer for this work",
     "loading": "Checking customer information",
-    "unavailable": "Customer information or access is unavailable. Reauthenticate and retry.",
-    "quarantined": "Customer information is hidden and the draft stays in memory. Voice continues under its existing policy.",
-    "reauthenticate": "Reauthenticate this work",
+    "unavailable": "Confirm your identity again to see customer information",
+    "quarantined": "Customer information is hidden for now. Your draft is kept and the call continues as normal.",
+    "reauthenticate": "Confirm identity",
     "checkCommand": "Check existing command",
     "unknown": "Save outcome is unknown. Check status before starting another command.",
     "notApplied": "The command had no committed effect. Review the draft before retrying.",
     "conflict": "The customer or work changed. Review the latest information before saving.",
-    "saved": "Saved and read back the current customer",
+    "saved": "Customer details saved",
     "savedChanged": "The command succeeded, but the current information has changed again.",
-    "unchanged": "No changes; read back the current customer",
+    "unchanged": "No changes to customer details",
     "empty": "No selectable customers found. Work may continue without a customer link.",
     "unverified": "Matches do not verify identity. Always select explicitly.",
     "unnamed": "Unnamed customer",
@@ -248,5 +248,13 @@
     "retry": "Retry reading customer"
   },
   "extensionCallFailed": "D-Phone could not complete the action. Check the call status and try again.",
-  "extensionAudioBlocked": "Enable audio in the D-Phone tab to hear the call."
+  "extensionAudioBlocked": "Enable audio in the D-Phone tab to hear the call.",
+  "agentState": {
+    "OFFLINE": "Offline",
+    "AVAILABLE": "Available",
+    "RESERVED": "Call offered",
+    "BUSY": "On a call",
+    "ACW": "After-call work",
+    "BREAK": "On break"
+  }
 }

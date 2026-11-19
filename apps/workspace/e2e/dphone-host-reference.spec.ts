@@ -49,7 +49,7 @@ test('launcher release เปิด owner ผ่าน sandbox และรั�
   server.state = 'WRAPUP';
   await phone.getByRole('button', { name: 'วางสาย' }).click();
   await owner.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
-  await owner.getByRole('button', { name: 'ส่ง disposition' }).click();
+  await owner.getByRole('button', { name: 'บันทึกผล' }).click();
   await expect(page.locator('#activities li')).toHaveText([
     'interaction-embed-1 · CUSTOMER_ASSISTED · 120 วินาที',
   ]);
@@ -113,7 +113,7 @@ for (const version of ['v1', 'v1.0.1']) {
     server.state = 'WRAPUP';
     await dphone.getByRole('button', { name: 'วางสาย' }).click();
     await frame.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
-    await frame.getByRole('button', { name: 'ส่ง disposition' }).click();
+    await frame.getByRole('button', { name: 'บันทึกผล' }).click();
     await expect(page.locator('#activities li')).toHaveText([
       'interaction-embed-1 · CUSTOMER_ASSISTED · 120 วินาที',
     ]);

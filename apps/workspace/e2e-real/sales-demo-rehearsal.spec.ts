@@ -99,7 +99,7 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
   if (await pending.isVisible({ timeout: 3_000 }).catch(() => false)) {
     await pending.click();
     await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('ปิดงานค้างจากรอบซ้อมก่อนหน้า');
-    await page.getByRole('button', { name: 'ส่ง disposition' }).click();
+    await page.getByRole('button', { name: 'บันทึกผล' }).click();
     await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
   }
   await page.getByRole('tab', { name: 'ภาพรวม' }).click();
@@ -117,7 +117,7 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
 
     // Cus360 ต้องยืนยัน session ของงานกับ server ก่อนแสดงข้อมูลลูกค้า (เหมือนรอบทดลอง #796)
     const unlinked = page.getByText('งานนี้ยังไม่เชื่อมกับลูกค้า');
-    const confirmSession = page.getByRole('button', { name: 'ยืนยัน session ของงานเดิม' });
+    const confirmSession = page.getByRole('button', { name: 'ยืนยันตัวตน' });
     await expect(unlinked.or(confirmSession).first()).toBeVisible();
     if (await confirmSession.isVisible()) await confirmSession.click();
     await expect(unlinked).toBeVisible();
@@ -126,14 +126,14 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
     await page.getByRole('button', { name: 'เลือกเชื่อมลูกค้า' }).click();
     await shot('03-customer-found');
     await page.getByRole('button', { name: 'ยืนยัน', exact: true }).click();
-    await expect(page.getByText('บันทึกและอ่านข้อมูลปัจจุบันกลับแล้ว')).toBeVisible();
+    await expect(page.getByText('บันทึกข้อมูลลูกค้าแล้ว')).toBeVisible();
 
     await page.getByRole('button', { name: 'แก้ชื่อและบริษัท' }).click();
     // ค่าต้องต่างจากรอบก่อน ไม่งั้น server ตอบว่าข้อมูลไม่เปลี่ยนแปลง
     const stamp = new Date().toLocaleTimeString('th-TH', { hour12: false });
     await page.getByLabel('บริษัท').fill(`บริษัท สยามโลจิสติกส์ จำกัด (ซ้อม ${stamp})`);
     await page.getByRole('button', { name: 'บันทึกลูกค้า' }).click();
-    await expect(page.getByText('บันทึกและอ่านข้อมูลปัจจุบันกลับแล้ว')).toBeVisible();
+    await expect(page.getByText('บันทึกข้อมูลลูกค้าแล้ว')).toBeVisible();
     await shot('04-customer-linked');
 
     await dphone.getByRole('button', { name: 'วางสาย' }).click();
@@ -147,7 +147,7 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
     .getByRole('textbox', { name: 'โน้ตสรุป' })
     .fill('ลูกค้าสอบถามสถานะการจัดส่ง แจ้งกำหนดส่งแล้ว');
   await shot('05-wrapup');
-  await page.getByRole('button', { name: 'ส่ง disposition' }).click();
+  await page.getByRole('button', { name: 'บันทึกผล' }).click();
   await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
   await shot('06-saved');
 

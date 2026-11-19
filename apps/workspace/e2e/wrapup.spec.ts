@@ -76,20 +76,20 @@ for (const outcome of ['success', 'unknown'] as const) {
     );
     await page.goto('/');
     await page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
-    await expect(page.getByRole('button', { name: 'ส่ง disposition' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'บันทึกผล' })).toBeDisabled();
     await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('😀'.repeat(2001));
-    await expect(page.getByRole('button', { name: 'ส่ง disposition' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'บันทึกผล' })).toBeDisabled();
     await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('  ทดสอบ 😀\r\nplain text  ');
-    await page.getByRole('button', { name: 'ส่ง disposition' }).click();
+    await page.getByRole('button', { name: 'บันทึกผล' }).click();
     if (outcome === 'unknown') {
       await expect(page.getByText(/ยังไม่ทราบผลบันทึก/)).toBeVisible();
       await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toBeDisabled();
       await page.getByRole('button', { name: 'ตรวจผลที่บันทึก' }).click();
       await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toBeDisabled();
-      await page.getByRole('button', { name: 'ส่ง disposition' }).click();
+      await page.getByRole('button', { name: 'บันทึกผล' }).click();
       await expect(page.getByText(/ยังไม่ทราบผลบันทึก/)).toBeVisible();
       await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toBeDisabled();
-      await page.getByRole('button', { name: 'ส่ง disposition' }).click();
+      await page.getByRole('button', { name: 'บันทึกผล' }).click();
     }
     await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
     const history = page.getByRole('link', { name: 'เปิดผลในประวัติงาน (แท็บใหม่)' });
@@ -175,9 +175,9 @@ test('Agent ส่ง disposition จาก WRAPUP และรอ authoritative
   await page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).focus();
   await expect(page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' })).toBeFocused();
   await page.keyboard.press('Enter');
-  await page.getByRole('button', { name: 'ส่ง disposition' }).focus();
+  await page.getByRole('button', { name: 'บันทึกผล' }).focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByText('กำลังรอ server ยืนยัน')).toBeVisible();
+  await expect(page.getByText('กำลังบันทึก…')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'สรุปผลหลังสาย' })).toHaveCount(0);
   expect(requestBody).toMatchObject({ disposition: 'CUSTOMER_ASSISTED' });
   expect(requestBody?.commandId).toEqual(expect.any(String));
