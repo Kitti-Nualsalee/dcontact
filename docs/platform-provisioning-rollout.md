@@ -116,6 +116,22 @@ tenant ที่ปิดงานก่อน release นี้ไม่มี 
 `SELECT dc_platform_bind_first_admin('<tenant>'::uuid, '<request>'::uuid, '<issuer>', '<client>')` — ฟังก์ชันตรวจหลักฐาน
 ชุดเดียวกันและเรียกซ้ำได้โดยไม่เพิ่ม revision ค่าที่ต่างจาก binding เดิมได้ `PLATFORM_BINDING_CONFLICT`
 
+## สิทธิ์สร้างลูกค้าของ First admin (#914)
+
+ใน transaction เดียวกัน หลังผูก binding worker เรียก `dc_platform_grant_first_admin_contact_create(tenant, request)`
+(EXECUTE เฉพาะ `dcontact_platform`) เพื่อให้ first admin ได้ capability `CONTACT_CREATE` ของ Customer 360 ทันที
+จึงสร้างและนำเข้าลูกค้าจาก CSV ได้โดยไม่ต้องมี operator ที่เป็นสมาชิก tenant (ซึ่งขัด #387) owner เลือกทางนี้ 19 พ.ย. 2569
+
+- ผู้รับคือผู้ใช้ที่มี binding `PLATFORM_PROVISIONING` ของ request นี้ ยัง active และยังเป็น ADMIN ไม่มีผู้เรียกระบุผู้รับเอง
+- บันทึกตาม engine ของ Cus360 ครบ: admission (`c360_profile_commands`), grant, audit และ receipt `APPLIED` ใต้
+  `actor_identity_key = platform-provisioning` และ command id ที่คำนวณจาก request; evidence คือ `platform-provisioning:<request>`
+- เรียกซ้ำได้ผล `NO_OP` ถ้าเคยให้แล้ว หรือ first admin มีสิทธิ์จากทางอื่นอยู่แล้ว และถ้า grant ถูกถอนไปแล้วจะไม่ให้ใหม่
+- ไม่มี binding ของ request = `PLATFORM_CAPABILITY_BINDING_MISSING` และ transaction ปิดงานทั้งหมด rollback เหมือน binding
+
+tenant ที่ปิดงานก่อน release นี้ backfill ด้วย role `dcontact_platform` หลัง binding มีแล้ว:
+`SELECT dc_platform_grant_first_admin_contact_create('<tenant>'::uuid, '<request>'::uuid)`
+Admin คนอื่นนอกจาก first admin ยังต้องใช้ operator command เดิม (ดู `docs/cus360-c1-handoff.md`)
+
 ## Distributed trace (A1.8b #473)
 
 - OpenTelemetry SDK + OTLP: ตั้ง `OTEL_EXPORTER_OTLP_ENDPOINT` (เช่น `http://collector:4318`) ให้ทั้ง Platform API

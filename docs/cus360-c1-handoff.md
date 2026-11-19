@@ -66,6 +66,11 @@ merge SHA ของ S5 (PR ที่เพิ่มเอกสารนี้) 
 
 `POST /api/v1/customer-360/operator/commands` เฉพาะ realm role `platform-operator`
 
+first admin ของ tenant ที่ Platform สร้างได้ `CONTACT_CREATE` ตอน provisioning แล้ว (#914, ดู
+`docs/platform-provisioning-rollout.md`) operator command ยังใช้กับ Admin คนอื่นและการถอน ข้อควรรู้: gateway รับเฉพาะ
+token ที่มี `dc_user_id` ของบัญชีที่ active ใน tenant (local account admission) แต่ #387 ห้าม platform identity เป็น
+สมาชิก tenant route นี้จึงยังใช้บน UAT ไม่ได้จนกว่าจะมีทางของ Platform เอง
+
 ```json
 { "commandId": "<uuid>", "evidenceRef": "ticket:OPS-123", "reasonCode": "APPROVED_CUSTODIAN",
   "dryRun": true, "command": { "action": "CUSTODIAN_GRANT", "contactId": "<uuid>",

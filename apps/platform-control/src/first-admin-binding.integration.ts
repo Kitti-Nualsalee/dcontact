@@ -132,7 +132,33 @@ async function setup(
     client.$queryRaw<{ revision: number }[]>`
       SELECT dc_platform_bind_first_admin(${accepted.tenantId}::uuid, ${accepted.requestId}::uuid,
         ${context.issuer}, ${context.clientId}) AS revision`;
-  return { f, accepted, drain, state, bindings, audits, bind, organizations, subjects };
+  const grantContactCreate = (client: Fixture['platform']) =>
+    client.$queryRaw<{ outcome: string }[]>`
+      SELECT dc_platform_grant_first_admin_contact_create(${accepted.tenantId}::uuid,
+        ${accepted.requestId}::uuid) AS outcome`;
+  const capability = async () => ({
+    grants: await f.owner.c360ActorCapabilityGrant.findMany({
+      where: { tenantId: accepted.tenantId },
+    }),
+    commands: await f.owner.c360ProfileCommand.findMany({ where: { tenantId: accepted.tenantId } }),
+    receipts: await f.owner.c360ProfileCommandReceipt.findMany({
+      where: { tenantId: accepted.tenantId },
+    }),
+    audits: await f.owner.c360ProfileAudit.findMany({ where: { tenantId: accepted.tenantId } }),
+  });
+  return {
+    f,
+    accepted,
+    drain,
+    state,
+    bindings,
+    audits,
+    bind,
+    grantContactCreate,
+    capability,
+    organizations,
+    subjects,
+  };
 }
 
 async function rejects(work: Promise<unknown>, pattern: RegExp) {
@@ -237,4 +263,90 @@ test('tenant app อ่าน binding ได้ภายใต้ RLS แต่�
     seen.map((row) => row.revision),
     [1],
   );
+});
+
+test('#914: saga ให้ CONTACT_CREATE แก่ first admin พร้อม command/receipt/audit และเรียกซ้ำไม่ให้ซ้ำ', async (t) => {
+  const s = await setup(t);
+  await s.drain();
+  const userId = firstAdminUserId(s.accepted.requestId);
+  const evidence = `platform-provisioning:${s.accepted.requestId}`;
+  const first = await s.capability();
+  assert.equal(first.grants.length, 1);
+  const [grant] = first.grants;
+  assert.deepEqual(
+    [grant!.granteeUserId, grant!.capability, grant!.evidenceRef, grant!.actorUserId],
+    [userId, 'CONTACT_CREATE', evidence, null],
+  );
+  assert.equal(first.commands.length, 1);
+  const [command] = first.commands;
+  assert.deepEqual(
+    [command!.action, command!.resourceType, command!.resourceId, command!.isTombstone],
+    ['CAPABILITY_GRANT', 'USER', userId, false],
+  );
+  assert.equal(command!.commandId, grant!.commandId);
+  assert.match(command!.payloadDigest ?? '', /^[a-f0-9]{64}$/);
+  assert.deepEqual(
+    first.receipts.map((receipt) => [receipt.outcome, receipt.httpStatus, receipt.resourceRefs]),
+    [['APPLIED', 200, [{ type: 'USER', id: userId }]]],
+  );
+  assert.deepEqual(
+    first.audits.map((audit) => [audit.operation, audit.resourceId, audit.evidenceRefs]),
+    [['CAPABILITY_GRANT', userId, [evidence, `requested-by:${OPERATOR.subject}`]]],
+  );
+
+  // เรียกซ้ำ (เช่น backfill ซ้ำ) = NO_OP ไม่มีแถวใหม่
+  assert.deepEqual(await s.grantContactCreate(s.f.platform), [{ outcome: 'NO_OP' }]);
+  const again = await s.capability();
+  assert.deepEqual(
+    [again.grants.length, again.commands.length, again.receipts.length, again.audits.length],
+    [1, 1, 1, 1],
+  );
+
+  // query เดียวกับ authorizeC360ContactCreate ภายใต้ RLS ของ tenant app
+  const allowed = await s.f.application.$transaction(async (transaction) => {
+    await transaction.$executeRawUnsafe(
+      `SELECT set_config('app.tenant_id', $1, true)`,
+      s.accepted.tenantId,
+    );
+    return transaction.$queryRaw<{ allowed: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM users u
+        JOIN c360_actor_capability_grants g
+          ON g.tenant_id = u.tenant_id AND g.grantee_user_id = u.id AND g.capability = 'CONTACT_CREATE'
+        WHERE u.tenant_id = ${s.accepted.tenantId}::uuid AND u.id = ${userId}::uuid
+          AND u.is_active AND u.role::text = 'ADMIN'
+          AND NOT EXISTS (SELECT 1 FROM c360_actor_capability_revocations r
+                          WHERE r.tenant_id = g.tenant_id AND r.grant_id = g.id)
+      ) AS allowed`;
+  });
+  assert.deepEqual(allowed, [{ allowed: true }]);
+});
+
+test('#914: ถอนแล้วเรียกซ้ำไม่ให้ใหม่; ต้องมี binding ก่อน; เรียกได้เฉพาะ role platform', async (t) => {
+  const s = await setup(t, { tenantConsole: null });
+  await s.drain();
+  assert.equal((await s.state()).status, 'SUCCEEDED');
+  // ไม่มี binding ของ request นี้ = ไม่รู้ว่าใครคือ first admin ที่ยืนยันแล้ว
+  await rejects(s.grantContactCreate(s.f.platform), /PLATFORM_CAPABILITY_BINDING_MISSING/);
+  await rejects(s.grantContactCreate(s.f.provisioner), /permission denied/);
+  await rejects(s.grantContactCreate(s.f.application), /permission denied/);
+
+  // backfill ของ tenant เดิม: bind แล้วให้สิทธิ์ด้วย role platform
+  await s.bind(s.f.platform);
+  assert.deepEqual(await s.grantContactCreate(s.f.platform), [{ outcome: 'APPLIED' }]);
+  const [grant] = (await s.capability()).grants;
+  await s.f.owner.c360ActorCapabilityRevocation.create({
+    data: {
+      id: randomUUID(),
+      tenantId: s.accepted.tenantId,
+      grantId: grant!.id,
+      actorIdentityKey: grant!.actorIdentityKey,
+      commandId: grant!.commandId,
+      actorUserId: null,
+      reason: 'TEST_REVOKE',
+      evidenceRef: 'ticket:TEST-914',
+    },
+  });
+  assert.deepEqual(await s.grantContactCreate(s.f.platform), [{ outcome: 'NO_OP' }]);
+  assert.equal((await s.capability()).grants.length, 1);
 });
