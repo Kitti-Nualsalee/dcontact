@@ -82,7 +82,7 @@ for (const receiptMode of ['committed', 'racing'] as const) {
     await dphone.getByRole('button', { name: 'วางสาย' }).click();
     await frame.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
     await frame.getByRole('textbox', { name: 'โน้ตสรุป' }).fill(note);
-    await frame.getByRole('button', { name: 'ส่ง disposition' }).click();
+    await frame.getByRole('button', { name: 'บันทึกผล' }).click();
     await frame.getByRole('button', { name: 'ตรวจผลที่บันทึก' }).click();
     await expect(frame.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
     await expect(frame.getByText(note, { exact: true })).toBeVisible();
@@ -147,7 +147,7 @@ test('ฝังบน host: ready → popup login → lease embedded → สา�
   server.state = 'WRAPUP';
   await dphone.getByRole('button', { name: 'วางสาย' }).click();
   await frame.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
-  await frame.getByRole('button', { name: 'ส่ง disposition' }).click();
+  await frame.getByRole('button', { name: 'บันทึกผล' }).click();
   await expect
     .poll(async () => (await messages(page)).filter((m) => m.type === 'dphone.activity'))
     .toHaveLength(1);

@@ -20,7 +20,7 @@ test('เปิดรับสายรอ server acknowledgement และก�
   await page.getByRole('button', { name: 'เปิดรับสาย' }).click();
   await expect.poll(() => requests, { timeout: 2000 }).toBe(1);
   await expect(page.getByText('พร้อมรับสาย', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'กำลังยืนยันกับ server…' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'กำลังเปิดรับสาย…' })).toBeDisabled();
   confirm();
   await expect(page.getByText('พร้อมรับสาย', { exact: true })).toBeVisible();
   expect(requests).toBe(1);
@@ -34,9 +34,7 @@ test('server ปฏิเสธ availability ยัง OFFLINE และแจ�
   await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
   await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('โทรศัพท์พร้อม');
   await page.getByRole('button', { name: 'เปิดรับสาย' }).click();
-  await expect(
-    page.getByText('ยืนยันการเปิดรับสายกับ server ไม่สำเร็จ ระบบยังไม่เปิดรับสาย'),
-  ).toBeVisible();
+  await expect(page.getByText('เปิดรับสายไม่สำเร็จ โปรดลองอีกครั้ง')).toBeVisible();
   await expect(page.getByText('พร้อมรับสาย', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'เปิดรับสาย' })).toBeEnabled();
 });
@@ -62,7 +60,7 @@ test('ไมค์หยุดระหว่างรอ acknowledgement ห้
     testWindow.__dContactTestMediaTrack.dispatchEvent(new Event('ended'));
   });
   confirm();
-  await expect(page.getByText('กำลังยืนยันกับ server…')).toHaveCount(0);
+  await expect(page.getByText('กำลังเปิดรับสาย…')).toHaveCount(0);
   await expect(page.getByText('พร้อมรับสาย', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'เปิดรับสาย' })).toBeDisabled();
 });
@@ -95,7 +93,7 @@ test('ack เก่าหลังไมค์เสียและตรวจ�
   await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
   await expect(page.getByRole('status', { name: 'สถานะ dphone' })).toHaveText('โทรศัพท์พร้อม');
   confirm();
-  await expect(page.getByText('กำลังยืนยันกับ server…')).toHaveCount(0);
+  await expect(page.getByText('กำลังเปิดรับสาย…')).toHaveCount(0);
   await expect(page.getByText('พร้อมรับสาย', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'เปิดรับสาย' })).toBeEnabled();
 });

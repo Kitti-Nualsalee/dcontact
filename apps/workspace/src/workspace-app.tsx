@@ -1503,7 +1503,11 @@ function AgentWorkspace({
       <dl className="aw-facts">
         <div>
           <dt>{t('authority.interaction')}</dt>
-          <dd>{snapshot?.interaction?.state ?? t('authority.routerApi')}</dd>
+          <dd>
+            {snapshot?.interaction?.state
+              ? t(`layout.state.${snapshot.interaction.state}`)
+              : t('authority.noWork')}
+          </dd>
         </div>
         <div>
           <dt>
@@ -1513,7 +1517,7 @@ function AgentWorkspace({
         </div>
         <div>
           <dt>{t('authority.presence')}</dt>
-          <dd>{snapshot?.agent.state ?? availability}</dd>
+          <dd>{t(`agentState.${snapshot?.agent.state ?? availability}`)}</dd>
         </div>
       </dl>
       <p className="aw-note">{t('authority.note')}</p>

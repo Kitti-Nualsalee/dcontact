@@ -80,7 +80,7 @@ test('คำตอบ POST ของ identity เก่าไม่คืนร�
     });
   });
   await recoveryPage(page);
-  await page.getByRole('button', { name: 'ส่ง disposition', exact: true }).click();
+  await page.getByRole('button', { name: 'บันทึกผล', exact: true }).click();
   await expect.poll(() => received).toBe(true);
   await page.getByRole('button', { name: 'Other fixture', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).not.toBeVisible();
@@ -248,7 +248,7 @@ test('unknown หลัง refresh/reconnect ใช้ intent เดิมแล
     route.fulfill({ status: 409, json: { code: 'RESULT_NOT_COMMITTED' } }),
   );
   await recoveryPage(page, () => currentId);
-  await page.getByRole('button', { name: 'ส่ง disposition', exact: true }).click();
+  await page.getByRole('button', { name: 'บันทึกผล', exact: true }).click();
   await expect(page.getByText(/ยังไม่ทราบผลบันทึก/)).toBeVisible();
   currentId = nextId;
   await page.getByRole('button', { name: 'Refresh fixture', exact: true }).click();
@@ -257,8 +257,8 @@ test('unknown หลัง refresh/reconnect ใช้ intent เดิมแล
     page.getByText(`คำสั่งที่ยังไม่จบเป็นของงาน ${originalId} ไม่ใช่งานใหม่`),
   ).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'ส่ง disposition', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'ส่ง disposition', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'บันทึกผล', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'บันทึกผล', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'โน้ตสรุป' })).toHaveValue('');
   expect(attempts).toHaveLength(2);

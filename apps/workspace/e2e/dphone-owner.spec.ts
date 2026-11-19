@@ -66,7 +66,7 @@ test('owner รักษาสายและ lease เดิมเมื่อ 
   server.state = 'WRAPUP';
   await phone.getByRole('button', { name: 'วางสาย' }).click();
   await owner.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' }).click();
-  await owner.getByRole('button', { name: 'ส่ง disposition' }).click();
+  await owner.getByRole('button', { name: 'บันทึกผล' }).click();
   await expect
     .poll(async () =>
       (await messages(page)).filter((message) => message.type === 'dphone.activity'),
