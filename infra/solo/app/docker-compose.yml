@@ -1,0 +1,191 @@
+# #923: VM app ของ UAT แบบ D-Contact Solo (192.168.31.207)
+# รันระบบเต็มแบบเดียวกับ dev stack ฐานข้อมูลอยู่บน VM data และ TLS จบที่ nginx บน VM voice
+#
+# ใช้ผ่าน infra/solo/bin/solo-uat.sh เท่านั้น ไฟล์นี้อยู่ที่ /opt/dcontact-solo/app/ บน VM
+# solo.env (mode 600) อยู่ข้างไฟล์นี้ และมี secret ทั้งหมด — ห้าม commit
+#
+# พอร์ตที่เปิดออก host:
+#   SOLO_APP_IP:8080   web (Caddy) — รับเฉพาะ nginx บน VM voice
+#   127.0.0.1:8081     Keycloak — สำหรับ operator ผ่าน SSH tunnel เท่านั้น
+name: dcontact-solo
+
+x-service: &service
+  restart: unless-stopped
+  env_file: solo.env
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: 20m
+      max-file: '5'
+
+services:
+  redis:
+    <<: *service
+    image: redis:7.4-alpine
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '256mb']
+    mem_limit: 320m
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redpanda:
+    <<: *service
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --overprovisioned
+      - --mode dev-container
+      - --kafka-addr internal://0.0.0.0:29092
+      - --advertise-kafka-addr internal://redpanda:29092
+    mem_limit: 1400m
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ['CMD-SHELL', 'rpk cluster health | grep -q "Healthy:.*true"']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redpanda-init:
+    image: redpandadata/redpanda:v24.2.7
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: 'no'
+    entrypoint: >
+      /bin/sh -c "
+      rpk topic create dc.telephony.events dc.channel.events dc.interaction.events dc.agent.events dc.telephony.commands dc.channel.commands dc.journey.events dc.customer.events dc.admin.events dc.qm.jobs dc.qm.events dc.contact-governance.events dc.contact-governance.acknowledgements dc.case.commands dc.case.events dc.dialer.commands dc.dialer.events dc.delivery.commands dc.platform.dlq
+      --brokers redpanda:29092 --topic-config retention.ms=604800000 || true;
+      exit 0"
+
+  object-storage:
+    <<: *service
+    image: rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+    env_file: []
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY is required}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ENABLE: 'false'
+    mem_limit: 384m
+    volumes:
+      - object-storage-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:9000/health']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mailpit:
+    <<: *service
+    image: axllent/mailpit:v1.20
+    env_file: []
+    mem_limit: 96m
+
+  keycloak:
+    <<: *service
+    image: dcontact-solo/keycloak:${SOLO_IMAGE_TAG:?SOLO_IMAGE_TAG is required}
+    env_file: []
+    # production mode หลัง proxy: TLS จบที่ nginx บน VM voice, Keycloak ฟัง http ใน network ภายใน
+    # import realm ตอนบูตครั้งแรกเท่านั้น (realm ที่มีอยู่แล้วไม่ถูกเขียนทับ)
+    command: ['start', '--import-realm', '--features=organization']
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://${SOLO_DATA_IP:?SOLO_DATA_IP is required}:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${SOLO_KEYCLOAK_DB_PASSWORD:?SOLO_KEYCLOAK_DB_PASSWORD is required}
+      KC_HOSTNAME: https://${SOLO_CONSOLE_HOST:?SOLO_CONSOLE_HOST is required}/auth
+      KC_HOSTNAME_STRICT: 'true'
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HTTP_ENABLED: 'true'
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: 'true'
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME:?KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME is required}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD:?KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD is required}
+      JAVA_OPTS_KC_HEAP: -Xms256m -Xmx768m
+    mem_limit: 1200m
+    ports:
+      - '127.0.0.1:8081:8080'
+    volumes:
+      - ./keycloak-import:/opt/keycloak/data/import:ro
+    healthcheck:
+      # เหมือน UAT (#680): ตรวจ status line = 200 ไม่ grep คำว่า UP ทั้ง body
+      test:
+        - CMD
+        - bash
+        - -c
+        - exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /auth/health/ready HTTP/1.0\r\n\r\n' >&3 && grep -m 1 '^HTTP/' <&3 | grep -q ' 200 '
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  api:
+    <<: *service
+    image: dcontact-solo/services:${SOLO_IMAGE_TAG}
+    working_dir: /app/api
+    command: ['node', 'dist/main.js']
+    environment:
+      PORT: '3000'
+    mem_limit: 900m
+    depends_on:
+      redis:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+
+  router:
+    <<: *service
+    image: dcontact-solo/services:${SOLO_IMAGE_TAG}
+    working_dir: /app/router
+    command: ['node', 'dist/main.js']
+    mem_limit: 384m
+    depends_on:
+      redis:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+
+  telephony:
+    <<: *service
+    image: dcontact-solo/services:${SOLO_IMAGE_TAG}
+    working_dir: /app/telephony
+    command: ['node', 'dist/main.js']
+    mem_limit: 384m
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+
+  web:
+    <<: *service
+    image: dcontact-solo/web:${SOLO_IMAGE_TAG}
+    env_file: []
+    environment:
+      SOLO_CONSOLE_HOST: ${SOLO_CONSOLE_HOST}
+      SOLO_WORKSPACE_HOST: ${SOLO_WORKSPACE_HOST:?SOLO_WORKSPACE_HOST is required}
+      SOLO_VOICE_IP: ${SOLO_VOICE_IP:?SOLO_VOICE_IP is required}
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    ports:
+      - '${SOLO_APP_IP:?SOLO_APP_IP is required}:8080:8080'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - api
+      - keycloak
+
+volumes:
+  redis-data:
+  redpanda-data:
+  object-storage-data:

@@ -1,0 +1,26 @@
+<configuration name="acl.conf" description="Network Lists">
+  <network-lists>
+    <list name="localnet.auto" default="allow"/>
+    <!-- #923 Solo: ทุกเครื่องใน LAN ส่งเสียงตรงถึง VM voice ได้ จึงถือ private range เป็น local -->
+    <list name="dcontact_media_local" default="deny">
+      <node type="allow" cidr="10.0.0.0/8"/>
+      <node type="allow" cidr="172.16.0.0/12"/>
+      <node type="allow" cidr="192.168.0.0/16"/>
+    </list>
+    <!-- ICE candidate ของ browser ใน LAN ไม่มี TURN ใน Solo -->
+    <list name="dcontact_webrtc_candidates" default="deny">
+      <node type="allow" cidr="10.0.0.0/8"/>
+      <node type="allow" cidr="172.16.0.0/12"/>
+      <node type="allow" cidr="192.168.0.0/16"/>
+    </list>
+    <!-- profile pstn-sim (5080) รับสายเฉพาะ Kamailio ซึ่งอยู่บน VM เดียวกัน (ADR-038) -->
+    <list name="dcontact_pstn_sim" default="deny">
+      <node type="allow" cidr="__SOLO_VOICE_IP__/32"/>
+    </list>
+    <!-- ESL รับเฉพาะ Telephony บน VM app และ fs_cli ในเครื่อง -->
+    <list name="esl_allow" default="deny">
+      <node type="allow" cidr="__SOLO_APP_IP__/32"/>
+      <node type="allow" cidr="127.0.0.1/32"/>
+    </list>
+  </network-lists>
+</configuration>

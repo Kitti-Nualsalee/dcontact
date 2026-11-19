@@ -1,0 +1,71 @@
+# #923: web ของ VM app ใน UAT Solo — TLS จบที่ nginx บน VM voice แล้วส่งมาที่นี่ด้วย HTTP
+# รับเฉพาะ IP ของ VM voice; ผู้ใช้จริงอ่านจาก X-Forwarded-For ที่ nginx ใส่
+{
+	admin off
+	persist_config off
+	auto_https off
+	servers {
+		trusted_proxies static {$SOLO_VOICE_IP}/32
+		client_ip_headers X-Forwarded-For
+	}
+}
+
+:8080 {
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	route {
+		@notVoice not remote_ip {$SOLO_VOICE_IP}/32
+		respond @notVoice 403
+
+		# directory ของ FreeSWITCH (xml_curl) ตอบเฉพาะคำขอที่มาจาก VM voice ตรง ไม่ผ่าน nginx
+		@internal path /internal/*
+		@internalFromBrowser {
+			path /internal/*
+			not client_ip {$SOLO_VOICE_IP}/32
+		}
+		respond @internalFromBrowser 404
+		handle @internal {
+			reverse_proxy api:3000
+		}
+
+		@keycloakAdmin path /auth/admin /auth/admin/* /auth/realms/master /auth/realms/master/* /auth/metrics /auth/health /auth/health/*
+		respond @keycloakAdmin 404
+		handle /auth/* {
+			reverse_proxy keycloak:8080 {
+				header_up X-Forwarded-Proto https
+			}
+		}
+
+		handle /api/* {
+			reverse_proxy api:3000
+		}
+		handle /dphone/* {
+			header -X-Frame-Options
+			reverse_proxy api:3000
+		}
+		handle /embed/* {
+			reverse_proxy api:3000
+		}
+		handle_path /workspace/* {
+			root * /srv/workspace
+			file_server
+		}
+
+		@workspace host {$SOLO_WORKSPACE_HOST}
+		handle @workspace {
+			header Content-Security-Policy "frame-ancestors 'none'"
+			root * /srv/workspace
+			try_files {path} /index.html
+			file_server
+		}
+		handle {
+			root * /srv/console
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}
