@@ -81,7 +81,8 @@
       },
       "coreSettings": {
         "organization": "Organization profile",
-        "teams": "Teams"
+        "teams": "Teams",
+        "notReadyReasons": "Not Ready reasons"
       }
     }
   },

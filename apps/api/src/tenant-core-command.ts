@@ -159,11 +159,24 @@ export async function reconcileCoreCommand(
   });
 }
 
-export type CoreAction = 'ORGANIZATION_UPDATE' | 'TEAM_CREATE' | 'TEAM_RENAME' | 'TEAM_DEACTIVATE';
+export type CoreAction =
+  | 'ORGANIZATION_UPDATE'
+  | 'TEAM_CREATE'
+  | 'TEAM_RENAME'
+  | 'TEAM_DEACTIVATE'
+  | 'NOT_READY_REASONS_UPDATE';
+export type CoreResourceType = 'ORGANIZATION' | 'TEAM' | 'NOT_READY_REASONS';
+const CORE_ACTION_RESOURCE: Record<CoreAction, CoreResourceType> = {
+  ORGANIZATION_UPDATE: 'ORGANIZATION',
+  TEAM_CREATE: 'TEAM',
+  TEAM_RENAME: 'TEAM',
+  TEAM_DEACTIVATE: 'TEAM',
+  NOT_READY_REASONS_UPDATE: 'NOT_READY_REASONS',
+};
 export interface CorePreparedCommand {
   commandId: string;
   action: CoreAction;
-  resourceType: 'ORGANIZATION' | 'TEAM';
+  resourceType: CoreResourceType;
   resourceId: string;
   expectedRevision: string | null;
   payload: Prisma.InputJsonObject;
@@ -204,7 +217,7 @@ export function coreCanonicalJson(value: unknown): string {
 export function prepareCoreCommand(input: {
   commandId: unknown;
   action: CoreAction;
-  resourceType: 'ORGANIZATION' | 'TEAM';
+  resourceType: CoreResourceType;
   resourceId: unknown;
   expectedRevision: unknown;
   payload: Prisma.InputJsonObject;
@@ -213,10 +226,8 @@ export function prepareCoreCommand(input: {
   const resourceId = coreUuid(input.resourceId);
   const create = input.action === 'TEAM_CREATE';
   if (
-    !['ORGANIZATION_UPDATE', 'TEAM_CREATE', 'TEAM_RENAME', 'TEAM_DEACTIVATE'].includes(
-      input.action,
-    ) ||
-    input.resourceType !== (input.action === 'ORGANIZATION_UPDATE' ? 'ORGANIZATION' : 'TEAM')
+    !Object.hasOwn(CORE_ACTION_RESOURCE, input.action) ||
+    input.resourceType !== CORE_ACTION_RESOURCE[input.action]
   )
     coreFail('INVALID_REQUEST', 400);
   let expectedRevision: string | null = null;

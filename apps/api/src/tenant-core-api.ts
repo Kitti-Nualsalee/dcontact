@@ -9,6 +9,7 @@ import {
   Res,
   Post,
   Patch,
+  Put,
   Body,
   UseFilters,
   UnauthorizedException,
@@ -24,6 +25,7 @@ import {
   deactivateCoreTeam,
 } from './tenant-core-teams.js';
 import { tenantConfigurationCaller } from './tenant-config-identity.js';
+import { readNotReadyReasons, updateNotReadyReasons } from './tenant-core-not-ready-reasons.js';
 
 import type { ServerResponse } from 'node:http';
 import {
@@ -148,6 +150,29 @@ export class TenantCoreSettingsController {
     sendCoreResponse(response, result, coreRequestId(req));
   }
 
+  /** #936 รายการเหตุผล Not Ready — อ่านได้ทุกบทบาทของ Core Settings แก้ได้เฉพาะ ADMIN */
+  @Get('not-ready-reasons')
+  @Header('Cache-Control', 'no-store')
+  notReadyReasons(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Res({ passthrough: true }) response: ServerResponse,
+  ) {
+    const identity = coreRequestIdentity(req);
+    if (identity.correlationId) response.setHeader('X-Request-Id', identity.correlationId);
+    return readNotReadyReasons(this.db, identity);
+  }
+
+  @Put('not-ready-reasons')
+  @GatewayRoles('admin')
+  async updateNotReadyReasons(
+    @Req() req: AuthenticatedGatewayRequest,
+    @Body() body: unknown,
+    @Res() response: ServerResponse,
+  ) {
+    const result = await updateNotReadyReasons(this.db, coreRequestIdentity(req), body);
+    sendCoreResponse(response, result, coreRequestId(req));
+  }
+
   @Post('commands/:id/reconcile')
   @GatewayRoles('admin')
   async reconcile(
@@ -185,6 +210,7 @@ export class TenantCoreSettingsController {
       return {
         organization: { read: true, write },
         teams: { read: true, create: write, rename: write, deactivate: write },
+        notReadyReasons: { read: true, write },
         teamScope: write ? 'TENANT' : 'OWN',
         schemaVersion: 1,
       };

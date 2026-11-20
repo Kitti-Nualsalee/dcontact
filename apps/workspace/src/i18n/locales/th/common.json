@@ -81,7 +81,8 @@
       },
       "coreSettings": {
         "organization": "ข้อมูลองค์กร",
-        "teams": "ทีม"
+        "teams": "ทีม",
+        "notReadyReasons": "เหตุผล Not Ready"
       }
     }
   },

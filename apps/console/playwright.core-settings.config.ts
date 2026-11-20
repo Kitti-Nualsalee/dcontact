@@ -5,6 +5,7 @@ export default defineConfig({
     'core-settings-organization.spec.ts',
     'core-settings-teams.spec.ts',
     'core-settings-navigation.spec.ts',
+    'core-settings-not-ready-reasons.spec.ts',
   ],
   timeout: 60_000,
   workers: 1,

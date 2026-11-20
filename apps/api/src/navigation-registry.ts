@@ -330,6 +330,11 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
         labelKey: 'navigation.pages.coreSettings.teams',
         path: '/?view=core-settings&page=teams',
       },
+      {
+        id: 'not-ready-reasons',
+        labelKey: 'navigation.pages.coreSettings.notReadyReasons',
+        path: '/?view=core-settings&page=not-ready-reasons',
+      },
     ],
   },
 ]);

@@ -80,3 +80,65 @@
 .core-settings__detail {
   margin-block-start: var(--dc-space-6);
 }
+/* #936 เหตุผล Not Ready */
+.nrr-list {
+  display: grid;
+  gap: var(--dc-space-4);
+  margin: var(--dc-space-5) 0;
+  padding: 0;
+  list-style: none;
+}
+.nrr-row {
+  display: grid;
+  grid-template-columns: var(--dc-control-md) minmax(0, 1fr) auto;
+  gap: var(--dc-space-5);
+  align-items: end;
+  padding: var(--dc-space-5);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-raised);
+}
+.nrr-row-off {
+  background: var(--dc-surface-sunken);
+}
+.nrr-order {
+  align-self: center;
+  color: var(--dc-text-secondary);
+  font-weight: 600;
+  text-align: center;
+}
+.nrr-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--dc-space-5);
+}
+.nrr-readonly {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+}
+.nrr-en {
+  color: var(--dc-text-secondary);
+}
+.nrr-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3);
+}
+.nrr-hint {
+  margin: 0;
+  color: var(--dc-critical-fg);
+  font-size: var(--dc-text-sm);
+}
+@media (max-width: 1100px) {
+  .nrr-row {
+    grid-template-columns: var(--dc-control-md) minmax(0, 1fr);
+  }
+  .nrr-controls {
+    grid-column: 2;
+  }
+}
+/* ป้าย เปิดใช้/ปิดอยู่ กว้างไม่เท่ากัน — ล็อกไว้ไม่ให้ช่องชื่อขยับเมื่อสลับ */
+.nrr-controls > :first-child {
+  min-inline-size: 6.5em;
+}
