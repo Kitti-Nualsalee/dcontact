@@ -137,7 +137,7 @@
     },
     "status": {
       "LOADING": "Loading reasons",
-      "READY": "",
+      "READY": "Edit the list, then save your changes.",
       "SAVING": "Saving",
       "SAVED": "Reasons saved",
       "NO_CHANGE": "Nothing changed",
