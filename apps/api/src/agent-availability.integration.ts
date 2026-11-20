@@ -110,6 +110,7 @@ async function fixture(context: TestContext) {
     await owner.agentWorkSessionEvent.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await owner.agentWorkSessionLease.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await owner.agentStateLog.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await owner.commandReceipt.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await owner.tenantEmbedOriginAuditEvent.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await owner.tenantEmbedOrigin.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await owner.tenantUiFlag.deleteMany({ where: { tenantId: { in: tenantIds } } });
@@ -139,11 +140,29 @@ async function fixture(context: TestContext) {
     });
     assert.equal(response.status, 200);
     return (await response.json()) as {
-      agent: { state: string };
+      agent: {
+        state: string;
+        stateSince: string | null;
+        reasonCode: string | null;
+        changedBy: string;
+        changedByName?: string | null;
+        changeNote?: string | null;
+        afterWork: { state: string; reasonCode?: string };
+      };
       interaction: { state: string } | null;
     };
   };
-  return { owner, application, actor, foreign, leases, sip, lease, available, snapshot };
+  const call = (path: string, method = 'GET', body?: unknown, token = 'actor') =>
+    fetch(`${baseUrl}/api/v1/workspace/agent/${path}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        connection: 'close',
+        'content-type': 'application/json',
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  return { owner, application, actor, foreign, leases, sip, lease, available, snapshot, call };
 }
 
 test('agent เปิดรับสายด้วย lease ของตนและ snapshot ยืนยัน AVAILABLE จาก server', async (context) => {
@@ -166,7 +185,21 @@ test('ไม่มี/ผิด lease หรือ request state อื่น �
   assert.equal((await state.available(randomUUID())).status, 403);
   assert.equal((await state.available(state.lease.leaseId, 'foreign')).status, 403);
   assert.equal(
-    (await state.available(state.lease.leaseId, 'actor', { state: 'OFFLINE' })).status,
+    (await state.available(state.lease.leaseId, 'actor', { state: 'BUSY' })).status,
+    400,
+  );
+  // #937 Not Ready ต้องมีเหตุผล และ AVAILABLE/OFFLINE ห้ามมีเหตุผล
+  assert.equal(
+    (await state.available(state.lease.leaseId, 'actor', { state: 'BREAK' })).status,
+    400,
+  );
+  assert.equal(
+    (
+      await state.available(state.lease.leaseId, 'actor', {
+        state: 'OFFLINE',
+        reasonCode: 'LUNCH',
+      })
+    ).status,
     400,
   );
   assert.equal((await state.snapshot()).agent.state, 'OFFLINE');
@@ -414,4 +447,201 @@ test('release ที่เริ่ม transaction ก่อน AVAILABLE แต
   }
   await release;
   assert.equal((await state.snapshot()).agent.state, 'OFFLINE');
+});
+
+// ─── #937 Not Ready / Offline ของ Agent เอง, เหตุผลของ tenant และสถานะหลังจบงาน ───
+
+test('#937 Not Ready ด้วยเหตุผลของ tenant: snapshot มีเหตุผล เวลาเริ่ม และผู้เปลี่ยน, เหตุผลถูกนับว่าใช้แล้ว', async (context) => {
+  const state = await fixture(context);
+  const before = Date.now();
+  const response = await state.available(state.lease.leaseId, 'actor', {
+    state: 'BREAK',
+    reasonCode: 'LUNCH',
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { state: 'BREAK', reasonCode: 'LUNCH' });
+  const { agent } = await state.snapshot();
+  assert.equal(agent.state, 'BREAK');
+  assert.equal(agent.reasonCode, 'LUNCH');
+  assert.equal(agent.changedBy, 'AGENT');
+  assert.ok(agent.stateSince && Date.parse(agent.stateSince) >= before - 5_000);
+  assert.deepEqual(agent.afterWork, { state: 'AVAILABLE' });
+
+  const [used] = await withTenantDatabaseTransaction(
+    state.owner,
+    state.actor.tenantId,
+    (tx) =>
+      tx.$queryRaw<{ used: boolean }[]>`SELECT first_used_at IS NOT NULL AS used
+      FROM tenant_not_ready_reasons WHERE tenant_id=${state.actor.tenantId}::uuid AND code='LUNCH'`,
+  );
+  assert.equal(used?.used, true);
+
+  // คำสั่งซ้ำไม่เพิ่ม log, เปลี่ยนเหตุผลเพิ่ม log ใหม่
+  await state.available(state.lease.leaseId, 'actor', { state: 'BREAK', reasonCode: 'LUNCH' });
+  await state.available(state.lease.leaseId, 'actor', { state: 'BREAK', reasonCode: 'MEETING' });
+  const logs = await state.owner.agentStateLog.findMany({
+    where: { tenantId: state.actor.tenantId, userId: state.actor.userId },
+    select: { state: true, reasonCode: true, actorUserId: true },
+    orderBy: { id: 'asc' },
+  });
+  assert.deepEqual(
+    logs.map((log) => [log.state, log.reasonCode, log.actorUserId === state.actor.userId]),
+    [
+      ['BREAK', 'LUNCH', true],
+      ['BREAK', 'MEETING', true],
+    ],
+  );
+  assert.equal((await state.snapshot('foreign')).agent.reasonCode, null);
+});
+
+test('#937 เหตุผลที่ปิดแล้วหรือไม่มีอยู่ถูกปฏิเสธ และรายการให้ Agent มีเฉพาะที่เปิดตามลำดับ', async (context) => {
+  const state = await fixture(context);
+  await withTenantDatabaseTransaction(
+    state.owner,
+    state.actor.tenantId,
+    (tx) =>
+      tx.$executeRaw`UPDATE tenant_not_ready_reasons SET is_active = false
+      WHERE tenant_id=${state.actor.tenantId}::uuid AND code='MEETING'`,
+  );
+  for (const reasonCode of ['MEETING', 'GHOST']) {
+    const response = await state.available(state.lease.leaseId, 'actor', {
+      state: 'BREAK',
+      reasonCode,
+    });
+    assert.equal(response.status, 422);
+    assert.equal(((await response.json()) as { code: string }).code, 'NOT_READY_REASON_INACTIVE');
+  }
+  const listed = await state.call('not-ready-reasons');
+  assert.equal(listed.status, 200);
+  assert.equal(listed.headers.get('cache-control'), 'no-store');
+  const { reasons } = (await listed.json()) as { reasons: { code: string; labelTh: string }[] };
+  assert.deepEqual(
+    reasons.map((reason) => reason.code),
+    ['BREAK', 'LUNCH', 'TRAINING', 'COACHING', 'BACK_OFFICE', 'PERSONAL'],
+  );
+  assert.equal(reasons[0]?.labelTh, 'พักสั้น');
+  assert.equal((await state.call('not-ready-reasons', 'GET', undefined, 'admin')).status, 403);
+  assert.equal((await state.snapshot()).agent.state, 'OFFLINE');
+});
+
+test('#937 Offline และ Not Ready ไม่ต้องมี SIP credential แต่ยังต้องถือ lease ของตัวเอง และห้ามเปลี่ยนระหว่างมีงาน', async (context) => {
+  const state = await fixture(context);
+  await state.owner.agentSipCredential.updateMany({
+    where: { tenantId: state.actor.tenantId },
+    data: { revokedAt: new Date() },
+  });
+  assert.equal(
+    (await state.available(state.lease.leaseId, 'actor', { state: 'BREAK', reasonCode: 'BREAK' }))
+      .status,
+    200,
+  );
+  assert.equal(
+    (await state.available(state.lease.leaseId, 'actor', { state: 'OFFLINE' })).status,
+    200,
+  );
+  const { agent } = await state.snapshot();
+  assert.equal(agent.state, 'OFFLINE');
+  assert.equal(agent.reasonCode, null);
+  assert.equal((await state.available(randomUUID(), 'actor', { state: 'OFFLINE' })).status, 403);
+  assert.equal((await state.available(state.lease.leaseId, 'actor')).status, 409);
+
+  const queue = await state.owner.queue.create({
+    data: { tenantId: state.actor.tenantId, name: 'ทดสอบ busy #937', channels: ['VOICE'] },
+  });
+  await state.owner.interaction.create({
+    data: {
+      tenantId: state.actor.tenantId,
+      agentId: state.actor.userId,
+      queueId: queue.id,
+      channel: 'VOICE',
+      direction: 'INBOUND',
+      state: 'ACTIVE',
+    },
+  });
+  for (const body of [{ state: 'BREAK', reasonCode: 'LUNCH' }, { state: 'OFFLINE' }]) {
+    const response = await state.available(state.lease.leaseId, 'actor', body);
+    assert.equal(response.status, 409);
+    assert.deepEqual(await response.json(), { code: 'WORK_SESSION_BUSY' });
+  }
+});
+
+test('#937 สถานะหลังจบงาน: ตั้งระหว่างสาย เก็บที่ server ใช้ตอนบันทึกสรุปผลครั้งเดียว แล้วกลับเป็นค่าเริ่มต้น', async (context) => {
+  const state = await fixture(context);
+  const set = await state.call('after-work', 'PUT', { state: 'BREAK', reasonCode: 'LUNCH' });
+  assert.equal(set.status, 200);
+  assert.deepEqual(await set.json(), { afterWork: { state: 'BREAK', reasonCode: 'LUNCH' } });
+  assert.deepEqual((await state.snapshot()).agent.afterWork, {
+    state: 'BREAK',
+    reasonCode: 'LUNCH',
+  });
+  assert.equal((await state.call('after-work', 'PUT', { state: 'OFFLINE' })).status, 400);
+  assert.equal(
+    (await state.call('after-work', 'PUT', { state: 'BREAK', reasonCode: 'GHOST' })).status,
+    422,
+  );
+
+  const queue = await state.owner.queue.create({
+    data: { tenantId: state.actor.tenantId, name: 'ทดสอบ after-work', channels: ['VOICE'] },
+  });
+  const wrapup = async () => {
+    const interaction = await state.owner.interaction.create({
+      data: {
+        tenantId: state.actor.tenantId,
+        agentId: state.actor.userId,
+        queueId: queue.id,
+        channel: 'VOICE',
+        direction: 'INBOUND',
+        state: 'WRAPUP',
+      },
+    });
+    const response = await state.call(`interactions/${interaction.id}/wrapup`, 'POST', {
+      disposition: 'RESOLVED',
+      commandId: randomUUID(),
+    });
+    assert.equal(response.status, 201);
+  };
+  await wrapup();
+  let { agent } = await state.snapshot();
+  assert.equal(agent.state, 'BREAK');
+  assert.equal(agent.reasonCode, 'LUNCH');
+  assert.deepEqual(agent.afterWork, { state: 'AVAILABLE' });
+
+  // ไม่ได้ตั้งไว้ = Ready, และตั้งแล้วเปลี่ยนใจเป็น Ready ได้
+  await state.call('after-work', 'PUT', { state: 'BREAK', reasonCode: 'TRAINING' });
+  await state.call('after-work', 'PUT', { state: 'AVAILABLE' });
+  await wrapup();
+  ({ agent } = await state.snapshot());
+  assert.equal(agent.state, 'AVAILABLE');
+  assert.equal(agent.reasonCode, null);
+});
+
+test('#937 Supervisor บังคับสถานะ → snapshot บอกว่า Supervisor เปลี่ยน พร้อมชื่อและเหตุผลที่กรอก', async (context) => {
+  const state = await fixture(context);
+  const supervisorId = randomUUID();
+  await state.owner.user.create({
+    data: {
+      id: supervisorId,
+      tenantId: state.actor.tenantId,
+      email: `${supervisorId}@example.invalid`,
+      displayName: 'หัวหน้าทีม ทดสอบ',
+      passwordHash: '!TEST_ONLY',
+      role: 'SUPERVISOR',
+    },
+  });
+  await state.owner.agentStateLog.create({
+    data: {
+      tenantId: state.actor.tenantId,
+      userId: state.actor.userId,
+      state: 'BREAK',
+      reason: 'ประชุมทีมด่วน',
+      actorUserId: supervisorId,
+    },
+  });
+  const { agent } = await state.snapshot();
+  assert.equal(agent.state, 'BREAK');
+  assert.equal(agent.changedBy, 'SUPERVISOR');
+  assert.equal(agent.changedByName, 'หัวหน้าทีม ทดสอบ');
+  assert.equal(agent.changeNote, 'ประชุมทีมด่วน');
+  await state.owner.agentStateLog.deleteMany({ where: { tenantId: state.actor.tenantId } });
+  await state.owner.user.delete({ where: { id: supervisorId } });
 });

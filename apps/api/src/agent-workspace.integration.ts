@@ -249,13 +249,20 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   );
 
   assert.equal(response.status, 200, await response.clone().text());
-  assert.deepEqual(await response.json(), {
+  const body = (await response.json()) as { agent: { stateSince: string | null } };
+  // #937 เวลาเริ่มสถานะมาจาก log ล่าสุด — ตรวจรูปแบบแยก แล้วเทียบส่วนที่เหลือทั้งก้อน
+  assert.match(body.agent.stateSince ?? '', /^\d{4}-\d\d-\d\dT/);
+  assert.deepEqual(body, {
     capabilities: { voiceWrapupV1: 1 },
     agent: {
       id: agentAId,
       displayName: 'Agent A',
       extension: '5200',
       state: 'RESERVED',
+      stateSince: body.agent.stateSince,
+      reasonCode: null,
+      changedBy: 'SYSTEM',
+      afterWork: { state: 'AVAILABLE' },
     },
     interaction: {
       id: interactionAId,

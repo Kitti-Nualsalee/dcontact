@@ -352,7 +352,7 @@ export class SupervisorLiveController {
           extension: true,
           teamId: true,
           stateLogs: {
-            select: { state: true },
+            select: { state: true, reasonCode: true, startedAt: true },
             orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
             take: 1,
           },
@@ -396,6 +396,9 @@ export class SupervisorLiveController {
         extension: agent.extension,
         teamId: agent.teamId,
         state: agent.stateLogs[0]?.state ?? 'OFFLINE',
+        // #937 เหตุผล Not Ready ที่ Agent เลือก และเวลาที่เริ่มสถานะนี้
+        reasonCode: agent.stateLogs[0]?.reasonCode ?? null,
+        stateSince: agent.stateLogs[0]?.startedAt.toISOString() ?? null,
       })),
       queues,
       interactions,
