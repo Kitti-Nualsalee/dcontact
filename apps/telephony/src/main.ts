@@ -19,6 +19,7 @@ import {
 } from './freeswitch-normalizer.js';
 import { TelephonyRecordingLifecycle } from './recording-lifecycle.js';
 import { S3RecordingArchive } from './s3-recording-archive.js';
+import { publishTelephonyCallEvent } from './telephony-event-publisher.js';
 
 const host = process.env.FREESWITCH_ESL_HOST ?? '127.0.0.1';
 // Docker Compose exposes FreeSWITCH ESL on host port 8022; container-internal ESL remains 8021.
@@ -181,16 +182,10 @@ async function main() {
           eventId: randomUUID,
           now: () => new Date().toISOString(),
         });
-        if (event.type === 'call.hangup') {
-          try {
-            await recordingLifecycle.finishForHungupCall(event);
-          } catch (error) {
-            console.error('[telephony] recording archive deferred', error);
-          }
-        } else {
-          await recordingLifecycle.startForAnsweredCall(event);
-        }
-        await producer.send(KAFKA_TOPICS.TELEPHONY_EVENTS, event);
+        await publishTelephonyCallEvent(event, {
+          recordings: recordingLifecycle,
+          publish: (callEvent) => producer.send(KAFKA_TOPICS.TELEPHONY_EVENTS, callEvent),
+        });
         if (event.type === 'call.created') {
           outboundBindingByCallUuid.set(event.payload.callUuid, {
             tenantId: event.tenantId,

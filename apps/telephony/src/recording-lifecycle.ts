@@ -58,7 +58,7 @@ export class TelephonyRecordingLifecycle {
             channelLayout: interaction.queue.recordingChannelLayout,
             startedAt: new Date(event.occurredAt),
           },
-          select: { telephonyPath: true, channelLayout: true },
+          select: { id: true, telephonyPath: true, channelLayout: true },
         });
         return {
           ...created,
@@ -68,28 +68,51 @@ export class TelephonyRecordingLifecycle {
       },
     );
     if (!recording) return;
-    await this.archive.prepare({
-      tenantId: event.tenantId,
-      telephonyPath: recording.telephonyPath,
-    });
-    if (recording.announcement && recording.language) {
+    try {
+      await this.archive.prepare({
+        tenantId: event.tenantId,
+        telephonyPath: recording.telephonyPath,
+      });
+      if (recording.announcement && recording.language) {
+        await this.commands.handle({
+          callUuid: event.payload.callUuid,
+          vendor: event.payload.vendor,
+          telephonyNodeId: event.payload.telephonyNodeId,
+          type: 'recording.announce',
+          announcement: recording.announcement,
+          language: recording.language,
+        });
+      }
       await this.commands.handle({
         callUuid: event.payload.callUuid,
         vendor: event.payload.vendor,
         telephonyNodeId: event.payload.telephonyNodeId,
-        type: 'recording.announce',
-        announcement: recording.announcement,
-        language: recording.language,
+        type: 'recording.start',
+        recordingPath: recording.telephonyPath,
+        channelLayout: recording.channelLayout,
+      });
+    } catch (error) {
+      // #923: ไม่มีไฟล์เสียงเกิดขึ้น ถ้าปล่อยแถวไว้ hangup จะตั้ง endedAt แล้ว retryPendingArchives
+      // จะวนอ่านไฟล์ที่ไม่มีวันมี (ENOENT) ตลอดไป จึงลบแถวที่เพิ่งสร้างทิ้งก่อนส่ง error ต่อ
+      await this.discardUnstartedRecording(event.tenantId, recording.id);
+      throw error;
+    }
+  }
+
+  private async discardUnstartedRecording(tenantId: string, recordingId: string): Promise<void> {
+    try {
+      await withTenantDatabaseTransaction(this.database, tenantId, (transaction) =>
+        transaction.recording.deleteMany({
+          where: { id: recordingId, tenantId, endedAt: null, archivedAt: null },
+        }),
+      );
+    } catch (rollbackError) {
+      console.error('[telephony] recording rollback failed', {
+        tenantId,
+        recordingId,
+        reason: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
       });
     }
-    await this.commands.handle({
-      callUuid: event.payload.callUuid,
-      vendor: event.payload.vendor,
-      telephonyNodeId: event.payload.telephonyNodeId,
-      type: 'recording.start',
-      recordingPath: recording.telephonyPath,
-      channelLayout: recording.channelLayout,
-    });
   }
 
   async finishForHungupCall(event: KafkaEventEnvelope<TelephonyCallEvent>): Promise<void> {
