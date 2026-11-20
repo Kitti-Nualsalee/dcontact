@@ -1,3 +1,4 @@
+import { recordPostWrapupState } from './agent-not-ready.js';
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
@@ -168,14 +169,7 @@ export async function saveAgentWrapup(
         payload: { disposition: input.disposition, commandId: input.commandId },
       },
     });
-    await transaction.agentStateLog.create({
-      data: {
-        tenantId: actor.tenantId,
-        userId: actor.userId,
-        state: 'AVAILABLE',
-        reason: 'wrapup_completed',
-      },
-    });
+    await recordPostWrapupState(transaction, actor.tenantId, actor.userId);
     const result = await committedResult(transaction, actor, interactionId);
     const {
       note: omittedNote,

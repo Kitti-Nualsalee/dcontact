@@ -132,6 +132,18 @@ Login (OIDC) ─▶ มีงานในมือไหม? ──ใช่─�
 - โหมด `chrome-extension`: ขั้นเตรียมรับสายใช้ "เชื่อม D-Phone extension" แทนการขอไมค์ และปุ่มทดสอบ
   เปิดการทดสอบใน extension; โหมด `external-simulator` ไม่ขอไมค์และซ่อนปุ่มทดสอบ; `embedded` ไม่ใช้หน้านี้
 
+## สัญญา API ที่ทำแล้ว (#936, #937)
+
+| ใช้ทำอะไร | Endpoint | หมายเหตุ |
+| --------- | -------- | -------- |
+| Admin แก้รายการเหตุผล | `GET`/`PUT /api/v1/tenant/core-settings/not-ready-reasons` | Core Settings command `NOT_READY_REASONS_UPDATE` ส่งทั้งรายการ |
+| Agent ดึงเหตุผลที่เลือกได้ | `GET /api/v1/workspace/agent/not-ready-reasons` | เฉพาะที่เปิด เรียงตามที่ Admin ตั้ง `{ code, labelTh, labelEn }` |
+| Agent เปลี่ยนสถานะเอง | `POST /api/v1/workspace/agent/availability` | `{ state: 'AVAILABLE' }`, `{ state: 'BREAK', reasonCode }`, `{ state: 'OFFLINE' }` ต้องมี header lease; Not Ready/Offline ไม่ต้องมี SIP credential; ระหว่างมีงาน → 409 `WORK_SESSION_BUSY`; เหตุผลที่ปิด/ไม่มี → 422 `NOT_READY_REASON_INACTIVE` |
+| สถานะหลังจบงาน | `PUT /api/v1/workspace/agent/after-work` | `{ state: 'AVAILABLE' }` หรือ `{ state: 'BREAK', reasonCode }` ใช้ครั้งเดียวตอนบันทึกสรุปผล |
+| สถานะใน snapshot | `GET /api/v1/workspace/agent/snapshot` | `agent.stateSince`, `agent.reasonCode`, `agent.changedBy` (`AGENT`/`SUPERVISOR`/`SYSTEM`), เมื่อ Supervisor เปลี่ยน: `changedByName`, `changeNote`; `agent.afterWork` |
+
+Supervisor live view มี `reasonCode` และ `stateSince` ของ Agent แต่ละคนด้วย
+
 ## นอกขอบเขตรอบนี้
 
 - รายงานเวลาในแต่ละสถานะ/เหตุผล (ข้อมูลพร้อมเมื่อมี `reasonCode` ใน event แล้ว)
