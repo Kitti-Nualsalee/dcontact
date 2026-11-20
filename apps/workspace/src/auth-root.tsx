@@ -18,6 +18,7 @@ import {
   workspaceIdentityKey,
 } from './auth-session.js';
 import { SipJsBrowserTransport } from './dphone/sip-js-transport.js';
+import { devicePreferences } from './device-preferences.js';
 import { BrowserDphone } from './dphone/dphone.js';
 import { createSupervisorWorkspaceApi } from './supervisor-api.js';
 import { SupervisorWorkspace } from './supervisor-workspace.js';
@@ -35,7 +36,7 @@ const createProductionDphone: DphoneFactory = (remoteAudio, callbacks) =>
           () => connectDPhoneExtension(import.meta.env.VITE_D_PHONE_EXTENSION_ID),
           callbacks,
         )
-      : new SipJsBrowserTransport(remoteAudio, callbacks),
+      : new SipJsBrowserTransport(remoteAudio, callbacks, () => devicePreferences.devices()),
   );
 
 export function AuthenticatedWorkspace({
