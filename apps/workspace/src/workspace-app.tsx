@@ -52,6 +52,8 @@ import {
 } from './work-session.js';
 import { WorkSessionPanel } from './work-session-panel.js';
 import { PaneIcon, PaneSplitter, usePaneWidth, type PaneIconName } from './workspace-pane.js';
+import { devicePreferences, micConstraint } from './device-preferences.js';
+import { DeviceTestButton } from './device-test-panel.js';
 import './agent-workspace.css';
 import './dphone/dphone.css';
 
@@ -696,7 +698,9 @@ function AgentWorkspace({
     setMediaError(undefined);
     try {
       if (!extensionControl) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: micConstraint(devicePreferences.devices()),
+        });
         for (const track of mediaStream.current?.getTracks() ?? []) track.stop();
         mediaStream.current = stream;
         for (const track of stream.getTracks()) {
@@ -2138,6 +2142,10 @@ function AgentWorkspace({
             basicControls={extensionControl}
           />
         )
+      ) : null}
+
+      {inShellFrame && !externalControl && !extensionControl ? (
+        <DeviceTestButton inCall={inCall || dphoneState.phase === 'RINGING'} />
       ) : null}
 
       <audio ref={remoteAudio} autoPlay className="aw-remote-audio" />

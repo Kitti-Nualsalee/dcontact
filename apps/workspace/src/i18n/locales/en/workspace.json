@@ -294,5 +294,83 @@
     "BUSY": "On a call",
     "ACW": "After-call work",
     "BREAK": "On break"
+  },
+  "deviceTest": {
+    "button": "Test devices",
+    "never": "Not tested yet",
+    "lastPass": "Passed · {{when}}",
+    "lastWarn": "Needs attention · {{when}}",
+    "today": "Today",
+    "afterCall": "Available after the call",
+    "title": "Test devices",
+    "description": "Optional · use it after changing headsets or when customers hear you poorly. Results stay on this computer.",
+    "close": "Close",
+    "retry": "Try again",
+    "systemDefault": "System default",
+    "missingDevice": "The device you chose is not connected. Using the system default instead.",
+    "micFallbackName": "Microphone {{index}}",
+    "mic": {
+      "title": "Microphone",
+      "device": "Microphone for customer calls",
+      "meter": "Microphone level",
+      "prompt": "Say “Hello, testing my voice, one, two, three”",
+      "state": {
+        "starting": "Opening",
+        "listening": "Listening",
+        "quiet": "No sound",
+        "pass": "Passed",
+        "error": "Unavailable"
+      },
+      "hint": {
+        "starting": "Requesting the microphone",
+        "listening": "Passes once it hears about 1 second of speech",
+        "quiet": "No sound yet. Check the mute switch on the cable or boom, move the mic closer, or choose another microphone.",
+        "pass": "Clear sound. Your next call will use this microphone."
+      },
+      "record": {
+        "idle": "Record 3 seconds and play back",
+        "recording": "Recording…",
+        "playing": "Playing recording…"
+      },
+      "recordNote": "The recording is not saved",
+      "failure": {
+        "denied": {
+          "title": "Microphone access is blocked",
+          "fix": "Click the lock icon next to the address, allow the microphone, then try again."
+        },
+        "notFound": {
+          "title": "No microphone found",
+          "fix": "Plug in a headset or microphone, then try again."
+        },
+        "busy": {
+          "title": "Another app is using the microphone",
+          "fix": "Close other meeting or phone apps, then try again."
+        },
+        "failed": {
+          "title": "Could not open the microphone",
+          "fix": "Try again. If it still fails, tell your administrator when it happened."
+        }
+      }
+    },
+    "speaker": {
+      "title": "Speaker or headset",
+      "device": "Where you hear the customer",
+      "fallbackName": "Speaker {{index}}",
+      "unsupported": "This browser cannot choose a speaker. Sound plays through the system default.",
+      "state": {
+        "idle": "Not tested",
+        "asking": "Waiting for answer",
+        "pass": "Passed",
+        "fail": "Not heard"
+      },
+      "play": "Play test sound",
+      "playAgain": "Play test sound again",
+      "playNote": "Two short ring tones",
+      "ask": "Did you hear the test sound?",
+      "heard": "Heard it",
+      "notHeard": "Didn't hear it",
+      "failTitle": "Test sound not heard",
+      "failFix": "Check you chose the headset you are wearing, turn up the volume, then play the sound again."
+    }
   }
 }

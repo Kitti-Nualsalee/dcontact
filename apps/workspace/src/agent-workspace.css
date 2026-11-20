@@ -1105,3 +1105,199 @@
     display: none;
   }
 }
+
+/* #939 ปุ่มทดสอบอุปกรณ์มุมซ้ายล่าง (ถัดจาก rail 64px ของ shell) — dphone ลอยอยู่ขวาล่าง จึงไม่ทับกัน */
+.aw-devtest {
+  position: fixed;
+  bottom: var(--dc-space-6);
+  left: calc(64px + var(--dc-space-6));
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dc-space-4);
+}
+
+.aw-devtest-button {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-4);
+  min-height: var(--dc-control-md);
+  padding: var(--dc-space-3) var(--dc-space-5);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+  box-shadow: var(--dc-shadow-floating);
+  color: var(--dc-text-primary);
+  font: inherit;
+  font-size: var(--dc-text-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+.aw-devtest-button:hover {
+  border-color: var(--dc-border-strong);
+}
+
+.aw-devtest-button:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+.aw-devtest-button[aria-disabled='true'] {
+  color: var(--dc-text-muted);
+  cursor: not-allowed;
+}
+
+.aw-devtest-copy {
+  display: flex;
+  flex-direction: column;
+}
+
+.aw-devtest-label {
+  font-weight: 600;
+}
+
+.aw-devtest-copy small {
+  color: var(--dc-text-muted);
+  font-size: var(--dc-text-xs);
+}
+
+.aw-devtest-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--dc-radius-pill);
+  background: var(--dc-border-strong);
+}
+
+.aw-devtest-dot-pass {
+  background: var(--dc-success-solid);
+}
+
+.aw-devtest-dot-warn {
+  background: var(--dc-attention-solid);
+}
+
+.aw-devtest-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-6);
+  width: 400px;
+  max-height: calc(100vh - 120px);
+  padding: var(--dc-space-6);
+  overflow-y: auto;
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+  box-shadow: var(--dc-shadow-floating);
+  color: var(--dc-text-primary);
+}
+
+.aw-devtest-panel:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+.aw-devtest-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--dc-space-5);
+}
+
+.aw-devtest-head h2 {
+  margin: 0;
+  font-size: var(--dc-text-md);
+}
+
+.aw-devtest-head p {
+  margin: var(--dc-space-2) 0 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-devtest-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+  padding-top: var(--dc-space-5);
+  border-top: 1px solid var(--dc-border-subtle);
+}
+
+.aw-devtest-step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dc-space-4);
+}
+
+.aw-devtest-step-head h3 {
+  margin: 0;
+  font-size: var(--dc-text-sm);
+}
+
+.aw-devtest-prompt {
+  margin: 0;
+  padding: var(--dc-space-4) var(--dc-space-5);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-surface-sunken);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-devtest-status,
+.aw-devtest-note {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}
+
+.aw-devtest-meter {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--dc-space-1);
+  height: 28px;
+}
+
+.aw-devtest-meter span {
+  flex: 1;
+  height: 25%;
+  border-radius: var(--dc-radius-xs);
+  background: var(--dc-surface-sunken);
+}
+
+.aw-devtest-meter .aw-devtest-bar-on {
+  height: 100%;
+  background: var(--dc-success-solid);
+}
+
+.aw-devtest-row,
+.aw-devtest-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-4);
+}
+
+.aw-devtest-ask strong {
+  flex-basis: 100%;
+  font-size: var(--dc-text-sm);
+}
+
+.aw-devtest-callout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-5);
+  border-radius: var(--dc-radius-lg);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-devtest-callout-fail {
+  border: 1px solid var(--dc-critical-border);
+  background: var(--dc-critical-bg-subtle);
+}
+
+.aw-devtest-callout-fail strong {
+  color: var(--dc-critical-fg-strong);
+}

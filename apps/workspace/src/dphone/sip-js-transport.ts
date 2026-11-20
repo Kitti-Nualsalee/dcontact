@@ -10,6 +10,7 @@ import {
   type SessionDescriptionHandlerModifier,
 } from 'sip.js';
 import type { BrowserSipTransport, SipCredentialLease } from './dphone.js';
+import { micConstraint, routeToSpeaker, type DevicePreferences } from '../device-preferences.js';
 
 export interface SipJsTransportCallbacks {
   onInvitation?(): void;
@@ -25,9 +26,14 @@ export class SipJsBrowserTransport implements BrowserSipTransport {
   private registerer?: Registerer;
   private session?: Invitation;
 
+  /**
+   * `devices` = ไมค์/ลำโพงที่ Agent เลือกจากปุ่มทดสอบอุปกรณ์ (#939) อ่านทุกครั้งที่รับสาย
+   * ไม่ส่ง = ใช้อุปกรณ์เริ่มต้นของระบบ (embedded และ D-Phone extension)
+   */
   constructor(
     private readonly remoteAudio: HTMLAudioElement,
     private readonly callbacks: SipJsTransportCallbacks = {},
+    private readonly devices: () => DevicePreferences = () => ({}),
   ) {}
 
   async configure(lease: SipCredentialLease): Promise<void> {
@@ -102,7 +108,9 @@ export class SipJsBrowserTransport implements BrowserSipTransport {
   async accept(): Promise<void> {
     const session = this.requiredSession();
     await session.accept({
-      sessionDescriptionHandlerOptions: { constraints: { audio: true, video: false } },
+      sessionDescriptionHandlerOptions: {
+        constraints: { audio: micConstraint(this.devices()), video: false },
+      },
     });
   }
 
@@ -189,7 +197,10 @@ export class SipJsBrowserTransport implements BrowserSipTransport {
       receivers.flatMap((receiver) => (receiver.track ? [receiver.track] : [])),
     );
     this.remoteAudio.srcObject = stream;
-    void this.remoteAudio.play().catch(() => this.callbacks.onAutoplayBlocked?.());
+    const audio = this.remoteAudio;
+    void routeToSpeaker(audio, this.devices().speakerId)
+      .then(() => audio.play())
+      .catch(() => this.callbacks.onAutoplayBlocked?.());
   }
 
   private peerConnection(): RTCPeerConnection | undefined {
