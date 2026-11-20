@@ -61,7 +61,6 @@ test('answered recording is archived once and finalized before QM consumes inter
     await owner.interaction.deleteMany({ where: { tenantId } });
     await owner.queue.deleteMany({ where: { tenantId } });
     await owner.tenant.delete({ where: { id: tenantId } });
-    await Promise.all([owner.$disconnect(), application.$disconnect()]);
   });
 
   const commands: unknown[] = [];
@@ -120,4 +119,107 @@ test('answered recording is archived once and finalized before QM consumes inter
   assert.ok(recording.archivedAt);
   assert.equal(recording.durationSec, 12);
   assert.equal(recording.storageKey, `recordings/${tenantId}/${interactionId}.wav`);
+});
+
+test('recording row is discarded when FreeSWITCH recording cannot start, so archive retry has nothing to chase (#923)', async (t) => {
+  const tenantId = randomUUID();
+  const queueId = randomUUID();
+  const interactionId = randomUUID();
+  const callUuid = randomUUID();
+  await owner.tenant.create({
+    data: {
+      id: tenantId,
+      name: `Recording start failure ${tenantId}`,
+      slug: `recording-start-failure-${tenantId}`,
+      sipDomain: `${tenantId}.recording-start-failure.test`,
+    },
+  });
+  await owner.queue.create({
+    data: {
+      id: queueId,
+      tenantId,
+      name: 'General Support',
+      channels: ['VOICE'],
+      recordingEnabled: true,
+      recordingChannelLayout: 'STEREO',
+    },
+  });
+  await owner.$executeRaw(
+    Prisma.sql`INSERT INTO interactions
+      (id, tenant_id, channel, direction, state, queue_id, external_id, metadata)
+      VALUES (
+        ${interactionId}::uuid,
+        ${tenantId}::uuid,
+        'VOICE',
+        'INBOUND',
+        'ACTIVE',
+        ${queueId}::uuid,
+        ${callUuid},
+        ${JSON.stringify({ vendor: 'freeswitch', telephonyNodeId: 'fs-start-failure' })}::jsonb
+      )`,
+  );
+  t.after(async () => {
+    await owner.recording.deleteMany({ where: { tenantId } });
+    await owner.interaction.deleteMany({ where: { tenantId } });
+    await owner.queue.deleteMany({ where: { tenantId } });
+    await owner.tenant.delete({ where: { id: tenantId } });
+  });
+
+  const commands: unknown[] = [];
+  let archiveAttempts = 0;
+  let prepareFails = true;
+  const lifecycle = new TelephonyRecordingLifecycle(
+    application,
+    { handle: async (command: unknown) => void commands.push(command) },
+    {
+      prepare: async () => {
+        if (prepareFails) {
+          throw Object.assign(new Error('EACCES: permission denied, mkdir'), { code: 'EACCES' });
+        }
+      },
+      archive: async () => {
+        archiveAttempts += 1;
+      },
+    },
+    '/var/lib/freeswitch/recordings',
+  );
+  const event = (
+    type: 'call.answered' | 'call.hangup',
+    occurredAt: string,
+  ): KafkaEventEnvelope<TelephonyCallEvent> => ({
+    eventId: randomUUID(),
+    type,
+    tenantId,
+    occurredAt,
+    correlationId: callUuid,
+    orderingKey: callUuid,
+    payload: {
+      callUuid,
+      vendor: 'freeswitch',
+      telephonyNodeId: 'fs-start-failure',
+      caller: '1002',
+      destination: '2000',
+    },
+  });
+
+  await assert.rejects(
+    () => lifecycle.startForAnsweredCall(event('call.answered', '2026-11-20T03:00:00.000Z')),
+    /EACCES/,
+  );
+  assert.equal(commands.length, 0);
+  assert.equal(await owner.recording.count({ where: { tenantId } }), 0);
+
+  await lifecycle.finishForHungupCall(event('call.hangup', '2026-11-20T03:00:30.000Z'));
+  assert.deepEqual(await lifecycle.retryPendingArchives('fs-start-failure'), []);
+  assert.equal(archiveAttempts, 0);
+
+  // ไม่มีแถวค้าง answered ที่มาซ้ำ (เช่น bridge ใหม่หลังแก้ volume) ยังเริ่มบันทึกได้
+  prepareFails = false;
+  await lifecycle.startForAnsweredCall(event('call.answered', '2026-11-20T03:01:00.000Z'));
+  assert.equal(await owner.recording.count({ where: { tenantId } }), 1);
+  assert.equal(commands.length, 1);
+});
+
+test.after(async () => {
+  await Promise.all([owner.$disconnect(), application.$disconnect()]);
 });
