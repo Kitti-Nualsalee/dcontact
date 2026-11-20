@@ -3,11 +3,13 @@ import { useShellPageNav } from '@d-contact/ui-react';
 export function CorePageLinks({
   tenant,
   teams,
+  notReadyReasons = false,
   t,
   onSelect,
 }: {
   tenant?: string;
   teams: boolean;
+  notReadyReasons?: boolean;
   t: (key: string) => string;
   onSelect?: (pageId: string) => void;
 }) {
@@ -15,7 +17,11 @@ export function CorePageLinks({
   if (hasPages) return null;
   return (
     <nav aria-label={t('title')} className="core-settings__actions">
-      {['organization', ...(teams ? ['teams'] : [])].map((page) => (
+      {[
+        'organization',
+        ...(teams ? ['teams'] : []),
+        ...(notReadyReasons ? ['not-ready-reasons'] : []),
+      ].map((page) => (
         <a
           key={page}
           href={`?view=core-settings&page=${page}${tenant ? `&tenant=${encodeURIComponent(tenant)}` : ''}`}
@@ -33,7 +39,13 @@ export function CorePageLinks({
             }
           }}
         >
-          {t(page === 'organization' ? 'profile' : 'team.title')}
+          {t(
+            page === 'organization'
+              ? 'profile'
+              : page === 'teams'
+                ? 'team.title'
+                : 'notReadyReasons.title',
+          )}
         </a>
       ))}
     </nav>

@@ -12,6 +12,7 @@ test('Core HTTP → PostgreSQL/RLS: verified Admin ใช้ Core ได้โ�
   assert.deepEqual(response.body, {
     organization: { read: true, write: true },
     teams: { read: true, create: true, rename: true, deactivate: true },
+    notReadyReasons: { read: true, write: true },
     teamScope: 'TENANT',
     schemaVersion: 1,
   });

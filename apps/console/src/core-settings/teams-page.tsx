@@ -194,6 +194,7 @@ export function CoreTeamsPage({
         <CorePageLinks
           tenant={shell.tenantAlias}
           teams={!!model.caps?.teams?.read}
+          notReadyReasons={!!model.caps?.notReadyReasons?.read}
           t={t}
           onSelect={onPageSelect}
         />

@@ -112,5 +112,47 @@
       "PEOPLE_PENDING": "Pending account provisioning",
       "OTHER": "Current data or permissions"
     }
+  },
+  "notReadyReasons": {
+    "title": "Not Ready reasons",
+    "intro": "Reasons agents pick when they pause taking calls. Agents see them in this order.",
+    "listTitle": "Reasons",
+    "labelTh": "Thai name",
+    "labelEn": "English name",
+    "active": "On",
+    "inactive": "Off",
+    "activeFor": "Turn on {{reason}}",
+    "moveUp": "Move {{reason}} up",
+    "moveDown": "Move {{reason}} down",
+    "remove": "Delete {{reason}}",
+    "removeShort": "Delete",
+    "inUse": "Used, can't delete",
+    "add": "Add reason",
+    "helpTitle": "Rules",
+    "help": {
+      "order": "Use the arrow buttons to reorder. Agents see reasons in this order.",
+      "disable": "A reason you turn off disappears from agents' choices right away. Agents already in it stay until they change status.",
+      "inUse": "Reasons that have been used can't be deleted, so history and reports can still show their names. Turn them off instead.",
+      "atLeastOne": "Keep at least one reason on, or agents can't choose Not Ready."
+    },
+    "status": {
+      "LOADING": "Loading reasons",
+      "READY": "Edit the list, then save your changes.",
+      "SAVING": "Saving",
+      "SAVED": "Reasons saved",
+      "NO_CHANGE": "Nothing changed",
+      "VALIDATION": "Fix the highlighted fields, then save again.",
+      "CONFLICT": "Someone changed this list before you. Load the latest list and edit again.",
+      "IN_USE": "These reasons have been used and can't be deleted: {{reasons}}. Turn them off instead.",
+      "ACCESS_DENIED": "You don't have access to this page",
+      "FAILED": "Couldn't save or load. Try again."
+    },
+    "validation": {
+      "notReadyReasonLabel": "Enter 1–40 characters",
+      "notReadyReasonDuplicate": "Another reason already uses this name",
+      "notReadyReasonActiveRequired": "Keep at least one reason on",
+      "notReadyReasonUnknown": "This reason no longer exists. Load the latest list."
+    },
+    "retrySave": "Try saving again"
   }
 }

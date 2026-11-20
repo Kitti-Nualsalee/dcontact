@@ -7,6 +7,7 @@ export interface Organization {
 export interface CoreCapabilities {
   organization: { read: boolean; write: boolean };
   teams?: { read: boolean; create: boolean; rename: boolean; deactivate: boolean };
+  notReadyReasons?: { read: boolean; write: boolean };
 }
 export interface CoreReceipt<T = Organization> {
   command: {
@@ -52,7 +53,7 @@ export class CoreApiError extends Error {
 export function createCoreApi(options: {
   baseUrl: string;
   accessToken: () => string | undefined;
-}): CoreApi & { teams: CoreTeamsApi } {
+}): CoreApi & { teams: CoreTeamsApi; notReadyReasons: CoreNotReadyReasonsApi } {
   async function request(path: string, method = 'GET', body?: unknown) {
     const token = options.accessToken();
     if (!token) throw new CoreApiError(401, 'CORE_ACCESS_DENIED');
@@ -80,6 +81,10 @@ export function createCoreApi(options: {
     return data;
   }
   return {
+    notReadyReasons: {
+      read: async () => (await request('not-ready-reasons')).notReadyReasons,
+      save: (body) => request('not-ready-reasons', 'PUT', body),
+    },
     teams: {
       list: (cursor) =>
         request(`teams?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
@@ -118,4 +123,32 @@ export interface CoreTeamsApi {
   ): Promise<CoreReceipt<Team>>;
   command(id: string): Promise<CoreReceipt<Team> | { state: string; commandId: string }>;
   reconcile(id: string): Promise<CoreReceipt<Team> | { state: string; commandId: string }>;
+}
+
+/** #936 รายการเหตุผล Not Ready ต่อ tenant — แก้ทั้งรายการในคำสั่งเดียว */
+export interface NotReadyReason {
+  code: string;
+  labelTh: string;
+  labelEn: string;
+  isActive: boolean;
+  inUse: boolean;
+}
+export interface NotReadyReasons {
+  id: string;
+  revision: string;
+  reasons: NotReadyReason[];
+}
+export interface NotReadyReasonDraft {
+  code?: string;
+  labelTh: string;
+  labelEn: string;
+  isActive: boolean;
+}
+export interface CoreNotReadyReasonsApi {
+  read(): Promise<NotReadyReasons>;
+  save(body: {
+    commandId: string;
+    expectedRevision: string;
+    reasons: NotReadyReasonDraft[];
+  }): Promise<CoreReceipt<NotReadyReasons>>;
 }

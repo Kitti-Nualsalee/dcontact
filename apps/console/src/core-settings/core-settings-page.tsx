@@ -3,7 +3,8 @@ import { useTranslation } from '@d-contact/i18n/react';
 import { Button, TextField, Select } from '@d-contact/ui-react';
 import { ConsoleShell, type ConsoleShellProps } from '../shell/console-shell.js';
 import { useShellTokens } from '../shell/tokens.js';
-import type { CoreApi, CoreTeamsApi } from './api.js';
+import type { CoreApi, CoreNotReadyReasonsApi, CoreTeamsApi } from './api.js';
+import { CoreNotReadyReasonsPage } from './not-ready-reasons-page.js';
 import { CorePageLinks } from './page-links.js';
 import { CoreTeamsPage } from './teams-page.js';
 import { CoreOrganizationModel } from './model.js';
@@ -29,7 +30,8 @@ export function CoreSettingsPage(props: CoreSettingsProps) {
     setLocation((current) => ({ ...current, href: url.href }));
   }, []);
   const onPageSelect = (pageId: string) => {
-    if (!['organization', 'teams'].includes(pageId) || !leave.current()) return;
+    if (!['organization', 'teams', 'not-ready-reasons'].includes(pageId) || !leave.current())
+      return;
     const url = new URL(window.location.href);
     url.searchParams.set('page', pageId);
     url.searchParams.delete('team');
@@ -54,12 +56,14 @@ export function CoreSettingsPage(props: CoreSettingsProps) {
   const pageProps = { ...props, registerLeaveGuard, onPageSelect, onResourceUrl };
   return page === 'teams' ? (
     <CoreTeamsPage key={location.revision} {...pageProps} />
+  ) : page === 'not-ready-reasons' ? (
+    <CoreNotReadyReasonsPage key={location.revision} {...pageProps} />
   ) : (
     <CoreOrganizationPage key={location.revision} {...pageProps} />
   );
 }
 export interface CoreSettingsProps {
-  api: CoreApi & { teams: CoreTeamsApi };
+  api: CoreApi & { teams: CoreTeamsApi; notReadyReasons: CoreNotReadyReasonsApi };
   identityKey: string;
   shell: ShellProps;
   onSignIn?: () => Promise<void>;
@@ -162,6 +166,7 @@ function CoreOrganizationPage({
           <CorePageLinks
             tenant={shell.tenantAlias}
             teams={!!model.caps?.teams?.read}
+            notReadyReasons={!!model.caps?.notReadyReasons?.read}
             t={t}
             onSelect={onPageSelect}
           />
