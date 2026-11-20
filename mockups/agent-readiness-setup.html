@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — เลือกสถานะและทดสอบอุปกรณ์</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ค่าคัดจาก packages/ui/src/tokens.css — ในแอปจริงใช้ var(--dc-*) จาก token โดยตรง */
+:root {
+  --dc-surface-page: #f8fafc; --dc-surface-raised: #ffffff; --dc-surface-sunken: #f1f5f9;
+  --dc-surface-hover: #f8fafc; --dc-surface-selected: #f0fdfa;
+  --dc-border-subtle: #e2e8f0; --dc-border-default: #cbd5e1; --dc-border-brand: #0f766e;
+  --dc-text-primary: #1e293b; --dc-text-secondary: #475569; --dc-text-muted: #64748b; --dc-text-disabled: #94a3b8;
+  --dc-text-brand: #0f766e; --dc-text-brand-strong: #134e4a; --dc-text-on-brand: #ffffff;
+  --dc-brand-50: #f0fdfa; --dc-brand-100: #ccfbf1; --dc-brand-200: #99f6e4; --dc-brand-600: #0d9488; --dc-brand-700: #0f766e; --dc-brand-800: #115e59;
+  --dc-success-bg: #dcfce7; --dc-success-fg: #15803d; --dc-success-solid: #16a34a;
+  --dc-attention-bg: #fef3c7; --dc-attention-bg-subtle: #fffbeb; --dc-attention-fg: #b45309; --dc-attention-solid: #f59e0b; --dc-attention-border: #fde68a;
+  --dc-critical-bg: #fee2e2; --dc-critical-fg: #b91c1c; --dc-critical-solid: #dc2626; --dc-critical-border: #fecaca;
+  --dc-info-bg: #e0e7ff; --dc-info-fg: #4338ca;
+  --dc-neutral-bg: #f1f5f9; --dc-neutral-fg: #475569; --dc-neutral-solid: #94a3b8;
+  --dc-radius-md: 4px; --dc-radius-lg: 5px; --dc-radius-xl: 7px; --dc-radius-pill: 999px;
+  --dc-shadow-card: 0 1px 2px rgba(15, 23, 42, .04); --dc-shadow-floating: 0 10px 30px rgba(15, 23, 42, .3);
+  --dc-focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px #0f766e;
+  --dc-font-sans: 'Inter', 'Noto Sans Thai', system-ui, -apple-system, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--dc-font-sans); font-size: 14px; line-height: 1.55; color: var(--dc-text-primary); background: var(--dc-surface-page); }
+button, select { font: inherit; }
+button:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: none; box-shadow: var(--dc-focus-ring); }
+h1, h2, h3, p { margin: 0; }
+svg { flex: none; }
+
+/* ── shell (ย่อ) ── */
+.shell { display: flex; height: 100vh; min-width: 1080px; }
+.rail { width: 76px; background: var(--dc-brand-700); display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px 0; color: #fff; font-size: 11px; }
+.rail .tile { width: 64px; padding: 8px 0; border-radius: var(--dc-radius-lg); display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.rail .tile.on { background: #fff; color: var(--dc-brand-700); font-weight: 600; }
+.column { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.topbar { height: 44px; display: flex; align-items: center; gap: 16px; padding: 0 20px; background: var(--dc-surface-raised); border-bottom: 1px solid var(--dc-border-subtle); }
+.topbar .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--dc-text-brand-strong); }
+.topbar .brand i { width: 22px; height: 22px; border-radius: 5px; background: var(--dc-brand-700); display: inline-block; }
+.topbar .crumb { color: var(--dc-text-secondary); font-size: 13px; }
+.topbar .crumb b { color: var(--dc-text-primary); font-weight: 600; }
+.topbar .user { margin-left: auto; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+.avatar { width: 28px; height: 28px; border-radius: var(--dc-radius-pill); background: var(--dc-brand-700); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+main { flex: 1; overflow: auto; padding: 96px 28px 28px; }
+
+/* ── scenario switcher (เฉพาะ mockup) ── */
+.scenarios { position: fixed; left: 88px; top: 50px; z-index: 10; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; max-width: calc(100vw - 110px); padding: 8px 10px; border: 1px dashed var(--dc-info-fg); border-radius: var(--dc-radius-xl); background: #eef2ffee; font-size: 12px; }
+.scenarios b { color: var(--dc-info-fg); margin-right: 4px; }
+.scenarios button { border: 1px solid #c7d2fe; background: #fff; border-radius: var(--dc-radius-md); padding: 3px 8px; cursor: pointer; color: var(--dc-info-fg); }
+.scenarios button[aria-pressed="true"] { background: var(--dc-info-fg); color: #fff; }
+
+/* ── หน้า setup ── */
+.setup { max-width: 1080px; margin: 0 auto; padding-bottom: 120px; }
+.setup-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.setup-head h1 { font-size: 22px; font-weight: 700; }
+.setup-head p { color: var(--dc-text-secondary); margin-top: 4px; }
+.progress { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; font-size: 13px; color: var(--dc-text-secondary); }
+.progress-bar { width: 220px; height: 6px; border-radius: var(--dc-radius-pill); background: var(--dc-surface-sunken); overflow: hidden; }
+.progress-bar span { display: block; height: 100%; background: var(--dc-success-solid); transition: width .3s; }
+.grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }
+.card { background: var(--dc-surface-raised); border: 1px solid var(--dc-border-subtle); border-radius: var(--dc-radius-xl); box-shadow: var(--dc-shadow-card); }
+.checks { list-style: none; margin: 0; padding: 8px; }
+.check { display: flex; gap: 12px; width: 100%; padding: 12px; border: 0; border-radius: var(--dc-radius-lg); background: transparent; text-align: left; cursor: pointer; color: inherit; }
+.check:hover { background: var(--dc-surface-hover); }
+.check[aria-current="step"] { background: var(--dc-surface-selected); box-shadow: inset 3px 0 0 var(--dc-border-brand); }
+.check-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.check-copy strong { font-weight: 600; }
+.check-copy small { color: var(--dc-text-secondary); font-size: 12.5px; }
+.check-copy .opt { color: var(--dc-text-muted); font-weight: 400; font-size: 12px; }
+.status { width: 28px; height: 28px; border-radius: var(--dc-radius-pill); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.status.pass { background: var(--dc-success-bg); color: var(--dc-success-fg); }
+.status.fail { background: var(--dc-critical-bg); color: var(--dc-critical-fg); }
+.status.warn { background: var(--dc-attention-bg); color: var(--dc-attention-fg); }
+.status.wait { background: var(--dc-neutral-bg); color: var(--dc-neutral-fg); }
+.status.run { background: var(--dc-brand-50); color: var(--dc-brand-700); }
+.status.run svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.checks-foot { border-top: 1px solid var(--dc-border-subtle); padding: 12px 16px; color: var(--dc-text-secondary); font-size: 12.5px; display: flex; gap: 8px; }
+
+.detail { padding: 24px; display: flex; flex-direction: column; gap: 18px; min-height: 420px; }
+.detail-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.detail-head h2 { font-size: 18px; font-weight: 600; }
+.detail-head p { color: var(--dc-text-secondary); margin-top: 4px; }
+.chip { padding: 2px 10px; border-radius: var(--dc-radius-pill); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.chip.pass { background: var(--dc-success-bg); color: var(--dc-success-fg); }
+.chip.fail { background: var(--dc-critical-bg); color: var(--dc-critical-fg); }
+.chip.warn { background: var(--dc-attention-bg); color: var(--dc-attention-fg); }
+.chip.wait { background: var(--dc-neutral-bg); color: var(--dc-neutral-fg); }
+.chip.run { background: var(--dc-brand-50); color: var(--dc-text-brand-strong); }
+label.field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 13px; }
+select { height: 32px; padding: 0 10px; border: 1px solid var(--dc-border-default); border-radius: var(--dc-radius-md); background: #fff; color: var(--dc-text-primary); max-width: 420px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btn { height: 32px; padding: 0 14px; border-radius: var(--dc-radius-md); border: 1px solid var(--dc-border-default); background: #fff; color: var(--dc-text-primary); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.btn.primary { background: var(--dc-brand-700); border-color: var(--dc-brand-700); color: #fff; }
+.btn.primary:hover { background: var(--dc-brand-800); }
+.btn.ghost { border-color: transparent; color: var(--dc-text-brand); }
+.btn:disabled { cursor: not-allowed; background: var(--dc-surface-sunken); border-color: var(--dc-border-subtle); color: var(--dc-text-disabled); }
+.meter { display: flex; align-items: flex-end; gap: 3px; height: 40px; padding: 8px 12px; border-radius: var(--dc-radius-lg); background: var(--dc-surface-sunken); width: 420px; max-width: 100%; }
+.meter span { flex: 1; border-radius: 2px; background: var(--dc-border-default); height: 10%; transition: height .12s; }
+.meter span.on { background: var(--dc-success-solid); }
+.meter span.loud { background: var(--dc-attention-solid); }
+.prompt { padding: 12px 14px; border-radius: var(--dc-radius-lg); background: var(--dc-brand-50); color: var(--dc-text-brand-strong); }
+.callout { display: flex; gap: 10px; padding: 12px 14px; border-radius: var(--dc-radius-lg); border: 1px solid; }
+.callout.fail { background: #fef2f2; border-color: var(--dc-critical-border); color: var(--dc-critical-fg); }
+.callout.warn { background: var(--dc-attention-bg-subtle); border-color: var(--dc-attention-border); color: var(--dc-attention-fg); }
+.callout.ok { background: #f0fdf4; border-color: #bbf7d0; color: var(--dc-success-fg); }
+.callout.info { background: var(--dc-surface-sunken); border-color: var(--dc-border-subtle); color: var(--dc-text-secondary); }
+.callout strong { display: block; color: inherit; }
+.callout ol { margin: 6px 0 0; padding-left: 18px; color: var(--dc-text-primary); }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; margin: 0; }
+.facts dt { font-size: 12px; color: var(--dc-text-secondary); }
+.facts dd { margin: 0; font-weight: 500; }
+.ask { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--dc-border-subtle); border-radius: var(--dc-radius-lg); }
+.ask strong { margin-right: auto; }
+.wave { display: inline-flex; gap: 2px; align-items: center; height: 16px; }
+.wave i { width: 3px; background: currentColor; border-radius: 2px; animation: wave 0.9s ease-in-out infinite; }
+.wave i:nth-child(2) { animation-delay: .15s } .wave i:nth-child(3) { animation-delay: .3s } .wave i:nth-child(4) { animation-delay: .45s }
+@keyframes wave { 0%,100% { height: 4px } 50% { height: 16px } }
+.muted { color: var(--dc-text-secondary); font-size: 13px; }
+
+/* ── action bar ── */
+.actionbar { position: sticky; bottom: 0; margin-top: 16px; display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: var(--dc-surface-raised); border: 1px solid var(--dc-border-subtle); border-radius: var(--dc-radius-xl); box-shadow: 0 -4px 16px rgba(15,23,42,.06); }
+.actionbar .summary { margin-right: auto; display: flex; align-items: center; gap: 10px; }
+.actionbar .summary small { display: block; color: var(--dc-text-secondary); font-size: 12.5px; }
+
+/* ── workspace (ย่อ) สำหรับสถานการณ์ข้าม/กลางกะ ── */
+.ws { display: flex; flex-direction: column; gap: 12px; }
+.banner { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: var(--dc-radius-lg); border: 1px solid; }
+.banner.warn { background: var(--dc-attention-bg-subtle); border-color: var(--dc-attention-border); color: var(--dc-attention-fg); }
+.banner.fail { background: #fef2f2; border-color: var(--dc-critical-border); color: var(--dc-critical-fg); }
+.banner .grow { margin-right: auto; }
+.banner .grow small { display: block; color: var(--dc-text-secondary); }
+.ws-frame { display: grid; grid-template-columns: 240px 1fr 320px 48px; height: 560px; border: 1px solid var(--dc-border-subtle); border-radius: var(--dc-radius-xl); background: #fff; overflow: hidden; }
+.ws-frame > div { border-right: 1px solid var(--dc-border-subtle); padding: 16px; }
+.ws-frame .ghost { background: var(--dc-surface-sunken); border-radius: var(--dc-radius-lg); height: 14px; margin-bottom: 10px; }
+.phonebar { padding: 10px 14px; border: 1px solid var(--dc-brand-200); background: var(--dc-brand-50); border-radius: var(--dc-radius-lg); display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+.ready-summary { display: flex; flex-direction: column; gap: 10px; }
+.ready-summary .line { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--dc-border-subtle); }
+.overlay { position: fixed; inset: 0; background: rgba(15,23,42,.35); display: none; align-items: center; justify-content: center; z-index: 5; }
+.overlay.on { display: flex; }
+.sheet { width: 920px; max-height: 88vh; overflow: auto; background: var(--dc-surface-page); border-radius: var(--dc-radius-xl); padding: 20px; box-shadow: var(--dc-shadow-floating); }
+.hidden { display: none !important; }
+
+/* ── หน้าเลือกสถานะหลัง login ── */
+.gate { min-height: calc(100vh - 44px - 140px); display: flex; align-items: center; justify-content: center; }
+.gate-card { width: 560px; padding: 28px; display: flex; flex-direction: column; gap: 18px; }
+.gate-card h1 { font-size: 22px; font-weight: 700; }
+.gate-card > p { color: var(--dc-text-secondary); margin-top: -10px; }
+.options { display: flex; flex-direction: column; gap: 10px; border: 0; margin: 0; padding: 0; }
+.options legend { font-weight: 600; margin-bottom: 8px; }
+.opt-card { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border: 1px solid var(--dc-border-default); border-radius: var(--dc-radius-lg); cursor: pointer; background: #fff; }
+.opt-card:has(input:checked) { border-color: var(--dc-border-brand); background: var(--dc-surface-selected); box-shadow: inset 0 0 0 1px var(--dc-border-brand); }
+.opt-card:has(input:focus-visible) { box-shadow: var(--dc-focus-ring); }
+.opt-card input { margin: 3px 0 0; accent-color: var(--dc-brand-700); }
+.opt-card .dotc { width: 10px; height: 10px; border-radius: var(--dc-radius-pill); margin-top: 6px; flex: none; }
+.opt-card strong { display: block; }
+.opt-card small { color: var(--dc-text-secondary); font-size: 12.5px; }
+.opt-card .soon { font-size: 11px; font-weight: 700; color: var(--dc-info-fg); background: var(--dc-info-bg); border-radius: var(--dc-radius-pill); padding: 1px 8px; margin-left: 6px; }
+.dot-ready { background: var(--dc-success-solid); } .dot-break { background: var(--dc-attention-solid); } .dot-off { background: var(--dc-neutral-solid); }
+.prep { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--dc-radius-lg); background: var(--dc-surface-sunken); font-size: 13px; }
+.prep div { display: flex; align-items: center; gap: 8px; }
+.prep .status { width: 20px; height: 20px; }
+.gate-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* เหตุผล Not Ready */
+.reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.pill { height: 28px; padding: 0 12px; border: 1px solid var(--dc-border-default); border-radius: var(--dc-radius-pill); background: #fff; color: var(--dc-text-primary); cursor: pointer; font-size: 13px; }
+.pill[aria-checked="true"] { border-color: var(--dc-attention-solid); background: var(--dc-attention-bg); color: var(--dc-attention-fg); font-weight: 600; }
+.dot-busy { background: var(--dc-info-fg); }
+.status-select .dotc { width: 10px; height: 10px; border-radius: 999px; display: inline-block; flex: none; }
+/* ปุ่มทดสอบอุปกรณ์ มุมซ้ายล่าง */
+.hw-btn { position: fixed; left: 88px; bottom: 16px; z-index: 4; display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 10px; border: 1px solid var(--dc-border-default); border-radius: var(--dc-radius-lg); background: #fff; color: var(--dc-text-primary); font-weight: 600; cursor: pointer; box-shadow: var(--dc-shadow-card); }
+.hw-btn small { font-weight: 500; color: var(--dc-text-secondary); font-size: 12px; }
+.hw-btn .pip { width: 8px; height: 8px; border-radius: var(--dc-radius-pill); }
+.hw-btn:disabled { color: var(--dc-text-disabled); cursor: not-allowed; }
+/* แผงทดสอบอุปกรณ์ (ไม่บังทั้งจอ — ไม่ใช่ modal) */
+.hw-panel { position: fixed; left: 88px; bottom: 60px; z-index: 6; width: 720px; max-height: calc(100vh - 170px); display: flex; flex-direction: column; background: var(--dc-surface-page); border: 1px solid var(--dc-border-subtle); border-radius: var(--dc-radius-xl); box-shadow: var(--dc-shadow-floating); }
+.hw-panel header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--dc-border-subtle); background: #fff; border-radius: var(--dc-radius-xl) var(--dc-radius-xl) 0 0; }
+.hw-panel header p { color: var(--dc-text-secondary); font-size: 12.5px; }
+.hw-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 12px; padding: 12px; overflow: auto; }
+.hw-body .detail { min-height: 360px; padding: 18px; }
+.ws-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ws-head h1 { font-size: 18px; font-weight: 700; }
+.status-select { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid var(--dc-border-default); border-radius: var(--dc-radius-md); background: #fff; font-weight: 600; }
+.status-select select { border: 0; height: 28px; padding: 0 2px; font-weight: 600; }
+.ws-frame { height: calc(100vh - 44px - 124px - 120px); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="พื้นที่งาน">
+    <div class="tile"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="5" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>แอป</div>
+    <div class="tile on"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 14v-3a8 8 0 1 1 16 0v3 M4 14a2 2 0 0 1 2 -2h1a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-1a2 2 0 0 1 -2 -2v-3z M15 14a2 2 0 0 1 2 -2h1a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-1a2 2 0 0 1 -2 -2v-3z"/></svg>พื้นที่ทำงาน</div>
+  </nav>
+  <div class="column">
+    <header class="topbar">
+      <span class="brand"><i></i>D-Contact</span>
+      <span class="crumb">งานสด · Workspace / <b id="crumb">เริ่มงาน</b></span>
+      <span class="user"><span class="avatar">นภ</span>นภัส ใจดี</span>
+    </header>
+    <main id="main"></main>
+  </div>
+</div>
+
+<button class="hw-btn" id="hw-btn" aria-expanded="false" aria-controls="hw-panel"></button>
+<section class="hw-panel hidden" id="hw-panel" role="region" aria-labelledby="hw-title"></section>
+
+<div class="scenarios" role="group" aria-label="สถานการณ์จำลอง (เฉพาะ mockup)">
+  <b>สถานการณ์จำลอง</b>
+  <button data-s="login">หลัง login</button>
+  <button data-s="login-back">login วันถัดไป</button>
+  <button data-s="preparing">กำลังเตรียมรับสาย</button>
+  <button data-s="prep-denied">เตรียมไม่ผ่าน: ไมค์ถูกปฏิเสธ</button>
+  <button data-s="prep-sip">เตรียมไม่ผ่าน: โทรศัพท์</button>
+  <button data-s="ws-ready">Workspace · Ready</button>
+  <button data-s="ws-notready">Workspace · Not Ready (ประชุม)</button>
+  <button data-s="ws-off">Workspace · Offline</button>
+  <button data-s="acw">After-call work</button>
+  <button data-s="forced">หัวหน้าเปลี่ยนสถานะ</button>
+  <button data-s="incall">reload ระหว่างสาย</button>
+  <button data-s="midshift">ไมค์หลุดกลางกะ</button>
+  <button data-s="test-first">เปิดทดสอบอุปกรณ์</button>
+  <button data-s="test-quiet">ทดสอบ: ไมค์ไม่มีเสียง</button>
+  <button data-s="test-noheard">ทดสอบ: ไม่ได้ยินลำโพง</button>
+</div>
+
+<script>
+const ICON = {
+  check: 'M5 12l5 5l10 -10', x: 'M18 6l-12 12 M6 6l12 12',
+  alert: 'M12 9v4 M12 17h.01 M10.24 3.957l-8.422 14.06a1.989 1.989 0 0 0 1.7 2.983h16.845a1.989 1.989 0 0 0 1.7 -2.983l-8.423 -14.06a1.989 1.989 0 0 0 -3.4 0z',
+  dot: 'M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0', spin: 'M12 3a9 9 0 1 0 9 9',
+  mic: 'M9 2m0 3a3 3 0 0 1 3 -3h0a3 3 0 0 1 3 3v5a3 3 0 0 1 -3 3h0a3 3 0 0 1 -3 -3z M5 10a7 7 0 0 0 14 0 M8 21l8 0 M12 17l0 4',
+  speaker: 'M15 8a5 5 0 0 1 0 8 M17.7 5a9 9 0 0 1 0 14 M6 15h-2a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1h2l3.5 -4.5a.8 .8 0 0 1 1.5 .5v14a.8 .8 0 0 1 -1.5 .5l-3.5 -4.5',
+  phone: 'M5 4h4l2 5l-2.5 1.5a11 11 0 0 0 5 5l1.5 -2.5l5 2v4a2 2 0 0 1 -2 2a16 16 0 0 1 -15 -15a2 2 0 0 1 2 -2',
+  lock: 'M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6z M8 11v-4a4 4 0 1 1 8 0v4',
+  play: 'M7 4v16l13 -8z',
+  wifi: 'M12 18l.01 0 M9.172 15.172a4 4 0 0 1 5.656 0 M6.343 12.343a8 8 0 0 1 11.314 0 M3.515 9.515c4.686 -4.687 12.284 -4.687 17 0',
+  info: 'M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0 M12 8h.01 M11 12h1v4h1',
+  rec: 'M12 12m-6 0a6 6 0 1 0 12 0a6 6 0 1 0 -12 0',
+  headset: 'M4 14v-3a8 8 0 1 1 16 0v3 M4 14a2 2 0 0 1 2 -2h1a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-1a2 2 0 0 1 -2 -2v-3z M15 14a2 2 0 0 1 2 -2h1a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-1a2 2 0 0 1 -2 -2v-3z',
+};
+const svg = (name, size = 16) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICON[name]}"/></svg>`;
+const STATUS_ICON = { pass: 'check', fail: 'x', warn: 'alert', wait: 'dot', run: 'spin' };
+const STATUS_TEXT = { pass: 'ผ่าน', fail: 'ต้องแก้', warn: 'ควรตรวจ', wait: 'ยังไม่ทดสอบ', run: 'กำลังทดสอบ' };
+
+/* สถานะที่ Agent เลือกเอง: Ready · Not Ready + เหตุผล · Offline (เหตุผลตั้งค่าได้ต่อ tenant [ต้องตัดสิน]) */
+const READY = { id: 'AVAILABLE', label: 'Ready', th: 'พร้อมรับสาย', hint: 'ระบบเตรียมโทรศัพท์ให้ แล้วส่งสายจากคิวให้ทันที', dot: 'dot-ready' };
+const NOT_READY = { id: 'BREAK', label: 'Not Ready', th: 'ไม่พร้อมรับสาย', hint: 'ยังไม่รับสาย เลือกเหตุผลให้หัวหน้าเห็นว่าคุณทำอะไรอยู่', dot: 'dot-break' };
+const OFFLINE = { id: 'OFFLINE', label: 'Offline', th: 'ออฟไลน์', hint: 'ยังไม่เริ่มรับงาน เช่น ทำงานค้าง ดูประวัติ หรือทดสอบอุปกรณ์ก่อน', dot: 'dot-off' };
+const REASONS = [
+  { id: 'BREAK', label: 'พักสั้น', en: 'Break' },
+  { id: 'LUNCH', label: 'พักเที่ยง', en: 'Lunch' },
+  { id: 'MEETING', label: 'ประชุม', en: 'Meeting' },
+  { id: 'TRAINING', label: 'อบรม', en: 'Training' },
+  { id: 'COACHING', label: 'โค้ช/ประเมิน', en: 'Coaching' },
+  { id: 'BACKOFFICE', label: 'งานหลังบ้าน', en: 'Back office' },
+  { id: 'PERSONAL', label: 'ธุระส่วนตัว', en: 'Personal' },
+];
+const reasonOf = (id) => REASONS.find((r) => r.id === id);
+const statusLabel = (st, reason) => st === 'AVAILABLE' ? 'Ready' : st === 'OFFLINE' ? 'Offline' : `Not Ready · ${reasonOf(reason)?.label ?? 'ยังไม่เลือกเหตุผล'}`;
+const statusDot = (st) => ({ AVAILABLE: 'dot-ready', BREAK: 'dot-break', OFFLINE: 'dot-off' })[st] ?? 'dot-off';
+
+/* ── ทดสอบอุปกรณ์ (option) ── */
+const TESTS = [
+  { id: 'mic', title: 'ไมโครโฟน' },
+  { id: 'speaker', title: 'ลำโพงหรือหูฟัง' },
+];
+const lastTest = { when: '', result: 'none' }; // none | pass | warn
+let test = null;   // { mic, speaker, sel, micMode }
+let view = null;   // 'gate' | 'ws'
+let gate = null;   // { choice, prep, back }
+let ws = null;     // { status, banner }
+let meterTimer = null;
+
+/* ── หน้าเลือกสถานะหลัง login ── */
+function renderGate() {
+  view = 'gate';
+  document.getElementById('crumb').textContent = 'เริ่มงาน';
+  const g = gate;
+  const prep = g.prep ? prepBlock(g.prep) : '';
+  const busy = g.prep && g.prep.some((x) => x.st === 'run');
+  const failed = g.prep && g.prep.some((x) => x.st === 'fail');
+  const needReason = g.choice === 'BREAK' && !g.reason;
+  const card = (o, extra = '') => `<label class="opt-card"><input type="radio" name="st" value="${o.id}" ${g.choice === o.id ? 'checked' : ''}>
+    <span class="dotc ${o.dot}" aria-hidden="true"></span>
+    <span style="flex:1"><strong>${o.label} <span class="muted" style="font-weight:500">· ${o.th}</span></strong><small>${o.hint}</small>${extra}</span></label>`;
+  const reasons = g.choice === 'BREAK' ? `<div class="reasons" role="radiogroup" aria-label="เหตุผลที่ไม่พร้อม">${REASONS.map((r) =>
+    `<button type="button" class="pill" role="radio" aria-checked="${g.reason === r.id}" data-reason="${r.id}">${r.label}</button>`).join('')}</div>` : '';
+  document.getElementById('main').innerHTML = `
+  <div class="gate">
+    <section class="card gate-card" aria-labelledby="gate-title">
+      <h1 id="gate-title">${g.back ? 'ยินดีต้อนรับกลับ คุณนภัส' : 'สวัสดี คุณนภัส'}</h1>
+      <p>เลือกสถานะก่อนเข้า Workspace${g.back ? ' · เลือกสถานะล่าสุดของคุณไว้ให้' : ''}</p>
+      <fieldset class="options" ${busy ? 'disabled' : ''}>
+        <legend>สถานะเริ่มงาน</legend>
+        ${card(READY)}${card(NOT_READY, reasons)}${card(OFFLINE)}
+      </fieldset>
+      ${prep}
+      ${failed ? `<div class="callout fail">${svg('alert', 18)}<div><strong>${g.prep.find((x) => x.st === 'fail').why}</strong>${g.prep.find((x) => x.st === 'fail').fix}</div></div>` : ''}
+      <div class="gate-actions">
+        ${needReason ? '<span class="muted" style="margin-right:auto">เลือกเหตุผลก่อนเข้า</span>' : ''}
+        ${failed ? '<button class="btn" data-enter="fallback">เข้าแบบ Not Ready · งานหลังบ้าน</button><button class="btn primary" data-enter="retry">ลองอีกครั้ง</button>'
+          : `<button class="btn primary" data-enter="go" ${busy || needReason ? 'disabled' : ''}>${busy ? 'กำลังเตรียม…' : 'เข้า Workspace'}</button>`}
+      </div>
+    </section>
+  </div>`;
+  document.querySelectorAll('input[name=st]').forEach((r) => r.onchange = () => { gate.choice = r.value; gate.prep = null; renderGate(); });
+  document.querySelectorAll('[data-reason]').forEach((b) => b.onclick = (e) => { e.preventDefault(); gate.reason = b.dataset.reason; renderGate(); });
+  document.querySelectorAll('[data-enter]').forEach((b) => b.onclick = () => {
+    const a = b.dataset.enter;
+    if (a === 'fallback') return openWs({ status: 'BREAK', reason: 'BACKOFFICE' });
+    if (gate.choice !== 'AVAILABLE') return openWs({ status: gate.choice, reason: gate.reason });
+    runPrep();
+  });
+  renderHwButton();
+}
+
+/* เลือก "พร้อมรับสาย" → เตรียมเท่าที่จำเป็นต่อการรับสาย ไม่ใช่การทดสอบอุปกรณ์เต็มรูปแบบ */
+function prepItems(outcome) {
+  const base = [
+    { id: 'lease', label: 'ตั้งหน้านี้เป็นจุดรับงาน', st: 'pass' },
+    { id: 'mic', label: 'ขอใช้ไมโครโฟน', st: 'pass' },
+    { id: 'phone', label: 'เชื่อมระบบโทรศัพท์', st: 'pass' },
+  ];
+  if (outcome === 'running') { base[1].st = 'pass'; base[2].st = 'run'; }
+  if (outcome === 'denied') { base[1].st = 'fail'; base[2].st = 'wait'; base[1].why = 'Browser ยังไม่อนุญาตให้ใช้ไมโครโฟน'; base[1].fix = 'คลิกไอคอนแม่กุญแจหน้าที่อยู่เว็บ ตั้งไมโครโฟนเป็น "อนุญาต" แล้วกดลองอีกครั้ง หรือเข้าแบบไม่พร้อมรับสายไปก่อน'; }
+  if (outcome === 'sip') { base[2].st = 'fail'; base[2].why = 'เชื่อมระบบโทรศัพท์ไม่ได้'; base[2].fix = 'ลองอีกครั้ง ถ้ายังไม่ได้ แจ้งผู้ดูแลพร้อมรหัส REG-8F2C · 09:01'; }
+  return base;
+}
+function prepBlock(items) {
+  return `<div class="prep" aria-live="polite">${items.map((x) => `<div><span class="status ${x.st}" role="img" aria-label="${STATUS_TEXT[x.st]}">${svg(STATUS_ICON[x.st], 12)}</span>${x.label}</div>`).join('')}</div>`;
+}
+function runPrep() {
+  gate.prep = prepItems('running');
+  renderGate();
+  setTimeout(() => { if (view === 'gate') openWs({ status: 'AVAILABLE' }); }, 1400);
+}
+
+/* ── Workspace (ย่อ) ── */
+function openWs(next) { ws = { banner: '', since: '00:00', next: 'AVAILABLE', ...next }; renderWs(); }
+function statusOptions(selectedSt, selectedReason) {
+  return `<option value="AVAILABLE" ${selectedSt === 'AVAILABLE' ? 'selected' : ''}>Ready · พร้อมรับสาย</option>
+    <optgroup label="Not Ready · ไม่พร้อมรับสาย">${REASONS.map((r) => `<option value="BREAK:${r.id}" ${selectedSt === 'BREAK' && selectedReason === r.id ? 'selected' : ''}>Not Ready · ${r.label}</option>`).join('')}</optgroup>
+    <option value="OFFLINE" ${selectedSt === 'OFFLINE' ? 'selected' : ''}>Offline · ออฟไลน์</option>`;
+}
+function renderWs() {
+  view = 'ws';
+  document.getElementById('crumb').textContent = 'กล่องงาน';
+  const sys = { incall: ['อยู่ในสาย', 'dot-busy'], acw: ['After-call work · สรุปผลหลังสาย', 'dot-busy'] }[ws.banner];
+  const banner = {
+    '': '', acw: '',
+    incall: `<div class="banner warn">${svg('info', 18)}<div class="grow"><strong>มีสายค้างอยู่ ระบบพาเข้า Workspace โดยไม่ถามสถานะ</strong><small>สายเดิมยังต่ออยู่ที่ dphone หลังจบสายสถานะจะเป็นตามที่เลือกใน "หลังจบสาย"</small></div></div>`,
+    midshift: `<div class="banner fail">${svg('mic', 18)}<div class="grow"><strong>ไมโครโฟนหลุด ระบบเปลี่ยนเป็น Offline ให้แล้ว</strong><small>Jabra Evolve2 40 ถูกถอดออก เสียบกลับแล้วเลือก Ready หรือกดทดสอบอุปกรณ์มุมซ้ายล่าง</small></div><button class="btn primary" data-ws="AVAILABLE">กลับเป็น Ready</button></div>`,
+    forced: `<div class="banner warn">${svg('info', 18)}<div class="grow"><strong>หัวหน้าเปลี่ยนสถานะของคุณเป็น Not Ready · ประชุม</strong><small>สมชาย (Supervisor) · 10:15 น. · เหตุผล: ประชุมทีมประจำวัน</small></div><button class="btn" data-dismiss>รับทราบ</button></div>`,
+  }[ws.banner];
+  const statusControl = sys
+    ? `<span class="status-select"><span class="dotc ${sys[1]}" aria-hidden="true"></span><strong>${sys[0]}</strong><span class="muted">${ws.banner === 'incall' ? '02:14' : '00:21'}</span></span>
+       <label class="status-select" title="สถานะที่จะใช้เมื่อจบงานนี้"><span class="muted" style="font-weight:500">หลังจบงาน</span><select aria-label="สถานะหลังจบงาน">${statusOptions(ws.next.split(':')[0], ws.next.split(':')[1])}</select></label>`
+    : `<label class="status-select"><span class="dotc ${statusDot(ws.status)}" aria-hidden="true"></span><select aria-label="สถานะ Agent">${statusOptions(ws.status, ws.reason)}</select><span class="muted" title="เวลาในสถานะนี้">${ws.since}</span></label>`;
+  document.getElementById('main').innerHTML = `
+  <div class="ws">
+    <div class="ws-head"><h1>Agent Workspace</h1><div class="row">${statusControl}</div></div>
+    ${banner}
+    <div class="ws-frame">
+      <div style="display:flex;flex-direction:column"><strong>งานของฉัน</strong><p class="muted" style="margin:10px 0 14px">${sys ? '081-234-5678 · ' + (ws.banner === 'incall' ? 'กำลังสนทนา' : 'รอสรุปผล') : 'ยังไม่มีงานในมือ'}</p><div class="ghost"></div><div class="ghost" style="width:70%"></div></div>
+      <div>${sys ? `<div class="phonebar">${svg('phone', 16)}<strong>${ws.banner === 'incall' ? 'กำลังสนทนา' : 'รอสรุปผล'}</strong><span class="muted">สายเข้า · บริการลูกค้า</span><span style="margin-left:auto;font-weight:600">เวลาในสาย 02:14</span></div>` : ''}
+        <div class="ghost"></div><div class="ghost" style="width:80%"></div><div class="ghost" style="width:60%"></div>
+        <p class="muted" style="margin-top:18px">Workspace แบบ V3 (ย่อเป็นโครงในภาพนี้)</p></div>
+      <div><strong>รายละเอียด</strong><div class="ghost" style="margin-top:12px"></div><div class="ghost" style="width:70%"></div></div>
+      <div style="border-right:0"></div>
+    </div>
+  </div>`;
+  document.querySelectorAll('.status-select select').forEach((sel) => sel.onchange = () => {
+    if (sel.getAttribute('aria-label') === 'สถานะหลังจบงาน') { ws.next = sel.value; return; }
+    const [st, reason] = sel.value.split(':');
+    ws.status = st; ws.reason = reason; ws.since = '00:00'; ws.banner = '';
+    renderWs();
+  });
+  document.querySelectorAll('[data-ws]').forEach((b) => b.onclick = () => { ws.status = b.dataset.ws; ws.banner = ''; renderWs(); });
+  document.querySelectorAll('[data-dismiss]').forEach((b) => b.onclick = () => { ws.banner = ''; renderWs(); });
+  renderHwButton();
+}
+
+/* ── ปุ่มมุมซ้ายล่าง + แผงทดสอบอุปกรณ์ ── */
+function renderHwButton() {
+  const btn = document.getElementById('hw-btn');
+  const inCall = view === 'ws' && (ws.banner === 'incall' || ws.banner === 'acw');
+  const pip = { none: 'var(--dc-neutral-solid)', pass: 'var(--dc-success-solid)', warn: 'var(--dc-attention-solid)' }[lastTest.result];
+  const note = inCall ? 'ทดสอบได้หลังจบงาน' : lastTest.result === 'none' ? 'ยังไม่เคยทดสอบ' : `${lastTest.result === 'pass' ? 'ผ่าน' : 'มีข้อควรตรวจ'} · ${lastTest.when}`;
+  btn.innerHTML = `${svg('headset', 18)}<span>ทดสอบอุปกรณ์</span><span class="pip" style="background:${pip}" aria-hidden="true"></span><small>${note}</small>`;
+  btn.disabled = inCall;
+  btn.title = inCall ? 'ไมโครโฟนกำลังใช้คุยกับลูกค้า ทดสอบได้หลังจบสาย' : 'ทดสอบไมโครโฟนและลำโพง (ไม่บังคับ)';
+  btn.onclick = () => (test ? closeTest() : openTest('first'));
+}
+
+const TEST_SCN = {
+  first:   { mic: 'run', speaker: 'wait', sel: 'mic', micMode: 'listening' },
+  quiet:   { mic: 'warn', speaker: 'wait', sel: 'mic', micMode: 'quiet' },
+  noheard: { mic: 'pass', speaker: 'fail', sel: 'speaker' },
+};
+function openTest(kind) { test = structuredClone(TEST_SCN[kind]); renderTest(); }
+function closeTest() {
+  test = null; clearInterval(meterTimer);
+  document.getElementById('hw-panel').classList.add('hidden');
+  document.getElementById('hw-btn').setAttribute('aria-expanded', 'false');
+}
+function renderTest() {
+  const panel = document.getElementById('hw-panel');
+  panel.classList.remove('hidden');
+  document.getElementById('hw-btn').setAttribute('aria-expanded', 'true');
+  panel.innerHTML = `
+    <header><div><h2 id="hw-title" style="font-size:16px;font-weight:600">ทดสอบอุปกรณ์</h2><p>ไม่บังคับ · ใช้เมื่อเปลี่ยนหูฟังหรือลูกค้าได้ยินไม่ชัด ผลอยู่ในเครื่องนี้เท่านั้น</p></div>
+      <button class="btn ghost" data-close>ปิด</button></header>
+    <div class="hw-body">
+      <ol class="checks card" style="margin:0">
+        ${TESTS.map((x) => `<li><button class="check" data-test="${x.id}" ${test.sel === x.id ? 'aria-current="step"' : ''}>
+          <span class="status ${test[x.id]}" role="img" aria-label="${STATUS_TEXT[test[x.id]]}">${svg(STATUS_ICON[test[x.id]], 15)}</span>
+          <span class="check-copy"><strong>${x.title}</strong><small>${STATUS_TEXT[test[x.id]]}</small></span></button></li>`).join('')}
+      </ol>
+      <section class="card detail" aria-live="polite">${detail(test.sel)}</section>
+    </div>`;
+  panel.querySelector('[data-close]').onclick = closeTest;
+  panel.querySelectorAll('[data-test]').forEach((b) => b.onclick = () => { test.sel = b.dataset.test; renderTest(); });
+  panel.querySelectorAll('[data-fix]').forEach((b) => b.onclick = () => {
+    const id = b.dataset.fix;
+    test[id] = 'pass';
+    if (id === 'mic' && test.speaker !== 'pass') { test.speaker = 'run'; test.sel = 'speaker'; }
+    finishIfDone(); renderTest();
+  });
+  panel.querySelectorAll('[data-fix-start]').forEach((b) => b.onclick = () => { test.speaker = 'run'; renderTest(); });
+  panel.querySelectorAll('[data-nohear]').forEach((b) => b.onclick = () => { test.speaker = 'fail'; renderTest(); });
+  startMeter();
+}
+function finishIfDone() {
+  if (TESTS.every((x) => ['pass', 'warn'].includes(test[x.id]))) {
+    lastTest.result = TESTS.some((x) => test[x.id] === 'warn') ? 'warn' : 'pass';
+    lastTest.when = 'วันนี้ 09:02';
+    renderHwButton();
+  }
+}
+
+function detail(id) {
+  const st = test[id];
+  const head = (title, desc) => `<div class="detail-head"><div><h2>${title}</h2><p>${desc}</p></div><span class="chip ${st}">${STATUS_TEXT[st]}</span></div>`;
+  if (id === 'mic') {
+    const desc = 'เลือกไมโครโฟนที่ใช้คุยกับลูกค้า แล้วลองพูดให้แถบเสียงขึ้น';
+    const sel = `<label class="field">ไมโครโฟน<select><option>Jabra Evolve2 40</option><option>MacBook Pro Microphone (ในเครื่อง)</option><option>ค่าเริ่มต้นของระบบ</option></select></label>`;
+    if (st === 'pass') return head('ไมโครโฟน', desc) + sel + `<div class="meter" id="meter">${bars()}</div>
+      <div class="callout ok">${svg('check', 18)}<div><strong>ได้ยินเสียงชัดเจน</strong>สายต่อไปจะใช้ไมโครโฟนนี้</div></div>
+      <div class="row"><button class="btn">${svg('rec', 14)} อัดเสียง 3 วินาทีแล้วฟังกลับ</button><span class="muted">เสียงที่อัดไม่ถูกเก็บ</span></div>`;
+    if (test.micMode === 'quiet') return head('ไมโครโฟน', desc) + sel + `<div class="meter" id="meter" data-quiet>${bars()}</div>
+      <div class="callout warn">${svg('alert', 18)}<div><strong>ยังไม่ได้ยินเสียงจาก Jabra Evolve2 40</strong><ol><li>ตรวจปุ่มปิดเสียงที่สายหรือก้านไมค์</li><li>ขยับไมค์มาใกล้ปากแล้วพูดอีกครั้ง</li><li>ลองเลือกไมโครโฟนตัวอื่นด้านบน</li></ol></div></div>
+      <div class="row"><button class="btn primary" data-fix="mic">ลองพูดอีกครั้ง</button></div>`;
+    return head('ไมโครโฟน', desc) + sel + `<div class="prompt">ลองพูดว่า <b>“สวัสดีค่ะ ทดสอบเสียง หนึ่ง สอง สาม”</b></div>
+      <div class="meter" id="meter">${bars()}</div><p class="muted">ผ่านเองเมื่อได้ยินเสียงพูดต่อเนื่องประมาณ 1 วินาที</p>
+      <div class="row"><button class="btn" data-fix="mic">จำลอง: พูดแล้ว</button></div>`;
+  }
+  if (id === 'speaker') {
+    const desc = 'เลือกอุปกรณ์ที่จะได้ยินเสียงลูกค้าและเสียงเรียกเข้า';
+    const sel = `<label class="field">ลำโพงหรือหูฟัง<select><option>Jabra Evolve2 40</option><option>MacBook Pro Speakers (ในเครื่อง)</option><option>ค่าเริ่มต้นของระบบ</option></select></label>`;
+    if (st === 'wait') return head('ลำโพงหรือหูฟัง', desc) + `<div class="callout info">${svg('info', 18)}<div><strong>ทดสอบไมโครโฟนก่อน</strong>หรือกดเล่นเสียงทดสอบได้เลยถ้าต้องการตรวจแค่ลำโพง</div></div>
+      <div class="row"><button class="btn" data-fix-start="speaker">${svg('play', 14)} เล่นเสียงทดสอบ</button></div>`;
+    if (st === 'fail') return head('ลำโพงหรือหูฟัง', desc) + sel + `<div class="callout fail">${svg('speaker', 18)}<div><strong>ไม่ได้ยินเสียงทดสอบ</strong><ol><li>ตรวจว่าเลือกหูฟังที่ใส่อยู่จริง</li><li>เพิ่มเสียงของเครื่องหรือที่หูฟัง</li><li>เล่นเสียงทดสอบอีกครั้ง</li></ol></div></div>
+      <div class="row"><button class="btn primary">${svg('play', 14)} เล่นเสียงทดสอบอีกครั้ง</button></div>
+      <div class="ask"><strong>ได้ยินเสียงทดสอบไหม</strong><button class="btn" data-fix="speaker">ได้ยิน</button><button class="btn" data-nohear>ไม่ได้ยิน</button></div>`;
+    return head('ลำโพงหรือหูฟัง', desc) + sel + `<div class="row"><button class="btn">${svg('play', 14)} เล่นเสียงทดสอบ</button><span class="muted">เสียงเรียกเข้าแบบเดียวกับตอนมีสาย</span></div>
+      <div class="ask"><strong>ได้ยินเสียงทดสอบไหม</strong>${st === 'pass' ? '<span class="chip pass">ได้ยินแล้ว</span>' : '<button class="btn" data-fix="speaker">ได้ยิน</button><button class="btn" data-nohear>ไม่ได้ยิน</button>'}</div>`;
+  }
+  return '';
+}
+const bars = () => Array.from({ length: 24 }, () => '<span></span>').join('');
+function startMeter() {
+  clearInterval(meterTimer);
+  const meter = document.getElementById('meter');
+  if (!meter) return;
+  const quiet = meter.hasAttribute('data-quiet');
+  let t = 0;
+  meterTimer = setInterval(() => {
+    t += 1;
+    const level = quiet ? 0.04 : Math.abs(Math.sin(t / 3)) * 0.7 + Math.random() * 0.25;
+    [...meter.children].forEach((bar, i) => {
+      const on = i / 24 < level;
+      bar.style.height = on ? `${30 + Math.random() * 70}%` : '10%';
+      bar.className = on ? (i > 19 ? 'loud' : 'on') : '';
+    });
+  }, 120);
+}
+
+function setScenario(name) {
+  document.querySelectorAll('.scenarios button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.s === name)));
+  if (name.startsWith('test-')) {
+    if (view !== 'gate' && view !== 'ws') { gate = { choice: 'AVAILABLE' }; renderGate(); }
+    if (view === 'ws' && ['incall', 'acw'].includes(ws.banner)) openWs({ status: 'AVAILABLE' });
+    return openTest({ 'test-first': 'first', 'test-quiet': 'quiet', 'test-noheard': 'noheard' }[name]);
+  }
+  closeTest();
+  if (name === 'login') { lastTest.result = 'none'; gate = { choice: 'AVAILABLE' }; return renderGate(); }
+  if (name === 'login-back') { lastTest.result = 'pass'; lastTest.when = 'เมื่อวาน 08:59'; gate = { choice: 'AVAILABLE', back: true }; return renderGate(); }
+  if (name === 'preparing') { gate = { choice: 'AVAILABLE', prep: prepItems('running') }; return renderGate(); }
+  if (name === 'prep-denied') { gate = { choice: 'AVAILABLE', prep: prepItems('denied') }; return renderGate(); }
+  if (name === 'prep-sip') { gate = { choice: 'AVAILABLE', prep: prepItems('sip') }; return renderGate(); }
+  if (name === 'ws-ready') return openWs({ status: 'AVAILABLE' });
+  if (name === 'ws-off') return openWs({ status: 'OFFLINE' });
+  if (name === 'ws-notready') return openWs({ status: 'BREAK', reason: 'MEETING', since: '12:04' });
+  if (name === 'acw') return openWs({ status: 'AVAILABLE', banner: 'acw', next: 'BREAK:LUNCH' });
+  if (name === 'forced') return openWs({ status: 'BREAK', reason: 'MEETING', banner: 'forced', since: '00:08' });
+  if (name === 'incall') return openWs({ status: 'AVAILABLE', banner: 'incall' });
+  if (name === 'midshift') return openWs({ status: 'OFFLINE', banner: 'midshift' });
+}
+document.querySelectorAll('.scenarios button').forEach((b) => b.onclick = () => setScenario(b.dataset.s));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && test) closeTest(); });
+setScenario('login');
+</script>
+</body>
+</html>
