@@ -253,7 +253,7 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   // #937 เวลาเริ่มสถานะมาจาก log ล่าสุด — ตรวจรูปแบบแยก แล้วเทียบส่วนที่เหลือทั้งก้อน
   assert.match(body.agent.stateSince ?? '', /^\d{4}-\d\d-\d\dT/);
   assert.deepEqual(body, {
-    capabilities: { voiceWrapupV1: 1 },
+    capabilities: { voiceWrapupV1: 1, agentStatusV1: 1 },
     agent: {
       id: agentAId,
       displayName: 'Agent A',

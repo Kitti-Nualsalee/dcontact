@@ -28,6 +28,8 @@ import {
   AgentApiError,
   type AgentWorkspaceApi,
   type AgentWorkspaceSnapshot,
+  type AfterWork,
+  type NotReadyReason,
   type WrapupResultV1,
   type WrapupIntentV1,
 } from './agent-api.js';
@@ -54,6 +56,18 @@ import { WorkSessionPanel } from './work-session-panel.js';
 import { PaneIcon, PaneSplitter, usePaneWidth, type PaneIconName } from './workspace-pane.js';
 import { devicePreferences, micConstraint } from './device-preferences.js';
 import { DeviceTestButton } from './device-test-panel.js';
+import {
+  StatusGate,
+  StatusSelector,
+  SupervisorNotice,
+  fallbackReason,
+  lastStatusChoice,
+  rememberStatusChoice,
+  type PrepFailure,
+  type PrepStatus,
+  type PrepStep,
+  type StatusChoice,
+} from './agent-status.js';
 import './agent-workspace.css';
 import './dphone/dphone.css';
 
@@ -204,7 +218,7 @@ function AgentWorkspace({
   const embedded = variant === 'embedded';
   const extensionControl = !embedded && phoneControlMode === 'chrome-extension';
   const externalControl = !embedded && phoneControlMode === 'external-simulator';
-  const { t } = useTranslation('workspace');
+  const { t, i18n } = useTranslation('workspace');
   const { t: td } = useTranslation('dphone');
   const { locale } = useLocale();
   // embedded ไม่มี shell แต่ใช้ widget ของ shell ใหม่ (D1.15) เหมือนกัน
@@ -225,6 +239,18 @@ function AgentWorkspace({
   // ข้อความเก็บเป็น key แล้วแปลตอน render — สลับภาษาแล้วเปลี่ยนตาม
   const [mediaError, setMediaError] = useState<WorkspaceMessage>();
   const [snapshot, setSnapshot] = useState<AgentWorkspaceSnapshot>();
+  // #938 หน้าเลือกสถานะหลัง login และตัวเลือกสถานะ (เปิดเมื่อ server รองรับ agentStatusV1 จาก #937)
+  const [reasons, setReasons] = useState<NotReadyReason[]>([]);
+  const [gate, setGate] = useState<'pending' | 'open' | 'done'>('pending');
+  const [gateInitial] = useState<StatusChoice>(lastStatusChoice);
+  const [prep, setPrep] = useState<{
+    preparing: boolean;
+    steps: Partial<Record<PrepStep, PrepStatus>>;
+    failure?: PrepFailure;
+  }>({ preparing: false, steps: {} });
+  const [statusPending, setStatusPending] = useState(false);
+  const [statusError, setStatusError] = useState<PrepFailure | 'change'>();
+  const [acknowledgedChange, setAcknowledgedChange] = useState<string | null>();
   const [snapshotError, setSnapshotError] = useState<WorkspaceMessage>();
   const [dphoneState, setDphoneState] = useState<DphoneState>({ phase: 'OFFLINE' });
   const [dphoneError, setDphoneError] = useState<WorkspaceMessage>();
@@ -306,6 +332,40 @@ function AgentWorkspace({
     wrapupUnknown ||
     snapshot?.interaction?.state === 'ACTIVE' ||
     snapshot?.interaction?.state === 'WRAPUP';
+  const statusV1 =
+    snapshot?.capabilities?.agentStatusV1 === 1 &&
+    inShellFrame &&
+    !externalControl &&
+    !extensionControl &&
+    Boolean(api?.setAgentState);
+  useEffect(() => {
+    if (!statusV1 || !api?.notReadyReasons) return;
+    let cancelled = false;
+    void api
+      .notReadyReasons()
+      .then((list) => {
+        if (!cancelled) setReasons(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [statusV1, api]);
+  // ตอนว่างงาน อ่าน snapshot เป็นระยะ ให้เห็นสถานะที่ Supervisor เปลี่ยนให้และเวลาในสถานะตรงกับ server
+  useEffect(() => {
+    if (!statusV1 || gate !== 'done' || workInHand || !api) return;
+    const timer = window.setInterval(() => {
+      void api
+        .snapshot()
+        .then(setSnapshot)
+        .catch(() => undefined);
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [statusV1, gate, workInHand, api]);
+  // มีงานในมือตอนเปิดหน้า (รวม reload ระหว่างสาย) = ข้ามหน้าเลือกสถานะ — หลักการ UI ข้อ 4
+  useEffect(() => {
+    if (statusV1 && gate === 'pending') setGate(workInHand ? 'done' : 'open');
+  }, [statusV1, gate, workInHand]);
   // รับงานใหม่ได้: flag เปิด = ถือ lease; flag ปิด = working tab (เดิม)
   const ownsWork =
     acceptingSession && !wrapupPending && !wrapupUnknown && (enforced ? leaseHeld : workingTab);
@@ -681,7 +741,8 @@ function AgentWorkspace({
     [],
   );
 
-  async function checkMediaReadiness() {
+  /** คืนผลให้ขั้นเตรียมรับสายของหน้าเลือกสถานะ (#938) รู้ว่าล้มที่ไมค์หรือโทรศัพท์ */
+  async function checkMediaReadiness(): Promise<'ok' | 'mic' | 'phone' | 'skipped'> {
     if (
       externalControl ||
       !ownsWork ||
@@ -691,7 +752,7 @@ function AgentWorkspace({
           mediaReadinessRef.current === 'CHECKING' ||
           dphone.current?.current().phase !== 'OFFLINE'))
     )
-      return;
+      return 'skipped';
     if (extensionControl) mediaReadinessRef.current = 'CHECKING';
     availabilityGeneration.current += 1;
     setMediaReadiness('CHECKING');
@@ -724,7 +785,7 @@ function AgentWorkspace({
       setMediaReadiness('BLOCKED');
       setMediaError('micBlocked');
       setDphoneState({ phase: 'OFFLINE' });
-      return;
+      return 'mic';
     }
 
     if (api && dphone.current) {
@@ -737,7 +798,7 @@ function AgentWorkspace({
         if (!ownsWorkRef.current || leaseClient.current?.leaseId() !== workSessionLeaseId) {
           if (extensionControl) setMediaReadiness('UNCHECKED');
           setDphoneState({ phase: 'OFFLINE' });
-          return;
+          return 'phone';
         }
         setDphoneState({ phase: 'REGISTERING', telephonyNodeId: sipLease.telephonyNodeId });
         const phone = dphone.current;
@@ -750,10 +811,11 @@ function AgentWorkspace({
         ) {
           await phone.stop();
           if (dphone.current === phone) setMediaReadiness('UNCHECKED');
-          return;
+          return 'phone';
         }
         setDphoneState(state);
         if (extensionControl) setMediaReadiness('READY');
+        return state.phase === 'READY' ? 'ok' : 'phone';
       } catch {
         setAvailability('OFFLINE');
         setDphoneState({ phase: 'OFFLINE' });
@@ -762,8 +824,10 @@ function AgentWorkspace({
           await dphone.current?.stop();
         }
         setDphoneError('registerFailed');
+        return 'phone';
       }
     }
+    return 'ok';
   }
 
   async function becomeAvailable() {
@@ -800,6 +864,127 @@ function AgentWorkspace({
       setAvailabilityError('availabilityFailed');
     } finally {
       setAvailabilityPending(false);
+    }
+  }
+
+  async function refreshSnapshot() {
+    if (!api) return;
+    try {
+      setSnapshot(await api.snapshot());
+    } catch {
+      // รอบ snapshot ปกติจะลองใหม่เอง
+    }
+  }
+
+  /**
+   * #938 ขั้นเตรียมรับสายเท่าที่จำเป็น: จุดรับงาน → ไมค์ → โทรศัพท์ → เปิดรับสาย
+   * ใช้ทั้งตอนเลือก Ready บนหน้าเลือกสถานะและตอนเปลี่ยนเป็น Ready ที่ตัวเลือกสถานะ
+   */
+  async function goReady(
+    mark: (step: PrepStep, status: PrepStatus) => void,
+  ): Promise<PrepFailure | undefined> {
+    mark('lease', 'run');
+    const leaseId = leaseClient.current?.leaseId();
+    if (!api || !leaseId || !ownsWorkRef.current) {
+      mark('lease', 'fail');
+      return 'lease';
+    }
+    mark('lease', 'done');
+    if (mediaReadinessRef.current !== 'READY' || dphone.current?.current().phase !== 'READY') {
+      mark('mic', 'run');
+      const outcome = await checkMediaReadiness();
+      if (outcome === 'mic') {
+        mark('mic', 'fail');
+        return 'mic';
+      }
+      mark('mic', 'done');
+      mark('phone', 'run');
+      if (outcome !== 'ok' || dphone.current?.current().phase !== 'READY') {
+        mark('phone', 'fail');
+        return 'phone';
+      }
+    } else mark('mic', 'done');
+    mark('phone', 'done');
+    mark('ready', 'run');
+    try {
+      await api.becomeAvailable(leaseId);
+      setAvailability('AVAILABLE');
+    } catch {
+      mark('ready', 'fail');
+      return 'ready';
+    }
+    mark('ready', 'done');
+    return undefined;
+  }
+
+  /** Not Ready ถือโทรศัพท์ไว้, Offline ปล่อยโทรศัพท์และไมค์ (คำตัดสิน owner ข้อ 5) */
+  async function applyStatus(
+    choice: StatusChoice,
+    mark: (step: PrepStep, status: PrepStatus) => void = () => undefined,
+  ): Promise<PrepFailure | 'change' | undefined> {
+    if (!api?.setAgentState) return 'change';
+    if (choice.state === 'AVAILABLE') {
+      const failure = await goReady(mark);
+      if (!failure) rememberStatusChoice(choice);
+      void refreshSnapshot();
+      return failure;
+    }
+    const leaseId = leaseClient.current?.leaseId();
+    if (!leaseId) return 'lease';
+    try {
+      await api.setAgentState(leaseId, choice);
+    } catch {
+      return 'change';
+    }
+    availabilityGeneration.current += 1;
+    setAvailability('OFFLINE');
+    if (choice.state === 'OFFLINE') {
+      if (dphone.current) setDphoneState(await dphone.current.stop());
+      for (const track of mediaStream.current?.getTracks() ?? []) track.stop();
+      mediaStream.current = undefined;
+      setMediaReadiness('UNCHECKED');
+    }
+    rememberStatusChoice(choice);
+    void refreshSnapshot();
+    return undefined;
+  }
+
+  async function enterFromGate(choice: StatusChoice) {
+    setPrep({ preparing: true, steps: {} });
+    const failure = await applyStatus(choice, (step, status) =>
+      setPrep((current) => ({ ...current, steps: { ...current.steps, [step]: status } })),
+    );
+    if (failure) {
+      setPrep((current) => ({
+        ...current,
+        preparing: false,
+        failure: failure === 'change' ? 'ready' : failure,
+      }));
+      return;
+    }
+    setPrep({ preparing: false, steps: {} });
+    setGate('done');
+  }
+
+  async function changeStatus(choice: StatusChoice) {
+    setStatusPending(true);
+    setStatusError(undefined);
+    const failure = await applyStatus(choice);
+    setStatusPending(false);
+    if (failure) setStatusError(failure);
+  }
+
+  async function changeAfterWork(afterWork: AfterWork) {
+    if (!api?.setAfterWork) return;
+    setStatusPending(true);
+    setStatusError(undefined);
+    try {
+      await api.setAfterWork(afterWork);
+      await refreshSnapshot();
+    } catch {
+      setStatusError('change');
+    } finally {
+      setStatusPending(false);
     }
   }
 
@@ -1146,13 +1331,15 @@ function AgentWorkspace({
       >
         {readinessLabel}
       </span>
-      <span
-        className={
-          'aw-chip ' + (availability === 'AVAILABLE' ? 'aw-chip-success' : 'aw-chip-neutral')
-        }
-      >
-        {availability === 'AVAILABLE' ? t('status.available') : t('status.offline')}
-      </span>
+      {statusV1 ? null : (
+        <span
+          className={
+            'aw-chip ' + (availability === 'AVAILABLE' ? 'aw-chip-success' : 'aw-chip-neutral')
+          }
+        >
+          {availability === 'AVAILABLE' ? t('status.available') : t('status.offline')}
+        </span>
+      )}
       {!externalControl ? (
         <span
           className={
@@ -1838,9 +2025,15 @@ function AgentWorkspace({
               ? td('external.emptyHint')
               : extensionControl
                 ? td('chrome.description')
-                : t('layout.noCurrentHint')}
+                : statusV1
+                  ? t(
+                      snapshot?.agent.state === 'AVAILABLE'
+                        ? 'agentStatus.idleReadyHint'
+                        : 'agentStatus.idleHint',
+                    )
+                  : t('layout.noCurrentHint')}
           </span>
-          {!inspectorOpen || inspectorTab !== 'readiness' ? (
+          {!statusV1 && (!inspectorOpen || inspectorTab !== 'readiness') ? (
             <Button onPress={() => showInspector('readiness')}>
               {t('layout.inspector.openReadiness')}
             </Button>
@@ -1958,8 +2151,32 @@ function AgentWorkspace({
             <h3 id="aw-readiness-title" className="aw-visually-hidden">
               {t('layout.readiness')}
             </h3>
-            {externalControl ? externalPhonePanel : mediaPanel}
-            {!externalControl ? availabilityPanel : null}
+            {statusV1 ? (
+              // #938 เปลี่ยนสถานะที่ตัวเลือกมุมขวาบน ทดสอบอุปกรณ์ที่ปุ่มมุมซ้ายล่าง — แท็บนี้เหลือสถานะของระบบ
+              <dl className="aw-readiness-summary">
+                <div>
+                  <dt>{t('status.owner')}</dt>
+                  <dd>{ownsWork ? t('lease.chip.held') : t('lease.chip.standby')}</dd>
+                </div>
+                <div>
+                  <dt>{t('agentStatus.summary.mic')}</dt>
+                  <dd>{readinessLabel}</dd>
+                </div>
+                <div>
+                  <dt>{t('status.dphone')}</dt>
+                  <dd>{td(`phase.${dphoneState.phase}`)}</dd>
+                </div>
+                <div>
+                  <dt>{t('agentStatus.selectorLabel')}</dt>
+                  <dd>{t(`agentState.${snapshot?.agent.state ?? 'OFFLINE'}`)}</dd>
+                </div>
+              </dl>
+            ) : (
+              <>
+                {externalControl ? externalPhonePanel : mediaPanel}
+                {!externalControl ? availabilityPanel : null}
+              </>
+            )}
           </section>
         </TabPanel>
       </Tabs>
@@ -2086,9 +2303,67 @@ function AgentWorkspace({
               <h1>{t('heading.title')}</h1>
               {identity}
             </div>
-            {statusStrip}
+            <div className="aw-header-status">
+              {statusV1 && gate === 'done' && snapshot ? (
+                <StatusSelector
+                  state={snapshot.agent.state}
+                  reasonCode={snapshot.agent.reasonCode}
+                  since={snapshot.agent.stateSince}
+                  reasons={reasons}
+                  afterWork={snapshot.agent.afterWork ?? { state: 'AVAILABLE' }}
+                  changedBy={snapshot.agent.changedBy}
+                  pending={statusPending}
+                  onChange={(choice) => void changeStatus(choice)}
+                  onAfterWork={(afterWork) => void changeAfterWork(afterWork)}
+                />
+              ) : null}
+              {statusStrip}
+            </div>
           </header>
-          {shellContent}
+          {statusError ? (
+            <p className="aw-warning aw-status-error" role="alert">
+              {statusError === 'change'
+                ? t('agentStatus.changeFailed')
+                : t(`agentStatus.failure.${statusError}.title`)}
+            </p>
+          ) : null}
+          {statusV1 && gate === 'open' && snapshot ? (
+            <StatusGate
+              agentName={snapshot.agent.displayName}
+              reasons={reasons}
+              initial={gateInitial}
+              preparing={prep.preparing}
+              steps={prep.steps}
+              failure={prep.failure}
+              onEnter={(choice) => void enterFromGate(choice)}
+              onFallback={() => {
+                const reasonCode = fallbackReason(reasons);
+                if (reasonCode) void enterFromGate({ state: 'BREAK', reasonCode });
+              }}
+            />
+          ) : (
+            <>
+              {statusV1 &&
+              snapshot?.agent.changedBy === 'SUPERVISOR' &&
+              acknowledgedChange !== (snapshot.agent.stateSince ?? null) ? (
+                <SupervisorNotice
+                  name={snapshot.agent.changedByName}
+                  state={snapshot.agent.state}
+                  reasonLabel={
+                    snapshot.agent.reasonCode
+                      ? (reasons.find((reason) => reason.code === snapshot.agent.reasonCode)?.[
+                          i18n.language.startsWith('en') ? 'labelEn' : 'labelTh'
+                        ] ?? snapshot.agent.reasonCode)
+                      : undefined
+                  }
+                  note={snapshot.agent.changeNote}
+                  since={snapshot.agent.stateSince}
+                  onAcknowledge={() => setAcknowledgedChange(snapshot.agent.stateSince ?? null)}
+                />
+              ) : null}
+              {shellContent}
+            </>
+          )}
         </>
       ) : (
         <>

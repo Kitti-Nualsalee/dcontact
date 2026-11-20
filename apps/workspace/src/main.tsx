@@ -32,6 +32,11 @@ const e2eApi: AgentWorkspaceApi = {
     : {}),
   snapshot: () => e2eHttpApi.snapshot(),
   becomeAvailable: (workSessionLeaseId) => e2eHttpApi.becomeAvailable(workSessionLeaseId),
+  // #938 หน้าเลือกสถานะ — spec ที่ไม่ส่ง agentStatusV1 ใน snapshot ไม่ใช้ส่วนนี้
+  setAgentState: (workSessionLeaseId, state) =>
+    e2eHttpApi.setAgentState!(workSessionLeaseId, state),
+  notReadyReasons: () => e2eHttpApi.notReadyReasons!(),
+  setAfterWork: (afterWork) => e2eHttpApi.setAfterWork!(afterWork),
   submitWrapup: (input) => e2eHttpApi.submitWrapup(input),
   submitWrapupV1: (input) => e2eHttpApi.submitWrapupV1!(input),
   wrapupResult: (interactionId) => e2eHttpApi.wrapupResult!(interactionId),

@@ -1301,3 +1301,268 @@
 .aw-devtest-callout-fail strong {
   color: var(--dc-critical-fg-strong);
 }
+
+/* #938 หน้าเลือกสถานะหลัง login (view หนึ่งของ AgentWorkspace) */
+.aw-gate {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--dc-space-9) var(--dc-space-6);
+  overflow-y: auto;
+}
+
+.aw-gate-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-6);
+  width: min(560px, 100%);
+  padding: var(--dc-space-8);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+  box-shadow: var(--dc-shadow-card);
+}
+
+.aw-gate-card h2 {
+  margin: 0;
+  font-size: var(--dc-text-md);
+}
+
+.aw-gate-eyebrow,
+.aw-gate-lead,
+.aw-gate-note {
+  margin: 0;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-gate-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.aw-gate-option {
+  padding: var(--dc-space-5) var(--dc-space-6);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-lg);
+}
+
+.aw-gate-option-on {
+  border-color: var(--dc-border-brand);
+  background: var(--dc-surface-selected);
+}
+
+.aw-gate-option input,
+.aw-gate-pill input {
+  margin: 0;
+  accent-color: var(--dc-border-brand);
+}
+
+.aw-gate-option-copy {
+  display: flex;
+  flex-direction: column;
+}
+
+.aw-gate-option-copy small {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}
+
+.aw-gate-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--dc-radius-pill);
+  background: var(--dc-border-strong);
+}
+
+.aw-gate-dot-available {
+  background: var(--dc-success-solid);
+}
+
+.aw-gate-dot-break {
+  background: var(--dc-attention-solid);
+}
+
+.aw-gate-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dc-space-3);
+  padding-left: var(--dc-space-9);
+}
+
+.aw-gate-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-3) var(--dc-space-5);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-pill);
+  font-size: var(--dc-text-sm);
+  cursor: pointer;
+}
+
+.aw-gate-pill-on {
+  border-color: var(--dc-border-brand);
+  background: var(--dc-surface-selected);
+}
+
+.aw-gate-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--dc-text-sm);
+}
+
+.aw-gate-step {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-4);
+  color: var(--dc-text-secondary);
+}
+
+.aw-gate-step-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--dc-radius-pill);
+  background: var(--dc-border-default);
+}
+
+.aw-gate-step-run .aw-gate-step-mark {
+  background: var(--dc-info-solid);
+}
+
+.aw-gate-step-done {
+  color: var(--dc-text-primary);
+}
+
+.aw-gate-step-done .aw-gate-step-mark {
+  background: var(--dc-success-solid);
+}
+
+.aw-gate-step-fail {
+  color: var(--dc-critical-fg);
+}
+
+.aw-gate-step-fail .aw-gate-step-mark {
+  background: var(--dc-critical-solid);
+}
+
+.aw-gate-failure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+  padding: var(--dc-space-5);
+  border: 1px solid var(--dc-critical-border);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-critical-bg-subtle);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-gate-failure strong {
+  color: var(--dc-critical-fg-strong);
+}
+
+.aw-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-4);
+}
+
+/* ตัวเลือกสถานะที่หัว Workspace */
+.aw-header-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--dc-space-5);
+}
+
+.aw-status-select {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--dc-space-4);
+}
+
+.aw-status-select > .aw-gate-dot {
+  align-self: center;
+}
+
+.aw-status-current {
+  min-width: 220px;
+}
+
+.aw-status-afterwork {
+  min-width: 200px;
+}
+
+.aw-status-elapsed {
+  align-self: center;
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.aw-status-system {
+  align-self: center;
+}
+
+.aw-status-error {
+  margin: 0 0 var(--dc-space-4);
+}
+
+.aw-supervisor-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dc-space-5);
+  margin-bottom: var(--dc-space-4);
+  padding: var(--dc-space-4) var(--dc-space-6);
+  border: 1px solid var(--dc-attention-border);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-attention-bg-subtle);
+  color: var(--dc-attention-fg-strong);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-gate-option-label {
+  display: flex;
+  align-items: center;
+  gap: var(--dc-space-5);
+  cursor: pointer;
+}
+
+.aw-gate-option .aw-gate-reasons {
+  margin-top: var(--dc-space-5);
+}
+
+.aw-readiness-summary {
+  display: grid;
+  gap: var(--dc-space-4);
+  margin: 0;
+}
+
+.aw-readiness-summary div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--dc-space-5);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-readiness-summary dt {
+  color: var(--dc-text-secondary);
+}
+
+.aw-readiness-summary dd {
+  margin: 0;
+  font-weight: 600;
+}
