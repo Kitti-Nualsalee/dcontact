@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url);
+const postcss=require(require.resolve('postcss',{paths:[require.resolve('vite')]}));
+const html=readFileSync(new URL('../../d-contact-agent-workspace.html',import.meta.url),'utf8');
+const style=html.match(/<style>([\s\S]*?)<\/style>/)?.[1];
+assert(style,'HTML must embed CSS');
+const css=postcss.parse(style);
+let imports=0;css.walkAtRules('import',()=>imports++);assert.equal(imports,0);
+const root=css.nodes.find(n=>n.type==='rule'&&n.selector.split(',').some(s=>s.trim()===':root'));
+assert(root,'A valid :root selector must survive export');
+const tokens=new Map();
+css.walkRules(rule=>{if(rule.selector.split(',').some(s=>s.trim()===':root'))rule.walkDecls(node=>tokens.set(node.prop,node.value));});
+for(const key of ['--dc-surface-raised','--dc-text-primary','--dc-brand-700','--dc-space-6'])assert(tokens.has(key),key);
+assert(!style.includes('fonts.googleapis.com'));
+assert(!/<(?:script|link)[^>]*(?:src|href)=/i.test(html));
+// Regression: semicolons in a quoted Google Fonts URL must stay inside the import.
+const fixture='@import "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600";:root{--dc-text-primary:black}';
+const ast=postcss.parse(fixture);ast.walkAtRules('import',n=>n.remove());
+assert.equal(ast.toString(),':root{--dc-text-primary:black}');
+assert(tokens.size>100);
+console.log(`PASS: final HTML stylesheet parsed, ${tokens.size} root tokens intact; embedded assets; quoted font-URL regression passed.`);

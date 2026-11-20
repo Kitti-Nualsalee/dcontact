@@ -1,0 +1,19 @@
+{
+  "name": "agent-workspace-prototype",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/prepare-sites-build.mjs",
+    "preview": "vite preview",
+    "test:sites": "node --test tests/sites-worker.test.mjs"
+  },
+  "dependencies": {
+    "vite": "6.4.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "lucide": "1.8.0"
+  },
+  "devDependencies": {}
+}
