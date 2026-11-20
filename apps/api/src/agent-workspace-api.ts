@@ -6,6 +6,8 @@ import {
   ForbiddenException,
   Get,
   HttpCode,
+  Put,
+  UnprocessableEntityException,
   Headers,
   Header,
   HttpException,
@@ -24,6 +26,14 @@ import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.j
 import { EmbedOriginService } from './embed-origins.js';
 import { saveAgentWrapup, readAgentWrapup, readAgentWrapupCommand } from './agent-wrapup-v1.js';
 import { readAgentHistory } from './agent-history.js';
+import {
+  activeNotReadyReasons,
+  isActiveNotReadyReason,
+  parseAfterWork,
+  parseAgentSelfState,
+  recordPostWrapupState,
+  stateChangedBy,
+} from './agent-not-ready.js';
 
 export const AGENT_WORKSPACE_DATABASE = Symbol('AGENT_WORKSPACE_DATABASE');
 export const AGENT_WORKSPACE_CUSTOMER_AVAILABLE = Symbol('AGENT_WORKSPACE_CUSTOMER_AVAILABLE');
@@ -123,13 +133,32 @@ export class AgentWorkspaceController {
           displayName: true,
           extension: true,
           stateLogs: {
-            select: { state: true },
+            select: {
+              state: true,
+              startedAt: true,
+              reasonCode: true,
+              reason: true,
+              actorUserId: true,
+            },
             orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
             take: 1,
           },
         },
       });
       if (!agent) throw new NotFoundException();
+      const latestState = agent.stateLogs[0];
+      const changedBy = stateChangedBy(latestState, actor.userId);
+      const supervisor =
+        changedBy === 'SUPERVISOR' && latestState?.actorUserId
+          ? await transaction.user.findFirst({
+              where: { id: latestState.actorUserId, tenantId: actor.tenantId },
+              select: { displayName: true },
+            })
+          : null;
+      const afterWork = await transaction.agentAfterWorkState.findUnique({
+        where: { tenantId_userId: { tenantId: actor.tenantId, userId: actor.userId } },
+        select: { reasonCode: true },
+      });
 
       const interaction = await transaction.interaction.findFirst({
         where: {
@@ -161,7 +190,20 @@ export class AgentWorkspaceController {
           id: agent.id,
           displayName: agent.displayName,
           extension: agent.extension,
-          state: agent.stateLogs[0]?.state ?? 'OFFLINE',
+          state: latestState?.state ?? 'OFFLINE',
+          // #937 เวลาในสถานะ, เหตุผล Not Ready และใครเปลี่ยน (Supervisor บังคับ = ชื่อและเหตุผลที่กรอก)
+          stateSince: latestState?.startedAt.toISOString() ?? null,
+          reasonCode: latestState?.reasonCode ?? null,
+          changedBy,
+          ...(changedBy === 'SUPERVISOR'
+            ? {
+                changedByName: supervisor?.displayName ?? null,
+                changeNote: latestState?.reason ?? null,
+              }
+            : {}),
+          afterWork: afterWork
+            ? { state: 'BREAK' as const, reasonCode: afterWork.reasonCode }
+            : { state: 'AVAILABLE' as const },
         },
         interaction: interaction
           ? {
@@ -187,12 +229,13 @@ export class AgentWorkspaceController {
   async becomeAvailable(
     @Req() request: AuthenticatedGatewayRequest,
     @Headers('x-work-session-lease-id') workSessionLeaseId: string | undefined,
-    @Body() body: { state?: unknown } | undefined,
+    @Body() body: unknown,
   ) {
     const actor = identity(request);
     const leaseId = requiredUuid(workSessionLeaseId ?? '', 'x-work-session-lease-id');
-    if (body?.state !== 'AVAILABLE')
-      throw new BadRequestException({ code: 'VALIDATION_FAILED', field: 'state' });
+    // #937: AVAILABLE (เดิม), BREAK + reasonCode (Not Ready) หรือ OFFLINE ของ Agent ตัวเอง
+    const requested = parseAgentSelfState(body);
+    if (!requested) throw new BadRequestException({ code: 'VALIDATION_FAILED', field: 'state' });
     return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
       await transaction.$queryRaw(Prisma.sql`
         SELECT id FROM users WHERE tenant_id = ${actor.tenantId}::uuid
@@ -233,16 +276,18 @@ export class AgentWorkspaceController {
         )
           throw new ForbiddenException({ code: 'EMBED_ORIGIN_NOT_ALLOWED' });
       }
-      const credential = await transaction.agentSipCredential.findFirst({
-        where: {
-          workSessionLeaseId: leaseId,
-          tenantId: actor.tenantId,
-          userId: actor.userId,
-          revokedAt: null,
-        },
-        select: { workSessionLeaseId: true },
-      });
-      if (!credential) throw new ConflictException({ code: 'AGENT_SIP_NOT_READY' });
+      if (requested.state === 'AVAILABLE') {
+        const credential = await transaction.agentSipCredential.findFirst({
+          where: {
+            workSessionLeaseId: leaseId,
+            tenantId: actor.tenantId,
+            userId: actor.userId,
+            revokedAt: null,
+          },
+          select: { workSessionLeaseId: true },
+        });
+        if (!credential) throw new ConflictException({ code: 'AGENT_SIP_NOT_READY' });
+      }
       const busy = await transaction.interaction.count({
         where: {
           tenantId: actor.tenantId,
@@ -251,23 +296,86 @@ export class AgentWorkspaceController {
           state: { in: ['ASSIGNED', 'ACTIVE', 'WRAPUP'] },
         },
       });
+      // ระหว่างมีงานเปลี่ยนเองไม่ได้ — ใช้สถานะหลังจบงาน (PUT after-work) แทน
       if (busy) throw new ConflictException({ code: 'WORK_SESSION_BUSY' });
+      if (
+        requested.reasonCode &&
+        !(await isActiveNotReadyReason(transaction, actor.tenantId, requested.reasonCode))
+      )
+        throw new UnprocessableEntityException({ code: 'NOT_READY_REASON_INACTIVE' });
       const latest = await transaction.agentStateLog.findFirst({
         where: { tenantId: actor.tenantId, userId: actor.userId },
         orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
-        select: { state: true },
+        select: { state: true, reasonCode: true },
       });
-      if (latest?.state !== 'AVAILABLE')
+      const reasonCode = requested.reasonCode ?? null;
+      if (latest?.state !== requested.state || (latest?.reasonCode ?? null) !== reasonCode)
         await transaction.agentStateLog.create({
           data: {
             tenantId: actor.tenantId,
             userId: actor.userId,
-            state: 'AVAILABLE',
+            state: requested.state,
+            reasonCode,
             actorUserId: actor.userId,
-            reason: 'agent_self_available',
+            reason: {
+              AVAILABLE: 'agent_self_available',
+              BREAK: 'agent_self_not_ready',
+              OFFLINE: 'agent_self_offline',
+            }[requested.state],
           },
         });
-      return { state: 'AVAILABLE' as const };
+      return { state: requested.state, ...(reasonCode ? { reasonCode } : {}) };
+    });
+  }
+
+  /** #937 เหตุผล Not Ready ที่ Agent เลือกได้ตอนนี้ ตามลำดับที่ Admin ตั้ง (#936) */
+  @Get('not-ready-reasons')
+  @GatewayRoles('agent')
+  @Header('Cache-Control', 'no-store')
+  async notReadyReasons(@Req() request: AuthenticatedGatewayRequest) {
+    const actor = identity(request);
+    return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => ({
+      reasons: await activeNotReadyReasons(transaction, actor.tenantId),
+    }));
+  }
+
+  /**
+   * #937 สถานะหลังจบงาน — ใช้ตอนปิดงานหลังสาย (บันทึกสรุปผล) ครั้งเดียว ไม่ตั้ง = Ready
+   * ตั้งได้ทุกเวลา ค่านี้อยู่ที่ server จึงไม่หายเมื่อ reload
+   */
+  @Put('after-work')
+  @HttpCode(200)
+  @GatewayRoles('agent')
+  async afterWork(@Req() request: AuthenticatedGatewayRequest, @Body() body: unknown) {
+    const actor = identity(request);
+    const requested = parseAfterWork(body);
+    if (!requested) throw new BadRequestException({ code: 'VALIDATION_FAILED', field: 'state' });
+    return withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
+      const agent = await transaction.user.findFirst({
+        where: { id: actor.userId, tenantId: actor.tenantId, role: 'AGENT', isActive: true },
+        select: { id: true },
+      });
+      if (!agent) throw new NotFoundException();
+      const key = { tenantId_userId: { tenantId: actor.tenantId, userId: actor.userId } };
+      if (requested.state === 'AVAILABLE') {
+        await transaction.agentAfterWorkState.deleteMany({
+          where: { tenantId: actor.tenantId, userId: actor.userId },
+        });
+        return { afterWork: { state: 'AVAILABLE' as const } };
+      }
+      if (!(await isActiveNotReadyReason(transaction, actor.tenantId, requested.reasonCode)))
+        throw new UnprocessableEntityException({ code: 'NOT_READY_REASON_INACTIVE' });
+      await transaction.agentAfterWorkState.upsert({
+        where: key,
+        create: {
+          tenantId: actor.tenantId,
+          userId: actor.userId,
+          state: 'BREAK',
+          reasonCode: requested.reasonCode,
+        },
+        update: { reasonCode: requested.reasonCode, updatedAt: new Date() },
+      });
+      return { afterWork: { state: 'BREAK' as const, reasonCode: requested.reasonCode } };
     });
   }
 
@@ -321,14 +429,7 @@ export class AgentWorkspaceController {
           payload: { disposition: input.disposition, commandId: input.commandId },
         },
       });
-      await transaction.agentStateLog.create({
-        data: {
-          tenantId: actor.tenantId,
-          userId: actor.userId,
-          state: 'AVAILABLE',
-          reason: 'wrapup_completed',
-        },
-      });
+      await recordPostWrapupState(transaction, actor.tenantId, actor.userId);
       const result = {
         interactionId: interaction.id,
         state: 'COMPLETED',

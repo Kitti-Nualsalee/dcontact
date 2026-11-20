@@ -422,6 +422,8 @@ model AgentStateLog {
   userId      String         @map("user_id") @db.Uuid
   state       AgentStateType
   reason      String?
+  /// #937 เหตุผล Not Ready ของ tenant (tenant_not_ready_reasons.code) — มีเฉพาะ state BREAK ที่ Agent/หลังจบงานเลือก
+  reasonCode  String?        @map("reason_code")
   actorUserId String?        @map("actor_user_id") @db.Uuid
   startedAt   DateTime       @default(now()) @map("started_at")
   endedAt     DateTime?      @map("ended_at")
@@ -430,6 +432,18 @@ model AgentStateLog {
 
   @@index([tenantId, userId, startedAt])
   @@map("agent_state_logs")
+}
+
+/// #937 สถานะที่ Agent ขอไว้ใช้ตอนปิดงานหลังสาย (ไม่มีแถว = Ready) ใช้ครั้งเดียวแล้วลบ
+model AgentAfterWorkState {
+  tenantId   String         @map("tenant_id") @db.Uuid
+  userId     String         @map("user_id") @db.Uuid
+  state      AgentStateType
+  reasonCode String         @map("reason_code")
+  updatedAt  DateTime       @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@id([tenantId, userId])
+  @@map("agent_after_work_states")
 }
 
 // ─────────────────────────── Contacts (customer identity) ───────────────────────────
