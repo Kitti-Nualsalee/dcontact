@@ -94,7 +94,7 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
   );
   await expect(dphone).toBeVisible({ timeout: 30_000 });
   // รอบซ้อมที่ล้มกลางทางทิ้งงาน WRAPUP ไว้ — ปิดก่อน ไม่งั้น Router ไม่ส่งสายใหม่ให้
-  await page.getByRole('tab', { name: 'สรุปผลหลังสาย' }).click();
+  await page.getByRole('tab', { name: 'สรุปผล', exact: true }).click();
   const pending = page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' });
   if (await pending.isVisible({ timeout: 3_000 }).catch(() => false)) {
     await pending.click();
@@ -102,7 +102,7 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
     await page.getByRole('button', { name: 'บันทึกผล' }).click();
     await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
   }
-  await page.getByRole('tab', { name: 'ภาพรวม' }).click();
+  await page.getByRole('tab', { name: 'ความพร้อม', exact: true }).click();
   await page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' }).click();
   await expect(status).toHaveText('โทรศัพท์พร้อม');
   await page.getByRole('button', { name: 'เปิดรับสาย' }).click();

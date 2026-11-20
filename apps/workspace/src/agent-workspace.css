@@ -64,55 +64,10 @@
   white-space: nowrap;
 }
 
-/* ── #813: สามคอลัมน์ตามดีไซน์ A · Workspace (งาน · งานปัจจุบัน · ความพร้อม) ── */
 .aw-in-shell > .aw-warning,
 .aw-in-shell > .aw-governance,
 .aw-in-shell > .aw-panel {
   margin-bottom: var(--dc-space-6);
-}
-
-.aw-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--dc-space-6);
-  align-items: start;
-}
-
-.aw-column {
-  display: flex;
-  flex-direction: column;
-  gap: var(--dc-space-5);
-  min-width: 0;
-}
-
-.aw-column-title {
-  font-size: var(--dc-text-md);
-}
-
-.aw-column-work {
-  padding: var(--dc-space-6);
-  border: 1px solid var(--dc-border-subtle);
-  border-radius: var(--dc-radius-xl);
-  background: var(--dc-surface-raised);
-}
-
-.aw-work-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--dc-space-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.aw-work-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--dc-space-2);
-  padding: var(--dc-space-5);
-  border-radius: var(--dc-radius-lg);
-  background: var(--dc-surface-selected);
-  box-shadow: inset 3px 0 0 var(--dc-border-brand);
 }
 
 .aw-work-row,
@@ -149,10 +104,6 @@
   font-weight: var(--dc-weight-semibold);
 }
 
-.aw-work-item .aw-channel {
-  align-self: flex-start;
-}
-
 .aw-empty {
   display: flex;
   flex-direction: column;
@@ -165,25 +116,6 @@
   color: var(--dc-text-primary);
 }
 
-.aw-call-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--dc-space-5);
-  padding: var(--dc-space-6) var(--dc-space-7);
-  border: 1px solid var(--dc-border-subtle);
-  border-radius: var(--dc-radius-xl);
-  background: var(--dc-surface-raised);
-}
-
-.aw-call-identity {
-  display: flex;
-  flex-direction: column;
-  gap: var(--dc-space-2);
-  min-width: 0;
-}
-
 .aw-call-caller {
   font-size: var(--dc-text-lg);
   overflow-wrap: anywhere;
@@ -191,27 +123,6 @@
 
 .aw-call-duration {
   font-weight: var(--dc-weight-semibold);
-}
-
-.aw-detail {
-  padding: var(--dc-space-5) var(--dc-space-7) var(--dc-space-7);
-  border: 1px solid var(--dc-border-subtle);
-  border-radius: var(--dc-radius-xl);
-  background: var(--dc-surface-raised);
-}
-
-.aw-detail-panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--dc-space-5);
-  padding-top: var(--dc-space-6);
-}
-
-/* แผงที่อยู่ในแท็บไม่ต้องมีกรอบซ้อน */
-.aw-detail-panel > .aw-panel {
-  padding: 0;
-  border: 0;
-  box-shadow: none;
 }
 
 .aw-detail-title {
@@ -254,9 +165,456 @@
   background: var(--dc-success-solid);
 }
 
-@media (min-width: 1280px) {
-  .aw-columns {
-    grid-template-columns: 280px minmax(0, 1fr) 340px;
+/* ── V3 (mockups/d-contact-agent-workspace-v3.html): รายการงาน · งานปัจจุบัน · แผงงาน · แถบเครื่องมือ ── */
+.aw-v3-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  /* ระยะขอบมาจาก main ของ shell แล้ว */
+  padding: 0;
+}
+
+.aw-v3-root > .aw-content-header {
+  flex: none;
+  margin-bottom: var(--dc-space-5);
+}
+
+.aw-v3-alerts {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+}
+
+.aw-v3-alerts:not(:empty) {
+  margin-bottom: var(--dc-space-5);
+}
+
+.aw-v3 {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-xl);
+  background: var(--dc-surface-raised);
+  overflow: hidden;
+}
+
+.aw-v3-pane-title {
+  margin: 0;
+  font-size: var(--dc-text-md);
+  font-weight: var(--dc-weight-semibold);
+}
+
+.aw-v3-icon {
+  flex: none;
+}
+
+/* แท็บของ V3 ชิดขอบแผง ไม่มีช่องว่างด้านบน/ล่างของ panel เดิม */
+.aw-v3-tabs {
+  flex: 1;
+  min-height: 0;
+}
+
+.aw-v3-tabs > [role='tablist'] {
+  flex: none;
+  padding: 0 var(--dc-space-5);
+}
+
+/* ── รายการงาน ── */
+.aw-v3-list {
+  display: flex;
+  flex: none;
+  width: var(--aw-pane-width);
+  flex-direction: column;
+  min-width: 0;
+  background: var(--dc-surface-raised);
+}
+
+.aw-v3-list > .aw-v3-pane-title {
+  padding: var(--dc-space-5) var(--dc-space-5) var(--dc-space-3);
+}
+
+.aw-v3-list-panel {
+  flex: 1;
+  min-height: 0;
+  padding: var(--dc-space-4) var(--dc-space-3);
+  overflow: auto;
+}
+
+.aw-v3-list-panel > .aw-empty,
+.aw-v3-list-panel > .aw-copy {
+  padding: var(--dc-space-3);
+}
+
+.aw-v3-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aw-v3-item > button {
+  display: flex;
+  gap: var(--dc-space-4);
+  width: 100%;
+  padding: var(--dc-space-4);
+  border: 0;
+  border-radius: var(--dc-radius-lg);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.aw-v3-item > button:hover {
+  background: var(--dc-surface-hover);
+}
+
+.aw-v3-item > button[aria-current='true'] {
+  background: var(--dc-surface-selected);
+  box-shadow: inset 3px 0 0 var(--dc-border-brand);
+}
+
+.aw-v3-item > button:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+.aw-v3-item-icon,
+.aw-v3-phonebar-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--dc-control-md);
+  height: var(--dc-control-md);
+  border-radius: var(--dc-radius-pill);
+  background: var(--dc-brand-50);
+  color: var(--dc-text-brand);
+}
+
+.aw-v3-item-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-1);
+  min-width: 0;
+}
+
+.aw-v3-item-copy > strong {
+  overflow-wrap: anywhere;
+}
+
+.aw-v3-item-copy > .aw-channel {
+  align-self: flex-start;
+}
+
+/* ── เส้นแบ่งแผง ── */
+.aw-v3-split {
+  position: relative;
+  flex: none;
+  width: var(--dc-space-2);
+  border-inline: 1px solid var(--dc-border-subtle);
+  background: var(--dc-surface-page);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.aw-v3-split:hover {
+  background: var(--dc-brand-100);
+}
+
+.aw-v3-split:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+/* ── งานปัจจุบัน ── */
+.aw-v3-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.aw-v3-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.aw-v3-view[hidden] {
+  display: none;
+}
+
+.aw-v3-context {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--dc-space-4);
+  padding: var(--dc-space-5) var(--dc-space-6) var(--dc-space-4);
+}
+
+.aw-v3-context-meta {
+  color: var(--dc-text-secondary);
+  font-family: var(--dc-font-numeric);
+  font-size: var(--dc-text-xs);
+}
+
+.aw-v3-context > .aw-call-caller {
+  flex: 1;
+  min-width: 0;
+}
+
+.aw-v3-phonebar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-3) var(--dc-space-5);
+  margin: 0 var(--dc-space-6) var(--dc-space-3);
+  padding: var(--dc-space-3) var(--dc-space-5);
+  border: 1px solid var(--dc-brand-200);
+  border-radius: var(--dc-radius-lg);
+  background: var(--dc-brand-50);
+}
+
+.aw-v3-phonebar[data-state='wrapup'] {
+  border-color: var(--dc-attention-border);
+  background: var(--dc-attention-bg-subtle);
+}
+
+.aw-v3-phonebar[data-state='wrapup'] .aw-v3-phonebar-icon {
+  background: var(--dc-attention-bg);
+  color: var(--dc-attention-fg);
+}
+
+.aw-v3-phonebar .aw-call-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.aw-v3-main-tabs > [role='tablist'] {
+  padding: 0 var(--dc-space-6);
+}
+
+.aw-v3-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--dc-space-6);
+  min-height: 0;
+  padding: var(--dc-space-6);
+  overflow: auto;
+}
+
+.aw-v3-tabs [role='tabpanel'][hidden],
+.aw-v3-tabs [role='tabpanel'][inert] {
+  display: none;
+}
+
+.aw-v3-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-4);
+}
+
+.aw-v3-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--dc-space-5);
+  margin: 0;
+}
+
+.aw-v3-facts div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-1);
+  min-width: 0;
+}
+
+.aw-v3-facts dt {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-xs);
+}
+
+.aw-v3-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.aw-v3-facts-wide {
+  grid-column: 1 / -1;
+}
+
+.aw-v3-mono {
+  font-family: var(--dc-font-numeric);
+  font-size: var(--dc-text-sm);
+}
+
+.aw-v3-idle {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-8);
+  color: var(--dc-text-secondary);
+  text-align: center;
+}
+
+.aw-v3-idle strong {
+  color: var(--dc-text-primary);
+  font-size: var(--dc-text-md);
+}
+
+.aw-v3-idle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--dc-radius-pill);
+  background: var(--dc-surface-sunken);
+  color: var(--dc-text-secondary);
+}
+
+/* ── แผงงานด้านขวา ── */
+.aw-v3-inspector {
+  display: flex;
+  flex: none;
+  width: var(--aw-pane-width);
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.aw-v3-inspector-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dc-space-3);
+  padding: var(--dc-space-4) var(--dc-space-4) var(--dc-space-2) var(--dc-space-5);
+}
+
+.aw-v3-inspector-tabs > [role='tablist'] {
+  gap: 0;
+  padding: 0 var(--dc-space-3);
+}
+
+.aw-v3-inspector-tabs [role='tab'] {
+  padding: 0 var(--dc-space-4);
+}
+
+.aw-v3-inspector-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--dc-space-5);
+  min-height: 0;
+  padding: var(--dc-space-5);
+  overflow: auto;
+}
+
+/* แผงที่อยู่ในแผงงานไม่ต้องมีกรอบซ้อน */
+.aw-v3-inspector-body > .aw-panel,
+.aw-v3-readiness > .aw-panel {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.aw-v3-readiness {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dc-space-7);
+}
+
+.aw-v3-readiness > .aw-panel + .aw-panel {
+  padding-top: var(--dc-space-6);
+  border-top: 1px solid var(--dc-border-subtle);
+}
+
+/* ── แถบเครื่องมือขวา ── */
+.aw-v3-utility {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--dc-space-3);
+  width: 48px;
+  padding: var(--dc-space-4) 0;
+  border-inline-start: 1px solid var(--dc-border-subtle);
+  background: var(--dc-surface-page);
+}
+
+.aw-v3-utility button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--dc-control-md);
+  height: var(--dc-control-md);
+  border: 0;
+  border-radius: var(--dc-radius-md);
+  background: transparent;
+  color: var(--dc-text-secondary);
+  cursor: pointer;
+}
+
+.aw-v3-utility button:first-child {
+  margin-bottom: var(--dc-space-3);
+}
+
+.aw-v3-utility button:hover {
+  background: var(--dc-surface-hover);
+  color: var(--dc-text-primary);
+}
+
+.aw-v3-utility button[aria-pressed='true'] {
+  background: var(--dc-surface-selected);
+  color: var(--dc-text-brand-strong);
+}
+
+.aw-v3-utility button:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+}
+
+/* จอแคบกว่า laptop: เรียงแผงจากบนลงล่าง เลื่อนทั้งหน้า และไม่ใช้เส้นแบ่ง/แถบเครื่องมือ */
+@media (max-width: 1199.98px) {
+  .aw-v3-root {
+    height: auto;
+  }
+
+  .aw-v3 {
+    flex-direction: column;
+  }
+
+  .aw-v3-list,
+  .aw-v3-inspector {
+    width: auto;
+  }
+
+  .aw-v3-list {
+    border-bottom: 1px solid var(--dc-border-subtle);
+  }
+
+  .aw-v3-inspector {
+    border-top: 1px solid var(--dc-border-subtle);
+  }
+
+  .aw-v3-split,
+  .aw-v3-utility {
+    display: none;
   }
 }
 

@@ -13,7 +13,14 @@ import { WorkCustomerPanel } from './work-customer-panel.js';
  * และถอน SIP register เมื่อไม่มีงานในมือ — สายที่คุยอยู่/wrap-up ไม่ถูกตัด (ADR-026 ข้อ 4)
  * flag ปิด = พฤติกรรมเดิมทุกประการ (leader election ของแท็บเป็นตัวตัดสิน)
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from 'react';
 import { WrapupRuntime } from './wrapup-runtime.js';
 import { useLocale, useTranslation } from '@d-contact/i18n/react';
 import { Button, Tab, TabList, TabPanel, Tabs, useInShell } from '@d-contact/ui-react';
@@ -44,10 +51,15 @@ import {
   type WorkSessionSurface,
 } from './work-session.js';
 import { WorkSessionPanel } from './work-session-panel.js';
+import { PaneIcon, PaneSplitter, usePaneWidth, type PaneIconName } from './workspace-pane.js';
 import './agent-workspace.css';
 import './dphone/dphone.css';
 
-type DetailTab = 'overview' | 'wrapup' | 'recent';
+/** V3: แท็บของแผงขวา · มุมมองหลัก · รายการงาน และงานที่เลือกในรายการ */
+type InspectorTab = 'wrapup' | 'details' | 'events' | 'readiness';
+type MainTab = 'customer' | 'voice';
+type ListTab = 'open' | 'closed';
+type Selection = 'current' | 'recent';
 type MediaReadiness = 'UNCHECKED' | 'CHECKING' | 'READY' | 'BLOCKED';
 type Availability = 'OFFLINE' | 'AVAILABLE';
 type WorkspaceMessage =
@@ -249,8 +261,14 @@ function AgentWorkspace({
   const [liveRetry, setLiveRetry] = useState(0);
   const [dphoneSize, setDphoneSize] = useState<DphoneSize>(loadSize);
   const [detached, setDetached] = useState(false);
-  // #813: แท็บรายละเอียดงานใน shell — เลือกแท็บที่ต้องทำต่อให้เองเมื่อสถานะงานเปลี่ยน
-  const [detailTab, setDetailTab] = useState<DetailTab>('overview');
+  // V3: แผงขวาเลือกแท็บที่ต้องทำต่อให้เองเมื่อสถานะงานเปลี่ยน (ผู้ใช้ยังสลับเองได้)
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('readiness');
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [mainTab, setMainTab] = useState<MainTab>('customer');
+  const [listTab, setListTab] = useState<ListTab>('open');
+  const [selection, setSelection] = useState<Selection>('current');
+  const listWidth = usePaneWidth('dcontact.workspace.listWidth', 260, 200, 360);
+  const inspectorWidth = usePaneWidth('dcontact.workspace.inspectorWidth', 340, 280, 480);
   const [now, setNow] = useState(() => Date.now());
   const mediaStream = useRef<MediaStream | undefined>(undefined);
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
@@ -317,18 +335,29 @@ function AgentWorkspace({
       onCallEventRef.current?.({ type: 'offered', interaction });
     if (interaction.state === 'ACTIVE') onCallEventRef.current?.({ type: 'answered', interaction });
   }, [interactionKey, snapshot]);
-  // #813: งานใหม่ → ภาพรวม, เข้า WRAPUP → สรุปผล, บันทึกผลแล้ว → ล่าสุด (ผู้ใช้ยังสลับแท็บเองได้)
+  // V3: เข้า WRAPUP/บันทึกผลแล้ว → สรุปผล (เปิดแผงให้), อุปกรณ์เสียงยังไม่พร้อม (เช่น reload ระหว่างมีสาย)
+  // หรือคุมสายด้วย external softphone หรือไม่มีงาน → ความพร้อม, นอกนั้น → รายละเอียด + Customer 360
+  // ผู้ใช้ยังสลับแท็บหรือปิดแผงเองได้
+  const readinessFirst = externalControl || mediaReadiness !== 'READY';
   const wrapupFormOpen =
     wrapupTarget?.state === 'WRAPUP' && savedWrapup?.interactionId !== wrapupTarget.id;
   const detailFocus = wrapupFormOpen
     ? `wrapup:${wrapupTarget.id}`
     : savedWrapup && savedWrapup.interactionId === wrapupTarget?.id
-      ? `recent:${savedWrapup.interactionId}`
-      : snapshot?.interaction
-        ? `overview:${snapshot.interaction.id}`
-        : undefined;
+      ? `wrapup:saved:${savedWrapup.interactionId}`
+      : snapshot?.interaction && !readinessFirst
+        ? `details:${snapshot.interaction.id}`
+        : snapshot
+          ? 'readiness'
+          : undefined;
   useEffect(() => {
-    if (detailFocus) setDetailTab(detailFocus.split(':')[0] as DetailTab);
+    if (!detailFocus) return;
+    const tab = detailFocus.split(':')[0] as InspectorTab;
+    setInspectorTab(tab);
+    setSelection('current');
+    setListTab('open');
+    if (tab === 'wrapup' || tab === 'readiness') setInspectorOpen(true);
+    if (tab === 'details') setMainTab('customer');
   }, [detailFocus]);
   const callRunning = Boolean(snapshot?.interaction?.answeredAt && !snapshot.interaction.endedAt);
   useEffect(() => {
@@ -1564,8 +1593,10 @@ function AgentWorkspace({
     </>
   );
 
-  // #813: shell ใหม่ — สามคอลัมน์ตามดีไซน์ A · Workspace ด้วยข้อมูล Voice ที่มีจริงเท่านั้น
-  // คอลัมน์ขวาเป็นความพร้อมรับงาน; แผงลูกค้าเป็นของ Cus360 C5 (#795) — ห้ามวาง placeholder (E1 ข้อ E)
+  // V3: layout ของ Agent Workspace ตาม mockups/d-contact-agent-workspace-v3.html ด้วยข้อมูลจริงเท่านั้น
+  // รายการงาน · งานปัจจุบัน (แถบสาย + Customer 360/Voice) · แผงสรุปผล/รายละเอียด/เหตุการณ์/ความพร้อม · แถบเครื่องมือขวา
+  // ปุ่มคุมสายอยู่ที่ dphone ลอยตามเดิม (owner เลือก 20 พ.ย. 2569) และส่วนที่ยังไม่มี backend
+  // (AI ผู้ช่วย, Apps, หลาย Channel, Transfer) ไม่วาง placeholder (E1 ข้อ E)
   const current = snapshot?.interaction ?? undefined;
   const callSeconds =
     current?.answeredAt !== null && current?.answeredAt !== undefined
@@ -1604,105 +1635,305 @@ function AgentWorkspace({
     : [];
   const caller = current ? (current.caller ?? t('offer.noNumber')) : undefined;
   const queueName = current?.queue?.name ?? t('offer.unknownQueue');
+  const customerAvailable = Boolean(api?.customer && snapshot?.capabilities?.workCustomerV1 === 1);
+  const activeMainTab: MainTab = customerAvailable ? mainTab : 'voice';
+  const viewingRecent = selection === 'recent' && Boolean(savedWrapup);
+  const dispositionLabel = (disposition: string) =>
+    disposition === 'CUSTOMER_ASSISTED' ? t('wrapup.assisted') : t('wrapup.followUp');
+  const showInspector = (tab: InspectorTab) => {
+    setInspectorTab(tab);
+    setInspectorOpen(true);
+  };
+  const controlHint = externalControl ? td('external.serverWork') : t('layout.inDphone');
 
-  const workColumn = (
-    <section className="aw-column aw-column-work" aria-labelledby="aw-work-title">
-      <h2 id="aw-work-title" className="aw-column-title">
+  const workList = (
+    <section
+      className="aw-v3-list"
+      aria-labelledby="aw-work-title"
+      style={{ '--aw-pane-width': `${listWidth.value}px` } as CSSProperties}
+    >
+      <h2 id="aw-work-title" className="aw-v3-pane-title">
         {t('layout.work')}
       </h2>
-      {current ? (
-        <ul className="aw-work-list">
-          <li className="aw-work-item" aria-current="true">
-            <span className="aw-work-row">
-              <strong>{caller}</strong>
-              {callDuration ? <span className="aw-work-time">{callDuration}</span> : null}
-            </span>
-            <span className="aw-work-meta">
-              {t(`layout.state.${current.state}`)} · {queueName}
-            </span>
-            <span className="aw-channel">{t('layout.channelVoice')}</span>
-          </li>
-        </ul>
-      ) : (
-        <div className="aw-empty">
-          <strong>{t('layout.workEmpty')}</strong>
-          <span>{externalControl ? td('external.workHint') : t('layout.workEmptyHint')}</span>
-        </div>
-      )}
+      <Tabs
+        className="aw-v3-tabs aw-v3-list-tabs"
+        selectedKey={listTab}
+        onSelectionChange={(key) => setListTab(key as ListTab)}
+      >
+        <TabList aria-label={t('layout.list.label')}>
+          <Tab id="open">{t('layout.list.open', { count: current ? 1 : 0 })}</Tab>
+          <Tab id="closed">{t('layout.list.closed', { count: savedWrapup ? 1 : 0 })}</Tab>
+        </TabList>
+        <TabPanel id="open" className="aw-v3-list-panel">
+          {current ? (
+            <ul className="aw-v3-items">
+              <li className="aw-v3-item">
+                <button
+                  type="button"
+                  aria-current={!viewingRecent ? 'true' : undefined}
+                  onClick={() => setSelection('current')}
+                >
+                  <span className="aw-v3-item-icon">
+                    <PaneIcon name="phone" />
+                  </span>
+                  <span className="aw-v3-item-copy">
+                    <span className="aw-work-row">
+                      <strong>{caller}</strong>
+                      {callDuration ? <span className="aw-work-time">{callDuration}</span> : null}
+                    </span>
+                    <span className="aw-work-meta">
+                      {t(`layout.state.${current.state}`)} · {queueName}
+                    </span>
+                    <span className="aw-channel">{t('layout.channelVoice')}</span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+          ) : (
+            <div className="aw-empty">
+              <strong>{t('layout.workEmpty')}</strong>
+              <span>{externalControl ? td('external.workHint') : t('layout.workEmptyHint')}</span>
+            </div>
+          )}
+        </TabPanel>
+        <TabPanel id="closed" className="aw-v3-list-panel">
+          {savedWrapup ? (
+            <ul className="aw-v3-items">
+              <li className="aw-v3-item">
+                <button
+                  type="button"
+                  aria-current={viewingRecent ? 'true' : undefined}
+                  onClick={() => {
+                    setSelection('recent');
+                    showInspector('wrapup');
+                  }}
+                >
+                  <span className="aw-v3-item-icon">
+                    <PaneIcon name="phone" />
+                  </span>
+                  <span className="aw-v3-item-copy">
+                    <strong>{dispositionLabel(savedWrapup.disposition)}</strong>
+                    <span className="aw-work-meta">
+                      {t('layout.list.closedMeta', {
+                        time: new Date(savedWrapup.recordedAt).toLocaleTimeString(locale, {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        }),
+                      })}
+                    </span>
+                    <span className="aw-channel">{t('layout.channelVoice')}</span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+          ) : (
+            <p className="aw-copy">{t('layout.list.closedEmpty')}</p>
+          )}
+        </TabPanel>
+      </Tabs>
     </section>
   );
 
-  const currentColumn = (
-    <section className="aw-column aw-column-current" aria-labelledby="aw-current-title">
+  const callFacts = current ? (
+    <section className="aw-v3-section" aria-labelledby="aw-call-facts">
+      <h3 id="aw-call-facts" className="aw-detail-title">
+        {t('layout.main.callFacts')}
+      </h3>
+      <dl className="aw-v3-facts">
+        <div>
+          <dt>{t('layout.main.direction')}</dt>
+          <dd>{t(`layout.direction.${current.direction}`)}</dd>
+        </div>
+        <div>
+          <dt>{t('layout.main.queue')}</dt>
+          <dd>{queueName}</dd>
+        </div>
+        <div>
+          <dt>{t('layout.main.state')}</dt>
+          <dd>{t(`layout.state.${current.state}`)}</dd>
+        </div>
+        <div>
+          <dt>{t('layout.main.channel')}</dt>
+          <dd>{t('layout.channelVoice')}</dd>
+        </div>
+        <div className="aw-v3-facts-wide">
+          <dt>{t('layout.main.interaction')}</dt>
+          <dd className="aw-v3-mono">{current.id}</dd>
+        </div>
+      </dl>
+      {!externalControl ? <p className="aw-copy">{t('layout.main.controlsHint')}</p> : null}
+    </section>
+  ) : null;
+
+  const currentView = (
+    <div className="aw-v3-view" hidden={viewingRecent}>
+      <div className="aw-v3-context">
+        <strong className="aw-call-caller">{caller ?? t('layout.noCurrent')}</strong>
+        {current ? <span className="aw-v3-context-meta">{current.id}</span> : null}
+      </div>
+      {current ? (
+        <div className="aw-v3-phonebar" data-state={current.state.toLowerCase()}>
+          <span className="aw-v3-phonebar-icon">
+            <PaneIcon name="phone" size={20} />
+          </span>
+          <span className="aw-call-row">
+            <strong>{t(`layout.state.${current.state}`)}</strong>
+            <span className="aw-channel">{t('layout.channelVoice')}</span>
+          </span>
+          <span className="aw-call-meta">
+            {t(`layout.direction.${current.direction}`)} · {queueName} · {controlHint}
+          </span>
+          {callDuration ? (
+            <span className="aw-call-duration" role="timer">
+              {t('layout.duration', { duration: callDuration })}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {current ? (
+        <Tabs
+          className="aw-v3-tabs aw-v3-main-tabs"
+          selectedKey={activeMainTab}
+          onSelectionChange={(key) => setMainTab(key as MainTab)}
+        >
+          <TabList aria-label={t('layout.main.label')}>
+            {customerAvailable ? <Tab id="customer">{t('layout.main.customer')}</Tab> : null}
+            <Tab id="voice">{t('layout.main.voice')}</Tab>
+          </TabList>
+          {customerAvailable ? (
+            <TabPanel id="customer" className="aw-v3-body" shouldForceMount>
+              {api?.customer &&
+              ['ACTIVE', 'WRAPUP'].includes(current.state) &&
+              customerLease.current ? (
+                <WorkCustomerPanel
+                  key={`${identityKey}:${current.id}`}
+                  api={api.customer}
+                  workId={current.id}
+                  leaseId={customerLease.current!}
+                  invalidationRevision={customerInvalidation}
+                  identityKey={identityKey ?? 'unknown'}
+                  sessionReady={sessionReady}
+                />
+              ) : (
+                <p className="aw-copy">{t('layout.main.customerPending')}</p>
+              )}
+            </TabPanel>
+          ) : null}
+          <TabPanel id="voice" className="aw-v3-body">
+            {callFacts}
+          </TabPanel>
+        </Tabs>
+      ) : (
+        <div className="aw-v3-idle">
+          <span className="aw-v3-idle-icon">
+            <PaneIcon name="readiness" size={28} />
+          </span>
+          <strong>{t('layout.noCurrent')}</strong>
+          <span>
+            {externalControl
+              ? td('external.emptyHint')
+              : extensionControl
+                ? td('chrome.description')
+                : t('layout.noCurrentHint')}
+          </span>
+          {!inspectorOpen || inspectorTab !== 'readiness' ? (
+            <Button onPress={() => showInspector('readiness')}>
+              {t('layout.inspector.openReadiness')}
+            </Button>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+
+  const recentView = savedWrapup ? (
+    <div className="aw-v3-view" hidden={!viewingRecent}>
+      <div className="aw-v3-context">
+        <strong className="aw-call-caller">{t('layout.recent.title')}</strong>
+        <span className="aw-v3-context-meta">{savedWrapup.interactionId}</span>
+        <Button size="sm" variant="ghost" onPress={() => setSelection('current')}>
+          {t('layout.recent.back')}
+        </Button>
+      </div>
+      <div className="aw-v3-body">
+        <p className="aw-copy">{t('layout.recent.hint')}</p>
+        {viewingRecent && customerAvailable && api?.customer ? (
+          <WorkCustomerPanel
+            key={`${identityKey}:completed:${savedWrapup.interactionId}`}
+            api={api.customer}
+            workId={savedWrapup.interactionId}
+            leaseId=""
+            identityKey={identityKey ?? 'unknown'}
+            sessionReady={sessionReady}
+            readOnly
+          />
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+
+  const mainColumn = (
+    <section className="aw-v3-main" aria-labelledby="aw-current-title">
       <h2 id="aw-current-title" className="aw-visually-hidden">
         {t('layout.current')}
       </h2>
-      <div className="aw-call-header">
-        {current ? (
-          <>
-            <div className="aw-call-identity">
-              <span className="aw-call-row">
-                <strong className="aw-call-caller">{caller}</strong>
-                <span className="aw-channel">{t('layout.channelVoice')}</span>
-                <span className="aw-chip aw-chip-neutral">
-                  {t(`layout.state.${current.state}`)}
-                </span>
-              </span>
-              <span className="aw-call-meta">
-                {t(`layout.direction.${current.direction}`)} · {queueName} ·{' '}
-                {externalControl ? td('external.serverWork') : t('layout.inDphone')}
-              </span>
-            </div>
-            {callDuration ? (
-              <span className="aw-call-duration" role="timer">
-                {t('layout.duration', { duration: callDuration })}
-              </span>
-            ) : null}
-          </>
-        ) : (
-          <div className="aw-call-identity">
-            <strong className="aw-call-caller">{t('layout.noCurrent')}</strong>
-            <span className="aw-call-meta">
-              {externalControl
-                ? td('external.emptyHint')
-                : extensionControl
-                  ? td('chrome.description')
-                  : t('layout.noCurrentHint')}
-            </span>
-          </div>
-        )}
+      {currentView}
+      {recentView}
+    </section>
+  );
+
+  const wrapupContent = viewingRecent
+    ? savedPanel
+    : (wrapupForm ??
+      (savedWrapup && (!current || savedWrapup.interactionId === current.id)
+        ? savedPanel
+        : null) ?? (
+        <p className="aw-copy">{current ? t('layout.wrapupEmpty') : t('layout.wrapupNone')}</p>
+      ));
+
+  const inspectorTabs: Array<{ id: InspectorTab; icon: PaneIconName }> = [
+    { id: 'wrapup', icon: 'notes' },
+    { id: 'details', icon: 'details' },
+    { id: 'events', icon: 'events' },
+    { id: 'readiness', icon: 'readiness' },
+  ];
+
+  const inspector = inspectorOpen ? (
+    <aside
+      className="aw-v3-inspector"
+      aria-label={t('layout.inspector.label')}
+      style={{ '--aw-pane-width': `${inspectorWidth.value}px` } as CSSProperties}
+    >
+      <div className="aw-v3-inspector-head">
+        <h2 className="aw-v3-pane-title">{t('layout.inspector.title')}</h2>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={t('layout.inspector.close')}
+          onPress={() => setInspectorOpen(false)}
+        >
+          <PaneIcon name="panel" />
+        </Button>
       </div>
       <Tabs
-        className="aw-detail"
-        aria-label={t('layout.tabs.label')}
-        selectedKey={detailTab}
-        onSelectionChange={(key) => setDetailTab(key as DetailTab)}
+        className="aw-v3-tabs aw-v3-inspector-tabs"
+        selectedKey={inspectorTab}
+        onSelectionChange={(key) => setInspectorTab(key as InspectorTab)}
       >
-        <TabList aria-label={t('layout.tabs.label')}>
-          <Tab id="overview">{t('layout.tabs.overview')}</Tab>
-          <Tab id="wrapup">{t('layout.tabs.wrapup')}</Tab>
-          <Tab id="recent">{t('layout.tabs.recent')}</Tab>
+        <TabList aria-label={t('layout.inspector.label')}>
+          {inspectorTabs.map((tab) => (
+            <Tab key={tab.id} id={tab.id}>
+              {t(`layout.inspector.tabs.${tab.id}`)}
+            </Tab>
+          ))}
         </TabList>
-        <TabPanel
-          id="overview"
-          className="aw-detail-panel"
-          shouldForceMount={snapshot?.capabilities?.workCustomerV1 === 1}
-        >
-          {api?.customer &&
-          snapshot?.capabilities?.workCustomerV1 === 1 &&
-          snapshot?.interaction &&
-          ['ACTIVE', 'WRAPUP'].includes(snapshot.interaction.state) &&
-          customerLease.current ? (
-            <WorkCustomerPanel
-              key={`${identityKey}:${snapshot.interaction.id}`}
-              api={api.customer}
-              workId={snapshot.interaction.id}
-              leaseId={customerLease.current!}
-              invalidationRevision={customerInvalidation}
-              identityKey={identityKey ?? 'unknown'}
-              sessionReady={sessionReady}
-            />
-          ) : null}
+        <TabPanel id="wrapup" className="aw-v3-inspector-body">
+          {wrapupContent}
+        </TabPanel>
+        <TabPanel id="details" className="aw-v3-inspector-body">
+          {authorityPanel}
+        </TabPanel>
+        <TabPanel id="events" className="aw-v3-inspector-body">
           <h3 className="aw-detail-title">{t('layout.timeline')}</h3>
           {timeline.length ? (
             <ol className="aw-timeline">
@@ -1718,48 +1949,76 @@ function AgentWorkspace({
             <p className="aw-copy">{t('layout.timelineEmpty')}</p>
           )}
         </TabPanel>
-        <TabPanel id="wrapup" className="aw-detail-panel">
-          {wrapupForm ?? <p className="aw-copy">{t('layout.wrapupEmpty')}</p>}
-        </TabPanel>
-        <TabPanel id="recent" className="aw-detail-panel">
-          {savedPanel ?? <p className="aw-copy">{t('layout.recentEmpty')}</p>}
-          {api?.customer && snapshot?.capabilities?.workCustomerV1 === 1 && savedWrapup ? (
-            <WorkCustomerPanel
-              key={`${identityKey}:completed:${savedWrapup.interactionId}`}
-              api={api.customer}
-              workId={savedWrapup.interactionId}
-              leaseId=""
-              identityKey={identityKey ?? 'unknown'}
-              sessionReady={sessionReady}
-              readOnly
-            />
-          ) : null}
+        <TabPanel id="readiness" className="aw-v3-inspector-body">
+          <section className="aw-v3-readiness" aria-labelledby="aw-readiness-title">
+            <h3 id="aw-readiness-title" className="aw-visually-hidden">
+              {t('layout.readiness')}
+            </h3>
+            {externalControl ? externalPhonePanel : mediaPanel}
+            {!externalControl ? availabilityPanel : null}
+          </section>
         </TabPanel>
       </Tabs>
-    </section>
-  );
+    </aside>
+  ) : null;
 
-  const readinessColumn = (
-    <section className="aw-column aw-column-readiness" aria-labelledby="aw-readiness-title">
-      <h2 id="aw-readiness-title" className="aw-column-title">
-        {t('layout.readiness')}
-      </h2>
-      {externalControl ? externalPhonePanel : mediaPanel}
-      {!externalControl ? availabilityPanel : null}
-      {authorityPanel}
-    </section>
+  const utilityRail = (
+    <div
+      className="aw-v3-utility"
+      role="toolbar"
+      aria-orientation="vertical"
+      aria-label={t('layout.utility')}
+    >
+      <button
+        type="button"
+        aria-label={inspectorOpen ? t('layout.inspector.close') : t('layout.inspector.open')}
+        title={inspectorOpen ? t('layout.inspector.close') : t('layout.inspector.open')}
+        aria-expanded={inspectorOpen}
+        onClick={() => setInspectorOpen((open) => !open)}
+      >
+        <PaneIcon name="panel" size={20} />
+      </button>
+      {inspectorTabs.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          aria-label={t(`layout.inspector.tabs.${tab.id}`)}
+          title={t(`layout.inspector.tabs.${tab.id}`)}
+          aria-pressed={inspectorOpen && inspectorTab === tab.id}
+          onClick={() => showInspector(tab.id)}
+        >
+          <PaneIcon name={tab.icon} size={20} />
+        </button>
+      ))}
+    </div>
   );
 
   const shellContent = (
     <>
-      {alerts}
-      {recoveryPanel}
-      {snapshotWarning}
-      {dphoneWarning}
-      <div className="aw-columns">
-        {workColumn}
-        {currentColumn}
-        {readinessColumn}
+      <div className="aw-v3-alerts">
+        {alerts}
+        {recoveryPanel}
+        {snapshotWarning}
+        {dphoneWarning}
+      </div>
+      <div className="aw-v3">
+        {workList}
+        <PaneSplitter
+          label={t('layout.resize.list')}
+          hint={t('layout.resize.hint')}
+          width={listWidth}
+        />
+        {mainColumn}
+        {inspector ? (
+          <PaneSplitter
+            label={t('layout.resize.inspector')}
+            hint={t('layout.resize.hint')}
+            width={inspectorWidth}
+            edge="end"
+          />
+        ) : null}
+        {inspector}
+        {utilityRail}
       </div>
     </>
   );
@@ -1815,7 +2074,7 @@ function AgentWorkspace({
   }
 
   return (
-    <div className={inShell ? 'aw-root aw-in-shell' : 'aw-root aw-legacy'}>
+    <div className={inShell ? 'aw-root aw-in-shell aw-v3-root' : 'aw-root aw-legacy'}>
       {inShell ? (
         <>
           <header className="aw-content-header">
