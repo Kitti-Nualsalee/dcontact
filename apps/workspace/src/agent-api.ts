@@ -2,12 +2,20 @@ import { createWorkCustomerApi, type WorkCustomerApi } from './work-customer-api
 import type { SipCredentialLease } from './dphone/dphone.js';
 
 export interface AgentWorkspaceSnapshot {
-  capabilities?: { voiceWrapupV1?: number; workCustomerV1?: number };
+  capabilities?: { voiceWrapupV1?: number; workCustomerV1?: number; agentStatusV1?: number };
   agent: {
     id: string;
     displayName: string;
     extension: string | null;
     state: 'OFFLINE' | 'AVAILABLE' | 'RESERVED' | 'BUSY' | 'ACW' | 'BREAK';
+    /** #937 เวลาเริ่มสถานะปัจจุบัน */
+    stateSince?: string | null;
+    /** #937 เหตุผล Not Ready ของ tenant (มีเฉพาะ BREAK ที่ Agent เลือก) */
+    reasonCode?: string | null;
+    changedBy?: 'AGENT' | 'SUPERVISOR' | 'SYSTEM';
+    changedByName?: string | null;
+    changeNote?: string | null;
+    afterWork?: AfterWork;
   };
   interaction: {
     voiceWrapupPolicy?: 'LEGACY' | 'VOICE_NOTE_V1';
@@ -21,6 +29,15 @@ export interface AgentWorkspaceSnapshot {
     answeredAt: string | null;
     endedAt: string | null;
   } | null;
+}
+
+export type AfterWork = { state: 'AVAILABLE' } | { state: 'BREAK'; reasonCode: string };
+
+/** #937 เหตุผล Not Ready ที่ Agent เลือกได้ ตามลำดับที่ Admin ตั้ง */
+export interface NotReadyReason {
+  code: string;
+  labelTh: string;
+  labelEn: string;
 }
 
 export interface WrapupResultV1 {
@@ -53,6 +70,13 @@ export interface AgentWorkspaceApi {
   customer?: WorkCustomerApi;
   snapshot(): Promise<AgentWorkspaceSnapshot>;
   becomeAvailable(workSessionLeaseId: string): Promise<void>;
+  /** #937 Agent ตั้ง Not Ready + เหตุผล หรือ Offline เอง */
+  setAgentState?(
+    workSessionLeaseId: string,
+    state: { state: 'BREAK'; reasonCode: string } | { state: 'OFFLINE' },
+  ): Promise<void>;
+  notReadyReasons?(): Promise<NotReadyReason[]>;
+  setAfterWork?(afterWork: AfterWork): Promise<AfterWork>;
   sipCredentials(workSessionLeaseId: string): Promise<SipCredentialLease>;
   submitWrapup(input: {
     interactionId: string;
@@ -233,6 +257,36 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
         outcome.state !== 'AVAILABLE'
       )
         throw new Error('availability acknowledgement is invalid');
+    },
+    async setAgentState(workSessionLeaseId, state) {
+      const response = await send('/api/v1/workspace/agent/availability', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-work-session-lease-id': workSessionLeaseId,
+        },
+        body: JSON.stringify(state),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { code?: string };
+        throw new AgentApiError(response.status, body.code ?? 'AGENT_STATE_FAILED');
+      }
+    },
+    async notReadyReasons() {
+      return (await get<{ reasons: NotReadyReason[] }>('/api/v1/workspace/agent/not-ready-reasons'))
+        .reasons;
+    },
+    async setAfterWork(afterWork) {
+      const response = await send('/api/v1/workspace/agent/after-work', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(afterWork),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { code?: string };
+        throw new AgentApiError(response.status, body.code ?? 'AFTER_WORK_FAILED');
+      }
+      return ((await response.json()) as { afterWork: AfterWork }).afterWork;
     },
     async sipCredentials(workSessionLeaseId) {
       const response = await send('/api/v1/workspace/agent/sip-credentials', {

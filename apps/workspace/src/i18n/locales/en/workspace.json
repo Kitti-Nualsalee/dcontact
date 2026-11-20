@@ -372,5 +372,78 @@
       "failTitle": "Test sound not heard",
       "failFix": "Check you chose the headset you are wearing, turn up the volume, then play the sound again."
     }
+  },
+  "agentStatus": {
+    "state": {
+      "AVAILABLE": "Ready",
+      "BREAK": "Not Ready",
+      "OFFLINE": "Offline"
+    },
+    "notReadyWith": "Not Ready · {{reason}}",
+    "reasonLabel": "Reason for not taking calls",
+    "noReasons": "No reasons are set up yet. Contact your administrator.",
+    "selectorLabel": "My status",
+    "elapsedLabel": "In this status for {{time}}",
+    "afterWork": "After this work",
+    "cooldown": "Not Ready · missed an offered call",
+    "gate": {
+      "eyebrow": "Start work",
+      "title": "Hello, {{name}}",
+      "lead": "Choose your status before entering the Workspace. You can change it anytime at the top right.",
+      "legend": "Starting status",
+      "enter": "Enter Workspace",
+      "preparing": "Preparing to take calls…",
+      "retry": "Try again",
+      "fallback": "Enter as Not Ready · {{reason}}",
+      "pickReason": "Choose a reason first",
+      "stepsLabel": "Preparing to take calls",
+      "hint": {
+        "AVAILABLE": "Take calls. We'll set up your microphone and phone.",
+        "BREAK": "Not taking calls. Pick a reason; your phone stays connected.",
+        "OFFLINE": "No calls and no microphone, for example to finish work or check history."
+      }
+    },
+    "prep": {
+      "lease": "Make this page your work station",
+      "mic": "Request the microphone",
+      "phone": "Connect the phone system",
+      "ready": "Start taking calls"
+    },
+    "prepStatus": {
+      "wait": "waiting",
+      "run": "in progress",
+      "done": "done",
+      "fail": "failed"
+    },
+    "failure": {
+      "lease": {
+        "title": "This page isn't your work station yet",
+        "fix": "If the Workspace is open in another tab, move it here first, then try again."
+      },
+      "mic": {
+        "title": "Can't use the microphone",
+        "fix": "Click the lock icon next to the address and allow the microphone, or use Test devices at the bottom left."
+      },
+      "phone": {
+        "title": "Couldn't connect the phone system",
+        "fix": "Try again. If it still fails, tell your administrator when it happened."
+      },
+      "ready": {
+        "title": "Couldn't start taking calls",
+        "fix": "Try again. If it still fails, tell your administrator when it happened."
+      }
+    },
+    "changeFailed": "Couldn't change your status. Try again.",
+    "supervisor": {
+      "changed": "{{name}} set your status to {{state}} at {{time}}",
+      "someone": "Your supervisor",
+      "note": "Reason: {{note}}",
+      "acknowledge": "Got it"
+    },
+    "idleHint": "Set your status to Ready at the top right to start taking calls.",
+    "summary": {
+      "mic": "Microphone"
+    },
+    "idleReadyHint": "You are ready. Your next call will appear here and in dphone."
   }
 }

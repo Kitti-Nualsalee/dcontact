@@ -184,6 +184,8 @@ export class AgentWorkspaceController {
       return {
         capabilities: {
           voiceWrapupV1: 1,
+          // #938 server รองรับ Not Ready + เหตุผล, Offline และสถานะหลังจบงาน (#937) — Workspace เปิดหน้าเลือกสถานะ
+          agentStatusV1: 1,
           ...(this.customerAvailable ? { workCustomerV1: 1 } : {}),
         },
         agent: {

@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test';
 /**
  * ซ้อม Demo ของทีมขายฝั่ง Agent บน stack ที่ `scripts/sales-demo-stack.mjs` เปิดไว้แล้ว
  *
- * agent1000 login → เปิดรับสาย → SIPp โทรเข้าคิว 2000 → รับสาย → ค้นและเชื่อมลูกค้าที่นำเข้าจาก CSV →
+ * agent1000 login → เลือก Ready ที่หน้าเลือกสถานะ → SIPp โทรเข้าคิว 2000 → รับสาย → ค้นและเชื่อมลูกค้าที่นำเข้าจาก CSV →
  * แก้บริษัท → วางสาย → บันทึก disposition/โน้ต → เปิดผลในประวัติงาน
  *
  * เป็นเครื่องมือซ้อม ไม่ใช่ acceptance: เสียงเป็น fake media, ฐาน `dcontact_demo` ถูก seed สิทธิ์โดยตรง
@@ -15,7 +15,7 @@ import { expect, test, type Page } from '@playwright/test';
  *
  * ล้มเร็วพร้อมบอกสาเหตุแทนการรอจนหมดเวลา: ฐานยังไม่มีลูกค้าที่ใช้ซ้อม, ค้นแล้วไม่พบลูกค้า,
  * หน้า Workspace โหลดใหม่/dev server หลุดกลางรอบ (stack ถูกปิดหรือเปิดใหม่ระหว่างซ้อม)
- * หรือรอบก่อนทิ้งสายที่ยังคุยอยู่จนหน้าใหม่กดตรวจอุปกรณ์ไม่ได้
+ * หรือรอบก่อนทิ้งสายที่ยังคุยอยู่จนเปลี่ยนเป็น Ready ไม่ได้
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../..');
@@ -173,30 +173,50 @@ test('ซ้อม Demo: รับสาย เชื่อมลูกค้า
       { noWaitAfter: true },
     );
     await expect(dphone).toBeVisible({ timeout: 30_000 });
-    // รอบซ้อมที่ล้มกลางทางทิ้งงาน WRAPUP ไว้ — ปิดก่อน ไม่งั้น Router ไม่ส่งสายใหม่ให้
-    await page.getByRole('tab', { name: 'สรุปผล', exact: true }).click();
-    const pending = page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' });
-    if (await pending.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await pending.click();
-      await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('ปิดงานค้างจากรอบซ้อมก่อนหน้า');
-      await page.getByRole('button', { name: 'บันทึกผล' }).click();
-      await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
+    // #938 หน้าเลือกสถานะหลัง login — มีงานค้างจากรอบก่อนจะข้ามหน้านี้ไปที่ Workspace เลย
+    const gate = page.getByRole('region', { name: /^สวัสดี / });
+    const workList = page.getByRole('region', { name: 'งานของฉัน' });
+    await expect(gate.or(workList).first()).toBeVisible({ timeout: 30_000 });
+    if (await gate.isVisible()) {
+      await gate.getByRole('radio', { name: /^Ready/ }).check();
+      await gate.getByRole('button', { name: 'เข้า Workspace' }).click();
+      await expect(gate)
+        .toHaveCount(0, { timeout: 30_000 })
+        .catch(async () => {
+          const failure = await gate
+            .getByRole('alert')
+            .innerText()
+            .catch(() => '');
+          throw new Error(
+            `เตรียมรับสายจากหน้าเลือกสถานะไม่สำเร็จ: ${failure || 'ไม่มีข้อความแจ้ง'}`,
+          );
+        });
+    } else {
+      // รอบซ้อมที่ล้มกลางทางทิ้งงาน WRAPUP ไว้ — ปิดก่อน ไม่งั้น Router ไม่ส่งสายใหม่ให้
+      await page.getByRole('tab', { name: 'สรุปผล', exact: true }).click();
+      const pending = page.getByRole('button', { name: 'ลูกค้าได้รับความช่วยเหลือ' });
+      if (await pending.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await pending.click();
+        await page.getByRole('textbox', { name: 'โน้ตสรุป' }).fill('ปิดงานค้างจากรอบซ้อมก่อนหน้า');
+        await page.getByRole('button', { name: 'บันทึกผล' }).click();
+        await expect(page.getByRole('heading', { name: 'บันทึกผลแล้ว' })).toBeVisible();
+      }
+      // รอบที่ล้มกลางสายทิ้งสายที่ยังคุยอยู่ไว้ ตัวเลือกสถานะจึงยังไม่ขึ้นจนสายจบ
+      const selector = page.getByRole('button', { name: /สถานะของฉัน/ });
+      await expect(selector)
+        .toBeVisible({ timeout: 20_000 })
+        .catch(async () => {
+          const notice = (await page.getByRole('alert').allInnerTexts()).join(' / ');
+          throw new Error(
+            `เปลี่ยนเป็น Ready ไม่ได้ (${notice || 'ไม่มีข้อความแจ้ง'}) — รอบก่อนอาจทิ้งสายที่ยังคุยอยู่` +
+              'หรือแท็บอื่นยังถือ work session รอให้สายจบ (ราว 2–3 นาที) แล้วซ้อมใหม่',
+          );
+        });
+      await selector.click();
+      await page.getByRole('option', { name: 'Ready', exact: true }).click();
     }
-    await page.getByRole('tab', { name: 'ความพร้อม', exact: true }).click();
-    // รอบที่ล้มกลางสายทิ้งสายที่ยังคุยอยู่ไว้ หน้าใหม่จึงเป็นแค่ผู้ดูและปุ่มกดไม่ได้จนสายจบ
-    const checkMedia = page.getByRole('button', { name: 'ตรวจอุปกรณ์เสียง' });
-    await expect(checkMedia)
-      .toBeEnabled({ timeout: 20_000 })
-      .catch(async () => {
-        const notice = (await page.getByRole('alert').allInnerTexts()).join(' / ');
-        throw new Error(
-          `กด "ตรวจอุปกรณ์เสียง" ไม่ได้ (${notice || 'ไม่มีข้อความแจ้ง'}) — รอบก่อนอาจทิ้งสายที่ยังคุยอยู่` +
-            'หรือแท็บอื่นยังถือ work session รอให้สายจบ (ราว 2–3 นาที) แล้วซ้อมใหม่',
-        );
-      });
-    await checkMedia.click();
     await expect(status).toHaveText('โทรศัพท์พร้อม');
-    await page.getByRole('button', { name: 'เปิดรับสาย' }).click();
+    await expect(page.getByRole('button', { name: /สถานะของฉัน/ })).toContainText('Ready');
     await shot('01-ready');
 
     const caller = placeCall();
