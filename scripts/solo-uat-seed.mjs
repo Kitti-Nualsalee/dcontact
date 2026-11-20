@@ -117,11 +117,16 @@ async function organizationId(admin) {
  * `db:seed` ตั้ง Agent เป็น AVAILABLE ไว้ก่อน ถ้าค้างไว้ Router จะเสนอสายให้ Agent ที่ยังไม่ login
  * แล้ว FreeSWITCH วางสายด้วย SUBSCRIBER_ABSENT จึงใส่ OFFLINE เมื่อสถานะล่าสุดไม่ใช่ OFFLINE
  * และไม่มี work session ค้าง (รันซ้ำได้โดยไม่ไล่ Agent ที่กำลังทำงาน)
+ *
+ * ปิดบันทึกเสียงทุกคิว: Solo ไม่มีการบันทึกเสียงที่ใช้งานได้ (FreeSWITCH อยู่คนละ VM กับ Telephony)
+ * แต่ `db:seed` เปิดไว้ ถ้าค้างไว้ Telephony เริ่มบันทึกไม่ได้แล้วไม่ส่ง `call.answered`
+ * Router จึงนับว่า offer หมดเวลาและตั้ง Agent เป็น BREAK ระหว่างที่ยังคุยอยู่
  */
 function seedVoiceDefaults(tenantId) {
   psql(
     `UPDATE queues SET voice_wrapup_policy = 'VOICE_NOTE_V1'
      WHERE tenant_id = '${tenantId}' AND voice_wrapup_policy <> 'VOICE_NOTE_V1';
+     UPDATE queues SET recording_enabled = false WHERE recording_enabled;
      INSERT INTO agent_state_logs (tenant_id, user_id, state, reason)
      SELECT u.tenant_id, u.id, 'OFFLINE', 'solo-uat-seed' FROM users u
      WHERE u.tenant_id = '${tenantId}' AND u.role = 'AGENT'
