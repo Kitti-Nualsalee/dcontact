@@ -112,7 +112,12 @@ async function organizationId(admin) {
   return organization.id;
 }
 
-/** คิวใช้โน้ตหลังจบสายแบบ VOICE_NOTE_V1 และ Agent เริ่มจาก OFFLINE เหมือน Demo */
+/**
+ * คิวใช้โน้ตหลังจบสายแบบ VOICE_NOTE_V1 และ Agent เริ่มจาก OFFLINE เหมือน Demo
+ * `db:seed` ตั้ง Agent เป็น AVAILABLE ไว้ก่อน ถ้าค้างไว้ Router จะเสนอสายให้ Agent ที่ยังไม่ login
+ * แล้ว FreeSWITCH วางสายด้วย SUBSCRIBER_ABSENT จึงใส่ OFFLINE เมื่อสถานะล่าสุดไม่ใช่ OFFLINE
+ * และไม่มี work session ค้าง (รันซ้ำได้โดยไม่ไล่ Agent ที่กำลังทำงาน)
+ */
 function seedVoiceDefaults(tenantId) {
   psql(
     `UPDATE queues SET voice_wrapup_policy = 'VOICE_NOTE_V1'
@@ -120,7 +125,11 @@ function seedVoiceDefaults(tenantId) {
      INSERT INTO agent_state_logs (tenant_id, user_id, state, reason)
      SELECT u.tenant_id, u.id, 'OFFLINE', 'solo-uat-seed' FROM users u
      WHERE u.tenant_id = '${tenantId}' AND u.role = 'AGENT'
-       AND NOT EXISTS (SELECT 1 FROM agent_state_logs l WHERE l.tenant_id = u.tenant_id AND l.user_id = u.id);`,
+       AND COALESCE((SELECT l.state::text FROM agent_state_logs l
+                     WHERE l.tenant_id = u.tenant_id AND l.user_id = u.id
+                     ORDER BY l.started_at DESC, l.id DESC LIMIT 1), '') <> 'OFFLINE'
+       AND NOT EXISTS (SELECT 1 FROM agent_work_session_leases w
+                       WHERE w.tenant_id = u.tenant_id AND w.user_id = u.id AND w.released_at IS NULL);`,
   );
 }
 
