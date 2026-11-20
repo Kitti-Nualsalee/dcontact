@@ -62,3 +62,9 @@ artifacts/core-settings/
 
 # Unpacked D-Phone extension build
 dist-dphone-extension/
+
+# ไฟล์ที่สร้างจากงาน mockup/deck และผล trial/playwright ในเครื่อง (ไม่ใช่ source)
+/output/
+mockups/output/
+mockups/.event-deck-build/
+mockups/generated_images/
