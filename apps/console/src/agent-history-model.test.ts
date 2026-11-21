@@ -23,6 +23,8 @@ test('ผลบันทึกใน URL แยก ทุกผล / ไม่�
   assert.equal(dispositionFrom(''), undefined);
   assert.equal(dispositionFrom(NO_DISPOSITION), null);
   assert.equal(dispositionFrom('CUSTOMER_ASSISTED'), 'CUSTOMER_ASSISTED');
+  assert.equal(dispositionFrom(`A${'B'.repeat(79)}`)?.length, 80);
+  assert.equal(dispositionFrom('a'.repeat(257)), undefined);
 });
 
 test('query ของรายการส่งช่วงเวลาจากสรุปและผลบันทึกที่เลือก', () => {

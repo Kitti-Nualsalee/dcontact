@@ -19,7 +19,7 @@ export function periodFrom(value: string | null): SummaryPeriod {
 }
 
 export function dispositionFrom(value: string | null): string | null | undefined {
-  if (value === null || value === '' || value.length > 64) return undefined;
+  if (value === null || value === '' || value.length > 256) return undefined;
   return value === NO_DISPOSITION ? null : value;
 }
 

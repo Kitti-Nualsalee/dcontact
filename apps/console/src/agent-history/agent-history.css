@@ -45,7 +45,15 @@
   display: inline-flex;
   border: 1px solid var(--dc-border-default);
   border-radius: var(--dc-radius-md);
-  overflow: hidden;
+}
+/* ไม่ใช้ overflow: hidden เพื่อไม่ตัด focus ring ด้านนอก — มนมุมที่ปุ่มปลายแทน */
+.ah-segmented button:first-child {
+  border-start-start-radius: var(--dc-radius-md);
+  border-end-start-radius: var(--dc-radius-md);
+}
+.ah-segmented button:last-child {
+  border-start-end-radius: var(--dc-radius-md);
+  border-end-end-radius: var(--dc-radius-md);
 }
 .ah-segmented button {
   min-height: var(--dc-control-md);
@@ -98,15 +106,30 @@
   font-variant-numeric: tabular-nums;
 }
 button.ah-metric-value {
-  padding: 0;
-  border: 0;
-  border-block-end: 2px solid transparent;
-  background: none;
+  min-width: var(--dc-control-md);
+  padding: 0 var(--dc-space-4);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
   font-family: inherit;
   cursor: pointer;
 }
+button.ah-metric-value:hover,
+.ah-breakdown button:hover {
+  border-color: var(--dc-brand-700);
+}
 button.ah-metric-value[aria-pressed='true'] {
-  border-block-end-color: var(--dc-brand-700);
+  border-color: var(--dc-brand-700);
+  background: var(--dc-brand-700);
+  color: var(--dc-text-on-brand);
+}
+.ah-metric-empty {
+  color: var(--dc-text-secondary);
+}
+/* #964 จองที่ของแผงสรุประหว่างโหลดครั้งแรก ไม่ให้เนื้อหากระโดด */
+.ah-placeholder .ah-metric {
+  min-block-size: 5.5rem;
+  background: var(--dc-surface-sunken);
 }
 .ah-metric-note {
   color: var(--dc-text-secondary);
@@ -141,6 +164,9 @@ button.ah-metric-value[aria-pressed='true'] {
 .ah-count {
   font-weight: var(--dc-weight-semibold);
   font-variant-numeric: tabular-nums;
+}
+.ah-segmented button:focus-visible {
+  position: relative;
 }
 .ah-segmented button:focus-visible,
 .ah-breakdown button:focus-visible,

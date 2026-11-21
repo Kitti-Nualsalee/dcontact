@@ -13,6 +13,8 @@ export type SummaryPeriod = (typeof SUMMARY_PERIODS)[number];
 export const DEFAULT_SUMMARY_PERIOD: SummaryPeriod = '7d';
 /** ใช้กรองงานที่ไม่มีผลบันทึก (งานเดิม) — ผลบันทึกจริงไม่มีขีดล่างนำหน้า */
 export const NO_DISPOSITION = '__none__';
+/** wrap_up_code เป็น TEXT; endpoint LEGACY รับได้ถึง 80 ตัว — เผื่อค่าที่เก็บอยู่แล้ว */
+export const MAX_DISPOSITION_LENGTH = 256;
 
 export interface WorkFilter {
   from: Date | null;
@@ -76,17 +78,23 @@ function wallClock(instant: number, timeZone: string) {
 export function zonedDayStart(instant: Date, timeZone: string, daysBack: number): Date {
   const today = wallClock(instant.getTime(), timeZone);
   const target = Date.UTC(today.year, today.month - 1, today.day - daysBack);
+  const targetDay = new Date(target).toISOString().slice(0, 10);
   const offset = (at: number) => wallClock(at, timeZone).utc - Math.floor(at / 1000) * 1000;
-  let candidate = target - offset(target);
-  candidate = target - offset(candidate);
-  return new Date(candidate);
+  const first = target - offset(target);
+  const second = target - offset(first);
+  // เที่ยงคืนที่หายไปตอนเปลี่ยน DST (เช่น America/Santiago) — ใช้ instant แรกที่ยังอยู่ในวันเป้าหมาย
+  const sameDay = [first, second].filter(
+    (candidate) =>
+      new Date(wallClock(candidate, timeZone).utc).toISOString().slice(0, 10) === targetDay,
+  );
+  return new Date(sameDay.length ? Math.min(...sameDay) : second);
 }
 
+/** ช่วงของสรุปสิ้นสุดที่เวลาคำนวณ (as of) — รายการที่ใช้ช่วงเดียวกันจึงไม่รวมงานที่จบหลังโหลดสรุป */
 export function periodWindow(period: SummaryPeriod, now: Date, timeZone: string): WorkFilter {
-  if (period === 'all') return { from: null, to: null };
   return {
-    from: zonedDayStart(now, timeZone, PERIOD_DAYS[period]),
-    to: zonedDayStart(now, timeZone, -1),
+    from: period === 'all' ? null : zonedDayStart(now, timeZone, PERIOD_DAYS[period]),
+    to: now,
   };
 }
 
@@ -103,7 +111,11 @@ export function dispositionFrom(value: unknown): string | null | undefined {
   if (value === undefined) return undefined;
   if (value === NO_DISPOSITION) return null;
   // eslint-disable-next-line no-control-regex
-  if (typeof value === 'string' && value.length <= 64 && /^[^\u0000-\u001f\u007f]+$/.test(value))
+  if (
+    typeof value === 'string' &&
+    value.length <= MAX_DISPOSITION_LENGTH &&
+    /^[^\u0000-\u001f\u007f]+$/.test(value)
+  )
     return value;
   throw new BadRequestException({ code: 'INVALID_DISPOSITION' });
 }

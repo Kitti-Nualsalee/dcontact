@@ -40,7 +40,7 @@
       "30d": "30 days",
       "all": "All"
     },
-    "range": "{{range}} · Time zone {{timeZone}}",
+    "range": "{{range}} · {{timeZone}}",
     "allTime": "All time",
     "completed": "Completed work",
     "showAll": "Show all {{count}} completed items",

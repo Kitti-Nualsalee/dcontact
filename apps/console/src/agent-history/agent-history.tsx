@@ -31,6 +31,19 @@ type SummaryState =
   | { phase: 'ready'; summary: HistorySummary }
   | { phase: 'error'; status: number };
 
+/** ชื่อเขตเวลาที่อ่านง่าย เช่น "เวลาอินโดจีน" — ใช้ IANA id เมื่อ Intl ไม่มีชื่อ */
+function zoneName(locale: string, timeZone: string): string {
+  try {
+    return (
+      new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: 'longGeneric' })
+        .formatToParts(new Date())
+        .find((part) => part.type === 'timeZoneName')?.value ?? timeZone
+    );
+  } catch {
+    return timeZone;
+  }
+}
+
 const statusOf = (failure: unknown) => (failure instanceof HistoryApiError ? failure.status : 500);
 
 export function AgentHistory(props: Props) {
@@ -208,7 +221,10 @@ function HistorySession({ api, onSignIn }: Props) {
           {shownSummary ? (
             <>
               <p className="ah-range">
-                {t('summary.range', { range, timeZone: shownSummary.period.timeZone })}
+                {t('summary.range', {
+                  range,
+                  timeZone: zoneName(locale, shownSummary.period.timeZone),
+                })}
               </p>
               <dl className="ah-metrics">
                 <div className="ah-metric">
@@ -228,11 +244,13 @@ function HistorySession({ api, onSignIn }: Props) {
                 <div className="ah-metric">
                   <dt>{t('summary.talk')}</dt>
                   <dd>
-                    <span className="ah-metric-value">
-                      {shownSummary.talk.averageSeconds === null
-                        ? t('summary.noTalk')
-                        : formatTalk(shownSummary.talk.averageSeconds)}
-                    </span>
+                    {shownSummary.talk.averageSeconds === null ? (
+                      <span className="ah-metric-empty">{t('summary.noTalk')}</span>
+                    ) : (
+                      <span className="ah-metric-value">
+                        {formatTalk(shownSummary.talk.averageSeconds)}
+                      </span>
+                    )}
                     <span className="ah-metric-note">
                       {t('summary.talkBasis', { count: shownSummary.talk.measuredCount })}
                     </span>
@@ -264,6 +282,11 @@ function HistorySession({ api, onSignIn }: Props) {
                 </>
               ) : null}
             </>
+          ) : summaryState.phase === 'loading' ? (
+            <div className="ah-metrics ah-placeholder" aria-hidden="true">
+              <div className="ah-metric" />
+              <div className="ah-metric" />
+            </div>
           ) : null}
         </section>
       )}

@@ -21,6 +21,7 @@ type Cursor = {
   recordedAt: string;
   interactionId: string;
 };
+const UNFILTERED = filterKey({ from: null, to: null });
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function cursorFrom(value: unknown, actor: WorkActor, filter: string): Cursor | undefined {
@@ -29,6 +30,16 @@ function cursorFrom(value: unknown, actor: WorkActor, filter: string): Cursor | 
     if (typeof value !== 'string' || value.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(value))
       throw new Error();
     const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Cursor;
+    // cursor v1 (ก่อน #964) ไม่มีตัวกรอง — ยังรับเมื่อคำขอไม่มีตัวกรอง เพื่อไม่ให้แท็บที่เปิดค้างตอน deploy ค้าง 400
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      (parsed as { version: unknown }).version === 1 &&
+      filter === UNFILTERED &&
+      Object.keys(parsed).sort().join(',') === 'interactionId,recordedAt,tenantId,userId,version'
+    )
+      Object.assign(parsed, { version: 2, filter });
     if (
       !parsed ||
       typeof parsed !== 'object' ||

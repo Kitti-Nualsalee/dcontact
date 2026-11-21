@@ -191,7 +191,7 @@ test('สรุปงานตามช่วงเวลา กดผลบั�
   });
   await page.goto('/?view=agent-history&tenant=demo');
   const summary = page.getByRole('region', { name: 'สรุปงาน' });
-  await expect(summary).toContainText('16 พ.ย. 2569 – 22 พ.ย. 2569 · เขตเวลา Asia/Bangkok');
+  await expect(summary).toContainText('16 พ.ย. 2569 – 22 พ.ย. 2569 · เวลาอินโดจีน');
   await expect(summary).toContainText('2:30');
   await expect(summary).toContainText('จาก 2 งานที่มีเวลารับและวางสาย');
   await expect(page.getByRole('button', { name: '7 วัน', exact: true })).toHaveAttribute(
@@ -231,7 +231,7 @@ test('สรุปงานตามช่วงเวลา กดผลบั�
   expect(new URL(page.url()).searchParams.has('disposition')).toBe(false);
 
   await page.getByRole('button', { name: 'วันนี้', exact: true }).click();
-  await expect(summary).toContainText('22 พ.ย. 2569 · เขตเวลา Asia/Bangkok');
+  await expect(summary).toContainText('22 พ.ย. 2569 · เวลาอินโดจีน');
   await expect(page.getByText('ไม่มีงาน Voice ที่จบในช่วงเวลานี้', { exact: true })).toBeVisible();
   expect(summaries.at(-1)).toBe('today');
   expect(new URL(page.url()).searchParams.get('period')).toBe('today');

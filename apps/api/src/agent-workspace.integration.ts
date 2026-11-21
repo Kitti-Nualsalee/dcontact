@@ -237,12 +237,11 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
       await owner.agentStateLog.deleteMany({ where: { tenantId } });
       await owner.queue.deleteMany({ where: { tenantId } });
       await owner.user.deleteMany({ where: { tenantId } });
-      // provenance ของ tenant_settings ห้ามลบ — ปิด trigger เฉพาะใน transaction ของการล้างข้อมูลทดสอบ
-      await owner.$transaction([
-        owner.$executeRaw`ALTER TABLE tenant_settings DISABLE TRIGGER core_settings_origin_immutable`,
-        owner.$executeRaw`DELETE FROM tenant_settings WHERE tenant_id = ${tenantId}::uuid`,
-        owner.$executeRaw`ALTER TABLE tenant_settings ENABLE TRIGGER core_settings_origin_immutable`,
-      ]);
+      // ล้างเฉพาะ fixture ของ test ด้วย owner ใน sandbox; runtime ยังคง immutable provenance
+      await owner.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+        await tx.tenantSettings.deleteMany({ where: { tenantId } });
+      });
       await owner.tenant.delete({ where: { id: tenantId } });
     }
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
@@ -849,9 +848,9 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
         direction: 'INBOUND',
         state: 'COMPLETED',
         wrapUpCode: 'FOLLOW_UP_REQUIRED',
-        queuedAt: new Date('2027-01-01T10:55:00.000Z'),
-        answeredAt: new Date('2027-01-01T10:58:00.000Z'),
-        endedAt: new Date('2027-01-01T11:00:30.000Z'),
+        queuedAt: new Date('2026-06-01T10:55:00.000Z'),
+        answeredAt: new Date('2026-06-01T10:58:00.000Z'),
+        endedAt: new Date('2026-06-01T11:00:30.000Z'),
       },
       {
         id: randomUUID(),
@@ -902,18 +901,22 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   assert.equal(allSummaryResponse.status, 200);
   assert.equal(allSummaryResponse.headers.get('cache-control'), 'no-store');
   const allSummary = (await allSummaryResponse.json()) as Summary;
-  assert.deepEqual(allSummary.period, {
-    key: 'all',
-    from: null,
-    to: null,
-    timeZone: 'Asia/Bangkok',
-  });
-  const everyId = await listAll('');
+  assert.equal(allSummary.period.key, 'all');
+  assert.equal(allSummary.period.from, null);
+  assert.equal(allSummary.period.timeZone, 'Asia/Bangkok');
+  // ทุกช่วงสิ้นสุดที่เวลาคำนวณ — งาน fixture ที่บันทึกในอนาคต (2027) จึงไม่นับ
+  assert.ok(allSummary.period.to && new Date(allSummary.period.to) <= new Date());
+  const asOf = `&to=${allSummary.period.to}`;
+  const everyId = await listAll(asOf);
   assert.equal(allSummary.completed, everyId.length);
   assert.ok(everyId.includes(talkId));
+  assert.equal(
+    everyId.some((id) => (historyIds as string[]).includes(id)),
+    false,
+  );
   assert.deepEqual(allSummary.talk, { averageSeconds: 150, measuredCount: 1 });
   for (const group of allSummary.byDisposition) {
-    const query = `&disposition=${encodeURIComponent(group.disposition ?? '__none__')}`;
+    const query = `${asOf}&disposition=${encodeURIComponent(group.disposition ?? '__none__')}`;
     assert.equal((await listAll(query)).length, group.count, query);
   }
   assert.equal(
@@ -925,8 +928,13 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   assert.deepEqual(await listAll('&disposition=__none__'), [queuedFallbackId]);
 
   const windowQuery = '&from=2027-01-01T00:00:00.000Z&to=2027-01-02T00:00:00.000Z';
-  assert.deepEqual((await listAll(windowQuery)).sort(), [...historyIds, talkId].sort());
-  assert.deepEqual(await listAll(`${windowQuery}&disposition=FOLLOW_UP_REQUIRED`), [talkId]);
+  assert.deepEqual((await listAll(windowQuery)).sort(), [...historyIds].sort());
+  assert.deepEqual(
+    await listAll(
+      '&from=2026-06-01T00:00:00.000Z&to=2026-06-02T00:00:00.000Z&disposition=FOLLOW_UP_REQUIRED',
+    ),
+    [talkId],
+  );
   const filteredFirst = (await (
     await fetch(`${historyUrl}?limit=2${windowQuery}`, { headers: noteHeaders })
   ).json()) as HistoryPage;
@@ -935,6 +943,29 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   });
   assert.equal(mismatchedCursor.status, 400);
   assert.equal(((await mismatchedCursor.json()) as { code: string }).code, 'INVALID_CURSOR');
+  // cursor v1 ของรุ่นก่อน #964 ยังใช้ได้เมื่อไม่มีตัวกรอง
+  const legacyCursor = Buffer.from(
+    JSON.stringify({
+      version: 1,
+      tenantId: tenantAId,
+      userId: agentAId,
+      recordedAt: '2027-01-01T12:00:00.000Z',
+      interactionId: historyIds[1],
+    }),
+  ).toString('base64url');
+  const legacyPage = await fetch(`${historyUrl}?limit=2&cursor=${legacyCursor}`, {
+    headers: noteHeaders,
+  });
+  assert.equal(legacyPage.status, 200);
+  assert.deepEqual(
+    ((await legacyPage.json()) as HistoryPage).items.map((item) => item.interactionId),
+    historyIds.slice(2),
+  );
+  assert.equal(
+    (await fetch(`${historyUrl}?cursor=${legacyCursor}${windowQuery}`, { headers: noteHeaders }))
+      .status,
+    400,
+  );
 
   const today = (await (
     await fetch(`${summaryUrl}?period=today`, { headers: noteHeaders })
@@ -943,7 +974,12 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   assert.ok(today.period.from && today.period.to);
   const todayIds = await listAll(`&from=${today.period.from}&to=${today.period.to}`);
   assert.equal(today.completed, todayIds.length);
-  assert.ok(todayIds.includes(noteInteractionId));
+  const noteRecordedAt = allHistory.items.find(
+    (item) => item.interactionId === noteInteractionId,
+  )?.recordedAt;
+  // งานที่บันทึกก่อนเที่ยงคืนกรุงเทพไม่อยู่ใน "วันนี้" ถ้า test รันคร่อมเที่ยงคืน
+  if (noteRecordedAt && noteRecordedAt >= today.period.from)
+    assert.ok(todayIds.includes(noteInteractionId));
   assert.equal(todayIds.includes(talkId), false);
 
   for (const [query, expected] of [
@@ -969,7 +1005,9 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
   ).json()) as Summary;
   assert.equal(agentBSummary.period.timeZone, 'UTC');
   const agentBList = (await (
-    await fetch(`${historyUrl}?limit=100`, { headers: { authorization: 'Bearer agent-b-token' } })
+    await fetch(`${historyUrl}?limit=100&to=${agentBSummary.period.to}`, {
+      headers: { authorization: 'Bearer agent-b-token' },
+    })
   ).json()) as HistoryPage;
   assert.equal(agentBSummary.completed, agentBList.items.length);
   assert.equal(
