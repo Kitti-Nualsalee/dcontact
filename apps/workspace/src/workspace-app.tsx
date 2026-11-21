@@ -1,6 +1,11 @@
 import { ExternalPhoneControlPanel } from './external-phone-control-panel.js';
 import type { WorkspacePhoneControlMode } from './external-phone-control.js';
-import { WorkCustomerPanel } from './work-customer-panel.js';
+import {
+  WORK_CUSTOMER_QUERY_ID,
+  WorkCustomerPanel,
+  type LinkedCustomer,
+} from './work-customer-panel.js';
+import { CasePanel, useCaseDrafts } from './case-panel.js';
 /**
  * Agent Workspace — D1.15 (#454): ข้อความผ่าน catalog `workspace`/`dphone`, CSS token ล้วน (`aw-*`),
  * ใน AppShell (flag `ui.shell.v2`) ไม่วาด chrome เดิมและใช้ dphone widget ลอยแทนแผงควบคุมสาย
@@ -72,7 +77,7 @@ import './agent-workspace.css';
 import './dphone/dphone.css';
 
 /** V3: แท็บของแผงขวา · มุมมองหลัก · รายการงาน และงานที่เลือกในรายการ */
-type InspectorTab = 'wrapup' | 'details' | 'events' | 'readiness';
+type InspectorTab = 'wrapup' | 'case' | 'details' | 'events' | 'readiness';
 type MainTab = 'customer' | 'voice';
 type ListTab = 'open' | 'closed';
 type Selection = 'current' | 'recent';
@@ -293,6 +298,13 @@ function AgentWorkspace({
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('readiness');
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [mainTab, setMainTab] = useState<MainTab>('customer');
+  // #956 ร่างเคสต่องาน และลูกค้าที่ผูกกับงานปัจจุบัน (รายงานจาก WorkCustomerPanel)
+  const caseDrafts = useCaseDrafts();
+  const [workCustomer, setWorkCustomer] = useState<{
+    workId: string;
+    customer: LinkedCustomer | null;
+  }>();
+  const [caseFocus, setCaseFocus] = useState(0);
   const [listTab, setListTab] = useState<ListTab>('open');
   const [selection, setSelection] = useState<Selection>('current');
   const listWidth = usePaneWidth('dcontact.workspace.listWidth', 260, 200, 360);
@@ -1516,6 +1528,16 @@ function AgentWorkspace({
             {t('wrapup.followUp')}
           </button>
         </div>
+        {wrapupDisposition === 'FOLLOW_UP_REQUIRED' &&
+        api?.openCase &&
+        caseDrafts.get(wrapupTarget.id).phase !== 'created' ? (
+          <div className="aw-case-banner" data-tone="brand" role="status">
+            <p>{t('case.wrapupHint')}</p>
+            <Button size="sm" variant="secondary" onPress={openCaseTab}>
+              {t('case.goToCase')}
+            </Button>
+          </div>
+        ) : null}
         {requiresWrapupV1 ? (
           <>
             <label htmlFor="wrapup-note">{t('wrapup.note')}</label>
@@ -1956,11 +1978,48 @@ function AgentWorkspace({
     </section>
   ) : null;
 
+  // #956 เปิดเคสได้ระหว่างคุยหรือสรุปผลเท่านั้น และเมื่อ API รองรับ
+  const caseWork =
+    current && ['ACTIVE', 'WRAPUP'].includes(current.state) && api?.openCase ? current : undefined;
+  function openCaseTab() {
+    setInspectorOpen(true);
+    setInspectorTab('case');
+    setCaseFocus((value) => value + 1);
+  }
+  function pickCustomerForCase() {
+    setMainTab('customer');
+    requestAnimationFrame(() => document.getElementById(WORK_CUSTOMER_QUERY_ID)?.focus());
+  }
+  function caseConsoleHref(caseId: string) {
+    const base =
+      (import.meta.env.VITE_CONSOLE_URL as string | undefined) ??
+      (import.meta.env.DEV ? 'http://localhost:5174' : undefined);
+    if (!base) return;
+    try {
+      const url = new URL('/', base);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return;
+      url.searchParams.set('view', 'team-cases');
+      url.searchParams.set('case', caseId);
+      url.searchParams.set(
+        'tenant',
+        new URL(window.location.href).searchParams.get('tenant') ?? tenantLabel,
+      );
+      return url.href;
+    } catch {
+      return;
+    }
+  }
+
   const currentView = (
     <div className="aw-v3-view" hidden={viewingRecent}>
       <div className="aw-v3-context">
         <strong className="aw-call-caller">{caller ?? t('layout.noCurrent')}</strong>
         {current ? <span className="aw-v3-context-meta">{current.id}</span> : null}
+        {caseWork ? (
+          <Button size="sm" variant="secondary" onPress={openCaseTab}>
+            {t('case.open')}
+          </Button>
+        ) : null}
       </div>
       {current ? (
         <div className="aw-v3-phonebar" data-state={current.state.toLowerCase()}>
@@ -2004,6 +2063,7 @@ function AgentWorkspace({
                   invalidationRevision={customerInvalidation}
                   identityKey={identityKey ?? 'unknown'}
                   sessionReady={sessionReady}
+                  onCustomerChange={(customer) => setWorkCustomer({ workId: current.id, customer })}
                 />
               ) : (
                 <p className="aw-copy">{t('layout.main.customerPending')}</p>
@@ -2090,6 +2150,7 @@ function AgentWorkspace({
 
   const inspectorTabs: Array<{ id: InspectorTab; icon: PaneIconName }> = [
     { id: 'wrapup', icon: 'notes' },
+    ...(caseWork ? [{ id: 'case' as const, icon: 'notes' as const }] : []),
     { id: 'details', icon: 'details' },
     { id: 'events', icon: 'events' },
     { id: 'readiness', icon: 'readiness' },
@@ -2114,7 +2175,7 @@ function AgentWorkspace({
       </div>
       <Tabs
         className="aw-v3-tabs aw-v3-inspector-tabs"
-        selectedKey={inspectorTab}
+        selectedKey={inspectorTab === 'case' && !caseWork ? 'wrapup' : inspectorTab}
         onSelectionChange={(key) => setInspectorTab(key as InspectorTab)}
       >
         <TabList aria-label={t('layout.inspector.label')}>
@@ -2127,6 +2188,25 @@ function AgentWorkspace({
         <TabPanel id="wrapup" className="aw-v3-inspector-body">
           {wrapupContent}
         </TabPanel>
+        {caseWork && api ? (
+          <TabPanel id="case" className="aw-v3-inspector-body">
+            <CasePanel
+              api={api}
+              workId={caseWork.id}
+              customer={workCustomer?.workId === caseWork.id ? workCustomer.customer : undefined}
+              workClosed={savedWrapup?.interactionId === caseWork.id}
+              self={{
+                userId: snapshot?.agent.id ?? '',
+                displayName: snapshot?.agent.displayName ?? '',
+              }}
+              draft={caseDrafts.get(caseWork.id)}
+              onDraftChange={(change) => caseDrafts.update(caseWork.id, change)}
+              consoleHref={caseConsoleHref}
+              onPickCustomer={pickCustomerForCase}
+              focusToken={caseFocus}
+            />
+          </TabPanel>
+        ) : null}
         <TabPanel id="details" className="aw-v3-inspector-body">
           {authorityPanel}
         </TabPanel>

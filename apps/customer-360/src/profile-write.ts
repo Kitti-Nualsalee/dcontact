@@ -266,40 +266,57 @@ export async function createC360Profile(
       throw new C360ProfileCommandError('RESOURCE_BUSY', 503, true);
     throw error;
   }
+  return insertC360CreatedContact(tx, actor.tenantId, commandActor, command, profile, (contactId) =>
+    tx.c360ContactCustodianGrant.create({
+      data: {
+        id: randomUUID(),
+        tenantId: actor.tenantId,
+        contactId,
+        granteeUserId: actor.userId,
+        permission: 'MANAGE',
+        origin: 'CREATOR',
+        actorIdentityKey: commandActor.actorIdentityKey,
+        commandId: command.commandId,
+        actorUserId: actor.userId,
+      },
+    }),
+  );
+}
+
+/**
+ * Owner writer ของ Contact ใหม่ที่ human และ service ใช้ร่วมกัน: Contact, identity head, custody และ points
+ * ผู้เรียกต้องตรวจสิทธิ์สร้างและถือ guard ของผู้สร้างใน transaction นี้ก่อน; `custody` บันทึกผู้ดูแลตามที่มา
+ */
+export async function insertC360CreatedContact(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  commandActor: C360CommandActor,
+  command: C360PreparedProfileCommand,
+  profile: C360CreateProfile,
+  custody: (contactId: string) => Promise<unknown>,
+): Promise<C360ProfileEffect> {
   const contactId = randomUUID();
   const [fence] = await tx.$queryRaw<{ locked: boolean }[]>`
-    SELECT pg_try_advisory_xact_lock(hashtext(${c360IdentityFenceKey(actor.tenantId, contactId)})) AS locked`;
+    SELECT pg_try_advisory_xact_lock(hashtext(${c360IdentityFenceKey(tenantId, contactId)})) AS locked`;
   if (!fence?.locked) throw new C360ProfileCommandError('RESOURCE_BUSY', 503, true);
   await tx.contact.create({
     data: {
       id: contactId,
-      tenantId: actor.tenantId,
+      tenantId: tenantId,
       displayName: profile.displayName,
       company: profile.company,
       vip: profile.vip,
       vipSource: 'PROFILE_COMMAND',
     },
   });
-  const head = await initializeC360IdentityHead(tx, actor.tenantId, contactId);
+  const head = await initializeC360IdentityHead(tx, tenantId, contactId);
   if (head.outcome !== 'INITIALIZED') throw new C360ProfileCommandError('RESOURCE_BUSY', 503, true);
-  await tx.c360ContactCustodianGrant.create({
-    data: {
-      id: randomUUID(),
-      tenantId: actor.tenantId,
-      contactId,
-      granteeUserId: actor.userId,
-      permission: 'MANAGE',
-      origin: 'CREATOR',
-      actorIdentityKey: commandActor.actorIdentityKey,
-      commandId: command.commandId,
-      actorUserId: actor.userId,
-    },
-  });
+  await custody(contactId);
   if (profile.points.length) {
     await tx.c360ContactPoint.createMany({
       data: profile.points.map((point) => ({
         id: randomUUID(),
-        tenantId: actor.tenantId,
+        tenantId: tenantId,
         contactId,
         ...point,
         state: 'ACTIVE',

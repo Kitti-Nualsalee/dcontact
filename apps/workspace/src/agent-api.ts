@@ -57,6 +57,25 @@ export interface WrapupIntentV1 {
   commandId: string;
 }
 
+/** #956 เปิดเคสจากงานปัจจุบัน */
+export interface OpenCaseIntent {
+  interactionId: string;
+  subject: string;
+  note: string;
+  assigneeUserId?: string;
+  commandId: string;
+}
+
+export interface OpenedCase {
+  caseId: string;
+  version: number;
+}
+
+export interface CaseTeamAgent {
+  userId: string;
+  displayName: string;
+}
+
 export class AgentApiError extends Error {
   constructor(
     readonly status: number,
@@ -84,6 +103,9 @@ export interface AgentWorkspaceApi {
     commandId: string;
   }): Promise<void>;
   submitWrapupV1?(input: WrapupIntentV1): Promise<WrapupResultV1>;
+  /** #956 */
+  openCase?(input: OpenCaseIntent): Promise<OpenedCase>;
+  caseTeamAgents?(): Promise<CaseTeamAgent[]>;
   wrapupResult?(interactionId: string): Promise<WrapupResultV1>;
   wrapupCommand?(
     interactionId: string,
@@ -187,8 +209,61 @@ export function createAgentWorkspaceApi(options: AgentWorkspaceApiOptions): Agen
     }
     return result as WrapupResultV1;
   }
+  async function caseRequest(path: string, init?: RequestInit): Promise<unknown> {
+    const response = await send(`/api/v1/workspace/agent/cases${path}`, {
+      ...init,
+      cache: 'no-store',
+    });
+    const body: unknown = await response.json().catch(() => undefined);
+    if (!response.ok) {
+      const code =
+        body && typeof body === 'object' && 'code' in body && typeof body.code === 'string'
+          ? body.code
+          : 'REQUEST_FAILED';
+      throw new AgentApiError(response.status, code);
+    }
+    return body;
+  }
   return {
     customer: createWorkCustomerApi(send),
+    async openCase(input) {
+      const body = await caseRequest('', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          commandId: input.commandId,
+          interactionId: input.interactionId,
+          subject: input.subject,
+          note: input.note,
+          ...(input.assigneeUserId ? { assigneeUserId: input.assigneeUserId } : {}),
+        }),
+      });
+      if (
+        !body ||
+        typeof body !== 'object' ||
+        !('caseId' in body) ||
+        typeof body.caseId !== 'string' ||
+        !('version' in body) ||
+        typeof body.version !== 'number'
+      )
+        throw new Error('Invalid open case result');
+      return { caseId: body.caseId, version: body.version };
+    },
+    async caseTeamAgents() {
+      const body = await caseRequest('/team-agents');
+      if (!body || typeof body !== 'object' || !('items' in body) || !Array.isArray(body.items))
+        throw new Error('Invalid team agents');
+      return (body.items as unknown[]).flatMap((item) =>
+        item &&
+        typeof item === 'object' &&
+        'userId' in item &&
+        typeof item.userId === 'string' &&
+        'displayName' in item &&
+        typeof item.displayName === 'string'
+          ? [{ userId: item.userId, displayName: item.displayName }]
+          : [],
+      );
+    },
     async wrapupCommand(interactionId, commandId) {
       const response = await send(
         `/api/v1/workspace/agent/interactions/${encodeURIComponent(interactionId)}/wrapup-commands/${encodeURIComponent(commandId)}`,
