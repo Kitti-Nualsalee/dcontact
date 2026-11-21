@@ -6,6 +6,7 @@ import {
   Header,
   HttpCode,
   Inject,
+  Optional,
   Param,
   Post,
   Query,
@@ -29,10 +30,21 @@ import {
   CUSTOMER_360_DATABASE,
   Customer360Errors,
   c360CurrentActor,
+  c360ServicePort,
   requestIdentity,
 } from './customer-360-api.js';
+import {
+  CUSTOMER_360_SERVICE_API,
+  C360_SERVICE_READ_SCOPE,
+  type Customer360ServicePort,
+} from './customer-360-service-port.js';
 import { readC360GovernanceSummary } from './customer-360-read-governance.js';
-import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
+import {
+  GatewayRoles,
+  GatewayServiceRoles,
+  GatewayServiceScopes,
+  type AuthenticatedGatewayRequest,
+} from './gateway-auth.js';
 import {
   C360_SEARCH_POLICY,
   C360_RECEIPT_POLICY,
@@ -98,6 +110,9 @@ export class Customer360ReadController {
   constructor(
     @Inject(CUSTOMER_360_DATABASE) private readonly db: PrismaClient,
     @Inject(CUSTOMER_360_SEARCH_LIMITER) private readonly limiter: SharedRateLimiter,
+    @Optional()
+    @Inject(CUSTOMER_360_SERVICE_API)
+    private readonly service?: Customer360ServicePort,
   ) {}
 
   private async throttle(
@@ -123,7 +138,10 @@ export class Customer360ReadController {
   @Post('contacts/search')
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
+  @GatewayServiceRoles('service')
+  @GatewayServiceScopes(C360_SERVICE_READ_SCOPE)
   async search(@Req() req: AuthenticatedGatewayRequest, @Body() body: unknown) {
+    if (req.gatewayServiceIdentity) return c360ServicePort(this.service).search(req, body);
     const identity = requestIdentity(req);
     await this.throttle(identity.tenantId, identity.userId);
     return withTenantDatabaseTransaction(
@@ -141,7 +159,10 @@ export class Customer360ReadController {
 
   @Get('contacts/:contactId')
   @Header('Cache-Control', 'no-store')
+  @GatewayServiceRoles('service')
+  @GatewayServiceScopes(C360_SERVICE_READ_SCOPE)
   async profile(@Req() req: AuthenticatedGatewayRequest, @Param('contactId') contactId: string) {
+    if (req.gatewayServiceIdentity) return c360ServicePort(this.service).profile(req, contactId);
     const identity = requestIdentity(req);
     const id = pathContactId(contactId);
     await this.throttle(identity.tenantId, identity.userId, C360_RECEIPT_POLICY);
