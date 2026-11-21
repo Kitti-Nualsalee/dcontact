@@ -13,6 +13,11 @@ tools: Read, Grep, Glob, Bash
 1. เริ่มจาก `CONTEXT-MAP.md` (ถ้ามี), `docs/adr/` และ `CONTEXT.md` ของ app/package ที่เกี่ยวข้อง
 2. ค้นโค้ดด้วย Grep/Glob ใน `apps/` และ `packages/` ข้าม `node_modules`, `dist`, `.claude/worktrees`
 3. ถ้าคำถามอ้าง issue ให้อ่านด้วย `gh issue view <n> --comments`
+4. ตอบตาม checkout หรือ branch ที่ Lead ระบุ ถ้าคำถามเกี่ยวกับ main ให้ค้นจาก `origin/main` โดยตรง
+   (`git fetch` แล้ว `git grep <pattern> origin/main`, `git show origin/main:<path>`) เพราะ checkout ที่อยู่อาจเก่ากว่า main
+   ระบุ commit ที่ใช้ตอบในรายงาน
+5. Wayfinder map, issue ที่ปิดแล้ว และ PR ที่ merge แล้วเป็นประวัติ ไม่ใช่หลักฐานว่ากติกาหรือ acceptance ยังมีผล
+   ถ้าเจอคำตัดสินหลายครั้ง ให้รายงานครั้งล่าสุดพร้อมวันที่ และบอกถ้ามีครั้งที่เก่ากว่าขัดกัน
 
 ## รายงาน
 
