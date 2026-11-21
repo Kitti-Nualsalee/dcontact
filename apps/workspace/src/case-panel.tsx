@@ -213,9 +213,6 @@ export function CasePanel({
             {t('case.openInConsole')}
           </a>
         ) : null}
-        <Button variant="ghost" size="sm" onPress={() => onDraftChange(() => emptyCaseDraft())}>
-          {t('case.openAnother')}
-        </Button>
       </section>
     );
   }
@@ -265,6 +262,11 @@ export function CasePanel({
       {draft.phase === 'unknown' ? (
         <p className="aw-case-banner" data-tone="attention" role="alert">
           {t('case.unknown')}
+        </p>
+      ) : null}
+      {draft.error === 'workHasCase' ? (
+        <p className="aw-case-banner" data-tone="brand" role="alert">
+          {t('case.workHasCase')}
         </p>
       ) : null}
       {draft.error === 'failed' || draft.error === 'invalid' ? (

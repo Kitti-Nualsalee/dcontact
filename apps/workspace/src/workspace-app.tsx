@@ -6,6 +6,7 @@ import {
   type LinkedCustomer,
 } from './work-customer-panel.js';
 import { CasePanel, useCaseDrafts } from './case-panel.js';
+import { useFloatingOverlapInset } from './floating-inset.js';
 /**
  * Agent Workspace — D1.15 (#454): ข้อความผ่าน catalog `workspace`/`dphone`, CSS token ล้วน (`aw-*`),
  * ใน AppShell (flag `ui.shell.v2`) ไม่วาด chrome เดิมและใช้ dphone widget ลอยแทนแผงควบคุมสาย
@@ -302,9 +303,11 @@ function AgentWorkspace({
   const caseDrafts = useCaseDrafts();
   const [workCustomer, setWorkCustomer] = useState<{
     workId: string;
-    customer: LinkedCustomer | null;
+    customer: LinkedCustomer | null | undefined;
   }>();
   const [caseFocus, setCaseFocus] = useState(0);
+  const inspectorRef = useRef<HTMLElement>(null);
+  useFloatingOverlapInset(inspectorRef, inspectorOpen);
   const [listTab, setListTab] = useState<ListTab>('open');
   const [selection, setSelection] = useState<Selection>('current');
   const listWidth = usePaneWidth('dcontact.workspace.listWidth', 260, 200, 360);
@@ -1979,8 +1982,17 @@ function AgentWorkspace({
   ) : null;
 
   // #956 เปิดเคสได้ระหว่างคุยหรือสรุปผลเท่านั้น และเมื่อ API รองรับ
-  const caseWork =
-    current && ['ACTIVE', 'WRAPUP'].includes(current.state) && api?.openCase ? current : undefined;
+  // ถ้าคำสั่งเปิดเคสยังไม่ทราบผลแล้วบันทึกผลงานไปก่อน คงแท็บไว้ให้ส่งคำสั่งเดิมซ้ำได้
+  // (server ตอบผลเดิมจาก receipt ถ้าเคย commit หรือ WORK_NOT_ACTIVE ถ้ายังไม่เคย)
+  const unresolvedCaseWork =
+    savedWrapup && caseDrafts.get(savedWrapup.interactionId).phase === 'unknown'
+      ? { id: savedWrapup.interactionId }
+      : undefined;
+  const activeCaseWork =
+    current && ['ACTIVE', 'WRAPUP'].includes(current.state) ? current : undefined;
+  const caseWork: { id: string } | undefined = api?.openCase
+    ? (activeCaseWork ?? unresolvedCaseWork)
+    : undefined;
   function openCaseTab() {
     setInspectorOpen(true);
     setInspectorTab('case');
@@ -2015,7 +2027,7 @@ function AgentWorkspace({
       <div className="aw-v3-context">
         <strong className="aw-call-caller">{caller ?? t('layout.noCurrent')}</strong>
         {current ? <span className="aw-v3-context-meta">{current.id}</span> : null}
-        {caseWork ? (
+        {caseWork && activeCaseWork ? (
           <Button size="sm" variant="secondary" onPress={openCaseTab}>
             {t('case.open')}
           </Button>
@@ -2158,6 +2170,7 @@ function AgentWorkspace({
 
   const inspector = inspectorOpen ? (
     <aside
+      ref={inspectorRef}
       className="aw-v3-inspector"
       aria-label={t('layout.inspector.label')}
       style={{ '--aw-pane-width': `${inspectorWidth.value}px` } as CSSProperties}

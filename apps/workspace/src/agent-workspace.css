@@ -522,6 +522,8 @@
   gap: var(--dc-space-5);
   min-height: 0;
   padding: var(--dc-space-5);
+  /* #956 เว้นที่ส่วนที่ dphone แบบลอยทับ (ตั้งโดย useFloatingOverlapInset) */
+  padding-block-end: calc(var(--dc-space-5) + var(--aw-dphone-inset, 0px));
   overflow: auto;
 }
 

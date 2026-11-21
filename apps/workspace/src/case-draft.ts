@@ -5,7 +5,8 @@ export const CASE_SUBJECT_MAX = 200;
 export const CASE_NOTE_MAX = 2000;
 
 export type CasePhase = 'editing' | 'pending' | 'unknown' | 'created';
-export type CaseError = 'failed' | 'assigneeRejected' | 'workClosed' | 'noTeam' | 'invalid';
+export type CaseError =
+  'failed' | 'assigneeRejected' | 'workClosed' | 'workHasCase' | 'noTeam' | 'invalid';
 
 export interface CaseDraft {
   subject: string;
@@ -58,6 +59,8 @@ export function classifyOpenCaseError(
     case 'TEAM_REQUIRED':
     case 'AGENT_REQUIRED':
       return { phase: 'editing', error: 'noTeam', newCommand: true };
+    case 'WORK_HAS_CASE':
+      return { phase: 'editing', error: 'workHasCase', newCommand: true };
     case 'CONTACT_REQUIRED':
       // แถบ "เลือกลูกค้าก่อน" บอกเหตุอยู่แล้ว
       return { phase: 'editing', error: undefined, newCommand: true };

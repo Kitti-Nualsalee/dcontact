@@ -215,3 +215,23 @@ test('error ของ Cases กลายเป็น HTTP status พร้อม
     ['ปกรณ์ ศรีสุข', 'สมหญิง ใจดี'].sort(),
   );
 });
+
+test('ตรวจสิทธิ์ลูกค้าล้ม (เช่น DB error): เคสยังเปิดได้ และไม่มีข้อมูลลูกค้าใน response', async (t) => {
+  const f = await setup(t);
+  const opened = await f.controller(allowAll).open(f.request(f.agentId), {
+    commandId: randomUUID(),
+    interactionId: f.workId,
+    subject: 'ติดตามการคืนเงิน',
+    note: 'โน้ต',
+  });
+  const failing: CaseCustomerAccess = async () => {
+    throw new Error('statement timeout');
+  };
+  const api = f.controller(failing);
+  const detail = await api.detail(f.request(f.agentId), opened.caseId);
+  assert.equal(detail.customer, null);
+  assert.equal(detail.case.activities.length, 3);
+  const page = await api.list(f.request(f.agentId), undefined, undefined, undefined, undefined);
+  assert.equal(page.items.length, 1);
+  assert.equal('contactDisplayName' in page.items[0]!, false);
+});

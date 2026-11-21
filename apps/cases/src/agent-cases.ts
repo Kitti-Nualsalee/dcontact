@@ -24,6 +24,7 @@ export type AgentCaseErrorCode =
   | 'INVALID_INPUT'
   | 'WORK_NOT_FOUND'
   | 'WORK_NOT_ACTIVE'
+  | 'WORK_HAS_CASE'
   | 'CONTACT_REQUIRED'
   | 'ASSIGNEE_NOT_IN_TEAM'
   | 'CASE_NOT_FOUND'
@@ -42,6 +43,7 @@ const ERROR_KIND: Record<AgentCaseErrorCode, AgentCaseErrorKind> = {
   INVALID_INPUT: 'INVALID',
   WORK_NOT_FOUND: 'NOT_FOUND',
   WORK_NOT_ACTIVE: 'CONFLICT',
+  WORK_HAS_CASE: 'CONFLICT',
   CONTACT_REQUIRED: 'CONFLICT',
   ASSIGNEE_NOT_IN_TEAM: 'INVALID',
   CASE_NOT_FOUND: 'NOT_FOUND',
@@ -309,7 +311,7 @@ export class AgentCases {
            AND c.team_id = ${teamActor.teamId}::uuid
            ${statusClause}
            ${filter.assignedToMe ? Prisma.sql`AND c.assignee_user_id = ${teamActor.userId}::uuid` : Prisma.empty}
-           ${cursor ? Prisma.sql`AND (c.updated_at, c.id) < (${cursor.updatedAt}, ${cursor.id}::uuid)` : Prisma.empty}
+           ${cursor ? Prisma.sql`AND (c.updated_at, c.id) < (${cursor.updatedAt.toISOString()}::timestamp(3), ${cursor.id}::uuid)` : Prisma.empty}
          ORDER BY c.updated_at DESC, c.id DESC
          LIMIT ${limit + 1}`);
       const page = rows.slice(0, limit);
@@ -370,6 +372,12 @@ export class AgentCases {
           throw new AgentCaseError('WORK_NOT_ACTIVE');
         }
         if (!interaction.contact_id) throw new AgentCaseError('CONTACT_REQUIRED');
+        // ADR-016 case 1 : N interaction — งานหนึ่งอยู่ได้ในเคสเดียว (มี partial unique index กันซ้ำ)
+        const existing = await transaction.csCase.findFirst({
+          where: { tenantId: teamActor.tenantId, sourceInteractionId: interactionId },
+          select: { id: true },
+        });
+        if (existing) throw new AgentCaseError('WORK_HAS_CASE');
 
         const assigneeUserId = requestedAssignee ?? teamActor.userId;
         await this.requireTeamAgent(transaction, teamActor, assigneeUserId);

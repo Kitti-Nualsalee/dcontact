@@ -122,8 +122,6 @@ test('เปิดเคสจากงานที่ผูกลูกค้�
   await expect(subject).toBeFocused();
   await subject.fill('เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่');
   await page.getByRole('textbox', { name: 'โน้ตแรก' }).fill('รอฝ่ายคลังยืนยันสต็อก');
-  // dphone แบบลอยบังส่วนล่างของแผงงานที่ 1280×720 ผู้ใช้ย่อเป็นแถบได้
-  await page.getByRole('button', { name: 'ย่อเป็นแถบ' }).click();
   const panel = page.getByRole('tabpanel', { name: 'เคส' });
   await panel.getByRole('button', { name: /ผู้รับผิดชอบ/ }).click();
   await page.getByRole('option', { name: 'ปกรณ์ ศรีสุข' }).click();

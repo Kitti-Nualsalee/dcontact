@@ -38,6 +38,7 @@ test('ไม่รู้ผล (เครือข่ายล้มหรือ
 test('error ที่รู้ผลแน่นอนกลับไปแก้ไขพร้อม commandId ใหม่ และบอกเหตุที่ถูกต้อง', () => {
   const cases: Array<[number, string, string | undefined]> = [
     [409, 'WORK_NOT_ACTIVE', 'workClosed'],
+    [409, 'WORK_HAS_CASE', 'workHasCase'],
     [404, 'WORK_NOT_FOUND', 'workClosed'],
     [400, 'ASSIGNEE_NOT_IN_TEAM', 'assigneeRejected'],
     [403, 'TEAM_REQUIRED', 'noTeam'],
