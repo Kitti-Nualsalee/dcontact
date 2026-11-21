@@ -12,7 +12,6 @@ export interface UtilityToolbarItem {
   icon: ReactNode;
   onPress: () => void;
   pressed?: boolean;
-  expanded?: boolean;
 }
 
 export function UtilityToolbar({ label, items }: { label: string; items: UtilityToolbarItem[] }) {
@@ -66,7 +65,6 @@ export function UtilityToolbar({ label, items }: { label: string; items: Utility
           aria-label={item.label}
           title={item.label}
           aria-pressed={item.pressed}
-          aria-expanded={item.expanded}
           onFocus={() => setLastFocused(item.id)}
           onClick={item.onPress}
         >

@@ -2191,9 +2191,9 @@ function AgentWorkspace({
       items={[
         {
           id: 'panel',
+          // label บอก action (เปิด/ปิด) อยู่แล้ว ไม่ใส่ aria-expanded ซ้ำเพื่อไม่ให้ screen reader อ่านซ้อน
           label: inspectorOpen ? t('layout.inspector.close') : t('layout.inspector.open'),
           icon: <PaneIcon name="panel" size={20} />,
-          expanded: inspectorOpen,
           onPress: () => setInspectorOpen((open) => !open),
         },
         ...inspectorTabs.map((tab) => ({
