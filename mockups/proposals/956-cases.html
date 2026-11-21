@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D-Contact — #956 Case management (ข้อเสนอ)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+/* ข้อเสนอ #956 — ใช้ภาษาภาพของ mockups/assets/app.css แต่คืน root เป็น 16px ตาม packages/ui (D1.4)
+   เพื่อให้ความหนาแน่นใกล้แอปจริงที่ 1280/1440 ค่าสีในไฟล์นี้เป็นของ mockup เท่านั้น spec อ้างชื่อ token */
+html{font-size:16px}
+body{font-size:14px}
+.mk-bar{position:sticky;top:0;z-index:90;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 12px;background:#0f172a;color:#e2e8f0;font-size:12px}
+.mk-bar button{border:1px solid #334155;border-radius:6px;padding:3px 9px;background:#1e293b;color:#e2e8f0}
+.mk-bar button.on{background:#0f766e;border-color:#0f766e}
+.mk-bar select{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:3px 6px}
+body.shot .mk-bar{display:none}
+.screen{display:none}.screen.on{display:flex}
+:where(a,button,input,select,textarea,[tabindex]):focus-visible{outline:none;box-shadow:0 0 0 2px #fff,0 0 0 4px #0f766e}
+/* control ตาม density: control-md 32px, row-table 36px */
+.c-md{height:32px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 12px;border-radius:5px;font-size:13px;font-weight:500;border:1px solid #cbd5e1;background:#fff;color:#1e293b;white-space:nowrap}
+.btn:hover{background:#f8fafc}
+.btn-sm{height:26px;padding:0 8px;font-size:12px}
+.btn-primary{background:#0f766e;border-color:#0f766e;color:#fff}.btn-primary:hover{background:#115e59}
+.btn-danger{background:#dc2626;border-color:#dc2626;color:#fff}.btn-danger:hover{background:#b91c1c}
+.btn-ghost{border-color:transparent;background:none;color:#0f766e}.btn-ghost:hover{background:#f0fdfa}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.fld2{display:block;font-size:13px;font-weight:500;color:#1e293b;margin-bottom:4px}
+.req{font-weight:400;color:#64748b;font-size:12px;margin-left:4px}
+.ctl{width:100%;height:32px;padding:0 10px;border:1px solid #cbd5e1;border-radius:4px;font-size:13px;background:#fff;color:#1e293b}
+textarea.ctl{height:auto;padding:6px 10px;line-height:1.5;resize:vertical}
+.ctl[readonly],.ctl:disabled{background:#f1f5f9;color:#475569}
+.help{font-size:12px;color:#64748b;margin-top:4px;display:flex;justify-content:space-between;gap:8px}
+.err{font-size:12px;color:#b91c1c;margin-top:4px}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;border-radius:999px;padding:1px 9px;white-space:nowrap}
+.chip::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}
+.chip-open{background:#e0e7ff;color:#4338ca}
+.chip-resolved{background:#dcfce7;color:#15803d}
+.chip-closed{background:#f1f5f9;color:#475569}
+.bdg{display:inline-flex;align-items:center;font-size:11px;font-weight:600;border-radius:3px;padding:0 6px;background:#f1f5f9;color:#475569}
+.tbl th{font-weight:500;color:#64748b;font-size:12px;text-align:left;padding:0 12px;height:36px;background:#f8fafc;border-bottom:1px solid #e2e8f0;position:sticky;top:0;z-index:1;white-space:nowrap}
+.tbl td{padding:0 12px;height:36px;border-bottom:1px solid #f1f5f9;font-size:13px;white-space:nowrap}
+.tbl tr:hover td{background:#f8fafc}
+.trunc{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sk{display:block;border-radius:3px;background:linear-gradient(90deg,#f1f5f9,#e2e8f0,#f1f5f9);background-size:200% 100%;animation:sk 1.4s infinite}
+@keyframes sk{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@media(prefers-reduced-motion:reduce){.sk{animation:none}}
+.note2{display:flex;gap:8px;border-radius:5px;padding:8px 12px;font-size:13px;line-height:1.5;align-items:flex-start}
+.note2>i{font-size:17px;margin-top:1px}
+.n-warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e}
+.n-info{background:#f0fdfa;border:1px solid #99f6e4;color:#115e59}
+.n-bad{background:#fff1f2;border:1px solid #fecdd3;color:#9f1239}
+.n-ok{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}
+.tab{height:36px;padding:0 10px;font-size:13px;color:#475569;border-bottom:2px solid transparent;white-space:nowrap}
+.tab.on{color:#0f766e;border-bottom-color:#0f766e;font-weight:600}
+.subnav a{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:4px;font-size:13px;color:#334155}
+.subnav a.on{background:#f0fdfa;color:#0f766e;font-weight:600}
+.tl-item{display:grid;grid-template-columns:32px 1fr;gap:12px;position:relative;padding-bottom:16px}
+.tl-item:not(:last-child)::before{content:'';position:absolute;left:15px;top:32px;bottom:0;width:1px;background:#e2e8f0}
+.tl-ic{width:32px;height:32px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:16px;background:#f1f5f9;color:#475569}
+.tl-note{white-space:pre-wrap;font-size:13px;line-height:1.6;color:#1e293b;background:#f8fafc;border:1px solid #e2e8f0;border-radius:5px;padding:8px 12px;margin-top:6px}
+.clamp{display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}
+.overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:80;display:flex;align-items:center;justify-content:center}
+.dialog{background:#fff;border-radius:7px;width:440px;max-width:calc(100vw - 32px);box-shadow:0 10px 30px rgba(15,23,42,.3)}
+.toast{position:fixed;right:16px;bottom:16px;z-index:85;display:flex;gap:8px;align-items:center;background:#fff;border:1px solid #e2e8f0;border-left:4px solid #16a34a;border-radius:5px;padding:10px 14px;font-size:13px;box-shadow:0 10px 30px rgba(15,23,42,.18)}
+.mono{font-family:Inter,system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#64748b}
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+<!-- แถบควบคุม mockup (ไม่ใช่ส่วนของหน้าจอ) — ?view=&state=&shot=1 -->
+<div class="mk-bar" id="mk-bar">
+  <b>#956 mockup</b>
+  <button data-v="workspace">1 Workspace · เปิดเคส</button>
+  <button data-v="list">2 Console · เคสของทีม</button>
+  <button data-v="detail">3 Console · รายละเอียดเคส</button>
+  <label>state <select id="mk-state"></select></label>
+</div>
+
+<!-- ======================================================================
+     1) WORKSPACE — เปิดเคสจากงานปัจจุบัน (แท็บ "เคส" ในแผงงาน, non-modal)
+     ====================================================================== -->
+<div class="screen flex-col" id="s-workspace" style="height:calc(100vh - var(--mk,0px))">
+  <header class="h-11 shrink-0 bg-white border-b border-slate-200 flex items-center gap-3 px-4">
+    <span class="w-7 h-7 rounded-md bg-teal-700 text-white flex items-center justify-center text-sm font-semibold">D</span>
+    <b class="text-[15px] text-teal-900">Workspace</b>
+    <span class="bdg">demo-retail</span>
+    <div class="flex-1"></div>
+    <span class="chip" id="ws-agent" style="background:#fee2e2;color:#b91c1c">กำลังสนทนา</span>
+    <span class="text-[13px] text-slate-600">สมหญิง ใจดี · Retail Support</span>
+    <span class="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs">สห</span>
+  </header>
+  <div class="flex-1 min-h-0 flex">
+    <!-- รายการงาน -->
+    <aside class="w-[264px] shrink-0 bg-white border-r border-slate-200 flex flex-col">
+      <h2 class="px-4 pt-3 pb-2 text-[13px] font-semibold text-slate-700">งานของฉัน</h2>
+      <div class="flex border-b border-slate-200 px-2"><button class="tab on">เปิดอยู่ (1)</button><button class="tab">ปิดแล้ว (3)</button></div>
+      <ul class="p-2"><li class="rounded-md bg-teal-50 border-l-[3px] border-teal-700 p-3 flex gap-3">
+        <span class="w-8 h-8 rounded-md bg-indigo-50 text-indigo-700 flex items-center justify-center"><i class="ti ti-phone"></i></span>
+        <span class="min-w-0 flex-1"><span class="flex justify-between"><b class="text-[13px] trunc" id="ws-list-caller">คุณนภา จันทร์เพ็ญ</b><span class="mono text-xs" id="ws-list-time">04:12</span></span>
+        <span class="block text-xs text-slate-500">สายเข้า · General Support</span><span class="ch ch-voice mt-1"><i class="ti ti-phone"></i>Voice</span></span>
+      </li></ul>
+    </aside>
+    <!-- งานปัจจุบัน -->
+    <main class="flex-1 min-w-0 flex flex-col">
+      <div class="h-12 shrink-0 bg-white border-b border-slate-200 flex items-center gap-3 px-5">
+        <strong class="text-[15px]" id="ws-caller">คุณนภา จันทร์เพ็ญ</strong>
+        <span class="mono text-xs">7f3c2e10-…-a91e</span>
+        <div class="flex-1"></div>
+        <button class="btn" id="ws-open-case"><i class="ti ti-folder-plus"></i>เปิดเคส</button>
+      </div>
+      <div class="mx-5 mt-4 rounded-md border border-slate-200 bg-white px-4 h-11 flex items-center gap-3" id="ws-phonebar">
+        <i class="ti ti-phone text-teal-700 text-lg"></i><b class="text-[13px] whitespace-nowrap" id="ws-state">กำลังสนทนา</b><span class="ch ch-voice">Voice</span>
+        <span class="text-xs text-slate-500 trunc min-w-0 flex-1">สายเข้า · General Support · ควบคุมสายที่ dphone</span>
+        <span class="mono text-[13px] whitespace-nowrap" id="ws-dur">เวลาในสาย 04:12</span>
+      </div>
+      <div class="mx-5 mt-3 flex border-b border-slate-200"><button class="tab on" id="ws-tab-c360">Customer 360</button><button class="tab">Voice</button></div>
+      <div class="flex-1 min-h-0 overflow-auto px-5 py-4" id="ws-customer"></div>
+    </main>
+    <!-- แผงงาน (inspector) -->
+    <aside class="w-[368px] shrink-0 bg-white border-l border-slate-200 flex flex-col">
+      <div class="h-12 shrink-0 flex items-center justify-between px-4 border-b border-slate-100">
+        <h2 class="text-[13px] font-semibold text-slate-700">แผงงาน</h2><button class="act" aria-label="ปิดแผงรายละเอียด"><i class="ti ti-layout-sidebar-right"></i></button>
+      </div>
+      <div class="flex border-b border-slate-200 px-2" role="tablist" aria-label="แผงรายละเอียดงาน">
+        <button class="tab" id="ws-itab-wrapup">สรุปผล</button><button class="tab on" id="ws-itab-case">เคส</button>
+        <button class="tab">รายละเอียด</button><button class="tab">เหตุการณ์</button><button class="tab">ความพร้อม</button>
+      </div>
+      <div class="flex-1 min-h-0 overflow-auto p-4" id="ws-inspector"></div>
+    </aside>
+    <div class="w-11 shrink-0 bg-white border-l border-slate-200 flex flex-col items-center gap-2 py-3 text-slate-500">
+      <button class="act"><i class="ti ti-layout-sidebar-right"></i></button><button class="act"><i class="ti ti-message"></i></button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================================================================
+     2+3) CONSOLE — shell เดียวกัน (rail + SubNav + TopBar)
+     ====================================================================== -->
+<div class="screen" id="s-console" style="min-height:calc(100vh - var(--mk,0px))">
+  <aside class="rail sticky top-0 self-start" style="height:calc(100vh - var(--mk,0px))">
+    <button class="rail-btn" title="หน้าแรก"><i class="ti ti-home"></i></button>
+    <button class="rail-btn" title="ประวัติ"><i class="ti ti-history"></i></button>
+    <button class="rail-btn active" title="เคส" aria-current="page"><i class="ti ti-folders"></i></button>
+    <button class="rail-btn" title="ลูกค้า"><i class="ti ti-address-book"></i></button>
+    <button class="rail-btn" title="คน"><i class="ti ti-users"></i></button>
+    <div class="flex-1"></div>
+    <button class="rail-btn" title="ตั้งค่า"><i class="ti ti-settings"></i></button>
+  </aside>
+  <nav class="subnav w-[220px] shrink-0 bg-white border-r border-slate-200 p-2 sticky top-0 self-start" style="height:calc(100vh - var(--mk,0px))" aria-label="เคส">
+    <div class="h-9 flex items-center px-3 text-[13px] font-semibold text-slate-800">เคส</div>
+    <a href="#" class="on" aria-current="page"><i class="ti ti-users-group"></i>เคสของทีม</a>
+  </nav>
+  <div class="flex-1 min-w-0 flex flex-col">
+    <header class="h-11 shrink-0 bg-white border-b border-slate-200 flex items-center gap-3 px-6 text-[13px]">
+      <span class="text-slate-500">demo-retail</span><span class="text-slate-300">/</span><span>เคส</span>
+      <div class="flex-1"></div><span class="text-slate-600">สมหญิง ใจดี</span>
+      <span class="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-xs">สห</span>
+    </header>
+    <main class="p-6" id="c-main"></main>
+  </div>
+</div>
+
+<div id="layer"></div>
+
+<script>
+// ---------- ข้อมูลตัวอย่าง ----------
+const ME = 'สมหญิง ใจดี';
+const TEAM = 'Retail Support';
+const LONG = 'ลูกค้าแจ้งว่าเครื่อง X200 ที่ได้รับมีรอยแตกที่ฝาหลังตั้งแต่แกะกล่อง ขอเปลี่ยนเครื่องใหม่และขอใบรับรองการเคลม'; // 80+ ตัวอักษร
+const ROWS = [
+  ['เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่', 'คุณนภา จันทร์เพ็ญ', 'OPEN', 'ปกรณ์ ศรีสุข', '21 พ.ย. 2569 14:32', 1],
+  ['ขอใบกำกับภาษีเต็มรูปแบบย้อนหลัง 3 เดือน', 'คุณวิไล ศักดิ์สิทธิ์', 'OPEN', ME, '21 พ.ย. 2569 11:05', 1],
+  ['ค่าบริการถูกเรียกเก็บซ้ำเดือนตุลาคม รอฝ่ายบัญชียืนยันยอดคืน', 'คุณธนา พรหมมา', 'RESOLVED', ME, '20 พ.ย. 2569 17:48', 1],
+  ['เปลี่ยนที่อยู่จัดส่งหลังสั่งซื้อ', 'คุณมณี รัตนา', 'OPEN', 'อรทัย พงษ์ไพร', '20 พ.ย. 2569 15:20', 1],
+  ['ไม่ได้รับรหัส OTP ตอนเข้าสู่ระบบแอป', null, 'OPEN', 'สมชาย วงศ์ประเสริฐ', '19 พ.ย. 2569 10:12', 1],
+  ['ยกเลิกสมาชิกรายปีและขอคืนเงินส่วนต่าง', 'คุณกิตติ ทองดี', 'RESOLVED', 'ปกรณ์ ศรีสุข', '18 พ.ย. 2569 16:03', 1],
+  ['สินค้าไม่ตรงสีที่สั่ง ขอเปลี่ยน', 'คุณพิมพ์ชนก แสงทอง', 'OPEN', ME, '18 พ.ย. 2569 09:41', 1],
+  ['สอบถามสถานะเคลมประกันจอแตก', 'คุณอนันต์ บุญมา', 'OPEN', 'อรทัย พงษ์ไพร', '17 พ.ย. 2569 13:27', 1],
+];
+const STATUS = {OPEN:['chip-open','เปิดอยู่'], RESOLVED:['chip-resolved','แก้แล้ว'], CLOSED:['chip-closed','ปิดแล้ว']};
+const chip = s => `<span class="chip ${STATUS[s][0]}">${STATUS[s][1]}</span>`;
+const who = n => n === ME ? `${n} <span class="bdg ml-1">คุณ</span>` : n;
+
+const STATES = {
+  workspace: ['default','unlinked','unknown','success','noteam','wrapup-hint'],
+  list: ['default','mine-empty','filter-empty','loading','error','forbidden','long'],
+  detail: ['default','resolved','close-dialog','closed','assign-dialog','conflict','loading','notfound','partial','long'],
+};
+const P = new URLSearchParams(location.search);
+let view = P.get('view') || 'workspace';
+let state = P.get('state') || 'default';
+if (P.get('shot')) document.body.classList.add('shot');
+document.documentElement.style.setProperty('--mk', P.get('shot') ? '0px' : document.getElementById('mk-bar').offsetHeight + 'px');
+
+// ---------- 1) WORKSPACE ----------
+function wsCustomer(unlinked) {
+  if (unlinked) return `
+  <section class="bg-white border border-slate-200 rounded-md p-4 max-w-[640px]" aria-label="ข้อมูลลูกค้าของงานนี้">
+    <h3 class="text-[13px] font-semibold mb-2">ข้อมูลลูกค้าของงานนี้</h3>
+    <p class="text-[13px] text-slate-600 mb-3">งานนี้ยังไม่เชื่อมกับลูกค้า</p>
+    <div class="grid grid-cols-[160px_1fr_auto] gap-2 items-end">
+      <div><label class="fld2">ค้นหาด้วย</label><select class="ctl"><option>เบอร์โทรศัพท์เต็มค่า</option></select></div>
+      <div><label class="fld2">เบอร์โทรศัพท์สากลหรืออีเมลเต็มค่า</label><input class="ctl" id="ws-cust-q" value="+66812345678" style="box-shadow:0 0 0 2px #fff,0 0 0 4px #0f766e"></div>
+      <button class="btn btn-primary">ค้นหาลูกค้าสำหรับงานนี้</button>
+    </div>
+    <p class="help">รายการที่พบยังไม่ใช่การยืนยันตัวบุคคล ต้องเลือกเองทุกครั้ง</p>
+  </section>`;
+  return `
+  <section class="bg-white border border-slate-200 rounded-md p-4 max-w-[640px]" aria-label="ข้อมูลลูกค้าของงานนี้">
+    <h3 class="text-[13px] font-semibold mb-2">ข้อมูลลูกค้าของงานนี้</h3>
+    <p class="text-[15px] font-medium">คุณนภา จันทร์เพ็ญ</p><p class="text-[13px] text-slate-500">Siam Retail Co.</p>
+    <div class="flex gap-2 mt-3"><button class="btn btn-sm">แก้ชื่อและบริษัท</button><button class="btn btn-sm btn-ghost">ถอดการเชื่อมลูกค้า</button></div>
+  </section>`;
+}
+function wsSummary(unlinked) {
+  return `<dl class="grid grid-cols-[84px_1fr] gap-y-1 gap-x-2 text-[13px] bg-slate-50 border border-slate-200 rounded-md p-3">
+    <dt class="text-slate-500">ลูกค้า</dt><dd>${unlinked ? '<span class="text-amber-800 font-medium">ยังไม่ได้เลือก</span>' : 'คุณนภา จันทร์เพ็ญ <span class="text-slate-500">· Siam Retail Co.</span>'}</dd>
+    <dt class="text-slate-500">งานที่ผูก</dt><dd>Voice สายเข้า <span class="mono text-xs">7f3c…a91e</span></dd>
+  </dl>`;
+}
+function wsForm({unlinked=false, locked=false, unknown=false}={}) {
+  const ro = locked ? 'readonly' : '';
+  return `
+  <div class="space-y-4">
+    <div><h3 class="text-[15px] font-semibold">เปิดเคสจากงานนี้</h3>
+      <p class="text-[13px] text-slate-600 mt-1">ใช้เมื่อเรื่องนี้ต้องติดตามต่อหลังจบสาย งานนี้จะผูกกับเคสให้อัตโนมัติ</p></div>
+    ${unlinked ? `<div class="note2 n-warn" role="status" id="ws-unlinked-note"><i class="ti ti-user-question"></i><div>
+      <p><b>เลือกลูกค้าให้งานนี้ก่อน</b> เคสต้องผูกกับลูกค้าหนึ่งราย กรอกร่างไว้ก่อนได้</p>
+      <button class="btn btn-sm mt-2"><i class="ti ti-search"></i>ไปเลือกลูกค้า</button></div></div>` : ''}
+    ${wsSummary(unlinked)}
+    <div><label class="fld2" for="cs-title">หัวข้อ<span class="req">จำเป็น</span></label>
+      <input id="cs-title" class="ctl" ${ro} value="${unlinked ? 'โทรกลับเรื่องเปลี่ยนเครื่อง X200' : 'เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่'}">
+      <p class="help"><span>สรุปเรื่องให้เพื่อนร่วมทีมเข้าใจในบรรทัดเดียว</span><span class="mono">${unlinked ? 31 : 38} / 200</span></p></div>
+    <div><label class="fld2" for="cs-note">โน้ตแรก<span class="req">จำเป็น</span></label>
+      <textarea id="cs-note" class="ctl" rows="4" ${ro}>ลูกค้าแจ้งว่าเครื่องที่ได้รับมีรอยแตกที่ฝาหลังตั้งแต่แกะกล่อง ขอเปลี่ยนเครื่อง
+รอฝ่ายคลังยืนยันสต็อกก่อนโทรกลับภายในวันพรุ่งนี้</textarea>
+      <p class="help"><span>เห็นได้เฉพาะคนในทีม ไม่ส่งถึงลูกค้า</span><span class="mono">112 / 2,000</span></p></div>
+    <div><label class="fld2" for="cs-assignee">ผู้รับผิดชอบ</label>
+      <select id="cs-assignee" class="ctl" ${locked ? 'disabled' : ''}><option>ตัวฉัน (${ME})</option><option>ปกรณ์ ศรีสุข</option><option>อรทัย พงษ์ไพร</option><option>สมชาย วงศ์ประเสริฐ</option></select>
+      <p class="help"><span>เลือกได้เฉพาะ Agent ที่ active ในทีม ${TEAM}</span></p></div>
+    ${unknown ? `<div class="note2 n-warn" role="status"><i class="ti ti-clock-question"></i><p>ยังไม่ทราบผลการเปิดเคส ส่งคำสั่งเดิมอีกครั้งได้ ระบบจะไม่สร้างเคสซ้ำ ข้อมูลถูกล็อกไว้จนกว่าจะทราบผล</p></div>` : ''}
+    <div class="flex items-center gap-2 sticky bottom-0 -mx-4 -mb-4 px-4 py-3 bg-white border-t border-slate-100">
+      ${unknown
+        ? `<button class="btn btn-primary"><i class="ti ti-refresh"></i>ส่งคำสั่งเดิมอีกครั้ง</button>`
+        : `<button class="btn btn-primary" ${unlinked ? 'disabled aria-describedby="ws-unlinked-note"' : ''}><i class="ti ti-folder-plus"></i>เปิดเคส</button>
+           <button class="btn btn-ghost">ล้างร่าง</button>`}
+    </div>
+  </div>`;
+}
+function renderWorkspace() {
+  const unlinked = state === 'unlinked';
+  document.getElementById('ws-caller').textContent = unlinked ? '+66 81 234 5678' : 'คุณนภา จันทร์เพ็ญ';
+  document.getElementById('ws-list-caller').textContent = unlinked ? '+66 81 234 5678' : 'คุณนภา จันทร์เพ็ญ';
+  const wrap = state === 'wrapup-hint' || state === 'success';
+  document.getElementById('ws-state').textContent = wrap ? 'รอสรุปผล' : 'กำลังสนทนา';
+  document.getElementById('ws-dur').textContent = wrap ? 'สรุปผล 00:45' : 'เวลาในสาย 04:12';
+  const ag = document.getElementById('ws-agent'); ag.textContent = wrap ? 'สรุปงาน' : 'กำลังสนทนา'; ag.style.cssText = wrap ? 'background:#fef3c7;color:#b45309' : 'background:#fee2e2;color:#b91c1c';
+  document.getElementById('ws-customer').innerHTML = wsCustomer(unlinked);
+  const caseTab = document.getElementById('ws-itab-case'), wrapTab = document.getElementById('ws-itab-wrapup');
+  caseTab.classList.toggle('on', state !== 'wrapup-hint'); wrapTab.classList.toggle('on', state === 'wrapup-hint');
+  let html = '';
+  if (state === 'default') html = wsForm();
+  if (state === 'unlinked') html = wsForm({unlinked:true});
+  if (state === 'unknown') html = wsForm({locked:true, unknown:true});
+  if (state === 'noteam') html = `<div class="space-y-4"><h3 class="text-[15px] font-semibold">เปิดเคสจากงานนี้</h3>
+    <div class="note2 n-info" role="status"><i class="ti ti-users-minus"></i><p>บัญชีของคุณยังไม่อยู่ในทีม จึงเปิดเคสไม่ได้ ติดต่อผู้ดูแล tenant ให้เพิ่มคุณเข้าทีม งานและสายนี้ทำต่อได้ตามปกติ</p></div></div>`;
+  if (state === 'success') html = `<div class="space-y-4" role="status" aria-live="polite">
+    <div class="note2 n-ok"><i class="ti ti-circle-check"></i><div><p class="font-semibold">เปิดเคสแล้ว</p><p>งานนี้ผูกกับเคสแล้ว ดูและติดตามต่อได้ใน Console</p></div></div>
+    <dl class="grid grid-cols-[96px_1fr] gap-y-1.5 gap-x-2 text-[13px]">
+      <dt class="text-slate-500">หัวข้อ</dt><dd class="font-medium">เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่</dd>
+      <dt class="text-slate-500">สถานะ</dt><dd>${chip('OPEN')}</dd>
+      <dt class="text-slate-500">ผู้รับผิดชอบ</dt><dd>${who(ME)}</dd>
+      <dt class="text-slate-500">ลูกค้า</dt><dd>คุณนภา จันทร์เพ็ญ</dd>
+    </dl>
+    <a href="#" class="inline-flex items-center gap-1.5 text-[13px] font-medium text-teal-700 underline underline-offset-2"><i class="ti ti-external-link"></i>เปิดเคสใน Console (แท็บใหม่)</a>
+    <div class="border-t border-slate-100 pt-3"><button class="btn btn-sm btn-ghost"><i class="ti ti-plus"></i>เปิดเคสอีกเรื่องจากงานนี้</button></div>
+  </div>`;
+  if (state === 'wrapup-hint') html = `<div class="space-y-4">
+    <div><p class="text-xs text-slate-500">หลังจบสาย</p><h3 class="text-[15px] font-semibold">สรุปผลหลังสาย</h3>
+      <p class="text-[13px] text-slate-600 mt-1">เลือกผลการติดต่อและเขียนโน้ตก่อนรับสายถัดไป</p></div>
+    <div class="grid grid-cols-2 gap-1 bg-slate-100 rounded-md p-1 text-[13px]">
+      <button class="h-8 rounded">ลูกค้าได้รับความช่วยเหลือ</button><button class="h-8 rounded bg-white font-semibold text-teal-800 shadow-sm" aria-pressed="true">ต้องติดตามต่อ</button></div>
+    <div class="note2 n-info"><i class="ti ti-folder-plus"></i><div><p>ต้องติดตามต่อ? เปิดเคสก่อนบันทึกผล เพื่อให้ทีมเห็นเรื่องนี้หลังจบงาน</p>
+      <button class="btn btn-sm mt-2">ไปที่แท็บเคส</button></div></div>
+    <div><label class="fld2">โน้ตสรุป</label><textarea class="ctl" rows="4">ลูกค้าขอเปลี่ยนเครื่อง X200 รอสต็อก</textarea><p class="help"><span>33 / 2,000 ตัวอักษร</span></p></div>
+    <button class="btn btn-primary">บันทึกผล</button>
+  </div>`;
+  document.getElementById('ws-inspector').innerHTML = html;
+  if (state === 'success') toast('เปิดเคสแล้ว: เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่');
+}
+
+// ---------- 2) LIST ----------
+function filterBar(statusVal='ยังไม่ปิด (เปิดอยู่ + แก้แล้ว)', mineVal='ทั้งทีม', showClear=false) {
+  return `<div class="bg-white border border-slate-200 rounded-md p-3 mb-4 flex flex-wrap items-end gap-3" role="search" aria-label="ตัวกรองเคส">
+    <div><label class="fld2" for="f-status">สถานะ</label><select id="f-status" class="ctl !w-[240px]"><option>${statusVal}</option><option>เปิดอยู่</option><option>แก้แล้ว</option><option>ปิดแล้ว</option><option>ทุกสถานะ</option></select></div>
+    <div><label class="fld2" for="f-mine">ผู้รับผิดชอบ</label><select id="f-mine" class="ctl !w-[160px]"><option>${mineVal}</option><option>${mineVal === 'ของฉัน' ? 'ทั้งทีม' : 'ของฉัน'}</option></select></div>
+    ${showClear ? '<button class="btn btn-ghost">ล้างตัวกรอง</button>' : ''}
+  </div>`;
+}
+function listHead() {
+  return `<div class="flex items-end justify-between mb-4">
+    <div><h1 class="text-xl font-semibold">เคสของทีม</h1>
+    <p class="text-[13px] text-slate-500 mt-0.5">ทีม ${TEAM} · เรื่องที่ต้องติดตามต่อหลังจบงาน เปิดเคสได้จาก Workspace ระหว่างงาน</p></div>
+    <button class="btn"><i class="ti ti-refresh"></i>รีเฟรช</button>
+  </div>`;
+}
+function table(rows, footer) {
+  const body = rows.map(r => `<tr>
+      <th scope="row" class="!bg-transparent !h-9 !static !border-slate-100 !text-[13px] !font-medium !text-slate-800" ><a href="#" class="trunc text-teal-800 hover:underline" title="${r[0]}">${r[0]}</a></th>
+      <td><span class="trunc ${r[1] ? '' : 'text-slate-500'}">${r[1] ?? 'ไม่ระบุชื่อ'}</span></td>
+      <td>${chip(r[2])}</td>
+      <td><span class="trunc" title="${r[3]}">${who(r[3])}</span></td>
+      <td class="mono">${r[4]}</td>
+      <td class="text-right mono">${r[5]}</td>
+      <td class="text-right"><button class="btn btn-sm" aria-label="เปิดเคส ${r[0]}">เปิด</button></td>
+    </tr>`).join('');
+  return `<div class="bg-white border border-slate-200 rounded-md overflow-hidden">
+    <div class="overflow-auto max-h-[calc(100vh-290px)]"><table class="tbl w-full" style="table-layout:fixed" aria-label="รายการเคสของทีม">
+      <colgroup><col style="width:34%"><col style="width:17%"><col style="width:104px"><col style="width:17%"><col style="width:150px"><col style="width:84px"><col style="width:64px"></colgroup>
+      <thead><tr><th>หัวข้อ</th><th>ลูกค้า</th><th>สถานะ</th><th>ผู้รับผิดชอบ</th><th>อัปเดตล่าสุด</th><th class="!text-right">งานที่ผูก</th><th><span class="sr-only">การทำงาน</span></th></tr></thead>
+      <tbody>${body}</tbody></table></div>
+    ${footer}
+  </div>`;
+}
+const foot = (txt, next=false) => `<div class="px-4 h-10 border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
+  <span>${txt}</span><span class="flex gap-1"><button class="act" disabled aria-label="หน้าก่อนหน้า" style="opacity:.4"><i class="ti ti-chevron-left"></i></button>
+  <button class="act" ${next ? '' : 'disabled style="opacity:.4"'} aria-label="หน้าถัดไป"><i class="ti ti-chevron-right"></i></button></span></div>`;
+function emptyBox(icon, title, body, action) {
+  return `<div class="bg-white border border-slate-200 rounded-md py-14 px-6 flex flex-col items-center text-center gap-2">
+    <i class="ti ${icon} text-3xl text-slate-400"></i><p class="font-semibold">${title}</p><p class="text-[13px] text-slate-600 max-w-[52ch]">${body}</p>${action ?? ''}</div>`;
+}
+function renderList() {
+  const m = document.getElementById('c-main');
+  let h = listHead();
+  if (state === 'default') h += filterBar() + table(ROWS, foot('แสดง 8 รายการ'));
+  if (state === 'mine-empty') h += filterBar(undefined, 'ของฉัน') + emptyBox('ti-folder-open', 'ยังไม่มีเคสที่คุณรับผิดชอบ',
+      'เคสที่คุณเปิดหรือได้รับมอบหมายจะแสดงที่นี่ เปิดเคสได้จากแผงงานใน Workspace ระหว่างงานหรือก่อนบันทึกผล',
+      '<button class="btn mt-2">ดูเคสทั้งทีม</button>');
+  if (state === 'filter-empty') h += filterBar('ปิดแล้ว', 'ของฉัน', true) + emptyBox('ti-filter-off', 'ไม่มีเคสที่ตรงกับตัวกรอง',
+      'ยังไม่มีเคสสถานะ "ปิดแล้ว" ที่คุณรับผิดชอบ', '<button class="btn mt-2">ล้างตัวกรอง</button>');
+  if (state === 'loading') {
+    const sk = w => `<span class="sk h-3" style="width:${w}"></span>`;
+    const rows = Array.from({length:8}, () => `<tr><td style="width:38%">${sk('70%')}</td><td>${sk('120px')}</td><td>${sk('64px')}</td><td>${sk('110px')}</td><td>${sk('120px')}</td><td>${sk('20px')}</td><td>${sk('40px')}</td></tr>`).join('');
+    h += filterBar() + `<div class="bg-white border border-slate-200 rounded-md overflow-hidden" aria-busy="true"><span class="sr-only" role="status">กำลังโหลดเคส</span>
+      <table class="tbl w-full"><thead><tr><th>หัวข้อ</th><th>ลูกค้า</th><th>สถานะ</th><th>ผู้รับผิดชอบ</th><th>อัปเดตล่าสุด</th><th class="!text-right">งานที่ผูก</th><th></th></tr></thead><tbody>${rows}</tbody></table>${foot('&nbsp;')}</div>`;
+  }
+  if (state === 'error') h += filterBar('แก้แล้ว', 'ทั้งทีม', true) + `<div class="note2 n-bad" role="alert"><i class="ti ti-alert-triangle"></i><div>
+      <p><b>โหลดรายการเคสไม่สำเร็จ</b> ตัวกรองที่เลือกยังอยู่ ลองอีกครั้งได้ ถ้ายังไม่ได้ให้แจ้งผู้ดูแลระบบ</p>
+      <button class="btn btn-sm mt-2"><i class="ti ti-refresh"></i>ลองอีกครั้ง</button></div></div>`;
+  if (state === 'forbidden') h = `<h1 class="text-xl font-semibold mb-4">เคสของทีม</h1>` + emptyBox('ti-lock', 'บัญชีนี้ไม่อยู่ในทีม จึงไม่มีเคสให้ดู',
+      'เคสเห็นได้เฉพาะคนในทีมเดียวกัน ติดต่อผู้ดูแล tenant ให้เพิ่มคุณเข้าทีม');
+  if (state === 'long') {
+    const many = [[LONG, 'คุณนภา จันทร์เพ็ญ (Siam Retail Company Limited — สำนักงานใหญ่)', 'OPEN', 'Chayaporn Wongsawat-Kittikhun', '21 พ.ย. 2569 14:32', 3], ...ROWS, ...ROWS.slice(0,4)];
+    h += filterBar('ทุกสถานะ', 'ทั้งทีม', true) + table(many, foot('แสดง 1–25 · เรียงตามอัปเดตล่าสุด', true));
+  }
+  m.innerHTML = h;
+}
+
+// ---------- 3) DETAIL ----------
+const TL = [
+  ['ti-folder-plus', 'bg-teal-50 text-teal-700', `<b>${ME}</b> เปิดเคส และให้ตัวเองเป็นผู้รับผิดชอบ`, '18 พ.ย. 2569 10:02'],
+  ['ti-link', 'bg-indigo-50 text-indigo-700', `<b>${ME}</b> ผูกงาน Voice สายเข้า <span class="mono text-xs">7f3c…a91e</span> <a href="#" class="text-teal-700 underline ml-1 text-xs">เปิดในประวัติงาน</a>`, '18 พ.ย. 2569 10:02'],
+  ['ti-note', '', `<b>${ME}</b> เพิ่มโน้ต`, '18 พ.ย. 2569 10:02', 'ลูกค้าแจ้งว่าเครื่องที่ได้รับมีรอยแตกที่ฝาหลังตั้งแต่แกะกล่อง ขอเปลี่ยนเครื่อง\nรอฝ่ายคลังยืนยันสต็อกก่อนโทรกลับภายในวันพรุ่งนี้'],
+  ['ti-user-share', 'bg-violet-50 text-violet-700', `<b>${ME}</b> มอบหมายให้ <b>ปกรณ์ ศรีสุข</b>`, '18 พ.ย. 2569 16:40'],
+  ['ti-note', '', `<b>ปกรณ์ ศรีสุข</b> เพิ่มโน้ต`, '19 พ.ย. 2569 09:15', 'ฝ่ายคลังยืนยันมีสต็อก จัดส่งเครื่องใหม่วันที่ 20 พ.ย. โทรแจ้งลูกค้าแล้ว ลูกค้ารับทราบ'],
+];
+const tlStatus = (from, to, at, by='ปกรณ์ ศรีสุข') => ['ti-arrows-exchange', 'bg-emerald-50 text-emerald-700', `<b>${by}</b> เปลี่ยนสถานะจาก ${chip(from)} เป็น ${chip(to)}`, at];
+function tlHtml(items, longNote) {
+  return items.map(([ic, cls, text, at, note]) => `<li class="tl-item"><span class="tl-ic ${cls}" aria-hidden="true"><i class="ti ${ic}"></i></span>
+    <div class="min-w-0"><div class="flex justify-between gap-3"><p class="text-[13px] text-slate-700">${text}</p><time class="mono text-xs shrink-0">${at}</time></div>
+    ${note ? `<p class="tl-note ${note.length > 300 ? 'clamp' : ''}">${note}</p>${note.length > 300 ? '<button class="btn btn-sm btn-ghost mt-1" aria-expanded="false">แสดงทั้งหมด</button>' : ''}` : ''}</div></li>`).join('');
+}
+function detail({status='OPEN', items=TL, conflict=false, partial=false, long=false}={}) {
+  const title = long ? LONG : 'เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่';
+  const assignee = 'ปกรณ์ ศรีสุข';
+  const actions = status === 'OPEN'
+    ? `<button class="btn" id="d-assign"><i class="ti ti-user-share"></i>มอบหมาย</button><button class="btn btn-primary"><i class="ti ti-circle-check"></i>ทำเครื่องหมายว่าแก้แล้ว</button>`
+    : status === 'RESOLVED'
+    ? `<button class="btn"><i class="ti ti-user-share"></i>มอบหมาย</button><button class="btn"><i class="ti ti-arrow-back-up"></i>เปิดเคสอีกครั้ง</button><button class="btn btn-primary" id="d-close"><i class="ti ti-lock"></i>ปิดเคส</button>`
+    : '';
+  const composer = status === 'CLOSED'
+    ? `<div class="note2 n-info mt-2"><i class="ti ti-lock"></i><p>เคสนี้ปิดแล้วเมื่อ 21 พ.ย. 2569 15:10 อ่านได้อย่างเดียว เพิ่มโน้ตหรือเปลี่ยนแปลงไม่ได้</p></div>`
+    : `<div class="border-t border-slate-100 pt-4 mt-1">
+        <label class="fld2" for="d-note">เพิ่มโน้ต</label>
+        <textarea id="d-note" class="ctl" rows="3" placeholder="บันทึกความคืบหน้าให้ทีมเห็น">${conflict ? 'ลูกค้าโทรมายืนยันได้รับเครื่องใหม่แล้ว ใช้งานได้ปกติ' : ''}</textarea>
+        <div class="help"><span>เห็นได้เฉพาะคนในทีม ไม่ส่งถึงลูกค้า</span><span class="mono">${conflict ? 49 : 0} / 2,000</span></div>
+        <div class="mt-2"><button class="btn" ${conflict ? 'disabled' : ''}><i class="ti ti-note"></i>บันทึกโน้ต</button></div>
+      </div>`;
+  return `
+  <a href="#" class="inline-flex items-center gap-1 text-[13px] text-slate-500 hover:text-teal-700 mb-3"><i class="ti ti-arrow-left"></i>กลับรายการเคส</a>
+  <div class="flex items-start justify-between gap-6 mb-4">
+    <div class="min-w-0">
+      <div class="flex items-start gap-3"><h1 class="text-xl font-semibold leading-snug" style="max-width:62ch">${title}</h1><span class="mt-1">${chip(status)}</span></div>
+      <p class="text-[13px] text-slate-500 mt-1">คุณนภา จันทร์เพ็ญ · ผู้รับผิดชอบ ${assignee} · อัปเดตล่าสุด ${status === 'OPEN' ? '19 พ.ย. 2569 09:15' : status === 'RESOLVED' ? '20 พ.ย. 2569 14:30' : '21 พ.ย. 2569 15:10'}</p>
+    </div>
+    <div class="flex gap-2 shrink-0">${actions}</div>
+  </div>
+  ${conflict ? `<div class="note2 n-warn mb-4" role="alert" tabindex="-1"><i class="ti ti-git-compare"></i><div>
+      <p><b>เคสนี้ถูกแก้ไขหลังจากคุณเปิดหน้า</b> โน้ตที่คุณเพิ่งส่งยังไม่ถูกบันทึก โหลดเคสล่าสุดแล้วส่งอีกครั้ง ร่างโน้ตของคุณยังอยู่</p>
+      <button class="btn btn-sm mt-2"><i class="ti ti-refresh"></i>โหลดเคสล่าสุด</button></div></div>` : ''}
+  <div class="grid grid-cols-3 gap-5">
+    <section class="col-span-2 bg-white border border-slate-200 rounded-md p-5" aria-labelledby="tl-h">
+      <div class="flex justify-between items-baseline mb-4"><h2 id="tl-h" class="text-[13px] font-semibold text-slate-700">ไทม์ไลน์ของเคส</h2><span class="text-xs text-slate-500">${items.length} รายการ · เก่าไปใหม่</span></div>
+      ${long ? '<div class="mb-3"><button class="btn btn-sm"><i class="ti ti-chevron-up"></i>โหลดรายการก่อนหน้า (250)</button></div>' : ''}
+      <ol>${tlHtml(items, long)}</ol>
+      ${composer}
+    </section>
+    <div class="space-y-5">
+      <section class="bg-white border border-slate-200 rounded-md p-5" aria-labelledby="sum-h">
+        <h2 id="sum-h" class="text-[13px] font-semibold text-slate-700 mb-3">สรุปเคส</h2>
+        <dl class="text-[13px] space-y-2">
+          <div class="flex justify-between gap-3"><dt class="text-slate-500">สถานะ</dt><dd>${chip(status)}</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-slate-500">ผู้รับผิดชอบ</dt><dd class="font-medium text-right">${assignee}</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-slate-500">ทีม</dt><dd class="text-right">${TEAM}</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-slate-500">เปิดโดย</dt><dd class="text-right">${ME}</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-slate-500">เปิดเมื่อ</dt><dd class="mono">18 พ.ย. 2569 10:02</dd></div>
+          ${status === 'CLOSED' ? '<div class="flex justify-between gap-3"><dt class="text-slate-500">ปิดเมื่อ</dt><dd class="mono">21 พ.ย. 2569 15:10</dd></div>' : ''}
+          <div class="flex justify-between gap-3"><dt class="text-slate-500">งานที่ผูก</dt><dd class="mono">${long ? 3 : 1}</dd></div>
+        </dl>
+      </section>
+      <section class="bg-white border border-slate-200 rounded-md p-5" aria-labelledby="cu-h">
+        <h2 id="cu-h" class="text-[13px] font-semibold text-slate-700 mb-3">ลูกค้า</h2>
+        ${partial ? `<div class="note2 n-bad" role="alert"><i class="ti ti-alert-triangle"></i><div><p>โหลดข้อมูลลูกค้าไม่สำเร็จ ไทม์ไลน์และการแก้เคสยังใช้ได้</p>
+          <button class="btn btn-sm mt-2"><i class="ti ti-refresh"></i>ลองอีกครั้ง</button></div></div>`
+        : `<p class="font-medium">คุณนภา จันทร์เพ็ญ</p><p class="text-[13px] text-slate-500">Siam Retail Co.</p>`}
+      </section>
+    </div>
+  </div>`;
+}
+function renderDetail() {
+  const m = document.getElementById('c-main');
+  const resolvedItems = [...TL, tlStatus('OPEN', 'RESOLVED', '20 พ.ย. 2569 14:30')];
+  if (state === 'default' || state === 'assign-dialog') m.innerHTML = detail();
+  if (state === 'resolved' || state === 'close-dialog') m.innerHTML = detail({status:'RESOLVED', items:resolvedItems});
+  if (state === 'closed') m.innerHTML = detail({status:'CLOSED', items:[...resolvedItems, tlStatus('RESOLVED', 'CLOSED', '21 พ.ย. 2569 15:10', ME)]});
+  if (state === 'conflict') m.innerHTML = detail({conflict:true});
+  if (state === 'partial') m.innerHTML = detail({partial:true});
+  if (state === 'long') {
+    const longNote = 'ลูกค้าโทรมาอีกครั้งเพื่อตามเรื่อง แจ้งว่ายังไม่ได้รับการติดต่อจากฝ่ายขนส่ง ' .repeat(8).trim();
+    m.innerHTML = detail({long:true, items:[TL[3], ['ti-note', '', `<b>Chayaporn Wongsawat-Kittikhun</b> เพิ่มโน้ต`, '20 พ.ย. 2569 08:55', longNote], TL[4]]});
+  }
+  if (state === 'loading') {
+    const sk = (w,h='12px') => `<span class="sk" style="width:${w};height:${h}"></span>`;
+    m.innerHTML = `<div aria-busy="true"><span class="sr-only" role="status">กำลังโหลดเคส</span>
+      <div class="mb-3">${sk('96px')}</div>
+      <div class="flex justify-between mb-4"><div class="space-y-2">${sk('380px','24px')}${sk('460px')}</div><div class="flex gap-2">${sk('96px','32px')}${sk('180px','32px')}</div></div>
+      <div class="grid grid-cols-3 gap-5"><div class="col-span-2 bg-white border border-slate-200 rounded-md p-5 space-y-5">${sk('120px')}
+        ${Array.from({length:5}, () => `<div class="flex gap-3">${sk('32px','32px')}<div class="flex-1 space-y-2">${sk('60%')}${sk('35%')}</div></div>`).join('')}</div>
+        <div class="space-y-5"><div class="bg-white border border-slate-200 rounded-md p-5 space-y-3">${sk('80px')}${Array.from({length:6}, () => sk('100%')).join('')}</div>
+        <div class="bg-white border border-slate-200 rounded-md p-5 space-y-2">${sk('60px')}${sk('140px')}${sk('100px')}${sk('100%','32px')}</div></div></div></div>`;
+  }
+  if (state === 'notfound') m.innerHTML = `<a href="#" class="inline-flex items-center gap-1 text-[13px] text-slate-500 mb-3"><i class="ti ti-arrow-left"></i>กลับรายการเคส</a>` +
+    emptyBox('ti-folder-question', 'ไม่พบเคสนี้หรือคุณไม่มีสิทธิ์เปิด', 'เคสเห็นได้เฉพาะคนในทีมที่เปิดเคส ถ้าคิดว่าควรเห็น ติดต่อหัวหน้าทีมหรือผู้ดูแล tenant', '<button class="btn mt-2">กลับรายการเคส</button>');
+
+  const layer = document.getElementById('layer');
+  if (state === 'close-dialog') layer.innerHTML = `<div class="overlay"><div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-t" aria-describedby="dlg-b">
+    <div class="p-5"><h2 id="dlg-t" class="text-[16px] font-semibold">ปิดเคส "เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่"</h2>
+    <p id="dlg-b" class="text-[13px] text-slate-600 mt-2">เมื่อปิดแล้วจะเพิ่มโน้ต มอบหมาย หรือเปิดเคสอีกครั้งไม่ได้ ไทม์ไลน์ยังเปิดอ่านได้เสมอ</p></div>
+    <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2"><button class="btn" style="box-shadow:0 0 0 2px #fff,0 0 0 4px #0f766e">ยกเลิก</button><button class="btn btn-danger"><i class="ti ti-lock"></i>ปิดเคส</button></div></div></div>`;
+  if (state === 'assign-dialog') layer.innerHTML = `<div class="overlay"><div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-t">
+    <div class="p-5 space-y-4"><div><h2 id="dlg-t" class="text-[16px] font-semibold">มอบหมายเคส</h2><p class="text-[13px] text-slate-600 mt-1 trunc">เครื่อง X200 ชำรุด ขอเปลี่ยนเครื่องใหม่</p></div>
+    <div><label class="fld2" for="dlg-a">ผู้รับผิดชอบ</label><select id="dlg-a" class="ctl" style="box-shadow:0 0 0 2px #fff,0 0 0 4px #0f766e">
+      <option>อรทัย พงษ์ไพร</option><option>ปกรณ์ ศรีสุข (ปัจจุบัน)</option><option>${ME} (คุณ)</option><option>สมชาย วงศ์ประเสริฐ</option></select>
+      <p class="help"><span>เลือกได้เฉพาะ Agent ที่ active ในทีม ${TEAM}</span></p></div></div>
+    <div class="px-5 py-3 border-t border-slate-100 flex justify-end gap-2"><button class="btn">ยกเลิก</button><button class="btn btn-primary">มอบหมาย</button></div></div></div>`;
+}
+
+// ---------- shared ----------
+function toast(msg) {
+  document.getElementById('layer').insertAdjacentHTML('beforeend', `<div class="toast" role="status"><i class="ti ti-circle-check text-emerald-600 text-lg"></i>${msg}</div>`);
+}
+function render() {
+  document.getElementById('layer').innerHTML = '';
+  document.getElementById('s-workspace').classList.toggle('on', view === 'workspace');
+  document.getElementById('s-console').classList.toggle('on', view !== 'workspace');
+  if (view === 'workspace') renderWorkspace();
+  if (view === 'list') renderList();
+  if (view === 'detail') renderDetail();
+  document.querySelectorAll('.mk-bar [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === view));
+  const sel = document.getElementById('mk-state');
+  sel.innerHTML = STATES[view].map(s => `<option ${s === state ? 'selected' : ''}>${s}</option>`).join('');
+}
+document.querySelectorAll('.mk-bar [data-v]').forEach(b => b.onclick = () => { view = b.dataset.v; state = 'default'; sync(); });
+document.getElementById('mk-state').onchange = e => { state = e.target.value; sync(); };
+function sync() { const u = new URL(location.href); u.searchParams.set('view', view); u.searchParams.set('state', state); history.replaceState(null, '', u); render(); }
+render();
+</script>
+</body>
+</html>
