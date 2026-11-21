@@ -235,7 +235,17 @@
   margin-bottom: var(--dc-space-5);
   border: 1px solid var(--dc-border-default);
   border-radius: var(--dc-radius-md);
-  overflow: hidden;
+}
+
+/* ไม่ใช้ overflow: hidden เพื่อไม่ตัด focus ring ด้านนอก — มนมุมที่ปุ่มปลายแทน */
+.j5-segmented button:first-child {
+  border-start-start-radius: var(--dc-radius-md);
+  border-end-start-radius: var(--dc-radius-md);
+}
+
+.j5-segmented button:last-child {
+  border-start-end-radius: var(--dc-radius-md);
+  border-end-end-radius: var(--dc-radius-md);
 }
 
 .j5-segmented button {
@@ -254,8 +264,11 @@
   color: var(--dc-text-on-brand);
 }
 
+/* --dc-focus-ring เป็น shadow สองชั้น ห้ามใส่ inset (มีผลแค่ชั้นแรก) — position ให้ ring อยู่เหนือปุ่มข้างเคียง */
 .j5-segmented button:focus-visible {
-  box-shadow: inset var(--dc-focus-ring);
+  position: relative;
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
 }
 
 /* ── U1.4 (#432): แผง UAT run — แยกจากเนื้อหา J5 ด้วยขอบสี attention ── */
