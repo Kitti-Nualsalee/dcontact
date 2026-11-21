@@ -83,6 +83,32 @@ export function c360ScopeDigest(actor: C360VerifiedActor): string {
   return sha256(`c360-scope-v1|${actor.role}|${actor.teamId ?? ''}`);
 }
 
+/**
+ * ผู้อ่านรายการ/รายละเอียดลูกค้า: human (role/team/custodian) หรือ service principal (READ grant ราย Contact)
+ * list, count และ detail ของผู้อ่านเดียวกันประกอบจาก `readable` ชุดเดียว จึงไม่มีรายการที่นับได้แต่เปิดไม่ได้
+ */
+export interface C360ContactReader {
+  tenantId: string;
+  /** ผูก cursor กับผู้อ่าน: userId ของ human หรือ id ของ service principal */
+  cursorSubject: string;
+  scopeDigest: string;
+  /** Fragment สำหรับ `FROM contacts c WHERE ...` */
+  readable: Prisma.Sql;
+  deferred: Prisma.Sql;
+  access(tx: Prisma.TransactionClient, contactId: string): Promise<C360ContactAccess>;
+}
+
+export function c360UserContactReader(actor: C360VerifiedActor): C360ContactReader {
+  return {
+    tenantId: actor.tenantId,
+    cursorSubject: actor.userId,
+    scopeDigest: c360ScopeDigest(actor),
+    readable: c360ReadableContactSql(actor),
+    deferred: c360DeferredContactSql(actor),
+    access: (tx, contactId) => authorizeC360ContactAccess(tx, actor, contactId),
+  };
+}
+
 export function c360FilterDigest(parts: readonly string[]): string {
   return sha256(['c360-filter-v1', ...parts].join('\u0000'));
 }
@@ -320,21 +346,25 @@ const NOT_MERGED = Prisma.sql`NOT EXISTS (
 const SEARCH_ROLES = new Set(['ADMIN', 'SUPERVISOR']);
 
 /** Predicate ของ directory ใช้ร่วมระหว่าง C2 list/count และ M1 Overview เสมอ */
-const directoryReadable = (actor: C360VerifiedActor) =>
-  Prisma.sql`${c360ReadableContactSql(actor)} AND ${NOT_MERGED}`;
+const directoryReadable = (reader: C360ContactReader) =>
+  Prisma.sql`${reader.readable} AND ${NOT_MERGED}`;
 
 export async function countC360AccessibleDirectory(
   tx: Prisma.TransactionClient,
   actor: C360VerifiedActor,
 ) {
   if (!SEARCH_ROLES.has(actor.role)) throw new C360ReadError(403, 'CUSTOMER_ACCESS_DENIED');
+  return countDirectory(tx, c360UserContactReader(actor));
+}
+
+async function countDirectory(tx: Prisma.TransactionClient, reader: C360ContactReader) {
   const [deferred] = await tx.$queryRaw<{ deferred: boolean }[]>(Prisma.sql`
-    SELECT EXISTS (SELECT 1 FROM contacts c WHERE c.tenant_id = ${actor.tenantId}::uuid
-      AND ${c360DeferredContactSql(actor)} AND ${NOT_MERGED}) AS deferred`);
+    SELECT EXISTS (SELECT 1 FROM contacts c WHERE c.tenant_id = ${reader.tenantId}::uuid
+      AND ${reader.deferred} AND ${NOT_MERGED}) AS deferred`);
   if (deferred?.deferred) throw new C360ReadError(503, 'SCOPE_UNAVAILABLE', true);
   const [row] = await tx.$queryRaw<{ count: bigint; as_of: Date }[]>(Prisma.sql`
     SELECT count(*)::bigint AS count, statement_timestamp() AS as_of FROM contacts c
-    WHERE c.tenant_id = ${actor.tenantId}::uuid AND ${directoryReadable(actor)}`);
+    WHERE c.tenant_id = ${reader.tenantId}::uuid AND ${directoryReadable(reader)}`);
   return { count: row!.count.toString(), asOf: row!.as_of.toISOString() };
 }
 
@@ -346,8 +376,18 @@ export async function searchC360Contacts(
 ): Promise<C360SearchResult> {
   // Agent/Compliance ไม่มี generic directory (R1 C); gateway ตัดไปแล้ว ที่นี่เป็นชั้นที่สอง
   if (!SEARCH_ROLES.has(actor.role)) throw new C360ReadError(403, 'CUSTOMER_ACCESS_DENIED');
+  return searchC360ContactsAs(tx, c360UserContactReader(actor), body, codec);
+}
+
+/** ผู้เรียกต้องตรวจตัวตนของผู้อ่านแล้ว (human role หรือ service binding ที่ถือ guard ใน transaction นี้) */
+export async function searchC360ContactsAs(
+  tx: Prisma.TransactionClient,
+  reader: C360ContactReader,
+  body: unknown,
+  codec: C360CursorCodec,
+): Promise<C360SearchResult> {
   const search = parseC360SearchInput(body);
-  const readable = directoryReadable(actor);
+  const readable = directoryReadable(reader);
   const filter = filterSql(search);
   const [authorization] = await tx.$queryRaw<{ fingerprint: string }[]>(Prisma.sql`
     SELECT concat(count(*), ':',
@@ -355,13 +395,13 @@ export async function searchC360Contacts(
       coalesce(bit_xor(('x' || substr(md5(c.id::text), 17, 16))::bit(64)::bigint), 0)
     ) AS fingerprint
     FROM contacts c
-    WHERE c.tenant_id = ${actor.tenantId}::uuid AND ${readable} AND ${filter}`);
+    WHERE c.tenant_id = ${reader.tenantId}::uuid AND ${readable} AND ${filter}`);
   const cursorScope = {
     kind: 'directory',
-    tenantId: actor.tenantId,
-    userId: actor.userId,
+    tenantId: reader.tenantId,
+    userId: reader.cursorSubject,
     filter: c360FilterDigest([search.type, search.key ?? '']),
-    scope: sha256(`${c360ScopeDigest(actor)}|${authorization!.fingerprint}`),
+    scope: sha256(`${reader.scopeDigest}|${authorization!.fingerprint}`),
   };
   const position = search.cursor ? codec.open(search.cursor, cursorScope) : null;
   if (position && (position.length !== 2 || !position[0] || !position[1]))
@@ -391,14 +431,14 @@ export async function searchC360Contacts(
              WHERE ih.tenant_id = c.tenant_id AND ih.contact_id = c.id) AS identity,
            to_char(c.created_at, 'YYYY-MM-DD"T"HH24:MI:SS.US') AS created_key
     FROM contacts c
-    WHERE c.tenant_id = ${actor.tenantId}::uuid AND ${readable} AND ${filter} AND ${after}
+    WHERE c.tenant_id = ${reader.tenantId}::uuid AND ${readable} AND ${filter} AND ${after}
     ORDER BY c.created_at DESC, c.id DESC
     LIMIT ${search.limit + 1}`);
   const [deferred] = await tx.$queryRaw<{ deferred: boolean }[]>(Prisma.sql`
     SELECT EXISTS (
       SELECT 1 FROM contacts c
-      WHERE c.tenant_id = ${actor.tenantId}::uuid
-        AND ${c360DeferredContactSql(actor)} AND ${NOT_MERGED} AND ${filter}
+      WHERE c.tenant_id = ${reader.tenantId}::uuid
+        AND ${reader.deferred} AND ${NOT_MERGED} AND ${filter}
     ) AS deferred`);
   const incomplete = deferred?.deferred === true;
   const page = rows.slice(0, search.limit);
@@ -433,7 +473,7 @@ export async function searchC360Contacts(
   if (search.type === 'DIRECTORY' && !search.cursor) {
     if (incomplete) result.accessibleCount = { state: 'UNAVAILABLE', value: null };
     else {
-      const count = await countC360AccessibleDirectory(tx, actor);
+      const count = await countDirectory(tx, reader);
       result.accessibleCount = { state: 'AVAILABLE', value: Number(count.count) };
     }
   }
@@ -517,7 +557,19 @@ export async function readC360Profile(
   actor: C360VerifiedActor,
   contactId: string,
 ): Promise<C360ProfileView> {
-  const access = await requireReadableC360Contact(tx, actor, contactId);
+  if (!SEARCH_ROLES.has(actor.role)) throw new C360ReadError(403, 'CUSTOMER_ACCESS_DENIED');
+  return readC360ProfileAs(tx, c360UserContactReader(actor), contactId);
+}
+
+/** ผู้เรียกต้องตรวจตัวตนของผู้อ่านแล้ว; DENY/ไม่พบ = 404 เหมือนกัน */
+export async function readC360ProfileAs(
+  tx: Prisma.TransactionClient,
+  reader: C360ContactReader,
+  contactId: string,
+): Promise<C360ProfileView> {
+  const access = await reader.access(tx, contactId);
+  if (access.decision === 'DEFER') throw new C360ReadError(503, 'SCOPE_UNAVAILABLE', true);
+  if (access.decision === 'DENY') throw new C360ReadError(404, 'RESOURCE_NOT_FOUND');
   const [contact] = await tx.$queryRaw<
     {
       id: string;
@@ -535,7 +587,7 @@ export async function readC360Profile(
            ih.lineage_revision, ih.canonical_contact_id
     FROM contacts c
     LEFT JOIN c360_identity_heads ih ON ih.tenant_id = c.tenant_id AND ih.contact_id = c.id
-    WHERE c.tenant_id = ${actor.tenantId}::uuid AND c.id = ${contactId}::uuid`);
+    WHERE c.tenant_id = ${reader.tenantId}::uuid AND c.id = ${contactId}::uuid`);
   if (!contact) throw new C360ReadError(404, 'RESOURCE_NOT_FOUND');
   const points = await tx.$queryRaw<
     {
@@ -548,14 +600,14 @@ export async function readC360Profile(
   >(Prisma.sql`
     SELECT p.id, p.kind, coalesce(p.normalized_value, p.raw_value) AS value, p.state, p.source_kind
     FROM c360_contact_points p
-    WHERE p.tenant_id = ${actor.tenantId}::uuid AND p.contact_id = ${contactId}::uuid
+    WHERE p.tenant_id = ${reader.tenantId}::uuid AND p.contact_id = ${contactId}::uuid
       AND p.state IN ('ACTIVE', 'REVIEW_REQUIRED')
     ORDER BY p.kind, p.created_at, p.id`);
   const tags = await tx.$queryRaw<{ id: string; name: string; state: string }[]>(Prisma.sql`
     SELECT t.id, t.name, t.state
     FROM c360_contact_tags ct
     JOIN c360_tags t ON t.tenant_id = ct.tenant_id AND t.id = ct.tag_id
-    WHERE ct.tenant_id = ${actor.tenantId}::uuid AND ct.contact_id = ${contactId}::uuid
+    WHERE ct.tenant_id = ${reader.tenantId}::uuid AND ct.contact_id = ${contactId}::uuid
     ORDER BY t.name_key, t.id`);
   let canonicalContactId: string | undefined;
   if (
@@ -563,7 +615,7 @@ export async function readC360Profile(
     contact.canonical_contact_id &&
     contact.canonical_contact_id !== contactId
   ) {
-    const target = await authorizeC360ContactAccess(tx, actor, contact.canonical_contact_id);
+    const target = await reader.access(tx, contact.canonical_contact_id);
     if (target.decision === 'ALLOW') canonicalContactId = contact.canonical_contact_id;
   }
   return {

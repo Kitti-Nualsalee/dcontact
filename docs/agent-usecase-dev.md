@@ -160,3 +160,14 @@ Browser spec ใช้ query เลือกโหมดเฉพาะ E2E harn
 5. ใช้ **รับสาย** และ **วางสาย** ใน Workspace จากนั้นส่ง disposition และโน้ต แล้วเปิดผลจากประวัติงานตามปกติ
 
 D-Phone แสดงสถานะโทรศัพท์และไมค์ในแท็บของตัวเอง Workspace ยังอ่าน Interaction, WRAPUP และประวัติจาก server การปิดแท็บ D-Phone หรือออกจากหน้า Workspace จะสิ้นสุดช่องควบคุมและปิด SIP session ดู ADR-037
+
+## External customer API — #954
+
+งานติดตามที่ [#954](https://github.com/Kitti-Nualsalee/dcontact/issues/954) เป็น Use case ถัดไปจาก #888 ให้ระบบภายนอกสร้าง อ่าน และค้นลูกค้าด้วย service principal บน path เดียวกับ Console ปิดเป็นค่าเริ่มต้นและเปิดด้วย `C360_SERVICE_API=on` รายละเอียด endpoint สิทธิ์ และข้อจำกัดอยู่ใน `docs/external-customer-api.md`
+
+```sh
+pnpm --filter @d-contact/api exec tsx --test src/customer-360-service-config.test.ts
+pnpm --filter @d-contact/api test:m3-principal:boundary
+```
+
+`test:m3-principal:boundary` ใช้ PostgreSQL และ Keycloak ชั่วคราวของ runner เอง ตรวจ HTTP→PostgreSQL/RLS, token จริงจาก `client_credentials`, introspection จริง และตัวอย่าง client ใน `examples/external-customer-api/` ไม่ใช่หลักฐานบน dev stack จริงหรือ UAT

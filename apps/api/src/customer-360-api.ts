@@ -6,6 +6,7 @@ import {
   Header,
   HttpException,
   Inject,
+  Optional,
   Param,
   Patch,
   Post,
@@ -64,7 +65,17 @@ import {
   type C360ProfileCommandResult,
   type C360VerifiedActor,
 } from '@d-contact/customer-360';
-import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
+import {
+  GatewayRoles,
+  GatewayServiceRoles,
+  GatewayServiceScopes,
+  type AuthenticatedGatewayRequest,
+} from './gateway-auth.js';
+import {
+  CUSTOMER_360_SERVICE_API,
+  C360_SERVICE_CREATE_SCOPE,
+  type Customer360ServicePort,
+} from './customer-360-service-port.js';
 import { CUSTOMER_360_WRITE_RUNTIME, type C360WriteRuntime } from './customer-360-write-runtime.js';
 import {
   findTenantConfigurationActor,
@@ -175,6 +186,12 @@ export interface C360RequestIdentity extends TenantConfigurationIdentity {
   caller: NonNullable<TenantConfigurationIdentity['caller']>;
 }
 
+/** Machine feature ปิดเป็นค่าเริ่มต้น: ไม่ได้ provide ช่องของ service = service token ถูกปฏิเสธทุก route */
+export function c360ServicePort(port: Customer360ServicePort | undefined): Customer360ServicePort {
+  if (!port) throw new Customer360HttpError(403, 'CUSTOMER_ACCESS_DENIED');
+  return port;
+}
+
 export function requestIdentity(req: AuthenticatedGatewayRequest): C360RequestIdentity {
   if (!req.gatewayIdentity) throw new UnauthorizedException();
   const caller = tenantConfigurationCaller(req);
@@ -249,6 +266,9 @@ export class Customer360Controller {
     @Inject(CUSTOMER_360_DATABASE) private readonly db: PrismaClient,
     @Inject(CUSTOMER_360_SEARCH_LIMITER) private readonly limiter: SharedRateLimiter,
     @Inject(CUSTOMER_360_WRITE_RUNTIME) private readonly runtime: C360WriteRuntime,
+    @Optional()
+    @Inject(CUSTOMER_360_SERVICE_API)
+    private readonly service?: Customer360ServicePort,
   ) {}
 
   private ensureWriteRuntime(): void {
@@ -278,11 +298,15 @@ export class Customer360Controller {
 
   @Post('contacts')
   @GatewayRoles('admin')
+  @GatewayServiceRoles('service')
+  @GatewayServiceScopes(C360_SERVICE_CREATE_SCOPE)
   async create(
     @Req() req: AuthenticatedGatewayRequest,
     @Body() body: unknown,
     @Res() response: ServerResponse,
   ) {
+    if (req.gatewayServiceIdentity)
+      return c360ServicePort(this.service).create(req, body, response);
     const identity = requestIdentity(req);
     this.ensureWriteRuntime();
     if (!body || typeof body !== 'object' || Array.isArray(body))
@@ -727,11 +751,15 @@ export class Customer360Controller {
 
   @Get('commands/:commandId')
   @GatewayRoles('admin')
+  @GatewayServiceRoles('service')
+  @GatewayServiceScopes(C360_SERVICE_CREATE_SCOPE)
   async command(
     @Req() req: AuthenticatedGatewayRequest,
     @Param('commandId') commandId: string,
     @Res() response: ServerResponse,
   ) {
+    if (req.gatewayServiceIdentity)
+      return c360ServicePort(this.service).command(req, commandId, response);
     const identity = requestIdentity(req);
     try {
       await this.receiptBudget(identity);
@@ -769,12 +797,16 @@ export class Customer360Controller {
 
   @Post('commands/:commandId/reconcile')
   @GatewayRoles('admin')
+  @GatewayServiceRoles('service')
+  @GatewayServiceScopes(C360_SERVICE_CREATE_SCOPE)
   async reconcile(
     @Req() req: AuthenticatedGatewayRequest,
     @Param('commandId') commandId: string,
     @Body() body: unknown,
     @Res() response: ServerResponse,
   ) {
+    if (req.gatewayServiceIdentity)
+      return c360ServicePort(this.service).reconcile(req, commandId, body, response);
     const identity = requestIdentity(req);
     await this.receiptBudget(identity);
     send(

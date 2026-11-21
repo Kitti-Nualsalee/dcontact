@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { promisify } from 'node:util';
 import test from 'node:test';
 import { Controller, Get, Inject, Req, UseFilters } from '@nestjs/common';
 import { withTenantDatabaseTransaction, type PrismaClient } from '@d-contact/db';
@@ -13,7 +16,18 @@ import {
   GatewayServiceScopes,
   type AuthenticatedGatewayRequest,
 } from './gateway-auth.js';
-import { CUSTOMER_360_DATABASE, Customer360Errors } from './customer-360-api.js';
+import type { PrismaClient as Database } from '@d-contact/db';
+import {
+  CUSTOMER_360_DATABASE,
+  Customer360Controller,
+  Customer360Errors,
+} from './customer-360-api.js';
+import { Customer360ReadController } from './customer-360-read-api.js';
+import { Customer360ServiceApi } from './customer-360-service-api.js';
+import { CUSTOMER_360_SERVICE_API } from './customer-360-service-port.js';
+import { KeycloakC360TokenIntrospector } from './customer-360-work-auth.js';
+import { CUSTOMER_360_WRITE_RUNTIME, type C360WriteRuntime } from './customer-360-write-runtime.js';
+import { CUSTOMER_360_SEARCH_LIMITER, type SharedRateLimiter } from './shared-rate-limiter.js';
 import { currentC360ServicePrincipal } from './customer-360-service-identity.js';
 import { Customer360OperatorController } from './customer-360-operator-api.js';
 import { coreFixture } from './tenant-core-test-fixtures.js';
@@ -70,7 +84,36 @@ test(
         } as VerifiedOidcClaims;
       },
     };
-    f = await coreFixture([Customer360OperatorController, ServiceProbe], verifier);
+    // #954: route จริงของลูกค้า + introspection ผ่าน confidential client จริงของ realm นี้
+    f = await coreFixture(
+      [
+        Customer360OperatorController,
+        ServiceProbe,
+        Customer360Controller,
+        Customer360ReadController,
+      ],
+      verifier,
+      undefined,
+      undefined,
+      undefined,
+      [
+        {
+          provide: CUSTOMER_360_SERVICE_API,
+          inject: [CUSTOMER_360_DATABASE, CUSTOMER_360_SEARCH_LIMITER, CUSTOMER_360_WRITE_RUNTIME],
+          useFactory: (db: Database, limiter: SharedRateLimiter, runtime: C360WriteRuntime) =>
+            new Customer360ServiceApi(
+              db,
+              limiter,
+              runtime,
+              new KeycloakC360TokenIntrospector({
+                issuer,
+                clientId: 'c360-introspection',
+                clientSecret: 'm3-954-introspection',
+              }),
+            ),
+        },
+      ],
+    );
     f.actors.set('operator', { id: randomUUID(), role: 'PLATFORM-OPERATOR', tenantId: f.tenantId });
     const adminResponse = await fetch(`${kc}/realms/master/protocol/openid-connect/token`, {
       method: 'POST',
@@ -106,7 +149,12 @@ test(
       serviceAccountsEnabled: true,
       standardFlowEnabled: false,
       directAccessGrantsEnabled: false,
-      defaultClientScopes: ['roles', 'profile', 'customer360.contacts.read'],
+      defaultClientScopes: [
+        'roles',
+        'profile',
+        'customer360.contacts.read',
+        'customer360.contacts.create',
+      ],
       protocolMappers: [
         {
           name: 'realm-roles',
@@ -148,6 +196,16 @@ test(
                   'access.token.claim': 'true',
                 },
               },
+              // Keycloak ตอบ active:false ถ้า client ที่ introspect ไม่อยู่ใน aud ของ token
+              {
+                name: 'introspection-audience',
+                protocol: 'openid-connect',
+                protocolMapper: 'oidc-audience-mapper',
+                config: {
+                  'included.custom.audience': 'c360-introspection',
+                  'access.token.claim': 'true',
+                },
+              },
             ]
           : []),
         ...(mixed
@@ -177,8 +235,25 @@ test(
           protocol: 'openid-connect',
           attributes: { 'include.in.token.scope': 'true' },
         },
+        {
+          name: 'customer360.contacts.create',
+          protocol: 'openid-connect',
+          attributes: { 'include.in.token.scope': 'true' },
+        },
       ],
-      clients,
+      clients: [
+        ...clients,
+        {
+          clientId: 'c360-introspection',
+          enabled: true,
+          publicClient: false,
+          secret: 'm3-954-introspection',
+          protocol: 'openid-connect',
+          serviceAccountsEnabled: false,
+          standardFlowEnabled: false,
+          directAccessGrantsEnabled: false,
+        },
+      ],
       users: clients.map((c) => ({
         username: `service-account-${c.clientId}`,
         enabled: true,
@@ -303,6 +378,73 @@ test(
       const binding = await f.owner.intServicePrincipal.findFirstOrThrow({
         where: { tenantId: f.tenantId },
       });
+      // #954: token จริงจาก client_credentials สร้าง อ่าน และค้นลูกค้าผ่าน route จริง
+      const createBody = () => ({
+        commandId: randomUUID(),
+        displayName: 'ลูกค้าจาก Keycloak จริง',
+      });
+      const live = replacement.body.access_token;
+      assert.equal((await f.request('customer-360/contacts', live, createBody())).status, 403);
+      const capability = await f.request(
+        'customer-360/operator/commands',
+        'operator',
+        {
+          commandId: randomUUID(),
+          evidenceRef: 'ticket:954-OIDC',
+          reasonCode: 'APPROVED_INTEGRATION',
+          command: {
+            action: 'SERVICE_CAPABILITY_GRANT',
+            bindingId: binding.id,
+            expectedAuthzEpoch: '0',
+            capability: 'CONTACT_CREATE',
+          },
+        },
+        'POST',
+      );
+      assert.equal(capability.status, 201);
+      const made = await f.request('customer-360/contacts', live, createBody());
+      assert.equal(made.status, 201, JSON.stringify(made.body));
+      const madeId = (made.body as unknown as { command: { resourceRefs: { id: string }[] } })
+        .command.resourceRefs[0]!.id;
+      assert.equal((await f.request(`customer-360/contacts/${madeId}`, live)).status, 200);
+      const found = await f.request('customer-360/contacts/search', live, {});
+      assert.deepEqual(
+        (found.body as unknown as { items: { contactId: string }[] }).items.map((i) => i.contactId),
+        [madeId],
+      );
+      // ตัวอย่าง client ใน examples/ เดินครบ token → create → read → search กับ Keycloak และ API จริง
+      const example = await promisify(execFile)(
+        process.execPath,
+        // runner และ pnpm --filter รันจาก apps/api
+        [resolve(process.cwd(), '../../examples/external-customer-api/client.mjs')],
+        {
+          env: {
+            PATH: process.env.PATH,
+            API_BASE_URL: f.base,
+            TOKEN_URL: `${issuer}/protocol/openid-connect/token`,
+            CLIENT_ID: 'reference-841',
+            CLIENT_SECRET: newSecret,
+          },
+        },
+      );
+      assert.equal(JSON.parse(example.stdout).result, 'PASS', example.stderr);
+      for (const other of ['foreign-841', 'wrong-audience', 'without-scope']) {
+        const denied = (await token(other)).body.access_token;
+        assert.notEqual(
+          (await f.request('customer-360/contacts', denied, createBody())).status,
+          201,
+        );
+        assert.notEqual((await f.request(`customer-360/contacts/${madeId}`, denied)).status, 200);
+      }
+      // ปิด client ที่ Keycloak: JWT ยังไม่หมดอายุ แต่ create ถูกปฏิเสธจาก online introspection ทันที
+      const turnedOff = await fetch(`${kc}/admin/realms/${realm}/clients/${id}`, {
+        method: 'PUT',
+        headers: adminHeaders,
+        body: JSON.stringify({ id, clientId: 'reference-841', enabled: false }),
+      });
+      assert.equal(turnedOff.status, 204);
+      assert.equal((await f.request('customer-360/contacts', live, createBody())).status, 401);
+      assert.equal(await f.owner.contact.count({ where: { tenantId: f.tenantId } }), 2);
       const disabled = await f.request(
         'customer-360/operator/commands',
         'operator',
@@ -313,13 +455,14 @@ test(
           command: {
             action: 'SERVICE_BIND_DISABLE',
             bindingId: binding.id,
-            expectedAuthzEpoch: '0',
+            expectedAuthzEpoch: '1',
           },
         },
         'POST',
       );
       assert.equal(disabled.status, 201);
       assert.equal((await f.request('m3-test-probe', replacement.body.access_token)).status, 403);
+      assert.equal((await f.request(`customer-360/contacts/${madeId}`, live)).status, 403);
     } finally {
       await fetch(`${kc}/admin/realms/${realm}`, { method: 'DELETE', headers: adminHeaders });
       await f.close();
