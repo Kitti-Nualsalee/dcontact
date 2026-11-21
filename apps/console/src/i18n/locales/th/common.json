@@ -20,6 +20,7 @@
     "apps": {
       "agentWorkspace": "กล่องงาน",
       "agentHistory": "ประวัติงานของฉัน",
+      "teamCases": "เคสของทีม",
       "supervisorWorkspace": "ทีมสด",
       "journeys": "Journeys",
       "contactGovernance": "Governance",

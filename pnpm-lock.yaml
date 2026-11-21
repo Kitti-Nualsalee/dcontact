@@ -26,6 +26,9 @@ importers:
       '@aws-sdk/s3-request-presigner':
         specifier: ^3.0.0
         version: 3.1126.0
+      '@d-contact/cases':
+        specifier: workspace:*
+        version: link:../cases
       '@d-contact/contact-governance':
         specifier: workspace:*
         version: link:../contact-governance
