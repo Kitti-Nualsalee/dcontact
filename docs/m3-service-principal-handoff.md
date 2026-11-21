@@ -43,4 +43,4 @@ Actual service token ได้จาก Keycloak client_credentials; operator �
 
 หลักฐาน DB/HTTP: dry-run zero admission/effect/audit/epoch, idempotency/mismatched digest, stale epoch/no-op, explicit grants/current custodian, tenant RLS/FK, append-only/delete denial, actual locked authorization-vs-revoke/rebind/User-disable exact-purpose custody ledger และการกู้คืนของ non-domain operator ตั้งแต่ pending ถึง receipt หรือ tombstone พร้อมป้องกัน late POST
 
-ยังไม่รวม actual customer-create/read endpoint ของ B, reference service ของ C, full shared API integration suite หรือ VM UAT ของ D. ไม่มี deploy/VM/real customer traffic จาก PR นี้
+Endpoint create/read/search ของ service ส่งมอบใน #954 ดู `docs/external-customer-api.md` PR ของ #841 เองยังไม่รวม endpoint นั้น, reference service ของ C, full shared API integration suite หรือ VM UAT ของ D. ไม่มี deploy/VM/real customer traffic จาก PR นี้

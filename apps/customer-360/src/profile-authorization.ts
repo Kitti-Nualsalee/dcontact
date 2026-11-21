@@ -32,7 +32,7 @@ export type C360ContactAccess =
       decision: 'ALLOW';
       read: true;
       manage: boolean;
-      basis: 'CUSTODIAN_MANAGE' | 'CUSTODIAN_READ' | 'TEAM_VIEW';
+      basis: 'CUSTODIAN_MANAGE' | 'CUSTODIAN_READ' | 'TEAM_VIEW' | 'SERVICE_READ';
       identity: C360IdentityView;
     }
   | { decision: 'DEFER'; reasonCode: 'SCOPE_CONTEXT_STALE' }
