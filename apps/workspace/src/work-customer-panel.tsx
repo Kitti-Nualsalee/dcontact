@@ -10,6 +10,15 @@ import {
 } from './work-customer-api.js';
 
 /** #795: Cus360 มี state แยกจาก SIP/media และไม่เรียก Voice controls */
+/** #956 แท็บเคสใช้ id นี้ focus ช่องค้นหาลูกค้าเมื่อกด "ไปเลือกลูกค้า" */
+export const WORK_CUSTOMER_QUERY_ID = 'work-customer-query';
+
+export interface LinkedCustomer {
+  id: string;
+  displayName: string | null;
+  company: string | null;
+}
+
 export function WorkCustomerPanel({
   api,
   workId,
@@ -18,6 +27,7 @@ export function WorkCustomerPanel({
   sessionReady,
   readOnly = false,
   invalidationRevision = 0,
+  onCustomerChange,
 }: {
   api: WorkCustomerApi;
   workId: string;
@@ -26,6 +36,8 @@ export function WorkCustomerPanel({
   sessionReady: boolean;
   readOnly?: boolean;
   invalidationRevision?: number;
+  /** #956 แจ้งลูกค้าที่ผูกกับงานปัจจุบัน (null = ยังไม่ผูก หรืออ่านไม่ได้) ให้แท็บเคส */
+  onCustomerChange?: (customer: LinkedCustomer | null) => void;
 }) {
   const { t } = useTranslation('workspace');
   const [view, setView] = useState<WorkCustomerView>();
@@ -53,6 +65,20 @@ export function WorkCustomerPanel({
   const [pending, setPending] = useState<string>();
   const stamp = useRef(0);
   const storageKey = `dcontact.c360.work-command:${identityKey}:${workId}`;
+  const customerChange = useRef(onCustomerChange);
+  customerChange.current = onCustomerChange;
+  const linkedContact = view?.state === 'LINKED' ? view.contact : undefined;
+  useEffect(() => {
+    customerChange.current?.(
+      linkedContact
+        ? {
+            id: linkedContact.id,
+            displayName: linkedContact.displayName,
+            company: linkedContact.company,
+          }
+        : null,
+    );
+  }, [linkedContact?.id, linkedContact?.displayName, linkedContact?.company]);
   function closePii() {
     setView(undefined);
     setItems([]);
@@ -333,6 +359,7 @@ export function WorkCustomerPanel({
                   ]}
                 />
                 <TextField
+                  id={WORK_CUSTOMER_QUERY_ID}
                   label={t('customer.query')}
                   value={query}
                   onChange={(value) => {
