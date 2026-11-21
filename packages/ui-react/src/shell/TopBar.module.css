@@ -95,7 +95,7 @@
 
 .languageButton:focus-visible {
   outline: none;
-  box-shadow: inset var(--dc-focus-ring);
+  box-shadow: var(--dc-focus-ring-inset);
 }
 
 .systemLinks {

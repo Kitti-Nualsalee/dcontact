@@ -181,6 +181,11 @@
      ทุก control ที่กดได้ต้องใช้ token นี้ — เอเจนต์ทำงานด้วยคีย์บอร์ดตลอดกะ */
   --dc-focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px #0f766e;
   --dc-focus-ring-inverse: 0 0 0 2px #0f172a, 0 0 0 4px #99f6e4;
+  /* ring ด้านในสำหรับ control ใน container ที่ตัด overflow (ปุ่มคู่, แถว/เซลล์ตาราง)
+     ต้องเป็น token แยก — `inset var(--dc-focus-ring)` ใส่ inset ให้แค่ชั้นแรก (ขาว)
+     ชั้นสีจึงยังอยู่ด้านนอกและถูกตัดจนมองไม่เห็น
+     ลำดับกลับด้านจาก ring ด้านนอก: สีอยู่ที่ขอบ ขาวอยู่ด้านใน จึงเห็นเส้นขาวบนปุ่มพื้นสี brand ด้วย */
+  --dc-focus-ring-inset: inset 0 0 0 2px #0f766e, inset 0 0 0 4px #ffffff;
 }
 
 :root {

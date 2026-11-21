@@ -255,7 +255,7 @@
 }
 
 .j5-segmented button:focus-visible {
-  box-shadow: inset var(--dc-focus-ring);
+  box-shadow: var(--dc-focus-ring-inset);
 }
 
 /* ── U1.4 (#432): แผง UAT run — แยกจากเนื้อหา J5 ด้วยขอบสี attention ── */
