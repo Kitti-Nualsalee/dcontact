@@ -185,6 +185,17 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     roles: ['agent'],
   },
   {
+    // #956 เคสที่ Agent ดูแลในทีม — API ตรวจสิทธิ์ราย request เอง (เห็นเฉพาะเคสของทีมตนเอง)
+    id: 'team-cases',
+    area: 'cases',
+    section: 'work',
+    group: 'operations',
+    labelKey: 'navigation.apps.teamCases',
+    hostApp: 'console',
+    path: '/?view=team-cases',
+    roles: ['agent'],
+  },
+  {
     id: 'voice-routing',
     area: 'routing',
     section: 'configuration',

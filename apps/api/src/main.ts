@@ -137,6 +137,7 @@ import {
   AGENT_WORKSPACE_DATABASE,
   AGENT_WORKSPACE_CUSTOMER_AVAILABLE,
 } from './agent-workspace-api.js';
+import { AgentCasesController, AGENT_CASES_DATABASE } from './agent-cases-api.js';
 import {
   AGENT_SIP_CREDENTIALS,
   configuredAgentSipCredentialService,
@@ -460,6 +461,7 @@ class WorkspaceSessionController {
     RecordingController,
     QmController,
     AgentWorkspaceController,
+    AgentCasesController,
     TeamSegmentScopeController,
     FreeSwitchDirectoryController,
     WorkSessionController,
@@ -545,6 +547,7 @@ class WorkspaceSessionController {
     { provide: QM_DATABASE, useValue: prisma },
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },
+    { provide: AGENT_CASES_DATABASE, useValue: prisma },
     { provide: TEAM_SEGMENT_SCOPE_DATABASE, useValue: prisma },
     { provide: WORK_SESSION_LEASES, useValue: workSessionLeases },
     { provide: EMBED_ORIGIN_SERVICE, useValue: embedOrigins },
