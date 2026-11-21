@@ -105,6 +105,40 @@ for (const mode of ['normal', 'forced'] as const) {
 
       const language = page.getByRole('button', { name: 'English' });
       await expectFocusIndicator(page, language, 'topbar-language', mode, true);
+      const languagePressed = page.getByRole('button', { name: 'ไทย' });
+      await expect(languagePressed).toHaveAttribute('aria-pressed', 'true');
+      await expectFocusIndicator(page, languagePressed, 'topbar-language-pressed', mode, true);
+
+      if (mode === 'forced') {
+        // สถานะกดค้างต้องแยกจากปุ่มปกติได้ (พื้น Highlight) และ outline ของปุ่มที่กดค้างต้องไม่กลืนกับพื้น
+        const look = (target: Locator) =>
+          target.evaluate((element) => {
+            const style = getComputedStyle(element);
+            return { background: style.backgroundColor, outline: style.outlineColor };
+          });
+        for (const [on, off] of [
+          [pressed, unpressed],
+          [languagePressed, language],
+        ] as const) {
+          const onLook = await look(on);
+          expect.soft(onLook.background).not.toBe((await look(off)).background);
+          await focusByKeyboard(page, on);
+          expect.soft((await look(on)).outline).not.toBe(onLook.background);
+        }
+      }
+    });
+
+    test('skip link พาโฟกัสไปที่ main โดยไม่มีกรอบรอบเนื้อหาทั้งหน้า', async ({ page }) => {
+      await new AuthoringMock().install(page);
+      await page.goto('/?view=journeys');
+      await expect(page.getByRole('group', { name: 'ตัวกรองรายการ' })).toBeVisible();
+      await page.keyboard.press('Tab');
+      const skip = page.getByRole('link', { name: 'ข้ามไปที่เนื้อหา' });
+      await expect(skip).toBeFocused();
+      await page.keyboard.press('Enter');
+      const main = page.getByRole('main');
+      await expect(main).toBeFocused();
+      expect(await main.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe('none');
     });
 
     test('ปุ่มทั่วไป (ui-react Button) และ input ในหน้าแก้ Journey', async ({ page }) => {

@@ -172,3 +172,36 @@ test('keyboard: Toast แสดงใน region ที่มีชื่อ แ�
   await page.keyboard.press('Enter');
   await expect(region.getByText('บันทึกแล้ว')).toBeHidden();
 });
+
+test('forced-colors: Switch ยังเห็น track/thumb และแยกเปิด/ปิดได้ (สีพื้นถูกบังคับเป็น Canvas)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  const toggle = page.getByRole('switch', { name: 'รับสายอัตโนมัติ' });
+  const label = page.locator('label').filter({ has: toggle });
+  // track คือ span ที่ซ่อนจาก a11y tree (Toggle.tsx) และ thumb เป็นลูกของมัน
+  const parts = () =>
+    label
+      .locator('span[aria-hidden="true"]')
+      .first()
+      .evaluate((track) => {
+        const thumb = track.firstElementChild as Element;
+        return {
+          trackOutline: getComputedStyle(track).outlineStyle,
+          trackBackground: getComputedStyle(track).backgroundColor,
+          thumbBackground: getComputedStyle(thumb).backgroundColor,
+        };
+      });
+  await expect(toggle).toBeChecked();
+  const on = await parts();
+  await toggle.focus();
+  await page.keyboard.press('Space');
+  await expect(toggle).not.toBeChecked();
+  const off = await parts();
+  expect(on.trackOutline).toBe('solid');
+  expect(off.trackOutline).toBe('solid');
+  expect(on.thumbBackground).not.toBe(on.trackBackground);
+  expect(off.thumbBackground).not.toBe(off.trackBackground);
+  expect(on.trackBackground).not.toBe(off.trackBackground);
+});

@@ -258,10 +258,23 @@
   box-shadow: inset var(--dc-focus-ring);
 }
 
-/* forced-colors: outline มาจาก tokens.css — วาดด้านในเพราะ .j5-segmented ตัด overflow */
+/* forced-colors: outline มาจาก tokens.css — วาดด้านในเพราะ .j5-segmented ตัด overflow
+   ปุ่มที่เลือกอยู่บอกด้วยพื้น brand ซึ่งโหมดนี้ลบทิ้ง จึงใช้ Highlight ของระบบแทน
+   (ปิด forced-color-adjust ไม่งั้นแผ่น Canvas หลังข้อความบังข้อความ) และ outline ด้านในเป็น HighlightText */
 @media (forced-colors: active) {
   .j5-segmented button:focus-visible {
     outline-offset: -4px;
+  }
+
+  .j5-segmented button[aria-pressed='true'] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    box-shadow: none;
+  }
+
+  .j5-segmented button[aria-pressed='true']:focus-visible {
+    outline-color: HighlightText !important;
   }
 }
 
