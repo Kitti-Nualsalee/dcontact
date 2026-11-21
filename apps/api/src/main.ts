@@ -12,6 +12,12 @@ import { Customer360OperatorController } from './customer-360-operator-api.js';
 import { Customer360ActivityController } from './customer-360-activity-api.js';
 import { Customer360OverviewController } from './customer-360-overview-api.js';
 import { Customer360ReadController } from './customer-360-read-api.js';
+import { Customer360ServiceApi } from './customer-360-service-api.js';
+import {
+  c360ServiceApiReadiness,
+  resolveC360ServiceApiEnabled,
+} from './customer-360-service-config.js';
+import { CUSTOMER_360_SERVICE_API } from './customer-360-service-port.js';
 import {
   CUSTOMER_360_WRITE_RUNTIME,
   createC360WriteRuntime,
@@ -381,6 +387,24 @@ const c360WorkAuth = c360WorkConfig.configured
 const c360WriteRuntime = createC360WriteRuntime();
 const c360WorkStatus = c360WorkReadiness(c360WorkConfig, c360WriteRuntime.ready);
 (c360WorkStatus.status === 'ENABLED' ? console.log : console.warn)(JSON.stringify(c360WorkStatus));
+// #954: External customer API ปิดเป็นค่าเริ่มต้น; create ต้องมี introspection client จึงทำงาน
+const c360ServiceApi = resolveC360ServiceApiEnabled(process.env)
+  ? new Customer360ServiceApi(
+      prisma,
+      c360SearchLimiter,
+      c360WriteRuntime,
+      c360WorkConfig.configured
+        ? new KeycloakC360TokenIntrospector({
+            issuer: required('KEYCLOAK_ISSUER'),
+            clientId: c360WorkConfig.clientId,
+            clientSecret: c360WorkConfig.clientSecret,
+          })
+        : null,
+    )
+  : undefined;
+console.log(
+  JSON.stringify(c360ServiceApiReadiness(c360ServiceApi !== undefined, c360WorkConfig.configured)),
+);
 const socketAdapter = new WorkspaceSessionWebSocketAdapter(
   gateway,
   tenantScope,
@@ -476,6 +500,7 @@ class WorkspaceSessionController {
       useValue: c360WorkStatus.status === 'ENABLED',
     },
     { provide: CUSTOMER_360_SEARCH_LIMITER, useValue: c360SearchLimiter },
+    ...(c360ServiceApi ? [{ provide: CUSTOMER_360_SERVICE_API, useValue: c360ServiceApi }] : []),
     { provide: TENANT_VOICE_DATABASE, useValue: prisma },
     {
       provide: TENANT_PEOPLE_READINESS,

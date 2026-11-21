@@ -124,6 +124,7 @@ try {
       '--test',
       '--test-concurrency=1',
       'src/customer-360-service.integration.ts',
+      'src/customer-360-service-contacts.integration.ts',
       'src/customer-360-service-oidc.integration.ts',
       'src/customer-360-operator.integration.ts',
       'src/customer-360-api.integration.ts',
