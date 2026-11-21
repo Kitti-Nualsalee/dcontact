@@ -17,6 +17,8 @@ model: sonnet
 ## ระหว่างทำ
 
 - แตะเฉพาะไฟล์และ package ที่ packet อนุญาต ถ้าต้องแตะนอกนั้น ให้หยุดและรายงานเหตุผล
+- ไม่แก้ไฟล์ร่วมตามรายการใน `docs/agents/parallel-work.md` ส่งสิ่งที่ต้องเพิ่มกลับให้ Lead
+  ยกเว้น i18n catalog ที่เพิ่ม key ใหม่ได้โดยไม่จัดเรียงหรือแก้ key เดิม
 - เขียนโค้ดให้เข้ากับโค้ดรอบข้าง: naming, ความหนาแน่นของ comment, idiom เดียวกัน
 - เขียน tests ตาม acceptance criteria และรันคำสั่งทดสอบที่ packet ระบุ
 - งานที่มีหน้าจอ: ทำตาม mockup และรายการ state ใน spec และ `docs/ui-principles.md`
