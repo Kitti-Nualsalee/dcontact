@@ -12,21 +12,30 @@ tools: Read, Grep, Glob, Bash, mcp__Claude_Browser__preview_start, mcp__Claude_B
 
 1. อ่าน PR, issue และ spec/UX doc (`docs/plans/<issue>-ux.md` ถ้ามี)
 2. อ่าน `docs/ui-principles.md`
-3. ดู diff (`gh pr diff <n>`) เพื่อรู้ว่าหน้าไหนเปลี่ยน
+3. ดู diff (`gh pr diff <n>`) เพื่อรู้ว่าหน้าไหนเปลี่ยน ถ้าเป็น PR จาก `integration/<สายงาน>` เข้า main
+   ให้รวมหน้าที่เปลี่ยนจาก PR ย่อยทุกตัวในก้อน เพราะ PR ย่อยไม่ได้ผ่าน ui-reviewer มาก่อน
 4. เปิดหน้าที่เปลี่ยน:
    - component ร่วม: `preview_start` ชื่อ `ui-react` (พอร์ต 5190, `?lang=en` สำหรับอังกฤษ)
-   - หน้าในแอป: ใช้ dev server ที่ Lead ระบุใน context packet ถ้าไม่มีให้รายงานว่าตรวจจากหน้าจอไม่ได้
+   - หน้าในแอป: ใช้ URL ที่ Lead ระบุใน context packet ถ้าไม่มีให้รายงานว่าตรวจจากหน้าจอไม่ได้
      แล้วตรวจจากโค้ดอย่างเดียว อย่า start server ที่ไม่มีใน `.claude/launch.json` เอง
+   - stack จริง (Workspace 5173) มีช่องเดียวที่สายงานใช้ร่วมกัน สายงานที่ไม่ได้ถือ stack ใช้พอร์ต fixture
+     (Workspace 4173/4185, Console 5174/5188) ตาม `docs/agents/parallel-work.md`
+   - ก่อนเชื่อ screenshot ตรวจว่า server เสิร์ฟจาก checkout ของ PR นี้ เช่น
+     `lsof -nP -iTCP:<port> -sTCP:LISTEN` แล้ว `lsof -a -p <pid> -d cwd` ถ้าเป็น checkout อื่น
+     ให้หยุดตรวจจากหน้าจอและรายงาน Lead ห้ามปิดหรือ restart process ของสายงานอื่น
+5. เปิดหน้าอ้างอิงที่ตรงชนิดหน้า (ตาราง + filter, ฟอร์มตั้งค่า, หน้ารายละเอียด) ตามหัวข้อ Pattern ใน
+   `ui-principles.md` ด้วย `preview_start` ชื่อ `mockups` (พอร์ต 8090) เพื่อเทียบโครงหน้า
 
 ## ตรวจจากหน้าจอ
 
-ทุกหน้าที่เปลี่ยน ที่ viewport 1440 และ 1280 (และ 768 ถ้า `ui-principles.md` กำหนด) ทั้ง TH และ EN:
+ทุกหน้าที่เปลี่ยน ที่ viewport ตามตารางใน `ui-principles.md` (ตอนนี้ 1440 และ 1280) ทั้ง TH และ EN:
 
 - screenshot ทุกขนาด
 - state ตามตารางใน `ui-principles.md` เท่าที่ทำให้เกิดได้ในหน้า preview
 - คีย์บอร์ด: tab ผ่านทุก control, focus ring มองเห็น, Esc ปิด dialog, focus กลับที่เดิม
 - ข้อความยาว: ไทยไม่ตัดกลางคำ, อังกฤษไม่ล้นปุ่มหรือคอลัมน์
 - layout ไม่กระโดดเมื่อโหลดเสร็จ
+- โครงหน้าตรงกับหน้าอ้างอิง: ตำแหน่ง filter, action ของแถว, ปุ่มหลัก และข้อมูลระบุตัวตน
 - console ไม่มี error หรือ warning ใหม่ (`read_console_messages`)
 
 ## ตรวจจากโค้ด
