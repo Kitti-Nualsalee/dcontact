@@ -1,0 +1,151 @@
+{
+  "title": "Team cases",
+  "subtitle": "{{team}} · Issues that need follow-up after the work ends. Open cases from Workspace.",
+  "refresh": "Refresh",
+  "filter": {
+    "label": "Case filters",
+    "status": "Status",
+    "statusActive": "Not closed (open + resolved)",
+    "statusAll": "All statuses",
+    "assignee": "Assignee",
+    "mine": "Mine",
+    "team": "Whole team",
+    "clear": "Clear filters"
+  },
+  "status": {
+    "OPEN": "Open",
+    "RESOLVED": "Resolved",
+    "CLOSED": "Closed"
+  },
+  "channel": {
+    "VOICE": "Voice"
+  },
+  "direction": {
+    "INBOUND": "inbound",
+    "OUTBOUND": "outbound"
+  },
+  "actor": {
+    "unknown": "User no longer in team"
+  },
+  "unassigned": "No assignee",
+  "list": "Team case list",
+  "col": {
+    "subject": "Subject",
+    "customer": "Customer",
+    "status": "Status",
+    "assignee": "Assignee",
+    "updated": "Last updated",
+    "links": "Linked work",
+    "actions": "Actions"
+  },
+  "you": "You",
+  "open": "Open",
+  "openItem": "Open case {{subject}}",
+  "unnamed": "Unnamed",
+  "customerUnavailable": "Customer unavailable",
+  "page": {
+    "range": "Showing {{from}}–{{to}}",
+    "prev": "Previous page",
+    "next": "Next page"
+  },
+  "loading": "Loading cases",
+  "emptyMine": "You have no assigned cases",
+  "emptyMineCopy": "Cases you open or are assigned appear here. Open a case from the work panel in Workspace.",
+  "viewTeam": "View team cases",
+  "emptyTeam": "Your team has no cases yet. Open one from the work panel in Workspace.",
+  "emptyFilter": "No cases match these filters",
+  "failed": "Couldn't load cases. Your filters are kept. Try again, or contact your admin if it keeps failing.",
+  "retry": "Try again",
+  "unauthorized": "Your session expired. Sign in again.",
+  "signIn": "Sign in",
+  "noTeam": "This account isn't in a team, so there are no cases to show",
+  "noTeamCopy": "Cases are visible to their team only. Ask your tenant admin to add you to a team.",
+  "detail": {
+    "back": "Back to cases",
+    "meta": "{{customer}} · Assignee {{assignee}} · Updated {{time}}",
+    "loading": "Loading case",
+    "notFound": "Case not found, or you don't have access",
+    "notFoundCopy": "Cases are visible to the team that opened them. Contact your team lead or tenant admin if you should have access.",
+    "failed": "Couldn't load the case",
+    "actions": "Case actions"
+  },
+  "action": {
+    "assign": "Assign",
+    "resolve": "Mark resolved",
+    "reopen": "Reopen",
+    "close": "Close case",
+    "pending": "Saving…",
+    "unknown": "Result unknown. Send again"
+  },
+  "unknownNotice": "We don't know yet whether your last change was saved. Send the same request again; it won't be saved twice.",
+  "actionFailed": "Couldn't complete the action. Try again.",
+  "toast": {
+    "resolved": "Marked resolved",
+    "reopened": "Case reopened",
+    "closed": "Case closed",
+    "assigned": "Assigned to {{name}}",
+    "noteSaved": "Note saved"
+  },
+  "timeline": {
+    "title": "Case timeline",
+    "count": "{{count}} items · oldest first",
+    "loadEarlier": "Load earlier ({{count}})",
+    "opened": "{{actor}} opened the case and assigned {{assignee}}",
+    "openedSelf": "{{actor}} opened the case and assigned themselves",
+    "linked": "{{actor}} linked {{channel}} {{direction}} work",
+    "openHistory": "Open in work history",
+    "note": "{{actor}} added a note",
+    "assigned": "{{actor}} assigned {{assignee}}",
+    "status": "{{actor}} changed status from {{from}} to {{to}}",
+    "reopened": "{{actor}} reopened the case",
+    "showAll": "Show all",
+    "showLess": "Show less"
+  },
+  "note": {
+    "label": "Add note",
+    "placeholder": "Record progress for your team",
+    "help": "Visible to your team only. Not sent to the customer.",
+    "count": "{{count}} / 2,000",
+    "required": "Enter a note of 1–2,000 characters",
+    "submit": "Save note",
+    "copyDraft": "Copy draft",
+    "draftClosed": "Unsaved note draft",
+    "copied": "Draft copied"
+  },
+  "closedNotice": "This case was closed on {{time}}. It's read-only.",
+  "conflict": "This case changed after you opened it. Your last change wasn't saved. Reload the latest version and try again. Your note draft is kept.",
+  "conflictReload": "Reload latest",
+  "summary": {
+    "title": "Case summary",
+    "status": "Status",
+    "assignee": "Assignee",
+    "assigneeInactive": "No longer in team",
+    "reassignHint": "Reassign so someone follows up",
+    "team": "Team",
+    "openedBy": "Opened by",
+    "openedAt": "Opened",
+    "closedAt": "Closed",
+    "links": "Linked work"
+  },
+  "customer": {
+    "title": "Customer",
+    "failed": "Couldn't load the customer. The timeline and case actions still work."
+  },
+  "assign": {
+    "title": "Assign case",
+    "field": "Assignee",
+    "current": "{{name}} (current)",
+    "you": "{{name}} (you)",
+    "help": "Only active agents in {{team}} can be selected",
+    "submit": "Assign",
+    "rejected": "This agent is no longer active in your team. Choose another.",
+    "loadFailed": "Couldn't load the team",
+    "loadingTeam": "Loading team"
+  },
+  "close": {
+    "title": "Close case \"{{subject}}\"",
+    "body": "Once closed, you can't add notes, reassign or reopen it. The timeline stays readable.",
+    "confirm": "Close case"
+  },
+  "cancel": "Cancel"
+}
