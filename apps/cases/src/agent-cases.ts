@@ -23,6 +23,7 @@ export type AgentCaseErrorCode =
   | 'TEAM_REQUIRED'
   | 'INVALID_INPUT'
   | 'WORK_NOT_FOUND'
+  | 'WORK_NOT_ACTIVE'
   | 'CONTACT_REQUIRED'
   | 'ASSIGNEE_NOT_IN_TEAM'
   | 'CASE_NOT_FOUND'
@@ -40,6 +41,7 @@ const ERROR_KIND: Record<AgentCaseErrorCode, AgentCaseErrorKind> = {
   TEAM_REQUIRED: 'FORBIDDEN',
   INVALID_INPUT: 'INVALID',
   WORK_NOT_FOUND: 'NOT_FOUND',
+  WORK_NOT_ACTIVE: 'CONFLICT',
   CONTACT_REQUIRED: 'CONFLICT',
   ASSIGNEE_NOT_IN_TEAM: 'INVALID',
   CASE_NOT_FOUND: 'NOT_FOUND',
@@ -94,6 +96,8 @@ export interface AgentCaseActivity {
   occurredAt: string;
   actorUserId: string | null;
   interactionId: string | null;
+  /** งานที่ผูกเป็นของผู้ดูเอง จึงเปิดดูในประวัติงานของตนได้ */
+  interactionMine: boolean;
   body: string | null;
   fromStatus: AgentCaseStatus | null;
   toStatus: AgentCaseStatus | null;
@@ -102,11 +106,28 @@ export interface AgentCaseActivity {
 
 export interface AgentCaseDetail extends AgentCaseSummary {
   teamId: string;
+  /** false เมื่อผู้รับผิดชอบย้ายทีมหรือถูกปิดบัญชี ต้องมอบหมายใหม่ */
+  assigneeInTeam: boolean;
+  reopenCount: number;
   createdByUserId: string;
   sourceInteractionId: string | null;
   resolvedAt: string | null;
   closedAt: string | null;
   activities: AgentCaseActivity[];
+}
+
+export type AgentCaseStatusFilter = AgentCaseStatus | 'NOT_CLOSED';
+
+export interface AgentCaseListFilter {
+  status?: AgentCaseStatusFilter;
+  assignedToMe?: boolean;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface AgentCaseListPage {
+  items: AgentCaseSummary[];
+  nextCursor: string | null;
 }
 
 export interface TeamAgent {
@@ -129,9 +150,12 @@ export interface CaseCommandInput {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** เส้นทางสถานะที่ Agent ทำได้: RESOLVED กลับ OPEN ได้ ส่วน CLOSED จบแล้วแก้ไม่ได้ */
+/**
+ * เส้นทางสถานะที่ Agent ทำได้: ต้องผ่าน RESOLVED ก่อนปิด, RESOLVED กลับ OPEN ได้
+ * และ CLOSED จบแล้วแก้ไม่ได้
+ */
 const TRANSITIONS: Record<AgentCaseStatus, readonly AgentCaseStatus[]> = {
-  OPEN: ['RESOLVED', 'CLOSED'],
+  OPEN: ['RESOLVED'],
   RESOLVED: ['OPEN', 'CLOSED'],
   CLOSED: [],
 };
@@ -164,6 +188,35 @@ export function versionInput(value: unknown): number {
 export function statusInput(value: unknown): AgentCaseStatus {
   if (value === 'OPEN' || value === 'RESOLVED' || value === 'CLOSED') return value;
   throw new AgentCaseError('INVALID_INPUT', 'status');
+}
+
+export function statusFilterInput(value: unknown): AgentCaseStatusFilter | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value === 'NOT_CLOSED') return value;
+  return statusInput(value);
+}
+
+/** cursor ผูกกับตำแหน่ง (updated_at, id) ของแถวสุดท้ายในหน้าก่อน */
+export function encodeCaseCursor(updatedAt: Date, id: string): string {
+  return Buffer.from(JSON.stringify([updatedAt.toISOString(), id]), 'utf8').toString('base64url');
+}
+
+export function decodeCaseCursor(value: unknown): { updatedAt: Date; id: string } | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || value.length > 200)
+    throw new AgentCaseError('INVALID_INPUT', 'cursor');
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    if (Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === 'string') {
+      const updatedAt = new Date(parsed[0]);
+      if (!Number.isNaN(updatedAt.getTime())) {
+        return { updatedAt, id: uuidInput(parsed[1], 'cursor') };
+      }
+    }
+  } catch {
+    // ตกไปตอบ INVALID_INPUT ด้านล่าง
+  }
+  throw new AgentCaseError('INVALID_INPUT', 'cursor');
 }
 
 export function listLimit(value: unknown): number {
@@ -220,11 +273,16 @@ export class AgentCases {
     });
   }
 
-  async list(
-    actor: AgentCaseActor,
-    filter: { status?: AgentCaseStatus; assignedToMe?: boolean; limit?: number } = {},
-  ): Promise<AgentCaseSummary[]> {
+  async list(actor: AgentCaseActor, filter: AgentCaseListFilter = {}): Promise<AgentCaseListPage> {
     const limit = listLimit(filter.limit);
+    const status = statusFilterInput(filter.status);
+    const cursor = decodeCaseCursor(filter.cursor);
+    const statusClause =
+      status === 'NOT_CLOSED'
+        ? Prisma.sql`AND c.status <> 'CLOSED'::"CsCaseStatus"`
+        : status
+          ? Prisma.sql`AND c.status = ${status}::"CsCaseStatus"`
+          : Prisma.empty;
     return this.read(actor, async (transaction, teamActor) => {
       const rows = await transaction.$queryRaw<
         {
@@ -247,11 +305,14 @@ export class AgentCases {
           FROM cs_cases c
          WHERE c.tenant_id = ${teamActor.tenantId}::uuid
            AND c.team_id = ${teamActor.teamId}::uuid
-           ${filter.status ? Prisma.sql`AND c.status = ${filter.status}::"CsCaseStatus"` : Prisma.empty}
+           ${statusClause}
            ${filter.assignedToMe ? Prisma.sql`AND c.assignee_user_id = ${teamActor.userId}::uuid` : Prisma.empty}
+           ${cursor ? Prisma.sql`AND (c.updated_at, c.id) < (${cursor.updatedAt}, ${cursor.id}::uuid)` : Prisma.empty}
          ORDER BY c.updated_at DESC, c.id DESC
-         LIMIT ${limit}`);
-      return rows.map((row) => ({
+         LIMIT ${limit + 1}`);
+      const page = rows.slice(0, limit);
+      const last = page.at(-1);
+      const items = page.map((row) => ({
         id: row.id,
         subject: row.subject,
         contactId: row.contact_id,
@@ -262,6 +323,10 @@ export class AgentCases {
         createdAt: row.created_at.toISOString(),
         updatedAt: row.updated_at.toISOString(),
       }));
+      return {
+        items,
+        nextCursor: rows.length > limit && last ? encodeCaseCursor(last.updated_at, last.id) : null,
+      };
     });
   }
 
@@ -290,14 +355,18 @@ export class AgentCases {
       payloadDigest,
       async (transaction, teamActor) => {
         const [interaction] = await transaction.$queryRaw<
-          { contact_id: string | null }[]
+          { contact_id: string | null; state: string }[]
         >(Prisma.sql`
-        SELECT contact_id FROM interactions
+        SELECT contact_id, state::text AS state FROM interactions
          WHERE tenant_id = ${teamActor.tenantId}::uuid AND id = ${interactionId}::uuid
            AND agent_id = ${teamActor.userId}::uuid
          FOR NO KEY UPDATE`);
         // งานของ Agent คนอื่นหรือของ tenant อื่นตอบเหมือนไม่พบ เพื่อไม่เปิดเผยว่ามีอยู่
         if (!interaction) throw new AgentCaseError('WORK_NOT_FOUND');
+        // รอบแรกเปิดเคสได้ระหว่างคุยหรือสรุปผลเท่านั้น งานที่บันทึกผลจบแล้วไม่รับ
+        if (interaction.state !== 'ACTIVE' && interaction.state !== 'WRAPUP') {
+          throw new AgentCaseError('WORK_NOT_ACTIVE');
+        }
         if (!interaction.contact_id) throw new AgentCaseError('CONTACT_REQUIRED');
 
         const assigneeUserId = requestedAssignee ?? teamActor.userId;
@@ -608,6 +677,32 @@ export class AgentCases {
       where: { tenantId: actor.tenantId, caseId },
       orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
     });
+    const linkedIds = activities.flatMap((activity) =>
+      activity.kind === 'LINKED' && activity.interactionId && UUID.test(activity.interactionId)
+        ? [activity.interactionId]
+        : [],
+    );
+    const [mine, assignee] = await Promise.all([
+      linkedIds.length === 0
+        ? Promise.resolve([])
+        : transaction.interaction.findMany({
+            where: { tenantId: actor.tenantId, id: { in: linkedIds }, agentId: actor.userId },
+            select: { id: true },
+          }),
+      found.assigneeUserId
+        ? transaction.user.findFirst({
+            where: {
+              id: found.assigneeUserId,
+              tenantId: actor.tenantId,
+              teamId: found.teamId,
+              role: 'AGENT',
+              isActive: true,
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    const mineIds = new Set(mine.map((row) => row.id));
     return {
       id: found.id,
       subject: found.subject,
@@ -619,6 +714,8 @@ export class AgentCases {
       createdAt: found.createdAt.toISOString(),
       updatedAt: found.updatedAt.toISOString(),
       teamId: found.teamId,
+      assigneeInTeam: assignee !== null,
+      reopenCount: found.reopenCount,
       createdByUserId: found.createdByUserId,
       sourceInteractionId: found.sourceInteractionId,
       resolvedAt: found.resolvedAt?.toISOString() ?? null,
@@ -629,6 +726,7 @@ export class AgentCases {
         occurredAt: activity.occurredAt.toISOString(),
         actorUserId: activity.actorUserId,
         interactionId: activity.interactionId,
+        interactionMine: activity.interactionId !== null && mineIds.has(activity.interactionId),
         body: activity.body,
         fromStatus: activity.fromStatus,
         toStatus: activity.toStatus,

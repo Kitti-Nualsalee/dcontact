@@ -24,6 +24,7 @@ interface TenantFixture {
   linkedWorkId: string;
   unlinkedWorkId: string;
   teammateWorkId: string;
+  completedWorkId: string;
 }
 
 async function seedTenant(owner: PrismaClient, label: string): Promise<TenantFixture> {
@@ -41,6 +42,7 @@ async function seedTenant(owner: PrismaClient, label: string): Promise<TenantFix
     linkedWorkId: randomUUID(),
     unlinkedWorkId: randomUUID(),
     teammateWorkId: randomUUID(),
+    completedWorkId: randomUUID(),
   };
   await owner.tenant.create({
     data: {
@@ -77,12 +79,17 @@ async function seedTenant(owner: PrismaClient, label: string): Promise<TenantFix
   await owner.contact.create({
     data: { id: fixture.contactId, tenantId, displayName: 'ลูกค้า #956' },
   });
-  const work = (id: string, agentId: string, contactId: string | null) => ({
+  const work = (
+    id: string,
+    agentId: string,
+    contactId: string | null,
+    state: 'WRAPUP' | 'COMPLETED' = 'WRAPUP',
+  ) => ({
     id,
     tenantId,
     channel: 'VOICE' as const,
     direction: 'INBOUND' as const,
-    state: 'COMPLETED' as const,
+    state,
     agentId,
     contactId,
   });
@@ -91,6 +98,7 @@ async function seedTenant(owner: PrismaClient, label: string): Promise<TenantFix
       work(fixture.linkedWorkId, fixture.agentId, fixture.contactId),
       work(fixture.unlinkedWorkId, fixture.agentId, null),
       work(fixture.teammateWorkId, fixture.teammateId, fixture.contactId),
+      work(fixture.completedWorkId, fixture.agentId, fixture.contactId, 'COMPLETED'),
     ],
   });
   return fixture;
@@ -182,7 +190,7 @@ test('ส่งคำสั่งเปิดเคสเดิมซ้ำไ�
   );
 });
 
-test('งานที่ยังไม่ผูกลูกค้า หรือเป็นงานของคนอื่น เปิดเคสไม่ได้', async (t) => {
+test('งานที่ยังไม่ผูกลูกค้า งานที่บันทึกผลจบแล้ว หรืองานของคนอื่น เปิดเคสไม่ได้', async (t) => {
   const { owner, cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
 
@@ -195,6 +203,10 @@ test('งานที่ยังไม่ผูกลูกค้า หรื�
     'WORK_NOT_FOUND',
   );
   await rejects(cases.open(agent, openBody(a, { interactionId: randomUUID() })), 'WORK_NOT_FOUND');
+  await rejects(
+    cases.open(agent, openBody(a, { interactionId: a.completedWorkId })),
+    'WORK_NOT_ACTIVE',
+  );
   assert.equal(await owner.csCase.count({ where: { tenantId: a.tenantId } }), 0);
 });
 
@@ -235,6 +247,44 @@ test('มอบหมายได้เฉพาะ Agent ที่ active ใ�
   assert.deepEqual(team.map((member) => member.userId).sort(), [a.agentId, a.teammateId].sort());
 });
 
+test('ผู้รับผิดชอบที่ย้ายทีมแล้ว: เคสยังอยู่กับทีมเดิม และรายละเอียดบอกให้มอบหมายใหม่', async (t) => {
+  const { owner, cases, a } = await setup(t);
+  const agent = { tenantId: a.tenantId, userId: a.agentId };
+  const opened = await cases.open(agent, openBody(a, { assigneeUserId: a.teammateId }));
+  assert.equal((await cases.detail(agent, opened.caseId)).assigneeInTeam, true);
+
+  await owner.user.update({ where: { id: a.teammateId }, data: { teamId: a.otherTeamId } });
+  const detail = await cases.detail(agent, opened.caseId);
+  assert.equal(detail.teamId, a.teamId);
+  assert.equal(detail.assigneeUserId, a.teammateId);
+  assert.equal(detail.assigneeInTeam, false);
+  // ผู้ที่ย้ายออกไปมองไม่เห็นเคสของทีมเดิมแล้ว
+  await rejects(
+    cases.detail({ tenantId: a.tenantId, userId: a.teammateId }, opened.caseId),
+    'CASE_NOT_FOUND',
+  );
+});
+
+test('งานที่ผูกในไทม์ไลน์บอกว่าเป็นงานของผู้ดูหรือไม่', async (t) => {
+  const { cases, a } = await setup(t);
+  const agent = { tenantId: a.tenantId, userId: a.agentId };
+  const opened = await cases.open(agent, openBody(a));
+  const linked = (detail: Awaited<ReturnType<typeof cases.detail>>) =>
+    detail.activities.find((activity) => activity.kind === 'LINKED');
+
+  assert.equal(linked(await cases.detail(agent, opened.caseId))?.interactionMine, true);
+  const teammateView = await cases.detail(
+    { tenantId: a.tenantId, userId: a.teammateId },
+    opened.caseId,
+  );
+  assert.equal(linked(teammateView)?.interactionMine, false);
+  assert.ok(
+    teammateView.activities.every(
+      (activity) => activity.kind === 'LINKED' || !activity.interactionMine,
+    ),
+  );
+});
+
 test('version ไม่ตรงได้ conflict และไม่มีอะไรถูกเขียน', async (t) => {
   const { cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
@@ -264,7 +314,7 @@ test('version ไม่ตรงได้ conflict และไม่มีอ�
   );
 });
 
-test('สถานะ OPEN → RESOLVED → OPEN → CLOSED แล้วแก้ต่อไม่ได้', async (t) => {
+test('สถานะ OPEN → RESOLVED → OPEN → RESOLVED → CLOSED แล้วแก้ต่อไม่ได้', async (t) => {
   const { cases, a } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const opened = await cases.open(agent, openBody(a));
@@ -286,7 +336,10 @@ test('สถานะ OPEN → RESOLVED → OPEN → CLOSED แล้วแก�
   assert.equal(detail.resolvedAt, null);
 
   await rejects(status(3, 'OPEN'), 'INVALID_TRANSITION');
-  await status(3, 'CLOSED');
+  // ปิดจาก OPEN ตรงไม่ได้ ต้องผ่าน RESOLVED ก่อน
+  await rejects(status(3, 'CLOSED'), 'INVALID_TRANSITION');
+  await status(3, 'RESOLVED');
+  await status(4, 'CLOSED');
   detail = await cases.detail(agent, opened.caseId);
   assert.equal(detail.status, 'CLOSED');
   assert.ok(detail.closedAt);
@@ -294,14 +347,15 @@ test('สถานะ OPEN → RESOLVED → OPEN → CLOSED แล้วแก�
     detail.activities
       .filter((activity) => activity.kind === 'STATUS_CHANGED')
       .map((activity) => `${activity.fromStatus}>${activity.toStatus}`),
-    ['OPEN>RESOLVED', 'RESOLVED>OPEN', 'OPEN>CLOSED'],
+    ['OPEN>RESOLVED', 'RESOLVED>OPEN', 'OPEN>RESOLVED', 'RESOLVED>CLOSED'],
   );
+  assert.equal(detail.reopenCount, 1);
 
-  await rejects(status(4, 'OPEN'), 'CASE_CLOSED');
+  await rejects(status(5, 'OPEN'), 'CASE_CLOSED');
   await rejects(
     cases.addNote(agent, opened.caseId, {
       commandId: randomUUID(),
-      expectedVersion: 4,
+      expectedVersion: 5,
       note: 'หลังปิด',
     }),
     'CASE_CLOSED',
@@ -314,7 +368,7 @@ test('ทีมอื่นและ tenant อื่นมองไม่เห
   const opened = await cases.open(agent, openBody(a));
 
   const otherTeam = { tenantId: a.tenantId, userId: a.otherTeamAgentId };
-  assert.deepEqual(await cases.list(otherTeam), []);
+  assert.deepEqual((await cases.list(otherTeam)).items, []);
   await rejects(cases.detail(otherTeam, opened.caseId), 'CASE_NOT_FOUND');
   await rejects(
     cases.addNote(otherTeam, opened.caseId, {
@@ -327,7 +381,7 @@ test('ทีมอื่นและ tenant อื่นมองไม่เห
 
   // Agent ของ tenant B ที่รู้ caseId ก็ยังหาไม่เจอ (RLS และเงื่อนไขทีม)
   const otherTenant = { tenantId: b.tenantId, userId: b.agentId };
-  assert.deepEqual(await cases.list(otherTenant), []);
+  assert.deepEqual((await cases.list(otherTenant)).items, []);
   await rejects(cases.detail(otherTenant, opened.caseId), 'CASE_NOT_FOUND');
 
   // ผู้ที่อ้าง tenant A แต่ไม่มีบัญชี Agent ใน tenant A ถูกปฏิเสธก่อนอ่านเคส
@@ -365,18 +419,42 @@ test('รายการของทีมกรองตามสถานะ�
     status: 'RESOLVED',
   });
 
-  const all = await cases.list(agent);
+  const all = (await cases.list(agent)).items;
   assert.deepEqual(
     all.map((item) => item.subject),
     ['เคสแรก', 'เคสสอง'],
   );
   assert.equal(all[0]?.linkedWorkCount, 1);
-  assert.deepEqual(
-    (await cases.list(agent, { status: 'OPEN' })).map((item) => item.id),
-    [second.caseId],
-  );
-  assert.deepEqual(
-    (await cases.list(agent, { assignedToMe: true })).map((item) => item.id),
-    [first.caseId],
-  );
+  const ids = async (filter: Parameters<typeof cases.list>[1]) =>
+    (await cases.list(agent, filter)).items.map((item) => item.id);
+  assert.deepEqual(await ids({ status: 'OPEN' }), [second.caseId]);
+  assert.deepEqual(await ids({ assignedToMe: true }), [first.caseId]);
+
+  await cases.changeStatus(agent, first.caseId, {
+    commandId: randomUUID(),
+    expectedVersion: 2,
+    status: 'CLOSED',
+  });
+  assert.deepEqual(await ids({ status: 'NOT_CLOSED' }), [second.caseId]);
+  assert.deepEqual(await ids({ status: 'CLOSED' }), [first.caseId]);
+});
+
+test('แบ่งหน้าด้วย cursor ได้ครบทุกเคสโดยไม่ซ้ำ', async (t) => {
+  const { cases, a } = await setup(t);
+  const agent = { tenantId: a.tenantId, userId: a.agentId };
+  const opened = [];
+  for (let index = 0; index < 5; index += 1) {
+    opened.push((await cases.open(agent, openBody(a, { subject: `เคส ${index}` }))).caseId);
+  }
+
+  const seen: string[] = [];
+  let cursor: string | undefined;
+  for (let pageNumber = 0; pageNumber < 5; pageNumber += 1) {
+    const page = await cases.list(agent, { limit: 2, ...(cursor ? { cursor } : {}) });
+    seen.push(...page.items.map((item) => item.id));
+    if (!page.nextCursor) break;
+    cursor = page.nextCursor;
+  }
+  assert.equal(seen.length, 5);
+  assert.deepEqual([...seen].sort(), [...opened].sort());
 });

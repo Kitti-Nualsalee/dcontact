@@ -5,7 +5,10 @@ import {
   CASE_NOTE_MAX,
   CASE_SUBJECT_MAX,
   canTransition,
+  decodeCaseCursor,
+  encodeCaseCursor,
   listLimit,
+  statusFilterInput,
   statusInput,
   textInput,
   uuidInput,
@@ -22,10 +25,10 @@ function code(work: () => unknown): string | undefined {
   return undefined;
 }
 
-test('เส้นทางสถานะ: OPEN ↔ RESOLVED และปิดได้จากทั้งสอง ส่วน CLOSED ไปต่อไม่ได้', () => {
+test('เส้นทางสถานะ: OPEN ↔ RESOLVED, ปิดได้จาก RESOLVED เท่านั้น และ CLOSED ไปต่อไม่ได้', () => {
   assert.equal(canTransition('OPEN', 'RESOLVED'), true);
   assert.equal(canTransition('RESOLVED', 'OPEN'), true);
-  assert.equal(canTransition('OPEN', 'CLOSED'), true);
+  assert.equal(canTransition('OPEN', 'CLOSED'), false);
   assert.equal(canTransition('RESOLVED', 'CLOSED'), true);
   assert.equal(canTransition('OPEN', 'OPEN'), false);
   assert.equal(canTransition('RESOLVED', 'RESOLVED'), false);
@@ -107,4 +110,27 @@ test('error code แต่ละตัวมีชนิดที่ API ใช�
   assert.equal(new AgentCaseError('VERSION_CONFLICT').kind, 'CONFLICT');
   assert.equal(new AgentCaseError('CONTACT_REQUIRED').kind, 'CONFLICT');
   assert.equal(new AgentCaseError('ASSIGNEE_NOT_IN_TEAM').kind, 'INVALID');
+});
+
+test('cursor ถอดกลับได้ตรงตำแหน่งเดิม และค่าที่ปลอมหรือเสียถูกปฏิเสธ', () => {
+  const at = new Date('2026-11-21T10:00:00.123Z');
+  const id = '6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b';
+  assert.deepEqual(decodeCaseCursor(encodeCaseCursor(at, id)), { updatedAt: at, id });
+  assert.equal(decodeCaseCursor(undefined), undefined);
+  for (const value of ['not-base64', Buffer.from('[1,2]').toString('base64url'), 42]) {
+    assert.equal(
+      code(() => decodeCaseCursor(value)),
+      'INVALID:INVALID_INPUT:cursor',
+    );
+  }
+});
+
+test('filter สถานะรับ NOT_CLOSED สำหรับเคสที่ยังไม่ปิด', () => {
+  assert.equal(statusFilterInput('NOT_CLOSED'), 'NOT_CLOSED');
+  assert.equal(statusFilterInput(''), undefined);
+  assert.equal(statusFilterInput('OPEN'), 'OPEN');
+  assert.equal(
+    code(() => statusFilterInput('ALL')),
+    'INVALID:INVALID_INPUT:status',
+  );
 });
