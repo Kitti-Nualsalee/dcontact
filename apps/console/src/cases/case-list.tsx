@@ -120,7 +120,10 @@ export function CaseList({
       <header className="cs-head">
         <div>
           <h1>{t('title')}</h1>
-          {page ? <p className="cs-muted">{t('subtitle', { team: page.teamName })}</p> : null}
+          {/* จองความสูงไว้เสมอ ไม่ให้ตัวกรองกระโดดเมื่อรู้ชื่อทีม */}
+          <p className="cs-muted cs-subtitle">
+            {page ? t('subtitle', { team: page.teamName }) : null}
+          </p>
         </div>
         <Button isDisabled={loading} onPress={() => setRevision((current) => current + 1)}>
           {t('refresh')}
@@ -276,7 +279,7 @@ function CaseRow({
           </Badge>
         ) : null}
       </Cell>
-      <Cell>{format(item.updatedAt)}</Cell>
+      <Cell className="cs-nowrap">{format(item.updatedAt)}</Cell>
       <Cell className="cs-num">{item.linkedWorkCount}</Cell>
       <Cell>
         <Button

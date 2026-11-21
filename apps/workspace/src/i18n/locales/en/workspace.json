@@ -484,13 +484,13 @@
     "createdToast": "Case opened: {{subject}}",
     "status": "Status",
     "openInConsole": "Open case in Console (new tab)",
-    "openAnother": "Open another case from this work",
     "wrapupHint": "Needs follow-up? Open a case before saving, so your team can track it.",
     "goToCase": "Go to Case tab",
     "statusValue": {
       "OPEN": "Open",
       "RESOLVED": "Resolved",
       "CLOSED": "Closed"
-    }
+    },
+    "workHasCase": "This work already has a case. A work item belongs to one case. Follow it up in Team cases in Console."
   }
 }

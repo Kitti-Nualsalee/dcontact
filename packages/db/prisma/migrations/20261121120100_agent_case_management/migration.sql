@@ -26,6 +26,11 @@ ALTER TABLE "cs_cases"
 CREATE INDEX "cs_cases_tenant_team_status_updated_idx"
   ON "cs_cases"("tenant_id", "team_id", "status", "updated_at" DESC);
 
+-- ADR-016 case 1 : N interaction: งานหนึ่งเปิดเคสของ Agent ได้ใบเดียว
+CREATE UNIQUE INDEX "cs_cases_tenant_source_interaction_key"
+  ON "cs_cases"("tenant_id", "source_interaction_id")
+  WHERE "source_interaction_id" IS NOT NULL;
+
 -- ไทม์ไลน์เดียวของเคส: แถวจาก J2 มี outcome reference ส่วนแถวที่ Agent ทำมีผู้กระทำ
 ALTER TABLE "cs_case_activities"
   ALTER COLUMN "interaction_id" DROP NOT NULL,
@@ -53,3 +58,7 @@ ALTER TABLE "cs_case_activities"
   ADD CONSTRAINT "cs_case_activities_assignee_fkey"
     FOREIGN KEY ("tenant_id", "assignee_user_id") REFERENCES "users"("tenant_id", "id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- ไทม์ไลน์มีโน้ต free text จึงเป็น append-only แบบเดียวกับ interaction_wrapup_results
+-- (AgentCases และ J2 ไม่เคย UPDATE activity)
+REVOKE UPDATE ON "cs_case_activities" FROM dcontact_app;

@@ -90,6 +90,7 @@ export type CaseErrorCode =
   | 'INVALID_INPUT'
   | 'WORK_NOT_FOUND'
   | 'WORK_NOT_ACTIVE'
+  | 'WORK_HAS_CASE'
   | 'CONTACT_REQUIRED'
   | 'ASSIGNEE_NOT_IN_TEAM'
   | 'CASE_NOT_FOUND'

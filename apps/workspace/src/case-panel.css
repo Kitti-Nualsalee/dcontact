@@ -65,7 +65,8 @@
 
 .aw-case-actions {
   position: sticky;
-  bottom: 0;
+  /* ยกขึ้นพ้น dphone แบบลอยเมื่อทับแผง */
+  bottom: var(--aw-dphone-inset, 0px);
   display: flex;
   gap: var(--dc-space-3);
   padding-block: var(--dc-space-4);

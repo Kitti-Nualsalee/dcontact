@@ -409,3 +409,62 @@ test('tenant คนละใบไม่เห็น case ของกันแ�
   });
   assert.equal(otherView, undefined);
 });
+
+test('#956: เคสที่ Agent เปิดเองไม่ถูก ENSURE_CASE link/reopen แม้ลูกค้าและประเภทตรงกัน', async (t) => {
+  const f = await fixture(t);
+  const service = new CasesEnsureCaseService(f.application);
+  const tenant = toTenantId(f.rawTenantId);
+  const agentId = randomUUID();
+  const agentCaseId = randomUUID();
+  await f.owner.user.create({
+    data: {
+      id: agentId,
+      tenantId: f.rawTenantId,
+      email: `agent-${agentId.slice(0, 8)}@j2-4-cases.test`,
+      passwordHash: 'not-used',
+      displayName: 'Agent',
+      role: 'AGENT',
+      teamId: f.rawTeamId,
+    },
+  });
+  try {
+    await f.owner.csCase.create({
+      data: {
+        id: agentCaseId,
+        tenantId: f.rawTenantId,
+        contactId: f.rawContactId,
+        caseTypeKey: 'COLLECTIONS',
+        status: 'OPEN',
+        version: 3,
+        subject: 'เคสที่ Agent เปิด',
+        teamId: f.rawTeamId,
+        assigneeUserId: agentId,
+        createdByUserId: agentId,
+      },
+    });
+    const command = commandFor(f);
+    await service.persistCommand(tenant, command);
+    const result = await service.queryAction(tenant, {
+      contractVersion: 1,
+      actionKey: command.actionKey,
+      requestHash: command.requestHash,
+    });
+    assert.equal(result?.status, 'CREATED');
+    assert.notEqual(result?.ownerAggregate?.id, agentCaseId);
+    const agentCase = await f.owner.csCase.findUniqueOrThrow({ where: { id: agentCaseId } });
+    assert.equal(agentCase.version, 3);
+    assert.equal(await f.owner.csCaseActivity.count({ where: { caseId: agentCaseId } }), 0);
+    assert.equal(
+      await f.owner.csCaseLink.count({
+        where: { tenantId: f.rawTenantId, relatedCaseId: agentCaseId },
+      }),
+      0,
+    );
+  } finally {
+    await f.owner.csCaseActivity.deleteMany({ where: { tenantId: f.rawTenantId } });
+    await f.owner.csCaseLink.deleteMany({ where: { tenantId: f.rawTenantId } });
+    await f.owner.csCommandInbox.deleteMany({ where: { tenantId: f.rawTenantId } });
+    await f.owner.csCase.deleteMany({ where: { tenantId: f.rawTenantId } });
+    await f.owner.user.deleteMany({ where: { id: agentId } });
+  }
+});

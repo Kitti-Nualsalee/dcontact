@@ -17,6 +17,7 @@ import {
   HttpException,
   Inject,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
   Optional,
   Param,
@@ -31,10 +32,20 @@ import {
   type AgentCaseActor,
   type AgentCaseStatusFilter,
 } from '@d-contact/cases';
-import { authorizeC360WorkContact } from '@d-contact/customer-360';
+import { C360WorkError, authorizeC360WorkContact } from '@d-contact/customer-360';
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 
 export const AGENT_CASES_DATABASE = Symbol('AGENT_CASES_DATABASE');
+const logger = new Logger('AgentCases');
+
+/** log เฉพาะชนิดและ code ของ error ไม่ log body หรือข้อความที่อาจมีข้อมูลลูกค้า */
+function errorSummary(error: unknown) {
+  const code =
+    error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : undefined;
+  return { name: error instanceof Error ? error.name : typeof error, ...(code ? { code } : {}) };
+}
 export const AGENT_CASES_CUSTOMER_ACCESS = Symbol('AGENT_CASES_CUSTOMER_ACCESS');
 
 /** ตอบว่าทีมของผู้ดูเห็นลูกค้ารายนี้ได้ตอนนี้หรือไม่ ไม่โยน error (ตรวจไม่ได้ = ไม่เห็น) */
@@ -75,6 +86,7 @@ export function caseHttpError(error: unknown, correlationId?: string): HttpExcep
         return new ConflictException(body);
     }
   }
+  logger.error({ event: 'case_request_failed', correlationId, ...errorSummary(error) });
   return new InternalServerErrorException({
     code: 'CASE_REQUEST_FAILED',
     ...(correlationId ? { correlationId } : {}),
@@ -121,6 +133,7 @@ export class AgentCasesController {
         this.customers(
           actor,
           page.items.map((item) => item.contactId),
+          request.correlationId,
         ),
       ]);
       return {
@@ -159,7 +172,7 @@ export class AgentCasesController {
       const [people, teamName, customers] = await Promise.all([
         this.people(actor, [...ids]),
         this.teamName(actor),
-        this.customers(actor, [detail.contactId]),
+        this.customers(actor, [detail.contactId], request.correlationId),
       ]);
       const customer = customers.get(detail.contactId) ?? null;
       return {
@@ -254,10 +267,26 @@ export class AgentCasesController {
   private async customers(
     actor: AgentCaseActor,
     contactIds: string[],
+    correlationId?: string,
   ): Promise<Map<string, CaseCustomer>> {
     const result = new Map<string, CaseCustomer>();
     const unique = [...new Set(contactIds)];
     if (unique.length === 0) return result;
+    try {
+      await this.readCustomers(actor, unique, result);
+    } catch (error) {
+      // โหลดลูกค้าไม่ได้ไม่ทำให้เคสเปิดไม่ได้ หน้าจอแสดงว่าไม่มีข้อมูลลูกค้าแทน (fail closed)
+      logger.warn({ event: 'case_customer_unavailable', correlationId, ...errorSummary(error) });
+      return new Map();
+    }
+    return result;
+  }
+
+  private async readCustomers(
+    actor: AgentCaseActor,
+    unique: string[],
+    result: Map<string, CaseCustomer>,
+  ): Promise<void> {
     await withTenantDatabaseTransaction(this.database, actor.tenantId, async (transaction) => {
       const user = await transaction.user.findFirst({
         where: { tenantId: actor.tenantId, id: actor.userId, role: 'AGENT', isActive: true },
@@ -279,7 +308,6 @@ export class AgentCasesController {
         if (contact) result.set(contactId, contact);
       }
     });
-    return result;
   }
 }
 
@@ -289,8 +317,10 @@ export const customer360Access: CaseCustomerAccess = async (transaction, actor, 
     try {
       await authorizeC360WorkContact(transaction, actor, contactId, permission);
       return true;
-    } catch {
-      // ไม่มีสิทธิ์ระดับนี้ หรือ scope ยังตามไม่ทัน ลองระดับถัดไป
+    } catch (error) {
+      // ไม่มีสิทธิ์ระดับนี้ หรือ scope ยังตามไม่ทัน ลองระดับถัดไป ส่วน DB error ทำให้ transaction
+      // ใช้ต่อไม่ได้ จึงโยนต่อให้ customers() ตอบว่าไม่มีข้อมูลลูกค้าทั้งชุด
+      if (!(error instanceof C360WorkError)) throw error;
     }
   }
   return false;

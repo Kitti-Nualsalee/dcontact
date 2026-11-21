@@ -126,7 +126,23 @@ async function setup(t: TestContext) {
     await owner.$disconnect();
     await application.$disconnect();
   });
-  return { owner, cases: new AgentCases(application), a, b };
+  /** งาน WRAPUP ใหม่ของ Agent A ที่ผูกลูกค้าแล้ว — งานหนึ่งเปิดเคสได้ใบเดียว */
+  const newWork = async () => {
+    const id = randomUUID();
+    await owner.interaction.create({
+      data: {
+        id,
+        tenantId: a.tenantId,
+        channel: 'VOICE',
+        direction: 'INBOUND',
+        state: 'WRAPUP',
+        agentId: a.agentId,
+        contactId: a.contactId,
+      },
+    });
+    return id;
+  };
+  return { owner, cases: new AgentCases(application), a, b, newWork };
 }
 
 async function rejects(work: Promise<unknown>, code: string): Promise<void> {
@@ -409,12 +425,16 @@ test('RLS: application role มองไม่เห็นแถว cs_cases ข
 });
 
 test('รายการของทีมกรองตามสถานะและของฉัน เรียงตามอัปเดตล่าสุด', async (t) => {
-  const { cases, a } = await setup(t);
+  const { cases, a, newWork } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const first = await cases.open(agent, openBody(a, { subject: 'เคสแรก' }));
   const second = await cases.open(
     agent,
-    openBody(a, { subject: 'เคสสอง', assigneeUserId: a.teammateId }),
+    openBody(a, {
+      subject: 'เคสสอง',
+      assigneeUserId: a.teammateId,
+      interactionId: await newWork(),
+    }),
   );
   await cases.changeStatus(agent, first.caseId, {
     commandId: randomUUID(),
@@ -443,11 +463,18 @@ test('รายการของทีมกรองตามสถานะ�
 });
 
 test('แบ่งหน้าด้วย cursor ได้ครบทุกเคสโดยไม่ซ้ำ', async (t) => {
-  const { cases, a } = await setup(t);
+  const { cases, a, newWork } = await setup(t);
   const agent = { tenantId: a.tenantId, userId: a.agentId };
   const opened = [];
   for (let index = 0; index < 5; index += 1) {
-    opened.push((await cases.open(agent, openBody(a, { subject: `เคส ${index}` }))).caseId);
+    opened.push(
+      (
+        await cases.open(
+          agent,
+          openBody(a, { subject: `เคส ${index}`, interactionId: await newWork() }),
+        )
+      ).caseId,
+    );
   }
 
   const seen: string[] = [];
@@ -460,4 +487,34 @@ test('แบ่งหน้าด้วย cursor ได้ครบทุกเ
   }
   assert.equal(seen.length, 5);
   assert.deepEqual([...seen].sort(), [...opened].sort());
+});
+
+test('งานหนึ่งเปิดเคสได้ใบเดียวตาม ADR-016 แต่ส่งคำสั่งเดิมซ้ำยังได้ผลเดิม', async (t) => {
+  const { owner, cases, a } = await setup(t);
+  const agent = { tenantId: a.tenantId, userId: a.agentId };
+  const body = openBody(a);
+  const first = await cases.open(agent, body);
+  assert.deepEqual(await cases.open(agent, body), first);
+  await rejects(cases.open(agent, openBody(a, { subject: 'อีกเรื่อง' })), 'WORK_HAS_CASE');
+  assert.equal(await owner.csCase.count({ where: { tenantId: a.tenantId } }), 1);
+});
+
+test('สองคำสั่งพร้อมกันบน version เดียวกัน: สำเร็จหนึ่ง อีกคำสั่งได้ VERSION_CONFLICT', async (t) => {
+  const { cases, a } = await setup(t);
+  const agent = { tenantId: a.tenantId, userId: a.agentId };
+  const teammate = { tenantId: a.tenantId, userId: a.teammateId };
+  const opened = await cases.open(agent, openBody(a));
+  const results = await Promise.allSettled([
+    cases.addNote(agent, opened.caseId, { commandId: randomUUID(), expectedVersion: 1, note: 'ก' }),
+    cases.changeStatus(teammate, opened.caseId, {
+      commandId: randomUUID(),
+      expectedVersion: 1,
+      status: 'RESOLVED',
+    }),
+  ]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  const failed = results.find((result) => result.status === 'rejected');
+  assert.ok(failed?.status === 'rejected' && failed.reason instanceof AgentCaseError);
+  assert.equal(failed.reason.code, 'VERSION_CONFLICT');
+  assert.equal((await cases.detail(agent, opened.caseId)).version, 2);
 });

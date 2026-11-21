@@ -36,8 +36,11 @@ export function WorkCustomerPanel({
   sessionReady: boolean;
   readOnly?: boolean;
   invalidationRevision?: number;
-  /** #956 แจ้งลูกค้าที่ผูกกับงานปัจจุบัน (null = ยังไม่ผูก หรืออ่านไม่ได้) ให้แท็บเคส */
-  onCustomerChange?: (customer: LinkedCustomer | null) => void;
+  /**
+   * #956 แจ้งลูกค้าที่ผูกกับงานปัจจุบันให้แท็บเคส: null = งานยังไม่ผูกลูกค้า,
+   * undefined = กำลังโหลดหรืออ่านไม่ได้ (ไม่ควรบอกให้ไปเลือกลูกค้า)
+   */
+  onCustomerChange?: (customer: LinkedCustomer | null | undefined) => void;
 }) {
   const { t } = useTranslation('workspace');
   const [view, setView] = useState<WorkCustomerView>();
@@ -68,17 +71,20 @@ export function WorkCustomerPanel({
   const customerChange = useRef(onCustomerChange);
   customerChange.current = onCustomerChange;
   const linkedContact = view?.state === 'LINKED' ? view.contact : undefined;
+  const linkState = status !== 'ready' || !view ? 'unknown' : linkedContact ? 'linked' : 'unlinked';
   useEffect(() => {
     customerChange.current?.(
-      linkedContact
+      linkState === 'linked' && linkedContact
         ? {
             id: linkedContact.id,
             displayName: linkedContact.displayName,
             company: linkedContact.company,
           }
-        : null,
+        : linkState === 'unlinked'
+          ? null
+          : undefined,
     );
-  }, [linkedContact?.id, linkedContact?.displayName, linkedContact?.company]);
+  }, [linkState, linkedContact?.id, linkedContact?.displayName, linkedContact?.company]);
   function closePii() {
     setView(undefined);
     setItems([]);

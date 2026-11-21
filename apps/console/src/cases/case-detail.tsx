@@ -318,7 +318,7 @@ export function CaseDetailView({ api, caseId, viewerUserId, onBack, onSignIn }: 
       <header className="cs-detail-head">
         <div className="cs-detail-title">
           <div className="cs-title-line">
-            <h1 ref={headingRef} tabIndex={-1}>
+            <h1 ref={headingRef} tabIndex={-1} title={item.subject}>
               {item.subject}
             </h1>
             <CaseStatusChip status={item.status} />
@@ -456,9 +456,12 @@ export function CaseDetailView({ api, caseId, viewerUserId, onBack, onSignIn }: 
               <dd>
                 <strong>{name(item.assigneeUserId)}</strong>
                 {item.assigneeUserId && !item.assigneeInTeam ? (
-                  <Badge tone="attention" className="cs-you">
-                    {t('summary.assigneeInactive')}
-                  </Badge>
+                  <>
+                    <Badge tone="attention" className="cs-you">
+                      {t('summary.assigneeInactive')}
+                    </Badge>
+                    <span className="cs-muted cs-dd-hint">{t('summary.reassignHint')}</span>
+                  </>
                 ) : null}
               </dd>
               <dt>{t('summary.team')}</dt>
@@ -476,9 +479,6 @@ export function CaseDetailView({ api, caseId, viewerUserId, onBack, onSignIn }: 
               <dt>{t('summary.links')}</dt>
               <dd>{item.linkedWorkCount}</dd>
             </dl>
-            {item.assigneeUserId && !item.assigneeInTeam ? (
-              <p className="cs-muted">{t('summary.reassignHint')}</p>
-            ) : null}
           </section>
           <section className="cs-card">
             <h2>{t('customer.title')}</h2>

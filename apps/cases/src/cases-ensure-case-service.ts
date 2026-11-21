@@ -209,8 +209,14 @@ export class CasesEnsureCaseService implements J2CaseOwnerPort {
       Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`cs-case-dedupe:${tenantId}:${command.contactId}:${typePolicy.caseTypeKey}`}))`,
     );
 
+    // #956 เคสที่ Agent เปิดเองมีผู้เขียนเป็น AgentCases จึงไม่นำมา link/reopen แม้ประเภทตรงกัน
     const existingCase = await transaction.csCase.findFirst({
-      where: { tenantId, contactId: command.contactId, caseTypeKey: typePolicy.caseTypeKey },
+      where: {
+        tenantId,
+        contactId: command.contactId,
+        caseTypeKey: typePolicy.caseTypeKey,
+        createdByUserId: null,
+      },
       orderBy: { createdAt: 'desc' },
     });
 
