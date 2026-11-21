@@ -54,6 +54,7 @@ import {
 } from './work-session.js';
 import { WorkSessionPanel } from './work-session-panel.js';
 import { PaneIcon, PaneSplitter, usePaneWidth, type PaneIconName } from './workspace-pane.js';
+import { UtilityToolbar } from './utility-toolbar.js';
 import { devicePreferences, micConstraint } from './device-preferences.js';
 import { DeviceTestButton } from './device-test-panel.js';
 import {
@@ -2183,35 +2184,27 @@ function AgentWorkspace({
     </aside>
   ) : null;
 
+  // แผงงานอยู่ก่อนแถบเครื่องมือใน DOM ตามลำดับการอ่านซ้ายไปขวา แถบเครื่องมือเป็น Tab stop เดียว (roving)
   const utilityRail = (
-    <div
-      className="aw-v3-utility"
-      role="toolbar"
-      aria-orientation="vertical"
-      aria-label={t('layout.utility')}
-    >
-      <button
-        type="button"
-        aria-label={inspectorOpen ? t('layout.inspector.close') : t('layout.inspector.open')}
-        title={inspectorOpen ? t('layout.inspector.close') : t('layout.inspector.open')}
-        aria-expanded={inspectorOpen}
-        onClick={() => setInspectorOpen((open) => !open)}
-      >
-        <PaneIcon name="panel" size={20} />
-      </button>
-      {inspectorTabs.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          aria-label={t(`layout.inspector.tabs.${tab.id}`)}
-          title={t(`layout.inspector.tabs.${tab.id}`)}
-          aria-pressed={inspectorOpen && inspectorTab === tab.id}
-          onClick={() => showInspector(tab.id)}
-        >
-          <PaneIcon name={tab.icon} size={20} />
-        </button>
-      ))}
-    </div>
+    <UtilityToolbar
+      label={t('layout.utility')}
+      items={[
+        {
+          id: 'panel',
+          label: inspectorOpen ? t('layout.inspector.close') : t('layout.inspector.open'),
+          icon: <PaneIcon name="panel" size={20} />,
+          expanded: inspectorOpen,
+          onPress: () => setInspectorOpen((open) => !open),
+        },
+        ...inspectorTabs.map((tab) => ({
+          id: tab.id,
+          label: t(`layout.inspector.tabs.${tab.id}`),
+          icon: <PaneIcon name={tab.icon} size={20} />,
+          pressed: inspectorOpen && inspectorTab === tab.id,
+          onPress: () => showInspector(tab.id),
+        })),
+      ]}
+    />
   );
 
   const shellContent = (
