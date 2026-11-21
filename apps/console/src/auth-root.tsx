@@ -24,6 +24,8 @@ import { appI18n } from './i18n/index.js';
 import { createEmbedOriginApi } from './dphone-embedding/api.js';
 import { AgentHistory } from './agent-history/agent-history.js';
 import { createAgentHistoryApi } from './agent-history/api.js';
+import { CasesPage } from './cases/cases-page.js';
+import { createCasesApi } from './cases/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
 import { createAccountApi, createAccountPolicyApi } from './account/api.js';
 import { AccountPage, AccountPolicyPage } from './account/account.js';
@@ -213,6 +215,8 @@ export function ConsoleAuthRoot() {
   );
   const homeView = view === 'home';
   const historyView = view === 'agent-history';
+  // #956: เคสของทีม (รายการ + รายละเอียด `&case=<id>`)
+  const casesView = view === 'team-cases';
   const preferenceView = view === 'preferences';
   const governanceView = view === 'governance';
   const journeyView = view === 'journeys';
@@ -238,6 +242,7 @@ export function ConsoleAuthRoot() {
       signedOut ||
       homeView ||
       historyView ||
+      casesView ||
       preferenceView ||
       governanceView ||
       journeyView ||
@@ -322,6 +327,8 @@ export function ConsoleAuthRoot() {
               <CustomerAccessSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : historyView ? (
               <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : casesView ? (
+              <CasesSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : accountView ? (
               <AccountSurface
                 apiBaseUrl={apiBaseUrl}
@@ -439,6 +446,68 @@ export function HistorySurface({
       <AgentHistory
         api={api}
         identityKey={identityKey}
+        onSignIn={() => void signInFromCurrentPage(auth)}
+      />
+    </ConsoleShell>
+  );
+}
+
+export function CasesSurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
+  const auth = useAuth();
+  const { t } = useTranslation('cases');
+  const accessToken = auth.user?.access_token;
+  const latestToken = useRef(accessToken);
+  latestToken.current = auth.isAuthenticated ? accessToken : undefined;
+  const api = useMemo(
+    () => createCasesApi({ baseUrl: apiBaseUrl, accessToken: () => latestToken.current }),
+    [apiBaseUrl],
+  );
+  if (auth.isLoading)
+    return (
+      <main className="empty" aria-busy="true">
+        {t('loading')}
+      </main>
+    );
+  if (auth.error || !auth.isAuthenticated || !accessToken)
+    return (
+      <main className="empty">
+        <p>{t('unauthorized')}</p>
+        <Button onPress={() => void signInFromCurrentPage(auth)}>{t('signIn')}</Button>
+      </main>
+    );
+  const profile = auth.user?.profile;
+  const identity = [profile?.iss, profile?.tenant_id, profile?.dc_user_id, profile?.sub];
+  if (
+    profile?.iss !== auth.settings.authority ||
+    profile?.tenant_slug !== tenantAlias ||
+    !identity.every((field) => typeof field === 'string' && field.length > 0)
+  ) {
+    return (
+      <main className="empty" role="alert">
+        {t('noTeam')}
+      </main>
+    );
+  }
+  const identityKey = JSON.stringify(identity);
+  return (
+    <ConsoleShell
+      key={identityKey}
+      {...shellUserProps(auth, tenantAlias)}
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId="team-cases"
+    >
+      <CasesPage
+        api={api}
+        identityKey={identityKey}
+        viewerUserId={profile.dc_user_id as string}
         onSignIn={() => void signInFromCurrentPage(auth)}
       />
     </ConsoleShell>

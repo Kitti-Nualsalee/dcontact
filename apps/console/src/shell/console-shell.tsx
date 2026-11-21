@@ -45,6 +45,7 @@ export type ConsoleShellApp =
   | 'customer-rules'
   | 'customer-activity'
   | 'agent-history'
+  | 'team-cases'
   | 'journeys'
   | 'contact-governance'
   | 'dphone-embedding'
