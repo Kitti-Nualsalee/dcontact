@@ -237,6 +237,11 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
       await owner.agentStateLog.deleteMany({ where: { tenantId } });
       await owner.queue.deleteMany({ where: { tenantId } });
       await owner.user.deleteMany({ where: { tenantId } });
+      // ล้างเฉพาะ fixture ของ test ด้วย owner ใน sandbox; runtime ยังคง immutable provenance
+      await owner.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+        await tx.tenantSettings.deleteMany({ where: { tenantId } });
+      });
       await owner.tenant.delete({ where: { id: tenantId } });
     }
     await Promise.all([owner.$disconnect(), application.$disconnect()]);
@@ -820,6 +825,198 @@ test('Agent snapshot ใช้ tenant/user จาก token และคืน au
     resultsBeforeHistory,
   );
   assert.equal(leaseRequests.length, 0);
+
+  // #964 สรุปงานของฉันนับจากนิยามเดียวกับรายการ และไม่รวมงานของ Agent/tenant อื่น
+  await owner.tenantSettings.create({
+    data: {
+      tenantId: tenantAId,
+      locale: 'th-TH',
+      timezone: 'Asia/Bangkok',
+      bootstrapTemplateVersion: 'fixture-v1',
+      bootstrapTemplateDigest: 'a'.repeat(64),
+      provisioningRequestId: randomUUID(),
+    },
+  });
+  const talkId = randomUUID();
+  await owner.interaction.createMany({
+    data: [
+      {
+        id: talkId,
+        tenantId: tenantAId,
+        agentId: agentAId,
+        channel: 'VOICE',
+        direction: 'INBOUND',
+        state: 'COMPLETED',
+        wrapUpCode: 'FOLLOW_UP_REQUIRED',
+        queuedAt: new Date('2026-06-01T10:55:00.000Z'),
+        answeredAt: new Date('2026-06-01T10:58:00.000Z'),
+        endedAt: new Date('2026-06-01T11:00:30.000Z'),
+      },
+      {
+        id: randomUUID(),
+        tenantId: tenantAId,
+        agentId: otherAgentAId,
+        channel: 'VOICE',
+        direction: 'INBOUND',
+        state: 'COMPLETED',
+        wrapUpCode: 'CUSTOMER_ASSISTED',
+        queuedAt: new Date('2027-01-01T10:00:00.000Z'),
+        endedAt: new Date('2027-01-01T10:30:00.000Z'),
+      },
+      {
+        id: randomUUID(),
+        tenantId: tenantBId,
+        agentId: agentBId,
+        channel: 'VOICE',
+        direction: 'INBOUND',
+        state: 'COMPLETED',
+        wrapUpCode: 'CUSTOMER_ASSISTED',
+        queuedAt: new Date('2027-01-01T10:00:00.000Z'),
+        endedAt: new Date('2027-01-01T10:30:00.000Z'),
+      },
+    ],
+  });
+  type Summary = {
+    period: { key: string; from: string | null; to: string | null; timeZone: string };
+    completed: number;
+    talk: { averageSeconds: number | null; measuredCount: number };
+    byDisposition: { disposition: string | null; count: number }[];
+  };
+  const summaryUrl = `${historyUrl}/summary`;
+  const listAll = async (query: string) => {
+    const ids: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = (await (
+        await fetch(`${historyUrl}?limit=2${query}${cursor ? `&cursor=${cursor}` : ''}`, {
+          headers: noteHeaders,
+        })
+      ).json()) as HistoryPage;
+      ids.push(...page.items.map((item) => item.interactionId));
+      cursor = page.nextCursor;
+    } while (cursor);
+    return ids;
+  };
+  const allSummaryResponse = await fetch(`${summaryUrl}?period=all`, { headers: noteHeaders });
+  assert.equal(allSummaryResponse.status, 200);
+  assert.equal(allSummaryResponse.headers.get('cache-control'), 'no-store');
+  const allSummary = (await allSummaryResponse.json()) as Summary;
+  assert.equal(allSummary.period.key, 'all');
+  assert.equal(allSummary.period.from, null);
+  assert.equal(allSummary.period.timeZone, 'Asia/Bangkok');
+  // ทุกช่วงสิ้นสุดที่เวลาคำนวณ — งาน fixture ที่บันทึกในอนาคต (2027) จึงไม่นับ
+  assert.ok(allSummary.period.to && new Date(allSummary.period.to) <= new Date());
+  const asOf = `&to=${allSummary.period.to}`;
+  const everyId = await listAll(asOf);
+  assert.equal(allSummary.completed, everyId.length);
+  assert.ok(everyId.includes(talkId));
+  assert.equal(
+    everyId.some((id) => (historyIds as string[]).includes(id)),
+    false,
+  );
+  assert.deepEqual(allSummary.talk, { averageSeconds: 150, measuredCount: 1 });
+  for (const group of allSummary.byDisposition) {
+    const query = `${asOf}&disposition=${encodeURIComponent(group.disposition ?? '__none__')}`;
+    assert.equal((await listAll(query)).length, group.count, query);
+  }
+  assert.equal(
+    allSummary.byDisposition.reduce((total, group) => total + group.count, 0),
+    allSummary.completed,
+  );
+  const assisted = await listAll('&disposition=CUSTOMER_ASSISTED');
+  assert.ok(historyIds.every((id) => assisted.includes(id)));
+  assert.deepEqual(await listAll('&disposition=__none__'), [queuedFallbackId]);
+
+  const windowQuery = '&from=2027-01-01T00:00:00.000Z&to=2027-01-02T00:00:00.000Z';
+  assert.deepEqual((await listAll(windowQuery)).sort(), [...historyIds].sort());
+  assert.deepEqual(
+    await listAll(
+      '&from=2026-06-01T00:00:00.000Z&to=2026-06-02T00:00:00.000Z&disposition=FOLLOW_UP_REQUIRED',
+    ),
+    [talkId],
+  );
+  const filteredFirst = (await (
+    await fetch(`${historyUrl}?limit=2${windowQuery}`, { headers: noteHeaders })
+  ).json()) as HistoryPage;
+  const mismatchedCursor = await fetch(`${historyUrl}?limit=2&cursor=${filteredFirst.nextCursor}`, {
+    headers: noteHeaders,
+  });
+  assert.equal(mismatchedCursor.status, 400);
+  assert.equal(((await mismatchedCursor.json()) as { code: string }).code, 'INVALID_CURSOR');
+  // cursor v1 ของรุ่นก่อน #964 ยังใช้ได้เมื่อไม่มีตัวกรอง
+  const legacyCursor = Buffer.from(
+    JSON.stringify({
+      version: 1,
+      tenantId: tenantAId,
+      userId: agentAId,
+      recordedAt: '2027-01-01T12:00:00.000Z',
+      interactionId: historyIds[1],
+    }),
+  ).toString('base64url');
+  const legacyPage = await fetch(`${historyUrl}?limit=2&cursor=${legacyCursor}`, {
+    headers: noteHeaders,
+  });
+  assert.equal(legacyPage.status, 200);
+  assert.deepEqual(
+    ((await legacyPage.json()) as HistoryPage).items.map((item) => item.interactionId),
+    historyIds.slice(2),
+  );
+  assert.equal(
+    (await fetch(`${historyUrl}?cursor=${legacyCursor}${windowQuery}`, { headers: noteHeaders }))
+      .status,
+    400,
+  );
+
+  const today = (await (
+    await fetch(`${summaryUrl}?period=today`, { headers: noteHeaders })
+  ).json()) as Summary;
+  assert.equal(today.period.timeZone, 'Asia/Bangkok');
+  assert.ok(today.period.from && today.period.to);
+  const todayIds = await listAll(`&from=${today.period.from}&to=${today.period.to}`);
+  assert.equal(today.completed, todayIds.length);
+  const noteRecordedAt = allHistory.items.find(
+    (item) => item.interactionId === noteInteractionId,
+  )?.recordedAt;
+  // งานที่บันทึกก่อนเที่ยงคืนกรุงเทพไม่อยู่ใน "วันนี้" ถ้า test รันคร่อมเที่ยงคืน
+  if (noteRecordedAt && noteRecordedAt >= today.period.from)
+    assert.ok(todayIds.includes(noteInteractionId));
+  assert.equal(todayIds.includes(talkId), false);
+
+  for (const [query, expected] of [
+    ['period=week', 'INVALID_PERIOD'],
+    ['period=', 'INVALID_PERIOD'],
+  ] as const) {
+    const rejected = await fetch(`${summaryUrl}?${query}`, { headers: noteHeaders });
+    assert.equal(rejected.status, 400);
+    assert.equal(((await rejected.json()) as { code: string }).code, expected);
+  }
+  for (const [query, expected] of [
+    ['from=yesterday', 'INVALID_FROM'],
+    ['to=2027-01-01', 'INVALID_TO'],
+    ['from=2027-01-02T00:00:00.000Z&to=2027-01-01T00:00:00.000Z', 'INVALID_RANGE'],
+    ['disposition=', 'INVALID_DISPOSITION'],
+  ] as const) {
+    const rejected = await fetch(`${historyUrl}?${query}`, { headers: noteHeaders });
+    assert.equal(rejected.status, 400, query);
+    assert.equal(((await rejected.json()) as { code: string }).code, expected);
+  }
+  const agentBSummary = (await (
+    await fetch(`${summaryUrl}?period=all`, { headers: { authorization: 'Bearer agent-b-token' } })
+  ).json()) as Summary;
+  assert.equal(agentBSummary.period.timeZone, 'UTC');
+  const agentBList = (await (
+    await fetch(`${historyUrl}?limit=100&to=${agentBSummary.period.to}`, {
+      headers: { authorization: 'Bearer agent-b-token' },
+    })
+  ).json()) as HistoryPage;
+  assert.equal(agentBSummary.completed, agentBList.items.length);
+  assert.equal(
+    agentBList.items.some((item) => everyId.includes(item.interactionId)),
+    false,
+  );
+  await owner.user.update({ where: { id: agentAId }, data: { role: 'SUPERVISOR' } });
+  assert.equal((await fetch(summaryUrl, { headers: noteHeaders })).status, 403);
+  await owner.user.update({ where: { id: agentAId }, data: { role: 'AGENT' } });
 
   const credentialsResponse = await fetch(
     `http://127.0.0.1:${address.port}/api/v1/workspace/agent/sip-credentials?tenantId=${tenantBId}&telephonyNodeId=fs-a`,
