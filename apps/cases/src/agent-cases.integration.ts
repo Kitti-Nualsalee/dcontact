@@ -272,7 +272,10 @@ test('งานที่ผูกในไทม์ไลน์บอกว่�
   const linked = (detail: Awaited<ReturnType<typeof cases.detail>>) =>
     detail.activities.find((activity) => activity.kind === 'LINKED');
 
-  assert.equal(linked(await cases.detail(agent, opened.caseId))?.interactionMine, true);
+  const own = linked(await cases.detail(agent, opened.caseId));
+  assert.equal(own?.interactionMine, true);
+  assert.equal(own?.interactionChannel, 'VOICE');
+  assert.equal(own?.interactionDirection, 'INBOUND');
   const teammateView = await cases.detail(
     { tenantId: a.tenantId, userId: a.teammateId },
     opened.caseId,

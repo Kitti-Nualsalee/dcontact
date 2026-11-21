@@ -98,6 +98,8 @@ export interface AgentCaseActivity {
   interactionId: string | null;
   /** งานที่ผูกเป็นของผู้ดูเอง จึงเปิดดูในประวัติงานของตนได้ */
   interactionMine: boolean;
+  interactionChannel: string | null;
+  interactionDirection: 'INBOUND' | 'OUTBOUND' | null;
   body: string | null;
   fromStatus: AgentCaseStatus | null;
   toStatus: AgentCaseStatus | null;
@@ -682,12 +684,12 @@ export class AgentCases {
         ? [activity.interactionId]
         : [],
     );
-    const [mine, assignee] = await Promise.all([
+    const [linkedWork, assignee] = await Promise.all([
       linkedIds.length === 0
         ? Promise.resolve([])
         : transaction.interaction.findMany({
-            where: { tenantId: actor.tenantId, id: { in: linkedIds }, agentId: actor.userId },
-            select: { id: true },
+            where: { tenantId: actor.tenantId, id: { in: linkedIds } },
+            select: { id: true, agentId: true, channel: true, direction: true },
           }),
       found.assigneeUserId
         ? transaction.user.findFirst({
@@ -702,7 +704,7 @@ export class AgentCases {
           })
         : Promise.resolve(null),
     ]);
-    const mineIds = new Set(mine.map((row) => row.id));
+    const work = new Map(linkedWork.map((row) => [row.id, row]));
     return {
       id: found.id,
       subject: found.subject,
@@ -726,7 +728,13 @@ export class AgentCases {
         occurredAt: activity.occurredAt.toISOString(),
         actorUserId: activity.actorUserId,
         interactionId: activity.interactionId,
-        interactionMine: activity.interactionId !== null && mineIds.has(activity.interactionId),
+        interactionMine:
+          activity.interactionId !== null &&
+          work.get(activity.interactionId)?.agentId === actor.userId,
+        interactionChannel:
+          (activity.interactionId && work.get(activity.interactionId)?.channel) || null,
+        interactionDirection:
+          (activity.interactionId && work.get(activity.interactionId)?.direction) || null,
         body: activity.body,
         fromStatus: activity.fromStatus,
         toStatus: activity.toStatus,
