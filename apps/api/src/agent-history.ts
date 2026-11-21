@@ -1,18 +1,29 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma, type PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import { findActiveAgent } from './active-agent.js';
+import {
+  completedWorkSql,
+  filterKey,
+  periodWindow,
+  resolveTimeZone,
+  summaryPeriodFrom,
+  whereSql,
+  workFilterFrom,
+  workFilterSql,
+  type WorkActor,
+} from './agent-work-metrics.js';
 
-type Actor = { tenantId: string; userId: string };
 type Cursor = {
-  version: 1;
+  version: 2;
   tenantId: string;
   userId: string;
+  filter: string;
   recordedAt: string;
   interactionId: string;
 };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function cursorFrom(value: unknown, actor: Actor): Cursor | undefined {
+function cursorFrom(value: unknown, actor: WorkActor, filter: string): Cursor | undefined {
   if (value === undefined) return;
   try {
     if (typeof value !== 'string' || value.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(value))
@@ -22,10 +33,12 @@ function cursorFrom(value: unknown, actor: Actor): Cursor | undefined {
       !parsed ||
       typeof parsed !== 'object' ||
       Array.isArray(parsed) ||
-      Object.keys(parsed).sort().join(',') !== 'interactionId,recordedAt,tenantId,userId,version' ||
-      parsed.version !== 1 ||
+      Object.keys(parsed).sort().join(',') !==
+        'filter,interactionId,recordedAt,tenantId,userId,version' ||
+      parsed.version !== 2 ||
       parsed.tenantId !== actor.tenantId ||
       parsed.userId !== actor.userId ||
+      parsed.filter !== filter ||
       typeof parsed.interactionId !== 'string' ||
       !uuid.test(parsed.interactionId) ||
       typeof parsed.recordedAt !== 'string' ||
@@ -38,12 +51,20 @@ function cursorFrom(value: unknown, actor: Actor): Cursor | undefined {
   }
 }
 
+export interface AgentHistoryQuery {
+  limit?: unknown;
+  cursor?: unknown;
+  from?: unknown;
+  to?: unknown;
+  disposition?: unknown;
+}
+
 export async function readAgentHistory(
   database: PrismaClient,
-  actor: Actor,
-  limitValue: unknown,
-  cursorValue: unknown,
+  actor: WorkActor,
+  query: AgentHistoryQuery,
 ) {
+  const limitValue = query.limit;
   const limit =
     limitValue === undefined
       ? 20
@@ -51,13 +72,17 @@ export async function readAgentHistory(
         ? Number(limitValue)
         : undefined;
   if (limit === undefined) throw new BadRequestException({ code: 'INVALID_LIMIT' });
-  const cursor = cursorFrom(cursorValue, actor);
+  const filter = workFilterFrom(query);
+  const key = filterKey(filter);
+  const cursor = cursorFrom(query.cursor, actor, key);
   return withTenantDatabaseTransaction(database, actor.tenantId, async (transaction) => {
     const agent = await findActiveAgent(transaction, actor);
     if (!agent) throw new ForbiddenException({ code: 'AGENT_REQUIRED' });
-    const predicate = cursor
-      ? Prisma.sql`WHERE (recorded_at, interaction_id) < (${new Date(cursor.recordedAt)}::timestamptz, ${cursor.interactionId}::uuid)`
-      : Prisma.empty;
+    const conditions = workFilterSql(filter);
+    if (cursor)
+      conditions.push(
+        Prisma.sql`(recorded_at, interaction_id) < (${new Date(cursor.recordedAt)}::timestamptz, ${cursor.interactionId}::uuid)`,
+      );
     const rows = await transaction.$queryRaw<
       {
         interaction_id: string;
@@ -69,29 +94,8 @@ export async function readAgentHistory(
         legacy: boolean;
       }[]
     >(Prisma.sql`
-      WITH history AS (
-        SELECT interaction.id AS interaction_id,
-          COALESCE(interaction.answered_at, interaction.queued_at) AS started_at,
-          interaction.ended_at, interaction.wrap_up_code AS disposition,
-          COALESCE(result.recorded_at, completion.created_at AT TIME ZONE 'UTC',
-            interaction.ended_at AT TIME ZONE 'UTC', interaction.queued_at AT TIME ZONE 'UTC') AS recorded_at,
-          CASE WHEN result.interaction_id IS NOT NULL THEN 'SERVER_COMMIT'
-            WHEN completion.created_at IS NOT NULL THEN 'LEGACY_EVENT' ELSE 'LEGACY_FALLBACK' END AS recorded_at_source,
-          interaction.voice_wrapup_policy = 'LEGACY' AS legacy
-        FROM interactions interaction
-        LEFT JOIN interaction_wrapup_results result ON result.interaction_id = interaction.id
-          AND result.tenant_id = interaction.tenant_id AND result.owner_agent_id = interaction.agent_id
-        LEFT JOIN LATERAL (
-          SELECT event.created_at FROM interaction_events event
-          WHERE event.tenant_id = interaction.tenant_id AND event.interaction_id = interaction.id
-            AND event.type = 'interaction.wrapup_completed'
-          ORDER BY event.created_at, event.id LIMIT 1
-        ) completion ON interaction.voice_wrapup_policy = 'LEGACY'
-        WHERE interaction.tenant_id = ${actor.tenantId}::uuid AND interaction.agent_id = ${actor.userId}::uuid
-          AND interaction.channel = 'VOICE' AND interaction.state = 'COMPLETED'
-          AND (interaction.voice_wrapup_policy = 'LEGACY' OR result.interaction_id IS NOT NULL)
-      )
-      SELECT * FROM history ${predicate}
+      WITH work AS (${completedWorkSql(actor)})
+      SELECT * FROM work ${whereSql(conditions)}
       ORDER BY recorded_at DESC, interaction_id DESC LIMIT ${limit + 1}
     `);
     const items = rows.slice(0, limit).map((row) => ({
@@ -108,14 +112,74 @@ export async function readAgentHistory(
       rows.length > limit && last
         ? Buffer.from(
             JSON.stringify({
-              version: 1,
+              version: 2,
               tenantId: actor.tenantId,
               userId: actor.userId,
+              filter: key,
               recordedAt: last.recordedAt,
               interactionId: last.interactionId,
-            }),
+            } satisfies Cursor),
           ).toString('base64url')
         : null;
     return { items, nextCursor };
+  });
+}
+
+/** #964 สรุปงานที่จบของ Agent ในช่วงเวลา — ตัวเลขทุกตัวนับจาก CTE และตัวกรองเดียวกับรายการ */
+export async function readAgentHistorySummary(
+  database: PrismaClient,
+  actor: WorkActor,
+  periodValue: unknown,
+  now: Date = new Date(),
+) {
+  const period = summaryPeriodFrom(periodValue);
+  return withTenantDatabaseTransaction(database, actor.tenantId, async (transaction) => {
+    const agent = await findActiveAgent(transaction, actor);
+    if (!agent) throw new ForbiddenException({ code: 'AGENT_REQUIRED' });
+    const settings = await transaction.tenantSettings.findUnique({
+      where: { tenantId: actor.tenantId },
+      select: { timezone: true },
+    });
+    const timeZone = resolveTimeZone(settings?.timezone);
+    const window = periodWindow(period, now, timeZone);
+    const rows = await transaction.$queryRaw<
+      {
+        disposition: string | null;
+        completed: number;
+        talk_measured: number;
+        talk_seconds: number | null;
+      }[]
+    >(Prisma.sql`
+      WITH work AS (${completedWorkSql(actor)})
+      SELECT disposition, count(*)::int AS completed,
+        count(*) FILTER (WHERE answered_at IS NOT NULL AND ended_at >= answered_at)::int AS talk_measured,
+        sum(EXTRACT(EPOCH FROM (ended_at - answered_at)))
+          FILTER (WHERE answered_at IS NOT NULL AND ended_at >= answered_at)::float8 AS talk_seconds
+      FROM work ${whereSql(workFilterSql(window))}
+      GROUP BY disposition
+    `);
+    const completed = rows.reduce((total, row) => total + row.completed, 0);
+    const measured = rows.reduce((total, row) => total + row.talk_measured, 0);
+    const seconds = rows.reduce((total, row) => total + (row.talk_seconds ?? 0), 0);
+    return {
+      period: {
+        key: period,
+        from: window.from?.toISOString() ?? null,
+        to: window.to?.toISOString() ?? null,
+        timeZone,
+      },
+      completed,
+      talk: {
+        averageSeconds: measured ? Math.round(seconds / measured) : null,
+        measuredCount: measured,
+      },
+      byDisposition: rows
+        .map((row) => ({ disposition: row.disposition, count: row.completed }))
+        .sort(
+          (left, right) =>
+            right.count - left.count ||
+            (left.disposition ?? '￿').localeCompare(right.disposition ?? '￿'),
+        ),
+    };
   });
 }

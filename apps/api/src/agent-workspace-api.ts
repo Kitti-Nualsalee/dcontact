@@ -25,7 +25,7 @@ import { AGENT_SIP_CREDENTIALS, type AgentSipCredentialService } from './agent-s
 import { GatewayRoles, type AuthenticatedGatewayRequest } from './gateway-auth.js';
 import { EmbedOriginService } from './embed-origins.js';
 import { saveAgentWrapup, readAgentWrapup, readAgentWrapupCommand } from './agent-wrapup-v1.js';
-import { readAgentHistory } from './agent-history.js';
+import { readAgentHistory, readAgentHistorySummary } from './agent-history.js';
 import {
   activeNotReadyReasons,
   isActiveNotReadyReason,
@@ -110,9 +110,24 @@ export class AgentWorkspaceController {
     @Req() request: AuthenticatedGatewayRequest,
     @Query('limit') limit: unknown,
     @Query('cursor') cursor: unknown,
+    @Query('from') from: unknown,
+    @Query('to') to: unknown,
+    @Query('disposition') disposition: unknown,
   ) {
     return wrapupOperation(request, () =>
-      readAgentHistory(this.database, identity(request), limit, cursor),
+      readAgentHistory(this.database, identity(request), { limit, cursor, from, to, disposition }),
+    );
+  }
+
+  @Get('history/summary')
+  @GatewayRoles('agent')
+  @Header('Cache-Control', 'no-store')
+  async historySummary(
+    @Req() request: AuthenticatedGatewayRequest,
+    @Query('period') period: unknown,
+  ) {
+    return wrapupOperation(request, () =>
+      readAgentHistorySummary(this.database, identity(request), period),
     );
   }
 

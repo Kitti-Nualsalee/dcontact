@@ -4,6 +4,18 @@ test.use({ locale: 'th-TH' });
 
 const interactionId = '7a33ac96-d87d-4ca4-ab75-f27e40e943be';
 const nextId = '7a33ac96-d87d-4ca4-ab75-f27e40e943bf';
+const emptySummary = {
+  period: {
+    key: '7d',
+    from: '2026-11-15T17:00:00.000Z',
+    to: '2026-11-22T17:00:00.000Z',
+    timeZone: 'Asia/Bangkok',
+  },
+  completed: 0,
+  talk: { averageSeconds: null, measuredCount: 0 },
+  byDisposition: [],
+};
+const isSummary = (url: string) => new URL(url).pathname.endsWith('/history/summary');
 const item = {
   interactionId,
   startedAt: '2026-10-17T07:00:00.000Z',
@@ -35,7 +47,9 @@ test('auth surface เปลี่ยน identity โหลด navigation ให
     });
   });
   await page.route('**/api/v1/workspace/agent/history**', (route) =>
-    route.fulfill({ json: { items: [], nextCursor: null } }),
+    route.fulfill({
+      json: isSummary(route.request().url()) ? emptySummary : { items: [], nextCursor: null },
+    }),
   );
   await page.goto('/?view=agent-history&tenant=demo&identityHarness=1');
   await expect(page.locator('a[data-area="history"]')).toHaveCount(1);
@@ -58,6 +72,14 @@ test('Agent เปิดรายการ/โหลดเพิ่ม/detail pl
   });
   await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
   await page.route('**/api/v1/workspace/agent/history**', (route) => {
+    if (isSummary(route.request().url()))
+      return route.fulfill({
+        json: {
+          ...emptySummary,
+          completed: 2,
+          byDisposition: [{ disposition: 'CUSTOMER_ASSISTED', count: 2 }],
+        },
+      });
     const more = new URL(route.request().url()).searchParams.has('cursor');
     return route.fulfill({
       json: {
@@ -108,15 +130,112 @@ for (const [status, message] of [
     let failed = true;
     await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
     await page.route('**/api/v1/workspace/agent/history**', (route) =>
-      failed ? route.fulfill({ status }) : route.fulfill({ json: { items: [], nextCursor: null } }),
+      failed
+        ? route.fulfill({ status })
+        : route.fulfill({
+            json: isSummary(route.request().url()) ? emptySummary : { items: [], nextCursor: null },
+          }),
     );
     await page.goto('/?view=agent-history&tenant=demo');
     await expect(page.getByRole('alert')).toContainText(message);
     failed = false;
     await page.getByRole('button', { name: 'ลองอีกครั้ง', exact: true }).click();
-    await expect(page.getByText('ยังไม่มีงาน Voice ที่ปิดแล้ว', { exact: true })).toBeVisible();
+    await expect(
+      page.getByText('ไม่มีงาน Voice ที่จบในช่วงเวลานี้', { exact: true }),
+    ).toBeVisible();
   });
 }
+
+test('สรุปงานตามช่วงเวลา กดผลบันทึกแล้วรายการใช้ช่วงเวลาเดียวกับสรุป และ reload คงตัวกรอง', async ({
+  page,
+}) => {
+  const summaries: string[] = [];
+  const lists: URLSearchParams[] = [];
+  await page.route('**/api/v1/me/navigation**', (route) => route.fulfill({ status: 404 }));
+  await page.route('**/api/v1/workspace/agent/history**', (route) => {
+    const url = new URL(route.request().url());
+    if (isSummary(url.href)) {
+      const period = url.searchParams.get('period') ?? '';
+      summaries.push(period);
+      return route.fulfill({
+        json:
+          period === 'today'
+            ? {
+                ...emptySummary,
+                period: { ...emptySummary.period, key: 'today', from: '2026-11-21T17:00:00.000Z' },
+              }
+            : {
+                ...emptySummary,
+                completed: 3,
+                talk: { averageSeconds: 150, measuredCount: 2 },
+                byDisposition: [
+                  { disposition: 'CUSTOMER_ASSISTED', count: 2 },
+                  { disposition: 'FOLLOW_UP_REQUIRED', count: 1 },
+                ],
+              },
+      });
+    }
+    lists.push(url.searchParams);
+    const disposition = url.searchParams.get('disposition');
+    if (url.searchParams.get('from') === '2026-11-21T17:00:00.000Z')
+      return route.fulfill({ json: { items: [], nextCursor: null } });
+    return route.fulfill({
+      json: {
+        items:
+          disposition === 'FOLLOW_UP_REQUIRED'
+            ? [{ ...item, interactionId: nextId, disposition }]
+            : [item, { ...item, interactionId: nextId, disposition: 'FOLLOW_UP_REQUIRED' }],
+        nextCursor: null,
+      },
+    });
+  });
+  await page.goto('/?view=agent-history&tenant=demo');
+  const summary = page.getByRole('region', { name: 'สรุปงาน' });
+  await expect(summary).toContainText('16 พ.ย. 2569 – 22 พ.ย. 2569 · เขตเวลา Asia/Bangkok');
+  await expect(summary).toContainText('2:30');
+  await expect(summary).toContainText('จาก 2 งานที่มีเวลารับและวางสาย');
+  await expect(page.getByRole('button', { name: '7 วัน', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(
+    page.getByRole('heading', { name: 'รายการงาน · 7 วัน · ทุกผลบันทึก · 3 งาน' }),
+  ).toBeVisible();
+  expect(lists.at(-1)?.get('from')).toBe('2026-11-15T17:00:00.000Z');
+  expect(lists.at(-1)?.get('to')).toBe('2026-11-22T17:00:00.000Z');
+  expect(lists.at(-1)?.has('disposition')).toBe(false);
+
+  const followUp = summary.getByRole('button', { name: /ต้องติดตามต่อ/ });
+  await followUp.click();
+  await expect(followUp).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    page.getByRole('heading', { name: 'รายการงาน · 7 วัน · ต้องติดตามต่อ · 1 งาน' }),
+  ).toBeVisible();
+  await expect(page.getByText(interactionId, { exact: true })).toHaveCount(0);
+  await expect(page.getByText(nextId, { exact: true })).toBeVisible();
+  expect(lists.at(-1)?.get('disposition')).toBe('FOLLOW_UP_REQUIRED');
+  expect(lists.at(-1)?.get('from')).toBe('2026-11-15T17:00:00.000Z');
+  expect(new URL(page.url()).searchParams.get('disposition')).toBe('FOLLOW_UP_REQUIRED');
+
+  await page.reload();
+  await expect(summary.getByRole('button', { name: /ต้องติดตามต่อ/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(lists.at(-1)?.get('disposition')).toBe('FOLLOW_UP_REQUIRED');
+
+  await summary.getByRole('button', { name: 'แสดงงานที่จบทั้งหมด 3 งาน' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'รายการงาน · 7 วัน · ทุกผลบันทึก · 3 งาน' }),
+  ).toBeVisible();
+  expect(new URL(page.url()).searchParams.has('disposition')).toBe(false);
+
+  await page.getByRole('button', { name: 'วันนี้', exact: true }).click();
+  await expect(summary).toContainText('22 พ.ย. 2569 · เขตเวลา Asia/Bangkok');
+  await expect(page.getByText('ไม่มีงาน Voice ที่จบในช่วงเวลานี้', { exact: true })).toBeVisible();
+  expect(summaries.at(-1)).toBe('today');
+  expect(new URL(page.url()).searchParams.get('period')).toBe('today');
+});
 
 test('identity เปลี่ยนล้าง detail cache และไม่รับคำตอบ note ของ identity เก่า', async ({
   page,

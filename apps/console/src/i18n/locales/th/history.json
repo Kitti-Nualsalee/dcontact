@@ -30,5 +30,28 @@
   "unavailable": "ไม่มีข้อมูล",
   "SERVER_COMMIT": "เวลาที่ server บันทึกผล",
   "LEGACY_EVENT": "เวลาอ้างอิงจากเหตุการณ์ปิดงานเดิม",
-  "LEGACY_FALLBACK": "เวลาอ้างอิงจากเวลาจบหรือเข้าคิวของงานเดิม"
+  "LEGACY_FALLBACK": "เวลาอ้างอิงจากเวลาจบหรือเข้าคิวของงานเดิม",
+  "summary": {
+    "title": "สรุปงาน",
+    "periodLabel": "ช่วงเวลา",
+    "period": {
+      "today": "วันนี้",
+      "7d": "7 วัน",
+      "30d": "30 วัน",
+      "all": "ทั้งหมด"
+    },
+    "range": "{{range}} · เขตเวลา {{timeZone}}",
+    "allTime": "ทุกช่วงเวลา",
+    "completed": "งานที่จบ",
+    "showAll": "แสดงงานที่จบทั้งหมด {{count}} งาน",
+    "talk": "เวลาสนทนาเฉลี่ย",
+    "noTalk": "ไม่มีข้อมูล",
+    "talkBasis": "จาก {{count}} งานที่มีเวลารับและวางสาย",
+    "byDisposition": "แยกตามผลบันทึก",
+    "noDisposition": "ไม่มีผลบันทึก (งานเดิม)",
+    "allDispositions": "ทุกผลบันทึก",
+    "listTitle": "รายการงาน · {{period}} · {{disposition}} · {{count}} งาน",
+    "emptyPeriod": "ไม่มีงาน Voice ที่จบในช่วงเวลานี้",
+    "emptyFiltered": "ไม่มีงานที่ตรงกับผลบันทึกนี้ในช่วงเวลานี้"
+  }
 }

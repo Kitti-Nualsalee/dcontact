@@ -620,7 +620,7 @@ for (const linked of [true, false]) {
     const result = await readAgentWrapup(f.db, actor, f.interactionId);
     assert.equal(result.note, input.note);
     assert.equal(result.disposition, input.disposition);
-    const history = await readAgentHistory(f.db, actor, undefined, undefined);
+    const history = await readAgentHistory(f.db, actor, {});
     assert.equal(history.items.filter((item) => item.interactionId === f.interactionId).length, 1);
     assert.equal(history.items[0].disposition, input.disposition);
     assert.equal(history.items[0].recordedAtSource, 'SERVER_COMMIT');
