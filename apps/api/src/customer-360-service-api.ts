@@ -137,19 +137,34 @@ export class Customer360ServiceApi implements Customer360ServicePort {
     );
   }
 
-  /** Command ของ service อยู่ใน actor namespace SERVICE ของ binding นี้เท่านั้น */
+  /** Binding ที่ active ของ identity นี้แบบไม่ถือ lock; ใช้ก่อนได้ command lock เท่านั้น */
+  private async activeBinding(tx: Prisma.TransactionClient, identity: C360ServiceIdentity) {
+    const [row] = await tx.$queryRaw<{ id: string; authz_epoch: bigint }[]>`
+      SELECT id, authz_epoch FROM int_service_principals
+      WHERE tenant_id = ${identity.tenantId}::uuid AND issuer = ${identity.issuer}
+        AND subject = ${identity.subject} AND client_id = ${identity.clientId} AND active`;
+    if (!row) throw denied();
+    return row;
+  }
+
+  /**
+   * Command ของ service อยู่ใน actor namespace SERVICE ของ binding นี้เท่านั้น
+   * ลำดับ lock ตาม Phase Contract M3 v1 ข้อ 4: `authorize` ไม่ถือ lock แล้ว engine ถือ command lock
+   * จากนั้น `fence` จึงถือ row guard ของ principal (serialize กับ operator revoke/rebind)
+   */
   private async commandContext(req: AuthenticatedGatewayRequest, identity: C360ServiceIdentity) {
-    const bindingId = await withTenantDatabaseTransaction(
-      this.db,
-      identity.tenantId,
-      async (tx) => (await this.principal(tx, req)).id,
+    const binding = await withTenantDatabaseTransaction(this.db, identity.tenantId, (tx) =>
+      this.activeBinding(tx, identity),
     );
     let current: C360LockedServicePrincipal | undefined;
     const authorization: C360CommandAuthorization = {
       authorize: async (tx) => {
+        if ((await this.activeBinding(tx, identity)).id !== binding.id) throw denied();
+      },
+      fence: async (tx) => {
         current = undefined;
         const principal = await this.principal(tx, req);
-        if (principal.id !== bindingId) throw denied();
+        if (principal.id !== binding.id) throw denied();
         current = principal;
       },
       canAccessCommand: (command) => command.isTombstone || command.action === 'CONTACT_CREATE',
@@ -159,8 +174,10 @@ export class Customer360ServiceApi implements Customer360ServicePort {
         (await authorizeC360ServiceContact(tx, current, ref.id)),
     };
     return {
-      actor: c360ServiceActor(identity, bindingId),
+      actor: c360ServiceActor(identity, binding.id),
       authorization,
+      /** epoch ที่เห็นก่อน online proof; create ต้องไม่ผ่านถ้า operator เปลี่ยน binding หลังจากนี้ */
+      authzEpoch: binding.authz_epoch,
       principal: () => current,
     };
   }
@@ -175,14 +192,26 @@ export class Customer360ServiceApi implements Customer360ServicePort {
     await this.throttle(identity, C360_WRITE_POLICY);
     const context = await this.commandContext(req, identity);
     const deadline = await this.onlineProof(req, identity);
+    // หมดเวลาของ proof = ยังไม่ commit effect; client ส่ง commandId เดิมซ้ำได้อย่างปลอดภัย
+    const withinDeadline = () => {
+      if (this.now() >= deadline) throw identityUnavailable();
+    };
     const authorization: C360CommandAuthorization = {
       ...context.authorization,
       authorize: async (tx) => {
-        // หมดเวลาของ proof = ยังไม่ทำ effect; client ส่ง commandId เดิมซ้ำได้อย่างปลอดภัย
-        if (this.now() >= deadline) throw identityUnavailable();
+        withinDeadline();
         await context.authorization.authorize(tx);
-        if (!(await authorizeC360ServiceCapability(tx, context.principal()!))) throw denied();
       },
+      fence: async (tx) => {
+        await context.authorization.fence!(tx);
+        const principal = context.principal()!;
+        // operator แก้ binding/grant/custodian หลัง proof: ไม่ทำ effect ให้ client ส่งซ้ำเพื่อตรวจสิทธิ์ใหม่
+        if (principal.authz_epoch !== context.authzEpoch)
+          throw new Customer360HttpError(409, 'SERVICE_AUTHORIZATION_CHANGED', true);
+        if (!(await authorizeC360ServiceCapability(tx, principal))) throw denied();
+      },
+      // ตรวจหลัง audit/receipt/constraints โดยไม่เรียก network
+      beforeCommit: async () => withinDeadline(),
     };
     const result = await executeC360ProfileCommand(
       this.db,
@@ -206,16 +235,24 @@ export class Customer360ServiceApi implements Customer360ServicePort {
   async search(req: AuthenticatedGatewayRequest, body: unknown) {
     const identity = this.identity(req);
     await this.throttle(identity, C360_SEARCH_POLICY);
-    return withTenantDatabaseTransaction(
-      this.db,
-      identity.tenantId,
-      async (tx) => {
-        await tx.$queryRaw`SELECT set_config('jit', 'off', true)`;
-        const principal = await this.principal(tx, req);
-        return searchC360ContactsAs(tx, c360ServiceContactReader(principal), body, this.codec);
-      },
-      { isolationLevel: 'RepeatableRead' },
-    );
+    try {
+      return await withTenantDatabaseTransaction(
+        this.db,
+        identity.tenantId,
+        async (tx) => {
+          await tx.$queryRaw`SELECT set_config('jit', 'off', true)`;
+          const principal = await this.principal(tx, req);
+          return searchC360ContactsAs(tx, c360ServiceContactReader(principal), body, this.codec);
+        },
+        { isolationLevel: 'RepeatableRead' },
+      );
+    } catch (error) {
+      // operator แก้ principal หลัง snapshot ของ RepeatableRead แต่ก่อนถือ row guard: ให้ client ลองใหม่
+      const e = error as { code?: string; meta?: { code?: string } };
+      if (e?.code === '40001' || e?.meta?.code === '40001' || e?.code === 'P2034')
+        throw new Customer360HttpError(503, 'RESOURCE_BUSY', true);
+      throw error;
+    }
   }
 
   /** เฉพาะ core fields ของ Contact; ไม่ compose tags, Voice, governance หรือประวัติให้ machine */
@@ -260,6 +297,8 @@ export class Customer360ServiceApi implements Customer360ServicePort {
     const identity = this.identity(req);
     await this.throttle(identity, C360_RECEIPT_POLICY);
     const context = await this.commandContext(req, identity);
+    // reconcile เปลี่ยนสถานะของ command จึงต้องยืนยัน token แบบ online เหมือน create
+    await this.onlineProof(req, identity);
     send(
       response,
       await reconcileC360ProfileCommand(

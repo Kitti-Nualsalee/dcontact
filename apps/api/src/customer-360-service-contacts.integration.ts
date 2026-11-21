@@ -24,7 +24,11 @@ type Core = Awaited<ReturnType<typeof coreFixture>>;
 type Body = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 async function fixture(options: { enabled?: boolean } = {}) {
-  const introspection = { active: true, fail: false };
+  const introspection: { active: boolean; fail: boolean; during?: () => Promise<void> } = {
+    active: true,
+    fail: false,
+  };
+  const clock = { skewMs: 0 };
   const services = new Map<string, VerifiedOidcClaims>();
   let f!: Core;
   const verifier = {
@@ -59,12 +63,21 @@ async function fixture(options: { enabled?: boolean } = {}) {
               CUSTOMER_360_WRITE_RUNTIME,
             ],
             useFactory: (db: PrismaClient, limiter: SharedRateLimiter, runtime: C360WriteRuntime) =>
-              new Customer360ServiceApi(db, limiter, runtime, {
-                introspect: async () => {
-                  if (introspection.fail) throw Error('idp down');
-                  return { active: introspection.active };
+              new Customer360ServiceApi(
+                db,
+                limiter,
+                runtime,
+                {
+                  introspect: async () => {
+                    if (introspection.fail) throw Error('idp down');
+                    // จำลองเหตุการณ์ที่เกิดระหว่าง online proof กับ transaction ของ effect
+                    await introspection.during?.();
+                    return { active: introspection.active };
+                  },
                 },
-              }),
+                undefined,
+                () => Date.now() + clock.skewMs,
+              ),
           },
         ];
   f = await coreFixture(
@@ -79,7 +92,7 @@ async function fixture(options: { enabled?: boolean } = {}) {
   const subject = randomUUID();
   const serviceToken = (
     name: string,
-    overrides: { tenantId?: string; scope?: string; clientId?: string } = {},
+    overrides: { tenantId?: string; scope?: string; clientId?: string; userId?: string } = {},
   ) => {
     const tenantId = overrides.tenantId ?? f.tenantId;
     const clientId = overrides.clientId ?? 'crm-954';
@@ -94,6 +107,7 @@ async function fixture(options: { enabled?: boolean } = {}) {
       exp: 2_000_000_000,
       realm_access: { roles: ['service'] },
       scope: overrides.scope ?? SCOPES,
+      ...(overrides.userId ? { dc_user_id: overrides.userId, sid: 'mixed-session' } : {}),
     } as VerifiedOidcClaims);
     return name;
   };
@@ -127,7 +141,7 @@ async function fixture(options: { enabled?: boolean } = {}) {
   const create = (token: string, body: Body) =>
     f.request('customer-360/contacts', token, { commandId: randomUUID(), ...body }, 'POST');
   const contacts = () => f.owner.contact.count({ where: { tenantId: f.tenantId } });
-  return { f, introspection, serviceToken, operate, bind, create, contacts, subject };
+  return { f, introspection, clock, serviceToken, operate, bind, create, contacts, subject };
 }
 
 test('External customer API: service สร้างลูกค้า อ่านกลับ ค้นเจอ และ custodian Admin ดูแลรายนั้นได้', async () => {
@@ -423,6 +437,103 @@ test('External customer API: ปิดเป็นค่าเริ่มต้
     const directory = await f.request('customer-360/contacts/search', 'admin', {});
     assert.equal(directory.status, 200);
     assert.equal((await f.request('customer-360/contacts/search', 'agent', {})).status, 403);
+  } finally {
+    await f.close();
+  }
+});
+
+test('External customer API: operator เปลี่ยน binding หรือ proof หมดเวลาระหว่าง create แล้วไม่เกิด effect', async () => {
+  const { f, introspection, clock, serviceToken, operate, bind, create, contacts } =
+    await fixture();
+  try {
+    const bindingId = await bind();
+    await operate({
+      action: 'SERVICE_CAPABILITY_GRANT',
+      bindingId,
+      expectedAuthzEpoch: '0',
+      capability: 'CONTACT_CREATE',
+    });
+    // operator เปลี่ยน custodian หลัง service ผ่าน proof แต่ก่อน transaction ของ effect
+    const commandId = randomUUID();
+    const body = { commandId, displayName: 'แข่งกับ operator' };
+    introspection.during = async () => {
+      introspection.during = undefined;
+      await operate({
+        action: 'SERVICE_BIND_REPLACE_CUSTODIAN',
+        bindingId,
+        expectedAuthzEpoch: '1',
+        custodianAdminId: f.actors.get('admin-two')!.id,
+      });
+    };
+    const changed = await f.request('customer-360/contacts', 'service', body);
+    assert.equal(changed.status, 409, JSON.stringify(changed.body));
+    assert.equal((changed.body as Body).error.code, 'SERVICE_AUTHORIZATION_CHANGED');
+    assert.equal(changed.headers.get('retry-after'), '1');
+    assert.equal(await contacts(), 0);
+    // ส่ง commandId เดิมซ้ำ: ตรวจสิทธิ์ใหม่แล้วสร้างได้หนึ่งราย โดย custodian เป็นคนปัจจุบัน
+    const retried = await f.request('customer-360/contacts', 'service', body);
+    assert.equal(retried.status, 201, JSON.stringify(retried.body));
+    const contactId = ((retried.body as Body).command as Body).resourceRefs[0].id as string;
+    assert.equal((await f.request(`customer-360/contacts/${contactId}`, 'admin-two')).status, 200);
+    assert.equal((await f.request(`customer-360/contacts/${contactId}`, 'admin')).status, 404);
+    assert.equal(await contacts(), 1);
+
+    // proof หมดเวลาก่อนถึง effect: 503 ที่ส่งซ้ำได้ และไม่สร้างลูกค้า
+    introspection.during = async () => {
+      introspection.during = undefined;
+      clock.skewMs += 6_000;
+    };
+    const late = await create('service', { displayName: 'proof หมดเวลา' });
+    assert.equal(late.status, 503);
+    assert.equal((late.body as Body).error.code, 'SERVICE_IDENTITY_UNAVAILABLE');
+    assert.equal(await contacts(), 1);
+
+    // binding ถูกปิดระหว่าง proof: ไม่เกิด effect (ทำท้ายสุด เพราะ binding ที่ปิดแล้วเปิดกลับไม่ได้)
+    introspection.during = async () => {
+      introspection.during = undefined;
+      await operate({ action: 'SERVICE_BIND_DISABLE', bindingId, expectedAuthzEpoch: '2' });
+    };
+    assert.equal((await create('service', { displayName: 'ปิดระหว่าง proof' })).status, 403);
+    assert.equal(await contacts(), 1);
+    // token ที่มีทั้ง claims ของ service และของผู้ใช้ไม่ถูกนับเป็น service บน route dual-mode
+    const mixed = serviceToken('mixed', { userId: f.actors.get('admin')!.id });
+    assert.equal((await create(mixed, { displayName: 'mixed token' })).status, 403);
+    assert.equal((await f.request('customer-360/contacts/search', mixed, {})).status, 403);
+    assert.equal(await contacts(), 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test('External customer API: reconcile ปิดคำสั่งที่ไม่รู้ผล และ POST ที่มาทีหลังไม่สร้างลูกค้า', async () => {
+  const { f, introspection, operate, bind, contacts } = await fixture();
+  try {
+    const bindingId = await bind();
+    await operate({
+      action: 'SERVICE_CAPABILITY_GRANT',
+      bindingId,
+      expectedAuthzEpoch: '0',
+      capability: 'CONTACT_CREATE',
+    });
+    const commandId = randomUUID();
+    const path = `customer-360/commands/${commandId}`;
+    assert.equal((await f.request(path, 'service')).status, 404);
+    // reconcile เปลี่ยนสถานะของ command จึงต้องผ่าน online proof
+    introspection.active = false;
+    assert.equal((await f.request(`${path}/reconcile`, 'service', {})).status, 401);
+    introspection.active = true;
+    assert.equal((await f.request(path, 'service')).status, 404);
+    const closed = await f.request(`${path}/reconcile`, 'service', {});
+    assert.equal(closed.status, 409);
+    assert.equal(((closed.body as Body).command as Body).code, 'COMMAND_NOT_APPLIED');
+    const late = await f.request('customer-360/contacts', 'service', {
+      commandId,
+      displayName: 'มาถึงหลัง reconcile',
+    });
+    assert.deepEqual(late.body, closed.body);
+    assert.equal(await contacts(), 0);
+    // Admin ที่ใช้ commandId เดียวกันอยู่คนละ namespace: ไม่เห็น tombstone ของ service
+    assert.equal((await f.request(path, 'admin')).status, 404);
   } finally {
     await f.close();
   }

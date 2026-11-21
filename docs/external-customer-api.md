@@ -41,14 +41,19 @@ Token ต้องมี role `service`, scope ตามตาราง แล�
   ไม่มีสิทธิ์อ่านทั้ง tenant รายที่ไม่มีสิทธิ์ตอบ 404 เหมือนไม่พบ และไม่ถูกนับในผลค้น
 - Operator ถอน grant หรือปิด binding แล้วมีผลกับ request ถัดไปทันที
 
-Create ตรวจ token กับ Keycloak แบบ online introspection ก่อนทำงานทุกครั้ง client ที่ถูกปิดหรือถอนที่
+Create และ reconcile ตรวจ token กับ Keycloak แบบ online introspection ก่อนทำงานทุกครั้ง client ที่ถูกปิดหรือถอนที่
 Keycloak จึงสร้างไม่ได้ทันทีแม้ JWT ยังไม่หมดอายุ ส่วนอ่านและค้นตรวจ JWT กับ binding ใน DB
 ดังนั้นการถอนที่ Keycloak อย่างเดียวมีผลกับการอ่านเมื่อ token หมดอายุ ถ้าต้องหยุดอ่านทันทีให้ operator
 ปิด binding
 
 ## การส่งซ้ำ
 
-ส่ง `commandId` เดิมซ้ำได้เมื่อไม่รู้ผล (เครือข่ายขาด, 429, 503) server คืน receipt เดิมและไม่สร้างลูกค้าซ้ำ
+ส่ง `commandId` เดิมซ้ำได้เมื่อไม่รู้ผล (เครือข่ายขาด, 429, 503 หรือ 409 `SERVICE_AUTHORIZATION_CHANGED`)
+server ไม่สร้างลูกค้าซ้ำ และคืน receipt เดิมเมื่อคำสั่งเสร็จไปแล้ว
+
+การส่ง `POST /contacts` ซ้ำตรวจ token, capability และ custodian ใหม่ทุกครั้ง ถ้าสิทธิ์สร้างถูกถอนหลังคำสั่งสำเร็จ
+จะได้ 401 หรือ 403 แทน receipt ให้ดูผลด้วย `GET /commands/:id` ซึ่งต้องการเพียง binding ที่ active
+`POST /commands/:id/reconcile` ปิดคำสั่งที่ยังไม่มีผล และตรวจ token กับ Keycloak แบบ online เหมือน create
 `commandId` เดิมกับ payload ที่ต่างกันตอบ 409 `COMMAND_PAYLOAD_MISMATCH`
 Receipt ไม่มีข้อมูลลูกค้า ให้อ่านค่าปัจจุบันด้วย `GET /contacts/:id`
 
@@ -58,8 +63,8 @@ Receipt ไม่มีข้อมูลลูกค้า ให้อ่า�
 | 401   | token ใช้ไม่ได้ หรือ introspection ตอบว่าไม่ active                                        |
 | 403   | ไม่มี scope, binding, capability หรือ feature ปิด                                          |
 | 404   | ไม่พบ หรือไม่มีสิทธิ์อ่านรายนั้น                                                           |
-| 409   | `commandId` เดิมกับ payload ต่าง                                                           |
-| 429   | เกินโควตา ดู `Retry-After` (ค้น 60, สร้าง 30, อ่าน/receipt 120 ครั้งต่อนาทีต่อ client)      |
+| 409   | `commandId` เดิมกับ payload ต่าง หรือ operator เปลี่ยน binding ระหว่างสร้าง (ส่งซ้ำได้)     |
+| 429   | เกินโควตา ดู `Retry-After` (ค้น 60, สร้าง 30, อ่าน/receipt 120 ครั้งต่อนาทีต่อ client และรวมทั้ง tenant 600, 300, 1200) |
 | 503   | ระบบที่ต้องพึ่งไม่พร้อม เช่น IdP, limiter หรือ lock ชน ส่ง `commandId` เดิมซ้ำได้          |
 
 ## เปิดใช้
@@ -111,6 +116,6 @@ node examples/external-customer-api/client.mjs
 - ไม่มี reference service แบบ fault proxy หรือ conformance harness มีเฉพาะตัวอย่าง client
 - ยังไม่ผูก entitlement `modules.api` และโควตาใช้ค่าเดียวกับ Console ต่อ client
 - Realm dev ยังไม่มี service client สำเร็จรูป และยังไม่ได้ทดลองบน dev stack จริงหรือ UAT
-- ยังไม่ได้ทดสอบ limiter ร่วมกับ Redis จริงสำหรับ bucket ของ service และยังไม่ได้ทดสอบหลาย instance
+- ยังไม่ได้ทดสอบ limiter ของ service (429, Redis จริง, หลาย instance), timeout หลัง commit และ cursor หลัง epoch เปลี่ยน
 
 งานที่เหลือของ #842–#844 อยู่ใน backlog #888
