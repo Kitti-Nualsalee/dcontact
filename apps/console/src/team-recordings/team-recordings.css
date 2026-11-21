@@ -116,3 +116,14 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+/* ระหว่างโหลดใหม่คงรายการเดิมไว้ ไม่ให้หน้ากระโดด */
+.tr-scroll[data-stale] {
+  opacity: 0.6;
+}
+.tr-nowrap {
+  white-space: nowrap;
+}
+/* "เล่น" กับ "หยุดชั่วคราว" กว้างเท่ากัน แถบเวลาจึงไม่ขยับ */
+.tr-toggle {
+  min-inline-size: 7rem;
+}

@@ -3,7 +3,7 @@ import type { Prisma } from '@d-contact/db';
 /**
  * #967: บันทึก Agent และทีมที่รับสายจริง ต้องเรียกใน transaction เดียวกับที่เปลี่ยนสายเป็น ACTIVE
  * สิทธิ์ฟังเสียงของ Supervisor ใช้ทีมจากแถวนี้ ไม่เดาจากทีมปัจจุบันของ Agent หรือคิว
- * แถวแรกของ Interaction ชนะ การรับซ้ำไม่เปลี่ยนทีม
+ * แถวแรกของ Interaction ชนะ การรับซ้ำไม่เปลี่ยนทีม และไม่เขียนเมื่อ Agent ไม่ใช่เจ้าของสายปัจจุบัน
  */
 export async function recordVoiceHandlingAttribution(
   transaction: Prisma.TransactionClient,
@@ -15,5 +15,6 @@ export async function recordVoiceHandlingAttribution(
     FROM interactions i
     JOIN users u ON u.tenant_id = i.tenant_id AND u.id = ${input.agentId}::uuid
     WHERE i.tenant_id = ${input.tenantId}::uuid AND i.id = ${input.interactionId}::uuid
+      AND i.agent_id = u.id
     ON CONFLICT (tenant_id, interaction_id) DO NOTHING`;
 }

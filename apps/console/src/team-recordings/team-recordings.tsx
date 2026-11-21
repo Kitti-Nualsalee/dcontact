@@ -35,6 +35,8 @@ function RecordingsSession({ api, onSignIn }: Props) {
   const { locale } = useLocale();
   const ready = useShellTokens();
   const fromId = useId();
+  const listenId = useId();
+  const heading = useRef<HTMLHeadingElement>(null);
   const toId = useId();
   const [dates, setDates] = useState(() => defaultDates(new Date()));
   const [applied, setApplied] = useState(dates);
@@ -58,7 +60,6 @@ function RecordingsSession({ api, onSignIn }: Props) {
     let active = true;
     setLoading(true);
     setError(undefined);
-    if (!pageCursor) setItems([]);
     void api
       .history({ ...window, ...(pageCursor ? { cursor: pageCursor } : {}) })
       .then((page) => {
@@ -85,7 +86,9 @@ function RecordingsSession({ api, onSignIn }: Props) {
   return (
     <main className="tr-root">
       <header className="tr-head">
-        <h1>{t('title')}</h1>
+        <h1 ref={heading} tabIndex={-1}>
+          {t('title')}
+        </h1>
         <p className="tr-muted">{t('scope')}</p>
       </header>
       <form
@@ -138,10 +141,15 @@ function RecordingsSession({ api, onSignIn }: Props) {
           item={selected}
           title={title(selected)}
           onSignIn={onSignIn}
-          onClose={() => setSelected(undefined)}
+          onClose={() => {
+            // คืน focus ให้ปุ่มฟังของแถวที่เปิดไว้ ถ้าแถวไม่อยู่แล้วไปที่หัวข้อหน้า
+            const opener = document.getElementById(`${listenId}-${selected.recordingId}`);
+            setSelected(undefined);
+            (opener ?? heading.current)?.focus();
+          }}
         />
       ) : null}
-      {loading ? <p role="status">{t('loading')}</p> : null}
+      {loading && items.length === 0 ? <p role="status">{t('loading')}</p> : null}
       {errorKey ? (
         <section role="alert" className="tr-alert">
           <p>{t(errorKey)}</p>
@@ -153,7 +161,7 @@ function RecordingsSession({ api, onSignIn }: Props) {
       ) : null}
       {!loading && !error && items.length === 0 ? <p className="tr-empty">{t('empty')}</p> : null}
       {items.length > 0 ? (
-        <div className="tr-scroll">
+        <div className="tr-scroll" aria-busy={loading} data-stale={loading || undefined}>
           <Table aria-label={t('list')}>
             <TableHeader>
               <Column isRowHeader>{t('started')}</Column>
@@ -167,7 +175,9 @@ function RecordingsSession({ api, onSignIn }: Props) {
               {items.map((item) => (
                 <Row key={item.recordingId} id={item.recordingId}>
                   <Cell>
-                    <time dateTime={item.startedAt}>{format(item.startedAt)}</time>
+                    <time className="tr-nowrap" dateTime={item.startedAt}>
+                      {format(item.startedAt)}
+                    </time>
                   </Cell>
                   <Cell>{item.agentName ?? t('unknownAgent')}</Cell>
                   <Cell>{item.queueName ?? t('unknownQueue')}</Cell>
@@ -184,6 +194,7 @@ function RecordingsSession({ api, onSignIn }: Props) {
                   <Cell>
                     {item.capabilities.play ? (
                       <Button
+                        id={`${listenId}-${item.recordingId}`}
                         size="sm"
                         aria-label={t('listenItem', { title: title(item) })}
                         aria-pressed={selected?.recordingId === item.recordingId}
@@ -272,6 +283,7 @@ function Player({
       <div className="tr-player-controls">
         <Button
           variant="primary"
+          className="tr-toggle"
           onPress={() => {
             commitScrub();
             if (active) player.current?.pause();

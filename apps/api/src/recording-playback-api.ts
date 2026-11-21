@@ -170,8 +170,10 @@ export class RecordingPlaybackController {
         tx,
         actor.tenantId,
         teamId,
-        Prisma.sql`AND r.started_at >= ${since} AND r.started_at < ${until}
-          ${after ? Prisma.sql`AND (r.started_at, r.id) < (${after.startedAt}, ${after.id}::uuid)` : Prisma.empty}
+        // ส่งเวลาเป็น timestamp ไม่มี zone เพื่อไม่ให้ผลขึ้นกับ TimeZone ของ DB session
+        Prisma.sql`AND r.started_at >= ${since.toISOString()}::timestamp(3)
+          AND r.started_at < ${until.toISOString()}::timestamp(3)
+          ${after ? Prisma.sql`AND (r.started_at, r.id) < (${after.startedAt.toISOString()}::timestamp(3), ${after.id}::uuid)` : Prisma.empty}
           ORDER BY r.started_at DESC, r.id DESC LIMIT ${take + 1}`,
       );
     });
@@ -224,8 +226,10 @@ export class RecordingPlaybackController {
       this.database,
       actor.tenantId,
       async (tx) => {
+        // lock แถวผู้ใช้: สองคำขอพร้อมกันของคนเดียวกันต้องเหลือ session ที่เปิดอยู่เพียงหนึ่ง
+        await tx.$queryRaw`SELECT id FROM users
+          WHERE tenant_id = ${actor.tenantId}::uuid AND id = ${actor.userId}::uuid FOR UPDATE`;
         await this.authorizeReady(tx, actor, recordingId);
-        // ผู้ใช้หนึ่งคนฟังได้ครั้งละหนึ่ง session
         await tx.recordingPlaybackSession.updateMany({
           where: { tenantId: actor.tenantId, actorUserId: actor.userId, closedAt: null },
           data: { closedAt: now },
@@ -304,7 +308,9 @@ export class RecordingPlaybackController {
     // สิทธิ์อาจถูกถอนระหว่างอ่าน storage จึงตรวจอีกครั้งก่อนส่ง byte
     await check();
     const frameBytes = format.channels * 2;
-    const pcm = bytes.subarray(0, bytes.length - (bytes.length % frameBytes));
+    // ไม่ส่งเกินช่วงที่ขอแม้ storage ตอบมามากกว่า
+    const wanted = Math.min(bytes.length, range.frames * frameBytes);
+    const pcm = bytes.subarray(0, wanted - (wanted % frameBytes));
     return new StreamableFile(wavChunk(format, pcm), { type: 'audio/wav' });
   }
 

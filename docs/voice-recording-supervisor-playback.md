@@ -90,6 +90,8 @@ pnpm --filter @d-contact/console exec playwright test e2e/team-recordings.spec.t
 - ยังไม่ได้ทดลองกับสายจริง FreeSWITCH และ object storage จริง (RustFS/SeaweedFS) รวมถึง `Range` ของ S3 adapter
 - ไม่มีโควตา chunk ต่อผู้ใช้หรือ tenant และไม่บันทึก audit ของการปฏิเสธหรือการเลื่อนตำแหน่ง
 - Cursor ของรายการเป็นตำแหน่งธรรมดา ไม่เข้ารหัสและไม่ผูกกับผู้ขอ (สิทธิ์ตรวจใหม่ทุก request)
+- `recording_playback_sessions` อ้าง `recordings(id)` คอลัมน์เดียว ยังไม่ผูก tenant ที่ระดับ FK (RLS และ API ตรวจ tenant อยู่แล้ว)
+- ช่องวันที่และแถบเวลาใช้ element ของ browser เพราะ `@d-contact/ui-react` ยังไม่มี DateField และ Slider
 - รองรับทีมที่รับสายทีมเดียวต่อสาย ยังไม่รองรับสายที่โอนข้ามทีม
 - ยังไม่ทำ: announcement ที่พิสูจน์ว่าผู้โทรได้ยิน, durable command และ ack ของ pause/resume,
   checksum และขนาดไฟล์จาก storage ack, retention กับ legal hold แบบ serialize, queue recording policy revision,

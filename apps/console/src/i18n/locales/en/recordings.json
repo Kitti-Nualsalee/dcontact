@@ -28,10 +28,10 @@
   "notReadyShort": "Not ready yet",
   "more": "Load more",
   "loading": "Loading recordings",
-  "empty": "No team recordings in this date range",
-  "failed": "Could not load recordings",
+  "empty": "No team recordings in this date range. Try a wider range.",
+  "failed": "Could not load recordings. The system may be temporarily unavailable. Try again, and contact your admin if it keeps failing.",
   "unauthorized": "Your session expired. Sign in again.",
-  "forbidden": "This page is for supervisors who belong to a team, or recording playback is not enabled.",
+  "forbidden": "You do not have access to team recordings. This page is for supervisors who belong to a team, and recording playback must be enabled. Contact your admin to check your access.",
   "retry": "Try again",
   "signIn": "Sign in",
   "player": {

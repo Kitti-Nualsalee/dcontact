@@ -67,7 +67,12 @@ export class ChunkPlayer {
     try {
       this.context ??= this.createContext();
       await this.context.resume();
-      this.session ??= await this.api.open(this.recordingId);
+      if (!this.session) {
+        const opened = await this.api.open(this.recordingId);
+        // ปิดตัวเล่นไปแล้วระหว่างรอ: ไม่ทิ้ง session ค้างที่ server
+        if (this.disposed) return this.release(opened);
+        this.session = opened;
+      }
       if (generation !== this.generation) return;
       this.nextFrame = Math.round(this.restingPosition * this.session.format.sampleRate);
       this.scheduledUntil = 0;
@@ -106,7 +111,7 @@ export class ChunkPlayer {
     if (this.timer) clearInterval(this.timer);
     const session = this.session;
     this.session = undefined;
-    if (session) void this.api.close(this.recordingId, session.sessionId).catch(() => undefined);
+    this.release(session);
     void this.context?.close().catch(() => undefined);
   }
 
@@ -194,6 +199,11 @@ export class ChunkPlayer {
     this.scheduledUntil = 0;
   }
 
+  /** ปิด session ที่ไม่ใช้แล้ว ล้มเหลวได้ เพราะ server ปิดให้เองเมื่อหมดอายุหรือเปิดใหม่ */
+  private release(session: PlaybackSession | undefined): void {
+    if (session) void this.api.close(this.recordingId, session.sessionId).catch(() => undefined);
+  }
+
   private fail(failure: unknown): void {
     this.restingPosition = this.position();
     this.flush();
@@ -202,7 +212,10 @@ export class ChunkPlayer {
         ? { status: failure.status, ...(failure.code ? { code: failure.code } : {}) }
         : { status: 0 };
     // สิทธิ์หรือ session ใช้ต่อไม่ได้: รอบถัดไปต้องเปิดใหม่
-    this.session = this.error.status === 0 ? this.session : undefined;
+    if (this.error.status !== 0) {
+      this.release(this.session);
+      this.session = undefined;
+    }
     this.set('error');
   }
 

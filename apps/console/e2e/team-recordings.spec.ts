@@ -162,6 +162,8 @@ test('Supervisor เปิดรายการ ฟังเสียงที�
 
   await player.getByRole('button', { name: 'ปิดตัวเล่น' }).click();
   await expect(player).toHaveCount(0);
+  // ปิดแล้ว focus กลับไปที่ปุ่มฟังของแถวเดิม
+  await expect(grid.getByRole('button', { name: /^ฟังสาย .*สมหญิง ใจดี/ })).toBeFocused();
   await expect.poll(() => fixture.closed).toBe(1);
 });
 

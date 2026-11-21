@@ -62,9 +62,23 @@ export class S3RecordingStorage implements RecordingStorage, RecordingPlaybackSt
       }),
     );
     if (!response.Body) throw new Error('recording object has no body');
+    // storage ที่ไม่รองรับ Range จะตอบทั้งไฟล์: ปฏิเสธก่อนโหลดเข้า memory ไม่ส่งต่อให้ผู้ฟัง
+    const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.ContentRange ?? '');
+    const wanted = input.endInclusive - input.start + 1;
+    if (
+      !range ||
+      Number(range[1]) !== input.start ||
+      Number(range[2]) > input.endInclusive ||
+      (response.ContentLength ?? 0) > wanted
+    ) {
+      void response.Body.transformToWebStream()
+        .cancel()
+        .catch(() => undefined);
+      throw new Error('recording storage ignored the requested byte range');
+    }
     const bytes = Buffer.from(await response.Body.transformToByteArray());
-    const total = Number(response.ContentRange?.split('/').at(-1));
-    return { bytes, objectBytes: Number.isFinite(total) ? total : input.start + bytes.length };
+    if (bytes.length > wanted) throw new Error('recording storage returned more than requested');
+    return { bytes, objectBytes: Number(range[3]) };
   }
 
   async deleteObject(storageKey: string): Promise<void> {
