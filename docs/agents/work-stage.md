@@ -49,3 +49,21 @@ Closed map/spec หรือ merged PR ไม่ยืนยันว่า runt
 - ไม่ลบ test เดิมเพื่อให้จำนวนลด ไม่ถอด guard ด้านสิทธิ์/ข้อมูล และไม่ถือ fixture UI/API เป็นหลักฐานเสียงจริง
 - Migration/deployment/rollback ตรวจตามผลกระทบจริง #868/#879 แยกจาก dev trial; ADR-032/marker ของ acceptance chain เดิมยังมีผลเฉพาะ chain นั้น
 - ดูคำสั่งและขอบเขตหลักฐานใน `docs/agent-usecase-dev.md`
+
+## ตรวจตามชนิดของ diff — owner ยืนยัน 21 พฤศจิกายน 2569
+
+รันเฉพาะแถวที่ตรงกับ diff ระหว่างทำ และไม่รันชุดเดิมซ้ำเมื่อโค้ดที่ชุดนั้นครอบคลุมไม่เปลี่ยน
+
+| ชนิดของ diff             | สิ่งที่รัน                                                       |
+| ------------------------ | ---------------------------------------------------------------- |
+| เอกสาร, ข้อความ, i18n    | lint และ typecheck ของ package ที่แตะ                            |
+| UI อย่างเดียว            | Unit ของส่วนที่แก้ และ Playwright happy path หนึ่งรอบบน Chromium |
+| Business rule            | Unit ของ rule นั้น                                               |
+| DB, RLS, สิทธิ์          | Integration เฉพาะ seam ที่แตะ บนฐานแยก                           |
+| Auth/provider, Voice/SIP | ชุดจริงของ boundary นั้น เฉพาะเมื่อแก้ boundary                  |
+
+- push เมื่อจบหนึ่งก้อนที่ตรวจแล้ว ไม่ push ทุก commit เพราะแต่ละ push เรียก CI หลายชุด
+- ชุดเต็มและ reviewer รันครั้งเดียวบน branch ที่รวมแล้วก่อนส่งให้ owner ตาม `parallel-work.md`
+- งานที่มีหน้าจอใหม่: `ux-designer` ทำ mockup หนึ่งรอบก่อนเขียนโค้ด Lead ใช้ mockup เป็นสมมติฐานและทำต่อ
+  แล้วแนบภาพใน PR ให้ owner ดูครั้งเดียว การแก้หน้าเดิมเล็กน้อยใช้หน้าอ้างอิงใน `docs/ui-principles.md`
+- `ui-reviewer` ตรวจครั้งเดียวต่อสายงานบน branch ที่รวมแล้ว ไม่ตรวจทุก PR ย่อย
