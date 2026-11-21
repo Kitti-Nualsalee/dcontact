@@ -258,6 +258,13 @@
   box-shadow: inset var(--dc-focus-ring);
 }
 
+/* forced-colors: outline มาจาก tokens.css — วาดด้านในเพราะ .j5-segmented ตัด overflow */
+@media (forced-colors: active) {
+  .j5-segmented button:focus-visible {
+    outline-offset: -4px;
+  }
+}
+
 /* ── U1.4 (#432): แผง UAT run — แยกจากเนื้อหา J5 ด้วยขอบสี attention ── */
 .j5-uat {
   margin-bottom: var(--dc-space-6);

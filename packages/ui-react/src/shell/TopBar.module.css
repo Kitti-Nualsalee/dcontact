@@ -98,6 +98,13 @@
   box-shadow: inset var(--dc-focus-ring);
 }
 
+/* forced-colors: outline มาจาก tokens.css — วาดด้านในให้ตรงกับ ring แบบ inset */
+@media (forced-colors: active) {
+  .languageButton:focus-visible {
+    outline-offset: -4px;
+  }
+}
+
 .systemLinks {
   display: flex;
   align-items: center;

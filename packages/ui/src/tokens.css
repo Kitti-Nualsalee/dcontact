@@ -289,3 +289,20 @@ body {
   outline: none;
   box-shadow: var(--dc-focus-ring);
 }
+
+/* ---------- FOCUS ใน forced-colors (Windows High Contrast) ----------
+   โหมดนี้เบราว์เซอร์ลบ box-shadow ทิ้ง ring จาก --dc-focus-ring จึงหายไปทั้งหมด
+   และ component ส่วนใหญ่เขียน outline: none ไว้คู่กับ ring จึงต้องคืน outline ที่นี่จุดเดียว
+   - ใช้ selector เดียวกับที่ component ใช้แสดง ring (:focus-visible และ data-focus-visible ของ react-aria)
+   - !important เพราะกฎ outline: none ของ component มี specificity สูงกว่า และใช้เฉพาะในโหมดนี้
+   - เส้น 2px ห่าง 2px วางทับตำแหน่งวงนอกของ ring (2px ขาว + 2px สี) พอดี
+     จึงถูก overflow ของ container ตัดเท่ากับ ring ในโหมดปกติ ไม่มากกว่า
+   - ring แบบ inset ให้ component ตั้ง outline-offset: -4px เองใน media query เดียวกัน
+     (ตัวอย่าง .j5-segmented, Table, TopBar ปุ่มภาษา) */
+@media (forced-colors: active) {
+  :focus-visible,
+  [data-focus-visible] {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px;
+  }
+}

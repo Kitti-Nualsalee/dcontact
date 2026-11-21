@@ -56,6 +56,15 @@
   box-shadow: inset var(--dc-focus-ring);
 }
 
+/* forced-colors: outline มาจาก tokens.css — หัวคอลัมน์ แถว และเซลล์วาดด้านในให้ตรงกับ ring แบบ inset */
+@media (forced-colors: active) {
+  .column[data-focus-visible],
+  .row[data-focus-visible],
+  .cell[data-focus-visible] {
+    outline-offset: -4px;
+  }
+}
+
 .empty {
   padding: var(--dc-space-8);
   text-align: center;
