@@ -1,0 +1,118 @@
+.tr-root {
+  padding: var(--dc-space-8);
+  color: var(--dc-text-primary);
+  font-size: var(--dc-text-base);
+}
+.tr-root h1 {
+  margin: 0;
+  font-size: var(--dc-text-xl);
+  font-weight: var(--dc-weight-semibold);
+}
+.tr-root h2 {
+  margin: 0;
+  font-size: var(--dc-text-base);
+  font-weight: var(--dc-weight-semibold);
+}
+.tr-root p {
+  margin: 0;
+}
+.tr-head {
+  display: grid;
+  gap: var(--dc-space-3);
+  margin-block-end: var(--dc-space-6);
+}
+.tr-muted {
+  color: var(--dc-text-muted);
+  font-size: var(--dc-text-sm);
+}
+.tr-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--dc-space-6);
+  margin-block-end: var(--dc-space-6);
+}
+.tr-field {
+  display: grid;
+  gap: var(--dc-space-2);
+}
+.tr-field label {
+  color: var(--dc-text-secondary);
+  font-size: var(--dc-text-sm);
+}
+.tr-field input {
+  min-height: var(--dc-control-md);
+  padding: 0 var(--dc-space-4);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+  color: var(--dc-text-primary);
+  font: inherit;
+}
+.tr-field input[aria-invalid='true'] {
+  border-color: var(--dc-critical-solid);
+}
+.tr-field-error {
+  flex-basis: 100%;
+  color: var(--dc-critical-fg);
+  font-size: var(--dc-text-sm);
+}
+.tr-scroll {
+  overflow-x: auto;
+  margin-block: var(--dc-space-6);
+}
+.tr-empty {
+  margin-block: var(--dc-space-6);
+  color: var(--dc-text-secondary);
+}
+.tr-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-4);
+  margin-block: var(--dc-space-4);
+  color: var(--dc-critical-fg);
+}
+.tr-player {
+  display: grid;
+  gap: var(--dc-space-4);
+  margin-block-end: var(--dc-space-6);
+  padding: var(--dc-space-6);
+  border: 1px solid var(--dc-border-default);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-raised);
+}
+.tr-player-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dc-space-4);
+}
+.tr-player-head h2:focus-visible {
+  outline: none;
+  box-shadow: var(--dc-focus-ring);
+  border-radius: var(--dc-radius-sm);
+}
+.tr-player-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--dc-space-5);
+}
+.tr-slider {
+  flex: 1 1 16rem;
+  min-inline-size: 0;
+  accent-color: var(--dc-brand-700);
+}
+.tr-clock {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tr-visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

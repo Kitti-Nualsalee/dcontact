@@ -4880,6 +4880,41 @@ model RecordingLegalHold {
   @@map("recording_legal_holds")
 }
 
+/// #967 หลักฐานว่า Agent และทีมไหนรับสายจริง Router เขียนใน transaction ที่รับสาย (append-only)
+/// FK ไป interactions/users ประกาศใน migration; teamId ไม่มี FK เพราะเป็นค่า ณ เวลารับสาย
+model VoiceInteractionHandlingAttribution {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  interactionId String   @map("interaction_id") @db.Uuid
+  agentId       String   @map("agent_id") @db.Uuid
+  teamId        String?  @map("team_id") @db.Uuid
+  acceptedAt    DateTime @map("accepted_at")
+  sourceEventId String?  @map("source_event_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, interactionId], map: "voice_interaction_handling_attributions_interaction_key")
+  @@index([tenantId, teamId, acceptedAt(sort: Desc)], map: "voice_interaction_handling_attributions_team_idx")
+  @@map("voice_interaction_handling_attributions")
+}
+
+/// #967 session เปิดฟังของ Supervisor ผูกกับผู้ขอ FK ประกาศใน migration
+model RecordingPlaybackSession {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  recordingId String    @map("recording_id") @db.Uuid
+  actorUserId String    @map("actor_user_id") @db.Uuid
+  dataOffset  Int       @map("data_offset")
+  sampleRate  Int       @map("sample_rate")
+  channels    Int
+  totalFrames Int       @map("total_frames")
+  expiresAt   DateTime  @map("expires_at")
+  closedAt    DateTime? @map("closed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, actorUserId, closedAt], map: "recording_playback_sessions_actor_idx")
+  @@map("recording_playback_sessions")
+}
+
 // ─────────────────────────── Quality Management ───────────────────────────
 
 enum QmTranscriptionStatus {

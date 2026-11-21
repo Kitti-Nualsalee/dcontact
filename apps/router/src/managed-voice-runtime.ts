@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
+import { recordVoiceHandlingAttribution } from './handling-attribution.js';
 import type {
   ManagedVoiceDirectCommand,
   ManagedVoiceDirectPort,
@@ -346,6 +347,12 @@ export class ManagedVoiceRuntime {
     if (!updated)
       return this.advance(transaction, event.tenantId, call, await this.now(transaction));
     await transaction.$executeRaw`UPDATE voice_managed_offers SET outcome='ANSWERED' WHERE tenant_id=${event.tenantId}::uuid AND id=${offer.id}::uuid AND outcome='PENDING'`;
+    await recordVoiceHandlingAttribution(transaction, {
+      tenantId: event.tenantId,
+      interactionId: call.interactionId,
+      agentId: offer.agentId,
+      sourceEventId: `offer:${offer.id}`,
+    });
     await transaction.agentStateLog.create({
       data: {
         tenantId: event.tenantId,

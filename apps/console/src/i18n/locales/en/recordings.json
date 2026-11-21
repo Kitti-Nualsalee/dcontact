@@ -1,0 +1,61 @@
+{
+  "title": "Team recordings",
+  "scope": "Only completed calls that your team answered. Listen on this page only; there is no download.",
+  "from": "From",
+  "to": "To",
+  "show": "Show",
+  "range": {
+    "INVALID": "Choose both dates",
+    "ORDER": "The start date cannot be after the end date",
+    "TOO_LONG": "Choose a range of 90 days or less"
+  },
+  "list": "Team recordings",
+  "started": "Call started",
+  "agent": "Agent",
+  "queue": "Queue",
+  "duration": "Length",
+  "status": "Status",
+  "listen": "Listen",
+  "listenItem": "Listen to {{title}}",
+  "itemTitle": "Call {{time}} · {{agent}}",
+  "unknownAgent": "Unknown agent",
+  "unknownQueue": "No queue",
+  "unknownDuration": "Unknown",
+  "recordingStatus": {
+    "READY": "Ready",
+    "ARCHIVING": "Archiving"
+  },
+  "notReadyShort": "Not ready yet",
+  "more": "Load more",
+  "loading": "Loading recordings",
+  "empty": "No team recordings in this date range",
+  "failed": "Could not load recordings",
+  "unauthorized": "Your session expired. Sign in again.",
+  "forbidden": "This page is for supervisors who belong to a team, or recording playback is not enabled.",
+  "retry": "Try again",
+  "signIn": "Sign in",
+  "player": {
+    "play": "Play",
+    "pause": "Pause",
+    "close": "Close player",
+    "position": "Position in recording",
+    "clock": "{{position}} / {{duration}}",
+    "notice": "Your access is checked every time the next part of the audio is requested.",
+    "phase": {
+      "idle": "Press play to start listening",
+      "loading": "Loading audio",
+      "playing": "Playing",
+      "paused": "Paused",
+      "ended": "Finished"
+    },
+    "error": {
+      "signIn": "Your session expired. Sign in again to keep listening.",
+      "denied": "You no longer have access to this recording. Playback stopped.",
+      "gone": "This recording was not found, or you no longer have access to it.",
+      "notReady": "This recording is still being archived. Try again shortly.",
+      "unsupported": "This audio file is in a format the player cannot play.",
+      "unavailable": "Recording storage is temporarily unavailable.",
+      "failed": "Could not play the recording"
+    }
+  }
+}

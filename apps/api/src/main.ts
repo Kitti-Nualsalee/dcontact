@@ -121,9 +121,15 @@ import {
   RecordingController,
   RECORDING_DATABASE,
   RECORDING_STORAGE,
+  RECORDING_SUPERVISOR_PLAYBACK,
   TELEPHONY_COMMAND_PUBLISHER,
 } from './recording-api.js';
 import { KafkaTelephonyCommandPublisher } from './recording-command-publisher.js';
+import {
+  RECORDING_PLAYBACK_STORAGE,
+  RecordingPlaybackController,
+} from './recording-playback-api.js';
+import { resolveRecordingSupervisorPlayback } from './recording-playback-config.js';
 import {
   TEAM_SEGMENT_SCOPE_DATABASE,
   TeamSegmentScopeController,
@@ -267,6 +273,14 @@ const supervisorLiveEvents = new SupervisorLiveEventStream();
 const recordingCommandPublisher = new KafkaTelephonyCommandPublisher();
 const agentSipCredentials = configuredAgentSipCredentialService(prisma);
 const recordingStorage = new S3RecordingStorage();
+// #967: ปิดเป็นค่าเริ่มต้น เปิดแล้ว route presign เดิมของ recording ตอบ 403
+const recordingSupervisorPlayback = resolveRecordingSupervisorPlayback(process.env);
+console.log(
+  JSON.stringify({
+    event: 'recording.supervisor_playback.readiness',
+    status: recordingSupervisorPlayback ? 'ENABLED' : 'DISABLED',
+  }),
+);
 const governanceExportStorage = new S3GovernanceExportStorage();
 const qmJobPublisher = new KafkaQmJobPublisher();
 const journeyEventInbox = new EventInboxService(prisma);
@@ -459,6 +473,7 @@ class WorkspaceSessionController {
     QueueAuditController,
     SupervisorLiveController,
     RecordingController,
+    RecordingPlaybackController,
     QmController,
     AgentWorkspaceController,
     AgentCasesController,
@@ -544,6 +559,8 @@ class WorkspaceSessionController {
     { provide: RECORDING_DATABASE, useValue: prisma },
     { provide: TELEPHONY_COMMAND_PUBLISHER, useValue: recordingCommandPublisher },
     { provide: RECORDING_STORAGE, useValue: recordingStorage },
+    { provide: RECORDING_PLAYBACK_STORAGE, useValue: recordingStorage },
+    { provide: RECORDING_SUPERVISOR_PLAYBACK, useValue: recordingSupervisorPlayback },
     { provide: QM_DATABASE, useValue: prisma },
     { provide: QM_JOB_PUBLISHER, useValue: qmJobPublisher },
     { provide: AGENT_WORKSPACE_DATABASE, useValue: prisma },

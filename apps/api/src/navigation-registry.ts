@@ -12,6 +12,8 @@
  * - registry มีเฉพาะหน้าจอที่มีอยู่จริง — แอปใหม่เพิ่มแถวที่นี่พร้อม i18n key ของ launcher
  */
 
+import { resolveRecordingSupervisorPlayback } from './recording-playback-config.js';
+
 export const MAX_PINS = 15;
 
 export const NAVIGATION_GROUPS = [
@@ -85,7 +87,22 @@ export interface NavigationAppDefinition {
   pages?: readonly NavigationPageDefinition[];
 }
 
-export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
+/**
+ * #967 เสียงบันทึกของทีมสำหรับ Supervisor — อยู่ในเมนูเฉพาะ deployment ที่ตั้ง
+ * `RECORDING_SUPERVISOR_PLAYBACK=on` API ตรวจสิทธิ์ตามทีมที่รับสายเองทุก request
+ */
+export const TEAM_RECORDINGS_APP: NavigationAppDefinition = Object.freeze({
+  id: 'team-recordings',
+  area: 'supervisor',
+  section: 'work',
+  group: 'operations',
+  labelKey: 'navigation.apps.teamRecordings',
+  hostApp: 'console',
+  path: '/?view=team-recordings',
+  roles: ['supervisor'],
+});
+
+const BASE_NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze([
   {
     id: 'home',
     area: 'home',
@@ -349,6 +366,21 @@ export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = Object.freeze
     ],
   },
 ]);
+
+/** รายการแอปของ deployment: เพิ่มเสียงบันทึกของทีมต่อจาก "ทีมสด" เมื่อเปิดใช้ */
+export function navigationApps(recordingPlayback: boolean): readonly NavigationAppDefinition[] {
+  if (!recordingPlayback) return BASE_NAVIGATION_APPS;
+  const after = BASE_NAVIGATION_APPS.findIndex((app) => app.id === 'supervisor-workspace') + 1;
+  return Object.freeze([
+    ...BASE_NAVIGATION_APPS.slice(0, after),
+    TEAM_RECORDINGS_APP,
+    ...BASE_NAVIGATION_APPS.slice(after),
+  ]);
+}
+
+export const NAVIGATION_APPS: readonly NavigationAppDefinition[] = navigationApps(
+  resolveRecordingSupervisorPlayback(process.env),
+);
 
 export interface NavigationAreaItemView {
   appId: string;

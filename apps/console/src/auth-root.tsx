@@ -25,6 +25,8 @@ import { createEmbedOriginApi } from './dphone-embedding/api.js';
 import { AgentHistory } from './agent-history/agent-history.js';
 import { createAgentHistoryApi } from './agent-history/api.js';
 import { CasesPage } from './cases/cases-page.js';
+import { createTeamRecordingsApi } from './team-recordings/api.js';
+import { TeamRecordings } from './team-recordings/team-recordings.js';
 import { createCasesApi } from './cases/api.js';
 import { DphoneEmbedding } from './dphone-embedding/dphone-embedding.js';
 import { createAccountApi, createAccountPolicyApi } from './account/api.js';
@@ -217,6 +219,8 @@ export function ConsoleAuthRoot() {
   const historyView = view === 'agent-history';
   // #956: เคสของทีม (รายการ + รายละเอียด `&case=<id>`)
   const casesView = view === 'team-cases';
+  // #967: เสียงบันทึกของทีมสำหรับ Supervisor
+  const recordingsView = view === 'team-recordings';
   const preferenceView = view === 'preferences';
   const governanceView = view === 'governance';
   const journeyView = view === 'journeys';
@@ -243,6 +247,7 @@ export function ConsoleAuthRoot() {
       homeView ||
       historyView ||
       casesView ||
+      recordingsView ||
       preferenceView ||
       governanceView ||
       journeyView ||
@@ -329,6 +334,8 @@ export function ConsoleAuthRoot() {
               <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : casesView ? (
               <CasesSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : recordingsView ? (
+              <RecordingsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
             ) : accountView ? (
               <AccountSurface
                 apiBaseUrl={apiBaseUrl}
@@ -508,6 +515,67 @@ export function CasesSurface({
         api={api}
         identityKey={identityKey}
         viewerUserId={profile.dc_user_id as string}
+        onSignIn={() => void signInFromCurrentPage(auth)}
+      />
+    </ConsoleShell>
+  );
+}
+
+export function RecordingsSurface({
+  apiBaseUrl,
+  tenantAlias,
+}: {
+  apiBaseUrl: string;
+  tenantAlias: string;
+}) {
+  const auth = useAuth();
+  const { t } = useTranslation('recordings');
+  const accessToken = auth.user?.access_token;
+  const latestToken = useRef(accessToken);
+  latestToken.current = auth.isAuthenticated ? accessToken : undefined;
+  const api = useMemo(
+    () => createTeamRecordingsApi({ baseUrl: apiBaseUrl, accessToken: () => latestToken.current }),
+    [apiBaseUrl],
+  );
+  if (auth.isLoading)
+    return (
+      <main className="empty" aria-busy="true">
+        {t('loading')}
+      </main>
+    );
+  if (auth.error || !auth.isAuthenticated || !accessToken)
+    return (
+      <main className="empty">
+        <p>{t('unauthorized')}</p>
+        <Button onPress={() => void signInFromCurrentPage(auth)}>{t('signIn')}</Button>
+      </main>
+    );
+  const profile = auth.user?.profile;
+  const identity = [profile?.iss, profile?.tenant_id, profile?.dc_user_id, profile?.sub];
+  if (
+    profile?.iss !== auth.settings.authority ||
+    profile?.tenant_slug !== tenantAlias ||
+    !identity.every((field) => typeof field === 'string' && field.length > 0)
+  ) {
+    return (
+      <main className="empty" role="alert">
+        {t('forbidden')}
+      </main>
+    );
+  }
+  const identityKey = JSON.stringify(identity);
+  return (
+    <ConsoleShell
+      key={identityKey}
+      {...shellUserProps(auth, tenantAlias)}
+      apiBaseUrl={apiBaseUrl}
+      accessToken={() => accessToken}
+      tenantAlias={tenantAlias}
+      appId="team-recordings"
+    >
+      <TeamRecordings
+        api={api}
+        identityKey={identityKey}
         onSignIn={() => void signInFromCurrentPage(auth)}
       />
     </ConsoleShell>
