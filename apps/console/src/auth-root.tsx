@@ -19,6 +19,7 @@ import { AccountPage, AccountPolicyPage } from './account/account.js';
 import { createTeamScopeApi } from './team-scopes/api.js';
 import { ConsoleHome } from './home/home.js';
 import { ConsoleShell } from './shell/console-shell.js';
+import { ConsoleNavigationProvider, useConsoleRouter } from './shell/console-navigation.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
 import { GovernancePage } from './governance-page.js';
@@ -191,6 +192,14 @@ export function ConsoleAuthRoot() {
   // #684: ไม่มี view/context → Home; argument ของ deployment เก่าไม่เปลี่ยน default ใหม่
   const defaultView = import.meta.env.VITE_CONSOLE_DEFAULT_VIEW as string | undefined;
   const [view, setView] = useState(() => resolveConsoleView(url, defaultView));
+  const [routeRevision, setRouteRevision] = useState(0);
+  const navigate = useConsoleRouter(
+    (next) => {
+      setView(resolveConsoleView(next, defaultView));
+      setRouteRevision((revision) => revision + 1);
+    },
+    () => window.confirm(appI18n.t('shell.discardChanges')),
+  );
   const homeView = view === 'home';
   const historyView = view === 'agent-history';
   const preferenceView = view === 'preferences';
@@ -260,35 +269,37 @@ export function ConsoleAuthRoot() {
     >
       <ConsoleSessionBootstrap>
         <ConsoleLocale apiBaseUrl={apiBaseUrl} issuer={issuer}>
-          {signedOut ? (
-            <SignedOutSurface />
-          ) : homeView ? (
-            <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-          ) : coreSettingsView ? (
-            <CoreSettingsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-          ) : routingView ? (
-            <VoiceRoutingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-          ) : peopleView ? (
-            <TenantPeopleSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-          ) : historyView ? (
-            <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-          ) : accountView ? (
-            <AccountSurface
-              apiBaseUrl={apiBaseUrl}
-              tenantAlias={tenantAlias}
-              policy={view === 'account-policy'}
-            />
-          ) : journeyView ? (
-            <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-          ) : lineInboundView ? (
-            <LineInboundSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-          ) : embeddingView ? (
-            <DphoneEmbeddingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-          ) : governanceView ? (
-            <GovernanceSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
-          ) : (
-            <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
-          )}
+          <ConsoleNavigationProvider value={navigate} key={routeRevision}>
+            {signedOut ? (
+              <SignedOutSurface />
+            ) : homeView ? (
+              <HomeSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : coreSettingsView ? (
+              <CoreSettingsSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : routingView ? (
+              <VoiceRoutingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : peopleView ? (
+              <TenantPeopleSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : historyView ? (
+              <HistorySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : accountView ? (
+              <AccountSurface
+                apiBaseUrl={apiBaseUrl}
+                tenantAlias={tenantAlias}
+                policy={view === 'account-policy'}
+              />
+            ) : journeyView ? (
+              <JourneySurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : lineInboundView ? (
+              <LineInboundSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : embeddingView ? (
+              <DphoneEmbeddingSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : governanceView ? (
+              <GovernanceSurface apiBaseUrl={apiBaseUrl} tenantAlias={tenantAlias} />
+            ) : (
+              <ConsoleSurface apiBaseUrl={apiBaseUrl} contextId={contextId} contactId={contactId} />
+            )}
+          </ConsoleNavigationProvider>
         </ConsoleLocale>
       </ConsoleSessionBootstrap>
     </AuthProvider>

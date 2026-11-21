@@ -8,6 +8,7 @@ export interface RailProps {
   /** หมุดที่มีผล (≤15) ตามลำดับ — จาก Navigation API */
   pinnedApps: readonly ShellApp[];
   currentAppId?: string;
+  onNavigate?: (href: string) => boolean;
   /** #651: พื้นที่งาน — ส่งแล้ว rail แสดงพื้นที่แทนหมุด (ว่าง/ไม่ส่ง = หมุดแอปแบบเดิม) */
   areas?: readonly ShellArea[];
   /** พื้นที่ที่กำลังใช้อยู่ (ไม่ส่ง = ไม่มีพื้นที่ใดถูกเลือก เช่นหน้าบัญชี) */
@@ -25,6 +26,7 @@ export interface RailProps {
 export function Rail({
   pinnedApps,
   currentAppId,
+  onNavigate,
   areas,
   currentAreaId,
   launcher,
@@ -32,6 +34,18 @@ export function Rail({
 }: RailProps) {
   const t = useUiText();
   const items = areas && areas.length > 0 ? areas : null;
+  const select = (event: React.MouseEvent<HTMLAnchorElement>, href: string, external: boolean) => {
+    if (
+      external ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    if (onNavigate?.(href)) event.preventDefault();
+  };
   return (
     <nav
       className={styles.rail}
@@ -47,6 +61,7 @@ export function Rail({
                 <a
                   className={`${styles.item} ${styles.area}`}
                   href={area.href}
+                  onClick={(event) => select(event, area.href, area.external)}
                   title={area.label}
                   aria-current={area.id === currentAreaId ? 'page' : undefined}
                   data-area={area.id}
@@ -72,6 +87,7 @@ export function Rail({
                   <a
                     className={styles.item}
                     href={app.href}
+                    onClick={(event) => select(event, app.href, app.external)}
                     aria-current={app.id === currentAppId ? 'page' : undefined}
                     {...(app.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                   >

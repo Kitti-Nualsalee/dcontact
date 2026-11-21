@@ -175,9 +175,6 @@
     padding-inline: var(--dc-space-5);
     gap: var(--dc-space-4);
   }
-  .home-shell header nav {
-    display: none;
-  }
   .home-shell header > div:first-child span {
     display: none;
   }
