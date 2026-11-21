@@ -235,7 +235,8 @@
         "wrapup": "Wrap-up",
         "details": "Details",
         "events": "Events",
-        "readiness": "Readiness"
+        "readiness": "Readiness",
+        "case": "Case"
       }
     },
     "utility": "Right toolbar",
@@ -445,5 +446,51 @@
       "mic": "Microphone"
     },
     "idleReadyHint": "You are ready. Your next call will appear here and in dphone."
+  },
+  "case": {
+    "open": "Open case",
+    "tab": "Case",
+    "title": "Open a case from this work",
+    "copy": "Use this when the issue needs follow-up after the call. This work is linked to the case automatically.",
+    "customer": "Customer",
+    "customerMissing": "Not selected",
+    "linkedWork": "Linked work",
+    "subject": "Subject",
+    "required": "Required",
+    "subjectHelp": "Summarize the issue in one line for your team",
+    "subjectCount": "{{count}} / 200",
+    "subjectRequired": "Enter a subject of 1–200 characters",
+    "note": "First note",
+    "noteHelp": "Visible to your team only. Not sent to the customer.",
+    "noteCount": "{{count}} / 2,000",
+    "noteRequired": "Enter a note of 1–2,000 characters",
+    "assignee": "Assignee",
+    "assigneeSelf": "Me ({{name}})",
+    "assigneeRejected": "This agent is no longer active in your team. Choose another.",
+    "teamFailed": "Couldn't load your team. You can still assign the case to yourself.",
+    "teamRetry": "Retry loading team",
+    "unlinked": "Link a customer to this work first. A case needs one customer. You can draft now.",
+    "pickCustomer": "Find customer",
+    "submit": "Open case",
+    "pending": "Opening case…",
+    "discard": "Clear draft",
+    "unknown": "We don't know yet if the case was opened. Send the same request again; no duplicate case will be created. Fields stay locked until then.",
+    "retrySame": "Send again",
+    "failed": "Couldn't open the case. Your draft is kept. Try again.",
+    "noTeam": "Your account isn't in a team, so you can't open cases. Ask your tenant admin to add you. This work continues as usual.",
+    "workClosed": "This work's wrap-up is saved, so a case can't be opened from it.",
+    "created": "Case opened",
+    "createdCopy": "This work is linked to the case. Follow up in Console.",
+    "createdToast": "Case opened: {{subject}}",
+    "status": "Status",
+    "openInConsole": "Open case in Console (new tab)",
+    "wrapupHint": "Needs follow-up? Open a case before saving, so your team can track it.",
+    "goToCase": "Go to Case tab",
+    "statusValue": {
+      "OPEN": "Open",
+      "RESOLVED": "Resolved",
+      "CLOSED": "Closed"
+    },
+    "workHasCase": "This work already has a case. A work item belongs to one case. Follow it up in Team cases in Console."
   }
 }

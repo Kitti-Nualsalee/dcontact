@@ -525,6 +525,13 @@
   overflow: auto;
 }
 
+/* #956 เว้นที่ท้ายแผงเท่าส่วนที่ dphone แบบลอยทับ (ตั้งโดย useFloatingOverlapInset) */
+.aw-v3-inspector-body::after {
+  flex: none;
+  block-size: var(--aw-dphone-inset, 0);
+  content: '';
+}
+
 /* แผงที่อยู่ในแผงงานไม่ต้องมีกรอบซ้อน */
 .aw-v3-inspector-body > .aw-panel,
 .aw-v3-readiness > .aw-panel {

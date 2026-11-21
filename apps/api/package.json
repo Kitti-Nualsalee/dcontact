@@ -23,6 +23,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/s3-request-presigner": "^3.0.0",
+    "@d-contact/cases": "workspace:*",
     "@d-contact/contact-governance": "workspace:*",
     "@d-contact/contact-points": "workspace:*",
     "@d-contact/customer-360": "workspace:*",

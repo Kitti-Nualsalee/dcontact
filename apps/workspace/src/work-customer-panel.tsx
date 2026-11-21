@@ -10,6 +10,15 @@ import {
 } from './work-customer-api.js';
 
 /** #795: Cus360 มี state แยกจาก SIP/media และไม่เรียก Voice controls */
+/** #956 แท็บเคสใช้ id นี้ focus ช่องค้นหาลูกค้าเมื่อกด "ไปเลือกลูกค้า" */
+export const WORK_CUSTOMER_QUERY_ID = 'work-customer-query';
+
+export interface LinkedCustomer {
+  id: string;
+  displayName: string | null;
+  company: string | null;
+}
+
 export function WorkCustomerPanel({
   api,
   workId,
@@ -18,6 +27,7 @@ export function WorkCustomerPanel({
   sessionReady,
   readOnly = false,
   invalidationRevision = 0,
+  onCustomerChange,
 }: {
   api: WorkCustomerApi;
   workId: string;
@@ -26,6 +36,11 @@ export function WorkCustomerPanel({
   sessionReady: boolean;
   readOnly?: boolean;
   invalidationRevision?: number;
+  /**
+   * #956 แจ้งลูกค้าที่ผูกกับงานปัจจุบันให้แท็บเคส: null = งานยังไม่ผูกลูกค้า,
+   * undefined = กำลังโหลดหรืออ่านไม่ได้ (ไม่ควรบอกให้ไปเลือกลูกค้า)
+   */
+  onCustomerChange?: (customer: LinkedCustomer | null | undefined) => void;
 }) {
   const { t } = useTranslation('workspace');
   const [view, setView] = useState<WorkCustomerView>();
@@ -53,6 +68,23 @@ export function WorkCustomerPanel({
   const [pending, setPending] = useState<string>();
   const stamp = useRef(0);
   const storageKey = `dcontact.c360.work-command:${identityKey}:${workId}`;
+  const customerChange = useRef(onCustomerChange);
+  customerChange.current = onCustomerChange;
+  const linkedContact = view?.state === 'LINKED' ? view.contact : undefined;
+  const linkState = status !== 'ready' || !view ? 'unknown' : linkedContact ? 'linked' : 'unlinked';
+  useEffect(() => {
+    customerChange.current?.(
+      linkState === 'linked' && linkedContact
+        ? {
+            id: linkedContact.id,
+            displayName: linkedContact.displayName,
+            company: linkedContact.company,
+          }
+        : linkState === 'unlinked'
+          ? null
+          : undefined,
+    );
+  }, [linkState, linkedContact?.id, linkedContact?.displayName, linkedContact?.company]);
   function closePii() {
     setView(undefined);
     setItems([]);
@@ -333,6 +365,7 @@ export function WorkCustomerPanel({
                   ]}
                 />
                 <TextField
+                  id={WORK_CUSTOMER_QUERY_ID}
                   label={t('customer.query')}
                   value={query}
                   onChange={(value) => {

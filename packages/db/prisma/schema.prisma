@@ -3727,6 +3727,9 @@ enum CsActivityKind {
   CREATED
   LINKED
   REOPENED
+  NOTE
+  ASSIGNED
+  STATUS_CHANGED
 }
 
 /// tenant-scoped fixture: caseTypePolicyRef (จาก J2 intent) แม็พไปยัง case type จริง
@@ -3776,10 +3779,19 @@ model CsCase {
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
 
+  /// #956 เคสที่ Agent เปิดจากงาน: มีหัวข้อ ทีมที่เห็นเคส ผู้รับผิดชอบ และงานต้นทาง
+  /// เคสจาก J2 ENSURE_CASE ไม่มีค่าเหล่านี้ FK ไป teams/users ประกาศใน migration
+  subject             String? @map("subject")
+  teamId              String? @map("team_id") @db.Uuid
+  assigneeUserId      String? @map("assignee_user_id") @db.Uuid
+  createdByUserId     String? @map("created_by_user_id") @db.Uuid
+  sourceInteractionId String? @map("source_interaction_id") @db.Uuid
+
   tenant  Tenant  @relation(fields: [tenantId], references: [id])
   contact Contact @relation(fields: [tenantId, contactId], references: [tenantId, id])
 
   @@index([tenantId, contactId, caseTypeKey, status])
+  @@index([tenantId, teamId, status, updatedAt(sort: Desc)], map: "cs_cases_tenant_team_status_updated_idx")
   @@map("cs_cases")
 }
 
@@ -3798,19 +3810,24 @@ model CsCaseLink {
   @@map("cs_case_links")
 }
 
-/// ไทม์ไลน์ของ ENSURE_CASE effect หนึ่งรายการ — opaque reference เท่านั้น ไม่มี raw
-/// contact data, transcript หรือ free text
+/// ไทม์ไลน์เดียวของเคส แถวจาก J2 ENSURE_CASE มี opaque outcome reference เท่านั้น
+/// แถวที่ Agent ทำ (#956) มีผู้กระทำ และโน้ตเป็น free text ที่ Agent เขียนเอง
 model CsCaseActivity {
   id             String         @id @default(uuid()) @db.Uuid
   tenantId       String         @map("tenant_id") @db.Uuid
   caseId         String         @map("case_id") @db.Uuid
   kind           CsActivityKind
-  interactionId  String         @map("interaction_id")
-  outcomeType    String         @map("outcome_type")
-  outcomeId      String         @map("outcome_id") @db.Uuid
-  outcomeVersion Int            @map("outcome_version")
-  correlationId  String         @map("correlation_id")
+  interactionId  String?        @map("interaction_id")
+  outcomeType    String?        @map("outcome_type")
+  outcomeId      String?        @map("outcome_id") @db.Uuid
+  outcomeVersion Int?           @map("outcome_version")
+  correlationId  String?        @map("correlation_id")
   occurredAt     DateTime       @default(now()) @map("occurred_at")
+  actorUserId    String?        @map("actor_user_id") @db.Uuid
+  body           String?
+  fromStatus     CsCaseStatus?  @map("from_status")
+  toStatus       CsCaseStatus?  @map("to_status")
+  assigneeUserId String?        @map("assignee_user_id") @db.Uuid
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 

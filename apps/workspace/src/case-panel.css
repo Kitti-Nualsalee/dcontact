@@ -1,0 +1,74 @@
+/* #956 แท็บเคสในแผงงาน ใช้ token ของ packages/ui เท่านั้น */
+.aw-case {
+  display: grid;
+  gap: var(--dc-space-5);
+}
+
+.aw-case-form {
+  display: grid;
+  gap: var(--dc-space-5);
+}
+
+.aw-case-summary {
+  display: grid;
+  gap: var(--dc-space-3);
+  margin: 0;
+  padding: var(--dc-space-4) var(--dc-space-5);
+  border: 1px solid var(--dc-border-subtle);
+  border-radius: var(--dc-radius-md);
+  background: var(--dc-surface-sunken);
+}
+
+.aw-case-summary > div {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) 1fr;
+  gap: var(--dc-space-3);
+}
+
+.aw-case-summary dt {
+  color: var(--dc-text-muted);
+}
+
+.aw-case-summary dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.aw-case-banner {
+  display: grid;
+  gap: var(--dc-space-3);
+  justify-items: start;
+  margin: 0;
+  padding: var(--dc-space-4) var(--dc-space-5);
+  border-radius: var(--dc-radius-md);
+}
+
+.aw-case-banner p {
+  margin: 0;
+}
+
+.aw-case-banner[data-tone='attention'] {
+  background: var(--dc-attention-bg);
+  color: var(--dc-attention-fg);
+}
+
+.aw-case-banner[data-tone='critical'] {
+  background: var(--dc-critical-bg);
+  color: var(--dc-critical-fg);
+}
+
+.aw-case-banner[data-tone='brand'] {
+  background: var(--dc-brand-50);
+  color: var(--dc-text-brand-strong);
+}
+
+.aw-case-actions {
+  position: sticky;
+  /* ยกขึ้นพ้น dphone แบบลอยเมื่อทับแผง */
+  bottom: var(--aw-dphone-inset, 0px);
+  display: flex;
+  gap: var(--dc-space-3);
+  padding-block: var(--dc-space-4);
+  background: var(--dc-surface-raised);
+}

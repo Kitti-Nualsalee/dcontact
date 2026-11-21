@@ -14,7 +14,7 @@ import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { AuthProvider } from 'react-oidc-context';
 import { User, UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import { createRoot } from 'react-dom/client';
-import { ConsoleAuthRoot, HistorySurface } from './auth-root.js';
+import { CasesSurface, ConsoleAuthRoot, HistorySurface } from './auth-root.js';
 import { ConsoleApp } from './console-app.js';
 import { createConsoleApi } from './console-api.js';
 import { GovernancePage } from './governance-page.js';
@@ -85,7 +85,7 @@ function e2eShellUser(tenantAlias: string | undefined) {
   };
 }
 
-function HistoryE2eRoot() {
+function HistoryE2eRoot({ surface = 'history' }: { surface?: 'history' | 'cases' }) {
   const url = new URL(window.location.href);
   const [identity, setIdentity] = useState('first');
   const manager = useMemo(
@@ -123,10 +123,17 @@ function HistoryE2eRoot() {
         <button onClick={() => setIdentity('second')}>Switch identity fixture</button>
       ) : null}
       <AuthProvider userManager={manager} skipSigninCallback>
-        <HistorySurface
-          apiBaseUrl={window.location.origin}
-          tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
-        />
+        {surface === 'cases' ? (
+          <CasesSurface
+            apiBaseUrl={window.location.origin}
+            tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
+          />
+        ) : (
+          <HistorySurface
+            apiBaseUrl={window.location.origin}
+            tenantAlias={url.searchParams.get('tenant') ?? 'demo'}
+          />
+        )}
       </AuthProvider>
     </>
   );
@@ -178,6 +185,7 @@ function ConsoleE2eRoot() {
       />
     );
   if (view === 'agent-history') return <HistoryE2eRoot />;
+  if (view === 'team-cases') return <HistoryE2eRoot surface="cases" />;
   if (view === 'tenant-people')
     return (
       <TenantPeoplePage

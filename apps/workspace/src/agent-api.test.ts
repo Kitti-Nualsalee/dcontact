@@ -105,3 +105,56 @@ test('live event ของ Workspace ใช้ D-Contact WebSocket โดยไ�
     'ws://localhost:3000/api/v1/workspace-session',
   );
 });
+
+test('#956 เปิดเคสส่ง commandId และร่างไปที่ API เคส ส่วน error มี code จาก server', async () => {
+  const requests: { input: string; init?: RequestInit }[] = [];
+  let reply: Response = new Response(JSON.stringify({ caseId: 'case-1', version: 1 }), {
+    status: 201,
+  });
+  const api = createAgentWorkspaceApi({
+    baseUrl: 'https://api.example',
+    accessToken: () => 'token',
+    fetch: async (input, init) => {
+      requests.push({ input: input.toString(), init });
+      return reply;
+    },
+  });
+
+  const opened = await api.openCase!({
+    interactionId: '9a8a5477-aa53-4254-ae68-a21ab64cc2bb',
+    subject: 'ขอเปลี่ยนเครื่อง',
+    note: 'รอคลังยืนยัน',
+    commandId: '04e5b24d-f298-4e5e-83d9-2cadfd7ed204',
+  });
+  assert.deepEqual(opened, { caseId: 'case-1', version: 1 });
+  assert.equal(requests[0]?.input, 'https://api.example/api/v1/workspace/agent/cases');
+  assert.equal(requests[0]?.init?.method, 'POST');
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
+    commandId: '04e5b24d-f298-4e5e-83d9-2cadfd7ed204',
+    interactionId: '9a8a5477-aa53-4254-ae68-a21ab64cc2bb',
+    subject: 'ขอเปลี่ยนเครื่อง',
+    note: 'รอคลังยืนยัน',
+  });
+
+  reply = new Response(JSON.stringify({ code: 'CONTACT_REQUIRED' }), { status: 409 });
+  await assert.rejects(
+    api.openCase!({
+      interactionId: '9a8a5477-aa53-4254-ae68-a21ab64cc2bb',
+      subject: 'x',
+      note: 'y',
+      commandId: '04e5b24d-f298-4e5e-83d9-2cadfd7ed204',
+    }),
+    (error: unknown) =>
+      error instanceof Error && 'code' in error && error.code === 'CONTACT_REQUIRED',
+  );
+
+  reply = new Response(
+    JSON.stringify({ items: [{ userId: 'u-1', displayName: 'สมหญิง' }, { userId: 2 }] }),
+    { status: 200 },
+  );
+  assert.deepEqual(await api.caseTeamAgents!(), [{ userId: 'u-1', displayName: 'สมหญิง' }]);
+  assert.equal(
+    requests.at(-1)?.input,
+    'https://api.example/api/v1/workspace/agent/cases/team-agents',
+  );
+});

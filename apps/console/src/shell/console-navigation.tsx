@@ -9,6 +9,7 @@ const INDEX = 'dcontact.console.navigationIndex';
 const VIEWS = new Set([
   'home',
   'agent-history',
+  'team-cases',
   'governance',
   'journeys',
   'dphone-embedding',
