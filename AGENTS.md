@@ -21,6 +21,9 @@
 - งานยาวหลาย PR: Lead รวม PR ย่อยเข้า `integration/<สายงาน>` เองได้ แล้วส่ง PR เดียวเข้า main ให้ owner (owner อนุญาต 21 พฤศจิกายน 2569)
 - หยุดรอ owner เฉพาะ: merge เข้า main, deploy/mutation บน UAT, migration บนฐานร่วม, ลบข้อมูลหรือทรัพยากรของงานอื่น, ส่งข้อความถึงคนอื่น และค่าใช้จ่าย
 - รายงานท้ายงาน: สิ่งที่ทำ ผลตรวจ สมมติฐานที่เลือกแทน owner และคำถามค้าง (ใส่เลข 1/2/3 และตัวเลือกที่แนะนำ)
+- เมื่อ diff เข้าเกณฑ์ reviewer (`code-reviewer`: security, tenant, migration, contract ข้าม context;
+  `ui-reviewer`: หน้าจอในแอปหรือ `packages/ui*`) ให้บอก owner ในรายงานท้ายงานว่าควรเรียกตัวไหน ก่อนส่ง PR เข้า main
+  หรือบอกว่าเรียกแล้วพร้อมผล
 
 ## Multi-agent
 
