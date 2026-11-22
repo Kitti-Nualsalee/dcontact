@@ -37,6 +37,18 @@ Session ไม่ใช่สิทธิ์ ทุก chunk ตรวจผู�
 การเปิด session บันทึก audit `PLAYBACK_ACCESSED` พร้อม `transport` และ `sessionId`
 
 API รองรับไฟล์ WAV แบบ PCM 16 bit mono หรือ stereo เท่านั้น รูปแบบอื่นตอบ 422
+Telephony ตั้ง `RECORD_STEREO` ของ channel ตาม `recording_channel_layout` ของคิวก่อน `uuid_record start`:
+`STEREO` ได้ไฟล์ stereo (ผู้โทรซ้าย สิ่งที่ผู้โทรได้ยินขวา) ส่วน `PER_LEG` ยังไม่มีไฟล์แยกขา จึงได้ mono ผสมสองฝั่ง
+
+## การ archive ของ Telephony
+
+- `call.answered` ไม่รองานบันทึกเสียง ส่วน `call.hangup` รอปิดบันทึก (ตั้ง `endedAt` แล้ว archive) ไม่เกิน 3 วินาที
+  เพื่อให้ QM เห็น `endedAt` ตอนได้ `interaction.ended` เกินนั้นส่ง event ก่อนแล้ว archive ต่อเบื้องหลัง
+- การเตรียมโฟลเดอร์ (`prepare`) มี timeout 5 วินาที ถ้าไม่ทันจะไม่เริ่มบันทึกและลบแถวที่เพิ่งสร้าง
+- รอบ retry ทุก 5 วินาทีลองทีละรายการ รายการที่ล้มเว้นนานขึ้นทีละเท่า (5 วินาที ถึง 5 นาที) และรอบไม่ซ้อนกัน
+- ไฟล์ไม่มี (`ENOENT`) นานเกิน 30 นาทีหลังวางสาย เช่น ผู้โทรวางสายก่อน FreeSWITCH สร้างไฟล์ จะหยุดลอง
+  ตั้ง `deletedAt` และบันทึก audit `ARCHIVE_ABANDONED` (reason `SOURCE_FILE_MISSING`) พร้อม node และเวลาที่หายไป
+  ไฟล์ที่อ่านไม่ได้ด้วยเหตุอื่น (NFS ค้าง, storage ล่ม) ลองต่อโดยไม่หยุด
 
 | สถานะ | code                                             | ความหมาย                                              |
 | ----- | ------------------------------------------------ | ----------------------------------------------------- |

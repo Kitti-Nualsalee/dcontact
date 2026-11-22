@@ -220,6 +220,99 @@ test('recording row is discarded when FreeSWITCH recording cannot start, so arch
   assert.equal(commands.length, 1);
 });
 
+test('retry abandons a recording whose file never appeared, records audit evidence, and still archives the next one', async (t) => {
+  const tenantId = randomUUID();
+  const queueId = randomUUID();
+  const nodeId = `fs-abandon-${tenantId.slice(0, 8)}`;
+  await owner.tenant.create({
+    data: {
+      id: tenantId,
+      name: `Recording abandon ${tenantId}`,
+      slug: `recording-abandon-${tenantId}`,
+      sipDomain: `${tenantId}.recording-abandon.test`,
+    },
+  });
+  await owner.queue.create({
+    data: {
+      id: queueId,
+      tenantId,
+      name: 'General Support',
+      channels: ['VOICE'],
+      recordingEnabled: true,
+      recordingChannelLayout: 'STEREO',
+    },
+  });
+  const insertEndedRecording = async (endedAt: Date) => {
+    const interactionId = randomUUID();
+    await owner.$executeRaw(
+      Prisma.sql`INSERT INTO interactions
+        (id, tenant_id, channel, direction, state, queue_id, external_id, metadata)
+        VALUES (
+          ${interactionId}::uuid, ${tenantId}::uuid, 'VOICE', 'INBOUND', 'COMPLETED', ${queueId}::uuid,
+          ${randomUUID()}, ${JSON.stringify({ vendor: 'freeswitch', telephonyNodeId: nodeId })}::jsonb
+        )`,
+    );
+    return owner.recording.create({
+      data: {
+        tenantId,
+        interactionId,
+        storageKey: `recordings/${tenantId}/${interactionId}.wav`,
+        telephonyPath: `/var/lib/freeswitch/recordings/${tenantId}/${interactionId}.wav`,
+        channelLayout: 'STEREO',
+        startedAt: new Date(endedAt.getTime() - 1_000),
+        endedAt,
+        durationSec: 1,
+      },
+    });
+  };
+  const now = new Date('2026-11-22T12:00:00.000Z');
+  const missing = await insertEndedRecording(new Date('2026-11-22T11:00:00.000Z'));
+  const ready = await insertEndedRecording(new Date('2026-11-22T11:59:00.000Z'));
+  t.after(async () => {
+    await owner.recordingAuditEvent.deleteMany({ where: { tenantId } });
+    await owner.recording.deleteMany({ where: { tenantId } });
+    await owner.interaction.deleteMany({ where: { tenantId } });
+    await owner.queue.deleteMany({ where: { tenantId } });
+    await owner.tenant.delete({ where: { id: tenantId } });
+  });
+
+  const lifecycle = new TelephonyRecordingLifecycle(
+    application,
+    { handle: async () => undefined },
+    {
+      prepare: async () => undefined,
+      archive: async (input) => {
+        if (input.storageKey === missing.storageKey) {
+          throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
+        }
+      },
+    },
+    '/var/lib/freeswitch/recordings',
+    { now: () => now, log: () => undefined },
+  );
+
+  assert.deepEqual(await lifecycle.retryPendingArchives(nodeId), [ready.id]);
+
+  const abandoned = await owner.recording.findUniqueOrThrow({ where: { id: missing.id } });
+  assert.equal(abandoned.deletedAt?.toISOString(), now.toISOString());
+  assert.equal(abandoned.archivedAt, null);
+  const audit = await owner.recordingAuditEvent.findFirstOrThrow({
+    where: { tenantId, recordingId: missing.id },
+  });
+  assert.equal(audit.action, 'ARCHIVE_ABANDONED');
+  assert.equal(audit.reason, 'SOURCE_FILE_MISSING');
+  assert.equal(audit.actorUserId, null);
+  assert.deepEqual(audit.details, {
+    errorCode: 'ENOENT',
+    telephonyNodeId: nodeId,
+    endedAt: '2026-11-22T11:00:00.000Z',
+    missingForSec: 3600,
+    attempts: 1,
+  });
+  assert.ok((await owner.recording.findUniqueOrThrow({ where: { id: ready.id } })).archivedAt);
+  assert.deepEqual(await lifecycle.retryPendingArchives(nodeId), []);
+});
+
 test.after(async () => {
   await Promise.all([owner.$disconnect(), application.$disconnect()]);
 });

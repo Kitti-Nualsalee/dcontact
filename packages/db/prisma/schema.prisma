@@ -4820,6 +4820,8 @@ enum RecordingAuditAction {
   RETENTION_DELETED
   LEGAL_HOLD_PLACED
   LEGAL_HOLD_RELEASED
+  // Telephony หยุดลอง archive เพราะไฟล์ต้นทางไม่มีวันมี (เช่น วางสายก่อน FreeSWITCH สร้างไฟล์)
+  ARCHIVE_ABANDONED
 }
 
 model Recording {

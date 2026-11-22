@@ -30,7 +30,7 @@ import {
 } from './managed-voice-telephony.js';
 import { TelephonyRecordingLifecycle } from './recording-lifecycle.js';
 import { S3RecordingArchive } from './s3-recording-archive.js';
-import { publishTelephonyCallEvent } from './telephony-event-publisher.js';
+import { publishTelephonyCallEvent, RecordingTaskQueue } from './telephony-event-publisher.js';
 
 const host = process.env.FREESWITCH_ESL_HOST ?? '127.0.0.1';
 // Docker Compose exposes FreeSWITCH ESL on host port 8022; container-internal ESL remains 8021.
@@ -85,6 +85,7 @@ async function main() {
     }),
     recordingsDirectory,
   );
+  const recordingTasks = new RecordingTaskQueue();
   // #979: managed routing v1 หลาย tenant — ปิดโดยปริยาย ถ้าไม่เปิด ทุกอย่างข้างล่างเป็น legacy ตามเดิม
   const managedDatabaseUrl = process.env.APPLICATION_DATABASE_URL ?? process.env.DATABASE_URL;
   const managedDatabases = isManagedVoiceEnabled()
@@ -245,6 +246,7 @@ async function main() {
       });
       await publishTelephonyCallEvent(event, {
         recordings: recordingLifecycle,
+        recordingTasks,
         publish: (callEvent) => producer.send(KAFKA_TOPICS.TELEPHONY_EVENTS, callEvent),
       });
       if (event.type === 'call.created') {
@@ -307,6 +309,12 @@ async function main() {
     socket.removeAllListeners('data');
     socket.end();
     await managed?.stop();
+    // งาน archive ที่ค้างจะถูก retry รอบหน้าหลังเริ่มใหม่ จึงรอแค่ช่วงสั้น ๆ
+    if (!(await recordingTasks.drain(5_000))) {
+      console.error('[telephony] recording tasks still running at shutdown', {
+        pending: recordingTasks.size,
+      });
+    }
     await Promise.all([
       consumer.disconnect(),
       producer.disconnect(),
