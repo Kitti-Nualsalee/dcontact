@@ -30,5 +30,28 @@
   "unavailable": "Unavailable",
   "SERVER_COMMIT": "Server commit time",
   "LEGACY_EVENT": "Reference time from the legacy completion event",
-  "LEGACY_FALLBACK": "Reference time from the legacy end or queue time"
+  "LEGACY_FALLBACK": "Reference time from the legacy end or queue time",
+  "summary": {
+    "title": "Summary",
+    "periodLabel": "Period",
+    "period": {
+      "today": "Today",
+      "7d": "7 days",
+      "30d": "30 days",
+      "all": "All"
+    },
+    "range": "{{range}} · {{timeZone}}",
+    "allTime": "All time",
+    "completed": "Completed work",
+    "showAll": "Show all {{count}} completed items",
+    "talk": "Average talk time",
+    "noTalk": "No data",
+    "talkBasis": "From {{count}} items with answer and hang-up times",
+    "byDisposition": "By disposition",
+    "noDisposition": "No disposition (legacy)",
+    "allDispositions": "All dispositions",
+    "listTitle": "Work items · {{period}} · {{disposition}} · {{count}} items",
+    "emptyPeriod": "No completed Voice work in this period",
+    "emptyFiltered": "No work with this disposition in this period"
+  }
 }

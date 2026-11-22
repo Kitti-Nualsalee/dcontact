@@ -131,6 +131,25 @@ test('call.created assigns one available tenant agent and duplicate input has no
   assert.equal(interaction.state, 'ACTIVE');
   assert.ok(interaction.answeredAt);
   assert.equal(published.filter((message) => message.type === 'interaction.answered').length, 1);
+  // #967: ทีมที่รับสายถูกบันทึกครั้งเดียวแม้ได้ call.answered ซ้ำ
+  const answeredBy = await owner.interaction.findFirstOrThrow({
+    where: { tenantId, id: first.interactionId },
+    select: { agentId: true, agent: { select: { teamId: true } } },
+  });
+  assert.deepEqual(
+    await owner.voiceInteractionHandlingAttribution.findMany({
+      where: { tenantId },
+      select: { interactionId: true, agentId: true, teamId: true, sourceEventId: true },
+    }),
+    [
+      {
+        interactionId: first.interactionId,
+        agentId: answeredBy.agentId,
+        teamId: answeredBy.agent?.teamId ?? null,
+        sourceEventId: 'telephony-event-2',
+      },
+    ],
+  );
 
   const wrapup = await router.handle({
     ...event,

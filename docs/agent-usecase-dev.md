@@ -171,3 +171,14 @@ pnpm --filter @d-contact/api test:m3-principal:boundary
 ```
 
 `test:m3-principal:boundary` ใช้ PostgreSQL และ Keycloak ชั่วคราวของ runner เอง ตรวจ HTTP→PostgreSQL/RLS, token จริงจาก `client_credentials`, introspection จริง และตัวอย่าง client ใน `examples/external-customer-api/` ไม่ใช่หลักฐานบน dev stack จริงหรือ UAT
+
+## Voice Recording: Supervisor เปิดฟังเสียงของทีม — #967
+
+งานติดตามที่ [#967](https://github.com/Kitti-Nualsalee/dcontact/issues/967) เป็น Use case ถัดไปจาก #888 ให้ Supervisor เปิดฟังเสียงบันทึกของสายที่ทีมตัวเองรับผ่าน API ที่ตรวจสิทธิ์ทุก chunk ปิดเป็นค่าเริ่มต้นและเปิดด้วย `RECORDING_SUPERVISOR_PLAYBACK=on` รายละเอียดสิทธิ์ endpoint และข้อจำกัดอยู่ใน `docs/voice-recording-supervisor-playback.md`
+
+```sh
+pnpm --filter @d-contact/api exec tsx --test --test-concurrency=1 src/recording-playback-api.integration.ts
+pnpm --filter @d-contact/console exec playwright test e2e/team-recordings.spec.ts --project=chromium
+```
+
+Integration ใช้ฐานแยกและ storage แบบ in-memory ที่เก็บ WAV จริง ส่วน Playwright ใช้ API จำลอง ทั้งสองไม่ใช่หลักฐานของสายจริง FreeSWITCH หรือ object storage จริง

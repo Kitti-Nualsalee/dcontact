@@ -6,6 +6,9 @@ import { expect, test, type Page } from '@playwright/test';
  * พร้อม focus ring ตาม token (`--dc-focus-ring` = วงนอกสี brand-700 #0f766e)
  */
 const FOCUS_RING = 'rgb(15, 118, 110)';
+/** ring ด้านใน (`--dc-focus-ring-inset`) — ทั้งสองชั้นต้องเป็น inset: สีที่ขอบ ขาวด้านใน */
+const FOCUS_RING_INSET =
+  /rgb\(15, 118, 110\) 0px 0px 0px 2px inset, rgb\(255, 255, 255\) 0px 0px 0px 4px inset/;
 
 async function seriousViolations(page: Page) {
   const result = await new AxeBuilder({ page }).analyze();
@@ -129,7 +132,7 @@ test('keyboard: Table เลื่อนแถวด้วยลูกศรแ�
   await page.keyboard.press('ArrowDown');
   const focusedRow = page.getByRole('row', { name: /บริการหลังการขาย/ });
   await expect(focusedRow).toBeFocused();
-  expect(await focusRingOf(page)).toContain(FOCUS_RING);
+  expect(await focusRingOf(page)).toMatch(FOCUS_RING_INSET);
   await page.keyboard.press('Space');
   await expect(focusedRow).toHaveAttribute('aria-selected', 'true');
 });
@@ -171,4 +174,73 @@ test('keyboard: Toast แสดงใน region ที่มีชื่อ แ�
   expect(await focusRingOf(page)).toContain(FOCUS_RING);
   await page.keyboard.press('Enter');
   await expect(region.getByText('บันทึกแล้ว')).toBeHidden();
+});
+
+test('forced-colors: Switch ยังเห็น track/thumb และแยกเปิด/ปิดได้ (สีพื้นถูกบังคับเป็น Canvas)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  const toggle = page.getByRole('switch', { name: 'รับสายอัตโนมัติ' });
+  const label = page.locator('label').filter({ has: toggle });
+  // track คือ span ที่ซ่อนจาก a11y tree (Toggle.tsx) และ thumb เป็นลูกของมัน
+  const parts = () =>
+    label
+      .locator('span[aria-hidden="true"]')
+      .first()
+      .evaluate((track) => {
+        const thumb = track.firstElementChild as Element;
+        return {
+          trackOutline: getComputedStyle(track).outlineStyle,
+          trackBackground: getComputedStyle(track).backgroundColor,
+          thumbBackground: getComputedStyle(thumb).backgroundColor,
+        };
+      });
+  await expect(toggle).toBeChecked();
+  const on = await parts();
+  await toggle.focus();
+  await page.keyboard.press('Space');
+  await expect(toggle).not.toBeChecked();
+  const off = await parts();
+  expect(on.trackOutline).toBe('solid');
+  expect(off.trackOutline).toBe('solid');
+  expect(on.thumbBackground).not.toBe(on.trackBackground);
+  expect(off.thumbBackground).not.toBe(off.trackBackground);
+  expect(on.trackBackground).not.toBe(off.trackBackground);
+});
+
+test('forced-colors: แถว Table ที่เลือกมีแถบ Highlight ที่ต้นแถว (พื้นแถวถูกบังคับเป็น Canvas)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  const table = page.getByRole('grid', { name: 'คิวงาน' });
+  await table.focus();
+  await page.keyboard.press('ArrowDown');
+  const row = page.getByRole('row', { name: /บริการหลังการขาย/ });
+  await expect(row).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(row).toHaveAttribute('aria-selected', 'true');
+  const marker = (target: typeof row) =>
+    target
+      .locator(':scope > *')
+      .first()
+      .evaluate((cell) => getComputedStyle(cell).getPropertyValue('border-inline-start-width'));
+  expect(await marker(row)).toBe('4px');
+  expect(await marker(page.getByRole('row', { name: /การเงิน/ }))).toBe('0px');
+});
+
+test('forced-colors: Tabs ยังเห็นเส้นใต้แท็บที่เลือก (inset box-shadow ถูกลบในโหมดนี้)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  const underline = (name: string) =>
+    page.getByRole('tab', { name }).evaluate((tab) => {
+      const bar = getComputedStyle(tab, '::after');
+      return { content: bar.content, height: bar.height };
+    });
+  await expect(page.getByRole('tab', { name: 'ภาพรวม' })).toHaveAttribute('aria-selected', 'true');
+  expect(await underline('ภาพรวม')).toEqual({ content: '""', height: '4px' });
+  expect((await underline('ขั้นตอน')).content).toBe('none');
 });

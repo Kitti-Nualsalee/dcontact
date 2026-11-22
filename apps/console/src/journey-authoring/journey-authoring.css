@@ -235,17 +235,7 @@
   margin-bottom: var(--dc-space-5);
   border: 1px solid var(--dc-border-default);
   border-radius: var(--dc-radius-md);
-}
-
-/* ไม่ใช้ overflow: hidden เพื่อไม่ตัด focus ring ด้านนอก — มนมุมที่ปุ่มปลายแทน */
-.j5-segmented button:first-child {
-  border-start-start-radius: var(--dc-radius-md);
-  border-end-start-radius: var(--dc-radius-md);
-}
-
-.j5-segmented button:last-child {
-  border-start-end-radius: var(--dc-radius-md);
-  border-end-end-radius: var(--dc-radius-md);
+  overflow: hidden;
 }
 
 .j5-segmented button {
@@ -264,11 +254,28 @@
   color: var(--dc-text-on-brand);
 }
 
-/* --dc-focus-ring เป็น shadow สองชั้น ห้ามใส่ inset (มีผลแค่ชั้นแรก) — position ให้ ring อยู่เหนือปุ่มข้างเคียง */
 .j5-segmented button:focus-visible {
-  position: relative;
-  outline: none;
-  box-shadow: var(--dc-focus-ring);
+  box-shadow: var(--dc-focus-ring-inset);
+}
+
+/* forced-colors: outline มาจาก tokens.css — วาดด้านในเพราะ .j5-segmented ตัด overflow
+   ปุ่มที่เลือกอยู่บอกด้วยพื้น brand ซึ่งโหมดนี้ลบทิ้ง จึงใช้ Highlight ของระบบแทน
+   (ปิด forced-color-adjust ไม่งั้นแผ่น Canvas หลังข้อความบังข้อความ) และ outline ด้านในเป็น HighlightText */
+@media (forced-colors: active) {
+  .j5-segmented button:focus-visible {
+    outline-offset: -4px;
+  }
+
+  .j5-segmented button[aria-pressed='true'] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+    box-shadow: none;
+  }
+
+  .j5-segmented button[aria-pressed='true']:focus-visible {
+    outline-color: HighlightText !important;
+  }
 }
 
 /* ── U1.4 (#432): แผง UAT run — แยกจากเนื้อหา J5 ด้วยขอบสี attention ── */
@@ -535,6 +542,17 @@
 .j5-node:focus-visible {
   outline: none;
   box-shadow: var(--dc-focus-ring);
+}
+
+/* forced-colors: โหนดที่เลือกบอกด้วยพื้นสีอย่างเดียว ซึ่งโหมดนี้บังคับเป็น Canvas
+   ใช้ขอบ Highlight หนาขึ้นแทน (ลด padding เท่ากันจึงไม่ขยับเนื้อหา) ไม่ปิด forced-color-adjust
+   เพราะในโหนดมีข้อความหลายสี (ชนิด, จำนวนปัญหา) ที่ต้องให้ระบบจัดสีให้ */
+@media (forced-colors: active) {
+  .j5-node[aria-pressed='true'] {
+    padding: calc(var(--dc-space-4) - var(--dc-space-1)) calc(var(--dc-space-5) - var(--dc-space-1));
+    border-width: 4px;
+    border-color: Highlight;
+  }
 }
 
 .j5-node-unsupported {

@@ -1,3 +1,5 @@
+import { NO_DISPOSITION, listQuery, type HistoryFilter, type SummaryPeriod } from './model.js';
+
 export type RecordedAtSource = 'SERVER_COMMIT' | 'LEGACY_EVENT' | 'LEGACY_FALLBACK';
 export interface HistoryItem {
   interactionId: string;
@@ -16,15 +18,53 @@ export interface HistoryDetail {
   recordedAtSource: RecordedAtSource;
   legacy: boolean;
 }
+/** #964 สรุปงานที่จบของ Agent — ตัวเลขนับจากนิยามเดียวกับรายการ */
+export interface HistorySummary {
+  period: { key: SummaryPeriod; from: string | null; to: string | null; timeZone: string };
+  completed: number;
+  talk: { averageSeconds: number | null; measuredCount: number };
+  byDisposition: { disposition: string | null; count: number }[];
+}
 export class HistoryApiError extends Error {
   constructor(readonly status: number) {
     super(`History request failed (${status})`);
   }
 }
 export interface AgentHistoryApi {
-  list(cursor?: string): Promise<{ items: HistoryItem[]; nextCursor: string | null }>;
+  list(
+    cursor?: string,
+    filter?: HistoryFilter,
+  ): Promise<{ items: HistoryItem[]; nextCursor: string | null }>;
+  summary(period: SummaryPeriod): Promise<HistorySummary>;
   result(interactionId: string): Promise<HistoryDetail>;
 }
+
+const count = (value: unknown) => Number.isInteger(value) && (value as number) >= 0;
+const instant = (value: unknown) => value === null || typeof value === 'string';
+
+export function isHistorySummary(value: unknown): value is HistorySummary {
+  if (!value || typeof value !== 'object') return false;
+  const summary = value as HistorySummary;
+  return (
+    !!summary.period &&
+    typeof summary.period.key === 'string' &&
+    instant(summary.period.from) &&
+    instant(summary.period.to) &&
+    typeof summary.period.timeZone === 'string' &&
+    count(summary.completed) &&
+    !!summary.talk &&
+    (summary.talk.averageSeconds === null || count(summary.talk.averageSeconds)) &&
+    count(summary.talk.measuredCount) &&
+    Array.isArray(summary.byDisposition) &&
+    summary.byDisposition.every(
+      (group) =>
+        (group.disposition === null ||
+          (typeof group.disposition === 'string' && group.disposition !== NO_DISPOSITION)) &&
+        count(group.count),
+    )
+  );
+}
+
 export function createAgentHistoryApi(options: {
   baseUrl: string;
   accessToken(): string | undefined;
@@ -43,12 +83,18 @@ export function createAgentHistoryApi(options: {
     return response.json();
   }
   return {
-    async list(cursor) {
-      const query = new URLSearchParams({ limit: '20', ...(cursor ? { cursor } : {}) });
-      return (await read(`history?${query}`)) as {
+    async list(cursor, filter) {
+      return (await read(`history?${listQuery(filter, cursor)}`)) as {
         items: HistoryItem[];
         nextCursor: string | null;
       };
+    },
+    async summary(period) {
+      const summary: unknown = await read(
+        `history/summary?${new URLSearchParams({ period }).toString()}`,
+      );
+      if (!isHistorySummary(summary)) throw new HistoryApiError(502);
+      return summary;
     },
     async result(interactionId) {
       if (

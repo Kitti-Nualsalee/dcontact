@@ -447,6 +447,26 @@ test('old writer waiting on an interaction cannot win managed answer CAS', async
     await owner.interactionEvent.count({ where: { tenantId, type: 'interaction.answered' } }),
     1,
   );
+  // #967: ทีมที่รับสายถูกบันทึกครั้งเดียวจากทีมของ Agent ตอนรับสาย
+  const [answeringAgent] = await owner.user.findMany({
+    where: { tenantId, id: offer.agentId },
+    select: { teamId: true },
+  });
+  assert.ok(answeringAgent?.teamId);
+  assert.deepEqual(
+    await owner.voiceInteractionHandlingAttribution.findMany({
+      where: { tenantId },
+      select: { interactionId: true, agentId: true, teamId: true, sourceEventId: true },
+    }),
+    [
+      {
+        interactionId: created!.interactionId,
+        agentId: offer.agentId,
+        teamId: answeringAgent.teamId,
+        sourceEventId: `offer:${offer.offerId}`,
+      },
+    ],
+  );
 });
 
 test('unknown originate outcome remains durable action required without repeated reconciliation events', async (testContext) => {

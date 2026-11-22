@@ -89,7 +89,9 @@ BEGIN
     'c360_profile_commands', 'c360_profile_command_receipts', 'c360_profile_audits',
     'c360_contact_points', 'c360_contact_custodian_grants', 'c360_contact_custodian_revocations',
     'c360_interaction_customer_changes', 'c360_tags', 'c360_contact_tags', 'c360_work_mutation_auth',
-    'c360_actor_capability_grants', 'c360_actor_capability_revocations'
+    'c360_actor_capability_grants', 'c360_actor_capability_revocations',
+    -- #967: ทีมที่รับสายจริง และ session เปิดฟังของ Supervisor
+    'voice_interaction_handling_attributions', 'recording_playback_sessions'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -139,6 +141,9 @@ REVOKE DELETE ON account_email_outbox FROM dcontact_app;
 -- D1.13 (#452): แอปอ่าน UI flag ได้อย่างเดียว — platform operator เป็นผู้เปลี่ยน (ผ่าน dcontact_platform)
 REVOKE INSERT, UPDATE, DELETE ON tenant_ui_flags, tenant_ui_flag_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON recording_audit_events FROM dcontact_app;
+-- #967: หลักฐานทีมที่รับสาย append-only; session ปิดด้วย UPDATE ไม่ลบ
+REVOKE UPDATE, DELETE ON voice_interaction_handling_attributions FROM dcontact_app;
+REVOKE DELETE ON recording_playback_sessions FROM dcontact_app;
 REVOKE UPDATE, DELETE ON qm_audit_events FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_decision_logs FROM dcontact_app;
 REVOKE UPDATE, DELETE ON cg_attempts FROM dcontact_app;
