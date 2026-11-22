@@ -1,25 +1,34 @@
 import { PrismaClient, withTenantDatabaseTransaction } from '@d-contact/db';
 import type { QmTranscriptionJobMessage } from '@d-contact/shared';
 
-/** job ที่ PENDING แต่ dispatchedAt ค้างเกินนี้ถือว่า message หาย (process ตายระหว่าง claim กับ publish) */
+/**
+ * job ที่ PENDING แต่ค้างเกินนี้ถือว่า message หาย: process ตายระหว่าง claim กับ publish (dispatchedAt ค้าง)
+ * หรือ workflow/API publish ล้มแล้วคืน dispatchedAt เป็น null โดยไม่มีใครเรียกซ้ำ (job ใหม่ที่ไม่มีใครดูแล)
+ */
 export const QM_DISPATCH_STALE_MS = 5 * 60 * 1_000;
 
 /**
  * - ไม่กรอง attempts: job ที่รอ recording archive ถูกเลื่อน nextAttemptAt ทั้งที่ attempts ยังเป็น 0
- *   job ใหม่ที่ workflow/API กำลัง publish มี nextAttemptAt เป็น null และ dispatchedAt มีค่าก่อน publish จึงไม่ถูกหยิบซ้ำ
- * - กวาด dispatchedAt ที่ค้าง: message ซ้ำปลอดภัยเพราะ worker ตรวจ attempt ของ job
+ * - job ใหม่ที่ workflow/API กำลัง publish มี dispatchedAt ก่อน publish และ nextAttemptAt เป็น null จึงไม่ถูกหยิบซ้ำ
+ * - กวาด job ที่ค้างเกิน QM_DISPATCH_STALE_MS: message ซ้ำปลอดภัยเพราะ worker ตรวจ attempt ของ job
  */
 function dueWhere(now: Date) {
+  const staleBefore = new Date(now.getTime() - QM_DISPATCH_STALE_MS);
   return {
     status: 'PENDING' as const,
     OR: [
       { dispatchedAt: null, nextAttemptAt: { lte: now } },
       {
-        dispatchedAt: { lt: new Date(now.getTime() - QM_DISPATCH_STALE_MS) },
+        dispatchedAt: { lt: staleBefore },
         OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
       },
+      { dispatchedAt: null, nextAttemptAt: null, createdAt: { lt: staleBefore } },
     ],
   };
+}
+
+function isSwept(candidate: { dispatchedAt: Date | null; nextAttemptAt: Date | null }): boolean {
+  return candidate.dispatchedAt !== null || candidate.nextAttemptAt === null;
 }
 
 export interface QmRetryPublisher {
@@ -54,6 +63,7 @@ export class QmRetryDispatcher {
               trigger: true,
               attempts: true,
               dispatchedAt: true,
+              nextAttemptAt: true,
             },
           }),
       );
@@ -87,6 +97,14 @@ export class QmRetryDispatcher {
             },
           });
           published.push(candidate.id);
+          if (isSwept(candidate)) {
+            // นับได้จาก log ว่ามี job ที่ message หายบ่อยแค่ไหน (ไม่มีข้อมูลส่วนบุคคล)
+            console.warn('[qm] re-dispatched stale transcription job', {
+              tenantId: tenant.id,
+              jobId: candidate.id,
+              attempt: candidate.attempts + 1,
+            });
+          }
         } catch (error) {
           await withTenantDatabaseTransaction(this.database, tenant.id, (transaction) =>
             transaction.qmTranscriptionJob.updateMany({

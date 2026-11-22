@@ -27,6 +27,8 @@ Telephony อาจส่ง `call.hangup` ก่อน archive WAV ขึ้น
 - workflow และ API ตั้ง `dispatchedAt` ก่อน publish (claim ก่อน publish) และ publish เฉพาะ job ที่ยังไม่มี `nextAttemptAt`
 - `QmRetryDispatcher` หยิบ job ที่ `PENDING` เมื่อถึง `nextAttemptAt` ไม่ว่า attempt เท่าไร
   - หยิบ job ที่ `dispatchedAt` ค้างเกิน 5 นาทีด้วย เผื่อ process ตายระหว่าง claim กับ publish
+  - หยิบ job ใหม่ที่ไม่มีทั้ง `dispatchedAt` และ `nextAttemptAt` เมื่อสร้างมาเกิน 5 นาที (publish ล้มแล้วไม่มีใครเรียกซ้ำ)
+  - log `[qm] re-dispatched stale transcription job` ทุกครั้งที่หยิบ job สองแบบนี้
 - message ที่มาก่อนถึงเวลา หรือมาถึง job ที่ `FAILED` แล้ว เป็น no-op ไม่ throw
 
 ## Provider contract

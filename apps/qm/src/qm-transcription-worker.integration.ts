@@ -491,27 +491,26 @@ test('worker เลื่อน job ก่อนที่ publish ของ work
   assert.equal((await worker.process(seeded.tenantId, dispatched[0]!)).status, 'READY');
 });
 
-test('dispatcher ไม่หยิบ job ใหม่ที่ยังไม่ publish และกวาด job ที่ dispatchedAt ค้างเกินเกณฑ์', async (t) => {
+test('dispatcher ไม่หยิบ job ใหม่ระหว่างที่ workflow/API publish และกวาด job ที่ค้างเกินเกณฑ์', async (t) => {
   const fresh = await seedJob(t, { archivedAt: requestedAt }, { dispatchedAt: null });
   const { retries, dispatched } = harness({ at: requestedAt });
+  const staleAfter = (from: Date, deltaMs: number) =>
+    new Date(from.getTime() + QM_DISPATCH_STALE_MS + deltaMs);
 
-  // job ใหม่ (attempts = 0, nextAttemptAt = null, dispatchedAt = null) เป็นของ workflow/API ไม่ใช่ dispatcher
-  assert.deepEqual(await retries.dispatchDue(new Date(requestedAt.getTime() + 86_400_000)), []);
-
-  // process ตายระหว่าง claim กับ publish: dispatchedAt ค้างโดยไม่มี message
-  await owner.qmTranscriptionJob.update({
-    where: { id: fresh.jobId },
-    data: { dispatchedAt: requestedAt },
-  });
-  assert.deepEqual(
-    await retries.dispatchDue(new Date(requestedAt.getTime() + QM_DISPATCH_STALE_MS - 1_000)),
-    [],
-  );
-  const sweptAt = new Date(requestedAt.getTime() + QM_DISPATCH_STALE_MS + 1_000);
-  assert.deepEqual(await retries.dispatchDue(sweptAt), [fresh.jobId]);
+  // job ใหม่ (attempts = 0, nextAttemptAt = null, dispatchedAt = null) เป็นของ workflow/API ในช่วงแรก
+  assert.deepEqual(await retries.dispatchDue(staleAfter(requestedAt, -1_000)), []);
+  // publish ล้มแล้วไม่มีใครเรียกซ้ำ: dispatcher หยิบเมื่อค้างเกินเกณฑ์
+  const firstSweep = staleAfter(requestedAt, 1_000);
+  assert.deepEqual(await retries.dispatchDue(firstSweep), [fresh.jobId]);
   assert.equal(dispatched[0]!.attempt, 1);
   assert.equal(
     (await persistedJob(fresh.jobId)).dispatchedAt?.toISOString(),
-    sweptAt.toISOString(),
+    firstSweep.toISOString(),
   );
+
+  // message หายหลัง claim (process ตายระหว่าง claim กับ publish): dispatchedAt ค้าง แล้วถูกกวาดอีกรอบ
+  assert.deepEqual(await retries.dispatchDue(staleAfter(firstSweep, -1_000)), []);
+  const secondSweep = staleAfter(firstSweep, 1_000);
+  assert.deepEqual(await retries.dispatchDue(secondSweep), [fresh.jobId]);
+  assert.equal(dispatched[1]!.attempt, 1);
 });
