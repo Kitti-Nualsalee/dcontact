@@ -38,4 +38,7 @@ if grep -rqE '__(SOLO|TELEPHONY|FREESWITCH)_[A-Z_]*__' /etc/freeswitch; then
 fi
 unset FREESWITCH_ESL_PASSWORD FREESWITCH_DIRECTORY_PASSWORD
 
+# config ที่มี secret เขียนเสร็จแล้วด้วย umask 077 ส่วนไฟล์เสียงบันทึกที่ FreeSWITCH (root) สร้าง
+# ต้องให้ Telephony (uid 10001) อ่านผ่าน NFS ได้ — ผู้ใช้อื่นบน VM เข้าไม่ได้เพราะ directory บน host เป็น 0770
+umask 022
 exec /docker-entrypoint.sh

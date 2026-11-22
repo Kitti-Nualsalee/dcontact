@@ -129,15 +129,22 @@ async function organizationId(admin) {
  * แล้ว FreeSWITCH วางสายด้วย SUBSCRIBER_ABSENT จึงใส่ OFFLINE เมื่อสถานะล่าสุดไม่ใช่ OFFLINE
  * และไม่มี work session ค้าง (รันซ้ำได้โดยไม่ไล่ Agent ที่กำลังทำงาน)
  *
- * ปิดบันทึกเสียงทุกคิว: Solo ไม่มีการบันทึกเสียงที่ใช้งานได้ (FreeSWITCH อยู่คนละ VM กับ Telephony)
- * แต่ `db:seed` เปิดไว้ ถ้าค้างไว้ Telephony เริ่มบันทึกไม่ได้แล้วไม่ส่ง `call.answered`
- * Router จึงนับว่า offer หมดเวลาและตั้ง Agent เป็น BREAK ระหว่างที่ยังคุยอยู่
+ * บันทึกเสียงเฉพาะคิว legacy ของ demo (2000/2001): FreeSWITCH (VM voice) เขียนไฟล์ลง directory ที่ export
+ * ด้วย NFS ให้ Telephony (VM app) อ่านแล้วส่งเข้า object storage (`solo-uat.sh` ตั้ง export และ mount)
+ * คิว managed (voice v1) ต้องปิด เพราะ Router จับคู่เส้นทาง managed เฉพาะคิวที่ไม่บันทึกเสียง
+ * ถ้าเปิดไว้ สายของคิวนั้นถูกส่งไปทาง legacy และไม่มีใครรับ — seed จึงปิดคืนทุกรอบ
  */
 function seedVoiceDefaults(tenantId) {
   psql(
     `UPDATE queues SET voice_wrapup_policy = 'VOICE_NOTE_V1'
      WHERE tenant_id = '${tenantId}' AND voice_wrapup_policy <> 'VOICE_NOTE_V1';
-     UPDATE queues SET recording_enabled = false WHERE recording_enabled;
+     UPDATE queues q SET recording_enabled = NOT managed.is_managed
+     FROM (SELECT q2.id, (q2.voice_config_version IS NOT DISTINCT FROM 1 OR EXISTS (
+             SELECT 1 FROM voice_managed_queue_policies p
+             WHERE p.tenant_id = q2.tenant_id AND p.queue_id = q2.id)) AS is_managed
+           FROM queues q2 WHERE q2.tenant_id = '${tenantId}') managed
+     WHERE q.id = managed.id AND q.tenant_id = '${tenantId}'
+       AND q.recording_enabled IS DISTINCT FROM NOT managed.is_managed;
      INSERT INTO agent_state_logs (tenant_id, user_id, state, reason)
      SELECT u.tenant_id, u.id, 'OFFLINE', 'solo-uat-seed' FROM users u
      WHERE u.tenant_id = '${tenantId}' AND u.role = 'AGENT'

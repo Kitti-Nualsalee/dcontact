@@ -28,6 +28,7 @@ UAT สำหรับให้ dev ทดสอบตามแบบ D-Contact 
 - สายจำลอง → Kamailio (5060) → FreeSWITCH profile `pstn-sim` (5080) → park ให้ Router ตาม [voice-edge.md](voice-edge.md)
 - Telephony บน VM app → ESL ของ FreeSWITCH (8021) ส่วน FreeSWITCH เรียก directory ของ API ที่ web :8080 `/internal/*`
 - Kamailio อ่านตาราง trunk/เบอร์จาก `dcontact_voice_edge` ด้วย `kamailio_ro`
+- เสียงบันทึก (เฉพาะคิว legacy 2000/2001): FreeSWITCH เขียน WAV ลง `/srv/dcontact-solo/recordings` บน VM voice ซึ่ง export ด้วย NFSv4 ให้ VM app เท่านั้น VM app mount แบบ systemd automount ที่ `/mnt/dcontact-solo/recordings` และ bind `/mnt/dcontact-solo` เข้า Telephony Telephony ส่งไฟล์เข้า bucket `recordings` ใน object storage หลังวางสาย
 
 ## ขึ้นระบบ
 
@@ -44,7 +45,9 @@ bash infra/solo/bin/solo-uat.sh voice
 - `init-env` สร้าง `~/.config/dcontact-solo/solo.env` (mode 600) ที่เก็บ secret ทั้งหมด ไม่เขียนทับไฟล์เดิม
 - `build` ส่ง working tree ไป build image บน VM app และ VM voice โดยไม่ใช้ registry แล้วตั้ง `SOLO_IMAGE_TAG`
 - `data --reset` ลบฐานของ Solo ทั้งหมดแล้วสร้างใหม่ owner อนุมัติให้ล้างข้อมูล UAT นี้ได้
-- `app` migrate, rls, `db:seed`, เชื่อมผู้ใช้กับ Keycloak แล้ว seed แบบ Demo ด้วย `scripts/solo-uat-seed.mjs`
+- `app` ตั้ง NFS export ของเสียงบันทึก สร้าง bucket, migrate, rls, `db:seed`, เชื่อมผู้ใช้กับ Keycloak แล้ว seed แบบ Demo ด้วย `scripts/solo-uat-seed.mjs` (seed เปิด `recording_enabled` ของคิว legacy และปิดของคิว managed ทุกรอบ)
+- `voice` ตั้ง NFS export ซ้ำ (รันซ้ำได้) แล้วเริ่ม nginx, Kamailio และ FreeSWITCH
+- `app` ตั้ง NFS ทั้งสองฝั่งก่อน: ติดตั้ง `nfs-kernel-server` บน VM voice และ `nfs-common` บน VM app แล้วเพิ่มบรรทัดใน `/etc/fstab` ของ VM app
 
 ## ข้อมูลทดสอบ
 
@@ -68,7 +71,12 @@ trunk จำลอง `lan-sim` รับสายจาก `SOLO_SIM_TRUNK_IP` 
 ## ข้อจำกัด
 
 - VM เล็กกว่าสเปก Solo ราวครึ่ง ใช้ทดสอบหลายสายพร้อมกันได้ ไม่ได้ load test
-- ไม่มีการบันทึกเสียงที่ใช้งานได้ (#845–#848 ยังพัก) seed ของ Solo จึงปิด `recording_enabled` ทุกคิว ถ้าเปิดคิวไหนเองใน Console สายที่รับจะไม่ขึ้นเป็น ACTIVE และ Agent จะเป็น BREAK ระหว่างคุย และไม่มีการสำรองข้อมูลนอกเครื่อง
+- เสียงบันทึกพึ่ง NFS จาก VM voice:
+  - NFS ตอบ error ทันที (เช่น สิทธิ์ไม่พอ): สายยังรับได้แต่ไม่มีเสียงบันทึก
+  - NFS ไม่ตอบ (VM voice ล่ม หรือ nfsd เพิ่ง restart และอยู่ใน grace period 90 วินาที): Telephony รอ mkdir/อ่านไฟล์ (หรือรอ automount ที่ตั้ง timeout 10 วินาที)ได้ถึง ~12 วินาทีก่อนส่ง `call.answered`/`call.hangup` สายที่รับช่วงนั้นอาจเกิน offer timeout และ Agent เป็น BREAK ระหว่างคุย
+  - กู้คืน: ตรวจด้วย `sudo ls /mnt/dcontact-solo/recordings` บน VM app แล้วรัน `solo-uat.sh voice` ถ้ายังไม่หาย ปิด `recording_enabled` ของคิวใน Console (seed จะเปิดคืนตอนรัน `app` รอบถัดไป)
+- ใครก็ตามที่ส่ง NFS จาก IP ของ VM app ได้ (รวม container อื่นบน VM นั้น) อ่านและแก้ไฟล์ WAV ก่อน archive ได้ ข้อมูลวิ่งบน LAN แบบไม่เข้ารหัส รับได้สำหรับ UAT ที่ใช้ข้อมูล demo ไม่ใช่แบบสำหรับ production
+- ไฟล์ WAV บน VM voice ไม่ถูกลบหลังส่งเข้า object storage (ยังไม่มี retention) และไม่มีการสำรองข้อมูลนอกเครื่อง
 - realm ใช้ client ของ dev (`agent-desktop`, `dcontact-dev-readiness`) ที่รองรับ password grant ใช้ใน LAN เท่านั้น
 - ยังไม่เปิด ufw บนเครื่อง การจำกัดอยู่ที่ ACL ของ FreeSWITCH, `pg_hba` และ Caddy
 - เครื่องที่ทดสอบต้องส่ง UDP ถึง 192.168.31.206 ได้ ถ้าอยู่คนละ subnet ต้องให้ router เปิด 5060 และ 16384–16683
